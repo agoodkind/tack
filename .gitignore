@@ -1,0 +1,22 @@
+# binaries
+/server
+/tack
+
+# build cache
+/dist/
+
+# env files
+.env
+.env.*
+!.env.example
+
+# secrets
+.secrets/
+
+# macOS
+.DS_Store
+
+# editor
+.idea/
+.vscode/
+*.swp
