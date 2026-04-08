@@ -1,9 +1,14 @@
 package workspace
 
-import "time"
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
 
 type Workspace struct {
-	ID        string    `json:"id"`
+	ID        uuid.UUID `json:"id"`
+	NodeID    uuid.UUID `json:"node_id"`
 	Name      string    `json:"name"`
 	Slug      string    `json:"slug"`
 	CreatedAt time.Time `json:"created_at"`

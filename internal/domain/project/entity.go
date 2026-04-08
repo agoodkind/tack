@@ -8,6 +8,7 @@ import (
 
 type Project struct {
 	ID             uuid.UUID  `json:"id"`
+	NodeID         uuid.UUID  `json:"node_id"`
 	WorkspaceID    uuid.UUID  `json:"workspace_id"`
 	Name           string     `json:"name"`
 	Identifier     string     `json:"identifier"`
