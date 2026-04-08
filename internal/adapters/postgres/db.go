@@ -10,9 +10,9 @@ import (
 	"github.com/pressly/goose/v3"
 )
 
-// New creates a connection pool and runs pending goose migrations.
-// migrationsFS must be the embed.FS exported from the migrations package.
-func New(ctx context.Context, dsn string, migrationsFS fs.FS) (*pgxpool.Pool, error) {
+// NewPool creates a connection pool without running migrations.
+// The caller is responsible for running Migrate before starting the server.
+func NewPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {
 		return nil, fmt.Errorf("pgxpool.New: %w", err)
@@ -20,13 +20,12 @@ func New(ctx context.Context, dsn string, migrationsFS fs.FS) (*pgxpool.Pool, er
 	if err := pool.Ping(ctx); err != nil {
 		return nil, fmt.Errorf("postgres ping: %w", err)
 	}
-	if err := migrate(ctx, dsn, migrationsFS); err != nil {
-		return nil, fmt.Errorf("migrations: %w", err)
-	}
 	return pool, nil
 }
 
-func migrate(ctx context.Context, dsn string, migrationsFS fs.FS) error {
+// Migrate runs pending goose migrations. Called by the `migrate` subcommand only —
+// never on HTTP server startup (required for safe horizontal scaling).
+func Migrate(ctx context.Context, dsn string, migrationsFS fs.FS) error {
 	goose.SetBaseFS(migrationsFS)
 	if err := goose.SetDialect("postgres"); err != nil {
 		return err

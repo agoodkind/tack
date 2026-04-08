@@ -2,15 +2,19 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	mcpadapter "github.com/agoodkind/tack/internal/adapters/mcp"
 	"github.com/agoodkind/tack/internal/adapters/postgres"
 	"github.com/agoodkind/tack/internal/config"
 	"github.com/agoodkind/tack/internal/service"
 	"github.com/agoodkind/tack/migrations"
-	"github.com/mark3labs/mcp-go/server"
 )
 
 func main() {
@@ -19,42 +23,68 @@ func main() {
 		slog.Error("config", "err", err)
 		os.Exit(1)
 	}
-
 	setupLogger(cfg)
 
+	if len(os.Args) > 1 && os.Args[1] == "migrate" {
+		runMigrations(cfg)
+		return
+	}
+
+	runServer(cfg)
+}
+
+func runMigrations(cfg *config.Config) {
+	ctx := context.Background()
+	if err := postgres.Migrate(ctx, cfg.DatabaseURL, migrations.FS); err != nil {
+		slog.Error("migrate", "err", err)
+		os.Exit(1)
+	}
+	slog.Info("migrations complete")
+}
+
+func runServer(cfg *config.Config) {
 	ctx := context.Background()
 
-	// Storage
-	pool, err := postgres.New(ctx, cfg.DatabaseURL, migrations.FS)
+	pool, err := postgres.NewPool(ctx, cfg.DatabaseURL)
 	if err != nil {
 		slog.Error("postgres", "err", err)
 		os.Exit(1)
 	}
 	defer pool.Close()
 
-	// Repositories
 	issueRepo := postgres.NewIssueRepo(pool)
 	projectRepo := postgres.NewProjectRepo(pool)
 	tokenRepo := postgres.NewTokenRepo(pool)
-	_ = tokenRepo // used by REST middleware in phase 2
+	_ = tokenRepo
 
-	// Services
 	issueSvc := service.NewIssueService(issueRepo, projectRepo)
 
-	// MCP — stdio transport: Claude Code spawns this process and pipes JSON-RPC.
-	// Run as: go run ./cmd/server mcp
-	if len(os.Args) > 1 && os.Args[1] == "mcp" {
-		mcpServer := mcpadapter.New(issueSvc)
-		slog.Info("starting MCP server (stdio)")
-		if err := server.ServeStdio(mcpServer); err != nil {
-			slog.Error("mcp stdio", "err", err)
+	mux := http.NewServeMux()
+	mux.Handle("/mcp", mcpadapter.NewHandler(issueSvc))
+	mux.Handle("/mcp/", mcpadapter.NewHandler(issueSvc))
+
+	addr := fmt.Sprintf(":%d", cfg.Port)
+	slog.Info("starting server", "addr", addr, "mcp_endpoint", addr+"/mcp")
+
+	srv := &http.Server{Addr: addr, Handler: mux}
+
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			slog.Error("http", "err", err)
 			os.Exit(1)
 		}
-		return
-	}
+	}()
 
-	// Phase 2: HTTP server (REST + MCP SSE) starts here.
-	slog.Info("HTTP server not yet implemented; run with 'mcp' subcommand")
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	slog.Info("shutting down")
+	shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(shutCtx); err != nil {
+		slog.Error("shutdown", "err", err)
+	}
 }
 
 func setupLogger(cfg *config.Config) {

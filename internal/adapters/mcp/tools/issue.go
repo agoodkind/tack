@@ -7,187 +7,256 @@ import (
 
 	"github.com/agoodkind/tack/internal/domain/issue"
 	"github.com/google/uuid"
-	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func ListWorkItems(svc issue.Service) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		projectID, err := uuidArg(req, "project_id")
-		if err != nil {
-			return toolErr(err), nil
-		}
+// --- list ---
 
-		filter := issue.ListFilter{
-			ProjectID: &projectID,
-			PerPage:   100,
+type ListWorkItemsInput struct {
+	WorkspaceID string `json:"workspace_id" jsonschema:"required,description=Workspace UUID"`
+	ProjectID   string `json:"project_id"   jsonschema:"required,description=Project UUID"`
+	StateID     string `json:"state_id"     jsonschema:"description=Filter by state UUID"`
+	Priority    string `json:"priority"     jsonschema:"description=Filter by priority: none|low|medium|high|urgent"`
+}
+
+type ListWorkItemsOutput struct {
+	Items json.RawMessage `json:"items" jsonschema:"description=List of work items"`
+	Total int             `json:"total" jsonschema:"description=Total count"`
+}
+
+func ListWorkItems(svc issue.Service) mcp.ToolHandlerFor[ListWorkItemsInput, ListWorkItemsOutput] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListWorkItemsInput) (*mcp.CallToolResult, ListWorkItemsOutput, error) {
+		wsID, err := uuid.Parse(in.WorkspaceID)
+		if err != nil {
+			return nil, ListWorkItemsOutput{}, fmt.Errorf("invalid workspace_id: %w", err)
 		}
-		if raw := stringArg(req, "state_id"); raw != "" {
-			id, _ := uuid.Parse(raw)
+		projectID, err := uuid.Parse(in.ProjectID)
+		if err != nil {
+			return nil, ListWorkItemsOutput{}, fmt.Errorf("invalid project_id: %w", err)
+		}
+		filter := issue.ListFilter{WorkspaceID: wsID, ProjectID: &projectID}
+		if in.StateID != "" {
+			id, err := uuid.Parse(in.StateID)
+			if err != nil {
+				return nil, ListWorkItemsOutput{}, fmt.Errorf("invalid state_id: %w", err)
+			}
 			filter.StateIDs = []uuid.UUID{id}
 		}
-		if p := stringArg(req, "priority"); p != "" {
-			filter.Priorities = []issue.Priority{issue.Priority(p)}
+		if in.Priority != "" {
+			filter.Priorities = []issue.Priority{issue.Priority(in.Priority)}
 		}
-		if raw := stringArg(req, "assignee_id"); raw != "" {
-			id, _ := uuid.Parse(raw)
-			filter.AssigneeIDs = []uuid.UUID{id}
-		}
-
-		issues, total, err := svc.List(ctx, filter)
+		items, total, err := svc.List(ctx, filter)
 		if err != nil {
-			return toolErr(err), nil
+			return nil, ListWorkItemsOutput{}, err
 		}
-		return toolJSON(map[string]any{"results": issues, "total_count": total}), nil
+		b, _ := json.Marshal(items)
+		return nil, ListWorkItemsOutput{Items: b, Total: total}, nil
 	}
 }
 
-func CreateWorkItem(svc issue.Service) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		projectID, err := uuidArg(req, "project_id")
-		if err != nil {
-			return toolErr(err), nil
-		}
+// --- create ---
 
-		i := &issue.Issue{
-			ProjectID:       projectID,
-			Name:            stringArg(req, "name"),
-			DescriptionHTML: stringArg(req, "description"),
-			Priority:        issue.Priority(stringArgDefault(req, "priority", "none")),
+type CreateWorkItemInput struct {
+	WorkspaceID string `json:"workspace_id" jsonschema:"required,description=Workspace UUID"`
+	ProjectID   string `json:"project_id"   jsonschema:"required,description=Project UUID"`
+	Name        string `json:"name"         jsonschema:"required,description=Issue title"`
+	Description string `json:"description"  jsonschema:"description=Issue description"`
+	Priority    string `json:"priority"     jsonschema:"description=none|low|medium|high|urgent"`
+	StateID     string `json:"state_id"     jsonschema:"description=State UUID"`
+}
+
+type CreateWorkItemOutput struct {
+	Item json.RawMessage `json:"item" jsonschema:"description=Created work item"`
+}
+
+func CreateWorkItem(svc issue.Service) mcp.ToolHandlerFor[CreateWorkItemInput, CreateWorkItemOutput] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in CreateWorkItemInput) (*mcp.CallToolResult, CreateWorkItemOutput, error) {
+		wsID, err := uuid.Parse(in.WorkspaceID)
+		if err != nil {
+			return nil, CreateWorkItemOutput{}, fmt.Errorf("invalid workspace_id: %w", err)
 		}
-		if raw := stringArg(req, "state_id"); raw != "" {
-			id, _ := uuid.Parse(raw)
+		projectID, err := uuid.Parse(in.ProjectID)
+		if err != nil {
+			return nil, CreateWorkItemOutput{}, fmt.Errorf("invalid project_id: %w", err)
+		}
+		i := &issue.Issue{
+			WorkspaceID: wsID,
+			ProjectID:   projectID,
+			Name:        in.Name,
+			Description: in.Description,
+			Priority:    issue.Priority(in.Priority),
+		}
+		if in.StateID != "" {
+			id, err := uuid.Parse(in.StateID)
+			if err != nil {
+				return nil, CreateWorkItemOutput{}, fmt.Errorf("invalid state_id: %w", err)
+			}
 			i.StateID = &id
 		}
-
 		created, err := svc.Create(ctx, i)
 		if err != nil {
-			return toolErr(err), nil
+			return nil, CreateWorkItemOutput{}, err
 		}
-		return toolJSON(created), nil
+		b, _ := json.Marshal(created)
+		return nil, CreateWorkItemOutput{Item: b}, nil
 	}
 }
 
-func GetWorkItem(svc issue.Service) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		projectID, err := uuidArg(req, "project_id")
-		if err != nil {
-			return toolErr(err), nil
-		}
-		issueID, err := uuidArg(req, "issue_id")
-		if err != nil {
-			return toolErr(err), nil
-		}
+// --- get ---
 
-		i, err := svc.Get(ctx, uuid.Nil, projectID, issueID)
+type GetWorkItemInput struct {
+	WorkspaceID string `json:"workspace_id" jsonschema:"required,description=Workspace UUID"`
+	ProjectID   string `json:"project_id"   jsonschema:"required,description=Project UUID"`
+	IssueID     string `json:"issue_id"     jsonschema:"required,description=Issue UUID"`
+}
+
+type GetWorkItemOutput struct {
+	Item json.RawMessage `json:"item" jsonschema:"description=Work item"`
+}
+
+func GetWorkItem(svc issue.Service) mcp.ToolHandlerFor[GetWorkItemInput, GetWorkItemOutput] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in GetWorkItemInput) (*mcp.CallToolResult, GetWorkItemOutput, error) {
+		wsID, err := uuid.Parse(in.WorkspaceID)
 		if err != nil {
-			return toolErr(err), nil
+			return nil, GetWorkItemOutput{}, fmt.Errorf("invalid workspace_id: %w", err)
 		}
-		return toolJSON(i), nil
+		projectID, err := uuid.Parse(in.ProjectID)
+		if err != nil {
+			return nil, GetWorkItemOutput{}, fmt.Errorf("invalid project_id: %w", err)
+		}
+		issueID, err := uuid.Parse(in.IssueID)
+		if err != nil {
+			return nil, GetWorkItemOutput{}, fmt.Errorf("invalid issue_id: %w", err)
+		}
+		item, err := svc.Get(ctx, wsID, projectID, issueID)
+		if err != nil {
+			return nil, GetWorkItemOutput{}, err
+		}
+		b, _ := json.Marshal(item)
+		return nil, GetWorkItemOutput{Item: b}, nil
 	}
 }
 
-func UpdateWorkItem(svc issue.Service) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		projectID, err := uuidArg(req, "project_id")
-		if err != nil {
-			return toolErr(err), nil
-		}
-		issueID, err := uuidArg(req, "issue_id")
-		if err != nil {
-			return toolErr(err), nil
-		}
+// --- update ---
 
-		existing, err := svc.Get(ctx, uuid.Nil, projectID, issueID)
-		if err != nil {
-			return toolErr(err), nil
-		}
+type UpdateWorkItemInput struct {
+	WorkspaceID string `json:"workspace_id" jsonschema:"required,description=Workspace UUID"`
+	ProjectID   string `json:"project_id"   jsonschema:"required,description=Project UUID"`
+	IssueID     string `json:"issue_id"     jsonschema:"required,description=Issue UUID"`
+	Name        string `json:"name"         jsonschema:"description=New title"`
+	Priority    string `json:"priority"     jsonschema:"description=none|low|medium|high|urgent"`
+	StateID     string `json:"state_id"     jsonschema:"description=New state UUID"`
+}
 
-		if v := stringArg(req, "name"); v != "" {
-			existing.Name = v
+type UpdateWorkItemOutput struct {
+	Item json.RawMessage `json:"item" jsonschema:"description=Updated work item"`
+}
+
+func UpdateWorkItem(svc issue.Service) mcp.ToolHandlerFor[UpdateWorkItemInput, UpdateWorkItemOutput] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in UpdateWorkItemInput) (*mcp.CallToolResult, UpdateWorkItemOutput, error) {
+		wsID, err := uuid.Parse(in.WorkspaceID)
+		if err != nil {
+			return nil, UpdateWorkItemOutput{}, fmt.Errorf("invalid workspace_id: %w", err)
 		}
-		if v := stringArg(req, "priority"); v != "" {
-			existing.Priority = issue.Priority(v)
+		projectID, err := uuid.Parse(in.ProjectID)
+		if err != nil {
+			return nil, UpdateWorkItemOutput{}, fmt.Errorf("invalid project_id: %w", err)
 		}
-		if v := stringArg(req, "state_id"); v != "" {
-			id, _ := uuid.Parse(v)
+		issueID, err := uuid.Parse(in.IssueID)
+		if err != nil {
+			return nil, UpdateWorkItemOutput{}, fmt.Errorf("invalid issue_id: %w", err)
+		}
+		existing, err := svc.Get(ctx, wsID, projectID, issueID)
+		if err != nil {
+			return nil, UpdateWorkItemOutput{}, err
+		}
+		if in.Name != "" {
+			existing.Name = in.Name
+		}
+		if in.Priority != "" {
+			existing.Priority = issue.Priority(in.Priority)
+		}
+		if in.StateID != "" {
+			id, err := uuid.Parse(in.StateID)
+			if err != nil {
+				return nil, UpdateWorkItemOutput{}, fmt.Errorf("invalid state_id: %w", err)
+			}
 			existing.StateID = &id
 		}
-
 		updated, err := svc.Update(ctx, existing)
 		if err != nil {
-			return toolErr(err), nil
+			return nil, UpdateWorkItemOutput{}, err
 		}
-		return toolJSON(updated), nil
+		b, _ := json.Marshal(updated)
+		return nil, UpdateWorkItemOutput{Item: b}, nil
 	}
 }
 
-func DeleteWorkItem(svc issue.Service) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		projectID, err := uuidArg(req, "project_id")
-		if err != nil {
-			return toolErr(err), nil
-		}
-		issueID, err := uuidArg(req, "issue_id")
-		if err != nil {
-			return toolErr(err), nil
-		}
+// --- delete ---
 
-		if err := svc.Delete(ctx, uuid.Nil, projectID, issueID); err != nil {
-			return toolErr(err), nil
+type DeleteWorkItemInput struct {
+	WorkspaceID string `json:"workspace_id" jsonschema:"required,description=Workspace UUID"`
+	ProjectID   string `json:"project_id"   jsonschema:"required,description=Project UUID"`
+	IssueID     string `json:"issue_id"     jsonschema:"required,description=Issue UUID"`
+}
+
+type DeleteWorkItemOutput struct {
+	OK bool `json:"ok" jsonschema:"description=True if deleted"`
+}
+
+func DeleteWorkItem(svc issue.Service) mcp.ToolHandlerFor[DeleteWorkItemInput, DeleteWorkItemOutput] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in DeleteWorkItemInput) (*mcp.CallToolResult, DeleteWorkItemOutput, error) {
+		wsID, err := uuid.Parse(in.WorkspaceID)
+		if err != nil {
+			return nil, DeleteWorkItemOutput{}, fmt.Errorf("invalid workspace_id: %w", err)
 		}
-		return toolJSON(map[string]string{"status": "deleted"}), nil
+		projectID, err := uuid.Parse(in.ProjectID)
+		if err != nil {
+			return nil, DeleteWorkItemOutput{}, fmt.Errorf("invalid project_id: %w", err)
+		}
+		issueID, err := uuid.Parse(in.IssueID)
+		if err != nil {
+			return nil, DeleteWorkItemOutput{}, fmt.Errorf("invalid issue_id: %w", err)
+		}
+		if err := svc.Delete(ctx, wsID, projectID, issueID); err != nil {
+			return nil, DeleteWorkItemOutput{}, err
+		}
+		return nil, DeleteWorkItemOutput{OK: true}, nil
 	}
 }
 
-func SearchWorkItems(svc issue.Service) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		wsSlug := stringArg(req, "workspace_slug")
-		if wsSlug == "" {
-			return toolErr(fmt.Errorf("workspace_slug required")), nil
-		}
-		q := stringArg(req, "query")
+// --- search ---
 
-		filter := issue.ListFilter{PerPage: 50}
-		if raw := stringArg(req, "project_id"); raw != "" {
-			id, _ := uuid.Parse(raw)
+type SearchWorkItemsInput struct {
+	WorkspaceID string `json:"workspace_id" jsonschema:"required,description=Workspace UUID"`
+	Query       string `json:"query"        jsonschema:"required,description=Search query"`
+	ProjectID   string `json:"project_id"   jsonschema:"description=Scope to a specific project UUID"`
+}
+
+type SearchWorkItemsOutput struct {
+	Items json.RawMessage `json:"items" jsonschema:"description=Matching work items"`
+	Total int             `json:"total" jsonschema:"description=Total count"`
+}
+
+func SearchWorkItems(svc issue.Service) mcp.ToolHandlerFor[SearchWorkItemsInput, SearchWorkItemsOutput] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in SearchWorkItemsInput) (*mcp.CallToolResult, SearchWorkItemsOutput, error) {
+		wsID, err := uuid.Parse(in.WorkspaceID)
+		if err != nil {
+			return nil, SearchWorkItemsOutput{}, fmt.Errorf("invalid workspace_id: %w", err)
+		}
+		filter := issue.ListFilter{}
+		if in.ProjectID != "" {
+			id, err := uuid.Parse(in.ProjectID)
+			if err != nil {
+				return nil, SearchWorkItemsOutput{}, fmt.Errorf("invalid project_id: %w", err)
+			}
 			filter.ProjectID = &id
 		}
-
-		issues, total, err := svc.Search(ctx, uuid.Nil, q, filter)
+		items, total, err := svc.Search(ctx, wsID, in.Query, filter)
 		if err != nil {
-			return toolErr(err), nil
+			return nil, SearchWorkItemsOutput{}, err
 		}
-		return toolJSON(map[string]any{"results": issues, "total_count": total}), nil
+		b, _ := json.Marshal(items)
+		return nil, SearchWorkItemsOutput{Items: b, Total: total}, nil
 	}
-}
-
-// helpers
-
-func stringArg(req mcp.CallToolRequest, key string) string {
-	return req.GetString(key, "")
-}
-
-func stringArgDefault(req mcp.CallToolRequest, key, def string) string {
-	return req.GetString(key, def)
-}
-
-func uuidArg(req mcp.CallToolRequest, key string) (uuid.UUID, error) {
-	raw, err := req.RequireString(key)
-	if err != nil {
-		return uuid.Nil, fmt.Errorf("%s is required", key)
-	}
-	id, err := uuid.Parse(raw)
-	if err != nil {
-		return uuid.Nil, fmt.Errorf("%s: invalid UUID: %w", key, err)
-	}
-	return id, nil
-}
-
-func toolJSON(v any) *mcp.CallToolResult {
-	b, _ := json.Marshal(v)
-	return mcp.NewToolResultText(string(b))
-}
-
-func toolErr(err error) *mcp.CallToolResult {
-	return mcp.NewToolResultError(err.Error())
 }
