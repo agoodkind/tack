@@ -15,6 +15,7 @@ import (
 	"github.com/agoodkind/tack/internal/adapters/postgres"
 	"github.com/agoodkind/tack/internal/config"
 	"github.com/agoodkind/tack/internal/service"
+	"github.com/agoodkind/tack/internal/telemetry"
 	"github.com/agoodkind/tack/migrations"
 )
 
@@ -24,7 +25,15 @@ func main() {
 		slog.Error("config", "err", err)
 		os.Exit(1)
 	}
-	setupLogger(cfg)
+
+	telemetry.Setup(telemetry.LogConfig{
+		Level:      cfg.LogLevel,
+		JSON:       cfg.Env == "production",
+		File:       cfg.LogFile,
+		MaxSizeMB:  cfg.LogMaxSizeMB,
+		MaxBackups: cfg.LogMaxBackups,
+		MaxAgeDays: cfg.LogMaxAgeDays,
+	})
 
 	if len(os.Args) > 1 && os.Args[1] == "migrate" {
 		runMigrations(cfg)
@@ -46,7 +55,7 @@ func runMigrations(cfg *config.Config) {
 func runServer(cfg *config.Config) {
 	ctx := context.Background()
 
-	pool, err := postgres.NewPool(ctx, cfg.DatabaseURL)
+	pool, err := postgres.NewPool(ctx, cfg.DatabaseURL, &telemetry.QueryTracer{})
 	if err != nil {
 		slog.Error("postgres", "err", err)
 		os.Exit(1)
@@ -74,7 +83,10 @@ func runServer(cfg *config.Config) {
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	slog.Info("starting server", "addr", addr, "mcp_endpoint", addr+"/mcp")
 
-	srv := &http.Server{Addr: addr, Handler: mux}
+	srv := &http.Server{
+		Addr:    addr,
+		Handler: telemetry.RequestLogger(mux),
+	}
 
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -94,18 +106,3 @@ func runServer(cfg *config.Config) {
 		slog.Error("shutdown", "err", err)
 	}
 }
-
-func setupLogger(cfg *config.Config) {
-	level := slog.LevelInfo
-	if cfg.LogLevel == "debug" {
-		level = slog.LevelDebug
-	}
-	var h slog.Handler
-	if cfg.Env == "production" {
-		h = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level})
-	} else {
-		h = slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: level})
-	}
-	slog.SetDefault(slog.New(h))
-}
-
