@@ -20,7 +20,7 @@ func RegisterCycle(s *mcp.Server, cycles cycle.Repository) {
 }
 
 type ListCyclesInput struct {
-	ProjectID string `json:"project_id" jsonschema:"required,description=Project UUID"`
+	ProjectID string `json:"project_id" jsonschema:"required"`
 }
 type ListCyclesOutput struct {
 	Cycles json.RawMessage `json:"cycles"`
@@ -42,8 +42,8 @@ func listCycles(cycles cycle.Repository) mcp.ToolHandlerFor[ListCyclesInput, Lis
 }
 
 type GetCycleInput struct {
-	ProjectID string `json:"project_id" jsonschema:"required,description=Project UUID"`
-	CycleID   string `json:"cycle_id"   jsonschema:"required,description=Cycle UUID"`
+	ProjectID string `json:"project_id" jsonschema:"required"`
+	CycleID   string `json:"cycle_id"   jsonschema:"required"`
 }
 type GetCycleOutput struct {
 	Cycle json.RawMessage `json:"cycle"`
@@ -69,12 +69,12 @@ func getCycle(cycles cycle.Repository) mcp.ToolHandlerFor[GetCycleInput, GetCycl
 }
 
 type CreateCycleInput struct {
-	WorkspaceID string `json:"workspace_id" jsonschema:"required,description=Workspace UUID"`
-	ProjectID   string `json:"project_id"   jsonschema:"required,description=Project UUID"`
-	Name        string `json:"name"         jsonschema:"required,description=Cycle name"`
-	Description string `json:"description"  jsonschema:"description=Cycle description"`
-	StartDate   string `json:"start_date"   jsonschema:"description=Start date YYYY-MM-DD"`
-	EndDate     string `json:"end_date"     jsonschema:"description=End date YYYY-MM-DD"`
+	WorkspaceID string `json:"workspace_id" jsonschema:"required"`
+	ProjectID   string `json:"project_id"   jsonschema:"required"`
+	Name        string `json:"name"         jsonschema:"required"`
+	Description string `json:"description" `
+	StartDate   string `json:"start_date"  `
+	EndDate     string `json:"end_date"    `
 }
 type CreateCycleOutput struct {
 	Cycle json.RawMessage `json:"cycle"`
@@ -111,10 +111,10 @@ func createCycle(cycles cycle.Repository) mcp.ToolHandlerFor[CreateCycleInput, C
 }
 
 type UpdateCycleInput struct {
-	ProjectID   string `json:"project_id"   jsonschema:"required,description=Project UUID"`
-	CycleID     string `json:"cycle_id"     jsonschema:"required,description=Cycle UUID"`
-	Name        string `json:"name"         jsonschema:"description=New name"`
-	Description string `json:"description"  jsonschema:"description=New description"`
+	ProjectID   string `json:"project_id"   jsonschema:"required"`
+	CycleID     string `json:"cycle_id"     jsonschema:"required"`
+	Name        string `json:"name"        `
+	Description string `json:"description" `
 }
 type UpdateCycleOutput struct {
 	Cycle json.RawMessage `json:"cycle"`
@@ -155,7 +155,7 @@ func updateCycle(cycles cycle.Repository) mcp.ToolHandlerFor[UpdateCycleInput, U
 }
 
 type DeleteCycleInput struct {
-	CycleID string `json:"cycle_id" jsonschema:"required,description=Cycle UUID"`
+	CycleID string `json:"cycle_id" jsonschema:"required"`
 }
 type DeleteCycleOutput struct {
 	OK bool `json:"ok"`
@@ -175,8 +175,8 @@ func deleteCycle(cycles cycle.Repository) mcp.ToolHandlerFor[DeleteCycleInput, D
 }
 
 type AddToCycleInput struct {
-	CycleID  string   `json:"cycle_id"   jsonschema:"required,description=Cycle UUID"`
-	IssueIDs []string `json:"issue_ids"  jsonschema:"required,description=Issue UUIDs to add"`
+	CycleID  string   `json:"cycle_id"   jsonschema:"required"`
+	IssueIDs []string `json:"issue_ids"  jsonschema:"required"`
 }
 type AddToCycleOutput struct {
 	Added int `json:"added"`
@@ -204,8 +204,8 @@ func addToCycle(cycles cycle.Repository) mcp.ToolHandlerFor[AddToCycleInput, Add
 }
 
 type RemoveFromCycleInput struct {
-	CycleID string `json:"cycle_id"  jsonschema:"required,description=Cycle UUID"`
-	IssueID string `json:"issue_id"  jsonschema:"required,description=Issue UUID"`
+	CycleID string `json:"cycle_id"  jsonschema:"required"`
+	IssueID string `json:"issue_id"  jsonschema:"required"`
 }
 type RemoveFromCycleOutput struct {
 	OK bool `json:"ok"`

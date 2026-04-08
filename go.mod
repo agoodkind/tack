@@ -3,7 +3,7 @@ module github.com/agoodkind/tack
 go 1.26.2
 
 require (
-	github.com/apple/foundationdb/bindings/go v0.0.0-20260407222852-697decb134cb
+	github.com/apple/foundationdb/bindings/go v0.0.0-20250923185926-685eda6efef7
 	github.com/caarlos0/env/v11 v11.4.0
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.9.1

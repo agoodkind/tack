@@ -15,8 +15,8 @@ func RegisterLabel(s *mcp.Server, labels label.Repository) {
 }
 
 type ListLabelsInput struct {
-	WorkspaceID string `json:"workspace_id" jsonschema:"required,description=Workspace UUID"`
-	ProjectID   string `json:"project_id"   jsonschema:"description=Optional project UUID to include project-scoped labels"`
+	WorkspaceID string `json:"workspace_id" jsonschema:"required"`
+	ProjectID   string `json:"project_id"  `
 }
 type ListLabelsOutput struct {
 	Labels json.RawMessage `json:"labels"`
@@ -39,10 +39,10 @@ func listLabels(labels label.Repository) mcp.ToolHandlerFor[ListLabelsInput, Lis
 }
 
 type CreateLabelInput struct {
-	WorkspaceID string `json:"workspace_id" jsonschema:"required,description=Workspace UUID"`
-	ProjectID   string `json:"project_id"   jsonschema:"description=Optional project UUID (omit for workspace-scoped label)"`
-	Name        string `json:"name"         jsonschema:"required,description=Label name"`
-	Color       string `json:"color"        jsonschema:"description=Hex color e.g. #ff0000"`
+	WorkspaceID string `json:"workspace_id" jsonschema:"required"`
+	ProjectID   string `json:"project_id"  `
+	Name        string `json:"name"         jsonschema:"required"`
+	Color       string `json:"color"       `
 }
 type CreateLabelOutput struct {
 	Label json.RawMessage `json:"label"`
@@ -74,7 +74,7 @@ func createLabel(labels label.Repository) mcp.ToolHandlerFor[CreateLabelInput, C
 }
 
 type DeleteLabelInput struct {
-	LabelID string `json:"label_id" jsonschema:"required,description=Label UUID"`
+	LabelID string `json:"label_id" jsonschema:"required"`
 }
 type DeleteLabelOutput struct {
 	OK bool `json:"ok"`

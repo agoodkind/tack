@@ -67,8 +67,8 @@ func opSet(ops []node.Op) map[node.Op]struct{} {
 // ── list ─────────────────────────────────────────────────────────────────────
 
 type NodeListInput struct {
-	OrgID       string `json:"org_id"       jsonschema:"required,description=Org UUID"`
-	WorkspaceID string `json:"workspace_id" jsonschema:"required,description=Workspace UUID"`
+	OrgID       string `json:"org_id"       jsonschema:"required"`
+	WorkspaceID string `json:"workspace_id" jsonschema:"required"`
 }
 type NodeListOutput struct {
 	Nodes json.RawMessage `json:"nodes"`
@@ -103,8 +103,8 @@ func listNodes(nt *node.NodeType, properties node.PropertyRepository) mcp.ToolHa
 // ── get ──────────────────────────────────────────────────────────────────────
 
 type NodeGetInput struct {
-	OrgID  string `json:"org_id"  jsonschema:"required,description=Org UUID"`
-	NodeID string `json:"node_id" jsonschema:"required,description=Node UUID"`
+	OrgID  string `json:"org_id"  jsonschema:"required"`
+	NodeID string `json:"node_id" jsonschema:"required"`
 }
 type NodeGetOutput struct {
 	NodeID     string          `json:"node_id"`
@@ -138,9 +138,9 @@ func getNode(nt *node.NodeType, properties node.PropertyRepository) mcp.ToolHand
 // ── create ───────────────────────────────────────────────────────────────────
 
 type NodeCreateInput struct {
-	OrgID       string         `json:"org_id"       jsonschema:"required,description=Org UUID"`
-	WorkspaceID string         `json:"workspace_id" jsonschema:"required,description=Workspace UUID"`
-	Properties  map[string]any `json:"properties"   jsonschema:"description=Initial property values keyed by property_def_id"`
+	OrgID       string         `json:"org_id"       jsonschema:"required"`
+	WorkspaceID string         `json:"workspace_id" jsonschema:"required"`
+	Properties  map[string]any `json:"properties"  `
 }
 type NodeCreateOutput struct {
 	NodeID   string `json:"node_id"`
@@ -184,9 +184,9 @@ func createNode(nt *node.NodeType, properties node.PropertyRepository, activity 
 // ── update ───────────────────────────────────────────────────────────────────
 
 type NodeUpdateInput struct {
-	OrgID      string         `json:"org_id"      jsonschema:"required,description=Org UUID"`
-	NodeID     string         `json:"node_id"     jsonschema:"required,description=Node UUID"`
-	Properties map[string]any `json:"properties"  jsonschema:"required,description=Property values to set keyed by property_def_id"`
+	OrgID      string         `json:"org_id"      jsonschema:"required"`
+	NodeID     string         `json:"node_id"     jsonschema:"required"`
+	Properties map[string]any `json:"properties"  jsonschema:"required"`
 }
 type NodeUpdateOutput struct {
 	OK bool `json:"ok"`
@@ -218,9 +218,9 @@ func updateNode(nt *node.NodeType, properties node.PropertyRepository, activity 
 // ── delete ───────────────────────────────────────────────────────────────────
 
 type NodeDeleteInput struct {
-	OrgID       string `json:"org_id"       jsonschema:"required,description=Org UUID"`
-	WorkspaceID string `json:"workspace_id" jsonschema:"required,description=Workspace UUID"`
-	NodeID      string `json:"node_id"      jsonschema:"required,description=Node UUID"`
+	OrgID       string `json:"org_id"       jsonschema:"required"`
+	WorkspaceID string `json:"workspace_id" jsonschema:"required"`
+	NodeID      string `json:"node_id"      jsonschema:"required"`
 }
 type NodeDeleteOutput struct {
 	OK bool `json:"ok"`

@@ -16,9 +16,9 @@ func RegisterActivity(s *mcp.Server, activity node.ActivityRepository) {
 }
 
 type GetActivityInput struct {
-	OrgID       string `json:"org_id"       jsonschema:"required,description=Org UUID"`
-	WorkspaceID string `json:"workspace_id" jsonschema:"required,description=Workspace UUID"`
-	NodeID      string `json:"node_id"      jsonschema:"required,description=Node UUID (the node_id field on any entity)"`
+	OrgID       string `json:"org_id"       jsonschema:"required"`
+	WorkspaceID string `json:"workspace_id" jsonschema:"required"`
+	NodeID      string `json:"node_id"      jsonschema:"required"`
 }
 type GetActivityOutput struct {
 	Events json.RawMessage `json:"events"`

@@ -20,7 +20,7 @@ func RegisterModule(s *mcp.Server, modules module.Repository) {
 }
 
 type ListModulesInput struct {
-	ProjectID string `json:"project_id" jsonschema:"required,description=Project UUID"`
+	ProjectID string `json:"project_id" jsonschema:"required"`
 }
 type ListModulesOutput struct {
 	Modules json.RawMessage `json:"modules"`
@@ -42,8 +42,8 @@ func listModules(modules module.Repository) mcp.ToolHandlerFor[ListModulesInput,
 }
 
 type GetModuleInput struct {
-	ProjectID string `json:"project_id" jsonschema:"required,description=Project UUID"`
-	ModuleID  string `json:"module_id"  jsonschema:"required,description=Module UUID"`
+	ProjectID string `json:"project_id" jsonschema:"required"`
+	ModuleID  string `json:"module_id"  jsonschema:"required"`
 }
 type GetModuleOutput struct {
 	Module json.RawMessage `json:"module"`
@@ -69,11 +69,11 @@ func getModule(modules module.Repository) mcp.ToolHandlerFor[GetModuleInput, Get
 }
 
 type CreateModuleInput struct {
-	WorkspaceID string `json:"workspace_id" jsonschema:"required,description=Workspace UUID"`
-	ProjectID   string `json:"project_id"   jsonschema:"required,description=Project UUID"`
-	Name        string `json:"name"         jsonschema:"required,description=Module name"`
-	Description string `json:"description"  jsonschema:"description=Module description"`
-	Status      string `json:"status"       jsonschema:"description=backlog|planned|in_progress|paused|completed|cancelled"`
+	WorkspaceID string `json:"workspace_id" jsonschema:"required"`
+	ProjectID   string `json:"project_id"   jsonschema:"required"`
+	Name        string `json:"name"         jsonschema:"required"`
+	Description string `json:"description" `
+	Status      string `json:"status"      `
 }
 type CreateModuleOutput struct {
 	Module json.RawMessage `json:"module"`
@@ -115,11 +115,11 @@ func createModule(modules module.Repository) mcp.ToolHandlerFor[CreateModuleInpu
 }
 
 type UpdateModuleInput struct {
-	ProjectID   string `json:"project_id"   jsonschema:"required,description=Project UUID"`
-	ModuleID    string `json:"module_id"    jsonschema:"required,description=Module UUID"`
-	Name        string `json:"name"         jsonschema:"description=New name"`
-	Description string `json:"description"  jsonschema:"description=New description"`
-	Status      string `json:"status"       jsonschema:"description=backlog|planned|in_progress|paused|completed|cancelled"`
+	ProjectID   string `json:"project_id"   jsonschema:"required"`
+	ModuleID    string `json:"module_id"    jsonschema:"required"`
+	Name        string `json:"name"        `
+	Description string `json:"description" `
+	Status      string `json:"status"      `
 }
 type UpdateModuleOutput struct {
 	Module json.RawMessage `json:"module"`
@@ -163,7 +163,7 @@ func updateModule(modules module.Repository) mcp.ToolHandlerFor[UpdateModuleInpu
 }
 
 type DeleteModuleInput struct {
-	ModuleID string `json:"module_id" jsonschema:"required,description=Module UUID"`
+	ModuleID string `json:"module_id" jsonschema:"required"`
 }
 type DeleteModuleOutput struct {
 	OK bool `json:"ok"`
@@ -183,8 +183,8 @@ func deleteModule(modules module.Repository) mcp.ToolHandlerFor[DeleteModuleInpu
 }
 
 type AddToModuleInput struct {
-	ModuleID string   `json:"module_id"  jsonschema:"required,description=Module UUID"`
-	IssueIDs []string `json:"issue_ids"  jsonschema:"required,description=Issue UUIDs to add"`
+	ModuleID string   `json:"module_id"  jsonschema:"required"`
+	IssueIDs []string `json:"issue_ids"  jsonschema:"required"`
 }
 type AddToModuleOutput struct {
 	Added int `json:"added"`
@@ -212,8 +212,8 @@ func addToModule(modules module.Repository) mcp.ToolHandlerFor[AddToModuleInput,
 }
 
 type RemoveFromModuleInput struct {
-	ModuleID string `json:"module_id" jsonschema:"required,description=Module UUID"`
-	IssueID  string `json:"issue_id"  jsonschema:"required,description=Issue UUID"`
+	ModuleID string `json:"module_id" jsonschema:"required"`
+	IssueID  string `json:"issue_id"  jsonschema:"required"`
 }
 type RemoveFromModuleOutput struct {
 	OK bool `json:"ok"`

@@ -1,4 +1,6 @@
 -- +goose Up
+CREATE EXTENSION IF NOT EXISTS pgcrypto;  -- provides gen_random_uuid() on YugabyteDB
+
 -- Complete tack schema.
 -- UUID primary keys everywhere — no write hotspots on YugabyteDB.
 -- created_by NOT NULL everywhere — seeded user required before any data.
@@ -315,27 +317,11 @@ CREATE INDEX idx_epics_project   ON epics(project_id)   WHERE deleted_at IS NULL
 CREATE INDEX idx_modules_project ON modules(project_id);
 CREATE INDEX idx_cycles_project  ON cycles(project_id);
 
--- ── Full-text search ──────────────────────────────────────────────────────────
--- Generated tsvectors updated automatically on INSERT/UPDATE.
-
-ALTER TABLE issues ADD COLUMN search_vector tsvector
-    GENERATED ALWAYS AS (
-        setweight(to_tsvector('english', coalesce(name, '')), 'A') ||
-        setweight(to_tsvector('english', coalesce(description, '')), 'B')
-    ) STORED;
-
-ALTER TABLE epics ADD COLUMN search_vector tsvector
-    GENERATED ALWAYS AS (
-        setweight(to_tsvector('english', coalesce(name, '')), 'A') ||
-        setweight(to_tsvector('english', coalesce(description, '')), 'B')
-    ) STORED;
-
-CREATE INDEX idx_issues_search ON issues USING gin(search_vector);
-CREATE INDEX idx_epics_search  ON epics  USING gin(search_vector);
+-- Full-text search is handled by Meilisearch.
+-- YugabyteDB does not support GENERATED ALWAYS AS STORED columns (PG11 compat).
+-- search_vector columns are omitted; Meilisearch indexes on write instead.
 
 -- +goose Down
-DROP INDEX idx_epics_search;
-DROP INDEX idx_issues_search;
 DROP INDEX idx_cycles_project;
 DROP INDEX idx_modules_project;
 DROP INDEX idx_epics_project;

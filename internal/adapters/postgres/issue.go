@@ -163,6 +163,8 @@ func (r *IssueRepo) SetEpic(ctx context.Context, issueID uuid.UUID, epicID *uuid
 }
 
 func (r *IssueRepo) Search(ctx context.Context, workspaceID uuid.UUID, q string, filter issue.ListFilter) ([]*issue.Issue, int, error) {
+	// Full-text search is delegated to Meilisearch. This fallback does a simple
+	// ILIKE on name for cases where Meilisearch is unavailable.
 	const sq = `
 		SELECT id, node_id, workspace_id, project_id, parent_id, state_id, epic_id,
 		       name,
@@ -173,8 +175,8 @@ func (r *IssueRepo) Search(ctx context.Context, workspaceID uuid.UUID, q string,
 		FROM issues
 		WHERE workspace_id = $1
 		  AND deleted_at IS NULL
-		  AND search_vector @@ websearch_to_tsquery('english', $2)
-		ORDER BY ts_rank(search_vector, websearch_to_tsquery('english', $2)) DESC
+		  AND name ILIKE '%' || $2 || '%'
+		ORDER BY created_at DESC
 		LIMIT 50`
 
 	rows, err := r.db.Query(ctx, sq, workspaceID, q)

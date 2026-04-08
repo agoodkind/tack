@@ -18,9 +18,9 @@ func RegisterProperty(s *mcp.Server, properties node.PropertyRepository) {
 }
 
 type ListPropertyDefsInput struct {
-	OrgID       string `json:"org_id"       jsonschema:"required,description=Org UUID"`
-	WorkspaceID string `json:"workspace_id" jsonschema:"required,description=Workspace UUID"`
-	ProjectID   string `json:"project_id"   jsonschema:"description=Optional project UUID"`
+	OrgID       string `json:"org_id"       jsonschema:"required"`
+	WorkspaceID string `json:"workspace_id" jsonschema:"required"`
+	ProjectID   string `json:"project_id"  `
 }
 type ListPropertyDefsOutput struct {
 	Defs json.RawMessage `json:"defs"`
@@ -46,13 +46,13 @@ func listPropertyDefs(properties node.PropertyRepository) mcp.ToolHandlerFor[Lis
 }
 
 type CreatePropertyDefInput struct {
-	OrgID       string `json:"org_id"         jsonschema:"required,description=Org UUID"`
-	WorkspaceID string `json:"workspace_id"   jsonschema:"description=Workspace UUID (omit for org-scoped)"`
-	ProjectID   string `json:"project_id"     jsonschema:"description=Project UUID (omit for workspace-scoped)"`
-	Name        string `json:"name"           jsonschema:"required,description=Property name"`
-	Type        string `json:"type"           jsonschema:"required,description=text|number|date|select|multi_select|url|checkbox"`
-	Options     []string `json:"options"      jsonschema:"description=Options for select/multi_select types"`
-	Required    bool   `json:"required"       jsonschema:"description=Whether this property is required"`
+	OrgID       string `json:"org_id"         jsonschema:"required"`
+	WorkspaceID string `json:"workspace_id"  `
+	ProjectID   string `json:"project_id"    `
+	Name        string `json:"name"           jsonschema:"required"`
+	Type        string `json:"type"           jsonschema:"required"`
+	Options     []string `json:"options"     `
+	Required    bool   `json:"required"      `
 }
 type CreatePropertyDefOutput struct {
 	Def json.RawMessage `json:"def"`
@@ -83,8 +83,8 @@ func createPropertyDef(properties node.PropertyRepository) mcp.ToolHandlerFor[Cr
 }
 
 type DeletePropertyDefInput struct {
-	OrgID string `json:"org_id" jsonschema:"required,description=Org UUID"`
-	DefID string `json:"def_id" jsonschema:"required,description=Property definition UUID"`
+	OrgID string `json:"org_id" jsonschema:"required"`
+	DefID string `json:"def_id" jsonschema:"required"`
 }
 type DeletePropertyDefOutput struct {
 	OK bool `json:"ok"`
@@ -115,10 +115,10 @@ func deletePropertyDef(properties node.PropertyRepository) mcp.ToolHandlerFor[De
 }
 
 type SetPropertyInput struct {
-	OrgID     string `json:"org_id"      jsonschema:"required,description=Org UUID"`
-	NodeID    string `json:"node_id"     jsonschema:"required,description=Node UUID (the node_id field on any entity)"`
-	PropDefID string `json:"prop_def_id" jsonschema:"required,description=Property definition UUID"`
-	Value     any    `json:"value"       jsonschema:"required,description=Property value"`
+	OrgID     string `json:"org_id"      jsonschema:"required"`
+	NodeID    string `json:"node_id"     jsonschema:"required"`
+	PropDefID string `json:"prop_def_id" jsonschema:"required"`
+	Value     any    `json:"value"       jsonschema:"required"`
 }
 type SetPropertyOutput struct {
 	OK bool `json:"ok"`
@@ -146,8 +146,8 @@ func setProperty(properties node.PropertyRepository) mcp.ToolHandlerFor[SetPrope
 }
 
 type GetPropertiesInput struct {
-	OrgID  string `json:"org_id"  jsonschema:"required,description=Org UUID"`
-	NodeID string `json:"node_id" jsonschema:"required,description=Node UUID"`
+	OrgID  string `json:"org_id"  jsonschema:"required"`
+	NodeID string `json:"node_id" jsonschema:"required"`
 }
 type GetPropertiesOutput struct {
 	Properties json.RawMessage `json:"properties"`

@@ -25,12 +25,12 @@ func RegisterIssue(s *mcp.Server, svc issue.Service) {
 // ── list ─────────────────────────────────────────────────────────────────────
 
 type ListIssuesInput struct {
-	WorkspaceID string `json:"workspace_id" jsonschema:"required,description=Workspace UUID"`
-	ProjectID   string `json:"project_id"   jsonschema:"required,description=Project UUID"`
-	StateID     string `json:"state_id"     jsonschema:"description=Filter by state UUID"`
-	Priority    string `json:"priority"     jsonschema:"description=Filter by priority: none|low|medium|high|urgent"`
-	EpicID      string `json:"epic_id"      jsonschema:"description=Filter by epic UUID"`
-	AssigneeID  string `json:"assignee_id"  jsonschema:"description=Filter by assignee UUID"`
+	WorkspaceID string `json:"workspace_id" jsonschema:"required"`
+	ProjectID   string `json:"project_id"   jsonschema:"required"`
+	StateID     string `json:"state_id"    `
+	Priority    string `json:"priority"    `
+	EpicID      string `json:"epic_id"     `
+	AssigneeID  string `json:"assignee_id" `
 }
 type ListIssuesOutput struct {
 	Issues json.RawMessage `json:"issues"`
@@ -72,9 +72,9 @@ func listIssues(svc issue.Service) mcp.ToolHandlerFor[ListIssuesInput, ListIssue
 // ── get ──────────────────────────────────────────────────────────────────────
 
 type GetIssueInput struct {
-	WorkspaceID string `json:"workspace_id" jsonschema:"required,description=Workspace UUID"`
-	ProjectID   string `json:"project_id"   jsonschema:"required,description=Project UUID"`
-	IssueID     string `json:"issue_id"     jsonschema:"required,description=Issue UUID"`
+	WorkspaceID string `json:"workspace_id" jsonschema:"required"`
+	ProjectID   string `json:"project_id"   jsonschema:"required"`
+	IssueID     string `json:"issue_id"     jsonschema:"required"`
 }
 type GetIssueOutput struct {
 	Issue json.RawMessage `json:"issue"`
@@ -106,13 +106,13 @@ func getIssue(svc issue.Service) mcp.ToolHandlerFor[GetIssueInput, GetIssueOutpu
 // ── create ───────────────────────────────────────────────────────────────────
 
 type CreateIssueInput struct {
-	WorkspaceID string `json:"workspace_id" jsonschema:"required,description=Workspace UUID"`
-	ProjectID   string `json:"project_id"   jsonschema:"required,description=Project UUID"`
-	Name        string `json:"name"         jsonschema:"required,description=Issue title"`
-	Description string `json:"description"  jsonschema:"description=Issue description (Markdown)"`
-	Priority    string `json:"priority"     jsonschema:"description=none|low|medium|high|urgent"`
-	StateID     string `json:"state_id"     jsonschema:"description=Initial state UUID"`
-	EpicID      string `json:"epic_id"      jsonschema:"description=Parent epic UUID"`
+	WorkspaceID string `json:"workspace_id" jsonschema:"required"`
+	ProjectID   string `json:"project_id"   jsonschema:"required"`
+	Name        string `json:"name"         jsonschema:"required"`
+	Description string `json:"description" `
+	Priority    string `json:"priority"    `
+	StateID     string `json:"state_id"    `
+	EpicID      string `json:"epic_id"     `
 }
 type CreateIssueOutput struct {
 	Issue json.RawMessage `json:"issue"`
@@ -154,13 +154,13 @@ func createIssue(svc issue.Service) mcp.ToolHandlerFor[CreateIssueInput, CreateI
 // ── update (partial) ─────────────────────────────────────────────────────────
 
 type UpdateIssueInput struct {
-	WorkspaceID string `json:"workspace_id" jsonschema:"required,description=Workspace UUID"`
-	ProjectID   string `json:"project_id"   jsonschema:"required,description=Project UUID"`
-	IssueID     string `json:"issue_id"     jsonschema:"required,description=Issue UUID"`
-	Name        string `json:"name"         jsonschema:"description=New title"`
-	Description string `json:"description"  jsonschema:"description=New description (Markdown)"`
-	Priority    string `json:"priority"     jsonschema:"description=none|low|medium|high|urgent"`
-	EpicID      string `json:"epic_id"      jsonschema:"description=New epic UUID (empty string to clear)"`
+	WorkspaceID string `json:"workspace_id" jsonschema:"required"`
+	ProjectID   string `json:"project_id"   jsonschema:"required"`
+	IssueID     string `json:"issue_id"     jsonschema:"required"`
+	Name        string `json:"name"        `
+	Description string `json:"description" `
+	Priority    string `json:"priority"    `
+	EpicID      string `json:"epic_id"     `
 }
 type UpdateIssueOutput struct {
 	Issue json.RawMessage `json:"issue"`
@@ -213,9 +213,9 @@ func updateIssue(svc issue.Service) mcp.ToolHandlerFor[UpdateIssueInput, UpdateI
 // ── delete ───────────────────────────────────────────────────────────────────
 
 type DeleteIssueInput struct {
-	WorkspaceID string `json:"workspace_id" jsonschema:"required,description=Workspace UUID"`
-	ProjectID   string `json:"project_id"   jsonschema:"required,description=Project UUID"`
-	IssueID     string `json:"issue_id"     jsonschema:"required,description=Issue UUID"`
+	WorkspaceID string `json:"workspace_id" jsonschema:"required"`
+	ProjectID   string `json:"project_id"   jsonschema:"required"`
+	IssueID     string `json:"issue_id"     jsonschema:"required"`
 }
 type DeleteIssueOutput struct {
 	OK bool `json:"ok"`
@@ -245,10 +245,10 @@ func deleteIssue(svc issue.Service) mcp.ToolHandlerFor[DeleteIssueInput, DeleteI
 // ── assign ───────────────────────────────────────────────────────────────────
 
 type AssignIssueInput struct {
-	WorkspaceID string   `json:"workspace_id"  jsonschema:"required,description=Workspace UUID"`
-	ProjectID   string   `json:"project_id"    jsonschema:"required,description=Project UUID"`
-	IssueID     string   `json:"issue_id"      jsonschema:"required,description=Issue UUID"`
-	AssigneeIDs []string `json:"assignee_ids"  jsonschema:"required,description=User UUIDs to assign (replaces current assignees)"`
+	WorkspaceID string   `json:"workspace_id"  jsonschema:"required"`
+	ProjectID   string   `json:"project_id"    jsonschema:"required"`
+	IssueID     string   `json:"issue_id"      jsonschema:"required"`
+	AssigneeIDs []string `json:"assignee_ids"  jsonschema:"required"`
 }
 type AssignIssueOutput struct {
 	Issue json.RawMessage `json:"issue"`
@@ -298,10 +298,10 @@ func assignIssue(svc issue.Service) mcp.ToolHandlerFor[AssignIssueInput, AssignI
 // ── set state ────────────────────────────────────────────────────────────────
 
 type SetIssueStateInput struct {
-	WorkspaceID string `json:"workspace_id" jsonschema:"required,description=Workspace UUID"`
-	ProjectID   string `json:"project_id"   jsonschema:"required,description=Project UUID"`
-	IssueID     string `json:"issue_id"     jsonschema:"required,description=Issue UUID"`
-	StateID     string `json:"state_id"     jsonschema:"required,description=Target state UUID"`
+	WorkspaceID string `json:"workspace_id" jsonschema:"required"`
+	ProjectID   string `json:"project_id"   jsonschema:"required"`
+	IssueID     string `json:"issue_id"     jsonschema:"required"`
+	StateID     string `json:"state_id"     jsonschema:"required"`
 }
 type SetIssueStateOutput struct {
 	Issue json.RawMessage `json:"issue"`
@@ -347,10 +347,10 @@ func setIssueState(svc issue.Service) mcp.ToolHandlerFor[SetIssueStateInput, Set
 // ── move ─────────────────────────────────────────────────────────────────────
 
 type MoveIssueInput struct {
-	WorkspaceID      string `json:"workspace_id"       jsonschema:"required,description=Workspace UUID"`
-	ProjectID        string `json:"project_id"         jsonschema:"required,description=Current project UUID"`
-	IssueID          string `json:"issue_id"           jsonschema:"required,description=Issue UUID"`
-	TargetProjectID  string `json:"target_project_id"  jsonschema:"required,description=Destination project UUID"`
+	WorkspaceID      string `json:"workspace_id"       jsonschema:"required"`
+	ProjectID        string `json:"project_id"         jsonschema:"required"`
+	IssueID          string `json:"issue_id"           jsonschema:"required"`
+	TargetProjectID  string `json:"target_project_id"  jsonschema:"required"`
 }
 type MoveIssueOutput struct {
 	Issue json.RawMessage `json:"issue"`
@@ -397,12 +397,12 @@ func moveIssue(svc issue.Service) mcp.ToolHandlerFor[MoveIssueInput, MoveIssueOu
 // ── bulk update ──────────────────────────────────────────────────────────────
 
 type BulkUpdateIssuesInput struct {
-	WorkspaceID string   `json:"workspace_id" jsonschema:"required,description=Workspace UUID"`
-	ProjectID   string   `json:"project_id"   jsonschema:"required,description=Project UUID"`
-	IssueIDs    []string `json:"issue_ids"    jsonschema:"required,description=Issue UUIDs to update"`
-	StateID     string   `json:"state_id"     jsonschema:"description=New state UUID"`
-	Priority    string   `json:"priority"     jsonschema:"description=none|low|medium|high|urgent"`
-	AssigneeIDs []string `json:"assignee_ids" jsonschema:"description=Replace assignees on all issues"`
+	WorkspaceID string   `json:"workspace_id" jsonschema:"required"`
+	ProjectID   string   `json:"project_id"   jsonschema:"required"`
+	IssueIDs    []string `json:"issue_ids"    jsonschema:"required"`
+	StateID     string   `json:"state_id"    `
+	Priority    string   `json:"priority"    `
+	AssigneeIDs []string `json:"assignee_ids"`
 }
 type BulkUpdateIssuesOutput struct {
 	Updated int `json:"updated"`

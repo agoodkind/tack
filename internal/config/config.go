@@ -26,6 +26,10 @@ type Config struct {
 	// If unset, a random token is generated and printed once.
 	SeedAPIToken string `env:"SEED_API_TOKEN"`
 
+	// Meilisearch — optional, no-op stub used when unset.
+	MeiliURL       string `env:"MEILI_URL"        envDefault:"http://localhost:7700"`
+	MeiliMasterKey string `env:"MEILI_MASTER_KEY" envDefault:"tack-dev-meili-key-change-in-prod"`
+
 	// Optional — if unset, OTEL tracing is a no-op.
 	OTELEndpoint string `env:"OTEL_EXPORTER_OTLP_ENDPOINT"`
 }

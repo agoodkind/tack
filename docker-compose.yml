@@ -7,6 +7,8 @@ services:
     environment:
       DATABASE_URL: postgres://${YUGABYTE_USER:-yugabyte}:${YUGABYTE_PASSWORD:-yugabyte}@yugabyte:5433/${YUGABYTE_DB:-tack}?sslmode=disable
       FDB_CLUSTER_FILE: /etc/foundationdb/fdb.cluster
+      MEILI_URL: http://meilisearch:7700
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-tack-dev-meili-key-change-in-prod}
       PORT: 8000
       ENV: production
       LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -16,6 +18,8 @@ services:
       yugabyte:
         condition: service_healthy
       fdb:
+        condition: service_healthy
+      meilisearch:
         condition: service_healthy
 
   yugabyte:
@@ -36,14 +40,14 @@ services:
     volumes:
       - yugabyte-data:/home/yugabyte/var
     healthcheck:
-      test: ["CMD-SHELL", "ysqlsh -U ${YUGABYTE_USER:-yugabyte} -c 'SELECT 1'"]
+      test: ["CMD-SHELL", "PGPASSWORD=${YUGABYTE_PASSWORD:-yugabyte} ysqlsh -h $(hostname -i) -p 5433 -U ${YUGABYTE_USER:-yugabyte} -d ${YUGABYTE_DB:-tack} -c 'SELECT 1' -t"]
       interval: 10s
       timeout: 10s
       retries: 10
       start_period: 60s
 
   fdb:
-    image: foundationdb/foundationdb:7.3.27
+    image: foundationdb/foundationdb:7.4.6
     restart: unless-stopped
     volumes:
       - fdb-data:/var/fdb
@@ -55,7 +59,24 @@ services:
       retries: 10
       start_period: 30s
 
+  meilisearch:
+    image: getmeili/meilisearch:v1.12
+    restart: unless-stopped
+    environment:
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-tack-dev-meili-key-change-in-prod}
+      MEILI_ENV: production
+    ports:
+      - "7700:7700"
+    volumes:
+      - meili-data:/meili_data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:7700/health | grep -q 'available'"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
 volumes:
   yugabyte-data:
   fdb-data:
   fdb-cluster:
+  meili-data:

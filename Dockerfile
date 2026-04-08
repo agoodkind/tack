@@ -1,4 +1,4 @@
-ARG FDB_VERSION=7.3.27
+ARG FDB_VERSION=7.4.6
 
 # ── builder ───────────────────────────────────────────────────────────────────
 FROM golang:1.26-bookworm AS builder

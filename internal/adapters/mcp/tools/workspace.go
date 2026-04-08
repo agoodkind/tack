@@ -33,7 +33,7 @@ func RegisterWorkspace(
 // ── describe_workspace ───────────────────────────────────────────────────────
 
 type DescribeWorkspaceInput struct {
-	WorkspaceSlug string `json:"workspace_slug" jsonschema:"required,description=Workspace slug"`
+	WorkspaceSlug string `json:"workspace_slug" jsonschema:"required"`
 }
 
 type DescribeWorkspaceOutput struct {

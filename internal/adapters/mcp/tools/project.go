@@ -18,7 +18,7 @@ func RegisterProject(s *mcp.Server, projects project.Repository, states state.Re
 }
 
 type ListProjectsInput struct {
-	WorkspaceID string `json:"workspace_id" jsonschema:"required,description=Workspace UUID"`
+	WorkspaceID string `json:"workspace_id" jsonschema:"required"`
 }
 type ListProjectsOutput struct {
 	Projects json.RawMessage `json:"projects"`
@@ -40,8 +40,8 @@ func listProjects(projects project.Repository) mcp.ToolHandlerFor[ListProjectsIn
 }
 
 type GetProjectInput struct {
-	WorkspaceID string `json:"workspace_id" jsonschema:"required,description=Workspace UUID"`
-	ProjectID   string `json:"project_id"   jsonschema:"required,description=Project UUID"`
+	WorkspaceID string `json:"workspace_id" jsonschema:"required"`
+	ProjectID   string `json:"project_id"   jsonschema:"required"`
 }
 type GetProjectOutput struct {
 	Project json.RawMessage `json:"project"`
@@ -70,10 +70,10 @@ func getProject(projects project.Repository, states state.Repository) mcp.ToolHa
 }
 
 type CreateProjectInput struct {
-	WorkspaceID string `json:"workspace_id" jsonschema:"required,description=Workspace UUID"`
-	Name        string `json:"name"         jsonschema:"required,description=Project name"`
-	Identifier  string `json:"identifier"   jsonschema:"required,description=Short prefix e.g. ENG"`
-	Description string `json:"description"  jsonschema:"description=Project description"`
+	WorkspaceID string `json:"workspace_id" jsonschema:"required"`
+	Name        string `json:"name"         jsonschema:"required"`
+	Identifier  string `json:"identifier"   jsonschema:"required"`
+	Description string `json:"description" `
 }
 type CreateProjectOutput struct {
 	Project json.RawMessage `json:"project"`
@@ -105,10 +105,10 @@ func createProject(projects project.Repository) mcp.ToolHandlerFor[CreateProject
 }
 
 type UpdateProjectInput struct {
-	WorkspaceID string `json:"workspace_id" jsonschema:"required,description=Workspace UUID"`
-	ProjectID   string `json:"project_id"   jsonschema:"required,description=Project UUID"`
-	Name        string `json:"name"         jsonschema:"description=New name"`
-	Description string `json:"description"  jsonschema:"description=New description"`
+	WorkspaceID string `json:"workspace_id" jsonschema:"required"`
+	ProjectID   string `json:"project_id"   jsonschema:"required"`
+	Name        string `json:"name"        `
+	Description string `json:"description" `
 }
 type UpdateProjectOutput struct {
 	Project json.RawMessage `json:"project"`

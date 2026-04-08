@@ -16,7 +16,7 @@ func RegisterState(s *mcp.Server, states state.Repository) {
 }
 
 type ListStatesInput struct {
-	ProjectID string `json:"project_id" jsonschema:"required,description=Project UUID"`
+	ProjectID string `json:"project_id" jsonschema:"required"`
 }
 type ListStatesOutput struct {
 	States json.RawMessage `json:"states"`
@@ -38,10 +38,10 @@ func listStates(states state.Repository) mcp.ToolHandlerFor[ListStatesInput, Lis
 }
 
 type CreateStateInput struct {
-	ProjectID string `json:"project_id" jsonschema:"required,description=Project UUID"`
-	Name      string `json:"name"       jsonschema:"required,description=State name"`
-	GroupName string `json:"group_name" jsonschema:"required,description=backlog|todo|started|completed|cancelled"`
-	Color     string `json:"color"      jsonschema:"description=Hex color e.g. #ff0000"`
+	ProjectID string `json:"project_id" jsonschema:"required"`
+	Name      string `json:"name"       jsonschema:"required"`
+	GroupName string `json:"group_name" jsonschema:"required"`
+	Color     string `json:"color"     `
 }
 type CreateStateOutput struct {
 	State json.RawMessage `json:"state"`
@@ -73,11 +73,11 @@ func createState(states state.Repository) mcp.ToolHandlerFor[CreateStateInput, C
 }
 
 type UpdateStateInput struct {
-	ProjectID string `json:"project_id" jsonschema:"required,description=Project UUID"`
-	StateID   string `json:"state_id"   jsonschema:"required,description=State UUID"`
-	Name      string `json:"name"       jsonschema:"description=New name"`
-	GroupName string `json:"group_name" jsonschema:"description=backlog|todo|started|completed|cancelled"`
-	Color     string `json:"color"      jsonschema:"description=Hex color"`
+	ProjectID string `json:"project_id" jsonschema:"required"`
+	StateID   string `json:"state_id"   jsonschema:"required"`
+	Name      string `json:"name"      `
+	GroupName string `json:"group_name"`
+	Color     string `json:"color"     `
 }
 type UpdateStateOutput struct {
 	State json.RawMessage `json:"state"`
@@ -116,7 +116,7 @@ func updateState(states state.Repository) mcp.ToolHandlerFor[UpdateStateInput, U
 }
 
 type DeleteStateInput struct {
-	StateID string `json:"state_id" jsonschema:"required,description=State UUID"`
+	StateID string `json:"state_id" jsonschema:"required"`
 }
 type DeleteStateOutput struct {
 	OK bool `json:"ok"`

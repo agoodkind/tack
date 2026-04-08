@@ -16,9 +16,9 @@ func RegisterSearch(s *mcp.Server, svc issue.Service) {
 }
 
 type SearchInput struct {
-	WorkspaceID string `json:"workspace_id" jsonschema:"required,description=Workspace UUID"`
-	Query       string `json:"query"        jsonschema:"required,description=Search query"`
-	ProjectID   string `json:"project_id"   jsonschema:"description=Optional project UUID to narrow scope"`
+	WorkspaceID string `json:"workspace_id" jsonschema:"required"`
+	Query       string `json:"query"        jsonschema:"required"`
+	ProjectID   string `json:"project_id"  `
 }
 type SearchOutput struct {
 	Items json.RawMessage `json:"items"`
