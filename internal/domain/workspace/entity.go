@@ -9,6 +9,7 @@ import (
 type Workspace struct {
 	ID        uuid.UUID `json:"id"`
 	NodeID    uuid.UUID `json:"node_id"`
+	OrgID     uuid.UUID `json:"org_id"`
 	Name      string    `json:"name"`
 	Slug      string    `json:"slug"`
 	CreatedAt time.Time `json:"created_at"`

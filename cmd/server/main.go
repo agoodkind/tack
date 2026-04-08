@@ -61,10 +61,11 @@ func runServer(cfg *config.Config) {
 
 	issueRepo := postgres.NewIssueRepo(pool)
 	projectRepo := postgres.NewProjectRepo(pool)
+	workspaceRepo := postgres.NewWorkspaceRepo(pool)
 	tokenRepo := postgres.NewTokenRepo(pool)
 	_ = tokenRepo
 
-	issueSvc := service.NewIssueService(issueRepo, projectRepo, fdbStores.Activity, cfg.OrgID)
+	issueSvc := service.NewIssueService(issueRepo, projectRepo, workspaceRepo, fdbStores.Activity)
 
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", mcpadapter.NewHandler(issueSvc))
@@ -108,5 +109,3 @@ func setupLogger(cfg *config.Config) {
 	slog.SetDefault(slog.New(h))
 }
 
-// Ensure time import is used (activity event timestamps)
-var _ = time.Now

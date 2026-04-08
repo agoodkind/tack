@@ -8,33 +8,37 @@ import (
 	"github.com/agoodkind/tack/internal/domain/issue"
 	"github.com/agoodkind/tack/internal/domain/node"
 	"github.com/agoodkind/tack/internal/domain/project"
+	"github.com/agoodkind/tack/internal/domain/workspace"
 	"github.com/google/uuid"
 )
 
 type IssueService struct {
-	issues    issue.Repository
-	projects  project.Repository
-	activity  node.ActivityRepository
-	// OrgID is required for FDB key scoping.
-	// Phase 1 uses a single-org model; multi-tenancy wires this from the auth context.
-	orgID uuid.UUID
+	issues     issue.Repository
+	projects   project.Repository
+	workspaces workspace.Repository
+	activity   node.ActivityRepository
 }
 
 func NewIssueService(
 	issues issue.Repository,
 	projects project.Repository,
+	workspaces workspace.Repository,
 	activity node.ActivityRepository,
-	orgID uuid.UUID,
 ) *IssueService {
 	return &IssueService{
-		issues:   issues,
-		projects: projects,
-		activity: activity,
-		orgID:    orgID,
+		issues:     issues,
+		projects:   projects,
+		workspaces: workspaces,
+		activity:   activity,
 	}
 }
 
 func (s *IssueService) Create(ctx context.Context, i *issue.Issue) (*issue.Issue, error) {
+	ws, err := s.workspaces.GetByID(ctx, i.WorkspaceID)
+	if err != nil {
+		return nil, fmt.Errorf("resolve workspace: %w", err)
+	}
+
 	seq, err := s.projects.AllocateSequenceID(ctx, i.ProjectID, "issue")
 	if err != nil {
 		return nil, fmt.Errorf("allocate sequence: %w", err)
@@ -46,7 +50,7 @@ func (s *IssueService) Create(ctx context.Context, i *issue.Issue) (*issue.Issue
 		return nil, err
 	}
 
-	_ = s.activity.Append(ctx, s.orgID, created.WorkspaceID, &node.ActivityEvent{
+	_ = s.activity.Append(ctx, ws.OrgID, created.WorkspaceID, &node.ActivityEvent{
 		EventID:   uuid.New(),
 		NodeID:    created.NodeID,
 		Actor:     created.CreatedBy,
@@ -67,12 +71,17 @@ func (s *IssueService) List(ctx context.Context, filter issue.ListFilter) ([]*is
 }
 
 func (s *IssueService) Update(ctx context.Context, i *issue.Issue) (*issue.Issue, error) {
+	ws, err := s.workspaces.GetByID(ctx, i.WorkspaceID)
+	if err != nil {
+		return nil, fmt.Errorf("resolve workspace: %w", err)
+	}
+
 	updated, err := s.issues.Update(ctx, i)
 	if err != nil {
 		return nil, err
 	}
 
-	_ = s.activity.Append(ctx, s.orgID, updated.WorkspaceID, &node.ActivityEvent{
+	_ = s.activity.Append(ctx, ws.OrgID, updated.WorkspaceID, &node.ActivityEvent{
 		EventID:   uuid.New(),
 		NodeID:    updated.NodeID,
 		Actor:     updated.CreatedBy,
