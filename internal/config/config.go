@@ -15,6 +15,17 @@ type Config struct {
 	LogMaxBackups int    `env:"LOG_MAX_BACKUPS"  envDefault:"0"`   // 0 = unlimited
 	LogMaxAgeDays int    `env:"LOG_MAX_AGE_DAYS" envDefault:"0"`   // 0 = unlimited
 
+	// Seed — used by `./server seed` only.
+	SeedEmail         string `env:"SEED_EMAIL"`
+	SeedName          string `env:"SEED_NAME"`
+	SeedOrgName       string `env:"SEED_ORG_NAME"       envDefault:"My Org"`
+	SeedOrgSlug       string `env:"SEED_ORG_SLUG"       envDefault:"my-org"`
+	SeedWorkspaceName string `env:"SEED_WORKSPACE_NAME" envDefault:"Main"`
+	SeedWorkspaceSlug string `env:"SEED_WORKSPACE_SLUG" envDefault:"main"`
+	// If set, the seed command uses this as the raw API token.
+	// If unset, a random token is generated and printed once.
+	SeedAPIToken string `env:"SEED_API_TOKEN"`
+
 	// Optional — if unset, OTEL tracing is a no-op.
 	OTELEndpoint string `env:"OTEL_EXPORTER_OTLP_ENDPOINT"`
 }

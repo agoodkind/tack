@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/agoodkind/tack/internal/auth"
 	fdbadapter "github.com/agoodkind/tack/internal/adapters/foundationdb"
 	mcpadapter "github.com/agoodkind/tack/internal/adapters/mcp"
 	"github.com/agoodkind/tack/internal/adapters/postgres"
@@ -35,9 +36,15 @@ func main() {
 		MaxAgeDays: cfg.LogMaxAgeDays,
 	})
 
-	if len(os.Args) > 1 && os.Args[1] == "migrate" {
-		runMigrations(cfg)
-		return
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "migrate":
+			runMigrations(cfg)
+			return
+		case "seed":
+			runSeed(cfg)
+			return
+		}
 	}
 
 	runServer(cfg)
@@ -72,16 +79,25 @@ func runServer(cfg *config.Config) {
 	projectRepo := postgres.NewProjectRepo(pool)
 	workspaceRepo := postgres.NewWorkspaceRepo(pool)
 	tokenRepo := postgres.NewTokenRepo(pool)
-	_ = tokenRepo
 
 	issueSvc := service.NewIssueService(issueRepo, projectRepo, workspaceRepo, fdbStores.Activity)
 
+	// Auth middleware — dev mode accepts a user UUID directly as the Bearer token.
+	// Production mode validates against the api_tokens table.
+	var authMiddleware func(http.Handler) http.Handler
+	if cfg.Env == "development" {
+		slog.Warn("running in dev auth mode — Bearer token is treated as a raw user UUID")
+		authMiddleware = auth.DevBearer
+	} else {
+		authMiddleware = auth.Bearer(tokenRepo)
+	}
+
 	mux := http.NewServeMux()
-	mux.Handle("/mcp", mcpadapter.NewHandler(issueSvc))
-	mux.Handle("/mcp/", mcpadapter.NewHandler(issueSvc))
+	mux.Handle("/mcp", authMiddleware(mcpadapter.NewHandler(issueSvc)))
+	mux.Handle("/mcp/", authMiddleware(mcpadapter.NewHandler(issueSvc)))
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
-	slog.Info("starting server", "addr", addr, "mcp_endpoint", addr+"/mcp")
+	slog.Info("starting server", "addr", addr, "mcp_endpoint", addr+"/mcp", "env", cfg.Env)
 
 	srv := &http.Server{
 		Addr:    addr,
