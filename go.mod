@@ -11,6 +11,7 @@ require (
 )
 
 require (
+	github.com/apple/foundationdb/bindings/go v0.0.0-20260407222852-697decb134cb // indirect
 	github.com/google/jsonschema-go v0.4.2 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
