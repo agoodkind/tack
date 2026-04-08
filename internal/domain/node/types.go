@@ -7,15 +7,31 @@ import (
 	"github.com/google/uuid"
 )
 
+// Op enumerates the operations that can be enabled on a custom node type.
+type Op string
+
+const (
+	OpCreate Op = "create"
+	OpRead   Op = "read"
+	OpList   Op = "list"
+	OpUpdate Op = "update"
+	OpDelete Op = "delete"
+)
+
+// AllOps is the default set of allowed operations for a new node type.
+var AllOps = []Op{OpCreate, OpRead, OpList, OpUpdate, OpDelete}
+
 // NodeType defines a user-defined type in the extensibility hierarchy.
 type NodeType struct {
 	ID             uuid.UUID   `json:"id"`
 	OrgID          uuid.UUID   `json:"org_id"`
 	Name           string      `json:"name"`
+	Slug           string      `json:"slug"`           // kebab-case, used in tool names
 	Color          string      `json:"color"`
 	Icon           string      `json:"icon"`
 	CanContain     []string    `json:"can_contain"`    // names of types this type may parent
 	CanLiveUnder   []string    `json:"can_live_under"` // names of types this type may be child of
+	AllowedOps     []Op        `json:"allowed_ops"`    // which MCP tools are generated
 	PropertyDefIDs []uuid.UUID `json:"property_def_ids"`
 }
 

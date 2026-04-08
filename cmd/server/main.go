@@ -75,15 +75,33 @@ func runServer(cfg *config.Config) {
 		os.Exit(1)
 	}
 
-	issueRepo := postgres.NewIssueRepo(pool)
-	projectRepo := postgres.NewProjectRepo(pool)
+	// Repos
+	issueRepo     := postgres.NewIssueRepo(pool)
+	projectRepo   := postgres.NewProjectRepo(pool)
 	workspaceRepo := postgres.NewWorkspaceRepo(pool)
-	tokenRepo := postgres.NewTokenRepo(pool)
+	stateRepo     := postgres.NewStateRepo(pool)
+	labelRepo     := postgres.NewLabelRepo(pool)
+	epicRepo      := postgres.NewEpicRepo(pool)
+	cycleRepo     := postgres.NewCycleRepo(pool)
+	moduleRepo    := postgres.NewModuleRepo(pool)
+	tokenRepo     := postgres.NewTokenRepo(pool)
 
 	issueSvc := service.NewIssueService(issueRepo, projectRepo, workspaceRepo, fdbStores.Activity)
 
-	// Auth middleware — dev mode accepts a user UUID directly as the Bearer token.
-	// Production mode validates against the api_tokens table.
+	mcpHandler := mcpadapter.NewHandler(mcpadapter.Deps{
+		Workspaces: workspaceRepo,
+		Projects:   projectRepo,
+		States:     stateRepo,
+		Labels:     labelRepo,
+		IssueSvc:   issueSvc,
+		Epics:      epicRepo,
+		Cycles:     cycleRepo,
+		Modules:    moduleRepo,
+		NodeTypes:  fdbStores.NodeTypes,
+		Properties: fdbStores.Properties,
+		Activity:   fdbStores.Activity,
+	})
+
 	var authMiddleware func(http.Handler) http.Handler
 	if cfg.Env == "development" {
 		slog.Warn("running in dev auth mode — Bearer token is treated as a raw user UUID")
@@ -93,8 +111,8 @@ func runServer(cfg *config.Config) {
 	}
 
 	mux := http.NewServeMux()
-	mux.Handle("/mcp", authMiddleware(mcpadapter.NewHandler(issueSvc)))
-	mux.Handle("/mcp/", authMiddleware(mcpadapter.NewHandler(issueSvc)))
+	mux.Handle("/mcp", authMiddleware(mcpHandler))
+	mux.Handle("/mcp/", authMiddleware(mcpHandler))
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	slog.Info("starting server", "addr", addr, "mcp_endpoint", addr+"/mcp", "env", cfg.Env)
