@@ -8,6 +8,7 @@ import (
 
 type Module struct {
 	ID          uuid.UUID  `json:"id"`
+	NodeID      uuid.UUID  `json:"node_id"`
 	WorkspaceID uuid.UUID  `json:"workspace_id"`
 	ProjectID   uuid.UUID  `json:"project_id"`
 	Name        string     `json:"name"`

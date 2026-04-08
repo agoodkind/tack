@@ -10,23 +10,21 @@ import (
 
 type Epic struct {
 	domain.Base
-	WorkspaceID         uuid.UUID
-	ProjectID           uuid.UUID
-	ParentID            *uuid.UUID
-	StateID             *uuid.UUID
-	Name                string
-	DescriptionHTML     string
-	DescriptionStripped string
-	Priority            issue.Priority
-	SequenceID          int
-	SortOrder           float64
-	StartDate           *time.Time
-	TargetDate          *time.Time
-	CompletedAt         *time.Time
-	ArchivedAt          *time.Time
-	IsDraft             bool
-	ExternalSource      *string
-	ExternalID          *string
-	AssigneeIDs         []uuid.UUID
-	LabelIDs            []uuid.UUID
+	NodeID      uuid.UUID
+	WorkspaceID uuid.UUID
+	ProjectID   uuid.UUID
+	ParentID    *uuid.UUID
+	StateID     *uuid.UUID
+	Name        string
+	Description string // Markdown TEXT; not selected on list queries
+	Priority    issue.Priority
+	SequenceID  int
+	SortOrder   float64
+	StartDate   *time.Time
+	TargetDate  *time.Time
+	CompletedAt *time.Time
+	ArchivedAt  *time.Time
+	IsDraft     bool
+	AssigneeIDs []uuid.UUID
+	LabelIDs    []uuid.UUID
 }
