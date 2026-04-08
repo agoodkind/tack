@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	fdbadapter "github.com/agoodkind/tack/internal/adapters/foundationdb"
 	mcpadapter "github.com/agoodkind/tack/internal/adapters/mcp"
 	"github.com/agoodkind/tack/internal/adapters/postgres"
 	"github.com/agoodkind/tack/internal/config"
@@ -52,12 +53,18 @@ func runServer(cfg *config.Config) {
 	}
 	defer pool.Close()
 
+	fdbStores, err := fdbadapter.NewStores(cfg.FDBClusterFile)
+	if err != nil {
+		slog.Error("foundationdb", "err", err)
+		os.Exit(1)
+	}
+
 	issueRepo := postgres.NewIssueRepo(pool)
 	projectRepo := postgres.NewProjectRepo(pool)
 	tokenRepo := postgres.NewTokenRepo(pool)
 	_ = tokenRepo
 
-	issueSvc := service.NewIssueService(issueRepo, projectRepo)
+	issueSvc := service.NewIssueService(issueRepo, projectRepo, fdbStores.Activity, cfg.OrgID)
 
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", mcpadapter.NewHandler(issueSvc))
@@ -100,3 +107,6 @@ func setupLogger(cfg *config.Config) {
 	}
 	slog.SetDefault(slog.New(h))
 }
+
+// Ensure time import is used (activity event timestamps)
+var _ = time.Now

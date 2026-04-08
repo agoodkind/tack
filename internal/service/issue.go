@@ -3,19 +3,35 @@ package service
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/agoodkind/tack/internal/domain/issue"
+	"github.com/agoodkind/tack/internal/domain/node"
 	"github.com/agoodkind/tack/internal/domain/project"
 	"github.com/google/uuid"
 )
 
 type IssueService struct {
-	issues   issue.Repository
-	projects project.Repository
+	issues    issue.Repository
+	projects  project.Repository
+	activity  node.ActivityRepository
+	// OrgID is required for FDB key scoping.
+	// Phase 1 uses a single-org model; multi-tenancy wires this from the auth context.
+	orgID uuid.UUID
 }
 
-func NewIssueService(issues issue.Repository, projects project.Repository) *IssueService {
-	return &IssueService{issues: issues, projects: projects}
+func NewIssueService(
+	issues issue.Repository,
+	projects project.Repository,
+	activity node.ActivityRepository,
+	orgID uuid.UUID,
+) *IssueService {
+	return &IssueService{
+		issues:   issues,
+		projects: projects,
+		activity: activity,
+		orgID:    orgID,
+	}
 }
 
 func (s *IssueService) Create(ctx context.Context, i *issue.Issue) (*issue.Issue, error) {
@@ -24,7 +40,22 @@ func (s *IssueService) Create(ctx context.Context, i *issue.Issue) (*issue.Issue
 		return nil, fmt.Errorf("allocate sequence: %w", err)
 	}
 	i.SequenceID = seq
-	return s.issues.Create(ctx, i)
+
+	created, err := s.issues.Create(ctx, i)
+	if err != nil {
+		return nil, err
+	}
+
+	_ = s.activity.Append(ctx, s.orgID, created.WorkspaceID, &node.ActivityEvent{
+		EventID:   uuid.New(),
+		NodeID:    created.NodeID,
+		Actor:     created.CreatedBy,
+		Verb:      "created",
+		Detail:    map[string]any{"name": created.Name},
+		CreatedAt: time.Now().UTC(),
+	})
+
+	return created, nil
 }
 
 func (s *IssueService) Get(ctx context.Context, workspaceID, projectID, id uuid.UUID) (*issue.Issue, error) {
@@ -36,7 +67,21 @@ func (s *IssueService) List(ctx context.Context, filter issue.ListFilter) ([]*is
 }
 
 func (s *IssueService) Update(ctx context.Context, i *issue.Issue) (*issue.Issue, error) {
-	return s.issues.Update(ctx, i)
+	updated, err := s.issues.Update(ctx, i)
+	if err != nil {
+		return nil, err
+	}
+
+	_ = s.activity.Append(ctx, s.orgID, updated.WorkspaceID, &node.ActivityEvent{
+		EventID:   uuid.New(),
+		NodeID:    updated.NodeID,
+		Actor:     updated.CreatedBy,
+		Verb:      "updated",
+		Detail:    map[string]any{"name": updated.Name},
+		CreatedAt: time.Now().UTC(),
+	})
+
+	return updated, nil
 }
 
 func (s *IssueService) Delete(ctx context.Context, workspaceID, projectID, id uuid.UUID) error {

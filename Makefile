@@ -1,15 +1,18 @@
-.PHONY: build run mcp tidy lint test migrate-up migrate-down
+.PHONY: build build-fdb run migrate tidy lint test
 
 build:
 	go build ./...
 
-# Run the HTTP server (phase 2)
+# Production build: includes real FoundationDB adapter.
+# Requires FDB C headers (apt install foundationdb-clients on Linux).
+build-fdb:
+	CGO_ENABLED=1 go build -tags fdb -trimpath -ldflags="-s -w" -o bin/server ./cmd/server
+
 run:
 	go run ./cmd/server
 
-# Run the MCP server over stdio (Claude Code integration)
-mcp:
-	go run ./cmd/server mcp
+migrate:
+	go run ./cmd/server migrate
 
 tidy:
 	go mod tidy
@@ -19,10 +22,3 @@ lint:
 
 test:
 	go test ./... -race
-
-# Convenience targets for goose outside of the binary
-migrate-up:
-	goose -dir migrations postgres "$(DATABASE_URL)" up
-
-migrate-down:
-	goose -dir migrations postgres "$(DATABASE_URL)" down

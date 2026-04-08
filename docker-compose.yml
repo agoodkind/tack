@@ -5,28 +5,57 @@ services:
     ports:
       - "${PORT:-8000}:8000"
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?sslmode=disable
+      DATABASE_URL: postgres://${YUGABYTE_USER:-yugabyte}:${YUGABYTE_PASSWORD:-yugabyte}@yugabyte:5433/${YUGABYTE_DB:-tack}?sslmode=disable
+      FDB_CLUSTER_FILE: /etc/foundationdb/fdb.cluster
       PORT: 8000
       ENV: production
       LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - fdb-cluster:/etc/foundationdb:ro
     depends_on:
-      db:
+      yugabyte:
+        condition: service_healthy
+      fdb:
         condition: service_healthy
 
-  db:
-    image: postgres:16-alpine
+  yugabyte:
+    image: yugabytedb/yugabyte:2.23.1.0-b220
     restart: unless-stopped
+    command: >
+      bin/yugabyted start
+      --daemon=false
+      --tserver_flags="ysql_pg_conf_csv=max_connections=100"
     environment:
-      POSTGRES_DB:       ${POSTGRES_DB}
-      POSTGRES_USER:     ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      YSQL_DB:       ${YUGABYTE_DB:-tack}
+      YSQL_USER:     ${YUGABYTE_USER:-yugabyte}
+      YSQL_PASSWORD: ${YUGABYTE_PASSWORD:-yugabyte}
+    ports:
+      - "5433:5433"   # YSQL (Postgres-compatible)
+      - "7000:7000"   # YugabyteDB master UI
+      - "9000:9000"   # YugabyteDB tserver UI
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - yugabyte-data:/home/yugabyte/var
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+      test: ["CMD-SHELL", "ysqlsh -U ${YUGABYTE_USER:-yugabyte} -c 'SELECT 1'"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  fdb:
+    image: foundationdb/foundationdb:7.3.27
+    restart: unless-stopped
+    volumes:
+      - fdb-data:/var/fdb
+      - fdb-cluster:/etc/foundationdb
+    healthcheck:
+      test: ["CMD-SHELL", "fdbcli --exec 'status minimal' 2>&1 | grep -q 'available'"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
 
 volumes:
-  pgdata:
+  yugabyte-data:
+  fdb-data:
+  fdb-cluster:
