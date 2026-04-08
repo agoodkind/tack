@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 
 	"github.com/agoodkind/tack/internal/domain/node"
 	"github.com/google/uuid"
@@ -18,12 +17,12 @@ func RegisterProperty(s *mcp.Server, properties node.PropertyRepository) {
 }
 
 type ListPropertyDefsInput struct {
-	OrgID       string `json:"org_id"       jsonschema:"required"`
-	WorkspaceID string `json:"workspace_id" jsonschema:"required"`
-	ProjectID   string `json:"project_id"  `
+	OrgID       string `json:"org_id"` 
+	WorkspaceID string `json:"workspace_id"`
+	ProjectID   string `json:"project_id"` 
 }
 type ListPropertyDefsOutput struct {
-	Defs json.RawMessage `json:"defs"`
+	Defs any `json:"defs"`
 }
 
 func listPropertyDefs(properties node.PropertyRepository) mcp.ToolHandlerFor[ListPropertyDefsInput, ListPropertyDefsOutput] {
@@ -40,22 +39,21 @@ func listPropertyDefs(properties node.PropertyRepository) mcp.ToolHandlerFor[Lis
 		if err != nil {
 			return nil, ListPropertyDefsOutput{}, err
 		}
-		b, _ := json.Marshal(defs)
-		return nil, ListPropertyDefsOutput{Defs: b}, nil
+		return nil, ListPropertyDefsOutput{Defs: defs}, nil
 	}
 }
 
 type CreatePropertyDefInput struct {
-	OrgID       string `json:"org_id"         jsonschema:"required"`
-	WorkspaceID string `json:"workspace_id"  `
-	ProjectID   string `json:"project_id"    `
-	Name        string `json:"name"           jsonschema:"required"`
-	Type        string `json:"type"           jsonschema:"required"`
-	Options     []string `json:"options"     `
-	Required    bool   `json:"required"      `
+	OrgID       string `json:"org_id"` 
+	WorkspaceID string `json:"workspace_id"` 
+	ProjectID   string `json:"project_id"` 
+	Name        string `json:"name"` 
+	Type        string `json:"type"` 
+	Options     []string `json:"options,omitempty"`
+	Required    bool   `json:"required,omitempty"`
 }
 type CreatePropertyDefOutput struct {
-	Def json.RawMessage `json:"def"`
+	Def any `json:"def"`
 }
 
 func createPropertyDef(properties node.PropertyRepository) mcp.ToolHandlerFor[CreatePropertyDefInput, CreatePropertyDefOutput] {
@@ -77,14 +75,13 @@ func createPropertyDef(properties node.PropertyRepository) mcp.ToolHandlerFor[Cr
 		if err := properties.SetDef(ctx, def); err != nil {
 			return nil, CreatePropertyDefOutput{}, err
 		}
-		b, _ := json.Marshal(def)
-		return nil, CreatePropertyDefOutput{Def: b}, nil
+		return nil, CreatePropertyDefOutput{Def: def}, nil
 	}
 }
 
 type DeletePropertyDefInput struct {
-	OrgID string `json:"org_id" jsonschema:"required"`
-	DefID string `json:"def_id" jsonschema:"required"`
+	OrgID string `json:"org_id"`
+	DefID string `json:"def_id"`
 }
 type DeletePropertyDefOutput struct {
 	OK bool `json:"ok"`
@@ -115,10 +112,10 @@ func deletePropertyDef(properties node.PropertyRepository) mcp.ToolHandlerFor[De
 }
 
 type SetPropertyInput struct {
-	OrgID     string `json:"org_id"      jsonschema:"required"`
-	NodeID    string `json:"node_id"     jsonschema:"required"`
-	PropDefID string `json:"prop_def_id" jsonschema:"required"`
-	Value     any    `json:"value"       jsonschema:"required"`
+	OrgID     string `json:"org_id"` 
+	NodeID    string `json:"node_id"` 
+	PropDefID string `json:"prop_def_id"`
+	Value     any    `json:"value,omitempty"`
 }
 type SetPropertyOutput struct {
 	OK bool `json:"ok"`
@@ -146,11 +143,11 @@ func setProperty(properties node.PropertyRepository) mcp.ToolHandlerFor[SetPrope
 }
 
 type GetPropertiesInput struct {
-	OrgID  string `json:"org_id"  jsonschema:"required"`
-	NodeID string `json:"node_id" jsonschema:"required"`
+	OrgID  string `json:"org_id"` 
+	NodeID string `json:"node_id"`
 }
 type GetPropertiesOutput struct {
-	Properties json.RawMessage `json:"properties"`
+	Properties any `json:"properties"`
 }
 
 func getProperties(properties node.PropertyRepository) mcp.ToolHandlerFor[GetPropertiesInput, GetPropertiesOutput] {
@@ -167,7 +164,6 @@ func getProperties(properties node.PropertyRepository) mcp.ToolHandlerFor[GetPro
 		if err != nil {
 			return nil, GetPropertiesOutput{}, err
 		}
-		b, _ := json.Marshal(vals)
-		return nil, GetPropertiesOutput{Properties: b}, nil
+		return nil, GetPropertiesOutput{Properties: vals}, nil
 	}
 }

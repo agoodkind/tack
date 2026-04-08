@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 
 	"github.com/agoodkind/tack/internal/domain/node"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -16,12 +15,12 @@ func RegisterActivity(s *mcp.Server, activity node.ActivityRepository) {
 }
 
 type GetActivityInput struct {
-	OrgID       string `json:"org_id"       jsonschema:"required"`
-	WorkspaceID string `json:"workspace_id" jsonschema:"required"`
-	NodeID      string `json:"node_id"      jsonschema:"required"`
+	OrgID       string `json:"org_id"` 
+	WorkspaceID string `json:"workspace_id"`
+	NodeID      string `json:"node_id"` 
 }
 type GetActivityOutput struct {
-	Events json.RawMessage `json:"events"`
+	Events any `json:"events"`
 	Total  int             `json:"total"`
 }
 
@@ -43,7 +42,6 @@ func getActivity(activity node.ActivityRepository) mcp.ToolHandlerFor[GetActivit
 		if err != nil {
 			return nil, GetActivityOutput{}, err
 		}
-		b, _ := json.Marshal(events)
-		return nil, GetActivityOutput{Events: b, Total: len(events)}, nil
+		return nil, GetActivityOutput{Events: events, Total: len(events)}, nil
 	}
 }

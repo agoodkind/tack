@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 
 	"github.com/agoodkind/tack/internal/domain/module"
 	"github.com/google/uuid"
@@ -20,10 +19,10 @@ func RegisterModule(s *mcp.Server, modules module.Repository) {
 }
 
 type ListModulesInput struct {
-	ProjectID string `json:"project_id" jsonschema:"required"`
+	ProjectID string `json:"project_id"`
 }
 type ListModulesOutput struct {
-	Modules json.RawMessage `json:"modules"`
+	Modules any `json:"modules"`
 }
 
 func listModules(modules module.Repository) mcp.ToolHandlerFor[ListModulesInput, ListModulesOutput] {
@@ -36,17 +35,16 @@ func listModules(modules module.Repository) mcp.ToolHandlerFor[ListModulesInput,
 		if err != nil {
 			return nil, ListModulesOutput{}, err
 		}
-		b, _ := json.Marshal(ms)
-		return nil, ListModulesOutput{Modules: b}, nil
+		return nil, ListModulesOutput{Modules: ms}, nil
 	}
 }
 
 type GetModuleInput struct {
-	ProjectID string `json:"project_id" jsonschema:"required"`
-	ModuleID  string `json:"module_id"  jsonschema:"required"`
+	ProjectID string `json:"project_id"`
+	ModuleID  string `json:"module_id"` 
 }
 type GetModuleOutput struct {
-	Module json.RawMessage `json:"module"`
+	Module any `json:"module"`
 }
 
 func getModule(modules module.Repository) mcp.ToolHandlerFor[GetModuleInput, GetModuleOutput] {
@@ -63,20 +61,19 @@ func getModule(modules module.Repository) mcp.ToolHandlerFor[GetModuleInput, Get
 		if err != nil {
 			return nil, GetModuleOutput{}, err
 		}
-		b, _ := json.Marshal(m)
-		return nil, GetModuleOutput{Module: b}, nil
+		return nil, GetModuleOutput{Module: m}, nil
 	}
 }
 
 type CreateModuleInput struct {
-	WorkspaceID string `json:"workspace_id" jsonschema:"required"`
-	ProjectID   string `json:"project_id"   jsonschema:"required"`
-	Name        string `json:"name"         jsonschema:"required"`
-	Description string `json:"description" `
-	Status      string `json:"status"      `
+	WorkspaceID string  `json:"workspace_id"`
+	ProjectID   string  `json:"project_id"`
+	Name        string  `json:"name"`
+	Description *string `json:"description,omitempty"`
+	Status      *string `json:"status,omitempty"`
 }
 type CreateModuleOutput struct {
-	Module json.RawMessage `json:"module"`
+	Module any `json:"module"`
 }
 
 func createModule(modules module.Repository) mcp.ToolHandlerFor[CreateModuleInput, CreateModuleOutput] {
@@ -93,36 +90,38 @@ func createModule(modules module.Repository) mcp.ToolHandlerFor[CreateModuleInpu
 		if err != nil {
 			return nil, CreateModuleOutput{}, err
 		}
-		status := in.Status
-		if status == "" {
-			status = "backlog"
+		status := "backlog"
+		if in.Status != nil && *in.Status != "" {
+			status = *in.Status
 		}
-		m, err := modules.Create(ctx, &module.Module{
+		newModule := &module.Module{
 			WorkspaceID: wsID,
 			ProjectID:   pID,
 			Name:        in.Name,
-			Description: in.Description,
 			Status:      status,
 			SortOrder:   65535,
 			CreatedBy:   userID,
-		})
+		}
+		if in.Description != nil {
+			newModule.Description = *in.Description
+		}
+		m, err := modules.Create(ctx, newModule)
 		if err != nil {
 			return nil, CreateModuleOutput{}, err
 		}
-		b, _ := json.Marshal(m)
-		return nil, CreateModuleOutput{Module: b}, nil
+		return nil, CreateModuleOutput{Module: m}, nil
 	}
 }
 
 type UpdateModuleInput struct {
-	ProjectID   string `json:"project_id"   jsonschema:"required"`
-	ModuleID    string `json:"module_id"    jsonschema:"required"`
-	Name        string `json:"name"        `
-	Description string `json:"description" `
-	Status      string `json:"status"      `
+	ProjectID   string  `json:"project_id"`
+	ModuleID    string  `json:"module_id"`
+	Name        *string `json:"name,omitempty"`
+	Description *string `json:"description,omitempty"`
+	Status      *string `json:"status,omitempty"`
 }
 type UpdateModuleOutput struct {
-	Module json.RawMessage `json:"module"`
+	Module any `json:"module"`
 }
 
 func updateModule(modules module.Repository) mcp.ToolHandlerFor[UpdateModuleInput, UpdateModuleOutput] {
@@ -143,27 +142,26 @@ func updateModule(modules module.Repository) mcp.ToolHandlerFor[UpdateModuleInpu
 		if err != nil {
 			return nil, UpdateModuleOutput{}, err
 		}
-		if in.Name != "" {
-			existing.Name = in.Name
+		if in.Name != nil {
+			existing.Name = *in.Name
 		}
-		if in.Description != "" {
-			existing.Description = in.Description
+		if in.Description != nil {
+			existing.Description = *in.Description
 		}
-		if in.Status != "" {
-			existing.Status = in.Status
+		if in.Status != nil {
+			existing.Status = *in.Status
 		}
 		existing.UpdatedBy = &userID
 		updated, err := modules.Update(ctx, existing)
 		if err != nil {
 			return nil, UpdateModuleOutput{}, err
 		}
-		b, _ := json.Marshal(updated)
-		return nil, UpdateModuleOutput{Module: b}, nil
+		return nil, UpdateModuleOutput{Module: updated}, nil
 	}
 }
 
 type DeleteModuleInput struct {
-	ModuleID string `json:"module_id" jsonschema:"required"`
+	ModuleID string `json:"module_id"`
 }
 type DeleteModuleOutput struct {
 	OK bool `json:"ok"`
@@ -183,8 +181,8 @@ func deleteModule(modules module.Repository) mcp.ToolHandlerFor[DeleteModuleInpu
 }
 
 type AddToModuleInput struct {
-	ModuleID string   `json:"module_id"  jsonschema:"required"`
-	IssueIDs []string `json:"issue_ids"  jsonschema:"required"`
+	ModuleID string   `json:"module_id,omitempty"`
+	IssueIDs []string `json:"issue_ids,omitempty"`
 }
 type AddToModuleOutput struct {
 	Added int `json:"added"`
@@ -212,8 +210,8 @@ func addToModule(modules module.Repository) mcp.ToolHandlerFor[AddToModuleInput,
 }
 
 type RemoveFromModuleInput struct {
-	ModuleID string `json:"module_id" jsonschema:"required"`
-	IssueID  string `json:"issue_id"  jsonschema:"required"`
+	ModuleID string `json:"module_id"`
+	IssueID  string `json:"issue_id"` 
 }
 type RemoveFromModuleOutput struct {
 	OK bool `json:"ok"`

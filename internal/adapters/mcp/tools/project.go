@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/agoodkind/tack/internal/domain/project"
@@ -18,10 +17,10 @@ func RegisterProject(s *mcp.Server, projects project.Repository, states state.Re
 }
 
 type ListProjectsInput struct {
-	WorkspaceID string `json:"workspace_id" jsonschema:"required"`
+	WorkspaceID string `json:"workspace_id"`
 }
 type ListProjectsOutput struct {
-	Projects json.RawMessage `json:"projects"`
+	Projects any `json:"projects"`
 }
 
 func listProjects(projects project.Repository) mcp.ToolHandlerFor[ListProjectsInput, ListProjectsOutput] {
@@ -34,18 +33,17 @@ func listProjects(projects project.Repository) mcp.ToolHandlerFor[ListProjectsIn
 		if err != nil {
 			return nil, ListProjectsOutput{}, err
 		}
-		b, _ := json.Marshal(ps)
-		return nil, ListProjectsOutput{Projects: b}, nil
+		return nil, ListProjectsOutput{Projects: ps}, nil
 	}
 }
 
 type GetProjectInput struct {
-	WorkspaceID string `json:"workspace_id" jsonschema:"required"`
-	ProjectID   string `json:"project_id"   jsonschema:"required"`
+	WorkspaceID string `json:"workspace_id"`
+	ProjectID   string `json:"project_id"` 
 }
 type GetProjectOutput struct {
-	Project json.RawMessage `json:"project"`
-	States  json.RawMessage `json:"states"`
+	Project any `json:"project"`
+	States  any `json:"states"`
 }
 
 func getProject(projects project.Repository, states state.Repository) mcp.ToolHandlerFor[GetProjectInput, GetProjectOutput] {
@@ -63,20 +61,18 @@ func getProject(projects project.Repository, states state.Repository) mcp.ToolHa
 			return nil, GetProjectOutput{}, err
 		}
 		ss, _ := states.List(ctx, p.ID)
-		pb, _ := json.Marshal(p)
-		sb, _ := json.Marshal(ss)
-		return nil, GetProjectOutput{Project: pb, States: sb}, nil
+		return nil, GetProjectOutput{Project: p, States: ss}, nil
 	}
 }
 
 type CreateProjectInput struct {
-	WorkspaceID string `json:"workspace_id" jsonschema:"required"`
-	Name        string `json:"name"         jsonschema:"required"`
-	Identifier  string `json:"identifier"   jsonschema:"required"`
-	Description string `json:"description" `
+	WorkspaceID string  `json:"workspace_id"`
+	Name        string  `json:"name"`
+	Identifier  string  `json:"identifier"`
+	Description *string `json:"description,omitempty"`
 }
 type CreateProjectOutput struct {
-	Project json.RawMessage `json:"project"`
+	Project any `json:"project"`
 }
 
 func createProject(projects project.Repository) mcp.ToolHandlerFor[CreateProjectInput, CreateProjectOutput] {
@@ -89,29 +85,31 @@ func createProject(projects project.Repository) mcp.ToolHandlerFor[CreateProject
 		if err != nil {
 			return nil, CreateProjectOutput{}, err
 		}
-		p, err := projects.Create(ctx, &project.Project{
+		newProject := &project.Project{
 			WorkspaceID: wsID,
 			Name:        in.Name,
 			Identifier:  in.Identifier,
-			Description: in.Description,
 			CreatedBy:   userID,
-		})
+		}
+		if in.Description != nil {
+			newProject.Description = *in.Description
+		}
+		p, err := projects.Create(ctx, newProject)
 		if err != nil {
 			return nil, CreateProjectOutput{}, fmt.Errorf("create project: %w", err)
 		}
-		b, _ := json.Marshal(p)
-		return nil, CreateProjectOutput{Project: b}, nil
+		return nil, CreateProjectOutput{Project: p}, nil
 	}
 }
 
 type UpdateProjectInput struct {
-	WorkspaceID string `json:"workspace_id" jsonschema:"required"`
-	ProjectID   string `json:"project_id"   jsonschema:"required"`
-	Name        string `json:"name"        `
-	Description string `json:"description" `
+	WorkspaceID string  `json:"workspace_id"`
+	ProjectID   string  `json:"project_id"`
+	Name        *string `json:"name,omitempty"`
+	Description *string `json:"description,omitempty"`
 }
 type UpdateProjectOutput struct {
-	Project json.RawMessage `json:"project"`
+	Project any `json:"project"`
 }
 
 func updateProject(projects project.Repository) mcp.ToolHandlerFor[UpdateProjectInput, UpdateProjectOutput] {
@@ -132,18 +130,17 @@ func updateProject(projects project.Repository) mcp.ToolHandlerFor[UpdateProject
 		if err != nil {
 			return nil, UpdateProjectOutput{}, err
 		}
-		if in.Name != "" {
-			p.Name = in.Name
+		if in.Name != nil {
+			p.Name = *in.Name
 		}
-		if in.Description != "" {
-			p.Description = in.Description
+		if in.Description != nil {
+			p.Description = *in.Description
 		}
 		p.UpdatedBy = &userID
 		updated, err := projects.Update(ctx, p)
 		if err != nil {
 			return nil, UpdateProjectOutput{}, err
 		}
-		b, _ := json.Marshal(updated)
-		return nil, UpdateProjectOutput{Project: b}, nil
+		return nil, UpdateProjectOutput{Project: updated}, nil
 	}
 }

@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 
 	"github.com/agoodkind/tack/internal/domain/state"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -16,10 +15,10 @@ func RegisterState(s *mcp.Server, states state.Repository) {
 }
 
 type ListStatesInput struct {
-	ProjectID string `json:"project_id" jsonschema:"required"`
+	ProjectID string `json:"project_id"`
 }
 type ListStatesOutput struct {
-	States json.RawMessage `json:"states"`
+	States any `json:"states"`
 }
 
 func listStates(states state.Repository) mcp.ToolHandlerFor[ListStatesInput, ListStatesOutput] {
@@ -32,19 +31,18 @@ func listStates(states state.Repository) mcp.ToolHandlerFor[ListStatesInput, Lis
 		if err != nil {
 			return nil, ListStatesOutput{}, err
 		}
-		b, _ := json.Marshal(ss)
-		return nil, ListStatesOutput{States: b}, nil
+		return nil, ListStatesOutput{States: ss}, nil
 	}
 }
 
 type CreateStateInput struct {
-	ProjectID string `json:"project_id" jsonschema:"required"`
-	Name      string `json:"name"       jsonschema:"required"`
-	GroupName string `json:"group_name" jsonschema:"required"`
-	Color     string `json:"color"     `
+	ProjectID string  `json:"project_id"`
+	Name      string  `json:"name"`
+	GroupName string  `json:"group_name"`
+	Color     *string `json:"color,omitempty"`
 }
 type CreateStateOutput struct {
-	State json.RawMessage `json:"state"`
+	State any `json:"state"`
 }
 
 func createState(states state.Repository) mcp.ToolHandlerFor[CreateStateInput, CreateStateOutput] {
@@ -53,9 +51,9 @@ func createState(states state.Repository) mcp.ToolHandlerFor[CreateStateInput, C
 		if err != nil {
 			return nil, CreateStateOutput{}, err
 		}
-		color := in.Color
-		if color == "" {
-			color = "#cccccc"
+		color := "#cccccc"
+		if in.Color != nil && *in.Color != "" {
+			color = *in.Color
 		}
 		s, err := states.Create(ctx, &state.State{
 			ProjectID: pID,
@@ -67,20 +65,19 @@ func createState(states state.Repository) mcp.ToolHandlerFor[CreateStateInput, C
 		if err != nil {
 			return nil, CreateStateOutput{}, err
 		}
-		b, _ := json.Marshal(s)
-		return nil, CreateStateOutput{State: b}, nil
+		return nil, CreateStateOutput{State: s}, nil
 	}
 }
 
 type UpdateStateInput struct {
-	ProjectID string `json:"project_id" jsonschema:"required"`
-	StateID   string `json:"state_id"   jsonschema:"required"`
-	Name      string `json:"name"      `
-	GroupName string `json:"group_name"`
-	Color     string `json:"color"     `
+	ProjectID string  `json:"project_id"`
+	StateID   string  `json:"state_id"`
+	Name      *string `json:"name,omitempty"`
+	GroupName *string `json:"group_name"`
+	Color     *string `json:"color,omitempty"`
 }
 type UpdateStateOutput struct {
-	State json.RawMessage `json:"state"`
+	State any `json:"state"`
 }
 
 func updateState(states state.Repository) mcp.ToolHandlerFor[UpdateStateInput, UpdateStateOutput] {
@@ -97,26 +94,25 @@ func updateState(states state.Repository) mcp.ToolHandlerFor[UpdateStateInput, U
 		if err != nil {
 			return nil, UpdateStateOutput{}, err
 		}
-		if in.Name != "" {
-			s.Name = in.Name
+		if in.Name != nil {
+			s.Name = *in.Name
 		}
-		if in.GroupName != "" {
-			s.GroupName = state.GroupName(in.GroupName)
+		if in.GroupName != nil {
+			s.GroupName = state.GroupName(*in.GroupName)
 		}
-		if in.Color != "" {
-			s.Color = in.Color
+		if in.Color != nil {
+			s.Color = *in.Color
 		}
 		updated, err := states.Update(ctx, s)
 		if err != nil {
 			return nil, UpdateStateOutput{}, err
 		}
-		b, _ := json.Marshal(updated)
-		return nil, UpdateStateOutput{State: b}, nil
+		return nil, UpdateStateOutput{State: updated}, nil
 	}
 }
 
 type DeleteStateInput struct {
-	StateID string `json:"state_id" jsonschema:"required"`
+	StateID string `json:"state_id"`
 }
 type DeleteStateOutput struct {
 	OK bool `json:"ok"`

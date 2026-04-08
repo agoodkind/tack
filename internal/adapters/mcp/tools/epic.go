@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/agoodkind/tack/internal/domain/epic"
@@ -20,11 +19,11 @@ func RegisterEpic(s *mcp.Server, epics epic.Repository, projects project.Reposit
 }
 
 type ListEpicsInput struct {
-	WorkspaceID string `json:"workspace_id" jsonschema:"required"`
-	ProjectID   string `json:"project_id"   jsonschema:"required"`
+	WorkspaceID string `json:"workspace_id"`
+	ProjectID   string `json:"project_id"` 
 }
 type ListEpicsOutput struct {
-	Epics json.RawMessage `json:"epics"`
+	Epics any `json:"epics"`
 	Total int             `json:"total"`
 }
 
@@ -42,18 +41,17 @@ func listEpics(epics epic.Repository) mcp.ToolHandlerFor[ListEpicsInput, ListEpi
 		if err != nil {
 			return nil, ListEpicsOutput{}, err
 		}
-		b, _ := json.Marshal(es)
-		return nil, ListEpicsOutput{Epics: b, Total: total}, nil
+		return nil, ListEpicsOutput{Epics: es, Total: total}, nil
 	}
 }
 
 type GetEpicInput struct {
-	WorkspaceID string `json:"workspace_id" jsonschema:"required"`
-	ProjectID   string `json:"project_id"   jsonschema:"required"`
-	EpicID      string `json:"epic_id"      jsonschema:"required"`
+	WorkspaceID string `json:"workspace_id"`
+	ProjectID   string `json:"project_id"` 
+	EpicID      string `json:"epic_id"` 
 }
 type GetEpicOutput struct {
-	Epic json.RawMessage `json:"epic"`
+	Epic any `json:"epic"`
 }
 
 func getEpic(epics epic.Repository) mcp.ToolHandlerFor[GetEpicInput, GetEpicOutput] {
@@ -74,21 +72,20 @@ func getEpic(epics epic.Repository) mcp.ToolHandlerFor[GetEpicInput, GetEpicOutp
 		if err != nil {
 			return nil, GetEpicOutput{}, err
 		}
-		b, _ := json.Marshal(e)
-		return nil, GetEpicOutput{Epic: b}, nil
+		return nil, GetEpicOutput{Epic: e}, nil
 	}
 }
 
 type CreateEpicInput struct {
-	WorkspaceID string `json:"workspace_id" jsonschema:"required"`
-	ProjectID   string `json:"project_id"   jsonschema:"required"`
-	Name        string `json:"name"         jsonschema:"required"`
-	Description string `json:"description" `
-	Priority    string `json:"priority"    `
-	StateID     string `json:"state_id"    `
+	WorkspaceID string  `json:"workspace_id"`
+	ProjectID   string  `json:"project_id"`
+	Name        string  `json:"name"`
+	Description *string `json:"description,omitempty"`
+	Priority    *string `json:"priority,omitempty"`
+	StateID     *string `json:"state_id,omitempty"`
 }
 type CreateEpicOutput struct {
-	Epic json.RawMessage `json:"epic"`
+	Epic any `json:"epic"`
 }
 
 func createEpic(epics epic.Repository, projects project.Repository) mcp.ToolHandlerFor[CreateEpicInput, CreateEpicOutput] {
@@ -113,33 +110,38 @@ func createEpic(epics epic.Repository, projects project.Repository) mcp.ToolHand
 			WorkspaceID: wsID,
 			ProjectID:   pID,
 			Name:        in.Name,
-			Description: in.Description,
-			Priority:    issue.Priority(in.Priority),
-			StateID:     parseOptionalUUID(in.StateID),
 			SequenceID:  seq,
 			SortOrder:   65535,
+		}
+		if in.Description != nil {
+			e.Description = *in.Description
+		}
+		if in.Priority != nil {
+			e.Priority = issue.Priority(*in.Priority)
+		}
+		if in.StateID != nil {
+			e.StateID = parseOptionalUUID(*in.StateID)
 		}
 		e.CreatedBy = userID
 		e, err = epics.Create(ctx, e)
 		if err != nil {
 			return nil, CreateEpicOutput{}, err
 		}
-		b, _ := json.Marshal(e)
-		return nil, CreateEpicOutput{Epic: b}, nil
+		return nil, CreateEpicOutput{Epic: e}, nil
 	}
 }
 
 type UpdateEpicInput struct {
-	WorkspaceID string `json:"workspace_id" jsonschema:"required"`
-	ProjectID   string `json:"project_id"   jsonschema:"required"`
-	EpicID      string `json:"epic_id"      jsonschema:"required"`
-	Name        string `json:"name"        `
-	Description string `json:"description" `
-	Priority    string `json:"priority"    `
-	StateID     string `json:"state_id"    `
+	WorkspaceID string  `json:"workspace_id"`
+	ProjectID   string  `json:"project_id"`
+	EpicID      string  `json:"epic_id"`
+	Name        *string `json:"name,omitempty"`
+	Description *string `json:"description,omitempty"`
+	Priority    *string `json:"priority,omitempty"`
+	StateID     *string `json:"state_id,omitempty"`
 }
 type UpdateEpicOutput struct {
-	Epic json.RawMessage `json:"epic"`
+	Epic any `json:"epic"`
 }
 
 func updateEpic(epics epic.Repository) mcp.ToolHandlerFor[UpdateEpicInput, UpdateEpicOutput] {
@@ -164,30 +166,29 @@ func updateEpic(epics epic.Repository) mcp.ToolHandlerFor[UpdateEpicInput, Updat
 		if err != nil {
 			return nil, UpdateEpicOutput{}, err
 		}
-		if in.Name != "" {
-			existing.Name = in.Name
+		if in.Name != nil {
+			existing.Name = *in.Name
 		}
-		if in.Description != "" {
-			existing.Description = in.Description
+		if in.Description != nil {
+			existing.Description = *in.Description
 		}
-		if in.Priority != "" {
-			existing.Priority = issue.Priority(in.Priority)
+		if in.Priority != nil {
+			existing.Priority = issue.Priority(*in.Priority)
 		}
-		if in.StateID != "" {
-			existing.StateID = parseOptionalUUID(in.StateID)
+		if in.StateID != nil {
+			existing.StateID = parseOptionalUUID(*in.StateID)
 		}
 		existing.UpdatedBy = &userID
 		updated, err := epics.Update(ctx, existing)
 		if err != nil {
 			return nil, UpdateEpicOutput{}, err
 		}
-		b, _ := json.Marshal(updated)
-		return nil, UpdateEpicOutput{Epic: b}, nil
+		return nil, UpdateEpicOutput{Epic: updated}, nil
 	}
 }
 
 type DeleteEpicInput struct {
-	EpicID string `json:"epic_id" jsonschema:"required"`
+	EpicID string `json:"epic_id"`
 }
 type DeleteEpicOutput struct {
 	OK bool `json:"ok"`

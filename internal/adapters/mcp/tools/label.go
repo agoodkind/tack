@@ -2,9 +2,9 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 
 	"github.com/agoodkind/tack/internal/domain/label"
+	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -15,11 +15,11 @@ func RegisterLabel(s *mcp.Server, labels label.Repository) {
 }
 
 type ListLabelsInput struct {
-	WorkspaceID string `json:"workspace_id" jsonschema:"required"`
-	ProjectID   string `json:"project_id"  `
+	WorkspaceID string  `json:"workspace_id"`
+	ProjectID   *string `json:"project_id,omitempty"`
 }
 type ListLabelsOutput struct {
-	Labels json.RawMessage `json:"labels"`
+	Labels any `json:"labels"`
 }
 
 func listLabels(labels label.Repository) mcp.ToolHandlerFor[ListLabelsInput, ListLabelsOutput] {
@@ -28,24 +28,26 @@ func listLabels(labels label.Repository) mcp.ToolHandlerFor[ListLabelsInput, Lis
 		if err != nil {
 			return nil, ListLabelsOutput{}, err
 		}
-		pID := parseOptionalUUID(in.ProjectID)
+		var pID *uuid.UUID
+		if in.ProjectID != nil {
+			pID = parseOptionalUUID(*in.ProjectID)
+		}
 		ls, err := labels.List(ctx, wsID, pID)
 		if err != nil {
 			return nil, ListLabelsOutput{}, err
 		}
-		b, _ := json.Marshal(ls)
-		return nil, ListLabelsOutput{Labels: b}, nil
+		return nil, ListLabelsOutput{Labels: ls}, nil
 	}
 }
 
 type CreateLabelInput struct {
-	WorkspaceID string `json:"workspace_id" jsonschema:"required"`
-	ProjectID   string `json:"project_id"  `
-	Name        string `json:"name"         jsonschema:"required"`
-	Color       string `json:"color"       `
+	WorkspaceID string  `json:"workspace_id"`
+	ProjectID   *string `json:"project_id,omitempty"`
+	Name        string  `json:"name"`
+	Color       *string `json:"color,omitempty"`
 }
 type CreateLabelOutput struct {
-	Label json.RawMessage `json:"label"`
+	Label any `json:"label"`
 }
 
 func createLabel(labels label.Repository) mcp.ToolHandlerFor[CreateLabelInput, CreateLabelOutput] {
@@ -54,13 +56,17 @@ func createLabel(labels label.Repository) mcp.ToolHandlerFor[CreateLabelInput, C
 		if err != nil {
 			return nil, CreateLabelOutput{}, err
 		}
-		color := in.Color
-		if color == "" {
-			color = "#cccccc"
+		color := "#cccccc"
+		if in.Color != nil && *in.Color != "" {
+			color = *in.Color
+		}
+		var projectID *uuid.UUID
+		if in.ProjectID != nil {
+			projectID = parseOptionalUUID(*in.ProjectID)
 		}
 		l, err := labels.Create(ctx, &label.Label{
 			WorkspaceID: wsID,
-			ProjectID:   parseOptionalUUID(in.ProjectID),
+			ProjectID:   projectID,
 			Name:        in.Name,
 			Color:       color,
 			SortOrder:   65535,
@@ -68,13 +74,12 @@ func createLabel(labels label.Repository) mcp.ToolHandlerFor[CreateLabelInput, C
 		if err != nil {
 			return nil, CreateLabelOutput{}, err
 		}
-		b, _ := json.Marshal(l)
-		return nil, CreateLabelOutput{Label: b}, nil
+		return nil, CreateLabelOutput{Label: l}, nil
 	}
 }
 
 type DeleteLabelInput struct {
-	LabelID string `json:"label_id" jsonschema:"required"`
+	LabelID string `json:"label_id"`
 }
 type DeleteLabelOutput struct {
 	OK bool `json:"ok"`

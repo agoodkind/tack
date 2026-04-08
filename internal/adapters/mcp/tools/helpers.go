@@ -1,14 +1,15 @@
 package tools
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/agoodkind/tack/internal/auth"
 	"github.com/agoodkind/tack/internal/domain"
 	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"context"
 )
 
 func parseUUID(s, field string) (uuid.UUID, error) {
@@ -28,6 +29,19 @@ func parseOptionalUUID(s string) *uuid.UUID {
 		return nil
 	}
 	return &id
+}
+
+// parseOptionalDate parses an optional date string (YYYY-MM-DD) into a *time.Time.
+// Returns nil if the string is empty; returns an error for invalid formats.
+func parseOptionalDate(s, field string) (*time.Time, error) {
+	if s == "" {
+		return nil, nil
+	}
+	t, err := time.Parse("2006-01-02", s)
+	if err != nil {
+		return nil, fmt.Errorf("invalid %s (expected YYYY-MM-DD): %w", field, err)
+	}
+	return &t, nil
 }
 
 // mustUser extracts the authenticated user ID from context.

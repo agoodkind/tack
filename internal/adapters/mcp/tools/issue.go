@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/agoodkind/tack/internal/domain/issue"
@@ -25,15 +24,15 @@ func RegisterIssue(s *mcp.Server, svc issue.Service) {
 // ── list ─────────────────────────────────────────────────────────────────────
 
 type ListIssuesInput struct {
-	WorkspaceID string `json:"workspace_id" jsonschema:"required"`
-	ProjectID   string `json:"project_id"   jsonschema:"required"`
-	StateID     string `json:"state_id"    `
-	Priority    string `json:"priority"    `
-	EpicID      string `json:"epic_id"     `
-	AssigneeID  string `json:"assignee_id" `
+	WorkspaceID string  `json:"workspace_id"`
+	ProjectID   string  `json:"project_id"`
+	StateID     *string `json:"state_id,omitempty"`
+	Priority    *string `json:"priority,omitempty"`
+	EpicID      *string `json:"epic_id,omitempty"`
+	AssigneeID  *string `json:"assignee_id,omitempty"`
 }
 type ListIssuesOutput struct {
-	Issues json.RawMessage `json:"issues"`
+	Issues any `json:"issues"`
 	Total  int             `json:"total"`
 }
 
@@ -48,36 +47,41 @@ func listIssues(svc issue.Service) mcp.ToolHandlerFor[ListIssuesInput, ListIssue
 			return nil, ListIssuesOutput{}, err
 		}
 		filter := issue.ListFilter{WorkspaceID: wsID, ProjectID: &pID}
-		if id := parseOptionalUUID(in.StateID); id != nil {
-			filter.StateIDs = []uuid.UUID{*id}
+		if in.StateID != nil {
+			if id := parseOptionalUUID(*in.StateID); id != nil {
+				filter.StateIDs = []uuid.UUID{*id}
+			}
 		}
-		if id := parseOptionalUUID(in.EpicID); id != nil {
-			filter.EpicID = id
+		if in.EpicID != nil {
+			if id := parseOptionalUUID(*in.EpicID); id != nil {
+				filter.EpicID = id
+			}
 		}
-		if id := parseOptionalUUID(in.AssigneeID); id != nil {
-			filter.AssigneeIDs = []uuid.UUID{*id}
+		if in.AssigneeID != nil {
+			if id := parseOptionalUUID(*in.AssigneeID); id != nil {
+				filter.AssigneeIDs = []uuid.UUID{*id}
+			}
 		}
-		if in.Priority != "" {
-			filter.Priorities = []issue.Priority{issue.Priority(in.Priority)}
+		if in.Priority != nil {
+			filter.Priorities = []issue.Priority{issue.Priority(*in.Priority)}
 		}
 		items, total, err := svc.List(ctx, filter)
 		if err != nil {
 			return nil, ListIssuesOutput{}, err
 		}
-		b, _ := json.Marshal(items)
-		return nil, ListIssuesOutput{Issues: b, Total: total}, nil
+		return nil, ListIssuesOutput{Issues: items, Total: total}, nil
 	}
 }
 
 // ── get ──────────────────────────────────────────────────────────────────────
 
 type GetIssueInput struct {
-	WorkspaceID string `json:"workspace_id" jsonschema:"required"`
-	ProjectID   string `json:"project_id"   jsonschema:"required"`
-	IssueID     string `json:"issue_id"     jsonschema:"required"`
+	WorkspaceID string `json:"workspace_id"`
+	ProjectID   string `json:"project_id"` 
+	IssueID     string `json:"issue_id"` 
 }
 type GetIssueOutput struct {
-	Issue json.RawMessage `json:"issue"`
+	Issue any `json:"issue"`
 }
 
 func getIssue(svc issue.Service) mcp.ToolHandlerFor[GetIssueInput, GetIssueOutput] {
@@ -98,24 +102,23 @@ func getIssue(svc issue.Service) mcp.ToolHandlerFor[GetIssueInput, GetIssueOutpu
 		if err != nil {
 			return nil, GetIssueOutput{}, err
 		}
-		b, _ := json.Marshal(item)
-		return nil, GetIssueOutput{Issue: b}, nil
+		return nil, GetIssueOutput{Issue: item}, nil
 	}
 }
 
 // ── create ───────────────────────────────────────────────────────────────────
 
 type CreateIssueInput struct {
-	WorkspaceID string `json:"workspace_id" jsonschema:"required"`
-	ProjectID   string `json:"project_id"   jsonschema:"required"`
-	Name        string `json:"name"         jsonschema:"required"`
-	Description string `json:"description" `
-	Priority    string `json:"priority"    `
-	StateID     string `json:"state_id"    `
-	EpicID      string `json:"epic_id"     `
+	WorkspaceID string  `json:"workspace_id"`
+	ProjectID   string  `json:"project_id"`
+	Name        string  `json:"name"`
+	Description *string `json:"description,omitempty"`
+	Priority    *string `json:"priority,omitempty"`
+	StateID     *string `json:"state_id,omitempty"`
+	EpicID      *string `json:"epic_id,omitempty"`
 }
 type CreateIssueOutput struct {
-	Issue json.RawMessage `json:"issue"`
+	Issue any `json:"issue"`
 }
 
 func createIssue(svc issue.Service) mcp.ToolHandlerFor[CreateIssueInput, CreateIssueOutput] {
@@ -136,34 +139,41 @@ func createIssue(svc issue.Service) mcp.ToolHandlerFor[CreateIssueInput, CreateI
 			WorkspaceID: wsID,
 			ProjectID:   pID,
 			Name:        in.Name,
-			Description: in.Description,
-			Priority:    issue.Priority(in.Priority),
-			StateID:     parseOptionalUUID(in.StateID),
-			EpicID:      parseOptionalUUID(in.EpicID),
+		}
+		if in.Description != nil {
+			i.Description = *in.Description
+		}
+		if in.Priority != nil {
+			i.Priority = issue.Priority(*in.Priority)
+		}
+		if in.StateID != nil {
+			i.StateID = parseOptionalUUID(*in.StateID)
+		}
+		if in.EpicID != nil {
+			i.EpicID = parseOptionalUUID(*in.EpicID)
 		}
 		i.CreatedBy = userID
 		created, err := svc.Create(ctx, i)
 		if err != nil {
 			return nil, CreateIssueOutput{}, fmt.Errorf("create issue: %w", err)
 		}
-		b, _ := json.Marshal(created)
-		return nil, CreateIssueOutput{Issue: b}, nil
+		return nil, CreateIssueOutput{Issue: created}, nil
 	}
 }
 
 // ── update (partial) ─────────────────────────────────────────────────────────
 
 type UpdateIssueInput struct {
-	WorkspaceID string `json:"workspace_id" jsonschema:"required"`
-	ProjectID   string `json:"project_id"   jsonschema:"required"`
-	IssueID     string `json:"issue_id"     jsonschema:"required"`
-	Name        string `json:"name"        `
-	Description string `json:"description" `
-	Priority    string `json:"priority"    `
-	EpicID      string `json:"epic_id"     `
+	WorkspaceID string  `json:"workspace_id"`
+	ProjectID   string  `json:"project_id"`
+	IssueID     string  `json:"issue_id"`
+	Name        *string `json:"name,omitempty"`
+	Description *string `json:"description,omitempty"`
+	Priority    *string `json:"priority,omitempty"`
+	EpicID      *string `json:"epic_id,omitempty"`
 }
 type UpdateIssueOutput struct {
-	Issue json.RawMessage `json:"issue"`
+	Issue any `json:"issue"`
 }
 
 func updateIssue(svc issue.Service) mcp.ToolHandlerFor[UpdateIssueInput, UpdateIssueOutput] {
@@ -188,34 +198,33 @@ func updateIssue(svc issue.Service) mcp.ToolHandlerFor[UpdateIssueInput, UpdateI
 		if err != nil {
 			return nil, UpdateIssueOutput{}, err
 		}
-		if in.Name != "" {
-			existing.Name = in.Name
+		if in.Name != nil {
+			existing.Name = *in.Name
 		}
-		if in.Description != "" {
-			existing.Description = in.Description
+		if in.Description != nil {
+			existing.Description = *in.Description
 		}
-		if in.Priority != "" {
-			existing.Priority = issue.Priority(in.Priority)
+		if in.Priority != nil {
+			existing.Priority = issue.Priority(*in.Priority)
 		}
-		if in.EpicID != "" {
-			existing.EpicID = parseOptionalUUID(in.EpicID)
+		if in.EpicID != nil {
+			existing.EpicID = parseOptionalUUID(*in.EpicID)
 		}
 		existing.UpdatedBy = &userID
 		updated, err := svc.Update(ctx, existing)
 		if err != nil {
 			return nil, UpdateIssueOutput{}, err
 		}
-		b, _ := json.Marshal(updated)
-		return nil, UpdateIssueOutput{Issue: b}, nil
+		return nil, UpdateIssueOutput{Issue: updated}, nil
 	}
 }
 
 // ── delete ───────────────────────────────────────────────────────────────────
 
 type DeleteIssueInput struct {
-	WorkspaceID string `json:"workspace_id" jsonschema:"required"`
-	ProjectID   string `json:"project_id"   jsonschema:"required"`
-	IssueID     string `json:"issue_id"     jsonschema:"required"`
+	WorkspaceID string `json:"workspace_id"`
+	ProjectID   string `json:"project_id"` 
+	IssueID     string `json:"issue_id"` 
 }
 type DeleteIssueOutput struct {
 	OK bool `json:"ok"`
@@ -245,13 +254,13 @@ func deleteIssue(svc issue.Service) mcp.ToolHandlerFor[DeleteIssueInput, DeleteI
 // ── assign ───────────────────────────────────────────────────────────────────
 
 type AssignIssueInput struct {
-	WorkspaceID string   `json:"workspace_id"  jsonschema:"required"`
-	ProjectID   string   `json:"project_id"    jsonschema:"required"`
-	IssueID     string   `json:"issue_id"      jsonschema:"required"`
-	AssigneeIDs []string `json:"assignee_ids"  jsonschema:"required"`
+	WorkspaceID string   `json:"workspace_id,omitempty"`
+	ProjectID   string   `json:"project_id,omitempty"`
+	IssueID     string   `json:"issue_id,omitempty"`
+	AssigneeIDs []string `json:"assignee_ids,omitempty"`
 }
 type AssignIssueOutput struct {
-	Issue json.RawMessage `json:"issue"`
+	Issue any `json:"issue"`
 }
 
 func assignIssue(svc issue.Service) mcp.ToolHandlerFor[AssignIssueInput, AssignIssueOutput] {
@@ -290,21 +299,20 @@ func assignIssue(svc issue.Service) mcp.ToolHandlerFor[AssignIssueInput, AssignI
 		if err != nil {
 			return nil, AssignIssueOutput{}, err
 		}
-		b, _ := json.Marshal(updated)
-		return nil, AssignIssueOutput{Issue: b}, nil
+		return nil, AssignIssueOutput{Issue: updated}, nil
 	}
 }
 
 // ── set state ────────────────────────────────────────────────────────────────
 
 type SetIssueStateInput struct {
-	WorkspaceID string `json:"workspace_id" jsonschema:"required"`
-	ProjectID   string `json:"project_id"   jsonschema:"required"`
-	IssueID     string `json:"issue_id"     jsonschema:"required"`
-	StateID     string `json:"state_id"     jsonschema:"required"`
+	WorkspaceID string `json:"workspace_id"`
+	ProjectID   string `json:"project_id"` 
+	IssueID     string `json:"issue_id"` 
+	StateID     string `json:"state_id"` 
 }
 type SetIssueStateOutput struct {
-	Issue json.RawMessage `json:"issue"`
+	Issue any `json:"issue"`
 }
 
 func setIssueState(svc issue.Service) mcp.ToolHandlerFor[SetIssueStateInput, SetIssueStateOutput] {
@@ -339,21 +347,20 @@ func setIssueState(svc issue.Service) mcp.ToolHandlerFor[SetIssueStateInput, Set
 		if err != nil {
 			return nil, SetIssueStateOutput{}, err
 		}
-		b, _ := json.Marshal(updated)
-		return nil, SetIssueStateOutput{Issue: b}, nil
+		return nil, SetIssueStateOutput{Issue: updated}, nil
 	}
 }
 
 // ── move ─────────────────────────────────────────────────────────────────────
 
 type MoveIssueInput struct {
-	WorkspaceID      string `json:"workspace_id"       jsonschema:"required"`
-	ProjectID        string `json:"project_id"         jsonschema:"required"`
-	IssueID          string `json:"issue_id"           jsonschema:"required"`
-	TargetProjectID  string `json:"target_project_id"  jsonschema:"required"`
+	WorkspaceID      string `json:"workspace_id"` 
+	ProjectID        string `json:"project_id"` 
+	IssueID          string `json:"issue_id"` 
+	TargetProjectID  string `json:"target_project_id"` 
 }
 type MoveIssueOutput struct {
-	Issue json.RawMessage `json:"issue"`
+	Issue any `json:"issue"`
 }
 
 func moveIssue(svc issue.Service) mcp.ToolHandlerFor[MoveIssueInput, MoveIssueOutput] {
@@ -389,19 +396,18 @@ func moveIssue(svc issue.Service) mcp.ToolHandlerFor[MoveIssueInput, MoveIssueOu
 		if err != nil {
 			return nil, MoveIssueOutput{}, err
 		}
-		b, _ := json.Marshal(updated)
-		return nil, MoveIssueOutput{Issue: b}, nil
+		return nil, MoveIssueOutput{Issue: updated}, nil
 	}
 }
 
 // ── bulk update ──────────────────────────────────────────────────────────────
 
 type BulkUpdateIssuesInput struct {
-	WorkspaceID string   `json:"workspace_id" jsonschema:"required"`
-	ProjectID   string   `json:"project_id"   jsonschema:"required"`
-	IssueIDs    []string `json:"issue_ids"    jsonschema:"required"`
-	StateID     string   `json:"state_id"    `
-	Priority    string   `json:"priority"    `
+	WorkspaceID string   `json:"workspace_id"`
+	ProjectID   string   `json:"project_id,omitempty"`
+	IssueIDs    []string `json:"issue_ids,omitempty"`
+	StateID     *string  `json:"state_id,omitempty"`
+	Priority    *string  `json:"priority,omitempty"`
 	AssigneeIDs []string `json:"assignee_ids"`
 }
 type BulkUpdateIssuesOutput struct {
@@ -443,13 +449,13 @@ func bulkUpdateIssues(svc issue.Service) mcp.ToolHandlerFor[BulkUpdateIssuesInpu
 				failed++
 				continue
 			}
-			if in.StateID != "" {
-				if sID := parseOptionalUUID(in.StateID); sID != nil {
+			if in.StateID != nil {
+				if sID := parseOptionalUUID(*in.StateID); sID != nil {
 					existing.StateID = sID
 				}
 			}
-			if in.Priority != "" {
-				existing.Priority = issue.Priority(in.Priority)
+			if in.Priority != nil {
+				existing.Priority = issue.Priority(*in.Priority)
 			}
 			if len(assigneeIDs) > 0 {
 				existing.AssigneeIDs = assigneeIDs

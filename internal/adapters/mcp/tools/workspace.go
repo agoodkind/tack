@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 
 	"github.com/agoodkind/tack/internal/domain/node"
 	"github.com/agoodkind/tack/internal/domain/project"
@@ -33,21 +32,21 @@ func RegisterWorkspace(
 // ── describe_workspace ───────────────────────────────────────────────────────
 
 type DescribeWorkspaceInput struct {
-	WorkspaceSlug string `json:"workspace_slug" jsonschema:"required"`
+	WorkspaceSlug string `json:"workspace_slug"`
 }
 
 type DescribeWorkspaceOutput struct {
-	Workspace  json.RawMessage   `json:"workspace"`
+	Workspace  any   `json:"workspace"`
 	Projects   []projectSummary  `json:"projects"`
-	NodeTypes  json.RawMessage   `json:"node_types"`
-	PropDefs   json.RawMessage   `json:"property_definitions"`
+	NodeTypes  any   `json:"node_types"`
+	PropDefs   any   `json:"property_definitions"`
 }
 
 type projectSummary struct {
 	ID         string          `json:"id"`
 	Name       string          `json:"name"`
 	Identifier string          `json:"identifier"`
-	States     json.RawMessage `json:"states"`
+	States     any `json:"states"`
 }
 
 func describeWorkspace(
@@ -71,27 +70,22 @@ func describeWorkspace(
 		summaries := make([]projectSummary, 0, len(projs))
 		for _, p := range projs {
 			ss, _ := states.List(ctx, p.ID)
-			sb, _ := json.Marshal(ss)
 			summaries = append(summaries, projectSummary{
 				ID:         p.ID.String(),
 				Name:       p.Name,
 				Identifier: p.Identifier,
-				States:     sb,
+				States:     ss,
 			})
 		}
 
 		nts, _ := nodeTypes.List(ctx, ws.OrgID)
 		defs, _ := properties.ListDefs(ctx, ws.OrgID, ws.ID, nil)
 
-		wsb, _ := json.Marshal(ws)
-		ntb, _ := json.Marshal(nts)
-		db, _ := json.Marshal(defs)
-
 		return nil, DescribeWorkspaceOutput{
-			Workspace: wsb,
+			Workspace: ws,
 			Projects:  summaries,
-			NodeTypes: ntb,
-			PropDefs:  db,
+			NodeTypes: nts,
+			PropDefs:  defs,
 		}, nil
 	}
 }
@@ -101,7 +95,7 @@ func describeWorkspace(
 type ListWorkspacesInput struct{}
 
 type ListWorkspacesOutput struct {
-	Workspaces json.RawMessage `json:"workspaces"`
+	Workspaces any `json:"workspaces"`
 }
 
 func listWorkspaces(workspaces workspace.Repository) mcp.ToolHandlerFor[ListWorkspacesInput, ListWorkspacesOutput] {

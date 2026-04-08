@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 
 	"github.com/agoodkind/tack/internal/domain/cycle"
 	"github.com/google/uuid"
@@ -20,10 +19,10 @@ func RegisterCycle(s *mcp.Server, cycles cycle.Repository) {
 }
 
 type ListCyclesInput struct {
-	ProjectID string `json:"project_id" jsonschema:"required"`
+	ProjectID string `json:"project_id"`
 }
 type ListCyclesOutput struct {
-	Cycles json.RawMessage `json:"cycles"`
+	Cycles any `json:"cycles"`
 }
 
 func listCycles(cycles cycle.Repository) mcp.ToolHandlerFor[ListCyclesInput, ListCyclesOutput] {
@@ -36,17 +35,16 @@ func listCycles(cycles cycle.Repository) mcp.ToolHandlerFor[ListCyclesInput, Lis
 		if err != nil {
 			return nil, ListCyclesOutput{}, err
 		}
-		b, _ := json.Marshal(cs)
-		return nil, ListCyclesOutput{Cycles: b}, nil
+		return nil, ListCyclesOutput{Cycles: cs}, nil
 	}
 }
 
 type GetCycleInput struct {
-	ProjectID string `json:"project_id" jsonschema:"required"`
-	CycleID   string `json:"cycle_id"   jsonschema:"required"`
+	ProjectID string `json:"project_id"`
+	CycleID   string `json:"cycle_id"` 
 }
 type GetCycleOutput struct {
-	Cycle json.RawMessage `json:"cycle"`
+	Cycle any `json:"cycle"`
 }
 
 func getCycle(cycles cycle.Repository) mcp.ToolHandlerFor[GetCycleInput, GetCycleOutput] {
@@ -63,21 +61,20 @@ func getCycle(cycles cycle.Repository) mcp.ToolHandlerFor[GetCycleInput, GetCycl
 		if err != nil {
 			return nil, GetCycleOutput{}, err
 		}
-		b, _ := json.Marshal(c)
-		return nil, GetCycleOutput{Cycle: b}, nil
+		return nil, GetCycleOutput{Cycle: c}, nil
 	}
 }
 
 type CreateCycleInput struct {
-	WorkspaceID string `json:"workspace_id" jsonschema:"required"`
-	ProjectID   string `json:"project_id"   jsonschema:"required"`
-	Name        string `json:"name"         jsonschema:"required"`
-	Description string `json:"description" `
-	StartDate   string `json:"start_date"  `
-	EndDate     string `json:"end_date"    `
+	WorkspaceID string  `json:"workspace_id"`
+	ProjectID   string  `json:"project_id"`
+	Name        string  `json:"name"`
+	Description *string `json:"description,omitempty"`
+	StartDate   *string `json:"start_date,omitempty"`
+	EndDate     *string `json:"end_date,omitempty"`
 }
 type CreateCycleOutput struct {
-	Cycle json.RawMessage `json:"cycle"`
+	Cycle any `json:"cycle"`
 }
 
 func createCycle(cycles cycle.Repository) mcp.ToolHandlerFor[CreateCycleInput, CreateCycleOutput] {
@@ -94,30 +91,46 @@ func createCycle(cycles cycle.Repository) mcp.ToolHandlerFor[CreateCycleInput, C
 		if err != nil {
 			return nil, CreateCycleOutput{}, err
 		}
-		c, err := cycles.Create(ctx, &cycle.Cycle{
+		newCycle := &cycle.Cycle{
 			WorkspaceID: wsID,
 			ProjectID:   pID,
 			Name:        in.Name,
-			Description: in.Description,
 			SortOrder:   65535,
 			CreatedBy:   userID,
-		})
+		}
+		if in.Description != nil {
+			newCycle.Description = *in.Description
+		}
+		if in.StartDate != nil {
+			t, err := parseOptionalDate(*in.StartDate, "start_date")
+			if err != nil {
+				return nil, CreateCycleOutput{}, err
+			}
+			newCycle.StartDate = t
+		}
+		if in.EndDate != nil {
+			t, err := parseOptionalDate(*in.EndDate, "end_date")
+			if err != nil {
+				return nil, CreateCycleOutput{}, err
+			}
+			newCycle.EndDate = t
+		}
+		c, err := cycles.Create(ctx, newCycle)
 		if err != nil {
 			return nil, CreateCycleOutput{}, err
 		}
-		b, _ := json.Marshal(c)
-		return nil, CreateCycleOutput{Cycle: b}, nil
+		return nil, CreateCycleOutput{Cycle: c}, nil
 	}
 }
 
 type UpdateCycleInput struct {
-	ProjectID   string `json:"project_id"   jsonschema:"required"`
-	CycleID     string `json:"cycle_id"     jsonschema:"required"`
-	Name        string `json:"name"        `
-	Description string `json:"description" `
+	ProjectID   string  `json:"project_id"`
+	CycleID     string  `json:"cycle_id"`
+	Name        *string `json:"name,omitempty"`
+	Description *string `json:"description,omitempty"`
 }
 type UpdateCycleOutput struct {
-	Cycle json.RawMessage `json:"cycle"`
+	Cycle any `json:"cycle"`
 }
 
 func updateCycle(cycles cycle.Repository) mcp.ToolHandlerFor[UpdateCycleInput, UpdateCycleOutput] {
@@ -138,24 +151,23 @@ func updateCycle(cycles cycle.Repository) mcp.ToolHandlerFor[UpdateCycleInput, U
 		if err != nil {
 			return nil, UpdateCycleOutput{}, err
 		}
-		if in.Name != "" {
-			existing.Name = in.Name
+		if in.Name != nil {
+			existing.Name = *in.Name
 		}
-		if in.Description != "" {
-			existing.Description = in.Description
+		if in.Description != nil {
+			existing.Description = *in.Description
 		}
 		existing.UpdatedBy = &userID
 		updated, err := cycles.Update(ctx, existing)
 		if err != nil {
 			return nil, UpdateCycleOutput{}, err
 		}
-		b, _ := json.Marshal(updated)
-		return nil, UpdateCycleOutput{Cycle: b}, nil
+		return nil, UpdateCycleOutput{Cycle: updated}, nil
 	}
 }
 
 type DeleteCycleInput struct {
-	CycleID string `json:"cycle_id" jsonschema:"required"`
+	CycleID string `json:"cycle_id"`
 }
 type DeleteCycleOutput struct {
 	OK bool `json:"ok"`
@@ -175,8 +187,8 @@ func deleteCycle(cycles cycle.Repository) mcp.ToolHandlerFor[DeleteCycleInput, D
 }
 
 type AddToCycleInput struct {
-	CycleID  string   `json:"cycle_id"   jsonschema:"required"`
-	IssueIDs []string `json:"issue_ids"  jsonschema:"required"`
+	CycleID  string   `json:"cycle_id,omitempty"`
+	IssueIDs []string `json:"issue_ids,omitempty"`
 }
 type AddToCycleOutput struct {
 	Added int `json:"added"`
@@ -204,8 +216,8 @@ func addToCycle(cycles cycle.Repository) mcp.ToolHandlerFor[AddToCycleInput, Add
 }
 
 type RemoveFromCycleInput struct {
-	CycleID string `json:"cycle_id"  jsonschema:"required"`
-	IssueID string `json:"issue_id"  jsonschema:"required"`
+	CycleID string `json:"cycle_id"` 
+	IssueID string `json:"issue_id"` 
 }
 type RemoveFromCycleOutput struct {
 	OK bool `json:"ok"`
