@@ -13,7 +13,7 @@ services:
       ENV: production
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
-      - fdb-cluster:/etc/foundationdb:ro
+      - /etc/foundationdb:/etc/foundationdb:ro
     depends_on:
       yugabyte:
         condition: service_healthy
@@ -51,7 +51,7 @@ services:
     restart: unless-stopped
     volumes:
       - fdb-data:/var/fdb
-      - fdb-cluster:/etc/foundationdb
+      - /etc/foundationdb:/etc/foundationdb
     healthcheck:
       test: ["CMD-SHELL", "fdbcli --exec 'status minimal' 2>&1 | grep -q 'available'"]
       interval: 10s
@@ -78,5 +78,4 @@ services:
 volumes:
   yugabyte-data:
   fdb-data:
-  fdb-cluster:
   meili-data:
