@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/agoodkind/tack/internal/adapters/mcp/tools"
+	"github.com/agoodkind/tack/internal/auth"
 	"github.com/agoodkind/tack/internal/domain/cycle"
 	"github.com/agoodkind/tack/internal/domain/epic"
 	"github.com/agoodkind/tack/internal/domain/issue"
@@ -27,9 +28,9 @@ type cachedServer struct {
 	builtAt time.Time
 }
 
-// Handler is the MCP HTTP handler. It builds a per-workspace MCP server on
-// first request, then caches it for serverCacheTTL. Custom node types defined
-// in FDB generate additional tools automatically.
+// Handler is the MCP HTTP handler. It builds a per-user MCP server on first
+// request by resolving workspaces from the bearer token, then caches it for
+// serverCacheTTL. Custom node types defined in FDB generate additional tools.
 type Handler struct {
 	workspaces workspace.Repository
 	projects   project.Repository
@@ -44,7 +45,7 @@ type Handler struct {
 	activity   node.ActivityRepository
 
 	mu    sync.RWMutex
-	cache map[uuid.UUID]*cachedServer // keyed by workspace ID
+	cache map[uuid.UUID]*cachedServer // keyed by user ID
 
 	httpHandler http.Handler
 }
@@ -86,50 +87,58 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.httpHandler.ServeHTTP(w, r)
 }
 
-// getServer resolves the workspace from ?workspace=<slug>, builds and caches
-// an MCP server with static + dynamic tools for that workspace.
+// getServer resolves the authenticated user from the request context, fetches
+// all their workspaces, collects all custom node types across those workspaces,
+// and builds a per-user MCP server. Cached by user ID for serverCacheTTL.
 func (h *Handler) getServer(r *http.Request) *mcp.Server {
 	ctx := r.Context()
-	wsSlug := r.URL.Query().Get("workspace")
 
-	// Resolve workspace
-	var wsID uuid.UUID
-	if wsSlug != "" {
-		ws, err := h.workspaces.GetBySlug(ctx, wsSlug)
-		if err != nil {
-			telemetry.L(ctx).Warn("mcp: workspace not found", "slug", wsSlug)
-			return h.buildServer(ctx, uuid.Nil, nil)
-		}
-		wsID = ws.ID
+	userID, ok := auth.UserID(ctx)
+	if !ok {
+		// No authenticated user — return static-only tools.
+		return h.buildServer(nil)
 	}
 
 	// Check cache
 	h.mu.RLock()
-	if c, ok := h.cache[wsID]; ok && time.Since(c.builtAt) < serverCacheTTL {
+	if c, ok := h.cache[userID]; ok && time.Since(c.builtAt) < serverCacheTTL {
 		h.mu.RUnlock()
 		return c.server
 	}
 	h.mu.RUnlock()
 
-	// Fetch custom node types for this workspace's org
+	// Resolve all workspaces this user has access to, then collect
+	// all custom node types across their orgs (deduplicated by type ID).
 	var nodeTypes []*node.NodeType
-	if wsID != uuid.Nil {
-		ws, err := h.workspaces.GetByID(ctx, wsID)
-		if err == nil {
-			nodeTypes, _ = h.nodeTypes.List(ctx, ws.OrgID)
+	wss, err := h.workspaces.ListForUser(ctx, userID)
+	if err != nil {
+		telemetry.L(ctx).Error("mcp: list workspaces for user", "err", err)
+	}
+
+	seen := make(map[uuid.UUID]struct{})
+	for _, ws := range wss {
+		nts, err := h.nodeTypes.List(ctx, ws.OrgID)
+		if err != nil {
+			continue
+		}
+		for _, nt := range nts {
+			if _, dup := seen[nt.ID]; !dup {
+				seen[nt.ID] = struct{}{}
+				nodeTypes = append(nodeTypes, nt)
+			}
 		}
 	}
 
-	s := h.buildServer(ctx, wsID, nodeTypes)
+	s := h.buildServer(nodeTypes)
 
 	h.mu.Lock()
-	h.cache[wsID] = &cachedServer{server: s, builtAt: time.Now()}
+	h.cache[userID] = &cachedServer{server: s, builtAt: time.Now()}
 	h.mu.Unlock()
 
 	return s
 }
 
-func (h *Handler) buildServer(ctx interface{ Value(any) any }, wsID uuid.UUID, nodeTypes []*node.NodeType) *mcp.Server {
+func (h *Handler) buildServer(nodeTypes []*node.NodeType) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "tack", Version: "0.1.0"}, nil)
 
 	// ── Discovery ─────────────────────────────────────────────────────────────
