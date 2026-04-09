@@ -10,13 +10,16 @@ import (
 	"github.com/agoodkind/tack/internal/domain/project"
 	"github.com/agoodkind/tack/internal/domain/workspace"
 	"github.com/google/uuid"
+	"golang.org/x/sync/errgroup"
 )
 
 type IssueService struct {
-	issues     issue.Repository
-	projects   project.Repository
-	workspaces workspace.Repository
-	activity   node.ActivityRepository
+	issues      issue.Repository
+	projects    project.Repository
+	workspaces  workspace.Repository
+	activity    node.ActivityRepository
+	assignments node.AssignmentRepository
+	labels      node.NodeLabelRepository
 }
 
 func NewIssueService(
@@ -24,12 +27,16 @@ func NewIssueService(
 	projects project.Repository,
 	workspaces workspace.Repository,
 	activity node.ActivityRepository,
+	assignments node.AssignmentRepository,
+	labels node.NodeLabelRepository,
 ) *IssueService {
 	return &IssueService{
-		issues:     issues,
-		projects:   projects,
-		workspaces: workspaces,
-		activity:   activity,
+		issues:      issues,
+		projects:    projects,
+		workspaces:  workspaces,
+		activity:    activity,
+		assignments: assignments,
+		labels:      labels,
 	}
 }
 
@@ -50,6 +57,14 @@ func (s *IssueService) Create(ctx context.Context, i *issue.Issue) (*issue.Issue
 		return nil, err
 	}
 
+	// Write FDB relationships concurrently.
+	if len(i.AssigneeIDs) > 0 {
+		_ = s.assignments.SetAll(ctx, ws.OrgID, created.NodeID, i.AssigneeIDs, created.CreatedBy)
+	}
+	if len(i.LabelIDs) > 0 {
+		_ = s.labels.SetAll(ctx, ws.OrgID, created.NodeID, i.LabelIDs, created.CreatedBy)
+	}
+
 	_ = s.activity.Append(ctx, ws.OrgID, created.WorkspaceID, &node.ActivityEvent{
 		EventID:   uuid.New(),
 		NodeID:    created.NodeID,
@@ -59,14 +74,48 @@ func (s *IssueService) Create(ctx context.Context, i *issue.Issue) (*issue.Issue
 		CreatedAt: time.Now().UTC(),
 	})
 
+	created.AssigneeIDs = i.AssigneeIDs
+	created.LabelIDs = i.LabelIDs
 	return created, nil
 }
 
 func (s *IssueService) Get(ctx context.Context, workspaceID, projectID, id uuid.UUID) (*issue.Issue, error) {
-	return s.issues.GetByID(ctx, workspaceID, projectID, id)
+	// SQL fetch first to get node_id, then FDB concurrently.
+	i, err := s.issues.GetByID(ctx, workspaceID, projectID, id)
+	if err != nil {
+		return nil, err
+	}
+
+	ws, err := s.workspaces.GetByID(ctx, workspaceID)
+	if err != nil {
+		return i, nil // non-fatal: return issue without FDB data
+	}
+
+	g, gCtx := errgroup.WithContext(ctx)
+	var assignees, labels []uuid.UUID
+
+	g.Go(func() error {
+		var err error
+		assignees, err = s.assignments.ListByNode(gCtx, ws.OrgID, i.NodeID)
+		return err
+	})
+	g.Go(func() error {
+		var err error
+		labels, err = s.labels.ListByNode(gCtx, ws.OrgID, i.NodeID)
+		return err
+	})
+
+	if err := g.Wait(); err == nil {
+		i.AssigneeIDs = assignees
+		i.LabelIDs = labels
+	}
+
+	return i, nil
 }
 
 func (s *IssueService) List(ctx context.Context, filter issue.ListFilter) ([]*issue.Issue, int, error) {
+	// List omits assignees/labels — too expensive to do N FDB reads per row.
+	// Use Get for detail views where assignees are needed.
 	return s.issues.List(ctx, filter)
 }
 
@@ -81,15 +130,27 @@ func (s *IssueService) Update(ctx context.Context, i *issue.Issue) (*issue.Issue
 		return nil, err
 	}
 
-	_ = s.activity.Append(ctx, ws.OrgID, updated.WorkspaceID, &node.ActivityEvent{
+	// Use i.NodeID (from the input, populated by Get) — Update only returns updated_at.
+	if i.AssigneeIDs != nil {
+		_ = s.assignments.SetAll(ctx, ws.OrgID, i.NodeID, i.AssigneeIDs, i.CreatedBy)
+	}
+	if i.LabelIDs != nil {
+		_ = s.labels.SetAll(ctx, ws.OrgID, i.NodeID, i.LabelIDs, i.CreatedBy)
+	}
+
+	_ = s.activity.Append(ctx, ws.OrgID, i.WorkspaceID, &node.ActivityEvent{
 		EventID:   uuid.New(),
-		NodeID:    updated.NodeID,
-		Actor:     updated.CreatedBy,
+		NodeID:    i.NodeID,
+		Actor:     i.CreatedBy,
 		Verb:      "updated",
 		Detail:    map[string]any{"name": updated.Name},
 		CreatedAt: time.Now().UTC(),
 	})
 
+	// Carry forward fields not returned by the SQL UPDATE clause.
+	updated.NodeID = i.NodeID
+	updated.AssigneeIDs = i.AssigneeIDs
+	updated.LabelIDs = i.LabelIDs
 	return updated, nil
 }
 

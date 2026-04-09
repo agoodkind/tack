@@ -9,10 +9,15 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func RegisterProject(s *mcp.Server, projects project.Repository, states state.Repository) {
+// ProjectCreator is the minimal interface needed for project creation with default states.
+type ProjectCreator interface {
+	Create(ctx context.Context, p *project.Project) (*project.Project, error)
+}
+
+func RegisterProject(s *mcp.Server, projects project.Repository, svc ProjectCreator, states state.Repository) {
 	mcp.AddTool(s, &mcp.Tool{Name: "tack_list_projects", Description: "List all projects in a workspace"}, listProjects(projects))
 	mcp.AddTool(s, &mcp.Tool{Name: "tack_get_project", Description: "Get a project by ID"}, getProject(projects, states))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_create_project", Description: "Create a new project in a workspace"}, createProject(projects))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_create_project", Description: "Create a new project and seed it with default workflow states"}, createProject(svc))
 	mcp.AddTool(s, &mcp.Tool{Name: "tack_update_project", Description: "Update project fields (partial — only provided fields are changed)"}, updateProject(projects))
 }
 
@@ -75,7 +80,7 @@ type CreateProjectOutput struct {
 	Project any `json:"project"`
 }
 
-func createProject(projects project.Repository) mcp.ToolHandlerFor[CreateProjectInput, CreateProjectOutput] {
+func createProject(svc ProjectCreator) mcp.ToolHandlerFor[CreateProjectInput, CreateProjectOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in CreateProjectInput) (*mcp.CallToolResult, CreateProjectOutput, error) {
 		userID, err := mustUser(ctx)
 		if err != nil {
@@ -94,7 +99,7 @@ func createProject(projects project.Repository) mcp.ToolHandlerFor[CreateProject
 		if in.Description != nil {
 			newProject.Description = *in.Description
 		}
-		p, err := projects.Create(ctx, newProject)
+		p, err := svc.Create(ctx, newProject)
 		if err != nil {
 			return nil, CreateProjectOutput{}, fmt.Errorf("create project: %w", err)
 		}

@@ -86,11 +86,16 @@ func runServer(cfg *config.Config) {
 	moduleRepo    := postgres.NewModuleRepo(pool)
 	tokenRepo     := postgres.NewTokenRepo(pool)
 
-	issueSvc := service.NewIssueService(issueRepo, projectRepo, workspaceRepo, fdbStores.Activity)
+	issueSvc := service.NewIssueService(
+		issueRepo, projectRepo, workspaceRepo,
+		fdbStores.Activity, fdbStores.Assignments, fdbStores.Labels,
+	)
+	projectSvc := service.NewProjectService(projectRepo, stateRepo)
 
 	mcpHandler := mcpadapter.NewHandler(mcpadapter.Deps{
 		Workspaces:  workspaceRepo,
 		Projects:    projectRepo,
+		ProjectSvc:  projectSvc,
 		States:      stateRepo,
 		Labels:      labelRepo,
 		IssueSvc:    issueSvc,

@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"context"
 	"net/http"
 	"sync"
 	"time"
@@ -31,9 +32,12 @@ type cachedServer struct {
 // Handler builds a per-user MCP server on first request by resolving workspaces
 // from the bearer token, then caches it for serverCacheTTL.
 type Handler struct {
-	workspaces  workspace.Repository
-	projects    project.Repository
-	states      state.Repository
+	workspaces workspace.Repository
+	projects   project.Repository
+	projectSvc interface {
+		Create(ctx context.Context, p *project.Project) (*project.Project, error)
+	}
+	states state.Repository
 	labels      label.Repository
 	issueSvc    issue.Service
 	epics       epic.Repository
@@ -55,6 +59,9 @@ type Handler struct {
 type Deps struct {
 	Workspaces  workspace.Repository
 	Projects    project.Repository
+	ProjectSvc  interface {
+		Create(ctx context.Context, p *project.Project) (*project.Project, error)
+	}
 	States      state.Repository
 	Labels      label.Repository
 	IssueSvc    issue.Service
@@ -71,9 +78,10 @@ type Deps struct {
 
 func NewHandler(deps Deps) *Handler {
 	h := &Handler{
-		workspaces:  deps.Workspaces,
-		projects:    deps.Projects,
-		states:      deps.States,
+		workspaces: deps.Workspaces,
+		projects:   deps.Projects,
+		projectSvc: deps.ProjectSvc,
+		states:     deps.States,
 		labels:      deps.Labels,
 		issueSvc:    deps.IssueSvc,
 		epics:       deps.Epics,
@@ -142,7 +150,7 @@ func (h *Handler) buildServer(nodeTypes []*node.NodeType) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "tack", Version: "0.1.0"}, nil)
 
 	tools.RegisterWorkspace(s, h.workspaces, h.projects, h.states, h.nodeTypes, h.properties)
-	tools.RegisterProject(s, h.projects, h.states)
+	tools.RegisterProject(s, h.projects, h.projectSvc, h.states)
 	tools.RegisterState(s, h.states)
 	tools.RegisterLabel(s, h.labels)
 	tools.RegisterIssue(s, h.issueSvc)
