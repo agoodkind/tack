@@ -12,7 +12,4 @@ type Repository interface {
 	List(ctx context.Context, projectID uuid.UUID) ([]*Cycle, error)
 	Update(ctx context.Context, c *Cycle) (*Cycle, error)
 	Delete(ctx context.Context, id uuid.UUID) error
-	AddIssues(ctx context.Context, cycleID uuid.UUID, issueIDs []uuid.UUID) error
-	RemoveIssue(ctx context.Context, cycleID, issueID uuid.UUID) error
-	ListIssueIDs(ctx context.Context, cycleID uuid.UUID) ([]uuid.UUID, error)
 }

@@ -4,18 +4,18 @@ import (
 	"context"
 
 	"github.com/agoodkind/tack/internal/domain/cycle"
-	"github.com/google/uuid"
+	"github.com/agoodkind/tack/internal/domain/node"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func RegisterCycle(s *mcp.Server, cycles cycle.Repository) {
+func RegisterCycle(s *mcp.Server, cycles cycle.Repository, containment node.ContainmentRepository) {
 	mcp.AddTool(s, &mcp.Tool{Name: "tack_list_cycles", Description: "List cycles (sprints) in a project"}, listCycles(cycles))
 	mcp.AddTool(s, &mcp.Tool{Name: "tack_get_cycle", Description: "Get a cycle by ID"}, getCycle(cycles))
 	mcp.AddTool(s, &mcp.Tool{Name: "tack_create_cycle", Description: "Create a new cycle"}, createCycle(cycles))
 	mcp.AddTool(s, &mcp.Tool{Name: "tack_update_cycle", Description: "Update cycle fields (partial)"}, updateCycle(cycles))
 	mcp.AddTool(s, &mcp.Tool{Name: "tack_delete_cycle", Description: "Delete a cycle"}, deleteCycle(cycles))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_add_to_cycle", Description: "Add issues to a cycle"}, addToCycle(cycles))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_remove_from_cycle", Description: "Remove an issue from a cycle"}, removeFromCycle(cycles))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_add_to_cycle", Description: "Add issues to a cycle"}, addToCycle(containment))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_remove_from_cycle", Description: "Remove an issue from a cycle"}, removeFromCycle(containment))
 }
 
 type ListCyclesInput struct {
@@ -187,44 +187,58 @@ func deleteCycle(cycles cycle.Repository) mcp.ToolHandlerFor[DeleteCycleInput, D
 }
 
 type AddToCycleInput struct {
-	CycleID  string   `json:"cycle_id,omitempty"`
-	IssueIDs []string `json:"issue_ids,omitempty"`
+	OrgID    string   `json:"org_id"`
+	CycleID  string   `json:"cycle_id"`
+	IssueIDs []string `json:"issue_ids"`
 }
 type AddToCycleOutput struct {
 	Added int `json:"added"`
 }
 
-func addToCycle(cycles cycle.Repository) mcp.ToolHandlerFor[AddToCycleInput, AddToCycleOutput] {
+func addToCycle(containment node.ContainmentRepository) mcp.ToolHandlerFor[AddToCycleInput, AddToCycleOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in AddToCycleInput) (*mcp.CallToolResult, AddToCycleOutput, error) {
+		userID, err := mustUser(ctx)
+		if err != nil {
+			return nil, AddToCycleOutput{}, err
+		}
+		orgID, err := parseUUID(in.OrgID, "org_id")
+		if err != nil {
+			return nil, AddToCycleOutput{}, err
+		}
 		cID, err := parseUUID(in.CycleID, "cycle_id")
 		if err != nil {
 			return nil, AddToCycleOutput{}, err
 		}
-		ids := make([]uuid.UUID, 0, len(in.IssueIDs))
+		var added int
 		for _, s := range in.IssueIDs {
-			id, err := parseUUID(s, "issue_id")
+			iID, err := parseUUID(s, "issue_id")
 			if err != nil {
 				return nil, AddToCycleOutput{}, err
 			}
-			ids = append(ids, id)
+			if err := containment.AddIssueToCycle(ctx, orgID, cID, iID, userID); err != nil {
+				return nil, AddToCycleOutput{}, err
+			}
+			added++
 		}
-		if err := cycles.AddIssues(ctx, cID, ids); err != nil {
-			return nil, AddToCycleOutput{}, err
-		}
-		return nil, AddToCycleOutput{Added: len(ids)}, nil
+		return nil, AddToCycleOutput{Added: added}, nil
 	}
 }
 
 type RemoveFromCycleInput struct {
-	CycleID string `json:"cycle_id"` 
-	IssueID string `json:"issue_id"` 
+	OrgID   string `json:"org_id"`
+	CycleID string `json:"cycle_id"`
+	IssueID string `json:"issue_id"`
 }
 type RemoveFromCycleOutput struct {
 	OK bool `json:"ok"`
 }
 
-func removeFromCycle(cycles cycle.Repository) mcp.ToolHandlerFor[RemoveFromCycleInput, RemoveFromCycleOutput] {
+func removeFromCycle(containment node.ContainmentRepository) mcp.ToolHandlerFor[RemoveFromCycleInput, RemoveFromCycleOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in RemoveFromCycleInput) (*mcp.CallToolResult, RemoveFromCycleOutput, error) {
+		orgID, err := parseUUID(in.OrgID, "org_id")
+		if err != nil {
+			return nil, RemoveFromCycleOutput{}, err
+		}
 		cID, err := parseUUID(in.CycleID, "cycle_id")
 		if err != nil {
 			return nil, RemoveFromCycleOutput{}, err
@@ -233,7 +247,7 @@ func removeFromCycle(cycles cycle.Repository) mcp.ToolHandlerFor[RemoveFromCycle
 		if err != nil {
 			return nil, RemoveFromCycleOutput{}, err
 		}
-		if err := cycles.RemoveIssue(ctx, cID, iID); err != nil {
+		if err := containment.RemoveIssueFromCycle(ctx, orgID, cID, iID); err != nil {
 			return nil, RemoveFromCycleOutput{}, err
 		}
 		return nil, RemoveFromCycleOutput{OK: true}, nil

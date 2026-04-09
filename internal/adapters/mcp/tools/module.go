@@ -4,18 +4,18 @@ import (
 	"context"
 
 	"github.com/agoodkind/tack/internal/domain/module"
-	"github.com/google/uuid"
+	"github.com/agoodkind/tack/internal/domain/node"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func RegisterModule(s *mcp.Server, modules module.Repository) {
+func RegisterModule(s *mcp.Server, modules module.Repository, containment node.ContainmentRepository) {
 	mcp.AddTool(s, &mcp.Tool{Name: "tack_list_modules", Description: "List modules (feature groupings) in a project"}, listModules(modules))
 	mcp.AddTool(s, &mcp.Tool{Name: "tack_get_module", Description: "Get a module by ID"}, getModule(modules))
 	mcp.AddTool(s, &mcp.Tool{Name: "tack_create_module", Description: "Create a new module"}, createModule(modules))
 	mcp.AddTool(s, &mcp.Tool{Name: "tack_update_module", Description: "Update module fields (partial)"}, updateModule(modules))
 	mcp.AddTool(s, &mcp.Tool{Name: "tack_delete_module", Description: "Delete a module"}, deleteModule(modules))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_add_to_module", Description: "Add issues to a module"}, addToModule(modules))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_remove_from_module", Description: "Remove an issue from a module"}, removeFromModule(modules))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_add_to_module", Description: "Add issues to a module"}, addToModule(containment))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_remove_from_module", Description: "Remove an issue from a module"}, removeFromModule(containment))
 }
 
 type ListModulesInput struct {
@@ -181,44 +181,58 @@ func deleteModule(modules module.Repository) mcp.ToolHandlerFor[DeleteModuleInpu
 }
 
 type AddToModuleInput struct {
-	ModuleID string   `json:"module_id,omitempty"`
-	IssueIDs []string `json:"issue_ids,omitempty"`
+	OrgID    string   `json:"org_id"`
+	ModuleID string   `json:"module_id"`
+	IssueIDs []string `json:"issue_ids"`
 }
 type AddToModuleOutput struct {
 	Added int `json:"added"`
 }
 
-func addToModule(modules module.Repository) mcp.ToolHandlerFor[AddToModuleInput, AddToModuleOutput] {
+func addToModule(containment node.ContainmentRepository) mcp.ToolHandlerFor[AddToModuleInput, AddToModuleOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in AddToModuleInput) (*mcp.CallToolResult, AddToModuleOutput, error) {
+		userID, err := mustUser(ctx)
+		if err != nil {
+			return nil, AddToModuleOutput{}, err
+		}
+		orgID, err := parseUUID(in.OrgID, "org_id")
+		if err != nil {
+			return nil, AddToModuleOutput{}, err
+		}
 		mID, err := parseUUID(in.ModuleID, "module_id")
 		if err != nil {
 			return nil, AddToModuleOutput{}, err
 		}
-		ids := make([]uuid.UUID, 0, len(in.IssueIDs))
+		var added int
 		for _, s := range in.IssueIDs {
-			id, err := parseUUID(s, "issue_id")
+			iID, err := parseUUID(s, "issue_id")
 			if err != nil {
 				return nil, AddToModuleOutput{}, err
 			}
-			ids = append(ids, id)
+			if err := containment.AddIssueToModule(ctx, orgID, mID, iID, userID); err != nil {
+				return nil, AddToModuleOutput{}, err
+			}
+			added++
 		}
-		if err := modules.AddIssues(ctx, mID, ids); err != nil {
-			return nil, AddToModuleOutput{}, err
-		}
-		return nil, AddToModuleOutput{Added: len(ids)}, nil
+		return nil, AddToModuleOutput{Added: added}, nil
 	}
 }
 
 type RemoveFromModuleInput struct {
+	OrgID    string `json:"org_id"`
 	ModuleID string `json:"module_id"`
-	IssueID  string `json:"issue_id"` 
+	IssueID  string `json:"issue_id"`
 }
 type RemoveFromModuleOutput struct {
 	OK bool `json:"ok"`
 }
 
-func removeFromModule(modules module.Repository) mcp.ToolHandlerFor[RemoveFromModuleInput, RemoveFromModuleOutput] {
+func removeFromModule(containment node.ContainmentRepository) mcp.ToolHandlerFor[RemoveFromModuleInput, RemoveFromModuleOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in RemoveFromModuleInput) (*mcp.CallToolResult, RemoveFromModuleOutput, error) {
+		orgID, err := parseUUID(in.OrgID, "org_id")
+		if err != nil {
+			return nil, RemoveFromModuleOutput{}, err
+		}
 		mID, err := parseUUID(in.ModuleID, "module_id")
 		if err != nil {
 			return nil, RemoveFromModuleOutput{}, err
@@ -227,7 +241,7 @@ func removeFromModule(modules module.Repository) mcp.ToolHandlerFor[RemoveFromMo
 		if err != nil {
 			return nil, RemoveFromModuleOutput{}, err
 		}
-		if err := modules.RemoveIssue(ctx, mID, iID); err != nil {
+		if err := containment.RemoveIssueFromModule(ctx, orgID, mID, iID); err != nil {
 			return nil, RemoveFromModuleOutput{}, err
 		}
 		return nil, RemoveFromModuleOutput{OK: true}, nil

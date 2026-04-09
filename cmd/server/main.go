@@ -89,17 +89,20 @@ func runServer(cfg *config.Config) {
 	issueSvc := service.NewIssueService(issueRepo, projectRepo, workspaceRepo, fdbStores.Activity)
 
 	mcpHandler := mcpadapter.NewHandler(mcpadapter.Deps{
-		Workspaces: workspaceRepo,
-		Projects:   projectRepo,
-		States:     stateRepo,
-		Labels:     labelRepo,
-		IssueSvc:   issueSvc,
-		Epics:      epicRepo,
-		Cycles:     cycleRepo,
-		Modules:    moduleRepo,
-		NodeTypes:  fdbStores.NodeTypes,
-		Properties: fdbStores.Properties,
-		Activity:   fdbStores.Activity,
+		Workspaces:  workspaceRepo,
+		Projects:    projectRepo,
+		States:      stateRepo,
+		Labels:      labelRepo,
+		IssueSvc:    issueSvc,
+		Epics:       epicRepo,
+		Cycles:      cycleRepo,
+		Modules:     moduleRepo,
+		NodeTypes:   fdbStores.NodeTypes,
+		Properties:  fdbStores.Properties,
+		Activity:    fdbStores.Activity,
+		Assignments: fdbStores.Assignments,
+		NodeLabels:  fdbStores.Labels,
+		Containment: fdbStores.Containment,
 	})
 
 	var authMiddleware func(http.Handler) http.Handler

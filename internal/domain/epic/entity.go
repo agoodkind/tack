@@ -27,6 +27,7 @@ type Epic struct {
 	CompletedAt *time.Time `json:"completed_at,omitempty"`
 	ArchivedAt  *time.Time `json:"archived_at,omitempty"`
 	IsDraft     bool       `json:"is_draft"`
+	// AssigneeIDs and LabelIDs are populated from FDB, not SQL join tables.
 	AssigneeIDs []uuid.UUID `json:"assignee_ids,omitempty"`
 	LabelIDs    []uuid.UUID `json:"label_ids,omitempty"`
 }

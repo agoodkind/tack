@@ -106,37 +106,3 @@ func (r *ModuleRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-func (r *ModuleRepo) AddIssues(ctx context.Context, moduleID uuid.UUID, issueIDs []uuid.UUID) error {
-	for _, issueID := range issueIDs {
-		_, err := r.db.Exec(ctx,
-			`INSERT INTO module_issues (module_id, issue_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
-			moduleID, issueID,
-		)
-		if err != nil {
-			return fmt.Errorf("module add issue: %w", err)
-		}
-	}
-	return nil
-}
-
-func (r *ModuleRepo) RemoveIssue(ctx context.Context, moduleID, issueID uuid.UUID) error {
-	_, err := r.db.Exec(ctx, `DELETE FROM module_issues WHERE module_id=$1 AND issue_id=$2`, moduleID, issueID)
-	return err
-}
-
-func (r *ModuleRepo) ListIssueIDs(ctx context.Context, moduleID uuid.UUID) ([]uuid.UUID, error) {
-	rows, err := r.db.Query(ctx, `SELECT issue_id FROM module_issues WHERE module_id=$1`, moduleID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var ids []uuid.UUID
-	for rows.Next() {
-		var id uuid.UUID
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	return ids, rows.Err()
-}

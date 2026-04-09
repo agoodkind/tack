@@ -108,37 +108,3 @@ func (r *CycleRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-func (r *CycleRepo) AddIssues(ctx context.Context, cycleID uuid.UUID, issueIDs []uuid.UUID) error {
-	for _, issueID := range issueIDs {
-		_, err := r.db.Exec(ctx,
-			`INSERT INTO cycle_issues (cycle_id, issue_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
-			cycleID, issueID,
-		)
-		if err != nil {
-			return fmt.Errorf("cycle add issue: %w", err)
-		}
-	}
-	return nil
-}
-
-func (r *CycleRepo) RemoveIssue(ctx context.Context, cycleID, issueID uuid.UUID) error {
-	_, err := r.db.Exec(ctx, `DELETE FROM cycle_issues WHERE cycle_id=$1 AND issue_id=$2`, cycleID, issueID)
-	return err
-}
-
-func (r *CycleRepo) ListIssueIDs(ctx context.Context, cycleID uuid.UUID) ([]uuid.UUID, error) {
-	rows, err := r.db.Query(ctx, `SELECT issue_id FROM cycle_issues WHERE cycle_id=$1`, cycleID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var ids []uuid.UUID
-	for rows.Next() {
-		var id uuid.UUID
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	return ids, rows.Err()
-}

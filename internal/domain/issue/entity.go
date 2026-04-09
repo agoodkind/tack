@@ -37,6 +37,8 @@ type Issue struct {
 	IsDraft        bool       `json:"is_draft"`
 	ExternalSource *string    `json:"external_source,omitempty"`
 	ExternalID     *string    `json:"external_id,omitempty"`
-	AssigneeIDs    []uuid.UUID `json:"assignee_ids,omitempty"`
-	LabelIDs       []uuid.UUID `json:"label_ids,omitempty"`
+	// AssigneeIDs and LabelIDs are populated from FDB, not from SQL join tables.
+	// They are not persisted by the postgres adapter — use fdb.AssignmentStore and fdb.NodeLabelStore.
+	AssigneeIDs []uuid.UUID `json:"assignee_ids,omitempty"`
+	LabelIDs    []uuid.UUID `json:"label_ids,omitempty"`
 }
