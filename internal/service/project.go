@@ -18,7 +18,7 @@ var defaultStates = []struct {
 	{"Todo", state.GroupTodo, "#26B5CE", 2},
 	{"In Progress", state.GroupStarted, "#F96E19", 3},
 	{"Done", state.GroupCompleted, "#16A34A", 4},
-	{"Cancelled", state.GroupCancelled, "#EF4444", 5},
+	{"Canceled", state.GroupCancelled, "#EF4444", 5},
 }
 
 type ProjectService struct {
