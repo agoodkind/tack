@@ -29,7 +29,7 @@ func (s *ActivityStore) Append(_ context.Context, orgID, workspaceID uuid.UUID, 
 		return fmt.Errorf("marshal activity event: %w", err)
 	}
 	key := tuple.Tuple{
-		prefixActivity,
+		keyActivityOnNode,
 		orgID.String(),
 		workspaceID.String(),
 		event.NodeID.String(),
@@ -44,7 +44,7 @@ func (s *ActivityStore) Append(_ context.Context, orgID, workspaceID uuid.UUID, 
 }
 
 func (s *ActivityStore) List(_ context.Context, orgID, workspaceID, nodeID uuid.UUID) ([]*node.ActivityEvent, error) {
-	prefix := tuple.Tuple{prefixActivity, orgID.String(), workspaceID.String(), nodeID.String()}.Pack()
+	prefix := tuple.Tuple{keyActivityOnNode, orgID.String(), workspaceID.String(), nodeID.String()}.Pack()
 	pr, err := fdb.PrefixRange(prefix)
 	if err != nil {
 		return nil, err

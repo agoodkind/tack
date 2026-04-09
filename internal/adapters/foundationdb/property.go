@@ -35,7 +35,7 @@ func (s *PropertyStore) SetDef(_ context.Context, def *node.PropertyDef) error {
 }
 
 func (s *PropertyStore) GetDef(_ context.Context, orgID, defID uuid.UUID) (*node.PropertyDef, error) {
-	key := tuple.Tuple{prefixPropertyDefs, orgID.String(), defID.String()}.Pack()
+	key := tuple.Tuple{keyPropertyDefinition, orgID.String(), defID.String()}.Pack()
 	val, err := s.db.ReadTransact(func(tr fdb.ReadTransaction) (any, error) {
 		return tr.Get(fdb.Key(key)).Get()
 	})
@@ -54,7 +54,7 @@ func (s *PropertyStore) GetDef(_ context.Context, orgID, defID uuid.UUID) (*node
 }
 
 func (s *PropertyStore) ListDefs(_ context.Context, orgID, workspaceID uuid.UUID, projectID *uuid.UUID) ([]*node.PropertyDef, error) {
-	prefix := tuple.Tuple{prefixPropertyDefs, orgID.String()}.Pack()
+	prefix := tuple.Tuple{keyPropertyDefinition, orgID.String()}.Pack()
 	pr, err := fdb.PrefixRange(prefix)
 	if err != nil {
 		return nil, err
@@ -96,7 +96,7 @@ func (s *PropertyStore) SetValue(_ context.Context, orgID, nodeID, propDefID uui
 	if err != nil {
 		return fmt.Errorf("marshal property value: %w", err)
 	}
-	key := tuple.Tuple{prefixProperties, orgID.String(), nodeID.String(), propDefID.String()}.Pack()
+	key := tuple.Tuple{keyPropertyValueOnNode, orgID.String(), nodeID.String(), propDefID.String()}.Pack()
 	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
 		tr.Set(fdb.Key(key), b)
 		return nil, nil
@@ -105,7 +105,7 @@ func (s *PropertyStore) SetValue(_ context.Context, orgID, nodeID, propDefID uui
 }
 
 func (s *PropertyStore) GetValues(_ context.Context, orgID, nodeID uuid.UUID) (node.Properties, error) {
-	prefix := tuple.Tuple{prefixProperties, orgID.String(), nodeID.String()}.Pack()
+	prefix := tuple.Tuple{keyPropertyValueOnNode, orgID.String(), nodeID.String()}.Pack()
 	pr, err := fdb.PrefixRange(prefix)
 	if err != nil {
 		return nil, err
@@ -137,7 +137,7 @@ func (s *PropertyStore) GetValues(_ context.Context, orgID, nodeID uuid.UUID) (n
 }
 
 func (s *PropertyStore) DeleteValue(_ context.Context, orgID, nodeID, propDefID uuid.UUID) error {
-	key := tuple.Tuple{prefixProperties, orgID.String(), nodeID.String(), propDefID.String()}.Pack()
+	key := tuple.Tuple{keyPropertyValueOnNode, orgID.String(), nodeID.String(), propDefID.String()}.Pack()
 	_, err := s.db.Transact(func(tr fdb.Transaction) (any, error) {
 		tr.Clear(fdb.Key(key))
 		return nil, nil
@@ -148,7 +148,7 @@ func (s *PropertyStore) DeleteValue(_ context.Context, orgID, nodeID, propDefID 
 func propertyDefKey(def *node.PropertyDef) []byte {
 	if def.ProjectID != nil {
 		return tuple.Tuple{
-			prefixPropertyDefs,
+			keyPropertyDefinition,
 			def.OrgID.String(),
 			def.WorkspaceID.String(),
 			def.ProjectID.String(),
@@ -157,14 +157,14 @@ func propertyDefKey(def *node.PropertyDef) []byte {
 	}
 	if def.WorkspaceID != nil {
 		return tuple.Tuple{
-			prefixPropertyDefs,
+			keyPropertyDefinition,
 			def.OrgID.String(),
 			def.WorkspaceID.String(),
 			def.ID.String(),
 		}.Pack()
 	}
 	return tuple.Tuple{
-		prefixPropertyDefs,
+		keyPropertyDefinition,
 		def.OrgID.String(),
 		def.ID.String(),
 	}.Pack()
