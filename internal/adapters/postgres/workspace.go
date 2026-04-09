@@ -78,3 +78,26 @@ func (r *WorkspaceRepo) List(ctx context.Context, orgID uuid.UUID) ([]*workspace
 	}
 	return workspaces, rows.Err()
 }
+
+func (r *WorkspaceRepo) ListForUser(ctx context.Context, userID uuid.UUID) ([]*workspace.Workspace, error) {
+	const q = `
+		SELECT DISTINCT w.id, w.node_id, w.org_id, w.name, w.slug, w.created_at, w.updated_at
+		FROM workspaces w
+		JOIN org_members om ON om.org_id = w.org_id
+		WHERE om.user_id = $1
+		ORDER BY w.name`
+	rows, err := r.db.Query(ctx, q, userID)
+	if err != nil {
+		return nil, fmt.Errorf("workspace list for user: %w", err)
+	}
+	defer rows.Close()
+	var workspaces []*workspace.Workspace
+	for rows.Next() {
+		w := &workspace.Workspace{}
+		if err := rows.Scan(&w.ID, &w.NodeID, &w.OrgID, &w.Name, &w.Slug, &w.CreatedAt, &w.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("workspace scan: %w", err)
+		}
+		workspaces = append(workspaces, w)
+	}
+	return workspaces, rows.Err()
+}

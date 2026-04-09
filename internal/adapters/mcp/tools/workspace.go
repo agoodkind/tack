@@ -100,8 +100,14 @@ type ListWorkspacesOutput struct {
 
 func listWorkspaces(workspaces workspace.Repository) mcp.ToolHandlerFor[ListWorkspacesInput, ListWorkspacesOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, _ ListWorkspacesInput) (*mcp.CallToolResult, ListWorkspacesOutput, error) {
-		// Without an org filter we can't list all workspaces without auth context.
-		// For now return a helpful error directing to describe_workspace.
-		return nil, ListWorkspacesOutput{}, errNotImplemented("use tack_describe_workspace with a known workspace_slug")
+		userID, err := mustUser(ctx)
+		if err != nil {
+			return nil, ListWorkspacesOutput{}, err
+		}
+		ws, err := workspaces.ListForUser(ctx, userID)
+		if err != nil {
+			return nil, ListWorkspacesOutput{}, err
+		}
+		return nil, ListWorkspacesOutput{Workspaces: ws}, nil
 	}
 }

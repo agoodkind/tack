@@ -24,11 +24,11 @@ func (r *ProjectRepo) Create(ctx context.Context, p *project.Project) (*project.
 	const q = `
 		INSERT INTO projects (workspace_id, name, identifier, description, network, created_by, updated_by)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		RETURNING id, created_at, updated_at`
+		RETURNING id, node_id, created_at, updated_at`
 
 	err := r.db.QueryRow(ctx, q,
 		p.WorkspaceID, p.Name, p.Identifier, p.Description, p.Network, p.CreatedBy, p.UpdatedBy,
-	).Scan(&p.ID, &p.CreatedAt, &p.UpdatedAt)
+	).Scan(&p.ID, &p.NodeID, &p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("project create: %w", pgErr(err))
 	}
