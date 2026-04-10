@@ -1,0 +1,83 @@
+syntax = "proto3";
+
+package tack.v1;
+
+import "tack/v1/common.proto";
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/agoodkind/tack/gen/tack/v1;tackv1";
+
+message Cycle {
+  Base base = 1;
+  string workspace_id = 2;
+  string project_id = 3;
+  string name = 4;
+  optional string description = 5;
+  optional google.protobuf.Timestamp start_date = 6;
+  optional google.protobuf.Timestamp end_date = 7;
+}
+
+message CreateCycleRequest {
+  string workspace_id = 1;
+  string project_id = 2;
+  string name = 3;
+  optional string description = 4;
+  optional google.protobuf.Timestamp start_date = 5;
+  optional google.protobuf.Timestamp end_date = 6;
+}
+
+message GetCycleRequest {
+  string workspace_id = 1;
+  string project_id = 2;
+  string id = 3;
+}
+
+message ListCyclesRequest {
+  string workspace_id = 1;
+  string project_id = 2;
+}
+
+message ListCyclesResponse {
+  repeated Cycle cycles = 1;
+}
+
+message UpdateCycleRequest {
+  string workspace_id = 1;
+  string project_id = 2;
+  string id = 3;
+  optional string name = 4;
+  optional string description = 5;
+  optional google.protobuf.Timestamp start_date = 6;
+  optional google.protobuf.Timestamp end_date = 7;
+}
+
+message DeleteCycleRequest {
+  string workspace_id = 1;
+  string project_id = 2;
+  string id = 3;
+}
+
+message AddIssuesToCycleRequest {
+  string workspace_id = 1;
+  string project_id = 2;
+  string cycle_id = 3;
+  repeated string issue_ids = 4;
+}
+
+message RemoveIssuesFromCycleRequest {
+  string workspace_id = 1;
+  string project_id = 2;
+  string cycle_id = 3;
+  repeated string issue_ids = 4;
+}
+
+service CycleService {
+  rpc CreateCycle(CreateCycleRequest) returns (Cycle);
+  rpc GetCycle(GetCycleRequest) returns (Cycle);
+  rpc ListCycles(ListCyclesRequest) returns (ListCyclesResponse);
+  rpc UpdateCycle(UpdateCycleRequest) returns (Cycle);
+  rpc DeleteCycle(DeleteCycleRequest) returns (google.protobuf.Empty);
+  rpc AddIssuesToCycle(AddIssuesToCycleRequest) returns (google.protobuf.Empty);
+  rpc RemoveIssuesFromCycle(RemoveIssuesFromCycleRequest) returns (google.protobuf.Empty);
+}

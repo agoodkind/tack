@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+package tack.v1;
+
+import "tack/v1/common.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/agoodkind/tack/gen/tack/v1;tackv1";
+
+message ActivityEvent {
+  string id = 1;
+  string org_id = 2;
+  string node_id = 3;
+  string verb = 4;
+  string detail_json = 5; // JSON-encoded verb-specific payload
+  string actor_id = 6;
+  google.protobuf.Timestamp created_at = 7;
+}
+
+message ListActivityRequest {
+  string workspace_id = 1;
+  string node_id = 2;
+  optional int32 limit = 3;
+}
+
+message ListActivityResponse {
+  repeated ActivityEvent events = 1;
+}
+
+service ActivityService {
+  rpc ListActivity(ListActivityRequest) returns (ListActivityResponse);
+}

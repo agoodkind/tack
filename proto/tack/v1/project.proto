@@ -1,0 +1,60 @@
+syntax = "proto3";
+
+package tack.v1;
+
+import "tack/v1/common.proto";
+import "google/protobuf/empty.proto";
+
+option go_package = "github.com/agoodkind/tack/gen/tack/v1;tackv1";
+
+message Project {
+  Base base = 1;
+  string workspace_id = 2;
+  string name = 3;
+  string identifier = 4;
+  optional string description = 5;
+  optional string default_state_id = 6;
+  optional string network = 7;
+}
+
+message CreateProjectRequest {
+  string workspace_id = 1;
+  string name = 2;
+  string identifier = 3;
+  optional string description = 4;
+}
+
+message GetProjectRequest {
+  string workspace_id = 1;
+  string id = 2;
+}
+
+message ListProjectsRequest {
+  string workspace_id = 1;
+}
+
+message ListProjectsResponse {
+  repeated Project projects = 1;
+}
+
+message UpdateProjectRequest {
+  string workspace_id = 1;
+  string id = 2;
+  optional string name = 3;
+  optional string description = 4;
+  optional string default_state_id = 5;
+  optional string identifier = 6;
+}
+
+message DeleteProjectRequest {
+  string workspace_id = 1;
+  string id = 2;
+}
+
+service ProjectService {
+  rpc CreateProject(CreateProjectRequest) returns (Project);
+  rpc GetProject(GetProjectRequest) returns (Project);
+  rpc ListProjects(ListProjectsRequest) returns (ListProjectsResponse);
+  rpc UpdateProject(UpdateProjectRequest) returns (Project);
+  rpc DeleteProject(DeleteProjectRequest) returns (google.protobuf.Empty);
+}

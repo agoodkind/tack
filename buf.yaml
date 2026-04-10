@@ -1,0 +1,14 @@
+version: v2
+modules:
+  - path: proto
+deps:
+  - buf.build/googleapis/googleapis
+lint:
+  use:
+    - STANDARD
+  except:
+    - FIELD_NOT_REQUIRED
+    - PACKAGE_VERSION_SUFFIX
+breaking:
+  use:
+    - FILE

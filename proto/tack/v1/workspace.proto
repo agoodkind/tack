@@ -1,0 +1,56 @@
+syntax = "proto3";
+
+package tack.v1;
+
+import "tack/v1/common.proto";
+import "google/protobuf/empty.proto";
+
+option go_package = "github.com/agoodkind/tack/gen/tack/v1;tackv1";
+
+message Workspace {
+  Base base = 1;
+  string org_id = 2;
+  string name = 3;
+  string slug = 4;
+  optional string description = 5;
+}
+
+message CreateWorkspaceRequest {
+  string org_id = 1;
+  string name = 2;
+  string slug = 3;
+  optional string description = 4;
+}
+
+message GetWorkspaceRequest {
+  string org_id = 1;
+  string id = 2;
+}
+
+message ListWorkspacesRequest {
+  string org_id = 1;
+}
+
+message ListWorkspacesResponse {
+  repeated Workspace workspaces = 1;
+}
+
+message UpdateWorkspaceRequest {
+  string org_id = 1;
+  string id = 2;
+  optional string name = 3;
+  optional string description = 4;
+}
+
+message DeleteWorkspaceRequest {
+  string org_id = 1;
+  string id = 2;
+}
+
+service WorkspaceService {
+  rpc CreateWorkspace(CreateWorkspaceRequest) returns (Workspace);
+  rpc GetWorkspace(GetWorkspaceRequest) returns (Workspace);
+  rpc ListWorkspaces(ListWorkspacesRequest) returns (ListWorkspacesResponse);
+  rpc UpdateWorkspace(UpdateWorkspaceRequest) returns (Workspace);
+  rpc DeleteWorkspace(DeleteWorkspaceRequest) returns (google.protobuf.Empty);
+}

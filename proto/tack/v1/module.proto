@@ -1,0 +1,86 @@
+syntax = "proto3";
+
+package tack.v1;
+
+import "tack/v1/common.proto";
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/agoodkind/tack/gen/tack/v1;tackv1";
+
+message Module {
+  Base base = 1;
+  string workspace_id = 2;
+  string project_id = 3;
+  string name = 4;
+  optional string description = 5;
+  optional string status = 6;
+  optional google.protobuf.Timestamp start_date = 7;
+  optional google.protobuf.Timestamp target_date = 8;
+}
+
+message CreateModuleRequest {
+  string workspace_id = 1;
+  string project_id = 2;
+  string name = 3;
+  optional string description = 4;
+  optional string status = 5;
+  optional google.protobuf.Timestamp start_date = 6;
+  optional google.protobuf.Timestamp target_date = 7;
+}
+
+message GetModuleRequest {
+  string workspace_id = 1;
+  string project_id = 2;
+  string id = 3;
+}
+
+message ListModulesRequest {
+  string workspace_id = 1;
+  string project_id = 2;
+}
+
+message ListModulesResponse {
+  repeated Module modules = 1;
+}
+
+message UpdateModuleRequest {
+  string workspace_id = 1;
+  string project_id = 2;
+  string id = 3;
+  optional string name = 4;
+  optional string description = 5;
+  optional string status = 6;
+  optional google.protobuf.Timestamp start_date = 7;
+  optional google.protobuf.Timestamp target_date = 8;
+}
+
+message DeleteModuleRequest {
+  string workspace_id = 1;
+  string project_id = 2;
+  string id = 3;
+}
+
+message AddIssuesToModuleRequest {
+  string workspace_id = 1;
+  string project_id = 2;
+  string module_id = 3;
+  repeated string issue_ids = 4;
+}
+
+message RemoveIssuesFromModuleRequest {
+  string workspace_id = 1;
+  string project_id = 2;
+  string module_id = 3;
+  repeated string issue_ids = 4;
+}
+
+service ModuleService {
+  rpc CreateModule(CreateModuleRequest) returns (Module);
+  rpc GetModule(GetModuleRequest) returns (Module);
+  rpc ListModules(ListModulesRequest) returns (ListModulesResponse);
+  rpc UpdateModule(UpdateModuleRequest) returns (Module);
+  rpc DeleteModule(DeleteModuleRequest) returns (google.protobuf.Empty);
+  rpc AddIssuesToModule(AddIssuesToModuleRequest) returns (google.protobuf.Empty);
+  rpc RemoveIssuesFromModule(RemoveIssuesFromModuleRequest) returns (google.protobuf.Empty);
+}
