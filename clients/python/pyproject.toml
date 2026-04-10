@@ -1,0 +1,12 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tack-mcp-client"
+version = "0.1.0"
+description = "Tack MCP client — stdio bridge to the Tack MCP HTTP server"
+requires-python = ">=3.9"
+
+[project.scripts]
+tack-mcp-client = "tack_mcp_client:main"

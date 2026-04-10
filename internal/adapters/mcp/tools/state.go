@@ -17,21 +17,18 @@ func RegisterState(s *mcp.Server, states state.Repository) {
 type ListStatesInput struct {
 	ProjectID string `json:"project_id"`
 }
-type ListStatesOutput struct {
-	States any `json:"states"`
-}
 
-func listStates(states state.Repository) mcp.ToolHandlerFor[ListStatesInput, ListStatesOutput] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListStatesInput) (*mcp.CallToolResult, ListStatesOutput, error) {
+func listStates(states state.Repository) mcp.ToolHandlerFor[ListStatesInput, any] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListStatesInput) (*mcp.CallToolResult, any, error) {
 		pID, err := parseUUID(in.ProjectID, "project_id")
 		if err != nil {
-			return nil, ListStatesOutput{}, err
+			return nil, nil, err
 		}
 		ss, err := states.List(ctx, pID)
 		if err != nil {
-			return nil, ListStatesOutput{}, err
+			return nil, nil, err
 		}
-		return nil, ListStatesOutput{States: ss}, nil
+		return nil, map[string]any{"states": ss}, nil
 	}
 }
 
@@ -41,15 +38,12 @@ type CreateStateInput struct {
 	GroupName string  `json:"group_name"`
 	Color     *string `json:"color,omitempty"`
 }
-type CreateStateOutput struct {
-	State any `json:"state"`
-}
 
-func createState(states state.Repository) mcp.ToolHandlerFor[CreateStateInput, CreateStateOutput] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, in CreateStateInput) (*mcp.CallToolResult, CreateStateOutput, error) {
+func createState(states state.Repository) mcp.ToolHandlerFor[CreateStateInput, any] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in CreateStateInput) (*mcp.CallToolResult, any, error) {
 		pID, err := parseUUID(in.ProjectID, "project_id")
 		if err != nil {
-			return nil, CreateStateOutput{}, err
+			return nil, nil, err
 		}
 		color := "#cccccc"
 		if in.Color != nil && *in.Color != "" {
@@ -63,9 +57,9 @@ func createState(states state.Repository) mcp.ToolHandlerFor[CreateStateInput, C
 			SortOrder: 65535,
 		})
 		if err != nil {
-			return nil, CreateStateOutput{}, err
+			return nil, nil, err
 		}
-		return nil, CreateStateOutput{State: s}, nil
+		return nil, map[string]any{"state": s}, nil
 	}
 }
 
@@ -73,26 +67,23 @@ type UpdateStateInput struct {
 	ProjectID string  `json:"project_id"`
 	StateID   string  `json:"state_id"`
 	Name      *string `json:"name,omitempty"`
-	GroupName *string `json:"group_name"`
+	GroupName *string `json:"group_name,omitempty"`
 	Color     *string `json:"color,omitempty"`
 }
-type UpdateStateOutput struct {
-	State any `json:"state"`
-}
 
-func updateState(states state.Repository) mcp.ToolHandlerFor[UpdateStateInput, UpdateStateOutput] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, in UpdateStateInput) (*mcp.CallToolResult, UpdateStateOutput, error) {
+func updateState(states state.Repository) mcp.ToolHandlerFor[UpdateStateInput, any] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in UpdateStateInput) (*mcp.CallToolResult, any, error) {
 		pID, err := parseUUID(in.ProjectID, "project_id")
 		if err != nil {
-			return nil, UpdateStateOutput{}, err
+			return nil, nil, err
 		}
 		sID, err := parseUUID(in.StateID, "state_id")
 		if err != nil {
-			return nil, UpdateStateOutput{}, err
+			return nil, nil, err
 		}
 		s, err := states.GetByID(ctx, pID, sID)
 		if err != nil {
-			return nil, UpdateStateOutput{}, err
+			return nil, nil, err
 		}
 		if in.Name != nil {
 			s.Name = *in.Name
@@ -105,9 +96,9 @@ func updateState(states state.Repository) mcp.ToolHandlerFor[UpdateStateInput, U
 		}
 		updated, err := states.Update(ctx, s)
 		if err != nil {
-			return nil, UpdateStateOutput{}, err
+			return nil, nil, err
 		}
-		return nil, UpdateStateOutput{State: updated}, nil
+		return nil, map[string]any{"state": updated}, nil
 	}
 }
 

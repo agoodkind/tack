@@ -66,68 +66,57 @@ func opSet(ops []node.Op) map[node.Op]struct{} {
 // ── list ─────────────────────────────────────────────────────────────────────
 
 type NodeListInput struct {
-	OrgID       string `json:"org_id"` 
+	OrgID       string `json:"org_id"`
 	WorkspaceID string `json:"workspace_id"`
 }
-type NodeListOutput struct {
-	Nodes any `json:"nodes"`
-}
 
-func listNodes(nt *node.NodeType, properties node.PropertyRepository) mcp.ToolHandlerFor[NodeListInput, NodeListOutput] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, in NodeListInput) (*mcp.CallToolResult, NodeListOutput, error) {
+func listNodes(nt *node.NodeType, properties node.PropertyRepository) mcp.ToolHandlerFor[NodeListInput, any] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in NodeListInput) (*mcp.CallToolResult, any, error) {
 		orgID, err := parseUUID(in.OrgID, "org_id")
 		if err != nil {
-			return nil, NodeListOutput{}, err
+			return nil, nil, err
 		}
 		wsID, err := parseUUID(in.WorkspaceID, "workspace_id")
 		if err != nil {
-			return nil, NodeListOutput{}, err
+			return nil, nil, err
 		}
 		defs, err := properties.ListDefs(ctx, orgID, wsID, nil)
 		if err != nil {
-			return nil, NodeListOutput{}, err
+			return nil, nil, err
 		}
-		// Return the type definition so the client knows what properties exist.
-		// Actual node instances live in FDB; this surfaces the schema.
-		result := map[string]any{
-			"type":     nt,
+		return nil, map[string]any{
+			"type":      nt,
 			"prop_defs": defs,
-			"note":     "node instances are stored in FDB — use tack_get_properties with a node_id to fetch values",
-		}
-		return nil, NodeListOutput{Nodes: result}, nil
+			"note":      "node instances are stored in FDB — use tack_get_properties with a node_id to fetch values",
+		}, nil
 	}
 }
 
 // ── get ──────────────────────────────────────────────────────────────────────
 
 type NodeGetInput struct {
-	OrgID  string `json:"org_id"` 
+	OrgID  string `json:"org_id"`
 	NodeID string `json:"node_id"`
 }
-type NodeGetOutput struct {
-	NodeID     string          `json:"node_id"`
-	TypeName   string          `json:"type_name"`
-	Properties any `json:"properties"`
-}
 
-func getNode(nt *node.NodeType, properties node.PropertyRepository) mcp.ToolHandlerFor[NodeGetInput, NodeGetOutput] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, in NodeGetInput) (*mcp.CallToolResult, NodeGetOutput, error) {
+func getNode(nt *node.NodeType, properties node.PropertyRepository) mcp.ToolHandlerFor[NodeGetInput, any] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in NodeGetInput) (*mcp.CallToolResult, any, error) {
 		orgID, err := parseUUID(in.OrgID, "org_id")
 		if err != nil {
-			return nil, NodeGetOutput{}, err
+			return nil, nil, err
 		}
 		nodeID, err := parseUUID(in.NodeID, "node_id")
 		if err != nil {
-			return nil, NodeGetOutput{}, err
+			return nil, nil, err
 		}
 		vals, err := properties.GetValues(ctx, orgID, nodeID)
 		if err != nil {
-			return nil, NodeGetOutput{}, err
+			return nil, nil, err
 		}
-		return nil, NodeGetOutput{
-			NodeID:     nodeID.String(),
-			TypeName:   nt.Name,
-			Properties: vals,
+		return nil, map[string]any{
+			"node_id":    nodeID.String(),
+			"type_name":  nt.Name,
+			"properties": vals,
 		}, nil
 	}
 }
@@ -215,9 +204,9 @@ func updateNode(nt *node.NodeType, properties node.PropertyRepository, activity 
 // ── delete ───────────────────────────────────────────────────────────────────
 
 type NodeDeleteInput struct {
-	OrgID       string `json:"org_id"` 
+	OrgID       string `json:"org_id"`
 	WorkspaceID string `json:"workspace_id"`
-	NodeID      string `json:"node_id"` 
+	NodeID      string `json:"node_id"`
 }
 type NodeDeleteOutput struct {
 	OK bool `json:"ok"`
@@ -241,7 +230,6 @@ func deleteNode(nt *node.NodeType, properties node.PropertyRepository, activity 
 		if err != nil {
 			return nil, NodeDeleteOutput{}, err
 		}
-		// Delete all property values for this node.
 		vals, err := properties.GetValues(ctx, orgID, nodeID)
 		if err != nil {
 			return nil, NodeDeleteOutput{}, err

@@ -21,47 +21,41 @@ func RegisterModule(s *mcp.Server, modules module.Repository, containment node.C
 type ListModulesInput struct {
 	ProjectID string `json:"project_id"`
 }
-type ListModulesOutput struct {
-	Modules any `json:"modules"`
-}
 
-func listModules(modules module.Repository) mcp.ToolHandlerFor[ListModulesInput, ListModulesOutput] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListModulesInput) (*mcp.CallToolResult, ListModulesOutput, error) {
+func listModules(modules module.Repository) mcp.ToolHandlerFor[ListModulesInput, any] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListModulesInput) (*mcp.CallToolResult, any, error) {
 		pID, err := parseUUID(in.ProjectID, "project_id")
 		if err != nil {
-			return nil, ListModulesOutput{}, err
+			return nil, nil, err
 		}
 		ms, err := modules.List(ctx, pID)
 		if err != nil {
-			return nil, ListModulesOutput{}, err
+			return nil, nil, err
 		}
-		return nil, ListModulesOutput{Modules: ms}, nil
+		return nil, map[string]any{"modules": ms}, nil
 	}
 }
 
 type GetModuleInput struct {
 	ProjectID string `json:"project_id"`
-	ModuleID  string `json:"module_id"` 
-}
-type GetModuleOutput struct {
-	Module any `json:"module"`
+	ModuleID  string `json:"module_id"`
 }
 
-func getModule(modules module.Repository) mcp.ToolHandlerFor[GetModuleInput, GetModuleOutput] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, in GetModuleInput) (*mcp.CallToolResult, GetModuleOutput, error) {
+func getModule(modules module.Repository) mcp.ToolHandlerFor[GetModuleInput, any] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in GetModuleInput) (*mcp.CallToolResult, any, error) {
 		pID, err := parseUUID(in.ProjectID, "project_id")
 		if err != nil {
-			return nil, GetModuleOutput{}, err
+			return nil, nil, err
 		}
 		mID, err := parseUUID(in.ModuleID, "module_id")
 		if err != nil {
-			return nil, GetModuleOutput{}, err
+			return nil, nil, err
 		}
 		m, err := modules.GetByID(ctx, pID, mID)
 		if err != nil {
-			return nil, GetModuleOutput{}, err
+			return nil, nil, err
 		}
-		return nil, GetModuleOutput{Module: m}, nil
+		return nil, map[string]any{"module": m}, nil
 	}
 }
 
@@ -72,23 +66,20 @@ type CreateModuleInput struct {
 	Description *string `json:"description,omitempty"`
 	Status      *string `json:"status,omitempty"`
 }
-type CreateModuleOutput struct {
-	Module any `json:"module"`
-}
 
-func createModule(modules module.Repository) mcp.ToolHandlerFor[CreateModuleInput, CreateModuleOutput] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, in CreateModuleInput) (*mcp.CallToolResult, CreateModuleOutput, error) {
+func createModule(modules module.Repository) mcp.ToolHandlerFor[CreateModuleInput, any] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in CreateModuleInput) (*mcp.CallToolResult, any, error) {
 		userID, err := mustUser(ctx)
 		if err != nil {
-			return nil, CreateModuleOutput{}, err
+			return nil, nil, err
 		}
 		wsID, err := parseUUID(in.WorkspaceID, "workspace_id")
 		if err != nil {
-			return nil, CreateModuleOutput{}, err
+			return nil, nil, err
 		}
 		pID, err := parseUUID(in.ProjectID, "project_id")
 		if err != nil {
-			return nil, CreateModuleOutput{}, err
+			return nil, nil, err
 		}
 		status := "backlog"
 		if in.Status != nil && *in.Status != "" {
@@ -107,9 +98,9 @@ func createModule(modules module.Repository) mcp.ToolHandlerFor[CreateModuleInpu
 		}
 		m, err := modules.Create(ctx, newModule)
 		if err != nil {
-			return nil, CreateModuleOutput{}, err
+			return nil, nil, err
 		}
-		return nil, CreateModuleOutput{Module: m}, nil
+		return nil, map[string]any{"module": m}, nil
 	}
 }
 
@@ -120,27 +111,24 @@ type UpdateModuleInput struct {
 	Description *string `json:"description,omitempty"`
 	Status      *string `json:"status,omitempty"`
 }
-type UpdateModuleOutput struct {
-	Module any `json:"module"`
-}
 
-func updateModule(modules module.Repository) mcp.ToolHandlerFor[UpdateModuleInput, UpdateModuleOutput] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, in UpdateModuleInput) (*mcp.CallToolResult, UpdateModuleOutput, error) {
+func updateModule(modules module.Repository) mcp.ToolHandlerFor[UpdateModuleInput, any] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in UpdateModuleInput) (*mcp.CallToolResult, any, error) {
 		userID, err := mustUser(ctx)
 		if err != nil {
-			return nil, UpdateModuleOutput{}, err
+			return nil, nil, err
 		}
 		pID, err := parseUUID(in.ProjectID, "project_id")
 		if err != nil {
-			return nil, UpdateModuleOutput{}, err
+			return nil, nil, err
 		}
 		mID, err := parseUUID(in.ModuleID, "module_id")
 		if err != nil {
-			return nil, UpdateModuleOutput{}, err
+			return nil, nil, err
 		}
 		existing, err := modules.GetByID(ctx, pID, mID)
 		if err != nil {
-			return nil, UpdateModuleOutput{}, err
+			return nil, nil, err
 		}
 		if in.Name != nil {
 			existing.Name = *in.Name
@@ -154,9 +142,9 @@ func updateModule(modules module.Repository) mcp.ToolHandlerFor[UpdateModuleInpu
 		existing.UpdatedBy = &userID
 		updated, err := modules.Update(ctx, existing)
 		if err != nil {
-			return nil, UpdateModuleOutput{}, err
+			return nil, nil, err
 		}
-		return nil, UpdateModuleOutput{Module: updated}, nil
+		return nil, map[string]any{"module": updated}, nil
 	}
 }
 

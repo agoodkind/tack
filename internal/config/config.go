@@ -30,6 +30,9 @@ type Config struct {
 	MeiliURL       string `env:"MEILI_URL"        envDefault:"http://localhost:7700"`
 	MeiliMasterKey string `env:"MEILI_MASTER_KEY" envDefault:"tack-dev-meili-key-change-in-prod"`
 
+	// Temporal — background workflow engine. Defaults to localhost for dev.
+	TemporalAddress string `env:"TEMPORAL_ADDRESS" envDefault:"localhost:7233"`
+
 	// Optional — if unset, OTEL tracing is a no-op.
 	OTELEndpoint string `env:"OTEL_EXPORTER_OTLP_ENDPOINT"`
 }

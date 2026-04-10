@@ -19,16 +19,12 @@ type SearchInput struct {
 	Query       string  `json:"query"`
 	ProjectID   *string `json:"project_id,omitempty"`
 }
-type SearchOutput struct {
-	Items any `json:"items"`
-	Total int             `json:"total"`
-}
 
-func search(svc issue.Service) mcp.ToolHandlerFor[SearchInput, SearchOutput] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, in SearchInput) (*mcp.CallToolResult, SearchOutput, error) {
+func search(svc issue.Service) mcp.ToolHandlerFor[SearchInput, any] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in SearchInput) (*mcp.CallToolResult, any, error) {
 		wsID, err := parseUUID(in.WorkspaceID, "workspace_id")
 		if err != nil {
-			return nil, SearchOutput{}, err
+			return nil, nil, err
 		}
 		filter := issue.ListFilter{}
 		if in.ProjectID != nil {
@@ -38,8 +34,8 @@ func search(svc issue.Service) mcp.ToolHandlerFor[SearchInput, SearchOutput] {
 		}
 		items, total, err := svc.Search(ctx, wsID, in.Query, filter)
 		if err != nil {
-			return nil, SearchOutput{}, err
+			return nil, nil, err
 		}
-		return nil, SearchOutput{Items: items, Total: total}, nil
+		return nil, map[string]any{"items": items, "total": total}, nil
 	}
 }

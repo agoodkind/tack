@@ -18,15 +18,12 @@ type ListLabelsInput struct {
 	WorkspaceID string  `json:"workspace_id"`
 	ProjectID   *string `json:"project_id,omitempty"`
 }
-type ListLabelsOutput struct {
-	Labels any `json:"labels"`
-}
 
-func listLabels(labels label.Repository) mcp.ToolHandlerFor[ListLabelsInput, ListLabelsOutput] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListLabelsInput) (*mcp.CallToolResult, ListLabelsOutput, error) {
+func listLabels(labels label.Repository) mcp.ToolHandlerFor[ListLabelsInput, any] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListLabelsInput) (*mcp.CallToolResult, any, error) {
 		wsID, err := parseUUID(in.WorkspaceID, "workspace_id")
 		if err != nil {
-			return nil, ListLabelsOutput{}, err
+			return nil, nil, err
 		}
 		var pID *uuid.UUID
 		if in.ProjectID != nil {
@@ -34,9 +31,9 @@ func listLabels(labels label.Repository) mcp.ToolHandlerFor[ListLabelsInput, Lis
 		}
 		ls, err := labels.List(ctx, wsID, pID)
 		if err != nil {
-			return nil, ListLabelsOutput{}, err
+			return nil, nil, err
 		}
-		return nil, ListLabelsOutput{Labels: ls}, nil
+		return nil, map[string]any{"labels": ls}, nil
 	}
 }
 
@@ -46,15 +43,12 @@ type CreateLabelInput struct {
 	Name        string  `json:"name"`
 	Color       *string `json:"color,omitempty"`
 }
-type CreateLabelOutput struct {
-	Label any `json:"label"`
-}
 
-func createLabel(labels label.Repository) mcp.ToolHandlerFor[CreateLabelInput, CreateLabelOutput] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, in CreateLabelInput) (*mcp.CallToolResult, CreateLabelOutput, error) {
+func createLabel(labels label.Repository) mcp.ToolHandlerFor[CreateLabelInput, any] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in CreateLabelInput) (*mcp.CallToolResult, any, error) {
 		wsID, err := parseUUID(in.WorkspaceID, "workspace_id")
 		if err != nil {
-			return nil, CreateLabelOutput{}, err
+			return nil, nil, err
 		}
 		color := "#cccccc"
 		if in.Color != nil && *in.Color != "" {
@@ -72,9 +66,9 @@ func createLabel(labels label.Repository) mcp.ToolHandlerFor[CreateLabelInput, C
 			SortOrder:   65535,
 		})
 		if err != nil {
-			return nil, CreateLabelOutput{}, err
+			return nil, nil, err
 		}
-		return nil, CreateLabelOutput{Label: l}, nil
+		return nil, map[string]any{"label": l}, nil
 	}
 }
 

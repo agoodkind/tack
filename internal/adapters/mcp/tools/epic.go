@@ -20,59 +20,52 @@ func RegisterEpic(s *mcp.Server, epics epic.Repository, projects project.Reposit
 
 type ListEpicsInput struct {
 	WorkspaceID string `json:"workspace_id"`
-	ProjectID   string `json:"project_id"` 
-}
-type ListEpicsOutput struct {
-	Epics any `json:"epics"`
-	Total int             `json:"total"`
+	ProjectID   string `json:"project_id"`
 }
 
-func listEpics(epics epic.Repository) mcp.ToolHandlerFor[ListEpicsInput, ListEpicsOutput] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListEpicsInput) (*mcp.CallToolResult, ListEpicsOutput, error) {
+func listEpics(epics epic.Repository) mcp.ToolHandlerFor[ListEpicsInput, any] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListEpicsInput) (*mcp.CallToolResult, any, error) {
 		wsID, err := parseUUID(in.WorkspaceID, "workspace_id")
 		if err != nil {
-			return nil, ListEpicsOutput{}, err
+			return nil, nil, err
 		}
 		pID, err := parseUUID(in.ProjectID, "project_id")
 		if err != nil {
-			return nil, ListEpicsOutput{}, err
+			return nil, nil, err
 		}
 		es, total, err := epics.List(ctx, wsID, pID)
 		if err != nil {
-			return nil, ListEpicsOutput{}, err
+			return nil, nil, err
 		}
-		return nil, ListEpicsOutput{Epics: es, Total: total}, nil
+		return nil, map[string]any{"epics": es, "total": total}, nil
 	}
 }
 
 type GetEpicInput struct {
 	WorkspaceID string `json:"workspace_id"`
-	ProjectID   string `json:"project_id"` 
-	EpicID      string `json:"epic_id"` 
-}
-type GetEpicOutput struct {
-	Epic any `json:"epic"`
+	ProjectID   string `json:"project_id"`
+	EpicID      string `json:"epic_id"`
 }
 
-func getEpic(epics epic.Repository) mcp.ToolHandlerFor[GetEpicInput, GetEpicOutput] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, in GetEpicInput) (*mcp.CallToolResult, GetEpicOutput, error) {
+func getEpic(epics epic.Repository) mcp.ToolHandlerFor[GetEpicInput, any] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in GetEpicInput) (*mcp.CallToolResult, any, error) {
 		wsID, err := parseUUID(in.WorkspaceID, "workspace_id")
 		if err != nil {
-			return nil, GetEpicOutput{}, err
+			return nil, nil, err
 		}
 		pID, err := parseUUID(in.ProjectID, "project_id")
 		if err != nil {
-			return nil, GetEpicOutput{}, err
+			return nil, nil, err
 		}
 		eID, err := parseUUID(in.EpicID, "epic_id")
 		if err != nil {
-			return nil, GetEpicOutput{}, err
+			return nil, nil, err
 		}
 		e, err := epics.GetByID(ctx, wsID, pID, eID)
 		if err != nil {
-			return nil, GetEpicOutput{}, err
+			return nil, nil, err
 		}
-		return nil, GetEpicOutput{Epic: e}, nil
+		return nil, map[string]any{"epic": e}, nil
 	}
 }
 
@@ -84,27 +77,24 @@ type CreateEpicInput struct {
 	Priority    *string `json:"priority,omitempty"`
 	StateID     *string `json:"state_id,omitempty"`
 }
-type CreateEpicOutput struct {
-	Epic any `json:"epic"`
-}
 
-func createEpic(epics epic.Repository, projects project.Repository) mcp.ToolHandlerFor[CreateEpicInput, CreateEpicOutput] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, in CreateEpicInput) (*mcp.CallToolResult, CreateEpicOutput, error) {
+func createEpic(epics epic.Repository, projects project.Repository) mcp.ToolHandlerFor[CreateEpicInput, any] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in CreateEpicInput) (*mcp.CallToolResult, any, error) {
 		userID, err := mustUser(ctx)
 		if err != nil {
-			return nil, CreateEpicOutput{}, err
+			return nil, nil, err
 		}
 		wsID, err := parseUUID(in.WorkspaceID, "workspace_id")
 		if err != nil {
-			return nil, CreateEpicOutput{}, err
+			return nil, nil, err
 		}
 		pID, err := parseUUID(in.ProjectID, "project_id")
 		if err != nil {
-			return nil, CreateEpicOutput{}, err
+			return nil, nil, err
 		}
 		seq, err := projects.AllocateSequenceID(ctx, pID, "epic")
 		if err != nil {
-			return nil, CreateEpicOutput{}, fmt.Errorf("allocate sequence: %w", err)
+			return nil, nil, fmt.Errorf("allocate sequence: %w", err)
 		}
 		e := &epic.Epic{
 			WorkspaceID: wsID,
@@ -125,9 +115,9 @@ func createEpic(epics epic.Repository, projects project.Repository) mcp.ToolHand
 		e.CreatedBy = userID
 		e, err = epics.Create(ctx, e)
 		if err != nil {
-			return nil, CreateEpicOutput{}, err
+			return nil, nil, err
 		}
-		return nil, CreateEpicOutput{Epic: e}, nil
+		return nil, map[string]any{"epic": e}, nil
 	}
 }
 
@@ -140,31 +130,28 @@ type UpdateEpicInput struct {
 	Priority    *string `json:"priority,omitempty"`
 	StateID     *string `json:"state_id,omitempty"`
 }
-type UpdateEpicOutput struct {
-	Epic any `json:"epic"`
-}
 
-func updateEpic(epics epic.Repository) mcp.ToolHandlerFor[UpdateEpicInput, UpdateEpicOutput] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, in UpdateEpicInput) (*mcp.CallToolResult, UpdateEpicOutput, error) {
+func updateEpic(epics epic.Repository) mcp.ToolHandlerFor[UpdateEpicInput, any] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in UpdateEpicInput) (*mcp.CallToolResult, any, error) {
 		userID, err := mustUser(ctx)
 		if err != nil {
-			return nil, UpdateEpicOutput{}, err
+			return nil, nil, err
 		}
 		wsID, err := parseUUID(in.WorkspaceID, "workspace_id")
 		if err != nil {
-			return nil, UpdateEpicOutput{}, err
+			return nil, nil, err
 		}
 		pID, err := parseUUID(in.ProjectID, "project_id")
 		if err != nil {
-			return nil, UpdateEpicOutput{}, err
+			return nil, nil, err
 		}
 		eID, err := parseUUID(in.EpicID, "epic_id")
 		if err != nil {
-			return nil, UpdateEpicOutput{}, err
+			return nil, nil, err
 		}
 		existing, err := epics.GetByID(ctx, wsID, pID, eID)
 		if err != nil {
-			return nil, UpdateEpicOutput{}, err
+			return nil, nil, err
 		}
 		if in.Name != nil {
 			existing.Name = *in.Name
@@ -181,9 +168,9 @@ func updateEpic(epics epic.Repository) mcp.ToolHandlerFor[UpdateEpicInput, Updat
 		existing.UpdatedBy = &userID
 		updated, err := epics.Update(ctx, existing)
 		if err != nil {
-			return nil, UpdateEpicOutput{}, err
+			return nil, nil, err
 		}
-		return nil, UpdateEpicOutput{Epic: updated}, nil
+		return nil, map[string]any{"epic": updated}, nil
 	}
 }
 

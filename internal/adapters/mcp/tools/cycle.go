@@ -21,47 +21,41 @@ func RegisterCycle(s *mcp.Server, cycles cycle.Repository, containment node.Cont
 type ListCyclesInput struct {
 	ProjectID string `json:"project_id"`
 }
-type ListCyclesOutput struct {
-	Cycles any `json:"cycles"`
-}
 
-func listCycles(cycles cycle.Repository) mcp.ToolHandlerFor[ListCyclesInput, ListCyclesOutput] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListCyclesInput) (*mcp.CallToolResult, ListCyclesOutput, error) {
+func listCycles(cycles cycle.Repository) mcp.ToolHandlerFor[ListCyclesInput, any] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListCyclesInput) (*mcp.CallToolResult, any, error) {
 		pID, err := parseUUID(in.ProjectID, "project_id")
 		if err != nil {
-			return nil, ListCyclesOutput{}, err
+			return nil, nil, err
 		}
 		cs, err := cycles.List(ctx, pID)
 		if err != nil {
-			return nil, ListCyclesOutput{}, err
+			return nil, nil, err
 		}
-		return nil, ListCyclesOutput{Cycles: cs}, nil
+		return nil, map[string]any{"cycles": cs}, nil
 	}
 }
 
 type GetCycleInput struct {
 	ProjectID string `json:"project_id"`
-	CycleID   string `json:"cycle_id"` 
-}
-type GetCycleOutput struct {
-	Cycle any `json:"cycle"`
+	CycleID   string `json:"cycle_id"`
 }
 
-func getCycle(cycles cycle.Repository) mcp.ToolHandlerFor[GetCycleInput, GetCycleOutput] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, in GetCycleInput) (*mcp.CallToolResult, GetCycleOutput, error) {
+func getCycle(cycles cycle.Repository) mcp.ToolHandlerFor[GetCycleInput, any] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in GetCycleInput) (*mcp.CallToolResult, any, error) {
 		pID, err := parseUUID(in.ProjectID, "project_id")
 		if err != nil {
-			return nil, GetCycleOutput{}, err
+			return nil, nil, err
 		}
 		cID, err := parseUUID(in.CycleID, "cycle_id")
 		if err != nil {
-			return nil, GetCycleOutput{}, err
+			return nil, nil, err
 		}
 		c, err := cycles.GetByID(ctx, pID, cID)
 		if err != nil {
-			return nil, GetCycleOutput{}, err
+			return nil, nil, err
 		}
-		return nil, GetCycleOutput{Cycle: c}, nil
+		return nil, map[string]any{"cycle": c}, nil
 	}
 }
 
@@ -73,23 +67,20 @@ type CreateCycleInput struct {
 	StartDate   *string `json:"start_date,omitempty"`
 	EndDate     *string `json:"end_date,omitempty"`
 }
-type CreateCycleOutput struct {
-	Cycle any `json:"cycle"`
-}
 
-func createCycle(cycles cycle.Repository) mcp.ToolHandlerFor[CreateCycleInput, CreateCycleOutput] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, in CreateCycleInput) (*mcp.CallToolResult, CreateCycleOutput, error) {
+func createCycle(cycles cycle.Repository) mcp.ToolHandlerFor[CreateCycleInput, any] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in CreateCycleInput) (*mcp.CallToolResult, any, error) {
 		userID, err := mustUser(ctx)
 		if err != nil {
-			return nil, CreateCycleOutput{}, err
+			return nil, nil, err
 		}
 		wsID, err := parseUUID(in.WorkspaceID, "workspace_id")
 		if err != nil {
-			return nil, CreateCycleOutput{}, err
+			return nil, nil, err
 		}
 		pID, err := parseUUID(in.ProjectID, "project_id")
 		if err != nil {
-			return nil, CreateCycleOutput{}, err
+			return nil, nil, err
 		}
 		newCycle := &cycle.Cycle{
 			WorkspaceID: wsID,
@@ -104,22 +95,22 @@ func createCycle(cycles cycle.Repository) mcp.ToolHandlerFor[CreateCycleInput, C
 		if in.StartDate != nil {
 			t, err := parseOptionalDate(*in.StartDate, "start_date")
 			if err != nil {
-				return nil, CreateCycleOutput{}, err
+				return nil, nil, err
 			}
 			newCycle.StartDate = t
 		}
 		if in.EndDate != nil {
 			t, err := parseOptionalDate(*in.EndDate, "end_date")
 			if err != nil {
-				return nil, CreateCycleOutput{}, err
+				return nil, nil, err
 			}
 			newCycle.EndDate = t
 		}
 		c, err := cycles.Create(ctx, newCycle)
 		if err != nil {
-			return nil, CreateCycleOutput{}, err
+			return nil, nil, err
 		}
-		return nil, CreateCycleOutput{Cycle: c}, nil
+		return nil, map[string]any{"cycle": c}, nil
 	}
 }
 
@@ -129,27 +120,24 @@ type UpdateCycleInput struct {
 	Name        *string `json:"name,omitempty"`
 	Description *string `json:"description,omitempty"`
 }
-type UpdateCycleOutput struct {
-	Cycle any `json:"cycle"`
-}
 
-func updateCycle(cycles cycle.Repository) mcp.ToolHandlerFor[UpdateCycleInput, UpdateCycleOutput] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, in UpdateCycleInput) (*mcp.CallToolResult, UpdateCycleOutput, error) {
+func updateCycle(cycles cycle.Repository) mcp.ToolHandlerFor[UpdateCycleInput, any] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in UpdateCycleInput) (*mcp.CallToolResult, any, error) {
 		userID, err := mustUser(ctx)
 		if err != nil {
-			return nil, UpdateCycleOutput{}, err
+			return nil, nil, err
 		}
 		pID, err := parseUUID(in.ProjectID, "project_id")
 		if err != nil {
-			return nil, UpdateCycleOutput{}, err
+			return nil, nil, err
 		}
 		cID, err := parseUUID(in.CycleID, "cycle_id")
 		if err != nil {
-			return nil, UpdateCycleOutput{}, err
+			return nil, nil, err
 		}
 		existing, err := cycles.GetByID(ctx, pID, cID)
 		if err != nil {
-			return nil, UpdateCycleOutput{}, err
+			return nil, nil, err
 		}
 		if in.Name != nil {
 			existing.Name = *in.Name
@@ -160,9 +148,9 @@ func updateCycle(cycles cycle.Repository) mcp.ToolHandlerFor[UpdateCycleInput, U
 		existing.UpdatedBy = &userID
 		updated, err := cycles.Update(ctx, existing)
 		if err != nil {
-			return nil, UpdateCycleOutput{}, err
+			return nil, nil, err
 		}
-		return nil, UpdateCycleOutput{Cycle: updated}, nil
+		return nil, map[string]any{"cycle": updated}, nil
 	}
 }
 

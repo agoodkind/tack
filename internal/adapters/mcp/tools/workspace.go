@@ -35,38 +35,30 @@ type DescribeWorkspaceInput struct {
 	WorkspaceSlug string `json:"workspace_slug"`
 }
 
-type DescribeWorkspaceOutput struct {
-	Workspace  any   `json:"workspace"`
-	Projects   []projectSummary  `json:"projects"`
-	NodeTypes  any   `json:"node_types"`
-	PropDefs   any   `json:"property_definitions"`
-}
-
-type projectSummary struct {
-	ID         string          `json:"id"`
-	Name       string          `json:"name"`
-	Identifier string          `json:"identifier"`
-	States     any `json:"states"`
-}
-
 func describeWorkspace(
 	workspaces workspace.Repository,
 	projects project.Repository,
 	states state.Repository,
 	nodeTypes node.TypeRepository,
 	properties node.PropertyRepository,
-) mcp.ToolHandlerFor[DescribeWorkspaceInput, DescribeWorkspaceOutput] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, in DescribeWorkspaceInput) (*mcp.CallToolResult, DescribeWorkspaceOutput, error) {
+) mcp.ToolHandlerFor[DescribeWorkspaceInput, any] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in DescribeWorkspaceInput) (*mcp.CallToolResult, any, error) {
 		ws, err := workspaces.GetBySlug(ctx, in.WorkspaceSlug)
 		if err != nil {
-			return nil, DescribeWorkspaceOutput{}, err
+			return nil, nil, err
 		}
 
 		projs, err := projects.List(ctx, ws.ID)
 		if err != nil {
-			return nil, DescribeWorkspaceOutput{}, err
+			return nil, nil, err
 		}
 
+		type projectSummary struct {
+			ID         string `json:"id"`
+			Name       string `json:"name"`
+			Identifier string `json:"identifier"`
+			States     any    `json:"states"`
+		}
 		summaries := make([]projectSummary, 0, len(projs))
 		for _, p := range projs {
 			ss, _ := states.List(ctx, p.ID)
@@ -81,11 +73,11 @@ func describeWorkspace(
 		nts, _ := nodeTypes.List(ctx, ws.OrgID)
 		defs, _ := properties.ListDefs(ctx, ws.OrgID, ws.ID, nil)
 
-		return nil, DescribeWorkspaceOutput{
-			Workspace: ws,
-			Projects:  summaries,
-			NodeTypes: nts,
-			PropDefs:  defs,
+		return nil, map[string]any{
+			"workspace":             ws,
+			"projects":              summaries,
+			"node_types":            nts,
+			"property_definitions":  defs,
 		}, nil
 	}
 }
@@ -94,20 +86,16 @@ func describeWorkspace(
 
 type ListWorkspacesInput struct{}
 
-type ListWorkspacesOutput struct {
-	Workspaces any `json:"workspaces"`
-}
-
-func listWorkspaces(workspaces workspace.Repository) mcp.ToolHandlerFor[ListWorkspacesInput, ListWorkspacesOutput] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, _ ListWorkspacesInput) (*mcp.CallToolResult, ListWorkspacesOutput, error) {
+func listWorkspaces(workspaces workspace.Repository) mcp.ToolHandlerFor[ListWorkspacesInput, any] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, _ ListWorkspacesInput) (*mcp.CallToolResult, any, error) {
 		userID, err := mustUser(ctx)
 		if err != nil {
-			return nil, ListWorkspacesOutput{}, err
+			return nil, nil, err
 		}
 		ws, err := workspaces.ListForUser(ctx, userID)
 		if err != nil {
-			return nil, ListWorkspacesOutput{}, err
+			return nil, nil, err
 		}
-		return nil, ListWorkspacesOutput{Workspaces: ws}, nil
+		return nil, map[string]any{"workspaces": ws}, nil
 	}
 }

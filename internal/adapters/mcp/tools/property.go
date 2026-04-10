@@ -17,50 +17,44 @@ func RegisterProperty(s *mcp.Server, properties node.PropertyRepository) {
 }
 
 type ListPropertyDefsInput struct {
-	OrgID       string `json:"org_id"` 
+	OrgID       string `json:"org_id"`
 	WorkspaceID string `json:"workspace_id"`
-	ProjectID   string `json:"project_id"` 
-}
-type ListPropertyDefsOutput struct {
-	Defs any `json:"defs"`
+	ProjectID   string `json:"project_id"`
 }
 
-func listPropertyDefs(properties node.PropertyRepository) mcp.ToolHandlerFor[ListPropertyDefsInput, ListPropertyDefsOutput] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListPropertyDefsInput) (*mcp.CallToolResult, ListPropertyDefsOutput, error) {
+func listPropertyDefs(properties node.PropertyRepository) mcp.ToolHandlerFor[ListPropertyDefsInput, any] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListPropertyDefsInput) (*mcp.CallToolResult, any, error) {
 		orgID, err := parseUUID(in.OrgID, "org_id")
 		if err != nil {
-			return nil, ListPropertyDefsOutput{}, err
+			return nil, nil, err
 		}
 		wsID, err := parseUUID(in.WorkspaceID, "workspace_id")
 		if err != nil {
-			return nil, ListPropertyDefsOutput{}, err
+			return nil, nil, err
 		}
 		defs, err := properties.ListDefs(ctx, orgID, wsID, parseOptionalUUID(in.ProjectID))
 		if err != nil {
-			return nil, ListPropertyDefsOutput{}, err
+			return nil, nil, err
 		}
-		return nil, ListPropertyDefsOutput{Defs: defs}, nil
+		return nil, map[string]any{"defs": defs}, nil
 	}
 }
 
 type CreatePropertyDefInput struct {
-	OrgID       string `json:"org_id"` 
-	WorkspaceID string `json:"workspace_id"` 
-	ProjectID   string `json:"project_id"` 
-	Name        string `json:"name"` 
-	Type        string `json:"type"` 
+	OrgID       string   `json:"org_id"`
+	WorkspaceID string   `json:"workspace_id"`
+	ProjectID   string   `json:"project_id"`
+	Name        string   `json:"name"`
+	Type        string   `json:"type"`
 	Options     []string `json:"options,omitempty"`
-	Required    bool   `json:"required,omitempty"`
-}
-type CreatePropertyDefOutput struct {
-	Def any `json:"def"`
+	Required    bool     `json:"required,omitempty"`
 }
 
-func createPropertyDef(properties node.PropertyRepository) mcp.ToolHandlerFor[CreatePropertyDefInput, CreatePropertyDefOutput] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, in CreatePropertyDefInput) (*mcp.CallToolResult, CreatePropertyDefOutput, error) {
+func createPropertyDef(properties node.PropertyRepository) mcp.ToolHandlerFor[CreatePropertyDefInput, any] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in CreatePropertyDefInput) (*mcp.CallToolResult, any, error) {
 		orgID, err := parseUUID(in.OrgID, "org_id")
 		if err != nil {
-			return nil, CreatePropertyDefOutput{}, err
+			return nil, nil, err
 		}
 		def := &node.PropertyDef{
 			ID:          uuid.New(),
@@ -73,9 +67,9 @@ func createPropertyDef(properties node.PropertyRepository) mcp.ToolHandlerFor[Cr
 			Required:    in.Required,
 		}
 		if err := properties.SetDef(ctx, def); err != nil {
-			return nil, CreatePropertyDefOutput{}, err
+			return nil, nil, err
 		}
-		return nil, CreatePropertyDefOutput{Def: def}, nil
+		return nil, map[string]any{"def": def}, nil
 	}
 }
 
@@ -112,10 +106,10 @@ func deletePropertyDef(properties node.PropertyRepository) mcp.ToolHandlerFor[De
 }
 
 type SetPropertyInput struct {
-	OrgID     string `json:"org_id"` 
-	NodeID    string `json:"node_id"` 
+	OrgID     string `json:"org_id"`
+	NodeID    string `json:"node_id"`
 	PropDefID string `json:"prop_def_id"`
-	Value     any    `json:"value,omitempty"`
+	Value     string `json:"value,omitempty"`
 }
 type SetPropertyOutput struct {
 	OK bool `json:"ok"`
@@ -143,27 +137,24 @@ func setProperty(properties node.PropertyRepository) mcp.ToolHandlerFor[SetPrope
 }
 
 type GetPropertiesInput struct {
-	OrgID  string `json:"org_id"` 
+	OrgID  string `json:"org_id"`
 	NodeID string `json:"node_id"`
 }
-type GetPropertiesOutput struct {
-	Properties any `json:"properties"`
-}
 
-func getProperties(properties node.PropertyRepository) mcp.ToolHandlerFor[GetPropertiesInput, GetPropertiesOutput] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, in GetPropertiesInput) (*mcp.CallToolResult, GetPropertiesOutput, error) {
+func getProperties(properties node.PropertyRepository) mcp.ToolHandlerFor[GetPropertiesInput, any] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in GetPropertiesInput) (*mcp.CallToolResult, any, error) {
 		orgID, err := parseUUID(in.OrgID, "org_id")
 		if err != nil {
-			return nil, GetPropertiesOutput{}, err
+			return nil, nil, err
 		}
 		nodeID, err := parseUUID(in.NodeID, "node_id")
 		if err != nil {
-			return nil, GetPropertiesOutput{}, err
+			return nil, nil, err
 		}
 		vals, err := properties.GetValues(ctx, orgID, nodeID)
 		if err != nil {
-			return nil, GetPropertiesOutput{}, err
+			return nil, nil, err
 		}
-		return nil, GetPropertiesOutput{Properties: vals}, nil
+		return nil, map[string]any{"properties": vals}, nil
 	}
 }

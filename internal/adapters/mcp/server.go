@@ -95,7 +95,7 @@ func NewHandler(deps Deps) *Handler {
 		containment: deps.Containment,
 		cache:       make(map[uuid.UUID]*cachedServer),
 	}
-	h.httpHandler = mcp.NewStreamableHTTPHandler(h.getServer, &mcp.StreamableHTTPOptions{Stateless: true})
+	h.httpHandler = mcp.NewStreamableHTTPHandler(h.getServer, nil)
 	return h
 }
 
@@ -144,6 +144,30 @@ func (h *Handler) getServer(r *http.Request) *mcp.Server {
 	h.mu.Unlock()
 
 	return s
+}
+
+// BuildServerForUser builds an MCP server with node types resolved for the given user.
+// Used by the mcp-stdio subcommand.
+func (h *Handler) BuildServerForUser(ctx context.Context, userID uuid.UUID) *mcp.Server {
+	wss, err := h.workspaces.ListForUser(ctx, userID)
+	if err != nil {
+		telemetry.L(ctx).Error("mcp-stdio: list workspaces", "err", err)
+	}
+	var nodeTypes []*node.NodeType
+	seen := make(map[uuid.UUID]struct{})
+	for _, ws := range wss {
+		nts, err := h.nodeTypes.List(ctx, ws.OrgID)
+		if err != nil {
+			continue
+		}
+		for _, nt := range nts {
+			if _, dup := seen[nt.ID]; !dup {
+				seen[nt.ID] = struct{}{}
+				nodeTypes = append(nodeTypes, nt)
+			}
+		}
+	}
+	return h.buildServer(nodeTypes)
 }
 
 func (h *Handler) buildServer(nodeTypes []*node.NodeType) *mcp.Server {
