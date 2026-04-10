@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	domain "github.com/agoodkind/tack/internal/domain"
-	"github.com/agoodkind/tack/internal/domain/org"
+	domain "goodkind.io/tack/internal/domain"
+	"goodkind.io/tack/internal/domain/org"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"

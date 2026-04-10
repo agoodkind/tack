@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/agoodkind/tack/internal/domain/epic"
-	"github.com/agoodkind/tack/internal/domain/issue"
-	"github.com/agoodkind/tack/internal/domain/project"
+	"goodkind.io/tack/internal/domain/epic"
+	"goodkind.io/tack/internal/domain/issue"
+	"goodkind.io/tack/internal/domain/project"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

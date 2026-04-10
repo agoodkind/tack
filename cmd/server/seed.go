@@ -9,13 +9,13 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/agoodkind/tack/internal/adapters/postgres"
-	"github.com/agoodkind/tack/internal/config"
-	"github.com/agoodkind/tack/internal/domain"
-	"github.com/agoodkind/tack/internal/domain/org"
-	"github.com/agoodkind/tack/internal/domain/user"
-	"github.com/agoodkind/tack/internal/domain/workspace"
-	"github.com/agoodkind/tack/migrations"
+	"goodkind.io/tack/internal/adapters/postgres"
+	"goodkind.io/tack/internal/config"
+	"goodkind.io/tack/internal/domain"
+	"goodkind.io/tack/internal/domain/org"
+	"goodkind.io/tack/internal/domain/user"
+	"goodkind.io/tack/internal/domain/workspace"
+	"goodkind.io/tack/migrations"
 )
 
 func runSeed(cfg *config.Config) {

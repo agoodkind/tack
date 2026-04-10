@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/agoodkind/tack/internal/domain/node"
+	"goodkind.io/tack/internal/domain/node"
 )
 
 // Activities holds dependencies injected into Temporal activity functions.

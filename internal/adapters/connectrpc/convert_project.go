@@ -2,8 +2,8 @@
 package connectrpc
 
 import (
-	v1 "github.com/agoodkind/tack/gen/tack/v1"
-	"github.com/agoodkind/tack/internal/domain/project"
+	v1 "goodkind.io/tack/gen/tack/v1"
+	"goodkind.io/tack/internal/domain/project"
 )
 
 func protoProject(p *project.Project) *v1.Project {

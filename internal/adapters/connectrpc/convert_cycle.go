@@ -2,8 +2,8 @@
 package connectrpc
 
 import (
-	v1 "github.com/agoodkind/tack/gen/tack/v1"
-	"github.com/agoodkind/tack/internal/domain/cycle"
+	v1 "goodkind.io/tack/gen/tack/v1"
+	"goodkind.io/tack/internal/domain/cycle"
 )
 
 func protoCycle(c *cycle.Cycle) *v1.Cycle {

@@ -2,8 +2,8 @@
 package connectrpc
 
 import (
-	v1 "github.com/agoodkind/tack/gen/tack/v1"
-	"github.com/agoodkind/tack/internal/domain/epic"
+	v1 "goodkind.io/tack/gen/tack/v1"
+	"goodkind.io/tack/internal/domain/epic"
 )
 
 func protoEpic(e *epic.Epic) *v1.Epic {

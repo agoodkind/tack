@@ -3,7 +3,7 @@ package postgres
 import (
 	"errors"
 
-	domain "github.com/agoodkind/tack/internal/domain"
+	domain "goodkind.io/tack/internal/domain"
 	"github.com/jackc/pgx/v5/pgconn"
 )
 

@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 
 	"connectrpc.com/connect"
-	v1 "github.com/agoodkind/tack/gen/tack/v1"
-	"github.com/agoodkind/tack/gen/tack/v1/tackv1connect"
-	"github.com/agoodkind/tack/internal/domain/node"
+	v1 "goodkind.io/tack/gen/tack/v1"
+	"goodkind.io/tack/gen/tack/v1/tackv1connect"
+	"goodkind.io/tack/internal/domain/node"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 

@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/agoodkind/tack/internal/auth"
-	"github.com/agoodkind/tack/internal/domain"
+	"goodkind.io/tack/internal/auth"
+	"goodkind.io/tack/internal/domain"
 	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )

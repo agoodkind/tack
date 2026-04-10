@@ -3,10 +3,10 @@ package tools
 import (
 	"context"
 
-	"github.com/agoodkind/tack/internal/domain/node"
-	"github.com/agoodkind/tack/internal/domain/project"
-	"github.com/agoodkind/tack/internal/domain/state"
-	"github.com/agoodkind/tack/internal/domain/workspace"
+	"goodkind.io/tack/internal/domain/node"
+	"goodkind.io/tack/internal/domain/project"
+	"goodkind.io/tack/internal/domain/state"
+	"goodkind.io/tack/internal/domain/workspace"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

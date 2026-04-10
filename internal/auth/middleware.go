@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/agoodkind/tack/internal/domain"
-	"github.com/agoodkind/tack/internal/domain/token"
-	"github.com/agoodkind/tack/internal/telemetry"
+	"goodkind.io/tack/internal/domain"
+	"goodkind.io/tack/internal/domain/token"
+	"goodkind.io/tack/internal/telemetry"
 	"github.com/google/uuid"
 )
 

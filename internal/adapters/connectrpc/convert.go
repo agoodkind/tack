@@ -6,10 +6,10 @@ package connectrpc
 import (
 	"time"
 
-	v1 "github.com/agoodkind/tack/gen/tack/v1"
-	"github.com/agoodkind/tack/internal/domain"
-	"github.com/agoodkind/tack/internal/domain/issue"
-	"github.com/agoodkind/tack/internal/domain/state"
+	v1 "goodkind.io/tack/gen/tack/v1"
+	"goodkind.io/tack/internal/domain"
+	"goodkind.io/tack/internal/domain/issue"
+	"goodkind.io/tack/internal/domain/state"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )

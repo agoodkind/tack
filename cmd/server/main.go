@@ -10,17 +10,19 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/agoodkind/tack/gen/tack/v1/tackv1connect"
-	"github.com/agoodkind/tack/internal/auth"
-	connectadapter "github.com/agoodkind/tack/internal/adapters/connectrpc"
-	fdbadapter "github.com/agoodkind/tack/internal/adapters/foundationdb"
-	mcpadapter "github.com/agoodkind/tack/internal/adapters/mcp"
-	"github.com/agoodkind/tack/internal/adapters/postgres"
-	"github.com/agoodkind/tack/internal/config"
-	"github.com/agoodkind/tack/internal/service"
-	"github.com/agoodkind/tack/internal/telemetry"
-	"github.com/agoodkind/tack/internal/temporal"
-	"github.com/agoodkind/tack/migrations"
+	"goodkind.io/tack/gen/tack/v1/tackv1connect"
+	"goodkind.io/tack/internal/auth"
+	connectadapter "goodkind.io/tack/internal/adapters/connectrpc"
+	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
+	mcpadapter "goodkind.io/tack/internal/adapters/mcp"
+	"goodkind.io/tack/internal/adapters/postgres"
+	searchadapter "goodkind.io/tack/internal/adapters/search"
+	"goodkind.io/tack/internal/config"
+	domainsearch "goodkind.io/tack/internal/domain/search"
+	"goodkind.io/tack/internal/service"
+	"goodkind.io/tack/internal/telemetry"
+	"goodkind.io/tack/internal/temporal"
+	"goodkind.io/tack/migrations"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
@@ -96,6 +98,8 @@ func runMCPStdio(cfg *config.Config) {
 	defer temporalClient.Close()
 	nodeCleanup := &temporal.NodeCleanupScheduler{Client: temporalClient}
 
+	searcher := buildSearcher(cfg)
+
 	issueRepo     := postgres.NewIssueRepo(pool)
 	projectRepo   := postgres.NewProjectRepo(pool)
 	workspaceRepo := postgres.NewWorkspaceRepo(pool)
@@ -108,7 +112,7 @@ func runMCPStdio(cfg *config.Config) {
 	issueSvc := service.NewIssueService(
 		issueRepo, projectRepo, workspaceRepo,
 		fdbStores.Activity, fdbStores.Assignments, fdbStores.Labels,
-		fdbStores.NodeDeleter, nodeCleanup,
+		fdbStores.NodeDeleter, nodeCleanup, searcher,
 	)
 	projectSvc := service.NewProjectService(projectRepo, stateRepo)
 
@@ -181,6 +185,8 @@ func runServer(cfg *config.Config) {
 
 	nodeCleanup := &temporal.NodeCleanupScheduler{Client: temporalClient}
 
+	searcher := buildSearcher(cfg)
+
 	// Repos
 	issueRepo     := postgres.NewIssueRepo(pool)
 	projectRepo   := postgres.NewProjectRepo(pool)
@@ -195,7 +201,7 @@ func runServer(cfg *config.Config) {
 	issueSvc := service.NewIssueService(
 		issueRepo, projectRepo, workspaceRepo,
 		fdbStores.Activity, fdbStores.Assignments, fdbStores.Labels,
-		fdbStores.NodeDeleter, nodeCleanup,
+		fdbStores.NodeDeleter, nodeCleanup, searcher,
 	)
 	projectSvc := service.NewProjectService(projectRepo, stateRepo)
 
@@ -295,4 +301,20 @@ func runServer(cfg *config.Config) {
 	if err := srv.Shutdown(shutCtx); err != nil {
 		slog.Error("shutdown", "err", err)
 	}
+}
+
+// buildSearcher creates a Meilisearch Client and ensures the issues index is
+// configured. Falls back to a no-op Searcher if setup fails (search degrades
+// gracefully rather than blocking server startup).
+func buildSearcher(cfg *config.Config) domainsearch.Searcher {
+	meiliClient := searchadapter.New(cfg.MeiliURL, cfg.MeiliMasterKey)
+	if err := meiliClient.EnsureIndex("issues", []string{"workspace_id", "project_id"}); err != nil {
+		slog.Error("meilisearch.setup_failed",
+			slog.String("url", cfg.MeiliURL),
+			slog.String("err", err.Error()),
+		)
+		return searchadapter.Noop{}
+	}
+	slog.Info("meilisearch.connected", slog.String("url", cfg.MeiliURL))
+	return meiliClient
 }

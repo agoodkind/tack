@@ -2,8 +2,8 @@
 package connectrpc
 
 import (
-	v1 "github.com/agoodkind/tack/gen/tack/v1"
-	"github.com/agoodkind/tack/internal/domain/state"
+	v1 "goodkind.io/tack/gen/tack/v1"
+	"goodkind.io/tack/internal/domain/state"
 )
 
 func protoState(s *state.State) *v1.State {

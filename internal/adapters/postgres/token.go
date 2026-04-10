@@ -7,8 +7,8 @@ import (
 	"errors"
 	"fmt"
 
-	domain "github.com/agoodkind/tack/internal/domain"
-	"github.com/agoodkind/tack/internal/domain/token"
+	domain "goodkind.io/tack/internal/domain"
+	"goodkind.io/tack/internal/domain/token"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"

@@ -3,8 +3,8 @@ package epic
 import (
 	"time"
 
-	"github.com/agoodkind/tack/internal/domain"
-	"github.com/agoodkind/tack/internal/domain/issue"
+	"goodkind.io/tack/internal/domain"
+	"goodkind.io/tack/internal/domain/issue"
 	"github.com/google/uuid"
 )
 

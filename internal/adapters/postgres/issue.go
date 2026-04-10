@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	domain "github.com/agoodkind/tack/internal/domain"
-	"github.com/agoodkind/tack/internal/domain/issue"
+	domain "goodkind.io/tack/internal/domain"
+	"goodkind.io/tack/internal/domain/issue"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -190,6 +190,47 @@ func (r *IssueRepo) Move(ctx context.Context, issueID, targetProjectID uuid.UUID
 	}
 	i.Priority = issue.Priority(priority)
 	return i, nil
+}
+
+func (r *IssueRepo) GetByIDs(ctx context.Context, workspaceID uuid.UUID, ids []uuid.UUID) ([]*issue.Issue, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	const q = `
+		SELECT id, node_id, workspace_id, project_id, parent_id, state_id, epic_id,
+		       name,
+		       priority, sequence_id, sort_order,
+		       start_date, target_date, completed_at, archived_at, is_draft,
+		       external_source, external_id,
+		       created_by, updated_by, created_at, updated_at
+		FROM issues
+		WHERE workspace_id = $1 AND id = ANY($2::uuid[]) AND deleted_at IS NULL
+		ORDER BY created_at DESC`
+
+	rows, err := r.db.Query(ctx, q, workspaceID, ids)
+	if err != nil {
+		return nil, fmt.Errorf("issue get by ids: %w", err)
+	}
+	defer rows.Close()
+
+	var issues []*issue.Issue
+	for rows.Next() {
+		i := &issue.Issue{}
+		var priority string
+		if err := rows.Scan(
+			&i.ID, &i.NodeID, &i.WorkspaceID, &i.ProjectID, &i.ParentID, &i.StateID, &i.EpicID,
+			&i.Name,
+			&priority, &i.SequenceID, &i.SortOrder,
+			&i.StartDate, &i.TargetDate, &i.CompletedAt, &i.ArchivedAt, &i.IsDraft,
+			&i.ExternalSource, &i.ExternalID,
+			&i.CreatedBy, &i.UpdatedBy, &i.CreatedAt, &i.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("issue get by ids scan: %w", err)
+		}
+		i.Priority = issue.Priority(priority)
+		issues = append(issues, i)
+	}
+	return issues, rows.Err()
 }
 
 func (r *IssueRepo) BulkUpdate(ctx context.Context, patch issue.BulkUpdatePatch) (int, error) {

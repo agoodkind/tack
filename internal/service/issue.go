@@ -9,15 +9,17 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/agoodkind/tack/internal/domain/issue"
-	"github.com/agoodkind/tack/internal/domain/node"
-	"github.com/agoodkind/tack/internal/domain/project"
-	"github.com/agoodkind/tack/internal/domain/workspace"
-	"github.com/agoodkind/tack/internal/telemetry"
+	domainsearch "goodkind.io/tack/internal/domain/search"
+	"goodkind.io/tack/internal/domain/issue"
+	"goodkind.io/tack/internal/domain/node"
+	"goodkind.io/tack/internal/domain/project"
+	"goodkind.io/tack/internal/domain/workspace"
+	"goodkind.io/tack/internal/telemetry"
 	"github.com/google/uuid"
 	"golang.org/x/sync/errgroup"
 )
 
+// IssueService implements issue.Service, coordinating SQL, FDB, and Meilisearch.
 type IssueService struct {
 	issues      issue.Repository
 	projects    project.Repository
@@ -27,6 +29,7 @@ type IssueService struct {
 	labels      node.NodeLabelRepository
 	nodeDeleter node.NodeDeleter
 	nodeCleanup node.NodeCleanupScheduler
+	searcher    domainsearch.Searcher
 }
 
 func NewIssueService(
@@ -38,6 +41,7 @@ func NewIssueService(
 	labels node.NodeLabelRepository,
 	nodeDeleter node.NodeDeleter,
 	nodeCleanup node.NodeCleanupScheduler,
+	searcher domainsearch.Searcher,
 ) *IssueService {
 	return &IssueService{
 		issues:      issues,
@@ -48,6 +52,7 @@ func NewIssueService(
 		labels:      labels,
 		nodeDeleter: nodeDeleter,
 		nodeCleanup: nodeCleanup,
+		searcher:    searcher,
 	}
 }
 
@@ -87,6 +92,8 @@ func (s *IssueService) Create(ctx context.Context, i *issue.Issue) (*issue.Issue
 
 	created.AssigneeIDs = i.AssigneeIDs
 	created.LabelIDs = i.LabelIDs
+
+	_ = s.searcher.Index(ctx, "issues", created.ID.String(), issueDoc(created))
 
 	telemetry.L(ctx).Info("issue.created",
 		slog.String("issue_id", created.ID.String()),
@@ -169,6 +176,9 @@ func (s *IssueService) Update(ctx context.Context, i *issue.Issue) (*issue.Issue
 	updated.NodeID = i.NodeID
 	updated.AssigneeIDs = i.AssigneeIDs
 	updated.LabelIDs = i.LabelIDs
+
+	_ = s.searcher.Index(ctx, "issues", updated.ID.String(), issueDoc(updated))
+
 	return updated, nil
 }
 
@@ -185,6 +195,8 @@ func (s *IssueService) Delete(ctx context.Context, workspaceID, projectID, id uu
 		_ = s.nodeDeleter.DeleteNode(ctx, ws.OrgID, i.NodeID)
 	}
 
+	_ = s.searcher.Delete(ctx, "issues", id.String())
+
 	telemetry.L(ctx).Info("issue.deleted",
 		slog.String("issue_id", id.String()),
 	)
@@ -193,101 +205,4 @@ func (s *IssueService) Delete(ctx context.Context, workspaceID, projectID, id uu
 
 func (s *IssueService) SetEpic(ctx context.Context, issueID uuid.UUID, epicID *uuid.UUID) error {
 	return s.issues.SetEpic(ctx, issueID, epicID)
-}
-
-func (s *IssueService) Search(ctx context.Context, workspaceID uuid.UUID, q string, filter issue.ListFilter) ([]*issue.Issue, int, error) {
-	return s.issues.Search(ctx, workspaceID, q, filter)
-}
-
-func (s *IssueService) Move(ctx context.Context, workspaceID, projectID, issueID, targetProjectID uuid.UUID, actorID uuid.UUID) (*issue.Issue, error) {
-	existing, err := s.issues.GetByID(ctx, workspaceID, projectID, issueID)
-	if err != nil {
-		return nil, err
-	}
-	seq, err := s.projects.AllocateSequenceID(ctx, targetProjectID, "issue")
-	if err != nil {
-		return nil, fmt.Errorf("allocate sequence: %w", err)
-	}
-	moved, err := s.issues.Move(ctx, existing.ID, targetProjectID, seq, actorID)
-	if err != nil {
-		return nil, err
-	}
-
-	ws, err := s.workspaces.GetByID(ctx, workspaceID)
-	if err != nil {
-		return moved, nil
-	}
-	_ = s.activity.Append(ctx, ws.OrgID, workspaceID, &node.ActivityEvent{
-		EventID:   uuid.New(),
-		NodeID:    existing.NodeID,
-		Actor:     actorID,
-		Verb:      "moved",
-		Detail:    map[string]any{"target_project_id": targetProjectID},
-		CreatedAt: time.Now().UTC(),
-	})
-
-	telemetry.L(ctx).Info("issue.moved",
-		slog.String("issue_id", issueID.String()),
-		slog.String("from_project_id", projectID.String()),
-		slog.String("to_project_id", targetProjectID.String()),
-		slog.Int("new_sequence_id", seq),
-	)
-	return moved, nil
-}
-
-func (s *IssueService) BulkUpdate(ctx context.Context, workspaceID uuid.UUID, patch issue.BulkUpdatePatch) (int, error) {
-	updated, err := s.issues.BulkUpdate(ctx, patch)
-	if err != nil {
-		return 0, err
-	}
-	// Update FDB assignees per issue if a replacement set was provided.
-	if patch.AssigneeIDs != nil {
-		ws, wsErr := s.workspaces.GetByID(ctx, workspaceID)
-		if wsErr == nil {
-			for _, id := range patch.IssueIDs {
-				i, getErr := s.issues.GetByID(ctx, workspaceID, patch.ProjectID, id)
-				if getErr != nil {
-					continue
-				}
-				_ = s.assignments.SetAll(ctx, ws.OrgID, i.NodeID, patch.AssigneeIDs, patch.ActorID)
-			}
-		}
-	}
-	telemetry.L(ctx).Info("issue.bulk_updated",
-		slog.Int("count", updated),
-	)
-	return updated, nil
-}
-
-func (s *IssueService) BulkDelete(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID) (int, error) {
-	nodeIDs, err := s.issues.BulkDelete(ctx, issueIDs)
-	if err != nil {
-		return 0, err
-	}
-	ws, wsErr := s.workspaces.GetByID(ctx, workspaceID)
-	if wsErr == nil {
-		for _, nid := range nodeIDs {
-			_ = s.nodeDeleter.DeleteNode(ctx, ws.OrgID, nid)
-		}
-	}
-	telemetry.L(ctx).Info("issue.bulk_deleted",
-		slog.Int("count", len(nodeIDs)),
-	)
-	return len(nodeIDs), nil
-}
-
-func (s *IssueService) BulkMove(ctx context.Context, workspaceID, projectID uuid.UUID, issueIDs []uuid.UUID, targetProjectID uuid.UUID, actorID uuid.UUID) (int, int, error) {
-	var moved, failed int
-	for _, id := range issueIDs {
-		if _, err := s.Move(ctx, workspaceID, projectID, id, targetProjectID, actorID); err != nil {
-			failed++
-		} else {
-			moved++
-		}
-	}
-	telemetry.L(ctx).Info("issue.bulk_moved",
-		slog.Int("moved", moved),
-		slog.Int("failed", failed),
-	)
-	return moved, failed, nil
 }

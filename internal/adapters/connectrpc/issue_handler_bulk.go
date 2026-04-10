@@ -5,9 +5,9 @@ import (
 	"context"
 
 	"connectrpc.com/connect"
-	v1 "github.com/agoodkind/tack/gen/tack/v1"
-	"github.com/agoodkind/tack/internal/auth"
-	"github.com/agoodkind/tack/internal/domain/issue"
+	v1 "goodkind.io/tack/gen/tack/v1"
+	"goodkind.io/tack/internal/auth"
+	"goodkind.io/tack/internal/domain/issue"
 )
 
 // MoveIssue moves a single issue to a different project, reallocating its sequence ID.

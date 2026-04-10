@@ -3,7 +3,7 @@ package issue
 import (
 	"time"
 
-	"github.com/agoodkind/tack/internal/domain"
+	"goodkind.io/tack/internal/domain"
 	"github.com/google/uuid"
 )
 

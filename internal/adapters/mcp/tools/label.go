@@ -3,7 +3,7 @@ package tools
 import (
 	"context"
 
-	"github.com/agoodkind/tack/internal/domain/label"
+	"goodkind.io/tack/internal/domain/label"
 	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )

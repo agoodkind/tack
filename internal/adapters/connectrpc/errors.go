@@ -2,7 +2,7 @@ package connectrpc
 
 import (
 	"connectrpc.com/connect"
-	"github.com/agoodkind/tack/internal/domain"
+	"goodkind.io/tack/internal/domain"
 )
 
 func domainErr(err error) error {
