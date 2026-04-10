@@ -1,14 +1,19 @@
+// Package service implements business logic for all Tack entities.
+// It coordinates SQL repositories and FoundationDB stores, using errgroup
+// for concurrent multi-source reads.
 package service
 
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/agoodkind/tack/internal/domain/issue"
 	"github.com/agoodkind/tack/internal/domain/node"
 	"github.com/agoodkind/tack/internal/domain/project"
 	"github.com/agoodkind/tack/internal/domain/workspace"
+	"github.com/agoodkind/tack/internal/telemetry"
 	"github.com/google/uuid"
 	"golang.org/x/sync/errgroup"
 )
@@ -82,6 +87,13 @@ func (s *IssueService) Create(ctx context.Context, i *issue.Issue) (*issue.Issue
 
 	created.AssigneeIDs = i.AssigneeIDs
 	created.LabelIDs = i.LabelIDs
+
+	telemetry.L(ctx).Info("issue.created",
+		slog.String("issue_id", created.ID.String()),
+		slog.String("project_id", created.ProjectID.String()),
+		slog.String("workspace_id", created.WorkspaceID.String()),
+		slog.Int("sequence_id", created.SequenceID),
+	)
 	return created, nil
 }
 
@@ -172,6 +184,10 @@ func (s *IssueService) Delete(ctx context.Context, workspaceID, projectID, id uu
 	if err == nil {
 		_ = s.nodeDeleter.DeleteNode(ctx, ws.OrgID, i.NodeID)
 	}
+
+	telemetry.L(ctx).Info("issue.deleted",
+		slog.String("issue_id", id.String()),
+	)
 	return nil
 }
 
@@ -209,6 +225,13 @@ func (s *IssueService) Move(ctx context.Context, workspaceID, projectID, issueID
 		Detail:    map[string]any{"target_project_id": targetProjectID},
 		CreatedAt: time.Now().UTC(),
 	})
+
+	telemetry.L(ctx).Info("issue.moved",
+		slog.String("issue_id", issueID.String()),
+		slog.String("from_project_id", projectID.String()),
+		slog.String("to_project_id", targetProjectID.String()),
+		slog.Int("new_sequence_id", seq),
+	)
 	return moved, nil
 }
 
@@ -230,6 +253,9 @@ func (s *IssueService) BulkUpdate(ctx context.Context, workspaceID uuid.UUID, pa
 			}
 		}
 	}
+	telemetry.L(ctx).Info("issue.bulk_updated",
+		slog.Int("count", updated),
+	)
 	return updated, nil
 }
 
@@ -244,6 +270,9 @@ func (s *IssueService) BulkDelete(ctx context.Context, workspaceID uuid.UUID, is
 			_ = s.nodeDeleter.DeleteNode(ctx, ws.OrgID, nid)
 		}
 	}
+	telemetry.L(ctx).Info("issue.bulk_deleted",
+		slog.Int("count", len(nodeIDs)),
+	)
 	return len(nodeIDs), nil
 }
 
@@ -256,5 +285,9 @@ func (s *IssueService) BulkMove(ctx context.Context, workspaceID, projectID uuid
 			moved++
 		}
 	}
+	telemetry.L(ctx).Info("issue.bulk_moved",
+		slog.Int("moved", moved),
+		slog.Int("failed", failed),
+	)
 	return moved, failed, nil
 }

@@ -23,10 +23,12 @@ func main() {
 		token = "tack_ZBF9kJA7W7VXPvkV3G99Qdzc_xBAoSvhI_kcoeDNK7I"
 	}
 
+	logf("[init] url=%s token_len=%d", url, len(token))
+
 	c := &client{
-		url:    url,
-		token:  token,
-		http:   &http.Client{},
+		url:   url,
+		token: token,
+		http:  &http.Client{},
 	}
 
 	scanner := bufio.NewScanner(os.Stdin)
@@ -36,10 +38,13 @@ func main() {
 		if line == "" {
 			continue
 		}
+		logf("[stdin] %s", truncate(line, 120))
 		if err := c.forward(line); err != nil {
+			logf("[error] %v", err)
 			fmt.Fprintf(os.Stderr, "tack-mcp-client: %v\n", err)
 		}
 	}
+	logf("[eof] stdin closed")
 }
 
 type client struct {
@@ -67,16 +72,21 @@ func (c *client) forward(body string) error {
 		req.Header.Set("Mcp-Session-Id", sid)
 	}
 
+	logf("[http] POST %s session=%s", c.url, sid)
 	resp, err := c.http.Do(req)
 	if err != nil {
+		logf("[http] error: %v", err)
 		return err
 	}
 	defer resp.Body.Close()
+
+	logf("[http] %d content-type=%s", resp.StatusCode, resp.Header.Get("Content-Type"))
 
 	if newSID := resp.Header.Get("Mcp-Session-Id"); newSID != "" {
 		c.mu.Lock()
 		c.sessionID = newSID
 		c.mu.Unlock()
+		logf("[session] id=%s", newSID)
 	}
 
 	data, err := io.ReadAll(resp.Body)
@@ -88,14 +98,27 @@ func (c *client) forward(body string) error {
 	if strings.Contains(ct, "text/event-stream") {
 		for _, line := range strings.Split(string(data), "\n") {
 			if after, ok := strings.CutPrefix(line, "data: "); ok && after != "" {
+				logf("[stdout] %s", truncate(after, 120))
 				fmt.Fprintln(os.Stdout, after)
 			}
 		}
 	} else {
 		s := strings.TrimSpace(string(data))
 		if s != "" {
+			logf("[stdout] %s", truncate(s, 120))
 			fmt.Fprintln(os.Stdout, s)
 		}
 	}
 	return nil
+}
+
+func logf(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, "tack-mcp-client: "+format+"\n", args...)
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
 }

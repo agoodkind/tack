@@ -238,7 +238,7 @@ func (r *IssueRepo) BulkDelete(ctx context.Context, issueIDs []uuid.UUID) ([]uui
 	for rows.Next() {
 		var nid uuid.UUID
 		if err := rows.Scan(&nid); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("bulk delete %d issues: scan node_id: %w", len(issueIDs), err)
 		}
 		nodeIDs = append(nodeIDs, nid)
 	}
@@ -248,7 +248,10 @@ func (r *IssueRepo) BulkDelete(ctx context.Context, issueIDs []uuid.UUID) ([]uui
 func (r *IssueRepo) SetEpic(ctx context.Context, issueID uuid.UUID, epicID *uuid.UUID) error {
 	const q = `UPDATE issues SET epic_id = $1, updated_at = now() WHERE id = $2 AND deleted_at IS NULL`
 	_, err := r.db.Exec(ctx, q, epicID, issueID)
-	return err
+	if err != nil {
+		return fmt.Errorf("set epic on issue %s: %w", issueID, err)
+	}
+	return nil
 }
 
 func (r *IssueRepo) Search(ctx context.Context, workspaceID uuid.UUID, q string, filter issue.ListFilter) ([]*issue.Issue, int, error) {
@@ -286,7 +289,7 @@ func (r *IssueRepo) Search(ctx context.Context, workspaceID uuid.UUID, q string,
 			&i.ExternalSource, &i.ExternalID,
 			&i.CreatedBy, &i.UpdatedBy, &i.CreatedAt, &i.UpdatedAt,
 		); err != nil {
-			return nil, 0, err
+			return nil, 0, fmt.Errorf("issue search scan: %w", err)
 		}
 		i.Priority = issue.Priority(priority)
 		issues = append(issues, i)

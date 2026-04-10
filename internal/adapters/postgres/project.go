@@ -66,7 +66,7 @@ func (r *ProjectRepo) List(ctx context.Context, workspaceID uuid.UUID) ([]*proje
 
 	rows, err := r.db.Query(ctx, q, workspaceID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("project list workspace %s: %w", workspaceID, err)
 	}
 	defer rows.Close()
 
@@ -77,7 +77,7 @@ func (r *ProjectRepo) List(ctx context.Context, workspaceID uuid.UUID) ([]*proje
 			&p.ID, &p.WorkspaceID, &p.Name, &p.Identifier, &p.Description, &p.Network,
 			&p.DefaultStateID, &p.CreatedBy, &p.UpdatedBy, &p.CreatedAt, &p.UpdatedAt,
 		); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("project list scan workspace %s: %w", workspaceID, err)
 		}
 		projects = append(projects, p)
 	}
@@ -109,7 +109,10 @@ func (r *ProjectRepo) Update(ctx context.Context, p *project.Project) (*project.
 
 func (r *ProjectRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	_, err := r.db.Exec(ctx, `DELETE FROM projects WHERE id = $1`, id)
-	return err
+	if err != nil {
+		return fmt.Errorf("delete project %s: %w", id, err)
+	}
+	return nil
 }
 
 // AllocateSequenceID atomically increments the per-project sequence counter and

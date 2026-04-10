@@ -1,3 +1,6 @@
+// Package connectrpc provides Connect-RPC handlers for all Tack services.
+// It translates between domain types and protobuf messages and maps domain
+// errors to Connect status codes.
 package connectrpc
 
 import (
@@ -5,19 +8,13 @@ import (
 
 	v1 "github.com/agoodkind/tack/gen/tack/v1"
 	"github.com/agoodkind/tack/internal/domain"
-	"github.com/agoodkind/tack/internal/domain/cycle"
-	"github.com/agoodkind/tack/internal/domain/epic"
 	"github.com/agoodkind/tack/internal/domain/issue"
-	"github.com/agoodkind/tack/internal/domain/label"
-	"github.com/agoodkind/tack/internal/domain/module"
-	"github.com/agoodkind/tack/internal/domain/project"
 	"github.com/agoodkind/tack/internal/domain/state"
-	"github.com/agoodkind/tack/internal/domain/workspace"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// ── helpers ──────────────────────────────────────────────────────────────────
+// ── shared helpers ────────────────────────────────────────────────────────────
 
 func baseFromDomain(b domain.Base) *v1.Base {
 	pb := &v1.Base{
@@ -165,157 +162,4 @@ func domainStateGroup(g v1.StateGroup) state.GroupName {
 	default:
 		return state.GroupBacklog
 	}
-}
-
-// ── Workspace ─────────────────────────────────────────────────────────────────
-
-func protoWorkspace(w *workspace.Workspace) *v1.Workspace {
-	return &v1.Workspace{
-		Base:   baseFromFields(w.ID, w.CreatedAt, w.UpdatedAt, nil, nil),
-		OrgId:  w.OrgID.String(),
-		Name:   w.Name,
-		Slug:   w.Slug,
-	}
-}
-
-// ── Project ───────────────────────────────────────────────────────────────────
-
-func protoProject(p *project.Project) *v1.Project {
-	pb := &v1.Project{
-		Base:        baseFromFields(p.ID, p.CreatedAt, p.UpdatedAt, &p.CreatedBy, p.UpdatedBy),
-		WorkspaceId: p.WorkspaceID.String(),
-		Name:        p.Name,
-		Identifier:  p.Identifier,
-	}
-	if p.Description != "" {
-		pb.Description = &p.Description
-	}
-	if p.DefaultStateID != nil {
-		s := p.DefaultStateID.String()
-		pb.DefaultStateId = &s
-	}
-	return pb
-}
-
-// ── State ─────────────────────────────────────────────────────────────────────
-
-func protoState(s *state.State) *v1.State {
-	return &v1.State{
-		Base:      baseFromFields(s.ID, s.CreatedAt, s.UpdatedAt, nil, nil),
-		ProjectId: s.ProjectID.String(),
-		Name:      s.Name,
-		Group:     protoStateGroup(s.GroupName),
-		Color:     s.Color,
-		SortOrder: int32(s.SortOrder),
-	}
-}
-
-// ── Label ─────────────────────────────────────────────────────────────────────
-
-func protoLabel(l *label.Label) *v1.Label {
-	pb := &v1.Label{
-		Base:        baseFromFields(l.ID, l.CreatedAt, l.UpdatedAt, nil, nil),
-		WorkspaceId: l.WorkspaceID.String(),
-		Name:        l.Name,
-		Color:       l.Color,
-		SortOrder:   int32(l.SortOrder),
-	}
-	if l.ProjectID != nil {
-		s := l.ProjectID.String()
-		pb.ProjectId = &s
-	}
-	return pb
-}
-
-// ── Issue ─────────────────────────────────────────────────────────────────────
-
-func protoIssue(i *issue.Issue) *v1.Issue {
-	pb := &v1.Issue{
-		Base:        baseFromDomain(i.Base),
-		WorkspaceId: i.WorkspaceID.String(),
-		ProjectId:   i.ProjectID.String(),
-		Name:        i.Name,
-		Priority:    protoPriority(i.Priority),
-		AssigneeIds: uuidSlice(i.AssigneeIDs),
-		LabelIds:    uuidSlice(i.LabelIDs),
-		DueDate:     toTS(i.TargetDate),
-	}
-	if i.Description != "" {
-		pb.Description = &i.Description
-	}
-	if i.StateID != nil {
-		pb.StateId = i.StateID.String()
-	}
-	if i.EpicID != nil {
-		s := i.EpicID.String()
-		pb.EpicId = &s
-	}
-	if i.ParentID != nil {
-		s := i.ParentID.String()
-		pb.ParentId = &s
-	}
-	return pb
-}
-
-// ── Epic ──────────────────────────────────────────────────────────────────────
-
-func protoEpic(e *epic.Epic) *v1.Epic {
-	pb := &v1.Epic{
-		Base:        baseFromDomain(e.Base),
-		WorkspaceId: e.WorkspaceID.String(),
-		ProjectId:   e.ProjectID.String(),
-		Name:        e.Name,
-		Priority:    protoPriority(e.Priority),
-		AssigneeIds: uuidSlice(e.AssigneeIDs),
-		LabelIds:    uuidSlice(e.LabelIDs),
-	}
-	if e.Description != "" {
-		pb.Description = &e.Description
-	}
-	if e.StateID != nil {
-		s := e.StateID.String()
-		pb.StateId = &s
-	}
-	if e.ParentID != nil {
-		s := e.ParentID.String()
-		pb.ParentId = &s
-	}
-	return pb
-}
-
-// ── Cycle ─────────────────────────────────────────────────────────────────────
-
-func protoCycle(c *cycle.Cycle) *v1.Cycle {
-	pb := &v1.Cycle{
-		Base:        baseFromFields(c.ID, c.CreatedAt, c.UpdatedAt, &c.CreatedBy, c.UpdatedBy),
-		WorkspaceId: c.WorkspaceID.String(),
-		ProjectId:   c.ProjectID.String(),
-		Name:        c.Name,
-		StartDate:   toTS(c.StartDate),
-		EndDate:     toTS(c.EndDate),
-	}
-	if c.Description != "" {
-		pb.Description = &c.Description
-	}
-	return pb
-}
-
-// ── Module ────────────────────────────────────────────────────────────────────
-
-func protoModule(m *module.Module) *v1.Module {
-	pb := &v1.Module{
-		Base:        baseFromFields(m.ID, m.CreatedAt, m.UpdatedAt, &m.CreatedBy, m.UpdatedBy),
-		WorkspaceId: m.WorkspaceID.String(),
-		ProjectId:   m.ProjectID.String(),
-		Name:        m.Name,
-		StartDate:   toTS(m.StartDate),
-		TargetDate:  toTS(m.TargetDate),
-	}
-	if m.Description != "" {
-		pb.Description = &m.Description
-	}
-	if m.Status != "" {
-		pb.Status = &m.Status
-	}
-	return pb
 }

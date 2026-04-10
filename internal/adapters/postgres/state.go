@@ -57,7 +57,7 @@ func (r *StateRepo) List(ctx context.Context, projectID uuid.UUID) ([]*state.Sta
 		FROM states WHERE project_id = $1 ORDER BY sort_order ASC`
 	rows, err := r.db.Query(ctx, q, projectID)
 	if err != nil {
-		return nil, fmt.Errorf("state list: %w", err)
+		return nil, fmt.Errorf("state list project %s: %w", projectID, err)
 	}
 	defer rows.Close()
 	var states []*state.State
@@ -65,7 +65,7 @@ func (r *StateRepo) List(ctx context.Context, projectID uuid.UUID) ([]*state.Sta
 		s := &state.State{}
 		var gn string
 		if err := rows.Scan(&s.ID, &s.ProjectID, &s.Name, &gn, &s.Color, &s.SortOrder, &s.CreatedAt, &s.UpdatedAt); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("state list scan project %s: %w", projectID, err)
 		}
 		s.GroupName = state.GroupName(gn)
 		states = append(states, s)
@@ -92,7 +92,7 @@ func (r *StateRepo) Update(ctx context.Context, s *state.State) (*state.State, e
 func (r *StateRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	tag, err := r.db.Exec(ctx, `DELETE FROM states WHERE id = $1`, id)
 	if err != nil {
-		return fmt.Errorf("state delete: %w", err)
+		return fmt.Errorf("delete state %s: %w", id, err)
 	}
 	if tag.RowsAffected() == 0 {
 		return domain.ErrNotFound

@@ -1,3 +1,5 @@
+// Package config loads server configuration from environment variables.
+// All configuration comes from env vars; there is no config file.
 package config
 
 import "github.com/caarlos0/env/v11"

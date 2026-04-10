@@ -1,5 +1,7 @@
 //go:build fdb
 
+// Package foundationdb provides FoundationDB adapters for all FDB-backed stores:
+// assignments, labels, activity, membership, containment, and node cleanup.
 package foundationdb
 
 import "github.com/apple/foundationdb/bindings/go/src/fdb"

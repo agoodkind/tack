@@ -1,4 +1,6 @@
-// Package temporal wires the Temporal SDK client, worker, workflows, and activities.
+// Package temporal provides the Temporal workflow client, worker registration,
+// and the NodeCleanupScheduler that enqueues async FDB cleanup workflows after
+// soft-deletes.
 package temporal
 
 import (
