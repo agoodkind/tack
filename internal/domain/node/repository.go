@@ -6,6 +6,24 @@ import (
 	"github.com/google/uuid"
 )
 
+// NodeCleanupScheduler enqueues asynchronous FDB cleanup for a soft-deleted node.
+// The real implementation enqueues a Temporal workflow. The noop does nothing.
+type NodeCleanupScheduler interface {
+	Schedule(ctx context.Context, orgID, nodeID uuid.UUID) error
+}
+
+// NodeDeleter cleans up all FDB-resident data for a node when it is deleted.
+// This covers assignments, labels, comments, watchers, counters, relations, and
+// all other key spaces keyed by node_id. Entity-specific SQL cascades are handled
+// separately by each entity's repository.
+//
+// Keys where node_id is NOT the primary scope (draft_for_user_on_node,
+// sort_position_in_view, activity_by_user, work_log_by_user) are left as
+// low-priority orphans and are cleaned by a GC pass, not on every delete.
+type NodeDeleter interface {
+	DeleteNode(ctx context.Context, orgID, nodeID uuid.UUID) error
+}
+
 // TypeRepository manages user-defined node type definitions.
 type TypeRepository interface {
 	Set(ctx context.Context, nt *NodeType) error

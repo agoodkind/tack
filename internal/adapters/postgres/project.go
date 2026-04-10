@@ -87,12 +87,16 @@ func (r *ProjectRepo) List(ctx context.Context, workspaceID uuid.UUID) ([]*proje
 func (r *ProjectRepo) Update(ctx context.Context, p *project.Project) (*project.Project, error) {
 	const q = `
 		UPDATE projects SET
-			name = $1, description = $2, network = $3, updated_by = $4, updated_at = now()
-		WHERE id = $5
+			name = $1, description = $2, network = $3,
+			identifier = $4, default_state_id = $5,
+			updated_by = $6, updated_at = now()
+		WHERE id = $7
 		RETURNING updated_at`
 
 	err := r.db.QueryRow(ctx, q,
-		p.Name, p.Description, p.Network, p.UpdatedBy, p.ID,
+		p.Name, p.Description, p.Network,
+		p.Identifier, p.DefaultStateID,
+		p.UpdatedBy, p.ID,
 	).Scan(&p.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

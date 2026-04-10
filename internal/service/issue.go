@@ -20,6 +20,8 @@ type IssueService struct {
 	activity    node.ActivityRepository
 	assignments node.AssignmentRepository
 	labels      node.NodeLabelRepository
+	nodeDeleter node.NodeDeleter
+	nodeCleanup node.NodeCleanupScheduler
 }
 
 func NewIssueService(
@@ -29,6 +31,8 @@ func NewIssueService(
 	activity node.ActivityRepository,
 	assignments node.AssignmentRepository,
 	labels node.NodeLabelRepository,
+	nodeDeleter node.NodeDeleter,
+	nodeCleanup node.NodeCleanupScheduler,
 ) *IssueService {
 	return &IssueService{
 		issues:      issues,
@@ -37,6 +41,8 @@ func NewIssueService(
 		activity:    activity,
 		assignments: assignments,
 		labels:      labels,
+		nodeDeleter: nodeDeleter,
+		nodeCleanup: nodeCleanup,
 	}
 }
 
@@ -155,11 +161,18 @@ func (s *IssueService) Update(ctx context.Context, i *issue.Issue) (*issue.Issue
 }
 
 func (s *IssueService) Delete(ctx context.Context, workspaceID, projectID, id uuid.UUID) error {
-	_, err := s.issues.GetByID(ctx, workspaceID, projectID, id)
+	i, err := s.issues.GetByID(ctx, workspaceID, projectID, id)
 	if err != nil {
 		return err
 	}
-	return s.issues.Delete(ctx, id)
+	if err := s.issues.Delete(ctx, id); err != nil {
+		return err
+	}
+	ws, err := s.workspaces.GetByID(ctx, workspaceID)
+	if err == nil {
+		_ = s.nodeDeleter.DeleteNode(ctx, ws.OrgID, i.NodeID)
+	}
+	return nil
 }
 
 func (s *IssueService) SetEpic(ctx context.Context, issueID uuid.UUID, epicID *uuid.UUID) error {
@@ -168,4 +181,80 @@ func (s *IssueService) SetEpic(ctx context.Context, issueID uuid.UUID, epicID *u
 
 func (s *IssueService) Search(ctx context.Context, workspaceID uuid.UUID, q string, filter issue.ListFilter) ([]*issue.Issue, int, error) {
 	return s.issues.Search(ctx, workspaceID, q, filter)
+}
+
+func (s *IssueService) Move(ctx context.Context, workspaceID, projectID, issueID, targetProjectID uuid.UUID, actorID uuid.UUID) (*issue.Issue, error) {
+	existing, err := s.issues.GetByID(ctx, workspaceID, projectID, issueID)
+	if err != nil {
+		return nil, err
+	}
+	seq, err := s.projects.AllocateSequenceID(ctx, targetProjectID, "issue")
+	if err != nil {
+		return nil, fmt.Errorf("allocate sequence: %w", err)
+	}
+	moved, err := s.issues.Move(ctx, existing.ID, targetProjectID, seq, actorID)
+	if err != nil {
+		return nil, err
+	}
+
+	ws, err := s.workspaces.GetByID(ctx, workspaceID)
+	if err != nil {
+		return moved, nil
+	}
+	_ = s.activity.Append(ctx, ws.OrgID, workspaceID, &node.ActivityEvent{
+		EventID:   uuid.New(),
+		NodeID:    existing.NodeID,
+		Actor:     actorID,
+		Verb:      "moved",
+		Detail:    map[string]any{"target_project_id": targetProjectID},
+		CreatedAt: time.Now().UTC(),
+	})
+	return moved, nil
+}
+
+func (s *IssueService) BulkUpdate(ctx context.Context, workspaceID uuid.UUID, patch issue.BulkUpdatePatch) (int, error) {
+	updated, err := s.issues.BulkUpdate(ctx, patch)
+	if err != nil {
+		return 0, err
+	}
+	// Update FDB assignees per issue if a replacement set was provided.
+	if patch.AssigneeIDs != nil {
+		ws, wsErr := s.workspaces.GetByID(ctx, workspaceID)
+		if wsErr == nil {
+			for _, id := range patch.IssueIDs {
+				i, getErr := s.issues.GetByID(ctx, workspaceID, patch.ProjectID, id)
+				if getErr != nil {
+					continue
+				}
+				_ = s.assignments.SetAll(ctx, ws.OrgID, i.NodeID, patch.AssigneeIDs, patch.ActorID)
+			}
+		}
+	}
+	return updated, nil
+}
+
+func (s *IssueService) BulkDelete(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID) (int, error) {
+	nodeIDs, err := s.issues.BulkDelete(ctx, issueIDs)
+	if err != nil {
+		return 0, err
+	}
+	ws, wsErr := s.workspaces.GetByID(ctx, workspaceID)
+	if wsErr == nil {
+		for _, nid := range nodeIDs {
+			_ = s.nodeDeleter.DeleteNode(ctx, ws.OrgID, nid)
+		}
+	}
+	return len(nodeIDs), nil
+}
+
+func (s *IssueService) BulkMove(ctx context.Context, workspaceID, projectID uuid.UUID, issueIDs []uuid.UUID, targetProjectID uuid.UUID, actorID uuid.UUID) (int, int, error) {
+	var moved, failed int
+	for _, id := range issueIDs {
+		if _, err := s.Move(ctx, workspaceID, projectID, id, targetProjectID, actorID); err != nil {
+			failed++
+		} else {
+			moved++
+		}
+	}
+	return moved, failed, nil
 }

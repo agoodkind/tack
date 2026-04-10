@@ -13,6 +13,7 @@ type Stores struct {
 	Labels      *NodeLabelStore
 	Membership  *MembershipStore
 	Containment *ContainmentStore
+	NodeDeleter *NodeDeleteStore
 }
 
 // NewStores opens FDB once and wires all adapters to the same connection.
@@ -33,5 +34,6 @@ func newStores(db fdb.Database) *Stores {
 		Labels:      newNodeLabelStore(db),
 		Membership:  newMembershipStore(db),
 		Containment: newContainmentStore(db),
+		NodeDeleter: newNodeDeleteStore(db),
 	}
 }

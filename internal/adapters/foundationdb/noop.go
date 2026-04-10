@@ -20,6 +20,7 @@ type Stores struct {
 	Labels      *NoopNodeLabelStore
 	Membership  *NoopMembershipStore
 	Containment *NoopContainmentStore
+	NodeDeleter *NoopNodeDeleter
 }
 
 func NewStores(_ string) (*Stores, error) {
@@ -31,8 +32,15 @@ func NewStores(_ string) (*Stores, error) {
 		Labels:      &NoopNodeLabelStore{},
 		Membership:  &NoopMembershipStore{},
 		Containment: &NoopContainmentStore{},
+		NodeDeleter: &NoopNodeDeleter{},
 	}, nil
 }
+
+// ── NodeDeleter ───────────────────────────────────────────────────────────────
+
+type NoopNodeDeleter struct{}
+
+func (s *NoopNodeDeleter) DeleteNode(_ context.Context, _, _ uuid.UUID) error { return nil }
 
 // ── NodeTypes ─────────────────────────────────────────────────────────────────
 
