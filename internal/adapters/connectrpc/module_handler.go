@@ -10,18 +10,19 @@ import (
 	"goodkind.io/tack/internal/auth"
 	"goodkind.io/tack/internal/domain/module"
 	"goodkind.io/tack/internal/domain/node"
+	"goodkind.io/tack/internal/service"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type ModuleHandler struct {
-	modules     module.Repository
+	modules     *service.ModuleService
 	containment node.ContainmentRepository
 }
 
 var _ tackv1connect.ModuleServiceHandler = (*ModuleHandler)(nil)
 
-func NewModuleHandler(modules module.Repository, containment node.ContainmentRepository) *ModuleHandler {
+func NewModuleHandler(modules *service.ModuleService, containment node.ContainmentRepository) *ModuleHandler {
 	return &ModuleHandler{modules: modules, containment: containment}
 }
 

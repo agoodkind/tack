@@ -93,7 +93,7 @@ func (s *IssueService) Create(ctx context.Context, i *issue.Issue) (*issue.Issue
 	created.AssigneeIDs = i.AssigneeIDs
 	created.LabelIDs = i.LabelIDs
 
-	_ = s.searcher.Index(ctx, "issues", created.ID.String(), issueDoc(created))
+	_ = s.searcher.Index(ctx, "nodes", created.ID.String(), issueDoc(created))
 
 	telemetry.L(ctx).Info("issue.created",
 		slog.String("issue_id", created.ID.String()),
@@ -177,7 +177,7 @@ func (s *IssueService) Update(ctx context.Context, i *issue.Issue) (*issue.Issue
 	updated.AssigneeIDs = i.AssigneeIDs
 	updated.LabelIDs = i.LabelIDs
 
-	_ = s.searcher.Index(ctx, "issues", updated.ID.String(), issueDoc(updated))
+	_ = s.searcher.Index(ctx, "nodes", updated.ID.String(), issueDoc(updated))
 
 	return updated, nil
 }
@@ -195,7 +195,7 @@ func (s *IssueService) Delete(ctx context.Context, workspaceID, projectID, id uu
 		_ = s.nodeDeleter.DeleteNode(ctx, ws.OrgID, i.NodeID)
 	}
 
-	_ = s.searcher.Delete(ctx, "issues", id.String())
+	_ = s.searcher.Delete(ctx, "nodes", id.String())
 
 	telemetry.L(ctx).Info("issue.deleted",
 		slog.String("issue_id", id.String()),

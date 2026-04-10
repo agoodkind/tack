@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 
+	domainsearch "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/domain/project"
 	"goodkind.io/tack/internal/domain/state"
 )
@@ -21,16 +22,19 @@ var defaultStates = []struct {
 	{"Canceled", state.GroupCancelled, "#EF4444", 5},
 }
 
+// ProjectService creates projects and seeds default states.
 type ProjectService struct {
 	projects project.Repository
 	states   state.Repository
+	searcher domainsearch.Searcher
 }
 
-func NewProjectService(projects project.Repository, states state.Repository) *ProjectService {
-	return &ProjectService{projects: projects, states: states}
+// NewProjectService creates a ProjectService with the given dependencies.
+func NewProjectService(projects project.Repository, states state.Repository, searcher domainsearch.Searcher) *ProjectService {
+	return &ProjectService{projects: projects, states: states, searcher: searcher}
 }
 
-// Create creates a project and seeds it with the default state set.
+// Create creates a project, seeds default states, and indexes it for search.
 func (s *ProjectService) Create(ctx context.Context, p *project.Project) (*project.Project, error) {
 	created, err := s.projects.Create(ctx, p)
 	if err != nil {
@@ -54,6 +58,16 @@ func (s *ProjectService) Create(ctx context.Context, p *project.Project) (*proje
 			_, _ = s.projects.Update(ctx, created)
 		}
 	}
+
+	_ = s.searcher.Index(ctx, "nodes", created.ID.String(), domainsearch.NodeDoc{
+		ID:          created.ID.String(),
+		NodeID:      created.NodeID.String(),
+		WorkspaceID: created.WorkspaceID.String(),
+		ProjectID:   created.ID.String(),
+		EntityType:  "project",
+		Name:        created.Name,
+		Description: created.Description,
+	})
 
 	return created, nil
 }

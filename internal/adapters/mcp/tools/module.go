@@ -5,10 +5,11 @@ import (
 
 	"goodkind.io/tack/internal/domain/module"
 	"goodkind.io/tack/internal/domain/node"
+	"goodkind.io/tack/internal/service"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func RegisterModule(s *mcp.Server, modules module.Repository, containment node.ContainmentRepository) {
+func RegisterModule(s *mcp.Server, modules *service.ModuleService, containment node.ContainmentRepository) {
 	mcp.AddTool(s, &mcp.Tool{Name: "tack_list_modules", Description: "List modules (feature groupings) in a project"}, listModules(modules))
 	mcp.AddTool(s, &mcp.Tool{Name: "tack_get_module", Description: "Get a module by ID"}, getModule(modules))
 	mcp.AddTool(s, &mcp.Tool{Name: "tack_create_module", Description: "Create a new module"}, createModule(modules))
@@ -22,7 +23,7 @@ type ListModulesInput struct {
 	ProjectID string `json:"project_id"`
 }
 
-func listModules(modules module.Repository) mcp.ToolHandlerFor[ListModulesInput, any] {
+func listModules(modules *service.ModuleService) mcp.ToolHandlerFor[ListModulesInput, any] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListModulesInput) (*mcp.CallToolResult, any, error) {
 		pID, err := parseUUID(in.ProjectID, "project_id")
 		if err != nil {
@@ -41,17 +42,17 @@ type GetModuleInput struct {
 	ModuleID  string `json:"module_id"`
 }
 
-func getModule(modules module.Repository) mcp.ToolHandlerFor[GetModuleInput, any] {
+func getModule(modules *service.ModuleService) mcp.ToolHandlerFor[GetModuleInput, any] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in GetModuleInput) (*mcp.CallToolResult, any, error) {
 		pID, err := parseUUID(in.ProjectID, "project_id")
 		if err != nil {
 			return nil, nil, err
 		}
-		mID, err := parseUUID(in.ModuleID, "module_id")
+		moduleID, err := parseUUID(in.ModuleID, "module_id")
 		if err != nil {
 			return nil, nil, err
 		}
-		m, err := modules.GetByID(ctx, pID, mID)
+		m, err := modules.GetByID(ctx, pID, moduleID)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -67,7 +68,7 @@ type CreateModuleInput struct {
 	Status      *string `json:"status,omitempty"`
 }
 
-func createModule(modules module.Repository) mcp.ToolHandlerFor[CreateModuleInput, any] {
+func createModule(modules *service.ModuleService) mcp.ToolHandlerFor[CreateModuleInput, any] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in CreateModuleInput) (*mcp.CallToolResult, any, error) {
 		userID, err := mustUser(ctx)
 		if err != nil {
@@ -112,7 +113,7 @@ type UpdateModuleInput struct {
 	Status      *string `json:"status,omitempty"`
 }
 
-func updateModule(modules module.Repository) mcp.ToolHandlerFor[UpdateModuleInput, any] {
+func updateModule(modules *service.ModuleService) mcp.ToolHandlerFor[UpdateModuleInput, any] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in UpdateModuleInput) (*mcp.CallToolResult, any, error) {
 		userID, err := mustUser(ctx)
 		if err != nil {
@@ -122,11 +123,11 @@ func updateModule(modules module.Repository) mcp.ToolHandlerFor[UpdateModuleInpu
 		if err != nil {
 			return nil, nil, err
 		}
-		mID, err := parseUUID(in.ModuleID, "module_id")
+		moduleID, err := parseUUID(in.ModuleID, "module_id")
 		if err != nil {
 			return nil, nil, err
 		}
-		existing, err := modules.GetByID(ctx, pID, mID)
+		existing, err := modules.GetByID(ctx, pID, moduleID)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -155,13 +156,13 @@ type DeleteModuleOutput struct {
 	OK bool `json:"ok"`
 }
 
-func deleteModule(modules module.Repository) mcp.ToolHandlerFor[DeleteModuleInput, DeleteModuleOutput] {
+func deleteModule(modules *service.ModuleService) mcp.ToolHandlerFor[DeleteModuleInput, DeleteModuleOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in DeleteModuleInput) (*mcp.CallToolResult, DeleteModuleOutput, error) {
-		id, err := parseUUID(in.ModuleID, "module_id")
+		moduleID, err := parseUUID(in.ModuleID, "module_id")
 		if err != nil {
 			return nil, DeleteModuleOutput{}, err
 		}
-		if err := modules.Delete(ctx, id); err != nil {
+		if err := modules.Delete(ctx, moduleID); err != nil {
 			return nil, DeleteModuleOutput{}, err
 		}
 		return nil, DeleteModuleOutput{OK: true}, nil
@@ -187,17 +188,17 @@ func addToModule(containment node.ContainmentRepository) mcp.ToolHandlerFor[AddT
 		if err != nil {
 			return nil, AddToModuleOutput{}, err
 		}
-		mID, err := parseUUID(in.ModuleID, "module_id")
+		moduleID, err := parseUUID(in.ModuleID, "module_id")
 		if err != nil {
 			return nil, AddToModuleOutput{}, err
 		}
 		var added int
 		for _, s := range in.IssueIDs {
-			iID, err := parseUUID(s, "issue_id")
+			issueID, err := parseUUID(s, "issue_id")
 			if err != nil {
 				return nil, AddToModuleOutput{}, err
 			}
-			if err := containment.AddIssueToModule(ctx, orgID, mID, iID, userID); err != nil {
+			if err := containment.AddIssueToModule(ctx, orgID, moduleID, issueID, userID); err != nil {
 				return nil, AddToModuleOutput{}, err
 			}
 			added++
@@ -221,15 +222,15 @@ func removeFromModule(containment node.ContainmentRepository) mcp.ToolHandlerFor
 		if err != nil {
 			return nil, RemoveFromModuleOutput{}, err
 		}
-		mID, err := parseUUID(in.ModuleID, "module_id")
+		moduleID, err := parseUUID(in.ModuleID, "module_id")
 		if err != nil {
 			return nil, RemoveFromModuleOutput{}, err
 		}
-		iID, err := parseUUID(in.IssueID, "issue_id")
+		issueID, err := parseUUID(in.IssueID, "issue_id")
 		if err != nil {
 			return nil, RemoveFromModuleOutput{}, err
 		}
-		if err := containment.RemoveIssueFromModule(ctx, orgID, mID, iID); err != nil {
+		if err := containment.RemoveIssueFromModule(ctx, orgID, moduleID, issueID); err != nil {
 			return nil, RemoveFromModuleOutput{}, err
 		}
 		return nil, RemoveFromModuleOutput{OK: true}, nil

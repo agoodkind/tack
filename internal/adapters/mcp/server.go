@@ -8,15 +8,14 @@ import (
 
 	"goodkind.io/tack/internal/adapters/mcp/tools"
 	"goodkind.io/tack/internal/auth"
-	"goodkind.io/tack/internal/domain/cycle"
-	"goodkind.io/tack/internal/domain/epic"
 	"goodkind.io/tack/internal/domain/issue"
 	"goodkind.io/tack/internal/domain/label"
-	"goodkind.io/tack/internal/domain/module"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/domain/project"
+	domainsearch "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/domain/state"
 	"goodkind.io/tack/internal/domain/workspace"
+	"goodkind.io/tack/internal/service"
 	"goodkind.io/tack/internal/telemetry"
 	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -37,18 +36,19 @@ type Handler struct {
 	projectSvc interface {
 		Create(ctx context.Context, p *project.Project) (*project.Project, error)
 	}
-	states state.Repository
-	labels      label.Repository
-	issueSvc    issue.Service
-	epics       epic.Repository
-	cycles      cycle.Repository
-	modules     module.Repository
+	states     state.Repository
+	labels     label.Repository
+	issueSvc   issue.Service
+	epicSvc    *service.EpicService
+	cycleSvc   *service.CycleService
+	moduleSvc  *service.ModuleService
 	nodeTypes   node.TypeRepository
 	properties  node.PropertyRepository
 	activity    node.ActivityRepository
 	assignments node.AssignmentRepository
 	nodeLabels  node.NodeLabelRepository
 	containment node.ContainmentRepository
+	searcher    domainsearch.Searcher
 
 	mu    sync.RWMutex
 	cache map[uuid.UUID]*cachedServer
@@ -57,42 +57,44 @@ type Handler struct {
 }
 
 type Deps struct {
-	Workspaces  workspace.Repository
-	Projects    project.Repository
-	ProjectSvc  interface {
+	Workspaces workspace.Repository
+	Projects   project.Repository
+	ProjectSvc interface {
 		Create(ctx context.Context, p *project.Project) (*project.Project, error)
 	}
 	States      state.Repository
 	Labels      label.Repository
 	IssueSvc    issue.Service
-	Epics       epic.Repository
-	Cycles      cycle.Repository
-	Modules     module.Repository
+	EpicSvc     *service.EpicService
+	CycleSvc    *service.CycleService
+	ModuleSvc   *service.ModuleService
 	NodeTypes   node.TypeRepository
 	Properties  node.PropertyRepository
 	Activity    node.ActivityRepository
 	Assignments node.AssignmentRepository
 	NodeLabels  node.NodeLabelRepository
 	Containment node.ContainmentRepository
+	Searcher    domainsearch.Searcher
 }
 
 func NewHandler(deps Deps) *Handler {
 	h := &Handler{
-		workspaces: deps.Workspaces,
-		projects:   deps.Projects,
-		projectSvc: deps.ProjectSvc,
-		states:     deps.States,
+		workspaces:  deps.Workspaces,
+		projects:    deps.Projects,
+		projectSvc:  deps.ProjectSvc,
+		states:      deps.States,
 		labels:      deps.Labels,
 		issueSvc:    deps.IssueSvc,
-		epics:       deps.Epics,
-		cycles:      deps.Cycles,
-		modules:     deps.Modules,
+		epicSvc:     deps.EpicSvc,
+		cycleSvc:    deps.CycleSvc,
+		moduleSvc:   deps.ModuleSvc,
 		nodeTypes:   deps.NodeTypes,
 		properties:  deps.Properties,
 		activity:    deps.Activity,
 		assignments: deps.Assignments,
 		nodeLabels:  deps.NodeLabels,
 		containment: deps.Containment,
+		searcher:    deps.Searcher,
 		cache:       make(map[uuid.UUID]*cachedServer),
 	}
 	h.httpHandler = mcp.NewStreamableHTTPHandler(h.getServer, nil)
@@ -178,12 +180,12 @@ func (h *Handler) buildServer(nodeTypes []*node.NodeType) *mcp.Server {
 	tools.RegisterState(s, h.states)
 	tools.RegisterLabel(s, h.labels)
 	tools.RegisterIssue(s, h.issueSvc)
-	tools.RegisterEpic(s, h.epics, h.projects)
-	tools.RegisterCycle(s, h.cycles, h.containment)
-	tools.RegisterModule(s, h.modules, h.containment)
+	tools.RegisterEpic(s, h.epicSvc, h.projects)
+	tools.RegisterCycle(s, h.cycleSvc, h.containment)
+	tools.RegisterModule(s, h.moduleSvc, h.containment)
 	tools.RegisterProperty(s, h.properties)
 	tools.RegisterActivity(s, h.activity)
-	tools.RegisterSearch(s, h.issueSvc)
+	tools.RegisterSearch(s, h.searcher)
 
 	for _, nt := range nodeTypes {
 		tools.RegisterNodeType(s, nt, h.properties, h.activity)

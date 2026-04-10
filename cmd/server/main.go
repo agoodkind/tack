@@ -109,12 +109,15 @@ func runMCPStdio(cfg *config.Config) {
 	cycleRepo     := postgres.NewCycleRepo(pool)
 	moduleRepo    := postgres.NewModuleRepo(pool)
 
-	issueSvc := service.NewIssueService(
+	issueSvc     := service.NewIssueService(
 		issueRepo, projectRepo, workspaceRepo,
 		fdbStores.Activity, fdbStores.Assignments, fdbStores.Labels,
 		fdbStores.NodeDeleter, nodeCleanup, searcher,
 	)
-	projectSvc := service.NewProjectService(projectRepo, stateRepo)
+	projectSvc   := service.NewProjectService(projectRepo, stateRepo, searcher)
+	epicSvc      := service.NewEpicService(epicRepo, searcher)
+	cycleSvc     := service.NewCycleService(cycleRepo, searcher)
+	moduleSvc    := service.NewModuleService(moduleRepo, searcher)
 
 	handler := mcpadapter.NewHandler(mcpadapter.Deps{
 		Workspaces:  workspaceRepo,
@@ -123,15 +126,16 @@ func runMCPStdio(cfg *config.Config) {
 		States:      stateRepo,
 		Labels:      labelRepo,
 		IssueSvc:    issueSvc,
-		Epics:       epicRepo,
-		Cycles:      cycleRepo,
-		Modules:     moduleRepo,
+		EpicSvc:     epicSvc,
+		CycleSvc:    cycleSvc,
+		ModuleSvc:   moduleSvc,
 		NodeTypes:   fdbStores.NodeTypes,
 		Properties:  fdbStores.Properties,
 		Activity:    fdbStores.Activity,
 		Assignments: fdbStores.Assignments,
 		NodeLabels:  fdbStores.Labels,
 		Containment: fdbStores.Containment,
+		Searcher:    searcher,
 	})
 
 	ctx = auth.WithUser(ctx, tok.UserID)
@@ -198,12 +202,17 @@ func runServer(cfg *config.Config) {
 	moduleRepo    := postgres.NewModuleRepo(pool)
 	tokenRepo     := postgres.NewTokenRepo(pool)
 
-	issueSvc := service.NewIssueService(
+	// Services
+	issueSvc     := service.NewIssueService(
 		issueRepo, projectRepo, workspaceRepo,
 		fdbStores.Activity, fdbStores.Assignments, fdbStores.Labels,
 		fdbStores.NodeDeleter, nodeCleanup, searcher,
 	)
-	projectSvc := service.NewProjectService(projectRepo, stateRepo)
+	projectSvc   := service.NewProjectService(projectRepo, stateRepo, searcher)
+	epicSvc      := service.NewEpicService(epicRepo, searcher)
+	cycleSvc     := service.NewCycleService(cycleRepo, searcher)
+	moduleSvc    := service.NewModuleService(moduleRepo, searcher)
+	workspaceSvc := service.NewWorkspaceService(workspaceRepo, searcher)
 
 	mcpHandler := mcpadapter.NewHandler(mcpadapter.Deps{
 		Workspaces:  workspaceRepo,
@@ -212,15 +221,16 @@ func runServer(cfg *config.Config) {
 		States:      stateRepo,
 		Labels:      labelRepo,
 		IssueSvc:    issueSvc,
-		Epics:       epicRepo,
-		Cycles:      cycleRepo,
-		Modules:     moduleRepo,
+		EpicSvc:     epicSvc,
+		CycleSvc:    cycleSvc,
+		ModuleSvc:   moduleSvc,
 		NodeTypes:   fdbStores.NodeTypes,
 		Properties:  fdbStores.Properties,
 		Activity:    fdbStores.Activity,
 		Assignments: fdbStores.Assignments,
 		NodeLabels:  fdbStores.Labels,
 		Containment: fdbStores.Containment,
+		Searcher:    searcher,
 	})
 
 	var authMiddleware func(http.Handler) http.Handler
@@ -232,12 +242,12 @@ func runServer(cfg *config.Config) {
 	}
 
 	// Connect-RPC handlers
-	workspaceH := connectadapter.NewWorkspaceHandler(workspaceRepo)
+	workspaceH := connectadapter.NewWorkspaceHandler(workspaceSvc)
 	projectH   := connectadapter.NewProjectHandler(projectRepo, projectSvc)
 	issueH     := connectadapter.NewIssueHandler(issueSvc, fdbStores.Assignments)
-	epicH      := connectadapter.NewEpicHandler(epicRepo)
-	cycleH     := connectadapter.NewCycleHandler(cycleRepo, fdbStores.Containment)
-	moduleH    := connectadapter.NewModuleHandler(moduleRepo, fdbStores.Containment)
+	epicH      := connectadapter.NewEpicHandler(epicSvc)
+	cycleH     := connectadapter.NewCycleHandler(cycleSvc, fdbStores.Containment)
+	moduleH    := connectadapter.NewModuleHandler(moduleSvc, fdbStores.Containment)
 	stateH     := connectadapter.NewStateHandler(stateRepo)
 	labelH     := connectadapter.NewLabelHandler(labelRepo)
 	activityH  := connectadapter.NewActivityHandler(fdbStores.Activity)
@@ -303,12 +313,12 @@ func runServer(cfg *config.Config) {
 	}
 }
 
-// buildSearcher creates a Meilisearch Client and ensures the issues index is
+// buildSearcher creates a Meilisearch Client and ensures the nodes index is
 // configured. Falls back to a no-op Searcher if setup fails (search degrades
 // gracefully rather than blocking server startup).
 func buildSearcher(cfg *config.Config) domainsearch.Searcher {
 	meiliClient := searchadapter.New(cfg.MeiliURL, cfg.MeiliMasterKey)
-	if err := meiliClient.EnsureIndex("issues", []string{"workspace_id", "project_id"}); err != nil {
+	if err := meiliClient.EnsureIndex("nodes", []string{"workspace_id", "entity_type", "project_id"}); err != nil {
 		slog.Error("meilisearch.setup_failed",
 			slog.String("url", cfg.MeiliURL),
 			slog.String("err", err.Error()),

@@ -7,10 +7,11 @@ import (
 	"goodkind.io/tack/internal/domain/epic"
 	"goodkind.io/tack/internal/domain/issue"
 	"goodkind.io/tack/internal/domain/project"
+	"goodkind.io/tack/internal/service"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func RegisterEpic(s *mcp.Server, epics epic.Repository, projects project.Repository) {
+func RegisterEpic(s *mcp.Server, epics *service.EpicService, projects project.Repository) {
 	mcp.AddTool(s, &mcp.Tool{Name: "tack_list_epics", Description: "List epics in a project"}, listEpics(epics))
 	mcp.AddTool(s, &mcp.Tool{Name: "tack_get_epic", Description: "Get an epic by ID including its description"}, getEpic(epics))
 	mcp.AddTool(s, &mcp.Tool{Name: "tack_create_epic", Description: "Create a new epic"}, createEpic(epics, projects))
@@ -23,7 +24,7 @@ type ListEpicsInput struct {
 	ProjectID   string `json:"project_id"`
 }
 
-func listEpics(epics epic.Repository) mcp.ToolHandlerFor[ListEpicsInput, any] {
+func listEpics(epics *service.EpicService) mcp.ToolHandlerFor[ListEpicsInput, any] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListEpicsInput) (*mcp.CallToolResult, any, error) {
 		wsID, err := parseUUID(in.WorkspaceID, "workspace_id")
 		if err != nil {
@@ -47,7 +48,7 @@ type GetEpicInput struct {
 	EpicID      string `json:"epic_id"`
 }
 
-func getEpic(epics epic.Repository) mcp.ToolHandlerFor[GetEpicInput, any] {
+func getEpic(epics *service.EpicService) mcp.ToolHandlerFor[GetEpicInput, any] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in GetEpicInput) (*mcp.CallToolResult, any, error) {
 		wsID, err := parseUUID(in.WorkspaceID, "workspace_id")
 		if err != nil {
@@ -78,7 +79,7 @@ type CreateEpicInput struct {
 	StateID     *string `json:"state_id,omitempty"`
 }
 
-func createEpic(epics epic.Repository, projects project.Repository) mcp.ToolHandlerFor[CreateEpicInput, any] {
+func createEpic(epics *service.EpicService, projects project.Repository) mcp.ToolHandlerFor[CreateEpicInput, any] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in CreateEpicInput) (*mcp.CallToolResult, any, error) {
 		userID, err := mustUser(ctx)
 		if err != nil {
@@ -113,11 +114,11 @@ func createEpic(epics epic.Repository, projects project.Repository) mcp.ToolHand
 			e.StateID = parseOptionalUUID(*in.StateID)
 		}
 		e.CreatedBy = userID
-		e, err = epics.Create(ctx, e)
+		created, err := epics.Create(ctx, e)
 		if err != nil {
 			return nil, nil, err
 		}
-		return nil, map[string]any{"epic": e}, nil
+		return nil, map[string]any{"epic": created}, nil
 	}
 }
 
@@ -131,7 +132,7 @@ type UpdateEpicInput struct {
 	StateID     *string `json:"state_id,omitempty"`
 }
 
-func updateEpic(epics epic.Repository) mcp.ToolHandlerFor[UpdateEpicInput, any] {
+func updateEpic(epics *service.EpicService) mcp.ToolHandlerFor[UpdateEpicInput, any] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in UpdateEpicInput) (*mcp.CallToolResult, any, error) {
 		userID, err := mustUser(ctx)
 		if err != nil {
@@ -181,15 +182,16 @@ type DeleteEpicOutput struct {
 	OK bool `json:"ok"`
 }
 
-func deleteEpic(epics epic.Repository) mcp.ToolHandlerFor[DeleteEpicInput, DeleteEpicOutput] {
+func deleteEpic(epics *service.EpicService) mcp.ToolHandlerFor[DeleteEpicInput, DeleteEpicOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in DeleteEpicInput) (*mcp.CallToolResult, DeleteEpicOutput, error) {
-		id, err := parseUUID(in.EpicID, "epic_id")
+		epicID, err := parseUUID(in.EpicID, "epic_id")
 		if err != nil {
 			return nil, DeleteEpicOutput{}, err
 		}
-		if err := epics.Delete(ctx, id); err != nil {
+		if err := epics.Delete(ctx, epicID); err != nil {
 			return nil, DeleteEpicOutput{}, err
 		}
 		return nil, DeleteEpicOutput{OK: true}, nil
 	}
 }
+

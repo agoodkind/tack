@@ -10,18 +10,19 @@ import (
 	"goodkind.io/tack/internal/auth"
 	"goodkind.io/tack/internal/domain/cycle"
 	"goodkind.io/tack/internal/domain/node"
+	"goodkind.io/tack/internal/service"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type CycleHandler struct {
-	cycles      cycle.Repository
+	cycles      *service.CycleService
 	containment node.ContainmentRepository
 }
 
 var _ tackv1connect.CycleServiceHandler = (*CycleHandler)(nil)
 
-func NewCycleHandler(cycles cycle.Repository, containment node.ContainmentRepository) *CycleHandler {
+func NewCycleHandler(cycles *service.CycleService, containment node.ContainmentRepository) *CycleHandler {
 	return &CycleHandler{cycles: cycles, containment: containment}
 }
 

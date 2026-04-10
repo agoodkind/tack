@@ -39,7 +39,7 @@ func (s *IssueService) Move(ctx context.Context, workspaceID, projectID, issueID
 		CreatedAt: time.Now().UTC(),
 	})
 
-	_ = s.searcher.Index(ctx, "issues", moved.ID.String(), issueDoc(moved))
+	_ = s.searcher.Index(ctx, "nodes", moved.ID.String(), issueDoc(moved))
 
 	telemetry.L(ctx).Info("issue.moved",
 		slog.String("issue_id", issueID.String()),
@@ -86,7 +86,7 @@ func (s *IssueService) BulkDelete(ctx context.Context, workspaceID uuid.UUID, is
 		}
 	}
 	for _, id := range issueIDs {
-		_ = s.searcher.Delete(ctx, "issues", id.String())
+		_ = s.searcher.Delete(ctx, "nodes", id.String())
 	}
 	telemetry.L(ctx).Info("issue.bulk_deleted",
 		slog.Int("count", len(nodeIDs)),

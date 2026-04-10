@@ -81,8 +81,65 @@ func (r *IssueRepo) GetByID(ctx context.Context, workspaceID, projectID, id uuid
 
 func (r *IssueRepo) List(ctx context.Context, filter issue.ListFilter) ([]*issue.Issue, int, error) {
 	// description is intentionally omitted — large TEXT blobs don't belong in list results.
-	// TODO: build dynamic query from filter; placeholder returns all for the project.
-	const q = `
+	// ModuleID, CycleID, AssigneeIDs, LabelIDs require FDB pre-filtering and are not applied here.
+	args := []any{filter.WorkspaceID}
+	next := func(v any) string {
+		args = append(args, v)
+		return fmt.Sprintf("$%d", len(args))
+	}
+
+	conds := "workspace_id = $1 AND deleted_at IS NULL"
+
+	if filter.ProjectID != nil {
+		conds += " AND project_id = " + next(*filter.ProjectID)
+	}
+	if filter.EpicID != nil {
+		conds += " AND epic_id = " + next(*filter.EpicID)
+	}
+	if len(filter.StateIDs) > 0 {
+		conds += " AND state_id = ANY(" + next(filter.StateIDs) + "::uuid[])"
+	}
+	if len(filter.Priorities) > 0 {
+		priorities := make([]string, len(filter.Priorities))
+		for i, p := range filter.Priorities {
+			priorities[i] = string(p)
+		}
+		conds += " AND priority = ANY(" + next(priorities) + "::text[])"
+	}
+	if filter.IsDraft != nil {
+		conds += " AND is_draft = " + next(*filter.IsDraft)
+	}
+
+	orderBy := "sort_order ASC, created_at DESC"
+	switch filter.OrderBy {
+	case "created_at", "-created_at":
+		if filter.OrderBy[0] == '-' {
+			orderBy = "created_at DESC"
+		} else {
+			orderBy = "created_at ASC"
+		}
+	case "updated_at", "-updated_at":
+		if filter.OrderBy[0] == '-' {
+			orderBy = "updated_at DESC"
+		} else {
+			orderBy = "updated_at ASC"
+		}
+	case "priority":
+		orderBy = "priority ASC, sort_order ASC"
+	case "sequence_id", "-sequence_id":
+		if filter.OrderBy[0] == '-' {
+			orderBy = "sequence_id DESC"
+		} else {
+			orderBy = "sequence_id ASC"
+		}
+	}
+
+	limit := filter.PerPage
+	if limit <= 0 {
+		limit = 100
+	}
+
+	q := fmt.Sprintf(`
 		SELECT id, node_id, workspace_id, project_id, parent_id, state_id, epic_id,
 		       name,
 		       priority, sequence_id, sort_order,
@@ -90,10 +147,11 @@ func (r *IssueRepo) List(ctx context.Context, filter issue.ListFilter) ([]*issue
 		       external_source, external_id,
 		       created_by, updated_by, created_at, updated_at
 		FROM issues
-		WHERE workspace_id = $1 AND project_id = $2 AND deleted_at IS NULL
-		ORDER BY sort_order ASC, created_at DESC`
+		WHERE %s
+		ORDER BY %s
+		LIMIT %d`, conds, orderBy, limit)
 
-	rows, err := r.db.Query(ctx, q, filter.WorkspaceID, filter.ProjectID)
+	rows, err := r.db.Query(ctx, q, args...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("issue list: %w", err)
 	}
@@ -111,7 +169,7 @@ func (r *IssueRepo) List(ctx context.Context, filter issue.ListFilter) ([]*issue
 			&i.ExternalSource, &i.ExternalID,
 			&i.CreatedBy, &i.UpdatedBy, &i.CreatedAt, &i.UpdatedAt,
 		); err != nil {
-			return nil, 0, fmt.Errorf("issue scan: %w", err)
+			return nil, 0, fmt.Errorf("issue list scan: %w", err)
 		}
 		i.Priority = issue.Priority(priority)
 		issues = append(issues, i)

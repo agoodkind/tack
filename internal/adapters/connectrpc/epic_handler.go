@@ -8,17 +8,18 @@ import (
 	"goodkind.io/tack/gen/tack/v1/tackv1connect"
 	"goodkind.io/tack/internal/auth"
 	"goodkind.io/tack/internal/domain/epic"
+	"goodkind.io/tack/internal/service"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type EpicHandler struct {
-	epics epic.Repository
+	epics *service.EpicService
 }
 
 var _ tackv1connect.EpicServiceHandler = (*EpicHandler)(nil)
 
-func NewEpicHandler(epics epic.Repository) *EpicHandler {
+func NewEpicHandler(epics *service.EpicService) *EpicHandler {
 	return &EpicHandler{epics: epics}
 }
 

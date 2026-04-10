@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/meilisearch/meilisearch-go"
+	domainsearch "goodkind.io/tack/internal/domain/search"
 )
 
 // Client is a Meilisearch-backed Searcher. It implements domain/search.Searcher.
@@ -62,9 +63,9 @@ func (c *Client) Delete(_ context.Context, collection, id string) error {
 	return nil
 }
 
-// Search returns document IDs matching query, scoped by equality filters.
+// Search returns NodeDocs matching query, scoped by equality filters.
 // Returns a non-nil empty slice when the search succeeded but matched nothing.
-func (c *Client) Search(_ context.Context, collection, query string, filters map[string]string) ([]string, error) {
+func (c *Client) Search(_ context.Context, collection, query string, filters map[string]string) ([]domainsearch.NodeDoc, error) {
 	filterParts := make([]string, 0, len(filters))
 	for k, v := range filters {
 		filterParts = append(filterParts, fmt.Sprintf(`%s = "%s"`, k, v))
@@ -73,23 +74,40 @@ func (c *Client) Search(_ context.Context, collection, query string, filters map
 	res, err := c.meili.Index(collection).Search(query, &meilisearch.SearchRequest{
 		Filter:               strings.Join(filterParts, " AND "),
 		Limit:                200,
-		AttributesToRetrieve: []string{"id"},
+		AttributesToRetrieve: []string{"id", "node_id", "workspace_id", "project_id", "entity_type", "name", "description"},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("search %s: %w", collection, err)
 	}
 
-	ids := make([]string, 0, len(res.Hits))
+	docs := make([]domainsearch.NodeDoc, 0, len(res.Hits))
 	for _, hit := range res.Hits {
-		raw, ok := hit["id"]
-		if !ok {
+		var doc domainsearch.NodeDoc
+		if v, ok := hit["id"]; ok {
+			_ = json.Unmarshal(v, &doc.ID)
+		}
+		if v, ok := hit["node_id"]; ok {
+			_ = json.Unmarshal(v, &doc.NodeID)
+		}
+		if v, ok := hit["workspace_id"]; ok {
+			_ = json.Unmarshal(v, &doc.WorkspaceID)
+		}
+		if v, ok := hit["project_id"]; ok {
+			_ = json.Unmarshal(v, &doc.ProjectID)
+		}
+		if v, ok := hit["entity_type"]; ok {
+			_ = json.Unmarshal(v, &doc.EntityType)
+		}
+		if v, ok := hit["name"]; ok {
+			_ = json.Unmarshal(v, &doc.Name)
+		}
+		if v, ok := hit["description"]; ok {
+			_ = json.Unmarshal(v, &doc.Description)
+		}
+		if doc.ID == "" {
 			continue
 		}
-		var idStr string
-		if err := json.Unmarshal(raw, &idStr); err != nil {
-			continue
-		}
-		ids = append(ids, idStr)
+		docs = append(docs, doc)
 	}
-	return ids, nil
+	return docs, nil
 }

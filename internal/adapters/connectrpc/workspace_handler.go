@@ -8,17 +8,18 @@ import (
 	"goodkind.io/tack/gen/tack/v1/tackv1connect"
 	"goodkind.io/tack/internal/auth"
 	"goodkind.io/tack/internal/domain/workspace"
+	"goodkind.io/tack/internal/service"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type WorkspaceHandler struct {
-	workspaces workspace.Repository
+	workspaces *service.WorkspaceService
 }
 
 var _ tackv1connect.WorkspaceServiceHandler = (*WorkspaceHandler)(nil)
 
-func NewWorkspaceHandler(workspaces workspace.Repository) *WorkspaceHandler {
+func NewWorkspaceHandler(workspaces *service.WorkspaceService) *WorkspaceHandler {
 	return &WorkspaceHandler{workspaces: workspaces}
 }
 
@@ -26,10 +27,10 @@ func (h *WorkspaceHandler) CreateWorkspace(ctx context.Context, req *connect.Req
 	userID := auth.MustUserID(ctx)
 	msg := req.Msg
 	w := &workspace.Workspace{
-		ID:      uuid.New(),
-		OrgID:   mustUUID(msg.OrgId),
-		Name:    msg.Name,
-		Slug:    msg.Slug,
+		ID:    uuid.New(),
+		OrgID: mustUUID(msg.OrgId),
+		Name:  msg.Name,
+		Slug:  msg.Slug,
 	}
 	_ = userID
 	created, err := h.workspaces.Create(ctx, w)

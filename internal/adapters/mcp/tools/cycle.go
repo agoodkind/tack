@@ -5,10 +5,11 @@ import (
 
 	"goodkind.io/tack/internal/domain/cycle"
 	"goodkind.io/tack/internal/domain/node"
+	"goodkind.io/tack/internal/service"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func RegisterCycle(s *mcp.Server, cycles cycle.Repository, containment node.ContainmentRepository) {
+func RegisterCycle(s *mcp.Server, cycles *service.CycleService, containment node.ContainmentRepository) {
 	mcp.AddTool(s, &mcp.Tool{Name: "tack_list_cycles", Description: "List cycles (sprints) in a project"}, listCycles(cycles))
 	mcp.AddTool(s, &mcp.Tool{Name: "tack_get_cycle", Description: "Get a cycle by ID"}, getCycle(cycles))
 	mcp.AddTool(s, &mcp.Tool{Name: "tack_create_cycle", Description: "Create a new cycle"}, createCycle(cycles))
@@ -22,7 +23,7 @@ type ListCyclesInput struct {
 	ProjectID string `json:"project_id"`
 }
 
-func listCycles(cycles cycle.Repository) mcp.ToolHandlerFor[ListCyclesInput, any] {
+func listCycles(cycles *service.CycleService) mcp.ToolHandlerFor[ListCyclesInput, any] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListCyclesInput) (*mcp.CallToolResult, any, error) {
 		pID, err := parseUUID(in.ProjectID, "project_id")
 		if err != nil {
@@ -41,17 +42,17 @@ type GetCycleInput struct {
 	CycleID   string `json:"cycle_id"`
 }
 
-func getCycle(cycles cycle.Repository) mcp.ToolHandlerFor[GetCycleInput, any] {
+func getCycle(cycles *service.CycleService) mcp.ToolHandlerFor[GetCycleInput, any] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in GetCycleInput) (*mcp.CallToolResult, any, error) {
 		pID, err := parseUUID(in.ProjectID, "project_id")
 		if err != nil {
 			return nil, nil, err
 		}
-		cID, err := parseUUID(in.CycleID, "cycle_id")
+		cycleID, err := parseUUID(in.CycleID, "cycle_id")
 		if err != nil {
 			return nil, nil, err
 		}
-		c, err := cycles.GetByID(ctx, pID, cID)
+		c, err := cycles.GetByID(ctx, pID, cycleID)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -68,7 +69,7 @@ type CreateCycleInput struct {
 	EndDate     *string `json:"end_date,omitempty"`
 }
 
-func createCycle(cycles cycle.Repository) mcp.ToolHandlerFor[CreateCycleInput, any] {
+func createCycle(cycles *service.CycleService) mcp.ToolHandlerFor[CreateCycleInput, any] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in CreateCycleInput) (*mcp.CallToolResult, any, error) {
 		userID, err := mustUser(ctx)
 		if err != nil {
@@ -121,7 +122,7 @@ type UpdateCycleInput struct {
 	Description *string `json:"description,omitempty"`
 }
 
-func updateCycle(cycles cycle.Repository) mcp.ToolHandlerFor[UpdateCycleInput, any] {
+func updateCycle(cycles *service.CycleService) mcp.ToolHandlerFor[UpdateCycleInput, any] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in UpdateCycleInput) (*mcp.CallToolResult, any, error) {
 		userID, err := mustUser(ctx)
 		if err != nil {
@@ -131,11 +132,11 @@ func updateCycle(cycles cycle.Repository) mcp.ToolHandlerFor[UpdateCycleInput, a
 		if err != nil {
 			return nil, nil, err
 		}
-		cID, err := parseUUID(in.CycleID, "cycle_id")
+		cycleID, err := parseUUID(in.CycleID, "cycle_id")
 		if err != nil {
 			return nil, nil, err
 		}
-		existing, err := cycles.GetByID(ctx, pID, cID)
+		existing, err := cycles.GetByID(ctx, pID, cycleID)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -161,13 +162,13 @@ type DeleteCycleOutput struct {
 	OK bool `json:"ok"`
 }
 
-func deleteCycle(cycles cycle.Repository) mcp.ToolHandlerFor[DeleteCycleInput, DeleteCycleOutput] {
+func deleteCycle(cycles *service.CycleService) mcp.ToolHandlerFor[DeleteCycleInput, DeleteCycleOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in DeleteCycleInput) (*mcp.CallToolResult, DeleteCycleOutput, error) {
-		id, err := parseUUID(in.CycleID, "cycle_id")
+		cycleID, err := parseUUID(in.CycleID, "cycle_id")
 		if err != nil {
 			return nil, DeleteCycleOutput{}, err
 		}
-		if err := cycles.Delete(ctx, id); err != nil {
+		if err := cycles.Delete(ctx, cycleID); err != nil {
 			return nil, DeleteCycleOutput{}, err
 		}
 		return nil, DeleteCycleOutput{OK: true}, nil
@@ -193,17 +194,17 @@ func addToCycle(containment node.ContainmentRepository) mcp.ToolHandlerFor[AddTo
 		if err != nil {
 			return nil, AddToCycleOutput{}, err
 		}
-		cID, err := parseUUID(in.CycleID, "cycle_id")
+		cycleID, err := parseUUID(in.CycleID, "cycle_id")
 		if err != nil {
 			return nil, AddToCycleOutput{}, err
 		}
 		var added int
 		for _, s := range in.IssueIDs {
-			iID, err := parseUUID(s, "issue_id")
+			issueID, err := parseUUID(s, "issue_id")
 			if err != nil {
 				return nil, AddToCycleOutput{}, err
 			}
-			if err := containment.AddIssueToCycle(ctx, orgID, cID, iID, userID); err != nil {
+			if err := containment.AddIssueToCycle(ctx, orgID, cycleID, issueID, userID); err != nil {
 				return nil, AddToCycleOutput{}, err
 			}
 			added++
@@ -227,15 +228,15 @@ func removeFromCycle(containment node.ContainmentRepository) mcp.ToolHandlerFor[
 		if err != nil {
 			return nil, RemoveFromCycleOutput{}, err
 		}
-		cID, err := parseUUID(in.CycleID, "cycle_id")
+		cycleID, err := parseUUID(in.CycleID, "cycle_id")
 		if err != nil {
 			return nil, RemoveFromCycleOutput{}, err
 		}
-		iID, err := parseUUID(in.IssueID, "issue_id")
+		issueID, err := parseUUID(in.IssueID, "issue_id")
 		if err != nil {
 			return nil, RemoveFromCycleOutput{}, err
 		}
-		if err := containment.RemoveIssueFromCycle(ctx, orgID, cID, iID); err != nil {
+		if err := containment.RemoveIssueFromCycle(ctx, orgID, cycleID, issueID); err != nil {
 			return nil, RemoveFromCycleOutput{}, err
 		}
 		return nil, RemoveFromCycleOutput{OK: true}, nil
