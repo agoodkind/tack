@@ -3,8 +3,8 @@ package service
 import (
 	"context"
 
-	"github.com/agoodkind/tack/internal/domain/project"
-	"github.com/agoodkind/tack/internal/domain/state"
+	"goodkind.io/tack/internal/domain/project"
+	"goodkind.io/tack/internal/domain/state"
 )
 
 // defaultStates are seeded into every new project.
