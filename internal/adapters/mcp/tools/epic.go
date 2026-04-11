@@ -9,12 +9,13 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func RegisterEpic(s *mcp.Server, epics *service.EpicService, _ interface{}) {
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_list_epics", Description: "List epics in a project"}, listEpics(epics))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_get_epic", Description: "Get an epic by ID including its description"}, getEpic(epics))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_create_epic", Description: "Create a new epic"}, createEpic(epics))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_update_epic", Description: "Update epic fields (partial)"}, updateEpic(epics))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_delete_epic", Description: "Soft-delete an epic"}, deleteEpic(epics))
+// registerEpicTools registers all epic-related MCP tools using slug-derived names.
+func registerEpicTools(s *mcp.Server, slug, pluralSlug string, epics *service.EpicService) {
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_list_" + pluralSlug, Description: "List " + pluralSlug + " in a project"}, listEpics(epics))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_get_" + slug, Description: "Get a " + slug + " by ID including its description"}, getEpic(epics))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_create_" + slug, Description: "Create a new " + slug}, createEpic(epics))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_update_" + slug, Description: "Update " + slug + " fields (partial)"}, updateEpic(epics))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_delete_" + slug, Description: "Soft-delete a " + slug}, deleteEpic(epics))
 }
 
 type ListEpicsInput struct {

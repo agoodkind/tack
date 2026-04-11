@@ -124,15 +124,16 @@ func (h *Handler) getServer(r *http.Request) *mcp.Server {
 	if err != nil {
 		telemetry.L(ctx).Error("mcp: list workspaces for user", "err", err)
 	}
-	seen := make(map[uuid.UUID]struct{})
+	// Deduplicate by Slug: two workspaces with the same slug (e.g. "issue") produce one tool set.
+	seen := make(map[string]struct{})
 	for _, ws := range wss {
 		nts, err := h.nodeTypes.List(ctx, ws.OrgID)
 		if err != nil {
 			continue
 		}
 		for _, nt := range nts {
-			if _, dup := seen[nt.ID]; !dup {
-				seen[nt.ID] = struct{}{}
+			if _, dup := seen[nt.Slug]; !dup {
+				seen[nt.Slug] = struct{}{}
 				nodeTypes = append(nodeTypes, nt)
 			}
 		}
@@ -147,30 +148,6 @@ func (h *Handler) getServer(r *http.Request) *mcp.Server {
 	return s
 }
 
-// BuildServerForUser builds an MCP server with node types resolved for the given user.
-// Used by the mcp-stdio subcommand.
-func (h *Handler) BuildServerForUser(ctx context.Context, userID uuid.UUID) *mcp.Server {
-	wss, err := h.workspaces.ListForUser(ctx, userID)
-	if err != nil {
-		telemetry.L(ctx).Error("mcp-stdio: list workspaces", "err", err)
-	}
-	var nodeTypes []*node.NodeType
-	seen := make(map[uuid.UUID]struct{})
-	for _, ws := range wss {
-		nts, err := h.nodeTypes.List(ctx, ws.OrgID)
-		if err != nil {
-			continue
-		}
-		for _, nt := range nts {
-			if _, dup := seen[nt.ID]; !dup {
-				seen[nt.ID] = struct{}{}
-				nodeTypes = append(nodeTypes, nt)
-			}
-		}
-	}
-	return h.buildServer(nodeTypes)
-}
-
 func (h *Handler) buildServer(nodeTypes []*node.NodeType) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "tack", Version: "0.1.0"}, nil)
 
@@ -178,16 +155,21 @@ func (h *Handler) buildServer(nodeTypes []*node.NodeType) *mcp.Server {
 	tools.RegisterProject(s, h.projects, h.projectSvc, h.states)
 	tools.RegisterState(s, h.states)
 	tools.RegisterLabel(s, h.labels)
-	tools.RegisterIssue(s, h.issueSvc)
-	tools.RegisterEpic(s, h.epicSvc, nil)
-	tools.RegisterCycle(s, h.cycleSvc, h.containment)
-	tools.RegisterModule(s, h.moduleSvc, h.containment)
 	tools.RegisterProperty(s, h.properties)
 	tools.RegisterActivity(s, h.activity)
 	tools.RegisterSearch(s, h.searcher)
 
+	binding := tools.NodeTypeBinding{
+		IssueSvc:    h.issueSvc,
+		EpicSvc:     h.epicSvc,
+		CycleSvc:    h.cycleSvc,
+		ModuleSvc:   h.moduleSvc,
+		Properties:  h.properties,
+		Activity:    h.activity,
+		Containment: h.containment,
+	}
 	for _, nt := range nodeTypes {
-		tools.RegisterNodeType(s, nt, h.properties, h.activity)
+		tools.RegisterNodeTools(s, nt, binding)
 	}
 
 	return s

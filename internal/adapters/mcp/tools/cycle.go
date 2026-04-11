@@ -9,14 +9,15 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func RegisterCycle(s *mcp.Server, cycles *service.CycleService, containment node.ContainmentRepository) {
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_list_cycles", Description: "List cycles (sprints) in a project"}, listCycles(cycles))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_get_cycle", Description: "Get a cycle by ID"}, getCycle(cycles))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_create_cycle", Description: "Create a new cycle"}, createCycle(cycles))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_update_cycle", Description: "Update cycle fields (partial)"}, updateCycle(cycles))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_delete_cycle", Description: "Delete a cycle"}, deleteCycle(cycles))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_add_to_cycle", Description: "Add issues to a cycle"}, addToCycle(containment))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_remove_from_cycle", Description: "Remove an issue from a cycle"}, removeFromCycle(containment))
+// registerCycleTools registers all cycle-related MCP tools using slug-derived names.
+func registerCycleTools(s *mcp.Server, slug, pluralSlug string, cycles *service.CycleService, containment node.ContainmentRepository) {
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_list_" + pluralSlug, Description: "List " + pluralSlug + " (sprints) in a project"}, listCycles(cycles))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_get_" + slug, Description: "Get a " + slug + " by ID"}, getCycle(cycles))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_create_" + slug, Description: "Create a new " + slug}, createCycle(cycles))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_update_" + slug, Description: "Update " + slug + " fields (partial)"}, updateCycle(cycles))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_delete_" + slug, Description: "Delete a " + slug}, deleteCycle(cycles))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_add_to_" + slug, Description: "Add issues to a " + slug}, addToCycle(containment))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_remove_from_" + slug, Description: "Remove an issue from a " + slug}, removeFromCycle(containment))
 }
 
 type ListCyclesInput struct {

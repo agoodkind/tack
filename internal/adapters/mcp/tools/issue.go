@@ -10,19 +10,21 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// RegisterIssue registers all issue-related MCP tools on the given server.
-func RegisterIssue(s *mcp.Server, svc *service.IssueService) {
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_list_issues", Description: "List issues in a project with optional filters"}, listIssues(svc))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_get_issue", Description: "Get a single issue including its description"}, getIssue(svc))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_create_issue", Description: "Create a new issue"}, createIssue(svc))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_update_issue", Description: "Update issue fields (partial — only provided fields are changed)"}, updateIssue(svc))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_delete_issue", Description: "Soft-delete an issue"}, deleteIssue(svc))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_assign_issue", Description: "Set the assignees on an issue (replaces existing assignees)"}, assignIssue(svc))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_set_issue_state", Description: "Move an issue to a new workflow state"}, setIssueState(svc))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_move_issue", Description: "Move an issue to a different project (reallocates sequence ID)"}, moveIssue(svc))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_bulk_update_issues", Description: "Apply the same field changes to multiple issues in one operation"}, bulkUpdateIssues(svc))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_bulk_delete_issues", Description: "Soft-delete multiple issues in one operation"}, bulkDeleteIssues(svc))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_bulk_move_issues", Description: "Move multiple issues to a different project in one operation"}, bulkMoveIssues(svc))
+// registerIssueTools registers all issue-related MCP tools using slug-derived names.
+// slug is the entity slug (e.g. "issue"); pluralSlug is the plural form (e.g. "issues").
+// Both come from the NodeType record -- no hardcoded names.
+func registerIssueTools(s *mcp.Server, slug, pluralSlug string, svc *service.IssueService) {
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_list_" + pluralSlug, Description: "List " + pluralSlug + " in a project with optional filters"}, listIssues(svc))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_get_" + slug, Description: "Get a single " + slug + " including its description"}, getIssue(svc))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_create_" + slug, Description: "Create a new " + slug}, createIssue(svc))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_update_" + slug, Description: "Update " + slug + " fields (partial -- only provided fields are changed)"}, updateIssue(svc))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_delete_" + slug, Description: "Soft-delete a " + slug}, deleteIssue(svc))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_assign_" + slug, Description: "Set the assignees on a " + slug + " (replaces existing assignees)"}, assignIssue(svc))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_set_" + slug + "_state", Description: "Move a " + slug + " to a new workflow state"}, setIssueState(svc))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_move_" + slug, Description: "Move a " + slug + " to a different project (reallocates sequence ID)"}, moveIssue(svc))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_bulk_update_" + pluralSlug, Description: "Apply the same field changes to multiple " + pluralSlug + " in one operation"}, bulkUpdateIssues(svc))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_bulk_delete_" + pluralSlug, Description: "Soft-delete multiple " + pluralSlug + " in one operation"}, bulkDeleteIssues(svc))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_bulk_move_" + pluralSlug, Description: "Move multiple " + pluralSlug + " to a different project in one operation"}, bulkMoveIssues(svc))
 }
 
 // ── list ─────────────────────────────────────────────────────────────────────

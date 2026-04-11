@@ -7,9 +7,45 @@ import (
 	"time"
 
 	"goodkind.io/tack/internal/domain/node"
+	"goodkind.io/tack/internal/service"
 	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
+
+// NodeTypeBinding holds service references for dispatching type-specific tool handlers.
+// The TypeKey on each NodeType determines which service field is used.
+type NodeTypeBinding struct {
+	IssueSvc    *service.IssueService
+	EpicSvc     *service.EpicService
+	CycleSvc    *service.CycleService
+	ModuleSvc   *service.ModuleService
+	Properties  node.PropertyRepository
+	Activity    node.ActivityRepository
+	Containment node.ContainmentRepository
+}
+
+// RegisterNodeTools registers all MCP tools for a single NodeType.
+// Tool names are derived from nt.Slug and nt.PluralSlug -- no hardcoded strings.
+// Dispatch is by nt.TypeKey: builtin types go to their service; custom types use
+// the generic entity read/write path.
+func RegisterNodeTools(s *mcp.Server, nt *node.NodeType, b NodeTypeBinding) {
+	plural := nt.PluralSlug
+	if plural == "" {
+		plural = nt.Slug + "s"
+	}
+	switch nt.TypeKey {
+	case node.NodeTypeIssue:
+		registerIssueTools(s, nt.Slug, plural, b.IssueSvc)
+	case node.NodeTypeEpic:
+		registerEpicTools(s, nt.Slug, plural, b.EpicSvc)
+	case node.NodeTypeCycle:
+		registerCycleTools(s, nt.Slug, plural, b.CycleSvc, b.Containment)
+	case node.NodeTypeModule:
+		registerModuleTools(s, nt.Slug, plural, b.ModuleSvc, b.Containment)
+	default:
+		RegisterNodeType(s, nt, b.Properties, b.Activity)
+	}
+}
 
 // RegisterNodeType generates MCP tools for a custom node type based on its AllowedOps.
 // Tool names follow the pattern: tack_list_<slug>s, tack_get_<slug>, tack_create_<slug>, etc.

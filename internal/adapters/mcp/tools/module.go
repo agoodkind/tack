@@ -9,14 +9,15 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func RegisterModule(s *mcp.Server, modules *service.ModuleService, containment node.ContainmentRepository) {
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_list_modules", Description: "List modules (feature groupings) in a project"}, listModules(modules))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_get_module", Description: "Get a module by ID"}, getModule(modules))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_create_module", Description: "Create a new module"}, createModule(modules))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_update_module", Description: "Update module fields (partial)"}, updateModule(modules))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_delete_module", Description: "Delete a module"}, deleteModule(modules))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_add_to_module", Description: "Add issues to a module"}, addToModule(containment))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_remove_from_module", Description: "Remove an issue from a module"}, removeFromModule(containment))
+// registerModuleTools registers all module-related MCP tools using slug-derived names.
+func registerModuleTools(s *mcp.Server, slug, pluralSlug string, modules *service.ModuleService, containment node.ContainmentRepository) {
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_list_" + pluralSlug, Description: "List " + pluralSlug + " (feature groupings) in a project"}, listModules(modules))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_get_" + slug, Description: "Get a " + slug + " by ID"}, getModule(modules))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_create_" + slug, Description: "Create a new " + slug}, createModule(modules))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_update_" + slug, Description: "Update " + slug + " fields (partial)"}, updateModule(modules))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_delete_" + slug, Description: "Delete a " + slug}, deleteModule(modules))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_add_to_" + slug, Description: "Add issues to a " + slug}, addToModule(containment))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_remove_from_" + slug, Description: "Remove an issue from a " + slug}, removeFromModule(containment))
 }
 
 type ListModulesInput struct {
