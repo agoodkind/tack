@@ -6,12 +6,13 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
+	mcpmcp "github.com/mark3labs/mcp-go/mcp"
+	mcpserver "github.com/mark3labs/mcp-go/server"
 	"goodkind.io/tack/internal/domain/issue"
 	"goodkind.io/tack/internal/domain/project"
 	"goodkind.io/tack/internal/domain/workspace"
 	"goodkind.io/tack/internal/service"
-	"github.com/google/uuid"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // ── bulk update ──────────────────────────────────────────────────────────────
@@ -32,11 +33,15 @@ type BulkUpdateIssuesOutput struct {
 	Updated int `json:"updated"`
 }
 
-func bulkUpdateIssues(svc *service.IssueService, r *Resolver) mcp.ToolHandlerFor[BulkUpdateIssuesInput, BulkUpdateIssuesOutput] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, in BulkUpdateIssuesInput) (*mcp.CallToolResult, BulkUpdateIssuesOutput, error) {
+func bulkUpdateIssues(svc *service.IssueService, r *Resolver) mcpserver.ToolHandlerFunc {
+	return func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
+		var in BulkUpdateIssuesInput
+		if err := req.BindArguments(&in); err != nil {
+			return RecoverableError(err.Error()), nil
+		}
 		userID, err := mustUser(ctx)
 		if err != nil {
-			return UnexpectedError(ctx, err), BulkUpdateIssuesOutput{}, nil
+			return UnexpectedError(ctx, err), nil
 		}
 		issueIDs := make([]uuid.UUID, 0, len(in.Identifiers))
 		var ws *workspace.Workspace
@@ -44,19 +49,19 @@ func bulkUpdateIssues(svc *service.IssueService, r *Resolver) mcp.ToolHandlerFor
 		for _, ident := range in.Identifiers {
 			projIdent, seq, err := ParseNodeIdentifier(ident)
 			if err != nil {
-				return RecoverableError(err.Error()), BulkUpdateIssuesOutput{}, nil
+				return RecoverableError(err.Error()), nil
 			}
 			if ws == nil {
 				ws, proj, err = r.Project(ctx, in.WorkspaceSlug, projIdent)
 				if err != nil {
-					return ClassifyError(ctx, err), BulkUpdateIssuesOutput{}, nil
+					return ClassifyError(ctx, err), nil
 				}
 			} else if !strings.EqualFold(proj.Identifier, projIdent) {
-				return RecoverableError(fmt.Sprintf("bulk update requires all issues in the same project: got %q and %q", proj.Identifier, projIdent)), BulkUpdateIssuesOutput{}, nil
+				return RecoverableError(fmt.Sprintf("bulk update requires all issues in the same project: got %q and %q", proj.Identifier, projIdent)), nil
 			}
 			issueObj, err := svc.GetBySequence(ctx, ws.ID, proj.ID, seq)
 			if err != nil {
-				return ClassifyError(ctx, err), BulkUpdateIssuesOutput{}, nil
+				return ClassifyError(ctx, err), nil
 			}
 			issueIDs = append(issueIDs, issueObj.ID)
 		}
@@ -88,7 +93,7 @@ func bulkUpdateIssues(svc *service.IssueService, r *Resolver) mcp.ToolHandlerFor
 			for _, s := range in.AssigneeIDs {
 				id, parseErr := parseUUID(s, "assignee_id")
 				if parseErr != nil {
-					return RecoverableError(parseErr.Error()), BulkUpdateIssuesOutput{}, nil
+					return RecoverableError(parseErr.Error()), nil
 				}
 				ids = append(ids, id)
 			}
@@ -96,9 +101,9 @@ func bulkUpdateIssues(svc *service.IssueService, r *Resolver) mcp.ToolHandlerFor
 		}
 		updated, err := svc.BulkUpdate(ctx, ws.ID, patch)
 		if err != nil {
-			return ClassifyError(ctx, err), BulkUpdateIssuesOutput{}, nil
+			return ClassifyError(ctx, err), nil
 		}
-		return Success(BulkUpdateIssuesOutput{Updated: updated}, ""), BulkUpdateIssuesOutput{}, nil
+		return Success(BulkUpdateIssuesOutput{Updated: updated}, ""), nil
 	}
 }
 
@@ -115,33 +120,37 @@ type BulkDeleteIssuesOutput struct {
 	Deleted int `json:"deleted"`
 }
 
-func bulkDeleteIssues(svc *service.IssueService, r *Resolver) mcp.ToolHandlerFor[BulkDeleteIssuesInput, BulkDeleteIssuesOutput] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, in BulkDeleteIssuesInput) (*mcp.CallToolResult, BulkDeleteIssuesOutput, error) {
+func bulkDeleteIssues(svc *service.IssueService, r *Resolver) mcpserver.ToolHandlerFunc {
+	return func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
+		var in BulkDeleteIssuesInput
+		if err := req.BindArguments(&in); err != nil {
+			return RecoverableError(err.Error()), nil
+		}
 		ws, err := r.Workspace(ctx, in.WorkspaceSlug)
 		if err != nil {
-			return ClassifyError(ctx, err), BulkDeleteIssuesOutput{}, nil
+			return ClassifyError(ctx, err), nil
 		}
 		issueIDs := make([]uuid.UUID, 0, len(in.Identifiers))
 		for _, ident := range in.Identifiers {
 			projIdent, seq, err := ParseNodeIdentifier(ident)
 			if err != nil {
-				return RecoverableError(err.Error()), BulkDeleteIssuesOutput{}, nil
+				return RecoverableError(err.Error()), nil
 			}
 			_, proj, err := r.Project(ctx, in.WorkspaceSlug, projIdent)
 			if err != nil {
-				return ClassifyError(ctx, err), BulkDeleteIssuesOutput{}, nil
+				return ClassifyError(ctx, err), nil
 			}
 			issueObj, err := svc.GetBySequence(ctx, ws.ID, proj.ID, seq)
 			if err != nil {
-				return ClassifyError(ctx, err), BulkDeleteIssuesOutput{}, nil
+				return ClassifyError(ctx, err), nil
 			}
 			issueIDs = append(issueIDs, issueObj.ID)
 		}
 		n, err := svc.BulkDelete(ctx, ws.ID, issueIDs)
 		if err != nil {
-			return ClassifyError(ctx, err), BulkDeleteIssuesOutput{}, nil
+			return ClassifyError(ctx, err), nil
 		}
-		return Success(BulkDeleteIssuesOutput{Deleted: n}, "Deletion is permanent and irreversible."), BulkDeleteIssuesOutput{}, nil
+		return Success(BulkDeleteIssuesOutput{Deleted: n}, "Deletion is permanent and irreversible."), nil
 	}
 }
 
@@ -160,11 +169,15 @@ type BulkMoveIssuesOutput struct {
 	Failed int `json:"failed"`
 }
 
-func bulkMoveIssues(svc *service.IssueService, r *Resolver) mcp.ToolHandlerFor[BulkMoveIssuesInput, BulkMoveIssuesOutput] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, in BulkMoveIssuesInput) (*mcp.CallToolResult, BulkMoveIssuesOutput, error) {
+func bulkMoveIssues(svc *service.IssueService, r *Resolver) mcpserver.ToolHandlerFunc {
+	return func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
+		var in BulkMoveIssuesInput
+		if err := req.BindArguments(&in); err != nil {
+			return RecoverableError(err.Error()), nil
+		}
 		userID, err := mustUser(ctx)
 		if err != nil {
-			return UnexpectedError(ctx, err), BulkMoveIssuesOutput{}, nil
+			return UnexpectedError(ctx, err), nil
 		}
 		issueIDs := make([]uuid.UUID, 0, len(in.Identifiers))
 		var ws *workspace.Workspace
@@ -172,30 +185,30 @@ func bulkMoveIssues(svc *service.IssueService, r *Resolver) mcp.ToolHandlerFor[B
 		for _, ident := range in.Identifiers {
 			projIdent, seq, err := ParseNodeIdentifier(ident)
 			if err != nil {
-				return RecoverableError(err.Error()), BulkMoveIssuesOutput{}, nil
+				return RecoverableError(err.Error()), nil
 			}
 			if ws == nil {
 				ws, proj, err = r.Project(ctx, in.WorkspaceSlug, projIdent)
 				if err != nil {
-					return ClassifyError(ctx, err), BulkMoveIssuesOutput{}, nil
+					return ClassifyError(ctx, err), nil
 				}
 			} else if !strings.EqualFold(proj.Identifier, projIdent) {
-				return RecoverableError(fmt.Sprintf("bulk move requires all issues in the same project: got %q and %q", proj.Identifier, projIdent)), BulkMoveIssuesOutput{}, nil
+				return RecoverableError(fmt.Sprintf("bulk move requires all issues in the same project: got %q and %q", proj.Identifier, projIdent)), nil
 			}
 			issueObj, err := svc.GetBySequence(ctx, ws.ID, proj.ID, seq)
 			if err != nil {
-				return ClassifyError(ctx, err), BulkMoveIssuesOutput{}, nil
+				return ClassifyError(ctx, err), nil
 			}
 			issueIDs = append(issueIDs, issueObj.ID)
 		}
 		_, targetProj, err := r.Project(ctx, in.WorkspaceSlug, in.TargetProjectIdentifier)
 		if err != nil {
-			return ClassifyError(ctx, err), BulkMoveIssuesOutput{}, nil
+			return ClassifyError(ctx, err), nil
 		}
 		moved, failed, err := svc.BulkMove(ctx, ws.ID, proj.ID, issueIDs, targetProj.ID, userID)
 		if err != nil {
-			return ClassifyError(ctx, err), BulkMoveIssuesOutput{}, nil
+			return ClassifyError(ctx, err), nil
 		}
-		return Success(BulkMoveIssuesOutput{Moved: moved, Failed: failed}, ""), BulkMoveIssuesOutput{}, nil
+		return Success(BulkMoveIssuesOutput{Moved: moved, Failed: failed}, ""), nil
 	}
 }

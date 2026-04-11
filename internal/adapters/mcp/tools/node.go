@@ -6,10 +6,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+	mcpmcp "github.com/mark3labs/mcp-go/mcp"
+	mcpserver "github.com/mark3labs/mcp-go/server"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/service"
-	"github.com/google/uuid"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // NodeTypeBinding holds service references for dispatching type-specific tool handlers.
@@ -29,7 +30,7 @@ type NodeTypeBinding struct {
 // Tool names are derived from nt.Slug and nt.PluralSlug -- no hardcoded strings.
 // Dispatch is by nt.TypeKey: builtin types go to their service; custom types use
 // the generic entity read/write path.
-func RegisterNodeTools(s *mcp.Server, nt *node.NodeType, b NodeTypeBinding) {
+func RegisterNodeTools(s *mcpserver.MCPServer, nt *node.NodeType, b NodeTypeBinding) {
 	plural := nt.PluralSlug
 	if plural == "" {
 		plural = nt.Slug + "s"
@@ -54,42 +55,85 @@ func RegisterNodeTools(s *mcp.Server, nt *node.NodeType, b NodeTypeBinding) {
 
 // RegisterNodeType generates MCP tools for a custom node type based on its AllowedOps.
 // Tool names follow the pattern: tack_list_<slug>s, tack_get_<slug>, tack_create_<slug>, etc.
-func RegisterNodeType(s *mcp.Server, nt *node.NodeType, properties node.PropertyRepository, activity node.ActivityRepository) {
+func RegisterNodeType(s *mcpserver.MCPServer, nt *node.NodeType, properties node.PropertyRepository, activity node.ActivityRepository) {
 	slug := strings.ToLower(nt.Slug)
 	allowedOps := opSet(nt.AllowedOps)
 
 	if _, ok := allowedOps[node.OpList]; ok {
-		mcp.AddTool(s, &mcp.Tool{
+		s.AddTool(mcpmcp.Tool{
 			Name:        fmt.Sprintf("tack_list_%ss", slug),
 			Description: fmt.Sprintf("List %s nodes. Custom type defined in this workspace.", nt.Name),
+			InputSchema: mcpmcp.ToolInputSchema{
+				Type: "object",
+				Properties: map[string]any{
+					"org_id":       map[string]any{"type": "string"},
+					"workspace_id": map[string]any{"type": "string"},
+				},
+				Required: []string{"org_id", "workspace_id"},
+			},
 		}, listNodes(nt, properties))
 	}
 
 	if _, ok := allowedOps[node.OpRead]; ok {
-		mcp.AddTool(s, &mcp.Tool{
+		s.AddTool(mcpmcp.Tool{
 			Name:        fmt.Sprintf("tack_get_%s", slug),
 			Description: fmt.Sprintf("Get a %s node by its node_id.", nt.Name),
+			InputSchema: mcpmcp.ToolInputSchema{
+				Type: "object",
+				Properties: map[string]any{
+					"org_id":  map[string]any{"type": "string"},
+					"node_id": map[string]any{"type": "string"},
+				},
+				Required: []string{"org_id", "node_id"},
+			},
 		}, getNode(nt, properties))
 	}
 
 	if _, ok := allowedOps[node.OpCreate]; ok {
-		mcp.AddTool(s, &mcp.Tool{
+		s.AddTool(mcpmcp.Tool{
 			Name:        fmt.Sprintf("tack_create_%s", slug),
 			Description: fmt.Sprintf("Create a new %s node.", nt.Name),
+			InputSchema: mcpmcp.ToolInputSchema{
+				Type: "object",
+				Properties: map[string]any{
+					"org_id":       map[string]any{"type": "string"},
+					"workspace_id": map[string]any{"type": "string"},
+					"properties":   map[string]any{"type": "object"},
+				},
+				Required: []string{"workspace_id"},
+			},
 		}, createNode(nt, properties, activity))
 	}
 
 	if _, ok := allowedOps[node.OpUpdate]; ok {
-		mcp.AddTool(s, &mcp.Tool{
+		s.AddTool(mcpmcp.Tool{
 			Name:        fmt.Sprintf("tack_update_%s", slug),
 			Description: fmt.Sprintf("Update a %s node's custom properties (partial).", nt.Name),
+			InputSchema: mcpmcp.ToolInputSchema{
+				Type: "object",
+				Properties: map[string]any{
+					"org_id":     map[string]any{"type": "string"},
+					"node_id":    map[string]any{"type": "string"},
+					"properties": map[string]any{"type": "object"},
+				},
+				Required: []string{"org_id", "node_id"},
+			},
 		}, updateNode(nt, properties, activity))
 	}
 
 	if _, ok := allowedOps[node.OpDelete]; ok {
-		mcp.AddTool(s, &mcp.Tool{
+		s.AddTool(mcpmcp.Tool{
 			Name:        fmt.Sprintf("tack_delete_%s", slug),
 			Description: fmt.Sprintf("Delete a %s node.", nt.Name),
+			InputSchema: mcpmcp.ToolInputSchema{
+				Type: "object",
+				Properties: map[string]any{
+					"org_id":       map[string]any{"type": "string"},
+					"workspace_id": map[string]any{"type": "string"},
+					"node_id":      map[string]any{"type": "string"},
+				},
+				Required: []string{"org_id", "workspace_id", "node_id"},
+			},
 		}, deleteNode(nt, properties, activity))
 	}
 }
@@ -111,25 +155,29 @@ type NodeListInput struct {
 	WorkspaceID string `json:"workspace_id"`
 }
 
-func listNodes(nt *node.NodeType, properties node.PropertyRepository) mcp.ToolHandlerFor[NodeListInput, any] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, in NodeListInput) (*mcp.CallToolResult, any, error) {
+func listNodes(nt *node.NodeType, properties node.PropertyRepository) mcpserver.ToolHandlerFunc {
+	return func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
+		var in NodeListInput
+		if err := req.BindArguments(&in); err != nil {
+			return RecoverableError(err.Error()), nil
+		}
 		orgID, err := parseUUID(in.OrgID, "org_id")
 		if err != nil {
-			return nil, nil, err
+			return RecoverableError(err.Error()), nil
 		}
 		wsID, err := parseUUID(in.WorkspaceID, "workspace_id")
 		if err != nil {
-			return nil, nil, err
+			return RecoverableError(err.Error()), nil
 		}
 		defs, err := properties.ListDefs(ctx, orgID, wsID, nil)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil
 		}
-		return nil, map[string]any{
+		return Success(map[string]any{
 			"type":      nt,
 			"prop_defs": defs,
 			"note":      "node instances are stored in FDB — use tack_get_properties with a node_id to fetch values",
-		}, nil
+		}, ""), nil
 	}
 }
 
@@ -140,25 +188,29 @@ type NodeGetInput struct {
 	NodeID string `json:"node_id"`
 }
 
-func getNode(nt *node.NodeType, properties node.PropertyRepository) mcp.ToolHandlerFor[NodeGetInput, any] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, in NodeGetInput) (*mcp.CallToolResult, any, error) {
+func getNode(nt *node.NodeType, properties node.PropertyRepository) mcpserver.ToolHandlerFunc {
+	return func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
+		var in NodeGetInput
+		if err := req.BindArguments(&in); err != nil {
+			return RecoverableError(err.Error()), nil
+		}
 		orgID, err := parseUUID(in.OrgID, "org_id")
 		if err != nil {
-			return nil, nil, err
+			return RecoverableError(err.Error()), nil
 		}
 		nodeID, err := parseUUID(in.NodeID, "node_id")
 		if err != nil {
-			return nil, nil, err
+			return RecoverableError(err.Error()), nil
 		}
 		vals, err := properties.GetValues(ctx, orgID, nodeID)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil
 		}
-		return nil, map[string]any{
+		return Success(map[string]any{
 			"node_id":    nodeID.String(),
 			"type_name":  nt.Name,
 			"properties": vals,
-		}, nil
+		}, ""), nil
 	}
 }
 
@@ -174,19 +226,23 @@ type NodeCreateOutput struct {
 	TypeName string `json:"type_name"`
 }
 
-func createNode(nt *node.NodeType, properties node.PropertyRepository, activity node.ActivityRepository) mcp.ToolHandlerFor[NodeCreateInput, NodeCreateOutput] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, in NodeCreateInput) (*mcp.CallToolResult, NodeCreateOutput, error) {
+func createNode(nt *node.NodeType, properties node.PropertyRepository, activity node.ActivityRepository) mcpserver.ToolHandlerFunc {
+	return func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
+		var in NodeCreateInput
+		if err := req.BindArguments(&in); err != nil {
+			return RecoverableError(err.Error()), nil
+		}
 		userID, err := mustUser(ctx)
 		if err != nil {
-			return nil, NodeCreateOutput{}, err
+			return UnexpectedError(ctx, err), nil
 		}
 		orgID, err := parseUUID(in.OrgID, "org_id")
 		if err != nil {
-			return nil, NodeCreateOutput{}, err
+			return RecoverableError(err.Error()), nil
 		}
 		wsID, err := parseUUID(in.WorkspaceID, "workspace_id")
 		if err != nil {
-			return nil, NodeCreateOutput{}, err
+			return RecoverableError(err.Error()), nil
 		}
 		nodeID := uuid.New()
 		for defIDStr, val := range in.Properties {
@@ -204,7 +260,7 @@ func createNode(nt *node.NodeType, properties node.PropertyRepository, activity 
 			Detail:    map[string]any{"type": nt.Name},
 			CreatedAt: time.Now().UTC(),
 		})
-		return nil, NodeCreateOutput{NodeID: nodeID.String(), TypeName: nt.Name}, nil
+		return Success(NodeCreateOutput{NodeID: nodeID.String(), TypeName: nt.Name}, ""), nil
 	}
 }
 
@@ -219,26 +275,30 @@ type NodeUpdateOutput struct {
 	OK bool `json:"ok"`
 }
 
-func updateNode(nt *node.NodeType, properties node.PropertyRepository, activity node.ActivityRepository) mcp.ToolHandlerFor[NodeUpdateInput, NodeUpdateOutput] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, in NodeUpdateInput) (*mcp.CallToolResult, NodeUpdateOutput, error) {
+func updateNode(nt *node.NodeType, properties node.PropertyRepository, activity node.ActivityRepository) mcpserver.ToolHandlerFunc {
+	return func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
+		var in NodeUpdateInput
+		if err := req.BindArguments(&in); err != nil {
+			return RecoverableError(err.Error()), nil
+		}
 		orgID, err := parseUUID(in.OrgID, "org_id")
 		if err != nil {
-			return nil, NodeUpdateOutput{}, err
+			return RecoverableError(err.Error()), nil
 		}
 		nodeID, err := parseUUID(in.NodeID, "node_id")
 		if err != nil {
-			return nil, NodeUpdateOutput{}, err
+			return RecoverableError(err.Error()), nil
 		}
 		for defIDStr, val := range in.Properties {
 			defID, err := parseUUID(defIDStr, "property_def_id")
 			if err != nil {
-				return nil, NodeUpdateOutput{}, fmt.Errorf("invalid property_def_id %q: %w", defIDStr, err)
+				return RecoverableError(fmt.Sprintf("invalid property_def_id %q: %v", defIDStr, err)), nil
 			}
 			if err := properties.SetValue(ctx, orgID, nodeID, defID, val); err != nil {
-				return nil, NodeUpdateOutput{}, err
+				return ClassifyError(ctx, err), nil
 			}
 		}
-		return nil, NodeUpdateOutput{OK: true}, nil
+		return Success(NodeUpdateOutput{OK: true}, ""), nil
 	}
 }
 
@@ -253,27 +313,31 @@ type NodeDeleteOutput struct {
 	OK bool `json:"ok"`
 }
 
-func deleteNode(nt *node.NodeType, properties node.PropertyRepository, activity node.ActivityRepository) mcp.ToolHandlerFor[NodeDeleteInput, NodeDeleteOutput] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, in NodeDeleteInput) (*mcp.CallToolResult, NodeDeleteOutput, error) {
+func deleteNode(nt *node.NodeType, properties node.PropertyRepository, activity node.ActivityRepository) mcpserver.ToolHandlerFunc {
+	return func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
+		var in NodeDeleteInput
+		if err := req.BindArguments(&in); err != nil {
+			return RecoverableError(err.Error()), nil
+		}
 		userID, err := mustUser(ctx)
 		if err != nil {
-			return nil, NodeDeleteOutput{}, err
+			return UnexpectedError(ctx, err), nil
 		}
 		orgID, err := parseUUID(in.OrgID, "org_id")
 		if err != nil {
-			return nil, NodeDeleteOutput{}, err
+			return RecoverableError(err.Error()), nil
 		}
 		wsID, err := parseUUID(in.WorkspaceID, "workspace_id")
 		if err != nil {
-			return nil, NodeDeleteOutput{}, err
+			return RecoverableError(err.Error()), nil
 		}
 		nodeID, err := parseUUID(in.NodeID, "node_id")
 		if err != nil {
-			return nil, NodeDeleteOutput{}, err
+			return RecoverableError(err.Error()), nil
 		}
 		vals, err := properties.GetValues(ctx, orgID, nodeID)
 		if err != nil {
-			return nil, NodeDeleteOutput{}, err
+			return ClassifyError(ctx, err), nil
 		}
 		for defID := range vals {
 			_ = properties.DeleteValue(ctx, orgID, nodeID, defID)
@@ -286,6 +350,6 @@ func deleteNode(nt *node.NodeType, properties node.PropertyRepository, activity 
 			Detail:    map[string]any{"type": nt.Name},
 			CreatedAt: time.Now().UTC(),
 		})
-		return nil, NodeDeleteOutput{OK: true}, nil
+		return Success(NodeDeleteOutput{OK: true}, ""), nil
 	}
 }

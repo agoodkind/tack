@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	mcpserver "github.com/mark3labs/mcp-go/server"
 	"goodkind.io/tack/internal/adapters/mcp/tools"
 	"goodkind.io/tack/internal/auth"
 	"goodkind.io/tack/internal/domain/label"
@@ -19,13 +20,13 @@ import (
 	"goodkind.io/tack/internal/service"
 	"goodkind.io/tack/internal/telemetry"
 	"github.com/google/uuid"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 const serverCacheTTL = 60 * time.Second
 
 type cachedServer struct {
-	server  *mcp.Server
+	mcpSvr  *mcpserver.MCPServer
+	httpSvr *mcpserver.StreamableHTTPServer
 	builtAt time.Time
 }
 
@@ -56,8 +57,6 @@ type Handler struct {
 
 	mu    sync.RWMutex
 	cache map[uuid.UUID]*cachedServer
-
-	httpHandler http.Handler
 }
 
 type Deps struct {
@@ -85,7 +84,7 @@ type Deps struct {
 }
 
 func NewHandler(deps Deps) *Handler {
-	h := &Handler{
+	return &Handler{
 		workspaces:  deps.Workspaces,
 		projects:    deps.Projects,
 		projectSvc:  deps.ProjectSvc,
@@ -107,35 +106,31 @@ func NewHandler(deps Deps) *Handler {
 		searcher:    deps.Searcher,
 		cache:       make(map[uuid.UUID]*cachedServer),
 	}
-	h.httpHandler = mcp.NewStreamableHTTPHandler(h.getServer, &mcp.StreamableHTTPOptions{Stateless: true})
-	return h
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	h.httpHandler.ServeHTTP(w, r)
-}
-
-func (h *Handler) getServer(r *http.Request) *mcp.Server {
 	ctx := r.Context()
-
 	userID, ok := auth.UserID(ctx)
 	if !ok {
-		return h.buildServer(nil)
+		// auth middleware should have blocked this, but be safe
+		http.Error(w, `{"error":"unauthenticated"}`, http.StatusUnauthorized)
+		return
 	}
 
 	h.mu.RLock()
-	if c, ok := h.cache[userID]; ok && time.Since(c.builtAt) < serverCacheTTL {
-		h.mu.RUnlock()
-		return c.server
-	}
+	c, ok := h.cache[userID]
 	h.mu.RUnlock()
+	if ok && time.Since(c.builtAt) < serverCacheTTL {
+		c.httpSvr.ServeHTTP(w, r)
+		return
+	}
 
+	// build new server for this user
 	var nodeTypes []*node.NodeType
 	wss, err := h.workspaces.ListForUser(ctx, userID)
 	if err != nil {
-		telemetry.L(ctx).Error("mcp: list workspaces for user", "err", err)
+		telemetry.L(ctx).Error("mcp: list workspaces", "err", err)
 	}
-	// Deduplicate by Slug: two workspaces with the same slug (e.g. "issue") produce one tool set.
 	seen := make(map[string]struct{})
 	for _, ws := range wss {
 		nts, err := h.nodeTypes.List(ctx, ws.OrgID)
@@ -150,17 +145,18 @@ func (h *Handler) getServer(r *http.Request) *mcp.Server {
 		}
 	}
 
-	s := h.buildServer(nodeTypes)
+	mcpSvr := h.buildServer(nodeTypes)
+	httpSvr := mcpserver.NewStreamableHTTPServer(mcpSvr, mcpserver.WithStateLess(true))
 
 	h.mu.Lock()
-	h.cache[userID] = &cachedServer{server: s, builtAt: time.Now()}
+	h.cache[userID] = &cachedServer{mcpSvr: mcpSvr, httpSvr: httpSvr, builtAt: time.Now()}
 	h.mu.Unlock()
 
-	return s
+	httpSvr.ServeHTTP(w, r)
 }
 
-func (h *Handler) buildServer(nodeTypes []*node.NodeType) *mcp.Server {
-	s := mcp.NewServer(&mcp.Implementation{Name: "tack", Version: "0.1.0"}, nil)
+func (h *Handler) buildServer(nodeTypes []*node.NodeType) *mcpserver.MCPServer {
+	s := mcpserver.NewMCPServer("tack", "0.1.0")
 
 	resolver := tools.NewResolver(h.workspaces, h.projects)
 

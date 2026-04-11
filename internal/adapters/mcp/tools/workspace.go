@@ -3,31 +3,44 @@ package tools
 import (
 	"context"
 
+	mcpmcp "github.com/mark3labs/mcp-go/mcp"
+	mcpserver "github.com/mark3labs/mcp-go/server"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/domain/org"
 	"goodkind.io/tack/internal/domain/project"
 	"goodkind.io/tack/internal/domain/state"
 	"goodkind.io/tack/internal/domain/user"
 	"goodkind.io/tack/internal/domain/workspace"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 func RegisterWorkspace(
-	s *mcp.Server,
+	s *mcpserver.MCPServer,
 	workspaces workspace.Repository,
 	projects project.Repository,
 	states state.Repository,
 	nodeTypes node.TypeRepository,
 	properties node.PropertyRepository,
 ) {
-	mcp.AddTool(s, &mcp.Tool{
+	s.AddTool(mcpmcp.Tool{
 		Name:        "tack_describe_workspace",
 		Description: "Introspects a workspace: returns projects with states, node types, and property definitions. Call this first before any other workspace-scoped operation.",
+		InputSchema: mcpmcp.ToolInputSchema{
+			Type: "object",
+			Properties: map[string]any{
+				"workspace_slug": map[string]any{"type": "string"},
+			},
+			Required: []string{"workspace_slug"},
+		},
 	}, describeWorkspace(workspaces, projects, states, nodeTypes, properties))
 
-	mcp.AddTool(s, &mcp.Tool{
+	s.AddTool(mcpmcp.Tool{
 		Name:        "tack_list_workspaces",
 		Description: "Lists all workspaces the authenticated user has access to. Returns workspace slug, name, and ID. Use the slug in all workspace_slug parameters.",
+		InputSchema: mcpmcp.ToolInputSchema{
+			Type:       "object",
+			Properties: map[string]any{},
+			Required:   []string{},
+		},
 	}, listWorkspaces(workspaces))
 }
 
@@ -43,16 +56,20 @@ func describeWorkspace(
 	states state.Repository,
 	nodeTypes node.TypeRepository,
 	properties node.PropertyRepository,
-) mcp.ToolHandlerFor[DescribeWorkspaceInput, any] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, in DescribeWorkspaceInput) (*mcp.CallToolResult, any, error) {
+) mcpserver.ToolHandlerFunc {
+	return func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
+		var in DescribeWorkspaceInput
+		if err := req.BindArguments(&in); err != nil {
+			return RecoverableError(err.Error()), nil
+		}
 		ws, err := workspaces.GetBySlug(ctx, in.WorkspaceSlug)
 		if err != nil {
-			return ClassifyError(ctx, err), nil, nil
+			return ClassifyError(ctx, err), nil
 		}
 
 		projs, err := projects.List(ctx, ws.ID)
 		if err != nil {
-			return ClassifyError(ctx, err), nil, nil
+			return ClassifyError(ctx, err), nil
 		}
 
 		type projectSummary struct {
@@ -76,19 +93,26 @@ func describeWorkspace(
 		defs, _ := properties.ListDefs(ctx, ws.OrgID, ws.ID, nil)
 
 		return Success(map[string]any{
-			"workspace":             ws,
-			"projects":              summaries,
-			"node_types":            nts,
-			"property_definitions":  defs,
-		}, "Use the project identifiers here as project_identifier in tack_list_issues and related tools."), nil, nil
+			"workspace":            ws,
+			"projects":             summaries,
+			"node_types":           nts,
+			"property_definitions": defs,
+		}, "Use the project identifiers here as project_identifier in tack_list_issues and related tools."), nil
 	}
 }
 
 // RegisterMembers registers the tack_list_members tool.
-func RegisterMembers(s *mcp.Server, workspaces workspace.Repository, orgs org.Repository, users user.Repository) {
-	mcp.AddTool(s, &mcp.Tool{
+func RegisterMembers(s *mcpserver.MCPServer, workspaces workspace.Repository, orgs org.Repository, users user.Repository) {
+	s.AddTool(mcpmcp.Tool{
 		Name:        "tack_list_members",
 		Description: "Lists all members of a workspace with display name and email. Returns user_id, display_name, email, and role. Use this to look up user IDs before assigning issues.",
+		InputSchema: mcpmcp.ToolInputSchema{
+			Type: "object",
+			Properties: map[string]any{
+				"workspace_slug": map[string]any{"type": "string"},
+			},
+			Required: []string{"workspace_slug"},
+		},
 	}, listMembers(workspaces, orgs, users))
 }
 
@@ -98,15 +122,19 @@ type ListMembersInput struct {
 	WorkspaceSlug string `json:"workspace_slug"`
 }
 
-func listMembers(workspaces workspace.Repository, orgs org.Repository, users user.Repository) mcp.ToolHandlerFor[ListMembersInput, any] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListMembersInput) (*mcp.CallToolResult, any, error) {
+func listMembers(workspaces workspace.Repository, orgs org.Repository, users user.Repository) mcpserver.ToolHandlerFunc {
+	return func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
+		var in ListMembersInput
+		if err := req.BindArguments(&in); err != nil {
+			return RecoverableError(err.Error()), nil
+		}
 		ws, err := workspaces.GetBySlug(ctx, in.WorkspaceSlug)
 		if err != nil {
-			return ClassifyError(ctx, err), nil, nil
+			return ClassifyError(ctx, err), nil
 		}
 		members, err := orgs.ListMembers(ctx, ws.OrgID)
 		if err != nil {
-			return ClassifyError(ctx, err), nil, nil
+			return ClassifyError(ctx, err), nil
 		}
 		type memberView struct {
 			UserID      string `json:"user_id"`
@@ -127,7 +155,7 @@ func listMembers(workspaces workspace.Repository, orgs org.Repository, users use
 				Role:        m.Role,
 			})
 		}
-		return Success(map[string]any{"members": views}, "Use user_id values from this list in assignee_ids parameters."), nil, nil
+		return Success(map[string]any{"members": views}, "Use user_id values from this list in assignee_ids parameters."), nil
 	}
 }
 
@@ -135,16 +163,20 @@ func listMembers(workspaces workspace.Repository, orgs org.Repository, users use
 
 type ListWorkspacesInput struct{}
 
-func listWorkspaces(workspaces workspace.Repository) mcp.ToolHandlerFor[ListWorkspacesInput, any] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, _ ListWorkspacesInput) (*mcp.CallToolResult, any, error) {
+func listWorkspaces(workspaces workspace.Repository) mcpserver.ToolHandlerFunc {
+	return func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
+		var in ListWorkspacesInput
+		if err := req.BindArguments(&in); err != nil {
+			return RecoverableError(err.Error()), nil
+		}
 		userID, err := mustUser(ctx)
 		if err != nil {
-			return UnexpectedError(ctx, err), nil, nil
+			return UnexpectedError(ctx, err), nil
 		}
 		ws, err := workspaces.ListForUser(ctx, userID)
 		if err != nil {
-			return ClassifyError(ctx, err), nil, nil
+			return ClassifyError(ctx, err), nil
 		}
-		return Success(map[string]any{"workspaces": ws}, "Use workspace slugs from this list in all workspace_slug parameters."), nil, nil
+		return Success(map[string]any{"workspaces": ws}, "Use workspace slugs from this list in all workspace_slug parameters."), nil
 	}
 }

@@ -3,14 +3,15 @@ package tools
 import (
 	"context"
 
+	mcpmcp "github.com/mark3labs/mcp-go/mcp"
+	mcpserver "github.com/mark3labs/mcp-go/server"
 	"goodkind.io/tack/internal/domain/node"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // RegisterPrompts adds workflow prompt templates to the server.
 // nodeTypes is the deduplicated set for the authenticated user's workspaces.
 // Prompts are registered only when the required type keys exist in that set.
-func RegisterPrompts(s *mcp.Server, nodeTypes []*node.NodeType) {
+func RegisterPrompts(s *mcpserver.MCPServer, nodeTypes []*node.NodeType) {
 	typeKeys := make(map[string]bool)
 	for _, nt := range nodeTypes {
 		if nt.TypeKey != "" {
@@ -19,15 +20,15 @@ func RegisterPrompts(s *mcp.Server, nodeTypes []*node.NodeType) {
 	}
 
 	// tack_onboard_workspace — always registered; universal starting point for the LLM.
-	s.AddPrompt(&mcp.Prompt{
+	s.AddPrompt(mcpmcp.Prompt{
 		Name:        "tack_onboard_workspace",
 		Description: "Getting-started guide: discovers all workspaces, projects, and node types before any operation. Always start here in a new conversation.",
-	}, func(_ context.Context, _ *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
-		return &mcp.GetPromptResult{
+	}, func(_ context.Context, _ mcpmcp.GetPromptRequest) (*mcpmcp.GetPromptResult, error) {
+		return &mcpmcp.GetPromptResult{
 			Description: "Tack workspace onboarding",
-			Messages: []*mcp.PromptMessage{{
+			Messages: []mcpmcp.PromptMessage{{
 				Role: "user",
-				Content: &mcp.TextContent{
+				Content: &mcpmcp.TextContent{
 					Text: "Start by calling tack_list_workspaces to see all available workspaces. " +
 						"Then call tack_describe_workspace with a workspace slug to see its projects, " +
 						"node types, states, and property definitions. " +
@@ -43,13 +44,13 @@ func RegisterPrompts(s *mcp.Server, nodeTypes []*node.NodeType) {
 		return
 	}
 
-	s.AddPrompt(&mcp.Prompt{
+	s.AddPrompt(mcpmcp.Prompt{
 		Name:        "tack_triage",
 		Description: "Issue triage workflow: review and prioritize issues in a project. Requires project_identifier.",
-		Arguments: []*mcp.PromptArgument{
+		Arguments: []mcpmcp.PromptArgument{
 			{Name: "project_identifier", Description: "Project short identifier e.g. ENG", Required: true},
 		},
-	}, func(_ context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+	}, func(_ context.Context, req mcpmcp.GetPromptRequest) (*mcpmcp.GetPromptResult, error) {
 		projIdent := req.Params.Arguments["project_identifier"]
 		body := "Triage issues in project " + projIdent + ":\n" +
 			"1. Read tack://project/" + projIdent + " to confirm the workspace slug and available states.\n" +
@@ -57,22 +58,22 @@ func RegisterPrompts(s *mcp.Server, nodeTypes []*node.NodeType) {
 			"3. For each unstarted issue: set priority via tack_update_issue if unclear.\n" +
 			"4. Assign unassigned issues using tack_assign_issue. Call tack_list_members for user IDs.\n" +
 			"5. Move completed issues to a done state using tack_set_issue_state."
-		return &mcp.GetPromptResult{
+		return &mcpmcp.GetPromptResult{
 			Description: "Issue triage for project " + projIdent,
-			Messages: []*mcp.PromptMessage{{
+			Messages: []mcpmcp.PromptMessage{{
 				Role:    "user",
-				Content: &mcp.TextContent{Text: body},
+				Content: &mcpmcp.TextContent{Text: body},
 			}},
 		}, nil
 	})
 
-	s.AddPrompt(&mcp.Prompt{
+	s.AddPrompt(mcpmcp.Prompt{
 		Name:        "tack_weekly_standup",
 		Description: "Weekly standup: shows what the authenticated user is working on across all workspaces.",
-		Arguments: []*mcp.PromptArgument{
+		Arguments: []mcpmcp.PromptArgument{
 			{Name: "project_identifier", Description: "Optional project short identifier e.g. ENG", Required: false},
 		},
-	}, func(_ context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+	}, func(_ context.Context, req mcpmcp.GetPromptRequest) (*mcpmcp.GetPromptResult, error) {
 		projIdent := req.Params.Arguments["project_identifier"]
 		var body string
 		if projIdent != "" {
@@ -87,22 +88,22 @@ func RegisterPrompts(s *mcp.Server, nodeTypes []*node.NodeType) {
 				"2. Group by state (started, unstarted, completed) and by workspace/project.\n" +
 				"3. Note any blockers or issues that need state updates."
 		}
-		return &mcp.GetPromptResult{
+		return &mcpmcp.GetPromptResult{
 			Description: "Weekly standup summary",
-			Messages: []*mcp.PromptMessage{{
+			Messages: []mcpmcp.PromptMessage{{
 				Role:    "user",
-				Content: &mcp.TextContent{Text: body},
+				Content: &mcpmcp.TextContent{Text: body},
 			}},
 		}, nil
 	})
 
-	s.AddPrompt(&mcp.Prompt{
+	s.AddPrompt(mcpmcp.Prompt{
 		Name:        "tack_create_bug_report",
 		Description: "Creates a structured bug report issue with reproduction steps, expected/actual behavior, and environment fields.",
-		Arguments: []*mcp.PromptArgument{
+		Arguments: []mcpmcp.PromptArgument{
 			{Name: "project_identifier", Description: "Project short identifier e.g. ENG", Required: true},
 		},
-	}, func(_ context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+	}, func(_ context.Context, req mcpmcp.GetPromptRequest) (*mcpmcp.GetPromptResult, error) {
 		projIdent := req.Params.Arguments["project_identifier"]
 		body := "Create a bug report in project " + projIdent + ":\n" +
 			"1. Read tack://project/" + projIdent + " to confirm the workspace slug and states.\n" +
@@ -116,11 +117,11 @@ func RegisterPrompts(s *mcp.Server, nodeTypes []*node.NodeType) {
 			"**Environment:**\n\n" +
 			"3. Set priority to 'urgent' or 'high' as appropriate via tack_update_issue.\n" +
 			"4. Assign to the responsible team member using tack_assign_issue (use tack_list_members for IDs)."
-		return &mcp.GetPromptResult{
+		return &mcpmcp.GetPromptResult{
 			Description: "Bug report creation for project " + projIdent,
-			Messages: []*mcp.PromptMessage{{
+			Messages: []mcpmcp.PromptMessage{{
 				Role:    "user",
-				Content: &mcp.TextContent{Text: body},
+				Content: &mcpmcp.TextContent{Text: body},
 			}},
 		}, nil
 	})
@@ -129,16 +130,16 @@ func RegisterPrompts(s *mcp.Server, nodeTypes []*node.NodeType) {
 		return
 	}
 
-	s.AddPrompt(&mcp.Prompt{
+	s.AddPrompt(mcpmcp.Prompt{
 		Name:        "tack_sprint_setup",
 		Description: "Sprint setup: creates a cycle and populates it with issues. Requires issue and cycle types.",
-		Arguments: []*mcp.PromptArgument{
+		Arguments: []mcpmcp.PromptArgument{
 			{Name: "project_identifier", Description: "Project short identifier e.g. ENG", Required: true},
 			{Name: "cycle_name", Description: "Name for the new cycle e.g. Sprint 3", Required: true},
 			{Name: "start_date", Description: "Start date YYYY-MM-DD", Required: false},
 			{Name: "end_date", Description: "End date YYYY-MM-DD", Required: false},
 		},
-	}, func(_ context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+	}, func(_ context.Context, req mcpmcp.GetPromptRequest) (*mcpmcp.GetPromptResult, error) {
 		args := req.Params.Arguments
 		projIdent := args["project_identifier"]
 		cycleName := args["cycle_name"]
@@ -154,11 +155,11 @@ func RegisterPrompts(s *mcp.Server, nodeTypes []*node.NodeType) {
 			"3. Call tack_list_issues with project_identifier='" + projIdent + "' filtered to backlog/unstarted state.\n" +
 			"4. Select issues for the sprint and call tack_add_to_cycle with their issue IDs.\n" +
 			"5. Assign unassigned issues using tack_assign_issue."
-		return &mcp.GetPromptResult{
+		return &mcpmcp.GetPromptResult{
 			Description: "Sprint setup: " + cycleName + " in project " + projIdent,
-			Messages: []*mcp.PromptMessage{{
+			Messages: []mcpmcp.PromptMessage{{
 				Role:    "user",
-				Content: &mcp.TextContent{Text: body},
+				Content: &mcpmcp.TextContent{Text: body},
 			}},
 		}, nil
 	})

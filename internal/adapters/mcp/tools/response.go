@@ -8,7 +8,7 @@ import (
 
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/telemetry"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/mark3labs/mcp-go/mcp"
 )
 
 // Success returns a successful tool result. data is JSON-marshaled; instruction
@@ -23,7 +23,7 @@ func Success(data any, instruction string) *mcp.CallToolResult {
 		text += "\n\n[LLM Instruction]: " + instruction
 	}
 	return &mcp.CallToolResult{
-		Content: []mcp.Content{&mcp.TextContent{Text: text}},
+		Content: []mcp.Content{mcp.TextContent{Type: "text", Text: text}},
 	}
 }
 
@@ -33,7 +33,7 @@ func RecoverableError(instruction string) *mcp.CallToolResult {
 	text := fmt.Sprintf("<error>\n\n[LLM Instruction]: %s", instruction)
 	return &mcp.CallToolResult{
 		IsError: true,
-		Content: []mcp.Content{&mcp.TextContent{Text: text}},
+		Content: []mcp.Content{mcp.TextContent{Type: "text", Text: text}},
 	}
 }
 
@@ -43,7 +43,7 @@ func UnexpectedError(ctx context.Context, err error) *mcp.CallToolResult {
 	telemetry.L(ctx).Error("mcp tool: unexpected error", "err", err)
 	return &mcp.CallToolResult{
 		IsError: true,
-		Content: []mcp.Content{&mcp.TextContent{Text: "<error>\n\n[LLM Instruction]: Unexpected error. Yield to user."}},
+		Content: []mcp.Content{mcp.TextContent{Type: "text", Text: "<error>\n\n[LLM Instruction]: Unexpected error. Yield to user."}},
 	}
 }
 
