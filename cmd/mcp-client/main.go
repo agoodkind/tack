@@ -20,7 +20,8 @@ func main() {
 	}
 	token := os.Getenv("TACK_TOKEN")
 	if token == "" {
-		token = "tack_ZBF9kJA7W7VXPvkV3G99Qdzc_xBAoSvhI_kcoeDNK7I"
+		fmt.Fprintln(os.Stderr, "[error] TACK_TOKEN env var is required")
+		os.Exit(1)
 	}
 
 	logf("[init] url=%s token_len=%d", url, len(token))
