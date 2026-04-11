@@ -176,9 +176,22 @@ func runServer(cfg *config.Config) {
 
 	mux := http.NewServeMux()
 
-	// MCP Streamable HTTP
-	mux.Handle("/mcp", authMiddleware(mcpHandler))
-	mux.Handle("/mcp/", authMiddleware(mcpHandler))
+	// MCP Streamable HTTP (Stateless: true — GET is not supported by the handler).
+	// Wrap with auth but allow GET to pass through: the MCP handler returns 405
+	// for GET in stateless mode. Without this, clients see 401 instead of 405
+	// and may hang retrying.
+	mcpWithAuth := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			// Stateless mode does not support SSE streams. Return 405 directly
+			// so clients know to use POST only. No auth required for a 405.
+			w.Header().Set("Allow", "POST")
+			http.Error(w, "method not allowed: streamable-http stateless mode requires POST", http.StatusMethodNotAllowed)
+			return
+		}
+		authMiddleware(mcpHandler).ServeHTTP(w, r)
+	})
+	mux.Handle("/mcp", mcpWithAuth)
+	mux.Handle("/mcp/", mcpWithAuth)
 
 	// Connect-RPC (speaks gRPC, gRPC-Web, and Connect protocols over HTTP/2)
 	registerConnect := func(path string, handler http.Handler) {
