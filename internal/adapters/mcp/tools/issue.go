@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"fmt"
 
 	"goodkind.io/tack/internal/domain/issue"
 	"goodkind.io/tack/internal/service"
@@ -14,17 +13,17 @@ import (
 // slug is the entity slug (e.g. "issue"); pluralSlug is the plural form (e.g. "issues").
 // Both come from the NodeType record -- no hardcoded names.
 func registerIssueTools(s *mcp.Server, slug, pluralSlug string, svc *service.IssueService, r *Resolver) {
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_list_" + pluralSlug, Description: "List " + pluralSlug + " in a project with optional filters"}, listIssues(svc, r))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_get_" + slug, Description: "Get a single " + slug + " including its description"}, getIssue(svc, r))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_create_" + slug, Description: "Create a new " + slug}, createIssue(svc, r))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_update_" + slug, Description: "Update " + slug + " fields (partial -- only provided fields are changed)"}, updateIssue(svc, r))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_delete_" + slug, Description: "Soft-delete a " + slug}, deleteIssue(svc, r))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_assign_" + slug, Description: "Set the assignees on a " + slug + " (replaces existing assignees)"}, assignIssue(svc, r))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_set_" + slug + "_state", Description: "Move a " + slug + " to a new workflow state"}, setIssueState(svc, r))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_move_" + slug, Description: "Move a " + slug + " to a different project (reallocates sequence ID)"}, moveIssue(svc, r))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_bulk_update_" + pluralSlug, Description: "Apply the same field changes to multiple " + pluralSlug + " in one operation"}, bulkUpdateIssues(svc, r))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_bulk_delete_" + pluralSlug, Description: "Soft-delete multiple " + pluralSlug + " in one operation"}, bulkDeleteIssues(svc, r))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_bulk_move_" + pluralSlug, Description: "Move multiple " + pluralSlug + " to a different project in one operation"}, bulkMoveIssues(svc, r))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_list_" + pluralSlug, Description: "Lists " + pluralSlug + " in the workspace with optional filters. Returns identifier (e.g. ENG-42), name, state, priority, assignee, and project for each. Use project_identifier to scope to a project; for text search use tack_search."}, listIssues(svc, r))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_get_" + slug, Description: "Fetches a single " + slug + " by identifier (e.g. ENG-42) including full description and all fields. Use this when you have a specific identifier; use tack_list_" + pluralSlug + " to browse."}, getIssue(svc, r))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_create_" + slug, Description: "Creates a new " + slug + " in a project. Returns the created " + slug + " with its identifier. Requires project_identifier; call tack_describe_workspace first to find available projects."}, createIssue(svc, r))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_update_" + slug, Description: "Updates fields on a " + slug + " (e.g. ENG-42). Only provided fields change; omitted fields are unchanged. Returns the updated " + slug + "."}, updateIssue(svc, r))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_delete_" + slug, Description: "Soft-deletes a " + slug + " by identifier. Deletion is permanent and irreversible. Returns ok: true on success."}, deleteIssue(svc, r))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_assign_" + slug, Description: "Replaces the assignee set on a " + slug + ". Pass an empty list to unassign all. Use tack_list_members to look up user IDs first."}, assignIssue(svc, r))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_set_" + slug + "_state", Description: "Moves a " + slug + " to a new workflow state. Use tack_list_states or tack://project/{identifier}/states for available state IDs."}, setIssueState(svc, r))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_move_" + slug, Description: "Moves a " + slug + " to a different project, reallocating its sequence ID. Returns the updated " + slug + " with its new identifier."}, moveIssue(svc, r))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_bulk_update_" + pluralSlug, Description: "Applies the same field changes to multiple " + pluralSlug + " in one call. More efficient than calling tack_update_" + slug + " repeatedly."}, bulkUpdateIssues(svc, r))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_bulk_delete_" + pluralSlug, Description: "Soft-deletes multiple " + pluralSlug + " in one call. Deletion is permanent and irreversible."}, bulkDeleteIssues(svc, r))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_bulk_move_" + pluralSlug, Description: "Moves multiple " + pluralSlug + " to a different project in one call."}, bulkMoveIssues(svc, r))
 }
 
 // ── list ─────────────────────────────────────────────────────────────────────
@@ -43,13 +42,13 @@ func listIssues(svc *service.IssueService, r *Resolver) mcp.ToolHandlerFor[ListI
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListIssuesInput) (*mcp.CallToolResult, any, error) {
 		ws, err := r.Workspace(ctx, in.WorkspaceSlug)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
 		filter := issue.ListFilter{WorkspaceID: ws.ID}
 		if in.ProjectIdentifier != nil {
 			_, proj, err := r.Project(ctx, in.WorkspaceSlug, *in.ProjectIdentifier)
 			if err != nil {
-				return nil, nil, err
+				return ClassifyError(ctx, err), nil, nil
 			}
 			filter.ProjectID = &proj.ID
 		}
@@ -73,9 +72,9 @@ func listIssues(svc *service.IssueService, r *Resolver) mcp.ToolHandlerFor[ListI
 		}
 		items, total, err := svc.List(ctx, filter)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
-		return nil, map[string]any{"issues": items, "total": total}, nil
+		return Success(map[string]any{"issues": items, "total": total}, ""), nil, nil
 	}
 }
 
@@ -91,17 +90,17 @@ func getIssue(svc *service.IssueService, r *Resolver) mcp.ToolHandlerFor[GetIssu
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in GetIssueInput) (*mcp.CallToolResult, any, error) {
 		projIdent, seq, err := ParseNodeIdentifier(in.Identifier)
 		if err != nil {
-			return nil, nil, err
+			return RecoverableError(err.Error()), nil, nil
 		}
 		ws, proj, err := r.Project(ctx, in.WorkspaceSlug, projIdent)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
 		item, err := svc.GetBySequence(ctx, ws.ID, proj.ID, seq)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
-		return nil, map[string]any{"issue": item}, nil
+		return Success(map[string]any{"issue": item}, ""), nil, nil
 	}
 }
 
@@ -122,11 +121,11 @@ func createIssue(svc *service.IssueService, r *Resolver) mcp.ToolHandlerFor[Crea
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in CreateIssueInput) (*mcp.CallToolResult, any, error) {
 		userID, err := mustUser(ctx)
 		if err != nil {
-			return nil, nil, err
+			return UnexpectedError(ctx, err), nil, nil
 		}
 		ws, proj, err := r.Project(ctx, in.WorkspaceSlug, in.ProjectIdentifier)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
 		i := &issue.Issue{
 			WorkspaceID: ws.ID,
@@ -148,9 +147,9 @@ func createIssue(svc *service.IssueService, r *Resolver) mcp.ToolHandlerFor[Crea
 		i.CreatedBy = userID
 		created, err := svc.Create(ctx, i)
 		if err != nil {
-			return nil, nil, fmt.Errorf("create issue: %w", err)
+			return ClassifyError(ctx, err), nil, nil
 		}
-		return nil, map[string]any{"issue": created}, nil
+		return Success(map[string]any{"issue": created}, "Created. Use tack_assign_issue to assign, or tack_set_issue_state to set state."), nil, nil
 	}
 }
 
@@ -170,19 +169,19 @@ func updateIssue(svc *service.IssueService, r *Resolver) mcp.ToolHandlerFor[Upda
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in UpdateIssueInput) (*mcp.CallToolResult, any, error) {
 		userID, err := mustUser(ctx)
 		if err != nil {
-			return nil, nil, err
+			return UnexpectedError(ctx, err), nil, nil
 		}
 		projIdent, seq, err := ParseNodeIdentifier(in.Identifier)
 		if err != nil {
-			return nil, nil, err
+			return RecoverableError(err.Error()), nil, nil
 		}
 		ws, proj, err := r.Project(ctx, in.WorkspaceSlug, projIdent)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
 		existing, err := svc.GetBySequence(ctx, ws.ID, proj.ID, seq)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
 		if in.Name != nil {
 			existing.Name = *in.Name
@@ -199,9 +198,9 @@ func updateIssue(svc *service.IssueService, r *Resolver) mcp.ToolHandlerFor[Upda
 		existing.UpdatedBy = &userID
 		updated, err := svc.Update(ctx, existing)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
-		return nil, map[string]any{"issue": updated}, nil
+		return Success(map[string]any{"issue": updated}, ""), nil, nil
 	}
 }
 
@@ -222,20 +221,20 @@ func deleteIssue(svc *service.IssueService, r *Resolver) mcp.ToolHandlerFor[Dele
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in DeleteIssueInput) (*mcp.CallToolResult, DeleteIssueOutput, error) {
 		projIdent, seq, err := ParseNodeIdentifier(in.Identifier)
 		if err != nil {
-			return nil, DeleteIssueOutput{}, err
+			return RecoverableError(err.Error()), DeleteIssueOutput{}, nil
 		}
 		ws, proj, err := r.Project(ctx, in.WorkspaceSlug, projIdent)
 		if err != nil {
-			return nil, DeleteIssueOutput{}, err
+			return ClassifyError(ctx, err), DeleteIssueOutput{}, nil
 		}
 		existing, err := svc.GetBySequence(ctx, ws.ID, proj.ID, seq)
 		if err != nil {
-			return nil, DeleteIssueOutput{}, err
+			return ClassifyError(ctx, err), DeleteIssueOutput{}, nil
 		}
 		if err := svc.Delete(ctx, ws.ID, proj.ID, existing.ID); err != nil {
-			return nil, DeleteIssueOutput{}, err
+			return ClassifyError(ctx, err), DeleteIssueOutput{}, nil
 		}
-		return nil, DeleteIssueOutput{OK: true}, nil
+		return Success(DeleteIssueOutput{OK: true}, "Deletion is permanent and irreversible."), DeleteIssueOutput{}, nil
 	}
 }
 
@@ -252,25 +251,25 @@ func assignIssue(svc *service.IssueService, r *Resolver) mcp.ToolHandlerFor[Assi
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in AssignIssueInput) (*mcp.CallToolResult, any, error) {
 		userID, err := mustUser(ctx)
 		if err != nil {
-			return nil, nil, err
+			return UnexpectedError(ctx, err), nil, nil
 		}
 		projIdent, seq, err := ParseNodeIdentifier(in.Identifier)
 		if err != nil {
-			return nil, nil, err
+			return RecoverableError(err.Error()), nil, nil
 		}
 		ws, proj, err := r.Project(ctx, in.WorkspaceSlug, projIdent)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
 		existing, err := svc.GetBySequence(ctx, ws.ID, proj.ID, seq)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
 		assigneeIDs := make([]uuid.UUID, 0, len(in.AssigneeIDs))
 		for _, s := range in.AssigneeIDs {
 			id, parseErr := parseUUID(s, "assignee_id")
 			if parseErr != nil {
-				return nil, nil, parseErr
+				return RecoverableError(parseErr.Error()), nil, nil
 			}
 			assigneeIDs = append(assigneeIDs, id)
 		}
@@ -278,9 +277,9 @@ func assignIssue(svc *service.IssueService, r *Resolver) mcp.ToolHandlerFor[Assi
 		existing.UpdatedBy = &userID
 		updated, err := svc.Update(ctx, existing)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
-		return nil, map[string]any{"issue": updated}, nil
+		return Success(map[string]any{"issue": updated}, ""), nil, nil
 	}
 }
 
@@ -297,30 +296,30 @@ func setIssueState(svc *service.IssueService, r *Resolver) mcp.ToolHandlerFor[Se
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in SetIssueStateInput) (*mcp.CallToolResult, any, error) {
 		userID, err := mustUser(ctx)
 		if err != nil {
-			return nil, nil, err
+			return UnexpectedError(ctx, err), nil, nil
 		}
 		projIdent, seq, err := ParseNodeIdentifier(in.Identifier)
 		if err != nil {
-			return nil, nil, err
+			return RecoverableError(err.Error()), nil, nil
 		}
 		ws, proj, err := r.Project(ctx, in.WorkspaceSlug, projIdent)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
 		existing, err := svc.GetBySequence(ctx, ws.ID, proj.ID, seq)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
 		sID, err := parseUUID(in.StateID, "state_id")
 		if err != nil {
-			return nil, nil, err
+			return RecoverableError(err.Error()), nil, nil
 		}
 		existing.StateID = &sID
 		existing.UpdatedBy = &userID
 		updated, err := svc.Update(ctx, existing)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
-		return nil, map[string]any{"issue": updated}, nil
+		return Success(map[string]any{"issue": updated}, ""), nil, nil
 	}
 }

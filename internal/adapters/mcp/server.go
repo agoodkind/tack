@@ -188,5 +188,8 @@ func (h *Handler) buildServer(nodeTypes []*node.NodeType) *mcp.Server {
 
 	tools.RegisterMyIssues(s, h.issueSvc, binding.Resolver)
 
+	tools.RegisterResources(s, h.workspaces, h.projects, h.states, h.nodeTypes, h.properties)
+	tools.RegisterPrompts(s, nodeTypes)
+
 	return s
 }

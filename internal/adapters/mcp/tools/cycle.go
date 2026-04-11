@@ -11,13 +11,13 @@ import (
 
 // registerCycleTools registers all cycle-related MCP tools using slug-derived names.
 func registerCycleTools(s *mcp.Server, slug, pluralSlug string, cycles *service.CycleService, containment node.ContainmentRepository, r *Resolver) {
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_list_" + pluralSlug, Description: "List " + pluralSlug + " (sprints) in a project"}, listCycles(cycles, r))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_get_" + slug, Description: "Get a " + slug + " by ID"}, getCycle(cycles, r))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_create_" + slug, Description: "Create a new " + slug}, createCycle(cycles, r))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_update_" + slug, Description: "Update " + slug + " fields (partial)"}, updateCycle(cycles, r))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_delete_" + slug, Description: "Delete a " + slug}, deleteCycle(cycles, r))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_add_to_" + slug, Description: "Add issues to a " + slug}, addToCycle(containment, r))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_remove_from_" + slug, Description: "Remove an issue from a " + slug}, removeFromCycle(containment, r))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_list_" + pluralSlug, Description: "Lists " + pluralSlug + " (sprints) in a project. Returns name, status, and start/end dates for each."}, listCycles(cycles, r))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_get_" + slug, Description: "Fetches a single " + slug + " by cycle_id UUID. Use tack_list_" + pluralSlug + " first to find the ID."}, getCycle(cycles, r))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_create_" + slug, Description: "Creates a new " + slug + " in a project. start_date and end_date use YYYY-MM-DD format."}, createCycle(cycles, r))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_update_" + slug, Description: "Updates fields on a " + slug + " by cycle_id UUID. Only provided fields change."}, updateCycle(cycles, r))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_delete_" + slug, Description: "Deletes a " + slug + " by cycle_id UUID. Deletion is permanent and irreversible."}, deleteCycle(cycles, r))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_add_to_" + slug, Description: "Adds issues to a " + slug + " by their UUID issue IDs."}, addToCycle(containment, r))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_remove_from_" + slug, Description: "Removes an issue from a " + slug + "."}, removeFromCycle(containment, r))
 }
 
 type ListCyclesInput struct {
@@ -29,13 +29,13 @@ func listCycles(cycles *service.CycleService, r *Resolver) mcp.ToolHandlerFor[Li
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListCyclesInput) (*mcp.CallToolResult, any, error) {
 		ws, proj, err := r.Project(ctx, in.WorkspaceSlug, in.ProjectIdentifier)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
 		cs, err := cycles.ListWithWorkspace(ctx, ws.ID, proj.ID)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
-		return nil, map[string]any{"cycles": cs}, nil
+		return Success(map[string]any{"cycles": cs}, ""), nil, nil
 	}
 }
 
@@ -49,17 +49,17 @@ func getCycle(cycles *service.CycleService, r *Resolver) mcp.ToolHandlerFor[GetC
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in GetCycleInput) (*mcp.CallToolResult, any, error) {
 		ws, proj, err := r.Project(ctx, in.WorkspaceSlug, in.ProjectIdentifier)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
 		cycleID, err := parseUUID(in.CycleID, "cycle_id")
 		if err != nil {
-			return nil, nil, err
+			return RecoverableError(err.Error()), nil, nil
 		}
 		c, err := cycles.GetByIDWithWorkspace(ctx, ws.ID, proj.ID, cycleID)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
-		return nil, map[string]any{"cycle": c}, nil
+		return Success(map[string]any{"cycle": c}, ""), nil, nil
 	}
 }
 
@@ -76,11 +76,11 @@ func createCycle(cycles *service.CycleService, r *Resolver) mcp.ToolHandlerFor[C
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in CreateCycleInput) (*mcp.CallToolResult, any, error) {
 		userID, err := mustUser(ctx)
 		if err != nil {
-			return nil, nil, err
+			return UnexpectedError(ctx, err), nil, nil
 		}
 		ws, proj, err := r.Project(ctx, in.WorkspaceSlug, in.ProjectIdentifier)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
 		newCycle := &cycle.Cycle{
 			WorkspaceID: ws.ID,
@@ -95,22 +95,22 @@ func createCycle(cycles *service.CycleService, r *Resolver) mcp.ToolHandlerFor[C
 		if in.StartDate != nil {
 			t, err := parseOptionalDate(*in.StartDate, "start_date")
 			if err != nil {
-				return nil, nil, err
+				return RecoverableError(err.Error()), nil, nil
 			}
 			newCycle.StartDate = t
 		}
 		if in.EndDate != nil {
 			t, err := parseOptionalDate(*in.EndDate, "end_date")
 			if err != nil {
-				return nil, nil, err
+				return RecoverableError(err.Error()), nil, nil
 			}
 			newCycle.EndDate = t
 		}
 		c, err := cycles.Create(ctx, newCycle)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
-		return nil, map[string]any{"cycle": c}, nil
+		return Success(map[string]any{"cycle": c}, "Use tack_add_to_cycle to add issues to this cycle."), nil, nil
 	}
 }
 
@@ -126,19 +126,19 @@ func updateCycle(cycles *service.CycleService, r *Resolver) mcp.ToolHandlerFor[U
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in UpdateCycleInput) (*mcp.CallToolResult, any, error) {
 		userID, err := mustUser(ctx)
 		if err != nil {
-			return nil, nil, err
+			return UnexpectedError(ctx, err), nil, nil
 		}
 		ws, proj, err := r.Project(ctx, in.WorkspaceSlug, in.ProjectIdentifier)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
 		cycleID, err := parseUUID(in.CycleID, "cycle_id")
 		if err != nil {
-			return nil, nil, err
+			return RecoverableError(err.Error()), nil, nil
 		}
 		existing, err := cycles.GetByIDWithWorkspace(ctx, ws.ID, proj.ID, cycleID)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
 		if in.Name != nil {
 			existing.Name = *in.Name
@@ -149,9 +149,9 @@ func updateCycle(cycles *service.CycleService, r *Resolver) mcp.ToolHandlerFor[U
 		existing.UpdatedBy = &userID
 		updated, err := cycles.Update(ctx, existing)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
-		return nil, map[string]any{"cycle": updated}, nil
+		return Success(map[string]any{"cycle": updated}, ""), nil, nil
 	}
 }
 
@@ -168,16 +168,16 @@ func deleteCycle(cycles *service.CycleService, r *Resolver) mcp.ToolHandlerFor[D
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in DeleteCycleInput) (*mcp.CallToolResult, DeleteCycleOutput, error) {
 		ws, proj, err := r.Project(ctx, in.WorkspaceSlug, in.ProjectIdentifier)
 		if err != nil {
-			return nil, DeleteCycleOutput{}, err
+			return ClassifyError(ctx, err), DeleteCycleOutput{}, nil
 		}
 		cycleID, err := parseUUID(in.CycleID, "cycle_id")
 		if err != nil {
-			return nil, DeleteCycleOutput{}, err
+			return RecoverableError(err.Error()), DeleteCycleOutput{}, nil
 		}
 		if err := cycles.DeleteByWorkspace(ctx, ws.ID, proj.ID, cycleID); err != nil {
-			return nil, DeleteCycleOutput{}, err
+			return ClassifyError(ctx, err), DeleteCycleOutput{}, nil
 		}
-		return nil, DeleteCycleOutput{OK: true}, nil
+		return Success(DeleteCycleOutput{OK: true}, "Deletion is permanent and irreversible."), DeleteCycleOutput{}, nil
 	}
 }
 
@@ -194,28 +194,28 @@ func addToCycle(containment node.ContainmentRepository, r *Resolver) mcp.ToolHan
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in AddToCycleInput) (*mcp.CallToolResult, AddToCycleOutput, error) {
 		userID, err := mustUser(ctx)
 		if err != nil {
-			return nil, AddToCycleOutput{}, err
+			return UnexpectedError(ctx, err), AddToCycleOutput{}, nil
 		}
 		ws, err := r.Workspace(ctx, in.WorkspaceSlug)
 		if err != nil {
-			return nil, AddToCycleOutput{}, err
+			return ClassifyError(ctx, err), AddToCycleOutput{}, nil
 		}
 		cycleID, err := parseUUID(in.CycleID, "cycle_id")
 		if err != nil {
-			return nil, AddToCycleOutput{}, err
+			return RecoverableError(err.Error()), AddToCycleOutput{}, nil
 		}
 		var added int
 		for _, s := range in.IssueIDs {
 			issueID, err := parseUUID(s, "issue_id")
 			if err != nil {
-				return nil, AddToCycleOutput{}, err
+				return RecoverableError(err.Error()), AddToCycleOutput{}, nil
 			}
 			if err := containment.AddIssueToCycle(ctx, ws.OrgID, cycleID, issueID, userID); err != nil {
-				return nil, AddToCycleOutput{}, err
+				return ClassifyError(ctx, err), AddToCycleOutput{}, nil
 			}
 			added++
 		}
-		return nil, AddToCycleOutput{Added: added}, nil
+		return Success(AddToCycleOutput{Added: added}, ""), AddToCycleOutput{}, nil
 	}
 }
 
@@ -232,19 +232,19 @@ func removeFromCycle(containment node.ContainmentRepository, r *Resolver) mcp.To
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in RemoveFromCycleInput) (*mcp.CallToolResult, RemoveFromCycleOutput, error) {
 		ws, err := r.Workspace(ctx, in.WorkspaceSlug)
 		if err != nil {
-			return nil, RemoveFromCycleOutput{}, err
+			return ClassifyError(ctx, err), RemoveFromCycleOutput{}, nil
 		}
 		cycleID, err := parseUUID(in.CycleID, "cycle_id")
 		if err != nil {
-			return nil, RemoveFromCycleOutput{}, err
+			return RecoverableError(err.Error()), RemoveFromCycleOutput{}, nil
 		}
 		issueID, err := parseUUID(in.IssueID, "issue_id")
 		if err != nil {
-			return nil, RemoveFromCycleOutput{}, err
+			return RecoverableError(err.Error()), RemoveFromCycleOutput{}, nil
 		}
 		if err := containment.RemoveIssueFromCycle(ctx, ws.OrgID, cycleID, issueID); err != nil {
-			return nil, RemoveFromCycleOutput{}, err
+			return ClassifyError(ctx, err), RemoveFromCycleOutput{}, nil
 		}
-		return nil, RemoveFromCycleOutput{OK: true}, nil
+		return Success(RemoveFromCycleOutput{OK: true}, ""), RemoveFromCycleOutput{}, nil
 	}
 }

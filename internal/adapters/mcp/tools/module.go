@@ -11,13 +11,13 @@ import (
 
 // registerModuleTools registers all module-related MCP tools using slug-derived names.
 func registerModuleTools(s *mcp.Server, slug, pluralSlug string, modules *service.ModuleService, containment node.ContainmentRepository, r *Resolver) {
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_list_" + pluralSlug, Description: "List " + pluralSlug + " (feature groupings) in a project"}, listModules(modules, r))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_get_" + slug, Description: "Get a " + slug + " by ID"}, getModule(modules, r))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_create_" + slug, Description: "Create a new " + slug}, createModule(modules, r))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_update_" + slug, Description: "Update " + slug + " fields (partial)"}, updateModule(modules, r))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_delete_" + slug, Description: "Delete a " + slug}, deleteModule(modules, r))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_add_to_" + slug, Description: "Add issues to a " + slug}, addToModule(containment, r))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_remove_from_" + slug, Description: "Remove an issue from a " + slug}, removeFromModule(containment, r))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_list_" + pluralSlug, Description: "Lists " + pluralSlug + " (feature groupings) in a project. Returns name, status, and description for each."}, listModules(modules, r))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_get_" + slug, Description: "Fetches a single " + slug + " by module_id UUID. Use tack_list_" + pluralSlug + " first to find the ID."}, getModule(modules, r))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_create_" + slug, Description: "Creates a new " + slug + " in a project. status defaults to 'backlog' if omitted."}, createModule(modules, r))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_update_" + slug, Description: "Updates fields on a " + slug + " by module_id UUID. Only provided fields change."}, updateModule(modules, r))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_delete_" + slug, Description: "Deletes a " + slug + " by module_id UUID. Deletion is permanent and irreversible."}, deleteModule(modules, r))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_add_to_" + slug, Description: "Adds issues to a " + slug + " by their UUID issue IDs."}, addToModule(containment, r))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_remove_from_" + slug, Description: "Removes an issue from a " + slug + "."}, removeFromModule(containment, r))
 }
 
 type ListModulesInput struct {
@@ -29,13 +29,13 @@ func listModules(modules *service.ModuleService, r *Resolver) mcp.ToolHandlerFor
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListModulesInput) (*mcp.CallToolResult, any, error) {
 		ws, proj, err := r.Project(ctx, in.WorkspaceSlug, in.ProjectIdentifier)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
 		ms, err := modules.ListWithWorkspace(ctx, ws.ID, proj.ID)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
-		return nil, map[string]any{"modules": ms}, nil
+		return Success(map[string]any{"modules": ms}, ""), nil, nil
 	}
 }
 
@@ -49,17 +49,17 @@ func getModule(modules *service.ModuleService, r *Resolver) mcp.ToolHandlerFor[G
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in GetModuleInput) (*mcp.CallToolResult, any, error) {
 		ws, proj, err := r.Project(ctx, in.WorkspaceSlug, in.ProjectIdentifier)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
 		moduleID, err := parseUUID(in.ModuleID, "module_id")
 		if err != nil {
-			return nil, nil, err
+			return RecoverableError(err.Error()), nil, nil
 		}
 		m, err := modules.GetByIDWithWorkspace(ctx, ws.ID, proj.ID, moduleID)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
-		return nil, map[string]any{"module": m}, nil
+		return Success(map[string]any{"module": m}, ""), nil, nil
 	}
 }
 
@@ -75,11 +75,11 @@ func createModule(modules *service.ModuleService, r *Resolver) mcp.ToolHandlerFo
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in CreateModuleInput) (*mcp.CallToolResult, any, error) {
 		userID, err := mustUser(ctx)
 		if err != nil {
-			return nil, nil, err
+			return UnexpectedError(ctx, err), nil, nil
 		}
 		ws, proj, err := r.Project(ctx, in.WorkspaceSlug, in.ProjectIdentifier)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
 		status := "backlog"
 		if in.Status != nil && *in.Status != "" {
@@ -98,9 +98,9 @@ func createModule(modules *service.ModuleService, r *Resolver) mcp.ToolHandlerFo
 		}
 		m, err := modules.Create(ctx, newModule)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
-		return nil, map[string]any{"module": m}, nil
+		return Success(map[string]any{"module": m}, "Use tack_add_to_module to add issues to this module."), nil, nil
 	}
 }
 
@@ -117,19 +117,19 @@ func updateModule(modules *service.ModuleService, r *Resolver) mcp.ToolHandlerFo
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in UpdateModuleInput) (*mcp.CallToolResult, any, error) {
 		userID, err := mustUser(ctx)
 		if err != nil {
-			return nil, nil, err
+			return UnexpectedError(ctx, err), nil, nil
 		}
 		ws, proj, err := r.Project(ctx, in.WorkspaceSlug, in.ProjectIdentifier)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
 		moduleID, err := parseUUID(in.ModuleID, "module_id")
 		if err != nil {
-			return nil, nil, err
+			return RecoverableError(err.Error()), nil, nil
 		}
 		existing, err := modules.GetByIDWithWorkspace(ctx, ws.ID, proj.ID, moduleID)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
 		if in.Name != nil {
 			existing.Name = *in.Name
@@ -143,9 +143,9 @@ func updateModule(modules *service.ModuleService, r *Resolver) mcp.ToolHandlerFo
 		existing.UpdatedBy = &userID
 		updated, err := modules.Update(ctx, existing)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
-		return nil, map[string]any{"module": updated}, nil
+		return Success(map[string]any{"module": updated}, ""), nil, nil
 	}
 }
 
@@ -162,16 +162,16 @@ func deleteModule(modules *service.ModuleService, r *Resolver) mcp.ToolHandlerFo
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in DeleteModuleInput) (*mcp.CallToolResult, DeleteModuleOutput, error) {
 		ws, proj, err := r.Project(ctx, in.WorkspaceSlug, in.ProjectIdentifier)
 		if err != nil {
-			return nil, DeleteModuleOutput{}, err
+			return ClassifyError(ctx, err), DeleteModuleOutput{}, nil
 		}
 		moduleID, err := parseUUID(in.ModuleID, "module_id")
 		if err != nil {
-			return nil, DeleteModuleOutput{}, err
+			return RecoverableError(err.Error()), DeleteModuleOutput{}, nil
 		}
 		if err := modules.DeleteByWorkspace(ctx, ws.ID, proj.ID, moduleID); err != nil {
-			return nil, DeleteModuleOutput{}, err
+			return ClassifyError(ctx, err), DeleteModuleOutput{}, nil
 		}
-		return nil, DeleteModuleOutput{OK: true}, nil
+		return Success(DeleteModuleOutput{OK: true}, "Deletion is permanent and irreversible."), DeleteModuleOutput{}, nil
 	}
 }
 
@@ -188,28 +188,28 @@ func addToModule(containment node.ContainmentRepository, r *Resolver) mcp.ToolHa
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in AddToModuleInput) (*mcp.CallToolResult, AddToModuleOutput, error) {
 		userID, err := mustUser(ctx)
 		if err != nil {
-			return nil, AddToModuleOutput{}, err
+			return UnexpectedError(ctx, err), AddToModuleOutput{}, nil
 		}
 		ws, err := r.Workspace(ctx, in.WorkspaceSlug)
 		if err != nil {
-			return nil, AddToModuleOutput{}, err
+			return ClassifyError(ctx, err), AddToModuleOutput{}, nil
 		}
 		moduleID, err := parseUUID(in.ModuleID, "module_id")
 		if err != nil {
-			return nil, AddToModuleOutput{}, err
+			return RecoverableError(err.Error()), AddToModuleOutput{}, nil
 		}
 		var added int
 		for _, s := range in.IssueIDs {
 			issueID, err := parseUUID(s, "issue_id")
 			if err != nil {
-				return nil, AddToModuleOutput{}, err
+				return RecoverableError(err.Error()), AddToModuleOutput{}, nil
 			}
 			if err := containment.AddIssueToModule(ctx, ws.OrgID, moduleID, issueID, userID); err != nil {
-				return nil, AddToModuleOutput{}, err
+				return ClassifyError(ctx, err), AddToModuleOutput{}, nil
 			}
 			added++
 		}
-		return nil, AddToModuleOutput{Added: added}, nil
+		return Success(AddToModuleOutput{Added: added}, ""), AddToModuleOutput{}, nil
 	}
 }
 
@@ -226,19 +226,19 @@ func removeFromModule(containment node.ContainmentRepository, r *Resolver) mcp.T
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in RemoveFromModuleInput) (*mcp.CallToolResult, RemoveFromModuleOutput, error) {
 		ws, err := r.Workspace(ctx, in.WorkspaceSlug)
 		if err != nil {
-			return nil, RemoveFromModuleOutput{}, err
+			return ClassifyError(ctx, err), RemoveFromModuleOutput{}, nil
 		}
 		moduleID, err := parseUUID(in.ModuleID, "module_id")
 		if err != nil {
-			return nil, RemoveFromModuleOutput{}, err
+			return RecoverableError(err.Error()), RemoveFromModuleOutput{}, nil
 		}
 		issueID, err := parseUUID(in.IssueID, "issue_id")
 		if err != nil {
-			return nil, RemoveFromModuleOutput{}, err
+			return RecoverableError(err.Error()), RemoveFromModuleOutput{}, nil
 		}
 		if err := containment.RemoveIssueFromModule(ctx, ws.OrgID, moduleID, issueID); err != nil {
-			return nil, RemoveFromModuleOutput{}, err
+			return ClassifyError(ctx, err), RemoveFromModuleOutput{}, nil
 		}
-		return nil, RemoveFromModuleOutput{OK: true}, nil
+		return Success(RemoveFromModuleOutput{OK: true}, ""), RemoveFromModuleOutput{}, nil
 	}
 }

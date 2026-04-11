@@ -3,8 +3,10 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
+	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/telemetry"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -42,5 +44,23 @@ func UnexpectedError(ctx context.Context, err error) *mcp.CallToolResult {
 	return &mcp.CallToolResult{
 		IsError: true,
 		Content: []mcp.Content{&mcp.TextContent{Text: "<error>\n\n[LLM Instruction]: Unexpected error. Yield to user."}},
+	}
+}
+
+// ClassifyError routes an error to RecoverableError or UnexpectedError based on domain type.
+// Not found, invalid argument, already exists, failed precondition → recoverable with correction.
+// Unauthenticated, permission denied, and all others → unexpected (yield to user).
+func ClassifyError(ctx context.Context, err error) *mcp.CallToolResult {
+	switch {
+	case errors.Is(err, domain.ErrNotFound):
+		return RecoverableError(err.Error() + ". Verify the identifier, workspace_slug, and project_identifier are correct.")
+	case errors.Is(err, domain.ErrInvalidArgument):
+		return RecoverableError(err.Error())
+	case errors.Is(err, domain.ErrAlreadyExists):
+		return RecoverableError(err.Error())
+	case errors.Is(err, domain.ErrFailedPrecondition):
+		return RecoverableError(err.Error())
+	default:
+		return UnexpectedError(ctx, err)
 	}
 }

@@ -36,7 +36,7 @@ func bulkUpdateIssues(svc *service.IssueService, r *Resolver) mcp.ToolHandlerFor
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in BulkUpdateIssuesInput) (*mcp.CallToolResult, BulkUpdateIssuesOutput, error) {
 		userID, err := mustUser(ctx)
 		if err != nil {
-			return nil, BulkUpdateIssuesOutput{}, err
+			return UnexpectedError(ctx, err), BulkUpdateIssuesOutput{}, nil
 		}
 		issueIDs := make([]uuid.UUID, 0, len(in.Identifiers))
 		var ws *workspace.Workspace
@@ -44,19 +44,19 @@ func bulkUpdateIssues(svc *service.IssueService, r *Resolver) mcp.ToolHandlerFor
 		for _, ident := range in.Identifiers {
 			projIdent, seq, err := ParseNodeIdentifier(ident)
 			if err != nil {
-				return nil, BulkUpdateIssuesOutput{}, err
+				return RecoverableError(err.Error()), BulkUpdateIssuesOutput{}, nil
 			}
 			if ws == nil {
 				ws, proj, err = r.Project(ctx, in.WorkspaceSlug, projIdent)
 				if err != nil {
-					return nil, BulkUpdateIssuesOutput{}, err
+					return ClassifyError(ctx, err), BulkUpdateIssuesOutput{}, nil
 				}
 			} else if !strings.EqualFold(proj.Identifier, projIdent) {
-				return nil, BulkUpdateIssuesOutput{}, fmt.Errorf("bulk update requires all issues in the same project: got %q and %q", proj.Identifier, projIdent)
+				return RecoverableError(fmt.Sprintf("bulk update requires all issues in the same project: got %q and %q", proj.Identifier, projIdent)), BulkUpdateIssuesOutput{}, nil
 			}
 			issueObj, err := svc.GetBySequence(ctx, ws.ID, proj.ID, seq)
 			if err != nil {
-				return nil, BulkUpdateIssuesOutput{}, err
+				return ClassifyError(ctx, err), BulkUpdateIssuesOutput{}, nil
 			}
 			issueIDs = append(issueIDs, issueObj.ID)
 		}
@@ -88,7 +88,7 @@ func bulkUpdateIssues(svc *service.IssueService, r *Resolver) mcp.ToolHandlerFor
 			for _, s := range in.AssigneeIDs {
 				id, parseErr := parseUUID(s, "assignee_id")
 				if parseErr != nil {
-					return nil, BulkUpdateIssuesOutput{}, parseErr
+					return RecoverableError(parseErr.Error()), BulkUpdateIssuesOutput{}, nil
 				}
 				ids = append(ids, id)
 			}
@@ -96,9 +96,9 @@ func bulkUpdateIssues(svc *service.IssueService, r *Resolver) mcp.ToolHandlerFor
 		}
 		updated, err := svc.BulkUpdate(ctx, ws.ID, patch)
 		if err != nil {
-			return nil, BulkUpdateIssuesOutput{}, err
+			return ClassifyError(ctx, err), BulkUpdateIssuesOutput{}, nil
 		}
-		return nil, BulkUpdateIssuesOutput{Updated: updated}, nil
+		return Success(BulkUpdateIssuesOutput{Updated: updated}, ""), BulkUpdateIssuesOutput{}, nil
 	}
 }
 
@@ -119,29 +119,29 @@ func bulkDeleteIssues(svc *service.IssueService, r *Resolver) mcp.ToolHandlerFor
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in BulkDeleteIssuesInput) (*mcp.CallToolResult, BulkDeleteIssuesOutput, error) {
 		ws, err := r.Workspace(ctx, in.WorkspaceSlug)
 		if err != nil {
-			return nil, BulkDeleteIssuesOutput{}, err
+			return ClassifyError(ctx, err), BulkDeleteIssuesOutput{}, nil
 		}
 		issueIDs := make([]uuid.UUID, 0, len(in.Identifiers))
 		for _, ident := range in.Identifiers {
 			projIdent, seq, err := ParseNodeIdentifier(ident)
 			if err != nil {
-				return nil, BulkDeleteIssuesOutput{}, err
+				return RecoverableError(err.Error()), BulkDeleteIssuesOutput{}, nil
 			}
 			_, proj, err := r.Project(ctx, in.WorkspaceSlug, projIdent)
 			if err != nil {
-				return nil, BulkDeleteIssuesOutput{}, err
+				return ClassifyError(ctx, err), BulkDeleteIssuesOutput{}, nil
 			}
 			issueObj, err := svc.GetBySequence(ctx, ws.ID, proj.ID, seq)
 			if err != nil {
-				return nil, BulkDeleteIssuesOutput{}, err
+				return ClassifyError(ctx, err), BulkDeleteIssuesOutput{}, nil
 			}
 			issueIDs = append(issueIDs, issueObj.ID)
 		}
 		n, err := svc.BulkDelete(ctx, ws.ID, issueIDs)
 		if err != nil {
-			return nil, BulkDeleteIssuesOutput{}, err
+			return ClassifyError(ctx, err), BulkDeleteIssuesOutput{}, nil
 		}
-		return nil, BulkDeleteIssuesOutput{Deleted: n}, nil
+		return Success(BulkDeleteIssuesOutput{Deleted: n}, "Deletion is permanent and irreversible."), BulkDeleteIssuesOutput{}, nil
 	}
 }
 
@@ -164,7 +164,7 @@ func bulkMoveIssues(svc *service.IssueService, r *Resolver) mcp.ToolHandlerFor[B
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in BulkMoveIssuesInput) (*mcp.CallToolResult, BulkMoveIssuesOutput, error) {
 		userID, err := mustUser(ctx)
 		if err != nil {
-			return nil, BulkMoveIssuesOutput{}, err
+			return UnexpectedError(ctx, err), BulkMoveIssuesOutput{}, nil
 		}
 		issueIDs := make([]uuid.UUID, 0, len(in.Identifiers))
 		var ws *workspace.Workspace
@@ -172,30 +172,30 @@ func bulkMoveIssues(svc *service.IssueService, r *Resolver) mcp.ToolHandlerFor[B
 		for _, ident := range in.Identifiers {
 			projIdent, seq, err := ParseNodeIdentifier(ident)
 			if err != nil {
-				return nil, BulkMoveIssuesOutput{}, err
+				return RecoverableError(err.Error()), BulkMoveIssuesOutput{}, nil
 			}
 			if ws == nil {
 				ws, proj, err = r.Project(ctx, in.WorkspaceSlug, projIdent)
 				if err != nil {
-					return nil, BulkMoveIssuesOutput{}, err
+					return ClassifyError(ctx, err), BulkMoveIssuesOutput{}, nil
 				}
 			} else if !strings.EqualFold(proj.Identifier, projIdent) {
-				return nil, BulkMoveIssuesOutput{}, fmt.Errorf("bulk move requires all issues in the same project: got %q and %q", proj.Identifier, projIdent)
+				return RecoverableError(fmt.Sprintf("bulk move requires all issues in the same project: got %q and %q", proj.Identifier, projIdent)), BulkMoveIssuesOutput{}, nil
 			}
 			issueObj, err := svc.GetBySequence(ctx, ws.ID, proj.ID, seq)
 			if err != nil {
-				return nil, BulkMoveIssuesOutput{}, err
+				return ClassifyError(ctx, err), BulkMoveIssuesOutput{}, nil
 			}
 			issueIDs = append(issueIDs, issueObj.ID)
 		}
 		_, targetProj, err := r.Project(ctx, in.WorkspaceSlug, in.TargetProjectIdentifier)
 		if err != nil {
-			return nil, BulkMoveIssuesOutput{}, err
+			return ClassifyError(ctx, err), BulkMoveIssuesOutput{}, nil
 		}
 		moved, failed, err := svc.BulkMove(ctx, ws.ID, proj.ID, issueIDs, targetProj.ID, userID)
 		if err != nil {
-			return nil, BulkMoveIssuesOutput{}, err
+			return ClassifyError(ctx, err), BulkMoveIssuesOutput{}, nil
 		}
-		return nil, BulkMoveIssuesOutput{Moved: moved, Failed: failed}, nil
+		return Success(BulkMoveIssuesOutput{Moved: moved, Failed: failed}, ""), BulkMoveIssuesOutput{}, nil
 	}
 }

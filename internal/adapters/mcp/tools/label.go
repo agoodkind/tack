@@ -9,9 +9,9 @@ import (
 )
 
 func RegisterLabel(s *mcp.Server, labels label.Repository) {
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_list_labels", Description: "List labels for a workspace (optionally scoped to a project)"}, listLabels(labels))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_create_label", Description: "Create a label in a workspace or project"}, createLabel(labels))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_delete_label", Description: "Delete a label"}, deleteLabel(labels))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_list_labels", Description: "Lists labels in a workspace, optionally scoped to a project. Returns label ID, name, and color."}, listLabels(labels))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_create_label", Description: "Creates a label in a workspace or project. color defaults to #cccccc if omitted."}, createLabel(labels))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_delete_label", Description: "Deletes a label. This removes the label from all nodes it was applied to."}, deleteLabel(labels))
 }
 
 type ListLabelsInput struct {
@@ -23,7 +23,7 @@ func listLabels(labels label.Repository) mcp.ToolHandlerFor[ListLabelsInput, any
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListLabelsInput) (*mcp.CallToolResult, any, error) {
 		wsID, err := parseUUID(in.WorkspaceID, "workspace_id")
 		if err != nil {
-			return nil, nil, err
+			return RecoverableError(err.Error()), nil, nil
 		}
 		var pID *uuid.UUID
 		if in.ProjectID != nil {
@@ -31,9 +31,9 @@ func listLabels(labels label.Repository) mcp.ToolHandlerFor[ListLabelsInput, any
 		}
 		ls, err := labels.List(ctx, wsID, pID)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
-		return nil, map[string]any{"labels": ls}, nil
+		return Success(map[string]any{"labels": ls}, ""), nil, nil
 	}
 }
 
@@ -48,7 +48,7 @@ func createLabel(labels label.Repository) mcp.ToolHandlerFor[CreateLabelInput, a
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in CreateLabelInput) (*mcp.CallToolResult, any, error) {
 		wsID, err := parseUUID(in.WorkspaceID, "workspace_id")
 		if err != nil {
-			return nil, nil, err
+			return RecoverableError(err.Error()), nil, nil
 		}
 		color := "#cccccc"
 		if in.Color != nil && *in.Color != "" {
@@ -66,9 +66,9 @@ func createLabel(labels label.Repository) mcp.ToolHandlerFor[CreateLabelInput, a
 			SortOrder:   65535,
 		})
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
-		return nil, map[string]any{"label": l}, nil
+		return Success(map[string]any{"label": l}, ""), nil, nil
 	}
 }
 
@@ -83,11 +83,11 @@ func deleteLabel(labels label.Repository) mcp.ToolHandlerFor[DeleteLabelInput, D
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in DeleteLabelInput) (*mcp.CallToolResult, DeleteLabelOutput, error) {
 		id, err := parseUUID(in.LabelID, "label_id")
 		if err != nil {
-			return nil, DeleteLabelOutput{}, err
+			return RecoverableError(err.Error()), DeleteLabelOutput{}, nil
 		}
 		if err := labels.Delete(ctx, id); err != nil {
-			return nil, DeleteLabelOutput{}, err
+			return ClassifyError(ctx, err), DeleteLabelOutput{}, nil
 		}
-		return nil, DeleteLabelOutput{OK: true}, nil
+		return Success(DeleteLabelOutput{OK: true}, ""), DeleteLabelOutput{}, nil
 	}
 }

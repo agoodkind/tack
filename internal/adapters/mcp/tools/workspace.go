@@ -22,12 +22,12 @@ func RegisterWorkspace(
 ) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "tack_describe_workspace",
-		Description: "Introspect a workspace: returns projects, states per project, node types, and property definitions. Call this first to orient yourself before any other operation.",
+		Description: "Introspects a workspace: returns projects with states, node types, and property definitions. Call this first before any other workspace-scoped operation.",
 	}, describeWorkspace(workspaces, projects, states, nodeTypes, properties))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "tack_list_workspaces",
-		Description: "List all workspaces the authenticated user has access to",
+		Description: "Lists all workspaces the authenticated user has access to. Returns workspace slug, name, and ID. Use the slug in all workspace_slug parameters.",
 	}, listWorkspaces(workspaces))
 }
 
@@ -47,12 +47,12 @@ func describeWorkspace(
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in DescribeWorkspaceInput) (*mcp.CallToolResult, any, error) {
 		ws, err := workspaces.GetBySlug(ctx, in.WorkspaceSlug)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
 
 		projs, err := projects.List(ctx, ws.ID)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
 
 		type projectSummary struct {
@@ -75,12 +75,12 @@ func describeWorkspace(
 		nts, _ := nodeTypes.List(ctx, ws.OrgID)
 		defs, _ := properties.ListDefs(ctx, ws.OrgID, ws.ID, nil)
 
-		return nil, map[string]any{
+		return Success(map[string]any{
 			"workspace":             ws,
 			"projects":              summaries,
 			"node_types":            nts,
 			"property_definitions":  defs,
-		}, nil
+		}, "Use the project identifiers here as project_identifier in tack_list_issues and related tools."), nil, nil
 	}
 }
 
@@ -88,7 +88,7 @@ func describeWorkspace(
 func RegisterMembers(s *mcp.Server, workspaces workspace.Repository, orgs org.Repository, users user.Repository) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "tack_list_members",
-		Description: "List all members of a workspace with their display name and email. Returns member user ID, display name, email, and role. Use this to look up user emails before assigning issues.",
+		Description: "Lists all members of a workspace with display name and email. Returns user_id, display_name, email, and role. Use this to look up user IDs before assigning issues.",
 	}, listMembers(workspaces, orgs, users))
 }
 
@@ -102,11 +102,11 @@ func listMembers(workspaces workspace.Repository, orgs org.Repository, users use
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListMembersInput) (*mcp.CallToolResult, any, error) {
 		ws, err := workspaces.GetBySlug(ctx, in.WorkspaceSlug)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
 		members, err := orgs.ListMembers(ctx, ws.OrgID)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
 		type memberView struct {
 			UserID      string `json:"user_id"`
@@ -127,7 +127,7 @@ func listMembers(workspaces workspace.Repository, orgs org.Repository, users use
 				Role:        m.Role,
 			})
 		}
-		return nil, map[string]any{"members": views}, nil
+		return Success(map[string]any{"members": views}, "Use user_id values from this list in assignee_ids parameters."), nil, nil
 	}
 }
 
@@ -139,12 +139,12 @@ func listWorkspaces(workspaces workspace.Repository) mcp.ToolHandlerFor[ListWork
 	return func(ctx context.Context, _ *mcp.CallToolRequest, _ ListWorkspacesInput) (*mcp.CallToolResult, any, error) {
 		userID, err := mustUser(ctx)
 		if err != nil {
-			return nil, nil, err
+			return UnexpectedError(ctx, err), nil, nil
 		}
 		ws, err := workspaces.ListForUser(ctx, userID)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
-		return nil, map[string]any{"workspaces": ws}, nil
+		return Success(map[string]any{"workspaces": ws}, "Use workspace slugs from this list in all workspace_slug parameters."), nil, nil
 	}
 }

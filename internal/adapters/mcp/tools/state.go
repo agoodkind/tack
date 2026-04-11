@@ -8,10 +8,10 @@ import (
 )
 
 func RegisterState(s *mcp.Server, states state.Repository) {
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_list_states", Description: "List all workflow states for a project"}, listStates(states))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_create_state", Description: "Create a new workflow state in a project"}, createState(states))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_update_state", Description: "Update a state's name, color, or group (partial)"}, updateState(states))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_delete_state", Description: "Delete a workflow state"}, deleteState(states))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_list_states", Description: "Lists all workflow states for a project. Returns state ID, name, group (backlog/unstarted/started/completed/cancelled), and color. Use state IDs in tack_create_issue or tack_set_issue_state."}, listStates(states))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_create_state", Description: "Creates a workflow state in a project."}, createState(states))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_update_state", Description: "Updates a state name, color, or group. Only provided fields change."}, updateState(states))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_delete_state", Description: "Deletes a workflow state. Issues in this state must be moved first or they become stateless."}, deleteState(states))
 }
 
 type ListStatesInput struct {
@@ -22,13 +22,13 @@ func listStates(states state.Repository) mcp.ToolHandlerFor[ListStatesInput, any
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListStatesInput) (*mcp.CallToolResult, any, error) {
 		pID, err := parseUUID(in.ProjectID, "project_id")
 		if err != nil {
-			return nil, nil, err
+			return RecoverableError(err.Error()), nil, nil
 		}
 		ss, err := states.List(ctx, pID)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
-		return nil, map[string]any{"states": ss}, nil
+		return Success(map[string]any{"states": ss}, ""), nil, nil
 	}
 }
 
@@ -43,7 +43,7 @@ func createState(states state.Repository) mcp.ToolHandlerFor[CreateStateInput, a
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in CreateStateInput) (*mcp.CallToolResult, any, error) {
 		pID, err := parseUUID(in.ProjectID, "project_id")
 		if err != nil {
-			return nil, nil, err
+			return RecoverableError(err.Error()), nil, nil
 		}
 		color := "#cccccc"
 		if in.Color != nil && *in.Color != "" {
@@ -57,9 +57,9 @@ func createState(states state.Repository) mcp.ToolHandlerFor[CreateStateInput, a
 			SortOrder: 65535,
 		})
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
-		return nil, map[string]any{"state": s}, nil
+		return Success(map[string]any{"state": s}, ""), nil, nil
 	}
 }
 
@@ -75,15 +75,15 @@ func updateState(states state.Repository) mcp.ToolHandlerFor[UpdateStateInput, a
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in UpdateStateInput) (*mcp.CallToolResult, any, error) {
 		pID, err := parseUUID(in.ProjectID, "project_id")
 		if err != nil {
-			return nil, nil, err
+			return RecoverableError(err.Error()), nil, nil
 		}
 		sID, err := parseUUID(in.StateID, "state_id")
 		if err != nil {
-			return nil, nil, err
+			return RecoverableError(err.Error()), nil, nil
 		}
 		s, err := states.GetByID(ctx, pID, sID)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
 		if in.Name != nil {
 			s.Name = *in.Name
@@ -96,9 +96,9 @@ func updateState(states state.Repository) mcp.ToolHandlerFor[UpdateStateInput, a
 		}
 		updated, err := states.Update(ctx, s)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
-		return nil, map[string]any{"state": updated}, nil
+		return Success(map[string]any{"state": updated}, ""), nil, nil
 	}
 }
 
@@ -113,11 +113,11 @@ func deleteState(states state.Repository) mcp.ToolHandlerFor[DeleteStateInput, D
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in DeleteStateInput) (*mcp.CallToolResult, DeleteStateOutput, error) {
 		sID, err := parseUUID(in.StateID, "state_id")
 		if err != nil {
-			return nil, DeleteStateOutput{}, err
+			return RecoverableError(err.Error()), DeleteStateOutput{}, nil
 		}
 		if err := states.Delete(ctx, sID); err != nil {
-			return nil, DeleteStateOutput{}, err
+			return ClassifyError(ctx, err), DeleteStateOutput{}, nil
 		}
-		return nil, DeleteStateOutput{OK: true}, nil
+		return Success(DeleteStateOutput{OK: true}, ""), DeleteStateOutput{}, nil
 	}
 }

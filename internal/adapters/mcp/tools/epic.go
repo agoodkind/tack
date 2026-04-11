@@ -11,11 +11,11 @@ import (
 
 // registerEpicTools registers all epic-related MCP tools using slug-derived names.
 func registerEpicTools(s *mcp.Server, slug, pluralSlug string, epics *service.EpicService, r *Resolver) {
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_list_" + pluralSlug, Description: "List " + pluralSlug + " in a project"}, listEpics(epics, r))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_get_" + slug, Description: "Get a " + slug + " by ID including its description"}, getEpic(epics, r))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_create_" + slug, Description: "Create a new " + slug}, createEpic(epics, r))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_update_" + slug, Description: "Update " + slug + " fields (partial)"}, updateEpic(epics, r))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_delete_" + slug, Description: "Soft-delete a " + slug}, deleteEpic(epics, r))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_list_" + pluralSlug, Description: "Lists " + pluralSlug + " in a project. Returns identifier, name, state, priority, and description for each."}, listEpics(epics, r))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_get_" + slug, Description: "Fetches a single " + slug + " by identifier (e.g. ENG-42) with full description and all fields."}, getEpic(epics, r))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_create_" + slug, Description: "Creates a new " + slug + " in a project. Returns the created " + slug + " with its identifier."}, createEpic(epics, r))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_update_" + slug, Description: "Updates fields on a " + slug + " by identifier. Only provided fields change; omitted fields are unchanged. Returns the updated " + slug + "."}, updateEpic(epics, r))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_delete_" + slug, Description: "Soft-deletes a " + slug + " by identifier. Deletion is permanent and irreversible. Returns ok: true."}, deleteEpic(epics, r))
 }
 
 type ListEpicsInput struct {
@@ -27,13 +27,13 @@ func listEpics(epics *service.EpicService, r *Resolver) mcp.ToolHandlerFor[ListE
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListEpicsInput) (*mcp.CallToolResult, any, error) {
 		ws, proj, err := r.Project(ctx, in.WorkspaceSlug, in.ProjectIdentifier)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
 		es, total, err := epics.List(ctx, ws.ID, proj.ID)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
-		return nil, map[string]any{"epics": es, "total": total}, nil
+		return Success(map[string]any{"epics": es, "total": total}, ""), nil, nil
 	}
 }
 
@@ -46,17 +46,17 @@ func getEpic(epics *service.EpicService, r *Resolver) mcp.ToolHandlerFor[GetEpic
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in GetEpicInput) (*mcp.CallToolResult, any, error) {
 		projIdent, seq, err := ParseNodeIdentifier(in.Identifier)
 		if err != nil {
-			return nil, nil, err
+			return RecoverableError(err.Error()), nil, nil
 		}
 		ws, proj, err := r.Project(ctx, in.WorkspaceSlug, projIdent)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
 		e, err := epics.GetBySequence(ctx, ws.ID, proj.ID, seq)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
-		return nil, map[string]any{"epic": e}, nil
+		return Success(map[string]any{"epic": e}, ""), nil, nil
 	}
 }
 
@@ -73,11 +73,11 @@ func createEpic(epics *service.EpicService, r *Resolver) mcp.ToolHandlerFor[Crea
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in CreateEpicInput) (*mcp.CallToolResult, any, error) {
 		userID, err := mustUser(ctx)
 		if err != nil {
-			return nil, nil, err
+			return UnexpectedError(ctx, err), nil, nil
 		}
 		ws, proj, err := r.Project(ctx, in.WorkspaceSlug, in.ProjectIdentifier)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
 		e := &epic.Epic{
 			WorkspaceID: ws.ID,
@@ -97,9 +97,9 @@ func createEpic(epics *service.EpicService, r *Resolver) mcp.ToolHandlerFor[Crea
 		e.CreatedBy = userID
 		created, err := epics.Create(ctx, e)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
-		return nil, map[string]any{"epic": created}, nil
+		return Success(map[string]any{"epic": created}, "Created. Use tack_update_epic to set more fields."), nil, nil
 	}
 }
 
@@ -116,19 +116,19 @@ func updateEpic(epics *service.EpicService, r *Resolver) mcp.ToolHandlerFor[Upda
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in UpdateEpicInput) (*mcp.CallToolResult, any, error) {
 		userID, err := mustUser(ctx)
 		if err != nil {
-			return nil, nil, err
+			return UnexpectedError(ctx, err), nil, nil
 		}
 		projIdent, seq, err := ParseNodeIdentifier(in.Identifier)
 		if err != nil {
-			return nil, nil, err
+			return RecoverableError(err.Error()), nil, nil
 		}
 		ws, proj, err := r.Project(ctx, in.WorkspaceSlug, projIdent)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
 		existing, err := epics.GetBySequence(ctx, ws.ID, proj.ID, seq)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
 		if in.Name != nil {
 			existing.Name = *in.Name
@@ -145,9 +145,9 @@ func updateEpic(epics *service.EpicService, r *Resolver) mcp.ToolHandlerFor[Upda
 		existing.UpdatedBy = &userID
 		updated, err := epics.Update(ctx, existing)
 		if err != nil {
-			return nil, nil, err
+			return ClassifyError(ctx, err), nil, nil
 		}
-		return nil, map[string]any{"epic": updated}, nil
+		return Success(map[string]any{"epic": updated}, ""), nil, nil
 	}
 }
 
@@ -163,19 +163,19 @@ func deleteEpic(epics *service.EpicService, r *Resolver) mcp.ToolHandlerFor[Dele
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in DeleteEpicInput) (*mcp.CallToolResult, DeleteEpicOutput, error) {
 		projIdent, seq, err := ParseNodeIdentifier(in.Identifier)
 		if err != nil {
-			return nil, DeleteEpicOutput{}, err
+			return RecoverableError(err.Error()), DeleteEpicOutput{}, nil
 		}
 		ws, proj, err := r.Project(ctx, in.WorkspaceSlug, projIdent)
 		if err != nil {
-			return nil, DeleteEpicOutput{}, err
+			return ClassifyError(ctx, err), DeleteEpicOutput{}, nil
 		}
 		existing, err := epics.GetBySequence(ctx, ws.ID, proj.ID, seq)
 		if err != nil {
-			return nil, DeleteEpicOutput{}, err
+			return ClassifyError(ctx, err), DeleteEpicOutput{}, nil
 		}
 		if err := epics.DeleteByWorkspace(ctx, ws.ID, proj.ID, existing.ID); err != nil {
-			return nil, DeleteEpicOutput{}, err
+			return ClassifyError(ctx, err), DeleteEpicOutput{}, nil
 		}
-		return nil, DeleteEpicOutput{OK: true}, nil
+		return Success(DeleteEpicOutput{OK: true}, "Deletion is permanent and irreversible."), DeleteEpicOutput{}, nil
 	}
 }
