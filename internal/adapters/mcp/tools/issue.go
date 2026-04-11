@@ -5,12 +5,13 @@ import (
 	"fmt"
 
 	"goodkind.io/tack/internal/domain/issue"
+	"goodkind.io/tack/internal/service"
 	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // RegisterIssue registers all issue-related MCP tools on the given server.
-func RegisterIssue(s *mcp.Server, svc issue.Service) {
+func RegisterIssue(s *mcp.Server, svc *service.IssueService) {
 	mcp.AddTool(s, &mcp.Tool{Name: "tack_list_issues", Description: "List issues in a project with optional filters"}, listIssues(svc))
 	mcp.AddTool(s, &mcp.Tool{Name: "tack_get_issue", Description: "Get a single issue including its description"}, getIssue(svc))
 	mcp.AddTool(s, &mcp.Tool{Name: "tack_create_issue", Description: "Create a new issue"}, createIssue(svc))
@@ -36,7 +37,7 @@ type ListIssuesInput struct {
 	AssigneeID  *string `json:"assignee_id,omitempty"`
 }
 
-func listIssues(svc issue.Service) mcp.ToolHandlerFor[ListIssuesInput, any] {
+func listIssues(svc *service.IssueService) mcp.ToolHandlerFor[ListIssuesInput, any] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListIssuesInput) (*mcp.CallToolResult, any, error) {
 		wsID, err := parseUUID(in.WorkspaceID, "workspace_id")
 		if err != nil {
@@ -82,7 +83,7 @@ type GetIssueInput struct {
 	IssueID     string `json:"issue_id"`
 }
 
-func getIssue(svc issue.Service) mcp.ToolHandlerFor[GetIssueInput, any] {
+func getIssue(svc *service.IssueService) mcp.ToolHandlerFor[GetIssueInput, any] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in GetIssueInput) (*mcp.CallToolResult, any, error) {
 		wsID, err := parseUUID(in.WorkspaceID, "workspace_id")
 		if err != nil {
@@ -117,7 +118,7 @@ type CreateIssueInput struct {
 	EpicID      *string `json:"epic_id,omitempty"`
 }
 
-func createIssue(svc issue.Service) mcp.ToolHandlerFor[CreateIssueInput, any] {
+func createIssue(svc *service.IssueService) mcp.ToolHandlerFor[CreateIssueInput, any] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in CreateIssueInput) (*mcp.CallToolResult, any, error) {
 		userID, err := mustUser(ctx)
 		if err != nil {
@@ -170,7 +171,7 @@ type UpdateIssueInput struct {
 	EpicID      *string `json:"epic_id,omitempty"`
 }
 
-func updateIssue(svc issue.Service) mcp.ToolHandlerFor[UpdateIssueInput, any] {
+func updateIssue(svc *service.IssueService) mcp.ToolHandlerFor[UpdateIssueInput, any] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in UpdateIssueInput) (*mcp.CallToolResult, any, error) {
 		userID, err := mustUser(ctx)
 		if err != nil {
@@ -227,7 +228,7 @@ type DeleteIssueOutput struct {
 	OK bool `json:"ok"`
 }
 
-func deleteIssue(svc issue.Service) mcp.ToolHandlerFor[DeleteIssueInput, DeleteIssueOutput] {
+func deleteIssue(svc *service.IssueService) mcp.ToolHandlerFor[DeleteIssueInput, DeleteIssueOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in DeleteIssueInput) (*mcp.CallToolResult, DeleteIssueOutput, error) {
 		wsID, err := parseUUID(in.WorkspaceID, "workspace_id")
 		if err != nil {
@@ -258,7 +259,7 @@ type AssignIssueInput struct {
 	AssigneeIDs []string `json:"assignee_ids,omitempty"`
 }
 
-func assignIssue(svc issue.Service) mcp.ToolHandlerFor[AssignIssueInput, any] {
+func assignIssue(svc *service.IssueService) mcp.ToolHandlerFor[AssignIssueInput, any] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in AssignIssueInput) (*mcp.CallToolResult, any, error) {
 		userID, err := mustUser(ctx)
 		if err != nil {
@@ -308,7 +309,7 @@ type SetIssueStateInput struct {
 	StateID     string `json:"state_id"`
 }
 
-func setIssueState(svc issue.Service) mcp.ToolHandlerFor[SetIssueStateInput, any] {
+func setIssueState(svc *service.IssueService) mcp.ToolHandlerFor[SetIssueStateInput, any] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in SetIssueStateInput) (*mcp.CallToolResult, any, error) {
 		userID, err := mustUser(ctx)
 		if err != nil {

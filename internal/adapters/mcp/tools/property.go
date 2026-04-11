@@ -56,6 +56,10 @@ func createPropertyDef(properties node.PropertyRepository) mcp.ToolHandlerFor[Cr
 		if err != nil {
 			return nil, nil, err
 		}
+		opts := make([]node.EnumOption, len(in.Options))
+		for i, o := range in.Options {
+			opts[i] = node.EnumOption{Key: o, Label: o, SortRank: int32(i)}
+		}
 		def := &node.PropertyDef{
 			ID:          uuid.New(),
 			OrgID:       orgID,
@@ -63,7 +67,7 @@ func createPropertyDef(properties node.PropertyRepository) mcp.ToolHandlerFor[Cr
 			ProjectID:   parseOptionalUUID(in.ProjectID),
 			Name:        in.Name,
 			Type:        node.PropertyType(in.Type),
-			Options:     in.Options,
+			Options:     opts,
 			Required:    in.Required,
 		}
 		if err := properties.SetDef(ctx, def); err != nil {

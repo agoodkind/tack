@@ -8,7 +8,6 @@ import (
 
 	"goodkind.io/tack/internal/adapters/mcp/tools"
 	"goodkind.io/tack/internal/auth"
-	"goodkind.io/tack/internal/domain/issue"
 	"goodkind.io/tack/internal/domain/label"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/domain/project"
@@ -38,7 +37,7 @@ type Handler struct {
 	}
 	states     state.Repository
 	labels     label.Repository
-	issueSvc   issue.Service
+	issueSvc   *service.IssueService
 	epicSvc    *service.EpicService
 	cycleSvc   *service.CycleService
 	moduleSvc  *service.ModuleService
@@ -64,7 +63,7 @@ type Deps struct {
 	}
 	States      state.Repository
 	Labels      label.Repository
-	IssueSvc    issue.Service
+	IssueSvc    *service.IssueService
 	EpicSvc     *service.EpicService
 	CycleSvc    *service.CycleService
 	ModuleSvc   *service.ModuleService
@@ -97,7 +96,7 @@ func NewHandler(deps Deps) *Handler {
 		searcher:    deps.Searcher,
 		cache:       make(map[uuid.UUID]*cachedServer),
 	}
-	h.httpHandler = mcp.NewStreamableHTTPHandler(h.getServer, nil)
+	h.httpHandler = mcp.NewStreamableHTTPHandler(h.getServer, &mcp.StreamableHTTPOptions{Stateless: true})
 	return h
 }
 
@@ -180,7 +179,7 @@ func (h *Handler) buildServer(nodeTypes []*node.NodeType) *mcp.Server {
 	tools.RegisterState(s, h.states)
 	tools.RegisterLabel(s, h.labels)
 	tools.RegisterIssue(s, h.issueSvc)
-	tools.RegisterEpic(s, h.epicSvc, h.projects)
+	tools.RegisterEpic(s, h.epicSvc, nil)
 	tools.RegisterCycle(s, h.cycleSvc, h.containment)
 	tools.RegisterModule(s, h.moduleSvc, h.containment)
 	tools.RegisterProperty(s, h.properties)

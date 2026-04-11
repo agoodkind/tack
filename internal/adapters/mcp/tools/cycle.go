@@ -20,16 +20,21 @@ func RegisterCycle(s *mcp.Server, cycles *service.CycleService, containment node
 }
 
 type ListCyclesInput struct {
-	ProjectID string `json:"project_id"`
+	WorkspaceID string `json:"workspace_id"`
+	ProjectID   string `json:"project_id"`
 }
 
 func listCycles(cycles *service.CycleService) mcp.ToolHandlerFor[ListCyclesInput, any] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListCyclesInput) (*mcp.CallToolResult, any, error) {
+		wsID, err := parseUUID(in.WorkspaceID, "workspace_id")
+		if err != nil {
+			return nil, nil, err
+		}
 		pID, err := parseUUID(in.ProjectID, "project_id")
 		if err != nil {
 			return nil, nil, err
 		}
-		cs, err := cycles.List(ctx, pID)
+		cs, err := cycles.ListWithWorkspace(ctx, wsID, pID)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -38,12 +43,17 @@ func listCycles(cycles *service.CycleService) mcp.ToolHandlerFor[ListCyclesInput
 }
 
 type GetCycleInput struct {
-	ProjectID string `json:"project_id"`
-	CycleID   string `json:"cycle_id"`
+	WorkspaceID string `json:"workspace_id"`
+	ProjectID   string `json:"project_id"`
+	CycleID     string `json:"cycle_id"`
 }
 
 func getCycle(cycles *service.CycleService) mcp.ToolHandlerFor[GetCycleInput, any] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in GetCycleInput) (*mcp.CallToolResult, any, error) {
+		wsID, err := parseUUID(in.WorkspaceID, "workspace_id")
+		if err != nil {
+			return nil, nil, err
+		}
 		pID, err := parseUUID(in.ProjectID, "project_id")
 		if err != nil {
 			return nil, nil, err
@@ -52,7 +62,7 @@ func getCycle(cycles *service.CycleService) mcp.ToolHandlerFor[GetCycleInput, an
 		if err != nil {
 			return nil, nil, err
 		}
-		c, err := cycles.GetByID(ctx, pID, cycleID)
+		c, err := cycles.GetByIDWithWorkspace(ctx, wsID, pID, cycleID)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -116,6 +126,7 @@ func createCycle(cycles *service.CycleService) mcp.ToolHandlerFor[CreateCycleInp
 }
 
 type UpdateCycleInput struct {
+	WorkspaceID string  `json:"workspace_id"`
 	ProjectID   string  `json:"project_id"`
 	CycleID     string  `json:"cycle_id"`
 	Name        *string `json:"name,omitempty"`
@@ -128,6 +139,10 @@ func updateCycle(cycles *service.CycleService) mcp.ToolHandlerFor[UpdateCycleInp
 		if err != nil {
 			return nil, nil, err
 		}
+		wsID, err := parseUUID(in.WorkspaceID, "workspace_id")
+		if err != nil {
+			return nil, nil, err
+		}
 		pID, err := parseUUID(in.ProjectID, "project_id")
 		if err != nil {
 			return nil, nil, err
@@ -136,7 +151,7 @@ func updateCycle(cycles *service.CycleService) mcp.ToolHandlerFor[UpdateCycleInp
 		if err != nil {
 			return nil, nil, err
 		}
-		existing, err := cycles.GetByID(ctx, pID, cycleID)
+		existing, err := cycles.GetByIDWithWorkspace(ctx, wsID, pID, cycleID)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -156,7 +171,9 @@ func updateCycle(cycles *service.CycleService) mcp.ToolHandlerFor[UpdateCycleInp
 }
 
 type DeleteCycleInput struct {
-	CycleID string `json:"cycle_id"`
+	WorkspaceID string `json:"workspace_id"`
+	ProjectID   string `json:"project_id"`
+	CycleID     string `json:"cycle_id"`
 }
 type DeleteCycleOutput struct {
 	OK bool `json:"ok"`
@@ -164,11 +181,19 @@ type DeleteCycleOutput struct {
 
 func deleteCycle(cycles *service.CycleService) mcp.ToolHandlerFor[DeleteCycleInput, DeleteCycleOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in DeleteCycleInput) (*mcp.CallToolResult, DeleteCycleOutput, error) {
+		wsID, err := parseUUID(in.WorkspaceID, "workspace_id")
+		if err != nil {
+			return nil, DeleteCycleOutput{}, err
+		}
+		pID, err := parseUUID(in.ProjectID, "project_id")
+		if err != nil {
+			return nil, DeleteCycleOutput{}, err
+		}
 		cycleID, err := parseUUID(in.CycleID, "cycle_id")
 		if err != nil {
 			return nil, DeleteCycleOutput{}, err
 		}
-		if err := cycles.Delete(ctx, cycleID); err != nil {
+		if err := cycles.DeleteByWorkspace(ctx, wsID, pID, cycleID); err != nil {
 			return nil, DeleteCycleOutput{}, err
 		}
 		return nil, DeleteCycleOutput{OK: true}, nil

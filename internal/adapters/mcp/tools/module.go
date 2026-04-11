@@ -20,16 +20,21 @@ func RegisterModule(s *mcp.Server, modules *service.ModuleService, containment n
 }
 
 type ListModulesInput struct {
-	ProjectID string `json:"project_id"`
+	WorkspaceID string `json:"workspace_id"`
+	ProjectID   string `json:"project_id"`
 }
 
 func listModules(modules *service.ModuleService) mcp.ToolHandlerFor[ListModulesInput, any] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListModulesInput) (*mcp.CallToolResult, any, error) {
+		wsID, err := parseUUID(in.WorkspaceID, "workspace_id")
+		if err != nil {
+			return nil, nil, err
+		}
 		pID, err := parseUUID(in.ProjectID, "project_id")
 		if err != nil {
 			return nil, nil, err
 		}
-		ms, err := modules.List(ctx, pID)
+		ms, err := modules.ListWithWorkspace(ctx, wsID, pID)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -38,12 +43,17 @@ func listModules(modules *service.ModuleService) mcp.ToolHandlerFor[ListModulesI
 }
 
 type GetModuleInput struct {
-	ProjectID string `json:"project_id"`
-	ModuleID  string `json:"module_id"`
+	WorkspaceID string `json:"workspace_id"`
+	ProjectID   string `json:"project_id"`
+	ModuleID    string `json:"module_id"`
 }
 
 func getModule(modules *service.ModuleService) mcp.ToolHandlerFor[GetModuleInput, any] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in GetModuleInput) (*mcp.CallToolResult, any, error) {
+		wsID, err := parseUUID(in.WorkspaceID, "workspace_id")
+		if err != nil {
+			return nil, nil, err
+		}
 		pID, err := parseUUID(in.ProjectID, "project_id")
 		if err != nil {
 			return nil, nil, err
@@ -52,7 +62,7 @@ func getModule(modules *service.ModuleService) mcp.ToolHandlerFor[GetModuleInput
 		if err != nil {
 			return nil, nil, err
 		}
-		m, err := modules.GetByID(ctx, pID, moduleID)
+		m, err := modules.GetByIDWithWorkspace(ctx, wsID, pID, moduleID)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -106,6 +116,7 @@ func createModule(modules *service.ModuleService) mcp.ToolHandlerFor[CreateModul
 }
 
 type UpdateModuleInput struct {
+	WorkspaceID string  `json:"workspace_id"`
 	ProjectID   string  `json:"project_id"`
 	ModuleID    string  `json:"module_id"`
 	Name        *string `json:"name,omitempty"`
@@ -119,6 +130,10 @@ func updateModule(modules *service.ModuleService) mcp.ToolHandlerFor[UpdateModul
 		if err != nil {
 			return nil, nil, err
 		}
+		wsID, err := parseUUID(in.WorkspaceID, "workspace_id")
+		if err != nil {
+			return nil, nil, err
+		}
 		pID, err := parseUUID(in.ProjectID, "project_id")
 		if err != nil {
 			return nil, nil, err
@@ -127,7 +142,7 @@ func updateModule(modules *service.ModuleService) mcp.ToolHandlerFor[UpdateModul
 		if err != nil {
 			return nil, nil, err
 		}
-		existing, err := modules.GetByID(ctx, pID, moduleID)
+		existing, err := modules.GetByIDWithWorkspace(ctx, wsID, pID, moduleID)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -150,7 +165,9 @@ func updateModule(modules *service.ModuleService) mcp.ToolHandlerFor[UpdateModul
 }
 
 type DeleteModuleInput struct {
-	ModuleID string `json:"module_id"`
+	WorkspaceID string `json:"workspace_id"`
+	ProjectID   string `json:"project_id"`
+	ModuleID    string `json:"module_id"`
 }
 type DeleteModuleOutput struct {
 	OK bool `json:"ok"`
@@ -158,11 +175,19 @@ type DeleteModuleOutput struct {
 
 func deleteModule(modules *service.ModuleService) mcp.ToolHandlerFor[DeleteModuleInput, DeleteModuleOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in DeleteModuleInput) (*mcp.CallToolResult, DeleteModuleOutput, error) {
+		wsID, err := parseUUID(in.WorkspaceID, "workspace_id")
+		if err != nil {
+			return nil, DeleteModuleOutput{}, err
+		}
+		pID, err := parseUUID(in.ProjectID, "project_id")
+		if err != nil {
+			return nil, DeleteModuleOutput{}, err
+		}
 		moduleID, err := parseUUID(in.ModuleID, "module_id")
 		if err != nil {
 			return nil, DeleteModuleOutput{}, err
 		}
-		if err := modules.Delete(ctx, moduleID); err != nil {
+		if err := modules.DeleteByWorkspace(ctx, wsID, pID, moduleID); err != nil {
 			return nil, DeleteModuleOutput{}, err
 		}
 		return nil, DeleteModuleOutput{OK: true}, nil

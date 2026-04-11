@@ -101,7 +101,8 @@ func (h *EpicHandler) UpdateEpic(ctx context.Context, req *connect.Request[v1.Up
 }
 
 func (h *EpicHandler) DeleteEpic(ctx context.Context, req *connect.Request[v1.DeleteEpicRequest]) (*connect.Response[emptypb.Empty], error) {
-	if err := h.epics.Delete(ctx, mustUUID(req.Msg.Id)); err != nil {
+	msg := req.Msg
+	if err := h.epics.DeleteByWorkspace(ctx, mustUUID(msg.WorkspaceId), mustUUID(msg.ProjectId), mustUUID(msg.Id)); err != nil {
 		return nil, domainErr(err)
 	}
 	return connect.NewResponse(&emptypb.Empty{}), nil

@@ -54,7 +54,8 @@ func (h *ModuleHandler) CreateModule(ctx context.Context, req *connect.Request[v
 }
 
 func (h *ModuleHandler) GetModule(ctx context.Context, req *connect.Request[v1.GetModuleRequest]) (*connect.Response[v1.Module], error) {
-	m, err := h.modules.GetByID(ctx, mustUUID(req.Msg.ProjectId), mustUUID(req.Msg.Id))
+	msg := req.Msg
+	m, err := h.modules.GetByIDWithWorkspace(ctx, mustUUID(msg.WorkspaceId), mustUUID(msg.ProjectId), mustUUID(msg.Id))
 	if err != nil {
 		return nil, domainErr(err)
 	}
@@ -62,7 +63,8 @@ func (h *ModuleHandler) GetModule(ctx context.Context, req *connect.Request[v1.G
 }
 
 func (h *ModuleHandler) ListModules(ctx context.Context, req *connect.Request[v1.ListModulesRequest]) (*connect.Response[v1.ListModulesResponse], error) {
-	modules, err := h.modules.List(ctx, mustUUID(req.Msg.ProjectId))
+	msg := req.Msg
+	modules, err := h.modules.ListWithWorkspace(ctx, mustUUID(msg.WorkspaceId), mustUUID(msg.ProjectId))
 	if err != nil {
 		return nil, domainErr(err)
 	}
@@ -75,7 +77,7 @@ func (h *ModuleHandler) ListModules(ctx context.Context, req *connect.Request[v1
 
 func (h *ModuleHandler) UpdateModule(ctx context.Context, req *connect.Request[v1.UpdateModuleRequest]) (*connect.Response[v1.Module], error) {
 	msg := req.Msg
-	m, err := h.modules.GetByID(ctx, mustUUID(msg.ProjectId), mustUUID(msg.Id))
+	m, err := h.modules.GetByIDWithWorkspace(ctx, mustUUID(msg.WorkspaceId), mustUUID(msg.ProjectId), mustUUID(msg.Id))
 	if err != nil {
 		return nil, domainErr(err)
 	}
@@ -103,7 +105,8 @@ func (h *ModuleHandler) UpdateModule(ctx context.Context, req *connect.Request[v
 }
 
 func (h *ModuleHandler) DeleteModule(ctx context.Context, req *connect.Request[v1.DeleteModuleRequest]) (*connect.Response[emptypb.Empty], error) {
-	if err := h.modules.Delete(ctx, mustUUID(req.Msg.Id)); err != nil {
+	msg := req.Msg
+	if err := h.modules.DeleteByWorkspace(ctx, mustUUID(msg.WorkspaceId), mustUUID(msg.ProjectId), mustUUID(msg.Id)); err != nil {
 		return nil, domainErr(err)
 	}
 	return connect.NewResponse(&emptypb.Empty{}), nil

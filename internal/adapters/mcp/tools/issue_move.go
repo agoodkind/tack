@@ -4,7 +4,7 @@ package tools
 import (
 	"context"
 
-	"goodkind.io/tack/internal/domain/issue"
+	"goodkind.io/tack/internal/service"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -16,7 +16,7 @@ type MoveIssueInput struct {
 	TargetProjectID string `json:"target_project_id"`
 }
 
-func moveIssue(svc issue.Service) mcp.ToolHandlerFor[MoveIssueInput, any] {
+func moveIssue(svc *service.IssueService) mcp.ToolHandlerFor[MoveIssueInput, any] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in MoveIssueInput) (*mcp.CallToolResult, any, error) {
 		userID, err := mustUser(ctx)
 		if err != nil {

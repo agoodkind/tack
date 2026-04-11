@@ -5,6 +5,7 @@ import (
 	"context"
 
 	"goodkind.io/tack/internal/domain/issue"
+	"goodkind.io/tack/internal/service"
 	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -28,7 +29,7 @@ type BulkUpdateIssuesOutput struct {
 	Updated int `json:"updated"`
 }
 
-func bulkUpdateIssues(svc issue.Service) mcp.ToolHandlerFor[BulkUpdateIssuesInput, BulkUpdateIssuesOutput] {
+func bulkUpdateIssues(svc *service.IssueService) mcp.ToolHandlerFor[BulkUpdateIssuesInput, BulkUpdateIssuesOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in BulkUpdateIssuesInput) (*mcp.CallToolResult, BulkUpdateIssuesOutput, error) {
 		userID, err := mustUser(ctx)
 		if err != nil {
@@ -106,7 +107,7 @@ type BulkDeleteIssuesOutput struct {
 	Deleted int `json:"deleted"`
 }
 
-func bulkDeleteIssues(svc issue.Service) mcp.ToolHandlerFor[BulkDeleteIssuesInput, BulkDeleteIssuesOutput] {
+func bulkDeleteIssues(svc *service.IssueService) mcp.ToolHandlerFor[BulkDeleteIssuesInput, BulkDeleteIssuesOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in BulkDeleteIssuesInput) (*mcp.CallToolResult, BulkDeleteIssuesOutput, error) {
 		wsID, err := parseUUID(in.WorkspaceID, "workspace_id")
 		if err != nil {
@@ -144,7 +145,7 @@ type BulkMoveIssuesOutput struct {
 	Failed int `json:"failed"`
 }
 
-func bulkMoveIssues(svc issue.Service) mcp.ToolHandlerFor[BulkMoveIssuesInput, BulkMoveIssuesOutput] {
+func bulkMoveIssues(svc *service.IssueService) mcp.ToolHandlerFor[BulkMoveIssuesInput, BulkMoveIssuesOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in BulkMoveIssuesInput) (*mcp.CallToolResult, BulkMoveIssuesOutput, error) {
 		userID, err := mustUser(ctx)
 		if err != nil {

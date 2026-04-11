@@ -51,7 +51,8 @@ func (h *CycleHandler) CreateCycle(ctx context.Context, req *connect.Request[v1.
 }
 
 func (h *CycleHandler) GetCycle(ctx context.Context, req *connect.Request[v1.GetCycleRequest]) (*connect.Response[v1.Cycle], error) {
-	c, err := h.cycles.GetByID(ctx, mustUUID(req.Msg.ProjectId), mustUUID(req.Msg.Id))
+	msg := req.Msg
+	c, err := h.cycles.GetByIDWithWorkspace(ctx, mustUUID(msg.WorkspaceId), mustUUID(msg.ProjectId), mustUUID(msg.Id))
 	if err != nil {
 		return nil, domainErr(err)
 	}
@@ -59,7 +60,8 @@ func (h *CycleHandler) GetCycle(ctx context.Context, req *connect.Request[v1.Get
 }
 
 func (h *CycleHandler) ListCycles(ctx context.Context, req *connect.Request[v1.ListCyclesRequest]) (*connect.Response[v1.ListCyclesResponse], error) {
-	cycles, err := h.cycles.List(ctx, mustUUID(req.Msg.ProjectId))
+	msg := req.Msg
+	cycles, err := h.cycles.ListWithWorkspace(ctx, mustUUID(msg.WorkspaceId), mustUUID(msg.ProjectId))
 	if err != nil {
 		return nil, domainErr(err)
 	}
@@ -72,7 +74,7 @@ func (h *CycleHandler) ListCycles(ctx context.Context, req *connect.Request[v1.L
 
 func (h *CycleHandler) UpdateCycle(ctx context.Context, req *connect.Request[v1.UpdateCycleRequest]) (*connect.Response[v1.Cycle], error) {
 	msg := req.Msg
-	c, err := h.cycles.GetByID(ctx, mustUUID(msg.ProjectId), mustUUID(msg.Id))
+	c, err := h.cycles.GetByIDWithWorkspace(ctx, mustUUID(msg.WorkspaceId), mustUUID(msg.ProjectId), mustUUID(msg.Id))
 	if err != nil {
 		return nil, domainErr(err)
 	}
@@ -97,7 +99,8 @@ func (h *CycleHandler) UpdateCycle(ctx context.Context, req *connect.Request[v1.
 }
 
 func (h *CycleHandler) DeleteCycle(ctx context.Context, req *connect.Request[v1.DeleteCycleRequest]) (*connect.Response[emptypb.Empty], error) {
-	if err := h.cycles.Delete(ctx, mustUUID(req.Msg.Id)); err != nil {
+	msg := req.Msg
+	if err := h.cycles.DeleteByWorkspace(ctx, mustUUID(msg.WorkspaceId), mustUUID(msg.ProjectId), mustUUID(msg.Id)); err != nil {
 		return nil, domainErr(err)
 	}
 	return connect.NewResponse(&emptypb.Empty{}), nil
