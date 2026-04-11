@@ -103,11 +103,11 @@ func (s *ProjectFDBStore) Create(ctx context.Context, proj *project.Project) (*p
 		tr.Set(fdb.Key(primaryKey), nvBytes)
 
 		// Write project_by_workspace index
-		tr.Set(fdb.Key(projectByWorkspaceKey(orgID, proj.WorkspaceID, proj.ID).Pack()), []byte{})
+		tr.Set(fdb.Key(projectByWorkspaceKey(orgID, proj.WorkspaceID, proj.ID)), []byte{})
 
 		// Write project_by_identifier index (case-insensitive)
 		if proj.Identifier != "" {
-			identKey := projectByIdentKey(orgID, proj.WorkspaceID, strings.ToUpper(proj.Identifier)).Pack()
+			identKey := projectByIdentKey(orgID, proj.WorkspaceID, strings.ToUpper(proj.Identifier))
 			projIDBytes, _ := proj.ID.MarshalBinary()
 			tr.Set(fdb.Key(identKey), projIDBytes)
 		}
@@ -176,7 +176,7 @@ func (s *ProjectFDBStore) GetByIdentifier(ctx context.Context, workspaceID uuid.
 	orgID := wsResolve.OrgID
 
 	// Read project_by_identifier index
-	identKey := fdb.Key(projectByIdentKey(orgID, workspaceID, strings.ToUpper(identifier)).Pack())
+	identKey := fdb.Key(projectByIdentKey(orgID, workspaceID, strings.ToUpper(identifier)))
 	projIDBytes, err := s.db.ReadTransact(func(tr fdb.ReadTransaction) (any, error) {
 		return tr.Get(identKey).Get()
 	})
@@ -207,7 +207,7 @@ func (s *ProjectFDBStore) List(ctx context.Context, workspaceID uuid.UUID) ([]*p
 	orgID := wsResolve.OrgID
 
 	// Scan project_by_workspace index
-	prefix := projectByWorkspaceKey(orgID, workspaceID, uuid.Nil).Pack()
+	prefix := projectByWorkspacePrefixKey(orgID, workspaceID)
 	prefixRange, err := fdb.PrefixRange(prefix)
 	if err != nil {
 		return nil, fmt.Errorf("project list prefix range: %w", err)
@@ -332,13 +332,13 @@ func (s *ProjectFDBStore) Update(ctx context.Context, proj *project.Project) (*p
 	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
 		// Clear old identifier index if identifier changed
 		if existing != nil && existing.Identifier != proj.Identifier {
-			oldIdentKey := projectByIdentKey(orgID, proj.WorkspaceID, strings.ToUpper(existing.Identifier)).Pack()
+			oldIdentKey := projectByIdentKey(orgID, proj.WorkspaceID, strings.ToUpper(existing.Identifier))
 			tr.Clear(fdb.Key(oldIdentKey))
 		}
 
 		// Write new identifier index
 		if proj.Identifier != "" {
-			identKey := projectByIdentKey(orgID, proj.WorkspaceID, strings.ToUpper(proj.Identifier)).Pack()
+			identKey := projectByIdentKey(orgID, proj.WorkspaceID, strings.ToUpper(proj.Identifier))
 			projIDBytes, _ := proj.ID.MarshalBinary()
 			tr.Set(fdb.Key(identKey), projIDBytes)
 		}
@@ -370,12 +370,12 @@ func (s *ProjectFDBStore) Delete(ctx context.Context, id uuid.UUID) error {
 	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
 		// Clear identifier index
 		if proj.Identifier != "" {
-			identKey := projectByIdentKey(orgID, proj.WorkspaceID, strings.ToUpper(proj.Identifier)).Pack()
+			identKey := projectByIdentKey(orgID, proj.WorkspaceID, strings.ToUpper(proj.Identifier))
 			tr.Clear(fdb.Key(identKey))
 		}
 
 		// Clear workspace index
-		tr.Clear(fdb.Key(projectByWorkspaceKey(orgID, proj.WorkspaceID, proj.ID).Pack()))
+		tr.Clear(fdb.Key(projectByWorkspaceKey(orgID, proj.WorkspaceID, proj.ID)))
 
 		// Use entities.Delete for standard cleanup
 		nv := &node.NodeValue{

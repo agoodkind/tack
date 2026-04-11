@@ -112,7 +112,7 @@ func (s *OrgFDBStore) GetByID(ctx context.Context, id uuid.UUID) (*org.Org, erro
 
 // GetBySlug retrieves an org by its slug using the secondary index.
 func (s *OrgFDBStore) GetBySlug(ctx context.Context, slug string) (*org.Org, error) {
-	key := orgBySlugKey(slug).Pack()
+	key := orgBySlugKey(slug)
 
 	val, err := s.db.ReadTransact(func(tr fdb.ReadTransaction) (any, error) {
 		return tr.Get(fdb.Key(key)).Get()
@@ -143,7 +143,7 @@ func (s *OrgFDBStore) List(ctx context.Context) ([]*org.Org, error) {
 
 // writeOrgSlugIndex writes the secondary index entry for org slug lookup.
 func (s *OrgFDBStore) writeOrgSlugIndex(ctx context.Context, slug string, orgID uuid.UUID) error {
-	key := orgBySlugKey(slug).Pack()
+	key := orgBySlugKey(slug)
 	orgIDBytes, _ := orgID.MarshalBinary()
 
 	_, err := s.db.Transact(func(tr fdb.Transaction) (any, error) {

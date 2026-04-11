@@ -119,7 +119,7 @@ func (s *WorkspaceFDBStore) GetByID(ctx context.Context, id uuid.UUID) (*workspa
 // GetBySlug retrieves a workspace by its slug using the secondary index.
 // Workspace slugs are assumed to be globally unique.
 func (s *WorkspaceFDBStore) GetBySlug(ctx context.Context, slug string) (*workspace.Workspace, error) {
-	key := workspaceBySlugGlobalKey(slug).Pack()
+	key := workspaceBySlugGlobalKey(slug)
 
 	val, err := s.db.ReadTransact(func(tr fdb.ReadTransaction) (any, error) {
 		return tr.Get(fdb.Key(key)).Get()
@@ -239,7 +239,7 @@ func (s *WorkspaceFDBStore) ListForUser(ctx context.Context, userID uuid.UUID) (
 
 // writeWorkspaceSlugIndex writes the global secondary index entry for workspace slug lookup.
 func (s *WorkspaceFDBStore) writeWorkspaceSlugIndex(ctx context.Context, slug string, wsID uuid.UUID) error {
-	key := workspaceBySlugGlobalKey(slug).Pack()
+	key := workspaceBySlugGlobalKey(slug)
 	wsIDBytes, _ := wsID.MarshalBinary()
 
 	_, err := s.db.Transact(func(tr fdb.Transaction) (any, error) {
@@ -250,12 +250,6 @@ func (s *WorkspaceFDBStore) writeWorkspaceSlugIndex(ctx context.Context, slug st
 		return fmt.Errorf("write workspace slug index: %w", err)
 	}
 	return nil
-}
-
-// workspaceBySlugGlobalKey returns the secondary index key for workspace slug lookup (globally unique).
-// (workspace_by_slug_global, slug) → wsID bytes
-func workspaceBySlugGlobalKey(slug string) tuple.Tuple {
-	return tuple.Tuple{keyWorkspaceBySlugGlobal, slug}
 }
 
 // nodeListViewToWorkspace converts a NodeListView into a Workspace entity.
