@@ -77,7 +77,7 @@ func runServer(cfg *config.Config) {
 	}
 	defer pool.Close()
 
-	fdbStores, err := fdbadapter.NewStores(cfg.FDBClusterFile)
+	fdbStores, err := fdbadapter.NewStores(cfg.FDBClusterFile, pool)
 	if err != nil {
 		slog.Error("foundationdb", "err", err)
 		os.Exit(1)

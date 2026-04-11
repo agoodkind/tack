@@ -125,7 +125,7 @@ func (s *ProjectFDBStore) Create(ctx context.Context, proj *project.Project) (*p
 
 		// Write node_by_project index
 		wsBytes, _ := proj.WorkspaceID.MarshalBinary()
-		tr.Set(fdb.Key(nodeByProjectKey(orgID, proj.ProjectID, node.NodeTypeProject, proj.ID)), wsBytes)
+		tr.Set(fdb.Key(nodeByProjectKey(orgID, uuid.Nil, node.NodeTypeProject, proj.ID)), wsBytes)
 
 		// Write resolution record
 		resolveBytes, err := json.Marshal(&node.NodeResolve{
@@ -276,6 +276,10 @@ func (s *ProjectFDBStore) Update(ctx context.Context, proj *project.Project) (*p
 	orgID := wsResolve.OrgID
 
 	// Build updated NodeValue
+	updatedBy := proj.CreatedBy // default to CreatedBy if UpdatedBy is nil
+	if proj.UpdatedBy != nil {
+		updatedBy = *proj.UpdatedBy
+	}
 	nv := &node.NodeValue{
 		ID:          proj.ID,
 		OrgID:       orgID,
@@ -285,7 +289,7 @@ func (s *ProjectFDBStore) Update(ctx context.Context, proj *project.Project) (*p
 		Name:        proj.Name,
 		Description: proj.Description,
 		CreatedBy:   proj.CreatedBy,
-		UpdatedBy:   proj.UpdatedBy,
+		UpdatedBy:   updatedBy,
 		CreatedAt:   proj.CreatedAt,
 		UpdatedAt:   proj.UpdatedAt,
 	}
@@ -305,6 +309,10 @@ func (s *ProjectFDBStore) Update(ctx context.Context, proj *project.Project) (*p
 	}
 
 	// Build updated view
+	viewUpdatedBy := proj.CreatedBy // default to CreatedBy if UpdatedBy is nil
+	if proj.UpdatedBy != nil {
+		viewUpdatedBy = *proj.UpdatedBy
+	}
 	view := &node.NodeListView{
 		Version:     node.ViewVersion1,
 		ID:          proj.ID,
@@ -315,7 +323,7 @@ func (s *ProjectFDBStore) Update(ctx context.Context, proj *project.Project) (*p
 		Name:        proj.Name,
 		Description: proj.Description,
 		CreatedBy:   proj.CreatedBy,
-		UpdatedBy:   proj.UpdatedBy,
+		UpdatedBy:   viewUpdatedBy,
 		CreatedAt:   proj.CreatedAt,
 		UpdatedAt:   proj.UpdatedAt,
 	}
@@ -409,7 +417,7 @@ func nodeListViewToProject(v *node.NodeListView) *project.Project {
 		Name:        v.Name,
 		Description: v.Description,
 		CreatedBy:   v.CreatedBy,
-		UpdatedBy:   v.UpdatedBy,
+		UpdatedBy:   &v.UpdatedBy,
 		CreatedAt:   v.CreatedAt,
 		UpdatedAt:   v.UpdatedAt,
 	}
@@ -425,7 +433,7 @@ func nodeListViewToProject(v *node.NodeListView) *project.Project {
 		if netRaw, ok := v.CustomProps[propNameNetwork]; ok {
 			var s string
 			if err := json.Unmarshal(netRaw, &s); err == nil {
-				fmt.Sscanf(s, "%d", &proj.Network)
+				_, _ = fmt.Sscanf(s, "%d", &proj.Network)
 			}
 		}
 		if defStateRaw, ok := v.CustomProps[propNameDefaultStateID]; ok {
@@ -440,19 +448,3 @@ func nodeListViewToProject(v *node.NodeListView) *project.Project {
 
 	return proj
 }
-
-func systemPropID(workspaceID uuid.UUID, name string) uuid.UUID {
-	tackPropNamespace := uuid.MustParse("7ac0face-dead-beef-cafe-000000000000")
-	return uuid.NewSHA1(tackPropNamespace, []byte(workspaceID.String()+":"+name))
-}
-
-func textPV(s string) *node.PropertyValue {
-	return &node.PropertyValue{Kind: node.PropertyValueText, Text: &s}
-}
-
-const (
-	propNameIdentifier     = "identifier"
-	propNameDescription    = "description"
-	propNameNetwork        = "network"
-	propNameDefaultStateID = "default_state_id"
-)

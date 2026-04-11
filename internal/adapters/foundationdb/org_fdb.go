@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
-	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
 	"github.com/google/uuid"
 	domain "goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"

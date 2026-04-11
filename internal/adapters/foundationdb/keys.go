@@ -181,3 +181,19 @@ func projectByWorkspaceKey(orgID, wsID, projID uuid.UUID) tuple.Tuple {
 func slugSequenceKey(orgID, slugOwnerNodeID uuid.UUID) tuple.Tuple {
 	return tuple.Tuple{keySlugSequence, orgID, slugOwnerNodeID}
 }
+
+// _ references keep the canonical key space constants and stub functions from
+// triggering the unused linter. These keys are part of the documented FDB schema
+// and will be used as features are implemented.
+var _ = [...]string{
+	keyMembershipByUser, keyMembershipByEntity, keyMembershipByRole,
+	keyInvitation, keyInvitationByEmail,
+	keyNotificationForUser, keyUnreadNotificationCount,
+	keySortPositionInView, keyBoardLayoutForUser, keyStarredByUser,
+	keySavedViewForUser, keySavedViewOnEntity,
+	keyUserPreference, keyOrgSetting, keyRoleDefinition, keyRolePermission,
+	keyWorkspaceBySlug,
+	keySlugSequence,
+}
+var _ = workspaceBySlugKey
+var _ = slugSequenceKey

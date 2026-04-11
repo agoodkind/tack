@@ -16,7 +16,7 @@ $(GO_MK):
 
 -include $(GO_MK)
 
-.DEFAULT_GOAL := build
+.DEFAULT_GOAL := check
 
 # Fetch or update go.mk explicitly.
 .PHONY: sync
@@ -35,11 +35,17 @@ sync:
 build: $(GO_MK)
 	go build ./...
 
-# Production build: real FoundationDB adapter (CGO, Linux only).
+# Production build: real FoundationDB adapter (CGO).
 # Requires foundationdb-clients 7.4.x on the build host.
+# The FDB Go bindings (fdb_darwin.go / fdb_linux.go) supply their own cgo flags.
 .PHONY: build-fdb
 build-fdb:
-	CGO_ENABLED=1 go build -tags fdb -trimpath -ldflags="-s -w" -o bin/server ./cmd/server
+	CGO_ENABLED=1 go build -tags fdb -o bin/server ./cmd/server
+
+# Lint all code including FDB-tagged files.
+.PHONY: lint-fdb
+lint-fdb:
+	CGO_ENABLED=1 golangci-lint run --build-tags fdb ./...
 
 # Run the server locally (noop FDB stub, no CGO required).
 .PHONY: run

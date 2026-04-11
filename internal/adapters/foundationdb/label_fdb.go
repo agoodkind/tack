@@ -12,7 +12,6 @@ import (
 	"goodkind.io/tack/internal/domain/label"
 	"goodkind.io/tack/internal/domain/node"
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
-	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
 	"github.com/google/uuid"
 )
 
@@ -198,8 +197,8 @@ func (s *LabelFDBStore) List(ctx context.Context, workspaceID uuid.UUID, project
 }
 
 func (s *LabelFDBStore) Update(ctx context.Context, lbl *label.Label) (*label.Label, error) {
-	// Fetch existing to get org/workspace context
-	existing, err := s.GetByID(ctx, lbl.ID)
+	// Fetch existing to verify it exists
+	_, err := s.GetByID(ctx, lbl.ID)
 	if err != nil {
 		return nil, fmt.Errorf("label update fetch: %w", err)
 	}
@@ -318,17 +317,3 @@ func nodeListViewToLabel(v *node.NodeListView) *label.Label {
 
 	return lbl
 }
-
-func systemPropID(workspaceID uuid.UUID, name string) uuid.UUID {
-	tackPropNamespace := uuid.MustParse("7ac0face-dead-beef-cafe-000000000000")
-	return uuid.NewSHA1(tackPropNamespace, []byte(workspaceID.String()+":"+name))
-}
-
-func textPV(s string) *node.PropertyValue {
-	return &node.PropertyValue{Kind: node.PropertyValueText, Text: &s}
-}
-
-const (
-	propNameColor     = "color"
-	propNameSortOrder = "sort_order"
-)

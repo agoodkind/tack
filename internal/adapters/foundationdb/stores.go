@@ -4,7 +4,10 @@
 // assignments, labels, activity, membership, containment, and node cleanup.
 package foundationdb
 
-import "github.com/apple/foundationdb/bindings/go/src/fdb"
+import (
+	"github.com/apple/foundationdb/bindings/go/src/fdb"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
 
 // Stores bundles all FDB adapters sharing one database connection.
 type Stores struct {
@@ -20,23 +23,24 @@ type Stores struct {
 	Automations *AutomationStore
 	Views       *ViewStore
 	Comments    *CommentStore
-	Org         *OrgStore
-	Workspace   *WorkspaceStore
-	Project     *ProjectStore
-	State       *StateStore
-	Label       *LabelStore
+	Org         *OrgFDBStore
+	Workspace   *WorkspaceFDBStore
+	Project     *ProjectFDBStore
+	State       *StateFDBStore
+	Label       *LabelFDBStore
 }
 
 // NewStores opens FDB once and wires all adapters to the same connection.
-func NewStores(clusterFile string) (*Stores, error) {
+// sqlPool is required for adapters that need SQL (e.g., workspace list operations).
+func NewStores(clusterFile string, sqlPool *pgxpool.Pool) (*Stores, error) {
 	db, err := Open(clusterFile)
 	if err != nil {
 		return nil, err
 	}
-	return newStores(db), nil
+	return newStores(db, sqlPool), nil
 }
 
-func newStores(db fdb.Database) *Stores {
+func newStores(db fdb.Database, sqlPool *pgxpool.Pool) *Stores {
 	return &Stores{
 		NodeTypes:   &NodeTypeStore{db: db},
 		Properties:  &PropertyStore{db: db},
@@ -50,10 +54,10 @@ func newStores(db fdb.Database) *Stores {
 		Automations: NewAutomationStore(db),
 		Views:       NewViewStore(db),
 		Comments:    NewCommentStore(db),
-		Org:         NewOrgStore(db),
-		Workspace:   NewWorkspaceStore(db),
-		Project:     NewProjectStore(db),
-		State:       NewStateStore(db),
-		Label:       NewLabelStore(db),
+		Org:         NewOrgFDBStore(db),
+		Workspace:   NewWorkspaceFDBStore(db, sqlPool),
+		Project:     NewProjectFDBStore(db, NewEntityStore(db), NewViewStore(db)),
+		State:       NewStateFDBStore(db, NewEntityStore(db), NewViewStore(db)),
+		Label:       NewLabelFDBStore(db, NewEntityStore(db), NewViewStore(db)),
 	}
 }

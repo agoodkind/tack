@@ -9,6 +9,7 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/label"
 	"goodkind.io/tack/internal/domain/node"
@@ -38,7 +39,7 @@ type Stores struct {
 	Label       *NoopLabelStore
 }
 
-func NewStores(_ string) (*Stores, error) {
+func NewStores(_ string, _ *pgxpool.Pool) (*Stores, error) {
 	return &Stores{
 		NodeTypes:   &NoopNodeTypeStore{},
 		Properties:  &NoopPropertyStore{},

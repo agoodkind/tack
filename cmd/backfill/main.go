@@ -50,13 +50,13 @@ func main() {
 	}
 	defer pool.Close()
 
-	fdbStores, err := fdbadapter.NewStores(fdbCluster)
+	fdbStores, err := fdbadapter.NewStores(fdbCluster, pool)
 	if err != nil {
 		slog.Error("foundationdb", "err", err)
 		os.Exit(1)
 	}
 
-	seeder := service.NewWorkspaceSeeder(fdbStores.Properties)
+	seeder := service.NewWorkspaceSeeder(fdbStores.Properties, fdbStores.NodeTypes)
 
 	b := &backfiller{
 		pool:     pool,
