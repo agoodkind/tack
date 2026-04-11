@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
@@ -60,6 +61,29 @@ func (s *ViewStore) Get(_ context.Context, nodeID uuid.UUID) (*node.NodeListView
 		return nil, fmt.Errorf("unmarshal node list view: %w", err)
 	}
 	return &view, nil
+}
+
+// Resolve returns the org/workspace/type context for any entity UUID.
+// Reads the global (node_resolve, entityID) record — a single FDB point read.
+func (s *ViewStore) Resolve(ctx context.Context, entityID uuid.UUID) (*node.NodeResolve, error) {
+	key := fdb.Key(nodeResolveKey(entityID))
+	var result *node.NodeResolve
+	_, err := s.db.ReadTransact(func(tr fdb.ReadTransaction) (any, error) {
+		b := tr.Get(key).MustGet()
+		if len(b) == 0 {
+			return nil, domain.ErrNotFound
+		}
+		var r node.NodeResolve
+		if err := json.Unmarshal(b, &r); err != nil {
+			return nil, fmt.Errorf("unmarshal node resolve: %w", err)
+		}
+		result = &r
+		return nil, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 // List fetches all NodeListViews matching q. It uses a planScan to get nodeID

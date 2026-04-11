@@ -116,20 +116,20 @@ func runServer(cfg *config.Config) {
 	noopAutomations := &node.NoopAutomationExecutor{}
 	seeder    := service.NewWorkspaceSeeder(fdbStores.Properties, fdbStores.NodeTypes)
 	issueSvc  := service.NewIssueService(
-		fdbStores.Entities, fdbStores.Views, workspaceRepo, projectRepo,
+		fdbStores.Entities, fdbStores.Views, projectRepo,
 		fdbStores.Activity, fdbStores.Assignments, fdbStores.Labels,
 		fdbStores.Containment, fdbStores.NodeDeleter, nodeCleanup, searcher, noopAutomations,
 	)
 	projectSvc   := service.NewProjectService(projectRepo, stateRepo, searcher)
 	epicSvc      := service.NewEpicService(
-		fdbStores.Entities, fdbStores.Views, workspaceRepo,
+		fdbStores.Entities, fdbStores.Views,
 		fdbStores.Assignments, fdbStores.Labels, fdbStores.Containment, searcher,
 	)
 	cycleSvc := service.NewCycleService(
-		fdbStores.Entities, fdbStores.Views, workspaceRepo, fdbStores.Containment, searcher,
+		fdbStores.Entities, fdbStores.Views, fdbStores.Containment, searcher,
 	)
 	moduleSvc := service.NewModuleService(
-		fdbStores.Entities, fdbStores.Views, workspaceRepo, fdbStores.Containment, searcher,
+		fdbStores.Entities, fdbStores.Views, fdbStores.Containment, searcher,
 	)
 	workspaceSvc := service.NewWorkspaceService(workspaceRepo, seeder, searcher, fdbStores.NodeTypes)
 
@@ -168,11 +168,11 @@ func runServer(cfg *config.Config) {
 	projectH   := connectadapter.NewProjectHandler(projectRepo, projectSvc)
 	issueH     := connectadapter.NewIssueHandler(issueSvc)
 	epicH      := connectadapter.NewEpicHandler(epicSvc)
-	cycleH     := connectadapter.NewCycleHandler(cycleSvc, fdbStores.Containment)
-	moduleH    := connectadapter.NewModuleHandler(moduleSvc, fdbStores.Containment)
+	cycleH     := connectadapter.NewCycleHandler(cycleSvc)
+	moduleH    := connectadapter.NewModuleHandler(moduleSvc)
 	stateH     := connectadapter.NewStateHandler(stateRepo)
 	labelH     := connectadapter.NewLabelHandler(labelRepo)
-	activityH  := connectadapter.NewActivityHandler(fdbStores.Activity)
+	activityH  := connectadapter.NewActivityHandler(issueSvc)
 
 	mux := http.NewServeMux()
 

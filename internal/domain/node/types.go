@@ -9,10 +9,15 @@ import (
 
 // Built-in node type slugs. Custom types use user-defined slugs stored in FDB.
 const (
-	NodeTypeIssue  = "issue"
-	NodeTypeEpic   = "epic"
-	NodeTypeCycle  = "cycle"
-	NodeTypeModule = "module"
+	NodeTypeIssue       = "issue"
+	NodeTypeEpic        = "epic"
+	NodeTypeCycle       = "cycle"
+	NodeTypeModule      = "module"
+	NodeTypeOrg         = "org"
+	NodeTypeWorkspace   = "workspace"
+	NodeTypeProject     = "project"
+	NodeTypeState       = "state"
+	NodeTypeLabel       = "label"
 )
 
 // Op enumerates the operations that can be enabled on a custom node type.
@@ -29,6 +34,24 @@ const (
 // AllOps is the default set of allowed operations for a new node type.
 var AllOps = []Op{OpCreate, OpRead, OpList, OpUpdate, OpDelete}
 
+// NodeFeatures is a bitset of capabilities for a NodeType.
+// Behavior is driven by Features, not TypeKey.
+type NodeFeatures uint32
+
+const (
+	FeatureHasSlug           NodeFeatures = 1 << 0 // instances own an identifier prefix e.g. "ENG"
+	FeatureHasWorkflowStates NodeFeatures = 1 << 1 // instances have StateID, can transition
+	FeatureHasAssignees      NodeFeatures = 1 << 2 // instances can be assigned to users
+	FeatureHasSequenceID     NodeFeatures = 1 << 3 // instances get {parent_slug}-{N} identifier
+	FeatureIsContainer       NodeFeatures = 1 << 4 // instances can contain child nodes
+	FeatureHasDueDates       NodeFeatures = 1 << 5 // instances have start/end date system props
+	FeatureHasComments       NodeFeatures = 1 << 6 // instances support threaded comments
+	FeatureHasActivity       NodeFeatures = 1 << 7 // instances emit activity events on write
+)
+
+// Has reports whether f includes feat.
+func (f NodeFeatures) Has(feat NodeFeatures) bool { return f&feat != 0 }
+
 // NodeType defines a user-defined type in the extensibility hierarchy.
 type NodeType struct {
 	ID             uuid.UUID   `json:"id"`
@@ -37,8 +60,6 @@ type NodeType struct {
 	Slug           string      `json:"slug"`           // kebab-case, used in tool names
 	Color          string      `json:"color"`
 	Icon           string      `json:"icon"`
-	CanContain     []string    `json:"can_contain"`    // slugs of types this type may parent
-	CanLiveUnder   []string    `json:"can_live_under"` // slugs of types this type may be child of
 	AllowedOps     []Op        `json:"allowed_ops"`    // which MCP tools are generated
 	PropertyDefIDs []uuid.UUID `json:"property_def_ids"`
 	// PluralSlug is used for list tool names: "tack_list_{plural_slug}".
@@ -50,7 +71,10 @@ type NodeType struct {
 	// TypeKey is the stable internal dispatch key: "issue", "epic", "cycle", "module".
 	// Empty for user-defined custom types. Slug and PluralSlug are user-mutable;
 	// TypeKey is not.
-	TypeKey string `json:"type_key,omitempty"`
+	TypeKey      string       `json:"type_key,omitempty"`
+	Features     NodeFeatures `json:"features"`
+	CanContain   []string     `json:"can_contain,omitempty"`    // TypeKeys this type can parent
+	CanLiveUnder []string     `json:"can_live_under,omitempty"` // TypeKeys this type can be a child of
 }
 
 // NodeValue is the lean core stored in FDB for every node.

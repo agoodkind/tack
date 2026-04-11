@@ -8,8 +8,14 @@ package foundationdb
 import (
 	"context"
 
-	"goodkind.io/tack/internal/domain/node"
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/domain"
+	"goodkind.io/tack/internal/domain/label"
+	"goodkind.io/tack/internal/domain/node"
+	"goodkind.io/tack/internal/domain/org"
+	"goodkind.io/tack/internal/domain/project"
+	"goodkind.io/tack/internal/domain/state"
+	"goodkind.io/tack/internal/domain/workspace"
 )
 
 type Stores struct {
@@ -25,6 +31,11 @@ type Stores struct {
 	Automations *NoopAutomationStore
 	Views       *NoopViewStore
 	Comments    *NoopCommentStore
+	Org         *NoopOrgStore
+	Workspace   *NoopWorkspaceStore
+	Project     *NoopProjectStore
+	State       *NoopStateStore
+	Label       *NoopLabelStore
 }
 
 func NewStores(_ string) (*Stores, error) {
@@ -41,6 +52,11 @@ func NewStores(_ string) (*Stores, error) {
 		Automations: &NoopAutomationStore{},
 		Views:       &NoopViewStore{},
 		Comments:    &NoopCommentStore{},
+		Org:         &NoopOrgStore{},
+		Workspace:   &NoopWorkspaceStore{},
+		Project:     &NoopProjectStore{},
+		State:       &NoopStateStore{},
+		Label:       &NoopLabelStore{},
 	}, nil
 }
 
@@ -201,6 +217,9 @@ func (s *NoopViewStore) Stream(_ context.Context, _ node.NodeListQuery) (<-chan 
 	close(ch)
 	return ch, nil
 }
+func (NoopViewStore) Resolve(_ context.Context, _ uuid.UUID) (*node.NodeResolve, error) {
+	return nil, domain.ErrNotFound
+}
 
 // ── Automations ───────────────────────────────────────────────────────────────
 
@@ -259,4 +278,113 @@ func (s *NoopCommentStore) Create(_ context.Context, _ uuid.UUID, _ *node.Commen
 }
 func (s *NoopCommentStore) List(_ context.Context, _, _ uuid.UUID) ([]*node.Comment, error) {
 	return nil, nil
+}
+
+// ── Org Repository ───────────────────────────────────────────────────────────────
+
+type NoopOrgStore struct{}
+
+func (s *NoopOrgStore) Create(_ context.Context, _ *org.Org) (*org.Org, error) {
+	return nil, nil
+}
+func (s *NoopOrgStore) GetByID(_ context.Context, _ uuid.UUID) (*org.Org, error) {
+	return nil, nil
+}
+func (s *NoopOrgStore) GetBySlug(_ context.Context, _ string) (*org.Org, error) {
+	return nil, nil
+}
+func (s *NoopOrgStore) AddMember(_ context.Context, _ *org.Member) error {
+	return nil
+}
+func (s *NoopOrgStore) RemoveMember(_ context.Context, _, _ uuid.UUID) error {
+	return nil
+}
+func (s *NoopOrgStore) ListMembers(_ context.Context, _ uuid.UUID) ([]*org.Member, error) {
+	return nil, nil
+}
+
+// ── Workspace Repository ──────────────────────────────────────────────────────────
+
+type NoopWorkspaceStore struct{}
+
+func (s *NoopWorkspaceStore) Create(_ context.Context, _ *workspace.Workspace) (*workspace.Workspace, error) {
+	return nil, nil
+}
+func (s *NoopWorkspaceStore) GetByID(_ context.Context, _ uuid.UUID) (*workspace.Workspace, error) {
+	return nil, nil
+}
+func (s *NoopWorkspaceStore) GetBySlug(_ context.Context, _ string) (*workspace.Workspace, error) {
+	return nil, nil
+}
+func (s *NoopWorkspaceStore) List(_ context.Context, _ uuid.UUID) ([]*workspace.Workspace, error) {
+	return nil, nil
+}
+func (s *NoopWorkspaceStore) ListForUser(_ context.Context, _ uuid.UUID) ([]*workspace.Workspace, error) {
+	return nil, nil
+}
+
+// ── Project Repository ────────────────────────────────────────────────────────────
+
+type NoopProjectStore struct{}
+
+func (s *NoopProjectStore) Create(_ context.Context, _ *project.Project) (*project.Project, error) {
+	return nil, nil
+}
+func (s *NoopProjectStore) GetByID(_ context.Context, _, _ uuid.UUID) (*project.Project, error) {
+	return nil, nil
+}
+func (s *NoopProjectStore) GetByIdentifier(_ context.Context, _ uuid.UUID, _ string) (*project.Project, error) {
+	return nil, nil
+}
+func (s *NoopProjectStore) List(_ context.Context, _ uuid.UUID) ([]*project.Project, error) {
+	return nil, nil
+}
+func (s *NoopProjectStore) Update(_ context.Context, _ *project.Project) (*project.Project, error) {
+	return nil, nil
+}
+func (s *NoopProjectStore) Delete(_ context.Context, _ uuid.UUID) error {
+	return nil
+}
+func (s *NoopProjectStore) AllocateSequenceID(_ context.Context, _, _ uuid.UUID, _ string) (int, error) {
+	return 0, nil
+}
+
+// ── State Repository ──────────────────────────────────────────────────────────────
+
+type NoopStateStore struct{}
+
+func (s *NoopStateStore) Create(_ context.Context, _ *state.State) (*state.State, error) {
+	return nil, nil
+}
+func (s *NoopStateStore) GetByID(_ context.Context, _, _ uuid.UUID) (*state.State, error) {
+	return nil, nil
+}
+func (s *NoopStateStore) List(_ context.Context, _ uuid.UUID) ([]*state.State, error) {
+	return nil, nil
+}
+func (s *NoopStateStore) Update(_ context.Context, _ *state.State) (*state.State, error) {
+	return nil, nil
+}
+func (s *NoopStateStore) Delete(_ context.Context, _ uuid.UUID) error {
+	return nil
+}
+
+// ── Label Repository ──────────────────────────────────────────────────────────────
+
+type NoopLabelStore struct{}
+
+func (s *NoopLabelStore) Create(_ context.Context, _ *label.Label) (*label.Label, error) {
+	return nil, nil
+}
+func (s *NoopLabelStore) GetByID(_ context.Context, _ uuid.UUID) (*label.Label, error) {
+	return nil, nil
+}
+func (s *NoopLabelStore) List(_ context.Context, _ uuid.UUID, _ *uuid.UUID) ([]*label.Label, error) {
+	return nil, nil
+}
+func (s *NoopLabelStore) Update(_ context.Context, _ *label.Label) (*label.Label, error) {
+	return nil, nil
+}
+func (s *NoopLabelStore) Delete(_ context.Context, _ uuid.UUID) error {
+	return nil
 }

@@ -7,26 +7,24 @@ import (
 	"connectrpc.com/connect"
 	v1 "goodkind.io/tack/gen/tack/v1"
 	"goodkind.io/tack/gen/tack/v1/tackv1connect"
-	"goodkind.io/tack/internal/domain/node"
+	"goodkind.io/tack/internal/service"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type ActivityHandler struct {
-	activity node.ActivityRepository
+	issueSvc *service.IssueService
 }
 
 var _ tackv1connect.ActivityServiceHandler = (*ActivityHandler)(nil)
 
-func NewActivityHandler(activity node.ActivityRepository) *ActivityHandler {
-	return &ActivityHandler{activity: activity}
+func NewActivityHandler(issueSvc *service.IssueService) *ActivityHandler {
+	return &ActivityHandler{issueSvc: issueSvc}
 }
 
 func (h *ActivityHandler) ListActivity(ctx context.Context, req *connect.Request[v1.ListActivityRequest]) (*connect.Response[v1.ListActivityResponse], error) {
 	msg := req.Msg
-	workspaceID := mustUUID(msg.WorkspaceId)
 	nodeID := mustUUID(msg.NodeId)
-	// org scoping: use workspaceID as orgID (single-org deployment for now)
-	events, err := h.activity.List(ctx, workspaceID, workspaceID, nodeID)
+	events, err := h.issueSvc.ListActivity(ctx, nodeID)
 	if err != nil {
 		return nil, domainErr(err)
 	}
@@ -40,7 +38,7 @@ func (h *ActivityHandler) ListActivity(ctx context.Context, req *connect.Request
 		}
 		items = append(items, &v1.ActivityEvent{
 			Id:         e.EventID.String(),
-			OrgId:      workspaceID.String(),
+			OrgId:      mustUUID(msg.WorkspaceId).String(),
 			NodeId:     e.NodeID.String(),
 			Verb:       e.Verb,
 			DetailJson: detail,

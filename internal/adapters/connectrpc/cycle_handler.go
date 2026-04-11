@@ -9,21 +9,19 @@ import (
 	"goodkind.io/tack/gen/tack/v1/tackv1connect"
 	"goodkind.io/tack/internal/auth"
 	"goodkind.io/tack/internal/domain/cycle"
-	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/service"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type CycleHandler struct {
-	cycles      *service.CycleService
-	containment node.ContainmentRepository
+	cycles *service.CycleService
 }
 
 var _ tackv1connect.CycleServiceHandler = (*CycleHandler)(nil)
 
-func NewCycleHandler(cycles *service.CycleService, containment node.ContainmentRepository) *CycleHandler {
-	return &CycleHandler{cycles: cycles, containment: containment}
+func NewCycleHandler(cycles *service.CycleService) *CycleHandler {
+	return &CycleHandler{cycles: cycles}
 }
 
 func (h *CycleHandler) CreateCycle(ctx context.Context, req *connect.Request[v1.CreateCycleRequest]) (*connect.Response[v1.Cycle], error) {
@@ -109,24 +107,26 @@ func (h *CycleHandler) DeleteCycle(ctx context.Context, req *connect.Request[v1.
 func (h *CycleHandler) AddIssuesToCycle(ctx context.Context, req *connect.Request[v1.AddIssuesToCycleRequest]) (*connect.Response[emptypb.Empty], error) {
 	userID := auth.MustUserID(ctx)
 	msg := req.Msg
-	orgID := mustUUID(msg.WorkspaceId) // org scoping — workspace ID used as org scope key
 	cycleID := mustUUID(msg.CycleId)
-	for _, issueIDStr := range msg.IssueIds {
-		if err := h.containment.AddIssueToCycle(ctx, orgID, cycleID, mustUUID(issueIDStr), userID); err != nil {
-			return nil, domainErr(err)
-		}
+	issueIDs := make([]uuid.UUID, 0, len(msg.IssueIds))
+	for _, id := range msg.IssueIds {
+		issueIDs = append(issueIDs, mustUUID(id))
+	}
+	if err := h.cycles.AddIssues(ctx, cycleID, issueIDs, userID); err != nil {
+		return nil, domainErr(err)
 	}
 	return connect.NewResponse(&emptypb.Empty{}), nil
 }
 
 func (h *CycleHandler) RemoveIssuesFromCycle(ctx context.Context, req *connect.Request[v1.RemoveIssuesFromCycleRequest]) (*connect.Response[emptypb.Empty], error) {
 	msg := req.Msg
-	orgID := mustUUID(msg.WorkspaceId)
 	cycleID := mustUUID(msg.CycleId)
-	for _, issueIDStr := range msg.IssueIds {
-		if err := h.containment.RemoveIssueFromCycle(ctx, orgID, cycleID, mustUUID(issueIDStr)); err != nil {
-			return nil, domainErr(err)
-		}
+	issueIDs := make([]uuid.UUID, 0, len(msg.IssueIds))
+	for _, id := range msg.IssueIds {
+		issueIDs = append(issueIDs, mustUUID(id))
+	}
+	if err := h.cycles.RemoveIssues(ctx, cycleID, issueIDs); err != nil {
+		return nil, domainErr(err)
 	}
 	return connect.NewResponse(&emptypb.Empty{}), nil
 }

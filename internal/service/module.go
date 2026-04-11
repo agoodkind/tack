@@ -10,7 +10,6 @@ import (
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/module"
 	"goodkind.io/tack/internal/domain/node"
-	"goodkind.io/tack/internal/domain/workspace"
 	"goodkind.io/tack/internal/telemetry"
 	"github.com/google/uuid"
 )
@@ -19,7 +18,6 @@ import (
 type ModuleService struct {
 	entities    node.EntityRepository
 	reader      node.NodeReader
-	workspaces  workspace.Repository
 	containment node.ContainmentRepository
 	searcher    domainsearch.Searcher
 }
@@ -28,14 +26,12 @@ type ModuleService struct {
 func NewModuleService(
 	entities node.EntityRepository,
 	reader node.NodeReader,
-	workspaces workspace.Repository,
 	containment node.ContainmentRepository,
 	searcher domainsearch.Searcher,
 ) *ModuleService {
 	return &ModuleService{
 		entities:    entities,
 		reader:      reader,
-		workspaces:  workspaces,
 		containment: containment,
 		searcher:    searcher,
 	}
@@ -142,10 +138,11 @@ func moduleFromNodeListView(v *node.NodeListView) *module.Module {
 
 
 func (s *ModuleService) Create(ctx context.Context, m *module.Module) (*module.Module, error) {
-	ws, err := s.workspaces.GetByID(ctx, m.WorkspaceID)
+	resolve, err := s.reader.Resolve(ctx, m.WorkspaceID)
 	if err != nil {
 		return nil, fmt.Errorf("resolve workspace: %w", err)
 	}
+	orgID := resolve.OrgID
 
 	if m.ID == uuid.Nil {
 		id, err := uuid.NewV7()
@@ -158,8 +155,8 @@ func (s *ModuleService) Create(ctx context.Context, m *module.Module) (*module.M
 	m.CreatedAt = now
 	m.UpdatedAt = now
 
-	nv, props := nodeValueFromModule(m, ws.OrgID)
-	view := buildModuleView(m, ws.OrgID)
+	nv, props := nodeValueFromModule(m, orgID)
+	view := buildModuleView(m, orgID)
 	if err := s.entities.Set(ctx, nv, props, view); err != nil {
 		return nil, fmt.Errorf("entity set: %w", err)
 	}
@@ -203,13 +200,14 @@ func (s *ModuleService) List(ctx context.Context, projectID uuid.UUID) ([]*modul
 
 // ListWithWorkspace returns all modules for a project.
 func (s *ModuleService) ListWithWorkspace(ctx context.Context, workspaceID, projectID uuid.UUID) ([]*module.Module, error) {
-	ws, err := s.workspaces.GetByID(ctx, workspaceID)
+	resolve, err := s.reader.Resolve(ctx, workspaceID)
 	if err != nil {
 		return nil, fmt.Errorf("resolve workspace: %w", err)
 	}
+	orgID := resolve.OrgID
 
 	q := node.NodeListQuery{
-		OrgID:       ws.OrgID,
+		OrgID:       orgID,
 		WorkspaceID: workspaceID,
 		NodeType:    node.NodeTypeModule,
 		ByProject:   &projectID,
@@ -226,14 +224,15 @@ func (s *ModuleService) ListWithWorkspace(ctx context.Context, workspaceID, proj
 }
 
 func (s *ModuleService) Update(ctx context.Context, m *module.Module) (*module.Module, error) {
-	ws, err := s.workspaces.GetByID(ctx, m.WorkspaceID)
+	resolve, err := s.reader.Resolve(ctx, m.WorkspaceID)
 	if err != nil {
 		return nil, fmt.Errorf("resolve workspace: %w", err)
 	}
+	orgID := resolve.OrgID
 
 	m.UpdatedAt = time.Now().UTC()
-	nv, props := nodeValueFromModule(m, ws.OrgID)
-	view := buildModuleView(m, ws.OrgID)
+	nv, props := nodeValueFromModule(m, orgID)
+	view := buildModuleView(m, orgID)
 	if err := s.entities.Set(ctx, nv, props, view); err != nil {
 		return nil, fmt.Errorf("entity set: %w", err)
 	}
@@ -250,12 +249,13 @@ func (s *ModuleService) Delete(ctx context.Context, id uuid.UUID) error {
 
 // DeleteByWorkspace deletes a module using the full workspace context.
 func (s *ModuleService) DeleteByWorkspace(ctx context.Context, workspaceID, projectID, id uuid.UUID) error {
-	ws, err := s.workspaces.GetByID(ctx, workspaceID)
+	resolve, err := s.reader.Resolve(ctx, workspaceID)
 	if err != nil {
 		return fmt.Errorf("resolve workspace: %w", err)
 	}
+	orgID := resolve.OrgID
 
-	nv, err := s.entities.Get(ctx, ws.OrgID, workspaceID, node.NodeTypeModule, id)
+	nv, err := s.entities.Get(ctx, orgID, workspaceID, node.NodeTypeModule, id)
 	if err != nil {
 		return fmt.Errorf("entity get: %w", err)
 	}
@@ -274,5 +274,31 @@ func (s *ModuleService) DeleteByWorkspace(ctx context.Context, workspaceID, proj
 	telemetry.L(ctx).Info("module.deleted",
 		slog.String("module_id", id.String()),
 	)
+	return nil
+}
+
+func (s *ModuleService) AddIssues(ctx context.Context, moduleID uuid.UUID, issueIDs []uuid.UUID, actorID uuid.UUID) error {
+	resolve, err := s.reader.Resolve(ctx, moduleID)
+	if err != nil {
+		return fmt.Errorf("resolve module: %w", err)
+	}
+	for _, issueID := range issueIDs {
+		if err := s.containment.AddIssueToModule(ctx, resolve.OrgID, moduleID, issueID, actorID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *ModuleService) RemoveIssues(ctx context.Context, moduleID uuid.UUID, issueIDs []uuid.UUID) error {
+	resolve, err := s.reader.Resolve(ctx, moduleID)
+	if err != nil {
+		return fmt.Errorf("resolve module: %w", err)
+	}
+	for _, issueID := range issueIDs {
+		if err := s.containment.RemoveIssueFromModule(ctx, resolve.OrgID, moduleID, issueID); err != nil {
+			return err
+		}
+	}
 	return nil
 }

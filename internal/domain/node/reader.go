@@ -61,6 +61,11 @@ type NodeReader interface {
 	// The caller is responsible for authorizing the returned OrgID.
 	Get(ctx context.Context, nodeID uuid.UUID) (*NodeListView, error)
 
+	// Resolve returns the org/workspace/type context for any entity UUID.
+	// Works for all entity types: org, workspace, project, state, label, issue, epic, etc.
+	// Returns domain.ErrNotFound if the entity does not exist.
+	Resolve(ctx context.Context, entityID uuid.UUID) (*NodeResolve, error)
+
 	// List is for bounded result sets. It blocks until all matching views are
 	// assembled (parallel chunk fetches) and returns them as a single slice.
 	// Use Stream for large or open-ended queries.

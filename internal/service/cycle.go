@@ -10,7 +10,6 @@ import (
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/cycle"
 	"goodkind.io/tack/internal/domain/node"
-	"goodkind.io/tack/internal/domain/workspace"
 	"goodkind.io/tack/internal/telemetry"
 	"github.com/google/uuid"
 )
@@ -19,7 +18,6 @@ import (
 type CycleService struct {
 	entities    node.EntityRepository
 	reader      node.NodeReader
-	workspaces  workspace.Repository
 	containment node.ContainmentRepository
 	searcher    domainsearch.Searcher
 }
@@ -28,14 +26,12 @@ type CycleService struct {
 func NewCycleService(
 	entities node.EntityRepository,
 	reader node.NodeReader,
-	workspaces workspace.Repository,
 	containment node.ContainmentRepository,
 	searcher domainsearch.Searcher,
 ) *CycleService {
 	return &CycleService{
 		entities:    entities,
 		reader:      reader,
-		workspaces:  workspaces,
 		containment: containment,
 		searcher:    searcher,
 	}
@@ -131,10 +127,11 @@ func cycleFromNodeListView(v *node.NodeListView) *cycle.Cycle {
 
 
 func (s *CycleService) Create(ctx context.Context, c *cycle.Cycle) (*cycle.Cycle, error) {
-	ws, err := s.workspaces.GetByID(ctx, c.WorkspaceID)
+	resolve, err := s.reader.Resolve(ctx, c.WorkspaceID)
 	if err != nil {
 		return nil, fmt.Errorf("resolve workspace: %w", err)
 	}
+	orgID := resolve.OrgID
 
 	if c.ID == uuid.Nil {
 		id, err := uuid.NewV7()
@@ -147,8 +144,8 @@ func (s *CycleService) Create(ctx context.Context, c *cycle.Cycle) (*cycle.Cycle
 	c.CreatedAt = now
 	c.UpdatedAt = now
 
-	nv, props := nodeValueFromCycle(c, ws.OrgID)
-	view := buildCycleView(c, ws.OrgID)
+	nv, props := nodeValueFromCycle(c, orgID)
+	view := buildCycleView(c, orgID)
 	if err := s.entities.Set(ctx, nv, props, view); err != nil {
 		return nil, fmt.Errorf("entity set: %w", err)
 	}
@@ -204,13 +201,14 @@ func (s *CycleService) List(ctx context.Context, projectID uuid.UUID) ([]*cycle.
 
 // ListWithWorkspace returns all cycles for a project, given the workspace context.
 func (s *CycleService) ListWithWorkspace(ctx context.Context, workspaceID, projectID uuid.UUID) ([]*cycle.Cycle, error) {
-	ws, err := s.workspaces.GetByID(ctx, workspaceID)
+	resolve, err := s.reader.Resolve(ctx, workspaceID)
 	if err != nil {
 		return nil, fmt.Errorf("resolve workspace: %w", err)
 	}
+	orgID := resolve.OrgID
 
 	q := node.NodeListQuery{
-		OrgID:       ws.OrgID,
+		OrgID:       orgID,
 		WorkspaceID: workspaceID,
 		NodeType:    node.NodeTypeCycle,
 		ByProject:   &projectID,
@@ -227,14 +225,15 @@ func (s *CycleService) ListWithWorkspace(ctx context.Context, workspaceID, proje
 }
 
 func (s *CycleService) Update(ctx context.Context, c *cycle.Cycle) (*cycle.Cycle, error) {
-	ws, err := s.workspaces.GetByID(ctx, c.WorkspaceID)
+	resolve, err := s.reader.Resolve(ctx, c.WorkspaceID)
 	if err != nil {
 		return nil, fmt.Errorf("resolve workspace: %w", err)
 	}
+	orgID := resolve.OrgID
 
 	c.UpdatedAt = time.Now().UTC()
-	nv, props := nodeValueFromCycle(c, ws.OrgID)
-	view := buildCycleView(c, ws.OrgID)
+	nv, props := nodeValueFromCycle(c, orgID)
+	view := buildCycleView(c, orgID)
 	if err := s.entities.Set(ctx, nv, props, view); err != nil {
 		return nil, fmt.Errorf("entity set: %w", err)
 	}
@@ -252,12 +251,13 @@ func (s *CycleService) Delete(ctx context.Context, id uuid.UUID) error {
 
 // DeleteByWorkspace deletes a cycle using the full workspace context.
 func (s *CycleService) DeleteByWorkspace(ctx context.Context, workspaceID, projectID, id uuid.UUID) error {
-	ws, err := s.workspaces.GetByID(ctx, workspaceID)
+	resolve, err := s.reader.Resolve(ctx, workspaceID)
 	if err != nil {
 		return fmt.Errorf("resolve workspace: %w", err)
 	}
+	orgID := resolve.OrgID
 
-	nv, err := s.entities.Get(ctx, ws.OrgID, workspaceID, node.NodeTypeCycle, id)
+	nv, err := s.entities.Get(ctx, orgID, workspaceID, node.NodeTypeCycle, id)
 	if err != nil {
 		return fmt.Errorf("entity get: %w", err)
 	}
@@ -276,5 +276,33 @@ func (s *CycleService) DeleteByWorkspace(ctx context.Context, workspaceID, proje
 	telemetry.L(ctx).Info("cycle.deleted",
 		slog.String("cycle_id", id.String()),
 	)
+	return nil
+}
+
+// AddIssues adds the given issues to a cycle, resolving orgID from the cycle's resolution record.
+func (s *CycleService) AddIssues(ctx context.Context, cycleID uuid.UUID, issueIDs []uuid.UUID, actorID uuid.UUID) error {
+	resolve, err := s.reader.Resolve(ctx, cycleID)
+	if err != nil {
+		return fmt.Errorf("resolve cycle: %w", err)
+	}
+	for _, issueID := range issueIDs {
+		if err := s.containment.AddIssueToCycle(ctx, resolve.OrgID, cycleID, issueID, actorID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// RemoveIssues removes the given issues from a cycle.
+func (s *CycleService) RemoveIssues(ctx context.Context, cycleID uuid.UUID, issueIDs []uuid.UUID) error {
+	resolve, err := s.reader.Resolve(ctx, cycleID)
+	if err != nil {
+		return fmt.Errorf("resolve cycle: %w", err)
+	}
+	for _, issueID := range issueIDs {
+		if err := s.containment.RemoveIssueFromCycle(ctx, resolve.OrgID, cycleID, issueID); err != nil {
+			return err
+		}
+	}
 	return nil
 }

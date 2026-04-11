@@ -24,6 +24,22 @@ func NewWorkspaceSeeder(properties node.PropertyRepository, nodeTypes node.TypeR
 	return &WorkspaceSeeder{properties: properties, nodeTypes: nodeTypes}
 }
 
+// SeedOrg seeds the org-level NodeType definition. Called once on org creation.
+func (s *WorkspaceSeeder) SeedOrg(ctx context.Context, orgID uuid.UUID) {
+	orgTypeID := uuid.NewSHA1(builtinTypeNamespace, []byte(orgID.String()+":org"))
+	_ = s.nodeTypes.Set(ctx, &node.NodeType{
+		ID:         orgTypeID,
+		OrgID:      orgID,
+		Name:       "Org",
+		Slug:       "org",
+		PluralSlug: "orgs",
+		TypeKey:    node.NodeTypeOrg,
+		IsBuiltin:  true,
+		Features:   node.FeatureHasSlug | node.FeatureIsContainer,
+		CanContain: []string{node.NodeTypeWorkspace},
+	})
+}
+
 // SeedWorkspace writes default PropertyDefs and built-in NodeTypes for the given workspace.
 // Errors are non-fatal — the workspace is usable even if seeding partially fails.
 func (s *WorkspaceSeeder) SeedWorkspace(ctx context.Context, orgID, workspaceID uuid.UUID) {
@@ -101,6 +117,96 @@ func defaultPropertyDefs(orgID, workspaceID uuid.UUID) []*node.PropertyDef {
 			IsSystem:     true,
 			DefaultValue: &node.PropertyValue{Kind: node.PropertyValueBool, Bool: boolPtr(false)},
 		},
+		// Workspace properties
+		{
+			ID:          systemPropID(workspaceID, propNameSlug),
+			OrgID:       orgID,
+			WorkspaceID: ws,
+			Name:        "Slug",
+			Type:        node.PropertyTypeText,
+			NodeTypes:   []string{node.NodeTypeWorkspace},
+			Indexed:     true,
+			IsSystem:    true,
+		},
+		// Project properties
+		{
+			ID:          systemPropID(workspaceID, propNameIdentifier),
+			OrgID:       orgID,
+			WorkspaceID: ws,
+			Name:        "Identifier",
+			Type:        node.PropertyTypeText,
+			NodeTypes:   []string{node.NodeTypeProject},
+			Indexed:     true,
+			IsSystem:    true,
+		},
+		{
+			ID:          systemPropID(workspaceID, propNameDescription),
+			OrgID:       orgID,
+			WorkspaceID: ws,
+			Name:        "Description",
+			Type:        node.PropertyTypeText,
+			NodeTypes:   []string{node.NodeTypeProject},
+			Indexed:     false,
+			IsSystem:    true,
+		},
+		{
+			ID:          systemPropID(workspaceID, propNameNetwork),
+			OrgID:       orgID,
+			WorkspaceID: ws,
+			Name:        "Network",
+			Type:        node.PropertyTypeNumber,
+			NodeTypes:   []string{node.NodeTypeProject},
+			Indexed:     false,
+			IsSystem:    true,
+		},
+		{
+			ID:          systemPropID(workspaceID, propNameDefaultStateID),
+			OrgID:       orgID,
+			WorkspaceID: ws,
+			Name:        "Default State ID",
+			Type:        node.PropertyTypeText,
+			NodeTypes:   []string{node.NodeTypeProject},
+			Indexed:     false,
+			IsSystem:    true,
+		},
+		// State properties
+		{
+			ID:          systemPropID(workspaceID, propNameGroupName),
+			OrgID:       orgID,
+			WorkspaceID: ws,
+			Name:        "Group Name",
+			Type:        node.PropertyTypeSelect,
+			NodeTypes:   []string{node.NodeTypeState},
+			Indexed:     true,
+			IsSystem:    true,
+			Options: []node.EnumOption{
+				{Key: "backlog", Label: "Backlog", SortRank: 0},
+				{Key: "todo", Label: "Todo", SortRank: 1},
+				{Key: "started", Label: "Started", SortRank: 2},
+				{Key: "completed", Label: "Completed", SortRank: 3},
+				{Key: "cancelled", Label: "Cancelled", SortRank: 4},
+			},
+		},
+		{
+			ID:          systemPropID(workspaceID, propNameColor),
+			OrgID:       orgID,
+			WorkspaceID: ws,
+			Name:        "Color",
+			Type:        node.PropertyTypeText,
+			NodeTypes:   []string{node.NodeTypeState, node.NodeTypeLabel},
+			Indexed:     false,
+			IsSystem:    true,
+		},
+		{
+			ID:          systemPropID(workspaceID, propNameSortOrder),
+			OrgID:       orgID,
+			WorkspaceID: ws,
+			Name:        "Sort Order",
+			Type:        node.PropertyTypeNumber,
+			NodeTypes:   []string{node.NodeTypeState, node.NodeTypeLabel},
+			Indexed:     false,
+			IsSystem:    true,
+		},
 	}
 }
 
@@ -113,7 +219,7 @@ func enumPV(key string, rank int32) *node.PropertyValue {
 	}
 }
 
-// defaultNodeTypes returns the 4 built-in NodeType records for a given org.
+// defaultNodeTypes returns the built-in NodeType records for a given org.
 // IDs are deterministic: UUID v5 derived from (builtinTypeNamespace, orgID+":"+slug).
 // This ensures the same org always gets the same builtin type IDs across workspace seeds,
 // and Set is idempotent.
@@ -123,12 +229,18 @@ func defaultNodeTypes(orgID uuid.UUID) []*node.NodeType {
 		pluralSlug string
 		name       string
 		typeKey    string
+		features   node.NodeFeatures
+		canContain []string
 	}
 	specs := []spec{
-		{"issue", "issues", "Issue", "issue"},
-		{"epic", "epics", "Epic", "epic"},
-		{"cycle", "cycles", "Cycle", "cycle"},
-		{"module", "modules", "Module", "module"},
+		{"issue", "issues", "Issue", "issue", 0, nil},
+		{"epic", "epics", "Epic", "epic", 0, nil},
+		{"cycle", "cycles", "Cycle", "cycle", 0, nil},
+		{"module", "modules", "Module", "module", 0, nil},
+		{"workspace", "workspaces", "Workspace", "workspace", node.FeatureHasSlug | node.FeatureIsContainer, []string{node.NodeTypeProject, node.NodeTypeWorkspace}},
+		{"project", "projects", "Project", "project", node.FeatureHasSlug | node.FeatureIsContainer, []string{node.NodeTypeIssue, node.NodeTypeEpic, node.NodeTypeCycle, node.NodeTypeModule}},
+		{"state", "states", "State", "state", 0, nil},
+		{"label", "labels", "Label", "label", 0, nil},
 	}
 
 	types := make([]*node.NodeType, 0, len(specs))
@@ -143,6 +255,8 @@ func defaultNodeTypes(orgID uuid.UUID) []*node.NodeType {
 			IsBuiltin:  true,
 			TypeKey:    s.typeKey,
 			AllowedOps: node.AllOps,
+			Features:   s.features,
+			CanContain: s.canContain,
 		})
 	}
 	return types

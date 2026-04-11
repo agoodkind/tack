@@ -24,6 +24,7 @@ const (
 type NodeResolve struct {
 	OrgID       uuid.UUID `json:"org_id"`
 	WorkspaceID uuid.UUID `json:"workspace_id"`
+	ProjectID   uuid.UUID `json:"project_id,omitempty"` // set for project-scoped entities
 	NodeType    string    `json:"node_type"`
 }
 

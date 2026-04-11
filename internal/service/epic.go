@@ -11,7 +11,6 @@ import (
 	"goodkind.io/tack/internal/domain/epic"
 	"goodkind.io/tack/internal/domain/issue"
 	"goodkind.io/tack/internal/domain/node"
-	"goodkind.io/tack/internal/domain/workspace"
 	"goodkind.io/tack/internal/telemetry"
 	"github.com/google/uuid"
 )
@@ -20,7 +19,6 @@ import (
 type EpicService struct {
 	entities    node.EntityRepository
 	reader      node.NodeReader
-	workspaces  workspace.Repository
 	assignments node.AssignmentRepository
 	labels      node.NodeLabelRepository
 	containment node.ContainmentRepository
@@ -31,7 +29,6 @@ type EpicService struct {
 func NewEpicService(
 	entities node.EntityRepository,
 	reader node.NodeReader,
-	workspaces workspace.Repository,
 	assignments node.AssignmentRepository,
 	labels node.NodeLabelRepository,
 	containment node.ContainmentRepository,
@@ -40,7 +37,6 @@ func NewEpicService(
 	return &EpicService{
 		entities:    entities,
 		reader:      reader,
-		workspaces:  workspaces,
 		assignments: assignments,
 		labels:      labels,
 		containment: containment,
@@ -174,10 +170,11 @@ func epicFromNodeListView(v *node.NodeListView) *epic.Epic {
 
 
 func (s *EpicService) Create(ctx context.Context, e *epic.Epic) (*epic.Epic, error) {
-	ws, err := s.workspaces.GetByID(ctx, e.WorkspaceID)
+	resolve, err := s.reader.Resolve(ctx, e.WorkspaceID)
 	if err != nil {
 		return nil, fmt.Errorf("resolve workspace: %w", err)
 	}
+	orgID := resolve.OrgID
 
 	if e.ID == uuid.Nil {
 		id, err := uuid.NewV7()
@@ -190,10 +187,10 @@ func (s *EpicService) Create(ctx context.Context, e *epic.Epic) (*epic.Epic, err
 	e.CreatedAt = now
 	e.UpdatedAt = now
 
-	nv, props := nodeValueFromEpic(e, ws.OrgID)
-	view := buildEpicView(e, ws.OrgID)
+	nv, props := nodeValueFromEpic(e, orgID)
+	view := buildEpicView(e, orgID)
 
-	seqID, err := s.entities.CreateAtomic(ctx, ws.OrgID, e.ProjectID, nv, props, view, e.AssigneeIDs, e.LabelIDs, e.CreatedBy)
+	seqID, err := s.entities.CreateAtomic(ctx, orgID, e.ProjectID, nv, props, view, e.AssigneeIDs, e.LabelIDs, e.CreatedBy)
 	if err != nil {
 		return nil, fmt.Errorf("entity create: %w", err)
 	}
@@ -230,11 +227,12 @@ func (s *EpicService) GetByID(ctx context.Context, workspaceID, projectID, id uu
 
 // GetBySequence resolves an epic by its project-scoped sequence number.
 func (s *EpicService) GetBySequence(ctx context.Context, workspaceID, projectID uuid.UUID, seqID int) (*epic.Epic, error) {
-	ws, err := s.workspaces.GetByID(ctx, workspaceID)
+	resolve, err := s.reader.Resolve(ctx, workspaceID)
 	if err != nil {
 		return nil, fmt.Errorf("resolve workspace: %w", err)
 	}
-	nodeID, err := s.entities.GetBySequence(ctx, ws.OrgID, projectID, node.NodeTypeEpic, int64(seqID))
+	orgID := resolve.OrgID
+	nodeID, err := s.entities.GetBySequence(ctx, orgID, projectID, node.NodeTypeEpic, int64(seqID))
 	if err != nil {
 		return nil, fmt.Errorf("get by sequence: %w", err)
 	}
@@ -245,13 +243,14 @@ func (s *EpicService) GetBySequence(ctx context.Context, workspaceID, projectID 
 }
 
 func (s *EpicService) List(ctx context.Context, workspaceID, projectID uuid.UUID) ([]*epic.Epic, int, error) {
-	ws, err := s.workspaces.GetByID(ctx, workspaceID)
+	resolve, err := s.reader.Resolve(ctx, workspaceID)
 	if err != nil {
 		return nil, 0, fmt.Errorf("resolve workspace: %w", err)
 	}
+	orgID := resolve.OrgID
 
 	q := node.NodeListQuery{
-		OrgID:       ws.OrgID,
+		OrgID:       orgID,
 		WorkspaceID: workspaceID,
 		NodeType:    node.NodeTypeEpic,
 		ByProject:   &projectID,
@@ -269,15 +268,16 @@ func (s *EpicService) List(ctx context.Context, workspaceID, projectID uuid.UUID
 }
 
 func (s *EpicService) Update(ctx context.Context, e *epic.Epic) (*epic.Epic, error) {
-	ws, err := s.workspaces.GetByID(ctx, e.WorkspaceID)
+	resolve, err := s.reader.Resolve(ctx, e.WorkspaceID)
 	if err != nil {
 		return nil, fmt.Errorf("resolve workspace: %w", err)
 	}
+	orgID := resolve.OrgID
 
 	e.UpdatedAt = time.Now().UTC()
-	nv, props := nodeValueFromEpic(e, ws.OrgID)
+	nv, props := nodeValueFromEpic(e, orgID)
 
-	view := buildEpicView(e, ws.OrgID)
+	view := buildEpicView(e, orgID)
 	if e.AssigneeIDs == nil || e.LabelIDs == nil {
 		if current, _ := s.reader.Get(ctx, e.ID); current != nil {
 			if e.AssigneeIDs == nil {
@@ -294,10 +294,10 @@ func (s *EpicService) Update(ctx context.Context, e *epic.Epic) (*epic.Epic, err
 	}
 
 	if e.AssigneeIDs != nil {
-		_ = s.assignments.SetAll(ctx, ws.OrgID, e.ID, e.AssigneeIDs, e.CreatedBy)
+		_ = s.assignments.SetAll(ctx, orgID, e.ID, e.AssigneeIDs, e.CreatedBy)
 	}
 	if e.LabelIDs != nil {
-		_ = s.labels.SetAll(ctx, ws.OrgID, e.ID, e.LabelIDs, e.CreatedBy)
+		_ = s.labels.SetAll(ctx, orgID, e.ID, e.LabelIDs, e.CreatedBy)
 	}
 
 	_ = s.searcher.Index(ctx, "nodes", e.ID.String(), nodeDocFromView(view))
@@ -321,12 +321,13 @@ func (s *EpicService) Delete(ctx context.Context, id uuid.UUID) error {
 
 // DeleteByWorkspace deletes an epic using the full workspace context.
 func (s *EpicService) DeleteByWorkspace(ctx context.Context, workspaceID, projectID, id uuid.UUID) error {
-	ws, err := s.workspaces.GetByID(ctx, workspaceID)
+	resolve, err := s.reader.Resolve(ctx, workspaceID)
 	if err != nil {
 		return fmt.Errorf("resolve workspace: %w", err)
 	}
+	orgID := resolve.OrgID
 
-	nv, err := s.entities.Get(ctx, ws.OrgID, workspaceID, node.NodeTypeEpic, id)
+	nv, err := s.entities.Get(ctx, orgID, workspaceID, node.NodeTypeEpic, id)
 	if err != nil {
 		return fmt.Errorf("entity get: %w", err)
 	}

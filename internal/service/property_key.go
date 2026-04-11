@@ -19,12 +19,20 @@ func systemPropID(workspaceID uuid.UUID, name string) uuid.UUID {
 }
 
 const (
-	propNamePriority  = "priority"
-	propNameDueDate   = "due_date"
-	propNameStartDate = "start_date"
-	propNameIsDraft   = "is_draft"
-	propNameStatus    = "status"
-	propNameEndDate   = "end_date"
+	propNamePriority       = "priority"
+	propNameDueDate        = "due_date"
+	propNameStartDate      = "start_date"
+	propNameIsDraft        = "is_draft"
+	propNameStatus         = "status"
+	propNameEndDate        = "end_date"
+	propNameSlug           = "slug"
+	propNameIdentifier     = "identifier"
+	propNameDescription    = "description"
+	propNameNetwork        = "network"
+	propNameDefaultStateID = "default_state_id"
+	propNameGroupName      = "group_name"
+	propNameColor          = "color"
+	propNameSortOrder      = "sort_order"
 )
 
 // priorityRank maps a Priority to its sort rank for the enum secondary index.

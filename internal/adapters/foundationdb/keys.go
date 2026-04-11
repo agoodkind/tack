@@ -2,6 +2,11 @@
 
 package foundationdb
 
+import (
+	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
+	"github.com/google/uuid"
+)
+
 // FDB key space prefixes — all keys are encoded via the tuple layer.
 // Every key is scoped to an org: (prefix, orgID, ...) to ensure tenant isolation.
 // See CLAUDE.md for the full key space reference with access patterns.
@@ -15,11 +20,11 @@ const (
 	keyInvitationByEmail  = "invitation_by_email"
 
 	// Assignments (replaces SQL issue_assignees, epic_assignees)
-	keyAssignmentOnNode  = "assignment_on_node"
-	keyAssignmentToUser  = "assignment_to_user"
+	keyAssignmentOnNode = "assignment_on_node"
+	keyAssignmentToUser = "assignment_to_user"
 
 	// Labels on nodes (replaces SQL issue_labels, epic_labels)
-	keyLabelOnNode    = "label_on_node"
+	keyLabelOnNode     = "label_on_node"
 	keyIssuesWithLabel = "issues_with_label"
 
 	// Containment (replaces SQL module_issues, cycle_issues)
@@ -29,9 +34,9 @@ const (
 	keyCyclesContainingIssue  = "cycles_containing_issue"
 
 	// Hierarchy (complements SQL parent_id and epic_id columns)
-	keyIssueChildren    = "issue_children"
-	keyEpicChildren     = "epic_children"
-	keyIssuesInEpic     = "issues_in_epic"
+	keyIssueChildren = "issue_children"
+	keyEpicChildren  = "epic_children"
+	keyIssuesInEpic  = "issues_in_epic"
 	// keyIssueEpicReverse maps (orgID, issueID) -> epicID bytes for O(1) reverse lookup.
 	keyIssueEpicReverse = "issue_epic_reverse"
 
@@ -59,14 +64,14 @@ const (
 	keyActivityOnWorkspace = "activity_on_workspace"
 
 	// Watchers and mentions
-	keyWatcherOfNode      = "watcher_of_node"
-	keyNodeWatchedByUser  = "node_watched_by_user"
-	keyMentionInNode      = "mention_in_node"
-	keyMentionOfUser      = "mention_of_user"
+	keyWatcherOfNode     = "watcher_of_node"
+	keyNodeWatchedByUser = "node_watched_by_user"
+	keyMentionInNode     = "mention_in_node"
+	keyMentionOfUser     = "mention_of_user"
 
 	// Notifications
-	keyNotificationForUser      = "notification_for_user"
-	keyUnreadNotificationCount  = "unread_notification_count"
+	keyNotificationForUser     = "notification_for_user"
+	keyUnreadNotificationCount = "unread_notification_count"
 
 	// Counters (atomic)
 	keyCountOnNode         = "count_on_node"
@@ -75,17 +80,17 @@ const (
 	keyReactionCountOnNode = "reaction_count_on_node"
 
 	// Positioning and views
-	keySortPositionInView  = "sort_position_in_view"
-	keyBoardLayoutForUser  = "board_layout_for_user"
-	keyStarredByUser       = "starred_by_user"
-	keySavedViewForUser    = "saved_view_for_user"
-	keySavedViewOnEntity   = "saved_view_on_entity"
+	keySortPositionInView = "sort_position_in_view"
+	keyBoardLayoutForUser = "board_layout_for_user"
+	keyStarredByUser      = "starred_by_user"
+	keySavedViewForUser   = "saved_view_for_user"
+	keySavedViewOnEntity  = "saved_view_on_entity"
 
 	// Content
-	keyLinkOnNode          = "link_on_node"
-	keyAttachmentOnNode    = "attachment_on_node"
-	keyDraftForUserOnNode  = "draft_for_user_on_node"
-	keyDescriptionVersion  = "description_version"
+	keyLinkOnNode         = "link_on_node"
+	keyAttachmentOnNode   = "attachment_on_node"
+	keyDraftForUserOnNode = "draft_for_user_on_node"
+	keyDescriptionVersion = "description_version"
 
 	// Work tracking
 	keyWorkLogOnNode = "work_log_on_node"
@@ -116,6 +121,14 @@ const (
 	// (node_resolve, nodeID) → JSON NodeResolve
 	keyNodeResolve = "node_resolve"
 
+	// Slug-based secondary indexes for structural entity types
+	keyOrgBySlug              = "org_by_slug"
+	keyWorkspaceBySlug        = "workspace_by_slug"
+	keyWorkspaceBySlugGlobal  = "workspace_by_slug_global"
+	keyProjectByIdent         = "project_by_identifier"
+	keyProjectByWorkspace     = "project_by_workspace"
+	keySlugSequence           = "slug_sequence"
+
 	// Automation and rules
 	keyAutomationRule          = "automation_rule"
 	keyAutomationRuleByTrigger = "automation_rule_by_trigger"
@@ -123,17 +136,48 @@ const (
 	keyTransitionRule          = "transition_rule"
 
 	// Settings and roles
-	keyUserPreference  = "user_preference"
-	keyOrgSetting      = "org_setting"
-	keyRoleDefinition  = "role_definition"
-	keyRolePermission  = "role_permission"
+	keyUserPreference = "user_preference"
+	keyOrgSetting     = "org_setting"
+	keyRoleDefinition = "role_definition"
+	keyRolePermission = "role_permission"
 
 	// Integrations and ops
-	keyWebhook          = "webhook"
-	keyWebhookDelivery  = "webhook_delivery"
-	keySearchSyncState  = "search_sync_state"
-	keySearchSyncQueue  = "search_sync_queue"
-	keyAuditLog         = "audit_log"
-	keyAuditLogByActor  = "audit_log_by_actor"
-	keyPresenceOnNode   = "presence_on_node"
+	keyWebhook         = "webhook"
+	keyWebhookDelivery = "webhook_delivery"
+	keySearchSyncState = "search_sync_state"
+	keySearchSyncQueue = "search_sync_queue"
+	keyAuditLog        = "audit_log"
+	keyAuditLogByActor = "audit_log_by_actor"
+	keyPresenceOnNode  = "presence_on_node"
 )
+
+// orgBySlugKey returns the secondary index key for org lookup by slug.
+// (org_by_slug, slug) → orgID bytes
+func orgBySlugKey(slug string) tuple.Tuple {
+	return tuple.Tuple{keyOrgBySlug, slug}
+}
+
+// workspaceBySlugKey returns the secondary index key for workspace lookup by slug.
+// (workspace_by_slug, orgID, slug) → wsID bytes
+func workspaceBySlugKey(orgID uuid.UUID, slug string) tuple.Tuple {
+	return tuple.Tuple{keyWorkspaceBySlug, orgID, slug}
+}
+
+// projectByIdentKey returns the secondary index key for project lookup by identifier.
+// (project_by_identifier, orgID, wsID, identifier) → projID bytes
+func projectByIdentKey(orgID, wsID uuid.UUID, identifier string) tuple.Tuple {
+	return tuple.Tuple{keyProjectByIdent, orgID, wsID, identifier}
+}
+
+// projectByWorkspaceKey returns the secondary index key for listing projects in a workspace.
+// (project_by_workspace, orgID, wsID, projID) → nil
+func projectByWorkspaceKey(orgID, wsID, projID uuid.UUID) tuple.Tuple {
+	return tuple.Tuple{keyProjectByWorkspace, orgID, wsID, projID}
+}
+
+// slugSequenceKey returns the atomic counter key for a slug-owning node.
+// (slug_sequence, orgID, slugOwnerNodeID) → int64
+// Used instead of keySequence for HasSlug nodes (org, workspace, project, custom containers).
+func slugSequenceKey(orgID, slugOwnerNodeID uuid.UUID) tuple.Tuple {
+	return tuple.Tuple{keySlugSequence, orgID, slugOwnerNodeID}
+}

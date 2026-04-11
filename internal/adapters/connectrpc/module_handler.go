@@ -9,21 +9,19 @@ import (
 	"goodkind.io/tack/gen/tack/v1/tackv1connect"
 	"goodkind.io/tack/internal/auth"
 	"goodkind.io/tack/internal/domain/module"
-	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/service"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type ModuleHandler struct {
-	modules     *service.ModuleService
-	containment node.ContainmentRepository
+	modules *service.ModuleService
 }
 
 var _ tackv1connect.ModuleServiceHandler = (*ModuleHandler)(nil)
 
-func NewModuleHandler(modules *service.ModuleService, containment node.ContainmentRepository) *ModuleHandler {
-	return &ModuleHandler{modules: modules, containment: containment}
+func NewModuleHandler(modules *service.ModuleService) *ModuleHandler {
+	return &ModuleHandler{modules: modules}
 }
 
 func (h *ModuleHandler) CreateModule(ctx context.Context, req *connect.Request[v1.CreateModuleRequest]) (*connect.Response[v1.Module], error) {
@@ -115,24 +113,26 @@ func (h *ModuleHandler) DeleteModule(ctx context.Context, req *connect.Request[v
 func (h *ModuleHandler) AddIssuesToModule(ctx context.Context, req *connect.Request[v1.AddIssuesToModuleRequest]) (*connect.Response[emptypb.Empty], error) {
 	userID := auth.MustUserID(ctx)
 	msg := req.Msg
-	orgID := mustUUID(msg.WorkspaceId)
 	moduleID := mustUUID(msg.ModuleId)
-	for _, issueIDStr := range msg.IssueIds {
-		if err := h.containment.AddIssueToModule(ctx, orgID, moduleID, mustUUID(issueIDStr), userID); err != nil {
-			return nil, domainErr(err)
-		}
+	issueIDs := make([]uuid.UUID, 0, len(msg.IssueIds))
+	for _, id := range msg.IssueIds {
+		issueIDs = append(issueIDs, mustUUID(id))
+	}
+	if err := h.modules.AddIssues(ctx, moduleID, issueIDs, userID); err != nil {
+		return nil, domainErr(err)
 	}
 	return connect.NewResponse(&emptypb.Empty{}), nil
 }
 
 func (h *ModuleHandler) RemoveIssuesFromModule(ctx context.Context, req *connect.Request[v1.RemoveIssuesFromModuleRequest]) (*connect.Response[emptypb.Empty], error) {
 	msg := req.Msg
-	orgID := mustUUID(msg.WorkspaceId)
 	moduleID := mustUUID(msg.ModuleId)
-	for _, issueIDStr := range msg.IssueIds {
-		if err := h.containment.RemoveIssueFromModule(ctx, orgID, moduleID, mustUUID(issueIDStr)); err != nil {
-			return nil, domainErr(err)
-		}
+	issueIDs := make([]uuid.UUID, 0, len(msg.IssueIds))
+	for _, id := range msg.IssueIds {
+		issueIDs = append(issueIDs, mustUUID(id))
+	}
+	if err := h.modules.RemoveIssues(ctx, moduleID, issueIDs); err != nil {
+		return nil, domainErr(err)
 	}
 	return connect.NewResponse(&emptypb.Empty{}), nil
 }

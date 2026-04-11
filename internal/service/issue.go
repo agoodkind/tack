@@ -13,7 +13,6 @@ import (
 	"goodkind.io/tack/internal/domain/issue"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/domain/project"
-	"goodkind.io/tack/internal/domain/workspace"
 	"goodkind.io/tack/internal/telemetry"
 	"github.com/google/uuid"
 )
@@ -22,7 +21,6 @@ import (
 type IssueService struct {
 	entities    node.EntityRepository
 	reader      node.NodeReader
-	workspaces  workspace.Repository
 	projects    project.Repository
 	activity    node.ActivityRepository
 	assignments node.AssignmentRepository
@@ -37,7 +35,6 @@ type IssueService struct {
 func NewIssueService(
 	entities node.EntityRepository,
 	reader node.NodeReader,
-	workspaces workspace.Repository,
 	projects project.Repository,
 	activity node.ActivityRepository,
 	assignments node.AssignmentRepository,
@@ -51,7 +48,6 @@ func NewIssueService(
 	return &IssueService{
 		entities:    entities,
 		reader:      reader,
-		workspaces:  workspaces,
 		projects:    projects,
 		activity:    activity,
 		assignments: assignments,
@@ -200,10 +196,11 @@ func issueFromNodeListView(v *node.NodeListView) *issue.Issue {
 
 
 func (s *IssueService) Create(ctx context.Context, i *issue.Issue) (*issue.Issue, error) {
-	ws, err := s.workspaces.GetByID(ctx, i.WorkspaceID)
+	resolve, err := s.reader.Resolve(ctx, i.WorkspaceID)
 	if err != nil {
 		return nil, fmt.Errorf("resolve workspace: %w", err)
 	}
+	orgID := resolve.OrgID
 
 	if i.ID == uuid.Nil {
 		id, err := uuid.NewV7()
@@ -216,10 +213,10 @@ func (s *IssueService) Create(ctx context.Context, i *issue.Issue) (*issue.Issue
 	i.CreatedAt = now
 	i.UpdatedAt = now
 
-	nv, props := nodeValueFromIssue(i, ws.OrgID)
-	view := buildIssueView(i, ws.OrgID)
+	nv, props := nodeValueFromIssue(i, orgID)
+	view := buildIssueView(i, orgID)
 
-	seqID, err := s.entities.CreateAtomic(ctx, ws.OrgID, i.ProjectID, nv, props, view, i.AssigneeIDs, i.LabelIDs, i.CreatedBy)
+	seqID, err := s.entities.CreateAtomic(ctx, orgID, i.ProjectID, nv, props, view, i.AssigneeIDs, i.LabelIDs, i.CreatedBy)
 	if err != nil {
 		return nil, fmt.Errorf("entity create: %w", err)
 	}
@@ -227,7 +224,7 @@ func (s *IssueService) Create(ctx context.Context, i *issue.Issue) (*issue.Issue
 	// Sync sequence back into the view that was written atomically.
 	view.SequenceID = int32(seqID)
 
-	_ = s.activity.Append(ctx, ws.OrgID, i.WorkspaceID, &node.ActivityEvent{
+	_ = s.activity.Append(ctx, orgID, i.WorkspaceID, &node.ActivityEvent{
 		EventID:   uuid.New(),
 		NodeID:    i.ID,
 		Actor:     i.CreatedBy,
@@ -237,7 +234,7 @@ func (s *IssueService) Create(ctx context.Context, i *issue.Issue) (*issue.Issue
 	})
 
 	_ = s.searcher.Index(ctx, "nodes", i.ID.String(), nodeDocFromView(view))
-	_ = s.automations.Run(ctx, ws.OrgID, i.WorkspaceID, nv, node.TriggerNodeCreated)
+	_ = s.automations.Run(ctx, orgID, i.WorkspaceID, nv, node.TriggerNodeCreated)
 
 	telemetry.L(ctx).Info("issue.created",
 		slog.String("issue_id", i.ID.String()),
@@ -271,11 +268,12 @@ func (s *IssueService) Get(ctx context.Context, workspaceID, projectID, id uuid.
 // GetBySequence resolves an issue by its project-scoped sequence number.
 // This is used by the MCP identifier pattern ("ENG-42" → seq=42).
 func (s *IssueService) GetBySequence(ctx context.Context, workspaceID, projectID uuid.UUID, seqID int) (*issue.Issue, error) {
-	ws, err := s.workspaces.GetByID(ctx, workspaceID)
+	resolve, err := s.reader.Resolve(ctx, workspaceID)
 	if err != nil {
 		return nil, fmt.Errorf("resolve workspace: %w", err)
 	}
-	nodeID, err := s.entities.GetBySequence(ctx, ws.OrgID, projectID, node.NodeTypeIssue, int64(seqID))
+	orgID := resolve.OrgID
+	nodeID, err := s.entities.GetBySequence(ctx, orgID, projectID, node.NodeTypeIssue, int64(seqID))
 	if err != nil {
 		return nil, fmt.Errorf("get by sequence: %w", err)
 	}
@@ -286,10 +284,11 @@ func (s *IssueService) GetBySequence(ctx context.Context, workspaceID, projectID
 }
 
 func (s *IssueService) List(ctx context.Context, filter issue.ListFilter) ([]*issue.Issue, int, error) {
-	ws, err := s.workspaces.GetByID(ctx, filter.WorkspaceID)
+	resolve, err := s.reader.Resolve(ctx, filter.WorkspaceID)
 	if err != nil {
 		return nil, 0, fmt.Errorf("resolve workspace: %w", err)
 	}
+	orgID := resolve.OrgID
 
 	limit := filter.PerPage
 	if limit <= 0 {
@@ -297,7 +296,7 @@ func (s *IssueService) List(ctx context.Context, filter issue.ListFilter) ([]*is
 	}
 
 	q := node.NodeListQuery{
-		OrgID:       ws.OrgID,
+		OrgID:       orgID,
 		WorkspaceID: filter.WorkspaceID,
 		NodeType:    node.NodeTypeIssue,
 		Limit:       limit,
@@ -349,17 +348,18 @@ func (s *IssueService) List(ctx context.Context, filter issue.ListFilter) ([]*is
 }
 
 func (s *IssueService) Update(ctx context.Context, i *issue.Issue) (*issue.Issue, error) {
-	ws, err := s.workspaces.GetByID(ctx, i.WorkspaceID)
+	resolve, err := s.reader.Resolve(ctx, i.WorkspaceID)
 	if err != nil {
 		return nil, fmt.Errorf("resolve workspace: %w", err)
 	}
+	orgID := resolve.OrgID
 
 	i.UpdatedAt = time.Now().UTC()
-	nv, props := nodeValueFromIssue(i, ws.OrgID)
+	nv, props := nodeValueFromIssue(i, orgID)
 
 	// Build the view with current assignees/labels when the caller did not supply them.
 	// Updates to assignees go through SetAll; the view must reflect the persisted state.
-	view := buildIssueView(i, ws.OrgID)
+	view := buildIssueView(i, orgID)
 	if i.AssigneeIDs == nil || i.LabelIDs == nil {
 		if current, _ := s.reader.Get(ctx, i.ID); current != nil {
 			if i.AssigneeIDs == nil {
@@ -376,17 +376,17 @@ func (s *IssueService) Update(ctx context.Context, i *issue.Issue) (*issue.Issue
 	}
 
 	if i.AssigneeIDs != nil {
-		_ = s.assignments.SetAll(ctx, ws.OrgID, i.ID, i.AssigneeIDs, i.CreatedBy)
+		_ = s.assignments.SetAll(ctx, orgID, i.ID, i.AssigneeIDs, i.CreatedBy)
 	}
 	if i.LabelIDs != nil {
-		_ = s.labels.SetAll(ctx, ws.OrgID, i.ID, i.LabelIDs, i.CreatedBy)
+		_ = s.labels.SetAll(ctx, orgID, i.ID, i.LabelIDs, i.CreatedBy)
 	}
 
 	actor := i.CreatedBy
 	if i.UpdatedBy != nil {
 		actor = *i.UpdatedBy
 	}
-	_ = s.activity.Append(ctx, ws.OrgID, i.WorkspaceID, &node.ActivityEvent{
+	_ = s.activity.Append(ctx, orgID, i.WorkspaceID, &node.ActivityEvent{
 		EventID:   uuid.New(),
 		NodeID:    i.ID,
 		Actor:     actor,
@@ -396,18 +396,19 @@ func (s *IssueService) Update(ctx context.Context, i *issue.Issue) (*issue.Issue
 	})
 
 	_ = s.searcher.Index(ctx, "nodes", i.ID.String(), nodeDocFromView(view))
-	_ = s.automations.Run(ctx, ws.OrgID, i.WorkspaceID, nv, node.TriggerNodeUpdated)
+	_ = s.automations.Run(ctx, orgID, i.WorkspaceID, nv, node.TriggerNodeUpdated)
 
 	return i, nil
 }
 
 func (s *IssueService) Delete(ctx context.Context, workspaceID, projectID, id uuid.UUID) error {
-	ws, err := s.workspaces.GetByID(ctx, workspaceID)
+	resolve, err := s.reader.Resolve(ctx, workspaceID)
 	if err != nil {
 		return fmt.Errorf("resolve workspace: %w", err)
 	}
+	orgID := resolve.OrgID
 
-	nv, err := s.entities.Get(ctx, ws.OrgID, workspaceID, node.NodeTypeIssue, id)
+	nv, err := s.entities.Get(ctx, orgID, workspaceID, node.NodeTypeIssue, id)
 	if err != nil {
 		return fmt.Errorf("entity get: %w", err)
 	}
@@ -419,9 +420,9 @@ func (s *IssueService) Delete(ctx context.Context, workspaceID, projectID, id uu
 		return fmt.Errorf("entity delete: %w", err)
 	}
 
-	_ = s.nodeDeleter.DeleteNode(ctx, ws.OrgID, id)
+	_ = s.nodeDeleter.DeleteNode(ctx, orgID, id)
 	_ = s.searcher.Delete(ctx, "nodes", id.String())
-	_ = s.automations.Run(ctx, ws.OrgID, workspaceID, nv, node.TriggerNodeDeleted)
+	_ = s.automations.Run(ctx, orgID, workspaceID, nv, node.TriggerNodeDeleted)
 
 	telemetry.L(ctx).Info("issue.deleted",
 		slog.String("issue_id", id.String()),
@@ -443,17 +444,18 @@ func (s *IssueService) SetEpic(ctx context.Context, issueID uuid.UUID, epicID *u
 // The returned channel closes when all items have been sent or ctx is cancelled.
 // FDB errors during streaming are logged; the channel closes early on error.
 func (s *IssueService) Stream(ctx context.Context, filter issue.ListFilter) (<-chan *issue.Issue, error) {
-	ws, err := s.workspaces.GetByID(ctx, filter.WorkspaceID)
+	resolve, err := s.reader.Resolve(ctx, filter.WorkspaceID)
 	if err != nil {
 		return nil, fmt.Errorf("resolve workspace: %w", err)
 	}
+	orgID := resolve.OrgID
 
 	if filter.ProjectID == nil {
 		return nil, fmt.Errorf("project_id required for issue stream")
 	}
 
 	q := node.NodeListQuery{
-		OrgID:       ws.OrgID,
+		OrgID:       orgID,
 		WorkspaceID: filter.WorkspaceID,
 		NodeType:    node.NodeTypeIssue,
 		ByProject:   filter.ProjectID,
@@ -529,4 +531,13 @@ func (s *IssueService) Search(ctx context.Context, workspaceID uuid.UUID, q stri
 		issues = append(issues, issueFromNodeListView(view))
 	}
 	return issues, len(issues), nil
+}
+
+// ListActivity returns the activity log for any node, resolving orgID from the node's resolution record.
+func (s *IssueService) ListActivity(ctx context.Context, nodeID uuid.UUID) ([]*node.ActivityEvent, error) {
+	resolve, err := s.reader.Resolve(ctx, nodeID)
+	if err != nil {
+		return nil, fmt.Errorf("resolve node: %w", err)
+	}
+	return s.activity.List(ctx, resolve.OrgID, resolve.WorkspaceID, nodeID)
 }

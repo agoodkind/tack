@@ -14,10 +14,11 @@ import (
 )
 
 func (s *IssueService) Move(ctx context.Context, workspaceID, projectID, issueID, targetProjectID uuid.UUID, actorID uuid.UUID) (*issue.Issue, error) {
-	ws, err := s.workspaces.GetByID(ctx, workspaceID)
+	resolve, err := s.reader.Resolve(ctx, workspaceID)
 	if err != nil {
 		return nil, fmt.Errorf("resolve workspace: %w", err)
 	}
+	orgID := resolve.OrgID
 
 	view, err := s.reader.Get(ctx, issueID)
 	if err != nil {
@@ -33,19 +34,19 @@ func (s *IssueService) Move(ctx context.Context, workspaceID, projectID, issueID
 	i.UpdatedBy = &actorID
 	i.UpdatedAt = time.Now().UTC()
 
-	seqID, err := s.entities.AllocateSequenceID(ctx, ws.OrgID, targetProjectID, node.NodeTypeIssue)
+	seqID, err := s.entities.AllocateSequenceID(ctx, orgID, targetProjectID, node.NodeTypeIssue)
 	if err != nil {
 		return nil, fmt.Errorf("allocate sequence: %w", err)
 	}
 	i.SequenceID = int(seqID)
 
-	nv, props := nodeValueFromIssue(i, ws.OrgID)
-	newView := buildIssueView(i, ws.OrgID)
+	nv, props := nodeValueFromIssue(i, orgID)
+	newView := buildIssueView(i, orgID)
 	if err := s.entities.Set(ctx, nv, props, newView); err != nil {
 		return nil, fmt.Errorf("entity set: %w", err)
 	}
 
-	_ = s.activity.Append(ctx, ws.OrgID, workspaceID, &node.ActivityEvent{
+	_ = s.activity.Append(ctx, orgID, workspaceID, &node.ActivityEvent{
 		EventID:   uuid.New(),
 		NodeID:    issueID,
 		Actor:     actorID,
@@ -66,10 +67,11 @@ func (s *IssueService) Move(ctx context.Context, workspaceID, projectID, issueID
 }
 
 func (s *IssueService) BulkUpdate(ctx context.Context, workspaceID uuid.UUID, patch issue.BulkUpdatePatch) (int, error) {
-	ws, err := s.workspaces.GetByID(ctx, workspaceID)
+	resolve, err := s.reader.Resolve(ctx, workspaceID)
 	if err != nil {
 		return 0, fmt.Errorf("resolve workspace: %w", err)
 	}
+	orgID := resolve.OrgID
 
 	var updated int
 	for _, id := range patch.IssueIDs {
@@ -97,13 +99,13 @@ func (s *IssueService) BulkUpdate(ctx context.Context, workspaceID uuid.UUID, pa
 		i.UpdatedBy = &patch.ActorID
 		i.UpdatedAt = time.Now().UTC()
 
-		newNV, newProps := nodeValueFromIssue(i, ws.OrgID)
-		newView := buildIssueView(i, ws.OrgID)
+		newNV, newProps := nodeValueFromIssue(i, orgID)
+		newView := buildIssueView(i, orgID)
 		if setErr := s.entities.Set(ctx, newNV, newProps, newView); setErr != nil {
 			continue
 		}
 		if patch.AssigneeIDs != nil {
-			_ = s.assignments.SetAll(ctx, ws.OrgID, id, patch.AssigneeIDs, patch.ActorID)
+			_ = s.assignments.SetAll(ctx, orgID, id, patch.AssigneeIDs, patch.ActorID)
 		}
 		_ = s.searcher.Index(ctx, "nodes", i.ID.String(), nodeDocFromView(newView))
 		updated++
@@ -116,21 +118,22 @@ func (s *IssueService) BulkUpdate(ctx context.Context, workspaceID uuid.UUID, pa
 }
 
 func (s *IssueService) BulkDelete(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID) (int, error) {
-	ws, err := s.workspaces.GetByID(ctx, workspaceID)
+	resolve, err := s.reader.Resolve(ctx, workspaceID)
 	if err != nil {
 		return 0, fmt.Errorf("resolve workspace: %w", err)
 	}
+	orgID := resolve.OrgID
 
 	var deleted int
 	for _, id := range issueIDs {
-		nv, getErr := s.entities.Get(ctx, ws.OrgID, workspaceID, node.NodeTypeIssue, id)
+		nv, getErr := s.entities.Get(ctx, orgID, workspaceID, node.NodeTypeIssue, id)
 		if getErr != nil || nv == nil {
 			continue
 		}
 		if delErr := s.entities.Delete(ctx, nv); delErr != nil {
 			continue
 		}
-		_ = s.nodeDeleter.DeleteNode(ctx, ws.OrgID, id)
+		_ = s.nodeDeleter.DeleteNode(ctx, orgID, id)
 		_ = s.searcher.Delete(ctx, "nodes", id.String())
 		deleted++
 	}
