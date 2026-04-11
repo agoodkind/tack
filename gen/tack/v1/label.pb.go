@@ -512,7 +512,7 @@ const file_tack_v1_label_proto_rawDesc = "" +
 	"\n" +
 	"ListLabels\x12\x1a.tack.v1.ListLabelsRequest\x1a\x1b.tack.v1.ListLabelsResponse\x12:\n" +
 	"\vUpdateLabel\x12\x1b.tack.v1.UpdateLabelRequest\x1a\x0e.tack.v1.Label\x12B\n" +
-	"\vDeleteLabel\x12\x1b.tack.v1.DeleteLabelRequest\x1a\x16.google.protobuf.EmptyB.Z,github.com/agoodkind/tack/gen/tack/v1;tackv1b\x06proto3"
+	"\vDeleteLabel\x12\x1b.tack.v1.DeleteLabelRequest\x1a\x16.google.protobuf.EmptyB%Z#goodkind.io/tack/gen/tack/v1;tackv1b\x06proto3"
 
 var (
 	file_tack_v1_label_proto_rawDescOnce sync.Once

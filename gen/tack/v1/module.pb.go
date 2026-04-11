@@ -755,7 +755,7 @@ const file_tack_v1_module_proto_rawDesc = "" +
 	"\fUpdateModule\x12\x1c.tack.v1.UpdateModuleRequest\x1a\x0f.tack.v1.Module\x12D\n" +
 	"\fDeleteModule\x12\x1c.tack.v1.DeleteModuleRequest\x1a\x16.google.protobuf.Empty\x12N\n" +
 	"\x11AddIssuesToModule\x12!.tack.v1.AddIssuesToModuleRequest\x1a\x16.google.protobuf.Empty\x12X\n" +
-	"\x16RemoveIssuesFromModule\x12&.tack.v1.RemoveIssuesFromModuleRequest\x1a\x16.google.protobuf.EmptyB.Z,github.com/agoodkind/tack/gen/tack/v1;tackv1b\x06proto3"
+	"\x16RemoveIssuesFromModule\x12&.tack.v1.RemoveIssuesFromModuleRequest\x1a\x16.google.protobuf.EmptyB%Z#goodkind.io/tack/gen/tack/v1;tackv1b\x06proto3"
 
 var (
 	file_tack_v1_module_proto_rawDescOnce sync.Once

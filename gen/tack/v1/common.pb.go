@@ -245,7 +245,7 @@ const file_tack_v1_common_proto_rawDesc = "" +
 	"\x10STATE_GROUP_TODO\x10\x02\x12\x17\n" +
 	"\x13STATE_GROUP_STARTED\x10\x03\x12\x19\n" +
 	"\x15STATE_GROUP_COMPLETED\x10\x04\x12\x19\n" +
-	"\x15STATE_GROUP_CANCELLED\x10\x05B.Z,github.com/agoodkind/tack/gen/tack/v1;tackv1b\x06proto3"
+	"\x15STATE_GROUP_CANCELLED\x10\x05B%Z#goodkind.io/tack/gen/tack/v1;tackv1b\x06proto3"
 
 var (
 	file_tack_v1_common_proto_rawDescOnce sync.Once

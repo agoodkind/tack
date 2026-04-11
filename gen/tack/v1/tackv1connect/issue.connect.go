@@ -41,6 +41,9 @@ const (
 	IssueServiceGetIssueProcedure = "/tack.v1.IssueService/GetIssue"
 	// IssueServiceListIssuesProcedure is the fully-qualified name of the IssueService's ListIssues RPC.
 	IssueServiceListIssuesProcedure = "/tack.v1.IssueService/ListIssues"
+	// IssueServiceStreamIssuesProcedure is the fully-qualified name of the IssueService's StreamIssues
+	// RPC.
+	IssueServiceStreamIssuesProcedure = "/tack.v1.IssueService/StreamIssues"
 	// IssueServiceUpdateIssueProcedure is the fully-qualified name of the IssueService's UpdateIssue
 	// RPC.
 	IssueServiceUpdateIssueProcedure = "/tack.v1.IssueService/UpdateIssue"
@@ -77,6 +80,10 @@ type IssueServiceClient interface {
 	CreateIssue(context.Context, *connect.Request[v1.CreateIssueRequest]) (*connect.Response[v1.Issue], error)
 	GetIssue(context.Context, *connect.Request[v1.GetIssueRequest]) (*connect.Response[v1.Issue], error)
 	ListIssues(context.Context, *connect.Request[v1.ListIssuesRequest]) (*connect.Response[v1.ListIssuesResponse], error)
+	// StreamIssues is the server-streaming equivalent of ListIssues for large
+	// or unbounded result sets. Backed by NodeReader.Stream; results flow as
+	// parallel FDB chunks complete. Prefer ListIssues for bounded/paginated queries.
+	StreamIssues(context.Context, *connect.Request[v1.ListIssuesRequest]) (*connect.ServerStreamForClient[v1.Issue], error)
 	UpdateIssue(context.Context, *connect.Request[v1.UpdateIssueRequest]) (*connect.Response[v1.Issue], error)
 	DeleteIssue(context.Context, *connect.Request[v1.DeleteIssueRequest]) (*connect.Response[emptypb.Empty], error)
 	AssignIssue(context.Context, *connect.Request[v1.AssignIssueRequest]) (*connect.Response[v1.Issue], error)
@@ -116,6 +123,12 @@ func NewIssueServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			httpClient,
 			baseURL+IssueServiceListIssuesProcedure,
 			connect.WithSchema(issueServiceMethods.ByName("ListIssues")),
+			connect.WithClientOptions(opts...),
+		),
+		streamIssues: connect.NewClient[v1.ListIssuesRequest, v1.Issue](
+			httpClient,
+			baseURL+IssueServiceStreamIssuesProcedure,
+			connect.WithSchema(issueServiceMethods.ByName("StreamIssues")),
 			connect.WithClientOptions(opts...),
 		),
 		updateIssue: connect.NewClient[v1.UpdateIssueRequest, v1.Issue](
@@ -186,6 +199,7 @@ type issueServiceClient struct {
 	createIssue      *connect.Client[v1.CreateIssueRequest, v1.Issue]
 	getIssue         *connect.Client[v1.GetIssueRequest, v1.Issue]
 	listIssues       *connect.Client[v1.ListIssuesRequest, v1.ListIssuesResponse]
+	streamIssues     *connect.Client[v1.ListIssuesRequest, v1.Issue]
 	updateIssue      *connect.Client[v1.UpdateIssueRequest, v1.Issue]
 	deleteIssue      *connect.Client[v1.DeleteIssueRequest, emptypb.Empty]
 	assignIssue      *connect.Client[v1.AssignIssueRequest, v1.Issue]
@@ -211,6 +225,11 @@ func (c *issueServiceClient) GetIssue(ctx context.Context, req *connect.Request[
 // ListIssues calls tack.v1.IssueService.ListIssues.
 func (c *issueServiceClient) ListIssues(ctx context.Context, req *connect.Request[v1.ListIssuesRequest]) (*connect.Response[v1.ListIssuesResponse], error) {
 	return c.listIssues.CallUnary(ctx, req)
+}
+
+// StreamIssues calls tack.v1.IssueService.StreamIssues.
+func (c *issueServiceClient) StreamIssues(ctx context.Context, req *connect.Request[v1.ListIssuesRequest]) (*connect.ServerStreamForClient[v1.Issue], error) {
+	return c.streamIssues.CallServerStream(ctx, req)
 }
 
 // UpdateIssue calls tack.v1.IssueService.UpdateIssue.
@@ -268,6 +287,10 @@ type IssueServiceHandler interface {
 	CreateIssue(context.Context, *connect.Request[v1.CreateIssueRequest]) (*connect.Response[v1.Issue], error)
 	GetIssue(context.Context, *connect.Request[v1.GetIssueRequest]) (*connect.Response[v1.Issue], error)
 	ListIssues(context.Context, *connect.Request[v1.ListIssuesRequest]) (*connect.Response[v1.ListIssuesResponse], error)
+	// StreamIssues is the server-streaming equivalent of ListIssues for large
+	// or unbounded result sets. Backed by NodeReader.Stream; results flow as
+	// parallel FDB chunks complete. Prefer ListIssues for bounded/paginated queries.
+	StreamIssues(context.Context, *connect.Request[v1.ListIssuesRequest], *connect.ServerStream[v1.Issue]) error
 	UpdateIssue(context.Context, *connect.Request[v1.UpdateIssueRequest]) (*connect.Response[v1.Issue], error)
 	DeleteIssue(context.Context, *connect.Request[v1.DeleteIssueRequest]) (*connect.Response[emptypb.Empty], error)
 	AssignIssue(context.Context, *connect.Request[v1.AssignIssueRequest]) (*connect.Response[v1.Issue], error)
@@ -303,6 +326,12 @@ func NewIssueServiceHandler(svc IssueServiceHandler, opts ...connect.HandlerOpti
 		IssueServiceListIssuesProcedure,
 		svc.ListIssues,
 		connect.WithSchema(issueServiceMethods.ByName("ListIssues")),
+		connect.WithHandlerOptions(opts...),
+	)
+	issueServiceStreamIssuesHandler := connect.NewServerStreamHandler(
+		IssueServiceStreamIssuesProcedure,
+		svc.StreamIssues,
+		connect.WithSchema(issueServiceMethods.ByName("StreamIssues")),
 		connect.WithHandlerOptions(opts...),
 	)
 	issueServiceUpdateIssueHandler := connect.NewUnaryHandler(
@@ -373,6 +402,8 @@ func NewIssueServiceHandler(svc IssueServiceHandler, opts ...connect.HandlerOpti
 			issueServiceGetIssueHandler.ServeHTTP(w, r)
 		case IssueServiceListIssuesProcedure:
 			issueServiceListIssuesHandler.ServeHTTP(w, r)
+		case IssueServiceStreamIssuesProcedure:
+			issueServiceStreamIssuesHandler.ServeHTTP(w, r)
 		case IssueServiceUpdateIssueProcedure:
 			issueServiceUpdateIssueHandler.ServeHTTP(w, r)
 		case IssueServiceDeleteIssueProcedure:
@@ -412,6 +443,10 @@ func (UnimplementedIssueServiceHandler) GetIssue(context.Context, *connect.Reque
 
 func (UnimplementedIssueServiceHandler) ListIssues(context.Context, *connect.Request[v1.ListIssuesRequest]) (*connect.Response[v1.ListIssuesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("tack.v1.IssueService.ListIssues is not implemented"))
+}
+
+func (UnimplementedIssueServiceHandler) StreamIssues(context.Context, *connect.Request[v1.ListIssuesRequest], *connect.ServerStream[v1.Issue]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("tack.v1.IssueService.StreamIssues is not implemented"))
 }
 
 func (UnimplementedIssueServiceHandler) UpdateIssue(context.Context, *connect.Request[v1.UpdateIssueRequest]) (*connect.Response[v1.Issue], error) {

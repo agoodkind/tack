@@ -611,7 +611,7 @@ const file_tack_v1_epic_proto_rawDesc = "" +
 	"\n" +
 	"UpdateEpic\x12\x1a.tack.v1.UpdateEpicRequest\x1a\r.tack.v1.Epic\x12@\n" +
 	"\n" +
-	"DeleteEpic\x12\x1a.tack.v1.DeleteEpicRequest\x1a\x16.google.protobuf.EmptyB.Z,github.com/agoodkind/tack/gen/tack/v1;tackv1b\x06proto3"
+	"DeleteEpic\x12\x1a.tack.v1.DeleteEpicRequest\x1a\x16.google.protobuf.EmptyB%Z#goodkind.io/tack/gen/tack/v1;tackv1b\x06proto3"
 
 var (
 	file_tack_v1_epic_proto_rawDescOnce sync.Once

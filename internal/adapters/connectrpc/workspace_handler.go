@@ -7,6 +7,7 @@ import (
 	v1 "goodkind.io/tack/gen/tack/v1"
 	"goodkind.io/tack/gen/tack/v1/tackv1connect"
 	"goodkind.io/tack/internal/auth"
+	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/domain/workspace"
 	"goodkind.io/tack/internal/service"
 	"github.com/google/uuid"
@@ -68,4 +69,38 @@ func (h *WorkspaceHandler) UpdateWorkspace(_ context.Context, _ *connect.Request
 func (h *WorkspaceHandler) DeleteWorkspace(ctx context.Context, req *connect.Request[v1.DeleteWorkspaceRequest]) (*connect.Response[emptypb.Empty], error) {
 	_ = req
 	return nil, connect.NewError(connect.CodeUnimplemented, nil)
+}
+
+func (h *WorkspaceHandler) DescribeWorkspace(ctx context.Context, req *connect.Request[v1.DescribeWorkspaceRequest]) (*connect.Response[v1.WorkspaceDescription], error) {
+	ws, types, err := h.workspaces.Describe(ctx, req.Msg.Slug)
+	if err != nil {
+		return nil, domainErr(err)
+	}
+	ntDefs := make([]*v1.NodeTypeDefinition, len(types))
+	for i, nt := range types {
+		ntDefs[i] = protoNodeTypeDef(nt)
+	}
+	return connect.NewResponse(&v1.WorkspaceDescription{
+		Workspace: protoWorkspace(ws),
+		NodeTypes: ntDefs,
+	}), nil
+}
+
+func protoNodeTypeDef(nt *node.NodeType) *v1.NodeTypeDefinition {
+	ops := make([]string, len(nt.AllowedOps))
+	for i, op := range nt.AllowedOps {
+		ops[i] = string(op)
+	}
+	return &v1.NodeTypeDefinition{
+		Id:         nt.ID.String(),
+		OrgId:      nt.OrgID.String(),
+		Name:       nt.Name,
+		Slug:       nt.Slug,
+		PluralSlug: nt.PluralSlug,
+		IsBuiltin:  nt.IsBuiltin,
+		TypeKey:    nt.TypeKey,
+		Color:      nt.Color,
+		Icon:       nt.Icon,
+		AllowedOps: ops,
+	}
 }

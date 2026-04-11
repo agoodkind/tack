@@ -1,0 +1,123 @@
+syntax = "proto3";
+
+package tack.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "goodkind.io/tack/gen/tack/v1;tackv1";
+
+// NodeValue is the lean core stored in FDB for every node.
+// Properties (priority, due_date, etc.) are stored separately as PropertyValues.
+message NodeValue {
+  string id           = 1;
+  string org_id       = 2;
+  string workspace_id = 3;
+  string project_id   = 4;
+  string node_type    = 5; // "issue", "epic", "cycle", "module", or custom slug
+  string name         = 6;
+  string description  = 7;
+  string state_id     = 8;
+  string parent_id    = 9;
+  int32  sequence_id  = 10;
+  double sort_order   = 11;
+  string created_by   = 12;
+  string updated_by   = 13;
+  google.protobuf.Timestamp created_at = 14;
+  google.protobuf.Timestamp updated_at = 15;
+}
+
+// PropertyValue holds a typed value for a single property on a node.
+message PropertyValue {
+  oneof value {
+    string                    text_value      = 1;
+    int64                     int_value       = 2;
+    double                    float_value     = 3;
+    bool                      bool_value      = 4;
+    google.protobuf.Timestamp timestamp_value = 5;
+    EnumValue                 enum_value      = 6;
+  }
+}
+
+// EnumValue pairs the option key with its sort rank so the FDB secondary index
+// can sort by rank without re-reading the PropertyDef.
+message EnumValue {
+  string key       = 1;
+  int32  sort_rank = 2;
+}
+
+// EnumOption is one option in a select or multi-select property.
+message EnumOption {
+  string key       = 1;
+  string label     = 2;
+  string color     = 3;
+  int32  sort_rank = 4; // lower = earlier in sort order
+}
+
+// PropertyDef defines a custom property that applies to one or more node types.
+message PropertyDef {
+  string   id           = 1;
+  string   org_id       = 2;
+  string   workspace_id = 3;
+  string   project_id   = 4; // optional: project-scoped def
+  string   name         = 5;
+  string   field_type   = 6; // "text","number","date","select","multi_select","url","checkbox","timestamp"
+  repeated string node_types = 7; // which node type slugs this property applies to; empty = all
+  bool     indexed      = 8; // if true, FDB maintains a secondary sort index on this property
+  bool     required     = 9;
+  bool     is_system    = 10; // true for seeded defaults (priority, due_date, etc.)
+  PropertyValue         default_value = 11;
+  repeated EnumOption   enum_options  = 12; // for select / multi_select
+}
+
+// NodeTypeDefinition describes a node type available in a workspace.
+// Returned by DescribeWorkspace and used by the MCP layer for dynamic tool registration.
+message NodeTypeDefinition {
+  string id          = 1;
+  string org_id      = 2;
+  string name        = 3;
+  string slug        = 4;
+  string plural_slug = 5;
+  bool   is_builtin  = 6;
+  string type_key    = 7;  // stable dispatch key: "issue","epic","cycle","module"; empty for custom types
+  string color       = 8;
+  string icon        = 9;
+  repeated string allowed_ops = 10;
+}
+
+// AutomationTrigger identifies the event that fires a rule.
+enum AutomationTrigger {
+  AUTOMATION_TRIGGER_UNSPECIFIED       = 0;
+  AUTOMATION_TRIGGER_NODE_CREATED      = 1;
+  AUTOMATION_TRIGGER_NODE_UPDATED      = 2;
+  AUTOMATION_TRIGGER_STATE_CHANGED     = 3;
+  AUTOMATION_TRIGGER_PROPERTY_CHANGED  = 4;
+  AUTOMATION_TRIGGER_NODE_DELETED      = 5;
+}
+
+// SetPropertyAction sets a property value on the triggering node.
+message SetPropertyAction {
+  string        property_def_id = 1;
+  PropertyValue value           = 2;
+}
+
+// SetStateAction transitions the triggering node to a new state.
+message SetStateAction {
+  string state_id = 1;
+}
+
+// AutomationRule is a stored if-trigger-then-action rule scoped to a workspace.
+message AutomationRule {
+  string             id           = 1;
+  string             org_id       = 2;
+  string             workspace_id = 3;
+  string             node_type    = 4; // empty = applies to all node types
+  AutomationTrigger  trigger      = 5;
+  string             trigger_property_def_id = 6; // only set for PROPERTY_CHANGED
+  bool               enabled      = 7;
+  oneof action {
+    SetPropertyAction set_property = 10;
+    SetStateAction    set_state    = 11;
+    // Future: FireWebhookAction fire_webhook = 12;
+    // Future: RunScriptAction   run_script   = 13;
+  }
+}

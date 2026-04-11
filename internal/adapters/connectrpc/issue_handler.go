@@ -8,21 +8,19 @@ import (
 	"goodkind.io/tack/gen/tack/v1/tackv1connect"
 	"goodkind.io/tack/internal/auth"
 	"goodkind.io/tack/internal/domain/issue"
-	"goodkind.io/tack/internal/domain/node"
-	issuesvc "goodkind.io/tack/internal/service"
+	"goodkind.io/tack/internal/service"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type IssueHandler struct {
-	issueSvc    issue.Service
-	assignments node.AssignmentRepository
+	issueSvc *service.IssueService
 }
 
 var _ tackv1connect.IssueServiceHandler = (*IssueHandler)(nil)
 
-func NewIssueHandler(issueSvc issue.Service, assignments node.AssignmentRepository) *IssueHandler {
-	return &IssueHandler{issueSvc: issueSvc, assignments: assignments}
+func NewIssueHandler(issueSvc *service.IssueService) *IssueHandler {
+	return &IssueHandler{issueSvc: issueSvc}
 }
 
 func (h *IssueHandler) CreateIssue(ctx context.Context, req *connect.Request[v1.CreateIssueRequest]) (*connect.Response[v1.Issue], error) {
@@ -167,21 +165,18 @@ func (h *IssueHandler) AssignIssue(ctx context.Context, req *connect.Request[v1.
 		return nil, domainErr(err)
 	}
 	newUser := mustUUID(msg.UserId)
-	// Add to existing assignees via FDB
-	existing, _ := h.assignments.ListByNode(ctx, i.WorkspaceID, i.NodeID)
-	updated := make([]uuid.UUID, len(existing))
-	copy(updated, existing)
-	for _, id := range existing {
+	for _, id := range i.AssigneeIDs {
 		if id == newUser {
 			return connect.NewResponse(protoIssue(i)), nil // already assigned
 		}
 	}
-	updated = append(updated, newUser)
-	if err := h.assignments.SetAll(ctx, i.WorkspaceID, i.NodeID, updated, userID); err != nil {
+	i.AssigneeIDs = append(i.AssigneeIDs, newUser)
+	i.UpdatedBy = &userID
+	updated, err := h.issueSvc.Update(ctx, i)
+	if err != nil {
 		return nil, domainErr(err)
 	}
-	i.AssigneeIDs = updated
-	return connect.NewResponse(protoIssue(i)), nil
+	return connect.NewResponse(protoIssue(updated)), nil
 }
 
 func (h *IssueHandler) UnassignIssue(ctx context.Context, req *connect.Request[v1.UnassignIssueRequest]) (*connect.Response[v1.Issue], error) {
@@ -192,32 +187,36 @@ func (h *IssueHandler) UnassignIssue(ctx context.Context, req *connect.Request[v
 		return nil, domainErr(err)
 	}
 	remove := mustUUID(msg.UserId)
-	existing, _ := h.assignments.ListByNode(ctx, i.WorkspaceID, i.NodeID)
-	filtered := make([]uuid.UUID, 0, len(existing))
-	for _, id := range existing {
+	filtered := make([]uuid.UUID, 0, len(i.AssigneeIDs))
+	for _, id := range i.AssigneeIDs {
 		if id != remove {
 			filtered = append(filtered, id)
 		}
 	}
-	if err := h.assignments.SetAll(ctx, i.WorkspaceID, i.NodeID, filtered, userID); err != nil {
+	i.AssigneeIDs = filtered
+	i.UpdatedBy = &userID
+	updated, err := h.issueSvc.Update(ctx, i)
+	if err != nil {
 		return nil, domainErr(err)
 	}
-	i.AssigneeIDs = filtered
-	return connect.NewResponse(protoIssue(i)), nil
+	return connect.NewResponse(protoIssue(updated)), nil
 }
 
 func (h *IssueHandler) SetIssueEpic(ctx context.Context, req *connect.Request[v1.SetIssueEpicRequest]) (*connect.Response[v1.Issue], error) {
+	userID := auth.MustUserID(ctx)
 	msg := req.Msg
 	issueID := mustUUID(msg.IssueId)
-	epicID := optUUID(msg.EpicId)
-	if err := h.issueSvc.SetEpic(ctx, issueID, epicID); err != nil {
-		return nil, domainErr(err)
-	}
 	i, err := h.issueSvc.Get(ctx, mustUUID(msg.WorkspaceId), mustUUID(msg.ProjectId), issueID)
 	if err != nil {
 		return nil, domainErr(err)
 	}
-	return connect.NewResponse(protoIssue(i)), nil
+	i.EpicID = optUUID(msg.EpicId)
+	i.UpdatedBy = &userID
+	updated, err := h.issueSvc.Update(ctx, i)
+	if err != nil {
+		return nil, domainErr(err)
+	}
+	return connect.NewResponse(protoIssue(updated)), nil
 }
 
 func (h *IssueHandler) SearchIssues(ctx context.Context, req *connect.Request[v1.SearchIssuesRequest]) (*connect.Response[v1.SearchIssuesResponse], error) {
@@ -247,5 +246,31 @@ func (h *IssueHandler) SearchIssues(ctx context.Context, req *connect.Request[v1
 	}), nil
 }
 
-// ensure issuesvc import is used (service.IssueService satisfies issue.Service)
-var _ issue.Service = (*issuesvc.IssueService)(nil)
+// StreamIssues is the server-streaming equivalent of ListIssues.
+// Backed by NodeReader.Stream; results flow as parallel FDB chunks complete.
+func (h *IssueHandler) StreamIssues(ctx context.Context, req *connect.Request[v1.ListIssuesRequest], stream *connect.ServerStream[v1.Issue]) error {
+	msg := req.Msg
+	filter := issue.ListFilter{
+		WorkspaceID: mustUUID(msg.WorkspaceId),
+	}
+	if msg.ProjectId != nil {
+		id := mustUUID(*msg.ProjectId)
+		filter.ProjectID = &id
+	}
+	if msg.EpicId != nil {
+		id := mustUUID(*msg.EpicId)
+		filter.EpicID = &id
+	}
+
+	ch, err := h.issueSvc.Stream(ctx, filter)
+	if err != nil {
+		return domainErr(err)
+	}
+	for i := range ch {
+		if sendErr := stream.Send(protoIssue(i)); sendErr != nil {
+			return sendErr
+		}
+	}
+	return nil
+}
+

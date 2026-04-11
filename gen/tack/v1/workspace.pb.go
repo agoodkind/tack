@@ -218,9 +218,11 @@ func (x *GetWorkspaceRequest) GetId() string {
 	return ""
 }
 
+// org_id is optional. If omitted the server returns all workspaces the
+// authenticated user can access across all orgs.
 type ListWorkspacesRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	OrgId         string                 `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
+	OrgId         *string                `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3,oneof" json:"org_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -256,8 +258,8 @@ func (*ListWorkspacesRequest) Descriptor() ([]byte, []int) {
 }
 
 func (x *ListWorkspacesRequest) GetOrgId() string {
-	if x != nil {
-		return x.OrgId
+	if x != nil && x.OrgId != nil {
+		return *x.OrgId
 	}
 	return ""
 }
@@ -426,11 +428,111 @@ func (x *DeleteWorkspaceRequest) GetId() string {
 	return ""
 }
 
+// WorkspaceDescription is returned by DescribeWorkspace.
+// It carries the workspace metadata and all node types seeded for the org,
+// so callers can enumerate available tools without extra round trips.
+type WorkspaceDescription struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Workspace     *Workspace             `protobuf:"bytes,1,opt,name=workspace,proto3" json:"workspace,omitempty"`
+	NodeTypes     []*NodeTypeDefinition  `protobuf:"bytes,2,rep,name=node_types,json=nodeTypes,proto3" json:"node_types,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WorkspaceDescription) Reset() {
+	*x = WorkspaceDescription{}
+	mi := &file_tack_v1_workspace_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WorkspaceDescription) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WorkspaceDescription) ProtoMessage() {}
+
+func (x *WorkspaceDescription) ProtoReflect() protoreflect.Message {
+	mi := &file_tack_v1_workspace_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WorkspaceDescription.ProtoReflect.Descriptor instead.
+func (*WorkspaceDescription) Descriptor() ([]byte, []int) {
+	return file_tack_v1_workspace_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *WorkspaceDescription) GetWorkspace() *Workspace {
+	if x != nil {
+		return x.Workspace
+	}
+	return nil
+}
+
+func (x *WorkspaceDescription) GetNodeTypes() []*NodeTypeDefinition {
+	if x != nil {
+		return x.NodeTypes
+	}
+	return nil
+}
+
+type DescribeWorkspaceRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Workspace slug, e.g. "eng-platform". Prefer slug over UUID in user-facing calls.
+	Slug          string `protobuf:"bytes,1,opt,name=slug,proto3" json:"slug,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DescribeWorkspaceRequest) Reset() {
+	*x = DescribeWorkspaceRequest{}
+	mi := &file_tack_v1_workspace_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DescribeWorkspaceRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DescribeWorkspaceRequest) ProtoMessage() {}
+
+func (x *DescribeWorkspaceRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_tack_v1_workspace_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DescribeWorkspaceRequest.ProtoReflect.Descriptor instead.
+func (*DescribeWorkspaceRequest) Descriptor() ([]byte, []int) {
+	return file_tack_v1_workspace_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *DescribeWorkspaceRequest) GetSlug() string {
+	if x != nil {
+		return x.Slug
+	}
+	return ""
+}
+
 var File_tack_v1_workspace_proto protoreflect.FileDescriptor
 
 const file_tack_v1_workspace_proto_rawDesc = "" +
 	"\n" +
-	"\x17tack/v1/workspace.proto\x12\atack.v1\x1a\x14tack/v1/common.proto\x1a\x1bgoogle/protobuf/empty.proto\"\xa4\x01\n" +
+	"\x17tack/v1/workspace.proto\x12\atack.v1\x1a\x14tack/v1/common.proto\x1a\x12tack/v1/node.proto\x1a\x1bgoogle/protobuf/empty.proto\"\xa4\x01\n" +
 	"\tWorkspace\x12!\n" +
 	"\x04base\x18\x01 \x01(\v2\r.tack.v1.BaseR\x04base\x12\x15\n" +
 	"\x06org_id\x18\x02 \x01(\tR\x05orgId\x12\x12\n" +
@@ -446,9 +548,10 @@ const file_tack_v1_workspace_proto_rawDesc = "" +
 	"\f_description\"<\n" +
 	"\x13GetWorkspaceRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12\x0e\n" +
-	"\x02id\x18\x02 \x01(\tR\x02id\".\n" +
-	"\x15ListWorkspacesRequest\x12\x15\n" +
-	"\x06org_id\x18\x01 \x01(\tR\x05orgId\"L\n" +
+	"\x02id\x18\x02 \x01(\tR\x02id\">\n" +
+	"\x15ListWorkspacesRequest\x12\x1a\n" +
+	"\x06org_id\x18\x01 \x01(\tH\x00R\x05orgId\x88\x01\x01B\t\n" +
+	"\a_org_id\"L\n" +
 	"\x16ListWorkspacesResponse\x122\n" +
 	"\n" +
 	"workspaces\x18\x01 \x03(\v2\x12.tack.v1.WorkspaceR\n" +
@@ -462,13 +565,20 @@ const file_tack_v1_workspace_proto_rawDesc = "" +
 	"\f_description\"?\n" +
 	"\x16DeleteWorkspaceRequest\x12\x15\n" +
 	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12\x0e\n" +
-	"\x02id\x18\x02 \x01(\tR\x02id2\x83\x03\n" +
+	"\x02id\x18\x02 \x01(\tR\x02id\"\x84\x01\n" +
+	"\x14WorkspaceDescription\x120\n" +
+	"\tworkspace\x18\x01 \x01(\v2\x12.tack.v1.WorkspaceR\tworkspace\x12:\n" +
+	"\n" +
+	"node_types\x18\x02 \x03(\v2\x1b.tack.v1.NodeTypeDefinitionR\tnodeTypes\".\n" +
+	"\x18DescribeWorkspaceRequest\x12\x12\n" +
+	"\x04slug\x18\x01 \x01(\tR\x04slug2\xda\x03\n" +
 	"\x10WorkspaceService\x12F\n" +
 	"\x0fCreateWorkspace\x12\x1f.tack.v1.CreateWorkspaceRequest\x1a\x12.tack.v1.Workspace\x12@\n" +
 	"\fGetWorkspace\x12\x1c.tack.v1.GetWorkspaceRequest\x1a\x12.tack.v1.Workspace\x12Q\n" +
 	"\x0eListWorkspaces\x12\x1e.tack.v1.ListWorkspacesRequest\x1a\x1f.tack.v1.ListWorkspacesResponse\x12F\n" +
 	"\x0fUpdateWorkspace\x12\x1f.tack.v1.UpdateWorkspaceRequest\x1a\x12.tack.v1.Workspace\x12J\n" +
-	"\x0fDeleteWorkspace\x12\x1f.tack.v1.DeleteWorkspaceRequest\x1a\x16.google.protobuf.EmptyB.Z,github.com/agoodkind/tack/gen/tack/v1;tackv1b\x06proto3"
+	"\x0fDeleteWorkspace\x12\x1f.tack.v1.DeleteWorkspaceRequest\x1a\x16.google.protobuf.Empty\x12U\n" +
+	"\x11DescribeWorkspace\x12!.tack.v1.DescribeWorkspaceRequest\x1a\x1d.tack.v1.WorkspaceDescriptionB%Z#goodkind.io/tack/gen/tack/v1;tackv1b\x06proto3"
 
 var (
 	file_tack_v1_workspace_proto_rawDescOnce sync.Once
@@ -482,36 +592,43 @@ func file_tack_v1_workspace_proto_rawDescGZIP() []byte {
 	return file_tack_v1_workspace_proto_rawDescData
 }
 
-var file_tack_v1_workspace_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_tack_v1_workspace_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_tack_v1_workspace_proto_goTypes = []any{
-	(*Workspace)(nil),              // 0: tack.v1.Workspace
-	(*CreateWorkspaceRequest)(nil), // 1: tack.v1.CreateWorkspaceRequest
-	(*GetWorkspaceRequest)(nil),    // 2: tack.v1.GetWorkspaceRequest
-	(*ListWorkspacesRequest)(nil),  // 3: tack.v1.ListWorkspacesRequest
-	(*ListWorkspacesResponse)(nil), // 4: tack.v1.ListWorkspacesResponse
-	(*UpdateWorkspaceRequest)(nil), // 5: tack.v1.UpdateWorkspaceRequest
-	(*DeleteWorkspaceRequest)(nil), // 6: tack.v1.DeleteWorkspaceRequest
-	(*Base)(nil),                   // 7: tack.v1.Base
-	(*emptypb.Empty)(nil),          // 8: google.protobuf.Empty
+	(*Workspace)(nil),                // 0: tack.v1.Workspace
+	(*CreateWorkspaceRequest)(nil),   // 1: tack.v1.CreateWorkspaceRequest
+	(*GetWorkspaceRequest)(nil),      // 2: tack.v1.GetWorkspaceRequest
+	(*ListWorkspacesRequest)(nil),    // 3: tack.v1.ListWorkspacesRequest
+	(*ListWorkspacesResponse)(nil),   // 4: tack.v1.ListWorkspacesResponse
+	(*UpdateWorkspaceRequest)(nil),   // 5: tack.v1.UpdateWorkspaceRequest
+	(*DeleteWorkspaceRequest)(nil),   // 6: tack.v1.DeleteWorkspaceRequest
+	(*WorkspaceDescription)(nil),     // 7: tack.v1.WorkspaceDescription
+	(*DescribeWorkspaceRequest)(nil), // 8: tack.v1.DescribeWorkspaceRequest
+	(*Base)(nil),                     // 9: tack.v1.Base
+	(*NodeTypeDefinition)(nil),       // 10: tack.v1.NodeTypeDefinition
+	(*emptypb.Empty)(nil),            // 11: google.protobuf.Empty
 }
 var file_tack_v1_workspace_proto_depIdxs = []int32{
-	7, // 0: tack.v1.Workspace.base:type_name -> tack.v1.Base
-	0, // 1: tack.v1.ListWorkspacesResponse.workspaces:type_name -> tack.v1.Workspace
-	1, // 2: tack.v1.WorkspaceService.CreateWorkspace:input_type -> tack.v1.CreateWorkspaceRequest
-	2, // 3: tack.v1.WorkspaceService.GetWorkspace:input_type -> tack.v1.GetWorkspaceRequest
-	3, // 4: tack.v1.WorkspaceService.ListWorkspaces:input_type -> tack.v1.ListWorkspacesRequest
-	5, // 5: tack.v1.WorkspaceService.UpdateWorkspace:input_type -> tack.v1.UpdateWorkspaceRequest
-	6, // 6: tack.v1.WorkspaceService.DeleteWorkspace:input_type -> tack.v1.DeleteWorkspaceRequest
-	0, // 7: tack.v1.WorkspaceService.CreateWorkspace:output_type -> tack.v1.Workspace
-	0, // 8: tack.v1.WorkspaceService.GetWorkspace:output_type -> tack.v1.Workspace
-	4, // 9: tack.v1.WorkspaceService.ListWorkspaces:output_type -> tack.v1.ListWorkspacesResponse
-	0, // 10: tack.v1.WorkspaceService.UpdateWorkspace:output_type -> tack.v1.Workspace
-	8, // 11: tack.v1.WorkspaceService.DeleteWorkspace:output_type -> google.protobuf.Empty
-	7, // [7:12] is the sub-list for method output_type
-	2, // [2:7] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	9,  // 0: tack.v1.Workspace.base:type_name -> tack.v1.Base
+	0,  // 1: tack.v1.ListWorkspacesResponse.workspaces:type_name -> tack.v1.Workspace
+	0,  // 2: tack.v1.WorkspaceDescription.workspace:type_name -> tack.v1.Workspace
+	10, // 3: tack.v1.WorkspaceDescription.node_types:type_name -> tack.v1.NodeTypeDefinition
+	1,  // 4: tack.v1.WorkspaceService.CreateWorkspace:input_type -> tack.v1.CreateWorkspaceRequest
+	2,  // 5: tack.v1.WorkspaceService.GetWorkspace:input_type -> tack.v1.GetWorkspaceRequest
+	3,  // 6: tack.v1.WorkspaceService.ListWorkspaces:input_type -> tack.v1.ListWorkspacesRequest
+	5,  // 7: tack.v1.WorkspaceService.UpdateWorkspace:input_type -> tack.v1.UpdateWorkspaceRequest
+	6,  // 8: tack.v1.WorkspaceService.DeleteWorkspace:input_type -> tack.v1.DeleteWorkspaceRequest
+	8,  // 9: tack.v1.WorkspaceService.DescribeWorkspace:input_type -> tack.v1.DescribeWorkspaceRequest
+	0,  // 10: tack.v1.WorkspaceService.CreateWorkspace:output_type -> tack.v1.Workspace
+	0,  // 11: tack.v1.WorkspaceService.GetWorkspace:output_type -> tack.v1.Workspace
+	4,  // 12: tack.v1.WorkspaceService.ListWorkspaces:output_type -> tack.v1.ListWorkspacesResponse
+	0,  // 13: tack.v1.WorkspaceService.UpdateWorkspace:output_type -> tack.v1.Workspace
+	11, // 14: tack.v1.WorkspaceService.DeleteWorkspace:output_type -> google.protobuf.Empty
+	7,  // 15: tack.v1.WorkspaceService.DescribeWorkspace:output_type -> tack.v1.WorkspaceDescription
+	10, // [10:16] is the sub-list for method output_type
+	4,  // [4:10] is the sub-list for method input_type
+	4,  // [4:4] is the sub-list for extension type_name
+	4,  // [4:4] is the sub-list for extension extendee
+	0,  // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_tack_v1_workspace_proto_init() }
@@ -520,8 +637,10 @@ func file_tack_v1_workspace_proto_init() {
 		return
 	}
 	file_tack_v1_common_proto_init()
+	file_tack_v1_node_proto_init()
 	file_tack_v1_workspace_proto_msgTypes[0].OneofWrappers = []any{}
 	file_tack_v1_workspace_proto_msgTypes[1].OneofWrappers = []any{}
+	file_tack_v1_workspace_proto_msgTypes[3].OneofWrappers = []any{}
 	file_tack_v1_workspace_proto_msgTypes[5].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -529,7 +648,7 @@ func file_tack_v1_workspace_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_tack_v1_workspace_proto_rawDesc), len(file_tack_v1_workspace_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   7,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

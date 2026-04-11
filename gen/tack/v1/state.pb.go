@@ -558,7 +558,7 @@ const file_tack_v1_state_proto_rawDesc = "" +
 	"\n" +
 	"ListStates\x12\x1a.tack.v1.ListStatesRequest\x1a\x1b.tack.v1.ListStatesResponse\x12:\n" +
 	"\vUpdateState\x12\x1b.tack.v1.UpdateStateRequest\x1a\x0e.tack.v1.State\x12B\n" +
-	"\vDeleteState\x12\x1b.tack.v1.DeleteStateRequest\x1a\x16.google.protobuf.EmptyB.Z,github.com/agoodkind/tack/gen/tack/v1;tackv1b\x06proto3"
+	"\vDeleteState\x12\x1b.tack.v1.DeleteStateRequest\x1a\x16.google.protobuf.EmptyB%Z#goodkind.io/tack/gen/tack/v1;tackv1b\x06proto3"
 
 var (
 	file_tack_v1_state_proto_rawDescOnce sync.Once

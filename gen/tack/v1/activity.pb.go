@@ -241,7 +241,7 @@ const file_tack_v1_activity_proto_rawDesc = "" +
 	"\x14ListActivityResponse\x12.\n" +
 	"\x06events\x18\x01 \x03(\v2\x16.tack.v1.ActivityEventR\x06events2^\n" +
 	"\x0fActivityService\x12K\n" +
-	"\fListActivity\x12\x1c.tack.v1.ListActivityRequest\x1a\x1d.tack.v1.ListActivityResponseB.Z,github.com/agoodkind/tack/gen/tack/v1;tackv1b\x06proto3"
+	"\fListActivity\x12\x1c.tack.v1.ListActivityRequest\x1a\x1d.tack.v1.ListActivityResponseB%Z#goodkind.io/tack/gen/tack/v1;tackv1b\x06proto3"
 
 var (
 	file_tack_v1_activity_proto_rawDescOnce sync.Once

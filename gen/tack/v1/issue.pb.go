@@ -1662,12 +1662,13 @@ const file_tack_v1_issue_proto_rawDesc = "" +
 	"\x11target_project_id\x18\x04 \x01(\tR\x0ftargetProjectId\"F\n" +
 	"\x16BulkMoveIssuesResponse\x12\x14\n" +
 	"\x05moved\x18\x01 \x01(\x05R\x05moved\x12\x16\n" +
-	"\x06failed\x18\x02 \x01(\x05R\x06failed2\x8b\a\n" +
+	"\x06failed\x18\x02 \x01(\x05R\x06failed2\xc9\a\n" +
 	"\fIssueService\x12:\n" +
 	"\vCreateIssue\x12\x1b.tack.v1.CreateIssueRequest\x1a\x0e.tack.v1.Issue\x124\n" +
 	"\bGetIssue\x12\x18.tack.v1.GetIssueRequest\x1a\x0e.tack.v1.Issue\x12E\n" +
 	"\n" +
-	"ListIssues\x12\x1a.tack.v1.ListIssuesRequest\x1a\x1b.tack.v1.ListIssuesResponse\x12:\n" +
+	"ListIssues\x12\x1a.tack.v1.ListIssuesRequest\x1a\x1b.tack.v1.ListIssuesResponse\x12<\n" +
+	"\fStreamIssues\x12\x1a.tack.v1.ListIssuesRequest\x1a\x0e.tack.v1.Issue0\x01\x12:\n" +
 	"\vUpdateIssue\x12\x1b.tack.v1.UpdateIssueRequest\x1a\x0e.tack.v1.Issue\x12B\n" +
 	"\vDeleteIssue\x12\x1b.tack.v1.DeleteIssueRequest\x1a\x16.google.protobuf.Empty\x12:\n" +
 	"\vAssignIssue\x12\x1b.tack.v1.AssignIssueRequest\x1a\x0e.tack.v1.Issue\x12>\n" +
@@ -1677,7 +1678,7 @@ const file_tack_v1_issue_proto_rawDesc = "" +
 	"\tMoveIssue\x12\x19.tack.v1.MoveIssueRequest\x1a\x0e.tack.v1.Issue\x12W\n" +
 	"\x10BulkUpdateIssues\x12 .tack.v1.BulkUpdateIssuesRequest\x1a!.tack.v1.BulkUpdateIssuesResponse\x12W\n" +
 	"\x10BulkDeleteIssues\x12 .tack.v1.BulkDeleteIssuesRequest\x1a!.tack.v1.BulkDeleteIssuesResponse\x12Q\n" +
-	"\x0eBulkMoveIssues\x12\x1e.tack.v1.BulkMoveIssuesRequest\x1a\x1f.tack.v1.BulkMoveIssuesResponseB.Z,github.com/agoodkind/tack/gen/tack/v1;tackv1b\x06proto3"
+	"\x0eBulkMoveIssues\x12\x1e.tack.v1.BulkMoveIssuesRequest\x1a\x1f.tack.v1.BulkMoveIssuesResponseB%Z#goodkind.io/tack/gen/tack/v1;tackv1b\x06proto3"
 
 var (
 	file_tack_v1_issue_proto_rawDescOnce sync.Once
@@ -1731,31 +1732,33 @@ var file_tack_v1_issue_proto_depIdxs = []int32{
 	1,  // 10: tack.v1.IssueService.CreateIssue:input_type -> tack.v1.CreateIssueRequest
 	2,  // 11: tack.v1.IssueService.GetIssue:input_type -> tack.v1.GetIssueRequest
 	3,  // 12: tack.v1.IssueService.ListIssues:input_type -> tack.v1.ListIssuesRequest
-	5,  // 13: tack.v1.IssueService.UpdateIssue:input_type -> tack.v1.UpdateIssueRequest
-	6,  // 14: tack.v1.IssueService.DeleteIssue:input_type -> tack.v1.DeleteIssueRequest
-	7,  // 15: tack.v1.IssueService.AssignIssue:input_type -> tack.v1.AssignIssueRequest
-	8,  // 16: tack.v1.IssueService.UnassignIssue:input_type -> tack.v1.UnassignIssueRequest
-	9,  // 17: tack.v1.IssueService.SetIssueEpic:input_type -> tack.v1.SetIssueEpicRequest
-	10, // 18: tack.v1.IssueService.SearchIssues:input_type -> tack.v1.SearchIssuesRequest
-	12, // 19: tack.v1.IssueService.MoveIssue:input_type -> tack.v1.MoveIssueRequest
-	13, // 20: tack.v1.IssueService.BulkUpdateIssues:input_type -> tack.v1.BulkUpdateIssuesRequest
-	15, // 21: tack.v1.IssueService.BulkDeleteIssues:input_type -> tack.v1.BulkDeleteIssuesRequest
-	17, // 22: tack.v1.IssueService.BulkMoveIssues:input_type -> tack.v1.BulkMoveIssuesRequest
-	0,  // 23: tack.v1.IssueService.CreateIssue:output_type -> tack.v1.Issue
-	0,  // 24: tack.v1.IssueService.GetIssue:output_type -> tack.v1.Issue
-	4,  // 25: tack.v1.IssueService.ListIssues:output_type -> tack.v1.ListIssuesResponse
-	0,  // 26: tack.v1.IssueService.UpdateIssue:output_type -> tack.v1.Issue
-	22, // 27: tack.v1.IssueService.DeleteIssue:output_type -> google.protobuf.Empty
-	0,  // 28: tack.v1.IssueService.AssignIssue:output_type -> tack.v1.Issue
-	0,  // 29: tack.v1.IssueService.UnassignIssue:output_type -> tack.v1.Issue
-	0,  // 30: tack.v1.IssueService.SetIssueEpic:output_type -> tack.v1.Issue
-	11, // 31: tack.v1.IssueService.SearchIssues:output_type -> tack.v1.SearchIssuesResponse
-	0,  // 32: tack.v1.IssueService.MoveIssue:output_type -> tack.v1.Issue
-	14, // 33: tack.v1.IssueService.BulkUpdateIssues:output_type -> tack.v1.BulkUpdateIssuesResponse
-	16, // 34: tack.v1.IssueService.BulkDeleteIssues:output_type -> tack.v1.BulkDeleteIssuesResponse
-	18, // 35: tack.v1.IssueService.BulkMoveIssues:output_type -> tack.v1.BulkMoveIssuesResponse
-	23, // [23:36] is the sub-list for method output_type
-	10, // [10:23] is the sub-list for method input_type
+	3,  // 13: tack.v1.IssueService.StreamIssues:input_type -> tack.v1.ListIssuesRequest
+	5,  // 14: tack.v1.IssueService.UpdateIssue:input_type -> tack.v1.UpdateIssueRequest
+	6,  // 15: tack.v1.IssueService.DeleteIssue:input_type -> tack.v1.DeleteIssueRequest
+	7,  // 16: tack.v1.IssueService.AssignIssue:input_type -> tack.v1.AssignIssueRequest
+	8,  // 17: tack.v1.IssueService.UnassignIssue:input_type -> tack.v1.UnassignIssueRequest
+	9,  // 18: tack.v1.IssueService.SetIssueEpic:input_type -> tack.v1.SetIssueEpicRequest
+	10, // 19: tack.v1.IssueService.SearchIssues:input_type -> tack.v1.SearchIssuesRequest
+	12, // 20: tack.v1.IssueService.MoveIssue:input_type -> tack.v1.MoveIssueRequest
+	13, // 21: tack.v1.IssueService.BulkUpdateIssues:input_type -> tack.v1.BulkUpdateIssuesRequest
+	15, // 22: tack.v1.IssueService.BulkDeleteIssues:input_type -> tack.v1.BulkDeleteIssuesRequest
+	17, // 23: tack.v1.IssueService.BulkMoveIssues:input_type -> tack.v1.BulkMoveIssuesRequest
+	0,  // 24: tack.v1.IssueService.CreateIssue:output_type -> tack.v1.Issue
+	0,  // 25: tack.v1.IssueService.GetIssue:output_type -> tack.v1.Issue
+	4,  // 26: tack.v1.IssueService.ListIssues:output_type -> tack.v1.ListIssuesResponse
+	0,  // 27: tack.v1.IssueService.StreamIssues:output_type -> tack.v1.Issue
+	0,  // 28: tack.v1.IssueService.UpdateIssue:output_type -> tack.v1.Issue
+	22, // 29: tack.v1.IssueService.DeleteIssue:output_type -> google.protobuf.Empty
+	0,  // 30: tack.v1.IssueService.AssignIssue:output_type -> tack.v1.Issue
+	0,  // 31: tack.v1.IssueService.UnassignIssue:output_type -> tack.v1.Issue
+	0,  // 32: tack.v1.IssueService.SetIssueEpic:output_type -> tack.v1.Issue
+	11, // 33: tack.v1.IssueService.SearchIssues:output_type -> tack.v1.SearchIssuesResponse
+	0,  // 34: tack.v1.IssueService.MoveIssue:output_type -> tack.v1.Issue
+	14, // 35: tack.v1.IssueService.BulkUpdateIssues:output_type -> tack.v1.BulkUpdateIssuesResponse
+	16, // 36: tack.v1.IssueService.BulkDeleteIssues:output_type -> tack.v1.BulkDeleteIssuesResponse
+	18, // 37: tack.v1.IssueService.BulkMoveIssues:output_type -> tack.v1.BulkMoveIssuesResponse
+	24, // [24:38] is the sub-list for method output_type
+	10, // [10:24] is the sub-list for method input_type
 	10, // [10:10] is the sub-list for extension type_name
 	10, // [10:10] is the sub-list for extension extendee
 	0,  // [0:10] is the sub-list for field type_name

@@ -5,7 +5,7 @@ package tack.v1;
 import "tack/v1/common.proto";
 import "google/protobuf/empty.proto";
 
-option go_package = "github.com/agoodkind/tack/gen/tack/v1;tackv1";
+option go_package = "goodkind.io/tack/gen/tack/v1;tackv1";
 
 message Project {
   Base base = 1;

@@ -723,7 +723,7 @@ const file_tack_v1_cycle_proto_rawDesc = "" +
 	"\vUpdateCycle\x12\x1b.tack.v1.UpdateCycleRequest\x1a\x0e.tack.v1.Cycle\x12B\n" +
 	"\vDeleteCycle\x12\x1b.tack.v1.DeleteCycleRequest\x1a\x16.google.protobuf.Empty\x12L\n" +
 	"\x10AddIssuesToCycle\x12 .tack.v1.AddIssuesToCycleRequest\x1a\x16.google.protobuf.Empty\x12V\n" +
-	"\x15RemoveIssuesFromCycle\x12%.tack.v1.RemoveIssuesFromCycleRequest\x1a\x16.google.protobuf.EmptyB.Z,github.com/agoodkind/tack/gen/tack/v1;tackv1b\x06proto3"
+	"\x15RemoveIssuesFromCycle\x12%.tack.v1.RemoveIssuesFromCycleRequest\x1a\x16.google.protobuf.EmptyB%Z#goodkind.io/tack/gen/tack/v1;tackv1b\x06proto3"
 
 var (
 	file_tack_v1_cycle_proto_rawDescOnce sync.Once

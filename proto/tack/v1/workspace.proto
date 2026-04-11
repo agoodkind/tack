@@ -3,9 +3,10 @@ syntax = "proto3";
 package tack.v1;
 
 import "tack/v1/common.proto";
+import "tack/v1/node.proto";
 import "google/protobuf/empty.proto";
 
-option go_package = "github.com/agoodkind/tack/gen/tack/v1;tackv1";
+option go_package = "goodkind.io/tack/gen/tack/v1;tackv1";
 
 message Workspace {
   Base base = 1;
@@ -27,8 +28,10 @@ message GetWorkspaceRequest {
   string id = 2;
 }
 
+// org_id is optional. If omitted the server returns all workspaces the
+// authenticated user can access across all orgs.
 message ListWorkspacesRequest {
-  string org_id = 1;
+  optional string org_id = 1;
 }
 
 message ListWorkspacesResponse {
@@ -47,10 +50,24 @@ message DeleteWorkspaceRequest {
   string id = 2;
 }
 
+// WorkspaceDescription is returned by DescribeWorkspace.
+// It carries the workspace metadata and all node types seeded for the org,
+// so callers can enumerate available tools without extra round trips.
+message WorkspaceDescription {
+  Workspace workspace = 1;
+  repeated NodeTypeDefinition node_types = 2;
+}
+
+message DescribeWorkspaceRequest {
+  // Workspace slug, e.g. "eng-platform". Prefer slug over UUID in user-facing calls.
+  string slug = 1;
+}
+
 service WorkspaceService {
   rpc CreateWorkspace(CreateWorkspaceRequest) returns (Workspace);
   rpc GetWorkspace(GetWorkspaceRequest) returns (Workspace);
   rpc ListWorkspaces(ListWorkspacesRequest) returns (ListWorkspacesResponse);
   rpc UpdateWorkspace(UpdateWorkspaceRequest) returns (Workspace);
   rpc DeleteWorkspace(DeleteWorkspaceRequest) returns (google.protobuf.Empty);
+  rpc DescribeWorkspace(DescribeWorkspaceRequest) returns (WorkspaceDescription);
 }

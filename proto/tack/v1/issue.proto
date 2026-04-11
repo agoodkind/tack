@@ -6,7 +6,7 @@ import "tack/v1/common.proto";
 import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
 
-option go_package = "github.com/agoodkind/tack/gen/tack/v1;tackv1";
+option go_package = "goodkind.io/tack/gen/tack/v1;tackv1";
 
 message Issue {
   Base base = 1;
@@ -165,6 +165,10 @@ service IssueService {
   rpc CreateIssue(CreateIssueRequest) returns (Issue);
   rpc GetIssue(GetIssueRequest) returns (Issue);
   rpc ListIssues(ListIssuesRequest) returns (ListIssuesResponse);
+  // StreamIssues is the server-streaming equivalent of ListIssues for large
+  // or unbounded result sets. Backed by NodeReader.Stream; results flow as
+  // parallel FDB chunks complete. Prefer ListIssues for bounded/paginated queries.
+  rpc StreamIssues(ListIssuesRequest) returns (stream Issue);
   rpc UpdateIssue(UpdateIssueRequest) returns (Issue);
   rpc DeleteIssue(DeleteIssueRequest) returns (google.protobuf.Empty);
   rpc AssignIssue(AssignIssueRequest) returns (Issue);

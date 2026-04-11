@@ -514,7 +514,7 @@ const file_tack_v1_project_proto_rawDesc = "" +
 	"GetProject\x12\x1a.tack.v1.GetProjectRequest\x1a\x10.tack.v1.Project\x12K\n" +
 	"\fListProjects\x12\x1c.tack.v1.ListProjectsRequest\x1a\x1d.tack.v1.ListProjectsResponse\x12@\n" +
 	"\rUpdateProject\x12\x1d.tack.v1.UpdateProjectRequest\x1a\x10.tack.v1.Project\x12F\n" +
-	"\rDeleteProject\x12\x1d.tack.v1.DeleteProjectRequest\x1a\x16.google.protobuf.EmptyB.Z,github.com/agoodkind/tack/gen/tack/v1;tackv1b\x06proto3"
+	"\rDeleteProject\x12\x1d.tack.v1.DeleteProjectRequest\x1a\x16.google.protobuf.EmptyB%Z#goodkind.io/tack/gen/tack/v1;tackv1b\x06proto3"
 
 var (
 	file_tack_v1_project_proto_rawDescOnce sync.Once

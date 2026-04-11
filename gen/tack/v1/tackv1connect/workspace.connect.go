@@ -49,6 +49,9 @@ const (
 	// WorkspaceServiceDeleteWorkspaceProcedure is the fully-qualified name of the WorkspaceService's
 	// DeleteWorkspace RPC.
 	WorkspaceServiceDeleteWorkspaceProcedure = "/tack.v1.WorkspaceService/DeleteWorkspace"
+	// WorkspaceServiceDescribeWorkspaceProcedure is the fully-qualified name of the WorkspaceService's
+	// DescribeWorkspace RPC.
+	WorkspaceServiceDescribeWorkspaceProcedure = "/tack.v1.WorkspaceService/DescribeWorkspace"
 )
 
 // WorkspaceServiceClient is a client for the tack.v1.WorkspaceService service.
@@ -58,6 +61,7 @@ type WorkspaceServiceClient interface {
 	ListWorkspaces(context.Context, *connect.Request[v1.ListWorkspacesRequest]) (*connect.Response[v1.ListWorkspacesResponse], error)
 	UpdateWorkspace(context.Context, *connect.Request[v1.UpdateWorkspaceRequest]) (*connect.Response[v1.Workspace], error)
 	DeleteWorkspace(context.Context, *connect.Request[v1.DeleteWorkspaceRequest]) (*connect.Response[emptypb.Empty], error)
+	DescribeWorkspace(context.Context, *connect.Request[v1.DescribeWorkspaceRequest]) (*connect.Response[v1.WorkspaceDescription], error)
 }
 
 // NewWorkspaceServiceClient constructs a client for the tack.v1.WorkspaceService service. By
@@ -101,16 +105,23 @@ func NewWorkspaceServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			connect.WithSchema(workspaceServiceMethods.ByName("DeleteWorkspace")),
 			connect.WithClientOptions(opts...),
 		),
+		describeWorkspace: connect.NewClient[v1.DescribeWorkspaceRequest, v1.WorkspaceDescription](
+			httpClient,
+			baseURL+WorkspaceServiceDescribeWorkspaceProcedure,
+			connect.WithSchema(workspaceServiceMethods.ByName("DescribeWorkspace")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // workspaceServiceClient implements WorkspaceServiceClient.
 type workspaceServiceClient struct {
-	createWorkspace *connect.Client[v1.CreateWorkspaceRequest, v1.Workspace]
-	getWorkspace    *connect.Client[v1.GetWorkspaceRequest, v1.Workspace]
-	listWorkspaces  *connect.Client[v1.ListWorkspacesRequest, v1.ListWorkspacesResponse]
-	updateWorkspace *connect.Client[v1.UpdateWorkspaceRequest, v1.Workspace]
-	deleteWorkspace *connect.Client[v1.DeleteWorkspaceRequest, emptypb.Empty]
+	createWorkspace   *connect.Client[v1.CreateWorkspaceRequest, v1.Workspace]
+	getWorkspace      *connect.Client[v1.GetWorkspaceRequest, v1.Workspace]
+	listWorkspaces    *connect.Client[v1.ListWorkspacesRequest, v1.ListWorkspacesResponse]
+	updateWorkspace   *connect.Client[v1.UpdateWorkspaceRequest, v1.Workspace]
+	deleteWorkspace   *connect.Client[v1.DeleteWorkspaceRequest, emptypb.Empty]
+	describeWorkspace *connect.Client[v1.DescribeWorkspaceRequest, v1.WorkspaceDescription]
 }
 
 // CreateWorkspace calls tack.v1.WorkspaceService.CreateWorkspace.
@@ -138,6 +149,11 @@ func (c *workspaceServiceClient) DeleteWorkspace(ctx context.Context, req *conne
 	return c.deleteWorkspace.CallUnary(ctx, req)
 }
 
+// DescribeWorkspace calls tack.v1.WorkspaceService.DescribeWorkspace.
+func (c *workspaceServiceClient) DescribeWorkspace(ctx context.Context, req *connect.Request[v1.DescribeWorkspaceRequest]) (*connect.Response[v1.WorkspaceDescription], error) {
+	return c.describeWorkspace.CallUnary(ctx, req)
+}
+
 // WorkspaceServiceHandler is an implementation of the tack.v1.WorkspaceService service.
 type WorkspaceServiceHandler interface {
 	CreateWorkspace(context.Context, *connect.Request[v1.CreateWorkspaceRequest]) (*connect.Response[v1.Workspace], error)
@@ -145,6 +161,7 @@ type WorkspaceServiceHandler interface {
 	ListWorkspaces(context.Context, *connect.Request[v1.ListWorkspacesRequest]) (*connect.Response[v1.ListWorkspacesResponse], error)
 	UpdateWorkspace(context.Context, *connect.Request[v1.UpdateWorkspaceRequest]) (*connect.Response[v1.Workspace], error)
 	DeleteWorkspace(context.Context, *connect.Request[v1.DeleteWorkspaceRequest]) (*connect.Response[emptypb.Empty], error)
+	DescribeWorkspace(context.Context, *connect.Request[v1.DescribeWorkspaceRequest]) (*connect.Response[v1.WorkspaceDescription], error)
 }
 
 // NewWorkspaceServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -184,6 +201,12 @@ func NewWorkspaceServiceHandler(svc WorkspaceServiceHandler, opts ...connect.Han
 		connect.WithSchema(workspaceServiceMethods.ByName("DeleteWorkspace")),
 		connect.WithHandlerOptions(opts...),
 	)
+	workspaceServiceDescribeWorkspaceHandler := connect.NewUnaryHandler(
+		WorkspaceServiceDescribeWorkspaceProcedure,
+		svc.DescribeWorkspace,
+		connect.WithSchema(workspaceServiceMethods.ByName("DescribeWorkspace")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/tack.v1.WorkspaceService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case WorkspaceServiceCreateWorkspaceProcedure:
@@ -196,6 +219,8 @@ func NewWorkspaceServiceHandler(svc WorkspaceServiceHandler, opts ...connect.Han
 			workspaceServiceUpdateWorkspaceHandler.ServeHTTP(w, r)
 		case WorkspaceServiceDeleteWorkspaceProcedure:
 			workspaceServiceDeleteWorkspaceHandler.ServeHTTP(w, r)
+		case WorkspaceServiceDescribeWorkspaceProcedure:
+			workspaceServiceDescribeWorkspaceHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -223,4 +248,8 @@ func (UnimplementedWorkspaceServiceHandler) UpdateWorkspace(context.Context, *co
 
 func (UnimplementedWorkspaceServiceHandler) DeleteWorkspace(context.Context, *connect.Request[v1.DeleteWorkspaceRequest]) (*connect.Response[emptypb.Empty], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("tack.v1.WorkspaceService.DeleteWorkspace is not implemented"))
+}
+
+func (UnimplementedWorkspaceServiceHandler) DescribeWorkspace(context.Context, *connect.Request[v1.DescribeWorkspaceRequest]) (*connect.Response[v1.WorkspaceDescription], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("tack.v1.WorkspaceService.DescribeWorkspace is not implemented"))
 }
