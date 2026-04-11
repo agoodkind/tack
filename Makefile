@@ -16,6 +16,8 @@ $(GO_MK):
 
 -include $(GO_MK)
 
+.DEFAULT_GOAL := build
+
 # Fetch or update go.mk explicitly.
 .PHONY: sync
 sync:
