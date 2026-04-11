@@ -109,6 +109,8 @@ func runServer(cfg *config.Config) {
 	stateRepo     := postgres.NewStateRepo(pool)
 	labelRepo     := postgres.NewLabelRepo(pool)
 	tokenRepo     := postgres.NewTokenRepo(pool)
+	orgRepo       := postgres.NewOrgRepo(pool)
+	userRepo      := postgres.NewUserRepo(pool)
 
 	// Services
 	noopAutomations := &node.NoopAutomationExecutor{}
@@ -147,6 +149,9 @@ func runServer(cfg *config.Config) {
 		Assignments: fdbStores.Assignments,
 		NodeLabels:  fdbStores.Labels,
 		Containment: fdbStores.Containment,
+		Comments:    fdbStores.Comments,
+		Orgs:        orgRepo,
+		Users:       userRepo,
 		Searcher:    searcher,
 	})
 

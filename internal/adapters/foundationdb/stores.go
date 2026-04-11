@@ -19,6 +19,7 @@ type Stores struct {
 	Entities    *EntityStore
 	Automations *AutomationStore
 	Views       *ViewStore
+	Comments    *CommentStore
 }
 
 // NewStores opens FDB once and wires all adapters to the same connection.
@@ -43,5 +44,6 @@ func newStores(db fdb.Database) *Stores {
 		Entities:    NewEntityStore(db),
 		Automations: NewAutomationStore(db),
 		Views:       NewViewStore(db),
+		Comments:    NewCommentStore(db),
 	}
 }

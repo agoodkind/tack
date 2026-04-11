@@ -10,9 +10,11 @@ import (
 	"goodkind.io/tack/internal/auth"
 	"goodkind.io/tack/internal/domain/label"
 	"goodkind.io/tack/internal/domain/node"
+	"goodkind.io/tack/internal/domain/org"
 	"goodkind.io/tack/internal/domain/project"
 	domainsearch "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/domain/state"
+	"goodkind.io/tack/internal/domain/user"
 	"goodkind.io/tack/internal/domain/workspace"
 	"goodkind.io/tack/internal/service"
 	"goodkind.io/tack/internal/telemetry"
@@ -47,6 +49,9 @@ type Handler struct {
 	assignments node.AssignmentRepository
 	nodeLabels  node.NodeLabelRepository
 	containment node.ContainmentRepository
+	comments    node.CommentRepository
+	orgs        org.Repository
+	users       user.Repository
 	searcher    domainsearch.Searcher
 
 	mu    sync.RWMutex
@@ -73,6 +78,9 @@ type Deps struct {
 	Assignments node.AssignmentRepository
 	NodeLabels  node.NodeLabelRepository
 	Containment node.ContainmentRepository
+	Comments    node.CommentRepository
+	Orgs        org.Repository
+	Users       user.Repository
 	Searcher    domainsearch.Searcher
 }
 
@@ -93,6 +101,9 @@ func NewHandler(deps Deps) *Handler {
 		assignments: deps.Assignments,
 		nodeLabels:  deps.NodeLabels,
 		containment: deps.Containment,
+		comments:    deps.Comments,
+		orgs:        deps.Orgs,
+		users:       deps.Users,
 		searcher:    deps.Searcher,
 		cache:       make(map[uuid.UUID]*cachedServer),
 	}
@@ -152,12 +163,14 @@ func (h *Handler) buildServer(nodeTypes []*node.NodeType) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "tack", Version: "0.1.0"}, nil)
 
 	tools.RegisterWorkspace(s, h.workspaces, h.projects, h.states, h.nodeTypes, h.properties)
+	tools.RegisterMembers(s, h.workspaces, h.orgs, h.users)
 	tools.RegisterProject(s, h.projects, h.projectSvc, h.states)
 	tools.RegisterState(s, h.states)
 	tools.RegisterLabel(s, h.labels)
 	tools.RegisterProperty(s, h.properties)
 	tools.RegisterActivity(s, h.activity)
 	tools.RegisterSearch(s, h.searcher)
+	tools.RegisterComment(s, h.workspaces, h.comments)
 
 	binding := tools.NodeTypeBinding{
 		IssueSvc:    h.issueSvc,
@@ -172,6 +185,8 @@ func (h *Handler) buildServer(nodeTypes []*node.NodeType) *mcp.Server {
 	for _, nt := range nodeTypes {
 		tools.RegisterNodeTools(s, nt, binding)
 	}
+
+	tools.RegisterMyIssues(s, h.issueSvc, binding.Resolver)
 
 	return s
 }

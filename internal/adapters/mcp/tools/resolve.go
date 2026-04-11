@@ -8,6 +8,7 @@ import (
 
 	"goodkind.io/tack/internal/domain/project"
 	"goodkind.io/tack/internal/domain/workspace"
+	"github.com/google/uuid"
 )
 
 // Resolver translates human-readable identifiers to workspace/project pairs.
@@ -40,6 +41,11 @@ func (r *Resolver) Project(ctx context.Context, workspaceSlug, projectIdentifier
 // Workspace resolves workspace_slug to the workspace.
 func (r *Resolver) Workspace(ctx context.Context, slug string) (*workspace.Workspace, error) {
 	return r.workspaces.GetBySlug(ctx, slug)
+}
+
+// WorkspacesForUser returns all workspaces accessible to the given user.
+func (r *Resolver) WorkspacesForUser(ctx context.Context, userID uuid.UUID) ([]*workspace.Workspace, error) {
+	return r.workspaces.ListForUser(ctx, userID)
 }
 
 // ParseNodeIdentifier splits "ENG-42" into ("ENG", 42).

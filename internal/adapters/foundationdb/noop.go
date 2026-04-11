@@ -24,6 +24,7 @@ type Stores struct {
 	Entities    *NoopEntityStore
 	Automations *NoopAutomationStore
 	Views       *NoopViewStore
+	Comments    *NoopCommentStore
 }
 
 func NewStores(_ string) (*Stores, error) {
@@ -39,6 +40,7 @@ func NewStores(_ string) (*Stores, error) {
 		Entities:    &NoopEntityStore{},
 		Automations: &NoopAutomationStore{},
 		Views:       &NoopViewStore{},
+		Comments:    &NoopCommentStore{},
 	}, nil
 }
 
@@ -245,5 +247,16 @@ func (s *NoopContainmentStore) IssuesInEpic(_ context.Context, _, _ uuid.UUID) (
 	return nil, nil
 }
 func (s *NoopContainmentStore) EpicsContainingIssue(_ context.Context, _, _ uuid.UUID) (*uuid.UUID, error) {
+	return nil, nil
+}
+
+// ── Comments ──────────────────────────────────────────────────────────────────
+
+type NoopCommentStore struct{}
+
+func (s *NoopCommentStore) Create(_ context.Context, _ uuid.UUID, _ *node.Comment) error {
+	return nil
+}
+func (s *NoopCommentStore) List(_ context.Context, _, _ uuid.UUID) ([]*node.Comment, error) {
 	return nil, nil
 }

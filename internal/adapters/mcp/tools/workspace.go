@@ -4,8 +4,10 @@ import (
 	"context"
 
 	"goodkind.io/tack/internal/domain/node"
+	"goodkind.io/tack/internal/domain/org"
 	"goodkind.io/tack/internal/domain/project"
 	"goodkind.io/tack/internal/domain/state"
+	"goodkind.io/tack/internal/domain/user"
 	"goodkind.io/tack/internal/domain/workspace"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -79,6 +81,53 @@ func describeWorkspace(
 			"node_types":            nts,
 			"property_definitions":  defs,
 		}, nil
+	}
+}
+
+// RegisterMembers registers the tack_list_members tool.
+func RegisterMembers(s *mcp.Server, workspaces workspace.Repository, orgs org.Repository, users user.Repository) {
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "tack_list_members",
+		Description: "List all members of a workspace with their display name and email. Returns member user ID, display name, email, and role. Use this to look up user emails before assigning issues.",
+	}, listMembers(workspaces, orgs, users))
+}
+
+// ── list_members ─────────────────────────────────────────────────────────────
+
+type ListMembersInput struct {
+	WorkspaceSlug string `json:"workspace_slug"`
+}
+
+func listMembers(workspaces workspace.Repository, orgs org.Repository, users user.Repository) mcp.ToolHandlerFor[ListMembersInput, any] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListMembersInput) (*mcp.CallToolResult, any, error) {
+		ws, err := workspaces.GetBySlug(ctx, in.WorkspaceSlug)
+		if err != nil {
+			return nil, nil, err
+		}
+		members, err := orgs.ListMembers(ctx, ws.OrgID)
+		if err != nil {
+			return nil, nil, err
+		}
+		type memberView struct {
+			UserID      string `json:"user_id"`
+			DisplayName string `json:"display_name"`
+			Email       string `json:"email"`
+			Role        int    `json:"role"`
+		}
+		views := make([]memberView, 0, len(members))
+		for _, m := range members {
+			u, err := users.GetByID(ctx, m.UserID)
+			if err != nil {
+				continue
+			}
+			views = append(views, memberView{
+				UserID:      m.UserID.String(),
+				DisplayName: u.DisplayName,
+				Email:       u.Email,
+				Role:        m.Role,
+			})
+		}
+		return nil, map[string]any{"members": views}, nil
 	}
 }
 
