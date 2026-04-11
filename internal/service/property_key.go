@@ -49,18 +49,6 @@ func tsPV(t interface{ UnixNano() int64 }) *node.PropertyValue {
 	return nil // unused sentinel; callers use tsPVTime instead
 }
 
-// boolPVTrue returns a PropertyValue of kind bool set to true.
-func boolPVTrue() *node.PropertyValue {
-	b := true
-	return &node.PropertyValue{Kind: node.PropertyValueBool, Bool: &b}
-}
-
-// boolPVFalse returns a PropertyValue of kind bool set to false.
-func boolPVFalse() *node.PropertyValue {
-	b := false
-	return &node.PropertyValue{Kind: node.PropertyValueBool, Bool: &b}
-}
-
 // textPV returns a PropertyValue of kind text.
 func textPV(s string) *node.PropertyValue {
 	return &node.PropertyValue{Kind: node.PropertyValueText, Text: &s}

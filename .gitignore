@@ -5,6 +5,9 @@
 # build cache
 /dist/
 
+# runtime-fetched make includes
+.make/
+
 # env files
 .env
 .env.*

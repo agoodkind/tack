@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"time"
@@ -84,51 +83,6 @@ func nodeValueFromModule(m *module.Module, orgID uuid.UUID) (*node.NodeValue, ma
 	}
 
 	return nv, props
-}
-
-func moduleFromNodeValue(nv *node.NodeValue, rawProps node.Properties) *module.Module {
-	updatedBy := nv.UpdatedBy
-	m := &module.Module{
-		ID:          nv.ID,
-		NodeID:      nv.ID,
-		WorkspaceID: nv.WorkspaceID,
-		ProjectID:   nv.ProjectID,
-		Name:        nv.Name,
-		Description: nv.Description,
-		Status:      "backlog",
-		SortOrder:   nv.SortOrder,
-		CreatedBy:   nv.CreatedBy,
-		UpdatedBy:   &updatedBy,
-		CreatedAt:   nv.CreatedAt,
-		UpdatedAt:   nv.UpdatedAt,
-	}
-
-	if rawProps == nil {
-		return m
-	}
-
-	if raw, ok := rawProps[systemPropID(nv.WorkspaceID, propNameStatus)]; ok {
-		var pv node.PropertyValue
-		if json.Unmarshal(raw, &pv) == nil && pv.Text != nil {
-			m.Status = *pv.Text
-		}
-	}
-	if raw, ok := rawProps[systemPropID(nv.WorkspaceID, propNameStartDate)]; ok {
-		var pv node.PropertyValue
-		if json.Unmarshal(raw, &pv) == nil && pv.Timestamp != nil {
-			t := *pv.Timestamp
-			m.StartDate = &t
-		}
-	}
-	if raw, ok := rawProps[systemPropID(nv.WorkspaceID, propNameDueDate)]; ok {
-		var pv node.PropertyValue
-		if json.Unmarshal(raw, &pv) == nil && pv.Timestamp != nil {
-			t := *pv.Timestamp
-			m.TargetDate = &t
-		}
-	}
-
-	return m
 }
 
 // buildModuleView converts a module and orgID into a NodeListView for atomic writes.

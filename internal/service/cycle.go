@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"time"
@@ -79,44 +78,6 @@ func nodeValueFromCycle(c *cycle.Cycle, orgID uuid.UUID) (*node.NodeValue, map[u
 	}
 
 	return nv, props
-}
-
-func cycleFromNodeValue(nv *node.NodeValue, rawProps node.Properties) *cycle.Cycle {
-	updatedBy := nv.UpdatedBy
-	c := &cycle.Cycle{
-		ID:          nv.ID,
-		NodeID:      nv.ID,
-		WorkspaceID: nv.WorkspaceID,
-		ProjectID:   nv.ProjectID,
-		Name:        nv.Name,
-		Description: nv.Description,
-		SortOrder:   nv.SortOrder,
-		CreatedBy:   nv.CreatedBy,
-		UpdatedBy:   &updatedBy,
-		CreatedAt:   nv.CreatedAt,
-		UpdatedAt:   nv.UpdatedAt,
-	}
-
-	if rawProps == nil {
-		return c
-	}
-
-	if raw, ok := rawProps[systemPropID(nv.WorkspaceID, propNameStartDate)]; ok {
-		var pv node.PropertyValue
-		if json.Unmarshal(raw, &pv) == nil && pv.Timestamp != nil {
-			t := *pv.Timestamp
-			c.StartDate = &t
-		}
-	}
-	if raw, ok := rawProps[systemPropID(nv.WorkspaceID, propNameEndDate)]; ok {
-		var pv node.PropertyValue
-		if json.Unmarshal(raw, &pv) == nil && pv.Timestamp != nil {
-			t := *pv.Timestamp
-			c.EndDate = &t
-		}
-	}
-
-	return c
 }
 
 // buildCycleView converts a cycle and orgID into a NodeListView for atomic writes.

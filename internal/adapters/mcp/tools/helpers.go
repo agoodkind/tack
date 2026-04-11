@@ -7,9 +7,7 @@ import (
 	"time"
 
 	"goodkind.io/tack/internal/auth"
-	"goodkind.io/tack/internal/domain"
 	"github.com/google/uuid"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 func parseUUID(s, field string) (uuid.UUID, error) {
@@ -54,21 +52,3 @@ func mustUser(ctx context.Context) (uuid.UUID, error) {
 	return id, nil
 }
 
-func errNotFound(entity string) error {
-	return fmt.Errorf("%s: %w", entity, domain.ErrNotFound)
-}
-
-func errNotImplemented(msg string) error {
-	return fmt.Errorf("not implemented: %s", msg)
-}
-
-// toolError wraps a domain error into a user-facing MCP error string.
-func toolError(_ *mcp.CallToolRequest, err error) string {
-	if errors.Is(err, domain.ErrNotFound) {
-		return "not found"
-	}
-	if errors.Is(err, domain.ErrUnauthenticated) {
-		return "unauthenticated"
-	}
-	return err.Error()
-}
