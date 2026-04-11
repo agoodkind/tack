@@ -1,7 +1,10 @@
 services:
   app:
+    image: tack-server:latest
     build: .
     restart: unless-stopped
+    dns:
+      - 127.0.0.11
     ports:
       - "${PORT:-8000}:8000"
     environment:

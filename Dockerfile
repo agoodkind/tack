@@ -15,7 +15,7 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o /bin/server ./cmd/server
+RUN CGO_ENABLED=1 go build -tags fdb -trimpath -ldflags="-s -w" -o /bin/server ./cmd/server
 
 # ── runtime ───────────────────────────────────────────────────────────────────
 FROM debian:bookworm-slim AS runtime
