@@ -10,30 +10,26 @@ import (
 )
 
 // registerEpicTools registers all epic-related MCP tools using slug-derived names.
-func registerEpicTools(s *mcp.Server, slug, pluralSlug string, epics *service.EpicService) {
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_list_" + pluralSlug, Description: "List " + pluralSlug + " in a project"}, listEpics(epics))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_get_" + slug, Description: "Get a " + slug + " by ID including its description"}, getEpic(epics))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_create_" + slug, Description: "Create a new " + slug}, createEpic(epics))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_update_" + slug, Description: "Update " + slug + " fields (partial)"}, updateEpic(epics))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_delete_" + slug, Description: "Soft-delete a " + slug}, deleteEpic(epics))
+func registerEpicTools(s *mcp.Server, slug, pluralSlug string, epics *service.EpicService, r *Resolver) {
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_list_" + pluralSlug, Description: "List " + pluralSlug + " in a project"}, listEpics(epics, r))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_get_" + slug, Description: "Get a " + slug + " by ID including its description"}, getEpic(epics, r))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_create_" + slug, Description: "Create a new " + slug}, createEpic(epics, r))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_update_" + slug, Description: "Update " + slug + " fields (partial)"}, updateEpic(epics, r))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_delete_" + slug, Description: "Soft-delete a " + slug}, deleteEpic(epics, r))
 }
 
 type ListEpicsInput struct {
-	WorkspaceID string `json:"workspace_id"`
-	ProjectID   string `json:"project_id"`
+	WorkspaceSlug     string `json:"workspace_slug"`
+	ProjectIdentifier string `json:"project_identifier"`
 }
 
-func listEpics(epics *service.EpicService) mcp.ToolHandlerFor[ListEpicsInput, any] {
+func listEpics(epics *service.EpicService, r *Resolver) mcp.ToolHandlerFor[ListEpicsInput, any] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListEpicsInput) (*mcp.CallToolResult, any, error) {
-		wsID, err := parseUUID(in.WorkspaceID, "workspace_id")
+		ws, proj, err := r.Project(ctx, in.WorkspaceSlug, in.ProjectIdentifier)
 		if err != nil {
 			return nil, nil, err
 		}
-		pID, err := parseUUID(in.ProjectID, "project_id")
-		if err != nil {
-			return nil, nil, err
-		}
-		es, total, err := epics.List(ctx, wsID, pID)
+		es, total, err := epics.List(ctx, ws.ID, proj.ID)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -42,26 +38,21 @@ func listEpics(epics *service.EpicService) mcp.ToolHandlerFor[ListEpicsInput, an
 }
 
 type GetEpicInput struct {
-	WorkspaceID string `json:"workspace_id"`
-	ProjectID   string `json:"project_id"`
-	EpicID      string `json:"epic_id"`
+	WorkspaceSlug string `json:"workspace_slug"`
+	Identifier    string `json:"identifier"`
 }
 
-func getEpic(epics *service.EpicService) mcp.ToolHandlerFor[GetEpicInput, any] {
+func getEpic(epics *service.EpicService, r *Resolver) mcp.ToolHandlerFor[GetEpicInput, any] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in GetEpicInput) (*mcp.CallToolResult, any, error) {
-		wsID, err := parseUUID(in.WorkspaceID, "workspace_id")
+		projIdent, seq, err := ParseNodeIdentifier(in.Identifier)
 		if err != nil {
 			return nil, nil, err
 		}
-		pID, err := parseUUID(in.ProjectID, "project_id")
+		ws, proj, err := r.Project(ctx, in.WorkspaceSlug, projIdent)
 		if err != nil {
 			return nil, nil, err
 		}
-		eID, err := parseUUID(in.EpicID, "epic_id")
-		if err != nil {
-			return nil, nil, err
-		}
-		e, err := epics.GetByID(ctx, wsID, pID, eID)
+		e, err := epics.GetBySequence(ctx, ws.ID, proj.ID, seq)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -70,31 +61,27 @@ func getEpic(epics *service.EpicService) mcp.ToolHandlerFor[GetEpicInput, any] {
 }
 
 type CreateEpicInput struct {
-	WorkspaceID string  `json:"workspace_id"`
-	ProjectID   string  `json:"project_id"`
-	Name        string  `json:"name"`
-	Description *string `json:"description,omitempty"`
-	Priority    *string `json:"priority,omitempty"`
-	StateID     *string `json:"state_id,omitempty"`
+	WorkspaceSlug     string  `json:"workspace_slug"`
+	ProjectIdentifier string  `json:"project_identifier"`
+	Name              string  `json:"name"`
+	Description       *string `json:"description,omitempty"`
+	Priority          *string `json:"priority,omitempty"`
+	StateID           *string `json:"state_id,omitempty"`
 }
 
-func createEpic(epics *service.EpicService) mcp.ToolHandlerFor[CreateEpicInput, any] {
+func createEpic(epics *service.EpicService, r *Resolver) mcp.ToolHandlerFor[CreateEpicInput, any] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in CreateEpicInput) (*mcp.CallToolResult, any, error) {
 		userID, err := mustUser(ctx)
 		if err != nil {
 			return nil, nil, err
 		}
-		wsID, err := parseUUID(in.WorkspaceID, "workspace_id")
-		if err != nil {
-			return nil, nil, err
-		}
-		pID, err := parseUUID(in.ProjectID, "project_id")
+		ws, proj, err := r.Project(ctx, in.WorkspaceSlug, in.ProjectIdentifier)
 		if err != nil {
 			return nil, nil, err
 		}
 		e := &epic.Epic{
-			WorkspaceID: wsID,
-			ProjectID:   pID,
+			WorkspaceID: ws.ID,
+			ProjectID:   proj.ID,
 			Name:        in.Name,
 			SortOrder:   65535,
 		}
@@ -117,34 +104,29 @@ func createEpic(epics *service.EpicService) mcp.ToolHandlerFor[CreateEpicInput, 
 }
 
 type UpdateEpicInput struct {
-	WorkspaceID string  `json:"workspace_id"`
-	ProjectID   string  `json:"project_id"`
-	EpicID      string  `json:"epic_id"`
-	Name        *string `json:"name,omitempty"`
-	Description *string `json:"description,omitempty"`
-	Priority    *string `json:"priority,omitempty"`
-	StateID     *string `json:"state_id,omitempty"`
+	WorkspaceSlug string  `json:"workspace_slug"`
+	Identifier    string  `json:"identifier"`
+	Name          *string `json:"name,omitempty"`
+	Description   *string `json:"description,omitempty"`
+	Priority      *string `json:"priority,omitempty"`
+	StateID       *string `json:"state_id,omitempty"`
 }
 
-func updateEpic(epics *service.EpicService) mcp.ToolHandlerFor[UpdateEpicInput, any] {
+func updateEpic(epics *service.EpicService, r *Resolver) mcp.ToolHandlerFor[UpdateEpicInput, any] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in UpdateEpicInput) (*mcp.CallToolResult, any, error) {
 		userID, err := mustUser(ctx)
 		if err != nil {
 			return nil, nil, err
 		}
-		wsID, err := parseUUID(in.WorkspaceID, "workspace_id")
+		projIdent, seq, err := ParseNodeIdentifier(in.Identifier)
 		if err != nil {
 			return nil, nil, err
 		}
-		pID, err := parseUUID(in.ProjectID, "project_id")
+		ws, proj, err := r.Project(ctx, in.WorkspaceSlug, projIdent)
 		if err != nil {
 			return nil, nil, err
 		}
-		eID, err := parseUUID(in.EpicID, "epic_id")
-		if err != nil {
-			return nil, nil, err
-		}
-		existing, err := epics.GetByID(ctx, wsID, pID, eID)
+		existing, err := epics.GetBySequence(ctx, ws.ID, proj.ID, seq)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -170,29 +152,28 @@ func updateEpic(epics *service.EpicService) mcp.ToolHandlerFor[UpdateEpicInput, 
 }
 
 type DeleteEpicInput struct {
-	WorkspaceID string `json:"workspace_id"`
-	ProjectID   string `json:"project_id"`
-	EpicID      string `json:"epic_id"`
+	WorkspaceSlug string `json:"workspace_slug"`
+	Identifier    string `json:"identifier"`
 }
 type DeleteEpicOutput struct {
 	OK bool `json:"ok"`
 }
 
-func deleteEpic(epics *service.EpicService) mcp.ToolHandlerFor[DeleteEpicInput, DeleteEpicOutput] {
+func deleteEpic(epics *service.EpicService, r *Resolver) mcp.ToolHandlerFor[DeleteEpicInput, DeleteEpicOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in DeleteEpicInput) (*mcp.CallToolResult, DeleteEpicOutput, error) {
-		wsID, err := parseUUID(in.WorkspaceID, "workspace_id")
+		projIdent, seq, err := ParseNodeIdentifier(in.Identifier)
 		if err != nil {
 			return nil, DeleteEpicOutput{}, err
 		}
-		pID, err := parseUUID(in.ProjectID, "project_id")
+		ws, proj, err := r.Project(ctx, in.WorkspaceSlug, projIdent)
 		if err != nil {
 			return nil, DeleteEpicOutput{}, err
 		}
-		epicID, err := parseUUID(in.EpicID, "epic_id")
+		existing, err := epics.GetBySequence(ctx, ws.ID, proj.ID, seq)
 		if err != nil {
 			return nil, DeleteEpicOutput{}, err
 		}
-		if err := epics.DeleteByWorkspace(ctx, wsID, pID, epicID); err != nil {
+		if err := epics.DeleteByWorkspace(ctx, ws.ID, proj.ID, existing.ID); err != nil {
 			return nil, DeleteEpicOutput{}, err
 		}
 		return nil, DeleteEpicOutput{OK: true}, nil

@@ -102,6 +102,11 @@ const (
 	// Secondary property index — sorted by encoded value for fast filtered listing.
 	keyNodeByProperty = "node_by_property"
 
+	// NodeBySequence maps (orgID, projectID, nodeType, sequenceID) → nodeID bytes.
+	// Allows O(1) lookup of a node by sequence number within a project.
+	// Written atomically alongside the entity on create; cleared on delete.
+	keyNodeBySequence = "node_by_sequence"
+
 	// NodeListView materialized read view — mirrors node_instance key structure.
 	// (node_list_view, orgID, workspaceID, nodeType, nodeID) → JSON NodeListView
 	keyNodeListView = "node_list_view"

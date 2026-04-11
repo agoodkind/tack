@@ -167,6 +167,7 @@ func (h *Handler) buildServer(nodeTypes []*node.NodeType) *mcp.Server {
 		Properties:  h.properties,
 		Activity:    h.activity,
 		Containment: h.containment,
+		Resolver:    tools.NewResolver(h.workspaces, h.projects),
 	}
 	for _, nt := range nodeTypes {
 		tools.RegisterNodeTools(s, nt, binding)

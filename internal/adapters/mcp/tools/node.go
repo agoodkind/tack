@@ -22,6 +22,7 @@ type NodeTypeBinding struct {
 	Properties  node.PropertyRepository
 	Activity    node.ActivityRepository
 	Containment node.ContainmentRepository
+	Resolver    *Resolver
 }
 
 // RegisterNodeTools registers all MCP tools for a single NodeType.
@@ -35,13 +36,13 @@ func RegisterNodeTools(s *mcp.Server, nt *node.NodeType, b NodeTypeBinding) {
 	}
 	switch nt.TypeKey {
 	case node.NodeTypeIssue:
-		registerIssueTools(s, nt.Slug, plural, b.IssueSvc)
+		registerIssueTools(s, nt.Slug, plural, b.IssueSvc, b.Resolver)
 	case node.NodeTypeEpic:
-		registerEpicTools(s, nt.Slug, plural, b.EpicSvc)
+		registerEpicTools(s, nt.Slug, plural, b.EpicSvc, b.Resolver)
 	case node.NodeTypeCycle:
-		registerCycleTools(s, nt.Slug, plural, b.CycleSvc, b.Containment)
+		registerCycleTools(s, nt.Slug, plural, b.CycleSvc, b.Containment, b.Resolver)
 	case node.NodeTypeModule:
-		registerModuleTools(s, nt.Slug, plural, b.ModuleSvc, b.Containment)
+		registerModuleTools(s, nt.Slug, plural, b.ModuleSvc, b.Containment, b.Resolver)
 	default:
 		RegisterNodeType(s, nt, b.Properties, b.Activity)
 	}

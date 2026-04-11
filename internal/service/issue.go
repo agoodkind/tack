@@ -268,6 +268,23 @@ func (s *IssueService) Get(ctx context.Context, workspaceID, projectID, id uuid.
 	return issueFromNodeListView(view), nil
 }
 
+// GetBySequence resolves an issue by its project-scoped sequence number.
+// This is used by the MCP identifier pattern ("ENG-42" → seq=42).
+func (s *IssueService) GetBySequence(ctx context.Context, workspaceID, projectID uuid.UUID, seqID int) (*issue.Issue, error) {
+	ws, err := s.workspaces.GetByID(ctx, workspaceID)
+	if err != nil {
+		return nil, fmt.Errorf("resolve workspace: %w", err)
+	}
+	nodeID, err := s.entities.GetBySequence(ctx, ws.OrgID, projectID, node.NodeTypeIssue, int64(seqID))
+	if err != nil {
+		return nil, fmt.Errorf("get by sequence: %w", err)
+	}
+	if nodeID == uuid.Nil {
+		return nil, domain.ErrNotFound
+	}
+	return s.Get(ctx, workspaceID, projectID, nodeID)
+}
+
 func (s *IssueService) List(ctx context.Context, filter issue.ListFilter) ([]*issue.Issue, int, error) {
 	ws, err := s.workspaces.GetByID(ctx, filter.WorkspaceID)
 	if err != nil {

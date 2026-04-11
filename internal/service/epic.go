@@ -228,6 +228,22 @@ func (s *EpicService) GetByID(ctx context.Context, workspaceID, projectID, id uu
 	return epicFromNodeListView(view), nil
 }
 
+// GetBySequence resolves an epic by its project-scoped sequence number.
+func (s *EpicService) GetBySequence(ctx context.Context, workspaceID, projectID uuid.UUID, seqID int) (*epic.Epic, error) {
+	ws, err := s.workspaces.GetByID(ctx, workspaceID)
+	if err != nil {
+		return nil, fmt.Errorf("resolve workspace: %w", err)
+	}
+	nodeID, err := s.entities.GetBySequence(ctx, ws.OrgID, projectID, node.NodeTypeEpic, int64(seqID))
+	if err != nil {
+		return nil, fmt.Errorf("get by sequence: %w", err)
+	}
+	if nodeID == uuid.Nil {
+		return nil, domain.ErrNotFound
+	}
+	return s.GetByID(ctx, workspaceID, projectID, nodeID)
+}
+
 func (s *EpicService) List(ctx context.Context, workspaceID, projectID uuid.UUID) ([]*epic.Epic, int, error) {
 	ws, err := s.workspaces.GetByID(ctx, workspaceID)
 	if err != nil {

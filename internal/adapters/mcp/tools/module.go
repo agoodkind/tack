@@ -10,32 +10,28 @@ import (
 )
 
 // registerModuleTools registers all module-related MCP tools using slug-derived names.
-func registerModuleTools(s *mcp.Server, slug, pluralSlug string, modules *service.ModuleService, containment node.ContainmentRepository) {
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_list_" + pluralSlug, Description: "List " + pluralSlug + " (feature groupings) in a project"}, listModules(modules))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_get_" + slug, Description: "Get a " + slug + " by ID"}, getModule(modules))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_create_" + slug, Description: "Create a new " + slug}, createModule(modules))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_update_" + slug, Description: "Update " + slug + " fields (partial)"}, updateModule(modules))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_delete_" + slug, Description: "Delete a " + slug}, deleteModule(modules))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_add_to_" + slug, Description: "Add issues to a " + slug}, addToModule(containment))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_remove_from_" + slug, Description: "Remove an issue from a " + slug}, removeFromModule(containment))
+func registerModuleTools(s *mcp.Server, slug, pluralSlug string, modules *service.ModuleService, containment node.ContainmentRepository, r *Resolver) {
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_list_" + pluralSlug, Description: "List " + pluralSlug + " (feature groupings) in a project"}, listModules(modules, r))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_get_" + slug, Description: "Get a " + slug + " by ID"}, getModule(modules, r))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_create_" + slug, Description: "Create a new " + slug}, createModule(modules, r))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_update_" + slug, Description: "Update " + slug + " fields (partial)"}, updateModule(modules, r))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_delete_" + slug, Description: "Delete a " + slug}, deleteModule(modules, r))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_add_to_" + slug, Description: "Add issues to a " + slug}, addToModule(containment, r))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_remove_from_" + slug, Description: "Remove an issue from a " + slug}, removeFromModule(containment, r))
 }
 
 type ListModulesInput struct {
-	WorkspaceID string `json:"workspace_id"`
-	ProjectID   string `json:"project_id"`
+	WorkspaceSlug     string `json:"workspace_slug"`
+	ProjectIdentifier string `json:"project_identifier"`
 }
 
-func listModules(modules *service.ModuleService) mcp.ToolHandlerFor[ListModulesInput, any] {
+func listModules(modules *service.ModuleService, r *Resolver) mcp.ToolHandlerFor[ListModulesInput, any] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListModulesInput) (*mcp.CallToolResult, any, error) {
-		wsID, err := parseUUID(in.WorkspaceID, "workspace_id")
+		ws, proj, err := r.Project(ctx, in.WorkspaceSlug, in.ProjectIdentifier)
 		if err != nil {
 			return nil, nil, err
 		}
-		pID, err := parseUUID(in.ProjectID, "project_id")
-		if err != nil {
-			return nil, nil, err
-		}
-		ms, err := modules.ListWithWorkspace(ctx, wsID, pID)
+		ms, err := modules.ListWithWorkspace(ctx, ws.ID, proj.ID)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -44,18 +40,14 @@ func listModules(modules *service.ModuleService) mcp.ToolHandlerFor[ListModulesI
 }
 
 type GetModuleInput struct {
-	WorkspaceID string `json:"workspace_id"`
-	ProjectID   string `json:"project_id"`
-	ModuleID    string `json:"module_id"`
+	WorkspaceSlug     string `json:"workspace_slug"`
+	ProjectIdentifier string `json:"project_identifier"`
+	ModuleID          string `json:"module_id"`
 }
 
-func getModule(modules *service.ModuleService) mcp.ToolHandlerFor[GetModuleInput, any] {
+func getModule(modules *service.ModuleService, r *Resolver) mcp.ToolHandlerFor[GetModuleInput, any] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in GetModuleInput) (*mcp.CallToolResult, any, error) {
-		wsID, err := parseUUID(in.WorkspaceID, "workspace_id")
-		if err != nil {
-			return nil, nil, err
-		}
-		pID, err := parseUUID(in.ProjectID, "project_id")
+		ws, proj, err := r.Project(ctx, in.WorkspaceSlug, in.ProjectIdentifier)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -63,7 +55,7 @@ func getModule(modules *service.ModuleService) mcp.ToolHandlerFor[GetModuleInput
 		if err != nil {
 			return nil, nil, err
 		}
-		m, err := modules.GetByIDWithWorkspace(ctx, wsID, pID, moduleID)
+		m, err := modules.GetByIDWithWorkspace(ctx, ws.ID, proj.ID, moduleID)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -72,24 +64,20 @@ func getModule(modules *service.ModuleService) mcp.ToolHandlerFor[GetModuleInput
 }
 
 type CreateModuleInput struct {
-	WorkspaceID string  `json:"workspace_id"`
-	ProjectID   string  `json:"project_id"`
-	Name        string  `json:"name"`
-	Description *string `json:"description,omitempty"`
-	Status      *string `json:"status,omitempty"`
+	WorkspaceSlug     string  `json:"workspace_slug"`
+	ProjectIdentifier string  `json:"project_identifier"`
+	Name              string  `json:"name"`
+	Description       *string `json:"description,omitempty"`
+	Status            *string `json:"status,omitempty"`
 }
 
-func createModule(modules *service.ModuleService) mcp.ToolHandlerFor[CreateModuleInput, any] {
+func createModule(modules *service.ModuleService, r *Resolver) mcp.ToolHandlerFor[CreateModuleInput, any] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in CreateModuleInput) (*mcp.CallToolResult, any, error) {
 		userID, err := mustUser(ctx)
 		if err != nil {
 			return nil, nil, err
 		}
-		wsID, err := parseUUID(in.WorkspaceID, "workspace_id")
-		if err != nil {
-			return nil, nil, err
-		}
-		pID, err := parseUUID(in.ProjectID, "project_id")
+		ws, proj, err := r.Project(ctx, in.WorkspaceSlug, in.ProjectIdentifier)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -98,8 +86,8 @@ func createModule(modules *service.ModuleService) mcp.ToolHandlerFor[CreateModul
 			status = *in.Status
 		}
 		newModule := &module.Module{
-			WorkspaceID: wsID,
-			ProjectID:   pID,
+			WorkspaceID: ws.ID,
+			ProjectID:   proj.ID,
 			Name:        in.Name,
 			Status:      status,
 			SortOrder:   65535,
@@ -117,25 +105,21 @@ func createModule(modules *service.ModuleService) mcp.ToolHandlerFor[CreateModul
 }
 
 type UpdateModuleInput struct {
-	WorkspaceID string  `json:"workspace_id"`
-	ProjectID   string  `json:"project_id"`
-	ModuleID    string  `json:"module_id"`
-	Name        *string `json:"name,omitempty"`
-	Description *string `json:"description,omitempty"`
-	Status      *string `json:"status,omitempty"`
+	WorkspaceSlug     string  `json:"workspace_slug"`
+	ProjectIdentifier string  `json:"project_identifier"`
+	ModuleID          string  `json:"module_id"`
+	Name              *string `json:"name,omitempty"`
+	Description       *string `json:"description,omitempty"`
+	Status            *string `json:"status,omitempty"`
 }
 
-func updateModule(modules *service.ModuleService) mcp.ToolHandlerFor[UpdateModuleInput, any] {
+func updateModule(modules *service.ModuleService, r *Resolver) mcp.ToolHandlerFor[UpdateModuleInput, any] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in UpdateModuleInput) (*mcp.CallToolResult, any, error) {
 		userID, err := mustUser(ctx)
 		if err != nil {
 			return nil, nil, err
 		}
-		wsID, err := parseUUID(in.WorkspaceID, "workspace_id")
-		if err != nil {
-			return nil, nil, err
-		}
-		pID, err := parseUUID(in.ProjectID, "project_id")
+		ws, proj, err := r.Project(ctx, in.WorkspaceSlug, in.ProjectIdentifier)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -143,7 +127,7 @@ func updateModule(modules *service.ModuleService) mcp.ToolHandlerFor[UpdateModul
 		if err != nil {
 			return nil, nil, err
 		}
-		existing, err := modules.GetByIDWithWorkspace(ctx, wsID, pID, moduleID)
+		existing, err := modules.GetByIDWithWorkspace(ctx, ws.ID, proj.ID, moduleID)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -166,21 +150,17 @@ func updateModule(modules *service.ModuleService) mcp.ToolHandlerFor[UpdateModul
 }
 
 type DeleteModuleInput struct {
-	WorkspaceID string `json:"workspace_id"`
-	ProjectID   string `json:"project_id"`
-	ModuleID    string `json:"module_id"`
+	WorkspaceSlug     string `json:"workspace_slug"`
+	ProjectIdentifier string `json:"project_identifier"`
+	ModuleID          string `json:"module_id"`
 }
 type DeleteModuleOutput struct {
 	OK bool `json:"ok"`
 }
 
-func deleteModule(modules *service.ModuleService) mcp.ToolHandlerFor[DeleteModuleInput, DeleteModuleOutput] {
+func deleteModule(modules *service.ModuleService, r *Resolver) mcp.ToolHandlerFor[DeleteModuleInput, DeleteModuleOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in DeleteModuleInput) (*mcp.CallToolResult, DeleteModuleOutput, error) {
-		wsID, err := parseUUID(in.WorkspaceID, "workspace_id")
-		if err != nil {
-			return nil, DeleteModuleOutput{}, err
-		}
-		pID, err := parseUUID(in.ProjectID, "project_id")
+		ws, proj, err := r.Project(ctx, in.WorkspaceSlug, in.ProjectIdentifier)
 		if err != nil {
 			return nil, DeleteModuleOutput{}, err
 		}
@@ -188,7 +168,7 @@ func deleteModule(modules *service.ModuleService) mcp.ToolHandlerFor[DeleteModul
 		if err != nil {
 			return nil, DeleteModuleOutput{}, err
 		}
-		if err := modules.DeleteByWorkspace(ctx, wsID, pID, moduleID); err != nil {
+		if err := modules.DeleteByWorkspace(ctx, ws.ID, proj.ID, moduleID); err != nil {
 			return nil, DeleteModuleOutput{}, err
 		}
 		return nil, DeleteModuleOutput{OK: true}, nil
@@ -196,21 +176,21 @@ func deleteModule(modules *service.ModuleService) mcp.ToolHandlerFor[DeleteModul
 }
 
 type AddToModuleInput struct {
-	OrgID    string   `json:"org_id"`
-	ModuleID string   `json:"module_id"`
-	IssueIDs []string `json:"issue_ids"`
+	WorkspaceSlug string   `json:"workspace_slug"`
+	ModuleID      string   `json:"module_id"`
+	IssueIDs      []string `json:"issue_ids"`
 }
 type AddToModuleOutput struct {
 	Added int `json:"added"`
 }
 
-func addToModule(containment node.ContainmentRepository) mcp.ToolHandlerFor[AddToModuleInput, AddToModuleOutput] {
+func addToModule(containment node.ContainmentRepository, r *Resolver) mcp.ToolHandlerFor[AddToModuleInput, AddToModuleOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in AddToModuleInput) (*mcp.CallToolResult, AddToModuleOutput, error) {
 		userID, err := mustUser(ctx)
 		if err != nil {
 			return nil, AddToModuleOutput{}, err
 		}
-		orgID, err := parseUUID(in.OrgID, "org_id")
+		ws, err := r.Workspace(ctx, in.WorkspaceSlug)
 		if err != nil {
 			return nil, AddToModuleOutput{}, err
 		}
@@ -224,7 +204,7 @@ func addToModule(containment node.ContainmentRepository) mcp.ToolHandlerFor[AddT
 			if err != nil {
 				return nil, AddToModuleOutput{}, err
 			}
-			if err := containment.AddIssueToModule(ctx, orgID, moduleID, issueID, userID); err != nil {
+			if err := containment.AddIssueToModule(ctx, ws.OrgID, moduleID, issueID, userID); err != nil {
 				return nil, AddToModuleOutput{}, err
 			}
 			added++
@@ -234,17 +214,17 @@ func addToModule(containment node.ContainmentRepository) mcp.ToolHandlerFor[AddT
 }
 
 type RemoveFromModuleInput struct {
-	OrgID    string `json:"org_id"`
-	ModuleID string `json:"module_id"`
-	IssueID  string `json:"issue_id"`
+	WorkspaceSlug string `json:"workspace_slug"`
+	ModuleID      string `json:"module_id"`
+	IssueID       string `json:"issue_id"`
 }
 type RemoveFromModuleOutput struct {
 	OK bool `json:"ok"`
 }
 
-func removeFromModule(containment node.ContainmentRepository) mcp.ToolHandlerFor[RemoveFromModuleInput, RemoveFromModuleOutput] {
+func removeFromModule(containment node.ContainmentRepository, r *Resolver) mcp.ToolHandlerFor[RemoveFromModuleInput, RemoveFromModuleOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in RemoveFromModuleInput) (*mcp.CallToolResult, RemoveFromModuleOutput, error) {
-		orgID, err := parseUUID(in.OrgID, "org_id")
+		ws, err := r.Workspace(ctx, in.WorkspaceSlug)
 		if err != nil {
 			return nil, RemoveFromModuleOutput{}, err
 		}
@@ -256,7 +236,7 @@ func removeFromModule(containment node.ContainmentRepository) mcp.ToolHandlerFor
 		if err != nil {
 			return nil, RemoveFromModuleOutput{}, err
 		}
-		if err := containment.RemoveIssueFromModule(ctx, orgID, moduleID, issueID); err != nil {
+		if err := containment.RemoveIssueFromModule(ctx, ws.OrgID, moduleID, issueID); err != nil {
 			return nil, RemoveFromModuleOutput{}, err
 		}
 		return nil, RemoveFromModuleOutput{OK: true}, nil

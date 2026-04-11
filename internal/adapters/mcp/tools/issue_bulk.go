@@ -3,8 +3,12 @@ package tools
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	"goodkind.io/tack/internal/domain/issue"
+	"goodkind.io/tack/internal/domain/project"
+	"goodkind.io/tack/internal/domain/workspace"
 	"goodkind.io/tack/internal/service"
 	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -14,14 +18,13 @@ import (
 
 // BulkUpdateIssuesInput holds the parameters for a bulk issue update.
 type BulkUpdateIssuesInput struct {
-	WorkspaceID string   `json:"workspace_id"`
-	ProjectID   string   `json:"project_id"`
-	IssueIDs    []string `json:"issue_ids"`
-	StateID     *string  `json:"state_id,omitempty"`
-	Priority    *string  `json:"priority,omitempty"`
-	EpicID      *string  `json:"epic_id,omitempty"`
-	ClearEpic   bool     `json:"clear_epic,omitempty"`
-	AssigneeIDs []string `json:"assignee_ids,omitempty"`
+	WorkspaceSlug string   `json:"workspace_slug"`
+	Identifiers   []string `json:"identifiers"`
+	StateID       *string  `json:"state_id,omitempty"`
+	Priority      *string  `json:"priority,omitempty"`
+	EpicID        *string  `json:"epic_id,omitempty"`
+	ClearEpic     bool     `json:"clear_epic,omitempty"`
+	AssigneeIDs   []string `json:"assignee_ids,omitempty"`
 }
 
 // BulkUpdateIssuesOutput reports how many issues were updated.
@@ -29,31 +32,37 @@ type BulkUpdateIssuesOutput struct {
 	Updated int `json:"updated"`
 }
 
-func bulkUpdateIssues(svc *service.IssueService) mcp.ToolHandlerFor[BulkUpdateIssuesInput, BulkUpdateIssuesOutput] {
+func bulkUpdateIssues(svc *service.IssueService, r *Resolver) mcp.ToolHandlerFor[BulkUpdateIssuesInput, BulkUpdateIssuesOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in BulkUpdateIssuesInput) (*mcp.CallToolResult, BulkUpdateIssuesOutput, error) {
 		userID, err := mustUser(ctx)
 		if err != nil {
 			return nil, BulkUpdateIssuesOutput{}, err
 		}
-		wsID, err := parseUUID(in.WorkspaceID, "workspace_id")
-		if err != nil {
-			return nil, BulkUpdateIssuesOutput{}, err
-		}
-		pID, err := parseUUID(in.ProjectID, "project_id")
-		if err != nil {
-			return nil, BulkUpdateIssuesOutput{}, err
-		}
-		issueIDs := make([]uuid.UUID, 0, len(in.IssueIDs))
-		for _, s := range in.IssueIDs {
-			id, parseErr := parseUUID(s, "issue_id")
-			if parseErr != nil {
-				return nil, BulkUpdateIssuesOutput{}, parseErr
+		issueIDs := make([]uuid.UUID, 0, len(in.Identifiers))
+		var ws *workspace.Workspace
+		var proj *project.Project
+		for _, ident := range in.Identifiers {
+			projIdent, seq, err := ParseNodeIdentifier(ident)
+			if err != nil {
+				return nil, BulkUpdateIssuesOutput{}, err
 			}
-			issueIDs = append(issueIDs, id)
+			if ws == nil {
+				ws, proj, err = r.Project(ctx, in.WorkspaceSlug, projIdent)
+				if err != nil {
+					return nil, BulkUpdateIssuesOutput{}, err
+				}
+			} else if !strings.EqualFold(proj.Identifier, projIdent) {
+				return nil, BulkUpdateIssuesOutput{}, fmt.Errorf("bulk update requires all issues in the same project: got %q and %q", proj.Identifier, projIdent)
+			}
+			issueObj, err := svc.GetBySequence(ctx, ws.ID, proj.ID, seq)
+			if err != nil {
+				return nil, BulkUpdateIssuesOutput{}, err
+			}
+			issueIDs = append(issueIDs, issueObj.ID)
 		}
 		patch := issue.BulkUpdatePatch{
 			IssueIDs:  issueIDs,
-			ProjectID: pID,
+			ProjectID: proj.ID,
 			ActorID:   userID,
 		}
 		if in.StateID != nil {
@@ -85,7 +94,7 @@ func bulkUpdateIssues(svc *service.IssueService) mcp.ToolHandlerFor[BulkUpdateIs
 			}
 			patch.AssigneeIDs = ids
 		}
-		updated, err := svc.BulkUpdate(ctx, wsID, patch)
+		updated, err := svc.BulkUpdate(ctx, ws.ID, patch)
 		if err != nil {
 			return nil, BulkUpdateIssuesOutput{}, err
 		}
@@ -97,9 +106,8 @@ func bulkUpdateIssues(svc *service.IssueService) mcp.ToolHandlerFor[BulkUpdateIs
 
 // BulkDeleteIssuesInput holds the parameters for a bulk issue delete.
 type BulkDeleteIssuesInput struct {
-	WorkspaceID string   `json:"workspace_id"`
-	ProjectID   string   `json:"project_id"`
-	IssueIDs    []string `json:"issue_ids"`
+	WorkspaceSlug string   `json:"workspace_slug"`
+	Identifiers   []string `json:"identifiers"`
 }
 
 // BulkDeleteIssuesOutput reports how many issues were deleted.
@@ -107,21 +115,29 @@ type BulkDeleteIssuesOutput struct {
 	Deleted int `json:"deleted"`
 }
 
-func bulkDeleteIssues(svc *service.IssueService) mcp.ToolHandlerFor[BulkDeleteIssuesInput, BulkDeleteIssuesOutput] {
+func bulkDeleteIssues(svc *service.IssueService, r *Resolver) mcp.ToolHandlerFor[BulkDeleteIssuesInput, BulkDeleteIssuesOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in BulkDeleteIssuesInput) (*mcp.CallToolResult, BulkDeleteIssuesOutput, error) {
-		wsID, err := parseUUID(in.WorkspaceID, "workspace_id")
+		ws, err := r.Workspace(ctx, in.WorkspaceSlug)
 		if err != nil {
 			return nil, BulkDeleteIssuesOutput{}, err
 		}
-		issueIDs := make([]uuid.UUID, 0, len(in.IssueIDs))
-		for _, s := range in.IssueIDs {
-			id, parseErr := parseUUID(s, "issue_id")
-			if parseErr != nil {
-				return nil, BulkDeleteIssuesOutput{}, parseErr
+		issueIDs := make([]uuid.UUID, 0, len(in.Identifiers))
+		for _, ident := range in.Identifiers {
+			projIdent, seq, err := ParseNodeIdentifier(ident)
+			if err != nil {
+				return nil, BulkDeleteIssuesOutput{}, err
 			}
-			issueIDs = append(issueIDs, id)
+			_, proj, err := r.Project(ctx, in.WorkspaceSlug, projIdent)
+			if err != nil {
+				return nil, BulkDeleteIssuesOutput{}, err
+			}
+			issueObj, err := svc.GetBySequence(ctx, ws.ID, proj.ID, seq)
+			if err != nil {
+				return nil, BulkDeleteIssuesOutput{}, err
+			}
+			issueIDs = append(issueIDs, issueObj.ID)
 		}
-		n, err := svc.BulkDelete(ctx, wsID, issueIDs)
+		n, err := svc.BulkDelete(ctx, ws.ID, issueIDs)
 		if err != nil {
 			return nil, BulkDeleteIssuesOutput{}, err
 		}
@@ -133,10 +149,9 @@ func bulkDeleteIssues(svc *service.IssueService) mcp.ToolHandlerFor[BulkDeleteIs
 
 // BulkMoveIssuesInput holds the parameters for a bulk issue move.
 type BulkMoveIssuesInput struct {
-	WorkspaceID     string   `json:"workspace_id"`
-	ProjectID       string   `json:"project_id"`
-	IssueIDs        []string `json:"issue_ids"`
-	TargetProjectID string   `json:"target_project_id"`
+	WorkspaceSlug           string   `json:"workspace_slug"`
+	Identifiers             []string `json:"identifiers"`
+	TargetProjectIdentifier string   `json:"target_project_identifier"`
 }
 
 // BulkMoveIssuesOutput reports how many issues were moved and how many failed.
@@ -145,33 +160,39 @@ type BulkMoveIssuesOutput struct {
 	Failed int `json:"failed"`
 }
 
-func bulkMoveIssues(svc *service.IssueService) mcp.ToolHandlerFor[BulkMoveIssuesInput, BulkMoveIssuesOutput] {
+func bulkMoveIssues(svc *service.IssueService, r *Resolver) mcp.ToolHandlerFor[BulkMoveIssuesInput, BulkMoveIssuesOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in BulkMoveIssuesInput) (*mcp.CallToolResult, BulkMoveIssuesOutput, error) {
 		userID, err := mustUser(ctx)
 		if err != nil {
 			return nil, BulkMoveIssuesOutput{}, err
 		}
-		wsID, err := parseUUID(in.WorkspaceID, "workspace_id")
-		if err != nil {
-			return nil, BulkMoveIssuesOutput{}, err
-		}
-		pID, err := parseUUID(in.ProjectID, "project_id")
-		if err != nil {
-			return nil, BulkMoveIssuesOutput{}, err
-		}
-		targetPID, err := parseUUID(in.TargetProjectID, "target_project_id")
-		if err != nil {
-			return nil, BulkMoveIssuesOutput{}, err
-		}
-		issueIDs := make([]uuid.UUID, 0, len(in.IssueIDs))
-		for _, s := range in.IssueIDs {
-			id, parseErr := parseUUID(s, "issue_id")
-			if parseErr != nil {
-				return nil, BulkMoveIssuesOutput{}, parseErr
+		issueIDs := make([]uuid.UUID, 0, len(in.Identifiers))
+		var ws *workspace.Workspace
+		var proj *project.Project
+		for _, ident := range in.Identifiers {
+			projIdent, seq, err := ParseNodeIdentifier(ident)
+			if err != nil {
+				return nil, BulkMoveIssuesOutput{}, err
 			}
-			issueIDs = append(issueIDs, id)
+			if ws == nil {
+				ws, proj, err = r.Project(ctx, in.WorkspaceSlug, projIdent)
+				if err != nil {
+					return nil, BulkMoveIssuesOutput{}, err
+				}
+			} else if !strings.EqualFold(proj.Identifier, projIdent) {
+				return nil, BulkMoveIssuesOutput{}, fmt.Errorf("bulk move requires all issues in the same project: got %q and %q", proj.Identifier, projIdent)
+			}
+			issueObj, err := svc.GetBySequence(ctx, ws.ID, proj.ID, seq)
+			if err != nil {
+				return nil, BulkMoveIssuesOutput{}, err
+			}
+			issueIDs = append(issueIDs, issueObj.ID)
 		}
-		moved, failed, err := svc.BulkMove(ctx, wsID, pID, issueIDs, targetPID, userID)
+		_, targetProj, err := r.Project(ctx, in.WorkspaceSlug, in.TargetProjectIdentifier)
+		if err != nil {
+			return nil, BulkMoveIssuesOutput{}, err
+		}
+		moved, failed, err := svc.BulkMove(ctx, ws.ID, proj.ID, issueIDs, targetProj.ID, userID)
 		if err != nil {
 			return nil, BulkMoveIssuesOutput{}, err
 		}

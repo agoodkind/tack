@@ -180,6 +180,9 @@ func (s *NoopEntityStore) AllocateSequenceID(_ context.Context, _, _ uuid.UUID, 
 func (s *NoopEntityStore) CreateAtomic(_ context.Context, _, _ uuid.UUID, _ *node.NodeValue, _ map[uuid.UUID]*node.PropertyValue, _ *node.NodeListView, _ []uuid.UUID, _ []uuid.UUID, _ uuid.UUID) (int64, error) {
 	return 1, nil
 }
+func (s *NoopEntityStore) GetBySequence(_ context.Context, _, _ uuid.UUID, _ string, _ int64) (uuid.UUID, error) {
+	return uuid.Nil, nil
+}
 
 // ── Views (NodeReader) ────────────────────────────────────────────────────────
 

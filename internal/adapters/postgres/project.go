@@ -56,6 +56,27 @@ func (r *ProjectRepo) GetByID(ctx context.Context, workspaceID, id uuid.UUID) (*
 	return p, nil
 }
 
+func (r *ProjectRepo) GetByIdentifier(ctx context.Context, workspaceID uuid.UUID, identifier string) (*project.Project, error) {
+	const q = `
+		SELECT id, workspace_id, name, identifier, description, network,
+		       default_state_id, created_by, updated_by, created_at, updated_at
+		FROM projects
+		WHERE workspace_id = $1 AND identifier = $2`
+
+	p := &project.Project{}
+	err := r.db.QueryRow(ctx, q, workspaceID, identifier).Scan(
+		&p.ID, &p.WorkspaceID, &p.Name, &p.Identifier, &p.Description, &p.Network,
+		&p.DefaultStateID, &p.CreatedBy, &p.UpdatedBy, &p.CreatedAt, &p.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, fmt.Errorf("project get by identifier: %w", err)
+	}
+	return p, nil
+}
+
 func (r *ProjectRepo) List(ctx context.Context, workspaceID uuid.UUID) ([]*project.Project, error) {
 	const q = `
 		SELECT id, workspace_id, name, identifier, description, network,

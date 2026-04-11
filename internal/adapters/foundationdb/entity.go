@@ -97,6 +97,12 @@ func (s *EntityStore) Set(_ context.Context, nv *node.NodeValue, props map[uuid.
 			tr.Set(fdb.Key(nodeByStateKey(nv.OrgID, nv.WorkspaceID, nv.NodeType, *nv.StateID, nv.ID)), []byte{})
 		}
 
+		// Write sequence index when entity has a sequence ID.
+		if nv.SequenceID > 0 && nv.ProjectID != uuid.Nil {
+			nodeIDBytes, _ := nv.ID.MarshalBinary()
+			tr.Set(fdb.Key(nodeBySequenceKey(nv.OrgID, nv.ProjectID, nv.NodeType, int64(nv.SequenceID))), nodeIDBytes)
+		}
+
 		// Write new property values and secondary index entries.
 		for defID, pv := range props {
 			pvBytes, err := json.Marshal(pv)
@@ -334,6 +340,27 @@ func (s *EntityStore) AllocateSequenceID(_ context.Context, orgID, projectID uui
 	return val.(int64), nil
 }
 
+// GetBySequence returns the nodeID for the given sequence number within a project.
+// Returns uuid.Nil, nil if no entity with that sequence number exists.
+func (s *EntityStore) GetBySequence(_ context.Context, orgID, projectID uuid.UUID, nodeType string, seqID int64) (uuid.UUID, error) {
+	key := fdb.Key(nodeBySequenceKey(orgID, projectID, nodeType, seqID))
+	val, err := s.db.ReadTransact(func(tr fdb.ReadTransaction) (any, error) {
+		return tr.Get(key).Get()
+	})
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("get by sequence: %w", err)
+	}
+	b, ok := val.([]byte)
+	if !ok || len(b) == 0 {
+		return uuid.Nil, nil
+	}
+	var id uuid.UUID
+	if err := id.UnmarshalBinary(b); err != nil {
+		return uuid.Nil, fmt.Errorf("unmarshal node id from sequence index: %w", err)
+	}
+	return id, nil
+}
+
 func (s *EntityStore) CreateAtomic(_ context.Context, orgID, projectID uuid.UUID, nv *node.NodeValue, props map[uuid.UUID]*node.PropertyValue, view *node.NodeListView, assigneeIDs []uuid.UUID, labelIDs []uuid.UUID, actorID uuid.UUID) (int64, error) {
 	now := time.Now().UTC()
 	var seqID int64
@@ -358,6 +385,9 @@ func (s *EntityStore) CreateAtomic(_ context.Context, orgID, projectID uuid.UUID
 			if view != nil {
 				view.SequenceID = int32(seqID)
 			}
+			// Write sequence → nodeID index for O(1) lookup by identifier.
+			nodeIDBytes, _ := nv.ID.MarshalBinary()
+			tr.Set(fdb.Key(nodeBySequenceKey(orgID, projectID, nv.NodeType, seqID)), nodeIDBytes)
 		}
 
 		// 2. Write NodeValue primary record.
@@ -554,4 +584,8 @@ func nodeListViewKey(orgID, workspaceID uuid.UUID, nodeType string, nodeID uuid.
 // lookup by nodeID alone without knowing org context upfront.
 func nodeResolveKey(nodeID uuid.UUID) []byte {
 	return tuple.Tuple{keyNodeResolve, nodeID.String()}.Pack()
+}
+
+func nodeBySequenceKey(orgID, projectID uuid.UUID, nodeType string, seqID int64) []byte {
+	return tuple.Tuple{keyNodeBySequence, orgID.String(), projectID.String(), nodeType, seqID}.Pack()
 }

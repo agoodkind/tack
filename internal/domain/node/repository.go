@@ -116,6 +116,9 @@ type EntityRepository interface {
 	// AllocateSequenceID atomically increments and returns the next sequence number
 	// for (orgID, projectID, nodeType). Replaces SQL project_sequences.
 	AllocateSequenceID(ctx context.Context, orgID, projectID uuid.UUID, nodeType string) (int64, error)
+	// GetBySequence returns the nodeID for the given sequence number in a project.
+	// Returns uuid.Nil, nil when not found.
+	GetBySequence(ctx context.Context, orgID, projectID uuid.UUID, nodeType string, seqID int64) (uuid.UUID, error)
 
 	// CreateAtomic writes a new entity and all related data in a single FDB transaction:
 	//   - sequence allocation (if projectID != uuid.Nil)
