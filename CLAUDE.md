@@ -16,102 +16,175 @@ Do not frame suggestions, gaps, or decisions in terms of "your use case" or "for
 
 ## Architecture
 
-**Data layer (hybrid):**
-- **YugabyteDB** — structural PM entities (orgs, workspaces, projects, issues, epics, etc.). Postgres-compatible, automatic transparent sharding. `gen_random_uuid()` requires `CREATE EXTENSION pgcrypto` on YugabyteDB.
-- **FoundationDB** — all relationships, extensibility, and high-frequency data. No SQL join tables. All many-to-many relationships live in FDB with forward + reverse indexes, written atomically.
-- **Meilisearch** — search. Currently stubbed (Noop); real indexing on write is the next step.
+### The model: everything is a node in FDB
 
-**Data access philosophy:**
-- Databases stay dumb. No complex SQL joins or query planner magic.
-- Multi-source reads are explicit and concurrent using `errgroup`:
-  ```go
-  g.Go(func() error { issue, err = issueRepo.GetByID(ctx, id); return err })
-  g.Go(func() error { assignees, err = fdb.AssignmentsOnNode(ctx, orgID, id); return err })
-  g.Wait()
-  ```
-- SQL join tables are forbidden. Every bidirectional relationship lives in FDB with both directions indexed.
-- SQL answers: "give me entities matching these structured filters, sorted."
-- FDB answers: "who is assigned to X?", "what is user Y assigned to?", "what changed on Z?"
+Every entity — org, workspace, project, state, label, issue, epic, cycle, module, custom type — is a node stored in FoundationDB. Same pattern across all entity types: NodeValue (primary record) + NodeListView (materialized read view) + NodeResolve (global resolution record). Every entity is globally addressable by its UUID alone. No org context required from callers.
 
-**Why no SQL join tables:**
-YugabyteDB shards data by primary key. A join table `issue_assignees(issue_id, assignee_id)` answers "who is assigned to issue X?" fast, but "all issues assigned to user Y across all projects" requires a scatter-gather across every shard. FDB stores both directions contiguously — each is a single range scan.
+**SQL does one thing: auth.**
 
-**API layer:**
-- MCP Streamable HTTP (`/mcp`) — current primary interface. Token resolves user → workspaces → custom node types → tool set.
-- Connect-RPC — planned Phase 2.
+```
+users        — identity (email, display_name)
+api_tokens   — bearer token → user_id
+org_members  — auth gate: is this user allowed in this org
+river_jobs   — River background job queue (requires Postgres)
+```
 
-**Auth:**
-- `Authorization: Bearer <token>` → SHA-256 hash → `api_tokens` lookup.
-- Dev mode (`ENV=development`): Bearer token is the raw user UUID (no DB lookup).
-- SSO is planned; the token table is the stable abstraction.
+Nothing else lives in SQL. No entity tables, no config tables, no join tables.
 
-**Build:**
-- `go build ./...` — works everywhere (FDB is noop stub).
-- `CGO_ENABLED=1 go build -tags fdb ./...` — production build with real FDB. Requires `foundationdb-clients` 7.4.x installed.
-- FDB Go bindings pinned to `v0.0.0-20250923185926-685eda6efef7` (API 740, pre-8.0 bump).
+**FoundationDB owns all data:**
+- All entity storage (orgs, workspaces, projects, states, labels, issues, epics, cycles, modules, custom types)
+- All relationships (assignments, containment, labels-on-nodes, hierarchy)
+- All views (NodeListView materialized read records)
+- All resolution records (NodeResolve: entityID → orgID, workspaceID, nodeType)
+- Activity, comments, properties, sequences, automation rules
 
-## Key decisions (do not revisit without good reason)
+**Meilisearch:** full-text search. Fully wired — `searcher.Index()` called on every Create and Update. `EnsureIndex` filterable attrs: `org_id`, `workspace_id`, `project_id`, `entity_type`, `state_id`, `priority`, `is_draft`. Search returns facets.
 
-- `created_by NOT NULL` on all entities — a seeded user is required before any data.
-- All properties, relationships, and membership live in FDB — no JSONB columns, no SQL join tables.
-- Descriptions are Markdown TEXT — not HTML, no stripped copy.
-- `node_id UUID` on every core entity — the FDB bridge key.
-- Migrations run via `./server migrate` only — never on HTTP startup.
-- Goose requires `CREATE EXTENSION pgcrypto` to be run manually before the first migration on YugabyteDB.
+### Data access
+
+Every read goes through `NodeReader`. The service layer never calls `EntityRepository`, `PropertyRepository`, `AssignmentRepository`, or `LabelRepository` directly for reads.
+
+```
+NodeReader.Get(ctx, nodeID)           — resolves via NodeResolve record, no org context needed
+NodeReader.List(ctx, NodeListQuery)   — parallel chunk fetch, returns []NodeListView
+NodeReader.Stream(ctx, NodeListQuery) — unbounded scan, returns channel
+NodeReader.Resolve(ctx, entityID)     — returns NodeResolve for any entity type
+```
+
+Every write goes through `EntityRepository.CreateAtomic` or `EntityRepository.Set`. These atomically write NodeValue + NodeListView + NodeResolve in a single FDB transaction.
+
+orgID is never passed by callers. It is always derived:
+- For entity-scoped ops: `reader.Resolve(ctx, entityID)` → `resolve.OrgID`
+- For workspace-scoped ops: workspace entity → `ws.OrgID`
+- The storage layer uses orgID internally for key locality. It never surfaces to the API or service layer as a parameter.
+
+### Global entity resolution
+
+Every entity has a resolution record written atomically on create:
+
+```
+FDB key: (node_resolve, entityID) → {OrgID, WorkspaceID, ProjectID, NodeType}
+```
+
+`NodeReader.Get(ctx, entityID)` and `NodeReader.Resolve(ctx, entityID)` use this record. Callers know one UUID; lookup works or fails based on auth.
+
+Auth check: resolve entity → get OrgID → check `org_members` in SQL → allow or 403.
+
+### NodeListView
+
+Written atomically with every entity write. Contains everything needed to render a list row — no follow-up reads required.
+
+```
+FDB key: (node_list_view, orgID, workspaceID, nodeType, nodeID) → JSON NodeListView
+```
+
+NodeListView includes: ID, OrgID, WorkspaceID, ProjectID, NodeType, SequenceID, Name, Description, StateID, ParentID, EpicID, AssigneeIDs, LabelIDs, Priority, StartDate, DueDate, IsDraft, Status, CustomProps, CreatedBy, UpdatedBy, CreatedAt, UpdatedAt.
+
+### Write path
+
+All creates use `EntityRepository.CreateAtomic` — single FDB transaction:
+1. Sequence allocation (atomic increment on sequence key)
+2. NodeValue primary record + secondary indexes
+3. Property values + property secondary indexes
+4. NodeResolve record
+5. NodeListView
+6. Initial assignments
+7. Initial labels
+
+No cross-database transactions. No consistency gap.
+
+### API layer
+
+- **MCP Streamable HTTP** (`/mcp`) — primary interface. 50+ tools, dynamic per-user tool registration based on NodeType slugs. workspace_slug and project_identifier everywhere — no raw UUIDs from callers. orgID never appears as an input field.
+- **Connect-RPC** (`/tack.v1.*`) — typed API for future frontend/TUI. Entity-scoped ops take entity UUID only. Collection ops take workspace_id or project_id.
+
+### Auth
+
+- `Authorization: Bearer <token>` → SHA-256 hash → `api_tokens` lookup → `userID`
+- Dev mode (`ENV=development`): Bearer token is the raw user UUID (no DB lookup)
+- Per-entity auth: resolve entity → orgID → `SELECT 1 FROM org_members WHERE org_id=$1 AND user_id=$2`
+
+### Build
+
+- `go build ./...` — works everywhere (FDB is noop stub, no CGO required)
+- `CGO_ENABLED=1 go build -tags fdb ./...` — production build with real FDB
+- FDB Go bindings pinned to `v0.0.0-20250923185926-685eda6efef7` (API 740)
+- `foundationdb-clients` 7.4.x required on the build host for `-tags fdb`
+
+---
+
+## Key decisions
+
+- **Everything is a node in FDB.** Orgs, workspaces, projects, states, labels, issues — all the same pattern. No entity lives in SQL.
+- **SQL = auth only.** `users`, `api_tokens`, `org_members`, `river_jobs`. Nothing else.
+- **orgID never leaks to callers.** Derived from entity resolution or workspace lookup internally. Never a service method parameter, never an API input field.
+- **NodeListView is the single read layer.** Service layer uses NodeReader for all reads. No direct EntityRepository reads in service or handler code.
+- **One FDB transaction per write.** CreateAtomic batches everything. No multi-step create sequences.
+- **UUIDv7 for all new entities.** k-sortable, creation-order range scans without coordination.
+- **Descriptions are Markdown TEXT** — not HTML, no stripped copy.
+- **Updates are partial everywhere** — only provided fields change.
+- **Migrations run via `./server migrate` only** — never on HTTP startup.
+- **Optional MCP input fields use `*string` with `json:",omitempty"`** — required by `google/jsonschema-go`.
+- **`jsonschema:"..."` tag values are descriptions** — not constraints. Do not use them for validation.
+- `gen_random_uuid()` requires `CREATE EXTENSION pgcrypto` on YugabyteDB (run manually before first migration).
 - YugabyteDB does not support `GENERATED ALWAYS AS STORED` columns — no tsvector columns.
-- Search is Meilisearch, not Postgres FTS.
-- Updates are partial everywhere — only provided fields change.
-- Optional MCP input fields use `*string` with `json:",omitempty"` — required by `google/jsonschema-go`.
-- `jsonschema:"..."` tag values are interpreted as descriptions by the MCP SDK, not as constraints. Do not use them.
-- `org_members` stays in SQL — it is the auth gate on every request and is always queried with org_id context.
 
-## SQL schema (what stays)
+---
 
-Pure entity tables only. No join tables. No relational glue.
+## SQL schema (auth only)
 
 ```
-river_jobs        background job queue
-orgs              tenancy root
-users             identity only (email, name, avatar)
-api_tokens        auth
-org_members       auth gate — the ONLY SQL membership table
-workspaces        core entity
-projects          core entity
-project_sequences atomic sequence allocator per (project, entityType)
-states            workflow state definitions
-labels            label definitions
-issues            core entity
-epics             core entity
-modules           core entity
-cycles            core entity
+river_jobs     background job queue (River)
+users          identity — email, display_name, avatar_url
+api_tokens     auth — token_hash → user_id
+org_members    auth gate — org_id, user_id, role
 ```
+
+That is the complete SQL surface.
+
+---
 
 ## FDB key space (canonical reference)
 
-All keys use the tuple layer. `orgID` is always the second component — it scopes all data to a tenant.
+All keys use the tuple layer. `orgID` is always an early component for tenant locality.
 
-### Membership
+### Resolution (global, not org-scoped)
 ```
-membership_by_user    orgID, userID, entityType, entityID   → {role, added_by, added_at}
-membership_by_entity  orgID, entityType, entityID, userID   → {role, added_by, added_at}
-membership_by_role    orgID, entityType, entityID, role, userID → nil
-invitation            orgID, invitationID                   → {email, role, entity_type, entity_id, invited_by, expires_at}
-invitation_by_email   orgID, email, invitationID            → nil
+node_resolve          nodeID → {OrgID, WorkspaceID, ProjectID, NodeType}
 ```
 
-### Assignments (replaces SQL issue_assignees, epic_assignees)
+### Materialized views
+```
+node_list_view        orgID, workspaceID, nodeType, nodeID → JSON NodeListView
+```
+
+### Entity storage
+```
+node_instance             orgID, workspaceID, nodeType, nodeID       → NodeValue JSON
+node_instance_by_project  orgID, projectID, nodeType, nodeID         → nil
+node_instance_by_state    orgID, workspaceID, nodeType, stateID, nodeID → nil
+node_by_property          orgID, workspaceID, nodeType, propDefID, encodedValue, nodeID → nil
+node_by_sequence          orgID, projectID, nodeType, sequenceID     → nodeID
+```
+
+### Sequences
+```
+sequence              orgID, scopeType, scopeID, nodeType            → int64 (atomic counter)
+```
+
+### Assignments
 ```
 assignment_on_node    orgID, nodeID, userID                 → {assigned_by, assigned_at}
 assignment_to_user    orgID, userID, updatedAtNano, nodeID  → nil
 ```
 
-### Labels on nodes (replaces SQL issue_labels, epic_labels)
+### Labels on nodes
 ```
 label_on_node         orgID, nodeID, labelID                → {added_by, added_at}
 issues_with_label     orgID, labelID, nodeID                → nil
 ```
 
-### Containment (replaces SQL module_issues, cycle_issues)
+### Containment
 ```
 issue_in_module           orgID, moduleID, issueID          → {added_by, added_at}
 modules_containing_issue  orgID, issueID, moduleID          → nil
@@ -119,22 +192,12 @@ issue_in_cycle            orgID, cycleID, issueID           → {added_by, added
 cycles_containing_issue   orgID, issueID, cycleID           → nil
 ```
 
-### Hierarchy (complements SQL parent_id and epic_id columns)
+### Hierarchy
 ```
 issue_children        orgID, parentIssueID, childIssueID    → nil
 epic_children         orgID, parentEpicID, childEpicID      → nil
 issues_in_epic        orgID, epicID, issueID                → nil
-```
-
-### Custom node instances
-```
-node_instance             orgID, workspaceID, nodeType, nodeID       → {name, created_by, created_at}
-node_instance_by_project  orgID, projectID, nodeType, nodeID         → nil
-node_instance_by_state    orgID, workspaceID, nodeType, stateID, nodeID → nil
-node_assignee             orgID, nodeID, userID                      → {assigned_by, assigned_at}
-node_label                orgID, nodeID, labelID                     → {added_by, added_at}
-node_parent               orgID, nodeID                              → parentNodeID
-node_children             orgID, parentNodeID, childNodeID           → nil
+issue_epic_reverse    orgID, issueID                        → epicID
 ```
 
 ### Relations between nodes
@@ -158,6 +221,15 @@ activity_by_user      orgID, userID, createdAtNano, eventID          → nil
 activity_on_workspace orgID, workspaceID, createdAtNano, eventID     → nil
 ```
 
+### Membership
+```
+membership_by_user    orgID, userID, entityType, entityID   → {role, added_by, added_at}
+membership_by_entity  orgID, entityType, entityID, userID   → {role, added_by, added_at}
+membership_by_role    orgID, entityType, entityID, role, userID → nil
+invitation            orgID, invitationID                   → {email, role, entity_type, entity_id, invited_by, expires_at}
+invitation_by_email   orgID, email, invitationID            → nil
+```
+
 ### Watchers and mentions
 ```
 watcher_of_node       orgID, nodeID, userID                          → {level}
@@ -174,9 +246,9 @@ unread_notification_count   orgID, userID                            → int64
 
 ### Counters (atomic, maintained on every write)
 ```
-count_on_node         orgID, nodeID, counterName                     → int64
-count_by_state        orgID, projectID, stateID                      → int64
-reaction_on_node      orgID, nodeID, emoji, userID                   → {created_at}
+count_on_node          orgID, nodeID, counterName                    → int64
+count_by_state         orgID, projectID, stateID                     → int64
+reaction_on_node       orgID, nodeID, emoji, userID                  → {created_at}
 reaction_count_on_node orgID, nodeID, emoji                          → int64
 ```
 counterName: comments, sub_issues, attachments, reactions, blockers, work_logs
@@ -192,10 +264,10 @@ saved_view_on_entity        orgID, entityType, entityID, viewID      → {name, 
 
 ### Content
 ```
-link_on_node          orgID, nodeID, linkID                          → {url, title, link_type, created_by}
-attachment_on_node    orgID, nodeID, attachmentID                    → {filename, size_bytes, mime_type, storage_key, uploaded_by}
+link_on_node           orgID, nodeID, linkID                         → {url, title, link_type, created_by}
+attachment_on_node     orgID, nodeID, attachmentID                   → {filename, size_bytes, mime_type, storage_key, uploaded_by}
 draft_for_user_on_node orgID, userID, nodeID                         → {body, updated_at}
-description_version   orgID, nodeID, savedAtNano, versionID          → {body, saved_by}
+description_version    orgID, nodeID, savedAtNano, versionID         → {body, saved_by}
 ```
 
 ### Work tracking
@@ -206,14 +278,19 @@ work_log_by_user      orgID, userID, date, logID                     → nil
 
 ### Custom fields
 ```
-property_definition   orgID, [workspaceID, [projectID,]] defID       → PropertyDef
+property_definition    orgID, [workspaceID, [projectID,]] defID      → PropertyDef
 property_value_on_node orgID, nodeID, propertyDefID                  → value
+```
+
+### Type definitions
+```
+node_type_definition  orgID, typeID                                  → NodeType
 ```
 
 ### Automation and rules
 ```
 automation_rule       orgID, entityType, entityID, ruleID            → {trigger, actions, enabled}
-automation_run_log    orgID, ruleID, ranAtNano, runID                 → {status, error}
+automation_run_log    orgID, ruleID, ranAtNano, runID                → {status, error}
 transition_rule       orgID, projectID, fromStateID, toStateID       → {allowed, conditions, actions}
 ```
 
@@ -223,12 +300,6 @@ user_preference       orgID, userID, preferenceKey                   → value
 org_setting           orgID, settingKey                              → value
 role_definition       orgID, roleID                                  → {name, description}
 role_permission       orgID, roleID, permissionKey                   → bool
-```
-
-### Custom type definitions
-```
-node_type_definition  orgID, typeID                                  → NodeType
-sequence              orgID, scopeType, scopeID, nodeType            → int64
 ```
 
 ### Integrations and ops
@@ -242,17 +313,26 @@ audit_log_by_actor    orgID, actorID, createdAtNano, auditID         → nil
 presence_on_node      orgID, nodeID, userID                          → {last_seen_at}
 ```
 
+---
+
 ## Deployment (CT 117)
 
-- LXC container at `3d06:bad:b01::117`, SSH alias `tack` (ProxyJump vault).
-- Services: YugabyteDB (port 5433), FoundationDB, Meilisearch — all via docker-compose.
-- Binary: `/root/tack/bin/server`, logs: `/var/log/tack.log`.
-- Sync: `rsync -av --exclude='.git' --exclude='bin/' ~/Sites/tack/ tack:/root/tack/`
+- LXC container at `3d06:bad:b01::117`, SSH alias `tack` (ProxyJump vault)
+- Services: YugabyteDB (port 5433), FoundationDB, Meilisearch — all via docker-compose
+- Binary: `/root/tack/bin/server`, start script: `/root/tack/start.sh`, logs: `/var/log/tack.log`
+- Sync + build + restart:
+  ```bash
+  rsync -av --exclude='.git' --exclude='bin/' ~/Sites/tack/ tack:/root/tack/
+  ssh tack 'cd /root/tack && CGO_ENABLED=1 go build -tags fdb -o bin/server ./cmd/server && bash start.sh'
+  ```
+
+---
 
 ## What good looks like
 
 - Multi-tenant from the start. Org is the tenancy root.
-- Every write goes through the service layer. Repos are not called directly from HTTP handlers.
+- Every read goes through NodeReader. Every write goes through EntityRepository. No repos called directly from handlers.
 - Errors are typed (`domain.ErrNotFound`, `domain.ErrUnauthenticated`). No raw string errors leaking to clients.
 - Logging uses `telemetry.L(ctx)` so every log line carries the request ID.
+- orgID never appears as a parameter in service methods or API inputs.
 - No tech debt disguised as "we can fix this later for scale." If it won't scale, don't ship it.
