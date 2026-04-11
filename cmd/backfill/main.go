@@ -21,7 +21,12 @@ import (
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/domain/issue"
+	"goodkind.io/tack/internal/domain/label"
 	"goodkind.io/tack/internal/domain/node"
+	"goodkind.io/tack/internal/domain/org"
+	"goodkind.io/tack/internal/domain/project"
+	"goodkind.io/tack/internal/domain/state"
+	"goodkind.io/tack/internal/domain/workspace"
 	"goodkind.io/tack/internal/service"
 	"goodkind.io/tack/internal/telemetry"
 	"github.com/google/uuid"
@@ -62,6 +67,7 @@ func main() {
 		pool:     pool,
 		entities: fdbStores.Entities,
 		seeder:   seeder,
+		stores:   fdbStores,
 	}
 
 	if err := b.run(ctx); err != nil {
@@ -75,21 +81,23 @@ type backfiller struct {
 	pool     *pgxpool.Pool
 	entities node.EntityRepository
 	seeder   *service.WorkspaceSeeder
+	stores   *fdbadapter.Stores
 }
 
 func (b *backfiller) run(ctx context.Context) error {
+	// Step 1: migrate structural entities (org → workspace → project → state → label).
+	// These must come first so resolution records exist before entity backfill.
+	if err := b.migrateStructural(ctx); err != nil {
+		return fmt.Errorf("migrate structural: %w", err)
+	}
+
 	wss, err := b.listWorkspaces(ctx)
 	if err != nil {
 		return fmt.Errorf("list workspaces: %w", err)
 	}
 	slog.Info("found workspaces", "count", len(wss))
 
-	for _, ws := range wss {
-		slog.Info("seeding workspace", "id", ws.id, "org_id", ws.orgID)
-		b.seeder.SeedWorkspace(ctx, ws.orgID, ws.id)
-	}
-
-	// Build workspace -> orgID lookup.
+	// Build workspace -> orgID lookup (still reads from SQL until Step 11).
 	wsOrg := make(map[uuid.UUID]uuid.UUID, len(wss))
 	for _, ws := range wss {
 		wsOrg[ws.id] = ws.orgID
@@ -153,6 +161,170 @@ func (b *backfiller) listWorkspaces(ctx context.Context) ([]wsRow, error) {
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+// ---- structural migration (org → workspace → project → state → label) ----
+
+func (b *backfiller) migrateStructural(ctx context.Context) error {
+	// Orgs
+	orgs, err := b.migrateOrgs(ctx)
+	if err != nil {
+		return fmt.Errorf("orgs: %w", err)
+	}
+	slog.Info("orgs migrated", "count", len(orgs))
+
+	// Workspaces
+	if err := b.migrateWorkspaces(ctx, orgs); err != nil {
+		return fmt.Errorf("workspaces: %w", err)
+	}
+
+	// Projects
+	if err := b.migrateProjects(ctx); err != nil {
+		return fmt.Errorf("projects: %w", err)
+	}
+
+	// States
+	if err := b.migrateStates(ctx); err != nil {
+		return fmt.Errorf("states: %w", err)
+	}
+
+	// Labels
+	if err := b.migrateLabels(ctx); err != nil {
+		return fmt.Errorf("labels: %w", err)
+	}
+
+	return nil
+}
+
+func (b *backfiller) migrateOrgs(ctx context.Context) (map[uuid.UUID]*org.Org, error) {
+	rows, err := b.pool.Query(ctx, `SELECT id, name, slug, created_at, updated_at FROM orgs ORDER BY created_at`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[uuid.UUID]*org.Org)
+	for rows.Next() {
+		o := &org.Org{}
+		if err := rows.Scan(&o.ID, &o.Name, &o.Slug, &o.CreatedAt, &o.UpdatedAt); err != nil {
+			return nil, err
+		}
+		if _, err := b.stores.Org.Create(ctx, o); err != nil {
+			slog.Warn("org create", "id", o.ID, "err", err)
+		}
+		b.seeder.SeedOrg(ctx, o.ID)
+		result[o.ID] = o
+		slog.Info("org migrated", "id", o.ID, "slug", o.Slug)
+	}
+	return result, rows.Err()
+}
+
+func (b *backfiller) migrateWorkspaces(ctx context.Context, orgs map[uuid.UUID]*org.Org) error {
+	rows, err := b.pool.Query(ctx, `SELECT id, org_id, name, slug, created_at, updated_at FROM workspaces ORDER BY created_at`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	n := 0
+	for rows.Next() {
+		ws := &workspace.Workspace{}
+		if err := rows.Scan(&ws.ID, &ws.OrgID, &ws.Name, &ws.Slug, &ws.CreatedAt, &ws.UpdatedAt); err != nil {
+			return err
+		}
+		if _, err := b.stores.Workspace.Create(ctx, ws); err != nil {
+			slog.Warn("workspace create", "id", ws.ID, "err", err)
+		}
+		b.seeder.SeedWorkspace(ctx, ws.OrgID, ws.ID)
+		n++
+		slog.Info("workspace migrated", "id", ws.ID, "slug", ws.Slug)
+	}
+	slog.Info("workspaces migrated", "count", n)
+	return rows.Err()
+}
+
+func (b *backfiller) migrateProjects(ctx context.Context) error {
+	rows, err := b.pool.Query(ctx, `
+		SELECT p.id, p.workspace_id, w.org_id, p.name, p.identifier,
+		       COALESCE(p.description,''), p.network, p.default_state_id,
+		       p.created_by, p.created_at, p.updated_at
+		FROM projects p
+		JOIN workspaces w ON w.id = p.workspace_id
+		ORDER BY p.created_at`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	n := 0
+	for rows.Next() {
+		p := &project.Project{}
+		var orgID uuid.UUID
+		if err := rows.Scan(&p.ID, &p.WorkspaceID, &orgID, &p.Name, &p.Identifier,
+			&p.Description, &p.Network, &p.DefaultStateID,
+			&p.CreatedBy, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			return err
+		}
+		_ = orgID // resolved internally via workspace resolution record
+		if _, err := b.stores.Project.Create(ctx, p); err != nil {
+			slog.Warn("project create", "id", p.ID, "err", err)
+		}
+		n++
+	}
+	slog.Info("projects migrated", "count", n)
+	return rows.Err()
+}
+
+func (b *backfiller) migrateStates(ctx context.Context) error {
+	rows, err := b.pool.Query(ctx, `
+		SELECT s.id, s.project_id, s.name, s.group_name, s.color, s.sort_order, s.created_at, s.updated_at
+		FROM states s
+		ORDER BY s.created_at`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	n := 0
+	for rows.Next() {
+		s := &state.State{}
+		var groupName string
+		if err := rows.Scan(&s.ID, &s.ProjectID, &s.Name, &groupName, &s.Color, &s.SortOrder, &s.CreatedAt, &s.UpdatedAt); err != nil {
+			return err
+		}
+		s.GroupName = state.GroupName(groupName)
+		if _, err := b.stores.State.Create(ctx, s); err != nil {
+			slog.Warn("state create", "id", s.ID, "err", err)
+		}
+		n++
+	}
+	slog.Info("states migrated", "count", n)
+	return rows.Err()
+}
+
+func (b *backfiller) migrateLabels(ctx context.Context) error {
+	rows, err := b.pool.Query(ctx, `
+		SELECT id, workspace_id, project_id, name, color, sort_order, created_at, updated_at
+		FROM labels
+		ORDER BY created_at`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	n := 0
+	for rows.Next() {
+		l := &label.Label{}
+		if err := rows.Scan(&l.ID, &l.WorkspaceID, &l.ProjectID, &l.Name, &l.Color, &l.SortOrder, &l.CreatedAt, &l.UpdatedAt); err != nil {
+			return err
+		}
+		if _, err := b.stores.Label.Create(ctx, l); err != nil {
+			slog.Warn("label create", "id", l.ID, "err", err)
+		}
+		n++
+	}
+	slog.Info("labels migrated", "count", n)
+	return rows.Err()
 }
 
 // ---- epics ----
