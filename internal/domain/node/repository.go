@@ -72,7 +72,7 @@ type NodeLabelRepository interface {
 	ListByLabel(ctx context.Context, orgID, labelID uuid.UUID) ([]uuid.UUID, error)
 }
 
-// ContainmentRepository manages module↔issue and cycle↔issue membership.
+// ContainmentRepository manages module<->issue, cycle<->issue, and epic<->issue membership.
 // Replaces SQL module_issues and cycle_issues join tables.
 type ContainmentRepository interface {
 	AddIssueToModule(ctx context.Context, orgID, moduleID, issueID, addedBy uuid.UUID) error
@@ -84,4 +84,68 @@ type ContainmentRepository interface {
 	RemoveIssueFromCycle(ctx context.Context, orgID, cycleID, issueID uuid.UUID) error
 	IssuesInCycle(ctx context.Context, orgID, cycleID uuid.UUID) ([]uuid.UUID, error)
 	CyclesContainingIssue(ctx context.Context, orgID, issueID uuid.UUID) ([]uuid.UUID, error)
+
+	// IssuesInEpic returns all issue IDs that belong to the given epic.
+	// Key: (issues_in_epic, orgID, epicID, issueID) -> nil
+	IssuesInEpic(ctx context.Context, orgID, epicID uuid.UUID) ([]uuid.UUID, error)
+	// EpicsContainingIssue returns the epic ID for the given issue, or nil if the
+	// issue does not belong to an epic. (One-to-one: issues have at most one epic.)
+	EpicsContainingIssue(ctx context.Context, orgID, issueID uuid.UUID) (*uuid.UUID, error)
+}
+
+// EntityRepository stores NodeValue instances in FDB and maintains secondary
+// indexes for project, state, and any indexed property.
+type EntityRepository interface {
+	// Set writes or overwrites a NodeValue and its typed properties atomically.
+	// props may be nil to write only the NodeValue without touching properties.
+	// view may be nil; when non-nil it is written atomically alongside the entity
+	// as the NodeListView materialized read record (node_list_view key space).
+	// The global resolution record (node_resolve) is always written regardless of view.
+	Set(ctx context.Context, nv *NodeValue, props map[uuid.UUID]*PropertyValue, view *NodeListView) error
+	// Get retrieves a NodeValue by its primary key. Returns nil, nil if not found.
+	Get(ctx context.Context, orgID, workspaceID uuid.UUID, nodeType string, nodeID uuid.UUID) (*NodeValue, error)
+	// Delete removes a NodeValue and all its property values and secondary indexes.
+	Delete(ctx context.Context, nv *NodeValue) error
+	// ListByProject returns all nodes of nodeType in a project, ordered by insertion.
+	ListByProject(ctx context.Context, orgID, projectID uuid.UUID, nodeType string) ([]*NodeValue, error)
+	// ListByState returns all nodes of nodeType in a given state.
+	ListByState(ctx context.Context, orgID, workspaceID uuid.UUID, nodeType string, stateID uuid.UUID) ([]*NodeValue, error)
+	// ListByProperty returns all nodes where the given property equals pv.
+	// Only works for properties that have Indexed=true on their PropertyDef.
+	ListByProperty(ctx context.Context, orgID, workspaceID uuid.UUID, nodeType string, propDefID uuid.UUID, pv *PropertyValue) ([]*NodeValue, error)
+	// AllocateSequenceID atomically increments and returns the next sequence number
+	// for (orgID, projectID, nodeType). Replaces SQL project_sequences.
+	AllocateSequenceID(ctx context.Context, orgID, projectID uuid.UUID, nodeType string) (int64, error)
+
+	// CreateAtomic writes a new entity and all related data in a single FDB transaction:
+	//   - sequence allocation (if projectID != uuid.Nil)
+	//   - NodeValue + secondary indexes
+	//   - property values + property indexes
+	//   - NodeResolve record (always)
+	//   - NodeListView (if view != nil)
+	//   - initial assignments (if assigneeIDs non-empty)
+	//   - initial labels (if labelIDs non-empty)
+	//
+	// nv.SequenceID must be 0 on entry; CreateAtomic sets it to the allocated value.
+	// If view is non-nil, view.SequenceID is also updated to match.
+	// Returns the allocated sequence ID (0 if projectID == uuid.Nil).
+	CreateAtomic(
+		ctx context.Context,
+		orgID, projectID uuid.UUID,
+		nv *NodeValue,
+		props map[uuid.UUID]*PropertyValue,
+		view *NodeListView,
+		assigneeIDs []uuid.UUID,
+		labelIDs []uuid.UUID,
+		actorID uuid.UUID,
+	) (sequenceID int64, err error)
+}
+
+// AutomationRepository stores and retrieves automation rules.
+type AutomationRepository interface {
+	Set(ctx context.Context, rule *AutomationRule) error
+	Get(ctx context.Context, orgID, ruleID uuid.UUID) (*AutomationRule, error)
+	// ListByTrigger returns all enabled rules for a given workspace, node type, and trigger.
+	ListByTrigger(ctx context.Context, orgID, workspaceID uuid.UUID, nodeType string, trigger AutomationTrigger) ([]*AutomationRule, error)
+	Delete(ctx context.Context, orgID, ruleID uuid.UUID) error
 }

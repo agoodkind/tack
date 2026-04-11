@@ -61,7 +61,6 @@ func (s *ProjectService) Create(ctx context.Context, p *project.Project) (*proje
 
 	_ = s.searcher.Index(ctx, "nodes", created.ID.String(), domainsearch.NodeDoc{
 		ID:          created.ID.String(),
-		NodeID:      created.NodeID.String(),
 		WorkspaceID: created.WorkspaceID.String(),
 		ProjectID:   created.ID.String(),
 		EntityType:  "project",

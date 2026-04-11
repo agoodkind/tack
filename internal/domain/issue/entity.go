@@ -7,6 +7,33 @@ import (
 	"github.com/google/uuid"
 )
 
+// ListFilter describes criteria for listing issues. All fields are optional
+// except WorkspaceID. Applied in-memory or via FDB index depending on which
+// fields are set.
+type ListFilter struct {
+	WorkspaceID uuid.UUID
+	ProjectID   *uuid.UUID
+	EpicID      *uuid.UUID
+	StateIDs    []uuid.UUID
+	Priorities  []Priority
+	AssigneeIDs []uuid.UUID
+	IsDraft     *bool
+	PerPage     int
+}
+
+// BulkUpdatePatch describes the changes to apply to a set of issues atomically.
+// Only non-nil/non-zero fields are applied.
+type BulkUpdatePatch struct {
+	IssueIDs    []uuid.UUID
+	ProjectID   uuid.UUID
+	ActorID     uuid.UUID
+	StateID     *uuid.UUID
+	Priority    *Priority
+	SetEpicID   bool       // true means EpicID field should be written (even if nil = clear)
+	EpicID      *uuid.UUID // nil + SetEpicID=true clears the epic
+	AssigneeIDs []uuid.UUID
+}
+
 type Priority string
 
 const (

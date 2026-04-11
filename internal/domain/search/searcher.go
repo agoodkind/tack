@@ -6,14 +6,34 @@ package search
 import "context"
 
 // NodeDoc is the document shape stored and returned from the search index.
+// All fields are populated at index time from NodeListView so that search
+// results require zero follow-up FDB reads to render.
 type NodeDoc struct {
-	ID          string `json:"id"`
-	NodeID      string `json:"node_id,omitempty"`
+	ID string `json:"id"`
+
+	// Filterable attributes — kept as strings for Meilisearch filter syntax.
+	OrgID       string `json:"org_id"`
 	WorkspaceID string `json:"workspace_id"`
 	ProjectID   string `json:"project_id,omitempty"`
 	EntityType  string `json:"entity_type"`
+	StateID     string `json:"state_id,omitempty"`
+	Priority    string `json:"priority,omitempty"`
+	IsDraft     bool   `json:"is_draft,omitempty"`
+
+	// Searchable text fields.
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
+	SequenceID  int32  `json:"sequence_id"`
+
+	// Display fields — sufficient to render a list row without FDB reads.
+	AssigneeIDs []string       `json:"assignee_ids,omitempty"`
+	LabelIDs    []string       `json:"label_ids,omitempty"`
+	EpicID      string         `json:"epic_id,omitempty"`
+	StartDate   string         `json:"start_date,omitempty"`
+	DueDate     string         `json:"due_date,omitempty"`
+	UpdatedAt   string         `json:"updated_at"`
+	CreatedAt   string         `json:"created_at"`
+	CustomProps map[string]any `json:"custom_props,omitempty"`
 }
 
 // Searcher is the interface for full-text search indexing and querying.
@@ -26,6 +46,6 @@ type Searcher interface {
 	Delete(ctx context.Context, collection string, id string) error
 	// Search returns NodeDocs matching query, scoped by equality filters.
 	// Returns nil (not an empty slice) to signal "unsupported"; callers should
-	// fall back to SQL. Returns an empty non-nil slice when the query matched nothing.
+	// fall back to FDB scan. Returns an empty non-nil slice when the query matched nothing.
 	Search(ctx context.Context, collection string, query string, filters map[string]string) ([]NodeDoc, error)
 }

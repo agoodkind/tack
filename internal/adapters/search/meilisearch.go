@@ -65,6 +65,7 @@ func (c *Client) Delete(_ context.Context, collection, id string) error {
 
 // Search returns NodeDocs matching query, scoped by equality filters.
 // Returns a non-nil empty slice when the search succeeded but matched nothing.
+// All NodeDoc fields are populated from the indexed document — no FDB reads needed.
 func (c *Client) Search(_ context.Context, collection, query string, filters map[string]string) ([]domainsearch.NodeDoc, error) {
 	filterParts := make([]string, 0, len(filters))
 	for k, v := range filters {
@@ -72,9 +73,8 @@ func (c *Client) Search(_ context.Context, collection, query string, filters map
 	}
 
 	res, err := c.meili.Index(collection).Search(query, &meilisearch.SearchRequest{
-		Filter:               strings.Join(filterParts, " AND "),
-		Limit:                200,
-		AttributesToRetrieve: []string{"id", "node_id", "workspace_id", "project_id", "entity_type", "name", "description"},
+		Filter: strings.Join(filterParts, " AND "),
+		Limit:  200,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("search %s: %w", collection, err)
@@ -82,27 +82,13 @@ func (c *Client) Search(_ context.Context, collection, query string, filters map
 
 	docs := make([]domainsearch.NodeDoc, 0, len(res.Hits))
 	for _, hit := range res.Hits {
+		b, err := json.Marshal(hit)
+		if err != nil {
+			continue
+		}
 		var doc domainsearch.NodeDoc
-		if v, ok := hit["id"]; ok {
-			_ = json.Unmarshal(v, &doc.ID)
-		}
-		if v, ok := hit["node_id"]; ok {
-			_ = json.Unmarshal(v, &doc.NodeID)
-		}
-		if v, ok := hit["workspace_id"]; ok {
-			_ = json.Unmarshal(v, &doc.WorkspaceID)
-		}
-		if v, ok := hit["project_id"]; ok {
-			_ = json.Unmarshal(v, &doc.ProjectID)
-		}
-		if v, ok := hit["entity_type"]; ok {
-			_ = json.Unmarshal(v, &doc.EntityType)
-		}
-		if v, ok := hit["name"]; ok {
-			_ = json.Unmarshal(v, &doc.Name)
-		}
-		if v, ok := hit["description"]; ok {
-			_ = json.Unmarshal(v, &doc.Description)
+		if err := json.Unmarshal(b, &doc); err != nil {
+			continue
 		}
 		if doc.ID == "" {
 			continue

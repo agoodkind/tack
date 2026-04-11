@@ -29,9 +29,11 @@ const (
 	keyCyclesContainingIssue  = "cycles_containing_issue"
 
 	// Hierarchy (complements SQL parent_id and epic_id columns)
-	keyIssueChildren = "issue_children"
-	keyEpicChildren  = "epic_children"
-	keyIssuesInEpic  = "issues_in_epic"
+	keyIssueChildren    = "issue_children"
+	keyEpicChildren     = "epic_children"
+	keyIssuesInEpic     = "issues_in_epic"
+	// keyIssueEpicReverse maps (orgID, issueID) -> epicID bytes for O(1) reverse lookup.
+	keyIssueEpicReverse = "issue_epic_reverse"
 
 	// Custom node instances
 	keyNodeInstance          = "node_instance"
@@ -97,10 +99,23 @@ const (
 	keyNodeTypeDefinition = "node_type_definition"
 	keySequence           = "sequence"
 
+	// Secondary property index — sorted by encoded value for fast filtered listing.
+	keyNodeByProperty = "node_by_property"
+
+	// NodeListView materialized read view — mirrors node_instance key structure.
+	// (node_list_view, orgID, workspaceID, nodeType, nodeID) → JSON NodeListView
+	keyNodeListView = "node_list_view"
+
+	// NodeResolve global resolution record — NOT org-scoped, keyed by nodeID only.
+	// Allows Get by nodeID without knowing org/workspace upfront.
+	// (node_resolve, nodeID) → JSON NodeResolve
+	keyNodeResolve = "node_resolve"
+
 	// Automation and rules
-	keyAutomationRule     = "automation_rule"
-	keyAutomationRunLog   = "automation_run_log"
-	keyTransitionRule     = "transition_rule"
+	keyAutomationRule          = "automation_rule"
+	keyAutomationRuleByTrigger = "automation_rule_by_trigger"
+	keyAutomationRunLog        = "automation_run_log"
+	keyTransitionRule          = "transition_rule"
 
 	// Settings and roles
 	keyUserPreference  = "user_preference"

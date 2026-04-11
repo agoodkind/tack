@@ -55,6 +55,34 @@ func (s *ContainmentStore) CyclesContainingIssue(_ context.Context, orgID, issue
 	return s.listContained(keyCyclesContainingIssue, orgID, issueID)
 }
 
+func (s *ContainmentStore) IssuesInEpic(_ context.Context, orgID, epicID uuid.UUID) ([]uuid.UUID, error) {
+	return s.listContained(keyIssuesInEpic, orgID, epicID)
+}
+
+func (s *ContainmentStore) EpicsContainingIssue(_ context.Context, orgID, issueID uuid.UUID) (*uuid.UUID, error) {
+	// issues_in_epic is keyed (keyIssuesInEpic, orgID, epicID, issueID).
+	// We need the reverse: given issueID, find epicID.
+	// Use a reverse index: (keyIssueEpicReverse, orgID, issueID, epicID) -> nil
+	// For now we do a prefix scan of the forward index is not viable; instead we
+	// store a reverse entry. Key: (keyIssueEpicReverse, orgID, issueID) -> epicID bytes.
+	key := fdb.Key(tuple.Tuple{keyIssueEpicReverse, orgID.String(), issueID.String()}.Pack())
+	val, err := s.db.ReadTransact(func(tr fdb.ReadTransaction) (any, error) {
+		return tr.Get(key).Get()
+	})
+	if err != nil {
+		return nil, fmt.Errorf("epic for issue: %w", err)
+	}
+	b, ok := val.([]byte)
+	if !ok || len(b) < 16 {
+		return nil, nil
+	}
+	id, err := uuid.FromBytes(b[:16])
+	if err != nil {
+		return nil, nil
+	}
+	return &id, nil
+}
+
 func (s *ContainmentStore) addContainment(fwdKey, revKey string, orgID, containerID, itemID, addedBy uuid.UUID) error {
 	val, _ := json.Marshal(ContainmentValue{AddedBy: addedBy, AddedAt: time.Now().UTC()})
 	_, err := s.db.Transact(func(tr fdb.Transaction) (any, error) {
