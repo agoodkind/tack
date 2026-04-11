@@ -43,6 +43,10 @@ func RegisterNodeTools(s *mcp.Server, nt *node.NodeType, b NodeTypeBinding) {
 		registerCycleTools(s, nt.Slug, plural, b.CycleSvc, b.Containment, b.Resolver)
 	case node.NodeTypeModule:
 		registerModuleTools(s, nt.Slug, plural, b.ModuleSvc, b.Containment, b.Resolver)
+	case node.NodeTypeOrg, node.NodeTypeWorkspace, node.NodeTypeProject, node.NodeTypeState, node.NodeTypeLabel:
+		// Structural types have dedicated tool registrations (RegisterProject, RegisterState, etc.).
+		// Skip to avoid registering duplicate generic tools with wrong input schemas.
+		return
 	default:
 		RegisterNodeType(s, nt, b.Properties, b.Activity)
 	}
