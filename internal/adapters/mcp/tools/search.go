@@ -51,43 +51,57 @@ func myIssues(issueSvc *service.IssueService, r *Resolver) mcp.ToolHandlerFor[My
 	}
 }
 
-func RegisterSearch(s *mcp.Server, searcher domainsearch.Searcher) {
+func RegisterSearch(s *mcp.Server, searcher domainsearch.Searcher, r *Resolver) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "tack_search",
-		Description: "Full-text search across all node entities in a workspace. Returns matching items by name and description. Use this when you do not know the exact identifier; use tack_list_* tools for structured filtering.",
-	}, search(searcher))
+		Description: "Full-text search across all node entities in a workspace. Returns matching items with facet counts by entity_type and project. Use this when you do not know the exact identifier or type; use tack_list_* tools for structured filtering within a known type.",
+	}, search(searcher, r))
 }
 
 type SearchInput struct {
-	WorkspaceID string  `json:"workspace_id"`
-	Query       string  `json:"query"`
-	EntityType  *string `json:"entity_type,omitempty"`
-	ProjectID   *string `json:"project_id,omitempty"`
+	WorkspaceSlug      string  `json:"workspace_slug"`
+	Query              string  `json:"query"`
+	EntityType         *string `json:"entity_type,omitempty"`
+	ProjectIdentifier  *string `json:"project_identifier,omitempty"`
 }
 
-func search(searcher domainsearch.Searcher) mcp.ToolHandlerFor[SearchInput, any] {
+func search(searcher domainsearch.Searcher, r *Resolver) mcp.ToolHandlerFor[SearchInput, any] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in SearchInput) (*mcp.CallToolResult, any, error) {
-		wsID, err := parseUUID(in.WorkspaceID, "workspace_id")
+		ws, err := r.Workspace(ctx, in.WorkspaceSlug)
 		if err != nil {
-			return RecoverableError(err.Error()), nil, nil
+			return ClassifyError(ctx, err), nil, nil
 		}
-		_ = wsID
 		filters := map[string]string{
-			"workspace_id": in.WorkspaceID,
+			"workspace_id": ws.ID.String(),
 		}
 		if in.EntityType != nil && *in.EntityType != "" {
 			filters["entity_type"] = *in.EntityType
 		}
-		if in.ProjectID != nil && *in.ProjectID != "" {
-			filters["project_id"] = *in.ProjectID
+		if in.ProjectIdentifier != nil && *in.ProjectIdentifier != "" {
+			_, proj, projErr := r.Project(ctx, in.WorkspaceSlug, *in.ProjectIdentifier)
+			if projErr != nil {
+				return ClassifyError(ctx, projErr), nil, nil
+			}
+			filters["project_id"] = proj.ID.String()
 		}
-		docs, err := searcher.Search(ctx, "nodes", in.Query, filters)
+		docs, facets, err := searcher.Search(ctx, "nodes", in.Query, filters)
 		if err != nil {
 			return ClassifyError(ctx, err), nil, nil
 		}
 		if docs == nil {
 			docs = []domainsearch.NodeDoc{}
 		}
-		return Success(map[string]any{"items": docs, "total": len(docs)}, ""), nil, nil
+		resp := map[string]any{
+			"results": docs,
+			"total":   len(docs),
+		}
+		if facets != nil {
+			resp["facets"] = facets
+		}
+		instruction := ""
+		if len(docs) == 0 {
+			instruction = "No results found. Try broadening the query or removing filters."
+		}
+		return Success(resp, instruction), nil, nil
 	}
 }

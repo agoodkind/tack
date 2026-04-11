@@ -63,21 +63,24 @@ func (c *Client) Delete(_ context.Context, collection, id string) error {
 	return nil
 }
 
-// Search returns NodeDocs matching query, scoped by equality filters.
+// Search returns NodeDocs matching query, scoped by equality filters, plus
+// facet counts for entity_type and project_id.
 // Returns a non-nil empty slice when the search succeeded but matched nothing.
 // All NodeDoc fields are populated from the indexed document — no FDB reads needed.
-func (c *Client) Search(_ context.Context, collection, query string, filters map[string]string) ([]domainsearch.NodeDoc, error) {
+func (c *Client) Search(_ context.Context, collection, query string, filters map[string]string) ([]domainsearch.NodeDoc, map[string]map[string]int64, error) {
 	filterParts := make([]string, 0, len(filters))
 	for k, v := range filters {
 		filterParts = append(filterParts, fmt.Sprintf(`%s = "%s"`, k, v))
 	}
 
+	facetFields := []string{"entity_type", "project_id"}
 	res, err := c.meili.Index(collection).Search(query, &meilisearch.SearchRequest{
 		Filter: strings.Join(filterParts, " AND "),
 		Limit:  200,
+		Facets: facetFields,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("search %s: %w", collection, err)
+		return nil, nil, fmt.Errorf("search %s: %w", collection, err)
 	}
 
 	docs := make([]domainsearch.NodeDoc, 0, len(res.Hits))
@@ -95,5 +98,28 @@ func (c *Client) Search(_ context.Context, collection, query string, filters map
 		}
 		docs = append(docs, doc)
 	}
-	return docs, nil
+
+	facets := parseFacets(res.FacetDistribution)
+	return docs, facets, nil
+}
+
+// parseFacets decodes Meilisearch's json.RawMessage facet distribution into
+// map[string]map[string]int64 for clean consumption by callers.
+func parseFacets(raw json.RawMessage) map[string]map[string]int64 {
+	if len(raw) == 0 {
+		return nil
+	}
+	var decoded map[string]map[string]float64
+	if err := json.Unmarshal(raw, &decoded); err != nil || len(decoded) == 0 {
+		return nil
+	}
+	out := make(map[string]map[string]int64, len(decoded))
+	for field, vals := range decoded {
+		counts := make(map[string]int64, len(vals))
+		for v, c := range vals {
+			counts[v] = int64(c)
+		}
+		out[field] = counts
+	}
+	return out
 }

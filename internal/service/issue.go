@@ -491,7 +491,7 @@ func (s *IssueService) Stream(ctx context.Context, filter issue.ListFilter) (<-c
 // Search queries Meilisearch then hydrates from the NodeListView reader.
 // Falls back to in-memory prefix scan when Meilisearch returns nil (noop searcher).
 func (s *IssueService) Search(ctx context.Context, workspaceID uuid.UUID, q string, filter issue.ListFilter) ([]*issue.Issue, int, error) {
-	docs, err := s.searcher.Search(ctx, "nodes", q, map[string]string{
+	docs, _, err := s.searcher.Search(ctx, "nodes", q, map[string]string{
 		"workspace_id": workspaceID.String(),
 		"entity_type":  "issue",
 	})

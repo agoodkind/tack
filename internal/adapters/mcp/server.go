@@ -162,14 +162,16 @@ func (h *Handler) getServer(r *http.Request) *mcp.Server {
 func (h *Handler) buildServer(nodeTypes []*node.NodeType) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "tack", Version: "0.1.0"}, nil)
 
+	resolver := tools.NewResolver(h.workspaces, h.projects)
+
 	tools.RegisterWorkspace(s, h.workspaces, h.projects, h.states, h.nodeTypes, h.properties)
 	tools.RegisterMembers(s, h.workspaces, h.orgs, h.users)
-	tools.RegisterProject(s, h.projects, h.projectSvc, h.states)
+	tools.RegisterProject(s, h.projects, h.projectSvc, h.states, resolver)
 	tools.RegisterState(s, h.states)
 	tools.RegisterLabel(s, h.labels)
 	tools.RegisterProperty(s, h.properties)
-	tools.RegisterActivity(s, h.activity)
-	tools.RegisterSearch(s, h.searcher)
+	tools.RegisterActivity(s, h.activity, resolver)
+	tools.RegisterSearch(s, h.searcher, resolver)
 	tools.RegisterComment(s, h.workspaces, h.comments)
 
 	binding := tools.NodeTypeBinding{
@@ -180,7 +182,7 @@ func (h *Handler) buildServer(nodeTypes []*node.NodeType) *mcp.Server {
 		Properties:  h.properties,
 		Activity:    h.activity,
 		Containment: h.containment,
-		Resolver:    tools.NewResolver(h.workspaces, h.projects),
+		Resolver:    resolver,
 	}
 	for _, nt := range nodeTypes {
 		tools.RegisterNodeTools(s, nt, binding)

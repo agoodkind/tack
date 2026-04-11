@@ -13,25 +13,25 @@ type ProjectCreator interface {
 	Create(ctx context.Context, p *project.Project) (*project.Project, error)
 }
 
-func RegisterProject(s *mcp.Server, projects project.Repository, svc ProjectCreator, states state.Repository) {
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_list_projects", Description: "Lists all projects in a workspace. Returns project ID, name, identifier (e.g. ENG), and description. Use identifiers here as project_identifier in issue/epic/cycle/module tools."}, listProjects(projects))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_get_project", Description: "Fetches a project by workspace ID and project ID, including its workflow states. Use tack_list_projects to find project IDs."}, getProject(projects, states))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_create_project", Description: "Creates a project and seeds it with default workflow states. identifier must be uppercase letters e.g. ENG. Returns the created project."}, createProject(svc))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_update_project", Description: "Updates project fields. Only provided fields change; omitted fields are unchanged. Returns the updated project."}, updateProject(projects))
-	mcp.AddTool(s, &mcp.Tool{Name: "tack_delete_project", Description: "Permanently deletes a project and all its data. Deletion is irreversible."}, deleteProject(projects))
+func RegisterProject(s *mcp.Server, projects project.Repository, svc ProjectCreator, states state.Repository, r *Resolver) {
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_list_projects", Description: "Lists all projects in a workspace identified by workspace_slug. Returns each project's name and identifier (e.g. ENG). Use the identifier as project_identifier in issue/epic/cycle/module tools."}, listProjects(projects, r))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_get_project", Description: "Fetches a project by workspace_slug and project_identifier (e.g. ENG), including its workflow states. Use tack_list_projects to find identifiers."}, getProject(projects, states, r))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_create_project", Description: "Creates a project in the given workspace and seeds it with default workflow states. identifier must be uppercase letters e.g. ENG. Returns the created project."}, createProject(svc, r))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_update_project", Description: "Updates project fields by workspace_slug and project_identifier. Only provided fields change; omitted fields are unchanged. Returns the updated project."}, updateProject(projects, r))
+	mcp.AddTool(s, &mcp.Tool{Name: "tack_delete_project", Description: "Permanently deletes a project and all its data by workspace_slug and project_identifier. Deletion is irreversible."}, deleteProject(projects, r))
 }
 
 type ListProjectsInput struct {
-	WorkspaceID string `json:"workspace_id"`
+	WorkspaceSlug string `json:"workspace_slug"`
 }
 
-func listProjects(projects project.Repository) mcp.ToolHandlerFor[ListProjectsInput, any] {
+func listProjects(projects project.Repository, r *Resolver) mcp.ToolHandlerFor[ListProjectsInput, any] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in ListProjectsInput) (*mcp.CallToolResult, any, error) {
-		wsID, err := parseUUID(in.WorkspaceID, "workspace_id")
+		ws, err := r.Workspace(ctx, in.WorkspaceSlug)
 		if err != nil {
-			return RecoverableError(err.Error()), nil, nil
+			return ClassifyError(ctx, err), nil, nil
 		}
-		ps, err := projects.List(ctx, wsID)
+		ps, err := projects.List(ctx, ws.ID)
 		if err != nil {
 			return ClassifyError(ctx, err), nil, nil
 		}
@@ -40,48 +40,40 @@ func listProjects(projects project.Repository) mcp.ToolHandlerFor[ListProjectsIn
 }
 
 type GetProjectInput struct {
-	WorkspaceID string `json:"workspace_id"`
-	ProjectID   string `json:"project_id"`
+	WorkspaceSlug     string `json:"workspace_slug"`
+	ProjectIdentifier string `json:"project_identifier"`
 }
 
-func getProject(projects project.Repository, states state.Repository) mcp.ToolHandlerFor[GetProjectInput, any] {
+func getProject(projects project.Repository, states state.Repository, r *Resolver) mcp.ToolHandlerFor[GetProjectInput, any] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in GetProjectInput) (*mcp.CallToolResult, any, error) {
-		wsID, err := parseUUID(in.WorkspaceID, "workspace_id")
-		if err != nil {
-			return RecoverableError(err.Error()), nil, nil
-		}
-		pID, err := parseUUID(in.ProjectID, "project_id")
-		if err != nil {
-			return RecoverableError(err.Error()), nil, nil
-		}
-		p, err := projects.GetByID(ctx, wsID, pID)
+		_, proj, err := r.Project(ctx, in.WorkspaceSlug, in.ProjectIdentifier)
 		if err != nil {
 			return ClassifyError(ctx, err), nil, nil
 		}
-		ss, _ := states.List(ctx, p.ID)
-		return Success(map[string]any{"project": p, "states": ss}, ""), nil, nil
+		ss, _ := states.List(ctx, proj.ID)
+		return Success(map[string]any{"project": proj, "states": ss}, ""), nil, nil
 	}
 }
 
 type CreateProjectInput struct {
-	WorkspaceID string  `json:"workspace_id"`
-	Name        string  `json:"name"`
-	Identifier  string  `json:"identifier"`
-	Description *string `json:"description,omitempty"`
+	WorkspaceSlug string  `json:"workspace_slug"`
+	Name          string  `json:"name"`
+	Identifier    string  `json:"identifier"`
+	Description   *string `json:"description,omitempty"`
 }
 
-func createProject(svc ProjectCreator) mcp.ToolHandlerFor[CreateProjectInput, any] {
+func createProject(svc ProjectCreator, r *Resolver) mcp.ToolHandlerFor[CreateProjectInput, any] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in CreateProjectInput) (*mcp.CallToolResult, any, error) {
 		userID, err := mustUser(ctx)
 		if err != nil {
 			return UnexpectedError(ctx, err), nil, nil
 		}
-		wsID, err := parseUUID(in.WorkspaceID, "workspace_id")
+		ws, err := r.Workspace(ctx, in.WorkspaceSlug)
 		if err != nil {
-			return RecoverableError(err.Error()), nil, nil
+			return ClassifyError(ctx, err), nil, nil
 		}
 		newProject := &project.Project{
-			WorkspaceID: wsID,
+			WorkspaceID: ws.ID,
 			Name:        in.Name,
 			Identifier:  in.Identifier,
 			CreatedBy:   userID,
@@ -98,50 +90,43 @@ func createProject(svc ProjectCreator) mcp.ToolHandlerFor[CreateProjectInput, an
 }
 
 type UpdateProjectInput struct {
-	WorkspaceID    string  `json:"workspace_id"`
-	ProjectID      string  `json:"project_id"`
-	Name           *string `json:"name,omitempty"`
-	Identifier     *string `json:"identifier,omitempty"`
-	Description    *string `json:"description,omitempty"`
-	DefaultStateID *string `json:"default_state_id,omitempty"`
+	WorkspaceSlug     string  `json:"workspace_slug"`
+	ProjectIdentifier string  `json:"project_identifier"`
+	Name              *string `json:"name,omitempty"`
+	Identifier        *string `json:"identifier,omitempty"`
+	Description       *string `json:"description,omitempty"`
+	DefaultStateID    *string `json:"default_state_id,omitempty"`
 }
 
-func updateProject(projects project.Repository) mcp.ToolHandlerFor[UpdateProjectInput, any] {
+func updateProject(projects project.Repository, r *Resolver) mcp.ToolHandlerFor[UpdateProjectInput, any] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in UpdateProjectInput) (*mcp.CallToolResult, any, error) {
 		userID, err := mustUser(ctx)
 		if err != nil {
 			return UnexpectedError(ctx, err), nil, nil
 		}
-		wsID, err := parseUUID(in.WorkspaceID, "workspace_id")
-		if err != nil {
-			return RecoverableError(err.Error()), nil, nil
-		}
-		pID, err := parseUUID(in.ProjectID, "project_id")
-		if err != nil {
-			return RecoverableError(err.Error()), nil, nil
-		}
-		p, err := projects.GetByID(ctx, wsID, pID)
+		ws, proj, err := r.Project(ctx, in.WorkspaceSlug, in.ProjectIdentifier)
 		if err != nil {
 			return ClassifyError(ctx, err), nil, nil
 		}
+		_ = ws
 		if in.Name != nil {
-			p.Name = *in.Name
+			proj.Name = *in.Name
 		}
 		if in.Identifier != nil {
-			p.Identifier = *in.Identifier
+			proj.Identifier = *in.Identifier
 		}
 		if in.Description != nil {
-			p.Description = *in.Description
+			proj.Description = *in.Description
 		}
 		if in.DefaultStateID != nil {
 			id, parseErr := parseUUID(*in.DefaultStateID, "default_state_id")
 			if parseErr != nil {
 				return RecoverableError(parseErr.Error()), nil, nil
 			}
-			p.DefaultStateID = &id
+			proj.DefaultStateID = &id
 		}
-		p.UpdatedBy = &userID
-		updated, err := projects.Update(ctx, p)
+		proj.UpdatedBy = &userID
+		updated, err := projects.Update(ctx, proj)
 		if err != nil {
 			return ClassifyError(ctx, err), nil, nil
 		}
@@ -150,21 +135,21 @@ func updateProject(projects project.Repository) mcp.ToolHandlerFor[UpdateProject
 }
 
 type DeleteProjectInput struct {
-	WorkspaceID string `json:"workspace_id"`
-	ProjectID   string `json:"project_id"`
+	WorkspaceSlug     string `json:"workspace_slug"`
+	ProjectIdentifier string `json:"project_identifier"`
 }
 
 type DeleteProjectOutput struct {
 	OK bool `json:"ok"`
 }
 
-func deleteProject(projects project.Repository) mcp.ToolHandlerFor[DeleteProjectInput, DeleteProjectOutput] {
+func deleteProject(projects project.Repository, r *Resolver) mcp.ToolHandlerFor[DeleteProjectInput, DeleteProjectOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in DeleteProjectInput) (*mcp.CallToolResult, DeleteProjectOutput, error) {
-		pID, err := parseUUID(in.ProjectID, "project_id")
+		_, proj, err := r.Project(ctx, in.WorkspaceSlug, in.ProjectIdentifier)
 		if err != nil {
-			return RecoverableError(err.Error()), DeleteProjectOutput{}, nil
+			return ClassifyError(ctx, err), DeleteProjectOutput{}, nil
 		}
-		if err := projects.Delete(ctx, pID); err != nil {
+		if err := projects.Delete(ctx, proj.ID); err != nil {
 			return ClassifyError(ctx, err), DeleteProjectOutput{}, nil
 		}
 		return Success(DeleteProjectOutput{OK: true}, "Deletion is permanent and irreversible."), DeleteProjectOutput{}, nil

@@ -44,8 +44,10 @@ type Searcher interface {
 	Index(ctx context.Context, collection string, id string, doc any) error
 	// Delete removes a document from the named collection.
 	Delete(ctx context.Context, collection string, id string) error
-	// Search returns NodeDocs matching query, scoped by equality filters.
-	// Returns nil (not an empty slice) to signal "unsupported"; callers should
-	// fall back to FDB scan. Returns an empty non-nil slice when the query matched nothing.
-	Search(ctx context.Context, collection string, query string, filters map[string]string) ([]NodeDoc, error)
+	// Search returns NodeDocs matching query, scoped by equality filters,
+	// along with facet counts keyed by field name → value → count.
+	// Returns nil docs (not empty slice) to signal "unsupported"; callers
+	// should fall back to FDB scan. Returns an empty non-nil slice when the
+	// query matched nothing. Facets map may be nil if unsupported.
+	Search(ctx context.Context, collection string, query string, filters map[string]string) ([]NodeDoc, map[string]map[string]int64, error)
 }
