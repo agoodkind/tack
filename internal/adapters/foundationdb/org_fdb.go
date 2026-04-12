@@ -10,12 +10,14 @@ import (
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	domain "goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/domain/org"
 )
 
-// OrgFDBStore implements org.Repository using FoundationDB.
+// OrgFDBStore implements org.Repository using FoundationDB for entity data
+// and SQL for org_members (which stays in the SQL auth layer).
 //
 // Org nodes are stored in the node system with:
 //   - OrgID = org.ID
@@ -26,13 +28,15 @@ import (
 //   - (org_by_slug, slug) → orgID bytes (16 bytes, raw UUID)
 type OrgFDBStore struct {
 	db       fdb.Database
+	sqlPool  *pgxpool.Pool // for org_members (auth table stays in SQL)
 	entities *EntityStore
 	views    *ViewStore
 }
 
-func NewOrgFDBStore(db fdb.Database) *OrgFDBStore {
+func NewOrgFDBStore(db fdb.Database, sqlPool *pgxpool.Pool) *OrgFDBStore {
 	return &OrgFDBStore{
 		db:       db,
+		sqlPool:  sqlPool,
 		entities: NewEntityStore(db),
 		views:    NewViewStore(db),
 	}
@@ -184,16 +188,45 @@ func nodeListViewToOrg(view *node.NodeListView) *org.Org {
 	}
 }
 
-// AddMember, RemoveMember, and ListMembers are not implemented in the FDB adapter.
-// These operations are expected to be handled by the membership store in FDB.
+// AddMember adds a user to the org by inserting into the org_members SQL table.
+// org_members is an auth table and stays in SQL even though orgs move to FDB.
 func (s *OrgFDBStore) AddMember(ctx context.Context, m *org.Member) error {
-	return fmt.Errorf("org add member: not implemented in FDB adapter")
+	const q = `
+		INSERT INTO org_members (org_id, user_id, role)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (org_id, user_id) DO UPDATE SET role = EXCLUDED.role
+		RETURNING id, created_at`
+	return s.sqlPool.QueryRow(ctx, q, m.OrgID, m.UserID, m.Role).Scan(&m.ID, &m.CreatedAt)
 }
 
+// RemoveMember removes a user from the org in the org_members SQL table.
 func (s *OrgFDBStore) RemoveMember(ctx context.Context, orgID, userID uuid.UUID) error {
-	return fmt.Errorf("org remove member: not implemented in FDB adapter")
+	const q = `DELETE FROM org_members WHERE org_id = $1 AND user_id = $2`
+	tag, err := s.sqlPool.Exec(ctx, q, orgID, userID)
+	if err != nil {
+		return fmt.Errorf("org remove member: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
 }
 
+// ListMembers returns all members of the org from the org_members SQL table.
 func (s *OrgFDBStore) ListMembers(ctx context.Context, orgID uuid.UUID) ([]*org.Member, error) {
-	return nil, fmt.Errorf("org list members: not implemented in FDB adapter")
+	const q = `SELECT id, org_id, user_id, role, created_at FROM org_members WHERE org_id = $1`
+	rows, err := s.sqlPool.Query(ctx, q, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("org list members: %w", err)
+	}
+	defer rows.Close()
+	var members []*org.Member
+	for rows.Next() {
+		m := &org.Member{}
+		if err := rows.Scan(&m.ID, &m.OrgID, &m.UserID, &m.Role, &m.CreatedAt); err != nil {
+			return nil, fmt.Errorf("org member scan: %w", err)
+		}
+		members = append(members, m)
+	}
+	return members, rows.Err()
 }

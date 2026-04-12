@@ -346,7 +346,7 @@ func (s *NoopProjectStore) Update(_ context.Context, _ *project.Project) (*proje
 func (s *NoopProjectStore) Delete(_ context.Context, _ uuid.UUID) error {
 	return nil
 }
-func (s *NoopProjectStore) AllocateSequenceID(_ context.Context, _, _ uuid.UUID, _ string) (int, error) {
+func (s *NoopProjectStore) AllocateSequenceID(_ context.Context, _ uuid.UUID, _ string) (int, error) {
 	return 0, nil
 }
 

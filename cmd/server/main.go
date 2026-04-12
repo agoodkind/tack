@@ -103,24 +103,19 @@ func runServer(cfg *config.Config) {
 
 	searcher := buildSearcher(cfg)
 
-	// Repos (structural SQL only — no entity repos)
-	projectRepo   := postgres.NewProjectRepo(pool)
-	workspaceRepo := postgres.NewWorkspaceRepo(pool)
-	stateRepo     := postgres.NewStateRepo(pool)
-	labelRepo     := postgres.NewLabelRepo(pool)
-	tokenRepo     := postgres.NewTokenRepo(pool)
-	orgRepo       := postgres.NewOrgRepo(pool)
-	userRepo      := postgres.NewUserRepo(pool)
+	// Auth repos (SQL only — users, api_tokens stay in SQL)
+	tokenRepo := postgres.NewTokenRepo(pool)
+	userRepo  := postgres.NewUserRepo(pool)
 
 	// Services
 	noopAutomations := &node.NoopAutomationExecutor{}
 	seeder    := service.NewWorkspaceSeeder(fdbStores.Properties, fdbStores.NodeTypes)
 	issueSvc  := service.NewIssueService(
-		fdbStores.Entities, fdbStores.Views, projectRepo,
+		fdbStores.Entities, fdbStores.Views, fdbStores.Project,
 		fdbStores.Activity, fdbStores.Assignments, fdbStores.Labels,
 		fdbStores.Containment, fdbStores.NodeDeleter, nodeCleanup, searcher, noopAutomations,
 	)
-	projectSvc   := service.NewProjectService(projectRepo, stateRepo, searcher)
+	projectSvc   := service.NewProjectService(fdbStores.Project, fdbStores.State, searcher)
 	epicSvc      := service.NewEpicService(
 		fdbStores.Entities, fdbStores.Views,
 		fdbStores.Assignments, fdbStores.Labels, fdbStores.Containment, searcher,
@@ -131,14 +126,14 @@ func runServer(cfg *config.Config) {
 	moduleSvc := service.NewModuleService(
 		fdbStores.Entities, fdbStores.Views, fdbStores.Containment, searcher,
 	)
-	workspaceSvc := service.NewWorkspaceService(workspaceRepo, seeder, searcher, fdbStores.NodeTypes)
+	workspaceSvc := service.NewWorkspaceService(fdbStores.Workspace, seeder, searcher, fdbStores.NodeTypes)
 
 	mcpHandler := mcpadapter.NewHandler(mcpadapter.Deps{
-		Workspaces:  workspaceRepo,
-		Projects:    projectRepo,
+		Workspaces:  fdbStores.Workspace,
+		Projects:    fdbStores.Project,
 		ProjectSvc:  projectSvc,
-		States:      stateRepo,
-		Labels:      labelRepo,
+		States:      fdbStores.State,
+		Labels:      fdbStores.Label,
 		IssueSvc:    issueSvc,
 		EpicSvc:     epicSvc,
 		CycleSvc:    cycleSvc,
@@ -150,7 +145,7 @@ func runServer(cfg *config.Config) {
 		NodeLabels:  fdbStores.Labels,
 		Containment: fdbStores.Containment,
 		Comments:    fdbStores.Comments,
-		Orgs:        orgRepo,
+		Orgs:        fdbStores.Org,
 		Users:       userRepo,
 		Searcher:    searcher,
 	})
@@ -165,13 +160,13 @@ func runServer(cfg *config.Config) {
 
 	// Connect-RPC handlers
 	workspaceH := connectadapter.NewWorkspaceHandler(workspaceSvc)
-	projectH   := connectadapter.NewProjectHandler(projectRepo, projectSvc)
+	projectH   := connectadapter.NewProjectHandler(fdbStores.Project, projectSvc)
 	issueH     := connectadapter.NewIssueHandler(issueSvc)
 	epicH      := connectadapter.NewEpicHandler(epicSvc)
 	cycleH     := connectadapter.NewCycleHandler(cycleSvc)
 	moduleH    := connectadapter.NewModuleHandler(moduleSvc)
-	stateH     := connectadapter.NewStateHandler(stateRepo)
-	labelH     := connectadapter.NewLabelHandler(labelRepo)
+	stateH     := connectadapter.NewStateHandler(fdbStores.State)
+	labelH     := connectadapter.NewLabelHandler(fdbStores.Label)
 	activityH  := connectadapter.NewActivityHandler(issueSvc)
 
 	mux := http.NewServeMux()

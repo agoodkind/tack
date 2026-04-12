@@ -54,7 +54,7 @@ func newStores(db fdb.Database, sqlPool *pgxpool.Pool) *Stores {
 		Automations: NewAutomationStore(db),
 		Views:       NewViewStore(db),
 		Comments:    NewCommentStore(db),
-		Org:         NewOrgFDBStore(db),
+		Org:         NewOrgFDBStore(db, sqlPool),
 		Workspace:   NewWorkspaceFDBStore(db, sqlPool),
 		Project:     NewProjectFDBStore(db, NewEntityStore(db), NewViewStore(db)),
 		State:       NewStateFDBStore(db, NewEntityStore(db), NewViewStore(db)),

@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 
+	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/domain"
@@ -16,6 +17,7 @@ import (
 	"goodkind.io/tack/internal/domain/user"
 	"goodkind.io/tack/internal/domain/workspace"
 	"goodkind.io/tack/migrations"
+	"goodkind.io/tack/internal/service"
 )
 
 func runSeed(cfg *config.Config) {
@@ -39,10 +41,16 @@ func runSeed(cfg *config.Config) {
 	}
 	defer pool.Close()
 
-	userRepo := postgres.NewUserRepo(pool)
-	orgRepo := postgres.NewOrgRepo(pool)
-	wsRepo := postgres.NewWorkspaceRepo(pool)
+	// FDB stores for entity data (org, workspace).
+	fdbStores, err := fdbadapter.NewStores(cfg.FDBClusterFile, pool)
+	if err != nil {
+		slog.Error("seed: foundationdb", "err", err)
+		os.Exit(1)
+	}
+
+	userRepo  := postgres.NewUserRepo(pool)
 	tokenRepo := postgres.NewTokenRepo(pool)
+	seeder    := service.NewWorkspaceSeeder(fdbStores.Properties, fdbStores.NodeTypes)
 
 	// ── User ─────────────────────────────────────────────────────────────────
 	u, err := userRepo.GetByEmail(ctx, cfg.SeedEmail)
@@ -65,13 +73,13 @@ func runSeed(cfg *config.Config) {
 	}
 
 	// ── Org ──────────────────────────────────────────────────────────────────
-	o, err := orgRepo.GetBySlug(ctx, cfg.SeedOrgSlug)
+	o, err := fdbStores.Org.GetBySlug(ctx, cfg.SeedOrgSlug)
 	if err != nil && !errors.Is(err, domain.ErrNotFound) {
 		slog.Error("seed: get org", "err", err)
 		os.Exit(1)
 	}
 	if o == nil {
-		o, err = orgRepo.Create(ctx, &org.Org{
+		o, err = fdbStores.Org.Create(ctx, &org.Org{
 			Name: cfg.SeedOrgName,
 			Slug: cfg.SeedOrgSlug,
 		})
@@ -79,7 +87,7 @@ func runSeed(cfg *config.Config) {
 			slog.Error("seed: create org", "err", err)
 			os.Exit(1)
 		}
-		if err := orgRepo.AddMember(ctx, &org.Member{
+		if err := fdbStores.Org.AddMember(ctx, &org.Member{
 			OrgID:  o.ID,
 			UserID: u.ID,
 			Role:   20, // admin
@@ -87,19 +95,20 @@ func runSeed(cfg *config.Config) {
 			slog.Error("seed: add org member", "err", err)
 			os.Exit(1)
 		}
+		seeder.SeedOrg(ctx, o.ID)
 		slog.Info("seed: created org", "id", o.ID, "slug", o.Slug)
 	} else {
 		slog.Info("seed: org exists", "id", o.ID, "slug", o.Slug)
 	}
 
 	// ── Workspace ─────────────────────────────────────────────────────────────
-	ws, err := wsRepo.GetBySlug(ctx, cfg.SeedWorkspaceSlug)
+	ws, err := fdbStores.Workspace.GetBySlug(ctx, cfg.SeedWorkspaceSlug)
 	if err != nil && !errors.Is(err, domain.ErrNotFound) {
 		slog.Error("seed: get workspace", "err", err)
 		os.Exit(1)
 	}
 	if ws == nil {
-		ws, err = wsRepo.Create(ctx, &workspace.Workspace{
+		ws, err = fdbStores.Workspace.Create(ctx, &workspace.Workspace{
 			OrgID: o.ID,
 			Name:  cfg.SeedWorkspaceName,
 			Slug:  cfg.SeedWorkspaceSlug,
@@ -108,6 +117,7 @@ func runSeed(cfg *config.Config) {
 			slog.Error("seed: create workspace", "err", err)
 			os.Exit(1)
 		}
+		seeder.SeedWorkspace(ctx, o.ID, ws.ID)
 		slog.Info("seed: created workspace", "id", ws.ID, "slug", ws.Slug)
 	} else {
 		slog.Info("seed: workspace exists", "id", ws.ID, "slug", ws.Slug)
@@ -141,3 +151,4 @@ func generateToken() string {
 	}
 	return "tack_" + base64.RawURLEncoding.EncodeToString(b)
 }
+
