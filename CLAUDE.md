@@ -26,7 +26,6 @@ Every entity — org, workspace, project, state, label, issue, epic, cycle, modu
 users        — identity (email, display_name)
 api_tokens   — bearer token → user_id
 org_members  — auth gate: is this user allowed in this org
-river_jobs   — River background job queue (requires Postgres)
 ```
 
 Nothing else lives in SQL. No entity tables, no config tables, no join tables.
@@ -116,7 +115,7 @@ No cross-database transactions. No consistency gap.
 ## Key decisions
 
 - **Everything is a node in FDB.** Orgs, workspaces, projects, states, labels, issues — all the same pattern. No entity lives in SQL.
-- **SQL = auth only.** `users`, `api_tokens`, `org_members`, `river_jobs`. Nothing else.
+- **SQL = auth only.** `users`, `api_tokens`, `org_members`. Nothing else.
 - **orgID never leaks to callers.** Derived from entity resolution or workspace lookup internally. Never a service method parameter, never an API input field.
 - **NodeListView is the single read layer.** Service layer uses NodeReader for all reads. No direct EntityRepository reads in service or handler code.
 - **One FDB transaction per write.** CreateAtomic batches everything. No multi-step create sequences.
@@ -134,7 +133,6 @@ No cross-database transactions. No consistency gap.
 ## SQL schema (auth only)
 
 ```
-river_jobs     background job queue (River)
 users          identity — email, display_name, avatar_url
 api_tokens     auth — token_hash → user_id
 org_members    auth gate — org_id, user_id, role
