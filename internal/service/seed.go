@@ -225,22 +225,23 @@ func enumPV(key string, rank int32) *node.PropertyValue {
 // and Set is idempotent.
 func defaultNodeTypes(orgID uuid.UUID) []*node.NodeType {
 	type spec struct {
-		slug       string
-		pluralSlug string
-		name       string
-		typeKey    string
-		features   node.NodeFeatures
-		canContain []string
+		slug         string
+		pluralSlug   string
+		name         string
+		typeKey      string
+		features     node.NodeFeatures
+		canContain   []string
+		canLiveUnder []string
 	}
 	specs := []spec{
-		{"issue", "issues", "Issue", "issue", 0, nil},
-		{"epic", "epics", "Epic", "epic", 0, nil},
-		{"cycle", "cycles", "Cycle", "cycle", 0, nil},
-		{"module", "modules", "Module", "module", 0, nil},
-		{"workspace", "workspaces", "Workspace", "workspace", node.FeatureHasSlug | node.FeatureIsContainer, []string{node.NodeTypeProject, node.NodeTypeWorkspace}},
-		{"project", "projects", "Project", "project", node.FeatureHasSlug | node.FeatureIsContainer, []string{node.NodeTypeIssue, node.NodeTypeEpic, node.NodeTypeCycle, node.NodeTypeModule}},
-		{"state", "states", "State", "state", 0, nil},
-		{"label", "labels", "Label", "label", 0, nil},
+		{"issue", "issues", "Issue", "issue", 0, nil, []string{node.NodeTypeProject}},
+		{"epic", "epics", "Epic", "epic", 0, nil, []string{node.NodeTypeProject}},
+		{"cycle", "cycles", "Cycle", "cycle", 0, nil, []string{node.NodeTypeProject}},
+		{"module", "modules", "Module", "module", 0, nil, []string{node.NodeTypeProject}},
+		{"workspace", "workspaces", "Workspace", "workspace", node.FeatureHasSlug | node.FeatureIsContainer, []string{node.NodeTypeProject, node.NodeTypeWorkspace}, []string{node.NodeTypeOrg}},
+		{"project", "projects", "Project", "project", node.FeatureHasSlug | node.FeatureIsContainer, []string{node.NodeTypeIssue, node.NodeTypeEpic, node.NodeTypeCycle, node.NodeTypeModule}, []string{node.NodeTypeWorkspace}},
+		{"state", "states", "State", "state", 0, nil, []string{node.NodeTypeProject}},
+		{"label", "labels", "Label", "label", 0, nil, []string{node.NodeTypeWorkspace}},
 	}
 
 	types := make([]*node.NodeType, 0, len(specs))
@@ -256,7 +257,8 @@ func defaultNodeTypes(orgID uuid.UUID) []*node.NodeType {
 			TypeKey:    s.typeKey,
 			AllowedOps: node.AllOps,
 			Features:   s.features,
-			CanContain: s.canContain,
+			CanContain:   s.canContain,
+			CanLiveUnder: s.canLiveUnder,
 		})
 	}
 	return types

@@ -3,8 +3,8 @@ package tools
 import (
 	"context"
 
+	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/domain/project"
-	"goodkind.io/tack/internal/domain/state"
 	mcpmcp "github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 )
@@ -14,9 +14,9 @@ type ProjectCreator interface {
 	Create(ctx context.Context, p *project.Project) (*project.Project, error)
 }
 
-func RegisterProject(s *mcpserver.MCPServer, projects project.Repository, svc ProjectCreator, states state.Repository, r *Resolver) {
+func RegisterProject(s *mcpserver.MCPServer, projects project.Repository, svc ProjectCreator, reader node.NodeReader, r *Resolver) {
 	s.AddTool(mcpmcp.Tool{Name: "tack_list_projects", Description: "Lists all projects in a workspace identified by workspace_slug. Returns each project's name and identifier (e.g. ENG). Use the identifier as project_identifier in issue/epic/cycle/module tools.", InputSchema: mcpmcp.ToolInputSchema{Type: "object", Properties: map[string]any{"workspace_slug": map[string]any{"type": "string", "description": "The workspace slug"}}, Required: []string{"workspace_slug"}}}, listProjects(projects, r))
-	s.AddTool(mcpmcp.Tool{Name: "tack_get_project", Description: "Fetches a project by workspace_slug and project_identifier (e.g. ENG), including its workflow states. Use tack_list_projects to find identifiers.", InputSchema: mcpmcp.ToolInputSchema{Type: "object", Properties: map[string]any{"workspace_slug": map[string]any{"type": "string", "description": "The workspace slug"}, "project_identifier": map[string]any{"type": "string", "description": "The project identifier"}}, Required: []string{"workspace_slug", "project_identifier"}}}, getProject(projects, states, r))
+	s.AddTool(mcpmcp.Tool{Name: "tack_get_project", Description: "Fetches a project by workspace_slug and project_identifier (e.g. ENG), including its workflow states. Use tack_list_projects to find identifiers.", InputSchema: mcpmcp.ToolInputSchema{Type: "object", Properties: map[string]any{"workspace_slug": map[string]any{"type": "string", "description": "The workspace slug"}, "project_identifier": map[string]any{"type": "string", "description": "The project identifier"}}, Required: []string{"workspace_slug", "project_identifier"}}}, getProject(projects, reader, r))
 	s.AddTool(mcpmcp.Tool{Name: "tack_create_project", Description: "Creates a project in the given workspace and seeds it with default workflow states. identifier must be uppercase letters e.g. ENG. Returns the created project.", InputSchema: mcpmcp.ToolInputSchema{Type: "object", Properties: map[string]any{"workspace_slug": map[string]any{"type": "string", "description": "The workspace slug"}, "name": map[string]any{"type": "string", "description": "The project name"}, "identifier": map[string]any{"type": "string", "description": "The project identifier"}, "description": map[string]any{"type": "string", "description": "The project description"}}, Required: []string{"workspace_slug", "name", "identifier"}}}, createProject(svc, r))
 	s.AddTool(mcpmcp.Tool{Name: "tack_update_project", Description: "Updates project fields by workspace_slug and project_identifier. Only provided fields change; omitted fields are unchanged. Returns the updated project.", InputSchema: mcpmcp.ToolInputSchema{Type: "object", Properties: map[string]any{"workspace_slug": map[string]any{"type": "string", "description": "The workspace slug"}, "project_identifier": map[string]any{"type": "string", "description": "The project identifier"}, "name": map[string]any{"type": "string", "description": "The project name"}, "identifier": map[string]any{"type": "string", "description": "The project identifier"}, "description": map[string]any{"type": "string", "description": "The project description"}, "default_state_id": map[string]any{"type": "string", "description": "The default state ID"}}, Required: []string{"workspace_slug", "project_identifier"}}}, updateProject(projects, r))
 	s.AddTool(mcpmcp.Tool{Name: "tack_delete_project", Description: "Permanently deletes a project and all its data by workspace_slug and project_identifier. Deletion is irreversible.", InputSchema: mcpmcp.ToolInputSchema{Type: "object", Properties: map[string]any{"workspace_slug": map[string]any{"type": "string", "description": "The workspace slug"}, "project_identifier": map[string]any{"type": "string", "description": "The project identifier"}}, Required: []string{"workspace_slug", "project_identifier"}}}, deleteProject(projects, r))
@@ -49,17 +49,17 @@ type GetProjectInput struct {
 	ProjectIdentifier string `json:"project_identifier"`
 }
 
-func getProject(projects project.Repository, states state.Repository, r *Resolver) mcpserver.ToolHandlerFunc {
+func getProject(projects project.Repository, reader node.NodeReader, r *Resolver) mcpserver.ToolHandlerFunc {
 	return func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
 		var in GetProjectInput
 		if err := req.BindArguments(&in); err != nil {
 			return RecoverableError(err.Error()), nil
 		}
-		_, proj, err := r.Project(ctx, in.WorkspaceSlug, in.ProjectIdentifier)
+		ws, proj, err := r.Project(ctx, in.WorkspaceSlug, in.ProjectIdentifier)
 		if err != nil {
 			return ClassifyError(ctx, err), nil
 		}
-		ss, _ := states.List(ctx, proj.ID)
+		ss := listStateViewsByProject(ctx, reader, ws.OrgID, ws.ID, proj.ID)
 		return Success(map[string]any{"project": proj, "states": ss}, ""), nil
 	}
 }

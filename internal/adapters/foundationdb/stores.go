@@ -26,8 +26,6 @@ type Stores struct {
 	Org         *OrgFDBStore
 	Workspace   *WorkspaceFDBStore
 	Project     *ProjectFDBStore
-	State       *StateFDBStore
-	Label       *LabelFDBStore
 }
 
 // NewStores opens FDB once and wires all adapters to the same connection.
@@ -57,7 +55,5 @@ func newStores(db fdb.Database, sqlPool *pgxpool.Pool) *Stores {
 		Org:         NewOrgFDBStore(db, sqlPool),
 		Workspace:   NewWorkspaceFDBStore(db, sqlPool),
 		Project:     NewProjectFDBStore(db, NewEntityStore(db), NewViewStore(db)),
-		State:       NewStateFDBStore(db, NewEntityStore(db), NewViewStore(db)),
-		Label:       NewLabelFDBStore(db, NewEntityStore(db), NewViewStore(db)),
 	}
 }

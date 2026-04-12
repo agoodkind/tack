@@ -2,8 +2,13 @@ package service
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"time"
 
+	"github.com/google/uuid"
 	domainsearch "goodkind.io/tack/internal/domain/search"
+	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/domain/project"
 	"goodkind.io/tack/internal/domain/state"
 )
@@ -25,13 +30,14 @@ var defaultStates = []struct {
 // ProjectService creates projects and seeds default states.
 type ProjectService struct {
 	projects project.Repository
-	states   state.Repository
+	entities node.EntityRepository
+	reader   node.NodeReader
 	searcher domainsearch.Searcher
 }
 
 // NewProjectService creates a ProjectService with the given dependencies.
-func NewProjectService(projects project.Repository, states state.Repository, searcher domainsearch.Searcher) *ProjectService {
-	return &ProjectService{projects: projects, states: states, searcher: searcher}
+func NewProjectService(projects project.Repository, entities node.EntityRepository, reader node.NodeReader, searcher domainsearch.Searcher) *ProjectService {
+	return &ProjectService{projects: projects, entities: entities, reader: reader, searcher: searcher}
 }
 
 // Create creates a project, seeds default states, and indexes it for search.
@@ -41,20 +47,63 @@ func (s *ProjectService) Create(ctx context.Context, p *project.Project) (*proje
 		return nil, err
 	}
 
+	// Resolve org/workspace context for the newly created project.
+	resolve, err := s.reader.Resolve(ctx, created.ID)
+	if err != nil {
+		return created, err
+	}
+	orgID := resolve.OrgID
+	wsID := resolve.WorkspaceID
+
 	for _, ds := range defaultStates {
-		st, err := s.states.Create(ctx, &state.State{
-			ProjectID: created.ID,
-			Name:      ds.Name,
-			GroupName: ds.Group,
-			Color:     ds.Color,
-			SortOrder: ds.SortOrder,
-		})
-		if err != nil {
+		stID := uuid.New()
+		now := time.Now()
+
+		groupBytes, _ := json.Marshal(string(ds.Group))
+		colorBytes, _ := json.Marshal(ds.Color)
+		sortBytes, _ := json.Marshal(ds.SortOrder)
+
+		nv := &node.NodeValue{
+			ID:          stID,
+			OrgID:       orgID,
+			WorkspaceID: wsID,
+			ProjectID:   created.ID,
+			NodeType:    node.NodeTypeState,
+			Name:        ds.Name,
+			SortOrder:   ds.SortOrder,
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		}
+		props := map[uuid.UUID]*node.PropertyValue{
+			systemPropID(wsID, propNameGroupName): textPV(string(ds.Group)),
+			systemPropID(wsID, propNameColor):     textPV(ds.Color),
+			systemPropID(wsID, propNameSortOrder): textPV(fmt.Sprintf("%v", ds.SortOrder)),
+		}
+		view := &node.NodeListView{
+			Version:     node.ViewVersion1,
+			ID:          stID,
+			OrgID:       orgID,
+			WorkspaceID: wsID,
+			ProjectID:   created.ID,
+			NodeType:    node.NodeTypeState,
+			Name:        ds.Name,
+			SortOrder:   ds.SortOrder,
+			CreatedAt:   now,
+			UpdatedAt:   now,
+			CustomProps: map[string]json.RawMessage{
+				propNameGroupName: groupBytes,
+				propNameColor:     colorBytes,
+				propNameSortOrder: sortBytes,
+			},
+		}
+
+		if _, err := s.entities.CreateAtomic(ctx, orgID, created.ID, nv, props, view, nil, nil, uuid.Nil); err != nil {
 			return created, err
 		}
+
 		// Set the first state (Backlog) as the project default.
 		if ds.Group == state.GroupBacklog && created.DefaultStateID == nil {
-			created.DefaultStateID = &st.ID
+			created.DefaultStateID = &stID
 			_, _ = s.projects.Update(ctx, created)
 		}
 	}

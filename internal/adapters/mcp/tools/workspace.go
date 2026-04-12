@@ -2,13 +2,14 @@ package tools
 
 import (
 	"context"
+	"sort"
 
 	mcpmcp "github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
+	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/domain/org"
 	"goodkind.io/tack/internal/domain/project"
-	"goodkind.io/tack/internal/domain/state"
 	"goodkind.io/tack/internal/domain/user"
 	"goodkind.io/tack/internal/domain/workspace"
 )
@@ -17,7 +18,7 @@ func RegisterWorkspace(
 	s *mcpserver.MCPServer,
 	workspaces workspace.Repository,
 	projects project.Repository,
-	states state.Repository,
+	reader node.NodeReader,
 	nodeTypes node.TypeRepository,
 	properties node.PropertyRepository,
 ) {
@@ -31,7 +32,7 @@ func RegisterWorkspace(
 			},
 			Required: []string{"workspace_slug"},
 		},
-	}, describeWorkspace(workspaces, projects, states, nodeTypes, properties))
+	}, describeWorkspace(workspaces, projects, reader, nodeTypes, properties))
 
 	s.AddTool(mcpmcp.Tool{
 		Name:        "tack_list_workspaces",
@@ -53,7 +54,7 @@ type DescribeWorkspaceInput struct {
 func describeWorkspace(
 	workspaces workspace.Repository,
 	projects project.Repository,
-	states state.Repository,
+	reader node.NodeReader,
 	nodeTypes node.TypeRepository,
 	properties node.PropertyRepository,
 ) mcpserver.ToolHandlerFunc {
@@ -80,7 +81,7 @@ func describeWorkspace(
 		}
 		summaries := make([]projectSummary, 0, len(projs))
 		for _, p := range projs {
-			ss, _ := states.List(ctx, p.ID)
+			ss := listStateViewsByProject(ctx, reader, ws.OrgID, ws.ID, p.ID)
 			summaries = append(summaries, projectSummary{
 				ID:         p.ID.String(),
 				Name:       p.Name,
@@ -179,4 +180,19 @@ func listWorkspaces(workspaces workspace.Repository) mcpserver.ToolHandlerFunc {
 		}
 		return Success(map[string]any{"workspaces": ws}, "Use workspace slugs from this list in all workspace_slug parameters."), nil
 	}
+}
+
+// listStateViewsByProject lists state NodeListViews for a project, sorted by sort_order.
+// Shared by workspace, project, and resource handlers.
+func listStateViewsByProject(ctx context.Context, reader node.NodeReader, orgID, wsID, projID uuid.UUID) []*node.NodeListView {
+	views, _ := reader.List(ctx, node.NodeListQuery{
+		OrgID:       orgID,
+		WorkspaceID: wsID,
+		NodeType:    node.NodeTypeState,
+		ByProject:   &projID,
+	})
+	sort.Slice(views, func(i, j int) bool {
+		return views[i].SortOrder < views[j].SortOrder
+	})
+	return views
 }

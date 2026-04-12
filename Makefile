@@ -3,21 +3,18 @@ GO_MK       := .make/go.mk
 GO_MK_CACHE := $(HOME)/.cache/go-makefile/go.mk
 
 $(GO_MK):
-	@mkdir -p $(dir $@)
-	@if curl -fsSL --connect-timeout 5 --max-time 10 "$(GO_MK_URL)" -o "$@"; then \
+	@[ -f "$@" ] && exit 0; \
+	mkdir -p $(dir $@); \
+	if curl -fsSL --connect-timeout 5 --max-time 10 "$(GO_MK_URL)" -o "$@"; then \
 		mkdir -p "$(dir $(GO_MK_CACHE))" && cp "$@" "$(GO_MK_CACHE)"; \
 	elif [ -f "$(GO_MK_CACHE)" ]; then \
 		echo "warning: go.mk fetch failed, using cached version" >&2; \
 		cp "$(GO_MK_CACHE)" "$@"; \
 	else \
-		echo "error: go.mk fetch failed and no cache available" >&2; \
-		exit 1; \
+		echo "warning: go.mk not available, using local targets only" >&2; \
 	fi
 
-# Only include go.mk if it already exists to avoid triggering fetch
-ifeq ($(wildcard $(GO_MK)),$(GO_MK))
 -include $(GO_MK)
-endif
 
 .DEFAULT_GOAL := check
 
@@ -50,17 +47,7 @@ build-fdb:
 lint-fdb:
 	CGO_ENABLED=1 golangci-lint run --build-tags fdb ./...
 
-# Standard lint, vet, test, and check targets
-.PHONY: lint vet test check
-lint:
-	golangci-lint run ./...
-
-vet:
-	go vet ./...
-
-test:
-	go test ./...
-
+.PHONY: check
 check: build vet lint test
 
 # Run the server locally (noop FDB stub, no CGO required).

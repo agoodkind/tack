@@ -191,6 +191,18 @@ type ActivityEvent struct {
 // Used by PropertyRepository.GetValues; new code should prefer typed PropertyValue.
 type Properties map[uuid.UUID]json.RawMessage
 
+// SystemPropID returns a deterministic UUID for a system property definition
+// scoped to a workspace. Uses the same namespace as the seed/FDB layers.
+func SystemPropID(workspaceID uuid.UUID, propName string) uuid.UUID {
+	ns := uuid.MustParse("7ac0face-dead-beef-cafe-000000000000")
+	return uuid.NewSHA1(ns, []byte(workspaceID.String()+":"+propName))
+}
+
+// TextPropertyValue creates a PropertyValue of kind Text.
+func TextPropertyValue(s string) *PropertyValue {
+	return &PropertyValue{Kind: PropertyValueText, Text: &s}
+}
+
 // AutomationTrigger identifies the event that fires an automation rule.
 type AutomationTrigger string
 

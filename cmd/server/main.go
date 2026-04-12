@@ -115,7 +115,7 @@ func runServer(cfg *config.Config) {
 		fdbStores.Activity, fdbStores.Assignments, fdbStores.Labels,
 		fdbStores.Containment, fdbStores.NodeDeleter, nodeCleanup, searcher, noopAutomations,
 	)
-	projectSvc   := service.NewProjectService(fdbStores.Project, fdbStores.State, searcher)
+	projectSvc   := service.NewProjectService(fdbStores.Project, fdbStores.Entities, fdbStores.Views, searcher)
 	epicSvc      := service.NewEpicService(
 		fdbStores.Entities, fdbStores.Views,
 		fdbStores.Assignments, fdbStores.Labels, fdbStores.Containment, searcher,
@@ -132,8 +132,8 @@ func runServer(cfg *config.Config) {
 		Workspaces:  fdbStores.Workspace,
 		Projects:    fdbStores.Project,
 		ProjectSvc:  projectSvc,
-		States:      fdbStores.State,
-		Labels:      fdbStores.Label,
+		Entities:    fdbStores.Entities,
+		Reader:      fdbStores.Views,
 		IssueSvc:    issueSvc,
 		EpicSvc:     epicSvc,
 		CycleSvc:    cycleSvc,
@@ -165,8 +165,8 @@ func runServer(cfg *config.Config) {
 	epicH      := connectadapter.NewEpicHandler(epicSvc)
 	cycleH     := connectadapter.NewCycleHandler(cycleSvc)
 	moduleH    := connectadapter.NewModuleHandler(moduleSvc)
-	stateH     := connectadapter.NewStateHandler(fdbStores.State)
-	labelH     := connectadapter.NewLabelHandler(fdbStores.Label)
+	stateH     := connectadapter.NewStateHandler(fdbStores.Entities, fdbStores.Views)
+	labelH     := connectadapter.NewLabelHandler(fdbStores.Entities, fdbStores.Views)
 	activityH  := connectadapter.NewActivityHandler(issueSvc)
 
 	mux := http.NewServeMux()

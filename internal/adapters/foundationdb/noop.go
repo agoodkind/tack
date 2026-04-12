@@ -11,11 +11,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"goodkind.io/tack/internal/domain"
-	"goodkind.io/tack/internal/domain/label"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/domain/org"
 	"goodkind.io/tack/internal/domain/project"
-	"goodkind.io/tack/internal/domain/state"
 	"goodkind.io/tack/internal/domain/workspace"
 )
 
@@ -35,8 +33,6 @@ type Stores struct {
 	Org         *NoopOrgStore
 	Workspace   *NoopWorkspaceStore
 	Project     *NoopProjectStore
-	State       *NoopStateStore
-	Label       *NoopLabelStore
 }
 
 func NewStores(_ string, _ *pgxpool.Pool) (*Stores, error) {
@@ -56,8 +52,6 @@ func NewStores(_ string, _ *pgxpool.Pool) (*Stores, error) {
 		Org:         &NoopOrgStore{},
 		Workspace:   &NoopWorkspaceStore{},
 		Project:     &NoopProjectStore{},
-		State:       &NoopStateStore{},
-		Label:       &NoopLabelStore{},
 	}, nil
 }
 
@@ -350,42 +344,3 @@ func (s *NoopProjectStore) AllocateSequenceID(_ context.Context, _ uuid.UUID, _ 
 	return 0, nil
 }
 
-// ── State Repository ──────────────────────────────────────────────────────────────
-
-type NoopStateStore struct{}
-
-func (s *NoopStateStore) Create(_ context.Context, _ *state.State) (*state.State, error) {
-	return nil, nil
-}
-func (s *NoopStateStore) GetByID(_ context.Context, _, _ uuid.UUID) (*state.State, error) {
-	return nil, nil
-}
-func (s *NoopStateStore) List(_ context.Context, _ uuid.UUID) ([]*state.State, error) {
-	return nil, nil
-}
-func (s *NoopStateStore) Update(_ context.Context, _ *state.State) (*state.State, error) {
-	return nil, nil
-}
-func (s *NoopStateStore) Delete(_ context.Context, _ uuid.UUID) error {
-	return nil
-}
-
-// ── Label Repository ──────────────────────────────────────────────────────────────
-
-type NoopLabelStore struct{}
-
-func (s *NoopLabelStore) Create(_ context.Context, _ *label.Label) (*label.Label, error) {
-	return nil, nil
-}
-func (s *NoopLabelStore) GetByID(_ context.Context, _ uuid.UUID) (*label.Label, error) {
-	return nil, nil
-}
-func (s *NoopLabelStore) List(_ context.Context, _ uuid.UUID, _ *uuid.UUID) ([]*label.Label, error) {
-	return nil, nil
-}
-func (s *NoopLabelStore) Update(_ context.Context, _ *label.Label) (*label.Label, error) {
-	return nil, nil
-}
-func (s *NoopLabelStore) Delete(_ context.Context, _ uuid.UUID) error {
-	return nil
-}

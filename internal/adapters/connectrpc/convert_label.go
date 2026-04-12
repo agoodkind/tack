@@ -2,20 +2,34 @@
 package connectrpc
 
 import (
+	"encoding/json"
+
+	"github.com/google/uuid"
 	v1 "goodkind.io/tack/gen/tack/v1"
-	"goodkind.io/tack/internal/domain/label"
+	"goodkind.io/tack/internal/domain/node"
 )
 
-func protoLabel(l *label.Label) *v1.Label {
-	pb := &v1.Label{
-		Base:        baseFromFields(l.ID, l.CreatedAt, l.UpdatedAt, nil, nil),
-		WorkspaceId: l.WorkspaceID.String(),
-		Name:        l.Name,
-		Color:       l.Color,
-		SortOrder:   int32(l.SortOrder),
+func protoLabelFromView(v *node.NodeListView) *v1.Label {
+	if v == nil {
+		return nil
 	}
-	if l.ProjectID != nil {
-		s := l.ProjectID.String()
+	color := ""
+	if v.CustomProps != nil {
+		if raw, ok := v.CustomProps["color"]; ok {
+			var s string
+			_ = json.Unmarshal(raw, &s)
+			color = s
+		}
+	}
+	pb := &v1.Label{
+		Base:        baseFromFields(v.ID, v.CreatedAt, v.UpdatedAt, &v.CreatedBy, &v.UpdatedBy),
+		WorkspaceId: v.WorkspaceID.String(),
+		Name:        v.Name,
+		Color:       color,
+		SortOrder:   int32(v.SortOrder),
+	}
+	if v.ProjectID != uuid.Nil {
+		s := v.ProjectID.String()
 		pb.ProjectId = &s
 	}
 	return pb

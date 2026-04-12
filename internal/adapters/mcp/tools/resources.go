@@ -13,26 +13,15 @@ import (
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/domain/project"
-	"goodkind.io/tack/internal/domain/state"
 	"goodkind.io/tack/internal/domain/workspace"
 )
 
 // RegisterResources registers all tack:// URI resources on the server.
-//
-// Static resources:
-//
-//	tack://workspaces  - all workspaces for the authenticated user
-//
-// Template resources:
-//
-//	tack://workspace/{slug}              - workspace description (projects, states, types, props)
-//	tack://project/{identifier}          - project details with states
-//	tack://project/{identifier}/states   - project workflow states only
 func RegisterResources(
 	s *mcpserver.MCPServer,
 	workspaces workspace.Repository,
 	projects project.Repository,
-	states state.Repository,
+	reader node.NodeReader,
 	nodeTypes node.TypeRepository,
 	properties node.PropertyRepository,
 ) {
@@ -43,7 +32,6 @@ func RegisterResources(
 		Description: "All workspaces accessible to the authenticated user. Read this first to discover available workspace slugs.",
 	}, workspacesHandler(workspaces))
 
-	// Parse URITemplate for workspace detail resource
 	workspaceTpl := &mcpmcp.URITemplate{
 		Template: uritemplate.MustNew("tack://workspace/{slug}"),
 	}
@@ -52,9 +40,8 @@ func RegisterResources(
 		URITemplate: workspaceTpl,
 		MIMEType:    "application/json",
 		Description: "Full workspace description: projects with states, node types, and property definitions. Read this before any workspace-scoped operation.",
-	}, workspaceDetailHandler(workspaces, projects, states, nodeTypes, properties))
+	}, workspaceDetailHandler(workspaces, projects, reader, nodeTypes, properties))
 
-	// Parse URITemplate for project detail resource
 	projectTpl := &mcpmcp.URITemplate{
 		Template: uritemplate.MustNew("tack://project/{identifier}"),
 	}
@@ -63,9 +50,8 @@ func RegisterResources(
 		URITemplate: projectTpl,
 		MIMEType:    "application/json",
 		Description: "Project details including workflow states. identifier is the short code e.g. ENG.",
-	}, projectDetailHandler(workspaces, projects, states))
+	}, projectDetailHandler(workspaces, projects, reader))
 
-	// Parse URITemplate for project states resource
 	projectStatesTpl := &mcpmcp.URITemplate{
 		Template: uritemplate.MustNew("tack://project/{identifier}/states"),
 	}
@@ -74,7 +60,7 @@ func RegisterResources(
 		URITemplate: projectStatesTpl,
 		MIMEType:    "application/json",
 		Description: "Workflow states for a project, with group names and colors. Use state IDs from this list when creating or updating issues.",
-	}, projectStatesHandler(workspaces, projects, states))
+	}, projectStatesHandler(workspaces, projects, reader))
 }
 
 // ── workspaces ────────────────────────────────────────────────────────────────
@@ -105,7 +91,7 @@ func workspacesHandler(workspaces workspace.Repository) mcpserver.ResourceHandle
 func workspaceDetailHandler(
 	workspaces workspace.Repository,
 	projects project.Repository,
-	states state.Repository,
+	reader node.NodeReader,
 	nodeTypes node.TypeRepository,
 	properties node.PropertyRepository,
 ) mcpserver.ResourceTemplateHandlerFunc {
@@ -130,7 +116,7 @@ func workspaceDetailHandler(
 		}
 		summaries := make([]projectSummary, 0, len(projs))
 		for _, p := range projs {
-			ss, _ := states.List(ctx, p.ID)
+			ss := listStateViewsByProject(ctx, reader, ws.OrgID, ws.ID, p.ID)
 			summaries = append(summaries, projectSummary{
 				ID: p.ID.String(), Name: p.Name, Identifier: p.Identifier, States: ss,
 			})
@@ -158,7 +144,7 @@ func workspaceDetailHandler(
 func projectDetailHandler(
 	workspaces workspace.Repository,
 	projects project.Repository,
-	states state.Repository,
+	reader node.NodeReader,
 ) mcpserver.ResourceTemplateHandlerFunc {
 	return func(ctx context.Context, req mcpmcp.ReadResourceRequest) ([]mcpmcp.ResourceContents, error) {
 		identifier := strings.TrimPrefix(req.Params.URI, "tack://project/")
@@ -175,7 +161,7 @@ func projectDetailHandler(
 			if err != nil {
 				continue
 			}
-			ss, _ := states.List(ctx, proj.ID)
+			ss := listStateViewsByProject(ctx, reader, ws.OrgID, ws.ID, proj.ID)
 			body, _ := json.Marshal(map[string]any{
 				"project":   proj,
 				"states":    ss,
@@ -198,7 +184,7 @@ func projectDetailHandler(
 func projectStatesHandler(
 	workspaces workspace.Repository,
 	projects project.Repository,
-	states state.Repository,
+	reader node.NodeReader,
 ) mcpserver.ResourceTemplateHandlerFunc {
 	return func(ctx context.Context, req mcpmcp.ReadResourceRequest) ([]mcpmcp.ResourceContents, error) {
 		path := strings.TrimPrefix(req.Params.URI, "tack://project/")
@@ -216,7 +202,7 @@ func projectStatesHandler(
 			if err != nil {
 				continue
 			}
-			ss, _ := states.List(ctx, proj.ID)
+			ss := listStateViewsByProject(ctx, reader, ws.OrgID, ws.ID, proj.ID)
 			body, _ := json.Marshal(map[string]any{
 				"project_identifier": identifier,
 				"states":             ss,

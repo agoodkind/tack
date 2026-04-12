@@ -9,12 +9,10 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"goodkind.io/tack/internal/adapters/mcp/tools"
 	"goodkind.io/tack/internal/auth"
-	"goodkind.io/tack/internal/domain/label"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/domain/org"
 	"goodkind.io/tack/internal/domain/project"
 	domainsearch "goodkind.io/tack/internal/domain/search"
-	"goodkind.io/tack/internal/domain/state"
 	"goodkind.io/tack/internal/domain/user"
 	"goodkind.io/tack/internal/domain/workspace"
 	"goodkind.io/tack/internal/service"
@@ -38,12 +36,12 @@ type Handler struct {
 	projectSvc interface {
 		Create(ctx context.Context, p *project.Project) (*project.Project, error)
 	}
-	states     state.Repository
-	labels     label.Repository
-	issueSvc   *service.IssueService
-	epicSvc    *service.EpicService
-	cycleSvc   *service.CycleService
-	moduleSvc  *service.ModuleService
+	entities    node.EntityRepository
+	reader      node.NodeReader
+	issueSvc    *service.IssueService
+	epicSvc     *service.EpicService
+	cycleSvc    *service.CycleService
+	moduleSvc   *service.ModuleService
 	nodeTypes   node.TypeRepository
 	properties  node.PropertyRepository
 	activity    node.ActivityRepository
@@ -65,8 +63,8 @@ type Deps struct {
 	ProjectSvc interface {
 		Create(ctx context.Context, p *project.Project) (*project.Project, error)
 	}
-	States      state.Repository
-	Labels      label.Repository
+	Entities    node.EntityRepository
+	Reader      node.NodeReader
 	IssueSvc    *service.IssueService
 	EpicSvc     *service.EpicService
 	CycleSvc    *service.CycleService
@@ -88,8 +86,8 @@ func NewHandler(deps Deps) *Handler {
 		workspaces:  deps.Workspaces,
 		projects:    deps.Projects,
 		projectSvc:  deps.ProjectSvc,
-		states:      deps.States,
-		labels:      deps.Labels,
+		entities:    deps.Entities,
+		reader:      deps.Reader,
 		issueSvc:    deps.IssueSvc,
 		epicSvc:     deps.EpicSvc,
 		cycleSvc:    deps.CycleSvc,
@@ -160,11 +158,9 @@ func (h *Handler) buildServer(nodeTypes []*node.NodeType) *mcpserver.MCPServer {
 
 	resolver := tools.NewResolver(h.workspaces, h.projects)
 
-	tools.RegisterWorkspace(s, h.workspaces, h.projects, h.states, h.nodeTypes, h.properties)
+	tools.RegisterWorkspace(s, h.workspaces, h.projects, h.reader, h.nodeTypes, h.properties)
 	tools.RegisterMembers(s, h.workspaces, h.orgs, h.users)
-	tools.RegisterProject(s, h.projects, h.projectSvc, h.states, resolver)
-	tools.RegisterState(s, h.states)
-	tools.RegisterLabel(s, h.labels)
+	tools.RegisterProject(s, h.projects, h.projectSvc, h.reader, resolver)
 	tools.RegisterProperty(s, h.properties)
 	tools.RegisterActivity(s, h.activity, resolver)
 	tools.RegisterSearch(s, h.searcher, resolver)
@@ -178,6 +174,8 @@ func (h *Handler) buildServer(nodeTypes []*node.NodeType) *mcpserver.MCPServer {
 		Properties:  h.properties,
 		Activity:    h.activity,
 		Containment: h.containment,
+		Entities:    h.entities,
+		Reader:      h.reader,
 		Resolver:    resolver,
 	}
 	for _, nt := range nodeTypes {
@@ -186,7 +184,7 @@ func (h *Handler) buildServer(nodeTypes []*node.NodeType) *mcpserver.MCPServer {
 
 	tools.RegisterMyIssues(s, h.issueSvc, binding.Resolver)
 
-	tools.RegisterResources(s, h.workspaces, h.projects, h.states, h.nodeTypes, h.properties)
+	tools.RegisterResources(s, h.workspaces, h.projects, h.reader, h.nodeTypes, h.properties)
 	tools.RegisterPrompts(s, nodeTypes)
 
 	return s
