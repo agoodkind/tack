@@ -10,9 +10,7 @@ import (
 	"syscall"
 	"time"
 
-	"goodkind.io/tack/gen/tack/v1/tackv1connect"
 	"goodkind.io/tack/internal/auth"
-	connectadapter "goodkind.io/tack/internal/adapters/connectrpc"
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	mcpadapter "goodkind.io/tack/internal/adapters/mcp"
 	"goodkind.io/tack/internal/adapters/postgres"
@@ -111,44 +109,23 @@ func runServer(cfg *config.Config) {
 	// Services
 	noopAutomations := &node.NoopAutomationExecutor{}
 	seeder    := service.NewWorkspaceSeeder(fdbStores.Properties, fdbStores.NodeTypes)
-	issueSvc  := service.NewIssueService(
-		fdbStores.Entities, fdbStores.Views,
+	nodeSvc   := service.NewNodeService(
+		fdbStores.Entities, fdbStores.Views, fdbStores.NodeTypes, fdbStores.Properties,
 		fdbStores.Activity, fdbStores.Assignments, fdbStores.Labels,
 		fdbStores.Containment, fdbStores.NodeDeleter, nodeCleanup, searcher, noopAutomations,
 	)
-	projectSvc   := service.NewProjectService(fdbStores.Entities, fdbStores.Views, searcher)
-	epicSvc      := service.NewEpicService(
-		fdbStores.Entities, fdbStores.Views,
-		fdbStores.Assignments, fdbStores.Labels, fdbStores.Containment, searcher,
-	)
-	cycleSvc := service.NewCycleService(
-		fdbStores.Entities, fdbStores.Views, fdbStores.Containment, searcher,
-	)
-	moduleSvc := service.NewModuleService(
-		fdbStores.Entities, fdbStores.Views, fdbStores.Containment, searcher,
-	)
-	workspaceSvc := service.NewWorkspaceService(
-		fdbStores.Entities, fdbStores.Views, orgMembers, seeder, searcher, fdbStores.NodeTypes,
-	)
+	_ = seeder // used by seed command
 
 	mcpHandler := mcpadapter.NewHandler(mcpadapter.Deps{
-		ProjectSvc:  projectSvc,
-		Entities:    fdbStores.Entities,
-		Reader:      fdbStores.Views,
-		IssueSvc:    issueSvc,
-		EpicSvc:     epicSvc,
-		CycleSvc:    cycleSvc,
-		ModuleSvc:   moduleSvc,
-		NodeTypes:   fdbStores.NodeTypes,
-		Properties:  fdbStores.Properties,
-		Activity:    fdbStores.Activity,
-		Assignments: fdbStores.Assignments,
-		NodeLabels:  fdbStores.Labels,
-		Containment: fdbStores.Containment,
-		Comments:    fdbStores.Comments,
-		Members:     orgMembers,
-		Users:       userRepo,
-		Searcher:    searcher,
+		NodeSvc:    nodeSvc,
+		Entities:   fdbStores.Entities,
+		Reader:     fdbStores.Views,
+		NodeTypes:  fdbStores.NodeTypes,
+		Properties: fdbStores.Properties,
+		Comments:   fdbStores.Comments,
+		Members:    orgMembers,
+		Users:      userRepo,
+		Searcher:   searcher,
 	})
 
 	var authMiddleware func(http.Handler) http.Handler
@@ -159,27 +136,11 @@ func runServer(cfg *config.Config) {
 		authMiddleware = auth.Bearer(tokenRepo)
 	}
 
-	// Connect-RPC handlers
-	workspaceH := connectadapter.NewWorkspaceHandler(workspaceSvc)
-	projectH   := connectadapter.NewProjectHandler(fdbStores.Views, fdbStores.Entities, projectSvc)
-	issueH     := connectadapter.NewIssueHandler(issueSvc)
-	epicH      := connectadapter.NewEpicHandler(epicSvc)
-	cycleH     := connectadapter.NewCycleHandler(cycleSvc)
-	moduleH    := connectadapter.NewModuleHandler(moduleSvc)
-	stateH     := connectadapter.NewStateHandler(fdbStores.Entities, fdbStores.Views)
-	labelH     := connectadapter.NewLabelHandler(fdbStores.Entities, fdbStores.Views)
-	activityH  := connectadapter.NewActivityHandler(issueSvc)
-
 	mux := http.NewServeMux()
 
-	// MCP Streamable HTTP (Stateless: true — GET is not supported by the handler).
-	// Wrap with auth but allow GET to pass through: the MCP handler returns 405
-	// for GET in stateless mode. Without this, clients see 401 instead of 405
-	// and may hang retrying.
+	// MCP Streamable HTTP
 	mcpWithAuth := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
-			// Stateless mode does not support SSE streams. Return 405 directly
-			// so clients know to use POST only. No auth required for a 405.
 			w.Header().Set("Allow", "POST")
 			http.Error(w, "method not allowed: streamable-http stateless mode requires POST", http.StatusMethodNotAllowed)
 			return
@@ -189,28 +150,7 @@ func runServer(cfg *config.Config) {
 	mux.Handle("/mcp", mcpWithAuth)
 	mux.Handle("/mcp/", mcpWithAuth)
 
-	// Connect-RPC (speaks gRPC, gRPC-Web, and Connect protocols over HTTP/2)
-	registerConnect := func(path string, handler http.Handler) {
-		mux.Handle(path, authMiddleware(handler))
-	}
-	wPath, wHandler := tackv1connect.NewWorkspaceServiceHandler(workspaceH)
-	registerConnect(wPath, wHandler)
-	pPath, pHandler := tackv1connect.NewProjectServiceHandler(projectH)
-	registerConnect(pPath, pHandler)
-	iPath, iHandler := tackv1connect.NewIssueServiceHandler(issueH)
-	registerConnect(iPath, iHandler)
-	ePath, eHandler := tackv1connect.NewEpicServiceHandler(epicH)
-	registerConnect(ePath, eHandler)
-	cyPath, cyHandler := tackv1connect.NewCycleServiceHandler(cycleH)
-	registerConnect(cyPath, cyHandler)
-	moPath, moHandler := tackv1connect.NewModuleServiceHandler(moduleH)
-	registerConnect(moPath, moHandler)
-	stPath, stHandler := tackv1connect.NewStateServiceHandler(stateH)
-	registerConnect(stPath, stHandler)
-	lPath, lHandler := tackv1connect.NewLabelServiceHandler(labelH)
-	registerConnect(lPath, lHandler)
-	acPath, acHandler := tackv1connect.NewActivityServiceHandler(activityH)
-	registerConnect(acPath, acHandler)
+	// TODO: generic NodeService Connect-RPC handler (TACK-74)
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	slog.Info("starting server",

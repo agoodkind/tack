@@ -3,26 +3,22 @@ package tools
 import (
 	"context"
 
-	"goodkind.io/tack/internal/domain/issue"
-	domainsearch "goodkind.io/tack/internal/domain/search"
-	"goodkind.io/tack/internal/service"
 	"github.com/google/uuid"
+	domainsearch "goodkind.io/tack/internal/domain/search"
+	"goodkind.io/tack/internal/domain/node"
 	mcpmcp "github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 )
 
-// RegisterMyIssues registers the tack_my_issues zero-parameter shortcut tool.
-func RegisterMyIssues(s *mcpserver.MCPServer, issueSvc *service.IssueService, r *Resolver) {
+func RegisterMyIssues(s *mcpserver.MCPServer, reader node.NodeReader, r *Resolver) {
 	s.AddTool(mcpmcp.Tool{
 		Name:        "tack_my_issues",
-		Description: "Returns all issues assigned to the authenticated user across all projects and workspaces, sorted by updated_at desc. No parameters needed. Use this as a starting point when the user asks what they are working on.",
+		Description: "Returns all issues assigned to the authenticated user across all workspaces. No parameters needed.",
 		InputSchema: mcpmcp.ToolInputSchema{Type: "object", Properties: map[string]any{}, Required: []string{}},
-	}, myIssues(issueSvc, r))
+	}, myIssues(reader, r))
 }
 
-type MyIssuesInput struct{}
-
-func myIssues(issueSvc *service.IssueService, r *Resolver) mcpserver.ToolHandlerFunc {
+func myIssues(reader node.NodeReader, r *Resolver) mcpserver.ToolHandlerFunc {
 	return func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
 		userID, err := mustUser(ctx)
 		if err != nil {
@@ -32,40 +28,39 @@ func myIssues(issueSvc *service.IssueService, r *Resolver) mcpserver.ToolHandler
 		if err != nil {
 			return ClassifyError(ctx, err), nil
 		}
-		var allIssues []*issue.Issue
+		var all []*node.NodeListView
 		seen := make(map[uuid.UUID]struct{})
 		for _, ws := range wss {
 			if _, dup := seen[ws.ID]; dup {
 				continue
 			}
 			seen[ws.ID] = struct{}{}
-			filter := issue.ListFilter{
-				WorkspaceID: ws.ID,
-				AssigneeIDs: []uuid.UUID{userID},
-			}
-			items, _, issErr := issueSvc.List(ctx, filter)
-			if issErr != nil {
+			views, err := reader.List(ctx, node.NodeListQuery{
+				OrgID: ws.OrgID, WorkspaceID: ws.ID,
+				NodeType: node.NodeTypeIssue, FilterAssignee: &userID,
+			})
+			if err != nil {
 				continue
 			}
-			allIssues = append(allIssues, items...)
+			all = append(all, views...)
 		}
-		return Success(map[string]any{"issues": allIssues, "total": len(allIssues)}, ""), nil
+		return Success(map[string]any{"issues": all, "total": len(all)}, ""), nil
 	}
 }
 
 func RegisterSearch(s *mcpserver.MCPServer, searcher domainsearch.Searcher, r *Resolver) {
 	s.AddTool(mcpmcp.Tool{
 		Name:        "tack_search",
-		Description: "Full-text search across all node entities in a workspace. Returns matching items with facet counts by entity_type and project. Use this when you do not know the exact identifier or type; use tack_list_* tools for structured filtering within a known type.",
-		InputSchema: mcpmcp.ToolInputSchema{Type: "object", Properties: map[string]any{"workspace_slug": map[string]any{"type": "string", "description": "The workspace slug"}, "query": map[string]any{"type": "string", "description": "The search query"}, "entity_type": map[string]any{"type": "string", "description": "The entity type"}, "project_identifier": map[string]any{"type": "string", "description": "The project identifier"}}, Required: []string{"workspace_slug", "query"}},
+		Description: "Full-text search across all nodes in a workspace. Returns matching items with facet counts.",
+		InputSchema: mcpmcp.ToolInputSchema{Type: "object", Properties: map[string]any{"workspace_slug": map[string]any{"type": "string"}, "query": map[string]any{"type": "string"}, "entity_type": map[string]any{"type": "string"}, "project_identifier": map[string]any{"type": "string"}}, Required: []string{"workspace_slug", "query"}},
 	}, search(searcher, r))
 }
 
 type SearchInput struct {
-	WorkspaceSlug      string  `json:"workspace_slug"`
-	Query              string  `json:"query"`
-	EntityType         *string `json:"entity_type,omitempty"`
-	ProjectIdentifier  *string `json:"project_identifier,omitempty"`
+	WorkspaceSlug     string  `json:"workspace_slug"`
+	Query             string  `json:"query"`
+	EntityType        *string `json:"entity_type,omitempty"`
+	ProjectIdentifier *string `json:"project_identifier,omitempty"`
 }
 
 func search(searcher domainsearch.Searcher, r *Resolver) mcpserver.ToolHandlerFunc {
@@ -78,9 +73,7 @@ func search(searcher domainsearch.Searcher, r *Resolver) mcpserver.ToolHandlerFu
 		if err != nil {
 			return ClassifyError(ctx, err), nil
 		}
-		filters := map[string]string{
-			"workspace_id": ws.ID.String(),
-		}
+		filters := map[string]string{"workspace_id": ws.ID.String()}
 		if in.EntityType != nil && *in.EntityType != "" {
 			filters["entity_type"] = *in.EntityType
 		}
@@ -98,17 +91,10 @@ func search(searcher domainsearch.Searcher, r *Resolver) mcpserver.ToolHandlerFu
 		if docs == nil {
 			docs = []domainsearch.NodeDoc{}
 		}
-		resp := map[string]any{
-			"results": docs,
-			"total":   len(docs),
-		}
+		resp := map[string]any{"results": docs, "total": len(docs)}
 		if facets != nil {
 			resp["facets"] = facets
 		}
-		instruction := ""
-		if len(docs) == 0 {
-			instruction = "No results found. Try broadening the query or removing filters."
-		}
-		return Success(resp, instruction), nil
+		return Success(resp, ""), nil
 	}
 }

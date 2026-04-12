@@ -4,16 +4,12 @@ import (
 	"time"
 
 	domainsearch "goodkind.io/tack/internal/domain/search"
-	"goodkind.io/tack/internal/domain/issue"
 	"goodkind.io/tack/internal/domain/node"
 	"github.com/google/uuid"
 )
 
 var tackPropNamespace = uuid.MustParse("7ac0face-dead-beef-cafe-000000000000")
 
-// systemPropID returns a deterministic UUID for a built-in workspace-scoped
-// property definition. The ID is derived from the workspace ID and property
-// name so seeded PropertyDefs always match what the service layer reads.
 func systemPropID(workspaceID uuid.UUID, name string) uuid.UUID {
 	return uuid.NewSHA1(tackPropNamespace, []byte(workspaceID.String()+":"+name))
 }
@@ -35,39 +31,6 @@ const (
 	propNameSortOrder      = "sort_order"
 )
 
-// priorityRank maps a Priority to its sort rank for the enum secondary index.
-// Lower rank sorts first (urgent = 0, none = 4).
-func priorityRank(p issue.Priority) *int32 {
-	ranks := map[issue.Priority]int32{
-		issue.PriorityUrgent: 0,
-		issue.PriorityHigh:   1,
-		issue.PriorityMedium: 2,
-		issue.PriorityLow:    3,
-		issue.PriorityNone:   4,
-	}
-	r, ok := ranks[p]
-	if !ok {
-		r = 4
-	}
-	return &r
-}
-
-// tsPV returns a PropertyValue of kind timestamp, or nil if t is nil.
-func tsPV(t interface{ UnixNano() int64 }) *node.PropertyValue {
-	return nil // unused sentinel; callers use tsPVTime instead
-}
-
-// textPV returns a PropertyValue of kind text.
-func textPV(s string) *node.PropertyValue {
-	return &node.PropertyValue{Kind: node.PropertyValueText, Text: &s}
-}
-
-// _ suppress unused warning for tsPV
-var _ = tsPV
-
-// nodeDocFromView builds a full NodeDoc from a materialized NodeListView.
-// All filterable and display fields are populated so Meilisearch hits require
-// zero follow-up FDB reads to render list rows.
 func nodeDocFromView(v *node.NodeListView) domainsearch.NodeDoc {
 	doc := domainsearch.NodeDoc{
 		ID:          v.ID.String(),
