@@ -22,6 +22,13 @@ func RegisterResources(
 	r *Resolver,
 ) {
 	s.AddResource(mcpmcp.Resource{
+		Name:     "tack-guide",
+		URI:      "tack://guide",
+		MIMEType: "text/plain",
+		Description: "How to use Tack. Read this first.",
+	}, guideHandler())
+
+	s.AddResource(mcpmcp.Resource{
 		Name:        "tack-workspaces",
 		URI:         "tack://workspaces",
 		MIMEType:    "application/json",
@@ -218,5 +225,34 @@ func projectStatesHandler(
 			}, nil
 		}
 		return nil, errors.New("not found")
+	}
+}
+
+func guideHandler() mcpserver.ResourceHandlerFunc {
+	const guide = `Tack is a project management tool. All data is organized as workspaces > projects > issues/epics/cycles/modules.
+
+Getting started:
+1. Call tack_list_workspaces to see available workspaces.
+2. Call tack_describe_workspace with a workspace_slug to see its projects, workflow states, and available types.
+3. Use project identifiers (e.g. TACK, ENG) in tool calls as project_identifier.
+
+Common workflows:
+- List issues: tack_list_issues workspace_slug="..." project_identifier="..."
+- Create an issue: tack_create_issue workspace_slug="..." project_identifier="..." name="..."
+- Search: tack_search workspace_slug="..." query="..."
+- My work: tack_my_issues (no parameters)
+
+Every entity type (issue, epic, cycle, module, state, label, and any custom types) supports create, get, list, update, delete. Tool names follow the pattern tack_create_{type}, tack_list_{types}, tack_get_{type}, tack_update_{type}, tack_delete_{type}.
+
+Use workspace_slug and project_identifier (human-readable strings) in all tool calls. Never ask the user for UUIDs.`
+
+	return func(_ context.Context, req mcpmcp.ReadResourceRequest) ([]mcpmcp.ResourceContents, error) {
+		return []mcpmcp.ResourceContents{
+			mcpmcp.TextResourceContents{
+				URI:      req.Params.URI,
+				MIMEType: "text/plain",
+				Text:     guide,
+			},
+		}, nil
 	}
 }
