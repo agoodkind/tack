@@ -8,9 +8,7 @@ import (
 	"goodkind.io/tack/gen/tack/v1/tackv1connect"
 	"goodkind.io/tack/internal/auth"
 	"goodkind.io/tack/internal/domain/node"
-	"goodkind.io/tack/internal/domain/workspace"
 	"goodkind.io/tack/internal/service"
-	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -25,20 +23,13 @@ func NewWorkspaceHandler(workspaces *service.WorkspaceService) *WorkspaceHandler
 }
 
 func (h *WorkspaceHandler) CreateWorkspace(ctx context.Context, req *connect.Request[v1.CreateWorkspaceRequest]) (*connect.Response[v1.Workspace], error) {
-	userID := auth.MustUserID(ctx)
+	_ = auth.MustUserID(ctx)
 	msg := req.Msg
-	w := &workspace.Workspace{
-		ID:    uuid.New(),
-		OrgID: mustUUID(msg.OrgId),
-		Name:  msg.Name,
-		Slug:  msg.Slug,
-	}
-	_ = userID
-	created, err := h.workspaces.Create(ctx, w)
+	created, err := h.workspaces.Create(ctx, mustUUID(msg.OrgId), msg.Name, msg.Slug)
 	if err != nil {
 		return nil, domainErr(err)
 	}
-	return connect.NewResponse(protoWorkspace(created)), nil
+	return connect.NewResponse(protoWorkspaceFromView(created)), nil
 }
 
 func (h *WorkspaceHandler) GetWorkspace(ctx context.Context, req *connect.Request[v1.GetWorkspaceRequest]) (*connect.Response[v1.Workspace], error) {
@@ -46,7 +37,7 @@ func (h *WorkspaceHandler) GetWorkspace(ctx context.Context, req *connect.Reques
 	if err != nil {
 		return nil, domainErr(err)
 	}
-	return connect.NewResponse(protoWorkspace(w)), nil
+	return connect.NewResponse(protoWorkspaceFromView(w)), nil
 }
 
 func (h *WorkspaceHandler) ListWorkspaces(ctx context.Context, req *connect.Request[v1.ListWorkspacesRequest]) (*connect.Response[v1.ListWorkspacesResponse], error) {
@@ -57,7 +48,7 @@ func (h *WorkspaceHandler) ListWorkspaces(ctx context.Context, req *connect.Requ
 	}
 	items := make([]*v1.Workspace, len(ws))
 	for i, w := range ws {
-		items[i] = protoWorkspace(w)
+		items[i] = protoWorkspaceFromView(w)
 	}
 	return connect.NewResponse(&v1.ListWorkspacesResponse{Workspaces: items}), nil
 }
@@ -81,7 +72,7 @@ func (h *WorkspaceHandler) DescribeWorkspace(ctx context.Context, req *connect.R
 		ntDefs[i] = protoNodeTypeDef(nt)
 	}
 	return connect.NewResponse(&v1.WorkspaceDescription{
-		Workspace: protoWorkspace(ws),
+		Workspace: protoWorkspaceFromView(ws),
 		NodeTypes: ntDefs,
 	}), nil
 }

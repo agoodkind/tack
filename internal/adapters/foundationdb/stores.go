@@ -1,5 +1,3 @@
-//go:build fdb
-
 // Package foundationdb provides FoundationDB adapters for all FDB-backed stores:
 // assignments, labels, activity, membership, containment, and node cleanup.
 package foundationdb
@@ -23,9 +21,6 @@ type Stores struct {
 	Automations *AutomationStore
 	Views       *ViewStore
 	Comments    *CommentStore
-	Org         *OrgFDBStore
-	Workspace   *WorkspaceFDBStore
-	Project     *ProjectFDBStore
 }
 
 // NewStores opens FDB once and wires all adapters to the same connection.
@@ -52,8 +47,5 @@ func newStores(db fdb.Database, sqlPool *pgxpool.Pool) *Stores {
 		Automations: NewAutomationStore(db),
 		Views:       NewViewStore(db),
 		Comments:    NewCommentStore(db),
-		Org:         NewOrgFDBStore(db, sqlPool),
-		Workspace:   NewWorkspaceFDBStore(db, sqlPool),
-		Project:     NewProjectFDBStore(db, NewEntityStore(db), NewViewStore(db)),
 	}
 }

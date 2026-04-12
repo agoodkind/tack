@@ -4,26 +4,25 @@ import (
 	"context"
 	"time"
 
-	"goodkind.io/tack/internal/domain/node"
-	"goodkind.io/tack/internal/domain/workspace"
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/domain/node"
 	mcpmcp "github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 )
 
 // RegisterComment registers tack_list_comments and tack_create_comment.
-func RegisterComment(s *mcpserver.MCPServer, workspaces workspace.Repository, comments node.CommentRepository) {
+func RegisterComment(s *mcpserver.MCPServer, comments node.CommentRepository, r *Resolver) {
 	s.AddTool(mcpmcp.Tool{
 		Name:        "tack_list_comments",
 		Description: "Lists all comments on a node (issue, epic, etc.) in chronological order. Returns comment body, author_id, and timestamps.",
 		InputSchema: mcpmcp.ToolInputSchema{Type: "object", Properties: map[string]any{"workspace_slug": map[string]any{"type": "string", "description": "The workspace slug"}, "node_id": map[string]any{"type": "string", "description": "The node ID"}}, Required: []string{"workspace_slug", "node_id"}},
-	}, listComments(workspaces, comments))
+	}, listComments(comments, r))
 
 	s.AddTool(mcpmcp.Tool{
 		Name:        "tack_create_comment",
 		Description: "Adds a comment to a node. Body supports Markdown. Returns the created comment.",
 		InputSchema: mcpmcp.ToolInputSchema{Type: "object", Properties: map[string]any{"workspace_slug": map[string]any{"type": "string", "description": "The workspace slug"}, "node_id": map[string]any{"type": "string", "description": "The node ID"}, "body": map[string]any{"type": "string", "description": "The comment body"}}, Required: []string{"workspace_slug", "node_id", "body"}},
-	}, createComment(workspaces, comments))
+	}, createComment(comments, r))
 }
 
 // ── list_comments ─────────────────────────────────────────────────────────────
@@ -33,13 +32,13 @@ type ListCommentsInput struct {
 	NodeID        string `json:"node_id"`
 }
 
-func listComments(workspaces workspace.Repository, comments node.CommentRepository) mcpserver.ToolHandlerFunc {
+func listComments(comments node.CommentRepository, r *Resolver) mcpserver.ToolHandlerFunc {
 	return func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
 		var in ListCommentsInput
 		if err := req.BindArguments(&in); err != nil {
 			return RecoverableError(err.Error()), nil
 		}
-		ws, err := workspaces.GetBySlug(ctx, in.WorkspaceSlug)
+		ws, err := r.Workspace(ctx, in.WorkspaceSlug)
 		if err != nil {
 			return ClassifyError(ctx, err), nil
 		}
@@ -66,7 +65,7 @@ type CreateCommentInput struct {
 	Body          string `json:"body"`
 }
 
-func createComment(workspaces workspace.Repository, comments node.CommentRepository) mcpserver.ToolHandlerFunc {
+func createComment(comments node.CommentRepository, r *Resolver) mcpserver.ToolHandlerFunc {
 	return func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
 		var in CreateCommentInput
 		if err := req.BindArguments(&in); err != nil {
@@ -76,7 +75,7 @@ func createComment(workspaces workspace.Repository, comments node.CommentReposit
 		if err != nil {
 			return UnexpectedError(ctx, err), nil
 		}
-		ws, err := workspaces.GetBySlug(ctx, in.WorkspaceSlug)
+		ws, err := r.Workspace(ctx, in.WorkspaceSlug)
 		if err != nil {
 			return ClassifyError(ctx, err), nil
 		}

@@ -10,8 +10,7 @@ import (
 	mcpmcp "github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"goodkind.io/tack/internal/domain/issue"
-	"goodkind.io/tack/internal/domain/project"
-	"goodkind.io/tack/internal/domain/workspace"
+	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/service"
 )
 
@@ -44,8 +43,8 @@ func bulkUpdateIssues(svc *service.IssueService, r *Resolver) mcpserver.ToolHand
 			return UnexpectedError(ctx, err), nil
 		}
 		issueIDs := make([]uuid.UUID, 0, len(in.Identifiers))
-		var ws *workspace.Workspace
-		var proj *project.Project
+		var ws *node.NodeListView
+		var proj *node.NodeListView
 		for _, ident := range in.Identifiers {
 			projIdent, seq, err := ParseNodeIdentifier(ident)
 			if err != nil {
@@ -56,8 +55,8 @@ func bulkUpdateIssues(svc *service.IssueService, r *Resolver) mcpserver.ToolHand
 				if err != nil {
 					return ClassifyError(ctx, err), nil
 				}
-			} else if !strings.EqualFold(proj.Identifier, projIdent) {
-				return RecoverableError(fmt.Sprintf("bulk update requires all issues in the same project: got %q and %q", proj.Identifier, projIdent)), nil
+			} else if !strings.EqualFold(ViewIdentifier(proj), projIdent) {
+				return RecoverableError(fmt.Sprintf("bulk update requires all issues in the same project: got %q and %q", ViewIdentifier(proj), projIdent)), nil
 			}
 			issueObj, err := svc.GetBySequence(ctx, ws.ID, proj.ID, seq)
 			if err != nil {
@@ -180,8 +179,8 @@ func bulkMoveIssues(svc *service.IssueService, r *Resolver) mcpserver.ToolHandle
 			return UnexpectedError(ctx, err), nil
 		}
 		issueIDs := make([]uuid.UUID, 0, len(in.Identifiers))
-		var ws *workspace.Workspace
-		var proj *project.Project
+		var ws *node.NodeListView
+		var proj *node.NodeListView
 		for _, ident := range in.Identifiers {
 			projIdent, seq, err := ParseNodeIdentifier(ident)
 			if err != nil {
@@ -192,8 +191,8 @@ func bulkMoveIssues(svc *service.IssueService, r *Resolver) mcpserver.ToolHandle
 				if err != nil {
 					return ClassifyError(ctx, err), nil
 				}
-			} else if !strings.EqualFold(proj.Identifier, projIdent) {
-				return RecoverableError(fmt.Sprintf("bulk move requires all issues in the same project: got %q and %q", proj.Identifier, projIdent)), nil
+			} else if !strings.EqualFold(ViewIdentifier(proj), projIdent) {
+				return RecoverableError(fmt.Sprintf("bulk move requires all issues in the same project: got %q and %q", ViewIdentifier(proj), projIdent)), nil
 			}
 			issueObj, err := svc.GetBySequence(ctx, ws.ID, proj.ID, seq)
 			if err != nil {

@@ -1,5 +1,3 @@
-//go:build fdb
-
 package foundationdb
 
 import (
@@ -151,41 +149,6 @@ const (
 	keyPresenceOnNode  = "presence_on_node"
 )
 
-// orgBySlugKey returns the packed secondary index key for org lookup by slug.
-// (org_by_slug, slug) → orgID bytes
-func orgBySlugKey(slug string) []byte {
-	return tuple.Tuple{keyOrgBySlug, slug}.Pack()
-}
-
-// workspaceBySlugKey returns the packed secondary index key for workspace slug lookup (org-scoped).
-// (workspace_by_slug, orgID, slug) → wsID bytes
-func workspaceBySlugKey(orgID uuid.UUID, slug string) []byte {
-	return tuple.Tuple{keyWorkspaceBySlug, orgID.String(), slug}.Pack()
-}
-
-// workspaceBySlugGlobalKey returns the packed secondary index key for global workspace slug lookup.
-// (workspace_by_slug_global, slug) → wsID bytes
-func workspaceBySlugGlobalKey(slug string) []byte {
-	return tuple.Tuple{keyWorkspaceBySlugGlobal, slug}.Pack()
-}
-
-// projectByIdentKey returns the packed secondary index key for project lookup by identifier.
-// (project_by_identifier, orgID, wsID, UPPER(identifier)) → projID bytes
-func projectByIdentKey(orgID, wsID uuid.UUID, identifier string) []byte {
-	return tuple.Tuple{keyProjectByIdent, orgID.String(), wsID.String(), identifier}.Pack()
-}
-
-// projectByWorkspaceKey returns the packed secondary index key for listing projects in a workspace.
-// (project_by_workspace, orgID, wsID, projID) → nil
-func projectByWorkspaceKey(orgID, wsID, projID uuid.UUID) []byte {
-	return tuple.Tuple{keyProjectByWorkspace, orgID.String(), wsID.String(), projID.String()}.Pack()
-}
-
-// projectByWorkspacePrefixKey returns the packed prefix for scanning all projects in a workspace.
-func projectByWorkspacePrefixKey(orgID, wsID uuid.UUID) []byte {
-	return tuple.Tuple{keyProjectByWorkspace, orgID.String(), wsID.String()}.Pack()
-}
-
 // slugSequenceKey returns the packed atomic counter key for a slug-owning node.
 // (slug_sequence, orgID, slugOwnerNodeID) → int64
 func slugSequenceKey(orgID, slugOwnerNodeID uuid.UUID) []byte {
@@ -202,8 +165,7 @@ var _ = [...]string{
 	keySortPositionInView, keyBoardLayoutForUser, keyStarredByUser,
 	keySavedViewForUser, keySavedViewOnEntity,
 	keyUserPreference, keyOrgSetting, keyRoleDefinition, keyRolePermission,
-	keyWorkspaceBySlug,
-	keySlugSequence,
+	keyOrgBySlug, keyWorkspaceBySlug, keyWorkspaceBySlugGlobal,
+	keyProjectByIdent, keyProjectByWorkspace, keySlugSequence,
 }
-var _ = workspaceBySlugKey
 var _ = slugSequenceKey

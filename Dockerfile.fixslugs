@@ -1,0 +1,17 @@
+FROM golang:1.26-bookworm AS builder
+ARG FDB_VERSION=7.4.6
+RUN curl -fsSL https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-clients_${FDB_VERSION}-1_amd64.deb -o /tmp/fdb.deb && dpkg -i /tmp/fdb.deb && rm /tmp/fdb.deb
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=1 go build -trimpath -o /bin/fixslugs ./cmd/fixslugs
+
+FROM debian:bookworm-slim
+ARG FDB_VERSION=7.4.6
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
+    && curl -fsSL https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-clients_${FDB_VERSION}-1_amd64.deb -o /tmp/fdb.deb \
+    && dpkg -i /tmp/fdb.deb && rm /tmp/fdb.deb \
+    && apt-get remove -y curl && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /bin/fixslugs /fixslugs
+ENTRYPOINT ["/fixslugs"]

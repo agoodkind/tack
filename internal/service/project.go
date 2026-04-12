@@ -7,13 +7,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	domainsearch "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/domain/node"
-	"goodkind.io/tack/internal/domain/project"
+	domainsearch "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/domain/state"
 )
 
-// defaultStates are seeded into every new project.
 var defaultStates = []struct {
 	Name      string
 	Group     state.GroupName
@@ -27,95 +25,103 @@ var defaultStates = []struct {
 	{"Canceled", state.GroupCancelled, "#EF4444", 5},
 }
 
-// ProjectService creates projects and seeds default states.
 type ProjectService struct {
-	projects project.Repository
 	entities node.EntityRepository
 	reader   node.NodeReader
 	searcher domainsearch.Searcher
 }
 
-// NewProjectService creates a ProjectService with the given dependencies.
-func NewProjectService(projects project.Repository, entities node.EntityRepository, reader node.NodeReader, searcher domainsearch.Searcher) *ProjectService {
-	return &ProjectService{projects: projects, entities: entities, reader: reader, searcher: searcher}
+func NewProjectService(entities node.EntityRepository, reader node.NodeReader, searcher domainsearch.Searcher) *ProjectService {
+	return &ProjectService{entities: entities, reader: reader, searcher: searcher}
 }
 
-// Create creates a project, seeds default states, and indexes it for search.
-func (s *ProjectService) Create(ctx context.Context, p *project.Project) (*project.Project, error) {
-	created, err := s.projects.Create(ctx, p)
+// Create creates a project node, seeds default states, and indexes for search.
+func (s *ProjectService) Create(ctx context.Context, wsID uuid.UUID, name, identifier, description string, createdBy uuid.UUID) (*node.NodeListView, error) {
+	wsResolve, err := s.reader.Resolve(ctx, wsID)
 	if err != nil {
 		return nil, err
 	}
+	orgID := wsResolve.OrgID
 
-	// Resolve org/workspace context for the newly created project.
-	resolve, err := s.reader.Resolve(ctx, created.ID)
-	if err != nil {
-		return created, err
+	now := time.Now()
+	projID := uuid.New()
+
+	identBytes, _ := json.Marshal(identifier)
+	customProps := map[string]json.RawMessage{"identifier": identBytes}
+	if description != "" {
+		descBytes, _ := json.Marshal(description)
+		customProps["description"] = descBytes
 	}
-	orgID := resolve.OrgID
-	wsID := resolve.WorkspaceID
 
-	for _, ds := range defaultStates {
+	nv := &node.NodeValue{
+		ID: projID, OrgID: orgID, WorkspaceID: wsID, ProjectID: projID,
+		NodeType: node.NodeTypeProject, Name: name, Description: description,
+		CreatedBy: createdBy, UpdatedBy: createdBy, CreatedAt: now, UpdatedAt: now,
+	}
+	view := &node.NodeListView{
+		Version: node.ViewVersion1, ID: projID, OrgID: orgID, WorkspaceID: wsID,
+		ProjectID: projID, NodeType: node.NodeTypeProject, Name: name,
+		CreatedBy: createdBy, UpdatedBy: createdBy, CreatedAt: now, UpdatedAt: now,
+		CustomProps: customProps,
+	}
+
+	// Write identifier property for indexed lookup
+	identPropID := node.SystemPropID(wsID, "identifier")
+	props := map[uuid.UUID]*node.PropertyValue{
+		identPropID: node.TextPropertyValue(identifier),
+	}
+
+	if _, err := s.entities.CreateAtomic(ctx, orgID, projID, nv, props, view, nil, nil, createdBy); err != nil {
+		return nil, err
+	}
+
+	// Seed default states
+	var defaultStateID uuid.UUID
+	for i, ds := range defaultStates {
 		stID := uuid.New()
-		now := time.Now()
-
 		groupBytes, _ := json.Marshal(string(ds.Group))
 		colorBytes, _ := json.Marshal(ds.Color)
 		sortBytes, _ := json.Marshal(ds.SortOrder)
 
-		nv := &node.NodeValue{
-			ID:          stID,
-			OrgID:       orgID,
-			WorkspaceID: wsID,
-			ProjectID:   created.ID,
-			NodeType:    node.NodeTypeState,
-			Name:        ds.Name,
-			SortOrder:   ds.SortOrder,
-			CreatedAt:   now,
-			UpdatedAt:   now,
+		stNV := &node.NodeValue{
+			ID: stID, OrgID: orgID, WorkspaceID: wsID, ProjectID: projID,
+			NodeType: node.NodeTypeState, Name: ds.Name, SortOrder: ds.SortOrder,
+			CreatedAt: now, UpdatedAt: now,
 		}
-		props := map[uuid.UUID]*node.PropertyValue{
-			systemPropID(wsID, propNameGroupName): textPV(string(ds.Group)),
-			systemPropID(wsID, propNameColor):     textPV(ds.Color),
-			systemPropID(wsID, propNameSortOrder): textPV(fmt.Sprintf("%v", ds.SortOrder)),
+		stProps := map[uuid.UUID]*node.PropertyValue{
+			node.SystemPropID(wsID, propNameGroupName): node.TextPropertyValue(string(ds.Group)),
+			node.SystemPropID(wsID, propNameColor):     node.TextPropertyValue(ds.Color),
+			node.SystemPropID(wsID, propNameSortOrder): node.TextPropertyValue(fmt.Sprintf("%v", ds.SortOrder)),
 		}
-		view := &node.NodeListView{
-			Version:     node.ViewVersion1,
-			ID:          stID,
-			OrgID:       orgID,
-			WorkspaceID: wsID,
-			ProjectID:   created.ID,
-			NodeType:    node.NodeTypeState,
-			Name:        ds.Name,
-			SortOrder:   ds.SortOrder,
-			CreatedAt:   now,
-			UpdatedAt:   now,
+		stView := &node.NodeListView{
+			Version: node.ViewVersion1, ID: stID, OrgID: orgID, WorkspaceID: wsID,
+			ProjectID: projID, NodeType: node.NodeTypeState, Name: ds.Name,
+			SortOrder: ds.SortOrder, CreatedAt: now, UpdatedAt: now,
 			CustomProps: map[string]json.RawMessage{
-				propNameGroupName: groupBytes,
-				propNameColor:     colorBytes,
-				propNameSortOrder: sortBytes,
+				propNameGroupName: groupBytes, propNameColor: colorBytes, propNameSortOrder: sortBytes,
 			},
 		}
 
-		if _, err := s.entities.CreateAtomic(ctx, orgID, created.ID, nv, props, view, nil, nil, uuid.Nil); err != nil {
-			return created, err
+		if _, err := s.entities.CreateAtomic(ctx, orgID, projID, stNV, stProps, stView, nil, nil, uuid.Nil); err != nil {
+			return nil, err
 		}
-
-		// Set the first state (Backlog) as the project default.
-		if ds.Group == state.GroupBacklog && created.DefaultStateID == nil {
-			created.DefaultStateID = &stID
-			_, _ = s.projects.Update(ctx, created)
+		if i == 0 {
+			defaultStateID = stID
 		}
 	}
 
-	_ = s.searcher.Index(ctx, "nodes", created.ID.String(), domainsearch.NodeDoc{
-		ID:          created.ID.String(),
-		WorkspaceID: created.WorkspaceID.String(),
-		ProjectID:   created.ID.String(),
-		EntityType:  "project",
-		Name:        created.Name,
-		Description: created.Description,
+	// Update project with default state
+	stateBytes, _ := json.Marshal(defaultStateID.String())
+	view.CustomProps["default_state_id"] = stateBytes
+	nv.UpdatedAt = now
+	if err := s.entities.Set(ctx, nv, props, view); err != nil {
+		return nil, err
+	}
+
+	_ = s.searcher.Index(ctx, "nodes", projID.String(), domainsearch.NodeDoc{
+		ID: projID.String(), WorkspaceID: wsID.String(), ProjectID: projID.String(),
+		EntityType: "project", Name: name, Description: description,
 	})
 
-	return created, nil
+	return view, nil
 }

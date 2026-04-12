@@ -4,20 +4,23 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
+	"time"
 
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/domain"
+	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/domain/org"
 	"goodkind.io/tack/internal/domain/user"
-	"goodkind.io/tack/internal/domain/workspace"
 	"goodkind.io/tack/migrations"
 	"goodkind.io/tack/internal/service"
+	"github.com/google/uuid"
 )
 
 func runSeed(cfg *config.Config) {
@@ -50,6 +53,7 @@ func runSeed(cfg *config.Config) {
 
 	userRepo  := postgres.NewUserRepo(pool)
 	tokenRepo := postgres.NewTokenRepo(pool)
+	members   := postgres.NewOrgMemberRepo(pool)
 	seeder    := service.NewWorkspaceSeeder(fdbStores.Properties, fdbStores.NodeTypes)
 
 	// ── User ─────────────────────────────────────────────────────────────────
@@ -73,54 +77,124 @@ func runSeed(cfg *config.Config) {
 	}
 
 	// ── Org ──────────────────────────────────────────────────────────────────
-	o, err := fdbStores.Org.GetBySlug(ctx, cfg.SeedOrgSlug)
-	if err != nil && !errors.Is(err, domain.ErrNotFound) {
-		slog.Error("seed: get org", "err", err)
-		os.Exit(1)
-	}
-	if o == nil {
-		o, err = fdbStores.Org.Create(ctx, &org.Org{
-			Name: cfg.SeedOrgName,
-			Slug: cfg.SeedOrgSlug,
-		})
-		if err != nil {
+	orgID := uuid.New()
+	now := time.Now()
+
+	// Check if org already exists by slug
+	existingOrgID, err := fdbStores.Entities.GetBySlug(ctx, node.NodeTypeOrg, cfg.SeedOrgSlug)
+	if err == nil {
+		// Org exists
+		orgID = existingOrgID
+		slog.Info("seed: org exists", "id", orgID, "slug", cfg.SeedOrgSlug)
+	} else if errors.Is(err, domain.ErrNotFound) {
+		// Create new org
+		slugBytes, _ := json.Marshal(cfg.SeedOrgSlug)
+		orgProps := make(map[string]json.RawMessage)
+		orgProps["slug"] = slugBytes
+
+		orgNV := &node.NodeValue{
+			ID:        orgID,
+			OrgID:     orgID,
+			NodeType:  node.NodeTypeOrg,
+			Name:      cfg.SeedOrgName,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+
+		orgView := &node.NodeListView{
+			Version:     node.ViewVersion1,
+			ID:          orgID,
+			OrgID:       orgID,
+			NodeType:    node.NodeTypeOrg,
+			Name:        cfg.SeedOrgName,
+			CreatedAt:   now,
+			UpdatedAt:   now,
+			CustomProps: orgProps,
+		}
+
+		if _, err := fdbStores.Entities.CreateAtomic(ctx, orgID, orgID, orgNV, nil, orgView, nil, nil, uuid.Nil); err != nil {
 			slog.Error("seed: create org", "err", err)
 			os.Exit(1)
 		}
-		if err := fdbStores.Org.AddMember(ctx, &org.Member{
-			OrgID:  o.ID,
+
+		// Write slug index
+		if err := fdbStores.Entities.WriteSlugIndex(ctx, node.NodeTypeOrg, cfg.SeedOrgSlug, orgID); err != nil {
+			slog.Error("seed: write org slug index", "err", err)
+			os.Exit(1)
+		}
+
+		// Add user as org member
+		if err := members.AddMember(ctx, &org.Member{
+			OrgID:  orgID,
 			UserID: u.ID,
 			Role:   20, // admin
 		}); err != nil {
 			slog.Error("seed: add org member", "err", err)
 			os.Exit(1)
 		}
-		seeder.SeedOrg(ctx, o.ID)
-		slog.Info("seed: created org", "id", o.ID, "slug", o.Slug)
+
+		// Seed org-level property defs
+		seeder.SeedOrg(ctx, orgID)
+
+		slog.Info("seed: created org", "id", orgID, "slug", cfg.SeedOrgSlug)
 	} else {
-		slog.Info("seed: org exists", "id", o.ID, "slug", o.Slug)
+		slog.Error("seed: lookup org", "err", err)
+		os.Exit(1)
 	}
 
 	// ── Workspace ─────────────────────────────────────────────────────────────
-	ws, err := fdbStores.Workspace.GetBySlug(ctx, cfg.SeedWorkspaceSlug)
-	if err != nil && !errors.Is(err, domain.ErrNotFound) {
-		slog.Error("seed: get workspace", "err", err)
-		os.Exit(1)
-	}
-	if ws == nil {
-		ws, err = fdbStores.Workspace.Create(ctx, &workspace.Workspace{
-			OrgID: o.ID,
-			Name:  cfg.SeedWorkspaceName,
-			Slug:  cfg.SeedWorkspaceSlug,
-		})
-		if err != nil {
+	wsID := uuid.New()
+	wsResolve, err := fdbStores.Entities.GetBySlug(ctx, node.NodeTypeWorkspace, cfg.SeedWorkspaceSlug)
+	if err == nil {
+		// Workspace exists
+		wsID = wsResolve
+		slog.Info("seed: workspace exists", "id", wsID, "slug", cfg.SeedWorkspaceSlug)
+	} else if errors.Is(err, domain.ErrNotFound) {
+		// Create new workspace
+		slugBytes, _ := json.Marshal(cfg.SeedWorkspaceSlug)
+		wsProps := make(map[string]json.RawMessage)
+		wsProps["slug"] = slugBytes
+
+		wsNV := &node.NodeValue{
+			ID:          wsID,
+			OrgID:       orgID,
+			WorkspaceID: uuid.Nil,
+			NodeType:    node.NodeTypeWorkspace,
+			Name:        cfg.SeedWorkspaceName,
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		}
+
+		wsView := &node.NodeListView{
+			Version:     node.ViewVersion1,
+			ID:          wsID,
+			OrgID:       orgID,
+			WorkspaceID: uuid.Nil,
+			NodeType:    node.NodeTypeWorkspace,
+			Name:        cfg.SeedWorkspaceName,
+			CreatedAt:   now,
+			UpdatedAt:   now,
+			CustomProps: wsProps,
+		}
+
+		if _, err := fdbStores.Entities.CreateAtomic(ctx, orgID, wsID, wsNV, nil, wsView, nil, nil, uuid.Nil); err != nil {
 			slog.Error("seed: create workspace", "err", err)
 			os.Exit(1)
 		}
-		seeder.SeedWorkspace(ctx, o.ID, ws.ID)
-		slog.Info("seed: created workspace", "id", ws.ID, "slug", ws.Slug)
+
+		// Write slug index
+		if err := fdbStores.Entities.WriteSlugIndex(ctx, node.NodeTypeWorkspace, cfg.SeedWorkspaceSlug, wsID); err != nil {
+			slog.Error("seed: write workspace slug index", "err", err)
+			os.Exit(1)
+		}
+
+		// Seed workspace-level property defs
+		seeder.SeedWorkspace(ctx, orgID, wsID)
+
+		slog.Info("seed: created workspace", "id", wsID, "slug", cfg.SeedWorkspaceSlug)
 	} else {
-		slog.Info("seed: workspace exists", "id", ws.ID, "slug", ws.Slug)
+		slog.Error("seed: lookup workspace", "err", err)
+		os.Exit(1)
 	}
 
 	// ── API token ─────────────────────────────────────────────────────────────
@@ -139,8 +213,8 @@ func runSeed(cfg *config.Config) {
 
 	slog.Info("seed complete",
 		"user_id", u.ID,
-		"org_id", o.ID,
-		"workspace_id", ws.ID,
+		"org_id", orgID,
+		"workspace_id", wsID,
 	)
 }
 
@@ -151,4 +225,3 @@ func generateToken() string {
 	}
 	return "tack_" + base64.RawURLEncoding.EncodeToString(b)
 }
-

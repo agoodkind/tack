@@ -1,5 +1,3 @@
-//go:build fdb
-
 package foundationdb
 
 import (
@@ -235,10 +233,20 @@ func (s *ViewStore) planScan(q node.NodeListQuery) ([]chunkRange, error) {
 		nodeIDs = extractLastUUIDs(idxVals.([]fdb.KeyValue), 6)
 
 	default:
-		// Full workspace scan: use node_instance_by_project with all projects.
-		// For now, callers must specify ByProject or ByState for efficient scans.
-		// Unscoped queries return nothing to avoid accidental full-table scans.
-		return nil, nil
+		// Full workspace scan: range scan on (node_list_view, orgID, wsID, nodeType, *).
+		prefix := tuple.Tuple{keyNodeListView, q.OrgID.String(), q.WorkspaceID.String(), q.NodeType}.Pack()
+		pr, err := fdb.PrefixRange(prefix)
+		if err != nil {
+			return nil, err
+		}
+		kvs, err := s.db.ReadTransact(func(tr fdb.ReadTransaction) (any, error) {
+			return tr.GetRange(pr, fdb.RangeOptions{}).GetSliceWithError()
+		})
+		if err != nil {
+			return nil, fmt.Errorf("plan scan workspace: %w", err)
+		}
+		// key: (node_list_view, orgID, wsID, nodeType, nodeID)
+		nodeIDs = extractLastUUIDs(kvs.([]fdb.KeyValue), 4)
 	}
 
 	if len(nodeIDs) == 0 {

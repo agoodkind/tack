@@ -120,6 +120,15 @@ type EntityRepository interface {
 	// Returns uuid.Nil, nil when not found.
 	GetBySequence(ctx context.Context, orgID, projectID uuid.UUID, nodeType string, seqID int64) (uuid.UUID, error)
 
+	// GetBySlug resolves a global slug index entry: (nodeType, slug) → nodeID.
+	// Used for entry-point lookups (e.g. workspace by slug, org by slug).
+	GetBySlug(ctx context.Context, nodeType, slug string) (uuid.UUID, error)
+	// WriteSlugIndex writes a global slug index entry: (nodeType, slug) → nodeID.
+	// Called on create for any node whose NodeType has FeatureHasSlug.
+	WriteSlugIndex(ctx context.Context, nodeType, slug string, nodeID uuid.UUID) error
+	// DeleteSlugIndex removes a global slug index entry.
+	DeleteSlugIndex(ctx context.Context, nodeType, slug string) error
+
 	// CreateAtomic writes a new entity and all related data in a single FDB transaction:
 	//   - sequence allocation (if projectID != uuid.Nil)
 	//   - NodeValue + secondary indexes

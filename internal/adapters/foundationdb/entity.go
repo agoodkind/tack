@@ -1,5 +1,3 @@
-//go:build fdb
-
 package foundationdb
 
 import (
@@ -9,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
@@ -588,4 +587,50 @@ func nodeResolveKey(nodeID uuid.UUID) []byte {
 
 func nodeBySequenceKey(orgID, projectID uuid.UUID, nodeType string, seqID int64) []byte {
 	return tuple.Tuple{keyNodeBySequence, orgID.String(), projectID.String(), nodeType, seqID}.Pack()
+}
+
+// slugIndexKey returns a global slug index key: (slug_index, nodeType, slug) -> nodeID bytes.
+const keySlugIndex = "slug_index"
+
+func slugIndexKey(nodeType, slug string) []byte {
+	return tuple.Tuple{keySlugIndex, nodeType, slug}.Pack()
+}
+
+// GetBySlug resolves a global slug index entry to a node UUID.
+// Returns domain.ErrNotFound when no entry exists.
+func (s *EntityStore) GetBySlug(_ context.Context, nodeType, slug string) (uuid.UUID, error) {
+	val, err := s.db.ReadTransact(func(tr fdb.ReadTransaction) (any, error) {
+		return tr.Get(fdb.Key(slugIndexKey(nodeType, slug))).Get()
+	})
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("slug lookup %s/%s: %w", nodeType, slug, err)
+	}
+	b, ok := val.([]byte)
+	if !ok || len(b) == 0 {
+		return uuid.Nil, domain.ErrNotFound
+	}
+	id, err := uuid.FromBytes(b)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("unmarshal slug index %s/%s: %w", nodeType, slug, err)
+	}
+	return id, nil
+}
+
+// WriteSlugIndex writes a global slug index entry.
+func (s *EntityStore) WriteSlugIndex(_ context.Context, nodeType, slug string, nodeID uuid.UUID) error {
+	b, _ := nodeID.MarshalBinary()
+	_, err := s.db.Transact(func(tr fdb.Transaction) (any, error) {
+		tr.Set(fdb.Key(slugIndexKey(nodeType, slug)), b)
+		return nil, nil
+	})
+	return err
+}
+
+// DeleteSlugIndex removes a global slug index entry.
+func (s *EntityStore) DeleteSlugIndex(_ context.Context, nodeType, slug string) error {
+	_, err := s.db.Transact(func(tr fdb.Transaction) (any, error) {
+		tr.Clear(fdb.Key(slugIndexKey(nodeType, slug)))
+		return nil, nil
+	})
+	return err
 }

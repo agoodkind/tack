@@ -2,23 +2,43 @@
 package connectrpc
 
 import (
+	"encoding/json"
+
 	v1 "goodkind.io/tack/gen/tack/v1"
-	"goodkind.io/tack/internal/domain/project"
+	"goodkind.io/tack/internal/domain/node"
 )
 
-func protoProject(p *project.Project) *v1.Project {
+func protoProjectFromView(view *node.NodeListView) *v1.Project {
 	pb := &v1.Project{
-		Base:        baseFromFields(p.ID, p.CreatedAt, p.UpdatedAt, &p.CreatedBy, p.UpdatedBy),
-		WorkspaceId: p.WorkspaceID.String(),
-		Name:        p.Name,
-		Identifier:  p.Identifier,
+		Base:        baseFromFields(view.ID, view.CreatedAt, view.UpdatedAt, nil, nil),
+		WorkspaceId: view.WorkspaceID.String(),
+		Name:        view.Name,
 	}
-	if p.Description != "" {
-		pb.Description = &p.Description
+
+	// Extract identifier from CustomProps
+	if identifierBytes, ok := view.CustomProps["identifier"]; ok {
+		var identifier string
+		_ = json.Unmarshal(identifierBytes, &identifier)
+		pb.Identifier = identifier
 	}
-	if p.DefaultStateID != nil {
-		s := p.DefaultStateID.String()
-		pb.DefaultStateId = &s
+
+	// Extract description from CustomProps
+	if descriptionBytes, ok := view.CustomProps["description"]; ok {
+		var description string
+		_ = json.Unmarshal(descriptionBytes, &description)
+		if description != "" {
+			pb.Description = &description
+		}
 	}
+
+	// Extract default_state_id from CustomProps
+	if defaultStateBytes, ok := view.CustomProps["default_state_id"]; ok {
+		var stateID string
+		_ = json.Unmarshal(defaultStateBytes, &stateID)
+		if stateID != "" {
+			pb.DefaultStateId = &stateID
+		}
+	}
+
 	return pb
 }

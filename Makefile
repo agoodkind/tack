@@ -30,37 +30,24 @@ update-go-mk:
 		exit 1; \
 	fi
 
-# Noop build (no CGO, FDB is stub). Use for local dev and CI typecheck.
+# FDB is always required. CGO_ENABLED=1 for the FDB C bindings.
 .PHONY: build
 build:
-	go build ./cmd/server
-
-# Production build: real FoundationDB adapter (CGO).
-# Requires foundationdb-clients 7.4.x on the build host.
-# The FDB Go bindings (fdb_darwin.go / fdb_linux.go) supply their own cgo flags.
-.PHONY: build-fdb
-build-fdb:
-	CGO_ENABLED=1 go build -tags fdb -o bin/server ./cmd/server
-
-# Lint all code including FDB-tagged files.
-.PHONY: lint-fdb
-lint-fdb:
-	CGO_ENABLED=1 golangci-lint run --build-tags fdb ./...
+	CGO_ENABLED=1 go build -o bin/server ./cmd/server
 
 .PHONY: check
 check: build vet lint test
 
-# Run the server locally (noop FDB stub, no CGO required).
 .PHONY: run
 run:
-	go run ./cmd/server
+	CGO_ENABLED=1 go run ./cmd/server
 
 # Run DB migrations against DATABASE_URL.
 .PHONY: migrate
 migrate:
-	go run ./cmd/server migrate
+	CGO_ENABLED=1 go run ./cmd/server migrate
 
 # Seed the database with initial user/org/workspace/token.
 .PHONY: seed
 seed:
-	go run ./cmd/server seed
+	CGO_ENABLED=1 go run ./cmd/server seed

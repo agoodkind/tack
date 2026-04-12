@@ -2,97 +2,119 @@ package connectrpc
 
 import (
 	"context"
+	"encoding/json"
 
 	"connectrpc.com/connect"
 	v1 "goodkind.io/tack/gen/tack/v1"
 	"goodkind.io/tack/gen/tack/v1/tackv1connect"
 	"goodkind.io/tack/internal/auth"
-	"goodkind.io/tack/internal/domain/project"
+	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/service"
-	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type ProjectHandler struct {
-	projects   project.Repository
+	reader     node.NodeReader
+	entities   node.EntityRepository
 	projectSvc *service.ProjectService
 }
 
 var _ tackv1connect.ProjectServiceHandler = (*ProjectHandler)(nil)
 
-func NewProjectHandler(projects project.Repository, svc *service.ProjectService) *ProjectHandler {
-	return &ProjectHandler{projects: projects, projectSvc: svc}
+func NewProjectHandler(reader node.NodeReader, entities node.EntityRepository, svc *service.ProjectService) *ProjectHandler {
+	return &ProjectHandler{reader: reader, entities: entities, projectSvc: svc}
 }
 
 func (h *ProjectHandler) CreateProject(ctx context.Context, req *connect.Request[v1.CreateProjectRequest]) (*connect.Response[v1.Project], error) {
 	userID := auth.MustUserID(ctx)
 	msg := req.Msg
-	p := &project.Project{
-		ID:          uuid.New(),
-		WorkspaceID: mustUUID(msg.WorkspaceId),
-		Name:        msg.Name,
-		Identifier:  msg.Identifier,
-		CreatedBy:   userID,
-	}
+	desc := ""
 	if msg.Description != nil {
-		p.Description = *msg.Description
+		desc = *msg.Description
 	}
-	created, err := h.projectSvc.Create(ctx, p)
+	view, err := h.projectSvc.Create(ctx, mustUUID(msg.WorkspaceId), msg.Name, msg.Identifier, desc, userID)
 	if err != nil {
 		return nil, domainErr(err)
 	}
-	return connect.NewResponse(protoProject(created)), nil
+	return connect.NewResponse(protoProjectFromView(view)), nil
 }
 
 func (h *ProjectHandler) GetProject(ctx context.Context, req *connect.Request[v1.GetProjectRequest]) (*connect.Response[v1.Project], error) {
-	p, err := h.projects.GetByID(ctx, mustUUID(req.Msg.WorkspaceId), mustUUID(req.Msg.Id))
+	view, err := h.reader.Get(ctx, mustUUID(req.Msg.Id))
 	if err != nil {
 		return nil, domainErr(err)
 	}
-	return connect.NewResponse(protoProject(p)), nil
+	return connect.NewResponse(protoProjectFromView(view)), nil
 }
 
 func (h *ProjectHandler) ListProjects(ctx context.Context, req *connect.Request[v1.ListProjectsRequest]) (*connect.Response[v1.ListProjectsResponse], error) {
-	projects, err := h.projects.List(ctx, mustUUID(req.Msg.WorkspaceId))
+	wsID := mustUUID(req.Msg.WorkspaceId)
+	wsView, err := h.reader.Get(ctx, wsID)
+	if err != nil {
+		return nil, domainErr(err)
+	}
+	projects, err := h.reader.List(ctx, node.NodeListQuery{
+		OrgID: wsView.OrgID, WorkspaceID: wsID, NodeType: node.NodeTypeProject,
+	})
 	if err != nil {
 		return nil, domainErr(err)
 	}
 	items := make([]*v1.Project, len(projects))
 	for i, p := range projects {
-		items[i] = protoProject(p)
+		items[i] = protoProjectFromView(p)
 	}
 	return connect.NewResponse(&v1.ListProjectsResponse{Projects: items}), nil
 }
 
 func (h *ProjectHandler) UpdateProject(ctx context.Context, req *connect.Request[v1.UpdateProjectRequest]) (*connect.Response[v1.Project], error) {
 	msg := req.Msg
-	p, err := h.projects.GetByID(ctx, mustUUID(msg.WorkspaceId), mustUUID(msg.Id))
+	projID := mustUUID(msg.Id)
+
+	view, err := h.reader.Get(ctx, projID)
 	if err != nil {
 		return nil, domainErr(err)
+	}
+
+	if view.CustomProps == nil {
+		view.CustomProps = make(map[string]json.RawMessage)
 	}
 	if msg.Name != nil {
-		p.Name = *msg.Name
+		view.Name = *msg.Name
 	}
 	if msg.Description != nil {
-		p.Description = *msg.Description
+		b, _ := json.Marshal(*msg.Description)
+		view.CustomProps["description"] = b
 	}
 	if msg.DefaultStateId != nil {
-		id := mustUUID(*msg.DefaultStateId)
-		p.DefaultStateID = &id
+		b, _ := json.Marshal(*msg.DefaultStateId)
+		view.CustomProps["default_state_id"] = b
 	}
 	if msg.Identifier != nil {
-		p.Identifier = *msg.Identifier
+		b, _ := json.Marshal(*msg.Identifier)
+		view.CustomProps["identifier"] = b
 	}
-	updated, err := h.projects.Update(ctx, p)
-	if err != nil {
+
+	nv := &node.NodeValue{
+		ID: view.ID, OrgID: view.OrgID, WorkspaceID: view.WorkspaceID,
+		ProjectID: view.ProjectID, NodeType: view.NodeType, Name: view.Name,
+		CreatedAt: view.CreatedAt, UpdatedAt: view.UpdatedAt,
+	}
+	if err := h.entities.Set(ctx, nv, nil, view); err != nil {
 		return nil, domainErr(err)
 	}
-	return connect.NewResponse(protoProject(updated)), nil
+	return connect.NewResponse(protoProjectFromView(view)), nil
 }
 
 func (h *ProjectHandler) DeleteProject(ctx context.Context, req *connect.Request[v1.DeleteProjectRequest]) (*connect.Response[emptypb.Empty], error) {
-	err := h.projects.Delete(ctx, mustUUID(req.Msg.Id))
+	view, err := h.reader.Get(ctx, mustUUID(req.Msg.Id))
 	if err != nil {
+		return nil, domainErr(err)
+	}
+	nv := &node.NodeValue{
+		ID: view.ID, OrgID: view.OrgID, WorkspaceID: view.WorkspaceID,
+		ProjectID: view.ProjectID, NodeType: view.NodeType,
+	}
+	if err := h.entities.Delete(ctx, nv); err != nil {
 		return nil, domainErr(err)
 	}
 	return connect.NewResponse(&emptypb.Empty{}), nil

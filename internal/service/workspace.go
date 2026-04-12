@@ -2,70 +2,103 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
+	"time"
 
 	domainsearch "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/domain/node"
-	"goodkind.io/tack/internal/domain/workspace"
+	"goodkind.io/tack/internal/domain/org"
 	"goodkind.io/tack/internal/telemetry"
 	"github.com/google/uuid"
 )
 
-// WorkspaceService wraps the workspace repository and adds search indexing on writes.
 type WorkspaceService struct {
-	workspaces workspace.Repository
-	seeder     *WorkspaceSeeder
-	searcher   domainsearch.Searcher
-	nodeTypes  node.TypeRepository
+	entities  node.EntityRepository
+	reader    node.NodeReader
+	members   org.MemberRepository
+	seeder    *WorkspaceSeeder
+	searcher  domainsearch.Searcher
+	nodeTypes node.TypeRepository
 }
 
-// NewWorkspaceService creates a WorkspaceService with the given repository and searcher.
-func NewWorkspaceService(workspaces workspace.Repository, seeder *WorkspaceSeeder, searcher domainsearch.Searcher, nodeTypes node.TypeRepository) *WorkspaceService {
-	return &WorkspaceService{workspaces: workspaces, seeder: seeder, searcher: searcher, nodeTypes: nodeTypes}
-}
-
-func workspaceDoc(w *workspace.Workspace) domainsearch.NodeDoc {
-	return domainsearch.NodeDoc{
-		ID:          w.ID.String(),
-		WorkspaceID: w.ID.String(),
-		EntityType:  "workspace",
-		Name:        w.Name,
+func NewWorkspaceService(
+	entities node.EntityRepository, reader node.NodeReader, members org.MemberRepository,
+	seeder *WorkspaceSeeder, searcher domainsearch.Searcher, nodeTypes node.TypeRepository,
+) *WorkspaceService {
+	return &WorkspaceService{
+		entities: entities, reader: reader, members: members,
+		seeder: seeder, searcher: searcher, nodeTypes: nodeTypes,
 	}
 }
 
-func (s *WorkspaceService) Create(ctx context.Context, w *workspace.Workspace) (*workspace.Workspace, error) {
-	created, err := s.workspaces.Create(ctx, w)
+// Create creates a workspace node, seeds defaults, writes slug index, and indexes for search.
+func (s *WorkspaceService) Create(ctx context.Context, orgID uuid.UUID, name, slug string) (*node.NodeListView, error) {
+	now := time.Now()
+	wsID := uuid.New()
+
+	slugBytes, _ := json.Marshal(slug)
+	nv := &node.NodeValue{
+		ID: wsID, OrgID: orgID, WorkspaceID: uuid.Nil,
+		NodeType: node.NodeTypeWorkspace, Name: name, CreatedAt: now, UpdatedAt: now,
+	}
+	view := &node.NodeListView{
+		Version: node.ViewVersion1, ID: wsID, OrgID: orgID, WorkspaceID: uuid.Nil,
+		NodeType: node.NodeTypeWorkspace, Name: name, CreatedAt: now, UpdatedAt: now,
+		CustomProps: map[string]json.RawMessage{"slug": slugBytes},
+	}
+
+	if _, err := s.entities.CreateAtomic(ctx, orgID, wsID, nv, nil, view, nil, nil, uuid.Nil); err != nil {
+		return nil, err
+	}
+	if err := s.entities.WriteSlugIndex(ctx, node.NodeTypeWorkspace, slug, wsID); err != nil {
+		return nil, err
+	}
+
+	s.seeder.SeedWorkspace(ctx, orgID, wsID)
+	_ = s.searcher.Index(ctx, "nodes", wsID.String(), domainsearch.NodeDoc{
+		ID: wsID.String(), WorkspaceID: wsID.String(), EntityType: "workspace", Name: name,
+	})
+	telemetry.L(ctx).Info("workspace.created", slog.String("workspace_id", wsID.String()))
+	return view, nil
+}
+
+func (s *WorkspaceService) GetByID(ctx context.Context, id uuid.UUID) (*node.NodeListView, error) {
+	return s.reader.Get(ctx, id)
+}
+
+func (s *WorkspaceService) GetBySlug(ctx context.Context, slug string) (*node.NodeListView, error) {
+	id, err := s.entities.GetBySlug(ctx, node.NodeTypeWorkspace, slug)
 	if err != nil {
 		return nil, err
 	}
-	// Seed default property defs (priority, due_date, start_date, is_draft).
-	s.seeder.SeedWorkspace(ctx, created.OrgID, created.ID)
-	_ = s.searcher.Index(ctx, "nodes", created.ID.String(), workspaceDoc(created))
-	telemetry.L(ctx).Info("workspace.created",
-		slog.String("workspace_id", created.ID.String()),
-	)
-	return created, nil
+	return s.reader.Get(ctx, id)
 }
 
-func (s *WorkspaceService) GetByID(ctx context.Context, id uuid.UUID) (*workspace.Workspace, error) {
-	return s.workspaces.GetByID(ctx, id)
+func (s *WorkspaceService) List(ctx context.Context, orgID uuid.UUID) ([]*node.NodeListView, error) {
+	return s.reader.List(ctx, node.NodeListQuery{
+		OrgID: orgID, WorkspaceID: uuid.Nil, NodeType: node.NodeTypeWorkspace,
+	})
 }
 
-func (s *WorkspaceService) GetBySlug(ctx context.Context, slug string) (*workspace.Workspace, error) {
-	return s.workspaces.GetBySlug(ctx, slug)
+func (s *WorkspaceService) ListForUser(ctx context.Context, userID uuid.UUID) ([]*node.NodeListView, error) {
+	orgIDs, err := s.members.ListOrgIDsForUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	var all []*node.NodeListView
+	for _, orgID := range orgIDs {
+		ws, err := s.List(ctx, orgID)
+		if err != nil {
+			continue
+		}
+		all = append(all, ws...)
+	}
+	return all, nil
 }
 
-func (s *WorkspaceService) List(ctx context.Context, orgID uuid.UUID) ([]*workspace.Workspace, error) {
-	return s.workspaces.List(ctx, orgID)
-}
-
-func (s *WorkspaceService) ListForUser(ctx context.Context, userID uuid.UUID) ([]*workspace.Workspace, error) {
-	return s.workspaces.ListForUser(ctx, userID)
-}
-
-// Describe returns the workspace (looked up by slug) and all node types seeded for its org.
-func (s *WorkspaceService) Describe(ctx context.Context, slug string) (*workspace.Workspace, []*node.NodeType, error) {
-	ws, err := s.workspaces.GetBySlug(ctx, slug)
+func (s *WorkspaceService) Describe(ctx context.Context, slug string) (*node.NodeListView, []*node.NodeType, error) {
+	ws, err := s.GetBySlug(ctx, slug)
 	if err != nil {
 		return nil, nil, err
 	}

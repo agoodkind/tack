@@ -9,18 +9,16 @@ import (
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/domain/org"
-	"goodkind.io/tack/internal/domain/project"
 	"goodkind.io/tack/internal/domain/user"
-	"goodkind.io/tack/internal/domain/workspace"
 )
 
 func RegisterWorkspace(
 	s *mcpserver.MCPServer,
-	workspaces workspace.Repository,
-	projects project.Repository,
+	entities node.EntityRepository,
 	reader node.NodeReader,
 	nodeTypes node.TypeRepository,
 	properties node.PropertyRepository,
+	r *Resolver,
 ) {
 	s.AddTool(mcpmcp.Tool{
 		Name:        "tack_describe_workspace",
@@ -32,7 +30,7 @@ func RegisterWorkspace(
 			},
 			Required: []string{"workspace_slug"},
 		},
-	}, describeWorkspace(workspaces, projects, reader, nodeTypes, properties))
+	}, describeWorkspace(reader, nodeTypes, properties, r))
 
 	s.AddTool(mcpmcp.Tool{
 		Name:        "tack_list_workspaces",
@@ -42,7 +40,7 @@ func RegisterWorkspace(
 			Properties: map[string]any{},
 			Required:   []string{},
 		},
-	}, listWorkspaces(workspaces))
+	}, listWorkspaces(r))
 }
 
 // ── describe_workspace ───────────────────────────────────────────────────────
@@ -52,23 +50,26 @@ type DescribeWorkspaceInput struct {
 }
 
 func describeWorkspace(
-	workspaces workspace.Repository,
-	projects project.Repository,
 	reader node.NodeReader,
 	nodeTypes node.TypeRepository,
 	properties node.PropertyRepository,
+	r *Resolver,
 ) mcpserver.ToolHandlerFunc {
 	return func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
 		var in DescribeWorkspaceInput
 		if err := req.BindArguments(&in); err != nil {
 			return RecoverableError(err.Error()), nil
 		}
-		ws, err := workspaces.GetBySlug(ctx, in.WorkspaceSlug)
+		ws, err := r.Workspace(ctx, in.WorkspaceSlug)
 		if err != nil {
 			return ClassifyError(ctx, err), nil
 		}
 
-		projs, err := projects.List(ctx, ws.ID)
+		projViews, err := reader.List(ctx, node.NodeListQuery{
+			OrgID:       ws.OrgID,
+			WorkspaceID: ws.ID,
+			NodeType:    node.NodeTypeProject,
+		})
 		if err != nil {
 			return ClassifyError(ctx, err), nil
 		}
@@ -79,13 +80,13 @@ func describeWorkspace(
 			Identifier string `json:"identifier"`
 			States     any    `json:"states"`
 		}
-		summaries := make([]projectSummary, 0, len(projs))
-		for _, p := range projs {
+		summaries := make([]projectSummary, 0, len(projViews))
+		for _, p := range projViews {
 			ss := listStateViewsByProject(ctx, reader, ws.OrgID, ws.ID, p.ID)
 			summaries = append(summaries, projectSummary{
 				ID:         p.ID.String(),
 				Name:       p.Name,
-				Identifier: p.Identifier,
+				Identifier: ViewIdentifier(p),
 				States:     ss,
 			})
 		}
@@ -103,7 +104,7 @@ func describeWorkspace(
 }
 
 // RegisterMembers registers the tack_list_members tool.
-func RegisterMembers(s *mcpserver.MCPServer, workspaces workspace.Repository, orgs org.Repository, users user.Repository) {
+func RegisterMembers(s *mcpserver.MCPServer, members org.MemberRepository, users user.Repository, r *Resolver) {
 	s.AddTool(mcpmcp.Tool{
 		Name:        "tack_list_members",
 		Description: "Lists all members of a workspace with display name and email. Returns user_id, display_name, email, and role. Use this to look up user IDs before assigning issues.",
@@ -114,7 +115,7 @@ func RegisterMembers(s *mcpserver.MCPServer, workspaces workspace.Repository, or
 			},
 			Required: []string{"workspace_slug"},
 		},
-	}, listMembers(workspaces, orgs, users))
+	}, listMembers(members, users, r))
 }
 
 // ── list_members ─────────────────────────────────────────────────────────────
@@ -123,17 +124,17 @@ type ListMembersInput struct {
 	WorkspaceSlug string `json:"workspace_slug"`
 }
 
-func listMembers(workspaces workspace.Repository, orgs org.Repository, users user.Repository) mcpserver.ToolHandlerFunc {
+func listMembers(members org.MemberRepository, users user.Repository, r *Resolver) mcpserver.ToolHandlerFunc {
 	return func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
 		var in ListMembersInput
 		if err := req.BindArguments(&in); err != nil {
 			return RecoverableError(err.Error()), nil
 		}
-		ws, err := workspaces.GetBySlug(ctx, in.WorkspaceSlug)
+		ws, err := r.Workspace(ctx, in.WorkspaceSlug)
 		if err != nil {
 			return ClassifyError(ctx, err), nil
 		}
-		members, err := orgs.ListMembers(ctx, ws.OrgID)
+		membersList, err := members.ListMembers(ctx, ws.OrgID)
 		if err != nil {
 			return ClassifyError(ctx, err), nil
 		}
@@ -143,8 +144,8 @@ func listMembers(workspaces workspace.Repository, orgs org.Repository, users use
 			Email       string `json:"email"`
 			Role        int    `json:"role"`
 		}
-		views := make([]memberView, 0, len(members))
-		for _, m := range members {
+		views := make([]memberView, 0, len(membersList))
+		for _, m := range membersList {
 			u, err := users.GetByID(ctx, m.UserID)
 			if err != nil {
 				continue
@@ -164,7 +165,7 @@ func listMembers(workspaces workspace.Repository, orgs org.Repository, users use
 
 type ListWorkspacesInput struct{}
 
-func listWorkspaces(workspaces workspace.Repository) mcpserver.ToolHandlerFunc {
+func listWorkspaces(r *Resolver) mcpserver.ToolHandlerFunc {
 	return func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
 		var in ListWorkspacesInput
 		if err := req.BindArguments(&in); err != nil {
@@ -174,7 +175,7 @@ func listWorkspaces(workspaces workspace.Repository) mcpserver.ToolHandlerFunc {
 		if err != nil {
 			return UnexpectedError(ctx, err), nil
 		}
-		ws, err := workspaces.ListForUser(ctx, userID)
+		ws, err := r.WorkspacesForUser(ctx, userID)
 		if err != nil {
 			return ClassifyError(ctx, err), nil
 		}

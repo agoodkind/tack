@@ -12,7 +12,6 @@ import (
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/issue"
 	"goodkind.io/tack/internal/domain/node"
-	"goodkind.io/tack/internal/domain/project"
 	"goodkind.io/tack/internal/telemetry"
 	"github.com/google/uuid"
 )
@@ -21,7 +20,6 @@ import (
 type IssueService struct {
 	entities    node.EntityRepository
 	reader      node.NodeReader
-	projects    project.Repository
 	activity    node.ActivityRepository
 	assignments node.AssignmentRepository
 	labels      node.NodeLabelRepository
@@ -35,7 +33,6 @@ type IssueService struct {
 func NewIssueService(
 	entities node.EntityRepository,
 	reader node.NodeReader,
-	projects project.Repository,
 	activity node.ActivityRepository,
 	assignments node.AssignmentRepository,
 	labels node.NodeLabelRepository,
@@ -48,7 +45,6 @@ func NewIssueService(
 	return &IssueService{
 		entities:    entities,
 		reader:      reader,
-		projects:    projects,
 		activity:    activity,
 		assignments: assignments,
 		labels:      labels,

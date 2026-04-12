@@ -106,16 +106,17 @@ func runServer(cfg *config.Config) {
 	// Auth repos (SQL only — users, api_tokens stay in SQL)
 	tokenRepo := postgres.NewTokenRepo(pool)
 	userRepo  := postgres.NewUserRepo(pool)
+	orgMembers := postgres.NewOrgMemberRepo(pool)
 
 	// Services
 	noopAutomations := &node.NoopAutomationExecutor{}
 	seeder    := service.NewWorkspaceSeeder(fdbStores.Properties, fdbStores.NodeTypes)
 	issueSvc  := service.NewIssueService(
-		fdbStores.Entities, fdbStores.Views, fdbStores.Project,
+		fdbStores.Entities, fdbStores.Views,
 		fdbStores.Activity, fdbStores.Assignments, fdbStores.Labels,
 		fdbStores.Containment, fdbStores.NodeDeleter, nodeCleanup, searcher, noopAutomations,
 	)
-	projectSvc   := service.NewProjectService(fdbStores.Project, fdbStores.Entities, fdbStores.Views, searcher)
+	projectSvc   := service.NewProjectService(fdbStores.Entities, fdbStores.Views, searcher)
 	epicSvc      := service.NewEpicService(
 		fdbStores.Entities, fdbStores.Views,
 		fdbStores.Assignments, fdbStores.Labels, fdbStores.Containment, searcher,
@@ -126,11 +127,11 @@ func runServer(cfg *config.Config) {
 	moduleSvc := service.NewModuleService(
 		fdbStores.Entities, fdbStores.Views, fdbStores.Containment, searcher,
 	)
-	workspaceSvc := service.NewWorkspaceService(fdbStores.Workspace, seeder, searcher, fdbStores.NodeTypes)
+	workspaceSvc := service.NewWorkspaceService(
+		fdbStores.Entities, fdbStores.Views, orgMembers, seeder, searcher, fdbStores.NodeTypes,
+	)
 
 	mcpHandler := mcpadapter.NewHandler(mcpadapter.Deps{
-		Workspaces:  fdbStores.Workspace,
-		Projects:    fdbStores.Project,
 		ProjectSvc:  projectSvc,
 		Entities:    fdbStores.Entities,
 		Reader:      fdbStores.Views,
@@ -145,7 +146,7 @@ func runServer(cfg *config.Config) {
 		NodeLabels:  fdbStores.Labels,
 		Containment: fdbStores.Containment,
 		Comments:    fdbStores.Comments,
-		Orgs:        fdbStores.Org,
+		Members:     orgMembers,
 		Users:       userRepo,
 		Searcher:    searcher,
 	})
@@ -160,7 +161,7 @@ func runServer(cfg *config.Config) {
 
 	// Connect-RPC handlers
 	workspaceH := connectadapter.NewWorkspaceHandler(workspaceSvc)
-	projectH   := connectadapter.NewProjectHandler(fdbStores.Project, projectSvc)
+	projectH   := connectadapter.NewProjectHandler(fdbStores.Views, fdbStores.Entities, projectSvc)
 	issueH     := connectadapter.NewIssueHandler(issueSvc)
 	epicH      := connectadapter.NewEpicHandler(epicSvc)
 	cycleH     := connectadapter.NewCycleHandler(cycleSvc)
