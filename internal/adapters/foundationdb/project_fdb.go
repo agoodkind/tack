@@ -90,22 +90,6 @@ func (s *ProjectFDBStore) Create(ctx context.Context, proj *project.Project) (*p
 		UpdatedBy:   proj.CreatedBy,
 		CreatedAt:   proj.CreatedAt,
 		UpdatedAt:   proj.UpdatedAt,
-		CustomProps: make(map[string]json.RawMessage),
-	}
-	if proj.Identifier != "" {
-		if b, err := json.Marshal(proj.Identifier); err == nil {
-			view.CustomProps[propNameIdentifier] = b
-		}
-	}
-	if proj.Network != 0 {
-		if b, err := json.Marshal(fmt.Sprintf("%d", proj.Network)); err == nil {
-			view.CustomProps[propNameNetwork] = b
-		}
-	}
-	if proj.DefaultStateID != nil {
-		if b, err := json.Marshal(proj.DefaultStateID.String()); err == nil {
-			view.CustomProps[propNameDefaultStateID] = b
-		}
 	}
 
 	// Write entity and secondary indexes in a transaction
@@ -342,22 +326,6 @@ func (s *ProjectFDBStore) Update(ctx context.Context, proj *project.Project) (*p
 		UpdatedBy:   viewUpdatedBy,
 		CreatedAt:   proj.CreatedAt,
 		UpdatedAt:   proj.UpdatedAt,
-		CustomProps: make(map[string]json.RawMessage),
-	}
-	if proj.Identifier != "" {
-		if b, err := json.Marshal(proj.Identifier); err == nil {
-			view.CustomProps[propNameIdentifier] = b
-		}
-	}
-	if proj.Network != 0 {
-		if b, err := json.Marshal(fmt.Sprintf("%d", proj.Network)); err == nil {
-			view.CustomProps[propNameNetwork] = b
-		}
-	}
-	if proj.DefaultStateID != nil {
-		if b, err := json.Marshal(proj.DefaultStateID.String()); err == nil {
-			view.CustomProps[propNameDefaultStateID] = b
-		}
 	}
 
 	// Update in transaction, handling identifier index changes
