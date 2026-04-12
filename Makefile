@@ -14,13 +14,16 @@ $(GO_MK):
 		exit 1; \
 	fi
 
+# Only include go.mk if it already exists to avoid triggering fetch
+ifeq ($(wildcard $(GO_MK)),$(GO_MK))
 -include $(GO_MK)
+endif
 
 .DEFAULT_GOAL := check
 
 # Fetch or update go.mk explicitly.
-.PHONY: sync
-sync:
+.PHONY: update-go-mk
+update-go-mk:
 	@mkdir -p "$(dir $(GO_MK))"
 	@if curl -fsSL --connect-timeout 5 --max-time 10 "$(GO_MK_URL)" -o "$(GO_MK)"; then \
 		mkdir -p "$(dir $(GO_MK_CACHE))" && cp "$(GO_MK)" "$(GO_MK_CACHE)"; \
@@ -32,8 +35,8 @@ sync:
 
 # Noop build (no CGO, FDB is stub). Use for local dev and CI typecheck.
 .PHONY: build
-build: $(GO_MK)
-	go build ./...
+build:
+	go build ./cmd/server
 
 # Production build: real FoundationDB adapter (CGO).
 # Requires foundationdb-clients 7.4.x on the build host.
@@ -46,6 +49,19 @@ build-fdb:
 .PHONY: lint-fdb
 lint-fdb:
 	CGO_ENABLED=1 golangci-lint run --build-tags fdb ./...
+
+# Standard lint, vet, test, and check targets
+.PHONY: lint vet test check
+lint:
+	golangci-lint run ./...
+
+vet:
+	go vet ./...
+
+test:
+	go test ./...
+
+check: build vet lint test
 
 # Run the server locally (noop FDB stub, no CGO required).
 .PHONY: run
