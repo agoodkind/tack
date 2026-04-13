@@ -15,7 +15,18 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=1 go build -tags fdb -trimpath -ldflags="-s -w" -o /bin/server ./cmd/server
+
+ARG COMMIT=unknown
+ARG BUILD_TIME=unknown
+ARG TAG=dev
+ARG DIRTY=false
+RUN CGO_ENABLED=1 go build -tags fdb -trimpath \
+    -ldflags="-s -w \
+        -X goodkind.io/tack/internal/version.commit=${COMMIT} \
+        -X goodkind.io/tack/internal/version.buildTime=${BUILD_TIME} \
+        -X goodkind.io/tack/internal/version.tag=${TAG} \
+        -X goodkind.io/tack/internal/version.dirty=${DIRTY}" \
+    -o /bin/server ./cmd/server
 
 # ── runtime ───────────────────────────────────────────────────────────────────
 FROM debian:bookworm-slim AS runtime

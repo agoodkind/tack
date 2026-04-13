@@ -21,6 +21,7 @@ import (
 	"goodkind.io/tack/internal/service"
 	"goodkind.io/tack/internal/telemetry"
 	"goodkind.io/tack/internal/temporal"
+	"goodkind.io/tack/internal/version"
 	"goodkind.io/tack/migrations"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
@@ -155,9 +156,12 @@ func runServer(cfg *config.Config) {
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	slog.Info("starting server",
 		"addr", addr,
-		"mcp_endpoint", addr+"/mcp",
-		"grpc_prefix", "/tack.v1.",
 		"env", cfg.Env,
+		"version", version.Tag(),
+		"commit", version.Commit(),
+		"build_hash", version.BuildHash(),
+		"build_time", version.BuildTime(),
+		"dirty", version.Dirty(),
 	)
 
 	srv := &http.Server{

@@ -30,10 +30,22 @@ update-go-mk:
 		exit 1; \
 	fi
 
+# Build metadata injected via ldflags.
+VERSION_PKG := goodkind.io/tack/internal/version
+COMMIT      := $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
+DIRTY       := $(shell git diff --quiet 2>/dev/null && echo false || echo true)
+TAG         := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+BUILD_TIME  := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+LDFLAGS     := -s -w \
+	-X $(VERSION_PKG).commit=$(COMMIT) \
+	-X $(VERSION_PKG).buildTime=$(BUILD_TIME) \
+	-X $(VERSION_PKG).tag=$(TAG) \
+	-X $(VERSION_PKG).dirty=$(DIRTY)
+
 # FDB is always required. CGO_ENABLED=1 for the FDB C bindings.
 .PHONY: build
 build:
-	CGO_ENABLED=1 go build -o bin/server ./cmd/server
+	CGO_ENABLED=1 go build -ldflags="$(LDFLAGS)" -o bin/server ./cmd/server
 
 .PHONY: check
 check: build vet lint test
@@ -57,4 +69,9 @@ seed:
 .PHONY: deploy
 deploy:
 	rsync -az --delete --exclude='.git' --exclude='bin/' . tack:/root/tack/
-	ssh tack 'cd /root/tack && docker build --network host -t tack-server . && docker compose up -d --no-build app'
+	ssh tack 'cd /root/tack && docker build --network host \
+		--build-arg COMMIT=$$(git rev-parse HEAD 2>/dev/null || echo unknown) \
+		--build-arg BUILD_TIME=$$(date -u +%Y-%m-%dT%H:%M:%SZ) \
+		--build-arg TAG=$$(git describe --tags --always --dirty 2>/dev/null || echo dev) \
+		--build-arg DIRTY=$$(git diff --quiet 2>/dev/null && echo false || echo true) \
+		-t tack-server . && docker compose up -d --no-build app'
