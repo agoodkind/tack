@@ -2,11 +2,13 @@ package tools
 
 import (
 	"context"
+	"log/slog"
 
-	"goodkind.io/tack/internal/domain/node"
 	"github.com/google/uuid"
 	mcpmcp "github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
+	"goodkind.io/tack/internal/domain/node"
+	"goodkind.io/tack/internal/telemetry"
 )
 
 func RegisterProperty(s *mcpserver.MCPServer, properties node.PropertyRepository) {
@@ -29,6 +31,7 @@ func listPropertyDefs(properties node.PropertyRepository) mcpserver.ToolHandlerF
 		if err := req.BindArguments(&in); err != nil {
 			return RecoverableError(err.Error()), nil
 		}
+		telemetry.L(ctx).Debug("mcp.list_property_defs", slog.String("workspace_id", in.WorkspaceID))
 		orgID, err := parseUUID(in.OrgID, "org_id")
 		if err != nil {
 			return RecoverableError(err.Error()), nil
@@ -61,6 +64,7 @@ func createPropertyDef(properties node.PropertyRepository) mcpserver.ToolHandler
 		if err := req.BindArguments(&in); err != nil {
 			return RecoverableError(err.Error()), nil
 		}
+		telemetry.L(ctx).Debug("mcp.create_property_def", slog.String("name", in.Name), slog.String("type", in.Type))
 		orgID, err := parseUUID(in.OrgID, "org_id")
 		if err != nil {
 			return RecoverableError(err.Error()), nil
@@ -100,6 +104,7 @@ func deletePropertyDef(properties node.PropertyRepository) mcpserver.ToolHandler
 		if err := req.BindArguments(&in); err != nil {
 			return RecoverableError(err.Error()), nil
 		}
+		telemetry.L(ctx).Debug("mcp.delete_property_def", slog.String("def_id", in.DefID))
 		orgID, err := parseUUID(in.OrgID, "org_id")
 		if err != nil {
 			return RecoverableError(err.Error()), nil
@@ -138,6 +143,7 @@ func setProperty(properties node.PropertyRepository) mcpserver.ToolHandlerFunc {
 		if err := req.BindArguments(&in); err != nil {
 			return RecoverableError(err.Error()), nil
 		}
+		telemetry.L(ctx).Debug("mcp.set_property", slog.String("node_id", in.NodeID), slog.String("prop_def_id", in.PropDefID))
 		orgID, err := parseUUID(in.OrgID, "org_id")
 		if err != nil {
 			return RecoverableError(err.Error()), nil
@@ -168,6 +174,7 @@ func getProperties(properties node.PropertyRepository) mcpserver.ToolHandlerFunc
 		if err := req.BindArguments(&in); err != nil {
 			return RecoverableError(err.Error()), nil
 		}
+		telemetry.L(ctx).Debug("mcp.get_properties", slog.String("node_id", in.NodeID))
 		orgID, err := parseUUID(in.OrgID, "org_id")
 		if err != nil {
 			return RecoverableError(err.Error()), nil

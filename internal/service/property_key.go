@@ -49,9 +49,6 @@ func nodeDocFromView(v *node.NodeListView) domainsearch.NodeDoc {
 	if v.StateID != nil {
 		doc.StateID = v.StateID.String()
 	}
-	if v.EpicID != nil {
-		doc.EpicID = v.EpicID.String()
-	}
 	if v.StartDate != nil {
 		doc.StartDate = v.StartDate.UTC().Format(time.RFC3339)
 	}

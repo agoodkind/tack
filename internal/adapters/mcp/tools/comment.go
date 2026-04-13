@@ -2,12 +2,14 @@ package tools
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
-	"goodkind.io/tack/internal/domain/node"
 	mcpmcp "github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
+	"goodkind.io/tack/internal/domain/node"
+	"goodkind.io/tack/internal/telemetry"
 )
 
 // RegisterComment registers tack_list_comments and tack_create_comment.
@@ -38,6 +40,7 @@ func listComments(comments node.CommentRepository, r *Resolver) mcpserver.ToolHa
 		if err := req.BindArguments(&in); err != nil {
 			return RecoverableError(err.Error()), nil
 		}
+		telemetry.L(ctx).Debug("mcp.list_comments", slog.String("node_id", in.NodeID))
 		ws, err := r.Workspace(ctx, in.WorkspaceSlug)
 		if err != nil {
 			return ClassifyError(ctx, err), nil
@@ -71,6 +74,7 @@ func createComment(comments node.CommentRepository, r *Resolver) mcpserver.ToolH
 		if err := req.BindArguments(&in); err != nil {
 			return RecoverableError(err.Error()), nil
 		}
+		telemetry.L(ctx).Debug("mcp.create_comment", slog.String("node_id", in.NodeID))
 		userID, err := mustUser(ctx)
 		if err != nil {
 			return UnexpectedError(ctx, err), nil

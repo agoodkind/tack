@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
 	domainsearch "goodkind.io/tack/internal/domain/search"
+	"goodkind.io/tack/internal/telemetry"
 )
 
 // stringToPropertyValue converts a string input to a typed PropertyValue.
@@ -97,26 +99,48 @@ func (s *NodeService) Create(
 	labelIDs []uuid.UUID,
 	actorID uuid.UUID,
 ) (*node.NodeListView, error) {
+	log := telemetry.L(ctx)
+	log.Info("node.Create",
+		slog.String("node_type", nodeTypeName),
+		slog.String("name", name),
+		slog.String("parent_id", parentID.String()),
+	)
+
 	// Resolve parent to get org/workspace/project context.
 	resolve, err := s.reader.Resolve(ctx, parentID)
 	if err != nil {
+		log.Warn("node.Create: resolve parent failed",
+			slog.String("parent_id", parentID.String()),
+			slog.String("err", err.Error()),
+		)
 		return nil, fmt.Errorf("resolve parent: %w", err)
 	}
 	orgID := resolve.OrgID
 	wsID := resolve.WorkspaceID
 	projID := resolve.ProjectID
 
-	// Determine the correct scoping based on what the parent is.
-	// If parent is a workspace (wsID == uuid.Nil), the new node lives at workspace level.
-	// If parent is a project, the new node lives under that project.
-	if resolve.NodeType == node.NodeTypeWorkspace {
+	// Determine scoping from the parent's resolve record, not its type name.
+	// A scope-level node's own ID fills the first nil scope slot above it.
+	if wsID == uuid.Nil {
+		// Parent has no workspace scope -- parent IS the workspace-level node.
 		wsID = parentID
 		projID = uuid.Nil
-	} else if resolve.NodeType == node.NodeTypeProject {
-		projID = parentID
-		// wsID comes from the project's resolve
-		wsID = resolve.WorkspaceID
+	} else if projID == uuid.Nil {
+		// Parent has workspace scope but no project scope. If the parent is
+		// itself a scope node (FeatureIsScope), it IS the project-level node.
+		parentNT, _ := s.findNodeType(ctx, orgID, resolve.NodeType)
+		if parentNT != nil && parentNT.Features.Has(node.FeatureIsScope) {
+			projID = parentID
+		}
 	}
+	// Otherwise: parent is deeper in the hierarchy; inherit wsID and projID as-is.
+
+	log.Debug("node.Create: resolved parent",
+		slog.String("org_id", orgID.String()),
+		slog.String("workspace_id", wsID.String()),
+		slog.String("project_id", projID.String()),
+		slog.String("parent_type", resolve.NodeType),
+	)
 
 	// Look up the NodeType to get Features.
 	nt, err := s.findNodeType(ctx, orgID, nodeTypeName)
@@ -194,18 +218,33 @@ func (s *NodeService) Create(
 	// CreateAtomic handles sequence allocation when projID is set.
 	seqID, err := s.entities.CreateAtomic(ctx, orgID, projID, nv, props, view, assigneeIDs, labelIDs, actorID)
 	if err != nil {
+		log.Error("node.Create: CreateAtomic failed",
+			slog.String("node_type", nodeTypeName),
+			slog.String("node_id", id.String()),
+			slog.String("err", err.Error()),
+		)
 		return nil, fmt.Errorf("create node: %w", err)
 	}
 	view.SequenceID = int32(seqID)
+	log.Info("node.Create: created",
+		slog.String("node_id", id.String()),
+		slog.String("node_type", nodeTypeName),
+		slog.Int("sequence_id", int(seqID)),
+		slog.String("project_id", projID.String()),
+	)
 
 	// HasSlug: write global slug index.
 	if nt.Features.Has(node.FeatureHasSlug) {
 		for _, slugProp := range []string{"slug", "identifier"} {
 			if raw, ok := customProps[slugProp]; ok {
 				var slugVal string
-				_ = json.Unmarshal(raw, &slugVal)
+				if err := json.Unmarshal(raw, &slugVal); err != nil {
+					log.Warn("node.Create: unmarshal slug property", slog.String("prop", slugProp), slog.String("err", err.Error()))
+				}
 				if slugVal != "" {
-					_ = s.entities.WriteSlugIndex(ctx, nt.TypeKey, slugVal, id)
+					if err := s.entities.WriteSlugIndex(ctx, nt.TypeKey, slugVal, id); err != nil {
+						log.Warn("node.Create: write slug index", slog.String("slug", slugVal), slog.String("err", err.Error()))
+					}
 				}
 			}
 		}
@@ -213,15 +252,19 @@ func (s *NodeService) Create(
 
 	// HasActivity: log creation event.
 	if nt.Features.Has(node.FeatureHasActivity) {
-		_ = s.activity.Append(ctx, orgID, wsID, &node.ActivityEvent{
+		if err := s.activity.Append(ctx, orgID, wsID, &node.ActivityEvent{
 			EventID: uuid.New(), NodeID: id, Actor: actorID,
 			Verb: "created", Detail: map[string]any{"name": name},
 			CreatedAt: now,
-		})
+		}); err != nil {
+			log.Warn("node.Create: activity append", slog.String("err", err.Error()))
+		}
 	}
 
 	// Search index.
-	_ = s.searcher.Index(ctx, "nodes", id.String(), nodeDocFromView(view))
+	if err := s.searcher.Index(ctx, "nodes", id.String(), nodeDocFromView(view)); err != nil {
+		log.Warn("node.Create: search index", slog.String("err", err.Error()))
+	}
 
 	return view, nil
 }
@@ -236,8 +279,12 @@ func (s *NodeService) Update(
 	labelIDs *[]uuid.UUID,
 	actorID uuid.UUID,
 ) (*node.NodeListView, error) {
+	log := telemetry.L(ctx)
+	log.Info("node.Update", slog.String("node_id", nodeID.String()))
+
 	view, err := s.reader.Get(ctx, nodeID)
 	if err != nil {
+		log.Warn("node.Update: get failed", slog.String("node_id", nodeID.String()), slog.String("err", err.Error()))
 		return nil, err
 	}
 	if view == nil {
@@ -309,64 +356,86 @@ func (s *NodeService) Update(
 
 	nv := &node.NodeValue{
 		ID: nodeID, OrgID: orgID, WorkspaceID: wsID,
-		ProjectID: resolve.ProjectID, NodeType: view.NodeType,
+		ProjectID: view.ProjectID, NodeType: view.NodeType,
 		Name: view.Name, StateID: view.StateID,
 		CreatedBy: view.CreatedBy, UpdatedBy: actorID,
 		CreatedAt: view.CreatedAt, UpdatedAt: now,
 	}
 
 	if err := s.entities.Set(ctx, nv, props, view); err != nil {
+		log.Error("node.Update: Set failed", slog.String("node_id", nodeID.String()), slog.String("err", err.Error()))
 		return nil, fmt.Errorf("update node: %w", err)
 	}
 
 	// HasAssignees: update assignments if provided.
 	if assigneeIDs != nil && nt.Features.Has(node.FeatureHasAssignees) {
-		_ = s.assignments.SetAll(ctx, orgID, nodeID, *assigneeIDs, actorID)
+		if err := s.assignments.SetAll(ctx, orgID, nodeID, *assigneeIDs, actorID); err != nil {
+			log.Warn("node.Update: set assignments", slog.String("node_id", nodeID.String()), slog.String("err", err.Error()))
+		}
 		view.AssigneeIDs = *assigneeIDs
 	}
 
 	// Labels: update if provided.
 	if labelIDs != nil {
-		_ = s.labels.SetAll(ctx, orgID, nodeID, *labelIDs, actorID)
+		if err := s.labels.SetAll(ctx, orgID, nodeID, *labelIDs, actorID); err != nil {
+			log.Warn("node.Update: set labels", slog.String("node_id", nodeID.String()), slog.String("err", err.Error()))
+		}
 		view.LabelIDs = *labelIDs
 	}
 
 	// HasActivity: log update event.
 	if nt.Features.Has(node.FeatureHasActivity) {
-		_ = s.activity.Append(ctx, orgID, wsID, &node.ActivityEvent{
+		if err := s.activity.Append(ctx, orgID, wsID, &node.ActivityEvent{
 			EventID: uuid.New(), NodeID: nodeID, Actor: actorID,
 			Verb: "updated", CreatedAt: now,
-		})
+		}); err != nil {
+			log.Warn("node.Update: activity append", slog.String("err", err.Error()))
+		}
 	}
 
 	// Search index.
-	_ = s.searcher.Index(ctx, "nodes", nodeID.String(), nodeDocFromView(view))
+	if err := s.searcher.Index(ctx, "nodes", nodeID.String(), nodeDocFromView(view)); err != nil {
+		log.Warn("node.Update: search index", slog.String("err", err.Error()))
+	}
 
 	return view, nil
 }
 
 // Delete removes a node.
 func (s *NodeService) Delete(ctx context.Context, nodeID, actorID uuid.UUID) error {
-	resolve, err := s.reader.Resolve(ctx, nodeID)
+	log := telemetry.L(ctx)
+	log.Info("node.Delete", slog.String("node_id", nodeID.String()))
+
+	// Read the view to get correct ProjectID (resolve records may have stale ProjectID).
+	view, err := s.reader.Get(ctx, nodeID)
 	if err != nil {
+		log.Warn("node.Delete: get failed", slog.String("node_id", nodeID.String()), slog.String("err", err.Error()))
 		return err
 	}
-	orgID := resolve.OrgID
-
-	nv := &node.NodeValue{
-		ID: nodeID, OrgID: orgID, WorkspaceID: resolve.WorkspaceID,
-		ProjectID: resolve.ProjectID, NodeType: resolve.NodeType,
+	if view == nil {
+		return domain.ErrNotFound
 	}
 
+	nv := &node.NodeValue{
+		ID: nodeID, OrgID: view.OrgID, WorkspaceID: view.WorkspaceID,
+		ProjectID: view.ProjectID, NodeType: view.NodeType,
+	}
+	orgID := view.OrgID
+
 	if err := s.entities.Delete(ctx, nv); err != nil {
+		log.Error("node.Delete: failed", slog.String("node_id", nodeID.String()), slog.String("err", err.Error()))
 		return fmt.Errorf("delete node: %w", err)
 	}
 
 	// Cascade: clean up assignments, labels, comments, etc.
-	_ = s.deleter.DeleteNode(ctx, orgID, nodeID)
+	if err := s.deleter.DeleteNode(ctx, orgID, nodeID); err != nil {
+		log.Warn("node.Delete: cascade cleanup", slog.String("node_id", nodeID.String()), slog.String("err", err.Error()))
+	}
 
 	// Search removal.
-	_ = s.searcher.Delete(ctx, "nodes", nodeID.String())
+	if err := s.searcher.Delete(ctx, "nodes", nodeID.String()); err != nil {
+		log.Warn("node.Delete: search removal", slog.String("node_id", nodeID.String()), slog.String("err", err.Error()))
+	}
 
 	return nil
 }
@@ -376,23 +445,23 @@ func (s *NodeService) SetState(ctx context.Context, nodeID, stateID, actorID uui
 	return s.Update(ctx, nodeID, nil, map[string]any{"state_id": stateID.String()}, nil, nil, actorID)
 }
 
-// AddChildren adds child nodes to a container (e.g. issues to a cycle/module).
-func (s *NodeService) AddChildren(ctx context.Context, containerID uuid.UUID, childIDs []uuid.UUID, containerType, actorID uuid.UUID) error {
+// AddChildren adds child nodes to a container (e.g. issues to a cycle/module/epic).
+func (s *NodeService) AddChildren(ctx context.Context, containerID uuid.UUID, childIDs []uuid.UUID, actorID uuid.UUID) error {
+	log := telemetry.L(ctx)
+	log.Info("node.AddChildren",
+		slog.String("container_id", containerID.String()),
+		slog.Int("child_count", len(childIDs)),
+	)
+
 	resolve, err := s.reader.Resolve(ctx, containerID)
 	if err != nil {
+		log.Warn("node.AddChildren: resolve failed", slog.String("container_id", containerID.String()), slog.String("err", err.Error()))
 		return err
 	}
-	orgID := resolve.OrgID
 
-	// Determine containment type from the container's node type.
-	switch resolve.NodeType {
-	case node.NodeTypeCycle:
-		for _, childID := range childIDs {
-			_ = s.containment.AddIssueToCycle(ctx, orgID, containerID, childID, actorID)
-		}
-	case node.NodeTypeModule:
-		for _, childID := range childIDs {
-			_ = s.containment.AddIssueToModule(ctx, orgID, containerID, childID, actorID)
+	for _, childID := range childIDs {
+		if err := s.containment.AddChild(ctx, resolve.OrgID, containerID, childID, actorID); err != nil {
+			log.Warn("node.AddChildren: add child", slog.String("child_id", childID.String()), slog.String("err", err.Error()))
 		}
 	}
 	return nil
@@ -400,20 +469,21 @@ func (s *NodeService) AddChildren(ctx context.Context, containerID uuid.UUID, ch
 
 // RemoveChildren removes child nodes from a container.
 func (s *NodeService) RemoveChildren(ctx context.Context, containerID uuid.UUID, childIDs []uuid.UUID) error {
+	log := telemetry.L(ctx)
+	log.Info("node.RemoveChildren",
+		slog.String("container_id", containerID.String()),
+		slog.Int("child_count", len(childIDs)),
+	)
+
 	resolve, err := s.reader.Resolve(ctx, containerID)
 	if err != nil {
+		log.Warn("node.RemoveChildren: resolve failed", slog.String("container_id", containerID.String()), slog.String("err", err.Error()))
 		return err
 	}
-	orgID := resolve.OrgID
 
-	switch resolve.NodeType {
-	case node.NodeTypeCycle:
-		for _, childID := range childIDs {
-			_ = s.containment.RemoveIssueFromCycle(ctx, orgID, containerID, childID)
-		}
-	case node.NodeTypeModule:
-		for _, childID := range childIDs {
-			_ = s.containment.RemoveIssueFromModule(ctx, orgID, containerID, childID)
+	for _, childID := range childIDs {
+		if err := s.containment.RemoveChild(ctx, resolve.OrgID, containerID, childID); err != nil {
+			log.Warn("node.RemoveChildren: remove child", slog.String("child_id", childID.String()), slog.String("err", err.Error()))
 		}
 	}
 	return nil

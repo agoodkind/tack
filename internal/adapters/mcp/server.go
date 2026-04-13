@@ -115,26 +115,28 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) buildServer(nodeTypes []*node.NodeType) *mcpserver.MCPServer {
 	s := mcpserver.NewMCPServer("tack", "0.1.0")
 
-	resolver := tools.NewResolver(h.entities, h.reader, h.members)
+	resolver := tools.NewResolver(h.entities, h.reader, h.members, nodeTypes)
 
-	tools.RegisterWorkspace(s, h.entities, h.reader, h.nodeTypes, h.properties, resolver)
+	tools.RegisterWorkspace(s, h.reader, resolver, nodeTypes)
 	tools.RegisterMembers(s, h.members, h.users, resolver)
 	tools.RegisterProperty(s, h.properties)
 	tools.RegisterSearch(s, h.searcher, resolver)
 	tools.RegisterComment(s, h.comments, resolver)
 
+	typeIndex := node.BuildTypeIndex(nodeTypes)
 	binding := tools.NodeTypeBinding{
-		NodeSvc:  h.nodeSvc,
-		Reader:   h.reader,
-		Resolver: resolver,
+		NodeSvc:   h.nodeSvc,
+		Reader:    h.reader,
+		Resolver:  resolver,
+		TypeIndex: typeIndex,
 	}
 	for _, nt := range nodeTypes {
 		tools.RegisterNodeTools(s, nt, binding)
 	}
 
-	tools.RegisterMyIssues(s, h.reader, resolver)
+	tools.RegisterMyWork(s, h.reader, resolver)
 
-	tools.RegisterResources(s, h.reader, h.nodeTypes, h.properties, resolver)
+	tools.RegisterResources(s, h.reader, resolver, nodeTypes)
 	tools.RegisterPrompts(s, nodeTypes)
 
 	return s

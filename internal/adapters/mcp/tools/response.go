@@ -53,13 +53,16 @@ func UnexpectedError(ctx context.Context, err error) *mcp.CallToolResult {
 func ClassifyError(ctx context.Context, err error) *mcp.CallToolResult {
 	switch {
 	case errors.Is(err, domain.ErrNotFound):
-		return RecoverableError(err.Error() + ". Verify the identifier, workspace_slug, and project_identifier are correct.")
+		return RecoverableError(err.Error() +
+			". Check: (1) call tack_list_workspaces to verify workspace_slug, " +
+			"(2) call tack_describe_workspace to verify project_identifier, " +
+			"(3) for node_id, use the UUID or identifier (e.g. TACK-65) from a list call.")
 	case errors.Is(err, domain.ErrInvalidArgument):
-		return RecoverableError(err.Error())
+		return RecoverableError(err.Error() + ". Fix the parameter value and retry.")
 	case errors.Is(err, domain.ErrAlreadyExists):
-		return RecoverableError(err.Error())
+		return RecoverableError(err.Error() + ". An entity with this identifier already exists. Use a different name or update the existing one.")
 	case errors.Is(err, domain.ErrFailedPrecondition):
-		return RecoverableError(err.Error())
+		return RecoverableError(err.Error() + ". A required condition was not met. Check the current state before retrying.")
 	default:
 		return UnexpectedError(ctx, err)
 	}

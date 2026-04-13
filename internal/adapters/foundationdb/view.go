@@ -4,13 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 
-	"goodkind.io/tack/internal/domain"
-	"goodkind.io/tack/internal/domain/node"
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
 	"github.com/google/uuid"
 	"golang.org/x/sync/errgroup"
+	"goodkind.io/tack/internal/domain"
+	"goodkind.io/tack/internal/domain/node"
+	"goodkind.io/tack/internal/telemetry"
 )
 
 // ViewStore implements node.NodeReader using FDB NodeListView materialized records.
@@ -26,12 +28,13 @@ func NewViewStore(db fdb.Database) *ViewStore {
 
 // Get resolves a node by ID using the global resolution record, then fetches its
 // NodeListView. Two FDB read transactions: one for node_resolve, one for node_list_view.
-func (s *ViewStore) Get(_ context.Context, nodeID uuid.UUID) (*node.NodeListView, error) {
+func (s *ViewStore) Get(ctx context.Context, nodeID uuid.UUID) (*node.NodeListView, error) {
 	// Step 1: resolve org context from global resolution record.
 	resolveVal, err := s.db.ReadTransact(func(tr fdb.ReadTransaction) (any, error) {
 		return tr.Get(fdb.Key(nodeResolveKey(nodeID))).Get()
 	})
 	if err != nil {
+		telemetry.L(ctx).Error("fdb.view.Get: resolve read failed", slog.String("node_id", nodeID.String()), slog.String("err", err.Error()))
 		return nil, fmt.Errorf("view get resolve: %w", err)
 	}
 	rb, ok := resolveVal.([]byte)
@@ -110,6 +113,11 @@ func (s *ViewStore) List(ctx context.Context, q node.NodeListQuery) ([]*node.Nod
 		})
 	}
 	if err := g.Wait(); err != nil {
+		telemetry.L(ctx).Error("fdb.view.List: chunk fetch failed",
+			slog.String("node_type", q.NodeType),
+			slog.String("workspace_id", q.WorkspaceID.String()),
+			slog.String("err", err.Error()),
+		)
 		return nil, fmt.Errorf("view list: %w", err)
 	}
 
@@ -318,9 +326,6 @@ func (s *ViewStore) fetchChunk(orgID, workspaceID uuid.UUID, nodeType string, r 
 
 // applyPostFilters returns true when v satisfies all post-scan filters in q.
 func applyPostFilters(v *node.NodeListView, q node.NodeListQuery) bool {
-	if q.FilterEpicID != nil && (v.EpicID == nil || *v.EpicID != *q.FilterEpicID) {
-		return false
-	}
 	if q.FilterIsDraft != nil && v.IsDraft != *q.FilterIsDraft {
 		return false
 	}

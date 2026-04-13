@@ -5,13 +5,15 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 
-	"goodkind.io/tack/internal/domain"
-	"goodkind.io/tack/internal/domain/node"
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/domain"
+	"goodkind.io/tack/internal/domain/node"
+	"goodkind.io/tack/internal/telemetry"
 )
 
 // EntityStore implements node.EntityRepository using FoundationDB.
@@ -28,7 +30,7 @@ import (
 //
 // Sequence counter:
 //
-//	sequence, orgID, "project", projectID, nodeType → int64 (little-endian)
+//	sequence, orgID, "scope", scopeID, nodeType → int64 (little-endian)
 type EntityStore struct {
 	db fdb.Database
 }
@@ -37,7 +39,7 @@ func NewEntityStore(db fdb.Database) *EntityStore {
 	return &EntityStore{db: db}
 }
 
-func (s *EntityStore) Set(_ context.Context, nv *node.NodeValue, props map[uuid.UUID]*node.PropertyValue, view *node.NodeListView) error {
+func (s *EntityStore) Set(ctx context.Context, nv *node.NodeValue, props map[uuid.UUID]*node.PropertyValue, view *node.NodeListView) error {
 	_, err := s.db.Transact(func(tr fdb.Transaction) (any, error) {
 		primaryKey := nodeInstanceKey(nv.OrgID, nv.WorkspaceID, nv.NodeType, nv.ID)
 
@@ -118,6 +120,7 @@ func (s *EntityStore) Set(_ context.Context, nv *node.NodeValue, props map[uuid.
 		resolveBytes, err := json.Marshal(&node.NodeResolve{
 			OrgID:       nv.OrgID,
 			WorkspaceID: nv.WorkspaceID,
+			ProjectID:   nv.ProjectID,
 			NodeType:    nv.NodeType,
 		})
 		if err != nil {
@@ -137,6 +140,11 @@ func (s *EntityStore) Set(_ context.Context, nv *node.NodeValue, props map[uuid.
 		return nil, nil
 	})
 	if err != nil {
+		telemetry.L(ctx).Error("fdb.entity.Set failed",
+			slog.String("node_id", nv.ID.String()),
+			slog.String("node_type", nv.NodeType),
+			slog.String("err", err.Error()),
+		)
 		return fmt.Errorf("entity set: %w", err)
 	}
 	return nil
@@ -161,7 +169,7 @@ func (s *EntityStore) Get(_ context.Context, orgID, workspaceID uuid.UUID, nodeT
 	return &nv, nil
 }
 
-func (s *EntityStore) Delete(_ context.Context, nv *node.NodeValue) error {
+func (s *EntityStore) Delete(ctx context.Context, nv *node.NodeValue) error {
 	_, err := s.db.Transact(func(tr fdb.Transaction) (any, error) {
 		tr.Clear(fdb.Key(nodeInstanceKey(nv.OrgID, nv.WorkspaceID, nv.NodeType, nv.ID)))
 		tr.Clear(fdb.Key(nodeByProjectKey(nv.OrgID, nv.ProjectID, nv.NodeType, nv.ID)))
@@ -203,6 +211,10 @@ func (s *EntityStore) Delete(_ context.Context, nv *node.NodeValue) error {
 		return nil, nil
 	})
 	if err != nil {
+		telemetry.L(ctx).Error("fdb.entity.Delete failed",
+			slog.String("node_id", nv.ID.String()),
+			slog.String("err", err.Error()),
+		)
 		return fmt.Errorf("entity delete: %w", err)
 	}
 	return nil
@@ -317,7 +329,7 @@ func (s *EntityStore) ListByProperty(_ context.Context, orgID, workspaceID uuid.
 }
 
 func (s *EntityStore) AllocateSequenceID(_ context.Context, orgID, projectID uuid.UUID, nodeType string) (int64, error) {
-	key := fdb.Key(tuple.Tuple{keySequence, orgID.String(), "project", projectID.String(), nodeType}.Pack())
+	key := fdb.Key(tuple.Tuple{keySequence, orgID.String(), "scope", projectID.String(), nodeType}.Pack())
 	val, err := s.db.Transact(func(tr fdb.Transaction) (any, error) {
 		b, err := tr.Get(key).Get()
 		if err != nil {
@@ -341,7 +353,7 @@ func (s *EntityStore) AllocateSequenceID(_ context.Context, orgID, projectID uui
 
 // GetBySequence returns the nodeID for the given sequence number within a project.
 // Returns uuid.Nil, nil if no entity with that sequence number exists.
-func (s *EntityStore) GetBySequence(_ context.Context, orgID, projectID uuid.UUID, nodeType string, seqID int64) (uuid.UUID, error) {
+func (s *EntityStore) GetBySequence(ctx context.Context, orgID, projectID uuid.UUID, nodeType string, seqID int64) (uuid.UUID, error) {
 	key := fdb.Key(nodeBySequenceKey(orgID, projectID, nodeType, seqID))
 	val, err := s.db.ReadTransact(func(tr fdb.ReadTransaction) (any, error) {
 		return tr.Get(key).Get()
@@ -360,14 +372,14 @@ func (s *EntityStore) GetBySequence(_ context.Context, orgID, projectID uuid.UUI
 	return id, nil
 }
 
-func (s *EntityStore) CreateAtomic(_ context.Context, orgID, projectID uuid.UUID, nv *node.NodeValue, props map[uuid.UUID]*node.PropertyValue, view *node.NodeListView, assigneeIDs []uuid.UUID, labelIDs []uuid.UUID, actorID uuid.UUID) (int64, error) {
+func (s *EntityStore) CreateAtomic(ctx context.Context, orgID, projectID uuid.UUID, nv *node.NodeValue, props map[uuid.UUID]*node.PropertyValue, view *node.NodeListView, assigneeIDs []uuid.UUID, labelIDs []uuid.UUID, actorID uuid.UUID) (int64, error) {
 	now := time.Now().UTC()
 	var seqID int64
 
 	_, err := s.db.Transact(func(tr fdb.Transaction) (any, error) {
 		// 1. Allocate sequence ID inline when the entity type uses sequences.
 		if projectID != uuid.Nil {
-			seqKey := fdb.Key(tuple.Tuple{keySequence, orgID.String(), "project", projectID.String(), nv.NodeType}.Pack())
+			seqKey := fdb.Key(tuple.Tuple{keySequence, orgID.String(), "scope", projectID.String(), nv.NodeType}.Pack())
 			b, err := tr.Get(seqKey).Get()
 			if err != nil {
 				return nil, fmt.Errorf("read sequence: %w", err)
@@ -418,6 +430,7 @@ func (s *EntityStore) CreateAtomic(_ context.Context, orgID, projectID uuid.UUID
 		resolveBytes, err := json.Marshal(&node.NodeResolve{
 			OrgID:       nv.OrgID,
 			WorkspaceID: nv.WorkspaceID,
+			ProjectID:   nv.ProjectID,
 			NodeType:    nv.NodeType,
 		})
 		if err != nil {
@@ -455,13 +468,19 @@ func (s *EntityStore) CreateAtomic(_ context.Context, orgID, projectID uuid.UUID
 			for _, lid := range labelIDs {
 				lidStr := lid.String()
 				tr.Set(fdb.Key(tuple.Tuple{keyLabelOnNode, orgStr, nodeStr, lidStr}.Pack()), lVal)
-				tr.Set(fdb.Key(tuple.Tuple{keyIssuesWithLabel, orgStr, lidStr, nodeStr}.Pack()), []byte{})
+				tr.Set(fdb.Key(tuple.Tuple{keyNodesWithLabel, orgStr, lidStr, nodeStr}.Pack()), []byte{})
 			}
 		}
 
 		return nil, nil
 	})
 	if err != nil {
+		telemetry.L(ctx).Error("fdb.entity.CreateAtomic failed",
+			slog.String("node_id", nv.ID.String()),
+			slog.String("node_type", nv.NodeType),
+			slog.String("project_id", projectID.String()),
+			slog.String("err", err.Error()),
+		)
 		return 0, fmt.Errorf("entity create atomic: %w", err)
 	}
 	return seqID, nil
@@ -598,11 +617,12 @@ func slugIndexKey(nodeType, slug string) []byte {
 
 // GetBySlug resolves a global slug index entry to a node UUID.
 // Returns domain.ErrNotFound when no entry exists.
-func (s *EntityStore) GetBySlug(_ context.Context, nodeType, slug string) (uuid.UUID, error) {
+func (s *EntityStore) GetBySlug(ctx context.Context, nodeType, slug string) (uuid.UUID, error) {
 	val, err := s.db.ReadTransact(func(tr fdb.ReadTransaction) (any, error) {
 		return tr.Get(fdb.Key(slugIndexKey(nodeType, slug))).Get()
 	})
 	if err != nil {
+		telemetry.L(ctx).Warn("fdb.entity.GetBySlug failed", slog.String("node_type", nodeType), slog.String("slug", slug), slog.String("err", err.Error()))
 		return uuid.Nil, fmt.Errorf("slug lookup %s/%s: %w", nodeType, slug, err)
 	}
 	b, ok := val.([]byte)
