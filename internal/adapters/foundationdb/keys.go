@@ -17,26 +17,19 @@ const (
 	keyInvitation         = "invitation"
 	keyInvitationByEmail  = "invitation_by_email"
 
-	// Assignments (replaces SQL issue_assignees, epic_assignees)
+	// Assignments
 	keyAssignmentOnNode = "assignment_on_node"
 	keyAssignmentToUser = "assignment_to_user"
 
-	// Labels on nodes (replaces SQL issue_labels, epic_labels)
+	// Labels on nodes
 	keyLabelOnNode     = "label_on_node"
-	keyIssuesWithLabel = "issues_with_label"
+	keyNodesWithLabel = "issues_with_label"
 
-	// Containment (replaces SQL module_issues, cycle_issues)
-	keyIssueInModule          = "issue_in_module"
-	keyModulesContainingIssue = "modules_containing_issue"
-	keyIssueInCycle           = "issue_in_cycle"
-	keyCyclesContainingIssue  = "cycles_containing_issue"
-
-	// Hierarchy (complements SQL parent_id and epic_id columns)
-	keyIssueChildren = "issue_children"
-	keyEpicChildren  = "epic_children"
-	keyIssuesInEpic  = "issues_in_epic"
-	// keyIssueEpicReverse maps (orgID, issueID) -> epicID bytes for O(1) reverse lookup.
-	keyIssueEpicReverse = "issue_epic_reverse"
+	// Containment — generic parent-child links between any node types.
+	// (containment, orgID, containerID, childID) → ContainmentValue JSON
+	keyContainment = "containment"
+	// (containment_reverse, orgID, childID, containerID) → nil
+	keyContainmentReverse = "containment_reverse"
 
 	// Custom node instances
 	keyNodeInstance          = "node_instance"

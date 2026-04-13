@@ -53,7 +53,6 @@ type NodeListView struct {
 
 	StateID  *uuid.UUID `json:"state_id,omitempty"`
 	ParentID *uuid.UUID `json:"parent_id,omitempty"`
-	EpicID   *uuid.UUID `json:"epic_id,omitempty"`
 
 	AssigneeIDs []uuid.UUID `json:"assignee_ids,omitempty"`
 	LabelIDs    []uuid.UUID `json:"label_ids,omitempty"`

@@ -2,24 +2,27 @@ package tools
 
 import (
 	"context"
+	"log/slog"
 
 	"github.com/google/uuid"
-	domainsearch "goodkind.io/tack/internal/domain/search"
-	"goodkind.io/tack/internal/domain/node"
 	mcpmcp "github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
+	"goodkind.io/tack/internal/domain/node"
+	domainsearch "goodkind.io/tack/internal/domain/search"
+	"goodkind.io/tack/internal/telemetry"
 )
 
-func RegisterMyIssues(s *mcpserver.MCPServer, reader node.NodeReader, r *Resolver) {
+func RegisterMyWork(s *mcpserver.MCPServer, reader node.NodeReader, r *Resolver) {
 	s.AddTool(mcpmcp.Tool{
-		Name:        "tack_my_issues",
-		Description: "Returns all issues assigned to the authenticated user across all workspaces. No parameters needed.",
+		Name:        "tack_my_work",
+		Description: "Returns all items assigned to the authenticated user across all workspaces and types. No parameters needed.",
 		InputSchema: mcpmcp.ToolInputSchema{Type: "object", Properties: map[string]any{}, Required: []string{}},
-	}, myIssues(reader, r))
+	}, myWork(reader, r))
 }
 
-func myIssues(reader node.NodeReader, r *Resolver) mcpserver.ToolHandlerFunc {
+func myWork(reader node.NodeReader, r *Resolver) mcpserver.ToolHandlerFunc {
 	return func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
+		telemetry.L(ctx).Debug("mcp.my_work")
 		userID, err := mustUser(ctx)
 		if err != nil {
 			return UnexpectedError(ctx, err), nil
@@ -35,16 +38,18 @@ func myIssues(reader node.NodeReader, r *Resolver) mcpserver.ToolHandlerFunc {
 				continue
 			}
 			seen[ws.ID] = struct{}{}
-			views, err := reader.List(ctx, node.NodeListQuery{
-				OrgID: ws.OrgID, WorkspaceID: ws.ID,
-				NodeType: node.NodeTypeIssue, FilterAssignee: &userID,
-			})
-			if err != nil {
-				continue
+			for _, typeKey := range r.assignableTypeKeys {
+				views, err := reader.List(ctx, node.NodeListQuery{
+					OrgID: ws.OrgID, WorkspaceID: ws.ID,
+					NodeType: typeKey, FilterAssignee: &userID,
+				})
+				if err != nil {
+					continue
+				}
+				all = append(all, views...)
 			}
-			all = append(all, views...)
 		}
-		return Success(map[string]any{"issues": all, "total": len(all)}, ""), nil
+		return Success(map[string]any{"items": all, "total": len(all)}, ""), nil
 	}
 }
 
@@ -69,6 +74,10 @@ func search(searcher domainsearch.Searcher, r *Resolver) mcpserver.ToolHandlerFu
 		if err := req.BindArguments(&in); err != nil {
 			return RecoverableError(err.Error()), nil
 		}
+		telemetry.L(ctx).Debug("mcp.search",
+			slog.String("workspace_slug", in.WorkspaceSlug),
+			slog.String("query", in.Query),
+		)
 		ws, err := r.Workspace(ctx, in.WorkspaceSlug)
 		if err != nil {
 			return ClassifyError(ctx, err), nil

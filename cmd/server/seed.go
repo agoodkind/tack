@@ -81,10 +81,11 @@ func runSeed(cfg *config.Config) {
 	now := time.Now()
 
 	// Check if org already exists by slug
-	existingOrgID, err := fdbStores.Entities.GetBySlug(ctx, node.NodeTypeOrg, cfg.SeedOrgSlug)
+	existingOrgID, err := fdbStores.Entities.GetBySlug(ctx, "org", cfg.SeedOrgSlug)
 	if err == nil {
-		// Org exists
+		// Org exists — still re-seed types to propagate feature/hierarchy changes.
 		orgID = existingOrgID
+		seeder.SeedOrg(ctx, orgID)
 		slog.Info("seed: org exists", "id", orgID, "slug", cfg.SeedOrgSlug)
 	} else if errors.Is(err, domain.ErrNotFound) {
 		// Create new org
@@ -95,7 +96,7 @@ func runSeed(cfg *config.Config) {
 		orgNV := &node.NodeValue{
 			ID:        orgID,
 			OrgID:     orgID,
-			NodeType:  node.NodeTypeOrg,
+			NodeType:  "org",
 			Name:      cfg.SeedOrgName,
 			CreatedAt: now,
 			UpdatedAt: now,
@@ -105,7 +106,7 @@ func runSeed(cfg *config.Config) {
 			Version:     node.ViewVersion1,
 			ID:          orgID,
 			OrgID:       orgID,
-			NodeType:    node.NodeTypeOrg,
+			NodeType:    "org",
 			Name:        cfg.SeedOrgName,
 			CreatedAt:   now,
 			UpdatedAt:   now,
@@ -118,7 +119,7 @@ func runSeed(cfg *config.Config) {
 		}
 
 		// Write slug index
-		if err := fdbStores.Entities.WriteSlugIndex(ctx, node.NodeTypeOrg, cfg.SeedOrgSlug, orgID); err != nil {
+		if err := fdbStores.Entities.WriteSlugIndex(ctx, "org", cfg.SeedOrgSlug, orgID); err != nil {
 			slog.Error("seed: write org slug index", "err", err)
 			os.Exit(1)
 		}
@@ -144,10 +145,11 @@ func runSeed(cfg *config.Config) {
 
 	// ── Workspace ─────────────────────────────────────────────────────────────
 	wsID := uuid.New()
-	wsResolve, err := fdbStores.Entities.GetBySlug(ctx, node.NodeTypeWorkspace, cfg.SeedWorkspaceSlug)
+	wsResolve, err := fdbStores.Entities.GetBySlug(ctx, "workspace", cfg.SeedWorkspaceSlug)
 	if err == nil {
-		// Workspace exists
+		// Workspace exists — still re-seed types/props to propagate feature changes.
 		wsID = wsResolve
+		seeder.SeedWorkspace(ctx, orgID, wsID)
 		slog.Info("seed: workspace exists", "id", wsID, "slug", cfg.SeedWorkspaceSlug)
 	} else if errors.Is(err, domain.ErrNotFound) {
 		// Create new workspace
@@ -159,7 +161,7 @@ func runSeed(cfg *config.Config) {
 			ID:          wsID,
 			OrgID:       orgID,
 			WorkspaceID: uuid.Nil,
-			NodeType:    node.NodeTypeWorkspace,
+			NodeType:    "workspace",
 			Name:        cfg.SeedWorkspaceName,
 			CreatedAt:   now,
 			UpdatedAt:   now,
@@ -170,7 +172,7 @@ func runSeed(cfg *config.Config) {
 			ID:          wsID,
 			OrgID:       orgID,
 			WorkspaceID: uuid.Nil,
-			NodeType:    node.NodeTypeWorkspace,
+			NodeType:    "workspace",
 			Name:        cfg.SeedWorkspaceName,
 			CreatedAt:   now,
 			UpdatedAt:   now,
@@ -183,7 +185,7 @@ func runSeed(cfg *config.Config) {
 		}
 
 		// Write slug index
-		if err := fdbStores.Entities.WriteSlugIndex(ctx, node.NodeTypeWorkspace, cfg.SeedWorkspaceSlug, wsID); err != nil {
+		if err := fdbStores.Entities.WriteSlugIndex(ctx, "workspace", cfg.SeedWorkspaceSlug, wsID); err != nil {
 			slog.Error("seed: write workspace slug index", "err", err)
 			os.Exit(1)
 		}

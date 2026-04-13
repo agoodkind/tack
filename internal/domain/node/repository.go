@@ -51,7 +51,6 @@ type ActivityRepository interface {
 }
 
 // AssignmentRepository manages who is assigned to what.
-// Replaces SQL issue_assignees and epic_assignees join tables.
 type AssignmentRepository interface {
 	// SetAll replaces all assignees on a node atomically.
 	SetAll(ctx context.Context, orgID, nodeID uuid.UUID, userIDs []uuid.UUID, assignedBy uuid.UUID) error
@@ -62,7 +61,6 @@ type AssignmentRepository interface {
 }
 
 // NodeLabelRepository manages labels on any node type.
-// Replaces SQL issue_labels and epic_labels join tables.
 type NodeLabelRepository interface {
 	// SetAll replaces all labels on a node atomically.
 	SetAll(ctx context.Context, orgID, nodeID uuid.UUID, labelIDs []uuid.UUID, addedBy uuid.UUID) error
@@ -72,25 +70,17 @@ type NodeLabelRepository interface {
 	ListByLabel(ctx context.Context, orgID, labelID uuid.UUID) ([]uuid.UUID, error)
 }
 
-// ContainmentRepository manages module<->issue, cycle<->issue, and epic<->issue membership.
-// Replaces SQL module_issues and cycle_issues join tables.
+// ContainmentRepository manages parent-child containment between any node types.
+// A single generic pattern replaces per-type module/cycle/epic join logic.
 type ContainmentRepository interface {
-	AddIssueToModule(ctx context.Context, orgID, moduleID, issueID, addedBy uuid.UUID) error
-	RemoveIssueFromModule(ctx context.Context, orgID, moduleID, issueID uuid.UUID) error
-	IssuesInModule(ctx context.Context, orgID, moduleID uuid.UUID) ([]uuid.UUID, error)
-	ModulesContainingIssue(ctx context.Context, orgID, issueID uuid.UUID) ([]uuid.UUID, error)
-
-	AddIssueToCycle(ctx context.Context, orgID, cycleID, issueID, addedBy uuid.UUID) error
-	RemoveIssueFromCycle(ctx context.Context, orgID, cycleID, issueID uuid.UUID) error
-	IssuesInCycle(ctx context.Context, orgID, cycleID uuid.UUID) ([]uuid.UUID, error)
-	CyclesContainingIssue(ctx context.Context, orgID, issueID uuid.UUID) ([]uuid.UUID, error)
-
-	// IssuesInEpic returns all issue IDs that belong to the given epic.
-	// Key: (issues_in_epic, orgID, epicID, issueID) -> nil
-	IssuesInEpic(ctx context.Context, orgID, epicID uuid.UUID) ([]uuid.UUID, error)
-	// EpicsContainingIssue returns the epic ID for the given issue, or nil if the
-	// issue does not belong to an epic. (One-to-one: issues have at most one epic.)
-	EpicsContainingIssue(ctx context.Context, orgID, issueID uuid.UUID) (*uuid.UUID, error)
+	// AddChild links a child node to a container node.
+	AddChild(ctx context.Context, orgID, containerID, childID, addedBy uuid.UUID) error
+	// RemoveChild unlinks a child node from a container node.
+	RemoveChild(ctx context.Context, orgID, containerID, childID uuid.UUID) error
+	// ListChildren returns all child node IDs in a container.
+	ListChildren(ctx context.Context, orgID, containerID uuid.UUID) ([]uuid.UUID, error)
+	// ListContainers returns all container node IDs that contain the given child.
+	ListContainers(ctx context.Context, orgID, childID uuid.UUID) ([]uuid.UUID, error)
 }
 
 // EntityRepository stores NodeValue instances in FDB and maintains secondary
@@ -114,7 +104,7 @@ type EntityRepository interface {
 	// Only works for properties that have Indexed=true on their PropertyDef.
 	ListByProperty(ctx context.Context, orgID, workspaceID uuid.UUID, nodeType string, propDefID uuid.UUID, pv *PropertyValue) ([]*NodeValue, error)
 	// AllocateSequenceID atomically increments and returns the next sequence number
-	// for (orgID, projectID, nodeType). Replaces SQL project_sequences.
+	// for (orgID, projectID, nodeType).
 	AllocateSequenceID(ctx context.Context, orgID, projectID uuid.UUID, nodeType string) (int64, error)
 	// GetBySequence returns the nodeID for the given sequence number in a project.
 	// Returns uuid.Nil, nil when not found.

@@ -26,7 +26,6 @@ type NodeListQuery struct {
 	CreatedBefore *time.Time
 
 	// Post-scan in-memory filters applied after chunk fetch.
-	FilterEpicID   *uuid.UUID
 	FilterIsDraft  *bool
 	FilterAssignee *uuid.UUID
 

@@ -33,11 +33,11 @@ func (s *NodeLabelStore) SetAll(_ context.Context, orgID, nodeID uuid.UUID, labe
 		node := nodeID.String()
 		for _, lid := range existing {
 			tr.Clear(fdb.Key(tuple.Tuple{keyLabelOnNode, org, node, lid.String()}.Pack()))
-			tr.Clear(fdb.Key(tuple.Tuple{keyIssuesWithLabel, org, lid.String(), node}.Pack()))
+			tr.Clear(fdb.Key(tuple.Tuple{keyNodesWithLabel, org, lid.String(), node}.Pack()))
 		}
 		for _, lid := range labelIDs {
 			tr.Set(fdb.Key(tuple.Tuple{keyLabelOnNode, org, node, lid.String()}.Pack()), val)
-			tr.Set(fdb.Key(tuple.Tuple{keyIssuesWithLabel, org, lid.String(), node}.Pack()), nil)
+			tr.Set(fdb.Key(tuple.Tuple{keyNodesWithLabel, org, lid.String(), node}.Pack()), nil)
 		}
 		return nil, nil
 	})
@@ -58,7 +58,7 @@ func (s *NodeLabelStore) ListByNode(_ context.Context, orgID, nodeID uuid.UUID) 
 
 // ListByLabel returns all nodeIDs with a given label.
 func (s *NodeLabelStore) ListByLabel(_ context.Context, orgID, labelID uuid.UUID) ([]uuid.UUID, error) {
-	pr, _ := fdb.PrefixRange(tuple.Tuple{keyIssuesWithLabel, orgID.String(), labelID.String()}.Pack())
+	pr, _ := fdb.PrefixRange(tuple.Tuple{keyNodesWithLabel, orgID.String(), labelID.String()}.Pack())
 	vals, err := s.db.ReadTransact(func(tr fdb.ReadTransaction) (any, error) {
 		return tr.GetRange(pr, fdb.RangeOptions{}).GetSliceWithError()
 	})

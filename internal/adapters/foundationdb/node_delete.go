@@ -110,7 +110,7 @@ func (s *NodeDeleteStore) DeleteNode(_ context.Context, orgID, nodeID uuid.UUID)
 		// Labels: clear forward range + delete each reverse entry directly.
 		clearNodeRange(keyLabelOnNode)
 		for _, labelID := range fwd.labels {
-			tr.Clear(fdb.Key(tuple.Tuple{keyIssuesWithLabel, org, labelID, nid}.Pack()))
+			tr.Clear(fdb.Key(tuple.Tuple{keyNodesWithLabel, org, labelID, nid}.Pack()))
 		}
 
 		return nil, nil

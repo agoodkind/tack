@@ -7,18 +7,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// Built-in node type slugs. Custom types use user-defined slugs stored in FDB.
-const (
-	NodeTypeIssue       = "issue"
-	NodeTypeEpic        = "epic"
-	NodeTypeCycle       = "cycle"
-	NodeTypeModule      = "module"
-	NodeTypeOrg         = "org"
-	NodeTypeWorkspace   = "workspace"
-	NodeTypeProject     = "project"
-	NodeTypeState       = "state"
-	NodeTypeLabel       = "label"
-)
 
 // Op enumerates the operations that can be enabled on a custom node type.
 type Op string
@@ -34,23 +22,71 @@ const (
 // AllOps is the default set of allowed operations for a new node type.
 var AllOps = []Op{OpCreate, OpRead, OpList, OpUpdate, OpDelete}
 
-// NodeFeatures is a bitset of capabilities for a NodeType.
-// Behavior is driven by Features, not TypeKey.
-type NodeFeatures uint32
-
+// Feature strings are capability declarations on a NodeType. Built-in features
+// drive runtime behavior (service layer, MCP tools, UI). User-defined features
+// are stored and queryable but inert until a consumer is registered.
+//
+// Built-in features (shipped with seed):
 const (
-	FeatureHasSlug           NodeFeatures = 1 << 0 // instances own an identifier prefix e.g. "ENG"
-	FeatureHasWorkflowStates NodeFeatures = 1 << 1 // instances have StateID, can transition
-	FeatureHasAssignees      NodeFeatures = 1 << 2 // instances can be assigned to users
-	FeatureHasSequenceID     NodeFeatures = 1 << 3 // instances get {parent_slug}-{N} identifier
-	FeatureIsContainer       NodeFeatures = 1 << 4 // instances can contain child nodes
-	FeatureHasDueDates       NodeFeatures = 1 << 5 // instances have start/end date system props
-	FeatureHasComments       NodeFeatures = 1 << 6 // instances support threaded comments
-	FeatureHasActivity       NodeFeatures = 1 << 7 // instances emit activity events on write
+	FeatureHasSlug                = "has_slug"                  // instances own an identifier prefix e.g. "ENG"
+	FeatureHasWorkflowStates      = "has_workflow_states"       // instances have StateID, can transition
+	FeatureHasAssignees           = "has_assignees"             // instances can be assigned to users
+	FeatureHasSequenceID          = "has_sequence_id"           // instances get {parent_slug}-{N} identifier
+	FeatureIsContainer            = "is_container"              // instances can contain child nodes
+	FeatureHasDueDates            = "has_due_dates"             // instances have start/end date system props
+	FeatureHasComments            = "has_comments"              // instances support threaded comments
+	FeatureHasActivity            = "has_activity"              // instances emit activity events on write
+	FeatureIsEntryPoint           = "is_entry_point"            // top-level MCP/UI entry (workspace today)
+	FeatureIsScope                = "is_scope"                  // defines an FDB key scope level (org, ws, proj)
+	FeatureExcludeFromGenericTools = "exclude_from_generic_tools" // has dedicated tool registrations, skip generic CRUD
 )
 
-// Has reports whether f includes feat.
-func (f NodeFeatures) Has(feat NodeFeatures) bool { return f&feat != 0 }
+// Features is a set of capability strings on a NodeType.
+type Features []string
+
+// Has reports whether the feature set includes the given feature.
+func (f Features) Has(feat string) bool {
+	for _, s := range f {
+		if s == feat {
+			return true
+		}
+	}
+	return false
+}
+
+
+// HierarchyDepth computes the depth of a NodeType in the type DAG by walking
+// CanLiveUnder. Types with no CanLiveUnder (org) are depth 0. Types that live
+// under depth-0 types (workspace) are depth 1, and so on. Computed once at
+// registration time, not per request.
+func HierarchyDepth(nt *NodeType, typeIndex map[string]*NodeType) int {
+	if len(nt.CanLiveUnder) == 0 {
+		return 0
+	}
+	maxParentDepth := -1
+	for _, parentKey := range nt.CanLiveUnder {
+		parent, ok := typeIndex[parentKey]
+		if !ok {
+			continue
+		}
+		d := HierarchyDepth(parent, typeIndex)
+		if d > maxParentDepth {
+			maxParentDepth = d
+		}
+	}
+	return maxParentDepth + 1
+}
+
+// BuildTypeIndex creates a lookup map from TypeKey to NodeType for use with HierarchyDepth.
+func BuildTypeIndex(types []*NodeType) map[string]*NodeType {
+	m := make(map[string]*NodeType, len(types))
+	for _, nt := range types {
+		if nt.TypeKey != "" {
+			m[nt.TypeKey] = nt
+		}
+	}
+	return m
+}
 
 // NodeType defines a user-defined type in the extensibility hierarchy.
 type NodeType struct {
@@ -71,8 +107,8 @@ type NodeType struct {
 	// TypeKey is the stable internal dispatch key: "issue", "epic", "cycle", "module".
 	// Empty for user-defined custom types. Slug and PluralSlug are user-mutable;
 	// TypeKey is not.
-	TypeKey      string       `json:"type_key,omitempty"`
-	Features     NodeFeatures `json:"features"`
+	TypeKey      string   `json:"type_key,omitempty"`
+	Features     Features `json:"features,omitempty"`
 	CanContain   []string     `json:"can_contain,omitempty"`    // TypeKeys this type can parent
 	CanLiveUnder []string     `json:"can_live_under,omitempty"` // TypeKeys this type can be a child of
 }
@@ -90,10 +126,6 @@ type NodeValue struct {
 	Description string     `json:"description,omitempty"`
 	StateID     *uuid.UUID `json:"state_id,omitempty"`
 	ParentID    *uuid.UUID `json:"parent_id,omitempty"`
-	// EpicID links an issue to its parent epic. Epic membership is one-to-one
-	// (an issue belongs to at most one epic), so it lives on NodeValue rather
-	// than as a PropertyValue or containment relation.
-	EpicID     *uuid.UUID `json:"epic_id,omitempty"`
 	SequenceID  int32      `json:"sequence_id"`
 	SortOrder   float64    `json:"sort_order"`
 	CreatedBy   uuid.UUID  `json:"created_by"`

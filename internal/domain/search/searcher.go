@@ -28,7 +28,6 @@ type NodeDoc struct {
 	// Display fields — sufficient to render a list row without FDB reads.
 	AssigneeIDs []string       `json:"assignee_ids,omitempty"`
 	LabelIDs    []string       `json:"label_ids,omitempty"`
-	EpicID      string         `json:"epic_id,omitempty"`
 	StartDate   string         `json:"start_date,omitempty"`
 	DueDate     string         `json:"due_date,omitempty"`
 	UpdatedAt   string         `json:"updated_at"`

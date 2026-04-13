@@ -52,16 +52,9 @@ migrate:
 seed:
 	CGO_ENABLED=1 go run ./cmd/server seed
 
-# Container runtime: podman locally, docker on CT 117.
-CONTAINER_RT := $(shell command -v podman 2>/dev/null || command -v docker 2>/dev/null)
-
-# Build the Docker image for linux/amd64 (CT 117 target).
-.PHONY: image
-image:
-	$(CONTAINER_RT) build --platform linux/amd64 -t tack-server .
-
-# Push image to CT 117 and restart the app container.
+# Deploy: rsync source to CT 117, build natively on the server, restart.
+# Uses --network host so Docker build can resolve DNS via the host's IPv6 nameserver.
 .PHONY: deploy
-deploy: image
-	$(CONTAINER_RT) save tack-server:latest | ssh tack 'docker load && docker tag localhost/tack-server:latest tack-server:latest'
-	ssh tack 'cd /root/tack && docker compose up -d --no-build app'
+deploy:
+	rsync -az --delete --exclude='.git' --exclude='bin/' . tack:/root/tack/
+	ssh tack 'cd /root/tack && docker build --network host -t tack-server . && docker compose up -d --no-build app'

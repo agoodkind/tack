@@ -9,6 +9,20 @@ import (
 	"github.com/google/uuid"
 )
 
+// Seed-only type keys. DO NOT USE OUTSIDE OF SEED.
+// Runtime code must read type keys from loaded NodeType data, never from these constants.
+const (
+	nodeTypeIssue     = "issue"
+	nodeTypeEpic      = "epic"
+	nodeTypeCycle     = "cycle"
+	nodeTypeModule    = "module"
+	nodeTypeOrg       = "org"
+	nodeTypeWorkspace = "workspace"
+	nodeTypeProject   = "project"
+	nodeTypeState     = "state"
+	nodeTypeLabel     = "label"
+)
+
 // builtinTypeNamespace is the UUID v5 namespace for deterministic builtin NodeType IDs.
 // Builtin type IDs are derived from (orgID, slug) so the same org always gets
 // the same IDs across workspace seeds, and Set is idempotent.
@@ -27,17 +41,19 @@ func NewWorkspaceSeeder(properties node.PropertyRepository, nodeTypes node.TypeR
 // SeedOrg seeds the org-level NodeType definition. Called once on org creation.
 func (s *WorkspaceSeeder) SeedOrg(ctx context.Context, orgID uuid.UUID) {
 	orgTypeID := uuid.NewSHA1(builtinTypeNamespace, []byte(orgID.String()+":org"))
-	_ = s.nodeTypes.Set(ctx, &node.NodeType{
+	if err := s.nodeTypes.Set(ctx, &node.NodeType{
 		ID:         orgTypeID,
 		OrgID:      orgID,
 		Name:       "Org",
 		Slug:       "org",
 		PluralSlug: "orgs",
-		TypeKey:    node.NodeTypeOrg,
+		TypeKey:    nodeTypeOrg,
 		IsBuiltin:  true,
-		Features:   node.FeatureHasSlug | node.FeatureIsContainer,
-		CanContain: []string{node.NodeTypeWorkspace},
-	})
+		Features:   node.Features{node.FeatureHasSlug, node.FeatureIsContainer, node.FeatureIsScope, node.FeatureExcludeFromGenericTools},
+		CanContain: []string{nodeTypeWorkspace},
+	}); err != nil {
+		telemetry.L(ctx).Warn("seed org type failed", slog.String("error", err.Error()))
+	}
 }
 
 // SeedWorkspace writes default PropertyDefs and built-in NodeTypes for the given workspace.
@@ -74,7 +90,7 @@ func defaultPropertyDefs(orgID, workspaceID uuid.UUID) []*node.PropertyDef {
 			WorkspaceID: ws,
 			Name:        "Priority",
 			Type:        node.PropertyTypeSelect,
-			NodeTypes:   []string{node.NodeTypeIssue, node.NodeTypeEpic},
+			NodeTypes:   []string{nodeTypeIssue, nodeTypeEpic},
 			Indexed:     true,
 			IsSystem:    true,
 			Options: []node.EnumOption{
@@ -92,7 +108,7 @@ func defaultPropertyDefs(orgID, workspaceID uuid.UUID) []*node.PropertyDef {
 			WorkspaceID: ws,
 			Name:        "Due Date",
 			Type:        node.PropertyTypeTimestamp,
-			NodeTypes:   []string{node.NodeTypeIssue, node.NodeTypeEpic, node.NodeTypeCycle, node.NodeTypeModule},
+			NodeTypes:   []string{nodeTypeIssue, nodeTypeEpic, nodeTypeCycle, nodeTypeModule},
 			Indexed:     true,
 			IsSystem:    true,
 		},
@@ -102,7 +118,7 @@ func defaultPropertyDefs(orgID, workspaceID uuid.UUID) []*node.PropertyDef {
 			WorkspaceID: ws,
 			Name:        "Start Date",
 			Type:        node.PropertyTypeTimestamp,
-			NodeTypes:   []string{node.NodeTypeIssue, node.NodeTypeEpic, node.NodeTypeCycle, node.NodeTypeModule},
+			NodeTypes:   []string{nodeTypeIssue, nodeTypeEpic, nodeTypeCycle, nodeTypeModule},
 			Indexed:     true,
 			IsSystem:    true,
 		},
@@ -112,7 +128,7 @@ func defaultPropertyDefs(orgID, workspaceID uuid.UUID) []*node.PropertyDef {
 			WorkspaceID:  ws,
 			Name:         "Is Draft",
 			Type:         node.PropertyTypeCheckbox,
-			NodeTypes:    []string{node.NodeTypeIssue},
+			NodeTypes:    []string{nodeTypeIssue},
 			Indexed:      false,
 			IsSystem:     true,
 			DefaultValue: &node.PropertyValue{Kind: node.PropertyValueBool, Bool: boolPtr(false)},
@@ -124,7 +140,7 @@ func defaultPropertyDefs(orgID, workspaceID uuid.UUID) []*node.PropertyDef {
 			WorkspaceID: ws,
 			Name:        "Slug",
 			Type:        node.PropertyTypeText,
-			NodeTypes:   []string{node.NodeTypeWorkspace},
+			NodeTypes:   []string{nodeTypeWorkspace},
 			Indexed:     true,
 			IsSystem:    true,
 		},
@@ -135,7 +151,7 @@ func defaultPropertyDefs(orgID, workspaceID uuid.UUID) []*node.PropertyDef {
 			WorkspaceID: ws,
 			Name:        "Identifier",
 			Type:        node.PropertyTypeText,
-			NodeTypes:   []string{node.NodeTypeProject},
+			NodeTypes:   []string{nodeTypeProject},
 			Indexed:     true,
 			IsSystem:    true,
 		},
@@ -145,7 +161,7 @@ func defaultPropertyDefs(orgID, workspaceID uuid.UUID) []*node.PropertyDef {
 			WorkspaceID: ws,
 			Name:        "Description",
 			Type:        node.PropertyTypeText,
-			NodeTypes:   []string{node.NodeTypeProject},
+			NodeTypes:   []string{nodeTypeProject},
 			Indexed:     false,
 			IsSystem:    true,
 		},
@@ -155,7 +171,7 @@ func defaultPropertyDefs(orgID, workspaceID uuid.UUID) []*node.PropertyDef {
 			WorkspaceID: ws,
 			Name:        "Network",
 			Type:        node.PropertyTypeNumber,
-			NodeTypes:   []string{node.NodeTypeProject},
+			NodeTypes:   []string{nodeTypeProject},
 			Indexed:     false,
 			IsSystem:    true,
 		},
@@ -165,7 +181,7 @@ func defaultPropertyDefs(orgID, workspaceID uuid.UUID) []*node.PropertyDef {
 			WorkspaceID: ws,
 			Name:        "Default State ID",
 			Type:        node.PropertyTypeText,
-			NodeTypes:   []string{node.NodeTypeProject},
+			NodeTypes:   []string{nodeTypeProject},
 			Indexed:     false,
 			IsSystem:    true,
 		},
@@ -176,7 +192,7 @@ func defaultPropertyDefs(orgID, workspaceID uuid.UUID) []*node.PropertyDef {
 			WorkspaceID: ws,
 			Name:        "Group Name",
 			Type:        node.PropertyTypeSelect,
-			NodeTypes:   []string{node.NodeTypeState},
+			NodeTypes:   []string{nodeTypeState},
 			Indexed:     true,
 			IsSystem:    true,
 			Options: []node.EnumOption{
@@ -193,7 +209,7 @@ func defaultPropertyDefs(orgID, workspaceID uuid.UUID) []*node.PropertyDef {
 			WorkspaceID: ws,
 			Name:        "Color",
 			Type:        node.PropertyTypeText,
-			NodeTypes:   []string{node.NodeTypeState, node.NodeTypeLabel},
+			NodeTypes:   []string{nodeTypeState, nodeTypeLabel},
 			Indexed:     false,
 			IsSystem:    true,
 		},
@@ -203,7 +219,7 @@ func defaultPropertyDefs(orgID, workspaceID uuid.UUID) []*node.PropertyDef {
 			WorkspaceID: ws,
 			Name:        "Sort Order",
 			Type:        node.PropertyTypeNumber,
-			NodeTypes:   []string{node.NodeTypeState, node.NodeTypeLabel},
+			NodeTypes:   []string{nodeTypeState, nodeTypeLabel},
 			Indexed:     false,
 			IsSystem:    true,
 		},
@@ -229,19 +245,28 @@ func defaultNodeTypes(orgID uuid.UUID) []*node.NodeType {
 		pluralSlug   string
 		name         string
 		typeKey      string
-		features     node.NodeFeatures
+		features     node.Features
 		canContain   []string
 		canLiveUnder []string
 	}
+	issueFeatures := node.Features{
+		node.FeatureHasSequenceID, node.FeatureHasWorkflowStates,
+		node.FeatureHasAssignees, node.FeatureHasActivity,
+		node.FeatureHasComments, node.FeatureHasDueDates,
+	}
+	epicFeatures := append(node.Features{node.FeatureIsContainer}, issueFeatures...)
+	cycleFeatures := node.Features{node.FeatureHasDueDates, node.FeatureHasActivity, node.FeatureIsContainer}
+	moduleFeatures := node.Features{node.FeatureHasActivity, node.FeatureIsContainer}
+
 	specs := []spec{
-		{"issue", "issues", "Issue", "issue", 0, nil, []string{node.NodeTypeProject}},
-		{"epic", "epics", "Epic", "epic", 0, nil, []string{node.NodeTypeProject}},
-		{"cycle", "cycles", "Cycle", "cycle", 0, nil, []string{node.NodeTypeProject}},
-		{"module", "modules", "Module", "module", 0, nil, []string{node.NodeTypeProject}},
-		{"workspace", "workspaces", "Workspace", "workspace", node.FeatureHasSlug | node.FeatureIsContainer, []string{node.NodeTypeProject, node.NodeTypeWorkspace}, []string{node.NodeTypeOrg}},
-		{"project", "projects", "Project", "project", node.FeatureHasSlug | node.FeatureIsContainer, []string{node.NodeTypeIssue, node.NodeTypeEpic, node.NodeTypeCycle, node.NodeTypeModule}, []string{node.NodeTypeWorkspace}},
-		{"state", "states", "State", "state", 0, nil, []string{node.NodeTypeProject}},
-		{"label", "labels", "Label", "label", 0, nil, []string{node.NodeTypeWorkspace}},
+		{"issue", "issues", "Issue", "issue", issueFeatures, nil, []string{nodeTypeProject}},
+		{"epic", "epics", "Epic", "epic", epicFeatures, []string{nodeTypeIssue}, []string{nodeTypeProject}},
+		{"cycle", "cycles", "Cycle", "cycle", cycleFeatures, []string{nodeTypeIssue}, []string{nodeTypeProject}},
+		{"module", "modules", "Module", "module", moduleFeatures, []string{nodeTypeIssue}, []string{nodeTypeProject}},
+		{"workspace", "workspaces", "Workspace", "workspace", node.Features{node.FeatureHasSlug, node.FeatureIsContainer, node.FeatureIsEntryPoint, node.FeatureIsScope, node.FeatureExcludeFromGenericTools}, []string{nodeTypeProject, nodeTypeWorkspace}, []string{nodeTypeOrg}},
+		{"project", "projects", "Project", "project", node.Features{node.FeatureHasSlug, node.FeatureIsContainer, node.FeatureIsScope}, []string{nodeTypeIssue, nodeTypeEpic, nodeTypeCycle, nodeTypeModule}, []string{nodeTypeWorkspace}},
+		{"state", "states", "State", "state", nil, nil, []string{nodeTypeProject}},
+		{"label", "labels", "Label", "label", nil, nil, []string{nodeTypeWorkspace}},
 	}
 
 	types := make([]*node.NodeType, 0, len(specs))
