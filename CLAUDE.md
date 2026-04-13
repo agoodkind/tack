@@ -4,11 +4,11 @@ Tack is a fully-featured, horizontally scalable project management platform. It 
 
 ## What we are building
 
-A complete replacement for Plane CE / Linear / Jira — with a better architecture. The product must support:
+A complete replacement for Plane CE / Linear / Jira: with a better architecture. The product must support:
 
 - Multiple orgs, each with multiple workspaces, teams, and users
 - User-defined hierarchy: the type system is extensible, not fixed
-- Horizontal scalability from day 0 — no single points of write contention
+- Horizontal scalability from day 0: no single points of write contention
 - MCP as a first-class interface, not a demo or convenience layer
 - An eventual Connect-RPC API, TypeScript frontend, and TUI
 
@@ -18,14 +18,14 @@ Do not frame suggestions, gaps, or decisions in terms of "your use case" or "for
 
 ### The model: everything is a node in FDB
 
-Every entity — org, workspace, project, state, label, issue, epic, cycle, module, custom type — is a node stored in FoundationDB. Same pattern across all entity types: NodeValue (primary record) + NodeListView (materialized read view) + NodeResolve (global resolution record). Every entity is globally addressable by its UUID alone. No org context required from callers.
+Every entity: org, workspace, project, state, label, issue, epic, cycle, module, custom type. Each is a node stored in FoundationDB. Same pattern across all entity types: NodeValue (primary record) + NodeListView (materialized read view) + NodeResolve (global resolution record). Every entity is globally addressable by its UUID alone. No org context required from callers.
 
 **SQL does one thing: auth.**
 
 ```
-users        — identity (email, display_name)
-api_tokens   — bearer token → user_id
-org_members  — auth gate: is this user allowed in this org
+users        : identity (email, display_name)
+api_tokens   : bearer token → user_id
+org_members  : auth gate: is this user allowed in this org
 ```
 
 Nothing else lives in SQL. No entity tables, no config tables, no join tables.
@@ -37,17 +37,17 @@ Nothing else lives in SQL. No entity tables, no config tables, no join tables.
 - All resolution records (NodeResolve: entityID → orgID, workspaceID, nodeType)
 - Activity, comments, properties, sequences, automation rules
 
-**Meilisearch:** full-text search. Fully wired — `searcher.Index()` called on every Create and Update. `EnsureIndex` filterable attrs: `org_id`, `workspace_id`, `project_id`, `entity_type`, `state_id`, `priority`, `is_draft`. Search returns facets.
+**Meilisearch:** full-text search. Fully wired: `searcher.Index()` called on every Create and Update. `EnsureIndex` filterable attrs: `org_id`, `workspace_id`, `project_id`, `entity_type`, `state_id`, `priority`, `is_draft`. Search returns facets.
 
 ### Data access
 
 Every read goes through `NodeReader`. The service layer never calls `EntityRepository`, `PropertyRepository`, `AssignmentRepository`, or `LabelRepository` directly for reads.
 
 ```
-NodeReader.Get(ctx, nodeID)           — resolves via NodeResolve record, no org context needed
-NodeReader.List(ctx, NodeListQuery)   — parallel chunk fetch, returns []NodeListView
-NodeReader.Stream(ctx, NodeListQuery) — unbounded scan, returns channel
-NodeReader.Resolve(ctx, entityID)     — returns NodeResolve for any entity type
+NodeReader.Get(ctx, nodeID)           : resolves via NodeResolve record, no org context needed
+NodeReader.List(ctx, NodeListQuery)   : parallel chunk fetch, returns []NodeListView
+NodeReader.Stream(ctx, NodeListQuery) : unbounded scan, returns channel
+NodeReader.Resolve(ctx, entityID)     : returns NodeResolve for any entity type
 ```
 
 Every write goes through `EntityRepository.CreateAtomic` or `EntityRepository.Set`. These atomically write NodeValue + NodeListView + NodeResolve in a single FDB transaction.
@@ -71,7 +71,7 @@ Auth check: resolve entity → get OrgID → check `org_members` in SQL → allo
 
 ### NodeListView
 
-Written atomically with every entity write. Contains everything needed to render a list row — no follow-up reads required.
+Written atomically with every entity write. Contains everything needed to render a list row; no follow-up reads required.
 
 ```
 FDB key: (node_list_view, orgID, workspaceID, nodeType, nodeID) → JSON NodeListView
@@ -81,7 +81,7 @@ NodeListView includes: ID, OrgID, WorkspaceID, ProjectID, NodeType, SequenceID, 
 
 ### Write path
 
-All creates use `EntityRepository.CreateAtomic` — single FDB transaction:
+All creates use `EntityRepository.CreateAtomic`: single FDB transaction:
 1. Sequence allocation (atomic increment on sequence key)
 2. NodeValue primary record + secondary indexes
 3. Property values + property secondary indexes
@@ -94,8 +94,8 @@ No cross-database transactions. No consistency gap.
 
 ### API layer
 
-- **MCP Streamable HTTP** (`/mcp`) — primary interface. 50+ tools, dynamic per-user tool registration based on NodeType slugs. workspace_slug and project_identifier everywhere — no raw UUIDs from callers. orgID never appears as an input field.
-- **Connect-RPC** (`/tack.v1.*`) — typed API for future frontend/TUI. Entity-scoped ops take entity UUID only. Collection ops take workspace_id or project_id.
+- **MCP Streamable HTTP** (`/mcp`): primary interface. 50+ tools, dynamic per-user tool registration based on NodeType slugs. workspace_slug and project_identifier everywhere; no raw UUIDs from callers. orgID never appears as an input field.
+- **Connect-RPC** (`/tack.v1.*`): typed API for future frontend/TUI. Entity-scoped ops take entity UUID only. Collection ops take workspace_id or project_id.
 
 ### Auth
 
@@ -105,8 +105,8 @@ No cross-database transactions. No consistency gap.
 
 ### Build
 
-- `go build ./...` — works everywhere (FDB is noop stub, no CGO required)
-- `CGO_ENABLED=1 go build -tags fdb ./...` — production build with real FDB
+- `go build ./...`: works everywhere (FDB is noop stub, no CGO required)
+- `CGO_ENABLED=1 go build -tags fdb ./...`: production build with real FDB
 - FDB Go bindings pinned to `v0.0.0-20250923185926-685eda6efef7` (API 740)
 - `foundationdb-clients` 7.4.x required on the build host for `-tags fdb`
 
@@ -114,28 +114,28 @@ No cross-database transactions. No consistency gap.
 
 ## Key decisions
 
-- **Everything is a node in FDB.** Orgs, workspaces, projects, states, labels, issues — all the same pattern. No entity lives in SQL.
+- **Everything is a node in FDB.** Orgs, workspaces, projects, states, labels, issues: all the same pattern. No entity lives in SQL.
 - **SQL = auth only.** `users`, `api_tokens`, `org_members`. Nothing else.
 - **orgID never leaks to callers.** Derived from entity resolution or workspace lookup internally. Never a service method parameter, never an API input field.
 - **NodeListView is the single read layer.** Service layer uses NodeReader for all reads. No direct EntityRepository reads in service or handler code.
 - **One FDB transaction per write.** CreateAtomic batches everything. No multi-step create sequences.
 - **UUIDv7 for all new entities.** k-sortable, creation-order range scans without coordination.
-- **Descriptions are Markdown TEXT** — not HTML, no stripped copy.
-- **Updates are partial everywhere** — only provided fields change.
-- **Migrations run via `./server migrate` only** — never on HTTP startup.
-- **Optional MCP input fields use `*string` with `json:",omitempty"`** — required by `google/jsonschema-go`.
-- **`jsonschema:"..."` tag values are descriptions** — not constraints. Do not use them for validation.
+- **Descriptions are Markdown TEXT**: not HTML, no stripped copy.
+- **Updates are partial everywhere**: only provided fields change.
+- **Migrations run via `./server migrate` only**: never on HTTP startup.
+- **Optional MCP input fields use `*string` with `json:",omitempty"`**: required by `google/jsonschema-go`.
+- **`jsonschema:"..."` tag values are descriptions**: not constraints. Do not use them for validation.
 - `gen_random_uuid()` requires `CREATE EXTENSION pgcrypto` on YugabyteDB (run manually before first migration).
-- YugabyteDB does not support `GENERATED ALWAYS AS STORED` columns — no tsvector columns.
+- YugabyteDB does not support `GENERATED ALWAYS AS STORED` columns; no tsvector columns.
 
 ---
 
 ## SQL schema (auth only)
 
 ```
-users          identity — email, display_name, avatar_url
-api_tokens     auth — token_hash → user_id
-org_members    auth gate — org_id, user_id, role
+users          identity: email, display_name, avatar_url
+api_tokens     auth: token_hash → user_id
+org_members    auth gate: org_id, user_id, role
 ```
 
 That is the complete SQL surface.
@@ -322,9 +322,9 @@ presence_on_node      orgID, nodeID, userID                          → {last_s
 - Deploy: `make deploy` (rsync + docker build --network host + restart)
 - Seed (after deploy or to propagate type changes):
   ```bash
-  ssh tack 'cd /root/tack && docker compose exec -e SEED_EMAIL=alex@goodkind.io -e SEED_NAME=Alexander -e SEED_ORG_SLUG=my-org -e SEED_ORG_NAME=MyOrg -e SEED_WORKSPACE_SLUG=main -e SEED_WORKSPACE_NAME=Main app /server seed'
+  ssh tack 'cd /root/tack && docker compose exec -e SEED_EMAIL=alex@goodkind.io -e SEED_NAME=Alexander -e SEED_ORG_SLUG=goodkind-io -e SEED_ORG_NAME=goodkind.io -e SEED_WORKSPACE_SLUG=main -e SEED_WORKSPACE_NAME=Main app /server seed'
   ```
-- Org slug is `my-org` (not the org name). Seed is idempotent and always re-runs SeedOrg + SeedWorkspace to propagate type/feature changes.
+- Org slug is `goodkind-io`, org name is `goodkind.io` (not the org name). Seed is idempotent and always re-runs SeedOrg + SeedWorkspace to propagate type/feature changes.
 
 ---
 

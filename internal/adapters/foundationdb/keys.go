@@ -5,7 +5,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// FDB key space prefixes — all keys are encoded via the tuple layer.
+// FDB key space prefixes: all keys are encoded via the tuple layer.
 // Every key is scoped to an org: (prefix, orgID, ...) to ensure tenant isolation.
 // See CLAUDE.md for the full key space reference with access patterns.
 
@@ -25,7 +25,7 @@ const (
 	keyLabelOnNode     = "label_on_node"
 	keyNodesWithLabel = "issues_with_label"
 
-	// Containment — generic parent-child links between any node types.
+	// Containment: generic parent-child links between any node types.
 	// (containment, orgID, containerID, childID) → ContainmentValue JSON
 	keyContainment = "containment"
 	// (containment_reverse, orgID, childID, containerID) → nil
@@ -95,7 +95,7 @@ const (
 	keyNodeTypeDefinition = "node_type_definition"
 	keySequence           = "sequence"
 
-	// Secondary property index — sorted by encoded value for fast filtered listing.
+	// Secondary property index: sorted by encoded value for fast filtered listing.
 	keyNodeByProperty = "node_by_property"
 
 	// NodeBySequence maps (orgID, projectID, nodeType, sequenceID) → nodeID bytes.
@@ -103,11 +103,11 @@ const (
 	// Written atomically alongside the entity on create; cleared on delete.
 	keyNodeBySequence = "node_by_sequence"
 
-	// NodeListView materialized read view — mirrors node_instance key structure.
+	// NodeListView materialized read view: mirrors node_instance key structure.
 	// (node_list_view, orgID, workspaceID, nodeType, nodeID) → JSON NodeListView
 	keyNodeListView = "node_list_view"
 
-	// NodeResolve global resolution record — NOT org-scoped, keyed by nodeID only.
+	// NodeResolve global resolution record: NOT org-scoped, keyed by nodeID only.
 	// Allows Get by nodeID without knowing org/workspace upfront.
 	// (node_resolve, nodeID) → JSON NodeResolve
 	keyNodeResolve = "node_resolve"

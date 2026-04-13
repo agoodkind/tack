@@ -9,7 +9,7 @@ import (
 )
 
 // QueryTracer implements pgx.QueryTracer to log every database query.
-// Attaches to the pgxpool so all queries — from any repo — are covered.
+// Attaches to the pgxpool so all queries from any repo are covered.
 type QueryTracer struct{}
 
 type queryStartKey struct{}

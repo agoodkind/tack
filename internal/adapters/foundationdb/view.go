@@ -65,7 +65,7 @@ func (s *ViewStore) Get(ctx context.Context, nodeID uuid.UUID) (*node.NodeListVi
 }
 
 // Resolve returns the org/workspace/type context for any entity UUID.
-// Reads the global (node_resolve, entityID) record — a single FDB point read.
+// Reads the global (node_resolve, entityID) record: a single FDB point read.
 func (s *ViewStore) Resolve(ctx context.Context, entityID uuid.UUID) (*node.NodeResolve, error) {
 	key := fdb.Key(nodeResolveKey(entityID))
 	var result *node.NodeResolve

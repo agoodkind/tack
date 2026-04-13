@@ -11,7 +11,7 @@ import "context"
 type NodeDoc struct {
 	ID string `json:"id"`
 
-	// Filterable attributes — kept as strings for Meilisearch filter syntax.
+	// Filterable attributes: kept as strings for Meilisearch filter syntax.
 	OrgID       string `json:"org_id"`
 	WorkspaceID string `json:"workspace_id"`
 	ProjectID   string `json:"project_id,omitempty"`
@@ -25,7 +25,7 @@ type NodeDoc struct {
 	Description string `json:"description,omitempty"`
 	SequenceID  int32  `json:"sequence_id"`
 
-	// Display fields — sufficient to render a list row without FDB reads.
+	// Display fields: sufficient to render a list row without FDB reads.
 	AssigneeIDs []string       `json:"assignee_ids,omitempty"`
 	LabelIDs    []string       `json:"label_ids,omitempty"`
 	StartDate   string         `json:"start_date,omitempty"`

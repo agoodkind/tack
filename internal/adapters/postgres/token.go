@@ -45,7 +45,7 @@ func (r *TokenRepo) Validate(ctx context.Context, raw string) (*token.Token, err
 	return t, nil
 }
 
-// Create stores a hashed token. raw is the plaintext — it is hashed here and never stored.
+// Create stores a hashed token. raw is the plaintext; it is hashed here and never stored.
 func (r *TokenRepo) Create(ctx context.Context, userID uuid.UUID, raw, label string) (*token.Token, error) {
 	const q = `
 		INSERT INTO api_tokens (user_id, token_hash, label)

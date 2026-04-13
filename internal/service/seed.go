@@ -57,7 +57,7 @@ func (s *WorkspaceSeeder) SeedOrg(ctx context.Context, orgID uuid.UUID) {
 }
 
 // SeedWorkspace writes default PropertyDefs and built-in NodeTypes for the given workspace.
-// Errors are non-fatal — the workspace is usable even if seeding partially fails.
+// Errors are non-fatal; the workspace is usable even if seeding partially fails.
 func (s *WorkspaceSeeder) SeedWorkspace(ctx context.Context, orgID, workspaceID uuid.UUID) {
 	for _, def := range defaultPropertyDefs(orgID, workspaceID) {
 		if err := s.properties.SetDef(ctx, def); err != nil {

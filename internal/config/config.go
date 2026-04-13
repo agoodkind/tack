@@ -17,7 +17,7 @@ type Config struct {
 	LogMaxBackups int    `env:"LOG_MAX_BACKUPS"  envDefault:"0"`   // 0 = unlimited
 	LogMaxAgeDays int    `env:"LOG_MAX_AGE_DAYS" envDefault:"0"`   // 0 = unlimited
 
-	// Seed — used by `./server seed` only.
+	// Seed: used by `./server seed` only.
 	SeedEmail         string `env:"SEED_EMAIL"`
 	SeedName          string `env:"SEED_NAME"`
 	SeedOrgName       string `env:"SEED_ORG_NAME"       envDefault:"My Org"`
@@ -28,14 +28,14 @@ type Config struct {
 	// If unset, a random token is generated and printed once.
 	SeedAPIToken string `env:"SEED_API_TOKEN"`
 
-	// Meilisearch — optional, no-op stub used when unset.
+	// Meilisearch: optional, no-op stub used when unset.
 	MeiliURL       string `env:"MEILI_URL"        envDefault:"http://localhost:7700"`
 	MeiliMasterKey string `env:"MEILI_MASTER_KEY" envDefault:"tack-dev-meili-key-change-in-prod"`
 
-	// Temporal — background workflow engine. Defaults to localhost for dev.
+	// Temporal: background workflow engine. Defaults to localhost for dev.
 	TemporalAddress string `env:"TEMPORAL_ADDRESS" envDefault:"localhost:7233"`
 
-	// Optional — if unset, OTEL tracing is a no-op.
+	// Optional: if unset, OTEL tracing is a no-op.
 	OTELEndpoint string `env:"OTEL_EXPORTER_OTLP_ENDPOINT"`
 }
 

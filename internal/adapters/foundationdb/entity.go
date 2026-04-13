@@ -447,7 +447,7 @@ func (s *EntityStore) CreateAtomic(ctx context.Context, orgID, projectID uuid.UU
 			tr.Set(fdb.Key(nodeListViewKey(nv.OrgID, nv.WorkspaceID, nv.NodeType, nv.ID)), viewBytes)
 		}
 
-		// 7. Write initial assignments (no pre-clearing needed — entity is new).
+		// 7. Write initial assignments (no pre-clearing needed; entity is new).
 		if len(assigneeIDs) > 0 {
 			aVal, _ := json.Marshal(AssignmentValue{AssignedBy: actorID, AssignedAt: now})
 			orgStr := nv.OrgID.String()
@@ -460,7 +460,7 @@ func (s *EntityStore) CreateAtomic(ctx context.Context, orgID, projectID uuid.UU
 			}
 		}
 
-		// 8. Write initial labels (no pre-clearing needed — entity is new).
+		// 8. Write initial labels (no pre-clearing needed; entity is new).
 		if len(labelIDs) > 0 {
 			lVal, _ := json.Marshal(LabelOnNodeValue{AddedBy: actorID, AddedAt: now})
 			orgStr := nv.OrgID.String()

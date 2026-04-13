@@ -31,7 +31,7 @@ func runSeed(cfg *config.Config) {
 
 	ctx := context.Background()
 
-	// Migrate first — safe to call on an already-migrated DB.
+	// Migrate first: safe to call on an already-migrated DB.
 	if err := postgres.Migrate(ctx, cfg.DatabaseURL, migrations.FS); err != nil {
 		slog.Error("seed: migrate", "err", err)
 		os.Exit(1)
@@ -83,7 +83,7 @@ func runSeed(cfg *config.Config) {
 	// Check if org already exists by slug
 	existingOrgID, err := fdbStores.Entities.GetBySlug(ctx, "org", cfg.SeedOrgSlug)
 	if err == nil {
-		// Org exists — still re-seed types to propagate feature/hierarchy changes.
+		// Org exists: still re-seed types to propagate feature/hierarchy changes.
 		orgID = existingOrgID
 		seeder.SeedOrg(ctx, orgID)
 		slog.Info("seed: org exists", "id", orgID, "slug", cfg.SeedOrgSlug)
@@ -147,7 +147,7 @@ func runSeed(cfg *config.Config) {
 	wsID := uuid.New()
 	wsResolve, err := fdbStores.Entities.GetBySlug(ctx, "workspace", cfg.SeedWorkspaceSlug)
 	if err == nil {
-		// Workspace exists — still re-seed types/props to propagate feature changes.
+		// Workspace exists: still re-seed types/props to propagate feature changes.
 		wsID = wsResolve
 		seeder.SeedWorkspace(ctx, orgID, wsID)
 		slog.Info("seed: workspace exists", "id", wsID, "slug", cfg.SeedWorkspaceSlug)
@@ -205,10 +205,10 @@ func runSeed(cfg *config.Config) {
 		raw = generateToken()
 	}
 	if _, err := tokenRepo.Create(ctx, u.ID, raw, "seed"); err != nil {
-		// Duplicate hash means this exact token was already seeded — not an error.
+		// Duplicate hash means this exact token was already seeded; not an error.
 		slog.Info("seed: token already exists or conflict, skipping")
 	} else {
-		fmt.Printf("\n✓ API token (copy now — not shown again):\n\n  %s\n\n", raw)
+		fmt.Printf("\n✓ API token (copy now; not shown again):\n\n  %s\n\n", raw)
 		fmt.Printf("Add to your MCP config:\n")
 		fmt.Printf(`  "Authorization": "Bearer %s"`+"\n\n", raw)
 	}

@@ -15,7 +15,7 @@ type NodeListQuery struct {
 	WorkspaceID uuid.UUID
 	NodeType    string
 
-	// Primary index selector — set exactly one for an indexed scan.
+	// Primary index selector: set exactly one for an indexed scan.
 	ByProject  *uuid.UUID
 	ByState    *uuid.UUID
 	ByProperty *PropertyFilter
@@ -29,7 +29,7 @@ type NodeListQuery struct {
 	FilterIsDraft  *bool
 	FilterAssignee *uuid.UUID
 
-	// Pagination — enforced at the storage layer.
+	// Pagination: enforced at the storage layer.
 	// 0 = no limit; use Stream for unbounded scans.
 	Limit  int
 	Cursor string

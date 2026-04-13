@@ -12,7 +12,7 @@ import (
 )
 
 // NewPool creates a connection pool without running migrations.
-// tracer may be nil — when provided, every query is logged via it.
+// tracer may be nil; when provided, every query is logged via it.
 func NewPool(ctx context.Context, dsn string, tracer pgx.QueryTracer) (*pgxpool.Pool, error) {
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
@@ -31,7 +31,7 @@ func NewPool(ctx context.Context, dsn string, tracer pgx.QueryTracer) (*pgxpool.
 	return pool, nil
 }
 
-// Migrate runs pending goose migrations. Called by the `migrate` subcommand only —
+// Migrate runs pending goose migrations. Called by the `migrate` subcommand only,
 // never on HTTP server startup (required for safe horizontal scaling).
 func Migrate(ctx context.Context, dsn string, migrationsFS fs.FS) error {
 	goose.SetBaseFS(migrationsFS)

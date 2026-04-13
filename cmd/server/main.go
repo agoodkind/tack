@@ -101,7 +101,7 @@ func runServer(cfg *config.Config) {
 
 	searcher := buildSearcher(cfg)
 
-	// Auth repos (SQL only — users, api_tokens stay in SQL)
+	// Auth repos (SQL only: users, api_tokens stay in SQL)
 	tokenRepo := postgres.NewTokenRepo(pool)
 	userRepo  := postgres.NewUserRepo(pool)
 	orgMembers := postgres.NewOrgMemberRepo(pool)

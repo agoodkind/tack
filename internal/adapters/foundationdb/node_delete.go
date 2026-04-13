@@ -84,8 +84,8 @@ func (s *NodeDeleteStore) DeleteNode(_ context.Context, orgID, nodeID uuid.UUID)
 		clearNodeRange(keyReactionOnNode)
 		clearNodeRange(keyWatcherOfNode)    // reverse (node_watched_by_user) left as GC
 		clearNodeRange(keyMentionInNode)
-		clearNodeRange(keyRelationFromNode) // outgoing — reverse (relation_to_node) left as GC
-		clearNodeRange(keyRelationToNode)   // incoming — forward (relation_from_node) left as GC
+		clearNodeRange(keyRelationFromNode) // outgoing; reverse (relation_to_node) left as GC
+		clearNodeRange(keyRelationToNode)   // incoming; forward (relation_from_node) left as GC
 
 		// Assignments: clear forward range + scan each user's reverse entries.
 		clearNodeRange(keyAssignmentOnNode)

@@ -66,7 +66,7 @@ func (c *Client) Delete(_ context.Context, collection, id string) error {
 // Search returns NodeDocs matching query, scoped by equality filters, plus
 // facet counts for entity_type and project_id.
 // Returns a non-nil empty slice when the search succeeded but matched nothing.
-// All NodeDoc fields are populated from the indexed document — no FDB reads needed.
+// All NodeDoc fields are populated from the indexed document; no FDB reads needed.
 func (c *Client) Search(_ context.Context, collection, query string, filters map[string]string) ([]domainsearch.NodeDoc, map[string]map[string]int64, error) {
 	filterParts := make([]string, 0, len(filters))
 	for k, v := range filters {
