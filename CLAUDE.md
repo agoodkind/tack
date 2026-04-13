@@ -316,13 +316,15 @@ presence_on_node      orgID, nodeID, userID                          → {last_s
 ## Deployment (CT 117)
 
 - LXC container at `3d06:bad:b01::117`, SSH alias `tack` (ProxyJump vault)
-- Services: YugabyteDB (port 5433), FoundationDB, Meilisearch — all via docker-compose
-- Binary: `/root/tack/bin/server`, start script: `/root/tack/start.sh`, logs: `/var/log/tack.log`
-- Sync + build + restart:
+- IPv6-only network with NAT64 gateway for external access
+- Services: YugabyteDB (port 5433), FoundationDB, Meilisearch, Temporal -- all via docker-compose
+- App runs as Docker container (`tack-server:latest`), logs via `docker logs tack-app-1`
+- Deploy: `make deploy` (rsync + docker build --network host + restart)
+- Seed (after deploy or to propagate type changes):
   ```bash
-  rsync -av --exclude='.git' --exclude='bin/' ~/Sites/tack/ tack:/root/tack/
-  ssh tack 'cd /root/tack && CGO_ENABLED=1 go build -tags fdb -o bin/server ./cmd/server && bash start.sh'
+  ssh tack 'cd /root/tack && docker compose exec -e SEED_EMAIL=alex@goodkind.io -e SEED_NAME=Alexander -e SEED_ORG_SLUG=my-org -e SEED_ORG_NAME=MyOrg -e SEED_WORKSPACE_SLUG=main -e SEED_WORKSPACE_NAME=Main app /server seed'
   ```
+- Org slug is `my-org` (not the org name). Seed is idempotent and always re-runs SeedOrg + SeedWorkspace to propagate type/feature changes.
 
 ---
 
@@ -333,4 +335,8 @@ presence_on_node      orgID, nodeID, userID                          → {last_s
 - Errors are typed (`domain.ErrNotFound`, `domain.ErrUnauthenticated`). No raw string errors leaking to clients.
 - Logging uses `telemetry.L(ctx)` so every log line carries the request ID.
 - orgID never appears as a parameter in service methods or API inputs.
+- **No hardcoded type names in runtime code.** Exported NodeType constants do not exist. Seed uses unexported constants. Runtime code reads type keys from FDB-loaded NodeType data.
+- **Features are `[]string`** on NodeType. User-extensible without code changes.
+- **Hierarchy is a DAG** defined by CanLiveUnder. The Resolver walks the scope chain for N levels. No depth assumptions.
+- **MCP tool names, parameter names, and describe responses** are all derived from type slugs and CanContain at registration time.
 - No tech debt disguised as "we can fix this later for scale." If it won't scale, don't ship it.
