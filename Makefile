@@ -69,9 +69,9 @@ seed:
 .PHONY: deploy
 deploy:
 	rsync -az --delete --exclude='.git' --exclude='bin/' . tack:/root/tack/
-	ssh tack 'cd /root/tack && docker build --network host \
-		--build-arg COMMIT=$$(git rev-parse HEAD 2>/dev/null || echo unknown) \
-		--build-arg BUILD_TIME=$$(date -u +%Y-%m-%dT%H:%M:%SZ) \
-		--build-arg TAG=$$(git describe --tags --always --dirty 2>/dev/null || echo dev) \
-		--build-arg DIRTY=$$(git diff --quiet 2>/dev/null && echo false || echo true) \
-		-t tack-server . && docker compose up -d --no-build app'
+	ssh tack "cd /root/tack && docker build --network host \
+		--build-arg COMMIT=$(COMMIT) \
+		--build-arg BUILD_TIME=$(BUILD_TIME) \
+		--build-arg TAG=$(TAG) \
+		--build-arg DIRTY=$(DIRTY) \
+		-t tack-server . && docker compose up -d --no-build app"
