@@ -138,6 +138,6 @@ func (h *Handler) buildServer(nodeTypes []*node.NodeType) *mcpserver.MCPServer {
 	}
 
 	tools.RegisterResources(s, h.reader, resolver, nodeTypes)
-	tools.RegisterPrompts(s, nodeTypes)
+	tools.RegisterPrompts(s, resolver, nodeTypes)
 	return s
 }
