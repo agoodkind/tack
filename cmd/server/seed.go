@@ -134,10 +134,10 @@ func ensureNode(ctx context.Context, s *fdbadapter.Stores, typeKey, slug, name s
 		props["parent_id"] = parentRaw
 	}
 
-	// The org node is self-hosted: OrgID == ID. For child nodes the parent is
-	// assumed to be in the same org.
+	// A root node (no parent) is its own org: OrgID == ID. Every other node
+	// inherits its org from the parent. Rooted by presence, not by type name.
 	orgID := parentID
-	if typeKey == "org" {
+	if parentID == uuid.Nil {
 		orgID = id
 	}
 
