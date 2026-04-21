@@ -10,17 +10,15 @@ import (
 	"syscall"
 	"time"
 
-	"goodkind.io/tack/internal/auth"
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	mcpadapter "goodkind.io/tack/internal/adapters/mcp"
 	"goodkind.io/tack/internal/adapters/postgres"
 	searchadapter "goodkind.io/tack/internal/adapters/search"
+	"goodkind.io/tack/internal/auth"
 	"goodkind.io/tack/internal/config"
-	"goodkind.io/tack/internal/domain/node"
 	domainsearch "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/service"
 	"goodkind.io/tack/internal/telemetry"
-	"goodkind.io/tack/internal/temporal"
 	"goodkind.io/tack/internal/version"
 	"goodkind.io/tack/migrations"
 	"golang.org/x/net/http2"
@@ -82,51 +80,32 @@ func runServer(cfg *config.Config) {
 		os.Exit(1)
 	}
 
-	// Temporal: client + worker
-	temporalClient, err := temporal.NewClient(cfg.TemporalAddress)
-	if err != nil {
-		slog.Error("temporal", "err", err)
-		os.Exit(1)
-	}
-	defer temporalClient.Close()
-
-	acts := &temporal.Activities{NodeDeleter: fdbStores.NodeDeleter}
-	w := temporal.NewWorker(temporalClient, acts)
-	if err := w.Start(); err != nil {
-		slog.Error("temporal worker", "err", err)
-		os.Exit(1)
-	}
-	defer w.Stop()
-
-	nodeCleanup := &temporal.NodeCleanupScheduler{Client: temporalClient}
-
 	searcher := buildSearcher(cfg)
 
-	// Auth repos (SQL only: users, api_tokens stay in SQL)
 	tokenRepo := postgres.NewTokenRepo(pool)
-	userRepo  := postgres.NewUserRepo(pool)
+	userRepo := postgres.NewUserRepo(pool)
 	orgMembers := postgres.NewOrgMemberRepo(pool)
 
-	// Services
-	noopAutomations := &node.NoopAutomationExecutor{}
-	seeder    := service.NewWorkspaceSeeder(fdbStores.Properties, fdbStores.NodeTypes)
-	nodeSvc   := service.NewNodeService(
-		fdbStores.Entities, fdbStores.Views, fdbStores.NodeTypes, fdbStores.Properties,
-		fdbStores.Activity, fdbStores.Assignments, fdbStores.Labels,
-		fdbStores.Containment, fdbStores.NodeDeleter, nodeCleanup, searcher, noopAutomations,
+	nodeSvc := service.NewNodeService(
+		fdbStores.Nodes,
+		fdbStores.Views,
+		fdbStores.NodeTypes,
+		fdbStores.PropertyDefs,
+		fdbStores.Relationships,
+		fdbStores.NodeDeleter,
+		searcher,
 	)
-	_ = seeder // used by seed command
 
 	mcpHandler := mcpadapter.NewHandler(mcpadapter.Deps{
-		NodeSvc:    nodeSvc,
-		Entities:   fdbStores.Entities,
-		Reader:     fdbStores.Views,
-		NodeTypes:  fdbStores.NodeTypes,
-		Properties: fdbStores.Properties,
-		Comments:   fdbStores.Comments,
-		Members:    orgMembers,
-		Users:      userRepo,
-		Searcher:   searcher,
+		NodeSvc:       nodeSvc,
+		Nodes:         fdbStores.Nodes,
+		Reader:        fdbStores.Views,
+		NodeTypes:     fdbStores.NodeTypes,
+		PropertyDefs:  fdbStores.PropertyDefs,
+		Relationships: fdbStores.Relationships,
+		Members:       orgMembers,
+		Users:         userRepo,
+		Searcher:      searcher,
 	})
 
 	var authMiddleware func(http.Handler) http.Handler
@@ -138,8 +117,6 @@ func runServer(cfg *config.Config) {
 	}
 
 	mux := http.NewServeMux()
-
-	// MCP Streamable HTTP
 	mcpWithAuth := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
 			w.Header().Set("Allow", "POST")
@@ -150,8 +127,6 @@ func runServer(cfg *config.Config) {
 	})
 	mux.Handle("/mcp", mcpWithAuth)
 	mux.Handle("/mcp/", mcpWithAuth)
-
-	// TODO: generic NodeService Connect-RPC handler (TACK-74)
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	slog.Info("starting server",
@@ -188,12 +163,14 @@ func runServer(cfg *config.Config) {
 	}
 }
 
-// buildSearcher creates a Meilisearch Client and ensures the nodes index is
-// configured. Falls back to a no-op Searcher if setup fails (search degrades
-// gracefully rather than blocking server startup).
+// buildSearcher creates a Meilisearch client and ensures the nodes index is
+// configured with a generic filterable set. Falls back to a no-op Searcher on
+// setup failure.
 func buildSearcher(cfg *config.Config) domainsearch.Searcher {
 	meiliClient := searchadapter.New(cfg.MeiliURL, cfg.MeiliMasterKey)
-	if err := meiliClient.EnsureIndex("nodes", []string{"org_id", "workspace_id", "project_id", "entity_type", "state_id", "priority", "is_draft"}); err != nil {
+	// Generic filterable attributes only. Per-property filterability is added
+	// by callers at index/update time via PropertyDef.Indexed.
+	if err := meiliClient.EnsureIndex("nodes", []string{"org_id", "node_type"}); err != nil {
 		slog.Error("meilisearch.setup_failed",
 			slog.String("url", cfg.MeiliURL),
 			slog.String("err", err.Error()),

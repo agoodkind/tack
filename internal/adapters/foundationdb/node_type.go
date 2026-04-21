@@ -5,10 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"goodkind.io/tack/internal/domain/node"
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
-	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/domain/node"
 )
 
 // NodeTypeStore implements node.TypeRepository using FoundationDB.
@@ -25,18 +24,16 @@ func (s *NodeTypeStore) Set(_ context.Context, nt *node.NodeType) error {
 	if err != nil {
 		return fmt.Errorf("marshal node type: %w", err)
 	}
-	key := tuple.Tuple{keyNodeTypeDefinition, nt.OrgID.String(), nt.ID.String()}.Pack()
 	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
-		tr.Set(fdb.Key(key), b)
+		tr.Set(fdb.Key(nodeTypeDefKey(nt.OrgID, nt.ID)), b)
 		return nil, nil
 	})
 	return err
 }
 
 func (s *NodeTypeStore) Get(_ context.Context, orgID, typeID uuid.UUID) (*node.NodeType, error) {
-	key := tuple.Tuple{keyNodeTypeDefinition, orgID.String(), typeID.String()}.Pack()
 	val, err := s.db.ReadTransact(func(tr fdb.ReadTransaction) (any, error) {
-		return tr.Get(fdb.Key(key)).Get()
+		return tr.Get(fdb.Key(nodeTypeDefKey(orgID, typeID))).Get()
 	})
 	if err != nil {
 		return nil, fmt.Errorf("fdb get node type: %w", err)
@@ -53,8 +50,7 @@ func (s *NodeTypeStore) Get(_ context.Context, orgID, typeID uuid.UUID) (*node.N
 }
 
 func (s *NodeTypeStore) List(_ context.Context, orgID uuid.UUID) ([]*node.NodeType, error) {
-	prefix := tuple.Tuple{keyNodeTypeDefinition, orgID.String()}.Pack()
-	pr, err := fdb.PrefixRange(prefix)
+	pr, err := fdb.PrefixRange(nodeTypeDefPrefix(orgID))
 	if err != nil {
 		return nil, err
 	}
@@ -77,9 +73,8 @@ func (s *NodeTypeStore) List(_ context.Context, orgID uuid.UUID) ([]*node.NodeTy
 }
 
 func (s *NodeTypeStore) Delete(_ context.Context, orgID, typeID uuid.UUID) error {
-	key := tuple.Tuple{keyNodeTypeDefinition, orgID.String(), typeID.String()}.Pack()
 	_, err := s.db.Transact(func(tr fdb.Transaction) (any, error) {
-		tr.Clear(fdb.Key(key))
+		tr.Clear(fdb.Key(nodeTypeDefKey(orgID, typeID)))
 		return nil, nil
 	})
 	return err

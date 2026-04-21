@@ -7,8 +7,7 @@ import (
 	"github.com/google/uuid"
 )
 
-
-// Op enumerates the operations that can be enabled on a custom node type.
+// Op enumerates the operations that can be enabled on a node type.
 type Op string
 
 const (
@@ -22,23 +21,23 @@ const (
 // AllOps is the default set of allowed operations for a new node type.
 var AllOps = []Op{OpCreate, OpRead, OpList, OpUpdate, OpDelete}
 
-// Feature strings are capability declarations on a NodeType. Built-in features
-// drive runtime behavior (service layer, MCP tools, UI). User-defined features
-// are stored and queryable but inert until a consumer is registered.
+// Feature strings are capability declarations on a NodeType. Features drive
+// runtime behavior: which properties apply, which relationships are allowed,
+// which MCP tools get registered. Features are extensible.
 //
-// Built-in features (shipped with seed):
+// Built-in features shipped by seed:
 const (
-	FeatureHasSlug                = "has_slug"                  // instances own an identifier prefix e.g. "ENG"
-	FeatureHasWorkflowStates      = "has_workflow_states"       // instances have StateID, can transition
-	FeatureHasAssignees           = "has_assignees"             // instances can be assigned to users
-	FeatureHasSequenceID          = "has_sequence_id"           // instances get {parent_slug}-{N} identifier
-	FeatureIsContainer            = "is_container"              // instances can contain child nodes
-	FeatureHasDueDates            = "has_due_dates"             // instances have start/end date system props
-	FeatureHasComments            = "has_comments"              // instances support threaded comments
-	FeatureHasActivity            = "has_activity"              // instances emit activity events on write
-	FeatureIsEntryPoint           = "is_entry_point"            // top-level MCP/UI entry (workspace today)
-	FeatureIsScope                = "is_scope"                  // defines an FDB key scope level (org, ws, proj)
-	FeatureExcludeFromGenericTools = "exclude_from_generic_tools" // has dedicated tool registrations, skip generic CRUD
+	FeatureHasSlug                 = "has_slug"                    // instances own a slug / identifier prefix
+	FeatureHasWorkflowStates       = "has_workflow_states"         // supports a workflow-state property
+	FeatureHasAssignees            = "has_assignees"               // supports assigned_to relationships
+	FeatureHasSequenceID           = "has_sequence_id"             // supports a sequence property
+	FeatureIsContainer             = "is_container"                // can contain child nodes
+	FeatureHasDueDates             = "has_due_dates"               // supports start_date / due_date properties
+	FeatureHasComments             = "has_comments"                // supports child comment nodes
+	FeatureHasActivity             = "has_activity"                // emits activity nodes on write
+	FeatureIsEntryPoint            = "is_entry_point"              // top-level MCP entry (workspace today)
+	FeatureIsScope                 = "is_scope"                    // defines an FDB key scope level
+	FeatureExcludeFromGenericTools = "exclude_from_generic_tools"  // skip generic CRUD tool registration
 )
 
 // Features is a set of capability strings on a NodeType.
@@ -54,11 +53,80 @@ func (f Features) Has(feat string) bool {
 	return false
 }
 
+// HasAny reports whether the feature set includes any of the given features.
+func (f Features) HasAny(feats ...string) bool {
+	for _, want := range feats {
+		if f.Has(want) {
+			return true
+		}
+	}
+	return false
+}
 
-// HierarchyDepth computes the depth of a NodeType in the type DAG by walking
-// CanLiveUnder. Types with no CanLiveUnder (org) are depth 0. Types that live
-// under depth-0 types (workspace) are depth 1, and so on. Computed once at
-// registration time, not per request.
+// UnmarshalJSON handles the legacy uint32 bitmask and the current []string format.
+// The bitmask support exists to read pre-migration FDB records; new writes always
+// produce []string.
+func (f *Features) UnmarshalJSON(b []byte) error {
+	var ss []string
+	if err := json.Unmarshal(b, &ss); err == nil {
+		*f = ss
+		return nil
+	}
+	var bits uint32
+	if err := json.Unmarshal(b, &bits); err != nil {
+		return err
+	}
+	mapping := []struct {
+		bit  uint32
+		name string
+	}{
+		{1 << 0, FeatureHasSlug},
+		{1 << 1, FeatureHasWorkflowStates},
+		{1 << 2, FeatureHasAssignees},
+		{1 << 3, FeatureHasSequenceID},
+		{1 << 4, FeatureIsContainer},
+		{1 << 5, FeatureHasDueDates},
+		{1 << 6, FeatureHasComments},
+		{1 << 7, FeatureHasActivity},
+		{1 << 8, FeatureIsEntryPoint},
+		{1 << 9, FeatureIsScope},
+		{1 << 10, FeatureExcludeFromGenericTools},
+	}
+	var out Features
+	for _, m := range mapping {
+		if bits&m.bit != 0 {
+			out = append(out, m.name)
+		}
+	}
+	*f = out
+	return nil
+}
+
+// NodeType defines a type in the extensibility hierarchy. NodeType records are
+// themselves nodes of NodeType "node_type" in the same FDB key space as any
+// other node. This is configuration metadata, not runtime data.
+type NodeType struct {
+	ID             uuid.UUID   `json:"id"`
+	OrgID          uuid.UUID   `json:"org_id"`
+	Name           string      `json:"name"`
+	Slug           string      `json:"slug"`
+	Color          string      `json:"color"`
+	Icon           string      `json:"icon"`
+	AllowedOps     []Op        `json:"allowed_ops"`
+	PropertyDefIDs []uuid.UUID `json:"property_def_ids"`
+	PluralSlug     string      `json:"plural_slug,omitempty"`
+	// IsBuiltin marks seeded built-in types. Built-in types cannot be deleted via MCP.
+	IsBuiltin bool `json:"is_builtin,omitempty"`
+	// TypeKey is the stable internal dispatch key used by the seed. Empty for
+	// user-defined custom types. Slug and PluralSlug are user-mutable; TypeKey is not.
+	TypeKey      string   `json:"type_key,omitempty"`
+	Features     Features `json:"features,omitempty"`
+	CanContain   []string `json:"can_contain,omitempty"`
+	CanLiveUnder []string `json:"can_live_under,omitempty"`
+}
+
+// HierarchyDepth walks CanLiveUnder to compute how deep a NodeType sits in the
+// type DAG. Types with no parents are depth 0.
 func HierarchyDepth(nt *NodeType, typeIndex map[string]*NodeType) int {
 	if len(nt.CanLiveUnder) == 0 {
 		return 0
@@ -77,103 +145,75 @@ func HierarchyDepth(nt *NodeType, typeIndex map[string]*NodeType) int {
 	return maxParentDepth + 1
 }
 
-// BuildTypeIndex creates a lookup map from TypeKey to NodeType for use with HierarchyDepth.
+// BuildTypeIndex creates a lookup map from TypeKey (falling back to Slug) to NodeType.
 func BuildTypeIndex(types []*NodeType) map[string]*NodeType {
 	m := make(map[string]*NodeType, len(types))
 	for _, nt := range types {
-		if nt.TypeKey != "" {
-			m[nt.TypeKey] = nt
+		key := nt.TypeKey
+		if key == "" {
+			key = nt.Slug
+		}
+		if key != "" {
+			m[key] = nt
 		}
 	}
 	return m
 }
 
-// NodeType defines a user-defined type in the extensibility hierarchy.
-type NodeType struct {
-	ID             uuid.UUID   `json:"id"`
-	OrgID          uuid.UUID   `json:"org_id"`
-	Name           string      `json:"name"`
-	Slug           string      `json:"slug"`           // kebab-case, used in tool names
-	Color          string      `json:"color"`
-	Icon           string      `json:"icon"`
-	AllowedOps     []Op        `json:"allowed_ops"`    // which MCP tools are generated
-	PropertyDefIDs []uuid.UUID `json:"property_def_ids"`
-	// PluralSlug is used for list tool names: "tack_list_{plural_slug}".
-	// If empty, the tool registration falls back to Slug + "s".
-	PluralSlug string `json:"plural_slug,omitempty"`
-	// IsBuiltin marks seeded built-in types (issue, epic, cycle, module).
-	// Built-in types cannot be deleted via MCP.
-	IsBuiltin bool `json:"is_builtin,omitempty"`
-	// TypeKey is the stable internal dispatch key: "issue", "epic", "cycle", "module".
-	// Empty for user-defined custom types. Slug and PluralSlug are user-mutable;
-	// TypeKey is not.
-	TypeKey      string   `json:"type_key,omitempty"`
-	Features     Features `json:"features,omitempty"`
-	CanContain   []string     `json:"can_contain,omitempty"`    // TypeKeys this type can parent
-	CanLiveUnder []string     `json:"can_live_under,omitempty"` // TypeKeys this type can be a child of
+// Node is the single primary record for every entity in the system. Every
+// concept-specific value (workspace, project, state, assignees, labels,
+// priority, due dates, description, etc.) lives in Props as JSON-encoded
+// property values keyed by PropertyDef name. Everything that connects nodes
+// together lives in Relationship records, not on the node itself.
+//
+// The universal-fields rule for Node: a field earns a spot on the struct only
+// if it would exist on a node in a completely different product (CMS, CRM,
+// game engine) built on the same architecture.
+type Node struct {
+	ID        uuid.UUID                  `json:"id"`
+	OrgID     uuid.UUID                  `json:"org_id"`
+	NodeType  string                     `json:"node_type"`
+	Name      string                     `json:"name"`
+	Props     map[string]json.RawMessage `json:"props,omitempty"`
+	CreatedBy uuid.UUID                  `json:"created_by"`
+	UpdatedBy uuid.UUID                  `json:"updated_by"`
+	CreatedAt time.Time                  `json:"created_at"`
+	UpdatedAt time.Time                  `json:"updated_at"`
 }
 
-// NodeValue is the lean core stored in FDB for every node.
-// Properties (priority, due_date, etc.) live separately as PropertyValues
-// and are managed by EntityRepository alongside the NodeValue.
-type NodeValue struct {
-	ID          uuid.UUID  `json:"id"`
-	OrgID       uuid.UUID  `json:"org_id"`
-	WorkspaceID uuid.UUID  `json:"workspace_id"`
-	ProjectID   uuid.UUID  `json:"project_id"`
-	NodeType    string     `json:"node_type"`
-	Name        string     `json:"name"`
-	Description string     `json:"description,omitempty"`
-	StateID     *uuid.UUID `json:"state_id,omitempty"`
-	ParentID    *uuid.UUID `json:"parent_id,omitempty"`
-	SequenceID  int32      `json:"sequence_id"`
-	SortOrder   float64    `json:"sort_order"`
-	CreatedBy   uuid.UUID  `json:"created_by"`
-	UpdatedBy   uuid.UUID  `json:"updated_by"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
+// Relationship is a generic directed edge between two nodes. The RelationType
+// string carries the semantics: "assigned_to", "labeled_with", "child_of",
+// "watches", "mentioned_in", "reacted_to", "comment_of", etc.
+//
+// Relationships replace all dedicated concept-specific join records: assignments,
+// labels-on-nodes, parent-child containment, watchers, mentions, reactions.
+// New relation types are user-extensible; nothing in the storage layer privileges
+// one RelationType over another.
+type Relationship struct {
+	OrgID        uuid.UUID                  `json:"org_id"`
+	SourceID     uuid.UUID                  `json:"source_id"`
+	RelationType string                     `json:"relation_type"`
+	TargetID     uuid.UUID                  `json:"target_id"`
+	CreatedBy    uuid.UUID                  `json:"created_by"`
+	CreatedAt    time.Time                  `json:"created_at"`
+	Props        map[string]json.RawMessage `json:"props,omitempty"`
 }
 
-// PropertyValueKind enumerates the supported value types for properties.
-type PropertyValueKind string
-
+// Well-known relation types seeded by default. Nothing stops callers from
+// defining their own; these exist so built-in features wire to consistent strings.
 const (
-	PropertyValueText      PropertyValueKind = "text"
-	PropertyValueInt       PropertyValueKind = "int"
-	PropertyValueFloat     PropertyValueKind = "float"
-	PropertyValueBool      PropertyValueKind = "bool"
-	PropertyValueTimestamp PropertyValueKind = "timestamp"
-	// PropertyValueEnum references a key from the PropertyDef's EnumOptions list.
-	PropertyValueEnum PropertyValueKind = "enum"
+	RelAssignedTo    = "assigned_to"
+	RelLabeledWith   = "labeled_with"
+	RelChildOf       = "child_of"
+	RelWatches       = "watches"
+	RelMentionedIn   = "mentioned_in"
+	RelReactedTo     = "reacted_to"
+	RelCommentOf     = "comment_of"
+	RelActivityOn    = "activity_on"
+	RelActorOf       = "actor_of"
 )
 
-// PropertyValue holds a typed value for a single property on a node.
-// Only the field matching Kind is populated; all others are nil.
-type PropertyValue struct {
-	Kind      PropertyValueKind `json:"kind"`
-	Text      *string           `json:"text,omitempty"`
-	Int       *int64            `json:"int,omitempty"`
-	Float     *float64          `json:"float,omitempty"`
-	Bool      *bool             `json:"bool,omitempty"`
-	Timestamp *time.Time        `json:"timestamp,omitempty"`
-	Enum      *string           `json:"enum,omitempty"`
-	// EnumRank is the SortRank of the selected EnumOption, populated by the
-	// service layer so the FDB secondary index sorts by rank without a
-	// PropertyDef lookup inside the write transaction.
-	EnumRank *int32 `json:"enum_rank,omitempty"`
-}
-
-// EnumOption is one option in a select or multi-select property.
-type EnumOption struct {
-	Key      string `json:"key"`
-	Label    string `json:"label"`
-	Color    string `json:"color,omitempty"`
-	// SortRank determines the ordering of this option in FDB secondary index scans.
-	// Lower rank = earlier in sort order. Assigned by the service on creation.
-	SortRank int32 `json:"sort_rank"`
-}
-
-// PropertyType enumerates supported value types for custom properties.
+// PropertyType enumerates value shapes a PropertyDef can declare.
 type PropertyType string
 
 const (
@@ -185,91 +225,40 @@ const (
 	PropertyTypeURL         PropertyType = "url"
 	PropertyTypeCheckbox    PropertyType = "checkbox"
 	PropertyTypeTimestamp   PropertyType = "timestamp"
+	PropertyTypeUUID        PropertyType = "uuid"
 )
 
-// PropertyDef defines a custom property that can be attached to one or more node types.
+// EnumOption is one option in a select or multi-select property.
+type EnumOption struct {
+	Key      string `json:"key"`
+	Label    string `json:"label"`
+	Color    string `json:"color,omitempty"`
+	SortRank int32  `json:"sort_rank"`
+}
+
+// PropertyDef defines a property that can be attached to one or more node types.
+// A PropertyDef applies to a NodeType when AppliesToFeatures is empty (applies
+// to all) or when the NodeType declares any of the listed features. PropertyDefs
+// are never scoped by hardcoded NodeType name lists.
 type PropertyDef struct {
-	ID          uuid.UUID  `json:"id"`
-	OrgID       uuid.UUID  `json:"org_id"`
-	WorkspaceID *uuid.UUID `json:"workspace_id,omitempty"`
-	ProjectID   *uuid.UUID `json:"project_id,omitempty"`
-	Name        string     `json:"name"`
-	Type        PropertyType `json:"type"`
-	// NodeTypes lists the node type slugs this property applies to.
-	// Empty means it applies to all node types in the workspace.
-	NodeTypes []string `json:"node_types,omitempty"`
-	// Indexed controls whether FDB maintains a secondary sort index on this
-	// property, enabling efficient filtered listing and ordering.
-	Indexed bool `json:"indexed"`
-	// IsSystem marks seeded defaults (priority, due_date, etc.) that ship
-	// pre-installed on every new workspace. Users may edit but not delete them.
-	IsSystem     bool           `json:"is_system"`
-	Options      []EnumOption   `json:"options,omitempty"` // for select / multi_select
-	Required     bool           `json:"required"`
-	DefaultValue *PropertyValue `json:"default_value,omitempty"`
+	ID    uuid.UUID    `json:"id"`
+	OrgID uuid.UUID    `json:"org_id"`
+	Name  string       `json:"name"`
+	Type  PropertyType `json:"type"`
+	// AppliesToFeatures scopes this PropertyDef to NodeTypes that declare any
+	// of these features. Empty means applies to every NodeType.
+	AppliesToFeatures []string `json:"applies_to_features,omitempty"`
+	// Indexed controls whether FDB maintains a secondary sort index on this property.
+	Indexed      bool            `json:"indexed"`
+	Options      []EnumOption    `json:"options,omitempty"` // for select / multi_select
+	Required     bool            `json:"required"`
+	DefaultValue json.RawMessage `json:"default_value,omitempty"`
 }
 
-// ActivityEvent is an immutable record of a change to a node.
-type ActivityEvent struct {
-	EventID   uuid.UUID      `json:"event_id"`
-	NodeID    uuid.UUID      `json:"node_id"`
-	Actor     uuid.UUID      `json:"actor"`
-	Verb      string         `json:"verb"`   // e.g. "created", "state_changed"
-	Detail    map[string]any `json:"detail"` // verb-specific payload
-	CreatedAt time.Time      `json:"created_at"`
-}
-
-// Properties is a resolved property bag for a node: def UUID to raw JSON value.
-// Used by PropertyRepository.GetValues; new code should prefer typed PropertyValue.
-type Properties map[uuid.UUID]json.RawMessage
-
-// SystemPropID returns a deterministic UUID for a system property definition
-// scoped to a workspace. Uses the same namespace as the seed/FDB layers.
-func SystemPropID(workspaceID uuid.UUID, propName string) uuid.UUID {
+// SystemPropID returns a deterministic UUID for a built-in property definition
+// scoped to an org. Used by seed and migration scripts to compute stable IDs
+// without FDB reads.
+func SystemPropID(orgID uuid.UUID, propName string) uuid.UUID {
 	ns := uuid.MustParse("7ac0face-dead-beef-cafe-000000000000")
-	return uuid.NewSHA1(ns, []byte(workspaceID.String()+":"+propName))
-}
-
-// TextPropertyValue creates a PropertyValue of kind Text.
-func TextPropertyValue(s string) *PropertyValue {
-	return &PropertyValue{Kind: PropertyValueText, Text: &s}
-}
-
-// AutomationTrigger identifies the event that fires an automation rule.
-type AutomationTrigger string
-
-const (
-	TriggerNodeCreated     AutomationTrigger = "node.created"
-	TriggerNodeUpdated     AutomationTrigger = "node.updated"
-	TriggerStateChanged    AutomationTrigger = "node.state_changed"
-	TriggerPropertyChanged AutomationTrigger = "node.property_changed"
-	TriggerNodeDeleted     AutomationTrigger = "node.deleted"
-)
-
-// SetPropertyAction sets a property value on the triggering node.
-type SetPropertyAction struct {
-	PropertyDefID uuid.UUID      `json:"property_def_id"`
-	Value         *PropertyValue `json:"value"`
-}
-
-// SetStateAction transitions the triggering node to a new state.
-type SetStateAction struct {
-	StateID uuid.UUID `json:"state_id"`
-}
-
-// AutomationRule is a stored if-trigger-then-action rule scoped to a workspace.
-// Exactly one of SetProperty or SetState is non-nil.
-type AutomationRule struct {
-	ID          uuid.UUID         `json:"id"`
-	OrgID       uuid.UUID         `json:"org_id"`
-	WorkspaceID uuid.UUID         `json:"workspace_id"`
-	// NodeType scopes the rule to one node type slug; empty means all types.
-	NodeType string            `json:"node_type,omitempty"`
-	Trigger  AutomationTrigger `json:"trigger"`
-	// TriggerPropDefID is set only when Trigger == TriggerPropertyChanged.
-	TriggerPropDefID *uuid.UUID `json:"trigger_prop_def_id,omitempty"`
-	Enabled          bool       `json:"enabled"`
-	// Actions: exactly one is non-nil.
-	SetProperty *SetPropertyAction `json:"set_property,omitempty"`
-	SetState    *SetStateAction    `json:"set_state,omitempty"`
+	return uuid.NewSHA1(ns, []byte(orgID.String()+":"+propName))
 }

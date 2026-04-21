@@ -1,0 +1,146 @@
+package tools
+
+import (
+	"context"
+	"time"
+
+	mcpmcp "github.com/mark3labs/mcp-go/mcp"
+	mcpserver "github.com/mark3labs/mcp-go/server"
+	"goodkind.io/tack/internal/domain/node"
+	"goodkind.io/tack/internal/service"
+)
+
+// RegisterRelationship registers tack_add_relationship / tack_remove_relationship /
+// tack_list_relationships. RelationType is arbitrary; seeds define the
+// conventional strings (assigned_to, labeled_with, child_of, etc.).
+func RegisterRelationship(s *mcpserver.MCPServer, svc *service.NodeService, rels node.RelationshipRepository, resolver *Resolver) {
+	s.AddTool(
+		mcpmcp.Tool{
+			Name:        "tack_add_relationship",
+			Description: "Adds a directed relationship between two nodes. relation_type is free-form (e.g. assigned_to, labeled_with, child_of, watches).",
+			InputSchema: mcpmcp.ToolInputSchema{
+				Type: "object",
+				Properties: map[string]any{
+					"source_id":     map[string]any{"type": "string"},
+					"relation_type": map[string]any{"type": "string"},
+					"target_id":     map[string]any{"type": "string"},
+				},
+				Required: []string{"source_id", "relation_type", "target_id"},
+			},
+		},
+		func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
+			args := req.GetArguments()
+			sourceIn, _ := args["source_id"].(string)
+			relType, _ := args["relation_type"].(string)
+			targetIn, _ := args["target_id"].(string)
+
+			userID, err := mustUser(ctx)
+			if err != nil {
+				return UnexpectedError(ctx, err), nil
+			}
+			sourceID, err := resolver.ResolveNodeID(ctx, sourceIn)
+			if err != nil {
+				return ClassifyError(ctx, err), nil
+			}
+			targetID, err := resolver.ResolveNodeID(ctx, targetIn)
+			if err != nil {
+				return ClassifyError(ctx, err), nil
+			}
+			resolve, err := resolver.reader.Resolve(ctx, sourceID)
+			if err != nil {
+				return ClassifyError(ctx, err), nil
+			}
+			if err := svc.AddRelationship(ctx, &node.Relationship{
+				OrgID:        resolve.OrgID,
+				SourceID:     sourceID,
+				RelationType: relType,
+				TargetID:     targetID,
+				CreatedBy:    userID,
+				CreatedAt:    time.Now().UTC(),
+			}); err != nil {
+				return ClassifyError(ctx, err), nil
+			}
+			return Success(map[string]any{"ok": true}, ""), nil
+		},
+	)
+
+	s.AddTool(
+		mcpmcp.Tool{
+			Name:        "tack_remove_relationship",
+			Description: "Removes a directed relationship between two nodes.",
+			InputSchema: mcpmcp.ToolInputSchema{
+				Type: "object",
+				Properties: map[string]any{
+					"source_id":     map[string]any{"type": "string"},
+					"relation_type": map[string]any{"type": "string"},
+					"target_id":     map[string]any{"type": "string"},
+				},
+				Required: []string{"source_id", "relation_type", "target_id"},
+			},
+		},
+		func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
+			args := req.GetArguments()
+			sourceIn, _ := args["source_id"].(string)
+			relType, _ := args["relation_type"].(string)
+			targetIn, _ := args["target_id"].(string)
+
+			sourceID, err := resolver.ResolveNodeID(ctx, sourceIn)
+			if err != nil {
+				return ClassifyError(ctx, err), nil
+			}
+			targetID, err := resolver.ResolveNodeID(ctx, targetIn)
+			if err != nil {
+				return ClassifyError(ctx, err), nil
+			}
+			resolve, err := resolver.reader.Resolve(ctx, sourceID)
+			if err != nil {
+				return ClassifyError(ctx, err), nil
+			}
+			if err := svc.RemoveRelationship(ctx, resolve.OrgID, sourceID, relType, targetID); err != nil {
+				return ClassifyError(ctx, err), nil
+			}
+			return Success(map[string]any{"ok": true}, ""), nil
+		},
+	)
+
+	s.AddTool(
+		mcpmcp.Tool{
+			Name:        "tack_list_relationships",
+			Description: "Lists relationships where the given node is source (direction=out) or target (direction=in). Optional relation_type filter.",
+			InputSchema: mcpmcp.ToolInputSchema{
+				Type: "object",
+				Properties: map[string]any{
+					"node_id":       map[string]any{"type": "string"},
+					"direction":     map[string]any{"type": "string", "enum": []string{"out", "in"}},
+					"relation_type": map[string]any{"type": "string"},
+				},
+				Required: []string{"node_id"},
+			},
+		},
+		func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
+			args := req.GetArguments()
+			nodeIn, _ := args["node_id"].(string)
+			direction, _ := args["direction"].(string)
+			relType, _ := args["relation_type"].(string)
+
+			nodeID, err := resolver.ResolveNodeID(ctx, nodeIn)
+			if err != nil {
+				return ClassifyError(ctx, err), nil
+			}
+			resolve, err := resolver.reader.Resolve(ctx, nodeID)
+			if err != nil {
+				return ClassifyError(ctx, err), nil
+			}
+			var relsOut []*node.Relationship
+			if direction == "in" {
+				relsOut, err = rels.ListByTarget(ctx, resolve.OrgID, nodeID, relType)
+			} else {
+				relsOut, err = rels.ListBySource(ctx, resolve.OrgID, nodeID, relType)
+			}
+			if err != nil {
+				return ClassifyError(ctx, err), nil
+			}
+			return Success(map[string]any{"relationships": relsOut}, ""), nil
+		},
+	)
+}

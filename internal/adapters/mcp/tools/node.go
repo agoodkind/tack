@@ -2,9 +2,8 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"log/slog"
-	"sort"
 	"strings"
 
 	mcpmcp "github.com/mark3labs/mcp-go/mcp"
@@ -12,32 +11,31 @@ import (
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/service"
-	"goodkind.io/tack/internal/telemetry"
 )
 
+// NodeTypeBinding carries the dependencies needed by the per-type CRUD tools.
 type NodeTypeBinding struct {
-	NodeSvc   *service.NodeService
-	Reader    node.NodeReader
-	Resolver  *Resolver
-	TypeIndex map[string]*node.NodeType
+	NodeSvc  *service.NodeService
+	Reader   node.NodeReader
+	Resolver *Resolver
 }
 
+// RegisterNodeTools registers list/create/get/update/delete tools for a NodeType.
 func RegisterNodeTools(s *mcpserver.MCPServer, nt *node.NodeType, b NodeTypeBinding) {
 	if nt.Features.Has(node.FeatureExcludeFromGenericTools) {
 		return
 	}
-
 	slug := strings.ToLower(nt.Slug)
 	plural := strings.ToLower(nt.PluralSlug)
 	if plural == "" {
 		plural = slug + "s"
 	}
-	chain := scopeParams(nt, b.Resolver, b.TypeIndex)
+	chain := b.Resolver.ScopeChainForType(nt)
 	epParam := b.Resolver.EntryPointParamName()
 	ops := opSet(nt.AllowedOps)
 
 	if _, ok := ops[node.OpList]; ok {
-		s.AddTool(listTool(nt, plural, chain, epParam), listHandler(nt, chain, epParam, b))
+		s.AddTool(listTool(plural, chain, epParam), listHandler(nt, chain, epParam, b))
 	}
 	if _, ok := ops[node.OpCreate]; ok {
 		s.AddTool(createTool(nt, slug, chain, epParam), createHandler(nt, chain, epParam, b))
@@ -53,15 +51,7 @@ func RegisterNodeTools(s *mcpserver.MCPServer, nt *node.NodeType, b NodeTypeBind
 	}
 }
 
-// scopeParams returns the scope chain for a node type -- the ordered list of
-// container identifier parameters needed in the MCP tool schema.
-func scopeParams(nt *node.NodeType, r *Resolver, typeIndex map[string]*node.NodeType) []ScopeLevel {
-	return r.ScopeChainForType(nt, typeIndex)
-}
-
-// ── tool schemas ────────────────────────────────────────────────────────────
-
-func listTool(nt *node.NodeType, plural string, chain []ScopeLevel, epParam string) mcpmcp.Tool {
+func listTool(plural string, chain []ScopeLevel, epParam string) mcpmcp.Tool {
 	props := map[string]any{
 		epParam: map[string]any{"type": "string"},
 	}
@@ -72,16 +62,16 @@ func listTool(nt *node.NodeType, plural string, chain []ScopeLevel, epParam stri
 	}
 	return mcpmcp.Tool{
 		Name:        fmt.Sprintf("tack_list_%s", plural),
-		Description: fmt.Sprintf("Lists all %s.", plural),
+		Description: fmt.Sprintf("Lists %s under the given scope.", plural),
 		InputSchema: mcpmcp.ToolInputSchema{Type: "object", Properties: props, Required: required},
 	}
 }
 
 func createTool(nt *node.NodeType, slug string, chain []ScopeLevel, epParam string) mcpmcp.Tool {
 	props := map[string]any{
-		epParam: map[string]any{"type": "string"},
-		"name":  map[string]any{"type": "string"},
-		"properties": map[string]any{"type": "object", "description": "Property values keyed by name"},
+		epParam:       map[string]any{"type": "string"},
+		"name":        map[string]any{"type": "string"},
+		"properties":  map[string]any{"type": "object", "description": "Property values keyed by name"},
 	}
 	required := []string{epParam, "name"}
 	for _, level := range chain {
@@ -98,10 +88,10 @@ func createTool(nt *node.NodeType, slug string, chain []ScopeLevel, epParam stri
 func getTool(nt *node.NodeType, slug string) mcpmcp.Tool {
 	return mcpmcp.Tool{
 		Name:        fmt.Sprintf("tack_get_%s", slug),
-		Description: fmt.Sprintf("Gets a %s by ID or identifier (e.g. TACK-65).", nt.Name),
+		Description: fmt.Sprintf("Gets a %s by ID or identifier like TACK-65.", nt.Name),
 		InputSchema: mcpmcp.ToolInputSchema{
 			Type:       "object",
-			Properties: map[string]any{"node_id": map[string]any{"type": "string", "description": "UUID or identifier like TACK-65"}},
+			Properties: map[string]any{"node_id": map[string]any{"type": "string"}},
 			Required:   []string{"node_id"},
 		},
 	}
@@ -114,9 +104,9 @@ func updateTool(nt *node.NodeType, slug string) mcpmcp.Tool {
 		InputSchema: mcpmcp.ToolInputSchema{
 			Type: "object",
 			Properties: map[string]any{
-				"node_id":    map[string]any{"type": "string", "description": "UUID or identifier like TACK-65"},
+				"node_id":    map[string]any{"type": "string"},
 				"name":       map[string]any{"type": "string"},
-				"properties": map[string]any{"type": "object", "description": "Property values to update keyed by name"},
+				"properties": map[string]any{"type": "object"},
 			},
 			Required: []string{"node_id"},
 		},
@@ -129,30 +119,23 @@ func deleteTool(nt *node.NodeType, slug string) mcpmcp.Tool {
 		Description: fmt.Sprintf("Deletes a %s.", nt.Name),
 		InputSchema: mcpmcp.ToolInputSchema{
 			Type:       "object",
-			Properties: map[string]any{"node_id": map[string]any{"type": "string", "description": "UUID or identifier like TACK-65"}},
+			Properties: map[string]any{"node_id": map[string]any{"type": "string"}},
 			Required:   []string{"node_id"},
 		},
 	}
 }
 
-// ── handlers ────────────────────────────────────────────────────────────────
-
 func listHandler(nt *node.NodeType, chain []ScopeLevel, epParam string, b NodeTypeBinding) mcpserver.ToolHandlerFunc {
 	return func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
 		args := req.GetArguments()
 		epSlug, _ := args[epParam].(string)
-		telemetry.L(ctx).Debug("mcp.list",
-			slog.String("type", nt.TypeKey),
-			slog.String("entry_point", epSlug),
-		)
 		ws, err := b.Resolver.Workspace(ctx, epSlug)
 		if err != nil {
 			return ClassifyError(ctx, err), nil
 		}
-		q := node.NodeListQuery{
-			OrgID: ws.OrgID, WorkspaceID: ws.ID, NodeType: nt.TypeKey,
-		}
-		// Walk the scope chain to resolve the deepest container.
+		q := node.NodeListQuery{OrgID: ws.OrgID, NodeType: nt.TypeKey}
+
+		// Walk the scope chain to find the deepest container; restrict via parent_id prop.
 		if len(chain) > 0 {
 			parent := ws
 			for _, level := range chain {
@@ -165,15 +148,23 @@ func listHandler(nt *node.NodeType, chain []ScopeLevel, epParam string, b NodeTy
 					return ClassifyError(ctx, err), nil
 				}
 			}
-			q.ByProject = &parent.ID
+			parentIDRaw, _ := json.Marshal(parent.ID.String())
+			q.PropFilters = append(q.PropFilters, node.PropertyMatch{
+				PropName: "parent_id",
+				Value:    parentIDRaw,
+			})
+		} else {
+			parentIDRaw, _ := json.Marshal(ws.ID.String())
+			q.PropFilters = append(q.PropFilters, node.PropertyMatch{
+				PropName: "parent_id",
+				Value:    parentIDRaw,
+			})
 		}
+
 		views, err := b.Reader.List(ctx, q)
 		if err != nil {
 			return ClassifyError(ctx, err), nil
 		}
-		sort.Slice(views, func(i, j int) bool {
-			return views[i].SortOrder < views[j].SortOrder
-		})
 		plural := nt.PluralSlug
 		if plural == "" {
 			plural = nt.Slug + "s"
@@ -184,25 +175,13 @@ func listHandler(nt *node.NodeType, chain []ScopeLevel, epParam string, b NodeTy
 
 func createHandler(nt *node.NodeType, chain []ScopeLevel, epParam string, b NodeTypeBinding) mcpserver.ToolHandlerFunc {
 	return func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
-		log := telemetry.L(ctx)
 		args := req.GetArguments()
 		epSlug, _ := args[epParam].(string)
 		name, _ := args["name"].(string)
-		var props map[string]any
-		if p, ok := args["properties"].(map[string]any); ok {
-			props = p
-		}
-		log.Debug("mcp.create",
-			slog.String("type", nt.TypeKey),
-			slog.String("name", name),
-			slog.String("entry_point", epSlug),
-		)
 		userID, err := mustUser(ctx)
 		if err != nil {
 			return UnexpectedError(ctx, err), nil
 		}
-
-		// Resolve the parent by walking the scope chain.
 		ws, err := b.Resolver.Workspace(ctx, epSlug)
 		if err != nil {
 			return ClassifyError(ctx, err), nil
@@ -223,7 +202,25 @@ func createHandler(nt *node.NodeType, chain []ScopeLevel, epParam string, b Node
 			parentID = parent.ID
 		}
 
-		view, err := b.NodeSvc.Create(ctx, parentID, nt.TypeKey, name, props, nil, nil, userID)
+		// Convert property values to raw JSON.
+		rawProps := make(map[string]json.RawMessage)
+		if p, ok := args["properties"].(map[string]any); ok {
+			for k, v := range p {
+				raw, err := json.Marshal(v)
+				if err != nil {
+					continue
+				}
+				rawProps[k] = raw
+			}
+		}
+
+		view, err := b.NodeSvc.Create(ctx, service.CreateInput{
+			ParentID:    parentID,
+			NodeTypeKey: nt.TypeKey,
+			Name:        name,
+			Props:       rawProps,
+			ActorID:     userID,
+		})
 		if err != nil {
 			return ClassifyError(ctx, err), nil
 		}
@@ -241,7 +238,6 @@ func getHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFunc 
 		if err := req.BindArguments(&in); err != nil {
 			return RecoverableError(err.Error()), nil
 		}
-		telemetry.L(ctx).Debug("mcp.get", slog.String("type", nt.TypeKey), slog.String("node_id", in.NodeID))
 		id, err := b.Resolver.ResolveNodeID(ctx, in.NodeID)
 		if err != nil {
 			return ClassifyError(ctx, err), nil
@@ -269,7 +265,6 @@ func updateHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFu
 		if err := req.BindArguments(&in); err != nil {
 			return RecoverableError(err.Error()), nil
 		}
-		telemetry.L(ctx).Debug("mcp.update", slog.String("type", nt.TypeKey), slog.String("node_id", in.NodeID))
 		userID, err := mustUser(ctx)
 		if err != nil {
 			return UnexpectedError(ctx, err), nil
@@ -278,7 +273,22 @@ func updateHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFu
 		if err != nil {
 			return ClassifyError(ctx, err), nil
 		}
-		view, err := b.NodeSvc.Update(ctx, id, in.Name, in.Properties, nil, nil, userID)
+
+		rawProps := make(map[string]json.RawMessage)
+		for k, v := range in.Properties {
+			raw, err := json.Marshal(v)
+			if err != nil {
+				continue
+			}
+			rawProps[k] = raw
+		}
+
+		view, err := b.NodeSvc.Update(ctx, service.UpdateInput{
+			NodeID:  id,
+			Name:    in.Name,
+			Props:   rawProps,
+			ActorID: userID,
+		})
 		if err != nil {
 			return ClassifyError(ctx, err), nil
 		}
@@ -296,7 +306,6 @@ func deleteHandler(b NodeTypeBinding) mcpserver.ToolHandlerFunc {
 		if err := req.BindArguments(&in); err != nil {
 			return RecoverableError(err.Error()), nil
 		}
-		telemetry.L(ctx).Debug("mcp.delete", slog.String("node_id", in.NodeID))
 		userID, err := mustUser(ctx)
 		if err != nil {
 			return UnexpectedError(ctx, err), nil

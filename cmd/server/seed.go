@@ -11,6 +11,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/google/uuid"
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/config"
@@ -18,11 +19,13 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/domain/org"
 	"goodkind.io/tack/internal/domain/user"
-	"goodkind.io/tack/migrations"
 	"goodkind.io/tack/internal/service"
-	"github.com/google/uuid"
+	"goodkind.io/tack/migrations"
 )
 
+// runSeed creates the initial user, org, and workspace using the generic Node
+// primitives. This is the one place in the system that references specific
+// NodeType names (via service.Seeder constants).
 func runSeed(cfg *config.Config) {
 	if cfg.SeedEmail == "" || cfg.SeedName == "" {
 		slog.Error("seed requires SEED_EMAIL and SEED_NAME")
@@ -31,7 +34,6 @@ func runSeed(cfg *config.Config) {
 
 	ctx := context.Background()
 
-	// Migrate first: safe to call on an already-migrated DB.
 	if err := postgres.Migrate(ctx, cfg.DatabaseURL, migrations.FS); err != nil {
 		slog.Error("seed: migrate", "err", err)
 		os.Exit(1)
@@ -44,19 +46,18 @@ func runSeed(cfg *config.Config) {
 	}
 	defer pool.Close()
 
-	// FDB stores for entity data (org, workspace).
 	fdbStores, err := fdbadapter.NewStores(cfg.FDBClusterFile, pool)
 	if err != nil {
 		slog.Error("seed: foundationdb", "err", err)
 		os.Exit(1)
 	}
 
-	userRepo  := postgres.NewUserRepo(pool)
+	userRepo := postgres.NewUserRepo(pool)
 	tokenRepo := postgres.NewTokenRepo(pool)
-	members   := postgres.NewOrgMemberRepo(pool)
-	seeder    := service.NewWorkspaceSeeder(fdbStores.Properties, fdbStores.NodeTypes)
+	members := postgres.NewOrgMemberRepo(pool)
+	seeder := service.NewSeeder(fdbStores.PropertyDefs, fdbStores.NodeTypes)
 
-	// ── User ─────────────────────────────────────────────────────────────────
+	// ── User ───────────────────────────────────────────────────────────────────
 	u, err := userRepo.GetByEmail(ctx, cfg.SeedEmail)
 	if err != nil && !errors.Is(err, domain.ErrNotFound) {
 		slog.Error("seed: get user", "err", err)
@@ -76,141 +77,33 @@ func runSeed(cfg *config.Config) {
 		slog.Info("seed: user exists", "id", u.ID, "email", u.Email)
 	}
 
-	// ── Org ──────────────────────────────────────────────────────────────────
-	orgID := uuid.New()
-	now := time.Now()
+	// ── Org ────────────────────────────────────────────────────────────────────
+	orgID := ensureNode(ctx, fdbStores, "org", cfg.SeedOrgSlug, cfg.SeedOrgName, uuid.Nil)
+	seeder.SeedOrg(ctx, orgID)
 
-	// Check if org already exists by slug
-	existingOrgID, err := fdbStores.Entities.GetBySlug(ctx, "org", cfg.SeedOrgSlug)
-	if err == nil {
-		// Org exists: still re-seed types to propagate feature/hierarchy changes.
-		orgID = existingOrgID
-		seeder.SeedOrg(ctx, orgID)
-		slog.Info("seed: org exists", "id", orgID, "slug", cfg.SeedOrgSlug)
-	} else if errors.Is(err, domain.ErrNotFound) {
-		// Create new org
-		slugBytes, _ := json.Marshal(cfg.SeedOrgSlug)
-		orgProps := make(map[string]json.RawMessage)
-		orgProps["slug"] = slugBytes
-
-		orgNV := &node.NodeValue{
-			ID:        orgID,
-			OrgID:     orgID,
-			NodeType:  "org",
-			Name:      cfg.SeedOrgName,
-			CreatedAt: now,
-			UpdatedAt: now,
-		}
-
-		orgView := &node.NodeListView{
-			Version:     node.ViewVersion1,
-			ID:          orgID,
-			OrgID:       orgID,
-			NodeType:    "org",
-			Name:        cfg.SeedOrgName,
-			CreatedAt:   now,
-			UpdatedAt:   now,
-			CustomProps: orgProps,
-		}
-
-		if _, err := fdbStores.Entities.CreateAtomic(ctx, orgID, orgID, orgNV, nil, orgView, nil, nil, uuid.Nil); err != nil {
-			slog.Error("seed: create org", "err", err)
-			os.Exit(1)
-		}
-
-		// Write slug index
-		if err := fdbStores.Entities.WriteSlugIndex(ctx, "org", cfg.SeedOrgSlug, orgID); err != nil {
-			slog.Error("seed: write org slug index", "err", err)
-			os.Exit(1)
-		}
-
-		// Add user as org member
-		if err := members.AddMember(ctx, &org.Member{
-			OrgID:  orgID,
-			UserID: u.ID,
-			Role:   20, // admin
-		}); err != nil {
-			slog.Error("seed: add org member", "err", err)
-			os.Exit(1)
-		}
-
-		// Seed org-level property defs
-		seeder.SeedOrg(ctx, orgID)
-
-		slog.Info("seed: created org", "id", orgID, "slug", cfg.SeedOrgSlug)
-	} else {
-		slog.Error("seed: lookup org", "err", err)
-		os.Exit(1)
+	// Make sure the user is an org admin.
+	if err := members.AddMember(ctx, &org.Member{
+		OrgID:  orgID,
+		UserID: u.ID,
+		Role:   20,
+	}); err != nil && !errors.Is(err, domain.ErrAlreadyExists) {
+		slog.Warn("seed: add org member", "err", err)
 	}
 
-	// ── Workspace ─────────────────────────────────────────────────────────────
-	wsID := uuid.New()
-	wsResolve, err := fdbStores.Entities.GetBySlug(ctx, "workspace", cfg.SeedWorkspaceSlug)
-	if err == nil {
-		// Workspace exists: still re-seed types/props to propagate feature changes.
-		wsID = wsResolve
-		seeder.SeedWorkspace(ctx, orgID, wsID)
-		slog.Info("seed: workspace exists", "id", wsID, "slug", cfg.SeedWorkspaceSlug)
-	} else if errors.Is(err, domain.ErrNotFound) {
-		// Create new workspace
-		slugBytes, _ := json.Marshal(cfg.SeedWorkspaceSlug)
-		wsProps := make(map[string]json.RawMessage)
-		wsProps["slug"] = slugBytes
+	// ── Workspace ──────────────────────────────────────────────────────────────
+	wsID := ensureNode(ctx, fdbStores, "workspace", cfg.SeedWorkspaceSlug, cfg.SeedWorkspaceName, orgID)
 
-		wsNV := &node.NodeValue{
-			ID:          wsID,
-			OrgID:       orgID,
-			WorkspaceID: uuid.Nil,
-			NodeType:    "workspace",
-			Name:        cfg.SeedWorkspaceName,
-			CreatedAt:   now,
-			UpdatedAt:   now,
-		}
-
-		wsView := &node.NodeListView{
-			Version:     node.ViewVersion1,
-			ID:          wsID,
-			OrgID:       orgID,
-			WorkspaceID: uuid.Nil,
-			NodeType:    "workspace",
-			Name:        cfg.SeedWorkspaceName,
-			CreatedAt:   now,
-			UpdatedAt:   now,
-			CustomProps: wsProps,
-		}
-
-		if _, err := fdbStores.Entities.CreateAtomic(ctx, orgID, wsID, wsNV, nil, wsView, nil, nil, uuid.Nil); err != nil {
-			slog.Error("seed: create workspace", "err", err)
-			os.Exit(1)
-		}
-
-		// Write slug index
-		if err := fdbStores.Entities.WriteSlugIndex(ctx, "workspace", cfg.SeedWorkspaceSlug, wsID); err != nil {
-			slog.Error("seed: write workspace slug index", "err", err)
-			os.Exit(1)
-		}
-
-		// Seed workspace-level property defs
-		seeder.SeedWorkspace(ctx, orgID, wsID)
-
-		slog.Info("seed: created workspace", "id", wsID, "slug", cfg.SeedWorkspaceSlug)
-	} else {
-		slog.Error("seed: lookup workspace", "err", err)
-		os.Exit(1)
-	}
-
-	// ── API token ─────────────────────────────────────────────────────────────
+	// ── API token ──────────────────────────────────────────────────────────────
 	raw := cfg.SeedAPIToken
 	if raw == "" {
 		raw = generateToken()
 	}
 	if _, err := tokenRepo.Create(ctx, u.ID, raw, "seed"); err != nil {
-		// Duplicate hash means this exact token was already seeded; not an error.
 		slog.Info("seed: token already exists or conflict, skipping")
 	} else {
-		fmt.Printf("\n✓ API token (copy now; not shown again):\n\n  %s\n\n", raw)
+		fmt.Printf("\nAPI token (copy now; not shown again):\n\n  %s\n\n", raw)
 		fmt.Printf("Add to your MCP config:\n")
-		fmt.Printf(`  "Authorization": "Bearer %s"`+"\n\n", raw)
+		fmt.Printf("  \"Authorization\": \"Bearer %s\"\n\n", raw)
 	}
 
 	slog.Info("seed complete",
@@ -218,6 +111,76 @@ func runSeed(cfg *config.Config) {
 		"org_id", orgID,
 		"workspace_id", wsID,
 	)
+}
+
+// ensureNode creates (or re-verifies) a generic node with a slug index. When a
+// node with (typeKey, slug) already exists, its ID is returned and no write
+// happens beyond the slug index refresh. parentID may be uuid.Nil for org-level
+// nodes.
+func ensureNode(ctx context.Context, s *fdbadapter.Stores, typeKey, slug, name string, parentID uuid.UUID) uuid.UUID {
+	if existing, err := s.Nodes.GetSlug(ctx, typeKey, slug); err == nil && existing != uuid.Nil {
+		slog.Info("seed: node exists", "type", typeKey, "slug", slug, "id", existing)
+		return existing
+	}
+
+	now := time.Now().UTC()
+	id := uuid.Must(uuid.NewV7())
+
+	props := make(map[string]json.RawMessage)
+	slugRaw, _ := json.Marshal(slug)
+	props["slug"] = slugRaw
+	if parentID != uuid.Nil {
+		parentRaw, _ := json.Marshal(parentID.String())
+		props["parent_id"] = parentRaw
+	}
+
+	// The org node is self-hosted: OrgID == ID. For child nodes the parent is
+	// assumed to be in the same org.
+	orgID := parentID
+	if typeKey == "org" {
+		orgID = id
+	}
+
+	n := &node.Node{
+		ID:        id,
+		OrgID:     orgID,
+		NodeType:  typeKey,
+		Name:      name,
+		Props:     props,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	view := &node.NodeView{
+		ID:        id,
+		OrgID:     orgID,
+		NodeType:  typeKey,
+		Name:      name,
+		Props:     props,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	var rels []*node.Relationship
+	if parentID != uuid.Nil {
+		rels = append(rels, &node.Relationship{
+			OrgID:        orgID,
+			SourceID:     id,
+			RelationType: node.RelChildOf,
+			TargetID:     parentID,
+			CreatedAt:    now,
+		})
+	}
+
+	// Mark slug as indexed so ListByProperty works for it.
+	if err := s.Nodes.CreateAtomic(ctx, n, view, rels, []string{"slug"}); err != nil {
+		slog.Error("seed: create node", "type", typeKey, "err", err)
+		os.Exit(1)
+	}
+	if err := s.Nodes.WriteSlug(ctx, typeKey, slug, id); err != nil {
+		slog.Error("seed: write slug", "type", typeKey, "err", err)
+		os.Exit(1)
+	}
+	slog.Info("seed: created node", "type", typeKey, "slug", slug, "id", id)
+	return id
 }
 
 func generateToken() string {

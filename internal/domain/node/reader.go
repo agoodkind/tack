@@ -2,79 +2,79 @@ package node
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
 )
 
 // NodeListQuery describes a read request to NodeReader.List or NodeReader.Stream.
-// Exactly one of ByProject, ByState, or ByProperty should be set for indexed scans.
-// When none are set, all nodes of NodeType in the workspace are returned.
+//
+// The primary index selector picks a scan strategy:
+//   - ByProperty: scan the node_by_property index for PropName equal to Value
+//   - BySourceRelation: scan relationships from SourceID with RelationType, return
+//     the target nodes
+//   - ByTargetRelation: scan relationships to TargetID with RelationType, return
+//     the source nodes
+//   - none set: full scan of (orgID, nodeType) in the view key space
+//
+// PropFilters apply after the primary scan: the caller's post-scan AND filter
+// over Props keys. Non-indexed properties are filtered this way.
 type NodeListQuery struct {
-	OrgID       uuid.UUID
-	WorkspaceID uuid.UUID
-	NodeType    string
+	OrgID    uuid.UUID
+	NodeType string // optional; empty = all types under OrgID
 
-	// Primary index selector: set exactly one for an indexed scan.
-	ByProject  *uuid.UUID
-	ByState    *uuid.UUID
-	ByProperty *PropertyFilter
+	// Primary index selector: set at most one.
+	ByProperty       *PropertyMatch
+	BySourceRelation *RelationScan
+	ByTargetRelation *RelationScan
 
-	// Time-range filters translate to UUIDv7 boundary range scans on nodeID.
-	// No extra index needed: UUIDv7 high bits embed Unix milliseconds.
+	// UUIDv7 time-range boundaries; no extra index needed.
 	CreatedAfter  *time.Time
 	CreatedBefore *time.Time
 
-	// Post-scan in-memory filters applied after chunk fetch.
-	FilterIsDraft  *bool
-	FilterAssignee *uuid.UUID
+	// Post-scan Props filters. AND across keys; each entry matches when the
+	// node's Props[key] equals Value (raw JSON equality).
+	PropFilters []PropertyMatch
 
-	// Pagination: enforced at the storage layer.
-	// 0 = no limit; use Stream for unbounded scans.
+	// Pagination.
 	Limit  int
 	Cursor string
 }
 
-// PropertyFilter selects nodes where a given indexed property equals Value.
-type PropertyFilter struct {
-	PropDefID uuid.UUID
-	Value     *PropertyValue
+// PropertyMatch pairs a PropertyDef name with an expected raw JSON value.
+// Raw JSON equality is used for indexed scans and post-filter comparisons.
+type PropertyMatch struct {
+	PropName string
+	Value    json.RawMessage
+}
+
+// RelationScan selects nodes via a relationship scan.
+type RelationScan struct {
+	NodeID       uuid.UUID
+	RelationType string
 }
 
 // NodeStreamResult is one item delivered through a NodeReader.Stream channel.
 type NodeStreamResult struct {
-	View *NodeListView
+	View *NodeView
 	Err  error
 }
 
-// NodeReader is the read path for all node types.
-// The service layer MUST use NodeReader for all reads; it must NOT call
-// EntityRepository, PropertyRepository, AssignmentRepository, or LabelRepository
-// directly for read operations.
-//
-// The chunking and parallelism are private implementation details of ViewStore.
-// Callers see records; they never see chunk boundaries or pagination tokens.
+// NodeReader is the read path for all node types. The service layer MUST use
+// NodeReader for reads; it must not call storage-layer repositories directly.
 type NodeReader interface {
-	// Get resolves nodeID via the global resolution record (node_resolve key),
-	// then fetches the NodeListView. Does not require org context from the caller.
-	// The caller is responsible for authorizing the returned OrgID.
-	Get(ctx context.Context, nodeID uuid.UUID) (*NodeListView, error)
+	// Get resolves nodeID via the global resolve record and fetches the NodeView.
+	// Does not require org context from the caller. The caller authorizes the
+	// returned OrgID.
+	Get(ctx context.Context, nodeID uuid.UUID) (*NodeView, error)
 
-	// Resolve returns the org/workspace/type context for any entity UUID.
-	// Works for all entity types: org, workspace, project, state, label, issue, epic, etc.
-	// Returns domain.ErrNotFound if the entity does not exist.
-	Resolve(ctx context.Context, entityID uuid.UUID) (*NodeResolve, error)
+	// Resolve returns the org / type context for any node UUID.
+	Resolve(ctx context.Context, nodeID uuid.UUID) (*NodeResolve, error)
 
-	// List is for bounded result sets. It blocks until all matching views are
-	// assembled (parallel chunk fetches) and returns them as a single slice.
-	// Use Stream for large or open-ended queries.
-	List(ctx context.Context, q NodeListQuery) ([]*NodeListView, error)
+	// List is for bounded result sets. Blocks until all matching views assemble.
+	List(ctx context.Context, q NodeListQuery) ([]*NodeView, error)
 
-	// Stream is for large or unbounded scans. It returns a buffered channel
-	// immediately. Views are sent as parallel chunks complete. The channel is
-	// closed when all chunks finish or when any chunk returns an error (the
-	// error is delivered on the channel before close).
-	// MCP tools pump the channel and assemble the final response; chunking is
-	// invisible to the tool handler.
+	// Stream is for large or unbounded scans.
 	Stream(ctx context.Context, q NodeListQuery) (<-chan NodeStreamResult, error)
 }

@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"goodkind.io/tack/internal/adapters/mcp/tools"
 	"goodkind.io/tack/internal/auth"
@@ -14,7 +15,6 @@ import (
 	"goodkind.io/tack/internal/domain/user"
 	"goodkind.io/tack/internal/service"
 	"goodkind.io/tack/internal/telemetry"
-	"github.com/google/uuid"
 )
 
 const serverCacheTTL = 60 * time.Second
@@ -25,50 +25,55 @@ type cachedServer struct {
 	builtAt time.Time
 }
 
+// Handler is the MCP HTTP entry point. It caches a per-user MCP server that
+// knows about the user's accessible NodeTypes.
 type Handler struct {
-	nodeSvc    *service.NodeService
-	entities   node.EntityRepository
-	reader     node.NodeReader
-	nodeTypes  node.TypeRepository
-	properties node.PropertyRepository
-	comments   node.CommentRepository
-	members    org.MemberRepository
-	users      user.Repository
-	searcher   domainsearch.Searcher
+	nodeSvc       *service.NodeService
+	nodes         node.NodeRepository
+	reader        node.NodeReader
+	nodeTypes     node.TypeRepository
+	propertyDefs  node.PropertyDefRepository
+	relationships node.RelationshipRepository
+	members       org.MemberRepository
+	users         user.Repository
+	searcher      domainsearch.Searcher
 
 	mu    sync.RWMutex
 	cache map[uuid.UUID]*cachedServer
 }
 
+// Deps bundles the dependencies for the MCP handler.
 type Deps struct {
-	NodeSvc    *service.NodeService
-	Entities   node.EntityRepository
-	Reader     node.NodeReader
-	NodeTypes  node.TypeRepository
-	Properties node.PropertyRepository
-	Comments   node.CommentRepository
-	Members    org.MemberRepository
-	Users      user.Repository
-	Searcher   domainsearch.Searcher
+	NodeSvc       *service.NodeService
+	Nodes         node.NodeRepository
+	Reader        node.NodeReader
+	NodeTypes     node.TypeRepository
+	PropertyDefs  node.PropertyDefRepository
+	Relationships node.RelationshipRepository
+	Members       org.MemberRepository
+	Users         user.Repository
+	Searcher      domainsearch.Searcher
 }
 
-func NewHandler(deps Deps) *Handler {
+func NewHandler(d Deps) *Handler {
 	return &Handler{
-		nodeSvc:    deps.NodeSvc,
-		entities:   deps.Entities,
-		reader:     deps.Reader,
-		nodeTypes:  deps.NodeTypes,
-		properties: deps.Properties,
-		comments:   deps.Comments,
-		members:    deps.Members,
-		users:      deps.Users,
-		searcher:   deps.Searcher,
-		cache:      make(map[uuid.UUID]*cachedServer),
+		nodeSvc:       d.NodeSvc,
+		nodes:         d.Nodes,
+		reader:        d.Reader,
+		nodeTypes:     d.NodeTypes,
+		propertyDefs:  d.PropertyDefs,
+		relationships: d.Relationships,
+		members:       d.Members,
+		users:         d.Users,
+		searcher:      d.Searcher,
+		cache:         make(map[uuid.UUID]*cachedServer),
 	}
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	log := telemetry.L(ctx)
+
 	userID, ok := auth.UserID(ctx)
 	if !ok {
 		http.Error(w, `{"error":"unauthenticated"}`, http.StatusUnauthorized)
@@ -83,15 +88,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var nodeTypes []*node.NodeType
 	orgIDs, err := h.members.ListOrgIDsForUser(ctx, userID)
 	if err != nil {
-		telemetry.L(ctx).Error("mcp: list org ids for user", "err", err)
+		log.Error("mcp: list org ids", "err", err)
 	}
+	var nodeTypes []*node.NodeType
 	seen := make(map[string]struct{})
 	for _, orgID := range orgIDs {
 		nts, err := h.nodeTypes.List(ctx, orgID)
 		if err != nil {
+			log.Error("mcp: node type list", "org_id", orgID, "err", err)
 			continue
 		}
 		for _, nt := range nts {
@@ -108,36 +114,30 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.mu.Lock()
 	h.cache[userID] = &cachedServer{mcpSvr: mcpSvr, httpSvr: httpSvr, builtAt: time.Now()}
 	h.mu.Unlock()
-
 	httpSvr.ServeHTTP(w, r)
 }
 
 func (h *Handler) buildServer(nodeTypes []*node.NodeType) *mcpserver.MCPServer {
-	s := mcpserver.NewMCPServer("tack", "0.1.0")
+	s := mcpserver.NewMCPServer("tack", "0.2.0")
 
-	resolver := tools.NewResolver(h.entities, h.reader, h.members, nodeTypes)
+	resolver := tools.NewResolver(h.nodes, h.reader, h.members, nodeTypes)
 
 	tools.RegisterWorkspace(s, h.reader, resolver, nodeTypes)
 	tools.RegisterMembers(s, h.members, h.users, resolver)
-	tools.RegisterProperty(s, h.properties)
+	tools.RegisterProperty(s, h.propertyDefs, resolver)
 	tools.RegisterSearch(s, h.searcher, resolver)
-	tools.RegisterComment(s, h.comments, resolver)
+	tools.RegisterRelationship(s, h.nodeSvc, h.relationships, resolver)
 
-	typeIndex := node.BuildTypeIndex(nodeTypes)
 	binding := tools.NodeTypeBinding{
-		NodeSvc:   h.nodeSvc,
-		Reader:    h.reader,
-		Resolver:  resolver,
-		TypeIndex: typeIndex,
+		NodeSvc:  h.nodeSvc,
+		Reader:   h.reader,
+		Resolver: resolver,
 	}
 	for _, nt := range nodeTypes {
 		tools.RegisterNodeTools(s, nt, binding)
 	}
 
-	tools.RegisterMyWork(s, h.reader, resolver)
-
 	tools.RegisterResources(s, h.reader, resolver, nodeTypes)
 	tools.RegisterPrompts(s, nodeTypes)
-
 	return s
 }

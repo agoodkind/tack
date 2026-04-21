@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"strconv"
 	"strings"
 	"time"
 
@@ -16,489 +15,391 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// stringToPropertyValue converts a string input to a typed PropertyValue.
-func stringToPropertyValue(val string, propType node.PropertyType) *node.PropertyValue {
-	switch propType {
-	case node.PropertyTypeText, node.PropertyTypeURL:
-		return node.TextPropertyValue(val)
-	case node.PropertyTypeSelect:
-		return &node.PropertyValue{Kind: node.PropertyValueEnum, Enum: &val}
-	case node.PropertyTypeNumber:
-		f, err := strconv.ParseFloat(val, 64)
-		if err != nil {
-			return nil
-		}
-		return &node.PropertyValue{Kind: node.PropertyValueFloat, Float: &f}
-	case node.PropertyTypeCheckbox:
-		b := val == "true"
-		return &node.PropertyValue{Kind: node.PropertyValueBool, Bool: &b}
-	case node.PropertyTypeTimestamp:
-		t, err := time.Parse(time.RFC3339, val)
-		if err != nil {
-			return nil
-		}
-		return &node.PropertyValue{Kind: node.PropertyValueTimestamp, Timestamp: &t}
-	default:
-		return node.TextPropertyValue(val)
-	}
-}
-
-// NodeService handles CRUD for any node type. Behavior is driven by Features
-// on the NodeType definition. It never checks type names.
+// NodeService is the single service for CRUD and relationship operations on
+// every node type. Behavior is driven by Features on the NodeType definition;
+// the service does not inspect type names or carry concept-specific fields.
 type NodeService struct {
-	entities    node.EntityRepository
-	reader      node.NodeReader
-	nodeTypes   node.TypeRepository
-	properties  node.PropertyRepository
-	activity    node.ActivityRepository
-	assignments node.AssignmentRepository
-	labels      node.NodeLabelRepository
-	containment node.ContainmentRepository
-	deleter     node.NodeDeleter
-	cleanup     node.NodeCleanupScheduler
-	searcher    domainsearch.Searcher
-	automations node.AutomationExecutor
+	nodes         node.NodeRepository
+	reader        node.NodeReader
+	nodeTypes     node.TypeRepository
+	propertyDefs  node.PropertyDefRepository
+	relationships node.RelationshipRepository
+	deleter       node.NodeDeleter
+	searcher      domainsearch.Searcher
 }
 
 func NewNodeService(
-	entities node.EntityRepository,
+	nodes node.NodeRepository,
 	reader node.NodeReader,
 	nodeTypes node.TypeRepository,
-	properties node.PropertyRepository,
-	activity node.ActivityRepository,
-	assignments node.AssignmentRepository,
-	labels node.NodeLabelRepository,
-	containment node.ContainmentRepository,
+	propertyDefs node.PropertyDefRepository,
+	relationships node.RelationshipRepository,
 	deleter node.NodeDeleter,
-	cleanup node.NodeCleanupScheduler,
 	searcher domainsearch.Searcher,
-	automations node.AutomationExecutor,
 ) *NodeService {
 	return &NodeService{
-		entities: entities, reader: reader, nodeTypes: nodeTypes,
-		properties: properties, activity: activity, assignments: assignments,
-		labels: labels, containment: containment, deleter: deleter,
-		cleanup: cleanup, searcher: searcher, automations: automations,
+		nodes:         nodes,
+		reader:        reader,
+		nodeTypes:     nodeTypes,
+		propertyDefs:  propertyDefs,
+		relationships: relationships,
+		deleter:       deleter,
+		searcher:      searcher,
 	}
 }
 
-// Create creates a node of any type. Feature-driven behavior:
-//   - HasSequenceID: allocates sequence number (via CreateAtomic when projectID is set)
-//   - HasSlug: writes global slug index from the slug/identifier property
-//   - HasActivity: logs a "created" activity event
-//   - HasAssignees: sets initial assignees
-//
-// Properties are passed as name→value. The service resolves PropertyDef UUIDs.
-func (s *NodeService) Create(
-	ctx context.Context,
-	parentID uuid.UUID,
-	nodeTypeName string,
-	name string,
-	inputProps map[string]any,
-	assigneeIDs []uuid.UUID,
-	labelIDs []uuid.UUID,
-	actorID uuid.UUID,
-) (*node.NodeListView, error) {
+// CreateInput holds the arguments for Create. Relationships lets callers attach
+// edges (assigned_to, labeled_with, etc.) in the same FDB transaction as the
+// primary write.
+type CreateInput struct {
+	ParentID      uuid.UUID
+	NodeTypeKey   string
+	Name          string
+	Props         map[string]json.RawMessage
+	Relationships []*node.Relationship
+	ActorID       uuid.UUID
+}
+
+// Create writes a new node plus its initial relationships. When the NodeType
+// declares FeatureHasSequenceID the service allocates a sequence number from
+// the parent as the scope, and stamps Props["sequence"]. When the NodeType
+// declares FeatureHasSlug the service writes the global slug index from
+// Props["slug"] (or "identifier").
+func (s *NodeService) Create(ctx context.Context, in CreateInput) (*node.NodeView, error) {
 	log := telemetry.L(ctx)
-	log.Info("node.Create",
-		slog.String("node_type", nodeTypeName),
-		slog.String("name", name),
-		slog.String("parent_id", parentID.String()),
-	)
 
-	// Resolve parent to get org/workspace/project context.
-	resolve, err := s.reader.Resolve(ctx, parentID)
-	if err != nil {
-		log.Warn("node.Create: resolve parent failed",
-			slog.String("parent_id", parentID.String()),
-			slog.String("err", err.Error()),
-		)
-		return nil, fmt.Errorf("resolve parent: %w", err)
-	}
-	orgID := resolve.OrgID
-	wsID := resolve.WorkspaceID
-	projID := resolve.ProjectID
-
-	// Determine scoping from the parent's resolve record, not its type name.
-	// A scope-level node's own ID fills the first nil scope slot above it.
-	if wsID == uuid.Nil {
-		// Parent has no workspace scope -- parent IS the workspace-level node.
-		wsID = parentID
-		projID = uuid.Nil
-	} else if projID == uuid.Nil {
-		// Parent has workspace scope but no project scope. If the parent is
-		// itself a scope node (FeatureIsScope), it IS the project-level node.
-		parentNT, _ := s.findNodeType(ctx, orgID, resolve.NodeType)
-		if parentNT != nil && parentNT.Features.Has(node.FeatureIsScope) {
-			projID = parentID
-		}
-	}
-	// Otherwise: parent is deeper in the hierarchy; inherit wsID and projID as-is.
-
-	log.Debug("node.Create: resolved parent",
-		slog.String("org_id", orgID.String()),
-		slog.String("workspace_id", wsID.String()),
-		slog.String("project_id", projID.String()),
-		slog.String("parent_type", resolve.NodeType),
-	)
-
-	// Look up the NodeType to get Features.
-	nt, err := s.findNodeType(ctx, orgID, nodeTypeName)
+	orgID, err := s.resolveOrgFromParent(ctx, in.ParentID)
 	if err != nil {
 		return nil, err
 	}
 
-	// Resolve PropertyDefs by name.
-	defs, _ := s.properties.ListDefs(ctx, orgID, wsID, nil)
-	defsByName := make(map[string]*node.PropertyDef, len(defs))
-	for _, d := range defs {
-		defsByName[strings.ToLower(d.Name)] = d
-	}
-
-	now := time.Now()
-	id := uuid.New()
-
-	// Build typed property map and CustomProps.
-	props := make(map[uuid.UUID]*node.PropertyValue)
-	customProps := make(map[string]json.RawMessage)
-
-	// Inline fields for system properties.
-	var stateID *uuid.UUID
-	var startDate, dueDate *time.Time
-	priority := ""
-	isDraft := false
-
-	for name, val := range inputProps {
-		valStr := fmt.Sprintf("%v", val)
-		def, ok := defsByName[strings.ToLower(name)]
-		if !ok {
-			continue
-		}
-		pv := stringToPropertyValue(valStr, def.Type)
-		if pv != nil {
-			props[def.ID] = pv
-			raw, _ := json.Marshal(val)
-			customProps[name] = raw
-		}
-
-		// Map system properties to inline fields.
-		switch strings.ToLower(name) {
-		case "state_id":
-			if sid, err := uuid.Parse(valStr); err == nil {
-				stateID = &sid
-			}
-		case "priority":
-			priority = valStr
-		case "start_date":
-			if t, err := time.Parse(time.RFC3339, valStr); err == nil {
-				startDate = &t
-			}
-		case "due_date", "target_date", "end_date":
-			if t, err := time.Parse(time.RFC3339, valStr); err == nil {
-				dueDate = &t
-			}
-		case "is_draft":
-			isDraft = valStr == "true"
-		}
-	}
-
-	nv := &node.NodeValue{
-		ID: id, OrgID: orgID, WorkspaceID: wsID, ProjectID: projID,
-		NodeType: nt.TypeKey, Name: name, StateID: stateID,
-		CreatedBy: actorID, UpdatedBy: actorID, CreatedAt: now, UpdatedAt: now,
-	}
-	view := &node.NodeListView{
-		Version: node.ViewVersion1, ID: id, OrgID: orgID, WorkspaceID: wsID,
-		ProjectID: projID, NodeType: nt.TypeKey, Name: name,
-		StateID: stateID, Priority: priority, StartDate: startDate, DueDate: dueDate,
-		IsDraft: isDraft, CreatedBy: actorID, UpdatedBy: actorID,
-		CreatedAt: now, UpdatedAt: now, CustomProps: customProps,
-	}
-
-	// CreateAtomic handles sequence allocation when projID is set.
-	seqID, err := s.entities.CreateAtomic(ctx, orgID, projID, nv, props, view, assigneeIDs, labelIDs, actorID)
+	nt, err := s.findNodeType(ctx, orgID, in.NodeTypeKey)
 	if err != nil {
-		log.Error("node.Create: CreateAtomic failed",
-			slog.String("node_type", nodeTypeName),
+		return nil, err
+	}
+
+	now := time.Now().UTC()
+	id := uuid.Must(uuid.NewV7())
+
+	// Copy Props so we can stamp derived values without mutating the caller's map.
+	props := make(map[string]json.RawMessage, len(in.Props)+2)
+	for k, v := range in.Props {
+		props[k] = v
+	}
+
+	// Always record parent_id for fast direct-child lookups without a
+	// relationship scan. The parent relationship itself is written below.
+	if in.ParentID != uuid.Nil {
+		raw, _ := json.Marshal(in.ParentID.String())
+		props["parent_id"] = raw
+	}
+
+	// FeatureHasSequenceID: allocate a counter under the parent scope.
+	if nt.Features.Has(node.FeatureHasSequenceID) && in.ParentID != uuid.Nil {
+		seq, err := s.nodes.AllocateSequence(ctx, orgID, in.ParentID, nt.TypeKey)
+		if err != nil {
+			return nil, fmt.Errorf("allocate sequence: %w", err)
+		}
+		raw, _ := json.Marshal(seq)
+		props["sequence"] = raw
+	}
+
+	n := &node.Node{
+		ID:        id,
+		OrgID:     orgID,
+		NodeType:  nt.TypeKey,
+		Name:      in.Name,
+		Props:     props,
+		CreatedBy: in.ActorID,
+		UpdatedBy: in.ActorID,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	view := viewFromNode(n)
+
+	// Always add a child_of relationship when a parent is supplied.
+	rels := make([]*node.Relationship, 0, len(in.Relationships)+1)
+	if in.ParentID != uuid.Nil {
+		rels = append(rels, &node.Relationship{
+			OrgID:        orgID,
+			SourceID:     id,
+			RelationType: node.RelChildOf,
+			TargetID:     in.ParentID,
+			CreatedBy:    in.ActorID,
+			CreatedAt:    now,
+		})
+	}
+	for _, rel := range in.Relationships {
+		if rel.OrgID == uuid.Nil {
+			rel.OrgID = orgID
+		}
+		if rel.SourceID == uuid.Nil {
+			rel.SourceID = id
+		}
+		if rel.CreatedAt.IsZero() {
+			rel.CreatedAt = now
+		}
+		if rel.CreatedBy == uuid.Nil {
+			rel.CreatedBy = in.ActorID
+		}
+		rels = append(rels, rel)
+	}
+
+	indexedProps, err := s.indexedPropNames(ctx, orgID, nt)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.nodes.CreateAtomic(ctx, n, view, rels, indexedProps); err != nil {
+		log.Error("node.Create: atomic write",
+			slog.String("node_type", nt.TypeKey),
 			slog.String("node_id", id.String()),
 			slog.String("err", err.Error()),
 		)
 		return nil, fmt.Errorf("create node: %w", err)
 	}
-	view.SequenceID = int32(seqID)
-	log.Info("node.Create: created",
-		slog.String("node_id", id.String()),
-		slog.String("node_type", nodeTypeName),
-		slog.Int("sequence_id", int(seqID)),
-		slog.String("project_id", projID.String()),
-	)
 
-	// HasSlug: write global slug index.
+	// FeatureHasSlug: register global slug index.
 	if nt.Features.Has(node.FeatureHasSlug) {
-		for _, slugProp := range []string{"slug", "identifier"} {
-			if raw, ok := customProps[slugProp]; ok {
-				var slugVal string
-				if err := json.Unmarshal(raw, &slugVal); err != nil {
-					log.Warn("node.Create: unmarshal slug property", slog.String("prop", slugProp), slog.String("err", err.Error()))
-				}
-				if slugVal != "" {
-					if err := s.entities.WriteSlugIndex(ctx, nt.TypeKey, slugVal, id); err != nil {
-						log.Warn("node.Create: write slug index", slog.String("slug", slugVal), slog.String("err", err.Error()))
-					}
-				}
+		slug := firstStringProp(props, "slug", "identifier")
+		if slug != "" {
+			if err := s.nodes.WriteSlug(ctx, nt.TypeKey, slug, id); err != nil {
+				log.Warn("node.Create: write slug", slog.String("slug", slug), slog.String("err", err.Error()))
 			}
 		}
 	}
 
-	// HasActivity: log creation event.
-	if nt.Features.Has(node.FeatureHasActivity) {
-		if err := s.activity.Append(ctx, orgID, wsID, &node.ActivityEvent{
-			EventID: uuid.New(), NodeID: id, Actor: actorID,
-			Verb: "created", Detail: map[string]any{"name": name},
-			CreatedAt: now,
-		}); err != nil {
-			log.Warn("node.Create: activity append", slog.String("err", err.Error()))
-		}
-	}
-
 	// Search index.
-	if err := s.searcher.Index(ctx, "nodes", id.String(), nodeDocFromView(view)); err != nil {
+	if err := s.searcher.Index(ctx, "nodes", id.String(), searchDocFromView(view)); err != nil {
 		log.Warn("node.Create: search index", slog.String("err", err.Error()))
 	}
 
+	log.Info("node.Create",
+		slog.String("node_id", id.String()),
+		slog.String("node_type", nt.TypeKey),
+	)
 	return view, nil
 }
 
-// Update updates a node's fields and properties.
-func (s *NodeService) Update(
-	ctx context.Context,
-	nodeID uuid.UUID,
-	name *string,
-	inputProps map[string]any,
-	assigneeIDs *[]uuid.UUID,
-	labelIDs *[]uuid.UUID,
-	actorID uuid.UUID,
-) (*node.NodeListView, error) {
-	log := telemetry.L(ctx)
-	log.Info("node.Update", slog.String("node_id", nodeID.String()))
+// UpdateInput holds optional fields to update.
+type UpdateInput struct {
+	NodeID  uuid.UUID
+	Name    *string
+	Props   map[string]json.RawMessage // merged on top of existing
+	ActorID uuid.UUID
+}
 
-	view, err := s.reader.Get(ctx, nodeID)
+// Update rewrites a node's name and/or Props. Property index entries for
+// indexed props are refreshed when the value changes.
+func (s *NodeService) Update(ctx context.Context, in UpdateInput) (*node.NodeView, error) {
+	log := telemetry.L(ctx)
+
+	existing, err := s.reader.Get(ctx, in.NodeID)
 	if err != nil {
-		log.Warn("node.Update: get failed", slog.String("node_id", nodeID.String()), slog.String("err", err.Error()))
 		return nil, err
 	}
-	if view == nil {
+	if existing == nil {
 		return nil, domain.ErrNotFound
 	}
-	resolve, err := s.reader.Resolve(ctx, nodeID)
-	if err != nil {
-		return nil, err
-	}
-	orgID := resolve.OrgID
-	wsID := resolve.WorkspaceID
 
-	nt, err := s.findNodeType(ctx, orgID, view.NodeType)
-	if err != nil {
-		return nil, err
+	// Merge Props.
+	merged := make(map[string]json.RawMessage, len(existing.Props)+len(in.Props))
+	for k, v := range existing.Props {
+		merged[k] = v
 	}
-
-	now := time.Now()
-	if name != nil {
-		view.Name = *name
-	}
-	view.UpdatedAt = now
-	view.UpdatedBy = actorID
-
-	// Resolve PropertyDefs by name.
-	defs, _ := s.properties.ListDefs(ctx, orgID, wsID, nil)
-	defsByName := make(map[string]*node.PropertyDef, len(defs))
-	for _, d := range defs {
-		defsByName[strings.ToLower(d.Name)] = d
-	}
-
-	props := make(map[uuid.UUID]*node.PropertyValue)
-	if view.CustomProps == nil {
-		view.CustomProps = make(map[string]json.RawMessage)
-	}
-	for propName, val := range inputProps {
-		valStr := fmt.Sprintf("%v", val)
-		def, ok := defsByName[strings.ToLower(propName)]
-		if !ok {
+	for k, v := range in.Props {
+		if len(v) == 0 || string(v) == "null" {
+			delete(merged, k)
 			continue
 		}
-		pv := stringToPropertyValue(valStr, def.Type)
-		if pv != nil {
-			props[def.ID] = pv
-			raw, _ := json.Marshal(val)
-			view.CustomProps[propName] = raw
-		}
-
-		// Update inline fields for system properties.
-		switch strings.ToLower(propName) {
-		case "state_id":
-			if sid, err := uuid.Parse(valStr); err == nil {
-				view.StateID = &sid
-			}
-		case "priority":
-			view.Priority = valStr
-		case "start_date":
-			if t, err := time.Parse(time.RFC3339, valStr); err == nil {
-				view.StartDate = &t
-			}
-		case "due_date", "target_date", "end_date":
-			if t, err := time.Parse(time.RFC3339, valStr); err == nil {
-				view.DueDate = &t
-			}
-		case "is_draft":
-			view.IsDraft = valStr == "true"
-		}
+		merged[k] = v
 	}
 
-	nv := &node.NodeValue{
-		ID: nodeID, OrgID: orgID, WorkspaceID: wsID,
-		ProjectID: view.ProjectID, NodeType: view.NodeType,
-		Name: view.Name, StateID: view.StateID,
-		CreatedBy: view.CreatedBy, UpdatedBy: actorID,
-		CreatedAt: view.CreatedAt, UpdatedAt: now,
+	name := existing.Name
+	if in.Name != nil {
+		name = *in.Name
 	}
 
-	if err := s.entities.Set(ctx, nv, props, view); err != nil {
-		log.Error("node.Update: Set failed", slog.String("node_id", nodeID.String()), slog.String("err", err.Error()))
+	now := time.Now().UTC()
+	n := &node.Node{
+		ID:        existing.ID,
+		OrgID:     existing.OrgID,
+		NodeType:  existing.NodeType,
+		Name:      name,
+		Props:     merged,
+		CreatedBy: existing.CreatedBy,
+		UpdatedBy: in.ActorID,
+		CreatedAt: existing.CreatedAt,
+		UpdatedAt: now,
+	}
+	view := viewFromNode(n)
+
+	if err := s.nodes.Set(ctx, n, view); err != nil {
+		log.Error("node.Update",
+			slog.String("node_id", in.NodeID.String()),
+			slog.String("err", err.Error()),
+		)
 		return nil, fmt.Errorf("update node: %w", err)
 	}
 
-	// HasAssignees: update assignments if provided.
-	if assigneeIDs != nil && nt.Features.Has(node.FeatureHasAssignees) {
-		if err := s.assignments.SetAll(ctx, orgID, nodeID, *assigneeIDs, actorID); err != nil {
-			log.Warn("node.Update: set assignments", slog.String("node_id", nodeID.String()), slog.String("err", err.Error()))
-		}
-		view.AssigneeIDs = *assigneeIDs
-	}
-
-	// Labels: update if provided.
-	if labelIDs != nil {
-		if err := s.labels.SetAll(ctx, orgID, nodeID, *labelIDs, actorID); err != nil {
-			log.Warn("node.Update: set labels", slog.String("node_id", nodeID.String()), slog.String("err", err.Error()))
-		}
-		view.LabelIDs = *labelIDs
-	}
-
-	// HasActivity: log update event.
-	if nt.Features.Has(node.FeatureHasActivity) {
-		if err := s.activity.Append(ctx, orgID, wsID, &node.ActivityEvent{
-			EventID: uuid.New(), NodeID: nodeID, Actor: actorID,
-			Verb: "updated", CreatedAt: now,
-		}); err != nil {
-			log.Warn("node.Update: activity append", slog.String("err", err.Error()))
-		}
-	}
-
-	// Search index.
-	if err := s.searcher.Index(ctx, "nodes", nodeID.String(), nodeDocFromView(view)); err != nil {
+	if err := s.searcher.Index(ctx, "nodes", in.NodeID.String(), searchDocFromView(view)); err != nil {
 		log.Warn("node.Update: search index", slog.String("err", err.Error()))
 	}
-
 	return view, nil
 }
 
-// Delete removes a node.
+// Delete removes a node and every FDB record keyed by its ID.
 func (s *NodeService) Delete(ctx context.Context, nodeID, actorID uuid.UUID) error {
 	log := telemetry.L(ctx)
-	log.Info("node.Delete", slog.String("node_id", nodeID.String()))
 
-	// Read the view to get correct ProjectID (resolve records may have stale ProjectID).
-	view, err := s.reader.Get(ctx, nodeID)
+	existing, err := s.reader.Get(ctx, nodeID)
 	if err != nil {
-		log.Warn("node.Delete: get failed", slog.String("node_id", nodeID.String()), slog.String("err", err.Error()))
 		return err
 	}
-	if view == nil {
+	if existing == nil {
 		return domain.ErrNotFound
 	}
 
-	nv := &node.NodeValue{
-		ID: nodeID, OrgID: view.OrgID, WorkspaceID: view.WorkspaceID,
-		ProjectID: view.ProjectID, NodeType: view.NodeType,
-	}
-	orgID := view.OrgID
-
-	if err := s.entities.Delete(ctx, nv); err != nil {
-		log.Error("node.Delete: failed", slog.String("node_id", nodeID.String()), slog.String("err", err.Error()))
+	if err := s.deleter.DeleteNode(ctx, existing.OrgID, nodeID); err != nil {
+		log.Error("node.Delete", slog.String("node_id", nodeID.String()), slog.String("err", err.Error()))
 		return fmt.Errorf("delete node: %w", err)
 	}
 
-	// Cascade: clean up assignments, labels, comments, etc.
-	if err := s.deleter.DeleteNode(ctx, orgID, nodeID); err != nil {
-		log.Warn("node.Delete: cascade cleanup", slog.String("node_id", nodeID.String()), slog.String("err", err.Error()))
-	}
-
-	// Search removal.
 	if err := s.searcher.Delete(ctx, "nodes", nodeID.String()); err != nil {
-		log.Warn("node.Delete: search removal", slog.String("node_id", nodeID.String()), slog.String("err", err.Error()))
+		log.Warn("node.Delete: search removal", slog.String("err", err.Error()))
 	}
-
 	return nil
 }
 
-// SetState transitions a node to a new workflow state.
-func (s *NodeService) SetState(ctx context.Context, nodeID, stateID, actorID uuid.UUID) (*node.NodeListView, error) {
-	return s.Update(ctx, nodeID, nil, map[string]any{"state_id": stateID.String()}, nil, nil, actorID)
+// AddRelationship attaches a directed edge between two nodes.
+func (s *NodeService) AddRelationship(ctx context.Context, rel *node.Relationship) error {
+	if rel.CreatedAt.IsZero() {
+		rel.CreatedAt = time.Now().UTC()
+	}
+	return s.relationships.Add(ctx, rel)
 }
 
-// AddChildren adds child nodes to a container (e.g. issues to a cycle/module/epic).
-func (s *NodeService) AddChildren(ctx context.Context, containerID uuid.UUID, childIDs []uuid.UUID, actorID uuid.UUID) error {
-	log := telemetry.L(ctx)
-	log.Info("node.AddChildren",
-		slog.String("container_id", containerID.String()),
-		slog.Int("child_count", len(childIDs)),
-	)
+// RemoveRelationship removes a directed edge.
+func (s *NodeService) RemoveRelationship(ctx context.Context, orgID, sourceID uuid.UUID, relationType string, targetID uuid.UUID) error {
+	return s.relationships.Remove(ctx, orgID, sourceID, relationType, targetID)
+}
 
-	resolve, err := s.reader.Resolve(ctx, containerID)
+// resolveOrgFromParent returns the org context for a parent node, handling the
+// "no parent" case (seed for org-level nodes).
+func (s *NodeService) resolveOrgFromParent(ctx context.Context, parentID uuid.UUID) (uuid.UUID, error) {
+	if parentID == uuid.Nil {
+		return uuid.Nil, fmt.Errorf("parent_id required: %w", domain.ErrInvalidArgument)
+	}
+	resolve, err := s.reader.Resolve(ctx, parentID)
 	if err != nil {
-		log.Warn("node.AddChildren: resolve failed", slog.String("container_id", containerID.String()), slog.String("err", err.Error()))
-		return err
+		return uuid.Nil, fmt.Errorf("resolve parent: %w", err)
 	}
-
-	for _, childID := range childIDs {
-		if err := s.containment.AddChild(ctx, resolve.OrgID, containerID, childID, actorID); err != nil {
-			log.Warn("node.AddChildren: add child", slog.String("child_id", childID.String()), slog.String("err", err.Error()))
-		}
-	}
-	return nil
+	return resolve.OrgID, nil
 }
 
-// RemoveChildren removes child nodes from a container.
-func (s *NodeService) RemoveChildren(ctx context.Context, containerID uuid.UUID, childIDs []uuid.UUID) error {
-	log := telemetry.L(ctx)
-	log.Info("node.RemoveChildren",
-		slog.String("container_id", containerID.String()),
-		slog.Int("child_count", len(childIDs)),
-	)
-
-	resolve, err := s.reader.Resolve(ctx, containerID)
-	if err != nil {
-		log.Warn("node.RemoveChildren: resolve failed", slog.String("container_id", containerID.String()), slog.String("err", err.Error()))
-		return err
-	}
-
-	for _, childID := range childIDs {
-		if err := s.containment.RemoveChild(ctx, resolve.OrgID, containerID, childID); err != nil {
-			log.Warn("node.RemoveChildren: remove child", slog.String("child_id", childID.String()), slog.String("err", err.Error()))
-		}
-	}
-	return nil
-}
-
-// findNodeType looks up a NodeType by slug or TypeKey within an org.
-func (s *NodeService) findNodeType(ctx context.Context, orgID uuid.UUID, nameOrKey string) (*node.NodeType, error) {
+// findNodeType resolves a NodeType by TypeKey or Slug within an org.
+func (s *NodeService) findNodeType(ctx context.Context, orgID uuid.UUID, key string) (*node.NodeType, error) {
 	nts, err := s.nodeTypes.List(ctx, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("list node types: %w", err)
 	}
 	for _, nt := range nts {
-		if nt.TypeKey == nameOrKey || nt.Slug == nameOrKey {
+		if nt.TypeKey == key || nt.Slug == key {
 			return nt, nil
 		}
 	}
-	return nil, fmt.Errorf("node type %q: %w", nameOrKey, domain.ErrNotFound)
+	return nil, fmt.Errorf("node type %q: %w", key, domain.ErrNotFound)
+}
+
+// indexedPropNames returns the names of PropertyDefs in the org that apply to
+// this NodeType and have Indexed=true.
+func (s *NodeService) indexedPropNames(ctx context.Context, orgID uuid.UUID, nt *node.NodeType) ([]string, error) {
+	defs, err := s.propertyDefs.List(ctx, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("list property defs: %w", err)
+	}
+	out := make([]string, 0, len(defs))
+	for _, d := range defs {
+		if !d.Indexed {
+			continue
+		}
+		if !appliesTo(d, nt) {
+			continue
+		}
+		out = append(out, d.Name)
+	}
+	return out, nil
+}
+
+// appliesTo reports whether a PropertyDef applies to a NodeType. Empty
+// AppliesToFeatures means "all types".
+func appliesTo(d *node.PropertyDef, nt *node.NodeType) bool {
+	if len(d.AppliesToFeatures) == 0 {
+		return true
+	}
+	return nt.Features.HasAny(d.AppliesToFeatures...)
+}
+
+// firstStringProp returns the first non-empty string value from Props at any
+// of the listed keys.
+func firstStringProp(props map[string]json.RawMessage, keys ...string) string {
+	for _, k := range keys {
+		raw, ok := props[k]
+		if !ok {
+			continue
+		}
+		var s string
+		if err := json.Unmarshal(raw, &s); err != nil {
+			continue
+		}
+		if s = strings.TrimSpace(s); s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
+// viewFromNode materializes the NodeView snapshot from a Node. Every write path
+// that updates the primary also refreshes the view; keeping them in the same
+// shape means the view construction is trivial.
+func viewFromNode(n *node.Node) *node.NodeView {
+	// Copy Props so the view and the node don't share the same map.
+	props := make(map[string]json.RawMessage, len(n.Props))
+	for k, v := range n.Props {
+		props[k] = v
+	}
+	return &node.NodeView{
+		ID:        n.ID,
+		OrgID:     n.OrgID,
+		NodeType:  n.NodeType,
+		Name:      n.Name,
+		Props:     props,
+		CreatedBy: n.CreatedBy,
+		UpdatedBy: n.UpdatedBy,
+		CreatedAt: n.CreatedAt,
+		UpdatedAt: n.UpdatedAt,
+	}
+}
+
+// searchDocFromView builds a generic search document. The doc contains the
+// universal fields plus a flattened Props map; the search adapter chooses
+// which props are filterable based on PropertyDef.Indexed at index-setup time.
+func searchDocFromView(v *node.NodeView) domainsearch.NodeDoc {
+	doc := domainsearch.NodeDoc{
+		ID:       v.ID.String(),
+		OrgID:    v.OrgID.String(),
+		NodeType: v.NodeType,
+		Name:     v.Name,
+	}
+	if len(v.Props) > 0 {
+		doc.Props = make(map[string]any, len(v.Props))
+		for k, raw := range v.Props {
+			var val any
+			if err := json.Unmarshal(raw, &val); err == nil {
+				doc.Props[k] = val
+			}
+		}
+	}
+	return doc
 }

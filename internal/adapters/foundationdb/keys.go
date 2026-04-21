@@ -5,160 +5,142 @@ import (
 	"github.com/google/uuid"
 )
 
-// FDB key space prefixes: all keys are encoded via the tuple layer.
-// Every key is scoped to an org: (prefix, orgID, ...) to ensure tenant isolation.
-// See CLAUDE.md for the full key space reference with access patterns.
-
+// FDB key space. Everything is expressed through one of a small set of generic
+// patterns; nothing in the key space privileges a specific concept (no
+// assignment keys, no label keys, no comment keys, etc.).
+//
+// All keys use the tuple layer. orgID sits early in the tuple for tenant
+// locality.
 const (
-	// Membership
-	keyMembershipByUser   = "membership_by_user"
-	keyMembershipByEntity = "membership_by_entity"
-	keyMembershipByRole   = "membership_by_role"
-	keyInvitation         = "invitation"
-	keyInvitationByEmail  = "invitation_by_email"
+	// Primary node storage.
+	// (node_instance, orgID, nodeType, nodeID) -> Node JSON
+	keyNodeInstance = "node_instance"
 
-	// Assignments
-	keyAssignmentOnNode = "assignment_on_node"
-	keyAssignmentToUser = "assignment_to_user"
+	// Materialized read view. Mirrors node_instance key structure.
+	// (node_view, orgID, nodeType, nodeID) -> NodeView JSON
+	keyNodeView = "node_view"
 
-	// Labels on nodes
-	keyLabelOnNode     = "label_on_node"
-	keyNodesWithLabel = "issues_with_label"
-
-	// Containment: generic parent-child links between any node types.
-	// (containment, orgID, containerID, childID) → ContainmentValue JSON
-	keyContainment = "containment"
-	// (containment_reverse, orgID, childID, containerID) → nil
-	keyContainmentReverse = "containment_reverse"
-
-	// Custom node instances
-	keyNodeInstance          = "node_instance"
-	keyNodeInstanceByProject = "node_instance_by_project"
-	keyNodeInstanceByState   = "node_instance_by_state"
-	keyNodeAssignee          = "node_assignee"
-	keyNodeLabel             = "node_label"
-	keyNodeParent            = "node_parent"
-	keyNodeChildren          = "node_children_of"
-
-	// Relations between nodes
-	keyRelationFromNode = "relation_from_node"
-	keyRelationToNode   = "relation_to_node"
-
-	// Comments
-	keyCommentOnNode     = "comment_on_node"
-	keyReplyToComment    = "reply_to_comment"
-	keyReactionOnComment = "reaction_on_comment"
-
-	// Activity log
-	keyActivityOnNode      = "activity_on_node"
-	keyActivityByUser      = "activity_by_user"
-	keyActivityOnWorkspace = "activity_on_workspace"
-
-	// Watchers and mentions
-	keyWatcherOfNode     = "watcher_of_node"
-	keyNodeWatchedByUser = "node_watched_by_user"
-	keyMentionInNode     = "mention_in_node"
-	keyMentionOfUser     = "mention_of_user"
-
-	// Notifications
-	keyNotificationForUser     = "notification_for_user"
-	keyUnreadNotificationCount = "unread_notification_count"
-
-	// Counters (atomic)
-	keyCountOnNode         = "count_on_node"
-	keyCountByState        = "count_by_state"
-	keyReactionOnNode      = "reaction_on_node"
-	keyReactionCountOnNode = "reaction_count_on_node"
-
-	// Positioning and views
-	keySortPositionInView = "sort_position_in_view"
-	keyBoardLayoutForUser = "board_layout_for_user"
-	keyStarredByUser      = "starred_by_user"
-	keySavedViewForUser   = "saved_view_for_user"
-	keySavedViewOnEntity  = "saved_view_on_entity"
-
-	// Content
-	keyLinkOnNode         = "link_on_node"
-	keyAttachmentOnNode   = "attachment_on_node"
-	keyDraftForUserOnNode = "draft_for_user_on_node"
-	keyDescriptionVersion = "description_version"
-
-	// Work tracking
-	keyWorkLogOnNode = "work_log_on_node"
-	keyWorkLogByUser = "work_log_by_user"
-
-	// Custom fields
-	keyPropertyDefinition  = "property_definition"
-	keyPropertyValueOnNode = "property_value_on_node"
-
-	// Custom type definitions
-	keyNodeTypeDefinition = "node_type_definition"
-	keySequence           = "sequence"
-
-	// Secondary property index: sorted by encoded value for fast filtered listing.
-	keyNodeByProperty = "node_by_property"
-
-	// NodeBySequence maps (orgID, projectID, nodeType, sequenceID) → nodeID bytes.
-	// Allows O(1) lookup of a node by sequence number within a project.
-	// Written atomically alongside the entity on create; cleared on delete.
-	keyNodeBySequence = "node_by_sequence"
-
-	// NodeListView materialized read view: mirrors node_instance key structure.
-	// (node_list_view, orgID, workspaceID, nodeType, nodeID) → JSON NodeListView
-	keyNodeListView = "node_list_view"
-
-	// NodeResolve global resolution record: NOT org-scoped, keyed by nodeID only.
-	// Allows Get by nodeID without knowing org/workspace upfront.
-	// (node_resolve, nodeID) → JSON NodeResolve
+	// Global resolution record; NOT org-scoped. Keyed by nodeID only so any
+	// caller can resolve an entity without knowing its org upfront.
+	// (node_resolve, nodeID) -> NodeResolve JSON
 	keyNodeResolve = "node_resolve"
 
-	// Slug-based secondary indexes for structural entity types
-	keyOrgBySlug              = "org_by_slug"
-	keyWorkspaceBySlug        = "workspace_by_slug"
-	keyWorkspaceBySlugGlobal  = "workspace_by_slug_global"
-	keyProjectByIdent         = "project_by_identifier"
-	keyProjectByWorkspace     = "project_by_workspace"
-	keySlugSequence           = "slug_sequence"
+	// Secondary index for indexed PropertyDefs. Sorted by encoded value so
+	// filtered range scans are cheap.
+	// (node_by_property, orgID, nodeType, propName, encodedValue, nodeID) -> nil
+	keyNodeByProperty = "node_by_property"
 
-	// Automation and rules
-	keyAutomationRule          = "automation_rule"
-	keyAutomationRuleByTrigger = "automation_rule_by_trigger"
-	keyAutomationRunLog        = "automation_run_log"
-	keyTransitionRule          = "transition_rule"
+	// Forward relationship.
+	// (relationship, orgID, sourceID, relationType, targetID) -> metadata JSON
+	keyRelationship = "relationship"
 
-	// Settings and roles
-	keyUserPreference = "user_preference"
-	keyOrgSetting     = "org_setting"
-	keyRoleDefinition = "role_definition"
-	keyRolePermission = "role_permission"
+	// Reverse relationship for lookups by target.
+	// (relationship_reverse, orgID, targetID, relationType, sourceID) -> nil
+	keyRelationshipReverse = "relationship_reverse"
 
-	// Integrations and ops
-	keyWebhook         = "webhook"
-	keyWebhookDelivery = "webhook_delivery"
-	keySearchSyncState = "search_sync_state"
-	keySearchSyncQueue = "search_sync_queue"
-	keyAuditLog        = "audit_log"
-	keyAuditLogByActor = "audit_log_by_actor"
-	keyPresenceOnNode  = "presence_on_node"
+	// Global slug index for entry-point nodes (workspaces, orgs).
+	// (slug_index, nodeType, slug) -> nodeID bytes
+	keySlugIndex = "slug_index"
+
+	// Atomic sequence counters keyed by (orgID, scopeNodeID, nodeType).
+	// scopeNodeID is the container that defines uniqueness (typically a project).
+	// (sequence, orgID, scopeNodeID, nodeType) -> int64
+	keySequence = "sequence"
+
+	// NodeType configuration records.
+	// (node_type_def, orgID, typeID) -> NodeType JSON
+	keyNodeTypeDef = "node_type_def"
+
+	// PropertyDef records.
+	// (property_def, orgID, defID) -> PropertyDef JSON
+	keyPropertyDef = "property_def"
 )
 
-// slugSequenceKey returns the packed atomic counter key for a slug-owning node.
-// (slug_sequence, orgID, slugOwnerNodeID) → int64
-func slugSequenceKey(orgID, slugOwnerNodeID uuid.UUID) []byte {
-	return tuple.Tuple{keySlugSequence, orgID.String(), slugOwnerNodeID.String()}.Pack()
+// nodeInstanceKey packs a primary node key.
+func nodeInstanceKey(orgID uuid.UUID, nodeType string, nodeID uuid.UUID) []byte {
+	return tuple.Tuple{keyNodeInstance, orgID.String(), nodeType, nodeID.String()}.Pack()
 }
 
-// _ references keep the canonical key space constants and stub functions from
-// triggering the unused linter. These keys are part of the documented FDB schema
-// and will be used as features are implemented.
-var _ = [...]string{
-	keyMembershipByUser, keyMembershipByEntity, keyMembershipByRole,
-	keyInvitation, keyInvitationByEmail,
-	keyNotificationForUser, keyUnreadNotificationCount,
-	keySortPositionInView, keyBoardLayoutForUser, keyStarredByUser,
-	keySavedViewForUser, keySavedViewOnEntity,
-	keyUserPreference, keyOrgSetting, keyRoleDefinition, keyRolePermission,
-	keyOrgBySlug, keyWorkspaceBySlug, keyWorkspaceBySlugGlobal,
-	keyProjectByIdent, keyProjectByWorkspace, keySlugSequence,
+// nodeViewKey packs a materialized view key.
+func nodeViewKey(orgID uuid.UUID, nodeType string, nodeID uuid.UUID) []byte {
+	return tuple.Tuple{keyNodeView, orgID.String(), nodeType, nodeID.String()}.Pack()
 }
-var _ = slugSequenceKey
+
+// nodeResolveKey packs a global resolve key.
+func nodeResolveKey(nodeID uuid.UUID) []byte {
+	return tuple.Tuple{keyNodeResolve, nodeID.String()}.Pack()
+}
+
+// nodeByPropertyKey packs a secondary property index key.
+func nodeByPropertyKey(orgID uuid.UUID, nodeType, propName string, encodedValue []byte, nodeID uuid.UUID) []byte {
+	return tuple.Tuple{keyNodeByProperty, orgID.String(), nodeType, propName, encodedValue, nodeID.String()}.Pack()
+}
+
+// relationshipKey packs a forward relationship key.
+func relationshipKey(orgID, sourceID uuid.UUID, relationType string, targetID uuid.UUID) []byte {
+	return tuple.Tuple{keyRelationship, orgID.String(), sourceID.String(), relationType, targetID.String()}.Pack()
+}
+
+// relationshipReverseKey packs a reverse relationship key.
+func relationshipReverseKey(orgID, targetID uuid.UUID, relationType string, sourceID uuid.UUID) []byte {
+	return tuple.Tuple{keyRelationshipReverse, orgID.String(), targetID.String(), relationType, sourceID.String()}.Pack()
+}
+
+// slugIndexKey packs a global slug key.
+func slugIndexKey(nodeType, slug string) []byte {
+	return tuple.Tuple{keySlugIndex, nodeType, slug}.Pack()
+}
+
+// sequenceKey packs an atomic sequence counter key.
+func sequenceKey(orgID, scopeNodeID uuid.UUID, nodeType string) []byte {
+	return tuple.Tuple{keySequence, orgID.String(), scopeNodeID.String(), nodeType}.Pack()
+}
+
+// nodeTypeDefKey packs a NodeType config key.
+func nodeTypeDefKey(orgID, typeID uuid.UUID) []byte {
+	return tuple.Tuple{keyNodeTypeDef, orgID.String(), typeID.String()}.Pack()
+}
+
+// propertyDefKey packs a PropertyDef key.
+func propertyDefKey(orgID, defID uuid.UUID) []byte {
+	return tuple.Tuple{keyPropertyDef, orgID.String(), defID.String()}.Pack()
+}
+
+// nodeViewPrefix packs the prefix for scanning views of (orgID, nodeType).
+func nodeViewPrefix(orgID uuid.UUID, nodeType string) []byte {
+	return tuple.Tuple{keyNodeView, orgID.String(), nodeType}.Pack()
+}
+
+// nodeByPropertyValuePrefix packs the prefix for scanning the property index
+// narrowed to a specific encoded value.
+func nodeByPropertyValuePrefix(orgID uuid.UUID, nodeType, propName string, encodedValue []byte) []byte {
+	return tuple.Tuple{keyNodeByProperty, orgID.String(), nodeType, propName, encodedValue}.Pack()
+}
+
+// relationshipPrefixBySource packs the prefix for listing all relationships
+// from sourceID, optionally narrowed to a specific relationType.
+func relationshipPrefixBySource(orgID, sourceID uuid.UUID, relationType string) []byte {
+	if relationType == "" {
+		return tuple.Tuple{keyRelationship, orgID.String(), sourceID.String()}.Pack()
+	}
+	return tuple.Tuple{keyRelationship, orgID.String(), sourceID.String(), relationType}.Pack()
+}
+
+// relationshipReversePrefixByTarget packs the prefix for listing all relationships
+// pointing to targetID, optionally narrowed to a specific relationType.
+func relationshipReversePrefixByTarget(orgID, targetID uuid.UUID, relationType string) []byte {
+	if relationType == "" {
+		return tuple.Tuple{keyRelationshipReverse, orgID.String(), targetID.String()}.Pack()
+	}
+	return tuple.Tuple{keyRelationshipReverse, orgID.String(), targetID.String(), relationType}.Pack()
+}
+
+// nodeTypeDefPrefix packs the prefix for scanning all NodeType records in an org.
+func nodeTypeDefPrefix(orgID uuid.UUID) []byte {
+	return tuple.Tuple{keyNodeTypeDef, orgID.String()}.Pack()
+}
+
+// propertyDefPrefix packs the prefix for scanning all PropertyDef records in an org.
+func propertyDefPrefix(orgID uuid.UUID) []byte {
+	return tuple.Tuple{keyPropertyDef, orgID.String()}.Pack()
+}

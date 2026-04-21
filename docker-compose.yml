@@ -14,7 +14,7 @@ services:
       MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-tack-dev-meili-key-change-in-prod}
       TEMPORAL_ADDRESS: temporal:7233
       PORT: 8000
-      ENV: production
+      ENV: development
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
       - /etc/foundationdb:/etc/foundationdb:ro

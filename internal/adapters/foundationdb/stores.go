@@ -1,5 +1,7 @@
-// Package foundationdb provides FoundationDB adapters for all FDB-backed stores:
-// assignments, labels, activity, membership, containment, and node cleanup.
+// Package foundationdb provides FoundationDB adapters for the generic node,
+// property, and relationship stores. No concept-specific stores exist:
+// assignments, labels, comments, activity, automation etc. are all expressed
+// as Nodes + Relationships in the generic primitives.
 package foundationdb
 
 import (
@@ -7,24 +9,18 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Stores bundles all FDB adapters sharing one database connection.
+// Stores bundles the generic FDB adapters.
 type Stores struct {
-	NodeTypes   *NodeTypeStore
-	Properties  *PropertyStore
-	Activity    *ActivityStore
-	Assignments *AssignmentStore
-	Labels      *NodeLabelStore
-	Membership  *MembershipStore
-	Containment *ContainmentStore
-	NodeDeleter *NodeDeleteStore
-	Entities    *EntityStore
-	Automations *AutomationStore
-	Views       *ViewStore
-	Comments    *CommentStore
+	NodeTypes     *NodeTypeStore
+	PropertyDefs  *PropertyDefStore
+	Nodes         *NodeStore
+	Views         *ViewStore
+	Relationships *RelationshipStore
+	NodeDeleter   *NodeDeleteStore
 }
 
-// NewStores opens FDB once and wires all adapters to the same connection.
-// sqlPool is required for adapters that need SQL (e.g., workspace list operations).
+// NewStores opens FDB once and wires all generic stores to the same connection.
+// sqlPool is reserved for auth-adjacent queries (org_members), not domain data.
 func NewStores(clusterFile string, sqlPool *pgxpool.Pool) (*Stores, error) {
 	db, err := Open(clusterFile)
 	if err != nil {
@@ -33,19 +29,13 @@ func NewStores(clusterFile string, sqlPool *pgxpool.Pool) (*Stores, error) {
 	return newStores(db, sqlPool), nil
 }
 
-func newStores(db fdb.Database, sqlPool *pgxpool.Pool) *Stores {
+func newStores(db fdb.Database, _ *pgxpool.Pool) *Stores {
 	return &Stores{
-		NodeTypes:   &NodeTypeStore{db: db},
-		Properties:  &PropertyStore{db: db},
-		Activity:    &ActivityStore{db: db},
-		Assignments: newAssignmentStore(db),
-		Labels:      newNodeLabelStore(db),
-		Membership:  newMembershipStore(db),
-		Containment: newContainmentStore(db),
-		NodeDeleter: newNodeDeleteStore(db),
-		Entities:    NewEntityStore(db),
-		Automations: NewAutomationStore(db),
-		Views:       NewViewStore(db),
-		Comments:    NewCommentStore(db),
+		NodeTypes:     NewNodeTypeStore(db),
+		PropertyDefs:  NewPropertyDefStore(db),
+		Nodes:         NewNodeStore(db),
+		Views:         NewViewStore(db),
+		Relationships: NewRelationshipStore(db),
+		NodeDeleter:   NewNodeDeleteStore(db),
 	}
 }

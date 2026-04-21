@@ -2,15 +2,17 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 
+	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/telemetry"
-	"github.com/google/uuid"
 )
 
-// Seed-only type keys. DO NOT USE OUTSIDE OF SEED.
-// Runtime code must read type keys from loaded NodeType data, never from these constants.
+// Seed-only type keys. These are the ONLY place where specific NodeType names
+// live as source-code constants. Runtime code reads NodeType.TypeKey (and
+// Slug) from the FDB-loaded NodeType records.
 const (
 	nodeTypeIssue     = "issue"
 	nodeTypeEpic      = "epic"
@@ -21,78 +23,57 @@ const (
 	nodeTypeProject   = "project"
 	nodeTypeState     = "state"
 	nodeTypeLabel     = "label"
+	nodeTypeComment   = "comment"
+	nodeTypeActivity  = "activity"
 )
 
 // builtinTypeNamespace is the UUID v5 namespace for deterministic builtin NodeType IDs.
-// Builtin type IDs are derived from (orgID, slug) so the same org always gets
-// the same IDs across workspace seeds, and Set is idempotent.
 var builtinTypeNamespace = uuid.MustParse("bab1e5da-cafe-dead-beef-000000000001")
 
-// WorkspaceSeeder seeds default PropertyDef and built-in NodeType records into a new workspace.
-type WorkspaceSeeder struct {
-	properties node.PropertyRepository
-	nodeTypes  node.TypeRepository
+// Seeder seeds default PropertyDef and built-in NodeType records into an org.
+// Seeding is idempotent: every builtin record has a deterministic UUID derived
+// from the org ID, so repeated calls rewrite the same records.
+type Seeder struct {
+	propertyDefs node.PropertyDefRepository
+	nodeTypes    node.TypeRepository
 }
 
-func NewWorkspaceSeeder(properties node.PropertyRepository, nodeTypes node.TypeRepository) *WorkspaceSeeder {
-	return &WorkspaceSeeder{properties: properties, nodeTypes: nodeTypes}
+func NewSeeder(propertyDefs node.PropertyDefRepository, nodeTypes node.TypeRepository) *Seeder {
+	return &Seeder{propertyDefs: propertyDefs, nodeTypes: nodeTypes}
 }
 
-// SeedOrg seeds the org-level NodeType definition. Called once on org creation.
-func (s *WorkspaceSeeder) SeedOrg(ctx context.Context, orgID uuid.UUID) {
-	orgTypeID := uuid.NewSHA1(builtinTypeNamespace, []byte(orgID.String()+":org"))
-	if err := s.nodeTypes.Set(ctx, &node.NodeType{
-		ID:         orgTypeID,
-		OrgID:      orgID,
-		Name:       "Org",
-		Slug:       "org",
-		PluralSlug: "orgs",
-		TypeKey:    nodeTypeOrg,
-		IsBuiltin:  true,
-		Features:   node.Features{node.FeatureHasSlug, node.FeatureIsContainer, node.FeatureIsScope, node.FeatureExcludeFromGenericTools},
-		CanContain: []string{nodeTypeWorkspace},
-	}); err != nil {
-		telemetry.L(ctx).Warn("seed org type failed", slog.String("error", err.Error()))
-	}
-}
+// SeedOrg writes the default NodeTypes and PropertyDefs for a newly created org.
+// Called once on org creation and again after any NodeType / PropertyDef change
+// to propagate updated defaults.
+func (s *Seeder) SeedOrg(ctx context.Context, orgID uuid.UUID) {
+	log := telemetry.L(ctx)
 
-// SeedWorkspace writes default PropertyDefs and built-in NodeTypes for the given workspace.
-// Errors are non-fatal; the workspace is usable even if seeding partially fails.
-func (s *WorkspaceSeeder) SeedWorkspace(ctx context.Context, orgID, workspaceID uuid.UUID) {
-	for _, def := range defaultPropertyDefs(orgID, workspaceID) {
-		if err := s.properties.SetDef(ctx, def); err != nil {
-			telemetry.L(ctx).Warn("seed property def failed",
-				slog.String("name", def.Name),
-				slog.String("workspace_id", workspaceID.String()),
-				slog.String("error", err.Error()),
-			)
+	for _, def := range defaultPropertyDefs(orgID) {
+		if err := s.propertyDefs.Set(ctx, def); err != nil {
+			log.Warn("seed property def", slog.String("name", def.Name), slog.String("err", err.Error()))
 		}
 	}
 	for _, nt := range defaultNodeTypes(orgID) {
 		if err := s.nodeTypes.Set(ctx, nt); err != nil {
-			telemetry.L(ctx).Warn("seed node type failed",
-				slog.String("slug", nt.Slug),
-				slog.String("org_id", orgID.String()),
-				slog.String("error", err.Error()),
-			)
+			log.Warn("seed node type", slog.String("slug", nt.Slug), slog.String("err", err.Error()))
 		}
 	}
 }
 
-func defaultPropertyDefs(orgID, workspaceID uuid.UUID) []*node.PropertyDef {
-	boolPtr := func(b bool) *bool { return &b }
-	ws := &workspaceID
+func defaultPropertyDefs(orgID uuid.UUID) []*node.PropertyDef {
+	jsonRaw := func(v any) json.RawMessage {
+		b, _ := json.Marshal(v)
+		return b
+	}
 
 	return []*node.PropertyDef{
 		{
-			ID:          systemPropID(workspaceID, propNamePriority),
-			OrgID:       orgID,
-			WorkspaceID: ws,
-			Name:        "Priority",
-			Type:        node.PropertyTypeSelect,
-			NodeTypes:   []string{nodeTypeIssue, nodeTypeEpic},
-			Indexed:     true,
-			IsSystem:    true,
+			ID:                node.SystemPropID(orgID, "priority"),
+			OrgID:             orgID,
+			Name:              "priority",
+			Type:              node.PropertyTypeSelect,
+			AppliesToFeatures: []string{node.FeatureHasWorkflowStates},
+			Indexed:           true,
 			Options: []node.EnumOption{
 				{Key: "urgent", Label: "Urgent", Color: "#EF4444", SortRank: 0},
 				{Key: "high", Label: "High", Color: "#F97316", SortRank: 1},
@@ -100,145 +81,79 @@ func defaultPropertyDefs(orgID, workspaceID uuid.UUID) []*node.PropertyDef {
 				{Key: "low", Label: "Low", Color: "#22C55E", SortRank: 3},
 				{Key: "none", Label: "No Priority", Color: "#9B9B9B", SortRank: 4},
 			},
-			DefaultValue: enumPV("none", 4),
+			DefaultValue: jsonRaw("none"),
 		},
 		{
-			ID:          systemPropID(workspaceID, propNameDueDate),
-			OrgID:       orgID,
-			WorkspaceID: ws,
-			Name:        "Due Date",
-			Type:        node.PropertyTypeTimestamp,
-			NodeTypes:   []string{nodeTypeIssue, nodeTypeEpic, nodeTypeCycle, nodeTypeModule},
-			Indexed:     true,
-			IsSystem:    true,
+			ID:                node.SystemPropID(orgID, "due_date"),
+			OrgID:             orgID,
+			Name:              "due_date",
+			Type:              node.PropertyTypeTimestamp,
+			AppliesToFeatures: []string{node.FeatureHasDueDates},
+			Indexed:           true,
 		},
 		{
-			ID:          systemPropID(workspaceID, propNameStartDate),
-			OrgID:       orgID,
-			WorkspaceID: ws,
-			Name:        "Start Date",
-			Type:        node.PropertyTypeTimestamp,
-			NodeTypes:   []string{nodeTypeIssue, nodeTypeEpic, nodeTypeCycle, nodeTypeModule},
-			Indexed:     true,
-			IsSystem:    true,
+			ID:                node.SystemPropID(orgID, "start_date"),
+			OrgID:             orgID,
+			Name:              "start_date",
+			Type:              node.PropertyTypeTimestamp,
+			AppliesToFeatures: []string{node.FeatureHasDueDates},
+			Indexed:           true,
 		},
 		{
-			ID:           systemPropID(workspaceID, propNameIsDraft),
-			OrgID:        orgID,
-			WorkspaceID:  ws,
-			Name:         "Is Draft",
-			Type:         node.PropertyTypeCheckbox,
-			NodeTypes:    []string{nodeTypeIssue},
-			Indexed:      false,
-			IsSystem:     true,
-			DefaultValue: &node.PropertyValue{Kind: node.PropertyValueBool, Bool: boolPtr(false)},
-		},
-		// Workspace properties
-		{
-			ID:          systemPropID(workspaceID, propNameSlug),
-			OrgID:       orgID,
-			WorkspaceID: ws,
-			Name:        "Slug",
-			Type:        node.PropertyTypeText,
-			NodeTypes:   []string{nodeTypeWorkspace},
-			Indexed:     true,
-			IsSystem:    true,
-		},
-		// Project properties
-		{
-			ID:          systemPropID(workspaceID, propNameIdentifier),
-			OrgID:       orgID,
-			WorkspaceID: ws,
-			Name:        "Identifier",
-			Type:        node.PropertyTypeText,
-			NodeTypes:   []string{nodeTypeProject},
-			Indexed:     true,
-			IsSystem:    true,
+			ID:                node.SystemPropID(orgID, "state_id"),
+			OrgID:             orgID,
+			Name:              "state_id",
+			Type:              node.PropertyTypeUUID,
+			AppliesToFeatures: []string{node.FeatureHasWorkflowStates},
+			Indexed:           true,
 		},
 		{
-			ID:          systemPropID(workspaceID, propNameDescription),
-			OrgID:       orgID,
-			WorkspaceID: ws,
-			Name:        "Description",
-			Type:        node.PropertyTypeText,
-			NodeTypes:   []string{nodeTypeProject},
-			Indexed:     false,
-			IsSystem:    true,
+			ID:                node.SystemPropID(orgID, "is_draft"),
+			OrgID:             orgID,
+			Name:              "is_draft",
+			Type:              node.PropertyTypeCheckbox,
+			AppliesToFeatures: []string{node.FeatureHasWorkflowStates},
+			Indexed:           false,
+			DefaultValue:      jsonRaw(false),
 		},
 		{
-			ID:          systemPropID(workspaceID, propNameNetwork),
-			OrgID:       orgID,
-			WorkspaceID: ws,
-			Name:        "Network",
-			Type:        node.PropertyTypeNumber,
-			NodeTypes:   []string{nodeTypeProject},
-			Indexed:     false,
-			IsSystem:    true,
+			ID:                node.SystemPropID(orgID, "description"),
+			OrgID:             orgID,
+			Name:              "description",
+			Type:              node.PropertyTypeText,
+			AppliesToFeatures: nil, // applies to every type
+			Indexed:           false,
 		},
 		{
-			ID:          systemPropID(workspaceID, propNameDefaultStateID),
-			OrgID:       orgID,
-			WorkspaceID: ws,
-			Name:        "Default State ID",
-			Type:        node.PropertyTypeText,
-			NodeTypes:   []string{nodeTypeProject},
-			Indexed:     false,
-			IsSystem:    true,
-		},
-		// State properties
-		{
-			ID:          systemPropID(workspaceID, propNameGroupName),
-			OrgID:       orgID,
-			WorkspaceID: ws,
-			Name:        "Group Name",
-			Type:        node.PropertyTypeSelect,
-			NodeTypes:   []string{nodeTypeState},
-			Indexed:     true,
-			IsSystem:    true,
-			Options: []node.EnumOption{
-				{Key: "backlog", Label: "Backlog", SortRank: 0},
-				{Key: "todo", Label: "Todo", SortRank: 1},
-				{Key: "started", Label: "Started", SortRank: 2},
-				{Key: "completed", Label: "Completed", SortRank: 3},
-				{Key: "cancelled", Label: "Cancelled", SortRank: 4},
-			},
+			ID:                node.SystemPropID(orgID, "slug"),
+			OrgID:             orgID,
+			Name:              "slug",
+			Type:              node.PropertyTypeText,
+			AppliesToFeatures: []string{node.FeatureHasSlug},
+			Indexed:           true,
 		},
 		{
-			ID:          systemPropID(workspaceID, propNameColor),
-			OrgID:       orgID,
-			WorkspaceID: ws,
-			Name:        "Color",
-			Type:        node.PropertyTypeText,
-			NodeTypes:   []string{nodeTypeState, nodeTypeLabel},
-			Indexed:     false,
-			IsSystem:    true,
+			ID:                node.SystemPropID(orgID, "color"),
+			OrgID:             orgID,
+			Name:              "color",
+			Type:              node.PropertyTypeText,
+			AppliesToFeatures: nil, // any type can have a color
+			Indexed:           false,
 		},
 		{
-			ID:          systemPropID(workspaceID, propNameSortOrder),
-			OrgID:       orgID,
-			WorkspaceID: ws,
-			Name:        "Sort Order",
-			Type:        node.PropertyTypeNumber,
-			NodeTypes:   []string{nodeTypeState, nodeTypeLabel},
-			Indexed:     false,
-			IsSystem:    true,
+			ID:                node.SystemPropID(orgID, "sort_order"),
+			OrgID:             orgID,
+			Name:              "sort_order",
+			Type:              node.PropertyTypeNumber,
+			AppliesToFeatures: nil,
+			Indexed:           false,
 		},
-	}
-}
-
-// enumPV constructs a PropertyValue for an enum property with its sort rank pre-populated.
-func enumPV(key string, rank int32) *node.PropertyValue {
-	return &node.PropertyValue{
-		Kind:     node.PropertyValueEnum,
-		Enum:     &key,
-		EnumRank: &rank,
 	}
 }
 
 // defaultNodeTypes returns the built-in NodeType records for a given org.
-// IDs are deterministic: UUID v5 derived from (builtinTypeNamespace, orgID+":"+slug).
-// This ensures the same org always gets the same builtin type IDs across workspace seeds,
-// and Set is idempotent.
+// IDs are deterministic UUID v5 values derived from (orgID, slug) so repeated
+// seeding writes the same record.
 func defaultNodeTypes(orgID uuid.UUID) []*node.NodeType {
 	type spec struct {
 		slug         string
@@ -257,35 +172,49 @@ func defaultNodeTypes(orgID uuid.UUID) []*node.NodeType {
 	epicFeatures := append(node.Features{node.FeatureIsContainer}, issueFeatures...)
 	cycleFeatures := node.Features{node.FeatureHasDueDates, node.FeatureHasActivity, node.FeatureIsContainer}
 	moduleFeatures := node.Features{node.FeatureHasActivity, node.FeatureIsContainer}
+	workspaceFeatures := node.Features{
+		node.FeatureHasSlug, node.FeatureIsContainer,
+		node.FeatureIsEntryPoint, node.FeatureIsScope,
+		node.FeatureExcludeFromGenericTools,
+	}
+	projectFeatures := node.Features{
+		node.FeatureHasSlug, node.FeatureIsContainer, node.FeatureIsScope,
+	}
+	orgFeatures := node.Features{
+		node.FeatureHasSlug, node.FeatureIsContainer, node.FeatureIsScope,
+		node.FeatureExcludeFromGenericTools,
+	}
 
 	specs := []spec{
-		{"issue", "issues", "Issue", "issue", issueFeatures, nil, []string{nodeTypeProject}},
-		{"epic", "epics", "Epic", "epic", epicFeatures, []string{nodeTypeIssue}, []string{nodeTypeProject}},
-		{"cycle", "cycles", "Cycle", "cycle", cycleFeatures, []string{nodeTypeIssue}, []string{nodeTypeProject}},
-		{"module", "modules", "Module", "module", moduleFeatures, []string{nodeTypeIssue}, []string{nodeTypeProject}},
-		{"workspace", "workspaces", "Workspace", "workspace", node.Features{node.FeatureHasSlug, node.FeatureIsContainer, node.FeatureIsEntryPoint, node.FeatureIsScope, node.FeatureExcludeFromGenericTools}, []string{nodeTypeProject, nodeTypeWorkspace}, []string{nodeTypeOrg}},
-		{"project", "projects", "Project", "project", node.Features{node.FeatureHasSlug, node.FeatureIsContainer, node.FeatureIsScope}, []string{nodeTypeIssue, nodeTypeEpic, nodeTypeCycle, nodeTypeModule}, []string{nodeTypeWorkspace}},
-		{"state", "states", "State", "state", nil, nil, []string{nodeTypeProject}},
-		{"label", "labels", "Label", "label", nil, nil, []string{nodeTypeWorkspace}},
+		{"org", "orgs", "Org", nodeTypeOrg, orgFeatures, []string{nodeTypeWorkspace}, nil},
+		{"workspace", "workspaces", "Workspace", nodeTypeWorkspace, workspaceFeatures, []string{nodeTypeProject, nodeTypeLabel, nodeTypeWorkspace}, []string{nodeTypeOrg}},
+		{"project", "projects", "Project", nodeTypeProject, projectFeatures, []string{nodeTypeIssue, nodeTypeEpic, nodeTypeCycle, nodeTypeModule, nodeTypeState}, []string{nodeTypeWorkspace}},
+		{"issue", "issues", "Issue", nodeTypeIssue, issueFeatures, []string{nodeTypeComment, nodeTypeActivity}, []string{nodeTypeProject}},
+		{"epic", "epics", "Epic", nodeTypeEpic, epicFeatures, []string{nodeTypeIssue, nodeTypeComment, nodeTypeActivity}, []string{nodeTypeProject}},
+		{"cycle", "cycles", "Cycle", nodeTypeCycle, cycleFeatures, []string{nodeTypeIssue}, []string{nodeTypeProject}},
+		{"module", "modules", "Module", nodeTypeModule, moduleFeatures, []string{nodeTypeIssue}, []string{nodeTypeProject}},
+		{"state", "states", "State", nodeTypeState, nil, nil, []string{nodeTypeProject}},
+		{"label", "labels", "Label", nodeTypeLabel, nil, nil, []string{nodeTypeWorkspace}},
+		{"comment", "comments", "Comment", nodeTypeComment, nil, nil, []string{nodeTypeIssue, nodeTypeEpic}},
+		{"activity", "activities", "Activity", nodeTypeActivity, nil, nil, []string{nodeTypeIssue, nodeTypeEpic, nodeTypeCycle, nodeTypeModule}},
 	}
 
 	types := make([]*node.NodeType, 0, len(specs))
-	for _, s := range specs {
-		id := uuid.NewSHA1(builtinTypeNamespace, []byte(orgID.String()+":"+s.slug))
+	for _, sp := range specs {
+		id := uuid.NewSHA1(builtinTypeNamespace, []byte(orgID.String()+":"+sp.slug))
 		types = append(types, &node.NodeType{
-			ID:         id,
-			OrgID:      orgID,
-			Name:       s.name,
-			Slug:       s.slug,
-			PluralSlug: s.pluralSlug,
-			IsBuiltin:  true,
-			TypeKey:    s.typeKey,
-			AllowedOps: node.AllOps,
-			Features:   s.features,
-			CanContain:   s.canContain,
-			CanLiveUnder: s.canLiveUnder,
+			ID:           id,
+			OrgID:        orgID,
+			Name:         sp.name,
+			Slug:         sp.slug,
+			PluralSlug:   sp.pluralSlug,
+			IsBuiltin:    true,
+			TypeKey:      sp.typeKey,
+			AllowedOps:   node.AllOps,
+			Features:     sp.features,
+			CanContain:   sp.canContain,
+			CanLiveUnder: sp.canLiveUnder,
 		})
 	}
 	return types
 }
-
