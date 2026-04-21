@@ -9,6 +9,7 @@ package tackv1
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	structpb "google.golang.org/protobuf/types/known/structpb"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
@@ -22,102 +23,42 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// AutomationTrigger identifies the event that fires a rule.
-type AutomationTrigger int32
-
-const (
-	AutomationTrigger_AUTOMATION_TRIGGER_UNSPECIFIED      AutomationTrigger = 0
-	AutomationTrigger_AUTOMATION_TRIGGER_NODE_CREATED     AutomationTrigger = 1
-	AutomationTrigger_AUTOMATION_TRIGGER_NODE_UPDATED     AutomationTrigger = 2
-	AutomationTrigger_AUTOMATION_TRIGGER_STATE_CHANGED    AutomationTrigger = 3
-	AutomationTrigger_AUTOMATION_TRIGGER_PROPERTY_CHANGED AutomationTrigger = 4
-	AutomationTrigger_AUTOMATION_TRIGGER_NODE_DELETED     AutomationTrigger = 5
-)
-
-// Enum value maps for AutomationTrigger.
-var (
-	AutomationTrigger_name = map[int32]string{
-		0: "AUTOMATION_TRIGGER_UNSPECIFIED",
-		1: "AUTOMATION_TRIGGER_NODE_CREATED",
-		2: "AUTOMATION_TRIGGER_NODE_UPDATED",
-		3: "AUTOMATION_TRIGGER_STATE_CHANGED",
-		4: "AUTOMATION_TRIGGER_PROPERTY_CHANGED",
-		5: "AUTOMATION_TRIGGER_NODE_DELETED",
-	}
-	AutomationTrigger_value = map[string]int32{
-		"AUTOMATION_TRIGGER_UNSPECIFIED":      0,
-		"AUTOMATION_TRIGGER_NODE_CREATED":     1,
-		"AUTOMATION_TRIGGER_NODE_UPDATED":     2,
-		"AUTOMATION_TRIGGER_STATE_CHANGED":    3,
-		"AUTOMATION_TRIGGER_PROPERTY_CHANGED": 4,
-		"AUTOMATION_TRIGGER_NODE_DELETED":     5,
-	}
-)
-
-func (x AutomationTrigger) Enum() *AutomationTrigger {
-	p := new(AutomationTrigger)
-	*p = x
-	return p
-}
-
-func (x AutomationTrigger) String() string {
-	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
-}
-
-func (AutomationTrigger) Descriptor() protoreflect.EnumDescriptor {
-	return file_tack_v1_node_proto_enumTypes[0].Descriptor()
-}
-
-func (AutomationTrigger) Type() protoreflect.EnumType {
-	return &file_tack_v1_node_proto_enumTypes[0]
-}
-
-func (x AutomationTrigger) Number() protoreflect.EnumNumber {
-	return protoreflect.EnumNumber(x)
-}
-
-// Deprecated: Use AutomationTrigger.Descriptor instead.
-func (AutomationTrigger) EnumDescriptor() ([]byte, []int) {
-	return file_tack_v1_node_proto_rawDescGZIP(), []int{0}
-}
-
-// NodeValue is the lean core stored in FDB for every node.
-// Properties (priority, due_date, etc.) are stored separately as PropertyValues.
-type NodeValue struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	OrgId         string                 `protobuf:"bytes,2,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
-	WorkspaceId   string                 `protobuf:"bytes,3,opt,name=workspace_id,json=workspaceId,proto3" json:"workspace_id,omitempty"`
-	ProjectId     string                 `protobuf:"bytes,4,opt,name=project_id,json=projectId,proto3" json:"project_id,omitempty"`
-	NodeType      string                 `protobuf:"bytes,5,opt,name=node_type,json=nodeType,proto3" json:"node_type,omitempty"` // "issue", "epic", "cycle", "module", or custom slug
-	Name          string                 `protobuf:"bytes,6,opt,name=name,proto3" json:"name,omitempty"`
-	Description   string                 `protobuf:"bytes,7,opt,name=description,proto3" json:"description,omitempty"`
-	StateId       string                 `protobuf:"bytes,8,opt,name=state_id,json=stateId,proto3" json:"state_id,omitempty"`
-	ParentId      string                 `protobuf:"bytes,9,opt,name=parent_id,json=parentId,proto3" json:"parent_id,omitempty"`
-	SequenceId    int32                  `protobuf:"varint,10,opt,name=sequence_id,json=sequenceId,proto3" json:"sequence_id,omitempty"`
-	SortOrder     float64                `protobuf:"fixed64,11,opt,name=sort_order,json=sortOrder,proto3" json:"sort_order,omitempty"`
-	CreatedBy     string                 `protobuf:"bytes,12,opt,name=created_by,json=createdBy,proto3" json:"created_by,omitempty"`
-	UpdatedBy     string                 `protobuf:"bytes,13,opt,name=updated_by,json=updatedBy,proto3" json:"updated_by,omitempty"`
-	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,14,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,15,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+// Node is the single primary record for every entity in the system. Every
+// concept-specific value (workspace, project, state, assignees, labels,
+// priority, due dates, description) lives in props as JSON-encoded property
+// values keyed by PropertyDef name. Everything that connects nodes together
+// lives in Relationship records, not on the node itself.
+type Node struct {
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Id       string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	OrgId    string                 `protobuf:"bytes,2,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
+	NodeType string                 `protobuf:"bytes,3,opt,name=node_type,json=nodeType,proto3" json:"node_type,omitempty"`
+	Name     string                 `protobuf:"bytes,4,opt,name=name,proto3" json:"name,omitempty"`
+	// props is a free-form map of PropertyDef name -> JSON value. Filterability
+	// of a given property comes from PropertyDef.indexed, not proto shape.
+	Props         *structpb.Struct       `protobuf:"bytes,5,opt,name=props,proto3" json:"props,omitempty"`
+	CreatedBy     string                 `protobuf:"bytes,6,opt,name=created_by,json=createdBy,proto3" json:"created_by,omitempty"`
+	UpdatedBy     string                 `protobuf:"bytes,7,opt,name=updated_by,json=updatedBy,proto3" json:"updated_by,omitempty"`
+	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *NodeValue) Reset() {
-	*x = NodeValue{}
+func (x *Node) Reset() {
+	*x = Node{}
 	mi := &file_tack_v1_node_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *NodeValue) String() string {
+func (x *Node) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*NodeValue) ProtoMessage() {}
+func (*Node) ProtoMessage() {}
 
-func (x *NodeValue) ProtoReflect() protoreflect.Message {
+func (x *Node) ProtoReflect() protoreflect.Message {
 	mi := &file_tack_v1_node_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -129,146 +70,104 @@ func (x *NodeValue) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use NodeValue.ProtoReflect.Descriptor instead.
-func (*NodeValue) Descriptor() ([]byte, []int) {
+// Deprecated: Use Node.ProtoReflect.Descriptor instead.
+func (*Node) Descriptor() ([]byte, []int) {
 	return file_tack_v1_node_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *NodeValue) GetId() string {
+func (x *Node) GetId() string {
 	if x != nil {
 		return x.Id
 	}
 	return ""
 }
 
-func (x *NodeValue) GetOrgId() string {
+func (x *Node) GetOrgId() string {
 	if x != nil {
 		return x.OrgId
 	}
 	return ""
 }
 
-func (x *NodeValue) GetWorkspaceId() string {
-	if x != nil {
-		return x.WorkspaceId
-	}
-	return ""
-}
-
-func (x *NodeValue) GetProjectId() string {
-	if x != nil {
-		return x.ProjectId
-	}
-	return ""
-}
-
-func (x *NodeValue) GetNodeType() string {
+func (x *Node) GetNodeType() string {
 	if x != nil {
 		return x.NodeType
 	}
 	return ""
 }
 
-func (x *NodeValue) GetName() string {
+func (x *Node) GetName() string {
 	if x != nil {
 		return x.Name
 	}
 	return ""
 }
 
-func (x *NodeValue) GetDescription() string {
+func (x *Node) GetProps() *structpb.Struct {
 	if x != nil {
-		return x.Description
+		return x.Props
 	}
-	return ""
+	return nil
 }
 
-func (x *NodeValue) GetStateId() string {
-	if x != nil {
-		return x.StateId
-	}
-	return ""
-}
-
-func (x *NodeValue) GetParentId() string {
-	if x != nil {
-		return x.ParentId
-	}
-	return ""
-}
-
-func (x *NodeValue) GetSequenceId() int32 {
-	if x != nil {
-		return x.SequenceId
-	}
-	return 0
-}
-
-func (x *NodeValue) GetSortOrder() float64 {
-	if x != nil {
-		return x.SortOrder
-	}
-	return 0
-}
-
-func (x *NodeValue) GetCreatedBy() string {
+func (x *Node) GetCreatedBy() string {
 	if x != nil {
 		return x.CreatedBy
 	}
 	return ""
 }
 
-func (x *NodeValue) GetUpdatedBy() string {
+func (x *Node) GetUpdatedBy() string {
 	if x != nil {
 		return x.UpdatedBy
 	}
 	return ""
 }
 
-func (x *NodeValue) GetCreatedAt() *timestamppb.Timestamp {
+func (x *Node) GetCreatedAt() *timestamppb.Timestamp {
 	if x != nil {
 		return x.CreatedAt
 	}
 	return nil
 }
 
-func (x *NodeValue) GetUpdatedAt() *timestamppb.Timestamp {
+func (x *Node) GetUpdatedAt() *timestamppb.Timestamp {
 	if x != nil {
 		return x.UpdatedAt
 	}
 	return nil
 }
 
-// PropertyValue holds a typed value for a single property on a node.
-type PropertyValue struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Types that are valid to be assigned to Value:
-	//
-	//	*PropertyValue_TextValue
-	//	*PropertyValue_IntValue
-	//	*PropertyValue_FloatValue
-	//	*PropertyValue_BoolValue
-	//	*PropertyValue_TimestampValue
-	//	*PropertyValue_EnumValue
-	Value         isPropertyValue_Value `protobuf_oneof:"value"`
+// Relationship is a generic directed edge between two nodes. The relation_type
+// string carries the semantics: "assigned_to", "labeled_with", "child_of",
+// "watches", "mentioned_in", "reacted_to", "comment_of", etc.
+type Relationship struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	OrgId         string                 `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
+	SourceId      string                 `protobuf:"bytes,2,opt,name=source_id,json=sourceId,proto3" json:"source_id,omitempty"`
+	RelationType  string                 `protobuf:"bytes,3,opt,name=relation_type,json=relationType,proto3" json:"relation_type,omitempty"`
+	TargetId      string                 `protobuf:"bytes,4,opt,name=target_id,json=targetId,proto3" json:"target_id,omitempty"`
+	CreatedBy     string                 `protobuf:"bytes,5,opt,name=created_by,json=createdBy,proto3" json:"created_by,omitempty"`
+	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	Props         *structpb.Struct       `protobuf:"bytes,7,opt,name=props,proto3" json:"props,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *PropertyValue) Reset() {
-	*x = PropertyValue{}
+func (x *Relationship) Reset() {
+	*x = Relationship{}
 	mi := &file_tack_v1_node_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *PropertyValue) String() string {
+func (x *Relationship) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*PropertyValue) ProtoMessage() {}
+func (*Relationship) ProtoMessage() {}
 
-func (x *PropertyValue) ProtoReflect() protoreflect.Message {
+func (x *Relationship) ProtoReflect() protoreflect.Message {
 	mi := &file_tack_v1_node_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -280,164 +179,58 @@ func (x *PropertyValue) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use PropertyValue.ProtoReflect.Descriptor instead.
-func (*PropertyValue) Descriptor() ([]byte, []int) {
+// Deprecated: Use Relationship.ProtoReflect.Descriptor instead.
+func (*Relationship) Descriptor() ([]byte, []int) {
 	return file_tack_v1_node_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *PropertyValue) GetValue() isPropertyValue_Value {
+func (x *Relationship) GetOrgId() string {
 	if x != nil {
-		return x.Value
-	}
-	return nil
-}
-
-func (x *PropertyValue) GetTextValue() string {
-	if x != nil {
-		if x, ok := x.Value.(*PropertyValue_TextValue); ok {
-			return x.TextValue
-		}
+		return x.OrgId
 	}
 	return ""
 }
 
-func (x *PropertyValue) GetIntValue() int64 {
+func (x *Relationship) GetSourceId() string {
 	if x != nil {
-		if x, ok := x.Value.(*PropertyValue_IntValue); ok {
-			return x.IntValue
-		}
-	}
-	return 0
-}
-
-func (x *PropertyValue) GetFloatValue() float64 {
-	if x != nil {
-		if x, ok := x.Value.(*PropertyValue_FloatValue); ok {
-			return x.FloatValue
-		}
-	}
-	return 0
-}
-
-func (x *PropertyValue) GetBoolValue() bool {
-	if x != nil {
-		if x, ok := x.Value.(*PropertyValue_BoolValue); ok {
-			return x.BoolValue
-		}
-	}
-	return false
-}
-
-func (x *PropertyValue) GetTimestampValue() *timestamppb.Timestamp {
-	if x != nil {
-		if x, ok := x.Value.(*PropertyValue_TimestampValue); ok {
-			return x.TimestampValue
-		}
-	}
-	return nil
-}
-
-func (x *PropertyValue) GetEnumValue() *EnumValue {
-	if x != nil {
-		if x, ok := x.Value.(*PropertyValue_EnumValue); ok {
-			return x.EnumValue
-		}
-	}
-	return nil
-}
-
-type isPropertyValue_Value interface {
-	isPropertyValue_Value()
-}
-
-type PropertyValue_TextValue struct {
-	TextValue string `protobuf:"bytes,1,opt,name=text_value,json=textValue,proto3,oneof"`
-}
-
-type PropertyValue_IntValue struct {
-	IntValue int64 `protobuf:"varint,2,opt,name=int_value,json=intValue,proto3,oneof"`
-}
-
-type PropertyValue_FloatValue struct {
-	FloatValue float64 `protobuf:"fixed64,3,opt,name=float_value,json=floatValue,proto3,oneof"`
-}
-
-type PropertyValue_BoolValue struct {
-	BoolValue bool `protobuf:"varint,4,opt,name=bool_value,json=boolValue,proto3,oneof"`
-}
-
-type PropertyValue_TimestampValue struct {
-	TimestampValue *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=timestamp_value,json=timestampValue,proto3,oneof"`
-}
-
-type PropertyValue_EnumValue struct {
-	EnumValue *EnumValue `protobuf:"bytes,6,opt,name=enum_value,json=enumValue,proto3,oneof"`
-}
-
-func (*PropertyValue_TextValue) isPropertyValue_Value() {}
-
-func (*PropertyValue_IntValue) isPropertyValue_Value() {}
-
-func (*PropertyValue_FloatValue) isPropertyValue_Value() {}
-
-func (*PropertyValue_BoolValue) isPropertyValue_Value() {}
-
-func (*PropertyValue_TimestampValue) isPropertyValue_Value() {}
-
-func (*PropertyValue_EnumValue) isPropertyValue_Value() {}
-
-// EnumValue pairs the option key with its sort rank so the FDB secondary index
-// can sort by rank without re-reading the PropertyDef.
-type EnumValue struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Key           string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
-	SortRank      int32                  `protobuf:"varint,2,opt,name=sort_rank,json=sortRank,proto3" json:"sort_rank,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *EnumValue) Reset() {
-	*x = EnumValue{}
-	mi := &file_tack_v1_node_proto_msgTypes[2]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *EnumValue) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*EnumValue) ProtoMessage() {}
-
-func (x *EnumValue) ProtoReflect() protoreflect.Message {
-	mi := &file_tack_v1_node_proto_msgTypes[2]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use EnumValue.ProtoReflect.Descriptor instead.
-func (*EnumValue) Descriptor() ([]byte, []int) {
-	return file_tack_v1_node_proto_rawDescGZIP(), []int{2}
-}
-
-func (x *EnumValue) GetKey() string {
-	if x != nil {
-		return x.Key
+		return x.SourceId
 	}
 	return ""
 }
 
-func (x *EnumValue) GetSortRank() int32 {
+func (x *Relationship) GetRelationType() string {
 	if x != nil {
-		return x.SortRank
+		return x.RelationType
 	}
-	return 0
+	return ""
+}
+
+func (x *Relationship) GetTargetId() string {
+	if x != nil {
+		return x.TargetId
+	}
+	return ""
+}
+
+func (x *Relationship) GetCreatedBy() string {
+	if x != nil {
+		return x.CreatedBy
+	}
+	return ""
+}
+
+func (x *Relationship) GetCreatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return nil
+}
+
+func (x *Relationship) GetProps() *structpb.Struct {
+	if x != nil {
+		return x.Props
+	}
+	return nil
 }
 
 // EnumOption is one option in a select or multi-select property.
@@ -446,14 +239,14 @@ type EnumOption struct {
 	Key           string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
 	Label         string                 `protobuf:"bytes,2,opt,name=label,proto3" json:"label,omitempty"`
 	Color         string                 `protobuf:"bytes,3,opt,name=color,proto3" json:"color,omitempty"`
-	SortRank      int32                  `protobuf:"varint,4,opt,name=sort_rank,json=sortRank,proto3" json:"sort_rank,omitempty"` // lower = earlier in sort order
+	SortRank      int32                  `protobuf:"varint,4,opt,name=sort_rank,json=sortRank,proto3" json:"sort_rank,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *EnumOption) Reset() {
 	*x = EnumOption{}
-	mi := &file_tack_v1_node_proto_msgTypes[3]
+	mi := &file_tack_v1_node_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -465,7 +258,7 @@ func (x *EnumOption) String() string {
 func (*EnumOption) ProtoMessage() {}
 
 func (x *EnumOption) ProtoReflect() protoreflect.Message {
-	mi := &file_tack_v1_node_proto_msgTypes[3]
+	mi := &file_tack_v1_node_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -478,7 +271,7 @@ func (x *EnumOption) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EnumOption.ProtoReflect.Descriptor instead.
 func (*EnumOption) Descriptor() ([]byte, []int) {
-	return file_tack_v1_node_proto_rawDescGZIP(), []int{3}
+	return file_tack_v1_node_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *EnumOption) GetKey() string {
@@ -509,28 +302,27 @@ func (x *EnumOption) GetSortRank() int32 {
 	return 0
 }
 
-// PropertyDef defines a custom property that applies to one or more node types.
+// PropertyDef defines a property that can be attached to one or more node types.
+// A PropertyDef applies to a NodeType when applies_to_features is empty (applies
+// to all) or when the NodeType declares any of the listed features.
 type PropertyDef struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	OrgId         string                 `protobuf:"bytes,2,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
-	WorkspaceId   string                 `protobuf:"bytes,3,opt,name=workspace_id,json=workspaceId,proto3" json:"workspace_id,omitempty"`
-	ProjectId     string                 `protobuf:"bytes,4,opt,name=project_id,json=projectId,proto3" json:"project_id,omitempty"` // optional: project-scoped def
-	Name          string                 `protobuf:"bytes,5,opt,name=name,proto3" json:"name,omitempty"`
-	FieldType     string                 `protobuf:"bytes,6,opt,name=field_type,json=fieldType,proto3" json:"field_type,omitempty"` // "text","number","date","select","multi_select","url","checkbox","timestamp"
-	NodeTypes     []string               `protobuf:"bytes,7,rep,name=node_types,json=nodeTypes,proto3" json:"node_types,omitempty"` // which node type slugs this property applies to; empty = all
-	Indexed       bool                   `protobuf:"varint,8,opt,name=indexed,proto3" json:"indexed,omitempty"`                     // if true, FDB maintains a secondary sort index on this property
-	Required      bool                   `protobuf:"varint,9,opt,name=required,proto3" json:"required,omitempty"`
-	IsSystem      bool                   `protobuf:"varint,10,opt,name=is_system,json=isSystem,proto3" json:"is_system,omitempty"` // true for seeded defaults (priority, due_date, etc.)
-	DefaultValue  *PropertyValue         `protobuf:"bytes,11,opt,name=default_value,json=defaultValue,proto3" json:"default_value,omitempty"`
-	EnumOptions   []*EnumOption          `protobuf:"bytes,12,rep,name=enum_options,json=enumOptions,proto3" json:"enum_options,omitempty"` // for select / multi_select
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Id                string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	OrgId             string                 `protobuf:"bytes,2,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
+	Name              string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
+	Type              string                 `protobuf:"bytes,4,opt,name=type,proto3" json:"type,omitempty"` // text, number, date, select, multi_select, url, checkbox, timestamp, uuid
+	AppliesToFeatures []string               `protobuf:"bytes,5,rep,name=applies_to_features,json=appliesToFeatures,proto3" json:"applies_to_features,omitempty"`
+	Indexed           bool                   `protobuf:"varint,6,opt,name=indexed,proto3" json:"indexed,omitempty"`
+	Required          bool                   `protobuf:"varint,7,opt,name=required,proto3" json:"required,omitempty"`
+	DefaultValue      []byte                 `protobuf:"bytes,8,opt,name=default_value,json=defaultValue,proto3" json:"default_value,omitempty"` // raw JSON
+	Options           []*EnumOption          `protobuf:"bytes,9,rep,name=options,proto3" json:"options,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *PropertyDef) Reset() {
 	*x = PropertyDef{}
-	mi := &file_tack_v1_node_proto_msgTypes[4]
+	mi := &file_tack_v1_node_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -542,7 +334,7 @@ func (x *PropertyDef) String() string {
 func (*PropertyDef) ProtoMessage() {}
 
 func (x *PropertyDef) ProtoReflect() protoreflect.Message {
-	mi := &file_tack_v1_node_proto_msgTypes[4]
+	mi := &file_tack_v1_node_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -555,7 +347,7 @@ func (x *PropertyDef) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PropertyDef.ProtoReflect.Descriptor instead.
 func (*PropertyDef) Descriptor() ([]byte, []int) {
-	return file_tack_v1_node_proto_rawDescGZIP(), []int{4}
+	return file_tack_v1_node_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *PropertyDef) GetId() string {
@@ -572,20 +364,6 @@ func (x *PropertyDef) GetOrgId() string {
 	return ""
 }
 
-func (x *PropertyDef) GetWorkspaceId() string {
-	if x != nil {
-		return x.WorkspaceId
-	}
-	return ""
-}
-
-func (x *PropertyDef) GetProjectId() string {
-	if x != nil {
-		return x.ProjectId
-	}
-	return ""
-}
-
 func (x *PropertyDef) GetName() string {
 	if x != nil {
 		return x.Name
@@ -593,16 +371,16 @@ func (x *PropertyDef) GetName() string {
 	return ""
 }
 
-func (x *PropertyDef) GetFieldType() string {
+func (x *PropertyDef) GetType() string {
 	if x != nil {
-		return x.FieldType
+		return x.Type
 	}
 	return ""
 }
 
-func (x *PropertyDef) GetNodeTypes() []string {
+func (x *PropertyDef) GetAppliesToFeatures() []string {
 	if x != nil {
-		return x.NodeTypes
+		return x.AppliesToFeatures
 	}
 	return nil
 }
@@ -621,60 +399,57 @@ func (x *PropertyDef) GetRequired() bool {
 	return false
 }
 
-func (x *PropertyDef) GetIsSystem() bool {
-	if x != nil {
-		return x.IsSystem
-	}
-	return false
-}
-
-func (x *PropertyDef) GetDefaultValue() *PropertyValue {
+func (x *PropertyDef) GetDefaultValue() []byte {
 	if x != nil {
 		return x.DefaultValue
 	}
 	return nil
 }
 
-func (x *PropertyDef) GetEnumOptions() []*EnumOption {
+func (x *PropertyDef) GetOptions() []*EnumOption {
 	if x != nil {
-		return x.EnumOptions
+		return x.Options
 	}
 	return nil
 }
 
-// NodeTypeDefinition describes a node type available in a workspace.
-// Returned by DescribeWorkspace and used by the MCP layer for dynamic tool registration.
-type NodeTypeDefinition struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	OrgId         string                 `protobuf:"bytes,2,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
-	Name          string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
-	Slug          string                 `protobuf:"bytes,4,opt,name=slug,proto3" json:"slug,omitempty"`
-	PluralSlug    string                 `protobuf:"bytes,5,opt,name=plural_slug,json=pluralSlug,proto3" json:"plural_slug,omitempty"`
-	IsBuiltin     bool                   `protobuf:"varint,6,opt,name=is_builtin,json=isBuiltin,proto3" json:"is_builtin,omitempty"`
-	TypeKey       string                 `protobuf:"bytes,7,opt,name=type_key,json=typeKey,proto3" json:"type_key,omitempty"` // stable dispatch key: "issue","epic","cycle","module"; empty for custom types
-	Color         string                 `protobuf:"bytes,8,opt,name=color,proto3" json:"color,omitempty"`
-	Icon          string                 `protobuf:"bytes,9,opt,name=icon,proto3" json:"icon,omitempty"`
-	AllowedOps    []string               `protobuf:"bytes,10,rep,name=allowed_ops,json=allowedOps,proto3" json:"allowed_ops,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+// NodeType describes a type in the extensibility hierarchy. NodeType records
+// are themselves nodes stored in the same key space as any other node.
+type NodeType struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Id             string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	OrgId          string                 `protobuf:"bytes,2,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
+	Name           string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
+	Slug           string                 `protobuf:"bytes,4,opt,name=slug,proto3" json:"slug,omitempty"`
+	Color          string                 `protobuf:"bytes,5,opt,name=color,proto3" json:"color,omitempty"`
+	Icon           string                 `protobuf:"bytes,6,opt,name=icon,proto3" json:"icon,omitempty"`
+	AllowedOps     []string               `protobuf:"bytes,7,rep,name=allowed_ops,json=allowedOps,proto3" json:"allowed_ops,omitempty"`
+	PropertyDefIds []string               `protobuf:"bytes,8,rep,name=property_def_ids,json=propertyDefIds,proto3" json:"property_def_ids,omitempty"`
+	PluralSlug     string                 `protobuf:"bytes,9,opt,name=plural_slug,json=pluralSlug,proto3" json:"plural_slug,omitempty"`
+	IsBuiltin      bool                   `protobuf:"varint,10,opt,name=is_builtin,json=isBuiltin,proto3" json:"is_builtin,omitempty"`
+	TypeKey        string                 `protobuf:"bytes,11,opt,name=type_key,json=typeKey,proto3" json:"type_key,omitempty"`
+	Features       []string               `protobuf:"bytes,12,rep,name=features,proto3" json:"features,omitempty"`
+	CanContain     []string               `protobuf:"bytes,13,rep,name=can_contain,json=canContain,proto3" json:"can_contain,omitempty"`
+	CanLiveUnder   []string               `protobuf:"bytes,14,rep,name=can_live_under,json=canLiveUnder,proto3" json:"can_live_under,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
-func (x *NodeTypeDefinition) Reset() {
-	*x = NodeTypeDefinition{}
-	mi := &file_tack_v1_node_proto_msgTypes[5]
+func (x *NodeType) Reset() {
+	*x = NodeType{}
+	mi := &file_tack_v1_node_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *NodeTypeDefinition) String() string {
+func (x *NodeType) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*NodeTypeDefinition) ProtoMessage() {}
+func (*NodeType) ProtoMessage() {}
 
-func (x *NodeTypeDefinition) ProtoReflect() protoreflect.Message {
-	mi := &file_tack_v1_node_proto_msgTypes[5]
+func (x *NodeType) ProtoReflect() protoreflect.Message {
+	mi := &file_tack_v1_node_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -685,156 +460,250 @@ func (x *NodeTypeDefinition) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use NodeTypeDefinition.ProtoReflect.Descriptor instead.
-func (*NodeTypeDefinition) Descriptor() ([]byte, []int) {
-	return file_tack_v1_node_proto_rawDescGZIP(), []int{5}
+// Deprecated: Use NodeType.ProtoReflect.Descriptor instead.
+func (*NodeType) Descriptor() ([]byte, []int) {
+	return file_tack_v1_node_proto_rawDescGZIP(), []int{4}
 }
 
-func (x *NodeTypeDefinition) GetId() string {
+func (x *NodeType) GetId() string {
 	if x != nil {
 		return x.Id
 	}
 	return ""
 }
 
-func (x *NodeTypeDefinition) GetOrgId() string {
+func (x *NodeType) GetOrgId() string {
 	if x != nil {
 		return x.OrgId
 	}
 	return ""
 }
 
-func (x *NodeTypeDefinition) GetName() string {
+func (x *NodeType) GetName() string {
 	if x != nil {
 		return x.Name
 	}
 	return ""
 }
 
-func (x *NodeTypeDefinition) GetSlug() string {
+func (x *NodeType) GetSlug() string {
 	if x != nil {
 		return x.Slug
 	}
 	return ""
 }
 
-func (x *NodeTypeDefinition) GetPluralSlug() string {
-	if x != nil {
-		return x.PluralSlug
-	}
-	return ""
-}
-
-func (x *NodeTypeDefinition) GetIsBuiltin() bool {
-	if x != nil {
-		return x.IsBuiltin
-	}
-	return false
-}
-
-func (x *NodeTypeDefinition) GetTypeKey() string {
-	if x != nil {
-		return x.TypeKey
-	}
-	return ""
-}
-
-func (x *NodeTypeDefinition) GetColor() string {
+func (x *NodeType) GetColor() string {
 	if x != nil {
 		return x.Color
 	}
 	return ""
 }
 
-func (x *NodeTypeDefinition) GetIcon() string {
+func (x *NodeType) GetIcon() string {
 	if x != nil {
 		return x.Icon
 	}
 	return ""
 }
 
-func (x *NodeTypeDefinition) GetAllowedOps() []string {
+func (x *NodeType) GetAllowedOps() []string {
 	if x != nil {
 		return x.AllowedOps
 	}
 	return nil
 }
 
-// SetPropertyAction sets a property value on the triggering node.
-type SetPropertyAction struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	PropertyDefId string                 `protobuf:"bytes,1,opt,name=property_def_id,json=propertyDefId,proto3" json:"property_def_id,omitempty"`
-	Value         *PropertyValue         `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *SetPropertyAction) Reset() {
-	*x = SetPropertyAction{}
-	mi := &file_tack_v1_node_proto_msgTypes[6]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *SetPropertyAction) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*SetPropertyAction) ProtoMessage() {}
-
-func (x *SetPropertyAction) ProtoReflect() protoreflect.Message {
-	mi := &file_tack_v1_node_proto_msgTypes[6]
+func (x *NodeType) GetPropertyDefIds() []string {
 	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use SetPropertyAction.ProtoReflect.Descriptor instead.
-func (*SetPropertyAction) Descriptor() ([]byte, []int) {
-	return file_tack_v1_node_proto_rawDescGZIP(), []int{6}
-}
-
-func (x *SetPropertyAction) GetPropertyDefId() string {
-	if x != nil {
-		return x.PropertyDefId
-	}
-	return ""
-}
-
-func (x *SetPropertyAction) GetValue() *PropertyValue {
-	if x != nil {
-		return x.Value
+		return x.PropertyDefIds
 	}
 	return nil
 }
 
-// SetStateAction transitions the triggering node to a new state.
-type SetStateAction struct {
+func (x *NodeType) GetPluralSlug() string {
+	if x != nil {
+		return x.PluralSlug
+	}
+	return ""
+}
+
+func (x *NodeType) GetIsBuiltin() bool {
+	if x != nil {
+		return x.IsBuiltin
+	}
+	return false
+}
+
+func (x *NodeType) GetTypeKey() string {
+	if x != nil {
+		return x.TypeKey
+	}
+	return ""
+}
+
+func (x *NodeType) GetFeatures() []string {
+	if x != nil {
+		return x.Features
+	}
+	return nil
+}
+
+func (x *NodeType) GetCanContain() []string {
+	if x != nil {
+		return x.CanContain
+	}
+	return nil
+}
+
+func (x *NodeType) GetCanLiveUnder() []string {
+	if x != nil {
+		return x.CanLiveUnder
+	}
+	return nil
+}
+
+type CreateNodeRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	StateId       string                 `protobuf:"bytes,1,opt,name=state_id,json=stateId,proto3" json:"state_id,omitempty"`
+	ParentId      string                 `protobuf:"bytes,1,opt,name=parent_id,json=parentId,proto3" json:"parent_id,omitempty"`
+	NodeTypeKey   string                 `protobuf:"bytes,2,opt,name=node_type_key,json=nodeTypeKey,proto3" json:"node_type_key,omitempty"`
+	Name          string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
+	Props         *structpb.Struct       `protobuf:"bytes,4,opt,name=props,proto3" json:"props,omitempty"`
+	Relationships []*Relationship        `protobuf:"bytes,5,rep,name=relationships,proto3" json:"relationships,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *SetStateAction) Reset() {
-	*x = SetStateAction{}
+func (x *CreateNodeRequest) Reset() {
+	*x = CreateNodeRequest{}
+	mi := &file_tack_v1_node_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateNodeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateNodeRequest) ProtoMessage() {}
+
+func (x *CreateNodeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_tack_v1_node_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateNodeRequest.ProtoReflect.Descriptor instead.
+func (*CreateNodeRequest) Descriptor() ([]byte, []int) {
+	return file_tack_v1_node_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *CreateNodeRequest) GetParentId() string {
+	if x != nil {
+		return x.ParentId
+	}
+	return ""
+}
+
+func (x *CreateNodeRequest) GetNodeTypeKey() string {
+	if x != nil {
+		return x.NodeTypeKey
+	}
+	return ""
+}
+
+func (x *CreateNodeRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *CreateNodeRequest) GetProps() *structpb.Struct {
+	if x != nil {
+		return x.Props
+	}
+	return nil
+}
+
+func (x *CreateNodeRequest) GetRelationships() []*Relationship {
+	if x != nil {
+		return x.Relationships
+	}
+	return nil
+}
+
+type CreateNodeResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Node          *Node                  `protobuf:"bytes,1,opt,name=node,proto3" json:"node,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateNodeResponse) Reset() {
+	*x = CreateNodeResponse{}
+	mi := &file_tack_v1_node_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateNodeResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateNodeResponse) ProtoMessage() {}
+
+func (x *CreateNodeResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_tack_v1_node_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateNodeResponse.ProtoReflect.Descriptor instead.
+func (*CreateNodeResponse) Descriptor() ([]byte, []int) {
+	return file_tack_v1_node_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *CreateNodeResponse) GetNode() *Node {
+	if x != nil {
+		return x.Node
+	}
+	return nil
+}
+
+type GetNodeRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	NodeId        string                 `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetNodeRequest) Reset() {
+	*x = GetNodeRequest{}
 	mi := &file_tack_v1_node_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *SetStateAction) String() string {
+func (x *GetNodeRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*SetStateAction) ProtoMessage() {}
+func (*GetNodeRequest) ProtoMessage() {}
 
-func (x *SetStateAction) ProtoReflect() protoreflect.Message {
+func (x *GetNodeRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_tack_v1_node_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -846,51 +715,39 @@ func (x *SetStateAction) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use SetStateAction.ProtoReflect.Descriptor instead.
-func (*SetStateAction) Descriptor() ([]byte, []int) {
+// Deprecated: Use GetNodeRequest.ProtoReflect.Descriptor instead.
+func (*GetNodeRequest) Descriptor() ([]byte, []int) {
 	return file_tack_v1_node_proto_rawDescGZIP(), []int{7}
 }
 
-func (x *SetStateAction) GetStateId() string {
+func (x *GetNodeRequest) GetNodeId() string {
 	if x != nil {
-		return x.StateId
+		return x.NodeId
 	}
 	return ""
 }
 
-// AutomationRule is a stored if-trigger-then-action rule scoped to a workspace.
-type AutomationRule struct {
-	state                protoimpl.MessageState `protogen:"open.v1"`
-	Id                   string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	OrgId                string                 `protobuf:"bytes,2,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
-	WorkspaceId          string                 `protobuf:"bytes,3,opt,name=workspace_id,json=workspaceId,proto3" json:"workspace_id,omitempty"`
-	NodeType             string                 `protobuf:"bytes,4,opt,name=node_type,json=nodeType,proto3" json:"node_type,omitempty"` // empty = applies to all node types
-	Trigger              AutomationTrigger      `protobuf:"varint,5,opt,name=trigger,proto3,enum=tack.v1.AutomationTrigger" json:"trigger,omitempty"`
-	TriggerPropertyDefId string                 `protobuf:"bytes,6,opt,name=trigger_property_def_id,json=triggerPropertyDefId,proto3" json:"trigger_property_def_id,omitempty"` // only set for PROPERTY_CHANGED
-	Enabled              bool                   `protobuf:"varint,7,opt,name=enabled,proto3" json:"enabled,omitempty"`
-	// Types that are valid to be assigned to Action:
-	//
-	//	*AutomationRule_SetProperty
-	//	*AutomationRule_SetState
-	Action        isAutomationRule_Action `protobuf_oneof:"action"`
+type GetNodeResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Node          *Node                  `protobuf:"bytes,1,opt,name=node,proto3" json:"node,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *AutomationRule) Reset() {
-	*x = AutomationRule{}
+func (x *GetNodeResponse) Reset() {
+	*x = GetNodeResponse{}
 	mi := &file_tack_v1_node_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *AutomationRule) String() string {
+func (x *GetNodeResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*AutomationRule) ProtoMessage() {}
+func (*GetNodeResponse) ProtoMessage() {}
 
-func (x *AutomationRule) ProtoReflect() protoreflect.Message {
+func (x *GetNodeResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_tack_v1_node_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -902,207 +759,787 @@ func (x *AutomationRule) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use AutomationRule.ProtoReflect.Descriptor instead.
-func (*AutomationRule) Descriptor() ([]byte, []int) {
+// Deprecated: Use GetNodeResponse.ProtoReflect.Descriptor instead.
+func (*GetNodeResponse) Descriptor() ([]byte, []int) {
 	return file_tack_v1_node_proto_rawDescGZIP(), []int{8}
 }
 
-func (x *AutomationRule) GetId() string {
+func (x *GetNodeResponse) GetNode() *Node {
 	if x != nil {
-		return x.Id
+		return x.Node
+	}
+	return nil
+}
+
+type UpdateNodeRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	NodeId        string                 `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Props         *structpb.Struct       `protobuf:"bytes,3,opt,name=props,proto3" json:"props,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateNodeRequest) Reset() {
+	*x = UpdateNodeRequest{}
+	mi := &file_tack_v1_node_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateNodeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateNodeRequest) ProtoMessage() {}
+
+func (x *UpdateNodeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_tack_v1_node_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateNodeRequest.ProtoReflect.Descriptor instead.
+func (*UpdateNodeRequest) Descriptor() ([]byte, []int) {
+	return file_tack_v1_node_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *UpdateNodeRequest) GetNodeId() string {
+	if x != nil {
+		return x.NodeId
 	}
 	return ""
 }
 
-func (x *AutomationRule) GetOrgId() string {
+func (x *UpdateNodeRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *UpdateNodeRequest) GetProps() *structpb.Struct {
+	if x != nil {
+		return x.Props
+	}
+	return nil
+}
+
+type UpdateNodeResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Node          *Node                  `protobuf:"bytes,1,opt,name=node,proto3" json:"node,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateNodeResponse) Reset() {
+	*x = UpdateNodeResponse{}
+	mi := &file_tack_v1_node_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateNodeResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateNodeResponse) ProtoMessage() {}
+
+func (x *UpdateNodeResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_tack_v1_node_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateNodeResponse.ProtoReflect.Descriptor instead.
+func (*UpdateNodeResponse) Descriptor() ([]byte, []int) {
+	return file_tack_v1_node_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *UpdateNodeResponse) GetNode() *Node {
+	if x != nil {
+		return x.Node
+	}
+	return nil
+}
+
+type DeleteNodeRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	NodeId        string                 `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteNodeRequest) Reset() {
+	*x = DeleteNodeRequest{}
+	mi := &file_tack_v1_node_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteNodeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteNodeRequest) ProtoMessage() {}
+
+func (x *DeleteNodeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_tack_v1_node_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteNodeRequest.ProtoReflect.Descriptor instead.
+func (*DeleteNodeRequest) Descriptor() ([]byte, []int) {
+	return file_tack_v1_node_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *DeleteNodeRequest) GetNodeId() string {
+	if x != nil {
+		return x.NodeId
+	}
+	return ""
+}
+
+type DeleteNodeResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Ok            bool                   `protobuf:"varint,1,opt,name=ok,proto3" json:"ok,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteNodeResponse) Reset() {
+	*x = DeleteNodeResponse{}
+	mi := &file_tack_v1_node_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteNodeResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteNodeResponse) ProtoMessage() {}
+
+func (x *DeleteNodeResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_tack_v1_node_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteNodeResponse.ProtoReflect.Descriptor instead.
+func (*DeleteNodeResponse) Descriptor() ([]byte, []int) {
+	return file_tack_v1_node_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *DeleteNodeResponse) GetOk() bool {
+	if x != nil {
+		return x.Ok
+	}
+	return false
+}
+
+type ListNodesRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	OrgId         string                 `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
+	NodeType      string                 `protobuf:"bytes,2,opt,name=node_type,json=nodeType,proto3" json:"node_type,omitempty"`
+	PropName      string                 `protobuf:"bytes,3,opt,name=prop_name,json=propName,proto3" json:"prop_name,omitempty"`    // optional index selector
+	PropValue     []byte                 `protobuf:"bytes,4,opt,name=prop_value,json=propValue,proto3" json:"prop_value,omitempty"` // raw JSON
+	Limit         int32                  `protobuf:"varint,5,opt,name=limit,proto3" json:"limit,omitempty"`
+	Cursor        string                 `protobuf:"bytes,6,opt,name=cursor,proto3" json:"cursor,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListNodesRequest) Reset() {
+	*x = ListNodesRequest{}
+	mi := &file_tack_v1_node_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListNodesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListNodesRequest) ProtoMessage() {}
+
+func (x *ListNodesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_tack_v1_node_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListNodesRequest.ProtoReflect.Descriptor instead.
+func (*ListNodesRequest) Descriptor() ([]byte, []int) {
+	return file_tack_v1_node_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *ListNodesRequest) GetOrgId() string {
 	if x != nil {
 		return x.OrgId
 	}
 	return ""
 }
 
-func (x *AutomationRule) GetWorkspaceId() string {
-	if x != nil {
-		return x.WorkspaceId
-	}
-	return ""
-}
-
-func (x *AutomationRule) GetNodeType() string {
+func (x *ListNodesRequest) GetNodeType() string {
 	if x != nil {
 		return x.NodeType
 	}
 	return ""
 }
 
-func (x *AutomationRule) GetTrigger() AutomationTrigger {
+func (x *ListNodesRequest) GetPropName() string {
 	if x != nil {
-		return x.Trigger
-	}
-	return AutomationTrigger_AUTOMATION_TRIGGER_UNSPECIFIED
-}
-
-func (x *AutomationRule) GetTriggerPropertyDefId() string {
-	if x != nil {
-		return x.TriggerPropertyDefId
+		return x.PropName
 	}
 	return ""
 }
 
-func (x *AutomationRule) GetEnabled() bool {
+func (x *ListNodesRequest) GetPropValue() []byte {
 	if x != nil {
-		return x.Enabled
+		return x.PropValue
+	}
+	return nil
+}
+
+func (x *ListNodesRequest) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+func (x *ListNodesRequest) GetCursor() string {
+	if x != nil {
+		return x.Cursor
+	}
+	return ""
+}
+
+type ListNodesResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Nodes         []*Node                `protobuf:"bytes,1,rep,name=nodes,proto3" json:"nodes,omitempty"`
+	NextCursor    string                 `protobuf:"bytes,2,opt,name=next_cursor,json=nextCursor,proto3" json:"next_cursor,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListNodesResponse) Reset() {
+	*x = ListNodesResponse{}
+	mi := &file_tack_v1_node_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListNodesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListNodesResponse) ProtoMessage() {}
+
+func (x *ListNodesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_tack_v1_node_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListNodesResponse.ProtoReflect.Descriptor instead.
+func (*ListNodesResponse) Descriptor() ([]byte, []int) {
+	return file_tack_v1_node_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *ListNodesResponse) GetNodes() []*Node {
+	if x != nil {
+		return x.Nodes
+	}
+	return nil
+}
+
+func (x *ListNodesResponse) GetNextCursor() string {
+	if x != nil {
+		return x.NextCursor
+	}
+	return ""
+}
+
+type AddRelationshipRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Relationship  *Relationship          `protobuf:"bytes,1,opt,name=relationship,proto3" json:"relationship,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AddRelationshipRequest) Reset() {
+	*x = AddRelationshipRequest{}
+	mi := &file_tack_v1_node_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AddRelationshipRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AddRelationshipRequest) ProtoMessage() {}
+
+func (x *AddRelationshipRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_tack_v1_node_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AddRelationshipRequest.ProtoReflect.Descriptor instead.
+func (*AddRelationshipRequest) Descriptor() ([]byte, []int) {
+	return file_tack_v1_node_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *AddRelationshipRequest) GetRelationship() *Relationship {
+	if x != nil {
+		return x.Relationship
+	}
+	return nil
+}
+
+type AddRelationshipResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Ok            bool                   `protobuf:"varint,1,opt,name=ok,proto3" json:"ok,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AddRelationshipResponse) Reset() {
+	*x = AddRelationshipResponse{}
+	mi := &file_tack_v1_node_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AddRelationshipResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AddRelationshipResponse) ProtoMessage() {}
+
+func (x *AddRelationshipResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_tack_v1_node_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AddRelationshipResponse.ProtoReflect.Descriptor instead.
+func (*AddRelationshipResponse) Descriptor() ([]byte, []int) {
+	return file_tack_v1_node_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *AddRelationshipResponse) GetOk() bool {
+	if x != nil {
+		return x.Ok
 	}
 	return false
 }
 
-func (x *AutomationRule) GetAction() isAutomationRule_Action {
-	if x != nil {
-		return x.Action
-	}
-	return nil
+type RemoveRelationshipRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	OrgId         string                 `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
+	SourceId      string                 `protobuf:"bytes,2,opt,name=source_id,json=sourceId,proto3" json:"source_id,omitempty"`
+	RelationType  string                 `protobuf:"bytes,3,opt,name=relation_type,json=relationType,proto3" json:"relation_type,omitempty"`
+	TargetId      string                 `protobuf:"bytes,4,opt,name=target_id,json=targetId,proto3" json:"target_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
-func (x *AutomationRule) GetSetProperty() *SetPropertyAction {
+func (x *RemoveRelationshipRequest) Reset() {
+	*x = RemoveRelationshipRequest{}
+	mi := &file_tack_v1_node_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RemoveRelationshipRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RemoveRelationshipRequest) ProtoMessage() {}
+
+func (x *RemoveRelationshipRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_tack_v1_node_proto_msgTypes[17]
 	if x != nil {
-		if x, ok := x.Action.(*AutomationRule_SetProperty); ok {
-			return x.SetProperty
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
 		}
+		return ms
 	}
-	return nil
+	return mi.MessageOf(x)
 }
 
-func (x *AutomationRule) GetSetState() *SetStateAction {
+// Deprecated: Use RemoveRelationshipRequest.ProtoReflect.Descriptor instead.
+func (*RemoveRelationshipRequest) Descriptor() ([]byte, []int) {
+	return file_tack_v1_node_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *RemoveRelationshipRequest) GetOrgId() string {
 	if x != nil {
-		if x, ok := x.Action.(*AutomationRule_SetState); ok {
-			return x.SetState
+		return x.OrgId
+	}
+	return ""
+}
+
+func (x *RemoveRelationshipRequest) GetSourceId() string {
+	if x != nil {
+		return x.SourceId
+	}
+	return ""
+}
+
+func (x *RemoveRelationshipRequest) GetRelationType() string {
+	if x != nil {
+		return x.RelationType
+	}
+	return ""
+}
+
+func (x *RemoveRelationshipRequest) GetTargetId() string {
+	if x != nil {
+		return x.TargetId
+	}
+	return ""
+}
+
+type RemoveRelationshipResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Ok            bool                   `protobuf:"varint,1,opt,name=ok,proto3" json:"ok,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RemoveRelationshipResponse) Reset() {
+	*x = RemoveRelationshipResponse{}
+	mi := &file_tack_v1_node_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RemoveRelationshipResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RemoveRelationshipResponse) ProtoMessage() {}
+
+func (x *RemoveRelationshipResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_tack_v1_node_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
 		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RemoveRelationshipResponse.ProtoReflect.Descriptor instead.
+func (*RemoveRelationshipResponse) Descriptor() ([]byte, []int) {
+	return file_tack_v1_node_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *RemoveRelationshipResponse) GetOk() bool {
+	if x != nil {
+		return x.Ok
+	}
+	return false
+}
+
+type ListRelationshipsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	OrgId         string                 `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
+	NodeId        string                 `protobuf:"bytes,2,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	Direction     string                 `protobuf:"bytes,3,opt,name=direction,proto3" json:"direction,omitempty"`                           // "out" or "in"
+	RelationType  string                 `protobuf:"bytes,4,opt,name=relation_type,json=relationType,proto3" json:"relation_type,omitempty"` // optional
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListRelationshipsRequest) Reset() {
+	*x = ListRelationshipsRequest{}
+	mi := &file_tack_v1_node_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListRelationshipsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListRelationshipsRequest) ProtoMessage() {}
+
+func (x *ListRelationshipsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_tack_v1_node_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListRelationshipsRequest.ProtoReflect.Descriptor instead.
+func (*ListRelationshipsRequest) Descriptor() ([]byte, []int) {
+	return file_tack_v1_node_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *ListRelationshipsRequest) GetOrgId() string {
+	if x != nil {
+		return x.OrgId
+	}
+	return ""
+}
+
+func (x *ListRelationshipsRequest) GetNodeId() string {
+	if x != nil {
+		return x.NodeId
+	}
+	return ""
+}
+
+func (x *ListRelationshipsRequest) GetDirection() string {
+	if x != nil {
+		return x.Direction
+	}
+	return ""
+}
+
+func (x *ListRelationshipsRequest) GetRelationType() string {
+	if x != nil {
+		return x.RelationType
+	}
+	return ""
+}
+
+type ListRelationshipsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Relationships []*Relationship        `protobuf:"bytes,1,rep,name=relationships,proto3" json:"relationships,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListRelationshipsResponse) Reset() {
+	*x = ListRelationshipsResponse{}
+	mi := &file_tack_v1_node_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListRelationshipsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListRelationshipsResponse) ProtoMessage() {}
+
+func (x *ListRelationshipsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_tack_v1_node_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListRelationshipsResponse.ProtoReflect.Descriptor instead.
+func (*ListRelationshipsResponse) Descriptor() ([]byte, []int) {
+	return file_tack_v1_node_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *ListRelationshipsResponse) GetRelationships() []*Relationship {
+	if x != nil {
+		return x.Relationships
 	}
 	return nil
 }
-
-type isAutomationRule_Action interface {
-	isAutomationRule_Action()
-}
-
-type AutomationRule_SetProperty struct {
-	SetProperty *SetPropertyAction `protobuf:"bytes,10,opt,name=set_property,json=setProperty,proto3,oneof"`
-}
-
-type AutomationRule_SetState struct {
-	SetState *SetStateAction `protobuf:"bytes,11,opt,name=set_state,json=setState,proto3,oneof"`
-}
-
-func (*AutomationRule_SetProperty) isAutomationRule_Action() {}
-
-func (*AutomationRule_SetState) isAutomationRule_Action() {}
 
 var File_tack_v1_node_proto protoreflect.FileDescriptor
 
 const file_tack_v1_node_proto_rawDesc = "" +
 	"\n" +
-	"\x12tack/v1/node.proto\x12\atack.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xf3\x03\n" +
-	"\tNodeValue\x12\x0e\n" +
+	"\x12tack/v1/node.proto\x12\atack.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1cgoogle/protobuf/struct.proto\"\xc1\x02\n" +
+	"\x04Node\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
-	"\x06org_id\x18\x02 \x01(\tR\x05orgId\x12!\n" +
-	"\fworkspace_id\x18\x03 \x01(\tR\vworkspaceId\x12\x1d\n" +
+	"\x06org_id\x18\x02 \x01(\tR\x05orgId\x12\x1b\n" +
+	"\tnode_type\x18\x03 \x01(\tR\bnodeType\x12\x12\n" +
+	"\x04name\x18\x04 \x01(\tR\x04name\x12-\n" +
+	"\x05props\x18\x05 \x01(\v2\x17.google.protobuf.StructR\x05props\x12\x1d\n" +
 	"\n" +
-	"project_id\x18\x04 \x01(\tR\tprojectId\x12\x1b\n" +
-	"\tnode_type\x18\x05 \x01(\tR\bnodeType\x12\x12\n" +
-	"\x04name\x18\x06 \x01(\tR\x04name\x12 \n" +
-	"\vdescription\x18\a \x01(\tR\vdescription\x12\x19\n" +
-	"\bstate_id\x18\b \x01(\tR\astateId\x12\x1b\n" +
-	"\tparent_id\x18\t \x01(\tR\bparentId\x12\x1f\n" +
-	"\vsequence_id\x18\n" +
-	" \x01(\x05R\n" +
-	"sequenceId\x12\x1d\n" +
+	"created_by\x18\x06 \x01(\tR\tcreatedBy\x12\x1d\n" +
 	"\n" +
-	"sort_order\x18\v \x01(\x01R\tsortOrder\x12\x1d\n" +
+	"updated_by\x18\a \x01(\tR\tupdatedBy\x129\n" +
 	"\n" +
-	"created_by\x18\f \x01(\tR\tcreatedBy\x12\x1d\n" +
+	"created_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
-	"updated_by\x18\r \x01(\tR\tupdatedBy\x129\n" +
+	"updated_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\x8d\x02\n" +
+	"\fRelationship\x12\x15\n" +
+	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12\x1b\n" +
+	"\tsource_id\x18\x02 \x01(\tR\bsourceId\x12#\n" +
+	"\rrelation_type\x18\x03 \x01(\tR\frelationType\x12\x1b\n" +
+	"\ttarget_id\x18\x04 \x01(\tR\btargetId\x12\x1d\n" +
 	"\n" +
-	"created_at\x18\x0e \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
+	"created_by\x18\x05 \x01(\tR\tcreatedBy\x129\n" +
 	"\n" +
-	"updated_at\x18\x0f \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\x98\x02\n" +
-	"\rPropertyValue\x12\x1f\n" +
-	"\n" +
-	"text_value\x18\x01 \x01(\tH\x00R\ttextValue\x12\x1d\n" +
-	"\tint_value\x18\x02 \x01(\x03H\x00R\bintValue\x12!\n" +
-	"\vfloat_value\x18\x03 \x01(\x01H\x00R\n" +
-	"floatValue\x12\x1f\n" +
-	"\n" +
-	"bool_value\x18\x04 \x01(\bH\x00R\tboolValue\x12E\n" +
-	"\x0ftimestamp_value\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampH\x00R\x0etimestampValue\x123\n" +
-	"\n" +
-	"enum_value\x18\x06 \x01(\v2\x12.tack.v1.EnumValueH\x00R\tenumValueB\a\n" +
-	"\x05value\":\n" +
-	"\tEnumValue\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12\x1b\n" +
-	"\tsort_rank\x18\x02 \x01(\x05R\bsortRank\"g\n" +
+	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12-\n" +
+	"\x05props\x18\a \x01(\v2\x17.google.protobuf.StructR\x05props\"g\n" +
 	"\n" +
 	"EnumOption\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05label\x18\x02 \x01(\tR\x05label\x12\x14\n" +
 	"\x05color\x18\x03 \x01(\tR\x05color\x12\x1b\n" +
-	"\tsort_rank\x18\x04 \x01(\x05R\bsortRank\"\x90\x03\n" +
+	"\tsort_rank\x18\x04 \x01(\x05R\bsortRank\"\x96\x02\n" +
 	"\vPropertyDef\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
-	"\x06org_id\x18\x02 \x01(\tR\x05orgId\x12!\n" +
-	"\fworkspace_id\x18\x03 \x01(\tR\vworkspaceId\x12\x1d\n" +
-	"\n" +
-	"project_id\x18\x04 \x01(\tR\tprojectId\x12\x12\n" +
-	"\x04name\x18\x05 \x01(\tR\x04name\x12\x1d\n" +
-	"\n" +
-	"field_type\x18\x06 \x01(\tR\tfieldType\x12\x1d\n" +
-	"\n" +
-	"node_types\x18\a \x03(\tR\tnodeTypes\x12\x18\n" +
-	"\aindexed\x18\b \x01(\bR\aindexed\x12\x1a\n" +
-	"\brequired\x18\t \x01(\bR\brequired\x12\x1b\n" +
-	"\tis_system\x18\n" +
-	" \x01(\bR\bisSystem\x12;\n" +
-	"\rdefault_value\x18\v \x01(\v2\x16.tack.v1.PropertyValueR\fdefaultValue\x126\n" +
-	"\fenum_options\x18\f \x03(\v2\x13.tack.v1.EnumOptionR\venumOptions\"\x89\x02\n" +
-	"\x12NodeTypeDefinition\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
 	"\x06org_id\x18\x02 \x01(\tR\x05orgId\x12\x12\n" +
 	"\x04name\x18\x03 \x01(\tR\x04name\x12\x12\n" +
-	"\x04slug\x18\x04 \x01(\tR\x04slug\x12\x1f\n" +
-	"\vplural_slug\x18\x05 \x01(\tR\n" +
+	"\x04type\x18\x04 \x01(\tR\x04type\x12.\n" +
+	"\x13applies_to_features\x18\x05 \x03(\tR\x11appliesToFeatures\x12\x18\n" +
+	"\aindexed\x18\x06 \x01(\bR\aindexed\x12\x1a\n" +
+	"\brequired\x18\a \x01(\bR\brequired\x12#\n" +
+	"\rdefault_value\x18\b \x01(\fR\fdefaultValue\x12-\n" +
+	"\aoptions\x18\t \x03(\v2\x13.tack.v1.EnumOptionR\aoptions\"\x8c\x03\n" +
+	"\bNodeType\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
+	"\x06org_id\x18\x02 \x01(\tR\x05orgId\x12\x12\n" +
+	"\x04name\x18\x03 \x01(\tR\x04name\x12\x12\n" +
+	"\x04slug\x18\x04 \x01(\tR\x04slug\x12\x14\n" +
+	"\x05color\x18\x05 \x01(\tR\x05color\x12\x12\n" +
+	"\x04icon\x18\x06 \x01(\tR\x04icon\x12\x1f\n" +
+	"\vallowed_ops\x18\a \x03(\tR\n" +
+	"allowedOps\x12(\n" +
+	"\x10property_def_ids\x18\b \x03(\tR\x0epropertyDefIds\x12\x1f\n" +
+	"\vplural_slug\x18\t \x01(\tR\n" +
 	"pluralSlug\x12\x1d\n" +
 	"\n" +
-	"is_builtin\x18\x06 \x01(\bR\tisBuiltin\x12\x19\n" +
-	"\btype_key\x18\a \x01(\tR\atypeKey\x12\x14\n" +
-	"\x05color\x18\b \x01(\tR\x05color\x12\x12\n" +
-	"\x04icon\x18\t \x01(\tR\x04icon\x12\x1f\n" +
-	"\vallowed_ops\x18\n" +
-	" \x03(\tR\n" +
-	"allowedOps\"i\n" +
-	"\x11SetPropertyAction\x12&\n" +
-	"\x0fproperty_def_id\x18\x01 \x01(\tR\rpropertyDefId\x12,\n" +
-	"\x05value\x18\x02 \x01(\v2\x16.tack.v1.PropertyValueR\x05value\"+\n" +
-	"\x0eSetStateAction\x12\x19\n" +
-	"\bstate_id\x18\x01 \x01(\tR\astateId\"\x81\x03\n" +
-	"\x0eAutomationRule\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
-	"\x06org_id\x18\x02 \x01(\tR\x05orgId\x12!\n" +
-	"\fworkspace_id\x18\x03 \x01(\tR\vworkspaceId\x12\x1b\n" +
-	"\tnode_type\x18\x04 \x01(\tR\bnodeType\x124\n" +
-	"\atrigger\x18\x05 \x01(\x0e2\x1a.tack.v1.AutomationTriggerR\atrigger\x125\n" +
-	"\x17trigger_property_def_id\x18\x06 \x01(\tR\x14triggerPropertyDefId\x12\x18\n" +
-	"\aenabled\x18\a \x01(\bR\aenabled\x12?\n" +
-	"\fset_property\x18\n" +
-	" \x01(\v2\x1a.tack.v1.SetPropertyActionH\x00R\vsetProperty\x126\n" +
-	"\tset_state\x18\v \x01(\v2\x17.tack.v1.SetStateActionH\x00R\bsetStateB\b\n" +
-	"\x06action*\xf5\x01\n" +
-	"\x11AutomationTrigger\x12\"\n" +
-	"\x1eAUTOMATION_TRIGGER_UNSPECIFIED\x10\x00\x12#\n" +
-	"\x1fAUTOMATION_TRIGGER_NODE_CREATED\x10\x01\x12#\n" +
-	"\x1fAUTOMATION_TRIGGER_NODE_UPDATED\x10\x02\x12$\n" +
-	" AUTOMATION_TRIGGER_STATE_CHANGED\x10\x03\x12'\n" +
-	"#AUTOMATION_TRIGGER_PROPERTY_CHANGED\x10\x04\x12#\n" +
-	"\x1fAUTOMATION_TRIGGER_NODE_DELETED\x10\x05B%Z#goodkind.io/tack/gen/tack/v1;tackv1b\x06proto3"
+	"is_builtin\x18\n" +
+	" \x01(\bR\tisBuiltin\x12\x19\n" +
+	"\btype_key\x18\v \x01(\tR\atypeKey\x12\x1a\n" +
+	"\bfeatures\x18\f \x03(\tR\bfeatures\x12\x1f\n" +
+	"\vcan_contain\x18\r \x03(\tR\n" +
+	"canContain\x12$\n" +
+	"\x0ecan_live_under\x18\x0e \x03(\tR\fcanLiveUnder\"\xd4\x01\n" +
+	"\x11CreateNodeRequest\x12\x1b\n" +
+	"\tparent_id\x18\x01 \x01(\tR\bparentId\x12\"\n" +
+	"\rnode_type_key\x18\x02 \x01(\tR\vnodeTypeKey\x12\x12\n" +
+	"\x04name\x18\x03 \x01(\tR\x04name\x12-\n" +
+	"\x05props\x18\x04 \x01(\v2\x17.google.protobuf.StructR\x05props\x12;\n" +
+	"\rrelationships\x18\x05 \x03(\v2\x15.tack.v1.RelationshipR\rrelationships\"7\n" +
+	"\x12CreateNodeResponse\x12!\n" +
+	"\x04node\x18\x01 \x01(\v2\r.tack.v1.NodeR\x04node\")\n" +
+	"\x0eGetNodeRequest\x12\x17\n" +
+	"\anode_id\x18\x01 \x01(\tR\x06nodeId\"4\n" +
+	"\x0fGetNodeResponse\x12!\n" +
+	"\x04node\x18\x01 \x01(\v2\r.tack.v1.NodeR\x04node\"o\n" +
+	"\x11UpdateNodeRequest\x12\x17\n" +
+	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12-\n" +
+	"\x05props\x18\x03 \x01(\v2\x17.google.protobuf.StructR\x05props\"7\n" +
+	"\x12UpdateNodeResponse\x12!\n" +
+	"\x04node\x18\x01 \x01(\v2\r.tack.v1.NodeR\x04node\",\n" +
+	"\x11DeleteNodeRequest\x12\x17\n" +
+	"\anode_id\x18\x01 \x01(\tR\x06nodeId\"$\n" +
+	"\x12DeleteNodeResponse\x12\x0e\n" +
+	"\x02ok\x18\x01 \x01(\bR\x02ok\"\xb0\x01\n" +
+	"\x10ListNodesRequest\x12\x15\n" +
+	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12\x1b\n" +
+	"\tnode_type\x18\x02 \x01(\tR\bnodeType\x12\x1b\n" +
+	"\tprop_name\x18\x03 \x01(\tR\bpropName\x12\x1d\n" +
+	"\n" +
+	"prop_value\x18\x04 \x01(\fR\tpropValue\x12\x14\n" +
+	"\x05limit\x18\x05 \x01(\x05R\x05limit\x12\x16\n" +
+	"\x06cursor\x18\x06 \x01(\tR\x06cursor\"Y\n" +
+	"\x11ListNodesResponse\x12#\n" +
+	"\x05nodes\x18\x01 \x03(\v2\r.tack.v1.NodeR\x05nodes\x12\x1f\n" +
+	"\vnext_cursor\x18\x02 \x01(\tR\n" +
+	"nextCursor\"S\n" +
+	"\x16AddRelationshipRequest\x129\n" +
+	"\frelationship\x18\x01 \x01(\v2\x15.tack.v1.RelationshipR\frelationship\")\n" +
+	"\x17AddRelationshipResponse\x12\x0e\n" +
+	"\x02ok\x18\x01 \x01(\bR\x02ok\"\x91\x01\n" +
+	"\x19RemoveRelationshipRequest\x12\x15\n" +
+	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12\x1b\n" +
+	"\tsource_id\x18\x02 \x01(\tR\bsourceId\x12#\n" +
+	"\rrelation_type\x18\x03 \x01(\tR\frelationType\x12\x1b\n" +
+	"\ttarget_id\x18\x04 \x01(\tR\btargetId\",\n" +
+	"\x1aRemoveRelationshipResponse\x12\x0e\n" +
+	"\x02ok\x18\x01 \x01(\bR\x02ok\"\x8d\x01\n" +
+	"\x18ListRelationshipsRequest\x12\x15\n" +
+	"\x06org_id\x18\x01 \x01(\tR\x05orgId\x12\x17\n" +
+	"\anode_id\x18\x02 \x01(\tR\x06nodeId\x12\x1c\n" +
+	"\tdirection\x18\x03 \x01(\tR\tdirection\x12#\n" +
+	"\rrelation_type\x18\x04 \x01(\tR\frelationType\"X\n" +
+	"\x19ListRelationshipsResponse\x12;\n" +
+	"\rrelationships\x18\x01 \x03(\v2\x15.tack.v1.RelationshipR\rrelationships2\xf5\x04\n" +
+	"\vNodeService\x12E\n" +
+	"\n" +
+	"CreateNode\x12\x1a.tack.v1.CreateNodeRequest\x1a\x1b.tack.v1.CreateNodeResponse\x12<\n" +
+	"\aGetNode\x12\x17.tack.v1.GetNodeRequest\x1a\x18.tack.v1.GetNodeResponse\x12E\n" +
+	"\n" +
+	"UpdateNode\x12\x1a.tack.v1.UpdateNodeRequest\x1a\x1b.tack.v1.UpdateNodeResponse\x12E\n" +
+	"\n" +
+	"DeleteNode\x12\x1a.tack.v1.DeleteNodeRequest\x1a\x1b.tack.v1.DeleteNodeResponse\x12B\n" +
+	"\tListNodes\x12\x19.tack.v1.ListNodesRequest\x1a\x1a.tack.v1.ListNodesResponse\x12T\n" +
+	"\x0fAddRelationship\x12\x1f.tack.v1.AddRelationshipRequest\x1a .tack.v1.AddRelationshipResponse\x12]\n" +
+	"\x12RemoveRelationship\x12\".tack.v1.RemoveRelationshipRequest\x1a#.tack.v1.RemoveRelationshipResponse\x12Z\n" +
+	"\x11ListRelationships\x12!.tack.v1.ListRelationshipsRequest\x1a\".tack.v1.ListRelationshipsResponseB%Z#goodkind.io/tack/gen/tack/v1;tackv1b\x06proto3"
 
 var (
 	file_tack_v1_node_proto_rawDescOnce sync.Once
@@ -1116,37 +1553,69 @@ func file_tack_v1_node_proto_rawDescGZIP() []byte {
 	return file_tack_v1_node_proto_rawDescData
 }
 
-var file_tack_v1_node_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_tack_v1_node_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_tack_v1_node_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
 var file_tack_v1_node_proto_goTypes = []any{
-	(AutomationTrigger)(0),        // 0: tack.v1.AutomationTrigger
-	(*NodeValue)(nil),             // 1: tack.v1.NodeValue
-	(*PropertyValue)(nil),         // 2: tack.v1.PropertyValue
-	(*EnumValue)(nil),             // 3: tack.v1.EnumValue
-	(*EnumOption)(nil),            // 4: tack.v1.EnumOption
-	(*PropertyDef)(nil),           // 5: tack.v1.PropertyDef
-	(*NodeTypeDefinition)(nil),    // 6: tack.v1.NodeTypeDefinition
-	(*SetPropertyAction)(nil),     // 7: tack.v1.SetPropertyAction
-	(*SetStateAction)(nil),        // 8: tack.v1.SetStateAction
-	(*AutomationRule)(nil),        // 9: tack.v1.AutomationRule
-	(*timestamppb.Timestamp)(nil), // 10: google.protobuf.Timestamp
+	(*Node)(nil),                       // 0: tack.v1.Node
+	(*Relationship)(nil),               // 1: tack.v1.Relationship
+	(*EnumOption)(nil),                 // 2: tack.v1.EnumOption
+	(*PropertyDef)(nil),                // 3: tack.v1.PropertyDef
+	(*NodeType)(nil),                   // 4: tack.v1.NodeType
+	(*CreateNodeRequest)(nil),          // 5: tack.v1.CreateNodeRequest
+	(*CreateNodeResponse)(nil),         // 6: tack.v1.CreateNodeResponse
+	(*GetNodeRequest)(nil),             // 7: tack.v1.GetNodeRequest
+	(*GetNodeResponse)(nil),            // 8: tack.v1.GetNodeResponse
+	(*UpdateNodeRequest)(nil),          // 9: tack.v1.UpdateNodeRequest
+	(*UpdateNodeResponse)(nil),         // 10: tack.v1.UpdateNodeResponse
+	(*DeleteNodeRequest)(nil),          // 11: tack.v1.DeleteNodeRequest
+	(*DeleteNodeResponse)(nil),         // 12: tack.v1.DeleteNodeResponse
+	(*ListNodesRequest)(nil),           // 13: tack.v1.ListNodesRequest
+	(*ListNodesResponse)(nil),          // 14: tack.v1.ListNodesResponse
+	(*AddRelationshipRequest)(nil),     // 15: tack.v1.AddRelationshipRequest
+	(*AddRelationshipResponse)(nil),    // 16: tack.v1.AddRelationshipResponse
+	(*RemoveRelationshipRequest)(nil),  // 17: tack.v1.RemoveRelationshipRequest
+	(*RemoveRelationshipResponse)(nil), // 18: tack.v1.RemoveRelationshipResponse
+	(*ListRelationshipsRequest)(nil),   // 19: tack.v1.ListRelationshipsRequest
+	(*ListRelationshipsResponse)(nil),  // 20: tack.v1.ListRelationshipsResponse
+	(*structpb.Struct)(nil),            // 21: google.protobuf.Struct
+	(*timestamppb.Timestamp)(nil),      // 22: google.protobuf.Timestamp
 }
 var file_tack_v1_node_proto_depIdxs = []int32{
-	10, // 0: tack.v1.NodeValue.created_at:type_name -> google.protobuf.Timestamp
-	10, // 1: tack.v1.NodeValue.updated_at:type_name -> google.protobuf.Timestamp
-	10, // 2: tack.v1.PropertyValue.timestamp_value:type_name -> google.protobuf.Timestamp
-	3,  // 3: tack.v1.PropertyValue.enum_value:type_name -> tack.v1.EnumValue
-	2,  // 4: tack.v1.PropertyDef.default_value:type_name -> tack.v1.PropertyValue
-	4,  // 5: tack.v1.PropertyDef.enum_options:type_name -> tack.v1.EnumOption
-	2,  // 6: tack.v1.SetPropertyAction.value:type_name -> tack.v1.PropertyValue
-	0,  // 7: tack.v1.AutomationRule.trigger:type_name -> tack.v1.AutomationTrigger
-	7,  // 8: tack.v1.AutomationRule.set_property:type_name -> tack.v1.SetPropertyAction
-	8,  // 9: tack.v1.AutomationRule.set_state:type_name -> tack.v1.SetStateAction
-	10, // [10:10] is the sub-list for method output_type
-	10, // [10:10] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	21, // 0: tack.v1.Node.props:type_name -> google.protobuf.Struct
+	22, // 1: tack.v1.Node.created_at:type_name -> google.protobuf.Timestamp
+	22, // 2: tack.v1.Node.updated_at:type_name -> google.protobuf.Timestamp
+	22, // 3: tack.v1.Relationship.created_at:type_name -> google.protobuf.Timestamp
+	21, // 4: tack.v1.Relationship.props:type_name -> google.protobuf.Struct
+	2,  // 5: tack.v1.PropertyDef.options:type_name -> tack.v1.EnumOption
+	21, // 6: tack.v1.CreateNodeRequest.props:type_name -> google.protobuf.Struct
+	1,  // 7: tack.v1.CreateNodeRequest.relationships:type_name -> tack.v1.Relationship
+	0,  // 8: tack.v1.CreateNodeResponse.node:type_name -> tack.v1.Node
+	0,  // 9: tack.v1.GetNodeResponse.node:type_name -> tack.v1.Node
+	21, // 10: tack.v1.UpdateNodeRequest.props:type_name -> google.protobuf.Struct
+	0,  // 11: tack.v1.UpdateNodeResponse.node:type_name -> tack.v1.Node
+	0,  // 12: tack.v1.ListNodesResponse.nodes:type_name -> tack.v1.Node
+	1,  // 13: tack.v1.AddRelationshipRequest.relationship:type_name -> tack.v1.Relationship
+	1,  // 14: tack.v1.ListRelationshipsResponse.relationships:type_name -> tack.v1.Relationship
+	5,  // 15: tack.v1.NodeService.CreateNode:input_type -> tack.v1.CreateNodeRequest
+	7,  // 16: tack.v1.NodeService.GetNode:input_type -> tack.v1.GetNodeRequest
+	9,  // 17: tack.v1.NodeService.UpdateNode:input_type -> tack.v1.UpdateNodeRequest
+	11, // 18: tack.v1.NodeService.DeleteNode:input_type -> tack.v1.DeleteNodeRequest
+	13, // 19: tack.v1.NodeService.ListNodes:input_type -> tack.v1.ListNodesRequest
+	15, // 20: tack.v1.NodeService.AddRelationship:input_type -> tack.v1.AddRelationshipRequest
+	17, // 21: tack.v1.NodeService.RemoveRelationship:input_type -> tack.v1.RemoveRelationshipRequest
+	19, // 22: tack.v1.NodeService.ListRelationships:input_type -> tack.v1.ListRelationshipsRequest
+	6,  // 23: tack.v1.NodeService.CreateNode:output_type -> tack.v1.CreateNodeResponse
+	8,  // 24: tack.v1.NodeService.GetNode:output_type -> tack.v1.GetNodeResponse
+	10, // 25: tack.v1.NodeService.UpdateNode:output_type -> tack.v1.UpdateNodeResponse
+	12, // 26: tack.v1.NodeService.DeleteNode:output_type -> tack.v1.DeleteNodeResponse
+	14, // 27: tack.v1.NodeService.ListNodes:output_type -> tack.v1.ListNodesResponse
+	16, // 28: tack.v1.NodeService.AddRelationship:output_type -> tack.v1.AddRelationshipResponse
+	18, // 29: tack.v1.NodeService.RemoveRelationship:output_type -> tack.v1.RemoveRelationshipResponse
+	20, // 30: tack.v1.NodeService.ListRelationships:output_type -> tack.v1.ListRelationshipsResponse
+	23, // [23:31] is the sub-list for method output_type
+	15, // [15:23] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_tack_v1_node_proto_init() }
@@ -1154,31 +1623,18 @@ func file_tack_v1_node_proto_init() {
 	if File_tack_v1_node_proto != nil {
 		return
 	}
-	file_tack_v1_node_proto_msgTypes[1].OneofWrappers = []any{
-		(*PropertyValue_TextValue)(nil),
-		(*PropertyValue_IntValue)(nil),
-		(*PropertyValue_FloatValue)(nil),
-		(*PropertyValue_BoolValue)(nil),
-		(*PropertyValue_TimestampValue)(nil),
-		(*PropertyValue_EnumValue)(nil),
-	}
-	file_tack_v1_node_proto_msgTypes[8].OneofWrappers = []any{
-		(*AutomationRule_SetProperty)(nil),
-		(*AutomationRule_SetState)(nil),
-	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_tack_v1_node_proto_rawDesc), len(file_tack_v1_node_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   9,
+			NumEnums:      0,
+			NumMessages:   21,
 			NumExtensions: 0,
-			NumServices:   0,
+			NumServices:   1,
 		},
 		GoTypes:           file_tack_v1_node_proto_goTypes,
 		DependencyIndexes: file_tack_v1_node_proto_depIdxs,
-		EnumInfos:         file_tack_v1_node_proto_enumTypes,
 		MessageInfos:      file_tack_v1_node_proto_msgTypes,
 	}.Build()
 	File_tack_v1_node_proto = out.File

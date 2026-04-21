@@ -3,46 +3,40 @@ syntax = "proto3";
 package tack.v1;
 
 import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
 
 option go_package = "goodkind.io/tack/gen/tack/v1;tackv1";
 
-// NodeValue is the lean core stored in FDB for every node.
-// Properties (priority, due_date, etc.) are stored separately as PropertyValues.
-message NodeValue {
-  string id           = 1;
-  string org_id       = 2;
-  string workspace_id = 3;
-  string project_id   = 4;
-  string node_type    = 5; // "issue", "epic", "cycle", "module", or custom slug
-  string name         = 6;
-  string description  = 7;
-  string state_id     = 8;
-  string parent_id    = 9;
-  int32  sequence_id  = 10;
-  double sort_order   = 11;
-  string created_by   = 12;
-  string updated_by   = 13;
-  google.protobuf.Timestamp created_at = 14;
-  google.protobuf.Timestamp updated_at = 15;
+// Node is the single primary record for every entity in the system. Every
+// concept-specific value (workspace, project, state, assignees, labels,
+// priority, due dates, description) lives in props as JSON-encoded property
+// values keyed by PropertyDef name. Everything that connects nodes together
+// lives in Relationship records, not on the node itself.
+message Node {
+  string id         = 1;
+  string org_id     = 2;
+  string node_type  = 3;
+  string name       = 4;
+  // props is a free-form map of PropertyDef name -> JSON value. Filterability
+  // of a given property comes from PropertyDef.indexed, not proto shape.
+  google.protobuf.Struct props = 5;
+  string created_by = 6;
+  string updated_by = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
 }
 
-// PropertyValue holds a typed value for a single property on a node.
-message PropertyValue {
-  oneof value {
-    string                    text_value      = 1;
-    int64                     int_value       = 2;
-    double                    float_value     = 3;
-    bool                      bool_value      = 4;
-    google.protobuf.Timestamp timestamp_value = 5;
-    EnumValue                 enum_value      = 6;
-  }
-}
-
-// EnumValue pairs the option key with its sort rank so the FDB secondary index
-// can sort by rank without re-reading the PropertyDef.
-message EnumValue {
-  string key       = 1;
-  int32  sort_rank = 2;
+// Relationship is a generic directed edge between two nodes. The relation_type
+// string carries the semantics: "assigned_to", "labeled_with", "child_of",
+// "watches", "mentioned_in", "reacted_to", "comment_of", etc.
+message Relationship {
+  string org_id        = 1;
+  string source_id     = 2;
+  string relation_type = 3;
+  string target_id     = 4;
+  string created_by    = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Struct props = 7;
 }
 
 // EnumOption is one option in a select or multi-select property.
@@ -50,74 +44,113 @@ message EnumOption {
   string key       = 1;
   string label     = 2;
   string color     = 3;
-  int32  sort_rank = 4; // lower = earlier in sort order
+  int32  sort_rank = 4;
 }
 
-// PropertyDef defines a custom property that applies to one or more node types.
+// PropertyDef defines a property that can be attached to one or more node types.
+// A PropertyDef applies to a NodeType when applies_to_features is empty (applies
+// to all) or when the NodeType declares any of the listed features.
 message PropertyDef {
-  string   id           = 1;
-  string   org_id       = 2;
-  string   workspace_id = 3;
-  string   project_id   = 4; // optional: project-scoped def
-  string   name         = 5;
-  string   field_type   = 6; // "text","number","date","select","multi_select","url","checkbox","timestamp"
-  repeated string node_types = 7; // which node type slugs this property applies to; empty = all
-  bool     indexed      = 8; // if true, FDB maintains a secondary sort index on this property
-  bool     required     = 9;
-  bool     is_system    = 10; // true for seeded defaults (priority, due_date, etc.)
-  PropertyValue         default_value = 11;
-  repeated EnumOption   enum_options  = 12; // for select / multi_select
+  string            id                   = 1;
+  string            org_id               = 2;
+  string            name                 = 3;
+  string            type                 = 4; // text, number, date, select, multi_select, url, checkbox, timestamp, uuid
+  repeated string   applies_to_features  = 5;
+  bool              indexed              = 6;
+  bool              required             = 7;
+  bytes             default_value        = 8; // raw JSON
+  repeated EnumOption options             = 9;
 }
 
-// NodeTypeDefinition describes a node type available in a workspace.
-// Returned by DescribeWorkspace and used by the MCP layer for dynamic tool registration.
-message NodeTypeDefinition {
-  string id          = 1;
-  string org_id      = 2;
-  string name        = 3;
-  string slug        = 4;
-  string plural_slug = 5;
-  bool   is_builtin  = 6;
-  string type_key    = 7;  // stable dispatch key: "issue","epic","cycle","module"; empty for custom types
-  string color       = 8;
-  string icon        = 9;
-  repeated string allowed_ops = 10;
+// NodeType describes a type in the extensibility hierarchy. NodeType records
+// are themselves nodes stored in the same key space as any other node.
+message NodeType {
+  string            id              = 1;
+  string            org_id          = 2;
+  string            name            = 3;
+  string            slug            = 4;
+  string            color           = 5;
+  string            icon            = 6;
+  repeated string   allowed_ops     = 7;
+  repeated string   property_def_ids = 8;
+  string            plural_slug     = 9;
+  bool              is_builtin      = 10;
+  string            type_key        = 11;
+  repeated string   features        = 12;
+  repeated string   can_contain     = 13;
+  repeated string   can_live_under  = 14;
 }
 
-// AutomationTrigger identifies the event that fires a rule.
-enum AutomationTrigger {
-  AUTOMATION_TRIGGER_UNSPECIFIED       = 0;
-  AUTOMATION_TRIGGER_NODE_CREATED      = 1;
-  AUTOMATION_TRIGGER_NODE_UPDATED      = 2;
-  AUTOMATION_TRIGGER_STATE_CHANGED     = 3;
-  AUTOMATION_TRIGGER_PROPERTY_CHANGED  = 4;
-  AUTOMATION_TRIGGER_NODE_DELETED      = 5;
+// ── RPC surface (generic node service) ────────────────────────────────────
+//
+// The RPC layer is intentionally shallow: a handful of node-level operations
+// plus relationship add / remove / list. The frontend / TUI gets a uniform
+// surface regardless of NodeType; concept-specific semantics are expressed
+// through props and relation_type strings.
+
+message CreateNodeRequest {
+  string parent_id     = 1;
+  string node_type_key = 2;
+  string name          = 3;
+  google.protobuf.Struct props = 4;
+  repeated Relationship relationships = 5;
 }
 
-// SetPropertyAction sets a property value on the triggering node.
-message SetPropertyAction {
-  string        property_def_id = 1;
-  PropertyValue value           = 2;
+message CreateNodeResponse { Node node = 1; }
+
+message GetNodeRequest { string node_id = 1; }
+message GetNodeResponse { Node node = 1; }
+
+message UpdateNodeRequest {
+  string node_id = 1;
+  string name    = 2;
+  google.protobuf.Struct props = 3;
+}
+message UpdateNodeResponse { Node node = 1; }
+
+message DeleteNodeRequest { string node_id = 1; }
+message DeleteNodeResponse { bool ok = 1; }
+
+message ListNodesRequest {
+  string org_id       = 1;
+  string node_type    = 2;
+  string prop_name    = 3; // optional index selector
+  bytes  prop_value   = 4; // raw JSON
+  int32  limit        = 5;
+  string cursor       = 6;
+}
+message ListNodesResponse {
+  repeated Node nodes = 1;
+  string next_cursor  = 2;
 }
 
-// SetStateAction transitions the triggering node to a new state.
-message SetStateAction {
-  string state_id = 1;
-}
+message AddRelationshipRequest   { Relationship relationship = 1; }
+message AddRelationshipResponse  { bool ok = 1; }
 
-// AutomationRule is a stored if-trigger-then-action rule scoped to a workspace.
-message AutomationRule {
-  string             id           = 1;
-  string             org_id       = 2;
-  string             workspace_id = 3;
-  string             node_type    = 4; // empty = applies to all node types
-  AutomationTrigger  trigger      = 5;
-  string             trigger_property_def_id = 6; // only set for PROPERTY_CHANGED
-  bool               enabled      = 7;
-  oneof action {
-    SetPropertyAction set_property = 10;
-    SetStateAction    set_state    = 11;
-    // Future: FireWebhookAction fire_webhook = 12;
-    // Future: RunScriptAction   run_script   = 13;
-  }
+message RemoveRelationshipRequest {
+  string org_id        = 1;
+  string source_id     = 2;
+  string relation_type = 3;
+  string target_id     = 4;
+}
+message RemoveRelationshipResponse { bool ok = 1; }
+
+message ListRelationshipsRequest {
+  string org_id        = 1;
+  string node_id       = 2;
+  string direction     = 3; // "out" or "in"
+  string relation_type = 4; // optional
+}
+message ListRelationshipsResponse { repeated Relationship relationships = 1; }
+
+service NodeService {
+  rpc CreateNode(CreateNodeRequest) returns (CreateNodeResponse);
+  rpc GetNode(GetNodeRequest) returns (GetNodeResponse);
+  rpc UpdateNode(UpdateNodeRequest) returns (UpdateNodeResponse);
+  rpc DeleteNode(DeleteNodeRequest) returns (DeleteNodeResponse);
+  rpc ListNodes(ListNodesRequest) returns (ListNodesResponse);
+
+  rpc AddRelationship(AddRelationshipRequest) returns (AddRelationshipResponse);
+  rpc RemoveRelationship(RemoveRelationshipRequest) returns (RemoveRelationshipResponse);
+  rpc ListRelationships(ListRelationshipsRequest) returns (ListRelationshipsResponse);
 }
