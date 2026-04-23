@@ -7,11 +7,11 @@ require (
 	github.com/apple/foundationdb/bindings/go v0.0.0-20250923185926-685eda6efef7
 	github.com/caarlos0/env/v11 v11.4.0
 	github.com/google/uuid v1.6.0
-	github.com/jackc/pgx/v5 v5.9.1
+	github.com/jackc/pgx/v5 v5.9.2
 	github.com/mark3labs/mcp-go v0.47.1
 	github.com/meilisearch/meilisearch-go v0.36.1
-	github.com/modelcontextprotocol/go-sdk v1.5.0
 	github.com/pressly/goose/v3 v3.27.0
+	github.com/yosida95/uritemplate/v3 v3.0.2
 	go.temporal.io/sdk v1.42.0
 	golang.org/x/net v0.52.0
 	golang.org/x/sync v0.20.0
@@ -36,16 +36,12 @@ require (
 	github.com/nexus-rpc/sdk-go v0.6.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/robfig/cron v1.2.0 // indirect
-	github.com/segmentio/asm v1.2.1 // indirect
-	github.com/segmentio/encoding v0.5.4 // indirect
 	github.com/sethvargo/go-retry v0.3.0 // indirect
 	github.com/spf13/cast v1.7.1 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
-	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	go.temporal.io/api v1.62.7 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sys v0.42.0 // indirect
 	golang.org/x/text v0.35.0 // indirect
 	golang.org/x/time v0.3.0 // indirect
