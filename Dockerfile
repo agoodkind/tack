@@ -25,7 +25,10 @@ RUN CGO_ENABLED=1 go build -tags fdb -trimpath \
         -X goodkind.io/tack/internal/version.commit=${COMMIT} \
         -X goodkind.io/tack/internal/version.buildTime=${BUILD_TIME} \
         -X goodkind.io/tack/internal/version.tag=${TAG} \
-        -X goodkind.io/tack/internal/version.dirty=${DIRTY}" \
+        -X goodkind.io/tack/internal/version.dirty=${DIRTY} \
+        -X goodkind.io/gklog/version.Commit=${COMMIT} \
+        -X goodkind.io/gklog/version.Dirty=${DIRTY} \
+        -X goodkind.io/gklog/version.BuildTime=${BUILD_TIME}" \
     -o /bin/server ./cmd/server
 
 # ── runtime ───────────────────────────────────────────────────────────────────
