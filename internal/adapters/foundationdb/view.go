@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
+	"goodkind.io/tack/internal/telemetry"
 )
 
 // ViewStore implements node.NodeReader using the node_view materialized records.
@@ -26,7 +27,8 @@ func NewViewStore(db fdb.Database) *ViewStore {
 
 // Get resolves the node by ID via the global resolve record, then fetches its
 // materialized view. No org context required from the caller.
-func (s *ViewStore) Get(_ context.Context, nodeID uuid.UUID) (*node.NodeView, error) {
+func (s *ViewStore) Get(ctx context.Context, nodeID uuid.UUID) (view *node.NodeView, err error) {
+	defer telemetry.FDBOp(ctx, "store.view.get")(&err)
 	val, err := s.db.ReadTransact(func(tr fdb.ReadTransaction) (any, error) {
 		resolveBytes, err := tr.Get(fdb.Key(nodeResolveKey(nodeID))).Get()
 		if err != nil || len(resolveBytes) == 0 {
@@ -45,18 +47,19 @@ func (s *ViewStore) Get(_ context.Context, nodeID uuid.UUID) (*node.NodeView, er
 	if !ok || len(b) == 0 {
 		return nil, nil
 	}
-	var view node.NodeView
-	if err := json.Unmarshal(b, &view); err != nil {
+	var v node.NodeView
+	if err := json.Unmarshal(b, &v); err != nil {
 		return nil, fmt.Errorf("unmarshal view: %w", err)
 	}
-	return &view, nil
+	return &v, nil
 }
 
 // Resolve returns the org / type context for any node UUID.
-func (s *ViewStore) Resolve(_ context.Context, nodeID uuid.UUID) (*node.NodeResolve, error) {
+func (s *ViewStore) Resolve(ctx context.Context, nodeID uuid.UUID) (r *node.NodeResolve, err error) {
+	defer telemetry.FDBOp(ctx, "store.view.resolve")(&err)
 	key := fdb.Key(nodeResolveKey(nodeID))
 	var result *node.NodeResolve
-	_, err := s.db.ReadTransact(func(tr fdb.ReadTransaction) (any, error) {
+	_, err = s.db.ReadTransact(func(tr fdb.ReadTransaction) (any, error) {
 		b := tr.Get(key).MustGet()
 		if len(b) == 0 {
 			return nil, domain.ErrNotFound
@@ -77,13 +80,14 @@ func (s *ViewStore) Resolve(_ context.Context, nodeID uuid.UUID) (*node.NodeReso
 // List scans the view key space for (OrgID, NodeType) and applies PropFilters
 // in-memory. Primary indexed scans (ByProperty, BySourceRelation, ByTargetRelation)
 // narrow the candidate set before the view fetch.
-func (s *ViewStore) List(ctx context.Context, q node.NodeListQuery) ([]*node.NodeView, error) {
+func (s *ViewStore) List(ctx context.Context, q node.NodeListQuery) (out []*node.NodeView, err error) {
+	defer telemetry.FDBOp(ctx, "store.view.list")(&err)
 	views, err := s.scanCandidates(ctx, q)
 	if err != nil {
 		return nil, err
 	}
 	// Post-scan filters.
-	out := views[:0]
+	out = views[:0]
 	for _, v := range views {
 		if !matchPropFilters(v, q.PropFilters) {
 			continue

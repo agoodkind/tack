@@ -10,7 +10,7 @@ import (
 
 // RegisterSearch registers tack_search.
 func RegisterSearch(s *mcpserver.MCPServer, searcher domainsearch.Searcher, resolver *Resolver) {
-	s.AddTool(
+	registerTool(s, 
 		mcpmcp.Tool{
 			Name:        "tack_search",
 			Description: "Full-text search across all nodes in a workspace's org. Filters are raw (field=value) equality.",

@@ -8,6 +8,7 @@ import (
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain/node"
+	"goodkind.io/tack/internal/telemetry"
 )
 
 // PropertyDefStore implements node.PropertyDefRepository using FoundationDB.
@@ -19,7 +20,8 @@ func NewPropertyDefStore(db fdb.Database) *PropertyDefStore {
 	return &PropertyDefStore{db: db}
 }
 
-func (s *PropertyDefStore) Set(_ context.Context, def *node.PropertyDef) error {
+func (s *PropertyDefStore) Set(ctx context.Context, def *node.PropertyDef) (err error) {
+	defer telemetry.FDBOp(ctx, "store.property_def.set")(&err)
 	b, err := json.Marshal(def)
 	if err != nil {
 		return fmt.Errorf("marshal property def: %w", err)
@@ -28,10 +30,11 @@ func (s *PropertyDefStore) Set(_ context.Context, def *node.PropertyDef) error {
 		tr.Set(fdb.Key(propertyDefKey(def.OrgID, def.ID)), b)
 		return nil, nil
 	})
-	return err
+	return
 }
 
-func (s *PropertyDefStore) Get(_ context.Context, orgID, defID uuid.UUID) (*node.PropertyDef, error) {
+func (s *PropertyDefStore) Get(ctx context.Context, orgID, defID uuid.UUID) (def *node.PropertyDef, err error) {
+	defer telemetry.FDBOp(ctx, "store.property_def.get")(&err)
 	val, err := s.db.ReadTransact(func(tr fdb.ReadTransaction) (any, error) {
 		return tr.Get(fdb.Key(propertyDefKey(orgID, defID))).Get()
 	})
@@ -42,14 +45,15 @@ func (s *PropertyDefStore) Get(_ context.Context, orgID, defID uuid.UUID) (*node
 	if !ok || len(b) == 0 {
 		return nil, nil
 	}
-	var def node.PropertyDef
-	if err := json.Unmarshal(b, &def); err != nil {
+	var d node.PropertyDef
+	if err := json.Unmarshal(b, &d); err != nil {
 		return nil, fmt.Errorf("unmarshal property def: %w", err)
 	}
-	return &def, nil
+	return &d, nil
 }
 
-func (s *PropertyDefStore) List(_ context.Context, orgID uuid.UUID) ([]*node.PropertyDef, error) {
+func (s *PropertyDefStore) List(ctx context.Context, orgID uuid.UUID) (defs []*node.PropertyDef, err error) {
+	defer telemetry.FDBOp(ctx, "store.property_def.list")(&err)
 	pr, err := fdb.PrefixRange(propertyDefPrefix(orgID))
 	if err != nil {
 		return nil, err
@@ -61,23 +65,24 @@ func (s *PropertyDefStore) List(_ context.Context, orgID uuid.UUID) ([]*node.Pro
 		return nil, fmt.Errorf("fdb list property defs: %w", err)
 	}
 	kvs := vals.([]fdb.KeyValue)
-	defs := make([]*node.PropertyDef, 0, len(kvs))
+	defs = make([]*node.PropertyDef, 0, len(kvs))
 	for _, kv := range kvs {
-		var def node.PropertyDef
-		if err := json.Unmarshal(kv.Value, &def); err != nil {
+		var d node.PropertyDef
+		if err := json.Unmarshal(kv.Value, &d); err != nil {
 			return nil, fmt.Errorf("unmarshal property def: %w", err)
 		}
-		defs = append(defs, &def)
+		defs = append(defs, &d)
 	}
 	return defs, nil
 }
 
-func (s *PropertyDefStore) Delete(_ context.Context, orgID, defID uuid.UUID) error {
-	_, err := s.db.Transact(func(tr fdb.Transaction) (any, error) {
+func (s *PropertyDefStore) Delete(ctx context.Context, orgID, defID uuid.UUID) (err error) {
+	defer telemetry.FDBOp(ctx, "store.property_def.delete")(&err)
+	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
 		tr.Clear(fdb.Key(propertyDefKey(orgID, defID)))
 		return nil, nil
 	})
-	return err
+	return
 }
 
 // encodePropertyValue encodes a raw JSON property value as FDB tuple bytes for

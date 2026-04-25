@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
+	"goodkind.io/tack/internal/telemetry"
 )
 
 // NodeStore implements node.NodeRepository using FoundationDB.
@@ -24,7 +25,8 @@ func NewNodeStore(db fdb.Database) *NodeStore {
 
 // Get resolves the node by ID. It reads the resolve record (not org-scoped) to
 // discover the NodeType, then reads the primary record.
-func (s *NodeStore) Get(_ context.Context, orgID, nodeID uuid.UUID) (*node.Node, error) {
+func (s *NodeStore) Get(ctx context.Context, orgID, nodeID uuid.UUID) (n *node.Node, err error) {
+	defer telemetry.FDBOp(ctx, "store.node.get")(&err)
 	val, err := s.db.ReadTransact(func(tr fdb.ReadTransaction) (any, error) {
 		resolveBytes, err := tr.Get(fdb.Key(nodeResolveKey(nodeID))).Get()
 		if err != nil || len(resolveBytes) == 0 {
@@ -46,11 +48,11 @@ func (s *NodeStore) Get(_ context.Context, orgID, nodeID uuid.UUID) (*node.Node,
 	if !ok || len(b) == 0 {
 		return nil, nil
 	}
-	var n node.Node
-	if err := json.Unmarshal(b, &n); err != nil {
+	var nv node.Node
+	if err := json.Unmarshal(b, &nv); err != nil {
 		return nil, fmt.Errorf("unmarshal node: %w", err)
 	}
-	return &n, nil
+	return &nv, nil
 }
 
 // Set overwrites an existing node's primary record and view. Property index
@@ -58,8 +60,9 @@ func (s *NodeStore) Get(_ context.Context, orgID, nodeID uuid.UUID) (*node.Node,
 // must delete the old index entries and add new ones via the atomic update
 // helper (to be added when the service layer needs it). For the MVP, Set is
 // used for rename and Props updates in cases where no indexed value changed.
-func (s *NodeStore) Set(_ context.Context, n *node.Node, view *node.NodeView) error {
-	_, err := s.db.Transact(func(tr fdb.Transaction) (any, error) {
+func (s *NodeStore) Set(ctx context.Context, n *node.Node, view *node.NodeView) (err error) {
+	defer telemetry.FDBOp(ctx, "store.node.set")(&err)
+	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
 		nBytes, err := json.Marshal(n)
 		if err != nil {
 			return nil, fmt.Errorf("marshal node: %w", err)
@@ -84,21 +87,23 @@ func (s *NodeStore) Set(_ context.Context, n *node.Node, view *node.NodeView) er
 		}
 		return nil, nil
 	})
-	return err
+	return
 }
 
 // Delete removes the primary node, view, resolve, property indexes, and all
 // relationships where the node is source or target. Uses range clears for the
 // per-node relationship prefixes; no per-relationship scan required.
-func (s *NodeStore) Delete(ctx context.Context, orgID, nodeID uuid.UUID) error {
+func (s *NodeStore) Delete(ctx context.Context, orgID, nodeID uuid.UUID) (err error) {
+	defer telemetry.FDBOp(ctx, "store.node.delete")(&err)
 	// First discover NodeType via resolve so we can construct the instance and
 	// view keys correctly.
-	n, err := s.Get(ctx, orgID, nodeID)
-	if err != nil {
-		return err
+	n, gerr := s.Get(ctx, orgID, nodeID)
+	if gerr != nil {
+		err = gerr
+		return
 	}
 	if n == nil {
-		return nil
+		return
 	}
 
 	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
@@ -164,20 +169,21 @@ func (s *NodeStore) Delete(ctx context.Context, orgID, nodeID uuid.UUID) error {
 
 		return nil, nil
 	})
-	return err
+	return
 }
 
 // CreateAtomic writes a new node plus initial relationships in one FDB
 // transaction. indexedProps names the Props keys that should receive a
 // property-index entry; the caller resolves this from the PropertyDef registry.
 func (s *NodeStore) CreateAtomic(
-	_ context.Context,
+	ctx context.Context,
 	n *node.Node,
 	view *node.NodeView,
 	rels []*node.Relationship,
 	indexedProps []string,
-) error {
-	_, err := s.db.Transact(func(tr fdb.Transaction) (any, error) {
+) (err error) {
+	defer telemetry.FDBOp(ctx, "store.node.create_atomic")(&err)
+	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
 		// 1. Primary node record.
 		nBytes, err := json.Marshal(n)
 		if err != nil {
@@ -227,17 +233,18 @@ func (s *NodeStore) CreateAtomic(
 		}
 		return nil, nil
 	})
-	return err
+	return
 }
 
 // ListByProperty scans the secondary index for (orgID, nodeType, propName)
 // narrowed to the given value, and returns the matching Node records.
 func (s *NodeStore) ListByProperty(
-	_ context.Context,
+	ctx context.Context,
 	orgID uuid.UUID,
 	nodeType, propName string,
 	value json.RawMessage,
-) ([]*node.Node, error) {
+) (nodes []*node.Node, err error) {
+	defer telemetry.FDBOp(ctx, "store.node.list_by_property")(&err)
 	pr, err := fdb.PrefixRange(nodeByPropertyValuePrefix(orgID, nodeType, propName, encodePropertyValue(value)))
 	if err != nil {
 		return nil, err
@@ -278,7 +285,8 @@ func (s *NodeStore) ListByProperty(
 
 // AllocateSequence atomically increments and returns the next sequence number
 // for (orgID, scopeNodeID, nodeType).
-func (s *NodeStore) AllocateSequence(_ context.Context, orgID, scopeNodeID uuid.UUID, nodeType string) (int64, error) {
+func (s *NodeStore) AllocateSequence(ctx context.Context, orgID, scopeNodeID uuid.UUID, nodeType string) (seq int64, err error) {
+	defer telemetry.FDBOp(ctx, "store.node.allocate_sequence")(&err)
 	val, err := s.db.Transact(func(tr fdb.Transaction) (any, error) {
 		k := fdb.Key(sequenceKey(orgID, scopeNodeID, nodeType))
 		b, err := tr.Get(k).Get()
@@ -303,7 +311,8 @@ func (s *NodeStore) AllocateSequence(_ context.Context, orgID, scopeNodeID uuid.
 
 // GetSlug returns the nodeID registered under (nodeType, slug), or uuid.Nil, nil
 // when none exists.
-func (s *NodeStore) GetSlug(_ context.Context, nodeType, slug string) (uuid.UUID, error) {
+func (s *NodeStore) GetSlug(ctx context.Context, nodeType, slug string) (id uuid.UUID, err error) {
+	defer telemetry.FDBOp(ctx, "store.node.get_slug")(&err)
 	val, err := s.db.ReadTransact(func(tr fdb.ReadTransaction) (any, error) {
 		return tr.Get(fdb.Key(slugIndexKey(nodeType, slug))).Get()
 	})
@@ -328,9 +337,10 @@ func (s *NodeStore) GetSlug(_ context.Context, nodeType, slug string) (uuid.UUID
 // Pre-rewrite this method silently overwrote any existing slug, orphaning
 // the previous owner. The fail-fast behavior is the dedupe contract that
 // the rest of the system depends on.
-func (s *NodeStore) WriteSlug(_ context.Context, nodeType, slug string, nodeID uuid.UUID) error {
+func (s *NodeStore) WriteSlug(ctx context.Context, nodeType, slug string, nodeID uuid.UUID) (err error) {
+	defer telemetry.FDBOp(ctx, "store.node.write_slug")(&err)
 	idBytes, _ := nodeID.MarshalBinary()
-	_, err := s.db.Transact(func(tr fdb.Transaction) (any, error) {
+	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
 		key := fdb.Key(slugIndexKey(nodeType, slug))
 		existing, err := tr.Get(key).Get()
 		if err != nil {
@@ -350,20 +360,22 @@ func (s *NodeStore) WriteSlug(_ context.Context, nodeType, slug string, nodeID u
 		tr.Set(key, idBytes)
 		return nil, nil
 	})
-	return err
+	return
 }
 
-func (s *NodeStore) DeleteSlug(_ context.Context, nodeType, slug string) error {
-	_, err := s.db.Transact(func(tr fdb.Transaction) (any, error) {
+func (s *NodeStore) DeleteSlug(ctx context.Context, nodeType, slug string) (err error) {
+	defer telemetry.FDBOp(ctx, "store.node.delete_slug")(&err)
+	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
 		tr.Clear(fdb.Key(slugIndexKey(nodeType, slug)))
 		return nil, nil
 	})
-	return err
+	return
 }
 
 // LookupIdempotencyKey returns the nodeID stamped under (orgID, key) by a
 // prior Create, or uuid.Nil when the key has not been seen.
-func (s *NodeStore) LookupIdempotencyKey(_ context.Context, orgID uuid.UUID, key string) (uuid.UUID, error) {
+func (s *NodeStore) LookupIdempotencyKey(ctx context.Context, orgID uuid.UUID, key string) (id uuid.UUID, err error) {
+	defer telemetry.FDBOp(ctx, "store.node.lookup_idempotency")(&err)
 	val, err := s.db.ReadTransact(func(tr fdb.ReadTransaction) (any, error) {
 		return tr.Get(fdb.Key(idempotencyKey(orgID, key))).Get()
 	})
@@ -379,11 +391,12 @@ func (s *NodeStore) LookupIdempotencyKey(_ context.Context, orgID uuid.UUID, key
 
 // WriteIdempotencyKey records (orgID, key) -> nodeID. Idempotent when the
 // existing record already matches nodeID.
-func (s *NodeStore) WriteIdempotencyKey(_ context.Context, orgID uuid.UUID, key string, nodeID uuid.UUID) error {
+func (s *NodeStore) WriteIdempotencyKey(ctx context.Context, orgID uuid.UUID, key string, nodeID uuid.UUID) (err error) {
+	defer telemetry.FDBOp(ctx, "store.node.write_idempotency")(&err)
 	idBytes, _ := nodeID.MarshalBinary()
-	_, err := s.db.Transact(func(tr fdb.Transaction) (any, error) {
+	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
 		tr.Set(fdb.Key(idempotencyKey(orgID, key)), idBytes)
 		return nil, nil
 	})
-	return err
+	return
 }

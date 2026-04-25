@@ -16,7 +16,7 @@ import (
 // RegisterWorkspace registers tack_list_workspaces and tack_describe_workspace
 // using only generic primitives.
 func RegisterWorkspace(s *mcpserver.MCPServer, reader node.NodeReader, resolver *Resolver, nodeTypes []*node.NodeType) {
-	s.AddTool(
+	registerTool(s, 
 		mcpmcp.Tool{
 			Name:        "tack_list_workspaces",
 			Description: "Lists workspaces the caller has access to.",
@@ -35,7 +35,7 @@ func RegisterWorkspace(s *mcpserver.MCPServer, reader node.NodeReader, resolver 
 		},
 	)
 
-	s.AddTool(
+	registerTool(s, 
 		mcpmcp.Tool{
 			Name:        fmt.Sprintf("tack_describe_%s", resolver.entryPointSlug),
 			Description: "Describes a workspace: its node types, property defs, and direct children.",
@@ -83,7 +83,7 @@ func RegisterWorkspace(s *mcpserver.MCPServer, reader node.NodeReader, resolver 
 
 // RegisterMembers registers tack_list_members.
 func RegisterMembers(s *mcpserver.MCPServer, members org.MemberRepository, users user.Repository, resolver *Resolver) {
-	s.AddTool(
+	registerTool(s, 
 		mcpmcp.Tool{
 			Name:        "tack_list_members",
 			Description: "Lists org members for the workspace's org.",

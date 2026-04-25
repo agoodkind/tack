@@ -9,6 +9,7 @@ import (
 	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain/node"
+	"goodkind.io/tack/internal/telemetry"
 )
 
 // RelationshipStore implements node.RelationshipRepository using FoundationDB.
@@ -20,7 +21,8 @@ func NewRelationshipStore(db fdb.Database) *RelationshipStore {
 	return &RelationshipStore{db: db}
 }
 
-func (s *RelationshipStore) Add(_ context.Context, rel *node.Relationship) error {
+func (s *RelationshipStore) Add(ctx context.Context, rel *node.Relationship) (err error) {
+	defer telemetry.FDBOp(ctx, "store.relationship.add")(&err)
 	metadata, err := json.Marshal(rel)
 	if err != nil {
 		return fmt.Errorf("marshal relationship: %w", err)
@@ -30,19 +32,21 @@ func (s *RelationshipStore) Add(_ context.Context, rel *node.Relationship) error
 		tr.Set(fdb.Key(relationshipReverseKey(rel.OrgID, rel.TargetID, rel.RelationType, rel.SourceID)), []byte{})
 		return nil, nil
 	})
-	return err
+	return
 }
 
-func (s *RelationshipStore) Remove(_ context.Context, orgID, sourceID uuid.UUID, relationType string, targetID uuid.UUID) error {
-	_, err := s.db.Transact(func(tr fdb.Transaction) (any, error) {
+func (s *RelationshipStore) Remove(ctx context.Context, orgID, sourceID uuid.UUID, relationType string, targetID uuid.UUID) (err error) {
+	defer telemetry.FDBOp(ctx, "store.relationship.remove")(&err)
+	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
 		tr.Clear(fdb.Key(relationshipKey(orgID, sourceID, relationType, targetID)))
 		tr.Clear(fdb.Key(relationshipReverseKey(orgID, targetID, relationType, sourceID)))
 		return nil, nil
 	})
-	return err
+	return
 }
 
-func (s *RelationshipStore) ListBySource(_ context.Context, orgID, sourceID uuid.UUID, relationType string) ([]*node.Relationship, error) {
+func (s *RelationshipStore) ListBySource(ctx context.Context, orgID, sourceID uuid.UUID, relationType string) (rels []*node.Relationship, err error) {
+	defer telemetry.FDBOp(ctx, "store.relationship.list_by_source")(&err)
 	pr, err := fdb.PrefixRange(relationshipPrefixBySource(orgID, sourceID, relationType))
 	if err != nil {
 		return nil, err
@@ -56,7 +60,8 @@ func (s *RelationshipStore) ListBySource(_ context.Context, orgID, sourceID uuid
 	return decodeRelationships(vals.([]fdb.KeyValue)), nil
 }
 
-func (s *RelationshipStore) ListByTarget(_ context.Context, orgID, targetID uuid.UUID, relationType string) ([]*node.Relationship, error) {
+func (s *RelationshipStore) ListByTarget(ctx context.Context, orgID, targetID uuid.UUID, relationType string) (rels []*node.Relationship, err error) {
+	defer telemetry.FDBOp(ctx, "store.relationship.list_by_target")(&err)
 	// The reverse prefix only stores nil values; for metadata we need the
 	// forward entries. Scan the reverse prefix, then batch-fetch the forward
 	// metadata values.
@@ -70,7 +75,7 @@ func (s *RelationshipStore) ListByTarget(_ context.Context, orgID, targetID uuid
 		if err != nil {
 			return nil, err
 		}
-		rels := make([]*node.Relationship, 0, len(revKVs))
+		rs := make([]*node.Relationship, 0, len(revKVs))
 		for _, kv := range revKVs {
 			t, terr := tuple.Unpack(kv.Key)
 			if terr != nil || len(t) < 5 {
@@ -90,9 +95,9 @@ func (s *RelationshipStore) ListByTarget(_ context.Context, orgID, targetID uuid
 			if err := json.Unmarshal(fwd, &rel); err != nil {
 				continue
 			}
-			rels = append(rels, &rel)
+			rs = append(rs, &rel)
 		}
-		return rels, nil
+		return rs, nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("fdb list rels by target: %w", err)

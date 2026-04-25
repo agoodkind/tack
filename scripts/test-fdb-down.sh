@@ -5,6 +5,6 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-podman compose -f docker-compose.test.yml down -v
+docker compose -f docker-compose.test.yml down -v
 rm -f .test-fdb/fdb.cluster .test-fdb/fdb.cluster.raw
 rmdir .test-fdb 2>/dev/null || true

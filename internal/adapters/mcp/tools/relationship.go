@@ -14,7 +14,7 @@ import (
 // tack_list_relationships. RelationType is arbitrary; seeds define the
 // conventional strings (assigned_to, labeled_with, child_of, etc.).
 func RegisterRelationship(s *mcpserver.MCPServer, svc *service.NodeService, rels node.RelationshipRepository, resolver *Resolver) {
-	s.AddTool(
+	registerTool(s, 
 		mcpmcp.Tool{
 			Name:        "tack_add_relationship",
 			Description: "Adds a directed relationship between two nodes. relation_type is free-form (e.g. assigned_to, labeled_with, child_of, watches).",
@@ -64,7 +64,7 @@ func RegisterRelationship(s *mcpserver.MCPServer, svc *service.NodeService, rels
 		},
 	)
 
-	s.AddTool(
+	registerTool(s, 
 		mcpmcp.Tool{
 			Name:        "tack_remove_relationship",
 			Description: "Removes a directed relationship between two nodes.",
@@ -103,7 +103,7 @@ func RegisterRelationship(s *mcpserver.MCPServer, svc *service.NodeService, rels
 		},
 	)
 
-	s.AddTool(
+	registerTool(s, 
 		mcpmcp.Tool{
 			Name:        "tack_list_relationships",
 			Description: "Lists relationships where the given node is source (direction=out) or target (direction=in). Optional relation_type filter.",

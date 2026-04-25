@@ -88,6 +88,20 @@ test-fdb-down:
 test-integration: test-fdb-up
 	CGO_ENABLED=1 TACK_INTEGRATION=1 FDB_CLUSTER_FILE=$(FDB_CLUSTER_FILE) go test -v -count=1 ./internal/test/integration/...
 
+# lint-logging: enforce structured-logging discipline per the plan in
+# /Users/agoodkind/.claude/plans/indexed-growing-snowglobe.md.
+#
+# Banned patterns in production code (non-cmd, non-test):
+#   - fmt.Print* for diagnostics: route through slog instead
+#   - stdlib log.Print*/log.Fatal*/log.Panic*: replaced by gklog/slog
+#
+# cmd/ is exempt because user-facing CLI output is allowed there. Tests are
+# exempt because t.Logf and friends are fine. Generated code under gen/ is
+# exempt by path.
+.PHONY: lint-logging
+lint-logging:
+	@./scripts/lint-logging.sh
+
 # Deploy: rsync source to CT 117, build natively on the server, restart.
 # Uses --network host so Docker build can resolve DNS via the host's IPv6 nameserver.
 .PHONY: deploy

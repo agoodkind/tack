@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 
@@ -12,6 +13,7 @@ import (
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/domain/org"
+	"goodkind.io/tack/internal/telemetry"
 )
 
 // ScopeLevel describes one level of the hierarchy between the entry point and
@@ -114,6 +116,11 @@ func (r *Resolver) Workspace(ctx context.Context, slug string) (*node.NodeView, 
 
 // ResolveScope looks up a scope node (typically a project) by its identifier
 // property, scoped under the given parent.
+//
+// On miss this is the single most common debugging scenario in Tack. Yesterday's
+// incident was an identifier-resolver miss that returned empty silently.
+// We log every miss at Info with the inputs that produced it so the next miss
+// is diagnosable from one line.
 func (r *Resolver) ResolveScope(ctx context.Context, parent *node.NodeView, level ScopeLevel, identifier string) (*node.NodeView, error) {
 	// List children of parent with the given type, filter by Props["identifier"].
 	idents := strings.ToUpper(identifier)
@@ -134,6 +141,16 @@ func (r *Resolver) ResolveScope(ctx context.Context, parent *node.NodeView, leve
 	if len(children) > 0 {
 		return r.reader.Get(ctx, children[0].ID)
 	}
+
+	telemetry.IncResolverMiss("scope")
+	telemetry.L(ctx).InfoContext(ctx, "resolver.scope.miss",
+		slog.String("level", level.TypeKey),
+		slog.String("identifier", identifier),
+		slog.String("identifier_normalized", idents),
+		slog.String("parent_id", parent.ID.String()),
+		slog.String("parent_type", parent.NodeType),
+		slog.Int("candidate_count", len(children)),
+	)
 	return nil, fmt.Errorf("%s %q: %w", level.Slug, identifier, domain.ErrNotFound)
 }
 
@@ -222,6 +239,15 @@ func (r *Resolver) ResolveNodeID(ctx context.Context, input string) (uuid.UUID, 
 			}
 		}
 	}
+	telemetry.IncResolverMiss("node_id")
+	telemetry.L(ctx).InfoContext(ctx, "resolver.node_id.miss",
+		slog.String("input", input),
+		slog.String("project_ident", projIdent),
+		slog.Int("sequence_id", seqID),
+		slog.Int("workspaces_tried", len(wss)),
+		slog.Int("scope_chain_depth", len(r.scopeChain)),
+		slog.Int("sequence_types_tried", len(r.sequenceTypeKeys)),
+	)
 	return uuid.Nil, fmt.Errorf("identifier %q: %w", input, domain.ErrNotFound)
 }
 

@@ -11,7 +11,7 @@ import (
 
 // RegisterProperty registers PropertyDef list/get/create/update/delete.
 func RegisterProperty(s *mcpserver.MCPServer, propertyDefs node.PropertyDefRepository, resolver *Resolver) {
-	s.AddTool(
+	registerTool(s, 
 		mcpmcp.Tool{
 			Name:        "tack_list_property_defs",
 			Description: "Lists PropertyDef records for the workspace's org.",
@@ -36,7 +36,7 @@ func RegisterProperty(s *mcpserver.MCPServer, propertyDefs node.PropertyDefRepos
 		},
 	)
 
-	s.AddTool(
+	registerTool(s, 
 		mcpmcp.Tool{
 			Name:        "tack_get_properties",
 			Description: "Returns the full Props map for a node.",

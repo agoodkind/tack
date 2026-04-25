@@ -22,6 +22,7 @@ services:
     volumes:
       - tack-test-fdb-config:/etc/foundationdb
       - tack-test-fdb-data:/var/fdb
+      - ./fdb-overlay/fdb.bash:/var/fdb/scripts/fdb.bash:ro
     healthcheck:
       test: ["CMD-SHELL", "fdbcli --exec 'status minimal' 2>&1 | grep -q 'available'"]
       interval: 3s
@@ -32,3 +33,8 @@ services:
 volumes:
   tack-test-fdb-config:
   tack-test-fdb-data:
+
+networks:
+  default:
+    enable_ipv6: true
+    enable_ipv4: false

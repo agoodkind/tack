@@ -50,3 +50,25 @@ func Op(ctx context.Context, name string) func(err *error) {
 		}
 	}
 }
+
+// FDBOp wraps Op with FDB-specific metric counters. Use only from
+// internal/adapters/foundationdb. Idiomatic call site:
+//
+//	func (s *NodeStore) Get(ctx context.Context, ...) (n *node.Node, err error) {
+//	    defer telemetry.FDBOp(ctx, "store.node.get")(&err)
+//	    // ...
+//	}
+//
+// Bumps fdb_tx_total on success and fdb_tx_err_total on failure in addition
+// to emitting the Op event.
+func FDBOp(ctx context.Context, name string) func(err *error) {
+	end := Op(ctx, name)
+	return func(errp *error) {
+		if errp != nil && *errp != nil {
+			IncFDBTxErr()
+		} else {
+			IncFDBTx()
+		}
+		end(errp)
+	}
+}

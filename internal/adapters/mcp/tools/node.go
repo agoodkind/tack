@@ -35,19 +35,19 @@ func RegisterNodeTools(s *mcpserver.MCPServer, nt *node.NodeType, b NodeTypeBind
 	ops := opSet(nt.AllowedOps)
 
 	if _, ok := ops[node.OpList]; ok {
-		s.AddTool(listTool(plural, chain, epParam), listHandler(nt, chain, epParam, b))
+		registerTool(s, listTool(plural, chain, epParam), listHandler(nt, chain, epParam, b))
 	}
 	if _, ok := ops[node.OpCreate]; ok {
-		s.AddTool(createTool(nt, slug, chain, epParam), createHandler(nt, chain, epParam, b))
+		registerTool(s, createTool(nt, slug, chain, epParam), createHandler(nt, chain, epParam, b))
 	}
 	if _, ok := ops[node.OpRead]; ok {
-		s.AddTool(getTool(nt, slug), getHandler(nt, b))
+		registerTool(s, getTool(nt, slug), getHandler(nt, b))
 	}
 	if _, ok := ops[node.OpUpdate]; ok {
-		s.AddTool(updateTool(nt, slug), updateHandler(nt, b))
+		registerTool(s, updateTool(nt, slug), updateHandler(nt, b))
 	}
 	if _, ok := ops[node.OpDelete]; ok {
-		s.AddTool(deleteTool(nt, slug), deleteHandler(b))
+		registerTool(s, deleteTool(nt, slug), deleteHandler(b))
 	}
 }
 
