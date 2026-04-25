@@ -1,3 +1,8 @@
+// Package telemetry centralises observability for the tack server. The
+// logging stack lives in goodkind.io/gklog. This package is a thin wrapper
+// that wires environment-driven configuration, exposes the few helpers
+// legacy call sites depend on, and adds tack-specific concerns
+// (the Op timer, expvar counters, the Tracer stub).
 package telemetry
 
 import (
@@ -5,70 +10,93 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
+	"strings"
 
-	"gopkg.in/natefinch/lumberjack.v2"
+	"goodkind.io/gklog"
 )
 
-type loggerKey struct{}
+// LogConfig is what Setup needs to wire gklog. Every field is taken
+// verbatim from the caller. Setup never branches on environment names. The
+// dev-vs-prod difference lives entirely in the env vars consumed by
+// internal/config.
+type LogConfig struct {
+	// Level is the minimum log level. Empty defers to gklog's default
+	// (debug). Accepted values: "debug", "info", "warn", "error".
+	Level string
 
-// Setup initialises the global slog logger.
-//
-// If cfg.LogFile is set, logs are written to that file with rotation.
-// Logs are always also written to stdout so systemd journal captures them.
-// The two writers are fanned out via io.MultiWriter.
-func Setup(cfg LogConfig) {
-	var writers []io.Writer
-	writers = append(writers, os.Stdout)
+	// JSONFile is the JSON-line log path. Empty disables JSON-file output.
+	JSONFile string
+	// TextFile is the human-readable text log path. Empty disables it.
+	TextFile string
+	// DisableStdout suppresses the stdout JSON handler. Production usually
+	// wants stdout enabled so journald scrapes it; CLI-style processes
+	// where stdout is part of a contract may want it off.
+	DisableStdout bool
 
-	if cfg.File != "" {
-		writers = append(writers, &lumberjack.Logger{
-			Filename:   cfg.File,
-			MaxSize:    cfg.MaxSizeMB,  // megabytes before rotation
-			MaxBackups: cfg.MaxBackups, // rotated files to keep (0 = unlimited)
-			MaxAge:     cfg.MaxAgeDays, // days to retain (0 = unlimited)
-			Compress:   true,
-		})
+	// MaxSizeMB caps each rotated log file. Zero defers to gklog's default.
+	MaxSizeMB int
+	// MaxBackups limits the number of rotated files to keep. Zero means
+	// keep them all forever (gklog passes 0 through to lumberjack as
+	// unlimited). Set to 0 in dev configs to retain history.
+	MaxBackups int
+	// MaxAgeDays caps rotated-file age. Zero means keep forever.
+	MaxAgeDays int
+}
+
+// Setup initializes the global slog logger via gklog. Returns an io.Closer
+// the caller must Close on shutdown. Setup is a thin pass-through: it does
+// not look at env names, hardcoded paths, or any process state. All policy
+// lives in the config file or env vars that populate LogConfig.
+func Setup(cfg LogConfig) (io.Closer, error) {
+	gcfg := gklog.Config{
+		JSONLogFile:   strings.TrimSpace(cfg.JSONFile),
+		TextLogFile:   strings.TrimSpace(cfg.TextFile),
+		TextLabel:     "tack",
+		JSONMinLevel:  cfg.Level,
+		DisableStdout: cfg.DisableStdout,
+		Rotation: gklog.RotationConfig{
+			MaxSizeMB:  cfg.MaxSizeMB,
+			MaxBackups: cfg.MaxBackups,
+			MaxAgeDays: cfg.MaxAgeDays,
+		},
 	}
 
-	w := io.MultiWriter(writers...)
-
-	level := slog.LevelInfo
-	if cfg.Level == "debug" {
-		level = slog.LevelDebug
+	if err := ensureDir(gcfg.JSONLogFile); err != nil {
+		return nil, err
+	}
+	if err := ensureDir(gcfg.TextLogFile); err != nil {
+		return nil, err
 	}
 
-	var h slog.Handler
-	if cfg.JSON {
-		h = slog.NewJSONHandler(w, &slog.HandlerOptions{Level: level})
-	} else {
-		h = slog.NewTextHandler(w, &slog.HandlerOptions{Level: level})
+	logger, closer, err := gklog.New(gcfg)
+	if err != nil {
+		return nil, err
 	}
+	slog.SetDefault(logger)
+	return closer, nil
+}
 
-	slog.SetDefault(slog.New(h))
+func ensureDir(path string) error {
+	if path == "" {
+		return nil
+	}
+	dir := filepath.Dir(path)
+	if dir == "" || dir == "." {
+		return nil
+	}
+	return os.MkdirAll(dir, 0o755)
 }
 
 // WithLogger stores a logger carrying pre-attached fields into the context.
-// Call this in middleware after attaching request_id, workspace_id, etc.
+// Mirrors gklog.WithLogger so existing callers in this codebase keep
+// working unchanged.
 func WithLogger(ctx context.Context, l *slog.Logger) context.Context {
-	return context.WithValue(ctx, loggerKey{}, l)
+	return gklog.WithLogger(ctx, l)
 }
 
-// L returns the logger stored in the context, falling back to the global logger.
-// Use this anywhere in the service or adapter layer to get a logger that
-// already carries the request's structured fields.
+// L returns the logger stored in ctx, falling back to slog.Default. Wraps
+// gklog.L so call sites in tack do not need to import gklog directly.
 func L(ctx context.Context) *slog.Logger {
-	if l, ok := ctx.Value(loggerKey{}).(*slog.Logger); ok && l != nil {
-		return l
-	}
-	return slog.Default()
-}
-
-// LogConfig holds logging configuration.
-type LogConfig struct {
-	Level      string // "debug" | "info" | "warn" | "error"
-	JSON       bool   // true in production, false in dev
-	File       string // path to log file; empty = stdout only
-	MaxSizeMB  int    // rotate when file exceeds this size (default 100)
-	MaxBackups int    // rotated files to retain; 0 = unlimited
-	MaxAgeDays int    // days to retain rotated files; 0 = unlimited
+	return gklog.L(ctx)
 }

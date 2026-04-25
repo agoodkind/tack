@@ -15,9 +15,19 @@ services:
       TEMPORAL_ADDRESS: temporal:7233
       PORT: 8000
       ENV: development
-      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Dev policy: noisiest level on, every rotated log kept forever.
+      # Logs are append-only history we can grep against post-incident.
+      LOG_LEVEL: ${LOG_LEVEL:-debug}
+      LOG_MAX_BACKUPS: ${LOG_MAX_BACKUPS:-0}
+      LOG_MAX_AGE_DAYS: ${LOG_MAX_AGE_DAYS:-0}
+      LOG_MAX_SIZE_MB: ${LOG_MAX_SIZE_MB:-100}
+      # On-disk paths inside the container. The /var/log/tack volume below
+      # binds the host path for cross-restart persistence.
+      LOG_JSON_FILE: ${LOG_JSON_FILE:-/var/log/tack/app.jsonl}
+      LOG_TEXT_FILE: ${LOG_TEXT_FILE:-/var/log/tack/app.log}
     volumes:
       - /etc/foundationdb:/etc/foundationdb:ro
+      - tack-logs:/var/log/tack
     depends_on:
       yugabyte:
         condition: service_healthy
@@ -162,6 +172,7 @@ volumes:
   fdb-data:
   meili-data:
   temporal-db-data:
+  tack-logs:
 
 # IPv6-only bridge. The /96 carved out of the host's on-link 3d06:bad:b01::/64
 # is NDP-proxied back onto eth0 by ndppd on CT 117. Containers source out as

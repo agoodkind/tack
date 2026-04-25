@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"expvar"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -32,14 +33,29 @@ func main() {
 		os.Exit(1)
 	}
 
-	telemetry.Setup(telemetry.LogConfig{
-		Level:      cfg.LogLevel,
-		JSON:       cfg.Env == "production",
-		File:       cfg.LogFile,
-		MaxSizeMB:  cfg.LogMaxSizeMB,
-		MaxBackups: cfg.LogMaxBackups,
-		MaxAgeDays: cfg.LogMaxAgeDays,
+	closer, err := telemetry.Setup(telemetry.LogConfig{
+		Level:         cfg.LogLevel,
+		JSONFile:      cfg.LogJSONFile,
+		TextFile:      cfg.LogTextFile,
+		DisableStdout: cfg.LogDisableStdout,
+		MaxSizeMB:     cfg.LogMaxSizeMB,
+		MaxBackups:    cfg.LogMaxBackups,
+		MaxAgeDays:    cfg.LogMaxAgeDays,
 	})
+	if err != nil {
+		slog.Error("telemetry.setup", "err", err)
+		os.Exit(1)
+	}
+	defer func() {
+		if closer != nil {
+			_ = closer.Close()
+		}
+	}()
+	slog.Info("server.startup",
+		slog.String("env", cfg.Env),
+		slog.String("version", version.Tag()),
+		slog.String("commit", version.Commit()),
+	)
 
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
@@ -54,6 +70,7 @@ func main() {
 
 	runServer(cfg)
 }
+
 
 func runMigrations(cfg *config.Config) {
 	ctx := context.Background()
@@ -127,6 +144,12 @@ func runServer(cfg *config.Config) {
 	})
 	mux.Handle("/mcp", mcpWithAuth)
 	mux.Handle("/mcp/", mcpWithAuth)
+
+	// expvar counters at /debug/vars. expvar.Handler returns the standard
+	// JSON dump of every registered Var; tack's counters are registered via
+	// internal/telemetry/metrics.go. Not gated on auth so a local watcher
+	// can scrape it directly. Bind to localhost only when this matters.
+	mux.Handle("/debug/vars", expvar.Handler())
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	slog.Info("starting server",
