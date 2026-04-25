@@ -64,14 +64,28 @@ migrate:
 seed:
 	CGO_ENABLED=1 go run ./cmd/server seed
 
-# Integration tests against a real FDB cluster. FDB_CLUSTER_FILE points at
-# the cluster file; default is /etc/foundationdb/fdb.cluster on Linux and
-# /usr/local/etc/foundationdb/fdb.cluster on macOS. TACK_INTEGRATION gates
-# the tests so a casual `make test` skips them.
-FDB_CLUSTER_FILE ?= $(shell test -f /etc/foundationdb/fdb.cluster && echo /etc/foundationdb/fdb.cluster || echo /usr/local/etc/foundationdb/fdb.cluster)
+# Integration tests against a real FDB cluster.
+#
+# By default `make test-integration` brings up a docker-compose FDB on
+# 127.0.0.1:4500, runs the suite, and leaves the cluster up so subsequent
+# runs are fast. Use `make test-fdb-down` to clean up.
+#
+# Override FDB_CLUSTER_FILE to point at a different cluster (e.g. the local
+# launchd-managed FDB at /usr/local/etc/foundationdb/fdb.cluster on macOS, or
+# /etc/foundationdb/fdb.cluster on Linux). TACK_INTEGRATION gates the tests
+# so a casual `make test` skips them.
+FDB_CLUSTER_FILE ?= $(PWD)/.test-fdb/fdb.cluster
+
+.PHONY: test-fdb-up
+test-fdb-up:
+	./scripts/test-fdb-up.sh
+
+.PHONY: test-fdb-down
+test-fdb-down:
+	./scripts/test-fdb-down.sh
 
 .PHONY: test-integration
-test-integration:
+test-integration: test-fdb-up
 	CGO_ENABLED=1 TACK_INTEGRATION=1 FDB_CLUSTER_FILE=$(FDB_CLUSTER_FILE) go test -v -count=1 ./internal/test/integration/...
 
 # Deploy: rsync source to CT 117, build natively on the server, restart.

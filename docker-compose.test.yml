@@ -1,0 +1,34 @@
+# Single-node FDB cluster for local integration tests.
+#
+# Bring up via `make test-fdb-up`. Tear down with `make test-fdb-down`. The
+# `make test-integration` target manages it automatically.
+#
+# The cluster file generated inside the container references the container's
+# bridge IP, which is unreachable from a host process on macOS. The
+# scripts/test-fdb-cluster-file.sh helper extracts the file and rewrites the
+# IP to 127.0.0.1 so the Go test client (running on the host) can connect
+# through the published port.
+
+services:
+  fdb:
+    image: foundationdb/foundationdb:7.4.6
+    container_name: tack-test-fdb
+    ports:
+      - "4500:4500"
+    environment:
+      FDB_NETWORKING_MODE: container
+      FDB_PORT: "4500"
+      FDB_COORDINATOR_PORT: "4500"
+    volumes:
+      - tack-test-fdb-config:/etc/foundationdb
+      - tack-test-fdb-data:/var/fdb
+    healthcheck:
+      test: ["CMD-SHELL", "fdbcli --exec 'status minimal' 2>&1 | grep -q 'available'"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+
+volumes:
+  tack-test-fdb-config:
+  tack-test-fdb-data:
