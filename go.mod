@@ -13,7 +13,7 @@ require (
 	github.com/pressly/goose/v3 v3.27.0
 	go.temporal.io/sdk v1.42.0
 	golang.org/x/net v0.52.0
-	goodkind.io/gklog v0.0.0-00010101000000-000000000000
+	goodkind.io/gklog v0.0.0-20260425152237-ebc2806f8def
 	google.golang.org/protobuf v1.36.11
 )
 
@@ -53,5 +53,3 @@ require (
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-
-replace goodkind.io/gklog => /Users/agoodkind/Sites/gklog
