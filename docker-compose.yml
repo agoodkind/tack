@@ -29,19 +29,15 @@ services:
         condition: service_healthy
 
   yugabyte:
-    image: yugabytedb/yugabyte:2.23.1.0-b220
+    # 2024.2.x LTS is the first line that ships IPv6 support in yugabyted
+    # (issue #24665, fixed in 2024.1.5.0). is_port_available is now
+    # AF-aware and validate_hostname_ip uses ipaddress.ip_address. Two
+    # bugs remain: yugabyted's auto-detect still calls socket.gethostbyname
+    # (AF_INET only), and the IP_ANY constant has no `::` equivalent. The
+    # wrapper below dodges both by reading the bridge v6 from /etc/hosts
+    # and passing it as a literal --advertise_address.
+    image: yugabytedb/yugabyte:2024.2.8.0-b85
     restart: unless-stopped
-    # yugabyted line 6298 calls socket.gethostbyname which is AF_INET only.
-    # In an IPv6-only bridge, /etc/hosts has only a v6 entry for the docker
-    # ID hostname, so glibc skips it and falls through to DNS. The LAN's
-    # `*.home.goodkind.io` wildcard returns an unrelated v4 (10.250.0.110),
-    # which yugabyted then advertises as the master. yb-master exits.
-    #
-    # Workaround: at container start, read the bridge v6 from /etc/hosts via
-    # getent ahostsv6, expand it to the 8-group form yugabyted's
-    # validate_hostname_ip regex requires, and pass it as --advertise_address.
-    # The address is discovered from /etc/hosts at runtime so the compose
-    # file holds no literal IPs.
     command:
       - /bin/bash
       - -lc
@@ -52,15 +48,11 @@ services:
           echo "yugabyte wrapper: no IPv6 address found for $$(hostname) in NSS" >&2
           exit 1
         fi
-        EXPANDED=$$(python3 -c 'import ipaddress, sys; print(ipaddress.IPv6Address(sys.argv[1]).exploded)' "$$ADDR")
-        # yugabyted line 2842 hardcodes socket.AF_INET in is_port_available,
-        # which fails on a v6 address. Rewrite to pick AF based on the address.
-        sed -i 's|s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)|s = socket.socket(socket.AF_INET6 if ":" in str(advertise_ip) else socket.AF_INET, socket.SOCK_STREAM)|' /home/yugabyte/bin/yugabyted
-        echo "yugabyte wrapper: advertising $$EXPANDED (from $$ADDR)" >&2
+        echo "yugabyte wrapper: advertising $$ADDR" >&2
         exec /home/yugabyte/bin/yugabyted start \
           --daemon=false \
-          --advertise_address="$$EXPANDED" \
-          --listen="$$EXPANDED" \
+          --advertise_address="$$ADDR" \
+          --listen="$$ADDR" \
           --tserver_flags="ysql_pg_conf_csv=max_connections=100"
     environment:
       YSQL_DB:       ${YUGABYTE_DB:-tack}
