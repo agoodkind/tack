@@ -111,12 +111,18 @@ services:
     environment:
       MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-tack-dev-meili-key-change-in-prod}
       MEILI_ENV: production
+      # Inter-container DNS on this network resolves AAAA only. Without an
+      # explicit v6 listen address, Meilisearch binds 0.0.0.0:7700 (v4 only)
+      # and the app's connection to meilisearch:7700 fails with
+      # "connect: connection refused" on the GUA. Bind to all addresses on
+      # both stacks so v6-only callers connect successfully.
+      MEILI_HTTP_ADDR: "[::]:7700"
     ports:
       - "7700:7700"
     volumes:
       - meili-data:/meili_data
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:7700/health | grep -q 'available'"]
+      test: ["CMD-SHELL", "curl -sf http://[::1]:7700/health | grep -q 'available'"]
       interval: 5s
       timeout: 5s
       retries: 10

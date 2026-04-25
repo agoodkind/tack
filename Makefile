@@ -36,11 +36,15 @@ COMMIT      := $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
 DIRTY       := $(shell git diff --quiet 2>/dev/null && echo false || echo true)
 TAG         := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 BUILD_TIME  := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+GKLOG_VERSION_PKG := goodkind.io/gklog/version
 LDFLAGS     := -s -w \
 	-X $(VERSION_PKG).commit=$(COMMIT) \
 	-X $(VERSION_PKG).buildTime=$(BUILD_TIME) \
 	-X $(VERSION_PKG).tag=$(TAG) \
-	-X $(VERSION_PKG).dirty=$(DIRTY)
+	-X $(VERSION_PKG).dirty=$(DIRTY) \
+	-X $(GKLOG_VERSION_PKG).Commit=$(COMMIT) \
+	-X $(GKLOG_VERSION_PKG).Dirty=$(DIRTY) \
+	-X $(GKLOG_VERSION_PKG).BuildTime=$(BUILD_TIME)
 
 # FDB is always required. CGO_ENABLED=1 for the FDB C bindings.
 .PHONY: build
