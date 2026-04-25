@@ -69,9 +69,13 @@ func listTool(plural string, chain []ScopeLevel, epParam string) mcpmcp.Tool {
 
 func createTool(nt *node.NodeType, slug string, chain []ScopeLevel, epParam string) mcpmcp.Tool {
 	props := map[string]any{
-		epParam:       map[string]any{"type": "string"},
-		"name":        map[string]any{"type": "string"},
-		"properties":  map[string]any{"type": "object", "description": "Property values keyed by name"},
+		epParam:      map[string]any{"type": "string"},
+		"name":       map[string]any{"type": "string"},
+		"properties": map[string]any{"type": "object", "description": "Property values keyed by name"},
+		"idempotency_key": map[string]any{
+			"type":        "string",
+			"description": "Optional. When provided, a retry with the same key returns the previously created node instead of creating a duplicate.",
+		},
 	}
 	required := []string{epParam, "name"}
 	for _, level := range chain {
@@ -214,17 +218,27 @@ func createHandler(nt *node.NodeType, chain []ScopeLevel, epParam string, b Node
 			}
 		}
 
-		view, err := b.NodeSvc.Create(ctx, service.CreateInput{
-			ParentID:    parentID,
-			NodeTypeKey: nt.TypeKey,
-			Name:        name,
-			Props:       rawProps,
-			ActorID:     userID,
+		idempotencyKey, _ := args["idempotency_key"].(string)
+		result, err := b.NodeSvc.Create(ctx, service.CreateInput{
+			ParentID:       parentID,
+			NodeTypeKey:    nt.TypeKey,
+			Name:           name,
+			Props:          rawProps,
+			ActorID:        userID,
+			IdempotencyKey: idempotencyKey,
 		})
 		if err != nil {
 			return ClassifyError(ctx, err), nil
 		}
-		return Success(map[string]any{nt.Slug: view}, ""), nil
+		payload := map[string]any{nt.Slug: result.View}
+		if result.Existed {
+			payload["already_existed"] = true
+		}
+		instr := ""
+		if result.Existed {
+			instr = "Idempotency key matched; returning the existing node. No new write was performed."
+		}
+		return Success(payload, instr), nil
 	}
 }
 

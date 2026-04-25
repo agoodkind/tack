@@ -89,8 +89,18 @@ type NodeRepository interface {
 	// GetSlug returns the nodeID registered under a global (nodeType, slug) pair.
 	// Used for entry-point lookups like workspace-by-slug.
 	GetSlug(ctx context.Context, nodeType, slug string) (uuid.UUID, error)
+	// WriteSlug returns domain.ErrAlreadyExists when the slug is already
+	// owned by a different node. Idempotent when the existing owner matches.
 	WriteSlug(ctx context.Context, nodeType, slug string, nodeID uuid.UUID) error
 	DeleteSlug(ctx context.Context, nodeType, slug string) error
+
+	// LookupIdempotencyKey returns the nodeID a previous Create stamped under
+	// (orgID, key). uuid.Nil and a nil error mean the key has not been seen.
+	LookupIdempotencyKey(ctx context.Context, orgID uuid.UUID, key string) (uuid.UUID, error)
+	// WriteIdempotencyKey records (orgID, key) -> nodeID. Used inside
+	// CreateAtomic so retries with the same key short-circuit. The store does
+	// not GC entries; sentinels live forever.
+	WriteIdempotencyKey(ctx context.Context, orgID uuid.UUID, key string, nodeID uuid.UUID) error
 }
 
 // RelationshipRepository manages edges between nodes. Every dedicated

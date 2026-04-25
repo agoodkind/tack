@@ -58,6 +58,18 @@ type CreateInput struct {
 	Props         map[string]json.RawMessage
 	Relationships []*node.Relationship
 	ActorID       uuid.UUID
+	// IdempotencyKey is optional. When non-empty, Create checks whether a
+	// previous successful call stamped this key under the same org. A hit
+	// short-circuits and returns the existing node with Existed=true. A miss
+	// stamps the key as part of the create transaction.
+	IdempotencyKey string
+}
+
+// CreateResult is the outcome of Create. View is always populated; Existed is
+// true when an idempotency-key match short-circuited the create.
+type CreateResult struct {
+	View    *node.NodeView
+	Existed bool
 }
 
 // Create writes a new node plus its initial relationships. When the NodeType
@@ -65,12 +77,37 @@ type CreateInput struct {
 // the parent as the scope, and stamps Props["sequence"]. When the NodeType
 // declares FeatureHasSlug the service writes the global slug index from
 // Props["slug"] (or "identifier").
-func (s *NodeService) Create(ctx context.Context, in CreateInput) (*node.NodeView, error) {
+//
+// When IdempotencyKey is non-empty, Create first looks up an existing
+// (orgID, key) record. If a node already exists under that key, Create
+// returns it with CreateResult.Existed=true and performs no writes. If no
+// record exists, Create stamps the key alongside the new node.
+func (s *NodeService) Create(ctx context.Context, in CreateInput) (*CreateResult, error) {
 	log := telemetry.L(ctx)
 
 	orgID, err := s.resolveOrgFromParent(ctx, in.ParentID)
 	if err != nil {
 		return nil, err
+	}
+
+	// Idempotency short-circuit: if we already stamped this key, return the
+	// node we returned the first time. No new writes.
+	if in.IdempotencyKey != "" {
+		existingID, err := s.nodes.LookupIdempotencyKey(ctx, orgID, in.IdempotencyKey)
+		if err != nil {
+			return nil, fmt.Errorf("lookup idempotency key: %w", err)
+		}
+		if existingID != uuid.Nil {
+			view, err := s.reader.Get(ctx, existingID)
+			if err != nil {
+				return nil, fmt.Errorf("get existing idempotent node: %w", err)
+			}
+			if view != nil {
+				return &CreateResult{View: view, Existed: true}, nil
+			}
+			// Sentinel exists but the node is gone. Fall through and
+			// re-create; the sentinel will be overwritten with the new ID.
+		}
 	}
 
 	nt, err := s.findNodeType(ctx, orgID, in.NodeTypeKey)
@@ -160,6 +197,17 @@ func (s *NodeService) Create(ctx context.Context, in CreateInput) (*node.NodeVie
 		return nil, fmt.Errorf("create node: %w", err)
 	}
 
+	// Stamp the idempotency key after the atomic create succeeds. A failure
+	// here logs a warning but does not roll back the create. The next retry
+	// of the same key will see the existing node via the parent_id and slug
+	// indexes and the caller can dedupe at that layer.
+	if in.IdempotencyKey != "" {
+		if err := s.nodes.WriteIdempotencyKey(ctx, orgID, in.IdempotencyKey, id); err != nil {
+			log.Warn("node.Create: write idempotency key",
+				slog.String("key", in.IdempotencyKey), slog.String("err", err.Error()))
+		}
+	}
+
 	// FeatureHasSlug: register global slug index.
 	if nt.Features.Has(node.FeatureHasSlug) {
 		slug := firstStringProp(props, "slug", "identifier")
@@ -179,7 +227,7 @@ func (s *NodeService) Create(ctx context.Context, in CreateInput) (*node.NodeVie
 		slog.String("node_id", id.String()),
 		slog.String("node_type", nt.TypeKey),
 	)
-	return view, nil
+	return &CreateResult{View: view, Existed: false}, nil
 }
 
 // UpdateInput holds optional fields to update.

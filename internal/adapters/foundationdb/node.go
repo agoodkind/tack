@@ -9,6 +9,7 @@ import (
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
 )
 
@@ -316,10 +317,37 @@ func (s *NodeStore) GetSlug(_ context.Context, nodeType, slug string) (uuid.UUID
 	return uuid.FromBytes(b)
 }
 
+// WriteSlug registers a (nodeType, slug) -> nodeID mapping. Read-then-write
+// inside a single FDB transaction so two concurrent slug writers race
+// deterministically. Returns:
+//
+//   - nil on success when the slug was unowned, or when the existing value
+//     already matches nodeID (idempotent re-write)
+//   - domain.ErrAlreadyExists when the slug is owned by a different node
+//
+// Pre-rewrite this method silently overwrote any existing slug, orphaning
+// the previous owner. The fail-fast behavior is the dedupe contract that
+// the rest of the system depends on.
 func (s *NodeStore) WriteSlug(_ context.Context, nodeType, slug string, nodeID uuid.UUID) error {
 	idBytes, _ := nodeID.MarshalBinary()
 	_, err := s.db.Transact(func(tr fdb.Transaction) (any, error) {
-		tr.Set(fdb.Key(slugIndexKey(nodeType, slug)), idBytes)
+		key := fdb.Key(slugIndexKey(nodeType, slug))
+		existing, err := tr.Get(key).Get()
+		if err != nil {
+			return nil, fmt.Errorf("read existing slug: %w", err)
+		}
+		if len(existing) > 0 {
+			existingID, perr := uuid.FromBytes(existing)
+			if perr != nil {
+				return nil, fmt.Errorf("decode existing slug owner: %w", perr)
+			}
+			if existingID == nodeID {
+				return nil, nil
+			}
+			return nil, fmt.Errorf("slug %q (type %q) already owned by %s: %w",
+				slug, nodeType, existingID, domain.ErrAlreadyExists)
+		}
+		tr.Set(key, idBytes)
 		return nil, nil
 	})
 	return err
@@ -328,6 +356,33 @@ func (s *NodeStore) WriteSlug(_ context.Context, nodeType, slug string, nodeID u
 func (s *NodeStore) DeleteSlug(_ context.Context, nodeType, slug string) error {
 	_, err := s.db.Transact(func(tr fdb.Transaction) (any, error) {
 		tr.Clear(fdb.Key(slugIndexKey(nodeType, slug)))
+		return nil, nil
+	})
+	return err
+}
+
+// LookupIdempotencyKey returns the nodeID stamped under (orgID, key) by a
+// prior Create, or uuid.Nil when the key has not been seen.
+func (s *NodeStore) LookupIdempotencyKey(_ context.Context, orgID uuid.UUID, key string) (uuid.UUID, error) {
+	val, err := s.db.ReadTransact(func(tr fdb.ReadTransaction) (any, error) {
+		return tr.Get(fdb.Key(idempotencyKey(orgID, key))).Get()
+	})
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("fdb lookup idempotency: %w", err)
+	}
+	b, ok := val.([]byte)
+	if !ok || len(b) == 0 {
+		return uuid.Nil, nil
+	}
+	return uuid.FromBytes(b)
+}
+
+// WriteIdempotencyKey records (orgID, key) -> nodeID. Idempotent when the
+// existing record already matches nodeID.
+func (s *NodeStore) WriteIdempotencyKey(_ context.Context, orgID uuid.UUID, key string, nodeID uuid.UUID) error {
+	idBytes, _ := nodeID.MarshalBinary()
+	_, err := s.db.Transact(func(tr fdb.Transaction) (any, error) {
+		tr.Set(fdb.Key(idempotencyKey(orgID, key)), idBytes)
 		return nil, nil
 	})
 	return err

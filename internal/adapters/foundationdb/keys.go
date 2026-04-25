@@ -54,6 +54,11 @@ const (
 	// PropertyDef records.
 	// (property_def, orgID, defID) -> PropertyDef JSON
 	keyPropertyDef = "property_def"
+
+	// Idempotency key index. Caller-supplied key maps to the nodeID a previous
+	// successful Create returned, so retries are no-ops instead of dup writes.
+	// (idempotency_key, orgID, key) -> nodeID bytes
+	keyIdempotency = "idempotency_key"
 )
 
 // testPrefix is prepended to every packed FDB key when non-nil. Production
@@ -132,6 +137,12 @@ func nodeTypeDefKey(orgID, typeID uuid.UUID) []byte {
 // propertyDefKey packs a PropertyDef key.
 func propertyDefKey(orgID, defID uuid.UUID) []byte {
 	return withPrefix(tuple.Tuple{keyPropertyDef, orgID.String(), defID.String()}.Pack())
+}
+
+// idempotencyKey packs the per-org idempotency-key sentinel. Caller-supplied
+// key maps to the nodeID returned by the original successful Create.
+func idempotencyKey(orgID uuid.UUID, key string) []byte {
+	return withPrefix(tuple.Tuple{keyIdempotency, orgID.String(), key}.Pack())
 }
 
 // nodeViewPrefix packs the prefix for scanning views of (orgID, nodeType).
