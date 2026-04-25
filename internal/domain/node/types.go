@@ -255,10 +255,31 @@ type PropertyDef struct {
 	DefaultValue json.RawMessage `json:"default_value,omitempty"`
 }
 
+// Deterministic-ID namespaces. Distinct per layer so a slug collision in one
+// layer cannot ever produce the same UUID as the slug in another layer.
+var (
+	orgNamespace       = uuid.MustParse("0a6f7572-cafe-dead-beef-000000000001")
+	workspaceNamespace = uuid.MustParse("0a6f7572-cafe-dead-beef-000000000002")
+	systemPropNS       = uuid.MustParse("7ac0face-dead-beef-cafe-000000000000")
+)
+
+// OrgID returns the deterministic UUID for an org node identified by slug. A
+// fresh FDB seeded with the same slug produces byte-identical IDs across runs,
+// which means NodeType and PropertyDef IDs (which derive from orgID) are also
+// stable across wipes.
+func OrgID(slug string) uuid.UUID {
+	return uuid.NewSHA1(orgNamespace, []byte(slug))
+}
+
+// WorkspaceID returns the deterministic UUID for a workspace node under a
+// given org, identified by slug.
+func WorkspaceID(orgID uuid.UUID, slug string) uuid.UUID {
+	return uuid.NewSHA1(workspaceNamespace, []byte(orgID.String()+":"+slug))
+}
+
 // SystemPropID returns a deterministic UUID for a built-in property definition
 // scoped to an org. Used by seed and migration scripts to compute stable IDs
 // without FDB reads.
 func SystemPropID(orgID uuid.UUID, propName string) uuid.UUID {
-	ns := uuid.MustParse("7ac0face-dead-beef-cafe-000000000000")
-	return uuid.NewSHA1(ns, []byte(orgID.String()+":"+propName))
+	return uuid.NewSHA1(systemPropNS, []byte(orgID.String()+":"+propName))
 }

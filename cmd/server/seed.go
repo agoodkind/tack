@@ -124,7 +124,24 @@ func ensureNode(ctx context.Context, s *fdbadapter.Stores, typeKey, slug, name s
 	}
 
 	now := time.Now().UTC()
-	id := uuid.Must(uuid.NewV7())
+
+	// Deterministic ID derivation for the seed root nodes. A wipe and reseed
+	// with the same slug produces byte-identical UUIDs, which keeps NodeType
+	// and PropertyDef IDs stable across wipes.
+	//
+	// Root (no parent): the org node owns its slug. ID derives from the slug
+	// alone. Workspace under org: ID derives from (orgID, slug).
+	// Anything deeper still uses V7 because deeper seed nodes are not part of
+	// the determinism contract today.
+	var id uuid.UUID
+	switch {
+	case parentID == uuid.Nil:
+		id = node.OrgID(slug)
+	case typeKey == "workspace":
+		id = node.WorkspaceID(parentID, slug)
+	default:
+		id = uuid.Must(uuid.NewV7())
+	}
 
 	props := make(map[string]json.RawMessage)
 	slugRaw, _ := json.Marshal(slug)
