@@ -64,6 +64,16 @@ migrate:
 seed:
 	CGO_ENABLED=1 go run ./cmd/server seed
 
+# Integration tests against a real FDB cluster. FDB_CLUSTER_FILE points at
+# the cluster file; default is /etc/foundationdb/fdb.cluster on Linux and
+# /usr/local/etc/foundationdb/fdb.cluster on macOS. TACK_INTEGRATION gates
+# the tests so a casual `make test` skips them.
+FDB_CLUSTER_FILE ?= $(shell test -f /etc/foundationdb/fdb.cluster && echo /etc/foundationdb/fdb.cluster || echo /usr/local/etc/foundationdb/fdb.cluster)
+
+.PHONY: test-integration
+test-integration:
+	CGO_ENABLED=1 TACK_INTEGRATION=1 FDB_CLUSTER_FILE=$(FDB_CLUSTER_FILE) go test -v -count=1 ./internal/test/integration/...
+
 # Deploy: rsync source to CT 117, build natively on the server, restart.
 # Uses --network host so Docker build can resolve DNS via the host's IPv6 nameserver.
 .PHONY: deploy

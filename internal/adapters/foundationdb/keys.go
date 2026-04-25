@@ -56,91 +56,129 @@ const (
 	keyPropertyDef = "property_def"
 )
 
+// testPrefix is prepended to every packed FDB key when non-nil. Production
+// callers leave it nil; integration tests set a per-test UUID via
+// SetTestPrefix so parallel tests on a shared FDB cluster cannot collide.
+//
+// Set only via SetTestPrefix from the test setup helper.
+var testPrefix []byte
+
+// SetTestPrefix configures a per-test key prefix. Pass nil to clear. The
+// prefix is encoded as a single bytes element in the tuple layer so range
+// scans stay tuple-aware.
+//
+// Tests own this. Do not call from production code.
+func SetTestPrefix(prefix []byte) {
+	testPrefix = prefix
+}
+
+// withPrefix prepends the active test prefix (if any) to a packed key. The
+// production fast path returns the input unchanged.
+func withPrefix(key []byte) []byte {
+	if testPrefix == nil {
+		return key
+	}
+	out := make([]byte, 0, len(testPrefix)+len(key))
+	out = append(out, testPrefix...)
+	out = append(out, key...)
+	return out
+}
+
 // nodeInstanceKey packs a primary node key.
 func nodeInstanceKey(orgID uuid.UUID, nodeType string, nodeID uuid.UUID) []byte {
-	return tuple.Tuple{keyNodeInstance, orgID.String(), nodeType, nodeID.String()}.Pack()
+	return withPrefix(tuple.Tuple{keyNodeInstance, orgID.String(), nodeType, nodeID.String()}.Pack())
 }
 
 // nodeViewKey packs a materialized view key.
 func nodeViewKey(orgID uuid.UUID, nodeType string, nodeID uuid.UUID) []byte {
-	return tuple.Tuple{keyNodeView, orgID.String(), nodeType, nodeID.String()}.Pack()
+	return withPrefix(tuple.Tuple{keyNodeView, orgID.String(), nodeType, nodeID.String()}.Pack())
 }
 
 // nodeResolveKey packs a global resolve key.
 func nodeResolveKey(nodeID uuid.UUID) []byte {
-	return tuple.Tuple{keyNodeResolve, nodeID.String()}.Pack()
+	return withPrefix(tuple.Tuple{keyNodeResolve, nodeID.String()}.Pack())
 }
 
 // nodeByPropertyKey packs a secondary property index key.
 func nodeByPropertyKey(orgID uuid.UUID, nodeType, propName string, encodedValue []byte, nodeID uuid.UUID) []byte {
-	return tuple.Tuple{keyNodeByProperty, orgID.String(), nodeType, propName, encodedValue, nodeID.String()}.Pack()
+	return withPrefix(tuple.Tuple{keyNodeByProperty, orgID.String(), nodeType, propName, encodedValue, nodeID.String()}.Pack())
 }
 
 // relationshipKey packs a forward relationship key.
 func relationshipKey(orgID, sourceID uuid.UUID, relationType string, targetID uuid.UUID) []byte {
-	return tuple.Tuple{keyRelationship, orgID.String(), sourceID.String(), relationType, targetID.String()}.Pack()
+	return withPrefix(tuple.Tuple{keyRelationship, orgID.String(), sourceID.String(), relationType, targetID.String()}.Pack())
 }
 
 // relationshipReverseKey packs a reverse relationship key.
 func relationshipReverseKey(orgID, targetID uuid.UUID, relationType string, sourceID uuid.UUID) []byte {
-	return tuple.Tuple{keyRelationshipReverse, orgID.String(), targetID.String(), relationType, sourceID.String()}.Pack()
+	return withPrefix(tuple.Tuple{keyRelationshipReverse, orgID.String(), targetID.String(), relationType, sourceID.String()}.Pack())
 }
 
 // slugIndexKey packs a global slug key.
 func slugIndexKey(nodeType, slug string) []byte {
-	return tuple.Tuple{keySlugIndex, nodeType, slug}.Pack()
+	return withPrefix(tuple.Tuple{keySlugIndex, nodeType, slug}.Pack())
 }
 
 // sequenceKey packs an atomic sequence counter key.
 func sequenceKey(orgID, scopeNodeID uuid.UUID, nodeType string) []byte {
-	return tuple.Tuple{keySequence, orgID.String(), scopeNodeID.String(), nodeType}.Pack()
+	return withPrefix(tuple.Tuple{keySequence, orgID.String(), scopeNodeID.String(), nodeType}.Pack())
 }
 
 // nodeTypeDefKey packs a NodeType config key.
 func nodeTypeDefKey(orgID, typeID uuid.UUID) []byte {
-	return tuple.Tuple{keyNodeTypeDef, orgID.String(), typeID.String()}.Pack()
+	return withPrefix(tuple.Tuple{keyNodeTypeDef, orgID.String(), typeID.String()}.Pack())
 }
 
 // propertyDefKey packs a PropertyDef key.
 func propertyDefKey(orgID, defID uuid.UUID) []byte {
-	return tuple.Tuple{keyPropertyDef, orgID.String(), defID.String()}.Pack()
+	return withPrefix(tuple.Tuple{keyPropertyDef, orgID.String(), defID.String()}.Pack())
 }
 
 // nodeViewPrefix packs the prefix for scanning views of (orgID, nodeType).
 func nodeViewPrefix(orgID uuid.UUID, nodeType string) []byte {
-	return tuple.Tuple{keyNodeView, orgID.String(), nodeType}.Pack()
+	return withPrefix(tuple.Tuple{keyNodeView, orgID.String(), nodeType}.Pack())
 }
 
 // nodeByPropertyValuePrefix packs the prefix for scanning the property index
 // narrowed to a specific encoded value.
 func nodeByPropertyValuePrefix(orgID uuid.UUID, nodeType, propName string, encodedValue []byte) []byte {
-	return tuple.Tuple{keyNodeByProperty, orgID.String(), nodeType, propName, encodedValue}.Pack()
+	return withPrefix(tuple.Tuple{keyNodeByProperty, orgID.String(), nodeType, propName, encodedValue}.Pack())
 }
 
 // relationshipPrefixBySource packs the prefix for listing all relationships
 // from sourceID, optionally narrowed to a specific relationType.
 func relationshipPrefixBySource(orgID, sourceID uuid.UUID, relationType string) []byte {
 	if relationType == "" {
-		return tuple.Tuple{keyRelationship, orgID.String(), sourceID.String()}.Pack()
+		return withPrefix(tuple.Tuple{keyRelationship, orgID.String(), sourceID.String()}.Pack())
 	}
-	return tuple.Tuple{keyRelationship, orgID.String(), sourceID.String(), relationType}.Pack()
+	return withPrefix(tuple.Tuple{keyRelationship, orgID.String(), sourceID.String(), relationType}.Pack())
 }
 
 // relationshipReversePrefixByTarget packs the prefix for listing all relationships
 // pointing to targetID, optionally narrowed to a specific relationType.
 func relationshipReversePrefixByTarget(orgID, targetID uuid.UUID, relationType string) []byte {
 	if relationType == "" {
-		return tuple.Tuple{keyRelationshipReverse, orgID.String(), targetID.String()}.Pack()
+		return withPrefix(tuple.Tuple{keyRelationshipReverse, orgID.String(), targetID.String()}.Pack())
 	}
-	return tuple.Tuple{keyRelationshipReverse, orgID.String(), targetID.String(), relationType}.Pack()
+	return withPrefix(tuple.Tuple{keyRelationshipReverse, orgID.String(), targetID.String(), relationType}.Pack())
 }
 
 // nodeTypeDefPrefix packs the prefix for scanning all NodeType records in an org.
 func nodeTypeDefPrefix(orgID uuid.UUID) []byte {
-	return tuple.Tuple{keyNodeTypeDef, orgID.String()}.Pack()
+	return withPrefix(tuple.Tuple{keyNodeTypeDef, orgID.String()}.Pack())
 }
 
 // propertyDefPrefix packs the prefix for scanning all PropertyDef records in an org.
 func propertyDefPrefix(orgID uuid.UUID) []byte {
-	return tuple.Tuple{keyPropertyDef, orgID.String()}.Pack()
+	return withPrefix(tuple.Tuple{keyPropertyDef, orgID.String()}.Pack())
+}
+
+// TestPrefixRange returns a range covering every key under the active test
+// prefix. Tests use this to range-clear all data they wrote during a run.
+// Returns nil when no test prefix is set, so production code is safe to call.
+func TestPrefixRange() []byte {
+	if testPrefix == nil {
+		return nil
+	}
+	return testPrefix
 }
