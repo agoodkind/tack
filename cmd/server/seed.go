@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -22,6 +23,20 @@ import (
 	"goodkind.io/tack/internal/service"
 	"goodkind.io/tack/migrations"
 )
+
+// userIDNamespace gives the seed user a deterministic UUID derived from email.
+// The dev-mode auth path uses the raw user UUID as a Bearer token, so a stable
+// UUID across Yugabyte wipes means a stable MCP config that doesn't rebreak
+// every time we re-seed. The namespace is distinct from the node-side
+// namespaces (orgNamespace, workspaceNamespace, systemPropNS) on purpose so
+// a slug and an email can never collide on the same UUID.
+var userIDNamespace = uuid.MustParse("0a6f7572-cafe-dead-beef-000000000003")
+
+// userIDForEmail derives a deterministic UUID for a seed user from their email.
+// Lowercased so case differences in re-seed inputs do not produce drift.
+func userIDForEmail(email string) uuid.UUID {
+	return uuid.NewSHA1(userIDNamespace, []byte(strings.ToLower(email)))
+}
 
 // runSeed creates the initial user, org, and workspace using the generic Node
 // primitives. This is the one place in the system that references specific
@@ -65,6 +80,7 @@ func runSeed(cfg *config.Config) {
 	}
 	if u == nil {
 		u, err = userRepo.Create(ctx, &user.User{
+			ID:          userIDForEmail(cfg.SeedEmail),
 			Email:       cfg.SeedEmail,
 			DisplayName: cfg.SeedName,
 		})
@@ -94,17 +110,22 @@ func runSeed(cfg *config.Config) {
 	wsID := ensureNode(ctx, fdbStores, "workspace", cfg.SeedWorkspaceSlug, cfg.SeedWorkspaceName, orgID)
 
 	// ── API token ──────────────────────────────────────────────────────────────
+	// Production mode: SHA-256 hash of the bearer is looked up in api_tokens.
+	// Dev mode (ENV=development): the bearer is the raw user UUID directly,
+	// no api_tokens lookup. Print both so the operator picks the right one
+	// for their environment.
 	raw := cfg.SeedAPIToken
 	if raw == "" {
 		raw = generateToken()
 	}
 	if _, err := tokenRepo.Create(ctx, u.ID, raw, "seed"); err != nil {
-		slog.Info("seed: token already exists or conflict, skipping")
+		slog.Info("seed: prod token already exists, skipping")
 	} else {
-		fmt.Printf("\nAPI token (copy now; not shown again):\n\n  %s\n\n", raw)
-		fmt.Printf("Add to your MCP config:\n")
-		fmt.Printf("  \"Authorization\": \"Bearer %s\"\n\n", raw)
+		fmt.Printf("\nProduction-mode API token (copy now; not shown again):\n  %s\n", raw)
 	}
+	fmt.Printf("\nDev-mode bearer (stable across wipes, derived from %s):\n  %s\n\n", cfg.SeedEmail, u.ID)
+	fmt.Printf("Add to your MCP config:\n")
+	fmt.Printf("  \"Authorization\": \"Bearer <token-above>\"\n\n")
 
 	slog.Info("seed complete",
 		"user_id", u.ID,

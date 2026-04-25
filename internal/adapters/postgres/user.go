@@ -21,11 +21,26 @@ func NewUserRepo(db *pgxpool.Pool) *UserRepo {
 }
 
 func (r *UserRepo) Create(ctx context.Context, u *user.User) (*user.User, error) {
+	// When the caller leaves u.ID zero, defer to the SQL DEFAULT (gen_random_uuid).
+	// When the caller pre-sets u.ID, INSERT the explicit value. Used by the seed
+	// path to make the dev-mode bearer (= raw user UUID) stable across wipes.
+	if u.ID == uuid.Nil {
+		const q = `
+			INSERT INTO users (email, display_name)
+			VALUES ($1, $2)
+			RETURNING id, created_at, updated_at`
+		err := r.db.QueryRow(ctx, q, u.Email, u.DisplayName).
+			Scan(&u.ID, &u.CreatedAt, &u.UpdatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("user create: %w", pgErr(err))
+		}
+		return u, nil
+	}
 	const q = `
-		INSERT INTO users (email, display_name)
-		VALUES ($1, $2)
+		INSERT INTO users (id, email, display_name)
+		VALUES ($1, $2, $3)
 		RETURNING id, created_at, updated_at`
-	err := r.db.QueryRow(ctx, q, u.Email, u.DisplayName).
+	err := r.db.QueryRow(ctx, q, u.ID, u.Email, u.DisplayName).
 		Scan(&u.ID, &u.CreatedAt, &u.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("user create: %w", pgErr(err))
