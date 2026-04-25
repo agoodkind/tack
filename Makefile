@@ -106,10 +106,19 @@ test-integration: test-fdb-up
 lint-logging:
 	@./scripts/lint-logging.sh
 
+# Bump goodkind.io/gklog to the latest main commit. Tack always tracks
+# gklog's main branch; we never pin to a tagged release. Run before any
+# build that should pick up new gklog changes. `make deploy` calls it so
+# deployed builds always carry the latest gklog code.
+.PHONY: update-gklog
+update-gklog:
+	go get goodkind.io/gklog@main
+	go mod tidy
+
 # Deploy: rsync source to CT 117, build natively on the server, restart.
 # Uses --network host so Docker build can resolve DNS via the host's IPv6 nameserver.
 .PHONY: deploy
-deploy:
+deploy: update-gklog
 	rsync -az --delete --exclude='.git' --exclude='bin/' . tack:/root/tack/
 	ssh tack "cd /root/tack && docker build --network host \
 		--build-arg COMMIT=$(COMMIT) \
