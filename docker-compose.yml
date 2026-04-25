@@ -31,10 +31,37 @@ services:
   yugabyte:
     image: yugabytedb/yugabyte:2.23.1.0-b220
     restart: unless-stopped
-    command: >
-      bin/yugabyted start
-      --daemon=false
-      --tserver_flags="ysql_pg_conf_csv=max_connections=100"
+    # yugabyted line 6298 calls socket.gethostbyname which is AF_INET only.
+    # In an IPv6-only bridge, /etc/hosts has only a v6 entry for the docker
+    # ID hostname, so glibc skips it and falls through to DNS. The LAN's
+    # `*.home.goodkind.io` wildcard returns an unrelated v4 (10.250.0.110),
+    # which yugabyted then advertises as the master. yb-master exits.
+    #
+    # Workaround: at container start, read the bridge v6 from /etc/hosts via
+    # getent ahostsv6, expand it to the 8-group form yugabyted's
+    # validate_hostname_ip regex requires, and pass it as --advertise_address.
+    # The address is discovered from /etc/hosts at runtime so the compose
+    # file holds no literal IPs.
+    command:
+      - /bin/bash
+      - -lc
+      - |
+        set -euo pipefail
+        ADDR=$$(getent ahostsv6 "$$(hostname)" | awk 'NR==1{print $$1}')
+        if [ -z "$$ADDR" ]; then
+          echo "yugabyte wrapper: no IPv6 address found for $$(hostname) in NSS" >&2
+          exit 1
+        fi
+        EXPANDED=$$(python3 -c 'import ipaddress, sys; print(ipaddress.IPv6Address(sys.argv[1]).exploded)' "$$ADDR")
+        # yugabyted line 2842 hardcodes socket.AF_INET in is_port_available,
+        # which fails on a v6 address. Rewrite to pick AF based on the address.
+        sed -i 's|s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)|s = socket.socket(socket.AF_INET6 if ":" in str(advertise_ip) else socket.AF_INET, socket.SOCK_STREAM)|' /home/yugabyte/bin/yugabyted
+        echo "yugabyte wrapper: advertising $$EXPANDED (from $$ADDR)" >&2
+        exec /home/yugabyte/bin/yugabyted start \
+          --daemon=false \
+          --advertise_address="$$EXPANDED" \
+          --listen="$$EXPANDED" \
+          --tserver_flags="ysql_pg_conf_csv=max_connections=100"
     environment:
       YSQL_DB:       ${YUGABYTE_DB:-tack}
       YSQL_USER:     ${YUGABYTE_USER:-yugabyte}
@@ -46,7 +73,12 @@ services:
     volumes:
       - yugabyte-data:/home/yugabyte/var
     healthcheck:
-      test: ["CMD-SHELL", "PGPASSWORD=${YUGABYTE_PASSWORD:-yugabyte} ysqlsh -h $(hostname -i) -p 5433 -U ${YUGABYTE_USER:-yugabyte} -d ${YUGABYTE_DB:-tack} -c 'SELECT 1' -t"]
+      test:
+        - CMD-SHELL
+        - |
+          ADDR=$$(getent ahostsv6 "$$(hostname)" | awk 'NR==1{print $$1}')
+          PGPASSWORD=${YUGABYTE_PASSWORD:-yugabyte} ysqlsh -h "$$ADDR" -p 5433 \
+            -U ${YUGABYTE_USER:-yugabyte} -d ${YUGABYTE_DB:-tack} -c 'SELECT 1' -t
       interval: 10s
       timeout: 10s
       retries: 10
@@ -55,9 +87,15 @@ services:
   fdb:
     image: foundationdb/foundationdb:7.4.6
     restart: unless-stopped
+    environment:
+      FDB_NETWORKING_MODE: container
+      FDB_PORT: "4500"
+      FDB_PROCESS_CLASS: unset
     volumes:
       - fdb-data:/var/fdb
       - /etc/foundationdb:/etc/foundationdb
+      # Patched fdb.bash with IPv6 bracket handling. See fdb-overlay/fdb.bash.
+      - /root/tack/fdb-overlay/fdb.bash:/var/fdb/scripts/fdb.bash:ro
     healthcheck:
       test: ["CMD-SHELL", "fdbcli --exec 'status minimal' 2>&1 | grep -q 'available'"]
       interval: 10s
@@ -132,3 +170,19 @@ volumes:
   fdb-data:
   meili-data:
   temporal-db-data:
+
+# IPv6-only bridge. The /96 carved out of the host's on-link 3d06:bad:b01::/64
+# is NDP-proxied back onto eth0 by ndppd on CT 117. Containers source out as
+# real GUAs because gateway_mode_v6 is routed (no masquerade). Inter-container
+# DNS returns AAAA only because enable_ipv4 is false. Do not flip back to
+# dual-stack: that defeats the forced-v6 contract.
+networks:
+  default:
+    enable_ipv6: true
+    enable_ipv4: false
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_v6: routed
+    ipam:
+      config:
+        - subnet: 3d06:bad:b01:0:7ac::/96
+          gateway: 3d06:bad:b01:0:7ac::1

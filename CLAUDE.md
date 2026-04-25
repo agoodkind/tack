@@ -316,10 +316,25 @@ presence_on_node      orgID, nodeID, userID                          → {last_s
 ## Deployment (CT 117)
 
 - LXC container at `3d06:bad:b01::117`, SSH alias `tack` (ProxyJump vault)
-- IPv6-only network with NAT64 gateway for external access
-- Services: YugabyteDB (port 5433), FoundationDB, Meilisearch, Temporal -- all via docker-compose
+- IPv6-only host with NAT64 gateway for external IPv4 reach
+- Services: YugabyteDB (port 5433), FoundationDB, Meilisearch, Temporal. All via docker-compose.
 - App runs as Docker container (`tack-server:latest`), logs via `docker logs tack-app-1`
 - Deploy: `make deploy` (rsync + docker build --network host + restart)
+
+### Container networking: IPv6-only with GUA via NDP proxy
+
+The docker-compose `default` network is IPv6-only. Containers get real Global Unicast Addresses out of `3d06:bad:b01:0:7ac::/96`. That sub-prefix is carved out of the host's on-link `3d06:bad:b01::/64`. CT 117 NDP-proxies the sub-prefix back onto eth0. The rest of the LAN sees container addresses as if they were on the wire.
+
+Inter-container traffic is IPv6-only. The embedded Docker DNS returns AAAA only because the bridge has `enable_ipv4: false`. Service-to-service hostnames (`fdb`, `yugabyte`, `meilisearch`, `temporal`) resolve to v6.
+
+Pieces of the contract:
+- `/etc/sysctl.d/99-tack-ipv6.conf`: `net.ipv6.conf.all.forwarding=1`, `net.ipv6.conf.eth0.proxy_ndp=1`
+- `ndppd` running with `rule 3d06:bad:b01:0:7ac::/96 { auto }` on eth0
+- `/etc/docker/daemon.json`: `{"ipv6": true, "ip6tables": true}`
+- `docker-compose.yml` `networks.default` block with `enable_ipv4: false`, `enable_ipv6: true`, `gateway_mode_v6: routed`, subnet `3d06:bad:b01:0:7ac::/96`, gateway `3d06:bad:b01:0:7ac::1`
+- No OPNsense static route. The /64 is on-link, so NDP proxy on CT 117 is enough.
+
+**Do NOT** flip the bridge back to IPv4 or dual-stack. The whole point is forced-v6 inter-container traffic. Adding v4 lets services silently fall back.
 - Seed (after deploy or to propagate type changes):
   ```bash
   ssh tack 'cd /root/tack && docker compose exec -e SEED_EMAIL=alex@goodkind.io -e SEED_NAME=Alexander -e SEED_ORG_SLUG=goodkind-io -e SEED_ORG_NAME=goodkind.io -e SEED_WORKSPACE_SLUG=main -e SEED_WORKSPACE_NAME=Main app /server seed'
