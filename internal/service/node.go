@@ -299,6 +299,32 @@ func (s *NodeService) Update(ctx context.Context, in UpdateInput) (*node.NodeVie
 		return nil, fmt.Errorf("update node: %w", err)
 	}
 
+	// Reconcile the global slug index when a HasSlug node's slug or
+	// identifier changed. The slug index lives outside (orgID, nodeType,
+	// nodeID) keying, so UpdateAtomic alone cannot move it.
+	if nt.Features.Has(node.FeatureHasSlug) {
+		oldSlug := firstStringProp(existing.Props, "slug", "identifier")
+		newSlug := firstStringProp(merged, "slug", "identifier")
+		if oldSlug != newSlug {
+			if oldSlug != "" {
+				if err := s.nodes.DeleteSlug(ctx, nt.TypeKey, oldSlug); err != nil {
+					log.Warn("node.Update: delete old slug",
+						slog.String("slug", oldSlug),
+						slog.String("err", err.Error()),
+					)
+				}
+			}
+			if newSlug != "" {
+				if err := s.nodes.WriteSlug(ctx, nt.TypeKey, newSlug, n.ID); err != nil {
+					log.Warn("node.Update: write new slug",
+						slog.String("slug", newSlug),
+						slog.String("err", err.Error()),
+					)
+				}
+			}
+		}
+	}
+
 	if err := s.searcher.Index(ctx, "nodes", in.NodeID.String(), searchDocFromView(view)); err != nil {
 		log.Warn("node.Update: search index", slog.String("err", err.Error()))
 	}
