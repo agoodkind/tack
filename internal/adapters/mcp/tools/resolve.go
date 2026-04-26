@@ -219,8 +219,13 @@ func (r *Resolver) ResolveNodeID(ctx context.Context, input string) (uuid.UUID, 
 		if len(r.scopeChain) == 0 {
 			continue
 		}
-		last := r.scopeChain[len(r.scopeChain)-1]
-		proj, err := r.ResolveScope(ctx, ws, last, projIdent)
+		// projIdent (the prefix in "TACK-161") names the topmost scope below the
+		// entry point, which is the project level. The deepest chain entry is
+		// the parent of the leaf sequence-bearing type and would be wrong here
+		// when the chain has more than one level (e.g. [project, issue] for
+		// comment).
+		first := r.scopeChain[0]
+		proj, err := r.ResolveScope(ctx, ws, first, projIdent)
 		if err != nil {
 			continue
 		}
