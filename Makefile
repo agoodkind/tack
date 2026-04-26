@@ -106,19 +106,56 @@ test-integration: test-fdb-up
 lint-logging:
 	@./scripts/lint-logging.sh
 
-# Bump goodkind.io/gklog to the latest main commit. Tack always tracks
-# gklog's main branch; we never pin to a tagged release. Run before any
-# build that should pick up new gklog changes. `make deploy` calls it so
-# deployed builds always carry the latest gklog code.
-.PHONY: update-gklog
-update-gklog:
+# Bump every direct and indirect dependency to its latest minor/patch
+# version, plus track the latest main commit of any goodkind.io/* module
+# we own. Tack does not pin to tagged releases; freshness wins.
+#
+# `go get -u ./...` covers everything in go.mod. `go get goodkind.io/gklog@main`
+# explicitly resubscribes to gklog's main branch in case go's pseudo-version
+# resolver decided a stale commit was acceptable.
+#
+# FoundationDB pieces must stay in lockstep across three places:
+#   - FDB_VERSION below is the cluster server image (used by docker-compose
+#     and docker-compose.test via ${FDB_VERSION}, plus the Dockerfile build
+#     arg for the foundationdb-clients C library install).
+#   - FDB_BINDINGS_VERSION pins the Go bindings; the bindings carry the C
+#     header and must match the installed C library. Bumping past the local
+#     client breaks the build with "Requested API version requires a newer
+#     version of this header".
+#   - The fdb.APIVersion(...) call in internal/adapters/foundationdb/client.go
+#     must be set to the API version the cluster supports.
+#
+# 7.4.6 is the newest FoundationDB release as of April 2026 (7.5 has not
+# shipped). Use make update-fdb VERSION=x.y.z to bump the cluster image and
+# Go bindings together; the Dockerfile inherits FDB_VERSION via build args.
+FDB_VERSION ?= 7.4.6
+FDB_BINDINGS_VERSION := v0.0.0-20250923185926-685eda6efef7
+
+.PHONY: update-deps
+update-deps:
+	go get -u ./...
 	go get goodkind.io/gklog@main
+	go get github.com/apple/foundationdb/bindings/go@$(FDB_BINDINGS_VERSION)
 	go mod tidy
 
+# Bump FDB cluster image + bindings together. Pass the desired cluster
+# version: make update-fdb VERSION=7.4.7. Edit FDB_BINDINGS_VERSION above
+# in the same PR to a bindings commit that targets the same release line.
+.PHONY: update-fdb
+update-fdb:
+	@if [ -z "$(VERSION)" ]; then echo "usage: make update-fdb VERSION=7.4.7" >&2; exit 1; fi
+	@echo "Bumping FDB to $(VERSION) in Dockerfile, docker-compose, docker-compose.test."
+	@sed -i.bak "s/^ARG FDB_VERSION=.*/ARG FDB_VERSION=$(VERSION)/" Dockerfile && rm Dockerfile.bak
+	@sed -i.bak "s/^FDB_VERSION ?= .*/FDB_VERSION ?= $(VERSION)/" Makefile && rm Makefile.bak
+	@echo "Reminder: hand-edit FDB_BINDINGS_VERSION in this Makefile to match"
+	@echo "and update the fdb.APIVersion call in internal/adapters/foundationdb/client.go."
+
 # Deploy: rsync source to CT 117, build natively on the server, restart.
+# Always bumps deps first so every deployed build carries the latest of
+# everything in go.mod.
 # Uses --network host so Docker build can resolve DNS via the host's IPv6 nameserver.
 .PHONY: deploy
-deploy: update-gklog
+deploy: update-deps
 	rsync -az --delete --exclude='.git' --exclude='bin/' . tack:/root/tack/
 	ssh tack "cd /root/tack && docker build --network host \
 		--build-arg COMMIT=$(COMMIT) \

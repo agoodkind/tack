@@ -68,6 +68,20 @@ func parseProps(v any) (map[string]json.RawMessage, error) {
 	}
 }
 
+// requireString reads a required string argument from the MCP args map. The
+// returned error is nil and ok==true only when the value is a non-empty
+// string. Any other shape (missing, wrong type, empty string) returns ok==
+// false so the caller can short-circuit with RecoverableError. Centralised
+// so tools cannot silently fall through with an empty string after a typed
+// assertion miss.
+func requireString(args map[string]any, name string) (string, bool) {
+	v, ok := args[name].(string)
+	if !ok || v == "" {
+		return "", false
+	}
+	return v, true
+}
+
 func mustUser(ctx context.Context) (uuid.UUID, error) {
 	id, ok := auth.UserID(ctx)
 	if !ok {

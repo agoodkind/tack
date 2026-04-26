@@ -26,8 +26,14 @@ func RegisterSearch(s *mcpserver.MCPServer, searcher domainsearch.Searcher, reso
 		},
 		func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
 			args := req.GetArguments()
-			slug, _ := args[resolver.EntryPointParamName()].(string)
-			query, _ := args["query"].(string)
+			slug, ok := requireString(args, resolver.EntryPointParamName())
+			if !ok {
+				return RecoverableError(resolver.EntryPointParamName() + " is required"), nil
+			}
+			query, ok := requireString(args, "query")
+			if !ok {
+				return RecoverableError("query is required"), nil
+			}
 			nodeTypeFilter, _ := args["node_type"].(string)
 
 			ws, err := resolver.Workspace(ctx, slug)

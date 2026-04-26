@@ -48,7 +48,10 @@ func RegisterProperty(s *mcpserver.MCPServer, propertyDefs node.PropertyDefRepos
 		},
 		func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
 			args := req.GetArguments()
-			input, _ := args["node_id"].(string)
+			input, ok := requireString(args, "node_id")
+			if !ok {
+				return RecoverableError("node_id is required"), nil
+			}
 			id, err := resolver.ResolveNodeID(ctx, input)
 			if err != nil {
 				return ClassifyError(ctx, err), nil

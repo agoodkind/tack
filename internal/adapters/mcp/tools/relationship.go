@@ -30,9 +30,18 @@ func RegisterRelationship(s *mcpserver.MCPServer, svc *service.NodeService, rels
 		},
 		func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
 			args := req.GetArguments()
-			sourceIn, _ := args["source_id"].(string)
-			relType, _ := args["relation_type"].(string)
-			targetIn, _ := args["target_id"].(string)
+			sourceIn, ok := requireString(args, "source_id")
+			if !ok {
+				return RecoverableError("source_id is required"), nil
+			}
+			relType, ok := requireString(args, "relation_type")
+			if !ok {
+				return RecoverableError("relation_type is required"), nil
+			}
+			targetIn, ok := requireString(args, "target_id")
+			if !ok {
+				return RecoverableError("target_id is required"), nil
+			}
 
 			userID, err := mustUser(ctx)
 			if err != nil {
@@ -80,9 +89,18 @@ func RegisterRelationship(s *mcpserver.MCPServer, svc *service.NodeService, rels
 		},
 		func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
 			args := req.GetArguments()
-			sourceIn, _ := args["source_id"].(string)
-			relType, _ := args["relation_type"].(string)
-			targetIn, _ := args["target_id"].(string)
+			sourceIn, ok := requireString(args, "source_id")
+			if !ok {
+				return RecoverableError("source_id is required"), nil
+			}
+			relType, ok := requireString(args, "relation_type")
+			if !ok {
+				return RecoverableError("relation_type is required"), nil
+			}
+			targetIn, ok := requireString(args, "target_id")
+			if !ok {
+				return RecoverableError("target_id is required"), nil
+			}
 
 			sourceID, err := resolver.ResolveNodeID(ctx, sourceIn)
 			if err != nil {
@@ -119,7 +137,10 @@ func RegisterRelationship(s *mcpserver.MCPServer, svc *service.NodeService, rels
 		},
 		func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
 			args := req.GetArguments()
-			nodeIn, _ := args["node_id"].(string)
+			nodeIn, ok := requireString(args, "node_id")
+			if !ok {
+				return RecoverableError("node_id is required"), nil
+			}
 			direction, _ := args["direction"].(string)
 			relType, _ := args["relation_type"].(string)
 

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
+
 	mcpmcp "github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"goodkind.io/tack/internal/domain"
@@ -139,7 +141,9 @@ func listHandler(nt *node.NodeType, chain []ScopeLevel, epParam string, b NodeTy
 		}
 		q := node.NodeListQuery{OrgID: ws.OrgID, NodeType: nt.TypeKey}
 
-		// Walk the scope chain to find the deepest container; restrict via parent_id prop.
+		// Walk the scope chain to the deepest container, then narrow via the
+		// indexed parent_id secondary index instead of a type-wide view scan.
+		var parentID uuid.UUID
 		if len(chain) > 0 {
 			parent := ws
 			for _, level := range chain {
@@ -152,17 +156,14 @@ func listHandler(nt *node.NodeType, chain []ScopeLevel, epParam string, b NodeTy
 					return ClassifyError(ctx, err), nil
 				}
 			}
-			parentIDRaw, _ := json.Marshal(parent.ID.String())
-			q.PropFilters = append(q.PropFilters, node.PropertyMatch{
-				PropName: "parent_id",
-				Value:    parentIDRaw,
-			})
+			parentID = parent.ID
 		} else {
-			parentIDRaw, _ := json.Marshal(ws.ID.String())
-			q.PropFilters = append(q.PropFilters, node.PropertyMatch{
-				PropName: "parent_id",
-				Value:    parentIDRaw,
-			})
+			parentID = ws.ID
+		}
+		parentIDRaw, _ := json.Marshal(parentID.String())
+		q.ByProperty = &node.PropertyMatch{
+			PropName: "parent_id",
+			Value:    parentIDRaw,
 		}
 
 		views, err := b.Reader.List(ctx, q)
@@ -180,8 +181,14 @@ func listHandler(nt *node.NodeType, chain []ScopeLevel, epParam string, b NodeTy
 func createHandler(nt *node.NodeType, chain []ScopeLevel, epParam string, b NodeTypeBinding) mcpserver.ToolHandlerFunc {
 	return func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
 		args := req.GetArguments()
-		epSlug, _ := args[epParam].(string)
-		name, _ := args["name"].(string)
+		epSlug, ok := requireString(args, epParam)
+		if !ok {
+			return RecoverableError(epParam + " is required"), nil
+		}
+		name, ok := requireString(args, "name")
+		if !ok {
+			return RecoverableError("name is required"), nil
+		}
 		userID, err := mustUser(ctx)
 		if err != nil {
 			return UnexpectedError(ctx, err), nil

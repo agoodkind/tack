@@ -11,7 +11,7 @@
 
 services:
   fdb:
-    image: foundationdb/foundationdb:7.4.6
+    image: foundationdb/foundationdb:${FDB_VERSION:-7.4.6}
     container_name: tack-test-fdb
     ports:
       - "4500:4500"

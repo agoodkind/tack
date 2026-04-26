@@ -87,7 +87,10 @@ services:
       start_period: 60s
 
   fdb:
-    image: foundationdb/foundationdb:7.4.6
+    # Version is set by tack's Makefile FDB_VERSION variable, also baked
+    # into the Dockerfile build args and the Go bindings pin in go.mod.
+    # Bump all three together via make update-fdb VERSION=...
+    image: foundationdb/foundationdb:${FDB_VERSION:-7.4.6}
     restart: unless-stopped
     environment:
       FDB_NETWORKING_MODE: container

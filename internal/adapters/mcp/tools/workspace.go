@@ -47,7 +47,10 @@ func RegisterWorkspace(s *mcpserver.MCPServer, reader node.NodeReader, resolver 
 		},
 		func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
 			args := req.GetArguments()
-			slug, _ := args[resolver.EntryPointParamName()].(string)
+			slug, ok := requireString(args, resolver.EntryPointParamName())
+			if !ok {
+				return RecoverableError(resolver.EntryPointParamName() + " is required"), nil
+			}
 			ws, err := resolver.Workspace(ctx, slug)
 			if err != nil {
 				return ClassifyError(ctx, err), nil
@@ -95,7 +98,10 @@ func RegisterMembers(s *mcpserver.MCPServer, members org.MemberRepository, users
 		},
 		func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
 			args := req.GetArguments()
-			slug, _ := args[resolver.EntryPointParamName()].(string)
+			slug, ok := requireString(args, resolver.EntryPointParamName())
+			if !ok {
+				return RecoverableError(resolver.EntryPointParamName() + " is required"), nil
+			}
 			ws, err := resolver.Workspace(ctx, slug)
 			if err != nil {
 				return ClassifyError(ctx, err), nil

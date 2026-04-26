@@ -153,6 +153,19 @@ func defaultPropertyDefs(orgID uuid.UUID) []*node.PropertyDef {
 			Indexed:           true,
 		},
 		{
+			// Stamped on every child create so list scans by parent can
+			// hit the secondary index directly. Without this, listing
+			// issues under a project required a full type-wide view scan
+			// followed by an in-memory PropFilter; now scanByProperty
+			// goes straight to (orgID, type, parent_id, value) keys.
+			ID:                node.SystemPropID(orgID, "parent_id"),
+			OrgID:             orgID,
+			Name:              "parent_id",
+			Type:              node.PropertyTypeText,
+			AppliesToFeatures: nil,
+			Indexed:           true,
+		},
+		{
 			ID:                node.SystemPropID(orgID, "color"),
 			OrgID:             orgID,
 			Name:              "color",
