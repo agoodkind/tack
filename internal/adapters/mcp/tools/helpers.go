@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"time"
@@ -12,6 +13,60 @@ import (
 	"goodkind.io/tack/internal/auth"
 	"goodkind.io/tack/internal/telemetry"
 )
+
+// parseProps coerces a properties payload into map[string]json.RawMessage.
+// It tolerates the three shapes the MCP transport produces.
+//
+// Shape 1 is map[string]any. That is the normal object case after JSON
+// unmarshalling.
+//
+// Shape 2 is string. Some clients (notably Claude Code via certain SDK
+// paths) stringify the inner JSON before sending. Without this branch, the
+// server silently dropped every property in tack_create_*. See TACK-161.
+//
+// Shape 3 is json.RawMessage. That is what callers see when binding through
+// a typed struct.
+//
+// Returns nil for nil or empty input. Returns an error only when v is a
+// string that is not valid JSON. An unparseable shape is the caller's bug
+// to fix at the boundary, not something to swallow.
+func parseProps(v any) (map[string]json.RawMessage, error) {
+	if v == nil {
+		return nil, nil
+	}
+	switch val := v.(type) {
+	case map[string]any:
+		out := make(map[string]json.RawMessage, len(val))
+		for k, vv := range val {
+			raw, err := json.Marshal(vv)
+			if err != nil {
+				return nil, err
+			}
+			out[k] = raw
+		}
+		return out, nil
+	case string:
+		if val == "" {
+			return nil, nil
+		}
+		var inner map[string]any
+		if err := json.Unmarshal([]byte(val), &inner); err != nil {
+			return nil, err
+		}
+		return parseProps(inner)
+	case json.RawMessage:
+		if len(val) == 0 {
+			return nil, nil
+		}
+		var inner map[string]any
+		if err := json.Unmarshal(val, &inner); err != nil {
+			return nil, err
+		}
+		return parseProps(inner)
+	default:
+		return nil, errors.New("properties must be an object or a JSON-encoded string")
+	}
+}
 
 func mustUser(ctx context.Context) (uuid.UUID, error) {
 	id, ok := auth.UserID(ctx)

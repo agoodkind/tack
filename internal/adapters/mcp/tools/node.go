@@ -206,16 +206,11 @@ func createHandler(nt *node.NodeType, chain []ScopeLevel, epParam string, b Node
 			parentID = parent.ID
 		}
 
-		// Convert property values to raw JSON.
-		rawProps := make(map[string]json.RawMessage)
-		if p, ok := args["properties"].(map[string]any); ok {
-			for k, v := range p {
-				raw, err := json.Marshal(v)
-				if err != nil {
-					continue
-				}
-				rawProps[k] = raw
-			}
+		// Convert property values to raw JSON. Tolerates payloads sent as a
+		// stringified JSON blob; see TACK-161.
+		rawProps, err := parseProps(args["properties"])
+		if err != nil {
+			return RecoverableError("invalid properties payload: " + err.Error()), nil
 		}
 
 		idempotencyKey, _ := args["idempotency_key"].(string)
@@ -268,9 +263,12 @@ func getHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFunc 
 }
 
 type updateInput struct {
-	NodeID     string         `json:"node_id"`
-	Name       *string        `json:"name,omitempty"`
-	Properties map[string]any `json:"properties,omitempty"`
+	NodeID string  `json:"node_id"`
+	Name   *string `json:"name,omitempty"`
+	// Properties is decoded as a raw JSON payload so parseProps can
+	// tolerate both object and stringified-JSON shapes. Strict typing
+	// here previously rejected escaped newlines in description; see TACK-161.
+	Properties json.RawMessage `json:"properties,omitempty"`
 }
 
 func updateHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFunc {
@@ -288,13 +286,9 @@ func updateHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFu
 			return ClassifyError(ctx, err), nil
 		}
 
-		rawProps := make(map[string]json.RawMessage)
-		for k, v := range in.Properties {
-			raw, err := json.Marshal(v)
-			if err != nil {
-				continue
-			}
-			rawProps[k] = raw
+		rawProps, err := parseProps(in.Properties)
+		if err != nil {
+			return RecoverableError("invalid properties payload: " + err.Error()), nil
 		}
 
 		view, err := b.NodeSvc.Update(ctx, service.UpdateInput{
