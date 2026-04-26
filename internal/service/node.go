@@ -283,7 +283,15 @@ func (s *NodeService) Update(ctx context.Context, in UpdateInput) (*node.NodeVie
 	}
 	view := viewFromNode(n)
 
-	if err := s.nodes.Set(ctx, n, view); err != nil {
+	nt, err := s.findNodeType(ctx, existing.OrgID, existing.NodeType)
+	if err != nil {
+		return nil, err
+	}
+	indexedProps, err := s.indexedPropNames(ctx, existing.OrgID, nt)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.nodes.UpdateAtomic(ctx, n, view, existing.Props, indexedProps); err != nil {
 		log.Error("node.Update",
 			slog.String("node_id", in.NodeID.String()),
 			slog.String("err", err.Error()),

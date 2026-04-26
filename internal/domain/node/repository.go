@@ -45,10 +45,23 @@ type NodeRepository interface {
 	// Get returns a node by primary key. Returns nil, nil if not found.
 	Get(ctx context.Context, orgID, nodeID uuid.UUID) (*Node, error)
 
-	// Set overwrites an existing node, refreshing the view, resolve, and property
-	// indexes. Relationships are not touched by Set; use AddRelationship /
-	// RemoveRelationship on RelationshipRepository.
+	// Set overwrites an existing node and view but does NOT reconcile the
+	// secondary property indexes. Use UpdateAtomic on every user-facing
+	// update path. Set is correct only when the caller has already
+	// reconciled indexes externally.
 	Set(ctx context.Context, n *Node, view *NodeView) error
+
+	// UpdateAtomic overwrites the node and view, then reconciles the
+	// secondary property indexes against oldProps for each name in
+	// indexedProps. Single FDB transaction so concurrent readers never see
+	// a half-rotated index.
+	UpdateAtomic(
+		ctx context.Context,
+		n *Node,
+		view *NodeView,
+		oldProps map[string]json.RawMessage,
+		indexedProps []string,
+	) error
 
 	// Delete removes the primary node, view, resolve record, all property
 	// indexes, and all relationships where the node is source or target.

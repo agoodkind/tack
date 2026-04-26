@@ -1,6 +1,7 @@
 package foundationdb
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"encoding/json"
@@ -56,38 +57,87 @@ func (s *NodeStore) Get(ctx context.Context, orgID, nodeID uuid.UUID) (n *node.N
 }
 
 // Set overwrites an existing node's primary record and view. Property index
-// entries are NOT refreshed by Set; callers changing indexed property values
-// must delete the old index entries and add new ones via the atomic update
-// helper (to be added when the service layer needs it). For the MVP, Set is
-// used for rename and Props updates in cases where no indexed value changed.
+// entries are NOT refreshed by Set. Callers that change an indexed property
+// value must use UpdateAtomic so the secondary index moves with the value.
+//
+// Set is correct only when no indexed prop changed value: pure rename, or
+// updating non-indexed props. The service layer should prefer UpdateAtomic
+// for any user-facing update path; Set is retained for low-level paths
+// where the caller has already reconciled indexes.
 func (s *NodeStore) Set(ctx context.Context, n *node.Node, view *node.NodeView) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node.set")(&err)
 	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
-		nBytes, err := json.Marshal(n)
-		if err != nil {
-			return nil, fmt.Errorf("marshal node: %w", err)
-		}
-		tr.Set(fdb.Key(nodeInstanceKey(n.OrgID, n.NodeType, n.ID)), nBytes)
+		return nil, writeNodeRecords(tr, n, view)
+	})
+	return
+}
 
-		resolveBytes, err := json.Marshal(&node.NodeResolve{
-			OrgID:    n.OrgID,
-			NodeType: n.NodeType,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("marshal resolve: %w", err)
+// UpdateAtomic overwrites an existing node and reconciles its secondary
+// property index entries against oldProps. For each name in indexedProps:
+//
+//  1. If the old value differed and was non-empty, the old index entry
+//     is cleared.
+//  2. If the new value is non-empty, a new index entry is written.
+//
+// All writes happen in a single FDB transaction so concurrent readers see
+// either the full pre-state or the full post-state, never a half-rotated
+// index.
+func (s *NodeStore) UpdateAtomic(
+	ctx context.Context,
+	n *node.Node,
+	view *node.NodeView,
+	oldProps map[string]json.RawMessage,
+	indexedProps []string,
+) (err error) {
+	defer telemetry.FDBOp(ctx, "store.node.update_atomic")(&err)
+	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
+		if err := writeNodeRecords(tr, n, view); err != nil {
+			return nil, err
 		}
-		tr.Set(fdb.Key(nodeResolveKey(n.ID)), resolveBytes)
-
-		if view != nil {
-			viewBytes, err := json.Marshal(view)
-			if err != nil {
-				return nil, fmt.Errorf("marshal view: %w", err)
+		for _, propName := range indexedProps {
+			oldRaw := oldProps[propName]
+			newRaw := n.Props[propName]
+			if bytes.Equal(oldRaw, newRaw) {
+				continue
 			}
-			tr.Set(fdb.Key(nodeViewKey(n.OrgID, n.NodeType, n.ID)), viewBytes)
+			if len(oldRaw) > 0 {
+				tr.Clear(fdb.Key(nodeByPropertyKey(n.OrgID, n.NodeType, propName, encodePropertyValue(oldRaw), n.ID)))
+			}
+			if len(newRaw) > 0 {
+				tr.Set(fdb.Key(nodeByPropertyKey(n.OrgID, n.NodeType, propName, encodePropertyValue(newRaw), n.ID)), []byte{})
+			}
 		}
 		return nil, nil
 	})
 	return
+}
+
+// writeNodeRecords emits the primary, resolve, and view records for n inside
+// an existing transaction. Shared by Set and UpdateAtomic.
+func writeNodeRecords(tr fdb.Transaction, n *node.Node, view *node.NodeView) error {
+	nBytes, err := json.Marshal(n)
+	if err != nil {
+		return fmt.Errorf("marshal node: %w", err)
+	}
+	tr.Set(fdb.Key(nodeInstanceKey(n.OrgID, n.NodeType, n.ID)), nBytes)
+
+	resolveBytes, err := json.Marshal(&node.NodeResolve{
+		OrgID:    n.OrgID,
+		NodeType: n.NodeType,
+	})
+	if err != nil {
+		return fmt.Errorf("marshal resolve: %w", err)
+	}
+	tr.Set(fdb.Key(nodeResolveKey(n.ID)), resolveBytes)
+
+	if view != nil {
+		viewBytes, err := json.Marshal(view)
+		if err != nil {
+			return fmt.Errorf("marshal view: %w", err)
+		}
+		tr.Set(fdb.Key(nodeViewKey(n.OrgID, n.NodeType, n.ID)), viewBytes)
+	}
+	return nil
 }
 
 // Delete removes the primary node, view, resolve, property indexes, and all
