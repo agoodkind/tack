@@ -141,6 +141,18 @@ func defaultPropertyDefs(orgID uuid.UUID) []*node.PropertyDef {
 			Indexed:           true,
 		},
 		{
+			// Stamped automatically by NodeService.Create when the type
+			// declares FeatureHasSequenceID. Indexed so the resolver can
+			// look up "TACK-161" by (orgID, type, sequence) without a
+			// per-project scan.
+			ID:                node.SystemPropID(orgID, "sequence"),
+			OrgID:             orgID,
+			Name:              "sequence",
+			Type:              node.PropertyTypeNumber,
+			AppliesToFeatures: []string{node.FeatureHasSequenceID},
+			Indexed:           true,
+		},
+		{
 			ID:                node.SystemPropID(orgID, "color"),
 			OrgID:             orgID,
 			Name:              "color",

@@ -236,6 +236,25 @@ func (s *NodeStore) CreateAtomic(
 	return
 }
 
+// EnsurePropertyIndex writes secondary-index entries for the given Props on
+// an existing node. Idempotent: re-running for the same (node, prop, value)
+// is a no-op. Used by one-off backfill commands when a new PropertyDef gains
+// Indexed=true after nodes already exist.
+func (s *NodeStore) EnsurePropertyIndex(ctx context.Context, n *node.Node, indexedProps []string) (err error) {
+	defer telemetry.FDBOp(ctx, "store.node.ensure_property_index")(&err)
+	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
+		for _, propName := range indexedProps {
+			raw, ok := n.Props[propName]
+			if !ok || len(raw) == 0 {
+				continue
+			}
+			tr.Set(fdb.Key(nodeByPropertyKey(n.OrgID, n.NodeType, propName, encodePropertyValue(raw), n.ID)), []byte{})
+		}
+		return nil, nil
+	})
+	return
+}
+
 // ListByProperty scans the secondary index for (orgID, nodeType, propName)
 // narrowed to the given value, and returns the matching Node records.
 func (s *NodeStore) ListByProperty(

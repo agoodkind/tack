@@ -65,6 +65,9 @@ func main() {
 		case "seed":
 			runSeed(cfg)
 			return
+		case "reindex":
+			runReindex(cfg)
+			return
 		}
 	}
 

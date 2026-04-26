@@ -27,3 +27,5 @@
 # Python
 __pycache__/
 *.pyc
+.test-fdb/
+lm-review-report-*.md
