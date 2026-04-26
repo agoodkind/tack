@@ -35,17 +35,23 @@ func runReindex(cfg *config.Config) {
 		os.Exit(1)
 	}
 
-	// Discover orgs by walking workspaces and projecting to OrgID. The org
-	// itself is also a Node, but we only need OrgID, and every workspace
-	// carries it.
-	orgIDs := map[uuid.UUID]struct{}{}
-	wss, err := stores.Views.List(ctx, node.NodeListQuery{NodeType: "workspace"})
+	// Discover orgs via the SQL auth gate. org_members carries every org id
+	// the system knows about. NodeListView scans require an OrgID upfront,
+	// so we need a separate enumeration source here.
+	rows, err := pool.Query(ctx, "SELECT DISTINCT org_id FROM org_members")
 	if err != nil {
-		slog.Error("reindex: list workspaces", "err", err)
+		slog.Error("reindex: list orgs", "err", err)
 		os.Exit(1)
 	}
-	for _, ws := range wss {
-		orgIDs[ws.OrgID] = struct{}{}
+	defer rows.Close()
+	orgIDs := map[uuid.UUID]struct{}{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			slog.Error("reindex: scan org id", "err", err)
+			continue
+		}
+		orgIDs[id] = struct{}{}
 	}
 
 	for orgID := range orgIDs {
