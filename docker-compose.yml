@@ -59,8 +59,13 @@ services:
           exit 1
         fi
         echo "yugabyte wrapper: advertising $$ADDR" >&2
+        # --base_dir aims yugabyted at the persisted volume mount below.
+        # Without it, yugabyted defaults to ~/var which is the container
+        # overlay (lost on every recreate). This is THE reason a docker
+        # compose down wipes the SQL side: 2026-04-28 incident.
         exec /home/yugabyte/bin/yugabyted start \
           --daemon=false \
+          --base_dir=/home/yugabyte/var \
           --advertise_address="$$ADDR" \
           --listen="$$ADDR" \
           --tserver_flags="ysql_pg_conf_csv=max_connections=100"

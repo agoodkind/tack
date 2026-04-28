@@ -214,3 +214,20 @@ deploy: update-deps
 		--build-arg TAG=$(TAG) \
 		--build-arg DIRTY=$(DIRTY) \
 		-t tack-server . && docker compose up -d --no-build app"
+
+# Run a full backup on CT 117 (FDB volume + Meili volume + Yugabyte
+# in-container tar + auth CSVs). Output dirs at /root/backups/tack-<TS>/.
+.PHONY: backup
+backup:
+	rsync -az scripts/backup.sh tack:/root/tack/scripts/backup.sh
+	ssh tack 'bash /root/tack/scripts/backup.sh'
+
+# Pull the latest backup directory from CT 117 to the local Mac for
+# offsite storage. Reads the timestamp from /root/backups/.latest.
+.PHONY: backup-pull
+backup-pull:
+	@TS=$$(ssh tack 'cat /root/backups/.latest'); \
+		mkdir -p ~/backups/tack/$$TS; \
+		rsync -avz tack:/root/backups/tack-$$TS/ ~/backups/tack/$$TS/; \
+		echo ""; \
+		echo "pulled to ~/backups/tack/$$TS"
