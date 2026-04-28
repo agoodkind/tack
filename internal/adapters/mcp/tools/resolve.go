@@ -229,16 +229,21 @@ func (r *Resolver) ResolveNodeID(ctx context.Context, input string) (uuid.UUID, 
 		if err != nil {
 			continue
 		}
-		// For each sequence-bearing type, look for a child of proj with matching sequence.
+		// For each sequence-bearing type, look for a node under proj with
+		// matching sequence. Match by scope_id first; fall back to parent_id
+		// for legacy nodes created before scope_id was stamped.
 		for _, typeKey := range r.sequenceTypeKeys {
 			rawSeq, _ := json.Marshal(int64(seqID))
 			candidates, err := r.nodes.ListByProperty(ctx, ws.OrgID, typeKey, "sequence", rawSeq)
 			if err != nil {
 				continue
 			}
-			parentIDRaw, _ := json.Marshal(proj.ID.String())
+			projIDRaw, _ := json.Marshal(proj.ID.String())
 			for _, n := range candidates {
-				if got, ok := n.Props["parent_id"]; ok && string(got) == string(parentIDRaw) {
+				if got, ok := n.Props["scope_id"]; ok && string(got) == string(projIDRaw) {
+					return n.ID, nil
+				}
+				if got, ok := n.Props["parent_id"]; ok && string(got) == string(projIDRaw) {
 					return n.ID, nil
 				}
 			}

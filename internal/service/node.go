@@ -147,6 +147,16 @@ func (s *NodeService) Create(ctx context.Context, in CreateInput) (*CreateResult
 		props["parent_id"] = raw
 	}
 
+	// Always record scope_id so the resolver can find a sequence-numbered
+	// node by its identifier (PROJECT-N) even when the node lives several
+	// levels below the project (e.g. an issue under an epic). When ScopeID
+	// equals ParentID this is just a duplicate, but stamping it
+	// unconditionally keeps the resolver path uniform.
+	if in.ScopeID != uuid.Nil {
+		raw, _ := json.Marshal(in.ScopeID.String())
+		props["scope_id"] = raw
+	}
+
 	// FeatureHasSequenceID: allocate a counter under ScopeID, not ParentID.
 	// An issue parented under an epic still allocates its sequence from the
 	// surrounding project so identifiers stay project-wide.
