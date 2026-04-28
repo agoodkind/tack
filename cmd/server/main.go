@@ -105,7 +105,10 @@ func runServer(cfg *config.Config) {
 
 	auditRec := buildAuditRecorder(ctx, cfg)
 	defer func() {
-		if c, ok := auditRec.(interface{ Close() }); ok {
+		switch c := auditRec.(type) {
+		case interface{ Close() error }:
+			_ = c.Close()
+		case interface{ Close() }:
 			c.Close()
 		}
 	}()
@@ -221,6 +224,10 @@ func buildSearcher(cfg *config.Config) domainsearch.Searcher {
 // A failure to open the pool is logged loudly and degrades to noop rather
 // than blocking the server: audit is layered defense, not the primary path.
 // Production deploys MUST set AUDIT_WRITER_DSN; the noop path is for dev.
+//
+// When AUDIT_WAL_DIR resolves to a non-empty path, the YBRecorder is wrapped
+// in a WALRecorder so read-class verbs persist to a local fsync'd segment
+// log first and the drainer ships them to Yugabyte asynchronously.
 func buildAuditRecorder(ctx context.Context, cfg *config.Config) audit.Recorder {
 	if cfg.AuditWriterDSN == "" {
 		slog.Warn("audit.writer_disabled",
@@ -228,11 +235,23 @@ func buildAuditRecorder(ctx context.Context, cfg *config.Config) audit.Recorder 
 		)
 		return audit.NoopRecorder{}
 	}
-	rec, err := audit.NewYBRecorder(ctx, cfg.AuditWriterDSN)
+	yb, err := audit.NewYBRecorder(ctx, cfg.AuditWriterDSN)
 	if err != nil {
 		slog.Error("audit.writer_setup_failed", slog.String("err", err.Error()))
 		return audit.NoopRecorder{}
 	}
 	slog.Info("audit.writer_connected")
-	return rec
+	if cfg.AuditWALDir == "" {
+		return yb
+	}
+	wal, err := audit.NewWALRecorder(ctx, yb, audit.WALConfig{Dir: cfg.AuditWALDir})
+	if err != nil {
+		slog.Error("audit.wal_setup_failed",
+			slog.String("dir", cfg.AuditWALDir),
+			slog.String("err", err.Error()),
+		)
+		return yb
+	}
+	slog.Info("audit.wal_enabled", slog.String("dir", cfg.AuditWALDir))
+	return wal
 }

@@ -59,6 +59,12 @@ type Config struct {
 	AuditReaderDSN   string `env:"AUDIT_READER_DSN"`
 	AuditRedactorDSN string `env:"AUDIT_REDACTOR_DSN"`
 
+	// WAL directory for read-class audit events. Empty falls back to
+	// $XDG_STATE_HOME/tack/audit-wal (typically /var/lib/tack/audit-wal in
+	// the production container). Set to "-" to disable the WAL entirely
+	// and bypass the read audit path.
+	AuditWALDir string `env:"AUDIT_WAL_DIR"`
+
 	// Meilisearch: optional, no-op stub used when unset.
 	MeiliURL       string `env:"MEILI_URL"        envDefault:"http://localhost:7700"`
 	MeiliMasterKey string `env:"MEILI_MASTER_KEY" envDefault:"tack-dev-meili-key-change-in-prod"`
@@ -76,6 +82,12 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	logsDir := xdgStatePath("tack", "logs")
+	if cfg.AuditWALDir == "" {
+		cfg.AuditWALDir = xdgStatePath("tack", "audit-wal")
+	}
+	if cfg.AuditWALDir == "-" {
+		cfg.AuditWALDir = ""
+	}
 	if cfg.LogJSONFile == "" {
 		cfg.LogJSONFile = filepath.Join(logsDir, "app.jsonl")
 	}
