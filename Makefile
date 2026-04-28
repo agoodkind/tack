@@ -207,7 +207,7 @@ update-fdb:
 # Uses --network host so Docker build can resolve DNS via the host's IPv6 nameserver.
 .PHONY: deploy
 deploy: update-deps
-	rsync -az --delete --exclude='.git' --exclude='bin/' . tack:/root/tack/
+	rsync -az --delete --exclude='.git' --exclude='bin/' --exclude='.env' --exclude='.env.*' --exclude='.test-fdb/' . tack:/root/tack/
 	ssh tack "cd /root/tack && docker build --network host \
 		--build-arg COMMIT=$(COMMIT) \
 		--build-arg BUILD_TIME=$(BUILD_TIME) \

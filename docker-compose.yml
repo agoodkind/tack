@@ -8,7 +8,7 @@ services:
     ports:
       - "${PORT:-8000}:8000"
     environment:
-      DATABASE_URL: postgres://${YUGABYTE_USER:-yugabyte}:${YUGABYTE_PASSWORD:-yugabyte}@yugabyte:5433/${YUGABYTE_DB:-tack}?sslmode=disable
+      DATABASE_URL: postgres://${YUGABYTE_USER:?YUGABYTE_USER is required, set it in .env}:${YUGABYTE_PASSWORD:?YUGABYTE_PASSWORD is required, set it in .env}@yugabyte:5433/${YUGABYTE_DB:?YUGABYTE_DB is required, set it in .env}?sslmode=disable
       FDB_CLUSTER_FILE: /etc/foundationdb/fdb.cluster
       MEILI_URL: http://meilisearch:7700
       MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-tack-dev-meili-key-change-in-prod}
@@ -65,9 +65,9 @@ services:
           --listen="$$ADDR" \
           --tserver_flags="ysql_pg_conf_csv=max_connections=100"
     environment:
-      YSQL_DB:       ${YUGABYTE_DB:-tack}
-      YSQL_USER:     ${YUGABYTE_USER:-yugabyte}
-      YSQL_PASSWORD: ${YUGABYTE_PASSWORD:-yugabyte}
+      YSQL_DB:       ${YUGABYTE_DB:?YUGABYTE_DB is required, set it in .env}
+      YSQL_USER:     ${YUGABYTE_USER:?YUGABYTE_USER is required, set it in .env}
+      YSQL_PASSWORD: ${YUGABYTE_PASSWORD:?YUGABYTE_PASSWORD is required, set it in .env}
     ports:
       - "5433:5433"   # YSQL (Postgres-compatible)
       - "7000:7000"   # YugabyteDB master UI
@@ -79,8 +79,8 @@ services:
         - CMD-SHELL
         - |
           ADDR=$$(getent ahostsv6 "$$(hostname)" | awk 'NR==1{print $$1}')
-          PGPASSWORD=${YUGABYTE_PASSWORD:-yugabyte} ysqlsh -h "$$ADDR" -p 5433 \
-            -U ${YUGABYTE_USER:-yugabyte} -d ${YUGABYTE_DB:-tack} -c 'SELECT 1' -t
+          PGPASSWORD=${YUGABYTE_PASSWORD:?} ysqlsh -h "$$ADDR" -p 5433 \
+            -U ${YUGABYTE_USER:?} -d ${YUGABYTE_DB:?} -c 'SELECT 1' -t
       interval: 10s
       timeout: 10s
       retries: 10

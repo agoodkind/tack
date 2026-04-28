@@ -31,3 +31,6 @@ __pycache__/
 lm-review-report-*.md
 trace.*.json
 trace.*.xml
+
+# Added by ggshield
+.cache_ggshield
