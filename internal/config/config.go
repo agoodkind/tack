@@ -50,6 +50,15 @@ type Config struct {
 	// If unset, a random token is generated and printed once.
 	SeedAPIToken string `env:"SEED_API_TOKEN"`
 
+	// Audit ledger pools. Each role connects through its own DSN so the app
+	// pool (DATABASE_URL) cannot accidentally inherit audit privileges.
+	// Empty values disable the corresponding subsystem. AuditWriterDSN is
+	// the only one required for the production Recorder; reader and redactor
+	// are used by export and GDPR redaction (TACK-177, TACK-178).
+	AuditWriterDSN   string `env:"AUDIT_WRITER_DSN"`
+	AuditReaderDSN   string `env:"AUDIT_READER_DSN"`
+	AuditRedactorDSN string `env:"AUDIT_REDACTOR_DSN"`
+
 	// Meilisearch: optional, no-op stub used when unset.
 	MeiliURL       string `env:"MEILI_URL"        envDefault:"http://localhost:7700"`
 	MeiliMasterKey string `env:"MEILI_MASTER_KEY" envDefault:"tack-dev-meili-key-change-in-prod"`

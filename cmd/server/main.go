@@ -15,6 +15,7 @@ import (
 	mcpadapter "goodkind.io/tack/internal/adapters/mcp"
 	"goodkind.io/tack/internal/adapters/postgres"
 	searchadapter "goodkind.io/tack/internal/adapters/search"
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/auth"
 	"goodkind.io/tack/internal/config"
 	domainsearch "goodkind.io/tack/internal/domain/search"
@@ -101,6 +102,14 @@ func runServer(cfg *config.Config) {
 	}
 
 	searcher := buildSearcher(cfg)
+
+	auditRec := buildAuditRecorder(ctx, cfg)
+	defer func() {
+		if c, ok := auditRec.(interface{ Close() }); ok {
+			c.Close()
+		}
+	}()
+	_ = auditRec // wired into NodeService + MCP wrapper in TACK-174
 
 	tokenRepo := postgres.NewTokenRepo(pool)
 	userRepo := postgres.NewUserRepo(pool)
@@ -205,4 +214,25 @@ func buildSearcher(cfg *config.Config) domainsearch.Searcher {
 	}
 	slog.Info("meilisearch.connected", slog.String("url", cfg.MeiliURL))
 	return meiliClient
+}
+
+// buildAuditRecorder opens the audit_writer pool when AUDIT_WRITER_DSN is
+// set; otherwise returns a NoopRecorder so callers can always call Record.
+// A failure to open the pool is logged loudly and degrades to noop rather
+// than blocking the server: audit is layered defense, not the primary path.
+// Production deploys MUST set AUDIT_WRITER_DSN; the noop path is for dev.
+func buildAuditRecorder(ctx context.Context, cfg *config.Config) audit.Recorder {
+	if cfg.AuditWriterDSN == "" {
+		slog.Warn("audit.writer_disabled",
+			slog.String("reason", "AUDIT_WRITER_DSN unset; ledger writes are noop"),
+		)
+		return audit.NoopRecorder{}
+	}
+	rec, err := audit.NewYBRecorder(ctx, cfg.AuditWriterDSN)
+	if err != nil {
+		slog.Error("audit.writer_setup_failed", slog.String("err", err.Error()))
+		return audit.NoopRecorder{}
+	}
+	slog.Info("audit.writer_connected")
+	return rec
 }

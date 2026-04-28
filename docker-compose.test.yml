@@ -36,6 +36,24 @@ services:
       retries: 30
       start_period: 10s
 
+  yugabyte:
+    image: yugabytedb/yugabyte:2024.2.8.0-b85
+    container_name: tack-test-yugabyte
+    command: >
+      bin/yugabyted start --daemon=false --base_dir=/home/yugabyte/var
+    environment:
+      YSQL_DB:       tack
+      YSQL_USER:     yugabyte
+      YSQL_PASSWORD: ${TEST_YB_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "PGPASSWORD=${TEST_YB_PASSWORD} ysqlsh -h $$(hostname -i) -p 5433 -U yugabyte -d tack -c 'SELECT 1' -t"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+      start_period: 60s
+    volumes:
+      - tack-test-yb-data:/home/yugabyte/var
+
   tests:
     build:
       context: .
@@ -46,6 +64,12 @@ services:
     depends_on:
       fdb:
         condition: service_healthy
+      yugabyte:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${TEST_DATABASE_URL}
+      AUDIT_WRITER_DSN: ${TEST_AUDIT_WRITER_DSN}
+      AUDIT_READER_DSN: ${TEST_AUDIT_READER_DSN}
     volumes:
       # Source bind-mount: edits on the host are visible without a rebuild.
       - .:/src
@@ -62,3 +86,4 @@ volumes:
   tack-test-fdb-data:
   tack-test-go-cache:
   tack-test-go-mod:
+  tack-test-yb-data:

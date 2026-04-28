@@ -21,6 +21,12 @@ var (
 	// Resolver miss counters per scope level. Keys are level names like
 	// "scope" and "node_id".
 	resolverMisses = expvar.NewMap("tack_resolver_miss_total")
+
+	// Audit ledger lifecycle. Keys on records and dropped maps are verbs;
+	// the dropped map's secondary dimension (stage) is folded into the key
+	// as "verb:stage" so a single expvar.Map suffices.
+	auditRecords = expvar.NewMap("tack_audit_records_total")
+	auditDropped = expvar.NewMap("tack_audit_dropped_total")
 )
 
 // IncFDBTx records one successful FDB transaction.
@@ -38,3 +44,10 @@ func IncMCPToolErr(tool string) { mcpToolErrors.Add(tool, 1) }
 
 // IncResolverMiss bumps the resolver miss counter for a named level.
 func IncResolverMiss(level string) { resolverMisses.Add(level, 1) }
+
+// IncAuditRecord bumps the per-verb successful-write counter.
+func IncAuditRecord(verb string) { auditRecords.Add(verb, 1) }
+
+// IncAuditDropped bumps the per-(verb,stage) drop counter, where stage names
+// the failure point: begin, head_read, hash, insert, head_write, commit.
+func IncAuditDropped(verb, stage string) { auditDropped.Add(verb+":"+stage, 1) }

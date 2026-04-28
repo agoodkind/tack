@@ -9,6 +9,12 @@ services:
       - "${PORT:-8000}:8000"
     environment:
       DATABASE_URL: postgres://${YUGABYTE_USER:?YUGABYTE_USER is required, set it in .env}:${YUGABYTE_PASSWORD:?YUGABYTE_PASSWORD is required, set it in .env}@yugabyte:5433/${YUGABYTE_DB:?YUGABYTE_DB is required, set it in .env}?sslmode=disable
+      # Audit ledger pools. Each DSN is composed entirely from .env values;
+      # if AUDIT_*_PASSWORD is unset the DSN auth fails fast and the audit
+      # subsystem degrades to NoopRecorder until seed-audit-roles is run.
+      AUDIT_WRITER_DSN: ${AUDIT_WRITER_DSN}
+      AUDIT_READER_DSN: ${AUDIT_READER_DSN}
+      AUDIT_REDACTOR_DSN: ${AUDIT_REDACTOR_DSN}
       FDB_CLUSTER_FILE: /etc/foundationdb/fdb.cluster
       MEILI_URL: http://meilisearch:7700
       MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-tack-dev-meili-key-change-in-prod}
