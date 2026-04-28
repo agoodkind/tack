@@ -10,18 +10,6 @@ import (
 	"goodkind.io/tack/internal/service"
 )
 
-// okResp is the response body for a relationship add or remove. The shape is
-// a single boolean, but typing it keeps the success helper away from any
-// untyped maps even for trivial payloads.
-type okResp struct {
-	OK bool `json:"ok"`
-}
-
-// relationshipsResp is the response body for tack_list_relationships.
-type relationshipsResp struct {
-	Relationships []*node.Relationship `json:"relationships"`
-}
-
 // RegisterRelationship registers tack_add_relationship / tack_remove_relationship /
 // tack_list_relationships. RelationType is arbitrary; seeds define the
 // conventional strings (assigned_to, labeled_with, child_of, etc.).
@@ -85,7 +73,7 @@ func RegisterRelationship(s *mcpserver.MCPServer, svc *service.NodeService, rels
 			}); err != nil {
 				return classifyError(ctx, err), nil
 			}
-			return successJSON(okResp{OK: true}, ""), nil
+			return successText("ok", ""), nil
 		},
 	)
 
@@ -128,7 +116,7 @@ func RegisterRelationship(s *mcpserver.MCPServer, svc *service.NodeService, rels
 			if err := svc.RemoveRelationship(ctx, resolve.OrgID, sourceID, relType, targetID); err != nil {
 				return classifyError(ctx, err), nil
 			}
-			return successJSON(okResp{OK: true}, ""), nil
+			return successText("ok", ""), nil
 		},
 	)
 
@@ -174,7 +162,14 @@ func RegisterRelationship(s *mcpserver.MCPServer, svc *service.NodeService, rels
 			if err != nil {
 				return classifyError(ctx, err), nil
 			}
-			return successJSON(relationshipsResp{Relationships: relsOut}, ""), nil
+			rc := newRenderCtx(ctx, resolver.reader, nil)
+			label := "outgoing"
+			otherIsTarget := true
+			if direction == "in" {
+				label = "incoming"
+				otherIsTarget = false
+			}
+			return successText(renderRelationships(rc, label, relsOut, otherIsTarget), ""), nil
 		},
 	)
 }

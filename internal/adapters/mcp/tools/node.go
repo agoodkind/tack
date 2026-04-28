@@ -12,6 +12,7 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
+	"goodkind.io/tack/internal/domain/user"
 	"goodkind.io/tack/internal/service"
 )
 
@@ -20,6 +21,10 @@ type NodeTypeBinding struct {
 	NodeSvc  *service.NodeService
 	Reader   node.NodeReader
 	Resolver *Resolver
+	// Users is optional. When set, response renderers resolve creator and
+	// assignee UUIDs to display names. When nil, the renderer falls back to
+	// raw IDs.
+	Users user.Repository
 }
 
 // RegisterNodeTools registers list/create/get/update/delete tools for a NodeType.
@@ -172,7 +177,8 @@ func listHandler(nt *node.NodeType, chain []ScopeLevel, epParam string, b NodeTy
 		if plural == "" {
 			plural = nt.Slug + "s"
 		}
-		return successWrapped(plural, views, nil, ""), nil
+		rc := newRenderCtx(ctx, b.Reader, b.Users)
+		return successText(renderList(rc, plural, views), ""), nil
 	}
 }
 
@@ -260,13 +266,12 @@ func createHandler(nt *node.NodeType, chain []ScopeLevel, epParam string, b Node
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
-		var extras map[string]json.RawMessage
 		instr := ""
 		if result.Existed {
-			extras = map[string]json.RawMessage{"already_existed": json.RawMessage(`true`)}
 			instr = "Idempotency key matched; returning the existing node. No new write was performed."
 		}
-		return successWrapped(nt.Slug, result.View, extras, instr), nil
+		rc := newRenderCtx(ctx, b.Reader, b.Users)
+		return successText(renderNode(rc, result.View), instr), nil
 	}
 }
 
@@ -291,7 +296,8 @@ func getHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFunc 
 		if view == nil {
 			return classifyError(ctx, domain.ErrNotFound), nil
 		}
-		return successWrapped(nt.Slug, view, nil, ""), nil
+		rc := newRenderCtx(ctx, b.Reader, b.Users)
+		return successText(renderNode(rc, view), ""), nil
 	}
 }
 
@@ -337,7 +343,8 @@ func updateHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFu
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
-		return successWrapped(nt.Slug, view, nil, ""), nil
+		rc := newRenderCtx(ctx, b.Reader, b.Users)
+		return successText(renderNode(rc, view), ""), nil
 	}
 }
 
@@ -362,7 +369,7 @@ func deleteHandler(b NodeTypeBinding) mcpserver.ToolHandlerFunc {
 		if err := b.NodeSvc.Delete(ctx, id, userID); err != nil {
 			return classifyError(ctx, err), nil
 		}
-		return successJSON(okResp{OK: true}, ""), nil
+		return successText("deleted "+in.NodeID, ""), nil
 	}
 }
 

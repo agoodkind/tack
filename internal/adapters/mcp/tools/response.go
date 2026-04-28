@@ -11,16 +11,25 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// success returns a successful tool result wrapping pre-marshaled body
-// bytes. Callers build a typed payload (struct or map of json.RawMessage),
-// json.Marshal it, and pass the bytes here. The closed type means no any
-// reaches the response helper, even though it lives behind an unexported
-// surface.
+// success returns a successful tool result wrapping pre-formatted body
+// text. Callers either build a typed payload and pass JSON bytes (legacy
+// helpers below), or render markdown directly via renderNode/renderList
+// and pass the result through successText.
+//
+// The closed type means no any reaches the response helper, even though it
+// lives behind an unexported surface.
 func success(body json.RawMessage, instruction string) *mcp.CallToolResult {
 	if len(body) == 0 {
 		body = []byte(`{}`)
 	}
-	text := "<success>\n\n" + string(body)
+	return successText(string(body), instruction)
+}
+
+// successText wraps a free-form text body in the success envelope. Use this
+// when the tool's output is markdown (per the LLM-UX redesign) rather than
+// JSON. The envelope is identical so MCP clients still parse it the same way.
+func successText(body, instruction string) *mcp.CallToolResult {
+	text := "<success>\n\n" + body
 	if instruction != "" {
 		text += "\n\n[LLM Instruction]: " + instruction
 	}
@@ -37,27 +46,6 @@ func successJSON[T any](payload T, instruction string) *mcp.CallToolResult {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		body = []byte(`{}`)
-	}
-	return success(body, instruction)
-}
-
-// successWrapped emits {"<key>": value, ...extras} where value is the JSON
-// of payload. Used by the per-NodeType CRUD tools, where the response key
-// derives from the type's Slug at runtime and so cannot be a static struct
-// field.
-func successWrapped[T any](key string, payload T, extras map[string]json.RawMessage, instruction string) *mcp.CallToolResult {
-	inner, err := json.Marshal(payload)
-	if err != nil {
-		return success(nil, instruction)
-	}
-	out := make(map[string]json.RawMessage, len(extras)+1)
-	out[key] = inner
-	for k, v := range extras {
-		out[k] = v
-	}
-	body, err := json.Marshal(out)
-	if err != nil {
-		return success(nil, instruction)
 	}
 	return success(body, instruction)
 }

@@ -8,12 +8,6 @@ import (
 	domainsearch "goodkind.io/tack/internal/domain/search"
 )
 
-// searchResp is the response body for tack_search.
-type searchResp struct {
-	Results []domainsearch.NodeDoc      `json:"results"`
-	Facets  map[string]map[string]int64 `json:"facets"`
-}
-
 // RegisterSearch registers tack_search.
 func RegisterSearch(s *mcpserver.MCPServer, searcher domainsearch.Searcher, resolver *Resolver) {
 	registerTool(s,
@@ -52,11 +46,15 @@ func RegisterSearch(s *mcpserver.MCPServer, searcher domainsearch.Searcher, reso
 			if nodeTypeFilter != "" {
 				filters["node_type"] = nodeTypeFilter
 			}
-			docs, facets, err := searcher.Search(ctx, "nodes", query, filters)
+			docs, _, err := searcher.Search(ctx, "nodes", query, filters)
 			if err != nil {
 				return classifyError(ctx, err), nil
 			}
-			return successJSON(searchResp{Results: docs, Facets: facets}, ""), nil
+			hits := make([]searchHit, 0, len(docs))
+			for _, d := range docs {
+				hits = append(hits, searchHit{ID: d.ID, NodeType: d.NodeType, Name: d.Name})
+			}
+			return successText(renderSearchHits(hits), ""), nil
 		},
 	)
 }

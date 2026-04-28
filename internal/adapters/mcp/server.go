@@ -132,6 +132,7 @@ func (h *Handler) buildServer(nodeTypes []*node.NodeType) *mcpserver.MCPServer {
 		NodeSvc:  h.nodeSvc,
 		Reader:   h.reader,
 		Resolver: resolver,
+		Users:    h.users,
 	}
 	for _, nt := range nodeTypes {
 		tools.RegisterNodeTools(s, nt, binding)

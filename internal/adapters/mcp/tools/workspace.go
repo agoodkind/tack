@@ -12,32 +12,15 @@ import (
 	"goodkind.io/tack/internal/domain/user"
 )
 
-// workspacesResp is the response body for tack_list_workspaces.
-type workspacesResp struct {
-	Workspaces []*node.NodeView `json:"workspaces"`
-}
-
 // nodeTypeSummary is the per-NodeType payload returned by tack_describe_*.
 // Mirrors the small subset of NodeType the MCP layer needs (slug, plural,
 // human name, features) without exposing the full NodeType struct, which
 // includes org-internal fields like ID.
 type nodeTypeSummary struct {
-	Slug       string   `json:"slug"`
-	PluralSlug string   `json:"plural_slug,omitempty"`
-	Name       string   `json:"name"`
-	Features   []string `json:"features"`
-}
-
-// describeResp is the response body for tack_describe_<workspace>.
-type describeResp struct {
-	Workspace *node.NodeView    `json:"workspace"`
-	NodeTypes []nodeTypeSummary `json:"node_types"`
-	Children  []*node.NodeView  `json:"children"`
-}
-
-// membersResp is the response body for tack_list_members.
-type membersResp struct {
-	Members []*user.User `json:"members"`
+	Slug       string
+	PluralSlug string
+	Name       string
+	Features   []string
 }
 
 // RegisterWorkspace registers tack_list_workspaces and tack_describe_workspace
@@ -58,7 +41,8 @@ func RegisterWorkspace(s *mcpserver.MCPServer, reader node.NodeReader, resolver 
 			if err != nil {
 				return classifyError(ctx, err), nil
 			}
-			return successJSON(workspacesResp{Workspaces: wss}, ""), nil
+			rc := newRenderCtx(ctx, reader, nil)
+			return successText(renderList(rc, "workspaces", wss), ""), nil
 		},
 	)
 
@@ -103,11 +87,8 @@ func RegisterWorkspace(s *mcpserver.MCPServer, reader node.NodeReader, resolver 
 					{PropName: "parent_id", Value: parentIDRaw},
 				},
 			})
-			return successJSON(describeResp{
-				Workspace: ws,
-				NodeTypes: types,
-				Children:  children,
-			}, ""), nil
+			rc := newRenderCtx(ctx, reader, nil)
+			return successText(renderWorkspaceDescribe(rc, ws, types, children), ""), nil
 		},
 	)
 }
@@ -148,7 +129,7 @@ func RegisterMembers(s *mcpserver.MCPServer, members org.MemberRepository, users
 				}
 				usersOut = append(usersOut, u)
 			}
-			return successJSON(membersResp{Members: usersOut}, ""), nil
+			return successText(renderMembers(usersOut), ""), nil
 		},
 	)
 }
