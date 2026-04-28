@@ -87,6 +87,34 @@ func (r *YBRecorder) Record(ctx context.Context, ev Event) error {
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	// PII split: any actor PII (email, name, ip, user_agent, api_token_label)
+	// goes to audit.pii under a fresh pii_ref UUID. The audit.events row
+	// stores only that reference, and the hash chain is computed over the
+	// reference, not the payload. GDPR Right to Erasure can then redact
+	// audit.pii without breaking integrity.
+	var piiRef uuid.UUID
+	if hasPII(ev.Actor) {
+		piiRef = uuid.Must(uuid.NewV7())
+		piiPayload, perr := json.Marshal(map[string]string{
+			"email":           ev.Actor.Email,
+			"name":            ev.Actor.Name,
+			"ip":              ev.Actor.IP,
+			"ua":              ev.Actor.UserAgent,
+			"api_token_label": ev.Actor.APITokenLabel,
+		})
+		if perr != nil {
+			bumpDropped(ev.Verb, "pii_marshal")
+			return fmt.Errorf("audit pii marshal: %w", perr)
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO audit.pii (pii_ref, payload, redacted)
+			VALUES ($1, $2, false)
+		`, piiRef, piiPayload); err != nil {
+			bumpDropped(ev.Verb, "pii_insert")
+			return fmt.Errorf("audit pii insert: %w", err)
+		}
+	}
+
 	var lastSeq int64
 	var lastHash []byte
 	err = tx.QueryRow(ctx, `
@@ -101,39 +129,44 @@ func (r *YBRecorder) Record(ctx context.Context, ev Event) error {
 
 	// Hash payload covers everything that determines ledger meaning.
 	rowHash, err := hashRow(lastHash, map[string]any{
-		"org_id":         ev.Context.OrgID,
-		"shard":          shard,
-		"seq":            seq,
-		"event_id":       eventID,
-		"event_time":     ev.OccurredAt.UTC().Format(time.RFC3339Nano),
-		"actor_id":       ev.Actor.ID,
-		"actor_kind":     ev.Actor.Type,
-		"action":         ev.Verb,
-		"entity_kind":    ev.Entity.Type,
-		"entity_id":      ev.Entity.ID,
-		"context":        json.RawMessage(contextJSON),
-		"delta":          json.RawMessage(deltaJSON),
-		"idempotency":    ev.IdempotencyKey,
+		"org_id":      ev.Context.OrgID,
+		"shard":       shard,
+		"seq":         seq,
+		"event_id":    eventID,
+		"event_time":  ev.OccurredAt.UTC().Format(time.RFC3339Nano),
+		"actor_id":    ev.Actor.ID,
+		"actor_kind":  ev.Actor.Type,
+		"action":      ev.Verb,
+		"entity_kind": ev.Entity.Type,
+		"entity_id":   ev.Entity.ID,
+		"pii_ref":     piiRef,
+		"context":     json.RawMessage(contextJSON),
+		"delta":       json.RawMessage(deltaJSON),
+		"idempotency": ev.IdempotencyKey,
 	})
 	if err != nil {
 		bumpDropped(ev.Verb, "hash")
 		return fmt.Errorf("audit hash: %w", err)
 	}
 
+	var piiArg any
+	if piiRef != uuid.Nil {
+		piiArg = piiRef
+	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO audit.events (
 			org_id, shard, event_time, event_id, seq,
 			actor_id, actor_kind, action, entity_kind, entity_id,
-			context, delta, prev_hash, row_hash, idempotency_key
+			context, delta, pii_ref, prev_hash, row_hash, idempotency_key
 		) VALUES (
 			$1, $2, $3, $4, $5,
 			$6, $7, $8, $9, $10,
-			$11, $12, $13, $14, $15
+			$11, $12, $13, $14, $15, $16
 		)
 	`,
 		ev.Context.OrgID, shard, ev.OccurredAt.UTC(), eventID, seq,
 		ev.Actor.ID, actorKindCode(ev.Actor.Type), ev.Verb, ev.Entity.Type, ev.Entity.ID,
-		contextJSON, deltaJSON, lastHash, rowHash, ev.IdempotencyKey,
+		contextJSON, deltaJSON, piiArg, lastHash, rowHash, ev.IdempotencyKey,
 	); err != nil {
 		bumpDropped(ev.Verb, "insert")
 		return fmt.Errorf("audit insert: %w", err)
@@ -167,6 +200,12 @@ func (r *YBRecorder) Record(ctx context.Context, ev Event) error {
 		slog.Int64("duration_us", time.Since(start).Microseconds()),
 	)
 	return nil
+}
+
+// hasPII reports whether actor carries any field worth splitting into
+// audit.pii. Empty strings imply nothing to redact later.
+func hasPII(a Actor) bool {
+	return a.Email != "" || a.Name != "" || a.IP != "" || a.UserAgent != "" || a.APITokenLabel != ""
 }
 
 func actorKindCode(t ActorType) int16 {

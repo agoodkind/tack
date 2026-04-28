@@ -110,6 +110,19 @@ func runServer(cfg *config.Config) {
 	auditRec = audit.SuppressingRecorder{Inner: auditRec}
 	mcptools.SetAuditRecorder(auditRec)
 	auth.SetAuditRecorder(auditRec)
+
+	auditReader := buildAuditReader(ctx, cfg)
+	defer func() {
+		if auditReader != nil {
+			auditReader.Close()
+		}
+	}()
+	auditRedactor := buildAuditRedactor(ctx, cfg)
+	defer func() {
+		if auditRedactor != nil {
+			auditRedactor.Close()
+		}
+	}()
 	defer func() {
 		switch c := auditRec.(type) {
 		case interface{ Close() error }:
@@ -144,6 +157,8 @@ func runServer(cfg *config.Config) {
 		Members:       orgMembers,
 		Users:         userRepo,
 		Searcher:      searcher,
+		AuditReader:   auditReader,
+		AuditRedactor: auditRedactor,
 	})
 
 	var authMiddleware func(http.Handler) http.Handler
@@ -260,4 +275,40 @@ func buildAuditRecorder(ctx context.Context, cfg *config.Config) audit.Recorder 
 	}
 	slog.Info("audit.wal_enabled", slog.String("dir", cfg.AuditWALDir))
 	return wal
+}
+
+// buildAuditReader opens the audit_reader pool when AUDIT_READER_DSN is
+// set. nil return means the audit query MCP tools are not registered.
+func buildAuditReader(ctx context.Context, cfg *config.Config) *audit.Reader {
+	if cfg.AuditReaderDSN == "" {
+		slog.Info("audit.reader_disabled",
+			slog.String("reason", "AUDIT_READER_DSN unset; audit query tools disabled"),
+		)
+		return nil
+	}
+	rd, err := audit.NewReader(ctx, cfg.AuditReaderDSN)
+	if err != nil {
+		slog.Error("audit.reader_setup_failed", slog.String("err", err.Error()))
+		return nil
+	}
+	slog.Info("audit.reader_connected")
+	return rd
+}
+
+// buildAuditRedactor opens the audit_redactor pool when AUDIT_REDACTOR_DSN
+// is set. nil disables the GDPR redaction MCP tool.
+func buildAuditRedactor(ctx context.Context, cfg *config.Config) *audit.Redactor {
+	if cfg.AuditRedactorDSN == "" {
+		slog.Info("audit.redactor_disabled",
+			slog.String("reason", "AUDIT_REDACTOR_DSN unset; redaction tool disabled"),
+		)
+		return nil
+	}
+	rd, err := audit.NewRedactor(ctx, cfg.AuditRedactorDSN)
+	if err != nil {
+		slog.Error("audit.redactor_setup_failed", slog.String("err", err.Error()))
+		return nil
+	}
+	slog.Info("audit.redactor_connected")
+	return rd
 }

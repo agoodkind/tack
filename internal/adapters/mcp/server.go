@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"goodkind.io/tack/internal/adapters/mcp/tools"
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/auth"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/domain/org"
@@ -37,6 +38,8 @@ type Handler struct {
 	members       org.MemberRepository
 	users         user.Repository
 	searcher      domainsearch.Searcher
+	auditReader   *audit.Reader
+	auditRedactor *audit.Redactor
 
 	mu    sync.RWMutex
 	cache map[uuid.UUID]*cachedServer
@@ -53,6 +56,8 @@ type Deps struct {
 	Members       org.MemberRepository
 	Users         user.Repository
 	Searcher      domainsearch.Searcher
+	AuditReader   *audit.Reader
+	AuditRedactor *audit.Redactor
 }
 
 func NewHandler(d Deps) *Handler {
@@ -66,6 +71,8 @@ func NewHandler(d Deps) *Handler {
 		members:       d.Members,
 		users:         d.Users,
 		searcher:      d.Searcher,
+		auditReader:   d.AuditReader,
+		auditRedactor: d.AuditRedactor,
 		cache:         make(map[uuid.UUID]*cachedServer),
 	}
 }
@@ -127,6 +134,7 @@ func (h *Handler) buildServer(nodeTypes []*node.NodeType) *mcpserver.MCPServer {
 	tools.RegisterProperty(s, h.propertyDefs, resolver)
 	tools.RegisterSearch(s, h.searcher, resolver)
 	tools.RegisterRelationship(s, h.nodeSvc, h.relationships, resolver)
+	tools.RegisterAudit(s, h.auditReader, h.auditRedactor, resolver)
 
 	binding := tools.NodeTypeBinding{
 		NodeSvc:  h.nodeSvc,
