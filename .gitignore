@@ -29,3 +29,5 @@ __pycache__/
 *.pyc
 .test-fdb/
 lm-review-report-*.md
+trace.*.json
+trace.*.xml

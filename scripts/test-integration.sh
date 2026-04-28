@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Tear down the integration test FDB cluster and remove its volumes.
+# Run the integration test suite inside a sibling Go container on the same
+# Docker network as the test FDB. Bring up the cluster first with
+# `make test-fdb-up`.
 
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-# Pick a container runtime CLI that speaks compose. Mirrors test-fdb-up.sh.
-# Mirror test-fdb-up.sh: locate docker even when /usr/local/bin is missing
-# from PATH.
+# Mirror test-fdb-up.sh runtime selection.
 find_docker() {
   if command -v docker >/dev/null 2>&1; then
     command -v docker
@@ -39,12 +39,12 @@ else
   fi
 fi
 
-# Match test-fdb-up.sh: ensure Docker Desktop's bin dir is on PATH so the
-# credential helper is found.
 if [[ -d /Applications/Docker.app/Contents/Resources/bin ]]; then
   export PATH="/Applications/Docker.app/Contents/Resources/bin:$PATH"
 fi
 
-"${COMPOSE[@]}" -f docker-compose.test.yml down -v
-rm -f .test-fdb/fdb.cluster .test-fdb/fdb.cluster.raw
-rmdir .test-fdb 2>/dev/null || true
+# Build the test runner image (cached after the first run).
+"${COMPOSE[@]}" -f docker-compose.test.yml --profile runner build tests
+
+# Run with TTY off so make captures stdout cleanly.
+exec "${COMPOSE[@]}" -f docker-compose.test.yml --profile runner run --rm tests "$@"

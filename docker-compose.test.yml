@@ -1,20 +1,26 @@
-# Single-node FDB cluster for local integration tests.
+# Local integration test stack.
 #
-# Bring up via `make test-fdb-up`. Tear down with `make test-fdb-down`. The
-# `make test-integration` target manages it automatically.
+# Two services on a shared default network:
 #
-# The cluster file generated inside the container references the container's
-# bridge IP, which is unreachable from a host process on macOS. The
-# scripts/test-fdb-cluster-file.sh helper extracts the file and rewrites the
-# IP to 127.0.0.1 so the Go test client (running on the host) can connect
-# through the published port.
+#   fdb     single-node FoundationDB cluster
+#   tests   Go test runner that builds against the same FDB client library
+#           and runs ./internal/test/integration/...
+#
+# `make test-integration` brings fdb up, waits for it to be healthy, then
+# runs `docker compose run --rm tests`. Tests connect to the FDB container by
+# Docker DNS name, so FDB protocol reconnects resolve through the in-network
+# IP and never need host port forwarding. This avoids Docker Desktop's TCP
+# port-forwarder, which drops FDB's connect-packet exchange on macOS.
+#
+# This compose file deliberately diverges from the production
+# docker-compose.yml: production runs IPv6-only with NDP-proxied GUAs, which
+# Docker Desktop on macOS cannot replicate. The integration tests do not
+# exercise the v6-only contract; they only exercise the storage layer.
 
 services:
   fdb:
     image: foundationdb/foundationdb:${FDB_VERSION:-7.4.6}
     container_name: tack-test-fdb
-    ports:
-      - "4500:4500"
     environment:
       FDB_NETWORKING_MODE: container
       FDB_PORT: "4500"
@@ -30,11 +36,29 @@ services:
       retries: 30
       start_period: 10s
 
+  tests:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+      args:
+        FDB_VERSION: ${FDB_VERSION:-7.4.6}
+    container_name: tack-test-runner
+    depends_on:
+      fdb:
+        condition: service_healthy
+    volumes:
+      # Source bind-mount: edits on the host are visible without a rebuild.
+      - .:/src
+      # Reuse the FDB cluster file the server wrote, mounted read-only.
+      - tack-test-fdb-config:/etc/foundationdb:ro
+      # Persist Go's build and module caches across runs so the second invocation
+      # only compiles what changed.
+      - tack-test-go-cache:/root/.cache/go-build
+      - tack-test-go-mod:/go/pkg/mod
+    profiles: ["runner"]
+
 volumes:
   tack-test-fdb-config:
   tack-test-fdb-data:
-
-networks:
-  default:
-    enable_ipv6: true
-    enable_ipv4: false
+  tack-test-go-cache:
+  tack-test-go-mod:

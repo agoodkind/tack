@@ -122,15 +122,14 @@ seed:
 
 # Integration tests against a real FDB cluster.
 #
-# By default `make test-integration` brings up a docker-compose FDB on
-# 127.0.0.1:4500, runs the suite, and leaves the cluster up so subsequent
-# runs are fast. Use `make test-fdb-down` to clean up.
+# `make test-integration` brings up a docker-compose FDB, builds a sibling Go
+# test runner image, and runs the suite inside that container on the same
+# Docker network. Sibling-container tests sidestep Docker Desktop's TCP port
+# forwarder, which drops FDB's connect-packet exchange on macOS. The cluster
+# stays up between runs; `make test-fdb-down` cleans up.
 #
-# Override FDB_CLUSTER_FILE to point at a different cluster (e.g. the local
-# launchd-managed FDB at /usr/local/etc/foundationdb/fdb.cluster on macOS, or
-# /etc/foundationdb/fdb.cluster on Linux). TACK_INTEGRATION gates the tests
-# so a casual `make test` skips them.
-FDB_CLUSTER_FILE ?= $(PWD)/.test-fdb/fdb.cluster
+# TACK_INTEGRATION inside the test runner gates the suite so a casual
+# `make test` (host-side) still skips them.
 
 .PHONY: test-fdb-up
 test-fdb-up:
@@ -142,7 +141,7 @@ test-fdb-down:
 
 .PHONY: test-integration
 test-integration: test-fdb-up
-	CGO_ENABLED=1 TACK_INTEGRATION=1 FDB_CLUSTER_FILE=$(FDB_CLUSTER_FILE) go test -v -count=1 ./internal/test/integration/...
+	./scripts/test-integration.sh
 
 # lint-logging: enforce structured-logging discipline per the plan in
 # /Users/agoodkind/.claude/plans/indexed-growing-snowglobe.md.

@@ -1,0 +1,44 @@
+# Test runner image. Builds the Go integration test binary against the same
+# FDB client library version the production server links. Runs on the same
+# docker network as the test FDB so FDB protocol-level reconnects resolve
+# directly without going through Docker Desktop's host port forwarding.
+
+ARG FDB_VERSION=7.4.6
+
+FROM golang:1.26-bookworm
+
+ARG FDB_VERSION
+
+# Install FDB C client library so cgo can link. Pick the arch matching the
+# build platform so Apple Silicon and amd64 hosts both work.
+RUN set -eux \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends curl ca-certificates \
+    && case "$(dpkg --print-architecture)" in \
+         amd64)  fdb_arch=amd64 ;; \
+         arm64)  fdb_arch=aarch64 ;; \
+         *) echo "unsupported arch: $(dpkg --print-architecture)" >&2; exit 1 ;; \
+       esac \
+    && curl -fsSL \
+       https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-clients_${FDB_VERSION}-1_${fdb_arch}.deb \
+       -o /tmp/fdb-clients.deb \
+    && dpkg -i /tmp/fdb-clients.deb \
+    && rm /tmp/fdb-clients.deb \
+    && apt-get remove -y curl \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+
+# Cache the module download layer so re-runs on unchanged go.mod skip the pull.
+COPY go.mod go.sum ./
+RUN go mod download
+
+# The container runs `go test` against a bind-mount of the working tree, so
+# the rest of the source comes in at runtime. Default command runs the
+# integration tests with the cluster file the entrypoint generates.
+ENV CGO_ENABLED=1 \
+    TACK_INTEGRATION=1 \
+    FDB_CLUSTER_FILE=/etc/foundationdb/fdb.cluster
+
+ENTRYPOINT ["/usr/local/go/bin/go", "test", "-v", "-count=1", "./internal/test/integration/..."]
