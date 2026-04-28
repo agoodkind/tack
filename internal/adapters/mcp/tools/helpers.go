@@ -58,11 +58,19 @@ func parseProps(v any) (map[string]json.RawMessage, error) {
 		if len(val) == 0 {
 			return nil, nil
 		}
+		// Try the object shape first. That is the right wire form.
 		var inner map[string]any
-		if err := json.Unmarshal(val, &inner); err != nil {
-			return nil, err
+		if err := json.Unmarshal(val, &inner); err == nil {
+			return parseProps(inner)
 		}
-		return parseProps(inner)
+		// Fall back: some LLM transports stringify the properties value, so
+		// what arrives is a JSON string whose contents are themselves JSON.
+		// Decode the outer string layer and recurse. See TACK-165.
+		var s string
+		if err := json.Unmarshal(val, &s); err == nil {
+			return parseProps(s)
+		}
+		return nil, errors.New("properties must be a JSON object like {\"key\": \"value\"} or a JSON-encoded string of one")
 	default:
 		return nil, errors.New("properties must be an object or a JSON-encoded string")
 	}

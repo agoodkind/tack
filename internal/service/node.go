@@ -52,7 +52,15 @@ func NewNodeService(
 // edges (assigned_to, labeled_with, etc.) in the same FDB transaction as the
 // primary write.
 type CreateInput struct {
-	ParentID      uuid.UUID
+	// ParentID is the direct container the new node lives under. It becomes
+	// Props["parent_id"] and the target of the implicit child_of edge.
+	// Defaults to ScopeID when zero.
+	ParentID uuid.UUID
+	// ScopeID is the resolved scope-bearing ancestor. For an issue this is
+	// the project, even when ParentID is a deeper container like an epic.
+	// Used to allocate sequence numbers so identifiers stay project-wide.
+	// Defaults to ParentID when zero.
+	ScopeID       uuid.UUID
 	NodeTypeKey   string
 	Name          string
 	Props         map[string]json.RawMessage
@@ -84,6 +92,14 @@ type CreateResult struct {
 // record exists, Create stamps the key alongside the new node.
 func (s *NodeService) Create(ctx context.Context, in CreateInput) (*CreateResult, error) {
 	log := telemetry.L(ctx)
+
+	// Default unset scope/parent to whichever one is set.
+	if in.ScopeID == uuid.Nil {
+		in.ScopeID = in.ParentID
+	}
+	if in.ParentID == uuid.Nil {
+		in.ParentID = in.ScopeID
+	}
 
 	orgID, err := s.resolveOrgFromParent(ctx, in.ParentID)
 	if err != nil {
@@ -131,9 +147,11 @@ func (s *NodeService) Create(ctx context.Context, in CreateInput) (*CreateResult
 		props["parent_id"] = raw
 	}
 
-	// FeatureHasSequenceID: allocate a counter under the parent scope.
-	if nt.Features.Has(node.FeatureHasSequenceID) && in.ParentID != uuid.Nil {
-		seq, err := s.nodes.AllocateSequence(ctx, orgID, in.ParentID, nt.TypeKey)
+	// FeatureHasSequenceID: allocate a counter under ScopeID, not ParentID.
+	// An issue parented under an epic still allocates its sequence from the
+	// surrounding project so identifiers stay project-wide.
+	if nt.Features.Has(node.FeatureHasSequenceID) && in.ScopeID != uuid.Nil {
+		seq, err := s.nodes.AllocateSequence(ctx, orgID, in.ScopeID, nt.TypeKey)
 		if err != nil {
 			return nil, fmt.Errorf("allocate sequence: %w", err)
 		}

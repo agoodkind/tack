@@ -197,7 +197,7 @@ func createHandler(nt *node.NodeType, chain []ScopeLevel, epParam string, b Node
 		if err != nil {
 			return ClassifyError(ctx, err), nil
 		}
-		parentID := ws.ID
+		scopeID := ws.ID
 		if len(chain) > 0 {
 			parent := ws
 			for _, level := range chain {
@@ -210,7 +210,7 @@ func createHandler(nt *node.NodeType, chain []ScopeLevel, epParam string, b Node
 					return ClassifyError(ctx, err), nil
 				}
 			}
-			parentID = parent.ID
+			scopeID = parent.ID
 		}
 
 		// Convert property values to raw JSON. Tolerates payloads sent as a
@@ -220,9 +220,36 @@ func createHandler(nt *node.NodeType, chain []ScopeLevel, epParam string, b Node
 			return RecoverableError("invalid properties payload: " + err.Error()), nil
 		}
 
+		// Honor properties.parent_id when set to a deeper container under the
+		// same org as the chain-resolved scope. Sequence numbers stay scope-
+		// scoped (see service.CreateInput.ScopeID). See TACK-164.
+		parentID := scopeID
+		if rawProps != nil {
+			if raw, ok := rawProps["parent_id"]; ok && len(raw) > 0 {
+				var s string
+				if err := json.Unmarshal(raw, &s); err == nil && s != "" {
+					if pid, err := uuid.Parse(s); err == nil && pid != uuid.Nil {
+						parentResolve, err := b.Reader.Resolve(ctx, pid)
+						if err != nil || parentResolve == nil {
+							return RecoverableError("properties.parent_id does not resolve to a known node: " + s), nil
+						}
+						if parentResolve.OrgID != ws.OrgID {
+							return RecoverableError("properties.parent_id is in a different org than the workspace"), nil
+						}
+						parentID = pid
+					}
+				}
+			}
+			// Service.Create overwrites Props["parent_id"] from in.ParentID,
+			// so we drop the caller-supplied entry to avoid two sources of
+			// truth diverging if the input was ill-formed.
+			delete(rawProps, "parent_id")
+		}
+
 		idempotencyKey, _ := args["idempotency_key"].(string)
 		result, err := b.NodeSvc.Create(ctx, service.CreateInput{
 			ParentID:       parentID,
+			ScopeID:        scopeID,
 			NodeTypeKey:    nt.TypeKey,
 			Name:           name,
 			Props:          rawProps,
