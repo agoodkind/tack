@@ -49,11 +49,20 @@ func parseProps(v any) (map[string]json.RawMessage, error) {
 		if val == "" {
 			return nil, nil
 		}
+		// Try the object form first.
 		var inner map[string]any
-		if err := json.Unmarshal([]byte(val), &inner); err != nil {
-			return nil, err
+		if err := json.Unmarshal([]byte(val), &inner); err == nil {
+			return parseProps(inner)
 		}
-		return parseProps(inner)
+		// Fall back: double-encoded shape, where the string itself is a JSON
+		// string whose contents are JSON. Some LLM clients escape the
+		// payload twice when the JSONSchema declares properties as a string
+		// type. Strip one quoting layer and recurse.
+		var s string
+		if err := json.Unmarshal([]byte(val), &s); err == nil && s != val {
+			return parseProps(s)
+		}
+		return nil, errors.New("properties must be a JSON object like {\"key\": \"value\"} or a JSON-encoded string of one")
 	case json.RawMessage:
 		if len(val) == 0 {
 			return nil, nil
