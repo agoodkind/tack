@@ -41,12 +41,15 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: install golangci-lint
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: latest
-          # Only install the binary; we run it through `make lint`.
-          args: --version
+      - name: install golangci-lint v2
+        run: |
+          # The golangci-lint-action ships an old default version (v1.64.x) and
+          # always runs lint inline; we want v2 (matches .golangci.yml) and want
+          # `make check` to drive it. Install via the upstream curl script and
+          # let make do the rest.
+          curl -fsSL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh \
+            | sh -s -- -b "$(go env GOPATH)/bin" v2.11.4
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - name: make check
         run: make check
