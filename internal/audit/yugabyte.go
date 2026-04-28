@@ -125,6 +125,12 @@ func (r *YBRecorder) Record(ctx context.Context, ev Event) error {
 		bumpDropped(ev.Verb, "head_read")
 		return fmt.Errorf("audit head read: %w", err)
 	}
+	if lastHash == nil {
+		// audit.events.prev_hash is NOT NULL. The very first row per (org,
+		// shard) substitutes an empty byte slice; the chain hash includes
+		// the byte length so empty differs from any concrete prev hash.
+		lastHash = []byte{}
+	}
 	seq := lastSeq + 1
 
 	// Hash payload covers everything that determines ledger meaning.
