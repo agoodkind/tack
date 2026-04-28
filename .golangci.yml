@@ -1,3 +1,5 @@
+version: "2"
+
 # Extends the shared agoodkind golangci config.
 # Add project-specific overrides below.
 extends:

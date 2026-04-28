@@ -86,7 +86,7 @@ func runBackfillDefaultChildren(ctx context.Context, env *Env) error {
 				}
 			}
 
-			env.Log.InfoContext(ctx, "backfill.type",
+			env.Log.DebugContext(ctx, "backfill.type",
 				slog.String("org_id", orgID.String()),
 				slog.String("type", nt.TypeKey),
 				slog.Int("parents", len(parents)),

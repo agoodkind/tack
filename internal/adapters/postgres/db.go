@@ -42,6 +42,6 @@ func Migrate(ctx context.Context, dsn string, migrationsFS fs.FS) error {
 	if err != nil {
 		return err
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	return goose.UpContext(ctx, db, ".")
 }

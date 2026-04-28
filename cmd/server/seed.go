@@ -43,7 +43,8 @@ func userIDForEmail(email string) uuid.UUID {
 // NodeType names (via service.Seeder constants).
 func runSeed(cfg *config.Config) {
 	if cfg.SeedEmail == "" || cfg.SeedName == "" {
-		slog.Error("seed requires SEED_EMAIL and SEED_NAME")
+		slog.Error("seed.config_missing",
+			slog.String("err", "SEED_EMAIL and SEED_NAME are both required"))
 		os.Exit(1)
 	}
 
@@ -121,11 +122,11 @@ func runSeed(cfg *config.Config) {
 	if _, err := tokenRepo.Create(ctx, u.ID, raw, "seed"); err != nil {
 		slog.Info("seed: prod token already exists, skipping")
 	} else {
-		fmt.Printf("\nProduction-mode API token (copy now; not shown again):\n  %s\n", raw)
+		_, _ = fmt.Fprintf(os.Stdout, "\nProduction-mode API token (copy now; not shown again):\n  %s\n", raw)
 	}
-	fmt.Printf("\nDev-mode bearer (stable across wipes, derived from %s):\n  %s\n\n", cfg.SeedEmail, u.ID)
-	fmt.Printf("Add to your MCP config:\n")
-	fmt.Printf("  \"Authorization\": \"Bearer <token-above>\"\n\n")
+	_, _ = fmt.Fprintf(os.Stdout, "\nDev-mode bearer (stable across wipes, derived from %s):\n  %s\n\n", cfg.SeedEmail, u.ID)
+	_, _ = fmt.Fprintln(os.Stdout, "Add to your MCP config:")
+	_, _ = fmt.Fprintln(os.Stdout, "  \"Authorization\": \"Bearer <token-above>\"")
 
 	slog.Info("seed complete",
 		"user_id", u.ID,

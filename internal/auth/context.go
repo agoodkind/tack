@@ -22,13 +22,3 @@ func UserID(ctx context.Context) (uuid.UUID, bool) {
 	id, ok := ctx.Value(userKey{}).(uuid.UUID)
 	return id, ok && id != uuid.Nil
 }
-
-// MustUserID returns the authenticated user ID or panics.
-// Only use in handlers that are guaranteed to be behind the auth middleware.
-func MustUserID(ctx context.Context) uuid.UUID {
-	id, ok := UserID(ctx)
-	if !ok {
-		panic("auth: MustUserID called on unauthenticated context")
-	}
-	return id
-}

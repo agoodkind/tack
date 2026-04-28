@@ -51,8 +51,61 @@ LDFLAGS     := -s -w \
 build:
 	CGO_ENABLED=1 go build -ldflags="$(LDFLAGS)" -o bin/server ./cmd/server
 
+# check runs every gate the project enforces: build, vet, lint, unit tests,
+# vulnerability check, the staticcheck extras the clyde repo uses, deadcode,
+# and the project-specific structured-logging discipline. Overrides go.mk's
+# check on purpose so all gates land in one target.
 .PHONY: check
-check: build vet lint test
+check: build vet lint test govulncheck staticcheck deadcode lint-logging
+
+# Static analysis with the clyde-staticcheck analyzer set. Same flags mwan/go
+# uses so all three Go services in this monorepo enforce the same extras.
+# clyde-staticcheck lives in the clyde repo because the analyzer code is owned
+# there; tack consumes it by building that binary on demand. Override
+# STATICCHECK_BUILD_REPO if your clyde checkout lives elsewhere.
+STATICCHECK_BUILD_REPO ?= $(HOME)/Sites/clyde-dev/clyde
+STATICCHECK_BUILD_PKG  ?= ./cmd/clyde-staticcheck
+# Same analyzers clyde and mwan run, minus -no_any_or_empty_interface.
+# Tack's MCP boundary takes arbitrary JSON tool inputs through the
+# google/jsonschema-go path; that boundary is fundamentally any-typed and
+# cannot be replaced with a closed enum. The other analyzers still apply.
+STATICCHECK_FLAGS      ?= -slog_error_without_err -banned_direct_output \
+	-hot_loop_info_log -missing_boundary_log
+STATICCHECK_BIN        := $(shell go env GOPATH)/bin/clyde-staticcheck
+
+.PHONY: staticcheck
+staticcheck:
+	@if [ ! -d "$(STATICCHECK_BUILD_REPO)" ]; then \
+		echo "skipping staticcheck: $(STATICCHECK_BUILD_REPO) not found" >&2; \
+		exit 0; \
+	fi
+	@cd $(STATICCHECK_BUILD_REPO) && go build -o $(STATICCHECK_BIN) $(STATICCHECK_BUILD_PKG)
+	@$(STATICCHECK_BIN) $(STATICCHECK_FLAGS) ./...
+
+# Find unreachable functions. Build first so deadcode sees the same package
+# graph the build did. Test-only helpers reachable only from _test.go files
+# are filtered out: deadcode does not load tests in its analysis, so they
+# read as unreachable here. Anything else that lands flagged is real dead
+# code and the gate fails.
+.PHONY: deadcode
+deadcode: build
+	@out=$$(go run golang.org/x/tools/cmd/deadcode@latest ./... | grep -Ev \
+		-e 'internal/test/integration/' \
+		-e 'internal/adapters/foundationdb/keys.go:.*(SetTestPrefix|TestPrefixRange)' \
+		); \
+	if [ -n "$$out" ]; then \
+		echo "$$out"; exit 1; \
+	fi
+
+# Informational complexity + vulnerability scan. Not part of check by default
+# because gocyclo can fire on legitimate code; keep it as a separate signal.
+.PHONY: audit
+audit:
+	@echo "=== Cyclomatic complexity (>15) ==="
+	@go run github.com/fzipp/gocyclo/cmd/gocyclo@latest -over 15 . || true
+	@echo
+	@echo "=== Vulnerability check ==="
+	@go run golang.org/x/vuln/cmd/govulncheck@latest ./... || true
 
 .PHONY: run
 run:

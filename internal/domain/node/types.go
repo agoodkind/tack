@@ -139,26 +139,6 @@ type DefaultChild struct {
 	Props   map[string]json.RawMessage `json:"props,omitempty"`
 }
 
-// HierarchyDepth walks CanLiveUnder to compute how deep a NodeType sits in the
-// type DAG. Types with no parents are depth 0.
-func HierarchyDepth(nt *NodeType, typeIndex map[string]*NodeType) int {
-	if len(nt.CanLiveUnder) == 0 {
-		return 0
-	}
-	maxParentDepth := -1
-	for _, parentKey := range nt.CanLiveUnder {
-		parent, ok := typeIndex[parentKey]
-		if !ok {
-			continue
-		}
-		d := HierarchyDepth(parent, typeIndex)
-		if d > maxParentDepth {
-			maxParentDepth = d
-		}
-	}
-	return maxParentDepth + 1
-}
-
 // BuildTypeIndex creates a lookup map from TypeKey (falling back to Slug) to NodeType.
 func BuildTypeIndex(types []*NodeType) map[string]*NodeType {
 	m := make(map[string]*NodeType, len(types))

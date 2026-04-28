@@ -365,12 +365,7 @@ Server configuration is environment variables only. There is no config file.
 Do not introduce TOML, YAML, JSON, or any file-based config loading.
 The `caarlos0/env` library is the correct and only config mechanism for the Go server.
 
-The Python MCP client also uses env vars only. `TACK_URL`, `TACK_TOKEN`, `TACK_LOG_LEVEL`.
-The only file path resolved from XDG is the log file location.
-
 ## Logging
-
-### Go
 
 Use `log/slog` throughout. The global logger is initialized by `telemetry.Setup`.
 Inside request handlers and services, retrieve the context logger via `telemetry.L(ctx)`.
@@ -404,27 +399,9 @@ Three levels, used strictly:
 
 Log message names use `noun.verb` dot notation: `issue.created`, `hook.blocked`, `worker.started`.
 
-### Python
-
-Use the `logging` module with the `JsonFormatter` from `tack_mcp_client/log.py`.
-Every step in the bridge logs: startup, stdin receipt, HTTP request, HTTP response, stdout write, EOF.
-Pass context as `extra={}` kwargs so they appear as top-level JSON fields.
-
-```python
-# Correct
-logger.info("bridge.request", extra={"url": url, "session_id": session_id, "msg_len": len(raw_message)})
-
-# Wrong
-logger.info(f"sending to {url}")
-```
-
 ## XDG Base Directories
 
 XDG applies to file paths (log files), never to configuration values.
-
-For the Python client:
-- Log file: `$XDG_STATE_HOME/tack/mcp-client.log` (default `~/.local/state/tack/mcp-client.log`)
-- Implemented in `tack_mcp_client/xdg.py`
 
 The Go server's `LOG_FILE` env var can be pointed at any path. The systemd unit and
 docker-compose use explicit paths. There is no XDG resolution server-side.

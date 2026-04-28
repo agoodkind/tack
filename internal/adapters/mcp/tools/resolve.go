@@ -69,10 +69,7 @@ func (r *Resolver) EntryPointParamName() string {
 func (r *Resolver) ScopeChainForType(nt *node.NodeType) []ScopeLevel {
 	var chain []ScopeLevel
 	current := nt
-	for {
-		if len(current.CanLiveUnder) == 0 {
-			break
-		}
+	for len(current.CanLiveUnder) > 0 {
 		parentKey := current.CanLiveUnder[0]
 		parent := r.typeIndex[parentKey]
 		if parent == nil {
@@ -174,28 +171,6 @@ func (r *Resolver) WorkspacesForUser(ctx context.Context, userID uuid.UUID) ([]*
 	return all, nil
 }
 
-// ViewSlug extracts the slug from a node view's Props.
-func ViewSlug(v *node.NodeView) string {
-	return stringProp(v, "slug")
-}
-
-// ViewIdentifier extracts the identifier from a node view's Props.
-func ViewIdentifier(v *node.NodeView) string {
-	return stringProp(v, "identifier")
-}
-
-func stringProp(v *node.NodeView, key string) string {
-	if v == nil || v.Props == nil {
-		return ""
-	}
-	raw, ok := v.Props[key]
-	if !ok {
-		return ""
-	}
-	var s string
-	_ = json.Unmarshal(raw, &s)
-	return s
-}
 
 // ResolveNodeID accepts a UUID, a slug-resolvable identifier, or a sequence-style
 // identifier (e.g. "TACK-65"), and returns the node UUID.
