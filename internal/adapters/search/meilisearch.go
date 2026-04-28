@@ -64,7 +64,14 @@ func (c *Client) Delete(_ context.Context, collection, id string) error {
 }
 
 // Search returns NodeDocs matching query, scoped by equality filters, plus
-// facet counts for entity_type and project_id.
+// facet counts on every filterable attribute the index has configured.
+//
+// Facet field choice. We could hardcode a small list (org_id, node_type)
+// here, but that drifts from EnsureIndex when callers add filterable
+// attributes. Instead the search reads the live filterableAttributes off
+// the index and asks Meilisearch to bucket on all of them. That keeps
+// search results aligned with whatever the index actually allows.
+//
 // Returns a non-nil empty slice when the search succeeded but matched nothing.
 // All NodeDoc fields are populated from the indexed document; no FDB reads needed.
 func (c *Client) Search(_ context.Context, collection, query string, filters map[string]string) ([]domainsearch.NodeDoc, map[string]map[string]int64, error) {
@@ -73,7 +80,15 @@ func (c *Client) Search(_ context.Context, collection, query string, filters map
 		filterParts = append(filterParts, fmt.Sprintf(`%s = "%s"`, k, v))
 	}
 
-	facetFields := []string{"entity_type", "project_id"}
+	rawFacets, err := c.meili.Index(collection).GetFilterableAttributes()
+	var facetFields []string
+	if err == nil && rawFacets != nil {
+		for _, v := range *rawFacets {
+			if s, ok := v.(string); ok {
+				facetFields = append(facetFields, s)
+			}
+		}
+	}
 	res, err := c.meili.Index(collection).Search(query, &meilisearch.SearchRequest{
 		Filter: strings.Join(filterParts, " AND "),
 		Limit:  200,

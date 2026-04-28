@@ -189,13 +189,35 @@ func defaultPropertyDefs(orgID uuid.UUID) []*node.PropertyDef {
 // seeding writes the same record.
 func defaultNodeTypes(orgID uuid.UUID) []*node.NodeType {
 	type spec struct {
-		slug         string
-		pluralSlug   string
-		name         string
-		typeKey      string
-		features     node.Features
-		canContain   []string
-		canLiveUnder []string
+		slug            string
+		pluralSlug      string
+		name            string
+		typeKey         string
+		features        node.Features
+		canContain      []string
+		canLiveUnder    []string
+		defaultChildren []node.DefaultChild
+	}
+	stateChild := func(name, group, color string, sortOrder int) node.DefaultChild {
+		groupRaw, _ := json.Marshal(group)
+		colorRaw, _ := json.Marshal(color)
+		sortRaw, _ := json.Marshal(sortOrder)
+		return node.DefaultChild{
+			TypeKey: nodeTypeState,
+			Name:    name,
+			Props: map[string]json.RawMessage{
+				"group":      groupRaw,
+				"color":      colorRaw,
+				"sort_order": sortRaw,
+			},
+		}
+	}
+	projectDefaultStates := []node.DefaultChild{
+		stateChild("Backlog", "backlog", "#9CA3AF", 0),
+		stateChild("Todo", "unstarted", "#6B7280", 1),
+		stateChild("In Progress", "started", "#3B82F6", 2),
+		stateChild("Done", "completed", "#10B981", 3),
+		stateChild("Cancelled", "cancelled", "#EF4444", 4),
 	}
 	issueFeatures := node.Features{
 		node.FeatureHasSequenceID, node.FeatureHasWorkflowStates,
@@ -219,34 +241,35 @@ func defaultNodeTypes(orgID uuid.UUID) []*node.NodeType {
 	}
 
 	specs := []spec{
-		{"org", "orgs", "Org", nodeTypeOrg, orgFeatures, []string{nodeTypeWorkspace}, nil},
-		{"workspace", "workspaces", "Workspace", nodeTypeWorkspace, workspaceFeatures, []string{nodeTypeProject, nodeTypeLabel, nodeTypeWorkspace}, []string{nodeTypeOrg}},
-		{"project", "projects", "Project", nodeTypeProject, projectFeatures, []string{nodeTypeIssue, nodeTypeEpic, nodeTypeCycle, nodeTypeModule, nodeTypeState}, []string{nodeTypeWorkspace}},
-		{"issue", "issues", "Issue", nodeTypeIssue, issueFeatures, []string{nodeTypeComment, nodeTypeActivity}, []string{nodeTypeProject}},
-		{"epic", "epics", "Epic", nodeTypeEpic, epicFeatures, []string{nodeTypeIssue, nodeTypeComment, nodeTypeActivity}, []string{nodeTypeProject}},
-		{"cycle", "cycles", "Cycle", nodeTypeCycle, cycleFeatures, []string{nodeTypeIssue}, []string{nodeTypeProject}},
-		{"module", "modules", "Module", nodeTypeModule, moduleFeatures, []string{nodeTypeIssue}, []string{nodeTypeProject}},
-		{"state", "states", "State", nodeTypeState, nil, nil, []string{nodeTypeProject}},
-		{"label", "labels", "Label", nodeTypeLabel, nil, nil, []string{nodeTypeWorkspace}},
-		{"comment", "comments", "Comment", nodeTypeComment, nil, nil, []string{nodeTypeIssue, nodeTypeEpic}},
-		{"activity", "activities", "Activity", nodeTypeActivity, nil, nil, []string{nodeTypeIssue, nodeTypeEpic, nodeTypeCycle, nodeTypeModule}},
+		{"org", "orgs", "Org", nodeTypeOrg, orgFeatures, []string{nodeTypeWorkspace}, nil, nil},
+		{"workspace", "workspaces", "Workspace", nodeTypeWorkspace, workspaceFeatures, []string{nodeTypeProject, nodeTypeLabel, nodeTypeWorkspace}, []string{nodeTypeOrg}, nil},
+		{"project", "projects", "Project", nodeTypeProject, projectFeatures, []string{nodeTypeIssue, nodeTypeEpic, nodeTypeCycle, nodeTypeModule, nodeTypeState}, []string{nodeTypeWorkspace}, projectDefaultStates},
+		{"issue", "issues", "Issue", nodeTypeIssue, issueFeatures, []string{nodeTypeComment, nodeTypeActivity}, []string{nodeTypeProject}, nil},
+		{"epic", "epics", "Epic", nodeTypeEpic, epicFeatures, []string{nodeTypeIssue, nodeTypeComment, nodeTypeActivity}, []string{nodeTypeProject}, nil},
+		{"cycle", "cycles", "Cycle", nodeTypeCycle, cycleFeatures, []string{nodeTypeIssue}, []string{nodeTypeProject}, nil},
+		{"module", "modules", "Module", nodeTypeModule, moduleFeatures, []string{nodeTypeIssue}, []string{nodeTypeProject}, nil},
+		{"state", "states", "State", nodeTypeState, nil, nil, []string{nodeTypeProject}, nil},
+		{"label", "labels", "Label", nodeTypeLabel, nil, nil, []string{nodeTypeWorkspace}, nil},
+		{"comment", "comments", "Comment", nodeTypeComment, nil, nil, []string{nodeTypeIssue, nodeTypeEpic}, nil},
+		{"activity", "activities", "Activity", nodeTypeActivity, nil, nil, []string{nodeTypeIssue, nodeTypeEpic, nodeTypeCycle, nodeTypeModule}, nil},
 	}
 
 	types := make([]*node.NodeType, 0, len(specs))
 	for _, sp := range specs {
 		id := uuid.NewSHA1(builtinTypeNamespace, []byte(orgID.String()+":"+sp.slug))
 		types = append(types, &node.NodeType{
-			ID:           id,
-			OrgID:        orgID,
-			Name:         sp.name,
-			Slug:         sp.slug,
-			PluralSlug:   sp.pluralSlug,
-			IsBuiltin:    true,
-			TypeKey:      sp.typeKey,
-			AllowedOps:   node.AllOps,
-			Features:     sp.features,
-			CanContain:   sp.canContain,
-			CanLiveUnder: sp.canLiveUnder,
+			ID:              id,
+			OrgID:           orgID,
+			Name:            sp.name,
+			Slug:            sp.slug,
+			PluralSlug:      sp.pluralSlug,
+			IsBuiltin:       true,
+			TypeKey:         sp.typeKey,
+			AllowedOps:      node.AllOps,
+			Features:        sp.features,
+			CanContain:      sp.canContain,
+			CanLiveUnder:    sp.canLiveUnder,
+			DefaultChildren: sp.defaultChildren,
 		})
 	}
 	return types

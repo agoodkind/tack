@@ -123,6 +123,20 @@ type NodeType struct {
 	Features     Features `json:"features,omitempty"`
 	CanContain   []string `json:"can_contain,omitempty"`
 	CanLiveUnder []string `json:"can_live_under,omitempty"`
+	// DefaultChildren lists nodes that should be auto-created under any new
+	// instance of this type. Empty by default: no NodeType implies any
+	// automatic child creation unless the seed (or a later edit) declares
+	// it explicitly. Used so a freshly created project gets a starter set
+	// of states without baking those state names into Go code.
+	DefaultChildren []DefaultChild `json:"default_children,omitempty"`
+}
+
+// DefaultChild names a child node to auto-create. Props is a JSON object that
+// is merged into the child's Props before create.
+type DefaultChild struct {
+	TypeKey string                     `json:"type_key"`
+	Name    string                     `json:"name"`
+	Props   map[string]json.RawMessage `json:"props,omitempty"`
 }
 
 // HierarchyDepth walks CanLiveUnder to compute how deep a NodeType sits in the

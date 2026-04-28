@@ -251,6 +251,33 @@ func (s *NodeService) Create(ctx context.Context, in CreateInput) (*CreateResult
 		log.Warn("node.Create: search index", slog.String("err", err.Error()))
 	}
 
+	// Default children: when this NodeType declares DefaultChildren, fan out
+	// one Create per child under the node we just created. Failures are
+	// logged but never fatal; a partial set of defaults is better than
+	// rolling back the parent. Default children are resolved by TypeKey
+	// against the same org so the seed's spelling stays the source of truth.
+	for _, dc := range nt.DefaultChildren {
+		childProps := make(map[string]json.RawMessage, len(dc.Props))
+		for k, v := range dc.Props {
+			childProps[k] = v
+		}
+		if _, err := s.Create(ctx, CreateInput{
+			ParentID:    id,
+			ScopeID:     id,
+			NodeTypeKey: dc.TypeKey,
+			Name:        dc.Name,
+			Props:       childProps,
+			ActorID:     in.ActorID,
+		}); err != nil {
+			log.Warn("node.Create: default child",
+				slog.String("parent_type", nt.TypeKey),
+				slog.String("child_type", dc.TypeKey),
+				slog.String("child_name", dc.Name),
+				slog.String("err", err.Error()),
+			)
+		}
+	}
+
 	log.Info("node.Create",
 		slog.String("node_id", id.String()),
 		slog.String("node_type", nt.TypeKey),
