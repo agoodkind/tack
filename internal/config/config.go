@@ -59,6 +59,12 @@ type Config struct {
 	AuditReaderDSN   string `env:"AUDIT_READER_DSN"`
 	AuditRedactorDSN string `env:"AUDIT_REDACTOR_DSN"`
 
+	// AuditSigningKeyPath points at a PEM-encoded Ed25519 private key used
+	// by the notarizer to sign per-org Merkle roots. Generate with:
+	//   ./server gen-audit-key /etc/tack/audit-signing.pem
+	// Empty disables the notarizer.
+	AuditSigningKeyPath string `env:"AUDIT_SIGNING_KEY_PATH"`
+
 	// WAL directory for read-class audit events. Empty falls back to
 	// $XDG_STATE_HOME/tack/audit-wal (typically /var/lib/tack/audit-wal in
 	// the production container). Set to "-" to disable the WAL entirely

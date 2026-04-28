@@ -70,6 +70,23 @@ func main() {
 		case "ops":
 			runOps(cfg, os.Args[2:])
 			return
+		case "audit-export":
+			runAuditExport(cfg, os.Args[2:])
+			return
+		case "audit-verify":
+			runAuditVerify(os.Args[2:])
+			return
+		case "gen-audit-key":
+			if len(os.Args) < 3 {
+				slog.Error("gen-audit-key", "err", "usage: server gen-audit-key <output.pem>")
+				os.Exit(1)
+			}
+			if err := audit.GenerateAuditSigningKey(os.Args[2]); err != nil {
+				slog.Error("gen-audit-key", "err", err)
+				os.Exit(1)
+			}
+			slog.Info("gen-audit-key", "path", os.Args[2])
+			return
 		}
 	}
 
@@ -123,6 +140,11 @@ func runServer(cfg *config.Config) {
 			auditRedactor.Close()
 		}
 	}()
+	notarizer := buildAuditNotarizer(ctx, cfg)
+	if notarizer != nil {
+		notarizer.Start(ctx)
+		defer func() { _ = notarizer.Close() }()
+	}
 	defer func() {
 		switch c := auditRec.(type) {
 		case interface{ Close() error }:
@@ -311,4 +333,24 @@ func buildAuditRedactor(ctx context.Context, cfg *config.Config) *audit.Redactor
 	}
 	slog.Info("audit.redactor_connected")
 	return rd
+}
+
+// buildAuditNotarizer assembles the periodic Merkle-root notarizer when a
+// signing key path is configured. Reuses the audit_writer DSN.
+func buildAuditNotarizer(ctx context.Context, cfg *config.Config) *audit.Notarizer {
+	if cfg.AuditSigningKeyPath == "" || cfg.AuditWriterDSN == "" {
+		slog.Info("audit.notarizer_disabled",
+			slog.String("reason", "AUDIT_SIGNING_KEY_PATH or AUDIT_WRITER_DSN unset"),
+		)
+		return nil
+	}
+	n, err := audit.NewNotarizer(ctx, cfg.AuditWriterDSN, audit.NotarizerConfig{
+		SigningKeyPath: cfg.AuditSigningKeyPath,
+	})
+	if err != nil {
+		slog.Error("audit.notarizer_setup_failed", slog.String("err", err.Error()))
+		return nil
+	}
+	slog.Info("audit.notarizer_started", slog.String("key_path", cfg.AuditSigningKeyPath))
+	return n
 }
