@@ -54,40 +54,35 @@ func RegisterNodeTools(s *mcpserver.MCPServer, nt *node.NodeType, b NodeTypeBind
 }
 
 func listTool(plural string, chain []ScopeLevel, epParam string) mcpmcp.Tool {
-	props := map[string]any{
-		epParam: map[string]any{"type": "string"},
-	}
+	fields := []schemaField{{Name: epParam, Type: schemaString}}
 	required := []string{epParam}
 	for _, level := range chain {
-		props[level.ParamName] = map[string]any{"type": "string"}
+		fields = append(fields, schemaField{Name: level.ParamName, Type: schemaString})
 		required = append(required, level.ParamName)
 	}
 	return mcpmcp.Tool{
 		Name:        fmt.Sprintf("tack_list_%s", plural),
 		Description: fmt.Sprintf("Lists %s under the given scope.", plural),
-		InputSchema: mcpmcp.ToolInputSchema{Type: "object", Properties: props, Required: required},
+		InputSchema: schema{Fields: fields, Required: required}.toMCP(),
 	}
 }
 
 func createTool(nt *node.NodeType, slug string, chain []ScopeLevel, epParam string) mcpmcp.Tool {
-	props := map[string]any{
-		epParam:      map[string]any{"type": "string"},
-		"name":       map[string]any{"type": "string"},
-		"properties": map[string]any{"type": "object", "description": "Property values keyed by name"},
-		"idempotency_key": map[string]any{
-			"type":        "string",
-			"description": "Optional. When provided, a retry with the same key returns the previously created node instead of creating a duplicate.",
-		},
+	fields := []schemaField{
+		{Name: epParam, Type: schemaString},
+		{Name: "name", Type: schemaString},
+		{Name: "properties", Type: schemaObject, Desc: "Property values keyed by name"},
+		{Name: "idempotency_key", Type: schemaString, Desc: "Optional. When provided, a retry with the same key returns the previously created node instead of creating a duplicate."},
 	}
 	required := []string{epParam, "name"}
 	for _, level := range chain {
-		props[level.ParamName] = map[string]any{"type": "string"}
+		fields = append(fields, schemaField{Name: level.ParamName, Type: schemaString})
 		required = append(required, level.ParamName)
 	}
 	return mcpmcp.Tool{
 		Name:        fmt.Sprintf("tack_create_%s", slug),
 		Description: fmt.Sprintf("Creates a %s.", nt.Name),
-		InputSchema: mcpmcp.ToolInputSchema{Type: "object", Properties: props, Required: required},
+		InputSchema: schema{Fields: fields, Required: required}.toMCP(),
 	}
 }
 
@@ -95,11 +90,10 @@ func getTool(nt *node.NodeType, slug string) mcpmcp.Tool {
 	return mcpmcp.Tool{
 		Name:        fmt.Sprintf("tack_get_%s", slug),
 		Description: fmt.Sprintf("Gets a %s by ID or identifier like TACK-65.", nt.Name),
-		InputSchema: mcpmcp.ToolInputSchema{
-			Type:       "object",
-			Properties: map[string]any{"node_id": map[string]any{"type": "string"}},
-			Required:   []string{"node_id"},
-		},
+		InputSchema: schema{
+			Fields:   []schemaField{{Name: "node_id", Type: schemaString}},
+			Required: []string{"node_id"},
+		}.toMCP(),
 	}
 }
 
@@ -107,15 +101,14 @@ func updateTool(nt *node.NodeType, slug string) mcpmcp.Tool {
 	return mcpmcp.Tool{
 		Name:        fmt.Sprintf("tack_update_%s", slug),
 		Description: fmt.Sprintf("Updates a %s. Only provided fields change.", nt.Name),
-		InputSchema: mcpmcp.ToolInputSchema{
-			Type: "object",
-			Properties: map[string]any{
-				"node_id":    map[string]any{"type": "string"},
-				"name":       map[string]any{"type": "string"},
-				"properties": map[string]any{"type": "object"},
+		InputSchema: schema{
+			Fields: []schemaField{
+				{Name: "node_id", Type: schemaString},
+				{Name: "name", Type: schemaString},
+				{Name: "properties", Type: schemaObject},
 			},
 			Required: []string{"node_id"},
-		},
+		}.toMCP(),
 	}
 }
 
@@ -123,18 +116,23 @@ func deleteTool(nt *node.NodeType, slug string) mcpmcp.Tool {
 	return mcpmcp.Tool{
 		Name:        fmt.Sprintf("tack_delete_%s", slug),
 		Description: fmt.Sprintf("Deletes a %s.", nt.Name),
-		InputSchema: mcpmcp.ToolInputSchema{
-			Type:       "object",
-			Properties: map[string]any{"node_id": map[string]any{"type": "string"}},
-			Required:   []string{"node_id"},
-		},
+		InputSchema: schema{
+			Fields:   []schemaField{{Name: "node_id", Type: schemaString}},
+			Required: []string{"node_id"},
+		}.toMCP(),
 	}
 }
 
 func listHandler(nt *node.NodeType, chain []ScopeLevel, epParam string, b NodeTypeBinding) mcpserver.ToolHandlerFunc {
 	return func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
-		args := req.GetArguments()
-		epSlug, _ := args[epParam].(string)
+		args, err := bindArgs(req)
+		if err != nil {
+			return recoverableError(err.Error()), nil
+		}
+		epSlug, ok := requireString(args, epParam)
+		if !ok {
+			return recoverableError(epParam + " is required"), nil
+		}
 		ws, err := b.Resolver.Workspace(ctx, epSlug)
 		if err != nil {
 			return classifyError(ctx, err), nil
@@ -147,8 +145,8 @@ func listHandler(nt *node.NodeType, chain []ScopeLevel, epParam string, b NodeTy
 		if len(chain) > 0 {
 			parent := ws
 			for _, level := range chain {
-				ident, _ := args[level.ParamName].(string)
-				if ident == "" {
+				ident, ok := requireString(args, level.ParamName)
+				if !ok {
 					return recoverableError(level.ParamName + " is required"), nil
 				}
 				parent, err = b.Resolver.ResolveScope(ctx, parent, level, ident)
@@ -174,13 +172,16 @@ func listHandler(nt *node.NodeType, chain []ScopeLevel, epParam string, b NodeTy
 		if plural == "" {
 			plural = nt.Slug + "s"
 		}
-		return success(map[string]any{plural: views}, ""), nil
+		return successWrapped(plural, views, nil, ""), nil
 	}
 }
 
 func createHandler(nt *node.NodeType, chain []ScopeLevel, epParam string, b NodeTypeBinding) mcpserver.ToolHandlerFunc {
 	return func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
-		args := req.GetArguments()
+		args, err := bindArgs(req)
+		if err != nil {
+			return recoverableError(err.Error()), nil
+		}
 		epSlug, ok := requireString(args, epParam)
 		if !ok {
 			return recoverableError(epParam + " is required"), nil
@@ -201,8 +202,8 @@ func createHandler(nt *node.NodeType, chain []ScopeLevel, epParam string, b Node
 		if len(chain) > 0 {
 			parent := ws
 			for _, level := range chain {
-				ident, _ := args[level.ParamName].(string)
-				if ident == "" {
+				ident, ok := requireString(args, level.ParamName)
+				if !ok {
 					return recoverableError(level.ParamName + " is required"), nil
 				}
 				parent, err = b.Resolver.ResolveScope(ctx, parent, level, ident)
@@ -246,7 +247,7 @@ func createHandler(nt *node.NodeType, chain []ScopeLevel, epParam string, b Node
 			delete(rawProps, "parent_id")
 		}
 
-		idempotencyKey, _ := args["idempotency_key"].(string)
+		idempotencyKey := optionalString(args, "idempotency_key")
 		result, err := b.NodeSvc.Create(ctx, service.CreateInput{
 			ParentID:       parentID,
 			ScopeID:        scopeID,
@@ -259,15 +260,13 @@ func createHandler(nt *node.NodeType, chain []ScopeLevel, epParam string, b Node
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
-		payload := map[string]any{nt.Slug: result.View}
-		if result.Existed {
-			payload["already_existed"] = true
-		}
+		var extras map[string]json.RawMessage
 		instr := ""
 		if result.Existed {
+			extras = map[string]json.RawMessage{"already_existed": json.RawMessage(`true`)}
 			instr = "Idempotency key matched; returning the existing node. No new write was performed."
 		}
-		return success(payload, instr), nil
+		return successWrapped(nt.Slug, result.View, extras, instr), nil
 	}
 }
 
@@ -292,14 +291,14 @@ func getHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFunc 
 		if view == nil {
 			return classifyError(ctx, domain.ErrNotFound), nil
 		}
-		return success(map[string]any{nt.Slug: view}, ""), nil
+		return successWrapped(nt.Slug, view, nil, ""), nil
 	}
 }
 
 // updateInput omits Properties on purpose. BindArguments cannot reliably
 // preserve a stringified JSON payload through its mapstructure-style decoder
 // across different MCP transports. The handler reads properties straight
-// from req.GetArguments() and routes through parseProps. See TACK-165.
+// from the typed argMap and routes through parseProps. See TACK-165.
 type updateInput struct {
 	NodeID string  `json:"node_id"`
 	Name   *string `json:"name,omitempty"`
@@ -320,7 +319,10 @@ func updateHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFu
 			return classifyError(ctx, err), nil
 		}
 
-		args := req.GetArguments()
+		args, err := bindArgs(req)
+		if err != nil {
+			return recoverableError(err.Error()), nil
+		}
 		rawProps, err := parseProps(args["properties"])
 		if err != nil {
 			return recoverableError("invalid properties payload: " + err.Error()), nil
@@ -335,7 +337,7 @@ func updateHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFu
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
-		return success(map[string]any{nt.Slug: view}, ""), nil
+		return successWrapped(nt.Slug, view, nil, ""), nil
 	}
 }
 
@@ -360,7 +362,7 @@ func deleteHandler(b NodeTypeBinding) mcpserver.ToolHandlerFunc {
 		if err := b.NodeSvc.Delete(ctx, id, userID); err != nil {
 			return classifyError(ctx, err), nil
 		}
-		return success(map[string]any{"ok": true}, ""), nil
+		return successJSON(okResp{OK: true}, ""), nil
 	}
 }
 

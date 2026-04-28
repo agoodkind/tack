@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/google/uuid"
 	mcpmcp "github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"goodkind.io/tack/internal/domain/node"
@@ -13,14 +12,42 @@ import (
 	"goodkind.io/tack/internal/domain/user"
 )
 
+// workspacesResp is the response body for tack_list_workspaces.
+type workspacesResp struct {
+	Workspaces []*node.NodeView `json:"workspaces"`
+}
+
+// nodeTypeSummary is the per-NodeType payload returned by tack_describe_*.
+// Mirrors the small subset of NodeType the MCP layer needs (slug, plural,
+// human name, features) without exposing the full NodeType struct, which
+// includes org-internal fields like ID.
+type nodeTypeSummary struct {
+	Slug       string   `json:"slug"`
+	PluralSlug string   `json:"plural_slug,omitempty"`
+	Name       string   `json:"name"`
+	Features   []string `json:"features"`
+}
+
+// describeResp is the response body for tack_describe_<workspace>.
+type describeResp struct {
+	Workspace *node.NodeView    `json:"workspace"`
+	NodeTypes []nodeTypeSummary `json:"node_types"`
+	Children  []*node.NodeView  `json:"children"`
+}
+
+// membersResp is the response body for tack_list_members.
+type membersResp struct {
+	Members []*user.User `json:"members"`
+}
+
 // RegisterWorkspace registers tack_list_workspaces and tack_describe_workspace
 // using only generic primitives.
 func RegisterWorkspace(s *mcpserver.MCPServer, reader node.NodeReader, resolver *Resolver, nodeTypes []*node.NodeType) {
-	registerTool(s, 
+	registerTool(s,
 		mcpmcp.Tool{
 			Name:        "tack_list_workspaces",
 			Description: "Lists workspaces the caller has access to.",
-			InputSchema: mcpmcp.ToolInputSchema{Type: "object", Properties: map[string]any{}},
+			InputSchema: schema{}.toMCP(),
 		},
 		func(ctx context.Context, _ mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
 			userID, err := mustUser(ctx)
@@ -31,22 +58,24 @@ func RegisterWorkspace(s *mcpserver.MCPServer, reader node.NodeReader, resolver 
 			if err != nil {
 				return classifyError(ctx, err), nil
 			}
-			return success(map[string]any{"workspaces": wss}, ""), nil
+			return successJSON(workspacesResp{Workspaces: wss}, ""), nil
 		},
 	)
 
-	registerTool(s, 
+	registerTool(s,
 		mcpmcp.Tool{
 			Name:        fmt.Sprintf("tack_describe_%s", resolver.entryPointSlug),
 			Description: "Describes a workspace: its node types, property defs, and direct children.",
-			InputSchema: mcpmcp.ToolInputSchema{
-				Type:       "object",
-				Properties: map[string]any{resolver.EntryPointParamName(): map[string]any{"type": "string"}},
-				Required:   []string{resolver.EntryPointParamName()},
-			},
+			InputSchema: schema{
+				Fields:   []schemaField{{Name: resolver.EntryPointParamName(), Type: schemaString}},
+				Required: []string{resolver.EntryPointParamName()},
+			}.toMCP(),
 		},
 		func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
-			args := req.GetArguments()
+			args, err := bindArgs(req)
+			if err != nil {
+				return recoverableError(err.Error()), nil
+			}
 			slug, ok := requireString(args, resolver.EntryPointParamName())
 			if !ok {
 				return recoverableError(resolver.EntryPointParamName() + " is required"), nil
@@ -55,18 +84,17 @@ func RegisterWorkspace(s *mcpserver.MCPServer, reader node.NodeReader, resolver 
 			if err != nil {
 				return classifyError(ctx, err), nil
 			}
-			// Direct children: nodes with Props["parent_id"] == ws.ID.
 			parentIDRaw, _ := json.Marshal(ws.ID.String())
-			types := make([]map[string]any, 0, len(nodeTypes))
+			types := make([]nodeTypeSummary, 0, len(nodeTypes))
 			for _, nt := range nodeTypes {
 				if nt.OrgID != ws.OrgID {
 					continue
 				}
-				types = append(types, map[string]any{
-					"slug":        nt.Slug,
-					"plural_slug": nt.PluralSlug,
-					"name":        nt.Name,
-					"features":    nt.Features,
+				types = append(types, nodeTypeSummary{
+					Slug:       nt.Slug,
+					PluralSlug: nt.PluralSlug,
+					Name:       nt.Name,
+					Features:   []string(nt.Features),
 				})
 			}
 			children, _ := reader.List(ctx, node.NodeListQuery{
@@ -75,10 +103,10 @@ func RegisterWorkspace(s *mcpserver.MCPServer, reader node.NodeReader, resolver 
 					{PropName: "parent_id", Value: parentIDRaw},
 				},
 			})
-			return success(map[string]any{
-				"workspace":  ws,
-				"node_types": types,
-				"children":   children,
+			return successJSON(describeResp{
+				Workspace: ws,
+				NodeTypes: types,
+				Children:  children,
 			}, ""), nil
 		},
 	)
@@ -86,18 +114,20 @@ func RegisterWorkspace(s *mcpserver.MCPServer, reader node.NodeReader, resolver 
 
 // RegisterMembers registers tack_list_members.
 func RegisterMembers(s *mcpserver.MCPServer, members org.MemberRepository, users user.Repository, resolver *Resolver) {
-	registerTool(s, 
+	registerTool(s,
 		mcpmcp.Tool{
 			Name:        "tack_list_members",
 			Description: "Lists org members for the workspace's org.",
-			InputSchema: mcpmcp.ToolInputSchema{
-				Type:       "object",
-				Properties: map[string]any{resolver.EntryPointParamName(): map[string]any{"type": "string"}},
-				Required:   []string{resolver.EntryPointParamName()},
-			},
+			InputSchema: schema{
+				Fields:   []schemaField{{Name: resolver.EntryPointParamName(), Type: schemaString}},
+				Required: []string{resolver.EntryPointParamName()},
+			}.toMCP(),
 		},
 		func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
-			args := req.GetArguments()
+			args, err := bindArgs(req)
+			if err != nil {
+				return recoverableError(err.Error()), nil
+			}
 			slug, ok := requireString(args, resolver.EntryPointParamName())
 			if !ok {
 				return recoverableError(resolver.EntryPointParamName() + " is required"), nil
@@ -118,10 +148,7 @@ func RegisterMembers(s *mcpserver.MCPServer, members org.MemberRepository, users
 				}
 				usersOut = append(usersOut, u)
 			}
-			return success(map[string]any{"members": usersOut}, ""), nil
+			return successJSON(membersResp{Members: usersOut}, ""), nil
 		},
 	)
 }
-
-// Unused helper to silence imports when certain features are disabled.
-var _ = uuid.Nil

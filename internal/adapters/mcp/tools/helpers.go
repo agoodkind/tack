@@ -14,89 +14,88 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// parseProps coerces a properties payload into map[string]json.RawMessage.
-// It tolerates the three shapes the MCP transport produces.
-//
-// Shape 1 is map[string]any. That is the normal object case after JSON
-// unmarshalling.
-//
-// Shape 2 is string. Some clients (notably Claude Code via certain SDK
-// paths) stringify the inner JSON before sending. Without this branch, the
-// server silently dropped every property in tack_create_*. See TACK-161.
-//
-// Shape 3 is json.RawMessage. That is what callers see when binding through
-// a typed struct.
-//
-// Returns nil for nil or empty input. Returns an error only when v is a
-// string that is not valid JSON. An unparseable shape is the caller's bug
-// to fix at the boundary, not something to swallow.
-func parseProps(v any) (map[string]json.RawMessage, error) {
-	if v == nil {
-		return nil, nil
+// argMap is the typed shape every Tack tool handler reads its arguments
+// through. mcp-go decodes the request arguments into a generic map of raw
+// JSON values so each handler can pull out exactly the fields it needs with
+// concrete types instead of going through any.
+type argMap map[string]json.RawMessage
+
+// bindArgs decodes the tool request arguments into argMap. The conversion
+// from mcp-go's untyped request body to our typed map happens here, and
+// only here, so handler code never touches any.
+func bindArgs(req mcpmcp.CallToolRequest) (argMap, error) {
+	var m argMap
+	if err := req.BindArguments(&m); err != nil {
+		return nil, err
 	}
-	switch val := v.(type) {
-	case map[string]any:
-		out := make(map[string]json.RawMessage, len(val))
-		for k, vv := range val {
-			raw, err := json.Marshal(vv)
-			if err != nil {
-				return nil, err
-			}
-			out[k] = raw
-		}
-		return out, nil
-	case string:
-		if val == "" {
-			return nil, nil
-		}
-		// Try the object form first.
-		var inner map[string]any
-		if err := json.Unmarshal([]byte(val), &inner); err == nil {
-			return parseProps(inner)
-		}
-		// Fall back: double-encoded shape, where the string itself is a JSON
-		// string whose contents are JSON. Some LLM clients escape the
-		// payload twice when the JSONSchema declares properties as a string
-		// type. Strip one quoting layer and recurse.
-		var s string
-		if err := json.Unmarshal([]byte(val), &s); err == nil && s != val {
-			return parseProps(s)
-		}
-		return nil, errors.New("properties must be a JSON object like {\"key\": \"value\"} or a JSON-encoded string of one")
-	case json.RawMessage:
-		if len(val) == 0 {
-			return nil, nil
-		}
-		// Try the object shape first. That is the right wire form.
-		var inner map[string]any
-		if err := json.Unmarshal(val, &inner); err == nil {
-			return parseProps(inner)
-		}
-		// Fall back: some LLM transports stringify the properties value, so
-		// what arrives is a JSON string whose contents are themselves JSON.
-		// Decode the outer string layer and recurse. See TACK-165.
-		var s string
-		if err := json.Unmarshal(val, &s); err == nil {
-			return parseProps(s)
-		}
-		return nil, errors.New("properties must be a JSON object like {\"key\": \"value\"} or a JSON-encoded string of one")
-	default:
-		return nil, errors.New("properties must be an object or a JSON-encoded string")
-	}
+	return m, nil
 }
 
-// requireString reads a required string argument from the MCP args map. The
-// returned error is nil and ok==true only when the value is a non-empty
-// string. Any other shape (missing, wrong type, empty string) returns ok==
-// false so the caller can short-circuit with RecoverableError. Centralised
-// so tools cannot silently fall through with an empty string after a typed
-// assertion miss.
-func requireString(args map[string]any, name string) (string, bool) {
-	v, ok := args[name].(string)
-	if !ok || v == "" {
+// requireString reads a required string argument from argMap. The returned
+// ok==true only when the value is a non-empty string. Any other shape
+// (missing, wrong type, empty string) returns ok==false so the caller can
+// short-circuit with recoverableError. Centralised so tools cannot silently
+// fall through with an empty string after a failed assertion.
+func requireString(args argMap, name string) (string, bool) {
+	raw, ok := args[name]
+	if !ok || len(raw) == 0 {
 		return "", false
 	}
-	return v, true
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return "", false
+	}
+	if s == "" {
+		return "", false
+	}
+	return s, true
+}
+
+// optionalString reads an optional string argument from argMap. Returns ""
+// when the key is absent or the value is not a JSON string. Used for filter
+// fields where empty means "no filter".
+func optionalString(args argMap, name string) string {
+	raw, ok := args[name]
+	if !ok || len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return ""
+	}
+	return s
+}
+
+// parseProps coerces a properties payload into map[string]json.RawMessage.
+// Tolerates two shapes the MCP transport produces.
+//
+// Shape 1: object. The right wire form. raw decodes directly into the
+// returned map.
+//
+// Shape 2: string. Some clients (notably Claude Code via certain SDK
+// paths) stringify the inner JSON before sending. Without this branch, the
+// server silently dropped every property in tack_create_*. See TACK-161
+// and TACK-165.
+//
+// Returns nil for nil or empty input. Returns an error only when raw is a
+// string that is not valid JSON. An unparseable shape is the caller's bug
+// to fix at the boundary, not something to swallow.
+func parseProps(raw json.RawMessage) (map[string]json.RawMessage, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &m); err == nil {
+		return m, nil
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		if s == "" {
+			return nil, nil
+		}
+		return parseProps(json.RawMessage(s))
+	}
+	return nil, errors.New("properties must be a JSON object like {\"key\": \"value\"} or a JSON-encoded string of one")
 }
 
 func mustUser(ctx context.Context) (uuid.UUID, error) {

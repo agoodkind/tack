@@ -10,26 +10,42 @@ import (
 	"goodkind.io/tack/internal/service"
 )
 
+// okResp is the response body for a relationship add or remove. The shape is
+// a single boolean, but typing it keeps the success helper away from any
+// untyped maps even for trivial payloads.
+type okResp struct {
+	OK bool `json:"ok"`
+}
+
+// relationshipsResp is the response body for tack_list_relationships.
+type relationshipsResp struct {
+	Relationships []*node.Relationship `json:"relationships"`
+}
+
 // RegisterRelationship registers tack_add_relationship / tack_remove_relationship /
 // tack_list_relationships. RelationType is arbitrary; seeds define the
 // conventional strings (assigned_to, labeled_with, child_of, etc.).
 func RegisterRelationship(s *mcpserver.MCPServer, svc *service.NodeService, rels node.RelationshipRepository, resolver *Resolver) {
-	registerTool(s, 
+	addRemove := schema{
+		Fields: []schemaField{
+			{Name: "source_id", Type: schemaString},
+			{Name: "relation_type", Type: schemaString},
+			{Name: "target_id", Type: schemaString},
+		},
+		Required: []string{"source_id", "relation_type", "target_id"},
+	}.toMCP()
+
+	registerTool(s,
 		mcpmcp.Tool{
 			Name:        "tack_add_relationship",
 			Description: "Adds a directed relationship between two nodes. relation_type is free-form (e.g. assigned_to, labeled_with, child_of, watches).",
-			InputSchema: mcpmcp.ToolInputSchema{
-				Type: "object",
-				Properties: map[string]any{
-					"source_id":     map[string]any{"type": "string"},
-					"relation_type": map[string]any{"type": "string"},
-					"target_id":     map[string]any{"type": "string"},
-				},
-				Required: []string{"source_id", "relation_type", "target_id"},
-			},
+			InputSchema: addRemove,
 		},
 		func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
-			args := req.GetArguments()
+			args, err := bindArgs(req)
+			if err != nil {
+				return recoverableError(err.Error()), nil
+			}
 			sourceIn, ok := requireString(args, "source_id")
 			if !ok {
 				return recoverableError("source_id is required"), nil
@@ -69,26 +85,21 @@ func RegisterRelationship(s *mcpserver.MCPServer, svc *service.NodeService, rels
 			}); err != nil {
 				return classifyError(ctx, err), nil
 			}
-			return success(map[string]any{"ok": true}, ""), nil
+			return successJSON(okResp{OK: true}, ""), nil
 		},
 	)
 
-	registerTool(s, 
+	registerTool(s,
 		mcpmcp.Tool{
 			Name:        "tack_remove_relationship",
 			Description: "Removes a directed relationship between two nodes.",
-			InputSchema: mcpmcp.ToolInputSchema{
-				Type: "object",
-				Properties: map[string]any{
-					"source_id":     map[string]any{"type": "string"},
-					"relation_type": map[string]any{"type": "string"},
-					"target_id":     map[string]any{"type": "string"},
-				},
-				Required: []string{"source_id", "relation_type", "target_id"},
-			},
+			InputSchema: addRemove,
 		},
 		func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
-			args := req.GetArguments()
+			args, err := bindArgs(req)
+			if err != nil {
+				return recoverableError(err.Error()), nil
+			}
 			sourceIn, ok := requireString(args, "source_id")
 			if !ok {
 				return recoverableError("source_id is required"), nil
@@ -117,32 +128,34 @@ func RegisterRelationship(s *mcpserver.MCPServer, svc *service.NodeService, rels
 			if err := svc.RemoveRelationship(ctx, resolve.OrgID, sourceID, relType, targetID); err != nil {
 				return classifyError(ctx, err), nil
 			}
-			return success(map[string]any{"ok": true}, ""), nil
+			return successJSON(okResp{OK: true}, ""), nil
 		},
 	)
 
-	registerTool(s, 
+	registerTool(s,
 		mcpmcp.Tool{
 			Name:        "tack_list_relationships",
 			Description: "Lists relationships where the given node is source (direction=out) or target (direction=in). Optional relation_type filter.",
-			InputSchema: mcpmcp.ToolInputSchema{
-				Type: "object",
-				Properties: map[string]any{
-					"node_id":       map[string]any{"type": "string"},
-					"direction":     map[string]any{"type": "string", "enum": []string{"out", "in"}},
-					"relation_type": map[string]any{"type": "string"},
+			InputSchema: schema{
+				Fields: []schemaField{
+					{Name: "node_id", Type: schemaString},
+					{Name: "direction", Type: schemaString, Enum: []string{"out", "in"}},
+					{Name: "relation_type", Type: schemaString},
 				},
 				Required: []string{"node_id"},
-			},
+			}.toMCP(),
 		},
 		func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
-			args := req.GetArguments()
+			args, err := bindArgs(req)
+			if err != nil {
+				return recoverableError(err.Error()), nil
+			}
 			nodeIn, ok := requireString(args, "node_id")
 			if !ok {
 				return recoverableError("node_id is required"), nil
 			}
-			direction, _ := args["direction"].(string)
-			relType, _ := args["relation_type"].(string)
+			direction := optionalString(args, "direction")
+			relType := optionalString(args, "relation_type")
 
 			nodeID, err := resolver.ResolveNodeID(ctx, nodeIn)
 			if err != nil {
@@ -161,7 +174,7 @@ func RegisterRelationship(s *mcpserver.MCPServer, svc *service.NodeService, rels
 			if err != nil {
 				return classifyError(ctx, err), nil
 			}
-			return success(map[string]any{"relationships": relsOut}, ""), nil
+			return successJSON(relationshipsResp{Relationships: relsOut}, ""), nil
 		},
 	)
 }

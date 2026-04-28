@@ -8,24 +8,32 @@ import (
 	domainsearch "goodkind.io/tack/internal/domain/search"
 )
 
+// searchResp is the response body for tack_search.
+type searchResp struct {
+	Results []domainsearch.NodeDoc      `json:"results"`
+	Facets  map[string]map[string]int64 `json:"facets"`
+}
+
 // RegisterSearch registers tack_search.
 func RegisterSearch(s *mcpserver.MCPServer, searcher domainsearch.Searcher, resolver *Resolver) {
-	registerTool(s, 
+	registerTool(s,
 		mcpmcp.Tool{
 			Name:        "tack_search",
 			Description: "Full-text search across all nodes in a workspace's org. Filters are raw (field=value) equality.",
-			InputSchema: mcpmcp.ToolInputSchema{
-				Type: "object",
-				Properties: map[string]any{
-					resolver.EntryPointParamName(): map[string]any{"type": "string"},
-					"query":                         map[string]any{"type": "string"},
-					"node_type":                     map[string]any{"type": "string"},
+			InputSchema: schema{
+				Fields: []schemaField{
+					{Name: resolver.EntryPointParamName(), Type: schemaString},
+					{Name: "query", Type: schemaString},
+					{Name: "node_type", Type: schemaString},
 				},
 				Required: []string{resolver.EntryPointParamName(), "query"},
-			},
+			}.toMCP(),
 		},
 		func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
-			args := req.GetArguments()
+			args, err := bindArgs(req)
+			if err != nil {
+				return recoverableError(err.Error()), nil
+			}
 			slug, ok := requireString(args, resolver.EntryPointParamName())
 			if !ok {
 				return recoverableError(resolver.EntryPointParamName() + " is required"), nil
@@ -34,7 +42,7 @@ func RegisterSearch(s *mcpserver.MCPServer, searcher domainsearch.Searcher, reso
 			if !ok {
 				return recoverableError("query is required"), nil
 			}
-			nodeTypeFilter, _ := args["node_type"].(string)
+			nodeTypeFilter := optionalString(args, "node_type")
 
 			ws, err := resolver.Workspace(ctx, slug)
 			if err != nil {
@@ -48,7 +56,7 @@ func RegisterSearch(s *mcpserver.MCPServer, searcher domainsearch.Searcher, reso
 			if err != nil {
 				return classifyError(ctx, err), nil
 			}
-			return success(map[string]any{"results": docs, "facets": facets}, ""), nil
+			return successJSON(searchResp{Results: docs, Facets: facets}, ""), nil
 		},
 	)
 }

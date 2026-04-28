@@ -6,16 +6,18 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/mark3labs/mcp-go/mcp"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/telemetry"
-	"github.com/mark3labs/mcp-go/mcp"
 )
 
-// Success returns a successful tool result. data is JSON-marshaled; instruction
-// is optional next-step guidance for the LLM. Pass empty string for no instruction.
-func success(data any, instruction string) *mcp.CallToolResult {
-	body, err := json.Marshal(data)
-	if err != nil {
+// success returns a successful tool result wrapping pre-marshaled body
+// bytes. Callers build a typed payload (struct or map of json.RawMessage),
+// json.Marshal it, and pass the bytes here. The closed type means no any
+// reaches the response helper, even though it lives behind an unexported
+// surface.
+func success(body json.RawMessage, instruction string) *mcp.CallToolResult {
+	if len(body) == 0 {
 		body = []byte(`{}`)
 	}
 	text := "<success>\n\n" + string(body)
@@ -27,8 +29,42 @@ func success(data any, instruction string) *mcp.CallToolResult {
 	}
 }
 
-// RecoverableError returns an error result with a correction instruction the LLM
-// can act on without yielding to the user (wrong param, not found, validation failure).
+// successJSON marshals a typed payload and forwards to success. Callers that
+// already hold a typed value use this instead of marshalling at every site.
+// T is constrained to any only because Go has no broader interface for
+// "anything that can be JSON-marshaled"; the caller picks the concrete type.
+func successJSON[T any](payload T, instruction string) *mcp.CallToolResult {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		body = []byte(`{}`)
+	}
+	return success(body, instruction)
+}
+
+// successWrapped emits {"<key>": value, ...extras} where value is the JSON
+// of payload. Used by the per-NodeType CRUD tools, where the response key
+// derives from the type's Slug at runtime and so cannot be a static struct
+// field.
+func successWrapped[T any](key string, payload T, extras map[string]json.RawMessage, instruction string) *mcp.CallToolResult {
+	inner, err := json.Marshal(payload)
+	if err != nil {
+		return success(nil, instruction)
+	}
+	out := make(map[string]json.RawMessage, len(extras)+1)
+	out[key] = inner
+	for k, v := range extras {
+		out[k] = v
+	}
+	body, err := json.Marshal(out)
+	if err != nil {
+		return success(nil, instruction)
+	}
+	return success(body, instruction)
+}
+
+// recoverableError returns an error result with a correction instruction the
+// LLM can act on without yielding to the user (wrong param, not found,
+// validation failure).
 func recoverableError(instruction string) *mcp.CallToolResult {
 	text := fmt.Sprintf("<error>\n\n[LLM Instruction]: %s", instruction)
 	return &mcp.CallToolResult{
@@ -37,8 +73,9 @@ func recoverableError(instruction string) *mcp.CallToolResult {
 	}
 }
 
-// UnexpectedError logs the real error and returns a sanitized result telling the LLM
-// to yield to the user. Use for server errors, FDB failures, auth failures, timeouts.
+// unexpectedError logs the real error and returns a sanitized result telling
+// the LLM to yield to the user. Use for server errors, FDB failures, auth
+// failures, timeouts.
 func unexpectedError(ctx context.Context, err error) *mcp.CallToolResult {
 	telemetry.L(ctx).Error("mcp tool: unexpected error", "err", err)
 	return &mcp.CallToolResult{
@@ -47,9 +84,10 @@ func unexpectedError(ctx context.Context, err error) *mcp.CallToolResult {
 	}
 }
 
-// ClassifyError routes an error to RecoverableError or UnexpectedError based on domain type.
-// Not found, invalid argument, already exists, failed precondition → recoverable with correction.
-// Unauthenticated, permission denied, and all others → unexpected (yield to user).
+// classifyError routes an error to recoverableError or unexpectedError based
+// on domain type. Not found, invalid argument, already exists, failed
+// precondition → recoverable with correction. Unauthenticated, permission
+// denied, and all others → unexpected (yield to user).
 func classifyError(ctx context.Context, err error) *mcp.CallToolResult {
 	switch {
 	case errors.Is(err, domain.ErrNotFound):
