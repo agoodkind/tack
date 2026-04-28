@@ -31,9 +31,16 @@ services:
       # binds the host path for cross-restart persistence.
       LOG_JSON_FILE: ${LOG_JSON_FILE:-/var/log/tack/app.jsonl}
       LOG_TEXT_FILE: ${LOG_TEXT_FILE:-/var/log/tack/app.log}
+      AUDIT_SIGNING_KEY_PATH: ${AUDIT_SIGNING_KEY_PATH:-/etc/tack/audit-signing.pem}
+      AUDIT_WAL_DIR: ${AUDIT_WAL_DIR:-/var/lib/tack/audit-wal}
     volumes:
       - /etc/foundationdb:/etc/foundationdb:ro
       - tack-logs:/var/log/tack
+      # Audit ledger signing key. Generated once on the host with
+      #   openssl genpkey -algorithm ed25519 -out /etc/tack/audit-signing.pem
+      # The notarizer reuses it at every 60s tick; rotation is a follow-up.
+      - /etc/tack:/etc/tack:ro
+      - tack-audit-wal:/var/lib/tack/audit-wal
     depends_on:
       yugabyte:
         condition: service_healthy
@@ -193,6 +200,7 @@ volumes:
   meili-data:
   temporal-db-data:
   tack-logs:
+  tack-audit-wal:
 
 # IPv6-only bridge. The /96 carved out of the host's on-link 3d06:bad:b01::/64
 # is NDP-proxied back onto eth0 by ndppd on CT 117. Containers source out as
