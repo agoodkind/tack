@@ -28,17 +28,17 @@ func RegisterSearch(s *mcpserver.MCPServer, searcher domainsearch.Searcher, reso
 			args := req.GetArguments()
 			slug, ok := requireString(args, resolver.EntryPointParamName())
 			if !ok {
-				return RecoverableError(resolver.EntryPointParamName() + " is required"), nil
+				return recoverableError(resolver.EntryPointParamName() + " is required"), nil
 			}
 			query, ok := requireString(args, "query")
 			if !ok {
-				return RecoverableError("query is required"), nil
+				return recoverableError("query is required"), nil
 			}
 			nodeTypeFilter, _ := args["node_type"].(string)
 
 			ws, err := resolver.Workspace(ctx, slug)
 			if err != nil {
-				return ClassifyError(ctx, err), nil
+				return classifyError(ctx, err), nil
 			}
 			filters := map[string]string{"org_id": ws.OrgID.String()}
 			if nodeTypeFilter != "" {
@@ -46,9 +46,9 @@ func RegisterSearch(s *mcpserver.MCPServer, searcher domainsearch.Searcher, reso
 			}
 			docs, facets, err := searcher.Search(ctx, "nodes", query, filters)
 			if err != nil {
-				return ClassifyError(ctx, err), nil
+				return classifyError(ctx, err), nil
 			}
-			return Success(map[string]any{"results": docs, "facets": facets}, ""), nil
+			return success(map[string]any{"results": docs, "facets": facets}, ""), nil
 		},
 	)
 }

@@ -12,7 +12,9 @@ import (
 // dependencies tight.
 type noopSearcher struct{}
 
-func (noopSearcher) Index(_ context.Context, _, _ string, _ any) error { return nil }
+func (noopSearcher) Index(_ context.Context, _, _ string, _ *domainsearch.NodeDoc) error {
+	return nil
+}
 func (noopSearcher) Delete(_ context.Context, _, _ string) error       { return nil }
 func (noopSearcher) Search(_ context.Context, _, _ string, _ map[string]string) ([]domainsearch.NodeDoc, map[string]map[string]int64, error) {
 	return nil, nil, nil

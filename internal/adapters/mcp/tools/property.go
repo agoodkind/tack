@@ -26,13 +26,13 @@ func RegisterProperty(s *mcpserver.MCPServer, propertyDefs node.PropertyDefRepos
 			slug, _ := args[resolver.EntryPointParamName()].(string)
 			ws, err := resolver.Workspace(ctx, slug)
 			if err != nil {
-				return ClassifyError(ctx, err), nil
+				return classifyError(ctx, err), nil
 			}
 			defs, err := propertyDefs.List(ctx, ws.OrgID)
 			if err != nil {
-				return ClassifyError(ctx, err), nil
+				return classifyError(ctx, err), nil
 			}
-			return Success(map[string]any{"property_defs": defs}, ""), nil
+			return success(map[string]any{"property_defs": defs}, ""), nil
 		},
 	)
 
@@ -50,17 +50,17 @@ func RegisterProperty(s *mcpserver.MCPServer, propertyDefs node.PropertyDefRepos
 			args := req.GetArguments()
 			input, ok := requireString(args, "node_id")
 			if !ok {
-				return RecoverableError("node_id is required"), nil
+				return recoverableError("node_id is required"), nil
 			}
 			id, err := resolver.ResolveNodeID(ctx, input)
 			if err != nil {
-				return ClassifyError(ctx, err), nil
+				return classifyError(ctx, err), nil
 			}
 			view, err := resolver.reader.Get(ctx, id)
 			if err != nil || view == nil {
-				return ClassifyError(ctx, err), nil
+				return classifyError(ctx, err), nil
 			}
-			return Success(map[string]any{"props": view.Props}, ""), nil
+			return success(map[string]any{"props": view.Props}, ""), nil
 		},
 	)
 }

@@ -25,13 +25,13 @@ func RegisterWorkspace(s *mcpserver.MCPServer, reader node.NodeReader, resolver 
 		func(ctx context.Context, _ mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
 			userID, err := mustUser(ctx)
 			if err != nil {
-				return UnexpectedError(ctx, err), nil
+				return unexpectedError(ctx, err), nil
 			}
 			wss, err := resolver.WorkspacesForUser(ctx, userID)
 			if err != nil {
-				return ClassifyError(ctx, err), nil
+				return classifyError(ctx, err), nil
 			}
-			return Success(map[string]any{"workspaces": wss}, ""), nil
+			return success(map[string]any{"workspaces": wss}, ""), nil
 		},
 	)
 
@@ -49,11 +49,11 @@ func RegisterWorkspace(s *mcpserver.MCPServer, reader node.NodeReader, resolver 
 			args := req.GetArguments()
 			slug, ok := requireString(args, resolver.EntryPointParamName())
 			if !ok {
-				return RecoverableError(resolver.EntryPointParamName() + " is required"), nil
+				return recoverableError(resolver.EntryPointParamName() + " is required"), nil
 			}
 			ws, err := resolver.Workspace(ctx, slug)
 			if err != nil {
-				return ClassifyError(ctx, err), nil
+				return classifyError(ctx, err), nil
 			}
 			// Direct children: nodes with Props["parent_id"] == ws.ID.
 			parentIDRaw, _ := json.Marshal(ws.ID.String())
@@ -75,7 +75,7 @@ func RegisterWorkspace(s *mcpserver.MCPServer, reader node.NodeReader, resolver 
 					{PropName: "parent_id", Value: parentIDRaw},
 				},
 			})
-			return Success(map[string]any{
+			return success(map[string]any{
 				"workspace":  ws,
 				"node_types": types,
 				"children":   children,
@@ -100,15 +100,15 @@ func RegisterMembers(s *mcpserver.MCPServer, members org.MemberRepository, users
 			args := req.GetArguments()
 			slug, ok := requireString(args, resolver.EntryPointParamName())
 			if !ok {
-				return RecoverableError(resolver.EntryPointParamName() + " is required"), nil
+				return recoverableError(resolver.EntryPointParamName() + " is required"), nil
 			}
 			ws, err := resolver.Workspace(ctx, slug)
 			if err != nil {
-				return ClassifyError(ctx, err), nil
+				return classifyError(ctx, err), nil
 			}
 			ms, err := members.ListMembers(ctx, ws.OrgID)
 			if err != nil {
-				return ClassifyError(ctx, err), nil
+				return classifyError(ctx, err), nil
 			}
 			usersOut := make([]*user.User, 0, len(ms))
 			for _, m := range ms {
@@ -118,7 +118,7 @@ func RegisterMembers(s *mcpserver.MCPServer, members org.MemberRepository, users
 				}
 				usersOut = append(usersOut, u)
 			}
-			return Success(map[string]any{"members": usersOut}, ""), nil
+			return success(map[string]any{"members": usersOut}, ""), nil
 		},
 	)
 }

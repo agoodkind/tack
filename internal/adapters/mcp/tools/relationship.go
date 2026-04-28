@@ -32,32 +32,32 @@ func RegisterRelationship(s *mcpserver.MCPServer, svc *service.NodeService, rels
 			args := req.GetArguments()
 			sourceIn, ok := requireString(args, "source_id")
 			if !ok {
-				return RecoverableError("source_id is required"), nil
+				return recoverableError("source_id is required"), nil
 			}
 			relType, ok := requireString(args, "relation_type")
 			if !ok {
-				return RecoverableError("relation_type is required"), nil
+				return recoverableError("relation_type is required"), nil
 			}
 			targetIn, ok := requireString(args, "target_id")
 			if !ok {
-				return RecoverableError("target_id is required"), nil
+				return recoverableError("target_id is required"), nil
 			}
 
 			userID, err := mustUser(ctx)
 			if err != nil {
-				return UnexpectedError(ctx, err), nil
+				return unexpectedError(ctx, err), nil
 			}
 			sourceID, err := resolver.ResolveNodeID(ctx, sourceIn)
 			if err != nil {
-				return ClassifyError(ctx, err), nil
+				return classifyError(ctx, err), nil
 			}
 			targetID, err := resolver.ResolveNodeID(ctx, targetIn)
 			if err != nil {
-				return ClassifyError(ctx, err), nil
+				return classifyError(ctx, err), nil
 			}
 			resolve, err := resolver.reader.Resolve(ctx, sourceID)
 			if err != nil {
-				return ClassifyError(ctx, err), nil
+				return classifyError(ctx, err), nil
 			}
 			if err := svc.AddRelationship(ctx, &node.Relationship{
 				OrgID:        resolve.OrgID,
@@ -67,9 +67,9 @@ func RegisterRelationship(s *mcpserver.MCPServer, svc *service.NodeService, rels
 				CreatedBy:    userID,
 				CreatedAt:    time.Now().UTC(),
 			}); err != nil {
-				return ClassifyError(ctx, err), nil
+				return classifyError(ctx, err), nil
 			}
-			return Success(map[string]any{"ok": true}, ""), nil
+			return success(map[string]any{"ok": true}, ""), nil
 		},
 	)
 
@@ -91,33 +91,33 @@ func RegisterRelationship(s *mcpserver.MCPServer, svc *service.NodeService, rels
 			args := req.GetArguments()
 			sourceIn, ok := requireString(args, "source_id")
 			if !ok {
-				return RecoverableError("source_id is required"), nil
+				return recoverableError("source_id is required"), nil
 			}
 			relType, ok := requireString(args, "relation_type")
 			if !ok {
-				return RecoverableError("relation_type is required"), nil
+				return recoverableError("relation_type is required"), nil
 			}
 			targetIn, ok := requireString(args, "target_id")
 			if !ok {
-				return RecoverableError("target_id is required"), nil
+				return recoverableError("target_id is required"), nil
 			}
 
 			sourceID, err := resolver.ResolveNodeID(ctx, sourceIn)
 			if err != nil {
-				return ClassifyError(ctx, err), nil
+				return classifyError(ctx, err), nil
 			}
 			targetID, err := resolver.ResolveNodeID(ctx, targetIn)
 			if err != nil {
-				return ClassifyError(ctx, err), nil
+				return classifyError(ctx, err), nil
 			}
 			resolve, err := resolver.reader.Resolve(ctx, sourceID)
 			if err != nil {
-				return ClassifyError(ctx, err), nil
+				return classifyError(ctx, err), nil
 			}
 			if err := svc.RemoveRelationship(ctx, resolve.OrgID, sourceID, relType, targetID); err != nil {
-				return ClassifyError(ctx, err), nil
+				return classifyError(ctx, err), nil
 			}
-			return Success(map[string]any{"ok": true}, ""), nil
+			return success(map[string]any{"ok": true}, ""), nil
 		},
 	)
 
@@ -139,18 +139,18 @@ func RegisterRelationship(s *mcpserver.MCPServer, svc *service.NodeService, rels
 			args := req.GetArguments()
 			nodeIn, ok := requireString(args, "node_id")
 			if !ok {
-				return RecoverableError("node_id is required"), nil
+				return recoverableError("node_id is required"), nil
 			}
 			direction, _ := args["direction"].(string)
 			relType, _ := args["relation_type"].(string)
 
 			nodeID, err := resolver.ResolveNodeID(ctx, nodeIn)
 			if err != nil {
-				return ClassifyError(ctx, err), nil
+				return classifyError(ctx, err), nil
 			}
 			resolve, err := resolver.reader.Resolve(ctx, nodeID)
 			if err != nil {
-				return ClassifyError(ctx, err), nil
+				return classifyError(ctx, err), nil
 			}
 			var relsOut []*node.Relationship
 			if direction == "in" {
@@ -159,9 +159,9 @@ func RegisterRelationship(s *mcpserver.MCPServer, svc *service.NodeService, rels
 				relsOut, err = rels.ListBySource(ctx, resolve.OrgID, nodeID, relType)
 			}
 			if err != nil {
-				return ClassifyError(ctx, err), nil
+				return classifyError(ctx, err), nil
 			}
-			return Success(map[string]any{"relationships": relsOut}, ""), nil
+			return success(map[string]any{"relationships": relsOut}, ""), nil
 		},
 	)
 }

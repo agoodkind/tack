@@ -520,22 +520,20 @@ func viewFromNode(n *node.Node) *node.NodeView {
 }
 
 // searchDocFromView builds a generic search document. The doc contains the
-// universal fields plus a flattened Props map; the search adapter chooses
-// which props are filterable based on PropertyDef.Indexed at index-setup time.
-func searchDocFromView(v *node.NodeView) domainsearch.NodeDoc {
-	doc := domainsearch.NodeDoc{
+// universal fields plus the raw JSON Props map; the search adapter indexes
+// the JSON values directly so it can filter on any indexed property without
+// the service layer having to know which props are filterable.
+func searchDocFromView(v *node.NodeView) *domainsearch.NodeDoc {
+	doc := &domainsearch.NodeDoc{
 		ID:       v.ID.String(),
 		OrgID:    v.OrgID.String(),
 		NodeType: v.NodeType,
 		Name:     v.Name,
 	}
 	if len(v.Props) > 0 {
-		doc.Props = make(map[string]any, len(v.Props))
+		doc.Props = make(map[string]json.RawMessage, len(v.Props))
 		for k, raw := range v.Props {
-			var val any
-			if err := json.Unmarshal(raw, &val); err == nil {
-				doc.Props[k] = val
-			}
+			doc.Props[k] = raw
 		}
 	}
 	return doc

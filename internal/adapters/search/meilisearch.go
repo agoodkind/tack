@@ -47,7 +47,7 @@ func (c *Client) EnsureIndex(collection string, filterableAttributes []string) e
 }
 
 // Index adds or replaces doc in collection, using "id" as the primary key.
-func (c *Client) Index(_ context.Context, collection, _ string, doc any) error {
+func (c *Client) Index(_ context.Context, collection, _ string, doc *domainsearch.NodeDoc) error {
 	pk := "id"
 	if _, err := c.meili.Index(collection).AddDocuments([]any{doc}, &meilisearch.DocumentOptions{PrimaryKey: &pk}); err != nil {
 		return fmt.Errorf("index document in %s: %w", collection, err)

@@ -13,7 +13,7 @@ import (
 // Search returns nil to signal "unsupported" so callers fall back to SQL.
 type Noop struct{}
 
-func (Noop) Index(_ context.Context, _, _ string, _ any) error { return nil }
+func (Noop) Index(_ context.Context, _, _ string, _ *domainsearch.NodeDoc) error { return nil }
 func (Noop) Delete(_ context.Context, _, _ string) error       { return nil }
 func (Noop) Search(_ context.Context, _, _ string, _ map[string]string) ([]domainsearch.NodeDoc, map[string]map[string]int64, error) {
 	return nil, nil, nil

@@ -65,12 +65,11 @@ check: build vet lint test govulncheck staticcheck deadcode lint-logging
 # STATICCHECK_BUILD_REPO if your clyde checkout lives elsewhere.
 STATICCHECK_BUILD_REPO ?= $(HOME)/Sites/clyde-dev/clyde
 STATICCHECK_BUILD_PKG  ?= ./cmd/clyde-staticcheck
-# Same analyzers clyde and mwan run, minus -no_any_or_empty_interface.
-# Tack's MCP boundary takes arbitrary JSON tool inputs through the
-# google/jsonschema-go path; that boundary is fundamentally any-typed and
-# cannot be replaced with a closed enum. The other analyzers still apply.
+# Identical analyzer set to clyde and mwan. Tack's MCP boundary uses
+# json.RawMessage and typed Searcher.Index so no any flags survive at
+# exported API boundaries.
 STATICCHECK_FLAGS      ?= -slog_error_without_err -banned_direct_output \
-	-hot_loop_info_log -missing_boundary_log
+	-hot_loop_info_log -missing_boundary_log -no_any_or_empty_interface
 STATICCHECK_BIN        := $(shell go env GOPATH)/bin/clyde-staticcheck
 
 .PHONY: staticcheck

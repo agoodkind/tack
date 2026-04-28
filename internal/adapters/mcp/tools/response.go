@@ -13,7 +13,7 @@ import (
 
 // Success returns a successful tool result. data is JSON-marshaled; instruction
 // is optional next-step guidance for the LLM. Pass empty string for no instruction.
-func Success(data any, instruction string) *mcp.CallToolResult {
+func success(data any, instruction string) *mcp.CallToolResult {
 	body, err := json.Marshal(data)
 	if err != nil {
 		body = []byte(`{}`)
@@ -29,7 +29,7 @@ func Success(data any, instruction string) *mcp.CallToolResult {
 
 // RecoverableError returns an error result with a correction instruction the LLM
 // can act on without yielding to the user (wrong param, not found, validation failure).
-func RecoverableError(instruction string) *mcp.CallToolResult {
+func recoverableError(instruction string) *mcp.CallToolResult {
 	text := fmt.Sprintf("<error>\n\n[LLM Instruction]: %s", instruction)
 	return &mcp.CallToolResult{
 		IsError: true,
@@ -39,7 +39,7 @@ func RecoverableError(instruction string) *mcp.CallToolResult {
 
 // UnexpectedError logs the real error and returns a sanitized result telling the LLM
 // to yield to the user. Use for server errors, FDB failures, auth failures, timeouts.
-func UnexpectedError(ctx context.Context, err error) *mcp.CallToolResult {
+func unexpectedError(ctx context.Context, err error) *mcp.CallToolResult {
 	telemetry.L(ctx).Error("mcp tool: unexpected error", "err", err)
 	return &mcp.CallToolResult{
 		IsError: true,
@@ -50,20 +50,20 @@ func UnexpectedError(ctx context.Context, err error) *mcp.CallToolResult {
 // ClassifyError routes an error to RecoverableError or UnexpectedError based on domain type.
 // Not found, invalid argument, already exists, failed precondition → recoverable with correction.
 // Unauthenticated, permission denied, and all others → unexpected (yield to user).
-func ClassifyError(ctx context.Context, err error) *mcp.CallToolResult {
+func classifyError(ctx context.Context, err error) *mcp.CallToolResult {
 	switch {
 	case errors.Is(err, domain.ErrNotFound):
-		return RecoverableError(err.Error() +
+		return recoverableError(err.Error() +
 			". Check: (1) call tack_list_workspaces to verify workspace_slug, " +
 			"(2) call tack_describe_workspace to verify project_identifier, " +
 			"(3) for node_id, use the UUID or identifier (e.g. TACK-65) from a list call.")
 	case errors.Is(err, domain.ErrInvalidArgument):
-		return RecoverableError(err.Error() + ". Fix the parameter value and retry.")
+		return recoverableError(err.Error() + ". Fix the parameter value and retry.")
 	case errors.Is(err, domain.ErrAlreadyExists):
-		return RecoverableError(err.Error() + ". An entity with this identifier already exists. Use a different name or update the existing one.")
+		return recoverableError(err.Error() + ". An entity with this identifier already exists. Use a different name or update the existing one.")
 	case errors.Is(err, domain.ErrFailedPrecondition):
-		return RecoverableError(err.Error() + ". A required condition was not met. Check the current state before retrying.")
+		return recoverableError(err.Error() + ". A required condition was not met. Check the current state before retrying.")
 	default:
-		return UnexpectedError(ctx, err)
+		return unexpectedError(ctx, err)
 	}
 }

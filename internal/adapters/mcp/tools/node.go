@@ -137,7 +137,7 @@ func listHandler(nt *node.NodeType, chain []ScopeLevel, epParam string, b NodeTy
 		epSlug, _ := args[epParam].(string)
 		ws, err := b.Resolver.Workspace(ctx, epSlug)
 		if err != nil {
-			return ClassifyError(ctx, err), nil
+			return classifyError(ctx, err), nil
 		}
 		q := node.NodeListQuery{OrgID: ws.OrgID, NodeType: nt.TypeKey}
 
@@ -149,11 +149,11 @@ func listHandler(nt *node.NodeType, chain []ScopeLevel, epParam string, b NodeTy
 			for _, level := range chain {
 				ident, _ := args[level.ParamName].(string)
 				if ident == "" {
-					return RecoverableError(level.ParamName + " is required"), nil
+					return recoverableError(level.ParamName + " is required"), nil
 				}
 				parent, err = b.Resolver.ResolveScope(ctx, parent, level, ident)
 				if err != nil {
-					return ClassifyError(ctx, err), nil
+					return classifyError(ctx, err), nil
 				}
 			}
 			parentID = parent.ID
@@ -168,13 +168,13 @@ func listHandler(nt *node.NodeType, chain []ScopeLevel, epParam string, b NodeTy
 
 		views, err := b.Reader.List(ctx, q)
 		if err != nil {
-			return ClassifyError(ctx, err), nil
+			return classifyError(ctx, err), nil
 		}
 		plural := nt.PluralSlug
 		if plural == "" {
 			plural = nt.Slug + "s"
 		}
-		return Success(map[string]any{plural: views}, ""), nil
+		return success(map[string]any{plural: views}, ""), nil
 	}
 }
 
@@ -183,19 +183,19 @@ func createHandler(nt *node.NodeType, chain []ScopeLevel, epParam string, b Node
 		args := req.GetArguments()
 		epSlug, ok := requireString(args, epParam)
 		if !ok {
-			return RecoverableError(epParam + " is required"), nil
+			return recoverableError(epParam + " is required"), nil
 		}
 		name, ok := requireString(args, "name")
 		if !ok {
-			return RecoverableError("name is required"), nil
+			return recoverableError("name is required"), nil
 		}
 		userID, err := mustUser(ctx)
 		if err != nil {
-			return UnexpectedError(ctx, err), nil
+			return unexpectedError(ctx, err), nil
 		}
 		ws, err := b.Resolver.Workspace(ctx, epSlug)
 		if err != nil {
-			return ClassifyError(ctx, err), nil
+			return classifyError(ctx, err), nil
 		}
 		scopeID := ws.ID
 		if len(chain) > 0 {
@@ -203,11 +203,11 @@ func createHandler(nt *node.NodeType, chain []ScopeLevel, epParam string, b Node
 			for _, level := range chain {
 				ident, _ := args[level.ParamName].(string)
 				if ident == "" {
-					return RecoverableError(level.ParamName + " is required"), nil
+					return recoverableError(level.ParamName + " is required"), nil
 				}
 				parent, err = b.Resolver.ResolveScope(ctx, parent, level, ident)
 				if err != nil {
-					return ClassifyError(ctx, err), nil
+					return classifyError(ctx, err), nil
 				}
 			}
 			scopeID = parent.ID
@@ -217,7 +217,7 @@ func createHandler(nt *node.NodeType, chain []ScopeLevel, epParam string, b Node
 		// stringified JSON blob; see TACK-161.
 		rawProps, err := parseProps(args["properties"])
 		if err != nil {
-			return RecoverableError("invalid properties payload: " + err.Error()), nil
+			return recoverableError("invalid properties payload: " + err.Error()), nil
 		}
 
 		// Honor properties.parent_id when set to a deeper container under the
@@ -231,10 +231,10 @@ func createHandler(nt *node.NodeType, chain []ScopeLevel, epParam string, b Node
 					if pid, err := uuid.Parse(s); err == nil && pid != uuid.Nil {
 						parentResolve, err := b.Reader.Resolve(ctx, pid)
 						if err != nil || parentResolve == nil {
-							return RecoverableError("properties.parent_id does not resolve to a known node: " + s), nil
+							return recoverableError("properties.parent_id does not resolve to a known node: " + s), nil
 						}
 						if parentResolve.OrgID != ws.OrgID {
-							return RecoverableError("properties.parent_id is in a different org than the workspace"), nil
+							return recoverableError("properties.parent_id is in a different org than the workspace"), nil
 						}
 						parentID = pid
 					}
@@ -257,7 +257,7 @@ func createHandler(nt *node.NodeType, chain []ScopeLevel, epParam string, b Node
 			IdempotencyKey: idempotencyKey,
 		})
 		if err != nil {
-			return ClassifyError(ctx, err), nil
+			return classifyError(ctx, err), nil
 		}
 		payload := map[string]any{nt.Slug: result.View}
 		if result.Existed {
@@ -267,7 +267,7 @@ func createHandler(nt *node.NodeType, chain []ScopeLevel, epParam string, b Node
 		if result.Existed {
 			instr = "Idempotency key matched; returning the existing node. No new write was performed."
 		}
-		return Success(payload, instr), nil
+		return success(payload, instr), nil
 	}
 }
 
@@ -279,20 +279,20 @@ func getHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFunc 
 	return func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
 		var in getInput
 		if err := req.BindArguments(&in); err != nil {
-			return RecoverableError(err.Error()), nil
+			return recoverableError(err.Error()), nil
 		}
 		id, err := b.Resolver.ResolveNodeID(ctx, in.NodeID)
 		if err != nil {
-			return ClassifyError(ctx, err), nil
+			return classifyError(ctx, err), nil
 		}
 		view, err := b.Reader.Get(ctx, id)
 		if err != nil {
-			return ClassifyError(ctx, err), nil
+			return classifyError(ctx, err), nil
 		}
 		if view == nil {
-			return ClassifyError(ctx, domain.ErrNotFound), nil
+			return classifyError(ctx, domain.ErrNotFound), nil
 		}
-		return Success(map[string]any{nt.Slug: view}, ""), nil
+		return success(map[string]any{nt.Slug: view}, ""), nil
 	}
 }
 
@@ -309,21 +309,21 @@ func updateHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFu
 	return func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
 		var in updateInput
 		if err := req.BindArguments(&in); err != nil {
-			return RecoverableError(err.Error()), nil
+			return recoverableError(err.Error()), nil
 		}
 		userID, err := mustUser(ctx)
 		if err != nil {
-			return UnexpectedError(ctx, err), nil
+			return unexpectedError(ctx, err), nil
 		}
 		id, err := b.Resolver.ResolveNodeID(ctx, in.NodeID)
 		if err != nil {
-			return ClassifyError(ctx, err), nil
+			return classifyError(ctx, err), nil
 		}
 
 		args := req.GetArguments()
 		rawProps, err := parseProps(args["properties"])
 		if err != nil {
-			return RecoverableError("invalid properties payload: " + err.Error()), nil
+			return recoverableError("invalid properties payload: " + err.Error()), nil
 		}
 
 		view, err := b.NodeSvc.Update(ctx, service.UpdateInput{
@@ -333,9 +333,9 @@ func updateHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFu
 			ActorID: userID,
 		})
 		if err != nil {
-			return ClassifyError(ctx, err), nil
+			return classifyError(ctx, err), nil
 		}
-		return Success(map[string]any{nt.Slug: view}, ""), nil
+		return success(map[string]any{nt.Slug: view}, ""), nil
 	}
 }
 
@@ -347,20 +347,20 @@ func deleteHandler(b NodeTypeBinding) mcpserver.ToolHandlerFunc {
 	return func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
 		var in deleteInput
 		if err := req.BindArguments(&in); err != nil {
-			return RecoverableError(err.Error()), nil
+			return recoverableError(err.Error()), nil
 		}
 		userID, err := mustUser(ctx)
 		if err != nil {
-			return UnexpectedError(ctx, err), nil
+			return unexpectedError(ctx, err), nil
 		}
 		id, err := b.Resolver.ResolveNodeID(ctx, in.NodeID)
 		if err != nil {
-			return ClassifyError(ctx, err), nil
+			return classifyError(ctx, err), nil
 		}
 		if err := b.NodeSvc.Delete(ctx, id, userID); err != nil {
-			return ClassifyError(ctx, err), nil
+			return classifyError(ctx, err), nil
 		}
-		return Success(map[string]any{"ok": true}, ""), nil
+		return success(map[string]any{"ok": true}, ""), nil
 	}
 }
 
