@@ -77,9 +77,14 @@ staticcheck:
 	@if [ ! -d "$(STATICCHECK_BUILD_REPO)" ]; then \
 		echo "skipping staticcheck: $(STATICCHECK_BUILD_REPO) not found" >&2; \
 	else \
-		( cd $(STATICCHECK_BUILD_REPO) && go build -o $(STATICCHECK_BIN) $(STATICCHECK_BUILD_PKG) ) && \
+		( cd $(STATICCHECK_BUILD_REPO) && go build -toolexec= -o $(STATICCHECK_BIN) $(STATICCHECK_BUILD_PKG) ) && \
 		$(STATICCHECK_BIN) $(STATICCHECK_FLAGS) ./...; \
 	fi
+# GOFLAGS= clears any user-set toolexec for the analyzer-binary build only.
+# A user-side toolexec hook (e.g. go-build-guard.sh) will analyze clyde's
+# own deps when we rebuild clyde-staticcheck and trip on auto-generated
+# grpc files. The analyzer run itself is unaffected; only the build of the
+# analyzer binary needs an unmodified toolchain.
 
 # Find unreachable functions. Build first so deadcode sees the same package
 # graph the build did. Test-only helpers reachable only from _test.go files
@@ -201,12 +206,25 @@ update-fdb:
 	@echo "Reminder: hand-edit FDB_BINDINGS_VERSION in this Makefile to match"
 	@echo "and update the fdb.APIVersion call in internal/adapters/foundationdb/client.go."
 
-# Deploy: rsync source to CT 117, build natively on the server, restart.
-# Always bumps deps first so every deployed build carries the latest of
-# everything in go.mod.
-# Uses --network host so Docker build can resolve DNS via the host's IPv6 nameserver.
+# Deploy: backup first, then rsync source to CT 117, build natively on the
+# server, restart. Always bumps deps first so every deployed build carries
+# the latest of everything in go.mod. Uses --network host so Docker build
+# can resolve DNS via the host's IPv6 nameserver.
+#
+# Backup-as-prereq is non-negotiable. The 2026-04-28 incident showed how
+# easy it is to lose data during a deploy when the underlying infra has
+# subtle persistence bugs. Every deploy now produces a snapshot first;
+# if backup fails, deploy aborts before touching production state.
+# Rationale lives in scripts/backup.sh and the deploy landmines memory.
+#
+# Override with NO_PRE_DEPLOY_BACKUP=1 only when the cluster is provably
+# unhealthy and the snapshot itself would fail; document the reason.
 .PHONY: deploy
+ifeq ($(NO_PRE_DEPLOY_BACKUP),1)
 deploy: update-deps
+else
+deploy: update-deps backup
+endif
 	rsync -az --delete --exclude='.git' --exclude='bin/' --exclude='.env' --exclude='.env.*' --exclude='.test-fdb/' . tack:/root/tack/
 	ssh tack "cd /root/tack && docker build --network host \
 		--build-arg COMMIT=$(COMMIT) \
@@ -221,6 +239,15 @@ deploy: update-deps
 backup:
 	rsync -az scripts/backup.sh tack:/root/tack/scripts/backup.sh
 	ssh tack 'bash /root/tack/scripts/backup.sh'
+
+# Create the three LOGIN-capable audit derived roles (audit_writer_app,
+# audit_reader_app, audit_redactor_app) and rotate their passwords from
+# /root/tack/.env. Idempotent. Run once after migrate, or any time the
+# audit role passwords need rotating.
+.PHONY: seed-audit-roles
+seed-audit-roles:
+	rsync -az scripts/seed-audit-roles.sh tack:/root/tack/scripts/seed-audit-roles.sh
+	ssh tack 'bash /root/tack/scripts/seed-audit-roles.sh'
 
 # Pull the latest backup directory from CT 117 to the local Mac for
 # offsite storage. Reads the timestamp from /root/backups/.latest.
