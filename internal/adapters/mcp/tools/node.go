@@ -296,13 +296,13 @@ func getHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFunc 
 	}
 }
 
+// updateInput omits Properties on purpose. BindArguments cannot reliably
+// preserve a stringified JSON payload through its mapstructure-style decoder
+// across different MCP transports. The handler reads properties straight
+// from req.GetArguments() and routes through parseProps. See TACK-165.
 type updateInput struct {
 	NodeID string  `json:"node_id"`
 	Name   *string `json:"name,omitempty"`
-	// Properties is decoded as a raw JSON payload so parseProps can
-	// tolerate both object and stringified-JSON shapes. Strict typing
-	// here previously rejected escaped newlines in description; see TACK-161.
-	Properties json.RawMessage `json:"properties,omitempty"`
 }
 
 func updateHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFunc {
@@ -320,7 +320,8 @@ func updateHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFu
 			return ClassifyError(ctx, err), nil
 		}
 
-		rawProps, err := parseProps(in.Properties)
+		args := req.GetArguments()
+		rawProps, err := parseProps(args["properties"])
 		if err != nil {
 			return RecoverableError("invalid properties payload: " + err.Error()), nil
 		}
