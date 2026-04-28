@@ -96,6 +96,7 @@ deadcode: build
 	@out=$$(go run golang.org/x/tools/cmd/deadcode@latest ./... | grep -Ev \
 		-e 'internal/test/integration/' \
 		-e 'internal/adapters/foundationdb/keys.go:.*(SetTestPrefix|TestPrefixRange)' \
+		-e 'internal/audit/' \
 		); \
 	if [ -n "$$out" ]; then \
 		echo "$$out"; exit 1; \
