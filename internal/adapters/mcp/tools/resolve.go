@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/auth"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
@@ -108,6 +109,10 @@ func (r *Resolver) Workspace(ctx context.Context, slug string) (*node.NodeView, 
 	if view == nil {
 		return nil, fmt.Errorf("%s %q: %w", r.entryPointSlug, slug, domain.ErrNotFound)
 	}
+	audit.SetScopeFields(ctx, audit.Scope{
+		OrgID:       view.OrgID,
+		WorkspaceID: view.ID,
+	})
 	return view, nil
 }
 
@@ -131,12 +136,20 @@ func (r *Resolver) ResolveScope(ctx context.Context, parent *node.NodeView, leve
 	parentIDRaw, _ := json.Marshal(parent.ID.String())
 	for _, n := range children {
 		if got, ok := n.Props["parent_id"]; ok && string(got) == string(parentIDRaw) {
-			return r.reader.Get(ctx, n.ID)
+			view, err := r.reader.Get(ctx, n.ID)
+			if err == nil && view != nil {
+				audit.SetScopeFields(ctx, audit.Scope{ScopeID: view.ID})
+			}
+			return view, err
 		}
 	}
 	// Fallback: return first match with matching identifier even without parent filter.
 	if len(children) > 0 {
-		return r.reader.Get(ctx, children[0].ID)
+		view, err := r.reader.Get(ctx, children[0].ID)
+		if err == nil && view != nil {
+			audit.SetScopeFields(ctx, audit.Scope{ScopeID: view.ID})
+		}
+		return view, err
 	}
 
 	telemetry.IncResolverMiss("scope")

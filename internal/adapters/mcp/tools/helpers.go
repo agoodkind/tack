@@ -160,6 +160,12 @@ func wrapToolHandler(name string, h mcpserver.ToolHandlerFunc) mcpserver.ToolHan
 		log := telemetry.L(ctx)
 		log.DebugContext(ctx, "mcp.tool.started", slog.String("tool", name))
 
+		// Attach a mutable Scope so resolvers running inside the inner
+		// handler can stamp the org/workspace they resolved. The wrapper
+		// reads it after the handler returns and feeds it into the audit
+		// event so workspace-scoped audit queries see the row.
+		ctx = audit.WithScopeBuilder(ctx)
+
 		res, err := h(ctx, req)
 		dur := time.Since(start)
 		telemetry.IncMCPTool(name)
@@ -220,11 +226,19 @@ func recordToolAudit(ctx context.Context, toolName string, req mcpmcp.CallToolRe
 		errInfo = &audit.EventError{Code: "tool_error_response"}
 	}
 
+	scope := audit.ScopeFromContext(ctx)
 	ev := audit.Event{
-		Verb:    string(verb),
-		Actor:   actor,
-		Entity:  audit.Entity{Type: "mcp_tool", Name: toolName},
-		Context: audit.EventContext{Source: audit.SourceMCP, Tool: toolName},
+		Verb:   string(verb),
+		Actor:  actor,
+		Entity: audit.Entity{Type: "mcp_tool", Name: toolName},
+		Context: audit.EventContext{
+			Source:      audit.SourceMCP,
+			Tool:        toolName,
+			OrgID:       scope.OrgID,
+			WorkspaceID: scope.WorkspaceID,
+			ScopeID:     scope.ScopeID,
+			ParentID:    scope.ParentID,
+		},
 		Outcome: outcome,
 		Error:   errInfo,
 	}
