@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/adapters/postgres"
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
@@ -48,7 +49,11 @@ func runSeed(cfg *config.Config) {
 		os.Exit(1)
 	}
 
-	ctx := context.Background()
+	// Seed runs without audit emission: it produces hundreds of node.create
+	// events with a system-shaped actor that aren't user actions. The
+	// suppression marker propagates through the same Recorder the running
+	// server would use, so the wiring is already correct.
+	ctx := audit.WithSuppressed(context.Background())
 
 	if err := postgres.Migrate(ctx, cfg.DatabaseURL, migrations.FS); err != nil {
 		slog.Error("seed: migrate", "err", err)

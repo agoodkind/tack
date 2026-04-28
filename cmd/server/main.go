@@ -13,6 +13,7 @@ import (
 
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	mcpadapter "goodkind.io/tack/internal/adapters/mcp"
+	mcptools "goodkind.io/tack/internal/adapters/mcp/tools"
 	"goodkind.io/tack/internal/adapters/postgres"
 	searchadapter "goodkind.io/tack/internal/adapters/search"
 	"goodkind.io/tack/internal/audit"
@@ -104,6 +105,11 @@ func runServer(cfg *config.Config) {
 	searcher := buildSearcher(cfg)
 
 	auditRec := buildAuditRecorder(ctx, cfg)
+	// Wrap once at startup so seed and other internal automation can mute
+	// emission via audit.WithSuppressed.
+	auditRec = audit.SuppressingRecorder{Inner: auditRec}
+	mcptools.SetAuditRecorder(auditRec)
+	auth.SetAuditRecorder(auditRec)
 	defer func() {
 		switch c := auditRec.(type) {
 		case interface{ Close() error }:

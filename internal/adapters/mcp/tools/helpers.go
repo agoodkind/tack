@@ -5,14 +5,39 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
 	mcpmcp "github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/auth"
 	"goodkind.io/tack/internal/telemetry"
 )
+
+// auditRecorder is the audit sink used by every wrapped tool handler. It
+// is set once at startup via SetAuditRecorder. Tools that registered before
+// the setter ran (none in current code) would silently noop; we use atomic
+// load to keep that path branch-free.
+var auditRecorder atomic.Value // holds audit.Recorder
+
+// SetAuditRecorder installs the process-wide Recorder used by the MCP tool
+// wrapper. Call once during server startup, before any request handles.
+func SetAuditRecorder(r audit.Recorder) {
+	if r == nil {
+		r = audit.NoopRecorder{}
+	}
+	auditRecorder.Store(r)
+}
+
+func currentAuditRecorder() audit.Recorder {
+	v := auditRecorder.Load()
+	if v == nil {
+		return audit.NoopRecorder{}
+	}
+	return v.(audit.Recorder)
+}
 
 // argMap is the typed shape every Tack tool handler reads its arguments
 // through. mcp-go decodes the request arguments into a generic map of raw
@@ -162,6 +187,52 @@ func wrapToolHandler(name string, h mcpserver.ToolHandlerFunc) mcpserver.ToolHan
 				slog.Int64("duration_ms", dur.Milliseconds()),
 			)
 		}
+		recordToolAudit(ctx, name, req, res, err)
 		return res, err
 	}
+}
+
+// recordToolAudit emits one audit row per MCP tool invocation. Outcome is
+// derived from the same signal wrapToolHandler used for slog. Failure to
+// record is logged at Warn rather than failing the request: the user-visible
+// operation already completed and we do not want audit to back-pressure the
+// MCP boundary. Read-class verbs additionally pass through the WAL so a
+// transient Yugabyte outage cannot drop them.
+func recordToolAudit(ctx context.Context, toolName string, req mcpmcp.CallToolRequest, res *mcpmcp.CallToolResult, runErr error) {
+	verb, ok := audit.ToolVerb(toolName)
+	if !ok || verb == "" {
+		return
+	}
+	rec := currentAuditRecorder()
+	actor := audit.Actor{Type: audit.ActorUser}
+	if uid, found := auth.UserID(ctx); found {
+		actor.ID = uid
+	}
+
+	outcome := audit.OutcomeOK
+	var errInfo *audit.EventError
+	switch {
+	case runErr != nil:
+		outcome = audit.OutcomeError
+		errInfo = &audit.EventError{Code: "tool_error", Message: runErr.Error()}
+	case res != nil && res.IsError:
+		outcome = audit.OutcomeError
+		errInfo = &audit.EventError{Code: "tool_error_response"}
+	}
+
+	ev := audit.Event{
+		Verb:    string(verb),
+		Actor:   actor,
+		Entity:  audit.Entity{Type: "mcp_tool", Name: toolName},
+		Context: audit.EventContext{Source: audit.SourceMCP, Tool: toolName},
+		Outcome: outcome,
+		Error:   errInfo,
+	}
+	if err := rec.Record(ctx, ev); err != nil {
+		telemetry.L(ctx).Warn("audit.record_failed",
+			slog.String("tool", toolName),
+			slog.String("err", err.Error()),
+		)
+	}
+	_ = req // reserved for argument-aware audit enrichment (TACK-179)
 }

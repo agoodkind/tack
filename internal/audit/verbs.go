@@ -88,22 +88,24 @@ func IsRead(v Verb) bool        { return !stateChangeVerbs[v] }
 // their verb. Per-NodeType tools (tack_create_<slug>, tack_list_<plural>,
 // etc.) are resolved in ToolVerb by prefix.
 //
-// An empty string value means the tool is already covered by a deeper hook
-// (e.g. NodeService emits node.create directly) and must NOT also fire from
-// the MCP wrapper, otherwise the same operation lands in the ledger twice.
+// Every entry resolves to a non-empty verb so the MCP wrapper unconditionally
+// records one event per tool call. The TACK-173 FDB-intent path will later
+// move state-change emission earlier (inside the FDB transaction) and the
+// MCP wrapper will skip when an inner hook already fired; until then the
+// MCP boundary is the single canonical site.
 var staticToolVerb = map[string]Verb{
-	"tack_list_workspaces":    VerbWorkspaceList,
-	"tack_list_members":       VerbMembersList,
-	"tack_list_property_defs": VerbPropertyDefsList,
-	"tack_get_properties":     VerbPropsRead,
-	"tack_add_relationship":   "", // covered by NodeService relationship hook
-	"tack_remove_relationship": "",
-	"tack_list_relationships": VerbRelationshipList,
-	"tack_search":             VerbNodeSearch,
-	"tack_getting_started":    VerbMCPPromptInvoked,
+	"tack_list_workspaces":     VerbWorkspaceList,
+	"tack_list_members":        VerbMembersList,
+	"tack_list_property_defs":  VerbPropertyDefsList,
+	"tack_get_properties":      VerbPropsRead,
+	"tack_add_relationship":    VerbRelationshipAdd,
+	"tack_remove_relationship": VerbRelationshipRemove,
+	"tack_list_relationships":  VerbRelationshipList,
+	"tack_search":              VerbNodeSearch,
+	"tack_getting_started":     VerbMCPPromptInvoked,
 }
 
-// staticToolPrefixVerb maps a tool name prefix (computed from NodeType slug)
+// perTypePrefixVerb maps a tool name prefix (computed from NodeType slug)
 // to the right verb. Order matters: longer prefixes first.
 var perTypePrefixVerb = []struct {
 	Prefix string
@@ -111,10 +113,10 @@ var perTypePrefixVerb = []struct {
 }{
 	{"tack_describe_", VerbWorkspaceDescribe}, // tack_describe_<entry-point-slug>
 	{"tack_list_", VerbNodeList},              // tack_list_<plural>
-	{"tack_create_", ""},                      // covered by NodeService.Create
+	{"tack_create_", VerbNodeCreate},          // tack_create_<slug>
 	{"tack_get_", VerbNodeRead},               // tack_get_<slug>
-	{"tack_update_", ""},                      // covered by NodeService.Update
-	{"tack_delete_", ""},                      // covered by NodeService.Delete
+	{"tack_update_", VerbNodeUpdate},          // tack_update_<slug>
+	{"tack_delete_", VerbNodeDelete},          // tack_delete_<slug>
 }
 
 // ToolVerb returns the verb for a registered MCP tool name, plus a bool
