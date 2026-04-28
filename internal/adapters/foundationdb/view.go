@@ -166,7 +166,7 @@ func (s *ViewStore) scanByProperty(orgID uuid.UUID, nodeType, propName string, v
 		}
 		views := make([]*node.NodeView, 0, len(indexKVs))
 		for _, kv := range indexKVs {
-			t, terr := tuple.Unpack(kv.Key)
+			t, terr := tuple.Unpack(stripPrefix(kv.Key))
 			if terr != nil || len(t) < 6 {
 				continue
 			}
@@ -214,7 +214,7 @@ func (s *ViewStore) scanByRelation(orgID uuid.UUID, nodeType string, scan *node.
 		}
 		views := make([]*node.NodeView, 0, len(kvs))
 		for _, kv := range kvs {
-			t, terr := tuple.Unpack(kv.Key)
+			t, terr := tuple.Unpack(stripPrefix(kv.Key))
 			if terr != nil || len(t) <= peerIdx {
 				continue
 			}

@@ -13,8 +13,10 @@ package integration
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/google/uuid"
@@ -78,6 +80,16 @@ func SetupTestEnv(t *testing.T) *TestEnv {
 	ctx := context.Background()
 	seeder.SeedOrg(ctx, orgID)
 
+	// Service.Create resolves a node's org by reading the parent's resolve
+	// record. The seed only writes NodeTypes and PropertyDefs, so we also
+	// need an org Node so child Create calls (workspace, project, etc.) can
+	// resolve their parent. Mirrors cmd/server/seed.go ensureNode for the
+	// root case.
+	if err := writeOrgNode(ctx, stores, orgID, seedSlug); err != nil {
+		fdbadapter.SetTestPrefix(nil)
+		t.Fatalf("write org node: %v", err)
+	}
+
 	t.Cleanup(func() {
 		clearPrefix(t, clusterFile, prefixBytes)
 		fdbadapter.SetTestPrefix(nil)
@@ -103,6 +115,46 @@ func SetupTestEnv(t *testing.T) *TestEnv {
 		OrgSlug: seedSlug,
 		Ctx:     ctx,
 	}
+}
+
+// writeOrgNode writes the org Node, NodeView, NodeResolve, and slug index
+// directly via the stores. It mirrors cmd/server/seed.go ensureNode for the
+// root case, where ParentID is uuid.Nil and OrgID == ID.
+func writeOrgNode(ctx context.Context, stores *fdbadapter.Stores, orgID uuid.UUID, slug string) error {
+	now := time.Now().UTC()
+	props := map[string]json.RawMessage{
+		"slug": mustJSON(slug),
+	}
+	n := &node.Node{
+		ID:        orgID,
+		OrgID:     orgID,
+		NodeType:  "org",
+		Name:      slug,
+		Props:     props,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	view := &node.NodeView{
+		ID:        orgID,
+		OrgID:     orgID,
+		NodeType:  "org",
+		Name:      slug,
+		Props:     props,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := stores.Nodes.CreateAtomic(ctx, n, view, nil, []string{"slug"}); err != nil {
+		return err
+	}
+	return stores.Nodes.WriteSlug(ctx, "org", slug, orgID)
+}
+
+func mustJSON(v any) json.RawMessage {
+	b, err := json.Marshal(v)
+	if err != nil {
+		panic(err)
+	}
+	return b
 }
 
 // clearPrefix range-clears every key under a test prefix in one FDB

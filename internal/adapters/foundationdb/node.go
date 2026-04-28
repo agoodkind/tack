@@ -172,7 +172,7 @@ func (s *NodeStore) Delete(ctx context.Context, orgID, nodeID uuid.UUID) (err er
 		}
 		fwdKVs := tr.GetRange(fwdRange, fdb.RangeOptions{}).GetSliceOrPanic()
 		for _, kv := range fwdKVs {
-			t, terr := tuple.Unpack(kv.Key)
+			t, terr := tuple.Unpack(stripPrefix(kv.Key))
 			if terr != nil || len(t) < 5 {
 				continue
 			}
@@ -195,7 +195,7 @@ func (s *NodeStore) Delete(ctx context.Context, orgID, nodeID uuid.UUID) (err er
 		}
 		revKVs := tr.GetRange(revRange, fdb.RangeOptions{}).GetSliceOrPanic()
 		for _, kv := range revKVs {
-			t, terr := tuple.Unpack(kv.Key)
+			t, terr := tuple.Unpack(stripPrefix(kv.Key))
 			if terr != nil || len(t) < 5 {
 				continue
 			}
@@ -325,7 +325,7 @@ func (s *NodeStore) ListByProperty(
 		}
 		nodes := make([]*node.Node, 0, len(indexKVs))
 		for _, kv := range indexKVs {
-			t, terr := tuple.Unpack(kv.Key)
+			t, terr := tuple.Unpack(stripPrefix(kv.Key))
 			if terr != nil || len(t) < 6 {
 				continue
 			}

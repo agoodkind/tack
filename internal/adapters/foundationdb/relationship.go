@@ -77,7 +77,7 @@ func (s *RelationshipStore) ListByTarget(ctx context.Context, orgID, targetID uu
 		}
 		rs := make([]*node.Relationship, 0, len(revKVs))
 		for _, kv := range revKVs {
-			t, terr := tuple.Unpack(kv.Key)
+			t, terr := tuple.Unpack(stripPrefix(kv.Key))
 			if terr != nil || len(t) < 5 {
 				continue
 			}

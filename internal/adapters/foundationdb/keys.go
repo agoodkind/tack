@@ -1,6 +1,8 @@
 package foundationdb
 
 import (
+	"bytes"
+
 	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
 	"github.com/google/uuid"
 )
@@ -87,6 +89,20 @@ func withPrefix(key []byte) []byte {
 	out = append(out, testPrefix...)
 	out = append(out, key...)
 	return out
+}
+
+// stripPrefix removes the active test prefix from a key returned by an FDB
+// range read. Production callers leave testPrefix nil and the function is a
+// no-op. Stores must call this before tuple.Unpack on a returned key so the
+// unpack starts at the real tuple bytes rather than the raw test prefix.
+func stripPrefix(key []byte) []byte {
+	if testPrefix == nil {
+		return key
+	}
+	if len(key) >= len(testPrefix) && bytes.Equal(key[:len(testPrefix)], testPrefix) {
+		return key[len(testPrefix):]
+	}
+	return key
 }
 
 // nodeInstanceKey packs a primary node key.
