@@ -65,8 +65,8 @@ func main() {
 		case "seed":
 			runSeed(cfg)
 			return
-		case "reindex":
-			runReindex(cfg)
+		case "ops":
+			runOps(cfg, os.Args[2:])
 			return
 		}
 	}
