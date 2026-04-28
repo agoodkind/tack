@@ -76,10 +76,10 @@ STATICCHECK_BIN        := $(shell go env GOPATH)/bin/clyde-staticcheck
 staticcheck:
 	@if [ ! -d "$(STATICCHECK_BUILD_REPO)" ]; then \
 		echo "skipping staticcheck: $(STATICCHECK_BUILD_REPO) not found" >&2; \
-		exit 0; \
+	else \
+		( cd $(STATICCHECK_BUILD_REPO) && go build -o $(STATICCHECK_BIN) $(STATICCHECK_BUILD_PKG) ) && \
+		$(STATICCHECK_BIN) $(STATICCHECK_FLAGS) ./...; \
 	fi
-	@cd $(STATICCHECK_BUILD_REPO) && go build -o $(STATICCHECK_BIN) $(STATICCHECK_BUILD_PKG)
-	@$(STATICCHECK_BIN) $(STATICCHECK_FLAGS) ./...
 
 # Find unreachable functions. Build first so deadcode sees the same package
 # graph the build did. Test-only helpers reachable only from _test.go files
