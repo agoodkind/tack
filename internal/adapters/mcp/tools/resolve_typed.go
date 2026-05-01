@@ -1,0 +1,90 @@
+package tools
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+
+	"github.com/google/uuid"
+	"goodkind.io/tack/internal/auth"
+	"goodkind.io/tack/internal/domain"
+	"goodkind.io/tack/internal/domain/node"
+)
+
+const (
+	scopedNodeRefSeparator = "::"
+	maxParentDepth         = 32
+)
+
+// ResolveTypedNodeID resolves a node reference in the context of one node type.
+// Typed resolution lets get/update/delete accept project identifiers and scoped
+// refs like "CLYDE::In Progress" without widening lookups across all types.
+func (r *Resolver) ResolveTypedNodeID(ctx context.Context, nt *node.NodeType, input string) (uuid.UUID, error) {
+	if id, err := uuid.Parse(input); err == nil {
+		if nt == nil {
+			return id, nil
+		}
+		resolve, err := r.reader.Resolve(ctx, id)
+		if err != nil {
+			return uuid.Nil, err
+		}
+		if resolve == nil || resolve.NodeType != nt.TypeKey {
+			return uuid.Nil, fmt.Errorf("%s %q: %w", strings.ToLower(nt.Slug), input, domain.ErrNotFound)
+		}
+		return id, nil
+	}
+	if nt == nil {
+		return r.ResolveNodeID(ctx, input)
+	}
+
+	switch nt.Reference.Strategy {
+	case node.ReferenceDirectSlug:
+		return r.resolveDirectReference(ctx, nt, input)
+	case node.ReferenceScopedSequence:
+		return r.resolveSequenceNodeID(ctx, input, []string{nt.TypeKey})
+	case node.ReferenceScopedProperty:
+		return r.resolveScopedNodeReference(ctx, nt, input)
+	case node.ReferenceUUIDOnly, "":
+		return uuid.Nil, invalidTypedNodeIDError(nt, input)
+	default:
+		return uuid.Nil, fmt.Errorf("unknown reference strategy %q for %s: %w", nt.Reference.Strategy, nt.Slug, domain.ErrInvalidArgument)
+	}
+}
+
+func (r *Resolver) resolveSequenceNodeID(ctx context.Context, input string, typeKeys []string) (uuid.UUID, error) {
+	projIdent, seqID, err := ParseNodeIdentifier(input)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("invalid node_id %q: must be a UUID or identifier like TACK-65: %w", input, domain.ErrInvalidArgument)
+	}
+	userID, ok := auth.UserID(ctx)
+	if !ok {
+		return uuid.Nil, fmt.Errorf("unauthenticated")
+	}
+	workspaces, err := r.WorkspacesForUser(ctx, userID)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	for _, workspace := range workspaces {
+		if len(r.scopeChain) == 0 {
+			continue
+		}
+		scopeNode, err := r.ResolveScope(ctx, workspace, r.scopeChain[0], projIdent)
+		if err != nil {
+			continue
+		}
+		rawSeq, _ := json.Marshal(int64(seqID))
+		for _, typeKey := range typeKeys {
+			candidates, err := r.nodes.ListByProperty(ctx, workspace.OrgID, typeKey, "sequence", rawSeq)
+			if err != nil {
+				continue
+			}
+			for _, candidate := range candidates {
+				if r.nodeBelongsToScope(ctx, candidate, scopeNode.ID) {
+					return candidate.ID, nil
+				}
+			}
+		}
+	}
+	return uuid.Nil, fmt.Errorf("identifier %q: %w", input, domain.ErrNotFound)
+}

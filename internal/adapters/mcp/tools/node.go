@@ -54,7 +54,7 @@ func RegisterNodeTools(s *mcpserver.MCPServer, nt *node.NodeType, b NodeTypeBind
 		registerTool(s, updateTool(nt, slug), updateHandler(nt, b))
 	}
 	if _, ok := ops[node.OpDelete]; ok {
-		registerTool(s, deleteTool(nt, slug), deleteHandler(b))
+		registerTool(s, deleteTool(nt, slug), deleteHandler(nt, b))
 	}
 }
 
@@ -92,9 +92,18 @@ func createTool(nt *node.NodeType, slug string, chain []ScopeLevel, epParam stri
 }
 
 func getTool(nt *node.NodeType, slug string) mcpmcp.Tool {
+	description := fmt.Sprintf("Gets a %s by UUID.", nt.Name)
+	switch nt.Reference.Strategy {
+	case node.ReferenceScopedSequence:
+		description = fmt.Sprintf("Gets a %s by UUID or identifier like TACK-65.", nt.Name)
+	case node.ReferenceScopedProperty:
+		description = fmt.Sprintf("Gets a %s by UUID or scoped reference like PROJECT::Name.", nt.Name)
+	case node.ReferenceDirectSlug:
+		description = fmt.Sprintf("Gets a %s by UUID or identifier.", nt.Name)
+	}
 	return mcpmcp.Tool{
 		Name:        fmt.Sprintf("tack_get_%s", slug),
-		Description: fmt.Sprintf("Gets a %s by ID or identifier like TACK-65.", nt.Name),
+		Description: description,
 		InputSchema: schema{
 			Fields:   []schemaField{{Name: "node_id", Type: schemaString}},
 			Required: []string{"node_id"},
@@ -177,7 +186,7 @@ func listHandler(nt *node.NodeType, chain []ScopeLevel, epParam string, b NodeTy
 		if plural == "" {
 			plural = nt.Slug + "s"
 		}
-		rc := newRenderCtx(ctx, b.Reader, b.Users)
+		rc := newRenderCtxWithTypes(ctx, b.Reader, b.Users, b.Resolver.typeIndex)
 		return successText(renderList(rc, plural, views), ""), nil
 	}
 }
@@ -270,7 +279,7 @@ func createHandler(nt *node.NodeType, chain []ScopeLevel, epParam string, b Node
 		if result.Existed {
 			instr = "Idempotency key matched; returning the existing node. No new write was performed."
 		}
-		rc := newRenderCtx(ctx, b.Reader, b.Users)
+		rc := newRenderCtxWithTypes(ctx, b.Reader, b.Users, b.Resolver.typeIndex)
 		return successText(renderNode(rc, result.View), instr), nil
 	}
 }
@@ -285,7 +294,7 @@ func getHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFunc 
 		if err := req.BindArguments(&in); err != nil {
 			return recoverableError(err.Error()), nil
 		}
-		id, err := b.Resolver.ResolveNodeID(ctx, in.NodeID)
+		id, err := b.Resolver.ResolveTypedNodeID(ctx, nt, in.NodeID)
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
@@ -296,7 +305,7 @@ func getHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFunc 
 		if view == nil {
 			return classifyError(ctx, domain.ErrNotFound), nil
 		}
-		rc := newRenderCtx(ctx, b.Reader, b.Users)
+		rc := newRenderCtxWithTypes(ctx, b.Reader, b.Users, b.Resolver.typeIndex)
 		return successText(renderNode(rc, view), ""), nil
 	}
 }
@@ -320,7 +329,7 @@ func updateHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFu
 		if err != nil {
 			return unexpectedError(ctx, err), nil
 		}
-		id, err := b.Resolver.ResolveNodeID(ctx, in.NodeID)
+		id, err := b.Resolver.ResolveTypedNodeID(ctx, nt, in.NodeID)
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
@@ -343,7 +352,7 @@ func updateHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFu
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
-		rc := newRenderCtx(ctx, b.Reader, b.Users)
+		rc := newRenderCtxWithTypes(ctx, b.Reader, b.Users, b.Resolver.typeIndex)
 		return successText(renderNode(rc, view), ""), nil
 	}
 }
@@ -352,7 +361,7 @@ type deleteInput struct {
 	NodeID string `json:"node_id"`
 }
 
-func deleteHandler(b NodeTypeBinding) mcpserver.ToolHandlerFunc {
+func deleteHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFunc {
 	return func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
 		var in deleteInput
 		if err := req.BindArguments(&in); err != nil {
@@ -362,7 +371,7 @@ func deleteHandler(b NodeTypeBinding) mcpserver.ToolHandlerFunc {
 		if err != nil {
 			return unexpectedError(ctx, err), nil
 		}
-		id, err := b.Resolver.ResolveNodeID(ctx, in.NodeID)
+		id, err := b.Resolver.ResolveTypedNodeID(ctx, nt, in.NodeID)
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}

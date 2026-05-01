@@ -121,20 +121,24 @@ func TestRenderNodeIdentifierPreferred(t *testing.T) {
 		userID: {ID: userID, DisplayName: "alex", Email: "alex@goodkind.io"},
 	}}
 
-	rc := newRenderCtx(context.Background(), reader, users)
+	rc := newRenderCtxWithTypes(context.Background(), reader, users, map[string]*node.NodeType{
+		"project": {TypeKey: "project", Reference: node.ReferenceConfig{Strategy: node.ReferenceDirectSlug, Property: "identifier"}},
+		"epic":    {TypeKey: "epic", Reference: node.ReferenceConfig{Strategy: node.ReferenceScopedSequence, Property: "sequence"}},
+		"issue":   {TypeKey: "issue", Reference: node.ReferenceConfig{Strategy: node.ReferenceScopedSequence, Property: "sequence"}},
+	})
 	out := renderNode(rc, issue)
 
-	mustContain(t, out, "TACK-65")              // identifier in header
-	mustContain(t, out, "Fix the resolver bug") // name in header
-	mustContain(t, out, "scope:")               // resolved scope label
-	mustContain(t, out, "TACK (project)")       // resolved scope value
-	mustContain(t, out, "parent:")              // resolved parent label
-	mustContain(t, out, "TACK-12 (epic)")       // resolved parent identifier (epic carries its own seq)
-	mustContain(t, out, "state:")               // resolved state label
-	mustContain(t, out, "in-progress (state)")  // resolved state value
-	mustContain(t, out, "priority:    high")    // scalar prop
-	mustContain(t, out, "created:")             // audit field
-	mustContain(t, out, "by alex")              // resolved user
+	mustContain(t, out, "TACK-65")                        // identifier in header
+	mustContain(t, out, "Fix the resolver bug")           // name in header
+	mustContain(t, out, "scope:")                         // resolved scope label
+	mustContain(t, out, "TACK (project)")                 // resolved scope value
+	mustContain(t, out, "parent:")                        // resolved parent label
+	mustContain(t, out, "TACK-12 (epic)")                 // resolved parent identifier (epic carries its own seq)
+	mustContain(t, out, "state:")                         // resolved state label
+	mustContain(t, out, "in-progress (state)")            // resolved state value
+	mustContain(t, out, "priority:    high")              // scalar prop
+	mustContain(t, out, "created:")                       // audit field
+	mustContain(t, out, "by alex")                        // resolved user
 	mustContain(t, out, "id:          "+issueID.String()) // raw id at bottom
 
 	// No raw UUIDs for cross-references should appear in the body.
@@ -177,7 +181,10 @@ func TestRenderListUsesIdentifiers(t *testing.T) {
 		projectID: project,
 		stateID:   stateView,
 	}}
-	rc := newRenderCtx(context.Background(), reader, nil)
+	rc := newRenderCtxWithTypes(context.Background(), reader, nil, map[string]*node.NodeType{
+		"project": {TypeKey: "project", Reference: node.ReferenceConfig{Strategy: node.ReferenceDirectSlug, Property: "identifier"}},
+		"issue":   {TypeKey: "issue", Reference: node.ReferenceConfig{Strategy: node.ReferenceScopedSequence, Property: "sequence"}},
+	})
 	out := renderList(rc, "issues", issues)
 
 	mustContain(t, out, "3 issues")

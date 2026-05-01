@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -10,7 +11,6 @@ import (
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/audit"
-	"goodkind.io/tack/internal/auth"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/domain/org"
@@ -32,11 +32,11 @@ type Resolver struct {
 	reader  node.NodeReader
 	members org.MemberRepository
 
-	entryPointTypeKey  string
-	entryPointSlug     string
-	scopeChain         []ScopeLevel
-	sequenceTypeKeys   []string
-	typeIndex          map[string]*node.NodeType
+	entryPointTypeKey string
+	entryPointSlug    string
+	scopeChain        []ScopeLevel
+	sequenceTypeKeys  []string
+	typeIndex         map[string]*node.NodeType
 }
 
 func NewResolver(nodes node.NodeRepository, reader node.NodeReader, members org.MemberRepository, nodeTypes []*node.NodeType) *Resolver {
@@ -184,68 +184,33 @@ func (r *Resolver) WorkspacesForUser(ctx context.Context, userID uuid.UUID) ([]*
 	return all, nil
 }
 
-
 // ResolveNodeID accepts a UUID, a slug-resolvable identifier, or a sequence-style
 // identifier (e.g. "TACK-65"), and returns the node UUID.
 func (r *Resolver) ResolveNodeID(ctx context.Context, input string) (uuid.UUID, error) {
 	if id, err := uuid.Parse(input); err == nil {
 		return id, nil
 	}
-	projIdent, seqID, err := ParseNodeIdentifier(input)
-	if err != nil {
-		return uuid.Nil, fmt.Errorf("invalid node_id %q: must be a UUID or identifier like TACK-65", input)
+	id, err := r.resolveSequenceNodeID(ctx, input, r.sequenceTypeKeys)
+	if err == nil {
+		return id, nil
 	}
-	userID, ok := auth.UserID(ctx)
-	if !ok {
-		return uuid.Nil, fmt.Errorf("unauthenticated")
-	}
-	wss, err := r.WorkspacesForUser(ctx, userID)
-	if err != nil {
-		return uuid.Nil, err
-	}
-	for _, ws := range wss {
-		if len(r.scopeChain) == 0 {
-			continue
-		}
-		// projIdent (the prefix in "TACK-161") names the topmost scope below the
-		// entry point, which is the project level. The deepest chain entry is
-		// the parent of the leaf sequence-bearing type and would be wrong here
-		// when the chain has more than one level (e.g. [project, issue] for
-		// comment).
-		first := r.scopeChain[0]
-		proj, err := r.ResolveScope(ctx, ws, first, projIdent)
-		if err != nil {
-			continue
-		}
-		// For each sequence-bearing type, look for a node under proj with
-		// matching sequence. Match by scope_id first; fall back to parent_id
-		// for legacy nodes created before scope_id was stamped.
-		for _, typeKey := range r.sequenceTypeKeys {
-			rawSeq, _ := json.Marshal(int64(seqID))
-			candidates, err := r.nodes.ListByProperty(ctx, ws.OrgID, typeKey, "sequence", rawSeq)
-			if err != nil {
-				continue
-			}
-			projIDRaw, _ := json.Marshal(proj.ID.String())
-			for _, n := range candidates {
-				if got, ok := n.Props["scope_id"]; ok && string(got) == string(projIDRaw) {
-					return n.ID, nil
-				}
-				if got, ok := n.Props["parent_id"]; ok && string(got) == string(projIDRaw) {
-					return n.ID, nil
-				}
-			}
-		}
+	var invalidArgument error
+	if errors.Is(err, domain.ErrInvalidArgument) {
+		invalidArgument = err
 	}
 	telemetry.IncResolverMiss("node_id")
+	projIdent, seqID, _ := ParseNodeIdentifier(input)
 	telemetry.L(ctx).InfoContext(ctx, "resolver.node_id.miss",
 		slog.String("input", input),
 		slog.String("project_ident", projIdent),
 		slog.Int("sequence_id", seqID),
-		slog.Int("workspaces_tried", len(wss)),
+		slog.String("err", err.Error()),
 		slog.Int("scope_chain_depth", len(r.scopeChain)),
 		slog.Int("sequence_types_tried", len(r.sequenceTypeKeys)),
 	)
+	if invalidArgument != nil {
+		return uuid.Nil, invalidArgument
+	}
 	return uuid.Nil, fmt.Errorf("identifier %q: %w", input, domain.ErrNotFound)
 }
 

@@ -27,17 +27,17 @@ var AllOps = []Op{OpCreate, OpRead, OpList, OpUpdate, OpDelete}
 //
 // Built-in features shipped by seed:
 const (
-	FeatureHasSlug                 = "has_slug"                    // instances own a slug / identifier prefix
-	FeatureHasWorkflowStates       = "has_workflow_states"         // supports a workflow-state property
-	FeatureHasAssignees            = "has_assignees"               // supports assigned_to relationships
-	FeatureHasSequenceID           = "has_sequence_id"             // supports a sequence property
-	FeatureIsContainer             = "is_container"                // can contain child nodes
-	FeatureHasDueDates             = "has_due_dates"               // supports start_date / due_date properties
-	FeatureHasComments             = "has_comments"                // supports child comment nodes
-	FeatureHasActivity             = "has_activity"                // emits activity nodes on write
-	FeatureIsEntryPoint            = "is_entry_point"              // top-level MCP entry (workspace today)
-	FeatureIsScope                 = "is_scope"                    // defines an FDB key scope level
-	FeatureExcludeFromGenericTools = "exclude_from_generic_tools"  // skip generic CRUD tool registration
+	FeatureHasSlug                 = "has_slug"                   // instances own a slug / identifier prefix
+	FeatureHasWorkflowStates       = "has_workflow_states"        // supports a workflow-state property
+	FeatureHasAssignees            = "has_assignees"              // supports assigned_to relationships
+	FeatureHasSequenceID           = "has_sequence_id"            // supports a sequence property
+	FeatureIsContainer             = "is_container"               // can contain child nodes
+	FeatureHasDueDates             = "has_due_dates"              // supports start_date / due_date properties
+	FeatureHasComments             = "has_comments"               // supports child comment nodes
+	FeatureHasActivity             = "has_activity"               // emits activity nodes on write
+	FeatureIsEntryPoint            = "is_entry_point"             // top-level MCP entry (workspace today)
+	FeatureIsScope                 = "is_scope"                   // defines an FDB key scope level
+	FeatureExcludeFromGenericTools = "exclude_from_generic_tools" // skip generic CRUD tool registration
 )
 
 // Features is a set of capability strings on a NodeType.
@@ -102,6 +102,25 @@ func (f *Features) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+// ReferenceStrategy names how human-readable refs are derived for a NodeType.
+// UUID remains canonical for every node; this strategy only controls display
+// and MCP input ergonomics.
+type ReferenceStrategy string
+
+const (
+	ReferenceUUIDOnly       ReferenceStrategy = "uuid_only"
+	ReferenceDirectSlug     ReferenceStrategy = "direct_slug"
+	ReferenceScopedSequence ReferenceStrategy = "scoped_sequence"
+	ReferenceScopedProperty ReferenceStrategy = "scoped_property"
+)
+
+// ReferenceConfig declares the human-readable ref contract for a NodeType.
+// Property names the canonical prop when Strategy uses property lookup.
+type ReferenceConfig struct {
+	Strategy ReferenceStrategy `json:"strategy"`
+	Property string            `json:"property,omitempty"`
+}
+
 // NodeType defines a type in the extensibility hierarchy. NodeType records are
 // themselves nodes of NodeType "node_type" in the same FDB key space as any
 // other node. This is configuration metadata, not runtime data.
@@ -123,6 +142,10 @@ type NodeType struct {
 	Features     Features `json:"features,omitempty"`
 	CanContain   []string `json:"can_contain,omitempty"`
 	CanLiveUnder []string `json:"can_live_under,omitempty"`
+	// Reference declares how humans and MCP callers can refer to nodes of this
+	// type without using UUIDs. Runtime code interprets the strategy without
+	// branching on concrete slugs or built-in type names.
+	Reference ReferenceConfig `json:"reference,omitempty"`
 	// DefaultChildren lists nodes that should be auto-created under any new
 	// instance of this type. Empty by default: no NodeType implies any
 	// automatic child creation unless the seed (or a later edit) declares
@@ -196,15 +219,15 @@ type Relationship struct {
 // Well-known relation types seeded by default. Nothing stops callers from
 // defining their own; these exist so built-in features wire to consistent strings.
 const (
-	RelAssignedTo    = "assigned_to"
-	RelLabeledWith   = "labeled_with"
-	RelChildOf       = "child_of"
-	RelWatches       = "watches"
-	RelMentionedIn   = "mentioned_in"
-	RelReactedTo     = "reacted_to"
-	RelCommentOf     = "comment_of"
-	RelActivityOn    = "activity_on"
-	RelActorOf       = "actor_of"
+	RelAssignedTo  = "assigned_to"
+	RelLabeledWith = "labeled_with"
+	RelChildOf     = "child_of"
+	RelWatches     = "watches"
+	RelMentionedIn = "mentioned_in"
+	RelReactedTo   = "reacted_to"
+	RelCommentOf   = "comment_of"
+	RelActivityOn  = "activity_on"
+	RelActorOf     = "actor_of"
 )
 
 // PropertyType enumerates value shapes a PropertyDef can declare.

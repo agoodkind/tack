@@ -41,7 +41,7 @@ func RegisterWorkspace(s *mcpserver.MCPServer, reader node.NodeReader, resolver 
 			if err != nil {
 				return classifyError(ctx, err), nil
 			}
-			rc := newRenderCtx(ctx, reader, nil)
+			rc := newRenderCtxWithTypes(ctx, reader, nil, resolver.typeIndex)
 			return successText(renderList(rc, "workspaces", wss), ""), nil
 		},
 	)
@@ -87,7 +87,7 @@ func RegisterWorkspace(s *mcpserver.MCPServer, reader node.NodeReader, resolver 
 					{PropName: "parent_id", Value: parentIDRaw},
 				},
 			})
-			rc := newRenderCtx(ctx, reader, nil)
+			rc := newRenderCtxWithTypes(ctx, reader, nil, resolver.typeIndex)
 			return successText(renderWorkspaceDescribe(rc, ws, types, children), ""), nil
 		},
 	)

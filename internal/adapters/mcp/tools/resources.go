@@ -89,7 +89,7 @@ func buildGettingStartedText(resolver *Resolver, nodeTypes []*node.NodeType) str
 	fmt.Fprintln(&sb)
 	fmt.Fprintln(&sb, "Every project starts with five state nodes: Backlog, Todo, In Progress, Done, Cancelled. Call `tack_list_states` with `workspace_slug` and `project_identifier` to read them, then set `properties.state_id` on issues to one of those UUIDs. `NodeType.DefaultChildren` drives this; custom types can declare their own defaults without code changes.")
 	fmt.Fprintln(&sb)
-	fmt.Fprintln(&sb, "`tack_get_<slug>` and `tack_update_<slug>` accept either a UUID or an identifier like `TACK-65`.")
+	fmt.Fprintln(&sb, "`tack_get_<slug>` and `tack_update_<slug>` accept either a UUID or the human-readable ref that the list output printed. Sequence-bearing types use identifiers like `TACK-65`. Non-sequence child types use scoped refs like `CLYDE::In Progress`.")
 	fmt.Fprintln(&sb)
 	fmt.Fprintln(&sb, "## Relationships")
 	fmt.Fprintln(&sb)

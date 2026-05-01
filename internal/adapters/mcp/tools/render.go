@@ -17,14 +17,19 @@ import (
 // cross-references (parent, scope, state, assignees, audit fields). Build
 // one per tool call; the cache is in-flight and never shared across calls.
 type renderCtx struct {
-	ctx    context.Context
-	reader node.NodeReader
-	users  user.Repository
-	cache  map[uuid.UUID]string
+	ctx       context.Context
+	reader    node.NodeReader
+	users     user.Repository
+	typeIndex map[string]*node.NodeType
+	cache     map[uuid.UUID]string
 }
 
 func newRenderCtx(ctx context.Context, reader node.NodeReader, users user.Repository) *renderCtx {
 	return &renderCtx{ctx: ctx, reader: reader, users: users, cache: map[uuid.UUID]string{}}
+}
+
+func newRenderCtxWithTypes(ctx context.Context, reader node.NodeReader, users user.Repository, typeIndex map[string]*node.NodeType) *renderCtx {
+	return &renderCtx{ctx: ctx, reader: reader, users: users, typeIndex: typeIndex, cache: map[uuid.UUID]string{}}
 }
 
 // nodeIdentifier returns the human-readable identifier for a node UUID.
@@ -64,19 +69,13 @@ func identifierFor(v *node.NodeView, rc *renderCtx) string {
 	if v == nil {
 		return ""
 	}
-	if ident := stringProp(v, "identifier"); ident != "" {
-		// Project-style: bare identifier is canonical.
-		return ident
-	}
-	if seq := numberProp(v, "sequence"); seq > 0 {
-		// Issue-style: <SCOPE_IDENTIFIER>-<seq>.
-		scopeID := uuidProp(v, "scope_id")
-		if rc != nil && scopeID != uuid.Nil {
-			if scopeIdent := rc.nodeIdentifier(scopeID); scopeIdent != "" {
-				return fmt.Sprintf("%s-%d", scopeIdent, seq)
-			}
+	if rc != nil {
+		if ident := rc.referenceIdentifierFor(v); ident != "" {
+			return ident
 		}
-		return fmt.Sprintf("%s-%d", strings.ToUpper(v.NodeType), seq)
+	}
+	if ident := stringProp(v, "identifier"); ident != "" {
+		return ident
 	}
 	if slug := stringProp(v, "slug"); slug != "" {
 		return slug
@@ -121,7 +120,11 @@ func renderNode(rc *renderCtx, v *node.NodeView) string {
 	ident := identifierFor(v, rc)
 	header := v.Name
 	if ident != "" && ident != v.Name {
-		header = ident + "  " + v.Name
+		if strings.HasSuffix(ident, scopedNodeRefSeparator+v.Name) {
+			header = ident
+		} else {
+			header = ident + "  " + v.Name
+		}
 	}
 	fmt.Fprintf(&b, "%s\n\n", header)
 

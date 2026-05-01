@@ -162,7 +162,7 @@ func RegisterRelationship(s *mcpserver.MCPServer, svc *service.NodeService, rels
 			if err != nil {
 				return classifyError(ctx, err), nil
 			}
-			rc := newRenderCtx(ctx, resolver.reader, nil)
+			rc := newRenderCtxWithTypes(ctx, resolver.reader, nil, resolver.typeIndex)
 			label := "outgoing"
 			otherIsTarget := true
 			if direction == "in" {

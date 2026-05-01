@@ -194,6 +194,7 @@ func defaultNodeTypes(orgID uuid.UUID) []*node.NodeType {
 		name            string
 		typeKey         string
 		features        node.Features
+		reference       node.ReferenceConfig
 		canContain      []string
 		canLiveUnder    []string
 		defaultChildren []node.DefaultChild
@@ -239,19 +240,24 @@ func defaultNodeTypes(orgID uuid.UUID) []*node.NodeType {
 		node.FeatureHasSlug, node.FeatureIsContainer, node.FeatureIsScope,
 		node.FeatureExcludeFromGenericTools,
 	}
+	directIdentifier := node.ReferenceConfig{Strategy: node.ReferenceDirectSlug, Property: "identifier"}
+	directSlug := node.ReferenceConfig{Strategy: node.ReferenceDirectSlug, Property: "slug"}
+	scopedSequence := node.ReferenceConfig{Strategy: node.ReferenceScopedSequence, Property: "sequence"}
+	scopedName := node.ReferenceConfig{Strategy: node.ReferenceScopedProperty, Property: "name"}
+	uuidOnly := node.ReferenceConfig{Strategy: node.ReferenceUUIDOnly}
 
 	specs := []spec{
-		{"org", "orgs", "Org", nodeTypeOrg, orgFeatures, []string{nodeTypeWorkspace}, nil, nil},
-		{"workspace", "workspaces", "Workspace", nodeTypeWorkspace, workspaceFeatures, []string{nodeTypeProject, nodeTypeLabel, nodeTypeWorkspace}, []string{nodeTypeOrg}, nil},
-		{"project", "projects", "Project", nodeTypeProject, projectFeatures, []string{nodeTypeIssue, nodeTypeEpic, nodeTypeCycle, nodeTypeModule, nodeTypeState}, []string{nodeTypeWorkspace}, projectDefaultStates},
-		{"issue", "issues", "Issue", nodeTypeIssue, issueFeatures, []string{nodeTypeComment, nodeTypeActivity}, []string{nodeTypeProject}, nil},
-		{"epic", "epics", "Epic", nodeTypeEpic, epicFeatures, []string{nodeTypeIssue, nodeTypeComment, nodeTypeActivity}, []string{nodeTypeProject}, nil},
-		{"cycle", "cycles", "Cycle", nodeTypeCycle, cycleFeatures, []string{nodeTypeIssue}, []string{nodeTypeProject}, nil},
-		{"module", "modules", "Module", nodeTypeModule, moduleFeatures, []string{nodeTypeIssue}, []string{nodeTypeProject}, nil},
-		{"state", "states", "State", nodeTypeState, nil, nil, []string{nodeTypeProject}, nil},
-		{"label", "labels", "Label", nodeTypeLabel, nil, nil, []string{nodeTypeWorkspace}, nil},
-		{"comment", "comments", "Comment", nodeTypeComment, nil, nil, []string{nodeTypeIssue, nodeTypeEpic}, nil},
-		{"activity", "activities", "Activity", nodeTypeActivity, nil, nil, []string{nodeTypeIssue, nodeTypeEpic, nodeTypeCycle, nodeTypeModule}, nil},
+		{"org", "orgs", "Org", nodeTypeOrg, orgFeatures, directSlug, []string{nodeTypeWorkspace}, nil, nil},
+		{"workspace", "workspaces", "Workspace", nodeTypeWorkspace, workspaceFeatures, directSlug, []string{nodeTypeProject, nodeTypeLabel, nodeTypeWorkspace}, []string{nodeTypeOrg}, nil},
+		{"project", "projects", "Project", nodeTypeProject, projectFeatures, directIdentifier, []string{nodeTypeIssue, nodeTypeEpic, nodeTypeCycle, nodeTypeModule, nodeTypeState}, []string{nodeTypeWorkspace}, projectDefaultStates},
+		{"issue", "issues", "Issue", nodeTypeIssue, issueFeatures, scopedSequence, []string{nodeTypeComment, nodeTypeActivity}, []string{nodeTypeProject}, nil},
+		{"epic", "epics", "Epic", nodeTypeEpic, epicFeatures, scopedSequence, []string{nodeTypeIssue, nodeTypeComment, nodeTypeActivity}, []string{nodeTypeProject}, nil},
+		{"cycle", "cycles", "Cycle", nodeTypeCycle, cycleFeatures, scopedSequence, []string{nodeTypeIssue}, []string{nodeTypeProject}, nil},
+		{"module", "modules", "Module", nodeTypeModule, moduleFeatures, scopedSequence, []string{nodeTypeIssue}, []string{nodeTypeProject}, nil},
+		{"state", "states", "State", nodeTypeState, nil, scopedName, nil, []string{nodeTypeProject}, nil},
+		{"label", "labels", "Label", nodeTypeLabel, nil, scopedName, nil, []string{nodeTypeWorkspace}, nil},
+		{"comment", "comments", "Comment", nodeTypeComment, nil, uuidOnly, nil, []string{nodeTypeIssue, nodeTypeEpic}, nil},
+		{"activity", "activities", "Activity", nodeTypeActivity, nil, uuidOnly, nil, []string{nodeTypeIssue, nodeTypeEpic, nodeTypeCycle, nodeTypeModule}, nil},
 	}
 
 	types := make([]*node.NodeType, 0, len(specs))
@@ -269,6 +275,7 @@ func defaultNodeTypes(orgID uuid.UUID) []*node.NodeType {
 			Features:        sp.features,
 			CanContain:      sp.canContain,
 			CanLiveUnder:    sp.canLiveUnder,
+			Reference:       sp.reference,
 			DefaultChildren: sp.defaultChildren,
 		})
 	}
