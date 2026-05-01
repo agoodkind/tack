@@ -14,13 +14,14 @@ import (
 
 // nodeTypeSummary is the per-NodeType payload returned by tack_describe_*.
 // Mirrors the small subset of NodeType the MCP layer needs (slug, plural,
-// human name, features) without exposing the full NodeType struct, which
+// human name, features, reference contract) without exposing the full NodeType struct, which
 // includes org-internal fields like ID.
 type nodeTypeSummary struct {
 	Slug       string
 	PluralSlug string
 	Name       string
 	Features   []string
+	Reference  node.ReferenceConfig
 }
 
 // RegisterWorkspace registers tack_list_workspaces and tack_describe_workspace
@@ -79,6 +80,7 @@ func RegisterWorkspace(s *mcpserver.MCPServer, reader node.NodeReader, resolver 
 					PluralSlug: nt.PluralSlug,
 					Name:       nt.Name,
 					Features:   []string(nt.Features),
+					Reference:  nt.Reference,
 				})
 			}
 			children, _ := reader.List(ctx, node.NodeListQuery{

@@ -40,7 +40,7 @@ func buildGettingStartedText(resolver *Resolver, nodeTypes []*node.NodeType) str
 	fmt.Fprintln(&sb)
 	fmt.Fprintln(&sb, "## Architecture")
 	fmt.Fprintln(&sb)
-	fmt.Fprintln(&sb, "Everything is a node. Every entity (org, workspace, project, state, label, issue, epic, cycle, module, comment, activity) is one row in the same storage with universal fields (`id`, `org_id`, `node_type`, `name`, `props`, audit fields). Concept-specific values live in `props`. Edges between nodes (assigned_to, labeled_with, child_of, watches, comment_of) are `Relationship` records, not fields on the node. Behavior is driven by Features declared on the NodeType, not by the node's type name.")
+	fmt.Fprintln(&sb, "Everything is a node. Every entity (org, workspace, project, state, label, issue, epic, cycle, module, comment, activity) is one row in the same storage with universal fields (`id`, `org_id`, `node_type`, `name`, `props`, audit fields). Concept-specific values live in `props`. Edges between nodes (assigned_to, labeled_with, child_of, watches, comment_of) are `Relationship` records, not fields on the node. Behavior is driven by NodeType metadata, not by the node's type name.")
 	fmt.Fprintln(&sb)
 	fmt.Fprintln(&sb, "## Orientation sequence")
 	fmt.Fprintln(&sb)
@@ -66,6 +66,9 @@ func buildGettingStartedText(resolver *Resolver, nodeTypes []*node.NodeType) str
 		if len(nt.Features) > 0 {
 			fmt.Fprintf(&sb, " features: %s", strings.Join(nt.Features, ", "))
 		}
+		if nt.Reference.Strategy != "" {
+			fmt.Fprintf(&sb, " reference: %s", referenceSummary(nt.Reference))
+		}
 		fmt.Fprintln(&sb)
 	}
 	fmt.Fprintln(&sb)
@@ -89,7 +92,7 @@ func buildGettingStartedText(resolver *Resolver, nodeTypes []*node.NodeType) str
 	fmt.Fprintln(&sb)
 	fmt.Fprintln(&sb, "Every project starts with five state nodes: Backlog, Todo, In Progress, Done, Cancelled. Call `tack_list_states` with `workspace_slug` and `project_identifier` to read them, then set `properties.state_id` on issues to one of those UUIDs. `NodeType.DefaultChildren` drives this; custom types can declare their own defaults without code changes.")
 	fmt.Fprintln(&sb)
-	fmt.Fprintln(&sb, "`tack_get_<slug>` and `tack_update_<slug>` accept either a UUID or the human-readable ref that the list output printed. Sequence-bearing types use identifiers like `TACK-65`. Non-sequence child types use scoped refs like `CLYDE::In Progress`.")
+	fmt.Fprintln(&sb, "`tack_get_<slug>` and `tack_update_<slug>` accept either a UUID or the human-readable ref that list and describe output print. That ref is declared by the type's `reference` contract. Typical refs look like `TACK`, `TACK-65`, or `CLYDE::In Progress`; do not invent refs from type names.")
 	fmt.Fprintln(&sb)
 	fmt.Fprintln(&sb, "## Relationships")
 	fmt.Fprintln(&sb)
@@ -111,7 +114,7 @@ func buildGettingStartedText(resolver *Resolver, nodeTypes []*node.NodeType) str
 	fmt.Fprintln(&sb)
 	fmt.Fprintln(&sb, "Tool responses are markdown text wrapped in `<success>...</success>`. Lists print as a table; single-node reads print as a labeled block. Cross-references (parent, scope, state, assignees, audit fields) come back resolved to identifiers and names, not raw UUIDs.")
 	fmt.Fprintln(&sb)
-	fmt.Fprintln(&sb, "Pass identifiers (`TACK-65`, `tack`, `main`) back to subsequent tool calls. The server also accepts UUIDs anywhere it accepts an identifier, so a copy-pasted `id` from a single-node response still works.")
+	fmt.Fprintln(&sb, "Pass the printed identifier (`TACK-65`, `CLYDE::In Progress`, `tack`, `main`) back to subsequent tool calls. The server also accepts UUIDs anywhere it accepts an identifier, so a copy-pasted `id` from a single-node response still works.")
 	fmt.Fprintln(&sb)
 	fmt.Fprintln(&sb, "Single-node responses include the raw `id:` line at the bottom for cases where you genuinely need the UUID (idempotency-keyed retries, debugging). List responses omit raw UUIDs entirely; refer to entries by identifier.")
 	fmt.Fprintln(&sb)

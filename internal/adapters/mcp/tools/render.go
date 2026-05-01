@@ -384,9 +384,9 @@ func renderWorkspaceDescribe(rc *renderCtx, ws *node.NodeView, types []nodeTypeS
 	b.WriteString(renderNode(rc, ws))
 	if len(types) > 0 {
 		b.WriteString("\nnode types\n")
-		rows := [][]string{{"slug", "plural", "name", "features"}}
+		rows := [][]string{{"slug", "plural", "name", "features", "reference"}}
 		for _, t := range types {
-			rows = append(rows, []string{t.Slug, t.PluralSlug, t.Name, strings.Join(t.Features, ", ")})
+			rows = append(rows, []string{t.Slug, t.PluralSlug, t.Name, strings.Join(t.Features, ", "), referenceSummary(t.Reference)})
 		}
 		writeTable(&b, rows)
 	}
@@ -395,6 +395,16 @@ func renderWorkspaceDescribe(rc *renderCtx, ws *node.NodeView, types []nodeTypeS
 		b.WriteString(renderList(rc, "children", children))
 	}
 	return b.String()
+}
+
+func referenceSummary(reference node.ReferenceConfig) string {
+	if reference.Strategy == "" {
+		return "-"
+	}
+	if reference.Property == "" {
+		return string(reference.Strategy)
+	}
+	return fmt.Sprintf("%s:%s", reference.Strategy, reference.Property)
 }
 
 // renderMembers formats org members as a labeled list. Members come back

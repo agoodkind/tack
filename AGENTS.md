@@ -352,6 +352,7 @@ Pieces of the contract:
 - orgID never appears as a parameter in service methods or API inputs.
 - **No hardcoded type names in runtime code.** Exported NodeType constants do not exist. Seed uses unexported constants. Runtime code reads type keys from FDB-loaded NodeType data.
 - **Features are `[]string`** on NodeType. User-extensible without code changes.
+- **Human-readable references are declared by `NodeType.Reference`.** UUID is canonical identity; MCP/rendering ergonomics use a data-driven reference contract plus scope/container relations. Runtime code may interpret generic reference semantics, but it must not infer behavior from slugs, type keys, built-in names, or feature names.
 - **Hierarchy is a DAG** defined by CanLiveUnder. The Resolver walks the scope chain for N levels. No depth assumptions.
 - **MCP tool names, parameter names, and describe responses** are all derived from type slugs and CanContain at registration time.
 - **Universal fields test:** a field belongs on NodeValue/NodeListView only if it would exist on a node in a completely different product (CMS, CRM, game engine) built on the same architecture. Universal: `ID`, `OrgID` (tenant isolation), `NodeType`, `Name`, `CreatedAt`, `UpdatedAt`, `CreatedBy`, `UpdatedBy`, `Props`. Everything else (including `WorkspaceID`, `ProjectID`, `StateID`, `SequenceID`, `AssigneeIDs`, etc.) is a property in Props, a scope position in NodeResolve, or a generic relationship.
