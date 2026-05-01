@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -50,7 +51,10 @@ func emitAuthAudit(ctx context.Context, r *http.Request, ev audit.Event) {
 	rec := currentRecorder()
 	ev.Actor.IP = clientIP(r)
 	ev.Actor.UserAgent = r.UserAgent()
+	ev.Actor.RequestID = telemetry.RequestID(ctx)
 	ev.Context.Source = audit.SourceMCP
+	ev.Context.RequestID = telemetry.RequestID(ctx)
+	ev.Context.TraceID = telemetry.TraceID(ctx)
 	if err := rec.Record(ctx, ev); err != nil {
 		telemetry.L(ctx).Warn("audit.auth_record_failed", "err", err)
 	}
@@ -106,11 +110,7 @@ func Bearer(tokens TokenValidator) func(http.Handler) http.Handler {
 				return
 			}
 
-			ctx := WithUser(r.Context(), t.UserID)
-			// Attach user_id to the logger so every downstream log line carries it.
-			ctx = telemetry.WithLogger(ctx,
-				telemetry.L(ctx).With("user_id", t.UserID.String()),
-			)
+			ctx := withAuthenticatedUser(r.Context(), t.UserID)
 			emitAuthAudit(ctx, r, audit.Event{
 				Verb:    string(audit.VerbAuthTokenUsed),
 				Actor:   audit.Actor{Type: audit.ActorUser, ID: t.UserID, APITokenLabel: hashBearer(raw)},
@@ -149,7 +149,7 @@ func DevBearer(next http.Handler) http.Handler {
 			unauthorized(w, "dev mode: Authorization header must be a UUID")
 			return
 		}
-		ctx := WithUser(r.Context(), userID)
+		ctx := withAuthenticatedUser(r.Context(), userID)
 		emitAuthAudit(ctx, r, audit.Event{
 			Verb:    string(audit.VerbAuthTokenUsed),
 			Actor:   audit.Actor{Type: audit.ActorUser, ID: userID, APITokenLabel: "dev"},
@@ -172,4 +172,9 @@ func unauthorized(w http.ResponseWriter, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusUnauthorized)
 	w.Write([]byte(`{"error":"` + msg + `"}`)) //nolint:errcheck
+}
+
+func withAuthenticatedUser(ctx context.Context, userID uuid.UUID) context.Context {
+	ctx = WithUser(ctx, userID)
+	return telemetry.WithTraceLogger(ctx, slog.String("user_id", userID.String()))
 }

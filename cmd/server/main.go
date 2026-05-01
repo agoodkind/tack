@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	mcpadapter "goodkind.io/tack/internal/adapters/mcp"
 	mcptools "goodkind.io/tack/internal/adapters/mcp/tools"
@@ -24,8 +26,6 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 	"goodkind.io/tack/internal/version"
 	"goodkind.io/tack/migrations"
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
 )
 
 func main() {
@@ -43,6 +43,7 @@ func main() {
 		MaxSizeMB:     cfg.LogMaxSizeMB,
 		MaxBackups:    cfg.LogMaxBackups,
 		MaxAgeDays:    cfg.LogMaxAgeDays,
+		OTELEndpoint:  cfg.OTELEndpoint,
 	})
 	if err != nil {
 		slog.Error("telemetry.setup", "err", err)
@@ -92,7 +93,6 @@ func main() {
 
 	runServer(cfg)
 }
-
 
 func runMigrations(cfg *config.Config) {
 	ctx := context.Background()
@@ -202,6 +202,7 @@ func runServer(cfg *config.Config) {
 	})
 	mux.Handle("/mcp", mcpWithAuth)
 	mux.Handle("/mcp/", mcpWithAuth)
+	registerConnectHandlers(mux, authMiddleware)
 
 	// expvar counters at /debug/vars. expvar.Handler returns the standard
 	// JSON dump of every registered Var; tack's counters are registered via

@@ -81,3 +81,9 @@ func (s SuppressingRecorder) Record(ctx context.Context, ev Event) error {
 	}
 	return s.Inner.Record(ctx, ev)
 }
+
+func canonicalizeCorrelation(ev *Event) {
+	if ev.Context.RequestID == "" {
+		ev.Context.RequestID = ev.Actor.RequestID
+	}
+}

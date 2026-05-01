@@ -5,10 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/telemetry"
@@ -113,6 +116,18 @@ func (s *ViewStore) Stream(ctx context.Context, q node.NodeListQuery) (<-chan no
 	ch := make(chan node.NodeStreamResult, 64)
 	go func() {
 		defer close(ch)
+		ctx, span := telemetry.StartSpan(ctx, "store.view.stream",
+			trace.WithSpanKind(trace.SpanKindInternal),
+			trace.WithAttributes(
+				attribute.String("org.id", q.OrgID.String()),
+				attribute.String("node.type", q.NodeType),
+			),
+		)
+		defer span.End()
+		ctx = telemetry.WithTraceLogger(ctx,
+			slog.String("org_id", q.OrgID.String()),
+			slog.String("node_type", q.NodeType),
+		)
 		views, err := s.List(ctx, q)
 		if err != nil {
 			ch <- node.NodeStreamResult{Err: err}

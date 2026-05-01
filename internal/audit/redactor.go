@@ -8,6 +8,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"goodkind.io/tack/internal/telemetry"
 )
 
@@ -30,6 +32,7 @@ func NewRedactor(ctx context.Context, dsn string) (*Redactor, error) {
 	if err != nil {
 		return nil, fmt.Errorf("audit redactor pool config: %w", err)
 	}
+	cfg.ConnConfig.Tracer = &telemetry.QueryTracer{}
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("audit redactor pool open: %w", err)
@@ -52,6 +55,12 @@ func (r *Redactor) Close() {
 // audit.events rows stay; their hash chain stays valid; only the PII
 // payload becomes [redacted].
 func (r *Redactor) RedactActor(ctx context.Context, actorID uuid.UUID) (int64, error) {
+	ctx, span := telemetry.StartSpan(ctx, "audit.redact_actor",
+		trace.WithSpanKind(trace.SpanKindInternal),
+		trace.WithAttributes(attribute.String("audit.actor_id", actorID.String())),
+	)
+	defer span.End()
+	ctx = telemetry.WithTraceLogger(ctx, slog.String("actor_id", actorID.String()))
 	if r == nil || r.pool == nil {
 		return 0, errors.New("audit redactor not configured")
 	}

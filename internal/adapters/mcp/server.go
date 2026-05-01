@@ -1,12 +1,16 @@
 package mcp
 
 import (
+	"log/slog"
 	"net/http"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	mcpserver "github.com/mark3labs/mcp-go/server"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 	"goodkind.io/tack/internal/adapters/mcp/tools"
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/auth"
@@ -78,25 +82,41 @@ func NewHandler(d Deps) *Handler {
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
+	ctx, span := telemetry.StartSpan(r.Context(), "mcp.http.request",
+		trace.WithSpanKind(trace.SpanKindServer),
+		trace.WithAttributes(
+			attribute.String("http.route", "/mcp"),
+			attribute.String("http.request.method", r.Method),
+		),
+	)
+	defer span.End()
+
 	log := telemetry.L(ctx)
 
 	userID, ok := auth.UserID(ctx)
 	if !ok {
+		span.SetStatus(codes.Error, "unauthenticated")
 		http.Error(w, `{"error":"unauthenticated"}`, http.StatusUnauthorized)
 		return
 	}
+	ctx = telemetry.WithTraceLogger(ctx, slog.String("user_id", userID.String()))
+	r = r.WithContext(ctx)
+	span.SetAttributes(attribute.String("enduser.id", userID.String()))
 
 	h.mu.RLock()
 	c, ok := h.cache[userID]
 	h.mu.RUnlock()
 	if ok && time.Since(c.builtAt) < serverCacheTTL {
+		span.SetAttributes(attribute.Bool("mcp.server_cache_hit", true))
 		c.httpSvr.ServeHTTP(w, r)
 		return
 	}
+	span.SetAttributes(attribute.Bool("mcp.server_cache_hit", false))
 
 	orgIDs, err := h.members.ListOrgIDsForUser(ctx, userID)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "list_org_ids_failed")
 		log.Error("mcp: list org ids", "err", err)
 	}
 	var nodeTypes []*node.NodeType
@@ -104,6 +124,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	for _, orgID := range orgIDs {
 		nts, err := h.nodeTypes.List(ctx, orgID)
 		if err != nil {
+			span.RecordError(err)
 			log.Error("mcp: node type list", "org_id", orgID, "err", err)
 			continue
 		}
@@ -117,6 +138,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	mcpSvr := h.buildServer(nodeTypes)
 	httpSvr := mcpserver.NewStreamableHTTPServer(mcpSvr, mcpserver.WithStateLess(true))
+	span.SetAttributes(attribute.Int("mcp.node_type_count", len(nodeTypes)))
 
 	h.mu.Lock()
 	h.cache[userID] = &cachedServer{mcpSvr: mcpSvr, httpSvr: httpSvr, builtAt: time.Now()}

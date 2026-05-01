@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -33,6 +34,8 @@ func RegisterAudit(s *mcpserver.MCPServer, reader *audit.Reader, redactor *audit
 					{Name: "action", Type: schemaString},
 					{Name: "actor_id", Type: schemaString},
 					{Name: "entity_id", Type: schemaString},
+					{Name: "request_id", Type: schemaString},
+					{Name: "trace_id", Type: schemaString},
 					{Name: "limit", Type: schemaInteger},
 				},
 				Required: []string{resolver.EntryPointParamName(), "oldest", "latest"},
@@ -72,11 +75,13 @@ func RegisterAudit(s *mcpserver.MCPServer, reader *audit.Reader, redactor *audit
 				return classifyError(ctx, err), nil
 			}
 			filter := audit.QueryFilter{
-				OrgID:  ws.OrgID,
-				Oldest: oldest,
-				Latest: latest,
-				Action: optionalString(args, "action"),
-				Limit:  100,
+				OrgID:     ws.OrgID,
+				Oldest:    oldest,
+				Latest:    latest,
+				Action:    optionalString(args, "action"),
+				RequestID: optionalString(args, "request_id"),
+				TraceID:   optionalString(args, "trace_id"),
+				Limit:     100,
 			}
 			if v := optionalString(args, "limit"); v != "" {
 				var n int
@@ -177,18 +182,32 @@ func renderAuditRows(rows []audit.Row) string {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "%d events\n\n", len(rows))
-	fmt.Fprintf(&b, "| time | actor | action | entity | seq |\n")
-	fmt.Fprintf(&b, "|------|-------|--------|--------|-----|\n")
+	fmt.Fprintf(&b, "| time | actor | action | entity | request | trace | seq |\n")
+	fmt.Fprintf(&b, "|------|-------|--------|--------|---------|-------|-----|\n")
 	for _, r := range rows {
-		fmt.Fprintf(&b, "| %s | %s | %s | %s/%s | %d |\n",
+		fmt.Fprintf(&b, "| %s | %s | %s | %s/%s | %s | %s | %d |\n",
 			r.EventTime.UTC().Format(time.RFC3339),
 			r.ActorID,
 			r.Action,
 			r.EntityKind, r.EntityID,
+			auditContextValue(r.Context, "request_id"),
+			auditContextValue(r.Context, "trace_id"),
 			r.Seq,
 		)
 	}
 	return b.String()
+}
+
+func auditContextValue(raw []byte, key string) string {
+	var context map[string]any
+	if err := json.Unmarshal(raw, &context); err != nil {
+		return "-"
+	}
+	value, _ := context[key].(string)
+	if value == "" {
+		return "-"
+	}
+	return value
 }
 
 func renderAuditRow(r audit.Row) string {

@@ -3,23 +3,18 @@ package audit
 import (
 	"context"
 	"crypto/ed25519"
-	"crypto/rand"
-	"crypto/sha256"
-	"crypto/x509"
-	"encoding/binary"
 	"encoding/hex"
-	"encoding/json"
-	"encoding/pem"
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
-	"sort"
 	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 	"goodkind.io/tack/internal/telemetry"
 )
 
@@ -97,6 +92,7 @@ func (n *Notarizer) Start(ctx context.Context) {
 }
 
 func (n *Notarizer) loop(ctx context.Context) {
+	ctx = telemetry.WithTraceLogger(ctx, slog.String("worker", "audit.notarizer"))
 	defer close(n.stopped)
 	t := time.NewTicker(n.period)
 	defer t.Stop()
@@ -133,13 +129,12 @@ func (n *Notarizer) Close() error {
 // successful run. Zero means no run has succeeded yet.
 func (n *Notarizer) LastNotarizedUnix() int64 { return n.lastAt.Load() }
 
-type chainHead struct {
-	shard int16
-	seq   int64
-	hash  []byte
-}
-
 func (n *Notarizer) runOnce(ctx context.Context) {
+	ctx, span := telemetry.StartSpan(ctx, "audit.notarizer.run_once",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
+
 	start := time.Now()
 	rows, err := n.pool.Query(ctx, `
 		SELECT org_id, shard, last_seq, last_hash
@@ -147,6 +142,8 @@ func (n *Notarizer) runOnce(ctx context.Context) {
 		 ORDER BY org_id, shard
 	`)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		telemetry.L(ctx).Error("audit.notarizer.scan_failed", slog.String("err", err.Error()))
 		return
 	}
@@ -157,15 +154,21 @@ func (n *Notarizer) runOnce(ctx context.Context) {
 		var orgID uuid.UUID
 		var h chainHead
 		if err := rows.Scan(&orgID, &h.shard, &h.seq, &h.hash); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
 			telemetry.L(ctx).Error("audit.notarizer.scan_row", slog.String("err", err.Error()))
 			return
 		}
 		heads[orgID] = append(heads[orgID], h)
 	}
 	if err := rows.Err(); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		telemetry.L(ctx).Error("audit.notarizer.iter", slog.String("err", err.Error()))
 		return
 	}
+
+	span.SetAttributes(attribute.Int("audit.notarizer.org_count", len(heads)))
 
 	for orgID, list := range heads {
 		root, manifest := merkleAndManifest(list)
@@ -175,6 +178,7 @@ func (n *Notarizer) runOnce(ctx context.Context) {
 				org_id, notarized_at, merkle_root, shard_heads, signature, signing_key
 			) VALUES ($1, now(), $2, $3, $4, $5)
 		`, orgID, root, manifest, sig, n.keyID); err != nil {
+			span.RecordError(err)
 			telemetry.L(ctx).Error("audit.notarizer.insert_failed",
 				slog.String("org_id", orgID.String()),
 				slog.String("err", err.Error()),
@@ -189,103 +193,7 @@ func (n *Notarizer) runOnce(ctx context.Context) {
 			slog.Int64("duration_ms", time.Since(start).Milliseconds()),
 		)
 	}
+	span.SetStatus(codes.Ok, "ok")
+	span.SetAttributes(attribute.Int64("audit.notarizer.duration_ms", time.Since(start).Milliseconds()))
 	n.lastAt.Store(time.Now().Unix())
-}
-
-// merkleAndManifest computes the Merkle root over (shard, seq, hash)
-// tuples and returns the root plus a JSON manifest used as the on-disk
-// shard_heads column. Single-leaf roots hash sha256(leaf) with a fixed
-// domain separator to avoid the "single-leaf == root" footgun in
-// rolling-implementation Merkle code.
-func merkleAndManifest(list []chainHead) ([]byte, []byte) {
-	sort.Slice(list, func(i, j int) bool { return list[i].shard < list[j].shard })
-
-	leaves := make([][]byte, 0, len(list))
-	manifestRows := make([]map[string]any, 0, len(list))
-	for _, h := range list {
-		hasher := sha256.New()
-		hasher.Write([]byte{0x00}) // leaf domain separator
-		var b [10]byte
-		binary.BigEndian.PutUint16(b[0:2], uint16(h.shard))
-		binary.BigEndian.PutUint64(b[2:10], uint64(h.seq))
-		hasher.Write(b[:])
-		hasher.Write(h.hash)
-		leaves = append(leaves, hasher.Sum(nil))
-		manifestRows = append(manifestRows, map[string]any{
-			"shard":     h.shard,
-			"last_seq":  h.seq,
-			"last_hash": hex.EncodeToString(h.hash),
-		})
-	}
-	root := merkleRoot(leaves)
-	manifestJSON, _ := json.Marshal(manifestRows)
-	return root, manifestJSON
-}
-
-// merkleRoot computes a SHA-256 Merkle root over leaves with a fixed
-// domain separator on internal nodes. Empty input returns sha256(empty).
-// Odd levels promote the last element by hashing it with itself.
-func merkleRoot(leaves [][]byte) []byte {
-	if len(leaves) == 0 {
-		empty := sha256.Sum256(nil)
-		return empty[:]
-	}
-	level := leaves
-	for len(level) > 1 {
-		next := make([][]byte, 0, (len(level)+1)/2)
-		for i := 0; i < len(level); i += 2 {
-			h := sha256.New()
-			h.Write([]byte{0x01}) // internal-node domain separator
-			h.Write(level[i])
-			if i+1 < len(level) {
-				h.Write(level[i+1])
-			} else {
-				h.Write(level[i])
-			}
-			next = append(next, h.Sum(nil))
-		}
-		level = next
-	}
-	return level[0]
-}
-
-// loadEd25519Key parses a PEM-encoded ed25519 private key and returns it
-// alongside a stable key id (sha256 of the public half, hex-truncated).
-func loadEd25519Key(path string) (ed25519.PrivateKey, string, error) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return nil, "", fmt.Errorf("read signing key: %w", err)
-	}
-	block, _ := pem.Decode(raw)
-	if block == nil {
-		return nil, "", errors.New("audit signing key: not PEM")
-	}
-	parsed, err := x509.ParsePKCS8PrivateKey(block.Bytes)
-	if err != nil {
-		return nil, "", fmt.Errorf("audit signing key: %w", err)
-	}
-	priv, ok := parsed.(ed25519.PrivateKey)
-	if !ok {
-		return nil, "", errors.New("audit signing key: not ed25519")
-	}
-	pub := priv.Public().(ed25519.PublicKey)
-	pubHash := sha256.Sum256(pub)
-	return priv, "ed25519:" + hex.EncodeToString(pubHash[:8]), nil
-}
-
-// GenerateAuditSigningKey writes a fresh ed25519 private key in PKCS#8 PEM
-// format to path. Helper for the operator workflow:
-//
-//	go run ./cmd/server gen-audit-key /etc/tack/audit-signing.pem
-func GenerateAuditSigningKey(path string) error {
-	_, priv, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		return err
-	}
-	der, err := x509.MarshalPKCS8PrivateKey(priv)
-	if err != nil {
-		return err
-	}
-	pemBytes := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})
-	return os.WriteFile(path, pemBytes, 0o600)
 }

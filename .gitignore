@@ -34,3 +34,4 @@ trace.*.xml
 
 # Added by ggshield
 .cache_ggshield
+bin/server

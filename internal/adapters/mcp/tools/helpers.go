@@ -11,6 +11,9 @@ import (
 	"github.com/google/uuid"
 	mcpmcp "github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/auth"
 	"goodkind.io/tack/internal/telemetry"
@@ -157,6 +160,11 @@ func registerTool(s *mcpserver.MCPServer, tool mcpmcp.Tool, h mcpserver.ToolHand
 func wrapToolHandler(name string, h mcpserver.ToolHandlerFunc) mcpserver.ToolHandlerFunc {
 	return func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
 		start := time.Now()
+		ctx, span := telemetry.StartSpan(ctx, "mcp.tool."+name,
+			trace.WithAttributes(attribute.String("mcp.tool.name", name)),
+		)
+		defer span.End()
+
 		log := telemetry.L(ctx)
 		log.DebugContext(ctx, "mcp.tool.started", slog.String("tool", name))
 
@@ -173,6 +181,8 @@ func wrapToolHandler(name string, h mcpserver.ToolHandlerFunc) mcpserver.ToolHan
 		switch {
 		case err != nil:
 			telemetry.IncMCPToolErr(name)
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "failed")
 			log.WarnContext(ctx, "mcp.tool.failed",
 				slog.String("tool", name),
 				slog.String("status", "failed"),
@@ -181,18 +191,24 @@ func wrapToolHandler(name string, h mcpserver.ToolHandlerFunc) mcpserver.ToolHan
 			)
 		case res != nil && res.IsError:
 			telemetry.IncMCPToolErr(name)
+			span.SetStatus(codes.Error, "error_response")
 			log.WarnContext(ctx, "mcp.tool.failed",
 				slog.String("tool", name),
 				slog.String("status", "error_response"),
 				slog.Int64("duration_ms", dur.Milliseconds()),
 			)
 		default:
+			span.SetStatus(codes.Ok, "ok")
 			log.InfoContext(ctx, "mcp.tool.completed",
 				slog.String("tool", name),
 				slog.String("status", "ok"),
 				slog.Int64("duration_ms", dur.Milliseconds()),
 			)
 		}
+		span.SetAttributes(
+			attribute.Int64("mcp.tool.duration_ms", dur.Milliseconds()),
+			attribute.Bool("mcp.tool.error", err != nil || (res != nil && res.IsError)),
+		)
 		recordToolAudit(ctx, name, req, res, err)
 		return res, err
 	}
@@ -214,6 +230,7 @@ func recordToolAudit(ctx context.Context, toolName string, req mcpmcp.CallToolRe
 	if uid, found := auth.UserID(ctx); found {
 		actor.ID = uid
 	}
+	actor.RequestID = telemetry.RequestID(ctx)
 
 	outcome := audit.OutcomeOK
 	var errInfo *audit.EventError
@@ -238,6 +255,8 @@ func recordToolAudit(ctx context.Context, toolName string, req mcpmcp.CallToolRe
 			WorkspaceID: scope.WorkspaceID,
 			ScopeID:     scope.ScopeID,
 			ParentID:    scope.ParentID,
+			RequestID:   telemetry.RequestID(ctx),
+			TraceID:     telemetry.TraceID(ctx),
 		},
 		Outcome: outcome,
 		Error:   errInfo,

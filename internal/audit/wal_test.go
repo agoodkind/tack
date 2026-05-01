@@ -44,12 +44,19 @@ func TestWALAppendFsyncsAndDrains(t *testing.T) {
 	}
 	defer func() { _ = w.Close() }()
 
+	requestID := "req-wal"
+	traceID := "trace-wal"
 	for i := 0; i < 25; i++ {
 		err := w.Record(t.Context(), Event{
 			Verb:   string(VerbNodeRead),
 			Actor:  Actor{Type: ActorUser, ID: uuid.Must(uuid.NewV7())},
 			Entity: Entity{Type: "node", ID: uuid.Must(uuid.NewV7())},
-			Context: EventContext{OrgID: uuid.Must(uuid.NewV7()), Source: SourceMCP},
+			Context: EventContext{
+				OrgID:     uuid.Must(uuid.NewV7()),
+				Source:    SourceMCP,
+				RequestID: requestID,
+				TraceID:   traceID,
+			},
 		})
 		if err != nil {
 			t.Fatalf("record %d: %v", i, err)
@@ -64,9 +71,14 @@ func TestWALAppendFsyncsAndDrains(t *testing.T) {
 	}
 	inner.mu.Lock()
 	got := len(inner.captured)
-	inner.mu.Unlock()
 	if got != 25 {
+		inner.mu.Unlock()
 		t.Fatalf("inner saw %d events, want 25", got)
+	}
+	first := inner.captured[0]
+	inner.mu.Unlock()
+	if first.Context.RequestID != requestID || first.Context.TraceID != traceID {
+		t.Fatalf("correlation lost during replay: %#v", first.Context)
 	}
 }
 

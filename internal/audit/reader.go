@@ -5,10 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+	"goodkind.io/tack/internal/telemetry"
 )
 
 // Reader queries audit.events through the audit_reader_app pool. Read-only
@@ -27,6 +31,7 @@ func NewReader(ctx context.Context, dsn string) (*Reader, error) {
 	if err != nil {
 		return nil, fmt.Errorf("audit reader pool config: %w", err)
 	}
+	cfg.ConnConfig.Tracer = &telemetry.QueryTracer{}
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("audit reader pool open: %w", err)
@@ -48,13 +53,15 @@ func (r *Reader) Close() {
 // time range and are mandatory; an unbounded scan would foot-gun production.
 // Limit is capped at 1000 by the caller.
 type QueryFilter struct {
-	OrgID    uuid.UUID
-	Oldest   time.Time
-	Latest   time.Time
-	Action   string
-	ActorID  uuid.UUID
-	EntityID uuid.UUID
-	Limit    int
+	OrgID     uuid.UUID
+	Oldest    time.Time
+	Latest    time.Time
+	Action    string
+	ActorID   uuid.UUID
+	EntityID  uuid.UUID
+	RequestID string
+	TraceID   string
+	Limit     int
 }
 
 // Row is a flattened audit row sized for the MCP tool surface. The JSONB
@@ -79,6 +86,15 @@ type Row struct {
 // Query returns events matching the filter, most recent first. The caller
 // is responsible for upper-bounding the limit.
 func (r *Reader) Query(ctx context.Context, f QueryFilter) ([]Row, error) {
+	ctx, span := telemetry.StartSpan(ctx, "audit.query",
+		trace.WithSpanKind(trace.SpanKindInternal),
+		trace.WithAttributes(
+			attribute.String("org.id", f.OrgID.String()),
+			attribute.Int("audit.limit", f.Limit),
+		),
+	)
+	defer span.End()
+	ctx = telemetry.WithTraceLogger(ctx, slog.String("org_id", f.OrgID.String()))
 	if r == nil || r.pool == nil {
 		return nil, errors.New("audit reader not configured")
 	}
@@ -92,27 +108,7 @@ func (r *Reader) Query(ctx context.Context, f QueryFilter) ([]Row, error) {
 		f.Limit = 100
 	}
 
-	q := `SELECT org_id, event_time, event_id, seq, shard,
-	             actor_id, actor_kind, action, entity_kind, entity_id,
-	             context, delta, idempotency_key
-	      FROM audit.events
-	      WHERE org_id = $1
-	        AND event_time >= $2 AND event_time < $3`
-	args := []any{f.OrgID, f.Oldest, f.Latest}
-	if f.Action != "" {
-		args = append(args, f.Action)
-		q += fmt.Sprintf(" AND action = $%d", len(args))
-	}
-	if f.ActorID != uuid.Nil {
-		args = append(args, f.ActorID)
-		q += fmt.Sprintf(" AND actor_id = $%d", len(args))
-	}
-	if f.EntityID != uuid.Nil {
-		args = append(args, f.EntityID)
-		q += fmt.Sprintf(" AND entity_id = $%d", len(args))
-	}
-	args = append(args, f.Limit)
-	q += fmt.Sprintf(" ORDER BY event_time DESC, seq DESC LIMIT $%d", len(args))
+	q, args := buildAuditQuery(f)
 
 	rows, err := r.pool.Query(ctx, q, args...)
 	if err != nil {
@@ -137,6 +133,12 @@ func (r *Reader) Query(ctx context.Context, f QueryFilter) ([]Row, error) {
 // GetByID returns one event regardless of org. Caller must enforce org
 // authorization before exposing the row to the user.
 func (r *Reader) GetByID(ctx context.Context, eventID uuid.UUID) (*Row, error) {
+	ctx, span := telemetry.StartSpan(ctx, "audit.get_by_id",
+		trace.WithSpanKind(trace.SpanKindInternal),
+		trace.WithAttributes(attribute.String("audit.event_id", eventID.String())),
+	)
+	defer span.End()
+	ctx = telemetry.WithTraceLogger(ctx, slog.String("event_id", eventID.String()))
 	if r == nil || r.pool == nil {
 		return nil, errors.New("audit reader not configured")
 	}

@@ -42,15 +42,15 @@ type Event struct {
 // Actor is who triggered the event. PII fields (Email, Name, IP, UA) are
 // snapshots at event time; GDPR redaction lives in audit.pii (see TACK-178).
 type Actor struct {
-	Type           ActorType `json:"type"`
-	ID             uuid.UUID `json:"id"`
-	Email          string    `json:"email,omitempty"`
-	Name           string    `json:"name,omitempty"`
-	SessionID      string    `json:"session_id,omitempty"`
-	IP             string    `json:"ip,omitempty"`
-	UserAgent      string    `json:"ua,omitempty"`
-	RequestID      string    `json:"request_id,omitempty"`
-	APITokenLabel  string    `json:"api_token_label,omitempty"`
+	Type          ActorType `json:"type"`
+	ID            uuid.UUID `json:"id"`
+	Email         string    `json:"email,omitempty"`
+	Name          string    `json:"name,omitempty"`
+	SessionID     string    `json:"session_id,omitempty"`
+	IP            string    `json:"ip,omitempty"`
+	UserAgent     string    `json:"ua,omitempty"`
+	RequestID     string    `json:"request_id,omitempty"`
+	APITokenLabel string    `json:"api_token_label,omitempty"`
 }
 
 type ActorType string
@@ -79,6 +79,8 @@ type EventContext struct {
 	WorkspaceID uuid.UUID `json:"workspace_id,omitempty"`
 	ScopeID     uuid.UUID `json:"scope_id,omitempty"`
 	ParentID    uuid.UUID `json:"parent_id,omitempty"`
+	RequestID   string    `json:"request_id,omitempty"`
+	TraceID     string    `json:"trace_id,omitempty"`
 	Source      Source    `json:"source"`
 	Tool        string    `json:"tool,omitempty"`
 	RPC         string    `json:"rpc,omitempty"`

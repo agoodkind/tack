@@ -5,10 +5,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/meilisearch/meilisearch-go"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 	domainsearch "goodkind.io/tack/internal/domain/search"
+	"goodkind.io/tack/internal/telemetry"
 )
 
 // Client is a Meilisearch-backed Searcher. It implements domain/search.Searcher.
@@ -47,19 +53,69 @@ func (c *Client) EnsureIndex(collection string, filterableAttributes []string) e
 }
 
 // Index adds or replaces doc in collection, using "id" as the primary key.
-func (c *Client) Index(_ context.Context, collection, _ string, doc *domainsearch.NodeDoc) error {
+func (c *Client) Index(ctx context.Context, collection, _ string, doc *domainsearch.NodeDoc) error {
+	ctx, span := telemetry.StartSpan(ctx, "search.index",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("search.collection", collection),
+			attribute.String("search.document_id", doc.ID),
+		),
+	)
+	defer span.End()
+
+	start := time.Now()
 	pk := "id"
 	if _, err := c.meili.Index(collection).AddDocuments([]any{doc}, &meilisearch.DocumentOptions{PrimaryKey: &pk}); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		telemetry.L(ctx).Warn("search.index_failed",
+			slog.String("collection", collection),
+			slog.String("document_id", doc.ID),
+			slog.Int64("duration_ms", time.Since(start).Milliseconds()),
+			slog.String("err", err.Error()),
+		)
 		return fmt.Errorf("index document in %s: %w", collection, err)
 	}
+	span.SetStatus(codes.Ok, "ok")
+	span.SetAttributes(attribute.Int64("search.duration_ms", time.Since(start).Milliseconds()))
+	telemetry.L(ctx).Debug("search.indexed",
+		slog.String("collection", collection),
+		slog.String("document_id", doc.ID),
+		slog.Int64("duration_ms", time.Since(start).Milliseconds()),
+	)
 	return nil
 }
 
 // Delete removes the document with the given id from collection.
-func (c *Client) Delete(_ context.Context, collection, id string) error {
+func (c *Client) Delete(ctx context.Context, collection, id string) error {
+	ctx, span := telemetry.StartSpan(ctx, "search.delete",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("search.collection", collection),
+			attribute.String("search.document_id", id),
+		),
+	)
+	defer span.End()
+
+	start := time.Now()
 	if _, err := c.meili.Index(collection).DeleteDocument(id, nil); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		telemetry.L(ctx).Warn("search.delete_failed",
+			slog.String("collection", collection),
+			slog.String("document_id", id),
+			slog.Int64("duration_ms", time.Since(start).Milliseconds()),
+			slog.String("err", err.Error()),
+		)
 		return fmt.Errorf("delete document %s from %s: %w", id, collection, err)
 	}
+	span.SetStatus(codes.Ok, "ok")
+	span.SetAttributes(attribute.Int64("search.duration_ms", time.Since(start).Milliseconds()))
+	telemetry.L(ctx).Debug("search.deleted",
+		slog.String("collection", collection),
+		slog.String("document_id", id),
+		slog.Int64("duration_ms", time.Since(start).Milliseconds()),
+	)
 	return nil
 }
 
@@ -74,7 +130,17 @@ func (c *Client) Delete(_ context.Context, collection, id string) error {
 //
 // Returns a non-nil empty slice when the search succeeded but matched nothing.
 // All NodeDoc fields are populated from the indexed document; no FDB reads needed.
-func (c *Client) Search(_ context.Context, collection, query string, filters map[string]string) ([]domainsearch.NodeDoc, map[string]map[string]int64, error) {
+func (c *Client) Search(ctx context.Context, collection, query string, filters map[string]string) ([]domainsearch.NodeDoc, map[string]map[string]int64, error) {
+	ctx, span := telemetry.StartSpan(ctx, "search.query",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("search.collection", collection),
+			attribute.Int("search.filter_count", len(filters)),
+		),
+	)
+	defer span.End()
+
+	start := time.Now()
 	filterParts := make([]string, 0, len(filters))
 	for k, v := range filters {
 		filterParts = append(filterParts, fmt.Sprintf(`%s = "%s"`, k, v))
@@ -95,6 +161,14 @@ func (c *Client) Search(_ context.Context, collection, query string, filters map
 		Facets: facetFields,
 	})
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		telemetry.L(ctx).Warn("search.query_failed",
+			slog.String("collection", collection),
+			slog.Int("filter_count", len(filters)),
+			slog.Int64("duration_ms", time.Since(start).Milliseconds()),
+			slog.String("err", err.Error()),
+		)
 		return nil, nil, fmt.Errorf("search %s: %w", collection, err)
 	}
 
@@ -115,6 +189,18 @@ func (c *Client) Search(_ context.Context, collection, query string, filters map
 	}
 
 	facets := parseFacets(res.FacetDistribution)
+	span.SetStatus(codes.Ok, "ok")
+	span.SetAttributes(
+		attribute.Int("search.result_count", len(docs)),
+		attribute.Int("search.facet_field_count", len(facetFields)),
+		attribute.Int64("search.duration_ms", time.Since(start).Milliseconds()),
+	)
+	telemetry.L(ctx).Debug("search.query_completed",
+		slog.String("collection", collection),
+		slog.Int("filter_count", len(filters)),
+		slog.Int("result_count", len(docs)),
+		slog.Int64("duration_ms", time.Since(start).Milliseconds()),
+	)
 	return docs, facets, nil
 }
 

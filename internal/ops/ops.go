@@ -26,9 +26,12 @@ import (
 	"sort"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/config"
+	"goodkind.io/tack/internal/telemetry"
 )
 
 // Operation describes a single maintenance op. Run is invoked with a fully
@@ -61,7 +64,7 @@ func (e *Env) Close() {
 // NewEnv opens a postgres pool and FDB stores for op use. Callers must Close
 // the returned env.
 func NewEnv(ctx context.Context, cfg *config.Config) (*Env, error) {
-	pool, err := postgres.NewPool(ctx, cfg.DatabaseURL, nil)
+	pool, err := postgres.NewPool(ctx, cfg.DatabaseURL, &telemetry.QueryTracer{})
 	if err != nil {
 		return nil, fmt.Errorf("postgres: %w", err)
 	}
@@ -118,11 +121,18 @@ func Run(ctx context.Context, cfg *config.Config, name string) error {
 	if !ok {
 		return fmt.Errorf("unknown op: %s", name)
 	}
+	ctx, span := telemetry.StartSpan(ctx, "ops.run",
+		trace.WithSpanKind(trace.SpanKindInternal),
+		trace.WithAttributes(attribute.String("ops.name", op.Name)),
+	)
+	defer span.End()
+	ctx = telemetry.WithTraceLogger(ctx, slog.String("op", op.Name))
 	env, err := NewEnv(ctx, cfg)
 	if err != nil {
 		return fmt.Errorf("ops.NewEnv: %w", err)
 	}
 	defer env.Close()
+	env.Log = telemetry.L(ctx)
 
 	env.Log.InfoContext(ctx, "ops.start", slog.String("op", op.Name))
 	if err := op.Run(ctx, env); err != nil {

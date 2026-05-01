@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/trace"
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/audit"
@@ -22,6 +23,7 @@ import (
 	"goodkind.io/tack/internal/domain/org"
 	"goodkind.io/tack/internal/domain/user"
 	"goodkind.io/tack/internal/service"
+	"goodkind.io/tack/internal/telemetry"
 	"goodkind.io/tack/migrations"
 )
 
@@ -54,22 +56,26 @@ func runSeed(cfg *config.Config) {
 	// suppression marker propagates through the same Recorder the running
 	// server would use, so the wiring is already correct.
 	ctx := audit.WithSuppressed(context.Background())
+	ctx, span := telemetry.StartSpan(ctx, "seed.run", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+	ctx = telemetry.WithTraceLogger(ctx, slog.String("command", "seed"))
+	log := telemetry.L(ctx)
 
 	if err := postgres.Migrate(ctx, cfg.DatabaseURL, migrations.FS); err != nil {
-		slog.Error("seed: migrate", "err", err)
+		log.Error("seed: migrate", "err", err)
 		os.Exit(1)
 	}
 
-	pool, err := postgres.NewPool(ctx, cfg.DatabaseURL, nil)
+	pool, err := postgres.NewPool(ctx, cfg.DatabaseURL, &telemetry.QueryTracer{})
 	if err != nil {
-		slog.Error("seed: postgres", "err", err)
+		log.Error("seed: postgres", "err", err)
 		os.Exit(1)
 	}
 	defer pool.Close()
 
 	fdbStores, err := fdbadapter.NewStores(cfg.FDBClusterFile, pool)
 	if err != nil {
-		slog.Error("seed: foundationdb", "err", err)
+		log.Error("seed: foundationdb", "err", err)
 		os.Exit(1)
 	}
 
@@ -81,7 +87,7 @@ func runSeed(cfg *config.Config) {
 	// ── User ───────────────────────────────────────────────────────────────────
 	u, err := userRepo.GetByEmail(ctx, cfg.SeedEmail)
 	if err != nil && !errors.Is(err, domain.ErrNotFound) {
-		slog.Error("seed: get user", "err", err)
+		log.Error("seed: get user", "err", err)
 		os.Exit(1)
 	}
 	if u == nil {
@@ -91,12 +97,12 @@ func runSeed(cfg *config.Config) {
 			DisplayName: cfg.SeedName,
 		})
 		if err != nil {
-			slog.Error("seed: create user", "err", err)
+			log.Error("seed: create user", "err", err)
 			os.Exit(1)
 		}
-		slog.Info("seed: created user", "id", u.ID, "email", u.Email)
+		log.Info("seed: created user", "id", u.ID, "email", u.Email)
 	} else {
-		slog.Info("seed: user exists", "id", u.ID, "email", u.Email)
+		log.Info("seed: user exists", "id", u.ID, "email", u.Email)
 	}
 
 	// ── Org ────────────────────────────────────────────────────────────────────
@@ -109,7 +115,7 @@ func runSeed(cfg *config.Config) {
 		UserID: u.ID,
 		Role:   20,
 	}); err != nil && !errors.Is(err, domain.ErrAlreadyExists) {
-		slog.Warn("seed: add org member", "err", err)
+		log.Warn("seed: add org member", "err", err)
 	}
 
 	// ── Workspace ──────────────────────────────────────────────────────────────
@@ -125,7 +131,7 @@ func runSeed(cfg *config.Config) {
 		raw = generateToken()
 	}
 	if _, err := tokenRepo.Create(ctx, u.ID, raw, "seed"); err != nil {
-		slog.Info("seed: prod token already exists, skipping")
+		log.Info("seed: prod token already exists, skipping")
 	} else {
 		_, _ = fmt.Fprintf(os.Stdout, "\nProduction-mode API token (copy now; not shown again):\n  %s\n", raw)
 	}
@@ -133,7 +139,7 @@ func runSeed(cfg *config.Config) {
 	_, _ = fmt.Fprintln(os.Stdout, "Add to your MCP config:")
 	_, _ = fmt.Fprintln(os.Stdout, "  \"Authorization\": \"Bearer <token-above>\"")
 
-	slog.Info("seed complete",
+	log.Info("seed complete",
 		"user_id", u.ID,
 		"org_id", orgID,
 		"workspace_id", wsID,
@@ -145,8 +151,9 @@ func runSeed(cfg *config.Config) {
 // happens beyond the slug index refresh. parentID may be uuid.Nil for org-level
 // nodes.
 func ensureNode(ctx context.Context, s *fdbadapter.Stores, typeKey, slug, name string, parentID uuid.UUID) uuid.UUID {
+	log := telemetry.L(ctx)
 	if existing, err := s.Nodes.GetSlug(ctx, typeKey, slug); err == nil && existing != uuid.Nil {
-		slog.Info("seed: node exists", "type", typeKey, "slug", slug, "id", existing)
+		log.Info("seed: node exists", "type", typeKey, "slug", slug, "id", existing)
 		return existing
 	}
 
@@ -216,14 +223,14 @@ func ensureNode(ctx context.Context, s *fdbadapter.Stores, typeKey, slug, name s
 
 	// Mark slug as indexed so ListByProperty works for it.
 	if err := s.Nodes.CreateAtomic(ctx, n, view, rels, []string{"slug"}); err != nil {
-		slog.Error("seed: create node", "type", typeKey, "err", err)
+		log.Error("seed: create node", "type", typeKey, "err", err)
 		os.Exit(1)
 	}
 	if err := s.Nodes.WriteSlug(ctx, typeKey, slug, id); err != nil {
-		slog.Error("seed: write slug", "type", typeKey, "err", err)
+		log.Error("seed: write slug", "type", typeKey, "err", err)
 		os.Exit(1)
 	}
-	slog.Info("seed: created node", "type", typeKey, "slug", slug, "id", id)
+	log.Info("seed: created node", "type", typeKey, "slug", slug, "id", id)
 	return id
 }
 

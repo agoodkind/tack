@@ -7,6 +7,7 @@ package telemetry
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -42,6 +43,9 @@ type LogConfig struct {
 	MaxBackups int
 	// MaxAgeDays caps rotated-file age. Zero means keep forever.
 	MaxAgeDays int
+
+	// OTELEndpoint enables OTLP trace export when non-empty.
+	OTELEndpoint string
 }
 
 // Setup initializes the global slog logger via gklog. Returns an io.Closer
@@ -74,7 +78,16 @@ func Setup(cfg LogConfig) (io.Closer, error) {
 		return nil, err
 	}
 	slog.SetDefault(logger)
-	return closer, nil
+
+	traceCloser, err := setupTracing(cfg.OTELEndpoint)
+	if err != nil {
+		if closer != nil {
+			_ = closer.Close()
+		}
+		return nil, err
+	}
+
+	return multiCloser{closers: []io.Closer{traceCloser, closer}}, nil
 }
 
 func ensureDir(path string) error {
@@ -99,4 +112,21 @@ func WithLogger(ctx context.Context, l *slog.Logger) context.Context {
 // gklog.L so call sites in tack do not need to import gklog directly.
 func L(ctx context.Context) *slog.Logger {
 	return gklog.L(ctx)
+}
+
+type multiCloser struct {
+	closers []io.Closer
+}
+
+func (m multiCloser) Close() error {
+	var errs []error
+	for i := len(m.closers) - 1; i >= 0; i-- {
+		if m.closers[i] == nil {
+			continue
+		}
+		if err := m.closers[i].Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }

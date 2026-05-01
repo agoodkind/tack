@@ -17,6 +17,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 	"goodkind.io/tack/internal/telemetry"
 )
 
@@ -278,8 +281,16 @@ func (w *WALRecorder) drainLoop(ctx context.Context) {
 // drainOnce drains every closed segment older than the active one. The
 // currently-writing segment is left alone so we don't race the appender.
 func (w *WALRecorder) drainOnce(ctx context.Context) {
+	ctx, span := telemetry.StartSpan(ctx, "audit.wal.drain_once",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
+	ctx = telemetry.WithTraceLogger(ctx, slog.String("worker", "audit.wal"))
+
 	entries, err := os.ReadDir(w.dir)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		telemetry.L(ctx).Error("audit.wal.scan_failed", slog.String("err", err.Error()))
 		return
 	}
@@ -296,6 +307,10 @@ func (w *WALRecorder) drainOnce(ctx context.Context) {
 		activeName = filepath.Base(w.current.path)
 	}
 	w.mu.Unlock()
+	span.SetAttributes(
+		attribute.Int("audit.wal.segment_count", len(names)),
+		attribute.String("audit.wal.active_segment", activeName),
+	)
 	for _, name := range names {
 		if name == activeName {
 			continue
@@ -305,9 +320,17 @@ func (w *WALRecorder) drainOnce(ctx context.Context) {
 }
 
 func (w *WALRecorder) drainSegment(ctx context.Context, path string) {
+	ctx, span := telemetry.StartSpan(ctx, "audit.wal.drain_segment",
+		trace.WithSpanKind(trace.SpanKindInternal),
+		trace.WithAttributes(attribute.String("audit.wal.path", path)),
+	)
+	defer span.End()
+
 	start := time.Now()
 	f, err := os.Open(path)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		telemetry.L(ctx).Error("audit.wal.open_failed",
 			slog.String("path", path), slog.String("err", err.Error()),
 		)
@@ -322,6 +345,8 @@ func (w *WALRecorder) drainSegment(ctx context.Context, path string) {
 			if errors.Is(err, io.EOF) {
 				break
 			}
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
 			telemetry.L(ctx).Error("audit.wal.read_len_failed",
 				slog.String("path", path), slog.String("err", err.Error()),
 			)
@@ -330,6 +355,8 @@ func (w *WALRecorder) drainSegment(ctx context.Context, path string) {
 		n := binary.BigEndian.Uint32(lp[:])
 		buf := make([]byte, n)
 		if _, err := io.ReadFull(r, buf); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
 			telemetry.L(ctx).Error("audit.wal.read_payload_failed",
 				slog.String("path", path), slog.String("err", err.Error()),
 			)
@@ -337,13 +364,18 @@ func (w *WALRecorder) drainSegment(ctx context.Context, path string) {
 		}
 		var ev Event
 		if err := json.Unmarshal(buf, &ev); err != nil {
+			span.RecordError(err)
 			telemetry.L(ctx).Error("audit.wal.parse_failed",
 				slog.String("path", path), slog.String("err", err.Error()),
 			)
 			continue
 		}
-		if err := w.inner.Record(ctx, ev); err != nil {
+		replayCtx := telemetry.WithRequestMetadata(ctx, ev.Context.RequestID)
+		replayCtx = telemetry.WithTraceLogger(replayCtx, slog.String("replayed_trace_id", ev.Context.TraceID))
+		if err := w.inner.Record(replayCtx, ev); err != nil {
 			// Inner write failed; leave the segment in place so we retry.
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
 			telemetry.L(ctx).Error("audit.wal.replay_failed",
 				slog.String("path", path),
 				slog.String("verb", ev.Verb),
@@ -354,11 +386,18 @@ func (w *WALRecorder) drainSegment(ctx context.Context, path string) {
 		count++
 	}
 	if err := os.Remove(path); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		telemetry.L(ctx).Error("audit.wal.remove_failed",
 			slog.String("path", path), slog.String("err", err.Error()),
 		)
 		return
 	}
+	span.SetStatus(codes.Ok, "ok")
+	span.SetAttributes(
+		attribute.Int("audit.wal.events_replayed", count),
+		attribute.Int64("audit.wal.duration_ms", time.Since(start).Milliseconds()),
+	)
 	telemetry.L(ctx).Info("audit.reconciler.flushed",
 		slog.String("path", path),
 		slog.Int("events", count),

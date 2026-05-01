@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -36,6 +37,7 @@ func TestVerifyBundleRoundTrip(t *testing.T) {
 			ActorID:   uuid.Must(uuid.NewV7()),
 			Action:    "node.read",
 			EntityID:  uuid.Must(uuid.NewV7()),
+			Context:   json.RawMessage(`{"request_id":"req-export","trace_id":"trace-export"}`),
 		},
 	}
 	jsonlPath := filepath.Join(dir, "events.jsonl")
@@ -92,6 +94,13 @@ func TestVerifyBundleRoundTrip(t *testing.T) {
 	}
 	if report.RowsScanned != 1 {
 		t.Errorf("rows scanned = %d, want 1", report.RowsScanned)
+	}
+	var exported Row
+	if err := json.Unmarshal(jsonlBytes, &exported); err != nil {
+		t.Fatalf("exported row: %v", err)
+	}
+	if !strings.Contains(string(exported.Context), "req-export") {
+		t.Fatalf("context did not export request_id: %s", exported.Context)
 	}
 }
 

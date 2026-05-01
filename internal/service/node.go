@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
 	domainsearch "goodkind.io/tack/internal/domain/search"
@@ -91,6 +93,12 @@ type CreateResult struct {
 // returns it with CreateResult.Existed=true and performs no writes. If no
 // record exists, Create stamps the key alongside the new node.
 func (s *NodeService) Create(ctx context.Context, in CreateInput) (*CreateResult, error) {
+	ctx, span := telemetry.StartSpan(ctx, "service.node.create",
+		trace.WithSpanKind(trace.SpanKindInternal),
+		trace.WithAttributes(attribute.String("node.type", in.NodeTypeKey)),
+	)
+	defer span.End()
+	ctx = telemetry.WithTraceLogger(ctx, slog.String("node_type", in.NodeTypeKey))
 	log := telemetry.L(ctx)
 
 	// Default unset scope/parent to whichever one is set.
@@ -296,6 +304,12 @@ type UpdateInput struct {
 // Update rewrites a node's name and/or Props. Property index entries for
 // indexed props are refreshed when the value changes.
 func (s *NodeService) Update(ctx context.Context, in UpdateInput) (*node.NodeView, error) {
+	ctx, span := telemetry.StartSpan(ctx, "service.node.update",
+		trace.WithSpanKind(trace.SpanKindInternal),
+		trace.WithAttributes(attribute.String("node.id", in.NodeID.String())),
+	)
+	defer span.End()
+	ctx = telemetry.WithTraceLogger(ctx, slog.String("node_id", in.NodeID.String()))
 	log := telemetry.L(ctx)
 
 	existing, err := s.reader.Get(ctx, in.NodeID)
@@ -388,6 +402,12 @@ func (s *NodeService) Update(ctx context.Context, in UpdateInput) (*node.NodeVie
 
 // Delete removes a node and every FDB record keyed by its ID.
 func (s *NodeService) Delete(ctx context.Context, nodeID, actorID uuid.UUID) error {
+	ctx, span := telemetry.StartSpan(ctx, "service.node.delete",
+		trace.WithSpanKind(trace.SpanKindInternal),
+		trace.WithAttributes(attribute.String("node.id", nodeID.String())),
+	)
+	defer span.End()
+	ctx = telemetry.WithTraceLogger(ctx, slog.String("node_id", nodeID.String()))
 	log := telemetry.L(ctx)
 
 	existing, err := s.reader.Get(ctx, nodeID)
@@ -411,6 +431,20 @@ func (s *NodeService) Delete(ctx context.Context, nodeID, actorID uuid.UUID) err
 
 // AddRelationship attaches a directed edge between two nodes.
 func (s *NodeService) AddRelationship(ctx context.Context, rel *node.Relationship) error {
+	ctx, span := telemetry.StartSpan(ctx, "service.node.relationship.add",
+		trace.WithSpanKind(trace.SpanKindInternal),
+		trace.WithAttributes(
+			attribute.String("node.relationship.type", rel.RelationType),
+			attribute.String("node.source_id", rel.SourceID.String()),
+			attribute.String("node.target_id", rel.TargetID.String()),
+		),
+	)
+	defer span.End()
+	ctx = telemetry.WithTraceLogger(ctx,
+		slog.String("relation_type", rel.RelationType),
+		slog.String("source_id", rel.SourceID.String()),
+		slog.String("target_id", rel.TargetID.String()),
+	)
 	if rel.CreatedAt.IsZero() {
 		rel.CreatedAt = time.Now().UTC()
 	}
@@ -419,6 +453,20 @@ func (s *NodeService) AddRelationship(ctx context.Context, rel *node.Relationshi
 
 // RemoveRelationship removes a directed edge.
 func (s *NodeService) RemoveRelationship(ctx context.Context, orgID, sourceID uuid.UUID, relationType string, targetID uuid.UUID) error {
+	ctx, span := telemetry.StartSpan(ctx, "service.node.relationship.remove",
+		trace.WithSpanKind(trace.SpanKindInternal),
+		trace.WithAttributes(
+			attribute.String("node.relationship.type", relationType),
+			attribute.String("node.source_id", sourceID.String()),
+			attribute.String("node.target_id", targetID.String()),
+		),
+	)
+	defer span.End()
+	ctx = telemetry.WithTraceLogger(ctx,
+		slog.String("relation_type", relationType),
+		slog.String("source_id", sourceID.String()),
+		slog.String("target_id", targetID.String()),
+	)
 	return s.relationships.Remove(ctx, orgID, sourceID, relationType, targetID)
 }
 

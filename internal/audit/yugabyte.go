@@ -11,6 +11,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"goodkind.io/tack/internal/telemetry"
 )
 
@@ -37,6 +39,7 @@ func NewYBRecorder(ctx context.Context, dsn string) (*YBRecorder, error) {
 	if err != nil {
 		return nil, fmt.Errorf("audit pool config: %w", err)
 	}
+	cfg.ConnConfig.Tracer = &telemetry.QueryTracer{}
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("audit pool open: %w", err)
@@ -61,10 +64,25 @@ func (r *YBRecorder) Close() {
 // parent FDB transaction on audit failure (TACK-173); read verbs treat it
 // as best-effort with a loud slog.Error.
 func (r *YBRecorder) Record(ctx context.Context, ev Event) error {
+	ctx, span := telemetry.StartSpan(ctx, "audit.record",
+		trace.WithSpanKind(trace.SpanKindInternal),
+		trace.WithAttributes(
+			attribute.String("audit.verb", ev.Verb),
+			attribute.String("audit.entity_type", ev.Entity.Type),
+			attribute.String("audit.entity_id", ev.Entity.ID.String()),
+		),
+	)
+	defer span.End()
+	ctx = telemetry.WithTraceLogger(ctx,
+		slog.String("audit_verb", ev.Verb),
+		slog.String("entity_type", ev.Entity.Type),
+		slog.String("entity_id", ev.Entity.ID.String()),
+	)
 	start := time.Now()
 	if ev.OccurredAt.IsZero() {
 		ev.OccurredAt = time.Now().UTC()
 	}
+	canonicalizeCorrelation(&ev)
 	eventID := uuid.Must(uuid.NewV7())
 	shard := shardOf(ev.Actor.ID, eventID)
 

@@ -26,6 +26,8 @@ func runAuditExport(cfg *config.Config, argv []string) {
 	orgStr := fs.String("org", "", "org_id (UUID)")
 	oldestStr := fs.String("oldest", "", "RFC3339 lower bound (inclusive)")
 	latestStr := fs.String("latest", "", "RFC3339 upper bound (exclusive)")
+	requestID := fs.String("request-id", "", "request_id stored in audit context")
+	traceID := fs.String("trace-id", "", "trace_id stored in audit context")
 	out := fs.String("out", "", "output directory")
 	limit := fs.Int("limit", 100000, "max rows")
 	_ = fs.Parse(argv)
@@ -65,10 +67,12 @@ func runAuditExport(cfg *config.Config, argv []string) {
 	}
 
 	manifest, err := audit.Export(ctx, reader, priv, keyID, audit.QueryFilter{
-		OrgID:  orgID,
-		Oldest: oldest,
-		Latest: latest,
-		Limit:  *limit,
+		OrgID:     orgID,
+		Oldest:    oldest,
+		Latest:    latest,
+		RequestID: *requestID,
+		TraceID:   *traceID,
+		Limit:     *limit,
 	}, *out)
 	if err != nil {
 		slog.Error("audit-export: write", "err", err)
