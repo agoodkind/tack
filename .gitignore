@@ -1,6 +1,7 @@
 # binaries
 /server
 /tack
+/mcp-client
 
 # build cache
 /dist/
