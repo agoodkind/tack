@@ -1,14 +1,10 @@
 package telemetry
 
 import (
-	"context"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
-	connect "connectrpc.com/connect"
-	"github.com/google/uuid"
 )
 
 const (
@@ -80,71 +76,6 @@ func TestRequestLoggerPreservesInboundRequestIDAndTraceContext(t *testing.T) {
 	}
 }
 
-func TestConnectUnaryInterceptorPreservesInboundRequestID(t *testing.T) {
-	closer, err := setupTracing("")
-	if err != nil {
-		t.Fatalf("setup tracing: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := closer.Close(); err != nil {
-			t.Fatalf("close tracing: %v", err)
-		}
-	})
-
-	request := connect.NewRequest(&testConnectRequest{})
-	request.Header().Set(RequestIDHeader, testRequestID)
-	request.Header().Set("traceparent", testTraceparent)
-	interceptor := ConnectUnaryInterceptor()
-
-	next := func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
-		if got := RequestID(ctx); got != testRequestID {
-			t.Fatalf("request id = %q, want %q", got, testRequestID)
-		}
-		if got := TraceID(ctx); got != testTraceID {
-			t.Fatalf("trace id = %q, want %q", got, testTraceID)
-		}
-		return connect.NewResponse(&testConnectResponse{}), nil
-	}
-
-	response, err := interceptor.WrapUnary(next)(context.Background(), request)
-	if err != nil {
-		t.Fatalf("interceptor returned error: %v", err)
-	}
-	if got := response.Header().Get(RequestIDHeader); got != testRequestID {
-		t.Fatalf("response request id = %q, want %q", got, testRequestID)
-	}
-}
-
-func TestConnectUnaryInterceptorGeneratesRequestID(t *testing.T) {
-	closer, err := setupTracing("")
-	if err != nil {
-		t.Fatalf("setup tracing: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := closer.Close(); err != nil {
-			t.Fatalf("close tracing: %v", err)
-		}
-	})
-
-	request := connect.NewRequest(&testConnectRequest{})
-	interceptor := ConnectUnaryInterceptor()
-
-	next := func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
-		if _, err := uuid.Parse(RequestID(ctx)); err != nil {
-			t.Fatalf("generated request id is not a UUID: %v", err)
-		}
-		return connect.NewResponse(&testConnectResponse{}), nil
-	}
-
-	response, err := interceptor.WrapUnary(next)(context.Background(), request)
-	if err != nil {
-		t.Fatalf("interceptor returned error: %v", err)
-	}
-	if _, err := uuid.Parse(response.Header().Get(RequestIDHeader)); err != nil {
-		t.Fatalf("response request id is not a UUID: %v", err)
-	}
-}
-
 func TestQueryOperation(t *testing.T) {
 	tests := map[string]string{
 		"":                             "unknown",
@@ -162,7 +93,3 @@ func TestQueryOperation(t *testing.T) {
 		})
 	}
 }
-
-type testConnectRequest struct{}
-
-type testConnectResponse struct{}

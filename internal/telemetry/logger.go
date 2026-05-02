@@ -8,6 +8,7 @@ package telemetry
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"strings"
 
 	"goodkind.io/gklog"
+	"goodkind.io/tack/internal/version"
 )
 
 // LogConfig is what Setup needs to wire gklog. Every field is taken
@@ -53,30 +55,38 @@ type LogConfig struct {
 // not look at env names, hardcoded paths, or any process state. All policy
 // lives in the config file or env vars that populate LogConfig.
 func Setup(cfg LogConfig) (io.Closer, error) {
-	gcfg := gklog.Config{
-		JSONLogFile:   strings.TrimSpace(cfg.JSONFile),
-		TextLogFile:   strings.TrimSpace(cfg.TextFile),
-		TextLabel:     "tack",
-		JSONMinLevel:  cfg.Level,
-		DisableStdout: cfg.DisableStdout,
-		Rotation: gklog.RotationConfig{
-			MaxSizeMB:  cfg.MaxSizeMB,
-			MaxBackups: cfg.MaxBackups,
-			MaxAgeDays: cfg.MaxAgeDays,
-		},
-	}
-
-	if err := ensureDir(gcfg.JSONLogFile); err != nil {
+	jsonFile := strings.TrimSpace(cfg.JSONFile)
+	textFile := strings.TrimSpace(cfg.TextFile)
+	if err := ensureDir(jsonFile); err != nil {
 		return nil, err
 	}
-	if err := ensureDir(gcfg.TextLogFile); err != nil {
+	if err := ensureDir(textFile); err != nil {
 		return nil, err
 	}
 
-	logger, closer, err := gklog.New(gcfg)
-	if err != nil {
-		return nil, err
+	rotation := gklog.RotationConfig{
+		MaxSizeMB:  cfg.MaxSizeMB,
+		MaxBackups: cfg.MaxBackups,
+		MaxAgeDays: cfg.MaxAgeDays,
 	}
+	level := parseLogLevel(cfg.Level)
+	handlers := make([]slog.Handler, 0, 3)
+	if !cfg.DisableStdout {
+		handlers = append(handlers, gklog.StdoutJSON(level))
+	}
+	if jsonFile != "" {
+		handlers = append(handlers, gklog.FileJSON(jsonFile, level, rotation))
+	}
+	if textFile != "" {
+		handlers = append(handlers, gklog.FileText(textFile, "tack", rotation))
+	}
+	if len(handlers) == 0 {
+		return nil, errors.New("logging requires stdout or at least one log file")
+	}
+	logger, closer := gklog.New(gklog.Config{
+		BuildVersion: buildVersion(),
+		Handlers:     handlers,
+	})
 	slog.SetDefault(logger)
 
 	traceCloser, err := setupTracing(cfg.OTELEndpoint)
@@ -99,6 +109,35 @@ func ensureDir(path string) error {
 		return nil
 	}
 	return os.MkdirAll(dir, 0o755)
+}
+
+func parseLogLevel(level string) slog.Level {
+	switch strings.ToLower(strings.TrimSpace(level)) {
+	case "info":
+		return slog.LevelInfo
+	case "warn", "warning":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	case "debug", "":
+		return slog.LevelDebug
+	default:
+		return slog.LevelDebug
+	}
+}
+
+func buildVersion() string {
+	commit := version.Commit()
+	if commit != "dev" && len(commit) > 12 {
+		commit = commit[:12]
+	}
+	if version.Dirty() {
+		commit += "+dirty"
+	}
+	if buildTime := version.BuildTime(); buildTime != "unknown" {
+		return fmt.Sprintf("%s built %s", commit, buildTime)
+	}
+	return commit
 }
 
 // WithLogger stores a logger carrying pre-attached fields into the context.

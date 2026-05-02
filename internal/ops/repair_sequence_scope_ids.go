@@ -24,6 +24,7 @@ func runRepairSequenceScopeIDs(ctx context.Context, env *Env) error {
 	if err != nil {
 		return err
 	}
+	totalRepaired, totalSkipped := 0, 0
 	for orgID := range orgIDs {
 		nodeTypes, err := env.Stores.NodeTypes.List(ctx, orgID)
 		if err != nil {
@@ -44,13 +45,13 @@ func runRepairSequenceScopeIDs(ctx context.Context, env *Env) error {
 				continue
 			}
 			repaired, skipped := repairTypeScopeIDs(ctx, env, orgID, nodeType, propertyDefs)
-			env.Log.InfoContext(ctx, "repair.scope_ids.type",
-				slog.String("org_id", orgID.String()),
-				slog.String("type", nodeType.TypeKey),
-				slog.Int("repaired", repaired),
-				slog.Int("skipped", skipped))
+			totalRepaired += repaired
+			totalSkipped += skipped
 		}
 	}
+	env.Log.InfoContext(ctx, "repair.scope_ids.completed",
+		slog.Int("repaired", totalRepaired),
+		slog.Int("skipped", totalSkipped))
 	return nil
 }
 

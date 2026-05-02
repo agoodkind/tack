@@ -48,18 +48,12 @@ func createIdempotency(ctx context.Context, req mcpmcp.CallToolRequest, in creat
 	}
 
 	operationID := operationIDFromMeta(req)
-	if operationID == "" {
+	sessionID := sessionIDFromRequest(ctx, req)
+	if operationID == "" && sessionID != "" {
 		operationID = operationIDFromContext(ctx)
 	}
 	if operationID == "" {
 		return "", fingerprint, "", nil
-	}
-
-	sessionID := req.Header.Get("Mcp-Session-Id")
-	if sessionID == "" {
-		if metadata, ok := ctx.Value(mcpRequestMetadataKey{}).(MCPRequestMetadata); ok {
-			sessionID = metadata.SessionID
-		}
 	}
 
 	return fmt.Sprintf("mcp:%s:%s:%s:%s", in.UserID, in.ToolName, sessionID, operationID), fingerprint, "mcp", nil
@@ -101,9 +95,6 @@ func operationIDFromMeta(req mcpmcp.CallToolRequest) string {
 	if value, ok := req.Params.Meta.AdditionalFields["tackOperationID"]; ok {
 		return fmt.Sprint(value)
 	}
-	if req.Params.Meta.ProgressToken != nil {
-		return fmt.Sprint(req.Params.Meta.ProgressToken)
-	}
 	return ""
 }
 
@@ -113,4 +104,16 @@ func operationIDFromContext(ctx context.Context) string {
 		return ""
 	}
 	return metadata.RequestID
+}
+
+func sessionIDFromRequest(ctx context.Context, req mcpmcp.CallToolRequest) string {
+	sessionID := req.Header.Get("Mcp-Session-Id")
+	if sessionID != "" {
+		return sessionID
+	}
+	metadata, ok := ctx.Value(mcpRequestMetadataKey{}).(MCPRequestMetadata)
+	if !ok {
+		return ""
+	}
+	return metadata.SessionID
 }

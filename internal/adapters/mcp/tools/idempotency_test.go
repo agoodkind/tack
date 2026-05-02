@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -65,6 +66,63 @@ func TestCreateIdempotencyUsesMetaOperationID(t *testing.T) {
 	}
 	if source != "mcp" {
 		t.Fatalf("source = %q, want mcp", source)
+	}
+}
+
+func TestCreateIdempotencyUsesRequestIDWithSession(t *testing.T) {
+	userID := uuid.New()
+	ctx := WithMCPRequestMetadata(context.Background(), MCPRequestMetadata{
+		RequestID: "6",
+		SessionID: "session-1",
+	})
+	req := mcpmcp.CallToolRequest{
+		Header: http.Header{"Mcp-Session-Id": []string{"session-1"}},
+	}
+
+	key, fingerprint, source, err := createIdempotency(ctx, req, createIdempotencyInput{
+		ToolName:    "tack_create_issue",
+		NodeTypeKey: "issue",
+		Name:        "Disk pressure",
+		ParentID:    uuid.New(),
+		ScopeID:     uuid.New(),
+		UserID:      userID,
+	})
+	if err != nil {
+		t.Fatalf("createIdempotency: %v", err)
+	}
+	if key != "mcp:"+userID.String()+":tack_create_issue:session-1:6" {
+		t.Fatalf("key = %q, want session-scoped request ID", key)
+	}
+	if fingerprint == "" {
+		t.Fatal("fingerprint should be populated")
+	}
+	if source != "mcp" {
+		t.Fatalf("source = %q, want mcp", source)
+	}
+}
+
+func TestCreateIdempotencySkipsBareRequestID(t *testing.T) {
+	ctx := WithMCPRequestMetadata(context.Background(), MCPRequestMetadata{RequestID: "6"})
+
+	key, fingerprint, source, err := createIdempotency(ctx, mcpmcp.CallToolRequest{}, createIdempotencyInput{
+		ToolName:    "tack_create_issue",
+		NodeTypeKey: "issue",
+		Name:        "Disk pressure",
+		ParentID:    uuid.New(),
+		ScopeID:     uuid.New(),
+		UserID:      uuid.New(),
+	})
+	if err != nil {
+		t.Fatalf("createIdempotency: %v", err)
+	}
+	if key != "" {
+		t.Fatalf("key = %q, want no key for unscoped request ID", key)
+	}
+	if fingerprint == "" {
+		t.Fatal("fingerprint should still be populated")
+	}
+	if source != "" {
+		t.Fatalf("source = %q, want empty source", source)
 	}
 }
 

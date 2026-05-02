@@ -47,16 +47,24 @@ LDFLAGS     := -s -w \
 	-X $(GKLOG_VERSION_PKG).BuildTime=$(BUILD_TIME)
 
 # FDB is always required. CGO_ENABLED=1 for the FDB C bindings.
-.PHONY: build
-build:
+.PHONY: build build-instruction build-server
+build: build-instruction check-gates build-server
+	@:
+
+build-instruction:
+	echo "checking + building [LLM instruction]: if lint errors are surfaced. You MUST fix them correctly. Do not attempt to dismiss them."
+
+build-server:
 	CGO_ENABLED=1 go build -ldflags="$(LDFLAGS)" -o bin/server ./cmd/server
 
 # check runs every gate the project enforces: build, vet, lint, unit tests,
 # vulnerability check, go.mk's bundled staticcheck-extra analyzer set,
 # deadcode, and the project-specific structured-logging discipline.
 # Overrides go.mk's check on purpose so all gates land in one target.
-.PHONY: check
-check: build vet lint test govulncheck staticcheck-extra deadcode lint-logging
+.PHONY: check check-gates
+check: build-server check-gates
+
+check-gates: vet lint test govulncheck staticcheck-extra deadcode lint-logging
 
 # Per-finding baseline path. The analyzer set itself is provided by go.mk
 # (5 bundled AST analyzers). Project just declares its baseline file.
@@ -68,7 +76,7 @@ STATICCHECK_EXTRA_BASELINE := .staticcheck-extra-baseline.txt
 # read as unreachable here. Anything else that lands flagged is real dead
 # code and the gate fails.
 .PHONY: deadcode
-deadcode: build
+deadcode: build-server
 	@out=$$(go run golang.org/x/tools/cmd/deadcode@latest ./... | grep -Ev \
 		-e 'internal/test/integration/' \
 		-e 'internal/adapters/foundationdb/keys.go:.*(SetTestPrefix|TestPrefixRange)' \

@@ -17,7 +17,7 @@ require (
 	go.opentelemetry.io/otel/sdk v1.43.0
 	go.opentelemetry.io/otel/trace v1.43.0
 	golang.org/x/net v0.53.0
-	goodkind.io/gklog v0.0.0-20260425152237-ebc2806f8def
+	goodkind.io/gklog v0.2.1
 	google.golang.org/protobuf v1.36.11
 )
 

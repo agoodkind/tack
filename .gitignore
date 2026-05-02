@@ -36,3 +36,4 @@ trace.*.xml
 .cache_ggshield
 bin/server
 bin/server
+.staticcheck-extra-baseline.txt

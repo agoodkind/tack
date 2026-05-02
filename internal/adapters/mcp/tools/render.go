@@ -24,10 +24,6 @@ type renderCtx struct {
 	cache     map[uuid.UUID]string
 }
 
-func newRenderCtx(ctx context.Context, reader node.NodeReader, users user.Repository) *renderCtx {
-	return &renderCtx{ctx: ctx, reader: reader, users: users, cache: map[uuid.UUID]string{}}
-}
-
 func newRenderCtxWithTypes(ctx context.Context, reader node.NodeReader, users user.Repository, typeIndex map[string]*node.NodeType) *renderCtx {
 	return &renderCtx{ctx: ctx, reader: reader, users: users, typeIndex: typeIndex, cache: map[uuid.UUID]string{}}
 }
