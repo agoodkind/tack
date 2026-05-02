@@ -266,10 +266,14 @@ type PropertyDef struct {
 	// of these features. Empty means applies to every NodeType.
 	AppliesToFeatures []string `json:"applies_to_features,omitempty"`
 	// Indexed controls whether FDB maintains a secondary sort index on this property.
-	Indexed      bool            `json:"indexed"`
-	Options      []EnumOption    `json:"options,omitempty"` // for select / multi_select
-	Required     bool            `json:"required"`
+	Indexed  bool         `json:"indexed"`
+	Options  []EnumOption `json:"options,omitempty"` // for select / multi_select
+	Required bool         `json:"required"`
+	// DefaultValue stores a literal JSON default for non-reference property values.
 	DefaultValue json.RawMessage `json:"default_value,omitempty"`
+	// DefaultReference stores a human-reference default resolved through the
+	// target NodeType Reference contract for UUID-valued properties.
+	DefaultReference *PropertyDefaultReference `json:"default_reference,omitempty"`
 	// ReferenceTargetTypeKey names the NodeType whose human reference should be
 	// accepted for UUID-valued properties. Empty means the UUID is opaque.
 	ReferenceTargetTypeKey string `json:"reference_target_type_key,omitempty"`

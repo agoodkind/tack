@@ -185,6 +185,10 @@ func (s *NodeService) Create(ctx context.Context, in CreateInput) (*CreateResult
 		props["sequence"] = raw
 	}
 
+	if err := s.applyCreatePropertyDefaults(ctx, orgID, nt, in.ScopeID, props); err != nil {
+		return nil, err
+	}
+
 	n := &node.Node{
 		ID:        id,
 		OrgID:     orgID,

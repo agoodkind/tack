@@ -123,6 +123,49 @@ func TestCreateEpicAndIssueInProject(t *testing.T) {
 	}
 }
 
+func TestCreateIssueDefaultsStateIDToProjectTodo(t *testing.T) {
+	env := SetupTestEnv(t)
+	actor := uuid.New()
+	workspace := mustCreateScope(t, env, "workspace", "Main", env.OrgID, env.OrgID, actor)
+	project := mustCreateScope(t, env, "project", "Tack", workspace.ID, workspace.ID, actor)
+	todoState := mustFindProjectState(t, env, project.ID, "Todo")
+
+	issue := mustCreate(t, env, service.CreateInput{
+		ParentID:    project.ID,
+		ScopeID:     project.ID,
+		NodeTypeKey: "issue",
+		Name:        "Defaulted",
+		ActorID:     actor,
+	})
+
+	if got := uuidPropOf(t, issue, "state_id"); got != todoState.ID {
+		t.Fatalf("state_id = %s, want project-local Todo state %s", got, todoState.ID)
+	}
+}
+
+func TestCreateIssuePreservesExplicitStateID(t *testing.T) {
+	env := SetupTestEnv(t)
+	actor := uuid.New()
+	workspace := mustCreateScope(t, env, "workspace", "Main", env.OrgID, env.OrgID, actor)
+	project := mustCreateScope(t, env, "project", "Tack", workspace.ID, workspace.ID, actor)
+	doneState := mustFindProjectState(t, env, project.ID, "Done")
+
+	issue := mustCreate(t, env, service.CreateInput{
+		ParentID:    project.ID,
+		ScopeID:     project.ID,
+		NodeTypeKey: "issue",
+		Name:        "Explicit",
+		Props: map[string]json.RawMessage{
+			"state_id": jsonStr(doneState.ID.String()),
+		},
+		ActorID: actor,
+	})
+
+	if got := uuidPropOf(t, issue, "state_id"); got != doneState.ID {
+		t.Fatalf("state_id = %s, want explicit state %s", got, doneState.ID)
+	}
+}
+
 // TestRelationshipReverseIndex verifies the relationship store maintains the
 // forward and reverse indexes in sync. Adding a relationship makes it visible
 // from both source and target sides; removing it clears both directions.
@@ -325,6 +368,41 @@ func numberPropOf(t *testing.T, v *node.NodeView, key string) int64 {
 		t.Fatalf("decode prop %q as int: %v (raw=%s)", key, err, string(raw))
 	}
 	return n
+}
+
+func uuidPropOf(t *testing.T, v *node.NodeView, key string) uuid.UUID {
+	t.Helper()
+	if v == nil {
+		return uuid.Nil
+	}
+	raw, ok := v.Props[key]
+	if !ok {
+		return uuid.Nil
+	}
+	var value string
+	if err := json.Unmarshal(raw, &value); err != nil {
+		t.Fatalf("decode prop %q as UUID string: %v (raw=%s)", key, err, string(raw))
+	}
+	id, err := uuid.Parse(value)
+	if err != nil {
+		t.Fatalf("parse prop %q as UUID: %v (value=%q)", key, err, value)
+	}
+	return id
+}
+
+func mustFindProjectState(t *testing.T, env *TestEnv, projectID uuid.UUID, name string) *node.Node {
+	t.Helper()
+	nodes, err := env.Stores.Nodes.ListByProperty(env.Ctx, env.OrgID, "state", "parent_id", jsonStr(projectID.String()))
+	if err != nil {
+		t.Fatalf("list states for project %s: %v", projectID, err)
+	}
+	for _, state := range nodes {
+		if state.Name == name {
+			return state
+		}
+	}
+	t.Fatalf("project %s state %q not found", projectID, name)
+	return nil
 }
 
 func containsID(nodes []*node.Node, id uuid.UUID) bool {

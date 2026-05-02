@@ -106,7 +106,12 @@ func defaultPropertyDefs(orgID uuid.UUID) []*node.PropertyDef {
 			Type:                   node.PropertyTypeUUID,
 			AppliesToFeatures:      []string{node.FeatureHasWorkflowStates},
 			Indexed:                true,
+			Required:               true,
 			ReferenceTargetTypeKey: nodeTypeState,
+			DefaultReference: &node.PropertyDefaultReference{
+				Scope:     node.DefaultReferenceScopeCreateScope,
+				Reference: "Todo",
+			},
 		},
 		{
 			ID:                node.SystemPropID(orgID, "is_draft"),

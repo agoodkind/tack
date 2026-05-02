@@ -78,6 +78,31 @@ func TestSeedHasIdentifierPropertyDef(t *testing.T) {
 	t.Fatal(`PropertyDef "identifier" missing; resolver cannot find scope nodes by identifier`)
 }
 
+func TestSeedHasStateIDRequiredTodoDefaultReference(t *testing.T) {
+	env := SetupTestEnv(t)
+
+	defs := listPropertyDefRecords(t, env)
+	for _, d := range defs {
+		if d.Name != "state_id" {
+			continue
+		}
+		if !d.Required {
+			t.Fatalf(`PropertyDef "state_id" exists but Required=false`)
+		}
+		if d.DefaultReference == nil {
+			t.Fatalf(`PropertyDef "state_id" missing default reference`)
+		}
+		if d.DefaultReference.Scope != node.DefaultReferenceScopeCreateScope {
+			t.Fatalf("state_id default scope = %q, want %q", d.DefaultReference.Scope, node.DefaultReferenceScopeCreateScope)
+		}
+		if d.DefaultReference.Reference != "Todo" {
+			t.Fatalf("state_id default reference = %q, want %q", d.DefaultReference.Reference, "Todo")
+		}
+		return
+	}
+	t.Fatal(`PropertyDef "state_id" missing`)
+}
+
 // listNodeTypes returns all NodeTypes for the test org, keyed by slug.
 func listNodeTypes(t *testing.T, env *TestEnv) map[string]uuid.UUID {
 	t.Helper()
