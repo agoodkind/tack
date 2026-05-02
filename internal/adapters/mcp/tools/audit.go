@@ -17,7 +17,8 @@ import (
 // Redactor is configured) tack_audit_redact_actor. Reader tools run as the
 // audit_reader role; the redactor tool runs as audit_redactor and can only
 // UPDATE the three payload/redacted/redacted_at columns on audit.pii.
-// Every audit_* call is itself audited via verb=audit.read.
+// Audit reader tools are audited with audit.read. Redaction is audited with
+// audit.pii_redacted.
 func RegisterAudit(s *mcpserver.MCPServer, reader *audit.Reader, redactor *audit.Redactor, resolver *Resolver) {
 	if reader == nil {
 		return

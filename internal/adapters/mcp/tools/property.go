@@ -80,6 +80,7 @@ func RegisterProperty(s *mcpserver.MCPServer, propertyDefs node.PropertyDefRepos
 			if err != nil || view == nil {
 				return classifyError(ctx, err), nil
 			}
+			stampAuditNodeView(ctx, view)
 			return successJSON(propsResp{Props: view.Props}, ""), nil
 		},
 	)

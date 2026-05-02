@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/auth"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
@@ -141,13 +142,16 @@ func TestResolveTypedNodeIDProjectIdentifier(t *testing.T) {
 		CanLiveUnder: []string{"workspace"},
 		Reference:    node.ReferenceConfig{Strategy: node.ReferenceDirectSlug, Property: "identifier"},
 	}
-	ctx := auth.WithUser(context.Background(), uuid.New())
+	ctx := audit.WithScopeBuilder(auth.WithUser(context.Background(), uuid.New()))
 	id, err := resolver.ResolveTypedNodeID(ctx, projectType, "TACK")
 	if err != nil {
 		t.Fatalf("ResolveTypedNodeID(TACK): %v", err)
 	}
 	if id != projectID {
 		t.Fatalf("ResolveTypedNodeID(TACK): got %s want %s", id, projectID)
+	}
+	if audit.ScopeFromContext(ctx).OrgID != orgID {
+		t.Fatalf("ResolveTypedNodeID(TACK) audit org: got %s want %s", uuid.UUID(audit.ScopeFromContext(ctx).OrgID), orgID)
 	}
 }
 
@@ -175,13 +179,16 @@ func TestResolveTypedNodeIDScopedStateReference(t *testing.T) {
 		CanLiveUnder: []string{"project"},
 		Reference:    node.ReferenceConfig{Strategy: node.ReferenceScopedProperty, Property: "name"},
 	}
-	ctx := auth.WithUser(context.Background(), uuid.New())
+	ctx := audit.WithScopeBuilder(auth.WithUser(context.Background(), uuid.New()))
 	id, err := resolver.ResolveTypedNodeID(ctx, stateType, "CLYDE::In Progress")
 	if err != nil {
 		t.Fatalf("ResolveTypedNodeID(CLYDE::In Progress): %v", err)
 	}
 	if id != stateID {
 		t.Fatalf("ResolveTypedNodeID(CLYDE::In Progress): got %s want %s", id, stateID)
+	}
+	if audit.ScopeFromContext(ctx).OrgID != orgID {
+		t.Fatalf("ResolveTypedNodeID(CLYDE::In Progress) audit org: got %s want %s", uuid.UUID(audit.ScopeFromContext(ctx).OrgID), orgID)
 	}
 	_, err = resolver.ResolveTypedNodeID(ctx, stateType, "In Progress")
 	if err == nil || !strings.Contains(err.Error(), domain.ErrInvalidArgument.Error()) {

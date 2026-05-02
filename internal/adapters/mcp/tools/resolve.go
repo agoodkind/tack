@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -144,6 +143,9 @@ func (r *Resolver) WorkspacesForUser(ctx context.Context, userID uuid.UUID) ([]*
 	if err != nil {
 		return nil, err
 	}
+	if len(orgIDs) == 1 {
+		stampAuditOrg(ctx, orgIDs[0])
+	}
 	var all []*node.NodeView
 	for _, orgID := range orgIDs {
 		views, err := r.reader.List(ctx, node.NodeListQuery{
@@ -162,6 +164,10 @@ func (r *Resolver) WorkspacesForUser(ctx context.Context, userID uuid.UUID) ([]*
 // identifier (e.g. "TACK-65"), and returns the node UUID.
 func (r *Resolver) ResolveNodeID(ctx context.Context, input string) (uuid.UUID, error) {
 	if id, err := uuid.Parse(input); err == nil {
+		resolve, resolveErr := r.reader.Resolve(ctx, id)
+		if resolveErr == nil {
+			stampAuditNodeResolve(ctx, resolve)
+		}
 		return id, nil
 	}
 	id, err := r.resolveSequenceNodeID(ctx, input, r.sequenceTypeKeys)
@@ -186,17 +192,4 @@ func (r *Resolver) ResolveNodeID(ctx context.Context, input string) (uuid.UUID, 
 		return uuid.Nil, invalidArgument
 	}
 	return uuid.Nil, fmt.Errorf("identifier %q: %w", input, domain.ErrNotFound)
-}
-
-// ParseNodeIdentifier splits "ENG-42" into ("ENG", 42).
-func ParseNodeIdentifier(identifier string) (projectIdent string, seqID int, err error) {
-	idx := strings.LastIndex(identifier, "-")
-	if idx <= 0 || idx == len(identifier)-1 {
-		return "", 0, fmt.Errorf("invalid identifier %q: expected PROJECT-N format (e.g. ENG-42)", identifier)
-	}
-	seq, convErr := strconv.Atoi(identifier[idx+1:])
-	if convErr != nil || seq <= 0 {
-		return "", 0, fmt.Errorf("invalid identifier %q: sequence must be a positive integer", identifier)
-	}
-	return identifier[:idx], seq, nil
 }

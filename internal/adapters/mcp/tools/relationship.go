@@ -63,6 +63,7 @@ func RegisterRelationship(s *mcpserver.MCPServer, svc *service.NodeService, rels
 			if err != nil {
 				return classifyError(ctx, err), nil
 			}
+			stampAuditNodeResolve(ctx, resolve)
 			if err := svc.AddRelationship(ctx, &node.Relationship{
 				OrgID:        resolve.OrgID,
 				SourceID:     sourceID,
@@ -113,6 +114,7 @@ func RegisterRelationship(s *mcpserver.MCPServer, svc *service.NodeService, rels
 			if err != nil {
 				return classifyError(ctx, err), nil
 			}
+			stampAuditNodeResolve(ctx, resolve)
 			if err := svc.RemoveRelationship(ctx, resolve.OrgID, sourceID, relType, targetID); err != nil {
 				return classifyError(ctx, err), nil
 			}
@@ -153,6 +155,7 @@ func RegisterRelationship(s *mcpserver.MCPServer, svc *service.NodeService, rels
 			if err != nil {
 				return classifyError(ctx, err), nil
 			}
+			stampAuditNodeResolve(ctx, resolve)
 			var relsOut []*node.Relationship
 			if direction == "in" {
 				relsOut, err = rels.ListByTarget(ctx, resolve.OrgID, nodeID, relType)

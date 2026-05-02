@@ -32,6 +32,7 @@ func (r *Resolver) ResolveTypedNodeID(ctx context.Context, nt *node.NodeType, in
 		if resolve == nil || resolve.NodeType != nt.TypeKey {
 			return uuid.Nil, fmt.Errorf("%s %q: %w", strings.ToLower(nt.Slug), input, domain.ErrNotFound)
 		}
+		stampAuditNodeResolve(ctx, resolve)
 		return id, nil
 	}
 	if nt == nil {
@@ -81,6 +82,7 @@ func (r *Resolver) resolveSequenceNodeID(ctx context.Context, input string, type
 			}
 			for _, candidate := range candidates {
 				if r.nodeBelongsToScope(ctx, candidate, scopeNode.ID) {
+					stampAuditOrg(ctx, candidate.OrgID)
 					return candidate.ID, nil
 				}
 			}

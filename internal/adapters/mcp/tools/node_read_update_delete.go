@@ -31,6 +31,7 @@ func getHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFunc 
 		if view == nil {
 			return classifyError(ctx, domain.ErrNotFound), nil
 		}
+		stampAuditNodeView(ctx, view)
 		rc := newRenderCtxWithTypes(ctx, b.Reader, b.Users, b.Resolver.typeIndex)
 		return successText(renderNode(rc, view), ""), nil
 	}
@@ -72,6 +73,10 @@ func updateHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFu
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
+		if existing == nil {
+			return classifyError(ctx, domain.ErrNotFound), nil
+		}
+		stampAuditNodeView(ctx, existing)
 		rawProps, err = normalizeUpdateProps(ctx, b, nt, existing, rawProps)
 		if err != nil {
 			return classifyError(ctx, err), nil
@@ -109,6 +114,14 @@ func deleteHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFu
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
+		existing, err := b.Reader.Get(ctx, id)
+		if err != nil {
+			return classifyError(ctx, err), nil
+		}
+		if existing == nil {
+			return classifyError(ctx, domain.ErrNotFound), nil
+		}
+		stampAuditNodeView(ctx, existing)
 		if err := b.NodeSvc.Delete(ctx, id, userID); err != nil {
 			return classifyError(ctx, err), nil
 		}

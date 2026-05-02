@@ -20,6 +20,9 @@ var expectedTools = []string{
 	"tack_list_relationships",
 	"tack_search",
 	"tack_getting_started",
+	"tack_audit_query",
+	"tack_audit_get",
+	"tack_audit_redact_actor",
 
 	// Per-NodeType (one concrete example for each prefix).
 	"tack_describe_workspace",

@@ -8,7 +8,7 @@ import "strings"
 type Verb string
 
 const (
-	// State changes -- written synchronously, must not be dropped.
+	// State changes are written synchronously, and they must not be dropped.
 	VerbNodeCreate         Verb = "node.create"
 	VerbNodeUpdate         Verb = "node.update"
 	VerbNodeDelete         Verb = "node.delete"
@@ -23,7 +23,7 @@ const (
 	VerbOrgMemberRemove    Verb = "org.member_remove"
 	VerbOrgMemberRoleSet   Verb = "org.member_role_set"
 
-	// Auth -- every breath, including failures.
+	// Auth covers every breath, including failures.
 	VerbAuthLoginSucceeded Verb = "auth.login_succeeded"
 	VerbAuthLoginFailed    Verb = "auth.login_failed"
 	VerbAuthTokenCreate    Verb = "auth.token_create"
@@ -31,7 +31,7 @@ const (
 	VerbAuthTokenUsed      Verb = "auth.token_used"
 	VerbAuthTokenRejected  Verb = "auth.token_rejected"
 
-	// Reads -- batched via WAL for hot-path tolerance.
+	// Reads are batched via WAL for hot-path tolerance.
 	VerbNodeRead          Verb = "node.read"
 	VerbNodeList          Verb = "node.list"
 	VerbNodeSearch        Verb = "node.search"
@@ -103,6 +103,9 @@ var staticToolVerb = map[string]Verb{
 	"tack_list_relationships":  VerbRelationshipList,
 	"tack_search":              VerbNodeSearch,
 	"tack_getting_started":     VerbMCPPromptInvoked,
+	"tack_audit_query":         VerbAuditRead,
+	"tack_audit_get":           VerbAuditRead,
+	"tack_audit_redact_actor":  VerbAuditPIIRedacted,
 }
 
 // perTypePrefixVerb maps a tool name prefix (computed from NodeType slug)
