@@ -107,10 +107,7 @@ func (r *Resolver) Workspace(ctx context.Context, slug string) (*node.NodeView, 
 	if view == nil {
 		return nil, fmt.Errorf("%s %q: %w", r.entryPointSlug, slug, domain.ErrNotFound)
 	}
-	audit.SetScopeFields(ctx, audit.Scope{
-		OrgID:       view.OrgID,
-		WorkspaceID: view.ID,
-	})
+	stampAuditEntryPoint(ctx, view)
 	return view, nil
 }
 
@@ -123,6 +120,9 @@ func (r *Resolver) Workspace(ctx context.Context, slug string) (*node.NodeView, 
 func (r *Resolver) ResolveScope(ctx context.Context, parent *node.NodeView, level ScopeLevel, identifier string) (*node.NodeView, error) {
 	view, err := r.resolveScopeReference(ctx, parent, level, identifier)
 	if err == nil && view != nil {
+		if parent != nil && parent.NodeType == r.entryPointTypeKey {
+			stampAuditEntryPoint(ctx, parent)
+		}
 		audit.SetScopeFields(ctx, audit.Scope{ScopeID: view.ID})
 		return view, nil
 	}

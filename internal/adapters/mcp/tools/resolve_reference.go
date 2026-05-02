@@ -23,6 +23,7 @@ func (r *Resolver) resolveDirectReference(ctx context.Context, nt *node.NodeType
 		return uuid.Nil, err
 	}
 	matches := map[uuid.UUID]struct{}{}
+	matchedWorkspaces := map[uuid.UUID]*node.NodeView{}
 	for _, workspace := range workspaces {
 		for _, rawValue := range referenceLookupValues(input) {
 			children, err := r.nodes.ListByProperty(ctx, workspace.OrgID, nt.TypeKey, propName, rawValue)
@@ -30,13 +31,20 @@ func (r *Resolver) resolveDirectReference(ctx context.Context, nt *node.NodeType
 				continue
 			}
 			for _, child := range children {
-				if r.nodeBelongsToScope(ctx, child, workspace.ID) {
-					matches[child.ID] = struct{}{}
+				if !r.nodeBelongsToScope(ctx, child, workspace.ID) {
+					continue
 				}
+				matches[child.ID] = struct{}{}
+				matchedWorkspaces[child.ID] = workspace
 			}
 		}
 	}
-	return uniqueMatch(matches, strings.ToLower(nt.Slug), input)
+	id, err := uniqueMatch(matches, strings.ToLower(nt.Slug), input)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	stampAuditEntryPoint(ctx, matchedWorkspaces[id])
+	return id, nil
 }
 
 func (r *Resolver) resolveScopedNodeReference(ctx context.Context, nt *node.NodeType, input string) (uuid.UUID, error) {
@@ -66,6 +74,7 @@ func (r *Resolver) resolveScopedNodeReference(ctx context.Context, nt *node.Node
 		return uuid.Nil, err
 	}
 	matches := map[uuid.UUID]struct{}{}
+	matchedWorkspaces := map[uuid.UUID]*node.NodeView{}
 	for _, workspace := range workspaces {
 		scopeNode, err := r.ResolveScope(ctx, workspace, level, scopeIdent)
 		if err != nil {
@@ -79,8 +88,14 @@ func (r *Resolver) resolveScopedNodeReference(ctx context.Context, nt *node.Node
 			continue
 		}
 		matches[id] = struct{}{}
+		matchedWorkspaces[id] = workspace
 	}
-	return uniqueMatch(matches, strings.ToLower(nt.Slug), input)
+	id, err := uniqueMatch(matches, strings.ToLower(nt.Slug), input)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	stampAuditEntryPoint(ctx, matchedWorkspaces[id])
+	return id, nil
 }
 
 func (r *Resolver) resolveNodeWithinScope(ctx context.Context, orgID, scopeID uuid.UUID, typeKey, propName, localRef string) (uuid.UUID, error) {

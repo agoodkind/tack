@@ -43,7 +43,15 @@ func createTool(nt *node.NodeType, slug string, chain []ScopeLevel, epParam stri
 	}
 }
 
-func getTool(nt *node.NodeType, slug string) mcpmcp.Tool {
+func nodeIDSchema(entryPointParam string, resolver *Resolver) schema {
+	fields := []schemaField{{Name: "node_id", Type: schemaString}}
+	if entryPointParam != "" {
+		fields = append(fields, schemaField{Name: entryPointParam, Type: schemaString, Desc: entryPointFieldDescription(resolver)})
+	}
+	return schema{Fields: fields, Required: []string{"node_id"}}
+}
+
+func getTool(nt *node.NodeType, slug string, entryPointParam string, resolver *Resolver) mcpmcp.Tool {
 	description := fmt.Sprintf("Gets a %s by UUID.", nt.Name)
 	switch nt.Reference.Strategy {
 	case node.ReferenceScopedSequence:
@@ -56,35 +64,28 @@ func getTool(nt *node.NodeType, slug string) mcpmcp.Tool {
 	return mcpmcp.Tool{
 		Name:        fmt.Sprintf("tack_get_%s", slug),
 		Description: description,
-		InputSchema: schema{
-			Fields:   []schemaField{{Name: "node_id", Type: schemaString}},
-			Required: []string{"node_id"},
-		}.toMCP(),
+		InputSchema: nodeIDSchema(entryPointParam, resolver).toMCP(),
 	}
 }
 
-func updateTool(nt *node.NodeType, slug string) mcpmcp.Tool {
+func updateTool(nt *node.NodeType, slug string, entryPointParam string, resolver *Resolver) mcpmcp.Tool {
 	return mcpmcp.Tool{
 		Name:        fmt.Sprintf("tack_update_%s", slug),
 		Description: fmt.Sprintf("Updates a %s. Only provided fields change.", nt.Name),
 		InputSchema: schema{
-			Fields: []schemaField{
-				{Name: "node_id", Type: schemaString},
-				{Name: "name", Type: schemaString},
-				{Name: "properties", Type: schemaObject},
-			},
+			Fields: append(nodeIDSchema(entryPointParam, resolver).Fields,
+				schemaField{Name: "name", Type: schemaString},
+				schemaField{Name: "properties", Type: schemaObject},
+			),
 			Required: []string{"node_id"},
 		}.toMCP(),
 	}
 }
 
-func deleteTool(nt *node.NodeType, slug string) mcpmcp.Tool {
+func deleteTool(nt *node.NodeType, slug string, entryPointParam string, resolver *Resolver) mcpmcp.Tool {
 	return mcpmcp.Tool{
 		Name:        fmt.Sprintf("tack_delete_%s", slug),
 		Description: fmt.Sprintf("Deletes a %s.", nt.Name),
-		InputSchema: schema{
-			Fields:   []schemaField{{Name: "node_id", Type: schemaString}},
-			Required: []string{"node_id"},
-		}.toMCP(),
+		InputSchema: nodeIDSchema(entryPointParam, resolver).toMCP(),
 	}
 }

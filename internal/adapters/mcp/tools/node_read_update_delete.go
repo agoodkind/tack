@@ -20,6 +20,14 @@ func getHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFunc 
 		if err := req.BindArguments(&in); err != nil {
 			return recoverableError(err.Error()), nil
 		}
+		args, err := bindArgs(req)
+		if err != nil {
+			return recoverableError(err.Error()), nil
+		}
+		entryPoint, err := auditEntryPointArg(ctx, args, b)
+		if err != nil {
+			return classifyError(ctx, err), nil
+		}
 		id, err := b.Resolver.ResolveTypedNodeID(ctx, nt, in.NodeID)
 		if err != nil {
 			return classifyError(ctx, err), nil
@@ -31,7 +39,9 @@ func getHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFunc 
 		if view == nil {
 			return classifyError(ctx, domain.ErrNotFound), nil
 		}
-		stampAuditNodeView(ctx, view)
+		if err := stampAuditNodeInEntryPoint(ctx, b.Resolver, entryPoint, view); err != nil {
+			return classifyError(ctx, err), nil
+		}
 		rc := newRenderCtxWithTypes(ctx, b.Reader, b.Users, b.Resolver.typeIndex)
 		return successText(renderNode(rc, view), ""), nil
 	}
@@ -56,14 +66,17 @@ func updateHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFu
 		if err != nil {
 			return unexpectedError(ctx, err), nil
 		}
-		id, err := b.Resolver.ResolveTypedNodeID(ctx, nt, in.NodeID)
-		if err != nil {
-			return classifyError(ctx, err), nil
-		}
-
 		args, err := bindArgs(req)
 		if err != nil {
 			return recoverableError(err.Error()), nil
+		}
+		entryPoint, err := auditEntryPointArg(ctx, args, b)
+		if err != nil {
+			return classifyError(ctx, err), nil
+		}
+		id, err := b.Resolver.ResolveTypedNodeID(ctx, nt, in.NodeID)
+		if err != nil {
+			return classifyError(ctx, err), nil
 		}
 		rawProps, err := parseProps(args["properties"])
 		if err != nil {
@@ -76,7 +89,9 @@ func updateHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFu
 		if existing == nil {
 			return classifyError(ctx, domain.ErrNotFound), nil
 		}
-		stampAuditNodeView(ctx, existing)
+		if err := stampAuditNodeInEntryPoint(ctx, b.Resolver, entryPoint, existing); err != nil {
+			return classifyError(ctx, err), nil
+		}
 		rawProps, err = normalizeUpdateProps(ctx, b, nt, existing, rawProps)
 		if err != nil {
 			return classifyError(ctx, err), nil
@@ -110,6 +125,14 @@ func deleteHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFu
 		if err != nil {
 			return unexpectedError(ctx, err), nil
 		}
+		args, err := bindArgs(req)
+		if err != nil {
+			return recoverableError(err.Error()), nil
+		}
+		entryPoint, err := auditEntryPointArg(ctx, args, b)
+		if err != nil {
+			return classifyError(ctx, err), nil
+		}
 		id, err := b.Resolver.ResolveTypedNodeID(ctx, nt, in.NodeID)
 		if err != nil {
 			return classifyError(ctx, err), nil
@@ -121,7 +144,9 @@ func deleteHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFu
 		if existing == nil {
 			return classifyError(ctx, domain.ErrNotFound), nil
 		}
-		stampAuditNodeView(ctx, existing)
+		if err := stampAuditNodeInEntryPoint(ctx, b.Resolver, entryPoint, existing); err != nil {
+			return classifyError(ctx, err), nil
+		}
 		if err := b.NodeSvc.Delete(ctx, id, userID); err != nil {
 			return classifyError(ctx, err), nil
 		}
