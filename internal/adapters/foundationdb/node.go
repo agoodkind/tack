@@ -231,9 +231,26 @@ func (s *NodeStore) CreateAtomic(
 	view *node.NodeView,
 	rels []*node.Relationship,
 	indexedProps []string,
+	idempotency *node.IdempotencyRecord,
 ) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node.create_atomic")(&err)
 	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
+		if idempotency != nil {
+			key := fdb.Key(idempotencyKey(n.OrgID, idempotency.Key))
+			existing, err := tr.Get(key).Get()
+			if err != nil {
+				return nil, fmt.Errorf("read idempotency key: %w", err)
+			}
+			if len(existing) > 0 {
+				return nil, fmt.Errorf("idempotency key %q already exists: %w", idempotency.Key, domain.ErrConflict)
+			}
+			recordBytes, err := json.Marshal(idempotency)
+			if err != nil {
+				return nil, fmt.Errorf("marshal idempotency record: %w", err)
+			}
+			tr.Set(key, recordBytes)
+		}
+
 		// 1. Primary node record.
 		nBytes, err := json.Marshal(n)
 		if err != nil {
@@ -441,31 +458,19 @@ func (s *NodeStore) DeleteSlug(ctx context.Context, nodeType, slug string) (err 
 	return
 }
 
-// LookupIdempotencyKey returns the nodeID stamped under (orgID, key) by a
-// prior Create, or uuid.Nil when the key has not been seen.
-func (s *NodeStore) LookupIdempotencyKey(ctx context.Context, orgID uuid.UUID, key string) (id uuid.UUID, err error) {
+// LookupIdempotencyKey returns the record stamped under (orgID, key), or nil
+// when the key has not been seen.
+func (s *NodeStore) LookupIdempotencyKey(ctx context.Context, orgID uuid.UUID, key string) (record *node.IdempotencyRecord, err error) {
 	defer telemetry.FDBOp(ctx, "store.node.lookup_idempotency")(&err)
 	val, err := s.db.ReadTransact(func(tr fdb.ReadTransaction) (any, error) {
 		return tr.Get(fdb.Key(idempotencyKey(orgID, key))).Get()
 	})
 	if err != nil {
-		return uuid.Nil, fmt.Errorf("fdb lookup idempotency: %w", err)
+		return nil, fmt.Errorf("fdb lookup idempotency: %w", err)
 	}
 	b, ok := val.([]byte)
 	if !ok || len(b) == 0 {
-		return uuid.Nil, nil
-	}
-	return uuid.FromBytes(b)
-}
-
-// WriteIdempotencyKey records (orgID, key) -> nodeID. Idempotent when the
-// existing record already matches nodeID.
-func (s *NodeStore) WriteIdempotencyKey(ctx context.Context, orgID uuid.UUID, key string, nodeID uuid.UUID) (err error) {
-	defer telemetry.FDBOp(ctx, "store.node.write_idempotency")(&err)
-	idBytes, _ := nodeID.MarshalBinary()
-	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
-		tr.Set(fdb.Key(idempotencyKey(orgID, key)), idBytes)
 		return nil, nil
-	})
-	return
+	}
+	return decodeIdempotencyRecord(key, b)
 }

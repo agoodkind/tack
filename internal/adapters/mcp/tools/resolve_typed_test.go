@@ -84,7 +84,7 @@ func (r *fakeNodeRepo) UpdateAtomic(context.Context, *node.Node, *node.NodeView,
 func (r *fakeNodeRepo) Delete(context.Context, uuid.UUID, uuid.UUID) error {
 	panic("fakeNodeRepo.Delete called")
 }
-func (r *fakeNodeRepo) CreateAtomic(context.Context, *node.Node, *node.NodeView, []*node.Relationship, []string) error {
+func (r *fakeNodeRepo) CreateAtomic(context.Context, *node.Node, *node.NodeView, []*node.Relationship, []string, *node.IdempotencyRecord) error {
 	panic("fakeNodeRepo.CreateAtomic called")
 }
 func (r *fakeNodeRepo) ListByProperty(_ context.Context, _ uuid.UUID, nodeType, propName string, value json.RawMessage) ([]*node.Node, error) {
@@ -102,11 +102,25 @@ func (r *fakeNodeRepo) WriteSlug(context.Context, string, string, uuid.UUID) err
 func (r *fakeNodeRepo) DeleteSlug(context.Context, string, string) error {
 	panic("fakeNodeRepo.DeleteSlug called")
 }
-func (r *fakeNodeRepo) LookupIdempotencyKey(context.Context, uuid.UUID, string) (uuid.UUID, error) {
+func (r *fakeNodeRepo) LookupIdempotencyKey(context.Context, uuid.UUID, string) (*node.IdempotencyRecord, error) {
 	panic("fakeNodeRepo.LookupIdempotencyKey called")
 }
-func (r *fakeNodeRepo) WriteIdempotencyKey(context.Context, uuid.UUID, string, uuid.UUID) error {
-	panic("fakeNodeRepo.WriteIdempotencyKey called")
+
+type fakePropertyDefs struct {
+	defs []*node.PropertyDef
+}
+
+func (r *fakePropertyDefs) Set(context.Context, *node.PropertyDef) error {
+	panic("fakePropertyDefs.Set called")
+}
+func (r *fakePropertyDefs) Get(context.Context, uuid.UUID, uuid.UUID) (*node.PropertyDef, error) {
+	panic("fakePropertyDefs.Get called")
+}
+func (r *fakePropertyDefs) List(context.Context, uuid.UUID) ([]*node.PropertyDef, error) {
+	return r.defs, nil
+}
+func (r *fakePropertyDefs) Delete(context.Context, uuid.UUID, uuid.UUID) error {
+	panic("fakePropertyDefs.Delete called")
 }
 
 func TestResolveTypedNodeIDProjectIdentifier(t *testing.T) {
@@ -149,7 +163,12 @@ func TestResolveTypedNodeIDScopedStateReference(t *testing.T) {
 	repo := &fakeNodeRepo{scopeChildren: map[string][]*node.Node{
 		"project:identifier:\"CLYDE\"": {{ID: projectID, OrgID: orgID, NodeType: "project", Props: map[string]json.RawMessage{"parent_id": mustRaw(t, workspaceID.String())}}},
 	}}
-	resolver := &Resolver{nodes: repo, reader: reader, members: &fakeMembers{orgIDs: []uuid.UUID{orgID}}, entryPointTypeKey: "workspace", entryPointSlug: "workspace", typeIndex: map[string]*node.NodeType{"project": {TypeKey: "project", Slug: "project"}}}
+	resolver := &Resolver{nodes: repo, reader: reader, members: &fakeMembers{orgIDs: []uuid.UUID{orgID}}, entryPointTypeKey: "workspace", entryPointSlug: "workspace", typeIndex: map[string]*node.NodeType{"project": {
+		TypeKey:      "project",
+		Slug:         "project",
+		CanLiveUnder: []string{"workspace"},
+		Reference:    node.ReferenceConfig{Strategy: node.ReferenceDirectSlug, Property: "identifier"},
+	}}}
 	stateType := &node.NodeType{
 		TypeKey:      "state",
 		Slug:         "state",
@@ -167,5 +186,76 @@ func TestResolveTypedNodeIDScopedStateReference(t *testing.T) {
 	_, err = resolver.ResolveTypedNodeID(ctx, stateType, "In Progress")
 	if err == nil || !strings.Contains(err.Error(), domain.ErrInvalidArgument.Error()) {
 		t.Fatalf("ResolveTypedNodeID(In Progress): got %v want invalid argument", err)
+	}
+}
+
+func TestResolveScopeAcceptsSequenceReference(t *testing.T) {
+	orgID := uuid.New()
+	workspaceID := uuid.New()
+	projectID := uuid.New()
+	issueID := uuid.New()
+	workspace := &node.NodeView{ID: workspaceID, OrgID: orgID, NodeType: "workspace", Name: "Main", Props: map[string]json.RawMessage{"slug": mustRaw(t, "main")}}
+	project := &node.NodeView{ID: projectID, OrgID: orgID, NodeType: "project", Name: "Clyde", Props: map[string]json.RawMessage{"identifier": mustRaw(t, "CLYDE"), "parent_id": mustRaw(t, workspaceID.String())}}
+	issue := &node.NodeView{ID: issueID, OrgID: orgID, NodeType: "issue", Name: "Reference work", Props: map[string]json.RawMessage{"sequence": mustRaw(t, 157), "scope_id": mustRaw(t, projectID.String()), "parent_id": mustRaw(t, projectID.String())}}
+	reader := &resolverReader{views: map[uuid.UUID]*node.NodeView{workspaceID: workspace, projectID: project, issueID: issue}, workspaces: []*node.NodeView{workspace}}
+	repo := &fakeNodeRepo{scopeChildren: map[string][]*node.Node{
+		"project:identifier:\"CLYDE\"": {{ID: projectID, OrgID: orgID, NodeType: "project", Props: map[string]json.RawMessage{"parent_id": mustRaw(t, workspaceID.String())}}},
+		"issue:sequence:157":           {{ID: issueID, OrgID: orgID, NodeType: "issue", Props: map[string]json.RawMessage{"sequence": mustRaw(t, 157), "scope_id": mustRaw(t, projectID.String())}}},
+	}}
+	projectType := &node.NodeType{TypeKey: "project", Slug: "project", CanLiveUnder: []string{"workspace"}, Reference: node.ReferenceConfig{Strategy: node.ReferenceDirectSlug, Property: "identifier"}}
+	issueType := &node.NodeType{TypeKey: "issue", Slug: "issue", CanLiveUnder: []string{"project"}, Reference: node.ReferenceConfig{Strategy: node.ReferenceScopedSequence, Property: "sequence"}}
+	resolver := &Resolver{
+		nodes: repo, reader: reader, members: &fakeMembers{orgIDs: []uuid.UUID{orgID}},
+		entryPointTypeKey: "workspace", entryPointSlug: "workspace",
+		scopeChain: []ScopeLevel{{TypeKey: "project", Slug: "project", ParamName: "project_identifier"}},
+		typeIndex:  map[string]*node.NodeType{"project": projectType, "issue": issueType},
+	}
+	ctx := auth.WithUser(context.Background(), uuid.New())
+	resolved, err := resolver.ResolveScope(ctx, project, ScopeLevel{TypeKey: "issue", Slug: "issue", ParamName: "issue_identifier"}, "CLYDE-157")
+	if err != nil {
+		t.Fatalf("ResolveScope(CLYDE-157): %v", err)
+	}
+	if resolved.ID != issueID {
+		t.Fatalf("ResolveScope(CLYDE-157): got %s want %s", resolved.ID, issueID)
+	}
+}
+
+func TestNormalizeUpdatePropsResolvesStateReference(t *testing.T) {
+	orgID := uuid.New()
+	workspaceID := uuid.New()
+	projectID := uuid.New()
+	stateID := uuid.New()
+	issueID := uuid.New()
+	workspace := &node.NodeView{ID: workspaceID, OrgID: orgID, NodeType: "workspace", Name: "Main", Props: map[string]json.RawMessage{"slug": mustRaw(t, "main")}}
+	project := &node.NodeView{ID: projectID, OrgID: orgID, NodeType: "project", Name: "Clyde", Props: map[string]json.RawMessage{"identifier": mustRaw(t, "CLYDE"), "parent_id": mustRaw(t, workspaceID.String())}}
+	state := &node.NodeView{ID: stateID, OrgID: orgID, NodeType: "state", Name: "Done", Props: map[string]json.RawMessage{"parent_id": mustRaw(t, projectID.String())}}
+	issue := &node.NodeView{ID: issueID, OrgID: orgID, NodeType: "issue", Name: "Finish", Props: map[string]json.RawMessage{"scope_id": mustRaw(t, projectID.String()), "parent_id": mustRaw(t, projectID.String())}}
+	reader := &resolverReader{views: map[uuid.UUID]*node.NodeView{workspaceID: workspace, projectID: project, stateID: state, issueID: issue}, workspaces: []*node.NodeView{workspace}}
+	repo := &fakeNodeRepo{scopeChildren: map[string][]*node.Node{
+		"project:identifier:\"CLYDE\"": {{ID: projectID, OrgID: orgID, NodeType: "project", Props: map[string]json.RawMessage{"parent_id": mustRaw(t, workspaceID.String())}}},
+	}}
+	projectType := &node.NodeType{TypeKey: "project", Slug: "project", CanLiveUnder: []string{"workspace"}, Reference: node.ReferenceConfig{Strategy: node.ReferenceDirectSlug, Property: "identifier"}}
+	stateType := &node.NodeType{TypeKey: "state", Slug: "state", CanLiveUnder: []string{"project"}, Reference: node.ReferenceConfig{Strategy: node.ReferenceScopedProperty, Property: "name"}}
+	issueType := &node.NodeType{TypeKey: "issue", Slug: "issue", Features: node.Features{node.FeatureHasWorkflowStates}}
+	resolver := &Resolver{
+		nodes: repo, reader: reader, members: &fakeMembers{orgIDs: []uuid.UUID{orgID}},
+		entryPointTypeKey: "workspace", entryPointSlug: "workspace",
+		typeIndex: map[string]*node.NodeType{
+			"project": projectType,
+			"state":   stateType,
+			"issue":   issueType,
+		},
+	}
+	props, err := normalizeUpdateProps(auth.WithUser(context.Background(), uuid.New()), NodeTypeBinding{
+		Reader:       reader,
+		PropertyDefs: &fakePropertyDefs{defs: []*node.PropertyDef{{Name: "state_id", Type: node.PropertyTypeUUID, AppliesToFeatures: []string{node.FeatureHasWorkflowStates}, ReferenceTargetTypeKey: "state"}}},
+		Resolver:     resolver,
+	}, issueType, issue, map[string]json.RawMessage{"state_id": mustRaw(t, "CLYDE::Done")})
+	if err != nil {
+		t.Fatalf("normalizeUpdateProps(state_id): %v", err)
+	}
+	got := rawUUID(props, "state_id")
+	if got != stateID {
+		t.Fatalf("normalizeUpdateProps(state_id): got %s want %s", got, stateID)
 	}
 }

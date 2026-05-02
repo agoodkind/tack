@@ -65,6 +65,26 @@ func (r *Resolver) parentChainContains(ctx context.Context, startID, wantID uuid
 	return false
 }
 
+func viewBelongsToScope(ctx context.Context, resolver *Resolver, view *node.NodeView, scopeID uuid.UUID) bool {
+	if view == nil || scopeID == uuid.Nil {
+		return false
+	}
+	if view.ID == scopeID {
+		return true
+	}
+	if uuidProp(view, "scope_id") == scopeID {
+		return true
+	}
+	parentID := uuidProp(view, "parent_id")
+	if parentID == uuid.Nil {
+		return false
+	}
+	if parentID == scopeID {
+		return true
+	}
+	return resolver.parentChainContains(ctx, parentID, scopeID)
+}
+
 func matchesReferenceProperty(view *node.NodeView, propName, input string) bool {
 	if view == nil {
 		return false

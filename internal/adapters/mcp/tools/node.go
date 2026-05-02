@@ -18,9 +18,10 @@ import (
 
 // NodeTypeBinding carries the dependencies needed by the per-type CRUD tools.
 type NodeTypeBinding struct {
-	NodeSvc  *service.NodeService
-	Reader   node.NodeReader
-	Resolver *Resolver
+	NodeSvc      *service.NodeService
+	Reader       node.NodeReader
+	PropertyDefs node.PropertyDefRepository
+	Resolver     *Resolver
 	// Users is optional. When set, response renderers resolve creator and
 	// assignee UUIDs to display names. When nil, the renderer falls back to
 	// raw IDs.
@@ -77,7 +78,6 @@ func createTool(nt *node.NodeType, slug string, chain []ScopeLevel, epParam stri
 		{Name: epParam, Type: schemaString},
 		{Name: "name", Type: schemaString},
 		{Name: "properties", Type: schemaObject, Desc: "Property values keyed by name"},
-		{Name: "idempotency_key", Type: schemaString, Desc: "Optional. When provided, a retry with the same key returns the previously created node instead of creating a duplicate."},
 	}
 	required := []string{epParam, "name"}
 	for _, level := range chain {
@@ -153,8 +153,8 @@ func listHandler(nt *node.NodeType, chain []ScopeLevel, epParam string, b NodeTy
 		}
 		q := node.NodeListQuery{OrgID: ws.OrgID, NodeType: nt.TypeKey}
 
-		// Walk the scope chain to the deepest container, then narrow via the
-		// indexed parent_id secondary index instead of a type-wide view scan.
+		// Walk the scope chain to the deepest container, then narrow via an
+		// indexed property instead of a type-wide view scan.
 		var parentID uuid.UUID
 		if len(chain) > 0 {
 			parent := ws
@@ -174,7 +174,7 @@ func listHandler(nt *node.NodeType, chain []ScopeLevel, epParam string, b NodeTy
 		}
 		parentIDRaw, _ := json.Marshal(parentID.String())
 		q.ByProperty = &node.PropertyMatch{
-			PropName: "parent_id",
+			PropName: listScopeProperty(nt, chain),
 			Value:    parentIDRaw,
 		}
 
@@ -236,48 +236,43 @@ func createHandler(nt *node.NodeType, chain []ScopeLevel, epParam string, b Node
 			return recoverableError("invalid properties payload: " + err.Error()), nil
 		}
 
-		// Honor properties.parent_id when set to a deeper container under the
-		// same org as the chain-resolved scope. Sequence numbers stay scope-
-		// scoped (see service.CreateInput.ScopeID). See TACK-164.
-		parentID := scopeID
-		if rawProps != nil {
-			if raw, ok := rawProps["parent_id"]; ok && len(raw) > 0 {
-				var s string
-				if err := json.Unmarshal(raw, &s); err == nil && s != "" {
-					if pid, err := uuid.Parse(s); err == nil && pid != uuid.Nil {
-						parentResolve, err := b.Reader.Resolve(ctx, pid)
-						if err != nil || parentResolve == nil {
-							return recoverableError("properties.parent_id does not resolve to a known node: " + s), nil
-						}
-						if parentResolve.OrgID != ws.OrgID {
-							return recoverableError("properties.parent_id is in a different org than the workspace"), nil
-						}
-						parentID = pid
-					}
-				}
-			}
-			// Service.Create overwrites Props["parent_id"] from in.ParentID,
-			// so we drop the caller-supplied entry to avoid two sources of
-			// truth diverging if the input was ill-formed.
-			delete(rawProps, "parent_id")
+		rawProps, parentID, err := normalizeCreateProps(ctx, b, nt, ws.OrgID, scopeID, rawProps)
+		if err != nil {
+			return classifyError(ctx, err), nil
 		}
 
-		idempotencyKey := optionalString(args, "idempotency_key")
-		result, err := b.NodeSvc.Create(ctx, service.CreateInput{
+		toolName := fmt.Sprintf("tack_create_%s", strings.ToLower(nt.Slug))
+		idempotencyKey, idempotencyFingerprint, idempotencySource, err := createIdempotency(ctx, req, createIdempotencyInput{
+			ToolName:       toolName,
+			NodeTypeKey:    nt.TypeKey,
+			EntryPointSlug: epSlug,
+			Name:           name,
 			ParentID:       parentID,
 			ScopeID:        scopeID,
-			NodeTypeKey:    nt.TypeKey,
-			Name:           name,
+			UserID:         userID,
 			Props:          rawProps,
-			ActorID:        userID,
-			IdempotencyKey: idempotencyKey,
+			Args:           args,
+		})
+		if err != nil {
+			return unexpectedError(ctx, err), nil
+		}
+		result, err := b.NodeSvc.Create(ctx, service.CreateInput{
+			ParentID:               parentID,
+			ScopeID:                scopeID,
+			NodeTypeKey:            nt.TypeKey,
+			Name:                   name,
+			Props:                  rawProps,
+			ActorID:                userID,
+			IdempotencyKey:         idempotencyKey,
+			IdempotencyFingerprint: idempotencyFingerprint,
+			IdempotencySource:      idempotencySource,
 		})
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
 		instr := ""
 		if result.Existed {
-			instr = "Idempotency key matched; returning the existing node. No new write was performed."
+			instr = "This create matched an existing operation. No new write was performed."
 		}
 		rc := newRenderCtxWithTypes(ctx, b.Reader, b.Users, b.Resolver.typeIndex)
 		return successText(renderNode(rc, result.View), instr), nil
@@ -341,6 +336,14 @@ func updateHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFu
 		rawProps, err := parseProps(args["properties"])
 		if err != nil {
 			return recoverableError("invalid properties payload: " + err.Error()), nil
+		}
+		existing, err := b.Reader.Get(ctx, id)
+		if err != nil {
+			return classifyError(ctx, err), nil
+		}
+		rawProps, err = normalizeUpdateProps(ctx, b, nt, existing, rawProps)
+		if err != nil {
+			return classifyError(ctx, err), nil
 		}
 
 		view, err := b.NodeSvc.Update(ctx, service.UpdateInput{

@@ -197,6 +197,40 @@ func TestRenderListUsesIdentifiers(t *testing.T) {
 	}
 }
 
+func TestRenderSearchViewsUsesIdentifiers(t *testing.T) {
+	orgID := uuid.New()
+	projectID := uuid.New()
+	issueID := uuid.New()
+	project := &node.NodeView{
+		ID:       projectID,
+		OrgID:    orgID,
+		NodeType: "project",
+		Name:     "Clyde",
+		Props:    map[string]json.RawMessage{"identifier": mustRaw(t, "CLYDE")},
+	}
+	issue := &node.NodeView{
+		ID:       issueID,
+		OrgID:    orgID,
+		NodeType: "issue",
+		Name:     "Search result",
+		Props: map[string]json.RawMessage{
+			"sequence": mustRaw(t, 140),
+			"scope_id": mustRaw(t, projectID.String()),
+		},
+	}
+	reader := &fakeReader{views: map[uuid.UUID]*node.NodeView{projectID: project}}
+	rc := newRenderCtxWithTypes(context.Background(), reader, nil, map[string]*node.NodeType{
+		"project": {TypeKey: "project", Reference: node.ReferenceConfig{Strategy: node.ReferenceDirectSlug, Property: "identifier"}},
+		"issue":   {TypeKey: "issue", Reference: node.ReferenceConfig{Strategy: node.ReferenceScopedSequence, Property: "sequence"}},
+	})
+	out := renderSearchViews(rc, []*node.NodeView{issue})
+
+	mustContain(t, out, "CLYDE-140")
+	if strings.Contains(out, issueID.String()) {
+		t.Fatalf("search output should not expose UUID as primary row identity:\n%s", out)
+	}
+}
+
 func mustContain(t *testing.T, body, want string) {
 	t.Helper()
 	if !strings.Contains(body, want) {

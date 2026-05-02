@@ -101,6 +101,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx = telemetry.WithTraceLogger(ctx, slog.String("user_id", userID.String()))
 	r = r.WithContext(ctx)
+	r, err := withMCPRequestMetadata(r)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "read_request_body_failed")
+		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
+		return
+	}
 	span.SetAttributes(attribute.String("enduser.id", userID.String()))
 
 	h.mu.RLock()
@@ -121,6 +128,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	var nodeTypes []*node.NodeType
 	seen := make(map[string]struct{})
+	var propertyDefs []*node.PropertyDef
+	seenPropertyDefs := make(map[string]struct{})
 	for _, orgID := range orgIDs {
 		nts, err := h.nodeTypes.List(ctx, orgID)
 		if err != nil {
@@ -134,9 +143,21 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				nodeTypes = append(nodeTypes, nt)
 			}
 		}
+		defs, err := h.propertyDefs.List(ctx, orgID)
+		if err != nil {
+			span.RecordError(err)
+			log.Error("mcp: property def list", "org_id", orgID, "err", err)
+			continue
+		}
+		for _, def := range defs {
+			if _, dup := seenPropertyDefs[def.Name]; !dup {
+				seenPropertyDefs[def.Name] = struct{}{}
+				propertyDefs = append(propertyDefs, def)
+			}
+		}
 	}
 
-	mcpSvr := h.buildServer(nodeTypes)
+	mcpSvr := h.buildServer(nodeTypes, propertyDefs)
 	httpSvr := mcpserver.NewStreamableHTTPServer(mcpSvr, mcpserver.WithStateLess(true))
 	span.SetAttributes(attribute.Int("mcp.node_type_count", len(nodeTypes)))
 
@@ -146,7 +167,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	httpSvr.ServeHTTP(w, r)
 }
 
-func (h *Handler) buildServer(nodeTypes []*node.NodeType) *mcpserver.MCPServer {
+func (h *Handler) buildServer(nodeTypes []*node.NodeType, propertyDefs []*node.PropertyDef) *mcpserver.MCPServer {
 	s := mcpserver.NewMCPServer("tack", "0.2.0")
 
 	resolver := tools.NewResolver(h.nodes, h.reader, h.members, nodeTypes)
@@ -159,16 +180,18 @@ func (h *Handler) buildServer(nodeTypes []*node.NodeType) *mcpserver.MCPServer {
 	tools.RegisterAudit(s, h.auditReader, h.auditRedactor, resolver)
 
 	binding := tools.NodeTypeBinding{
-		NodeSvc:  h.nodeSvc,
-		Reader:   h.reader,
-		Resolver: resolver,
-		Users:    h.users,
+		NodeSvc:      h.nodeSvc,
+		Reader:       h.reader,
+		PropertyDefs: h.propertyDefs,
+		Resolver:     resolver,
+		Users:        h.users,
 	}
 	for _, nt := range nodeTypes {
 		tools.RegisterNodeTools(s, nt, binding)
 	}
+	tools.RegisterReferencePropertyTools(s, binding, nodeTypes, propertyDefs)
 
-	tools.RegisterResources(s, h.reader, resolver, nodeTypes)
-	tools.RegisterPrompts(s, resolver, nodeTypes)
+	tools.RegisterResources(s, h.reader, resolver, nodeTypes, propertyDefs)
+	tools.RegisterPrompts(s, resolver, nodeTypes, propertyDefs)
 	return s
 }

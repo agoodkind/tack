@@ -116,6 +116,7 @@ var perTypePrefixVerb = []struct {
 	{"tack_create_", VerbNodeCreate},          // tack_create_<slug>
 	{"tack_get_", VerbNodeRead},               // tack_get_<slug>
 	{"tack_update_", VerbNodeUpdate},          // tack_update_<slug>
+	{"tack_set_", VerbNodeUpdate},             // tack_set_<slug>_<property>
 	{"tack_delete_", VerbNodeDelete},          // tack_delete_<slug>
 }
 

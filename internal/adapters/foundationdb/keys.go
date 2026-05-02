@@ -57,9 +57,9 @@ const (
 	// (property_def, orgID, defID) -> PropertyDef JSON
 	keyPropertyDef = "property_def"
 
-	// Idempotency key index. Caller-supplied key maps to the nodeID a previous
-	// successful Create returned, so retries are no-ops instead of dup writes.
-	// (idempotency_key, orgID, key) -> nodeID bytes
+	// Idempotency key index. The value is an IdempotencyRecord JSON payload.
+	// Older records may contain only the raw nodeID bytes.
+	// (idempotency_key, orgID, key) -> IdempotencyRecord JSON
 	keyIdempotency = "idempotency_key"
 )
 
@@ -155,8 +155,7 @@ func propertyDefKey(orgID, defID uuid.UUID) []byte {
 	return withPrefix(tuple.Tuple{keyPropertyDef, orgID.String(), defID.String()}.Pack())
 }
 
-// idempotencyKey packs the per-org idempotency-key sentinel. Caller-supplied
-// key maps to the nodeID returned by the original successful Create.
+// idempotencyKey packs the per-org idempotency-key sentinel.
 func idempotencyKey(orgID uuid.UUID, key string) []byte {
 	return withPrefix(tuple.Tuple{keyIdempotency, orgID.String(), key}.Pack())
 }

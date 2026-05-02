@@ -81,6 +81,7 @@ type NodeRepository interface {
 		view *NodeView,
 		rels []*Relationship,
 		indexedProps []string,
+		idempotency *IdempotencyRecord,
 	) error
 
 	// ListByProperty returns all nodes where the given property equals value.
@@ -107,13 +108,9 @@ type NodeRepository interface {
 	WriteSlug(ctx context.Context, nodeType, slug string, nodeID uuid.UUID) error
 	DeleteSlug(ctx context.Context, nodeType, slug string) error
 
-	// LookupIdempotencyKey returns the nodeID a previous Create stamped under
-	// (orgID, key). uuid.Nil and a nil error mean the key has not been seen.
-	LookupIdempotencyKey(ctx context.Context, orgID uuid.UUID, key string) (uuid.UUID, error)
-	// WriteIdempotencyKey records (orgID, key) -> nodeID. Used inside
-	// CreateAtomic so retries with the same key short-circuit. The store does
-	// not GC entries; sentinels live forever.
-	WriteIdempotencyKey(ctx context.Context, orgID uuid.UUID, key string, nodeID uuid.UUID) error
+	// LookupIdempotencyKey returns the record stamped under (orgID, key). A nil
+	// record and nil error mean the key has not been seen.
+	LookupIdempotencyKey(ctx context.Context, orgID uuid.UUID, key string) (*IdempotencyRecord, error)
 }
 
 // RelationshipRepository manages edges between nodes. Every dedicated

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -72,7 +73,9 @@ type CreateInput struct {
 	// previous successful call stamped this key under the same org. A hit
 	// short-circuits and returns the existing node with Existed=true. A miss
 	// stamps the key as part of the create transaction.
-	IdempotencyKey string
+	IdempotencyKey         string
+	IdempotencyFingerprint string
+	IdempotencySource      string
 }
 
 // CreateResult is the outcome of Create. View is always populated; Existed is
@@ -81,6 +84,8 @@ type CreateResult struct {
 	View    *node.NodeView
 	Existed bool
 }
+
+const mcpIdempotencyWindow = 24 * time.Hour
 
 // Create writes a new node plus its initial relationships. When the NodeType
 // declares FeatureHasSequenceID the service allocates a sequence number from
@@ -117,12 +122,15 @@ func (s *NodeService) Create(ctx context.Context, in CreateInput) (*CreateResult
 	// Idempotency short-circuit: if we already stamped this key, return the
 	// node we returned the first time. No new writes.
 	if in.IdempotencyKey != "" {
-		existingID, err := s.nodes.LookupIdempotencyKey(ctx, orgID, in.IdempotencyKey)
+		existingRecord, err := s.nodes.LookupIdempotencyKey(ctx, orgID, in.IdempotencyKey)
 		if err != nil {
 			return nil, fmt.Errorf("lookup idempotency key: %w", err)
 		}
-		if existingID != uuid.Nil {
-			view, err := s.reader.Get(ctx, existingID)
+		if existingRecord != nil && !idempotencyRecordExpired(existingRecord) {
+			if idempotencyFingerprintConflict(existingRecord.Fingerprint, in.IdempotencyFingerprint) {
+				return nil, fmt.Errorf("idempotency key %q reused with different payload: %w", in.IdempotencyKey, domain.ErrConflict)
+			}
+			view, err := s.reader.Get(ctx, existingRecord.NodeID)
 			if err != nil {
 				return nil, fmt.Errorf("get existing idempotent node: %w", err)
 			}
@@ -224,24 +232,29 @@ func (s *NodeService) Create(ctx context.Context, in CreateInput) (*CreateResult
 		return nil, err
 	}
 
-	if err := s.nodes.CreateAtomic(ctx, n, view, rels, indexedProps); err != nil {
+	idempotencyRecord := createIdempotencyRecord(in, id, now)
+	if err := s.nodes.CreateAtomic(ctx, n, view, rels, indexedProps, idempotencyRecord); err != nil {
+		if errors.Is(err, domain.ErrConflict) && in.IdempotencyKey != "" {
+			existing, lookupErr := s.nodes.LookupIdempotencyKey(ctx, orgID, in.IdempotencyKey)
+			if lookupErr != nil {
+				return nil, fmt.Errorf("lookup idempotency after create conflict: %w", lookupErr)
+			}
+			if existing != nil && !idempotencyFingerprintConflict(existing.Fingerprint, in.IdempotencyFingerprint) {
+				existingView, getErr := s.reader.Get(ctx, existing.NodeID)
+				if getErr != nil {
+					return nil, fmt.Errorf("get existing idempotent node after conflict: %w", getErr)
+				}
+				if existingView != nil {
+					return &CreateResult{View: existingView, Existed: true}, nil
+				}
+			}
+		}
 		log.Error("node.Create: atomic write",
 			slog.String("node_type", nt.TypeKey),
 			slog.String("node_id", id.String()),
 			slog.String("err", err.Error()),
 		)
 		return nil, fmt.Errorf("create node: %w", err)
-	}
-
-	// Stamp the idempotency key after the atomic create succeeds. A failure
-	// here logs a warning but does not roll back the create. The next retry
-	// of the same key will see the existing node via the parent_id and slug
-	// indexes and the caller can dedupe at that layer.
-	if in.IdempotencyKey != "" {
-		if err := s.nodes.WriteIdempotencyKey(ctx, orgID, in.IdempotencyKey, id); err != nil {
-			log.Warn("node.Create: write idempotency key",
-				slog.String("key", in.IdempotencyKey), slog.String("err", err.Error()))
-		}
 	}
 
 	// FeatureHasSlug: register global slug index.
@@ -291,6 +304,30 @@ func (s *NodeService) Create(ctx context.Context, in CreateInput) (*CreateResult
 		slog.String("node_type", nt.TypeKey),
 	)
 	return &CreateResult{View: view, Existed: false}, nil
+}
+
+func createIdempotencyRecord(in CreateInput, nodeID uuid.UUID, createdAt time.Time) *node.IdempotencyRecord {
+	if in.IdempotencyKey == "" {
+		return nil
+	}
+	return &node.IdempotencyRecord{
+		Key:         in.IdempotencyKey,
+		NodeID:      nodeID,
+		Fingerprint: in.IdempotencyFingerprint,
+		CreatedAt:   createdAt,
+		Source:      in.IdempotencySource,
+	}
+}
+
+func idempotencyFingerprintConflict(existing, incoming string) bool {
+	return existing != "" && incoming != "" && existing != incoming
+}
+
+func idempotencyRecordExpired(record *node.IdempotencyRecord) bool {
+	if record.Source != "mcp" || record.CreatedAt.IsZero() {
+		return false
+	}
+	return time.Since(record.CreatedAt) > mcpIdempotencyWindow
 }
 
 // UpdateInput holds optional fields to update.

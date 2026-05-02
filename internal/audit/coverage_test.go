@@ -27,6 +27,7 @@ var expectedTools = []string{
 	"tack_create_issue",
 	"tack_get_issue",
 	"tack_update_issue",
+	"tack_set_issue_state",
 	"tack_delete_issue",
 }
 

@@ -87,6 +87,8 @@ func classifyError(ctx context.Context, err error) *mcp.CallToolResult {
 		return recoverableError(err.Error() + ". Fix the parameter value and retry.")
 	case errors.Is(err, domain.ErrAlreadyExists):
 		return recoverableError(err.Error() + ". An entity with this identifier already exists. Use a different name or update the existing one.")
+	case errors.Is(err, domain.ErrConflict):
+		return recoverableError(err.Error() + ". The request conflicts with an existing operation. Re-read the current entity before retrying.")
 	case errors.Is(err, domain.ErrFailedPrecondition):
 		return recoverableError(err.Error() + ". A required condition was not met. Check the current state before retrying.")
 	default:

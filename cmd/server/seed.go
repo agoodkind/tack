@@ -222,7 +222,7 @@ func ensureNode(ctx context.Context, s *fdbadapter.Stores, typeKey, slug, name s
 	}
 
 	// Mark slug as indexed so ListByProperty works for it.
-	if err := s.Nodes.CreateAtomic(ctx, n, view, rels, []string{"slug"}); err != nil {
+	if err := s.Nodes.CreateAtomic(ctx, n, view, rels, []string{"slug"}, nil); err != nil {
 		log.Error("seed: create node", "type", typeKey, "err", err)
 		os.Exit(1)
 	}

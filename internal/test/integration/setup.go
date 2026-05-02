@@ -29,12 +29,12 @@ import (
 // flow. It is built once per test by SetupTestEnv. The cleanup hook fires
 // automatically via t.Cleanup; tests do not need to call anything manually.
 type TestEnv struct {
-	Stores   *fdbadapter.Stores
-	NodeSvc  *service.NodeService
-	Seeder   *service.Seeder
-	OrgID    uuid.UUID
-	OrgSlug  string
-	Ctx      context.Context
+	Stores  *fdbadapter.Stores
+	NodeSvc *service.NodeService
+	Seeder  *service.Seeder
+	OrgID   uuid.UUID
+	OrgSlug string
+	Ctx     context.Context
 }
 
 // SetupTestEnv prepares an isolated TestEnv for a single test. It:
@@ -143,7 +143,7 @@ func writeOrgNode(ctx context.Context, stores *fdbadapter.Stores, orgID uuid.UUI
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
-	if err := stores.Nodes.CreateAtomic(ctx, n, view, nil, []string{"slug"}); err != nil {
+	if err := stores.Nodes.CreateAtomic(ctx, n, view, nil, []string{"slug"}, nil); err != nil {
 		return err
 	}
 	return stores.Nodes.WriteSlug(ctx, "org", slug, orgID)

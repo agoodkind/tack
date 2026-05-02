@@ -11,9 +11,15 @@ import (
 )
 
 // RegisterResources registers MCP resources. Content is generated from the
-// current NodeType set so that custom types surface automatically without
+// current metadata set so that custom types surface automatically without
 // editing string literals.
-func RegisterResources(s *mcpserver.MCPServer, reader node.NodeReader, resolver *Resolver, nodeTypes []*node.NodeType) {
+func RegisterResources(
+	s *mcpserver.MCPServer,
+	reader node.NodeReader,
+	resolver *Resolver,
+	nodeTypes []*node.NodeType,
+	propertyDefs []*node.PropertyDef,
+) {
 	s.AddResource(
 		mcpmcp.Resource{
 			URI:         "tack://getting-started",
@@ -23,13 +29,13 @@ func RegisterResources(s *mcpserver.MCPServer, reader node.NodeReader, resolver 
 		},
 		func(_ context.Context, _ mcpmcp.ReadResourceRequest) ([]mcpmcp.ResourceContents, error) {
 			return []mcpmcp.ResourceContents{
-				mcpmcp.TextResourceContents{URI: "tack://getting-started", MIMEType: "text/markdown", Text: buildGettingStartedText(resolver, nodeTypes)},
+				mcpmcp.TextResourceContents{URI: "tack://getting-started", MIMEType: "text/markdown", Text: buildGettingStartedText(resolver, nodeTypes, propertyDefs)},
 			}, nil
 		},
 	)
 }
 
-func buildGettingStartedText(resolver *Resolver, nodeTypes []*node.NodeType) string {
+func buildGettingStartedText(resolver *Resolver, nodeTypes []*node.NodeType, propertyDefs []*node.PropertyDef) string {
 	var sb strings.Builder
 	entrySlug := resolver.entryPointSlug
 	entryParam := resolver.EntryPointParamName()
@@ -72,13 +78,15 @@ func buildGettingStartedText(resolver *Resolver, nodeTypes []*node.NodeType) str
 		fmt.Fprintln(&sb)
 	}
 	fmt.Fprintln(&sb)
+	writeReferenceSetterDocs(&sb, resolver, nodeTypes, propertyDefs)
+	fmt.Fprintln(&sb)
 	fmt.Fprintln(&sb, "## Create inputs")
 	fmt.Fprintln(&sb)
 	fmt.Fprintf(&sb, "- `%s` is required. Entry-point slug.\n", entryParam)
-	fmt.Fprintln(&sb, "- `<parent>_identifier` is required when the type lives below a scope level (e.g. `project_identifier` for an issue).")
+	fmt.Fprintln(&sb, "- `<parent>_identifier` is required when the type lives below a scope level. The exact names come from `CanLiveUnder` metadata.")
 	fmt.Fprintln(&sb, "- `name` is required.")
 	fmt.Fprintln(&sb, "- `properties` is optional, keyed by property name from `tack_list_property_defs`.")
-	fmt.Fprintln(&sb, "- `idempotency_key` is optional. A retry with the same key returns the previously created node instead of creating a duplicate. Use it for bulk imports and any client that may retry on transient failure.")
+	fmt.Fprintln(&sb, "- Create retries are protected automatically by Tack MCP. Explicit idempotency keys are for lower-level API integrations, not normal tool use.")
 	fmt.Fprintln(&sb)
 	fmt.Fprintln(&sb, "### properties accepts both shapes")
 	fmt.Fprintln(&sb)
@@ -86,11 +94,11 @@ func buildGettingStartedText(resolver *Resolver, nodeTypes []*node.NodeType) str
 	fmt.Fprintln(&sb)
 	fmt.Fprintln(&sb, "### parent_id can point at any node under the same scope")
 	fmt.Fprintln(&sb)
-	fmt.Fprintln(&sb, "By default a new node is parented under the chain-resolved scope (e.g. an issue lands directly under its project). Set `properties.parent_id` to the UUID of a deeper container (e.g. an epic) to place the new node there. Sequence numbering stays scope-wide; an issue under an epic still gets the next project-wide identifier like `TACK-N`.")
+	fmt.Fprintln(&sb, "By default a new node is parented under the chain-resolved scope. Set `properties.parent_id` to the UUID or printed reference of a deeper container under the same scope to place the new node there. Sequence numbering stays scope-wide.")
 	fmt.Fprintln(&sb)
-	fmt.Fprintln(&sb, "### Default workflow states")
+	fmt.Fprintln(&sb, "### Reference-valued properties")
 	fmt.Fprintln(&sb)
-	fmt.Fprintln(&sb, "Every project starts with five state nodes: Backlog, Todo, In Progress, Done, Cancelled. Call `tack_list_states` with `workspace_slug` and `project_identifier` to read them, then set `properties.state_id` on issues to one of those UUIDs. `NodeType.DefaultChildren` drives this; custom types can declare their own defaults without code changes.")
+	fmt.Fprintln(&sb, "Properties whose PropertyDef declares `reference_target_type_key` accept either UUIDs or the printed references for that target type. Generated `tack_set_<slug>_<property>` tools are the preferred path for single-property workflow changes because they normalize to the canonical UUID before writing.")
 	fmt.Fprintln(&sb)
 	fmt.Fprintln(&sb, "`tack_get_<slug>` and `tack_update_<slug>` accept either a UUID or the human-readable ref that list and describe output print. That ref is declared by the type's `reference` contract. Typical refs look like `TACK`, `TACK-65`, or `CLYDE::In Progress`; do not invent refs from type names.")
 	fmt.Fprintln(&sb)
@@ -112,23 +120,50 @@ func buildGettingStartedText(resolver *Resolver, nodeTypes []*node.NodeType) str
 	fmt.Fprintln(&sb)
 	fmt.Fprintln(&sb, "## Response format")
 	fmt.Fprintln(&sb)
-	fmt.Fprintln(&sb, "Tool responses are markdown text wrapped in `<success>...</success>`. Lists print as a table; single-node reads print as a labeled block. Cross-references (parent, scope, state, assignees, audit fields) come back resolved to identifiers and names, not raw UUIDs.")
+	fmt.Fprintln(&sb, "Tool responses are markdown text wrapped in `<success>...</success>`. Lists print as a table; single-node reads print as a labeled block. Cross-references come back resolved to identifiers and names, not raw UUIDs.")
 	fmt.Fprintln(&sb)
 	fmt.Fprintln(&sb, "Pass the printed identifier (`TACK-65`, `CLYDE::In Progress`, `tack`, `main`) back to subsequent tool calls. The server also accepts UUIDs anywhere it accepts an identifier, so a copy-pasted `id` from a single-node response still works.")
 	fmt.Fprintln(&sb)
-	fmt.Fprintln(&sb, "Single-node responses include the raw `id:` line at the bottom for cases where you genuinely need the UUID (idempotency-keyed retries, debugging). List responses omit raw UUIDs entirely; refer to entries by identifier.")
+	fmt.Fprintln(&sb, "Single-node responses include the raw `id:` line at the bottom for cases where you genuinely need the UUID (external integrations, debugging). List responses omit raw UUIDs entirely; refer to entries by identifier.")
 	fmt.Fprintln(&sb)
 	fmt.Fprintln(&sb, "`tack_get_properties` is the truth-escape-hatch and still returns raw JSON Props for cases where you need every value untransformed.")
 	fmt.Fprintln(&sb)
 	fmt.Fprintln(&sb, "## Common mistakes to avoid")
 	fmt.Fprintln(&sb)
-	fmt.Fprintln(&sb, "- `node_type` is always the TypeKey (`issue`, not `Issue` or `issues`). Never guess. Read it from the describe call.")
+	fmt.Fprintln(&sb, "- `node_type` is always the TypeKey, not the display name or plural slug. Never guess. Read it from the describe call.")
 	fmt.Fprintln(&sb, "- Property names are lowercase snake_case from `tack_list_property_defs`. Do not send `Priority`. Send `priority`.")
-	fmt.Fprintln(&sb, "- There is no dedicated `tack_set_state` tool. State transitions are property updates: `tack_update_issue { properties: { \"state_id\": \"<uuid>\" } }`.")
+	fmt.Fprintln(&sb, "- Do not store workflow truth in comments. Use the generated reference-property setter or `tack_update_<slug>` with a reference-valued property.")
 	fmt.Fprintln(&sb, "- There is no dedicated `tack_assign` tool. Use `tack_add_relationship { source_id, relation_type: \"assigned_to\", target_id: <user_uuid> }`.")
 	fmt.Fprintln(&sb)
 	fmt.Fprintln(&sb, "## Error handling")
 	fmt.Fprintln(&sb)
 	fmt.Fprintln(&sb, "`<error>` responses end with an `[LLM Instruction]` line telling you what to do next. Follow it rather than retrying the same call.")
 	return sb.String()
+}
+
+func writeReferenceSetterDocs(sb *strings.Builder, resolver *Resolver, nodeTypes []*node.NodeType, propertyDefs []*node.PropertyDef) {
+	rows := [][]string{{"tool", "property", "target"}}
+	for _, nt := range nodeTypes {
+		if nt.Features.Has(node.FeatureExcludeFromGenericTools) {
+			continue
+		}
+		for _, def := range propertyDefs {
+			if !referencePropertyAppliesToTool(def, nt, resolver.typeIndex) {
+				continue
+			}
+			alias := referencePropertyAlias(def.Name)
+			rows = append(rows, []string{
+				fmt.Sprintf("tack_set_%s_%s", strings.ToLower(nt.Slug), alias),
+				def.Name,
+				def.ReferenceTargetTypeKey,
+			})
+		}
+	}
+	if len(rows) == 1 {
+		return
+	}
+	fmt.Fprintln(sb, "## Generated reference setters")
+	fmt.Fprintln(sb)
+	fmt.Fprintln(sb, "These tools are generated from NodeType and PropertyDef metadata:")
+	writeTable(sb, rows)
 }

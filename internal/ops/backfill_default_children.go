@@ -151,5 +151,5 @@ func createDefaultChild(ctx context.Context, env *Env, orgID, parentID uuid.UUID
 	// parent_id is the only indexed prop guaranteed to apply to every type;
 	// the resolver-critical ones (slug, identifier, sequence) are not stamped
 	// here because default children do not declare them.
-	return env.Stores.Nodes.CreateAtomic(ctx, n, view, rels, []string{"parent_id"})
+	return env.Stores.Nodes.CreateAtomic(ctx, n, view, rels, []string{"parent_id"}, nil)
 }

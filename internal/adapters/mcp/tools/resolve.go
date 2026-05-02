@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -116,50 +115,25 @@ func (r *Resolver) Workspace(ctx context.Context, slug string) (*node.NodeView, 
 	return view, nil
 }
 
-// ResolveScope looks up a scope node (typically a project) by its identifier
-// property, scoped under the given parent.
+// ResolveScope looks up a scope node through the node type's reference
+// contract, scoped under the given parent.
 //
-// On miss this is the single most common debugging scenario in Tack. Yesterday's
-// incident was an identifier-resolver miss that returned empty silently.
-// We log every miss at Info with the inputs that produced it so the next miss
-// is diagnosable from one line.
+// On miss this is a common debugging scenario in Tack. We log every miss at
+// Info with the inputs that produced it so the next miss is diagnosable from
+// one line.
 func (r *Resolver) ResolveScope(ctx context.Context, parent *node.NodeView, level ScopeLevel, identifier string) (*node.NodeView, error) {
-	// List children of parent with the given type, filter by Props["identifier"].
-	idents := strings.ToUpper(identifier)
-	rawValue, _ := json.Marshal(idents)
-
-	children, err := r.nodes.ListByProperty(ctx, parent.OrgID, level.TypeKey, "identifier", rawValue)
-	if err != nil {
-		return nil, fmt.Errorf("%s %q: %w", level.Slug, identifier, err)
+	view, err := r.resolveScopeReference(ctx, parent, level, identifier)
+	if err == nil && view != nil {
+		audit.SetScopeFields(ctx, audit.Scope{ScopeID: view.ID})
+		return view, nil
 	}
-	// Narrow by parent_id Props to ensure the child is under this parent.
-	parentIDRaw, _ := json.Marshal(parent.ID.String())
-	for _, n := range children {
-		if got, ok := n.Props["parent_id"]; ok && string(got) == string(parentIDRaw) {
-			view, err := r.reader.Get(ctx, n.ID)
-			if err == nil && view != nil {
-				audit.SetScopeFields(ctx, audit.Scope{ScopeID: view.ID})
-			}
-			return view, err
-		}
-	}
-	// Fallback: return first match with matching identifier even without parent filter.
-	if len(children) > 0 {
-		view, err := r.reader.Get(ctx, children[0].ID)
-		if err == nil && view != nil {
-			audit.SetScopeFields(ctx, audit.Scope{ScopeID: view.ID})
-		}
-		return view, err
-	}
-
 	telemetry.IncResolverMiss("scope")
 	telemetry.L(ctx).InfoContext(ctx, "resolver.scope.miss",
 		slog.String("level", level.TypeKey),
 		slog.String("identifier", identifier),
-		slog.String("identifier_normalized", idents),
 		slog.String("parent_id", parent.ID.String()),
 		slog.String("parent_type", parent.NodeType),
-		slog.Int("candidate_count", len(children)),
+		slog.String("err", err.Error()),
 	)
 	return nil, fmt.Errorf("%s %q: %w", level.Slug, identifier, domain.ErrNotFound)
 }

@@ -444,28 +444,21 @@ func renderRelationships(rc *renderCtx, direction string, rels []*node.Relations
 	return b.String()
 }
 
-// renderSearch formats search docs as a table. NodeDoc lacks the rich Props
-// map a NodeView has, so we render the columns the index actually carries:
-// node_type, name, and parent if known.
-func renderSearchHits(hits []searchHit) string {
-	if len(hits) == 0 {
+func renderSearchViews(rc *renderCtx, views []*node.NodeView) string {
+	if len(views) == 0 {
 		return "0 results\n"
 	}
-	rows := [][]string{{"id", "type", "name"}}
-	for _, h := range hits {
-		rows = append(rows, []string{h.ID, h.NodeType, h.Name})
+	rows := [][]string{{"identifier", "type", "state", "name"}}
+	for _, view := range views {
+		rows = append(rows, []string{
+			emptyDash(identifierFor(view, rc)),
+			emptyDash(view.NodeType),
+			emptyDash(rc.nodeIdentifier(uuidProp(view, "state_id"))),
+			view.Name,
+		})
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%d results\n", len(hits))
+	fmt.Fprintf(&b, "%d results\n", len(views))
 	writeTable(&b, rows)
 	return b.String()
-}
-
-// searchHit is the lean per-document shape the search renderer prints.
-// Centralised here so the search tool's marshaling does not need to know
-// the full domainsearch.NodeDoc layout.
-type searchHit struct {
-	ID       string
-	NodeType string
-	Name     string
 }

@@ -198,9 +198,9 @@ update-fdb:
 # unhealthy and the snapshot itself would fail; document the reason.
 .PHONY: deploy
 ifeq ($(NO_PRE_DEPLOY_BACKUP),1)
-deploy: update-deps
+deploy: update-deps deploy-preflight
 else
-deploy: update-deps backup
+deploy: update-deps deploy-preflight backup
 endif
 	rsync -az --delete --exclude='.git' --exclude='bin/' --exclude='.env' --exclude='.env.*' --exclude='.test-fdb/' . tack:/root/tack/
 	ssh tack "cd /root/tack && docker build --network host \
@@ -208,14 +208,24 @@ endif
 		--build-arg BUILD_TIME=$(BUILD_TIME) \
 		--build-arg TAG=$(TAG) \
 		--build-arg DIRTY=$(DIRTY) \
-		-t tack-server . && docker compose up -d --no-build app"
+		-t tack-server . && docker compose up -d --no-build app && /root/tack/scripts/host-maintenance.sh deploy-cleanup"
+
+.PHONY: deploy-preflight
+deploy-preflight:
+	rsync -az scripts/host-maintenance.sh tack:/root/tack/scripts/host-maintenance.sh
+	ssh tack 'chmod +x /root/tack/scripts/host-maintenance.sh && /root/tack/scripts/host-maintenance.sh deploy-preflight'
 
 # Run a full backup on CT 117 (FDB volume + Meili volume + Yugabyte
 # in-container tar + auth CSVs). Output dirs at /root/backups/tack-<TS>/.
 .PHONY: backup
 backup:
-	rsync -az scripts/backup.sh tack:/root/tack/scripts/backup.sh
+	rsync -az scripts/backup.sh scripts/host-maintenance.sh tack:/root/tack/scripts/
 	ssh tack 'bash /root/tack/scripts/backup.sh'
+
+.PHONY: host-maintenance-install
+host-maintenance-install:
+	rsync -az scripts/host-maintenance.sh tack:/root/tack/scripts/host-maintenance.sh
+	ssh tack 'chmod +x /root/tack/scripts/host-maintenance.sh && /root/tack/scripts/host-maintenance.sh install-timer'
 
 # Create the three LOGIN-capable audit derived roles (audit_writer_app,
 # audit_reader_app, audit_redactor_app) and rotate their passwords from
