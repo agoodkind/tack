@@ -18,6 +18,7 @@ func TestCreateToolDoesNotAdvertiseIdempotencyKey(t *testing.T) {
 		"issue",
 		[]ScopeLevel{{ParamName: "project_identifier"}},
 		"workspace_slug",
+		&Resolver{entryPointSlug: "workspace"},
 	)
 
 	if _, ok := tool.InputSchema.Properties["idempotency_key"]; ok {

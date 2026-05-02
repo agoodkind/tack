@@ -59,21 +59,41 @@ func referencePropertyTool(nt *node.NodeType, def *node.PropertyDef, alias strin
 	epParam := b.Resolver.EntryPointParamName()
 	chain := b.Resolver.ScopeChainForType(nt)
 	nodeParam := strings.ToLower(nt.Slug) + "_identifier"
+	targetType := b.Resolver.typeIndex[def.ReferenceTargetTypeKey]
 	fields := []schemaField{
-		{Name: epParam, Type: schemaString},
-		{Name: nodeParam, Type: schemaString},
-		{Name: alias, Type: schemaString, Desc: fmt.Sprintf("UUID or printed reference for %s", alias)},
+		{Name: epParam, Type: schemaString, Desc: entryPointFieldDescription(b.Resolver)},
+		{Name: nodeParam, Type: schemaString, Desc: fmt.Sprintf("UUID or printed reference for the %s to update.", strings.ToLower(nt.Name))},
+		{Name: alias, Type: schemaString, Desc: referenceSetterValueDescription(alias, targetType)},
 	}
 	required := []string{epParam, nodeParam, alias}
 	for _, level := range chain {
-		fields = append(fields, schemaField{Name: level.ParamName, Type: schemaString})
+		fields = append(fields, schemaField{Name: level.ParamName, Type: schemaString, Desc: scopeFieldDescription(level, b.Resolver)})
 		required = append(required, level.ParamName)
 	}
 	return mcpmcp.Tool{
 		Name:        fmt.Sprintf("tack_set_%s_%s", strings.ToLower(nt.Slug), alias),
-		Description: fmt.Sprintf("Sets %s on a %s using UUID or printed reference input.", def.Name, nt.Name),
+		Description: referenceSetterDescription(nt, def, alias, targetType),
 		InputSchema: schema{Fields: fields, Required: required}.toMCP(),
 	}
+}
+
+func referenceSetterDescription(nt *node.NodeType, def *node.PropertyDef, alias string, targetType *node.NodeType) string {
+	targetPlural := pluralSlug(targetType, ScopeLevel{Slug: def.ReferenceTargetTypeKey})
+	typeName := strings.ToLower(nt.Name)
+	return fmt.Sprintf(
+		"Sets %s on %s %s using UUID or printed reference input. Discover valid %s values with tack_list_%s before calling this tool.",
+		def.Name,
+		indefiniteArticle(typeName),
+		typeName,
+		alias,
+		targetPlural,
+	)
+}
+
+func referenceSetterValueDescription(alias string, targetType *node.NodeType) string {
+	targetText := scopeTypeNameText(targetType, ScopeLevel{Slug: alias})
+	targetPlural := pluralSlug(targetType, ScopeLevel{Slug: alias})
+	return fmt.Sprintf("UUID or printed reference for the %s. Use tack_list_%s to discover valid values.", targetText, targetPlural)
 }
 
 func referencePropertyHandler(nt *node.NodeType, def *node.PropertyDef, alias string, b NodeTypeBinding) mcpserver.ToolHandlerFunc {

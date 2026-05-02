@@ -1,0 +1,90 @@
+package tools
+
+import (
+	"fmt"
+	"strings"
+
+	mcpmcp "github.com/mark3labs/mcp-go/mcp"
+	"goodkind.io/tack/internal/domain/node"
+)
+
+func listTool(nt *node.NodeType, plural string, chain []ScopeLevel, epParam string, resolver *Resolver) mcpmcp.Tool {
+	fields := []schemaField{
+		{Name: epParam, Type: schemaString, Desc: entryPointFieldDescription(resolver)},
+		{Name: "filters", Type: schemaObject, Desc: "Optional exact property filters keyed by property name or reference alias, for example {\"state\": \"TACK::In Progress\"} or {\"priority\": \"high\"}."},
+	}
+	required := []string{epParam}
+	for _, level := range chain {
+		fields = append(fields, schemaField{Name: level.ParamName, Type: schemaString, Desc: scopeFieldDescription(level, resolver)})
+		required = append(required, level.ParamName)
+	}
+	return mcpmcp.Tool{
+		Name:        fmt.Sprintf("tack_list_%s", plural),
+		Description: listToolDescription(nt, plural, chain, epParam, resolver),
+		InputSchema: schema{Fields: fields, Required: required}.toMCP(),
+	}
+}
+
+func createTool(nt *node.NodeType, slug string, chain []ScopeLevel, epParam string, resolver *Resolver) mcpmcp.Tool {
+	fields := []schemaField{
+		{Name: epParam, Type: schemaString, Desc: entryPointFieldDescription(resolver)},
+		{Name: "name", Type: schemaString, Desc: fmt.Sprintf("Name for the new %s.", strings.ToLower(nt.Name))},
+		{Name: "properties", Type: schemaObject, Desc: "Property values keyed by name"},
+	}
+	required := []string{epParam, "name"}
+	for _, level := range chain {
+		fields = append(fields, schemaField{Name: level.ParamName, Type: schemaString, Desc: scopeFieldDescription(level, resolver)})
+		required = append(required, level.ParamName)
+	}
+	return mcpmcp.Tool{
+		Name:        fmt.Sprintf("tack_create_%s", slug),
+		Description: createToolDescription(nt, chain, epParam, resolver),
+		InputSchema: schema{Fields: fields, Required: required}.toMCP(),
+	}
+}
+
+func getTool(nt *node.NodeType, slug string) mcpmcp.Tool {
+	description := fmt.Sprintf("Gets a %s by UUID.", nt.Name)
+	switch nt.Reference.Strategy {
+	case node.ReferenceScopedSequence:
+		description = fmt.Sprintf("Gets a %s by UUID or identifier like TACK-65.", nt.Name)
+	case node.ReferenceScopedProperty:
+		description = fmt.Sprintf("Gets a %s by UUID or scoped reference like PROJECT::Name.", nt.Name)
+	case node.ReferenceDirectSlug:
+		description = fmt.Sprintf("Gets a %s by UUID or identifier.", nt.Name)
+	}
+	return mcpmcp.Tool{
+		Name:        fmt.Sprintf("tack_get_%s", slug),
+		Description: description,
+		InputSchema: schema{
+			Fields:   []schemaField{{Name: "node_id", Type: schemaString}},
+			Required: []string{"node_id"},
+		}.toMCP(),
+	}
+}
+
+func updateTool(nt *node.NodeType, slug string) mcpmcp.Tool {
+	return mcpmcp.Tool{
+		Name:        fmt.Sprintf("tack_update_%s", slug),
+		Description: fmt.Sprintf("Updates a %s. Only provided fields change.", nt.Name),
+		InputSchema: schema{
+			Fields: []schemaField{
+				{Name: "node_id", Type: schemaString},
+				{Name: "name", Type: schemaString},
+				{Name: "properties", Type: schemaObject},
+			},
+			Required: []string{"node_id"},
+		}.toMCP(),
+	}
+}
+
+func deleteTool(nt *node.NodeType, slug string) mcpmcp.Tool {
+	return mcpmcp.Tool{
+		Name:        fmt.Sprintf("tack_delete_%s", slug),
+		Description: fmt.Sprintf("Deletes a %s.", nt.Name),
+		InputSchema: schema{
+			Fields:   []schemaField{{Name: "node_id", Type: schemaString}},
+			Required: []string{"node_id"},
+		}.toMCP(),
+	}
+}

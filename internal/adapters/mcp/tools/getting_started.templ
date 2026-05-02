@@ -1,0 +1,110 @@
+# Tack getting started
+
+Read once per session before calling any other Tack tool. Skipping this leads to wrong `node_type` strings, missing scope parameters, and failed writes.
+
+## Architecture
+
+Everything is a node. Every entity (org, workspace, project, state, label, issue, epic, cycle, module, comment, activity) is one row in the same storage with universal fields (`id`, `org_id`, `node_type`, `name`, `props`, audit fields). Concept-specific values live in `props`. Edges between nodes (assigned_to, labeled_with, child_of, watches, comment_of) are `Relationship` records, not fields on the node. Behavior is driven by NodeType metadata, not by the node's type name.
+
+## Orientation sequence
+
+1. `tack_list_workspaces` returns the workspaces you can see. Copy the `slug` of the one you want.
+2. `tack_describe_{{.EntrySlug}}` with `{{.EntryParam}}=<slug>` returns the {{.EntrySlug}} node, every `node_type` available in the org (with `slug`, `plural_slug`, `features`), and the direct `children` of the {{.EntrySlug}}.
+3. `tack_list_property_defs` with `{{.EntryParam}}=<slug>` returns every PropertyDef. Use this to learn valid property names and which are indexed.
+
+Only after these three calls do you have enough context to run a correct `tack_create_<type>`.
+Do not infer Tack scope inputs from repository names, org names, or chat context. `workspace_slug` and scoped identifiers are Tack references returned by Tack tools.
+
+## Read workflows
+
+Use `tack_list_<plural>` when the user asks for all nodes inside a scope. For project-scoped tickets, first find the workspace with `tack_list_workspaces`, find or confirm the project reference with `tack_describe_{{.EntrySlug}}` or `tack_list_projects`, then call `tack_list_issues` with `{{.EntryParam}}=<slug>` and `project_identifier=<project reference>`.
+
+List tools accept optional `filters` for exact property matches. Use property names from `tack_list_property_defs`; reference-valued properties also accept the shorter alias without `_id`. For example, use `filters={"state":"CLYDE::In Progress"}` or `filters={"priority":"high"}` with `tack_list_issues`.
+
+Use `tack_get_<slug>` only when the user gives a known UUID or printed reference, or after a list response returns identifiers for the specific nodes you need to inspect.
+
+Use `tack_search` with `{{.EntryParam}}` and `query` for full-text search or exact identifier lookup. Do not use search as the first step for a full project queue; scoped list tools are the queue listing path.
+
+## Available CRUD tools
+
+Every non-builtin NodeType gets `tack_list_<plural>`, `tack_create_<slug>`, `tack_get_<slug>`, `tack_update_<slug>`, `tack_delete_<slug>`. Current types in this server:
+
+{{range .NodeTypes -}}
+- `{{.Slug}}` (plural `{{.PluralSlug}}`){{if .FeaturesText}} features: {{.FeaturesText}}{{end}}{{if .ReferenceText}} reference: {{.ReferenceText}}{{end}}
+{{end}}
+{{if .ReferenceSetters}}
+## Generated reference setters
+
+These tools are generated from NodeType and PropertyDef metadata:
+
+tool  property  target
+{{range .ReferenceSetters -}}
+{{.Tool}}  {{.Property}}  {{.Target}}
+{{end}}
+{{end}}
+## Create inputs
+
+- `{{.EntryParam}}` is required. Get it from `tack_list_workspaces`; do not substitute a repository or org name.
+- `<parent>_identifier` is required when the type lives below a scope level. The exact names come from `CanLiveUnder` metadata. For project-scoped types, get `project_identifier` from `tack_list_projects` or `tack_describe_{{.EntrySlug}}`.
+- `name` is required.
+- `properties` is optional, keyed by property name from `tack_list_property_defs`.
+- Create retries are protected automatically by Tack MCP. Explicit idempotency keys are for lower-level API integrations, not normal tool use.
+
+### properties accepts both shapes
+
+Pass `properties` as a real JSON object when your client supports it. The server also accepts a JSON-encoded string of the same object; this covers MCP transports that stringify nested values. Both create and update follow the same rule.
+
+### parent_id can point at any node under the same scope
+
+By default a new node is parented under the chain-resolved scope. Set `properties.parent_id` to the UUID or printed reference of a deeper container under the same scope to place the new node there. Sequence numbering stays scope-wide.
+
+### Reference-valued properties
+
+Properties whose PropertyDef declares `reference_target_type_key` accept either UUIDs or the printed references for that target type. Generated `tack_set_<slug>_<property>` tools are the preferred path for single-property workflow changes because they normalize to the canonical UUID before writing.
+
+`tack_get_<slug>` and `tack_update_<slug>` accept either a UUID or the human-readable ref that list and describe output print. That ref is declared by the type's `reference` contract. Typical refs look like `TACK`, `TACK-65`, or `CLYDE::In Progress`; do not invent refs from type names.
+
+## Workflow states
+
+States are first-class nodes. Use `tack_list_states` with `{{.EntryParam}}` and the relevant scope identifier to see valid workflow states before moving work.
+
+To move an issue, epic, or any stateful node, use the generated `tack_set_<slug>_state` tool when it exists. For example, use `tack_set_issue_state` with the printed issue identifier and a printed state reference such as `CLYDE::In Progress`.
+
+Do not record workflow progress only as a comment. Comments can explain context, but the current workflow state belongs in the node's state property.
+
+## Relationships
+
+Use `tack_add_relationship`, `tack_remove_relationship`, `tack_list_relationships` for edges. `relation_type` is free-form. Common conventions:
+
+- `assigned_to` points a node at a user.
+- `labeled_with` points a node at a label node.
+- `child_of` points a node at a container. Written automatically on create. Set manually to move between containers.
+- `watches` points a user at a node.
+- `comment_of` points a comment node at its target.
+
+`tack_list_relationships` with `direction=out` returns edges where the node is source. `direction=in` returns edges where it is target.
+
+## Search
+
+`tack_search` with `{{.EntryParam}}` and `query` runs full-text search across the org. Optional `node_type` narrows by type.
+
+## Response format
+
+Tool responses are markdown text wrapped in `<success>...</success>`. Lists print as a table; single-node reads print as a labeled block. Cross-references come back resolved to identifiers and names, not raw UUIDs.
+
+Pass the printed identifier (`TACK-65`, `CLYDE::In Progress`, `tack`, `main`) back to subsequent tool calls. The server also accepts UUIDs anywhere it accepts an identifier, so a copy-pasted `id` from a single-node response still works.
+
+Single-node responses include the raw `id:` line at the bottom for cases where you genuinely need the UUID (external integrations, debugging). List responses omit raw UUIDs entirely; refer to entries by identifier.
+
+`tack_get_properties` is the truth-escape-hatch and still returns raw JSON Props for cases where you need every value untransformed.
+
+## Common mistakes to avoid
+
+- `node_type` is always the TypeKey, not the display name or plural slug. Never guess. Read it from the describe call.
+- Property names are lowercase snake_case from `tack_list_property_defs`. Do not send `Priority`. Send `priority`.
+- Do not store workflow state in comments. List states with `tack_list_states`, then use the generated state setter or `tack_update_<slug>` with the state property.
+- There is no dedicated `tack_assign` tool. Use `tack_add_relationship { source_id, relation_type: "assigned_to", target_id: <user_uuid> }`.
+
+## Error handling
+
+`<error>` responses end with an `[LLM Instruction]` line telling you what to do next. Follow it rather than retrying the same call.
