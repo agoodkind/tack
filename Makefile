@@ -192,8 +192,8 @@ update-fdb:
 	@echo "and update the fdb.APIVersion call in internal/adapters/foundationdb/client.go."
 
 # Deploy: backup first, then rsync source to CT 117, build natively on the
-# server, restart. Always bumps deps first so every deployed build carries
-# the latest of everything in go.mod. Uses --network host so Docker build
+# server, restart. Builds exactly the checked-in dependency graph rather than
+# mutating go.mod/go.sum during deploy. Uses --network host so Docker build
 # can resolve DNS via the host's IPv6 nameserver.
 #
 # Backup-as-prereq is non-negotiable. The 2026-04-28 incident showed how
@@ -206,9 +206,9 @@ update-fdb:
 # unhealthy and the snapshot itself would fail; document the reason.
 .PHONY: deploy
 ifeq ($(NO_PRE_DEPLOY_BACKUP),1)
-deploy: update-deps deploy-preflight
+deploy: deploy-preflight
 else
-deploy: update-deps deploy-preflight backup
+deploy: deploy-preflight backup
 endif
 	rsync -az --delete --exclude='.git' --exclude='bin/' --exclude='.env' --exclude='.env.*' --exclude='.test-fdb/' . tack:/root/tack/
 	ssh tack "cd /root/tack && docker build --network host \
