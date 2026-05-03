@@ -27,7 +27,7 @@ func normalizeListFilters(
 	if err != nil {
 		return nil, err
 	}
-	filters, err = normalizeReferenceProps(ctx, b, nt, orgID, scopeID, filters)
+	filters, err = normalizePropertyCommandReferences(ctx, b, nt, orgID, scopeID, filters)
 	if err != nil {
 		return nil, err
 	}

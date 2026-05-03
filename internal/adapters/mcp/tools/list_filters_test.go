@@ -37,9 +37,12 @@ func TestNormalizeListFiltersResolvesReferenceAlias(t *testing.T) {
 	filters := mustRaw(t, map[string]string{"state": "CLYDE::Done", "priority": "high"})
 
 	matches, err := normalizeListFilters(auth.WithUser(context.Background(), uuid.New()), NodeTypeBinding{
-		Reader:       reader,
-		PropertyDefs: &fakePropertyDefs{defs: []*node.PropertyDef{{Name: "state_id", Type: node.PropertyTypeUUID, AppliesToFeatures: []string{node.FeatureHasWorkflowStates}, ReferenceTargetTypeKey: "state"}}},
-		Resolver:     resolver,
+		Reader: reader,
+		PropertyDefs: &fakePropertyDefs{defs: []*node.PropertyDef{
+			{Name: "state_id", Type: node.PropertyTypeUUID, AppliesToFeatures: []string{node.FeatureHasWorkflowStates}, ReferenceTargetTypeKey: "state"},
+			{Name: "priority", Type: node.PropertyTypeText, AppliesToFeatures: []string{node.FeatureHasWorkflowStates}},
+		}},
+		Resolver: resolver,
 	}, issueType, orgID, projectID, filters)
 	if err != nil {
 		t.Fatalf("normalizeListFilters: %v", err)

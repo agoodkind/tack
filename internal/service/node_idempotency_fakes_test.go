@@ -95,7 +95,9 @@ func (r *idempotencyTypes) Delete(context.Context, uuid.UUID, uuid.UUID) error {
 	panic("idempotencyTypes.Delete called")
 }
 
-type idempotencyProps struct{}
+type idempotencyProps struct {
+	defs []*node.PropertyDef
+}
 
 func (r *idempotencyProps) Set(context.Context, *node.PropertyDef) error {
 	panic("idempotencyProps.Set called")
@@ -104,7 +106,7 @@ func (r *idempotencyProps) Get(context.Context, uuid.UUID, uuid.UUID) (*node.Pro
 	panic("idempotencyProps.Get called")
 }
 func (r *idempotencyProps) List(context.Context, uuid.UUID) ([]*node.PropertyDef, error) {
-	return nil, nil
+	return r.defs, nil
 }
 func (r *idempotencyProps) Delete(context.Context, uuid.UUID, uuid.UUID) error {
 	panic("idempotencyProps.Delete called")

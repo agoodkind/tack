@@ -188,6 +188,9 @@ func (s *NodeService) Create(ctx context.Context, in CreateInput) (*CreateResult
 	if err := s.applyCreatePropertyDefaults(ctx, orgID, nt, in.ScopeID, props); err != nil {
 		return nil, err
 	}
+	if err := s.validateCreateProps(ctx, orgID, nt, props); err != nil {
+		return nil, err
+	}
 
 	n := &node.Node{
 		ID:        id,
@@ -395,6 +398,9 @@ func (s *NodeService) Update(ctx context.Context, in UpdateInput) (*node.NodeVie
 
 	nt, err := s.findNodeType(ctx, existing.OrgID, existing.NodeType)
 	if err != nil {
+		return nil, err
+	}
+	if err := s.validateUpdateProps(ctx, existing.OrgID, nt, merged); err != nil {
 		return nil, err
 	}
 	indexedProps, err := s.indexedPropNames(ctx, existing.OrgID, nt)

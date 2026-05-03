@@ -180,6 +180,14 @@ func defaultPropertyDefs(orgID uuid.UUID) []*node.PropertyDef {
 			Indexed:           true,
 		},
 		{
+			ID:                node.SystemPropID(orgID, "group"),
+			OrgID:             orgID,
+			Name:              "group",
+			Type:              node.PropertyTypeText,
+			AppliesToFeatures: nil,
+			Indexed:           false,
+		},
+		{
 			ID:                node.SystemPropID(orgID, "color"),
 			OrgID:             orgID,
 			Name:              "color",
