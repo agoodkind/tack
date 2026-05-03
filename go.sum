@@ -4,6 +4,8 @@ github.com/andybalholm/brotli v1.2.1 h1:R+f5xP285VArJDRgowrfb9DqL18yVK0gKAW/F+eT
 github.com/andybalholm/brotli v1.2.1/go.mod h1:rzTDkvFWvIrjDXZHkuS16NPggd91W3kUSvPlQ1pLaKY=
 github.com/apple/foundationdb/bindings/go v0.0.0-20250923185926-685eda6efef7 h1:gmEEfa5Kj5anF4uq/2SVLDYLf18q5MNq1WbpLCX9AtI=
 github.com/apple/foundationdb/bindings/go v0.0.0-20250923185926-685eda6efef7/go.mod h1:OMVSB21p9+xQUIqlGizHPZfjK+SHws1ht+ZytVDoz9U=
+github.com/apple/foundationdb/bindings/go v0.0.0-20260502005426-a8255672205a h1:AS4+yW9CrORWUOIJ/o//zQj08d+aC+Svwrw7cijKcbg=
+github.com/apple/foundationdb/bindings/go v0.0.0-20260502005426-a8255672205a/go.mod h1:OMVSB21p9+xQUIqlGizHPZfjK+SHws1ht+ZytVDoz9U=
 github.com/caarlos0/env/v11 v11.4.1 h1:fYwH0sWEsBSMPG7t4e/PEfTFzrWrpjyygXyUnWiSwEw=
 github.com/caarlos0/env/v11 v11.4.1/go.mod h1:qupehSf/Y0TUTsxKywqRt/vJjN5nz6vauiYEUUr8P4U=
 github.com/cenkalti/backoff/v5 v5.0.3 h1:ZN+IMa753KfX5hd8vVaMixjnqRZ3y8CuJKRKj1xcsSM=
