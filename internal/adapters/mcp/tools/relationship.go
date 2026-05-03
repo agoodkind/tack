@@ -74,7 +74,8 @@ func RegisterRelationship(s *mcpserver.MCPServer, svc *service.NodeService, rels
 			}); err != nil {
 				return classifyError(ctx, err), nil
 			}
-			return successText("ok", ""), nil
+			rc := newRenderCtxWithTypes(ctx, resolver.reader, nil, resolver.typeIndex)
+			return successText(renderRelationshipMutation(rc, "Added relationship", sourceID, relType, targetID), ""), nil
 		},
 	)
 
@@ -118,7 +119,8 @@ func RegisterRelationship(s *mcpserver.MCPServer, svc *service.NodeService, rels
 			if err := svc.RemoveRelationship(ctx, resolve.OrgID, sourceID, relType, targetID); err != nil {
 				return classifyError(ctx, err), nil
 			}
-			return successText("ok", ""), nil
+			rc := newRenderCtxWithTypes(ctx, resolver.reader, nil, resolver.typeIndex)
+			return successText(renderRelationshipMutation(rc, "Removed relationship", sourceID, relType, targetID), ""), nil
 		},
 	)
 

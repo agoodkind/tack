@@ -34,7 +34,7 @@ func TestRenderAuditRowsShowsCorrelation(t *testing.T) {
 
 	out := renderAuditRows([]audit.Row{row})
 
-	for _, want := range []string{"request", "trace", "req-render", "trace-render"} {
+	for _, want := range []string{"Request", "Trace", "req-render", "trace-render"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("rendered audit rows missing %q:\n%s", want, out)
 		}

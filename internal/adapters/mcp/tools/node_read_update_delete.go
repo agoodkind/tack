@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"time"
 
 	mcpmcp "github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
@@ -150,6 +151,7 @@ func deleteHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFu
 		if err := b.NodeSvc.Delete(ctx, id, userID); err != nil {
 			return classifyError(ctx, err), nil
 		}
-		return successText("deleted "+in.NodeID, ""), nil
+		rc := newRenderCtxWithTypes(ctx, b.Reader, b.Users, b.Resolver.typeIndex)
+		return successText(renderDeletedNode(rc, existing, time.Now().UTC()), ""), nil
 	}
 }

@@ -1,19 +1,11 @@
 package tools
 
 import (
-	"bytes"
-	_ "embed"
 	"fmt"
 	"strings"
-	"text/template"
 
 	"goodkind.io/tack/internal/domain/node"
 )
-
-//go:embed getting_started.templ
-var gettingStartedTemplateSource string
-
-var gettingStartedTemplate = template.Must(template.New("getting_started").Parse(gettingStartedTemplateSource))
 
 type gettingStartedTemplateData struct {
 	EntrySlug        string
@@ -42,11 +34,7 @@ func buildGettingStartedText(resolver *Resolver, nodeTypes []*node.NodeType, pro
 		NodeTypes:        nodeTypeRows(nodeTypes),
 		ReferenceSetters: referenceSetterRows(resolver, nodeTypes, propertyDefs),
 	}
-	var buf bytes.Buffer
-	if err := gettingStartedTemplate.Execute(&buf, data); err != nil {
-		panic(fmt.Sprintf("render getting-started resource: %v", err))
-	}
-	return buf.String()
+	return executeMarkdownTemplate("getting_started.md.tmpl", data)
 }
 
 func nodeTypeRows(nodeTypes []*node.NodeType) []nodeTypeTemplateRow {

@@ -1,0 +1,13 @@
+#### {{.Heading}}
+
+{{- range .Fields}}
+- {{.Label}}: {{.Value}}
+{{- end}}
+{{- range .Sections}}
+
+##### {{.Heading}}
+
+```json
+{{.Body}}
+```
+{{- end}}

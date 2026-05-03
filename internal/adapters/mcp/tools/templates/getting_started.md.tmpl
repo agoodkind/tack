@@ -37,9 +37,10 @@ Every non-builtin NodeType gets `tack_list_<plural>`, `tack_create_<slug>`, `tac
 
 These tools are generated from NodeType and PropertyDef metadata:
 
-tool  property  target
 {{range .ReferenceSetters -}}
-{{.Tool}}  {{.Property}}  {{.Target}}
+- `{{.Tool}}`
+  - Property: `{{.Property}}`
+  - Target: `{{.Target}}`
 {{end}}
 {{end}}
 ## Create inputs
@@ -90,13 +91,15 @@ Use `tack_add_relationship`, `tack_remove_relationship`, `tack_list_relationship
 
 ## Response format
 
-Tool responses are markdown text wrapped in `<success>...</success>`. Lists print as a table; single-node reads print as a labeled block. Cross-references come back resolved to identifiers and names, not raw UUIDs.
+Tool responses are Markdown text. Success responses render directly, and errors set the MCP `isError` flag with a Markdown problem summary and next step.
+
+Lists render as Markdown bullets with nested fields. Single-node reads render as labeled Markdown fields. Cross-references come back resolved to identifiers and names, not raw UUIDs.
 
 Pass the printed identifier (`TACK-65`, `CLYDE::In Progress`, `tack`, `main`) back to subsequent tool calls. The server also accepts UUIDs anywhere it accepts an identifier, so a copy-pasted `id` from a single-node response still works.
 
-Single-node responses include the raw `id:` line at the bottom for cases where you genuinely need the UUID (external integrations, debugging). List responses omit raw UUIDs entirely; refer to entries by identifier.
+Single-node responses include the raw `id` field at the bottom for cases where you genuinely need the UUID (external integrations, debugging). List responses omit raw UUIDs entirely; refer to entries by identifier.
 
-`tack_get_properties` is the truth-escape-hatch and still returns raw JSON Props for cases where you need every value untransformed.
+`tack_get_properties` is the truth-escape-hatch and returns raw JSON Props for cases where you need every value untransformed.
 
 ## Common mistakes to avoid
 
@@ -107,4 +110,4 @@ Single-node responses include the raw `id:` line at the bottom for cases where y
 
 ## Error handling
 
-`<error>` responses end with an `[LLM Instruction]` line telling you what to do next. Follow it rather than retrying the same call.
+Error responses set `isError=true` and include a `Next step` line. Follow that instruction rather than retrying the same call.

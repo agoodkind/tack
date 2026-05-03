@@ -2,30 +2,18 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 
 	mcpmcp "github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// propertyDefsResp is the response body for tack_list_property_defs.
-type propertyDefsResp struct {
-	PropertyDefs []*node.PropertyDef `json:"property_defs"`
-}
-
-// propsResp is the response body for tack_get_properties. Props mirrors
-// Node.Props so each value stays as raw JSON instead of an any soup.
-type propsResp struct {
-	Props map[string]json.RawMessage `json:"props"`
-}
-
-// RegisterProperty registers PropertyDef list/get/create/update/delete.
+// RegisterProperty registers tools for property metadata and raw node props.
 func RegisterProperty(s *mcpserver.MCPServer, propertyDefs node.PropertyDefRepository, resolver *Resolver) {
 	registerTool(s,
 		mcpmcp.Tool{
 			Name:        "tack_list_property_defs",
-			Description: "Lists PropertyDef records for the workspace's org.",
+			Description: "Lists property definitions for the workspace org as Markdown.",
 			InputSchema: schema{
 				Fields: []schemaField{
 					{Name: resolver.EntryPointParamName(), Type: schemaString},
@@ -50,14 +38,14 @@ func RegisterProperty(s *mcpserver.MCPServer, propertyDefs node.PropertyDefRepos
 			if err != nil {
 				return classifyError(ctx, err), nil
 			}
-			return successJSON(propertyDefsResp{PropertyDefs: defs}, ""), nil
+			return successText(renderPropertyDefs(defs), ""), nil
 		},
 	)
 
 	registerTool(s,
 		mcpmcp.Tool{
 			Name:        "tack_get_properties",
-			Description: "Returns the full Props map for a node.",
+			Description: "Returns the raw Props map for a node as fenced JSON Markdown.",
 			InputSchema: schema{
 				Fields:   []schemaField{{Name: "node_id", Type: schemaString}},
 				Required: []string{"node_id"},
@@ -81,7 +69,8 @@ func RegisterProperty(s *mcpserver.MCPServer, propertyDefs node.PropertyDefRepos
 				return classifyError(ctx, err), nil
 			}
 			stampAuditNodeView(ctx, view)
-			return successJSON(propsResp{Props: view.Props}, ""), nil
+			rc := newRenderCtxWithTypes(ctx, resolver.reader, nil, resolver.typeIndex)
+			return successText(renderProperties(rc, view), ""), nil
 		},
 	)
 }

@@ -1,0 +1,18 @@
+{{.Node}}
+{{- if .NodeTypes}}
+
+##### Node types
+
+{{- range .NodeTypes}}
+- {{.Title}}
+{{- range .Fields}}
+  - {{.Label}}: {{.Value}}
+{{- end}}
+{{- end}}
+{{- end}}
+{{- if .Children}}
+
+##### Direct children
+
+{{.Children}}
+{{- end}}

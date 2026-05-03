@@ -1,0 +1,10 @@
+#### {{.Heading}}
+
+{{.Count}} {{.Noun}} found.
+
+{{- range .Items}}
+- {{.Title}}
+{{- range .Fields}}
+  - {{.Label}}: {{.Value}}
+{{- end}}
+{{- end}}

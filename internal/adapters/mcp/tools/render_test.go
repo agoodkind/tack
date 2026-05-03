@@ -128,18 +128,18 @@ func TestRenderNodeIdentifierPreferred(t *testing.T) {
 	})
 	out := renderNode(rc, issue)
 
-	mustContain(t, out, "TACK-65")                        // identifier in header
-	mustContain(t, out, "Fix the resolver bug")           // name in header
-	mustContain(t, out, "scope:")                         // resolved scope label
-	mustContain(t, out, "TACK (project)")                 // resolved scope value
-	mustContain(t, out, "parent:")                        // resolved parent label
-	mustContain(t, out, "TACK-12 (epic)")                 // resolved parent identifier (epic carries its own seq)
-	mustContain(t, out, "state:")                         // resolved state label
-	mustContain(t, out, "in-progress (state)")            // resolved state value
-	mustContain(t, out, "priority:    high")              // scalar prop
-	mustContain(t, out, "created:")                       // audit field
-	mustContain(t, out, "by alex")                        // resolved user
-	mustContain(t, out, "id:          "+issueID.String()) // raw id at bottom
+	mustContain(t, out, "TACK-65")                          // identifier in header
+	mustContain(t, out, "Fix the resolver bug")             // name in header
+	mustContain(t, out, "- Scope:")                         // resolved scope label
+	mustContain(t, out, "`TACK` (`project`)")               // resolved scope value
+	mustContain(t, out, "- Parent:")                        // resolved parent label
+	mustContain(t, out, "`TACK-12` (`epic`)")               // resolved parent identifier
+	mustContain(t, out, "- State:")                         // resolved state label
+	mustContain(t, out, "`in-progress` (`state`)")          // resolved state value
+	mustContain(t, out, "- Priority: high")                 // scalar prop
+	mustContain(t, out, "- Created:")                       // audit field
+	mustContain(t, out, "by alex")                          // resolved user
+	mustContain(t, out, "- Raw id: `"+issueID.String()+"`") // raw id at bottom
 
 	// No raw UUIDs for cross-references should appear in the body.
 	for _, raw := range []string{projectID.String(), epicID.String(), stateID.String()} {
