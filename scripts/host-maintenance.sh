@@ -5,10 +5,11 @@ set -euo pipefail
 ROOT_USAGE_MAX_PERCENT="${ROOT_USAGE_MAX_PERCENT:-85}"
 ROOT_MIN_FREE_KB="${ROOT_MIN_FREE_KB:-6291456}"
 BACKUP_DIR="${BACKUP_DIR:-/root/backups}"
-BACKUP_KEEP_COUNT="${BACKUP_KEEP_COUNT:-10}"
-BACKUP_KEEP_DAYS="${BACKUP_KEEP_DAYS:-7}"
-BUILDKIT_CACHE_UNTIL="${BUILDKIT_CACHE_UNTIL:-168h}"
+BACKUP_KEEP_COUNT="${BACKUP_KEEP_COUNT:-7}"
+BACKUP_KEEP_DAYS="${BACKUP_KEEP_DAYS:-3}"
+BUILDKIT_RESERVED_STORAGE="${BUILDKIT_RESERVED_STORAGE:-2GB}"
 DANGLING_IMAGE_UNTIL="${DANGLING_IMAGE_UNTIL:-24h}"
+UNUSED_IMAGE_UNTIL="${UNUSED_IMAGE_UNTIL:-168h}"
 
 usage() {
 	printf 'usage: %s {report|preflight|deploy-preflight|deploy-cleanup|rotate-backups|weekly|install-timer}\n' "$0" >&2
@@ -60,9 +61,14 @@ prune_dangling_images() {
 	docker image prune --force --filter "until=${DANGLING_IMAGE_UNTIL}"
 }
 
+prune_unused_images() {
+	echo "== prune unused docker images older than ${UNUSED_IMAGE_UNTIL} =="
+	docker image prune --all --force --filter "until=${UNUSED_IMAGE_UNTIL}"
+}
+
 prune_build_cache() {
-	echo "== prune build cache older than ${BUILDKIT_CACHE_UNTIL} =="
-	docker builder prune --force --filter "until=${BUILDKIT_CACHE_UNTIL}"
+	echo "== prune build cache to ${BUILDKIT_RESERVED_STORAGE} =="
+	docker builder prune --all --force --reserved-space "${BUILDKIT_RESERVED_STORAGE}"
 }
 
 rotate_backups() {
@@ -127,18 +133,20 @@ deploy_cleanup() {
 	prune_build_cache
 }
 
+weekly() {
+	report
+	rotate_backups
+	prune_dangling_images
+	prune_unused_images
+	prune_build_cache
+	echo ""
+	report
+}
+
 deploy_preflight() {
 	rotate_backups
 	deploy_cleanup
 	preflight
-}
-
-weekly() {
-	report
-	rotate_backups
-	deploy_cleanup
-	echo ""
-	report
 }
 
 install_timer() {
