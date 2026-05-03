@@ -35,6 +35,5 @@ trace.*.xml
 
 # Added by ggshield
 .cache_ggshield
-bin/server
-bin/server
+/bin/
 .staticcheck-extra-baseline.txt

@@ -71,6 +71,9 @@ func main() {
 		case "ops":
 			runOps(cfg, os.Args[2:])
 			return
+		case "repair":
+			runRepair(cfg, os.Args[2:])
+			return
 		case "audit-export":
 			runAuditExport(cfg, os.Args[2:])
 			return
@@ -185,7 +188,7 @@ func runServer(cfg *config.Config) {
 
 	var authMiddleware func(http.Handler) http.Handler
 	if cfg.Env == "development" {
-		slog.Warn("running in dev auth mode -- Bearer token is treated as a raw user UUID")
+		slog.Warn("running in dev auth mode. Bearer token is treated as a raw user UUID")
 		authMiddleware = auth.DevBearer
 	} else {
 		authMiddleware = auth.Bearer(tokenRepo)

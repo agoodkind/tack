@@ -16,6 +16,7 @@ type Stores struct {
 	Nodes         *NodeStore
 	Views         *ViewStore
 	Relationships *RelationshipStore
+	Inspect       *InspectStore
 	NodeDeleter   *NodeDeleteStore
 }
 
@@ -36,6 +37,7 @@ func newStores(db fdb.Database, _ *pgxpool.Pool) *Stores {
 		Nodes:         NewNodeStore(db),
 		Views:         NewViewStore(db),
 		Relationships: NewRelationshipStore(db),
+		Inspect:       NewInspectStore(db),
 		NodeDeleter:   NewNodeDeleteStore(db),
 	}
 }
