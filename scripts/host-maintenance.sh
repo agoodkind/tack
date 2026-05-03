@@ -150,29 +150,11 @@ deploy_preflight() {
 }
 
 install_timer() {
-	cat >/etc/systemd/system/tack-host-maintenance.service <<'UNIT'
-[Unit]
-Description=Run Tack host disk maintenance
-After=docker.service
-Wants=docker.service
+	local script_dir
 
-[Service]
-Type=oneshot
-ExecStart=/root/tack/scripts/host-maintenance.sh weekly
-UNIT
-
-	cat >/etc/systemd/system/tack-host-maintenance.timer <<'UNIT'
-[Unit]
-Description=Run Tack host disk maintenance weekly
-
-[Timer]
-OnCalendar=weekly
-RandomizedDelaySec=1800
-Persistent=true
-
-[Install]
-WantedBy=timers.target
-UNIT
+	script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+	install -m 0644 "$script_dir/systemd/tack-host-maintenance.service" /etc/systemd/system/tack-host-maintenance.service
+	install -m 0644 "$script_dir/systemd/tack-host-maintenance.timer" /etc/systemd/system/tack-host-maintenance.timer
 
 	systemctl daemon-reload
 	systemctl enable --now tack-host-maintenance.timer
