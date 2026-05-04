@@ -16,8 +16,11 @@ import (
 	"strings"
 
 	"goodkind.io/gklog"
+	"goodkind.io/gklog/trace"
 	"goodkind.io/tack/internal/version"
 )
+
+const tackInstrumentationName = "goodkind.io/tack/internal/telemetry"
 
 // LogConfig is what Setup needs to wire gklog. Every field is taken
 // verbatim from the caller. Setup never branches on environment names. The
@@ -89,7 +92,12 @@ func Setup(cfg LogConfig) (io.Closer, error) {
 	})
 	slog.SetDefault(logger)
 
-	traceCloser, err := setupTracing(cfg.OTELEndpoint)
+	traceCloser, err := trace.Setup(trace.Options{
+		ServiceName:         "tack-server",
+		ServiceNamespace:    "tack",
+		InstrumentationName: tackInstrumentationName,
+		Endpoint:            cfg.OTELEndpoint,
+	})
 	if err != nil {
 		if closer != nil {
 			_ = closer.Close()
