@@ -22,6 +22,7 @@ import (
 	"goodkind.io/tack/internal/auth"
 	"goodkind.io/tack/internal/config"
 	domainsearch "goodkind.io/tack/internal/domain/search"
+	"goodkind.io/tack/internal/repair"
 	"goodkind.io/tack/internal/service"
 	"goodkind.io/tack/internal/telemetry"
 	"goodkind.io/tack/internal/version"
@@ -72,7 +73,7 @@ func main() {
 			runOps(cfg, os.Args[2:])
 			return
 		case "repair":
-			runRepair(cfg, os.Args[2:])
+			repair.Run(cfg, os.Args[2:])
 			return
 		case "audit-export":
 			runAuditExport(cfg, os.Args[2:])

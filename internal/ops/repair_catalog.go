@@ -1,0 +1,42 @@
+package ops
+
+import (
+	"fmt"
+	"strings"
+
+	"goodkind.io/tack/internal/domain"
+)
+
+type RepairClassInfo struct {
+	Class       RepairClass
+	Description string
+}
+
+var repairClassCatalog = []RepairClassInfo{{
+	Class:       RepairClassStrayAliasState,
+	Description: "Remove a raw `state` alias after resolving the canonical `state_id` winner for one workflow-scoped node.",
+}}
+
+func RepairClasses() []RepairClassInfo {
+	classes := make([]RepairClassInfo, len(repairClassCatalog))
+	copy(classes, repairClassCatalog)
+	return classes
+}
+
+func DefaultRepairClass() RepairClass {
+	return RepairClassStrayAliasState
+}
+
+func ParseRepairClass(rawValue string) (RepairClass, error) {
+	trimmedValue := strings.TrimSpace(rawValue)
+	if trimmedValue == "" {
+		return "", fmt.Errorf("repair class is required: %w", domain.ErrInvalidArgument)
+	}
+	repairClass := RepairClass(trimmedValue)
+	for _, info := range repairClassCatalog {
+		if info.Class == repairClass {
+			return repairClass, nil
+		}
+	}
+	return "", fmt.Errorf("repair class %q: %w", trimmedValue, domain.ErrInvalidArgument)
+}
