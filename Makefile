@@ -65,6 +65,13 @@ $(GO_MK):
 TACK_VERSION_PKG := goodkind.io/tack/internal/version
 GKLOG_VPKG       := goodkind.io/gklog/version
 
+# Central lint-deadcode runs golang.org/x/tools/cmd/deadcode and gates new
+# findings via .deadcode-baseline.txt. The patterns below stay excluded
+# permanently because deadcode does not load _test.go and cannot see the
+# integration suite, the FDB test prefix helpers, or the audit subsystem
+# referenced through reflective driver registration.
+DEADCODE_EXCLUDE_PATHS := internal/test/integration/,internal/adapters/foundationdb/keys.go:.*(SetTestPrefix|TestPrefixRange),internal/audit/
+
 TACK_COMMIT     := $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
 TACK_DIRTY      := $(shell git diff --quiet 2>/dev/null && echo false || echo true)
 TACK_TAG        := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
@@ -83,33 +90,10 @@ GO_BUILD_LDFLAGS := -s -w \
 .PHONY: build-server check-gates
 build-server: build
 
-check-gates: build-check test deadcode lint-logging
-
-# Find unreachable functions. Build first so deadcode sees the same package
-# graph the build did. Test-only helpers reachable only from _test.go files
-# are filtered out: deadcode does not load tests in its analysis, so they
-# read as unreachable here. Anything else that lands flagged is real dead
-# code and the gate fails.
-.PHONY: deadcode
-deadcode: build-server
-	@out=$$(go run golang.org/x/tools/cmd/deadcode@latest ./... | grep -Ev \
-		-e 'internal/test/integration/' \
-		-e 'internal/adapters/foundationdb/keys.go:.*(SetTestPrefix|TestPrefixRange)' \
-		-e 'internal/audit/' \
-		); \
-	if [ -n "$$out" ]; then \
-		echo "$$out"; exit 1; \
-	fi
-
-# Informational complexity + vulnerability scan. Not part of check by default
-# because gocyclo can fire on legitimate code; keep it as a separate signal.
-.PHONY: audit
-audit:
-	@echo "=== Cyclomatic complexity (>15) ==="
-	@go run github.com/fzipp/gocyclo/cmd/gocyclo@latest -over 15 . || true
-	@echo
-	@echo "=== Vulnerability check ==="
-	@go run golang.org/x/vuln/cmd/govulncheck@latest ./... || true
+# check-gates is the full pre-deploy gate: canonical check (vet + full lint
+# pass including gocyclo, deadcode, staticcheck-extra strict + test) plus
+# tack's project-local logging discipline check.
+check-gates: check lint-logging
 
 .PHONY: run
 run:
