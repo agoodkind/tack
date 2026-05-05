@@ -36,4 +36,5 @@ trace.*.xml
 # Added by ggshield
 .cache_ggshield
 /bin/
-.staticcheck-extra-baseline.txt
+/dist/
+/.make/

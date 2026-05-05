@@ -1,74 +1,89 @@
-GO_MK_URL   := https://raw.githubusercontent.com/agoodkind/go-makefile/main/go.mk
-GO_MK       := .make/go.mk
-GO_MK_CACHE := $(HOME)/.cache/go-makefile/go.mk
+# tack Makefile.
+# Build/lint pipeline lives in go-makefile and is fetched at runtime.
+# Project owns deploy/migrate/seed/backup/integration; the remote rsync
+# deploy targets do not move into the central pipeline.
+
+GO_MK_URL     := https://raw.githubusercontent.com/agoodkind/go-makefile/main/go.mk
+GO_MK_API_URL := https://api.github.com/repos/agoodkind/go-makefile/contents/go.mk?ref=main
+GO_MK         := .make/go.mk
+GO_MK_CACHE   := $(or $(XDG_CACHE_HOME),$(HOME)/.cache)/go-makefile/go.mk
+# Dev override: GO_MK_DEV_DIR=$HOME/Sites/go-makefile to iterate locally.
+GO_MK_DEV_DIR ?=
+
+# Identity. tack's internal/version uses lowercase unexported fields, so
+# VPKG canonical stamping does not bind. We pre-populate GO_BUILD_LDFLAGS
+# below with the lowercase -X flags; go-build.mk's ?= preserves it.
+BINARY := tack
+CMD    := ./cmd/server
+
+# CGO required for FoundationDB bindings; -tags fdb gates the FDB code paths.
+export CGO_ENABLED := 1
+GO_BUILD_TAGS     := fdb
+
+# Pipeline modules (skip go-release.mk: tack ships via remote rsync, not
+# GoReleaser).
+GO_MK_MODULES := go-build.mk
+
+GO_MK_BOOTSTRAP := $(shell \
+	mkdir -p "$(dir $(GO_MK))" "$(dir $(GO_MK_CACHE))"; \
+	if [ -n "$(GO_MK_DEV_DIR)" ] && [ -f "$(GO_MK_DEV_DIR)/go.mk" ]; then \
+		cp "$(GO_MK_DEV_DIR)/go.mk" "$(GO_MK)"; \
+		printf '%s\n' "go.mk: using dev override $(GO_MK_DEV_DIR)/go.mk" >&2; \
+	else \
+		tmp="$(GO_MK).tmp"; \
+		if curl -fsSL -H "Accept: application/vnd.github.raw" --connect-timeout 5 --max-time 10 "$(GO_MK_API_URL)" -o "$$tmp" || curl -fsSL --connect-timeout 5 --max-time 10 "$(GO_MK_URL)?v=$$(date +%s)" -o "$$tmp" || curl -fsSL --connect-timeout 5 --max-time 10 "$(GO_MK_URL)" -o "$$tmp"; then \
+			mv "$$tmp" "$(GO_MK)"; \
+			cp "$(GO_MK)" "$(GO_MK_CACHE)"; \
+		elif [ -f "$(GO_MK_CACHE)" ]; then \
+			rm -f "$$tmp"; \
+			cp "$(GO_MK_CACHE)" "$(GO_MK)"; \
+		elif [ ! -f "$(GO_MK)" ]; then \
+			rm -f "$$tmp"; \
+			printf '%s\n' "error: go.mk fetch failed and no cache available" >&2; \
+		fi; \
+	fi)
 
 $(GO_MK):
-	@[ -f "$@" ] && exit 0; \
-	mkdir -p $(dir $@); \
-	if curl -fsSL --connect-timeout 5 --max-time 10 "$(GO_MK_URL)" -o "$@"; then \
+	@mkdir -p $(dir $@)
+	@if [ -n "$(GO_MK_DEV_DIR)" ] && [ -f "$(GO_MK_DEV_DIR)/go.mk" ]; then \
+		cp "$(GO_MK_DEV_DIR)/go.mk" "$@"; \
+		echo "go.mk: using dev override $(GO_MK_DEV_DIR)/go.mk" >&2; \
+	elif curl -fsSL -H "Accept: application/vnd.github.raw" --connect-timeout 5 --max-time 10 "$(GO_MK_API_URL)" -o "$@" || curl -fsSL --connect-timeout 5 --max-time 10 "$(GO_MK_URL)?v=$$(date +%s)" -o "$@" || curl -fsSL --connect-timeout 5 --max-time 10 "$(GO_MK_URL)" -o "$@"; then \
 		mkdir -p "$(dir $(GO_MK_CACHE))" && cp "$@" "$(GO_MK_CACHE)"; \
 	elif [ -f "$(GO_MK_CACHE)" ]; then \
 		echo "warning: go.mk fetch failed, using cached version" >&2; \
 		cp "$(GO_MK_CACHE)" "$@"; \
 	else \
-		echo "warning: go.mk not available, using local targets only" >&2; \
+		echo "error: go.mk fetch failed and no cache available" >&2; \
+		exit 1; \
 	fi
+
+# tack version metadata. Pre-populate GO_BUILD_LDFLAGS BEFORE -include $(GO_MK)
+# so go-build.mk's ?= preserves it. We also cross-stamp gklog via GKLOG_VPKG;
+# go-build.mk extends GO_BUILD_LDFLAGS with the canonical Commit/Dirty/BuildTime
+# stamps for that pkg.
+TACK_VERSION_PKG := goodkind.io/tack/internal/version
+GKLOG_VPKG       := goodkind.io/gklog/version
+
+TACK_COMMIT     := $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
+TACK_DIRTY      := $(shell git diff --quiet 2>/dev/null && echo false || echo true)
+TACK_TAG        := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+TACK_BUILD_TIME := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+
+GO_BUILD_LDFLAGS := -s -w \
+	-X $(TACK_VERSION_PKG).commit=$(TACK_COMMIT) \
+	-X $(TACK_VERSION_PKG).buildTime=$(TACK_BUILD_TIME) \
+	-X $(TACK_VERSION_PKG).tag=$(TACK_TAG) \
+	-X $(TACK_VERSION_PKG).dirty=$(TACK_DIRTY)
 
 -include $(GO_MK)
 
 .DEFAULT_GOAL := check
 
-# Fetch or update go.mk explicitly.
-.PHONY: update-go-mk
-update-go-mk:
-	@mkdir -p "$(dir $(GO_MK))"
-	@if curl -fsSL --connect-timeout 5 --max-time 10 "$(GO_MK_URL)" -o "$(GO_MK)"; then \
-		mkdir -p "$(dir $(GO_MK_CACHE))" && cp "$(GO_MK)" "$(GO_MK_CACHE)"; \
-		echo "go.mk updated"; \
-	else \
-		echo "error: go.mk fetch failed" >&2; \
-		exit 1; \
-	fi
+.PHONY: build-server check-gates
+build-server: build
 
-# Build metadata injected via ldflags.
-VERSION_PKG := goodkind.io/tack/internal/version
-COMMIT      := $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
-DIRTY       := $(shell git diff --quiet 2>/dev/null && echo false || echo true)
-TAG         := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
-BUILD_TIME  := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
-GKLOG_VERSION_PKG := goodkind.io/gklog/version
-LDFLAGS     := -s -w \
-	-X $(VERSION_PKG).commit=$(COMMIT) \
-	-X $(VERSION_PKG).buildTime=$(BUILD_TIME) \
-	-X $(VERSION_PKG).tag=$(TAG) \
-	-X $(VERSION_PKG).dirty=$(DIRTY) \
-	-X $(GKLOG_VERSION_PKG).Commit=$(COMMIT) \
-	-X $(GKLOG_VERSION_PKG).Dirty=$(DIRTY) \
-	-X $(GKLOG_VERSION_PKG).BuildTime=$(BUILD_TIME)
-
-# FDB is always required. CGO_ENABLED=1 for the FDB C bindings.
-.PHONY: build build-instruction build-server
-build: build-instruction check-gates build-server
-	@:
-
-build-instruction:
-	echo "checking + building [LLM instruction]: if lint errors are surfaced. You MUST fix them correctly. Do not attempt to dismiss them."
-
-build-server:
-	CGO_ENABLED=1 go build -ldflags="$(LDFLAGS)" -o bin/server ./cmd/server
-
-# check runs every gate the project enforces: build, vet, lint, unit tests,
-# vulnerability check, go.mk's bundled staticcheck-extra analyzer set,
-# deadcode, and the project-specific structured-logging discipline.
-# Overrides go.mk's check on purpose so all gates land in one target.
-.PHONY: check check-gates
-check: build-server check-gates
-
-check-gates: vet lint test govulncheck staticcheck-extra deadcode lint-logging
-
-# Per-finding baseline path. The analyzer set itself is provided by go.mk
-# (5 bundled AST analyzers). Project just declares its baseline file.
-STATICCHECK_EXTRA_BASELINE := .staticcheck-extra-baseline.txt
+check-gates: build-check test deadcode lint-logging
 
 # Find unreachable functions. Build first so deadcode sees the same package
 # graph the build did. Test-only helpers reachable only from _test.go files
@@ -98,17 +113,17 @@ audit:
 
 .PHONY: run
 run:
-	CGO_ENABLED=1 go run ./cmd/server
+	go run $(GO_BUILD_FLAGS) $(CMD)
 
 # Run DB migrations against DATABASE_URL.
 .PHONY: migrate
 migrate:
-	CGO_ENABLED=1 go run ./cmd/server migrate
+	go run $(GO_BUILD_FLAGS) $(CMD) migrate
 
 # Seed the database with initial user/org/workspace/token.
 .PHONY: seed
 seed:
-	CGO_ENABLED=1 go run ./cmd/server seed
+	go run $(GO_BUILD_FLAGS) $(CMD) seed
 
 # Integration tests against a real FDB cluster.
 #
@@ -210,12 +225,12 @@ deploy: deploy-preflight
 else
 deploy: deploy-preflight backup
 endif
-	rsync -az --delete --exclude='.git' --exclude='bin/' --exclude='.env' --exclude='.env.*' --exclude='.test-fdb/' . tack:/root/tack/
+	rsync -az --delete --exclude='.git' --exclude='bin/' --exclude='dist/' --exclude='.make/' --exclude='.env' --exclude='.env.*' --exclude='.test-fdb/' . tack:/root/tack/
 	ssh tack "cd /root/tack && docker build --network host \
-		--build-arg COMMIT=$(COMMIT) \
-		--build-arg BUILD_TIME=$(BUILD_TIME) \
-		--build-arg TAG=$(TAG) \
-		--build-arg DIRTY=$(DIRTY) \
+		--build-arg COMMIT=$(TACK_COMMIT) \
+		--build-arg BUILD_TIME=$(TACK_BUILD_TIME) \
+		--build-arg TAG=$(TACK_TAG) \
+		--build-arg DIRTY=$(TACK_DIRTY) \
 		-t tack-server . && docker compose up -d --no-build app && /root/tack/scripts/host-maintenance.sh deploy-cleanup"
 
 .PHONY: deploy-preflight
