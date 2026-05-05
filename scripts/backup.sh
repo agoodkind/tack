@@ -38,7 +38,7 @@ source /root/tack/.env
 set +a
 for tbl in users api_tokens org_members; do
 	docker compose -f /root/tack/docker-compose.yml exec -T yugabyte bash -c \
-		"PGPASSWORD='$YUGABYTE_PASSWORD' ysqlsh -h \$(getent ahostsv6 \$(hostname) | awk 'NR==1{print \$1}') -p 5433 -U yugabyte -d tack -c \"\\copy (SELECT * FROM ${tbl}) TO STDOUT WITH CSV HEADER\"" \
+		"PGPASSWORD='$YUGABYTE_PASSWORD' ysqlsh -h yugabyte -p 5433 -U yugabyte -d tack -c \"\\copy (SELECT * FROM ${tbl}) TO STDOUT WITH CSV HEADER\"" \
 		>"$DEST/${tbl}.csv"
 done
 

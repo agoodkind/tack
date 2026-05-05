@@ -20,17 +20,23 @@ Do not frame suggestions, gaps, or decisions in terms of "your use case" or "for
 
 Every entity: org, workspace, project, state, label, issue, epic, cycle, module, custom type. Each is a node stored in FoundationDB. Same pattern across all entity types: NodeValue (primary record) + NodeListView (materialized read view) + NodeResolve (global resolution record). Every entity is globally addressable by its UUID alone. No org context required from callers.
 
-**SQL does one thing: auth.**
+**YugabyteDB owns SQL-only control data: auth and compliance audit.**
 
 ```
-users        : identity (email, display_name)
-api_tokens   : bearer token → user_id
-org_members  : auth gate: is this user allowed in this org
+users              : identity (email, display_name)
+api_tokens         : bearer token → user_id
+org_members        : auth gate: is this user allowed in this org
+audit.events       : append-only compliance audit ledger
+audit.chain_heads  : per-org/shard hash-chain heads
+audit.notarizations: signed Merkle checkpoints
+audit.pii          : redactable PII payloads referenced by audit events
 ```
 
-Nothing else lives in SQL. No entity tables, no config tables, no join tables.
+No product entity lives in SQL. No entity tables, config tables, relationship
+tables, or read-model tables belong there. YugabyteDB is still critical data:
+auth gates and the compliance audit ledger must be preserved on every recovery.
 
-**FoundationDB owns all data:**
+**FoundationDB owns all product data:**
 - All entity storage (orgs, workspaces, projects, states, labels, issues, epics, cycles, modules, custom types)
 - All relationships (assignments, containment, labels-on-nodes, hierarchy)
 - All views (NodeListView materialized read records)
@@ -115,7 +121,7 @@ No cross-database transactions. No consistency gap.
 ## Key decisions
 
 - **Everything is a node in FDB.** Orgs, workspaces, projects, states, labels, issues: all the same pattern. No entity lives in SQL.
-- **SQL = auth only.** `users`, `api_tokens`, `org_members`. Nothing else.
+- **SQL = auth plus compliance audit only.** `users`, `api_tokens`, `org_members`, and `audit.*`. Nothing else.
 - **orgID never leaks to callers.** Derived from entity resolution or workspace lookup internally. Never a service method parameter, never an API input field.
 - **NodeListView is the single read layer.** Service layer uses NodeReader for all reads. No direct EntityRepository reads in service or handler code.
 - **One FDB transaction per write.** CreateAtomic batches everything. No multi-step create sequences.
@@ -130,15 +136,20 @@ No cross-database transactions. No consistency gap.
 
 ---
 
-## SQL schema (auth only)
+## SQL schema (auth and audit only)
 
 ```
-users          identity: email, display_name, avatar_url
-api_tokens     auth: token_hash → user_id
-org_members    auth gate: org_id, user_id, role
+users                identity: email, display_name, avatar_url
+api_tokens           auth: token_hash → user_id
+org_members          auth gate: org_id, user_id, role
+audit.events         append-only audit events, partitioned by event_time
+audit.chain_heads    current hash-chain head per (org_id, shard)
+audit.notarizations  signed Merkle roots over shard heads
+audit.pii            redactable encrypted PII payloads
 ```
 
-That is the complete SQL surface.
+That is the complete SQL surface. Treat YugabyteDB backups as compliance
+artifacts, not just convenience auth snapshots.
 
 ---
 
@@ -335,6 +346,39 @@ Pieces of the contract:
 - No OPNsense static route. The /64 is on-link, so NDP proxy on CT 117 is enough.
 
 **Do NOT** flip the bridge back to IPv4 or dual-stack. The whole point is forced-v6 inter-container traffic. Adding v4 lets services silently fall back.
+
+### YugabyteDB identity and data contract
+
+YugabyteDB runs as the `yugabyte` Compose service on the IPv6-only bridge. Its
+network packets still use a real GUA from `3d06:bad:b01:0:7ac::/96`, but its
+database identity must be the stable Docker DNS name `yugabyte`, not the
+container's current IPv6 address.
+
+The `yugabyted` command in `docker-compose.yml` must advertise and listen on
+`yugabyte`:
+
+```
+--advertise_address=yugabyte
+--listen=yugabyte
+```
+
+Do not derive `--advertise_address` from `getent ahostsv6 $(hostname)`, and do
+not pin normal operation to a literal container GUA. Docker Compose service IPs
+are replaceable; the service DNS name is the stable identity. Literal GUAs can
+be persisted into Yugabyte master and tserver metadata, and stale persisted
+addresses can wedge YSQL even while processes appear to be running.
+
+YugabyteDB stores:
+- Auth tables: `users`, `api_tokens`, `org_members`
+- Compliance audit tables: `audit.events`, `audit.chain_heads`,
+  `audit.notarizations`, `audit.pii`
+
+Backups must include the live Yugabyte volume and logical CSV dumps of auth
+tables. Any recovery that replaces `tack_yugabyte-data` must also preserve and
+restore or merge `audit.*`; restoring only auth is data loss. During audit
+recovery, preserve `audit.chain_heads` so future audit writes continue from the
+canonical hash-chain heads.
+
 - Seed (after deploy or to propagate type changes):
   ```bash
   ssh tack 'cd /root/tack && docker compose exec -e SEED_EMAIL=alex@goodkind.io -e SEED_NAME=Alexander -e SEED_ORG_SLUG=goodkind-io -e SEED_ORG_NAME=goodkind.io -e SEED_WORKSPACE_SLUG=main -e SEED_WORKSPACE_NAME=Main app /server seed'

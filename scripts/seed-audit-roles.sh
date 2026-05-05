@@ -64,4 +64,4 @@ SQL
 }
 
 build_sql | docker exec -i tack-yugabyte-1 env PGPASSWORD="$YUGABYTE_PASSWORD" bash -c \
-    'ysqlsh -h $(getent ahostsv6 $(hostname) | awk "NR==1{print \$1}") -p 5433 -U yugabyte -d tack -f -'
+    'ysqlsh -h yugabyte -p 5433 -U yugabyte -d tack -f -'

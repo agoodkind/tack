@@ -54,11 +54,10 @@ services:
   yugabyte:
     # 2024.2.x LTS is the first line that ships IPv6 support in yugabyted
     # (issue #24665, fixed in 2024.1.5.0). is_port_available is now
-    # AF-aware and validate_hostname_ip uses ipaddress.ip_address. Two
-    # bugs remain: yugabyted's auto-detect still calls socket.gethostbyname
-    # (AF_INET only), and the IP_ANY constant has no `::` equivalent. The
-    # wrapper below dodges both by reading the bridge v6 from /etc/hosts
-    # and passing it as a literal --advertise_address.
+    # AF-aware and validate_hostname_ip accepts hostnames. Do not advertise
+    # the current container IP: Docker Compose service IPs are intentionally
+    # replaceable. Advertise the stable service DNS name and let Docker resolve
+    # it to the current GUA on this IPv6-only bridge.
     image: yugabytedb/yugabyte:2024.2.8.0-b85
     restart: unless-stopped
     command:
@@ -66,9 +65,9 @@ services:
       - -lc
       - |
         set -euo pipefail
-        ADDR=$$(getent ahostsv6 "$$(hostname)" | awk 'NR==1{print $$1}')
-        if [ -z "$$ADDR" ]; then
-          echo "yugabyte wrapper: no IPv6 address found for $$(hostname) in NSS" >&2
+        ADDR=yugabyte
+        if ! getent ahostsv6 "$$ADDR" >/dev/null; then
+          echo "yugabyte wrapper: no IPv6 address found for $$ADDR in NSS" >&2
           exit 1
         fi
         echo "yugabyte wrapper: advertising $$ADDR" >&2
@@ -96,7 +95,7 @@ services:
       test:
         - CMD-SHELL
         - |
-          ADDR=$$(getent ahostsv6 "$$(hostname)" | awk 'NR==1{print $$1}')
+          ADDR=yugabyte
           PGPASSWORD=${YUGABYTE_PASSWORD:?} ysqlsh -h "$$ADDR" -p 5433 \
             -U ${YUGABYTE_USER:?} -d ${YUGABYTE_DB:?} -c 'SELECT 1' -t
       interval: 10s
