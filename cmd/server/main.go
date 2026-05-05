@@ -22,7 +22,6 @@ import (
 	"goodkind.io/tack/internal/auth"
 	"goodkind.io/tack/internal/config"
 	domainsearch "goodkind.io/tack/internal/domain/search"
-	"goodkind.io/tack/internal/repair"
 	"goodkind.io/tack/internal/service"
 	"goodkind.io/tack/internal/telemetry"
 	"goodkind.io/tack/internal/version"
@@ -72,9 +71,6 @@ func main() {
 		case "ops":
 			runOps(cfg, os.Args[2:])
 			return
-		case "repair":
-			repair.Run(cfg, os.Args[2:])
-			return
 		case "audit-export":
 			runAuditExport(cfg, os.Args[2:])
 			return
@@ -84,13 +80,14 @@ func main() {
 		case "gen-audit-key":
 			if len(os.Args) < 3 {
 				slog.Error("gen-audit-key", "err", "usage: server gen-audit-key <output.pem>")
-				os.Exit(1)
+				fatalExit()
 			}
-			if err := audit.GenerateAuditSigningKey(os.Args[2]); err != nil {
-				slog.Error("gen-audit-key", "err", err)
-				os.Exit(1)
+			err := audit.GenerateAuditSigningKey(os.Args[2])
+			if err != nil {
+				slog.Error("gen-audit-key.failed")
+				fatalExit()
 			}
-			slog.Info("gen-audit-key", "path", os.Args[2])
+			slog.Info("gen-audit-key.completed")
 			return
 		}
 	}
@@ -100,11 +97,16 @@ func main() {
 
 func runMigrations(cfg *config.Config) {
 	ctx := context.Background()
-	if err := postgres.Migrate(ctx, cfg.DatabaseURL, migrations.FS); err != nil {
+	err := postgres.Migrate(ctx, cfg.DatabaseURL, migrations.FS)
+	if err != nil {
 		slog.Error("migrate", "err", err)
-		os.Exit(1)
+		fatalExit()
 	}
 	slog.Info("migrations complete")
+}
+
+func fatalExit() {
+	os.Exit(1)
 }
 
 func runServer(cfg *config.Config) {
@@ -113,52 +115,20 @@ func runServer(cfg *config.Config) {
 	pool, err := postgres.NewPool(ctx, cfg.DatabaseURL, &telemetry.QueryTracer{})
 	if err != nil {
 		slog.Error("postgres", "err", err)
-		os.Exit(1)
+		fatalExit()
 	}
 	defer pool.Close()
 
 	fdbStores, err := fdbadapter.NewStores(cfg.FDBClusterFile, pool)
 	if err != nil {
 		slog.Error("foundationdb", "err", err)
-		os.Exit(1)
+		fatalExit()
 	}
 
 	searcher := buildSearcher(cfg)
 
-	auditRec := buildAuditRecorder(ctx, cfg)
-	// Wrap once at startup so seed and other internal automation can mute
-	// emission via audit.WithSuppressed.
-	auditRec = audit.SuppressingRecorder{Inner: auditRec}
-	mcptools.SetAuditRecorder(auditRec)
-	auth.SetAuditRecorder(auditRec)
-
-	auditReader := buildAuditReader(ctx, cfg)
-	defer func() {
-		if auditReader != nil {
-			auditReader.Close()
-		}
-	}()
-	auditRedactor := buildAuditRedactor(ctx, cfg)
-	defer func() {
-		if auditRedactor != nil {
-			auditRedactor.Close()
-		}
-	}()
-	notarizer := buildAuditNotarizer(ctx, cfg)
-	if notarizer != nil {
-		notarizer.Start(ctx)
-		defer func() { _ = notarizer.Close() }()
-	}
-	defer func() {
-		switch c := auditRec.(type) {
-		case interface{ Close() error }:
-			_ = c.Close()
-		case interface{ Close() }:
-			c.Close()
-		}
-	}()
-	_ = auditRec // wired into NodeService + MCP wrapper in TACK-174
-
+	auditRuntime := setupAuditRuntime(ctx, cfg)
+	defer auditRuntime.Close()
 	tokenRepo := postgres.NewTokenRepo(pool)
 	userRepo := postgres.NewUserRepo(pool)
 	orgMembers := postgres.NewOrgMemberRepo(pool)
@@ -183,18 +153,117 @@ func runServer(cfg *config.Config) {
 		Members:       orgMembers,
 		Users:         userRepo,
 		Searcher:      searcher,
-		AuditReader:   auditReader,
-		AuditRedactor: auditRedactor,
+		AuditReader:   auditRuntime.Reader,
+		AuditRedactor: auditRuntime.Redactor,
 	})
 
-	var authMiddleware func(http.Handler) http.Handler
-	if cfg.Env == "development" {
-		slog.Warn("running in dev auth mode. Bearer token is treated as a raw user UUID")
-		authMiddleware = auth.DevBearer
-	} else {
-		authMiddleware = auth.Bearer(tokenRepo)
+	authMiddleware := buildAuthMiddleware(cfg, tokenRepo)
+
+	mux := buildServeMux(mcpHandler, authMiddleware)
+
+	addr := fmt.Sprintf(":%d", cfg.Port)
+	slog.Info("starting server",
+		"addr", addr,
+		"env", cfg.Env,
+		"version", version.Tag(),
+		"commit", version.Commit(),
+		"build_hash", version.BuildHash(),
+		"build_time", version.BuildTime(),
+		"dirty", version.Dirty(),
+	)
+
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           h2c.NewHandler(telemetry.RequestLogger(mux), &http2.Server{}),
+		ReadHeaderTimeout: 10 * time.Second,
 	}
 
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("http.panic", slog.Any("err", r))
+			}
+		}()
+		err := srv.ListenAndServe()
+		if err != nil && err != http.ErrServerClosed {
+			slog.Error("http", "err", err)
+			fatalExit()
+		}
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	slog.Info("shutting down")
+	shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	err = srv.Shutdown(shutCtx)
+	if err != nil {
+		slog.Error("shutdown", "err", err)
+	}
+}
+
+type auditRuntime struct {
+	Reader    *audit.Reader
+	Redactor  *audit.Redactor
+	Notarizer *audit.Notarizer
+	Recorder  audit.Recorder
+}
+
+func setupAuditRuntime(ctx context.Context, cfg *config.Config) auditRuntime {
+	auditRec := buildAuditRecorder(ctx, cfg)
+	// Wrap once at startup so seed and other internal automation can mute
+	// emission via audit.WithSuppressed.
+	auditRec = audit.SuppressingRecorder{Inner: auditRec}
+	mcptools.SetAuditRecorder(auditRec)
+	auth.SetAuditRecorder(auditRec)
+
+	notarizer := buildAuditNotarizer(ctx, cfg)
+	if notarizer != nil {
+		notarizer.Start(ctx)
+	}
+	return auditRuntime{
+		Reader:    buildAuditReader(ctx, cfg),
+		Redactor:  buildAuditRedactor(ctx, cfg),
+		Notarizer: notarizer,
+		Recorder:  auditRec,
+	}
+}
+
+func (r auditRuntime) Close() {
+	if r.Reader != nil {
+		r.Reader.Close()
+	}
+	if r.Redactor != nil {
+		r.Redactor.Close()
+	}
+	if r.Notarizer != nil {
+		_ = r.Notarizer.Close()
+	}
+	switch c := r.Recorder.(type) {
+	case interface{ Close() error }:
+		_ = c.Close()
+	case interface{ Close() }:
+		c.Close()
+	}
+}
+
+func buildAuthMiddleware(
+	cfg *config.Config,
+	tokenRepo *postgres.TokenRepo,
+) func(http.Handler) http.Handler {
+	if cfg.Env == "development" {
+		slog.Warn("dev_auth.enabled")
+		return auth.DevBearer
+	}
+	return auth.Bearer(tokenRepo)
+}
+
+func buildServeMux(
+	mcpHandler http.Handler,
+	authMiddleware func(http.Handler) http.Handler,
+) *http.ServeMux {
 	mux := http.NewServeMux()
 	mcpWithAuth := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
@@ -213,40 +282,7 @@ func runServer(cfg *config.Config) {
 	// internal/telemetry/metrics.go. Not gated on auth so a local watcher
 	// can scrape it directly. Bind to localhost only when this matters.
 	mux.Handle("/debug/vars", expvar.Handler())
-
-	addr := fmt.Sprintf(":%d", cfg.Port)
-	slog.Info("starting server",
-		"addr", addr,
-		"env", cfg.Env,
-		"version", version.Tag(),
-		"commit", version.Commit(),
-		"build_hash", version.BuildHash(),
-		"build_time", version.BuildTime(),
-		"dirty", version.Dirty(),
-	)
-
-	srv := &http.Server{
-		Addr:    addr,
-		Handler: h2c.NewHandler(telemetry.RequestLogger(mux), &http2.Server{}),
-	}
-
-	go func() {
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			slog.Error("http", "err", err)
-			os.Exit(1)
-		}
-	}()
-
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
-
-	slog.Info("shutting down")
-	shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := srv.Shutdown(shutCtx); err != nil {
-		slog.Error("shutdown", "err", err)
-	}
+	return mux
 }
 
 // buildSearcher creates a Meilisearch client and ensures the nodes index is
@@ -256,7 +292,8 @@ func buildSearcher(cfg *config.Config) domainsearch.Searcher {
 	meiliClient := searchadapter.New(cfg.MeiliURL, cfg.MeiliMasterKey)
 	// Generic filterable attributes only. Per-property filterability is added
 	// by callers at index/update time via PropertyDef.Indexed.
-	if err := meiliClient.EnsureIndex("nodes", []string{"org_id", "node_type"}); err != nil {
+	err := meiliClient.EnsureIndex("nodes", []string{"org_id", "node_type"})
+	if err != nil {
 		slog.Error("meilisearch.setup_failed",
 			slog.String("url", cfg.MeiliURL),
 			slog.String("err", err.Error()),
@@ -278,29 +315,34 @@ func buildSearcher(cfg *config.Config) domainsearch.Searcher {
 // log first and the drainer ships them to Yugabyte asynchronously.
 func buildAuditRecorder(ctx context.Context, cfg *config.Config) audit.Recorder {
 	if cfg.AuditWriterDSN == "" {
-		slog.Warn("audit.writer_disabled",
+		slog.WarnContext(ctx, "audit.writer_disabled",
 			slog.String("reason", "AUDIT_WRITER_DSN unset; ledger writes are noop"),
 		)
 		return audit.NoopRecorder{}
 	}
 	yb, err := audit.NewYBRecorder(ctx, cfg.AuditWriterDSN)
 	if err != nil {
-		slog.Error("audit.writer_setup_failed", slog.String("err", err.Error()))
+		slog.ErrorContext(ctx, "audit.writer_setup_failed", slog.String("err", err.Error()))
 		return audit.NoopRecorder{}
 	}
-	slog.Info("audit.writer_connected")
+	slog.InfoContext(ctx, "audit.writer_connected")
 	if cfg.AuditWALDir == "" {
 		return yb
 	}
-	wal, err := audit.NewWALRecorder(ctx, yb, audit.WALConfig{Dir: cfg.AuditWALDir})
+	wal, err := audit.NewWALRecorder(ctx, yb, audit.WALConfig{
+		Dir:                cfg.AuditWALDir,
+		MaxBytesPerSegment: 0,
+		MaxLag:             0,
+		DrainInterval:      0,
+	})
 	if err != nil {
-		slog.Error("audit.wal_setup_failed",
+		slog.ErrorContext(ctx, "audit.wal_setup_failed",
 			slog.String("dir", cfg.AuditWALDir),
 			slog.String("err", err.Error()),
 		)
 		return yb
 	}
-	slog.Info("audit.wal_enabled", slog.String("dir", cfg.AuditWALDir))
+	slog.InfoContext(ctx, "audit.wal_enabled", slog.String("dir", cfg.AuditWALDir))
 	return wal
 }
 
@@ -308,17 +350,17 @@ func buildAuditRecorder(ctx context.Context, cfg *config.Config) audit.Recorder 
 // set. nil return means the audit query MCP tools are not registered.
 func buildAuditReader(ctx context.Context, cfg *config.Config) *audit.Reader {
 	if cfg.AuditReaderDSN == "" {
-		slog.Info("audit.reader_disabled",
+		slog.InfoContext(ctx, "audit.reader_disabled",
 			slog.String("reason", "AUDIT_READER_DSN unset; audit query tools disabled"),
 		)
 		return nil
 	}
 	rd, err := audit.NewReader(ctx, cfg.AuditReaderDSN)
 	if err != nil {
-		slog.Error("audit.reader_setup_failed", slog.String("err", err.Error()))
+		slog.ErrorContext(ctx, "audit.reader_setup_failed", slog.String("err", err.Error()))
 		return nil
 	}
-	slog.Info("audit.reader_connected")
+	slog.InfoContext(ctx, "audit.reader_connected")
 	return rd
 }
 
@@ -326,17 +368,17 @@ func buildAuditReader(ctx context.Context, cfg *config.Config) *audit.Reader {
 // is set. nil disables the GDPR redaction MCP tool.
 func buildAuditRedactor(ctx context.Context, cfg *config.Config) *audit.Redactor {
 	if cfg.AuditRedactorDSN == "" {
-		slog.Info("audit.redactor_disabled",
+		slog.InfoContext(ctx, "audit.redactor_disabled",
 			slog.String("reason", "AUDIT_REDACTOR_DSN unset; redaction tool disabled"),
 		)
 		return nil
 	}
 	rd, err := audit.NewRedactor(ctx, cfg.AuditRedactorDSN)
 	if err != nil {
-		slog.Error("audit.redactor_setup_failed", slog.String("err", err.Error()))
+		slog.ErrorContext(ctx, "audit.redactor_setup_failed", slog.String("err", err.Error()))
 		return nil
 	}
-	slog.Info("audit.redactor_connected")
+	slog.InfoContext(ctx, "audit.redactor_connected")
 	return rd
 }
 
@@ -344,18 +386,19 @@ func buildAuditRedactor(ctx context.Context, cfg *config.Config) *audit.Redactor
 // signing key path is configured. Reuses the audit_writer DSN.
 func buildAuditNotarizer(ctx context.Context, cfg *config.Config) *audit.Notarizer {
 	if cfg.AuditSigningKeyPath == "" || cfg.AuditWriterDSN == "" {
-		slog.Info("audit.notarizer_disabled",
+		slog.InfoContext(ctx, "audit.notarizer_disabled",
 			slog.String("reason", "AUDIT_SIGNING_KEY_PATH or AUDIT_WRITER_DSN unset"),
 		)
 		return nil
 	}
 	n, err := audit.NewNotarizer(ctx, cfg.AuditWriterDSN, audit.NotarizerConfig{
 		SigningKeyPath: cfg.AuditSigningKeyPath,
+		Period:         0,
 	})
 	if err != nil {
-		slog.Error("audit.notarizer_setup_failed", slog.String("err", err.Error()))
+		slog.ErrorContext(ctx, "audit.notarizer_setup_failed", slog.String("err", err.Error()))
 		return nil
 	}
-	slog.Info("audit.notarizer_started", slog.String("key_path", cfg.AuditSigningKeyPath))
+	slog.InfoContext(ctx, "audit.notarizer_started", slog.String("key_path", cfg.AuditSigningKeyPath))
 	return n
 }

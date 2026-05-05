@@ -2,14 +2,12 @@ package ops
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
-	"goodkind.io/tack/internal/service"
 )
 
 func (c *workflowRepairContext) resolveStateInput(ctx context.Context, input string) (*workflowStateCandidate, error) {
@@ -17,26 +15,10 @@ func (c *workflowRepairContext) resolveStateInput(ctx context.Context, input str
 	if trimmedInput == "" {
 		return nil, fmt.Errorf("state reference is empty: %w", domain.ErrInvalidArgument)
 	}
-	command, err := service.CompileUpdatePropertyCommand(
-		ctx,
-		[]*node.PropertyDef{{Name: "state_id", Type: node.PropertyTypeUUID, ReferenceTargetTypeKey: c.stateType.TypeKey}},
-		map[string]*node.NodeType{
-			c.stateType.TypeKey: c.stateType,
-			"repair_target": &node.NodeType{
-				TypeKey:  "repair_target",
-				Features: node.Features{node.FeatureHasWorkflowStates},
-			},
-		},
-		&node.NodeType{TypeKey: "repair_target", Features: node.Features{node.FeatureHasWorkflowStates}},
-		c.orgID,
-		c.scopeID,
-		map[string]json.RawMessage{"state": service.MustRawString(trimmedInput)},
-		c.resolveReference,
-	)
+	stateID, err := c.resolveReference(ctx, c.orgID, c.scopeID, c.stateType, trimmedInput)
 	if err != nil {
 		return nil, err
 	}
-	stateID := rawUUIDProp(command.Props, "state_id")
 	if stateID == uuid.Nil {
 		return nil, fmt.Errorf("state reference %q resolved to empty state_id: %w", trimmedInput, domain.ErrInvalidArgument)
 	}
@@ -61,7 +43,8 @@ func (c *workflowRepairContext) resolveReference(
 	if orgID != c.orgID || scopeID != c.scopeID {
 		return uuid.Nil, fmt.Errorf("workflow repair scope mismatch: %w", domain.ErrInvalidArgument)
 	}
-	if parsedID, err := uuid.Parse(ref); err == nil {
+	parsedID, err := uuid.Parse(ref)
+	if err == nil {
 		for _, candidate := range c.states {
 			if candidate.ID == parsedID {
 				return parsedID, nil
@@ -73,7 +56,7 @@ func (c *workflowRepairContext) resolveReference(
 	if scopeRef, scopedRef, ok := strings.Cut(localRef, "::"); ok {
 		scopeView, err := c.reader.Get(ctx, c.scopeID)
 		if err != nil {
-			return uuid.Nil, err
+			return uuid.Nil, fmt.Errorf("get workflow scope %s: %w", c.scopeID, err)
 		}
 		if scopeView == nil {
 			return uuid.Nil, fmt.Errorf("workflow scope %s: %w", c.scopeID, domain.ErrNotFound)

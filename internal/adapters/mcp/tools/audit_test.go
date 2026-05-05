@@ -40,6 +40,7 @@ func TestRenderAuditRowsShowsCorrelation(t *testing.T) {
 		}
 	}
 }
+
 func TestStampAuditNodeInEntryPointPopulatesWorkspace(t *testing.T) {
 	orgID := uuid.New()
 	workspaceID := uuid.New()
@@ -57,10 +58,10 @@ func TestStampAuditNodeInEntryPointPopulatesWorkspace(t *testing.T) {
 	}
 	scope := audit.ScopeFromContext(ctx)
 	if scope.OrgID != orgID {
-		t.Fatalf("audit org: got %s want %s", uuid.UUID(scope.OrgID), orgID)
+		t.Fatalf("audit org: got %s want %s", scope.OrgID, orgID)
 	}
 	if scope.WorkspaceID != workspaceID {
-		t.Fatalf("audit workspace: got %s want %s", uuid.UUID(scope.WorkspaceID), workspaceID)
+		t.Fatalf("audit workspace: got %s want %s", scope.WorkspaceID, workspaceID)
 	}
 }
 
@@ -95,6 +96,6 @@ func TestResolveTypedNodeIDSequenceStampsWorkspace(t *testing.T) {
 	}
 	scope := audit.ScopeFromContext(ctx)
 	if scope.WorkspaceID != workspaceID {
-		t.Fatalf("audit workspace: got %s want %s", uuid.UUID(scope.WorkspaceID), workspaceID)
+		t.Fatalf("audit workspace: got %s want %s", scope.WorkspaceID, workspaceID)
 	}
 }

@@ -21,12 +21,15 @@ type fakeMembers struct {
 func (m *fakeMembers) AddMember(context.Context, *org.Member) error {
 	panic("fakeMembers.AddMember called")
 }
+
 func (m *fakeMembers) RemoveMember(context.Context, uuid.UUID, uuid.UUID) error {
 	panic("fakeMembers.RemoveMember called")
 }
+
 func (m *fakeMembers) ListMembers(context.Context, uuid.UUID) ([]*org.Member, error) {
 	panic("fakeMembers.ListMembers called")
 }
+
 func (m *fakeMembers) ListOrgIDsForUser(context.Context, uuid.UUID) ([]uuid.UUID, error) {
 	return m.orgIDs, nil
 }
@@ -39,6 +42,7 @@ type resolverReader struct {
 func (r *resolverReader) Get(_ context.Context, id uuid.UUID) (*node.NodeView, error) {
 	return r.views[id], nil
 }
+
 func (r *resolverReader) Resolve(_ context.Context, id uuid.UUID) (*node.NodeResolve, error) {
 	view := r.views[id]
 	if view == nil {
@@ -46,6 +50,7 @@ func (r *resolverReader) Resolve(_ context.Context, id uuid.UUID) (*node.NodeRes
 	}
 	return &node.NodeResolve{OrgID: view.OrgID, NodeType: view.NodeType}, nil
 }
+
 func (r *resolverReader) List(_ context.Context, q node.NodeListQuery) ([]*node.NodeView, error) {
 	if q.NodeType == "workspace" && q.ByProperty == nil {
 		return r.workspaces, nil
@@ -65,6 +70,7 @@ func (r *resolverReader) List(_ context.Context, q node.NodeListQuery) ([]*node.
 	}
 	return out, nil
 }
+
 func (r *resolverReader) Stream(context.Context, node.NodeListQuery) (<-chan node.NodeStreamResult, error) {
 	panic("resolverReader.Stream called")
 }
@@ -76,33 +82,43 @@ type fakeNodeRepo struct {
 func (r *fakeNodeRepo) Get(context.Context, uuid.UUID, uuid.UUID) (*node.Node, error) {
 	panic("fakeNodeRepo.Get called")
 }
+
 func (r *fakeNodeRepo) Set(context.Context, *node.Node, *node.NodeView) error {
 	panic("fakeNodeRepo.Set called")
 }
+
 func (r *fakeNodeRepo) UpdateAtomic(context.Context, *node.Node, *node.NodeView, map[string]json.RawMessage, []string) error {
 	panic("fakeNodeRepo.UpdateAtomic called")
 }
+
 func (r *fakeNodeRepo) Delete(context.Context, uuid.UUID, uuid.UUID) error {
 	panic("fakeNodeRepo.Delete called")
 }
+
 func (r *fakeNodeRepo) CreateAtomic(context.Context, *node.Node, *node.NodeView, []*node.Relationship, []string, *node.IdempotencyRecord) error {
 	panic("fakeNodeRepo.CreateAtomic called")
 }
+
 func (r *fakeNodeRepo) ListByProperty(_ context.Context, _ uuid.UUID, nodeType, propName string, value json.RawMessage) ([]*node.Node, error) {
 	return r.scopeChildren[nodeType+":"+propName+":"+string(value)], nil
 }
+
 func (r *fakeNodeRepo) AllocateSequence(context.Context, uuid.UUID, uuid.UUID, string) (int64, error) {
 	panic("fakeNodeRepo.AllocateSequence called")
 }
+
 func (r *fakeNodeRepo) GetSlug(context.Context, string, string) (uuid.UUID, error) {
 	panic("fakeNodeRepo.GetSlug called")
 }
+
 func (r *fakeNodeRepo) WriteSlug(context.Context, string, string, uuid.UUID) error {
 	panic("fakeNodeRepo.WriteSlug called")
 }
+
 func (r *fakeNodeRepo) DeleteSlug(context.Context, string, string) error {
 	panic("fakeNodeRepo.DeleteSlug called")
 }
+
 func (r *fakeNodeRepo) LookupIdempotencyKey(context.Context, uuid.UUID, string) (*node.IdempotencyRecord, error) {
 	panic("fakeNodeRepo.LookupIdempotencyKey called")
 }
@@ -114,12 +130,15 @@ type fakePropertyDefs struct {
 func (r *fakePropertyDefs) Set(context.Context, *node.PropertyDef) error {
 	panic("fakePropertyDefs.Set called")
 }
+
 func (r *fakePropertyDefs) Get(context.Context, uuid.UUID, uuid.UUID) (*node.PropertyDef, error) {
 	panic("fakePropertyDefs.Get called")
 }
+
 func (r *fakePropertyDefs) List(context.Context, uuid.UUID) ([]*node.PropertyDef, error) {
 	return r.defs, nil
 }
+
 func (r *fakePropertyDefs) Delete(context.Context, uuid.UUID, uuid.UUID) error {
 	panic("fakePropertyDefs.Delete called")
 }
@@ -151,7 +170,7 @@ func TestResolveTypedNodeIDProjectIdentifier(t *testing.T) {
 		t.Fatalf("ResolveTypedNodeID(TACK): got %s want %s", id, projectID)
 	}
 	if audit.ScopeFromContext(ctx).OrgID != orgID {
-		t.Fatalf("ResolveTypedNodeID(TACK) audit org: got %s want %s", uuid.UUID(audit.ScopeFromContext(ctx).OrgID), orgID)
+		t.Fatalf("ResolveTypedNodeID(TACK) audit org: got %s want %s", audit.ScopeFromContext(ctx).OrgID, orgID)
 	}
 }
 
@@ -188,7 +207,7 @@ func TestResolveTypedNodeIDScopedStateReference(t *testing.T) {
 		t.Fatalf("ResolveTypedNodeID(CLYDE::In Progress): got %s want %s", id, stateID)
 	}
 	if audit.ScopeFromContext(ctx).OrgID != orgID {
-		t.Fatalf("ResolveTypedNodeID(CLYDE::In Progress) audit org: got %s want %s", uuid.UUID(audit.ScopeFromContext(ctx).OrgID), orgID)
+		t.Fatalf("ResolveTypedNodeID(CLYDE::In Progress) audit org: got %s want %s", audit.ScopeFromContext(ctx).OrgID, orgID)
 	}
 	_, err = resolver.ResolveTypedNodeID(ctx, stateType, "In Progress")
 	if err == nil || !strings.Contains(err.Error(), domain.ErrInvalidArgument.Error()) {

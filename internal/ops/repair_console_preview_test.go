@@ -2,6 +2,7 @@ package ops
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -13,14 +14,7 @@ import (
 )
 
 func TestPreviewStrayAliasStateRejectsMissingNodeID(t *testing.T) {
-	console := NewRepairConsole(
-		&repairNodeRepo{},
-		&repairReader{},
-		&repairTypeRepo{types: repairTypes()},
-		&repairPropRepo{defs: repairDefs()},
-		&repairSearcher{},
-	)
-
+	console := NewRepairConsole(&repairNodeRepo{}, &repairReader{}, &repairTypeRepo{types: repairTypes()}, &repairPropRepo{defs: repairDefs()}, &repairSearcher{})
 	_, err := console.Preview(context.Background(), RepairPreviewInput{Class: RepairClassStrayAliasState})
 	if !errors.Is(err, domain.ErrInvalidArgument) {
 		t.Fatalf("Preview err = %v want ErrInvalidArgument", err)
@@ -33,13 +27,7 @@ func TestPreviewStrayAliasStateReturnsNoopWhenRawStateMissing(t *testing.T) {
 	reader := &repairReader{views: map[uuid.UUID]*node.NodeView{
 		issueID: {ID: issueID, OrgID: uuid.New(), NodeType: "issue", Name: "Issue", UpdatedAt: updatedAt},
 	}}
-	console := NewRepairConsole(
-		&repairNodeRepo{reader: reader},
-		reader,
-		&repairTypeRepo{types: repairTypes()},
-		&repairPropRepo{defs: repairDefs()},
-		&repairSearcher{},
-	)
+	console := NewRepairConsole(&repairNodeRepo{reader: reader}, reader, &repairTypeRepo{types: repairTypes()}, &repairPropRepo{defs: repairDefs()}, &repairSearcher{})
 
 	preview, err := console.Preview(context.Background(), RepairPreviewInput{Class: RepairClassStrayAliasState, NodeID: issueID})
 	if err != nil {
@@ -62,16 +50,10 @@ func TestPreviewStrayAliasStateRejectsMissingScope(t *testing.T) {
 		issueID: {
 			ID: issueID, OrgID: uuid.New(), NodeType: "issue", Name: "Issue",
 			UpdatedAt: time.Date(2026, 5, 3, 12, 0, 0, 0, time.UTC),
-			Props:     map[string][]byte{"state": mustRaw(t, "Done")},
+			Props:     map[string]json.RawMessage{"state": mustRaw(t, "Done")},
 		},
 	}}
-	console := NewRepairConsole(
-		&repairNodeRepo{reader: reader},
-		reader,
-		&repairTypeRepo{types: repairTypes()},
-		&repairPropRepo{defs: repairDefs()},
-		&repairSearcher{},
-	)
+	console := NewRepairConsole(&repairNodeRepo{reader: reader}, reader, &repairTypeRepo{types: repairTypes()}, &repairPropRepo{defs: repairDefs()}, &repairSearcher{})
 
 	_, err := console.Preview(context.Background(), RepairPreviewInput{Class: RepairClassStrayAliasState, NodeID: issueID})
 	if !errors.Is(err, domain.ErrFailedPrecondition) {
@@ -90,7 +72,7 @@ func TestPreviewStrayAliasStateDisablesApplyForAmbiguousWorkflowState(t *testing
 			issueID: {
 				ID: issueID, OrgID: orgID, NodeType: "issue", Name: "Issue",
 				UpdatedAt: time.Date(2026, 5, 3, 12, 0, 0, 0, time.UTC),
-				Props: map[string][]byte{
+				Props: map[string]json.RawMessage{
 					"scope_id":  mustRaw(t, projectID.String()),
 					"parent_id": mustRaw(t, projectID.String()),
 					"state":     mustRaw(t, "Done"),
@@ -102,13 +84,7 @@ func TestPreviewStrayAliasStateDisablesApplyForAmbiguousWorkflowState(t *testing
 			stateView(t, secondStateID, orgID, projectID, "Done", 3),
 		},
 	}
-	console := NewRepairConsole(
-		&repairNodeRepo{reader: reader},
-		reader,
-		&repairTypeRepo{types: repairTypes()},
-		&repairPropRepo{defs: repairDefs()},
-		&repairSearcher{},
-	)
+	console := NewRepairConsole(&repairNodeRepo{reader: reader}, reader, &repairTypeRepo{types: repairTypes()}, &repairPropRepo{defs: repairDefs()}, &repairSearcher{})
 
 	preview, err := console.Preview(context.Background(), RepairPreviewInput{Class: RepairClassStrayAliasState, NodeID: issueID})
 	if err != nil {

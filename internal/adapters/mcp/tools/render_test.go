@@ -22,12 +22,15 @@ type fakeReader struct {
 func (r *fakeReader) Get(_ context.Context, id uuid.UUID) (*node.NodeView, error) {
 	return r.views[id], nil
 }
+
 func (r *fakeReader) Resolve(context.Context, uuid.UUID) (*node.NodeResolve, error) {
 	panic("fakeReader.Resolve called")
 }
+
 func (r *fakeReader) List(context.Context, node.NodeListQuery) ([]*node.NodeView, error) {
 	panic("fakeReader.List called")
 }
+
 func (r *fakeReader) Stream(context.Context, node.NodeListQuery) (<-chan node.NodeStreamResult, error) {
 	panic("fakeReader.Stream called")
 }
@@ -39,9 +42,11 @@ type fakeUsers struct {
 func (u *fakeUsers) GetByID(_ context.Context, id uuid.UUID) (*user.User, error) {
 	return u.users[id], nil
 }
+
 func (u *fakeUsers) GetByEmail(context.Context, string) (*user.User, error) {
 	panic("fakeUsers.GetByEmail called")
 }
+
 func (u *fakeUsers) Create(context.Context, *user.User) (*user.User, error) {
 	panic("fakeUsers.Create called")
 }

@@ -1,19 +1,27 @@
 package audit
 
-import "context"
+import (
+	"context"
+	"fmt"
+	"log/slog"
 
-type suppressKey struct{}
-type scopeKey struct{}
+	"github.com/google/uuid"
+)
+
+type (
+	suppressKey struct{}
+	scopeKey    struct{}
+)
 
 // Scope is the audit-scope tuple a request resolves to before the audit
 // row is emitted. Stored on the context as a pointer so resolvers running
 // inside the inner handler can mutate the same instance the MCP wrapper
 // will read after the handler returns.
 type Scope struct {
-	OrgID       [16]byte
-	WorkspaceID [16]byte
-	ScopeID     [16]byte
-	ParentID    [16]byte
+	OrgID       uuid.UUID
+	WorkspaceID uuid.UUID
+	ScopeID     uuid.UUID
+	ParentID    uuid.UUID
 }
 
 // WithScopeBuilder attaches a fresh, mutable Scope to ctx. The MCP tool
@@ -21,7 +29,12 @@ type Scope struct {
 // SetScopeFields as they resolve them. The wrapper reads the result after
 // the inner handler returns.
 func WithScopeBuilder(ctx context.Context) context.Context {
-	return context.WithValue(ctx, scopeKey{}, &Scope{})
+	return context.WithValue(ctx, scopeKey{}, &Scope{
+		OrgID:       uuid.Nil,
+		WorkspaceID: uuid.Nil,
+		ScopeID:     uuid.Nil,
+		ParentID:    uuid.Nil,
+	})
 }
 
 // SetScopeFields updates the Scope on ctx in place. Zero-valued fields are
@@ -32,16 +45,16 @@ func SetScopeFields(ctx context.Context, s Scope) {
 	if cur == nil {
 		return
 	}
-	if s.OrgID != ([16]byte{}) {
+	if s.OrgID != uuid.Nil {
 		cur.OrgID = s.OrgID
 	}
-	if s.WorkspaceID != ([16]byte{}) {
+	if s.WorkspaceID != uuid.Nil {
 		cur.WorkspaceID = s.WorkspaceID
 	}
-	if s.ScopeID != ([16]byte{}) {
+	if s.ScopeID != uuid.Nil {
 		cur.ScopeID = s.ScopeID
 	}
-	if s.ParentID != ([16]byte{}) {
+	if s.ParentID != uuid.Nil {
 		cur.ParentID = s.ParentID
 	}
 }
@@ -51,7 +64,12 @@ func SetScopeFields(ctx context.Context, s Scope) {
 func ScopeFromContext(ctx context.Context) Scope {
 	cur, _ := ctx.Value(scopeKey{}).(*Scope)
 	if cur == nil {
-		return Scope{}
+		return Scope{
+			OrgID:       uuid.Nil,
+			WorkspaceID: uuid.Nil,
+			ScopeID:     uuid.Nil,
+			ParentID:    uuid.Nil,
+		}
 	}
 	return *cur
 }
@@ -75,11 +93,17 @@ func IsSuppressed(ctx context.Context) bool {
 // suppression marker on their context.
 type SuppressingRecorder struct{ Inner Recorder }
 
+// Record skips writes when ctx has the suppression marker.
 func (s SuppressingRecorder) Record(ctx context.Context, ev Event) error {
 	if IsSuppressed(ctx) {
 		return nil
 	}
-	return s.Inner.Record(ctx, ev)
+	err := s.Inner.Record(ctx, ev)
+	if err != nil {
+		slog.ErrorContext(ctx, "audit.record_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("record audit event: %w", err)
+	}
+	return nil
 }
 
 func canonicalizeCorrelation(ev *Event) {

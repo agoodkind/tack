@@ -7,11 +7,11 @@ import (
 	"errors"
 	"fmt"
 
-	domain "goodkind.io/tack/internal/domain"
-	"goodkind.io/tack/internal/domain/token"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	domain "goodkind.io/tack/internal/domain"
+	"goodkind.io/tack/internal/domain/token"
 )
 
 type TokenRepo struct {

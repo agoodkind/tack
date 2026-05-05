@@ -3,6 +3,7 @@ package ops
 import (
 	"context"
 	"encoding/json"
+	"testing"
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain/node"
@@ -25,13 +26,13 @@ func (r *repairNodeRepo) Set(context.Context, *node.Node, *node.NodeView) error 
 	panic("repairNodeRepo.Set called")
 }
 
-func (r *repairNodeRepo) UpdateAtomic(_ context.Context, n *node.Node, view *node.NodeView, oldProps map[string]json.RawMessage, indexedProps []string) error {
-	r.updatedNode = n
+func (r *repairNodeRepo) UpdateAtomic(_ context.Context, currentNode *node.Node, view *node.NodeView, oldProps map[string]json.RawMessage, indexedProps []string) error {
+	r.updatedNode = currentNode
 	r.updatedView = view
 	r.oldProps = oldProps
 	r.indexedProps = indexedProps
 	if r.reader != nil {
-		r.reader.views[n.ID] = view
+		r.reader.views[currentNode.ID] = view
 	}
 	return nil
 }
@@ -56,13 +57,9 @@ func (r *repairNodeRepo) GetSlug(context.Context, string, string) (uuid.UUID, er
 	panic("repairNodeRepo.GetSlug called")
 }
 
-func (r *repairNodeRepo) WriteSlug(context.Context, string, string, uuid.UUID) error {
-	return nil
-}
+func (r *repairNodeRepo) WriteSlug(context.Context, string, string, uuid.UUID) error { return nil }
 
-func (r *repairNodeRepo) DeleteSlug(context.Context, string, string) error {
-	return nil
-}
+func (r *repairNodeRepo) DeleteSlug(context.Context, string, string) error { return nil }
 
 func (r *repairNodeRepo) LookupIdempotencyKey(context.Context, uuid.UUID, string) (*node.IdempotencyRecord, error) {
 	panic("repairNodeRepo.LookupIdempotencyKey called")
@@ -85,21 +82,21 @@ func (r *repairReader) Resolve(_ context.Context, id uuid.UUID) (*node.NodeResol
 	return &node.NodeResolve{OrgID: view.OrgID, NodeType: view.NodeType}, nil
 }
 
-func (r *repairReader) List(_ context.Context, q node.NodeListQuery) ([]*node.NodeView, error) {
-	if q.ByProperty == nil || q.ByProperty.PropName != "parent_id" {
+func (r *repairReader) List(_ context.Context, query node.NodeListQuery) ([]*node.NodeView, error) {
+	if query.ByProperty == nil || query.ByProperty.PropName != "parent_id" {
 		return nil, nil
 	}
-	out := make([]*node.NodeView, 0, len(r.stateViews))
+	views := make([]*node.NodeView, 0, len(r.stateViews))
 	for _, view := range r.stateViews {
-		if view.OrgID != q.OrgID || view.NodeType != q.NodeType {
+		if view.OrgID != query.OrgID || view.NodeType != query.NodeType {
 			continue
 		}
-		if string(view.Props["parent_id"]) != string(q.ByProperty.Value) {
+		if string(view.Props["parent_id"]) != string(query.ByProperty.Value) {
 			continue
 		}
-		out = append(out, view)
+		views = append(views, view)
 	}
-	return out, nil
+	return views, nil
 }
 
 func (r *repairReader) Stream(context.Context, node.NodeListQuery) (<-chan node.NodeStreamResult, error) {
@@ -111,12 +108,15 @@ type repairTypeRepo struct{ types []*node.NodeType }
 func (r *repairTypeRepo) Set(context.Context, *node.NodeType) error {
 	panic("repairTypeRepo.Set called")
 }
+
 func (r *repairTypeRepo) Get(context.Context, uuid.UUID, uuid.UUID) (*node.NodeType, error) {
 	panic("repairTypeRepo.Get called")
 }
+
 func (r *repairTypeRepo) List(context.Context, uuid.UUID) ([]*node.NodeType, error) {
 	return r.types, nil
 }
+
 func (r *repairTypeRepo) Delete(context.Context, uuid.UUID, uuid.UUID) error {
 	panic("repairTypeRepo.Delete called")
 }
@@ -126,12 +126,15 @@ type repairPropRepo struct{ defs []*node.PropertyDef }
 func (r *repairPropRepo) Set(context.Context, *node.PropertyDef) error {
 	panic("repairPropRepo.Set called")
 }
+
 func (r *repairPropRepo) Get(context.Context, uuid.UUID, uuid.UUID) (*node.PropertyDef, error) {
 	panic("repairPropRepo.Get called")
 }
+
 func (r *repairPropRepo) List(context.Context, uuid.UUID) ([]*node.PropertyDef, error) {
 	return r.defs, nil
 }
+
 func (r *repairPropRepo) Delete(context.Context, uuid.UUID, uuid.UUID) error {
 	panic("repairPropRepo.Delete called")
 }
@@ -142,7 +145,48 @@ func (s *repairSearcher) Index(context.Context, string, string, *domainsearch.No
 	s.indexCount++
 	return nil
 }
+
 func (s *repairSearcher) Delete(context.Context, string, string) error { return nil }
+
 func (s *repairSearcher) Search(context.Context, string, string, map[string]string) ([]domainsearch.NodeDoc, map[string]map[string]int64, error) {
 	panic("repairSearcher.Search called")
+}
+
+func repairTypes() []*node.NodeType {
+	return []*node.NodeType{
+		{TypeKey: "project", Slug: "project", Reference: node.ReferenceConfig{Strategy: node.ReferenceDirectSlug, Property: "identifier"}},
+		{TypeKey: "state", Slug: "state", Reference: node.ReferenceConfig{Strategy: node.ReferenceScopedProperty, Property: "name"}},
+		{TypeKey: "issue", Slug: "issue", Features: node.Features{node.FeatureHasWorkflowStates}},
+	}
+}
+
+func repairDefs() []*node.PropertyDef {
+	return []*node.PropertyDef{
+		{Name: "parent_id"},
+		{Name: "scope_id"},
+		{Name: "state_id", Type: node.PropertyTypeUUID, Indexed: true, AppliesToFeatures: []string{node.FeatureHasWorkflowStates}, ReferenceTargetTypeKey: "state"},
+	}
+}
+
+func stateView(t *testing.T, stateID uuid.UUID, orgID uuid.UUID, projectID uuid.UUID, name string, sortOrder int64) *node.NodeView {
+	t.Helper()
+	return &node.NodeView{
+		ID:       stateID,
+		OrgID:    orgID,
+		NodeType: "state",
+		Name:     name,
+		Props: map[string]json.RawMessage{
+			"parent_id":  mustRaw(t, projectID.String()),
+			"sort_order": mustRaw(t, sortOrder),
+		},
+	}
+}
+
+func mustRaw(t *testing.T, value any) json.RawMessage {
+	t.Helper()
+	raw, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	return raw
 }

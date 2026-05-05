@@ -3,8 +3,8 @@ package postgres
 import (
 	"errors"
 
-	domain "goodkind.io/tack/internal/domain"
 	"github.com/jackc/pgx/v5/pgconn"
+	domain "goodkind.io/tack/internal/domain"
 )
 
 // pgErr translates pgx errors to domain sentinel errors.

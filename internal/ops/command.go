@@ -1,0 +1,148 @@
+package ops
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"strings"
+
+	"goodkind.io/tack/internal/config"
+)
+
+// RunCommand routes the unified operator CLI command family.
+func RunCommand(ctx context.Context, cfg *config.Config, args []string) error {
+	if len(args) == 0 {
+		printOpsUsage()
+		return nil
+	}
+	if args[0] == "help" {
+		if len(args) == 1 {
+			printOpsUsage()
+			return nil
+		}
+		printFamilyUsage(args[1])
+		return nil
+	}
+	switch args[0] {
+	case "inspect":
+		return runInspectCommand(ctx, cfg, args[1:])
+	case "verify":
+		return runVerifyCommand(ctx, cfg, args[1:])
+	case "validate":
+		return runValidateCommand(ctx, cfg, args[1:])
+	case "repair":
+		return runRepairCommand(ctx, cfg, args[1:])
+	case "batch":
+		return runBatchCommand(ctx, cfg, args[1:])
+	default:
+		if _, ok := Get(args[0]); ok {
+			return Run(ctx, cfg, args[0])
+		}
+		printOpsUsage()
+		return fmt.Errorf("unknown ops command or batch operation %q", args[0])
+	}
+}
+
+func printFamilyUsage(family string) {
+	switch strings.TrimSpace(family) {
+	case "inspect":
+		printInspectUsage()
+	case "verify":
+		printVerifyUsage()
+	case "validate":
+		printValidateUsage()
+	case "repair":
+		printRepairUsage()
+	case "batch":
+		printBatchUsage()
+	default:
+		fmt.Fprintf(os.Stderr, "unknown ops family: %s\n\n", family)
+		printOpsUsage()
+		os.Exit(2)
+	}
+}
+
+func runInspectCommand(ctx context.Context, cfg *config.Config, args []string) error {
+	if len(args) == 0 || args[0] == "help" {
+		printInspectUsage()
+		return nil
+	}
+	switch args[0] {
+	case "read":
+		runInspectRead(ctx, cfg, args[1:])
+		return nil
+	case "find":
+		runInspectFind(ctx, cfg, args[1:])
+		return nil
+	case "query":
+		runInspectQuery(ctx, cfg, args[1:])
+		return nil
+	default:
+		printInspectCommandUsage(args[0])
+		return fmt.Errorf("unknown inspect command %q", args[0])
+	}
+}
+
+func runVerifyCommand(ctx context.Context, cfg *config.Config, args []string) error {
+	if len(args) == 0 || args[0] == "help" {
+		printVerifyUsage()
+		return nil
+	}
+	switch args[0] {
+	case "node":
+		runVerifyNode(ctx, cfg, args[1:])
+		return nil
+	default:
+		printVerifyUsage()
+		return fmt.Errorf("unknown verify command %q", args[0])
+	}
+}
+
+func runValidateCommand(ctx context.Context, cfg *config.Config, args []string) error {
+	if len(args) == 0 || args[0] == "help" {
+		printValidateUsage()
+		return nil
+	}
+	switch args[0] {
+	case "node":
+		runValidateNode(ctx, cfg, args[1:])
+		return nil
+	default:
+		printValidateUsage()
+		return fmt.Errorf("unknown validate command %q", args[0])
+	}
+}
+
+func runRepairCommand(ctx context.Context, cfg *config.Config, args []string) error {
+	if len(args) == 0 || args[0] == "help" {
+		printRepairUsage()
+		return nil
+	}
+	switch args[0] {
+	case "classes":
+		PrintClasses()
+		return nil
+	case "preview":
+		runRepairPreviewCommand(ctx, cfg, args[1:])
+		return nil
+	case "apply":
+		runRepairApplyCommand(ctx, cfg, args[1:])
+		return nil
+	default:
+		printRepairCommandUsage(args[0])
+		return fmt.Errorf("unknown repair command %q", args[0])
+	}
+}
+
+func runBatchCommand(ctx context.Context, cfg *config.Config, args []string) error {
+	if len(args) == 0 || args[0] == "help" {
+		printBatchUsage()
+		return nil
+	}
+	name := args[0]
+	if _, ok := Get(name); !ok {
+		printBatchUsage()
+		return fmt.Errorf("unknown batch op %q", name)
+	}
+	return Run(ctx, cfg, name)
+}

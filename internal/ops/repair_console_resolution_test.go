@@ -18,7 +18,7 @@ func TestPreviewStrayAliasStateChoosesHigherWorkflowState(t *testing.T) {
 	issueID := uuid.New()
 	inProgressID := uuid.New()
 	doneID := uuid.New()
-	updatedAt := time.Now().UTC().Truncate(time.Second)
+	updatedAt := time.Date(2026, 5, 3, 12, 0, 0, 0, time.UTC)
 	reader := &repairReader{
 		views: map[uuid.UUID]*node.NodeView{
 			issueID: {
@@ -36,13 +36,8 @@ func TestPreviewStrayAliasStateChoosesHigherWorkflowState(t *testing.T) {
 			stateView(t, doneID, orgID, projectID, "Done", 3),
 		},
 	}
-	console := NewRepairConsole(
-		&repairNodeRepo{reader: reader},
-		reader,
-		&repairTypeRepo{types: repairTypes()},
-		&repairPropRepo{defs: repairDefs()},
-		&repairSearcher{},
-	)
+	console := NewRepairConsole(&repairNodeRepo{reader: reader}, reader, &repairTypeRepo{types: repairTypes()}, &repairPropRepo{defs: repairDefs()}, &repairSearcher{})
+
 	preview, err := console.Preview(context.Background(), RepairPreviewInput{Class: RepairClassStrayAliasState, NodeID: issueID})
 	if err != nil {
 		t.Fatalf("Preview: %v", err)
@@ -63,10 +58,11 @@ func TestApplyStrayAliasStateRequiresMatchingConfirmationToken(t *testing.T) {
 	projectID := uuid.New()
 	issueID := uuid.New()
 	stateID := uuid.New()
+	updatedAt := time.Date(2026, 5, 3, 12, 0, 0, 0, time.UTC)
 	reader := &repairReader{
 		views: map[uuid.UUID]*node.NodeView{
 			issueID: {
-				ID: issueID, OrgID: orgID, NodeType: "issue", Name: "Issue", UpdatedAt: time.Now().UTC(),
+				ID: issueID, OrgID: orgID, NodeType: "issue", Name: "Issue", UpdatedAt: updatedAt,
 				Props: map[string]json.RawMessage{
 					"scope_id":  mustRaw(t, projectID.String()),
 					"parent_id": mustRaw(t, projectID.String()),
@@ -78,16 +74,12 @@ func TestApplyStrayAliasStateRequiresMatchingConfirmationToken(t *testing.T) {
 	}
 	nodeRepo := &repairNodeRepo{reader: reader}
 	console := NewRepairConsole(nodeRepo, reader, &repairTypeRepo{types: repairTypes()}, &repairPropRepo{defs: repairDefs()}, &repairSearcher{})
+
 	preview, err := console.Preview(context.Background(), RepairPreviewInput{Class: RepairClassStrayAliasState, NodeID: issueID})
 	if err != nil {
 		t.Fatalf("Preview: %v", err)
 	}
-	_, err = console.Apply(context.Background(), RepairApplyInput{
-		ActorID:           uuid.New(),
-		Class:             RepairClassStrayAliasState,
-		NodeID:            issueID,
-		ConfirmationToken: "wrong",
-	})
+	_, err = console.Apply(context.Background(), RepairApplyInput{ActorID: uuid.New(), Class: RepairClassStrayAliasState, NodeID: issueID, ConfirmationToken: "wrong"})
 	if !errors.Is(err, domain.ErrFailedPrecondition) {
 		t.Fatalf("Apply err = %v want ErrFailedPrecondition", err)
 	}
@@ -105,11 +97,12 @@ func TestApplyStrayAliasStateRemovesAliasAndUpdatesCanonical(t *testing.T) {
 	issueID := uuid.New()
 	inProgressID := uuid.New()
 	doneID := uuid.New()
+	updatedAt := time.Date(2026, 5, 3, 12, 0, 0, 0, time.UTC)
 	reader := &repairReader{
 		views: map[uuid.UUID]*node.NodeView{
 			projectID: {ID: projectID, OrgID: orgID, NodeType: "project", Name: "Project", Props: map[string]json.RawMessage{"identifier": mustRaw(t, "TACK")}},
 			issueID: {
-				ID: issueID, OrgID: orgID, NodeType: "issue", Name: "Issue", UpdatedAt: time.Now().UTC(),
+				ID: issueID, OrgID: orgID, NodeType: "issue", Name: "Issue", UpdatedAt: updatedAt,
 				Props: map[string]json.RawMessage{
 					"scope_id":  mustRaw(t, projectID.String()),
 					"parent_id": mustRaw(t, projectID.String()),
@@ -126,6 +119,7 @@ func TestApplyStrayAliasStateRemovesAliasAndUpdatesCanonical(t *testing.T) {
 	nodeRepo := &repairNodeRepo{reader: reader}
 	searcher := &repairSearcher{}
 	console := NewRepairConsole(nodeRepo, reader, &repairTypeRepo{types: repairTypes()}, &repairPropRepo{defs: repairDefs()}, searcher)
+
 	preview, err := console.Preview(context.Background(), RepairPreviewInput{Class: RepairClassStrayAliasState, NodeID: issueID})
 	if err != nil {
 		t.Fatalf("Preview: %v", err)
@@ -146,39 +140,4 @@ func TestApplyStrayAliasStateRemovesAliasAndUpdatesCanonical(t *testing.T) {
 	if searcher.indexCount == 0 {
 		t.Fatal("Apply did not reindex search document")
 	}
-}
-
-func repairTypes() []*node.NodeType {
-	return []*node.NodeType{
-		{TypeKey: "project", Slug: "project", Reference: node.ReferenceConfig{Strategy: node.ReferenceDirectSlug, Property: "identifier"}},
-		{TypeKey: "state", Slug: "state", Reference: node.ReferenceConfig{Strategy: node.ReferenceScopedProperty, Property: "name"}},
-		{TypeKey: "issue", Slug: "issue", Features: node.Features{node.FeatureHasWorkflowStates}},
-	}
-}
-
-func repairDefs() []*node.PropertyDef {
-	return []*node.PropertyDef{
-		{Name: "parent_id"},
-		{Name: "scope_id"},
-		{
-			Name:                   "state_id",
-			Type:                   node.PropertyTypeUUID,
-			Indexed:                true,
-			AppliesToFeatures:      []string{node.FeatureHasWorkflowStates},
-			ReferenceTargetTypeKey: "state",
-		},
-	}
-}
-
-func stateView(t *testing.T, stateID uuid.UUID, orgID uuid.UUID, projectID uuid.UUID, name string, sortOrder int64) *node.NodeView {
-	return &node.NodeView{ID: stateID, OrgID: orgID, NodeType: "state", Name: name, Props: map[string]json.RawMessage{"parent_id": mustRaw(t, projectID.String()), "sort_order": mustRaw(t, sortOrder)}}
-}
-
-func mustRaw(t *testing.T, value any) json.RawMessage {
-	t.Helper()
-	raw, err := json.Marshal(value)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	return raw
 }

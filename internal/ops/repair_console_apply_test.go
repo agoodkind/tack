@@ -2,6 +2,7 @@ package ops
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -12,39 +13,16 @@ import (
 )
 
 func TestApplyStrayAliasStateRejectsMissingActorID(t *testing.T) {
-	console := NewRepairConsole(
-		&repairNodeRepo{},
-		&repairReader{},
-		&repairTypeRepo{types: repairTypes()},
-		&repairPropRepo{defs: repairDefs()},
-		&repairSearcher{},
-	)
-
-	_, err := console.Apply(context.Background(), RepairApplyInput{
-		Class:             RepairClassStrayAliasState,
-		NodeID:            uuid.New(),
-		ConfirmationToken: "token",
-	})
+	console := NewRepairConsole(&repairNodeRepo{}, &repairReader{}, &repairTypeRepo{types: repairTypes()}, &repairPropRepo{defs: repairDefs()}, &repairSearcher{})
+	_, err := console.Apply(context.Background(), RepairApplyInput{Class: RepairClassStrayAliasState, NodeID: uuid.New(), ConfirmationToken: "token"})
 	if !errors.Is(err, domain.ErrInvalidArgument) {
 		t.Fatalf("Apply err = %v want ErrInvalidArgument", err)
 	}
 }
 
 func TestApplyStrayAliasStateRejectsBlankConfirmationToken(t *testing.T) {
-	console := NewRepairConsole(
-		&repairNodeRepo{},
-		&repairReader{},
-		&repairTypeRepo{types: repairTypes()},
-		&repairPropRepo{defs: repairDefs()},
-		&repairSearcher{},
-	)
-
-	_, err := console.Apply(context.Background(), RepairApplyInput{
-		ActorID:           uuid.New(),
-		Class:             RepairClassStrayAliasState,
-		NodeID:            uuid.New(),
-		ConfirmationToken: "   ",
-	})
+	console := NewRepairConsole(&repairNodeRepo{}, &repairReader{}, &repairTypeRepo{types: repairTypes()}, &repairPropRepo{defs: repairDefs()}, &repairSearcher{})
+	_, err := console.Apply(context.Background(), RepairApplyInput{ActorID: uuid.New(), Class: RepairClassStrayAliasState, NodeID: uuid.New(), ConfirmationToken: "   "})
 	if !errors.Is(err, domain.ErrInvalidArgument) {
 		t.Fatalf("Apply err = %v want ErrInvalidArgument", err)
 	}
@@ -55,12 +33,12 @@ func TestApplyStrayAliasStateRejectsStalePreviewAfterNodeChange(t *testing.T) {
 	projectID := uuid.New()
 	issueID := uuid.New()
 	stateID := uuid.New()
+	updatedAt := time.Date(2026, 5, 3, 12, 0, 0, 0, time.UTC)
 	reader := &repairReader{
 		views: map[uuid.UUID]*node.NodeView{
 			issueID: {
-				ID: issueID, OrgID: orgID, NodeType: "issue", Name: "Issue",
-				UpdatedAt: time.Date(2026, 5, 3, 12, 0, 0, 0, time.UTC),
-				Props: map[string][]byte{
+				ID: issueID, OrgID: orgID, NodeType: "issue", Name: "Issue", UpdatedAt: updatedAt,
+				Props: map[string]json.RawMessage{
 					"scope_id":  mustRaw(t, projectID.String()),
 					"parent_id": mustRaw(t, projectID.String()),
 					"state":     mustRaw(t, "Done"),
@@ -70,13 +48,7 @@ func TestApplyStrayAliasStateRejectsStalePreviewAfterNodeChange(t *testing.T) {
 		stateViews: []*node.NodeView{stateView(t, stateID, orgID, projectID, "Done", 3)},
 	}
 	nodeRepo := &repairNodeRepo{reader: reader}
-	console := NewRepairConsole(
-		nodeRepo,
-		reader,
-		&repairTypeRepo{types: repairTypes()},
-		&repairPropRepo{defs: repairDefs()},
-		&repairSearcher{},
-	)
+	console := NewRepairConsole(nodeRepo, reader, &repairTypeRepo{types: repairTypes()}, &repairPropRepo{defs: repairDefs()}, &repairSearcher{})
 
 	preview, err := console.Preview(context.Background(), RepairPreviewInput{Class: RepairClassStrayAliasState, NodeID: issueID})
 	if err != nil {
@@ -84,12 +56,7 @@ func TestApplyStrayAliasStateRejectsStalePreviewAfterNodeChange(t *testing.T) {
 	}
 	reader.views[issueID].UpdatedAt = reader.views[issueID].UpdatedAt.Add(time.Second)
 
-	_, err = console.Apply(context.Background(), RepairApplyInput{
-		ActorID:           uuid.New(),
-		Class:             RepairClassStrayAliasState,
-		NodeID:            issueID,
-		ConfirmationToken: preview.ConfirmationToken,
-	})
+	_, err = console.Apply(context.Background(), RepairApplyInput{ActorID: uuid.New(), Class: RepairClassStrayAliasState, NodeID: issueID, ConfirmationToken: preview.ConfirmationToken})
 	if !errors.Is(err, domain.ErrFailedPrecondition) {
 		t.Fatalf("Apply err = %v want ErrFailedPrecondition", err)
 	}
@@ -109,7 +76,7 @@ func TestApplyStrayAliasStateRecordsActorAndIndexedProps(t *testing.T) {
 			issueID: {
 				ID: issueID, OrgID: orgID, NodeType: "issue", Name: "Issue",
 				CreatedBy: uuid.New(), UpdatedAt: time.Date(2026, 5, 3, 12, 0, 0, 0, time.UTC),
-				Props: map[string][]byte{
+				Props: map[string]json.RawMessage{
 					"scope_id":  mustRaw(t, projectID.String()),
 					"parent_id": mustRaw(t, projectID.String()),
 					"state":     mustRaw(t, "Done"),
@@ -119,24 +86,13 @@ func TestApplyStrayAliasStateRecordsActorAndIndexedProps(t *testing.T) {
 		stateViews: []*node.NodeView{stateView(t, stateID, orgID, projectID, "Done", 3)},
 	}
 	nodeRepo := &repairNodeRepo{reader: reader}
-	console := NewRepairConsole(
-		nodeRepo,
-		reader,
-		&repairTypeRepo{types: repairTypes()},
-		&repairPropRepo{defs: repairDefs()},
-		&repairSearcher{},
-	)
+	console := NewRepairConsole(nodeRepo, reader, &repairTypeRepo{types: repairTypes()}, &repairPropRepo{defs: repairDefs()}, &repairSearcher{})
 
 	preview, err := console.Preview(context.Background(), RepairPreviewInput{Class: RepairClassStrayAliasState, NodeID: issueID})
 	if err != nil {
 		t.Fatalf("Preview: %v", err)
 	}
-	_, err = console.Apply(context.Background(), RepairApplyInput{
-		ActorID:           actorID,
-		Class:             RepairClassStrayAliasState,
-		NodeID:            issueID,
-		ConfirmationToken: preview.ConfirmationToken,
-	})
+	_, err = console.Apply(context.Background(), RepairApplyInput{ActorID: actorID, Class: RepairClassStrayAliasState, NodeID: issueID, ConfirmationToken: preview.ConfirmationToken})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
