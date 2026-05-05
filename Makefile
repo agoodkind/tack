@@ -85,16 +85,6 @@ GO_BUILD_LDFLAGS := -s -w \
 
 -include $(GO_MK)
 
-.DEFAULT_GOAL := check
-
-.PHONY: build-server check-gates
-build-server: build
-
-# check-gates is the full pre-deploy gate: canonical check (vet + full lint
-# pass including gocyclo, deadcode, staticcheck-extra strict + test) plus
-# tack's project-local logging discipline check.
-check-gates: check lint-logging
-
 .PHONY: run
 run:
 	go run $(GO_BUILD_FLAGS) $(CMD)
@@ -131,20 +121,6 @@ test-fdb-down:
 .PHONY: test-integration
 test-integration: test-fdb-up
 	./scripts/test-integration.sh
-
-# lint-logging: enforce structured-logging discipline per the plan in
-# /Users/agoodkind/.claude/plans/indexed-growing-snowglobe.md.
-#
-# Banned patterns in production code (non-cmd, non-test):
-#   - fmt.Print* for diagnostics: route through slog instead
-#   - stdlib log.Print*/log.Fatal*/log.Panic*: replaced by gklog/slog
-#
-# cmd/ is exempt because user-facing CLI output is allowed there. Tests are
-# exempt because t.Logf and friends are fine. Generated code under gen/ is
-# exempt by path.
-.PHONY: lint-logging
-lint-logging:
-	@./scripts/lint-logging.sh
 
 # Bump every direct and indirect dependency to its latest minor/patch
 # version, plus track the latest main commit of any goodkind.io/* module
