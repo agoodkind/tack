@@ -1,3 +1,18 @@
-# deadcode: generated_at=2026-05-05T04:08:46Z
-internal/telemetry/logger.go:154:6: unreachable func: WithLogger	# deadcode:first_added=2026-05-05T04:08:46Z last_seen=2026-05-05T04:08:46Z
-internal/telemetry/op.go:16:6: unreachable func: Op	# deadcode:first_added=2026-05-05T04:08:46Z last_seen=2026-05-05T04:08:46Z
+# deadcode: generated_at=2026-05-06T05:53:40Z
+internal/adapters/foundationdb/keys.go:205:6: unreachable func: TestPrefixRange	# deadcode:first_added=2026-05-06T05:53:40Z last_seen=2026-05-06T05:53:40Z
+internal/adapters/foundationdb/keys.go:78:6: unreachable func: SetTestPrefix	# deadcode:first_added=2026-05-06T05:53:40Z last_seen=2026-05-06T05:53:40Z
+internal/audit/memory.go:16:6: unreachable func: NewMemoryRecorder	# deadcode:first_added=2026-05-06T05:53:40Z last_seen=2026-05-06T05:53:40Z
+internal/audit/memory.go:18:26: unreachable func: MemoryRecorder.Record	# deadcode:first_added=2026-05-06T05:53:40Z last_seen=2026-05-06T05:53:40Z
+internal/audit/memory.go:29:26: unreachable func: MemoryRecorder.Events	# deadcode:first_added=2026-05-06T05:53:40Z last_seen=2026-05-06T05:53:40Z
+internal/audit/memory.go:38:26: unreachable func: MemoryRecorder.Reset	# deadcode:first_added=2026-05-06T05:53:40Z last_seen=2026-05-06T05:53:40Z
+internal/audit/notarizer.go:130:21: unreachable func: Notarizer.LastNotarizedUnix	# deadcode:first_added=2026-05-06T05:53:40Z last_seen=2026-05-06T05:53:40Z
+internal/audit/verbs.go:85:6: unreachable func: IsRead	# deadcode:first_added=2026-05-06T05:53:40Z last_seen=2026-05-06T05:53:40Z
+internal/telemetry/logger.go:154:6: unreachable func: WithLogger	# deadcode:first_added=2026-05-05T04:08:46Z last_seen=2026-05-06T05:53:40Z
+internal/telemetry/op.go:16:6: unreachable func: Op	# deadcode:first_added=2026-05-05T04:08:46Z last_seen=2026-05-06T05:53:40Z
+internal/test/integration/noop_searcher.go:15:21: unreachable func: noopSearcher.Index	# deadcode:first_added=2026-05-06T05:53:40Z last_seen=2026-05-06T05:53:40Z
+internal/test/integration/noop_searcher.go:18:21: unreachable func: noopSearcher.Delete	# deadcode:first_added=2026-05-06T05:53:40Z last_seen=2026-05-06T05:53:40Z
+internal/test/integration/noop_searcher.go:19:21: unreachable func: noopSearcher.Search	# deadcode:first_added=2026-05-06T05:53:40Z last_seen=2026-05-06T05:53:40Z
+internal/test/integration/setup.go:123:6: unreachable func: writeOrgNode	# deadcode:first_added=2026-05-06T05:53:40Z last_seen=2026-05-06T05:53:40Z
+internal/test/integration/setup.go:152:6: unreachable func: mustJSON	# deadcode:first_added=2026-05-06T05:53:40Z last_seen=2026-05-06T05:53:40Z
+internal/test/integration/setup.go:163:6: unreachable func: clearPrefix	# deadcode:first_added=2026-05-06T05:53:40Z last_seen=2026-05-06T05:53:40Z
+internal/test/integration/setup.go:52:6: unreachable func: SetupTestEnv	# deadcode:first_added=2026-05-06T05:53:40Z last_seen=2026-05-06T05:53:40Z
