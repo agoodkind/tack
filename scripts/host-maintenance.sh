@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Maintain CT 117 host disk health without changing the existing deploy flow.
+# TODO: do we still need this?
 set -euo pipefail
 
 ROOT_USAGE_MAX_PERCENT="${ROOT_USAGE_MAX_PERCENT:-85}"
