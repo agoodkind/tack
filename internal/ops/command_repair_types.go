@@ -43,6 +43,14 @@ type previewOutput struct {
 	SafeMode     string         `json:"safe_mode"`
 }
 
+type repairApplyOutput struct {
+	Command     string             `json:"command"`
+	RepairClass RepairClass        `json:"repair_class"`
+	Status      string             `json:"status"`
+	SafeMode    string             `json:"safe_mode"`
+	Result      *RepairApplyResult `json:"result"`
+}
+
 func repairInspectionChecks(selectedNode *repairSelectedNode, report *fdbadapter.NodeInspectionReport) []repairCheck {
 	checks := []repairCheck{
 		{Name: "resolve_row_present", OK: report.Resolve != nil, Details: ""},

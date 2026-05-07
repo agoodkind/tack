@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	searchadapter "goodkind.io/tack/internal/adapters/search"
@@ -20,15 +19,15 @@ import (
 type RepairClass string
 
 const (
-	// RepairClassStrayAliasState repairs raw `state` aliases into canonical
-	// `state_id` props using project-scoped workflow resolution.
-	RepairClassStrayAliasState RepairClass = "stray_alias_state"
+	// RepairClassReferenceProperty repairs a UUID reference property from generic source fields.
+	RepairClassReferenceProperty RepairClass = "reference_property"
 )
 
 // RepairPreviewInput selects one node and repair class for planning.
 type RepairPreviewInput struct {
-	Class  RepairClass
-	NodeID uuid.UUID
+	Class   RepairClass
+	NodeID  uuid.UUID
+	Profile *RepairReferenceProfile
 }
 
 // RepairApplyInput confirms and applies one previously previewed repair.
@@ -37,31 +36,14 @@ type RepairApplyInput struct {
 	Class             RepairClass
 	ConfirmationToken string
 	NodeID            uuid.UUID
-}
-
-// RepairPreview describes the current repair decision for one node.
-type RepairPreview struct {
-	Class                    RepairClass
-	NodeID                   uuid.UUID
-	NodeType                 string
-	CurrentUpdatedAt         time.Time
-	Summary                  string
-	ConfirmationToken        string
-	NeedsRepair              bool
-	CanApply                 bool
-	RawState                 string
-	CanonicalStateID         uuid.UUID
-	ResolvedRawStateID       uuid.UUID
-	ResolvedCanonicalStateID uuid.UUID
-	WinnerStateID            uuid.UUID
-	WinnerStateName          string
+	Profile           *RepairReferenceProfile
 }
 
 // RepairApplyResult returns the applied write plus the preview it matched.
 type RepairApplyResult struct {
-	Applied bool
-	Preview *RepairPreview
-	View    *node.NodeView
+	Applied bool           `json:"applied"`
+	Preview *RepairPreview `json:"preview"`
+	View    *node.NodeView `json:"view,omitempty"`
 }
 
 // RepairConsole previews and applies node repair mutations.
@@ -107,7 +89,7 @@ func (c *RepairConsole) Preview(ctx context.Context, in RepairPreviewInput) (*Re
 	if in.NodeID == uuid.Nil {
 		return nil, fmt.Errorf("repair preview node_id required: %w", domain.ErrInvalidArgument)
 	}
-	plan, err := c.plan(ctx, in.Class, in.NodeID)
+	plan, err := c.plan(ctx, in.Class, in.NodeID, in.Profile)
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +104,7 @@ func (c *RepairConsole) Apply(ctx context.Context, in RepairApplyInput) (*Repair
 	if strings.TrimSpace(in.ConfirmationToken) == "" {
 		return nil, fmt.Errorf("repair apply confirmation token required: %w", domain.ErrInvalidArgument)
 	}
-	plan, err := c.plan(ctx, in.Class, in.NodeID)
+	plan, err := c.plan(ctx, in.Class, in.NodeID, in.Profile)
 	if err != nil {
 		return nil, err
 	}
@@ -148,10 +130,10 @@ type repairPlan struct {
 	props   map[string]json.RawMessage
 }
 
-func (c *RepairConsole) plan(ctx context.Context, class RepairClass, nodeID uuid.UUID) (*repairPlan, error) {
+func (c *RepairConsole) plan(ctx context.Context, class RepairClass, nodeID uuid.UUID, profile *RepairReferenceProfile) (*repairPlan, error) {
 	switch class {
-	case RepairClassStrayAliasState:
-		return c.planStrayAliasState(ctx, nodeID)
+	case RepairClassReferenceProperty:
+		return c.planReferenceProperty(ctx, nodeID, profile)
 	default:
 		return nil, fmt.Errorf("repair class %q: %w", class, domain.ErrInvalidArgument)
 	}

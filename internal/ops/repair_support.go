@@ -73,7 +73,7 @@ func repairNeedDetails(preview *RepairPreview) string {
 	if preview.NeedsRepair {
 		return "repair would change persisted props"
 	}
-	return "node already matches canonical state storage"
+	return "reference property already matches selected storage"
 }
 
 func repairPreviewStatus(preview *RepairPreview) string {

@@ -13,23 +13,22 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-func TestPreviewStrayAliasStateRejectsMissingNodeID(t *testing.T) {
+func TestPreviewReferencePropertyRejectsMissingNodeID(t *testing.T) {
 	console := NewRepairConsole(&repairNodeRepo{}, &repairReader{}, &repairTypeRepo{types: repairTypes()}, &repairPropRepo{defs: repairDefs()}, &repairSearcher{})
-	_, err := console.Preview(context.Background(), RepairPreviewInput{Class: RepairClassStrayAliasState})
+	_, err := console.Preview(context.Background(), RepairPreviewInput{Class: RepairClassReferenceProperty, Profile: phaseProfile()})
 	if !errors.Is(err, domain.ErrInvalidArgument) {
 		t.Fatalf("Preview err = %v want ErrInvalidArgument", err)
 	}
 }
 
-func TestPreviewStrayAliasStateReturnsNoopWhenRawStateMissing(t *testing.T) {
-	issueID := uuid.New()
-	updatedAt := time.Date(2026, 5, 3, 12, 0, 0, 0, time.UTC)
+func TestPreviewReferencePropertyReturnsNoopWhenSourceMissing(t *testing.T) {
+	ticketID := uuid.New()
 	reader := &repairReader{views: map[uuid.UUID]*node.NodeView{
-		issueID: {ID: issueID, OrgID: uuid.New(), NodeType: "issue", Name: "Issue", UpdatedAt: updatedAt},
+		ticketID: {ID: ticketID, OrgID: uuid.New(), NodeType: "ticket", Name: "Ticket", Props: map[string]json.RawMessage{}, UpdatedAt: time.Date(2026, 5, 3, 12, 0, 0, 0, time.UTC)},
 	}}
 	console := NewRepairConsole(&repairNodeRepo{reader: reader}, reader, &repairTypeRepo{types: repairTypes()}, &repairPropRepo{defs: repairDefs()}, &repairSearcher{})
 
-	preview, err := console.Preview(context.Background(), RepairPreviewInput{Class: RepairClassStrayAliasState, NodeID: issueID})
+	preview, err := console.Preview(context.Background(), RepairPreviewInput{Class: RepairClassReferenceProperty, NodeID: ticketID, Profile: phaseProfile()})
 	if err != nil {
 		t.Fatalf("Preview: %v", err)
 	}
@@ -39,54 +38,26 @@ func TestPreviewStrayAliasStateReturnsNoopWhenRawStateMissing(t *testing.T) {
 	if preview.CanApply {
 		t.Fatal("Preview CanApply = true want false")
 	}
-	if preview.Summary != "raw state alias is absent" {
-		t.Fatalf("Preview Summary = %q", preview.Summary)
-	}
 }
 
-func TestPreviewStrayAliasStateRejectsMissingScope(t *testing.T) {
-	issueID := uuid.New()
-	reader := &repairReader{views: map[uuid.UUID]*node.NodeView{
-		issueID: {
-			ID: issueID, OrgID: uuid.New(), NodeType: "issue", Name: "Issue",
-			UpdatedAt: time.Date(2026, 5, 3, 12, 0, 0, 0, time.UTC),
-			Props:     map[string]json.RawMessage{"state": mustRaw(t, "Done")},
-		},
-	}}
-	console := NewRepairConsole(&repairNodeRepo{reader: reader}, reader, &repairTypeRepo{types: repairTypes()}, &repairPropRepo{defs: repairDefs()}, &repairSearcher{})
-
-	_, err := console.Preview(context.Background(), RepairPreviewInput{Class: RepairClassStrayAliasState, NodeID: issueID})
-	if !errors.Is(err, domain.ErrFailedPrecondition) {
-		t.Fatalf("Preview err = %v want ErrFailedPrecondition", err)
-	}
-}
-
-func TestPreviewStrayAliasStateDisablesApplyForAmbiguousWorkflowState(t *testing.T) {
+func TestPreviewReferencePropertyBlocksAmbiguousScopedProperty(t *testing.T) {
 	orgID := uuid.New()
-	projectID := uuid.New()
-	issueID := uuid.New()
-	firstStateID := uuid.New()
-	secondStateID := uuid.New()
+	containerID := uuid.New()
+	ticketID := uuid.New()
+	firstPhaseID := uuid.New()
+	secondPhaseID := uuid.New()
 	reader := &repairReader{
 		views: map[uuid.UUID]*node.NodeView{
-			issueID: {
-				ID: issueID, OrgID: orgID, NodeType: "issue", Name: "Issue",
-				UpdatedAt: time.Date(2026, 5, 3, 12, 0, 0, 0, time.UTC),
-				Props: map[string]json.RawMessage{
-					"scope_id":  mustRaw(t, projectID.String()),
-					"parent_id": mustRaw(t, projectID.String()),
-					"state":     mustRaw(t, "Done"),
-				},
-			},
+			ticketID: {ID: ticketID, OrgID: orgID, NodeType: "ticket", Name: "Ticket", Props: map[string]json.RawMessage{"scope_id": mustRaw(t, containerID.String()), "phase": mustRaw(t, "Ready")}},
 		},
-		stateViews: []*node.NodeView{
-			stateView(t, firstStateID, orgID, projectID, "Done", 2),
-			stateView(t, secondStateID, orgID, projectID, "Done", 3),
+		listViews: []*node.NodeView{
+			phaseView(t, firstPhaseID, orgID, containerID, "Ready", 1),
+			phaseView(t, secondPhaseID, orgID, containerID, "Ready", 2),
 		},
 	}
 	console := NewRepairConsole(&repairNodeRepo{reader: reader}, reader, &repairTypeRepo{types: repairTypes()}, &repairPropRepo{defs: repairDefs()}, &repairSearcher{})
 
-	preview, err := console.Preview(context.Background(), RepairPreviewInput{Class: RepairClassStrayAliasState, NodeID: issueID})
+	preview, err := console.Preview(context.Background(), RepairPreviewInput{Class: RepairClassReferenceProperty, NodeID: ticketID, Profile: phaseProfile()})
 	if err != nil {
 		t.Fatalf("Preview: %v", err)
 	}
@@ -96,10 +67,7 @@ func TestPreviewStrayAliasStateDisablesApplyForAmbiguousWorkflowState(t *testing
 	if preview.CanApply {
 		t.Fatal("Preview CanApply = true want false")
 	}
-	if !strings.Contains(preview.Summary, "matched multiple nodes") {
-		t.Fatalf("Preview Summary = %q want ambiguous-state detail", preview.Summary)
-	}
-	if preview.ConfirmationToken != "" {
-		t.Fatalf("Preview ConfirmationToken = %q want empty", preview.ConfirmationToken)
+	if !strings.Contains(preview.Summary, "no reference candidate resolved") {
+		t.Fatalf("Preview Summary = %q want unresolved detail", preview.Summary)
 	}
 }

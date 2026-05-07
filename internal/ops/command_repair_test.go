@@ -18,10 +18,10 @@ func TestRunRepairPrintsUsageForHelp(t *testing.T) {
 	if !strings.Contains(stderr, "usage: ./server ops repair <classes|preview|apply> [flags]") {
 		t.Fatalf("stderr = %q want usage text", stderr)
 	}
-	if !strings.Contains(stderr, "Preview a targeted repair for one node") {
+	if !strings.Contains(stderr, "Preview one node with --profile or many nodes with --manifest") {
 		t.Fatalf("stderr = %q want preview command", stderr)
 	}
-	if !strings.Contains(stderr, "Apply a previously previewed repair after explicit confirmation") {
+	if !strings.Contains(stderr, "Apply a previewed repair after explicit confirmation") {
 		t.Fatalf("stderr = %q want apply command", stderr)
 	}
 }
@@ -37,7 +37,7 @@ func TestRepairCLIHelperProcess(t *testing.T) {
 	case "parse-invalid-node":
 		RunCommand(context.Background(), nil, []string{"repair", "preview", "--node", "not-a-uuid"})
 	case "apply-missing-confirm":
-		RunCommand(context.Background(), nil, []string{"repair", "apply", "--node", uuid.New().String(), "--actor", uuid.New().String(), "--confirm", "   "})
+		RunCommand(context.Background(), nil, []string{"repair", "apply", "--node", uuid.New().String(), "--actor", uuid.New().String(), "--confirm", "   ", "--yes"})
 	default:
 		t.Fatalf("unknown helper scenario %q", os.Getenv("REPAIR_HELPER_SCENARIO"))
 	}
@@ -68,7 +68,7 @@ func TestRunRepairApplyRejectsBlankConfirmationToken(t *testing.T) {
 	if result.exitCode != 2 {
 		t.Fatalf("exitCode = %d want 2", result.exitCode)
 	}
-	if !strings.Contains(result.stderr, "usage: ./server ops repair apply --node <uuid> --actor <uuid> --confirm <token>") {
+	if !strings.Contains(result.stderr, "repair apply: --node and --confirm are required unless --manifest is used") {
 		t.Fatalf("stderr = %q want apply usage", result.stderr)
 	}
 }

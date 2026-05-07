@@ -66,8 +66,8 @@ func (r *repairNodeRepo) LookupIdempotencyKey(context.Context, uuid.UUID, string
 }
 
 type repairReader struct {
-	views      map[uuid.UUID]*node.NodeView
-	stateViews []*node.NodeView
+	views     map[uuid.UUID]*node.NodeView
+	listViews []*node.NodeView
 }
 
 func (r *repairReader) Get(_ context.Context, id uuid.UUID) (*node.NodeView, error) {
@@ -83,15 +83,15 @@ func (r *repairReader) Resolve(_ context.Context, id uuid.UUID) (*node.NodeResol
 }
 
 func (r *repairReader) List(_ context.Context, query node.NodeListQuery) ([]*node.NodeView, error) {
-	if query.ByProperty == nil || query.ByProperty.PropName != "parent_id" {
-		return nil, nil
-	}
-	views := make([]*node.NodeView, 0, len(r.stateViews))
-	for _, view := range r.stateViews {
-		if view.OrgID != query.OrgID || view.NodeType != query.NodeType {
+	views := make([]*node.NodeView, 0, len(r.listViews))
+	for _, view := range r.listViews {
+		if query.OrgID != uuid.Nil && view.OrgID != query.OrgID {
 			continue
 		}
-		if string(view.Props["parent_id"]) != string(query.ByProperty.Value) {
+		if query.NodeType != "" && view.NodeType != query.NodeType {
+			continue
+		}
+		if query.ByProperty != nil && string(view.Props[query.ByProperty.PropName]) != string(query.ByProperty.Value) {
 			continue
 		}
 		views = append(views, view)
@@ -154,32 +154,23 @@ func (s *repairSearcher) Search(context.Context, string, string, map[string]stri
 
 func repairTypes() []*node.NodeType {
 	return []*node.NodeType{
-		{TypeKey: "project", Slug: "project", Reference: node.ReferenceConfig{Strategy: node.ReferenceDirectSlug, Property: "identifier"}},
-		{TypeKey: "state", Slug: "state", Reference: node.ReferenceConfig{Strategy: node.ReferenceScopedProperty, Property: "name"}},
-		{TypeKey: "issue", Slug: "issue", Features: node.Features{node.FeatureHasWorkflowStates}},
+		{TypeKey: "container", Slug: "containers", Reference: node.ReferenceConfig{Strategy: node.ReferenceDirectSlug, Property: "code"}},
+		{TypeKey: "phase", Slug: "phases", Reference: node.ReferenceConfig{Strategy: node.ReferenceScopedProperty, Property: "name"}},
+		{TypeKey: "ticket", Slug: "tickets", Features: node.Features{"has_phase"}},
 	}
 }
 
 func repairDefs() []*node.PropertyDef {
-	return []*node.PropertyDef{
-		{Name: "parent_id"},
-		{Name: "scope_id"},
-		{Name: "state_id", Type: node.PropertyTypeUUID, Indexed: true, AppliesToFeatures: []string{node.FeatureHasWorkflowStates}, ReferenceTargetTypeKey: "state"},
-	}
+	return []*node.PropertyDef{{Name: "parent_id"}, {Name: "scope_id"}, {Name: "phase_id", Type: node.PropertyTypeUUID, Indexed: true, AppliesToFeatures: []string{"has_phase"}, ReferenceTargetTypeKey: "phase"}}
 }
 
-func stateView(t *testing.T, stateID uuid.UUID, orgID uuid.UUID, projectID uuid.UUID, name string, sortOrder int64) *node.NodeView {
+func phaseView(t *testing.T, phaseID uuid.UUID, orgID uuid.UUID, containerID uuid.UUID, name string, rank int64) *node.NodeView {
 	t.Helper()
-	return &node.NodeView{
-		ID:       stateID,
-		OrgID:    orgID,
-		NodeType: "state",
-		Name:     name,
-		Props: map[string]json.RawMessage{
-			"parent_id":  mustRaw(t, projectID.String()),
-			"sort_order": mustRaw(t, sortOrder),
-		},
-	}
+	return &node.NodeView{ID: phaseID, OrgID: orgID, NodeType: "phase", Name: name, Props: map[string]json.RawMessage{"parent_id": mustRaw(t, containerID.String()), "rank": mustRaw(t, rank)}}
+}
+
+func phaseProfile() *RepairReferenceProfile {
+	return &RepairReferenceProfile{TargetProperty: "phase_id", SourceFields: []string{"phase"}, CleanupBehavior: RepairCleanupSourceFields, ConflictPolicy: RepairConflictPreferHighestRank, RankProperty: "rank"}
 }
 
 func mustRaw(t *testing.T, value any) json.RawMessage {

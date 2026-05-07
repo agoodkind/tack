@@ -12,106 +12,82 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-func TestApplyStrayAliasStateRejectsMissingActorID(t *testing.T) {
+func TestApplyReferencePropertyRejectsMissingActorID(t *testing.T) {
 	console := NewRepairConsole(&repairNodeRepo{}, &repairReader{}, &repairTypeRepo{types: repairTypes()}, &repairPropRepo{defs: repairDefs()}, &repairSearcher{})
-	_, err := console.Apply(context.Background(), RepairApplyInput{Class: RepairClassStrayAliasState, NodeID: uuid.New(), ConfirmationToken: "token"})
+	_, err := console.Apply(context.Background(), RepairApplyInput{Class: RepairClassReferenceProperty, NodeID: uuid.New(), ConfirmationToken: "token", Profile: phaseProfile()})
 	if !errors.Is(err, domain.ErrInvalidArgument) {
 		t.Fatalf("Apply err = %v want ErrInvalidArgument", err)
 	}
 }
 
-func TestApplyStrayAliasStateRejectsBlankConfirmationToken(t *testing.T) {
+func TestApplyReferencePropertyRejectsBlankConfirmationToken(t *testing.T) {
 	console := NewRepairConsole(&repairNodeRepo{}, &repairReader{}, &repairTypeRepo{types: repairTypes()}, &repairPropRepo{defs: repairDefs()}, &repairSearcher{})
-	_, err := console.Apply(context.Background(), RepairApplyInput{ActorID: uuid.New(), Class: RepairClassStrayAliasState, NodeID: uuid.New(), ConfirmationToken: "   "})
+	_, err := console.Apply(context.Background(), RepairApplyInput{ActorID: uuid.New(), Class: RepairClassReferenceProperty, NodeID: uuid.New(), ConfirmationToken: "   ", Profile: phaseProfile()})
 	if !errors.Is(err, domain.ErrInvalidArgument) {
 		t.Fatalf("Apply err = %v want ErrInvalidArgument", err)
 	}
 }
 
-func TestApplyStrayAliasStateRejectsStalePreviewAfterNodeChange(t *testing.T) {
+func TestApplyReferencePropertyRequiresMatchingConfirmationToken(t *testing.T) {
 	orgID := uuid.New()
-	projectID := uuid.New()
-	issueID := uuid.New()
-	stateID := uuid.New()
-	updatedAt := time.Date(2026, 5, 3, 12, 0, 0, 0, time.UTC)
+	containerID := uuid.New()
+	ticketID := uuid.New()
+	phaseID := uuid.New()
 	reader := &repairReader{
 		views: map[uuid.UUID]*node.NodeView{
-			issueID: {
-				ID: issueID, OrgID: orgID, NodeType: "issue", Name: "Issue", UpdatedAt: updatedAt,
-				Props: map[string]json.RawMessage{
-					"scope_id":  mustRaw(t, projectID.String()),
-					"parent_id": mustRaw(t, projectID.String()),
-					"state":     mustRaw(t, "Done"),
-				},
-			},
+			ticketID: {ID: ticketID, OrgID: orgID, NodeType: "ticket", Name: "Ticket", UpdatedAt: time.Date(2026, 5, 3, 12, 0, 0, 0, time.UTC), Props: map[string]json.RawMessage{"scope_id": mustRaw(t, containerID.String()), "phase": mustRaw(t, "Ready")}},
 		},
-		stateViews: []*node.NodeView{stateView(t, stateID, orgID, projectID, "Done", 3)},
+		listViews: []*node.NodeView{phaseView(t, phaseID, orgID, containerID, "Ready", 1)},
 	}
 	nodeRepo := &repairNodeRepo{reader: reader}
 	console := NewRepairConsole(nodeRepo, reader, &repairTypeRepo{types: repairTypes()}, &repairPropRepo{defs: repairDefs()}, &repairSearcher{})
 
-	preview, err := console.Preview(context.Background(), RepairPreviewInput{Class: RepairClassStrayAliasState, NodeID: issueID})
-	if err != nil {
-		t.Fatalf("Preview: %v", err)
-	}
-	reader.views[issueID].UpdatedAt = reader.views[issueID].UpdatedAt.Add(time.Second)
-
-	_, err = console.Apply(context.Background(), RepairApplyInput{ActorID: uuid.New(), Class: RepairClassStrayAliasState, NodeID: issueID, ConfirmationToken: preview.ConfirmationToken})
+	_, err := console.Apply(context.Background(), RepairApplyInput{ActorID: uuid.New(), Class: RepairClassReferenceProperty, NodeID: ticketID, ConfirmationToken: "wrong", Profile: phaseProfile()})
 	if !errors.Is(err, domain.ErrFailedPrecondition) {
 		t.Fatalf("Apply err = %v want ErrFailedPrecondition", err)
 	}
 	if nodeRepo.updatedNode != nil {
-		t.Fatal("Apply wrote despite stale preview token")
+		t.Fatal("Apply wrote despite mismatched token")
 	}
 }
 
-func TestApplyStrayAliasStateRecordsActorAndIndexedProps(t *testing.T) {
+func TestApplyReferencePropertyCleansSourceAndUpdatesTarget(t *testing.T) {
 	orgID := uuid.New()
-	projectID := uuid.New()
-	issueID := uuid.New()
-	stateID := uuid.New()
+	containerID := uuid.New()
+	ticketID := uuid.New()
+	phaseID := uuid.New()
 	actorID := uuid.New()
 	reader := &repairReader{
 		views: map[uuid.UUID]*node.NodeView{
-			issueID: {
-				ID: issueID, OrgID: orgID, NodeType: "issue", Name: "Issue",
-				CreatedBy: uuid.New(), UpdatedAt: time.Date(2026, 5, 3, 12, 0, 0, 0, time.UTC),
-				Props: map[string]json.RawMessage{
-					"scope_id":  mustRaw(t, projectID.String()),
-					"parent_id": mustRaw(t, projectID.String()),
-					"state":     mustRaw(t, "Done"),
-				},
-			},
+			ticketID: {ID: ticketID, OrgID: orgID, NodeType: "ticket", Name: "Ticket", CreatedBy: uuid.New(), UpdatedAt: time.Date(2026, 5, 3, 12, 0, 0, 0, time.UTC), Props: map[string]json.RawMessage{"scope_id": mustRaw(t, containerID.String()), "phase": mustRaw(t, "Ready")}},
 		},
-		stateViews: []*node.NodeView{stateView(t, stateID, orgID, projectID, "Done", 3)},
+		listViews: []*node.NodeView{phaseView(t, phaseID, orgID, containerID, "Ready", 1)},
 	}
 	nodeRepo := &repairNodeRepo{reader: reader}
-	console := NewRepairConsole(nodeRepo, reader, &repairTypeRepo{types: repairTypes()}, &repairPropRepo{defs: repairDefs()}, &repairSearcher{})
+	searcher := &repairSearcher{}
+	console := NewRepairConsole(nodeRepo, reader, &repairTypeRepo{types: repairTypes()}, &repairPropRepo{defs: repairDefs()}, searcher)
 
-	preview, err := console.Preview(context.Background(), RepairPreviewInput{Class: RepairClassStrayAliasState, NodeID: issueID})
+	preview, err := console.Preview(context.Background(), RepairPreviewInput{Class: RepairClassReferenceProperty, NodeID: ticketID, Profile: phaseProfile()})
 	if err != nil {
 		t.Fatalf("Preview: %v", err)
 	}
-	_, err = console.Apply(context.Background(), RepairApplyInput{ActorID: actorID, Class: RepairClassStrayAliasState, NodeID: issueID, ConfirmationToken: preview.ConfirmationToken})
+	result, err := console.Apply(context.Background(), RepairApplyInput{ActorID: actorID, Class: RepairClassReferenceProperty, NodeID: ticketID, ConfirmationToken: preview.ConfirmationToken, Profile: phaseProfile()})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
-	if nodeRepo.updatedNode == nil {
-		t.Fatal("Apply updatedNode = nil")
+	if !result.Applied {
+		t.Fatal("Apply Applied = false")
 	}
-	if nodeRepo.updatedNode.UpdatedBy != actorID {
-		t.Fatalf("updated node UpdatedBy = %s want %s", nodeRepo.updatedNode.UpdatedBy, actorID)
+	if _, ok := nodeRepo.updatedNode.Props["phase"]; ok {
+		t.Fatal("updated node still contains source field")
 	}
-	if nodeRepo.updatedView == nil {
-		t.Fatal("Apply updatedView = nil")
+	if got := rawUUIDProp(nodeRepo.updatedNode.Props, "phase_id"); got != phaseID {
+		t.Fatalf("updated phase_id = %s want %s", got, phaseID)
 	}
-	if nodeRepo.updatedView.UpdatedBy != actorID {
-		t.Fatalf("updated view UpdatedBy = %s want %s", nodeRepo.updatedView.UpdatedBy, actorID)
+	if len(nodeRepo.indexedProps) != 1 || nodeRepo.indexedProps[0] != "phase_id" {
+		t.Fatalf("indexedProps = %v want [phase_id]", nodeRepo.indexedProps)
 	}
-	if rawUUIDProp(nodeRepo.oldProps, "state_id") != uuid.Nil {
-		t.Fatalf("oldProps state_id = %s want nil", rawUUIDProp(nodeRepo.oldProps, "state_id"))
-	}
-	if len(nodeRepo.indexedProps) != 1 || nodeRepo.indexedProps[0] != "state_id" {
-		t.Fatalf("indexedProps = %v want [state_id]", nodeRepo.indexedProps)
+	if searcher.indexCount == 0 {
+		t.Fatal("Apply did not reindex search document")
 	}
 }

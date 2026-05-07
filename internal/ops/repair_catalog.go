@@ -14,8 +14,8 @@ type RepairClassInfo struct {
 }
 
 var repairClassCatalog = []RepairClassInfo{{
-	Class:       RepairClassStrayAliasState,
-	Description: "Remove a raw `state` alias after resolving the canonical `state_id` winner for one workflow-scoped node.",
+	Class:       RepairClassReferenceProperty,
+	Description: "Repair one UUID reference property from operator-declared source fields and policies.",
 }}
 
 // RepairClasses returns the supported repair classes.
@@ -27,7 +27,7 @@ func RepairClasses() []RepairClassInfo {
 
 // DefaultRepairClass returns the default repair class for CLI usage.
 func DefaultRepairClass() RepairClass {
-	return RepairClassStrayAliasState
+	return RepairClassReferenceProperty
 }
 
 // ParseRepairClass validates one repair class input.

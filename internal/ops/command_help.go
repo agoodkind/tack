@@ -68,8 +68,8 @@ func printRepairUsage() {
 	fmt.Fprintln(os.Stderr)
 	fmt.Fprintln(os.Stderr, "subcommands:")
 	fmt.Fprintln(os.Stderr, "  classes   List supported repair classes")
-	fmt.Fprintln(os.Stderr, "  preview   Preview a targeted repair for one node")
-	fmt.Fprintln(os.Stderr, "  apply     Apply a previously previewed repair after explicit confirmation")
+	fmt.Fprintln(os.Stderr, "  preview   Preview one node with --profile or many nodes with --manifest")
+	fmt.Fprintln(os.Stderr, "  apply     Apply a previewed repair after explicit confirmation")
 }
 
 // PrintClasses writes the supported repair classes to stderr for CLI help.
@@ -85,9 +85,11 @@ func printRepairCommandUsage(command string) {
 	case "classes":
 		fmt.Fprintln(os.Stderr, "usage: ./server ops repair classes")
 	case "preview":
-		fmt.Fprintln(os.Stderr, "usage: ./server ops repair preview --node <uuid> [--class <repair-class>]")
+		fmt.Fprintln(os.Stderr, "usage: ./server ops repair preview --node <uuid> --profile <profile.json> [--class <repair-class>]")
+		fmt.Fprintln(os.Stderr, "       ./server ops repair preview --manifest <manifest.json> [--class <repair-class>]")
 	case "apply":
-		fmt.Fprintln(os.Stderr, "usage: ./server ops repair apply --node <uuid> --actor <uuid> --confirm <token> [--class <repair-class>] --yes")
+		fmt.Fprintln(os.Stderr, "usage: ./server ops repair apply --node <uuid> --profile <profile.json> --actor <uuid> --confirm <token> [--class <repair-class>] --yes")
+		fmt.Fprintln(os.Stderr, "       ./server ops repair apply --manifest <manifest.json> --actor <uuid> [--class <repair-class>] --yes")
 	default:
 		fmt.Fprintf(os.Stderr, "unknown repair command: %s\n\n", command)
 		printRepairUsage()
