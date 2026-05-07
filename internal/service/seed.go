@@ -11,8 +11,8 @@ import (
 )
 
 // Seed-only type keys. These are the ONLY place where specific NodeType names
-// live as source-code constants. Runtime code reads NodeType.TypeKey (and
-// Slug) from the FDB-loaded NodeType records.
+// live as source-code constants. Runtime code reads NodeType.TypeKey from the
+// FDB-loaded NodeType records.
 const (
 	nodeTypeIssue     = "issue"
 	nodeTypeEpic      = "epic"
@@ -55,7 +55,7 @@ func (s *Seeder) SeedOrg(ctx context.Context, orgID uuid.UUID) {
 	}
 	for _, nt := range defaultNodeTypes(orgID) {
 		if err := s.nodeTypes.Set(ctx, nt); err != nil {
-			log.Warn("seed node type", slog.String("slug", nt.Slug), slog.String("err", err.Error()))
+			log.Warn("seed node type", slog.String("type_key", nt.TypeKey), slog.String("err", err.Error()))
 		}
 	}
 }
@@ -135,7 +135,7 @@ func defaultPropertyDefs(orgID uuid.UUID) []*node.PropertyDef {
 			OrgID:             orgID,
 			Name:              "slug",
 			Type:              node.PropertyTypeText,
-			AppliesToFeatures: []string{node.FeatureHasSlug},
+			AppliesToFeatures: []string{node.FeatureHasAddress},
 			Indexed:           true,
 		},
 		{
@@ -207,8 +207,8 @@ func defaultPropertyDefs(orgID uuid.UUID) []*node.PropertyDef {
 }
 
 // defaultNodeTypes returns the built-in NodeType records for a given org.
-// IDs are deterministic UUID v5 values derived from (orgID, slug) so repeated
-// seeding writes the same record.
+// IDs are deterministic UUID v5 values derived from (orgID, NodeType.Slug) so
+// repeated seeding writes the same record.
 func defaultNodeTypes(orgID uuid.UUID) []*node.NodeType {
 	type spec struct {
 		slug            string
@@ -251,26 +251,26 @@ func defaultNodeTypes(orgID uuid.UUID) []*node.NodeType {
 	cycleFeatures := node.Features{node.FeatureHasDueDates, node.FeatureHasActivity, node.FeatureIsContainer}
 	moduleFeatures := node.Features{node.FeatureHasActivity, node.FeatureIsContainer}
 	workspaceFeatures := node.Features{
-		node.FeatureHasSlug, node.FeatureIsContainer,
+		node.FeatureHasAddress, node.FeatureIsContainer,
 		node.FeatureIsEntryPoint, node.FeatureIsScope,
 		node.FeatureExcludeFromGenericTools,
 	}
 	projectFeatures := node.Features{
-		node.FeatureHasSlug, node.FeatureIsContainer, node.FeatureIsScope,
+		node.FeatureHasAddress, node.FeatureIsContainer, node.FeatureIsScope,
 	}
 	orgFeatures := node.Features{
-		node.FeatureHasSlug, node.FeatureIsContainer, node.FeatureIsScope,
+		node.FeatureHasAddress, node.FeatureIsContainer, node.FeatureIsScope,
 		node.FeatureExcludeFromGenericTools,
 	}
-	directIdentifier := node.ReferenceConfig{Strategy: node.ReferenceDirectSlug, Property: "identifier"}
-	directSlug := node.ReferenceConfig{Strategy: node.ReferenceDirectSlug, Property: "slug"}
+	directIdentifier := node.ReferenceConfig{Strategy: node.ReferenceDirectProperty, Property: "identifier"}
+	slugAddressReference := node.ReferenceConfig{Strategy: node.ReferenceDirectProperty, Property: "slug"}
 	scopedSequence := node.ReferenceConfig{Strategy: node.ReferenceScopedSequence, Property: "sequence"}
 	scopedName := node.ReferenceConfig{Strategy: node.ReferenceScopedProperty, Property: "name"}
 	uuidOnly := node.ReferenceConfig{Strategy: node.ReferenceUUIDOnly}
 
 	specs := []spec{
-		{"org", "orgs", "Org", nodeTypeOrg, orgFeatures, directSlug, []string{nodeTypeWorkspace}, nil, nil},
-		{"workspace", "workspaces", "Workspace", nodeTypeWorkspace, workspaceFeatures, directSlug, []string{nodeTypeProject, nodeTypeLabel, nodeTypeWorkspace}, []string{nodeTypeOrg}, nil},
+		{"org", "orgs", "Org", nodeTypeOrg, orgFeatures, slugAddressReference, []string{nodeTypeWorkspace}, nil, nil},
+		{"workspace", "workspaces", "Workspace", nodeTypeWorkspace, workspaceFeatures, slugAddressReference, []string{nodeTypeProject, nodeTypeLabel, nodeTypeWorkspace}, []string{nodeTypeOrg}, nil},
 		{"project", "projects", "Project", nodeTypeProject, projectFeatures, directIdentifier, []string{nodeTypeIssue, nodeTypeEpic, nodeTypeCycle, nodeTypeModule, nodeTypeState}, []string{nodeTypeWorkspace}, projectDefaultStates},
 		{"issue", "issues", "Issue", nodeTypeIssue, issueFeatures, scopedSequence, []string{nodeTypeComment, nodeTypeActivity}, []string{nodeTypeProject}, nil},
 		{"epic", "epics", "Epic", nodeTypeEpic, epicFeatures, scopedSequence, []string{nodeTypeIssue, nodeTypeComment, nodeTypeActivity}, []string{nodeTypeProject}, nil},

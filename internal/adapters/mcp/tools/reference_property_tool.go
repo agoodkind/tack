@@ -58,16 +58,15 @@ func referencePropertyAlias(name string) string {
 func referencePropertyTool(nt *node.NodeType, def *node.PropertyDef, alias string, b NodeTypeBinding) mcpmcp.Tool {
 	epParam := b.Resolver.EntryPointParamName()
 	chain := b.Resolver.ScopeChainForType(nt)
-	nodeParam := strings.ToLower(nt.Slug) + "_identifier"
+	nodeParam := typeReferenceParamName(nt.Slug)
 	targetType := b.Resolver.typeIndex[def.ReferenceTargetTypeKey]
-	fields := []schemaField{
-		{Name: epParam, Type: schemaString, Desc: entryPointFieldDescription(b.Resolver)},
-		{Name: nodeParam, Type: schemaString, Desc: fmt.Sprintf("UUID or printed reference for the %s to update.", strings.ToLower(nt.Name))},
-		{Name: alias, Type: schemaString, Desc: referenceSetterValueDescription(alias, targetType)},
-	}
+	fields := append(entryPointSchemaFields(b.Resolver),
+		schemaField{Name: nodeParam, Type: schemaString, Desc: fmt.Sprintf("UUID or printed reference for the %s to update.", strings.ToLower(nt.Name))},
+		schemaField{Name: alias, Type: schemaString, Desc: referenceSetterValueDescription(alias, targetType)},
+	)
 	required := []string{epParam, nodeParam, alias}
 	for _, level := range chain {
-		fields = append(fields, schemaField{Name: level.ParamName, Type: schemaString, Desc: scopeFieldDescription(level, b.Resolver)})
+		fields = append(fields, scopeReferenceFields(level, b.Resolver)...)
 		required = append(required, level.ParamName)
 	}
 	return mcpmcp.Tool{
@@ -110,7 +109,7 @@ func referencePropertyHandler(nt *node.NodeType, def *node.PropertyDef, alias st
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
-		nodeParam := strings.ToLower(nt.Slug) + "_identifier"
+		nodeParam := typeReferenceParamName(nt.Slug)
 		nodeRef, ok := requireString(args, nodeParam)
 		if !ok {
 			return recoverableError(nodeParam + " is required"), nil
@@ -145,20 +144,20 @@ func referencePropertyHandler(nt *node.NodeType, def *node.PropertyDef, alias st
 }
 
 func resolveToolParent(ctx context.Context, args argMap, nt *node.NodeType, b NodeTypeBinding) (*node.NodeView, error) {
-	epSlug, ok := requireString(args, b.Resolver.EntryPointParamName())
+	entryPointReference, ok := b.Resolver.entryPointReference(args)
 	if !ok {
-		return nil, fmt.Errorf("%s is required: %w", b.Resolver.EntryPointParamName(), domain.ErrInvalidArgument)
+		return nil, fmt.Errorf("%s: %w", b.Resolver.entryPointRequiredMessage(), domain.ErrInvalidArgument)
 	}
-	parent, err := b.Resolver.Workspace(ctx, epSlug)
+	parent, err := b.Resolver.Workspace(ctx, entryPointReference)
 	if err != nil {
 		return nil, err
 	}
 	for _, level := range b.Resolver.ScopeChainForType(nt) {
-		ident, ok := requireString(args, level.ParamName)
+		reference, ok := requireScopeReference(args, level)
 		if !ok {
-			return nil, fmt.Errorf("%s is required: %w", level.ParamName, domain.ErrInvalidArgument)
+			return nil, fmt.Errorf("%s: %w", scopeReferenceRequiredMessage(level), domain.ErrInvalidArgument)
 		}
-		parent, err = b.Resolver.ResolveScope(ctx, parent, level, ident)
+		parent, err = b.Resolver.ResolveScope(ctx, parent, level, reference)
 		if err != nil {
 			return nil, err
 		}

@@ -5,6 +5,7 @@ import (
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/domain/node"
 )
 
 // FDB key space. Everything is expressed through one of a small set of generic
@@ -40,9 +41,9 @@ const (
 	// (relationship_reverse, orgID, targetID, relationType, sourceID) -> nil
 	keyRelationshipReverse = "relationship_reverse"
 
-	// Global slug index for entry-point nodes (workspaces, orgs).
-	// (slug_index, nodeType, slug) -> nodeID bytes
-	keySlugIndex = "slug_index"
+	// Global address index for human-readable node lookup.
+	// (address_index, nodeType, addressKind, address) -> nodeID bytes
+	keyAddressIndex = "address_index"
 
 	// Atomic sequence counters keyed by (orgID, scopeNodeID, nodeType).
 	// scopeNodeID is the container that defines uniqueness (typically a project).
@@ -135,9 +136,9 @@ func relationshipReverseKey(orgID, targetID uuid.UUID, relationType string, sour
 	return withPrefix(tuple.Tuple{keyRelationshipReverse, orgID.String(), targetID.String(), relationType, sourceID.String()}.Pack())
 }
 
-// slugIndexKey packs a global slug key.
-func slugIndexKey(nodeType, slug string) []byte {
-	return withPrefix(tuple.Tuple{keySlugIndex, nodeType, slug}.Pack())
+// addressIndexKey packs a generic human-readable address lookup key.
+func addressIndexKey(nodeType string, addressKind node.AddressKind, address string) []byte {
+	return withPrefix(tuple.Tuple{keyAddressIndex, nodeType, string(addressKind), address}.Pack())
 }
 
 // sequenceKey packs an atomic sequence counter key.

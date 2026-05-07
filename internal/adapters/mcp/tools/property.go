@@ -15,9 +15,7 @@ func RegisterProperty(s *mcpserver.MCPServer, propertyDefs node.PropertyDefRepos
 			Name:        "tack_list_property_defs",
 			Description: "Lists property definitions for the workspace org as Markdown.",
 			InputSchema: schema{
-				Fields: []schemaField{
-					{Name: resolver.EntryPointParamName(), Type: schemaString},
-				},
+				Fields:   entryPointSchemaFields(resolver),
 				Required: []string{resolver.EntryPointParamName()},
 			}.toMCP(),
 		},
@@ -26,11 +24,11 @@ func RegisterProperty(s *mcpserver.MCPServer, propertyDefs node.PropertyDefRepos
 			if err != nil {
 				return recoverableError(err.Error()), nil
 			}
-			slug, ok := requireString(args, resolver.EntryPointParamName())
+			entryPointReference, ok := resolver.entryPointReference(args)
 			if !ok {
-				return recoverableError(resolver.EntryPointParamName() + " is required"), nil
+				return recoverableError(resolver.entryPointRequiredMessage()), nil
 			}
-			ws, err := resolver.Workspace(ctx, slug)
+			ws, err := resolver.Workspace(ctx, entryPointReference)
 			if err != nil {
 				return classifyError(ctx, err), nil
 			}

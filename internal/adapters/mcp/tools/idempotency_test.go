@@ -16,8 +16,8 @@ func TestCreateToolDoesNotAdvertiseIdempotencyKey(t *testing.T) {
 	tool := createTool(
 		&node.NodeType{TypeKey: "issue", Slug: "issue", Name: "Issue"},
 		"issue",
-		[]ScopeLevel{{ParamName: "project_identifier"}},
-		"workspace_slug",
+		[]ScopeLevel{{ParamName: "project_reference"}},
+		"workspace_reference",
 		&Resolver{entryPointSlug: "workspace"},
 	)
 

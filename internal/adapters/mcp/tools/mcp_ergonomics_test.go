@@ -12,7 +12,7 @@ func TestListToolDescribesProjectScopedQueue(t *testing.T) {
 	projectType := &node.NodeType{
 		TypeKey:   "project",
 		Slug:      "project",
-		Reference: node.ReferenceConfig{Strategy: node.ReferenceDirectSlug, Property: "identifier"},
+		Reference: node.ReferenceConfig{Strategy: node.ReferenceDirectProperty, Property: "identifier"},
 	}
 	issueType := &node.NodeType{
 		TypeKey:   "issue",
@@ -26,14 +26,14 @@ func TestListToolDescribesProjectScopedQueue(t *testing.T) {
 	tool := listTool(
 		issueType,
 		"issues",
-		[]ScopeLevel{{TypeKey: "project", Slug: "project", ParamName: "project_identifier"}},
-		"workspace_slug",
+		[]ScopeLevel{{TypeKey: "project", Slug: "project", ParamName: "project_reference"}},
+		"workspace_reference",
 		resolver,
 	)
 
 	for _, want := range []string{
 		"Lists issues in a project",
-		"pass workspace_slug and project_identifier",
+		"pass workspace_reference and project_reference",
 		"for example TACK",
 		"Optional filters apply exact property matches",
 		"Use this before tack_get_issue",
@@ -43,18 +43,20 @@ func TestListToolDescribesProjectScopedQueue(t *testing.T) {
 		}
 	}
 
-	workspaceDescription := schemaDescription(t, tool, "workspace_slug")
-	if !strings.Contains(workspaceDescription, "workspace slug") {
-		t.Fatalf("workspace_slug description = %q, want workspace slug guidance", workspaceDescription)
+	workspaceDescription := schemaDescription(t, tool, "workspace_reference")
+	if !strings.Contains(workspaceDescription, "workspace reference") {
+		t.Fatalf("workspace_reference description = %q, want workspace reference guidance", workspaceDescription)
 	}
-	projectDescription := schemaDescription(t, tool, "project_identifier")
+	projectDescription := schemaDescription(t, tool, "project_reference")
 	if !strings.Contains(projectDescription, "project reference") || !strings.Contains(projectDescription, "TACK") {
-		t.Fatalf("project_identifier description = %q, want project reference guidance", projectDescription)
+		t.Fatalf("project_reference description = %q, want project reference guidance", projectDescription)
 	}
 	filterDescription := schemaDescription(t, tool, "filters")
 	if !strings.Contains(filterDescription, "Optional exact property filters") {
 		t.Fatalf("filters description = %q, want exact property filter guidance", filterDescription)
 	}
+	assertSchemaOmits(t, tool, "workspace_slug")
+	assertSchemaOmits(t, tool, "project_identifier")
 }
 
 func TestGettingStartedDocumentsProjectQueueWorkflow(t *testing.T) {
@@ -64,10 +66,10 @@ func TestGettingStartedDocumentsProjectQueueWorkflow(t *testing.T) {
 	for _, want := range []string{
 		"## Read workflows",
 		"tack_list_issues",
-		"project_identifier=<project reference>",
+		"project_reference=<project reference>",
 		"List tools accept optional `filters`",
 		`filters={"state":"CLYDE::In Progress"}`,
-		"Use `tack_get_<slug>` only when the user gives a known UUID or printed reference",
+		"Use `tack_get_<tool-token>` only when the user gives a known UUID or printed reference",
 		"Do not use search as the first step for a full project queue",
 	} {
 		if !strings.Contains(body, want) {
@@ -81,7 +83,7 @@ func TestCreateToolDescribesScopeDiscovery(t *testing.T) {
 		TypeKey:    "project",
 		Slug:       "project",
 		PluralSlug: "projects",
-		Reference:  node.ReferenceConfig{Strategy: node.ReferenceDirectSlug, Property: "identifier"},
+		Reference:  node.ReferenceConfig{Strategy: node.ReferenceDirectProperty, Property: "identifier"},
 	}
 	issueType := &node.NodeType{TypeKey: "issue", Slug: "issue", Name: "Issue"}
 	resolver := &Resolver{
@@ -91,26 +93,26 @@ func TestCreateToolDescribesScopeDiscovery(t *testing.T) {
 	tool := createTool(
 		issueType,
 		"issue",
-		[]ScopeLevel{{TypeKey: "project", Slug: "project", ParamName: "project_identifier"}},
-		"workspace_slug",
+		[]ScopeLevel{{TypeKey: "project", Slug: "project", ParamName: "project_reference"}},
+		"workspace_reference",
 		resolver,
 	)
 
 	for _, want := range []string{
 		"Creates an issue in a project",
-		"Discover workspace_slug with tack_list_workspaces",
-		"project_identifier with tack_list_projects",
+		"Discover workspace_reference with tack_list_workspaces",
+		"project_reference with tack_list_projects",
 		"Do not guess repo, org, or project names",
 	} {
 		if !strings.Contains(tool.Description, want) {
 			t.Fatalf("create description should contain %q:\n%s", want, tool.Description)
 		}
 	}
-	if !strings.Contains(schemaDescription(t, tool, "workspace_slug"), "workspace slug") {
-		t.Fatalf("workspace_slug should explain workspace slug discovery")
+	if !strings.Contains(schemaDescription(t, tool, "workspace_reference"), "workspace reference") {
+		t.Fatalf("workspace_reference should explain workspace reference discovery")
 	}
-	if !strings.Contains(schemaDescription(t, tool, "project_identifier"), "project reference") {
-		t.Fatalf("project_identifier should explain project reference discovery")
+	if !strings.Contains(schemaDescription(t, tool, "project_reference"), "project reference") {
+		t.Fatalf("project_reference should explain project reference discovery")
 	}
 }
 
@@ -121,11 +123,18 @@ func TestGettingStartedRejectsRepoNameGuessingForCreateScopes(t *testing.T) {
 	for _, want := range []string{
 		"Do not infer Tack scope inputs from repository names, org names, or chat context",
 		"Get it from `tack_list_workspaces`; do not substitute a repository or org name",
-		"get `project_identifier` from `tack_list_projects`",
+		"get `project_reference` from `tack_list_projects`",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("getting started should contain %q:\n%s", want, body)
 		}
+	}
+}
+
+func assertSchemaOmits(t *testing.T, tool mcpmcp.Tool, name string) {
+	t.Helper()
+	if _, ok := tool.InputSchema.Properties[name]; ok {
+		t.Fatalf("schema should not include %s", name)
 	}
 }
 

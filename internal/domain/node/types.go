@@ -27,7 +27,6 @@ var AllOps = []Op{OpCreate, OpRead, OpList, OpUpdate, OpDelete}
 //
 // Built-in features shipped by seed:
 const (
-	FeatureHasSlug                 = "has_slug"                   // instances own a slug / identifier prefix
 	FeatureHasWorkflowStates       = "has_workflow_states"        // supports a workflow-state property
 	FeatureHasAssignees            = "has_assignees"              // supports assigned_to relationships
 	FeatureHasSequenceID           = "has_sequence_id"            // supports a sequence property
@@ -80,7 +79,7 @@ func (f *Features) UnmarshalJSON(b []byte) error {
 		bit  uint32
 		name string
 	}{
-		{1 << 0, FeatureHasSlug},
+		{1 << 0, FeatureHasAddress},
 		{1 << 1, FeatureHasWorkflowStates},
 		{1 << 2, FeatureHasAssignees},
 		{1 << 3, FeatureHasSequenceID},
@@ -109,7 +108,6 @@ type ReferenceStrategy string
 
 const (
 	ReferenceUUIDOnly       ReferenceStrategy = "uuid_only"
-	ReferenceDirectSlug     ReferenceStrategy = "direct_slug"
 	ReferenceScopedSequence ReferenceStrategy = "scoped_sequence"
 	ReferenceScopedProperty ReferenceStrategy = "scoped_property"
 )
@@ -136,8 +134,8 @@ type NodeType struct {
 	PluralSlug     string      `json:"plural_slug,omitempty"`
 	// IsBuiltin marks seeded built-in types. Built-in types cannot be deleted via MCP.
 	IsBuiltin bool `json:"is_builtin,omitempty"`
-	// TypeKey is the stable internal dispatch key used by the seed. Empty for
-	// user-defined custom types. Slug and PluralSlug are user-mutable; TypeKey is not.
+	// TypeKey is the stable internal dispatch key. Slug and PluralSlug are
+	// user-mutable display/tool naming fields; TypeKey is not.
 	TypeKey      string   `json:"type_key,omitempty"`
 	Features     Features `json:"features,omitempty"`
 	CanContain   []string `json:"can_contain,omitempty"`
@@ -162,16 +160,12 @@ type DefaultChild struct {
 	Props   map[string]json.RawMessage `json:"props,omitempty"`
 }
 
-// BuildTypeIndex creates a lookup map from TypeKey (falling back to Slug) to NodeType.
+// BuildTypeIndex creates a lookup map from TypeKey to NodeType.
 func BuildTypeIndex(types []*NodeType) map[string]*NodeType {
 	m := make(map[string]*NodeType, len(types))
 	for _, nt := range types {
-		key := nt.TypeKey
-		if key == "" {
-			key = nt.Slug
-		}
-		if key != "" {
-			m[key] = nt
+		if nt.TypeKey != "" {
+			m[nt.TypeKey] = nt
 		}
 	}
 	return m
@@ -279,26 +273,26 @@ type PropertyDef struct {
 	ReferenceTargetTypeKey string `json:"reference_target_type_key,omitempty"`
 }
 
-// Deterministic-ID namespaces. Distinct per layer so a slug collision in one
-// layer cannot ever produce the same UUID as the slug in another layer.
+// Deterministic-ID namespaces. Distinct per layer so an address collision in
+// one layer cannot ever produce the same UUID as the address in another layer.
 var (
 	orgNamespace       = uuid.MustParse("0a6f7572-cafe-dead-beef-000000000001")
 	workspaceNamespace = uuid.MustParse("0a6f7572-cafe-dead-beef-000000000002")
 	systemPropNS       = uuid.MustParse("7ac0face-dead-beef-cafe-000000000000")
 )
 
-// OrgID returns the deterministic UUID for an org node identified by slug. A
-// fresh FDB seeded with the same slug produces byte-identical IDs across runs,
+// OrgID returns the deterministic UUID for an org node identified by address. A
+// fresh FDB seeded with the same address produces byte-identical IDs across runs,
 // which means NodeType and PropertyDef IDs (which derive from orgID) are also
 // stable across wipes.
-func OrgID(slug string) uuid.UUID {
-	return uuid.NewSHA1(orgNamespace, []byte(slug))
+func OrgID(address string) uuid.UUID {
+	return uuid.NewSHA1(orgNamespace, []byte(address))
 }
 
 // WorkspaceID returns the deterministic UUID for a workspace node under a
-// given org, identified by slug.
-func WorkspaceID(orgID uuid.UUID, slug string) uuid.UUID {
-	return uuid.NewSHA1(workspaceNamespace, []byte(orgID.String()+":"+slug))
+// given org, identified by address.
+func WorkspaceID(orgID uuid.UUID, address string) uuid.UUID {
+	return uuid.NewSHA1(workspaceNamespace, []byte(orgID.String()+":"+address))
 }
 
 // SystemPropID returns a deterministic UUID for a built-in property definition

@@ -43,7 +43,7 @@ func classifyError(ctx context.Context, err error) *mcp.CallToolResult {
 	switch {
 	case errors.Is(err, domain.ErrNotFound):
 		return recoverableError(err.Error() +
-			". Check tack_list_workspaces for workspace_slug, tack_describe_workspace for project_identifier, and list calls for node identifiers.")
+			". Check tack_list_workspaces for workspace_reference, tack_describe_workspace for scope references, and list calls for node references.")
 	case errors.Is(err, domain.ErrInvalidArgument):
 		return recoverableError(err.Error() + ". Fix the parameter value and retry.")
 	case errors.Is(err, domain.ErrAlreadyExists):

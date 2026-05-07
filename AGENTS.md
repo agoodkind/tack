@@ -100,7 +100,7 @@ No cross-database transactions. No consistency gap.
 
 ### API layer
 
-- **MCP Streamable HTTP** (`/mcp`): primary interface. 50+ tools, dynamic per-user tool registration based on NodeType slugs. workspace_slug and project_identifier everywhere; no raw UUIDs from callers. orgID never appears as an input field.
+- **MCP Streamable HTTP** (`/mcp`): primary interface. 50+ tools, dynamic per-user tool registration based on NodeType reference and display metadata. Human-readable workspace and project inputs are address values declared by metadata. orgID never appears as an input field.
 - **Connect-RPC** (`/tack.v1.*`): typed API for future frontend/TUI. Entity-scoped ops take entity UUID only. Collection ops take workspace_id or project_id.
 
 ### Auth
@@ -126,6 +126,9 @@ No cross-database transactions. No consistency gap.
 - **NodeListView is the single read layer.** Service layer uses NodeReader for all reads. No direct EntityRepository reads in service or handler code.
 - **One FDB transaction per write.** CreateAtomic batches everything. No multi-step create sequences.
 - **UUIDv7 for all new entities.** k-sortable, creation-order range scans without coordination.
+- **Human-readable references are declared metadata.** UUID is canonical identity; `NodeType.Reference` and generic address contracts declare caller-facing reference forms.
+- **Type, tool, and display names are separate from node identity and address values.** Runtime behavior follows generic metadata and address contracts, including declared type metadata, display tokens, address kinds, address values, and scope.
+- **Address lookup storage uses generic address/reference indexes.** Key families and report shapes use address/reference terminology and declare scope, kind, value, and target node explicitly.
 - **Descriptions are Markdown TEXT**: not HTML, no stripped copy.
 - **Updates are partial everywhere**: only provided fields change.
 - **Migrations run via `./server migrate` only**: never on HTTP startup.
@@ -160,6 +163,12 @@ All keys use the tuple layer. `orgID` is always an early component for tenant lo
 ### Resolution (global, not org-scoped)
 ```
 node_resolve          nodeID → {OrgID, WorkspaceID, ProjectID, NodeType}
+```
+
+### Address/reference indexes
+```
+node_address          orgID, scopeID, nodeType, addressKind, addressValue → nodeID
+node_address_by_node  orgID, nodeID, addressKind, scopeID, addressValue   → nil
 ```
 
 ### Materialized views
@@ -383,7 +392,7 @@ canonical hash-chain heads.
   ```bash
   ssh tack 'cd /root/tack && docker compose exec -e SEED_EMAIL=alex@goodkind.io -e SEED_NAME=Alexander -e SEED_ORG_SLUG=goodkind-io -e SEED_ORG_NAME=goodkind.io -e SEED_WORKSPACE_SLUG=main -e SEED_WORKSPACE_NAME=Main app /server seed'
   ```
-- Org slug is `goodkind-io`, org name is `goodkind.io` (not the org name). Seed is idempotent and always re-runs SeedOrg + SeedWorkspace to propagate type/feature changes.
+- Seed is idempotent and always re-runs SeedOrg + SeedWorkspace to propagate type/feature changes.
 
 ---
 
@@ -394,11 +403,12 @@ canonical hash-chain heads.
 - Errors are typed (`domain.ErrNotFound`, `domain.ErrUnauthenticated`). No raw string errors leaking to clients.
 - Logging uses `telemetry.L(ctx)` so every log line carries the request ID.
 - orgID never appears as a parameter in service methods or API inputs.
-- **No hardcoded type names in runtime code.** Exported NodeType constants do not exist. Seed uses unexported constants. Runtime code reads type keys from FDB-loaded NodeType data.
+- **Runtime type behavior is data-driven.** Seed uses unexported bootstrap constants. Runtime code reads type keys from FDB-loaded NodeType data.
 - **Features are `[]string`** on NodeType. User-extensible without code changes.
-- **Human-readable references are declared by `NodeType.Reference`.** UUID is canonical identity; MCP/rendering ergonomics use a data-driven reference contract plus scope/container relations. Runtime code may interpret generic reference semantics, but it must not infer behavior from slugs, type keys, built-in names, or feature names.
+- **Human-readable references are metadata-declared.** `NodeType.Reference` and generic address contracts describe caller-facing reference forms, while UUID remains canonical identity.
+- **Everything remains a node.** Human-readable references and addresses attach to node identity through metadata, and node records plus generic indexes preserve storage ownership.
+- **Tool/type display naming is separate from node identity and address values.** MCP tool names, parameter names, and describe responses come from type display/command metadata and CanContain; address values remain caller-facing node references.
 - **Hierarchy is a DAG** defined by CanLiveUnder. The Resolver walks the scope chain for N levels. No depth assumptions.
-- **MCP tool names, parameter names, and describe responses** are all derived from type slugs and CanContain at registration time.
 - **Universal fields test:** a field belongs on NodeValue/NodeListView only if it would exist on a node in a completely different product (CMS, CRM, game engine) built on the same architecture. Universal: `ID`, `OrgID` (tenant isolation), `NodeType`, `Name`, `CreatedAt`, `UpdatedAt`, `CreatedBy`, `UpdatedBy`, `Props`. Everything else (including `WorkspaceID`, `ProjectID`, `StateID`, `SequenceID`, `AssigneeIDs`, etc.) is a property in Props, a scope position in NodeResolve, or a generic relationship.
 - No tech debt disguised as "we can fix this later for scale." If it won't scale, don't ship it.
 

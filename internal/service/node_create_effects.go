@@ -10,25 +10,6 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-func (s *NodeService) writeCreateSlug(
-	ctx context.Context,
-	log *slog.Logger,
-	nt *node.NodeType,
-	props map[string]json.RawMessage,
-	nodeID uuid.UUID,
-) {
-	if !nt.Features.Has(node.FeatureHasSlug) {
-		return
-	}
-	slug := firstStringProp(props, "slug", "identifier")
-	if slug == "" {
-		return
-	}
-	if err := s.nodes.WriteSlug(ctx, nt.TypeKey, slug, nodeID); err != nil {
-		log.WarnContext(ctx, "node.Create: write slug", slog.String("slug", slug), slog.String("err", err.Error()))
-	}
-}
-
 func (s *NodeService) indexCreateSearch(
 	ctx context.Context,
 	log *slog.Logger,

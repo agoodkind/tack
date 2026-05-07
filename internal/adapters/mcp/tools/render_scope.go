@@ -14,7 +14,7 @@ func (rc *renderCtx) referenceIdentifierFor(view *node.NodeView) string {
 		return ""
 	}
 	switch nodeType.Reference.Strategy {
-	case node.ReferenceDirectSlug:
+	case node.ReferenceDirectProperty:
 		return referencePropertyValue(view, nodeType.Reference.Property)
 	case node.ReferenceScopedSequence:
 		sequence := numberProp(view, nodeType.Reference.Property)

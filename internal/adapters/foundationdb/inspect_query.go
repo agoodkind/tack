@@ -19,7 +19,16 @@ func NewInspectStore(db fdb.Database) *InspectStore {
 // QueryNodeRecords returns every core record-family row that currently matches
 // nodeID. Families without a nodeID-addressable prefix are scanned and filtered.
 func (s *InspectStore) QueryNodeRecords(_ context.Context, nodeID uuid.UUID) (report *NodeInspectionReport, err error) {
-	report = &NodeInspectionReport{NodeID: nodeID}
+	report = &NodeInspectionReport{
+		NodeID:                  nodeID,
+		Resolve:                 nil,
+		NodeInstances:           nil,
+		NodeViews:               nil,
+		PropertyIndexRows:       nil,
+		LegacyAddressRows:       nil,
+		Relationships:           nil,
+		RelationshipReverseRows: nil,
+	}
 	_, err = s.db.ReadTransact(func(tr fdb.ReadTransaction) (any, error) {
 		if resolveBytes, readErr := tr.Get(fdb.Key(nodeResolveKey(nodeID))).Get(); readErr != nil {
 			return nil, fmt.Errorf("read node_resolve for %s: %w", nodeID, readErr)
@@ -45,11 +54,11 @@ func (s *InspectStore) QueryNodeRecords(_ context.Context, nodeID uuid.UUID) (re
 			return nil, err
 		}
 		report.PropertyIndexRows = propertyRows
-		slugRows, err := querySlugRows(tr, nodeID)
+		legacyAddressRows, err := queryLegacyAddressRows(tr, nodeID)
 		if err != nil {
 			return nil, err
 		}
-		report.SlugRows = slugRows
+		report.LegacyAddressRows = legacyAddressRows
 		orgIDs := collectOrgIDs(report)
 		relRows, reverseRows, err := queryRelationshipRows(tr, nodeID, orgIDs)
 		if err != nil {
@@ -140,12 +149,12 @@ func queryPropertyRows(tr fdb.ReadTransaction, nodeID uuid.UUID) ([]InspectPrope
 	return out, nil
 }
 
-func querySlugRows(tr fdb.ReadTransaction, nodeID uuid.UUID) ([]InspectSlugRow, error) {
-	kvs, err := scanPrefix(tr, []any{keySlugIndex})
+func queryLegacyAddressRows(tr fdb.ReadTransaction, nodeID uuid.UUID) ([]InspectLegacyAddressRow, error) {
+	kvs, err := scanPrefix(tr, []any{legacySlugIndexKeyFamily})
 	if err != nil {
-		return nil, fmt.Errorf("scan slug_index: %w", err)
+		return nil, err
 	}
-	out := make([]InspectSlugRow, 0)
+	out := make([]InspectLegacyAddressRow, 0)
 	for _, kv := range kvs {
 		ownerID, err := uuid.FromBytes(kv.Value)
 		if err != nil || ownerID != nodeID {
@@ -155,7 +164,13 @@ func querySlugRows(tr fdb.ReadTransaction, nodeID uuid.UUID) ([]InspectSlugRow, 
 		if err != nil || len(t) != 3 {
 			continue
 		}
-		out = append(out, InspectSlugRow{NodeType: asString(t[1]), Slug: asString(t[2]), OwnerID: ownerID})
+		out = append(out, InspectLegacyAddressRow{
+			LegacyKeyFamily: legacySlugIndexKeyFamily,
+			NodeType:        asString(t[1]),
+			AddressKind:     "slug",
+			AddressValue:    asString(t[2]),
+			OwnerID:         ownerID,
+		})
 	}
 	return out, nil
 }

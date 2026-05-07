@@ -11,7 +11,7 @@ func listToolDescription(nt *node.NodeType, plural string, chain []ScopeLevel, e
 	slug := strings.ToLower(nt.Slug)
 	if len(chain) == 0 {
 		return fmt.Sprintf(
-			"Lists %s in a workspace. Pass %s with the workspace slug from tack_list_workspaces. Optional filters apply exact property matches. Use this before tack_get_%s when you need all %s in that workspace.",
+			"Lists %s in a workspace. Pass %s with the workspace reference from tack_list_workspaces. Optional filters apply exact property matches. Use this before tack_get_%s when you need all %s in that workspace.",
 			plural,
 			epParam,
 			slug,
@@ -79,7 +79,7 @@ func indefiniteArticle(word string) string {
 }
 
 func entryPointFieldDescription(resolver *Resolver) string {
-	return fmt.Sprintf("%s slug used as the MCP entry point.", resolver.entryPointSlug)
+	return fmt.Sprintf("%s reference used as the MCP entry point.", resolver.entryPointSlug)
 }
 
 func scopeFieldDescription(level ScopeLevel, resolver *Resolver) string {
@@ -123,7 +123,7 @@ func scopeReference(nt *node.NodeType) node.ReferenceConfig {
 
 func referenceExample(reference node.ReferenceConfig) string {
 	switch reference.Strategy {
-	case node.ReferenceDirectSlug:
+	case node.ReferenceDirectProperty:
 		return "TACK"
 	case node.ReferenceScopedSequence:
 		return "TACK-65"

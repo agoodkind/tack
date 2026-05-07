@@ -11,35 +11,38 @@ import (
 )
 
 const (
-	repairNodeIDEnv       = "TACK_REPAIR_NODE_ID"
-	repairFindModeEnv     = "TACK_REPAIR_FIND_MODE"
-	repairFindNodeTypeEnv = "TACK_REPAIR_FIND_NODE_TYPE"
-	repairFindSlugEnv     = "TACK_REPAIR_FIND_SLUG"
-	repairFindPropEnv     = "TACK_REPAIR_FIND_PROPERTY"
-	repairFindValueEnv    = "TACK_REPAIR_FIND_VALUE_JSON"
-	repairFindOrgIDEnv    = "TACK_REPAIR_FIND_ORG_ID"
+	repairNodeIDEnv          = "TACK_REPAIR_NODE_ID"
+	repairFindModeEnv        = "TACK_REPAIR_FIND_MODE"
+	repairFindNodeTypeEnv    = "TACK_REPAIR_FIND_NODE_TYPE"
+	repairFindAddressEnv     = "TACK_REPAIR_FIND_ADDRESS"
+	repairFindPropEnv        = "TACK_REPAIR_FIND_PROPERTY"
+	repairFindValueEnv       = "TACK_REPAIR_FIND_VALUE_JSON"
+	repairFindOrgIDEnv       = "TACK_REPAIR_FIND_ORG_ID"
+	legacySlugAddressKind    = "slug"
+	legacySlugIndexKeyFamily = "slug_index"
 )
 
 type repairSelectedNode struct {
-	NodeID             uuid.UUID         `json:"node_id"`
-	Resolve            *node.NodeResolve `json:"resolve,omitempty"`
-	Node               *node.Node        `json:"node,omitempty"`
-	NodeView           *node.NodeView    `json:"node_view,omitempty"`
-	NodeInstanceCount  int               `json:"node_instance_count"`
-	NodeViewCount      int               `json:"node_view_count"`
-	PropertyIndexCount int               `json:"property_index_count"`
-	SlugRowCount       int               `json:"slug_row_count"`
-	OutgoingRelCount   int               `json:"outgoing_relationship_count"`
-	IncomingRelCount   int               `json:"incoming_relationship_count"`
-	Warnings           []string          `json:"warnings,omitempty"`
+	NodeID                uuid.UUID         `json:"node_id"`
+	Resolve               *node.NodeResolve `json:"resolve,omitempty"`
+	Node                  *node.Node        `json:"node,omitempty"`
+	NodeView              *node.NodeView    `json:"node_view,omitempty"`
+	NodeInstanceCount     int               `json:"node_instance_count"`
+	NodeViewCount         int               `json:"node_view_count"`
+	PropertyIndexCount    int               `json:"property_index_count"`
+	LegacyAddressRowCount int               `json:"legacy_address_row_count"`
+	OutgoingRelCount      int               `json:"outgoing_relationship_count"`
+	IncomingRelCount      int               `json:"incoming_relationship_count"`
+	Warnings              []string          `json:"warnings,omitempty"`
 }
 
 type repairFindResult struct {
-	Mode        string                            `json:"mode"`
-	Input       map[string]string                 `json:"input"`
-	Matches     []repairSelectedNode              `json:"matches,omitempty"`
-	Inspections []fdbadapter.NodeInspectionReport `json:"inspections,omitempty"`
-	Warnings    []string                          `json:"warnings,omitempty"`
+	Mode         string                            `json:"mode"`
+	Input        map[string]string                 `json:"input"`
+	Matches      []repairSelectedNode              `json:"matches,omitempty"`
+	Inspections  []fdbadapter.NodeInspectionReport `json:"inspections,omitempty"`
+	RemovalGates []string                          `json:"removal_gates,omitempty"`
+	Warnings     []string                          `json:"warnings,omitempty"`
 }
 
 type repairQueryResult struct {
@@ -47,7 +50,7 @@ type repairQueryResult struct {
 	Selection             *repairSelectedNode              `json:"selection,omitempty"`
 	Raw                   *fdbadapter.NodeInspectionReport `json:"raw,omitempty"`
 	IndexedPropertyChecks []repairIndexedPropertyCheck     `json:"indexed_property_checks,omitempty"`
-	SlugChecks            []repairSlugCheck                `json:"slug_checks,omitempty"`
+	LegacyAddressChecks   []repairLegacyAddressCheck       `json:"legacy_address_checks,omitempty"`
 	Warnings              []string                         `json:"warnings,omitempty"`
 }
 
@@ -57,9 +60,11 @@ type repairIndexedPropertyCheck struct {
 	MatchingRowCount int    `json:"matching_row_count"`
 }
 
-type repairSlugCheck struct {
+type repairLegacyAddressCheck struct {
 	NodeType         string `json:"node_type"`
-	Slug             string `json:"slug"`
+	AddressKind      string `json:"address_kind"`
+	AddressValue     string `json:"address_value"`
+	LegacyKeyFamily  string `json:"legacy_key_family"`
 	MatchingRowCount int    `json:"matching_row_count"`
 }
 
@@ -93,6 +98,10 @@ func readRequiredJSONEnv(name string) (json.RawMessage, error) {
 		return nil, fmt.Errorf("%s must contain valid JSON", name)
 	}
 	return raw, nil
+}
+
+func readRepairAddressEnv() (string, error) {
+	return readRequiredStringEnv(repairFindAddressEnv)
 }
 
 func writeRepairOutput(value any) error {

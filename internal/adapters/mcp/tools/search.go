@@ -18,11 +18,10 @@ func RegisterSearch(s *mcpserver.MCPServer, searcher domainsearch.Searcher, reso
 			Name:        "tack_search",
 			Description: "Full-text search across all nodes in a workspace's org. Filters are raw (field=value) equality.",
 			InputSchema: schema{
-				Fields: append([]schemaField{
-					{Name: resolver.EntryPointParamName(), Type: schemaString},
-					{Name: "query", Type: schemaString},
-					{Name: "node_type", Type: schemaString},
-				}, searchScopeFields(resolver)...),
+				Fields: append(append(entryPointSchemaFields(resolver),
+					schemaField{Name: "query", Type: schemaString},
+					schemaField{Name: "node_type", Type: schemaString},
+				), searchScopeFields(resolver)...),
 				Required: []string{resolver.EntryPointParamName(), "query"},
 			}.toMCP(),
 		},
@@ -31,9 +30,9 @@ func RegisterSearch(s *mcpserver.MCPServer, searcher domainsearch.Searcher, reso
 			if err != nil {
 				return recoverableError(err.Error()), nil
 			}
-			slug, ok := requireString(args, resolver.EntryPointParamName())
+			entryPointReference, ok := resolver.entryPointReference(args)
 			if !ok {
-				return recoverableError(resolver.EntryPointParamName() + " is required"), nil
+				return recoverableError(resolver.entryPointRequiredMessage()), nil
 			}
 			query, ok := requireString(args, "query")
 			if !ok {
@@ -41,7 +40,7 @@ func RegisterSearch(s *mcpserver.MCPServer, searcher domainsearch.Searcher, reso
 			}
 			nodeTypeFilter := optionalString(args, "node_type")
 
-			ws, err := resolver.Workspace(ctx, slug)
+			ws, err := resolver.Workspace(ctx, entryPointReference)
 			if err != nil {
 				return classifyError(ctx, err), nil
 			}
@@ -85,7 +84,7 @@ func RegisterSearch(s *mcpserver.MCPServer, searcher domainsearch.Searcher, reso
 func searchScopeFields(resolver *Resolver) []schemaField {
 	fields := make([]schemaField, 0, len(resolver.scopeChain))
 	for _, level := range resolver.scopeChain {
-		fields = append(fields, schemaField{Name: level.ParamName, Type: schemaString})
+		fields = append(fields, scopeReferenceFields(level, resolver)...)
 	}
 	return fields
 }
@@ -93,7 +92,7 @@ func searchScopeFields(resolver *Resolver) []schemaField {
 func searchScope(ctx context.Context, resolver *Resolver, args argMap, workspace *node.NodeView) (*node.NodeView, error) {
 	parent := workspace
 	for _, level := range resolver.scopeChain {
-		value := optionalString(args, level.ParamName)
+		value := optionalScopeReference(args, level)
 		if value == "" {
 			continue
 		}

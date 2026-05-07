@@ -128,31 +128,7 @@ func (s *NodeService) Update(ctx context.Context, in UpdateInput) (*node.NodeVie
 		return nil, fmt.Errorf("update node: %w", err)
 	}
 
-	// Reconcile the global slug index when a HasSlug node's slug or
-	// identifier changed. The slug index lives outside (orgID, nodeType,
-	// nodeID) keying, so UpdateAtomic alone cannot move it.
-	if nt.Features.Has(node.FeatureHasSlug) {
-		oldSlug := firstStringProp(existing.Props, "slug", "identifier")
-		newSlug := firstStringProp(merged, "slug", "identifier")
-		if oldSlug != newSlug {
-			if oldSlug != "" {
-				if err := s.nodes.DeleteSlug(ctx, nt.TypeKey, oldSlug); err != nil {
-					log.Warn("node.Update: delete old slug",
-						slog.String("slug", oldSlug),
-						slog.String("err", err.Error()),
-					)
-				}
-			}
-			if newSlug != "" {
-				if err := s.nodes.WriteSlug(ctx, nt.TypeKey, newSlug, n.ID); err != nil {
-					log.Warn("node.Update: write new slug",
-						slog.String("slug", newSlug),
-						slog.String("err", err.Error()),
-					)
-				}
-			}
-		}
-	}
+	s.reconcileReferenceAddress(ctx, nt, existing.Props, merged, n.ID, log)
 
 	if err := s.searcher.Index(ctx, "nodes", in.NodeID.String(), searchDocFromView(view)); err != nil {
 		log.Warn("node.Update: search index", slog.String("err", err.Error()))
@@ -243,14 +219,14 @@ func (s *NodeService) resolveOrgFromParent(ctx context.Context, parentID uuid.UU
 	return resolve.OrgID, nil
 }
 
-// findNodeType resolves a NodeType by TypeKey or Slug within an org.
+// findNodeType resolves a NodeType by TypeKey within an org.
 func (s *NodeService) findNodeType(ctx context.Context, orgID uuid.UUID, key string) (*node.NodeType, error) {
 	nts, err := s.nodeTypes.List(ctx, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("list node types: %w", err)
 	}
 	for _, nt := range nts {
-		if nt.TypeKey == key || nt.Slug == key {
+		if nt.TypeKey == key {
 			return nt, nil
 		}
 	}

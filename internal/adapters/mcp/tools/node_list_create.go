@@ -13,17 +13,17 @@ import (
 	"goodkind.io/tack/internal/service"
 )
 
-func listHandler(nt *node.NodeType, chain []ScopeLevel, epParam string, b NodeTypeBinding) mcpserver.ToolHandlerFunc {
+func listHandler(nt *node.NodeType, chain []ScopeLevel, b NodeTypeBinding) mcpserver.ToolHandlerFunc {
 	return func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
 		args, err := bindArgs(req)
 		if err != nil {
 			return recoverableError(err.Error()), nil
 		}
-		epSlug, ok := requireString(args, epParam)
+		entryPointReference, ok := b.Resolver.entryPointReference(args)
 		if !ok {
-			return recoverableError(epParam + " is required"), nil
+			return recoverableError(b.Resolver.entryPointRequiredMessage()), nil
 		}
-		ws, err := b.Resolver.Workspace(ctx, epSlug)
+		ws, err := b.Resolver.Workspace(ctx, entryPointReference)
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
@@ -35,11 +35,11 @@ func listHandler(nt *node.NodeType, chain []ScopeLevel, epParam string, b NodeTy
 		if len(chain) > 0 {
 			parent := ws
 			for _, level := range chain {
-				ident, ok := requireString(args, level.ParamName)
+				reference, ok := requireScopeReference(args, level)
 				if !ok {
-					return recoverableError(level.ParamName + " is required"), nil
+					return recoverableError(scopeReferenceRequiredMessage(level)), nil
 				}
-				parent, err = b.Resolver.ResolveScope(ctx, parent, level, ident)
+				parent, err = b.Resolver.ResolveScope(ctx, parent, level, reference)
 				if err != nil {
 					return classifyError(ctx, err), nil
 				}
@@ -72,15 +72,15 @@ func listHandler(nt *node.NodeType, chain []ScopeLevel, epParam string, b NodeTy
 	}
 }
 
-func createHandler(nt *node.NodeType, chain []ScopeLevel, epParam string, b NodeTypeBinding) mcpserver.ToolHandlerFunc {
+func createHandler(nt *node.NodeType, chain []ScopeLevel, b NodeTypeBinding) mcpserver.ToolHandlerFunc {
 	return func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
 		args, err := bindArgs(req)
 		if err != nil {
 			return recoverableError(err.Error()), nil
 		}
-		epSlug, ok := requireString(args, epParam)
+		entryPointReference, ok := b.Resolver.entryPointReference(args)
 		if !ok {
-			return recoverableError(epParam + " is required"), nil
+			return recoverableError(b.Resolver.entryPointRequiredMessage()), nil
 		}
 		name, ok := requireString(args, "name")
 		if !ok {
@@ -90,7 +90,7 @@ func createHandler(nt *node.NodeType, chain []ScopeLevel, epParam string, b Node
 		if err != nil {
 			return unexpectedError(ctx, err), nil
 		}
-		ws, err := b.Resolver.Workspace(ctx, epSlug)
+		ws, err := b.Resolver.Workspace(ctx, entryPointReference)
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
@@ -98,11 +98,11 @@ func createHandler(nt *node.NodeType, chain []ScopeLevel, epParam string, b Node
 		if len(chain) > 0 {
 			parent := ws
 			for _, level := range chain {
-				ident, ok := requireString(args, level.ParamName)
+				reference, ok := requireScopeReference(args, level)
 				if !ok {
-					return recoverableError(level.ParamName + " is required"), nil
+					return recoverableError(scopeReferenceRequiredMessage(level)), nil
 				}
-				parent, err = b.Resolver.ResolveScope(ctx, parent, level, ident)
+				parent, err = b.Resolver.ResolveScope(ctx, parent, level, reference)
 				if err != nil {
 					return classifyError(ctx, err), nil
 				}
@@ -126,7 +126,7 @@ func createHandler(nt *node.NodeType, chain []ScopeLevel, epParam string, b Node
 		idempotencyKey, idempotencyFingerprint, idempotencySource, err := createIdempotency(ctx, req, createIdempotencyInput{
 			ToolName:       toolName,
 			NodeTypeKey:    nt.TypeKey,
-			EntryPointSlug: epSlug,
+			EntryPointSlug: entryPointReference,
 			Name:           name,
 			ParentID:       parentID,
 			ScopeID:        scopeID,

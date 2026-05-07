@@ -16,15 +16,15 @@ import (
 )
 
 // ScopeLevel describes one level of the hierarchy between the entry point and
-// a leaf type. Each level has a type key and a slug used to derive MCP param names.
+// a leaf type. Slug is the type-derived MCP command token, not a node address.
 type ScopeLevel struct {
 	TypeKey   string
 	Slug      string
-	ParamName string // e.g. "project_identifier"
+	ParamName string // e.g. "project_reference"
 }
 
-// Resolver translates human-readable identifiers (workspace slug, project
-// identifier, sequence IDs) into node UUIDs, using only the generic primitives.
+// Resolver translates human-readable references (workspace address, project
+// reference, sequence references) into node UUIDs, using only the generic primitives.
 type Resolver struct {
 	nodes   node.NodeRepository
 	reader  node.NodeReader
@@ -60,7 +60,7 @@ func NewResolver(nodes node.NodeRepository, reader node.NodeReader, members org.
 }
 
 func (r *Resolver) EntryPointParamName() string {
-	return r.entryPointSlug + "_slug"
+	return r.entryPointSlug + referenceParamSuffix
 }
 
 // ScopeChainForType returns the ordered scope levels from the entry point down
@@ -80,7 +80,7 @@ func (r *Resolver) ScopeChainForType(nt *node.NodeType) []ScopeLevel {
 		chain = append(chain, ScopeLevel{
 			TypeKey:   parent.TypeKey,
 			Slug:      strings.ToLower(parent.Slug),
-			ParamName: strings.ToLower(parent.Slug) + "_identifier",
+			ParamName: strings.ToLower(parent.Slug) + referenceParamSuffix,
 		})
 		current = parent
 	}
@@ -91,21 +91,21 @@ func (r *Resolver) ScopeChainForType(nt *node.NodeType) []ScopeLevel {
 	return chain
 }
 
-// Workspace resolves an entry point slug to its NodeView.
-func (r *Resolver) Workspace(ctx context.Context, slug string) (*node.NodeView, error) {
-	id, err := r.nodes.GetSlug(ctx, r.entryPointTypeKey, slug)
+// Workspace resolves an entry point reference to its NodeView.
+func (r *Resolver) Workspace(ctx context.Context, reference string) (*node.NodeView, error) {
+	id, err := r.nodes.GetAddress(ctx, r.entryPointTypeKey, node.AddressKindPrimary, reference)
 	if err != nil {
-		return nil, fmt.Errorf("%s %q: %w", r.entryPointSlug, slug, err)
+		return nil, fmt.Errorf("%s reference %q: %w", r.entryPointSlug, reference, err)
 	}
 	if id == uuid.Nil {
-		return nil, fmt.Errorf("%s %q: %w", r.entryPointSlug, slug, domain.ErrNotFound)
+		return nil, fmt.Errorf("%s reference %q: %w", r.entryPointSlug, reference, domain.ErrNotFound)
 	}
 	view, err := r.reader.Get(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 	if view == nil {
-		return nil, fmt.Errorf("%s %q: %w", r.entryPointSlug, slug, domain.ErrNotFound)
+		return nil, fmt.Errorf("%s reference %q: %w", r.entryPointSlug, reference, domain.ErrNotFound)
 	}
 	stampAuditEntryPoint(ctx, view)
 	return view, nil
@@ -117,8 +117,8 @@ func (r *Resolver) Workspace(ctx context.Context, slug string) (*node.NodeView, 
 // On miss this is a common debugging scenario in Tack. We log every miss at
 // Info with the inputs that produced it so the next miss is diagnosable from
 // one line.
-func (r *Resolver) ResolveScope(ctx context.Context, parent *node.NodeView, level ScopeLevel, identifier string) (*node.NodeView, error) {
-	view, err := r.resolveScopeReference(ctx, parent, level, identifier)
+func (r *Resolver) ResolveScope(ctx context.Context, parent *node.NodeView, level ScopeLevel, reference string) (*node.NodeView, error) {
+	view, err := r.resolveScopeReference(ctx, parent, level, reference)
 	if err == nil && view != nil {
 		if parent != nil && parent.NodeType == r.entryPointTypeKey {
 			stampAuditEntryPoint(ctx, parent)
@@ -129,12 +129,12 @@ func (r *Resolver) ResolveScope(ctx context.Context, parent *node.NodeView, leve
 	telemetry.IncResolverMiss("scope")
 	telemetry.L(ctx).InfoContext(ctx, "resolver.scope.miss",
 		slog.String("level", level.TypeKey),
-		slog.String("identifier", identifier),
+		slog.String("reference", reference),
 		slog.String("parent_id", parent.ID.String()),
 		slog.String("parent_type", parent.NodeType),
 		slog.String("err", err.Error()),
 	)
-	return nil, fmt.Errorf("%s %q: %w", level.Slug, identifier, domain.ErrNotFound)
+	return nil, fmt.Errorf("%s reference %q: %w", level.Slug, reference, domain.ErrNotFound)
 }
 
 // WorkspacesForUser returns every workspace the user has access to.
@@ -160,8 +160,8 @@ func (r *Resolver) WorkspacesForUser(ctx context.Context, userID uuid.UUID) ([]*
 	return all, nil
 }
 
-// ResolveNodeID accepts a UUID, a slug-resolvable identifier, or a sequence-style
-// identifier (e.g. "TACK-65"), and returns the node UUID.
+// ResolveNodeID accepts a UUID, a metadata-declared reference, or a
+// sequence-style reference (e.g. "TACK-65"), and returns the node UUID.
 func (r *Resolver) ResolveNodeID(ctx context.Context, input string) (uuid.UUID, error) {
 	if id, err := uuid.Parse(input); err == nil {
 		resolve, resolveErr := r.reader.Resolve(ctx, id)
@@ -179,10 +179,10 @@ func (r *Resolver) ResolveNodeID(ctx context.Context, input string) (uuid.UUID, 
 		invalidArgument = err
 	}
 	telemetry.IncResolverMiss("node_id")
-	projIdent, seqID, _ := ParseNodeIdentifier(input)
+	projectReference, seqID, _ := ParseNodeIdentifier(input)
 	telemetry.L(ctx).InfoContext(ctx, "resolver.node_id.miss",
 		slog.String("input", input),
-		slog.String("project_ident", projIdent),
+		slog.String("project_reference", projectReference),
 		slog.Int("sequence_id", seqID),
 		slog.String("err", err.Error()),
 		slog.Int("scope_chain_depth", len(r.scopeChain)),
@@ -191,5 +191,5 @@ func (r *Resolver) ResolveNodeID(ctx context.Context, input string) (uuid.UUID, 
 	if invalidArgument != nil {
 		return uuid.Nil, invalidArgument
 	}
-	return uuid.Nil, fmt.Errorf("identifier %q: %w", input, domain.ErrNotFound)
+	return uuid.Nil, fmt.Errorf("reference %q: %w", input, domain.ErrNotFound)
 }

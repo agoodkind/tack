@@ -77,12 +77,12 @@ func TestResolveTypedNodeIDSequenceStampsWorkspace(t *testing.T) {
 		"project:identifier:\"TACK\"": {{ID: projectID, OrgID: orgID, NodeType: "project", Props: map[string]json.RawMessage{"parent_id": mustRaw(t, workspaceID.String())}}},
 		"issue:sequence:65":           {{ID: issueID, OrgID: orgID, NodeType: "issue", Props: map[string]json.RawMessage{"scope_id": mustRaw(t, projectID.String())}}},
 	}}
-	projectType := &node.NodeType{TypeKey: "project", Slug: "project", CanLiveUnder: []string{"workspace"}, Reference: node.ReferenceConfig{Strategy: node.ReferenceDirectSlug, Property: "identifier"}}
+	projectType := &node.NodeType{TypeKey: "project", Slug: "project", CanLiveUnder: []string{"workspace"}, Reference: node.ReferenceConfig{Strategy: node.ReferenceDirectProperty, Property: "identifier"}}
 	issueType := &node.NodeType{TypeKey: "issue", Slug: "issue", CanLiveUnder: []string{"project"}, Reference: node.ReferenceConfig{Strategy: node.ReferenceScopedSequence, Property: "sequence"}}
 	resolver := &Resolver{
 		nodes: repo, reader: reader, members: &fakeMembers{orgIDs: []uuid.UUID{orgID}},
 		entryPointTypeKey: "workspace", entryPointSlug: "workspace",
-		scopeChain: []ScopeLevel{{TypeKey: "project", Slug: "project", ParamName: "project_identifier"}},
+		scopeChain: []ScopeLevel{{TypeKey: "project", Slug: "project", ParamName: "project_reference"}},
 		typeIndex:  map[string]*node.NodeType{"project": projectType, "issue": issueType},
 	}
 	ctx := audit.WithScopeBuilder(auth.WithUser(context.Background(), uuid.New()))
