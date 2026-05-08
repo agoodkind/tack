@@ -139,7 +139,7 @@ func (c referenceMatchContext) candidateViews(ctx context.Context, ref string) (
 	switch c.targetType.Reference.Strategy {
 	case node.ReferenceUUIDOnly:
 		return nil, loggedRepairError(ctx, fmt.Sprintf("target type %q only accepts UUID references", nodeTypeKey(c.targetType)), domain.ErrInvalidArgument)
-	case node.ReferenceDirectSlug:
+	case node.ReferenceDirectProperty:
 		propName := strings.TrimSpace(c.targetType.Reference.Property)
 		if propName == "" {
 			propName = "slug"
@@ -177,7 +177,7 @@ func viewMatchesReference(view *node.NodeView, targetType *node.NodeType, input 
 	switch targetType.Reference.Strategy {
 	case node.ReferenceUUIDOnly:
 		return false
-	case node.ReferenceDirectSlug:
+	case node.ReferenceDirectProperty:
 		if propName == "" {
 			propName = "slug"
 		}

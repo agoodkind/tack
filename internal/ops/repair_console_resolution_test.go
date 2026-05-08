@@ -46,7 +46,7 @@ func TestMatchReferencePropertyUsesDirectSlugOnlyWhenDeclared(t *testing.T) {
 		views:     map[uuid.UUID]*node.NodeView{},
 		listViews: []*node.NodeView{{ID: productID, OrgID: orgID, NodeType: "product", Name: "Product", Props: map[string]json.RawMessage{"slug": mustRaw(t, "alpha")}}},
 	}
-	matchContext := referenceMatchContext{reader: reader, orgID: orgID, targetType: &node.NodeType{TypeKey: "product", Reference: node.ReferenceConfig{Strategy: node.ReferenceDirectSlug, Property: "slug"}}}
+	matchContext := referenceMatchContext{reader: reader, orgID: orgID, targetType: &node.NodeType{TypeKey: "product", Reference: node.ReferenceConfig{Strategy: node.ReferenceDirectProperty, Property: "slug"}}}
 
 	view, err := matchContext.resolveReference(context.Background(), "alpha")
 	if err != nil {
