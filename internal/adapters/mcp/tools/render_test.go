@@ -127,7 +127,7 @@ func TestRenderNodeIdentifierPreferred(t *testing.T) {
 	}}
 
 	rc := newRenderCtxWithTypes(context.Background(), reader, users, map[string]*node.NodeType{
-		"project": {TypeKey: "project", Reference: node.ReferenceConfig{Strategy: node.ReferenceDirectSlug, Property: "identifier"}},
+		"project": {TypeKey: "project", Reference: node.ReferenceConfig{Strategy: node.ReferenceDirectProperty, Property: "identifier"}},
 		"epic":    {TypeKey: "epic", Reference: node.ReferenceConfig{Strategy: node.ReferenceScopedSequence, Property: "sequence"}},
 		"issue":   {TypeKey: "issue", Reference: node.ReferenceConfig{Strategy: node.ReferenceScopedSequence, Property: "sequence"}},
 	})
@@ -187,7 +187,7 @@ func TestRenderListUsesIdentifiers(t *testing.T) {
 		stateID:   stateView,
 	}}
 	rc := newRenderCtxWithTypes(context.Background(), reader, nil, map[string]*node.NodeType{
-		"project": {TypeKey: "project", Reference: node.ReferenceConfig{Strategy: node.ReferenceDirectSlug, Property: "identifier"}},
+		"project": {TypeKey: "project", Reference: node.ReferenceConfig{Strategy: node.ReferenceDirectProperty, Property: "identifier"}},
 		"issue":   {TypeKey: "issue", Reference: node.ReferenceConfig{Strategy: node.ReferenceScopedSequence, Property: "sequence"}},
 	})
 	out := renderList(rc, "issues", issues)
@@ -225,7 +225,7 @@ func TestRenderSearchViewsUsesIdentifiers(t *testing.T) {
 	}
 	reader := &fakeReader{views: map[uuid.UUID]*node.NodeView{projectID: project}}
 	rc := newRenderCtxWithTypes(context.Background(), reader, nil, map[string]*node.NodeType{
-		"project": {TypeKey: "project", Reference: node.ReferenceConfig{Strategy: node.ReferenceDirectSlug, Property: "identifier"}},
+		"project": {TypeKey: "project", Reference: node.ReferenceConfig{Strategy: node.ReferenceDirectProperty, Property: "identifier"}},
 		"issue":   {TypeKey: "issue", Reference: node.ReferenceConfig{Strategy: node.ReferenceScopedSequence, Property: "sequence"}},
 	})
 	out := renderSearchViews(rc, []*node.NodeView{issue})

@@ -7,7 +7,7 @@ import (
 )
 
 // ParseNodeIdentifier splits "ENG-42" into ("ENG", 42).
-func ParseNodeIdentifier(identifier string) (projectIdent string, seqID int, err error) {
+func ParseNodeIdentifier(identifier string) (projectReference string, seqID int, err error) {
 	idx := strings.LastIndex(identifier, "-")
 	if idx <= 0 || idx == len(identifier)-1 {
 		return "", 0, fmt.Errorf("invalid identifier %q: expected PROJECT-N format (e.g. ENG-42)", identifier)

@@ -107,16 +107,16 @@ func (r *fakeNodeRepo) AllocateSequence(context.Context, uuid.UUID, uuid.UUID, s
 	panic("fakeNodeRepo.AllocateSequence called")
 }
 
-func (r *fakeNodeRepo) GetSlug(context.Context, string, string) (uuid.UUID, error) {
-	panic("fakeNodeRepo.GetSlug called")
+func (r *fakeNodeRepo) GetAddress(context.Context, string, node.AddressKind, string) (uuid.UUID, error) {
+	panic("fakeNodeRepo.GetAddress called")
 }
 
-func (r *fakeNodeRepo) WriteSlug(context.Context, string, string, uuid.UUID) error {
-	panic("fakeNodeRepo.WriteSlug called")
+func (r *fakeNodeRepo) WriteAddress(context.Context, string, node.AddressKind, string, uuid.UUID) error {
+	panic("fakeNodeRepo.WriteAddress called")
 }
 
-func (r *fakeNodeRepo) DeleteSlug(context.Context, string, string) error {
-	panic("fakeNodeRepo.DeleteSlug called")
+func (r *fakeNodeRepo) DeleteAddress(context.Context, string, node.AddressKind, string) error {
+	panic("fakeNodeRepo.DeleteAddress called")
 }
 
 func (r *fakeNodeRepo) LookupIdempotencyKey(context.Context, uuid.UUID, string) (*node.IdempotencyRecord, error) {
@@ -143,7 +143,7 @@ func (r *fakePropertyDefs) Delete(context.Context, uuid.UUID, uuid.UUID) error {
 	panic("fakePropertyDefs.Delete called")
 }
 
-func TestResolveTypedNodeIDProjectIdentifier(t *testing.T) {
+func TestResolveTypedNodeIDProjectReference(t *testing.T) {
 	orgID := uuid.New()
 	workspaceID := uuid.New()
 	projectID := uuid.New()
@@ -159,7 +159,7 @@ func TestResolveTypedNodeIDProjectIdentifier(t *testing.T) {
 		TypeKey:      "project",
 		Slug:         "project",
 		CanLiveUnder: []string{"workspace"},
-		Reference:    node.ReferenceConfig{Strategy: node.ReferenceDirectSlug, Property: "identifier"},
+		Reference:    node.ReferenceConfig{Strategy: node.ReferenceDirectProperty, Property: "identifier"},
 	}
 	ctx := audit.WithScopeBuilder(auth.WithUser(context.Background(), uuid.New()))
 	id, err := resolver.ResolveTypedNodeID(ctx, projectType, "TACK")
@@ -190,7 +190,7 @@ func TestResolveTypedNodeIDScopedStateReference(t *testing.T) {
 		TypeKey:      "project",
 		Slug:         "project",
 		CanLiveUnder: []string{"workspace"},
-		Reference:    node.ReferenceConfig{Strategy: node.ReferenceDirectSlug, Property: "identifier"},
+		Reference:    node.ReferenceConfig{Strategy: node.ReferenceDirectProperty, Property: "identifier"},
 	}}}
 	stateType := &node.NodeType{
 		TypeKey:      "state",
@@ -228,16 +228,16 @@ func TestResolveScopeAcceptsSequenceReference(t *testing.T) {
 		"project:identifier:\"CLYDE\"": {{ID: projectID, OrgID: orgID, NodeType: "project", Props: map[string]json.RawMessage{"parent_id": mustRaw(t, workspaceID.String())}}},
 		"issue:sequence:157":           {{ID: issueID, OrgID: orgID, NodeType: "issue", Props: map[string]json.RawMessage{"sequence": mustRaw(t, 157), "scope_id": mustRaw(t, projectID.String())}}},
 	}}
-	projectType := &node.NodeType{TypeKey: "project", Slug: "project", CanLiveUnder: []string{"workspace"}, Reference: node.ReferenceConfig{Strategy: node.ReferenceDirectSlug, Property: "identifier"}}
+	projectType := &node.NodeType{TypeKey: "project", Slug: "project", CanLiveUnder: []string{"workspace"}, Reference: node.ReferenceConfig{Strategy: node.ReferenceDirectProperty, Property: "identifier"}}
 	issueType := &node.NodeType{TypeKey: "issue", Slug: "issue", CanLiveUnder: []string{"project"}, Reference: node.ReferenceConfig{Strategy: node.ReferenceScopedSequence, Property: "sequence"}}
 	resolver := &Resolver{
 		nodes: repo, reader: reader, members: &fakeMembers{orgIDs: []uuid.UUID{orgID}},
 		entryPointTypeKey: "workspace", entryPointSlug: "workspace",
-		scopeChain: []ScopeLevel{{TypeKey: "project", Slug: "project", ParamName: "project_identifier"}},
+		scopeChain: []ScopeLevel{{TypeKey: "project", Slug: "project", ParamName: "project_reference"}},
 		typeIndex:  map[string]*node.NodeType{"project": projectType, "issue": issueType},
 	}
 	ctx := auth.WithUser(context.Background(), uuid.New())
-	resolved, err := resolver.ResolveScope(ctx, project, ScopeLevel{TypeKey: "issue", Slug: "issue", ParamName: "issue_identifier"}, "CLYDE-157")
+	resolved, err := resolver.ResolveScope(ctx, project, ScopeLevel{TypeKey: "issue", Slug: "issue", ParamName: "issue_reference"}, "CLYDE-157")
 	if err != nil {
 		t.Fatalf("ResolveScope(CLYDE-157): %v", err)
 	}
@@ -260,7 +260,7 @@ func TestNormalizeUpdatePropsResolvesStateReference(t *testing.T) {
 	repo := &fakeNodeRepo{scopeChildren: map[string][]*node.Node{
 		"project:identifier:\"CLYDE\"": {{ID: projectID, OrgID: orgID, NodeType: "project", Props: map[string]json.RawMessage{"parent_id": mustRaw(t, workspaceID.String())}}},
 	}}
-	projectType := &node.NodeType{TypeKey: "project", Slug: "project", CanLiveUnder: []string{"workspace"}, Reference: node.ReferenceConfig{Strategy: node.ReferenceDirectSlug, Property: "identifier"}}
+	projectType := &node.NodeType{TypeKey: "project", Slug: "project", CanLiveUnder: []string{"workspace"}, Reference: node.ReferenceConfig{Strategy: node.ReferenceDirectProperty, Property: "identifier"}}
 	stateType := &node.NodeType{TypeKey: "state", Slug: "state", CanLiveUnder: []string{"project"}, Reference: node.ReferenceConfig{Strategy: node.ReferenceScopedProperty, Property: "name"}}
 	issueType := &node.NodeType{TypeKey: "issue", Slug: "issue", Features: node.Features{node.FeatureHasWorkflowStates}}
 	resolver := &Resolver{

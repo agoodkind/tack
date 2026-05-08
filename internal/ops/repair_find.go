@@ -3,45 +3,58 @@ package ops
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sort"
+	"strings"
 
 	"github.com/google/uuid"
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
+	"goodkind.io/tack/internal/domain/node"
 )
 
 func init() {
 	Register(Operation{
 		Name:        "repair.find",
-		Description: "Find nodes by slug or indexed property from TACK_REPAIR_FIND_* env vars and print deterministic inspection summaries.",
+		Description: "Find nodes by address or indexed property from TACK_REPAIR_FIND_* env vars and print deterministic inspection summaries.",
 		Run:         runRepairFind,
 	})
 }
 
 func runRepairFind(ctx context.Context, env *Env) error {
+	log := env.Log
 	mode, err := readRequiredStringEnv(repairFindModeEnv)
 	if err != nil {
 		return err
 	}
+	mode = strings.TrimSpace(mode)
 	result := &repairFindResult{
-		Mode:    mode,
-		Input:   map[string]string{},
-		Matches: make([]repairSelectedNode, 0),
+		Mode:         mode,
+		Input:        map[string]string{},
+		Matches:      make([]repairSelectedNode, 0),
+		Inspections:  nil,
+		RemovalGates: nil,
+		Warnings:     nil,
 	}
 	var nodeIDs []uuid.UUID
-	if mode == "slug" {
+	if mode == "address" {
 		nodeType, err := readRequiredStringEnv(repairFindNodeTypeEnv)
 		if err != nil {
 			return err
 		}
-		slug, err := readRequiredStringEnv(repairFindSlugEnv)
+		address, err := readRepairAddressEnv()
 		if err != nil {
 			return err
 		}
 		result.Input[repairFindNodeTypeEnv] = nodeType
-		result.Input[repairFindSlugEnv] = slug
-		nodeID, err := env.Stores.Nodes.GetSlug(ctx, nodeType, slug)
+		result.Input[repairFindAddressEnv] = address
+		nodeID, err := env.Stores.Nodes.GetAddress(ctx, nodeType, node.AddressKindPrimary, address)
 		if err != nil {
-			return err
+			log.ErrorContext(ctx, "repair.find.address",
+				slog.String("node_type", nodeType),
+				slog.String("address", address),
+				slog.String("err", err.Error()),
+			)
+			return fmt.Errorf("get address %q for node type %q: %w", address, nodeType, err)
 		}
 		if nodeID != uuid.Nil {
 			nodeIDs = append(nodeIDs, nodeID)
@@ -77,7 +90,7 @@ func runRepairFind(ctx context.Context, env *Env) error {
 			nodeIDs = append(nodeIDs, currentNode.ID)
 		}
 	}
-	if mode != "slug" && mode != "property" {
+	if mode != "address" && mode != "property" {
 		return fmt.Errorf("unsupported %s %q", repairFindModeEnv, mode)
 	}
 	sort.Slice(nodeIDs, func(i int, j int) bool {

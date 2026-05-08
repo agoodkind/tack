@@ -13,8 +13,8 @@ import (
 )
 
 // nodeTypeSummary is the per-NodeType payload returned by tack_describe_*.
-// Mirrors the small subset of NodeType the MCP layer needs (slug, plural,
-// human name, features, reference contract) without exposing the full NodeType struct, which
+// Mirrors the small subset of NodeType the MCP layer needs for command names,
+// human names, features, and declared reference contracts without exposing the full NodeType struct, which
 // includes org-internal fields like ID.
 type nodeTypeSummary struct {
 	Slug       string
@@ -52,7 +52,7 @@ func RegisterWorkspace(s *mcpserver.MCPServer, reader node.NodeReader, resolver 
 			Name:        fmt.Sprintf("tack_describe_%s", resolver.entryPointSlug),
 			Description: "Describes a workspace: its node types, property defs, and direct children.",
 			InputSchema: schema{
-				Fields:   []schemaField{{Name: resolver.EntryPointParamName(), Type: schemaString}},
+				Fields:   entryPointSchemaFields(resolver),
 				Required: []string{resolver.EntryPointParamName()},
 			}.toMCP(),
 		},
@@ -61,11 +61,11 @@ func RegisterWorkspace(s *mcpserver.MCPServer, reader node.NodeReader, resolver 
 			if err != nil {
 				return recoverableError(err.Error()), nil
 			}
-			slug, ok := requireString(args, resolver.EntryPointParamName())
+			entryPointReference, ok := resolver.entryPointReference(args)
 			if !ok {
-				return recoverableError(resolver.EntryPointParamName() + " is required"), nil
+				return recoverableError(resolver.entryPointRequiredMessage()), nil
 			}
-			ws, err := resolver.Workspace(ctx, slug)
+			ws, err := resolver.Workspace(ctx, entryPointReference)
 			if err != nil {
 				return classifyError(ctx, err), nil
 			}
@@ -102,7 +102,7 @@ func RegisterMembers(s *mcpserver.MCPServer, members org.MemberRepository, users
 			Name:        "tack_list_members",
 			Description: "Lists org members for the workspace's org.",
 			InputSchema: schema{
-				Fields:   []schemaField{{Name: resolver.EntryPointParamName(), Type: schemaString}},
+				Fields:   entryPointSchemaFields(resolver),
 				Required: []string{resolver.EntryPointParamName()},
 			}.toMCP(),
 		},
@@ -111,11 +111,11 @@ func RegisterMembers(s *mcpserver.MCPServer, members org.MemberRepository, users
 			if err != nil {
 				return recoverableError(err.Error()), nil
 			}
-			slug, ok := requireString(args, resolver.EntryPointParamName())
+			entryPointReference, ok := resolver.entryPointReference(args)
 			if !ok {
-				return recoverableError(resolver.EntryPointParamName() + " is required"), nil
+				return recoverableError(resolver.entryPointRequiredMessage()), nil
 			}
-			ws, err := resolver.Workspace(ctx, slug)
+			ws, err := resolver.Workspace(ctx, entryPointReference)
 			if err != nil {
 				return classifyError(ctx, err), nil
 			}

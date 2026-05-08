@@ -9,44 +9,38 @@ import (
 )
 
 func listTool(nt *node.NodeType, plural string, chain []ScopeLevel, epParam string, resolver *Resolver) mcpmcp.Tool {
-	fields := []schemaField{
-		{Name: epParam, Type: schemaString, Desc: entryPointFieldDescription(resolver)},
-		{Name: "filters", Type: schemaObject, Desc: "Optional exact property filters keyed by property name or reference alias, for example {\"state\": \"TACK::In Progress\"} or {\"priority\": \"high\"}."},
-	}
-	required := []string{epParam}
+	fields := append([]schemaField{}, entryPointSchemaFields(resolver)...)
+	fields = append(fields, schemaField{Name: "filters", Type: schemaObject, Desc: "Optional exact property filters keyed by property name or reference alias, for example {\"state\": \"TACK::In Progress\"} or {\"priority\": \"high\"}."})
 	for _, level := range chain {
-		fields = append(fields, schemaField{Name: level.ParamName, Type: schemaString, Desc: scopeFieldDescription(level, resolver)})
-		required = append(required, level.ParamName)
+		fields = append(fields, scopeReferenceFields(level, resolver)...)
 	}
 	return mcpmcp.Tool{
 		Name:        fmt.Sprintf("tack_list_%s", plural),
 		Description: listToolDescription(nt, plural, chain, epParam, resolver),
-		InputSchema: schema{Fields: fields, Required: required}.toMCP(),
+		InputSchema: schema{Fields: fields, Required: append([]string{epParam}, scopeParamNames(chain)...)}.toMCP(),
 	}
 }
 
 func createTool(nt *node.NodeType, slug string, chain []ScopeLevel, epParam string, resolver *Resolver) mcpmcp.Tool {
-	fields := []schemaField{
-		{Name: epParam, Type: schemaString, Desc: entryPointFieldDescription(resolver)},
-		{Name: "name", Type: schemaString, Desc: fmt.Sprintf("Name for the new %s.", strings.ToLower(nt.Name))},
-		{Name: "properties", Type: schemaObject, Desc: "Property values keyed by name"},
-	}
-	required := []string{epParam, "name"}
+	fields := append([]schemaField{}, entryPointSchemaFields(resolver)...)
+	fields = append(fields,
+		schemaField{Name: "name", Type: schemaString, Desc: fmt.Sprintf("Name for the new %s.", strings.ToLower(nt.Name))},
+		schemaField{Name: "properties", Type: schemaObject, Desc: "Property values keyed by name"},
+	)
 	for _, level := range chain {
-		fields = append(fields, schemaField{Name: level.ParamName, Type: schemaString, Desc: scopeFieldDescription(level, resolver)})
-		required = append(required, level.ParamName)
+		fields = append(fields, scopeReferenceFields(level, resolver)...)
 	}
 	return mcpmcp.Tool{
 		Name:        fmt.Sprintf("tack_create_%s", slug),
 		Description: createToolDescription(nt, chain, epParam, resolver),
-		InputSchema: schema{Fields: fields, Required: required}.toMCP(),
+		InputSchema: schema{Fields: fields, Required: append([]string{epParam, "name"}, scopeParamNames(chain)...)}.toMCP(),
 	}
 }
 
 func nodeIDSchema(entryPointParam string, resolver *Resolver) schema {
 	fields := []schemaField{{Name: "node_id", Type: schemaString}}
 	if entryPointParam != "" {
-		fields = append(fields, schemaField{Name: entryPointParam, Type: schemaString, Desc: entryPointFieldDescription(resolver)})
+		fields = append(fields, entryPointSchemaFields(resolver)...)
 	}
 	return schema{Fields: fields, Required: []string{"node_id"}}
 }
@@ -55,11 +49,11 @@ func getTool(nt *node.NodeType, slug string, entryPointParam string, resolver *R
 	description := fmt.Sprintf("Gets a %s by UUID.", nt.Name)
 	switch nt.Reference.Strategy {
 	case node.ReferenceScopedSequence:
-		description = fmt.Sprintf("Gets a %s by UUID or identifier like TACK-65.", nt.Name)
+		description = fmt.Sprintf("Gets a %s by UUID or sequence reference like TACK-65.", nt.Name)
 	case node.ReferenceScopedProperty:
 		description = fmt.Sprintf("Gets a %s by UUID or scoped reference like PROJECT::Name.", nt.Name)
-	case node.ReferenceDirectSlug:
-		description = fmt.Sprintf("Gets a %s by UUID or identifier.", nt.Name)
+	case node.ReferenceDirectProperty:
+		description = fmt.Sprintf("Gets a %s by UUID or declared reference.", nt.Name)
 	}
 	return mcpmcp.Tool{
 		Name:        fmt.Sprintf("tack_get_%s", slug),

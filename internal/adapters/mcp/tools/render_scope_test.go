@@ -20,7 +20,7 @@ func TestIdentifierForUsesAncestorProjectWhenScopeIDMissing(t *testing.T) {
 	issue := &node.NodeView{ID: issueID, OrgID: orgID, NodeType: "issue", Name: "Fix round-trip", Props: map[string]json.RawMessage{"sequence": mustRaw(t, 64), "parent_id": mustRaw(t, epicID.String())}}
 	reader := &fakeReader{views: map[uuid.UUID]*node.NodeView{projectID: project, epicID: epic, issueID: issue}}
 	rc := newRenderCtxWithTypes(context.Background(), reader, nil, map[string]*node.NodeType{
-		"project": {TypeKey: "project", Reference: node.ReferenceConfig{Strategy: node.ReferenceDirectSlug, Property: "identifier"}},
+		"project": {TypeKey: "project", Reference: node.ReferenceConfig{Strategy: node.ReferenceDirectProperty, Property: "identifier"}},
 		"issue":   {TypeKey: "issue", Reference: node.ReferenceConfig{Strategy: node.ReferenceScopedSequence, Property: "sequence"}},
 	})
 	ident := identifierFor(issue, rc)
@@ -37,7 +37,7 @@ func TestIdentifierForRendersScopedStateReference(t *testing.T) {
 	state := &node.NodeView{ID: stateID, OrgID: orgID, NodeType: "state", Name: "In Progress", Props: map[string]json.RawMessage{"parent_id": mustRaw(t, projectID.String())}}
 	reader := &fakeReader{views: map[uuid.UUID]*node.NodeView{projectID: project, stateID: state}}
 	rc := newRenderCtxWithTypes(context.Background(), reader, nil, map[string]*node.NodeType{
-		"project": {TypeKey: "project", Reference: node.ReferenceConfig{Strategy: node.ReferenceDirectSlug, Property: "identifier"}},
+		"project": {TypeKey: "project", Reference: node.ReferenceConfig{Strategy: node.ReferenceDirectProperty, Property: "identifier"}},
 		"state":   {TypeKey: "state", Reference: node.ReferenceConfig{Strategy: node.ReferenceScopedProperty, Property: "name"}},
 	})
 	ident := identifierFor(state, rc)

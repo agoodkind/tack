@@ -44,11 +44,11 @@ func auditEntryPointArg(ctx context.Context, args argMap, b NodeTypeBinding) (*n
 	if b.Resolver == nil {
 		return nil, nil
 	}
-	entryPointSlug := optionalString(args, b.Resolver.EntryPointParamName())
-	if entryPointSlug == "" {
+	entryPointReference := b.Resolver.optionalEntryPointReference(args)
+	if entryPointReference == "" {
 		return nil, nil
 	}
-	return b.Resolver.Workspace(ctx, entryPointSlug)
+	return b.Resolver.Workspace(ctx, entryPointReference)
 }
 
 func stampAuditNodeInEntryPoint(ctx context.Context, resolver *Resolver, entryPoint *node.NodeView, view *node.NodeView) error {

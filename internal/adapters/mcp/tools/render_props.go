@@ -116,8 +116,12 @@ func referenceSummary(reference node.ReferenceConfig) string {
 	if reference.Strategy == "" {
 		return ""
 	}
-	if reference.Property == "" {
-		return string(reference.Strategy)
+	strategy := string(reference.Strategy)
+	if reference.Strategy == node.ReferenceDirectProperty {
+		strategy = "direct_property"
 	}
-	return fmt.Sprintf("%s:%s", reference.Strategy, reference.Property)
+	if reference.Property == "" {
+		return strategy
+	}
+	return fmt.Sprintf("%s:%s", strategy, reference.Property)
 }

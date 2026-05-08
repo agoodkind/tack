@@ -29,7 +29,7 @@ func renderDeletedNode(rc *renderCtx, view *node.NodeView, deletedAt time.Time) 
 		ident = view.Name
 	}
 	fields := []markdownField{
-		markdownCodeFieldValue("Identifier", ident),
+		markdownCodeFieldValue("Reference", ident),
 		markdownCodeFieldValue("Type", view.NodeType),
 		markdownFieldValue("Deleted at", formatDisplayTime(deletedAt)),
 	}

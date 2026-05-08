@@ -14,6 +14,8 @@ package integration
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"log/slog"
 	"os"
 	"testing"
 	"time"
@@ -146,7 +148,15 @@ func writeOrgNode(ctx context.Context, stores *fdbadapter.Stores, orgID uuid.UUI
 	if err := stores.Nodes.CreateAtomic(ctx, n, view, nil, []string{"slug"}, nil); err != nil {
 		return err
 	}
-	return stores.Nodes.WriteSlug(ctx, "org", slug, orgID)
+	if err := stores.Nodes.WriteAddress(ctx, "org", node.AddressKindPrimary, slug, orgID); err != nil {
+		slog.ErrorContext(ctx, "integration.write_org_address",
+			slog.String("slug", slug),
+			slog.String("org_id", orgID.String()),
+			slog.String("err", err.Error()),
+		)
+		return fmt.Errorf("write org address %q: %w", slug, err)
+	}
+	return nil
 }
 
 func mustJSON(v any) json.RawMessage {

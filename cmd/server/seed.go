@@ -152,7 +152,7 @@ func runSeed(cfg *config.Config) {
 // nodes.
 func ensureNode(ctx context.Context, s *fdbadapter.Stores, typeKey, slug, name string, parentID uuid.UUID) uuid.UUID {
 	log := telemetry.L(ctx)
-	if existing, err := s.Nodes.GetSlug(ctx, typeKey, slug); err == nil && existing != uuid.Nil {
+	if existing, err := s.Nodes.GetAddress(ctx, typeKey, node.AddressKindPrimary, slug); err == nil && existing != uuid.Nil {
 		log.Info("seed: node exists", "type", typeKey, "slug", slug, "id", existing)
 		return existing
 	}
@@ -226,7 +226,7 @@ func ensureNode(ctx context.Context, s *fdbadapter.Stores, typeKey, slug, name s
 		log.Error("seed: create node", "type", typeKey, "err", err)
 		os.Exit(1)
 	}
-	if err := s.Nodes.WriteSlug(ctx, typeKey, slug, id); err != nil {
+	if err := s.Nodes.WriteAddress(ctx, typeKey, node.AddressKindPrimary, slug, id); err != nil {
 		log.Error("seed: write slug", "type", typeKey, "err", err)
 		os.Exit(1)
 	}

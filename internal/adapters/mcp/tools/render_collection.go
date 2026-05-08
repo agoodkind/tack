@@ -22,7 +22,7 @@ func renderWorkspaceDescribe(rc *renderCtx, ws *node.NodeView, types []nodeTypeS
 	for _, nodeType := range types {
 		fields := []markdownField{
 			markdownFieldValue("Name", nodeType.Name),
-			markdownCodeFieldValue("Plural", nodeType.PluralSlug),
+			markdownCodeFieldValue("List token", nodeType.PluralSlug),
 		}
 		if len(nodeType.Features) > 0 {
 			fields = append(fields, markdownFieldValue("Features", codeList(nodeType.Features)))
@@ -30,7 +30,7 @@ func renderWorkspaceDescribe(rc *renderCtx, ws *node.NodeView, types []nodeTypeS
 		if ref := referenceSummary(nodeType.Reference); ref != "" {
 			fields = append(fields, markdownCodeFieldValue("Reference", ref))
 		}
-		items = append(items, markdownItem{Title: markdownCodeValue(nodeType.Slug), Fields: fields})
+		items = append(items, markdownItem{Title: "Tool token " + markdownCodeValue(nodeType.Slug), Fields: fields})
 	}
 	childrenText := ""
 	if len(children) > 0 {

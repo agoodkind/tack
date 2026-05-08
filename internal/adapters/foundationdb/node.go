@@ -469,69 +469,6 @@ func (s *NodeStore) AllocateSequence(ctx context.Context, orgID, scopeNodeID uui
 	return val.(int64), nil
 }
 
-// GetSlug returns the nodeID registered under (nodeType, slug), or uuid.Nil, nil
-// when none exists.
-func (s *NodeStore) GetSlug(ctx context.Context, nodeType, slug string) (id uuid.UUID, err error) {
-	defer telemetry.FDBOp(ctx, "store.node.get_slug")(&err)
-	val, err := s.db.ReadTransact(func(tr fdb.ReadTransaction) (any, error) {
-		return tr.Get(fdb.Key(slugIndexKey(nodeType, slug))).Get()
-	})
-	if err != nil {
-		return uuid.Nil, fmt.Errorf("fdb get slug: %w", err)
-	}
-	b, ok := val.([]byte)
-	if !ok || len(b) == 0 {
-		return uuid.Nil, nil
-	}
-	return uuid.FromBytes(b)
-}
-
-// WriteSlug registers a (nodeType, slug) -> nodeID mapping. Read-then-write
-// inside a single FDB transaction so two concurrent slug writers race
-// deterministically. Returns:
-//
-//   - nil on success when the slug was unowned, or when the existing value
-//     already matches nodeID (idempotent re-write)
-//   - domain.ErrAlreadyExists when the slug is owned by a different node
-//
-// Pre-rewrite this method silently overwrote any existing slug, orphaning
-// the previous owner. The fail-fast behavior is the dedupe contract that
-// the rest of the system depends on.
-func (s *NodeStore) WriteSlug(ctx context.Context, nodeType, slug string, nodeID uuid.UUID) (err error) {
-	defer telemetry.FDBOp(ctx, "store.node.write_slug")(&err)
-	idBytes, _ := nodeID.MarshalBinary()
-	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
-		key := fdb.Key(slugIndexKey(nodeType, slug))
-		existing, err := tr.Get(key).Get()
-		if err != nil {
-			return nil, fmt.Errorf("read existing slug: %w", err)
-		}
-		if len(existing) > 0 {
-			existingID, perr := uuid.FromBytes(existing)
-			if perr != nil {
-				return nil, fmt.Errorf("decode existing slug owner: %w", perr)
-			}
-			if existingID == nodeID {
-				return nil, nil
-			}
-			return nil, fmt.Errorf("slug %q (type %q) already owned by %s: %w",
-				slug, nodeType, existingID, domain.ErrAlreadyExists)
-		}
-		tr.Set(key, idBytes)
-		return nil, nil
-	})
-	return
-}
-
-func (s *NodeStore) DeleteSlug(ctx context.Context, nodeType, slug string) (err error) {
-	defer telemetry.FDBOp(ctx, "store.node.delete_slug")(&err)
-	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
-		tr.Clear(fdb.Key(slugIndexKey(nodeType, slug)))
-		return nil, nil
-	})
-	return
-}
-
 // LookupIdempotencyKey returns the record stamped under (orgID, key), or nil
 // when the key has not been seen.
 func (s *NodeStore) LookupIdempotencyKey(ctx context.Context, orgID uuid.UUID, key string) (record *node.IdempotencyRecord, err error) {

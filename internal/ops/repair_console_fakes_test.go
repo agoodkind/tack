@@ -66,13 +66,17 @@ func (r *repairNodeRepo) AllocateSequence(context.Context, uuid.UUID, uuid.UUID,
 	panic("repairNodeRepo.AllocateSequence called")
 }
 
-func (r *repairNodeRepo) GetSlug(context.Context, string, string) (uuid.UUID, error) {
-	panic("repairNodeRepo.GetSlug called")
+func (r *repairNodeRepo) GetAddress(context.Context, string, node.AddressKind, string) (uuid.UUID, error) {
+	panic("repairNodeRepo.GetAddress called")
 }
 
-func (r *repairNodeRepo) WriteSlug(context.Context, string, string, uuid.UUID) error { return nil }
+func (r *repairNodeRepo) WriteAddress(context.Context, string, node.AddressKind, string, uuid.UUID) error {
+	return nil
+}
 
-func (r *repairNodeRepo) DeleteSlug(context.Context, string, string) error { return nil }
+func (r *repairNodeRepo) DeleteAddress(context.Context, string, node.AddressKind, string) error {
+	return nil
+}
 
 func (r *repairNodeRepo) LookupIdempotencyKey(context.Context, uuid.UUID, string) (*node.IdempotencyRecord, error) {
 	panic("repairNodeRepo.LookupIdempotencyKey called")
@@ -197,7 +201,7 @@ func (s *repairSearcher) Search(context.Context, string, string, map[string]stri
 
 func repairTypes() []*node.NodeType {
 	return []*node.NodeType{
-		{TypeKey: "container", Slug: "containers", Reference: node.ReferenceConfig{Strategy: node.ReferenceDirectSlug, Property: "code"}},
+		{TypeKey: "container", Slug: "containers", Reference: node.ReferenceConfig{Strategy: node.ReferenceDirectProperty, Property: "code"}},
 		{TypeKey: "phase", Slug: "phases", Reference: node.ReferenceConfig{Strategy: node.ReferenceScopedProperty, Property: "name"}},
 		{TypeKey: "ticket", Slug: "tickets", Features: node.Features{"has_phase"}},
 	}

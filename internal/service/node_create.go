@@ -49,8 +49,8 @@ type CreateResult struct {
 // Create writes a new node plus its initial relationships. When the NodeType
 // declares FeatureHasSequenceID the service allocates a sequence number from
 // the parent as the scope, and stamps Props["sequence"]. When the NodeType
-// declares FeatureHasSlug the service writes the global slug index from
-// Props["slug"] (or "identifier").
+// Reference declares a direct address property, the service writes the address
+// index from that property value.
 //
 // When IdempotencyKey is non-empty, Create first looks up an existing
 // (orgID, key) record. If a node already exists under that key, Create
@@ -107,7 +107,7 @@ func (s *NodeService) Create(ctx context.Context, in CreateInput) (*CreateResult
 		return createResult, nil
 	}
 
-	s.writeCreateSlug(ctx, log, nt, props, id)
+	s.writeReferenceAddress(ctx, nt, props, id, log, "node.Create")
 	s.indexCreateSearch(ctx, log, id, view)
 	s.createDefaultChildren(ctx, log, nt, id, in.ActorID)
 

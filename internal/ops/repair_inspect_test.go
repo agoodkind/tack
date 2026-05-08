@@ -26,7 +26,7 @@ func TestSelectNodeFallsBackToViewAndWarnsOnMissingRows(t *testing.T) {
 				NodeType:  "issue",
 				Name:      "Issue",
 				UpdatedAt: updatedAt,
-				Props:     map[string]json.RawMessage{"slug": mustRaw(t, "issue-1")},
+				Props:     map[string]json.RawMessage{"identifier": mustRaw(t, "issue-1")},
 			},
 		}},
 	}

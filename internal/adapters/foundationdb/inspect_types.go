@@ -8,6 +8,8 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
+const legacySlugIndexKeyFamily = "slug_index"
+
 // InspectStore exposes read-only record-family inspection helpers for operator
 // repair tooling.
 type InspectStore struct {
@@ -21,7 +23,7 @@ type NodeInspectionReport struct {
 	NodeInstances           []InspectNodeInstance           `json:"node_instances,omitempty"`
 	NodeViews               []InspectNodeView               `json:"node_views,omitempty"`
 	PropertyIndexRows       []InspectPropertyIndexRow       `json:"property_index_rows,omitempty"`
-	SlugRows                []InspectSlugRow                `json:"slug_rows,omitempty"`
+	LegacyAddressRows       []InspectLegacyAddressRow       `json:"legacy_address_rows,omitempty"`
 	Relationships           []InspectRelationshipRow        `json:"relationships,omitempty"`
 	RelationshipReverseRows []InspectRelationshipReverseRow `json:"relationship_reverse_rows,omitempty"`
 }
@@ -51,11 +53,13 @@ type InspectPropertyIndexRow struct {
 	NodeID       uuid.UUID       `json:"node_id"`
 }
 
-// InspectSlugRow is one slug_index row that points at the inspected UUID.
-type InspectSlugRow struct {
-	NodeType string    `json:"node_type"`
-	Slug     string    `json:"slug"`
-	OwnerID  uuid.UUID `json:"owner_id"`
+// InspectLegacyAddressRow is one legacy address row that points at the inspected UUID.
+type InspectLegacyAddressRow struct {
+	LegacyKeyFamily string    `json:"legacy_key_family"`
+	NodeType        string    `json:"node_type"`
+	AddressKind     string    `json:"address_kind"`
+	AddressValue    string    `json:"address_value"`
+	OwnerID         uuid.UUID `json:"owner_id"`
 }
 
 // InspectRelationshipRow is one forward relationship row where the UUID is the

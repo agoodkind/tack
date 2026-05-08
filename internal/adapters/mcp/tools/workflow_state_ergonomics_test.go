@@ -15,7 +15,7 @@ func TestGettingStartedDocumentsWorkflowStateTools(t *testing.T) {
 		"## Workflow states",
 		"States are first-class nodes",
 		"Use `tack_list_states`",
-		"use the generated `tack_set_<slug>_state` tool",
+		"use the generated `tack_set_<tool-token>_state` tool",
 		"Do not record workflow progress only as a comment",
 	} {
 		if !strings.Contains(body, want) {
@@ -29,7 +29,7 @@ func TestReferencePropertyToolDescribesStateDiscovery(t *testing.T) {
 		TypeKey:    "project",
 		Slug:       "project",
 		PluralSlug: "projects",
-		Reference:  node.ReferenceConfig{Strategy: node.ReferenceDirectSlug, Property: "identifier"},
+		Reference:  node.ReferenceConfig{Strategy: node.ReferenceDirectProperty, Property: "identifier"},
 	}
 	issueType := &node.NodeType{TypeKey: "issue", Slug: "issue", Name: "Issue", CanLiveUnder: []string{"project"}}
 	stateType := &node.NodeType{TypeKey: "state", Slug: "state", PluralSlug: "states", Name: "State"}
@@ -65,7 +65,7 @@ func TestReferencePropertyToolDescribesStateDiscovery(t *testing.T) {
 	if !strings.Contains(schemaDescription(t, tool, "state"), "Use tack_list_states") {
 		t.Fatalf("state field should point agents to tack_list_states")
 	}
-	if !strings.Contains(schemaDescription(t, tool, "project_identifier"), "project reference") {
-		t.Fatalf("project_identifier should explain project reference discovery")
+	if !strings.Contains(schemaDescription(t, tool, "project_reference"), "project reference") {
+		t.Fatalf("project_reference should explain project reference discovery")
 	}
 }

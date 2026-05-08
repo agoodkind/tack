@@ -18,8 +18,8 @@ const (
 )
 
 // ResolveTypedNodeID resolves a node reference in the context of one node type.
-// Typed resolution lets get/update/delete accept project identifiers and scoped
-// refs like "CLYDE::In Progress" without widening lookups across all types.
+// Typed resolution lets get/update/delete accept declared references and scoped
+// references like "CLYDE::In Progress" without widening lookups across all types.
 func (r *Resolver) ResolveTypedNodeID(ctx context.Context, nt *node.NodeType, input string) (uuid.UUID, error) {
 	if id, err := uuid.Parse(input); err == nil {
 		if nt == nil {
@@ -40,7 +40,7 @@ func (r *Resolver) ResolveTypedNodeID(ctx context.Context, nt *node.NodeType, in
 	}
 
 	switch nt.Reference.Strategy {
-	case node.ReferenceDirectSlug:
+	case node.ReferenceDirectProperty:
 		return r.resolveDirectReference(ctx, nt, input)
 	case node.ReferenceScopedSequence:
 		return r.resolveSequenceNodeID(ctx, input, []string{nt.TypeKey})
@@ -54,9 +54,9 @@ func (r *Resolver) ResolveTypedNodeID(ctx context.Context, nt *node.NodeType, in
 }
 
 func (r *Resolver) resolveSequenceNodeID(ctx context.Context, input string, typeKeys []string) (uuid.UUID, error) {
-	projIdent, seqID, err := ParseNodeIdentifier(input)
+	projectReference, seqID, err := ParseNodeIdentifier(input)
 	if err != nil {
-		return uuid.Nil, fmt.Errorf("invalid node_id %q: must be a UUID or identifier like TACK-65: %w", input, domain.ErrInvalidArgument)
+		return uuid.Nil, fmt.Errorf("invalid node_id %q: must be a UUID or sequence reference like TACK-65: %w", input, domain.ErrInvalidArgument)
 	}
 	userID, ok := auth.UserID(ctx)
 	if !ok {
@@ -70,7 +70,7 @@ func (r *Resolver) resolveSequenceNodeID(ctx context.Context, input string, type
 		if len(r.scopeChain) == 0 {
 			continue
 		}
-		scopeNode, err := r.ResolveScope(ctx, workspace, r.scopeChain[0], projIdent)
+		scopeNode, err := r.ResolveScope(ctx, workspace, r.scopeChain[0], projectReference)
 		if err != nil {
 			continue
 		}
@@ -88,5 +88,5 @@ func (r *Resolver) resolveSequenceNodeID(ctx context.Context, input string, type
 			}
 		}
 	}
-	return uuid.Nil, fmt.Errorf("identifier %q: %w", input, domain.ErrNotFound)
+	return uuid.Nil, fmt.Errorf("reference %q: %w", input, domain.ErrNotFound)
 }

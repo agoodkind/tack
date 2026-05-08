@@ -24,7 +24,7 @@ func TestNormalizeCreatePropsCanonicalizesStateAlias(t *testing.T) {
 	repo := &fakeNodeRepo{scopeChildren: map[string][]*node.Node{
 		"project:identifier:\"CLYDE\"": {{ID: projectID, OrgID: orgID, NodeType: "project", Props: map[string]json.RawMessage{"parent_id": mustRaw(t, workspaceID.String())}}},
 	}}
-	projectType := &node.NodeType{TypeKey: "project", Slug: "project", CanLiveUnder: []string{"workspace"}, Reference: node.ReferenceConfig{Strategy: node.ReferenceDirectSlug, Property: "identifier"}}
+	projectType := &node.NodeType{TypeKey: "project", Slug: "project", CanLiveUnder: []string{"workspace"}, Reference: node.ReferenceConfig{Strategy: node.ReferenceDirectProperty, Property: "identifier"}}
 	stateType := &node.NodeType{TypeKey: "state", Slug: "state", CanLiveUnder: []string{"project"}, Reference: node.ReferenceConfig{Strategy: node.ReferenceScopedProperty, Property: "name"}}
 	issueType := &node.NodeType{TypeKey: "issue", Slug: "issue", Features: node.Features{node.FeatureHasWorkflowStates}}
 	resolver := &Resolver{

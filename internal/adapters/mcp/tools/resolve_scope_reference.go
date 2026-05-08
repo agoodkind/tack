@@ -41,7 +41,7 @@ func (r *Resolver) resolveNodeUnderParent(ctx context.Context, parent *node.Node
 		return uuid.Nil, domain.ErrNotFound
 	}
 	switch nt.Reference.Strategy {
-	case node.ReferenceDirectSlug:
+	case node.ReferenceDirectProperty:
 		return r.resolveDirectNodeUnderParent(ctx, parent, nt, ref)
 	case node.ReferenceScopedSequence:
 		id, err := r.ResolveTypedNodeID(ctx, nt, ref)
