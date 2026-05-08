@@ -13,10 +13,20 @@ type RepairClassInfo struct {
 	Description string
 }
 
-var repairClassCatalog = []RepairClassInfo{{
-	Class:       RepairClassReferenceProperty,
-	Description: "Repair one UUID reference property from operator-declared source fields and policies.",
-}}
+var repairClassCatalog = []RepairClassInfo{
+	{
+		Class:       RepairClassReferenceProperty,
+		Description: "Repair one UUID reference property from operator-declared source fields and policies.",
+	},
+	{
+		Class:       RepairClassParentReference,
+		Description: "Repair a node parent_id and child_of edge from operator-declared source fields.",
+	},
+	{
+		Class:       RepairClassPropsTransform,
+		Description: "Apply generic property delete, rename, and append-preserve transforms.",
+	},
+}
 
 // RepairClasses returns the supported repair classes.
 func RepairClasses() []RepairClassInfo {

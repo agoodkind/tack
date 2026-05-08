@@ -35,6 +35,14 @@ type PropertyDefRepository interface {
 	Delete(ctx context.Context, orgID, defID uuid.UUID) error
 }
 
+// RelationshipChanges describes relationship mutations applied with a node update.
+type RelationshipChanges struct {
+	// Add lists relationships written in the same transaction as the node update.
+	Add []*Relationship
+	// Remove lists relationships cleared in the same transaction as the node update.
+	Remove []*Relationship
+}
+
 // NodeRepository is the single write path for nodes. CreateAtomic writes the
 // node primary record, the view, the resolve record, property indexes for
 // indexed Props, and all provided relationships in a single FDB transaction.
@@ -61,6 +69,7 @@ type NodeRepository interface {
 		view *NodeView,
 		oldProps map[string]json.RawMessage,
 		indexedProps []string,
+		relationshipChanges ...RelationshipChanges,
 	) error
 
 	// Delete removes the primary node, view, resolve record, all property

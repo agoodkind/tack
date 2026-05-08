@@ -21,6 +21,10 @@ type RepairClass string
 const (
 	// RepairClassReferenceProperty repairs a UUID reference property from generic source fields.
 	RepairClassReferenceProperty RepairClass = "reference_property"
+	// RepairClassParentReference repairs a node's generic parent reference from source fields.
+	RepairClassParentReference RepairClass = "parent_reference"
+	// RepairClassPropsTransform applies generic property delete, rename, and append transforms.
+	RepairClassPropsTransform RepairClass = "props_transform"
 )
 
 // RepairPreviewInput selects one node and repair class for planning.
@@ -48,10 +52,11 @@ type RepairApplyResult struct {
 
 // RepairConsole previews and applies node repair mutations.
 type RepairConsole struct {
-	nodeTypes    node.TypeRepository
-	propertyDefs node.PropertyDefRepository
-	reader       node.NodeReader
-	updater      *service.NodeService
+	nodeTypes     node.TypeRepository
+	propertyDefs  node.PropertyDefRepository
+	reader        node.NodeReader
+	updater       *service.NodeService
+	relationships node.RelationshipRepository
 }
 
 // NewRepairConsole builds the repair core over generic node repositories.
@@ -61,15 +66,21 @@ func NewRepairConsole(
 	nodeTypes node.TypeRepository,
 	propertyDefs node.PropertyDefRepository,
 	searcher domainsearch.Searcher,
+	relationships ...node.RelationshipRepository,
 ) *RepairConsole {
 	if searcher == nil {
 		searcher = searchadapter.Noop{}
 	}
+	var relationshipRepo node.RelationshipRepository
+	if len(relationships) > 0 {
+		relationshipRepo = relationships[0]
+	}
 	return &RepairConsole{
-		nodeTypes:    nodeTypes,
-		propertyDefs: propertyDefs,
-		reader:       reader,
-		updater:      service.NewNodeService(nodes, reader, nodeTypes, propertyDefs, nil, nil, searcher),
+		nodeTypes:     nodeTypes,
+		propertyDefs:  propertyDefs,
+		reader:        reader,
+		updater:       service.NewNodeService(nodes, reader, nodeTypes, propertyDefs, relationshipRepo, nil, searcher),
+		relationships: relationshipRepo,
 	}
 }
 
@@ -81,6 +92,7 @@ func NewRepairConsoleFromEnv(env *Env) *RepairConsole {
 		env.Stores.NodeTypes,
 		env.Stores.PropertyDefs,
 		newRepairSearcher(env.Cfg),
+		env.Stores.Relationships,
 	)
 }
 
@@ -115,9 +127,10 @@ func (c *RepairConsole) Apply(ctx context.Context, in RepairApplyInput) (*Repair
 		return nil, fmt.Errorf("repair %s confirmation token mismatch for node %s: %w", in.Class, in.NodeID, domain.ErrFailedPrecondition)
 	}
 	view, err := c.updater.Update(ctx, service.UpdateInput{
-		NodeID:  in.NodeID,
-		Props:   plan.props,
-		ActorID: in.ActorID,
+		NodeID:              in.NodeID,
+		Props:               plan.props,
+		RelationshipChanges: plan.relationshipChanges,
+		ActorID:             in.ActorID,
 	})
 	if err != nil {
 		return nil, err
@@ -126,14 +139,19 @@ func (c *RepairConsole) Apply(ctx context.Context, in RepairApplyInput) (*Repair
 }
 
 type repairPlan struct {
-	preview *RepairPreview
-	props   map[string]json.RawMessage
+	preview             *RepairPreview
+	props               map[string]json.RawMessage
+	relationshipChanges node.RelationshipChanges
 }
 
 func (c *RepairConsole) plan(ctx context.Context, class RepairClass, nodeID uuid.UUID, profile *RepairReferenceProfile) (*repairPlan, error) {
 	switch class {
 	case RepairClassReferenceProperty:
 		return c.planReferenceProperty(ctx, nodeID, profile)
+	case RepairClassParentReference:
+		return c.planParentReference(ctx, nodeID, profile)
+	case RepairClassPropsTransform:
+		return c.planPropsTransform(ctx, nodeID, profile)
 	default:
 		return nil, fmt.Errorf("repair class %q: %w", class, domain.ErrInvalidArgument)
 	}

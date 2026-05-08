@@ -13,6 +13,7 @@ import (
 type idempotencyNodeRepo struct {
 	records       map[string]*node.IdempotencyRecord
 	createRecords []*node.IdempotencyRecord
+	updatedNodes  []*node.Node
 }
 
 func (r *idempotencyNodeRepo) Get(context.Context, uuid.UUID, uuid.UUID) (*node.Node, error) {
@@ -23,8 +24,16 @@ func (r *idempotencyNodeRepo) Set(context.Context, *node.Node, *node.NodeView) e
 	panic("idempotencyNodeRepo.Set called")
 }
 
-func (r *idempotencyNodeRepo) UpdateAtomic(context.Context, *node.Node, *node.NodeView, map[string]json.RawMessage, []string) error {
-	panic("idempotencyNodeRepo.UpdateAtomic called")
+func (r *idempotencyNodeRepo) UpdateAtomic(
+	_ context.Context,
+	n *node.Node,
+	_ *node.NodeView,
+	_ map[string]json.RawMessage,
+	_ []string,
+	_ ...node.RelationshipChanges,
+) error {
+	r.updatedNodes = append(r.updatedNodes, n)
+	return nil
 }
 
 func (r *idempotencyNodeRepo) Delete(context.Context, uuid.UUID, uuid.UUID) error {

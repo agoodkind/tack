@@ -87,7 +87,7 @@ func (r *fakeNodeRepo) Set(context.Context, *node.Node, *node.NodeView) error {
 	panic("fakeNodeRepo.Set called")
 }
 
-func (r *fakeNodeRepo) UpdateAtomic(context.Context, *node.Node, *node.NodeView, map[string]json.RawMessage, []string) error {
+func (r *fakeNodeRepo) UpdateAtomic(context.Context, *node.Node, *node.NodeView, map[string]json.RawMessage, []string, ...node.RelationshipChanges) error {
 	panic("fakeNodeRepo.UpdateAtomic called")
 }
 

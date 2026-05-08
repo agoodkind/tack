@@ -132,9 +132,11 @@ func referencePropertyHandler(nt *node.NodeType, def *node.PropertyDef, alias st
 			return classifyError(ctx, err), nil
 		}
 		view, err := b.NodeSvc.Update(ctx, service.UpdateInput{
-			NodeID:  nodeID,
-			Props:   props,
-			ActorID: userID,
+			NodeID:              nodeID,
+			Name:                nil,
+			Props:               props,
+			RelationshipChanges: node.RelationshipChanges{Add: nil, Remove: nil},
+			ActorID:             userID,
 		})
 		if err != nil {
 			return classifyError(ctx, err), nil

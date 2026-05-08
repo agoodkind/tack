@@ -11,11 +11,13 @@ import (
 )
 
 type repairNodeRepo struct {
-	reader       *repairReader
-	updatedNode  *node.Node
-	updatedView  *node.NodeView
-	oldProps     map[string]json.RawMessage
-	indexedProps []string
+	reader              *repairReader
+	updatedNode         *node.Node
+	updatedView         *node.NodeView
+	oldProps            map[string]json.RawMessage
+	indexedProps        []string
+	addRelationships    []*node.Relationship
+	removeRelationships []*node.Relationship
 }
 
 func (r *repairNodeRepo) Get(context.Context, uuid.UUID, uuid.UUID) (*node.Node, error) {
@@ -26,11 +28,22 @@ func (r *repairNodeRepo) Set(context.Context, *node.Node, *node.NodeView) error 
 	panic("repairNodeRepo.Set called")
 }
 
-func (r *repairNodeRepo) UpdateAtomic(_ context.Context, currentNode *node.Node, view *node.NodeView, oldProps map[string]json.RawMessage, indexedProps []string) error {
+func (r *repairNodeRepo) UpdateAtomic(
+	_ context.Context,
+	currentNode *node.Node,
+	view *node.NodeView,
+	oldProps map[string]json.RawMessage,
+	indexedProps []string,
+	relationshipChanges ...node.RelationshipChanges,
+) error {
 	r.updatedNode = currentNode
 	r.updatedView = view
 	r.oldProps = oldProps
 	r.indexedProps = indexedProps
+	if len(relationshipChanges) > 0 {
+		r.addRelationships = relationshipChanges[0].Add
+		r.removeRelationships = relationshipChanges[0].Remove
+	}
 	if r.reader != nil {
 		r.reader.views[currentNode.ID] = view
 	}
@@ -63,6 +76,36 @@ func (r *repairNodeRepo) DeleteSlug(context.Context, string, string) error { ret
 
 func (r *repairNodeRepo) LookupIdempotencyKey(context.Context, uuid.UUID, string) (*node.IdempotencyRecord, error) {
 	panic("repairNodeRepo.LookupIdempotencyKey called")
+}
+
+type repairRelationshipRepo struct {
+	relationships []*node.Relationship
+}
+
+func (r *repairRelationshipRepo) Add(context.Context, *node.Relationship) error {
+	panic("repairRelationshipRepo.Add called")
+}
+
+func (r *repairRelationshipRepo) Remove(context.Context, uuid.UUID, uuid.UUID, string, uuid.UUID) error {
+	panic("repairRelationshipRepo.Remove called")
+}
+
+func (r *repairRelationshipRepo) ListBySource(_ context.Context, orgID uuid.UUID, sourceID uuid.UUID, relationType string) ([]*node.Relationship, error) {
+	matches := make([]*node.Relationship, 0, len(r.relationships))
+	for _, relationship := range r.relationships {
+		if relationship.OrgID != orgID || relationship.SourceID != sourceID {
+			continue
+		}
+		if relationType != "" && relationship.RelationType != relationType {
+			continue
+		}
+		matches = append(matches, relationship)
+	}
+	return matches, nil
+}
+
+func (r *repairRelationshipRepo) ListByTarget(context.Context, uuid.UUID, uuid.UUID, string) ([]*node.Relationship, error) {
+	panic("repairRelationshipRepo.ListByTarget called")
 }
 
 type repairReader struct {

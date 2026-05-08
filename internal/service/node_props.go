@@ -41,7 +41,22 @@ func (s *NodeService) validateUpdateProps(
 	if err != nil {
 		return fmt.Errorf("list property defs for %s update validation: %w", nt.TypeKey, err)
 	}
-	return validateNodeProps(nt, defs, props)
+	return validateNodeProps(nt, defs, setUpdateProps(props))
+}
+
+func setUpdateProps(props map[string]json.RawMessage) map[string]json.RawMessage {
+	setProps := make(map[string]json.RawMessage, len(props))
+	for name, raw := range props {
+		if isDeletedPropValue(raw) {
+			continue
+		}
+		setProps[name] = raw
+	}
+	return setProps
+}
+
+func isDeletedPropValue(raw json.RawMessage) bool {
+	return len(raw) == 0 || string(raw) == "null"
 }
 
 func validateNodeProps(

@@ -99,10 +99,11 @@ func updateHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFu
 		}
 
 		view, err := b.NodeSvc.Update(ctx, service.UpdateInput{
-			NodeID:  id,
-			Name:    in.Name,
-			Props:   rawProps,
-			ActorID: userID,
+			NodeID:              id,
+			Name:                in.Name,
+			Props:               rawProps,
+			RelationshipChanges: node.RelationshipChanges{Add: nil, Remove: nil},
+			ActorID:             userID,
 		})
 		if err != nil {
 			return classifyError(ctx, err), nil

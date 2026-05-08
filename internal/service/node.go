@@ -52,10 +52,11 @@ func NewNodeService(
 
 // UpdateInput holds optional fields to update.
 type UpdateInput struct {
-	NodeID  uuid.UUID
-	Name    *string
-	Props   map[string]json.RawMessage // merged on top of existing
-	ActorID uuid.UUID
+	NodeID              uuid.UUID
+	Name                *string
+	Props               map[string]json.RawMessage // merged on top of existing
+	RelationshipChanges node.RelationshipChanges
+	ActorID             uuid.UUID
 }
 
 // Update rewrites a node's name and/or Props. Property index entries for
@@ -83,7 +84,7 @@ func (s *NodeService) Update(ctx context.Context, in UpdateInput) (*node.NodeVie
 		merged[k] = v
 	}
 	for k, v := range in.Props {
-		if len(v) == 0 || string(v) == "null" {
+		if isDeletedPropValue(v) {
 			delete(merged, k)
 			continue
 		}
@@ -113,14 +114,15 @@ func (s *NodeService) Update(ctx context.Context, in UpdateInput) (*node.NodeVie
 	if err != nil {
 		return nil, err
 	}
-	if err := s.validateUpdateProps(ctx, existing.OrgID, nt, merged); err != nil {
+	if err := s.validateUpdateProps(ctx, existing.OrgID, nt, in.Props); err != nil {
 		return nil, err
 	}
 	indexedProps, err := s.indexedPropNames(ctx, existing.OrgID, nt)
 	if err != nil {
 		return nil, err
 	}
-	if err := s.nodes.UpdateAtomic(ctx, n, view, existing.Props, indexedProps); err != nil {
+	relationshipChanges := stampRelationshipChanges(in.RelationshipChanges, in.ActorID, now)
+	if err := s.nodes.UpdateAtomic(ctx, n, view, existing.Props, indexedProps, relationshipChanges); err != nil {
 		log.Error("node.Update",
 			slog.String("node_id", in.NodeID.String()),
 			slog.String("err", err.Error()),
@@ -158,6 +160,18 @@ func (s *NodeService) Update(ctx context.Context, in UpdateInput) (*node.NodeVie
 		log.Warn("node.Update: search index", slog.String("err", err.Error()))
 	}
 	return view, nil
+}
+
+func stampRelationshipChanges(changes node.RelationshipChanges, actorID uuid.UUID, changedAt time.Time) node.RelationshipChanges {
+	for _, relationship := range changes.Add {
+		if relationship.CreatedBy == uuid.Nil {
+			relationship.CreatedBy = actorID
+		}
+		if relationship.CreatedAt.IsZero() {
+			relationship.CreatedAt = changedAt
+		}
+	}
+	return changes
 }
 
 // Delete removes a node and every FDB record keyed by its ID.

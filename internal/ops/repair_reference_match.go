@@ -13,12 +13,13 @@ import (
 )
 
 type referenceMatchContext struct {
-	reader       node.NodeReader
-	typeIndex    map[string]*node.NodeType
-	orgID        uuid.UUID
-	scopeID      uuid.UUID
-	targetType   *node.NodeType
-	rankProperty string
+	reader        node.NodeReader
+	typeIndex     map[string]*node.NodeType
+	orgID         uuid.UUID
+	scopeID       uuid.UUID
+	targetType    *node.NodeType
+	rankProperty  string
+	matchProperty string
 }
 
 func collectReferenceCandidates(ctx context.Context, view *node.NodeView, profile RepairReferenceProfile, def *node.PropertyDef, matchContext referenceMatchContext, observed *[]RepairObservedSource) []RepairReferenceCandidate {
@@ -34,7 +35,7 @@ func collectReferenceCandidates(ctx context.Context, view *node.NodeView, profil
 	if targetRef := stringProp(view.Props, profile.TargetProperty); strings.TrimSpace(targetRef) != "" {
 		candidates = append(candidates, matchContext.candidate(ctx, profile.TargetProperty, targetRef))
 	}
-	if len(resolvedReferenceCandidates(candidates)) == 0 && profile.UseDefaultFallback && def.DefaultReference != nil {
+	if len(resolvedReferenceCandidates(candidates)) == 0 && profile.UseDefaultFallback && def != nil && def.DefaultReference != nil {
 		ref := normalizeReferenceInput(def.DefaultReference.Reference, profile.Normalization)
 		candidates = append(candidates, matchContext.candidate(ctx, "__default__", ref))
 	}
@@ -119,7 +120,7 @@ func (c referenceMatchContext) resolveHumanReference(ctx context.Context, ref st
 	}
 	matched := make([]*node.NodeView, 0, len(views))
 	for _, view := range views {
-		if viewMatchesReference(view, c.targetType, ref) {
+		if viewMatchesProfileReference(view, c.targetType, c.matchProperty, ref) {
 			matched = append(matched, view)
 		}
 	}
@@ -159,6 +160,13 @@ func (c referenceMatchContext) candidateViews(ctx context.Context, ref string) (
 		return nil, loggedRepairError(ctx, fmt.Sprintf("list reference candidates for %q", ref), err)
 	}
 	return views, nil
+}
+
+func viewMatchesProfileReference(view *node.NodeView, targetType *node.NodeType, matchProperty string, input string) bool {
+	if strings.TrimSpace(matchProperty) != "" {
+		return strings.EqualFold(referencePropertyValue(view, strings.TrimSpace(matchProperty)), input)
+	}
+	return viewMatchesReference(view, targetType, input)
 }
 
 func viewMatchesReference(view *node.NodeView, targetType *node.NodeType, input string) bool {

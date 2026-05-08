@@ -42,21 +42,22 @@ func prepareReferenceProfile(ctx context.Context, profile *RepairReferenceProfil
 
 func newReferencePreview(view *node.NodeView, profile RepairReferenceProfile, targetType *node.NodeType) *RepairPreview {
 	return &RepairPreview{
-		Class:             RepairClassReferenceProperty,
-		ProfileName:       profile.Name,
-		NodeID:            view.ID,
-		NodeType:          view.NodeType,
-		CurrentUpdatedAt:  view.UpdatedAt,
-		TargetProperty:    profile.TargetProperty,
-		TargetType:        nodeTypeKey(targetType),
-		ObservedSources:   make([]RepairObservedSource, 0, len(profile.SourceFields)),
-		Candidates:        nil,
-		ChosenCandidate:   nil,
-		PlannedProps:      nil,
-		Summary:           "",
-		ConfirmationToken: "",
-		NeedsRepair:       false,
-		CanApply:          false,
+		Class:                RepairClassReferenceProperty,
+		ProfileName:          profile.Name,
+		NodeID:               view.ID,
+		NodeType:             view.NodeType,
+		CurrentUpdatedAt:     view.UpdatedAt,
+		TargetProperty:       profile.TargetProperty,
+		TargetType:           nodeTypeKey(targetType),
+		ObservedSources:      make([]RepairObservedSource, 0, len(profile.SourceFields)),
+		Candidates:           nil,
+		ChosenCandidate:      nil,
+		PlannedProps:         nil,
+		PlannedRelationships: nil,
+		Summary:              "",
+		ConfirmationToken:    "",
+		NeedsRepair:          false,
+		CanApply:             false,
 	}
 }
 
@@ -132,6 +133,10 @@ func repairConfirmationToken(preview *RepairPreview) string {
 	if err != nil {
 		plannedProps = []byte("null")
 	}
+	plannedRelationships, err := json.Marshal(preview.PlannedRelationships)
+	if err != nil {
+		plannedRelationships = []byte("null")
+	}
 	payload := strings.Join([]string{
 		string(preview.Class),
 		preview.ProfileName,
@@ -139,6 +144,7 @@ func repairConfirmationToken(preview *RepairPreview) string {
 		preview.CurrentUpdatedAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00"),
 		preview.TargetProperty,
 		string(plannedProps),
+		string(plannedRelationships),
 	}, "|")
 	digest := sha256.Sum256([]byte(payload))
 	return hex.EncodeToString(digest[:])

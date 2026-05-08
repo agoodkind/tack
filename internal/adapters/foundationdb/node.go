@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
@@ -88,28 +89,101 @@ func (s *NodeStore) UpdateAtomic(
 	view *node.NodeView,
 	oldProps map[string]json.RawMessage,
 	indexedProps []string,
+	relationshipChanges ...node.RelationshipChanges,
 ) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node.update_atomic")(&err)
 	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
 		if err := writeNodeRecords(tr, n, view); err != nil {
 			return nil, err
 		}
-		for _, propName := range indexedProps {
-			oldRaw := oldProps[propName]
-			newRaw := n.Props[propName]
-			if bytes.Equal(oldRaw, newRaw) {
-				continue
-			}
-			if len(oldRaw) > 0 {
-				tr.Clear(fdb.Key(nodeByPropertyKey(n.OrgID, n.NodeType, propName, encodePropertyValue(oldRaw), n.ID)))
-			}
-			if len(newRaw) > 0 {
-				tr.Set(fdb.Key(nodeByPropertyKey(n.OrgID, n.NodeType, propName, encodePropertyValue(newRaw), n.ID)), []byte{})
-			}
+		reconcilePropertyIndexes(tr, n, oldProps, indexedProps)
+		if err := applyRelationshipChanges(ctx, tr, relationshipChanges); err != nil {
+			return nil, err
 		}
 		return nil, nil
 	})
 	return
+}
+
+func reconcilePropertyIndexes(
+	tr fdb.Transaction,
+	currentNode *node.Node,
+	oldProps map[string]json.RawMessage,
+	indexedProps []string,
+) {
+	for _, propName := range indexedProps {
+		oldRaw := oldProps[propName]
+		newRaw := currentNode.Props[propName]
+		if bytes.Equal(oldRaw, newRaw) {
+			continue
+		}
+		if len(oldRaw) > 0 {
+			tr.Clear(fdb.Key(nodeByPropertyKey(
+				currentNode.OrgID,
+				currentNode.NodeType,
+				propName,
+				encodePropertyValue(oldRaw),
+				currentNode.ID,
+			)))
+		}
+		if len(newRaw) > 0 {
+			tr.Set(fdb.Key(nodeByPropertyKey(
+				currentNode.OrgID,
+				currentNode.NodeType,
+				propName,
+				encodePropertyValue(newRaw),
+				currentNode.ID,
+			)), []byte{})
+		}
+	}
+}
+
+func applyRelationshipChanges(
+	ctx context.Context,
+	tr fdb.Transaction,
+	relationshipChanges []node.RelationshipChanges,
+) error {
+	for _, changes := range relationshipChanges {
+		for _, relationship := range changes.Remove {
+			tr.Clear(fdb.Key(relationshipKey(
+				relationship.OrgID,
+				relationship.SourceID,
+				relationship.RelationType,
+				relationship.TargetID,
+			)))
+			tr.Clear(fdb.Key(relationshipReverseKey(
+				relationship.OrgID,
+				relationship.TargetID,
+				relationship.RelationType,
+				relationship.SourceID,
+			)))
+		}
+		for _, relationship := range changes.Add {
+			metadata, err := json.Marshal(relationship)
+			if err != nil {
+				slog.ErrorContext(ctx, "node.relationship.marshal_failed",
+					slog.String("source_id", relationship.SourceID.String()),
+					slog.String("relation_type", relationship.RelationType),
+					slog.String("target_id", relationship.TargetID.String()),
+					slog.String("err", err.Error()),
+				)
+				return fmt.Errorf("marshal relationship %s %s %s: %w", relationship.SourceID, relationship.RelationType, relationship.TargetID, err)
+			}
+			tr.Set(fdb.Key(relationshipKey(
+				relationship.OrgID,
+				relationship.SourceID,
+				relationship.RelationType,
+				relationship.TargetID,
+			)), metadata)
+			tr.Set(fdb.Key(relationshipReverseKey(
+				relationship.OrgID,
+				relationship.TargetID,
+				relationship.RelationType,
+				relationship.SourceID,
+			)), []byte{})
+		}
+	}
+	return nil
 }
 
 // writeNodeRecords emits the primary, resolve, and view records for n inside

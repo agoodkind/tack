@@ -36,15 +36,20 @@ const (
 
 // RepairReferenceProfile describes one generic UUID reference-property repair.
 type RepairReferenceProfile struct {
-	Name               string               `json:"name,omitempty"`
-	TargetProperty     string               `json:"target_property"`
-	SourceFields       []string             `json:"source_fields"`
-	ScopeFields        []string             `json:"scope_fields,omitempty"`
-	Normalization      RepairNormalization  `json:"normalization"`
-	UseDefaultFallback bool                 `json:"use_default_fallback,omitempty"`
-	CleanupBehavior    RepairCleanupPolicy  `json:"cleanup_behavior,omitempty"`
-	ConflictPolicy     RepairConflictPolicy `json:"conflict_policy,omitempty"`
-	RankProperty       string               `json:"rank_property,omitempty"`
+	Name                string                  `json:"name,omitempty"`
+	TargetProperty      string                  `json:"target_property"`
+	TargetTypeKey       string                  `json:"target_type_key,omitempty"`
+	TargetMatchProperty string                  `json:"target_match_property,omitempty"`
+	SourceFields        []string                `json:"source_fields"`
+	ScopeFields         []string                `json:"scope_fields,omitempty"`
+	RemoveFields        []string                `json:"remove_fields,omitempty"`
+	RenameFields        []RepairRenameField     `json:"rename_fields,omitempty"`
+	AppendTextFields    []RepairAppendTextField `json:"append_text_fields,omitempty"`
+	Normalization       RepairNormalization     `json:"normalization"`
+	UseDefaultFallback  bool                    `json:"use_default_fallback,omitempty"`
+	CleanupBehavior     RepairCleanupPolicy     `json:"cleanup_behavior,omitempty"`
+	ConflictPolicy      RepairConflictPolicy    `json:"conflict_policy,omitempty"`
+	RankProperty        string                  `json:"rank_property,omitempty"`
 }
 
 // RepairNormalization controls operator-supplied source normalization.
@@ -56,21 +61,22 @@ type RepairNormalization struct {
 
 // RepairPreview describes the current repair decision for one node.
 type RepairPreview struct {
-	Class             RepairClass                `json:"class"`
-	ProfileName       string                     `json:"profile_name,omitempty"`
-	NodeID            uuid.UUID                  `json:"node_id"`
-	NodeType          string                     `json:"node_type"`
-	CurrentUpdatedAt  time.Time                  `json:"current_updated_at"`
-	TargetProperty    string                     `json:"target_property"`
-	TargetType        string                     `json:"target_type"`
-	ObservedSources   []RepairObservedSource     `json:"observed_sources,omitempty"`
-	Candidates        []RepairReferenceCandidate `json:"candidates,omitempty"`
-	ChosenCandidate   *RepairReferenceCandidate  `json:"chosen_candidate,omitempty"`
-	PlannedProps      map[string]json.RawMessage `json:"planned_props,omitempty"`
-	Summary           string                     `json:"summary"`
-	ConfirmationToken string                     `json:"confirmation_token,omitempty"`
-	NeedsRepair       bool                       `json:"needs_repair"`
-	CanApply          bool                       `json:"can_apply"`
+	Class                RepairClass                `json:"class"`
+	ProfileName          string                     `json:"profile_name,omitempty"`
+	NodeID               uuid.UUID                  `json:"node_id"`
+	NodeType             string                     `json:"node_type"`
+	CurrentUpdatedAt     time.Time                  `json:"current_updated_at"`
+	TargetProperty       string                     `json:"target_property"`
+	TargetType           string                     `json:"target_type"`
+	ObservedSources      []RepairObservedSource     `json:"observed_sources,omitempty"`
+	Candidates           []RepairReferenceCandidate `json:"candidates,omitempty"`
+	ChosenCandidate      *RepairReferenceCandidate  `json:"chosen_candidate,omitempty"`
+	PlannedProps         map[string]json.RawMessage `json:"planned_props,omitempty"`
+	PlannedRelationships []RepairRelationshipChange `json:"planned_relationships,omitempty"`
+	Summary              string                     `json:"summary"`
+	ConfirmationToken    string                     `json:"confirmation_token,omitempty"`
+	NeedsRepair          bool                       `json:"needs_repair"`
+	CanApply             bool                       `json:"can_apply"`
 }
 
 // RepairObservedSource records one source field read from the node under repair.
@@ -104,19 +110,23 @@ func (c *RepairConsole) planReferenceProperty(ctx context.Context, nodeID uuid.U
 	if view == nil {
 		return nil, domain.ErrNotFound
 	}
-	metadata, err := c.loadReferenceRepairMetadata(ctx, view, preparedProfile)
+	metadata, err := c.loadReferenceRepairMetadata(ctx, view, preparedProfile, false)
 	if err != nil {
 		return nil, err
 	}
 	preview := newReferencePreview(view, preparedProfile, metadata.targetType)
-	matchContext := referenceMatchContext{reader: c.reader, typeIndex: metadata.typeIndex, orgID: view.OrgID, scopeID: metadata.scopeID, targetType: metadata.targetType, rankProperty: preparedProfile.RankProperty}
+	matchContext := referenceMatchContext{reader: c.reader, typeIndex: metadata.typeIndex, orgID: view.OrgID, scopeID: metadata.scopeID, targetType: metadata.targetType, rankProperty: preparedProfile.RankProperty, matchProperty: preparedProfile.TargetMatchProperty}
 	candidates := collectReferenceCandidates(ctx, view, preparedProfile, metadata.targetDef, matchContext, &preview.ObservedSources)
 	preview.Candidates = candidates
 	chosen, blockReason := chooseReferenceCandidate(candidates, preparedProfile.ConflictPolicy)
 	if blockReason != "" {
 		preview.NeedsRepair = referenceSourcesPresent(preview.ObservedSources)
 		preview.Summary = blockReason
-		return &repairPlan{preview: preview, props: nil}, nil
+		return &repairPlan{
+			preview:             preview,
+			props:               nil,
+			relationshipChanges: node.RelationshipChanges{Add: nil, Remove: nil},
+		}, nil
 	}
 	preview.ChosenCandidate = chosen
 	props := plannedReferenceProps(view, preparedProfile, chosen.NodeID)
@@ -127,10 +137,19 @@ func (c *RepairConsole) planReferenceProperty(ctx context.Context, nodeID uuid.U
 	if preview.CanApply {
 		preview.ConfirmationToken = repairConfirmationToken(preview)
 	}
-	return &repairPlan{preview: preview, props: props}, nil
+	return &repairPlan{
+		preview:             preview,
+		props:               props,
+		relationshipChanges: node.RelationshipChanges{Add: nil, Remove: nil},
+	}, nil
 }
 
-func (c *RepairConsole) loadReferenceRepairMetadata(ctx context.Context, view *node.NodeView, profile RepairReferenceProfile) (*referenceRepairMetadata, error) {
+func (c *RepairConsole) loadReferenceRepairMetadata(
+	ctx context.Context,
+	view *node.NodeView,
+	profile RepairReferenceProfile,
+	allowExplicitTargetType bool,
+) (*referenceRepairMetadata, error) {
 	types, err := c.nodeTypes.List(ctx, view.OrgID)
 	if err != nil {
 		return nil, loggedRepairError(ctx, fmt.Sprintf("list node types for repair %s", view.ID), err)
@@ -139,6 +158,13 @@ func (c *RepairConsole) loadReferenceRepairMetadata(ctx context.Context, view *n
 	currentType := typeIndex[view.NodeType]
 	if currentType == nil {
 		return nil, loggedRepairError(ctx, fmt.Sprintf("node type %q for repair %s", view.NodeType, view.ID), domain.ErrNotFound)
+	}
+	if allowExplicitTargetType && strings.TrimSpace(profile.TargetTypeKey) != "" {
+		targetType := typeIndex[strings.TrimSpace(profile.TargetTypeKey)]
+		if targetType == nil {
+			return nil, loggedRepairError(ctx, fmt.Sprintf("reference target type %q for repair %s", profile.TargetTypeKey, view.ID), domain.ErrNotFound)
+		}
+		return &referenceRepairMetadata{typeIndex: typeIndex, targetDef: nil, targetType: targetType, scopeID: repairScopeID(view, profile.ScopeFields)}, nil
 	}
 	defs, err := c.propertyDefs.List(ctx, view.OrgID)
 	if err != nil {
