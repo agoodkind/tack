@@ -332,8 +332,11 @@ func buildAuditRecorder(ctx context.Context, cfg *config.Config) audit.Recorder 
 	wal, err := audit.NewWALRecorder(ctx, yb, audit.WALConfig{
 		Dir:                cfg.AuditWALDir,
 		MaxBytesPerSegment: 0,
-		MaxLag:             0,
 		DrainInterval:      0,
+		MaxLag:             0,
+		MaxBacklogSegments: cfg.AuditWALMaxBacklogSegments,
+		MaxBacklogAge:      cfg.AuditWALMaxBacklogAge,
+		IdleRotateAfter:    cfg.AuditWALIdleRotateAfter,
 	})
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.wal_setup_failed",
@@ -342,6 +345,15 @@ func buildAuditRecorder(ctx context.Context, cfg *config.Config) audit.Recorder 
 		)
 		return yb
 	}
+	stats := wal.Stats()
+	telemetry.RegisterWALMetrics(telemetry.WALStatsSource{
+		UnflushedSegments:      stats.UnflushedSegments,
+		OldestUnflushedAgeSecs: stats.OldestUnflushedAgeSecs,
+		LastDrainSuccessUnix:   stats.LastDrainSuccessUnix,
+		IdleRotationsTotal:     stats.IdleRotationsTotal,
+		WriteErrorsTotal:       stats.WriteErrorsTotal,
+		DiskFreeBytes:          stats.DiskFreeBytes,
+	})
 	slog.InfoContext(ctx, "audit.wal_enabled", slog.String("dir", cfg.AuditWALDir))
 	return wal
 }

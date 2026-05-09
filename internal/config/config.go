@@ -5,6 +5,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/caarlos0/env/v11"
 )
@@ -71,6 +72,36 @@ type Config struct {
 	// and bypass the read audit path.
 	AuditWALDir string `env:"AUDIT_WAL_DIR"`
 
+	// WAL backlog observability tuning. All are optional; absence keeps the
+	// defaults wired in NewWALRecorder.
+	//
+	// AuditWALMaxBacklogSegments: number of non-active segments above which
+	// the backlog signal flips for telemetry. Default 64. Observational only.
+	//
+	// AuditWALMaxBacklogAge: age of the oldest non-active segment above
+	// which the backlog signal flips for telemetry. Default 10m.
+	// Observational only.
+	//
+	// AuditWALIdleRotateAfter: how long the active segment may sit idle
+	// before the drainer force-rotates it. Default 500ms (2x drain interval).
+	AuditWALMaxBacklogSegments int32         `env:"AUDIT_WAL_MAX_BACKLOG_SEGMENTS" envDefault:"0"`
+	AuditWALMaxBacklogAge      time.Duration `env:"AUDIT_WAL_MAX_BACKLOG_AGE"      envDefault:"0"`
+	AuditWALIdleRotateAfter    time.Duration `env:"AUDIT_WAL_IDLE_ROTATE_AFTER"    envDefault:"0"`
+
+	// Kafka audit producer (Wave 1 of the Phase 2 audit refactor).
+	//
+	// AuditKafkaBrokers is a comma-separated bootstrap broker list. When
+	// empty, the Kafka producer path is disabled and audit recording falls
+	// back to the WAL-only path.
+	//
+	// AuditKafkaTopic, AuditKafkaClientID, and AuditKafkaProduceTimeout fall
+	// back to design-doc defaults when unset. The producer code reads them
+	// verbatim; there is no per-tenant override.
+	AuditKafkaBrokers        string        `env:"AUDIT_KAFKA_BROKERS"`
+	AuditKafkaTopic          string        `env:"AUDIT_KAFKA_TOPIC"           envDefault:"audit.events.v1"`
+	AuditKafkaClientID       string        `env:"AUDIT_KAFKA_CLIENT_ID"       envDefault:"tack-audit-producer"`
+	AuditKafkaProduceTimeout time.Duration `env:"AUDIT_KAFKA_PRODUCE_TIMEOUT" envDefault:"10s"`
+
 	// Meilisearch: optional, no-op stub used when unset.
 	MeiliURL       string `env:"MEILI_URL"        envDefault:"http://localhost:7700"`
 	MeiliMasterKey string `env:"MEILI_MASTER_KEY" envDefault:"tack-dev-meili-key-change-in-prod"`
@@ -80,6 +111,18 @@ type Config struct {
 
 	// Optional: if unset, OTEL tracing is a no-op.
 	OTELEndpoint string `env:"OTEL_EXPORTER_OTLP_ENDPOINT"`
+
+	// Audit consumer (Wave 1, Phase 2). The audit-consumer binary reads
+	// these. The tack-app server does not consume them today. They live
+	// here so a single .env can drive both binaries.
+	AuditConsumerKafkaBrokers   string        `env:"AUDIT_CONSUMER_KAFKA_BROKERS"`
+	AuditConsumerKafkaTopic     string        `env:"AUDIT_CONSUMER_KAFKA_TOPIC"      envDefault:"audit.events.v1"`
+	AuditConsumerGroupID        string        `env:"AUDIT_CONSUMER_GROUP_ID"         envDefault:"tack-audit-projector"`
+	AuditConsumerBatchSize      int           `env:"AUDIT_CONSUMER_BATCH_SIZE"       envDefault:"256"`
+	AuditConsumerPollInterval   time.Duration `env:"AUDIT_CONSUMER_POLL_INTERVAL"    envDefault:"250ms"`
+	AuditConsumerYugabyteDSN    string        `env:"AUDIT_CONSUMER_YUGABYTE_DSN"`
+	AuditConsumerClickHouseDSN  string        `env:"AUDIT_CONSUMER_CLICKHOUSE_DSN"`
+	AuditConsumerSigningKeyPath string        `env:"AUDIT_CONSUMER_SIGNING_KEY_PATH"`
 }
 
 func Load() (*Config, error) {

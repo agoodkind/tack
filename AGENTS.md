@@ -156,6 +156,27 @@ artifacts, not just convenience auth snapshots.
 
 ---
 
+## Deprecated names in older artifacts
+
+Some historical reports under the repo refer to a `stray_alias_state` repair
+class and an `internal/ops/repair_stray_alias_state.go` file. Neither exists
+in the current code base. The repair tooling has been refactored into three
+generic classes registered in `internal/ops/repair_catalog.go`:
+
+- `reference_property`: repair one UUID reference property from operator-declared source fields and policies. Subsumes the resolvable-raw-alias and conflict-winner cases that `stray_alias_state` previously handled (for example normalizing `done` / `todo` / scoped values like `CLYDE::Done` into a canonical `state_id`).
+- `parent_reference`: repair a node `parent_id` and `child_of` edge from operator-declared source fields.
+- `props_transform`: apply generic property delete, rename, and append-preserve transforms. Subsumes the "remove the stale raw `state` alias when canonical `state_id` is already valid" cleanup that `stray_alias_state` previously handled.
+
+The state repair documented in
+`state_audit_full_impact.md` (dated 2026-05-05) names `stray_alias_state` and
+`repair_stray_alias_state.go` because both existed when that audit was
+written. That document is left as-is as a historical artifact; the
+2026-05-09 execution report at
+`incident_2026-05-09_seed_parallel_org/state_repair_execution_report.md`
+records the same work in the current toolchain's terminology.
+
+---
+
 ## FDB key space (canonical reference)
 
 All keys use the tuple layer. `orgID` is always an early component for tenant locality.
@@ -167,9 +188,20 @@ node_resolve          nodeID → {OrgID, WorkspaceID, ProjectID, NodeType}
 
 ### Address/reference indexes
 ```
-node_address          orgID, scopeID, nodeType, addressKind, addressValue → nodeID
-node_address_by_node  orgID, nodeID, addressKind, scopeID, addressValue   → nil
+address_index         nodeType, addressKind, address → nodeID
 ```
+
+The `address_index` key family is global, not org-scoped. The current
+implementation in `internal/adapters/foundationdb/keys.go` packs
+`(address_index, nodeType, addressKind, address)` and stores the target
+`nodeID` bytes; there is no `orgID` or `scopeID` component in the key. There
+is no reverse `node_address_by_node` index in the current code base.
+
+Note: the global-vs-scoped design of the address index and the absence of a
+reverse index are open questions tracked separately. See the 2026-05-09
+incident retro at
+`incident_2026-05-09_seed_parallel_org/retro_log.md` section 1B for the
+tradeoffs and required follow-ups.
 
 ### Materialized views
 ```
