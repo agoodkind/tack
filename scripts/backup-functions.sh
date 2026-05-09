@@ -132,10 +132,12 @@ function tack_backup_dump_yugabyte() {
     local pg_password="$2"
     local pg_user="${3:-yugabyte}"
     local pg_db="${4:-tack}"
+    # YugabyteDB ships ysql_dump (their fork of pg_dump). Standard pg_dump
+    # is absent from the image. Wire-compatible output.
     docker exec \
         -e PGPASSWORD="$pg_password" \
         tack-yugabyte-1 \
-        /home/yugabyte/postgres/bin/pg_dump \
+        /home/yugabyte/postgres/bin/ysql_dump \
         -h yugabyte -p 5433 -U "$pg_user" -d "$pg_db" \
         --schema=public --schema=audit \
         --format=plain --no-owner --no-privileges \
