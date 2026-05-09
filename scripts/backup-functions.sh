@@ -81,7 +81,6 @@ function tack_backup_run_fdb_start() {
         -v "${snapshot_dir}:/snapshot" \
         --entrypoint /usr/bin/fdbbackup \
         "$image" \
-        -C /etc/foundationdb/fdb.cluster \
         start -w -d "file:///snapshot/${run_id}"
 }
 
@@ -115,7 +114,6 @@ function tack_backup_assert_restorable() {
         -v "${snapshot_dir}:/snapshot" \
         --entrypoint /usr/bin/fdbbackup \
         "$image" \
-        -C /etc/foundationdb/fdb.cluster \
         describe -d "$backup_url")
     printf '%s\n' "$describe_output"
     if ! grep -q '^Restorable: true' <<<"$describe_output"; then
