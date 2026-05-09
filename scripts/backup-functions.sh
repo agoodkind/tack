@@ -79,6 +79,7 @@ function tack_backup_run_fdb_start() {
         --network "$network" \
         -v /etc/foundationdb:/etc/foundationdb:ro \
         -v "${snapshot_dir}:/snapshot" \
+        -e FDB_CLUSTER_FILE=/etc/foundationdb/fdb.cluster \
         --entrypoint /usr/bin/fdbbackup \
         "$image" \
         start -w -d "file:///snapshot/${run_id}"
@@ -112,6 +113,7 @@ function tack_backup_assert_restorable() {
         --network "$network" \
         -v /etc/foundationdb:/etc/foundationdb:ro \
         -v "${snapshot_dir}:/snapshot" \
+        -e FDB_CLUSTER_FILE=/etc/foundationdb/fdb.cluster \
         --entrypoint /usr/bin/fdbbackup \
         "$image" \
         describe -d "$backup_url")
