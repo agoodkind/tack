@@ -125,6 +125,11 @@ func printCommandUsage(command string) {
 func printBatchUsage() {
 	fmt.Fprintln(os.Stderr, "usage: ./server ops batch <registered-op>")
 	fmt.Fprintln(os.Stderr)
+	fmt.Fprintln(os.Stderr, "address backfill controls:")
+	fmt.Fprintln(os.Stderr, "  TACK_BACKFILL_LIMIT       maximum legacy address rows to inspect, default 1000")
+	fmt.Fprintln(os.Stderr, "  TACK_BACKFILL_NODE_ID     optional single-node legacy address preview/apply")
+	fmt.Fprintln(os.Stderr, "  TACK_BACKFILL_APPLY=true  required only for backfill.addresses.apply")
+	fmt.Fprintln(os.Stderr)
 	fmt.Fprintln(os.Stderr, "available batch ops:")
 	for _, op := range List() {
 		if strings.HasPrefix(op.Name, "repair.") {

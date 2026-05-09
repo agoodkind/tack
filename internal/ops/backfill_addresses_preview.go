@@ -2,106 +2,145 @@ package ops
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"log/slog"
-	"sort"
 
-	"github.com/google/uuid"
-	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
+	"goodkind.io/tack/internal/domain"
+	"goodkind.io/tack/internal/domain/node"
 )
 
 func init() {
 	Register(Operation{
 		Name:        "backfill.addresses.preview",
-		Description: "Preview generic address index migration candidates without writing state.",
-		Run:         runAddressMigrationPreview,
+		Description: "Preview legacy slug_index rows as generic primary address_index writes without writing state.",
+		Run:         runAddressBackfillPreview,
+	})
+	Register(Operation{
+		Name:        "backfill.addresses.apply",
+		Description: "Apply legacy slug_index rows into generic primary address_index rows. Requires TACK_BACKFILL_APPLY=true.",
+		Run:         runAddressBackfillApply,
 	})
 }
 
-type addressMigrationPreviewResult struct {
-	Operation  string                      `json:"operation"`
-	Mode       string                      `json:"mode"`
-	NodeID     uuid.UUID                   `json:"node_id"`
-	Count      int                         `json:"count"`
-	Candidates []addressMigrationCandidate `json:"candidates"`
-	Warnings   []string                    `json:"warnings,omitempty"`
-}
-
-type addressMigrationCandidate struct {
-	Source      fdbadapter.InspectLegacyAddressRow `json:"source"`
-	Target      addressMigrationTarget             `json:"target"`
-	NodePresent bool                               `json:"node_present"`
-	Warnings    []string                           `json:"warnings,omitempty"`
-}
-
-type addressMigrationTarget struct {
-	KeyFamily    string    `json:"key_family"`
-	OrgID        uuid.UUID `json:"org_id"`
-	ScopeID      uuid.UUID `json:"scope_id"`
-	NodeType     string    `json:"node_type"`
-	AddressKind  string    `json:"address_kind"`
-	AddressValue string    `json:"address_value"`
-	NodeID       uuid.UUID `json:"node_id"`
-}
-
-func runAddressMigrationPreview(ctx context.Context, env *Env) error {
-	nodeID, err := readRequiredUUIDEnv(repairNodeIDEnv)
+func runAddressBackfillPreview(ctx context.Context, env *Env) error {
+	controls, err := readAddressBackfillControls()
 	if err != nil {
 		return err
 	}
-	report, err := env.Stores.Inspect.QueryNodeRecords(ctx, nodeID)
+	rows, truncated, err := discoverAddressBackfillRows(ctx, controls, env)
 	if err != nil {
-		env.Log.ErrorContext(ctx, "backfill.addresses.preview: inspect node",
-			slog.String("node_id", nodeID.String()),
-			slog.String("err", err.Error()))
-		return fmt.Errorf("inspect node %s for address migration preview: %w", nodeID, err)
+		return err
 	}
-	result := addressMigrationPreviewResult{
-		Operation:  "backfill.addresses.preview",
-		Mode:       "preview",
-		NodeID:     nodeID,
-		Count:      0,
-		Candidates: make([]addressMigrationCandidate, 0, len(report.LegacyAddressRows)),
-		Warnings:   nil,
-	}
-	for _, legacyRow := range report.LegacyAddressRows {
-		candidate := buildAddressMigrationCandidate(report, legacyRow)
-		result.Candidates = append(result.Candidates, candidate)
-	}
-	sort.Slice(result.Candidates, func(i int, j int) bool {
-		return result.Candidates[i].Target.AddressValue < result.Candidates[j].Target.AddressValue
-	})
-	result.Count = len(result.Candidates)
-	if result.Count == 0 {
-		result.Warnings = append(result.Warnings, "no legacy address rows found for node")
+	result, err := buildAddressBackfillResult(
+		ctx,
+		"backfill.addresses.preview",
+		"preview",
+		controls,
+		rows,
+		truncated,
+		env.Stores.Inspect,
+		env.Stores.Nodes,
+	)
+	if err != nil {
+		return err
 	}
 	return writeRepairOutput(result)
 }
 
-func buildAddressMigrationCandidate(
-	report *fdbadapter.NodeInspectionReport,
-	legacyRow fdbadapter.InspectLegacyAddressRow,
-) addressMigrationCandidate {
-	orgID := uuid.Nil
-	if report.Resolve != nil {
-		orgID = report.Resolve.OrgID
+func runAddressBackfillApply(ctx context.Context, env *Env) error {
+	controls, err := readAddressBackfillControls()
+	if err != nil {
+		return err
 	}
-	warnings := make([]string, 0)
-	if report.Resolve == nil {
-		warnings = append(warnings, "target node has no resolve row")
+	if err := requireAddressBackfillApply(&controls); err != nil {
+		return err
 	}
-	return addressMigrationCandidate{
-		Source: legacyRow,
-		Target: addressMigrationTarget{
-			KeyFamily:    "node_address",
-			OrgID:        orgID,
-			ScopeID:      uuid.Nil,
-			NodeType:     legacyRow.NodeType,
-			AddressKind:  legacyRow.AddressKind,
-			AddressValue: legacyRow.AddressValue,
-			NodeID:       legacyRow.OwnerID,
-		},
-		NodePresent: report.Resolve != nil,
-		Warnings:    warnings,
+	rows, truncated, err := discoverAddressBackfillRows(ctx, controls, env)
+	if err != nil {
+		return err
+	}
+	result, err := buildAddressBackfillResult(
+		ctx,
+		"backfill.addresses.apply",
+		"apply",
+		controls,
+		rows,
+		truncated,
+		env.Stores.Inspect,
+		env.Stores.Nodes,
+	)
+	if err != nil {
+		return err
+	}
+	applyErr := applyAddressBackfill(ctx, env.Stores.Nodes, result)
+	if outputErr := writeRepairOutput(result); outputErr != nil {
+		return outputErr
+	}
+	return applyErr
+}
+
+func applyAddressBackfill(ctx context.Context, addresses addressBackfillAddressStore, result *addressBackfillResult) error {
+	if result.ConflictCount > 0 || result.MalformedCount > 0 {
+		result.Warnings = append(result.Warnings, "apply stopped because conflicts or malformed candidates are present")
+		return fmt.Errorf(
+			"address backfill blocked by %d conflicts and %d malformed candidates",
+			result.ConflictCount,
+			result.MalformedCount,
+		)
+	}
+	for i := range result.Candidates {
+		candidate := &result.Candidates[i]
+		if candidate.Status != addressBackfillStatusWrite {
+			continue
+		}
+		err := addresses.WriteAddress(
+			ctx,
+			candidate.Target.NodeType,
+			node.AddressKindPrimary,
+			candidate.Target.AddressValue,
+			candidate.Target.NodeID,
+		)
+		if err != nil {
+			if errors.Is(err, domain.ErrAlreadyExists) {
+				candidate.Status = addressBackfillStatusConflict
+				candidate.Errors = append(candidate.Errors, err.Error())
+				result.recount()
+				return errors.New("write address " + candidate.Target.NodeType + "/" + candidate.Target.AddressValue + ": " + err.Error())
+			}
+			candidate.Errors = append(candidate.Errors, err.Error())
+			result.recount()
+			return errors.New("write address " + candidate.Target.NodeType + "/" + candidate.Target.AddressValue + ": " + err.Error())
+		}
+		candidate.Status = addressBackfillStatusWritten
+	}
+	result.recount()
+	return nil
+}
+
+func (result *addressBackfillResult) recount() {
+	result.SourceCount = len(result.Candidates)
+	result.CandidateCount = len(result.Candidates)
+	result.WriteCount = 0
+	result.WrittenCount = 0
+	result.IdempotentCount = 0
+	result.ConflictCount = 0
+	result.MalformedCount = 0
+	result.SkippedCount = 0
+	for _, candidate := range result.Candidates {
+		switch candidate.Status {
+		case addressBackfillStatusWrite:
+			result.WriteCount++
+		case addressBackfillStatusWritten:
+			result.WrittenCount++
+		case addressBackfillStatusIdempotent:
+			result.IdempotentCount++
+			result.SkippedCount++
+		case addressBackfillStatusConflict:
+			result.ConflictCount++
+			result.SkippedCount++
+		case addressBackfillStatusMalformed:
+			result.MalformedCount++
+			result.SkippedCount++
+		}
 	}
 }
