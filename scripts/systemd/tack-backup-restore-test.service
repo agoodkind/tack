@@ -1,0 +1,16 @@
+[Unit]
+Description=Tack backup restore-test against the latest snapshot
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+# The latest backup is recorded by /root/tack/scripts/backup.sh in
+# /root/backups/.latest as a UTC timestamp. The wrapper script reads it
+# and invokes backup-restore-test.sh against /root/backups/tack-<ts>.
+# Failures exit non-zero, which causes systemd to mark the unit failed
+# and triggers any operator-side alerting on systemd unit state.
+ExecStart=/bin/bash -c 'set -euo pipefail; ts=$(cat /root/backups/.latest); /root/tack/scripts/backup-restore-test.sh "/root/backups/tack-$ts"'
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7

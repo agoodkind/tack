@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Tack backup restore-test daily
+
+[Timer]
+# Daily, two hours after the typical backup window. RandomizedDelaySec
+# avoids a thundering herd when many CTs run on the same host.
+OnCalendar=daily
+RandomizedDelaySec=1800
+Persistent=true
+
+[Install]
+WantedBy=timers.target

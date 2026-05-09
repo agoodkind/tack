@@ -169,3 +169,21 @@ backup-pull:
 		rsync -avz tack:/root/backups/tack-$$TS/ ~/backups/tack/$$TS/; \
 		echo ""; \
 		echo "pulled to ~/backups/tack/$$TS"
+
+# Fast structural verification of the latest backup on CT 117. Catches
+# the 2026-04-25 empty-tarball defect class within seconds. Exits non-zero
+# when an artifact has the wrong shape; intended to run from operator
+# workflows immediately after `make backup`.
+.PHONY: backup-content-check
+backup-content-check:
+	rsync -az scripts/backup-content-check.sh tack:/root/tack/scripts/
+	ssh tack 'TS=$$(cat /root/backups/.latest); /root/tack/scripts/backup-content-check.sh "/root/backups/tack-$$TS"'
+
+# Restore-test verification of the latest backup on CT 117. Spins up
+# scratch containers per artifact and exercises the real restore path.
+# Layered on top of backup-content-check; do not run this before content
+# check passes.
+.PHONY: backup-restore-test
+backup-restore-test:
+	rsync -az scripts/backup-restore-test.sh fdb-overlay/fdb.bash tack:/root/tack/scripts/
+	ssh tack 'TS=$$(cat /root/backups/.latest); TACK_FDB_OVERLAY=/root/tack/fdb-overlay/fdb.bash /root/tack/scripts/backup-restore-test.sh "/root/backups/tack-$$TS"'
