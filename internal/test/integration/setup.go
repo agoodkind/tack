@@ -72,11 +72,11 @@ func SetupTestEnv(t *testing.T) *TestEnv {
 		t.Fatalf("open fdb: %v", err)
 	}
 
-	// Use a fixed seed slug so the deterministic OrgID + WorkspaceID helpers
-	// produce the same UUIDs each test run. Different prefixes keep the
-	// underlying FDB keys distinct across tests.
+	// Pin the org UUID to a known constant so integration tests produce stable,
+	// repeatable IDs across runs. Different per-test FDB key prefixes keep
+	// tests isolated even though they share the same orgID value.
 	const seedSlug = "test-org"
-	orgID := node.OrgID(seedSlug)
+	orgID := uuid.MustParse("019e6b4a-0000-7000-8000-000000000001")
 
 	seeder := service.NewSeeder(stores.PropertyDefs, stores.NodeTypes)
 	ctx := context.Background()

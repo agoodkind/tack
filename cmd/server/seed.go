@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"log/slog"
 	"os"
@@ -31,8 +32,8 @@ import (
 // The dev-mode auth path uses the raw user UUID as a Bearer token, so a stable
 // UUID across Yugabyte wipes means a stable MCP config that doesn't rebreak
 // every time we re-seed. The namespace is distinct from the node-side
-// namespaces (orgNamespace, workspaceNamespace, systemPropNS) on purpose so
-// a slug and an email can never collide on the same UUID.
+// namespaces (workspaceNamespace, systemPropNS) on purpose so a slug and an
+// email can never collide on the same UUID.
 var userIDNamespace = uuid.MustParse("0a6f7572-cafe-dead-beef-000000000003")
 
 // userIDForEmail derives a deterministic UUID for a seed user from their email.
@@ -41,24 +42,27 @@ func userIDForEmail(email string) uuid.UUID {
 	return uuid.NewSHA1(userIDNamespace, []byte(strings.ToLower(email)))
 }
 
-// runSeed creates the initial user, org, and workspace using the generic Node
-// primitives. This is the one place in the system that references specific
-// NodeType names (via service.Seeder constants).
+// runSeed enforces the reseed guard and delegates to execSeed. It is the
+// entry point for the seed subcommand.
 func runSeed(cfg *config.Config) {
-	_ = cfg // unused while seed is disabled per TACK-230; remove with the guard
-	// Seed is disabled until TACK-230 lands. The current OrgID derivation at
-	// internal/domain/node/types.go:288 hashes a slug into a deterministic UUID
-	// without any tenant context, which means two tenants picking the same slug
-	// produce byte-identical orgIDs and collide in FDB. Running seed against any
-	// environment that already has data risks the same parallel-org failure mode
-	// that took production down on 2026-05-09. TACK-230 replaces the hashed
-	// derivation with random UUIDv7 plus an explicit override path for tests, at
-	// which point this guard goes away.
-	slog.Error("seed.disabled",
-		slog.String("err", "seed disabled until TACK-230 fixes OrgID derivation"),
-		slog.String("ticket", "TACK-230"),
-		slog.String("incident", "2026-05-09 parallel-org outage"))
-	os.Exit(1)
+	allowReseed := flag.Bool("allow-reseed", false,
+		"Allow seed against a non-empty database. Required for re-seeding production. "+
+			"Without this flag, seed refuses if any org already exists.")
+	flag.Parse()
+
+	ctx := context.Background()
+	nonEmpty, err := orgsExist(ctx, cfg)
+	if err != nil {
+		slog.Error("seed.precheck_failed", slog.Any("err", err))
+		os.Exit(1)
+	}
+	if nonEmpty && !*allowReseed {
+		slog.Error("seed.refused",
+			slog.String("err", "database already contains at least one org; pass --allow-reseed to override"),
+			slog.String("ticket", "TACK-230"),
+			slog.String("incident", "2026-05-09 parallel-org outage"))
+		os.Exit(1)
+	}
 
 	if cfg.SeedEmail == "" || cfg.SeedName == "" {
 		slog.Error("seed.config_missing",
@@ -66,11 +70,18 @@ func runSeed(cfg *config.Config) {
 		os.Exit(1)
 	}
 
+	execSeed(ctx, cfg)
+}
+
+// execSeed creates the initial user, org, and workspace using the generic Node
+// primitives. This is the one place in the system that references specific
+// NodeType names (via service.Seeder constants).
+func execSeed(ctx context.Context, cfg *config.Config) {
 	// Seed runs without audit emission: it produces hundreds of node.create
 	// events with a system-shaped actor that aren't user actions. The
 	// suppression marker propagates through the same Recorder the running
 	// server would use, so the wiring is already correct.
-	ctx := audit.WithSuppressed(context.Background())
+	ctx = audit.WithSuppressed(ctx)
 	ctx, span := telemetry.StartSpan(ctx, "seed.run", trace.WithSpanKind(trace.SpanKindInternal))
 	defer span.End()
 	ctx = telemetry.WithTraceLogger(ctx, slog.String("command", "seed"))
@@ -130,7 +141,7 @@ func runSeed(cfg *config.Config) {
 		UserID: u.ID,
 		Role:   20,
 	}); err != nil && !errors.Is(err, domain.ErrAlreadyExists) {
-		log.Warn("seed: add org member", "err", err)
+		log.WarnContext(ctx, "seed: add org member", "err", err)
 	}
 
 	// ── Workspace ──────────────────────────────────────────────────────────────
@@ -174,18 +185,17 @@ func ensureNode(ctx context.Context, s *fdbadapter.Stores, typeKey, slug, name s
 
 	now := time.Now().UTC()
 
-	// Deterministic ID derivation for the seed root nodes. A wipe and reseed
-	// with the same slug produces byte-identical UUIDs, which keeps NodeType
-	// and PropertyDef IDs stable across wipes.
+	// Org nodes get a fresh random UUIDv7 (TACK-230). Two calls with the same
+	// slug produce different IDs, which is the correct behaviour: org identity
+	// is row-level, not derivable from a slug.
 	//
-	// Root (no parent): the org node owns its slug. ID derives from the slug
-	// alone. Workspace under org: ID derives from (orgID, slug).
-	// Anything deeper still uses V7 because deeper seed nodes are not part of
-	// the determinism contract today.
+	// Workspace under org: ID derives from (orgID, slug) and remains
+	// deterministic so a wipe-and-reseed with the same org + workspace slug
+	// produces byte-identical workspace IDs. Anything deeper uses V7.
 	var id uuid.UUID
 	switch {
 	case parentID == uuid.Nil:
-		id = node.OrgID(slug)
+		id = node.NewOrgID()
 	case typeKey == "workspace":
 		id = node.WorkspaceID(parentID, slug)
 	default:
@@ -255,4 +265,31 @@ func generateToken() string {
 		panic("seed: generate token: " + err.Error())
 	}
 	return "tack_" + base64.RawURLEncoding.EncodeToString(b)
+}
+
+// orgsExist opens a read-only Postgres connection and returns true if
+// org_members contains at least one row, which implies at least one org has
+// been seeded. It uses org_members rather than an entity table because SQL
+// holds the only authoritative org registry (FDB holds product data, not
+// auth). If the table does not yet exist (pre-migration), it returns false so
+// seed can proceed to run migrations first.
+func orgsExist(ctx context.Context, cfg *config.Config) (bool, error) {
+	pool, err := postgres.NewPool(ctx, cfg.DatabaseURL, nil)
+	if err != nil {
+		slog.Error("seed.orgs_exist.open_db", slog.Any("err", err))
+		return false, fmt.Errorf("orgsExist: open db: %w", err)
+	}
+	defer pool.Close()
+
+	var exists bool
+	err = pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM org_members LIMIT 1)`).Scan(&exists)
+	if err != nil {
+		// Table does not exist yet (pre-migration); treat as empty.
+		if strings.Contains(err.Error(), "does not exist") {
+			return false, nil
+		}
+		slog.Error("seed.orgs_exist.query", slog.Any("err", err))
+		return false, fmt.Errorf("orgsExist: query: %w", err)
+	}
+	return exists, nil
 }

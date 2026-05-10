@@ -273,20 +273,22 @@ type PropertyDef struct {
 	ReferenceTargetTypeKey string `json:"reference_target_type_key,omitempty"`
 }
 
-// Deterministic-ID namespaces. Distinct per layer so an address collision in
-// one layer cannot ever produce the same UUID as the address in another layer.
+// Deterministic-ID namespaces for workspace and system-property IDs.
+// These remain deterministic because WorkspaceID and SystemPropID are called
+// with stable inputs (orgID + slug or orgID + propName) and the callers rely
+// on reproducibility across wipes. orgNamespace was removed with TACK-230.
 var (
-	orgNamespace       = uuid.MustParse("0a6f7572-cafe-dead-beef-000000000001")
 	workspaceNamespace = uuid.MustParse("0a6f7572-cafe-dead-beef-000000000002")
 	systemPropNS       = uuid.MustParse("7ac0face-dead-beef-cafe-000000000000")
 )
 
-// OrgID returns the deterministic UUID for an org node identified by address. A
-// fresh FDB seeded with the same address produces byte-identical IDs across runs,
-// which means NodeType and PropertyDef IDs (which derive from orgID) are also
-// stable across wipes.
-func OrgID(address string) uuid.UUID {
-	return uuid.NewSHA1(orgNamespace, []byte(address))
+// NewOrgID returns a fresh UUIDv7 for a newly created org. The slug or address
+// has no relationship to the orgID; orgIDs are random and opaque. Two tenants
+// with the same slug get different orgIDs and live under different FDB key
+// prefixes. TACK-230 replaced the old SHA-1 derivation that caused the
+// 2026-05-09 parallel-org outage.
+func NewOrgID() uuid.UUID {
+	return uuid.Must(uuid.NewV7())
 }
 
 // WorkspaceID returns the deterministic UUID for a workspace node under a
