@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/moby/moby/api/pkg/stdcopy"
+	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
 )
@@ -114,6 +115,115 @@ type execResult struct {
 	Stdout   string
 	Stderr   string
 	ExitCode int
+}
+
+// runOneShotOptions configures a single-use docker container created, run to
+// completion, captured, and removed. Equivalent to `docker run --rm` but
+// without shelling out to the docker CLI.
+type runOneShotOptions struct {
+	Image      string
+	Network    string   // optional; empty joins default
+	Entrypoint []string // optional override
+	Cmd        []string
+	Env        []string // KEY=VAL form
+	Binds      []string // host:container[:ro]
+	Name       string   // optional explicit container name
+}
+
+// runOneShot creates a container with the given options, starts it, waits for
+// it to exit, captures stdout/stderr, and force-removes it. Replaces shell-outs
+// to `docker run --rm <image> <cmd>` per TACK-264. Removal happens via deferred
+// teardown using a non-cancellable context so SIGINT during a backup still
+// cleans up the scratch container.
+func runOneShot(
+	ctx context.Context,
+	cli *client.Client,
+	log *slog.Logger,
+	opts runOneShotOptions,
+) (execResult, error) {
+	cfg := &container.Config{
+		Image:        opts.Image,
+		Entrypoint:   opts.Entrypoint,
+		Cmd:          opts.Cmd,
+		Env:          opts.Env,
+		AttachStdout: true,
+		AttachStderr: true,
+	}
+	hostCfg := &container.HostConfig{
+		Binds: opts.Binds,
+	}
+	created, err := cli.ContainerCreate(ctx, client.ContainerCreateOptions{
+		Config:           cfg,
+		HostConfig:       hostCfg,
+		NetworkingConfig: netMode(opts.Network),
+		Name:             opts.Name,
+	})
+	if err != nil {
+		log.ErrorContext(ctx, "ops.docker.run_once.create_failed",
+			slog.String("image", opts.Image),
+			slog.String("err", err.Error()),
+		)
+		return execResult{}, fmt.Errorf("create one-shot container: %w", err)
+	}
+	defer func() {
+		teardown, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancel()
+		_, _ = cli.ContainerRemove(teardown, created.ID, client.ContainerRemoveOptions{Force: true})
+	}()
+
+	_, err = cli.ContainerStart(ctx, created.ID, client.ContainerStartOptions{})
+	if err != nil {
+		log.ErrorContext(ctx, "ops.docker.run_once.start_failed",
+			slog.String("image", opts.Image),
+			slog.String("err", err.Error()),
+		)
+		return execResult{}, fmt.Errorf("start one-shot container: %w", err)
+	}
+
+	waitRes := cli.ContainerWait(ctx, created.ID, client.ContainerWaitOptions{
+		Condition: container.WaitConditionNotRunning,
+	})
+	var exitCode int
+	select {
+	case res := <-waitRes.Result:
+		exitCode = int(res.StatusCode)
+	case waitErr := <-waitRes.Error:
+		log.ErrorContext(ctx, "ops.docker.run_once.wait_failed",
+			slog.String("image", opts.Image),
+			slog.String("err", waitErr.Error()),
+		)
+		return execResult{}, fmt.Errorf("wait one-shot container: %w", waitErr)
+	case <-ctx.Done():
+		return execResult{}, fmt.Errorf("wait one-shot container: %w", ctx.Err())
+	}
+
+	logsRdr, err := cli.ContainerLogs(ctx, created.ID, client.ContainerLogsOptions{
+		ShowStdout: true,
+		ShowStderr: true,
+	})
+	if err != nil {
+		log.ErrorContext(ctx, "ops.docker.run_once.logs_failed",
+			slog.String("image", opts.Image),
+			slog.String("err", err.Error()),
+		)
+		return execResult{}, fmt.Errorf("logs one-shot container: %w", err)
+	}
+	defer logsRdr.Close()
+	var stdout, stderr bytes.Buffer
+	_, err = stdcopy.StdCopy(&stdout, &stderr, logsRdr)
+	if err != nil && !errors.Is(err, io.EOF) {
+		log.ErrorContext(ctx, "ops.docker.run_once.stream_failed",
+			slog.String("image", opts.Image),
+			slog.String("err", err.Error()),
+		)
+		return execResult{}, fmt.Errorf("read one-shot logs: %w", err)
+	}
+
+	return execResult{
+		Stdout:   stdout.String(),
+		Stderr:   stderr.String(),
+		ExitCode: exitCode,
+	}, nil
 }
 
 // containerExec runs cmd inside an existing container and returns the

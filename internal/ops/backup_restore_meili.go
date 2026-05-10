@@ -35,20 +35,33 @@ func restoreMeilisearch(ctx context.Context, r *restoreCtx, artifactPath string)
 	}
 	r.trackVolume(volumeName)
 
-	args := []string{
-		"run", "--rm",
-		"-v", volumeName + ":/dst",
-		"-v", filepath.Dir(artifactPath) + ":/src:ro",
-		"alpine", "sh", "-c",
-		"cd /dst && tar -xzf /src/" + filepath.Base(artifactPath),
-	}
-	_, err = runDockerCmd(ctx, r.Log, args...)
+	res, err := runOneShot(ctx, r.Cli, r.Log, runOneShotOptions{
+		Image:      "alpine",
+		Network:    "",
+		Entrypoint: nil,
+		Cmd:        []string{"sh", "-c", "cd /dst && tar -xzf /src/" + filepath.Base(artifactPath)},
+		Env:        nil,
+		Binds: []string{
+			volumeName + ":/dst",
+			filepath.Dir(artifactPath) + ":/src:ro",
+		},
+		Name: "",
+	})
 	if err != nil {
 		r.Log.ErrorContext(ctx, "backup.restore_meili.populate_failed",
 			slog.String("volume", volumeName),
 			slog.Any("err", err),
 		)
 		return fmt.Errorf("populate scratch volume: %w", err)
+	}
+	if res.ExitCode != 0 {
+		populateErr := fmt.Errorf("populate scratch volume exited %d: %s", res.ExitCode, res.Stderr)
+		r.Log.ErrorContext(ctx, "backup.restore_meili.populate_nonzero",
+			slog.String("volume", volumeName),
+			slog.Int("exit", res.ExitCode),
+			slog.Any("err", populateErr),
+		)
+		return populateErr
 	}
 
 	cfg := &container.Config{

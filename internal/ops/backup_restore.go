@@ -45,10 +45,8 @@ func RunBackupRestoreTest(ctx context.Context, cfg *config.Config, backupDir str
 	ctx, span := telemetry.StartSpan(ctx, "backup.restore_test")
 	defer span.End()
 
-	err := assertDockerContext(ctx, cfg.BackupDockerContext)
-	if err != nil {
-		return err
-	}
+	// SDK reads DOCKER_CONTEXT/DOCKER_HOST via client.FromEnv. The earlier
+	// shell-out to `docker context inspect` was removed per TACK-264.
 
 	cli, err := newDockerClient(ctx)
 	if err != nil {
@@ -56,7 +54,7 @@ func RunBackupRestoreTest(ctx context.Context, cfg *config.Config, backupDir str
 	}
 	defer cli.Close()
 
-	if err = checkBackupDirOnDaemon(ctx, log, backupDir); err != nil {
+	if err = checkBackupDirOnDaemon(ctx, cli, log, backupDir); err != nil {
 		return err
 	}
 
@@ -127,26 +125,36 @@ func RunBackupRestoreTest(ctx context.Context, cfg *config.Config, backupDir str
 // a local [os.Stat] would always fail; this check runs entirely daemon-side
 // and works in both the local and remote daemon cases.
 //
-// The container is run via the docker CLI (through [runDockerCmd]) rather than
-// the SDK's ContainerCreate so that the active DOCKER_CONTEXT is honored and
-// the bind-mount is resolved on the daemon's host. The SDK's ContainerCreate
-// goes through the local Docker Desktop socket on macOS, which enforces its
-// own file-sharing allowlist before forwarding the request, causing remote
-// paths to be rejected. The CLI bypasses that local enforcement and talks
-// directly to the context endpoint.
-func checkBackupDirOnDaemon(ctx context.Context, log *slog.Logger, dir string) error {
-	args := []string{
-		"run", "--rm",
-		"-v", dir + ":/check:ro",
-		"alpine", "ls", "-la", "/check",
-	}
-	_, err := runDockerCmd(ctx, log, args...)
+// The container is created via the SDK's ContainerCreate using the same
+// daemon connection [client.FromEnv] resolves; bind-mount paths are
+// interpreted on the daemon's host. Docker Desktop's macOS file-sharing
+// allowlist applies only to local paths, not to paths sent over a remote
+// daemon connection (e.g. ssh://), so the SDK works in both local and
+// remote daemon cases.
+func checkBackupDirOnDaemon(ctx context.Context, cli *client.Client, log *slog.Logger, dir string) error {
+	res, err := runOneShot(ctx, cli, log, runOneShotOptions{
+		Image:      "alpine",
+		Network:    "",
+		Entrypoint: nil,
+		Cmd:        []string{"ls", "-la", "/check"},
+		Env:        nil,
+		Binds:      []string{dir + ":/check:ro"},
+		Name:       "",
+	})
 	if err != nil {
 		log.ErrorContext(ctx, "backup.restore_test.path_check_failed",
 			slog.String("dir", dir),
 			slog.Any("err", err),
 		)
 		return fmt.Errorf("path check for %s: %w", dir, err)
+	}
+	if res.ExitCode != 0 {
+		pathErr := fmt.Errorf("path check for %s exited %d: %s", dir, res.ExitCode, res.Stderr)
+		log.ErrorContext(ctx, "backup.restore_test.path_check_failed",
+			slog.String("dir", dir),
+			slog.Any("err", pathErr),
+		)
+		return pathErr
 	}
 	log.InfoContext(ctx, "backup.restore_test.path_check_ok", slog.String("dir", dir))
 	return nil

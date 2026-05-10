@@ -17,21 +17,33 @@ import (
 func runBackupMeilisearch(ctx context.Context, b *backupCtx) error {
 	outPath := filepath.Join(b.DestDir, "tack_meili-data.tar.gz")
 
-	args := []string{
-		"run", "--rm",
-		"-v", b.Cfg.BackupMeiliVolume + ":/src:ro",
-		"-v", b.DestDir + ":/dst",
-		"alpine",
-		"sh", "-c",
-		"cd /src && tar czf /dst/" + filepath.Base(outPath) + " .",
-	}
-	_, err := runDockerCmd(ctx, b.Log, args...)
+	res, err := runOneShot(ctx, b.Cli, b.Log, runOneShotOptions{
+		Image:      "alpine",
+		Network:    "",
+		Entrypoint: nil,
+		Cmd:        []string{"sh", "-c", "cd /src && tar czf /dst/" + filepath.Base(outPath) + " ."},
+		Env:        nil,
+		Binds: []string{
+			b.Cfg.BackupMeiliVolume + ":/src:ro",
+			b.DestDir + ":/dst",
+		},
+		Name: "",
+	})
 	if err != nil {
 		b.Log.ErrorContext(ctx, "backup.meilisearch.tar_failed",
 			slog.String("output", outPath),
 			slog.Any("err", err),
 		)
 		return fmt.Errorf("meilisearch tar: %w", err)
+	}
+	if res.ExitCode != 0 {
+		tarErr := fmt.Errorf("meilisearch tar exited %d: %s", res.ExitCode, res.Stderr)
+		b.Log.ErrorContext(ctx, "backup.meilisearch.tar_nonzero",
+			slog.Int("exit", res.ExitCode),
+			slog.String("stderr", res.Stderr),
+			slog.Any("err", tarErr),
+		)
+		return tarErr
 	}
 
 	info, err := os.Stat(outPath)

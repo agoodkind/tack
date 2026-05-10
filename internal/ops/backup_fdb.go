@@ -177,19 +177,26 @@ func startFDBSidecar(ctx context.Context, b *backupCtx, name string) error {
 // runFDBBackupStart fires `fdbbackup start -w` from a one-shot client
 // container that joins the same docker network as the live cluster.
 func runFDBBackupStart(ctx context.Context, b *backupCtx) error {
-	args := []string{
-		"run", "--rm",
-		"--network", b.Cfg.BackupFDBNetwork,
-		"-v", "/etc/foundationdb:/etc/foundationdb:ro",
-		"-v", b.SnapshotDir + ":/snapshot",
-		"-e", "FDB_CLUSTER_FILE=/etc/foundationdb/fdb.cluster",
-		"--entrypoint", "/usr/bin/fdbbackup",
-		b.Cfg.BackupFDBImage,
-		"start", "-w", "-d", "file:///snapshot/" + b.RunID,
+	res, err := runOneShot(ctx, b.Cli, b.Log, runOneShotOptions{
+		Image:      b.Cfg.BackupFDBImage,
+		Network:    b.Cfg.BackupFDBNetwork,
+		Entrypoint: []string{"/usr/bin/fdbbackup"},
+		Cmd:        []string{"start", "-w", "-d", "file:///snapshot/" + b.RunID},
+		Env:        []string{"FDB_CLUSTER_FILE=/etc/foundationdb/fdb.cluster"},
+		Binds: []string{
+			"/etc/foundationdb:/etc/foundationdb:ro",
+			b.SnapshotDir + ":/snapshot",
+		},
+		Name: "",
+	})
+	if err != nil {
+		return err
 	}
-	out, err := runDockerCmd(ctx, b.Log, args...)
-	b.Log.DebugContext(ctx, "backup.fdb.start_out", slog.String("output", out))
-	return err
+	b.Log.DebugContext(ctx, "backup.fdb.start_out", slog.String("output", res.Stdout))
+	if res.ExitCode != 0 {
+		return fmt.Errorf("fdbbackup start exited %d: %s", res.ExitCode, res.Stderr)
+	}
+	return nil
 }
 
 // resolveFDBBackupSubdir locates the timestamped `backup-*` subdir that
@@ -246,17 +253,25 @@ func resolveFDBBackupSubdir(ctx context.Context, log *slog.Logger, snapshotDir, 
 // runFDBBackupDescribe runs `fdbbackup describe -d <url>` from a one-shot
 // client container and returns the captured output.
 func runFDBBackupDescribe(ctx context.Context, b *backupCtx, backupURL string) (string, error) {
-	args := []string{
-		"run", "--rm",
-		"--network", b.Cfg.BackupFDBNetwork,
-		"-v", "/etc/foundationdb:/etc/foundationdb:ro",
-		"-v", b.SnapshotDir + ":/snapshot",
-		"-e", "FDB_CLUSTER_FILE=/etc/foundationdb/fdb.cluster",
-		"--entrypoint", "/usr/bin/fdbbackup",
-		b.Cfg.BackupFDBImage,
-		"describe", "-d", backupURL,
+	res, err := runOneShot(ctx, b.Cli, b.Log, runOneShotOptions{
+		Image:      b.Cfg.BackupFDBImage,
+		Network:    b.Cfg.BackupFDBNetwork,
+		Entrypoint: []string{"/usr/bin/fdbbackup"},
+		Cmd:        []string{"describe", "-d", backupURL},
+		Env:        []string{"FDB_CLUSTER_FILE=/etc/foundationdb/fdb.cluster"},
+		Binds: []string{
+			"/etc/foundationdb:/etc/foundationdb:ro",
+			b.SnapshotDir + ":/snapshot",
+		},
+		Name: "",
+	})
+	if err != nil {
+		return "", err
 	}
-	return runDockerCmd(ctx, b.Log, args...)
+	if res.ExitCode != 0 {
+		return res.Stdout, fmt.Errorf("fdbbackup describe exited %d: %s", res.ExitCode, res.Stderr)
+	}
+	return res.Stdout, nil
 }
 
 // tarFDBBackupSubdir tars the resolved backup-* subdir into a single
@@ -272,15 +287,24 @@ func tarFDBBackupSubdir(ctx context.Context, b *backupCtx, hostSubdir, tarPath s
 		)
 		return fmt.Errorf("relpath: %w", err)
 	}
-	args := []string{
-		"run", "--rm",
-		"-v", b.SnapshotDir + ":/snapshot:ro",
-		"-v", b.DestDir + ":/dst",
-		"alpine",
-		"sh", "-c",
-		fmt.Sprintf("cd /snapshot && tar czf /dst/%s %s",
-			filepath.Base(tarPath), filepath.ToSlash(rel)),
+	res, err := runOneShot(ctx, b.Cli, b.Log, runOneShotOptions{
+		Image:      "alpine",
+		Network:    "",
+		Entrypoint: nil,
+		Cmd: []string{"sh", "-c", fmt.Sprintf("cd /snapshot && tar czf /dst/%s %s",
+			filepath.Base(tarPath), filepath.ToSlash(rel))},
+		Env: nil,
+		Binds: []string{
+			b.SnapshotDir + ":/snapshot:ro",
+			b.DestDir + ":/dst",
+		},
+		Name: "",
+	})
+	if err != nil {
+		return err
 	}
-	_, err = runDockerCmd(ctx, b.Log, args...)
-	return err
+	if res.ExitCode != 0 {
+		return fmt.Errorf("tar fdb backup exited %d: %s", res.ExitCode, res.Stderr)
+	}
+	return nil
 }

@@ -41,10 +41,8 @@ func runBackupRun(ctx context.Context, cfg *config.Config) error {
 		return missingPWErr
 	}
 
-	err := assertDockerContext(ctx, cfg.BackupDockerContext)
-	if err != nil {
-		return err
-	}
+	// SDK reads DOCKER_CONTEXT/DOCKER_HOST via client.FromEnv. The earlier
+	// shell-out to `docker context inspect` was removed per TACK-264.
 
 	cli, err := newDockerClient(ctx)
 	if err != nil {
