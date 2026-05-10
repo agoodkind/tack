@@ -41,10 +41,6 @@ func TestSortInspectionReportOrdersEveryFamilyDeterministically(t *testing.T) {
 			{OrgID: uuid.MustParse("00000000-0000-0000-0000-000000000001"), NodeType: "issue", PropertyName: "identifier", EncodedValue: []byte(`"z"`)},
 			{OrgID: uuid.MustParse("00000000-0000-0000-0000-000000000001"), NodeType: "issue", PropertyName: "identifier", EncodedValue: []byte(`"a"`)},
 		},
-		LegacyAddressRows: []InspectLegacyAddressRow{
-			{LegacyKeyFamily: legacySlugIndexKeyFamily, NodeType: "zeta", AddressKind: "slug", AddressValue: "z"},
-			{LegacyKeyFamily: legacySlugIndexKeyFamily, NodeType: "alpha", AddressKind: "slug", AddressValue: "a"},
-		},
 		Relationships: []InspectRelationshipRow{
 			{OrgID: uuid.MustParse("00000000-0000-0000-0000-000000000002"), RelationType: "relates_to", TargetID: uuid.MustParse("00000000-0000-0000-0000-000000000002")},
 			{OrgID: uuid.MustParse("00000000-0000-0000-0000-000000000001"), RelationType: "blocks", TargetID: uuid.MustParse("00000000-0000-0000-0000-000000000001")},
@@ -65,9 +61,6 @@ func TestSortInspectionReportOrdersEveryFamilyDeterministically(t *testing.T) {
 	}
 	if string(report.PropertyIndexRows[0].EncodedValue) != `"a"` {
 		t.Fatalf("PropertyIndexRows[0].EncodedValue = %s want \"a\"", report.PropertyIndexRows[0].EncodedValue)
-	}
-	if report.LegacyAddressRows[0].NodeType != "alpha" {
-		t.Fatalf("LegacyAddressRows[0].NodeType = %q want alpha", report.LegacyAddressRows[0].NodeType)
 	}
 	if report.Relationships[0].RelationType != "blocks" {
 		t.Fatalf("Relationships[0].RelationType = %q want blocks", report.Relationships[0].RelationType)

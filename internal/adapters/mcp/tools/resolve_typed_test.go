@@ -107,18 +107,6 @@ func (r *fakeNodeRepo) AllocateSequence(context.Context, uuid.UUID, uuid.UUID, s
 	panic("fakeNodeRepo.AllocateSequence called")
 }
 
-func (r *fakeNodeRepo) GetAddress(context.Context, string, node.AddressKind, string) (uuid.UUID, error) {
-	panic("fakeNodeRepo.GetAddress called")
-}
-
-func (r *fakeNodeRepo) WriteAddress(context.Context, string, node.AddressKind, string, uuid.UUID) error {
-	panic("fakeNodeRepo.WriteAddress called")
-}
-
-func (r *fakeNodeRepo) DeleteAddress(context.Context, string, node.AddressKind, string) error {
-	panic("fakeNodeRepo.DeleteAddress called")
-}
-
 func (r *fakeNodeRepo) LookupIdempotencyKey(context.Context, uuid.UUID, string) (*node.IdempotencyRecord, error) {
 	panic("fakeNodeRepo.LookupIdempotencyKey called")
 }

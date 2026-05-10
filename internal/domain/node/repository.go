@@ -109,12 +109,6 @@ type NodeRepository interface {
 	// project node) under which sequence numbers are unique.
 	AllocateSequence(ctx context.Context, orgID, scopeNodeID uuid.UUID, nodeType string) (int64, error)
 
-	// GetAddress returns the nodeID registered under a node type address value.
-	GetAddress(ctx context.Context, nodeType string, addressKind AddressKind, address string) (uuid.UUID, error)
-	// WriteAddress returns domain.ErrAlreadyExists when the address is already
-	// owned by a different node. Idempotent when the existing owner matches.
-	WriteAddress(ctx context.Context, nodeType string, addressKind AddressKind, address string, nodeID uuid.UUID) error
-	DeleteAddress(ctx context.Context, nodeType string, addressKind AddressKind, address string) error
 	// LookupIdempotencyKey returns the record stamped under (orgID, key). A nil
 	// record and nil error mean the key has not been seen.
 	LookupIdempotencyKey(ctx context.Context, orgID uuid.UUID, key string) (*IdempotencyRecord, error)

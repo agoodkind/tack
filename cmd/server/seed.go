@@ -132,7 +132,19 @@ func execSeed(ctx context.Context, cfg *config.Config) {
 	}
 
 	// ── Org ────────────────────────────────────────────────────────────────────
-	orgID := ensureNode(ctx, fdbStores, "org", cfg.SeedOrgSlug, cfg.SeedOrgName, uuid.Nil)
+	// The org case has no parent, so orgID == the node's own ID. To detect an
+	// existing org by slug via the org-scoped node_by_property index, we need
+	// a known orgID. We derive it from the user's existing org membership (if
+	// any). On a first seed the membership list is empty and we create a new org.
+	existingOrgIDs, memberErr := members.ListOrgIDsForUser(ctx, u.ID)
+	if memberErr != nil {
+		log.WarnContext(ctx, "seed: list org memberships", "err", memberErr)
+	}
+	var knownOrgID uuid.UUID
+	if len(existingOrgIDs) > 0 {
+		knownOrgID = existingOrgIDs[0]
+	}
+	orgID := ensureNode(ctx, fdbStores, "org", cfg.SeedOrgSlug, cfg.SeedOrgName, uuid.Nil, knownOrgID)
 	seeder.SeedOrg(ctx, orgID)
 
 	// Make sure the user is an org admin.
@@ -145,7 +157,8 @@ func execSeed(ctx context.Context, cfg *config.Config) {
 	}
 
 	// ── Workspace ──────────────────────────────────────────────────────────────
-	wsID := ensureNode(ctx, fdbStores, "workspace", cfg.SeedWorkspaceSlug, cfg.SeedWorkspaceName, orgID)
+	// orgID is the parent of the workspace, so it doubles as the lookup orgID.
+	wsID := ensureNode(ctx, fdbStores, "workspace", cfg.SeedWorkspaceSlug, cfg.SeedWorkspaceName, orgID, orgID)
 
 	// ── API token ──────────────────────────────────────────────────────────────
 	// Production mode: SHA-256 hash of the bearer is looked up in api_tokens.
@@ -172,15 +185,23 @@ func execSeed(ctx context.Context, cfg *config.Config) {
 	)
 }
 
-// ensureNode creates (or re-verifies) a generic node with a slug index. When a
-// node with (typeKey, slug) already exists, its ID is returned and no write
-// happens beyond the slug index refresh. parentID may be uuid.Nil for org-level
-// nodes.
-func ensureNode(ctx context.Context, s *fdbadapter.Stores, typeKey, slug, name string, parentID uuid.UUID) uuid.UUID {
+// ensureNode creates (or re-verifies) a generic node. When a node with
+// (typeKey, slug) already exists it is detected via the org-scoped
+// node_by_property index and its ID is returned with no further writes.
+// parentID may be uuid.Nil for org-level nodes. lookupOrgID is the orgID used
+// to query the property index for an existing node: for non-org nodes this is
+// the parentID; for org nodes (where orgID == the node's own ID) the caller
+// supplies the orgID from the user's existing org membership, or uuid.Nil when
+// no prior membership exists.
+func ensureNode(ctx context.Context, s *fdbadapter.Stores, typeKey, slug, name string, parentID, lookupOrgID uuid.UUID) uuid.UUID {
 	log := telemetry.L(ctx)
-	if existing, err := s.Nodes.GetAddress(ctx, typeKey, node.AddressKindPrimary, slug); err == nil && existing != uuid.Nil {
-		log.Info("seed: node exists", "type", typeKey, "slug", slug, "id", existing)
-		return existing
+	slugRaw, _ := json.Marshal(slug)
+	if lookupOrgID != uuid.Nil {
+		existing, err := s.Nodes.ListByProperty(ctx, lookupOrgID, typeKey, "slug", slugRaw)
+		if err == nil && len(existing) > 0 {
+			log.Info("seed: node exists", "type", typeKey, "slug", slug, "id", existing[0].ID)
+			return existing[0].ID
+		}
 	}
 
 	now := time.Now().UTC()
@@ -203,7 +224,6 @@ func ensureNode(ctx context.Context, s *fdbadapter.Stores, typeKey, slug, name s
 	}
 
 	props := make(map[string]json.RawMessage)
-	slugRaw, _ := json.Marshal(slug)
 	props["slug"] = slugRaw
 	if parentID != uuid.Nil {
 		parentRaw, _ := json.Marshal(parentID.String())
@@ -246,13 +266,11 @@ func ensureNode(ctx context.Context, s *fdbadapter.Stores, typeKey, slug, name s
 		})
 	}
 
-	// Mark slug as indexed so ListByProperty works for it.
+	// Mark slug as indexed so ListByProperty works for it. The node_by_property
+	// index written here replaces the former address_index write; no separate
+	// WriteAddress call is needed.
 	if err := s.Nodes.CreateAtomic(ctx, n, view, rels, []string{"slug"}, nil); err != nil {
 		log.Error("seed: create node", "type", typeKey, "err", err)
-		os.Exit(1)
-	}
-	if err := s.Nodes.WriteAddress(ctx, typeKey, node.AddressKindPrimary, slug, id); err != nil {
-		log.Error("seed: write slug", "type", typeKey, "err", err)
 		os.Exit(1)
 	}
 	log.Info("seed: created node", "type", typeKey, "slug", slug, "id", id)

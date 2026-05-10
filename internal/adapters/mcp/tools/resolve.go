@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/audit"
+	"goodkind.io/tack/internal/auth"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/domain/org"
@@ -32,18 +33,34 @@ type Resolver struct {
 
 	entryPointTypeKey string
 	entryPointSlug    string
+	// entryPointRefProp is the property name used to look up the entry point by
+	// human-readable reference (e.g. "slug" for workspace types with
+	// ReferenceDirectProperty strategy). Empty when the entry point type does
+	// not declare a direct address property.
+	entryPointRefProp string
 	scopeChain        []ScopeLevel
 	sequenceTypeKeys  []string
 	typeIndex         map[string]*node.NodeType
 }
 
 func NewResolver(nodes node.NodeRepository, reader node.NodeReader, members org.MemberRepository, nodeTypes []*node.NodeType) *Resolver {
-	r := &Resolver{nodes: nodes, reader: reader, members: members}
+	r := &Resolver{
+		nodes:             nodes,
+		reader:            reader,
+		members:           members,
+		entryPointTypeKey: "",
+		entryPointSlug:    "",
+		entryPointRefProp: "",
+		scopeChain:        nil,
+		sequenceTypeKeys:  nil,
+		typeIndex:         nil,
+	}
 	r.typeIndex = node.BuildTypeIndex(nodeTypes)
 	for _, nt := range nodeTypes {
 		if nt.Features.Has(node.FeatureIsEntryPoint) {
 			r.entryPointTypeKey = nt.TypeKey
 			r.entryPointSlug = strings.ToLower(nt.Slug)
+			r.entryPointRefProp = nt.Reference.DirectAddressProperty()
 		}
 		if nt.Features.Has(node.FeatureHasSequenceID) {
 			r.sequenceTypeKeys = append(r.sequenceTypeKeys, nt.TypeKey)
@@ -91,24 +108,40 @@ func (r *Resolver) ScopeChainForType(nt *node.NodeType) []ScopeLevel {
 	return chain
 }
 
-// Workspace resolves an entry point reference to its NodeView.
+// Workspace resolves an entry point reference to its NodeView by scanning the
+// org-scoped node_by_property index for each org the authenticated user belongs
+// to. This replaces the former global address_index lookup, which had no orgID
+// component and was the root cause of the 2026-05-09 parallel-org outage.
 func (r *Resolver) Workspace(ctx context.Context, reference string) (*node.NodeView, error) {
-	id, err := r.nodes.GetAddress(ctx, r.entryPointTypeKey, node.AddressKindPrimary, reference)
+	if r.entryPointRefProp == "" {
+		return nil, fmt.Errorf("%s reference %q: entry point type has no declared reference property: %w",
+			r.entryPointSlug, reference, domain.ErrInvalidArgument)
+	}
+	userID, ok := auth.UserID(ctx)
+	if !ok {
+		return nil, fmt.Errorf("unauthenticated")
+	}
+	orgIDs, err := r.members.ListOrgIDsForUser(ctx, userID)
 	if err != nil {
-		return nil, fmt.Errorf("%s reference %q: %w", r.entryPointSlug, reference, err)
+		return nil, fmt.Errorf("%s reference %q: list orgs: %w", r.entryPointSlug, reference, err)
 	}
-	if id == uuid.Nil {
-		return nil, fmt.Errorf("%s reference %q: %w", r.entryPointSlug, reference, domain.ErrNotFound)
+	for _, rawValue := range referenceLookupValues(reference) {
+		for _, orgID := range orgIDs {
+			matched, err := r.nodes.ListByProperty(ctx, orgID, r.entryPointTypeKey, r.entryPointRefProp, rawValue)
+			if err != nil {
+				continue
+			}
+			for _, n := range matched {
+				view, viewErr := r.reader.Get(ctx, n.ID)
+				if viewErr != nil || view == nil {
+					continue
+				}
+				stampAuditEntryPoint(ctx, view)
+				return view, nil
+			}
+		}
 	}
-	view, err := r.reader.Get(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	if view == nil {
-		return nil, fmt.Errorf("%s reference %q: %w", r.entryPointSlug, reference, domain.ErrNotFound)
-	}
-	stampAuditEntryPoint(ctx, view)
-	return view, nil
+	return nil, fmt.Errorf("%s reference %q: %w", r.entryPointSlug, reference, domain.ErrNotFound)
 }
 
 // ResolveScope looks up a scope node through the node type's reference

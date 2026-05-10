@@ -25,7 +25,6 @@ func (s *InspectStore) QueryNodeRecords(_ context.Context, nodeID uuid.UUID) (re
 		NodeInstances:           nil,
 		NodeViews:               nil,
 		PropertyIndexRows:       nil,
-		LegacyAddressRows:       nil,
 		Relationships:           nil,
 		RelationshipReverseRows: nil,
 	}
@@ -54,11 +53,6 @@ func (s *InspectStore) QueryNodeRecords(_ context.Context, nodeID uuid.UUID) (re
 			return nil, err
 		}
 		report.PropertyIndexRows = propertyRows
-		legacyAddressRows, err := queryLegacyAddressRows(tr, nodeID)
-		if err != nil {
-			return nil, err
-		}
-		report.LegacyAddressRows = legacyAddressRows
 		orgIDs := collectOrgIDs(report)
 		relRows, reverseRows, err := queryRelationshipRows(tr, nodeID, orgIDs)
 		if err != nil {
@@ -144,32 +138,6 @@ func queryPropertyRows(tr fdb.ReadTransaction, nodeID uuid.UUID) ([]InspectPrope
 			PropertyName: asString(t[3]),
 			EncodedValue: encodedValueBytes(t[4]),
 			NodeID:       rowNodeID,
-		})
-	}
-	return out, nil
-}
-
-func queryLegacyAddressRows(tr fdb.ReadTransaction, nodeID uuid.UUID) ([]InspectLegacyAddressRow, error) {
-	kvs, err := scanPrefix(tr, []any{legacySlugIndexKeyFamily})
-	if err != nil {
-		return nil, err
-	}
-	out := make([]InspectLegacyAddressRow, 0)
-	for _, kv := range kvs {
-		ownerID, err := uuid.FromBytes(kv.Value)
-		if err != nil || ownerID != nodeID {
-			continue
-		}
-		t, err := tuple.Unpack(stripPrefix(kv.Key))
-		if err != nil || len(t) != 3 {
-			continue
-		}
-		out = append(out, InspectLegacyAddressRow{
-			LegacyKeyFamily: legacySlugIndexKeyFamily,
-			NodeType:        asString(t[1]),
-			AddressKind:     "slug",
-			AddressValue:    asString(t[2]),
-			OwnerID:         ownerID,
 		})
 	}
 	return out, nil

@@ -127,7 +127,6 @@ func sortInspectionReport(report *NodeInspectionReport) {
 		right := rowKey(report.PropertyIndexRows[j].OrgID.String(), report.PropertyIndexRows[j].NodeType, report.PropertyIndexRows[j].PropertyName, string(report.PropertyIndexRows[j].EncodedValue))
 		return left < right
 	})
-	sortLegacyAddressRows(report.LegacyAddressRows)
 	sort.Slice(report.Relationships, func(i int, j int) bool {
 		left := rowKey(report.Relationships[i].OrgID.String(), report.Relationships[i].RelationType, report.Relationships[i].TargetID.String())
 		right := rowKey(report.Relationships[j].OrgID.String(), report.Relationships[j].RelationType, report.Relationships[j].TargetID.String())
@@ -174,14 +173,6 @@ func encodedValueBytes(value any) []byte {
 	copied := make([]byte, len(raw))
 	copy(copied, raw)
 	return copied
-}
-
-func sortLegacyAddressRows(rows []InspectLegacyAddressRow) {
-	sort.Slice(rows, func(i int, j int) bool {
-		left := rowKey(rows[i].LegacyKeyFamily, rows[i].NodeType, rows[i].AddressKind, rows[i].AddressValue)
-		right := rowKey(rows[j].LegacyKeyFamily, rows[j].NodeType, rows[j].AddressKind, rows[j].AddressValue)
-		return left < right
-	})
 }
 
 func rowKey(parts ...string) string {
