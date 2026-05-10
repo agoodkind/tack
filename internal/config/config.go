@@ -123,6 +123,15 @@ type Config struct {
 	AuditConsumerYugabyteDSN    string        `env:"AUDIT_CONSUMER_YUGABYTE_DSN"`
 	AuditConsumerClickHouseDSN  string        `env:"AUDIT_CONSUMER_CLICKHOUSE_DSN"`
 	AuditConsumerSigningKeyPath string        `env:"AUDIT_CONSUMER_SIGNING_KEY_PATH"`
+
+	// AuditConsumerLagWarnMessages is the per-partition lag threshold
+	// above which the consumer logs `consumer.lag.high` on every poll.
+	// Default 1000 messages.
+	AuditConsumerLagWarnMessages int64 `env:"TACK_AUDIT_CONSUMER_LAG_WARN_MESSAGES" envDefault:"1000"`
+
+	// AuditConsumerSummaryEvery is how many records between batched
+	// `consumer.processed` debug summaries. Default 100.
+	AuditConsumerSummaryEvery int `env:"TACK_AUDIT_CONSUMER_SUMMARY_EVERY" envDefault:"100"`
 }
 
 func Load() (*Config, error) {

@@ -33,6 +33,12 @@ services:
       LOG_TEXT_FILE: ${LOG_TEXT_FILE:-/var/log/tack/app.log}
       AUDIT_SIGNING_KEY_PATH: ${AUDIT_SIGNING_KEY_PATH:-/etc/tack/audit-signing.pem}
       AUDIT_WAL_DIR: ${AUDIT_WAL_DIR:-/var/lib/tack/audit-wal}
+      # Wave 1 audit producer. Empty disables the Kafka path and the
+      # server falls back to WAL-only recording.
+      AUDIT_KAFKA_BROKERS: ${AUDIT_KAFKA_BROKERS:-}
+      AUDIT_KAFKA_TOPIC: ${AUDIT_KAFKA_TOPIC:-audit.events.v1}
+      AUDIT_KAFKA_CLIENT_ID: ${AUDIT_KAFKA_CLIENT_ID:-tack-audit-producer}
+      AUDIT_KAFKA_PRODUCE_TIMEOUT: ${AUDIT_KAFKA_PRODUCE_TIMEOUT:-10s}
     volumes:
       - /etc/foundationdb:/etc/foundationdb:ro
       - tack-logs:/var/log/tack
@@ -193,6 +199,114 @@ services:
     depends_on:
       - temporal
 
+  # Apache Kafka 4.x in KRaft combined broker+controller role. Wave 1 of
+  # the Phase 2 audit refactor uses this as the producer-side broker for
+  # the audit.events.v1 topic; the projector half lands in Wave 2.
+  #
+  # The cluster ID is pinned to a value generated once on the host with:
+  #
+  #   docker run --rm apache/kafka:4.2.0 \
+  #     /opt/kafka/bin/kafka-storage.sh random-uuid
+  #
+  # Persist the result into KAFKA_CLUSTER_ID in .env so a recreate does
+  # not stamp a fresh metadata directory and orphan the existing logs.
+  # No external port is exposed: traffic stays inside the IPv6 bridge.
+  kafka:
+    image: apache/kafka:4.2.0
+    restart: unless-stopped
+    environment:
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_NODE_ID: "1"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: PLAINTEXT://[::]:9092,CONTROLLER://[::]:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_NUM_PARTITIONS: "256"
+      KAFKA_DEFAULT_REPLICATION_FACTOR: "1"
+      KAFKA_MIN_INSYNC_REPLICAS: "1"
+      KAFKA_UNCLEAN_LEADER_ELECTION_ENABLE: "false"
+      CLUSTER_ID: ${KAFKA_CLUSTER_ID:?KAFKA_CLUSTER_ID is required, generate via kafka-storage.sh random-uuid}
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server kafka:9092 >/dev/null 2>&1
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  # SeaweedFS as the S3-compatible cold-archive backend for Wave 4 of the
+  # Phase 2 refactor. Wave 1 boots it so the rest of the migration has the
+  # endpoint reachable from day one. Master and volume server run in the
+  # same container; N=1 cardinality is acceptable per the design doc.
+  # Internal-only: no external port is exposed.
+  seaweedfs:
+    image: chrislusf/seaweedfs:3.71
+    restart: unless-stopped
+    command: server -dir=/data -s3 -master.volumeSizeLimitMB=1024
+    volumes:
+      - seaweedfs-data:/data
+
+  # ClickHouse single-node OLAP store for the Wave 1 audit consumer.
+  # Internal-only: 8123 (HTTP) and 9000 (native) are not exposed to the
+  # host. Apache 2.0 image so the open-source-only constraint holds.
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://[::1]:8123/ping || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  # Wave 1 audit-consumer. Uses the same image as the app container; the
+  # entrypoint is overridden to /usr/local/bin/audit-consumer so the
+  # binary built by the Dockerfile is invoked directly. Mounts the
+  # signing key for the embedded notarizer.
+  audit-consumer:
+    image: tack-server:latest
+    build: .
+    restart: unless-stopped
+    entrypoint: ["/usr/local/bin/audit-consumer"]
+    environment:
+      AUDIT_CONSUMER_KAFKA_BROKERS:    ${AUDIT_CONSUMER_KAFKA_BROKERS:-kafka:9092}
+      AUDIT_CONSUMER_KAFKA_TOPIC:      ${AUDIT_CONSUMER_KAFKA_TOPIC:-audit.events.v1}
+      AUDIT_CONSUMER_GROUP_ID:         ${AUDIT_CONSUMER_GROUP_ID:-tack-audit-projector}
+      AUDIT_CONSUMER_BATCH_SIZE:       ${AUDIT_CONSUMER_BATCH_SIZE:-256}
+      AUDIT_CONSUMER_POLL_INTERVAL:    ${AUDIT_CONSUMER_POLL_INTERVAL:-250ms}
+      AUDIT_CONSUMER_YUGABYTE_DSN:     ${AUDIT_WRITER_DSN}
+      AUDIT_CONSUMER_CLICKHOUSE_DSN:   ${AUDIT_CONSUMER_CLICKHOUSE_DSN:-clickhouse://default:@clickhouse:9000/audit}
+      AUDIT_CONSUMER_SIGNING_KEY_PATH: ${AUDIT_CONSUMER_SIGNING_KEY_PATH:-/etc/tack/audit-signing.pem}
+      LOG_LEVEL: ${LOG_LEVEL:-debug}
+      LOG_JSON_FILE: /var/log/tack/audit-consumer.jsonl
+      LOG_TEXT_FILE: /var/log/tack/audit-consumer.log
+      LOG_MAX_BACKUPS: ${LOG_MAX_BACKUPS:-0}
+      LOG_MAX_AGE_DAYS: ${LOG_MAX_AGE_DAYS:-0}
+      LOG_MAX_SIZE_MB: ${LOG_MAX_SIZE_MB:-100}
+    volumes:
+      - tack-logs:/var/log/tack
+      - /etc/tack:/etc/tack:ro
+    depends_on:
+      kafka:
+        condition: service_started
+      yugabyte:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+
 volumes:
   yugabyte-data:
   fdb-data:
@@ -200,6 +314,9 @@ volumes:
   temporal-db-data:
   tack-logs:
   tack-audit-wal:
+  kafka-data:
+  seaweedfs-data:
+  clickhouse-data:
 
 # IPv6-only bridge. The /96 carved out of the host's on-link 3d06:bad:b01::/64
 # is NDP-proxied back onto eth0 by ndppd on CT 117. Containers source out as

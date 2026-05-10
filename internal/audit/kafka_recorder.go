@@ -1,0 +1,213 @@
+package audit
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"strings"
+	"time"
+
+	"github.com/twmb/franz-go/pkg/kgo"
+	"goodkind.io/tack/internal/telemetry"
+)
+
+// KafkaRecorder produces audit events to an Apache Kafka topic. It is the
+// Wave 1 producer-side piece of the Phase 2 audit refactor: it ships the
+// same JSON Event payload that the WAL writes today so a downstream
+// projector can reconstruct the canonical row.
+//
+// Produce is synchronous with acks=all and idempotence enabled. Errors
+// surface to the caller; this recorder never silently drops an event.
+type KafkaRecorder struct {
+	client         *kgo.Client
+	topic          string
+	produceTimeout time.Duration
+}
+
+// KafkaConfig collects the producer knobs that vary between deployments.
+// Brokers and Topic are required; the other fields fall back to
+// production-friendly defaults when zero.
+type KafkaConfig struct {
+	// Brokers is the comma-separated bootstrap broker list. The franz-go
+	// client uses bootstrap brokers to discover the rest of the cluster
+	// at runtime, so this list is the same shape at N=1 and N=many.
+	Brokers []string
+
+	// Topic is the Kafka topic name. The Phase 2 design fixes the v1
+	// topic at audit.events.v1; the producer treats the topic as opaque.
+	Topic string
+
+	// ClientID labels the producer in broker-side metrics and logs.
+	ClientID string
+
+	// ProduceTimeout caps a single Record call. Zero falls back to 10s.
+	ProduceTimeout time.Duration
+}
+
+// NewKafkaRecorder constructs a KafkaRecorder. The franz-go client opens
+// connections lazily, so this returns immediately even when the broker
+// is unreachable; the first Record call surfaces any connection error.
+func NewKafkaRecorder(cfg KafkaConfig) (*KafkaRecorder, error) {
+	if len(cfg.Brokers) == 0 {
+		return nil, errors.New("audit kafka: at least one broker required")
+	}
+	if cfg.Topic == "" {
+		return nil, errors.New("audit kafka: topic required")
+	}
+	if cfg.ProduceTimeout <= 0 {
+		cfg.ProduceTimeout = 10 * time.Second
+	}
+	if cfg.ClientID == "" {
+		cfg.ClientID = "tack-audit-producer"
+	}
+	opts := []kgo.Opt{
+		kgo.SeedBrokers(cfg.Brokers...),
+		kgo.ClientID(cfg.ClientID),
+		kgo.DefaultProduceTopic(cfg.Topic),
+		kgo.RequiredAcks(kgo.AllISRAcks()),
+		kgo.ProducerBatchCompression(kgo.Lz4Compression()),
+		kgo.ProducerLinger(5 * time.Millisecond),
+		kgo.ProduceRequestTimeout(cfg.ProduceTimeout),
+		kgo.RecordDeliveryTimeout(cfg.ProduceTimeout),
+	}
+	client, err := kgo.NewClient(opts...)
+	if err != nil {
+		slog.Error("audit.kafka.client_init_failed", slog.String("err", err.Error()))
+		return nil, fmt.Errorf("audit kafka: new client: %w", err)
+	}
+	return &KafkaRecorder{
+		client:         client,
+		topic:          cfg.Topic,
+		produceTimeout: cfg.ProduceTimeout,
+	}, nil
+}
+
+// MarshalEvent encodes an Event as canonical JSON. Exposed as an
+// encoder-shaped helper so the wrapped error from [encoding/json.Marshal]
+// is a codec error, not a side-effecting recorder error. Used by Record
+// and callable directly from tests.
+func MarshalEvent(ev Event) ([]byte, error) {
+	out, err := json.Marshal(ev)
+	if err != nil {
+		slog.Error("audit.kafka.marshal_failed", slog.String("verb", ev.Verb), slog.String("err", err.Error()))
+		return nil, fmt.Errorf("audit kafka marshal: %w", err)
+	}
+	return out, nil
+}
+
+// Record marshals the event to JSON and produces it synchronously to the
+// configured topic. Returns the broker error on failure; never swallows.
+//
+// OccurredAt is taken verbatim from ev. The caller chain populates it
+// (the WAL recorder, the Yugabyte recorder, and MemoryRecorder all set
+// it on entry). Setting it here would split the timestamp between the
+// Kafka and WAL legs of DualRecorder, which the parity gate forbids.
+func (k *KafkaRecorder) Record(ctx context.Context, ev Event) error {
+	payload, err := MarshalEvent(ev)
+	if err != nil {
+		telemetry.IncAuditDropped(ev.Verb, "kafka_marshal")
+		telemetry.IncAuditKafkaProduce("error")
+		return err
+	}
+	produceCtx, cancel := context.WithTimeout(ctx, k.produceTimeout)
+	defer cancel()
+	eventID := eventIDForLog(ev)
+	rec := &kgo.Record{
+		Topic: k.topic,
+		Key:   kafkaPartitionKey(ev),
+		Value: payload,
+	}
+	telemetry.IncAuditKafkaProduceInflight()
+	start := monoStart()
+	res := k.client.ProduceSync(produceCtx, rec)
+	telemetry.DecAuditKafkaProduceInflight()
+	telemetry.ObserveAuditKafkaProduceLatency(sinceMs(start))
+	if produceErr := res.FirstErr(); produceErr != nil {
+		telemetry.IncAuditKafkaProduce("error")
+		slog.ErrorContext(ctx, "kafka.produce.failed",
+			slog.String("err", produceErr.Error()),
+			slog.String("topic", k.topic),
+			slog.String("event_id", eventID),
+			slog.Int("attempt", 1),
+			slog.String("verb", ev.Verb),
+		)
+		return fmt.Errorf("audit kafka produce verb=%s: %w", ev.Verb, produceErr)
+	}
+	telemetry.IncAuditKafkaProduce("ok")
+	telemetry.L(ctx).Debug("audit.kafka.produced",
+		slog.String("verb", ev.Verb),
+		slog.String("topic", k.topic),
+		slog.Int("payload_bytes", len(payload)),
+		slog.String("event_id", eventID),
+	)
+	return nil
+}
+
+// eventIDForLog returns a stable identifier for the produce-failed log line
+// so an operator can correlate the failure with downstream signals. We
+// prefer the caller-supplied IdempotencyKey; absent that, we surface the
+// actor and entity IDs joined by a colon, which is unique enough for
+// triage and never empty.
+func eventIDForLog(ev Event) string {
+	if ev.IdempotencyKey != "" {
+		return ev.IdempotencyKey
+	}
+	return ev.Actor.ID.String() + ":" + ev.Entity.ID.String()
+}
+
+// Close flushes the producer queue and shuts the underlying client down.
+// Implements the parameterless Close shape that DualRecorder type-asserts
+// against; uses [context.Background] internally for the flush deadline so
+// shutdown progresses even when the caller's context has already been
+// cancelled by SIGINT.
+func (k *KafkaRecorder) Close() error {
+	return k.CloseContext(context.Background())
+}
+
+// CloseContext flushes the producer queue and shuts the underlying client
+// down using the supplied context for the flush deadline.
+func (k *KafkaRecorder) CloseContext(ctx context.Context) error {
+	if k == nil || k.client == nil {
+		return nil
+	}
+	flushCtx, cancel := context.WithTimeout(ctx, k.produceTimeout)
+	defer cancel()
+	if err := k.client.Flush(flushCtx); err != nil {
+		slog.ErrorContext(ctx, "audit.kafka.flush_failed", slog.String("err", err.Error()))
+		k.client.Close()
+		return fmt.Errorf("audit kafka flush: %w", err)
+	}
+	k.client.Close()
+	return nil
+}
+
+// kafkaPartitionKey packs the (org_id, actor) tuple as the producer key.
+// Per the design doc the chain shard is derived from this same tuple,
+// so identical keys land on the same partition under franz-go's default
+// sticky-key partitioner.
+func kafkaPartitionKey(ev Event) []byte {
+	out := make([]byte, 0, 32)
+	out = append(out, ev.Context.OrgID[:]...)
+	out = append(out, ev.Actor.ID[:]...)
+	return out
+}
+
+// SplitBrokers parses a comma-separated broker list, trimming whitespace
+// and discarding empty entries. Exposed for the cmd/server wiring.
+func SplitBrokers(s string) []string {
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}

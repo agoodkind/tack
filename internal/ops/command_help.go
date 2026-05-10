@@ -15,6 +15,7 @@ func printOpsUsage() {
 	fmt.Fprintln(os.Stderr, "  validate  check repair applicability for a node")
 	fmt.Fprintln(os.Stderr, "  repair    preview and apply targeted repairs")
 	fmt.Fprintln(os.Stderr, "  batch     run registered batch maintenance operations")
+	fmt.Fprintln(os.Stderr, "  audit     compliance audit subcommands (parity, ...)")
 	fmt.Fprintln(os.Stderr)
 	fmt.Fprintln(os.Stderr, "run `./server ops <family> help` for family-specific usage")
 	fmt.Fprintln(os.Stderr)
@@ -120,6 +121,18 @@ func printCommandUsage(command string) {
 		printOpsUsage()
 		os.Exit(2)
 	}
+}
+
+func printAuditUsage() {
+	fmt.Fprintln(os.Stderr, "usage: ./server ops audit parity")
+	fmt.Fprintln(os.Stderr)
+	fmt.Fprintln(os.Stderr, "subcommands:")
+	fmt.Fprintln(os.Stderr, "  parity  Compare audit.events vs audit.events_v2 over a time window")
+	fmt.Fprintln(os.Stderr)
+	fmt.Fprintln(os.Stderr, "parity env vars:")
+	fmt.Fprintln(os.Stderr, "  TACK_PARITY_FROM       inclusive lower bound, RFC3339 UTC (required)")
+	fmt.Fprintln(os.Stderr, "  TACK_PARITY_TO         exclusive upper bound, RFC3339 UTC (required)")
+	fmt.Fprintln(os.Stderr, "  TACK_PARITY_THRESHOLD  matched-fraction floor in [0,1], default 1.0")
 }
 
 func printBatchUsage() {

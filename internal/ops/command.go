@@ -9,6 +9,19 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
+// commandFamily is the named enum of top-level ops command families. Bare
+// string switches with many cases trip the staticcheck-extra enum gate.
+type commandFamily string
+
+const (
+	familyInspect  commandFamily = "inspect"
+	familyVerify   commandFamily = "verify"
+	familyValidate commandFamily = "validate"
+	familyRepair   commandFamily = "repair"
+	familyBatch    commandFamily = "batch"
+	familyAudit    commandFamily = "audit"
+)
+
 // RunCommand routes the unified operator CLI command family.
 func RunCommand(ctx context.Context, cfg *config.Config, args []string) error {
 	if len(args) == 0 {
@@ -23,38 +36,41 @@ func RunCommand(ctx context.Context, cfg *config.Config, args []string) error {
 		printFamilyUsage(args[1])
 		return nil
 	}
-	switch args[0] {
-	case "inspect":
+	switch commandFamily(args[0]) {
+	case familyInspect:
 		return runInspectCommand(ctx, cfg, args[1:])
-	case "verify":
+	case familyVerify:
 		return runVerifyCommand(ctx, cfg, args[1:])
-	case "validate":
+	case familyValidate:
 		return runValidateCommand(ctx, cfg, args[1:])
-	case "repair":
+	case familyRepair:
 		return runRepairCommand(ctx, cfg, args[1:])
-	case "batch":
+	case familyBatch:
 		return runBatchCommand(ctx, cfg, args[1:])
-	default:
-		if _, ok := Get(args[0]); ok {
-			return Run(ctx, cfg, args[0])
-		}
-		printOpsUsage()
-		return fmt.Errorf("unknown ops command or batch operation %q", args[0])
+	case familyAudit:
+		return runAuditCommand(ctx, cfg, args[1:])
 	}
+	if _, ok := Get(args[0]); ok {
+		return Run(ctx, cfg, args[0])
+	}
+	printOpsUsage()
+	return fmt.Errorf("unknown ops command or batch operation %q", args[0])
 }
 
 func printFamilyUsage(family string) {
-	switch strings.TrimSpace(family) {
-	case "inspect":
+	switch commandFamily(strings.TrimSpace(family)) {
+	case familyInspect:
 		printInspectUsage()
-	case "verify":
+	case familyVerify:
 		printVerifyUsage()
-	case "validate":
+	case familyValidate:
 		printValidateUsage()
-	case "repair":
+	case familyRepair:
 		printRepairUsage()
-	case "batch":
+	case familyBatch:
 		printBatchUsage()
+	case familyAudit:
+		printAuditUsage()
 	default:
 		fmt.Fprintf(os.Stderr, "unknown ops family: %s\n\n", family)
 		printOpsUsage()
@@ -131,6 +147,20 @@ func runRepairCommand(ctx context.Context, cfg *config.Config, args []string) er
 	default:
 		printRepairCommandUsage(args[0])
 		return fmt.Errorf("unknown repair command %q", args[0])
+	}
+}
+
+func runAuditCommand(ctx context.Context, cfg *config.Config, args []string) error {
+	if len(args) == 0 || args[0] == "help" {
+		printAuditUsage()
+		return nil
+	}
+	switch args[0] {
+	case "parity":
+		return runAuditParity(ctx, cfg)
+	default:
+		printAuditUsage()
+		return fmt.Errorf("unknown audit command %q", args[0])
 	}
 }
 

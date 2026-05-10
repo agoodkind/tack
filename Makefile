@@ -160,6 +160,12 @@ seed-audit-roles:
 	rsync -az scripts/seed-audit-roles.sh tack:/root/tack/scripts/seed-audit-roles.sh
 	ssh tack 'bash /root/tack/scripts/seed-audit-roles.sh'
 
+# Build the Wave 1 audit-consumer binary into dist/audit-consumer.
+.PHONY: audit-consumer
+audit-consumer:
+	mkdir -p dist
+	go build $(GO_BUILD_FLAGS) -o dist/audit-consumer ./cmd/audit-consumer
+
 # Pull the latest backup directory from CT 117 to the local Mac for
 # offsite storage. Reads the timestamp from /root/backups/.latest.
 .PHONY: backup-pull
