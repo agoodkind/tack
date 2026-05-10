@@ -1,7 +1,13 @@
 services:
   app:
     image: tack-server:latest
-    build: .
+    build:
+      context: .
+      args:
+        COMMIT: ${TACK_COMMIT:-unknown}
+        BUILD_TIME: ${TACK_BUILD_TIME:-unknown}
+        TAG: ${TACK_TAG:-dev}
+        DIRTY: ${TACK_DIRTY:-false}
     restart: unless-stopped
     dns:
       # TODO: switch to IPv6 loopback
@@ -288,7 +294,13 @@ services:
   # signing key for the embedded notarizer.
   audit-consumer:
     image: tack-server:latest
-    build: .
+    build:
+      context: .
+      args:
+        COMMIT: ${TACK_COMMIT:-unknown}
+        BUILD_TIME: ${TACK_BUILD_TIME:-unknown}
+        TAG: ${TACK_TAG:-dev}
+        DIRTY: ${TACK_DIRTY:-false}
     restart: unless-stopped
     entrypoint: ["/usr/local/bin/audit-consumer"]
     environment:
