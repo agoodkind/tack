@@ -4,6 +4,8 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -32,6 +34,13 @@ const (
 // container and runs a per-role sanity query. Mirrors restore_pg_dump in
 // scripts/backup-restore-test.sh:377-452.
 func restorePgDump(ctx context.Context, r *restoreCtx, artifactPath string, role pgRole) error {
+	// generate a 16-byte random hex string for the scratch container password
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil {
+		return fmt.Errorf("generate scratch password: %w", err)
+	}
+	scratchPassword := hex.EncodeToString(buf)
+
 	label := filepath.Base(artifactPath)
 	r.Log.InfoContext(ctx, "backup.restore_pg.start",
 		slog.String("artifact", label),
@@ -39,7 +48,7 @@ func restorePgDump(ctx context.Context, r *restoreCtx, artifactPath string, role
 	)
 
 	containerName := "tack-rt-pg-" + string(role) + "-" + r.RunID
-	err := startScratchPostgres(ctx, r, containerName)
+	err := startScratchPostgres(ctx, r, containerName, scratchPassword)
 	if err != nil {
 		return err
 	}
@@ -69,12 +78,13 @@ func restorePgDump(ctx context.Context, r *restoreCtx, artifactPath string, role
 	return nil
 }
 
-// startScratchPostgres launches a fresh postgres container.
-func startScratchPostgres(ctx context.Context, r *restoreCtx, name string) error {
+// startScratchPostgres launches a fresh postgres container using the caller-supplied
+// password, which must be generated fresh for each invocation via crypto/rand.
+func startScratchPostgres(ctx context.Context, r *restoreCtx, name, password string) error {
 	cfg := &container.Config{
 		Image: scratchPgImage,
 		Env: []string{
-			"POSTGRES_PASSWORD=rt-scratch", // gitleaks:allow - ephemeral scratch-only value for restore-test containers
+			"POSTGRES_PASSWORD=" + password,
 			"POSTGRES_DB=rttest",
 		},
 	}
