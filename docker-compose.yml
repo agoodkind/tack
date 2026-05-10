@@ -4,6 +4,7 @@ services:
     build: .
     restart: unless-stopped
     dns:
+      # TODO: switch to IPv6 loopback
       - 127.0.0.11
     ports:
       - "${PORT:-8000}:8000"
@@ -88,13 +89,13 @@ services:
           --listen="$$ADDR" \
           --tserver_flags="ysql_pg_conf_csv=max_connections=100"
     environment:
-      YSQL_DB:       ${YUGABYTE_DB:?YUGABYTE_DB is required, set it in .env}
-      YSQL_USER:     ${YUGABYTE_USER:?YUGABYTE_USER is required, set it in .env}
+      YSQL_DB: ${YUGABYTE_DB:?YUGABYTE_DB is required, set it in .env}
+      YSQL_USER: ${YUGABYTE_USER:?YUGABYTE_USER is required, set it in .env}
       YSQL_PASSWORD: ${YUGABYTE_PASSWORD:?YUGABYTE_PASSWORD is required, set it in .env}
     ports:
-      - "5433:5433"   # YSQL (Postgres-compatible)
-      - "7000:7000"   # YugabyteDB master UI
-      - "9000:9000"   # YugabyteDB tserver UI
+      - "5433:5433" # YSQL (Postgres-compatible)
+      - "7000:7000" # YugabyteDB master UI
+      - "9000:9000" # YugabyteDB tserver UI
     volumes:
       - yugabyte-data:/home/yugabyte/var
     healthcheck:
@@ -125,7 +126,11 @@ services:
       # Patched fdb.bash with IPv6 bracket handling. See fdb-overlay/fdb.bash.
       - /root/tack/fdb-overlay/fdb.bash:/var/fdb/scripts/fdb.bash:ro
     healthcheck:
-      test: ["CMD-SHELL", "fdbcli --exec 'status minimal' 2>&1 | grep -q 'available'"]
+      test:
+        [
+          "CMD-SHELL",
+          "fdbcli --exec 'status minimal' 2>&1 | grep -q 'available'",
+        ]
       interval: 10s
       timeout: 10s
       retries: 10
@@ -148,7 +153,8 @@ services:
     volumes:
       - meili-data:/meili_data
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://[::1]:7700/health | grep -q 'available'"]
+      test:
+        ["CMD-SHELL", "curl -sf http://[::1]:7700/health | grep -q 'available'"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -157,9 +163,9 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER:     temporal
+      POSTGRES_USER: temporal
       POSTGRES_PASSWORD: temporal
-      POSTGRES_DB:       temporal
+      POSTGRES_DB: temporal
     volumes:
       - temporal-db-data:/var/lib/postgresql/data
     healthcheck:
@@ -172,18 +178,22 @@ services:
     image: temporalio/auto-setup:1.26.2
     restart: unless-stopped
     environment:
-      DB:              postgres12
-      DB_PORT:         5432
-      POSTGRES_USER:   temporal
-      POSTGRES_PWD:    temporal
-      POSTGRES_SEEDS:  temporal-db
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: temporal
+      POSTGRES_PWD: temporal
+      POSTGRES_SEEDS: temporal-db
     ports:
       - "7233:7233"
     depends_on:
       temporal-db:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "tctl --address temporal:7233 cluster health 2>&1 | grep -q SERVING"]
+      test:
+        [
+          "CMD-SHELL",
+          "tctl --address temporal:7233 cluster health 2>&1 | grep -q SERVING",
+        ]
       interval: 10s
       timeout: 10s
       retries: 15
@@ -282,13 +292,13 @@ services:
     restart: unless-stopped
     entrypoint: ["/usr/local/bin/audit-consumer"]
     environment:
-      AUDIT_CONSUMER_KAFKA_BROKERS:    ${AUDIT_CONSUMER_KAFKA_BROKERS:-kafka:9092}
-      AUDIT_CONSUMER_KAFKA_TOPIC:      ${AUDIT_CONSUMER_KAFKA_TOPIC:-audit.events.v1}
-      AUDIT_CONSUMER_GROUP_ID:         ${AUDIT_CONSUMER_GROUP_ID:-tack-audit-projector}
-      AUDIT_CONSUMER_BATCH_SIZE:       ${AUDIT_CONSUMER_BATCH_SIZE:-256}
-      AUDIT_CONSUMER_POLL_INTERVAL:    ${AUDIT_CONSUMER_POLL_INTERVAL:-250ms}
-      AUDIT_CONSUMER_YUGABYTE_DSN:     ${AUDIT_WRITER_DSN}
-      AUDIT_CONSUMER_CLICKHOUSE_DSN:   ${AUDIT_CONSUMER_CLICKHOUSE_DSN:-clickhouse://default:@clickhouse:9000/audit}
+      AUDIT_CONSUMER_KAFKA_BROKERS: ${AUDIT_CONSUMER_KAFKA_BROKERS:-kafka:9092}
+      AUDIT_CONSUMER_KAFKA_TOPIC: ${AUDIT_CONSUMER_KAFKA_TOPIC:-audit.events.v1}
+      AUDIT_CONSUMER_GROUP_ID: ${AUDIT_CONSUMER_GROUP_ID:-tack-audit-projector}
+      AUDIT_CONSUMER_BATCH_SIZE: ${AUDIT_CONSUMER_BATCH_SIZE:-256}
+      AUDIT_CONSUMER_POLL_INTERVAL: ${AUDIT_CONSUMER_POLL_INTERVAL:-250ms}
+      AUDIT_CONSUMER_YUGABYTE_DSN: ${AUDIT_WRITER_DSN}
+      AUDIT_CONSUMER_CLICKHOUSE_DSN: ${AUDIT_CONSUMER_CLICKHOUSE_DSN:-clickhouse://default:@clickhouse:9000/audit}
       AUDIT_CONSUMER_SIGNING_KEY_PATH: ${AUDIT_CONSUMER_SIGNING_KEY_PATH:-/etc/tack/audit-signing.pem}
       LOG_LEVEL: ${LOG_LEVEL:-debug}
       LOG_JSON_FILE: /var/log/tack/audit-consumer.jsonl

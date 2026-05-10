@@ -29,12 +29,11 @@ func runRepairQuery(ctx context.Context, env *Env) error {
 		Selection:             selectRepairNode(report),
 		Raw:                   report,
 		IndexedPropertyChecks: nil,
-		LegacyAddressChecks:   nil,
 		Warnings:              make([]string, 0),
 	}
 	selectedNode := result.Selection.Node
 	if selectedNode == nil {
-		result.Warnings = append(result.Warnings, "indexed property and legacy address checks skipped because no canonical node payload was selected")
+		result.Warnings = append(result.Warnings, "indexed property checks skipped because no canonical node payload was selected")
 		return writeRepairOutput(result)
 	}
 	propertyDefs, err := env.Stores.PropertyDefs.List(ctx, selectedNode.OrgID)
@@ -42,7 +41,6 @@ func runRepairQuery(ctx context.Context, env *Env) error {
 		return err
 	}
 	result.IndexedPropertyChecks = buildIndexedPropertyChecks(selectedNode, propertyDefs, report)
-	result.LegacyAddressChecks = buildLegacyAddressChecks(selectedNode, report)
 	return writeRepairOutput(result)
 }
 
@@ -78,27 +76,4 @@ func buildIndexedPropertyChecks(currentNode *node.Node, defs []*node.PropertyDef
 		})
 	}
 	return applicable
-}
-
-func buildLegacyAddressChecks(currentNode *node.Node, report *fdbadapter.NodeInspectionReport) []repairLegacyAddressCheck {
-	addressValue := stringProp(currentNode.Props, legacySlugAddressKind)
-	if addressValue == "" {
-		return nil
-	}
-	matching := 0
-	for _, row := range report.LegacyAddressRows {
-		if row.NodeType != currentNode.NodeType {
-			continue
-		}
-		if row.AddressKind == legacySlugAddressKind && row.AddressValue == addressValue {
-			matching++
-		}
-	}
-	return []repairLegacyAddressCheck{{
-		NodeType:         currentNode.NodeType,
-		AddressKind:      legacySlugAddressKind,
-		AddressValue:     addressValue,
-		LegacyKeyFamily:  legacySlugIndexKeyFamily,
-		MatchingRowCount: matching,
-	}}
 }

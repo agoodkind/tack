@@ -29,15 +29,14 @@ func runRepairRead(ctx context.Context, env *Env) error {
 
 func selectRepairNode(report *fdbadapter.NodeInspectionReport) *repairSelectedNode {
 	selected := &repairSelectedNode{
-		NodeID:                report.NodeID,
-		Resolve:               report.Resolve,
-		NodeInstanceCount:     len(report.NodeInstances),
-		NodeViewCount:         len(report.NodeViews),
-		PropertyIndexCount:    len(report.PropertyIndexRows),
-		LegacyAddressRowCount: len(report.LegacyAddressRows),
-		OutgoingRelCount:      len(report.Relationships),
-		IncomingRelCount:      len(report.RelationshipReverseRows),
-		Warnings:              make([]string, 0),
+		NodeID:             report.NodeID,
+		Resolve:            report.Resolve,
+		NodeInstanceCount:  len(report.NodeInstances),
+		NodeViewCount:      len(report.NodeViews),
+		PropertyIndexCount: len(report.PropertyIndexRows),
+		OutgoingRelCount:   len(report.Relationships),
+		IncomingRelCount:   len(report.RelationshipReverseRows),
+		Warnings:           make([]string, 0),
 	}
 	if report.Resolve == nil {
 		selected.Warnings = append(selected.Warnings, "node_resolve row missing")

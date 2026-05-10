@@ -11,24 +11,9 @@ import (
 )
 
 type idempotencyNodeRepo struct {
-	records        map[string]*node.IdempotencyRecord
-	createRecords  []*node.IdempotencyRecord
-	addressWrites  []addressWrite
-	addressDeletes []addressDelete
-	updatedNodes   []*node.Node
-}
-
-type addressWrite struct {
-	NodeType    string
-	AddressKind node.AddressKind
-	Address     string
-	NodeID      uuid.UUID
-}
-
-type addressDelete struct {
-	NodeType    string
-	AddressKind node.AddressKind
-	Address     string
+	records       map[string]*node.IdempotencyRecord
+	createRecords []*node.IdempotencyRecord
+	updatedNodes  []*node.Node
 }
 
 func (r *idempotencyNodeRepo) Get(context.Context, uuid.UUID, uuid.UUID) (*node.Node, error) {
@@ -76,29 +61,6 @@ func (r *idempotencyNodeRepo) ListByProperty(context.Context, uuid.UUID, string,
 
 func (r *idempotencyNodeRepo) AllocateSequence(context.Context, uuid.UUID, uuid.UUID, string) (int64, error) {
 	return 1, nil
-}
-
-func (r *idempotencyNodeRepo) GetAddress(context.Context, string, node.AddressKind, string) (uuid.UUID, error) {
-	panic("idempotencyNodeRepo.GetAddress called")
-}
-
-func (r *idempotencyNodeRepo) WriteAddress(_ context.Context, nodeType string, addressKind node.AddressKind, address string, nodeID uuid.UUID) error {
-	r.addressWrites = append(r.addressWrites, addressWrite{
-		NodeType:    nodeType,
-		AddressKind: addressKind,
-		Address:     address,
-		NodeID:      nodeID,
-	})
-	return nil
-}
-
-func (r *idempotencyNodeRepo) DeleteAddress(_ context.Context, nodeType string, addressKind node.AddressKind, address string) error {
-	r.addressDeletes = append(r.addressDeletes, addressDelete{
-		NodeType:    nodeType,
-		AddressKind: addressKind,
-		Address:     address,
-	})
-	return nil
 }
 
 func (r *idempotencyNodeRepo) LookupIdempotencyKey(_ context.Context, _ uuid.UUID, key string) (*node.IdempotencyRecord, error) {

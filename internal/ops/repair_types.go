@@ -11,29 +11,26 @@ import (
 )
 
 const (
-	repairNodeIDEnv          = "TACK_REPAIR_NODE_ID"
-	repairFindModeEnv        = "TACK_REPAIR_FIND_MODE"
-	repairFindNodeTypeEnv    = "TACK_REPAIR_FIND_NODE_TYPE"
-	repairFindAddressEnv     = "TACK_REPAIR_FIND_ADDRESS"
-	repairFindPropEnv        = "TACK_REPAIR_FIND_PROPERTY"
-	repairFindValueEnv       = "TACK_REPAIR_FIND_VALUE_JSON"
-	repairFindOrgIDEnv       = "TACK_REPAIR_FIND_ORG_ID"
-	legacySlugAddressKind    = "slug"
-	legacySlugIndexKeyFamily = "slug_index"
+	repairNodeIDEnv       = "TACK_REPAIR_NODE_ID"
+	repairFindModeEnv     = "TACK_REPAIR_FIND_MODE"
+	repairFindNodeTypeEnv = "TACK_REPAIR_FIND_NODE_TYPE"
+	repairFindAddressEnv  = "TACK_REPAIR_FIND_ADDRESS"
+	repairFindPropEnv     = "TACK_REPAIR_FIND_PROPERTY"
+	repairFindValueEnv    = "TACK_REPAIR_FIND_VALUE_JSON"
+	repairFindOrgIDEnv    = "TACK_REPAIR_FIND_ORG_ID"
 )
 
 type repairSelectedNode struct {
-	NodeID                uuid.UUID         `json:"node_id"`
-	Resolve               *node.NodeResolve `json:"resolve,omitempty"`
-	Node                  *node.Node        `json:"node,omitempty"`
-	NodeView              *node.NodeView    `json:"node_view,omitempty"`
-	NodeInstanceCount     int               `json:"node_instance_count"`
-	NodeViewCount         int               `json:"node_view_count"`
-	PropertyIndexCount    int               `json:"property_index_count"`
-	LegacyAddressRowCount int               `json:"legacy_address_row_count"`
-	OutgoingRelCount      int               `json:"outgoing_relationship_count"`
-	IncomingRelCount      int               `json:"incoming_relationship_count"`
-	Warnings              []string          `json:"warnings,omitempty"`
+	NodeID             uuid.UUID         `json:"node_id"`
+	Resolve            *node.NodeResolve `json:"resolve,omitempty"`
+	Node               *node.Node        `json:"node,omitempty"`
+	NodeView           *node.NodeView    `json:"node_view,omitempty"`
+	NodeInstanceCount  int               `json:"node_instance_count"`
+	NodeViewCount      int               `json:"node_view_count"`
+	PropertyIndexCount int               `json:"property_index_count"`
+	OutgoingRelCount   int               `json:"outgoing_relationship_count"`
+	IncomingRelCount   int               `json:"incoming_relationship_count"`
+	Warnings           []string          `json:"warnings,omitempty"`
 }
 
 type repairFindResult struct {
@@ -50,21 +47,12 @@ type repairQueryResult struct {
 	Selection             *repairSelectedNode              `json:"selection,omitempty"`
 	Raw                   *fdbadapter.NodeInspectionReport `json:"raw,omitempty"`
 	IndexedPropertyChecks []repairIndexedPropertyCheck     `json:"indexed_property_checks,omitempty"`
-	LegacyAddressChecks   []repairLegacyAddressCheck       `json:"legacy_address_checks,omitempty"`
 	Warnings              []string                         `json:"warnings,omitempty"`
 }
 
 type repairIndexedPropertyCheck struct {
 	PropertyName     string `json:"property_name"`
 	ExpectedFromNode bool   `json:"expected_from_node"`
-	MatchingRowCount int    `json:"matching_row_count"`
-}
-
-type repairLegacyAddressCheck struct {
-	NodeType         string `json:"node_type"`
-	AddressKind      string `json:"address_kind"`
-	AddressValue     string `json:"address_value"`
-	LegacyKeyFamily  string `json:"legacy_key_family"`
 	MatchingRowCount int    `json:"matching_row_count"`
 }
 

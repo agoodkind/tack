@@ -66,18 +66,6 @@ func (r *repairNodeRepo) AllocateSequence(context.Context, uuid.UUID, uuid.UUID,
 	panic("repairNodeRepo.AllocateSequence called")
 }
 
-func (r *repairNodeRepo) GetAddress(context.Context, string, node.AddressKind, string) (uuid.UUID, error) {
-	panic("repairNodeRepo.GetAddress called")
-}
-
-func (r *repairNodeRepo) WriteAddress(context.Context, string, node.AddressKind, string, uuid.UUID) error {
-	return nil
-}
-
-func (r *repairNodeRepo) DeleteAddress(context.Context, string, node.AddressKind, string) error {
-	return nil
-}
-
 func (r *repairNodeRepo) LookupIdempotencyKey(context.Context, uuid.UUID, string) (*node.IdempotencyRecord, error) {
 	panic("repairNodeRepo.LookupIdempotencyKey called")
 }

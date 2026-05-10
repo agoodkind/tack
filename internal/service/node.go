@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -129,8 +128,6 @@ func (s *NodeService) Update(ctx context.Context, in UpdateInput) (*node.NodeVie
 		)
 		return nil, fmt.Errorf("update node: %w", err)
 	}
-
-	s.reconcileReferenceAddress(ctx, nt, existing.Props, merged, n.ID, log)
 
 	if err := s.searcher.Index(ctx, "nodes", in.NodeID.String(), searchDocFromView(view)); err != nil {
 		log.Warn("node.Update: search index", slog.String("err", err.Error()))
@@ -274,25 +271,6 @@ func appliesTo(d *node.PropertyDef, nt *node.NodeType) bool {
 		return true
 	}
 	return nt.Features.HasAny(d.AppliesToFeatures...)
-}
-
-// firstStringProp returns the first non-empty string value from Props at any
-// of the listed keys.
-func firstStringProp(props map[string]json.RawMessage, keys ...string) string {
-	for _, k := range keys {
-		raw, ok := props[k]
-		if !ok {
-			continue
-		}
-		var s string
-		if err := json.Unmarshal(raw, &s); err != nil {
-			continue
-		}
-		if s = strings.TrimSpace(s); s != "" {
-			return s
-		}
-	}
-	return ""
 }
 
 // viewFromNode materializes the NodeView snapshot from a Node. Every write path

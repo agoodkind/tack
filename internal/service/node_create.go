@@ -107,7 +107,6 @@ func (s *NodeService) Create(ctx context.Context, in CreateInput) (*CreateResult
 		return createResult, nil
 	}
 
-	s.writeReferenceAddress(ctx, nt, props, id, log, "node.Create")
 	s.indexCreateSearch(ctx, log, id, view)
 	s.createDefaultChildren(ctx, log, nt, id, in.ActorID)
 
