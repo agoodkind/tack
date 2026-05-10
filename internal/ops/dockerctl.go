@@ -228,17 +228,16 @@ func runOneShot(
 
 // containerExec runs cmd inside an existing container and returns the
 // captured streams plus exit code. Equivalent to `docker exec` but typed
-// and stream-safe.
+// and stream-safe. Use [containerExecStreaming] when stdout may be large
+// (multi-MB+) to avoid buffering it in memory.
 func containerExec(
 	ctx context.Context,
 	cli *client.Client,
 	containerID string,
 	cmd []string,
-	envVars []string,
 ) (execResult, error) {
 	created, err := cli.ExecCreate(ctx, containerID, client.ExecCreateOptions{
 		Cmd:          cmd,
-		Env:          envVars,
 		AttachStdout: true,
 		AttachStderr: true,
 	})
@@ -282,6 +281,63 @@ func containerExec(
 	}, nil
 }
 
+// containerExecStreaming runs cmd inside an existing container and streams
+// stdout directly to the caller-provided writer instead of buffering in memory.
+// Stderr is captured to a string (small; error messages only). Returns the
+// exit code and stderr. Used by backup paths that produce multi-GB dumps —
+// the in-memory buffering pattern of [containerExec] would OOM the orchestrator
+// container otherwise (verified by 2026-05-10 observability: yugabyte ysql_dump
+// pushed VmRSS to 3.78 GB before being OOM-killed).
+func containerExecStreaming(
+	ctx context.Context,
+	cli *client.Client,
+	containerID string,
+	cmd []string,
+	envVars []string,
+	stdout io.Writer,
+) (exitCode int, stderr string, err error) {
+	created, err := cli.ExecCreate(ctx, containerID, client.ExecCreateOptions{
+		Cmd:          cmd,
+		Env:          envVars,
+		AttachStdout: true,
+		AttachStderr: true,
+	})
+	if err != nil {
+		slog.ErrorContext(ctx, "ops.docker.exec_stream.create_failed",
+			slog.String("container", containerID),
+			slog.String("err", err.Error()),
+		)
+		return 0, "", fmt.Errorf("exec create: %w", err)
+	}
+	att, err := cli.ExecAttach(ctx, created.ID, client.ExecAttachOptions{})
+	if err != nil {
+		slog.ErrorContext(ctx, "ops.docker.exec_stream.attach_failed",
+			slog.String("container", containerID),
+			slog.String("err", err.Error()),
+		)
+		return 0, "", fmt.Errorf("exec attach: %w", err)
+	}
+	defer att.Close()
+	var stderrBuf bytes.Buffer
+	_, err = stdcopy.StdCopy(stdout, &stderrBuf, att.Reader)
+	if err != nil && !errors.Is(err, io.EOF) {
+		slog.ErrorContext(ctx, "ops.docker.exec_stream.copy_failed",
+			slog.String("container", containerID),
+			slog.String("err", err.Error()),
+		)
+		return 0, stderrBuf.String(), fmt.Errorf("exec stream copy: %w", err)
+	}
+	insp, err := cli.ExecInspect(ctx, created.ID, client.ExecInspectOptions{})
+	if err != nil {
+		slog.ErrorContext(ctx, "ops.docker.exec_stream.inspect_failed",
+			slog.String("container", containerID),
+			slog.String("err", err.Error()),
+		)
+		return 0, stderrBuf.String(), fmt.Errorf("exec inspect: %w", err)
+	}
+	return insp.ExitCode, stderrBuf.String(), nil
+}
+
 // waitForExec polls a check command in container until it exits 0 or the
 // timeout elapses. Uses [context.WithTimeout] plus a re-usable ticker so
 // the poll loop honors cancellation without consulting [time.Now] directly.
@@ -298,7 +354,7 @@ func waitForExec(
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {
-		res, err := containerExec(pollCtx, cli, containerID, cmd, nil)
+		res, err := containerExec(pollCtx, cli, containerID, cmd)
 		if err == nil && res.ExitCode == 0 {
 			return nil
 		}

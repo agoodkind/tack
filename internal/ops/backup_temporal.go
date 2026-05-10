@@ -29,7 +29,7 @@ func runBackupTemporalDB(ctx context.Context, b *backupCtx) error {
 	}
 	defer out.Close()
 
-	res, err := containerExec(ctx, b.Cli, temporalDBBackupContainer, []string{
+	exitCode, stderr, err := containerExecStreaming(ctx, b.Cli, temporalDBBackupContainer, []string{
 		"pg_dump",
 		"-h", "localhost",
 		"-U", b.Cfg.BackupTemporalDBUser,
@@ -37,38 +37,40 @@ func runBackupTemporalDB(ctx context.Context, b *backupCtx) error {
 		"--format=plain",
 		"--no-owner",
 		"--no-privileges",
-	}, []string{"PGPASSWORD=" + b.Cfg.BackupTemporalDBPass})
+	}, []string{"PGPASSWORD=" + b.Cfg.BackupTemporalDBPass}, out)
 	if err != nil {
 		b.Log.ErrorContext(ctx, "backup.temporal_db.exec_failed",
 			slog.Any("err", err),
 		)
 		return fmt.Errorf("pg_dump exec: %w", err)
 	}
-	if res.ExitCode != 0 {
-		dumpErr := fmt.Errorf("pg_dump exited %d: %s", res.ExitCode, res.Stderr)
+	if exitCode != 0 {
+		dumpErr := fmt.Errorf("pg_dump exited %d: %s", exitCode, stderr)
 		b.Log.ErrorContext(ctx, "backup.temporal_db.exit_nonzero",
-			slog.Int("exit", res.ExitCode),
-			slog.String("stderr", res.Stderr),
+			slog.Int("exit", exitCode),
+			slog.String("stderr", stderr),
 			slog.Any("err", dumpErr),
 		)
 		return dumpErr
 	}
-	_, err = out.WriteString(res.Stdout)
+	// See backup_yugabyte.go: streaming write to disk avoids buffering the
+	// entire dump in Go memory.
+	info, err := os.Stat(outPath)
 	if err != nil {
-		b.Log.ErrorContext(ctx, "backup.temporal_db.write_failed",
+		b.Log.ErrorContext(ctx, "backup.temporal_db.stat_failed",
 			slog.String("path", outPath),
 			slog.Any("err", err),
 		)
-		return fmt.Errorf("write %s: %w", outPath, err)
+		return fmt.Errorf("stat %s: %w", outPath, err)
 	}
-	if len(res.Stdout) == 0 {
+	if info.Size() == 0 {
 		emptyErr := fmt.Errorf("pg_dump produced 0 bytes; refuse to ship empty dump")
 		b.Log.ErrorContext(ctx, "backup.temporal_db.empty_dump", "err", emptyErr)
 		return emptyErr
 	}
 	b.Log.InfoContext(ctx, "backup.temporal_db.complete",
 		slog.String("artifact", outPath),
-		slog.Int("bytes", len(res.Stdout)),
+		slog.Int64("bytes", info.Size()),
 	)
 	return nil
 }

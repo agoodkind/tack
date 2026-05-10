@@ -155,10 +155,10 @@ func waitForFDBHealthy(ctx context.Context, r *restoreCtx, name string) error {
 		return fmt.Errorf("scratch fdb cluster file never appeared: %w", err)
 	}
 	res, err := containerExec(ctx, r.Cli, name,
-		[]string{"sh", "-lc", "timeout 5 fdbcli --exec \"status minimal\""}, nil)
+		[]string{"sh", "-lc", "timeout 5 fdbcli --exec \"status minimal\""})
 	if err != nil || res.ExitCode != 0 {
 		_, err = containerExec(ctx, r.Cli, name,
-			[]string{"sh", "-lc", "timeout 20 fdbcli --exec \"configure new single memory\""}, nil)
+			[]string{"sh", "-lc", "timeout 20 fdbcli --exec \"configure new single memory\""})
 		if err != nil {
 			r.Log.ErrorContext(ctx, "backup.restore_fdb.configure_failed",
 				slog.String("container", name),
@@ -186,8 +186,7 @@ func startBackupAgent(ctx context.Context, r *restoreCtx, name string) error {
 		[]string{
 			"sh", "-lc",
 			"backup_agent --cluster-file /var/fdb/fdb.cluster --logdir /var/fdb/logs >/var/fdb/logs/backup_agent.out 2>&1 &",
-		},
-		nil)
+		})
 	if err != nil {
 		r.Log.ErrorContext(ctx, "backup.restore_fdb.agent_exec_failed",
 			slog.String("container", name),
@@ -230,8 +229,7 @@ func runFDBRestoreInContainer(ctx context.Context, r *restoreCtx, name, backupUR
 			"--dest-cluster-file", "/var/fdb/fdb.cluster",
 			"-r", backupURL,
 			"--waitfordone",
-		},
-		nil)
+		})
 	if err != nil {
 		r.Log.ErrorContext(ctx, "backup.restore_fdb.fdbrestore_exec_failed",
 			slog.String("container", name),
@@ -256,15 +254,15 @@ func runFDBRestoreInContainer(ctx context.Context, r *restoreCtx, name, backupUR
 // least one row.
 func assertFDBHasData(ctx context.Context, r *restoreCtx, name string) error {
 	statusRes, _ := containerExec(ctx, r.Cli, name,
-		[]string{"sh", "-lc", "fdbrestore status --dest-cluster-file /var/fdb/fdb.cluster"}, nil)
+		[]string{"sh", "-lc", "fdbrestore status --dest-cluster-file /var/fdb/fdb.cluster"})
 	uid := extractRestoreUID(statusRes.Stdout + statusRes.Stderr)
 	if uid != "" {
 		_, _ = containerExec(ctx, r.Cli, name,
-			[]string{"fdbcli", "--exec", "unlock " + uid}, nil)
+			[]string{"fdbcli", "--exec", "unlock " + uid})
 	}
 
 	res, err := containerExec(ctx, r.Cli, name,
-		[]string{"fdbcli", "--exec", `getrange "" \xff 5`}, nil)
+		[]string{"fdbcli", "--exec", `getrange "" \xff 5`})
 	if err != nil {
 		r.Log.ErrorContext(ctx, "backup.restore_fdb.getrange_exec_failed",
 			slog.String("container", name),

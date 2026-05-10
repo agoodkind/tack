@@ -208,7 +208,7 @@ func assertYugabyteAuditPresent(ctx context.Context, r *restoreCtx, name string)
 		[]string{
 			"psql", "-U", "postgres", "-d", "rttest", "-tAc",
 			"SELECT count(*) FROM audit.events",
-		}, nil)
+		})
 	if err != nil {
 		r.Log.ErrorContext(ctx, "backup.restore_pg.audit_query_exec_failed",
 			slog.Any("err", err),
@@ -251,7 +251,7 @@ func assertTemporalSchemaPresent(ctx context.Context, r *restoreCtx, name string
 		[]string{
 			"psql", "-U", "postgres", "-d", "rttest", "-tAc",
 			"SELECT count(*) FROM information_schema.tables WHERE table_schema='public'",
-		}, nil)
+		})
 	if err != nil {
 		r.Log.ErrorContext(ctx, "backup.restore_pg.temporal_count_exec_failed",
 			slog.Any("err", err),
@@ -287,7 +287,7 @@ func assertTemporalSchemaPresent(ctx context.Context, r *restoreCtx, name string
 		[]string{
 			"psql", "-U", "postgres", "-d", "rttest", "-tAc",
 			"SELECT count(*) FROM information_schema.tables WHERE table_name='executions'",
-		}, nil)
+		})
 	if err != nil {
 		r.Log.ErrorContext(ctx, "backup.restore_pg.executions_probe_exec_failed",
 			slog.Any("err", err),
