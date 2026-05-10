@@ -19,6 +19,30 @@ and `wave1_consumer_implementation_report.md`, all in that same dir.
 
 ---
 
+## 0. Compatibility note
+
+This runbook reflects the deploy mechanics in place as of commit `a5aec6d`.
+The current sanctioned deploy path is `make deploy`, which rsyncs the
+source tree to CT 117 and builds the image on the remote. Hand-rolled
+`rsync` invocations against production have been retired; do not invent
+new ones. When the ops consolidation lands per
+`incident_2026-05-09_seed_parallel_org/ops_consolidation_plan.md`
+(`./server ops deploy`, image-based, registry-pushed), sections 4 and 5
+will need a follow-up revision to swap `make deploy` for the new
+subcommand. Until then, `make deploy` is the operator's only sanctioned
+path and is treated as a moratorium-acknowledged exception for wave 1.
+
+The parity gate referenced throughout this runbook is the Go subcommand
+`./server ops audit parity`, implemented at
+`internal/ops/audit_parity.go`. The earlier `scripts/audit-parity.sh`
+referenced in design docs and prior drafts of this runbook never existed
+in the tree and is forbidden by the shell-script moratorium. The Go
+subcommand reads its time window from environment variables
+(`TACK_PARITY_FROM`, `TACK_PARITY_TO`, optional `TACK_PARITY_THRESHOLD`)
+rather than CLI flags.
+
+---
+
 ## 1. Pre-flight checklist
 
 All boxes must be true before wave 1 deploys. The verification commands
@@ -55,8 +79,15 @@ below are the canonical ones; do not substitute paraphrased equivalents.
   grep -E '^  (kafka|seaweedfs|clickhouse|audit-consumer):' docker-compose.yml
   ```
   All four service keys must appear.
-- The parity check script is present and executable:
-  `test -x scripts/audit-parity.sh && echo OK`.
+- The parity subcommand is registered in the wave 1 binary. Build it and
+  ask the ops dispatcher for help:
+  ```bash
+  bash -c "cd /Users/agoodkind/Sites/tack && /opt/homebrew/bin/go build ./cmd/server/ && ./server ops audit help"
+  ```
+  The help output must list `parity` as a recognized subcommand. The
+  implementation lives at `internal/ops/audit_parity.go` and the
+  dispatcher entry is at `internal/ops/command.go`. There is no
+  `scripts/audit-parity.sh`; do not create one.
 
 If any item fails, stop and resolve before continuing. Wave 1 has no
 "partial pre-flight" mode.
@@ -164,15 +195,27 @@ The order:
    `audit.events_v2` (parity sibling) and `audit.events_v2_dlq`
    (malformed-payload landing).
 
-To run, build the new binary on the operator host, rsync it, and invoke
-`./server migrate`. The migration runner is the existing one; no new
-flags.
+To run the migrations, ship the wave 1 image to CT 117 with `make deploy`
+and then invoke `./server migrate` inside the freshly-built container.
+Hand-rolled `rsync` of a host-built binary to production is no longer
+allowed; the operator builds inside the remote via `make deploy` and runs
+the migrate command against the new image. The migration runner itself
+is unchanged; no new flags.
 
 ```bash
-make build
-rsync -az dist/tack tack:/root/tack/dist/tack-wave1
-ssh tack 'cd /root/tack && DATABASE_URL=$(grep ^AUDIT_WRITER_DSN .env | cut -d= -f2-) ./dist/tack-wave1 migrate'
+make deploy
+ssh tack 'cd /root/tack && docker compose run --rm --entrypoint /server app migrate'
 ```
+
+The `docker compose run --rm` form runs the migrate command in an
+ephemeral container against the same `tack-server:latest` image that the
+running app uses, so the schema and binary line up. The migrate command
+inherits `AUDIT_WRITER_DSN` (and any other relevant DSNs) from the
+container's env, sourced from `/root/tack/.env`.
+
+When the ops consolidation lands, the `make deploy` step above is
+replaced by `./server ops deploy`. Until then, `make deploy` is the
+sanctioned path; see section 0.
 
 The migrate command prints one line per migration applied. Expected
 output for a fresh wave 1 host:
@@ -204,14 +247,21 @@ The deploy fans out four new compose services and the dual-write app
 binary. Order matters: the broker and storage layers come up first, the
 consumer waits for them, the app binary ships last.
 
-Step 1. Sync the wave 1 tree to CT 117 and build images. `make deploy`
-already does the rsync; it does NOT yet pull the new service images
-because compose pulls on first start.
+Step 1. Sync the wave 1 tree to CT 117 and build the app image. Use
+`make deploy`; it runs the preflight, takes a backup, syncs the source
+tree, and builds the new `tack-server:latest` image on the remote. Do
+not invoke `rsync` directly against production. `make deploy` does NOT
+pull the new service images for `kafka`, `seaweedfs`, or `clickhouse`;
+compose pulls those on first start, which is why step 2 below pulls them
+explicitly.
 
 ```bash
-make deploy-preflight
-rsync -az --delete --exclude='.git' --exclude='bin/' --exclude='dist/' --exclude='.make/' --exclude='.env' --exclude='.env.*' --exclude='.test-fdb/' . tack:/root/tack/
+make deploy
 ```
+
+When `./server ops deploy` lands per the ops consolidation plan, this
+step becomes a `./server ops deploy` invocation with no rsync. See
+section 0.
 
 Step 2. Pull the new service images on CT 117 before flipping any
 running container:
@@ -265,31 +315,57 @@ Both services must report state `running` and (for ClickHouse) health
 `healthy`. SeaweedFS is wired in wave 1 only as a placeholder for
 wave 4; it stays idle.
 
-Step 5. Build and start the audit-consumer container. The image is the
-same `tack-server` image built by `make deploy`, with the entrypoint
-overridden to `/usr/local/bin/audit-consumer`.
+Step 5. Start the audit-consumer container. The image is the same
+`tack-server:latest` built in step 1, with the entrypoint overridden to
+`/usr/local/bin/audit-consumer`.
 
 ```bash
-make deploy
 ssh tack 'cd /root/tack && docker compose up -d audit-consumer'
 ssh tack 'cd /root/tack && docker compose logs --tail=100 audit-consumer'
 ```
 
-The consumer logs an `audit.consumer.started` line on boot. It stays
-idle until events arrive on the topic.
+The consumer logs an `audit_consumer.started` line on boot once
+`audit.NewConsumer` returns without error
+(`cmd/audit-consumer/main.go:103`). Confirm the consumer connected
+before continuing:
+
+```bash
+ssh tack 'docker compose logs --since 2m audit-consumer | grep -q audit_consumer.started && echo CONSUMER_STARTED || echo CONSUMER_NOT_STARTED'
+```
+
+The output must read `CONSUMER_STARTED`. If it reads
+`CONSUMER_NOT_STARTED`, the consumer's `docker compose ps` line will
+still show `running`, but it is not actually consuming. Recheck the
+consumer DSNs and broker bootstrap before proceeding. Once started, the
+consumer stays idle until events arrive on the topic.
 
 Step 6. Restart the app container so it picks up the new env vars and
 binary:
 
 ```bash
 ssh tack 'cd /root/tack && docker compose up -d app'
-ssh tack 'docker logs --tail=200 tack-app-1 | grep -E "audit\.recorder|audit\.kafka"'
+ssh tack 'docker logs --tail=200 tack-app-1 | grep -E "audit\.kafka_enabled|audit\.wal_enabled"'
 ```
 
 On the first boot with `AUDIT_KAFKA_BROKERS` set, the app logs an
-`audit.recorder.dual_kafka_wal` line (or equivalent producer-init line
-from `wrapAuditWithKafka`). Absence means the wrap did not engage;
-recheck the env var.
+`audit.kafka_enabled` line with `broker_count` and `topic` fields
+(`cmd/server/main.go:399`). The WAL-only path emits `audit.wal_enabled`
+instead (`cmd/server/main.go:371`). There is no
+`audit.recorder.dual_kafka_wal` log line in the binary; do not search
+for it.
+
+Confirm the wrap engaged before moving on:
+
+```bash
+ssh tack 'docker logs --since 5m tack-app-1 | grep -q audit.kafka_enabled && echo WRAP_ENGAGED || echo WRAP_NOT_ENGAGED'
+```
+
+The output must read `WRAP_ENGAGED`. If it reads `WRAP_NOT_ENGAGED`, the
+producer is in WAL-only mode (likely an unset, empty, or whitespace
+`AUDIT_KAFKA_BROKERS`); fix the env and restart before continuing.
+Without this check, an unset broker var leaves the producer in WAL-only
+mode and the operator only finds out when the smoke test in section 6
+shows zero rows in `events_v2`.
 
 ---
 
@@ -319,17 +395,44 @@ ssh tack 'docker compose exec yugabyte ysqlsh -U yugabyte -d tack -c \
     "SELECT verb, count(*) FROM audit.events_v2 WHERE occurred_at > now() - interval '\''2 minutes'\'' GROUP BY verb;"'
 ```
 
-The `tack.workspace.listed` (or equivalent verb name; the canonical
-list lives in `internal/audit`) row counts must match between the two
-tables. A small lag (under 5 seconds) on `events_v2` is expected and
-acceptable; that is the consumer commit cadence.
+The `workspace.list` row counts (the verb constant
+`VerbWorkspaceList = "workspace.list"` at `internal/audit/verbs.go:38`;
+there is no `tack.*` prefix anywhere in the codebase) must match
+between the two tables. A small lag (under 5 seconds) on `events_v2`
+is expected and acceptable; that is the consumer commit cadence.
 
-Test 2: The parity script. The script is built by a parallel worktree
-and is expected at `scripts/audit-parity.sh`. From the operator host:
+After the smoke call, also confirm the consumer is committing offsets:
 
 ```bash
-ssh tack 'bash /root/tack/scripts/audit-parity.sh --window=10m'
+ssh tack 'docker compose exec yugabyte ysqlsh -U yugabyte -d tack -c \
+    "SELECT consumer_group, topic, partition, \"offset\", updated_at FROM audit.consumer_offsets ORDER BY updated_at DESC LIMIT 5;"'
 ```
+
+At least one row must appear with a recent `updated_at`. An empty
+result means the consumer is processing but never committing, and a
+restart will re-read from the earliest offset.
+
+Test 2: The parity scan. Wave 1 uses the `./server ops audit parity`
+subcommand (`internal/ops/audit_parity.go`). It reads its window from
+environment variables: `TACK_PARITY_FROM` and `TACK_PARITY_TO` are
+ISO-8601 UTC timestamps, and the optional `TACK_PARITY_THRESHOLD`
+defaults to `1.0` (perfect parity). The command emits a JSON result on
+stdout and exits non-zero when the matched fraction is below threshold.
+
+For a 10-minute smoke window, run on the operator host:
+
+```bash
+PARITY_FROM=$(date -u -v-10M +%Y-%m-%dT%H:%M:%SZ)
+PARITY_TO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+ssh tack "cd /root/tack && docker compose exec \
+    -e TACK_PARITY_FROM=$PARITY_FROM \
+    -e TACK_PARITY_TO=$PARITY_TO \
+    -e TACK_PARITY_THRESHOLD=1.0 \
+    app /server ops audit parity"
+```
+
+(The `date -u -v-10M` form is BSD `date` on macOS. On a GNU `date`
+host, use `date -u -d '10 minutes ago' +%Y-%m-%dT%H:%M:%SZ`.)
 
 Exit code zero means parity. Any other exit code aborts wave 1; rerun
 after addressing the drift, and only proceed when zero is observed.
@@ -339,22 +442,34 @@ after addressing the drift, and only proceed when zero is observed.
 ## 7. Parity gate (24-hour soak)
 
 Wave 1 stays in dual-write for 24 hours of clean parity before wave 2 is
-allowed. The soak window is enforced by re-running the parity script
-on a one-hour cadence.
+allowed. The soak window is enforced by re-running the parity
+subcommand on a one-hour cadence.
 
-Schedule the loop in a screen or tmux on the operator host:
+Schedule the loop in a screen or tmux on the operator host. Each
+iteration computes a fresh one-hour rolling window from environment
+variables and feeds them to `./server ops audit parity`:
 
 ```bash
 while true; do
-  printf "[%s] " "$(date -u +%FT%TZ)"
-  ssh tack 'bash /root/tack/scripts/audit-parity.sh --window=1h' || echo "DRIFT"
+  PARITY_FROM=$(date -u -v-1H +%Y-%m-%dT%H:%M:%SZ)
+  PARITY_TO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  printf "[%s] window=%s..%s " "$(date -u +%FT%TZ)" "$PARITY_FROM" "$PARITY_TO"
+  ssh tack "cd /root/tack && docker compose exec \
+      -e TACK_PARITY_FROM=$PARITY_FROM \
+      -e TACK_PARITY_TO=$PARITY_TO \
+      -e TACK_PARITY_THRESHOLD=1.0 \
+      app /server ops audit parity" || echo "DRIFT"
   sleep 3600
 done
 ```
 
-Expected: every iteration prints a timestamp and exits zero,
-`events.count == events_v2.count` for the 1-hour window, and `row_hash`
-matches per `event_id`.
+(GNU `date` host: replace `date -u -v-1H +%Y-%m-%dT%H:%M:%SZ` with
+`date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%SZ`.)
+
+Expected: every iteration prints the window, emits a JSON result, and
+exits zero. The `matched_fraction` field equals `1.0` and
+`counts.only_legacy`, `counts.only_v2`, and `counts.content_diff` are
+all zero for that window.
 
 If any iteration prints `DRIFT`, the operator has up to one hour to
 diagnose and resolve before reverting per section 9. Common causes are
@@ -362,10 +477,24 @@ in section 10.
 
 Aux checks during the soak:
 
-- Producer error rate. The metric is `audit.kafka.produce_failed_total`
-  exposed by `internal/telemetry/metrics.go`. The Prometheus scrape
-  endpoint is `/metrics` on the app. The counter must remain at zero
-  across the 24-hour window.
+- Producer error rate. The counter is the expvar map
+  `tack_audit_kafka_produce_total{result="error"}` defined at
+  `internal/telemetry/metrics.go:135` and incremented at
+  `internal/telemetry/metrics.go:170-172`. Metrics are exposed at
+  `/debug/vars` on the app (`cmd/server/main.go:284`), not a Prometheus
+  `/metrics` endpoint. Pull the JSON and confirm the `error` bucket
+  stays at zero across the 24-hour window:
+  ```bash
+  ssh tack 'curl -sS http://localhost:8000/debug/vars | jq ".tack_audit_kafka_produce_total.error // 0"'
+  ```
+  The output must remain `0` for the duration.
+- Dual-write skew. The histogram
+  `tack_audit_dual_write_skew_seconds` (and its sum/count companion)
+  exposes the per-event skew between Kafka and WAL acks
+  (`internal/telemetry/metrics.go:155-156`). After the smoke test, read
+  it once and confirm the p99 is well under one second at the current
+  0.37 EPS load; a sustained higher value indicates the WAL is
+  back-pressuring or the Kafka producer is starved.
 - Consumer lag. Visible with the broker CLI:
   ```bash
   ssh tack 'docker compose exec kafka /opt/kafka/bin/kafka-consumer-groups.sh \
@@ -374,6 +503,9 @@ Aux checks during the soak:
   ```
   The `LAG` column should stay under five seconds' worth of throughput.
   At Tack's current rate (around 0.37 EPS) that is roughly two events.
+  The consumer also emits a `consumer.lag.high` warning line
+  (`internal/audit/consumer.go:329`) once lag exceeds the configured
+  warn threshold.
 
 ---
 
@@ -382,23 +514,38 @@ Aux checks during the soak:
 Wave 1 is successful and wave 2 is unblocked when ALL of the following
 are true at the end of the 24-hour soak:
 
-- 24 consecutive hours of `audit-parity.sh` exit-zero, no `DRIFT`
-  iterations.
+- 24 consecutive hours of `./server ops audit parity` exit-zero, no
+  `DRIFT` iterations.
 - Consumer lag p99 under 5 seconds, measured every hour from
   `kafka-consumer-groups.sh --describe` output. (The 5-second target is
   the design doc section 12.1 wave 1 target; revisit if production
   EPS climbs above 100.)
-- Zero `audit.kafka.produce_failed` warnings in `tack-app-1` logs over
-  the soak window:
+- Zero `kafka.produce.failed` warnings in `tack-app-1` logs over the
+  soak window. The actual emitted log key is `kafka.produce.failed`
+  (`internal/audit/kafka_recorder.go:130`); there is no `audit.` prefix
+  on this line.
   ```bash
-  ssh tack 'docker logs --since 24h tack-app-1 | grep -c audit.kafka.produce_failed'
+  ssh tack 'docker logs --since 24h tack-app-1 | grep -c kafka.produce.failed'
   ```
-  Output must be `0`.
-- Zero `audit.consumer.stalled` errors in `audit-consumer` logs:
+  Output must be `0`. Cross-check the same window against the expvar
+  counter:
   ```bash
-  ssh tack 'docker compose logs --since 24h audit-consumer | grep -c audit.consumer.stalled'
+  ssh tack 'curl -sS http://localhost:8000/debug/vars | jq ".tack_audit_kafka_produce_total.error // 0"'
   ```
-  Output must be `0`.
+  Output must also be `0`.
+- Zero `consumer.lag.high` warnings in `audit-consumer` logs over the
+  soak window. The actual emitted log key is `consumer.lag.high`
+  (`internal/audit/consumer.go:329`); there is no `audit.consumer.stalled`
+  line in the binary.
+  ```bash
+  ssh tack 'docker compose logs --since 24h audit-consumer | grep -c consumer.lag.high'
+  ```
+  Output must be `0`. Also confirm no consumer-side hard errors:
+  ```bash
+  ssh tack 'docker compose logs --since 24h audit-consumer | grep -cE "audit\.consumer\.(commit_failed|project_failed|fetch_err)"'
+  ```
+  Output must be `0` (these are the lines emitted at
+  `internal/audit/consumer.go:293`, `:278`, and `:260` respectively).
 - Backup taken at the end of the soak captures both tables:
   ```bash
   make backup
@@ -418,22 +565,28 @@ while `AUDIT_KAFKA_BROKERS` is non-empty; clearing the var reverts to
 WAL-only on the next app restart. Drift sustained beyond one hour, or
 any of the failure modes in section 10, triggers this rollback.
 
-Run, in this order:
+Run, in this order. The pre-restart `stop` gives the Kafka producer
+a chance to flush its in-flight buffer via `KafkaRecorder.Close`
+(`internal/audit/kafka_recorder.go:178`); a hard `restart` would skip
+that drain.
 
 ```bash
 ssh tack 'sed -i.bak "s/^AUDIT_KAFKA_BROKERS=.*/AUDIT_KAFKA_BROKERS=/" /root/tack/.env'
-ssh tack 'cd /root/tack && docker compose restart app'
+ssh tack 'cd /root/tack && docker compose stop --timeout 15 app'
+ssh tack 'cd /root/tack && docker compose up -d app'
 ssh tack 'cd /root/tack && docker compose stop audit-consumer'
 ```
 
 Verify the producer is back to WAL-only:
 
 ```bash
-ssh tack 'docker logs --tail=100 tack-app-1 | grep audit.recorder'
+ssh tack 'docker logs --since 5m tack-app-1 | grep -E "audit\.kafka_enabled|audit\.wal_enabled"'
 ```
 
-The log line should now read `audit.recorder.wal_only` (or the
-equivalent `wrapAuditWithKafka` no-op path), not `dual_kafka_wal`.
+The log output must show `audit.wal_enabled`
+(`cmd/server/main.go:371`) and must NOT show a fresh
+`audit.kafka_enabled` line after the restart. There is no
+`audit.recorder.wal_only` log line in the binary; do not search for it.
 
 Optional cleanup (only after the team has decided not to retry wave 1
 for at least 7 days):
@@ -464,10 +617,12 @@ exists before relying on it.
 
 | Failure | Symptom in logs | Symptom in metrics | Operator action |
 |---|---|---|---|
-| Broker down (kafka container exited) | `tack-app-1` logs `audit.kafka.produce_failed` per call; MCP callers see a 500 on read-class verbs | `audit.kafka.produce_failed_total` climbs; consumer lag undefined (no broker) | Restart `kafka` service. If it boot-loops, check `KAFKA_CLUSTER_ID` against `meta.properties` per section 2. If diverged, the volume must be wiped and re-formatted (data loss on the topic; producer falls back to WAL automatically). |
-| Consumer behind | `audit-consumer` logs `audit.consumer.batch_lag_high` or similar lag-warning lines | `kafka-consumer-groups.sh --describe` shows `LAG` growing; parity script reports `events_v2` count behind `events` count | Check `audit-consumer` CPU and Yugabyte write latency. If Yugabyte is the bottleneck, the producer is unaffected; the WAL leg keeps writing. Increase `AUDIT_CONSUMER_BATCH_SIZE` or scale the consumer. |
-| ClickHouse down | `audit-consumer` logs `audit.consumer.clickhouse_unavailable`; no impact on Yugabyte projection | `audit.consumer.clickhouse_errors_total` climbs; `events_v2` keeps growing | ClickHouse is best-effort in wave 1 (it is fully wired in wave 3). The wave 1 parity gate looks at Yugabyte only, so this does not abort wave 1. Restart `clickhouse`; if data loss is suspected, drop and re-create the OLAP table since wave 1 does not yet read from it. |
-| Schema mismatch | Parity script reports drift on specific verbs (e.g. all `tack.issue.*` rows missing one column) | `events_v2` row count matches `events` but `row_hash` mismatches on those verbs | The producer or consumer is on a stale schema. Check that all three wave 1 migrations actually applied (section 4). If migration 005 ran with an older `audit.events` definition, the sibling will be missing a column and every row will mismatch. Roll back per section 9 and re-apply migrations from a clean wave 1 binary. |
+| Broker down (kafka container exited) | `tack-app-1` logs `kafka.produce.failed` per call (`internal/audit/kafka_recorder.go:130`); MCP callers see a 500 on read-class verbs | Expvar map `tack_audit_kafka_produce_total` `{result="error"}` bucket climbs; consumer lag undefined (no broker) | Restart `kafka` service. If it boot-loops, check `KAFKA_CLUSTER_ID` against `meta.properties` per section 2. If diverged, the volume must be wiped and re-formatted (data loss on the topic; producer falls back to WAL automatically). |
+| Consumer behind | `audit-consumer` logs `consumer.lag.high` warnings (`internal/audit/consumer.go:329`) | `kafka-consumer-groups.sh --describe` shows `LAG` growing; the parity scan reports `events_v2` count behind `events` count for recent windows | Check `audit-consumer` CPU and Yugabyte write latency. If Yugabyte is the bottleneck, the producer is unaffected; the WAL leg keeps writing. Increase `AUDIT_CONSUMER_BATCH_SIZE` or scale the consumer. |
+| ClickHouse down | `audit-consumer` emits hard-error lines from the `audit.consumer.clickhouse_*_failed` family (`internal/audit/consumer.go:178-192`); no impact on Yugabyte projection | The `tack_audit_consumer_processed_total` map's `error` bucket climbs (`internal/telemetry/metrics.go:145`); `events_v2` keeps growing | ClickHouse is best-effort in wave 1 (it is fully wired in wave 3). The wave 1 parity gate looks at Yugabyte only, so this does not abort wave 1. Restart `clickhouse`; if data loss is suspected, drop and re-create the OLAP table since wave 1 does not yet read from it. |
+| Schema mismatch | Parity scan reports drift on specific verbs (e.g. all `node.create` rows missing one column) | `events_v2` row count matches `events` but `row_hash` mismatches on those verbs (visible in the `content_diff_examples` array of the parity JSON) | The producer or consumer is on a stale schema. Check that all three wave 1 migrations actually applied (section 4). If migration 005 ran with an older `audit.events` definition, the sibling will be missing a column and every row will mismatch. Roll back per section 9 and re-apply migrations from a clean wave 1 binary. |
+| Producer in WAL-only after restart | `tack-app-1` shows `audit.wal_enabled` but no `audit.kafka_enabled` line (`cmd/server/main.go:371`, `:399`) | Kafka topic stays empty under load; `events_v2` count stays flat while `events` keeps growing | `AUDIT_KAFKA_BROKERS` is unset, empty, or has stray whitespace. Fix the env in `/root/tack/.env` and restart `app`. Also possible: `audit.kafka_setup_failed` logged at `cmd/server/main.go:390`, in which case the wrap silently fell back to WAL; inspect that line for the underlying error. |
+| Dual-write divergence | `tack-app-1` logs `dual.write.divergence` warnings (`internal/audit/dual.go:76`) when one leg succeeds and the other fails | The `tack_audit_dual_write_total` map shows a non-trivial gap between the `primary` and `secondary` paths (`internal/telemetry/metrics.go:152-153`) | Inspect the divergence log lines for the failing leg. If Kafka is the failing leg, treat as the broker-down row above. If the WAL is the failing leg, treat as a Phase 1 regression and escalate. |
 
 Two more cases worth noting, even though they should never occur in
 wave 1 on N=1:
@@ -477,9 +632,15 @@ wave 1 on N=1:
   next start. The UNIQUE index from migration 004 dedupes the
   reprojection, so this is recoverable; expect a one-time burst of
   consumer activity and several minutes of elevated lag.
-- Notarizer key missing or malformed. The consumer logs
-  `audit.notarizer.disabled` and projection continues. Wave 1 does not
-  gate on notarization. Re-stage the key before wave 3.
+- Notarizer key missing or malformed. The consumer gates the notarizer
+  behind `cfg.SigningKeyPath != ""` (`internal/audit/consumer.go:131`)
+  and silently skips notarizer construction when the path is empty;
+  there is no dedicated `audit.notarizer.disabled` log line in the
+  current binary. With a path set but a malformed key, expect
+  `audit.consumer.notarizer_failed` lines on the 60-second notarizer
+  tick (`AUDIT_CONSUMER_NOTARIZER_PERIOD`). Projection continues either
+  way. Wave 1 does not gate on notarization. Re-stage the key before
+  wave 3.
 
 ---
 
