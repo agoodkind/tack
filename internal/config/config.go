@@ -112,6 +112,29 @@ type Config struct {
 	// Optional: if unset, OTEL tracing is a no-op.
 	OTELEndpoint string `env:"OTEL_EXPORTER_OTLP_ENDPOINT"`
 
+	// Backup family. Used by `./server ops backup [...]`. Defaults match the
+	// production layout on CT 117. The Temporal-DB password has no default
+	// because losing the dump silently is the failure mode this whole family
+	// exists to prevent; the backup command errors loudly if it is unset.
+	BackupRoot              string `env:"TACK_BACKUP_ROOT"               envDefault:"/root/backups"`
+	BackupSnapshotRoot      string `env:"TACK_BACKUP_SNAPSHOT_ROOT"      envDefault:"/root/fdb-snapshots"`
+	BackupFDBNetwork        string `env:"TACK_BACKUP_FDB_NETWORK"        envDefault:"tack_default"`
+	BackupFDBImage          string `env:"TACK_BACKUP_FDB_IMAGE"          envDefault:"foundationdb/foundationdb:7.4.6"`
+	BackupFDBTimeoutSeconds int    `env:"TACK_BACKUP_FDB_TIMEOUT_SECONDS" envDefault:"1800"`
+	BackupFDBSidecar        string `env:"TACK_BACKUP_FDB_SIDECAR"        envDefault:"tack-backup-agent"`
+	BackupMeiliVolume       string `env:"TACK_BACKUP_MEILI_VOLUME"       envDefault:"tack_meili-data"`
+	BackupTemporalDBUser    string `env:"TACK_BACKUP_TEMPORAL_DB_USER"   envDefault:"temporal"`
+	BackupTemporalDBPass    string `env:"TACK_BACKUP_TEMPORAL_DB_PASSWORD"`
+	BackupTemporalDBName    string `env:"TACK_BACKUP_TEMPORAL_DB_NAME"   envDefault:"temporal"`
+	BackupDockerContext     string `env:"TACK_BACKUP_DOCKER_CONTEXT"     envDefault:"tack"`
+
+	// Yugabyte credentials. Read by the backup family for the ysql_dump call;
+	// the live tack server reads YUGABYTE_PASSWORD via the DATABASE_URL DSN
+	// instead, so these are only consulted by ops backup.
+	YugabyteUser     string `env:"YUGABYTE_USER"     envDefault:"yugabyte"`
+	YugabytePassword string `env:"YUGABYTE_PASSWORD"`
+	YugabyteDB       string `env:"YUGABYTE_DB"       envDefault:"tack"`
+
 	// Audit consumer (Wave 1, Phase 2). The audit-consumer binary reads
 	// these. The tack-app server does not consume them today. They live
 	// here so a single .env can drive both binaries.

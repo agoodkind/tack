@@ -20,6 +20,7 @@ const (
 	familyRepair   commandFamily = "repair"
 	familyBatch    commandFamily = "batch"
 	familyAudit    commandFamily = "audit"
+	familyBackup   commandFamily = "backup"
 )
 
 // RunCommand routes the unified operator CLI command family.
@@ -49,6 +50,8 @@ func RunCommand(ctx context.Context, cfg *config.Config, args []string) error {
 		return runBatchCommand(ctx, cfg, args[1:])
 	case familyAudit:
 		return runAuditCommand(ctx, cfg, args[1:])
+	case familyBackup:
+		return runBackupCommand(ctx, cfg, args[1:])
 	}
 	if _, ok := Get(args[0]); ok {
 		return Run(ctx, cfg, args[0])
@@ -71,6 +74,8 @@ func printFamilyUsage(family string) {
 		printBatchUsage()
 	case familyAudit:
 		printAuditUsage()
+	case familyBackup:
+		printBackupUsage()
 	default:
 		fmt.Fprintf(os.Stderr, "unknown ops family: %s\n\n", family)
 		printOpsUsage()

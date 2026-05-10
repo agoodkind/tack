@@ -51,6 +51,16 @@ seed:
 # TACK_INTEGRATION inside the test runner gates the suite so a casual
 # `make test` (host-side) still skips them.
 
+# Run unit tests for the ops package (and any other package without
+# integration deps) inside the test runner image. The compose file already
+# bind-mounts the source tree to /src so edits are visible without a rebuild.
+.PHONY: test-unit
+test-unit:
+	docker compose -f docker-compose.test.yml --profile runner build tests
+	docker compose -f docker-compose.test.yml --profile runner run --rm \
+	    --no-deps tests \
+	    /usr/local/go/bin/go test -count=1 ./internal/ops/...
+
 .PHONY: test-fdb-up
 test-fdb-up:
 	./scripts/test-fdb-up.sh
