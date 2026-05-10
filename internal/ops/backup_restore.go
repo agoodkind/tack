@@ -38,29 +38,14 @@ func (r *restoreCtx) dockerClient() *client.Client { return r.Cli }
 // `./server ops backup restore-test <path>`. It iterates the artifacts
 // in the backup dir and replays each into a scratch container; success
 // is the conjunction of every per-artifact replay reporting healthy.
+// The path must be local: either run the binary on CT 117 where the backup
+// lives, or pull the backup to a local path first and run there.
 func RunBackupRestoreTest(ctx context.Context, cfg *config.Config, backupDir string) error {
 	log := slog.Default()
 	ctx, span := telemetry.StartSpan(ctx, "backup.restore_test")
 	defer span.End()
 
-	st, err := os.Stat(backupDir)
-	if err != nil {
-		log.ErrorContext(ctx, "backup.restore_test.stat_failed",
-			slog.String("dir", backupDir),
-			slog.Any("err", err),
-		)
-		return fmt.Errorf("stat %s: %w", backupDir, err)
-	}
-	if !st.IsDir() {
-		notDirErr := fmt.Errorf("not a directory: %s", backupDir)
-		log.ErrorContext(ctx, "backup.restore_test.not_a_dir",
-			slog.String("dir", backupDir),
-			slog.Any("err", notDirErr),
-		)
-		return notDirErr
-	}
-
-	err = assertDockerContext(ctx, cfg.BackupDockerContext)
+	err := assertDockerContext(ctx, cfg.BackupDockerContext)
 	if err != nil {
 		return err
 	}
@@ -70,6 +55,10 @@ func RunBackupRestoreTest(ctx context.Context, cfg *config.Config, backupDir str
 		return err
 	}
 	defer cli.Close()
+
+	if err = checkBackupDirOnDaemon(ctx, log, backupDir); err != nil {
+		return err
+	}
 
 	rctx := &restoreCtx{
 		Cfg:            cfg,
@@ -131,29 +120,69 @@ func RunBackupRestoreTest(ctx context.Context, cfg *config.Config, backupDir str
 	return nil
 }
 
-// listArtifacts returns the relative paths of all top-level files in
-// backupDir that match the artifact filename patterns. The manifest itself
-// is excluded.
+// checkBackupDirOnDaemon verifies that dir exists as a non-empty directory on
+// the Docker daemon's host. It runs a one-shot alpine container that executes
+// "ls -la <dir>" with the path bind-mounted, then captures the exit status.
+// When the binary runs with DOCKER_CONTEXT=tack the daemon is on CT 117, so
+// a local [os.Stat] would always fail; this check runs entirely daemon-side
+// and works in both the local and remote daemon cases.
+//
+// The container is run via the docker CLI (through [runDockerCmd]) rather than
+// the SDK's ContainerCreate so that the active DOCKER_CONTEXT is honored and
+// the bind-mount is resolved on the daemon's host. The SDK's ContainerCreate
+// goes through the local Docker Desktop socket on macOS, which enforces its
+// own file-sharing allowlist before forwarding the request, causing remote
+// paths to be rejected. The CLI bypasses that local enforcement and talks
+// directly to the context endpoint.
+func checkBackupDirOnDaemon(ctx context.Context, log *slog.Logger, dir string) error {
+	args := []string{
+		"run", "--rm",
+		"-v", dir + ":/check:ro",
+		"alpine", "ls", "-la", "/check",
+	}
+	_, err := runDockerCmd(ctx, log, args...)
+	if err != nil {
+		log.ErrorContext(ctx, "backup.restore_test.path_check_failed",
+			slog.String("dir", dir),
+			slog.Any("err", err),
+		)
+		return fmt.Errorf("path check for %s: %w", dir, err)
+	}
+	log.InfoContext(ctx, "backup.restore_test.path_check_ok", slog.String("dir", dir))
+	return nil
+}
+
+// listArtifacts returns relative paths (e.g. "fdb/fdbbackup.tar.gz") for
+// every artifact file found one level deep inside backupDir. Each top-level
+// entry is expected to be a per-component subdirectory; files at the root
+// (such as MANIFEST.txt) are skipped.
 func listArtifacts(backupDir string) ([]string, error) {
-	dirEntries, err := os.ReadDir(backupDir)
+	topEntries, err := os.ReadDir(backupDir)
 	if err != nil {
 		slog.Error("backup.restore_test.readdir_failed",
 			slog.String("dir", backupDir),
 			slog.Any("err", err),
 		)
-		return nil, fmt.Errorf("read dir %s: %w", backupDir, err)
+		return nil, fmt.Errorf("read backup dir: %w", err)
 	}
 	var out []string
-	for _, e := range dirEntries {
-		if e.IsDir() {
+	for _, top := range topEntries {
+		if !top.IsDir() {
 			continue
 		}
-		name := e.Name()
-		if name == manifestFileName {
-			continue
+		subEntries, err := os.ReadDir(filepath.Join(backupDir, top.Name()))
+		if err != nil {
+			slog.Error("backup.restore_test.readdir_sub_failed",
+				slog.String("component", top.Name()),
+				slog.Any("err", err),
+			)
+			return nil, fmt.Errorf("read %s: %w", top.Name(), err)
 		}
-		if strings.HasSuffix(name, ".tar.gz") || strings.HasSuffix(name, ".sql") || strings.HasSuffix(name, ".sql.gz") {
-			out = append(out, name)
+		for _, e := range subEntries {
+			if e.IsDir() {
+				continue
+			}
+			out = append(out, filepath.Join(top.Name(), e.Name()))
 		}
 	}
 	return out, nil
