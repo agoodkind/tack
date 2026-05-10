@@ -352,6 +352,11 @@ services:
       MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-tack-dev-meili-key-change-in-prod}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       ENV: ${ENV:-production}
+      # Temporal-DB password for the backup pg_dump step. Defaults to the
+      # literal "temporal" because that is what the temporal-db service
+      # itself sets via POSTGRES_PASSWORD on line 173. Override via .env
+      # if temporal-db's password is rotated.
+      TACK_BACKUP_TEMPORAL_DB_PASSWORD: ${TACK_BACKUP_TEMPORAL_DB_PASSWORD:-temporal}
     volumes:
       - /root/backups:/root/backups
       - /root/fdb-snapshots:/root/fdb-snapshots
