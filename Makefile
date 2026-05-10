@@ -151,10 +151,11 @@ deploy-preflight:
 
 # Run a full backup on CT 117 (FDB volume + Meili volume + Yugabyte
 # in-container tar + auth CSVs). Output dirs at /root/backups/tack-<TS>/.
+# Runs inside the tack-ops sibling container on CT 117; the tack-server image
+# must already be up to date on the host before invoking this target.
 .PHONY: backup
 backup:
-	rsync -az scripts/backup.sh scripts/host-maintenance.sh tack:/root/tack/scripts/
-	ssh tack 'bash /root/tack/scripts/backup.sh'
+	ssh tack 'cd /root/tack && docker compose run --rm tack-ops ops backup'
 
 .PHONY: host-maintenance-install
 host-maintenance-install:
@@ -195,11 +196,23 @@ backup-content-check:
 	rsync -az scripts/backup-content-check.sh tack:/root/tack/scripts/
 	ssh tack 'TS=$$(cat /root/backups/.latest); /root/tack/scripts/backup-content-check.sh "/root/backups/tack-$$TS"'
 
-# Restore-test verification of the latest backup on CT 117. Spins up
+# Structural inventory check of a specific backup on CT 117. Runs the
+# ./server ops backup verify subcommand inside the tack-ops sibling
+# container. TS is required: make backup-verify TS=20260509T232955Z
+.PHONY: backup-verify
+backup-verify:
+ifndef TS
+	$(error TS is required: make backup-verify TS=20260509T232955Z)
+endif
+	ssh tack 'cd /root/tack && docker compose run --rm tack-ops ops backup verify /root/backups/tack-$(TS)'
+
+# Restore-test verification of a specific backup on CT 117. Spins up
 # scratch containers per artifact and exercises the real restore path.
-# Layered on top of backup-content-check; do not run this before content
-# check passes.
+# Layered on top of backup-verify; do not run this before verify passes.
+# TS is required: make backup-restore-test TS=20260509T232955Z
 .PHONY: backup-restore-test
 backup-restore-test:
-	rsync -az scripts/backup-restore-test.sh fdb-overlay/fdb.bash tack:/root/tack/scripts/
-	ssh tack 'TS=$$(cat /root/backups/.latest); TACK_FDB_OVERLAY=/root/tack/fdb-overlay/fdb.bash /root/tack/scripts/backup-restore-test.sh "/root/backups/tack-$$TS"'
+ifndef TS
+	$(error TS is required: make backup-restore-test TS=20260509T232955Z)
+endif
+	ssh tack 'cd /root/tack && docker compose run --rm tack-ops ops backup restore-test /root/backups/tack-$(TS)'

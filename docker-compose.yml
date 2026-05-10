@@ -307,6 +307,40 @@ services:
       clickhouse:
         condition: service_healthy
 
+  # Short-lived operator-invoked container for backup, verify, and
+  # restore-test operations. The profiles: [ops] tag keeps it out of the
+  # default docker compose up; invoke via:
+  #   docker compose run --rm tack-ops ops backup [subcommand] [args]
+  tack-ops:
+    image: tack-server:latest
+    profiles: [ops]
+    entrypoint: ["/server"]
+    network_mode: host
+    environment:
+      # On CT 117 the backup ops binary talks to the local daemon directly
+      # via the bind-mounted socket, so override the default remote context.
+      TACK_BACKUP_DOCKER_CONTEXT: ""
+      # tack-ops uses network_mode: host so all services are reachable by
+      # loopback. DATABASE_URL must be set in the host .env as a full DSN
+      # pointing at 127.0.0.1:5433; the app service's DSN targets yugabyte
+      # and cannot be reused here.
+      DATABASE_URL: ${TACK_OPS_DATABASE_URL}
+      FDB_CLUSTER_FILE: /etc/foundationdb/fdb.cluster
+      MEILI_URL: http://localhost:7700
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-tack-dev-meili-key-change-in-prod}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      ENV: ${ENV:-production}
+    volumes:
+      - /root/backups:/root/backups
+      - /root/fdb-snapshots:/root/fdb-snapshots
+      - /etc/foundationdb:/etc/foundationdb:ro
+      # Docker socket mount is intentional for this short-lived ops container:
+      # the backup binary orchestrates scratch containers on the local daemon.
+      # This exception is explicitly scoped to tack-ops and must not be added
+      # to the long-running app service. See the sibling-container architecture
+      # decision in CLAUDE.md under the Deployment section.
+      - /var/run/docker.sock:/var/run/docker.sock
+
 volumes:
   yugabyte-data:
   fdb-data:
