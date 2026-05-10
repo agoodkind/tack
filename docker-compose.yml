@@ -357,6 +357,14 @@ services:
       # itself sets via POSTGRES_PASSWORD on line 173. Override via .env
       # if temporal-db's password is rotated.
       TACK_BACKUP_TEMPORAL_DB_PASSWORD: ${TACK_BACKUP_TEMPORAL_DB_PASSWORD:-temporal}
+      # Yugabyte connection details for the backup ysql_dump step. The
+      # backup binary reads these directly from its config struct (not
+      # from the parsed DATABASE_URL DSN), so they must be passed through
+      # to the tack-ops container even though the app service already has
+      # them embedded in DATABASE_URL.
+      YUGABYTE_USER: ${YUGABYTE_USER:?YUGABYTE_USER is required, set it in .env}
+      YUGABYTE_PASSWORD: ${YUGABYTE_PASSWORD:?YUGABYTE_PASSWORD is required, set it in .env}
+      YUGABYTE_DB: ${YUGABYTE_DB:?YUGABYTE_DB is required, set it in .env}
     volumes:
       - /root/backups:/root/backups
       - /root/fdb-snapshots:/root/fdb-snapshots

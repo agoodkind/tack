@@ -1460,3 +1460,65 @@ records that seed had created earlier in the incident. Production is
 operating on the same UUIDs that existed before today's seed run. The
 deployed binary at commit `dd430c9` continues to serve all production
 traffic.
+
+## 12. 2026-05-10 follow-up: Docker image GC and rollback marker loss
+
+This section captures a finding from the day after the original incident,
+during deploy of the new ops tooling at commit `c5c8a21` to CT 117.
+
+### Symptom
+
+The session built a new `tack-server:latest` image directly on CT 117
+via `docker build -t tack-server:latest .`, then attempted to tag the
+previous image (which was still serving production traffic via
+`tack-app-1`) as a rollback marker. Both `docker image inspect` and
+`docker commit` failed with `No such image` and
+`content digest sha256:7d556...: not found` even though the running
+container's `.Image` field still pointed at the old image ID.
+
+### Root cause
+
+Docker 29's content-addressed image store eagerly garbage-collects
+unreferenced manifest content. When the new build retagged
+`tack-server:latest` to point at the freshly built image, the old image
+manifest had no remaining references because the prior build had also
+used `-t tack-server:latest` as the only tag. The manifest content was
+swept from the content store immediately. The running container kept
+its layers mounted because the daemon mounts layers based on container
+runtime state rather than image manifest references, but no operation
+that reconstructs an image from those layers (commit, save, push) can
+work without the parent manifest content.
+
+### Idiomatic prevention
+
+Per Docker community best practice, never rebuild with a tag that is
+the only tag on an image. Each build must produce both a unique
+immutable tag (commit SHA, timestamp, semver) and any moving labels
+like `:latest`. The unique tag prevents the old image from becoming
+GC-eligible when `:latest` retargets.
+
+The repo's `./server ops deploy` subcommand at
+`internal/ops/deploy_build.go:59` already does this correctly:
+`Tags: []string{dctx.imageRef, dctx.latestRef}`. The deviation came
+from running `docker build` directly during the on-CT-117 build path
+that the SDK deploy code does not yet handle.
+
+### Mitigation applied today
+
+Added a SHA tag to the just-built image:
+`docker tag tack-server:latest tack-server:c5c8a21`. This protects the
+new image from the same fate when the next deploy runs.
+
+### Rollback path for today's recreate
+
+Because the previous image is unrecoverable, the only rollback path
+for the 2026-05-10 deploy is restoring CT 117 from the LXC backup at
+vault. Two backups bracket the deploy: the 10:01 UTC pre-deploy
+snapshot and the 10:53 UTC pre-recreate snapshot.
+
+### Follow-ups filed
+
+- TACK-262: enforce dual-tagging on `tack-server` image builds
+  (commit SHA + latest)
+- TACK-260: clean up `/root/tack.old/` once the new deploy is stable
+- TACK-261: investigate `ENV=development` in production app container
