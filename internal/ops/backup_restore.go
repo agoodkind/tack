@@ -160,12 +160,16 @@ func checkBackupDirOnDaemon(ctx context.Context, cli *client.Client, log *slog.L
 	return nil
 }
 
-// listArtifacts returns relative paths (e.g. "fdb/fdbbackup.tar.gz") for
-// every artifact file found one level deep inside backupDir. Each top-level
-// entry is expected to be a per-component subdirectory; files at the root
-// (such as MANIFEST.txt) are skipped.
+// listArtifacts returns the basenames of restorable artifact files at the top
+// level of backupDir. Today's `runBackupRun` writes each component as a
+// top-level file (fdb-snapshot.tar.gz, yugabyte.sql, temporal-db.sql,
+// tack_meili-data.tar.gz). MANIFEST.txt is skipped. Subdirectories are
+// skipped: the only one we create today is `fdb/` for metadata files
+// (describe.txt) that are not themselves restorable. Classification of each
+// returned name is done by the caller via [categoryFromName]; files that do
+// not match any category fall through to the unknown branch and are skipped.
 func listArtifacts(backupDir string) ([]string, error) {
-	topEntries, err := os.ReadDir(backupDir)
+	entries, err := os.ReadDir(backupDir)
 	if err != nil {
 		slog.Error("backup.restore_test.readdir_failed",
 			slog.String("dir", backupDir),
@@ -174,24 +178,15 @@ func listArtifacts(backupDir string) ([]string, error) {
 		return nil, fmt.Errorf("read backup dir: %w", err)
 	}
 	var out []string
-	for _, top := range topEntries {
-		if !top.IsDir() {
+	for _, e := range entries {
+		if e.IsDir() {
 			continue
 		}
-		subEntries, err := os.ReadDir(filepath.Join(backupDir, top.Name()))
-		if err != nil {
-			slog.Error("backup.restore_test.readdir_sub_failed",
-				slog.String("component", top.Name()),
-				slog.Any("err", err),
-			)
-			return nil, fmt.Errorf("read %s: %w", top.Name(), err)
+		name := e.Name()
+		if name == manifestFileName {
+			continue
 		}
-		for _, e := range subEntries {
-			if e.IsDir() {
-				continue
-			}
-			out = append(out, filepath.Join(top.Name(), e.Name()))
-		}
+		out = append(out, name)
 	}
 	return out, nil
 }
