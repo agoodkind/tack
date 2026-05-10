@@ -45,6 +45,21 @@ func userIDForEmail(email string) uuid.UUID {
 // primitives. This is the one place in the system that references specific
 // NodeType names (via service.Seeder constants).
 func runSeed(cfg *config.Config) {
+	_ = cfg // unused while seed is disabled per TACK-230; remove with the guard
+	// Seed is disabled until TACK-230 lands. The current OrgID derivation at
+	// internal/domain/node/types.go:288 hashes a slug into a deterministic UUID
+	// without any tenant context, which means two tenants picking the same slug
+	// produce byte-identical orgIDs and collide in FDB. Running seed against any
+	// environment that already has data risks the same parallel-org failure mode
+	// that took production down on 2026-05-09. TACK-230 replaces the hashed
+	// derivation with random UUIDv7 plus an explicit override path for tests, at
+	// which point this guard goes away.
+	slog.Error("seed.disabled",
+		slog.String("err", "seed disabled until TACK-230 fixes OrgID derivation"),
+		slog.String("ticket", "TACK-230"),
+		slog.String("incident", "2026-05-09 parallel-org outage"))
+	os.Exit(1)
+
 	if cfg.SeedEmail == "" || cfg.SeedName == "" {
 		slog.Error("seed.config_missing",
 			slog.String("err", "SEED_EMAIL and SEED_NAME are both required"))

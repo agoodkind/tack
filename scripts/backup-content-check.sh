@@ -131,7 +131,9 @@ sniff_pg_dump() {
             ;;
     esac
 
-    if "${reader[@]}" 2>/dev/null | head -c 16777216 | grep -qE '^CREATE TABLE\b'; then
+    # Disable pipefail in a subshell: grep -q exits on first match and SIGPIPEs
+    # the upstream readers, which would otherwise fail the whole pipeline.
+    if ( set +o pipefail; "${reader[@]}" 2>/dev/null | head -c 16777216 | grep -qE '^CREATE TABLE\b' ); then
         return 0
     fi
     return 1
@@ -376,7 +378,7 @@ main() {
                 # files, etc. that are not their own first-class artifacts.
                 ;;
         esac
-    done < <(find "${BACKUP_DIR}" -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.sql' -o -name '*.sql.gz' \) -print0)
+    done < <(find "${BACKUP_DIR}" -maxdepth 2 -type f \( -name '*.tar.gz' -o -name '*.sql' -o -name '*.sql.gz' \) -print0)
 
     local missing=""
     if (( saw_fdb == 0 )); then missing="${missing} fdb"; fi

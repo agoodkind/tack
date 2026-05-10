@@ -46,7 +46,7 @@ func runBackupRun(ctx context.Context, cfg *config.Config) error {
 		return err
 	}
 
-	cli, err := newDockerClient()
+	cli, err := newDockerClient(ctx)
 	if err != nil {
 		return err
 	}

@@ -65,7 +65,7 @@ func RunBackupRestoreTest(ctx context.Context, cfg *config.Config, backupDir str
 		return err
 	}
 
-	cli, err := newDockerClient()
+	cli, err := newDockerClient(ctx)
 	if err != nil {
 		return err
 	}

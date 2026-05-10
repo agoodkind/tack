@@ -167,13 +167,13 @@ generic classes registered in `internal/ops/repair_catalog.go`:
 - `parent_reference`: repair a node `parent_id` and `child_of` edge from operator-declared source fields.
 - `props_transform`: apply generic property delete, rename, and append-preserve transforms. Subsumes the "remove the stale raw `state` alias when canonical `state_id` is already valid" cleanup that `stray_alias_state` previously handled.
 
-The state repair documented in
-`state_audit_full_impact.md` (dated 2026-05-05) names `stray_alias_state` and
-`repair_stray_alias_state.go` because both existed when that audit was
-written. That document is left as-is as a historical artifact; the
-2026-05-09 execution report at
-`incident_2026-05-09_seed_parallel_org/state_repair_execution_report.md`
-records the same work in the current toolchain's terminology.
+The 2026-05-08 state repair work that the older `stray_alias_state` class
+performed has been completed. The repair manifests, audit CSVs, and
+historical impact document that referenced the old class names were deleted
+on 2026-05-10 because they contained production data and the work they
+described has shipped. The current-terminology record of the same work
+lives at
+`docs/incidents/2026-05-09-seed-parallel-org/reports/state_repair_execution_report.md`.
 
 ---
 
@@ -203,165 +203,9 @@ incident retro at
 `incident_2026-05-09_seed_parallel_org/retro_log.md` section 1B for the
 tradeoffs and required follow-ups.
 
-### Materialized views
-```
-node_list_view        orgID, workspaceID, nodeType, nodeID → JSON NodeListView
-```
+### Other key families
 
-### Entity storage
-```
-node_instance             orgID, workspaceID, nodeType, nodeID       → NodeValue JSON
-node_instance_by_project  orgID, projectID, nodeType, nodeID         → nil
-node_instance_by_state    orgID, workspaceID, nodeType, stateID, nodeID → nil
-node_by_property          orgID, workspaceID, nodeType, propDefID, encodedValue, nodeID → nil
-node_by_sequence          orgID, projectID, nodeType, sequenceID     → nodeID
-```
-
-### Sequences
-```
-sequence              orgID, scopeType, scopeID, nodeType            → int64 (atomic counter)
-```
-
-### Assignments
-```
-assignment_on_node    orgID, nodeID, userID                 → {assigned_by, assigned_at}
-assignment_to_user    orgID, userID, updatedAtNano, nodeID  → nil
-```
-
-### Labels on nodes
-```
-label_on_node         orgID, nodeID, labelID                → {added_by, added_at}
-issues_with_label     orgID, labelID, nodeID                → nil
-```
-
-### Containment
-```
-issue_in_module           orgID, moduleID, issueID          → {added_by, added_at}
-modules_containing_issue  orgID, issueID, moduleID          → nil
-issue_in_cycle            orgID, cycleID, issueID           → {added_by, added_at}
-cycles_containing_issue   orgID, issueID, cycleID           → nil
-```
-
-### Hierarchy
-```
-issue_children        orgID, parentIssueID, childIssueID    → nil
-epic_children         orgID, parentEpicID, childEpicID      → nil
-issues_in_epic        orgID, epicID, issueID                → nil
-issue_epic_reverse    orgID, issueID                        → epicID
-```
-
-### Relations between nodes
-```
-relation_from_node    orgID, sourceNodeID, relationType, targetNodeID → {created_by, created_at}
-relation_to_node      orgID, targetNodeID, relationType, sourceNodeID → nil
-```
-relationType: blocks, blocked_by, duplicate_of, relates_to, cloned_from, split_from
-
-### Comments
-```
-comment_on_node       orgID, nodeID, createdAtNano, commentID        → {body, author_id, edited_at}
-reply_to_comment      orgID, parentCommentID, createdAtNano, replyID → {body, author_id, edited_at}
-reaction_on_comment   orgID, commentID, emoji, userID                → {created_at}
-```
-
-### Activity log
-```
-activity_on_node      orgID, nodeID, createdAtNano, eventID          → {verb, field, old_value, new_value, actor_id}
-activity_by_user      orgID, userID, createdAtNano, eventID          → nil
-activity_on_workspace orgID, workspaceID, createdAtNano, eventID     → nil
-```
-
-### Membership
-```
-membership_by_user    orgID, userID, entityType, entityID   → {role, added_by, added_at}
-membership_by_entity  orgID, entityType, entityID, userID   → {role, added_by, added_at}
-membership_by_role    orgID, entityType, entityID, role, userID → nil
-invitation            orgID, invitationID                   → {email, role, entity_type, entity_id, invited_by, expires_at}
-invitation_by_email   orgID, email, invitationID            → nil
-```
-
-### Watchers and mentions
-```
-watcher_of_node       orgID, nodeID, userID                          → {level}
-node_watched_by_user  orgID, userID, nodeID                          → nil
-mention_in_node       orgID, nodeID, mentionedUserID, contextID      → {context_type, snippet}
-mention_of_user       orgID, mentionedUserID, createdAtNano, contextID → nil
-```
-
-### Notifications
-```
-notification_for_user       orgID, userID, createdAtNano, notifID    → {type, actor_id, entity_type, entity_id, summary, read_at}
-unread_notification_count   orgID, userID                            → int64
-```
-
-### Counters (atomic, maintained on every write)
-```
-count_on_node          orgID, nodeID, counterName                    → int64
-count_by_state         orgID, projectID, stateID                     → int64
-reaction_on_node       orgID, nodeID, emoji, userID                  → {created_at}
-reaction_count_on_node orgID, nodeID, emoji                          → int64
-```
-counterName: comments, sub_issues, attachments, reactions, blockers, work_logs
-
-### Positioning and views
-```
-sort_position_in_view       orgID, viewType, viewID, nodeID          → float64
-board_layout_for_user       orgID, userID, projectID                 → {column_order, hidden_columns, group_by}
-starred_by_user             orgID, userID, entityType, entityID      → {starred_at}
-saved_view_for_user         orgID, userID, viewID                    → {name, filters, sort, group_by}
-saved_view_on_entity        orgID, entityType, entityID, viewID      → {name, filters, ...}
-```
-
-### Content
-```
-link_on_node           orgID, nodeID, linkID                         → {url, title, link_type, created_by}
-attachment_on_node     orgID, nodeID, attachmentID                   → {filename, size_bytes, mime_type, storage_key, uploaded_by}
-draft_for_user_on_node orgID, userID, nodeID                         → {body, updated_at}
-description_version    orgID, nodeID, savedAtNano, versionID         → {body, saved_by}
-```
-
-### Work tracking
-```
-work_log_on_node      orgID, nodeID, createdAtNano, logID            → {user_id, seconds, note}
-work_log_by_user      orgID, userID, date, logID                     → nil
-```
-
-### Custom fields
-```
-property_definition    orgID, [workspaceID, [projectID,]] defID      → PropertyDef
-property_value_on_node orgID, nodeID, propertyDefID                  → value
-```
-
-### Type definitions
-```
-node_type_definition  orgID, typeID                                  → NodeType
-```
-
-### Automation and rules
-```
-automation_rule       orgID, entityType, entityID, ruleID            → {trigger, actions, enabled}
-automation_run_log    orgID, ruleID, ranAtNano, runID                → {status, error}
-transition_rule       orgID, projectID, fromStateID, toStateID       → {allowed, conditions, actions}
-```
-
-### Settings and roles
-```
-user_preference       orgID, userID, preferenceKey                   → value
-org_setting           orgID, settingKey                              → value
-role_definition       orgID, roleID                                  → {name, description}
-role_permission       orgID, roleID, permissionKey                   → bool
-```
-
-### Integrations and ops
-```
-webhook               orgID, webhookID                               → {url, secret, events, enabled}
-webhook_delivery      orgID, webhookID, deliveredAtNano, deliveryID  → {status, response_code}
-search_sync_state     orgID, entityType, entityID                    → {last_indexed_at, checksum}
-search_sync_queue     orgID, entityType, entityID                    → {queued_at}
-audit_log             orgID, createdAtNano, auditID                  → {actor_id, action, target_type, target_id, before, after}
-audit_log_by_actor    orgID, actorID, createdAtNano, auditID         → nil
-presence_on_node      orgID, nodeID, userID                          → {last_seen_at}
-```
+The full set of FDB key constants is defined in `internal/adapters/foundationdb/keys.go`. That file is the canonical reference. CLAUDE.md does not enumerate the rest of the key families because any enumeration here drifts from the code over time. Read `keys.go` for the truth.
 
 ---
 
