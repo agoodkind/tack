@@ -1,6 +1,6 @@
 services:
   app:
-    image: tack-server:latest
+    image: ghcr.io/agoodkind/tack-server:latest
     build:
       context: .
       args:
@@ -293,7 +293,7 @@ services:
   # binary built by the Dockerfile is invoked directly. Mounts the
   # signing key for the embedded notarizer.
   audit-consumer:
-    image: tack-server:latest
+    image: ghcr.io/agoodkind/tack-server:latest
     build:
       context: .
       args:
@@ -334,7 +334,7 @@ services:
   # default docker compose up; invoke via:
   #   docker compose run --rm tack-ops ops backup [subcommand] [args]
   tack-ops:
-    image: tack-server:latest
+    image: ghcr.io/agoodkind/tack-server:latest
     profiles: [ops]
     entrypoint: ["/server"]
     network_mode: host
