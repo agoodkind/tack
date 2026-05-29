@@ -6,6 +6,10 @@ require (
 	connectrpc.com/connect v1.19.2
 	github.com/ClickHouse/clickhouse-go/v2 v2.46.0
 	github.com/apple/foundationdb/bindings/go v0.0.0-20250923185926-685eda6efef7
+	github.com/aws/aws-sdk-go-v2 v1.41.8
+	github.com/aws/aws-sdk-go-v2/credentials v1.19.18
+	github.com/aws/aws-sdk-go-v2/service/s3 v1.102.1
+	github.com/aws/smithy-go v1.25.1
 	github.com/caarlos0/env/v11 v11.4.1
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.9.2
@@ -29,6 +33,14 @@ require (
 	github.com/ClickHouse/ch-go v0.71.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/andybalholm/brotli v1.2.1 // indirect
+	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.10 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.24 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.24 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/v4a v1.4.25 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.9 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.9.17 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.24 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.19.24 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/containerd/errdefs v1.0.0 // indirect
