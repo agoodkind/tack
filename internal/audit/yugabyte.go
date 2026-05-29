@@ -134,17 +134,28 @@ func (r *YBRecorder) Record(ctx context.Context, ev Event) error {
 		}
 	}
 
+	// Lock the per-(org, shard) chain head for the rest of this transaction so
+	// concurrent Record calls for the same shard serialize instead of racing
+	// on seq (TACK-271). The upsert creates the head row on the first event
+	// with last_seq 0 and an empty hash, and the no-op DO UPDATE takes the same
+	// row lock a SELECT FOR UPDATE would while RETURNING hands back the current
+	// head in one round trip. A second writer blocks here until the first
+	// commits, then reads the advanced head. The unique index on
+	// (org_id, shard, seq) from migration 006 is the defense-in-depth backstop.
 	var lastSeq int64
 	var lastHash []byte
 	err = tx.QueryRow(ctx, `
-		SELECT last_seq, last_hash FROM audit.chain_heads
-		WHERE org_id = $1 AND shard = $2
+		INSERT INTO audit.chain_heads (org_id, shard, last_seq, last_hash, updated_at)
+		VALUES ($1, $2, 0, ''::bytea, now())
+		ON CONFLICT (org_id, shard) DO UPDATE
+			SET updated_at = audit.chain_heads.updated_at
+		RETURNING last_seq, last_hash
 	`, ev.Context.OrgID, shard).Scan(&lastSeq, &lastHash)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		bumpDropped(ev.Verb, "head_read")
-		return fmt.Errorf("audit head read: %w", err)
+	if err != nil {
+		bumpDropped(ev.Verb, "head_lock")
+		return fmt.Errorf("audit head lock: %w", err)
 	}
-	if lastHash == nil {
+	if len(lastHash) == 0 {
 		// audit.events.prev_hash is NOT NULL. The very first row per (org,
 		// shard) substitutes an empty byte slice; the chain hash includes
 		// the byte length so empty differs from any concrete prev hash.
