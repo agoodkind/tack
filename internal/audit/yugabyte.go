@@ -139,8 +139,9 @@ func (r *YBRecorder) Record(ctx context.Context, ev Event) error {
 	// with last_seq 0 and an empty hash, and the no-op DO UPDATE takes the same
 	// row lock a SELECT FOR UPDATE would while RETURNING hands back the current
 	// head in one round trip. A second writer blocks here until the first
-	// commits, then reads the advanced head. The unique index on
-	// (org_id, shard, seq) from migration 006 is the defense-in-depth backstop.
+	// commits, then reads the advanced head. audit.events is partitioned by
+	// event_time, which forbids a unique index on (org_id, shard, seq), so this
+	// lock is the sole guard against the race rather than a backstopped one.
 	var lastSeq int64
 	var lastHash []byte
 	err = tx.QueryRow(ctx, `
