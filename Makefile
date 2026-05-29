@@ -205,14 +205,3 @@ ifndef TS
 	$(error TS is required: make backup-verify TS=20260509T232955Z)
 endif
 	ssh tack 'cd /root/tack && docker compose run --rm tack-ops ops backup verify /root/backups/tack-$(TS)'
-
-# Restore-test verification of a specific backup on CT 117. Spins up
-# scratch containers per artifact and exercises the real restore path.
-# Layered on top of backup-verify; do not run this before verify passes.
-# TS is required: make backup-restore-test TS=20260509T232955Z
-.PHONY: backup-restore-test
-backup-restore-test:
-ifndef TS
-	$(error TS is required: make backup-restore-test TS=20260509T232955Z)
-endif
-	ssh tack 'cd /root/tack && docker compose run --rm tack-ops ops backup restore-test /root/backups/tack-$(TS)'

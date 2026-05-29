@@ -16,7 +16,7 @@ func printOpsUsage() {
 	fmt.Fprintln(os.Stderr, "  repair    preview and apply targeted repairs")
 	fmt.Fprintln(os.Stderr, "  batch     run registered batch maintenance operations")
 	fmt.Fprintln(os.Stderr, "  audit     compliance audit subcommands (parity, ...)")
-	fmt.Fprintln(os.Stderr, "  backup    snapshot, verify, and restore-test the production datastores")
+	fmt.Fprintln(os.Stderr, "  backup    snapshot and verify the production datastores")
 	fmt.Fprintln(os.Stderr, "  deploy    build, push, and roll the production image to CT 117")
 	fmt.Fprintln(os.Stderr)
 	fmt.Fprintln(os.Stderr, "run `./server ops <family> help` for family-specific usage")

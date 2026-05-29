@@ -122,11 +122,22 @@ type Config struct {
 	BackupFDBImage          string `env:"TACK_BACKUP_FDB_IMAGE"          envDefault:"foundationdb/foundationdb:7.4.6"`
 	BackupFDBTimeoutSeconds int    `env:"TACK_BACKUP_FDB_TIMEOUT_SECONDS" envDefault:"1800"`
 	BackupFDBSidecar        string `env:"TACK_BACKUP_FDB_SIDECAR"        envDefault:"tack-backup-agent"`
-	BackupMeiliVolume       string `env:"TACK_BACKUP_MEILI_VOLUME"       envDefault:"tack_meili-data"`
-	BackupTemporalDBUser    string `env:"TACK_BACKUP_TEMPORAL_DB_USER"   envDefault:"temporal"`
-	BackupTemporalDBPass    string `env:"TACK_BACKUP_TEMPORAL_DB_PASSWORD"`
-	BackupTemporalDBName    string `env:"TACK_BACKUP_TEMPORAL_DB_NAME"   envDefault:"temporal"`
-	BackupDockerContext     string `env:"TACK_BACKUP_DOCKER_CONTEXT"     envDefault:"tack"`
+
+	// FDB continuous backup. When BackupFDBContinuous is true, the FDB step
+	// drives a continuous `fdbbackup start` that streams straight to the
+	// SeaweedFS object store via a blobstore:// destination built from the
+	// BackupS3* fields, instead of the one-shot file:///snapshot path that
+	// tars its result. BackupFDBSnapshotInterval is the snapshot interval in
+	// seconds passed to `fdbbackup start --snapshot_interval`. See
+	// https://apple.github.io/foundationdb/backups.html
+	BackupFDBContinuous       bool `env:"TACK_BACKUP_FDB_CONTINUOUS"        envDefault:"false"`
+	BackupFDBSnapshotInterval int  `env:"TACK_BACKUP_FDB_SNAPSHOT_INTERVAL" envDefault:"3600"`
+
+	BackupMeiliVolume    string `env:"TACK_BACKUP_MEILI_VOLUME"       envDefault:"tack_meili-data"`
+	BackupTemporalDBUser string `env:"TACK_BACKUP_TEMPORAL_DB_USER"   envDefault:"temporal"`
+	BackupTemporalDBPass string `env:"TACK_BACKUP_TEMPORAL_DB_PASSWORD"`
+	BackupTemporalDBName string `env:"TACK_BACKUP_TEMPORAL_DB_NAME"   envDefault:"temporal"`
+	BackupDockerContext  string `env:"TACK_BACKUP_DOCKER_CONTEXT"     envDefault:"tack"`
 
 	// Backup S3 target. Read by `./server ops backup buckets-init` to create
 	// the SeaweedFS buckets that hold off-host backup artifacts. Endpoint and
