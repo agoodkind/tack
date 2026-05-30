@@ -14,10 +14,11 @@ import (
 type backupSubcommand string
 
 const (
-	backupSubHelp        backupSubcommand = "help"
-	backupSubVerify      backupSubcommand = "verify"
-	backupSubBucketsInit backupSubcommand = "buckets-init"
-	backupSubYBPITRInit  backupSubcommand = "yb-pitr-init"
+	backupSubHelp         backupSubcommand = "help"
+	backupSubVerify       backupSubcommand = "verify"
+	backupSubBucketsInit  backupSubcommand = "buckets-init"
+	backupSubYBPITRInit   backupSubcommand = "yb-pitr-init"
+	backupSubYBSnapExport backupSubcommand = "yb-snapshot-export"
 )
 
 // runBackupCommand routes the `./server ops backup [...]` family.
@@ -38,6 +39,8 @@ func runBackupCommand(ctx context.Context, cfg *config.Config, args []string) er
 		return runBackupBucketsInitCmd(ctx, cfg, args[1:])
 	case backupSubYBPITRInit:
 		return runBackupYBPITRInitCmd(ctx, cfg, args[1:])
+	case backupSubYBSnapExport:
+		return runBackupYBSnapshotExportCmd(ctx, cfg, args[1:])
 	}
 	printBackupUsage()
 	return fmt.Errorf("unknown backup command %q", args[0])
@@ -67,14 +70,23 @@ func runBackupYBPITRInitCmd(ctx context.Context, cfg *config.Config, args []stri
 	return RunBackupYBPITRInit(ctx, cfg)
 }
 
+func runBackupYBSnapshotExportCmd(ctx context.Context, cfg *config.Config, args []string) error {
+	if len(args) > 0 && args[0] == "help" {
+		printBackupYBSnapshotExportUsage()
+		return nil
+	}
+	return RunBackupYBSnapshotExport(ctx, cfg)
+}
+
 func printBackupUsage() {
-	fmt.Fprintln(os.Stderr, "usage: ./server ops backup [verify|buckets-init|yb-pitr-init] [args]")
+	fmt.Fprintln(os.Stderr, "usage: ./server ops backup [verify|buckets-init|yb-pitr-init|yb-snapshot-export] [args]")
 	fmt.Fprintln(os.Stderr)
 	fmt.Fprintln(os.Stderr, "subcommands:")
-	fmt.Fprintln(os.Stderr, "  (none)         Run a full snapshot of FDB, Yugabyte, Temporal-DB, and Meilisearch")
-	fmt.Fprintln(os.Stderr, "  verify <path>  Structural inventory check of an existing backup directory")
-	fmt.Fprintln(os.Stderr, "  buckets-init   Idempotently create the SeaweedFS S3 backup buckets")
-	fmt.Fprintln(os.Stderr, "  yb-pitr-init   Create the YugabyteDB point-in-time-recovery snapshot schedule")
+	fmt.Fprintln(os.Stderr, "  (none)              Run a full snapshot of FDB, Yugabyte, Temporal-DB, and Meilisearch")
+	fmt.Fprintln(os.Stderr, "  verify <path>       Structural inventory check of an existing backup directory")
+	fmt.Fprintln(os.Stderr, "  buckets-init        Idempotently create the SeaweedFS S3 backup buckets")
+	fmt.Fprintln(os.Stderr, "  yb-pitr-init        Create the YugabyteDB point-in-time-recovery snapshot schedule")
+	fmt.Fprintln(os.Stderr, "  yb-snapshot-export  Export a YugabyteDB distributed snapshot off-host to the object store")
 }
 
 func printBackupVerifyUsage() {
@@ -87,4 +99,8 @@ func printBackupBucketsInitUsage() {
 
 func printBackupYBPITRInitUsage() {
 	fmt.Fprintln(os.Stderr, "usage: ./server ops backup yb-pitr-init")
+}
+
+func printBackupYBSnapshotExportUsage() {
+	fmt.Fprintln(os.Stderr, "usage: ./server ops backup yb-snapshot-export")
 }
