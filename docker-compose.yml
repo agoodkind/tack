@@ -1,6 +1,6 @@
 services:
   app:
-    image: ghcr.io/agoodkind/tack-server:latest
+    image: ghcr.io/agoodkind/tack-server:${TACK_IMAGE_TAG:-latest}
     build:
       context: .
       args:
@@ -303,7 +303,7 @@ services:
   # binary built by the Dockerfile is invoked directly. Mounts the
   # signing key for the embedded notarizer.
   audit-consumer:
-    image: ghcr.io/agoodkind/tack-server:latest
+    image: ghcr.io/agoodkind/tack-server:${TACK_IMAGE_TAG:-latest}
     profiles: [audit]
     build:
       context: .
