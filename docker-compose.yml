@@ -265,7 +265,10 @@ services:
       KAFKA_DEFAULT_REPLICATION_FACTOR: "1"
       KAFKA_MIN_INSYNC_REPLICAS: "1"
       KAFKA_UNCLEAN_LEADER_ELECTION_ENABLE: "false"
-      CLUSTER_ID: ${KAFKA_CLUSTER_ID:?KAFKA_CLUSTER_ID is required, generate via kafka-storage.sh random-uuid}
+      # Empty default so the core stack parses while kafka is profile-gated off.
+      # The audit-profile deploy must set KAFKA_CLUSTER_ID (a kafka-storage.sh
+      # random-uuid) in .env before enabling the audit profile.
+      CLUSTER_ID: ${KAFKA_CLUSTER_ID:-}
     volumes:
       - kafka-data:/var/lib/kafka/data
     healthcheck:

@@ -1,0 +1,10 @@
+# ggshield config for the tack repo. Ignore vendored upstream files that carry
+# public default constants and trip generic secret detectors.
+version: 2
+
+secret:
+  ignored_paths:
+    - yugabyte-overlay/yugabyted
+  ignored_matches:
+    - name: yugabyted upstream DEFAULT_YSQL_PASSWORD constant
+      match: e8c13d18181abe05fa2a88cdccef3270f715486e513f8be3454b6dd5b794e1fa
