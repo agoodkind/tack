@@ -152,6 +152,18 @@ type Config struct {
 	BackupS3BucketMain  string `env:"TACK_BACKUP_S3_BUCKET_MAIN"   envDefault:"tack-backups"`
 	BackupS3BucketAudit string `env:"TACK_BACKUP_S3_BUCKET_AUDIT"  envDefault:"tack-audit-archive"`
 
+	// YugabyteDB point-in-time-recovery (PITR). Read by
+	// `./server ops backup yb-pitr-init`, which creates a yb-admin snapshot
+	// schedule over the auth + audit YSQL database so a fresh deploy can roll
+	// back to any point within the retention window. The image tag must match
+	// the live yugabyte service in docker-compose.yml so yb-admin's wire
+	// protocol agrees with the running masters. Interval and retention are in
+	// minutes, matching yb-admin create_snapshot_schedule's argument units.
+	BackupYBPITRImage            string `env:"TACK_BACKUP_YB_IMAGE"                    envDefault:"yugabytedb/yugabyte:2025.2.3.0-b149"`
+	BackupYBMasterAddresses      string `env:"TACK_BACKUP_YB_MASTER_ADDRESSES"         envDefault:"yugabyte:7100"`
+	BackupYBPITRIntervalMinutes  int    `env:"TACK_BACKUP_YB_PITR_INTERVAL_MINUTES"    envDefault:"60"`
+	BackupYBPITRRetentionMinutes int    `env:"TACK_BACKUP_YB_PITR_RETENTION_MINUTES"   envDefault:"10080"`
+
 	// Yugabyte credentials. Read by the backup family for the ysql_dump call;
 	// the live tack server reads YUGABYTE_PASSWORD via the DATABASE_URL DSN
 	// instead, so these are only consulted by ops backup.
