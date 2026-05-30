@@ -376,6 +376,14 @@ services:
       YUGABYTE_USER: ${YUGABYTE_USER:?YUGABYTE_USER is required, set it in .env}
       YUGABYTE_PASSWORD: ${YUGABYTE_PASSWORD:?YUGABYTE_PASSWORD is required, set it in .env}
       YUGABYTE_DB: ${YUGABYTE_DB:?YUGABYTE_DB is required, set it in .env}
+      # Object store for engine-native continuous backup. Read by the FDB
+      # continuous backup path to build the blobstore destination URL.
+      TACK_BACKUP_S3_ENDPOINT: ${TACK_BACKUP_S3_ENDPOINT:-}
+      TACK_BACKUP_S3_ACCESS_KEY_ID: ${TACK_BACKUP_S3_ACCESS_KEY_ID:-}
+      TACK_BACKUP_S3_SECRET_ACCESS_KEY: ${TACK_BACKUP_S3_SECRET_ACCESS_KEY:-}
+      TACK_BACKUP_S3_REGION: ${TACK_BACKUP_S3_REGION:-us-east-1}
+      TACK_BACKUP_S3_BUCKET_MAIN: ${TACK_BACKUP_S3_BUCKET_MAIN:-tack-backups}
+      TACK_BACKUP_S3_BUCKET_AUDIT: ${TACK_BACKUP_S3_BUCKET_AUDIT:-tack-audit-archive}
     volumes:
       - /root/backups:/root/backups
       - /root/fdb-snapshots:/root/fdb-snapshots
