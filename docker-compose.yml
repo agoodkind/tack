@@ -342,7 +342,7 @@ services:
   # default docker compose up; invoke via:
   #   docker compose run --rm tack-ops ops backup [subcommand] [args]
   tack-ops:
-    image: ghcr.io/agoodkind/tack-server:latest
+    image: ghcr.io/agoodkind/tack-server:${TACK_IMAGE_TAG:-latest}
     profiles: [ops]
     entrypoint: ["/server"]
     network_mode: host
