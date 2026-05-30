@@ -17,7 +17,17 @@ import (
 // network, mounting the cluster file read-only and the snapshot dir as
 // the destination. The image's default entrypoint exits immediately, which
 // is why we override with `/usr/bin/backup_agent` (proven 2026-05-09).
+//
+// In continuous mode the backup_agent sidecar does the writes to the object
+// store, so it gets the same blobstore-host /etc/hosts mapping the fdbbackup
+// one-shot uses; sidecarBlobstoreExtraHosts returns nil for the one-shot
+// file:// path and for plain-hostname endpoints, leaving the HostConfig
+// unchanged in those cases.
 func startFDBSidecar(ctx context.Context, b *backupCtx, name string) error {
+	extraHosts, err := sidecarBlobstoreExtraHosts(ctx, b)
+	if err != nil {
+		return err
+	}
 	cfg := &container.Config{
 		Image:      b.Cfg.BackupFDBImage,
 		Entrypoint: []string{"/usr/bin/backup_agent"},
@@ -29,6 +39,7 @@ func startFDBSidecar(ctx context.Context, b *backupCtx, name string) error {
 			"/etc/foundationdb:/etc/foundationdb:ro",
 			b.SnapshotDir + ":/snapshot",
 		},
+		ExtraHosts: extraHosts,
 	}
 	created, err := b.Cli.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Config:           cfg,
@@ -129,7 +140,8 @@ func runFDBBackupDescribe(ctx context.Context, b *backupCtx, backupURL string) (
 			"/etc/foundationdb:/etc/foundationdb:ro",
 			b.SnapshotDir + ":/snapshot",
 		},
-		Name: "",
+		ExtraHosts: nil,
+		Name:       "",
 	})
 	if err != nil {
 		return "", err
@@ -164,7 +176,8 @@ func tarFDBBackupSubdir(ctx context.Context, b *backupCtx, hostSubdir, tarPath s
 			b.SnapshotDir + ":/snapshot:ro",
 			b.DestDir + ":/dst",
 		},
-		Name: "",
+		ExtraHosts: nil,
+		Name:       "",
 	})
 	if err != nil {
 		return err

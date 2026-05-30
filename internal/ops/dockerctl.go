@@ -127,6 +127,7 @@ type runOneShotOptions struct {
 	Cmd        []string
 	Env        []string // KEY=VAL form
 	Binds      []string // host:container[:ro]
+	ExtraHosts []string // optional /etc/hosts entries, "hostname:ip" form
 	Name       string   // optional explicit container name
 }
 
@@ -150,7 +151,8 @@ func runOneShot(
 		AttachStderr: true,
 	}
 	hostCfg := &container.HostConfig{
-		Binds: opts.Binds,
+		Binds:      opts.Binds,
+		ExtraHosts: opts.ExtraHosts,
 	}
 	created, err := cli.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Config:           cfg,

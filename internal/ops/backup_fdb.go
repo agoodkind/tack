@@ -132,6 +132,28 @@ func runBackupFDB(ctx context.Context, b *backupCtx) error {
 	return nil
 }
 
+// sidecarBlobstoreExtraHosts returns the Docker ExtraHosts the backup_agent
+// sidecar needs to resolve the blobstore host in continuous mode. The sidecar
+// streams the continuous writes to the object store, so it must resolve the
+// synthetic blobstore hostname the same way the fdbbackup one-shot does. It
+// returns nil for the one-shot file:// path (BackupFDBContinuous false) and for
+// plain-hostname endpoints, leaving the sidecar's HostConfig unchanged.
+func sidecarBlobstoreExtraHosts(ctx context.Context, b *backupCtx) ([]string, error) {
+	if !b.Cfg.BackupFDBContinuous {
+		return nil, nil
+	}
+	extraHosts, err := blobstoreExtraHosts(b.Cfg.BackupS3Endpoint)
+	if err != nil {
+		b.Log.ErrorContext(ctx, "backup.fdb.blobstore_extra_hosts_failed",
+			slog.String("endpoint", b.Cfg.BackupS3Endpoint),
+			slog.String("bucket", b.Cfg.BackupS3BucketMain),
+			slog.Any("err", err),
+		)
+		return nil, fmt.Errorf("build blobstore extra hosts: %w", err)
+	}
+	return extraHosts, nil
+}
+
 // runFDBBackupStart fires `fdbbackup start` from a one-shot client container
 // that joins the same docker network as the live cluster. The destination and
 // flags depend on cfg.BackupFDBContinuous:
@@ -144,7 +166,7 @@ func runBackupFDB(ctx context.Context, b *backupCtx) error {
 //     object store and returns immediately. See
 //     https://apple.github.io/foundationdb/backups.html
 func runFDBBackupStart(ctx context.Context, b *backupCtx) error {
-	cmd, binds, err := fdbBackupStartArgs(b)
+	cmd, binds, extraHosts, err := fdbBackupStartArgs(b)
 	if err != nil {
 		return err
 	}
@@ -155,6 +177,7 @@ func runFDBBackupStart(ctx context.Context, b *backupCtx) error {
 		Cmd:        cmd,
 		Env:        []string{"FDB_CLUSTER_FILE=/etc/foundationdb/fdb.cluster"},
 		Binds:      binds,
+		ExtraHosts: extraHosts,
 		Name:       "",
 	})
 	if err != nil {
