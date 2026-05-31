@@ -48,6 +48,15 @@ func RunBackupFDBContinuousInit(ctx context.Context, cfg *config.Config) error {
 // success, so the call is idempotent. The blobstore secret is embedded in the
 // destination URL, so echoed output is redacted before it is logged.
 func ensureFDBContinuousSession(ctx context.Context, b *backupCtx) error {
+	// Idempotent: fdbbackup start replaces a running backup rather than erroring,
+	// so a status check guards against discontinuing an active continuous backup
+	// and starting a fresh one on every call.
+	if active, statusErr := fdbBackupActive(ctx, b); statusErr == nil && active {
+		b.Log.InfoContext(ctx, "backup.fdb.continuous_already_running",
+			slog.String("bucket", b.Cfg.BackupS3BucketMain))
+		return nil
+	}
+
 	cmd, binds, extraHosts, err := fdbBackupStartArgs(b)
 	if err != nil {
 		return err
@@ -67,14 +76,8 @@ func ensureFDBContinuousSession(ctx context.Context, b *backupCtx) error {
 		b.Log.ErrorContext(ctx, "backup.fdb.continuous_start_failed", slog.String("err", wrapped.Error()))
 		return wrapped
 	}
-
-	combined := strings.TrimSpace(res.Stdout + "\n" + res.Stderr)
 	if res.ExitCode != 0 {
-		if isFDBBackupAlreadyRunning(combined) {
-			b.Log.InfoContext(ctx, "backup.fdb.continuous_already_running",
-				slog.String("bucket", b.Cfg.BackupS3BucketMain))
-			return nil
-		}
+		combined := strings.TrimSpace(res.Stdout + "\n" + res.Stderr)
 		wrapped := fmt.Errorf("fdbbackup start exited %d: %s", res.ExitCode, redactSecret(b.Cfg, combined))
 		b.Log.ErrorContext(ctx, "backup.fdb.continuous_start_failed", slog.String("err", wrapped.Error()))
 		return wrapped
@@ -88,12 +91,26 @@ func ensureFDBContinuousSession(ctx context.Context, b *backupCtx) error {
 	return nil
 }
 
-// isFDBBackupAlreadyRunning reports whether fdbbackup start failed only because
-// a backup is already running on the default tag. fdbbackup does not expose a
-// distinct exit code for that case, so it is detected from the message text.
-func isFDBBackupAlreadyRunning(output string) bool {
-	lower := strings.ToLower(output)
-	return strings.Contains(lower, "already running") ||
-		strings.Contains(lower, "backup is already") ||
-		strings.Contains(lower, "already a backup")
+// fdbBackupActive reports whether a FoundationDB backup is currently running on
+// the default tag, read from fdbbackup status. The status output embeds the
+// blobstore secret in the backup URL, so it is never logged; only the boolean is
+// used. An infrastructure error returns false so the caller proceeds to start.
+func fdbBackupActive(ctx context.Context, b *backupCtx) (bool, error) {
+	res, err := runOneShot(ctx, b.Cli, b.Log, runOneShotOptions{
+		Image:      b.Cfg.BackupFDBImage,
+		Network:    b.Cfg.BackupFDBNetwork,
+		Entrypoint: []string{"/usr/bin/fdbbackup"},
+		Cmd:        []string{"status", "-C", "/etc/foundationdb/fdb.cluster"},
+		Env:        []string{"FDB_CLUSTER_FILE=/etc/foundationdb/fdb.cluster"},
+		Binds:      []string{"/etc/foundationdb:/etc/foundationdb:ro"},
+		ExtraHosts: nil,
+		Name:       "",
+	})
+	if err != nil {
+		return false, err
+	}
+	out := strings.ToLower(res.Stdout + " " + res.Stderr)
+	return strings.Contains(out, "is in progress") ||
+		strings.Contains(out, "restorable but continuing") ||
+		strings.Contains(out, "is running"), nil
 }
