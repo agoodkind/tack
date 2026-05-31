@@ -63,9 +63,12 @@ func importAndRestoreYBSnapshot(ctx context.Context, r *restoreDrillCtx, contain
 	for _, m := range remaps {
 		src := fmt.Sprintf("/tmp/exp/table-%s/tablet-%s.snapshots/%s", m.table, m.old, exportSnap)
 		dst := fmt.Sprintf("%s/table-%s/tablet-%s.snapshots/%s", r.Cfg.BackupYBRocksDBDir, m.table, m.new, newSnap)
+		// cp -a preserves the tablet files' ownership from the export, and the
+		// placement exec runs as the container's default user (root in the
+		// yugabyted image), matching the rocksdb files yugabyted reads. No chown
+		// is needed, and the image has no `yugabyte` user name to chown to.
 		fmt.Fprintf(&script, "if [ -d %q ]; then mkdir -p %q && cp -a %q/. %q/; fi; ", src, dst, src, dst)
 	}
-	fmt.Fprintf(&script, "chown -R yugabyte:yugabyte %q", r.Cfg.BackupYBRocksDBDir)
 	if placeRes, err := containerExec(ctx, r.Cli, container, []string{"sh", "-c", script.String()}); err != nil || placeRes.ExitCode != 0 {
 		wrapped := fmt.Errorf("place tablet files: exit %d: %s: %w", placeRes.ExitCode, strings.TrimSpace(placeRes.Stderr), err)
 		logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", wrapped.Error()))
