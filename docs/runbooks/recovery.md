@@ -23,13 +23,14 @@ when a store must be rebuilt from off-host artifacts.
   restored. See `meilisearch-recovery.md`.
 - Temporal holds no Tack data and has no backup.
 
-## Verify recoverability without touching live data
+## Confirming the backups restore
 
 `./server ops backup restore-drill` restores each store into throwaway
-containers, asserts the data is present, and removes the throwaway containers and
-volumes, including after an interrupt. It never connects to the live cluster, so
-it is safe to run anytime to confirm the backups are restorable. The drill is the
-executable, verified form of the procedures below.
+containers, confirms the data is present, and removes those containers and
+volumes afterward, including after an interrupt. It never connects to the live
+cluster, so it is safe to run at any time. It performs the same restore steps
+described below, so a passing drill is direct evidence that the procedures here
+work.
 
 Run it from the install directory with the `backup` profile available:
 
@@ -46,11 +47,12 @@ The drill exits zero when both legs assert data is present. The FoundationDB leg
 runs only when `TACK_BACKUP_FDB_CONTINUOUS` is true and is otherwise skipped with
 a warning.
 
-## Prerequisites for any recovery
+## Prerequisites
 
-- The object store is reachable, and `.env` provides `TACK_BACKUP_S3_HOST`,
-  `TACK_BACKUP_S3_PORT`, `TACK_BACKUP_S3_ACCESS_KEY_ID`,
-  `TACK_BACKUP_S3_SECRET_ACCESS_KEY`, and the bucket names.
+- The object store is reachable. Its endpoint, host, credentials, and buckets
+  come from the configs-rendered `.env`
+  ([`tack.env.j2`](https://github.com/agoodkind/configs/blob/main/tack/tack.env.j2)),
+  never hand-set on the host.
 - The FoundationDB overlay `fdb-overlay/fdb.bash` and the YugabyteDB overlay
   `yugabyte-overlay/yugabyted` are present in the install directory.
 - A `backup_agent` is running. In normal operation it is the `fdb-backup-agent`
@@ -125,8 +127,8 @@ the live cluster's `audit.chain_heads`.
 
 ## Recovery objectives
 
-- FoundationDB: the recovery point is any version within the continuous backup's
-  restore window, which advances while the backup runs.
-- YugabyteDB: the recovery point is the latest snapshot export.
-- Recovery time for both is bounded by restore and verification, the slowest
-  tier. Replication, not this runbook, is the fast path.
+For FoundationDB, the recovery point is any version within the continuous
+backup's restore window, which advances while the backup runs. For YugabyteDB,
+it is the most recent snapshot export. Recovery time for both is bounded by the
+restore and its verification, which is the slowest tier; replication, not this
+runbook, is the fast path.
