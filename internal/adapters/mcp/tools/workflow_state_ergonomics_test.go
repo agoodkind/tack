@@ -14,9 +14,11 @@ func TestGettingStartedDocumentsWorkflowStateTools(t *testing.T) {
 	for _, want := range []string{
 		"## Workflow states",
 		"States are first-class nodes",
-		"Use `tack_list_states`",
-		"use the generated `tack_set_<tool-token>_state` tool",
-		"Do not record workflow progress only as a comment",
+		"`tack_list_states`",
+		"`tack_set_<tool-token>_state`",
+		"Queues, filters, and list views read the node's state property",
+		"Comments are not workflow signals",
+		"Do not signal workflow changes in comments alone",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("getting started should contain %q:\n%s", want, body)

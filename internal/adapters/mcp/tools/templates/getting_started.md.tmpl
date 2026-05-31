@@ -67,11 +67,11 @@ Properties whose PropertyDef declares `reference_target_type_key` accept either 
 
 ## Workflow states
 
-States are first-class nodes. Use `tack_list_states` with `{{.EntryParam}}` and the relevant scope reference to see valid workflow states before moving work.
+When a node moves between workflow stages (started, blocked, superseded, done, canceled, etc.), change its state. Call `tack_set_<tool-token>_state` with the printed node reference and a printed state reference such as `CLYDE::In Progress`, or call `tack_update_<tool-token>` setting the state property directly. List the available states first with `tack_list_states` using `{{.EntryParam}}` and the relevant scope reference.
 
-To move an issue, epic, or any stateful node, use the generated `tack_set_<tool-token>_state` tool when it exists. For example, use `tack_set_issue_state` with the printed issue reference and a printed state reference such as `CLYDE::In Progress`.
+States are first-class nodes. Queues, filters, and list views read the node's state property; they do not read comment bodies. A node whose work has moved but whose state still says `Todo` or `In Progress` is invisible to every state-aware tool: list filters, dashboards, automation, and any future view that groups by state.
 
-Do not record workflow progress only as a comment. Comments can explain context, but the current workflow state belongs in the node's state property.
+Comments record context, reasoning, decisions, and links. Comments are not workflow signals. Writing "this is blocked on X" as a comment without also moving the node to `Blocked` leaves the node unrouted. Write the comment and change the state.
 
 ## Relationships
 
@@ -105,7 +105,7 @@ Single-node responses include the raw `id` field at the bottom for cases where y
 
 - `node_type` is always the TypeKey, not the display name or plural list token. Never guess. Read it from the describe call.
 - Property names are lowercase snake_case from `tack_list_property_defs`. Do not send `Priority`. Send `priority`.
-- Do not store workflow state in comments. List states with `tack_list_states`, then use the generated state setter or `tack_update_<tool-token>` with the state property.
+- Do not signal workflow changes in comments alone. State changes go through `tack_set_<tool-token>_state` or `tack_update_<tool-token>` with the state property; list valid states first with `tack_list_states`. Comments add context around a state change; they do not replace it.
 - There is no dedicated `tack_assign` tool. Use `tack_add_relationship { source_id, relation_type: "assigned_to", target_id: <user_uuid> }`.
 
 ## Error handling
