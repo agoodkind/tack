@@ -19,6 +19,7 @@ const (
 	backupSubBucketsInit  backupSubcommand = "buckets-init"
 	backupSubYBPITRInit   backupSubcommand = "yb-pitr-init"
 	backupSubYBSnapExport backupSubcommand = "yb-snapshot-export"
+	backupSubRestoreDrill backupSubcommand = "restore-drill"
 )
 
 // runBackupCommand routes the `./server ops backup [...]` family.
@@ -41,6 +42,8 @@ func runBackupCommand(ctx context.Context, cfg *config.Config, args []string) er
 		return runBackupYBPITRInitCmd(ctx, cfg, args[1:])
 	case backupSubYBSnapExport:
 		return runBackupYBSnapshotExportCmd(ctx, cfg, args[1:])
+	case backupSubRestoreDrill:
+		return runBackupRestoreDrillCmd(ctx, cfg, args[1:])
 	}
 	printBackupUsage()
 	return fmt.Errorf("unknown backup command %q", args[0])
@@ -78,6 +81,14 @@ func runBackupYBSnapshotExportCmd(ctx context.Context, cfg *config.Config, args 
 	return RunBackupYBSnapshotExport(ctx, cfg)
 }
 
+func runBackupRestoreDrillCmd(ctx context.Context, cfg *config.Config, args []string) error {
+	if len(args) > 0 && args[0] == "help" {
+		printBackupRestoreDrillUsage()
+		return nil
+	}
+	return RunBackupRestoreDrill(ctx, cfg)
+}
+
 func printBackupUsage() {
 	fmt.Fprintln(os.Stderr, "usage: ./server ops backup [verify|buckets-init|yb-pitr-init|yb-snapshot-export] [args]")
 	fmt.Fprintln(os.Stderr)
@@ -103,4 +114,8 @@ func printBackupYBPITRInitUsage() {
 
 func printBackupYBSnapshotExportUsage() {
 	fmt.Fprintln(os.Stderr, "usage: ./server ops backup yb-snapshot-export")
+}
+
+func printBackupRestoreDrillUsage() {
+	fmt.Fprintln(os.Stderr, "usage: ./server ops backup restore-drill")
 }

@@ -164,14 +164,24 @@ type Config struct {
 	BackupYBPITRIntervalMinutes  int    `env:"TACK_BACKUP_YB_PITR_INTERVAL_MINUTES"    envDefault:"60"`
 	BackupYBPITRRetentionMinutes int    `env:"TACK_BACKUP_YB_PITR_RETENTION_MINUTES"   envDefault:"10080"`
 
-	// YugabyteDB distributed-snapshot export. Read by
-	// `./server ops backup yb-snapshot-export`, the last-resort off-host
-	// backup tier. BackupYBRocksDBDir is the rocksdb root inside the yugabyte
-	// container; on the yugabyted single-node layout it is
-	// <base_dir>/data/yb-data/tserver/data/rocksdb, where the per-tablet
-	// `.snapshots/<snapshot_id>` directories that hold the tablet snapshot
-	// files live.
-	BackupYBRocksDBDir string `env:"TACK_BACKUP_YB_ROCKSDB_DIR" envDefault:"/home/yugabyte/var/data/yb-data/tserver/data/rocksdb"`
+	// YugabyteDB distributed-snapshot export and restore. No defaults: these
+	// are deployment- and image-specific paths that must be declared in .env so
+	// a wrong value fails loudly rather than silently writing or reading the
+	// wrong location. BackupYBRocksDBDir is the rocksdb root inside the yugabyte
+	// container (on the yugabyted single-node layout,
+	// <base_dir>/data/yb-data/tserver/data/rocksdb), where the per-tablet
+	// `.snapshots/<snapshot_id>` directories live. BackupYBOverlayPath is the
+	// host path to the patched yugabyted binary (PR #23158) the restore drill
+	// bind-mounts into the throwaway yugabyted so it boots on the IPv6-only
+	// bridge.
+	BackupYBRocksDBDir  string `env:"TACK_BACKUP_YB_ROCKSDB_DIR"`
+	BackupYBOverlayPath string `env:"TACK_BACKUP_YB_OVERLAY_PATH"`
+
+	// BackupFDBOverlayPath is the host path to the patched fdb.bash (IPv6
+	// bracket handling) the restore drill bind-mounts into the throwaway
+	// FoundationDB so it boots on the IPv6-only bridge, the same overlay the
+	// live fdb service mounts. No default, for the same reason as the YB paths.
+	BackupFDBOverlayPath string `env:"TACK_BACKUP_FDB_OVERLAY_PATH"`
 
 	// Yugabyte credentials. Read by the backup family for the ysql_dump call;
 	// the live tack server reads YUGABYTE_PASSWORD via the DATABASE_URL DSN
