@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
+	"sort"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -138,8 +141,79 @@ func mustUser(ctx context.Context) (uuid.UUID, error) {
 // in wrapToolHandler so every call lands one structured pair of events plus
 // counter bumps. Use this in place of s.AddTool everywhere in the
 // internal/adapters/mcp/tools package.
+//
+// The wrapper enforces strict top-level argument keys before dispatch: any
+// key not declared in tool.InputSchema.Properties causes a recoverableError.
+// Nested keys inside properties are validated separately by the service
+// layer (validateNodeProps).
 func registerTool(s *mcpserver.MCPServer, tool mcpmcp.Tool, h mcpserver.ToolHandlerFunc) {
-	s.AddTool(tool, wrapToolHandler(tool.Name, h))
+	allowed := allowedArgNames(tool.InputSchema)
+	strict := func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
+		if err := rejectUnknownArgs(req, tool.Name, allowed); err != nil {
+			return recoverableError(err.Error()), nil
+		}
+		return h(ctx, req)
+	}
+	s.AddTool(tool, wrapToolHandler(tool.Name, strict))
+}
+
+// allowedArgNames returns the set of top-level argument keys declared in
+// the tool's input schema. The set is built once at registration time and
+// captured by the strict-args wrapper.
+func allowedArgNames(s mcpmcp.ToolInputSchema) map[string]struct{} {
+	allowed := make(map[string]struct{}, len(s.Properties))
+	for name := range s.Properties {
+		allowed[name] = struct{}{}
+	}
+	return allowed
+}
+
+// rejectUnknownArgs returns an error if the request carries any top-level
+// argument key not in allowed. Returns nil when the request has no
+// arguments or every key is declared.
+func rejectUnknownArgs(req mcpmcp.CallToolRequest, toolName string, allowed map[string]struct{}) error {
+	var args map[string]json.RawMessage
+	if err := req.BindArguments(&args); err != nil {
+		return err
+	}
+	if len(args) == 0 {
+		return nil
+	}
+	unknown := make([]string, 0)
+	for name := range args {
+		if _, ok := allowed[name]; ok {
+			continue
+		}
+		unknown = append(unknown, name)
+	}
+	if len(unknown) == 0 {
+		return nil
+	}
+	sort.Strings(unknown)
+	allowedList := sortedKeyList(allowed)
+	return fmt.Errorf(
+		"unknown argument %s for tool %s; allowed: %s",
+		quoteAndJoin(unknown),
+		toolName,
+		strings.Join(allowedList, ", "),
+	)
+}
+
+func sortedKeyList(set map[string]struct{}) []string {
+	out := make([]string, 0, len(set))
+	for k := range set {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func quoteAndJoin(names []string) string {
+	quoted := make([]string, len(names))
+	for i, n := range names {
+		quoted[i] = fmt.Sprintf("%q", n)
+	}
+	return strings.Join(quoted, ", ")
 }
 
 // wrapToolHandler instruments an MCP tool handler with structured logging

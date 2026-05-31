@@ -54,8 +54,9 @@ func (s schema) toMCP() mcpmcp.ToolInputSchema {
 		props[f.Name] = spec
 	}
 	return mcpmcp.ToolInputSchema{
-		Type:       "object",
-		Properties: props,
-		Required:   s.Required,
+		Type:                 "object",
+		Properties:           props,
+		Required:             s.Required,
+		AdditionalProperties: false,
 	}
 }
