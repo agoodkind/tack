@@ -450,7 +450,7 @@ preferable in the open-source-only stack.
 
 Justification against horizontal-day-one:
 
-- **SeaweedFS exposes the S3 API.** A Compose-mounted SeaweedFS at N=1
+- **SeaweedFS exposes the S3 API.** A single-LXC SeaweedFS at N=1
   exposes the same S3 API that a SeaweedFS cluster exposes at N=many.
   The archiver binary uses the same S3 SDK in both cases.
 - **Iceberg metadata commits scale by configuration.** At N=1 the
@@ -466,8 +466,8 @@ Justification against horizontal-day-one:
   to the Iceberg catalog. No code branches on N. No code branches on
   whether the backend is SeaweedFS or Garage.
 
-N=1 behavior: SeaweedFS as a Compose service, single-node, single-bucket,
-local volume mount. Catalog is a single SQLite file.
+N=1 behavior: SeaweedFS on its own LXC, the weed binary under systemd, single
+node, single bucket, a local data directory. Catalog is a single SQLite file.
 
 N=many behavior: SeaweedFS cluster (multiple volume servers, replicated
 filer) or Garage cluster (3-node minimum), with a self-hosted Nessie
@@ -1105,7 +1105,8 @@ counters trip. This is the precondition for Wave 1.
    `kafka-storage.sh random-uuid` and pinned in
    `KAFKA_CLUSTER_ID`. No ZooKeeper service.
 2. Add ClickHouse Compose service. Single node.
-3. Add SeaweedFS Compose service. Single node, S3 API enabled.
+3. Provision the SeaweedFS object store as a dedicated LXC through the configs
+   repo (the weed binary under systemd). Single node, S3 API enabled.
 4. Apply migrations:
    - `005_audit_consumer_offsets.sql` (new table for offset tracking)
    - `006_audit_events_event_id_uniq.sql` (UNIQUE on `event_id` for
@@ -1262,8 +1263,8 @@ This is operations work; no code deploy required.
 - **Capacity planning.** None required at 0.37 EPS. The architecture
   has 5+ orders of magnitude of headroom.
 - **Cost.** Within an order of magnitude of current Tack hosting cost.
-  Apache Kafka, ClickHouse, and SeaweedFS processes share the existing
-  CT 117 host. Kafka's JVM footprint is the dominant memory cost on
+  Apache Kafka and ClickHouse processes share the existing host; the
+  SeaweedFS object store runs on its own LXC. Kafka's JVM footprint is the dominant memory cost on
   the host; budget roughly 2 GiB heap for a small-scale single-broker
   KRaft process.
 
@@ -1420,8 +1421,9 @@ This is operations work; no code deploy required.
   No change (preserved for state-change writes).
 - `/Users/agoodkind/Sites/tack/docker-compose.yml`
   Add `kafka` (Apache Kafka 4.x in KRaft combined mode),
-  `audit-projector`, `audit-notarizer`, `audit-archiver`, `clickhouse`,
-  `seaweedfs` services.
+  `audit-projector`, `audit-notarizer`, `audit-archiver`, and `clickhouse`
+  services. The SeaweedFS object store is a dedicated LXC provisioned by the
+  configs repo, not a Compose service.
 - `/Users/agoodkind/Sites/tack/internal/telemetry/metrics.go`
   Add `audit_kafka_lag_seconds`, `audit_projector_commit_rate`,
   `audit_clickhouse_write_latency_ms`, `audit_archiver_lag_hours`.
