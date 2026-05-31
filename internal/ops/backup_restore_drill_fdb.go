@@ -47,10 +47,12 @@ func restoreDrillFDB(ctx context.Context, r *restoreDrillCtx) error {
 		logger.ErrorContext(ctx, "backup.restore_drill.fdb.no_backup", slog.String("err", wrapped.Error()))
 		return wrapped
 	}
-	// Latest by sortable name. The prefix already includes the backups/ folder,
-	// which is the exact name fdbrestore must address, so it is not stripped.
-	// fdbrestore fails clearly if the backup is not restorable.
+	// Latest by sortable name. The FoundationDB blobstore stores each backup under
+	// the bucket's backups/ folder, and fdbrestore re-adds that folder from the
+	// backup name, so the backups/ prefix is stripped here to recover the bare
+	// name. fdbrestore fails clearly if the backup is not restorable.
 	backupName := strings.TrimSuffix(names[len(names)-1], "/")
+	backupName = strings.TrimPrefix(backupName, "backups/")
 	logger.InfoContext(ctx, "backup.restore_drill.fdb.backup", slog.String("name", backupName))
 
 	dest, err := fdbBlobstoreURL(r.Cfg, backupName)

@@ -150,9 +150,10 @@ func fdbBackupStartArgs(b *backupCtx) (cmd []string, binds []string, extraHosts 
 		cmd = []string{"start", "-w", "-d", "file:///snapshot/" + b.RunID}
 		return cmd, binds, nil, nil
 	}
-	// The backup name is prefixed with backups/ so the object keys land under the
-	// backups/ folder that the restore drill lists to discover the latest backup.
-	dest, err := fdbBlobstoreURL(b.Cfg, "backups/"+b.RunID)
+	// The run ID is the bare backup name. The FoundationDB blobstore layer stores
+	// every backup under its own backups/ folder in the bucket, so the object keys
+	// land at backups/<run-id>/ without a backups/ prefix here.
+	dest, err := fdbBlobstoreURL(b.Cfg, b.RunID)
 	if err != nil {
 		wrapped := fmt.Errorf("build blobstore destination: %w", err)
 		b.Log.Error("backup.fdb.blobstore_url_failed",
