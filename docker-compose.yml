@@ -47,7 +47,7 @@ services:
       AUDIT_KAFKA_CLIENT_ID: ${AUDIT_KAFKA_CLIENT_ID:-tack-audit-producer}
       AUDIT_KAFKA_PRODUCE_TIMEOUT: ${AUDIT_KAFKA_PRODUCE_TIMEOUT:-10s}
       # Backup object store. Empty unless the host's group_vars set them; read only by ops backup.
-      TACK_BACKUP_S3_ENDPOINT: "http://[${TACK_BACKUP_S3_HOST}]:${TACK_BACKUP_S3_PORT:-8333}"
+      TACK_BACKUP_S3_ENDPOINT: ${TACK_BACKUP_S3_ENDPOINT:-}
       TACK_BACKUP_S3_ACCESS_KEY_ID: ${TACK_BACKUP_S3_ACCESS_KEY_ID:-}
       TACK_BACKUP_S3_SECRET_ACCESS_KEY: ${TACK_BACKUP_S3_SECRET_ACCESS_KEY:-}
       TACK_BACKUP_S3_REGION: ${TACK_BACKUP_S3_REGION:-us-east-1}
@@ -165,8 +165,8 @@ services:
   # profile keeps it off for a plain `docker compose up` without an object store,
   # and the deploy enables the profile. fdbbackup cannot resolve an IPv6 literal,
   # so it reaches the blobstore through the synthetic name fdb-blobstore-host
-  # mapped to TACK_BACKUP_S3_HOST, the single source the S3 endpoint also derives
-  # from.
+  # mapped to TACK_BACKUP_S3_HOST, the bare object-store address configs renders
+  # alongside the full TACK_BACKUP_S3_ENDPOINT.
   fdb-backup-agent:
     image: foundationdb/foundationdb:${FDB_VERSION:-7.4.6}
     profiles: [backup]
@@ -400,7 +400,7 @@ services:
       YUGABYTE_DB: ${YUGABYTE_DB:?YUGABYTE_DB is required, set it in .env}
       # Object store for engine-native continuous backup. Read by the FDB
       # continuous backup path to build the blobstore destination URL.
-      TACK_BACKUP_S3_ENDPOINT: "http://[${TACK_BACKUP_S3_HOST}]:${TACK_BACKUP_S3_PORT:-8333}"
+      TACK_BACKUP_S3_ENDPOINT: ${TACK_BACKUP_S3_ENDPOINT:-}
       TACK_BACKUP_S3_ACCESS_KEY_ID: ${TACK_BACKUP_S3_ACCESS_KEY_ID:-}
       TACK_BACKUP_S3_SECRET_ACCESS_KEY: ${TACK_BACKUP_S3_SECRET_ACCESS_KEY:-}
       TACK_BACKUP_S3_REGION: ${TACK_BACKUP_S3_REGION:-us-east-1}
