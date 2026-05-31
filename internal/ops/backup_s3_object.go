@@ -120,3 +120,34 @@ func listImmediatePrefixes(ctx context.Context, client *s3.Client, bucket, prefi
 	}
 	return out, nil
 }
+
+// listImmediateObjects returns the keys of objects that sit directly under
+// prefix, using the delimiter so keys nested in subfolders are excluded, and
+// skipping a directory-placeholder object equal to prefix itself. The
+// FoundationDB blobstore registers each backup as a zero-byte marker object at
+// backups/<name> and keeps the backup's data in its own internal layout, so the
+// restore drill discovers the backup name from these markers;
+// listImmediatePrefixes would instead return the engine's internal data folder.
+func listImmediateObjects(ctx context.Context, client *s3.Client, bucket, prefix string) ([]string, error) {
+	logger := telemetry.L(ctx)
+	var out []string
+	paginator := s3.NewListObjectsV2Paginator(client, &s3.ListObjectsV2Input{
+		Bucket:    aws.String(bucket),
+		Prefix:    aws.String(prefix),
+		Delimiter: aws.String("/"),
+	})
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			wrapped := fmt.Errorf("list objects %s/%s: %w", bucket, prefix, err)
+			logger.ErrorContext(ctx, "backup.s3.list_failed", slog.String("err", wrapped.Error()))
+			return nil, wrapped
+		}
+		for _, obj := range page.Contents {
+			if obj.Key != nil && *obj.Key != prefix {
+				out = append(out, *obj.Key)
+			}
+		}
+	}
+	return out, nil
+}

@@ -38,7 +38,10 @@ func restoreDrillFDB(ctx context.Context, r *restoreDrillCtx) error {
 	}
 
 	s3Client := newBackupS3Client(r.Cfg)
-	names, err := listImmediatePrefixes(ctx, s3Client, r.Cfg.BackupS3BucketMain, "backups/")
+	// The FoundationDB blobstore registers each backup as a marker object at
+	// backups/<name>, so the markers are listed (not the engine's internal
+	// backups/ subfolder) to discover backups.
+	names, err := listImmediateObjects(ctx, s3Client, r.Cfg.BackupS3BucketMain, "backups/")
 	if err != nil {
 		return err
 	}
@@ -47,12 +50,10 @@ func restoreDrillFDB(ctx context.Context, r *restoreDrillCtx) error {
 		logger.ErrorContext(ctx, "backup.restore_drill.fdb.no_backup", slog.String("err", wrapped.Error()))
 		return wrapped
 	}
-	// Latest by sortable name. The FoundationDB blobstore stores each backup under
-	// the bucket's backups/ folder, and fdbrestore re-adds that folder from the
-	// backup name, so the backups/ prefix is stripped here to recover the bare
-	// name. fdbrestore fails clearly if the backup is not restorable.
-	backupName := strings.TrimSuffix(names[len(names)-1], "/")
-	backupName = strings.TrimPrefix(backupName, "backups/")
+	// Latest marker by sortable key. fdbrestore re-adds the backups/ folder from
+	// the backup name, so the backups/ prefix is stripped here to recover the bare
+	// name fdbrestore addresses. fdbrestore fails clearly if it is not restorable.
+	backupName := strings.TrimPrefix(names[len(names)-1], "backups/")
 	logger.InfoContext(ctx, "backup.restore_drill.fdb.backup", slog.String("name", backupName))
 
 	dest, err := fdbBlobstoreURL(r.Cfg, backupName)
