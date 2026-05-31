@@ -10,20 +10,22 @@ import (
 	"time"
 )
 
-// runBackupFDB performs a `fdbbackup`-driven snapshot. The 2026-05-09
-// rebuild proved that a named-volume tar of /var/fdb/data is silently
-// empty because the FDB image declares `VOLUME /var/fdb/data` and an
-// anonymous volume shadows the bind. The fix: drive an actual fdbbackup
-// session against the live cluster, with a backup_agent sidecar to drain
-// the queue, then assert `Restorable: true` against the timestamped
-// subdirectory before we trust the artifact.
+// runBackupFDB backs up FoundationDB through `fdbbackup`. It does not tar the
+// data volume, because the FDB image declares `VOLUME /var/fdb/data` and an
+// anonymous volume shadows a bind, so a volume tar is silently empty.
 //
-// All four 2026-05-09 fixes preserved:
-//   - fdbbackup, not volume tar (anonymous-volume shadowing)
-//   - backup_agent sidecar with `--entrypoint /usr/bin/backup_agent`
-//   - fdbbackup describe targeting the resolved `backup-*` subdir
-//   - assert `Restorable: true` or fail loudly
+// There are two modes. In continuous mode it ensures a streaming session to the
+// object store is running and returns; the long-lived backup_agent that drains
+// snapshots is the `fdb-backup-agent` compose service, not a container started
+// here. In one-shot mode it starts a short-lived backup_agent sidecar, runs a
+// blocking `fdbbackup start -w` to a local snapshot directory, asserts
+// `Restorable: true`, tars the resolved `backup-*` subdirectory, and removes the
+// sidecar.
 func runBackupFDB(ctx context.Context, b *backupCtx) error {
+	if b.Cfg.BackupFDBContinuous {
+		return ensureFDBContinuousSession(ctx, b)
+	}
+
 	sidecarName := b.Cfg.BackupFDBSidecar
 	// Pre-clean any sidecar from a prior aborted run; the helper is
 	// no-op when nothing matches.
@@ -55,19 +57,6 @@ func runBackupFDB(ctx context.Context, b *backupCtx) error {
 			slog.Any("err", err),
 		)
 		return fmt.Errorf("fdbbackup start: %w", err)
-	}
-
-	// Continuous backups stream straight to object storage; there is no local
-	// snapshot subdir to resolve, describe, or tar. The fdbbackup session keeps
-	// running after this command returns and is verified out of band against the
-	// object store. See https://apple.github.io/foundationdb/backups.html
-	if b.Cfg.BackupFDBContinuous {
-		b.Log.InfoContext(ctx, "backup.fdb.continuous_started",
-			slog.String("bucket", b.Cfg.BackupS3BucketMain),
-			slog.String("endpoint", b.Cfg.BackupS3Endpoint),
-			slog.Int("snapshot_interval_seconds", b.Cfg.BackupFDBSnapshotInterval),
-		)
-		return nil
 	}
 
 	backupURL, subdir, err := resolveFDBBackupSubdir(ctx, b.Log, b.SnapshotDir, b.RunID)

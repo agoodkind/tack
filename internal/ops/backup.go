@@ -20,6 +20,7 @@ const (
 	backupSubYBPITRInit   backupSubcommand = "yb-pitr-init"
 	backupSubYBSnapExport backupSubcommand = "yb-snapshot-export"
 	backupSubRestoreDrill backupSubcommand = "restore-drill"
+	backupSubFDBContInit  backupSubcommand = "fdb-continuous-init"
 )
 
 // runBackupCommand routes the `./server ops backup [...]` family.
@@ -44,6 +45,8 @@ func runBackupCommand(ctx context.Context, cfg *config.Config, args []string) er
 		return runBackupYBSnapshotExportCmd(ctx, cfg, args[1:])
 	case backupSubRestoreDrill:
 		return runBackupRestoreDrillCmd(ctx, cfg, args[1:])
+	case backupSubFDBContInit:
+		return runBackupFDBContinuousInitCmd(ctx, cfg, args[1:])
 	}
 	printBackupUsage()
 	return fmt.Errorf("unknown backup command %q", args[0])
@@ -89,6 +92,14 @@ func runBackupRestoreDrillCmd(ctx context.Context, cfg *config.Config, args []st
 	return RunBackupRestoreDrill(ctx, cfg)
 }
 
+func runBackupFDBContinuousInitCmd(ctx context.Context, cfg *config.Config, args []string) error {
+	if len(args) > 0 && args[0] == "help" {
+		printBackupFDBContinuousInitUsage()
+		return nil
+	}
+	return RunBackupFDBContinuousInit(ctx, cfg)
+}
+
 func printBackupUsage() {
 	fmt.Fprintln(os.Stderr, "usage: ./server ops backup [verify|buckets-init|yb-pitr-init|yb-snapshot-export] [args]")
 	fmt.Fprintln(os.Stderr)
@@ -98,6 +109,8 @@ func printBackupUsage() {
 	fmt.Fprintln(os.Stderr, "  buckets-init        Idempotently create the SeaweedFS S3 backup buckets")
 	fmt.Fprintln(os.Stderr, "  yb-pitr-init        Create the YugabyteDB point-in-time-recovery snapshot schedule")
 	fmt.Fprintln(os.Stderr, "  yb-snapshot-export  Export a YugabyteDB distributed snapshot off-host to the object store")
+	fmt.Fprintln(os.Stderr, "  restore-drill       Restore each store into throwaway containers and assert data is present")
+	fmt.Fprintln(os.Stderr, "  fdb-continuous-init Start the FoundationDB continuous backup session (idempotent)")
 }
 
 func printBackupVerifyUsage() {
@@ -118,4 +131,8 @@ func printBackupYBSnapshotExportUsage() {
 
 func printBackupRestoreDrillUsage() {
 	fmt.Fprintln(os.Stderr, "usage: ./server ops backup restore-drill")
+}
+
+func printBackupFDBContinuousInitUsage() {
+	fmt.Fprintln(os.Stderr, "usage: ./server ops backup fdb-continuous-init")
 }

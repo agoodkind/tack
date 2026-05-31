@@ -133,24 +133,26 @@ func stripScheme(endpoint string) (string, error) {
 
 // fdbBackupStartArgs builds the fdbbackup start command, host binds, and Docker
 // ExtraHosts for the run. The continuous and one-shot paths differ in
-// destination URL, the presence of `-w`, and the `--snapshot_interval` flag.
-// The one-shot file:// path needs no ExtraHosts and returns nil. The continuous
-// blobstore path returns the ExtraHosts entries (one synthetic
-// hostname-to-IPv6 mapping) so both the fdbbackup one-shot container and the
-// long-lived backup_agent sidecar can resolve the blobstore host. The blobstore
+// destination URL, the presence of `-w`, the `--snapshot_interval` flag, and
+// the binds. The one-shot file:// path binds the local snapshot directory and
+// needs no ExtraHosts. The continuous blobstore path binds only the cluster
+// file and returns one ExtraHosts entry (the synthetic hostname-to-IPv6
+// mapping) so the fdbbackup container resolves the blobstore host. The blobstore
 // secret is embedded in the destination URL and never logged; only the endpoint
 // and bucket are logged at the call site. See
 // https://apple.github.io/foundationdb/backups.html
 func fdbBackupStartArgs(b *backupCtx) (cmd []string, binds []string, extraHosts []string, err error) {
-	binds = []string{
-		"/etc/foundationdb:/etc/foundationdb:ro",
-		b.SnapshotDir + ":/snapshot",
-	}
 	if !b.Cfg.BackupFDBContinuous {
+		binds = []string{
+			"/etc/foundationdb:/etc/foundationdb:ro",
+			b.SnapshotDir + ":/snapshot",
+		}
 		cmd = []string{"start", "-w", "-d", "file:///snapshot/" + b.RunID}
 		return cmd, binds, nil, nil
 	}
-	dest, err := fdbBlobstoreURL(b.Cfg, b.RunID)
+	// The backup name is prefixed with backups/ so the object keys land under the
+	// backups/ folder that the restore drill lists to discover the latest backup.
+	dest, err := fdbBlobstoreURL(b.Cfg, "backups/"+b.RunID)
 	if err != nil {
 		wrapped := fmt.Errorf("build blobstore destination: %w", err)
 		b.Log.Error("backup.fdb.blobstore_url_failed",
@@ -170,6 +172,7 @@ func fdbBackupStartArgs(b *backupCtx) (cmd []string, binds []string, extraHosts 
 		)
 		return nil, nil, nil, wrapped
 	}
+	binds = []string{"/etc/foundationdb:/etc/foundationdb:ro"}
 	cmd = []string{
 		"start",
 		"-d", dest,
