@@ -427,11 +427,13 @@ volumes:
   kafka-data:
   clickhouse-data:
 
-# IPv6-only bridge. The /96 carved out of the host's on-link 3d06:bad:b01::/64
-# is NDP-proxied back onto eth0 by ndppd on CT 117. Containers source out as
-# real GUAs because gateway_mode_v6 is routed (no masquerade). Inter-container
-# DNS returns AAAA only because enable_ipv4 is false. Do not flip back to
-# dual-stack: that defeats the forced-v6 contract.
+# IPv6-only bridge. The per-host /96 is carved from the host's on-link /64 and
+# NDP-proxied back onto eth0 by ndppd, so containers source out as real GUAs
+# (gateway_mode_v6 is routed, no masquerade). Inter-container DNS returns AAAA
+# only because enable_ipv4 is false. Do not flip back to dual-stack: that defeats
+# the forced-v6 contract. The subnet and gateway are per host and come from the
+# configs render (tack_docker_v6_subnet / tack_docker_v6_gateway); the defaults
+# are the production prefix so an unrendered env still parses.
 networks:
   default:
     enable_ipv6: true
@@ -440,5 +442,5 @@ networks:
       com.docker.network.bridge.gateway_mode_v6: routed
     ipam:
       config:
-        - subnet: 3d06:bad:b01:0:7ac::/96
-          gateway: 3d06:bad:b01:0:7ac::1
+        - subnet: ${TACK_DOCKER_V6_SUBNET:-3d06:bad:b01:0:7ac::/96}
+          gateway: ${TACK_DOCKER_V6_GATEWAY:-3d06:bad:b01:0:7ac::1}
