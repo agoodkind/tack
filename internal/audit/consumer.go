@@ -821,6 +821,7 @@ func (c *Consumer) writeClickHouse(ctx context.Context, batch []projectedEvent) 
 		slog.ErrorContext(ctx, "audit.consumer.clickhouse_prepare_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("prepare: %w", err)
 	}
+	defer bw.Close()
 	for _, p := range batch {
 		err := bw.Append(
 			p.OrgID, p.Shard, p.EventTime, p.EventID, p.Seq,

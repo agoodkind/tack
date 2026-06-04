@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"goodkind.io/gklog"
@@ -167,11 +168,11 @@ type multiCloser struct {
 
 func (m multiCloser) Close() error {
 	var errs []error
-	for i := len(m.closers) - 1; i >= 0; i-- {
-		if m.closers[i] == nil {
+	for _, closer := range slices.Backward(m.closers) {
+		if closer == nil {
 			continue
 		}
-		if err := m.closers[i].Close(); err != nil {
+		if err := closer.Close(); err != nil {
 			errs = append(errs, err)
 		}
 	}
