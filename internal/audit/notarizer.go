@@ -15,6 +15,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/telemetry"
 )
 
@@ -88,7 +89,14 @@ func NewNotarizer(ctx context.Context, dsn string, cfg NotarizerConfig) (*Notari
 
 // Start launches the notarizer loop. Idempotent calls return immediately.
 func (n *Notarizer) Start(ctx context.Context) {
-	go n.loop(ctx)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.ErrorContext(ctx, "audit.notarizer.panic", slog.Any("err", r))
+			}
+		}()
+		n.loop(ctx)
+	}()
 }
 
 func (n *Notarizer) loop(ctx context.Context) {
@@ -135,7 +143,7 @@ func (n *Notarizer) runOnce(ctx context.Context) {
 	)
 	defer span.End()
 
-	start := time.Now()
+	start := clock.Now()
 	rows, err := n.pool.Query(ctx, `
 		SELECT org_id, shard, last_seq, last_hash
 		  FROM audit.chain_heads
@@ -190,10 +198,10 @@ func (n *Notarizer) runOnce(ctx context.Context) {
 			slog.String("merkle_root", hex.EncodeToString(root)),
 			slog.Int("shard_count", len(list)),
 			slog.String("key_id", n.keyID),
-			slog.Int64("duration_ms", time.Since(start).Milliseconds()),
+			slog.Int64("duration_ms", clock.Since(start).Milliseconds()),
 		)
 	}
 	span.SetStatus(codes.Ok, "ok")
-	span.SetAttributes(attribute.Int64("audit.notarizer.duration_ms", time.Since(start).Milliseconds()))
-	n.lastAt.Store(time.Now().Unix())
+	span.SetAttributes(attribute.Int64("audit.notarizer.duration_ms", clock.Since(start).Milliseconds()))
+	n.lastAt.Store(clock.Now().Unix())
 }

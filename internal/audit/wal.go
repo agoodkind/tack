@@ -24,6 +24,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/telemetry"
 )
 
@@ -149,7 +150,7 @@ func (w *WALRecorder) Stats() WALStats {
 			if nano == 0 {
 				return 0
 			}
-			age := time.Now().UnixNano() - nano
+			age := clock.Now().UnixNano() - nano
 			age = max(age, 0)
 			return float64(age) / float64(time.Second)
 		},
@@ -215,7 +216,14 @@ func NewWALRecorder(ctx context.Context, inner Recorder, cfg WALConfig) (*WALRec
 		stop:                    make(chan struct{}),
 		stopped:                 make(chan struct{}),
 	}
-	go w.drainLoop(ctx)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.ErrorContext(ctx, "audit.wal.drain.panic", slog.Any("err", r))
+			}
+		}()
+		w.drainLoop(ctx)
+	}()
 	return w, nil
 }
 
@@ -229,7 +237,7 @@ func NewWALRecorder(ctx context.Context, inner Recorder, cfg WALConfig) (*WALRec
 // error); a behind drainer is queueing, not failure.
 func (w *WALRecorder) Record(ctx context.Context, ev Event) error {
 	if ev.OccurredAt.IsZero() {
-		ev.OccurredAt = time.Now().UTC()
+		ev.OccurredAt = clock.Now().UTC()
 	}
 	if IsStateChange(Verb(ev.Verb)) {
 		return w.inner.Record(ctx, ev)
@@ -325,7 +333,7 @@ func (w *WALRecorder) recordWriteError(ctx context.Context, verb, stage string, 
 }
 
 func (w *WALRecorder) ensureSegmentLocked() error {
-	now := time.Now().UTC()
+	now := clock.Now().UTC()
 	want := segmentName(now)
 	if w.current != nil {
 		if filepath.Base(w.current.path) == want && w.current.size < w.maxBytesPerSegment {
@@ -405,7 +413,7 @@ func (w *WALRecorder) rotateActiveLocked() string {
 // per-second active segment.
 func sealedSegmentPath(activePath string) string {
 	stem := strings.TrimSuffix(filepath.Base(activePath), ".wal")
-	nanos := time.Now().UTC().Format(".000000000")
+	nanos := clock.Now().UTC().Format(".000000000")
 	sealed := stem + nanos + ".wal"
 	return filepath.Join(filepath.Dir(activePath), sealed)
 }
@@ -430,7 +438,7 @@ func (w *WALRecorder) BacklogSignal(maxBacklogSegments int32, maxBacklogAge time
 	if oldest == 0 {
 		return false
 	}
-	age := time.Now().UnixNano() - oldest
+	age := clock.Now().UnixNano() - oldest
 	if age < 0 {
 		// Clock skew: treat negative age as zero (not old enough to trigger).
 		return false
@@ -504,7 +512,7 @@ func (w *WALRecorder) drainOnce(ctx context.Context) {
 		w.drainSegment(ctx, filepath.Join(w.dir, name))
 	}
 
-	w.lastDrainSuccessUnix.Store(time.Now().Unix())
+	w.lastDrainSuccessUnix.Store(clock.Now().Unix())
 }
 
 // safeMulToInt64 multiplies two uint64 values and returns the result as int64,
@@ -642,7 +650,7 @@ func (w *WALRecorder) maybeIdleRotate(ctx context.Context, names []string, activ
 	if !ok {
 		return names, activeName
 	}
-	idle := time.Since(ts)
+	idle := clock.Since(ts)
 	if idle <= w.idleRotateAfter {
 		return names, activeName
 	}
@@ -679,7 +687,7 @@ func (w *WALRecorder) drainSegment(ctx context.Context, path string) {
 	)
 	defer span.End()
 
-	start := time.Now()
+	start := clock.Now()
 	f, err := os.Open(path)
 	if err != nil {
 		span.RecordError(err)
@@ -749,11 +757,11 @@ func (w *WALRecorder) drainSegment(ctx context.Context, path string) {
 	span.SetStatus(codes.Ok, "ok")
 	span.SetAttributes(
 		attribute.Int("audit.wal.events_replayed", count),
-		attribute.Int64("audit.wal.duration_ms", time.Since(start).Milliseconds()),
+		attribute.Int64("audit.wal.duration_ms", clock.Since(start).Milliseconds()),
 	)
 	telemetry.L(ctx).Info("audit.reconciler.flushed",
 		slog.String("path", path),
 		slog.Int("events", count),
-		slog.Int64("duration_ms", time.Since(start).Milliseconds()),
+		slog.Int64("duration_ms", clock.Since(start).Milliseconds()),
 	)
 }

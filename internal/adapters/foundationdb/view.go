@@ -115,6 +115,11 @@ func (s *ViewStore) List(ctx context.Context, q node.NodeListQuery) (out []*node
 func (s *ViewStore) Stream(ctx context.Context, q node.NodeListQuery) (<-chan node.NodeStreamResult, error) {
 	ch := make(chan node.NodeStreamResult, 64)
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.ErrorContext(ctx, "store.view.stream.panic", slog.Any("err", r))
+			}
+		}()
 		defer close(ch)
 		ctx, span := telemetry.StartSpan(ctx, "store.view.stream",
 			trace.WithSpanKind(trace.SpanKindInternal),
