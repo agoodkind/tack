@@ -42,7 +42,7 @@ type schema struct {
 // single bridge point between Tack's typed builder and the external map
 // shape mcp-go declares.
 func (s schema) toMCP() mcpmcp.ToolInputSchema {
-	props := make(map[string]any, len(s.Fields)) //nolint:goheader
+	props := make(map[string]any, len(s.Fields))
 	for _, f := range s.Fields {
 		spec := map[string]any{"type": string(f.Type)}
 		if f.Desc != "" {

@@ -171,7 +171,7 @@ func extractBearer(r *http.Request) string {
 func unauthorized(w http.ResponseWriter, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusUnauthorized)
-	w.Write([]byte(`{"error":"` + msg + `"}`)) //nolint:errcheck
+	_, _ = w.Write([]byte(`{"error":"` + msg + `"}`))
 }
 
 func withAuthenticatedUser(ctx context.Context, userID uuid.UUID) context.Context {
