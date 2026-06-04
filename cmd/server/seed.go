@@ -11,13 +11,13 @@ import (
 	"log/slog"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/trace"
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/audit"
+	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
@@ -204,7 +204,7 @@ func ensureNode(ctx context.Context, s *fdbadapter.Stores, typeKey, slug, name s
 		}
 	}
 
-	now := time.Now().UTC()
+	now := clock.Now().UTC()
 
 	// Org nodes get a fresh random UUIDv7 (TACK-230). Two calls with the same
 	// slug produce different IDs, which is the correct behaviour: org identity

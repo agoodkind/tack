@@ -3,7 +3,8 @@ package audit
 import (
 	"context"
 	"sync"
-	"time"
+
+	"goodkind.io/tack/internal/clock"
 )
 
 // MemoryRecorder captures events in memory for tests and integration
@@ -17,7 +18,7 @@ func NewMemoryRecorder() *MemoryRecorder { return &MemoryRecorder{} }
 
 func (m *MemoryRecorder) Record(_ context.Context, ev Event) error {
 	if ev.OccurredAt.IsZero() {
-		ev.OccurredAt = time.Now().UTC()
+		ev.OccurredAt = clock.Now().UTC()
 	}
 	m.mu.Lock()
 	m.events = append(m.events, ev)

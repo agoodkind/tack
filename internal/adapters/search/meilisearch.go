@@ -7,12 +7,12 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"time"
 
 	"github.com/meilisearch/meilisearch-go"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+	"goodkind.io/tack/internal/clock"
 	domainsearch "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/telemetry"
 )
@@ -63,7 +63,7 @@ func (c *Client) Index(ctx context.Context, collection, _ string, doc *domainsea
 	)
 	defer span.End()
 
-	start := time.Now()
+	start := clock.Now()
 	pk := "id"
 	if _, err := c.meili.Index(collection).AddDocuments([]any{doc}, &meilisearch.DocumentOptions{PrimaryKey: &pk}); err != nil {
 		span.RecordError(err)
@@ -71,17 +71,17 @@ func (c *Client) Index(ctx context.Context, collection, _ string, doc *domainsea
 		telemetry.L(ctx).Warn("search.index_failed",
 			slog.String("collection", collection),
 			slog.String("document_id", doc.ID),
-			slog.Int64("duration_ms", time.Since(start).Milliseconds()),
+			slog.Int64("duration_ms", clock.Since(start).Milliseconds()),
 			slog.String("err", err.Error()),
 		)
 		return fmt.Errorf("index document in %s: %w", collection, err)
 	}
 	span.SetStatus(codes.Ok, "ok")
-	span.SetAttributes(attribute.Int64("search.duration_ms", time.Since(start).Milliseconds()))
+	span.SetAttributes(attribute.Int64("search.duration_ms", clock.Since(start).Milliseconds()))
 	telemetry.L(ctx).Debug("search.indexed",
 		slog.String("collection", collection),
 		slog.String("document_id", doc.ID),
-		slog.Int64("duration_ms", time.Since(start).Milliseconds()),
+		slog.Int64("duration_ms", clock.Since(start).Milliseconds()),
 	)
 	return nil
 }
@@ -97,24 +97,24 @@ func (c *Client) Delete(ctx context.Context, collection, id string) error {
 	)
 	defer span.End()
 
-	start := time.Now()
+	start := clock.Now()
 	if _, err := c.meili.Index(collection).DeleteDocument(id, nil); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 		telemetry.L(ctx).Warn("search.delete_failed",
 			slog.String("collection", collection),
 			slog.String("document_id", id),
-			slog.Int64("duration_ms", time.Since(start).Milliseconds()),
+			slog.Int64("duration_ms", clock.Since(start).Milliseconds()),
 			slog.String("err", err.Error()),
 		)
 		return fmt.Errorf("delete document %s from %s: %w", id, collection, err)
 	}
 	span.SetStatus(codes.Ok, "ok")
-	span.SetAttributes(attribute.Int64("search.duration_ms", time.Since(start).Milliseconds()))
+	span.SetAttributes(attribute.Int64("search.duration_ms", clock.Since(start).Milliseconds()))
 	telemetry.L(ctx).Debug("search.deleted",
 		slog.String("collection", collection),
 		slog.String("document_id", id),
-		slog.Int64("duration_ms", time.Since(start).Milliseconds()),
+		slog.Int64("duration_ms", clock.Since(start).Milliseconds()),
 	)
 	return nil
 }
@@ -140,7 +140,7 @@ func (c *Client) Search(ctx context.Context, collection, query string, filters m
 	)
 	defer span.End()
 
-	start := time.Now()
+	start := clock.Now()
 	filterParts := make([]string, 0, len(filters))
 	for k, v := range filters {
 		filterParts = append(filterParts, fmt.Sprintf(`%s = "%s"`, k, v))
@@ -166,7 +166,7 @@ func (c *Client) Search(ctx context.Context, collection, query string, filters m
 		telemetry.L(ctx).Warn("search.query_failed",
 			slog.String("collection", collection),
 			slog.Int("filter_count", len(filters)),
-			slog.Int64("duration_ms", time.Since(start).Milliseconds()),
+			slog.Int64("duration_ms", clock.Since(start).Milliseconds()),
 			slog.String("err", err.Error()),
 		)
 		return nil, nil, fmt.Errorf("search %s: %w", collection, err)
@@ -193,13 +193,13 @@ func (c *Client) Search(ctx context.Context, collection, query string, filters m
 	span.SetAttributes(
 		attribute.Int("search.result_count", len(docs)),
 		attribute.Int("search.facet_field_count", len(facetFields)),
-		attribute.Int64("search.duration_ms", time.Since(start).Milliseconds()),
+		attribute.Int64("search.duration_ms", clock.Since(start).Milliseconds()),
 	)
 	telemetry.L(ctx).Debug("search.query_completed",
 		slog.String("collection", collection),
 		slog.Int("filter_count", len(filters)),
 		slog.Int("result_count", len(docs)),
-		slog.Int64("duration_ms", time.Since(start).Milliseconds()),
+		slog.Int64("duration_ms", clock.Since(start).Milliseconds()),
 	)
 	return docs, facets, nil
 }

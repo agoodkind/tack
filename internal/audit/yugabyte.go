@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
+	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/telemetry"
 )
 
@@ -78,9 +79,9 @@ func (r *YBRecorder) Record(ctx context.Context, ev Event) error {
 		slog.String("entity_type", ev.Entity.Type),
 		slog.String("entity_id", ev.Entity.ID.String()),
 	)
-	start := time.Now()
+	start := clock.Now()
 	if ev.OccurredAt.IsZero() {
-		ev.OccurredAt = time.Now().UTC()
+		ev.OccurredAt = clock.Now().UTC()
 	}
 	canonicalizeCorrelation(&ev)
 	eventID := uuid.Must(uuid.NewV7())
@@ -221,7 +222,7 @@ func (r *YBRecorder) Record(ctx context.Context, ev Event) error {
 		slog.Int("shard", int(shard)),
 		slog.Int64("seq", seq),
 		slog.String("idempotency_key", ev.IdempotencyKey),
-		slog.Int64("duration_us", time.Since(start).Microseconds()),
+		slog.Int64("duration_us", clock.Since(start).Microseconds()),
 	)
 	return nil
 }

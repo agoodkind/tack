@@ -16,11 +16,11 @@ import (
 	"encoding/json"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/google/uuid"
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
+	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/service"
 )
@@ -121,7 +121,7 @@ func SetupTestEnv(t *testing.T) *TestEnv {
 // directly via the stores. It mirrors cmd/server/seed.go ensureNode for the
 // root case, where ParentID is uuid.Nil and OrgID == ID.
 func writeOrgNode(ctx context.Context, stores *fdbadapter.Stores, orgID uuid.UUID, slug string) error {
-	now := time.Now().UTC()
+	now := clock.Now().UTC()
 	props := map[string]json.RawMessage{
 		"slug": mustJSON(slug),
 	}

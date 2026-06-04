@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
-	"time"
 
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain/node"
 )
 
@@ -113,7 +113,7 @@ func hasNamed(candidates []*node.Node, name string) bool {
 // importing the service package, which would create a cycle.
 func createDefaultChild(ctx context.Context, env *Env, orgID, parentID uuid.UUID, dc node.DefaultChild) error {
 	id := uuid.Must(uuid.NewV7())
-	now := time.Now().UTC()
+	now := clock.Now().UTC()
 
 	props := make(map[string]json.RawMessage, len(dc.Props)+2)
 	for k, v := range dc.Props {

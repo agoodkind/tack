@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
+	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
 	domainsearch "goodkind.io/tack/internal/domain/search"
@@ -95,7 +96,7 @@ func (s *NodeService) Update(ctx context.Context, in UpdateInput) (*node.NodeVie
 		name = *in.Name
 	}
 
-	now := time.Now().UTC()
+	now := clock.Now().UTC()
 	n := &node.Node{
 		ID:        existing.ID,
 		OrgID:     existing.OrgID,
@@ -193,7 +194,7 @@ func (s *NodeService) AddRelationship(ctx context.Context, rel *node.Relationshi
 		slog.String("target_id", rel.TargetID.String()),
 	)
 	if rel.CreatedAt.IsZero() {
-		rel.CreatedAt = time.Now().UTC()
+		rel.CreatedAt = clock.Now().UTC()
 	}
 	return s.relationships.Add(ctx, rel)
 }

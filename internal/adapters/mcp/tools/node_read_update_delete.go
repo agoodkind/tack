@@ -2,10 +2,10 @@ package tools
 
 import (
 	"context"
-	"time"
 
 	mcpmcp "github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
+	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/service"
@@ -153,6 +153,6 @@ func deleteHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFu
 			return classifyError(ctx, err), nil
 		}
 		rc := newRenderCtxWithTypes(ctx, b.Reader, b.Users, b.Resolver.typeIndex)
-		return successText(renderDeletedNode(rc, existing, time.Now().UTC()), ""), nil
+		return successText(renderDeletedNode(rc, existing, clock.Now().UTC()), ""), nil
 	}
 }

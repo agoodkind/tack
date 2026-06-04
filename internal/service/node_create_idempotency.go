@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
 )
@@ -138,5 +139,5 @@ func idempotencyRecordExpired(record *node.IdempotencyRecord) bool {
 	if record.Source != "mcp" || record.CreatedAt.IsZero() {
 		return false
 	}
-	return time.Since(record.CreatedAt) > mcpIdempotencyWindow
+	return clock.Since(record.CreatedAt) > mcpIdempotencyWindow
 }

@@ -2,10 +2,10 @@ package tools
 
 import (
 	"context"
-	"time"
 
 	mcpmcp "github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
+	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/service"
 )
@@ -70,7 +70,7 @@ func RegisterRelationship(s *mcpserver.MCPServer, svc *service.NodeService, rels
 				RelationType: relType,
 				TargetID:     targetID,
 				CreatedBy:    userID,
-				CreatedAt:    time.Now().UTC(),
+				CreatedAt:    clock.Now().UTC(),
 			}); err != nil {
 				return classifyError(ctx, err), nil
 			}

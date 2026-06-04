@@ -9,7 +9,6 @@ import (
 	"sort"
 	"strings"
 	"sync/atomic"
-	"time"
 
 	"github.com/google/uuid"
 	mcpmcp "github.com/mark3labs/mcp-go/mcp"
@@ -19,6 +18,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/auth"
+	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/telemetry"
 )
 
@@ -233,7 +233,7 @@ func quoteAndJoin(names []string) string {
 // callers do not need to thread it through.
 func wrapToolHandler(name string, h mcpserver.ToolHandlerFunc) mcpserver.ToolHandlerFunc {
 	return func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
-		start := time.Now()
+		start := clock.Now()
 		ctx, span := telemetry.StartSpan(ctx, "mcp.tool."+name,
 			trace.WithAttributes(attribute.String("mcp.tool.name", name)),
 		)
@@ -249,7 +249,7 @@ func wrapToolHandler(name string, h mcpserver.ToolHandlerFunc) mcpserver.ToolHan
 		ctx = audit.WithScopeBuilder(ctx)
 
 		res, err := h(ctx, req)
-		dur := time.Since(start)
+		dur := clock.Since(start)
 		telemetry.IncMCPTool(name)
 
 		switch {

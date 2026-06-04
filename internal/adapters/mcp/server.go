@@ -14,6 +14,7 @@ import (
 	"goodkind.io/tack/internal/adapters/mcp/tools"
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/auth"
+	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/domain/org"
 	domainsearch "goodkind.io/tack/internal/domain/search"
@@ -113,7 +114,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.mu.RLock()
 	c, ok := h.cache[userID]
 	h.mu.RUnlock()
-	if ok && time.Since(c.builtAt) < serverCacheTTL {
+	if ok && clock.Since(c.builtAt) < serverCacheTTL {
 		span.SetAttributes(attribute.Bool("mcp.server_cache_hit", true))
 		c.httpSvr.ServeHTTP(w, r)
 		return
@@ -162,7 +163,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	span.SetAttributes(attribute.Int("mcp.node_type_count", len(nodeTypes)))
 
 	h.mu.Lock()
-	h.cache[userID] = &cachedServer{mcpSvr: mcpSvr, httpSvr: httpSvr, builtAt: time.Now()}
+	h.cache[userID] = &cachedServer{mcpSvr: mcpSvr, httpSvr: httpSvr, builtAt: clock.Now()}
 	h.mu.Unlock()
 	httpSvr.ServeHTTP(w, r)
 }
