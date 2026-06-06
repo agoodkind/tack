@@ -60,6 +60,14 @@ type Config struct {
 	AuditReaderDSN   string `env:"AUDIT_READER_DSN"`
 	AuditRedactorDSN string `env:"AUDIT_REDACTOR_DSN"`
 
+	// Audit role passwords. Read only by `./server ops audit seed-roles`,
+	// which creates or rotates the LOGIN roles the DSNs above authenticate as.
+	// The running server never reads these; for normal connections the
+	// password travels inside the DSN.
+	AuditWriterPassword   string `env:"AUDIT_WRITER_PASSWORD"`
+	AuditReaderPassword   string `env:"AUDIT_READER_PASSWORD"`
+	AuditRedactorPassword string `env:"AUDIT_REDACTOR_PASSWORD"`
+
 	// AuditSigningKeyPath points at a PEM-encoded Ed25519 private key used
 	// by the notarizer to sign per-org Merkle roots. Generate with:
 	//   ./server gen-audit-key /etc/tack/audit-signing.pem

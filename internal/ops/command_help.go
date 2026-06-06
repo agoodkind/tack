@@ -126,10 +126,11 @@ func printCommandUsage(command string) {
 }
 
 func printAuditUsage() {
-	fmt.Fprintln(os.Stderr, "usage: ./server ops audit parity")
+	fmt.Fprintln(os.Stderr, "usage: ./server ops audit <parity|seed-roles>")
 	fmt.Fprintln(os.Stderr)
 	fmt.Fprintln(os.Stderr, "subcommands:")
-	fmt.Fprintln(os.Stderr, "  parity  Compare audit.events vs audit.events_v2 over a time window")
+	fmt.Fprintln(os.Stderr, "  parity      Compare audit.events vs audit.events_v2 over a time window")
+	fmt.Fprintln(os.Stderr, "  seed-roles  Create or rotate the LOGIN audit roles (tack_audit_writer/reader/redactor)")
 	fmt.Fprintln(os.Stderr)
 	fmt.Fprintln(os.Stderr, "parity env vars:")
 	fmt.Fprintln(os.Stderr, "  TACK_PARITY_FROM       inclusive lower bound, RFC3339 UTC (required)")

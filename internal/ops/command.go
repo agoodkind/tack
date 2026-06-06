@@ -24,6 +24,15 @@ const (
 	familyDeploy   commandFamily = "deploy"
 )
 
+// auditSubcommand is the named enum of `ops audit` subcommands. A bare-string
+// switch with multiple literal cases trips the staticcheck-extra enum gate.
+type auditSubcommand string
+
+const (
+	auditParity    auditSubcommand = "parity"
+	auditSeedRoles auditSubcommand = "seed-roles"
+)
+
 // RunCommand routes the unified operator CLI command family.
 func RunCommand(ctx context.Context, cfg *config.Config, args []string) error {
 	if len(args) == 0 {
@@ -165,9 +174,11 @@ func runAuditCommand(ctx context.Context, cfg *config.Config, args []string) err
 		printAuditUsage()
 		return nil
 	}
-	switch args[0] {
-	case "parity":
+	switch auditSubcommand(args[0]) {
+	case auditParity:
 		return runAuditParity(ctx, cfg)
+	case auditSeedRoles:
+		return RunAuditSeedRoles(ctx, cfg)
 	default:
 		printAuditUsage()
 		return fmt.Errorf("unknown audit command %q", args[0])
