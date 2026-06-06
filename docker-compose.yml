@@ -398,6 +398,12 @@ services:
       YUGABYTE_USER: ${YUGABYTE_USER:?YUGABYTE_USER is required, set it in .env}
       YUGABYTE_PASSWORD: ${YUGABYTE_PASSWORD:?YUGABYTE_PASSWORD is required, set it in .env}
       YUGABYTE_DB: ${YUGABYTE_DB:?YUGABYTE_DB is required, set it in .env}
+      # Audit role passwords for `ops audit seed-roles`, which creates or rotates
+      # the LOGIN audit roles. Empty default so other ops (backup) run without
+      # them; the seed-roles command errors loudly when they are unset.
+      AUDIT_WRITER_PASSWORD: ${AUDIT_WRITER_PASSWORD:-}
+      AUDIT_READER_PASSWORD: ${AUDIT_READER_PASSWORD:-}
+      AUDIT_REDACTOR_PASSWORD: ${AUDIT_REDACTOR_PASSWORD:-}
       # Object store for engine-native continuous backup. Read by the FDB
       # continuous backup path to build the blobstore destination URL.
       TACK_BACKUP_S3_ENDPOINT: ${TACK_BACKUP_S3_ENDPOINT:-}
