@@ -472,27 +472,6 @@ func loadPublicKey(t *testing.T, path string) ed25519.PublicKey {
 	return priv.Public().(ed25519.PublicKey)
 }
 
-// TestExtractEventID covers the header-based event_id replay path that the
-// projector uses to keep idempotent replay deterministic. This test does
-// not need Yugabyte and runs in any environment.
-func TestExtractEventID(t *testing.T) {
-	id := uuid.Must(uuid.NewV7())
-	rec := &kgo.Record{
-		Headers: []kgo.RecordHeader{
-			{Key: "event_id", Value: []byte(id.String())},
-		},
-	}
-	got := extractEventID(rec)
-	if got != id {
-		t.Fatalf("got %s want %s", got, id)
-	}
-
-	rec2 := &kgo.Record{Headers: []kgo.RecordHeader{{Key: "other", Value: []byte("x")}}}
-	if extractEventID(rec2) != uuid.Nil {
-		t.Fatal("expected uuid.Nil when header missing")
-	}
-}
-
 // TestErrMalformedSignal documents that errors.Is correctly identifies the
 // malformed-payload sentinel even when wrapped.
 func TestErrMalformedSignal(t *testing.T) {

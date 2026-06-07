@@ -22,8 +22,7 @@ import (
 )
 
 // ConsumerConfig collects every input the audit-consumer binary needs.
-// Defaults match the Wave 1 design recorded at
-// incident_2026-05-09_seed_parallel_org/audit_horizontal_design.md.
+// Defaults match the cutover design in docs/plans/audit-kafka-cutover.md.
 type ConsumerConfig struct {
 	Brokers         []string
 	Topic           string
@@ -45,10 +44,9 @@ type ConsumerConfig struct {
 	SummaryEvery int
 }
 
-// Consumer projects audit events from Kafka into Yugabyte (audit.events_v2)
-// and ClickHouse (audit.events) and runs an embedded notarizer goroutine.
-// Wave 1 is additive. Nothing on the WAL or YBRecorder path is changed by
-// the consumer.
+// Consumer projects audit events from Kafka into Yugabyte (audit.events) and
+// ClickHouse (audit.events_olap) and runs an embedded notarizer goroutine. The
+// consumer is the only writer of audit.events and audit.chain_heads.
 type Consumer struct {
 	cfg     ConsumerConfig
 	kclient *kgo.Client
@@ -417,14 +415,38 @@ func groupByPartition(fetches kgo.Fetches) map[topicPartition][]*kgo.Record {
 	return out
 }
 
-// projectBatch applies all records for one partition in a single Yugabyte
-// transaction. The Kafka offset row in audit.consumer_offsets is updated in
-// the same transaction so a crash before commit replays the same records.
+// projectBatch applies all records for one partition, retrying the whole batch
+// when a concurrent consumer advanced a shard this batch touches. The
+// ClickHouse projection runs once after the Yugabyte commit and is best effort.
 func (c *Consumer) projectBatch(ctx context.Context, tp topicPartition, records []*kgo.Record) error {
+	const maxChainRetries = 8
+	for attempt := 1; ; attempt++ {
+		projected, err := c.projectBatchOnce(ctx, tp, records)
+		if err == nil {
+			c.writeClickHouseBatch(ctx, projected)
+			return nil
+		}
+		if attempt < maxChainRetries && isRetryableChainErr(err) {
+			slog.WarnContext(ctx, "audit.consumer.chain_retry",
+				slog.String("topic", tp.Topic),
+				slog.Int("partition", int(tp.Partition)),
+				slog.Int("attempt", attempt),
+			)
+			continue
+		}
+		return err
+	}
+}
+
+// projectBatchOnce projects one partition's records in a single Yugabyte
+// transaction. The Kafka offset row in audit.consumer_offsets is updated in the
+// same transaction so a crash before commit replays the same records. It
+// returns the projected events for the best-effort ClickHouse write.
+func (c *Consumer) projectBatchOnce(ctx context.Context, tp topicPartition, records []*kgo.Record) ([]projectedEvent, error) {
 	tx, err := c.ybpool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.consumer.begin_failed", slog.String("err", err.Error()))
-		return fmt.Errorf("begin tx: %w", err)
+		return nil, fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
@@ -439,11 +461,14 @@ func (c *Consumer) projectBatch(ctx context.Context, tp topicPartition, records 
 				writeDLQ(ctx, tx, rec, perr)
 				continue
 			}
+			if isRetryableChainErr(perr) {
+				return nil, perr
+			}
 			slog.ErrorContext(ctx, "audit.consumer.project_record_failed",
 				slog.String("err", perr.Error()),
 				slog.Int64("offset", rec.Offset),
 			)
-			return fmt.Errorf("project record offset=%d: %w", rec.Offset, perr)
+			return nil, fmt.Errorf("project record offset=%d: %w", rec.Offset, perr)
 		}
 		projected = append(projected, pe)
 	}
@@ -458,24 +483,31 @@ func (c *Consumer) projectBatch(ctx context.Context, tp topicPartition, records 
 	`, c.cfg.GroupID, tp.Topic, tp.Partition, last.Offset+1)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.consumer.offset_upsert_failed", slog.String("err", err.Error()))
-		return fmt.Errorf("offset upsert: %w", err)
+		return nil, fmt.Errorf("offset upsert: %w", err)
 	}
 
-	if err := tx.Commit(ctx); err != nil {
+	err = tx.Commit(ctx)
+	if err != nil {
 		slog.ErrorContext(ctx, "audit.consumer.commit_failed", slog.String("err", err.Error()))
-		return fmt.Errorf("commit: %w", err)
+		return nil, fmt.Errorf("commit: %w", err)
 	}
 
-	if c.ch != nil && len(projected) > 0 {
-		if cerr := c.writeClickHouse(ctx, projected); cerr != nil {
-			slog.ErrorContext(ctx, "audit.consumer.clickhouse_write_failed",
-				slog.String("err", cerr.Error()),
-				slog.Int("count", len(projected)),
-			)
-		}
-	}
+	return projected, nil
+}
 
-	return nil
+// writeClickHouseBatch projects a committed batch into ClickHouse. The OLAP
+// write is best effort, so a ClickHouse outage never blocks chain advancement.
+func (c *Consumer) writeClickHouseBatch(ctx context.Context, projected []projectedEvent) {
+	if c.ch == nil || len(projected) == 0 {
+		return
+	}
+	cerr := c.writeClickHouse(ctx, projected)
+	if cerr != nil {
+		slog.ErrorContext(ctx, "audit.consumer.clickhouse_write_failed",
+			slog.String("err", cerr.Error()),
+			slog.Int("count", len(projected)),
+		)
+	}
 }
 
 var (
@@ -502,9 +534,8 @@ type projectedEvent struct {
 	IdemKey    string
 }
 
-// projectOne writes one event into audit.events_v2 (the Wave 1 sibling) and
-// advances audit.chain_heads. It is byte-identical to YBRecorder.Record for
-// the same input event so the parity gate at the end of Wave 1 holds.
+// projectOne writes one event's PII row, then appends it to audit.events and
+// advances audit.chain_heads through the shared chain helper.
 func (c *Consumer) projectOne(ctx context.Context, tx pgx.Tx, rec *kgo.Record) (projectedEvent, error) {
 	prepared, err := unmarshalRecord(ctx, rec)
 	if err != nil {
@@ -544,10 +575,11 @@ func unmarshalRecord(ctx context.Context, rec *kgo.Record) (preparedEvent, error
 	}
 	canonicalizeCorrelation(&ev)
 
-	eventID := extractEventID(rec)
-	if eventID == uuid.Nil {
-		eventID = uuid.Must(uuid.NewV7())
+	if ev.EventID == uuid.Nil {
+		slog.WarnContext(ctx, "audit.consumer.malformed_no_event_id")
+		return preparedEvent{}, fmt.Errorf("%w: event_id missing", errMalformedPayload)
 	}
+	eventID := ev.EventID
 	shard := shardOf(ev.Actor.ID, eventID)
 
 	contextJSON, err := json.Marshal(ev.Context)
@@ -573,72 +605,24 @@ func unmarshalRecord(ctx context.Context, rec *kgo.Record) (preparedEvent, error
 	}, nil
 }
 
-// advanceChain reads the per-shard chain head, computes the next row hash,
-// inserts into audit.events_v2, and updates audit.chain_heads. Returns
-// errAlreadyProjected when the unique index on event_id rejects the insert.
+// advanceChain appends the prepared event to audit.events and advances its
+// (org, shard) head through the shared compare-and-swap helper, so two
+// consumers on the same chain cannot fork it. Returns errAlreadyProjected when
+// the idempotency index rejects a redelivered event, and errChainConflict when
+// the head moved underneath this writer.
 func (c *Consumer) advanceChain(ctx context.Context, tx pgx.Tx, p preparedEvent) (projectedEvent, error) {
-	var lastSeq int64
-	var lastHash []byte
-	err := tx.QueryRow(ctx, `
-		SELECT last_seq, last_hash FROM audit.chain_heads
-		WHERE org_id = $1 AND shard = $2
-	`, p.Event.Context.OrgID, p.Shard).Scan(&lastSeq, &lastHash)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		slog.ErrorContext(ctx, "audit.consumer.head_read_failed", slog.String("err", err.Error()))
-		return projectedEvent{}, fmt.Errorf("head read: %w", err)
-	}
-	if lastHash == nil {
-		lastHash = []byte{}
-	}
-	seq := lastSeq + 1
-
-	rowHash, err := hashRowForEvent(rowHashInput{
-		Event: p.Event, EventID: p.EventID, Shard: p.Shard, Seq: seq,
-		PIIRef: p.PIIRef, ContextJSON: p.ContextJSON, DeltaJSON: p.DeltaJSON, LastHash: lastHash,
+	res, err := appendChainRow(ctx, tx, chainAppendInput{
+		Event:       p.Event,
+		EventID:     p.EventID,
+		Shard:       p.Shard,
+		PIIRef:      p.PIIRef,
+		ContextJSON: p.ContextJSON,
+		DeltaJSON:   p.DeltaJSON,
 	})
 	if err != nil {
-		slog.ErrorContext(ctx, "audit.consumer.hash_failed", slog.String("err", err.Error()))
-		return projectedEvent{}, fmt.Errorf("hash: %w", err)
+		return projectedEvent{}, err
 	}
-
-	tag, err := tx.Exec(ctx, `
-		INSERT INTO audit.events_v2 (
-			org_id, shard, event_time, event_id, seq,
-			actor_id, actor_kind, action, entity_kind, entity_id,
-			context, delta, pii_ref, prev_hash, row_hash, idempotency_key
-		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-			$11, $12, $13, $14, $15, $16
-		)
-		ON CONFLICT (event_id) DO NOTHING
-	`,
-		p.Event.Context.OrgID, p.Shard, p.Event.OccurredAt.UTC(), p.EventID, seq,
-		p.Event.Actor.ID, actorKindCode(p.Event.Actor.Type), p.Event.Verb,
-		p.Event.Entity.Type, p.Event.Entity.ID,
-		p.ContextJSON, p.DeltaJSON, piiRefArg(p.PIIRef), lastHash, rowHash,
-		p.Event.IdempotencyKey,
-	)
-	if err != nil {
-		slog.ErrorContext(ctx, "audit.consumer.events_v2_insert_failed", slog.String("err", err.Error()))
-		return projectedEvent{}, fmt.Errorf("events_v2 insert: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return projectedEvent{}, errAlreadyProjected
-	}
-
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO audit.chain_heads (org_id, shard, last_seq, last_hash, updated_at)
-		VALUES ($1, $2, $3, $4, now())
-		ON CONFLICT (org_id, shard) DO UPDATE
-			SET last_seq   = EXCLUDED.last_seq,
-			    last_hash  = EXCLUDED.last_hash,
-			    updated_at = EXCLUDED.updated_at
-	`, p.Event.Context.OrgID, p.Shard, seq, rowHash); err != nil {
-		slog.ErrorContext(ctx, "audit.consumer.head_write_failed", slog.String("err", err.Error()))
-		return projectedEvent{}, fmt.Errorf("head write: %w", err)
-	}
-
-	return buildProjectedEvent(p, seq, lastHash, rowHash), nil
+	return buildProjectedEvent(p, res.Seq, res.PrevHash, res.RowHash), nil
 }
 
 func buildProjectedEvent(p preparedEvent, seq int64, prevHash, rowHash []byte) projectedEvent {
@@ -739,31 +723,11 @@ func piiRefArg(ref uuid.UUID) pgtype.UUID {
 	return pgtype.UUID{Bytes: ref, Valid: true}
 }
 
-// extractEventID looks for an "event_id" header on the Kafka record. The
-// producer is expected to set this header to the canonical event UUID so
-// the consumer can replay deterministically.
-func extractEventID(rec *kgo.Record) uuid.UUID {
-	for _, h := range rec.Headers {
-		if h.Key != "event_id" {
-			continue
-		}
-		if id, err := uuid.Parse(string(h.Value)); err == nil {
-			return id
-		}
-		if len(h.Value) == 16 {
-			var id uuid.UUID
-			copy(id[:], h.Value)
-			return id
-		}
-	}
-	return uuid.Nil
-}
-
-// writeDLQ records a malformed Kafka payload into audit.events_v2_dlq so the
+// writeDLQ records a malformed Kafka payload into audit.events_dlq so the
 // operator can investigate. Best effort. Failures are logged.
 func writeDLQ(ctx context.Context, tx pgx.Tx, rec *kgo.Record, cause error) {
 	_, err := tx.Exec(ctx, `
-		INSERT INTO audit.events_v2_dlq (received_at, topic, partition, "offset", payload, error)
+		INSERT INTO audit.events_dlq (received_at, topic, partition, "offset", payload, error)
 		VALUES (now(), $1, $2, $3, $4, $5)
 		ON CONFLICT (topic, partition, "offset") DO NOTHING
 	`, rec.Topic, rec.Partition, rec.Offset, rec.Value, cause.Error())
@@ -777,15 +741,15 @@ func writeDLQ(ctx context.Context, tx pgx.Tx, rec *kgo.Record, cause error) {
 	}
 }
 
-// ensureClickHouseSchema creates the audit database and audit.events table
-// when missing. The Wave 1 shape mirrors the Yugabyte audit.events fields.
+// ensureClickHouseSchema creates the audit database and audit.events_olap
+// table when missing. The OLAP shape mirrors the Yugabyte audit.events fields.
 func ensureClickHouseSchema(ctx context.Context, conn chdriver.Conn) error {
 	if err := conn.Exec(ctx, `CREATE DATABASE IF NOT EXISTS audit`); err != nil {
 		slog.ErrorContext(ctx, "audit.consumer.clickhouse_db_create_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("create database: %w", err)
 	}
 	stmt := `
-		CREATE TABLE IF NOT EXISTS audit.events (
+		CREATE TABLE IF NOT EXISTS audit.events_olap (
 		    org_id          UUID,
 		    shard           Int16,
 		    event_time      DateTime64(9, 'UTC'),
@@ -814,9 +778,9 @@ func ensureClickHouseSchema(ctx context.Context, conn chdriver.Conn) error {
 }
 
 // writeClickHouse projects a batch into ClickHouse. The OLAP write is best
-// effort. The canonical store is Yugabyte audit.events_v2.
+// effort. The canonical store is Yugabyte audit.events.
 func (c *Consumer) writeClickHouse(ctx context.Context, batch []projectedEvent) error {
-	bw, err := c.ch.PrepareBatch(ctx, `INSERT INTO audit.events`)
+	bw, err := c.ch.PrepareBatch(ctx, `INSERT INTO audit.events_olap`)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.consumer.clickhouse_prepare_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("prepare: %w", err)
