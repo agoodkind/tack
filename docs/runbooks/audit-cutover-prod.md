@@ -61,28 +61,30 @@ passwords from the rendered `.env`.
    ghcr supplies the images). This pulls the audit images and brings up kafka,
    clickhouse, and audit-consumer.
 
-   Expect the audit-consumer to crash-loop briefly here: it cannot authenticate to
-   YugabyteDB until the audit roles exist (step 3). This is the known startup
-   window (TACK-301), not a failure.
+   The audit-consumer cannot authenticate to YugabyteDB until the audit roles
+   exist (step 3). It waits for them on its own, logging
+   `audit.consumer.yugabyte_not_ready` at WARN and staying up (no crash-loop),
+   then proceeds automatically once step 3 runs (TACK-301).
 
 2. **Migrate.** `docker compose run --rm tack-ops migrate`. This advances prod to
    the cutover migration version. Migrations run only through this path.
 
 3. **Seed audit roles.** `docker compose run --rm tack-ops ops audit seed-roles`.
    Creates or rotates the LOGIN audit roles the app and audit-consumer
-   authenticate as. Passwords come from the rendered `.env`. After this, restart
-   both the app and the audit-consumer (`docker compose restart app
-   audit-consumer`): the consumer reconnects with working credentials, and the
-   app re-initializes its audit reader pool so it registers the
-   `tack_audit_query`/`tack_audit_get`/`tack_audit_redact_actor` MCP tools, which
-   are silently skipped when the app first started before the roles existed
-   (TACK-319).
+   authenticate as. Passwords come from the rendered `.env`. The audit-consumer
+   picks up the new roles on its own (it pings until ready, then ensures the
+   topic and starts, TACK-301), so it needs no restart. The app does: restart it
+   (`docker compose restart app`) so it re-initializes its audit reader pool and
+   registers the `tack_audit_query`/`tack_audit_get`/`tack_audit_redact_actor`
+   MCP tools, which are silently skipped when the app first started before the
+   roles existed (TACK-319).
 
-4. **Create the Kafka topic.** Until the topic-ensure is automated (TACK-305),
-   create it explicitly on the broker: the topic name from `AUDIT_KAFKA_TOPIC`,
-   partitions equal to the shard count (see Sources of truth), replication factor
-   for the environment. Use the kafka tooling inside the `kafka` container against
-   `AUDIT_KAFKA_BROKERS`. Creating an existing topic is a safe no-op.
+4. **Kafka topic.** No manual step: the audit-consumer ensures `audit.events.v1`
+   with 256 partitions (the shardOf width) and broker-default replication factor
+   on startup once Yugabyte is reachable, treating an existing topic as a no-op
+   (TACK-305). Confirm it exists after the consumer is healthy:
+   `kafka-topics.sh --bootstrap-server localhost:9092 --describe --topic
+   audit.events.v1` should report PartitionCount 256.
 
 5. **ClickHouse schema.** No manual step: the audit-consumer creates the audit
    database and `audit.events_olap` on connect (`ensureClickHouseSchema`). Verify

@@ -225,14 +225,16 @@ not even healthy until the first of them runs. Until the provisioning layer land
    cluster (prod): it is the one destructive step in this list.
 2. **Migrations.** `docker compose run --rm tack-ops migrate`.
 3. **Audit roles.** `docker compose run --rm tack-ops ops audit seed-roles`. The
-   app and the audit-consumer cannot authenticate to YugabyteDB until this runs;
-   the consumer crash-loops in the meantime (TACK-301). After it runs, restart
-   both so they pick up working audit credentials:
-   `docker compose restart app audit-consumer`. The app otherwise never registers
-   the audit query/get/redact MCP tools, because its audit reader pool failed at
-   first start before the roles existed (TACK-319).
-4. **Kafka topic.** `audit.events.v1` does not exist on a fresh broker, so the
-   audit-consumer cannot fetch until it is created (TACK-305).
+   app and the audit-consumer cannot authenticate to YugabyteDB until this runs.
+   The audit-consumer waits on its own: it pings Yugabyte until the roles exist,
+   then ensures the Kafka topic and starts (TACK-301, TACK-305), so it needs no
+   restart. The app does need one: `docker compose restart app`, so it
+   re-initializes its audit reader pool and registers the audit
+   query/get/redact MCP tools, which are skipped when the app first starts before
+   the roles exist (TACK-319).
+4. **Kafka topic.** No manual step: the audit-consumer ensures `audit.events.v1`
+   with 256 partitions on startup once Yugabyte is reachable (TACK-305). On a
+   fresh broker it appears automatically after step 3.
 5. **Product seed.** `docker compose exec -T app /server seed` for the initial
    user, org, workspace, and API token. Run it through the app container, not
    `tack-ops`: tack-ops is `network_mode: host` and its FDB cluster file names
