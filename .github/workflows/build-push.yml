@@ -2,7 +2,7 @@ name: build and push tack-server
 
 on:
   push:
-    branches: [main]
+    branches: ["**"]
     tags: ["v*"]
   workflow_dispatch:
 
@@ -53,8 +53,12 @@ jobs:
               release="${GITHUB_REF_NAME}"
               tags="${tags}"$'\n'"${base}:${release}"
               tags="${tags}"$'\n'"${base}:latest"
-          elif [ "${GITHUB_REF_NAME}" = "main" ]; then
-              tags="${tags}"$'\n'"${base}:latest"
+          else
+              branch_tag=$(printf '%s' "${GITHUB_REF_NAME}" | tr '/' '-')
+              tags="${tags}"$'\n'"${base}:${branch_tag}"
+              if [ "${GITHUB_REF_NAME}" = "main" ]; then
+                  tags="${tags}"$'\n'"${base}:latest"
+              fi
           fi
           {
               echo "list<<__EOF__"
