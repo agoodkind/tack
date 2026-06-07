@@ -122,7 +122,7 @@ does not.
 |       |          |                    |                     |
 |       |          |                    v                     |
 |       |          |          +-------------------+           |
-|       |          |          | audit-projector   |           |
+|       |          |          | audit-consumer   |           |
 |       |          |          | binary (1 inst.)  |           |
 |       |          |          | - hash chain      |           |
 |       |          |          | - PII split       |           |
@@ -149,7 +149,7 @@ does not.
 |       +-----------------------------+                       |
 |       | ClickHouse (1 node, optional in N=1)                |
 |       | - hot OLAP, 90 day retention                        |
-|       | - fed by audit-projector parallel sink              |
+|       | - fed by audit-consumer parallel sink              |
 |       +-----------------------------+                       |
 |                                                             |
 |       +-----------------------------+                       |
@@ -189,7 +189,7 @@ section 3.2 for justification.
               |              |
               v              v
    +-----------------+  +-----------------+
-   | audit-projector |  | audit-projector |
+   | audit-consumer |  | audit-consumer |
    | instance 1      |  | instance 2..M   |
    | (consumer       |  | (consumer       |
    |  group:         |  |  group:         |
@@ -564,15 +564,15 @@ The producer code in `internal/audit/kafka_recorder.go` (new file)
 contains zero conditional logic on N. The behavior at N=1 versus N=many
 is determined entirely by broker configuration.
 
-### 3.7 Consumer binary: `cmd/audit-projector`
+### 3.7 Consumer binary: `cmd/audit-consumer`
 
-Choice: a single Go binary in a new `cmd/audit-projector` directory.
+Choice: a single Go binary in a new `cmd/audit-consumer` directory.
 Reads from Kafka via franz-go consumer-group; writes to Yugabyte and
 ClickHouse; commits Kafka offsets transactionally.
 
 Deployment model:
 
-- **N=1.** Compose service `audit-projector` with `replicas: 1`. Container
+- **N=1.** Compose service `audit-consumer` with `replicas: 1`. Container
   shares the same Docker image as `tack-app` (build-time tag
   `tack-server:latest`).
 - **N=many.** Compose service or Kubernetes Deployment with `replicas: M`
@@ -752,9 +752,9 @@ outage.
 5. On success, Record returns nil. On failure, returns the broker
    error.
 
-The `audit-projector` consumer reads from the topic asynchronously:
+The `audit-consumer` consumer reads from the topic asynchronously:
 
-7. `audit-projector` consumes a batch.
+7. `audit-consumer` consumes a batch.
 8. For each record: writes the PII row (if hasPII), computes shard
    (same `shardOf` function as Phase 1), reads chain head, computes
    hash, INSERTs `audit.events`, UPDATEs `audit.chain_heads`,
@@ -785,7 +785,7 @@ Same steps 1 to 6 as N=1. The difference is in step 4:
 
 The projector now runs as multiple replicas (steps 7 to 10):
 
-7. Each `audit-projector` instance is assigned a subset of the 256
+7. Each `audit-consumer` instance is assigned a subset of the 256
    topic partitions by Kafka consumer-group rebalancing. Each
    instance is responsible for its assigned partitions only.
 8. Per assigned partition, the instance runs the same per-record
@@ -802,7 +802,7 @@ The projector now runs as multiple replicas (steps 7 to 10):
 | `KafkaRecorder` | No | `KAFKA_BROKERS` env (comma-separated host list) |
 | `YBRecorder` | No | `AUDIT_WRITER_DSN` (cluster endpoint vs single host) |
 | `RecorderRouter` | No | None |
-| `audit-projector` main loop | No | `replicas` count in deployment |
+| `audit-consumer` main loop | No | `replicas` count in deployment |
 | `audit-notarizer` | One-line addition for leader election | Same |
 | Yugabyte schema | No | None |
 | ClickHouse schema | Engine name (MergeTree vs ReplicatedMergeTree) | Distributed table at N=many |
@@ -1036,7 +1036,7 @@ consumer-group with one consumer per partition, statically assigned).
 |---|---|
 | `tack-app` crash | Restart container; producer reconnects to broker |
 | Apache Kafka crash | Restart broker (combined `broker,controller` KRaft process); producer reconnects; in-flight events lost from producer buffer if not yet ack'd |
-| `audit-projector` crash | Restart container; resume from last committed offset |
+| `audit-consumer` crash | Restart container; resume from last committed offset |
 | Yugabyte crash | Restart; chain advancement blocks until DB up; producer state-change writes fail in the meantime |
 | ClickHouse crash | Restart; OLAP reads fall back to Yugabyte |
 | SeaweedFS crash | Restart; archiver writes fail until back |
@@ -1076,114 +1076,13 @@ investigate. Mitigation: dual-write parity gate at every wave.
 
 ---
 
-## 12. Migration path: today to N=1 of this design
+## 12. Migration path: today to N=1
 
-The first deploy of this architecture is to a single CT 117 host. This
-is the path from today (Phase 1 WAL fix shipped) to N=1 of the new
-design.
-
-### 12.1 Wave structure (5 waves)
-
-**Wave 0: Phase 1 stabilizes.**
-
-Phase 1 from `audit_two_phase_plan.md` ships first. Production runs on
-the WAL fix for at least 7 days clean. No `audit_wal_backpressure_*`
-counters trip. This is the precondition for Wave 1.
-
-**Wave 1: Add Apache Kafka and ClickHouse, shadow-write only.**
-
-1. Add Apache Kafka Compose service. Single broker in combined KRaft
-   `broker,controller` role, 256 partitions, RF=1, controller quorum
-   size 1. Image: `apache/kafka:4.2.0` (or current stable 4.x).
-   Required env: `KAFKA_PROCESS_ROLES=broker,controller`,
-   `KAFKA_NODE_ID=1`, `KAFKA_CONTROLLER_QUORUM_VOTERS=1@kafka:9093`,
-   `KAFKA_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093`,
-   `KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT`,
-   `KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER`,
-   `KAFKA_LOG_DIRS=/var/lib/kafka/data`. Mount a volume at
-   `/var/lib/kafka/data`. The cluster ID is generated once via
-   `kafka-storage.sh random-uuid` and pinned in
-   `KAFKA_CLUSTER_ID`. No ZooKeeper service.
-2. Add ClickHouse Compose service. Single node.
-3. Provision the SeaweedFS object store as a dedicated LXC through the configs
-   repo (the weed binary under systemd). Single node, S3 API enabled.
-4. Apply migrations:
-   - `005_audit_consumer_offsets.sql` (new table for offset tracking)
-   - `006_audit_events_event_id_uniq.sql` (UNIQUE on `event_id` for
-     idempotent reproject)
-   - ClickHouse table creation (run via `clickhouse-client`, separate
-     from goose migrations)
-5. Build `tack-server` with `RecorderRouter` plus a new
-   `ShadowKafkaRecorder` that writes to BOTH the existing WAL and the
-   new Kafka topic for read-class verbs.
-6. Build `audit-projector` binary; deploy as Compose service writing
-   to `audit.events_v2` (sibling table, `CREATE TABLE LIKE`) so
-   projection is observed in isolation.
-7. Build `audit-notarizer` as a separate binary (was an in-process
-   goroutine; pull out into its own service for N=many parity).
-8. Soak 7 days.
-
-Parity gate: `(event_id, row_hash)` matches between `audit.events`
-(WAL path) and `audit.events_v2` (Kafka path) for every event in the
-window. Drift greater than zero after 5 minutes means abort.
-
-**Wave 2: Cutover producer to Kafka path only.**
-
-1. Switch `RecorderRouter` to route read-class verbs to
-   `KafkaRecorder` only (no shadow). State-change verbs still go to
-   `YBRecorder` directly.
-2. Switch projector from `audit.events_v2` to `audit.events` (the
-   canonical table; UNIQUE on event_id from migration 006 prevents
-   duplicates).
-3. Stop writing to the WAL.
-4. Soak 7 days.
-
-Parity gate: number of read-class events in `audit.events` continues
-to climb proportionally to MCP traffic. No silent drops.
-
-**Wave 3: Wire up ClickHouse projection.**
-
-1. Projector starts writing to ClickHouse `audit.events_olap` in
-   parallel with Yugabyte.
-2. MCP audit query tools start routing recent-window queries to
-   ClickHouse with Yugabyte fallback.
-3. Soak 7 days.
-
-Parity gate: ClickHouse row count tracks Yugabyte row count within a
-small lag window.
-
-**Wave 4: Wire up cold archive.**
-
-1. Add archiver job (Compose-scheduled cron at N=1) that nightly reads
-   the oldest week of `audit.events` and writes Iceberg tables to
-   SeaweedFS.
-2. The archiver is a separate binary `cmd/audit-archiver`.
-3. Verify archived data: a verifier tool reads the latest Iceberg
-   commit, samples random rows, confirms they match Yugabyte.
-4. Soak 7 days.
-
-**Wave 5: Cleanup.**
-
-1. Drop `audit.events_v2` (sibling table from Wave 1).
-2. Delete `internal/audit/wal.go` and `wal_test.go`.
-3. Remove `AUDIT_WAL_DIR` env var and volume mount.
-4. Remove `WALRecorder` from `cmd/server/main.go`.
-
-### 12.2 Rollback gates per wave
-
-| Wave | Rollback action | Recoverability |
-|---|---|---|
-| 1 | Stop projector; ignore `audit.events_v2`; producer continues WAL-only | Full; WAL path unchanged |
-| 2 | Re-enable shadow-write; re-route reader; restart projector to v2 | Full; up to 7 days of dual-write history retained |
-| 3 | Stop ClickHouse projection; reader falls back to Yugabyte only | Full; ClickHouse state ignored |
-| 4 | Stop archiver; existing Iceberg files orphaned (still queryable directly) | Full |
-| 5 | None (irreversible cleanup) | Not applicable; only performed after 7 clean days |
-
-### 12.3 Total wave count
-
-Five waves from Phase 1 stabilization to N=1 of the new architecture.
-Each wave is one to two weeks of soak. Total migration window: roughly
-six to ten weeks.
+The today-to-N=1 rollout is the hard cutover, not the earlier dual-write wave
+plan. See [audit-kafka-cutover.md](audit-kafka-cutover.md) for the single
+migration `003_audit_kafka_cutover.sql`, the consumer becoming the only writer
+of `audit.events`, the multi-consumer keying, the ClickHouse read tier, and the
+cutover and rollback steps. There is no dual-write period and no `events_v2`.
 
 ---
 
@@ -1198,7 +1097,7 @@ six to ten weeks.
 | ClickHouse | Add nodes; convert tables to `Replicated*` engine; create Distributed table |
 | SeaweedFS | Add volume servers; replicate filer; clients keep the same S3 endpoint behind a load balancer |
 | `tack-app` | `KAFKA_BROKERS` env var moves from single-host to comma-separated bootstrap-broker list; the franz-go client uses bootstrap brokers to discover the rest of the cluster |
-| `audit-projector` | `replicas` count increases |
+| `audit-consumer` | `replicas` count increases |
 | `audit-notarizer` | Enable leader-election flag; `replicas` count >= 2 |
 
 ### 13.2 Code changes
@@ -1241,7 +1140,7 @@ configuration and one schema migration.
    bootstrap list. franz-go discovers the full cluster from the
    bootstrap list, so adding brokers later is a config-only change.
 4. Bring up second `tack-app` instance on host 2.
-5. Bring up second `audit-projector` instance on host 2; consumer
+5. Bring up second `audit-consumer` instance on host 2; consumer
    group rebalances.
 6. Bring up Yugabyte node 2; cluster expands.
 7. Bring up ClickHouse node 2; convert to ReplicatedMergeTree.
@@ -1301,7 +1200,7 @@ This is operations work; no code deploy required.
 - A second Apache Kafka broker (KRaft combined mode at first; dedicated
   controller-only nodes at the next horizontal step).
 - A second `tack-app` instance.
-- A second `audit-projector` instance.
+- A second `audit-consumer` instance.
 - Inter-host networking with sufficient bandwidth.
 - Backup procedures that account for two hosts.
 - An on-call rotation.
@@ -1373,69 +1272,8 @@ This is operations work; no code deploy required.
 
 ## 16. Critical files
 
-### 16.1 Files created
-
-- `/Users/agoodkind/Sites/tack/internal/audit/router.go`
-  RecorderRouter dispatch on IsStateChange.
-- `/Users/agoodkind/Sites/tack/internal/audit/kafka_recorder.go`
-  KafkaRecorder using franz-go.
-- `/Users/agoodkind/Sites/tack/internal/audit/kafka_recorder_test.go`
-  Unit tests with embedded broker (or fake).
-- `/Users/agoodkind/Sites/tack/internal/audit/shadow_recorder.go`
-  ShadowKafkaRecorder for Wave 1 dual-write.
-- `/Users/agoodkind/Sites/tack/internal/audit/projector.go`
-  Library that the `audit-projector` binary uses; also testable in
-  isolation.
-- `/Users/agoodkind/Sites/tack/internal/audit/projector_test.go`
-- `/Users/agoodkind/Sites/tack/internal/audit/clickhouse_writer.go`
-  ClickHouse write path used by projector.
-- `/Users/agoodkind/Sites/tack/internal/audit/clickhouse_reader.go`
-  ClickHouse read path used by MCP audit tools.
-- `/Users/agoodkind/Sites/tack/cmd/audit-projector/main.go`
-- `/Users/agoodkind/Sites/tack/cmd/audit-notarizer/main.go`
-  Pulled out from in-process goroutine.
-- `/Users/agoodkind/Sites/tack/cmd/audit-archiver/main.go`
-- `/Users/agoodkind/Sites/tack/internal/audit/leader_election.go`
-  Yugabyte advisory lock leader election for notarizer.
-- `/Users/agoodkind/Sites/tack/migrations/005_audit_consumer_offsets.sql`
-- `/Users/agoodkind/Sites/tack/migrations/006_audit_events_event_id_uniq.sql`
-- `/Users/agoodkind/Sites/tack/migrations/007_audit_events_v2_sibling.sql`
-  Wave 1 only.
-- `/Users/agoodkind/Sites/tack/migrations/008_audit_events_v2_drop.sql`
-  Wave 5 cleanup.
-- `/Users/agoodkind/Sites/tack/clickhouse_schema/001_audit_events_olap.sql`
-- `/Users/agoodkind/Sites/tack/scripts/audit-parity-check.sh`
-- `/Users/agoodkind/Sites/tack/scripts/audit-backup-with-restore-test.sh`
-
-### 16.2 Files modified
-
-- `/Users/agoodkind/Sites/tack/cmd/server/main.go`
-  Wire RecorderRouter; remove WAL in Wave 5.
-- `/Users/agoodkind/Sites/tack/internal/config/config.go`
-  Add KAFKA_BROKERS (bootstrap list), KAFKA_TOPIC, KAFKA_CLUSTER_ID,
-  CLICKHOUSE_DSN, S3_ENDPOINT (SeaweedFS or Garage), S3_ACCESS_KEY,
-  S3_SECRET_KEY, AUDIT_NOTARIZER_LEADER_ELECTION env vars.
-- `/Users/agoodkind/Sites/tack/internal/audit/notarizer.go`
-  Add optional leader-election preamble.
-- `/Users/agoodkind/Sites/tack/internal/audit/yugabyte.go`
-  No change (preserved for state-change writes).
-- `/Users/agoodkind/Sites/tack/docker-compose.yml`
-  Add `kafka` (Apache Kafka 4.x in KRaft combined mode),
-  `audit-projector`, `audit-notarizer`, `audit-archiver`, and `clickhouse`
-  services. The SeaweedFS object store is a dedicated LXC provisioned by the
-  configs repo, not a Compose service.
-- `/Users/agoodkind/Sites/tack/internal/telemetry/metrics.go`
-  Add `audit_kafka_lag_seconds`, `audit_projector_commit_rate`,
-  `audit_clickhouse_write_latency_ms`, `audit_archiver_lag_hours`.
-- `/Users/agoodkind/Sites/tack/scripts/backup.sh`
-  Add Apache Kafka log-dir backups, ClickHouse backups, and SeaweedFS
-  volume backups, each with restore-test gates.
-- `/Users/agoodkind/Sites/tack/CLAUDE.md`
-  Document the architecture, the Apache Kafka topic, the projector,
-  the ClickHouse OLAP tier, and the SeaweedFS-backed cold archive.
-
-### 16.3 Files deleted (Wave 5)
-
-- `/Users/agoodkind/Sites/tack/internal/audit/wal.go`
-- `/Users/agoodkind/Sites/tack/internal/audit/wal_test.go`
-- `/var/lib/tack/audit-wal/` on CT 117 (operator action).
+The authoritative list of files the cutover creates and changes lives in
+[audit-kafka-cutover.md](audit-kafka-cutover.md). The earlier wave-based file
+inventory (a shadow recorder, `events_v2` sibling and drop migrations, and a
+separate `audit-consumer` binary) is abandoned. The consumer is
+`cmd/audit-consumer`, there is no shadow recorder, and there is no `events_v2`.
