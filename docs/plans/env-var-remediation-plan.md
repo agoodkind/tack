@@ -126,13 +126,13 @@ This plan codifies the fail-loud-and-early pattern across the binary, compose, a
    - `TACK_BACKUP_TEMPORAL_DB_PASSWORD` should NOT have a `:-temporal` fallback — that masks rotation. Make it `:?` and require it in `.env`.
    - `MEILI_MASTER_KEY` should NOT default to the dev value in compose. Make it `:?` and require explicit setting.
 
-6. **Orphan cleanup in `/root/tack/.env`.**
+6. **`AUDIT_*_PASSWORD` are load-bearing, not orphans.**
 
-   Three `AUDIT_*_PASSWORD` vars (READER, REDACTOR, WRITER) exist in `/root/tack/.env` but are unused (the DSNs are stored fully-composed). Either:
-   - Remove from `.env` (their values are embedded in the DSNs already)
-   - Or wire them into compose substitution to compose the DSNs at runtime (more flexible but requires DSN templating)
-
-   Decision: remove from `.env` after confirming no script reads them.
+   `AUDIT_WRITER_PASSWORD`, `AUDIT_READER_PASSWORD`, and `AUDIT_REDACTOR_PASSWORD`
+   are read by `./server ops audit seed-roles`, which creates or rotates the LOGIN
+   audit roles. They are declared in `internal/config/config.go` and passed to the
+   `tack-ops` compose service. Do not remove them. An earlier version of this plan
+   treated them as unused orphans, which is no longer true.
 
 7. **Double verification.**
 
@@ -143,17 +143,13 @@ This plan codifies the fail-loud-and-early pattern across the binary, compose, a
 
    Compose-side: a small Go test or shell script that parses `docker-compose.yml`, finds every `${VAR}` reference, and asserts that every undecorated reference is matched by a `,required` field in `config.go`. Catches the inverse drift.
 
-8. **Retroactive Tack tickets.**
+8. **Tracking.**
 
-   File one ticket per remediation chunk so the work is tracked even if interleaved with other priorities:
-
-   - **TACK-XXX (Library decision)**: Document caarlos0/env decision in CLAUDE.md / AGENTS.md. Trivial.
-   - **TACK-XXX (Help/version/status subcommands)**: Add the three bypass-config subcommands. Medium-sized code change to cmd/server/main.go.
-   - **TACK-XXX (Required tag expansion)**: Audit every config.go field, add `,required` to truly-required ones. Code change with risk (requires every deploy env to satisfy the new requirements).
-   - **TACK-XXX (Per-subcommand RequiredEnv)**: Add the per-subcommand validation pattern. Refactor of existing one-off checks.
-   - **TACK-XXX (Compose `:?` enforcement)**: Sweep docker-compose.yml, replace undecorated and `:-`-with-secret-default forms. Small but touches every service.
-   - **TACK-XXX (Orphan AUDIT_*_PASSWORD cleanup)**: Remove unused vars from CT 117 `/root/tack/.env`.
-   - **TACK-XXX (Verification harness)**: Implement the two test/verification paths from step 7.
+   All of the above is tracked under TACK-266 (the env-var remediation ticket):
+   the required-tag expansion, the help/version/status subcommands, the
+   per-subcommand validation, the compose `:?` enforcement, and the verification
+   harness. The orphan `AUDIT_*_PASSWORD` cleanup is dropped from this plan,
+   because those vars are now used by `seed-audit-roles` (see step 6).
 
 9. **AGENTS.md codification.**
 
