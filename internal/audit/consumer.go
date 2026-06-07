@@ -86,10 +86,9 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 		slog.ErrorContext(ctx, "audit.consumer.yugabyte_pool_failed", slog.String("err", err.Error()))
 		return nil, fmt.Errorf("audit consumer yugabyte pool: %w", err)
 	}
-	if err := ybpool.Ping(ctx); err != nil {
-		slog.ErrorContext(ctx, "audit.consumer.yugabyte_ping_failed", slog.String("err", err.Error()))
+	if err := pingYugabyteUntilReady(ctx, ybpool); err != nil {
 		ybpool.Close()
-		return nil, fmt.Errorf("audit consumer yugabyte ping: %w", err)
+		return nil, err
 	}
 
 	ch, err := openClickHouse(ctx, cfg.ClickHouseDSN)
@@ -112,6 +111,15 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 			_ = ch.Close()
 		}
 		return nil, fmt.Errorf("audit consumer kafka client: %w", err)
+	}
+
+	if err := ensureAuditTopic(ctx, kclient, cfg.Topic); err != nil {
+		kclient.Close()
+		ybpool.Close()
+		if ch != nil {
+			_ = ch.Close()
+		}
+		return nil, err
 	}
 
 	c := &Consumer{
