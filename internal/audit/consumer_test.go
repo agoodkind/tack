@@ -110,7 +110,7 @@ func runConsumerOnce(t *testing.T, cfg ConsumerConfig, expect int) {
 		}
 		select {
 		case <-deadline:
-			t.Fatalf("waited for %d rows in audit.events_v2; got %d", expect, got)
+			t.Fatalf("waited for %d rows in audit.events; got %d", expect, got)
 		case <-time.After(200 * time.Millisecond):
 		}
 	}
@@ -129,7 +129,7 @@ func countRowsForGroup(t *testing.T, dsn, group string) int {
 	defer pool.Close()
 	var n int
 	err = pool.QueryRow(ctx, `
-		SELECT count(*) FROM audit.events_v2
+		SELECT count(*) FROM audit.events
 		WHERE org_id IN (SELECT org_id FROM audit.consumer_offsets WHERE consumer_group = $1)
 	`, group).Scan(&n)
 	if err != nil {
@@ -163,15 +163,14 @@ func makeReadEvent(orgID uuid.UUID, suffix string) Event {
 func purgeOrg(t *testing.T, pool *pgxpool.Pool, orgID uuid.UUID) {
 	t.Helper()
 	ctx := context.Background()
-	_, _ = pool.Exec(ctx, `DELETE FROM audit.events_v2 WHERE org_id = $1`, orgID)
+	_, _ = pool.Exec(ctx, `DELETE FROM audit.events WHERE org_id = $1`, orgID)
 	_, _ = pool.Exec(ctx, `DELETE FROM audit.chain_heads WHERE org_id = $1`, orgID)
-	_, _ = pool.Exec(ctx, `DELETE FROM audit.events       WHERE org_id = $1`, orgID)
 }
 
-// TestConsumerProjectsToEventsV2 produces 100 events to Kafka, runs the
-// consumer, and asserts all 100 land in audit.events_v2 with a chain that
+// TestConsumerProjectsToEvents produces 100 events to Kafka, runs the
+// consumer, and asserts all 100 land in audit.events with a chain that
 // matches what YBRecorder would have written for the same input.
-func TestConsumerProjectsToEventsV2(t *testing.T) {
+func TestConsumerProjectsToEvents(t *testing.T) {
 	pool, brokers, topic := newConsumerEnv(t)
 	orgID := uuid.Must(uuid.NewV7())
 	t.Cleanup(func() { purgeOrg(t, pool, orgID) })
@@ -195,7 +194,7 @@ func TestConsumerProjectsToEventsV2(t *testing.T) {
 
 	ctx := context.Background()
 	rows, err := pool.Query(ctx, `
-		SELECT seq, prev_hash, row_hash FROM audit.events_v2
+		SELECT seq, prev_hash, row_hash FROM audit.events
 		WHERE org_id = $1 ORDER BY shard, seq
 	`, orgID)
 	if err != nil {
@@ -218,13 +217,13 @@ func TestConsumerProjectsToEventsV2(t *testing.T) {
 		count++
 	}
 	if count != total {
-		t.Fatalf("got %d rows in audit.events_v2; want %d", count, total)
+		t.Fatalf("got %d rows in audit.events; want %d", count, total)
 	}
 }
 
 // TestConsumerIdempotentOnEventID produces 100 events, runs the consumer,
 // runs it again (simulating crash mid-batch), and asserts the unique index
-// dedups so exactly 100 rows remain in audit.events_v2.
+// dedups so exactly 100 rows remain in audit.events.
 func TestConsumerIdempotentOnEventID(t *testing.T) {
 	pool, brokers, topic := newConsumerEnv(t)
 	orgID := uuid.Must(uuid.NewV7())
@@ -254,7 +253,7 @@ func TestConsumerIdempotentOnEventID(t *testing.T) {
 
 	ctx := context.Background()
 	var n int
-	err := pool.QueryRow(ctx, `SELECT count(*) FROM audit.events_v2 WHERE org_id = $1`, orgID).Scan(&n)
+	err := pool.QueryRow(ctx, `SELECT count(*) FROM audit.events WHERE org_id = $1`, orgID).Scan(&n)
 	if err != nil {
 		t.Fatalf("count: %v", err)
 	}
@@ -301,7 +300,7 @@ func TestConsumerOffsetAdvanceIsAtomicWithProjection(t *testing.T) {
 
 	c := context.Background()
 	var n int
-	err = pool.QueryRow(c, `SELECT count(*) FROM audit.events_v2 WHERE org_id = $1`, orgID).Scan(&n)
+	err = pool.QueryRow(c, `SELECT count(*) FROM audit.events WHERE org_id = $1`, orgID).Scan(&n)
 	if err != nil {
 		t.Fatalf("count: %v", err)
 	}
@@ -386,14 +385,14 @@ func TestConsumerNotarizerSigns(t *testing.T) {
 
 // TestConsumerHandlesMalformedPayload produces one record with invalid JSON
 // and asserts the consumer logs and advances past it without halting the
-// batch. The malformed record lands in audit.events_v2_dlq.
+// batch. The malformed record lands in audit.events_dlq.
 func TestConsumerHandlesMalformedPayload(t *testing.T) {
 	pool, brokers, topic := newConsumerEnv(t)
 	orgID := uuid.Must(uuid.NewV7())
 	t.Cleanup(func() {
 		purgeOrg(t, pool, orgID)
 		ctx := context.Background()
-		_, _ = pool.Exec(ctx, `DELETE FROM audit.events_v2_dlq WHERE topic = $1`, topic)
+		_, _ = pool.Exec(ctx, `DELETE FROM audit.events_dlq WHERE topic = $1`, topic)
 	})
 
 	cl, err := kgo.NewClient(kgo.SeedBrokers(brokers...))
@@ -422,7 +421,7 @@ func TestConsumerHandlesMalformedPayload(t *testing.T) {
 
 	var dlqCount int
 	err = pool.QueryRow(ctx,
-		`SELECT count(*) FROM audit.events_v2_dlq WHERE topic = $1`, topic,
+		`SELECT count(*) FROM audit.events_dlq WHERE topic = $1`, topic,
 	).Scan(&dlqCount)
 	if err != nil {
 		t.Fatalf("dlq count: %v", err)

@@ -1,6 +1,6 @@
-// Package main runs the Wave 1 audit consumer. It tails the Kafka topic the
-// producer side writes to, projects each event into Yugabyte audit.events_v2
-// (the parity sibling) and ClickHouse audit.events, and runs the embedded
+// Package main runs the audit consumer. It tails the Kafka topic the producer
+// writes to, projects each event into Yugabyte audit.events and ClickHouse
+// audit.events_olap as the only writer of the chain, and runs the embedded
 // notarizer goroutine.
 package main
 
