@@ -154,6 +154,7 @@ func runServer(cfg *config.Config) {
 		Users:         userRepo,
 		Searcher:      searcher,
 		AuditReader:   auditRuntime.Reader,
+		AuditQuerier:  auditRuntime.Querier,
 		AuditRedactor: auditRuntime.Redactor,
 	})
 
@@ -205,10 +206,12 @@ func runServer(cfg *config.Config) {
 }
 
 type auditRuntime struct {
-	Reader    *audit.Reader
-	Redactor  *audit.Redactor
-	Notarizer *audit.Notarizer
-	Recorder  audit.Recorder
+	Reader     *audit.Reader
+	ClickHouse *audit.ClickHouseReader
+	Querier    audit.RowQuerier
+	Redactor   *audit.Redactor
+	Notarizer  *audit.Notarizer
+	Recorder   audit.Recorder
 }
 
 func setupAuditRuntime(ctx context.Context, cfg *config.Config) auditRuntime {
@@ -223,17 +226,29 @@ func setupAuditRuntime(ctx context.Context, cfg *config.Config) auditRuntime {
 	if notarizer != nil {
 		notarizer.Start(ctx)
 	}
+
+	reader := buildAuditReader(ctx, cfg)
+	clickHouse := buildAuditClickHouseReader(ctx, cfg)
+	var querier audit.RowQuerier
+	if reader != nil {
+		querier = audit.NewQueryRouter(reader, clickHouse, cfg.AuditQueryRecentWindow)
+	}
 	return auditRuntime{
-		Reader:    buildAuditReader(ctx, cfg),
-		Redactor:  buildAuditRedactor(ctx, cfg),
-		Notarizer: notarizer,
-		Recorder:  auditRec,
+		Reader:     reader,
+		ClickHouse: clickHouse,
+		Querier:    querier,
+		Redactor:   buildAuditRedactor(ctx, cfg),
+		Notarizer:  notarizer,
+		Recorder:   auditRec,
 	}
 }
 
 func (r auditRuntime) Close() {
 	if r.Reader != nil {
 		r.Reader.Close()
+	}
+	if r.ClickHouse != nil {
+		r.ClickHouse.Close()
 	}
 	if r.Redactor != nil {
 		r.Redactor.Close()
@@ -360,6 +375,24 @@ func buildAuditReader(ctx context.Context, cfg *config.Config) *audit.Reader {
 		return nil
 	}
 	slog.InfoContext(ctx, "audit.reader_connected")
+	return rd
+}
+
+// buildAuditClickHouseReader opens the ClickHouse read connection when
+// AUDIT_CLICKHOUSE_DSN is set. nil means tack_audit_query reads Yugabyte only.
+func buildAuditClickHouseReader(ctx context.Context, cfg *config.Config) *audit.ClickHouseReader {
+	if cfg.AuditClickHouseDSN == "" {
+		slog.InfoContext(ctx, "audit.clickhouse_reader_disabled",
+			slog.String("reason", "AUDIT_CLICKHOUSE_DSN unset; audit queries read Yugabyte only"),
+		)
+		return nil
+	}
+	rd, err := audit.NewClickHouseReader(ctx, cfg.AuditClickHouseDSN)
+	if err != nil {
+		slog.ErrorContext(ctx, "audit.clickhouse_reader_setup_failed", slog.String("err", err.Error()))
+		return nil
+	}
+	slog.InfoContext(ctx, "audit.clickhouse_reader_connected")
 	return rd
 }
 

@@ -96,11 +96,9 @@ type Config struct {
 	AuditWALMaxBacklogAge      time.Duration `env:"AUDIT_WAL_MAX_BACKLOG_AGE"      envDefault:"0"`
 	AuditWALIdleRotateAfter    time.Duration `env:"AUDIT_WAL_IDLE_ROTATE_AFTER"    envDefault:"0"`
 
-	// Kafka audit producer (Wave 1 of the Phase 2 audit refactor).
-	//
-	// AuditKafkaBrokers is a comma-separated bootstrap broker list. When
-	// empty, the Kafka producer path is disabled and audit recording falls
-	// back to the WAL-only path.
+	// Kafka audit producer. AuditKafkaBrokers is a comma-separated bootstrap
+	// broker list. When empty, the Kafka producer path is disabled and audit
+	// recording uses the synchronous Yugabyte recorder.
 	//
 	// AuditKafkaTopic, AuditKafkaClientID, and AuditKafkaProduceTimeout fall
 	// back to design-doc defaults when unset. The producer code reads them
@@ -109,6 +107,13 @@ type Config struct {
 	AuditKafkaTopic          string        `env:"AUDIT_KAFKA_TOPIC"           envDefault:"audit.events.v1"`
 	AuditKafkaClientID       string        `env:"AUDIT_KAFKA_CLIENT_ID"       envDefault:"tack-audit-producer"`
 	AuditKafkaProduceTimeout time.Duration `env:"AUDIT_KAFKA_PRODUCE_TIMEOUT" envDefault:"10s"`
+
+	// Audit query read tier. AuditClickHouseDSN points the app's query router
+	// at the audit.events_olap projection. When empty, tack_audit_query reads
+	// only Yugabyte. AuditQueryRecentWindow is the age boundary below which a
+	// query routes to ClickHouse instead of Yugabyte.
+	AuditClickHouseDSN     string        `env:"AUDIT_CLICKHOUSE_DSN"`
+	AuditQueryRecentWindow time.Duration `env:"AUDIT_QUERY_RECENT_WINDOW" envDefault:"720h"`
 
 	// Meilisearch: optional, no-op stub used when unset.
 	MeiliURL       string `env:"MEILI_URL"        envDefault:"http://localhost:7700"`
