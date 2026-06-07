@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/twmb/franz-go/pkg/kfake"
 	"github.com/twmb/franz-go/pkg/kgo"
+	"goodkind.io/tack/internal/clock"
 )
 
 // integrationDSN returns the Yugabyte DSN used by consumer tests. The DSN is
@@ -76,15 +77,12 @@ func produceEvents(t *testing.T, brokers []string, topic string, events []Event)
 		if err != nil {
 			t.Fatalf("marshal: %v", err)
 		}
-		eventID := uuid.Must(uuid.NewV7())
-		ids = append(ids, eventID)
+		// The producer carries event_id in the payload, so the consumer reads
+		// it from the decoded Event rather than a Kafka header.
+		ids = append(ids, ev.EventID)
 		rec := &kgo.Record{
 			Topic: topic,
 			Value: body,
-			Headers: []kgo.RecordHeader{{
-				Key:   "event_id",
-				Value: []byte(eventID.String()),
-			}},
 		}
 		if err := cl.ProduceSync(ctx, rec).FirstErr(); err != nil {
 			t.Fatalf("produce: %v", err)
@@ -140,7 +138,8 @@ func countRowsForGroup(t *testing.T, dsn, group string) int {
 
 func makeReadEvent(orgID uuid.UUID, suffix string) Event {
 	return Event{
-		Verb: string(VerbNodeRead),
+		EventID: uuid.Must(uuid.NewV7()),
+		Verb:    string(VerbNodeRead),
 		Actor: Actor{
 			Type:      ActorUser,
 			ID:        uuid.Must(uuid.NewV7()),
@@ -155,8 +154,10 @@ func makeReadEvent(orgID uuid.UUID, suffix string) Event {
 			Source: SourceMCP,
 			Tool:   "tack_get_issue",
 		},
-		Outcome:    OutcomeOK,
-		OccurredAt: time.Date(2026, 5, 9, 12, 0, 0, 0, time.UTC),
+		Outcome: OutcomeOK,
+		// A current timestamp so the row lands in a weekly partition that
+		// migration 002 creates (current week plus eight).
+		OccurredAt: clock.Now().UTC(),
 	}
 }
 
