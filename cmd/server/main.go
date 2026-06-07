@@ -9,6 +9,8 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/google/uuid"
+
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/telemetry"
@@ -59,6 +61,9 @@ func run() int {
 	f := cli.System(cfg)
 	ctx, span := telemetry.StartSpan(context.Background(), "cli")
 	defer span.End()
+	// Mint a per-invocation request id so every command's output and logs share
+	// a request_id alongside the span's trace_id and span_id.
+	ctx = telemetry.WithRequestMetadata(ctx, uuid.NewString())
 	ctx = telemetry.WithTraceLogger(ctx)
 	// Log one correlated line per invocation so a command's output envelope
 	// trace_id can be matched against the run's log trail.
