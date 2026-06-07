@@ -207,6 +207,35 @@ replication copies everywhere. Object storage is a backup destination, not a DR
 mechanism. On any audit recovery, preserve `audit.chain_heads` so the hash chain
 continues. Procedures: [`docs/runbooks/recovery.md`](docs/runbooks/recovery.md).
 
+## First boot on a fresh environment
+
+A fresh environment (QA recreate, a new server, a DR restore) is not ready after
+`deploy-tack` alone. The deploy runs `docker compose up -d` and health-gates on
+fdb, but several one-time initialization steps are not yet automated, and fdb is
+not even healthy until the first of them runs. Until the provisioning layer lands
+(TACK-303, "deploy is not provision"), run these in order on a fresh environment:
+
+1. **FoundationDB.** A fresh `tack_fdb-data` volume has no configured database, so
+   `tack-fdb-1` stays unhealthy and the deploy aborts. Initialize it once:
+   `docker exec tack-fdb-1 fdbcli --exec 'configure new single ssd'`, then re-run
+   `deploy-tack`. The fdb overlay writes the client cluster file at
+   `/etc/foundationdb/fdb.cluster` as `docker:docker@fdb:4500` (the DNS name) on
+   start, so clients survive container IP changes. TACK-290 automates the
+   configure step. NEVER run `configure new` against an already-configured
+   cluster (prod): it is the one destructive step in this list.
+2. **Migrations.** `docker compose run --rm tack-ops migrate`.
+3. **Audit roles.** `docker compose run --rm tack-ops ops audit seed-roles`. The
+   app and the audit-consumer cannot authenticate to YugabyteDB until this runs;
+   the consumer crash-loops in the meantime (TACK-301).
+4. **Kafka topic.** `audit.events.v1` does not exist on a fresh broker, so the
+   audit-consumer cannot fetch until it is created (TACK-305).
+5. **Product seed.** `docker compose run --rm tack-ops seed` for the initial
+   user, org, workspace, and API token.
+
+This ordered sequence is the provisioning layer Tack is missing; the design is
+tracked in TACK-303. QA lifecycle (keep running vs hard-recreate each time) is
+TACK-304.
+
 ## Binding rules for code in this repo
 
 1. **Everything is a node** (see Architecture). Behavior follows NodeType
