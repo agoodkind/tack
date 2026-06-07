@@ -82,8 +82,20 @@ func writeCanonical(buf *bytes.Buffer, v any) error {
 	return nil
 }
 
-// shardOf returns the logical shard index in [0, 256) for a (actor, event)
-// pair. The pair distributes load away from a hot actor and a hot event id.
+// shardOf returns the load-distribution shard for a (actor, event) pair, in
+// [0, 256). The shard is a per-event bucket, not a logical key: it spreads
+// writes across parallel per-(org, shard) hash chains and Kafka partitions, away
+// from a hot actor or event id.
+//
+// The 256 (the 0xFF mask) is arbitrary and tunable, not a permanent lock. The
+// shard is stored on every audit.events row, and verification enumerates the
+// existing (org, shard) heads from chain_heads, so it is count-agnostic. The
+// shard column is int16 and the Kafka key encodes two bytes, both well past 256.
+// The Kafka partition count is decoupled because the consumer recomputes the
+// shard from the payload. Changing the count is forward-only: drain in-flight
+// Kafka first (an event produced under one shard must not be reprojected under
+// another), then flip the mask; old chains stay closed and valid, new writes
+// distribute over the new space. No migration. See TACK-306.
 func shardOf(actor, eventID uuid.UUID) int16 {
 	var buf [32]byte
 	copy(buf[0:16], actor[:])
