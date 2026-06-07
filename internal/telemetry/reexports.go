@@ -11,8 +11,8 @@ const RequestIDHeader = trace.RequestIDHeader
 var (
 	WithRequestMetadata = trace.WithRequestMetadata
 	RequestID           = trace.RequestID
-	TraceID             = trace.TraceID
-	SpanID              = trace.SpanID
+	TraceID             = trace.IDFromContext
+	SpanID              = trace.SpanIDFromContext
 	WithTraceLogger     = trace.WithTraceLogger
 	StartSpan           = trace.StartSpan
 	RequestLogger       = trace.RequestLogger
