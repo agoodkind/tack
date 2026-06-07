@@ -1,422 +1,232 @@
 # Tack
 
-Tack is a fully-featured, horizontally scalable project management platform. It is not a personal tool or a prototype. Every decision should be made with production scale, multi-tenant correctness, and long-term maintainability in mind.
+Tack is a horizontally scalable, multi-tenant project management platform: a
+replacement for Plane CE, Linear, and Jira with a better architecture. It is not
+a personal tool or a prototype. Decide every feature for a real multi-tenant
+product with real users; never frame a decision as "for now, since it's just
+you." `CLAUDE.md` is a symlink to this file.
 
-## What we are building
+## How to read this file
 
-A complete replacement for Plane CE / Linear / Jira: with a better architecture. The product must support:
+This file holds durable rules and settled decisions only. It does not restate
+values that live in code or config, because copies drift. For anything concrete
+(keys, schema, env vars, services, hosts), read the source of truth named in
+[Where the truth lives](#where-the-truth-lives). If this file and the code
+disagree, the code wins; fix this file.
 
-- Multiple orgs, each with multiple workspaces, teams, and users
-- User-defined hierarchy: the type system is extensible, not fixed
-- Horizontal scalability from day 0: no single points of write contention
-- MCP as a first-class interface, not a demo or convenience layer
-- An eventual Connect-RPC API, TypeScript frontend, and TUI
+## The seam: configs repo vs tack repo
 
-Do not frame suggestions, gaps, or decisions in terms of "your use case" or "for now since it's just you." Every feature should be designed for a real multi-tenant product with real users.
+One boundary, drawn at the LXC.
 
-## Architecture
+- **Up to and including the LXC is the configs repo**
+  (`github.com/agoodkind/configs`). Proxmox, the LXC itself, host networking, the
+  rendered `.env`, the audit signing key, the FoundationDB cluster directory, and
+  the SeaweedFS object-store LXC. Everything around the container runtime.
+- **Inside the LXC is this repo.** Everything Docker runs: `docker-compose.yml`
+  (the stack source of truth), the overlays (`fdb-overlay/fdb.bash`,
+  `yugabyte-overlay/yugabyted`), the application code, and `./server ops`.
 
-### The model: everything is a node in FDB
+Any live value absent from the configs repo is drift, and drift is an incident.
+Config goes to the configs repo first and is never hand-edited on the host;
+Ansible re-renders `.env` from
+[`tack.env.j2`](https://github.com/agoodkind/configs/blob/main/tack/tack.env.j2)
+on every deploy.
 
-Every entity: org, workspace, project, state, label, issue, epic, cycle, module, custom type. Each is a node stored in FoundationDB. Same pattern across all entity types: NodeValue (primary record) + NodeListView (materialized read view) + NodeResolve (global resolution record). Every entity is globally addressable by its UUID alone. No org context required from callers.
+Two deploy actions, split by phase:
 
-**YugabyteDB owns SQL-only control data: auth and compliance audit.**
+- **Ansible
+  [`deploy-tack.yml`](https://github.com/agoodkind/configs/blob/main/ansible/playbooks/deploy-tack.yml)**
+  does first boot and any full-stack change: it prepares the LXC, renders
+  `.env`, fetches the stack from this repo at the deployed ref, and runs
+  `docker compose up -d` for every service.
+- **`./server ops deploy`** does app-image updates only (`app`,
+  `audit-consumer`): build, push, pull, `up -d`, and verify the running digest.
+  It never does first boot and never starts the databases.
 
-```
-users              : identity (email, display_name)
-api_tokens         : bearer token → user_id
-org_members        : auth gate: is this user allowed in this org
-audit.events       : append-only compliance audit ledger
-audit.chain_heads  : per-org/shard hash-chain heads
-audit.notarizations: signed Merkle checkpoints
-audit.pii          : redactable PII payloads referenced by audit events
-```
+`make deploy` is retired.
 
-No product entity lives in SQL. No entity tables, config tables, relationship
-tables, or read-model tables belong there. YugabyteDB is still critical data:
-auth gates and the compliance audit ledger must be preserved on every recovery.
+## Settled decisions (do not re-litigate)
 
-**FoundationDB owns all product data:**
-- All entity storage (orgs, workspaces, projects, states, labels, issues, epics, cycles, modules, custom types)
-- All relationships (assignments, containment, labels-on-nodes, hierarchy)
-- All views (NodeListView materialized read records)
-- All resolution records (NodeResolve: entityID → orgID, workspaceID, nodeType)
-- Activity, comments, properties, sequences, automation rules
+- **SeaweedFS is a configs-owned LXC, not a tack service.** The object store runs
+  as its own Proxmox LXC (the `weed` binary under systemd, S3 on port 8333),
+  reached over S3 from inside the tack LXC. `docker-compose.yml` has no
+  `seaweedfs` service. Its provisioning and config live in the configs repo.
+- **QA (`tack_qa`) is disposable.** Destroy and recreate it freely to match prod.
+  Validate every migration, seed, backfill, and restore on QA before prod; QA is
+  a fresh host with vault-sourced secrets and no live state to protect.
+- **The audit ledger keeps one `audit.events` table.** The Kafka cutover makes
+  the `audit-consumer` the single writer and continues the existing
+  per-`(org, shard)` hash chain through `audit.chain_heads`: no rename, no archive
+  table, no `events_v2`. Design of record:
+  [`docs/plans/audit-kafka-cutover.md`](docs/plans/audit-kafka-cutover.md).
+- **Migrations run via `./server migrate` only**, never on HTTP startup.
+- **Build with `make build`.** It runs the go-makefile pipeline (vet, golangci,
+  staticcheck-extra, govulncheck) baseline-gated. Do not call `go build`
+  directly.
 
-**Meilisearch:** full-text search. Fully wired: `searcher.Index()` called on every Create and Update. `EnsureIndex` filterable attrs: `org_id`, `workspace_id`, `project_id`, `entity_type`, `state_id`, `priority`, `is_draft`. Search returns facets.
+## Where the truth lives
+
+Find current state here; do not memorize or copy it into this file.
+
+| For | Read |
+| --- | --- |
+| FDB key families | `internal/adapters/foundationdb/keys.go` |
+| SQL schema (auth + audit only) | `migrations/*.sql` |
+| Server config and every env var | `internal/config/config.go` |
+| The running stack and its services | `docker-compose.yml` |
+| Ops commands | `./server ops help` (`internal/ops`) |
+| Deploy-time values and `.env` | configs [`tack.env.j2`](https://github.com/agoodkind/configs/blob/main/tack/tack.env.j2) |
+| Hosts, networking, the LXC | configs [`deploy-tack.yml`](https://github.com/agoodkind/configs/blob/main/ansible/playbooks/deploy-tack.yml) and `service_mapping.yml` |
+| Roadmap and ticket state | TACK issues via the MCP tools |
+| Cross-session context | the memory handoff under the session memory directory |
+
+## Architecture (binding)
+
+### Everything is a node in FoundationDB
+
+Every entity (org, workspace, project, state, label, issue, epic, cycle, module,
+comment, activity, custom type) is one node. Each follows the same pattern:
+NodeValue (primary record) plus NodeListView (materialized read row) plus
+NodeResolve (global resolution record). Every entity is addressable by its UUID
+alone, with no org context from the caller. Edges are Relationship records.
+Behavior follows NodeType metadata, never hardcoded type names.
+
+### SQL is auth plus compliance audit only
+
+YugabyteDB holds `users`, `api_tokens`, `org_members`, and the `audit.*` ledger.
+No product entity, config, relationship, or read-model table lives in SQL. Treat
+YugabyteDB backups as compliance artifacts: auth gates and the audit ledger must
+survive every recovery.
+
+### FoundationDB holds all product data
+
+All entity storage, all relationships, all NodeListView read rows, all
+NodeResolve records, plus activity, comments, properties, sequences, and
+automation rules.
 
 ### Data access
 
-Every read goes through `NodeReader`. The service layer never calls `EntityRepository`, `PropertyRepository`, `AssignmentRepository`, or `LabelRepository` directly for reads.
+Every read goes through `NodeReader`; the service layer never calls
+`EntityRepository`, `PropertyRepository`, `AssignmentRepository`, or
+`LabelRepository` directly for reads. Every write goes through
+`EntityRepository.CreateAtomic` or `EntityRepository.Set`, which write NodeValue,
+property values, NodeResolve, NodeListView, assignments, and labels in one FDB
+transaction. No cross-database transactions, no multi-step creates.
 
-```
-NodeReader.Get(ctx, nodeID)           : resolves via NodeResolve record, no org context needed
-NodeReader.List(ctx, NodeListQuery)   : parallel chunk fetch, returns []NodeListView
-NodeReader.Stream(ctx, NodeListQuery) : unbounded scan, returns channel
-NodeReader.Resolve(ctx, entityID)     : returns NodeResolve for any entity type
-```
-
-Every write goes through `EntityRepository.CreateAtomic` or `EntityRepository.Set`. These atomically write NodeValue + NodeListView + NodeResolve in a single FDB transaction.
-
-orgID is never passed by callers. It is always derived:
-- For entity-scoped ops: `reader.Resolve(ctx, entityID)` → `resolve.OrgID`
-- For workspace-scoped ops: workspace entity → `ws.OrgID`
-- The storage layer uses orgID internally for key locality. It never surfaces to the API or service layer as a parameter.
-
-### Global entity resolution
-
-Every entity has a resolution record written atomically on create:
-
-```
-FDB key: (node_resolve, entityID) → {OrgID, WorkspaceID, ProjectID, NodeType}
-```
-
-`NodeReader.Get(ctx, entityID)` and `NodeReader.Resolve(ctx, entityID)` use this record. Callers know one UUID; lookup works or fails based on auth.
-
-Auth check: resolve entity → get OrgID → check `org_members` in SQL → allow or 403.
-
-### NodeListView
-
-Written atomically with every entity write. Contains everything needed to render a list row; no follow-up reads required.
-
-```
-FDB key: (node_list_view, orgID, workspaceID, nodeType, nodeID) → JSON NodeListView
-```
-
-NodeListView includes: ID, OrgID, WorkspaceID, ProjectID, NodeType, SequenceID, Name, Description, StateID, ParentID, EpicID, AssigneeIDs, LabelIDs, Priority, StartDate, DueDate, IsDraft, Status, CustomProps, CreatedBy, UpdatedBy, CreatedAt, UpdatedAt.
-
-### Write path
-
-All creates use `EntityRepository.CreateAtomic`: single FDB transaction:
-1. Sequence allocation (atomic increment on sequence key)
-2. NodeValue primary record + secondary indexes
-3. Property values + property secondary indexes
-4. NodeResolve record
-5. NodeListView
-6. Initial assignments
-7. Initial labels
-
-No cross-database transactions. No consistency gap.
-
-### API layer
-
-- **MCP Streamable HTTP** (`/mcp`): primary interface. 50+ tools, dynamic per-user tool registration based on NodeType reference and display metadata. Human-readable workspace and project inputs are address values declared by metadata. orgID never appears as an input field.
-- **Connect-RPC** (`/tack.v1.*`): typed API for future frontend/TUI. Entity-scoped ops take entity UUID only. Collection ops take workspace_id or project_id.
+`orgID` is never a caller parameter. Derive it: entity-scoped ops resolve the
+entity (`reader.Resolve`) to its `OrgID`; workspace-scoped ops read the workspace
+node. The storage layer uses `orgID` internally for key locality and never
+surfaces it to the API or service layer.
 
 ### Auth
 
-- `Authorization: Bearer <token>` → SHA-256 hash → `api_tokens` lookup → `userID`
-- Dev mode (`ENV=development`): Bearer token is the raw user UUID (no DB lookup)
-- Per-entity auth: resolve entity → orgID → `SELECT 1 FROM org_members WHERE org_id=$1 AND user_id=$2`
+`Authorization: Bearer <token>` hashes to SHA-256, looks up `api_tokens`, and
+yields a `userID`. In `ENV=development` the bearer is the raw user UUID with no
+DB lookup. Per-entity auth resolves the entity to its `orgID` and checks
+`org_members`.
 
-### Build
+### API layer
 
-- `go build ./...`: works everywhere (FDB is noop stub, no CGO required)
-- `CGO_ENABLED=1 go build -tags fdb ./...`: production build with real FDB
-- FDB Go bindings pinned to `v0.0.0-20250923185926-685eda6efef7` (API 740)
-- `foundationdb-clients` 7.4.x required on the build host for `-tags fdb`
+- **MCP Streamable HTTP** (`/mcp`) is the primary interface: per-user tool
+  registration driven by NodeType metadata. Human-readable workspace and project
+  inputs are address values declared by metadata. `orgID` never appears as an
+  input field.
+- **Connect-RPC** (`/tack.v1.*`) is the typed API for the future frontend and
+  TUI. Entity-scoped ops take a UUID; collection ops take `workspace_id` or
+  `project_id`.
 
----
+### Durable invariants
 
-## Key decisions
+- UUIDv7 for all new entities (k-sortable, coordination-free range scans).
+- Human-readable references are declared metadata; the UUID is canonical
+  identity. Tool, type, and display names are separate from node identity and
+  from address values.
+- Hierarchy is a DAG defined by `CanLiveUnder`; the resolver walks the scope
+  chain for N levels with no depth assumption.
+- Universal-field test: a field belongs on NodeValue/NodeListView only if it
+  would exist on a node in a completely different product on the same
+  architecture (`ID`, `OrgID`, `NodeType`, `Name`, timestamps, `CreatedBy`,
+  `UpdatedBy`, `Props`). Everything else is a property, a NodeResolve scope
+  position, or a relationship.
+- Descriptions are Markdown TEXT, never HTML.
+- Updates are partial everywhere: only provided fields change.
+- Optional MCP input fields are `*string` with `json:",omitempty"` (required by
+  `google/jsonschema-go`); `jsonschema:"..."` tags are descriptions, not
+  validation constraints.
+- No tech debt disguised as "we can fix this later for scale." If it won't scale,
+  don't ship it.
 
-- **Everything is a node in FDB.** Orgs, workspaces, projects, states, labels, issues: all the same pattern. No entity lives in SQL.
-- **SQL = auth plus compliance audit only.** `users`, `api_tokens`, `org_members`, and `audit.*`. Nothing else.
-- **orgID never leaks to callers.** Derived from entity resolution or workspace lookup internally. Never a service method parameter, never an API input field.
-- **NodeListView is the single read layer.** Service layer uses NodeReader for all reads. No direct EntityRepository reads in service or handler code.
-- **One FDB transaction per write.** CreateAtomic batches everything. No multi-step create sequences.
-- **UUIDv7 for all new entities.** k-sortable, creation-order range scans without coordination.
-- **Human-readable references are declared metadata.** UUID is canonical identity; `NodeType.Reference` and generic address contracts declare caller-facing reference forms.
-- **Type, tool, and display names are separate from node identity and address values.** Runtime behavior follows generic metadata and address contracts, including declared type metadata, display tokens, address kinds, address values, and scope.
-- **Address lookup storage uses generic address/reference indexes.** Key families and report shapes use address/reference terminology and declare scope, kind, value, and target node explicitly.
-- **Descriptions are Markdown TEXT**: not HTML, no stripped copy.
-- **Updates are partial everywhere**: only provided fields change.
-- **Migrations run via `./server migrate` only**: never on HTTP startup.
-- **Optional MCP input fields use `*string` with `json:",omitempty"`**: required by `google/jsonschema-go`.
-- **`jsonschema:"..."` tag values are descriptions**: not constraints. Do not use them for validation.
-- `gen_random_uuid()` requires `CREATE EXTENSION pgcrypto` on YugabyteDB (run manually before first migration).
-- YugabyteDB does not support `GENERATED ALWAYS AS STORED` columns; no tsvector columns.
+## YugabyteDB on the IPv6-only bridge
 
----
+The `default` Docker network is IPv6-only (`enable_ipv4: false`,
+`gateway_mode_v6: routed`). Do not flip it to IPv4 or dual-stack; v4 lets
+services silently fall back. Service hostnames (`fdb`, `yugabyte`, `meilisearch`,
+`temporal`) resolve to v6 only.
 
-## SQL schema (auth and audit only)
+YugabyteDB's database identity must be the stable Docker DNS name `yugabyte`, not
+a container GUA. The `yugabyted` command advertises and listens on `yugabyte`
+(`--advertise_address=yugabyte --listen=yugabyte`); never derive it from
+`getent` or pin a literal GUA, because stale persisted addresses wedge YSQL.
 
-```
-users                identity: email, display_name, avatar_url
-api_tokens           auth: token_hash → user_id
-org_members          auth gate: org_id, user_id, role
-audit.events         append-only audit events, partitioned by event_time
-audit.chain_heads    current hash-chain head per (org_id, shard)
-audit.notarizations  signed Merkle roots over shard heads
-audit.pii            redactable encrypted PII payloads
-```
+The image's `is_port_available` opens an IPv4 socket and fails on this bridge, so
+`yugabyte-overlay/yugabyted` carries the upstream `bin/yugabyted` with the
+AF_UNSPEC fix from upstream PR
+[#23158](https://github.com/yugabyte/yugabyte-db/pull/23158), bind-mounted `:ro`.
+On any image bump, refresh the overlay (re-fetch upstream `bin/yugabyted` for the
+new tag, re-apply the `is_port_available` patch), verify on QA first, then prod.
+The overlay is allowlisted in `.gitleaks.toml` and `.gitguardian.yaml`.
 
-That is the complete SQL surface. Treat YugabyteDB backups as compliance
-artifacts, not just convenience auth snapshots.
+## Recovery and backups
 
----
+Disaster recovery is quorum replication across fault domains, which loses no data
+on node or zone failure. Point-in-time recovery and backups are the slower,
+separate layer for corruption and accidental deletion, the failure class
+replication copies everywhere. Object storage is a backup destination, not a DR
+mechanism. On any audit recovery, preserve `audit.chain_heads` so the hash chain
+continues. Procedures: [`docs/runbooks/recovery.md`](docs/runbooks/recovery.md).
 
-## Deprecated names in older artifacts
+## Binding rules for code in this repo
 
-Some historical reports under the repo refer to a `stray_alias_state` repair
-class and an `internal/ops/repair_stray_alias_state.go` file. Neither exists
-in the current code base. The repair tooling has been refactored into three
-generic classes registered in `internal/ops/repair_catalog.go`:
+1. **Everything is a node** (see Architecture). Behavior follows NodeType
+   metadata, never hardcoded type names.
+2. **No shell-outs in tack Go.** No shell scripts and no `os/exec` of CLIs.
+   Engine CLIs (`fdbbackup`, `yb-admin`, `ysql_dump`, `tar`) run inside one-shot
+   containers through the Docker Go SDK helpers in `internal/ops/dockerctl.go`.
 
-- `reference_property`: repair one UUID reference property from operator-declared source fields and policies. Subsumes the resolvable-raw-alias and conflict-winner cases that `stray_alias_state` previously handled (for example normalizing `done` / `todo` / scoped values like `CLYDE::Done` into a canonical `state_id`).
-- `parent_reference`: repair a node `parent_id` and `child_of` edge from operator-declared source fields.
-- `props_transform`: apply generic property delete, rename, and append-preserve transforms. Subsumes the "remove the stale raw `state` alias when canonical `state_id` is already valid" cleanup that `stray_alias_state` previously handled.
+## No config files
 
-The 2026-05-08 state repair work that the older `stray_alias_state` class
-performed has been completed. The repair manifests, audit CSVs, and
-historical impact document that referenced the old class names were deleted
-on 2026-05-10 because they contained production data and the work they
-described has shipped. The current-terminology record of the same work
-lives at
-`docs/incidents/2026-05-09-seed-parallel-org/reports/state_repair_execution_report.md`.
-
----
-
-## FDB key space (canonical reference)
-
-All keys use the tuple layer. `orgID` is always an early component for tenant locality.
-
-### Resolution (global, not org-scoped)
-```
-node_resolve          nodeID → {OrgID, WorkspaceID, ProjectID, NodeType}
-```
-
-### Address/reference indexes
-```
-address_index         nodeType, addressKind, address → nodeID
-```
-
-The `address_index` key family is global, not org-scoped. The current
-implementation in `internal/adapters/foundationdb/keys.go` packs
-`(address_index, nodeType, addressKind, address)` and stores the target
-`nodeID` bytes; there is no `orgID` or `scopeID` component in the key. There
-is no reverse `node_address_by_node` index in the current code base.
-
-Note: the global-vs-scoped design of the address index and the absence of a
-reverse index are open questions tracked separately. See the 2026-05-09
-incident retro at
-`incident_2026-05-09_seed_parallel_org/retro_log.md` section 1B for the
-tradeoffs and required follow-ups.
-
-### Other key families
-
-The full set of FDB key constants is defined in `internal/adapters/foundationdb/keys.go`. That file is the canonical reference. CLAUDE.md does not enumerate the rest of the key families because any enumeration here drifts from the code over time. Read `keys.go` for the truth.
-
----
-
-## Deployment (CT 117)
-
-- LXC container at `3d06:bad:b01::117`, SSH alias `tack` (ProxyJump vault)
-- IPv6-only host with NAT64 gateway for external IPv4 reach
-- Services: YugabyteDB (port 5433), FoundationDB, Meilisearch, Temporal. All via docker-compose.
-- App runs as Docker container (`tack-server:latest`), logs via `docker logs tack-app-1`
-- Deploy: `make deploy` (rsync + docker build --network host + restart)
-
-### Container networking: IPv6-only with GUA via NDP proxy
-
-The docker-compose `default` network is IPv6-only. Containers get real Global Unicast Addresses out of `3d06:bad:b01:0:7ac::/96`. That sub-prefix is carved out of the host's on-link `3d06:bad:b01::/64`. CT 117 NDP-proxies the sub-prefix back onto eth0. The rest of the LAN sees container addresses as if they were on the wire.
-
-Inter-container traffic is IPv6-only. The embedded Docker DNS returns AAAA only because the bridge has `enable_ipv4: false`. Service-to-service hostnames (`fdb`, `yugabyte`, `meilisearch`, `temporal`) resolve to v6.
-
-Pieces of the contract:
-- `/etc/sysctl.d/99-tack-ipv6.conf`: `net.ipv6.conf.all.forwarding=1`, `net.ipv6.conf.eth0.proxy_ndp=1`
-- `ndppd` running with `rule 3d06:bad:b01:0:7ac::/96 { auto }` on eth0
-- `/etc/docker/daemon.json`: `{"ipv6": true, "ip6tables": true}`
-- `docker-compose.yml` `networks.default` block with `enable_ipv4: false`, `enable_ipv6: true`, `gateway_mode_v6: routed`, subnet `3d06:bad:b01:0:7ac::/96`, gateway `3d06:bad:b01:0:7ac::1`
-- No OPNsense static route. The /64 is on-link, so NDP proxy on CT 117 is enough.
-
-**Do NOT** flip the bridge back to IPv4 or dual-stack. The whole point is forced-v6 inter-container traffic. Adding v4 lets services silently fall back.
-
-### YugabyteDB identity and data contract
-
-YugabyteDB runs as the `yugabyte` Compose service on the IPv6-only bridge. Its
-network packets still use a real GUA from `3d06:bad:b01:0:7ac::/96`, but its
-database identity must be the stable Docker DNS name `yugabyte`, not the
-container's current IPv6 address.
-
-The `yugabyted` command in `docker-compose.yml` must advertise and listen on
-`yugabyte`:
-
-```
---advertise_address=yugabyte
---listen=yugabyte
-```
-
-Do not derive `--advertise_address` from `getent ahostsv6 $(hostname)`, and do
-not pin normal operation to a literal container GUA. Docker Compose service IPs
-are replaceable; the service DNS name is the stable identity. Literal GUAs can
-be persisted into Yugabyte master and tserver metadata, and stale persisted
-addresses can wedge YSQL even while processes appear to be running.
-
-YugabyteDB stores:
-- Auth tables: `users`, `api_tokens`, `org_members`
-- Compliance audit tables: `audit.events`, `audit.chain_heads`,
-  `audit.notarizations`, `audit.pii`
-
-Backups must include the live Yugabyte volume and logical CSV dumps of auth
-tables. Any recovery that replaces `tack_yugabyte-data` must also preserve and
-restore or merge `audit.*`; restoring only auth is data loss. During audit
-recovery, preserve `audit.chain_heads` so future audit writes continue from the
-canonical hash-chain heads.
-
-- Seed (after deploy or to propagate type changes):
-  ```bash
-  ssh tack 'cd /root/tack && docker compose exec -e SEED_EMAIL=alex@goodkind.io -e SEED_NAME=Alexander -e SEED_ORG_SLUG=goodkind-io -e SEED_ORG_NAME=goodkind.io -e SEED_WORKSPACE_SLUG=main -e SEED_WORKSPACE_NAME=Main app /server seed'
-  ```
-- Seed is idempotent and always re-runs SeedOrg + SeedWorkspace to propagate type/feature changes.
-
----
-
-## What good looks like
-
-- Multi-tenant from the start. Org is the tenancy root.
-- Every read goes through NodeReader. Every write goes through EntityRepository. No repos called directly from handlers.
-- Errors are typed (`domain.ErrNotFound`, `domain.ErrUnauthenticated`). No raw string errors leaking to clients.
-- Logging uses `telemetry.L(ctx)` so every log line carries the request ID.
-- orgID never appears as a parameter in service methods or API inputs.
-- **Runtime type behavior is data-driven.** Seed uses unexported bootstrap constants. Runtime code reads type keys from FDB-loaded NodeType data.
-- **Features are `[]string`** on NodeType. User-extensible without code changes.
-- **Human-readable references are metadata-declared.** `NodeType.Reference` and generic address contracts describe caller-facing reference forms, while UUID remains canonical identity.
-- **Everything remains a node.** Human-readable references and addresses attach to node identity through metadata, and node records plus generic indexes preserve storage ownership.
-- **Tool/type display naming is separate from node identity and address values.** MCP tool names, parameter names, and describe responses come from type display/command metadata and CanContain; address values remain caller-facing node references.
-- **Hierarchy is a DAG** defined by CanLiveUnder. The Resolver walks the scope chain for N levels. No depth assumptions.
-- **Universal fields test:** a field belongs on NodeValue/NodeListView only if it would exist on a node in a completely different product (CMS, CRM, game engine) built on the same architecture. Universal: `ID`, `OrgID` (tenant isolation), `NodeType`, `Name`, `CreatedAt`, `UpdatedAt`, `CreatedBy`, `UpdatedBy`, `Props`. Everything else (including `WorkspaceID`, `ProjectID`, `StateID`, `SequenceID`, `AssigneeIDs`, etc.) is a property in Props, a scope position in NodeResolve, or a generic relationship.
-- No tech debt disguised as "we can fix this later for scale." If it won't scale, don't ship it.
-
----
-
-## No TOML. No Config Files.
-
-Server configuration is environment variables only. There is no config file.
-Do not introduce TOML, YAML, JSON, or any file-based config loading.
-The `caarlos0/env` library is the correct and only config mechanism for the Go server.
+Server configuration is environment variables only, through `caarlos0/env`.
+There is no config file. Do not introduce TOML, YAML, JSON, or any file-based
+config loading.
 
 ## Logging
 
-Use `log/slog` throughout. The global logger is initialized by `telemetry.Setup`.
-Inside request handlers and services, retrieve the context logger via `telemetry.L(ctx)`.
+Use `log/slog` throughout; `telemetry.Setup` initializes the global logger and
+handlers retrieve the context logger via `telemetry.L(ctx)`. Log every
+significant event: entity lifecycle, background jobs, auth failures, startup, and
+shutdown. Use named `slog.Attr` fields, never positional. Message names use
+`noun.verb` (`issue.created`, `worker.started`). Three levels, used strictly:
+`Info` for normal flow, `Debug` for trace detail, `Error` for actual failures.
 
-Every significant event must be logged. "Significant" means:
+## File size and concern separation
 
-- Entity created, updated, deleted, moved (service layer, `issue.created`, `issue.moved`, etc.)
-- Background jobs scheduled or completed
-- Auth failures
-- Startup and shutdown
+No file exceeds 200 lines; split by concern when it does (one file per entity for
+conversions, bulk ops separate from CRUD). Name a file after its responsibility;
+`utils.go` and `helpers.go` are last resorts for genuinely shared code.
 
-Use named `slog.Attr` fields, never positional:
+## Readability over conciseness
 
-```go
-// Correct
-telemetry.L(ctx).Info("issue.created",
-    slog.String("issue_id", created.ID.String()),
-    slog.String("project_id", i.ProjectID.String()),
-    slog.Int("sequence_id", int(created.SequenceID)),
-)
+Use the full domain term, not abbreviations (`workspaceID`, not `wsID`). Every
+error includes context and the relevant identifier
+(`fmt.Errorf("get issue %s: %w", id, err)`). Every package has a `// Package X`
+doc comment; every exported type and non-obvious field has a doc comment.
 
-// Wrong
-slog.Info("issue created", "id", created.ID)
-```
+## What not to do
 
-Three levels, used strictly:
-
-- `Info`: normal flow events (entity lifecycle, startup, shutdown, request summary)
-- `Debug`: trace-level detail (individual SQL queries via QueryTracer, FDB key writes)
-- `Error`: actual failures (auth rejected, repo error, initialization failure)
-
-Log message names use `noun.verb` dot notation: `issue.created`, `hook.blocked`, `worker.started`.
-
-## XDG Base Directories
-
-XDG applies to file paths (log files), never to configuration values.
-
-The Go server's `LOG_FILE` env var can be pointed at any path. The systemd unit and
-docker-compose use explicit paths. There is no XDG resolution server-side.
-
-## File Size and Concern Separation
-
-No file should exceed 200 lines. If it does, split it.
-
-Split by concern, not by accident:
-
-- One file per entity for conversion functions: `convert_issue.go`, `convert_project.go`, etc.
-- Bulk operations in a separate file from CRUD: `issue_bulk.go`, `issue_handler_bulk.go`
-- One file per logical grouping in MCP tools: `issue.go` (CRUD), `issue_bulk.go`, `issue_move.go`
-
-Name files after their responsibility. A file named `utils.go` or `helpers.go` is a last resort,
-only for genuinely shared code with no better home.
-
-## Readability Over Conciseness
-
-### Variable names
-
-Use the full domain term, not abbreviations:
-
-```go
-// Correct
-workspaceID, projectID, issueID
-
-// Wrong
-wsID, pID, iID
-```
-
-### Error messages
-
-Every error must include context about what failed and the relevant identifier:
-
-```go
-// Correct
-fmt.Errorf("get issue %s: %w", id, err)
-fmt.Errorf("create issue in project %s: %w", i.ProjectID, err)
-fmt.Errorf("bulk delete %d issues: %w", len(issueIDs), err)
-
-// Wrong
-return nil, err
-```
-
-### Package doc comments
-
-Every package must have a `// Package X ...` doc comment explaining:
-1. What the package does in one sentence
-2. Any design decision that is not obvious from the code
-
-```go
-// Package service implements business logic for all Tack entities.
-// It coordinates SQL repositories and FoundationDB stores, using errgroup
-// for concurrent multi-source reads.
-package service
-```
-
-### Type and field comments
-
-Every exported type and non-obvious field must have a doc comment:
-
-```go
-// BulkUpdatePatch describes a set of changes to apply atomically to multiple issues.
-// Fields with nil pointer values are left unchanged. AssigneeIDs replaces the full
-// assignee set when non-nil; an empty slice clears all assignees.
-type BulkUpdatePatch struct {
-    IssueIDs  []uuid.UUID
-    ProjectID uuid.UUID
-    // StateID replaces the state on all matched issues when non-nil.
-    StateID *uuid.UUID
-    // SetEpicID must be true to apply an EpicID change (distinguishes nil-to-clear from not-set).
-    SetEpicID bool
-    EpicID    *uuid.UUID
-}
-```
-
-## What Not To Do
-
-- Do not add TOML, YAML, or any config file format.
+- Do not add a config file format (TOML, YAML, JSON).
 - Do not add error handling for scenarios that provably cannot happen.
 - Do not add backwards-compatibility shims, unused exports, or re-exports.
 - Do not add docstrings or comments to code you did not change.
 - Do not add features not explicitly requested.
-- Do not use `utils.go` or `helpers.go` as a dumping ground.
-- Do not run `go build ./...` from a directory that is not the module root.
-  The correct command is: `bash -c "cd /Users/agoodkind/Sites/tack && /opt/homebrew/bin/go build ./cmd/server/"`
+- Do not restate in this file values that live in the source-of-truth files
+  above; point to them instead.
