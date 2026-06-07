@@ -2,151 +2,199 @@ package main
 
 import (
 	"context"
-	"crypto/ed25519"
-	"crypto/x509"
-	"encoding/json"
-	"encoding/pem"
-	"flag"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
+
 	"goodkind.io/tack/internal/audit"
-	"goodkind.io/tack/internal/config"
+	"goodkind.io/tack/internal/cli"
+	"goodkind.io/tack/internal/clispec"
 )
 
-// runAuditExport produces a signed JSONL bundle of audit.events for an org
-// and time range. Usage:
-//
-//	./server audit-export --org <uuid> --oldest <RFC3339> --latest <RFC3339> --out <dir>
-func runAuditExport(cfg *config.Config, argv []string) {
-	fs := flag.NewFlagSet("audit-export", flag.ExitOnError)
-	orgStr := fs.String("org", "", "org_id (UUID)")
-	oldestStr := fs.String("oldest", "", "RFC3339 lower bound (inclusive)")
-	latestStr := fs.String("latest", "", "RFC3339 upper bound (exclusive)")
-	requestID := fs.String("request-id", "", "request_id stored in audit context")
-	traceID := fs.String("trace-id", "", "trace_id stored in audit context")
-	out := fs.String("out", "", "output directory")
-	limit := fs.Int("limit", 100000, "max rows")
-	_ = fs.Parse(argv)
+// auditGroup is the top-level compliance audit bundle family.
+var auditGroup = &clispec.Group{Use: "audit", Short: "Compliance audit bundle commands", Long: "", Parent: nil}
 
-	if *orgStr == "" || *oldestStr == "" || *latestStr == "" || *out == "" {
-		fmt.Fprintln(os.Stderr, "usage: audit-export --org <uuid> --oldest <RFC3339> --latest <RFC3339> --out <dir> [--limit N]")
-		os.Exit(2)
-	}
-	orgID, err := uuid.Parse(*orgStr)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "audit-export: --org not a UUID")
-		os.Exit(2)
-	}
-	oldest, err := time.Parse(time.RFC3339, *oldestStr)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "audit-export: --oldest must be RFC3339")
-		os.Exit(2)
-	}
-	latest, err := time.Parse(time.RFC3339, *latestStr)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "audit-export: --latest must be RFC3339")
-		os.Exit(2)
-	}
+// registerAudit adds the audit family plus hidden back-compat aliases for the
+// pre-cobra flat command names (audit-export, audit-verify, gen-audit-key).
+func registerAudit(reg *clispec.Registry, f *cli.Factory) {
+	clispec.Register(reg, auditExportOp(f))
+	clispec.Register(reg, auditVerifyOp(f))
+	clispec.Register(reg, auditGenKeyOp(f))
 
-	ctx := context.Background()
-	reader, err := audit.NewReader(ctx, cfg.AuditReaderDSN)
-	if err != nil {
-		slog.Error("audit-export: reader", "err", err)
-		os.Exit(1)
-	}
-	defer reader.Close()
-
-	priv, keyID, err := loadAuditKey(cfg.AuditSigningKeyPath)
-	if err != nil {
-		slog.Error("audit-export: key", "err", err)
-		os.Exit(1)
-	}
-
-	manifest, err := audit.Export(ctx, reader, priv, keyID, audit.QueryFilter{
-		OrgID:     orgID,
-		Oldest:    oldest,
-		Latest:    latest,
-		RequestID: *requestID,
-		TraceID:   *traceID,
-		Limit:     *limit,
-	}, *out)
-	if err != nil {
-		slog.Error("audit-export: write", "err", err)
-		os.Exit(1)
-	}
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-	_ = enc.Encode(manifest)
+	exportAlias := auditExportOp(f)
+	exportAlias.Group, exportAlias.Hidden, exportAlias.Name = nil, true, clispec.Name{Canonical: "audit-export", CLIOverride: ""}
+	clispec.Register(reg, exportAlias)
+	verifyAlias := auditVerifyOp(f)
+	verifyAlias.Group, verifyAlias.Hidden, verifyAlias.Name = nil, true, clispec.Name{Canonical: "audit-verify", CLIOverride: ""}
+	clispec.Register(reg, verifyAlias)
+	genKeyAlias := auditGenKeyOp(f)
+	genKeyAlias.Group, genKeyAlias.Hidden, genKeyAlias.Name = nil, true, clispec.Name{Canonical: "gen-audit-key", CLIOverride: ""}
+	clispec.Register(reg, genKeyAlias)
 }
 
-// runAuditVerify validates a bundle directory against the public key derived
-// from AUDIT_SIGNING_KEY_PATH (or a path passed via --pub).
-func runAuditVerify(argv []string) {
-	fs := flag.NewFlagSet("audit-verify", flag.ExitOnError)
-	bundle := fs.String("bundle", "", "bundle directory produced by audit-export")
-	pubPath := fs.String("pub", "", "PEM path to ed25519 public key (defaults to AUDIT_SIGNING_KEY_PATH)")
-	_ = fs.Parse(argv)
-	if *bundle == "" {
-		fmt.Fprintln(os.Stderr, "usage: audit-verify --bundle <dir> [--pub <pem>]")
-		os.Exit(2)
-	}
-
-	keyPath := *pubPath
-	if keyPath == "" {
-		keyPath = os.Getenv("AUDIT_SIGNING_KEY_PATH")
-	}
-	if keyPath == "" {
-		fmt.Fprintln(os.Stderr, "audit-verify: --pub or AUDIT_SIGNING_KEY_PATH required")
-		os.Exit(2)
-	}
-	pub, err := loadAuditPublic(keyPath)
-	if err != nil {
-		slog.Error("audit-verify: key", "err", err)
-		os.Exit(1)
-	}
-	report, err := audit.VerifyBundle(*bundle, pub)
-	if err != nil {
-		slog.Error("audit-verify: scan", "err", err)
-		os.Exit(1)
-	}
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-	_ = enc.Encode(report)
+type auditExportInput struct {
+	clispec.InputMarker `exhaustruct:"optional"`
+	Org                 string
+	Oldest              string
+	Latest              string
+	Out                 string
+	RequestID           string
+	TraceID             string
+	Limit               int
 }
 
-func loadAuditKey(path string) (ed25519.PrivateKey, string, error) {
-	if path == "" {
-		return nil, "", fmt.Errorf("AUDIT_SIGNING_KEY_PATH not set")
+func auditExportOp(f *cli.Factory) clispec.Operation[auditExportInput] {
+	return clispec.Operation[auditExportInput]{
+		Name:     clispec.Name{Canonical: "export", CLIOverride: ""},
+		Group:    auditGroup,
+		Aliases:  nil,
+		Hidden:   false,
+		Short:    "Export a signed JSONL bundle of audit.events for an org and range",
+		Long:     "",
+		Examples: nil,
+		Args:     nil,
+		Params: []clispec.Param[auditExportInput]{
+			clispec.StringParam("org", "org_id (UUID)", "", true, func(in *auditExportInput, v string) { in.Org = v }),
+			clispec.StringParam("oldest", "RFC3339 lower bound (inclusive)", "", true, func(in *auditExportInput, v string) { in.Oldest = v }),
+			clispec.StringParam("latest", "RFC3339 upper bound (exclusive)", "", true, func(in *auditExportInput, v string) { in.Latest = v }),
+			clispec.StringParam("out", "output directory", "", true, func(in *auditExportInput, v string) { in.Out = v }),
+			clispec.StringParam("request-id", "request_id stored in audit context", "", false, func(in *auditExportInput, v string) { in.RequestID = v }),
+			clispec.StringParam("trace-id", "trace_id stored in audit context", "", false, func(in *auditExportInput, v string) { in.TraceID = v }),
+			clispec.IntParam("limit", "max rows", 100000, func(in *auditExportInput, v int) { in.Limit = v }),
+		},
+		New: func() auditExportInput {
+			return auditExportInput{InputMarker: clispec.InputMarker{}, Org: "", Oldest: "", Latest: "", Out: "", RequestID: "", TraceID: "", Limit: 100000}
+		},
+		Run: runAuditExport(f),
 	}
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return nil, "", err
-	}
-	block, _ := pem.Decode(raw)
-	if block == nil {
-		return nil, "", fmt.Errorf("not PEM")
-	}
-	parsed, err := x509.ParsePKCS8PrivateKey(block.Bytes)
-	if err != nil {
-		return nil, "", err
-	}
-	priv, ok := parsed.(ed25519.PrivateKey)
-	if !ok {
-		return nil, "", fmt.Errorf("not ed25519")
-	}
-	pub := priv.Public().(ed25519.PublicKey)
-	keyID := "ed25519:" + fmt.Sprintf("%x", pub[:8])
-	return priv, keyID, nil
 }
 
-func loadAuditPublic(path string) (ed25519.PublicKey, error) {
-	priv, _, err := loadAuditKey(path)
-	if err != nil {
-		return nil, err
+func runAuditExport(f *cli.Factory) func(context.Context, auditExportInput, clispec.ResultSink) error {
+	return func(ctx context.Context, in auditExportInput, sink clispec.ResultSink) error {
+		orgID, err := uuid.Parse(strings.TrimSpace(in.Org))
+		if err != nil {
+			slog.ErrorContext(ctx, "audit.export_bad_org", slog.String("err", err.Error()))
+			return fmt.Errorf("audit export: --org must be a UUID: %w", err)
+		}
+		oldest, err := time.Parse(time.RFC3339, in.Oldest)
+		if err != nil {
+			slog.ErrorContext(ctx, "audit.export_bad_oldest", slog.String("err", err.Error()))
+			return fmt.Errorf("audit export: --oldest must be RFC3339: %w", err)
+		}
+		latest, err := time.Parse(time.RFC3339, in.Latest)
+		if err != nil {
+			slog.ErrorContext(ctx, "audit.export_bad_latest", slog.String("err", err.Error()))
+			return fmt.Errorf("audit export: --latest must be RFC3339: %w", err)
+		}
+		reader, err := audit.NewReader(ctx, f.Cfg.AuditReaderDSN)
+		if err != nil {
+			slog.ErrorContext(ctx, "audit.export_reader_failed", slog.String("err", err.Error()))
+			return fmt.Errorf("audit export: reader: %w", err)
+		}
+		defer reader.Close()
+		priv, keyID, err := loadAuditKey(f.Cfg.AuditSigningKeyPath)
+		if err != nil {
+			return err
+		}
+		manifest, err := audit.Export(ctx, reader, priv, keyID, audit.QueryFilter{
+			OrgID: orgID, Oldest: oldest, Latest: latest,
+			RequestID: in.RequestID, TraceID: in.TraceID, Limit: in.Limit,
+		}, in.Out)
+		if err != nil {
+			slog.ErrorContext(ctx, "audit.export_write_failed", slog.String("err", err.Error()))
+			return fmt.Errorf("audit export: write: %w", err)
+		}
+		return clispec.WriteJSONValue(ctx, sink, auditExportResult{
+			ExportID: manifest.ExportID, OrgID: manifest.OrgID, Oldest: manifest.Oldest,
+			Latest: manifest.Latest, RowCount: manifest.RowCount, FileSHA256: manifest.FileSHA256,
+			SignatureBy: manifest.SignatureBy, Signature: manifest.Signature,
+		})
 	}
-	return priv.Public().(ed25519.PublicKey), nil
+}
+
+type auditVerifyInput struct {
+	clispec.InputMarker `exhaustruct:"optional"`
+	Bundle              string
+	Pub                 string
+}
+
+func auditVerifyOp(f *cli.Factory) clispec.Operation[auditVerifyInput] {
+	_ = f
+	return clispec.Operation[auditVerifyInput]{
+		Name:     clispec.Name{Canonical: "verify", CLIOverride: ""},
+		Group:    auditGroup,
+		Aliases:  nil,
+		Hidden:   false,
+		Short:    "Verify a bundle directory against the audit signing public key",
+		Long:     "",
+		Examples: nil,
+		Args:     nil,
+		Params: []clispec.Param[auditVerifyInput]{
+			clispec.StringParam("bundle", "bundle directory produced by audit export", "", true, func(in *auditVerifyInput, v string) { in.Bundle = v }),
+			clispec.StringParam("pub", "PEM path to ed25519 public key (defaults to AUDIT_SIGNING_KEY_PATH)", "", false, func(in *auditVerifyInput, v string) { in.Pub = v }),
+		},
+		New: func() auditVerifyInput {
+			return auditVerifyInput{InputMarker: clispec.InputMarker{}, Bundle: "", Pub: ""}
+		},
+		Run: func(ctx context.Context, in auditVerifyInput, sink clispec.ResultSink) error {
+			keyPath := in.Pub
+			if keyPath == "" {
+				keyPath = os.Getenv("AUDIT_SIGNING_KEY_PATH")
+			}
+			if keyPath == "" {
+				return errors.New("audit verify: --pub or AUDIT_SIGNING_KEY_PATH required")
+			}
+			pub, err := loadAuditPublic(keyPath)
+			if err != nil {
+				return err
+			}
+			report, err := audit.VerifyBundle(in.Bundle, pub)
+			if err != nil {
+				slog.ErrorContext(ctx, "audit.verify_failed", slog.String("err", err.Error()))
+				return fmt.Errorf("audit verify: scan: %w", err)
+			}
+			return clispec.WriteJSONValue(ctx, sink, auditVerifyResult{
+				BundleDir: report.BundleDir, RowsScanned: report.RowsScanned, HashMatches: report.HashMatches,
+				ChainGapCount: report.ChainGapCount, ChainBreaks: report.ChainBreaks, FileSHA256OK: report.FileSHA256OK,
+				SignatureOK: report.SignatureOK, ManifestSubject: report.ManifestSubject,
+			})
+		},
+	}
+}
+
+type auditGenKeyInput struct {
+	clispec.InputMarker `exhaustruct:"optional"`
+	Output              string
+}
+
+func auditGenKeyOp(f *cli.Factory) clispec.Operation[auditGenKeyInput] {
+	_ = f
+	return clispec.Operation[auditGenKeyInput]{
+		Name:     clispec.Name{Canonical: "gen-key", CLIOverride: ""},
+		Group:    auditGroup,
+		Aliases:  nil,
+		Hidden:   false,
+		Short:    "Generate an ed25519 audit signing key",
+		Long:     "",
+		Examples: nil,
+		Args: []clispec.Arg[auditGenKeyInput]{
+			clispec.StringArg("output.pem", "destination PEM path", func(in *auditGenKeyInput, v string) { in.Output = v }),
+		},
+		Params: nil,
+		New:    func() auditGenKeyInput { return auditGenKeyInput{InputMarker: clispec.InputMarker{}, Output: ""} },
+		Run: func(ctx context.Context, in auditGenKeyInput, sink clispec.ResultSink) error {
+			if err := audit.GenerateAuditSigningKey(in.Output); err != nil {
+				slog.ErrorContext(ctx, "audit.gen_key_failed", slog.String("err", err.Error()))
+				return fmt.Errorf("audit gen-key: %w", err)
+			}
+			return clispec.WriteJSONValue(ctx, sink, auditGenKeyResult{
+				Command: "audit.gen_key", Status: "created", Path: in.Output,
+			})
+		},
+	}
 }

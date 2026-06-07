@@ -5,6 +5,7 @@ import (
 
 	"github.com/google/uuid"
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
+	"goodkind.io/tack/internal/clispec"
 )
 
 type repairCheck struct {
@@ -14,6 +15,7 @@ type repairCheck struct {
 }
 
 type repairValidateResult struct {
+	clispec.ResultMarker
 	Command     string         `json:"command"`
 	NodeID      string         `json:"node_id"`
 	RepairClass RepairClass    `json:"repair_class"`
@@ -24,6 +26,7 @@ type repairValidateResult struct {
 }
 
 type repairVerifyResult struct {
+	clispec.ResultMarker
 	Command     string                           `json:"command"`
 	NodeID      uuid.UUID                        `json:"node_id"`
 	RepairClass RepairClass                      `json:"repair_class,omitempty"`
@@ -34,6 +37,7 @@ type repairVerifyResult struct {
 }
 
 type previewOutput struct {
+	clispec.ResultMarker
 	Command      string         `json:"command"`
 	RepairClass  RepairClass    `json:"repair_class"`
 	Status       string         `json:"status"`
@@ -44,6 +48,7 @@ type previewOutput struct {
 }
 
 type repairApplyOutput struct {
+	clispec.ResultMarker
 	Command     string             `json:"command"`
 	RepairClass RepairClass        `json:"repair_class"`
 	Status      string             `json:"status"`

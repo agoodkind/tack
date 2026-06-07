@@ -2,20 +2,22 @@ package ops
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/google/uuid"
-	"goodkind.io/tack/internal/config"
+	"goodkind.io/tack/internal/clispec"
 )
 
-func runRepairManifestPreview(ctx context.Context, cfg *config.Config, repairClass RepairClass, manifestPath string) {
+// previewRepairManifest previews every node in a manifest under one repair
+// class and returns the aggregated output.
+func previewRepairManifest(ctx context.Context, console *RepairConsole, repairClass RepairClass, manifestPath string) (RepairManifestPreviewOutput, error) {
 	manifest, err := readRepairManifest(ctx, manifestPath)
 	if err != nil {
-		failCommandf("repair preview: %v", err)
+		slog.ErrorContext(ctx, "repair.preview_manifest_read_failed", slog.String("err", err.Error()))
+		return RepairManifestPreviewOutput{}, fmt.Errorf("repair preview: %w", err)
 	}
-	env := mustOpenCommandEnv(ctx, cfg)
-	defer env.Close()
-	console := NewRepairConsoleFromEnv(env)
 	results := make([]RepairManifestPreview, 0, len(manifest.Nodes))
 	for _, entry := range manifest.Nodes {
 		preview, previewErr := console.Preview(ctx, RepairPreviewInput{Class: repairClass, NodeID: entry.NodeID, Profile: &manifest.Profile})
@@ -30,23 +32,24 @@ func runRepairManifestPreview(ctx context.Context, cfg *config.Config, repairCla
 		}
 		results = append(results, result)
 	}
-	writeCommandJSON(RepairManifestPreviewOutput{
-		Command:     "repair.preview.manifest",
-		RepairClass: repairClass,
-		Profile:     manifest.Profile,
-		Results:     results,
-		SafeMode:    "manifest preview never writes; apply requires confirmation tokens and --yes",
-	})
+	return RepairManifestPreviewOutput{
+		ResultMarker: clispec.ResultMarker{},
+		Command:      "repair.preview.manifest",
+		RepairClass:  repairClass,
+		Profile:      manifest.Profile,
+		Results:      results,
+		SafeMode:     "manifest preview never writes; apply requires confirmation tokens and --yes",
+	}, nil
 }
 
-func runRepairManifestApply(ctx context.Context, cfg *config.Config, repairClass RepairClass, manifestPath string, actorID uuid.UUID) {
+// applyRepairManifest applies every node in a manifest under one repair class,
+// skipping entries without a confirmation token, and returns the output.
+func applyRepairManifest(ctx context.Context, console *RepairConsole, repairClass RepairClass, manifestPath string, actorID uuid.UUID) (RepairManifestApplyOutput, error) {
 	manifest, err := readRepairManifest(ctx, manifestPath)
 	if err != nil {
-		failCommandf("repair apply: %v", err)
+		slog.ErrorContext(ctx, "repair.apply_manifest_read_failed", slog.String("err", err.Error()))
+		return RepairManifestApplyOutput{}, fmt.Errorf("repair apply: %w", err)
 	}
-	env := mustOpenCommandEnv(ctx, cfg)
-	defer env.Close()
-	console := NewRepairConsoleFromEnv(env)
 	results := make([]RepairManifestApply, 0, len(manifest.Nodes))
 	for _, entry := range manifest.Nodes {
 		result := RepairManifestApply{NodeID: entry.NodeID, Status: "", Result: nil, Error: ""}
@@ -66,22 +69,12 @@ func runRepairManifestApply(ctx context.Context, cfg *config.Config, repairClass
 		}
 		results = append(results, result)
 	}
-	writeCommandJSON(RepairManifestApplyOutput{
-		Command:     "repair.apply.manifest",
-		RepairClass: repairClass,
-		Profile:     manifest.Profile,
-		Results:     results,
-		SafeMode:    "write completed only after matching preview tokens and explicit --yes",
-	})
-}
-
-func mustReadRepairProfileArg(ctx context.Context, command string, path string) *RepairReferenceProfile {
-	if strings.TrimSpace(path) == "" {
-		failCommandUsage(command, "%s: --profile is required", command)
-	}
-	profile, err := readRepairProfile(ctx, path)
-	if err != nil {
-		failCommandf("%s: %v", command, err)
-	}
-	return profile
+	return RepairManifestApplyOutput{
+		ResultMarker: clispec.ResultMarker{},
+		Command:      "repair.apply.manifest",
+		RepairClass:  repairClass,
+		Profile:      manifest.Profile,
+		Results:      results,
+		SafeMode:     "write completed only after matching preview tokens and explicit --yes",
+	}, nil
 }

@@ -29,7 +29,7 @@ RUN CGO_ENABLED=1 go build -tags fdb -trimpath \
         -X goodkind.io/gklog/version.Commit=${COMMIT} \
         -X goodkind.io/gklog/version.Dirty=${DIRTY} \
         -X goodkind.io/gklog/version.BuildTime=${BUILD_TIME}" \
-    -o /bin/server ./cmd/server
+    -o /bin/tack ./cmd/server
 
 # ── runtime ───────────────────────────────────────────────────────────────────
 FROM debian:bookworm-slim AS runtime
@@ -44,5 +44,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
     && apt-get remove -y curl && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /bin/server /server
+# The binary is `tack`; `/server` stays a symlink to it so existing deploy and
+# compose invocations that call `/server ...` (and the `/server` entrypoint)
+# keep working unchanged.
+COPY --from=builder /bin/tack /usr/local/bin/tack
+RUN ln -s /usr/local/bin/tack /server
 ENTRYPOINT ["/server"]

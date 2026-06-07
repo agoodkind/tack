@@ -23,20 +23,6 @@ const (
 	deployModeOffline  = "offline"
 )
 
-// deployVerb is the named enum of deploy subcommands. The dispatcher switches
-// on values of this type so the staticcheck-extra "bare string switch" gate
-// stays green.
-type deployVerb string
-
-const (
-	deployVerbHelp   deployVerb = "help"
-	deployVerbBuild  deployVerb = "build"
-	deployVerbPush   deployVerb = "push"
-	deployVerbPull   deployVerb = "pull"
-	deployVerbUp     deployVerb = "up"
-	deployVerbVerify deployVerb = "verify"
-)
-
 // deployContext bundles every value a deploy step needs. Built once per
 // invocation by newDeployContext and threaded through build/push/pull/up.
 type deployContext struct {
@@ -54,39 +40,6 @@ type deployContext struct {
 	ghcrToken     string
 	log           *slog.Logger
 	pushedDigests []string
-}
-
-// runDeployCommand routes the deploy family. Default arm runs the full flow.
-// Each subcommand maps to one focused step file.
-func runDeployCommand(ctx context.Context, cfg *config.Config, args []string) error {
-	dctx, err := newDeployContext(ctx, cfg)
-	if err != nil {
-		return err
-	}
-	if len(args) == 0 {
-		return runDeployAll(ctx, dctx)
-	}
-	verb := deployVerb(args[0])
-	switch verb {
-	case deployVerbHelp:
-		printDeployUsage()
-		return nil
-	case deployVerbBuild:
-		return runDeployBuild(ctx, dctx)
-	case deployVerbPush:
-		return runDeployPush(ctx, dctx)
-	case deployVerbPull:
-		return runDeployPull(ctx, dctx)
-	case deployVerbUp:
-		return runDeployUp(ctx, dctx)
-	case deployVerbVerify:
-		return runDeployVerify(ctx, dctx)
-	}
-	printDeployUsage()
-	err = fmt.Errorf("unknown deploy command %q", args[0])
-	dctx.log.ErrorContext(ctx, "ops.deploy.unknown_verb",
-		slog.String("verb", string(verb)), slog.String("err", err.Error()))
-	return err
 }
 
 // runDeployAll runs the canonical end-to-end flow. Each step exits non-zero

@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/clispec"
 )
 
 // RepairManifest lists nodes and one profile for manifest-driven preview or apply.
@@ -23,6 +24,7 @@ type RepairManifestNode struct {
 
 // RepairManifestPreviewOutput is the deterministic JSON output for manifest previews.
 type RepairManifestPreviewOutput struct {
+	clispec.ResultMarker
 	Command     string                  `json:"command"`
 	RepairClass RepairClass             `json:"repair_class"`
 	Profile     RepairReferenceProfile  `json:"profile"`
@@ -41,6 +43,7 @@ type RepairManifestPreview struct {
 
 // RepairManifestApplyOutput is the deterministic JSON output for manifest applies.
 type RepairManifestApplyOutput struct {
+	clispec.ResultMarker
 	Command     string                 `json:"command"`
 	RepairClass RepairClass            `json:"repair_class"`
 	Profile     RepairReferenceProfile `json:"profile"`
