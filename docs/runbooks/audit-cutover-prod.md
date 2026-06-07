@@ -71,7 +71,12 @@ passwords from the rendered `.env`.
 3. **Seed audit roles.** `docker compose run --rm tack-ops ops audit seed-roles`.
    Creates or rotates the LOGIN audit roles the app and audit-consumer
    authenticate as. Passwords come from the rendered `.env`. After this, restart
-   the audit-consumer so it reconnects with working credentials.
+   both the app and the audit-consumer (`docker compose restart app
+   audit-consumer`): the consumer reconnects with working credentials, and the
+   app re-initializes its audit reader pool so it registers the
+   `tack_audit_query`/`tack_audit_get`/`tack_audit_redact_actor` MCP tools, which
+   are silently skipped when the app first started before the roles existed
+   (TACK-319).
 
 4. **Create the Kafka topic.** Until the topic-ensure is automated (TACK-305),
    create it explicitly on the broker: the topic name from `AUDIT_KAFKA_TOPIC`,

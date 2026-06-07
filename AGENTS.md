@@ -226,11 +226,19 @@ not even healthy until the first of them runs. Until the provisioning layer land
 2. **Migrations.** `docker compose run --rm tack-ops migrate`.
 3. **Audit roles.** `docker compose run --rm tack-ops ops audit seed-roles`. The
    app and the audit-consumer cannot authenticate to YugabyteDB until this runs;
-   the consumer crash-loops in the meantime (TACK-301).
+   the consumer crash-loops in the meantime (TACK-301). After it runs, restart
+   both so they pick up working audit credentials:
+   `docker compose restart app audit-consumer`. The app otherwise never registers
+   the audit query/get/redact MCP tools, because its audit reader pool failed at
+   first start before the roles existed (TACK-319).
 4. **Kafka topic.** `audit.events.v1` does not exist on a fresh broker, so the
    audit-consumer cannot fetch until it is created (TACK-305).
-5. **Product seed.** `docker compose run --rm tack-ops seed` for the initial
-   user, org, workspace, and API token.
+5. **Product seed.** `docker compose exec -T app /server seed` for the initial
+   user, org, workspace, and API token. Run it through the app container, not
+   `tack-ops`: tack-ops is `network_mode: host` and its FDB cluster file names
+   `fdb`, which does not resolve on host networking, so a tack-ops seed cannot
+   write FoundationDB nodes (TACK-318). migrate and seed-roles still use tack-ops
+   because they are SQL-only.
 
 This ordered sequence is the provisioning layer Tack is missing; the design is
 tracked in TACK-303. QA lifecycle (keep running vs hard-recreate each time) is
