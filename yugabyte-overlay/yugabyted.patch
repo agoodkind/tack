@@ -1,0 +1,33 @@
+--- yugabyte-overlay/yugabyted.upstream	2026-06-07 11:08:35
++++ yugabyte-overlay/yugabyted	2026-06-06 17:49:36
+@@ -3493,14 +3493,22 @@
+                 mandatory_port_available, recommended_port_available)
+ 
+     def is_port_available(self, advertise_ip, port):
+-        if is_ipv6(advertise_ip):
+-            s = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+-        else:
+-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+-        try:
+-            return s.connect_ex((advertise_ip, int(port))) != 0
+-        finally:
+-            s.close()
++        # Patched from upstream PR #23158 to handle hostnames that resolve
++        # only to AAAA records on IPv6-only docker bridges. The upstream
++        # version creates an AF_INET socket for any non-literal-v6 string,
++        # which raises gaierror on v6-only DNS. See tack repo AGENTS.md
++        # 'YugabyteDB identity and data contract' for full context.
++        addr_info = socket.getaddrinfo(advertise_ip, port, socket.AF_UNSPEC, socket.SOCK_STREAM)
++        for family, socktype, proto, canonname, sockaddr in addr_info:
++            try:
++                s = socket.socket(family, socktype, proto)
++                try:
++                    return s.connect_ex(sockaddr) != 0
++                finally:
++                    s.close()
++            except OSError:
++                continue
++        return False
+ 
+     def get_mandatory_ports(self):
+         mandatory_ports = []
