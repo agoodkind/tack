@@ -61,12 +61,14 @@ func newGroupCommand(g *Group) *cobra.Command {
 // positional placeholders and exact count come from the arguments, and RunE
 // decodes both into a fresh input before calling the work function.
 func (op Operation[I]) cobraCommand(f *cli.Factory) *cobra.Command {
-	use := op.Name.CLI()
+	var use strings.Builder
+	use.WriteString(op.Name.CLI())
 	for _, arg := range op.Args {
-		use += " " + arg.placeholder()
+		use.WriteString(" ")
+		use.WriteString(arg.placeholder())
 	}
 	cmd := &cobra.Command{
-		Use:     use,
+		Use:     use.String(),
 		Aliases: op.Aliases,
 		Hidden:  op.Hidden,
 		Short:   op.Short,
@@ -124,12 +126,6 @@ func (op Operation[I]) longHelp() string {
 // copies the parsed value into the input after cobra parses the command line.
 func registerFlag[I Input](cmd *cobra.Command, param Param[I]) func(in *I) {
 	switch param.Kind {
-	case kindEnum:
-		current := param.DefaultStr
-		cmd.Flags().Var(&enumValue{allowed: param.Values, value: &current}, param.Flag, param.Description)
-		markRequired(cmd, param)
-		bind := param.bindString
-		return func(in *I) { bind(in, current) }
 	case kindString:
 		holder := new(string)
 		cmd.Flags().StringVar(holder, param.Flag, param.DefaultStr, param.Description)

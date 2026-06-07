@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"os"
 	"strings"
 
 	"github.com/google/uuid"
@@ -42,26 +41,28 @@ func userIDForEmail(email string) uuid.UUID {
 // the parentID; for org nodes (where orgID == the node's own ID) the caller
 // supplies the orgID from the user's existing org membership, or uuid.Nil when
 // no prior membership exists.
-func ensureNode(ctx context.Context, s *fdbadapter.Stores, typeKey, slug, name string, parentID, lookupOrgID uuid.UUID) uuid.UUID {
+func ensureNode(ctx context.Context, s *fdbadapter.Stores, typeKey, slug, name string, parentID, lookupOrgID uuid.UUID) (uuid.UUID, error) {
 	log := telemetry.L(ctx)
-	slugRaw, _ := json.Marshal(slug)
+	slugRaw, err := json.Marshal(slug)
+	if err != nil {
+		slog.ErrorContext(ctx, "seed.encode_slug_failed", slog.String("err", err.Error()))
+		return uuid.Nil, fmt.Errorf("seed: encode slug %q: %w", slug, err)
+	}
 	if lookupOrgID != uuid.Nil {
-		existing, err := s.Nodes.ListByProperty(ctx, lookupOrgID, typeKey, "slug", slugRaw)
-		if err == nil && len(existing) > 0 {
-			log.Info("seed: node exists", "type", typeKey, "slug", slug, "id", existing[0].ID)
-			return existing[0].ID
+		existing, listErr := s.Nodes.ListByProperty(ctx, lookupOrgID, typeKey, "slug", slugRaw)
+		if listErr == nil && len(existing) > 0 {
+			log.InfoContext(ctx, "seed.node_exists", "type", typeKey, "slug", slug, "id", existing[0].ID)
+			return existing[0].ID, nil
 		}
 	}
 
 	now := clock.Now().UTC()
 
 	// Org nodes get a fresh random UUIDv7 (TACK-230). Two calls with the same
-	// slug produce different IDs, which is the correct behaviour: org identity
-	// is row-level, not derivable from a slug.
-	//
-	// Workspace under org: ID derives from (orgID, slug) and remains
-	// deterministic so a wipe-and-reseed with the same org + workspace slug
-	// produces byte-identical workspace IDs. Anything deeper uses V7.
+	// slug produce different IDs, which is correct: org identity is row-level,
+	// not derivable from a slug. A workspace under an org derives its ID from
+	// (orgID, slug) and stays deterministic across wipe-and-reseed; anything
+	// deeper uses V7.
 	var id uuid.UUID
 	switch {
 	case parentID == uuid.Nil:
@@ -75,7 +76,11 @@ func ensureNode(ctx context.Context, s *fdbadapter.Stores, typeKey, slug, name s
 	props := make(map[string]json.RawMessage)
 	props["slug"] = slugRaw
 	if parentID != uuid.Nil {
-		parentRaw, _ := json.Marshal(parentID.String())
+		parentRaw, marshalErr := json.Marshal(parentID.String())
+		if marshalErr != nil {
+			slog.ErrorContext(ctx, "seed.encode_parent_failed", slog.String("err", marshalErr.Error()))
+			return uuid.Nil, fmt.Errorf("seed: encode parent_id: %w", marshalErr)
+		}
 		props["parent_id"] = parentRaw
 	}
 
@@ -88,37 +93,38 @@ func ensureNode(ctx context.Context, s *fdbadapter.Stores, typeKey, slug, name s
 
 	n := &node.Node{
 		ID: id, OrgID: orgID, NodeType: typeKey, Name: name,
-		Props: props, CreatedAt: now, UpdatedAt: now,
+		Props: props, CreatedBy: uuid.Nil, UpdatedBy: uuid.Nil, CreatedAt: now, UpdatedAt: now,
 	}
 	view := &node.NodeView{
 		ID: id, OrgID: orgID, NodeType: typeKey, Name: name,
-		Props: props, CreatedAt: now, UpdatedAt: now,
+		Props: props, CreatedBy: uuid.Nil, UpdatedBy: uuid.Nil, CreatedAt: now, UpdatedAt: now,
 	}
 	var rels []*node.Relationship
 	if parentID != uuid.Nil {
 		rels = append(rels, &node.Relationship{
 			OrgID: orgID, SourceID: id, RelationType: node.RelChildOf,
-			TargetID: parentID, CreatedAt: now,
+			TargetID: parentID, CreatedBy: uuid.Nil, Props: nil, CreatedAt: now,
 		})
 	}
 
 	// Mark slug as indexed so ListByProperty works for it. The node_by_property
-	// index written here replaces the former address_index write; no separate
-	// WriteAddress call is needed.
+	// index written here replaces the former address_index write.
 	if err := s.Nodes.CreateAtomic(ctx, n, view, rels, []string{"slug"}, nil); err != nil {
-		log.Error("seed: create node", "type", typeKey, "err", err)
-		os.Exit(1)
+		slog.ErrorContext(ctx, "seed.create_node_failed", slog.String("type", typeKey), slog.String("err", err.Error()))
+		return uuid.Nil, fmt.Errorf("seed: create node %s: %w", typeKey, err)
 	}
-	log.Info("seed: created node", "type", typeKey, "slug", slug, "id", id)
-	return id
+	log.InfoContext(ctx, "seed.node_created", "type", typeKey, "slug", slug, "id", id)
+	return id, nil
 }
 
-func generateToken() string {
+// generateToken returns a fresh random bearer token.
+func generateToken() (string, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
-		panic("seed: generate token: " + err.Error())
+		slog.Error("seed.token_failed", slog.String("err", err.Error()))
+		return "", fmt.Errorf("seed: generate token: %w", err)
 	}
-	return "tack_" + base64.RawURLEncoding.EncodeToString(b)
+	return "tack_" + base64.RawURLEncoding.EncodeToString(b), nil
 }
 
 // orgsExist opens a read-only Postgres connection and returns true if
@@ -130,7 +136,7 @@ func generateToken() string {
 func orgsExist(ctx context.Context, cfg *config.Config) (bool, error) {
 	pool, err := postgres.NewPool(ctx, cfg.DatabaseURL, nil)
 	if err != nil {
-		slog.Error("seed.orgs_exist.open_db", slog.Any("err", err))
+		slog.ErrorContext(ctx, "seed.orgs_exist_open_failed", slog.String("err", err.Error()))
 		return false, fmt.Errorf("orgsExist: open db: %w", err)
 	}
 	defer pool.Close()
@@ -142,7 +148,7 @@ func orgsExist(ctx context.Context, cfg *config.Config) (bool, error) {
 		if strings.Contains(err.Error(), "does not exist") {
 			return false, nil
 		}
-		slog.Error("seed.orgs_exist.query", slog.Any("err", err))
+		slog.ErrorContext(ctx, "seed.orgs_exist_query_failed", slog.String("err", err.Error()))
 		return false, fmt.Errorf("orgsExist: query: %w", err)
 	}
 	return exists, nil

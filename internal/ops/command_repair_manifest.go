@@ -3,9 +3,11 @@ package ops
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/clispec"
 )
 
 // previewRepairManifest previews every node in a manifest under one repair
@@ -13,12 +15,13 @@ import (
 func previewRepairManifest(ctx context.Context, console *RepairConsole, repairClass RepairClass, manifestPath string) (RepairManifestPreviewOutput, error) {
 	manifest, err := readRepairManifest(ctx, manifestPath)
 	if err != nil {
+		slog.ErrorContext(ctx, "repair.preview_manifest_read_failed", slog.String("err", err.Error()))
 		return RepairManifestPreviewOutput{}, fmt.Errorf("repair preview: %w", err)
 	}
 	results := make([]RepairManifestPreview, 0, len(manifest.Nodes))
 	for _, entry := range manifest.Nodes {
 		preview, previewErr := console.Preview(ctx, RepairPreviewInput{Class: repairClass, NodeID: entry.NodeID, Profile: &manifest.Profile})
-		result := RepairManifestPreview{NodeID: entry.NodeID}
+		result := RepairManifestPreview{NodeID: entry.NodeID, Status: "", Summary: "", Preview: nil, Error: ""}
 		if previewErr != nil {
 			result.Status = "error"
 			result.Error = previewErr.Error()
@@ -30,11 +33,12 @@ func previewRepairManifest(ctx context.Context, console *RepairConsole, repairCl
 		results = append(results, result)
 	}
 	return RepairManifestPreviewOutput{
-		Command:     "repair.preview.manifest",
-		RepairClass: repairClass,
-		Profile:     manifest.Profile,
-		Results:     results,
-		SafeMode:    "manifest preview never writes; apply requires confirmation tokens and --yes",
+		ResultMarker: clispec.ResultMarker{},
+		Command:      "repair.preview.manifest",
+		RepairClass:  repairClass,
+		Profile:      manifest.Profile,
+		Results:      results,
+		SafeMode:     "manifest preview never writes; apply requires confirmation tokens and --yes",
 	}, nil
 }
 
@@ -43,11 +47,12 @@ func previewRepairManifest(ctx context.Context, console *RepairConsole, repairCl
 func applyRepairManifest(ctx context.Context, console *RepairConsole, repairClass RepairClass, manifestPath string, actorID uuid.UUID) (RepairManifestApplyOutput, error) {
 	manifest, err := readRepairManifest(ctx, manifestPath)
 	if err != nil {
+		slog.ErrorContext(ctx, "repair.apply_manifest_read_failed", slog.String("err", err.Error()))
 		return RepairManifestApplyOutput{}, fmt.Errorf("repair apply: %w", err)
 	}
 	results := make([]RepairManifestApply, 0, len(manifest.Nodes))
 	for _, entry := range manifest.Nodes {
-		result := RepairManifestApply{NodeID: entry.NodeID}
+		result := RepairManifestApply{NodeID: entry.NodeID, Status: "", Result: nil, Error: ""}
 		if strings.TrimSpace(entry.ConfirmationToken) == "" {
 			result.Status = "skipped"
 			result.Error = "confirmation_token is required"
@@ -65,10 +70,11 @@ func applyRepairManifest(ctx context.Context, console *RepairConsole, repairClas
 		results = append(results, result)
 	}
 	return RepairManifestApplyOutput{
-		Command:     "repair.apply.manifest",
-		RepairClass: repairClass,
-		Profile:     manifest.Profile,
-		Results:     results,
-		SafeMode:    "write completed only after matching preview tokens and explicit --yes",
+		ResultMarker: clispec.ResultMarker{},
+		Command:      "repair.apply.manifest",
+		RepairClass:  repairClass,
+		Profile:      manifest.Profile,
+		Results:      results,
+		SafeMode:     "write completed only after matching preview tokens and explicit --yes",
 	}, nil
 }

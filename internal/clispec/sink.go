@@ -1,22 +1,50 @@
 package clispec
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/response"
 )
 
-// ResultSink is how a work function returns output. Emit takes a structured
-// value; Text takes a human line. Both carry the run's trace correlation:
-// json output wraps the payload under result with a _meta block, text output
-// prepends one header line with trace_id, span_id, and request_id.
+// Result constrains the typed values an operation emits as JSON. Embedding
+// ResultMarker satisfies it without boilerplate, mirroring Input, so emit never
+// takes a bare any.
+type Result interface {
+	isClispecResult()
+}
+
+// ResultMarker embeds into a result struct to satisfy Result.
+type ResultMarker struct{}
+
+func (ResultMarker) isClispecResult() {}
+
+// ResultSink is how a work function returns output. Both methods carry the
+// run's trace correlation: WriteJSON wraps an encoded payload under result with
+// a _meta block, WriteText prepends one header line with trace_id, span_id, and
+// request_id. The payload is pre-encoded [json.RawMessage], so the sink never
+// takes a bare any.
 type ResultSink interface {
-	Emit(ctx context.Context, value any) error
-	Text(ctx context.Context, body string) error
+	WriteJSON(ctx context.Context, payload json.RawMessage) error
+	WriteText(ctx context.Context, body string) error
+}
+
+// WriteJSONValue marshals a typed result and writes it through the sink.
+func WriteJSONValue(ctx context.Context, sink ResultSink, value Result) error {
+	body, err := json.Marshal(value)
+	if err != nil {
+		slog.ErrorContext(ctx, "clispec.marshal_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("clispec: marshal result: %w", err)
+	}
+	if err := sink.WriteJSON(ctx, body); err != nil {
+		return fmt.Errorf("clispec: write result: %w", err)
+	}
+	return nil
 }
 
 // CLISink writes to the factory's out stream in the operator's chosen format.
@@ -27,41 +55,48 @@ type CLISink struct {
 
 // NewCLISink builds a sink that writes through f.
 func NewCLISink(f *cli.Factory) *CLISink {
-	return &CLISink{f: f}
+	return &CLISink{f: f, wrote: false}
 }
 
-// Emit renders a structured value. In json mode it is the envelope payload; in
+// WriteJSON renders a JSON payload. In json mode it is the envelope payload; in
 // text mode it is indented JSON under the trace header.
-func (s *CLISink) Emit(ctx context.Context, value any) error {
+func (s *CLISink) WriteJSON(ctx context.Context, payload json.RawMessage) error {
 	if s.f.OutputFormat() == cli.FormatJSON {
-		body, err := response.MarshalJSON(ctx, value)
+		body, err := response.Marshal(ctx, payload)
 		if err != nil {
-			return err
+			slog.ErrorContext(ctx, "clispec.envelope_failed", slog.String("err", err.Error()))
+			return fmt.Errorf("clispec: envelope: %w", err)
 		}
-		return s.writeRaw(body)
+		return s.writeRaw(ctx, body)
 	}
-	payload, err := json.MarshalIndent(value, "", "  ")
-	if err != nil {
-		return fmt.Errorf("clispec: encode result: %w", err)
+	var buf bytes.Buffer
+	if err := json.Indent(&buf, payload, "", "  "); err != nil {
+		slog.ErrorContext(ctx, "clispec.indent_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("clispec: indent: %w", err)
 	}
-	return s.writeText(ctx, string(payload))
+	return s.writeText(ctx, buf.String())
 }
 
-// Text renders a human line. In json mode the line becomes the envelope's
+// WriteText renders a human line. In json mode the line becomes the envelope's
 // result string so json output stays valid JSON.
-func (s *CLISink) Text(ctx context.Context, body string) error {
+func (s *CLISink) WriteText(ctx context.Context, body string) error {
 	if s.f.OutputFormat() == cli.FormatJSON {
-		out, err := response.MarshalJSON(ctx, body)
+		quoted, err := json.Marshal(body)
 		if err != nil {
-			return err
+			slog.ErrorContext(ctx, "clispec.quote_failed", slog.String("err", err.Error()))
+			return fmt.Errorf("clispec: quote: %w", err)
 		}
-		return s.writeRaw(out)
+		out, err := response.Marshal(ctx, quoted)
+		if err != nil {
+			slog.ErrorContext(ctx, "clispec.envelope_failed", slog.String("err", err.Error()))
+			return fmt.Errorf("clispec: envelope: %w", err)
+		}
+		return s.writeRaw(ctx, out)
 	}
 	return s.writeText(ctx, body)
 }
 
-// writeText stamps the trace header on the first write only, so a command that
-// writes more than once does not repeat the header.
+// writeText stamps the trace header on the first write only.
 func (s *CLISink) writeText(ctx context.Context, body string) error {
 	out := body
 	if !s.wrote {
@@ -70,12 +105,13 @@ func (s *CLISink) writeText(ctx context.Context, body string) error {
 	if !strings.HasSuffix(out, "\n") {
 		out += "\n"
 	}
-	return s.writeRaw([]byte(out))
+	return s.writeRaw(ctx, []byte(out))
 }
 
-func (s *CLISink) writeRaw(b []byte) error {
+func (s *CLISink) writeRaw(ctx context.Context, b []byte) error {
 	s.wrote = true
 	if _, err := s.f.Out.Write(b); err != nil {
+		slog.ErrorContext(ctx, "clispec.write_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("clispec: write output: %w", err)
 	}
 	return nil

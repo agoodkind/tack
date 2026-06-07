@@ -1,7 +1,7 @@
 // Package cli holds the operator CLI's shared dependency factory and the
 // global output flag. The factory carries config and the IO streams every
 // command writes through, so commands take a *Factory instead of reaching for
-// package globals or os.Stdout directly.
+// package globals or the process streams directly.
 package cli
 
 import (
@@ -33,7 +33,7 @@ type Factory struct {
 
 // System builds a Factory wired to the process streams.
 func System(cfg *config.Config) *Factory {
-	return &Factory{Cfg: cfg, In: os.Stdin, Out: os.Stdout, Err: os.Stderr}
+	return &Factory{Cfg: cfg, In: os.Stdin, Out: os.Stdout, Err: os.Stderr, output: nil}
 }
 
 // OutputFormat reports the selected output format, defaulting to text.

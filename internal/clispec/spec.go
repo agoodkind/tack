@@ -32,7 +32,7 @@ func (InputMarker) isClispecInput() {}
 // "read" under "inspect" rather than the dash-spelled canonical.
 type Name struct {
 	Canonical   string
-	CLIOverride string
+	CLIOverride string `exhaustruct:"optional"`
 }
 
 // CLI returns the terminal command word.
@@ -47,10 +47,10 @@ func (n Name) CLI() string {
 // Operations sharing one *Group value render as subcommands of one parent.
 // Parent nests a group under another, so a chain renders as nested parents.
 type Group struct {
-	Use   string
-	Short string
-	Long  string
-	Parent *Group
+	Use    string
+	Short  string
+	Long   string `exhaustruct:"optional"`
+	Parent *Group `exhaustruct:"optional"`
 }
 
 // Operation is one declared command. I is the input struct both the flags and
@@ -59,14 +59,14 @@ type Group struct {
 // never sees cobra types. Aliases register alternate terminal spellings.
 type Operation[I Input] struct {
 	Name     Name
-	Group    *Group
-	Aliases  []string
-	Hidden   bool
+	Group    *Group   `exhaustruct:"optional"`
+	Aliases  []string `exhaustruct:"optional"`
+	Hidden   bool     `exhaustruct:"optional"`
 	Short    string
-	Long     string
-	Examples []string
-	Args     []Arg[I]
-	Params   []Param[I]
+	Long     string     `exhaustruct:"optional"`
+	Examples []string   `exhaustruct:"optional"`
+	Args     []Arg[I]   `exhaustruct:"optional"`
+	Params   []Param[I] `exhaustruct:"optional"`
 	New      func() I
 	Run      func(ctx context.Context, in I, sink ResultSink) error
 }
@@ -98,7 +98,7 @@ type HandwrittenCommand struct {
 
 // NewRegistry returns an empty registry.
 func NewRegistry() *Registry {
-	return &Registry{}
+	return &Registry{ops: nil, handwritten: nil}
 }
 
 // Register adds one operation. It is a free function because a Go method

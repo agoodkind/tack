@@ -16,10 +16,19 @@ import (
 )
 
 func main() {
+	if code := run(); code != 0 {
+		slog.Error("cli.exited", slog.Int("code", code))
+		os.Exit(code)
+	}
+}
+
+// run owns startup and dispatch and returns a process exit code, so [os.Exit]
+// stays in main and the telemetry closer's deferred Close always runs.
+func run() int {
 	cfg, err := config.Load()
 	if err != nil {
 		slog.Error("config", "err", err)
-		os.Exit(1)
+		return 1
 	}
 
 	closer, err := telemetry.Setup(telemetry.LogConfig{
@@ -34,7 +43,7 @@ func main() {
 	})
 	if err != nil {
 		slog.Error("telemetry.setup", "err", err)
-		os.Exit(1)
+		return 1
 	}
 	defer func() {
 		if closer != nil {
@@ -49,16 +58,17 @@ func main() {
 
 	f := cli.System(cfg)
 	ctx, span := telemetry.StartSpan(context.Background(), "cli")
+	defer span.End()
 	ctx = telemetry.WithTraceLogger(ctx)
 	// Log one correlated line per invocation so a command's output envelope
 	// trace_id can be matched against the run's log trail.
 	telemetry.L(ctx).InfoContext(ctx, "cli.start")
+
 	root := buildRoot(f)
 	root.SetContext(ctx)
-	err = root.Execute()
-	span.End()
-	if err != nil {
-		telemetry.L(ctx).Error("cli.failed", slog.String("err", err.Error()))
-		os.Exit(1)
+	if err := root.Execute(); err != nil {
+		telemetry.L(ctx).ErrorContext(ctx, "cli.failed", slog.String("err", err.Error()))
+		return 1
 	}
+	return 0
 }

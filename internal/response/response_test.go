@@ -73,7 +73,11 @@ func TestTextPrependsHeaderOnce(t *testing.T) {
 }
 
 func TestJSONWrapsPayloadUnderResult(t *testing.T) {
-	body, err := MarshalJSON(ctxWithSpan(t), map[string]any{"command": "demo", "count": 2})
+	payload, err := json.Marshal(map[string]int{"count": 2})
+	if err != nil {
+		t.Fatalf("encode payload: %v", err)
+	}
+	body, err := Marshal(ctxWithSpan(t), payload)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
@@ -88,22 +92,21 @@ func TestJSONWrapsPayloadUnderResult(t *testing.T) {
 		t.Fatalf("_meta.trace_id empty")
 	}
 	var result struct {
-		Command string `json:"command"`
-		Count   int    `json:"count"`
+		Count int `json:"count"`
 	}
 	if err := json.Unmarshal(doc.Result, &result); err != nil {
 		t.Fatalf("result unmarshal: %v", err)
 	}
-	if result.Command != "demo" || result.Count != 2 {
+	if result.Count != 2 {
 		t.Fatalf("result = %+v", result)
 	}
 }
 
-func TestJSONRejectsInvalidPayload(t *testing.T) {
-	if _, err := JSON(context.Background(), []byte("not json")); err == nil {
+func TestMarshalRejectsInvalidPayload(t *testing.T) {
+	if _, err := Marshal(context.Background(), []byte("not json")); err == nil {
 		t.Fatal("expected error for invalid payload")
 	}
-	if _, err := JSON(context.Background(), nil); err == nil {
+	if _, err := Marshal(context.Background(), nil); err == nil {
 		t.Fatal("expected error for empty payload")
 	}
 }

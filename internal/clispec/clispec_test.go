@@ -34,7 +34,11 @@ func showOp(group *clispec.Group) clispec.Operation[showInput] {
 		},
 		New: func() showInput { return showInput{} },
 		Run: func(ctx context.Context, in showInput, sink clispec.ResultSink) error {
-			return sink.Emit(ctx, map[string]string{"id": in.ID, "label": in.Label})
+			body, err := json.Marshal(map[string]string{"id": in.ID, "label": in.Label})
+			if err != nil {
+				return err
+			}
+			return sink.WriteJSON(ctx, body)
 		},
 	}
 }

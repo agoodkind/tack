@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/clispec"
 )
 
 const (
@@ -44,13 +45,14 @@ type parityExample struct {
 }
 
 type parityResult struct {
-	From            time.Time       `json:"from"`
-	To              time.Time       `json:"to"`
-	Threshold       float64         `json:"threshold"`
-	Counts          parityCounts    `json:"counts"`
-	Total           int64           `json:"total"`
-	MatchedFraction float64         `json:"matched_fraction"`
-	Examples        []parityExample `json:"content_diff_examples"`
+	clispec.ResultMarker `exhaustruct:"optional"`
+	From                 time.Time       `json:"from"`
+	To                   time.Time       `json:"to"`
+	Threshold            float64         `json:"threshold"`
+	Counts               parityCounts    `json:"counts"`
+	Total                int64           `json:"total"`
+	MatchedFraction      float64         `json:"matched_fraction"`
+	Examples             []parityExample `json:"content_diff_examples"`
 }
 
 // parityScanner is the minimum surface runParityScan needs. Real callers wire

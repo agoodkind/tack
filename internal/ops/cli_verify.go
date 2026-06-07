@@ -2,7 +2,9 @@ package ops
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/google/uuid"
@@ -12,10 +14,10 @@ import (
 
 // parseRepairClass parses a repair class for a CLI command, returning an error
 // rather than exiting so the work function can surface it.
-func parseRepairClass(command, raw string) (RepairClass, error) {
+func parseRepairClass(raw string) (RepairClass, error) {
 	repairClass, err := ParseRepairClass(raw)
 	if err != nil {
-		return "", fmt.Errorf("%s: %w", command, err)
+		return RepairClass(""), err
 	}
 	return repairClass, nil
 }
@@ -23,11 +25,11 @@ func parseRepairClass(command, raw string) (RepairClass, error) {
 // readRepairProfileArg reads a required repair profile file for a command.
 func readRepairProfileArg(ctx context.Context, command, path string) (*RepairReferenceProfile, error) {
 	if strings.TrimSpace(path) == "" {
-		return nil, fmt.Errorf("%s: --profile is required", command)
+		return nil, errors.New(command + ": --profile is required")
 	}
 	profile, err := readRepairProfile(ctx, path)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", command, err)
+		return nil, err
 	}
 	return profile, nil
 }
@@ -42,19 +44,27 @@ type verifyNodeInput struct {
 
 func verifyNodeOp(f *cli.Factory) clispec.Operation[verifyNodeInput] {
 	return clispec.Operation[verifyNodeInput]{
-		Name:  clispec.Name{Canonical: "node"},
-		Group: verifyGroup,
-		Short: "Check node consistency and constraints",
+		Name:     clispec.Name{Canonical: "node", CLIOverride: ""},
+		Group:    verifyGroup,
+		Aliases:  nil,
+		Hidden:   false,
+		Short:    "Check node consistency and constraints",
+		Long:     "",
+		Examples: nil,
+		Args:     nil,
 		Params: []clispec.Param[verifyNodeInput]{
 			clispec.StringParam("node", "node UUID", "", true, func(in *verifyNodeInput, v string) { in.NodeID = v }),
 			clispec.StringParam("class", "optional repair class", "", false, func(in *verifyNodeInput, v string) { in.Class = v }),
 			clispec.StringParam("profile", "repair profile JSON file", "", false, func(in *verifyNodeInput, v string) { in.Profile = v }),
 			clispec.BoolParam("records", "include raw inspection rows", false, func(in *verifyNodeInput, v bool) { in.Records = v }),
 		},
-		New: func() verifyNodeInput { return verifyNodeInput{} },
+		New: func() verifyNodeInput {
+			return verifyNodeInput{InputMarker: clispec.InputMarker{}, NodeID: "", Class: "", Profile: "", Records: false}
+		},
 		Run: func(ctx context.Context, in verifyNodeInput, sink clispec.ResultSink) error {
 			nodeID, err := uuid.Parse(strings.TrimSpace(in.NodeID))
 			if err != nil {
+				slog.ErrorContext(ctx, "verify.node_bad_node", slog.String("err", err.Error()))
 				return fmt.Errorf("verify node: --node must be a UUID: %w", err)
 			}
 			env, err := NewEnv(ctx, f.Cfg)
@@ -64,6 +74,7 @@ func verifyNodeOp(f *cli.Factory) clispec.Operation[verifyNodeInput] {
 			defer env.Close()
 			report, err := env.Stores.Inspect.QueryNodeRecords(ctx, nodeID)
 			if err != nil {
+				slog.ErrorContext(ctx, "verify.node_query_failed", slog.String("err", err.Error()))
 				return fmt.Errorf("verify node: inspect node %s: %w", nodeID, err)
 			}
 			selectedNode := selectRepairNode(report)
@@ -75,9 +86,18 @@ func verifyNodeOp(f *cli.Factory) clispec.Operation[verifyNodeInput] {
 					break
 				}
 			}
-			result := repairVerifyResult{Command: "verify.node", NodeID: nodeID, Status: status, Checks: checks, Warnings: selectedNode.Warnings}
+			result := repairVerifyResult{
+				ResultMarker: clispec.ResultMarker{},
+				Command:      "verify.node",
+				NodeID:       nodeID,
+				RepairClass:  RepairClass(""),
+				Status:       status,
+				Checks:       checks,
+				Warnings:     selectedNode.Warnings,
+				Records:      nil,
+			}
 			if strings.TrimSpace(in.Class) != "" {
-				repairClass, classErr := parseRepairClass("verify node", in.Class)
+				repairClass, classErr := parseRepairClass(in.Class)
 				if classErr != nil {
 					return classErr
 				}
@@ -97,7 +117,7 @@ func verifyNodeOp(f *cli.Factory) clispec.Operation[verifyNodeInput] {
 			if in.Records {
 				result.Records = report
 			}
-			return sink.Emit(ctx, result)
+			return clispec.WriteJSONValue(ctx, sink, result)
 		},
 	}
 }
@@ -111,21 +131,29 @@ type validateNodeInput struct {
 
 func validateNodeOp(f *cli.Factory) clispec.Operation[validateNodeInput] {
 	return clispec.Operation[validateNodeInput]{
-		Name:  clispec.Name{Canonical: "node"},
-		Group: validateGroup,
-		Short: "Check repair applicability for a node",
+		Name:     clispec.Name{Canonical: "node", CLIOverride: ""},
+		Group:    validateGroup,
+		Aliases:  nil,
+		Hidden:   false,
+		Short:    "Check repair applicability for a node",
+		Long:     "",
+		Examples: nil,
+		Args:     nil,
 		Params: []clispec.Param[validateNodeInput]{
 			clispec.StringParam("node", "node UUID", "", true, func(in *validateNodeInput, v string) { in.NodeID = v }),
 			clispec.StringParam("class", "repair class", string(DefaultRepairClass()), false, func(in *validateNodeInput, v string) { in.Class = v }),
 			clispec.StringParam("profile", "repair profile JSON file", "", false, func(in *validateNodeInput, v string) { in.Profile = v }),
 		},
-		New: func() validateNodeInput { return validateNodeInput{Class: string(DefaultRepairClass())} },
+		New: func() validateNodeInput {
+			return validateNodeInput{InputMarker: clispec.InputMarker{}, NodeID: "", Class: string(DefaultRepairClass()), Profile: ""}
+		},
 		Run: func(ctx context.Context, in validateNodeInput, sink clispec.ResultSink) error {
 			nodeID, err := uuid.Parse(strings.TrimSpace(in.NodeID))
 			if err != nil {
+				slog.ErrorContext(ctx, "validate.node_bad_node", slog.String("err", err.Error()))
 				return fmt.Errorf("validate node: --node must be a UUID: %w", err)
 			}
-			repairClass, err := parseRepairClass("validate node", in.Class)
+			repairClass, err := parseRepairClass(in.Class)
 			if err != nil {
 				return err
 			}
@@ -140,6 +168,7 @@ func validateNodeOp(f *cli.Factory) clispec.Operation[validateNodeInput] {
 			defer env.Close()
 			preview, err := NewRepairConsoleFromEnv(env).Preview(ctx, RepairPreviewInput{Class: repairClass, NodeID: nodeID, Profile: profile})
 			if err != nil {
+				slog.ErrorContext(ctx, "validate.node_preview_failed", slog.String("err", err.Error()))
 				return fmt.Errorf("validate node: preview repair for %s: %w", nodeID, err)
 			}
 			checks := []repairCheck{
@@ -147,7 +176,17 @@ func validateNodeOp(f *cli.Factory) clispec.Operation[validateNodeInput] {
 				{Name: "node_requires_repair", OK: preview.NeedsRepair, Details: repairNeedDetails(preview)},
 				{Name: "repair_can_apply", OK: !preview.NeedsRepair || preview.CanApply, Details: preview.Summary},
 			}
-			return sink.Emit(ctx, repairValidateResult{Command: "validate.node", NodeID: nodeID.String(), RepairClass: repairClass, Status: repairPreviewStatus(preview), Summary: preview.Summary, Checks: checks, Preview: preview})
+			result := repairValidateResult{
+				ResultMarker: clispec.ResultMarker{},
+				Command:      "validate.node",
+				NodeID:       nodeID.String(),
+				RepairClass:  repairClass,
+				Status:       repairPreviewStatus(preview),
+				Summary:      preview.Summary,
+				Checks:       checks,
+				Preview:      preview,
+			}
+			return clispec.WriteJSONValue(ctx, sink, result)
 		},
 	}
 }

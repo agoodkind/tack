@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/spf13/cobra"
 
@@ -16,7 +17,7 @@ import (
 
 // emptyInput is the input for top-level commands that take no flags or args.
 type emptyInput struct {
-	clispec.InputMarker
+	clispec.InputMarker `exhaustruct:"optional"`
 }
 
 // buildRoot assembles the cobra command tree. The bare command starts the
@@ -30,9 +31,8 @@ func buildRoot(f *cli.Factory) *cobra.Command {
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		Args:          cobra.NoArgs,
-		RunE: func(_ *cobra.Command, _ []string) error {
-			runServer(f.Cfg)
-			return nil
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runServer(cmd.Context(), f.Cfg)
 		},
 	}
 	root.SetIn(f.In)
@@ -58,9 +58,8 @@ func serveOp(f *cli.Factory) clispec.Operation[emptyInput] {
 		Name:  clispec.Name{Canonical: "serve"},
 		Short: "Start the HTTP server (the default action with no subcommand)",
 		New:   func() emptyInput { return emptyInput{} },
-		Run: func(_ context.Context, _ emptyInput, _ clispec.ResultSink) error {
-			runServer(f.Cfg)
-			return nil
+		Run: func(ctx context.Context, _ emptyInput, _ clispec.ResultSink) error {
+			return runServer(ctx, f.Cfg)
 		},
 	}
 }
@@ -72,9 +71,10 @@ func migrateOp(f *cli.Factory) clispec.Operation[emptyInput] {
 		New:   func() emptyInput { return emptyInput{} },
 		Run: func(ctx context.Context, _ emptyInput, sink clispec.ResultSink) error {
 			if err := postgres.Migrate(ctx, f.Cfg.DatabaseURL, migrations.FS); err != nil {
+				slog.ErrorContext(ctx, "migrate.failed", slog.String("err", err.Error()))
 				return fmt.Errorf("migrate: %w", err)
 			}
-			return sink.Text(ctx, "migrations complete")
+			return sink.WriteText(ctx, "migrations complete")
 		},
 	}
 }

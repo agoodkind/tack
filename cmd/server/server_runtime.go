@@ -11,9 +11,6 @@ import (
 	"syscall"
 	"time"
 
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
-
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	mcpadapter "goodkind.io/tack/internal/adapters/mcp"
 	"goodkind.io/tack/internal/adapters/postgres"
@@ -26,27 +23,22 @@ import (
 	"goodkind.io/tack/internal/version"
 )
 
-func fatalExit() {
-	os.Exit(1)
-}
-
 // runServer wires the datastores, audit runtime, and MCP and Connect handlers,
-// then serves until an interrupt arrives. It is the default action of the bare
-// binary and of the explicit `serve` subcommand.
-func runServer(cfg *config.Config) {
-	ctx := context.Background()
-
+// then serves until an interrupt arrives or the listener fails. It is the
+// default action of the bare binary and of the explicit `serve` subcommand,
+// and returns any fatal error to main rather than exiting in place.
+func runServer(ctx context.Context, cfg *config.Config) error {
 	pool, err := postgres.NewPool(ctx, cfg.DatabaseURL, &telemetry.QueryTracer{})
 	if err != nil {
-		slog.Error("postgres", "err", err)
-		fatalExit()
+		slog.ErrorContext(ctx, "server.postgres_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("server: postgres: %w", err)
 	}
 	defer pool.Close()
 
 	fdbStores, err := fdbadapter.NewStores(cfg.FDBClusterFile, pool)
 	if err != nil {
-		slog.Error("foundationdb", "err", err)
-		fatalExit()
+		slog.ErrorContext(ctx, "server.foundationdb_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("server: foundationdb: %w", err)
 	}
 
 	searcher := buildSearcher(cfg)
@@ -85,7 +77,7 @@ func runServer(cfg *config.Config) {
 	mux := buildServeMux(mcpHandler, authMiddleware)
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
-	slog.Info("starting server",
+	slog.InfoContext(ctx, "starting server",
 		"addr", addr,
 		"env", cfg.Env,
 		"version", version.Tag(),
@@ -95,35 +87,46 @@ func runServer(cfg *config.Config) {
 		"dirty", version.Dirty(),
 	)
 
+	// Enable HTTP/1.1 and unencrypted HTTP/2 (h2c) on the server directly,
+	// the supported replacement for the deprecated x/net/http2/h2c handler.
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           h2c.NewHandler(telemetry.RequestLogger(mux), &http2.Server{}),
+		Handler:           telemetry.RequestLogger(mux),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
+	protocols := new(http.Protocols)
+	protocols.SetHTTP1(true)
+	protocols.SetUnencryptedHTTP2(true)
+	srv.Protocols = protocols
 
+	serveErr := make(chan error, 1)
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				slog.Error("http.panic", slog.Any("err", r))
+				slog.ErrorContext(ctx, "http.panic", slog.Any("err", r))
 			}
 		}()
-		err := srv.ListenAndServe()
-		if err != nil && err != http.ErrServerClosed {
-			slog.Error("http", "err", err)
-			fatalExit()
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			serveErr <- err
 		}
 	}()
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
+	select {
+	case <-quit:
+	case err := <-serveErr:
+		slog.ErrorContext(ctx, "http.serve_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("http serve: %w", err)
+	}
 
-	slog.Info("shutting down")
-	shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	slog.InfoContext(ctx, "shutting down")
+	shutCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutCtx); err != nil {
-		slog.Error("shutdown", "err", err)
+		slog.ErrorContext(ctx, "http.shutdown_failed", slog.String("err", err.Error()))
 	}
+	return nil
 }
 
 func buildAuthMiddleware(cfg *config.Config, tokenRepo *postgres.TokenRepo) func(http.Handler) http.Handler {

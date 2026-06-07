@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"goodkind.io/tack/internal/telemetry"
@@ -90,9 +91,9 @@ type JSONDocument struct {
 	Result json.RawMessage `json:"result"`
 }
 
-// JSON wraps an already-encoded JSON payload in the envelope. It errors on an
-// empty or invalid payload so a malformed body never reaches the operator.
-func JSON(ctx context.Context, payload []byte) ([]byte, error) {
+// Marshal wraps an already-encoded JSON payload in the envelope. It errors on
+// an empty or invalid payload so a malformed body never reaches the operator.
+func Marshal(ctx context.Context, payload []byte) ([]byte, error) {
 	trimmed := bytes.TrimSpace(payload)
 	if len(trimmed) == 0 {
 		return nil, fmt.Errorf("response: empty json payload")
@@ -106,16 +107,8 @@ func JSON(ctx context.Context, payload []byte) ([]byte, error) {
 	}
 	body, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
+		slog.ErrorContext(ctx, "response.encode_failed", slog.String("err", err.Error()))
 		return nil, fmt.Errorf("response: encode json envelope: %w", err)
 	}
 	return append(body, '\n'), nil
-}
-
-// MarshalJSON encodes value and wraps it in the envelope in one step.
-func MarshalJSON(ctx context.Context, value any) ([]byte, error) {
-	payload, err := json.Marshal(value)
-	if err != nil {
-		return nil, fmt.Errorf("response: encode value: %w", err)
-	}
-	return JSON(ctx, payload)
 }

@@ -11,13 +11,13 @@ import (
 // Command groups for the operator `ops` family. One *Group value per parent so
 // the renderer attaches every subcommand under a single cobra parent.
 var (
-	opsGroup      = &clispec.Group{Use: "ops", Short: "Operator maintenance commands for node and storage state"}
-	inspectGroup  = &clispec.Group{Use: "inspect", Short: "Read, find, and query node and storage state", Parent: opsGroup}
-	verifyGroup   = &clispec.Group{Use: "verify", Short: "Check node consistency and constraints", Parent: opsGroup}
-	validateGroup = &clispec.Group{Use: "validate", Short: "Check repair applicability for a node", Parent: opsGroup}
-	repairGroup   = &clispec.Group{Use: "repair", Short: "Preview and apply targeted repairs", Parent: opsGroup}
-	auditOpsGroup = &clispec.Group{Use: "audit", Short: "Compliance audit operations", Parent: opsGroup}
-	batchGroup    = &clispec.Group{Use: "batch", Short: "Run registered batch maintenance operations", Parent: opsGroup}
+	opsGroup      = &clispec.Group{Use: "ops", Short: "Operator maintenance commands for node and storage state", Long: "", Parent: nil}
+	inspectGroup  = &clispec.Group{Use: "inspect", Short: "Read, find, and query node and storage state", Long: "", Parent: opsGroup}
+	verifyGroup   = &clispec.Group{Use: "verify", Short: "Check node consistency and constraints", Long: "", Parent: opsGroup}
+	validateGroup = &clispec.Group{Use: "validate", Short: "Check repair applicability for a node", Long: "", Parent: opsGroup}
+	repairGroup   = &clispec.Group{Use: "repair", Short: "Preview and apply targeted repairs", Long: "", Parent: opsGroup}
+	auditOpsGroup = &clispec.Group{Use: "audit", Short: "Compliance audit operations", Long: "", Parent: opsGroup}
+	batchGroup    = &clispec.Group{Use: "batch", Short: "Run registered batch maintenance operations", Long: "", Parent: opsGroup}
 )
 
 // noInput is the input for commands that take no flags or positional args.
@@ -53,10 +53,16 @@ func registerBatchOps(reg *clispec.Registry, f *cli.Factory) {
 		}
 		name := op.Name
 		clispec.Register(reg, clispec.Operation[noInput]{
-			Name:  clispec.Name{Canonical: name, CLIOverride: name},
-			Group: batchGroup,
-			Short: op.Description,
-			New:   func() noInput { return noInput{} },
+			Name:     clispec.Name{Canonical: name, CLIOverride: name},
+			Group:    batchGroup,
+			Aliases:  nil,
+			Hidden:   false,
+			Short:    op.Description,
+			Long:     "",
+			Examples: nil,
+			Args:     nil,
+			Params:   nil,
+			New:      func() noInput { return noInput{InputMarker: clispec.InputMarker{}} },
 			Run: func(ctx context.Context, _ noInput, _ clispec.ResultSink) error {
 				return Run(ctx, f.Cfg, name)
 			},
