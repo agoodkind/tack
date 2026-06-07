@@ -74,28 +74,6 @@ type Config struct {
 	// Empty disables the notarizer.
 	AuditSigningKeyPath string `env:"AUDIT_SIGNING_KEY_PATH"`
 
-	// WAL directory for read-class audit events. Empty falls back to
-	// $XDG_STATE_HOME/tack/audit-wal (typically /var/lib/tack/audit-wal in
-	// the production container). Set to "-" to disable the WAL entirely
-	// and bypass the read audit path.
-	AuditWALDir string `env:"AUDIT_WAL_DIR"`
-
-	// WAL backlog observability tuning. All are optional; absence keeps the
-	// defaults wired in NewWALRecorder.
-	//
-	// AuditWALMaxBacklogSegments: number of non-active segments above which
-	// the backlog signal flips for telemetry. Default 64. Observational only.
-	//
-	// AuditWALMaxBacklogAge: age of the oldest non-active segment above
-	// which the backlog signal flips for telemetry. Default 10m.
-	// Observational only.
-	//
-	// AuditWALIdleRotateAfter: how long the active segment may sit idle
-	// before the drainer force-rotates it. Default 500ms (2x drain interval).
-	AuditWALMaxBacklogSegments int32         `env:"AUDIT_WAL_MAX_BACKLOG_SEGMENTS" envDefault:"0"`
-	AuditWALMaxBacklogAge      time.Duration `env:"AUDIT_WAL_MAX_BACKLOG_AGE"      envDefault:"0"`
-	AuditWALIdleRotateAfter    time.Duration `env:"AUDIT_WAL_IDLE_ROTATE_AFTER"    envDefault:"0"`
-
 	// Kafka audit producer. AuditKafkaBrokers is a comma-separated bootstrap
 	// broker list. When empty, the Kafka producer path is disabled and audit
 	// recording uses the synchronous Yugabyte recorder.
@@ -249,12 +227,6 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	logsDir := xdgStatePath("tack", "logs")
-	if cfg.AuditWALDir == "" {
-		cfg.AuditWALDir = xdgStatePath("tack", "audit-wal")
-	}
-	if cfg.AuditWALDir == "-" {
-		cfg.AuditWALDir = ""
-	}
 	if cfg.LogJSONFile == "" {
 		cfg.LogJSONFile = filepath.Join(logsDir, "app.jsonl")
 	}

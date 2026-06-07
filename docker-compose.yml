@@ -39,13 +39,16 @@ services:
       LOG_JSON_FILE: ${LOG_JSON_FILE:-/var/log/tack/app.jsonl}
       LOG_TEXT_FILE: ${LOG_TEXT_FILE:-/var/log/tack/app.log}
       AUDIT_SIGNING_KEY_PATH: ${AUDIT_SIGNING_KEY_PATH:-/etc/tack/audit-signing.pem}
-      AUDIT_WAL_DIR: ${AUDIT_WAL_DIR:-/var/lib/tack/audit-wal}
-      # Wave 1 audit producer. Empty disables the Kafka path and the
-      # server falls back to WAL-only recording.
+      # Audit producer. When AUDIT_KAFKA_BROKERS is set, Record publishes to
+      # Kafka and the audit-consumer becomes the only writer of audit.events.
+      # Empty uses the synchronous Yugabyte recorder.
       AUDIT_KAFKA_BROKERS: ${AUDIT_KAFKA_BROKERS:-}
       AUDIT_KAFKA_TOPIC: ${AUDIT_KAFKA_TOPIC:-audit.events.v1}
       AUDIT_KAFKA_CLIENT_ID: ${AUDIT_KAFKA_CLIENT_ID:-tack-audit-producer}
       AUDIT_KAFKA_PRODUCE_TIMEOUT: ${AUDIT_KAFKA_PRODUCE_TIMEOUT:-10s}
+      # Audit query read tier. Empty reads only Yugabyte; set to route recent
+      # windows to the ClickHouse audit.events_olap projection.
+      AUDIT_CLICKHOUSE_DSN: ${AUDIT_CLICKHOUSE_DSN:-}
       # Backup object store. Empty unless the host's group_vars set them; read only by ops backup.
       TACK_BACKUP_S3_ENDPOINT: ${TACK_BACKUP_S3_ENDPOINT:-}
       TACK_BACKUP_S3_ACCESS_KEY_ID: ${TACK_BACKUP_S3_ACCESS_KEY_ID:-}
@@ -60,7 +63,6 @@ services:
       #   openssl genpkey -algorithm ed25519 -out /etc/tack/audit-signing.pem
       # The notarizer reuses it at every 60s tick; rotation is a follow-up.
       - /etc/tack:/etc/tack:ro
-      - tack-audit-wal:/var/lib/tack/audit-wal
     depends_on:
       yugabyte:
         condition: service_healthy
@@ -254,9 +256,9 @@ services:
     depends_on:
       - temporal
 
-  # Apache Kafka 4.x in KRaft combined broker+controller role. Wave 1 of
-  # the Phase 2 audit refactor uses this as the producer-side broker for
-  # the audit.events.v1 topic; the projector half lands in Wave 2.
+  # Apache Kafka 4.x in KRaft combined broker+controller role. The audit
+  # cutover uses this as the broker for the audit.events.v1 topic that the
+  # producer publishes to and the audit-consumer projects into audit.events.
   #
   # The cluster ID is pinned to a value generated once on the host with:
   #
@@ -429,7 +431,6 @@ volumes:
   meili-data:
   temporal-db-data:
   tack-logs:
-  tack-audit-wal:
   kafka-data:
   clickhouse-data:
 
