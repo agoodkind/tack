@@ -26,7 +26,11 @@ CREATE POLICY consumer_offsets_reader_select ON audit.consumer_offsets FOR SELEC
     USING (true);
 
 -- ── audit.events idempotency index ──────────────────────────────────────────
--- Idempotent projection across Kafka redelivery on producer-assigned event_id.
+-- Idempotent projection across Kafka redelivery on a producer-assigned event_id.
+--
+-- A redelivered record reinserts the same event_id and trips this unique index.
+--
+-- event_time joins the key because the table is RANGE-partitioned on event_time.
 
 -- +goose StatementBegin
 DO $$
