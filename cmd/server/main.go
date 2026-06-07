@@ -304,25 +304,35 @@ func buildSearcher(cfg *config.Config) domainsearch.Searcher {
 	return meiliClient
 }
 
-// buildAuditRecorder opens the audit_writer pool when AUDIT_WRITER_DSN is
-// set; otherwise returns a NoopRecorder so callers can always call Record.
-// A failure to open the pool is logged loudly and degrades to noop rather
-// than blocking the server: audit is layered defense, not the primary path.
-// Production deploys MUST set AUDIT_WRITER_DSN; the noop path is for dev.
-//
-// When AUDIT_WAL_DIR resolves to a non-empty path, the YBRecorder is wrapped
-// in a WALRecorder so read-class verbs persist to a local fsync'd segment
-// log first and the drainer ships them to Yugabyte asynchronously.
-//
-// When AUDIT_KAFKA_BROKERS is set, the WAL recorder is wrapped in a
-// DualRecorder that produces every event to Kafka first and to the WAL
-// second. This is the Wave 1 producer-side configuration of the Phase 2
-// audit refactor: both paths run in parallel so the Kafka side is observed
-// against the existing WAL ledger before any cutover.
+// buildAuditRecorder selects the audit Recorder by configuration. When
+// AUDIT_KAFKA_BROKERS is set it returns the Kafka producer, so Record publishes
+// to Kafka and the audit-consumer becomes the only writer of audit.events.
+// Otherwise, when AUDIT_WRITER_DSN is set, it returns the synchronous Yugabyte
+// recorder. With neither configured it returns a NoopRecorder. A setup failure
+// degrades to noop rather than blocking the server: audit is layered defense,
+// not the primary path. Production deploys MUST set one of the two.
 func buildAuditRecorder(ctx context.Context, cfg *config.Config) audit.Recorder {
+	brokers := audit.SplitBrokers(cfg.AuditKafkaBrokers)
+	if len(brokers) > 0 {
+		kafkaRec, err := audit.NewKafkaRecorder(audit.KafkaConfig{
+			Brokers:        brokers,
+			Topic:          cfg.AuditKafkaTopic,
+			ClientID:       cfg.AuditKafkaClientID,
+			ProduceTimeout: cfg.AuditKafkaProduceTimeout,
+		})
+		if err != nil {
+			slog.ErrorContext(ctx, "audit.kafka_setup_failed", slog.String("err", err.Error()))
+			return audit.NoopRecorder{}
+		}
+		slog.InfoContext(ctx, "audit.kafka_enabled",
+			slog.Int("broker_count", len(brokers)),
+			slog.String("topic", cfg.AuditKafkaTopic),
+		)
+		return kafkaRec
+	}
 	if cfg.AuditWriterDSN == "" {
 		slog.WarnContext(ctx, "audit.writer_disabled",
-			slog.String("reason", "AUDIT_WRITER_DSN unset; ledger writes are noop"),
+			slog.String("reason", "AUDIT_KAFKA_BROKERS and AUDIT_WRITER_DSN unset; ledger writes are noop"),
 		)
 		return audit.NoopRecorder{}
 	}
@@ -332,75 +342,7 @@ func buildAuditRecorder(ctx context.Context, cfg *config.Config) audit.Recorder 
 		return audit.NoopRecorder{}
 	}
 	slog.InfoContext(ctx, "audit.writer_connected")
-	walRec := buildAuditWALRecorder(ctx, cfg, yb)
-	return wrapAuditWithKafka(ctx, cfg, walRec)
-}
-
-// buildAuditWALRecorder wraps the inner Yugabyte recorder in a WALRecorder
-// when a WAL directory is configured. Falls through to the inner recorder
-// on setup failure so audit recording is never gated on WAL availability.
-func buildAuditWALRecorder(ctx context.Context, cfg *config.Config, inner audit.Recorder) audit.Recorder {
-	if cfg.AuditWALDir == "" {
-		return inner
-	}
-	wal, err := audit.NewWALRecorder(ctx, inner, audit.WALConfig{
-		Dir:                cfg.AuditWALDir,
-		MaxBytesPerSegment: 0,
-		DrainInterval:      0,
-		MaxLag:             0,
-		MaxBacklogSegments: cfg.AuditWALMaxBacklogSegments,
-		MaxBacklogAge:      cfg.AuditWALMaxBacklogAge,
-		IdleRotateAfter:    cfg.AuditWALIdleRotateAfter,
-	})
-	if err != nil {
-		slog.ErrorContext(ctx, "audit.wal_setup_failed",
-			slog.String("dir", cfg.AuditWALDir),
-			slog.String("err", err.Error()),
-		)
-		return inner
-	}
-	stats := wal.Stats()
-	telemetry.RegisterWALMetrics(telemetry.WALStatsSource{
-		UnflushedSegments:      stats.UnflushedSegments,
-		OldestUnflushedAgeSecs: stats.OldestUnflushedAgeSecs,
-		LastDrainSuccessUnix:   stats.LastDrainSuccessUnix,
-		IdleRotationsTotal:     stats.IdleRotationsTotal,
-		WriteErrorsTotal:       stats.WriteErrorsTotal,
-		DiskFreeBytes:          stats.DiskFreeBytes,
-	})
-	slog.InfoContext(ctx, "audit.wal_enabled", slog.String("dir", cfg.AuditWALDir))
-	return wal
-}
-
-// wrapAuditWithKafka builds the Wave 1 dual recorder when Kafka brokers are
-// configured. Returns the WAL recorder unchanged when AUDIT_KAFKA_BROKERS is
-// empty so dev and N=0-Kafka deployments keep the existing behavior.
-func wrapAuditWithKafka(ctx context.Context, cfg *config.Config, walRec audit.Recorder) audit.Recorder {
-	brokers := audit.SplitBrokers(cfg.AuditKafkaBrokers)
-	if len(brokers) == 0 {
-		return walRec
-	}
-	kafkaRec, err := audit.NewKafkaRecorder(audit.KafkaConfig{
-		Brokers:        brokers,
-		Topic:          cfg.AuditKafkaTopic,
-		ClientID:       cfg.AuditKafkaClientID,
-		ProduceTimeout: cfg.AuditKafkaProduceTimeout,
-	})
-	if err != nil {
-		slog.ErrorContext(ctx, "audit.kafka_setup_failed", slog.String("err", err.Error()))
-		return walRec
-	}
-	dual, err := audit.NewDualRecorder(kafkaRec, walRec)
-	if err != nil {
-		slog.ErrorContext(ctx, "audit.dual_setup_failed", slog.String("err", err.Error()))
-		_ = kafkaRec.CloseContext(ctx)
-		return walRec
-	}
-	slog.InfoContext(ctx, "audit.kafka_enabled",
-		slog.Int("broker_count", len(brokers)),
-		slog.String("topic", cfg.AuditKafkaTopic),
-	)
-	return dual
+	return yb
 }
 
 // buildAuditReader opens the audit_reader pool when AUDIT_READER_DSN is

@@ -15,9 +15,8 @@ import (
 )
 
 // KafkaRecorder produces audit events to an Apache Kafka topic. It is the
-// Wave 1 producer-side piece of the Phase 2 audit refactor: it ships the
-// same JSON Event payload that the WAL writes today so a downstream
-// projector can reconstruct the canonical row.
+// producer-side piece of the audit cutover: it ships the JSON Event payload
+// that the audit-consumer projects into the canonical audit.events row.
 //
 // Produce is synchronous with acks=all and idempotence enabled. Errors
 // surface to the caller; this recorder never silently drops an event.
@@ -101,10 +100,9 @@ func MarshalEvent(ev Event) ([]byte, error) {
 // Record marshals the event to JSON and produces it synchronously to the
 // configured topic. Returns the broker error on failure; never swallows.
 //
-// OccurredAt is taken verbatim from ev. The caller chain populates it
-// (the WAL recorder, the Yugabyte recorder, and MemoryRecorder all set
-// it on entry). Setting it here would split the timestamp between the
-// Kafka and WAL legs of DualRecorder, which the parity gate forbids.
+// EventID and OccurredAt are taken verbatim from ev. SuppressingRecorder
+// stamps both at the recording call site, so the Kafka payload and the
+// consumer's chain hash agree on one identity and one timestamp.
 func (k *KafkaRecorder) Record(ctx context.Context, ev Event) error {
 	payload, err := MarshalEvent(ev)
 	if err != nil {
@@ -161,8 +159,8 @@ func eventIDForLog(ev Event) string {
 }
 
 // Close flushes the producer queue and shuts the underlying client down.
-// Implements the parameterless Close shape that DualRecorder type-asserts
-// against; uses [context.Background] internally for the flush deadline so
+// Implements the parameterless Close shape the server shutdown path
+// type-asserts against; uses [context.Background] internally for the flush deadline so
 // shutdown progresses even when the caller's context has already been
 // cancelled by SIGINT.
 func (k *KafkaRecorder) Close() error {
