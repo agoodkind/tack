@@ -79,6 +79,28 @@ Find current state here; do not memorize or copy it into this file.
 | Hosts, networking, the LXC | configs [`deploy-tack.yml`](https://github.com/agoodkind/configs/blob/main/ansible/playbooks/deploy-tack.yml) and `service_mapping.yml` |
 | Roadmap and ticket state | TACK issues via the MCP tools |
 | Cross-session context | the memory handoff under the session memory directory |
+| Local test stack and targets | `docker-compose.test.yml`, `Makefile` (`test-unit`, `test-integration`) |
+
+## Local testing
+
+Tests run in containers through `docker-compose.test.yml`, never against QA or
+prod. Two tiers:
+
+- **Unit:** `make test-unit` builds the runner image and runs
+  `./internal/ops/...` with `--no-deps`, so no database starts.
+- **Integration:** `make test-integration` brings up single-node FoundationDB
+  and YugabyteDB, then runs `./internal/test/integration/...` inside a sibling
+  container on the same Docker network. `make test-fdb-down` tears the stack
+  down; it otherwise stays up between runs.
+
+Tests reach FoundationDB by its Docker DNS name, not a host port, because Docker
+Desktop on macOS drops FDB's connect-packet exchange through its TCP port
+forwarder. For the same reason the test stack is single-node and not the
+IPv6-only NDP-proxied bridge production runs; the suite exercises the storage
+layer, not the v6-only contract. The integration suite is gated by
+`TACK_INTEGRATION` inside the runner, so a host-side `make test` skips it. The
+runner reads its database and audit DSNs from the environment;
+`docker-compose.test.yml` is the source of truth for the variables it needs.
 
 ## Architecture (binding)
 
