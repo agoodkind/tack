@@ -49,6 +49,35 @@ first-boot steps do NOT apply here. Only the audit first-boot items do.
 3. A full pre-deploy backup exists (the deploy path enforces this; do not bypass).
 4. The same sequence was run on a freshly recreated QA and passed.
 
+## Pre-flight checklist (go/no-go)
+
+Validated on QA 2026-06-07 at `c81d89e`: the full sequence ran on a freshly
+recreated QA and all eight audit acceptance behaviors reproduced (produce,
+consume, chain link, notarize, recent-to-ClickHouse and old-to-Yugabyte routing,
+ClickHouse-outage chain resilience).
+
+- [x] Green deploy SHA `c81d89e` (build-push overlay-drift gate plus both images).
+- [x] Fresh-boot first-boot sequence needs no manual Kafka topic creation and no
+      audit-consumer crash-loop (TACK-301 and TACK-305 shipped in `c81d89e`).
+- [x] Prod `KAFKA_CLUSTER_ID` is distinct from QA (`tack_servers.yml` vs
+      `tack_qa_servers.yml`).
+- [x] Audit profile renders unconditionally and `AUDIT_CLICKHOUSE_DSN` (app read)
+      and `AUDIT_CONSUMER_CLICKHOUSE_DSN` (consumer write) target the same
+      ClickHouse database.
+
+Confirm at run time, not verifiable ahead of the deploy:
+
+- [ ] A full pre-deploy backup of the prod auth+audit YugabyteDB exists. If
+      `deploy-tack` does not take one, run the backup first; do not bypass.
+- [ ] The prod vault provides `AUDIT_WRITER_PASSWORD`, `AUDIT_READER_PASSWORD`,
+      and `AUDIT_REDACTOR_PASSWORD` (`seed-roles` errors loudly if missing).
+- [ ] You have explicit authorization to mutate prod; this cutover is
+      operator-run, never automated.
+
+One manual step remains in the sequence: after `seed-roles`, restart the app
+(step 3) so it registers the audit query tools. The audit-consumer needs no
+restart and creates its topic itself.
+
 ## Steps
 
 Run from the configs repo for the deploy, and via the `tack-ops` container on the
