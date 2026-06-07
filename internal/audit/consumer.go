@@ -692,8 +692,9 @@ type rowHashInput struct {
 	LastHash    []byte
 }
 
-// hashRowForEvent matches YBRecorder's chain payload byte-for-byte. Any
-// drift breaks the Wave 1 parity gate.
+// hashRowForEvent computes the per-event chain hash. Both the consumer and
+// YBRecorder reach it through appendChainRow, so the chain is byte-identical
+// regardless of which writer is active.
 func hashRowForEvent(in rowHashInput) ([]byte, error) {
 	payload := make(map[string]any, 14)
 	payload["org_id"] = in.Event.Context.OrgID

@@ -15,7 +15,7 @@ func printOpsUsage() {
 	fmt.Fprintln(os.Stderr, "  validate  check repair applicability for a node")
 	fmt.Fprintln(os.Stderr, "  repair    preview and apply targeted repairs")
 	fmt.Fprintln(os.Stderr, "  batch     run registered batch maintenance operations")
-	fmt.Fprintln(os.Stderr, "  audit     compliance audit subcommands (parity, ...)")
+	fmt.Fprintln(os.Stderr, "  audit     compliance audit subcommands (seed-roles, ...)")
 	fmt.Fprintln(os.Stderr, "  backup    snapshot and verify the production datastores")
 	fmt.Fprintln(os.Stderr, "  deploy    build, push, and roll the production image to CT 117")
 	fmt.Fprintln(os.Stderr)
@@ -126,16 +126,10 @@ func printCommandUsage(command string) {
 }
 
 func printAuditUsage() {
-	fmt.Fprintln(os.Stderr, "usage: ./server ops audit <parity|seed-roles>")
+	fmt.Fprintln(os.Stderr, "usage: ./server ops audit <seed-roles>")
 	fmt.Fprintln(os.Stderr)
 	fmt.Fprintln(os.Stderr, "subcommands:")
-	fmt.Fprintln(os.Stderr, "  parity      Compare audit.events vs audit.events_v2 over a time window")
 	fmt.Fprintln(os.Stderr, "  seed-roles  Create or rotate the LOGIN audit roles (tack_audit_writer/reader/redactor)")
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "parity env vars:")
-	fmt.Fprintln(os.Stderr, "  TACK_PARITY_FROM       inclusive lower bound, RFC3339 UTC (required)")
-	fmt.Fprintln(os.Stderr, "  TACK_PARITY_TO         exclusive upper bound, RFC3339 UTC (required)")
-	fmt.Fprintln(os.Stderr, "  TACK_PARITY_THRESHOLD  matched-fraction floor in [0,1], default 1.0")
 }
 
 func printBatchUsage() {

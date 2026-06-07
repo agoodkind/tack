@@ -28,10 +28,7 @@ const (
 // switch with multiple literal cases trips the staticcheck-extra enum gate.
 type auditSubcommand string
 
-const (
-	auditParity    auditSubcommand = "parity"
-	auditSeedRoles auditSubcommand = "seed-roles"
-)
+const auditSeedRoles auditSubcommand = "seed-roles"
 
 // RunCommand routes the unified operator CLI command family.
 func RunCommand(ctx context.Context, cfg *config.Config, args []string) error {
@@ -175,8 +172,6 @@ func runAuditCommand(ctx context.Context, cfg *config.Config, args []string) err
 		return nil
 	}
 	switch auditSubcommand(args[0]) {
-	case auditParity:
-		return runAuditParity(ctx, cfg)
 	case auditSeedRoles:
 		return RunAuditSeedRoles(ctx, cfg)
 	default:
