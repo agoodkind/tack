@@ -8,8 +8,6 @@ package ops
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -18,7 +16,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"goodkind.io/tack/internal/config"
 )
 
 const (
@@ -62,39 +59,6 @@ type parityResult struct {
 type parityScanner interface {
 	ScanCounts(ctx context.Context, from time.Time, to time.Time) (*parityCounts, error)
 	ScanExamples(ctx context.Context, from time.Time, to time.Time, limit int) ([]parityExample, error)
-}
-
-func runAuditParity(ctx context.Context, cfg *config.Config) error {
-	from, to, threshold, err := readParityWindow()
-	if err != nil {
-		return err
-	}
-	dsn := cfg.AuditReaderDSN
-	if dsn == "" {
-		dsn = cfg.AuditWriterDSN
-	}
-	if dsn == "" {
-		return errors.New("audit parity: AUDIT_READER_DSN or AUDIT_WRITER_DSN required")
-	}
-	pool, err := openParityPool(ctx, dsn)
-	if err != nil {
-		return err
-	}
-	defer pool.Close()
-	result, err := runParityScan(ctx, pgxParityScanner{pool: pool}, from, to, threshold)
-	if err != nil {
-		return err
-	}
-	if encErr := writeParityResult(result); encErr != nil {
-		return encErr
-	}
-	if result.Total > 0 && result.MatchedFraction < threshold {
-		return fmt.Errorf(
-			"audit parity below threshold: matched_fraction=%.6f threshold=%.6f",
-			result.MatchedFraction, threshold,
-		)
-	}
-	return nil
 }
 
 func runParityScan(ctx context.Context, scanner parityScanner, from time.Time, to time.Time, threshold float64) (*parityResult, error) {
@@ -185,14 +149,4 @@ func readParityThreshold() (float64, error) {
 		return 0, err
 	}
 	return v, nil
-}
-
-func writeParityResult(result *parityResult) error {
-	encoder := json.NewEncoder(os.Stdout)
-	encoder.SetIndent("", "  ")
-	if err := encoder.Encode(result); err != nil {
-		slog.Error("audit.parity.encode_failed", slog.String("err", err.Error()))
-		return fmt.Errorf("encode parity result: %w", err)
-	}
-	return nil
 }
