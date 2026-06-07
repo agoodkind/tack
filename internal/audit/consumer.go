@@ -259,6 +259,15 @@ func (c *Consumer) loop(ctx context.Context) {
 
 		if errs := fetches.Errors(); len(errs) > 0 {
 			for _, fe := range errs {
+				// On an idle topic the per-poll deadline elapses and franz-go
+				// injects a fake fetch carrying the poll context's error (empty
+				// topic, partition -1). That is the expected "nothing arrived"
+				// signal, not a fetch failure, so skip it and only log real
+				// per-partition errors. A genuine fatal partition error is
+				// surfaced separately and still logged here.
+				if errors.Is(fe.Err, context.DeadlineExceeded) || errors.Is(fe.Err, context.Canceled) {
+					continue
+				}
 				slog.ErrorContext(ctx, "audit.consumer.fetch_err",
 					slog.String("topic", fe.Topic),
 					slog.Int("partition", int(fe.Partition)),
