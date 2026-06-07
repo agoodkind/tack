@@ -1,4 +1,4 @@
-name: build and push tack-server
+name: build and push tack images
 
 on:
   push:
@@ -12,12 +12,21 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/tack-server
 
 jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: tack-server
+            dockerfile: Dockerfile
+            extra_build_args: "FDB_VERSION=7.4.6"
+          - image: tack-audit-consumer
+            dockerfile: Dockerfile.audit-consumer
+            extra_build_args: ""
     steps:
       - name: checkout
         uses: actions/checkout@v4
@@ -45,7 +54,7 @@ jobs:
         id: tags
         run: |
           set -eu
-          base="${REGISTRY}/${IMAGE_NAME}"
+          base="${REGISTRY}/${{ github.repository_owner }}/${{ matrix.image }}"
           short=${{ steps.meta.outputs.short }}
           ref_kind=${GITHUB_REF_TYPE}
           tags="${base}:${short}"$'\n'"${base}:${{ github.sha }}"
@@ -80,14 +89,15 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
+          file: ${{ matrix.dockerfile }}
           platforms: linux/amd64
           push: true
           tags: ${{ steps.tags.outputs.list }}
           build-args: |
-            FDB_VERSION=7.4.6
+            ${{ matrix.extra_build_args }}
             COMMIT=${{ steps.meta.outputs.commit }}
             BUILD_TIME=${{ steps.meta.outputs.build_time }}
             TAG=${{ steps.meta.outputs.tag }}
             DIRTY=false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}

@@ -1,0 +1,36 @@
+# Builds the audit-consumer image: the single writer of audit.events and the
+# ClickHouse projection. It tails Kafka and writes Yugabyte and ClickHouse, and
+# touches no FoundationDB, so it needs neither the FDB C client nor CGO and
+# stays a small static binary on debian-slim, separate from the server image.
+
+# ── builder ───────────────────────────────────────────────────────────────────
+FROM golang:1.26-bookworm AS builder
+
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+
+ARG COMMIT=unknown
+ARG BUILD_TIME=unknown
+ARG TAG=dev
+ARG DIRTY=false
+RUN CGO_ENABLED=0 go build -trimpath \
+    -ldflags="-s -w \
+        -X goodkind.io/tack/internal/version.commit=${COMMIT} \
+        -X goodkind.io/tack/internal/version.buildTime=${BUILD_TIME} \
+        -X goodkind.io/tack/internal/version.tag=${TAG} \
+        -X goodkind.io/tack/internal/version.dirty=${DIRTY} \
+        -X goodkind.io/gklog/version.Commit=${COMMIT} \
+        -X goodkind.io/gklog/version.Dirty=${DIRTY} \
+        -X goodkind.io/gklog/version.BuildTime=${BUILD_TIME}" \
+    -o /bin/audit-consumer ./cmd/audit-consumer
+
+# ── runtime ───────────────────────────────────────────────────────────────────
+FROM debian:bookworm-slim AS runtime
+
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /bin/audit-consumer /usr/local/bin/audit-consumer
+ENTRYPOINT ["/usr/local/bin/audit-consumer"]
