@@ -27,7 +27,13 @@ type Recorder interface {
 // Event is the canonical record shape. Field names match the on-disk JSONB
 // columns in audit.events so callers can serialize without translation.
 type Event struct {
-	Verb           string          `json:"verb"`
+	Verb string `json:"verb"`
+	// EventID is the canonical event identity, assigned by the producer at
+	// the recording call site. The Kafka producer keys the partition by the
+	// shard derived from this id, and the consumer reuses it for the chain
+	// row and the idempotency index. It must be stable from record time so a
+	// redelivered Kafka record reconstructs the same row.
+	EventID        uuid.UUID       `json:"event_id"`
 	Actor          Actor           `json:"actor"`
 	Entity         Entity          `json:"entity"`
 	Context        EventContext    `json:"context"`
