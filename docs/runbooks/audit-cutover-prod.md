@@ -1,11 +1,13 @@
-# Prod audit cutover runbook (PROVISIONAL)
+# Prod audit cutover runbook
 
-Status: **provisional, not yet executed on prod.** Derived from the QA cutover on
-2026-06-07. The durable replacement for this manual sequence is the provision
-entrypoint tracked in epic TACK-18 / TACK-303 ("deploy is not provision"); once
-that lands, most of this becomes one idempotent command. Until then, follow this
-by hand, and validate the whole sequence on a freshly recreated QA first (QA-first
-policy).
+Status: **validated on QA, ready to execute.** The full sequence below ran on a
+freshly recreated QA on 2026-06-07 and reproduced all eight audit acceptance
+behaviors; the preconditions are verified and the rollback is concrete. It has
+not yet been executed on prod; after the first prod run, append the observed
+commands and outcome to the Rollback section. The durable replacement for this
+manual sequence is the provision entrypoint tracked in epic TACK-18 / TACK-303
+("deploy is not provision"); once that lands, most of this becomes one idempotent
+command.
 
 This runbook hardcodes no values. Every name, tag, count, and secret is read from
 the source of truth named inline. Do not paste literal SHAs, passwords, hostnames,
@@ -170,5 +172,5 @@ audit-consumer. Roll back without data loss:
 4. Preserve `audit.chain_heads`. Never drop it; the chain resumes from its last
    head when the audit profile is re-enabled.
 
-Record the exact commands and the observed outcome here after the first prod run,
-then drop the PROVISIONAL marker at the top.
+After the first prod run, append the exact commands used and the observed outcome
+here, so this section reflects a real reversal rather than only the planned one.
