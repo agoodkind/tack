@@ -2,7 +2,6 @@ package audit
 
 import (
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -34,6 +33,13 @@ type ConsumerConfig struct {
 	SigningKeyPath  string
 	NotarizerPeriod time.Duration
 
+	// ReconcilePeriod and ReconcileWindow drive the ClickHouse backfill: every
+	// period, audit.events rows in the trailing window that are missing from
+	// audit.events_olap are re-projected, so a ClickHouse outage self-heals
+	// (TACK-316). Zero falls back to 30m / 24h.
+	ReconcilePeriod time.Duration
+	ReconcileWindow time.Duration
+
 	// LagWarnMessages is the per-partition lag threshold above which the
 	// consumer emits a `consumer.lag.high` warning every poll. Zero falls
 	// back to 1000 (the operator-default for Wave 1).
@@ -53,7 +59,8 @@ type Consumer struct {
 	ybpool  *pgxpool.Pool
 	ch      chdriver.Conn
 
-	notarizer *Notarizer
+	notarizer  *Notarizer
+	reconciler *Reconciler
 
 	stop    chan struct{}
 	stopped chan struct{}
@@ -123,14 +130,15 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 	}
 
 	c := &Consumer{
-		cfg:       cfg,
-		kclient:   kclient,
-		ybpool:    ybpool,
-		ch:        ch,
-		notarizer: nil,
-		stop:      make(chan struct{}),
-		stopped:   make(chan struct{}),
-		once:      sync.Once{},
+		cfg:        cfg,
+		kclient:    kclient,
+		ybpool:     ybpool,
+		ch:         ch,
+		notarizer:  nil,
+		reconciler: nil,
+		stop:       make(chan struct{}),
+		stopped:    make(chan struct{}),
+		once:       sync.Once{},
 		summary: processedSummary{
 			count:        0,
 			verbCounts:   make(map[string]int),
@@ -149,6 +157,10 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 			return nil, fmt.Errorf("audit consumer notarizer: %w", nerr)
 		}
 		c.notarizer = n
+	}
+
+	if c.ch != nil {
+		c.reconciler = NewReconciler(ybpool, ch, cfg.ReconcilePeriod, cfg.ReconcileWindow)
 	}
 
 	return c, nil
@@ -212,6 +224,9 @@ func (c *Consumer) Start(ctx context.Context) {
 	if c.notarizer != nil {
 		c.notarizer.Start(ctx)
 	}
+	if c.reconciler != nil {
+		c.reconciler.Start(ctx)
+	}
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -232,6 +247,9 @@ func (c *Consumer) Close() error {
 	<-c.stopped
 	if c.notarizer != nil {
 		_ = c.notarizer.Close()
+	}
+	if c.reconciler != nil {
+		_ = c.reconciler.Close()
 	}
 	c.closeResources()
 	return nil
@@ -518,10 +536,10 @@ func (c *Consumer) writeClickHouseBatch(ctx context.Context, projected []project
 	if c.ch == nil || len(projected) == 0 {
 		return
 	}
-	// Best effort: writeClickHouse logs its own failure at WARN, and the
+	// Best effort: insertOLAPBatch logs its own failure at WARN, and the
 	// canonical Yugabyte write already committed, so a ClickHouse error never
 	// blocks chain advancement (TACK-317).
-	_ = c.writeClickHouse(ctx, projected)
+	_ = insertOLAPBatch(ctx, c.ch, projected)
 }
 
 var (
@@ -788,38 +806,6 @@ func ensureClickHouseSchema(ctx context.Context, conn chdriver.Conn) error {
 	if err := conn.Exec(ctx, stmt); err != nil {
 		slog.ErrorContext(ctx, "audit.consumer.clickhouse_table_create_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("create table: %w", err)
-	}
-	return nil
-}
-
-// writeClickHouse projects a batch into ClickHouse. The OLAP write is best
-// effort. The canonical store is Yugabyte audit.events.
-func (c *Consumer) writeClickHouse(ctx context.Context, batch []projectedEvent) error {
-	// Best-effort projection. Failures log at WARN (not ERROR) so a sustained
-	// ClickHouse outage does not flood the error stream or mask real errors; the
-	// canonical Yugabyte write already committed and the OLAP tier reconverges
-	// via the backfill job (TACK-317, TACK-316).
-	bw, err := c.ch.PrepareBatch(ctx, `INSERT INTO audit.events_olap`)
-	if err != nil {
-		slog.WarnContext(ctx, "audit.consumer.clickhouse_prepare_failed", slog.String("err", err.Error()))
-		return fmt.Errorf("clickhouse prepare: %w", err)
-	}
-	defer bw.Close()
-	for _, p := range batch {
-		err := bw.Append(
-			p.OrgID, p.Shard, p.EventTime, p.EventID, p.Seq,
-			p.ActorID, p.ActorKind, p.Action, p.EntityKind, p.EntityID,
-			string(p.Context), string(p.Delta), p.PIIRef,
-			hex.EncodeToString(p.PrevHash), hex.EncodeToString(p.RowHash), p.IdemKey,
-		)
-		if err != nil {
-			slog.WarnContext(ctx, "audit.consumer.clickhouse_append_failed", slog.String("err", err.Error()))
-			return fmt.Errorf("clickhouse append: %w", err)
-		}
-	}
-	if err := bw.Send(); err != nil {
-		slog.WarnContext(ctx, "audit.consumer.clickhouse_send_failed", slog.String("err", err.Error()))
-		return fmt.Errorf("clickhouse send: %w", err)
 	}
 	return nil
 }

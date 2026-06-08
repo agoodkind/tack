@@ -29,6 +29,8 @@ type consumerEnv struct {
 	ClickHouseDSN   string        `env:"AUDIT_CONSUMER_CLICKHOUSE_DSN"`
 	SigningKeyPath  string        `env:"AUDIT_CONSUMER_SIGNING_KEY_PATH"`
 	NotarizerPeriod time.Duration `env:"AUDIT_CONSUMER_NOTARIZER_PERIOD" envDefault:"60s"`
+	ReconcilePeriod time.Duration `env:"AUDIT_CONSUMER_RECONCILE_PERIOD" envDefault:"30m"`
+	ReconcileWindow time.Duration `env:"AUDIT_CONSUMER_RECONCILE_WINDOW" envDefault:"24h"`
 	LagWarnMessages int64         `env:"TACK_AUDIT_CONSUMER_LAG_WARN_MESSAGES" envDefault:"1000"`
 	SummaryEvery    int           `env:"TACK_AUDIT_CONSUMER_SUMMARY_EVERY" envDefault:"100"`
 
@@ -92,6 +94,8 @@ func run() error {
 		ClickHouseDSN:   cfg.ClickHouseDSN,
 		SigningKeyPath:  cfg.SigningKeyPath,
 		NotarizerPeriod: cfg.NotarizerPeriod,
+		ReconcilePeriod: cfg.ReconcilePeriod,
+		ReconcileWindow: cfg.ReconcileWindow,
 		LagWarnMessages: cfg.LagWarnMessages,
 		SummaryEvery:    cfg.SummaryEvery,
 	})
