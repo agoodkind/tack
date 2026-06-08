@@ -72,6 +72,9 @@ func (r *Reconciler) loop(ctx context.Context) {
 	defer close(r.stopped)
 	t := time.NewTicker(r.period)
 	defer t.Stop()
+	// Run once at boot so restarting the consumer after a ClickHouse outage
+	// heals the OLAP gap immediately rather than waiting a full period.
+	r.runOnce(ctx)
 	for {
 		select {
 		case <-r.stop:
