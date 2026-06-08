@@ -85,10 +85,20 @@ prod host for the init steps. `tack-ops` reads `DATABASE_URL` and the audit
 passwords from the rendered `.env`.
 
 1. **Deploy the stack.** From `~/Sites/configs`, run the `deploy deploy-tack`
-   action limited to the prod host group, passing the chosen SHA for both
-   `tack_commit` and `tack_image_tag` (same SHA for both: git supplies the stack,
-   ghcr supplies the images). This pulls the audit images and brings up kafka,
-   clickhouse, and audit-consumer.
+   action limited to the prod host group (`tack_servers`), passing the chosen
+   green SHA for both `tack_commit` and `tack_image_tag` (same SHA for both: git
+   supplies the stack, ghcr supplies the images). The current validated SHA is
+   `c81d89e`; use it or a newer SHA with a green `build-push` run.
+
+   ```
+   cd ~/Sites/configs && go run goodkind.io/configs/cmd/configs deploy deploy-tack \
+     --limit tack_servers \
+     --extra-var tack_commit=<green-SHA> \
+     --extra-var tack_image_tag=<green-SHA>
+   ```
+
+   This pulls the audit images and brings up kafka, clickhouse, and
+   audit-consumer.
 
    The audit-consumer cannot authenticate to YugabyteDB until the audit roles
    exist (step 3). It waits for them on its own, logging
@@ -144,8 +154,21 @@ passwords from the rendered `.env`.
 
 ## Rollback
 
-The audit profile is additive. If the cutover misbehaves, the canonical product
-path does not depend on the audit-consumer (audit is layered defense). Disabling
-the audit profile and reverting to the prior image/migration is the coarse
-rollback; record the exact reversal once this runbook is executed and made
-non-provisional.
+The audit profile is additive: migration 003 only adds tables and indexes, and
+the canonical product path never touches kafka, clickhouse, or the
+audit-consumer. Roll back without data loss:
+
+1. Stop the audit services: `docker compose stop audit-consumer kafka clickhouse`
+   (or re-render `.env` with `COMPOSE_PROFILES` lacking `audit` and re-deploy).
+   The product path keeps serving; with `AUDIT_KAFKA_BROKERS` unreachable the app
+   degrades to its prior recorder or noop, never blocking requests.
+2. If the app image itself is the problem, re-deploy the prior image tag (the SHA
+   running before this cutover) the same way as step 1 of the cutover.
+3. Leave migration 003 in place. Its tables are additive and inert when the audit
+   profile is off; rolling the schema back is unnecessary and would risk the auth
+   tables in the same database.
+4. Preserve `audit.chain_heads`. Never drop it; the chain resumes from its last
+   head when the audit profile is re-enabled.
+
+Record the exact commands and the observed outcome here after the first prod run,
+then drop the PROVISIONAL marker at the top.
