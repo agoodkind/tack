@@ -60,39 +60,23 @@ type Config struct {
 	AuditReaderDSN   string `env:"AUDIT_READER_DSN"`
 	AuditRedactorDSN string `env:"AUDIT_REDACTOR_DSN"`
 
+	// Audit role passwords. Read only by `./server ops audit seed-roles`,
+	// which creates or rotates the LOGIN roles the DSNs above authenticate as.
+	// The running server never reads these; for normal connections the
+	// password travels inside the DSN.
+	AuditWriterPassword   string `env:"AUDIT_WRITER_PASSWORD"`
+	AuditReaderPassword   string `env:"AUDIT_READER_PASSWORD"`
+	AuditRedactorPassword string `env:"AUDIT_REDACTOR_PASSWORD"`
+
 	// AuditSigningKeyPath points at a PEM-encoded Ed25519 private key used
 	// by the notarizer to sign per-org Merkle roots. Generate with:
 	//   ./server gen-audit-key /etc/tack/audit-signing.pem
 	// Empty disables the notarizer.
 	AuditSigningKeyPath string `env:"AUDIT_SIGNING_KEY_PATH"`
 
-	// WAL directory for read-class audit events. Empty falls back to
-	// $XDG_STATE_HOME/tack/audit-wal (typically /var/lib/tack/audit-wal in
-	// the production container). Set to "-" to disable the WAL entirely
-	// and bypass the read audit path.
-	AuditWALDir string `env:"AUDIT_WAL_DIR"`
-
-	// WAL backlog observability tuning. All are optional; absence keeps the
-	// defaults wired in NewWALRecorder.
-	//
-	// AuditWALMaxBacklogSegments: number of non-active segments above which
-	// the backlog signal flips for telemetry. Default 64. Observational only.
-	//
-	// AuditWALMaxBacklogAge: age of the oldest non-active segment above
-	// which the backlog signal flips for telemetry. Default 10m.
-	// Observational only.
-	//
-	// AuditWALIdleRotateAfter: how long the active segment may sit idle
-	// before the drainer force-rotates it. Default 500ms (2x drain interval).
-	AuditWALMaxBacklogSegments int32         `env:"AUDIT_WAL_MAX_BACKLOG_SEGMENTS" envDefault:"0"`
-	AuditWALMaxBacklogAge      time.Duration `env:"AUDIT_WAL_MAX_BACKLOG_AGE"      envDefault:"0"`
-	AuditWALIdleRotateAfter    time.Duration `env:"AUDIT_WAL_IDLE_ROTATE_AFTER"    envDefault:"0"`
-
-	// Kafka audit producer (Wave 1 of the Phase 2 audit refactor).
-	//
-	// AuditKafkaBrokers is a comma-separated bootstrap broker list. When
-	// empty, the Kafka producer path is disabled and audit recording falls
-	// back to the WAL-only path.
+	// Kafka audit producer. AuditKafkaBrokers is a comma-separated bootstrap
+	// broker list. When empty, the Kafka producer path is disabled and audit
+	// recording uses the synchronous Yugabyte recorder.
 	//
 	// AuditKafkaTopic, AuditKafkaClientID, and AuditKafkaProduceTimeout fall
 	// back to design-doc defaults when unset. The producer code reads them
@@ -101,6 +85,13 @@ type Config struct {
 	AuditKafkaTopic          string        `env:"AUDIT_KAFKA_TOPIC"           envDefault:"audit.events.v1"`
 	AuditKafkaClientID       string        `env:"AUDIT_KAFKA_CLIENT_ID"       envDefault:"tack-audit-producer"`
 	AuditKafkaProduceTimeout time.Duration `env:"AUDIT_KAFKA_PRODUCE_TIMEOUT" envDefault:"10s"`
+
+	// Audit query read tier. AuditClickHouseDSN points the app's query router
+	// at the audit.events_olap projection. When empty, tack_audit_query reads
+	// only Yugabyte. AuditQueryRecentWindow is the age boundary below which a
+	// query routes to ClickHouse instead of Yugabyte.
+	AuditClickHouseDSN     string        `env:"AUDIT_CLICKHOUSE_DSN"`
+	AuditQueryRecentWindow time.Duration `env:"AUDIT_QUERY_RECENT_WINDOW" envDefault:"720h"`
 
 	// Meilisearch: optional, no-op stub used when unset.
 	MeiliURL       string `env:"MEILI_URL"        envDefault:"http://localhost:7700"`
@@ -122,11 +113,66 @@ type Config struct {
 	BackupFDBImage          string `env:"TACK_BACKUP_FDB_IMAGE"          envDefault:"foundationdb/foundationdb:7.4.6"`
 	BackupFDBTimeoutSeconds int    `env:"TACK_BACKUP_FDB_TIMEOUT_SECONDS" envDefault:"1800"`
 	BackupFDBSidecar        string `env:"TACK_BACKUP_FDB_SIDECAR"        envDefault:"tack-backup-agent"`
-	BackupMeiliVolume       string `env:"TACK_BACKUP_MEILI_VOLUME"       envDefault:"tack_meili-data"`
-	BackupTemporalDBUser    string `env:"TACK_BACKUP_TEMPORAL_DB_USER"   envDefault:"temporal"`
-	BackupTemporalDBPass    string `env:"TACK_BACKUP_TEMPORAL_DB_PASSWORD"`
-	BackupTemporalDBName    string `env:"TACK_BACKUP_TEMPORAL_DB_NAME"   envDefault:"temporal"`
-	BackupDockerContext     string `env:"TACK_BACKUP_DOCKER_CONTEXT"     envDefault:"tack"`
+
+	// FDB continuous backup. When BackupFDBContinuous is true, the FDB step
+	// drives a continuous `fdbbackup start` that streams straight to the
+	// SeaweedFS object store via a blobstore:// destination built from the
+	// BackupS3* fields, instead of the one-shot file:///snapshot path that
+	// tars its result. BackupFDBSnapshotInterval is the snapshot interval in
+	// seconds passed to `fdbbackup start --snapshot_interval`. See
+	// https://apple.github.io/foundationdb/backups.html
+	BackupFDBContinuous       bool `env:"TACK_BACKUP_FDB_CONTINUOUS"        envDefault:"false"`
+	BackupFDBSnapshotInterval int  `env:"TACK_BACKUP_FDB_SNAPSHOT_INTERVAL" envDefault:"3600"`
+
+	BackupMeiliVolume    string `env:"TACK_BACKUP_MEILI_VOLUME"       envDefault:"tack_meili-data"`
+	BackupTemporalDBUser string `env:"TACK_BACKUP_TEMPORAL_DB_USER"   envDefault:"temporal"`
+	BackupTemporalDBPass string `env:"TACK_BACKUP_TEMPORAL_DB_PASSWORD"`
+	BackupTemporalDBName string `env:"TACK_BACKUP_TEMPORAL_DB_NAME"   envDefault:"temporal"`
+	BackupDockerContext  string `env:"TACK_BACKUP_DOCKER_CONTEXT"     envDefault:"tack"`
+
+	// Backup S3 target. Read by `./server ops backup buckets-init` to create
+	// the SeaweedFS buckets that hold off-host backup artifacts. Endpoint and
+	// credentials have no defaults because pointing at the wrong object store
+	// is a silent data-placement failure; the command errors loudly if the
+	// endpoint or credentials are unset. SeaweedFS requires path-style
+	// addressing, which the S3 client sets regardless of these values.
+	BackupS3Endpoint    string `env:"TACK_BACKUP_S3_ENDPOINT"`
+	BackupS3AccessKey   string `env:"TACK_BACKUP_S3_ACCESS_KEY_ID"`
+	BackupS3SecretKey   string `env:"TACK_BACKUP_S3_SECRET_ACCESS_KEY"`
+	BackupS3Region      string `env:"TACK_BACKUP_S3_REGION"        envDefault:"us-east-1"`
+	BackupS3BucketMain  string `env:"TACK_BACKUP_S3_BUCKET_MAIN"   envDefault:"tack-backups"`
+	BackupS3BucketAudit string `env:"TACK_BACKUP_S3_BUCKET_AUDIT"  envDefault:"tack-audit-archive"`
+
+	// YugabyteDB point-in-time-recovery (PITR). Read by
+	// `./server ops backup yb-pitr-init`, which creates a yb-admin snapshot
+	// schedule over the auth + audit YSQL database so a fresh deploy can roll
+	// back to any point within the retention window. The image tag must match
+	// the live yugabyte service in docker-compose.yml so yb-admin's wire
+	// protocol agrees with the running masters. Interval and retention are in
+	// minutes, matching yb-admin create_snapshot_schedule's argument units.
+	BackupYBPITRImage            string `env:"TACK_BACKUP_YB_IMAGE"                    envDefault:"yugabytedb/yugabyte:2025.2.3.0-b149"`
+	BackupYBMasterAddresses      string `env:"TACK_BACKUP_YB_MASTER_ADDRESSES"         envDefault:"yugabyte:7100"`
+	BackupYBPITRIntervalMinutes  int    `env:"TACK_BACKUP_YB_PITR_INTERVAL_MINUTES"    envDefault:"60"`
+	BackupYBPITRRetentionMinutes int    `env:"TACK_BACKUP_YB_PITR_RETENTION_MINUTES"   envDefault:"10080"`
+
+	// YugabyteDB distributed-snapshot export and restore. No defaults: these
+	// are deployment- and image-specific paths that must be declared in .env so
+	// a wrong value fails loudly rather than silently writing or reading the
+	// wrong location. BackupYBRocksDBDir is the rocksdb root inside the yugabyte
+	// container (on the yugabyted single-node layout,
+	// <base_dir>/data/yb-data/tserver/data/rocksdb), where the per-tablet
+	// `.snapshots/<snapshot_id>` directories live. BackupYBOverlayPath is the
+	// host path to the patched yugabyted binary (PR #23158) the restore drill
+	// bind-mounts into the throwaway yugabyted so it boots on the IPv6-only
+	// bridge.
+	BackupYBRocksDBDir  string `env:"TACK_BACKUP_YB_ROCKSDB_DIR"`
+	BackupYBOverlayPath string `env:"TACK_BACKUP_YB_OVERLAY_PATH"`
+
+	// BackupFDBOverlayPath is the host path to the patched fdb.bash (IPv6
+	// bracket handling) the restore drill bind-mounts into the throwaway
+	// FoundationDB so it boots on the IPv6-only bridge, the same overlay the
+	// live fdb service mounts. No default, for the same reason as the YB paths.
+	BackupFDBOverlayPath string `env:"TACK_BACKUP_FDB_OVERLAY_PATH"`
 
 	// Yugabyte credentials. Read by the backup family for the ysql_dump call;
 	// the live tack server reads YUGABYTE_PASSWORD via the DATABASE_URL DSN
@@ -173,6 +219,13 @@ type Config struct {
 	DeployDockerContext     string `env:"TACK_DEPLOY_DOCKER_CONTEXT"      envDefault:"tack"`
 	DeployRemoteComposeFile string `env:"TACK_DEPLOY_REMOTE_COMPOSE_FILE" envDefault:"/root/tack/docker-compose.yml"`
 	DeployTimeoutSeconds    int    `env:"TACK_DEPLOY_TIMEOUT_SECONDS"     envDefault:"600"`
+
+	// Provision: `./server ops provision` reads these to reach the running fdb
+	// and app containers through the Docker socket (tack-ops is host-networked
+	// and cannot resolve the bridge DNS names). Defaults match the compose
+	// project name "tack" (<project>-<service>-1).
+	OpsFDBContainer string `env:"TACK_OPS_FDB_CONTAINER" envDefault:"tack-fdb-1"`
+	OpsAppContainer string `env:"TACK_OPS_APP_CONTAINER" envDefault:"tack-app-1"`
 }
 
 func Load() (*Config, error) {
@@ -181,12 +234,6 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	logsDir := xdgStatePath("tack", "logs")
-	if cfg.AuditWALDir == "" {
-		cfg.AuditWALDir = xdgStatePath("tack", "audit-wal")
-	}
-	if cfg.AuditWALDir == "-" {
-		cfg.AuditWALDir = ""
-	}
 	if cfg.LogJSONFile == "" {
 		cfg.LogJSONFile = filepath.Join(logsDir, "app.jsonl")
 	}

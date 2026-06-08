@@ -319,9 +319,10 @@ func recordToolAudit(ctx context.Context, toolName string, req mcpmcp.CallToolRe
 
 	scope := audit.ScopeFromContext(ctx)
 	ev := audit.Event{
-		Verb:   string(verb),
-		Actor:  actor,
-		Entity: audit.Entity{Type: "mcp_tool", Name: toolName},
+		EventID: uuid.Nil,
+		Verb:    string(verb),
+		Actor:   actor,
+		Entity:  audit.Entity{Type: "mcp_tool", Name: toolName},
 		Context: audit.EventContext{
 			Source:      audit.SourceMCP,
 			Tool:        toolName,

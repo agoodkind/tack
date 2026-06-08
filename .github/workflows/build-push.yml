@@ -1,8 +1,8 @@
-name: build and push tack-server
+name: build and push tack images
 
 on:
   push:
-    branches: [main]
+    branches: ["**"]
     tags: ["v*"]
   workflow_dispatch:
 
@@ -12,15 +12,38 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/tack-server
 
 jobs:
-  build:
+  # Block the build when a vendored container overlay has drifted from the file
+  # it replaces in its pinned upstream image. The image build depends on this, so
+  # drift fails the whole run and no image ships. See scripts/check-overlay-drift.sh
+  # and TACK-302.
+  overlay-drift:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
     steps:
       - name: checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
+      - name: check overlay drift
+        run: bash scripts/check-overlay-drift.sh
+
+  build:
+    needs: overlay-drift
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: tack-server
+            dockerfile: Dockerfile
+            extra_build_args: "FDB_VERSION=7.4.6"
+          - image: tack-audit-consumer
+            dockerfile: Dockerfile.audit-consumer
+            extra_build_args: ""
+    steps:
+      - name: checkout
+        uses: actions/checkout@v6
 
       - name: derive build metadata
         id: meta
@@ -45,7 +68,7 @@ jobs:
         id: tags
         run: |
           set -eu
-          base="${REGISTRY}/${IMAGE_NAME}"
+          base="${REGISTRY}/${{ github.repository_owner }}/${{ matrix.image }}"
           short=${{ steps.meta.outputs.short }}
           ref_kind=${GITHUB_REF_TYPE}
           tags="${base}:${short}"$'\n'"${base}:${{ github.sha }}"
@@ -53,8 +76,12 @@ jobs:
               release="${GITHUB_REF_NAME}"
               tags="${tags}"$'\n'"${base}:${release}"
               tags="${tags}"$'\n'"${base}:latest"
-          elif [ "${GITHUB_REF_NAME}" = "main" ]; then
-              tags="${tags}"$'\n'"${base}:latest"
+          else
+              branch_tag=$(printf '%s' "${GITHUB_REF_NAME}" | tr '/' '-')
+              tags="${tags}"$'\n'"${base}:${branch_tag}"
+              if [ "${GITHUB_REF_NAME}" = "main" ]; then
+                  tags="${tags}"$'\n'"${base}:latest"
+              fi
           fi
           {
               echo "list<<__EOF__"
@@ -63,27 +90,28 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: login to ghcr
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: set up buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: build and push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
+          file: ${{ matrix.dockerfile }}
           platforms: linux/amd64
           push: true
           tags: ${{ steps.tags.outputs.list }}
           build-args: |
-            FDB_VERSION=7.4.6
+            ${{ matrix.extra_build_args }}
             COMMIT=${{ steps.meta.outputs.commit }}
             BUILD_TIME=${{ steps.meta.outputs.build_time }}
             TAG=${{ steps.meta.outputs.tag }}
             DIRTY=false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}

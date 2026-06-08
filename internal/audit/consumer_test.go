@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/twmb/franz-go/pkg/kfake"
 	"github.com/twmb/franz-go/pkg/kgo"
+	"goodkind.io/tack/internal/clock"
 )
 
 // integrationDSN returns the Yugabyte DSN used by consumer tests. The DSN is
@@ -76,15 +77,12 @@ func produceEvents(t *testing.T, brokers []string, topic string, events []Event)
 		if err != nil {
 			t.Fatalf("marshal: %v", err)
 		}
-		eventID := uuid.Must(uuid.NewV7())
-		ids = append(ids, eventID)
+		// The producer carries event_id in the payload, so the consumer reads
+		// it from the decoded Event rather than a Kafka header.
+		ids = append(ids, ev.EventID)
 		rec := &kgo.Record{
 			Topic: topic,
 			Value: body,
-			Headers: []kgo.RecordHeader{{
-				Key:   "event_id",
-				Value: []byte(eventID.String()),
-			}},
 		}
 		if err := cl.ProduceSync(ctx, rec).FirstErr(); err != nil {
 			t.Fatalf("produce: %v", err)
@@ -110,7 +108,7 @@ func runConsumerOnce(t *testing.T, cfg ConsumerConfig, expect int) {
 		}
 		select {
 		case <-deadline:
-			t.Fatalf("waited for %d rows in audit.events_v2; got %d", expect, got)
+			t.Fatalf("waited for %d rows in audit.events; got %d", expect, got)
 		case <-time.After(200 * time.Millisecond):
 		}
 	}
@@ -129,7 +127,7 @@ func countRowsForGroup(t *testing.T, dsn, group string) int {
 	defer pool.Close()
 	var n int
 	err = pool.QueryRow(ctx, `
-		SELECT count(*) FROM audit.events_v2
+		SELECT count(*) FROM audit.events
 		WHERE org_id IN (SELECT org_id FROM audit.consumer_offsets WHERE consumer_group = $1)
 	`, group).Scan(&n)
 	if err != nil {
@@ -140,7 +138,8 @@ func countRowsForGroup(t *testing.T, dsn, group string) int {
 
 func makeReadEvent(orgID uuid.UUID, suffix string) Event {
 	return Event{
-		Verb: string(VerbNodeRead),
+		EventID: uuid.Must(uuid.NewV7()),
+		Verb:    string(VerbNodeRead),
 		Actor: Actor{
 			Type:      ActorUser,
 			ID:        uuid.Must(uuid.NewV7()),
@@ -155,23 +154,24 @@ func makeReadEvent(orgID uuid.UUID, suffix string) Event {
 			Source: SourceMCP,
 			Tool:   "tack_get_issue",
 		},
-		Outcome:    OutcomeOK,
-		OccurredAt: time.Date(2026, 5, 9, 12, 0, 0, 0, time.UTC),
+		Outcome: OutcomeOK,
+		// A current timestamp so the row lands in a weekly partition that
+		// migration 002 creates (current week plus eight).
+		OccurredAt: clock.Now().UTC(),
 	}
 }
 
 func purgeOrg(t *testing.T, pool *pgxpool.Pool, orgID uuid.UUID) {
 	t.Helper()
 	ctx := context.Background()
-	_, _ = pool.Exec(ctx, `DELETE FROM audit.events_v2 WHERE org_id = $1`, orgID)
+	_, _ = pool.Exec(ctx, `DELETE FROM audit.events WHERE org_id = $1`, orgID)
 	_, _ = pool.Exec(ctx, `DELETE FROM audit.chain_heads WHERE org_id = $1`, orgID)
-	_, _ = pool.Exec(ctx, `DELETE FROM audit.events       WHERE org_id = $1`, orgID)
 }
 
-// TestConsumerProjectsToEventsV2 produces 100 events to Kafka, runs the
-// consumer, and asserts all 100 land in audit.events_v2 with a chain that
+// TestConsumerProjectsToEvents produces 100 events to Kafka, runs the
+// consumer, and asserts all 100 land in audit.events with a chain that
 // matches what YBRecorder would have written for the same input.
-func TestConsumerProjectsToEventsV2(t *testing.T) {
+func TestConsumerProjectsToEvents(t *testing.T) {
 	pool, brokers, topic := newConsumerEnv(t)
 	orgID := uuid.Must(uuid.NewV7())
 	t.Cleanup(func() { purgeOrg(t, pool, orgID) })
@@ -195,7 +195,7 @@ func TestConsumerProjectsToEventsV2(t *testing.T) {
 
 	ctx := context.Background()
 	rows, err := pool.Query(ctx, `
-		SELECT seq, prev_hash, row_hash FROM audit.events_v2
+		SELECT seq, prev_hash, row_hash FROM audit.events
 		WHERE org_id = $1 ORDER BY shard, seq
 	`, orgID)
 	if err != nil {
@@ -218,13 +218,13 @@ func TestConsumerProjectsToEventsV2(t *testing.T) {
 		count++
 	}
 	if count != total {
-		t.Fatalf("got %d rows in audit.events_v2; want %d", count, total)
+		t.Fatalf("got %d rows in audit.events; want %d", count, total)
 	}
 }
 
 // TestConsumerIdempotentOnEventID produces 100 events, runs the consumer,
 // runs it again (simulating crash mid-batch), and asserts the unique index
-// dedups so exactly 100 rows remain in audit.events_v2.
+// dedups so exactly 100 rows remain in audit.events.
 func TestConsumerIdempotentOnEventID(t *testing.T) {
 	pool, brokers, topic := newConsumerEnv(t)
 	orgID := uuid.Must(uuid.NewV7())
@@ -254,7 +254,7 @@ func TestConsumerIdempotentOnEventID(t *testing.T) {
 
 	ctx := context.Background()
 	var n int
-	err := pool.QueryRow(ctx, `SELECT count(*) FROM audit.events_v2 WHERE org_id = $1`, orgID).Scan(&n)
+	err := pool.QueryRow(ctx, `SELECT count(*) FROM audit.events WHERE org_id = $1`, orgID).Scan(&n)
 	if err != nil {
 		t.Fatalf("count: %v", err)
 	}
@@ -301,7 +301,7 @@ func TestConsumerOffsetAdvanceIsAtomicWithProjection(t *testing.T) {
 
 	c := context.Background()
 	var n int
-	err = pool.QueryRow(c, `SELECT count(*) FROM audit.events_v2 WHERE org_id = $1`, orgID).Scan(&n)
+	err = pool.QueryRow(c, `SELECT count(*) FROM audit.events WHERE org_id = $1`, orgID).Scan(&n)
 	if err != nil {
 		t.Fatalf("count: %v", err)
 	}
@@ -386,14 +386,14 @@ func TestConsumerNotarizerSigns(t *testing.T) {
 
 // TestConsumerHandlesMalformedPayload produces one record with invalid JSON
 // and asserts the consumer logs and advances past it without halting the
-// batch. The malformed record lands in audit.events_v2_dlq.
+// batch. The malformed record lands in audit.events_dlq.
 func TestConsumerHandlesMalformedPayload(t *testing.T) {
 	pool, brokers, topic := newConsumerEnv(t)
 	orgID := uuid.Must(uuid.NewV7())
 	t.Cleanup(func() {
 		purgeOrg(t, pool, orgID)
 		ctx := context.Background()
-		_, _ = pool.Exec(ctx, `DELETE FROM audit.events_v2_dlq WHERE topic = $1`, topic)
+		_, _ = pool.Exec(ctx, `DELETE FROM audit.events_dlq WHERE topic = $1`, topic)
 	})
 
 	cl, err := kgo.NewClient(kgo.SeedBrokers(brokers...))
@@ -422,7 +422,7 @@ func TestConsumerHandlesMalformedPayload(t *testing.T) {
 
 	var dlqCount int
 	err = pool.QueryRow(ctx,
-		`SELECT count(*) FROM audit.events_v2_dlq WHERE topic = $1`, topic,
+		`SELECT count(*) FROM audit.events_dlq WHERE topic = $1`, topic,
 	).Scan(&dlqCount)
 	if err != nil {
 		t.Fatalf("dlq count: %v", err)
@@ -470,27 +470,6 @@ func loadPublicKey(t *testing.T, path string) ed25519.PublicKey {
 		t.Fatal("not ed25519")
 	}
 	return priv.Public().(ed25519.PublicKey)
-}
-
-// TestExtractEventID covers the header-based event_id replay path that the
-// projector uses to keep idempotent replay deterministic. This test does
-// not need Yugabyte and runs in any environment.
-func TestExtractEventID(t *testing.T) {
-	id := uuid.Must(uuid.NewV7())
-	rec := &kgo.Record{
-		Headers: []kgo.RecordHeader{
-			{Key: "event_id", Value: []byte(id.String())},
-		},
-	}
-	got := extractEventID(rec)
-	if got != id {
-		t.Fatalf("got %s want %s", got, id)
-	}
-
-	rec2 := &kgo.Record{Headers: []kgo.RecordHeader{{Key: "other", Value: []byte("x")}}}
-	if extractEventID(rec2) != uuid.Nil {
-		t.Fatal("expected uuid.Nil when header missing")
-	}
 }
 
 // TestErrMalformedSignal documents that errors.Is correctly identifies the

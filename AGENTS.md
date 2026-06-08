@@ -207,6 +207,45 @@ replication copies everywhere. Object storage is a backup destination, not a DR
 mechanism. On any audit recovery, preserve `audit.chain_heads` so the hash chain
 continues. Procedures: [`docs/runbooks/recovery.md`](docs/runbooks/recovery.md).
 
+## First boot on a fresh environment
+
+A fresh environment (QA recreate, a new server, a DR restore) is not ready after
+`deploy-tack` alone. The deploy runs `docker compose up -d` and health-gates on
+fdb, but several one-time initialization steps are not yet automated, and fdb is
+not even healthy until the first of them runs. Until the provisioning layer lands
+(TACK-303, "deploy is not provision"), run these in order on a fresh environment:
+
+1. **FoundationDB.** A fresh `tack_fdb-data` volume has no configured database, so
+   `tack-fdb-1` stays unhealthy and the deploy aborts. Initialize it once:
+   `docker exec tack-fdb-1 fdbcli --exec 'configure new single ssd'`, then re-run
+   `deploy-tack`. The fdb overlay writes the client cluster file at
+   `/etc/foundationdb/fdb.cluster` as `docker:docker@fdb:4500` (the DNS name) on
+   start, so clients survive container IP changes. TACK-290 automates the
+   configure step. NEVER run `configure new` against an already-configured
+   cluster (prod): it is the one destructive step in this list.
+2. **Migrations.** `docker compose run --rm tack-ops migrate`.
+3. **Audit roles.** `docker compose run --rm tack-ops ops audit seed-roles`. The
+   app and the audit-consumer cannot authenticate to YugabyteDB until this runs.
+   The audit-consumer waits on its own: it pings Yugabyte until the roles exist,
+   then ensures the Kafka topic and starts (TACK-301, TACK-305), so it needs no
+   restart. The app does need one: `docker compose restart app`, so it
+   re-initializes its audit reader pool and registers the audit
+   query/get/redact MCP tools, which are skipped when the app first starts before
+   the roles exist (TACK-319).
+4. **Kafka topic.** No manual step: the audit-consumer ensures `audit.events.v1`
+   with 256 partitions on startup once Yugabyte is reachable (TACK-305). On a
+   fresh broker it appears automatically after step 3.
+5. **Product seed.** `docker compose exec -T app /server seed` for the initial
+   user, org, workspace, and API token. Run it through the app container, not
+   `tack-ops`: tack-ops is `network_mode: host` and its FDB cluster file names
+   `fdb`, which does not resolve on host networking, so a tack-ops seed cannot
+   write FoundationDB nodes (TACK-318). migrate and seed-roles still use tack-ops
+   because they are SQL-only.
+
+This ordered sequence is the provisioning layer Tack is missing; the design is
+tracked in TACK-303. QA lifecycle (keep running vs hard-recreate each time) is
+TACK-304.
+
 ## Binding rules for code in this repo
 
 1. **Everything is a node** (see Architecture). Behavior follows NodeType

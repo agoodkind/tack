@@ -32,71 +32,6 @@ var (
 	auditDropped = expvar.NewMap("tack_audit_dropped_total")
 )
 
-// int64Gauge is a live-reading [expvar.Var] backed by a function that returns
-// int64. It satisfies the [expvar.Var] interface via String().
-type int64Gauge struct {
-	fn func() int64
-}
-
-// String returns the current gauge value formatted as a JSON number.
-func (g *int64Gauge) String() string { return strconv.FormatInt(g.fn(), 10) }
-
-// float64Gauge is a live-reading [expvar.Var] backed by a function that returns
-// float64. It satisfies the [expvar.Var] interface via String().
-type float64Gauge struct {
-	fn func() float64
-}
-
-// String returns the current gauge value formatted as a JSON number.
-func (g *float64Gauge) String() string { return strconv.FormatFloat(g.fn(), 'g', -1, 64) }
-
-// walStatsProvider is set once by RegisterWALMetrics. It is nil when no WAL
-// is configured (dev mode with AUDIT_WAL_DIR unset).
-var walStatsProvider *walMetricsSource
-
-type walMetricsSource struct {
-	unflushedSegments      func() int64
-	oldestUnflushedAgeSecs func() float64
-	lastDrainSuccessUnix   func() int64
-	idleRotationsTotal     func() int64
-	writeErrorsTotal       func() int64
-	diskFreeBytes          func() int64
-}
-
-// WALStatsSource carries live-reading closures from audit.WALRecorder.Stats().
-// Defined here to avoid an import cycle; the audit package calls
-// RegisterWALMetrics with a populated WALStatsSource at startup.
-type WALStatsSource struct {
-	UnflushedSegments      func() int64
-	OldestUnflushedAgeSecs func() float64
-	LastDrainSuccessUnix   func() int64
-	IdleRotationsTotal     func() int64
-	WriteErrorsTotal       func() int64
-	DiskFreeBytes          func() int64
-}
-
-// RegisterWALMetrics wires WAL backlog gauges and counters into expvar. It
-// must be called once, after NewWALRecorder, before the server starts serving
-// traffic. Calling it more than once panics (expvar.Publish panics on
-// duplicate names).
-func RegisterWALMetrics(src WALStatsSource) {
-	walStatsProvider = &walMetricsSource{
-		unflushedSegments:      src.UnflushedSegments,
-		oldestUnflushedAgeSecs: src.OldestUnflushedAgeSecs,
-		lastDrainSuccessUnix:   src.LastDrainSuccessUnix,
-		idleRotationsTotal:     src.IdleRotationsTotal,
-		writeErrorsTotal:       src.WriteErrorsTotal,
-		diskFreeBytes:          src.DiskFreeBytes,
-	}
-
-	expvar.Publish("audit_wal_backlog_segments", &int64Gauge{fn: walStatsProvider.unflushedSegments})
-	expvar.Publish("audit_wal_backlog_oldest_age_seconds", &float64Gauge{fn: walStatsProvider.oldestUnflushedAgeSecs})
-	expvar.Publish("audit_wal_last_drain_unix", &int64Gauge{fn: walStatsProvider.lastDrainSuccessUnix})
-	expvar.Publish("audit_wal_idle_rotations_total", &int64Gauge{fn: walStatsProvider.idleRotationsTotal})
-	expvar.Publish("audit_wal_write_errors_total", &int64Gauge{fn: walStatsProvider.writeErrorsTotal})
-	expvar.Publish("audit_wal_disk_free_bytes", &int64Gauge{fn: walStatsProvider.diskFreeBytes})
-}
-
 // IncFDBTx records one successful FDB transaction.
 func IncFDBTx() { fdbTxTotal.Add(1) }
 
@@ -120,10 +55,9 @@ func IncAuditRecord(verb string) { auditRecords.Add(verb, 1) }
 // the failure point: begin, head_read, hash, insert, head_write, commit.
 func IncAuditDropped(verb, stage string) { auditDropped.Add(verb+":"+stage, 1) }
 
-// Phase 2 Wave 1 audit pipeline metrics. Producer (Kafka), consumer
-// (audit-consumer projector), and dual-write parity each get their own
-// expvar handles so the operator can drill in without cross-correlating
-// every signal in /debug/vars at once.
+// Audit pipeline metrics. The producer (Kafka) and the consumer
+// (audit-consumer projector) each get their own expvar handles so the operator
+// can drill in without cross-correlating every signal in /debug/vars at once.
 //
 // Histograms are emulated with two expvar.Map instances per metric: one
 // recording bucket counts keyed by an upper-bound label ("le_<value>" or
@@ -148,12 +82,6 @@ var (
 	auditConsumerBatchLatencyStats = expvar.NewMap("tack_audit_consumer_batch_latency_ms_stats")
 	// audit_consumer_offset_committed{topic,partition} gauge map.
 	auditConsumerOffsetCommitted = expvar.NewMap("tack_audit_consumer_offset_committed")
-
-	// audit_dual_write_total{path="primary|secondary",result="ok|error"}.
-	auditDualWriteTotal = expvar.NewMap("tack_audit_dual_write_total")
-	// audit_dual_write_skew_seconds histogram of |secondary_ack - primary_commit|.
-	auditDualWriteSkewSeconds      = expvar.NewMap("tack_audit_dual_write_skew_seconds")
-	auditDualWriteSkewSecondsStats = expvar.NewMap("tack_audit_dual_write_skew_seconds_stats")
 )
 
 // latencyBucketsMs is the upper-bound layout for millisecond latency
@@ -161,11 +89,6 @@ var (
 // scrape; it covers the spread an operator cares about during incident
 // triage (sub-ms produce up to a 5s timeout).
 var latencyBucketsMs = []float64{1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000}
-
-// skewBucketsSeconds is the upper-bound layout for the dual-write skew
-// histogram. Wave 1 expects sub-second skew when both sides are healthy;
-// anything above 30s indicates a stuck secondary.
-var skewBucketsSeconds = []float64{0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60}
 
 // IncAuditKafkaProduce records one produce attempt outcome (result is "ok"
 // or "error").
@@ -210,20 +133,9 @@ func SetAuditConsumerOffsetCommitted(topic string, partition int32, offset int64
 	auditConsumerOffsetCommitted.Set(key, &expvarInt64{value: offset})
 }
 
-// IncAuditDualWrite records one path/result outcome of a DualRecorder write.
-func IncAuditDualWrite(path, result string) {
-	auditDualWriteTotal.Add(path+":"+result, 1)
-}
-
-// ObserveAuditDualWriteSkew records the |secondary - primary| skew in seconds.
-func ObserveAuditDualWriteSkew(seconds float64) {
-	observeHistogram(auditDualWriteSkewSeconds, auditDualWriteSkewSecondsStats, seconds, skewBucketsSeconds)
-}
-
 // expvarInt64 is a settable [expvar.Var] holding one int64. [expvar.Int]
 // does the same job but only exposes Add and Set(int64) on the concrete
-// type; using the small struct keeps the gauge map's value type consistent
-// with the existing int64Gauge shape used by the WAL block above.
+// type; the small struct keeps the gauge map's value type explicit.
 type expvarInt64 struct{ value int64 }
 
 func (g *expvarInt64) String() string { return strconv.FormatInt(g.value, 10) }

@@ -9,14 +9,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"goodkind.io/tack/internal/telemetry"
 )
 
 // KafkaRecorder produces audit events to an Apache Kafka topic. It is the
-// Wave 1 producer-side piece of the Phase 2 audit refactor: it ships the
-// same JSON Event payload that the WAL writes today so a downstream
-// projector can reconstruct the canonical row.
+// producer-side piece of the audit cutover: it ships the JSON Event payload
+// that the audit-consumer projects into the canonical audit.events row.
 //
 // Produce is synchronous with acks=all and idempotence enabled. Errors
 // surface to the caller; this recorder never silently drops an event.
@@ -100,10 +100,9 @@ func MarshalEvent(ev Event) ([]byte, error) {
 // Record marshals the event to JSON and produces it synchronously to the
 // configured topic. Returns the broker error on failure; never swallows.
 //
-// OccurredAt is taken verbatim from ev. The caller chain populates it
-// (the WAL recorder, the Yugabyte recorder, and MemoryRecorder all set
-// it on entry). Setting it here would split the timestamp between the
-// Kafka and WAL legs of DualRecorder, which the parity gate forbids.
+// EventID and OccurredAt are taken verbatim from ev. SuppressingRecorder
+// stamps both at the recording call site, so the Kafka payload and the
+// consumer's chain hash agree on one identity and one timestamp.
 func (k *KafkaRecorder) Record(ctx context.Context, ev Event) error {
 	payload, err := MarshalEvent(ev)
 	if err != nil {
@@ -146,11 +145,13 @@ func (k *KafkaRecorder) Record(ctx context.Context, ev Event) error {
 }
 
 // eventIDForLog returns a stable identifier for the produce-failed log line
-// so an operator can correlate the failure with downstream signals. We
-// prefer the caller-supplied IdempotencyKey; absent that, we surface the
-// actor and entity IDs joined by a colon, which is unique enough for
-// triage and never empty.
+// so an operator can correlate the failure with downstream signals. It
+// prefers the canonical EventID. It falls back to the IdempotencyKey, then to
+// the actor and entity IDs joined by a colon, which is never empty.
 func eventIDForLog(ev Event) string {
+	if ev.EventID != uuid.Nil {
+		return ev.EventID.String()
+	}
 	if ev.IdempotencyKey != "" {
 		return ev.IdempotencyKey
 	}
@@ -158,8 +159,8 @@ func eventIDForLog(ev Event) string {
 }
 
 // Close flushes the producer queue and shuts the underlying client down.
-// Implements the parameterless Close shape that DualRecorder type-asserts
-// against; uses [context.Background] internally for the flush deadline so
+// Implements the parameterless Close shape the server shutdown path
+// type-asserts against; uses [context.Background] internally for the flush deadline so
 // shutdown progresses even when the caller's context has already been
 // cancelled by SIGINT.
 func (k *KafkaRecorder) Close() error {
@@ -183,14 +184,16 @@ func (k *KafkaRecorder) CloseContext(ctx context.Context) error {
 	return nil
 }
 
-// kafkaPartitionKey packs the (org_id, actor) tuple as the producer key.
-// Per the design doc the chain shard is derived from this same tuple,
-// so identical keys land on the same partition under franz-go's default
-// sticky-key partitioner.
+// kafkaPartitionKey packs (org_id, shard) as the producer key. Every event on
+// one (org, shard) chain then lands on the same partition. Kafka assigns one
+// partition to one consumer in a group, so exactly one consumer ever advances
+// a given chain. The shard comes from shardOf(actor_id, event_id), the same
+// function the consumer uses, so the key and the chain unit always agree.
 func kafkaPartitionKey(ev Event) []byte {
-	out := make([]byte, 0, 32)
+	shard := int(shardOf(ev.Actor.ID, ev.EventID))
+	out := make([]byte, 0, 18)
 	out = append(out, ev.Context.OrgID[:]...)
-	out = append(out, ev.Actor.ID[:]...)
+	out = append(out, byte((shard>>8)&0xFF), byte(shard&0xFF))
 	return out
 }
 

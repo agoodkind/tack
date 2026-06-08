@@ -1,8 +1,9 @@
 services:
   app:
-    image: ghcr.io/agoodkind/tack-server:latest
+    image: ghcr.io/agoodkind/tack-server:${TACK_IMAGE_TAG:-latest}
     build:
       context: .
+      dockerfile: Dockerfile
       args:
         COMMIT: ${TACK_COMMIT:-unknown}
         BUILD_TIME: ${TACK_BUILD_TIME:-unknown}
@@ -39,13 +40,23 @@ services:
       LOG_JSON_FILE: ${LOG_JSON_FILE:-/var/log/tack/app.jsonl}
       LOG_TEXT_FILE: ${LOG_TEXT_FILE:-/var/log/tack/app.log}
       AUDIT_SIGNING_KEY_PATH: ${AUDIT_SIGNING_KEY_PATH:-/etc/tack/audit-signing.pem}
-      AUDIT_WAL_DIR: ${AUDIT_WAL_DIR:-/var/lib/tack/audit-wal}
-      # Wave 1 audit producer. Empty disables the Kafka path and the
-      # server falls back to WAL-only recording.
+      # Audit producer. When AUDIT_KAFKA_BROKERS is set, Record publishes to
+      # Kafka and the audit-consumer becomes the only writer of audit.events.
+      # Empty uses the synchronous Yugabyte recorder.
       AUDIT_KAFKA_BROKERS: ${AUDIT_KAFKA_BROKERS:-}
       AUDIT_KAFKA_TOPIC: ${AUDIT_KAFKA_TOPIC:-audit.events.v1}
       AUDIT_KAFKA_CLIENT_ID: ${AUDIT_KAFKA_CLIENT_ID:-tack-audit-producer}
       AUDIT_KAFKA_PRODUCE_TIMEOUT: ${AUDIT_KAFKA_PRODUCE_TIMEOUT:-10s}
+      # Audit query read tier. Empty reads only Yugabyte; set to route recent
+      # windows to the ClickHouse audit.events_olap projection.
+      AUDIT_CLICKHOUSE_DSN: ${AUDIT_CLICKHOUSE_DSN:-}
+      # Backup object store. Empty unless the host's group_vars set them; read only by ops backup.
+      TACK_BACKUP_S3_ENDPOINT: ${TACK_BACKUP_S3_ENDPOINT:-}
+      TACK_BACKUP_S3_ACCESS_KEY_ID: ${TACK_BACKUP_S3_ACCESS_KEY_ID:-}
+      TACK_BACKUP_S3_SECRET_ACCESS_KEY: ${TACK_BACKUP_S3_SECRET_ACCESS_KEY:-}
+      TACK_BACKUP_S3_REGION: ${TACK_BACKUP_S3_REGION:-us-east-1}
+      TACK_BACKUP_S3_BUCKET_MAIN: ${TACK_BACKUP_S3_BUCKET_MAIN:-tack-backups}
+      TACK_BACKUP_S3_BUCKET_AUDIT: ${TACK_BACKUP_S3_BUCKET_AUDIT:-tack-audit-archive}
     volumes:
       - /etc/foundationdb:/etc/foundationdb:ro
       - tack-logs:/var/log/tack
@@ -53,7 +64,6 @@ services:
       #   openssl genpkey -algorithm ed25519 -out /etc/tack/audit-signing.pem
       # The notarizer reuses it at every 60s tick; rotation is a follow-up.
       - /etc/tack:/etc/tack:ro
-      - tack-audit-wal:/var/lib/tack/audit-wal
     depends_on:
       yugabyte:
         condition: service_healthy
@@ -65,13 +75,21 @@ services:
         condition: service_healthy
 
   yugabyte:
-    # 2024.2.x LTS is the first line that ships IPv6 support in yugabyted
-    # (issue #24665, fixed in 2024.1.5.0). is_port_available is now
-    # AF-aware and validate_hostname_ip accepts hostnames. Do not advertise
-    # the current container IP: Docker Compose service IPs are intentionally
-    # replaceable. Advertise the stable service DNS name and let Docker resolve
-    # it to the current GUA on this IPv6-only bridge.
-    image: yugabytedb/yugabyte:2024.2.8.0-b85
+    # 2025.2.x is the latest stable line. Do not advertise the current container
+    # IP: Docker Compose service IPs are intentionally replaceable. Literal GUAs
+    # persisted into Yugabyte master/tserver metadata caused an incident; the
+    # service DNS name "yugabyte" is the stable identity.
+    #
+    # The :ro bind-mount below patches yugabyted's is_port_available. The
+    # upstream version (still on HEAD and on every release through 2025.2.3.0)
+    # builds an AF_INET socket for any non-literal-v6 advertise_address, which
+    # raises gaierror on this v6-only bridge before yugabyted ever binds.
+    # Upstream PR #23158 fixes it with AF_UNSPEC getaddrinfo + iterate; it has
+    # been open since 2024-07 with no movement. We apply the same patch via
+    # the overlay in yugabyte-overlay/yugabyted until upstream lands a fix.
+    # See AGENTS.md "YugabyteDB identity and data contract" for the full story
+    # and the refresh procedure on image bump.
+    image: yugabytedb/yugabyte:2025.2.3.0-b149
     restart: unless-stopped
     command:
       - /bin/bash
@@ -104,6 +122,8 @@ services:
       - "9000:9000" # YugabyteDB tserver UI
     volumes:
       - yugabyte-data:/home/yugabyte/var
+      # Overlay patched yugabyted (upstream PR #23158). See header comment.
+      - /root/tack/yugabyte-overlay/yugabyted:/home/yugabyte/bin/yugabyted:ro
     healthcheck:
       test:
         - CMD-SHELL
@@ -141,6 +161,28 @@ services:
       timeout: 10s
       retries: 10
       start_period: 30s
+
+  # Long-lived backup_agent that streams FoundationDB continuous backups to the
+  # object store. The fdbbackup session is started once by
+  # `ops backup fdb-continuous-init`; this agent drains its snapshots. The backup
+  # profile keeps it off for a plain `docker compose up` without an object store,
+  # and the deploy enables the profile. fdbbackup cannot resolve an IPv6 literal,
+  # so it reaches the blobstore through the synthetic name fdb-blobstore-host
+  # mapped to TACK_BACKUP_S3_HOST, the bare object-store address configs renders
+  # alongside the full TACK_BACKUP_S3_ENDPOINT.
+  fdb-backup-agent:
+    image: foundationdb/foundationdb:${FDB_VERSION:-7.4.6}
+    profiles: [backup]
+    restart: unless-stopped
+    depends_on:
+      fdb:
+        condition: service_healthy
+    entrypoint: ["/usr/bin/backup_agent"]
+    command: ["-C", "/etc/foundationdb/fdb.cluster"]
+    extra_hosts:
+      - "fdb-blobstore-host:${TACK_BACKUP_S3_HOST}"
+    volumes:
+      - /etc/foundationdb:/etc/foundationdb:ro
 
   meilisearch:
     image: getmeili/meilisearch:v1.12
@@ -215,9 +257,9 @@ services:
     depends_on:
       - temporal
 
-  # Apache Kafka 4.x in KRaft combined broker+controller role. Wave 1 of
-  # the Phase 2 audit refactor uses this as the producer-side broker for
-  # the audit.events.v1 topic; the projector half lands in Wave 2.
+  # Apache Kafka 4.x in KRaft combined broker+controller role. The audit
+  # cutover uses this as the broker for the audit.events.v1 topic that the
+  # producer publishes to and the audit-consumer projects into audit.events.
   #
   # The cluster ID is pinned to a value generated once on the host with:
   #
@@ -229,6 +271,7 @@ services:
   # No external port is exposed: traffic stays inside the IPv6 bridge.
   kafka:
     image: apache/kafka:4.2.0
+    profiles: [audit]
     restart: unless-stopped
     environment:
       KAFKA_PROCESS_ROLES: broker,controller
@@ -247,7 +290,10 @@ services:
       KAFKA_DEFAULT_REPLICATION_FACTOR: "1"
       KAFKA_MIN_INSYNC_REPLICAS: "1"
       KAFKA_UNCLEAN_LEADER_ELECTION_ENABLE: "false"
-      CLUSTER_ID: ${KAFKA_CLUSTER_ID:?KAFKA_CLUSTER_ID is required, generate via kafka-storage.sh random-uuid}
+      # Empty default so the core stack parses while kafka is profile-gated off.
+      # The audit-profile deploy must set KAFKA_CLUSTER_ID (a kafka-storage.sh
+      # random-uuid) in .env before enabling the audit profile.
+      CLUSTER_ID: ${KAFKA_CLUSTER_ID:-}
     volumes:
       - kafka-data:/var/lib/kafka/data
     healthcheck:
@@ -259,23 +305,12 @@ services:
       retries: 10
       start_period: 30s
 
-  # SeaweedFS as the S3-compatible cold-archive backend for Wave 4 of the
-  # Phase 2 refactor. Wave 1 boots it so the rest of the migration has the
-  # endpoint reachable from day one. Master and volume server run in the
-  # same container; N=1 cardinality is acceptable per the design doc.
-  # Internal-only: no external port is exposed.
-  seaweedfs:
-    image: chrislusf/seaweedfs:3.71
-    restart: unless-stopped
-    command: server -dir=/data -s3 -master.volumeSizeLimitMB=1024
-    volumes:
-      - seaweedfs-data:/data
-
   # ClickHouse single-node OLAP store for the Wave 1 audit consumer.
   # Internal-only: 8123 (HTTP) and 9000 (native) are not exposed to the
   # host. Apache 2.0 image so the open-source-only constraint holds.
   clickhouse:
     image: clickhouse/clickhouse-server:24.8
+    profiles: [audit]
     restart: unless-stopped
     environment:
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
@@ -293,9 +328,11 @@ services:
   # binary built by the Dockerfile is invoked directly. Mounts the
   # signing key for the embedded notarizer.
   audit-consumer:
-    image: ghcr.io/agoodkind/tack-server:latest
+    image: ghcr.io/agoodkind/tack-audit-consumer:${TACK_IMAGE_TAG:-latest}
+    profiles: [audit]
     build:
       context: .
+      dockerfile: Dockerfile.audit-consumer
       args:
         COMMIT: ${TACK_COMMIT:-unknown}
         BUILD_TIME: ${TACK_BUILD_TIME:-unknown}
@@ -334,7 +371,7 @@ services:
   # default docker compose up; invoke via:
   #   docker compose run --rm tack-ops ops backup [subcommand] [args]
   tack-ops:
-    image: ghcr.io/agoodkind/tack-server:latest
+    image: ghcr.io/agoodkind/tack-server:${TACK_IMAGE_TAG:-latest}
     profiles: [ops]
     entrypoint: ["/server"]
     network_mode: host
@@ -365,6 +402,20 @@ services:
       YUGABYTE_USER: ${YUGABYTE_USER:?YUGABYTE_USER is required, set it in .env}
       YUGABYTE_PASSWORD: ${YUGABYTE_PASSWORD:?YUGABYTE_PASSWORD is required, set it in .env}
       YUGABYTE_DB: ${YUGABYTE_DB:?YUGABYTE_DB is required, set it in .env}
+      # Audit role passwords for `ops audit seed-roles`, which creates or rotates
+      # the LOGIN audit roles. Empty default so other ops (backup) run without
+      # them; the seed-roles command errors loudly when they are unset.
+      AUDIT_WRITER_PASSWORD: ${AUDIT_WRITER_PASSWORD:-}
+      AUDIT_READER_PASSWORD: ${AUDIT_READER_PASSWORD:-}
+      AUDIT_REDACTOR_PASSWORD: ${AUDIT_REDACTOR_PASSWORD:-}
+      # Object store for engine-native continuous backup. Read by the FDB
+      # continuous backup path to build the blobstore destination URL.
+      TACK_BACKUP_S3_ENDPOINT: ${TACK_BACKUP_S3_ENDPOINT:-}
+      TACK_BACKUP_S3_ACCESS_KEY_ID: ${TACK_BACKUP_S3_ACCESS_KEY_ID:-}
+      TACK_BACKUP_S3_SECRET_ACCESS_KEY: ${TACK_BACKUP_S3_SECRET_ACCESS_KEY:-}
+      TACK_BACKUP_S3_REGION: ${TACK_BACKUP_S3_REGION:-us-east-1}
+      TACK_BACKUP_S3_BUCKET_MAIN: ${TACK_BACKUP_S3_BUCKET_MAIN:-tack-backups}
+      TACK_BACKUP_S3_BUCKET_AUDIT: ${TACK_BACKUP_S3_BUCKET_AUDIT:-tack-audit-archive}
     volumes:
       - /root/backups:/root/backups
       - /root/fdb-snapshots:/root/fdb-snapshots
@@ -382,16 +433,16 @@ volumes:
   meili-data:
   temporal-db-data:
   tack-logs:
-  tack-audit-wal:
   kafka-data:
-  seaweedfs-data:
   clickhouse-data:
 
-# IPv6-only bridge. The /96 carved out of the host's on-link 3d06:bad:b01::/64
-# is NDP-proxied back onto eth0 by ndppd on CT 117. Containers source out as
-# real GUAs because gateway_mode_v6 is routed (no masquerade). Inter-container
-# DNS returns AAAA only because enable_ipv4 is false. Do not flip back to
-# dual-stack: that defeats the forced-v6 contract.
+# IPv6-only bridge. The per-host /96 is carved from the host's on-link /64 and
+# NDP-proxied back onto eth0 by ndppd, so containers source out as real GUAs
+# (gateway_mode_v6 is routed, no masquerade). Inter-container DNS returns AAAA
+# only because enable_ipv4 is false. Do not flip back to dual-stack: that defeats
+# the forced-v6 contract. The subnet and gateway are per host and come from the
+# configs render (tack_docker_v6_subnet / tack_docker_v6_gateway); the defaults
+# are the production prefix so an unrendered env still parses.
 networks:
   default:
     enable_ipv6: true
@@ -400,5 +451,5 @@ networks:
       com.docker.network.bridge.gateway_mode_v6: routed
     ipam:
       config:
-        - subnet: 3d06:bad:b01:0:7ac::/96
-          gateway: 3d06:bad:b01:0:7ac::1
+        - subnet: ${TACK_DOCKER_V6_SUBNET:-3d06:bad:b01:0:7ac::/96}
+          gateway: ${TACK_DOCKER_V6_GATEWAY:-3d06:bad:b01:0:7ac::1}

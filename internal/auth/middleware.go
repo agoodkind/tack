@@ -84,6 +84,7 @@ func Bearer(tokens TokenValidator) func(http.Handler) http.Handler {
 			raw := extractBearer(r)
 			if raw == "" {
 				emitAuthAudit(r.Context(), r, audit.Event{
+					EventID: uuid.Nil,
 					Verb:    string(audit.VerbAuthLoginFailed),
 					Actor:   audit.Actor{Type: audit.ActorToken},
 					Entity:  audit.Entity{Type: "auth", Name: "missing_authorization"},
@@ -97,6 +98,7 @@ func Bearer(tokens TokenValidator) func(http.Handler) http.Handler {
 			if err != nil {
 				if err == domain.ErrUnauthenticated {
 					emitAuthAudit(r.Context(), r, audit.Event{
+						EventID: uuid.Nil,
 						Verb:    string(audit.VerbAuthTokenRejected),
 						Actor:   audit.Actor{Type: audit.ActorToken, APITokenLabel: hashBearer(raw)},
 						Entity:  audit.Entity{Type: "auth", Name: "token_invalid"},
@@ -112,6 +114,7 @@ func Bearer(tokens TokenValidator) func(http.Handler) http.Handler {
 
 			ctx := withAuthenticatedUser(r.Context(), t.UserID)
 			emitAuthAudit(ctx, r, audit.Event{
+				EventID: uuid.Nil,
 				Verb:    string(audit.VerbAuthTokenUsed),
 				Actor:   audit.Actor{Type: audit.ActorUser, ID: t.UserID, APITokenLabel: hashBearer(raw)},
 				Entity:  audit.Entity{Type: "auth", ID: t.UserID, Name: "token_accepted"},
@@ -130,6 +133,7 @@ func DevBearer(next http.Handler) http.Handler {
 		raw := extractBearer(r)
 		if raw == "" {
 			emitAuthAudit(r.Context(), r, audit.Event{
+				EventID: uuid.Nil,
 				Verb:    string(audit.VerbAuthLoginFailed),
 				Actor:   audit.Actor{Type: audit.ActorToken},
 				Entity:  audit.Entity{Type: "auth", Name: "dev_missing_authorization"},
@@ -141,6 +145,7 @@ func DevBearer(next http.Handler) http.Handler {
 		userID, err := uuid.Parse(raw)
 		if err != nil {
 			emitAuthAudit(r.Context(), r, audit.Event{
+				EventID: uuid.Nil,
 				Verb:    string(audit.VerbAuthTokenRejected),
 				Actor:   audit.Actor{Type: audit.ActorToken},
 				Entity:  audit.Entity{Type: "auth", Name: "dev_bearer_not_uuid"},
@@ -151,6 +156,7 @@ func DevBearer(next http.Handler) http.Handler {
 		}
 		ctx := withAuthenticatedUser(r.Context(), userID)
 		emitAuthAudit(ctx, r, audit.Event{
+			EventID: uuid.Nil,
 			Verb:    string(audit.VerbAuthTokenUsed),
 			Actor:   audit.Actor{Type: audit.ActorUser, ID: userID, APITokenLabel: "dev"},
 			Entity:  audit.Entity{Type: "auth", ID: userID, Name: "dev_bearer_accepted"},

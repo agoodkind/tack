@@ -20,11 +20,11 @@ must be testable against this list.
 
 ### 1.1 Single node deployable today
 
-The first deployment of this design runs on CT 117 inside the existing
-docker-compose stack. No new host. No external SaaS dependency. No SLA-bound
-managed service. The operator brings up the architecture by editing
-`docker-compose.yml` and `cmd/server/main.go`, runs `make deploy`, and
-production audit traffic flows through the new path.
+The first deployment of this design runs inside the existing docker-compose
+stack. No new host. No external SaaS dependency. No SLA-bound managed service.
+The operator brings up the architecture by editing `docker-compose.yml` and
+`cmd/server/main.go` and deploying through the standard path (see the deployment
+contract in `AGENTS.md`); audit traffic then flows through the new path.
 
 ### 1.2 No architectural rewrite required to add nodes 2 through N
 

@@ -70,6 +70,7 @@ func runServer(ctx context.Context, cfg *config.Config) error {
 		Users:         userRepo,
 		Searcher:      searcher,
 		AuditReader:   auditRuntimeDeps.Reader,
+		AuditQuerier:  auditRuntimeDeps.Querier,
 		AuditRedactor: auditRuntimeDeps.Redactor,
 	})
 

@@ -27,7 +27,8 @@ func runBackupMeilisearch(ctx context.Context, b *backupCtx) error {
 			b.Cfg.BackupMeiliVolume + ":/src:ro",
 			b.DestDir + ":/dst",
 		},
-		Name: "",
+		ExtraHosts: nil,
+		Name:       "",
 	})
 	if err != nil {
 		b.Log.ErrorContext(ctx, "backup.meilisearch.tar_failed",

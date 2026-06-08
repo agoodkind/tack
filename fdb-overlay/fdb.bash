@@ -62,6 +62,17 @@ function create_server_environment() {
 create_server_environment
 source /var/fdb/.fdbenv
 
+# Clients (app, fdb-backup-agent, tack-ops) read /etc/foundationdb/fdb.cluster.
+# Pin that file to the Docker DNS name so it survives an fdb container IP change
+# on a network recreate (TACK-49). The server keeps its own FDB_CLUSTER_FILE
+# (/var/fdb/fdb.cluster) with the literal address; copy that file's
+# description:id prefix so both files always agree on cluster identity.
+server_cluster_file=${FDB_CLUSTER_FILE:-/var/fdb/fdb.cluster}
+client_cluster_file=/etc/foundationdb/fdb.cluster
+if [[ -f "$server_cluster_file" && -d "$(dirname "$client_cluster_file")" ]]; then
+    echo "$(cut -d@ -f1 "$server_cluster_file")@fdb:$FDB_PORT" > "$client_cluster_file"
+fi
+
 # Listen address: IPv6 catch-all when public_ip is v6, else v4 catch-all.
 if [[ "$PUBLIC_IP" == *:* ]]; then
     LISTEN_ADDR="[::]:$FDB_PORT"

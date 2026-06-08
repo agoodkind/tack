@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"expvar"
 	"log/slog"
 	"strconv"
@@ -110,35 +109,6 @@ func TestKafkaRecorderProduceErrorEmitsMetricAndLog(t *testing.T) {
 	}
 	if !containsLogEvent(buf, "kafka.produce.failed") {
 		t.Fatalf("expected kafka.produce.failed log; got: %s", buf.String())
-	}
-}
-
-func TestDualRecorderDivergenceLog(t *testing.T) {
-	buf := captureSlog(t)
-
-	primary := NewMemoryRecorder()
-	secondary := &failingRecorder{Sentinel: errors.New("secondary down")}
-	dual, err := NewDualRecorder(primary, secondary)
-	if err != nil {
-		t.Fatalf("NewDualRecorder: %v", err)
-	}
-
-	primaryOKBefore := readExpvarMapInt(t, "tack_audit_dual_write_total", "primary:ok")
-	secondaryErrBefore := readExpvarMapInt(t, "tack_audit_dual_write_total", "secondary:error")
-
-	err = dual.Record(context.Background(), sampleEvent(t))
-	if err == nil {
-		t.Fatal("Record: expected error when secondary fails, got nil")
-	}
-
-	if got := readExpvarMapInt(t, "tack_audit_dual_write_total", "primary:ok"); got <= primaryOKBefore {
-		t.Fatalf("audit_dual_write_total{primary:ok}: got %d, want > %d", got, primaryOKBefore)
-	}
-	if got := readExpvarMapInt(t, "tack_audit_dual_write_total", "secondary:error"); got <= secondaryErrBefore {
-		t.Fatalf("audit_dual_write_total{secondary:error}: got %d, want > %d", got, secondaryErrBefore)
-	}
-	if !containsLogEvent(buf, "dual.write.divergence") {
-		t.Fatalf("expected dual.write.divergence log; got: %s", buf.String())
 	}
 }
 

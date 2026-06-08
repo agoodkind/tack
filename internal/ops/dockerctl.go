@@ -117,6 +117,43 @@ type execResult struct {
 	ExitCode int
 }
 
+// ensureImage guarantees the named image is present on the target daemon
+// before a one-shot container is created from it. runOneShot calls
+// cli.ContainerCreate directly, which does not pull on a cache miss, so a
+// helper image absent from the host (alpine on a fresh QA host, or anything
+// after image GC) would fail create with "No such image". A successful
+// ImageInspect means the image is already local and no pull is needed; any
+// inspect error is treated as not-present, which is safe because a successful
+// anonymous pull then makes create work. alpine and foundationdb are public,
+// so ImagePull runs without RegistryAuth.
+func ensureImage(ctx context.Context, cli *client.Client, log *slog.Logger, image string) error {
+	_, err := cli.ImageInspect(ctx, image)
+	if err == nil {
+		return nil
+	}
+	body, pullErr := cli.ImagePull(ctx, image, client.ImagePullOptions{})
+	if pullErr != nil {
+		log.ErrorContext(ctx, "ops.docker.run_once.pull_failed",
+			slog.String("image", image),
+			slog.String("err", pullErr.Error()),
+		)
+		return fmt.Errorf("pull one-shot image %q: %w", image, pullErr)
+	}
+	drainErr := drainProgressStream(ctx, log, body, "ops.docker.run_once.pull")
+	_ = body.Close()
+	if drainErr != nil {
+		log.ErrorContext(ctx, "ops.docker.run_once.pull_stream_failed",
+			slog.String("image", image),
+			slog.String("err", drainErr.Error()),
+		)
+		return fmt.Errorf("drain pull stream for one-shot image %q: %w", image, drainErr)
+	}
+	log.InfoContext(ctx, "ops.docker.run_once.image_pulled",
+		slog.String("image", image),
+	)
+	return nil
+}
+
 // runOneShotOptions configures a single-use docker container created, run to
 // completion, captured, and removed. Equivalent to `docker run --rm` but
 // without shelling out to the docker CLI.
@@ -127,6 +164,7 @@ type runOneShotOptions struct {
 	Cmd        []string
 	Env        []string // KEY=VAL form
 	Binds      []string // host:container[:ro]
+	ExtraHosts []string // optional /etc/hosts entries, "hostname:ip" form
 	Name       string   // optional explicit container name
 }
 
@@ -141,6 +179,14 @@ func runOneShot(
 	log *slog.Logger,
 	opts runOneShotOptions,
 ) (execResult, error) {
+	err := ensureImage(ctx, cli, log, opts.Image)
+	if err != nil {
+		log.ErrorContext(ctx, "ops.docker.run_once.ensure_image_failed",
+			slog.String("image", opts.Image),
+			slog.String("err", err.Error()),
+		)
+		return execResult{}, fmt.Errorf("ensure one-shot image %q: %w", opts.Image, err)
+	}
 	cfg := &container.Config{
 		Image:        opts.Image,
 		Entrypoint:   opts.Entrypoint,
@@ -150,7 +196,8 @@ func runOneShot(
 		AttachStderr: true,
 	}
 	hostCfg := &container.HostConfig{
-		Binds: opts.Binds,
+		Binds:      opts.Binds,
+		ExtraHosts: opts.ExtraHosts,
 	}
 	created, err := cli.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Config:           cfg,

@@ -36,9 +36,13 @@ func NewReader(ctx context.Context, dsn string) (*Reader, error) {
 	if err != nil {
 		return nil, fmt.Errorf("audit reader pool open: %w", err)
 	}
+	// Connect lazily. On a fresh environment the audit_reader role may not exist
+	// yet (seed-roles runs after the app starts). A failed ping logs a deferred
+	// warning but still returns the reader, so the audit query/get MCP tools
+	// register at startup; the pool connects on first query once the role exists,
+	// removing the need to restart the app after seed-roles (TACK-319).
 	if err := pool.Ping(ctx); err != nil {
-		pool.Close()
-		return nil, fmt.Errorf("audit reader pool ping: %w", err)
+		slog.WarnContext(ctx, "audit.reader.ping_deferred", slog.String("err", err.Error()))
 	}
 	return &Reader{pool: pool}, nil
 }

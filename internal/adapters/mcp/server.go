@@ -44,6 +44,7 @@ type Handler struct {
 	users         user.Repository
 	searcher      domainsearch.Searcher
 	auditReader   *audit.Reader
+	auditQuerier  audit.RowQuerier
 	auditRedactor *audit.Redactor
 
 	mu    sync.RWMutex
@@ -62,6 +63,7 @@ type Deps struct {
 	Users         user.Repository
 	Searcher      domainsearch.Searcher
 	AuditReader   *audit.Reader
+	AuditQuerier  audit.RowQuerier
 	AuditRedactor *audit.Redactor
 }
 
@@ -77,6 +79,7 @@ func NewHandler(d Deps) *Handler {
 		users:         d.Users,
 		searcher:      d.Searcher,
 		auditReader:   d.AuditReader,
+		auditQuerier:  d.AuditQuerier,
 		auditRedactor: d.AuditRedactor,
 		cache:         make(map[uuid.UUID]*cachedServer),
 	}
@@ -178,7 +181,7 @@ func (h *Handler) buildServer(nodeTypes []*node.NodeType, propertyDefs []*node.P
 	tools.RegisterProperty(s, h.propertyDefs, resolver)
 	tools.RegisterSearch(s, h.searcher, resolver)
 	tools.RegisterRelationship(s, h.nodeSvc, h.relationships, resolver)
-	tools.RegisterAudit(s, h.auditReader, h.auditRedactor, resolver)
+	tools.RegisterAudit(s, h.auditReader, h.auditQuerier, h.auditRedactor, resolver)
 
 	binding := tools.NodeTypeBinding{
 		NodeSvc:      h.nodeSvc,

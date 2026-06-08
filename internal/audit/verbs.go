@@ -81,8 +81,7 @@ var stateChangeVerbs = map[Verb]bool{
 	VerbAuditPIIRedacted:   true,
 }
 
-func IsStateChange(v Verb) bool { return stateChangeVerbs[v] }
-func IsRead(v Verb) bool        { return !stateChangeVerbs[v] }
+func IsRead(v Verb) bool { return !stateChangeVerbs[v] }
 
 // staticToolVerb maps MCP tool names whose names are fixed at build time to
 // their verb. Per-NodeType tools (tack_create_<slug>, tack_list_<plural>,

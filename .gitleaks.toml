@@ -1,0 +1,10 @@
+# Gitleaks config for the tack repo. Extends the default ruleset and adds an
+# allowlist for vendored upstream files that carry public default constants.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Vendored upstream yugabyted launcher (PR #23158 overlay). The file is the verbatim bin/yugabyted from yugabyte/yugabyte-db, whose public default constants (for example DEFAULT_YSQL_PASSWORD) trip generic secret detectors. No real credentials live here."
+paths = [
+  '''yugabyte-overlay/yugabyted''',
+]

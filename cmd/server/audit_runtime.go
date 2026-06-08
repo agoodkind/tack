@@ -8,14 +8,15 @@ import (
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/auth"
 	"goodkind.io/tack/internal/config"
-	"goodkind.io/tack/internal/telemetry"
 )
 
 type auditRuntime struct {
-	Reader    *audit.Reader
-	Redactor  *audit.Redactor
-	Notarizer *audit.Notarizer
-	Recorder  audit.Recorder
+	Reader     *audit.Reader
+	ClickHouse *audit.ClickHouseReader
+	Querier    audit.RowQuerier
+	Redactor   *audit.Redactor
+	Notarizer  *audit.Notarizer
+	Recorder   audit.Recorder
 }
 
 func setupAuditRuntime(ctx context.Context, cfg *config.Config) auditRuntime {
@@ -29,17 +30,29 @@ func setupAuditRuntime(ctx context.Context, cfg *config.Config) auditRuntime {
 	if notarizer != nil {
 		notarizer.Start(ctx)
 	}
+
+	reader := buildAuditReader(ctx, cfg)
+	clickHouse := buildAuditClickHouseReader(ctx, cfg)
+	var querier audit.RowQuerier
+	if reader != nil {
+		querier = audit.NewQueryRouter(reader, clickHouse, cfg.AuditQueryRecentWindow)
+	}
 	return auditRuntime{
-		Reader:    buildAuditReader(ctx, cfg),
-		Redactor:  buildAuditRedactor(ctx, cfg),
-		Notarizer: notarizer,
-		Recorder:  auditRec,
+		Reader:     reader,
+		ClickHouse: clickHouse,
+		Querier:    querier,
+		Redactor:   buildAuditRedactor(ctx, cfg),
+		Notarizer:  notarizer,
+		Recorder:   auditRec,
 	}
 }
 
 func (r auditRuntime) Close() {
 	if r.Reader != nil {
 		r.Reader.Close()
+	}
+	if r.ClickHouse != nil {
+		r.ClickHouse.Close()
 	}
 	if r.Redactor != nil {
 		r.Redactor.Close()
@@ -55,14 +68,35 @@ func (r auditRuntime) Close() {
 	}
 }
 
-// buildAuditRecorder returns the recorder selected by config: a Yugabyte
-// writer (optionally wrapped in a WAL recorder, then a Kafka dual recorder)
-// when AUDIT_WRITER_DSN is set, else a NoopRecorder. Setup failures degrade to
-// noop rather than blocking the server; production deploys must set the DSN.
+// buildAuditRecorder selects the audit Recorder by configuration. When
+// AUDIT_KAFKA_BROKERS is set it returns the Kafka producer, so Record publishes
+// to Kafka and the audit-consumer becomes the only writer of audit.events.
+// Otherwise, when AUDIT_WRITER_DSN is set, it returns the synchronous Yugabyte
+// recorder. With neither configured it returns a NoopRecorder. A setup failure
+// degrades to noop rather than blocking the server: audit is layered defense,
+// not the primary path. Production deploys MUST set one of the two.
 func buildAuditRecorder(ctx context.Context, cfg *config.Config) audit.Recorder {
+	brokers := audit.SplitBrokers(cfg.AuditKafkaBrokers)
+	if len(brokers) > 0 {
+		kafkaRec, err := audit.NewKafkaRecorder(audit.KafkaConfig{
+			Brokers:        brokers,
+			Topic:          cfg.AuditKafkaTopic,
+			ClientID:       cfg.AuditKafkaClientID,
+			ProduceTimeout: cfg.AuditKafkaProduceTimeout,
+		})
+		if err != nil {
+			slog.ErrorContext(ctx, "audit.kafka_setup_failed", slog.String("err", err.Error()))
+			return audit.NoopRecorder{}
+		}
+		slog.InfoContext(ctx, "audit.kafka_enabled",
+			slog.Int("broker_count", len(brokers)),
+			slog.String("topic", cfg.AuditKafkaTopic),
+		)
+		return kafkaRec
+	}
 	if cfg.AuditWriterDSN == "" {
 		slog.WarnContext(ctx, "audit.writer_disabled",
-			slog.String("reason", "AUDIT_WRITER_DSN unset; ledger writes are noop"),
+			slog.String("reason", "AUDIT_KAFKA_BROKERS and AUDIT_WRITER_DSN unset; ledger writes are noop"),
 		)
 		return audit.NoopRecorder{}
 	}
@@ -72,74 +106,25 @@ func buildAuditRecorder(ctx context.Context, cfg *config.Config) audit.Recorder 
 		return audit.NoopRecorder{}
 	}
 	slog.InfoContext(ctx, "audit.writer_connected")
-	walRec := buildAuditWALRecorder(ctx, cfg, yb)
-	return wrapAuditWithKafka(ctx, cfg, walRec)
+	return yb
 }
 
-// buildAuditWALRecorder wraps the inner Yugabyte recorder in a WALRecorder when
-// a WAL directory is configured. Falls through to the inner recorder on setup
-// failure so audit recording is never gated on WAL availability.
-func buildAuditWALRecorder(ctx context.Context, cfg *config.Config, inner audit.Recorder) audit.Recorder {
-	if cfg.AuditWALDir == "" {
-		return inner
-	}
-	wal, err := audit.NewWALRecorder(ctx, inner, audit.WALConfig{
-		Dir:                cfg.AuditWALDir,
-		MaxBytesPerSegment: 0,
-		DrainInterval:      0,
-		MaxLag:             0,
-		MaxBacklogSegments: cfg.AuditWALMaxBacklogSegments,
-		MaxBacklogAge:      cfg.AuditWALMaxBacklogAge,
-		IdleRotateAfter:    cfg.AuditWALIdleRotateAfter,
-	})
-	if err != nil {
-		slog.ErrorContext(ctx, "audit.wal_setup_failed",
-			slog.String("dir", cfg.AuditWALDir),
-			slog.String("err", err.Error()),
+// buildAuditClickHouseReader opens the ClickHouse read connection when
+// AUDIT_CLICKHOUSE_DSN is set. nil means tack_audit_query reads Yugabyte only.
+func buildAuditClickHouseReader(ctx context.Context, cfg *config.Config) *audit.ClickHouseReader {
+	if cfg.AuditClickHouseDSN == "" {
+		slog.InfoContext(ctx, "audit.clickhouse_reader_disabled",
+			slog.String("reason", "AUDIT_CLICKHOUSE_DSN unset; audit queries read Yugabyte only"),
 		)
-		return inner
+		return nil
 	}
-	stats := wal.Stats()
-	telemetry.RegisterWALMetrics(telemetry.WALStatsSource{
-		UnflushedSegments:      stats.UnflushedSegments,
-		OldestUnflushedAgeSecs: stats.OldestUnflushedAgeSecs,
-		LastDrainSuccessUnix:   stats.LastDrainSuccessUnix,
-		IdleRotationsTotal:     stats.IdleRotationsTotal,
-		WriteErrorsTotal:       stats.WriteErrorsTotal,
-		DiskFreeBytes:          stats.DiskFreeBytes,
-	})
-	slog.InfoContext(ctx, "audit.wal_enabled", slog.String("dir", cfg.AuditWALDir))
-	return wal
-}
-
-// wrapAuditWithKafka builds the dual recorder when Kafka brokers are
-// configured, otherwise returns the WAL recorder unchanged.
-func wrapAuditWithKafka(ctx context.Context, cfg *config.Config, walRec audit.Recorder) audit.Recorder {
-	brokers := audit.SplitBrokers(cfg.AuditKafkaBrokers)
-	if len(brokers) == 0 {
-		return walRec
-	}
-	kafkaRec, err := audit.NewKafkaRecorder(audit.KafkaConfig{
-		Brokers:        brokers,
-		Topic:          cfg.AuditKafkaTopic,
-		ClientID:       cfg.AuditKafkaClientID,
-		ProduceTimeout: cfg.AuditKafkaProduceTimeout,
-	})
+	rd, err := audit.NewClickHouseReader(ctx, cfg.AuditClickHouseDSN)
 	if err != nil {
-		slog.ErrorContext(ctx, "audit.kafka_setup_failed", slog.String("err", err.Error()))
-		return walRec
+		slog.ErrorContext(ctx, "audit.clickhouse_reader_setup_failed", slog.String("err", err.Error()))
+		return nil
 	}
-	dual, err := audit.NewDualRecorder(kafkaRec, walRec)
-	if err != nil {
-		slog.ErrorContext(ctx, "audit.dual_setup_failed", slog.String("err", err.Error()))
-		_ = kafkaRec.CloseContext(ctx)
-		return walRec
-	}
-	slog.InfoContext(ctx, "audit.kafka_enabled",
-		slog.Int("broker_count", len(brokers)),
-		slog.String("topic", cfg.AuditKafkaTopic),
-	)
-	return dual
+	slog.InfoContext(ctx, "audit.clickhouse_reader_connected")
+	return rd
 }
 
 // buildAuditReader opens the audit_reader pool when AUDIT_READER_DSN is set.

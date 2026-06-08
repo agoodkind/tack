@@ -162,14 +162,15 @@ host-maintenance-install:
 	rsync -az scripts/host-maintenance.sh tack:/root/tack/scripts/host-maintenance.sh
 	ssh tack 'chmod +x /root/tack/scripts/host-maintenance.sh && /root/tack/scripts/host-maintenance.sh install-timer'
 
-# Create the three LOGIN-capable audit derived roles (audit_writer_app,
-# audit_reader_app, audit_redactor_app) and rotate their passwords from
-# /root/tack/.env. Idempotent. Run once after migrate, or any time the
+# Create or rotate the three LOGIN audit roles (tack_audit_writer,
+# tack_audit_reader, tack_audit_redactor), the names the app DSNs authenticate
+# as, each granting its base role from migration 002. Idempotent. Runs the Go
+# ops command inside the tack-ops container, which reads the audit passwords and
+# DATABASE_URL from the rendered .env. Run once after migrate, or any time the
 # audit role passwords need rotating.
 .PHONY: seed-audit-roles
 seed-audit-roles:
-	rsync -az scripts/seed-audit-roles.sh tack:/root/tack/scripts/seed-audit-roles.sh
-	ssh tack 'bash /root/tack/scripts/seed-audit-roles.sh'
+	ssh tack 'cd /root/tack && docker compose run --rm tack-ops /server ops audit seed-roles'
 
 # Build the Wave 1 audit-consumer binary into dist/audit-consumer.
 .PHONY: audit-consumer
@@ -205,14 +206,3 @@ ifndef TS
 	$(error TS is required: make backup-verify TS=20260509T232955Z)
 endif
 	ssh tack 'cd /root/tack && docker compose run --rm tack-ops ops backup verify /root/backups/tack-$(TS)'
-
-# Restore-test verification of a specific backup on CT 117. Spins up
-# scratch containers per artifact and exercises the real restore path.
-# Layered on top of backup-verify; do not run this before verify passes.
-# TS is required: make backup-restore-test TS=20260509T232955Z
-.PHONY: backup-restore-test
-backup-restore-test:
-ifndef TS
-	$(error TS is required: make backup-restore-test TS=20260509T232955Z)
-endif
-	ssh tack 'cd /root/tack && docker compose run --rm tack-ops ops backup restore-test /root/backups/tack-$(TS)'

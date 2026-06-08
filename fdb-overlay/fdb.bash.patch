@@ -1,0 +1,113 @@
+--- fdb-overlay/fdb.bash.upstream	2026-06-07 11:08:32
++++ fdb-overlay/fdb.bash	2026-06-07 10:53:36
+@@ -1,24 +1,16 @@
+ #!/bin/bash
++# IPv6-aware patch of foundationdb/foundationdb:7.4.6 /var/fdb/scripts/fdb.bash.
++# Fixes: (1) bracket IPv6 addresses in the connection string, (2) listen on
++# [::] when running v6, not 0.0.0.0.
+ 
+-#
+-# fdb.bash
+-#
+-# This source file is part of the FoundationDB open source project
+-#
+-# Copyright 2013-2024 Apple Inc. and the FoundationDB project authors
+-#
+-# Licensed under the Apache License, Version 2.0 (the "License");
+-# you may not use this file except in compliance with the License.
+-# You may obtain a copy of the License at
+-#
+-#     http://www.apache.org/licenses/LICENSE-2.0
+-#
+-# Unless required by applicable law or agreed to in writing, software
+-# distributed under the License is distributed on an "AS IS" BASIS,
+-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+-# See the License for the specific language governing permissions and
+-# limitations under the License.
+-#
++function bracketed() {
++    local ip="$1"
++    if [[ "$ip" == *:* ]]; then
++        echo "[$ip]"
++    else
++        echo "$ip"
++    fi
++}
+ 
+ function create_cluster_file() {
+     FDB_CLUSTER_FILE=${FDB_CLUSTER_FILE:-/etc/foundationdb/fdb.cluster}
+@@ -26,14 +18,17 @@
+ 
+     if [[ -n "$FDB_CLUSTER_FILE_CONTENTS" ]]; then
+         echo "$FDB_CLUSTER_FILE_CONTENTS" > "$FDB_CLUSTER_FILE"
+-    elif [[ -n $FDB_COORDINATOR ]]; then
+-        coordinator_ip=$(dig +short "$FDB_COORDINATOR")
++    elif [[ -n "$FDB_COORDINATOR" ]]; then
++        coordinator_ip=$(dig +short "$FDB_COORDINATOR" AAAA)
+         if [[ -z "$coordinator_ip" ]]; then
++            coordinator_ip=$(dig +short "$FDB_COORDINATOR" A)
++        fi
++        if [[ -z "$coordinator_ip" ]]; then
+             echo "Failed to look up coordinator address for $FDB_COORDINATOR" 1>&2
+             exit 1
+         fi
+         coordinator_port=${FDB_COORDINATOR_PORT:-4500}
+-        echo "docker:docker@$coordinator_ip:$coordinator_port" > "$FDB_CLUSTER_FILE"
++        echo "docker:docker@$(bracketed "$coordinator_ip"):$coordinator_port" > "$FDB_CLUSTER_FILE"
+     else
+         echo "FDB_COORDINATOR environment variable not defined" 1>&2
+         exit 1
+@@ -46,15 +41,19 @@
+     if [[ "$FDB_NETWORKING_MODE" == "host" ]]; then
+         public_ip=127.0.0.1
+     elif [[ "$FDB_NETWORKING_MODE" == "container" ]]; then
+-        public_ip=$(hostname -i | awk '{print $1}')
++        # Prefer global IPv6 if present, otherwise fall back to IPv4.
++        public_ip=$(hostname -I | tr " " "\n" | awk "/^[0-9a-fA-F:]+:/ && !/^fe80/ && !/^::1/ {print; exit}")
++        if [[ -z "$public_ip" ]]; then
++            public_ip=$(hostname -i | awk "{print \$1}")
++        fi
+     else
+         echo "Unknown FDB Networking mode \"$FDB_NETWORKING_MODE\"" 1>&2
+         exit 1
+     fi
+ 
+     echo "export PUBLIC_IP=$public_ip" > $env_file
+-    if [[ -z $FDB_COORDINATOR && -z "$FDB_CLUSTER_FILE_CONTENTS" ]]; then
+-        FDB_CLUSTER_FILE_CONTENTS="docker:docker@$public_ip:$FDB_PORT"
++    if [[ -z "$FDB_COORDINATOR" && -z "$FDB_CLUSTER_FILE_CONTENTS" ]]; then
++        FDB_CLUSTER_FILE_CONTENTS="docker:docker@$(bracketed "$public_ip"):$FDB_PORT"
+     fi
+ 
+     create_cluster_file
+@@ -62,7 +61,28 @@
+ 
+ create_server_environment
+ source /var/fdb/.fdbenv
+-echo "Starting FDB server on $PUBLIC_IP:$FDB_PORT"
+-fdbserver --listen-address 0.0.0.0:"$FDB_PORT" --public-address "$PUBLIC_IP:$FDB_PORT" \
++
++# Clients (app, fdb-backup-agent, tack-ops) read /etc/foundationdb/fdb.cluster.
++# Pin that file to the Docker DNS name so it survives an fdb container IP change
++# on a network recreate (TACK-49). The server keeps its own FDB_CLUSTER_FILE
++# (/var/fdb/fdb.cluster) with the literal address; copy that file's
++# description:id prefix so both files always agree on cluster identity.
++server_cluster_file=${FDB_CLUSTER_FILE:-/var/fdb/fdb.cluster}
++client_cluster_file=/etc/foundationdb/fdb.cluster
++if [[ -f "$server_cluster_file" && -d "$(dirname "$client_cluster_file")" ]]; then
++    echo "$(cut -d@ -f1 "$server_cluster_file")@fdb:$FDB_PORT" > "$client_cluster_file"
++fi
++
++# Listen address: IPv6 catch-all when public_ip is v6, else v4 catch-all.
++if [[ "$PUBLIC_IP" == *:* ]]; then
++    LISTEN_ADDR="[::]:$FDB_PORT"
++    PUBLIC_ADDR="[$PUBLIC_IP]:$FDB_PORT"
++else
++    LISTEN_ADDR="0.0.0.0:$FDB_PORT"
++    PUBLIC_ADDR="$PUBLIC_IP:$FDB_PORT"
++fi
++
++echo "Starting FDB server on $PUBLIC_ADDR (listen $LISTEN_ADDR)"
++fdbserver --listen-address "$LISTEN_ADDR" --public-address "$PUBLIC_ADDR" \
+     --datadir /var/fdb/data --logdir /var/fdb/logs \
+     --locality-zoneid="$(hostname)" --locality-machineid="$(hostname)" --class "$FDB_PROCESS_CLASS" --knob_disable_posix_kernel_aio=1

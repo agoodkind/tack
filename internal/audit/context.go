@@ -6,6 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/clock"
 )
 
 type (
@@ -93,10 +94,20 @@ func IsSuppressed(ctx context.Context) bool {
 // suppression marker on their context.
 type SuppressingRecorder struct{ Inner Recorder }
 
-// Record skips writes when ctx has the suppression marker.
+// Record skips writes when ctx has the suppression marker. It also assigns
+// the canonical EventID and OccurredAt when unset, because the producer owns
+// both. The Kafka producer keys the partition by the shard derived from
+// EventID, and the chain hashes over OccurredAt, so both must be fixed before
+// any backend marshals or shards the event.
 func (s SuppressingRecorder) Record(ctx context.Context, ev Event) error {
 	if IsSuppressed(ctx) {
 		return nil
+	}
+	if ev.EventID == uuid.Nil {
+		ev.EventID = uuid.Must(uuid.NewV7())
+	}
+	if ev.OccurredAt.IsZero() {
+		ev.OccurredAt = clock.Now().UTC()
 	}
 	err := s.Inner.Record(ctx, ev)
 	if err != nil {
