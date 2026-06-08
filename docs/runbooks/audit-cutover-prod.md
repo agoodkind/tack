@@ -158,20 +158,49 @@ passwords from the rendered `.env`.
 
 The audit profile is additive: migration 003 only adds tables and indexes, and
 the canonical product path never touches kafka, clickhouse, or the
-audit-consumer. Roll back without data loss:
+audit-consumer. The two reversals below were exercised on QA on 2026-06-07; the
+observed behavior is noted, not assumed. Run all commands on the prod host from
+`/root/tack`.
 
-1. Stop the audit services: `docker compose stop audit-consumer kafka clickhouse`
-   (or re-render `.env` with `COMPOSE_PROFILES` lacking `audit` and re-deploy).
-   The product path keeps serving; with `AUDIT_KAFKA_BROKERS` unreachable the app
-   degrades to its prior recorder or noop, never blocking requests.
-2. If the app image itself is the problem, re-deploy the prior image tag (the SHA
-   running before this cutover) the same way as step 1 of the cutover.
-3. Leave migration 003 in place. Its tables are additive and inert when the audit
-   profile is off; rolling the schema back is unnecessary and would risk the auth
-   tables in the same database.
-4. Preserve `audit.chain_heads`. Never drop it; the chain resumes from its last
-   head when the audit profile is re-enabled.
+**Tested fact (QA 2026-06-07):** with `kafka` stopped, a real product write
+(`tack_create_project`) still committed and the tool returned `ok`
+(`mcp.tool.completed`); the product path does not block on the audit producer.
+The audit event for writes during the window is **dropped, not queued** (the
+synchronous producer fails; the app logs `kafka.produce.failed` and
+`audit.record_failed`), so a Kafka-down window is a deliberate audit gap.
 
-If a rollback is ever performed, record the exact commands used and the observed
-outcome here, so this section reflects a real reversal and not only the planned
-one. A successful cutover never triggers this; it is the break-glass path.
+### Reversal A: audit pipeline misbehaving, product path healthy (fast)
+
+Stops audit ingestion immediately; product keeps serving.
+
+```
+docker compose stop audit-consumer kafka clickhouse
+```
+
+Accept that audit events during the stop window are not recorded. Use when the
+audit pipeline is actively harmful and a short audit gap is tolerable.
+
+### Reversal B: revert the cutover cleanly (no audit loss)
+
+Return the app to the pre-cutover synchronous Yugabyte recorder by clearing the
+Kafka producer, then redeploy. With `AUDIT_KAFKA_BROKERS` empty and
+`AUDIT_WRITER_DSN` set, the app records audit synchronously to Yugabyte (its
+pre-cutover behavior) and stops attempting Kafka produces.
+
+1. In the configs repo, render the prod `.env` with `COMPOSE_PROFILES` lacking
+   `audit` and `AUDIT_KAFKA_BROKERS` empty (revert the `tack.env.j2` audit block),
+   and choose the pre-cutover image SHA for `tack_image_tag`.
+2. Re-run the same `deploy deploy-tack --limit tack_servers` command as the
+   cutover step 1 with that SHA. This recreates `app` on the prior image with the
+   audit producer disabled and leaves kafka/clickhouse/audit-consumer stopped.
+
+### Always
+
+- Leave migration 003 in place. Its tables are additive and inert when the audit
+  profile is off; rolling the schema back is unnecessary and would risk the auth
+  tables in the same database.
+- Preserve `audit.chain_heads`. Never drop it; the chain resumes from its last
+  head when the audit profile is re-enabled.
+
+After any real prod rollback, append the exact commands used and the observed
+outcome here.
