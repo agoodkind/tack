@@ -51,11 +51,14 @@ func (r *QueryRouter) Query(ctx context.Context, f QueryFilter) ([]Row, error) {
 	if r.ch != nil && !f.Oldest.Before(cutoff) {
 		telemetry.L(ctx).Debug("audit.query.route", slog.String("tier", "clickhouse"))
 		rows, err := r.ch.Query(ctx, f)
-		if err != nil {
-			slog.ErrorContext(ctx, "audit.query.route_failed", slog.String("tier", "clickhouse"), slog.String("err", err.Error()))
-			return nil, fmt.Errorf("audit query route clickhouse: %w", err)
+		if err == nil {
+			return rows, nil
 		}
-		return rows, nil
+		// ClickHouse is best effort. On any read error fall back to the canonical
+		// Yugabyte store so a recent-window query is never silently incomplete
+		// during a ClickHouse outage; the OLAP tier reconverges via the backfill
+		// job (TACK-316).
+		slog.WarnContext(ctx, "audit.query.clickhouse_fallback_yugabyte", slog.String("err", err.Error()))
 	}
 	telemetry.L(ctx).Debug("audit.query.route", slog.String("tier", "yugabyte"))
 	rows, err := r.yb.Query(ctx, f)

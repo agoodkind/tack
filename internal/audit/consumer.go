@@ -518,13 +518,10 @@ func (c *Consumer) writeClickHouseBatch(ctx context.Context, projected []project
 	if c.ch == nil || len(projected) == 0 {
 		return
 	}
-	cerr := c.writeClickHouse(ctx, projected)
-	if cerr != nil {
-		slog.ErrorContext(ctx, "audit.consumer.clickhouse_write_failed",
-			slog.String("err", cerr.Error()),
-			slog.Int("count", len(projected)),
-		)
-	}
+	// Best effort: writeClickHouse logs its own failure at WARN, and the
+	// canonical Yugabyte write already committed, so a ClickHouse error never
+	// blocks chain advancement (TACK-317).
+	_ = c.writeClickHouse(ctx, projected)
 }
 
 var (
@@ -798,10 +795,14 @@ func ensureClickHouseSchema(ctx context.Context, conn chdriver.Conn) error {
 // writeClickHouse projects a batch into ClickHouse. The OLAP write is best
 // effort. The canonical store is Yugabyte audit.events.
 func (c *Consumer) writeClickHouse(ctx context.Context, batch []projectedEvent) error {
+	// Best-effort projection. Failures log at WARN (not ERROR) so a sustained
+	// ClickHouse outage does not flood the error stream or mask real errors; the
+	// canonical Yugabyte write already committed and the OLAP tier reconverges
+	// via the backfill job (TACK-317, TACK-316).
 	bw, err := c.ch.PrepareBatch(ctx, `INSERT INTO audit.events_olap`)
 	if err != nil {
-		slog.ErrorContext(ctx, "audit.consumer.clickhouse_prepare_failed", slog.String("err", err.Error()))
-		return fmt.Errorf("prepare: %w", err)
+		slog.WarnContext(ctx, "audit.consumer.clickhouse_prepare_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("clickhouse prepare: %w", err)
 	}
 	defer bw.Close()
 	for _, p := range batch {
@@ -812,13 +813,13 @@ func (c *Consumer) writeClickHouse(ctx context.Context, batch []projectedEvent) 
 			hex.EncodeToString(p.PrevHash), hex.EncodeToString(p.RowHash), p.IdemKey,
 		)
 		if err != nil {
-			slog.ErrorContext(ctx, "audit.consumer.clickhouse_append_failed", slog.String("err", err.Error()))
-			return fmt.Errorf("append: %w", err)
+			slog.WarnContext(ctx, "audit.consumer.clickhouse_append_failed", slog.String("err", err.Error()))
+			return fmt.Errorf("clickhouse append: %w", err)
 		}
 	}
 	if err := bw.Send(); err != nil {
-		slog.ErrorContext(ctx, "audit.consumer.clickhouse_send_failed", slog.String("err", err.Error()))
-		return fmt.Errorf("send: %w", err)
+		slog.WarnContext(ctx, "audit.consumer.clickhouse_send_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("clickhouse send: %w", err)
 	}
 	return nil
 }

@@ -37,9 +37,11 @@ func NewRedactor(ctx context.Context, dsn string) (*Redactor, error) {
 	if err != nil {
 		return nil, fmt.Errorf("audit redactor pool open: %w", err)
 	}
+	// Connect lazily, same reasoning as NewReader: register the redaction MCP
+	// tool at startup even when the audit_redactor role does not exist yet, and
+	// connect on first use once seed-roles has run (TACK-319).
 	if err := pool.Ping(ctx); err != nil {
-		pool.Close()
-		return nil, fmt.Errorf("audit redactor pool ping: %w", err)
+		slog.WarnContext(ctx, "audit.redactor.ping_deferred", slog.String("err", err.Error()))
 	}
 	return &Redactor{pool: pool}, nil
 }
