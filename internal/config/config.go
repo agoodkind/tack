@@ -219,6 +219,13 @@ type Config struct {
 	DeployDockerContext     string `env:"TACK_DEPLOY_DOCKER_CONTEXT"      envDefault:"tack"`
 	DeployRemoteComposeFile string `env:"TACK_DEPLOY_REMOTE_COMPOSE_FILE" envDefault:"/root/tack/docker-compose.yml"`
 	DeployTimeoutSeconds    int    `env:"TACK_DEPLOY_TIMEOUT_SECONDS"     envDefault:"600"`
+
+	// Provision: `./server ops provision` reads these to reach the running fdb
+	// and app containers through the Docker socket (tack-ops is host-networked
+	// and cannot resolve the bridge DNS names). Defaults match the compose
+	// project name "tack" (<project>-<service>-1).
+	OpsFDBContainer string `env:"TACK_OPS_FDB_CONTAINER" envDefault:"tack-fdb-1"`
+	OpsAppContainer string `env:"TACK_OPS_APP_CONTAINER" envDefault:"tack-app-1"`
 }
 
 func Load() (*Config, error) {
