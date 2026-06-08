@@ -172,5 +172,6 @@ audit-consumer. Roll back without data loss:
 4. Preserve `audit.chain_heads`. Never drop it; the chain resumes from its last
    head when the audit profile is re-enabled.
 
-After the first prod run, append the exact commands used and the observed outcome
-here, so this section reflects a real reversal rather than only the planned one.
+If a rollback is ever performed, record the exact commands used and the observed
+outcome here, so this section reflects a real reversal and not only the planned
+one. A successful cutover never triggers this; it is the break-glass path.
