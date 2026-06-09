@@ -18,6 +18,9 @@ Locking access is only safe once ops are audited. TACK-328 blocks TACK-327.
 
 - One choke-point records every command. It lives in `internal/clispec`. Do not
   weaken it, bypass it, or let a mutating command skip it.
+- A mutation records its intent before it changes anything. The intent record is
+  fail-closed: if the ledger cannot accept it, nothing mutates. So no mutation is
+  ever unrecorded. This is the day-0 guarantee, not a later upgrade.
 - Identity is pluggable via `audit.OperatorIdentitySource`. Never inline an
   identity lookup. Add a source type; select it at one site.
 - Identity is never an env var and never a `config.Config` field.
@@ -28,12 +31,14 @@ Locking access is only safe once ops are audited. TACK-328 blocks TACK-327.
 
 ## Decisions
 
-1. Identity now is the local git config, with `--operator-*` flags as the override
-   for containers. Later it is OIDC/SSO. Actor kind is a new `operator`.
+1. Identity comes from a pluggable source. The shipped sources are the local git
+   config and `--operator-*` flags. OIDC is another source the same seam takes.
+   Actor kind is a new `operator`.
 2. Global ops record on a reserved system org. Entity ops record on the target
    node's real org.
-3. Steady mutations are fail-closed. Bootstrap is exempt from ledger reachability
-   only, never from identity. Reads never block on a down ledger.
+3. A mutation records intent before it acts and outcome after. The intent record
+   is fail-closed. Reads record after, best-effort. Bootstrap is never exempt from
+   identity.
 4. Scope is all mutating ops plus read events for inspect/verify/validate.
 5. Every command declares a static `AuditSpec` and runs through one choke-point.
 
@@ -56,11 +61,9 @@ Each was read from the source named, not inferred.
 - `buildAuditRecorder` selects Kafka when `AUDIT_KAFKA_BROKERS` is set, else YB
   when `AUDIT_WRITER_DSN` is set, else `NoopRecorder`, whose `Record` returns nil
   (audit_runtime.go:78-110).
-- `KafkaRecorder` holds a `*kgo.Client` (franz-go) and connects lazily, so a down
-  broker is not seen until first produce (kafka_recorder.go:23-27, 49-51).
-- `(*kgo.Client).Ping(ctx) error` exists in franz-go v1.21.1 (go.mod:22) at
-  `pkg/kgo/client.go:626`; it sends a Metadata request and returns nil on first
-  success.
+- `KafkaRecorder.Record` produces synchronously with `acks=all` and returns the
+  broker error, never swallowing it (kafka_recorder.go:100-145). So a failed intent
+  produce is a hard error the choke-point acts on; no separate ping is needed.
 - `buildRoot` renders serve/migrate/seed/audit/ops through one `clispec` registry
   plus `RenderCobra` (commands.go:44-52). The only separate registry is the
   `ops.go` batch map, bridged in by `registerBatchOps` (cli.go:50-72).
@@ -99,15 +102,23 @@ Each was read from the source named, not inferred.
    nothing records.
 4. Build the recorder. For a mutation, require the Kafka recorder; reject Noop or
    YB, so a missing broker cannot look like a successful record.
-5. Preflight with `Ping`. A steady mutation aborts if it fails. Bootstrap and reads
-   proceed.
+5. For a mutation, record the intent event first (verb, operator, org, planned
+   entity, outcome pending). This produce is synchronous with `acks=all`. If it
+   returns an error, abort: nothing mutates. This is the fail-closed gate.
 6. Run the command.
-7. Record one event: actor kind operator, the verb, the org (real or system), the
-   entity and delta the command stamped, and the outcome.
+7. Record the outcome event (ok or error, with the delta). For a mutation this is
+   best-effort, because the intent is already durable; a failure here exits
+   non-zero and logs loud so the missing outcome is reconciled. A read records one
+   event here only, best-effort.
+
+Both events share an `op_id` so the intent and outcome correlate. A read skips
+step 5; it has no intent.
 
 ### Identity
 
-The actor is a kind plus id, name, email. Ops get a new kind `operator`.
+The actor is a kind plus id, name, email. Ops get a new kind `operator`. Identity
+is one interface with many sources. The seam is built for more sources than ship
+today, so adding OIDC is one new type at one site.
 
 - `internal/cli/operator_git.go` `GitConfigOperatorSource` reads `user.name` and
   `user.email` from the gitconfig file (`$HOME/.gitconfig`, honoring
@@ -119,16 +130,14 @@ The actor is a kind plus id, name, email. Ops get a new kind `operator`.
   given, else git config. Both implement `audit.OperatorIdentitySource`.
 - The deploy pipeline passes a deploy-bot operator and `--execute` for
   non-interactive provision, so bootstrap also has identity.
-- OIDC/SSO is the planned verified source. Its full contract is in
+- OIDC is a verified source the same seam takes. Its contract is in
   `docs/operator-identity-and-audit.md`.
 
-### Recorder, system org, preflight
+### Recorder and system org
 
 - Extract `buildAuditRecorder` into `audit.NewRecorderFromConfig(ctx, cfg)`;
   `cmd/server` calls it too.
 - Add a fixed non-nil `SystemOrgID` for global-op chains.
-- Add `ReachabilityChecker{ Ping(ctx) }`. Kafka delegates to `k.client.Ping`; YB
-  uses `r.pool.Ping`; Noop returns nil.
 
 ### Where events land
 
@@ -139,68 +148,62 @@ command runs.
 
 ### Failure handling
 
-| Class | Operator | Ledger down | Record fails |
+| Class | Operator | Ledger down at intent | Outcome record fails |
 | --- | --- | --- | --- |
-| Steady mutation (repair apply, reindex, backfill, seed-roles live, backup, deploy) | Required, abort if unresolved | Abort before mutating | Exit non-zero, loud Error |
-| Bootstrap (provision, first-boot migrate/seed/seed-roles) | Required, abort if unresolved | Proceed | Best-effort; provision records one terminal event |
-| Read (inspect, verify, validate, repair preview) | Required, abort if unresolved | Proceed | Best-effort |
+| Steady mutation (repair apply, reindex, backfill, seed-roles live, backup, deploy) | Required, abort if unresolved | Intent produce fails, so abort before mutating | Exit non-zero, loud Error; intent is already durable |
+| Bootstrap (provision, first-boot migrate/seed/seed-roles) | Required, abort if unresolved | Intent produce fails, so abort | Best-effort; provision records one terminal event |
+| Read (inspect, verify, validate, repair preview) | Required, abort if unresolved | No intent; proceed | Best-effort |
 
 Without `--execute` every row is a dry-run: identity still resolves and still
 fails loud if absent, nothing runs, nothing records.
 
-### The dual-write limit, and the upgrade path
+### Atomicity: the day-0 guarantee
 
-The guarantee is preflight, then mutate, then record. No transaction spans
-FoundationDB/Yugabyte and Kafka, and cross-database transactions are forbidden
-here, so a broker death in the small window after a passing ping leaves a mutation
-recorded only in `slog`. This is the dual-write problem
-([Confluent](https://www.confluent.io/blog/dual-write-problem/)).
+The hard property is that no mutation is ever unrecorded. The design meets it from
+day 0, not later. A mutation records its intent to Kafka first, synchronously with
+`acks=all`. If that produce fails, the op aborts and nothing mutates. So a mutation
+runs only after its intent is durable in the ledger pipeline.
 
-The durable fix is a transactional outbox
-([Confluent course](https://developer.confluent.io/courses/microservices/the-transactional-outbox-pattern/)).
-For FDB-mutating ops it is cheap, because FoundationDB versionstamps give an
-ordered outbox with no polling worker
-([FoundationDB queues](https://apple.github.io/foundationdb/queues.html),
-[versionstamps](https://fragno.dev/blog/versionstamps)):
+This is the safe side of the dual-write problem
+([Confluent](https://www.confluent.io/blog/dual-write-problem/)). The two writes
+(the mutation and the Kafka event) still cannot share one transaction, since no
+transaction spans FoundationDB, Yugabyte, and Kafka, and cross-database
+transactions are banned here. Intent-first chooses the safe failure: at worst the
+ledger holds an intent for a mutation that then crashed before completing, which is
+visible and reconciled. It never holds a silent unrecorded mutation. Over-record,
+never under-record.
 
-- FDB ops (repair apply, reindex, backfill): write the event into an FDB outbox
-  subspace via `SET_VERSIONSTAMPED_KEY` in the same transaction as the mutation. A
-  relay range-reads from a high-water mark and produces to Kafka. The existing
-  `(event_id, event_time)` unique index dedups, so at-least-once becomes
-  effectively-once. The consumer stays the single ledger writer.
-- SQL DDL ops (seed-roles): no clean transactional bind to the ledger; record
-  intent durably, then the outcome.
-- External-effect ops (deploy, backup, fdb configure): the side effect is Docker
-  or a registry, not a transactional store, so atomicity is impossible; intent
-  plus outcome is the ceiling.
-
-The research sharpened one point. The consumer-side projection is **already
-effectively-once**: one Kafka partition is consumed by one consumer, and the unique
-`(event_id, event_time)` index is the idempotent-consumer-with-unique-key dedup the
-literature describes
+The projection is already effectively-once, so intent-first is enough for the
+ledger to be correct: one Kafka partition is read by one consumer, and the unique
+`(event_id, event_time)` index dedups any redelivery, which is the idempotent
+consumer the literature describes
 ([Morling](https://www.morling.dev/blog/revisiting-the-outbox-pattern/),
 [lydtech](https://www.lydtechconsulting.com/blog/kafka-idempotent-consumer-transactional-outbox)).
-So the only unclosed gap is producer-side (mutation done, produce failed); an outbox
-closes that gap, not the projection. The versionstamp tail is also conflict-free:
-CloudKit chose a version index over an update-counter precisely because a counter
-created conflicts between otherwise non-conflicting transactions
-([Record Layer paper](https://www.foundationdb.org/files/record-layer-paper.pdf)), so
-a versionstamp outbox does not serialize concurrent ops the way a counter would. And
-the external-effect ceiling is firm: Kafka exactly-once does not extend to external
-side effects and cannot roll back a remote system
+
+External-effect ops cannot do better than this, and that is a firm limit, not a
+gap to close later. Kafka exactly-once does not extend to a Docker deploy or a
+registry push and cannot roll back a remote system
 ([Confluent EOS](https://www.confluent.io/blog/exactly-once-semantics-are-possible-heres-how-apache-kafka-does-it/)),
 and Kafka transactions alone do not make a store mutation and an emit atomic
 ([KIP-98](https://cwiki.apache.org/confluence/display/KAFKA/KIP-98+-+Exactly+Once+Delivery+and+Transactional+Messaging)).
+Intent-plus-outcome is the correct permanent answer for them.
 
-Decision for v1: keep preflight plus synchronous `acks=all`, which shrinks the
-window to a rare broker-death-mid-call. The FDB-versionstamp outbox is the named
-upgrade for FDB ops when the window must be fully closed. It is not built in v1.
+One optional optimization exists for FDB-mutating ops only: write the event into an
+FDB outbox subspace via `SET_VERSIONSTAMPED_KEY` in the same transaction as the
+node mutation, then relay it to Kafka. That makes the FDB write and the event one
+atomic FDB transaction, so the rare over-record disappears too. FoundationDB
+versionstamps make the relay a simple high-water-mark tail with no polling worker,
+and CloudKit chose a version index over a counter precisely because a counter
+serializes otherwise non-conflicting transactions
+([Record Layer paper](https://www.foundationdb.org/files/record-layer-paper.pdf),
+[FoundationDB queues](https://apple.github.io/foundationdb/queues.html)). This is an
+optimization on a design that is already correct and scalable, not a prerequisite,
+so it is out of scope here and noted for whoever wants to remove the over-record.
 
-Note on sources: a deep-research run (2026-06-09) collected these claims from the
-primary and authoritative sources cited above, but its adversarial verification
-stage was rate-limited and did not complete, so these are vouched on source
-authority and consistency, not an independent three-vote pass. Re-running the
-verification is a cheap follow-up.
+Source note: the dual-write claims above were collected by a deep-research run
+(2026-06-09) from the cited primary sources; its adversarial verification was
+rate-limited and did not complete, so they rest on source authority and
+consistency, and a re-run is cheap.
 
 ## Implementation
 
@@ -218,11 +221,15 @@ Build `make build`; unit `make test-unit`; integration `make test-integration`.
 - Create `internal/audit/ops.go`: `var SystemOrgID = uuid.MustParse("00000000-0000-0000-0000-0000000005ee")` and `type AuditSpec struct { Verb string; Mutates, BootstrapExempt, Reads bool }`.
 - Test `SystemOrgID != uuid.Nil` and the literal. Commit.
 
-### Task 3: ReachabilityChecker
+### Task 3: intent and outcome event shape
 
-- Add to `ops.go`: `type ReachabilityChecker interface { Ping(ctx context.Context) error }`.
-- `KafkaRecorder.Ping` returns `k.client.Ping(ctx)`. `YBRecorder.Ping` returns `r.pool.Ping(ctx)`. `NoopRecorder.Ping` returns nil.
-- Test `NoopRecorder` satisfies the interface and returns nil. Commit.
+- Add `OutcomePending Outcome = "pending"` to `recorder.go` for the intent event.
+- Add to `ops.go` a helper `OpID() string` (or carry the op_id in `Event.Extra`)
+  so the intent and outcome events of one command correlate.
+- No `Ping` or `ReachabilityChecker`: the synchronous `acks=all` produce of the
+  intent event is the fail-closed gate, so a separate reachability probe is
+  unnecessary.
+- Test the pending outcome serializes and the op_id round-trips. Commit.
 
 ### Task 4: NewRecorderFromConfig
 
@@ -254,9 +261,9 @@ Build `make build`; unit `make test-unit`; integration `make test-integration`.
 
 ### Task 9: the choke-point
 
-- Create `internal/clispec/audit.go` with `runAudited(ctx, spec, src, execute bool, newRecorder func() audit.Recorder, run func(ctx) error) error` implementing the seven steps above. Generic over the recorder constructor so a fake injects in tests.
+- Create `internal/clispec/audit.go` with `runAudited(ctx, spec, src, execute bool, newRecorder func() audit.Recorder, run func(ctx) error) error` implementing the seven steps above (intent record, then run, then outcome record). Generic over the recorder constructor so a fake injects in tests.
 - In `cobra.go`, replace the final `return op.Run(...)` with a `runAudited(...)` call passing `op.Audit`, `cli.NewOperatorSource(f)`, `f.Execute()`, a recorder built from `audit.NewRecorderFromConfig(ctx, f.Cfg)`, and the `op.Run` closure.
-- Tests with a capturing fake recorder and a fake source: records on success; aborts a mutation on unresolved operator in both modes; dry-run runs nothing; mutation rejects Noop/YB; mutation aborts on Ping failure. Commit.
+- Tests with a capturing fake recorder and a fake source: a mutation records intent then outcome on success; a mutation aborts and never runs when the intent produce fails; aborts on unresolved operator in both modes; dry-run runs nothing and records nothing; a mutation rejects Noop/YB. Commit.
 
 ### Task 10: register flags at root
 

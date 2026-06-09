@@ -21,12 +21,15 @@ Do not weaken or bypass it:
 - No command calls `audit.Recorder.Record` directly. Recording happens only at the
   choke-point.
 - No mutating or reading command ships without an `AuditSpec` verb.
-- Do not remove or reorder the resolve-identity, preflight, run, record sequence.
+- Do not remove or reorder the resolve-identity, record-intent, run,
+  record-outcome sequence.
 - Do not add a per-command flag or env that turns recording off.
 
-The mutation guarantee is fail-closed: a mutating op aborts before it changes
-anything when the operator is unresolved or the ledger is unreachable. The honest
-limit and the bootstrap exemption are in the design doc.
+The mutation guarantee is that no mutation is ever unrecorded. A mutating op
+records its intent before it changes anything, and the intent record is
+fail-closed: if the operator is unresolved or the ledger cannot accept the intent,
+the op aborts and nothing mutates. This holds from day 0. The full atomicity
+reasoning and the bootstrap exemption are in the design doc.
 
 ## Identity is pluggable (binding, keep it pluggable)
 
@@ -39,25 +42,26 @@ pluggable:
   site, never by editing the choke-point's logic.
 
 The audit actor kind for an operator is `operator`. The principal's `Source`
-field records which mechanism resolved it (`git`, `flag`, later `oidc`), so the
-ledger shows how each identity was established.
+field records which mechanism resolved it (`git`, `flag`, `oidc`), so the ledger
+shows how each identity was established.
 
-## Identity now: local git config, with a flag override
+## Identity sources: local git config and flags
 
-The first source reads the operator's local git identity (`user.name`,
-`user.email`) from the gitconfig file, so the person already configured on the
-machine is the recorded operator. The actor id is a stable UUIDv5 derived from the
-email, so the same person gets the same id with no registry.
+One source reads the operator's local git identity (`user.name`, `user.email`)
+from the gitconfig file, so the person already configured on the machine is the
+recorded operator. The actor id is a stable UUIDv5 derived from the email, so the
+same person gets the same id with no registry.
 
-For environments without a gitconfig (the containers), the operator passes
-`--operator-id`, `--operator-email`, `--operator-name` instead. Identity is never
-an environment variable and never a hardcoded field in `config.Config`.
+Another source reads `--operator-id`, `--operator-email`, `--operator-name` flags,
+used in containers that have no gitconfig. Identity is never an environment
+variable and never a hardcoded field in `config.Config`.
 
-This source is self-asserted: it trusts the local config or the typed flag. That
-is acceptable for now because of the dry-run gate below, and because the verified
-source (OIDC) is the planned replacement.
+Both sources are self-asserted: they trust the local config or the typed flag. The
+dry-run gate below is what keeps that safe, by forcing the human to confirm the
+identity before any action. OIDC is a verified source the same seam takes when an
+IdP is wired; it does not replace these, it joins them.
 
-## Dry-run by default (binding for now)
+## Dry-run by default (binding)
 
 Every audited command is dry-run by default. In dry-run it resolves and prints the
 operator identity and the action it would take, changes nothing, and records
@@ -77,12 +81,12 @@ record on the reserved system org. Entity ops (repair apply) resolve the target
 node's real org so the operator action appears on that customer's per-org chain.
 The constant and the resolver are named in the design doc.
 
-## Identity later: OIDC / SSO / IdP (planned, not built)
+## Additional identity source: OIDC / SSO / IdP
 
-The flag and git sources are self-asserted. The planned upgrade is a source that
-verifies a signed token, so prod can forbid the unverified sources and require
-proven identity. Adding it is one new source type plus IdP config plus a selector;
-the choke-point, the commands, the event shape, and `AuditSpec` do not change.
+The flag and git sources are self-asserted. A verified source confirms a signed
+token, so prod can require proven identity and forbid the self-asserted sources.
+Adding it is one new source type plus IdP config plus a selector; the choke-point,
+the commands, the event shape, and `AuditSpec` do not change.
 
 An OIDC source must define:
 
