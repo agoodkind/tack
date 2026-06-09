@@ -174,9 +174,33 @@ ordered outbox with no polling worker
   or a registry, not a transactional store, so atomicity is impossible; intent
   plus outcome is the ceiling.
 
+The research sharpened one point. The consumer-side projection is **already
+effectively-once**: one Kafka partition is consumed by one consumer, and the unique
+`(event_id, event_time)` index is the idempotent-consumer-with-unique-key dedup the
+literature describes
+([Morling](https://www.morling.dev/blog/revisiting-the-outbox-pattern/),
+[lydtech](https://www.lydtechconsulting.com/blog/kafka-idempotent-consumer-transactional-outbox)).
+So the only unclosed gap is producer-side (mutation done, produce failed); an outbox
+closes that gap, not the projection. The versionstamp tail is also conflict-free:
+CloudKit chose a version index over an update-counter precisely because a counter
+created conflicts between otherwise non-conflicting transactions
+([Record Layer paper](https://www.foundationdb.org/files/record-layer-paper.pdf)), so
+a versionstamp outbox does not serialize concurrent ops the way a counter would. And
+the external-effect ceiling is firm: Kafka exactly-once does not extend to external
+side effects and cannot roll back a remote system
+([Confluent EOS](https://www.confluent.io/blog/exactly-once-semantics-are-possible-heres-how-apache-kafka-does-it/)),
+and Kafka transactions alone do not make a store mutation and an emit atomic
+([KIP-98](https://cwiki.apache.org/confluence/display/KAFKA/KIP-98+-+Exactly+Once+Delivery+and+Transactional+Messaging)).
+
 Decision for v1: keep preflight plus synchronous `acks=all`, which shrinks the
 window to a rare broker-death-mid-call. The FDB-versionstamp outbox is the named
 upgrade for FDB ops when the window must be fully closed. It is not built in v1.
+
+Note on sources: a deep-research run (2026-06-09) collected these claims from the
+primary and authoritative sources cited above, but its adversarial verification
+stage was rate-limited and did not complete, so these are vouched on source
+authority and consistency, not an independent three-vote pass. Re-running the
+verification is a cheap follow-up.
 
 ## Implementation
 
