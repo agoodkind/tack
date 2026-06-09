@@ -75,13 +75,19 @@ services:
         condition: service_healthy
 
   yugabyte:
-    # 2025.2.x is the latest stable line. Do not advertise the current container
-    # IP: Docker Compose service IPs are intentionally replaceable. Literal GUAs
-    # persisted into Yugabyte master/tserver metadata caused an incident; the
-    # service DNS name "yugabyte" is the stable identity.
+    # Pinned to 2024.2.8.0-b85 to match the running production engine. The audit
+    # Kafka cutover must change only the audit pipeline, not the database engine:
+    # a deploy that bumped this image would perform an untested in-place
+    # major-version upgrade of the auth+audit database (TACK-330). The deliberate
+    # 2024.2.8.0 -> 2025.2.3.0 upgrade is the separate, QA-validated TACK-329.
+    #
+    # Do not advertise the current container IP: Docker Compose service IPs are
+    # intentionally replaceable. Literal GUAs persisted into Yugabyte
+    # master/tserver metadata caused an incident; the service DNS name "yugabyte"
+    # is the stable identity.
     #
     # The :ro bind-mount below patches yugabyted's is_port_available. The
-    # upstream version (still on HEAD and on every release through 2025.2.3.0)
+    # upstream version (on every release through 2025.2.3.0, including this one)
     # builds an AF_INET socket for any non-literal-v6 advertise_address, which
     # raises gaierror on this v6-only bridge before yugabyted ever binds.
     # Upstream PR #23158 fixes it with AF_UNSPEC getaddrinfo + iterate; it has
@@ -89,7 +95,7 @@ services:
     # the overlay in yugabyte-overlay/yugabyted until upstream lands a fix.
     # See AGENTS.md "YugabyteDB identity and data contract" for the full story
     # and the refresh procedure on image bump.
-    image: yugabytedb/yugabyte:2025.2.3.0-b149
+    image: yugabytedb/yugabyte:2024.2.8.0-b85
     restart: unless-stopped
     command:
       - /bin/bash

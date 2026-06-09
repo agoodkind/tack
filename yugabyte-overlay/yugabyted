@@ -149,8 +149,6 @@ PREREQS_ERROR_MSGS = {
     'clockbound': 'Clockbound is recommended on AWS/Azure/GCP clusters.' \
         ' It can reduce read restart errors significantly in concurrent workloads. Please run ' \
         'bin/configure_clockbound.sh script to install and configure clockbound.',
-    'python_version': 'Python 3.11+ is required for the Distributed RAG service. ' \
-        'Please install Python 3.11 or higher.',
 }
 QUICK_START_LINKS = {
     'mac' : 'https://docs.yugabyte.com/preview/quick-start/',
@@ -179,10 +177,6 @@ PREFIX = {
     'configure_read_replica new': "",
     'configure_read_replica modify': "",
     'configure_read_replica delete': "",
-    'upgrade' : "Upgrade the YugabyteDB node.",
-    'upgrade ysql_catalog' : "",
-    'upgrade finalize_new_version'  : "",
-    "upgrade check_version_compatibility" : "",
     'xcluster' : "Setup and manage xCluster Replication.",
     'xcluster create_checkpoint': "",
     'xcluster add_to_checkpoint': "",
@@ -221,10 +215,6 @@ USAGE = {
     'configure_read_replica new': "yugabyted configure_read_replica new [flags]",
     'configure_read_replica modify': "yugabyted configure_read_replica modify [flags]",
     'configure_read_replica delete' : "yugabyted configure_read_replica delete",
-    'upgrade' : "yugabyted upgrade [command] [flags]",
-    'upgrade ysql_catalog' : "yugabyted upgrade ysql_catalog [flags]",
-    'upgrade finalize_new_version' : "yugabyted upgrade finalize [flags]",
-    'upgrade check_version_compatibility' : "yugabyted upgrade check_version_compatibility [flags]",
     'xcluster' : "yugabyted xcluster [command] [flags]",
     'xcluster create_checkpoint': "yugabyted xcluster create_checkpoint [flags]",
     'xcluster add_to_checkpoint': "yugabyted xcluster add_to_checkpoint [flags]",
@@ -329,27 +319,14 @@ EXAMPLE = {
                         "# Display point-in-time recovery status for a YugabyteDB cluster:\n" +
                         "yugabyted configure point_in_time_recovery " + \
                         "--status \n\n",
-    'upgrade' : "# Upgrade the YugabyteDB node:\n" +
-                "yugabyted upgrade [ysql_catalog/finalize_new_version]\n\n",
-    'upgrade_ysql_catalog' : "# yugabyted upgrade the ysql catalog: \n" +
-                "yugabyted upgrade ysql_catalog [flags]\n\n",
-    'upgrade_finalize_new_version' : "# Finalize the cluster upgrade process:\n" +
-                         "yugabyted upgrade finalize_new_version\n\n" +
-                        "# Finalize the cluster upgrade by specifying a timeout " +
-                        "value for completion:\n" +
-                         "yugabyted upgrade finalize_new_version --timeout <time_limit_ms>\n\n",
-    'upgrade_check_version_compatibility' : "# Check if the cluster is compatible " +
-                        "for upgrade to the new version\n" +
-                        "yugabyted upgrade check_version_compatibility\n\n" +
-                        "# Specifying a timeout value for completion:\n" +
-                         "yugabyted upgrade check_version_compatibility " +
-                         "--timeout <time_limit_ms>\n\n",
-    'finalize_upgrade': "****** WARNING ******\n" +
-                        "Deprecated. Please use 'upgrade finalize_new_version' command.\n\n",
+    'finalize_upgrade': "# Finalize the cluster upgrade process:\n" +
+                         "yugabyted finalize_upgrade\n\n" +
+                        "# Finalize the cluster upgrade by specifying a timeout value for" +
+                         " the YSQL catalog upgrade:\n" +
+                         "yugabyted finalize_upgrade --upgrade_ysql_timeout <time_limit_ms>\n\n",
     'xcluster' : "# Checkpoint a new xcluster replication:\n" +
                   "yugabyted xcluster create_checkpoint --replication_id=<replication_id> " +
-                  "--databases=<comma_separated_databases_to_be_added_to_replication> " +
-                  "[--automatic_mode]\n\n" +
+                  "--databases=<comma_separated_databases_to_be_added_to_replication>\n\n" +
                   "# Set-up xcluster replication:\n" +
                   "yugabyted xcluster set_up --replication_id=<replication_id> " +
                   "--target_address=<IP_of_any_target_node>\n\n" +
@@ -373,8 +350,7 @@ EXAMPLE = {
                   "--target_address=<IP_of_any_target_node>\n\n",
     "xcluster_create_checkpoint" : "# Checkpoint a new xcluster replication:\n" +
                   "yugabyted xcluster create_checkpoint --replication_id=<replication_id> " +
-                  "--databases=<comma_separated_databases_to_be_added_to_replication> " +
-                  "[--automatic_mode]\n\n",
+                  "--databases=<comma_separated_databases_to_be_added_to_replication>\n\n",
     "xcluster_add_to_checkpoint" : "# Add databases to checkpoint:\n" +
                   "yugabyted xcluster add_to_checkpoint --replication_id=<replication_id> " +
                   "--databases=<comma_separated_databases_to_be_added_to_replication>\n\n",
@@ -456,6 +432,17 @@ METRICS_SNAPSHOT_LIST = [
     "handler_latency_yb_tserver_TabletServerService_Write_sum",
     "disk_usage", "cpu_usage", "node_up"
 ]
+PG_PARITY_FLAGS_LIST = [
+    "yb_enable_read_committed_isolation=true",
+    "ysql_enable_read_request_caching=true"
+]
+PG_PARITY_FLAGS_DICT = {
+"ysql_pg_conf_csv": "yb_enable_base_scans_cost_model=true,"
+                      "yb_enable_optimizer_statistics=true,"
+                      "yb_bnl_batch_size=1024,"
+                      "yb_use_hash_splitting_by_default=false,"
+                      "yb_enable_bitmapscan=true"
+                    }
 
 # YugaWare configs. These have their own separate subdirectory to preserve our itest flow.
 YUGAWARE_DIR = os.path.join(YUGABYTE_DIR, "ui")
@@ -541,7 +528,10 @@ def find_binary_location(binary_name):
 
     # Specific path for ysqlsh in test environment
     is_test_env = os.getenv('USER') == 'jenkins'
-    if binary_name in ["ysqlsh", "pg_isready", "pg_upgrade"] and is_test_env:
+    if binary_name == "ysqlsh" and is_test_env:
+        return find_binary_path_in_test_env(binary_name)
+
+    if binary_name == "pg_isready" and is_test_env:
         return find_binary_path_in_test_env(binary_name)
 
     # Default if tar is downloaded
@@ -801,26 +791,6 @@ class ControlScript(object):
 
     # Kills currently running yugabyted process if it exists.
     def stop(self, *args):
-
-        if len(os.listdir(self.configs.saved_data.get("data_dir"))) == 0:
-            Output.print_out("{} is not running.".format(SCRIPT_NAME))
-            sys.exit(1)
-
-        upgrade_in_progress = self.configs.saved_data.get("upgrade_in_progress")
-        catalog_upgrade_completed = self.configs.saved_data.get("catalog_upgrade_completed")
-
-        if upgrade_in_progress and not catalog_upgrade_completed:
-            tserver_pidfile =  os.path.join(self.configs.saved_data.get("data_dir"),
-                                            "{}.pid".format("tserver"))
-            tserver_pid_value = self.read_pidfile(tserver_pidfile)
-            old_release_tserver_cmdline = self.get_cmdline_from_pid(tserver_pid_value)
-            self.configs.saved_data["old_release_cmd"] = old_release_tserver_cmdline
-            self.configs.save_configs()
-            master_addresses = self.configs.saved_data.get("current_masters")
-            if master_addresses == '':
-                Output.log_error_and_exit(Output.make_red("Error") +
-                                          ": cannot retreive the masters.")
-
         (err, pid) = self.kill_all_procs()
         if err:
             Output.log_error_and_exit(
@@ -1292,126 +1262,7 @@ class ControlScript(object):
             output += "-" * 70 + "\n"
             Output.print_out(output)
 
-    def upgrade_check_version_compatibility(self):
-        if not self.script.is_running():
-            Output.log_error_and_exit(Output.make_red("ERROR") + ": No YugabyteDB node " +
-                "is running in the data_dir {}".format(self.configs.saved_data.get("data_dir")))
-
-        if self.configs.saved_data.get("secure") and not os.path.exists(
-            os.path.expanduser("~/.pgpass")):
-                Output.log_error_and_exit(Output.make_red("ERROR") +
-                            ": .pgpass file is not present in the home directory.")
-
-        advertise_ip = self.advertise_ip()
-        ysql_port = self.configs.saved_data.get("ysql_port")
-        data_dir = self.configs.saved_data.get("data_dir")
-        Output.init_animation("Checking version compatibility...")
-
-        timeout = 60000
-        if self.configs.temp_data.get("upgrade_timeout") is not None:
-            timeout = self.configs.temp_data.get("upgrade_timeout")
-
-        start_time = time.time()
-        upgrade_check_message, upgrade_check_status = (
-            PGUpgradeProxy.check_for_pg_upgrade_compatibility(advertise_ip,
-                                ysql_port, data_dir, timeout))
-        end_time = time.time()
-        time_taken = self._format_time_taken_ms(start_time, end_time)
-
-        compatible = (upgrade_check_status == 0)
-        # Send callhome event for upgrade check version compatibility
-        self.start_callhome_thread(
-            CALLHOME_EVENT_UPGRADE_CHECK_VERSION_COMPATIBILITY,
-            lambda: self._send_upgrade_check_version_compatibility_callhome(
-                timeout, compatible, time_taken))
-        self.shutdown_callhome_thread(
-            CALLHOME_EVENT_UPGRADE_CHECK_VERSION_COMPATIBILITY, timeout=5)
-
-        if upgrade_check_status:
-            Output.log_error_and_exit("FAILED: PG upgrade compatibility check failed. " +
-                                    "Please check the logs. \n{}".format(upgrade_check_message))
-
-        Output.update_animation("Clusters are compatible for upgrade.")
-
-    def upgrade_finalize_new_version(self):
-        if not self.script.is_running():
-            Output.log_error_and_exit(Output.make_red("ERROR") + ": No YugabyteDB node " +
-                "is running in the data_dir {}".format(self.configs.saved_data.get("data_dir")))
-
-        tserver_addresses = self.get_tserver_addresses()
-
-        # Verify if all nodes were upgraded successfully
-        Output.init_animation("Verifying version compatibility across all nodes...")
-
-        node_versions = self.get_all_nodes_version(tserver_addresses)
-        highest_version = self.get_highest_version(node_versions)
-        mismatched_nodes_version = self.verify_all_nodes_version(node_versions,
-                                                            highest_version)
-
-        if len(mismatched_nodes_version) > 0:
-            mismatched_nodes = ', '.join(mismatched_nodes_version)
-            Output.update_animation("Version compatibility verification failed.",
-                        status=Output.ANIMATION_FAIL)
-            Output.log_error_and_exit(
-            Output.make_red("Error") + ": Version mismatch detected in the " +
-            "following nodes: {}. Please upgrade these".format(mismatched_nodes) +
-            " nodes to version {} and then rerun the".format(highest_version) +
-            Output.make_yellow(" yugabyted finalize_upgrade") + " command."
-        )
-
-        # All nodes match the correct version
-        # Run post-upgrade tasks
-        Output.update_animation("Verified version compatibility across all nodes.")
-        master_addresses = self.configs.saved_data.get("current_masters")
-
-        timeout = 360000
-        if self.configs.temp_data.get("upgrade_timeout") is not None:
-            timeout = self.configs.temp_data.get("upgrade_timeout")
-
-        Output.init_animation("Finalizing the upgrade to {}...".format(highest_version))
-        start_time = time.time()
-        success = YBAdminProxy.finalize_upgrade_uber_command(master_addresses, timeout)
-        end_time = time.time()
-        time_taken = self._format_time_taken_ms(start_time, end_time)
-        node_count = len(tserver_addresses) if tserver_addresses else 0
-        failure_reason = None
-
-        if not success:
-            failure_reason = "Failed to finalize upgrade"
-            # Send callhome event before exit
-            self.start_callhome_thread(
-                CALLHOME_EVENT_UPGRADE_FINALIZE_NEW_VERSION,
-                lambda: self._send_upgrade_finalize_new_version_callhome(
-                    highest_version, node_count, timeout, success,
-                    failure_reason, time_taken))
-            self.shutdown_callhome_thread(
-                CALLHOME_EVENT_UPGRADE_FINALIZE_NEW_VERSION, timeout=5)
-            Output.log_error_and_exit(Output.update_animation("Failed to "
-                "Finalize the upgrade.",status=Output.ANIMATION_FAIL))
-        else:
-            Output.log("Upgrade finalize step was successful.")
-
-        Output.update_animation("Cluster Upgrade Successfully " +
-                                    "Completed to {}.".format(highest_version))
-        # Send callhome event for upgrade finalize new version
-        self.start_callhome_thread(
-            CALLHOME_EVENT_UPGRADE_FINALIZE_NEW_VERSION,
-            lambda: self._send_upgrade_finalize_new_version_callhome(
-                highest_version, node_count, timeout, success,
-                failure_reason, time_taken))
-        status_details = []
-        status_display_info = {}
-        final_status = "Post-upgrade tasks completed successfully."
-        status_details = [
-                    (Output.make_yellow("Status"), final_status)]
-        status_display_info[final_status] = Output.make_green
-        status_details.append((Output.make_yellow("Version"), highest_version))
-        Output.print_out(self.get_status_string_common(status_details, status_display_info))
-        self.shutdown_callhome_thread(
-            CALLHOME_EVENT_UPGRADE_FINALIZE_NEW_VERSION, timeout=5)
-
     # Finalize YugabyteDB cluster upgrade
-    # to-do: Need to deprecated this method
     def finalize_upgrade(self):
         if not self.script.is_running():
             Output.log_error_and_exit(Output.make_red("ERROR") + ": No YugabyteDB node " +
@@ -1882,11 +1733,10 @@ class ControlScript(object):
 
         replication_id = self.configs.temp_data.get("xcluster_replication_id")
         databases = self.configs.temp_data.get("xcluster_databases")
-        automatic_mode = self.configs.temp_data.get("xcluster_automatic_mode")
 
         start_time = time.time()
         out, err, ret_code = YBAdminProxy.create_checkpoint_xcluster(master_addrs, replication_id,
-                                                              databases, automatic_mode)
+                                                              databases)
         end_time = time.time()
         time_taken = self._format_time_taken_ms(start_time, end_time)
         is_bootstrap_required = False
@@ -1907,7 +1757,6 @@ class ControlScript(object):
                     success=False,
                     failure_reason=failure_reason,
                     database_count=database_count,
-                    automatic_mode=automatic_mode,
                     time_taken=time_taken))
             self.shutdown_callhome_thread(
                 CALLHOME_EVENT_XCLUSTER_CREATE_CHECKPOINT, timeout=5)
@@ -1932,7 +1781,6 @@ class ControlScript(object):
             lambda: self._send_xcluster_callhome(
                 CALLHOME_EVENT_XCLUSTER_CREATE_CHECKPOINT,
                 database_count=database_count,
-                automatic_mode=automatic_mode,
                 time_taken=time_taken))
 
         all_databases = databases.split(',')
@@ -3280,68 +3128,6 @@ class ControlScript(object):
 
         Output.print_out(self.get_status_string_common(status_details))
 
-    # Upgrade the ysql catalog for this node
-    def upgrade_ysql_catalog(self):
-        if not self.script.is_running():
-            Output.log_error_and_exit(Output.make_red("ERROR") + ": No YugabyteDB node " +
-                "is running in the data_dir {}".format(self.configs.saved_data.get("data_dir")))
-
-        if self.configs.saved_data.get("read_replica"):
-            Output.log_error_and_exit(Output.make_red("ERROR") + ": Cannot use `yugabyted " +
-                                      "upgrade_ysql_catalog` command from a read replica node. " +
-                                      "Please use a primary cluster node to upgrade the " +
-                                      "YSQL catalog.")
-
-        master_addresses = self.configs.saved_data.get("current_masters")
-        if master_addresses == '':
-            Output.log_error_and_exit(Output.make_red("Error") + ": cannot retreive the masters.")
-
-        timeout = 300000
-        if self.configs.temp_data.get("upgrade_timeout") is not None:
-            timeout = self.configs.temp_data.get("upgrade_timeout")
-
-        # Start the YSQL catalog upgrade
-        Output.init_animation("YSQL Catalog upgrade in progress...")
-        start_time = time.time()
-        _, ret_code = YBAdminProxy.start_ysql_catalog_upgrade(
-                master_addresses, timeout)
-        end_time = time.time()
-        time_taken = self._format_time_taken_ms(start_time, end_time)
-        success = (ret_code == 0)
-        # Send callhome event for upgrade ysql catalog
-        self.start_callhome_thread(
-            CALLHOME_EVENT_UPGRADE_YSQL_CATALOG,
-            lambda: self._send_upgrade_ysql_catalog_callhome(success,
-                                                               time_taken))
-        if ret_code:
-            self.shutdown_callhome_thread(
-                CALLHOME_EVENT_UPGRADE_YSQL_CATALOG, timeout=5)
-            Output.log_error_and_exit("YSQL catalog upgrade failed. Please check the logs.")
-        else:
-            Output.update_animation("YSQL catalog upgrade successful.")
-            self.configs.saved_data["catalog_upgrade_completed"] = True
-            self.configs.save_configs()
-
-        status_details = [
-            (Output.make_yellow("Status"), "YSQL catalog upgrade successful."),
-        ]
-        self.shutdown_callhome_thread(
-            CALLHOME_EVENT_UPGRADE_YSQL_CATALOG, timeout=5)
-        Output.print_out(self.get_status_string_common(status_details))
-
-    def read_pidfile(self, pidfile_path):
-        try:
-            with open(pidfile_path, 'r') as pidfile:
-                pid = int(pidfile.read().strip())
-                return pid
-        except FileNotFoundError:
-            Output.log(f"PID file {pidfile_path} not found.", logging.DEBUG)
-        except ValueError:
-            Output.log(f"PID file {pidfile_path} contains invalid PID.", logging.DEBUG)
-        except Exception as e:
-            Output.log(f"An error occurred while reading the PID file: {e}", logging.DEBUG)
-        return None
-
     # Check that `openssl` binary is in our PATH
     # This actually returns true when it is _not_ present!
     def check_openssl(self):
@@ -3385,26 +3171,6 @@ class ControlScript(object):
         return (failed_ports, warning_ports,
                 mandatory_port_available, recommended_port_available)
 
-    def check_python_version_for_rag(self):
-        """Check if Python 3.11+ is available for RAG service.
-
-        Returns:
-            tuple: (python_exe, is_valid) where python_exe is the path and is_valid is boolean
-        """
-        for python_executable in ['python3.11', 'python3.12', 'python3.13', 'python3', 'python']:
-            try:
-                result = subprocess.check_output([python_executable, '--version'],
-                                                stderr=subprocess.STDOUT,
-                                                universal_newlines=True)
-                version_str = result.split()[1]  # "Python 3.11.9" -> "3.11.9"
-                major_version, minor_version = map(int, version_str.split('.')[:2])
-                if major_version > 3 or (major_version == 3 and minor_version >= 11):
-                    Output.log("Found {} for RAG agent virtual environment".format(result.strip()))
-                    return (python_executable, True)
-            except (subprocess.CalledProcessError, FileNotFoundError, ValueError, IndexError):
-                continue
-        return (None, False)
-
     # All Pre-requisites check for Linux
     def linux_prereqs_check(self):
         prereqs_failed = set()
@@ -3416,14 +3182,6 @@ class ControlScript(object):
             Output.log("Running in a Docker container. Skipping pre-requisite checks.")
             return (prereqs_failed_flag, prereqs_failed, prereqs_warn_flag, prereqs_warn,
                     True, True)
-
-        # Check Python 3.11+ if RAG service is enabled
-        tserver_flags = self.configs.saved_data.get("tserver_flags", "")
-        if "enable_pg_dist_rag_service=true" in tserver_flags:
-            python_exe, is_valid = self.check_python_version_for_rag()
-            if not is_valid:
-                prereqs_failed.add('python_version')
-                prereqs_failed_flag = True
 
         if not self.linux_transparent_hugepage_check():
             prereqs_warn.add('transparent_hugepages')
@@ -3468,14 +3226,6 @@ class ControlScript(object):
         prereqs_warn = set()
         prereqs_failed_flag = False
         prereqs_warn_flag = False
-
-        # Check Python 3.11+ if RAG service is enabled
-        tserver_flags = self.configs.saved_data.get("tserver_flags", "")
-        if "enable_pg_dist_rag_service=true" in tserver_flags:
-            python_exe, is_valid = self.check_python_version_for_rag()
-            if not is_valid:
-                prereqs_failed.add('python_version')
-                prereqs_failed_flag = True
 
         (failed_ports, warning_ports, mandatory_port_available,
         recommended_port_available) = self.check_ports()
@@ -3530,126 +3280,6 @@ class ControlScript(object):
         recommended_ports.append("ycql_metric_port")
 
         return recommended_ports
-
-    # Setup environment for Distributed RAG service
-    def setup_dist_rag_python_env(self, is_first_run):
-        """Setup Python virtual environment for the Distributed RAG service.
-
-        This creates a venv and installs requirements for the RAG agent
-        located in python/ai/rag_agent.
-        - On first run: Always creates a fresh venv
-        - On restart: Only creates if venv is missing, otherwise reuses existing
-
-        Args:
-            is_first_run: True if this is the first startup, False for restarts
-
-        Returns:
-            dict: Result dictionary with 'msg' and 'status' keys similar to prereqs_check
-        """
-        # The RAG agent is located at python/ai/rag_agent/
-        # This path is consistent across development builds and release tarballs
-        script_dir = os.path.join(YUGABYTE_DIR, "python", "ai", "rag_agent")
-        script_path = os.path.join(script_dir, "start_rag_agent.py")
-
-        if not os.path.exists(script_dir):
-            Output.log_error_and_exit(
-                "RAG agent directory not found: {}".format(script_dir))
-
-        if not os.path.isfile(script_path):
-            Output.log_error_and_exit(
-                "RAG agent script not found: {}".format(script_path))
-
-        venv_dir = os.path.join(script_dir, 'venv')
-        requirements_path = os.path.join(script_dir, 'requirements.txt')
-
-        # Get Python 3.11+ (prereqs_check already validated this exists)
-        python_exe, is_valid = self.check_python_version_for_rag()
-        if not is_valid:
-            # This should not happen as prereqs_check should have caught it
-            Output.log_error_and_exit(
-                "Python 3.11+ is required for the RAG agent. "
-                "Please install Python 3.11 or higher.")
-
-        # Determine if we need to create the venv
-        should_create_venv = False
-        if is_first_run:
-            # On first run, always create fresh venv
-            should_create_venv = True
-            if os.path.exists(venv_dir):
-                Output.log("Removing existing virtual environment at {}...".format(venv_dir))
-                import shutil
-                shutil.rmtree(venv_dir)
-        else:
-            # On restart, only create if venv is missing
-            if not os.path.exists(venv_dir):
-                should_create_venv = True
-            else:
-                Output.log("Using existing RAG virtual environment at {}".format(venv_dir))
-
-        # Create virtual environment if needed
-        if should_create_venv:
-            # Stage 1: Setting up environment
-            Output.init_animation("Setting up Distributed RAG environment...")
-
-            # Step 1: Create virtual environment
-            Output.log("Creating Python virtual environment at {}...".format(venv_dir))
-            try:
-                subprocess.check_call([python_exe, '-m', 'venv', venv_dir])
-                Output.log("Virtual environment created successfully")
-            except subprocess.CalledProcessError as e:
-                Output.update_animation(
-                    "Failed to set up Distributed RAG environment", Output.ANIMATION_FAIL)
-                Output.log_error_and_exit(
-                    "Failed to create virtual environment: {}".format(e))
-
-            # Step 2: Install/upgrade pip
-            pip_exe = os.path.join(venv_dir, 'bin', 'pip')
-            Output.log("Upgrading pip...")
-            try:
-                subprocess.check_call(
-                    [pip_exe, 'install', '--upgrade', 'pip'],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL)
-                Output.log("Pip upgraded successfully")
-            except subprocess.CalledProcessError:
-                Output.log("Warning: Failed to upgrade pip, continuing anyway...")
-
-            # Stage 2: Installing dependencies (update the animation message)
-            Output.update_animation(
-                "Installing RAG dependencies (this may take a few minutes)...",
-                Output.ANIMATION_RUNNING)
-
-            # Step 3: Install requirements
-            if os.path.exists(requirements_path):
-                Output.log("Installing Python dependencies from {}...".format(requirements_path))
-                try:
-                    result = subprocess.run(
-                        [pip_exe, 'install', '-r', requirements_path],
-                        capture_output=True,
-                        text=True,
-                        check=True)
-                    Output.log("Python dependencies installed successfully")
-                except subprocess.CalledProcessError as e:
-                    Output.update_animation(
-                        "Failed to install Distributed RAG dependencies", Output.ANIMATION_FAIL)
-                    error_msg = "Failed to install requirements: {}".format(e)
-                    if e.stderr:
-                        # Include last 2000 chars of stderr
-                        error_msg += "\n\nPip error output:\n{}".format(
-                            e.stderr[-2000:])
-                    Output.log_error_and_exit(error_msg)
-            else:
-                Output.log("Warning: No requirements.txt found at {}".format(requirements_path))
-                Output.print_and_log("No requirements.txt found at {}".format(requirements_path))
-
-            # Stage 3: Complete (update animation with success message)
-            Output.update_animation("Distributed RAG environment ready", Output.ANIMATION_SUCCESS)
-
-        # Return success result like prereqs_check
-        return {
-            'msg': Output.ANIMATION_SUCCESS + " " + "Distributed RAG setup",
-            'status': Output.ANIMATION_SUCCESS
-        }
 
     # Checks whether the prerequisites are met or not
     def prereqs_check(self, ulimits=False):
@@ -3812,7 +3442,6 @@ class ControlScript(object):
 
         self.update_tserver_master_addrs()
         self.processes.get("tserver").start()
-
         if was_already_setup:
             Output.log("Node was a member of some cluster before. "
                     "Skipping tserver setup")
@@ -3895,44 +3524,11 @@ class ControlScript(object):
                 Output.print_and_log(prereqs_check_result['msg'])
                 sys.exit(1)
 
-        # Setup Distributed RAG environment before starting servers (only if enabled)
-        tserver_flags = self.configs.saved_data.get("tserver_flags", "")
-        if "enable_pg_dist_rag_service=true" in tserver_flags:
-            self.setup_dist_rag_python_env(is_first_run)
-
         common_gflags = self.get_common_flags()
 
         yb_master_cmd = self.get_master_cmd(common_gflags)
 
-        upgrade_in_progress = self.configs.saved_data.get("upgrade_in_progress")
-        Output.log("Value of saved_data - upgrade_in_progress. {}".format(
-            upgrade_in_progress), logging.DEBUG)
-
-        catalog_upgrade_completed = self.configs.saved_data.get("catalog_upgrade_completed")
-        Output.log("Value of saved_data - catalog_upgrade_completed. {}".format(
-            catalog_upgrade_completed), logging.DEBUG)
-
-        if upgrade_in_progress == "true" and not catalog_upgrade_completed:
-            # get the previously know current master list before running the yb-admin command
-            previously_known_masters = self.configs.saved_data.get("current_masters")
-            Output.init_animation("Verifying the current upgrade status...")
-            out, ret_code = YBAdminProxy.check_for_ysql_catalog_upgrade_state(
-                previously_known_masters, timeout=30)
-            if not ret_code:
-                catalog_upgrade_completed = True
-                self.configs.saved_data["catalog_upgrade_completed"] = True
-                self.configs.save_configs()
-                Output.log("catalog_upgrade_completed status is set to True.")
-
-            Output.update_animation("Upgrade status successfully verified")
-
-        if upgrade_in_progress == "true" and not catalog_upgrade_completed:
-            yb_tserver_cmd = self.configs.saved_data.get("old_release_cmd")
-            yb_tserver_cmd.extend(["--ysql_yb_major_version_upgrade_compatibility=11"])
-            Output.log("Catalog upgrade is in progress. " +
-                       "Starting the tserver with old release path.")
-        else:
-            yb_tserver_cmd = self.get_tserver_cmd(common_gflags)
+        yb_tserver_cmd = self.get_tserver_cmd(common_gflags)
 
         self.processes = {
             "master": YBProcessManager(
@@ -3970,7 +3566,7 @@ class ControlScript(object):
             # Delete corrupted data dirs left from interrupting yb-master and yb-tserver startup.
             pid_file_name = os.path.basename(self.script.pidfile)
             data_dir_files = [ x for x in os.listdir(data_dir) if x != pid_file_name ]
-            if is_first_install and data_dir_files and upgrade_in_progress == "false":
+            if is_first_install and data_dir_files:
                 Output.print_and_log(
                     ("Found files {} in data dir {} from possibly failed initialization."
                     " Removing...").format(data_dir_files, data_dir))
@@ -4017,16 +3613,6 @@ class ControlScript(object):
                         "not to be used without firewalls blocking the internet traffic."
                     warnings.append(insecure_msg)
                     warnings_for_ui.extend(["insecure"])
-
-                # reset the upgrade state variables once the catalog upgrade is complete
-                upgrade_in_progress = self.configs.saved_data.get("upgrade_in_progress")
-                catalog_upgrade_completed = self.configs.saved_data.get("catalog_upgrade_completed")
-                if upgrade_in_progress == "true" and catalog_upgrade_completed:
-                    self.configs.saved_data["upgrade_in_progress"] = "false"
-                    self.configs.saved_data["catalog_upgrade_completed"] = "false"
-                    self.configs.saved_data["old_release_cmd"] = []
-                    Output.log("YSQL Catalog Upgrade complete: Upgrade in progress is set" +
-                                "to false and old_release_cmd is reset.")
 
                 # Persist the config after successful start
                 self.configs.save_configs()
@@ -4249,37 +3835,9 @@ class ControlScript(object):
                 Output.print_and_log(prereqs_check_result['msg'])
                 sys.exit(1)
 
-
-        upgrade_in_progress = self.configs.saved_data.get("upgrade_in_progress")
-        Output.log("Value of saved_data - upgrade_in_progress. {}".format(
-            upgrade_in_progress), logging.DEBUG)
-        catalog_upgrade_completed = self.configs.saved_data.get("catalog_upgrade_completed")
-        Output.log("Value of saved_data - catalog_upgrade_completed. {}".format(
-            catalog_upgrade_completed), logging.DEBUG)
-
         common_gflags = self.get_common_flags()
 
         yb_tserver_cmd = self.get_tserver_cmd(common_gflags)
-
-        if upgrade_in_progress == "true" and not catalog_upgrade_completed:
-            # get the previously know current master list before running the yb-admin command
-            previously_known_masters = self.configs.saved_data.get("current_masters")
-            Output.init_animation("Verifying the current upgrade status...")
-            out, ret_code = YBAdminProxy.check_for_ysql_catalog_upgrade_state(
-                previously_known_masters, timeout=30)
-            if not ret_code:
-                catalog_upgrade_completed = True
-                self.configs.saved_data["catalog_upgrade_completed"] = True
-                self.configs.save_configs()
-                Output.log("catalog_upgrade_completed status is set to True.")
-
-            Output.update_animation("Upgrade status successfully verified")
-
-        if upgrade_in_progress == "true" and not catalog_upgrade_completed:
-            yb_tserver_cmd = self.configs.saved_data.get("old_release_cmd")
-            yb_tserver_cmd.extend(["--ysql_yb_major_version_upgrade_compatibility=11"])
-            Output.log("Catalog upgrade is in progress. " +
-                       "Starting the tserver with old release path.")
 
         self.processes = {
             "tserver": YBProcessManager(
@@ -4315,7 +3873,7 @@ class ControlScript(object):
             # Delete corrupted data dirs left from interrupting yb-master and yb-tserver startup.
             pid_file_name = os.path.basename(self.script.pidfile)
             data_dir_files = [ x for x in os.listdir(data_dir) if x != pid_file_name ]
-            if is_first_install and data_dir_files and upgrade_in_progress == "false":
+            if is_first_install and data_dir_files:
                 Output.print_and_log(
                     ("Found files {} in data dir {} from possibly failed initialization."
                     " Removing...").format(data_dir_files, data_dir))
@@ -4349,17 +3907,6 @@ class ControlScript(object):
                     warnings.append("Cluster started in an insecure mode without " +
                         "authentication and encryption enabled. For non-production use only, " +
                         "not to be used without firewalls blocking the internet traffic.")
-
-
-                # reset the upgrade state variables once the catalog upgrade is complete
-                upgrade_in_progress = self.configs.saved_data.get("upgrade_in_progress")
-                catalog_upgrade_completed = self.configs.saved_data.get("catalog_upgrade_completed")
-                if upgrade_in_progress == "true" and catalog_upgrade_completed:
-                    self.configs.saved_data["upgrade_in_progress"] = "false"
-                    self.configs.saved_data["catalog_upgrade_completed"] = "false"
-                    self.configs.saved_data["old_release_cmd"] = []
-                    Output.log("YSQL Catalog Upgrade complete: Upgrade in progress is set" +
-                                "to false and old_release_cmd is reset.")
 
                 # Persist the config after successful start
                 self.configs.save_configs()
@@ -4498,17 +4045,6 @@ class ControlScript(object):
 
         return common_gflags
 
-    # find the cmdline for a given pid
-    def get_cmdline_from_pid(self, pid):
-        try:
-            with open(f"/proc/{pid}/cmdline", 'r') as f:
-                cmdline = f.read().split('\0')[:-1]
-            return cmdline
-        except FileNotFoundError:
-            return None
-        except Exception as e:
-            return None
-
     # Returns value of flag_name in flags.
     # Returns None is none exists.
     def get_flag_value(self, flags, flag_name):
@@ -4523,93 +4059,6 @@ class ControlScript(object):
         if flags:
             flags += ','
         return flags + f"{flag_name}={flag_value}"
-
-    # Parses a flagfile and returns a dictionary of flag names to values.
-    # Ignores comments (lines starting with #) and empty lines.
-    # Returns empty dict on error.
-    def parse_flagfile(self, flagfile_path):
-        flag_dict = {}
-        try:
-            with open(flagfile_path, 'r') as f:
-                for line in f:
-                    line = line.strip()
-                    # Skip comments and empty lines
-                    if not line or line.startswith('#'):
-                        continue
-                    # Parse flag=value format
-                    if '=' in line:
-                        # Remove leading -- if present
-                        if line.startswith('--'):
-                            line = line[2:]
-                        parts = line.split('=', 1)
-                        if len(parts) == 2:
-                            flag_name = parts[0].strip()
-                            flag_value = parts[1].strip()
-                            flag_dict[flag_name] = flag_value
-        except (IOError, OSError) as e:
-            Output.log("Warning: Failed to read flagfile {}: {}".format(flagfile_path, str(e)))
-        return flag_dict
-
-    def get_flagfile_dict(self, flags_str):
-        flagfile_value = self.get_flag_value(flags_str, "flagfile")
-        if not flagfile_value:
-            return {}
-        return self.parse_flagfile(flagfile_value)
-
-    # Extracts a simple flag value from flags_str or flagfile_dict.
-    # Direct flags in flags_str take precedence over flagfile_dict.
-    # Returns the flag value or None if not found.
-    def get_user_flag_value(self, flags_str, flagfile_dict, flag_name):
-        # First check direct flags (they take precedence)
-        if flags_str:
-            flags_list = flags_str.split(',')
-            for flag in flags_list:
-                flag = flag.strip()
-                if '=' in flag:
-                    key, value = flag.split('=', 1)
-                    if key.strip() == flag_name:
-                        return value.strip()
-
-        # If not in direct flags, check flagfile
-        if flagfile_dict and flag_name in flagfile_dict:
-            return flagfile_dict[flag_name]
-
-        return None
-
-    # Extracts a CSV flag value from flags_str or flagfile_dict.
-    # Direct flags in flags_str take precedence over flagfile_dict.
-    # For direct flags, CSV format is: csv_flag_name={key1=val1,key2=val2}
-    # For flagfile, CSV format is: csv_flag_name=key1=val1,key2=val2
-    # Returns the csv_key value or None if not found.
-    def get_user_csv_flag_value(self, flags_str, flagfile_dict, csv_flag_name, csv_key):
-        # First check direct flags (they take precedence)
-        # In direct flags, CSV flags are in format: flag_name={key1=val1,key2=val2}
-        if flags_str:
-            # Use regex to extract content between curly braces
-            pattern = r'{}=\{{([^}}]*)\}}'.format(re.escape(csv_flag_name))
-            match = re.search(pattern, flags_str)
-            if match:
-                csv_content = match.group(1)
-                # Parse CSV content
-                for item in csv_content.split(','):
-                    item = item.strip()
-                    if '=' in item:
-                        key, value = item.split('=', 1)
-                        if key.strip() == csv_key:
-                            return value.strip()
-
-        # If not in direct flags, check flagfile
-        # In flagfile, CSV flags are in format: flag_name=key1=val1,key2=val2
-        if flagfile_dict and csv_flag_name in flagfile_dict:
-            csv_content = flagfile_dict[csv_flag_name]
-            for item in csv_content.split(','):
-                item = item.strip()
-                if '=' in item:
-                    key, value = item.split('=', 1)
-                    if key.strip() == csv_key:
-                        return value.strip()
-
-        return None
 
     def config_time_source_clockbound(self, flags):
         # Configure tserver flag time_source=clockbound
@@ -4668,21 +4117,25 @@ class ControlScript(object):
 
         master_flags = self.configs.saved_data.get("master_flags","")
 
-        # Parse flagfile if specified
-        flagfile_dict = self.get_flagfile_dict(master_flags)
+        if self.configs.temp_data.get("enable_pg_parity"):
+            # Process simple flags from PG_PARITY_FLAGS_LIST
+            existing_flags = {}
+            current_flags = master_flags.split(',')
+            for flag in current_flags:
+                if '=' in flag:
+                    key, value = flag.split('=', 1)
+                    existing_flags[key] = value
 
-        # Add yb_enable_read_committed_isolation flag
-        # Check if user has provided this flag (direct flags or flagfile)
-        user_read_committed_value = self.get_user_flag_value(
-            master_flags, flagfile_dict, "yb_enable_read_committed_isolation")
+            for flag in PG_PARITY_FLAGS_LIST:
+                key = flag.split('=')[0]
+                if existing_flags.get(key) is None:
+                    if master_flags and not master_flags.endswith(","):
+                        master_flags += ","
+                    # Add the missing flag to the master flags
+                    master_flags += flag
 
-        if user_read_committed_value is None:
-            # User has not provided the flag, add default value
-            if master_flags and not master_flags.endswith(","):
-                master_flags += ","
-            master_flags += "yb_enable_read_committed_isolation=true"
-        # If user provided it, it's already in master_flags or will be read from flagfile
-        # No action needed as the existing flag processing will handle it
+            # Update the master_flags in self.configs.saved_data with pg_parity flags
+            self.configs.saved_data["master_flags"] = master_flags
 
         master_flags = self.config_time_source_clockbound(master_flags)
         self.configs.saved_data["master_flags"] = master_flags
@@ -4759,48 +4212,85 @@ class ControlScript(object):
 
         tserver_flags = self.configs.saved_data.get("tserver_flags","")
 
-        # Parse flagfile if specified
-        flagfile_dict = self.get_flagfile_dict(tserver_flags)
+        if self.configs.temp_data.get("enable_pg_parity"):
+            # Process simple flags from PG_PARITY_FLAGS_LIST
+            existing_flags = {}
+            current_flags = tserver_flags.split(',')
+            for flag in current_flags:
+                if '=' in flag:
+                    key, value = flag.split('=', 1)
+                    existing_flags[key] = value
 
-        # Add yb_enable_read_committed_isolation flag
-        # Check if user has provided this flag (direct flags or flagfile)
-        user_read_committed_value = self.get_user_flag_value(
-            tserver_flags, flagfile_dict, "yb_enable_read_committed_isolation")
+            for flag in PG_PARITY_FLAGS_LIST:
+                key = flag.split('=')[0]
+                if existing_flags.get(key) is None:
+                    if tserver_flags and not tserver_flags.endswith(","):
+                        tserver_flags += ","
+                    # Add the missing flag to the tserver flags
+                    tserver_flags += flag
 
-        if user_read_committed_value is None:
-            # User has not provided the flag, add default value
-            if tserver_flags and not tserver_flags.endswith(","):
-                tserver_flags += ","
-            tserver_flags += "yb_enable_read_committed_isolation=true"
-        # If user provided it, it's already in tserver_flags or will be read from flagfile
-        # No action needed as the existing flag processing will handle it
+            # Process CSV flags from PG_PARITY_FLAGS_DICT
+            for pg_parity_flag, pg_parity_flag_values in PG_PARITY_FLAGS_DICT.items():
+                # If pg_parity_flag present in tserver_flags
+                # Extract the value and append any default missing pg_parity_flag_values
+                pg_parity_flag_start_index = tserver_flags.find(pg_parity_flag)
+                tserver_pg_parity_flag_values = ""
+                if pg_parity_flag_start_index != -1:
+                    pg_parity_flag_end_index = \
+                        tserver_flags.find('}', pg_parity_flag_start_index) + 1
+                    tserver_pg_parity_flag = \
+                        tserver_flags[pg_parity_flag_start_index:pg_parity_flag_end_index]
+                    tserver_pg_parity_flag_values = \
+                        tserver_pg_parity_flag[tserver_pg_parity_flag.find("{")+1:-1]
 
-        # Add ysql_pg_conf_csv with yb_enable_cbo
-        # Check if user has provided yb_enable_cbo within ysql_pg_conf_csv
-        user_cbo_value = self.get_user_csv_flag_value(
-            tserver_flags, flagfile_dict, "ysql_pg_conf_csv", "yb_enable_cbo")
+                    # Parse the tserver_pg_parity_flag_values into a dictionary
+                    tserver_pg_parity_flag_values_dict = {}
+                    for item in tserver_pg_parity_flag_values.split(','):
+                        if '=' in item:
+                            key, value = item.split('=')
+                            tserver_pg_parity_flag_values_dict[key] = value
 
-        if user_cbo_value is None:
-            # User has not provided yb_enable_cbo, need to add it
-            # Use regex to check if ysql_pg_conf_csv already exists in tserver_flags
-            pattern = r'ysql_pg_conf_csv=\{([^}]*)\}'
-            match = re.search(pattern, tserver_flags)
+                    # Parse the PG_PARITY_FLAGS_DICT values into a dictionary
+                    pg_parity_flag_values_dict = {}
+                    for item in pg_parity_flag_values.split(','):
+                        if '=' in item:
+                            key, value = item.split('=')
+                            pg_parity_flag_values_dict[key] = value
 
-            if match:
-                # ysql_pg_conf_csv exists, need to add yb_enable_cbo to it
-                existing_csv = match.group(1)
-                updated_csv = existing_csv + ",yb_enable_cbo=on" if existing_csv \
-                    else "yb_enable_cbo=on"
-                tserver_flags = re.sub(pattern,
-                                      'ysql_pg_conf_csv={' + updated_csv + '}',
-                                      tserver_flags)
-            else:
-                # ysql_pg_conf_csv doesn't exist, add it
-                if tserver_flags and not tserver_flags.endswith(","):
-                    tserver_flags += ","
-                tserver_flags += "ysql_pg_conf_csv={yb_enable_cbo=on}"
-        # If user provided it, it's already in tserver_flags or will be read from flagfile
-        # No action needed as the existing flag processing will handle it
+                    # Identify missing flags in tserver_pg_parity_flag_values
+                    missing_pg_parity_flag_values_dict = {}
+                    for key, value in pg_parity_flag_values_dict.items():
+                        if tserver_pg_parity_flag_values_dict.get(key) is None:
+                            missing_pg_parity_flag_values_dict[key] = value
+
+                    # If there are missing pg_parity_flag_values, append them to
+                    # tserver_pg_parity_flag_values
+                    if len(missing_pg_parity_flag_values_dict) > 0:
+                        missing_pg_parity_flag_values = ",".join("{}={}".format(k, v) \
+                                    for k, v in missing_pg_parity_flag_values_dict.items())
+                        if tserver_pg_parity_flag_values:
+                            updated_tserver_pg_parity_flag_values = tserver_pg_parity_flag_values \
+                                                            + "," + missing_pg_parity_flag_values
+                        else:
+                            updated_tserver_pg_parity_flag_values = missing_pg_parity_flag_values
+
+                        updated_tserver_pg_parity_flag = "{}={{{}}}".format(
+                                        pg_parity_flag, updated_tserver_pg_parity_flag_values)
+                        tserver_flags = tserver_flags[:pg_parity_flag_start_index] \
+                                        + updated_tserver_pg_parity_flag \
+                                        + tserver_flags[pg_parity_flag_end_index:]
+                    # No missing pg_parity_flag values found in tserver_flag
+                    else:
+                        pass
+                else:
+                    # If the pg_parity_flag is not absent,
+                    # append the entire flag with its default values
+                    if tserver_flags and not tserver_flags.endswith(","):
+                        tserver_flags += ","
+                    tserver_flags += "{}={{{}}}".format(pg_parity_flag, pg_parity_flag_values)
+
+            # Update the tserver_flags in self.configs.saved_data with pg_parity flags
+            self.configs.saved_data["tserver_flags"] = tserver_flags
 
         tserver_flags = self.config_time_source_clockbound(tserver_flags)
         self.configs.saved_data["tserver_flags"] = tserver_flags
@@ -4822,6 +4312,26 @@ class ControlScript(object):
                 else:
                     # Handle simple flags
                     yb_tserver_cmd.append("--{}".format(tserver_flag))
+
+        # Add authentication flags in tserver process
+        if self.configs.saved_data.get("secure"):
+            hba_conf_updated = False
+            for i, flag in enumerate(yb_tserver_cmd):
+                if flag.startswith("--ysql_hba_conf_csv="):
+                    pattern = re.compile(r'--ysql_hba_conf_csv=(["\']?)(.*)\1$')
+                    match = pattern.match(flag)
+                    # Extract the original ysql_hba_conf
+                    quote_char = match.group(1)  # This will be '' if there are no quotes
+                    original_hba_conf = match.group(2)
+                    # Append 'local all yugabyte trust' to the original_hba_conf
+                    updated_hba_conf = original_hba_conf + ',local all yugabyte trust'
+
+                    yb_tserver_cmd[i] = f'--ysql_hba_conf_csv={quote_char}' +\
+                                f'{updated_hba_conf}{quote_char}'
+                    hba_conf_updated = True
+
+            if not hba_conf_updated:
+                yb_tserver_cmd.extend(["--ysql_hba_conf_csv=local all yugabyte trust",])
 
         if self.configs.saved_data.get("ysql_enable_auth"):
             yb_tserver_cmd.extend(["--ysql_enable_auth=true"])
@@ -6785,10 +6295,6 @@ class ControlScript(object):
 
         (out, err, retcode) = run_process_with_retries(cmd=cmd, log_cmd=True, retries=retries,
                                                        timeout=timeout)
-        Output.log("pg_isready command: {}".format(cmd))
-        Output.log("pg_isready output: {}".format(out))
-        Output.log("pg_isready error: {}".format(err))
-        Output.log("pg_isready return code: {}".format(retcode))
         if retcode:
             return False
         else:
@@ -7350,7 +6856,7 @@ class ControlScript(object):
     def _send_xcluster_callhome(self, event_type,
                                 success=True, failure_reason=None,
                                 database_count=None,
-                                target_address=None, automatic_mode=None,
+                                target_address=None,
                                 is_target_available=None, time_taken=None):
         """Send callhome event for xcluster operations.
 
@@ -7360,7 +6866,6 @@ class ControlScript(object):
             failure_reason: Failure reason if not successful (default None)
             database_count: Number of databases (default None)
             target_address: Target cluster address (default None)
-            automatic_mode: Automatic mode flag for create_checkpoint (default None)
             is_target_available: Target availability for delete_replication (default None)
             time_taken: Time taken for the operation in "XXXX ms" format (default None)
         """
@@ -7375,10 +6880,6 @@ class ControlScript(object):
         # Add database_count if provided
         if database_count is not None:
             payload['database_count'] = database_count
-
-        # Add optional fields based on parameters
-        if automatic_mode is not None:
-            payload['automatic_mode'] = bool(automatic_mode)
 
         if is_target_available is not None:
             payload['target_available'] = is_target_available
@@ -7445,47 +6946,6 @@ class ControlScript(object):
         }
         self.diagnostics.callhome(callhome_payload)
 
-    def _send_upgrade_ysql_catalog_callhome(self, success, time_taken):
-        """Send callhome event for upgrade ysql catalog."""
-        callhome_payload = self.get_common_callhome_payload(
-            CALLHOME_EVENT_UPGRADE_YSQL_CATALOG
-        )
-        callhome_payload.payload = {
-            'success': success,
-            'time_taken': time_taken
-        }
-        self.diagnostics.callhome(callhome_payload)
-
-    def _send_upgrade_finalize_new_version_callhome(self, target_version,
-                                                     node_count, timeout_ms,
-                                                     success, failure_reason=None,
-                                                     time_taken=None):
-        """Send callhome event for upgrade finalize new version."""
-        callhome_payload = self.get_common_callhome_payload(
-            CALLHOME_EVENT_UPGRADE_FINALIZE_NEW_VERSION
-        )
-        payload = {
-            'target_version': target_version,
-            'success': success
-        }
-        if not success and failure_reason:
-            payload['failure_reason'] = failure_reason
-        if time_taken:
-            payload['time_taken'] = time_taken
-        callhome_payload.payload = payload
-        self.diagnostics.callhome(callhome_payload)
-
-    def _send_upgrade_check_version_compatibility_callhome(self, compatible, time_taken):
-        """Send callhome event for upgrade check version compatibility."""
-        callhome_payload = self.get_common_callhome_payload(
-            CALLHOME_EVENT_UPGRADE_CHECK_VERSION_COMPATIBILITY
-        )
-        callhome_payload.payload = {
-            'compatible': compatible,
-            'time_taken': time_taken
-        }
-        self.diagnostics.callhome(callhome_payload)
-
     def _get_configuration_data(self):
         """Get configuration data for start command callhome.
 
@@ -7524,6 +6984,7 @@ class ControlScript(object):
                 self.configs.saved_data.get("use_cassandra_authentication")
                 ),
                 'clockbound': self.configs.temp_data.get("enhance_time_sync_via_clockbound"),
+                'is_pg_parity_enabled': self.configs.temp_data.get("enable_pg_parity"),
                 'backup_daemon': self.configs.saved_data.get("backup_daemon")
             },
             'master_flags': filtered_master_flags,
@@ -8838,7 +8299,6 @@ class ControlScript(object):
 
             self.configs.temp_data["xcluster_replication_id"] = args.replication_id
             self.configs.temp_data["xcluster_databases"] = args.databases
-            self.configs.temp_data["xcluster_automatic_mode"] = args.automatic_mode
 
         if args.parser == "add_to_checkpoint":
             required_flags = ["replication_id", "databases"]
@@ -9504,23 +8964,6 @@ class ControlScript(object):
             if args.keyspace is not None:
                 self.setup_env_init.set_ycql_keyspace(args.keyspace)
 
-        if args.parser == "check_version_compatibility":
-            if args.timeout is not None:
-                self.configs.temp_data["upgrade_timeout"] = args.timeout
-
-        if args.parser == "ysql_catalog":
-            if args.timeout is not None:
-                self.configs.temp_data["upgrade_timeout"] = args.timeout
-
-        if args.parser == "finalize_new_version":
-            if args.timeout is not None:
-                self.configs.temp_data["upgrade_timeout"] = args.timeout
-
-        if args.parser == "stop":
-
-            if args.upgrade is not None:
-                self.configs.saved_data["upgrade_in_progress"] = args.upgrade
-
         if args.parser == "start":
             master_webserver_port = self.configs.saved_data.get("master_webserver_port")
             if args.master_webserver_port is not None:
@@ -9732,6 +9175,10 @@ class ControlScript(object):
 
                     self.configs.saved_data["ca_cert_file_path"] = os.path.join(args.certs_dir,
                                                                                     "ca.crt")
+            if args.enable_pg_parity_early_access:
+                self.configs.temp_data["enable_pg_parity"] = \
+                                args.enable_pg_parity_early_access
+
             args.background = self.parse_bool(args.background)
             if args.ui is not None:
                 args.ui = self.parse_bool(args.ui)
@@ -9802,7 +9249,7 @@ class ControlScript(object):
         common_parser.add_argument(
             "--data_dir", help=argparse.SUPPRESS)
         common_parser.add_argument(
-            "--base_dir", help="Directory under which {0} will store data, conf and logs. It defaults to `~/var`. On nodes started with a non-default `--base_dir`, this flag must be specified on every command so that {0} can identify the correct node".format(
+            "--base_dir", help="Directory under which {} will store data, conf and logs".format(
                 SCRIPT_NAME), metavar="")
         common_parser.add_argument(
             "--log_dir", help=argparse.SUPPRESS)
@@ -10007,7 +9454,7 @@ class ControlScript(object):
                 action="store_true", default=None
                 )
             cur_parser.add_argument(
-                "--retention", help="Specify the retention period for snapshots in days (from the time they were created), after which they will be automatically deleted.",
+                "--retention", help="Specify the retention period of the snapshots.",
                 metavar=""
                 )
             cur_parser.add_argument(
@@ -10127,62 +9574,14 @@ class ControlScript(object):
                 metavar=""
             )
 
-        # Top level command: upgrade
-        upgrade_parser = subparsers.add_parser("upgrade",
-            description="Upgrade YugabyteDB processes in this node.",
-            help="Upgrade YugabyteDB processes in this node.",
-            parents=[common_parser])
-
-        # Sub-commands for top level `xcluster` command
-        all_parsers["upgrade"] = upgrade_parser
-        upgrade_subparsers = upgrade_parser.add_subparsers(dest="parser", metavar="")
-        upgrade_subparsers.required = True
-        for cmd, description in (
-                ("ysql_catalog", "Upgrade the ysql catalog metadata to the new version."),
-                ("finalize_new_version", "Finalize the YugabyteDB upgrade to the new version."),
-                ("check_version_compatibility",
-                    "Check the version compatibility of the YugabyteDB."),
-        ):
-            parser_name = "upgrade_" + cmd
-            example  = ""
-            if EXAMPLE.get(parser_name):
-                example = Output.make_yellow("Examples") + ": \n" + EXAMPLE[parser_name]
-            subparser = upgrade_subparsers.add_parser(cmd, help=description,
-                                description=example, parents=[common_parser])
-            func = getattr(self, parser_name, None)
-            subparser.set_defaults(func=func)
-            all_parsers[parser_name] = subparser
-
-        # Flags for sub-command: ysql_catalog
-        for cmd in ("upgrade_ysql_catalog",):
-            cur_parser = all_parsers[cmd]
-            cur_parser.add_argument(
-                "--timeout", help="Custom timeout for the YSQL catalog upgrade in milliseconds.",
-                metavar=""
-            )
-
-        for cmd in ("upgrade_check_version_compatibility",):
-            cur_parser = all_parsers[cmd]
-            cur_parser.add_argument(
-                "--timeout", help="Custom timeout for the YugabyteDB node upgrade " +
-                    "compatibility check in milliseconds.", metavar="",)
-
-        # Flags for sub-command: server
-        for cmd in ("upgrade_finalize_new_version",):
-            cur_parser = all_parsers[cmd]
-            cur_parser.add_argument(
-                "--timeout", help="Custom timeout for the YugabyteDB node upgrade in milliseconds.",
-                metavar=""
-            )
-
-        # Top Level command: xcluster
+        # Top Level command: configure_read_replica
         xcluster_example = Output.make_yellow("Examples") + ": \n" + EXAMPLE["xcluster"]
         xcluster_parser = subparsers.add_parser("xcluster",
                                     description=xcluster_example,
                                     help="Operations for xcluster replication between 2 clusters.",
                                     parents=[common_parser])
 
-        # Sub-commands for top level `xcluster` command
+        # Sub-commands for top level `configure_read_replica` command: new, modify, delete
         all_parsers["xcluster"] = xcluster_parser
         xcluster_subparsers = xcluster_parser.add_subparsers(dest="parser", metavar="")
         xcluster_subparsers.required = True
@@ -10223,10 +9622,6 @@ class ControlScript(object):
             cur_parser.add_argument(
                 "--databases", help="Name of database to be replicated.",
                 metavar="")
-            cur_parser.add_argument(
-                "--automatic_mode",
-                help="Setup xCluster in Automatic mode.",
-                action="store_true")
 
         # Flags for sub-command: create_checkpoint
         for cmd in ("xcluster_add_to_checkpoint",):
@@ -10308,14 +9703,6 @@ class ControlScript(object):
                 "--databases", help="Name of databases to be removed.",
                 metavar="")
 
-        # Args for stop command
-        for cmd in ("stop",):
-            cur_parser = all_parsers[cmd]
-            cur_parser.add_argument(
-                "--upgrade", choices=BOOL_CHOICES,
-                help="Stop the yugabyted node for version Upgrade.",
-                metavar="")
-
         # Commands that can alter configuration file.
         for cmd in ("start",):
             cur_parser = all_parsers[cmd]
@@ -10390,6 +9777,9 @@ class ControlScript(object):
             "--config", help="{} user configuration file path".format(
                               SCRIPT_NAME), metavar="")
             cur_parser.add_argument(
+                "--enable_pg_parity_early_access", help="Enable PostgreSQL compatibility features."
+                " Default value is False.", action="store_true", default=False)
+            cur_parser.add_argument(
                 "--enhance_time_sync_via_clockbound",
                 help="Enable clock bound for the node. Default value is False.",
                 action="store_true", default=False)
@@ -10441,16 +9831,12 @@ class ControlScript(object):
         # Initialize the binary path of yb-ts-cli
         YBTableServerCLIProxy.init()
 
-        # Initialize the binary path of pg_upgrade
-        PGUpgradeProxy.init()
-
         self.validate_and_set_configs(args)
 
         # Initialize the binary path of ybadmin
         # TODO(Sanket): Clean up and refactor this file
-        YBAdminProxy.set_certs_dir(
-            self.configs.saved_data.get("master_flags"), self.configs.saved_data.get("secure"),
-            self.configs.saved_data.get("certs_dir"), self.find_hostname_of_node())
+        YBAdminProxy.set_certs_dir(self.configs.saved_data.get("master_flags"), \
+            self.configs.saved_data.get("secure"), self.configs.saved_data.get("certs_dir"))
 
         YBTableServerCLIProxy.set_certs_dir(self.configs.saved_data.get("master_flags"), \
             self.configs.saved_data.get("secure"), self.configs.saved_data.get("certs_dir"))
@@ -10569,9 +9955,6 @@ class Configs(object):
             "dns_enabled": False,
             "read_replica": False,
             "cluster_member": False,
-            "upgrade_in_progress": False,
-            "old_release_cmd": "",
-            "catalog_upgrade_completed": False,
             "created_on": 0,
         }
         # Used to store data specific to certain functions that we don't want to save.
@@ -10586,6 +9969,7 @@ class Configs(object):
             "hostnames": "",
             "enable_encrypt_at_rest": False,
             "disable_encrypt_at_rest": False,
+            "enable_pg_parity": False,
             "admin_command": "",
             "admin_operation_master_addresses":"",
             "rr_data_placement_constraint": "",
@@ -10609,7 +9993,6 @@ class Configs(object):
             "xcluster_bootstrap_done": "",
             "enhance_time_sync_via_clockbound": False,
             "is_clockbound_configured": False,
-            "upgrade_timeout": None,
         }
         self.config_file = config_file
 
@@ -11048,7 +10431,7 @@ class YBTableServerCLIProxy(object):
                                                 tserver_port),
                 "set_flag",
                 gflag,
-                "{}".format(gflag_value)
+                gflag_value
             ]
 
         if byForce:
@@ -11254,42 +10637,6 @@ class YBControllerCLIProxy(object):
 
         return []
 
-class PGUpgradeProxy(object):
-    cmd_args = []
-
-    @staticmethod
-    def init():
-        PGUpgradeProxy.cmd_args.append(find_binary_location("pg_upgrade"))
-
-    @staticmethod
-    def check_for_pg_upgrade_compatibility(yugabyted_advertise_address,
-                    ysql_rpc_port, data_dir, timeout=3600):
-        upgrade_error_message = ""
-        upgrade_return_code = 1
-        cmd = PGUpgradeProxy.cmd_args + \
-            [
-                "--check",
-                "-U{}".format('yugabyte'),
-                "--old-port={}".format(ysql_rpc_port),
-                "--old-host={}".format(yugabyted_advertise_address),
-                "--old-datadir={}".format(data_dir + "/pg_data_11"),
-            ]
-        out, err, ret_code = run_process(cmd, timeout, log_cmd=True)
-
-        if 0 != ret_code or len(out.splitlines()) <=1:
-            upgrade_error_message = out
-            upgrade_return_code = 1
-            return [upgrade_error_message, upgrade_return_code]
-
-        match = re.search(r"Clusters are compatible", out)
-        if match:
-            upgrade_return_code = 0
-            Output.log("Cluster is compatible for pg15 upgrade.")
-            return [upgrade_error_message, upgrade_return_code]
-        else:
-            upgrade_error_message = "Cluster is not compatible for pg15 upgrade."
-            Output.log(upgrade_error_message)
-            return [upgrade_error_message, upgrade_return_code]
 
 # Proxy for parsing output from yb-admin commands.
 class YBAdminProxy(object):
@@ -11300,31 +10647,22 @@ class YBAdminProxy(object):
         YBAdminProxy.cmd_args.append(find_binary_location("yb-admin"))
 
     @staticmethod
-    def set_certs_dir(master_flags, secure, certs_dir, hostname):
+    def set_certs_dir(master_flags, secure, certs_dir):
         # If the user is attempting to use TLS, let's point yb-admin to
         # the same certs dir as the master
-
         if secure:
             YBAdminProxy.cmd_args.append("--certs_dir_name={}".format(certs_dir))
-
-        if master_flags:
-
+        elif master_flags:
             flags_list = master_flags.split(",")
-
-            if not secure:
-                if 'use_node_to_node_encryption=true' not in flags_list:
-                    return
-                certs_dir_name = [y for y in
-                    [re.match('certs_dir=(.*)', x) for x in flags_list]
-                    if y is not None]
-                if not certs_dir_name[0]:
-                    raise RuntimeError("use_node_to_node_encryption=true must "
-                                    "be accompanied by a certs_dir setting")
-                YBAdminProxy.cmd_args.append(
-                  '--certs_dir_name={}'.format(certs_dir_name[0].group(1)))
-
-            if 'node_to_node_encryption_use_client_certificates=true' in flags_list:
-                YBAdminProxy.cmd_args.append('--client_node_name={}'.format(hostname))
+            if 'use_node_to_node_encryption=true' not in flags_list:
+                return
+            certs_dir_name = [y for y in
+                [re.match('certs_dir=(.*)', x) for x in flags_list]
+                if y is not None]
+            if not certs_dir_name[0]:
+                raise RuntimeError("use_node_to_node_encryption=true must "
+                                "be accompanied by a certs_dir setting")
+            YBAdminProxy.cmd_args.append('--certs_dir_name={}'.format(certs_dir_name[0].group(1)))
 
     @staticmethod
     def add_master(master_addrs, new_master_ip, new_master_rpc_port, timeout=30):
@@ -11558,21 +10896,10 @@ class YBAdminProxy(object):
         out, err, ret_code = run_process(cmd, log_cmd=True)
         return (ret_code == 0)
 
-    # Finalize the YSQL major catalog upgrade
     @staticmethod
-    def finalize_upgrade_uber_command(master_addrs, timeout=3600):
-        cmd = YBAdminProxy.cmd_args + ["-master_addresses", master_addrs,
-        "-timeout_ms", str(timeout), "finalize_upgrade"]
-        out, err, ret_code = run_process(cmd, log_cmd=True, timeout=timeout)
-        return (ret_code == 0)
-
-    @staticmethod
-    def create_checkpoint_xcluster(master_addrs, replication_id, databases,
-                                   automatic_mode, timeout=10):
+    def create_checkpoint_xcluster(master_addrs, replication_id, databases, timeout=10):
         cmd = YBAdminProxy.cmd_args + ["-master_addresses", master_addrs,
                                        "create_xcluster_checkpoint", replication_id, databases]
-        if automatic_mode:
-            cmd += ["automatic_ddl_mode"]
         out, err, ret_code = run_process(cmd, timeout=timeout, log_cmd=True)
         return (out, err, ret_code)
 
@@ -11676,39 +11003,6 @@ class YBAdminProxy(object):
 
         _, err, ret_code = run_process(cmd, timeout=timeout, log_cmd=True)
         return (err, ret_code)
-
-    @staticmethod
-    def start_ysql_catalog_upgrade(master_addrs, timeout=300000):
-        cmd = YBAdminProxy.cmd_args + ["-master_addresses", master_addrs,
-                                       "upgrade_ysql_major_version_catalog"]
-        out, _, ret_code = run_process(cmd, timeout=timeout, log_cmd=True)
-        return (out, ret_code)
-
-
-    @staticmethod
-    def check_for_ysql_catalog_upgrade_state(master_addrs, timeout=60):
-
-        upgrade_error_message = ""
-        upgrade_return_code = 1
-        cmd = YBAdminProxy.cmd_args + \
-            [
-                "-master_addresses", master_addrs,
-                "get_ysql_major_version_catalog_state"
-            ]
-        out, err, ret_code = run_process(cmd, timeout, log_cmd=True)
-
-        if 0 != ret_code or len(out.splitlines()) < 1:
-            upgrade_error_message = out
-            upgrade_return_code = 1
-            return [upgrade_error_message, upgrade_return_code]
-
-        match = re.search(r"awaiting finalization", out)
-        if match:
-            upgrade_return_code = 0
-            return [upgrade_error_message, upgrade_return_code]
-
-        return [upgrade_error_message, upgrade_return_code]
-
 
     # Passthrough method for all the yb-admin commands
     # @staticmethod

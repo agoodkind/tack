@@ -1,6 +1,6 @@
---- yugabyte-overlay/yugabyted.upstream	2026-06-07 11:08:35
-+++ yugabyte-overlay/yugabyted	2026-06-06 17:49:36
-@@ -3493,14 +3493,22 @@
+--- yugabyte-overlay/yugabyted.upstream
++++ yugabyte-overlay/yugabyted
+@@ -3243,14 +3243,22 @@
                  mandatory_port_available, recommended_port_available)
  
      def is_port_available(self, advertise_ip, port):
