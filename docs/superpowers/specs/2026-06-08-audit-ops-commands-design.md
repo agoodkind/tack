@@ -17,8 +17,9 @@ spot. TACK-328 already carries a `blocks` relationship to TACK-327.
 
 ## Settled decisions
 
-1. Operator identity comes from a pluggable source, not hard-coded env. Actor
-   kind is a new `operator`.
+1. Operator identity comes from explicit per-invocation `--operator-*` flags, never
+   an env var or hardcoded config, behind a pluggable source. Actor kind is a new
+   `operator`.
 2. Global ops record on a reserved system-org chain. Entity ops (`repair apply`)
    record on the target node's real org.
 3. Steady-state mutations are fail-closed. Bootstrap ops are exempt. Reads
@@ -104,36 +105,62 @@ the shape is:
 
 ## Section 1: one audit spec, one dispatch choke-point
 
+Import constraint, verified: `internal/ops` imports `internal/clispec` (cli.go),
+and `clispec` imports `internal/cli`. `internal/audit` imports neither. So the
+dispatch choke-point and audit wrapping live in `clispec` (which may import
+`audit`), not in `ops`, or there is an import cycle. `AuditSpec` lives in
+`internal/audit` so both `clispec` and `ops` reference it without a cycle.
+
+- `AuditSpec` (in `internal/audit`) is static metadata only: `Verb string`,
+  `Mutates bool`, `BootstrapExempt bool`, `Reads bool`. No callbacks, so it never
+  references `ops.Env`.
 - Add a required `Audit AuditSpec` field to `clispec.Operation` so a mutating op
-  cannot be declared without saying how it audits. `AuditSpec`: `Verb string`,
-  `Mutates bool`, `BootstrapExempt bool`, `Reads bool`, and optional callbacks
-  `ResolveOrg func(ctx, *Env) (uuid.UUID, error)` (default returns `SystemOrgID`),
-  `Entity func() audit.Entity`, `Delta func() *audit.Delta`.
+  cannot be declared without saying how it audits.
+- `clispec.cobraCommand`'s `RunE` becomes the one choke-point: it resolves the
+  operator, builds the recorder, preflights, runs `op.Run`, then records one
+  event. `serve` is the only op whose `AuditSpec` is the zero value (no verb), and
+  the choke-point skips recording when `Verb == ""`.
+- Per-op org, entity, and delta flow through the existing `audit` context, the
+  same mechanism the MCP boundary uses: the choke-point calls
+  `audit.WithScopeBuilder(ctx)`; an op's `Run` stamps `audit.SetScopeFields(ctx,
+  audit.Scope{OrgID: ...})` and a new `audit.SetOpsEvent(ctx, entity, delta)` when
+  it has them; after `Run`, the choke-point reads them back. Unset org defaults to
+  `SystemOrgID`. This keeps `clispec` free of `ops.Env`.
 - Fold the `ops.go` batch map (`registry`, `Register`, `Run`) into `clispec`
   operations so there is one registry. `registerBatchOps` goes away.
-- Route the `clispec` run path through one `Dispatch(ctx, cfg, spec, orgID, fn)`
-  choke-point so exactly one place records. `serve` is the only op with no audit.
 - Specialized ops (backup, deploy, provision) still build their own Docker/git
   deps inside their run func; common `Pool`/`Stores` come from `Env`.
 
-## Section 2: operator identity (pluggable)
+## Section 2: operator identity (explicit runtime flags, pluggable)
 
 The actor on an event is a kind plus an id, name, and email. Ops events get a new
 kind `operator` so they are filterable apart from seed/system actions.
 
-- New `internal/ops/operator.go`:
+Operator identity comes from **explicit per-invocation flags, never an env var or
+hardcoded config**. This is deliberate: an audited op forces the operator to name
+themselves in the command and cannot silently inherit a static identity, which is
+what aligns it with the TACK-327 lockdown. There is no `TACK_OPERATOR_*` env var
+and no operator field on `config.Config`.
+
+- `internal/cli/factory.go` gains persistent flags exactly like the existing
+  `--output`: `--operator-id`, `--operator-email`, `--operator-name` registered in
+  `RegisterGlobalFlags` on root, held as `*string` on `Factory`, exposed via an
+  accessor `func (f *Factory) Operator() (OperatorFlags, bool)` that reports
+  whether a usable id was given.
+- New `internal/ops/operator.go` (the pluggable seam, reused by the choke-point):
   - `OperatorPrincipal`: id, email, name, source.
   - `OperatorIdentitySource`: one method, `Resolve(ctx)`.
-  - `EnvOperatorSource`: one implementation, reads `TACK_OPERATOR_ID` /
-    `TACK_OPERATOR_EMAIL` / `TACK_OPERATOR_NAME`. Missing or bad id returns an
+  - `FlagOperatorSource`: the first implementation, built from the Factory's parsed
+    `--operator-*` values. A missing or unparseable `--operator-id` returns an
     error, which is what makes a steady-state op refuse to run.
-- `Dispatch` and commands only call `Resolve`; nothing in them reads env. A later
-  RBAC/OAuth/SSO/IdP source for the internal Tack engineering and operations team
-  implements the same one method and is selected at the single construction site.
-  This identity layer authenticates the internal team running ops, separate from
-  the product's multi-tenant end-user auth (`api_tokens`/`org_members`).
-- `internal/config/config.go` gains the three `TACK_OPERATOR_*` fields via
-  `caarlos0/env`.
+- The choke-point calls `Resolve`; nothing reads env. A later RBAC/OAuth/SSO/IdP
+  source for the internal Tack engineering and operations team implements the same
+  one method and is selected at the single construction site. This identity layer
+  authenticates the internal team running ops, separate from the product's
+  multi-tenant end-user auth (`api_tokens`/`org_members`).
+- Because the flags are persistent on root, they appear on every command but are
+  enforced only by the choke-point (abort when `Mutates`/`Reads` and unresolved),
+  not by `cobra.MarkFlagRequired`, so `serve` is unaffected.
 - `internal/audit/recorder.go` gains `ActorOperator ActorType = "operator"`, and
   `actorKindCode` (internal/audit/yugabyte.go) gains `case ActorOperator: return 5`.
 
@@ -141,7 +168,7 @@ kind `operator` so they are filterable apart from seed/system actions.
 
 - Extract `buildAuditRecorder` into `internal/audit` as `NewRecorderFromConfig`
   and have `cmd/server` call it too, so ops build the identical recorder.
-- `Dispatch` requires the **Kafka** recorder for mutating ops. A `NoopRecorder`
+- The choke-point requires the **Kafka** recorder for mutating ops. A `NoopRecorder`
   (no broker) or `YBRecorder` (direct SQL write, which violates the single-writer
   invariant) is rejected for mutations, so a missing broker cannot masquerade as a
   successful record. This closes the Noop-returns-nil hole.
@@ -154,16 +181,18 @@ kind `operator` so they are filterable apart from seed/system actions.
   `pkg/kgo/client.go:626` sends a Metadata request to the brokers and returns nil
   on the first success. On the YB recorder it is `r.pool.Ping(ctx)`; `NoopRecorder`
   returns nil. The core `Recorder` interface and the MCP path stay untouched.
-  `Dispatch` pings before a mutating op so it aborts before changing anything.
+  The choke-point pings before a mutating op so it aborts before changing anything.
 
 Global op example (`ops audit seed-roles` on live prod): records
 `action=ops.audit.seed_roles`, `actor_kind=5`, `org_id=SystemOrgID`.
 
-Entity op example (`ops repair apply --node 7a31...`): `ResolveOrg` runs
-`reader.Resolve(nodeID)` and uses `NodeResolve.OrgID`, so the event lands on the
-customer's real org with the repair plan as the delta. The `--actor` flag is
-dropped in favor of the resolved operator, and the preview's printed
-`ApplyCommand` example (cli_repair.go:124) drops `--actor` too.
+Entity op example (`ops repair apply --operator-id ... --node 7a31...`): the op's
+`Run` calls `reader.Resolve(nodeID)` and stamps `audit.SetScopeFields(ctx,
+audit.Scope{OrgID: resolve.OrgID})` plus `audit.SetOpsEvent(ctx, entity, delta)`
+with the repair plan, so the choke-point records on the customer's real org chain.
+The `--actor` flag is dropped in favor of the resolved `--operator-*`, and the
+preview's printed `ApplyCommand` example (cli_repair.go:124) swaps `--actor` for
+`--operator-id`.
 
 ## Section 4: failure handling
 
@@ -186,8 +215,8 @@ not achievable here.
 - `make build` (go-makefile baseline-gated pipeline) and `make check`.
 - Unit (`make test-unit`, `./internal/ops/...`, `--no-deps`) with a fake
   recorder, identity source, and `ReachabilityChecker`:
-  - `EnvOperatorSource`: missing id, bad id, valid id.
-  - `Dispatch`: steady mutation aborts on unresolved operator; aborts on Ping
+  - `FlagOperatorSource`: missing id, bad id, valid id.
+  - The choke-point: steady mutation aborts on unresolved operator; aborts on Ping
     failure; aborts when the recorder is Noop or YB; records on success. Read
     aborts on unresolved operator; proceeds on Ping failure (best-effort).
     Bootstrap proceeds with no operator and no ledger.
@@ -205,27 +234,29 @@ not achievable here.
 
 ## Files
 
-New: `internal/ops/operator.go`, `internal/ops/audit.go` (`AuditSpec`,
-`Dispatch`).
+New: `internal/ops/operator.go` (`OperatorPrincipal`, `OperatorIdentitySource`,
+`FlagOperatorSource`).
 
 Changed:
-- `docker-compose.yml`: add the `HOST` Kafka listener + loopback publish; add
-  `AUDIT_KAFKA_*` and `TACK_OPERATOR_*` to the `tack-ops` env; add `TACK_OPERATOR_*`
-  to the `app` env. Exact lines in the appendix. Paired with the configs-repo
-  changes (also in the appendix).
-- `internal/clispec`: add the `Audit` field to `Operation` and thread `Dispatch`
-  into the run path.
+- `docker-compose.yml`: add the `HOST` Kafka listener + loopback publish; add the
+  `AUDIT_KAFKA_*` producer block to the `tack-ops` env. No operator env vars.
+  Exact lines in Appendix A. Paired with the configs-repo change in Appendix B.
+- `internal/cli/factory.go`: add the persistent `--operator-id`/`--operator-email`/
+  `--operator-name` flags and an `Operator()` accessor.
+- `internal/clispec/spec.go` + `cobra.go`: add the `Audit audit.AuditSpec` field to
+  `Operation`, and make `cobraCommand`'s `RunE` the audit choke-point (resolve
+  operator from the Factory, build recorder, preflight, run, record).
 - `internal/ops/ops.go`, `internal/ops/cli.go`: fold the batch map into clispec.
 - `internal/ops/cli_repair.go`, `cli_audit.go`/`audit_seed_roles.go`,
   `provision.go`, `cli_backup.go`, `cli_deploy.go`, `cli_inspect.go`,
   `cli_verify.go`, `cli_validate.go`, `reindex.go`, `backfill_default_children.go`:
-  declare audit specs.
+  declare audit specs; entity ops stamp org/entity/delta via the audit context.
 - `cmd/server/commands.go` (`migrate`), `cmd/server/seed.go`,
   `cmd/server/audit_runtime.go`.
-- `internal/config/config.go`: `TACK_OPERATOR_*` fields.
-- `internal/audit/recorder.go` (`ActorOperator`), `internal/audit/yugabyte.go`
-  (`actorKindCode` case), plus `NewRecorderFromConfig`, `SystemOrgID`, and
-  `ReachabilityChecker` in `internal/audit`.
+- `internal/audit`: `AuditSpec` type, `ActorOperator` (`recorder.go`),
+  `actorKindCode` case (`yugabyte.go`), `NewRecorderFromConfig`, `SystemOrgID`,
+  `ReachabilityChecker`, and the `SetOpsEvent`/reader context helper. No
+  `config.Config` change (identity is flags, not env).
 
 ## Appendix A: exact `docker-compose.yml` changes (tack repo)
 
@@ -244,51 +275,38 @@ ports:
   - "[::1]:9094:9094"
 ```
 
-`app` service env gains operator identity (FDB ops run via `exec app`):
+The `app` service needs no change: it already has `AUDIT_KAFKA_BROKERS=kafka:9092`,
+and operator identity is a runtime flag, not env.
 
-```yaml
-TACK_OPERATOR_ID: ${TACK_OPERATOR_ID:-}
-TACK_OPERATOR_EMAIL: ${TACK_OPERATOR_EMAIL:-}
-TACK_OPERATOR_NAME: ${TACK_OPERATOR_NAME:-}
-```
-
-`tack-ops` service env gains its own producer endpoint plus operator identity:
+`tack-ops` service env gains its own producer endpoint (no operator env):
 
 ```yaml
 AUDIT_KAFKA_BROKERS: ${TACK_OPS_AUDIT_KAFKA_BROKERS:-[::1]:9094}
 AUDIT_KAFKA_TOPIC: ${AUDIT_KAFKA_TOPIC:-audit.events.v1}
 AUDIT_KAFKA_CLIENT_ID: ${AUDIT_KAFKA_CLIENT_ID:-tack-ops-audit-producer}
 AUDIT_KAFKA_PRODUCE_TIMEOUT: ${AUDIT_KAFKA_PRODUCE_TIMEOUT:-10s}
-TACK_OPERATOR_ID: ${TACK_OPERATOR_ID:-}
-TACK_OPERATOR_EMAIL: ${TACK_OPERATOR_EMAIL:-}
-TACK_OPERATOR_NAME: ${TACK_OPERATOR_NAME:-}
 ```
+
+The operator runs `docker compose run --rm tack-ops ops <cmd> --operator-id ...`
+(or `docker compose exec app /server ops <cmd> --operator-id ...` for FDB ops),
+passing identity on the command line each time.
 
 ## Appendix B: exact configs repo changes (paired PR, per the seam)
 
-`tack/tack.env.j2` gains:
+Only the broker address is configs-rendered; operator identity is never in the
+env, so there are no operator variables here.
+
+`tack/tack.env.j2` gains one line:
 
 ```
-TACK_OPERATOR_ID={{ tack_operator_id }}
-TACK_OPERATOR_EMAIL={{ tack_operator_email }}
-TACK_OPERATOR_NAME={{ tack_operator_name }}
 TACK_OPS_AUDIT_KAFKA_BROKERS={{ tack_ops_audit_kafka_brokers }}
 ```
 
-`ansible/inventory/group_vars/tack_all.yml` gains (shared, non-secret):
+`ansible/inventory/group_vars/tack_all.yml` gains one line (shared, non-secret):
 
 ```yaml
 tack_ops_audit_kafka_brokers: "[::1]:9094"
-tack_operator_email: ops@goodkind.io
-tack_operator_name: "Tack Operator"
 ```
-
-`tack_servers.yml` and `tack_qa_servers.yml` each gain a minted, per-environment
-`tack_operator_id` (a UUID, mirroring how `tack_kafka_cluster_id` is per-env), so
-prod and QA operator actions are distinguishable in the ledger. The id is an
-identifier, not a secret, so it lives in group_vars, not vault. Per-human
-attribution before SSO lands comes from
-`docker compose run -e TACK_OPERATOR_ID=... tack-ops ...` at invocation.
 
 ## Residual unknown (only one, QA-gated)
 
