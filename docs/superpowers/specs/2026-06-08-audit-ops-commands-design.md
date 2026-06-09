@@ -81,20 +81,26 @@ Where each op runs, verified:
 
 Fix: add a second, loopback-published Kafka listener on the LXC and point
 `tack-ops` at it, mirroring how `tack-ops` already reaches `yugabyte` over
-loopback (`TACK_OPS_DATABASE_URL` to `127.0.0.1:5433`).
+loopback. The verified precedent is `tack_ops_database_url` in the configs repo
+`group_vars/tack_all.yml`, which is `...@[::1]:5433/...`, so the address family is
+IPv6 loopback `[::1]`, not `127.0.0.1`. The exact diffs are in the appendix below;
+the shape is:
 
-- `docker-compose.yml` (this repo, inside the LXC seam): add a `HOST` listener to
-  the `kafka` service (`KAFKA_LISTENERS` gains `HOST://[::]:9094`,
-  `KAFKA_ADVERTISED_LISTENERS` gains `HOST://[::1]:9094`, the security map gains
-  `HOST:PLAINTEXT`) and publish it bound to loopback only
-  (`ports: ["[::1]:9094:9094"]`). Loopback-only keeps Kafka internal to the LXC,
-  consistent with the existing "no external port" intent.
-- `tack-ops` env gains `AUDIT_KAFKA_BROKERS` (the host listener address) plus
-  `AUDIT_KAFKA_TOPIC`/`AUDIT_KAFKA_CLIENT_ID`/`AUDIT_KAFKA_PRODUCE_TIMEOUT`. The
-  value is rendered by the configs repo (`tack.env.j2`) per the seam, since `.env`
-  lives there.
-- The `app` container keeps `kafka:9092`. The recorder is built identically in
-  both; only the broker address differs by container, supplied by env.
+- `kafka` service: add a `HOST` listener
+  (`KAFKA_LISTENERS` gains `HOST://[::]:9094`, `KAFKA_ADVERTISED_LISTENERS` gains
+  `HOST://[::1]:9094`, the security map gains `HOST:PLAINTEXT`) and publish it on
+  the LXC IPv6 loopback only (`ports: ["[::1]:9094:9094"]`). The HOST listener is a
+  plain client listener, not the controller or inter-broker listener, so KRaft
+  combined mode keeps working. Loopback-only keeps Kafka internal to the LXC.
+- `tack-ops` cannot reuse the `app` value `AUDIT_KAFKA_BROKERS=kafka:9092`, so it
+  gets a **separate** variable `TACK_OPS_AUDIT_KAFKA_BROKERS` (rendered by configs)
+  mapped to `AUDIT_KAFKA_BROKERS` inside the container, exactly as `tack-ops`
+  already maps `TACK_OPS_DATABASE_URL` to `DATABASE_URL`.
+- FDB-touching ops (`repair apply`, `reindex`, `backfill`) run via
+  `docker compose exec app /server ops ...` because `tack-ops` cannot reach FDB on
+  host networking (the same reason seed runs in the app container, TACK-318). The
+  `app` container keeps `kafka:9092`. The recorder is built identically in both;
+  only the broker address differs by container, supplied by env.
 
 ## Section 1: one audit spec, one dispatch choke-point
 
@@ -141,11 +147,14 @@ kind `operator` so they are filterable apart from seed/system actions.
   successful record. This closes the Noop-returns-nil hole.
 - Add a fixed non-nil `SystemOrgID` UUID in `internal/audit` for global-op chains.
   It is only a chain partition key, not a product node in FDB.
-- Add an optional interface `ReachabilityChecker` with `Ping(ctx)`. Implement it
-  on `KafkaRecorder` (a broker metadata probe via the existing `kgo` client) and
-  the YB recorder (`pool.Ping`); `NoopRecorder` returns nil. The core `Recorder`
-  interface and the MCP path stay untouched. `Dispatch` pings before a mutating op
-  so it aborts before changing anything.
+- Add an optional interface `ReachabilityChecker` with `Ping(ctx)`. On
+  `KafkaRecorder` it delegates to the existing client:
+  `func (k *KafkaRecorder) Ping(ctx) error { return k.client.Ping(ctx) }`. Verified
+  against franz-go `v1.21.1` (go.mod:22): `(*kgo.Client).Ping(ctx) error` at
+  `pkg/kgo/client.go:626` sends a Metadata request to the brokers and returns nil
+  on the first success. On the YB recorder it is `r.pool.Ping(ctx)`; `NoopRecorder`
+  returns nil. The core `Recorder` interface and the MCP path stay untouched.
+  `Dispatch` pings before a mutating op so it aborts before changing anything.
 
 Global op example (`ops audit seed-roles` on live prod): records
 `action=ops.audit.seed_roles`, `actor_kind=5`, `org_id=SystemOrgID`.
@@ -201,8 +210,9 @@ New: `internal/ops/operator.go`, `internal/ops/audit.go` (`AuditSpec`,
 
 Changed:
 - `docker-compose.yml`: add the `HOST` Kafka listener + loopback publish; add
-  `AUDIT_KAFKA_*` to the `tack-ops` env. Paired with a configs-repo
-  `tack.env.j2` change to render the `tack-ops` broker value and `TACK_OPERATOR_*`.
+  `AUDIT_KAFKA_*` and `TACK_OPERATOR_*` to the `tack-ops` env; add `TACK_OPERATOR_*`
+  to the `app` env. Exact lines in the appendix. Paired with the configs-repo
+  changes (also in the appendix).
 - `internal/clispec`: add the `Audit` field to `Operation` and thread `Dispatch`
   into the run path.
 - `internal/ops/ops.go`, `internal/ops/cli.go`: fold the batch map into clispec.
@@ -217,14 +227,75 @@ Changed:
   (`actorKindCode` case), plus `NewRecorderFromConfig`, `SystemOrgID`, and
   `ReachabilityChecker` in `internal/audit`.
 
-## Residual unknowns (implementation will pin, not assume)
+## Appendix A: exact `docker-compose.yml` changes (tack repo)
 
-- Exact franz-go reachability call and its timeout behavior under a partitioned
-  broker, confirmed against the franz-go version in `go.mod` during implementation.
-- Exact Kafka `HOST` listener and advertised-address strings on the v6-only
-  bridge, validated on QA before prod.
-- The configs-repo `tack.env.j2` and Ansible changes are a paired PR in the
-  configs repo, outside this repo per the seam.
+`kafka` service env (three existing lines gain a `HOST` entry):
+
+```yaml
+KAFKA_LISTENERS: PLAINTEXT://[::]:9092,CONTROLLER://[::]:9093,HOST://[::]:9094
+KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,HOST://[::1]:9094
+KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,HOST:PLAINTEXT
+```
+
+`kafka` service gains a `ports` block (it has none today):
+
+```yaml
+ports:
+  - "[::1]:9094:9094"
+```
+
+`app` service env gains operator identity (FDB ops run via `exec app`):
+
+```yaml
+TACK_OPERATOR_ID: ${TACK_OPERATOR_ID:-}
+TACK_OPERATOR_EMAIL: ${TACK_OPERATOR_EMAIL:-}
+TACK_OPERATOR_NAME: ${TACK_OPERATOR_NAME:-}
+```
+
+`tack-ops` service env gains its own producer endpoint plus operator identity:
+
+```yaml
+AUDIT_KAFKA_BROKERS: ${TACK_OPS_AUDIT_KAFKA_BROKERS:-[::1]:9094}
+AUDIT_KAFKA_TOPIC: ${AUDIT_KAFKA_TOPIC:-audit.events.v1}
+AUDIT_KAFKA_CLIENT_ID: ${AUDIT_KAFKA_CLIENT_ID:-tack-ops-audit-producer}
+AUDIT_KAFKA_PRODUCE_TIMEOUT: ${AUDIT_KAFKA_PRODUCE_TIMEOUT:-10s}
+TACK_OPERATOR_ID: ${TACK_OPERATOR_ID:-}
+TACK_OPERATOR_EMAIL: ${TACK_OPERATOR_EMAIL:-}
+TACK_OPERATOR_NAME: ${TACK_OPERATOR_NAME:-}
+```
+
+## Appendix B: exact configs repo changes (paired PR, per the seam)
+
+`tack/tack.env.j2` gains:
+
+```
+TACK_OPERATOR_ID={{ tack_operator_id }}
+TACK_OPERATOR_EMAIL={{ tack_operator_email }}
+TACK_OPERATOR_NAME={{ tack_operator_name }}
+TACK_OPS_AUDIT_KAFKA_BROKERS={{ tack_ops_audit_kafka_brokers }}
+```
+
+`ansible/inventory/group_vars/tack_all.yml` gains (shared, non-secret):
+
+```yaml
+tack_ops_audit_kafka_brokers: "[::1]:9094"
+tack_operator_email: ops@goodkind.io
+tack_operator_name: "Tack Operator"
+```
+
+`tack_servers.yml` and `tack_qa_servers.yml` each gain a minted, per-environment
+`tack_operator_id` (a UUID, mirroring how `tack_kafka_cluster_id` is per-env), so
+prod and QA operator actions are distinguishable in the ledger. The id is an
+identifier, not a secret, so it lives in group_vars, not vault. Per-human
+attribution before SSO lands comes from
+`docker compose run -e TACK_OPERATOR_ID=... tack-ops ...` at invocation.
+
+## Residual unknown (only one, QA-gated)
+
+Kafka accepting the extra `HOST` listener in KRaft combined mode, and the
+`[::1]:9094` host publish behaving like the verified `[::1]:5433` yugabyte
+precedent, must be confirmed by a QA bring-up before prod, the same gate any
+listener change goes through.
 
 ## Tickets
 
