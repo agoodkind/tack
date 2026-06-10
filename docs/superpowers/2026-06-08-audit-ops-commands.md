@@ -6,28 +6,61 @@ between a separate spec and plan. Binding rules also live in
 
 ## What this builds
 
-Every `./server ops` command records an audit event through the same recorder the
-API uses. Today the recorder fires only at the API/MCP boundary. Ops commands emit
-`slog` only. So an operator can edit product data, rotate audit credentials,
-migrate, provision, or seed prod with no entry in `audit.events`.
+Every `./server ops` command records who did what in the audit ledger
+(`audit.events`). Today nothing in the ops surface records anything. An operator
+can edit product data, rotate audit credentials, migrate, provision, or seed prod
+with no ledger entry.
 
 This unblocks TACK-327, which locks prod data-plane access to the ops surface.
 Locking access is only safe once ops are audited. TACK-328 blocks TACK-327.
 
+## The core mechanism: outbox everywhere
+
+Commands never talk to Kafka. Each command writes its audit event into an
+**outbox** inside a database it already uses:
+
+- Commands that change FoundationDB write the event into an FDB outbox **in the
+  same transaction as the change**. The change and its record are one
+  all-or-nothing step. They can never disagree.
+- Every other command writes event rows into a YugabyteDB outbox table. Where the
+  work is itself a YugabyteDB transaction, the event rides in that transaction
+  too, and is again all-or-nothing.
+- A small **relay** tails both outboxes and produces the events to Kafka. The
+  audit-consumer projects them into `audit.events` exactly as it does today.
+
+Why this shape:
+
+- The record and the change live or die together wherever a transaction can hold
+  both. This is the transactional outbox pattern
+  ([Confluent](https://developer.confluent.io/courses/microservices/the-transactional-outbox-pattern/)),
+  the standard answer to the dual-write problem
+  ([Confluent](https://www.confluent.io/blog/dual-write-problem/)).
+- Once an event is in an outbox it is guaranteed to reach the ledger: the relay
+  retries until Kafka accepts it, and the consumer's unique
+  `(event_id, event_time)` index drops any duplicate, the idempotent-consumer
+  upgrade from at-least-once to effectively-once
+  ([Morling](https://www.morling.dev/blog/revisiting-the-outbox-pattern/)).
+- Commands need no Kafka access. This deletes the earlier plan's loopback Kafka
+  listener, the `tack-ops` broker env, and the configs broker variable. The
+  availability of auditing equals the availability of the database the command
+  was touching anyway.
+- The single-writer invariant holds: the relay is the only ops-event producer,
+  and the audit-consumer stays the only writer of `audit.events`.
+
 ## Binding rules
 
-- One choke-point records every command. It lives in `internal/clispec`. Do not
+- One choke-point gates every command. It lives in `internal/clispec`. Do not
   weaken it, bypass it, or let a mutating command skip it.
-- A mutation records its intent before it changes anything. The intent record is
-  fail-closed: if the ledger cannot accept it, nothing mutates. So no mutation is
-  ever unrecorded. This is the day-0 guarantee, not a later upgrade.
+- No mutation without a durable record. For FDB ops the record commits with the
+  change. For everything else an intent row commits before the work starts, and
+  if that write fails, nothing runs. Day 0, not later.
 - Identity is pluggable via `audit.OperatorIdentitySource`. Never inline an
   identity lookup. Add a source type; select it at one site.
 - Identity is never an env var and never a `config.Config` field.
 - No identity resolves, the command fails loud, in both dry-run and execute.
 - Every audited command is dry-run by default. `--execute` is the action gate.
-- The audit-consumer stays the only writer of `audit.events`. Ops produce to
-  Kafka; they never write the ledger SQL directly.
+- Ops never write `audit.events` directly. Events travel outbox, relay, Kafka,
+  audit-consumer.
 
 ## Decisions
 
@@ -36,11 +69,32 @@ Locking access is only safe once ops are audited. TACK-328 blocks TACK-327.
    Actor kind is a new `operator`.
 2. Global ops record on a reserved system org. Entity ops record on the target
    node's real org.
-3. A mutation records intent before it acts and outcome after. The intent record
-   is fail-closed. Reads record after, best-effort. Bootstrap is never exempt from
-   identity.
+3. Every command class gets the strongest record physics allows: same-transaction
+   where a transaction can hold both the change and the event; intent-plus-outcome
+   where the effect is external. The table below is exact.
 4. Scope is all mutating ops plus read events for inspect/verify/validate.
 5. Every command declares a static `AuditSpec` and runs through one choke-point.
+
+## What each command class gets
+
+| Class | Record | Can record and change disagree? |
+| --- | --- | --- |
+| FDB mutations (repair apply, reindex, backfill) | One event, committed in the same FDB transaction as the change | Never |
+| seed-roles (YugabyteDB role DDL) | Event row in the same YB transaction as the DDL, if YB allows DDL plus DML in one transaction (verify at implementation); else intent and outcome rows | Never, or only between intent and outcome |
+| migrate | Intent and outcome rows in the YB outbox; goose owns its own per-migration transactions | Only between intent and outcome, and `goose_db_version` makes reconciling mechanical |
+| External effects (deploy, backup, fdb configure) | Intent and outcome rows in the YB outbox | Only between intent and outcome; a registry or Docker daemon cannot join any transaction, so this is the physical ceiling ([Confluent EOS](https://www.confluent.io/blog/exactly-once-semantics-are-possible-heres-how-apache-kafka-does-it/), [KIP-98](https://cwiki.apache.org/confluence/display/KAFKA/KIP-98+-+Exactly+Once+Delivery+and+Transactional+Messaging)) |
+| Reads (inspect, verify, validate, repair preview) | One event row, best-effort; a failed write never blocks a read | A read changes nothing |
+
+Where intent and outcome exist, both carry one shared `op_id`, and the intent
+carries the action's idempotent identifier (the image digest for a deploy, the
+backup destination, the migration range), so an intent with no outcome is
+resolvable by checking that identifier against reality.
+
+Bootstrap is the one narrow exception: on a fresh environment the outboxes do not
+exist until provision creates them (fdb configure, then migrate). Provision
+therefore proceeds before the outboxes exist and records one terminal
+`ops.provision` event as soon as migrate has created them. Identity is still
+required; only the ledger write is deferred. After first boot, nothing is exempt.
 
 ## Verified facts
 
@@ -48,77 +102,84 @@ Each was read from the source named, not inferred.
 
 - `audit.events.org_id` has no foreign key (migrations/002_audit.sql:39-57). A
   synthetic system org is legal.
-- `audit.events` has `FORCE ROW LEVEL SECURITY`; only `audit_writer` may INSERT,
-  policy `WITH CHECK (true)` (002_audit.sql:206-224). The consumer is that writer,
-  so a system-org row inserts fine, and ops must not write SQL directly.
+- `audit.events` has `FORCE ROW LEVEL SECURITY`; only `audit_writer` may INSERT
+  (002_audit.sql:206-224). The consumer is that writer; ops must not write it.
 - `actor_kind` is `SMALLINT` (002_audit.sql:46). The string-to-int map is one
   function, `actorKindCode(ActorType) int16` (yugabyte.go): user=1, service=2,
   system=3, api_token=4. `operator=5` is free.
-- `ActorType` is a Go string, values `user/service/system/api_token`
-  (recorder.go:62-69), not an int.
+- `ActorType` is a Go string (recorder.go:62-69), not an int.
 - `EventContext.OrgID` is mandatory (recorder.go:81-82). `Reader.Query` rejects
   `org_id == uuid.Nil` (reader.go). So `SystemOrgID` must be a fixed non-nil UUID.
-- `buildAuditRecorder` selects Kafka when `AUDIT_KAFKA_BROKERS` is set, else YB
-  when `AUDIT_WRITER_DSN` is set, else `NoopRecorder`, whose `Record` returns nil
-  (audit_runtime.go:78-110).
 - `KafkaRecorder.Record` produces synchronously with `acks=all` and returns the
-  broker error, never swallowing it (kafka_recorder.go:100-145). So a failed intent
-  produce is a hard error the choke-point acts on; no separate ping is needed.
+  broker error, never swallowing it (kafka_recorder.go:100-145). The relay reuses
+  it as-is.
+- The Kafka partition key is `(org_id, shard)` and `event_id` is minted at record
+  time (kafka_recorder.go:187-198, recorder.go:31-36). The relay preserves both,
+  so chains and dedup behave identically to API events.
 - `buildRoot` renders serve/migrate/seed/audit/ops through one `clispec` registry
   plus `RenderCobra` (commands.go:44-52). The only separate registry is the
-  `ops.go` batch map, bridged in by `registerBatchOps` (cli.go:50-72).
+  `ops.go` batch map, bridged by `registerBatchOps` (cli.go:50-72).
 - `clispec.Operation.Run` is wrapped in `cobraCommand`'s `RunE` (cobra.go:83-92),
   which holds the `*cli.Factory`.
-- `cli.Factory.RegisterGlobalFlags` registers a persistent `--output` flag and
-  stores a `*string` (factory.go:49-52). The same pattern fits the operator flags.
+- `cli.Factory.RegisterGlobalFlags` registers a persistent `--output` flag
+  (factory.go:49-52). The same pattern fits the operator flags.
 - `repair apply` has a required `--actor` flag and runs `console.Apply` after
-  `NewEnv` opens FDB+postgres (cli_repair.go:142-217).
-- `NodeReader.Resolve(ctx, nodeID) (*NodeResolve, error)` returns
-  `NodeResolve{OrgID, NodeType}` (domain/node/reader.go, view.go).
+  `NewEnv` opens FDB plus postgres (cli_repair.go:142-217).
+- `NodeReader.Resolve(ctx, nodeID)` returns `NodeResolve{OrgID, NodeType}`
+  (domain/node/reader.go, view.go).
 - `provision` runs `postgres.Migrate` and `RunAuditSeedRoles` in-process in the
-  host-networked `tack-ops` and reaches bridge containers only via the Docker
-  socket (provision.go:64-92). `seed` uses `audit.WithSuppressed` (seed.go:72).
-- `readGitCommit` execs `git` (deploy.go:135-152). The git-config source does not;
-  it parses the gitconfig file to honor the no-shell-out rule.
+  host-networked `tack-ops` (provision.go:64-92). `tack-ops` reaches YugabyteDB on
+  loopback (`TACK_OPS_DATABASE_URL`, docker-compose.yml:384-424) but cannot reach
+  the bridge-only Kafka or FDB, which is why commands must not need Kafka.
+- `audit-consumer` runs on the bridge (docker-compose.yml:336-373), so it can
+  reach both `kafka:9092` and, once the cluster file is mounted, FDB.
+- FoundationDB versionstamped keys give commit-ordered, conflict-free outbox
+  entries a tail can range-read from a high-water mark
+  ([FoundationDB queues](https://apple.github.io/foundationdb/queues.html),
+  [Record Layer paper](https://www.foundationdb.org/files/record-layer-paper.pdf)).
+- `readGitCommit` execs `git` (deploy.go:135-152). The git-config identity source
+  does not; it parses the gitconfig file to honor the no-shell-out rule.
 - `config.Config` uses `caarlos0/env/v11`, no config file (config.go).
+
+Source note: the outbox and exactly-once claims were collected by a deep-research
+run (2026-06-09) from the cited primary sources; its adversarial verification was
+rate-limited and did not complete, so they rest on source authority and
+consistency. A re-run is cheap.
 
 ## Import-cycle constraint
 
 `ops` imports `clispec`; `clispec` imports `cli`; `audit` imports none of them. So:
 
-- `AuditSpec`, `OperatorIdentitySource`, and `OperatorPrincipal` live in `audit`.
-- The git and flag sources live in `cli`.
+- `AuditSpec`, `OperatorIdentitySource`, `OperatorPrincipal`, and the outbox
+  read/write code live in `audit` (plus the FDB key family in the fdb adapter).
+- The git and flag identity sources live in `cli`.
 - The choke-point lives in `clispec`.
 
 ## Design
 
 ### The choke-point
 
-`clispec.cobraCommand`'s `RunE` is the one place that records. Steps, in order:
+`clispec.cobraCommand`'s `RunE` is the one gate. Steps, in order:
 
 1. If `AuditSpec.Verb == ""`, just run (serve only).
 2. Resolve the operator. If it fails, abort loud, in both dry-run and execute.
-3. If not `--execute`, print the operator and the action, then stop. Nothing runs,
-   nothing records.
-4. Build the recorder. For a mutation, require the Kafka recorder; reject Noop or
-   YB, so a missing broker cannot look like a successful record.
-5. For a mutation, record the intent event first (verb, operator, org, planned
-   entity, outcome pending). This produce is synchronous with `acks=all`. If it
-   returns an error, abort: nothing mutates. This is the fail-closed gate.
-6. Run the command.
-7. Record the outcome event (ok or error, with the delta). For a mutation this is
-   best-effort, because the intent is already durable; a failure here exits
-   non-zero and logs loud so the missing outcome is reconciled. A read records one
-   event here only, best-effort.
-
-Both events share an `op_id` so the intent and outcome correlate. A read skips
-step 5; it has no intent.
+3. If not `--execute`, print the operator and the action, then stop. Nothing
+   runs, nothing records.
+4. Build the prepared event (verb, operator, op_id) and put it on the context.
+5. By class:
+   - FDB-atomic op (`AuditSpec.Atomic`): the op's own transaction writes the
+     event into the FDB outbox via the required helper. After `Run`, the
+     choke-point checks the helper was called and fails loud if not.
+   - Other mutation: the choke-point inserts the intent row into the YB outbox
+     and aborts if that insert fails. Then `Run`. Then the outcome row,
+     best-effort with a loud non-zero exit on failure, since the intent is
+     already durable.
+   - Read: `Run`, then one event row, best-effort.
 
 ### Identity
 
 The actor is a kind plus id, name, email. Ops get a new kind `operator`. Identity
-is one interface with many sources. The seam is built for more sources than ship
-today, so adding OIDC is one new type at one site.
+is one interface with many sources, so adding OIDC is one new type at one site.
 
 - `internal/cli/operator_git.go` `GitConfigOperatorSource` reads `user.name` and
   `user.email` from the gitconfig file (`$HOME/.gitconfig`, honoring
@@ -133,77 +194,39 @@ today, so adding OIDC is one new type at one site.
 - OIDC is a verified source the same seam takes. Its contract is in
   `docs/operator-identity-and-audit.md`.
 
-### Recorder and system org
+### The outboxes
 
-- Extract `buildAuditRecorder` into `audit.NewRecorderFromConfig(ctx, cfg)`;
-  `cmd/server` calls it too.
-- Add a fixed non-nil `SystemOrgID` for global-op chains.
+- FDB: a new key family in `internal/adapters/foundationdb/keys.go`,
+  `(ops_outbox, versionstamp) -> Event JSON`, written with
+  `SET_VERSIONSTAMPED_KEY` so entries are commit-ordered and conflict-free. A
+  helper `AppendAuditEvent(txn, Event)` is the only writer.
+- YugabyteDB: a new migration creates `ops_outbox (event_id UUID PRIMARY KEY,
+  event JSONB NOT NULL, created_at TIMESTAMPTZ NOT NULL)`, owned by the normal
+  app role, not the audit roles. `audit.WriteOutboxTx(ctx, tx, Event)` and
+  `audit.WriteOutbox(ctx, pool, Event)` are the writers.
+
+### The relay
+
+A goroutine pair inside the existing audit-consumer binary, since it already runs
+continuously on the bridge with Kafka and YB access; compose adds the FDB cluster
+file mount.
+
+- FDB side: range-read from a high-water-mark key, produce each event with the
+  existing `KafkaRecorder`, then clear the read range and advance the mark in one
+  FDB transaction.
+- YB side: poll `ops_outbox` ordered by `created_at`, produce, delete the row
+  after the broker ack.
+- Duplicates are safe in both directions because the consumer's
+  `(event_id, event_time)` index drops them, so the relay needs no leader
+  election; running one instance is an efficiency choice, not a correctness one.
 
 ### Where events land
 
-Global ops use `SystemOrgID`. Entity ops resolve the node's real org via
-`reader.Resolve` and stamp it onto the audit context with `SetScopeFields`, plus
-the entity and delta with `SetOpsEvent`. The choke-point reads both back after the
-command runs.
-
-### Failure handling
-
-| Class | Operator | Ledger down at intent | Outcome record fails |
-| --- | --- | --- | --- |
-| Steady mutation (repair apply, reindex, backfill, seed-roles live, backup, deploy) | Required, abort if unresolved | Intent produce fails, so abort before mutating | Exit non-zero, loud Error; intent is already durable |
-| Bootstrap (provision, first-boot migrate/seed/seed-roles) | Required, abort if unresolved | Intent produce fails, so abort | Best-effort; provision records one terminal event |
-| Read (inspect, verify, validate, repair preview) | Required, abort if unresolved | No intent; proceed | Best-effort |
-
-Without `--execute` every row is a dry-run: identity still resolves and still
-fails loud if absent, nothing runs, nothing records.
-
-### Atomicity: the day-0 guarantee
-
-The hard property is that no mutation is ever unrecorded. The design meets it from
-day 0, not later. A mutation records its intent to Kafka first, synchronously with
-`acks=all`. If that produce fails, the op aborts and nothing mutates. So a mutation
-runs only after its intent is durable in the ledger pipeline.
-
-This is the safe side of the dual-write problem
-([Confluent](https://www.confluent.io/blog/dual-write-problem/)). The two writes
-(the mutation and the Kafka event) still cannot share one transaction, since no
-transaction spans FoundationDB, Yugabyte, and Kafka, and cross-database
-transactions are banned here. Intent-first chooses the safe failure: at worst the
-ledger holds an intent for a mutation that then crashed before completing, which is
-visible and reconciled. It never holds a silent unrecorded mutation. Over-record,
-never under-record.
-
-The projection is already effectively-once, so intent-first is enough for the
-ledger to be correct: one Kafka partition is read by one consumer, and the unique
-`(event_id, event_time)` index dedups any redelivery, which is the idempotent
-consumer the literature describes
-([Morling](https://www.morling.dev/blog/revisiting-the-outbox-pattern/),
-[lydtech](https://www.lydtechconsulting.com/blog/kafka-idempotent-consumer-transactional-outbox)).
-
-External-effect ops cannot do better than this, and that is a firm limit, not a
-gap to close later. Kafka exactly-once does not extend to a Docker deploy or a
-registry push and cannot roll back a remote system
-([Confluent EOS](https://www.confluent.io/blog/exactly-once-semantics-are-possible-heres-how-apache-kafka-does-it/)),
-and Kafka transactions alone do not make a store mutation and an emit atomic
-([KIP-98](https://cwiki.apache.org/confluence/display/KAFKA/KIP-98+-+Exactly+Once+Delivery+and+Transactional+Messaging)).
-Intent-plus-outcome is the correct permanent answer for them.
-
-One optional optimization exists for FDB-mutating ops only: write the event into an
-FDB outbox subspace via `SET_VERSIONSTAMPED_KEY` in the same transaction as the
-node mutation, then relay it to Kafka. That makes the FDB write and the event one
-atomic FDB transaction, so the rare over-record disappears too. FoundationDB
-versionstamps make the relay a simple high-water-mark tail with no polling worker,
-and CloudKit chose a version index over a counter precisely because a counter
-serializes otherwise non-conflicting transactions
-([Record Layer paper](https://www.foundationdb.org/files/record-layer-paper.pdf),
-[FoundationDB queues](https://apple.github.io/foundationdb/queues.html)). This is an
-optimization on a design that is already correct and scalable, not a prerequisite,
-so it is out of scope here and noted for whoever wants to remove the over-record.
-
-Source note: the dual-write claims above were collected by a deep-research run
-(2026-06-09) from the cited primary sources; its adversarial verification was
-rate-limited and did not complete, so they rest on source authority and
-consistency, and a re-run is cheap.
+Global ops use the fixed `SystemOrgID`. Entity ops resolve the node's real org
+via `reader.Resolve` and stamp it with `audit.SetScopeFields`, plus entity and
+delta with `audit.SetOpsEvent`. The choke-point and the FDB helper read them
+back. Events carry `event_id` minted at write time, so sharding and chain
+placement behave exactly like API events.
 
 ## Implementation
 
@@ -218,172 +241,162 @@ Build `make build`; unit `make test-unit`; integration `make test-integration`.
 
 ### Task 2: AuditSpec and SystemOrgID
 
-- Create `internal/audit/ops.go`: `var SystemOrgID = uuid.MustParse("00000000-0000-0000-0000-0000000005ee")` and `type AuditSpec struct { Verb string; Mutates, BootstrapExempt, Reads bool }`.
+- Create `internal/audit/ops.go`:
+  `var SystemOrgID = uuid.MustParse("00000000-0000-0000-0000-0000000005ee")` and
+  `type AuditSpec struct { Verb string; Mutates, Atomic, BootstrapExempt, Reads bool }`.
+  `Atomic` marks FDB ops whose event commits inside their own transaction.
 - Test `SystemOrgID != uuid.Nil` and the literal. Commit.
 
-### Task 3: intent and outcome event shape
+### Task 3: event shape for intent and outcome
 
-- Add `OutcomePending Outcome = "pending"` to `recorder.go` for the intent event.
-- Add to `ops.go` a helper `OpID() string` (or carry the op_id in `Event.Extra`)
-  so the intent and outcome events of one command correlate.
-- No `Ping` or `ReachabilityChecker`: the synchronous `acks=all` produce of the
-  intent event is the fail-closed gate, so a separate reachability probe is
-  unnecessary.
+- Add `OutcomePending Outcome = "pending"` to `recorder.go`.
+- Carry a shared `op_id` (in `EventContext.Reason` or `Event.Extra`; pick one and
+  test it) so intent and outcome correlate.
 - Test the pending outcome serializes and the op_id round-trips. Commit.
 
-### Task 4: NewRecorderFromConfig
+### Task 4: YB outbox
 
-- Create `internal/audit/from_config.go` `NewRecorderFromConfig(ctx, cfg) Recorder` by moving the selection body out of `cmd/server/audit_runtime.go`. `audit` importing `config` is acyclic.
-- Rewire `buildAuditRecorder` to call it.
-- Test empty config returns `NoopRecorder`; brokers set returns `*KafkaRecorder`. Commit.
+- New migration `ops_outbox` as in the design section. `make build` then run the
+  migration in the integration stack.
+- `internal/audit/outbox_yb.go`: `WriteOutboxTx`, `WriteOutbox`, plus
+  `ReadOutboxBatch` and `DeleteOutbox` for the relay.
+- Integration test: write a row, read it back, delete it. Commit.
 
-### Task 5: ops-event context and identity interface
+### Task 5: FDB outbox
 
-- Add to `ops.go`: `OperatorPrincipal{ID uuid.UUID; Email, Name, Source string}` and `OperatorIdentitySource{ Resolve(ctx) (OperatorPrincipal, error) }`.
-- Add to `context.go`'s scope-builder holder an entity and delta field, plus `SetOpsEvent(ctx, Entity, *Delta)` and `OpsEventFromContext(ctx) (Entity, *Delta)`.
-- Test a round trip. Commit.
+- Add the `ops_outbox` key family to `internal/adapters/foundationdb/keys.go`.
+- Adapter helper `AppendAuditEvent(txn, Event)` using `SET_VERSIONSTAMPED_KEY`,
+  plus `ReadOutboxFrom(mark)` and `ClearThrough(mark)` for the relay.
+- Integration test: append two events in two transactions, read them back in
+  commit order, clear, read empty. Commit.
 
-### Task 6: operator flags and --execute on Factory
+### Task 6: relay in the audit-consumer
 
-- Add `operatorID/Email/Name *string` and `execute *bool` to `Factory`, an `Operator() (OperatorFlags, bool)` accessor, and an `Execute() bool` accessor.
-- In `RegisterGlobalFlags`, register persistent `--operator-id`, `--operator-email`, `--operator-name`, and `--execute` (bool, default false).
-- Test: parse `--operator-id ... --operator-email ... --execute` and read them back. Commit.
+- Add the two relay goroutines to `cmd/audit-consumer`, reusing
+  `audit.NewKafkaRecorder`. Wire shutdown into the existing lifecycle.
+- docker-compose: mount `/etc/foundationdb:/etc/foundationdb:ro` into
+  `audit-consumer` and set `FDB_CLUSTER_FILE`.
+- Integration test with `kfake` (franz-go, already in go.mod): write one event to
+  each outbox, run the relay once, assert both arrive on the topic with the right
+  key and that the outboxes are empty. Commit.
 
-### Task 7: git config and selector sources
+### Task 7: ops-event context and identity interface
 
-- Create `internal/cli/operator_git.go` `GitConfigOperatorSource`: parse the `[user]` section of `$GIT_CONFIG_GLOBAL` or `$HOME/.gitconfig`; derive id `uuid.NewSHA1(namespace, []byte(email))`; `Source` is `"git"`; error if no email.
-- Create `internal/cli/operator.go`: `FlagOperatorSource` (id from `--operator-*`, `Source` `"flag"`) and `NewOperatorSource(f)` that returns the flag source when an id is set, else the git source. Both return `audit.OperatorPrincipal`.
-- Test: git parse present and absent; flag override valid and bad; selector prefers flags. Commit.
+- Add to `internal/audit/ops.go`: `OperatorPrincipal{ID uuid.UUID; Email, Name,
+  Source string}` and `OperatorIdentitySource{ Resolve(ctx) (OperatorPrincipal, error) }`.
+- Add to `context.go`'s scope-builder an entity and delta field plus
+  `SetOpsEvent` / `OpsEventFromContext`, and the prepared-event carrier the
+  choke-point and FDB helper share.
+- Test round trips. Commit.
 
-### Task 8: Audit field on clispec.Operation
+### Task 8: operator flags and --execute on Factory
 
-- Add `Audit audit.AuditSpec` to `Operation[I]` and `auditSpec()` to the `renderable` interface. `make build`. Commit.
+- Add `operatorID/Email/Name *string` and `execute *bool` to `Factory`, with
+  `Operator()` and `Execute()` accessors; register all four as persistent flags
+  in `RegisterGlobalFlags`.
+- Test: parse and read back. Commit.
 
-### Task 9: the choke-point
+### Task 9: git config and selector sources
 
-- Create `internal/clispec/audit.go` with `runAudited(ctx, spec, src, execute bool, newRecorder func() audit.Recorder, run func(ctx) error) error` implementing the seven steps above (intent record, then run, then outcome record). Generic over the recorder constructor so a fake injects in tests.
-- In `cobra.go`, replace the final `return op.Run(...)` with a `runAudited(...)` call passing `op.Audit`, `cli.NewOperatorSource(f)`, `f.Execute()`, a recorder built from `audit.NewRecorderFromConfig(ctx, f.Cfg)`, and the `op.Run` closure.
-- Tests with a capturing fake recorder and a fake source: a mutation records intent then outcome on success; a mutation aborts and never runs when the intent produce fails; aborts on unresolved operator in both modes; dry-run runs nothing and records nothing; a mutation rejects Noop/YB. Commit.
+- `internal/cli/operator_git.go`: parse `[user]` from `$GIT_CONFIG_GLOBAL` or
+  `$HOME/.gitconfig`; id is `uuid.NewSHA1(namespace, email)`; `Source` `"git"`;
+  error when no email.
+- `internal/cli/operator.go`: `FlagOperatorSource` (`Source` `"flag"`) and
+  `NewOperatorSource(f)` preferring flags. Both return `audit.OperatorPrincipal`.
+- Test: present, absent, bad id, selector preference. Commit.
 
-### Task 10: register flags at root
+### Task 10: Audit field on clispec.Operation
 
-- `f.RegisterGlobalFlags(root)` already runs in `buildRoot`, so the new flags appear. Smoke check `--operator-id` and `--execute` show in `--help`. `make build`.
+- Add `Audit audit.AuditSpec` to `Operation[I]` and `auditSpec()` to
+  `renderable`. `make build`. Commit.
 
-### Task 11: fold the batch map into clispec
+### Task 11: the choke-point
 
-- Convert `runReindex` and `runBackfillDefaultChildren` into `clispec.Operation` leaf ops under `batchGroup`, opening `NewEnv` inside `Run`, each with its `Audit` spec.
-- Remove `registerBatchOps`; register the two directly. Delete `registry`, `Register`, `Get`, `List`, `Run`, `Operation` from `ops.go`; keep `Env`, `NewEnv`, `Close`.
-- `make build`, `make test-unit`. Commit.
+- `internal/clispec/audit.go`: `runAudited(ctx, spec, src, execute bool, outbox
+  audit.OutboxWriter, run func(ctx) error) error` implementing the steps in the
+  design section. `OutboxWriter` is a small interface so tests inject a fake.
+- Wire into `cobra.go`'s `RunE`.
+- Tests: mutation writes intent then outcome; mutation aborts and never runs when
+  the intent write fails; atomic op fails loud when the helper was not called;
+  aborts on unresolved operator in both modes; dry-run runs nothing and records
+  nothing; read proceeds when its event write fails. Commit.
 
-### Task 12: declare audit specs on every command
+### Task 12: register flags at root
 
-Add `Audit: audit.AuditSpec{...}` to each command literal:
+- `f.RegisterGlobalFlags(root)` already runs in `buildRoot`. Smoke check
+  `--operator-id` and `--execute` in `--help`. `make build`.
 
-| Command | Verb | Mutates | BootstrapExempt | Reads |
-| --- | --- | --- | --- | --- |
-| repair apply | ops.repair.apply | true | false | false |
-| repair preview | ops.repair.preview | false | false | true |
-| repair classes | ops.repair.classes | false | false | true |
-| audit seed-roles | ops.audit.seed_roles | true | true | false |
-| provision | ops.provision | true | true | false |
-| inspect read/find/query | ops.inspect.read/.find/.query | false | false | true |
-| verify node | ops.verify.node | false | false | true |
-| validate node | ops.validate.node | false | false | true |
-| reindex | ops.reindex | true | false | false |
-| backfill.default_children | ops.backfill.default_children | true | false | false |
-| migrate | ops.migrate | true | true | false |
-| seed | ops.seed | true | true | false |
+### Task 13: fold the batch map into clispec
 
-- For repair apply: remove the `--actor` flag and `ActorID`; the operator comes
-  from the global flags. After resolving the node, stamp the org:
-  `audit.SetScopeFields(ctx, audit.Scope{OrgID: resolve.OrgID})` from
-  `reader.Resolve(nodeID)`. After apply, stamp entity and delta with
-  `audit.SetOpsEvent`. Drop the `--yes` flag in favor of `--execute`; keep
-  `--confirm <token>`. Update the preview's printed example to use `--operator-id`
-  and `--execute`.
-- For inspect/verify/validate on a `--node`, stamp the resolved org too. Other
-  reads default to `SystemOrgID`.
+- Convert `runReindex` and `runBackfillDefaultChildren` into `clispec.Operation`
+  leaf ops under `batchGroup`; delete the `ops.go` map machinery; keep `Env`,
+  `NewEnv`, `Close`. `make build`, `make test-unit`. Commit.
+
+### Task 14: audit specs on every command
+
+| Command | Verb | Mutates | Atomic | BootstrapExempt | Reads |
+| --- | --- | --- | --- | --- | --- |
+| repair apply | ops.repair.apply | true | true | false | false |
+| repair preview | ops.repair.preview | false | false | false | true |
+| repair classes | ops.repair.classes | false | false | false | true |
+| audit seed-roles | ops.audit.seed_roles | true | false | true | false |
+| provision | ops.provision | true | false | true | false |
+| inspect read/find/query | ops.inspect.read/.find/.query | false | false | false | true |
+| verify node | ops.verify.node | false | false | false | true |
+| validate node | ops.validate.node | false | false | false | true |
+| reindex | ops.reindex | true | true | false | false |
+| backfill.default_children | ops.backfill.default_children | true | true | false | false |
+| migrate | ops.migrate | true | false | true | false |
+| seed | ops.seed | true | false | true | false |
+
+- repair apply: drop `--actor` and `--yes` (identity from global flags, gate is
+  `--execute`; keep `--confirm <token>`). Resolve the node org and stamp it; call
+  `AppendAuditEvent` inside the apply transaction with the repair plan as delta;
+  update the preview's printed example.
+- reindex and backfill write their event in the same FDB transaction as their
+  final batch, with counts in the delta.
+- seed-roles: attempt DDL plus outbox row in one YB transaction; if YB rejects
+  DDL with DML, fall back to intent and outcome rows and record which path is
+  live in this doc.
+- External and SQL ops put the idempotent identifier in the intent (image digest,
+  backup destination, migration range).
 - `make build`, `make fmt`, `make test-unit`. Commit.
-
-### Task 13: integration test via kfake
-
-- Add `internal/test/integration/audit_ops_test.go` (build tag `integration`).
-  Stand up a `kfake` broker (franz-go `pkg/kfake`, already in go.mod), point a
-  `KafkaRecorder` at it, drive `runAudited` with a mutation spec, a resolved
-  operator, and execute true, then consume the record and assert the decoded
-  `Event` has the verb, `Actor.Type == ActorOperator`, and `Context.OrgID ==
-  SystemOrgID`. The consumer projection (actor_kind=5 row) is the consumer's own
-  test plus the QA step, since the test stack has no consumer.
-- `make test-integration`. Commit.
-
-### Task 14: docker-compose Kafka HOST listener
-
-- `kafka` env: append `,HOST://[::]:9094` to `KAFKA_LISTENERS`, `,HOST://[::1]:9094`
-  to `KAFKA_ADVERTISED_LISTENERS`, `,HOST:PLAINTEXT` to the security map.
-- `kafka` gains `ports: ["[::1]:9094:9094"]`.
-- `tack-ops` env gains `AUDIT_KAFKA_BROKERS: ${TACK_OPS_AUDIT_KAFKA_BROKERS:-[::1]:9094}`,
-  `AUDIT_KAFKA_TOPIC`, `AUDIT_KAFKA_CLIENT_ID: tack-ops-audit-producer`,
-  `AUDIT_KAFKA_PRODUCE_TIMEOUT`. No operator env.
-- Validate `docker compose --profile audit --profile ops config >/dev/null`. Commit.
 
 ### Task 15: configs repo (separate PR, per the seam)
 
-- `tack/tack.env.j2`: add `TACK_OPS_AUDIT_KAFKA_BROKERS={{ tack_ops_audit_kafka_brokers }}`.
-- `group_vars/tack_all.yml`: add `tack_ops_audit_kafka_brokers: "[::1]:9094"`,
-  `tack_deploy_operator_id`, `tack_deploy_operator_email`.
-- `deploy-tack.yml` provision task: add `--operator-id {{ tack_deploy_operator_id }} --operator-email {{ tack_deploy_operator_email }} --execute`.
-- Not part of the tack-repo commit. Link the configs PR from the tack PR.
+- `group_vars/tack_all.yml`: add `tack_deploy_operator_id`,
+  `tack_deploy_operator_email` (identifiers, not secrets).
+- `deploy-tack.yml` provision task: append
+  `--operator-id {{ tack_deploy_operator_id }} --operator-email {{ tack_deploy_operator_email }} --execute`.
+- No broker variable and no env template change: commands do not use Kafka.
+- Link the configs PR from the tack PR.
 
 ### Task 16: gates
 
 - `make build`, `make check`, `make test-unit`, `make test-integration` all clean.
-- QA manual, never prod and never first: with the audit profile up and the HOST
-  listener live, run `ops audit seed-roles --operator-id <uuid> --operator-email you@x --execute`
-  and `docker compose exec app /server ops repair apply --operator-id <uuid> --node <uuid> --confirm <token> --execute`.
-  Confirm `actor_kind=5`, the verbs, system vs real org, and chain continuity via
-  the audit MCP tools. Run a mutation with the broker down and confirm it aborts.
-  Run an inspect with the broker down and confirm it proceeds. Run any command
-  without `--operator-id` and confirm it fails loud in both dry-run and execute.
+- QA manual, never prod and never first:
+  - `ops audit seed-roles --execute` with git-config identity in a shell, and
+    `--operator-id` in the container; confirm the ledger rows (`actor_kind=5`,
+    right verb, system org) and chain continuity via the audit MCP tools.
+  - `repair apply` on a test node; confirm one event on the node's real org with
+    the delta, and that killing the command mid-apply leaves either both the
+    change and the event or neither.
+  - Stop Kafka; run seed-roles; confirm it still completes and the event arrives
+    after Kafka returns (outbox drains). Stop YugabyteDB; confirm a mutation
+    aborts before doing anything.
+  - Run any command with no resolvable identity; confirm a loud failure in both
+    dry-run and execute. Run without `--execute`; confirm dry-run prints identity
+    and action and changes nothing.
 
 ## Handles to confirm at execution time
 
+- Whether YugabyteDB allows role DDL and DML in one transaction (decides the
+  seed-roles row in the class table).
 - The `Env.Stores` reader field name (`go doc ./internal/adapters/foundationdb Stores`).
-- The scope-builder holder field names in `context.go`.
-- The repair apply result's change-set accessor for the delta; omit Delta if none.
-- The telemetry attr helper names; fall back to `slog.String`.
+- The scope-builder field names in `context.go`.
+- The repair apply result's change-set accessor for the delta.
 - The `NoopRecorder` file (`go doc ./internal/audit NoopRecorder`).
-
-## Appendix: exact docker-compose lines
-
-`kafka` env:
-
-```yaml
-KAFKA_LISTENERS: PLAINTEXT://[::]:9092,CONTROLLER://[::]:9093,HOST://[::]:9094
-KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,HOST://[::1]:9094
-KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,HOST:PLAINTEXT
-```
-
-`kafka` ports:
-
-```yaml
-ports:
-  - "[::1]:9094:9094"
-```
-
-`tack-ops` env:
-
-```yaml
-AUDIT_KAFKA_BROKERS: ${TACK_OPS_AUDIT_KAFKA_BROKERS:-[::1]:9094}
-AUDIT_KAFKA_TOPIC: ${AUDIT_KAFKA_TOPIC:-audit.events.v1}
-AUDIT_KAFKA_CLIENT_ID: ${AUDIT_KAFKA_CLIENT_ID:-tack-ops-audit-producer}
-AUDIT_KAFKA_PRODUCE_TIMEOUT: ${AUDIT_KAFKA_PRODUCE_TIMEOUT:-10s}
-```
-
-## Residual unknown (QA-gated)
-
-Kafka accepting the extra HOST listener in KRaft combined mode, and the
-`[::1]:9094` publish behaving like the verified `[::1]:5433` yugabyte precedent,
-must be confirmed on a QA bring-up before prod.
+- audit-consumer lifecycle hooks for the relay goroutines.
 
 ## Tickets
 

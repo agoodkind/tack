@@ -18,18 +18,19 @@ Exactly one place records every CLI ops command: the `RunE` choke-point in
 
 Do not weaken or bypass it:
 
-- No command calls `audit.Recorder.Record` directly. Recording happens only at the
-  choke-point.
+- No command talks to Kafka and no command writes `audit.events`. Events go into
+  an outbox (FoundationDB or YugabyteDB), the relay ships them to Kafka, and the
+  audit-consumer stays the only ledger writer.
 - No mutating or reading command ships without an `AuditSpec` verb.
-- Do not remove or reorder the resolve-identity, record-intent, run,
-  record-outcome sequence.
+- Do not remove or reorder the gate sequence: resolve identity, then record, then
+  run (or record-with-the-change in one transaction for FDB ops).
 - Do not add a per-command flag or env that turns recording off.
 
-The mutation guarantee is that no mutation is ever unrecorded. A mutating op
-records its intent before it changes anything, and the intent record is
-fail-closed: if the operator is unresolved or the ledger cannot accept the intent,
-the op aborts and nothing mutates. This holds from day 0. The full atomicity
-reasoning and the bootstrap exemption are in the design doc.
+The mutation guarantee is that no mutation is ever unrecorded, from day 0. A
+command that changes FoundationDB commits its event in the same transaction as
+the change, so the two can never disagree. Every other mutation commits an intent
+row before it starts and aborts if that write fails. The per-class table and the
+bootstrap exception live in the design doc.
 
 ## Identity is pluggable (binding, keep it pluggable)
 
