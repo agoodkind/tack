@@ -253,6 +253,10 @@ TACK-304.
 2. **No shell-outs in tack Go.** No shell scripts and no `os/exec` of CLIs.
    Engine CLIs (`fdbbackup`, `yb-admin`, `ysql_dump`, `tar`) run inside one-shot
    containers through the Docker Go SDK helpers in `internal/ops/dockerctl.go`.
+3. **Ops audit choke-point.** Every `./server ops` command records through the one
+   `clispec` audit choke-point; do not weaken it, do not bypass it per command, and
+   keep operator identity pluggable via `audit.OperatorIdentitySource`. See
+   [`docs/operator-identity-and-audit.md`](docs/operator-identity-and-audit.md).
 
 ## No config files
 
