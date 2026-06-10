@@ -51,9 +51,9 @@ Why this shape:
 
 - One choke-point gates every command. It lives in `internal/clispec`. Do not
   weaken it, bypass it, or let a mutating command skip it.
-- No mutation without a durable record. For FDB ops the record commits with the
-  change. For everything else an intent row commits before the work starts, and
-  if that write fails, nothing runs. Day 0, not later.
+- No action without a durable record, reads included. For FDB ops the record
+  commits with the change. For everything else a record commits before the work
+  starts, and if that write fails, nothing runs. Day 0, not later.
 - Identity is pluggable via `audit.OperatorIdentitySource`. Never inline an
   identity lookup. Add a source type; select it at one site.
 - Identity is never an env var and never a `config.Config` field.
@@ -80,10 +80,13 @@ Why this shape:
 | Class | Record | Can record and change disagree? |
 | --- | --- | --- |
 | FDB mutations (repair apply, reindex, backfill) | One event, committed in the same FDB transaction as the change | Never |
-| seed-roles (YugabyteDB role DDL) | Event row in the same YB transaction as the DDL, if YB allows DDL plus DML in one transaction (verify at implementation); else intent and outcome rows | Never, or only between intent and outcome |
+| seed-roles (YugabyteDB role DDL) | Intent and outcome rows. Verified 2026-06-09 on the prod-pinned image (2024.2.8.0-b85, test stack): role DDL escapes the transaction. `BEGIN; CREATE ROLE; INSERT; ROLLBACK` rolled back the row but the role survived, so binding the DDL and the event row in one transaction is silently impossible on this version | Only between intent and outcome |
 | migrate | Intent and outcome rows in the YB outbox; goose owns its own per-migration transactions | Only between intent and outcome, and `goose_db_version` makes reconciling mechanical |
 | External effects (deploy, backup, fdb configure) | Intent and outcome rows in the YB outbox | Only between intent and outcome; a registry or Docker daemon cannot join any transaction, so this is the physical ceiling ([Confluent EOS](https://www.confluent.io/blog/exactly-once-semantics-are-possible-heres-how-apache-kafka-does-it/), [KIP-98](https://cwiki.apache.org/confluence/display/KAFKA/KIP-98+-+Exactly+Once+Delivery+and+Transactional+Messaging)) |
-| Reads (inspect, verify, validate, repair preview) | One event row, best-effort; a failed write never blocks a read | A read changes nothing |
+| Reads (inspect, verify, validate, repair preview) | One access event row, written **before** the read runs, fail-closed: if the row cannot be written, the read does not run | A read changes nothing; the event records the access itself |
+
+Reads are fail-closed on purpose. The incident behind TACK-327 was an
+unauthorized read, so an unrecordable read is exactly what must not proceed.
 
 Where intent and outcome exist, both carry one shared `op_id`, and the intent
 carries the action's idempotent identifier (the image digest for a deploy, the
@@ -174,7 +177,8 @@ consistency. A re-run is cheap.
      and aborts if that insert fails. Then `Run`. Then the outcome row,
      best-effort with a loud non-zero exit on failure, since the intent is
      already durable.
-   - Read: `Run`, then one event row, best-effort.
+   - Read: the choke-point inserts the access event row first and aborts if that
+     insert fails. Then `Run`. No outcome row.
 
 ### Identity
 
@@ -319,7 +323,7 @@ Build `make build`; unit `make test-unit`; integration `make test-integration`.
 - Tests: mutation writes intent then outcome; mutation aborts and never runs when
   the intent write fails; atomic op fails loud when the helper was not called;
   aborts on unresolved operator in both modes; dry-run runs nothing and records
-  nothing; read proceeds when its event write fails. Commit.
+  nothing; read aborts and never runs when its access-event write fails. Commit.
 
 ### Task 12: register flags at root
 
@@ -355,9 +359,10 @@ Build `make build`; unit `make test-unit`; integration `make test-integration`.
   update the preview's printed example.
 - reindex and backfill write their event in the same FDB transaction as their
   final batch, with counts in the delta.
-- seed-roles: attempt DDL plus outbox row in one YB transaction; if YB rejects
-  DDL with DML, fall back to intent and outcome rows and record which path is
-  live in this doc.
+- seed-roles: intent and outcome rows. Do not try to bind the role DDL and the
+  event row in one transaction: verified on 2024.2.8.0-b85 that the DDL escapes
+  the transaction (a ROLLBACK keeps the role), so a one-transaction bind would
+  look correct and silently not be.
 - External and SQL ops put the idempotent identifier in the intent (image digest,
   backup destination, migration range).
 - `make build`, `make fmt`, `make test-unit`. Commit.
@@ -383,15 +388,13 @@ Build `make build`; unit `make test-unit`; integration `make test-integration`.
     change and the event or neither.
   - Stop Kafka; run seed-roles; confirm it still completes and the event arrives
     after Kafka returns (outbox drains). Stop YugabyteDB; confirm a mutation
-    aborts before doing anything.
+    aborts before doing anything and an inspect aborts before reading.
   - Run any command with no resolvable identity; confirm a loud failure in both
     dry-run and execute. Run without `--execute`; confirm dry-run prints identity
     and action and changes nothing.
 
 ## Handles to confirm at execution time
 
-- Whether YugabyteDB allows role DDL and DML in one transaction (decides the
-  seed-roles row in the class table).
 - The `Env.Stores` reader field name (`go doc ./internal/adapters/foundationdb Stores`).
 - The scope-builder field names in `context.go`.
 - The repair apply result's change-set accessor for the delta.
