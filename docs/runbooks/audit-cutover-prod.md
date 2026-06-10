@@ -1,13 +1,18 @@
 # Prod audit cutover runbook
 
-Status: **validated on QA, ready to execute.** The full sequence below ran on a
-freshly recreated QA on 2026-06-07 and reproduced all eight audit acceptance
-behaviors; the preconditions are verified and the rollback is concrete. It has
-not yet been executed on prod; after the first prod run, append the observed
-commands and outcome to the Rollback section. The durable replacement for this
-manual sequence is the provision entrypoint tracked in epic TACK-18 / TACK-303
-("deploy is not provision"); once that lands, most of this becomes one idempotent
-command.
+Status: **executed on prod 2026-06-09, succeeded.** Run via
+`deploy deploy-tack --limit tack_servers` at SHA `634562b` (which pins YugabyteDB
+at 2024.2.8.0-b85 so the cutover changes only the audit pipeline, not the engine;
+see TACK-330). Verified end to end: the audit-consumer self-provisioned, became
+the single writer, ensured `audit.events.v1` at 256 partitions, the notarizer
+signs per-(org, shard) Merkle roots, and a live MCP call produced new chained
+`audit.events` rows. No rollback was needed. The deploy reported a non-zero exit
+only from the trailing `sysctl --system` handler failing on host-only `kernel.*`
+keys in the unprivileged LXC, since fixed in configs (the handler now runs
+`sysctl -p /etc/sysctl.d/99-tack-ipv6.conf`). The earlier QA validation
+(2026-06-07, all eight audit acceptance behaviors) still holds. The durable
+replacement for this manual sequence is the provision entrypoint tracked in epic
+TACK-18 / TACK-303 ("deploy is not provision").
 
 This runbook hardcodes no values. Every name, tag, count, and secret is read from
 the source of truth named inline. Do not paste literal SHAs, passwords, hostnames,
