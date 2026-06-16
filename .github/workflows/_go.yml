@@ -1,0 +1,68 @@
+name: Go CI
+
+on:
+  workflow_call:
+
+env:
+  FDB_VERSION: 7.4.6
+
+jobs:
+  # Static checks plus the host-side test suite. cgo links against the FDB
+  # client library, which the Dockerfile installs on the production image; we
+  # install the same .deb on the runner.
+  check:
+    name: build, lint, test, vuln, deadcode
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install FDB client library
+        run: |
+          curl -fsSL \
+            "https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-clients_${FDB_VERSION}-1_amd64.deb" \
+            -o /tmp/fdb-clients.deb
+          sudo dpkg -i /tmp/fdb-clients.deb
+          rm /tmp/fdb-clients.deb
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: install golangci-lint v2
+        run: |
+          # The golangci-lint-action ships an old default version (v1.64.x) and
+          # always runs lint inline; we want v2 (matches .golangci.yml) and want
+          # `make check` to drive it. Install via the upstream curl script and
+          # let make do the rest.
+          curl -fsSL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh \
+            | sh -s -- -b "$(go env GOPATH)/bin" v2.11.4
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: make check
+        run: make check
+        env:
+          # Keep the in-tree go.mk fetch deterministic.
+          GO_MK_URL: https://raw.githubusercontent.com/agoodkind/go-makefile/main/go.mk
+
+  # End-to-end integration suite against a real FDB cluster. Runs the Go test
+  # binary inside a sibling container on the same Docker network, so the FDB
+  # protocol-level connect-packet exchange resolves through the in-network IP
+  # without going through Docker port forwarding.
+  integration:
+    name: integration tests (FDB)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: bring up FDB
+        run: ./scripts/test-fdb-up.sh
+
+      - name: run integration tests
+        run: ./scripts/test-integration.sh
+
+      - name: tear down
+        if: always()
+        run: ./scripts/test-fdb-down.sh
