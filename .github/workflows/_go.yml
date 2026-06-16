@@ -1,18 +1,7 @@
-name: check
+name: Go CI
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-
-# Cancel an in-flight run when the same PR pushes a new commit.
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
-permissions:
-  contents: read
+  workflow_call:
 
 env:
   FDB_VERSION: 7.4.6
