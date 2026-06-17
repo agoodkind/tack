@@ -14,7 +14,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.9.2
 	github.com/mark3labs/mcp-go v0.50.0
-	github.com/meilisearch/meilisearch-go v0.36.2
+	github.com/meilisearch/meilisearch-go v0.36.3
 	github.com/moby/moby/api v1.54.2
 	github.com/moby/moby/client v0.4.1
 	github.com/pressly/goose/v3 v3.27.1
