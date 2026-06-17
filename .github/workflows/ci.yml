@@ -16,6 +16,34 @@ permissions:
 
 jobs:
   go:
-    uses: ./.github/workflows/_go.yml
+    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main
     permissions:
       contents: read
+      id-token: write
+    with:
+      golangci_lint_version: v2.11.4
+      pre_make_commands: |
+        fdb_version=7.4.6
+        curl -fsSL \
+          "https://github.com/apple/foundationdb/releases/download/${fdb_version}/foundationdb-clients_${fdb_version}-1_amd64.deb" \
+          -o /tmp/fdb-clients.deb
+        sudo dpkg -i /tmp/fdb-clients.deb
+        rm /tmp/fdb-clients.deb
+      timeout_minutes: 15
+
+  integration:
+    name: integration tests (FDB)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: bring up FDB
+        run: ./scripts/test-fdb-up.sh
+
+      - name: run integration tests
+        run: ./scripts/test-integration.sh
+
+      - name: tear down
+        if: always()
+        run: ./scripts/test-fdb-down.sh
