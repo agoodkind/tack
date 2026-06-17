@@ -32,8 +32,8 @@ github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.19.24 h1:yPLVC8Lbsw92e
 github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.19.24/go.mod h1:H2h39H1AivHYkozUIUYoVJGMUOvdJ4Lv9DLyUSMAjW8=
 github.com/aws/aws-sdk-go-v2/service/s3 v1.102.1 h1:vttIo8BQwfnhimKRBZBBF3Y38SAIxif72B/M91m9hDk=
 github.com/aws/aws-sdk-go-v2/service/s3 v1.102.1/go.mod h1:2qjInACJr84m/Tm4XXCcVNpejmbKy9kz7TEa6viQHSk=
-github.com/aws/smithy-go v1.25.1 h1:J8ERsGSU7d+aCmdQur5Txg6bVoYelvQJgtZehD12GkI=
-github.com/aws/smithy-go v1.25.1/go.mod h1:YE2RhdIuDbA5E5bTdciG9KrW3+TiEONeUWCqxX9i1Fc=
+github.com/aws/smithy-go v1.27.2 h1:y9NPmSE6am6LjEFPfqHqG/jJk7AauQvhCJONKh7kpzk=
+github.com/aws/smithy-go v1.27.2/go.mod h1:YE2RhdIuDbA5E5bTdciG9KrW3+TiEONeUWCqxX9i1Fc=
 github.com/caarlos0/env/v11 v11.4.1 h1:fYwH0sWEsBSMPG7t4e/PEfTFzrWrpjyygXyUnWiSwEw=
 github.com/caarlos0/env/v11 v11.4.1/go.mod h1:qupehSf/Y0TUTsxKywqRt/vJjN5nz6vauiYEUUr8P4U=
 github.com/cenkalti/backoff/v5 v5.0.3 h1:ZN+IMa753KfX5hd8vVaMixjnqRZ3y8CuJKRKj1xcsSM=
