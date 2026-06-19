@@ -23,7 +23,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
       - name: check overlay drift
         run: bash scripts/check-overlay-drift.sh
 
@@ -43,7 +43,7 @@ jobs:
             extra_build_args: ""
     steps:
       - name: checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: derive build metadata
         id: meta
