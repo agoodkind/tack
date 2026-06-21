@@ -19,7 +19,7 @@ require (
 	github.com/moby/moby/client v0.4.1
 	github.com/pressly/goose/v3 v3.27.1
 	github.com/spf13/cobra v1.10.2
-	github.com/twmb/franz-go v1.21.1
+	github.com/twmb/franz-go v1.21.3
 	github.com/twmb/franz-go/pkg/kfake v0.0.0-20260504210720-963be6fd5989
 	github.com/twmb/franz-go/pkg/kmsg v1.13.1
 	go.opentelemetry.io/otel v1.44.0
@@ -62,7 +62,7 @@ require (
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
-	github.com/klauspost/compress v1.18.5 // indirect
+	github.com/klauspost/compress v1.18.6 // indirect
 	github.com/mfridman/interpolate v0.0.2 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
