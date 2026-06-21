@@ -229,7 +229,7 @@ services:
       retries: 10
 
   temporal:
-    image: temporalio/auto-setup:1.26.2
+    image: temporalio/auto-setup:1.29.3
     restart: unless-stopped
     environment:
       DB: postgres12
