@@ -3,7 +3,7 @@ module goodkind.io/tack
 go 1.26.4
 
 require (
-	connectrpc.com/connect v1.19.2
+	connectrpc.com/connect v1.20.0
 	github.com/ClickHouse/clickhouse-go/v2 v2.46.0
 	github.com/apple/foundationdb/bindings/go v0.0.0-20250923185926-685eda6efef7
 	github.com/aws/aws-sdk-go-v2 v1.41.8
