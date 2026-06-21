@@ -13,7 +13,7 @@ require (
 	github.com/caarlos0/env/v11 v11.4.1
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.10.0
-	github.com/mark3labs/mcp-go v0.50.0
+	github.com/mark3labs/mcp-go v0.55.0
 	github.com/meilisearch/meilisearch-go v0.36.3
 	github.com/moby/moby/api v1.55.0
 	github.com/moby/moby/client v0.5.0
