@@ -17,7 +17,7 @@ func loadAuditKey(path string) (ed25519.PrivateKey, string, error) {
 	}
 	raw, err := os.ReadFile(path) // #nosec G304,G703 operator-provided audit signing key path
 	if err != nil {
-		slog.Error("audit.key_read_failed", slog.String("err", err.Error()))
+		slog.Error("audit.key_read_failed", slog.String("err", err.Error())) // #nosec G706 operator-supplied key path; only the read error message is logged
 		return nil, "", fmt.Errorf("read audit key: %w", err)
 	}
 	block, _ := pem.Decode(raw)
