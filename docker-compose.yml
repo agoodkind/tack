@@ -191,7 +191,7 @@ services:
       - /etc/foundationdb:/etc/foundationdb:ro
 
   meilisearch:
-    image: getmeili/meilisearch:v1.47
+    image: getmeili/meilisearch:v1.48
     restart: unless-stopped
     environment:
       MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-tack-dev-meili-key-change-in-prod}
