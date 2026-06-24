@@ -254,7 +254,7 @@ services:
       start_period: 30s
 
   temporal-ui:
-    image: temporalio/ui:2.51.0
+    image: temporalio/ui:2.51.1
     restart: unless-stopped
     environment:
       TEMPORAL_ADDRESS: temporal:7233
