@@ -14,13 +14,20 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// redactSecret removes the S3 secret from text before it is logged, because
-// fdbbackup and fdbrestore echo the blobstore URL with inline credentials.
+// redactSecret removes both S3 credentials from text before it is logged,
+// because fdbbackup and fdbrestore echo the blobstore URL inline.
 func redactSecret(cfg *config.Config, s string) string {
-	if cfg.BackupS3SecretKey == "" {
-		return s
+	first := cfg.BackupS3SecretKey
+	second := cfg.BackupS3AccessKey
+	if len(second) > len(first) {
+		first, second = second, first
 	}
-	return strings.ReplaceAll(s, cfg.BackupS3SecretKey, "***REDACTED***")
+	for _, credential := range []string{first, second} {
+		if credential != "" {
+			s = strings.ReplaceAll(s, credential, "***REDACTED***")
+		}
+	}
+	return s
 }
 
 // restoreDrillFDB restores the FoundationDB continuous backup from the object

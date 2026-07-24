@@ -424,7 +424,6 @@ services:
       TACK_BACKUP_S3_BUCKET_AUDIT: ${TACK_BACKUP_S3_BUCKET_AUDIT:-tack-audit-archive}
     volumes:
       - /root/backups:/root/backups
-      - /root/fdb-snapshots:/root/fdb-snapshots
       - /etc/foundationdb:/etc/foundationdb:ro
       # Docker socket mount is intentional for this short-lived ops container:
       # the backup binary orchestrates scratch containers on the local daemon.
