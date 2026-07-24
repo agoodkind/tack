@@ -191,7 +191,11 @@ services:
       - /etc/foundationdb:/etc/foundationdb:ro
 
   meilisearch:
-    image: getmeili/meilisearch:v1.47
+    # Pinned to v1.12 to match the persisted index version (1.12.8) on prod.
+    # Meilisearch refuses to start when the engine version differs from the
+    # database version, so bumping this requires a reindex from FoundationDB.
+    # Engine upgrade is tracked separately (TACK-332).
+    image: getmeili/meilisearch:v1.12
     restart: unless-stopped
     environment:
       MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-tack-dev-meili-key-change-in-prod}
@@ -214,7 +218,11 @@ services:
       retries: 10
 
   temporal-db:
-    image: postgres:18-alpine
+    # Pinned to postgres:16-alpine to match the existing data directory layout
+    # on prod. Postgres 18 images refuse the pre-18 /var/lib/postgresql/data
+    # layout, so bumping this requires a pg_upgrade or a workflow-state reset.
+    # Major upgrade is tracked separately (TACK-332).
+    image: postgres:16-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER: temporal
