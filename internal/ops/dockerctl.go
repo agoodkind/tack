@@ -388,7 +388,6 @@ func containerExecStreaming(
 // waitForExec polls a check command in container until it exits 0 or the
 // timeout elapses. Uses [context.WithTimeout] plus a re-usable ticker so
 // the poll loop honors cancellation without consulting [time.Now] directly.
-// Mirrors `wait_for_exec` in scripts/backup-restore-test.sh.
 func waitForExec(
 	ctx context.Context,
 	cli *client.Client,

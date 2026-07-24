@@ -185,9 +185,9 @@ func verifyArtifactShapes(ctx context.Context, log *slog.Logger, backupDir strin
 	return fails
 }
 
-// checkFDBArchive walks the tar.gz inventory and asserts the fdbbackup
-// markers are present. Returns a plain error so the caller logs once with
-// the aggregated detail.
+// checkFDBArchive walks the tar.gz inventory and asserts the archive carries
+// either fdbbackup snapshot markers or raw .sqlite/.fdq files. Returns a plain
+// error so the caller logs once with the aggregated detail.
 func checkFDBArchive(path string) error {
 	names, err := ListTarGz(path)
 	if err != nil {
@@ -224,8 +224,8 @@ func checkFDBArchive(path string) error {
 	return fmt.Errorf("no fdbbackup snapshot marker AND no .sqlite/.fdq files (2026-04-25 empty-backup signature)")
 }
 
-// checkYugabyteTar checks volume-tar shape. Audit CSV bundles are accepted
-// when their file signature matches.
+// checkYugabyteTar checks volume-tar shape by requiring at least one Yugabyte
+// data marker (yb-data, pg_data, postgresql.conf, or a tablet- entry).
 func checkYugabyteTar(path string) error {
 	names, err := ListTarGz(path)
 	if err != nil {
