@@ -168,10 +168,13 @@ func fdbBackupURLMatchesDestination(cfg *config.Config, backupURL string) bool {
 		return false
 	}
 
-	hostMatches := strings.EqualFold(
-		parsedBackupURL.Hostname(),
-		parsedConfiguredHost.Hostname(),
+	// Compare the full authority (host and port), not just the hostname, so an
+	// active backup on the configured host and bucket but a different port is
+	// rejected rather than silently accepted.
+	authorityMatches := strings.EqualFold(
+		parsedBackupURL.Host,
+		parsedConfiguredHost.Host,
 	)
 	bucketMatches := parsedBackupURL.Query().Get("bucket") == cfg.BackupS3BucketMain
-	return parsedBackupURL.Scheme == "blobstore" && hostMatches && bucketMatches
+	return parsedBackupURL.Scheme == "blobstore" && authorityMatches && bucketMatches
 }

@@ -95,6 +95,11 @@ func TestFDBBackupActiveFromStatusRejectsDifferentDestination(t *testing.T) {
 			backupURL: "blobstore://status-access:status-secret@other-store:8333/run" + // gitleaks:allow test placeholder
 				"?bucket=tack-backups&region=us-east-1&secure_connection=0",
 		},
+		{
+			name: "port",
+			backupURL: "blobstore://status-access:status-secret@seaweedfs-s3:9333/run" + // gitleaks:allow test placeholder
+				"?bucket=tack-backups&region=us-east-1&secure_connection=0",
+		},
 	}
 
 	for _, test := range tests {
