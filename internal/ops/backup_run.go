@@ -141,8 +141,8 @@ func newBackupCtx(ctx context.Context, cfg *config.Config, cli *client.Client, l
 }
 
 // updateLatestPointer writes /root/backups/.latest with the run ID so
-// downstream tools (offsite-pull, restore-test timer) can find the most
-// recent run without scanning the filesystem.
+// downstream tools can find the most recent run without scanning the
+// filesystem.
 func updateLatestPointer(ctx context.Context, log *slog.Logger, backupRoot, runID string) error {
 	latest := filepath.Join(backupRoot, ".latest")
 	err := os.WriteFile(latest, []byte(runID+"\n"), 0o600)

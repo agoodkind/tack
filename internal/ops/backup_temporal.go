@@ -9,7 +9,7 @@ import (
 )
 
 // temporalDBBackupContainer is the named live Temporal-DB container the
-// production compose stack ships. The shell scripts assume the same name.
+// production compose stack ships.
 const temporalDBBackupContainer = "tack-temporal-db-1"
 
 // runBackupTemporalDB pg_dumps the Temporal-DB database. This is the fourth

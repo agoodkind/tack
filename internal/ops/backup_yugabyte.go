@@ -9,7 +9,7 @@ import (
 )
 
 // yugabyteBackupContainer is the named live Yugabyte container the
-// production compose stack ships. The shell scripts assume the same name.
+// production compose stack ships.
 const yugabyteBackupContainer = "tack-yugabyte-1"
 
 // runBackupYugabyte writes a plain-SQL ysql_dump of the tack database to

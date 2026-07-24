@@ -117,8 +117,8 @@ update-fdb:
 	@echo "Reminder: hand-edit FDB_BINDINGS_VERSION in this Makefile to match"
 	@echo "and update the fdb.APIVersion call in internal/adapters/foundationdb/client.go."
 
-# Run a full backup on CT 117 inside the tack-ops sibling container. Snapshots
-# FDB, Yugabyte, Temporal-DB, and Meilisearch to the SeaweedFS object store.
+# Run a full backup on CT 117 inside the tack-ops sibling container, snapshotting
+# FDB, Yugabyte, Temporal-DB, and Meilisearch via `./server ops backup`.
 .PHONY: backup
 backup:
 	ssh tack 'cd /root/tack && docker compose run --rm tack-ops ops backup'
