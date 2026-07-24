@@ -7,8 +7,8 @@
 #
 # tack Makefile.
 # Build/lint pipeline lives in go-makefile and is fetched at runtime.
-# Project owns deploy/migrate/seed/backup/integration; the remote rsync
-# deploy targets do not move into the central pipeline.
+# Project owns migrate/seed/backup/integration; these do not move into the
+# central pipeline.
 
 # Identity. tack's internal/version uses lowercase unexported fields, so
 # VPKG canonical stamping does not bind. We pre-populate GO_BUILD_LDFLAGS
@@ -117,50 +117,11 @@ update-fdb:
 	@echo "Reminder: hand-edit FDB_BINDINGS_VERSION in this Makefile to match"
 	@echo "and update the fdb.APIVersion call in internal/adapters/foundationdb/client.go."
 
-# Deploy: backup first, then rsync source to CT 117, build natively on the
-# server, restart. Builds exactly the checked-in dependency graph rather than
-# mutating go.mod/go.sum during deploy. Uses --network host so Docker build
-# can resolve DNS via the host's IPv6 nameserver.
-#
-# Backup-as-prereq is non-negotiable. The 2026-04-28 incident showed how
-# easy it is to lose data during a deploy when the underlying infra has
-# subtle persistence bugs. Every deploy now produces a snapshot first;
-# if backup fails, deploy aborts before touching production state.
-# Rationale lives in scripts/backup.sh and the deploy landmines memory.
-#
-# Override with NO_PRE_DEPLOY_BACKUP=1 only when the cluster is provably
-# unhealthy and the snapshot itself would fail; document the reason.
-.PHONY: deploy
-ifeq ($(NO_PRE_DEPLOY_BACKUP),1)
-deploy: deploy-preflight
-else
-deploy: deploy-preflight backup
-endif
-	rsync -az --delete --exclude='.git' --exclude='bin/' --exclude='dist/' --exclude='.make/' --exclude='.env' --exclude='.env.*' --exclude='.test-fdb/' . tack:/root/tack/
-	ssh tack "cd /root/tack && docker build --network host \
-		--build-arg COMMIT=$(TACK_COMMIT) \
-		--build-arg BUILD_TIME=$(TACK_BUILD_TIME) \
-		--build-arg TAG=$(TACK_TAG) \
-		--build-arg DIRTY=$(TACK_DIRTY) \
-		-t tack-server . && docker compose up -d --no-build app && /root/tack/scripts/host-maintenance.sh deploy-cleanup"
-
-.PHONY: deploy-preflight
-deploy-preflight:
-	rsync -az scripts/host-maintenance.sh tack:/root/tack/scripts/host-maintenance.sh
-	ssh tack 'chmod +x /root/tack/scripts/host-maintenance.sh && /root/tack/scripts/host-maintenance.sh deploy-preflight'
-
-# Run a full backup on CT 117 (FDB volume + Meili volume + Yugabyte
-# in-container tar + auth CSVs). Output dirs at /root/backups/tack-<TS>/.
-# Runs inside the tack-ops sibling container on CT 117; the tack-server image
-# must already be up to date on the host before invoking this target.
+# Run a full backup on CT 117 inside the tack-ops sibling container. Snapshots
+# FDB, Yugabyte, Temporal-DB, and Meilisearch to the SeaweedFS object store.
 .PHONY: backup
 backup:
 	ssh tack 'cd /root/tack && docker compose run --rm tack-ops ops backup'
-
-.PHONY: host-maintenance-install
-host-maintenance-install:
-	rsync -az scripts/host-maintenance.sh tack:/root/tack/scripts/host-maintenance.sh
-	ssh tack 'chmod +x /root/tack/scripts/host-maintenance.sh && /root/tack/scripts/host-maintenance.sh install-timer'
 
 # Create or rotate the three LOGIN audit roles (tack_audit_writer,
 # tack_audit_reader, tack_audit_redactor), the names the app DSNs authenticate
@@ -177,25 +138,6 @@ seed-audit-roles:
 audit-consumer:
 	mkdir -p dist
 	go build $(GO_BUILD_FLAGS) -o dist/audit-consumer ./cmd/audit-consumer
-
-# Pull the latest backup directory from CT 117 to the local Mac for
-# offsite storage. Reads the timestamp from /root/backups/.latest.
-.PHONY: backup-pull
-backup-pull:
-	@TS=$$(ssh tack 'cat /root/backups/.latest'); \
-		mkdir -p ~/backups/tack/$$TS; \
-		rsync -avz tack:/root/backups/tack-$$TS/ ~/backups/tack/$$TS/; \
-		echo ""; \
-		echo "pulled to ~/backups/tack/$$TS"
-
-# Fast structural verification of the latest backup on CT 117. Catches
-# the 2026-04-25 empty-tarball defect class within seconds. Exits non-zero
-# when an artifact has the wrong shape; intended to run from operator
-# workflows immediately after `make backup`.
-.PHONY: backup-content-check
-backup-content-check:
-	rsync -az scripts/backup-content-check.sh tack:/root/tack/scripts/
-	ssh tack 'TS=$$(cat /root/backups/.latest); /root/tack/scripts/backup-content-check.sh "/root/backups/tack-$$TS"'
 
 # Structural inventory check of a specific backup on CT 117. Runs the
 # ./server ops backup verify subcommand inside the tack-ops sibling

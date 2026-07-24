@@ -43,8 +43,6 @@ Two deploy actions, split by phase:
   `audit-consumer`): build, push, pull, `up -d`, and verify the running digest.
   It never does first boot and never starts the databases.
 
-`make deploy` is retired.
-
 ## Settled decisions (do not re-litigate)
 
 - **SeaweedFS is a configs-owned LXC, not a tack service.** The object store runs

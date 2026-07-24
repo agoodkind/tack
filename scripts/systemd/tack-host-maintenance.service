@@ -1,8 +1,0 @@
-[Unit]
-Description=Run Tack host disk maintenance
-After=docker.service
-Wants=docker.service
-
-[Service]
-Type=oneshot
-ExecStart=/root/tack/scripts/host-maintenance.sh weekly
