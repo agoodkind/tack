@@ -26,14 +26,12 @@ GO_MK_MODULES := go-build.mk
 
 # `make deploy` is retired. The tack rsync-to-host deploy is gone; app-image
 # updates use `./server ops deploy` and full-stack deploys use Ansible
-# deploy-tack.yml. Declared before the include so `deploy-retired` sorts ahead
-# of the inherited go-build.mk `deploy: install` prerequisite and fails the
-# target before any local install can run.
-.PHONY: deploy deploy-retired
-deploy: deploy-retired
-deploy-retired:
-	@echo "make deploy is retired: use './server ops deploy' for app images or Ansible deploy-tack.yml for the full stack" >&2
-	@exit 2
+# deploy-tack.yml. Abort at parse time when deploy is a goal, before the
+# inherited go-build.mk `deploy: install` prerequisite is even read, so no
+# install can run (including under parallel make).
+ifneq ($(filter deploy,$(MAKECMDGOALS)),)
+$(error make deploy is retired: use './server ops deploy' for app images or Ansible deploy-tack.yml for the full stack)
+endif
 
 include bootstrap.mk
 
