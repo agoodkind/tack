@@ -131,25 +131,14 @@ func stripScheme(endpoint string) (string, error) {
 	return trimmed, nil
 }
 
-// fdbBackupStartArgs builds the fdbbackup start command, host binds, and Docker
-// ExtraHosts for the run. The continuous and one-shot paths differ in
-// destination URL, the presence of `-w`, the `--snapshot_interval` flag, and
-// the binds. The one-shot file:// path binds the local snapshot directory and
-// needs no ExtraHosts. The continuous blobstore path binds only the cluster
-// file and returns one ExtraHosts entry (the synthetic hostname-to-IPv6
-// mapping) so the fdbbackup container resolves the blobstore host. The blobstore
-// secret is embedded in the destination URL and never logged; only the endpoint
-// and bucket are logged at the call site. See
+// fdbBackupStartArgs builds the continuous fdbbackup start command, host binds,
+// and Docker ExtraHosts for the run. The blobstore path binds only the cluster
+// file and returns one ExtraHosts entry when the fdbbackup container needs a
+// synthetic hostname for an IPv6 object-store endpoint. The blobstore secret is
+// embedded in the destination URL and never logged; only the endpoint and bucket
+// are logged at the call site. See
 // https://apple.github.io/foundationdb/backups.html
 func fdbBackupStartArgs(b *backupCtx) (cmd []string, binds []string, extraHosts []string, err error) {
-	if !b.Cfg.BackupFDBContinuous {
-		binds = []string{
-			"/etc/foundationdb:/etc/foundationdb:ro",
-			b.SnapshotDir + ":/snapshot",
-		}
-		cmd = []string{"start", "-w", "-d", "file:///snapshot/" + b.RunID}
-		return cmd, binds, nil, nil
-	}
 	// The run ID is the bare backup name. The FoundationDB blobstore layer stores
 	// every backup under its own backups/ folder in the bucket, so the object keys
 	// land at backups/<run-id>/ without a backups/ prefix here.

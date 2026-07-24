@@ -16,18 +16,17 @@ import (
 // dumpers receive a pointer so they share the same destination directory,
 // docker client, and logger without any package-level state.
 type backupCtx struct {
-	Cfg         *config.Config
-	Cli         *client.Client
-	Log         *slog.Logger
-	RunID       string
-	DestDir     string
-	SnapshotDir string
+	Cfg     *config.Config
+	Cli     *client.Client
+	Log     *slog.Logger
+	RunID   string
+	DestDir string
 }
 
 // runBackupRun is the top-level orchestrator for `./server ops backup`.
-// Components run in sequence: FDB first because its sidecar is the most
-// expensive failure to leave behind, then SQL dumps, then Meilisearch.
-// Each step writes its artifact to DestDir; the manifest is the last step.
+// Components run in sequence: FDB ensures its continuous session first, then
+// SQL dumps and Meilisearch write local artifacts. The manifest is the last
+// step.
 func runBackupRun(ctx context.Context, cfg *config.Config) error {
 	log := slog.Default()
 	if cfg.BackupTemporalDBPass == "" {
@@ -106,13 +105,10 @@ func runBackupRun(ctx context.Context, cfg *config.Config) error {
 	return nil
 }
 
-// newBackupCtx allocates the destination directory and snapshot scratch
-// directory for one backup run. Both live on the docker host (CT 117 in
-// production), reachable via host bind-mounts to the FDB sidecar.
+// newBackupCtx allocates the local artifact directory for one backup run.
 func newBackupCtx(ctx context.Context, cfg *config.Config, cli *client.Client, log *slog.Logger) (*backupCtx, error) {
 	runID := opsNow().UTC().Format("20060102T150405Z")
 	destDir := filepath.Join(cfg.BackupRoot, "tack-"+runID)
-	snapshotDir := filepath.Join(cfg.BackupSnapshotRoot, runID)
 
 	err := os.MkdirAll(destDir, 0o750)
 	if err != nil {
@@ -122,21 +118,12 @@ func newBackupCtx(ctx context.Context, cfg *config.Config, cli *client.Client, l
 		)
 		return nil, fmt.Errorf("mkdir dest %s: %w", destDir, err)
 	}
-	err = os.MkdirAll(snapshotDir, 0o750)
-	if err != nil {
-		log.ErrorContext(ctx, "backup.mkdir.snapshot_failed",
-			slog.String("snapshot", snapshotDir),
-			slog.Any("err", err),
-		)
-		return nil, fmt.Errorf("mkdir snapshot %s: %w", snapshotDir, err)
-	}
 	return &backupCtx{
-		Cfg:         cfg,
-		Cli:         cli,
-		Log:         log,
-		RunID:       runID,
-		DestDir:     destDir,
-		SnapshotDir: snapshotDir,
+		Cfg:     cfg,
+		Cli:     cli,
+		Log:     log,
+		RunID:   runID,
+		DestDir: destDir,
 	}, nil
 }
 

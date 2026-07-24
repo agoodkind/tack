@@ -13,8 +13,8 @@ import (
 // RunBackupFDBContinuousInit starts the FoundationDB continuous backup session
 // that streams to the object store, and is safe to run repeatedly. The
 // long-lived backup_agent that drains snapshots is the fdb-backup-agent compose
-// service; this command only starts the session. It requires
-// TACK_BACKUP_FDB_CONTINUOUS=true so the streaming destination is selected.
+// service; this command only starts the session. The command remains gated by
+// TACK_BACKUP_FDB_CONTINUOUS=true.
 func RunBackupFDBContinuousInit(ctx context.Context, cfg *config.Config) error {
 	logger := telemetry.L(ctx)
 	if !cfg.BackupFDBContinuous {
@@ -29,15 +29,14 @@ func RunBackupFDBContinuousInit(ctx context.Context, cfg *config.Config) error {
 	}
 	defer cli.Close()
 
-	// DestDir and SnapshotDir are unused by the continuous session, which streams
-	// to the object store and binds only the cluster file, so they are empty.
+	// DestDir is unused by the continuous session, which streams to the object
+	// store and binds only the cluster file.
 	b := &backupCtx{
-		Cfg:         cfg,
-		Cli:         cli,
-		Log:         logger,
-		RunID:       opsNow().UTC().Format("20060102T150405Z"),
-		DestDir:     "",
-		SnapshotDir: "",
+		Cfg:     cfg,
+		Cli:     cli,
+		Log:     logger,
+		RunID:   opsNow().UTC().Format("20060102T150405Z"),
+		DestDir: "",
 	}
 	logger.InfoContext(ctx, "backup.fdb.continuous_init.start", slog.String("run_id", b.RunID))
 	return ensureFDBContinuousSession(ctx, b)

@@ -385,38 +385,6 @@ func containerExecStreaming(
 	return insp.ExitCode, stderrBuf.String(), nil
 }
 
-// waitForExec polls a check command in container until it exits 0 or the
-// timeout elapses. Uses [context.WithTimeout] plus a re-usable ticker so
-// the poll loop honors cancellation without consulting [time.Now] directly.
-func waitForExec(
-	ctx context.Context,
-	cli *client.Client,
-	containerID string,
-	timeout time.Duration,
-	cmd []string,
-) error {
-	pollCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
-	for {
-		res, err := containerExec(pollCtx, cli, containerID, cmd)
-		if err == nil && res.ExitCode == 0 {
-			return nil
-		}
-		select {
-		case <-pollCtx.Done():
-			slog.ErrorContext(ctx, "ops.docker.exec.wait_timeout",
-				slog.String("container", containerID),
-				slog.Duration("timeout", timeout),
-				slog.String("err", pollCtx.Err().Error()),
-			)
-			return fmt.Errorf("waitForExec %v: %w", cmd, pollCtx.Err())
-		case <-ticker.C:
-		}
-	}
-}
-
 // removeContainerForce removes a container by name, ignoring not-found
 // errors. Used by deferred teardown paths.
 func removeContainerForce(ctx context.Context, cli *client.Client, name string) {
