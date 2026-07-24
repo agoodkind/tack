@@ -2,12 +2,18 @@ package ops
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"strings"
 
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/telemetry"
+)
+
+var errFDBBackupDestinationMismatch = errors.New(
+	"active FoundationDB backup targets a different destination",
 )
 
 // RunBackupFDBContinuousInit starts the FoundationDB continuous backup session
@@ -43,14 +49,19 @@ func RunBackupFDBContinuousInit(ctx context.Context, cfg *config.Config) error {
 }
 
 // ensureFDBContinuousSession starts the streaming fdbbackup session to the
-// object store. A session already running on the default tag is treated as
-// success, so the call is idempotent. The blobstore secret is embedded in the
-// destination URL, so echoed output is redacted before it is logged.
+// object store. A session already running on the configured destination is
+// treated as success, so the call is idempotent. The blobstore credentials are
+// embedded in the destination URL, so echoed output is redacted before logging.
 func ensureFDBContinuousSession(ctx context.Context, b *backupCtx) error {
-	// Idempotent: fdbbackup start replaces a running backup rather than erroring,
-	// so a status check guards against discontinuing an active continuous backup
-	// and starting a fresh one on every call.
-	if active, statusErr := fdbBackupActive(ctx, b); statusErr == nil && active {
+	// FoundationDB 7.4.6 rejects a duplicate start on the default tag. The
+	// status guard makes repeated calls idempotent without issuing that start.
+	active, statusErr := fdbBackupActive(ctx, b)
+	if errors.Is(statusErr, errFDBBackupDestinationMismatch) {
+		b.Log.ErrorContext(ctx, "backup.fdb.continuous_destination_mismatch",
+			slog.String("err", statusErr.Error()))
+		return statusErr
+	}
+	if statusErr == nil && active {
 		b.Log.InfoContext(ctx, "backup.fdb.continuous_already_running",
 			slog.String("bucket", b.Cfg.BackupS3BucketMain))
 		return nil
@@ -91,9 +102,11 @@ func ensureFDBContinuousSession(ctx context.Context, b *backupCtx) error {
 }
 
 // fdbBackupActive reports whether a FoundationDB backup is currently running on
-// the default tag, read from fdbbackup status. The status output embeds the
-// blobstore secret in the backup URL, so it is never logged; only the boolean is
-// used. An infrastructure error returns false so the caller proceeds to start.
+// the default tag and targets the configured bucket and endpoint host. The
+// status output embeds blobstore credentials in BackupURL, so the URL is only
+// compared in memory. An infrastructure error returns false so the caller can
+// proceed to start, while an active backup at another destination returns an
+// error.
 func fdbBackupActive(ctx context.Context, b *backupCtx) (bool, error) {
 	res, err := runOneShot(ctx, b.Cli, b.Log, runOneShotOptions{
 		Image:      b.Cfg.BackupFDBImage,
@@ -108,8 +121,57 @@ func fdbBackupActive(ctx context.Context, b *backupCtx) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	out := strings.ToLower(res.Stdout + " " + res.Stderr)
-	return strings.Contains(out, "is in progress") ||
+	return fdbBackupActiveFromStatus(b.Cfg, res.Stdout+"\n"+res.Stderr)
+}
+
+func fdbBackupActiveFromStatus(cfg *config.Config, status string) (bool, error) {
+	out := strings.ToLower(status)
+	active := strings.Contains(out, "is in progress") ||
 		strings.Contains(out, "restorable but continuing") ||
-		strings.Contains(out, "is running"), nil
+		strings.Contains(out, "is running")
+	if !active {
+		return false, nil
+	}
+
+	backupURL, found := fdbBackupURLFromStatus(status)
+	if !found {
+		return false, errFDBBackupDestinationMismatch
+	}
+	if !fdbBackupURLMatchesDestination(cfg, backupURL) {
+		return false, errFDBBackupDestinationMismatch
+	}
+	return true, nil
+}
+
+func fdbBackupURLFromStatus(status string) (string, bool) {
+	for line := range strings.SplitSeq(status, "\n") {
+		key, value, found := strings.Cut(line, ":")
+		if found && strings.EqualFold(strings.TrimSpace(key), "BackupURL") {
+			backupURL := strings.TrimSpace(value)
+			return backupURL, backupURL != ""
+		}
+	}
+	return "", false
+}
+
+func fdbBackupURLMatchesDestination(cfg *config.Config, backupURL string) bool {
+	parsedBackupURL, err := url.Parse(backupURL)
+	if err != nil {
+		return false
+	}
+	configuredHost, _, err := blobstoreHostMapping(cfg.BackupS3Endpoint)
+	if err != nil {
+		return false
+	}
+	parsedConfiguredHost, err := url.Parse("blobstore://" + configuredHost)
+	if err != nil {
+		return false
+	}
+
+	hostMatches := strings.EqualFold(
+		parsedBackupURL.Hostname(),
+		parsedConfiguredHost.Hostname(),
+	)
+	bucketMatches := parsedBackupURL.Query().Get("bucket") == cfg.BackupS3BucketMain
+	return parsedBackupURL.Scheme == "blobstore" && hostMatches && bucketMatches
 }
