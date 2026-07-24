@@ -15,9 +15,8 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// artifactCategory matches the filename-to-category table in
-// scripts/backup-content-check.sh:319-338. Keeping the shapes named lets
-// the dispatcher route each artifact to its dedicated checker.
+// artifactCategory names the backup artifact shapes the verifier recognizes,
+// so the dispatcher can route each artifact to its dedicated checker.
 type artifactCategory int
 
 const (
@@ -29,8 +28,7 @@ const (
 	categoryMeilisearch
 )
 
-// categoryFromName mirrors the case statement in
-// backup-content-check.sh:319-338.
+// categoryFromName maps a backup artifact filename to its category.
 func categoryFromName(name string) artifactCategory {
 	base := filepath.Base(name)
 	switch {
@@ -188,8 +186,8 @@ func verifyArtifactShapes(ctx context.Context, log *slog.Logger, backupDir strin
 }
 
 // checkFDBArchive walks the tar.gz inventory and asserts the fdbbackup
-// markers match what scripts/backup-content-check.sh checks for. Returns
-// a plain error so the caller logs once with the aggregated detail.
+// markers are present. Returns a plain error so the caller logs once with
+// the aggregated detail.
 func checkFDBArchive(path string) error {
 	names, err := ListTarGz(path)
 	if err != nil {
@@ -227,7 +225,7 @@ func checkFDBArchive(path string) error {
 }
 
 // checkYugabyteTar checks volume-tar shape. Audit CSV bundles are accepted
-// when the scripts/backup-content-check.sh signature matches.
+// when their file signature matches.
 func checkYugabyteTar(path string) error {
 	names, err := ListTarGz(path)
 	if err != nil {
