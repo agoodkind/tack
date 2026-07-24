@@ -9,7 +9,7 @@ import (
 )
 
 // yugabyteBackupContainer is the named live Yugabyte container the
-// production compose stack ships. The shell scripts assume the same name.
+// production compose stack ships.
 const yugabyteBackupContainer = "tack-yugabyte-1"
 
 // runBackupYugabyte writes a plain-SQL ysql_dump of the tack database to
@@ -18,8 +18,6 @@ const yugabyteBackupContainer = "tack-yugabyte-1"
 //   - ysql_dump (not pg_dump); the YugabyteDB image ships a fork of
 //     pg_dump under /home/yugabyte/postgres/bin/ysql_dump and standard
 //     pg_dump is absent from the image
-//
-// Mirrors `tack_backup_dump_yugabyte` in backup-functions.sh:130-145.
 func runBackupYugabyte(ctx context.Context, b *backupCtx) error {
 	outPath := filepath.Join(b.DestDir, "yugabyte.sql")
 	out, err := os.Create(outPath)

@@ -9,13 +9,12 @@ import (
 )
 
 // temporalDBBackupContainer is the named live Temporal-DB container the
-// production compose stack ships. The shell scripts assume the same name.
+// production compose stack ships.
 const temporalDBBackupContainer = "tack-temporal-db-1"
 
 // runBackupTemporalDB pg_dumps the Temporal-DB database. This is the fourth
 // 2026-05-09 fix preserved: without it, in-flight workflow state has no
-// recovery artifact. Mirrors `tack_backup_dump_temporal_db` in
-// backup-functions.sh:149-161. The Temporal-DB image is plain Postgres so
+// recovery artifact. The Temporal-DB image is plain Postgres so
 // pg_dump (not ysql_dump) is the right binary here.
 func runBackupTemporalDB(ctx context.Context, b *backupCtx) error {
 	outPath := filepath.Join(b.DestDir, "temporal-db.sql")

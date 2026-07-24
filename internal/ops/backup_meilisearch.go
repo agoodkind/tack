@@ -12,8 +12,6 @@ import (
 // no anonymous-volume shadowing in its image, so the prior volume-tar path
 // remains correct here. We use a one-shot alpine container so the host's
 // tar variant does not matter.
-//
-// Mirrors `tack_backup_dump_meilisearch` in backup-functions.sh:167-175.
 func runBackupMeilisearch(ctx context.Context, b *backupCtx) error {
 	outPath := filepath.Join(b.DestDir, "tack_meili-data.tar.gz")
 

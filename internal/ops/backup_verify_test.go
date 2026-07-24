@@ -87,7 +87,7 @@ func TestCheckFDBArchiveDetectsEmpty(t *testing.T) {
 }
 
 // TestCheckFDBArchiveAcceptsBackupShape confirms a structurally valid
-// fdbbackup tarball passes. Marker files mirror the shell verifier.
+// fdbbackup tarball passes. Marker files match what checkFDBArchive requires.
 func TestCheckFDBArchiveAcceptsBackupShape(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "fdb-snapshot.tar.gz")

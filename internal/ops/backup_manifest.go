@@ -16,8 +16,7 @@ import (
 )
 
 // manifestFileName is the operator-visible artifact inventory written at the
-// top of a backup directory. The verify subcommand reads it; the existing
-// shell tooling does too. Format:
+// top of a backup directory. The verify subcommand reads it. Format:
 //
 //	<sha256>  <size_bytes>  <relpath>
 //

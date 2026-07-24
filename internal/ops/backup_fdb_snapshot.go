@@ -62,8 +62,7 @@ func startFDBSidecar(ctx context.Context, b *backupCtx, name string) error {
 		)
 		return fmt.Errorf("start sidecar %s: %w", name, err)
 	}
-	// Readiness probe: pgrep -x backup_agent inside the sidecar. Matches
-	// scripts/backup-functions.sh:62.
+	// Readiness probe: pgrep -x backup_agent inside the sidecar.
 	err = waitForExec(ctx, b.Cli, name, 30*time.Second, []string{"pgrep", "-x", "backup_agent"})
 	if err != nil {
 		b.Log.ErrorContext(ctx, "backup.fdb.sidecar_not_ready",
@@ -79,7 +78,6 @@ func startFDBSidecar(ctx context.Context, b *backupCtx, name string) error {
 // resolveFDBBackupSubdir locates the timestamped `backup-*` subdir that
 // fdbbackup creates under /snapshot/<run-id>/. The describe URL must point
 // at this subdirectory; pointing at the parent reports Restorable: false.
-// Mirrors `tack_backup_resolve_fdb_subdir` in backup-functions.sh:91-102.
 func resolveFDBBackupSubdir(ctx context.Context, log *slog.Logger, snapshotDir, runID string) (string, string, error) {
 	root := filepath.Join(snapshotDir, runID)
 	var match string
