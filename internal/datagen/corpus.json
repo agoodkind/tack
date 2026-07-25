@@ -1,0 +1,22 @@
+{
+  "issue_titles": [
+    "Rotate an expired signing key without dropping writes",
+    "Keep sequence allocation stable under concurrent creates",
+    "Restore the audit chain after a point-in-time recovery"
+  ],
+  "comments": [
+    "The test should drive the public request boundary and verify the stored result.",
+    "The observed failure begins before the fallback path, so the first failed stage matters.",
+    "The data remains readable after restart and the relationship scan returns the expected edge."
+  ],
+  "labels": [
+    "request-surface",
+    "recovery-proof",
+    "tenant-isolation"
+  ],
+  "workflows": [
+    "Awaiting runtime proof",
+    "Ready for cutover",
+    "Blocked by environment"
+  ]
+}

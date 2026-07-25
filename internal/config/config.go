@@ -11,10 +11,11 @@ import (
 )
 
 type Config struct {
-	DatabaseURL    string `env:"DATABASE_URL,required"`
-	FDBClusterFile string `env:"FDB_CLUSTER_FILE" envDefault:"/etc/foundationdb/fdb.cluster"`
-	Port           int    `env:"PORT"             envDefault:"8000"`
-	Env            string `env:"ENV"              envDefault:"development"`
+	DatabaseURL        string `env:"DATABASE_URL,required"`
+	FDBClusterFile     string `env:"FDB_CLUSTER_FILE" envDefault:"/etc/foundationdb/fdb.cluster"`
+	Port               int    `env:"PORT"             envDefault:"8000"`
+	Env                string `env:"ENV"              envDefault:"development"`
+	DatagenAllowTarget string `env:"TACK_DATAGEN_ALLOW_TARGET"`
 
 	// Logging. Every field is plain pass-through to telemetry.Setup, which
 	// hands them to gklog. Setup itself never branches on ENV.
