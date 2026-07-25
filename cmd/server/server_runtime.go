@@ -11,71 +11,24 @@ import (
 	"syscall"
 	"time"
 
-	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
-	mcpadapter "goodkind.io/tack/internal/adapters/mcp"
-	"goodkind.io/tack/internal/adapters/postgres"
-	searchadapter "goodkind.io/tack/internal/adapters/search"
-	"goodkind.io/tack/internal/auth"
 	"goodkind.io/tack/internal/config"
-	domainsearch "goodkind.io/tack/internal/domain/search"
-	"goodkind.io/tack/internal/service"
+	appruntime "goodkind.io/tack/internal/runtime"
 	"goodkind.io/tack/internal/telemetry"
 	"goodkind.io/tack/internal/version"
 )
 
-// runServer wires the datastores, audit runtime, and MCP and Connect handlers,
-// then serves until an interrupt arrives or the listener fails. It is the
-// default action of the bare binary and of the explicit `serve` subcommand,
+// runServer builds the shared runtime object graph, mounts the MCP and Connect
+// handlers, then serves until an interrupt arrives or the listener fails. It is
+// the default action of the bare binary and of the explicit `serve` subcommand,
 // and returns any fatal error to main rather than exiting in place.
 func runServer(ctx context.Context, cfg *config.Config) error {
-	pool, err := postgres.NewPool(ctx, cfg.DatabaseURL, &telemetry.QueryTracer{})
+	graph, err := appruntime.BuildGraph(ctx, cfg)
 	if err != nil {
-		slog.ErrorContext(ctx, "server.postgres_failed", slog.String("err", err.Error()))
-		return fmt.Errorf("server: postgres: %w", err)
+		return fmt.Errorf("server: build runtime: %w", err)
 	}
-	defer pool.Close()
+	defer graph.Close()
 
-	fdbStores, err := fdbadapter.NewStores(cfg.FDBClusterFile, pool)
-	if err != nil {
-		slog.ErrorContext(ctx, "server.foundationdb_failed", slog.String("err", err.Error()))
-		return fmt.Errorf("server: foundationdb: %w", err)
-	}
-
-	searcher := buildSearcher(cfg)
-
-	auditRuntimeDeps := setupAuditRuntime(ctx, cfg)
-	defer auditRuntimeDeps.Close()
-	tokenRepo := postgres.NewTokenRepo(pool)
-	userRepo := postgres.NewUserRepo(pool)
-	orgMembers := postgres.NewOrgMemberRepo(pool)
-
-	nodeSvc := service.NewNodeService(
-		fdbStores.Nodes,
-		fdbStores.Views,
-		fdbStores.NodeTypes,
-		fdbStores.PropertyDefs,
-		fdbStores.Relationships,
-		fdbStores.NodeDeleter,
-		searcher,
-	)
-
-	mcpHandler := mcpadapter.NewHandler(mcpadapter.Deps{
-		NodeSvc:       nodeSvc,
-		Nodes:         fdbStores.Nodes,
-		Reader:        fdbStores.Views,
-		NodeTypes:     fdbStores.NodeTypes,
-		PropertyDefs:  fdbStores.PropertyDefs,
-		Relationships: fdbStores.Relationships,
-		Members:       orgMembers,
-		Users:         userRepo,
-		Searcher:      searcher,
-		AuditReader:   auditRuntimeDeps.Reader,
-		AuditQuerier:  auditRuntimeDeps.Querier,
-		AuditRedactor: auditRuntimeDeps.Redactor,
-	})
-
-	authMiddleware := buildAuthMiddleware(cfg, tokenRepo)
-	mux := buildServeMux(mcpHandler, authMiddleware)
+	mux := buildServeMux(graph.MCPHandler, graph.AuthMiddleware)
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	slog.InfoContext(ctx, "starting server",
@@ -130,14 +83,6 @@ func runServer(ctx context.Context, cfg *config.Config) error {
 	return nil
 }
 
-func buildAuthMiddleware(cfg *config.Config, tokenRepo *postgres.TokenRepo) func(http.Handler) http.Handler {
-	if cfg.Env == "development" {
-		slog.Warn("dev_auth.enabled")
-		return auth.DevBearer
-	}
-	return auth.Bearer(tokenRepo)
-}
-
 func buildServeMux(mcpHandler http.Handler, authMiddleware func(http.Handler) http.Handler) *http.ServeMux {
 	mux := http.NewServeMux()
 	mcpWithAuth := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -156,21 +101,4 @@ func buildServeMux(mcpHandler http.Handler, authMiddleware func(http.Handler) ht
 	// scrape it directly; bind to localhost only when this matters.
 	mux.Handle("/debug/vars", expvar.Handler())
 	return mux
-}
-
-// buildSearcher creates a Meilisearch client and ensures the nodes index is
-// configured with a generic filterable set. Falls back to a no-op Searcher on
-// setup failure.
-func buildSearcher(cfg *config.Config) domainsearch.Searcher {
-	meiliClient := searchadapter.New(cfg.MeiliURL, cfg.MeiliMasterKey)
-	err := meiliClient.EnsureIndex("nodes", []string{"org_id", "node_type"})
-	if err != nil {
-		slog.Error("meilisearch.setup_failed",
-			slog.String("url", cfg.MeiliURL),
-			slog.String("err", err.Error()),
-		)
-		return searchadapter.Noop{}
-	}
-	slog.Info("meilisearch.connected", slog.String("url", cfg.MeiliURL))
-	return meiliClient
 }
