@@ -48,6 +48,10 @@ type ConsumerConfig struct {
 	// SummaryEvery is how many records between batched
 	// `consumer.processed` debug summaries. Zero falls back to 100.
 	SummaryEvery int
+
+	// PartitionPeriod is how often the partition-manager runs pg_partman
+	// maintenance for audit.events. Zero falls back to 24h.
+	PartitionPeriod time.Duration
 }
 
 // Consumer projects audit events from Kafka into Yugabyte (audit.events) and
@@ -61,6 +65,7 @@ type Consumer struct {
 
 	notarizer  *Notarizer
 	reconciler *Reconciler
+	partitions *PartitionManager
 
 	stop    chan struct{}
 	stopped chan struct{}
@@ -136,6 +141,7 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 		ch:         ch,
 		notarizer:  nil,
 		reconciler: nil,
+		partitions: nil,
 		stop:       make(chan struct{}),
 		stopped:    make(chan struct{}),
 		once:       sync.Once{},
@@ -162,6 +168,7 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 	if c.ch != nil {
 		c.reconciler = NewReconciler(ybpool, ch, cfg.ReconcilePeriod, cfg.ReconcileWindow)
 	}
+	c.partitions = NewPartitionManager(NewPGPartitionStore(ybpool), cfg.PartitionPeriod)
 
 	return c, nil
 }
@@ -187,6 +194,9 @@ func applyConsumerDefaults(cfg ConsumerConfig) ConsumerConfig {
 	}
 	if cfg.SummaryEvery <= 0 {
 		cfg.SummaryEvery = 100
+	}
+	if cfg.PartitionPeriod <= 0 {
+		cfg.PartitionPeriod = 24 * time.Hour
 	}
 	return cfg
 }
@@ -227,6 +237,9 @@ func (c *Consumer) Start(ctx context.Context) {
 	if c.reconciler != nil {
 		c.reconciler.Start(ctx)
 	}
+	if c.partitions != nil {
+		c.partitions.Start(ctx)
+	}
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -250,6 +263,9 @@ func (c *Consumer) Close() error {
 	}
 	if c.reconciler != nil {
 		_ = c.reconciler.Close()
+	}
+	if c.partitions != nil {
+		_ = c.partitions.Close()
 	}
 	c.closeResources()
 	return nil

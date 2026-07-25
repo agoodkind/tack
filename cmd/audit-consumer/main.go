@@ -6,8 +6,11 @@ package main
 
 import (
 	"context"
+	"errors"
+	"expvar"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -33,6 +36,8 @@ type consumerEnv struct {
 	ReconcileWindow time.Duration `env:"AUDIT_CONSUMER_RECONCILE_WINDOW" envDefault:"24h"`
 	LagWarnMessages int64         `env:"TACK_AUDIT_CONSUMER_LAG_WARN_MESSAGES" envDefault:"1000"`
 	SummaryEvery    int           `env:"TACK_AUDIT_CONSUMER_SUMMARY_EVERY" envDefault:"100"`
+	PartitionPeriod time.Duration `env:"AUDIT_CONSUMER_PARTITION_PERIOD" envDefault:"24h"`
+	MetricsAddr     string        `env:"AUDIT_CONSUMER_METRICS_ADDR" envDefault:"127.0.0.1:9109"`
 
 	LogLevel         string `env:"LOG_LEVEL"`
 	LogJSONFile      string `env:"LOG_JSON_FILE"`
@@ -79,6 +84,8 @@ func run() error {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
+	metricsServer := startMetricsServer(ctx, cfg.MetricsAddr)
+
 	slog.InfoContext(ctx, "audit_consumer.starting",
 		slog.String("topic", cfg.Topic),
 		slog.String("group", cfg.GroupID),
@@ -98,6 +105,7 @@ func run() error {
 		ReconcileWindow: cfg.ReconcileWindow,
 		LagWarnMessages: cfg.LagWarnMessages,
 		SummaryEvery:    cfg.SummaryEvery,
+		PartitionPeriod: cfg.PartitionPeriod,
 	})
 	if err != nil {
 		return fmt.Errorf("new consumer: %w", err)
@@ -110,6 +118,13 @@ func run() error {
 	slog.Info("audit_consumer.draining")
 	drainCtx, drainCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer drainCancel()
+	if metricsServer != nil {
+		metricsCtx, metricsCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := metricsServer.Shutdown(metricsCtx); err != nil {
+			slog.Error("server.metrics_shutdown_failed", slog.String("err", err.Error()))
+		}
+		metricsCancel()
+	}
 	done := make(chan struct{})
 	go func() {
 		defer func() {
@@ -130,6 +145,35 @@ func run() error {
 		slog.Warn("audit_consumer.drain_timeout")
 	}
 	return nil
+}
+
+func startMetricsServer(ctx context.Context, addr string) *http.Server {
+	if addr == "" {
+		return nil
+	}
+
+	mux := http.NewServeMux()
+	mux.Handle("/debug/vars", expvar.Handler())
+	server := &http.Server{
+		Addr:              addr,
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	slog.InfoContext(ctx, "server.metrics_listening", slog.String("addr", addr))
+	go func() {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				slog.ErrorContext(ctx, "server.metrics_panic",
+					slog.Any("panic", recovered),
+					slog.String("err", fmt.Sprintf("%v", recovered)),
+				)
+			}
+		}()
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			slog.ErrorContext(ctx, "server.metrics_failed", slog.String("err", err.Error()))
+		}
+	}()
+	return server
 }
 
 func splitBrokers(raw string) []string {
