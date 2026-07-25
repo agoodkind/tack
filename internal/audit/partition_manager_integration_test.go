@@ -4,12 +4,14 @@ package audit
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -57,11 +59,16 @@ func TestPartitionManagerHealsFutureWeek(t *testing.T) {
 	}
 
 	orgID := uuid.Must(uuid.NewV7())
-	if err := insertPartitionManagerTestEvent(ctx, pool, orgID, target); err == nil {
+	err := insertPartitionManagerTestEvent(ctx, pool, orgID, target)
+	if err == nil {
 		t.Fatalf("insert at %s before manager start succeeded, want error", target.Format(time.DateOnly))
-	} else {
-		t.Logf("pre-start insert failed as expected: %v", err)
 	}
+	var postgresError *pgconn.PgError
+	if !errors.As(err, &postgresError) || postgresError.Code != "23514" {
+		t.Fatalf("insert at %s before manager start error = %v, want SQLSTATE 23514",
+			target.Format(time.DateOnly), err)
+	}
+	t.Logf("pre-start insert failed as expected: %v", err)
 
 	manager := NewPartitionManager(NewPGPartitionStore(pool), time.Hour)
 	manager.Start(ctx)
