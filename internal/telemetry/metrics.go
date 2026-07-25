@@ -82,6 +82,13 @@ var (
 	auditConsumerBatchLatencyStats = expvar.NewMap("tack_audit_consumer_batch_latency_ms_stats")
 	// audit_consumer_offset_committed{topic,partition} gauge map.
 	auditConsumerOffsetCommitted = expvar.NewMap("tack_audit_consumer_offset_committed")
+
+	// audit_partition_headroom_weeks gauge: count of future weekly partitions
+	// beyond the one covering now(). A stalled partition-manager shows up here
+	// before audit.events runs out of partitions.
+	auditPartitionHeadroomWeeks = expvar.NewInt("tack_audit_partition_headroom_weeks")
+	// audit_partition_maintenance_total{result="ok|error"}.
+	auditPartitionMaintenanceTotal = expvar.NewMap("tack_audit_partition_maintenance_total")
 )
 
 // latencyBucketsMs is the upper-bound layout for millisecond latency
@@ -132,6 +139,14 @@ func SetAuditConsumerOffsetCommitted(topic string, partition int32, offset int64
 	key := topic + ":" + strconv.FormatInt(int64(partition), 10)
 	auditConsumerOffsetCommitted.Set(key, &expvarInt64{value: offset})
 }
+
+// SetAuditPartitionHeadroomWeeks publishes the current count of future weekly
+// partitions available beyond now().
+func SetAuditPartitionHeadroomWeeks(weeks int64) { auditPartitionHeadroomWeeks.Set(weeks) }
+
+// IncAuditPartitionMaintenance records one maintenance run outcome (result is
+// "ok" or "error").
+func IncAuditPartitionMaintenance(result string) { auditPartitionMaintenanceTotal.Add(result, 1) }
 
 // expvarInt64 is a settable [expvar.Var] holding one int64. [expvar.Int]
 // does the same job but only exposes Add and Set(int64) on the concrete

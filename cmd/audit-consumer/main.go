@@ -33,6 +33,7 @@ type consumerEnv struct {
 	ReconcileWindow time.Duration `env:"AUDIT_CONSUMER_RECONCILE_WINDOW" envDefault:"24h"`
 	LagWarnMessages int64         `env:"TACK_AUDIT_CONSUMER_LAG_WARN_MESSAGES" envDefault:"1000"`
 	SummaryEvery    int           `env:"TACK_AUDIT_CONSUMER_SUMMARY_EVERY" envDefault:"100"`
+	PartitionPeriod time.Duration `env:"AUDIT_CONSUMER_PARTITION_PERIOD" envDefault:"24h"`
 
 	LogLevel         string `env:"LOG_LEVEL"`
 	LogJSONFile      string `env:"LOG_JSON_FILE"`
@@ -98,6 +99,7 @@ func run() error {
 		ReconcileWindow: cfg.ReconcileWindow,
 		LagWarnMessages: cfg.LagWarnMessages,
 		SummaryEvery:    cfg.SummaryEvery,
+		PartitionPeriod: cfg.PartitionPeriod,
 	})
 	if err != nil {
 		return fmt.Errorf("new consumer: %w", err)
