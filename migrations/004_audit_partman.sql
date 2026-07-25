@@ -76,48 +76,71 @@ DECLARE
     child_count INTEGER;
     max_upper DATE;
     parsed_count INTEGER;
+    registered BOOLEAN;
     start_part DATE;
 BEGIN
-    /* Parse the complete TIMESTAMPTZ literal rather than its leading date. */
-    WITH child_bounds AS (
-        SELECT (regexp_match(pg_get_expr(c.relpartbound, c.oid),
-                             'TO \(''([^'']+)''\)'))[1] AS upper_bound
-          FROM pg_inherits i
-          JOIN pg_class c ON c.oid = i.inhrelid
-          JOIN pg_class p ON p.oid = i.inhparent
-          JOIN pg_namespace n ON n.oid = p.relnamespace
-         WHERE n.nspname = 'audit' AND p.relname = 'events'
-    )
-    SELECT count(*), count(upper_bound),
-           max((upper_bound::timestamptz AT TIME ZONE 'UTC')::date)
-      INTO child_count, parsed_count, max_upper
-      FROM child_bounds;
+    SELECT EXISTS (
+        SELECT 1
+          FROM partman.part_config
+         WHERE parent_table = 'audit.events'
+    ) INTO registered;
 
-    IF child_count > 0 AND parsed_count = 0 THEN
+    IF registered AND EXISTS (
+        SELECT 1
+          FROM partman.part_config
+         WHERE parent_table = 'audit.events'
+           AND (partition_type <> 'native'
+                OR partition_interval <> '7 days'
+                OR control <> 'event_time')
+    ) THEN
         RAISE EXCEPTION
-            'cannot determine audit.events partition upper bound from % children',
-            child_count;
+            'existing pg_partman registration for audit.events has incompatible configuration';
     END IF;
 
-    /* Start pg_partman at the later of the week after existing coverage and the
-       current week, so a fresh database with no children also works. */
-    start_part := greatest(coalesce(max_upper, date_trunc('week', now())::date),
-                           date_trunc('week', now())::date);
+    IF NOT registered THEN
+        /* Parse the complete TIMESTAMPTZ literal rather than its leading date. */
+        WITH child_bounds AS (
+            SELECT (regexp_match(pg_get_expr(c.relpartbound, c.oid),
+                                 'TO \(''([^'']+)''\)'))[1] AS upper_bound
+              FROM pg_inherits i
+              JOIN pg_class c ON c.oid = i.inhrelid
+              JOIN pg_class p ON p.oid = i.inhparent
+              JOIN pg_namespace n ON n.oid = p.relnamespace
+             WHERE n.nspname = 'audit' AND p.relname = 'events'
+        )
+        SELECT count(*), count(upper_bound),
+               max((upper_bound::timestamptz AT TIME ZONE 'UTC')::date)
+          INTO child_count, parsed_count, max_upper
+          FROM child_bounds;
 
-    PERFORM partman.create_parent(
-        p_parent_table    => 'audit.events',
-        p_control         => 'event_time',
-        p_type            => 'native',
-        p_interval        => '1 week',
-        p_premake         => 12,
-        p_start_partition => start_part::text
-    );
+        IF child_count > 0 AND parsed_count = 0 THEN
+            RAISE EXCEPTION
+                'cannot determine audit.events partition upper bound from % children',
+                child_count;
+        END IF;
+
+        /* Start at the later of existing coverage and the current week. */
+        start_part := greatest(
+            coalesce(max_upper, date_trunc('week', now())::date),
+            date_trunc('week', now())::date
+        );
+
+        PERFORM partman.create_parent(
+            p_parent_table    => 'audit.events',
+            p_control         => 'event_time',
+            p_type            => 'native',
+            p_interval        => '1 week',
+            p_premake         => 12,
+            p_start_partition => start_part::text
+        );
+    END IF;
 END$$;
 -- +goose StatementEnd
 
 -- +goose StatementBegin
 UPDATE partman.part_config
-   SET retention = NULL,
+   SET premake = 12,
+       retention = NULL,
        retention_keep_table = true,
        infinite_time_partitions = true
  WHERE parent_table = 'audit.events';
@@ -171,7 +194,9 @@ DROP FUNCTION IF EXISTS audit.run_partition_maintenance();
 -- +goose StatementEnd
 
 -- +goose StatementBegin
-/* Unregister audit.events without dropping any audit ledger partition. */
+/* Unregister without dropping ledger partitions. The pinned YugabyteDB build
+   creates no default partition, and create_parent safely reuses its retained
+   partman.template_audit_events table on a later Up. */
 DELETE FROM partman.part_config WHERE parent_table = 'audit.events';
 -- +goose StatementEnd
 
