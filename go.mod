@@ -16,7 +16,7 @@ require (
 	github.com/mark3labs/mcp-go v0.55.0
 	github.com/meilisearch/meilisearch-go v0.36.3
 	github.com/moby/moby/api v1.55.0
-	github.com/moby/moby/client v0.5.0
+	github.com/moby/moby/client v0.5.1
 	github.com/pressly/goose/v3 v3.27.1
 	github.com/spf13/cobra v1.10.2
 	github.com/twmb/franz-go v1.21.3
