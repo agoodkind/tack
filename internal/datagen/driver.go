@@ -86,6 +86,13 @@ func (d *Driver) call(
 	toolName string,
 	args ToolArguments,
 ) (Result, error) {
+	if err := ctx.Err(); err != nil {
+		return Result{}, loggedError(
+			ctx,
+			"qa datagen: stop before "+toolName+" call",
+			err,
+		)
+	}
 	d.callCount.Add(1)
 	requestID, err := d.requestID(ctx, token, toolName, args)
 	if err != nil {

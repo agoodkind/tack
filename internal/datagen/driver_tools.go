@@ -29,6 +29,9 @@ type listToolsResult struct {
 
 // ListTools returns the tools registered for one authenticated user.
 func (d *Driver) ListTools(ctx context.Context, token string) ([]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, loggedError(ctx, "qa datagen: stop before tools/list call", err)
+	}
 	requestID, err := d.requestID(ctx, token, toolsList, ToolArguments{})
 	if err != nil {
 		return nil, err
