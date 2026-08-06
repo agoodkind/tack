@@ -93,9 +93,11 @@ Three defects in the current setup must be fixed before any expansion:
    separate cluster. New guests must be handed the existing coordinator
    list.
 
-Coordinators are named by DNS inside the cluster file, which the pinned
-version supports and resolves IPv6-first; this survives container address
-churn. Client transactions currently retry forever with no timeout; a
+The cluster file addresses coordinators by the data guests' pinned IPv6
+addresses from `service_mapping.yml`, with each guest publishing its
+FoundationDB port. Guest addresses are stable; container addresses are not
+and are never persisted. (The pinned version also supports DNS names in the
+cluster file, resolving IPv6-first, as a fallback if literals prove awkward.) Client transactions currently retry forever with no timeout; a
 deliberate timeout is set before expansion. Each data guest runs one backup
 agent; agents cooperate automatically.
 
@@ -130,8 +132,10 @@ instance:
    `tack-service` entry lists both instances and probes that endpoint.
 2. The ledger signer (the notarizer, which signs the audit chain every
    minute) runs only in the audit-consumer process, never in the app. Its
-   signing key becomes a managed secret. Without this, each app guest would
-   generate its own key and sign the same ledger under different identities.
+   signing key becomes a vault-stored secret in the configs repo, rendered at
+   deploy time instead of generated per host. Without this, each app guest
+   would generate its own key and sign the same ledger under different
+   identities.
 
 The compose file pins development-mode auth, which accepts any UUID as a
 login. A second instance behind public ingress raises the urgency of the
@@ -196,8 +200,9 @@ adds the multi-guest pattern:
   audit database strings, the Kafka broker list, and the ClickHouse string.
 - Before sizing is committed, read the hypervisor's real free capacity. The
   repo declares about 64 GB already committed across guests and does not
-  record the physical ceiling. The unmanaged developer sandbox guest is the
-  reclaim candidate if capacity is short.
+  record the physical ceiling. If the reading comes up short, the unmanaged
+  developer sandbox guest (debianct: 8 cores, 16 GB) is approved for
+  reclaim; its destruction is confirmed with the operator first.
 
 ## Rollout phases
 
