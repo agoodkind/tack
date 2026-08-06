@@ -37,6 +37,13 @@ convergence, not an operator event.
 - The in-cluster point-in-time rewind schedule stays as the corruption layer
   (it is near-free; it is not backup work).
 
+Scope boundary: the app stays on its current guest, and traefik (which routes
+tack.home.goodkind.io to the app) is untouched. The app's database connection
+string lists all three node addresses, so the driver follows the cluster
+without any proxy change. Seconds-fast convergence therefore covers the
+database tier only; the app guest remains a single point, and app-tier
+failover is a separate future change that would touch traefik.
+
 Placement: all three nodes run on the vault hypervisor, one per guest, over
 the existing routed IPv6 network. This converges automatically for guest and
 process failures and requires no cross-hypervisor networking. Loss of vault
