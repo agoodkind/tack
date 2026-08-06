@@ -42,8 +42,23 @@ type KafkaConfig struct {
 	// ClientID labels the producer in broker-side metrics and logs.
 	ClientID string
 
-	// ProduceTimeout caps a single Record call. Zero falls back to 15s.
+	// ProduceTimeout caps a single Record call. Nonpositive values fall back to 15s.
 	ProduceTimeout time.Duration
+}
+
+func applyKafkaDefaults(cfg KafkaConfig) KafkaConfig {
+	if cfg.ProduceTimeout <= 0 {
+		// 15s: this repo does not override Kafka's external
+		// broker.session.timeout.ms default of 9s (broker lease) or franz-go's
+		// external 5s metadata minimum age. A hard broker loss can consume both
+		// before recovery; 10s expired inside that window and surfaced spurious
+		// Record errors during single-broker failures.
+		cfg.ProduceTimeout = 15 * time.Second
+	}
+	if cfg.ClientID == "" {
+		cfg.ClientID = "tack-audit-producer"
+	}
+	return cfg
 }
 
 // NewKafkaRecorder constructs a KafkaRecorder. The franz-go client opens
@@ -56,17 +71,7 @@ func NewKafkaRecorder(cfg KafkaConfig) (*KafkaRecorder, error) {
 	if cfg.Topic == "" {
 		return nil, errors.New("audit kafka: topic required")
 	}
-	if cfg.ProduceTimeout <= 0 {
-		// 15s: this repo does not override Kafka's external
-		// broker.session.timeout.ms default of 9s (broker lease) or franz-go's
-		// external 5s metadata minimum age. A hard broker loss can consume both
-		// before recovery; 10s expired inside that window and surfaced spurious
-		// Record errors during single-broker failures.
-		cfg.ProduceTimeout = 15 * time.Second
-	}
-	if cfg.ClientID == "" {
-		cfg.ClientID = "tack-audit-producer"
-	}
+	cfg = applyKafkaDefaults(cfg)
 	opts := []kgo.Opt{
 		kgo.SeedBrokers(cfg.Brokers...),
 		kgo.ClientID(cfg.ClientID),
