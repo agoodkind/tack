@@ -24,6 +24,8 @@
 **Files:**
 - Modify: `internal/ops/cli_backup.go` (bare RunE at :18-20; verify subcommand at :23-30)
 - Delete: `internal/ops/backup_run.go`, `internal/ops/backup_yugabyte.go`, `internal/ops/backup_temporal.go`, `internal/ops/backup_meilisearch.go`, `internal/ops/backup_manifest.go`, `internal/ops/backup_manifest_test.go`, `internal/ops/backup_verify.go`, `internal/ops/backup_verify_test.go`, `internal/ops/backup_fdb.go` (its only caller was `runBackupRun`; `fdb-continuous-init` keeps its own entry point in `backup_fdb_continuous.go`)
+- Modify: `internal/ops/backup_fdb_continuous.go` (the `backupCtx` struct currently defined in `backup_run.go` is SHARED: `RunBackupFDBContinuousInit` constructs one at :40-46 and `ensureFDBContinuousSession`, `fdbBackupStartArgs`, and `fdbBackupActive` take it. Move the `backupCtx` type definition, with its doc comment, into `backup_fdb_continuous.go` unchanged; delete only `runBackupRun`, `newBackupCtx`, and `updateLatestPointer` with their file.)
+- Modify: `internal/ops/backup_fdb_test.go` (delete ONLY `TestRunBackupFDBRequiresObjectStore` at :12-25, whose subject dies; the four remaining tests cover surviving continuous-session logic and stay.)
 - Modify: `internal/ops/backup_buckets.go` (stop creating the never-written `tack-audit-archive` bucket; keep `tack-backups`)
 - Test: `internal/ops/cli_backup_test.go` (new)
 
