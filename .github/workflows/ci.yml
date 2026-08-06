@@ -38,6 +38,8 @@ jobs:
     name: integration tests (FDB)
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      COMPOSE_PROJECT_NAME: tack-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v7
 
