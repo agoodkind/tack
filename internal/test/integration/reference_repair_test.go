@@ -30,6 +30,48 @@ func TestRepairReferenceUniquenessSeedsHighestGeneratedValue(t *testing.T) {
 	}
 }
 
+// TestRepairReferenceUniquenessRejectsUnreadableGeneratedValue pins that
+// seeding refuses to guess. A node whose number cannot be read might hold the
+// highest value in its scope, and counting it as zero would leave the counter
+// below a number already in use, so the next node created would receive that
+// number a second time.
+func TestRepairReferenceUniquenessRejectsUnreadableGeneratedValue(t *testing.T) {
+	env, _, project := repairReferenceEnv(t)
+	mustCreateLegacyRepairReference(t, env, "issue", "Readable", project.ID, 1)
+	writeNodeWithRawGeneratedValue(t, env, "issue", "Unreadable", project.ID, `true`)
+
+	_, err := ops.RepairReferenceUniqueness(
+		env.Ctx, env.Ops, ops.RepairReferenceOptions{Execute: true},
+	)
+	if err == nil {
+		t.Fatal("RepairReferenceUniqueness with an unreadable generated value: got nil error")
+	}
+	if !strings.Contains(err.Error(), "whole number") {
+		t.Fatalf("error = %q, want it to name the unreadable value", err)
+	}
+}
+
+// TestRepairReferenceUniquenessSeedsFromNumericStringValue covers a number
+// stored as text. Rendering accepts it, so seeding must count it; ignoring it
+// would leave the counter low enough to reissue that number.
+func TestRepairReferenceUniquenessSeedsFromNumericStringValue(t *testing.T) {
+	env, _, project := repairReferenceEnv(t)
+	writeNodeWithRawGeneratedValue(t, env, "issue", "Textual", project.ID, `"7"`)
+
+	if _, err := ops.RepairReferenceUniqueness(
+		env.Ctx, env.Ops, ops.RepairReferenceOptions{Execute: true},
+	); err != nil {
+		t.Fatalf("RepairReferenceUniqueness: %v", err)
+	}
+	next, err := env.Stores.Nodes.AllocateSequenceByKey(env.Ctx, env.OrgID, "FAN-")
+	if err != nil {
+		t.Fatalf("AllocateSequenceByKey: %v", err)
+	}
+	if next != 8 {
+		t.Fatalf("next sequence = %d, want 8", next)
+	}
+}
+
 func TestRepairReferenceUniquenessKeepOldest(t *testing.T) {
 	env, _, project := repairReferenceEnv(t)
 	first := mustCreateLegacyRepairReference(t, env, "epic", "First", project.ID, 1)
@@ -132,7 +174,6 @@ func repairReferenceEnv(t *testing.T) (*TestEnv, uuid.UUID, *node.NodeView) {
 	t.Helper()
 	env := SetupTestEnv(t)
 	registerOpsOrg(t, env)
-	setGeneratedReferenceTemplates(t, env, "epic", "issue")
 	actor := uuid.New()
 	workspace := mustCreateScope(t, env, "workspace", "Main", env.OrgID, env.OrgID, actor)
 	project := mustCreateScope(t, env, "project", "Fan", workspace.ID, workspace.ID, actor)

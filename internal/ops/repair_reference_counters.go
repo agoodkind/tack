@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strconv"
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain/node"
@@ -103,18 +104,41 @@ func recordHighestGenerated(
 			slog.String("node_id", view.ID.String()), slog.String("err", wrapped.Error()))
 		return wrapped
 	}
-	value := numberPropValue(view.Props, template.Generated)
+	value, err := numberPropValue(view.Props, template.Generated)
+	if err != nil {
+		wrapped := fmt.Errorf("read generated value for node %s: %w", view.ID, err)
+		env.Log.WarnContext(ctx, "repair.reference_uniqueness.generated_value_unreadable",
+			slog.String("node_id", view.ID.String()), slog.String("err", wrapped.Error()))
+		return wrapped
+	}
 	if value > highest[counterKey] {
 		highest[counterKey] = value
 	}
 	return nil
 }
 
-func numberPropValue(props map[string]json.RawMessage, name string) int64 {
+// numberPropValue reads the generated property as the number the node holds.
+// A missing property yields zero: the node carries no number to protect. A
+// present value that cannot be read is an error, because counting it as zero
+// would leave the counter below a number already in use and the next
+// allocation would hand out that number again.
+func numberPropValue(props map[string]json.RawMessage, name string) (int64, error) {
 	raw := props[name]
-	var value int64
-	if err := json.Unmarshal(raw, &value); err != nil {
-		return 0
+	if len(raw) == 0 {
+		return 0, nil
 	}
-	return value
+	var value int64
+	if err := json.Unmarshal(raw, &value); err == nil {
+		return value, nil
+	}
+	// Rendering accepts a numeric string, so seeding reads one too; the two
+	// must agree on what counts as the node's number.
+	var text string
+	if err := json.Unmarshal(raw, &text); err == nil {
+		parsed, parseErr := strconv.ParseInt(text, 10, 64)
+		if parseErr == nil {
+			return parsed, nil
+		}
+	}
+	return 0, fmt.Errorf("property %q holds %s, which is not a whole number", name, raw)
 }

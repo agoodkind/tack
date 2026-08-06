@@ -28,6 +28,22 @@ func TestSeedIsIdempotent(t *testing.T) {
 	if len(firstProps) == 0 {
 		t.Fatal("expected PropertyDefs after first seed, got zero")
 	}
+	seededTypes, err := env.Stores.NodeTypes.List(env.Ctx, env.OrgID)
+	if err != nil {
+		t.Fatalf("list seeded NodeTypes: %v", err)
+	}
+	for _, seededType := range seededTypes {
+		primaryTemplate := seededType.PrimaryReferenceTemplate()
+		if seededType.Features.Has(node.FeatureHasSequenceID) {
+			if primaryTemplate == nil {
+				t.Fatalf("sequence NodeType %q has no primary reference template", seededType.TypeKey)
+			}
+			continue
+		}
+		if len(seededType.ReferenceTemplates) != 0 {
+			t.Fatalf("non-sequence NodeType %q has reference templates", seededType.TypeKey)
+		}
+	}
 
 	// Re-run the seed against the same orgID. Same prefix, same orgID,
 	// same inputs everywhere.

@@ -206,6 +206,29 @@ func defaultPropertyDefs(orgID uuid.UUID) []*node.PropertyDef {
 	}
 }
 
+// scopedSequenceTemplate is the reference template the seed writes for
+// work-item types: the enclosing scope's reference, a hyphen, then a generated
+// sequence. The node type is absent, so every type carrying this template in one
+// scope shares a single numbering space.
+//
+// This is seed data, not an engine default: the engine supplies no template of
+// its own, and a type with no template carries no constraint. SeedOrg reapplies
+// every built-in NodeType field on reseed, this template included, so an org's
+// edit to a built-in type survives only until the next reseed. A durable custom
+// reference shape belongs on an org-defined type, which the seed never touches.
+func scopedSequenceTemplate() []node.ReferenceTemplate {
+	return []node.ReferenceTemplate{{
+		Name:      "reference",
+		IsPrimary: true,
+		Generated: "sequence",
+		Parts: []node.ReferencePart{
+			{Kind: node.ReferencePartScopeRef, Value: node.FeatureIsScope},
+			{Kind: node.ReferencePartLiteral, Value: "-"},
+			{Kind: node.ReferencePartProperty, Value: "sequence"},
+		},
+	}}
+}
+
 // defaultNodeTypes returns the built-in NodeType records for a given org.
 // IDs are deterministic UUID v5 values derived from (orgID, NodeType.Slug) so
 // repeated seeding writes the same record.
@@ -285,6 +308,10 @@ func defaultNodeTypes(orgID uuid.UUID) []*node.NodeType {
 	types := make([]*node.NodeType, 0, len(specs))
 	for _, sp := range specs {
 		id := uuid.NewSHA1(builtinTypeNamespace, []byte(orgID.String()+":"+sp.slug))
+		var referenceTemplates []node.ReferenceTemplate
+		if sp.features.Has(node.FeatureHasSequenceID) {
+			referenceTemplates = scopedSequenceTemplate()
+		}
 		types = append(types, &node.NodeType{
 			ID:                 id,
 			OrgID:              orgID,
@@ -298,7 +325,7 @@ func defaultNodeTypes(orgID uuid.UUID) []*node.NodeType {
 			CanContain:         sp.canContain,
 			CanLiveUnder:       sp.canLiveUnder,
 			Reference:          sp.reference,
-			ReferenceTemplates: nil,
+			ReferenceTemplates: referenceTemplates,
 			DefaultChildren:    sp.defaultChildren,
 		})
 	}

@@ -74,6 +74,12 @@ func referenceKeysForRepairedView(
 	view *node.NodeView,
 	scopeCache map[uuid.UUID]map[string]string,
 ) ([]node.ReferenceKey, error) {
+	// No templates means no keys to claim, which the storage layer reads as
+	// leave ownership alone. Returning an empty non-nil slice instead would
+	// read as an explicit release and strip claims a node already holds.
+	if len(nodeType.ReferenceTemplates) == 0 {
+		return nil, nil
+	}
 	scopeRefs, err := scopeReferencesForView(ctx, env, orgID, typeIndex, view, scopeCache)
 	if err != nil {
 		return nil, err

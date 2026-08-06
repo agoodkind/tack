@@ -19,7 +19,6 @@ import (
 func TestScopeRepairMovesTheReferenceWithTheNode(t *testing.T) {
 	env := SetupTestEnv(t)
 	registerOpsOrg(t, env)
-	setGeneratedReferenceTemplates(t, env, "epic", "issue")
 	actor := uuid.New()
 	workspace := mustCreateScope(t, env, "workspace", "Main", env.OrgID, env.OrgID, actor)
 	origin := mustCreateScope(t, env, "project", "Fan", workspace.ID, workspace.ID, actor)
@@ -55,6 +54,62 @@ func TestScopeRepairMovesTheReferenceWithTheNode(t *testing.T) {
 	}
 	if held != stale.ID {
 		t.Fatalf("QAT-1 owner = %s, want the moved node %s", held, stale.ID)
+	}
+}
+
+// TestScopeRepairKeepsClaimsWhenTypeHasNoTemplate covers the org that declares
+// no reference shape for a type. Such a type carries no constraint, so the
+// repair must move the node without touching whatever claims it already holds.
+// Handing the storage layer an empty list would instead read as an explicit
+// release and strip them.
+func TestScopeRepairKeepsClaimsWhenTypeHasNoTemplate(t *testing.T) {
+	env := SetupTestEnv(t)
+	registerOpsOrg(t, env)
+	clearReferenceTemplates(t, env, "issue")
+	actor := uuid.New()
+	workspace := mustCreateScope(t, env, "workspace", "Main", env.OrgID, env.OrgID, actor)
+	origin := mustCreateScope(t, env, "project", "Fan", workspace.ID, workspace.ID, actor)
+	destination := mustCreateScope(t, env, "project", "Qat", workspace.ID, workspace.ID, actor)
+
+	stale := writeNodeWithSplitScope(t, env, "issue", "Stale", destination.ID, origin.ID, 1)
+	held := node.ReferenceKey{TemplateName: "reference", Encoded: "FAN-1"}
+	if err := env.Stores.Nodes.SetReferenceKeys(env.Ctx, env.OrgID, stale.ID, []node.ReferenceKey{held}); err != nil {
+		t.Fatalf("seed the node's existing claim: %v", err)
+	}
+
+	if _, _, err := ops.RepairSequenceScopeIDs(env.Ctx, env.Ops); err != nil {
+		t.Fatalf("RepairSequenceScopeIDs: %v", err)
+	}
+
+	owner, err := env.Stores.Nodes.LookupReference(env.Ctx, env.OrgID, held.TemplateName, held.Encoded)
+	if err != nil {
+		t.Fatalf("lookup the claim: %v", err)
+	}
+	if owner != stale.ID {
+		t.Fatalf("FAN-1 owner after the repair = %s, want the node keeping it, %s", owner, stale.ID)
+	}
+}
+
+// clearReferenceTemplates removes the reference shape from the named types,
+// producing the unconstrained state an org reaches by declaring none.
+func clearReferenceTemplates(t *testing.T, env *TestEnv, typeKeys ...string) {
+	t.Helper()
+	types, err := env.Stores.NodeTypes.List(env.Ctx, env.OrgID)
+	if err != nil {
+		t.Fatalf("list node types: %v", err)
+	}
+	wanted := make(map[string]bool, len(typeKeys))
+	for _, typeKey := range typeKeys {
+		wanted[typeKey] = true
+	}
+	for _, nodeType := range types {
+		if !wanted[nodeType.TypeKey] {
+			continue
+		}
+		nodeType.ReferenceTemplates = nil
+		if err := env.Stores.NodeTypes.Set(env.Ctx, nodeType); err != nil {
+			t.Fatalf("clear templates for %s: %v", nodeType.TypeKey, err)
+		}
 	}
 }
 
