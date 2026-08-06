@@ -18,9 +18,8 @@ var errFDBBackupDestinationMismatch = errors.New(
 	"active FoundationDB backup targets a different destination",
 )
 
-// backupCtx bundles the runtime state for one backup run. Component
-// dumpers receive a pointer so they share the same destination directory,
-// docker client, and logger without any package-level state.
+// backupCtx bundles runtime state for one FoundationDB continuous backup
+// session without package-level state.
 type backupCtx struct {
 	Cfg     *config.Config
 	Cli     *client.Client

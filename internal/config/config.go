@@ -121,21 +121,17 @@ type Config struct {
 	BackupFDBContinuous       bool `env:"TACK_BACKUP_FDB_CONTINUOUS"        envDefault:"false"`
 	BackupFDBSnapshotInterval int  `env:"TACK_BACKUP_FDB_SNAPSHOT_INTERVAL" envDefault:"3600"`
 
-	BackupMeiliVolume   string `env:"TACK_BACKUP_MEILI_VOLUME"       envDefault:"tack_meili-data"`
-	BackupDockerContext string `env:"TACK_BACKUP_DOCKER_CONTEXT"     envDefault:"tack"`
-
 	// Backup S3 target. Read by `./server ops backup buckets-init` to create
 	// the SeaweedFS bucket that holds off-host backup artifacts. Endpoint and
 	// credentials have no defaults because pointing at the wrong object store
 	// is a silent data-placement failure; the command errors loudly if the
 	// endpoint or credentials are unset. SeaweedFS requires path-style
 	// addressing, which the S3 client sets regardless of these values.
-	BackupS3Endpoint    string `env:"TACK_BACKUP_S3_ENDPOINT"`
-	BackupS3AccessKey   string `env:"TACK_BACKUP_S3_ACCESS_KEY_ID"`
-	BackupS3SecretKey   string `env:"TACK_BACKUP_S3_SECRET_ACCESS_KEY"`
-	BackupS3Region      string `env:"TACK_BACKUP_S3_REGION"        envDefault:"us-east-1"`
-	BackupS3BucketMain  string `env:"TACK_BACKUP_S3_BUCKET_MAIN"   envDefault:"tack-backups"`
-	BackupS3BucketAudit string `env:"TACK_BACKUP_S3_BUCKET_AUDIT"  envDefault:"tack-audit-archive"`
+	BackupS3Endpoint   string `env:"TACK_BACKUP_S3_ENDPOINT"`
+	BackupS3AccessKey  string `env:"TACK_BACKUP_S3_ACCESS_KEY_ID"`
+	BackupS3SecretKey  string `env:"TACK_BACKUP_S3_SECRET_ACCESS_KEY"`
+	BackupS3Region     string `env:"TACK_BACKUP_S3_REGION"        envDefault:"us-east-1"`
+	BackupS3BucketMain string `env:"TACK_BACKUP_S3_BUCKET_MAIN"   envDefault:"tack-backups"`
 
 	// YugabyteDB point-in-time-recovery (PITR). Read by
 	// `./server ops backup yb-pitr-init`, which creates a yb-admin snapshot

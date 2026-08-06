@@ -63,7 +63,29 @@ func backupCommand(f *cli.Factory) *cobra.Command {
 			},
 		},
 	)
+	cmd.SetHelpCommand(backupHelpCommand())
+	cmd.InitDefaultHelpCmd()
 	return cmd
+}
+
+func backupHelpCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "help [command]",
+		Short: "Help about any command",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			parent := cmd.Parent()
+			if len(args) == 0 {
+				return parent.Help()
+			}
+			for _, child := range parent.Commands() {
+				if child.Name() == args[0] {
+					return child.Help()
+				}
+			}
+			return fmt.Errorf("unknown backup help topic %q", args[0])
+		},
+	}
 }
 
 // backupSubcommandNames lists the registered subcommands so the refusal

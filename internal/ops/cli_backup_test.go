@@ -1,8 +1,11 @@
 package ops
 
 import (
+	"bytes"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 
 	"goodkind.io/tack/internal/cli"
 )
@@ -19,6 +22,37 @@ func TestBareBackupCommandRefuses(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "subcommand") {
 		t.Fatalf("error must direct the operator to a subcommand, got: %v", err)
+	}
+}
+
+func TestBackupHelpSubcommand(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "backup", args: []string{"help"}, want: "Subcommands initialize an object-store bucket"},
+		{name: "subcommand", args: []string{"help", "buckets-init"}, want: "Idempotently create the SeaweedFS S3 backup bucket"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := &cobra.Command{Use: "tack"}
+			ops := &cobra.Command{Use: "ops"}
+			ops.AddCommand(backupCommand(&cli.Factory{}))
+			root.AddCommand(ops)
+			var output bytes.Buffer
+			root.SetOut(&output)
+			root.SetErr(&output)
+			root.SetArgs(append([]string{"ops", "backup"}, test.args...))
+
+			if err := root.Execute(); err != nil {
+				t.Fatalf("ops backup %s: %v", strings.Join(test.args, " "), err)
+			}
+			if !strings.Contains(output.String(), test.want) {
+				t.Fatalf("output missing %q: %s", test.want, output.String())
+			}
+		})
 	}
 }
 

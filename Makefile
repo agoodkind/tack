@@ -126,12 +126,6 @@ update-fdb:
 	@echo "Reminder: hand-edit FDB_BINDINGS_VERSION in this Makefile to match"
 	@echo "and update the fdb.APIVersion call in internal/adapters/foundationdb/client.go."
 
-# Run a full backup on CT 117 inside the tack-ops sibling container, snapshotting
-# FDB, Yugabyte, Temporal-DB, and Meilisearch via `./server ops backup`.
-.PHONY: backup
-backup:
-	ssh tack 'cd /root/tack && docker compose run --rm tack-ops ops backup'
-
 # Create or rotate the three LOGIN audit roles (tack_audit_writer,
 # tack_audit_reader, tack_audit_redactor), the names the app DSNs authenticate
 # as, each granting its base role from migration 002. Idempotent. Runs the Go
@@ -147,13 +141,3 @@ seed-audit-roles:
 audit-consumer:
 	mkdir -p dist
 	go build $(GO_BUILD_FLAGS) -o dist/audit-consumer ./cmd/audit-consumer
-
-# Structural inventory check of a specific backup on CT 117. Runs the
-# ./server ops backup verify subcommand inside the tack-ops sibling
-# container. TS is required: make backup-verify TS=20260509T232955Z
-.PHONY: backup-verify
-backup-verify:
-ifndef TS
-	$(error TS is required: make backup-verify TS=20260509T232955Z)
-endif
-	ssh tack 'cd /root/tack && docker compose run --rm tack-ops ops backup verify /root/backups/tack-$(TS)'
