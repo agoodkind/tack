@@ -22,101 +22,22 @@ import (
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/google/uuid"
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
+	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain/node"
+	"goodkind.io/tack/internal/ops"
 	"goodkind.io/tack/internal/service"
 )
 
-// TestEnv carries the dependencies a test needs to run a full create-then-resolve
-// flow. It is built once per test by SetupTestEnv. The cleanup hook fires
-// automatically via t.Cleanup; tests do not need to call anything manually.
+// TestEnv holds isolated test dependencies.
 type TestEnv struct {
 	Stores  *fdbadapter.Stores
+	Ops     *ops.Env
 	NodeSvc *service.NodeService
 	Seeder  *service.Seeder
 	OrgID   uuid.UUID
 	OrgSlug string
 	Ctx     context.Context
-}
-
-// SetupTestEnv prepares an isolated TestEnv for a single test. It:
-//   - skips the test when TACK_INTEGRATION is unset
-//   - opens FDB via the cluster file in FDB_CLUSTER_FILE (default
-//     /etc/foundationdb/fdb.cluster)
-//   - assigns a per-test FDB key prefix derived from a fresh UUID
-//   - runs Seeder.SeedOrg with the test orgID so NodeTypes and PropertyDefs
-//     are written under the test prefix
-//   - registers a t.Cleanup hook that range-clears the prefix
-//
-// The returned NodeSvc, Seeder, and Stores read and write only under the test
-// prefix, so two parallel tests on the same FDB cluster never see each
-// other's data.
-func SetupTestEnv(t *testing.T) *TestEnv {
-	t.Helper()
-	if os.Getenv("TACK_INTEGRATION") == "" {
-		t.Skip("integration test: set TACK_INTEGRATION=1 to run")
-	}
-
-	clusterFile := os.Getenv("FDB_CLUSTER_FILE")
-	if clusterFile == "" {
-		clusterFile = "/etc/foundationdb/fdb.cluster"
-	}
-
-	prefix := uuid.New()
-	prefixBytes := append([]byte("tack-test:"), prefix[:]...)
-	fdbadapter.SetTestPrefix(prefixBytes)
-
-	stores, err := fdbadapter.NewStores(clusterFile, nil)
-	if err != nil {
-		fdbadapter.SetTestPrefix(nil)
-		t.Fatalf("open fdb: %v", err)
-	}
-
-	// Pin the org UUID to a known constant so integration tests produce stable,
-	// repeatable IDs across runs. Different per-test FDB key prefixes keep
-	// tests isolated even though they share the same orgID value.
-	const seedSlug = "test-org"
-	orgID := uuid.MustParse("019e6b4a-0000-7000-8000-000000000001")
-
-	seeder := service.NewSeeder(stores.PropertyDefs, stores.NodeTypes)
-	ctx := context.Background()
-	seeder.SeedOrg(ctx, orgID)
-
-	// Service.Create resolves a node's org by reading the parent's resolve
-	// record. The seed only writes NodeTypes and PropertyDefs, so we also
-	// need an org Node so child Create calls (workspace, project, etc.) can
-	// resolve their parent. Mirrors cmd/server/seed.go ensureNode for the
-	// root case.
-	if err := writeOrgNode(ctx, stores, orgID, seedSlug); err != nil {
-		fdbadapter.SetTestPrefix(nil)
-		t.Fatalf("write org node: %v", err)
-	}
-
-	t.Cleanup(func() {
-		clearPrefix(t, clusterFile, prefixBytes)
-		fdbadapter.SetTestPrefix(nil)
-	})
-
-	// Build NodeService against the prefixed stores. Some downstream calls
-	// expect a non-nil searcher; pass a noop.
-	svc := service.NewNodeService(
-		stores.Nodes,
-		stores.Views,
-		stores.NodeTypes,
-		stores.PropertyDefs,
-		stores.Relationships,
-		stores.NodeDeleter,
-		noopSearcher{},
-	)
-
-	return &TestEnv{
-		Stores:  stores,
-		NodeSvc: svc,
-		Seeder:  seeder,
-		OrgID:   orgID,
-		OrgSlug: seedSlug,
-		Ctx:     ctx,
-	}
 }
 
 // writeOrgNode writes the org Node, NodeView, NodeResolve, and slug index
@@ -180,5 +101,83 @@ func clearPrefix(t *testing.T, clusterFile string, prefix []byte) {
 	})
 	if err != nil {
 		t.Logf("cleanup: clear range: %v", err)
+	}
+}
+
+// SetupTestEnv creates isolated test dependencies.
+func SetupTestEnv(t *testing.T) *TestEnv {
+	t.Helper()
+	if os.Getenv("TACK_INTEGRATION") == "" {
+		t.Skip("integration test: set TACK_INTEGRATION=1 to run")
+	}
+
+	clusterFile := os.Getenv("FDB_CLUSTER_FILE")
+	if clusterFile == "" {
+		clusterFile = "/etc/foundationdb/fdb.cluster"
+	}
+
+	prefix := uuid.New()
+	prefixBytes := append([]byte("tack-test:"), prefix[:]...)
+	fdbadapter.SetTestPrefix(prefixBytes)
+
+	stores, err := fdbadapter.NewStores(clusterFile, nil)
+	if err != nil {
+		fdbadapter.SetTestPrefix(nil)
+		t.Fatalf("open fdb: %v", err)
+	}
+	ctx := context.Background()
+	pool, err := postgres.NewPool(ctx, os.Getenv("DATABASE_URL"), nil)
+	if err != nil {
+		fdbadapter.SetTestPrefix(nil)
+		t.Fatalf("open postgres: %v", err)
+	}
+	// Close the pool with the test, including on early t.Fatalf paths, so
+	// repeated tests cannot exhaust the database connection limit.
+	t.Cleanup(pool.Close)
+
+	// Pin the org UUID to a known constant so integration tests produce stable,
+	// repeatable IDs across runs. Different per-test FDB key prefixes keep
+	// tests isolated even though they share the same orgID value.
+	const seedSlug = "test-org"
+	orgID := uuid.MustParse("019e6b4a-0000-7000-8000-000000000001")
+
+	seeder := service.NewSeeder(stores.PropertyDefs, stores.NodeTypes)
+	seeder.SeedOrg(ctx, orgID)
+
+	// Service.Create resolves a node's org by reading the parent's resolve
+	// record. The seed only writes NodeTypes and PropertyDefs, so we also
+	// need an org Node so child Create calls (workspace, project, etc.) can
+	// resolve their parent. Mirrors cmd/server/seed.go ensureNode for the
+	// root case.
+	if err := writeOrgNode(ctx, stores, orgID, seedSlug); err != nil {
+		fdbadapter.SetTestPrefix(nil)
+		t.Fatalf("write org node: %v", err)
+	}
+
+	t.Cleanup(func() {
+		clearPrefix(t, clusterFile, prefixBytes)
+		fdbadapter.SetTestPrefix(nil)
+	})
+
+	// Build NodeService against the prefixed stores. Some downstream calls
+	// expect a non-nil searcher; pass a noop.
+	svc := service.NewNodeService(
+		stores.Nodes,
+		stores.Views,
+		stores.NodeTypes,
+		stores.PropertyDefs,
+		stores.Relationships,
+		stores.NodeDeleter,
+		noopSearcher{},
+	)
+
+	return &TestEnv{
+		Stores:  stores,
+		Ops:     &ops.Env{Cfg: nil, Pool: pool, Stores: stores, Log: slog.Default()},
+		NodeSvc: svc,
+		Seeder:  seeder,
+		OrgID:   orgID,
+		OrgSlug: seedSlug,
+		Ctx:     ctx,
 	}
 }
