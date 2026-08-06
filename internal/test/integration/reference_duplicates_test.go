@@ -30,7 +30,6 @@ func TestReferenceDuplicatesAreRegistered(t *testing.T) {
 func TestFindDuplicateReferencesReportsLegacyCollision(t *testing.T) {
 	env := SetupTestEnv(t)
 	registerOpsOrg(t, env)
-	setReferenceTemplates(t, env, "epic", "issue")
 	actor := uuid.New()
 	workspace := mustCreateScope(t, env, "workspace", "Main", env.OrgID, env.OrgID, actor)
 	project := mustCreateScope(t, env, "project", "Fan", workspace.ID, workspace.ID, actor)
@@ -60,7 +59,6 @@ func TestFindDuplicateReferencesReportsLegacyCollision(t *testing.T) {
 func TestFindDuplicateReferencesReturnsNoGroupsWithoutCollisions(t *testing.T) {
 	env := SetupTestEnv(t)
 	registerOpsOrg(t, env)
-	setReferenceTemplates(t, env, "epic", "issue")
 	actor := uuid.New()
 	workspace := mustCreateScope(t, env, "workspace", "Main", env.OrgID, env.OrgID, actor)
 	_ = mustCreateScope(t, env, "project", "Fan", workspace.ID, workspace.ID, actor)
@@ -128,31 +126,6 @@ func migrateAuthSchema(t *testing.T, env *TestEnv) {
 	})
 	if migrateErr != nil {
 		t.Fatalf("migrate auth schema: %v", migrateErr)
-	}
-}
-
-func setReferenceTemplates(t *testing.T, env *TestEnv, typeKeys ...string) {
-	t.Helper()
-	types, err := env.Stores.NodeTypes.List(env.Ctx, env.OrgID)
-	if err != nil {
-		t.Fatalf("list node types: %v", err)
-	}
-	for _, nodeType := range types {
-		if !containsString(typeKeys, nodeType.TypeKey) {
-			continue
-		}
-		nodeType.ReferenceTemplates = []node.ReferenceTemplate{{
-			Name:      "reference",
-			IsPrimary: true,
-			Parts: []node.ReferencePart{
-				{Kind: node.ReferencePartScopeRef, Value: node.FeatureIsScope},
-				{Kind: node.ReferencePartLiteral, Value: "-"},
-				{Kind: node.ReferencePartProperty, Value: "sequence"},
-			},
-		}}
-		if err := env.Stores.NodeTypes.Set(env.Ctx, nodeType); err != nil {
-			t.Fatalf("set %s template: %v", nodeType.TypeKey, err)
-		}
 	}
 }
 

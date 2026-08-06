@@ -20,9 +20,18 @@ func init() {
 }
 
 func runRepairSequenceScopeIDs(ctx context.Context, env *Env) error {
+	_, _, err := RepairSequenceScopeIDs(ctx, env)
+	return err
+}
+
+// RepairSequenceScopeIDs derives each sequence-bearing node's owning scope from
+// its parent chain and writes it, returning the repaired and skipped counts. It
+// re-claims each moved node's rendered reference, so a move that would land on a
+// reference another node holds is refused and counted as skipped.
+func RepairSequenceScopeIDs(ctx context.Context, env *Env) (int, int, error) {
 	orgIDs, err := listOrgIDs(ctx, env)
 	if err != nil {
-		return err
+		return 0, 0, err
 	}
 	totalRepaired, totalSkipped := 0, 0
 	for orgID := range orgIDs {
@@ -40,11 +49,15 @@ func runRepairSequenceScopeIDs(ctx context.Context, env *Env) error {
 				slog.String("err", err.Error()))
 			continue
 		}
+		typeIndex := node.BuildTypeIndex(nodeTypes)
+		scopeCache := make(map[uuid.UUID]map[string]string)
 		for _, nodeType := range nodeTypes {
 			if nodeType.Reference.Strategy != node.ReferenceScopedSequence {
 				continue
 			}
-			repaired, skipped := repairTypeScopeIDs(ctx, env, orgID, nodeType, propertyDefs)
+			repaired, skipped := repairTypeScopeIDs(
+				ctx, env, orgID, nodeType, propertyDefs, typeIndex, scopeCache,
+			)
 			totalRepaired += repaired
 			totalSkipped += skipped
 		}
@@ -52,10 +65,18 @@ func runRepairSequenceScopeIDs(ctx context.Context, env *Env) error {
 	env.Log.InfoContext(ctx, "repair.scope_ids.completed",
 		slog.Int("repaired", totalRepaired),
 		slog.Int("skipped", totalSkipped))
-	return nil
+	return totalRepaired, totalSkipped, nil
 }
 
-func repairTypeScopeIDs(ctx context.Context, env *Env, orgID uuid.UUID, nodeType *node.NodeType, propertyDefs []*node.PropertyDef) (int, int) {
+func repairTypeScopeIDs(
+	ctx context.Context,
+	env *Env,
+	orgID uuid.UUID,
+	nodeType *node.NodeType,
+	propertyDefs []*node.PropertyDef,
+	typeIndex map[string]*node.NodeType,
+	scopeCache map[uuid.UUID]map[string]string,
+) (int, int) {
 	views, err := env.Stores.Views.List(ctx, node.NodeListQuery{
 		OrgID:    orgID,
 		NodeType: nodeType.TypeKey,
@@ -113,7 +134,22 @@ func repairTypeScopeIDs(ctx context.Context, env *Env, orgID uuid.UUID, nodeType
 			CreatedAt: currentNode.CreatedAt,
 			UpdatedAt: currentNode.UpdatedAt,
 		}
-		if err := env.Stores.Nodes.UpdateAtomic(ctx, updatedNode, updatedView, oldProps, indexedProps, nil); err != nil {
+		// Moving the scope changes what the node's reference renders to, so
+		// claim the keys the new scope produces. Passing none would leave the
+		// node holding its old value while nothing holds the new one, which is
+		// the silent collision this repair would otherwise create.
+		referenceKeys, keyErr := referenceKeysForRepairedView(
+			ctx, env, orgID, typeIndex, nodeType, updatedView, scopeCache,
+		)
+		if keyErr != nil {
+			env.Log.WarnContext(ctx, "repair.scope_ids: render reference keys",
+				slog.String("node_id", currentNode.ID.String()),
+				slog.String("type", nodeType.TypeKey),
+				slog.String("err", keyErr.Error()))
+			skipped++
+			continue
+		}
+		if err := env.Stores.Nodes.UpdateAtomic(ctx, updatedNode, updatedView, oldProps, indexedProps, referenceKeys); err != nil {
 			env.Log.WarnContext(ctx, "repair.scope_ids: update node",
 				slog.String("node_id", currentNode.ID.String()),
 				slog.String("type", nodeType.TypeKey),

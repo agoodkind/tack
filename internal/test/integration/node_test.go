@@ -69,8 +69,8 @@ func TestCreateProjectThenResolve(t *testing.T) {
 //   - be scoped to the project via Props["scope_id"]
 //   - allocate its sequence under the project, not under the epic
 //
-// Two issues under the same project but different epics must therefore
-// receive sequential sequence numbers, not both 1.
+// Every work-item type in the project shares one numbering space. The epics
+// take 1 and 2, so the issues must receive 3 and 4.
 func TestCreateEpicAndIssueInProject(t *testing.T) {
 	env := SetupTestEnv(t)
 	actor := uuid.New()
@@ -118,8 +118,8 @@ func TestCreateEpicAndIssueInProject(t *testing.T) {
 
 	seq1 := numberPropOf(t, issue1, "sequence")
 	seq2 := numberPropOf(t, issue2, "sequence")
-	if seq1 != 1 || seq2 != 2 {
-		t.Errorf("sequences should be project-wide, got issue1=%d issue2=%d (want 1 and 2)", seq1, seq2)
+	if seq1 != 3 || seq2 != 4 {
+		t.Errorf("sequences should share the project numbering space, got issue1=%d issue2=%d (want 3 and 4)", seq1, seq2)
 	}
 }
 
