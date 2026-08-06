@@ -20,13 +20,13 @@ import (
 func TestAppRuntimeDoesNotStartNotarizer(t *testing.T) {
 	server := newAuditPostgresServer(t)
 	ctx := context.Background()
-	runtime := buildAuditRuntime(ctx, &config.Config{
+	appRuntime := buildAuditRuntime(ctx, &config.Config{
 		AuditKafkaBrokers:   "127.0.0.1:1",
 		AuditKafkaTopic:     "audit.events.v1",
 		AuditSigningKeyPath: writeAuditSigningKey(t),
 		AuditWriterDSN:      server.DSN(),
 	})
-	t.Cleanup(runtime.Close)
+	t.Cleanup(appRuntime.Close)
 
 	if got := server.connections.Load(); got != 0 {
 		t.Fatalf("app runtime opened %d notarizer connections, want 0", got)
