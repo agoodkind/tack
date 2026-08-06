@@ -118,12 +118,16 @@ services:
         # Without it, yugabyted defaults to ~/var which is the container
         # overlay (lost on every recreate). This is THE reason a docker
         # compose down wipes the SQL side: 2026-04-28 incident.
+        # Hard memory bound: 8 GiB process ceiling, 2 GiB block cache.
+        # Replaces use_memory_defaults_optimized_for_ysql self-sizing, which
+        # sizes from guest RAM and let a full-table scan grow the tserver to
+        # 13.7 GiB and starve the guest's page cache (2026-08-05 S0).
         exec /home/yugabyte/bin/yugabyted start \
           --daemon=false \
           --base_dir=/home/yugabyte/var \
           --advertise_address="$$ADDR" \
           --listen="$$ADDR" \
-          --tserver_flags="ysql_pg_conf_csv=max_connections=100"
+          --tserver_flags="ysql_pg_conf_csv=max_connections=100,memory_limit_hard_bytes=8589934592,db_block_cache_size_bytes=2147483648"
     environment:
       YSQL_DB: ${YUGABYTE_DB:?YUGABYTE_DB is required, set it in .env}
       YSQL_USER: ${YUGABYTE_USER:?YUGABYTE_USER is required, set it in .env}
