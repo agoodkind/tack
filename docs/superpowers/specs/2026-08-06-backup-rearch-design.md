@@ -7,8 +7,8 @@ of the production machine), scalable (no step reads the dataset row by row),
 continuous (protection advances on its own, with no operator action), distributed
 (engine-native mechanisms that spread work across nodes), and recoverable
 (rehearsed restores, not assumed ones). Two numbers bind the design: a disaster
-may lose at most the last few seconds of writes, and the service may be down for
-at most minutes.
+may lose at most the last few seconds of writes, and loss of a database node
+must heal automatically in seconds, with no operator action.
 
 One structural rule binds every mechanism: backup work never runs on the
 production guest or inside its containers. Snapshot creation by the database
@@ -24,17 +24,23 @@ the stream (see Alarms).
 
 ### Auth and audit ledger (YugabyteDB)
 
-A standby copy of the database runs on its own guest and receives every change
-as an asynchronous stream (the engine's xCluster replication). The standby
-trails production by seconds.
+The database runs as a three-node cluster, each node on its own guest, keeping
+three live copies of every row (replication factor 3). When the leader node
+dies, the survivors elect a new leader in seconds, automatically. Failover is
+convergence, not an operator event.
 
-- All backup work runs against the standby: the scheduled distributed-snapshot
+- Backup work pins to a follower node: the scheduled distributed-snapshot
   export to the object store, the pack and upload, and every restore rehearsal.
-- The standby is promotable. Disaster recovery is flipping traffic to it, which
-  bounds downtime to minutes. Rebuilding from the object store remains the slow
-  fallback for corruption that replicated.
-- The in-cluster point-in-time rewind schedule stays on production as the
-  corruption layer (it is near-free; it is not backup work).
+  The leader only ever serves traffic.
+- Rebuilding from the object store remains the slow fallback for corruption
+  that replicated to all copies.
+- The in-cluster point-in-time rewind schedule stays as the corruption layer
+  (it is near-free; it is not backup work).
+
+Open placement decision: quorum survives only minority loss. Two nodes on
+vault plus one on suburban survives losing suburban but not losing vault.
+Surviving the loss of either hypervisor requires a third fault domain for one
+node or a witness.
 
 ### Derived stores (Meilisearch, ClickHouse)
 
@@ -59,14 +65,16 @@ none of these artifacts.
 
 One metric per mechanism: seconds since last success. Alert on staleness, not on
 failure, because silent failures do not fail. Covered: the FoundationDB stream's
-restorable point, the standby's replication lag, the standby's last completed
-export, and the last passing restore rehearsal.
+restorable point, the cluster's under-replication state (any tablet below three
+live copies), the follower's last completed export, and the last passing
+restore rehearsal.
 
 ## Rehearsals
 
-The existing restore drill runs on a schedule against the standby's exports,
-never on production. A promotion rehearsal (flip to standby, verify, flip back)
-runs on the QA pair before the standby enters service and periodically after.
+The existing restore drill runs on a schedule against the follower's exports,
+never against the leader. A failover rehearsal (kill a node, verify the cluster
+converges and the app never errors, restore the node) runs on the QA cluster
+before rollout and periodically after.
 
 ## Rollout
 
@@ -74,11 +82,12 @@ Every phase lands on QA (guest pair) first, then production, per the standing
 iterative-testing rule.
 
 1. Deletions plus the bare-command guard.
-2. Standby guest provisioned (OpenTofu plus Ansible in the configs repo),
-   replication established, lag alarm live.
-3. Export scheduling moves to the standby; production export path retired.
+2. Two additional database guests provisioned (OpenTofu plus Ansible in the
+   configs repo); the cluster expands to three nodes; under-replication alarm
+   live.
+3. Export scheduling pins to a follower; the on-leader export path retires.
 4. Scheduled rehearsals plus the staleness alarms.
-5. Promotion rehearsal on QA; document the promotion runbook.
+5. Failover rehearsal on QA; document the failover runbook.
 
 ## Interactions
 
