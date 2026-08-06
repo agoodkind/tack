@@ -50,6 +50,12 @@ services:
       # Audit query read tier. Empty reads only Yugabyte; set to route recent
       # windows to the ClickHouse audit.events_olap projection.
       AUDIT_CLICKHOUSE_DSN: ${AUDIT_CLICKHOUSE_DSN:-}
+      # QA data generator write marker, read only by `ops qa datagen`. The
+      # generator refuses to write unless this is exactly qa or local, so the
+      # value is set on tack-qa and left empty on production. The app service
+      # carries it because the generator needs FoundationDB reachability and the
+      # audit DSNs, which the host-networked tack-ops container does not have.
+      TACK_DATAGEN_ALLOW_TARGET: ${TACK_DATAGEN_ALLOW_TARGET:-}
       # Backup object store. Empty unless the host's group_vars set them; read only by ops backup.
       TACK_BACKUP_S3_ENDPOINT: ${TACK_BACKUP_S3_ENDPOINT:-}
       TACK_BACKUP_S3_ACCESS_KEY_ID: ${TACK_BACKUP_S3_ACCESS_KEY_ID:-}
