@@ -257,11 +257,18 @@ TACK-304.
    [`docs/operator-identity-and-audit.md`](docs/operator-identity-and-audit.md).
 4. **QA data-generator coverage.** Any new node type, property type,
    relationship shape, audit verb, or user-visible code path must add coverage
-   to `ops qa datagen` in the same change. The tack-qa environment must set
-   `TACK_DATAGEN_ALLOW_TARGET=qa`; the configs repo change is a separate follow-up.
-   Run `ops qa datagen seed --commit` where FoundationDB is reachable and the app
-   audit DSNs are present, such as the tack-app container environment, not the
-   default tack-ops container.
+   to `ops qa datagen` in the same change. Run it through the `app` service,
+   which has FoundationDB reachability and the audit DSNs that the
+   host-networked `tack-ops` container lacks:
+
+   ```bash
+   docker compose run --rm app ops qa datagen seed --scale small --commit
+   docker compose run --rm app ops qa datagen soak --duration 60s --rate 3 --commit
+   ```
+
+   Writing requires `TACK_DATAGEN_ALLOW_TARGET` to be exactly `qa` or `local`;
+   tack-qa sets it and production leaves it empty, so the generator refuses
+   there. Dry run is the default and needs no marker.
 
 ## No config files
 
