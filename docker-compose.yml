@@ -10,6 +10,7 @@ services:
         TAG: ${TACK_TAG:-dev}
         DIRTY: ${TACK_DIRTY:-false}
     restart: unless-stopped
+    mem_limit: 1g
     dns:
       # TODO: switch to IPv6 loopback
       - 127.0.0.11
@@ -102,6 +103,7 @@ services:
     # and the refresh procedure on image bump.
     image: yugabytedb/yugabyte:2024.2.8.0-b85
     restart: unless-stopped
+    mem_limit: 10g
     command:
       - /bin/bash
       - -lc
@@ -117,12 +119,16 @@ services:
         # Without it, yugabyted defaults to ~/var which is the container
         # overlay (lost on every recreate). This is THE reason a docker
         # compose down wipes the SQL side: 2026-04-28 incident.
+        # Hard memory bound: 8 GiB process ceiling, 2 GiB block cache.
+        # Replaces use_memory_defaults_optimized_for_ysql self-sizing, which
+        # sizes from guest RAM and let a full-table scan grow the tserver to
+        # 13.7 GiB and starve the guest's page cache (2026-08-05 S0).
         exec /home/yugabyte/bin/yugabyted start \
           --daemon=false \
           --base_dir=/home/yugabyte/var \
           --advertise_address="$$ADDR" \
           --listen="$$ADDR" \
-          --tserver_flags="ysql_pg_conf_csv=max_connections=100"
+          --tserver_flags="ysql_pg_conf_csv=max_connections=100,memory_limit_hard_bytes=8589934592,db_block_cache_size_bytes=2147483648"
     environment:
       YSQL_DB: ${YUGABYTE_DB:?YUGABYTE_DB is required, set it in .env}
       YSQL_USER: ${YUGABYTE_USER:?YUGABYTE_USER is required, set it in .env}
@@ -153,6 +159,7 @@ services:
     # Bump all three together via make update-fdb VERSION=...
     image: foundationdb/foundationdb:${FDB_VERSION:-7.4.6}
     restart: unless-stopped
+    mem_limit: 2g
     environment:
       FDB_NETWORKING_MODE: container
       FDB_PORT: "4500"
@@ -185,6 +192,7 @@ services:
     image: foundationdb/foundationdb:${FDB_VERSION:-7.4.6}
     profiles: [backup]
     restart: unless-stopped
+    mem_limit: 512m
     depends_on:
       fdb:
         condition: service_healthy
@@ -202,6 +210,7 @@ services:
     # Engine upgrade is tracked separately (TACK-332).
     image: getmeili/meilisearch:v1.12
     restart: unless-stopped
+    mem_limit: 2g
     environment:
       MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-tack-dev-meili-key-change-in-prod}
       MEILI_ENV: production
@@ -229,6 +238,7 @@ services:
     # Major upgrade is tracked separately (TACK-332).
     image: postgres:16-alpine
     restart: unless-stopped
+    mem_limit: 1g
     environment:
       POSTGRES_USER: temporal
       POSTGRES_PASSWORD: temporal
@@ -244,6 +254,7 @@ services:
   temporal:
     image: temporalio/auto-setup:1.29.3
     restart: unless-stopped
+    mem_limit: 1g
     environment:
       DB: postgres12
       DB_PORT: 5432
@@ -269,6 +280,7 @@ services:
   temporal-ui:
     image: temporalio/ui:2.51.0
     restart: unless-stopped
+    mem_limit: 512m
     environment:
       TEMPORAL_ADDRESS: temporal:7233
     ports:
@@ -292,6 +304,7 @@ services:
     image: apache/kafka:4.2.0
     profiles: [audit]
     restart: unless-stopped
+    mem_limit: 2g
     environment:
       KAFKA_PROCESS_ROLES: broker,controller
       KAFKA_NODE_ID: "1"
@@ -331,6 +344,7 @@ services:
     image: clickhouse/clickhouse-server:26.5
     profiles: [audit]
     restart: unless-stopped
+    mem_limit: 2g
     environment:
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
     volumes:
@@ -358,6 +372,7 @@ services:
         TAG: ${TACK_TAG:-dev}
         DIRTY: ${TACK_DIRTY:-false}
     restart: unless-stopped
+    mem_limit: 1g
     entrypoint: ["/usr/local/bin/audit-consumer"]
     environment:
       AUDIT_CONSUMER_KAFKA_BROKERS: ${AUDIT_CONSUMER_KAFKA_BROKERS:-kafka:9092}
@@ -392,6 +407,7 @@ services:
   tack-ops:
     image: ghcr.io/agoodkind/tack-server:${TACK_IMAGE_TAG:-latest}
     profiles: [ops]
+    mem_limit: 512m
     entrypoint: ["/server"]
     network_mode: host
     environment:
