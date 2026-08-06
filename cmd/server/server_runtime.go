@@ -28,7 +28,11 @@ func runServer(ctx context.Context, cfg *config.Config) error {
 	}
 	defer graph.Close()
 
-	mux := buildServeMux(graph.MCPHandler, graph.AuthMiddleware)
+	mux := buildServeMux(
+		graph.MCPHandler,
+		graph.AuthMiddleware,
+		newRuntimeHealthHandler(graph),
+	)
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	slog.InfoContext(ctx, "starting server",
@@ -83,7 +87,18 @@ func runServer(ctx context.Context, cfg *config.Config) error {
 	return nil
 }
 
-func buildServeMux(mcpHandler http.Handler, authMiddleware func(http.Handler) http.Handler) *http.ServeMux {
+func newRuntimeHealthHandler(graph *appruntime.Graph) http.Handler {
+	return newHealthHandler(map[string]func(context.Context) error{
+		"yugabyte": graph.PingYugabyte,
+		"fdb":      graph.PingFoundationDB,
+	})
+}
+
+func buildServeMux(
+	mcpHandler http.Handler,
+	authMiddleware func(http.Handler) http.Handler,
+	healthHandler http.Handler,
+) *http.ServeMux {
 	mux := http.NewServeMux()
 	mcpWithAuth := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
@@ -95,6 +110,7 @@ func buildServeMux(mcpHandler http.Handler, authMiddleware func(http.Handler) ht
 	})
 	mux.Handle("/mcp", mcpWithAuth)
 	mux.Handle("/mcp/", mcpWithAuth)
+	mux.Handle("GET /healthz", healthHandler)
 	registerConnectHandlers(mux, authMiddleware)
 
 	// expvar counters at /debug/vars. Not gated on auth so a local watcher can
