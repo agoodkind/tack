@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"sort"
 	"strings"
 
 	"github.com/google/uuid"
@@ -105,7 +107,25 @@ func uniqueMatch(matches map[uuid.UUID]struct{}, kind, input string) (uuid.UUID,
 			return id, nil
 		}
 	}
-	return uuid.Nil, fmt.Errorf("%s %q matched multiple nodes: %w", kind, input, domain.ErrInvalidArgument)
+	candidates := make([]string, 0, len(matches))
+	for id := range matches {
+		candidates = append(candidates, id.String())
+	}
+	sort.Strings(candidates)
+	err := fmt.Errorf(
+		"%s %q matched multiple nodes (%s): %w",
+		kind,
+		input,
+		strings.Join(candidates, ", "),
+		domain.ErrInvalidArgument,
+	)
+	slog.Error("reference.match_ambiguous",
+		slog.String("kind", kind),
+		slog.String("input", input),
+		slog.String("candidates", strings.Join(candidates, ", ")),
+		slog.Any("err", err),
+	)
+	return uuid.Nil, err
 }
 
 func invalidTypedNodeIDError(nt *node.NodeType, input string) error {
