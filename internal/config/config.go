@@ -85,7 +85,7 @@ type Config struct {
 	AuditKafkaBrokers        string        `env:"AUDIT_KAFKA_BROKERS"`
 	AuditKafkaTopic          string        `env:"AUDIT_KAFKA_TOPIC"           envDefault:"audit.events.v1"`
 	AuditKafkaClientID       string        `env:"AUDIT_KAFKA_CLIENT_ID"       envDefault:"tack-audit-producer"`
-	AuditKafkaProduceTimeout time.Duration `env:"AUDIT_KAFKA_PRODUCE_TIMEOUT" envDefault:"10s"`
+	AuditKafkaProduceTimeout time.Duration `env:"AUDIT_KAFKA_PRODUCE_TIMEOUT" envDefault:"15s"`
 
 	// Audit query read tier. AuditClickHouseDSN points the app's query router
 	// at the audit.events_olap projection. When empty, tack_audit_query reads

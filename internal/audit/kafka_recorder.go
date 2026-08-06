@@ -57,10 +57,11 @@ func NewKafkaRecorder(cfg KafkaConfig) (*KafkaRecorder, error) {
 		return nil, errors.New("audit kafka: topic required")
 	}
 	if cfg.ProduceTimeout <= 0 {
-		// 15s: a hard broker loss costs up to broker.session.timeout.ms (9s)
-		// before fencing plus up to the client's 5s metadata refresh floor before
-		// recovery; 10s expired inside that window and surfaced spurious Record
-		// errors during single-broker failures.
+		// 15s: this repo does not override Kafka's external
+		// broker.session.timeout.ms default of 9s (broker lease) or franz-go's
+		// external 5s metadata minimum age. A hard broker loss can consume both
+		// before recovery; 10s expired inside that window and surfaced spurious
+		// Record errors during single-broker failures.
 		cfg.ProduceTimeout = 15 * time.Second
 	}
 	if cfg.ClientID == "" {
