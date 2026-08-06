@@ -13,7 +13,7 @@ import (
 func init() {
 	Register(Operation{
 		Name:        "reference.duplicates",
-		Description: "Report duplicate human-readable node references. Read-only.",
+		Description: "Report every case where two nodes render the same reference for one template their org declared. Read-only.",
 		Run:         runReferenceDuplicates,
 	})
 }
