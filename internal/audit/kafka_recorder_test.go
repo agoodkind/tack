@@ -187,6 +187,15 @@ func TestKafkaRecorderRequiresBrokers(t *testing.T) {
 	}
 }
 
+func TestApplyKafkaDefaultsUsesProduceTimeoutForNonpositiveValues(t *testing.T) {
+	for _, timeout := range []time.Duration{0, -time.Second} {
+		got := applyKafkaDefaults(KafkaConfig{ProduceTimeout: timeout})
+		if got.ProduceTimeout != 15*time.Second {
+			t.Fatalf("ProduceTimeout %s: got %s, want 15s", timeout, got.ProduceTimeout)
+		}
+	}
+}
+
 func TestSplitBrokers(t *testing.T) {
 	cases := []struct {
 		in   string
