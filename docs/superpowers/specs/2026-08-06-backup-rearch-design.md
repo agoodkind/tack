@@ -37,12 +37,9 @@ convergence, not an operator event.
 - The in-cluster point-in-time rewind schedule stays as the corruption layer
   (it is near-free; it is not backup work).
 
-Scope boundary: the app stays on its current guest, and traefik (which routes
-tack.home.goodkind.io to the app) is untouched. The app's database connection
-string lists all three node addresses, so the driver follows the cluster
-without any proxy change. Seconds-fast convergence therefore covers the
-database tier only; the app guest remains a single point, and app-tier
-failover is a separate future change that would touch traefik.
+The app's database connection string lists all three node addresses, so the
+driver follows the cluster with no proxy involvement; the database tier needs
+no traefik change.
 
 Placement: all three nodes run on the vault hypervisor, one per guest, over
 the existing routed IPv6 network. This converges automatically for guest and
@@ -97,6 +94,21 @@ iterative-testing rule.
 3. Export scheduling pins to a follower; the on-leader export path retires.
 4. Scheduled rehearsals plus the staleness alarms.
 5. Failover rehearsal on QA; document the failover runbook.
+
+## App-tier convergence (traefik, in scope)
+
+Traefik routes tack.home.goodkind.io to a single app upstream with no health
+check (`tack-service` in `traefik/dynamic/routes.yml.j2` in the configs repo,
+one server rendered from `service_mapping.yml`). Two planned steps:
+
+1. Now: add an active health check to `tack-service` so a dead app upstream
+   fails fast and visibly instead of black-holing requests.
+2. Later phase: a second app instance on its own guest, both listed as
+   `tack-service` upstreams; traefik's health checks steer around a dead one
+   in seconds. Prerequisite to investigate before this phase is scheduled:
+   the app is stateless, but Kafka advertises the in-stack name `kafka:9092`,
+   which a second guest cannot resolve; its advertised listener must become a
+   routable address. FoundationDB already advertises one.
 
 ## Interactions
 
