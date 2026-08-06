@@ -105,10 +105,17 @@ one server rendered from `service_mapping.yml`). Two planned steps:
    fails fast and visibly instead of black-holing requests.
 2. Later phase: a second app instance on its own guest, both listed as
    `tack-service` upstreams; traefik's health checks steer around a dead one
-   in seconds. Prerequisite to investigate before this phase is scheduled:
-   the app is stateless, but Kafka advertises the in-stack name `kafka:9092`,
-   which a second guest cannot resolve; its advertised listener must become a
-   routable address. FoundationDB already advertises one.
+   in seconds. Prerequisite, investigated: Kafka advertises only the in-stack
+   name `kafka:9092`, unresolvable off the guest. The fix is a second
+   advertised listener under a routable DNS name resolved from
+   `service_mapping.yml`, published on its own port; in-stack clients keep
+   `kafka:9092` unchanged. A name, never a literal address (persisted literal
+   addresses are a recorded incident class in this stack). FoundationDB
+   already advertises a routable address.
+3. Coverage limit, stated plainly: until Kafka, FoundationDB, and the other
+   data services also spread beyond the app guest, a second app upstream
+   protects against app-process death only, not guest death. Kafka's
+   single-node controller is the next single point after this spec lands.
 
 ## Interactions
 
