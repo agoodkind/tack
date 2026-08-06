@@ -1,4 +1,4 @@
-package main
+package runtime
 
 import (
 	"context"
@@ -19,7 +19,10 @@ type auditRuntime struct {
 	Recorder   audit.Recorder
 }
 
-func setupAuditRuntime(ctx context.Context, cfg *config.Config) auditRuntime {
+// buildAuditRuntime selects and wires the audit Recorder, installs it as the
+// process-global sink for the MCP and auth boundaries, starts the notarizer when
+// configured, and opens the reader/redactor/querier used by the audit MCP tools.
+func buildAuditRuntime(ctx context.Context, cfg *config.Config) auditRuntime {
 	auditRec := buildAuditRecorder(ctx, cfg)
 	// Wrap once so internal automation can mute emission via audit.WithSuppressed.
 	auditRec = audit.SuppressingRecorder{Inner: auditRec}
