@@ -38,6 +38,7 @@ func RegisterCommands(reg *clispec.Registry, f *cli.Factory) {
 	clispec.Register(reg, repairPreviewOp(f))
 	clispec.Register(reg, repairApplyOp(f))
 	clispec.Register(reg, auditSeedRolesOp(f))
+	clispec.Register(reg, datagenSeedOp(f))
 	clispec.Register(reg, provisionOp(f))
 	registerBatchOps(reg, f)
 	reg.AddHandwritten(clispec.HandwrittenCommand{Group: opsGroup, Build: backupCommand})

@@ -255,6 +255,13 @@ TACK-304.
    `clispec` audit choke-point; do not weaken it, do not bypass it per command, and
    keep operator identity pluggable via `audit.OperatorIdentitySource`. See
    [`docs/operator-identity-and-audit.md`](docs/operator-identity-and-audit.md).
+4. **QA data-generator coverage.** Any new node type, property type,
+   relationship shape, audit verb, or user-visible code path must add coverage
+   to `ops qa datagen` in the same change. The tack-qa environment must set
+   `TACK_DATAGEN_ALLOW_TARGET=qa`; the configs repo change is a separate follow-up.
+   Run `ops qa datagen seed --commit` where FoundationDB is reachable and the app
+   audit DSNs are present, such as the tack-app container environment, not the
+   default tack-ops container.
 
 ## No config files
 
