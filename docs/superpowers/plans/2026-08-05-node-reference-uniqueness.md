@@ -1,6 +1,6 @@
 # Node Reference Uniqueness Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** the unit of work is a slice, listed under "How this plan is executed". Each slice is one Tack ticket and one pull request. The numbered tasks below are reference material grouped by concern, and a slice draws from several of them. Read the ticket first; it is authoritative for scope. Do not execute the tasks in order as written.
 
 **Goal:** Guarantee that a human-readable node reference such as `FAN-13` resolves to exactly one node, enforced by the storage layer at write time, with the uniqueness domain declared as data on the NodeType.
 
@@ -12,22 +12,49 @@
 
 ## Global Constraints
 
-- Build with `make build`. It runs vet, golangci, staticcheck-extra, and govulncheck, baseline-gated. Never call `go build` directly.
+- Build with `make build`. Never call `go build` directly. It runs nine checks: `vet`, `lint-golangci`, `lint-format`, `lint-gocyclo`, `lint-deadcode`, `staticcheck-extra`, `govulncheck`, `cgo-stub`, and `platform-stub`. Every one must print `ok`. A summary showing only a subset is not a passing gate.
+- **`lint-deadcode` decides how work is sliced.** It runs `golang.org/x/tools/cmd/deadcode`, which measures reachability from `main`. Tests are not entry points. A slice that adds a function with no production caller fails the build. Every slice therefore carries its own caller chain down to something `main` reaches. This is why the work is twelve vertical slices rather than one ticket per function.
+- **`staticcheck-extra` constrains how errors are returned.** `staticcheck/wrapped_error.go` rejects any function returning `fmt.Errorf` whose format contains `%w` or `%v`, unless that same function body also calls `slog.Error` or `slog.Warn`. Build the wrapped error into a variable, log it with a `noun.verb` message, then return the variable.
+- The rule's codec exemption does not apply here. `isPureCodecOrIOFunc` requires the name **and** the signature to match a stdlib shape, such as `Marshal*` with `() ([]byte, error)`. Its doc comment states both checks exist so a function cannot be renamed past the rule. Do not attempt a rename.
 - Everything is a node. Behavior follows NodeType metadata, never hardcoded type names. No task may introduce a branch on a concrete type key such as `issue` or `epic`.
 - The engine holds no reference shape. No task may add a built-in template, an implicit part, a fallback when a NodeType declares no template, or a hardcoded property name such as `sequence` outside seed data. A NodeType with no template carries no constraint and renders no reference; that is legal. Every concrete reference in this plan is one deployment's data used as a test fixture.
 - The storage layer does not read PropertyDefs or NodeTypes. The service resolves metadata and passes the result down, exactly as it already does for `indexedProps` (`internal/domain/node/repository.go` lines 84 to 86).
 - No file exceeds 200 lines. Split by concern when it does.
 - Every write goes through `EntityRepository.CreateAtomic`, `Set`, or `UpdateAtomic`, each in one FoundationDB transaction. No multi-step creates, no cross-database transactions.
 - Use `log/slog` with named attributes. Message names use `noun.verb`. `Info` for normal flow, `Debug` for trace detail, `Error` for actual failures.
-- Every error wraps context and the relevant identifier: `fmt.Errorf("get issue %s: %w", id, err)`.
+- Every error carries context and the relevant identifier. Wrapping with `%w` is preferred and requires the accompanying `slog` call described above.
 - Use the full domain term, not abbreviations. Write `workspaceID`, not `wsID`.
 - Every package has a `// Package X` doc comment. Every exported type and non-obvious field has a doc comment.
 - No backwards-compatibility shims, unused exports, or re-exports.
 - Do not add docstrings or comments to code you did not change.
 - Integration tests build-tag `integration` and skip when their DSN environment variable is unset, matching `internal/audit/chain_append_integration_test.go`.
 - Maintenance operations register through `ops.Register` in `internal/ops`. Operation names are lowercase and dot-separated.
-- Commit with `git commit -S`. Subject line in imperative mood, no trailing period, followed by a blank line and `Co-authored-by: Claude <noreply@anthropic.com>`.
 - Validate every migration, seed, backfill, and restore on QA before production. QA is disposable.
+- An implementing subagent does not commit. It leaves the work in the tree and reports. The host agent stages the slice and creates the branch through Graphite, so the stack metadata stays intact. Any "Commit" step inside a task section below is host-agent material; an implementing subagent skips it.
+- Task sections below invoke `go test` directly. That direct invocation stands in while the `make test-unit` container runner is broken on trunk (it passes `/usr/local/go/bin/go` as a package path). `make test-integration` remains the containerized gate every slice must pass; run direct `go test` only for the fast unit loop.
+
+## How this plan is executed
+
+The unit of work is a **slice**, not a task. Each slice is one Tack ticket, one subagent invocation, and one pull request in a Graphite stack.
+
+The numbered tasks below are **reference material grouped by concern**, not an execution order. They hold the code, the test bodies, and the reasoning. A slice draws from several of them.
+
+| Slice | Ticket | Draws from tasks |
+| --- | --- | --- |
+| 1. Templates, uniqueness index, create enforcement | TACK-366 | 1, 2, 3, 4 |
+| 2. Counter key derived from the template | TACK-367 | 1 (`CounterKey`), 2 step 6, 4 step 4 |
+| 3. Update and delete release and reclaim keys | TACK-374 | 3 |
+| 4. Point-read resolution, parse, fail loud | TACK-380 | 1 (`Parse`), 5 |
+| 5. `reference.duplicates` detect operation | TACK-382 | 6 |
+| 6. `repair.reference_uniqueness` operation | TACK-385 | 7 |
+| 7. Seed writes a starting template | TACK-386 | 8 |
+| 8. End-to-end regressions | TACK-387 | 9 |
+| 9. QA validation | TACK-389 | 10 steps 1 to 4 |
+| 10. Production audit, read-only | TACK-390 | 10 steps 5 and 6 |
+| 11. Production repair | TACK-391 | 10 steps 7 and 8 |
+| 12. Remove the scan fallback | TACK-392 | 11 |
+
+The ticket is authoritative for a slice's scope, including what it must **not** contain. A task section that tells an implementer to commit, or that splits a symbol away from its caller, is superseded by the ticket.
 
 ## File Structure
 
