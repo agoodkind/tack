@@ -9,24 +9,6 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-func setGeneratedReferenceTemplates(t *testing.T, env *TestEnv, typeKeys ...string) {
-	t.Helper()
-	setReferenceTemplates(t, env, typeKeys...)
-	types, err := env.Stores.NodeTypes.List(env.Ctx, env.OrgID)
-	if err != nil {
-		t.Fatalf("list node types: %v", err)
-	}
-	for _, nodeType := range types {
-		if !containsString(typeKeys, nodeType.TypeKey) {
-			continue
-		}
-		nodeType.ReferenceTemplates[0].Generated = "sequence"
-		if err := env.Stores.NodeTypes.Set(env.Ctx, nodeType); err != nil {
-			t.Fatalf("set generated template for %s: %v", nodeType.TypeKey, err)
-		}
-	}
-}
-
 func mustCreateLegacyRepairReference(
 	t *testing.T,
 	env *TestEnv,

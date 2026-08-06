@@ -132,7 +132,6 @@ func repairReferenceEnv(t *testing.T) (*TestEnv, uuid.UUID, *node.NodeView) {
 	t.Helper()
 	env := SetupTestEnv(t)
 	registerOpsOrg(t, env)
-	setGeneratedReferenceTemplates(t, env, "epic", "issue")
 	actor := uuid.New()
 	workspace := mustCreateScope(t, env, "workspace", "Main", env.OrgID, env.OrgID, actor)
 	project := mustCreateScope(t, env, "project", "Fan", workspace.ID, workspace.ID, actor)

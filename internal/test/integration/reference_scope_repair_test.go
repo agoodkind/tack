@@ -19,7 +19,6 @@ import (
 func TestScopeRepairMovesTheReferenceWithTheNode(t *testing.T) {
 	env := SetupTestEnv(t)
 	registerOpsOrg(t, env)
-	setGeneratedReferenceTemplates(t, env, "epic", "issue")
 	actor := uuid.New()
 	workspace := mustCreateScope(t, env, "workspace", "Main", env.OrgID, env.OrgID, actor)
 	origin := mustCreateScope(t, env, "project", "Fan", workspace.ID, workspace.ID, actor)
