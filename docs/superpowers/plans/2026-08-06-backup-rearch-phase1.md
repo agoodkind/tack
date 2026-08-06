@@ -27,6 +27,8 @@
 - Modify: `internal/ops/backup_fdb_continuous.go` (the `backupCtx` struct currently defined in `backup_run.go` is SHARED: `RunBackupFDBContinuousInit` constructs one at :40-46 and `ensureFDBContinuousSession`, `fdbBackupStartArgs`, and `fdbBackupActive` take it. Move the `backupCtx` type definition, with its doc comment, into `backup_fdb_continuous.go` unchanged; delete only `runBackupRun`, `newBackupCtx`, and `updateLatestPointer` with their file.)
 - Modify: `internal/ops/backup_fdb_test.go` (delete ONLY `TestRunBackupFDBRequiresObjectStore` at :12-25, whose subject dies; the four remaining tests cover surviving continuous-session logic and stay.)
 - Modify: `internal/ops/backup_buckets.go` (stop creating the never-written `tack-audit-archive` bucket; keep `tack-backups`)
+- Modify: `internal/config/config.go` (delete the `BackupTemporalDBPass`, `BackupTemporalDBUser`, and `BackupTemporalDBName` fields, whose only consumers die with the dump code, and rewrite the backup-family comment at :106-109 plus the "The regular backup command always ensures the continuous session" sentence at :115-117 to describe the remaining subcommand-only surface)
+- Modify, standing license for this task: any comment in ANY file that Task 1's deletions directly falsify is fixed in the same commit and listed in the result file. Falsified comments are in scope by the working agreement; do not stop for them.
 - Test: `internal/ops/cli_backup_test.go` (new)
 
 **Interfaces:**
