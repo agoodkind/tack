@@ -408,6 +408,7 @@ services:
   tack-ops:
     image: ghcr.io/agoodkind/tack-server:${TACK_IMAGE_TAG:-latest}
     profiles: [ops]
+    mem_limit: 512m
     entrypoint: ["/server"]
     network_mode: host
     environment:
