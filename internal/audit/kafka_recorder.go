@@ -42,7 +42,7 @@ type KafkaConfig struct {
 	// ClientID labels the producer in broker-side metrics and logs.
 	ClientID string
 
-	// ProduceTimeout caps a single Record call. Zero falls back to 10s.
+	// ProduceTimeout caps a single Record call. Zero falls back to 15s.
 	ProduceTimeout time.Duration
 }
 
@@ -57,7 +57,11 @@ func NewKafkaRecorder(cfg KafkaConfig) (*KafkaRecorder, error) {
 		return nil, errors.New("audit kafka: topic required")
 	}
 	if cfg.ProduceTimeout <= 0 {
-		cfg.ProduceTimeout = 10 * time.Second
+		// 15s: a hard broker loss costs up to broker.session.timeout.ms (9s)
+		// before fencing plus up to the client's 5s metadata refresh floor before
+		// recovery; 10s expired inside that window and surfaced spurious Record
+		// errors during single-broker failures.
+		cfg.ProduceTimeout = 15 * time.Second
 	}
 	if cfg.ClientID == "" {
 		cfg.ClientID = "tack-audit-producer"

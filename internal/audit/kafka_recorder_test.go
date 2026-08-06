@@ -187,6 +187,21 @@ func TestKafkaRecorderRequiresBrokers(t *testing.T) {
 	}
 }
 
+func TestKafkaRecorderDefaultProduceTimeoutCoversHardBrokerLoss(t *testing.T) {
+	recorder, err := NewKafkaRecorder(KafkaConfig{
+		Brokers: []string{"127.0.0.1:9092"},
+		Topic:   testKafkaTopic,
+	})
+	if err != nil {
+		t.Fatalf("NewKafkaRecorder: %v", err)
+	}
+	t.Cleanup(func() { _ = recorder.Close() })
+
+	if recorder.produceTimeout < 15*time.Second {
+		t.Fatalf("default ProduceTimeout = %s, want at least 15s", recorder.produceTimeout)
+	}
+}
+
 func TestSplitBrokers(t *testing.T) {
 	cases := []struct {
 		in   string
