@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/moby/moby/client"
+
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/telemetry"
 )
@@ -15,6 +17,17 @@ import (
 var errFDBBackupDestinationMismatch = errors.New(
 	"active FoundationDB backup targets a different destination",
 )
+
+// backupCtx bundles the runtime state for one backup run. Component
+// dumpers receive a pointer so they share the same destination directory,
+// docker client, and logger without any package-level state.
+type backupCtx struct {
+	Cfg     *config.Config
+	Cli     *client.Client
+	Log     *slog.Logger
+	RunID   string
+	DestDir string
+}
 
 // RunBackupFDBContinuousInit starts the FoundationDB continuous backup session
 // that streams to the object store, and is safe to run repeatedly. The

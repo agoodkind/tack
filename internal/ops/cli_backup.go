@@ -1,36 +1,30 @@
 package ops
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/spf13/cobra"
 
 	"goodkind.io/tack/internal/cli"
 )
 
-// backupCommand builds the `ops backup` subtree. The bare command runs a full
-// snapshot; the subcommands initialize the object-store buckets and recovery
-// schedules, verify an existing backup directory, and drill restores into
-// throwaway containers.
+// backupCommand builds the `ops backup` subtree. The subcommands initialize
+// object-store bucket and recovery schedules, export snapshots, and drill
+// restores into throwaway containers.
 func backupCommand(f *cli.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "backup",
-		Short: "Snapshot and verify the production datastores",
-		Long:  "Run a full snapshot of FDB, Yugabyte, Temporal-DB, and Meilisearch. Subcommands initialize the object-store buckets and recovery schedules, verify an existing backup directory, and drill restores.",
+		Short: "Manage production datastore backups",
+		Long:  "Subcommands initialize an object-store bucket and recovery schedules, export snapshots, and drill restores.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runBackupRun(cmd.Context(), f.Cfg)
+			return fmt.Errorf("ops backup requires a subcommand (%s); the bare command deliberately runs nothing", strings.Join(backupSubcommandNames(cmd), ", "))
 		},
 	}
 	cmd.AddCommand(
 		&cobra.Command{
-			Use:   "verify <backup-dir>",
-			Short: "Structural inventory check of an existing backup directory",
-			Args:  cobra.ExactArgs(1),
-			RunE: func(cmd *cobra.Command, args []string) error {
-				return RunBackupVerify(cmd.Context(), args[0])
-			},
-		},
-		&cobra.Command{
 			Use:   "buckets-init",
-			Short: "Idempotently create the SeaweedFS S3 backup buckets",
+			Short: "Idempotently create the SeaweedFS S3 backup bucket",
 			Args:  cobra.NoArgs,
 			RunE: func(cmd *cobra.Command, _ []string) error {
 				return RunBackupBucketsInit(cmd.Context(), f.Cfg)
@@ -70,4 +64,14 @@ func backupCommand(f *cli.Factory) *cobra.Command {
 		},
 	)
 	return cmd
+}
+
+// backupSubcommandNames lists the registered subcommands so the refusal
+// error always matches reality.
+func backupSubcommandNames(cmd *cobra.Command) []string {
+	names := make([]string, 0, len(cmd.Commands()))
+	for _, sub := range cmd.Commands() {
+		names = append(names, strings.Fields(sub.Use)[0])
+	}
+	return names
 }

@@ -104,32 +104,28 @@ type Config struct {
 	// Optional: if unset, OTEL tracing is a no-op.
 	OTELEndpoint string `env:"OTEL_EXPORTER_OTLP_ENDPOINT"`
 
-	// Backup family. Used by `./server ops backup [...]`. Defaults match the
-	// production layout on CT 117. The Temporal-DB password has no default
-	// because losing the dump silently is the failure mode this whole family
-	// exists to prevent; the backup command errors loudly if it is unset.
+	// Backup operations. The subcommands initialize backup storage and recovery
+	// schedules, export snapshots, drill restores, and start continuous
+	// FoundationDB backup. Defaults match the production layout on CT 117.
 	BackupRoot              string `env:"TACK_BACKUP_ROOT"               envDefault:"/root/backups"`
 	BackupFDBNetwork        string `env:"TACK_BACKUP_FDB_NETWORK"        envDefault:"tack_default"`
 	BackupFDBImage          string `env:"TACK_BACKUP_FDB_IMAGE"          envDefault:"foundationdb/foundationdb:7.4.6"`
 	BackupFDBTimeoutSeconds int    `env:"TACK_BACKUP_FDB_TIMEOUT_SECONDS" envDefault:"1800"`
 
 	// FDB continuous backup. BackupFDBContinuous enables the explicit
-	// continuous-init command and the FDB restore-drill leg. The regular backup
-	// command always ensures the continuous session. BackupFDBSnapshotInterval
-	// is the snapshot interval in seconds passed to
+	// continuous-init command and the FDB restore-drill leg. The
+	// fdb-continuous-init subcommand starts the continuous session.
+	// BackupFDBSnapshotInterval is the snapshot interval in seconds passed to
 	// `fdbbackup start --snapshot-interval`. See
 	// https://apple.github.io/foundationdb/backups.html
 	BackupFDBContinuous       bool `env:"TACK_BACKUP_FDB_CONTINUOUS"        envDefault:"false"`
 	BackupFDBSnapshotInterval int  `env:"TACK_BACKUP_FDB_SNAPSHOT_INTERVAL" envDefault:"3600"`
 
-	BackupMeiliVolume    string `env:"TACK_BACKUP_MEILI_VOLUME"       envDefault:"tack_meili-data"`
-	BackupTemporalDBUser string `env:"TACK_BACKUP_TEMPORAL_DB_USER"   envDefault:"temporal"`
-	BackupTemporalDBPass string `env:"TACK_BACKUP_TEMPORAL_DB_PASSWORD"`
-	BackupTemporalDBName string `env:"TACK_BACKUP_TEMPORAL_DB_NAME"   envDefault:"temporal"`
-	BackupDockerContext  string `env:"TACK_BACKUP_DOCKER_CONTEXT"     envDefault:"tack"`
+	BackupMeiliVolume   string `env:"TACK_BACKUP_MEILI_VOLUME"       envDefault:"tack_meili-data"`
+	BackupDockerContext string `env:"TACK_BACKUP_DOCKER_CONTEXT"     envDefault:"tack"`
 
 	// Backup S3 target. Read by `./server ops backup buckets-init` to create
-	// the SeaweedFS buckets that hold off-host backup artifacts. Endpoint and
+	// the SeaweedFS bucket that holds off-host backup artifacts. Endpoint and
 	// credentials have no defaults because pointing at the wrong object store
 	// is a silent data-placement failure; the command errors loudly if the
 	// endpoint or credentials are unset. SeaweedFS requires path-style
