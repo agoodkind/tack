@@ -26,7 +26,11 @@ import (
 // is set once at startup via SetAuditRecorder. Tools that registered before
 // the setter ran (none in current code) would silently noop; we use atomic
 // load to keep that path branch-free.
-var auditRecorder atomic.Value // holds audit.Recorder
+var auditRecorder atomic.Value // holds *auditRecorderValue
+
+type auditRecorderValue struct {
+	recorder audit.Recorder
+}
 
 // SetAuditRecorder installs the process-wide Recorder used by the MCP tool
 // wrapper. Call once during server startup, before any request handles.
@@ -34,7 +38,7 @@ func SetAuditRecorder(r audit.Recorder) {
 	if r == nil {
 		r = audit.NoopRecorder{}
 	}
-	auditRecorder.Store(r)
+	auditRecorder.Store(&auditRecorderValue{recorder: r})
 }
 
 func currentAuditRecorder() audit.Recorder {
@@ -42,7 +46,7 @@ func currentAuditRecorder() audit.Recorder {
 	if v == nil {
 		return audit.NoopRecorder{}
 	}
-	return v.(audit.Recorder)
+	return v.(*auditRecorderValue).recorder
 }
 
 // argMap is the typed shape every Tack tool handler reads its arguments
@@ -288,17 +292,14 @@ func wrapToolHandler(name string, h mcpserver.ToolHandlerFunc) mcpserver.ToolHan
 	}
 }
 
-// recordToolAudit emits one audit row per MCP tool invocation. Outcome is
-// derived from the same signal wrapToolHandler used for slog. Failure to
-// record is logged at Warn rather than failing the request: the user-visible
-// operation already completed and we do not want audit to back-pressure the
-// MCP boundary. Read-class verbs additionally pass through the WAL so a
-// transient Yugabyte outage cannot drop them.
+// recordToolAudit emits transport and semantic audit rows for an MCP tool
+// invocation. Outcome is derived from the same signal wrapToolHandler used for
+// slog. Failure to record is logged at Warn rather than failing the request:
+// the user-visible operation already completed and we do not want audit to
+// back-pressure the MCP boundary. Read-class verbs additionally pass through
+// the WAL so a transient Yugabyte outage cannot drop them.
 func recordToolAudit(ctx context.Context, toolName string, req mcpmcp.CallToolRequest, res *mcpmcp.CallToolResult, runErr error) {
-	verb, ok := audit.ToolVerb(toolName)
-	if !ok || verb == "" {
-		return
-	}
+	verb, covered := audit.ToolVerb(toolName)
 	rec := currentAuditRecorder()
 	actor := audit.Actor{Type: audit.ActorUser}
 	if uid, found := auth.UserID(ctx); found {
@@ -336,6 +337,18 @@ func recordToolAudit(ctx context.Context, toolName string, req mcpmcp.CallToolRe
 		Outcome: outcome,
 		Error:   errInfo,
 	}
+	invocation := ev
+	invocation.Verb = string(audit.VerbMCPToolInvoked)
+	if err := rec.Record(ctx, invocation); err != nil {
+		telemetry.L(ctx).Warn("audit.record_failed",
+			slog.String("tool", toolName),
+			slog.String("err", err.Error()),
+		)
+	}
+	if !covered || verb == "" {
+		return
+	}
+	ev.Verb = string(verb)
 	if err := rec.Record(ctx, ev); err != nil {
 		telemetry.L(ctx).Warn("audit.record_failed",
 			slog.String("tool", toolName),
