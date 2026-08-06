@@ -1,127 +1,180 @@
-# Backup rearchitecture: standby-first, no work on the serving host
+# Backup and resilience rearchitecture: no special guest
 
 ## Contract
 
-The backup system meets five properties: durable (every artifact survives loss
-of the production machine), scalable (no step reads the dataset row by row),
-continuous (protection advances on its own, with no operator action), distributed
-(engine-native mechanisms that spread work across nodes), and recoverable
-(rehearsed restores, not assumed ones). Two numbers bind the design: a disaster
-may lose at most the last few seconds of writes, and loss of a database node
-must heal automatically in seconds, with no operator action.
+Five properties bind every mechanism: durable (every backup artifact survives
+loss of any machine), scalable (no step reads the dataset row by row),
+continuous (protection advances with no operator action), distributed (every
+stateful tier runs on more than one guest), and recoverable (restores are
+rehearsed on a schedule, not assumed). Two numbers: a disaster may lose at most
+the last few seconds of writes, and loss of any single guest must heal
+automatically in seconds.
 
-One structural rule binds every mechanism: backup work never runs on the
-production guest or inside its containers. Snapshot creation by the database
-itself (hard links, near-instant) is the only permitted on-cluster step.
+The structural rule: no tier lives on exactly one guest, and backup work never
+runs on a guest that is serving traffic. Today one guest holds the app and
+every data store; that concentration is the vulnerability this design removes.
 
-## Target architecture
+## Target topology
 
-### Product data (FoundationDB)
+Five production guests replace the single tack guest:
 
-Unchanged. The engine streams every change continuously to the S3 object store
-and is restorable to any point in its window. One addition: a freshness alarm on
-the stream (see Alarms).
+- Three **data guests**, each running one node of each data cluster: a
+  YugabyteDB node (auth and audit ledger), a FoundationDB process (product
+  data), and a Kafka broker (audit event transport). Any one data guest can
+  die and all three clusters keep serving.
+- Two **app guests**, each running the stateless app server and one
+  audit-consumer candidate (see Notarizer below). Traefik health-checks both
+  and routes around a dead one.
 
-### Auth and audit ledger (YugabyteDB)
+Guests address each other by IPv6 literals rendered from
+`service_mapping.yml`, the repo's single source of truth for guest addresses.
+The public wildcard DNS points every name at the proxy, so per-guest DNS names
+would resolve to the wrong place; literals are the established idiom.
+QA mirrors the full topology on the testbed (guest ids are production plus
+100) and every phase lands there first.
 
-The database runs as a three-node cluster, each node on its own guest, keeping
-three live copies of every row (replication factor 3). When the leader node
-dies, the survivors elect a new leader in seconds, automatically. Failover is
-convergence, not an operator event.
+## Per-tier design, grounded in the lane reports
 
-- Backup work pins to a follower node: the scheduled distributed-snapshot
-  export to the object store, the pack and upload, and every restore rehearsal.
-  The leader only ever serves traffic.
-- Rebuilding from the object store remains the slow fallback for corruption
-  that replicated to all copies.
-- The in-cluster point-in-time rewind schedule stays as the corruption layer
-  (it is near-free; it is not backup work).
+### YugabyteDB: three nodes, replication factor 3
 
-The app's database connection string lists all three node addresses, so the
-driver follows the cluster with no proxy involvement; the database tier needs
-no traefik change.
+Joining a third node raises replication to 3 automatically and online
+(verified in the pinned `yugabyted` overlay source). Each node gets a distinct
+`--cloud_location` so fault tolerance is expressible, the patched overlay
+mounted, and explicit memory bounds (`memory_limit_hard_bytes`,
+`db_block_cache_size_bytes`) replacing the self-sizing default that caused the
+2026-08-05 incident. Node-loss detection is 3 seconds by default. Join nodes
+two and three back to back: the two-node intermediate state has a fragile
+master quorum. The app keeps plain pgx with a three-host connection string
+(zero code change); the smart-driver swap is a later option. Callers need
+application-level retry for the 3-second election window plus the 15-second
+dead-connection timeout.
 
-Placement: all three nodes run on the vault hypervisor, one per guest, over
-the existing routed IPv6 network. This converges automatically for guest and
-process failures and requires no cross-hypervisor networking. Loss of vault
-itself is covered by the off-machine export until one node migrates to a
-second hypervisor; that migration is a routine add-node, remove-node
-operation with automatic rebalancing and discards nothing built here.
+### FoundationDB: three machines, redundancy double
 
-### Derived stores (Meilisearch, ClickHouse)
+Double, not triple: triple needs three live machines, making one loss an
+outage. Three coordinators, one per data guest, addressed by DNS name in the
+cluster file (supported and IPv6-preferring at the pinned version) to survive
+container address churn. Three repo defects must fix first: clients mount the
+cluster file read-only while coordinator changes require write access; the
+startup overlay rewrites the cluster file to a single entry on every start;
+and new machines bootstrap as separate clusters unless handed the existing
+coordinators. Migration is online: join machines, `configure double`, then
+`coordinators auto`. Client transactions default to unlimited retries with no
+timeout; set a deliberate timeout before going multi-machine. One backup agent
+per machine; the continuous backup session itself is unchanged.
 
-Never backed up. Both rebuild from their sources of record. Their runbooks are
-the recovery path.
+### Kafka: three brokers, quorum path decided on QA
 
-### Temporal workflow state (temporal-db)
+The current single-node controller quorum was formatted static, and growing a
+static quorum has no documented online path. Two candidate routes, both to be
+proven on the QA cluster before production: upgrade the cluster to the
+dynamic-quorum feature level and add controllers (requires formatting new
+nodes outside the stock image entrypoint), or rebuild the quorum as three
+static voters during a maintenance window. Either way: raise the existing
+256-partition topic and the consumer-offsets topic to replication factor 3 via
+the online, throttleable reassignment tool; set minimum in-sync replicas to 2;
+give each broker its own advertised routable address. Raise the audit
+producer's 10-second delivery budget: a hard broker loss costs up to 9 seconds
+of lease expiry plus 5 seconds of client metadata refresh before recovery.
 
-No backup, matching the recovery runbook. The dump step is deleted.
+### App tier: two instances behind traefik
 
-## Deletions
+The app is verified stateless (explicit stateless mode, no session state, no
+sticky requirement; write dedup lives in FoundationDB transactions and works
+cross-instance). Two blockers before a second instance:
 
-The bare `ops backup` command stops running a full snapshot; it prints its
-subcommands and exits nonzero. Deleted with it: the `ysql_dump` full row dump
-(`backup_yugabyte.go`), the temporal-db dump (`backup_temporal.go`), the
-Meilisearch volume tar (`backup_meilisearch.go`), the local manifest and
-`.latest` pointer machinery for those artifacts, their verify categories, and
-the unused `tack-audit-archive` bucket creation. The recovery runbook consumes
-none of these artifacts.
+1. The app has no health endpoint. Add one that checks datastore
+   reachability; traefik's `tack-service` gains both upstreams and an active
+   `healthCheck` on it.
+2. The app process runs an audit notarizer with no leader election, and the
+   signing key is generated per host, so two app guests would sign the ledger
+   under different identities. The notarizer runs only in the audit-consumer;
+   the app's is removed. The signing key becomes a managed secret shared by
+   whichever single process signs.
 
-## Alarms
+Recorded, out of scope here: the compose file hardcodes development-mode auth
+(any UUID is accepted as a bearer); multi-instance behind ingress raises its
+urgency (existing ticket TACK-261).
 
-One metric per mechanism: seconds since last success. Alert on staleness, not on
-failure, because silent failures do not fail. Covered: the FoundationDB stream's
-restorable point, the cluster's under-replication state (any tablet below three
-live copies), the follower's last completed export, and the last passing
-restore rehearsal.
+### Derived stores
 
-## Rehearsals
+Meilisearch (search) and ClickHouse (audit analytics projection) rebuild from
+their sources of record and are never backed up. Temporal workflow state has
+no backup, matching the recovery runbook. Their dump steps are deleted.
 
-The existing restore drill runs on a schedule against the follower's exports,
-never against the leader. A failover rehearsal (kill a node, verify the cluster
-converges and the app never errors, restore the node) runs on the QA cluster
-before rollout and periodically after.
+## Backup, on the new topology
 
-## Rollout
+- **Product data**: the FoundationDB continuous stream to the object store,
+  unchanged in shape, now drained by one agent per data guest.
+- **Ledger**: the engine-native distributed snapshot export runs on a
+  schedule, driven from a follower node, never the leaders' serving path.
+  The export's archive phase must collect tablet snapshot files from all
+  three nodes keyed on tablet leadership; the current single-container
+  implementation is invalid at three nodes and is rewritten. The in-cluster
+  point-in-time rewind schedule stays as the corruption layer.
+- **Deletions**: the bare `ops backup` command stops running a full snapshot
+  (prints subcommands, exits nonzero). Deleted: the row-by-row database dump,
+  the temporal-db dump, the meilisearch volume tar, their manifest and verify
+  machinery, and the unused audit-archive bucket. The recovery runbook
+  consumes none of their artifacts.
+- **Alarms**: one staleness metric per mechanism (time since last success:
+  stream restorable point, last export, last passing rehearsal, plus cluster
+  under-replication). Alert on staleness, never only on failure; silent
+  failures do not fail.
+- **Rehearsals**: the restore drill runs on a schedule against the exports,
+  rewritten for the multi-node artifact shape. A failover rehearsal (kill one
+  guest, verify all tiers converge and the app serves throughout, restore the
+  guest) runs on QA before rollout and periodically after.
 
-Every phase lands on QA (guest pair) first, then production, per the standing
-iterative-testing rule.
+## Provisioning (configs repo)
 
-1. Deletions plus the bare-command guard.
-2. Two additional database guests provisioned (OpenTofu plus Ansible in the
-   configs repo); the cluster expands to three nodes; under-replication alarm
-   live.
-3. Export scheduling pins to a follower; the on-leader export path retires.
-4. Scheduled rehearsals plus the staleness alarms.
-5. Failover rehearsal on QA; document the failover runbook.
+The repo has no multi-guest service pattern; this establishes one:
 
-## App-tier convergence (traefik, in scope)
+- Five new mapping entries (three data guests, one additional app guest, QA
+  counterparts at plus 100), each minting its own inventory group; a new
+  cluster-axis parent group alongside the existing environment-axis group.
+- One OpenTofu resource per guest (or the repo's first `for_each`), each with
+  its own MAC, `prevent_destroy`, and a distinct Docker IPv6 /96 plus
+  matching NDP proxy prefix.
+- Per-guest identity (node ids, seed-versus-join role, which single guest may
+  initialize FoundationDB or run migrations) lives in `host_vars`, a nearly
+  unused directory that this work turns into the pattern.
+- `deploy-tack.yml` splits: shared host preparation (Docker, IPv6, ndppd)
+  runs everywhere; single-run steps (`ops provision`, migrations, seeding)
+  gate to exactly one host.
+- Every loopback and compose-internal address in the rendered environment
+  (`tack_ops_database_url`, the audit DSNs, the Kafka broker list, the
+  ClickHouse DSN) becomes a routable literal from the mapping.
+- Gate before committing sizing: verify vault's physical headroom on the live
+  host; the repo-declared guest allocations already sum to about 64 GB, the
+  ceiling is not recorded in the repo, and the unmanaged developer sandbox
+  guest is the reclaim candidate.
 
-Traefik routes tack.home.goodkind.io to a single app upstream with no health
-check (`tack-service` in `traefik/dynamic/routes.yml.j2` in the configs repo,
-one server rendered from `service_mapping.yml`). Two planned steps:
+## Rollout phases, QA first at every step
 
-1. Now: add an active health check to `tack-service` so a dead app upstream
-   fails fast and visibly instead of black-holing requests.
-2. Later phase: a second app instance on its own guest, both listed as
-   `tack-service` upstreams; traefik's health checks steer around a dead one
-   in seconds. Prerequisite, investigated: Kafka advertises only the in-stack
-   name `kafka:9092`, unresolvable off the guest. The fix is a second
-   advertised listener under a routable DNS name resolved from
-   `service_mapping.yml`, published on its own port; in-stack clients keep
-   `kafka:9092` unchanged. A name, never a literal address (persisted literal
-   addresses are a recorded incident class in this stack). FoundationDB
-   already advertises a routable address.
-3. Coverage limit, stated plainly: until Kafka, FoundationDB, and the other
-   data services also spread beyond the app guest, a second app upstream
-   protects against app-process death only, not guest death. Kafka's
-   single-node controller is the next single point after this spec lands.
+1. Immediate, no new guests: the deletions and bare-command guard, explicit
+   database memory bounds, the app health endpoint, notarizer single-homed in
+   the consumer, the producer delivery-budget raise, and the per-service
+   memory limits on the existing guest.
+2. Provisioning groundwork: mapping entries, guests, host_vars, the
+   deploy-tack split, per-guest networking.
+3. Database spread: three-node join, connection-string change, export
+   fan-out rewrite, scheduled follower-driven export, under-replication and
+   staleness alarms.
+4. FoundationDB spread: fix the three cluster-file defects, join machines,
+   `configure double`, DNS-named coordinators, per-machine backup agents,
+   client timeout decision.
+5. Kafka spread: quorum route proven on QA, brokers joined, topic
+   replication raised, min in-sync 2, per-broker advertised addresses.
+6. Second app instance behind traefik with active health checks.
+7. Scheduled rehearsals (restore drill and guest-kill failover drill) plus
+   the full alarm set.
 
 ## Interactions
 
-- TACK-336 (durable dead-letter queue plus Kafka retention) proceeds
-  independently; it protects the ledger's write path, not its storage.
-- The audit cold archive (Iceberg on SeaweedFS, per the horizontal design doc)
-  is out of scope here and unblocked by nothing in this spec.
-- The 2026-08-05 incident's prevention items (bare-command guard, per-service
-  memory budgets on the production guest) ship with phase 1.
+- TACK-336 (durable dead-letter queue, Kafka retention raise) proceeds
+  independently and complements phase 5.
+- The audit cold archive (Iceberg on the object store, per the horizontal
+  design doc) is unblocked by nothing here.
+- TACK-261 (development-mode auth in production) rises in urgency with
+  phase 6.
