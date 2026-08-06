@@ -3,6 +3,7 @@ package ops
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 
 	"github.com/google/uuid"
@@ -151,5 +152,10 @@ func createDefaultChild(ctx context.Context, env *Env, orgID, parentID uuid.UUID
 	// parent_id is the only indexed prop guaranteed to apply to every type;
 	// the resolver-critical ones (slug, identifier, sequence) are not stamped
 	// here because default children do not declare them.
-	return env.Stores.Nodes.CreateAtomic(ctx, n, view, rels, []string{"parent_id"}, nil)
+	err := env.Stores.Nodes.CreateAtomic(ctx, n, view, rels, []string{"parent_id"}, nil, nil)
+	if err != nil {
+		env.Log.ErrorContext(ctx, "backfill.child_create_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("create default child %s: %w", dc.TypeKey, err)
+	}
+	return nil
 }

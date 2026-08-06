@@ -98,8 +98,12 @@ func (s *NodeService) Create(ctx context.Context, in CreateInput) (*CreateResult
 	if err != nil {
 		return nil, err
 	}
+	referenceKeys, err := s.referenceKeysFor(ctx, orgID, nt, in.ScopeID, props)
+	if err != nil {
+		return nil, err
+	}
 
-	createResult, err := s.createNodeAtomic(ctx, log, in, n, view, relationships, indexedProps, now)
+	createResult, err := s.createNodeAtomic(ctx, log, in, n, view, relationships, indexedProps, referenceKeys, now)
 	if err != nil {
 		return nil, err
 	}

@@ -43,6 +43,14 @@ type RelationshipChanges struct {
 	Remove []*Relationship
 }
 
+// ReferenceKey identifies one rendered reference owned by a node.
+type ReferenceKey struct {
+	// TemplateName identifies the declaring reference template.
+	TemplateName string
+	// Encoded is the template's rendered reference.
+	Encoded string
+}
+
 // NodeRepository is the single write path for nodes. CreateAtomic writes the
 // node primary record, the view, the resolve record, property indexes for
 // indexed Props, and all provided relationships in a single FDB transaction.
@@ -76,6 +84,13 @@ type NodeRepository interface {
 	// indexes, and all relationships where the node is source or target.
 	Delete(ctx context.Context, orgID, nodeID uuid.UUID) error
 
+	// SetReferenceKeys replaces the rendered references owned by a node.
+	SetReferenceKeys(ctx context.Context, orgID, nodeID uuid.UUID, keys []ReferenceKey) error
+
+	// LookupReference returns the node owning a rendered reference.
+	// It returns uuid.Nil and nil when no node owns the reference.
+	LookupReference(ctx context.Context, orgID uuid.UUID, templateName, encoded string) (uuid.UUID, error)
+
 	// CreateAtomic writes a new node plus its initial relationships in one FDB
 	// transaction. Used by NodeService.Create. Sequence allocation (if the node
 	// declares FeatureHasSequenceID) is the caller's responsibility; the caller
@@ -90,6 +105,7 @@ type NodeRepository interface {
 		view *NodeView,
 		rels []*Relationship,
 		indexedProps []string,
+		referenceKeys []ReferenceKey,
 		idempotency *IdempotencyRecord,
 	) error
 

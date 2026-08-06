@@ -89,6 +89,7 @@ func ensureBootstrapNode(
 		relationships,
 		[]string{"slug"},
 		nil,
+		nil,
 	); err != nil {
 		return loggedError(
 			ctx,

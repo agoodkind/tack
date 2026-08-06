@@ -67,10 +67,14 @@ func (s *NodeStore) Get(ctx context.Context, orgID, nodeID uuid.UUID) (n *node.N
 // where the caller has already reconciled indexes.
 func (s *NodeStore) Set(ctx context.Context, n *node.Node, view *node.NodeView) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node.set")(&err)
-	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
+	_, transactionErr := s.db.Transact(func(tr fdb.Transaction) (any, error) {
 		return nil, writeNodeRecords(tr, n, view)
 	})
-	return
+	if transactionErr != nil {
+		slog.ErrorContext(ctx, "node.set_failed", slog.String("err", transactionErr.Error()))
+		err = fmt.Errorf("set node %s: %w", n.ID, transactionErr)
+	}
+	return err
 }
 
 // UpdateAtomic overwrites an existing node and reconciles its secondary
@@ -305,24 +309,13 @@ func (s *NodeStore) CreateAtomic(
 	view *node.NodeView,
 	rels []*node.Relationship,
 	indexedProps []string,
+	referenceKeys []node.ReferenceKey,
 	idempotency *node.IdempotencyRecord,
 ) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node.create_atomic")(&err)
-	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
-		if idempotency != nil {
-			key := fdb.Key(idempotencyKey(n.OrgID, idempotency.Key))
-			existing, err := tr.Get(key).Get()
-			if err != nil {
-				return nil, fmt.Errorf("read idempotency key: %w", err)
-			}
-			if len(existing) > 0 {
-				return nil, fmt.Errorf("idempotency key %q already exists: %w", idempotency.Key, domain.ErrConflict)
-			}
-			recordBytes, err := json.Marshal(idempotency)
-			if err != nil {
-				return nil, fmt.Errorf("marshal idempotency record: %w", err)
-			}
-			tr.Set(key, recordBytes)
+	_, transactionErr := s.db.Transact(func(tr fdb.Transaction) (any, error) {
+		if idempotencyErr := writeCreateIdempotency(ctx, tr, n.OrgID, idempotency); idempotencyErr != nil {
+			return nil, idempotencyErr
 		}
 
 		// 1. Primary node record.
@@ -360,6 +353,10 @@ func (s *NodeStore) CreateAtomic(
 			tr.Set(fdb.Key(nodeByPropertyKey(n.OrgID, n.NodeType, propName, encodePropertyValue(raw), n.ID)), []byte{})
 		}
 
+		if err := claimReferenceKeys(tr, n.OrgID, n.ID, referenceKeys); err != nil {
+			return nil, err
+		}
+
 		// 5. Relationships (forward + reverse).
 		for _, rel := range rels {
 			if rel.OrgID == uuid.Nil {
@@ -374,7 +371,48 @@ func (s *NodeStore) CreateAtomic(
 		}
 		return nil, nil
 	})
-	return
+	if transactionErr != nil {
+		slog.ErrorContext(ctx, "node.create_atomic_failed", slog.String("err", transactionErr.Error()))
+		err = fmt.Errorf("create node atomically: %w", transactionErr)
+	}
+	return err
+}
+
+func writeCreateIdempotency(ctx context.Context, tr fdb.Transaction, orgID uuid.UUID, record *node.IdempotencyRecord) error {
+	if record == nil {
+		return nil
+	}
+	key := fdb.Key(idempotencyKey(orgID, record.Key))
+	existing, err := tr.Get(key).Get()
+	if err != nil {
+		slog.ErrorContext(ctx, "node.idempotency.read_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("read idempotency key: %w", err)
+	}
+	if len(existing) > 0 {
+		err = fmt.Errorf("idempotency key %q already exists: %w", record.Key, domain.ErrConflict)
+		slog.ErrorContext(ctx, "node.idempotency.conflict", slog.String("err", err.Error()))
+		return err
+	}
+	recordBytes, err := json.Marshal(record)
+	if err != nil {
+		slog.ErrorContext(ctx, "node.idempotency.marshal_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("marshal idempotency record: %w", err)
+	}
+	tr.Set(key, recordBytes)
+	return nil
+}
+
+// SetReferenceKeys replaces the rendered references owned by a node.
+func (s *NodeStore) SetReferenceKeys(ctx context.Context, orgID, nodeID uuid.UUID, keys []node.ReferenceKey) (err error) {
+	defer telemetry.FDBOp(ctx, "store.node.set_reference_keys")(&err)
+	_, transactionErr := s.db.Transact(func(tr fdb.Transaction) (any, error) {
+		return nil, writeReferenceKeys(tr, orgID, nodeID, keys)
+	})
+	if transactionErr != nil {
+		slog.ErrorContext(ctx, "node.reference.set_failed", slog.String("err", transactionErr.Error()))
+		return fmt.Errorf("set references for node %s: %w", nodeID, transactionErr)
+	}
+	return nil
 }
 
 // EnsurePropertyIndex writes secondary-index entries for the given Props on

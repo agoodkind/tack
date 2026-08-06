@@ -286,19 +286,20 @@ func defaultNodeTypes(orgID uuid.UUID) []*node.NodeType {
 	for _, sp := range specs {
 		id := uuid.NewSHA1(builtinTypeNamespace, []byte(orgID.String()+":"+sp.slug))
 		types = append(types, &node.NodeType{
-			ID:              id,
-			OrgID:           orgID,
-			Name:            sp.name,
-			Slug:            sp.slug,
-			PluralSlug:      sp.pluralSlug,
-			IsBuiltin:       true,
-			TypeKey:         sp.typeKey,
-			AllowedOps:      node.AllOps,
-			Features:        sp.features,
-			CanContain:      sp.canContain,
-			CanLiveUnder:    sp.canLiveUnder,
-			Reference:       sp.reference,
-			DefaultChildren: sp.defaultChildren,
+			ID:                 id,
+			OrgID:              orgID,
+			Name:               sp.name,
+			Slug:               sp.slug,
+			PluralSlug:         sp.pluralSlug,
+			IsBuiltin:          true,
+			TypeKey:            sp.typeKey,
+			AllowedOps:         node.AllOps,
+			Features:           sp.features,
+			CanContain:         sp.canContain,
+			CanLiveUnder:       sp.canLiveUnder,
+			Reference:          sp.reference,
+			ReferenceTemplates: nil,
+			DefaultChildren:    sp.defaultChildren,
 		})
 	}
 	return types
