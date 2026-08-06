@@ -67,16 +67,20 @@ type NodeRepository interface {
 	// reconciled indexes externally.
 	Set(ctx context.Context, n *Node, view *NodeView) error
 
-	// UpdateAtomic overwrites the node and view, then reconciles the
-	// secondary property indexes against oldProps for each name in
-	// indexedProps. Single FDB transaction so concurrent readers never see
-	// a half-rotated index.
+	// UpdateAtomic overwrites the node and view and reconciles the secondary
+	// property indexes against oldProps for each name in indexedProps.
+	//
+	// referenceKeys controls reference ownership: nil leaves the node's
+	// existing claims untouched, a non-nil slice replaces them, and a non-nil
+	// empty slice releases them all. A duplicate reference rolls the whole
+	// update back, so concurrent readers never see a half-rotated index.
 	UpdateAtomic(
 		ctx context.Context,
 		n *Node,
 		view *NodeView,
 		oldProps map[string]json.RawMessage,
 		indexedProps []string,
+		referenceKeys []ReferenceKey,
 		relationshipChanges ...RelationshipChanges,
 	) error
 
@@ -124,6 +128,12 @@ type NodeRepository interface {
 	// and returns the next value. The scopeNodeID is the container (typically a
 	// project node) under which sequence numbers are unique.
 	AllocateSequence(ctx context.Context, orgID, scopeNodeID uuid.UUID, nodeType string) (int64, error)
+
+	// AllocateSequenceByKey atomically increments and returns counterKey.
+	AllocateSequenceByKey(ctx context.Context, orgID uuid.UUID, counterKey string) (int64, error)
+
+	// SeedSequenceByKey raises counterKey to value without lowering it.
+	SeedSequenceByKey(ctx context.Context, orgID uuid.UUID, counterKey string, value int64) error
 
 	// LookupIdempotencyKey returns the record stamped under (orgID, key). A nil
 	// record and nil error mean the key has not been seen.

@@ -68,6 +68,17 @@ func directScopeReference(ctx context.Context, current *node.NodeView, nodeType 
 	return reference, nil
 }
 
+// updateScopeID reads the scope a node's merged properties place it in. It
+// prefers the explicit scope pointer and falls back to the parent, matching the
+// walk the create path performs.
+func updateScopeID(props map[string]json.RawMessage) uuid.UUID {
+	scopeID := rawUUIDReferenceProperty(props, "scope_id")
+	if scopeID == uuid.Nil {
+		scopeID = rawUUIDReferenceProperty(props, "parent_id")
+	}
+	return scopeID
+}
+
 func (s *NodeService) referenceKeysFor(
 	ctx context.Context,
 	orgID uuid.UUID,

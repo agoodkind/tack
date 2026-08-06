@@ -34,6 +34,7 @@ func (r *repairNodeRepo) UpdateAtomic(
 	view *node.NodeView,
 	oldProps map[string]json.RawMessage,
 	indexedProps []string,
+	_ []node.ReferenceKey,
 	relationshipChanges ...node.RelationshipChanges,
 ) error {
 	r.updatedNode = currentNode
@@ -72,6 +73,14 @@ func (r *repairNodeRepo) ListByProperty(context.Context, uuid.UUID, string, stri
 
 func (r *repairNodeRepo) AllocateSequence(context.Context, uuid.UUID, uuid.UUID, string) (int64, error) {
 	panic("repairNodeRepo.AllocateSequence called")
+}
+
+func (r *repairNodeRepo) AllocateSequenceByKey(context.Context, uuid.UUID, string) (int64, error) {
+	panic("repairNodeRepo.AllocateSequenceByKey called")
+}
+
+func (r *repairNodeRepo) SeedSequenceByKey(context.Context, uuid.UUID, string, int64) error {
+	panic("repairNodeRepo.SeedSequenceByKey called")
 }
 
 func (r *repairNodeRepo) LookupIdempotencyKey(context.Context, uuid.UUID, string) (*node.IdempotencyRecord, error) {

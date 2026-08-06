@@ -87,7 +87,7 @@ func (r *fakeNodeRepo) Set(context.Context, *node.Node, *node.NodeView) error {
 	panic("fakeNodeRepo.Set called")
 }
 
-func (r *fakeNodeRepo) UpdateAtomic(context.Context, *node.Node, *node.NodeView, map[string]json.RawMessage, []string, ...node.RelationshipChanges) error {
+func (r *fakeNodeRepo) UpdateAtomic(context.Context, *node.Node, *node.NodeView, map[string]json.RawMessage, []string, []node.ReferenceKey, ...node.RelationshipChanges) error {
 	panic("fakeNodeRepo.UpdateAtomic called")
 }
 
@@ -113,6 +113,14 @@ func (r *fakeNodeRepo) ListByProperty(_ context.Context, _ uuid.UUID, nodeType, 
 
 func (r *fakeNodeRepo) AllocateSequence(context.Context, uuid.UUID, uuid.UUID, string) (int64, error) {
 	panic("fakeNodeRepo.AllocateSequence called")
+}
+
+func (r *fakeNodeRepo) AllocateSequenceByKey(context.Context, uuid.UUID, string) (int64, error) {
+	panic("fakeNodeRepo.AllocateSequenceByKey called")
+}
+
+func (r *fakeNodeRepo) SeedSequenceByKey(context.Context, uuid.UUID, string, int64) error {
+	panic("fakeNodeRepo.SeedSequenceByKey called")
 }
 
 func (r *fakeNodeRepo) LookupIdempotencyKey(context.Context, uuid.UUID, string) (*node.IdempotencyRecord, error) {

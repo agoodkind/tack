@@ -159,6 +159,11 @@ func sequenceKey(orgID, scopeNodeID uuid.UUID, nodeType string) []byte {
 	return withPrefix(tuple.Tuple{keySequence, orgID.String(), scopeNodeID.String(), nodeType}.Pack())
 }
 
+// sequenceByKeyKey packs a counter key derived from a reference template.
+func sequenceByKeyKey(orgID uuid.UUID, counterKey string) []byte {
+	return withPrefix(tuple.Tuple{keySequence, orgID.String(), counterKey}.Pack())
+}
+
 // nodeTypeDefKey packs a NodeType config key.
 func nodeTypeDefKey(orgID, typeID uuid.UUID) []byte {
 	return withPrefix(tuple.Tuple{keyNodeTypeDef, orgID.String(), typeID.String()}.Pack())
