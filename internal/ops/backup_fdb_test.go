@@ -1,28 +1,12 @@
 package ops
 
 import (
-	"context"
 	"log/slog"
 	"strings"
 	"testing"
 
 	"goodkind.io/tack/internal/config"
 )
-
-func TestRunBackupFDBRequiresObjectStore(t *testing.T) {
-	backup := &backupCtx{
-		Cfg: &config.Config{},
-		Log: slog.Default(),
-	}
-
-	err := runBackupFDB(context.Background(), backup)
-	if err == nil {
-		t.Fatal("expected missing object-store endpoint error")
-	}
-	if !strings.Contains(err.Error(), "TACK_BACKUP_S3_ENDPOINT is required") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
 
 func TestFDBBackupStartArgsAreContinuousWhenFlagIsFalse(t *testing.T) {
 	backup := &backupCtx{

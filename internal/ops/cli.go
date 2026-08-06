@@ -26,8 +26,8 @@ type noInput struct {
 }
 
 // RegisterCommands adds the whole `ops` family to reg: the declared leaf
-// operations plus the hand-written backup and deploy subtrees, which carry a
-// default action alongside their subcommands.
+// operations plus the hand-written backup and deploy subtrees. Bare backup
+// rejects invocation, while deploy carries a default action.
 func RegisterCommands(reg *clispec.Registry, f *cli.Factory) {
 	clispec.Register(reg, inspectReadOp(f))
 	clispec.Register(reg, inspectFindOp(f))

@@ -14,6 +14,10 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
+// yugabyteBackupContainer is the named live Yugabyte container the
+// production compose stack ships.
+const yugabyteBackupContainer = "tack-yugabyte-1"
+
 // dumpYBSchema writes a schema-only ysql_dump of the database to outPath,
 // running ysql_dump inside the live yugabyte container and streaming stdout to
 // disk. The export_snapshot metadata references table ids this schema recreates

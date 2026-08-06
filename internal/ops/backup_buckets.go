@@ -16,11 +16,10 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// RunBackupBucketsInit idempotently creates the two SeaweedFS S3 buckets that
-// hold off-host backup artifacts: the main snapshot bucket and the audit
-// archive bucket. It is safe to run repeatedly; an already-existing bucket is
-// a success, not an error. SeaweedFS only speaks path-style S3 addressing, so
-// the client forces UsePathStyle regardless of endpoint.
+// RunBackupBucketsInit idempotently creates the SeaweedFS S3 bucket that holds
+// off-host backup artifacts. It is safe to run repeatedly; an already-existing
+// bucket is a success, not an error. SeaweedFS only speaks path-style S3
+// addressing, so the client forces UsePathStyle regardless of endpoint.
 func RunBackupBucketsInit(ctx context.Context, cfg *config.Config) error {
 	logger := telemetry.L(ctx)
 	if cfg.BackupS3Endpoint == "" {
@@ -35,7 +34,7 @@ func RunBackupBucketsInit(ctx context.Context, cfg *config.Config) error {
 	}
 
 	client := newBackupS3Client(cfg)
-	buckets := []string{cfg.BackupS3BucketMain, cfg.BackupS3BucketAudit}
+	buckets := []string{cfg.BackupS3BucketMain}
 
 	logger.InfoContext(ctx, "backup.buckets.start",
 		slog.String("endpoint", cfg.BackupS3Endpoint),

@@ -195,8 +195,7 @@ End-to-end test sequence after the remediation lands:
 4. **`docker compose config -q`** with the production `.env` exits 0 (every `:?` interpolation is satisfied).
 5. **`docker compose config -q`** with one required var temporarily removed from `.env` exits non-zero with a clear error pointing at the missing var.
 6. **`/server` (no subcommand)** with one required var unset exits non-zero at `config.Load()` time with a clear error naming the missing var. Container does NOT start; `docker ps` shows the container restart-thrashing visibly.
-7. **`./server ops backup`** with `TACK_BACKUP_TEMPORAL_DB_PASSWORD` unset (but other required vars present) exits non-zero at subcommand entry with a single-error message listing all missing backup vars. Does NOT start a partial backup.
-8. **`make verify-env`** in CI exits 0 only if every `,required` field has a placeholder in `.env.example` and every undecorated compose interpolation is matched by a `,required` field.
+7. **`make verify-env`** in CI exits 0 only if every `,required` field has a placeholder in `.env.example` and every undecorated compose interpolation is matched by a `,required` field.
 
 ## Sequencing
 

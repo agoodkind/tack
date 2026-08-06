@@ -62,7 +62,6 @@ services:
       TACK_BACKUP_S3_SECRET_ACCESS_KEY: ${TACK_BACKUP_S3_SECRET_ACCESS_KEY:-}
       TACK_BACKUP_S3_REGION: ${TACK_BACKUP_S3_REGION:-us-east-1}
       TACK_BACKUP_S3_BUCKET_MAIN: ${TACK_BACKUP_S3_BUCKET_MAIN:-tack-backups}
-      TACK_BACKUP_S3_BUCKET_AUDIT: ${TACK_BACKUP_S3_BUCKET_AUDIT:-tack-audit-archive}
     volumes:
       - /etc/foundationdb:/etc/foundationdb:ro
       - tack-logs:/var/log/tack
@@ -396,9 +395,6 @@ services:
     entrypoint: ["/server"]
     network_mode: host
     environment:
-      # On CT 117 the backup ops binary talks to the local daemon directly
-      # via the bind-mounted socket, so override the default remote context.
-      TACK_BACKUP_DOCKER_CONTEXT: ""
       # tack-ops uses network_mode: host so all services are reachable by
       # loopback. DATABASE_URL must be set in the host .env as a full DSN
       # pointing at 127.0.0.1:5433; the app service's DSN targets yugabyte
@@ -409,11 +405,6 @@ services:
       MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-tack-dev-meili-key-change-in-prod}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       ENV: ${ENV:-production}
-      # Temporal-DB password for the backup pg_dump step. Defaults to the
-      # literal "temporal" because that is what the temporal-db service
-      # itself sets via POSTGRES_PASSWORD on line 173. Override via .env
-      # if temporal-db's password is rotated.
-      TACK_BACKUP_TEMPORAL_DB_PASSWORD: ${TACK_BACKUP_TEMPORAL_DB_PASSWORD:-temporal}
       # Yugabyte connection details for the backup ysql_dump step. The
       # backup binary reads these directly from its config struct (not
       # from the parsed DATABASE_URL DSN), so they must be passed through
@@ -435,7 +426,6 @@ services:
       TACK_BACKUP_S3_SECRET_ACCESS_KEY: ${TACK_BACKUP_S3_SECRET_ACCESS_KEY:-}
       TACK_BACKUP_S3_REGION: ${TACK_BACKUP_S3_REGION:-us-east-1}
       TACK_BACKUP_S3_BUCKET_MAIN: ${TACK_BACKUP_S3_BUCKET_MAIN:-tack-backups}
-      TACK_BACKUP_S3_BUCKET_AUDIT: ${TACK_BACKUP_S3_BUCKET_AUDIT:-tack-audit-archive}
     volumes:
       - /root/backups:/root/backups
       - /etc/foundationdb:/etc/foundationdb:ro
