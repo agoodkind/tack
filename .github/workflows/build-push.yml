@@ -1,8 +1,10 @@
 name: build and push tack images
 
 on:
+  pull_request:
+    branches: [main]
   push:
-    branches: ["**"]
+    branches: [main]
     tags: ["v*"]
   workflow_dispatch:
 
@@ -47,6 +49,10 @@ jobs:
 
       - name: derive build metadata
         id: meta
+        # BRANCH_NAME resolves to the source branch on pull_request events, where
+        # GITHUB_REF_NAME is the synthetic "<number>/merge" ref and HEAD is detached.
+        env:
+          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
         run: |
           set -eu
           commit_sha=$(git rev-parse HEAD)
@@ -55,7 +61,7 @@ jobs:
           if git describe --tags --exact-match HEAD >/dev/null 2>&1; then
               tag=$(git describe --tags --exact-match HEAD)
           else
-              tag=$(git rev-parse --abbrev-ref HEAD)
+              tag="${BRANCH_NAME}"
           fi
           {
               echo "commit=${commit_sha}"
@@ -66,6 +72,8 @@ jobs:
 
       - name: docker tags
         id: tags
+        env:
+          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
         run: |
           set -eu
           base="${REGISTRY}/${{ github.repository_owner }}/${{ matrix.image }}"
@@ -77,9 +85,9 @@ jobs:
               tags="${tags}"$'\n'"${base}:${release}"
               tags="${tags}"$'\n'"${base}:latest"
           else
-              branch_tag=$(printf '%s' "${GITHUB_REF_NAME}" | tr '/' '-')
+              branch_tag=$(printf '%s' "${BRANCH_NAME}" | tr '/' '-')
               tags="${tags}"$'\n'"${base}:${branch_tag}"
-              if [ "${GITHUB_REF_NAME}" = "main" ]; then
+              if [ "${BRANCH_NAME}" = "main" ]; then
                   tags="${tags}"$'\n'"${base}:latest"
               fi
           fi
