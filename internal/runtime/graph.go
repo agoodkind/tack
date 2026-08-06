@@ -27,6 +27,7 @@ type Graph struct {
 	MCPHandler     http.Handler
 	AuthMiddleware func(http.Handler) http.Handler
 	pool           *pgxpool.Pool
+	fdbStores      *fdbadapter.Stores
 	audit          auditRuntime
 }
 
@@ -85,8 +86,27 @@ func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
 		MCPHandler:     mcpHandler,
 		AuthMiddleware: authMiddleware,
 		pool:           pool,
+		fdbStores:      fdbStores,
 		audit:          auditRuntimeDeps,
 	}, nil
+}
+
+// PingYugabyte verifies that the Yugabyte connection pool can serve a request.
+func (g *Graph) PingYugabyte(ctx context.Context) error {
+	if err := g.pool.Ping(ctx); err != nil {
+		slog.ErrorContext(ctx, "runtime.yugabyte_ping_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("ping yugabyte: %w", err)
+	}
+	return nil
+}
+
+// PingFoundationDB verifies that the FoundationDB stores can serve a request.
+func (g *Graph) PingFoundationDB(ctx context.Context) error {
+	if err := g.fdbStores.Ping(ctx); err != nil {
+		slog.ErrorContext(ctx, "runtime.foundationdb_ping_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("ping foundationdb: %w", err)
+	}
+	return nil
 }
 
 // Close releases the audit runtime and the Postgres pool, in that order.
