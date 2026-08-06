@@ -46,11 +46,8 @@ type CreateResult struct {
 	Existed bool
 }
 
-// Create writes a new node plus its initial relationships. When the NodeType
-// declares FeatureHasSequenceID the service allocates a sequence number from
-// the parent as the scope, and stamps Props["sequence"]. When the NodeType
-// Reference declares a direct address property, the service writes the address
-// index from that property value.
+// Create writes a new node plus its initial relationships. A primary reference
+// template can declare the property generated from its derived counter key.
 //
 // When IdempotencyKey is non-empty, Create first looks up an existing
 // (orgID, key) record. If a node already exists under that key, Create

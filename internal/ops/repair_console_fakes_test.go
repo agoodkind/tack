@@ -74,6 +74,14 @@ func (r *repairNodeRepo) AllocateSequence(context.Context, uuid.UUID, uuid.UUID,
 	panic("repairNodeRepo.AllocateSequence called")
 }
 
+func (r *repairNodeRepo) AllocateSequenceByKey(context.Context, uuid.UUID, string) (int64, error) {
+	panic("repairNodeRepo.AllocateSequenceByKey called")
+}
+
+func (r *repairNodeRepo) SeedSequenceByKey(context.Context, uuid.UUID, string, int64) error {
+	panic("repairNodeRepo.SeedSequenceByKey called")
+}
+
 func (r *repairNodeRepo) LookupIdempotencyKey(context.Context, uuid.UUID, string) (*node.IdempotencyRecord, error) {
 	panic("repairNodeRepo.LookupIdempotencyKey called")
 }

@@ -13,7 +13,10 @@ import (
 type idempotencyNodeRepo struct {
 	records       map[string]*node.IdempotencyRecord
 	createRecords []*node.IdempotencyRecord
+	createdNodes  []*node.Node
 	updatedNodes  []*node.Node
+	counterValues map[string]int64
+	counterKeys   []string
 }
 
 func (r *idempotencyNodeRepo) Get(context.Context, uuid.UUID, uuid.UUID) (*node.Node, error) {
@@ -51,7 +54,7 @@ func (r *idempotencyNodeRepo) CreateAtomic(_ context.Context, n *node.Node, _ *n
 		r.records[record.Key] = record
 		r.createRecords = append(r.createRecords, record)
 	}
-	_ = n
+	r.createdNodes = append(r.createdNodes, n)
 	return nil
 }
 
@@ -69,6 +72,25 @@ func (r *idempotencyNodeRepo) ListByProperty(context.Context, uuid.UUID, string,
 
 func (r *idempotencyNodeRepo) AllocateSequence(context.Context, uuid.UUID, uuid.UUID, string) (int64, error) {
 	return 1, nil
+}
+
+func (r *idempotencyNodeRepo) AllocateSequenceByKey(_ context.Context, _ uuid.UUID, counterKey string) (int64, error) {
+	if r.counterValues == nil {
+		r.counterValues = make(map[string]int64)
+	}
+	r.counterValues[counterKey]++
+	r.counterKeys = append(r.counterKeys, counterKey)
+	return r.counterValues[counterKey], nil
+}
+
+func (r *idempotencyNodeRepo) SeedSequenceByKey(_ context.Context, _ uuid.UUID, counterKey string, value int64) error {
+	if r.counterValues == nil {
+		r.counterValues = make(map[string]int64)
+	}
+	if r.counterValues[counterKey] < value {
+		r.counterValues[counterKey] = value
+	}
+	return nil
 }
 
 func (r *idempotencyNodeRepo) LookupIdempotencyKey(_ context.Context, _ uuid.UUID, key string) (*node.IdempotencyRecord, error) {

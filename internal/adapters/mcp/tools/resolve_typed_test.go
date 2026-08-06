@@ -115,6 +115,14 @@ func (r *fakeNodeRepo) AllocateSequence(context.Context, uuid.UUID, uuid.UUID, s
 	panic("fakeNodeRepo.AllocateSequence called")
 }
 
+func (r *fakeNodeRepo) AllocateSequenceByKey(context.Context, uuid.UUID, string) (int64, error) {
+	panic("fakeNodeRepo.AllocateSequenceByKey called")
+}
+
+func (r *fakeNodeRepo) SeedSequenceByKey(context.Context, uuid.UUID, string, int64) error {
+	panic("fakeNodeRepo.SeedSequenceByKey called")
+}
+
 func (r *fakeNodeRepo) LookupIdempotencyKey(context.Context, uuid.UUID, string) (*node.IdempotencyRecord, error) {
 	panic("fakeNodeRepo.LookupIdempotencyKey called")
 }

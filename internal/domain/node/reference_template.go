@@ -73,6 +73,22 @@ func (t ReferenceTemplate) Render(in ReferenceRenderInput) (string, error) {
 	return output.String(), nil
 }
 
+// CounterKey renders every template part except the generated property.
+func (t ReferenceTemplate) CounterKey(in ReferenceRenderInput) (string, error) {
+	var output strings.Builder
+	for _, part := range t.Parts {
+		if part.Kind == ReferencePartProperty && part.Value == t.Generated {
+			continue
+		}
+		segment, err := renderReferencePart(part, in)
+		if err != nil {
+			return "", fmt.Errorf("counter key for template %q: %s", t.Name, err.Error())
+		}
+		output.WriteString(segment)
+	}
+	return output.String(), nil
+}
+
 func renderReferencePart(part ReferencePart, in ReferenceRenderInput) (string, error) {
 	switch part.Kind {
 	case ReferencePartLiteral:
