@@ -37,10 +37,12 @@ convergence, not an operator event.
 - The in-cluster point-in-time rewind schedule stays as the corruption layer
   (it is near-free; it is not backup work).
 
-Open placement decision: quorum survives only minority loss. Two nodes on
-vault plus one on suburban survives losing suburban but not losing vault.
-Surviving the loss of either hypervisor requires a third fault domain for one
-node or a witness.
+Placement: all three nodes run on the vault hypervisor, one per guest, over
+the existing routed IPv6 network. This converges automatically for guest and
+process failures and requires no cross-hypervisor networking. Loss of vault
+itself is covered by the off-machine export until one node migrates to a
+second hypervisor; that migration is a routine add-node, remove-node
+operation with automatic rebalancing and discards nothing built here.
 
 ### Derived stores (Meilisearch, ClickHouse)
 
