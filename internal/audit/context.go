@@ -117,6 +117,22 @@ func (s SuppressingRecorder) Record(ctx context.Context, ev Event) error {
 	return nil
 }
 
+// Close closes the wrapped Recorder when it supports closing.
+func (s SuppressingRecorder) Close() error {
+	switch recorder := s.Inner.(type) {
+	case interface{ Close() error }:
+		err := recorder.Close()
+		if err != nil {
+			slog.Error("audit.recorder_close_failed", slog.String("err", err.Error()))
+			return fmt.Errorf("close audit recorder: %w", err)
+		}
+		return nil
+	case interface{ Close() }:
+		recorder.Close()
+	}
+	return nil
+}
+
 func canonicalizeCorrelation(ev *Event) {
 	if ev.Context.RequestID == "" {
 		ev.Context.RequestID = ev.Actor.RequestID
