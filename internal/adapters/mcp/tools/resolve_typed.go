@@ -2,7 +2,7 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -54,10 +54,6 @@ func (r *Resolver) ResolveTypedNodeID(ctx context.Context, nt *node.NodeType, in
 }
 
 func (r *Resolver) resolveSequenceNodeID(ctx context.Context, input string, typeKeys []string) (uuid.UUID, error) {
-	projectReference, seqID, err := ParseNodeIdentifier(input)
-	if err != nil {
-		return uuid.Nil, fmt.Errorf("invalid node_id %q: must be a UUID or sequence reference like TACK-65: %w", input, domain.ErrInvalidArgument)
-	}
 	userID, ok := auth.UserID(ctx)
 	if !ok {
 		return uuid.Nil, fmt.Errorf("unauthenticated")
@@ -66,27 +62,39 @@ func (r *Resolver) resolveSequenceNodeID(ctx context.Context, input string, type
 	if err != nil {
 		return uuid.Nil, err
 	}
+	parsed := false
+	projectReference := ""
+	seqID := 0
 	for _, workspace := range workspaces {
+		id, found, lookupErr := r.referenceKeyHolder(ctx, workspace.OrgID, typeKeys, input)
+		if lookupErr != nil {
+			return uuid.Nil, lookupErr
+		}
+		if found {
+			return id, nil
+		}
+		if !parsed {
+			projectReference, seqID, err = r.parseSequenceReference(input, typeKeys)
+			if err != nil {
+				return uuid.Nil, fmt.Errorf("invalid node_id %q: must be a UUID or sequence reference like TACK-65: %w", input, domain.ErrInvalidArgument)
+			}
+			parsed = true
+		}
 		if len(r.scopeChain) == 0 {
 			continue
 		}
-		scopeNode, err := r.ResolveScope(ctx, workspace, r.scopeChain[0], projectReference)
-		if err != nil {
+		scopeNode, scopeErr := r.ResolveScope(ctx, workspace, r.scopeChain[0], projectReference)
+		if scopeErr != nil {
 			continue
 		}
-		rawSeq, _ := json.Marshal(int64(seqID))
-		for _, typeKey := range typeKeys {
-			candidates, err := r.nodes.ListByProperty(ctx, workspace.OrgID, typeKey, "sequence", rawSeq)
-			if err != nil {
-				continue
+		id, matchErr := r.scanSequenceCandidates(ctx, workspace.OrgID, typeKeys, seqID, scopeNode.ID, input)
+		if matchErr != nil {
+			if errors.Is(matchErr, domain.ErrInvalidArgument) {
+				return uuid.Nil, matchErr
 			}
-			for _, candidate := range candidates {
-				if r.nodeBelongsToScope(ctx, candidate, scopeNode.ID) {
-					stampAuditOrg(ctx, candidate.OrgID)
-					return candidate.ID, nil
-				}
-			}
+			continue
 		}
+		return id, nil
 	}
 	return uuid.Nil, fmt.Errorf("reference %q: %w", input, domain.ErrNotFound)
 }
