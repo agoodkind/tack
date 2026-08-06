@@ -33,6 +33,7 @@ func (r *idempotencyNodeRepo) UpdateAtomic(
 	_ *node.NodeView,
 	_ map[string]json.RawMessage,
 	_ []string,
+	_ []node.ReferenceKey,
 	_ ...node.RelationshipChanges,
 ) error {
 	r.updatedNodes = append(r.updatedNodes, n)

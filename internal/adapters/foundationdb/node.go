@@ -87,13 +87,14 @@ func (s *NodeStore) Set(ctx context.Context, n *node.Node, view *node.NodeView) 
 //
 // All writes happen in a single FDB transaction so concurrent readers see
 // either the full pre-state or the full post-state, never a half-rotated
-// index.
+// index or reference key.
 func (s *NodeStore) UpdateAtomic(
 	ctx context.Context,
 	n *node.Node,
 	view *node.NodeView,
 	oldProps map[string]json.RawMessage,
 	indexedProps []string,
+	referenceKeys []node.ReferenceKey,
 	relationshipChanges ...node.RelationshipChanges,
 ) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node.update_atomic")(&err)
@@ -102,12 +103,27 @@ func (s *NodeStore) UpdateAtomic(
 			return nil, err
 		}
 		reconcilePropertyIndexes(tr, n, oldProps, indexedProps)
+		// nil means the caller is not changing reference ownership, so the
+		// node's existing claims stay untouched. A non-nil slice replaces
+		// them, and a non-nil empty slice releases them all. Without this
+		// distinction every ordinary update would drop the node's reference
+		// and let another node claim it.
+		if referenceKeys != nil {
+			if err := writeReferenceKeys(tr, n.OrgID, n.ID, referenceKeys); err != nil {
+				return nil, err
+			}
+		}
 		if err := applyRelationshipChanges(ctx, tr, relationshipChanges); err != nil {
 			return nil, err
 		}
 		return nil, nil
 	})
-	return
+	if err != nil {
+		wrapped := fmt.Errorf("update node %s atomically: %w", n.ID, err)
+		slog.ErrorContext(ctx, "node.update_atomic_failed", slog.String("err", wrapped.Error()))
+		return wrapped
+	}
+	return nil
 }
 
 func reconcilePropertyIndexes(
@@ -228,14 +244,13 @@ func (s *NodeStore) Delete(ctx context.Context, orgID, nodeID uuid.UUID) (err er
 	// view keys correctly.
 	n, gerr := s.Get(ctx, orgID, nodeID)
 	if gerr != nil {
-		err = gerr
-		return
+		return gerr
 	}
 	if n == nil {
-		return
+		return nil
 	}
 
-	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
+	_, transactionErr := s.db.Transact(func(tr fdb.Transaction) (any, error) {
 		// Clear the primary, view, and resolve records.
 		tr.Clear(fdb.Key(nodeInstanceKey(orgID, n.NodeType, nodeID)))
 		tr.Clear(fdb.Key(nodeViewKey(orgID, n.NodeType, nodeID)))
@@ -295,10 +310,18 @@ func (s *NodeStore) Delete(ctx context.Context, orgID, nodeID uuid.UUID) (err er
 			encoded := encodePropertyValue(raw)
 			tr.Clear(fdb.Key(nodeByPropertyKey(orgID, n.NodeType, propName, encoded, nodeID)))
 		}
+		if err := clearReferenceKeys(tr, orgID, nodeID); err != nil {
+			return nil, err
+		}
 
 		return nil, nil
 	})
-	return
+	if transactionErr != nil {
+		err = fmt.Errorf("delete node %s: %w", nodeID, transactionErr)
+		slog.ErrorContext(ctx, "node.delete_failed", slog.String("err", err.Error()))
+		return err
+	}
+	return nil
 }
 
 // CreateAtomic writes a new node plus initial relationships in one FDB

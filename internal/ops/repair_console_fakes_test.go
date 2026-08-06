@@ -34,6 +34,7 @@ func (r *repairNodeRepo) UpdateAtomic(
 	view *node.NodeView,
 	oldProps map[string]json.RawMessage,
 	indexedProps []string,
+	_ []node.ReferenceKey,
 	relationshipChanges ...node.RelationshipChanges,
 ) error {
 	r.updatedNode = currentNode

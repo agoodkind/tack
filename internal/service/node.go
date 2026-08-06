@@ -121,8 +121,18 @@ func (s *NodeService) Update(ctx context.Context, in UpdateInput) (*node.NodeVie
 	if err != nil {
 		return nil, err
 	}
+	// An update may change a value the reference renders from, such as the
+	// scope pointer or the numbered property. Render the keys the merged
+	// properties produce and claim them, so a move onto a held reference is
+	// refused instead of leaving a stale claim on the old value and none on
+	// the new one. A type declaring no template renders no keys, and the
+	// storage layer then leaves ownership untouched.
+	referenceKeys, err := s.referenceKeysFor(ctx, existing.OrgID, nt, updateScopeID(merged), merged)
+	if err != nil {
+		return nil, err
+	}
 	relationshipChanges := stampRelationshipChanges(in.RelationshipChanges, in.ActorID, now)
-	if err := s.nodes.UpdateAtomic(ctx, n, view, existing.Props, indexedProps, relationshipChanges); err != nil {
+	if err := s.nodes.UpdateAtomic(ctx, n, view, existing.Props, indexedProps, referenceKeys, relationshipChanges); err != nil {
 		log.Error("node.Update",
 			slog.String("node_id", in.NodeID.String()),
 			slog.String("err", err.Error()),

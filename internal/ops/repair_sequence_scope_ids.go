@@ -113,7 +113,7 @@ func repairTypeScopeIDs(ctx context.Context, env *Env, orgID uuid.UUID, nodeType
 			CreatedAt: currentNode.CreatedAt,
 			UpdatedAt: currentNode.UpdatedAt,
 		}
-		if err := env.Stores.Nodes.UpdateAtomic(ctx, updatedNode, updatedView, oldProps, indexedProps); err != nil {
+		if err := env.Stores.Nodes.UpdateAtomic(ctx, updatedNode, updatedView, oldProps, indexedProps, nil); err != nil {
 			env.Log.WarnContext(ctx, "repair.scope_ids: update node",
 				slog.String("node_id", currentNode.ID.String()),
 				slog.String("type", nodeType.TypeKey),
