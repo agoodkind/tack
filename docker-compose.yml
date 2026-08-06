@@ -47,7 +47,10 @@ services:
       AUDIT_KAFKA_BROKERS: ${AUDIT_KAFKA_BROKERS:-}
       AUDIT_KAFKA_TOPIC: ${AUDIT_KAFKA_TOPIC:-audit.events.v1}
       AUDIT_KAFKA_CLIENT_ID: ${AUDIT_KAFKA_CLIENT_ID:-tack-audit-producer}
-      AUDIT_KAFKA_PRODUCE_TIMEOUT: ${AUDIT_KAFKA_PRODUCE_TIMEOUT:-10s}
+      # Matches the application default. A hard broker loss costs up to 9s of
+      # broker lease expiry plus up to 5s of client metadata refresh, so a
+      # smaller budget expires while delivery would still have succeeded.
+      AUDIT_KAFKA_PRODUCE_TIMEOUT: ${AUDIT_KAFKA_PRODUCE_TIMEOUT:-15s}
       # Audit query read tier. Empty reads only Yugabyte; set to route recent
       # windows to the ClickHouse audit.events_olap projection.
       AUDIT_CLICKHOUSE_DSN: ${AUDIT_CLICKHOUSE_DSN:-}
