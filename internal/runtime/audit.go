@@ -15,24 +15,18 @@ type auditRuntime struct {
 	ClickHouse *audit.ClickHouseReader
 	Querier    audit.RowQuerier
 	Redactor   *audit.Redactor
-	Notarizer  *audit.Notarizer
 	Recorder   audit.Recorder
 }
 
 // buildAuditRuntime selects and wires the audit Recorder, installs it as the
-// process-global sink for the MCP and auth boundaries, starts the notarizer when
-// configured, and opens the reader/redactor/querier used by the audit MCP tools.
+// process-global sink for the MCP and auth boundaries, and opens the
+// reader/redactor/querier used by the audit MCP tools.
 func buildAuditRuntime(ctx context.Context, cfg *config.Config) auditRuntime {
 	auditRec := buildAuditRecorder(ctx, cfg)
 	// Wrap once so internal automation can mute emission via audit.WithSuppressed.
 	auditRec = audit.SuppressingRecorder{Inner: auditRec}
 	mcptools.SetAuditRecorder(auditRec)
 	auth.SetAuditRecorder(auditRec)
-
-	notarizer := buildAuditNotarizer(ctx, cfg)
-	if notarizer != nil {
-		notarizer.Start(ctx)
-	}
 
 	reader := buildAuditReader(ctx, cfg)
 	clickHouse := buildAuditClickHouseReader(ctx, cfg)
@@ -45,7 +39,6 @@ func buildAuditRuntime(ctx context.Context, cfg *config.Config) auditRuntime {
 		ClickHouse: clickHouse,
 		Querier:    querier,
 		Redactor:   buildAuditRedactor(ctx, cfg),
-		Notarizer:  notarizer,
 		Recorder:   auditRec,
 	}
 }
@@ -59,9 +52,6 @@ func (r auditRuntime) Close() {
 	}
 	if r.Redactor != nil {
 		r.Redactor.Close()
-	}
-	if r.Notarizer != nil {
-		_ = r.Notarizer.Close()
 	}
 	switch c := r.Recorder.(type) {
 	case interface{ Close() error }:
@@ -164,25 +154,4 @@ func buildAuditRedactor(ctx context.Context, cfg *config.Config) *audit.Redactor
 	}
 	slog.InfoContext(ctx, "audit.redactor_connected")
 	return rd
-}
-
-// buildAuditNotarizer assembles the periodic Merkle-root notarizer when a
-// signing key path is configured. Reuses the audit_writer DSN.
-func buildAuditNotarizer(ctx context.Context, cfg *config.Config) *audit.Notarizer {
-	if cfg.AuditSigningKeyPath == "" || cfg.AuditWriterDSN == "" {
-		slog.InfoContext(ctx, "audit.notarizer_disabled",
-			slog.String("reason", "AUDIT_SIGNING_KEY_PATH or AUDIT_WRITER_DSN unset"),
-		)
-		return nil
-	}
-	n, err := audit.NewNotarizer(ctx, cfg.AuditWriterDSN, audit.NotarizerConfig{
-		SigningKeyPath: cfg.AuditSigningKeyPath,
-		Period:         0,
-	})
-	if err != nil {
-		slog.ErrorContext(ctx, "audit.notarizer_setup_failed", slog.String("err", err.Error()))
-		return nil
-	}
-	slog.InfoContext(ctx, "audit.notarizer_started", slog.String("key_path", cfg.AuditSigningKeyPath))
-	return n
 }
