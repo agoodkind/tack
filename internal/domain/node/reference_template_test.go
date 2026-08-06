@@ -115,6 +115,49 @@ func TestReferenceTemplateRenderMissingPropertyFails(t *testing.T) {
 	}
 }
 
+func TestReferenceTemplateCounterKeyOmitsGeneratedPart(t *testing.T) {
+	key, err := issueTemplate().CounterKey(ReferenceRenderInput{
+		NodeTypeKey: "issue",
+		ScopeRefs:   map[string]string{FeatureIsScope: "FAN"},
+	})
+	if err != nil {
+		t.Fatalf("CounterKey: %v", err)
+	}
+	if key != "FAN-" {
+		t.Fatalf("CounterKey = %q, want FAN-", key)
+	}
+}
+
+func TestReferenceTemplateCounterKeyIncludesDeclaredNodeType(t *testing.T) {
+	template := ReferenceTemplate{
+		Generated: "number",
+		Parts: []ReferencePart{
+			{Kind: ReferencePartScopeRef, Value: FeatureIsScope},
+			{Kind: ReferencePartLiteral, Value: "-"},
+			{Kind: ReferencePartNodeType},
+			{Kind: ReferencePartLiteral, Value: "-"},
+			{Kind: ReferencePartProperty, Value: "number"},
+		},
+	}
+	issueKey, err := template.CounterKey(ReferenceRenderInput{
+		NodeTypeKey: "issue",
+		ScopeRefs:   map[string]string{FeatureIsScope: "FAN"},
+	})
+	if err != nil {
+		t.Fatalf("CounterKey(issue): %v", err)
+	}
+	epicKey, err := template.CounterKey(ReferenceRenderInput{
+		NodeTypeKey: "epic",
+		ScopeRefs:   map[string]string{FeatureIsScope: "FAN"},
+	})
+	if err != nil {
+		t.Fatalf("CounterKey(epic): %v", err)
+	}
+	if issueKey == epicKey {
+		t.Fatalf("counter keys both = %q, want distinct keys", issueKey)
+	}
+}
+
 func TestPrimaryReferenceTemplateSelectsMarkedTemplate(t *testing.T) {
 	nodeType := &NodeType{ReferenceTemplates: []ReferenceTemplate{
 		{Name: "external"},

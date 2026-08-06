@@ -80,17 +80,71 @@ func (s *NodeService) allocateCreateSequence(
 	scopeID uuid.UUID,
 	props map[string]json.RawMessage,
 ) error {
-	if !nt.Features.Has(node.FeatureHasSequenceID) || scopeID == uuid.Nil {
+	if scopeID == uuid.Nil {
+		return nil
+	}
+	template := nt.PrimaryReferenceTemplate()
+	if template == nil || template.Generated == "" {
+		// Migration fallback: a type with no template keeps the legacy
+		// feature-flag numbering until the seed writes templates. The slice
+		// that seeds templates retires this path along with AllocateSequence.
+		return s.allocateLegacySequence(ctx, log, orgID, nt, scopeID, props)
+	}
+	scopeRefs, err := s.scopeRefsFor(ctx, orgID, scopeID)
+	if err != nil {
+		return err
+	}
+	counterKey, err := template.CounterKey(node.ReferenceRenderInput{
+		NodeTypeKey: nt.TypeKey,
+		Props:       props,
+		ScopeRefs:   scopeRefs,
+	})
+	if err != nil {
+		wrapped := fmt.Errorf("derive counter key for node type %q: %w", nt.TypeKey, err)
+		log.ErrorContext(ctx, "node.create.counter_key_failed",
+			slog.String("node_type", nt.TypeKey),
+			slog.String("err", wrapped.Error()),
+		)
+		return wrapped
+	}
+	sequenceID, err := s.nodes.AllocateSequenceByKey(ctx, orgID, counterKey)
+	if err != nil {
+		wrapped := fmt.Errorf("allocate sequence for counter %q: %w", counterKey, err)
+		log.ErrorContext(ctx, "node.create.allocate_sequence_failed",
+			slog.String("node_type", nt.TypeKey),
+			slog.String("counter_key", counterKey),
+			slog.String("err", wrapped.Error()),
+		)
+		return wrapped
+	}
+	props[template.Generated] = json.RawMessage(strconv.FormatInt(sequenceID, 10))
+	return nil
+}
+
+// allocateLegacySequence is the pre-template numbering path, kept only until
+// the seed declares templates on the sequence-bearing types. It stamps the
+// literal "sequence" property from the (org, scope, type) counter exactly as
+// before templates existed.
+func (s *NodeService) allocateLegacySequence(
+	ctx context.Context,
+	log *slog.Logger,
+	orgID uuid.UUID,
+	nt *node.NodeType,
+	scopeID uuid.UUID,
+	props map[string]json.RawMessage,
+) error {
+	if !nt.Features.Has(node.FeatureHasSequenceID) {
 		return nil
 	}
 	sequenceID, err := s.nodes.AllocateSequence(ctx, orgID, scopeID, nt.TypeKey)
 	if err != nil {
-		log.ErrorContext(ctx, "node.Create: allocate sequence",
+		wrapped := fmt.Errorf("allocate legacy sequence for node type %q in scope %s: %w", nt.TypeKey, scopeID, err)
+		log.ErrorContext(ctx, "node.create.allocate_sequence_failed",
 			slog.String("node_type", nt.TypeKey),
 			slog.String("scope_id", scopeID.String()),
-			slog.String("err", err.Error()),
+			slog.String("err", wrapped.Error()),
 		)
-		return fmt.Errorf("allocate sequence: %w", err)
+		return wrapped
 	}
 	props["sequence"] = json.RawMessage(strconv.FormatInt(sequenceID, 10))
 	return nil

@@ -125,6 +125,12 @@ type NodeRepository interface {
 	// project node) under which sequence numbers are unique.
 	AllocateSequence(ctx context.Context, orgID, scopeNodeID uuid.UUID, nodeType string) (int64, error)
 
+	// AllocateSequenceByKey atomically increments and returns counterKey.
+	AllocateSequenceByKey(ctx context.Context, orgID uuid.UUID, counterKey string) (int64, error)
+
+	// SeedSequenceByKey raises counterKey to value without lowering it.
+	SeedSequenceByKey(ctx context.Context, orgID uuid.UUID, counterKey string, value int64) error
+
 	// LookupIdempotencyKey returns the record stamped under (orgID, key). A nil
 	// record and nil error mean the key has not been seen.
 	LookupIdempotencyKey(ctx context.Context, orgID uuid.UUID, key string) (*IdempotencyRecord, error)

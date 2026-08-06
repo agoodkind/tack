@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
@@ -505,6 +506,94 @@ func (s *NodeStore) AllocateSequence(ctx context.Context, orgID, scopeNodeID uui
 		return 0, fmt.Errorf("fdb allocate sequence: %w", err)
 	}
 	return val.(int64), nil
+}
+
+// AllocateSequenceByKey atomically increments and returns counterKey.
+func (s *NodeStore) AllocateSequenceByKey(ctx context.Context, orgID uuid.UUID, counterKey string) (seq int64, err error) {
+	defer telemetry.FDBOp(ctx, "store.node.allocate_sequence_by_key")(&err)
+	val, err := s.db.Transact(func(tr fdb.Transaction) (any, error) {
+		return bumpSequence(tr, fdb.Key(sequenceByKeyKey(orgID, counterKey)), 1)
+	})
+	if err != nil {
+		wrapped := fmt.Errorf("fdb allocate sequence for %q: %w", counterKey, err)
+		slog.ErrorContext(ctx, "node.allocate_sequence_by_key_failed",
+			slog.String("counter_key", counterKey),
+			slog.String("err", wrapped.Error()),
+		)
+		return 0, wrapped
+	}
+	return val.(int64), nil
+}
+
+// SeedSequenceByKey raises counterKey to value without lowering it.
+func (s *NodeStore) SeedSequenceByKey(ctx context.Context, orgID uuid.UUID, counterKey string, value int64) (err error) {
+	defer telemetry.FDBOp(ctx, "store.node.seed_sequence_by_key")(&err)
+	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
+		key := fdb.Key(sequenceByKeyKey(orgID, counterKey))
+		current, readErr := readSequence(tr, key)
+		if readErr != nil {
+			return nil, readErr
+		}
+		if current >= value {
+			return nil, nil
+		}
+		if writeErr := writeSequence(tr, key, value); writeErr != nil {
+			return nil, writeErr
+		}
+		return nil, nil
+	})
+	if err != nil {
+		wrapped := fmt.Errorf("fdb seed sequence for %q: %w", counterKey, err)
+		slog.ErrorContext(ctx, "node.seed_sequence_by_key_failed",
+			slog.String("counter_key", counterKey),
+			slog.String("err", wrapped.Error()),
+		)
+		return wrapped
+	}
+	return nil
+}
+
+func readSequence(tr fdb.Transaction, key fdb.Key) (int64, error) {
+	raw, err := tr.Get(key).Get()
+	if err != nil {
+		return 0, err
+	}
+	if len(raw) < 8 {
+		return 0, nil
+	}
+	value := binary.LittleEndian.Uint64(raw)
+	if value > math.MaxInt64 {
+		return 0, fmt.Errorf("sequence value %d exceeds int64", value)
+	}
+	return int64(value), nil
+}
+
+func writeSequence(tr fdb.Transaction, key fdb.Key, value int64) error {
+	if value < 0 {
+		return fmt.Errorf("sequence value %d is negative", value)
+	}
+	buffer := make([]byte, 8)
+	binary.LittleEndian.PutUint64(buffer, uint64(value))
+	tr.Set(key, buffer)
+	return nil
+}
+
+func bumpSequence(tr fdb.Transaction, key fdb.Key, delta int64) (int64, error) {
+	current, err := readSequence(tr, key)
+	if err != nil {
+		return 0, err
+	}
+	if delta > 0 && current > math.MaxInt64-delta {
+		return 0, fmt.Errorf("sequence value %d overflows after increment %d", current, delta)
+	}
+	if delta < 0 && current < math.MinInt64-delta {
+		return 0, fmt.Errorf("sequence value %d underflows after increment %d", current, delta)
+	}
+	next := current + delta
+	if err := writeSequence(tr, key, next); err != nil {
+		return 0, err
+	}
+	return next, nil
 }
 
 // LookupIdempotencyKey returns the record stamped under (orgID, key), or nil
