@@ -14,6 +14,7 @@
 
 - Build with `make build`. It runs vet, golangci, staticcheck-extra, and govulncheck, baseline-gated. Never call `go build` directly.
 - Everything is a node. Behavior follows NodeType metadata, never hardcoded type names. No task may introduce a branch on a concrete type key such as `issue` or `epic`.
+- The engine holds no reference shape. No task may add a built-in template, an implicit part, a fallback when a NodeType declares no template, or a hardcoded property name such as `sequence` outside seed data. A NodeType with no template carries no constraint and renders no reference; that is legal. Every concrete reference in this plan is one deployment's data used as a test fixture.
 - The storage layer does not read PropertyDefs or NodeTypes. The service resolves metadata and passes the result down, exactly as it already does for `indexedProps` (`internal/domain/node/repository.go` lines 84 to 86).
 - No file exceeds 200 lines. Split by concern when it does.
 - Every write goes through `EntityRepository.CreateAtomic`, `Set`, or `UpdateAtomic`, each in one FoundationDB transaction. No multi-step creates, no cross-database transactions.
@@ -2429,7 +2430,7 @@ Co-authored-by: Claude <noreply@anthropic.com>"
 
 ---
 
-### Task 8: Seed reference templates on the built-in types
+### Task 8: Write a starting reference template in the seed
 
 **Files:**
 - Modify: `internal/service/seed.go`
@@ -2439,7 +2440,9 @@ Co-authored-by: Claude <noreply@anthropic.com>"
 - Consumes: `node.ReferenceTemplate` (Task 1).
 - Produces: `issue`, `epic`, `cycle`, and `module` node types each carrying a primary reference template of scope reference, hyphen, generated `sequence`, with no node-type part.
 
-Omitting the node-type part is the decision that makes epic `FAN-1` and issue `FAN-1` a conflict. An operator wanting independent numbering per type adds a `node_type` part to their own template.
+This is data the seed writes, not a default the engine holds. No task in this plan adds a fallback template, an implicit part, or any code path that supplies a template when a NodeType declares none. A NodeType with no template carries no constraint and renders no reference; that is a legal, supported state.
+
+Omitting the node-type part is what makes epic `FAN-1` and issue `FAN-1` a conflict in this deployment. A deployment wanting independent numbering per type declares a `node_type` part in its own template. The engine enforces either declaration identically.
 
 - [ ] **Step 1: Run the earlier tests to confirm they still fail**
 
@@ -2452,10 +2455,13 @@ Expected: the Task 6 and Task 7 tests FAIL, because no seeded type declares a te
 In `internal/service/seed.go`, add above the node type definitions:
 
 ```go
-// scopedSequenceTemplate is the reference contract for work-item types: the
-// enclosing scope's reference, a hyphen, then a generated sequence. The node
-// type is deliberately absent, so every work-item type in one scope shares a
-// single numbering space and "FAN-13" names exactly one node.
+// scopedSequenceTemplate is the reference template the seed writes for
+// work-item types: the enclosing scope's reference, a hyphen, then a generated
+// sequence. The node type is absent, so every type carrying this template in one
+// scope shares a single numbering space.
+//
+// This is seed data, not an engine default. An org may edit or remove it, and a
+// type with no template carries no constraint.
 func scopedSequenceTemplate() []node.ReferenceTemplate {
 	return []node.ReferenceTemplate{{
 		Name:      "reference",

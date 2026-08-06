@@ -17,7 +17,27 @@ declaration, the printed name and the guarantee cannot disagree.
 A sequence counter becomes one way to populate a property that a constraint
 covers, not a special case with its own rules.
 
+## The engine and one instance of its data
+
+The engine holds no reference shape. It reads templates from NodeType metadata
+and does what they say. A NodeType with no template carries no constraint and
+renders no reference. There is no built-in template, no implicit part, no
+fallback, and no code path that supplies one.
+
+Everything concrete in this document, `FAN-13`, `TACK-26`, a hyphen separator, a
+property named `sequence`, a project as the enclosing scope, is data from one
+deployment. Another deployment declares different types, different separators,
+different generated properties, and a different idea of what a scope is, and the
+engine behaves identically.
+
+Read every named reference below as an observation of one board, used as
+evidence that the engine currently permits a collision. None of it is a
+requirement on the engine.
+
 ## Problem
+
+The engine permits two nodes to render the same reference. The section below
+evidences that with one deployment's data.
 
 `FAN-13` names two issues in the FAN project. `tack_get_issue` with
 `node_id=FAN-13` returns one of them. The other cannot be read, updated, or
@@ -75,19 +95,28 @@ on. `keys.go` declares ten key families. `node_by_property` is keyed
 
 ## Goals
 
-- A reference resolves to exactly one node, guaranteed by the storage layer at
-  write time.
-- The uniqueness domain is declared as data by the operator, with seeded
-  defaults, and is never inferred from a hardcoded type or property name.
+Engine goals:
+
+- A rendered reference resolves to exactly one node, guaranteed by the storage
+  layer at write time, for any template any operator declares.
+- The uniqueness domain is declared as data by the operator. It is never
+  inferred from a hardcoded type name, a hardcoded property name, or a built-in
+  template. The seed writes a starting suggestion, not a default.
 - Resolving a reference is one point read.
-- The eight existing FAN duplicates are repaired, and every other project is
-  audited for the same condition.
-- An operator who wants two kinds of node to number independently can declare
-  that, and the printed reference distinguishes them.
+- An operator who wants two kinds of node to number independently declares it in
+  the template, and the rendered reference distinguishes them. An operator who
+  wants them to share one pool declares that instead. Neither is privileged.
+- A detect operation and a repair operation work against whatever templates a
+  deployment declares.
+
+Instance goals for this deployment, achieved by running those operations:
+
+- The eight duplicated references in the FAN project are repaired.
+- Every project in every org is audited for the same condition.
 
 ## Non-goals
 
-- Changing the reference format for the seeded types. `FAN-13` keeps its shape.
+- Changing the reference format the seed writes. `FAN-13` keeps its shape.
   Individual values change only for the nodes the repair reassigns.
 - A forwarding record from an old reference to a new one. See the repair
   section, and TACK-365 (`Optional reference forwarding for nodes that move
@@ -283,19 +312,34 @@ so an unrepaired duplicate raises `matched multiple nodes` with both UUIDs rathe
 than resolving to one. The fallback is removed after the repair operation reports
 zero duplicates across every org.
 
-### Seeded defaults
+### What the seed writes
 
-Seed `issue`, `epic`, `cycle`, and `module` with the template
+No template is built into the code. A NodeType with no template carries no
+constraint and gets no rendered reference. There is no fallback template, no
+implicit part, and no code path that supplies one.
+
+The seed writes a starting suggestion the operator owns and may edit or delete.
+It gives `issue`, `epic`, `cycle`, and `module` the template
 `scope_ref(is_scope), literal("-"), property(sequence)`, omitting `node_type`.
 `FAN-13` then names exactly one node across every work-item type, matching what
 the rendered string already implies to a reader.
 
-This default makes the existing epic and issue sharing `FAN-1` invalid, along
+That template makes the existing epic and issue sharing `FAN-1` invalid, along
 with `FAN-2` and `FAN-5`. The repair operation reassigns one node in each pair.
 
-An operator wanting independent numbering per type adds `node_type` to the
-template. Both nodes then keep separate counters and render distinguishable
-references. The guarantee is unchanged in either configuration.
+The TACK project carries the same collision at scale. Its epic counter reaches
+26 while its issue counter passes 369, so every epic reference from `TACK-1` to
+`TACK-26` names an issue as well. The repair reassigns the epics, because the
+issues are older and the retention policy keeps the older node. Verified
+2026-08-05: `tack_get_epic` and `tack_get_issue` each resolve `TACK-26`
+correctly because typed resolution passes only its own type key, while
+`tack_list_relationships` resolves it to the epic, so the untyped relationship
+tools reach only one of the pair.
+
+A deployment wanting independent numbering per type declares `node_type` in its
+own template instead. Both nodes then keep separate counters and render
+distinguishable references. The engine enforces either declaration identically;
+neither shape is the engine's opinion.
 
 ## Repair
 
