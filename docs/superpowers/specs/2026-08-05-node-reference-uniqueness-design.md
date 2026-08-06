@@ -125,9 +125,21 @@ Each was read from the source named.
   are `uuid_only`, `scoped_sequence`, `scoped_property` (`types.go` lines 109 to
   113) and `direct_property` (`internal/domain/node/reference.go` line 9).
 - `FeatureIsScope` at `types.go` line 38 means `defines an FDB key scope level`.
-- `writeNodeRecords` at `internal/adapters/foundationdb/node.go` line 191 is the
-  shared in-transaction write point, called by `Set` (line 71) and `UpdateAtomic`
-  (line 96).
+- `writeNodeRecords` at `internal/adapters/foundationdb/node.go` line 191 is
+  shared by `Set` (line 71) and `UpdateAtomic` (line 96). `CreateAtomic` at line
+  302 does not call it and inlines the same primary, resolve, and view writes at
+  lines 328 to 352. `Delete` at line 220 clears them and walks `n.Props` to clear
+  property indexes, noting at lines 286 to 288 that no per-node reverse index
+  exists.
+- `NodeRepository` at `internal/domain/node/repository.go` lines 84 to 86 states
+  that the caller resolves `indexedProps` from the PropertyDef registry and that
+  the storage layer does not read PropertyDefs.
+- `NodeService.Create` at `internal/service/node_create.go` line 97 calls
+  `s.indexedPropNames` and passes the result to `createNodeAtomic`. Reference
+  keys follow the same path.
+- `ParseNodeIdentifier` at `internal/adapters/mcp/tools/resolve_parse.go` splits
+  on the last hyphen and requires a positive integer suffix. It is hardcoded to
+  the one shape `PROJECT-N`.
 - `reconcilePropertyIndexes` at `node.go` line 108 clears the old index entry and
   writes the new one for each changed indexed property, inside the same
   transaction.
@@ -213,30 +225,47 @@ This rule is what makes the operator's declaration authoritative over both the
 numbering and the lookup. Whatever appears in the template appears in the
 counter and in the rendered reference, without exception.
 
+Deriving the counter key from the template changes its encoding, and an unseen
+counter key starts at zero. The repair pass therefore seeds each counter key to
+the highest value it observes in that scope before any new node is created
+against it. Without that step the counter reissues values already in use.
+
 ### Enforcement
 
-A new generic key family holds one entry per constrained value:
+Two generic key families carry the constraint:
 
 ```
-(node_reference, orgID, templateName, encodedKey) -> nodeID
+(node_reference,       orgID, templateName, encodedKey) -> nodeID
+(node_reference_owned, orgID, nodeID, templateName)     -> encodedKey
 ```
 
-`encodedKey` is the tuple-packed rendered parts. The family is generic over
-NodeType metadata and privileges no concrete type.
+`encodedKey` is the tuple-packed rendered parts. The forward family enforces
+uniqueness and answers lookups. The reverse family lets a node's prior keys be
+found from its identifier alone, which `Delete` and `UpdateAtomic` need because
+neither can render a key without NodeType metadata. `relationship_reverse` exists
+for the same reason, and `Delete` currently carries a comment noting the absence
+of a per-node reverse index for property values.
 
-Writes go through `writeNodeRecords`, which `Set` and `UpdateAtomic` already
-share inside one transaction. The reference key is written there, beside the
-existing property-index reconciliation, so a node's primary record, view,
-resolve record, property indexes, and reference keys commit or fail together.
+Both families are generic over NodeType metadata and privilege no concrete type.
 
-On write the transaction reads the key first. A key already held by a different
-node fails the transaction with an invalid-argument error naming both nodes. A
+Four write paths carry reference keys. `CreateAtomic` inlines its own primary,
+resolve, and view writes. `Set` and `UpdateAtomic` share `writeNodeRecords`.
+`Delete` clears the node's records. Each writes or clears reference keys inside
+the transaction it already opens, so a node's primary record, view, resolve
+record, property indexes, and reference keys commit or fail together.
+
+On write the transaction reads the forward key first. A key already held by a
+different node fails the transaction with a conflict error naming both nodes. A
 key held by the same node is a no-op.
 
-On update the old reference key is cleared and the new one written, mirroring
-`reconcilePropertyIndexes`. This closes the second duplicate mechanism: moving a
-node into a scope where its rendered reference is taken fails instead of
-silently colliding.
+On update the reverse range yields the node's prior keys. Those forward keys are
+cleared and the new ones written, mirroring `reconcilePropertyIndexes`. This
+closes the second duplicate mechanism: moving a node into a scope where its
+rendered reference is taken fails instead of silently colliding.
+
+The storage layer never reads PropertyDefs or NodeTypes, per the existing
+contract on `NodeRepository`. The service renders the keys and passes them in,
+exactly as it already passes `indexedProps`.
 
 ### Resolution
 
