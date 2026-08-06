@@ -14,6 +14,8 @@ package integration
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"log/slog"
 	"os"
 	"testing"
 
@@ -145,8 +147,9 @@ func writeOrgNode(ctx context.Context, stores *fdbadapter.Stores, orgID uuid.UUI
 	}
 	// CreateAtomic writes the node_by_property index for "slug" in the same
 	// transaction, so no separate address write is needed.
-	if err := stores.Nodes.CreateAtomic(ctx, n, view, nil, []string{"slug"}, nil); err != nil {
-		return err
+	if err := stores.Nodes.CreateAtomic(ctx, n, view, nil, []string{"slug"}, nil, nil); err != nil {
+		slog.ErrorContext(ctx, "node.seed.create_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("create org node %s: %w", orgID, err)
 	}
 	return nil
 }

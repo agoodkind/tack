@@ -62,10 +62,11 @@ func (s *NodeService) createNodeAtomic(
 	view *node.NodeView,
 	relationships []*node.Relationship,
 	indexedProps []string,
+	referenceKeys []node.ReferenceKey,
 	now time.Time,
 ) (*CreateResult, error) {
 	idempotencyRecord := createIdempotencyRecord(in, n.ID, now)
-	err := s.nodes.CreateAtomic(ctx, n, view, relationships, indexedProps, idempotencyRecord)
+	err := s.nodes.CreateAtomic(ctx, n, view, relationships, indexedProps, referenceKeys, idempotencyRecord)
 	if err == nil {
 		return nil, nil
 	}

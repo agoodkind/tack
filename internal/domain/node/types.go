@@ -144,6 +144,8 @@ type NodeType struct {
 	// type without using UUIDs. Runtime code interprets the strategy without
 	// branching on concrete slugs or built-in type names.
 	Reference ReferenceConfig `json:"reference,omitempty"`
+	// ReferenceTemplates declare the rendered references this type owns.
+	ReferenceTemplates []ReferenceTemplate `json:"reference_templates,omitempty"`
 	// DefaultChildren lists nodes that should be auto-created under any new
 	// instance of this type. Empty by default: no NodeType implies any
 	// automatic child creation unless the seed (or a later edit) declares
@@ -169,6 +171,16 @@ func BuildTypeIndex(types []*NodeType) map[string]*NodeType {
 		}
 	}
 	return m
+}
+
+// PrimaryReferenceTemplate returns this type's human-readable reference template.
+func (n *NodeType) PrimaryReferenceTemplate() *ReferenceTemplate {
+	for index := range n.ReferenceTemplates {
+		if n.ReferenceTemplates[index].IsPrimary {
+			return &n.ReferenceTemplates[index]
+		}
+	}
+	return nil
 }
 
 // Node is the single primary record for every entity in the system. Every

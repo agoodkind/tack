@@ -95,8 +95,16 @@ func (r *fakeNodeRepo) Delete(context.Context, uuid.UUID, uuid.UUID) error {
 	panic("fakeNodeRepo.Delete called")
 }
 
-func (r *fakeNodeRepo) CreateAtomic(context.Context, *node.Node, *node.NodeView, []*node.Relationship, []string, *node.IdempotencyRecord) error {
+func (r *fakeNodeRepo) CreateAtomic(context.Context, *node.Node, *node.NodeView, []*node.Relationship, []string, []node.ReferenceKey, *node.IdempotencyRecord) error {
 	panic("fakeNodeRepo.CreateAtomic called")
+}
+
+func (r *fakeNodeRepo) SetReferenceKeys(context.Context, uuid.UUID, uuid.UUID, []node.ReferenceKey) error {
+	panic("fakeNodeRepo.SetReferenceKeys called")
+}
+
+func (r *fakeNodeRepo) LookupReference(context.Context, uuid.UUID, string, string) (uuid.UUID, error) {
+	panic("fakeNodeRepo.LookupReference called")
 }
 
 func (r *fakeNodeRepo) ListByProperty(_ context.Context, _ uuid.UUID, nodeType, propName string, value json.RawMessage) ([]*node.Node, error) {

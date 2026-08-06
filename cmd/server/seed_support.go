@@ -109,7 +109,7 @@ func ensureNode(ctx context.Context, s *fdbadapter.Stores, typeKey, slug, name s
 
 	// Mark slug as indexed so ListByProperty works for it. The node_by_property
 	// index written here replaces the former address_index write.
-	if err := s.Nodes.CreateAtomic(ctx, n, view, rels, []string{"slug"}, nil); err != nil {
+	if err := s.Nodes.CreateAtomic(ctx, n, view, rels, []string{"slug"}, nil, nil); err != nil {
 		slog.ErrorContext(ctx, "seed.create_node_failed", slog.String("type", typeKey), slog.String("err", err.Error()))
 		return uuid.Nil, fmt.Errorf("seed: create node %s: %w", typeKey, err)
 	}

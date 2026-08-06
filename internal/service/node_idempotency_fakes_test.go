@@ -40,7 +40,7 @@ func (r *idempotencyNodeRepo) Delete(context.Context, uuid.UUID, uuid.UUID) erro
 	panic("idempotencyNodeRepo.Delete called")
 }
 
-func (r *idempotencyNodeRepo) CreateAtomic(_ context.Context, n *node.Node, _ *node.NodeView, _ []*node.Relationship, _ []string, record *node.IdempotencyRecord) error {
+func (r *idempotencyNodeRepo) CreateAtomic(_ context.Context, n *node.Node, _ *node.NodeView, _ []*node.Relationship, _ []string, _ []node.ReferenceKey, record *node.IdempotencyRecord) error {
 	if record != nil {
 		if r.records == nil {
 			r.records = make(map[string]*node.IdempotencyRecord)
@@ -53,6 +53,14 @@ func (r *idempotencyNodeRepo) CreateAtomic(_ context.Context, n *node.Node, _ *n
 	}
 	_ = n
 	return nil
+}
+
+func (r *idempotencyNodeRepo) SetReferenceKeys(context.Context, uuid.UUID, uuid.UUID, []node.ReferenceKey) error {
+	panic("idempotencyNodeRepo.SetReferenceKeys called")
+}
+
+func (r *idempotencyNodeRepo) LookupReference(context.Context, uuid.UUID, string, string) (uuid.UUID, error) {
+	panic("idempotencyNodeRepo.LookupReference called")
 }
 
 func (r *idempotencyNodeRepo) ListByProperty(context.Context, uuid.UUID, string, string, json.RawMessage) ([]*node.Node, error) {

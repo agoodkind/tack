@@ -54,8 +54,16 @@ func (r *repairNodeRepo) Delete(context.Context, uuid.UUID, uuid.UUID) error {
 	panic("repairNodeRepo.Delete called")
 }
 
-func (r *repairNodeRepo) CreateAtomic(context.Context, *node.Node, *node.NodeView, []*node.Relationship, []string, *node.IdempotencyRecord) error {
+func (r *repairNodeRepo) CreateAtomic(context.Context, *node.Node, *node.NodeView, []*node.Relationship, []string, []node.ReferenceKey, *node.IdempotencyRecord) error {
 	panic("repairNodeRepo.CreateAtomic called")
+}
+
+func (r *repairNodeRepo) SetReferenceKeys(context.Context, uuid.UUID, uuid.UUID, []node.ReferenceKey) error {
+	panic("repairNodeRepo.SetReferenceKeys called")
+}
+
+func (r *repairNodeRepo) LookupReference(context.Context, uuid.UUID, string, string) (uuid.UUID, error) {
+	panic("repairNodeRepo.LookupReference called")
 }
 
 func (r *repairNodeRepo) ListByProperty(context.Context, uuid.UUID, string, string, json.RawMessage) ([]*node.Node, error) {

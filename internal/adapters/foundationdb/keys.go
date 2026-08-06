@@ -32,6 +32,14 @@ const (
 	// (node_by_property, orgID, nodeType, propName, encodedValue, nodeID) -> nil
 	keyNodeByProperty = "node_by_property"
 
+	// Forward node reference uniqueness index.
+	// (node_reference, orgID, templateName, encoded) -> nodeID
+	keyNodeReference = "node_reference"
+
+	// Reverse node reference ownership index.
+	// (node_reference_owned, orgID, nodeID, templateName) -> encoded
+	keyNodeReferenceOwned = "node_reference_owned"
+
 	// Forward relationship.
 	// (relationship, orgID, sourceID, relationType, targetID) -> metadata JSON
 	keyRelationship = "relationship"
@@ -119,6 +127,21 @@ func nodeResolveKey(nodeID uuid.UUID) []byte {
 // nodeByPropertyKey packs a secondary property index key.
 func nodeByPropertyKey(orgID uuid.UUID, nodeType, propName string, encodedValue []byte, nodeID uuid.UUID) []byte {
 	return withPrefix(tuple.Tuple{keyNodeByProperty, orgID.String(), nodeType, propName, encodedValue, nodeID.String()}.Pack())
+}
+
+// nodeReferenceKey packs a forward reference ownership key.
+func nodeReferenceKey(orgID uuid.UUID, templateName, encoded string) []byte {
+	return withPrefix(tuple.Tuple{keyNodeReference, orgID.String(), templateName, encoded}.Pack())
+}
+
+// nodeReferenceOwnedKey packs a reverse reference ownership key.
+func nodeReferenceOwnedKey(orgID, nodeID uuid.UUID, templateName string) []byte {
+	return withPrefix(tuple.Tuple{keyNodeReferenceOwned, orgID.String(), nodeID.String(), templateName}.Pack())
+}
+
+// nodeReferenceOwnedPrefix packs a node's reverse reference ownership prefix.
+func nodeReferenceOwnedPrefix(orgID, nodeID uuid.UUID) []byte {
+	return withPrefix(tuple.Tuple{keyNodeReferenceOwned, orgID.String(), nodeID.String()}.Pack())
 }
 
 // relationshipKey packs a forward relationship key.
