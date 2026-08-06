@@ -79,8 +79,8 @@ continue. This is automatic; no operator acts.
 
 Three service containers, one per data guest, hold two copies of every key
 (the mode called double). Double fits three guests; the three-copy mode needs
-three live guests and would turn one guest loss into an outage. Three coordinators, one per data guest, keep the
-cluster's shared configuration.
+three live guests and would turn one guest loss into an outage. Three
+coordinators, one per data guest, keep the cluster's shared configuration.
 
 Three defects in the current setup must be fixed before any expansion:
 
