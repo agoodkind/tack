@@ -131,11 +131,14 @@ instance:
 1. The app gains a health endpoint that checks its datastores. The proxy's
    `tack-service` entry lists both instances and probes that endpoint.
 2. The ledger signer (the notarizer, which signs the audit chain every
-   minute) runs only in the audit-consumer process, never in the app. Its
-   signing key becomes a vault-stored secret in the configs repo, rendered at
-   deploy time instead of generated per host. Without this, each app guest
-   would generate its own key and sign the same ledger under different
-   identities.
+   minute) runs only in the audit-consumer process, never in the app. One
+   signer identity exists: a single vault-stored key in the configs repo,
+   rendered at deploy time instead of generated per host, rotated as one
+   operation, with the signing-key id recorded per signature (the schema
+   already does) and the signing hostname recorded in the notarization row
+   for forensics. Per-guest keys are rejected: they would make verification
+   depend on a registry of ephemeral guest identities and would recreate the
+   multiple-identities-on-one-chain ambiguity this fix removes.
 
 The compose file pins development-mode auth, which accepts any UUID as a
 login. A second instance behind public ingress raises the urgency of the
