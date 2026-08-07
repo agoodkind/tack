@@ -20,7 +20,6 @@
 services:
   fdb:
     image: foundationdb/foundationdb:${FDB_VERSION:-7.4.6}
-    container_name: tack-test-fdb
     environment:
       FDB_NETWORKING_MODE: container
       FDB_PORT: "4500"
@@ -38,7 +37,6 @@ services:
 
   yugabyte:
     image: yugabytedb/yugabyte:2024.2.8.0-b85
-    container_name: tack-test-yugabyte
     command: >
       bin/yugabyted start --daemon=false --base_dir=/home/yugabyte/var
     environment:
@@ -60,7 +58,6 @@ services:
       dockerfile: Dockerfile.test
       args:
         FDB_VERSION: ${FDB_VERSION:-7.4.6}
-    container_name: tack-test-runner
     depends_on:
       fdb:
         condition: service_healthy
