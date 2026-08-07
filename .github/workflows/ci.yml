@@ -45,12 +45,5 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: bring up FDB
-        run: ./scripts/test-fdb-up.sh
-
       - name: run integration tests
-        run: ./scripts/test-integration.sh
-
-      - name: tear down
-        if: always()
-        run: ./scripts/test-fdb-down.sh
+        run: ./scripts/test-integration-ci.sh
