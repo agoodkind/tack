@@ -38,7 +38,7 @@ jobs:
 
   integration:
     name: integration tests (FDB)
-    runs-on: [self-hosted, Linux, X64, tack]
+    runs-on: [self-hosted, Linux, X64, tack-docker]
     timeout-minutes: 20
     env:
       COMPOSE_PROJECT_NAME: tack-${{ github.run_id }}-${{ github.run_attempt }}
