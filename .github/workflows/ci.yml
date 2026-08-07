@@ -26,6 +26,7 @@ jobs:
     with:
       golangci_lint_version: v2.11.4
       job_layout: single
+      runs_on: tack
       pre_make_commands: |
         fdb_version=7.4.6
         curl -fsSL \
@@ -37,7 +38,7 @@ jobs:
 
   integration:
     name: integration tests (FDB)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, tack]
     timeout-minutes: 20
     env:
       COMPOSE_PROJECT_NAME: tack-${{ github.run_id }}-${{ github.run_attempt }}

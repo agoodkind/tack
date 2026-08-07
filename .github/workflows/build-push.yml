@@ -21,7 +21,7 @@ jobs:
   # drift fails the whole run and no image ships. See scripts/check-overlay-drift.sh
   # and TACK-302.
   overlay-drift:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, tack]
     timeout-minutes: 20
     steps:
       - name: checkout
@@ -31,7 +31,7 @@ jobs:
 
   build:
     needs: overlay-drift
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, tack]
     timeout-minutes: 30
     strategy:
       fail-fast: false
