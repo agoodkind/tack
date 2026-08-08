@@ -37,15 +37,15 @@ func (GitConfigOperatorSource) Resolve(ctx context.Context) (audit.OperatorPrinc
 		slog.ErrorContext(ctx, "operator.git_config.path_failed", slog.String("err", err.Error()))
 		return audit.OperatorPrincipal{}, err
 	}
-	contents, path, err := readFirstGitConfig(ctx, candidates)
-	if err != nil {
+	name, email, read := readGitConfigIdentity(ctx, candidates)
+	if read == 0 {
+		err := fmt.Errorf("no readable gitconfig among %d candidate path(s)", len(candidates))
+		slog.ErrorContext(ctx, "operator.git_config.read_failed", slog.String("err", err.Error()))
 		return audit.OperatorPrincipal{}, err
 	}
-	name, email := parseGitConfig(contents)
 	if email == "" {
-		err := fmt.Errorf("gitconfig %s has no user.email", path)
-		slog.ErrorContext(ctx, "operator.git_config.email_missing",
-			slog.String("path", path), slog.String("err", err.Error()))
+		err := errors.New("gitconfig has no user.email; set it or pass --operator-email")
+		slog.ErrorContext(ctx, "operator.git_config.email_missing", slog.String("err", err.Error()))
 		return audit.OperatorPrincipal{}, err
 	}
 	normalizedEmail := strings.ToLower(email)
@@ -61,29 +61,35 @@ func (GitConfigOperatorSource) Resolve(ctx context.Context) (audit.OperatorPrinc
 // order: the explicit override, then the XDG location, then the home file. An
 // operator whose identity lives in the XDG file would otherwise look
 // unconfigured and every command would refuse to run.
-// readFirstGitConfig returns the contents of the first candidate that opens,
-// along with the path it came from. Each candidate is cleaned before use, so a
-// path assembled from the environment cannot climb out of the directory it
-// names.
-func readFirstGitConfig(ctx context.Context, candidates []string) ([]byte, string, error) {
-	var lastErr error
+// readGitConfigIdentity reads every candidate that opens, in git's own order,
+// and lets a later file override an earlier one. Git reads both the XDG file
+// and the home file and takes the home file's value, so returning whichever
+// opened first would attribute an action to the wrong person whenever an
+// operator has an identity in each. It returns the resolved name and email
+// plus how many files were actually read.
+//
+// Each candidate is cleaned before use, so a path assembled from the
+// environment cannot climb out of the directory it names.
+func readGitConfigIdentity(ctx context.Context, candidates []string) (string, string, int) {
+	var name, email string
+	read := 0
 	for _, candidate := range candidates {
 		cleaned := filepath.Clean(candidate)
 		contents, err := os.ReadFile(cleaned)
-		if err == nil {
-			return contents, cleaned, nil
+		if err != nil {
+			continue
 		}
-		lastErr = err
+		read++
+		fileName, fileEmail := parseGitConfig(contents)
+		if fileName != "" {
+			name = fileName
+		}
+		if fileEmail != "" {
+			email = fileEmail
+		}
+		slog.DebugContext(ctx, "operator.git_config.read", slog.String("path", cleaned))
 	}
-	if lastErr == nil {
-		lastErr = errors.New("no gitconfig candidates to read")
-	}
-	wrapped := fmt.Errorf("read gitconfig: %w", lastErr)
-	slog.ErrorContext(ctx, "operator.git_config.read_failed",
-		slog.Int("candidates", len(candidates)),
-		slog.String("err", wrapped.Error()),
-	)
-	return nil, "", wrapped
+	return name, email, read
 }
 
 // gitConfigCandidates lists the global config files to read, in git's own
