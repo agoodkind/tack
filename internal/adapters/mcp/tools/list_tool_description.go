@@ -7,9 +7,9 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-func listToolDescription(nt *node.NodeType, plural string, chain []ScopeLevel, epParam string, resolver *Resolver) string {
+func listToolDescription(nt *node.NodeType, plural string, route scopeRoute, epParam string, resolver *Resolver) string {
 	slug := strings.ToLower(nt.Slug)
-	if len(chain) == 0 {
+	if !route.hasLevels() {
 		return fmt.Sprintf(
 			"Lists %s in a workspace. Pass %s with the workspace reference from tack_list_workspaces. Optional filters apply exact property matches. Use this before tack_get_%s when you need all %s in that workspace.",
 			plural,
@@ -18,7 +18,18 @@ func listToolDescription(nt *node.NodeType, plural string, chain []ScopeLevel, e
 			plural,
 		)
 	}
+	if len(route.Leaves) > 0 {
+		requiredText := strings.Join(append([]string{epParam}, route.requiredParams()...), ", ")
+		return fmt.Sprintf(
+			"Lists %s in %s. Pass %s and exactly one of %s. Optional filters apply exact property matches.",
+			plural,
+			leafScopeText(route, resolver),
+			requiredText,
+			strings.Join(route.leafParamNames(), ", "),
+		)
+	}
 
+	chain := route.Chain
 	deepestScope := chain[len(chain)-1]
 	scopeType := scopeTypeName(deepestScope, resolver)
 	scopeText := scopeTypeNameText(scopeType, deepestScope)
@@ -40,9 +51,9 @@ func listToolDescription(nt *node.NodeType, plural string, chain []ScopeLevel, e
 	)
 }
 
-func createToolDescription(nt *node.NodeType, chain []ScopeLevel, epParam string, resolver *Resolver) string {
+func createToolDescription(nt *node.NodeType, route scopeRoute, epParam string, resolver *Resolver) string {
 	typeName := strings.ToLower(nt.Name)
-	if len(chain) == 0 {
+	if !route.hasLevels() {
 		return fmt.Sprintf(
 			"Creates %s %s in a workspace. Discover %s with tack_list_workspaces before calling this tool. Do not guess repo, org, or project names.",
 			indefiniteArticle(typeName),
@@ -50,7 +61,20 @@ func createToolDescription(nt *node.NodeType, chain []ScopeLevel, epParam string
 			epParam,
 		)
 	}
+	if len(route.Leaves) > 0 {
+		requiredText := strings.Join(append([]string{epParam}, route.requiredParams()...), ", ")
+		return fmt.Sprintf(
+			"Creates %s %s in %s. Pass %s and exactly one of %s. Discover %s with tack_list_workspaces before calling this tool. Do not guess repo, org, or project names.",
+			indefiniteArticle(typeName),
+			typeName,
+			leafScopeText(route, resolver),
+			requiredText,
+			strings.Join(route.leafParamNames(), ", "),
+			epParam,
+		)
+	}
 
+	chain := route.Chain
 	deepestScope := chain[len(chain)-1]
 	scopeType := scopeTypeName(deepestScope, resolver)
 	scopeText := scopeTypeNameText(scopeType, deepestScope)
@@ -64,6 +88,17 @@ func createToolDescription(nt *node.NodeType, chain []ScopeLevel, epParam string
 		pluralSlug(scopeType, deepestScope),
 		resolver.entryPointSlug,
 	)
+}
+
+// leafScopeText names the alternative parents for tool descriptions, for
+// example "an issue or epic".
+func leafScopeText(route scopeRoute, resolver *Resolver) string {
+	names := make([]string, 0, len(route.Leaves))
+	for _, leaf := range route.Leaves {
+		names = append(names, scopeTypeNameText(scopeTypeName(leaf.Level, resolver), leaf.Level))
+	}
+	joined := strings.Join(names, " or ")
+	return indefiniteArticle(names[0]) + " " + joined
 }
 
 func indefiniteArticle(word string) string {

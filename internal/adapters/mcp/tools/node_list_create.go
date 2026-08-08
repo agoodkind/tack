@@ -13,7 +13,7 @@ import (
 	"goodkind.io/tack/internal/service"
 )
 
-func listHandler(nt *node.NodeType, chain []ScopeLevel, b NodeTypeBinding) mcpserver.ToolHandlerFunc {
+func listHandler(nt *node.NodeType, route scopeRoute, b NodeTypeBinding) mcpserver.ToolHandlerFunc {
 	return func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
 		args, err := bindArgs(req)
 		if err != nil {
@@ -29,20 +29,13 @@ func listHandler(nt *node.NodeType, chain []ScopeLevel, b NodeTypeBinding) mcpse
 		}
 		q := node.NodeListQuery{OrgID: ws.OrgID, NodeType: nt.TypeKey}
 
-		// Walk the scope chain to the deepest container, then narrow via an
+		// Walk the scope route to the deepest container, then narrow via an
 		// indexed property instead of a type-wide view scan.
 		var parentID uuid.UUID
-		if len(chain) > 0 {
-			parent := ws
-			for _, level := range chain {
-				reference, ok := requireScopeReference(args, level)
-				if !ok {
-					return recoverableError(scopeReferenceRequiredMessage(level)), nil
-				}
-				parent, err = b.Resolver.ResolveScope(ctx, parent, level, reference)
-				if err != nil {
-					return classifyError(ctx, err), nil
-				}
+		if route.hasLevels() {
+			parent, early := resolveRouteScope(ctx, b, ws, route, args)
+			if early != nil {
+				return early, nil
 			}
 			parentID = parent.ID
 		} else {
@@ -50,7 +43,7 @@ func listHandler(nt *node.NodeType, chain []ScopeLevel, b NodeTypeBinding) mcpse
 		}
 		parentIDRaw, _ := json.Marshal(parentID.String())
 		q.ByProperty = &node.PropertyMatch{
-			PropName: listScopeProperty(nt, chain),
+			PropName: listScopeProperty(nt, route),
 			Value:    parentIDRaw,
 		}
 		propFilters, err := normalizeListFilters(ctx, b, nt, ws.OrgID, parentID, args["filters"])
@@ -72,7 +65,19 @@ func listHandler(nt *node.NodeType, chain []ScopeLevel, b NodeTypeBinding) mcpse
 	}
 }
 
-func createHandler(nt *node.NodeType, chain []ScopeLevel, b NodeTypeBinding) mcpserver.ToolHandlerFunc {
+// parseCreateProps converts the properties argument to raw JSON, tolerating
+// payloads sent as a stringified JSON blob (see TACK-161). A parse failure
+// maps to the client-facing error result so the handler returns a nil Go
+// error, per the MCP handler contract.
+func parseCreateProps(raw json.RawMessage) (map[string]json.RawMessage, *mcpmcp.CallToolResult) {
+	rawProps, err := parseProps(raw)
+	if err != nil {
+		return nil, recoverableError("invalid properties payload: " + err.Error())
+	}
+	return rawProps, nil
+}
+
+func createHandler(nt *node.NodeType, route scopeRoute, b NodeTypeBinding) mcpserver.ToolHandlerFunc {
 	return func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
 		args, err := bindArgs(req)
 		if err != nil {
@@ -95,26 +100,17 @@ func createHandler(nt *node.NodeType, chain []ScopeLevel, b NodeTypeBinding) mcp
 			return classifyError(ctx, err), nil
 		}
 		scopeID := ws.ID
-		if len(chain) > 0 {
-			parent := ws
-			for _, level := range chain {
-				reference, ok := requireScopeReference(args, level)
-				if !ok {
-					return recoverableError(scopeReferenceRequiredMessage(level)), nil
-				}
-				parent, err = b.Resolver.ResolveScope(ctx, parent, level, reference)
-				if err != nil {
-					return classifyError(ctx, err), nil
-				}
+		if route.hasLevels() {
+			parent, early := resolveRouteScope(ctx, b, ws, route, args)
+			if early != nil {
+				return early, nil
 			}
 			scopeID = parent.ID
 		}
 
-		// Convert property values to raw JSON. Tolerates payloads sent as a
-		// stringified JSON blob; see TACK-161.
-		rawProps, err := parseProps(args["properties"])
-		if err != nil {
-			return recoverableError("invalid properties payload: " + err.Error()), nil
+		rawProps, propsResult := parseCreateProps(args["properties"])
+		if propsResult != nil {
+			return propsResult, nil
 		}
 
 		rawProps, parentID, err := normalizeCreateProps(ctx, b, nt, ws.OrgID, scopeID, rawProps)

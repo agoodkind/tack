@@ -8,32 +8,28 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-func listTool(nt *node.NodeType, plural string, chain []ScopeLevel, epParam string, resolver *Resolver) mcpmcp.Tool {
+func listTool(nt *node.NodeType, plural string, route scopeRoute, epParam string, resolver *Resolver) mcpmcp.Tool {
 	fields := append([]schemaField{}, entryPointSchemaFields(resolver)...)
 	fields = append(fields, schemaField{Name: "filters", Type: schemaObject, Desc: "Optional exact property filters keyed by property name or reference alias, for example {\"state\": \"TACK::In Progress\"} or {\"priority\": \"high\"}."})
-	for _, level := range chain {
-		fields = append(fields, scopeReferenceFields(level, resolver)...)
-	}
+	fields = append(fields, route.schemaFields(resolver)...)
 	return mcpmcp.Tool{
 		Name:        fmt.Sprintf("tack_list_%s", plural),
-		Description: listToolDescription(nt, plural, chain, epParam, resolver),
-		InputSchema: schema{Fields: fields, Required: append([]string{epParam}, scopeParamNames(chain)...)}.toMCP(),
+		Description: listToolDescription(nt, plural, route, epParam, resolver),
+		InputSchema: schema{Fields: fields, Required: append([]string{epParam}, route.requiredParams()...)}.toMCP(),
 	}
 }
 
-func createTool(nt *node.NodeType, slug string, chain []ScopeLevel, epParam string, resolver *Resolver) mcpmcp.Tool {
+func createTool(nt *node.NodeType, slug string, route scopeRoute, epParam string, resolver *Resolver) mcpmcp.Tool {
 	fields := append([]schemaField{}, entryPointSchemaFields(resolver)...)
 	fields = append(fields,
 		schemaField{Name: "name", Type: schemaString, Desc: fmt.Sprintf("Name for the new %s.", strings.ToLower(nt.Name))},
 		schemaField{Name: "properties", Type: schemaObject, Desc: "Property values keyed by name"},
 	)
-	for _, level := range chain {
-		fields = append(fields, scopeReferenceFields(level, resolver)...)
-	}
+	fields = append(fields, route.schemaFields(resolver)...)
 	return mcpmcp.Tool{
 		Name:        fmt.Sprintf("tack_create_%s", slug),
-		Description: createToolDescription(nt, chain, epParam, resolver),
-		InputSchema: schema{Fields: fields, Required: append([]string{epParam, "name"}, scopeParamNames(chain)...)}.toMCP(),
+		Description: createToolDescription(nt, route, epParam, resolver),
+		InputSchema: schema{Fields: fields, Required: append([]string{epParam, "name"}, route.requiredParams()...)}.toMCP(),
 	}
 }
 
