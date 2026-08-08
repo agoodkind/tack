@@ -217,6 +217,13 @@ services:
     environment:
       MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-tack-dev-meili-key-change-in-prod}
       MEILI_ENV: production
+      # Without an explicit budget the indexer sizes itself from system
+      # memory, which inside a container is the host figure, so the first
+      # indexing batch blows through mem_limit and the kernel OOM-kills the
+      # container in a restart loop (TACK-421). Budget inside the 2g limit;
+      # the value is exact bytes (1 GiB) to dodge bits-vs-bytes suffix
+      # ambiguity in the size parser.
+      MEILI_MAX_INDEXING_MEMORY: "1073741824"
       # Inter-container DNS on this network resolves AAAA only. Without an
       # explicit v6 listen address, Meilisearch binds 0.0.0.0:7700 (v4 only)
       # and the app's connection to meilisearch:7700 fails with
