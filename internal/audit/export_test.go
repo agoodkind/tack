@@ -225,3 +225,59 @@ func writeSignedExportTestBundle(t *testing.T, dir string, rows []Row) ed25519.P
 	}
 	return pub
 }
+
+// TestVerifyReportErrTracksTheReport pins that the verdict a caller acts on
+// matches the report a human reads. A clean bundle returns nil; a tampered one
+// returns an error naming what failed. Before this, verification printed its
+// findings and reported success, so a script or a release gate treated a
+// tampered bundle as verified.
+func TestVerifyReportErrTracksTheReport(t *testing.T) {
+	dir := t.TempDir()
+	orgID := uuid.Must(uuid.NewV7())
+	row := Row{
+		OrgID: orgID, EventTime: time.Now().UTC(), EventID: uuid.Must(uuid.NewV7()),
+		Seq: 1, Shard: 1, ActorID: uuid.Must(uuid.NewV7()), ActorKind: 5,
+		Action: "ops.test.verdict", Outcome: OutcomeOK, EntityKind: "system", EntityID: orgID,
+		Context: json.RawMessage(`{}`), HashVersion: auditHashVersion1,
+	}
+	row.RowHash = hashExportTestRow(t, row)
+	pub := writeSignedExportTestBundle(t, dir, []Row{row})
+
+	clean, err := VerifyBundle(dir, pub)
+	if err != nil {
+		t.Fatalf("verify clean bundle: %v", err)
+	}
+	if verdict := clean.Err(); verdict != nil {
+		t.Fatalf("clean bundle rejected: %v", verdict)
+	}
+
+	jsonlPath := filepath.Join(dir, "events.jsonl")
+	jsonlBytes, err := os.ReadFile(jsonlPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var edited Row
+	if err := json.Unmarshal(jsonlBytes, &edited); err != nil {
+		t.Fatal(err)
+	}
+	edited.Action = "ops.test.tampered"
+	editedBytes, err := json.Marshal(edited)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(jsonlPath, append(editedBytes, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	tampered, err := VerifyBundle(dir, pub)
+	if err != nil {
+		t.Fatalf("verify tampered bundle: %v", err)
+	}
+	verdict := tampered.Err()
+	if verdict == nil {
+		t.Fatal("tampered bundle accepted, want a rejection")
+	}
+	if !strings.Contains(verdict.Error(), "hash") {
+		t.Fatalf("verdict = %v, want it to name the hash failure", verdict)
+	}
+}

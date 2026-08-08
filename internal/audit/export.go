@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -124,6 +125,39 @@ type VerifyReport struct {
 	FileSHA256OK    bool
 	SignatureOK     bool
 	ManifestSubject string
+}
+
+// Err returns an error naming every integrity check the bundle failed, and nil
+// when the bundle verified. A caller prints the report either way; this is
+// what a caller that reads only success or failure needs, so a tampered bundle
+// cannot pass silently through a script, a scheduled job, or a release gate.
+func (r *VerifyReport) Err() error {
+	var failures []string
+	if !r.FileSHA256OK {
+		failures = append(failures, "the events file digest does not match the manifest")
+	}
+	if !r.SignatureOK {
+		failures = append(failures, "the manifest signature did not verify")
+	}
+	if len(r.ChainBreaks) > 0 {
+		failures = append(failures,
+			fmt.Sprintf("%d chain break(s), first: %s", len(r.ChainBreaks), r.ChainBreaks[0]))
+	}
+	if r.ChainGapCount > 0 {
+		failures = append(failures, fmt.Sprintf("%d sequence gap(s)", r.ChainGapCount))
+	}
+	// A row that scanned but did not match its stored hash shows up as a
+	// shortfall in the counts even when nothing else complains.
+	if r.HashMatches != r.RowsScanned {
+		failures = append(failures,
+			fmt.Sprintf("%d of %d rows failed their hash check",
+				r.RowsScanned-r.HashMatches, r.RowsScanned))
+	}
+	if len(failures) == 0 {
+		return nil
+	}
+	return fmt.Errorf("bundle %s failed verification: %s",
+		r.BundleDir, strings.Join(failures, "; "))
 }
 
 // VerifyBundle re-hashes every row in <dir>/events.jsonl, checks the chain
