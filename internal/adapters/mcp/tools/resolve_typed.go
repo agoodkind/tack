@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -53,7 +52,14 @@ func (r *Resolver) ResolveTypedNodeID(ctx context.Context, nt *node.NodeType, in
 	}
 }
 
+// resolveSequenceNodeID resolves a sequence reference through the uniqueness
+// index alone: one point read per workspace, no property scan. The repair
+// backfilled a reference key for every templated node, so a miss means the
+// reference names nothing, not that the node predates enforcement.
 func (r *Resolver) resolveSequenceNodeID(ctx context.Context, input string, typeKeys []string) (uuid.UUID, error) {
+	if _, _, err := r.parseSequenceReference(input, typeKeys); err != nil {
+		return uuid.Nil, fmt.Errorf("invalid node_id %q: must be a UUID or sequence reference like TACK-65: %w", input, domain.ErrInvalidArgument)
+	}
 	userID, ok := auth.UserID(ctx)
 	if !ok {
 		return uuid.Nil, fmt.Errorf("unauthenticated")
@@ -62,9 +68,6 @@ func (r *Resolver) resolveSequenceNodeID(ctx context.Context, input string, type
 	if err != nil {
 		return uuid.Nil, err
 	}
-	parsed := false
-	projectReference := ""
-	seqID := 0
 	for _, workspace := range workspaces {
 		id, found, lookupErr := r.referenceKeyHolder(ctx, workspace.OrgID, typeKeys, input)
 		if lookupErr != nil {
@@ -73,28 +76,6 @@ func (r *Resolver) resolveSequenceNodeID(ctx context.Context, input string, type
 		if found {
 			return id, nil
 		}
-		if !parsed {
-			projectReference, seqID, err = r.parseSequenceReference(input, typeKeys)
-			if err != nil {
-				return uuid.Nil, fmt.Errorf("invalid node_id %q: must be a UUID or sequence reference like TACK-65: %w", input, domain.ErrInvalidArgument)
-			}
-			parsed = true
-		}
-		if len(r.scopeChain) == 0 {
-			continue
-		}
-		scopeNode, scopeErr := r.ResolveScope(ctx, workspace, r.scopeChain[0], projectReference)
-		if scopeErr != nil {
-			continue
-		}
-		id, matchErr := r.scanSequenceCandidates(ctx, workspace.OrgID, typeKeys, seqID, scopeNode.ID, input)
-		if matchErr != nil {
-			if errors.Is(matchErr, domain.ErrInvalidArgument) {
-				return uuid.Nil, matchErr
-			}
-			continue
-		}
-		return id, nil
 	}
 	return uuid.Nil, fmt.Errorf("reference %q: %w", input, domain.ErrNotFound)
 }

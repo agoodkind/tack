@@ -65,25 +65,23 @@ func TestStampAuditNodeInEntryPointPopulatesWorkspace(t *testing.T) {
 	}
 }
 
-func TestResolveTypedNodeIDSequenceStampsWorkspace(t *testing.T) {
+// TestResolveTypedNodeIDSequenceStampsOrg pins the audit stamping on the
+// point-read sequence path: the resolution stamps the holder's org. It stamps
+// no workspace, because the uniqueness index maps a reference straight to its
+// holder and no scope walk identifies one; the earlier workspace stamp was a
+// byproduct of the removed property-scan fallback.
+func TestResolveTypedNodeIDSequenceStampsOrg(t *testing.T) {
 	orgID := uuid.New()
 	workspaceID := uuid.New()
-	projectID := uuid.New()
 	issueID := uuid.New()
 	workspace := &node.NodeView{ID: workspaceID, OrgID: orgID, NodeType: "workspace", Props: map[string]json.RawMessage{"slug": mustRaw(t, "main")}}
-	project := &node.NodeView{ID: projectID, OrgID: orgID, NodeType: "project", Props: map[string]json.RawMessage{"identifier": mustRaw(t, "TACK"), "parent_id": mustRaw(t, workspaceID.String())}}
-	reader := &resolverReader{views: map[uuid.UUID]*node.NodeView{workspaceID: workspace, projectID: project}, workspaces: []*node.NodeView{workspace}}
-	repo := &fakeNodeRepo{scopeChildren: map[string][]*node.Node{
-		"project:identifier:\"TACK\"": {{ID: projectID, OrgID: orgID, NodeType: "project", Props: map[string]json.RawMessage{"parent_id": mustRaw(t, workspaceID.String())}}},
-		"issue:sequence:65":           {{ID: issueID, OrgID: orgID, NodeType: "issue", Props: map[string]json.RawMessage{"scope_id": mustRaw(t, projectID.String())}}},
-	}}
-	projectType := &node.NodeType{TypeKey: "project", Slug: "project", CanLiveUnder: []string{"workspace"}, Reference: node.ReferenceConfig{Strategy: node.ReferenceDirectProperty, Property: "identifier"}}
-	issueType := &node.NodeType{TypeKey: "issue", Slug: "issue", CanLiveUnder: []string{"project"}, Reference: node.ReferenceConfig{Strategy: node.ReferenceScopedSequence, Property: "sequence"}}
+	reader := &resolverReader{views: map[uuid.UUID]*node.NodeView{workspaceID: workspace}, workspaces: []*node.NodeView{workspace}}
+	repo := &sequenceNodeRepo{fakeNodeRepo: &fakeNodeRepo{}, holders: map[string]uuid.UUID{"reference:TACK-65": issueID}}
+	issueType := &node.NodeType{TypeKey: "issue", Slug: "issue", CanLiveUnder: []string{"project"}, Reference: node.ReferenceConfig{Strategy: node.ReferenceScopedSequence, Property: "sequence"}, ReferenceTemplates: []node.ReferenceTemplate{sequenceTemplate()}}
 	resolver := &Resolver{
 		nodes: repo, reader: reader, members: &fakeMembers{orgIDs: []uuid.UUID{orgID}},
 		entryPointTypeKey: "workspace", entryPointSlug: "workspace",
-		scopeChain: []ScopeLevel{{TypeKey: "project", Slug: "project", ParamName: "project_reference"}},
-		typeIndex:  map[string]*node.NodeType{"project": projectType, "issue": issueType},
+		typeIndex: map[string]*node.NodeType{"issue": issueType},
 	}
 	ctx := audit.WithScopeBuilder(auth.WithUser(context.Background(), uuid.New()))
 
@@ -95,7 +93,10 @@ func TestResolveTypedNodeIDSequenceStampsWorkspace(t *testing.T) {
 		t.Fatalf("ResolveTypedNodeID(TACK-65): got %s want %s", id, issueID)
 	}
 	scope := audit.ScopeFromContext(ctx)
-	if scope.WorkspaceID != workspaceID {
-		t.Fatalf("audit workspace: got %s want %s", scope.WorkspaceID, workspaceID)
+	if scope.OrgID != orgID {
+		t.Fatalf("audit org: got %s want %s", scope.OrgID, orgID)
+	}
+	if scope.WorkspaceID != uuid.Nil {
+		t.Fatalf("audit workspace: got %s, want unset; the point read identifies no workspace", scope.WorkspaceID)
 	}
 }

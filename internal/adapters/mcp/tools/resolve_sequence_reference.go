@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -72,38 +71,4 @@ func (r *Resolver) referenceKeyHolder(ctx context.Context, orgID uuid.UUID, type
 		return held, true, nil
 	}
 	return uuid.Nil, false, nil
-}
-
-func (r *Resolver) scanSequenceCandidates(
-	ctx context.Context,
-	orgID uuid.UUID,
-	typeKeys []string,
-	sequenceID int,
-	scopeID uuid.UUID,
-	input string,
-) (uuid.UUID, error) {
-	rawSequence := json.RawMessage(strconv.FormatInt(int64(sequenceID), 10))
-	matches := map[uuid.UUID]struct{}{}
-	for _, typeKey := range typeKeys {
-		nodeType := r.typeIndex[typeKey]
-		propertyName := "sequence"
-		if nodeType != nil && nodeType.Reference.Property != "" {
-			propertyName = nodeType.Reference.Property
-		}
-		candidates, err := r.nodes.ListByProperty(ctx, orgID, typeKey, propertyName, rawSequence)
-		if err != nil {
-			continue
-		}
-		for _, candidate := range candidates {
-			if r.nodeBelongsToScope(ctx, candidate, scopeID) {
-				matches[candidate.ID] = struct{}{}
-			}
-		}
-	}
-	id, err := uniqueMatch(matches, "reference", input)
-	if err != nil {
-		return uuid.Nil, err
-	}
-	stampAuditOrg(ctx, orgID)
-	return id, nil
 }
