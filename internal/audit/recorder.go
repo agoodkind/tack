@@ -62,10 +62,11 @@ type Actor struct {
 type ActorType string
 
 const (
-	ActorUser    ActorType = "user"
-	ActorService ActorType = "service"
-	ActorSystem  ActorType = "system"
-	ActorToken   ActorType = "api_token"
+	ActorUser     ActorType = "user"
+	ActorService  ActorType = "service"
+	ActorSystem   ActorType = "system"
+	ActorToken    ActorType = "api_token"
+	ActorOperator ActorType = "operator"
 )
 
 // Entity is the target of the event. NodeType is the tack-specific kind
