@@ -62,10 +62,12 @@ type Actor struct {
 type ActorType string
 
 const (
-	ActorUser     ActorType = "user"
-	ActorService  ActorType = "service"
-	ActorSystem   ActorType = "system"
-	ActorToken    ActorType = "api_token"
+	ActorUser    ActorType = "user"
+	ActorService ActorType = "service"
+	ActorSystem  ActorType = "system"
+	ActorToken   ActorType = "api_token"
+	// ActorOperator is a human running an operator command against the
+	// deployment itself, not a product user acting through the API.
 	ActorOperator ActorType = "operator"
 )
 
@@ -116,6 +118,8 @@ type Outcome string
 const (
 	OutcomeOK    Outcome = "ok"
 	OutcomeError Outcome = "error"
+	// OutcomePending is carried by intent rows until the outcome row lands.
+	OutcomePending Outcome = "pending"
 )
 
 type EventError struct {
