@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
 )
 
@@ -59,9 +60,10 @@ type Group struct {
 // never sees cobra types. Aliases register alternate terminal spellings.
 type Operation[I Input] struct {
 	Name     Name
-	Group    *Group   `exhaustruct:"optional"`
-	Aliases  []string `exhaustruct:"optional"`
-	Hidden   bool     `exhaustruct:"optional"`
+	Group    *Group     `exhaustruct:"optional"`
+	Audit    audit.Spec `exhaustruct:"optional"`
+	Aliases  []string   `exhaustruct:"optional"`
+	Hidden   bool       `exhaustruct:"optional"`
 	Short    string
 	Long     string     `exhaustruct:"optional"`
 	Examples []string   `exhaustruct:"optional"`
@@ -75,10 +77,13 @@ type Operation[I Input] struct {
 // captured in the methods and never escapes as any.
 type renderable interface {
 	group() *Group
+	auditSpec() audit.Spec
 	cobraCommand(f *cli.Factory) *cobra.Command
 }
 
 func (op Operation[I]) group() *Group { return op.Group }
+
+func (op Operation[I]) auditSpec() audit.Spec { return op.Audit }
 
 // Registry is the ordered list of every command. It holds full operations and
 // hand-written terminal commands that carry their own wiring (such as the

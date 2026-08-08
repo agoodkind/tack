@@ -35,6 +35,7 @@ type Factory struct {
 	operatorName   *string                      `exhaustruct:"optional"`
 	execute        *bool                        `exhaustruct:"optional"`
 	operatorSource audit.OperatorIdentitySource `exhaustruct:"optional"`
+	auditOutbox    audit.OutboxWriter           `exhaustruct:"optional"`
 }
 
 // System builds a Factory wired to the process streams.
@@ -68,6 +69,16 @@ func (f *Factory) SetOperatorIdentitySource(source audit.OperatorIdentitySource)
 // OperatorIdentitySource returns the source selected for the root command.
 func (f *Factory) OperatorIdentitySource() audit.OperatorIdentitySource {
 	return f.operatorSource
+}
+
+// SetAuditOutbox stores the outbox used by audited commands.
+func (f *Factory) SetAuditOutbox(outbox audit.OutboxWriter) {
+	f.auditOutbox = outbox
+}
+
+// AuditOutbox returns the outbox used by audited commands.
+func (f *Factory) AuditOutbox() audit.OutboxWriter {
+	return f.auditOutbox
 }
 
 // RegisterGlobalFlags installs the persistent global flags on root and binds

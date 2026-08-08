@@ -26,6 +26,11 @@ type Spec struct {
 	Reads           bool
 }
 
+// OutboxWriter durably writes an operator event before its command proceeds.
+type OutboxWriter interface {
+	WriteOutbox(ctx context.Context, event Event) error
+}
+
 // OperatorPrincipal identifies the person running an operator command.
 type OperatorPrincipal struct {
 	// ID is the stable identity of the operator.
