@@ -22,7 +22,11 @@
 - Production applies, production deploys, and destruction of the debianct sandbox guest each require explicit operator approval first. QA is autonomous.
 - Secret values never appear in chat, logs, or command output. The signing key is generated and vaulted by the operator; agents handle only the variable name.
 - `go run goodkind.io/configs/cmd/configs lint` must pass before every commit that touches Ansible; `tofu validate` before every commit that touches OpenTofu.
-- Never use `default()` or `is defined` on input variables in Ansible; declare every input in group_vars, host_vars, or service_mapping.
+- Declare every input value in exactly one of three places: the service's group_vars, the service mapping, or OpenTofu. Never infer a value from whether it was set: no `default()`, no `is defined`, no `.get(key, default)`, no `| length` presence check, and no `lookup(..., default=)`. There is no per-line exemption, and the linter runs before every deploy.
+- A per-group variable file must be named for its group exactly, `<group>_servers.yml`. A mismatched name loads nothing and fails silently.
+- Give each guest a distinct Proxmox name across hypervisors. Two guests sharing a name merge into one inventory host, and the later plugin wins on conflicting attributes.
+- Pinning a MAC in the mapping is one link in a chain: the DHCP reservation must match on hardware address, and the guest's network configuration must derive its identifier from the link layer, or the guest still takes an unreserved address.
+- Keep YAML lines under 90 columns; 120 is the hard limit.
 - Commit subjects in imperative mood with the `Co-authored-by: Claude <noreply@anthropic.com>` trailer, signed (`git commit -S`).
 
 ## Fixed values this plan assigns
@@ -190,35 +194,40 @@ Apply suburban (QA is autonomous), then verify each new testbed guest answers SS
 
 ---
 
-### Task 4: Per-guest identity in host_vars
+### Task 4: Per-guest identity in the mapping and per-guest group files
+
+The repository's declaration rule names exactly three homes for an input value: the service's group_vars, the service mapping, or OpenTofu. `host_vars` is not one of them; the single existing `host_vars` file exists only to override a value the inventory plugin composes wrongly, which is a precedence fix rather than a declaration. This task therefore uses the mapping for guest identity and a per-guest group file for guest configuration.
+
+The mapping already creates one `<key>_servers` group per entry, so every guest has a group of its own and per-guest values have a documented home.
 
 **Files:**
-- Create: ten files under `ansible/inventory/host_vars/`, one per tack guest, each named for its inventory hostname (follow the one existing example, `host_vars/mwan-failover.suburban.goodkind.io.yml`, for the naming shape). Eight are the new guests; the remaining two are the existing guests 117 and 217, whose Docker subnet values move down from group_vars in this task.
-- Modify: `ansible/inventory/group_vars/tack_servers.yml:38-40` and `tack_qa_suburban_servers.yml:38-40` (move the Docker subnet values down to host_vars for 117 and 217 too, so every guest's /96 lives in exactly one place)
+- Modify: `ansible/inventory/group_vars/all/service_mapping.yml` (add the Docker /96 and its gateway to each tack guest entry, beside the address and MAC that already live there)
+- Create: ten files under `ansible/inventory/group_vars/`, one per guest, named `<mapping-key>_servers.yml`, carrying that guest's role and provisioning flag
+- Modify: the two environment group files, removing the Docker subnet values that move to the mapping
 
 **Interfaces:**
-- Produces: per-guest `tack_docker_ipv6_subnet`, `tack_docker_ipv6_gateway`, `tack_ndp_proxy_prefix`, `tack_node_index` (1 through 3 on data guests, 0 on app guests), `tack_cluster_role` (`seed` on tack-data1 hosts, `join` on the other data guests, `app` on app guests), and `tack_provision_owner: true` on exactly one guest per environment (guest 117's file for prod, guest 217's for QA). Task 5 consumes `tack_provision_owner`; phase 3 consumes `tack_node_index` and `tack_cluster_role`.
+- Produces: `docker_v6_subnet` and `docker_v6_gateway` on each tack guest's mapping entry; per-guest `tack_cluster_role` (`data` on the three data guests, `app` on the app guests) and `tack_provision_owner` (`true` on exactly one guest per environment, `false` elsewhere). Task 5 consumes `tack_provision_owner`; phase 3 consumes `tack_cluster_role`.
 
-- [ ] **Step 1: Write the ten host_vars files**
+- [ ] **Step 1: Move the Docker subnets into the mapping**
 
-Guests 117 and 217 carry their existing /96 values (moved from group_vars) plus `tack_cluster_role: app` and `tack_provision_owner: true`. Each new guest's file carries its /96, gateway (`<subnet prefix>::1`), and NDP prefix from the fixed table, its role, and `tack_provision_owner: false`.
+Each tack guest entry gains `docker_v6_subnet` and `docker_v6_gateway`. Guests 117 and 217 carry the values they use today, read from the two environment group files before those lines are removed. Each new guest takes a distinct /96 from the fixed table, with its gateway as that prefix plus `::1`. The environment group files then read the mapping, so the /96 lives in one place per guest and a renumber changes one line.
 
-- [ ] **Step 2: Delete the group-level subnet values**
+- [ ] **Step 2: Write the ten per-guest group files**
 
-Remove the three moved lines from each of the two group files. `configs lint` fails on any template still reading a now-undeclared variable; that failure list is the checklist of references to repoint.
+Each file is named for the guest's own group, `<mapping-key>_servers.yml`, and carries only that guest's `tack_cluster_role` and `tack_provision_owner`. A file name that does not match the group exactly loads nothing, silently.
 
 - [ ] **Step 3: Render-check on QA, lint, commit**
 
 ```bash
 go run goodkind.io/configs/cmd/configs deploy deploy-tack --limit tack_qa_suburban_servers --check --diff
 go run goodkind.io/configs/cmd/configs lint
-git add ansible/inventory/host_vars ansible/inventory/group_vars/tack_servers.yml ansible/inventory/group_vars/tack_qa_suburban_servers.yml
-git commit -S -m "Move per-guest tack identity and Docker subnets into host_vars
+git add ansible/inventory
+git commit -S -m "Declare tack guest Docker subnets in the mapping and per-guest roles in group vars
 
 Co-authored-by: Claude <noreply@anthropic.com>"
 ```
 
-Expected from `--check --diff`: zero changes on guest 217 (values moved, not changed).
+Expected from `--check --diff`: zero changes on guest 217, because the values moved rather than changed.
 
 ---
 
