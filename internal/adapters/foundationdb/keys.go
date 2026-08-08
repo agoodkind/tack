@@ -65,6 +65,11 @@ const (
 	// Older records may contain only the raw nodeID bytes.
 	// (idempotency_key, orgID, key) -> IdempotencyRecord JSON
 	keyIdempotency = "idempotency_key"
+
+	// Operator-command audit outbox. It is deliberately not org-scoped so the
+	// relay can drain every org in commit order.
+	// (ops_outbox, versionstamp) -> audit event JSON
+	keyOpsOutbox = "ops_outbox"
 )
 
 // testPrefix is prepended to every packed FDB key when non-nil. Production
@@ -216,6 +221,12 @@ func nodeTypeDefPrefix(orgID uuid.UUID) []byte {
 // propertyDefPrefix packs the prefix for scanning all PropertyDef records in an org.
 func propertyDefPrefix(orgID uuid.UUID) []byte {
 	return withPrefix(tuple.Tuple{keyPropertyDef, orgID.String()}.Pack())
+}
+
+// opsOutboxPrefix packs the prefix for scanning every operator-command audit
+// event, across all orgs.
+func opsOutboxPrefix() []byte {
+	return withPrefix(tuple.Tuple{keyOpsOutbox}.Pack())
 }
 
 // TestPrefixRange returns a range covering every key under the active test

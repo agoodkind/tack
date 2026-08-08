@@ -26,6 +26,8 @@ type Stores struct {
 	Relationships *RelationshipStore
 	Inspect       *InspectStore
 	NodeDeleter   *NodeDeleteStore
+	// OpsOutbox reads and clears operator-command audit events.
+	OpsOutbox *OpsOutboxStore
 }
 
 // NewStores opens FDB once and wires all generic stores to the same connection.
@@ -48,6 +50,7 @@ func newStores(db fdb.Database, _ *pgxpool.Pool) *Stores {
 		Relationships: NewRelationshipStore(db),
 		Inspect:       NewInspectStore(db),
 		NodeDeleter:   NewNodeDeleteStore(db),
+		OpsOutbox:     NewOpsOutboxStore(db),
 	}
 }
 
