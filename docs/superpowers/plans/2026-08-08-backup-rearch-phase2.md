@@ -16,7 +16,7 @@
 
 - Testbed first, then prod. One environment per command. Validate every change on QA before any production apply or deploy.
 - Guest ids and addresses exist only in `ansible/inventory/group_vars/all/service_mapping.yml`. Never hardcode a VMID or guest IPv6 anywhere else, including in commands you type; the testbed deploy that hit prod came from a hardcoded id.
-- OpenTofu on the testbed always runs with `-target=module.suburban` (an untargeted apply covers prod). Production applies name the specific new resources with `-target`.
+- OpenTofu runs only through `go run goodkind.io/configs/cmd/configs tofu <command>`, which supplies the state backend and provider credentials from the vault. The testbed always names `-target=module.suburban`, because an untargeted run covers production. Production runs name `-target=module.vault`.
 - Deploys run only through `go run goodkind.io/configs/cmd/configs deploy <playbook> [--limit <group>]`. Never invoke `ansible-playbook` directly. `--check --diff` before any mutating production run.
 - Before any deploy: `git fetch origin` and fast-forward local main; deploys run against the origin/main commit.
 - Production applies, production deploys, and destruction of the debianct sandbox guest each require explicit operator approval first. QA is autonomous.
@@ -165,12 +165,12 @@ Copy the shape of `opentofu/suburban/tack_qa.tf` (mapping-driven addresses, `loc
 
 - [ ] **Step 3: Validate and plan**
 
-`opentofu/` is a single root module whose children are `module.suburban` and `module.vault`; the per-environment directories carry no backend or provider configuration. Every command therefore runs from `opentofu/` and names its environment with `-target`:
+`opentofu/` is a single root module whose children are `module.suburban` and `module.vault`; the per-environment directories carry no backend or provider configuration, so a command run from inside one of them fails on a missing provider. State lives in a Cloudflare R2 bucket, and its credentials come from the vault through the repo control tool, so every command runs through that tool rather than calling `tofu` directly:
 
 ```bash
-cd /Users/agoodkind/Sites/configs/opentofu
-tofu validate
-tofu plan -target=module.suburban
+cd /Users/agoodkind/Sites/configs
+go run goodkind.io/configs/cmd/configs tofu init
+go run goodkind.io/configs/cmd/configs tofu plan -target=module.suburban
 ```
 
 Expected: exactly `4 to add, 0 to change, 0 to destroy`. Any nonzero change or destroy count is a stop condition; report the resource named instead of proceeding. Never run an untargeted plan or apply, and never fall back to one when a targeted command fails: an untargeted run covers production.
