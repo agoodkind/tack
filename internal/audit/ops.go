@@ -1,6 +1,10 @@
 package audit
 
-import "github.com/google/uuid"
+import (
+	"context"
+
+	"github.com/google/uuid"
+)
 
 // SystemOrgID is the org that global operator commands record against.
 // EventContext.OrgID is mandatory and the reader rejects uuid.Nil, so
@@ -20,4 +24,21 @@ type Spec struct {
 	Atomic          bool
 	BootstrapExempt bool
 	Reads           bool
+}
+
+// OperatorPrincipal identifies the person running an operator command.
+type OperatorPrincipal struct {
+	// ID is the stable identity of the operator.
+	ID uuid.UUID
+	// Email is the operator email snapshot.
+	Email string
+	// Name is the operator display name snapshot.
+	Name string
+	// Source identifies the mechanism that resolved the principal.
+	Source string
+}
+
+// OperatorIdentitySource resolves the operator identity for a command.
+type OperatorIdentitySource interface {
+	Resolve(ctx context.Context) (OperatorPrincipal, error)
 }
