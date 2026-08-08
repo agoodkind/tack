@@ -26,7 +26,7 @@ func TestListToolDescribesProjectScopedQueue(t *testing.T) {
 	tool := listTool(
 		issueType,
 		"issues",
-		[]ScopeLevel{{TypeKey: "project", Slug: "project", ParamName: "project_reference"}},
+		scopeRoute{Chain: []ScopeLevel{{TypeKey: "project", Slug: "project", ParamName: "project_reference"}}},
 		"workspace_reference",
 		resolver,
 	)
@@ -93,7 +93,7 @@ func TestCreateToolDescribesScopeDiscovery(t *testing.T) {
 	tool := createTool(
 		issueType,
 		"issue",
-		[]ScopeLevel{{TypeKey: "project", Slug: "project", ParamName: "project_reference"}},
+		scopeRoute{Chain: []ScopeLevel{{TypeKey: "project", Slug: "project", ParamName: "project_reference"}}},
 		"workspace_reference",
 		resolver,
 	)

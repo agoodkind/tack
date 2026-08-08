@@ -31,15 +31,15 @@ func RegisterNodeTools(s *mcpserver.MCPServer, nt *node.NodeType, b NodeTypeBind
 	if plural == "" {
 		plural = slug + "s"
 	}
-	chain := b.Resolver.ScopeChainForType(nt)
+	route := b.Resolver.ScopeRouteForType(nt)
 	epParam := b.Resolver.EntryPointParamName()
 	ops := opSet(nt.AllowedOps)
 
 	if _, ok := ops[node.OpList]; ok {
-		registerTool(s, listTool(nt, plural, chain, epParam, b.Resolver), listHandler(nt, chain, b))
+		registerTool(s, listTool(nt, plural, route, epParam, b.Resolver), listHandler(nt, route, b))
 	}
 	if _, ok := ops[node.OpCreate]; ok {
-		registerTool(s, createTool(nt, slug, chain, epParam, b.Resolver), createHandler(nt, chain, b))
+		registerTool(s, createTool(nt, slug, route, epParam, b.Resolver), createHandler(nt, route, b))
 	}
 	if _, ok := ops[node.OpRead]; ok {
 		registerTool(s, getTool(nt, slug, epParam, b.Resolver), getHandler(nt, b))
