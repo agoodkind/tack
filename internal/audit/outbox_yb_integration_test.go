@@ -28,10 +28,15 @@ func TestOutboxReadBatchAndDelete(t *testing.T) {
 		outboxTestEvent("second"),
 		outboxTestEvent("third"),
 	}
+	// Dated far enough in the past that no real row can predate them. The DSN
+	// points at a shared database, so a row left behind by another test would
+	// otherwise sort ahead of these and the limited read below would return
+	// it instead, failing this test for a reason that has nothing to do with
+	// the outbox.
 	createdAt := []time.Time{
-		time.Date(2026, time.June, 8, 12, 0, 0, 0, time.UTC),
-		time.Date(2026, time.June, 8, 12, 0, 1, 0, time.UTC),
-		time.Date(2026, time.June, 8, 12, 0, 2, 0, time.UTC),
+		time.Date(2000, time.January, 1, 0, 0, 0, 0, time.UTC),
+		time.Date(2000, time.January, 1, 0, 0, 1, 0, time.UTC),
+		time.Date(2000, time.January, 1, 0, 0, 2, 0, time.UTC),
 	}
 	t.Cleanup(func() {
 		for _, event := range events {
@@ -56,8 +61,8 @@ func TestOutboxReadBatchAndDelete(t *testing.T) {
 
 	// The three rows carry the oldest created_at values in the table, so a
 	// limited read returns exactly the first two of them in that order. Every
-	// later assertion filters to this test's own ids, because the DSN points
-	// at a shared database another test may also be writing to.
+	// later assertion filters to this test's own ids, because the shared
+	// database may hold rows another test is writing.
 	outbox := NewPoolOutbox(pool)
 	batch, err := outbox.ReadBatch(ctx, 2)
 	if err != nil {
