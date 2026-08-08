@@ -25,7 +25,7 @@
 - Declare every input value in exactly one of three places: the service's group_vars, the service mapping, or OpenTofu. Never infer a value from whether it was set: no `default()`, no `is defined`, no `.get(key, default)`, no `| length` presence check, and no `lookup(..., default=)`. There is no per-line exemption, and the linter runs before every deploy.
 - A per-group variable file must be named for its group exactly, `<group>_servers.yml`. A mismatched name loads nothing and fails silently.
 - Give each guest a distinct Proxmox name across hypervisors. Two guests sharing a name merge into one inventory host, and the later plugin wins on conflicting attributes.
-- Pinning a MAC in the mapping is one link in a chain: the DHCP reservation must match on hardware address, and the guest's network configuration must derive its identifier from the link layer, or the guest still takes an unreserved address.
+- These guests take a static address written from the mapping, so the pinned MAC is a stable link identity only. No address reservation is involved.
 - Keep YAML lines under 90 columns; 120 is the hard limit.
 - Commit subjects in imperative mood with the `Co-authored-by: Claude <noreply@anthropic.com>` trailer, signed (`git commit -S`).
 
