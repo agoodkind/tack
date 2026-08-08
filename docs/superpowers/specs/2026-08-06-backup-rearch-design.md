@@ -198,6 +198,10 @@ adds the multi-guest pattern:
 - The deploy playbook splits: host preparation (Docker, IPv6 forwarding,
   neighbor proxy) runs on every guest; one-time steps (provisioning,
   migrations, seeding) run on exactly one.
+- Every guest runs a daily Docker prune as its own systemd service and
+  timer pair, removing unused images and build cache older than seven days.
+  Image accumulation with no reclaim is the same disk-fill mechanism that
+  killed the databases in July; the prune never touches volumes.
 - Every loopback and compose-internal address in the rendered environment
   becomes a routable address from the mapping: the ops database URL, the
   audit database strings, the Kafka broker list, and the ClickHouse string.
