@@ -155,7 +155,7 @@ func (r *Reconciler) clickHouseIDs(ctx context.Context, since time.Time) (map[uu
 func (r *Reconciler) missingFromYugabyte(ctx context.Context, since time.Time, present map[uuid.UUID]struct{}) ([]projectedEvent, error) {
 	rows, err := r.ybpool.Query(ctx, `
 		SELECT org_id, shard, event_time, event_id, seq,
-		       actor_id, actor_kind, action, entity_kind, entity_id,
+		       actor_id, actor_kind, action, outcome, error, extra, entity_kind, entity_id,
 		       context, delta, pii_ref, prev_hash, row_hash, idempotency_key
 		  FROM audit.events
 		 WHERE event_time >= $1
@@ -168,15 +168,23 @@ func (r *Reconciler) missingFromYugabyte(ctx context.Context, since time.Time, p
 	var missing []projectedEvent
 	for rows.Next() {
 		var pe projectedEvent
+		var outcome *string
 		var pii pgtype.UUID
 		if err := rows.Scan(
 			&pe.OrgID, &pe.Shard, &pe.EventTime, &pe.EventID, &pe.Seq,
-			&pe.ActorID, &pe.ActorKind, &pe.Action, &pe.EntityKind, &pe.EntityID,
+			&pe.ActorID, &pe.ActorKind, &pe.Action, &outcome, &pe.Error, &pe.Extra, &pe.EntityKind, &pe.EntityID,
 			&pe.Context, &pe.Delta, &pii, &pe.PrevHash, &pe.RowHash, &pe.IdemKey,
 		); err != nil {
 			slog.WarnContext(ctx, "audit.reconcile.yugabyte_scan_failed", slog.String("err", err.Error()))
 			return nil, fmt.Errorf("reconcile yugabyte scan: %w", err)
 		}
+		pe.Outcome = outcomeFromColumn(outcome)
+		// A NULL column scans to an empty slice, while the consumer writes
+		// the JSON literal null for the same absent value. Normalising here
+		// keeps a reconciled row byte-identical to a projected one, which is
+		// the agreement this whole path exists to maintain.
+		pe.Error = jsonNullIfEmpty(pe.Error)
+		pe.Extra = jsonNullIfEmpty(pe.Extra)
 		if pii.Valid {
 			ref := uuid.UUID(pii.Bytes)
 			pe.PIIRef = &ref
@@ -191,4 +199,14 @@ func (r *Reconciler) missingFromYugabyte(ctx context.Context, since time.Time, p
 		return nil, fmt.Errorf("reconcile yugabyte rows: %w", err)
 	}
 	return missing, nil
+}
+
+// jsonNullIfEmpty returns the JSON literal null for an absent value, so an
+// optional JSON column reaches the projection the same way whichever path
+// wrote it.
+func jsonNullIfEmpty(raw []byte) []byte {
+	if len(raw) == 0 {
+		return []byte("null")
+	}
+	return raw
 }

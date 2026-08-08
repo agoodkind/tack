@@ -92,7 +92,7 @@ func (r *ClickHouseReader) Query(ctx context.Context, f QueryFilter) ([]Row, err
 	}
 
 	const query = `SELECT org_id, event_time, event_id, seq, shard,
-	                      actor_id, actor_kind, action, outcome, entity_kind, entity_id,
+	                      actor_id, actor_kind, action, outcome, error, extra, entity_kind, entity_id,
 	                      context, delta, idempotency_key
 	               FROM audit.events_olap
 	               WHERE org_id = ?
@@ -122,12 +122,12 @@ func (r *ClickHouseReader) Query(ctx context.Context, f QueryFilter) ([]Row, err
 	var out []Row
 	for rows.Next() {
 		var row Row
-		var contextStr, deltaStr string
+		var contextStr, deltaStr, errorStr, extraStr string
 		var outcome string
 		err = rows.Scan(
 			&row.OrgID, &row.EventTime, &row.EventID, &row.Seq, &row.Shard,
 			&row.ActorID, &row.ActorKind, &row.Action, &outcome,
-			&row.EntityKind, &row.EntityID, &contextStr, &deltaStr, &row.IdempotencyKey,
+			&errorStr, &extraStr, &row.EntityKind, &row.EntityID, &contextStr, &deltaStr, &row.IdempotencyKey,
 		)
 		if err != nil {
 			slog.ErrorContext(ctx, "audit.query_olap.scan_failed", slog.String("err", err.Error()))
@@ -135,7 +135,9 @@ func (r *ClickHouseReader) Query(ctx context.Context, f QueryFilter) ([]Row, err
 		}
 		row.Context = json.RawMessage(contextStr)
 		row.Delta = json.RawMessage(deltaStr)
-		row.Outcome = Outcome(outcome)
+		row.Error = json.RawMessage(errorStr)
+		row.Extra = json.RawMessage(extraStr)
+		row.Outcome = clickHouseOutcomeFromColumn(outcome)
 		out = append(out, row)
 	}
 	err = rows.Err()
@@ -144,4 +146,11 @@ func (r *ClickHouseReader) Query(ctx context.Context, f QueryFilter) ([]Row, err
 		return nil, fmt.Errorf("audit olap rows: %w", err)
 	}
 	return out, nil
+}
+
+func clickHouseOutcomeFromColumn(stored string) Outcome {
+	if stored == "" {
+		return outcomeFromColumn(nil)
+	}
+	return outcomeFromColumn(&stored)
 }

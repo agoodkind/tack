@@ -573,6 +573,8 @@ type projectedEvent struct {
 	ActorKind  int16
 	Action     string
 	Outcome    Outcome
+	Error      []byte
+	Extra      []byte
 	EntityKind string
 	EntityID   uuid.UUID
 	Context    []byte
@@ -606,6 +608,8 @@ type preparedEvent struct {
 	Shard       int16
 	ContextJSON []byte
 	DeltaJSON   []byte
+	ErrorJSON   []byte
+	ExtraJSON   []byte
 	PIIRef      uuid.UUID
 }
 
@@ -644,12 +648,23 @@ func unmarshalRecord(ctx context.Context, rec *kgo.Record) (preparedEvent, error
 			return preparedEvent{}, fmt.Errorf("marshal delta: %w", err)
 		}
 	}
+	errorJSON, err := json.Marshal(ev.Error)
+	if err != nil {
+		slog.ErrorContext(ctx, "audit.consumer.marshal_error_failed", slog.String("err", err.Error()))
+		return preparedEvent{}, fmt.Errorf("marshal event error: %w", err)
+	}
+	extraJSON := []byte("null")
+	if len(ev.Extra) != 0 {
+		extraJSON = ev.Extra
+	}
 	return preparedEvent{
 		Event:       ev,
 		EventID:     eventID,
 		Shard:       shard,
 		ContextJSON: contextJSON,
 		DeltaJSON:   deltaJSON,
+		ErrorJSON:   errorJSON,
+		ExtraJSON:   extraJSON,
 		PIIRef:      uuid.Nil,
 	}, nil
 }
@@ -690,6 +705,8 @@ func buildProjectedEvent(p preparedEvent, seq int64, prevHash, rowHash []byte) p
 		ActorKind:  actorKindCode(p.Event.Actor.Type),
 		Action:     p.Event.Verb,
 		Outcome:    p.Event.Outcome,
+		Error:      p.ErrorJSON,
+		Extra:      p.ExtraJSON,
 		EntityKind: p.Event.Entity.Type,
 		EntityID:   p.Event.Entity.ID,
 		Context:    p.ContextJSON,
@@ -853,6 +870,8 @@ func ensureClickHouseSchema(ctx context.Context, conn chdriver.Conn) error {
 		    actor_kind      Int16,
 		    action          String,
 		    outcome         String,
+		    error           String,
+		    extra           String,
 		    entity_kind     String,
 		    entity_id       UUID,
 		    context         String,
@@ -872,6 +891,14 @@ func ensureClickHouseSchema(ctx context.Context, conn chdriver.Conn) error {
 	if err := conn.Exec(ctx, `ALTER TABLE audit.events_olap ADD COLUMN IF NOT EXISTS outcome String AFTER action`); err != nil {
 		slog.ErrorContext(ctx, "audit.consumer.clickhouse_outcome_column_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("add outcome column: %w", err)
+	}
+	if err := conn.Exec(ctx, `ALTER TABLE audit.events_olap ADD COLUMN IF NOT EXISTS error String AFTER outcome`); err != nil {
+		slog.ErrorContext(ctx, "audit.consumer.clickhouse_error_column_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("add error column: %w", err)
+	}
+	if err := conn.Exec(ctx, `ALTER TABLE audit.events_olap ADD COLUMN IF NOT EXISTS extra String AFTER error`); err != nil {
+		slog.ErrorContext(ctx, "audit.consumer.clickhouse_extra_column_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("add extra column: %w", err)
 	}
 	return nil
 }

@@ -67,9 +67,11 @@ func auditContextValue(raw []byte, key string) string {
 }
 
 func auditSections(row audit.Row) []markdownSection {
-	sections := make([]markdownSection, 0, 2)
+	sections := make([]markdownSection, 0, 4)
 	sections = appendRawJSONSection(sections, "Context", row.Context)
 	sections = appendRawJSONSection(sections, "Delta", row.Delta)
+	sections = appendRawJSONSection(sections, "Error", row.Error)
+	sections = appendRawJSONSection(sections, "Extra", row.Extra)
 	return sections
 }
 
