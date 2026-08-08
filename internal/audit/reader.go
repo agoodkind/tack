@@ -72,18 +72,26 @@ type QueryFilter struct {
 // columns come back as raw bytes so callers can re-render in their own
 // shape (markdown table, JSON, ...).
 type Row struct {
-	OrgID          uuid.UUID
-	EventTime      time.Time
-	EventID        uuid.UUID
-	Seq            int64
-	Shard          int16
-	ActorID        uuid.UUID
-	ActorKind      int16
-	Action         string
+	OrgID     uuid.UUID
+	EventTime time.Time
+	EventID   uuid.UUID
+	Seq       int64
+	Shard     int16
+	ActorID   uuid.UUID
+	ActorKind int16
+	Action    string
+	// Outcome records whether the action succeeded.
+	Outcome        Outcome
 	EntityKind     string
 	EntityID       uuid.UUID
 	Context        json.RawMessage
 	Delta          json.RawMessage
+	Error          json.RawMessage
+	Extra          json.RawMessage
+	PIIRef         *uuid.UUID
+	PrevHash       []byte
+	RowHash        []byte
+	HashVersion    int16
 	IdempotencyKey string
 }
 
@@ -122,13 +130,16 @@ func (r *Reader) Query(ctx context.Context, f QueryFilter) ([]Row, error) {
 	var out []Row
 	for rows.Next() {
 		var row Row
+		var outcome *string
 		if err := rows.Scan(
 			&row.OrgID, &row.EventTime, &row.EventID, &row.Seq, &row.Shard,
-			&row.ActorID, &row.ActorKind, &row.Action, &row.EntityKind, &row.EntityID,
-			&row.Context, &row.Delta, &row.IdempotencyKey,
+			&row.ActorID, &row.ActorKind, &row.Action, &outcome,
+			&row.EntityKind, &row.EntityID, &row.Context, &row.Delta, &row.Error, &row.Extra, &row.PIIRef,
+			&row.PrevHash, &row.RowHash, &row.HashVersion, &row.IdempotencyKey,
 		); err != nil {
 			return nil, fmt.Errorf("audit row scan: %w", err)
 		}
+		row.Outcome = outcomeFromColumn(outcome)
 		out = append(out, row)
 	}
 	return out, rows.Err()
@@ -146,21 +157,35 @@ func (r *Reader) GetByID(ctx context.Context, eventID uuid.UUID) (*Row, error) {
 	if r == nil || r.pool == nil {
 		return nil, errors.New("audit reader not configured")
 	}
-	row := &Row{}
+	var row Row
+	var outcome *string
 	err := r.pool.QueryRow(ctx, `
 		SELECT org_id, event_time, event_id, seq, shard,
-		       actor_id, actor_kind, action, entity_kind, entity_id,
-		       context, delta, idempotency_key
+		       actor_id, actor_kind, action, outcome, entity_kind, entity_id,
+		       context, delta, error, extra, pii_ref, prev_hash, row_hash, hash_version,
+		       idempotency_key
 		FROM audit.events
 		WHERE event_id = $1
 		LIMIT 1
 	`, eventID).Scan(
 		&row.OrgID, &row.EventTime, &row.EventID, &row.Seq, &row.Shard,
-		&row.ActorID, &row.ActorKind, &row.Action, &row.EntityKind, &row.EntityID,
-		&row.Context, &row.Delta, &row.IdempotencyKey,
+		&row.ActorID, &row.ActorKind, &row.Action, &outcome,
+		&row.EntityKind, &row.EntityID, &row.Context, &row.Delta, &row.Error, &row.Extra, &row.PIIRef,
+		&row.PrevHash, &row.RowHash, &row.HashVersion, &row.IdempotencyKey,
 	)
 	if err != nil {
 		return nil, err
 	}
-	return row, nil
+	row.Outcome = outcomeFromColumn(outcome)
+	return &row, nil
+}
+
+// outcomeFromColumn maps the stored outcome to its value. A NULL means the row
+// was written before the ledger stored outcomes, so it reads as unrecorded
+// rather than being reported as a success nobody observed.
+func outcomeFromColumn(stored *string) Outcome {
+	if stored == nil {
+		return OutcomeUnrecorded
+	}
+	return Outcome(*stored)
 }

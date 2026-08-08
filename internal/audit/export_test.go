@@ -29,17 +29,21 @@ func TestVerifyBundleRoundTrip(t *testing.T) {
 	now := time.Now().UTC()
 	rows := []Row{
 		{
-			OrgID:     uuid.Must(uuid.NewV7()),
-			EventTime: now,
-			EventID:   uuid.Must(uuid.NewV7()),
-			Seq:       1,
-			Shard:     1,
-			ActorID:   uuid.Must(uuid.NewV7()),
-			Action:    "node.read",
-			EntityID:  uuid.Must(uuid.NewV7()),
-			Context:   json.RawMessage(`{"request_id":"req-export","trace_id":"trace-export"}`),
+			OrgID:       uuid.Must(uuid.NewV7()),
+			EventTime:   now,
+			EventID:     uuid.Must(uuid.NewV7()),
+			Seq:         1,
+			Shard:       1,
+			ActorID:     uuid.Must(uuid.NewV7()),
+			ActorKind:   1,
+			Action:      "node.read",
+			Outcome:     OutcomeOK,
+			EntityID:    uuid.Must(uuid.NewV7()),
+			Context:     json.RawMessage(`{"request_id":"req-export","trace_id":"trace-export"}`),
+			HashVersion: auditHashVersion1,
 		},
 	}
+	rows[0].RowHash = hashExportTestRow(t, rows[0])
 	jsonlPath := filepath.Join(dir, "events.jsonl")
 	jf, err := os.Create(jsonlPath)
 	if err != nil {
@@ -107,4 +111,117 @@ func TestVerifyBundleRoundTrip(t *testing.T) {
 func sumSHA256(b []byte) []byte {
 	sum := sha256.Sum256(b)
 	return sum[:]
+}
+
+func TestVerifyBundleReportsEditedRow(t *testing.T) {
+	dir := t.TempDir()
+	row := Row{
+		OrgID: uuid.Must(uuid.NewV7()), EventTime: time.Now().UTC(), EventID: uuid.Must(uuid.NewV7()),
+		Seq: 1, Shard: 1, ActorID: uuid.Must(uuid.NewV7()), ActorKind: 1,
+		Action: "node.read", Outcome: OutcomeOK, EntityKind: "node", EntityID: uuid.Must(uuid.NewV7()),
+		Context: json.RawMessage(`{"request_id":"req-tamper"}`), HashVersion: auditHashVersion1,
+	}
+	row.RowHash = hashExportTestRow(t, row)
+	pub := writeSignedExportTestBundle(t, dir, []Row{row})
+
+	jsonlPath := filepath.Join(dir, "events.jsonl")
+	jsonlBytes, err := os.ReadFile(jsonlPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var edited Row
+	if err := json.Unmarshal(jsonlBytes, &edited); err != nil {
+		t.Fatal(err)
+	}
+	edited.Action = "node.delete"
+	editedBytes, err := json.Marshal(edited)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(jsonlPath, append(editedBytes, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := VerifyBundle(dir, pub)
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if report.HashMatches != 0 {
+		t.Fatalf("hash matches = %d, want 0", report.HashMatches)
+	}
+	if len(report.ChainBreaks) == 0 || !strings.Contains(report.ChainBreaks[0], row.EventID.String()) {
+		t.Fatalf("chain breaks = %v, want row %s", report.ChainBreaks, row.EventID)
+	}
+}
+
+func hashExportTestRow(t *testing.T, row Row) []byte {
+	t.Helper()
+	hash, err := hashRowForEvent(rowHashInput{
+		Event: Event{
+			Verb: row.Action, EventID: row.EventID,
+			Actor:   Actor{Type: actorTypeFromCode(row.ActorKind), ID: row.ActorID},
+			Entity:  Entity{Type: row.EntityKind, ID: row.EntityID},
+			Context: EventContext{OrgID: row.OrgID}, Outcome: row.Outcome,
+			Error: nil, Extra: row.Extra, OccurredAt: row.EventTime,
+			IdempotencyKey: row.IdempotencyKey,
+		},
+		EventID: row.EventID, Shard: row.Shard, Seq: row.Seq, ContextJSON: row.Context,
+		DeltaJSON: row.Delta, LastHash: row.PrevHash, Version: row.HashVersion,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return hash
+}
+
+func writeSignedExportTestBundle(t *testing.T, dir string, rows []Row) ed25519.PublicKey {
+	t.Helper()
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jsonlPath := filepath.Join(dir, "events.jsonl")
+	file, err := os.Create(jsonlPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range rows {
+		if err := json.NewEncoder(file).Encode(row); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	jsonlBytes, err := os.ReadFile(jsonlPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	manifest := ExportManifest{
+		ExportID: uuid.Must(uuid.NewV7()), OrgID: rows[0].OrgID,
+		Oldest: now.Add(-time.Hour), Latest: now.Add(time.Hour), RowCount: len(rows),
+		FileSHA256: hex.EncodeToString(sumSHA256(jsonlBytes)), SignatureBy: "test",
+	}
+	signable, err := json.Marshal(struct {
+		ExportID    uuid.UUID `json:"export_id"`
+		OrgID       uuid.UUID `json:"org_id"`
+		Oldest      time.Time `json:"oldest"`
+		Latest      time.Time `json:"latest"`
+		RowCount    int       `json:"row_count"`
+		FileSHA256  string    `json:"file_sha256"`
+		SignatureBy string    `json:"signing_key_id"`
+	}{manifest.ExportID, manifest.OrgID, manifest.Oldest, manifest.Latest, manifest.RowCount, manifest.FileSHA256, manifest.SignatureBy})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest.Signature = hex.EncodeToString(ed25519.Sign(priv, signable))
+	manifestBytes, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), manifestBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return pub
 }
