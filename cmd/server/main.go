@@ -59,6 +59,7 @@ func run() int {
 	)
 
 	f := cli.System(cfg)
+	defer f.CloseAuditOutbox()
 	ctx, span := telemetry.StartSpan(context.Background(), "cli")
 	defer span.End()
 	// Mint a per-invocation request id so every command's output and logs share

@@ -31,6 +31,13 @@ func NewPoolOutbox(pool *pgxpool.Pool) *PoolOutbox {
 	return &PoolOutbox{pool: pool}
 }
 
+// Close releases the YugabyteDB pool used by the outbox.
+func (o *PoolOutbox) Close() {
+	if o != nil && o.pool != nil {
+		o.pool.Close()
+	}
+}
+
 // WriteOutbox writes event to the YugabyteDB operator outbox on its own
 // connection, committing by itself.
 //
