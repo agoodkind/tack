@@ -40,7 +40,16 @@ Copy these exactly; they were chosen against the current mapping so that no VMID
 | `tack_data3_suburban` | tack-data3.suburban.goodkind.io | 222 | `3d06:bad:b01:210::222` | `3d06:bad:b01:210:7af::/96` | `BC:24:11:04:01:22` |
 | `tack_app2_suburban` | tack-app2.suburban.goodkind.io | 223 | `3d06:bad:b01:210::223` | `3d06:bad:b01:210:7b0::/96` | `BC:24:11:04:01:23` |
 
-Proposed sizing, confirmed or revised by Task 1's capacity reading: prod data guests 4 cores, 16384 MB, 100 GB disk; prod app guest 4 cores, 8192 MB, 60 GB disk; testbed data guests 2 cores, 6144 MB, 40 GB disk; testbed app guest 2 cores, 4096 MB, 30 GB disk. LXC memory values are cgroup ceilings, not reservations, so testbed overcommit against suburban's physical RAM is acceptable; the vault reading decides whether prod fits without reclaiming debianct.
+Sizing comes from the capacity reading, recorded in
+`docs/superpowers/plans/2026-08-08-phase2-capacity.md`: testbed data guests
+2 cores, 4096 MB, 40 GB disk; testbed app guest 2 cores, 2048 MB, 30 GB disk;
+production data guests 4 cores, 16384 MB, 60 GB disk; production app guest
+4 cores, 8192 MB, 40 GB disk. Container memory is a ceiling, not a
+reservation, and the phase 2 guests carry no compose stack, so neither
+hypervisor is stressed by this phase. Production memory needs two operator
+decisions before phase 3 starts services on those guests: reclaim the
+debianct sandbox guest, and shrink guest 117 as each data service migrates
+off it.
 
 The existing guest 117 (`tack`) becomes app instance one and data guest zero of nothing: it keeps serving the full stack until phases 3 through 5 move the data services onto the new guests.
 
