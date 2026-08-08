@@ -75,11 +75,11 @@ If `vault.home.goodkind.io` does not resolve, take the hypervisor address from t
 
 - [ ] **Step 2: Read suburban the same way**
 
-```bash
-ssh root@3d06:bad:b01:200::1 'free -g; pvesm status; pct list'
-```
+Take the suburban hypervisor's address from its entry in `ansible/inventory/hosts` in the configs repo, then run the same read-only command against it:
 
-(The suburban address is `ansible/inventory/hosts:15`; verify it there before running.)
+```bash
+ssh root@<suburban-address-from-inventory> 'free -g; pvesm status; pct list'
+```
 
 - [ ] **Step 3: Write the capacity table and verdict**
 
@@ -165,12 +165,17 @@ Copy the shape of `opentofu/suburban/tack_qa.tf` (mapping-driven addresses, `loc
 
 - [ ] **Step 3: Validate and plan**
 
+`opentofu/` is a single root module whose children are `module.suburban` and `module.vault`; the per-environment directories carry no backend or provider configuration. Every command therefore runs from `opentofu/` and names its environment with `-target`:
+
 ```bash
-cd /Users/agoodkind/Sites/configs/opentofu/vault && tofu validate && tofu plan
-cd /Users/agoodkind/Sites/configs/opentofu/suburban && tofu validate && tofu plan -target=module.suburban 2>/dev/null || tofu plan
+cd /Users/agoodkind/Sites/configs/opentofu
+tofu validate
+tofu plan -target=module.suburban
 ```
 
-Expected: exactly four `to add` per environment, zero `to change` or `to destroy` on any existing resource. Any change to an existing resource is a stop condition.
+Expected: exactly `4 to add, 0 to change, 0 to destroy`. Any nonzero change or destroy count is a stop condition; report the resource named instead of proceeding. Never run an untargeted plan or apply, and never fall back to one when a targeted command fails: an untargeted run covers production.
+
+The production plan is the same command with `-target=module.vault`, run only at Task 9.
 
 - [ ] **Step 4: Commit, then apply testbed only**
 
@@ -188,7 +193,7 @@ Apply suburban (QA is autonomous), then verify each new testbed guest answers SS
 ### Task 4: Per-guest identity in host_vars
 
 **Files:**
-- Create: `ansible/inventory/host_vars/tack-data1.home.goodkind.io.yml` and seven siblings named by inventory hostname (follow the one existing example, `host_vars/mwan-failover.suburban.goodkind.io.yml`, for the naming shape)
+- Create: ten files under `ansible/inventory/host_vars/`, one per tack guest, each named for its inventory hostname (follow the one existing example, `host_vars/mwan-failover.suburban.goodkind.io.yml`, for the naming shape). Eight are the new guests; the remaining two are the existing guests 117 and 217, whose Docker subnet values move down from group_vars in this task.
 - Modify: `ansible/inventory/group_vars/tack_servers.yml:38-40` and `tack_qa_suburban_servers.yml:38-40` (move the Docker subnet values down to host_vars for 117 and 217 too, so every guest's /96 lives in exactly one place)
 
 **Interfaces:**
@@ -196,7 +201,7 @@ Apply suburban (QA is autonomous), then verify each new testbed guest answers SS
 
 - [ ] **Step 1: Write the ten host_vars files**
 
-Ten, not eight: 117 and 217 also gain files carrying their existing /96 values (moved from group_vars) plus `tack_cluster_role: app` and `tack_provision_owner: true`. Each new guest's file carries its /96, gateway (`<subnet prefix>::1`), and NDP prefix from the fixed table, its role, and `tack_provision_owner: false`.
+Guests 117 and 217 carry their existing /96 values (moved from group_vars) plus `tack_cluster_role: app` and `tack_provision_owner: true`. Each new guest's file carries its /96, gateway (`<subnet prefix>::1`), and NDP prefix from the fixed table, its role, and `tack_provision_owner: false`.
 
 - [ ] **Step 2: Delete the group-level subnet values**
 
@@ -380,7 +385,7 @@ TimeoutStartSec=1800
 Description=Daily Docker prune
 
 [Timer]
-OnCalendar=*-*-* 09:00:00
+OnCalendar=*-*-* 09:00:00 UTC
 RandomizedDelaySec=3600
 Persistent=true
 
@@ -388,7 +393,7 @@ Persistent=true
 WantedBy=timers.target
 ```
 
-09:00 UTC is the low-activity window (early morning US Pacific). `system prune` without `--volumes` never touches volumes; data is not at risk. `-a` removes unreferenced images; anything the running compose stack references is in use and survives.
+The `UTC` suffix pins the schedule regardless of each guest's configured timezone, placing the run in early-morning US Pacific. `docker system prune -a` removes stopped containers, unused networks, unreferenced images, and build cache. It never touches volumes, because `--volumes` is absent, so no persisted data is at risk. Anything the running compose stack references counts as in use and survives.
 
 - [ ] **Step 2: Write the task file following the package-updater idiom**
 
