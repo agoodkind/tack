@@ -131,14 +131,20 @@ instance:
 1. The app gains a health endpoint that checks its datastores. The proxy's
    `tack-service` entry lists both instances and probes that endpoint.
 2. The ledger signer (the notarizer, which signs the audit chain every
-   minute) runs only in the audit-consumer process, never in the app. One
-   signer identity exists: a single vault-stored key in the configs repo,
-   rendered at deploy time instead of generated per host, rotated as one
-   operation, with the signing-key id recorded per signature (the schema
-   already does) and the signing hostname recorded in the notarization row
-   for forensics. Per-guest keys are rejected: they would make verification
-   depend on a registry of ephemeral guest identities and would recreate the
-   multiple-identities-on-one-chain ambiguity this fix removes.
+   minute) runs only in the audit-consumer process, never in the app. Each
+   guest keeps generating its own key, and the set of identifiers a chain
+   accepts becomes explicit: the signing host is recorded on each
+   notarization row, the valid identifiers per environment are held in the
+   configs vault, and verification rejects a signature whose identifier is
+   outside that set.
+
+   This reverses an earlier decision, on 2026-08-08, to share one
+   vault-stored key per environment. Sharing does not contain a leak. The
+   identifier stored on each row is written by whoever signed it, so without
+   an accepted set an attacker who reaches an app guest can generate a fresh
+   key, forge checkpoints, and write an identifier indistinguishable from a
+   legitimate new guest. The accepted set is what makes revocation mean
+   something, and it makes per-guest keys containable rather than ambiguous.
 
 The compose file pins development-mode auth, which accepts any UUID as a
 login. A second instance behind public ingress raises the urgency of the
