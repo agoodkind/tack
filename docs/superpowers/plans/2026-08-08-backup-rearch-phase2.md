@@ -263,58 +263,24 @@ Then run the real QA deploy limited to the QA data group and confirm: Docker pre
 
 ---
 
-### Task 6: Audit signing key from vault (TACK-353)
+### Task 6: Removed from this phase (was the audit signing key, TACK-353)
 
-**Files:**
-- Modify: `ansible/playbooks/deploy-tack.yml` (the generate task from the old line 133)
-- Modify: `ansible/inventory/group_vars/tack_servers.yml`, `tack_qa_suburban_servers.yml` (reference the new vault names)
+The operator settled the signing-key question on 2026-08-08 and chose to keep
+per-guest key generation. Moving the key into the vault is cancelled, so this
+phase changes nothing about how the key is created.
 
-**Interfaces:**
-- Consumes: vault keys `vault_tack_audit_signing_key` and `vault_tack_qa_audit_signing_key` (PEM contents), which the OPERATOR adds; agents never see the values.
-- Produces: `/etc/tack/audit-signing.pem` rendered from vault, mode 0600, identical on every guest of an environment.
+The reason it was cancelled matters for the work that replaces it. Nothing
+records which signing key identifiers are legitimate. Each notarization row
+stores a hash of the public half, written by whoever signed it, and
+verification has no allowlist to reject an unknown one. An attacker who reaches
+an app guest can generate a fresh key, forge checkpoints, and write an
+identifier indistinguishable from a legitimate new guest. One shared key per
+environment would not have closed that gap, so the vault change bought rotation
+convenience rather than containment.
 
-- [ ] **Step 1: Operator adds the two vault secrets**
-
-Hand the operator these commands to run locally (never in an agent shell); each generates a key and pastes it into the vault editor session:
-
-```bash
-openssl genpkey -algorithm ed25519 -out /tmp/tack-audit-signing.pem
-# paste contents as vault_tack_audit_signing_key via the repo's vault edit flow, then
-shred -u /tmp/tack-audit-signing.pem
-# repeat for vault_tack_qa_audit_signing_key
-```
-
-STOP until `go run goodkind.io/configs/cmd/configs keys` lists both names.
-
-- [ ] **Step 2: Replace generation with a vault-sourced copy**
-
-The `openssl genpkey` task (old line 133-139) becomes:
-
-```yaml
-    - name: Install the audit signing key from vault
-      ansible.builtin.copy:
-        content: "{{ tack_audit_signing_key }}"
-        dest: "{{ tack_audit_signing_key_path }}"
-        owner: root
-        group: root
-        mode: "0600"
-      no_log: true
-```
-
-with `tack_audit_signing_key: "{{ vault_tack_audit_signing_key }}"` declared in `tack_servers.yml` and the qa variant in `tack_qa_suburban_servers.yml` (this is a real per-environment override, permitted by the vault contract). `no_log: true` is mandatory.
-
-- [ ] **Step 3: Deploy QA, verify signer continuity, commit**
-
-Deploy QA, then confirm the consumer still notarizes (a new `audit.notarizer.signed` line within two minutes of restart) and no signature verification errors appear. The schema records the signing key id per signature, so the key change is a rotation, not a break. Commit:
-
-```bash
-git add ansible/playbooks/deploy-tack.yml ansible/inventory/group_vars/tack_servers.yml ansible/inventory/group_vars/tack_qa_suburban_servers.yml
-git commit -S -m "Render the audit signing key from vault instead of per-host generation
-
-Co-authored-by: Claude <noreply@anthropic.com>"
-```
-
-Production keeps its current per-host key until the operator-approved prod deploy renders the vault key.
+TACK-437 carries the containment instead: record the signing host on each
+notarization row, keep the set of valid identifiers per environment, and make
+verification reject anything outside that set. It is not part of this phase.
 
 ---
 
