@@ -17,6 +17,11 @@ var (
 	errRelayYugabyteRequired = errors.New("yugabyte outbox required")
 )
 
+// relayDrainGrace bounds how long Close waits for a drain already in flight.
+// It is shorter than the audit-consumer's own thirty-second shutdown budget so
+// a stuck database cannot consume the whole window.
+const relayDrainGrace = 10 * time.Second
+
 // RelayOutboxEntry is one FoundationDB operator-command audit event waiting
 // for delivery.
 type RelayOutboxEntry struct {
@@ -120,9 +125,25 @@ func (r *Relay) Start(ctx context.Context) {
 }
 
 // Close stops the drain loops and closes the recorder when it supports Close.
+//
+// The wait for the loops is bounded. A FoundationDB or YugabyteDB call already
+// in flight blocks until its own client gives up, and that client owns the
+// timeout, not this code. Waiting without a bound would let one unreachable
+// database hold the whole audit-consumer open, so after the grace period Close
+// stops waiting, says so, and lets shutdown continue. Nothing is lost by
+// abandoning a drain: an event stays in its outbox until a later run delivers
+// it.
 func (r *Relay) Close() error {
 	r.once.Do(func() { close(r.stop) })
-	<-r.stopped
+	timer := time.NewTimer(relayDrainGrace)
+	defer timer.Stop()
+	select {
+	case <-r.stopped:
+	case <-timer.C:
+		slog.Warn("audit.relay.drain_timeout",
+			slog.Duration("waited", relayDrainGrace),
+		)
+	}
 	closer, ok := r.recorder.(interface{ Close() error })
 	if !ok {
 		return nil

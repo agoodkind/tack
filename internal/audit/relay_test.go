@@ -251,6 +251,63 @@ func relayTestEventJSON(t *testing.T, verb string) json.RawMessage {
 	return raw
 }
 
+// TestRelayCloseReturnsWhenADrainIsStuck pins the shutdown bound. A database
+// call already in flight cannot be cancelled from here, so Close must give up
+// waiting rather than hold the audit-consumer open until that call returns.
+func TestRelayCloseReturnsWhenADrainIsStuck(t *testing.T) {
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	stuck := &relayStuckOutbox{release: release}
+
+	relay, err := NewRelay(RelayConfig{
+		Recorder:     &relayTestRecorder{inner: NewMemoryRecorder(), failAt: -1, mu: sync.Mutex{}, calls: 0},
+		Yugabyte:     stuck,
+		FoundationDB: nil,
+		PollInterval: time.Millisecond,
+		BatchSize:    1,
+	})
+	if err != nil {
+		t.Fatalf("new relay: %v", err)
+	}
+	relay.Start(t.Context())
+	waitForRelay(t, stuck.entered)
+
+	done := make(chan error, 1)
+	go func() { done <- relay.Close() }()
+	select {
+	case closeErr := <-done:
+		if closeErr != nil {
+			t.Fatalf("close relay: %v", closeErr)
+		}
+	case <-time.After(relayDrainGrace + 5*time.Second):
+		t.Fatal("Close did not return while a drain was stuck")
+	}
+}
+
+// relayStuckOutbox blocks in ReadBatch until released, standing in for a
+// database that has stopped answering.
+type relayStuckOutbox struct {
+	release chan struct{}
+	mu      sync.Mutex
+	inside  bool
+}
+
+func (o *relayStuckOutbox) ReadBatch(_ context.Context, _ int) ([]OutboxRow, error) {
+	o.mu.Lock()
+	o.inside = true
+	o.mu.Unlock()
+	<-o.release
+	return nil, nil
+}
+
+func (o *relayStuckOutbox) Delete(_ context.Context, _ uuid.UUID) error { return nil }
+
+func (o *relayStuckOutbox) entered() bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.inside
+}
+
 func waitForRelay(t *testing.T, condition func() bool) {
 	t.Helper()
 	deadline := time.NewTimer(time.Second)
