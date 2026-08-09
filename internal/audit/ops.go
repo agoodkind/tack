@@ -37,6 +37,13 @@ type OutboxWriter interface {
 	WriteOutbox(ctx context.Context, event Event) error
 }
 
+// IdempotentOutboxWriter writes an event only when its event identity is not
+// already present. Reconstructed history uses this narrow contract so an
+// operator can resume a partial run without duplicating ledger history.
+type IdempotentOutboxWriter interface {
+	WriteOutboxIfAbsent(ctx context.Context, event Event) (bool, error)
+}
+
 // OperatorPrincipal identifies the person running an operator command.
 type OperatorPrincipal struct {
 	// ID is the stable identity of the operator.

@@ -106,6 +106,14 @@ func (op Operation[I]) cobraCommand(f *cli.Factory) *cobra.Command {
 		for _, apply := range applies {
 			apply(&in)
 		}
+		if !f.Execute() && op.DryRun != nil {
+			err := RunAudited(cmd.Context(), f.Out, op.auditSpec(), f.OperatorIdentitySource(), false, f.AuditOutbox(),
+				func(context.Context) error { return nil })
+			if err != nil {
+				return err
+			}
+			return op.DryRun(cmd.Context(), in, NewCLISink(f))
+		}
 		return RunAudited(cmd.Context(), f.Out, op.auditSpec(), f.OperatorIdentitySource(), f.Execute(), f.AuditOutbox(),
 			func(ctx context.Context) error {
 				return op.Run(ctx, in, NewCLISink(f))

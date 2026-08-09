@@ -63,6 +63,28 @@ func (o *PoolOutbox) WriteOutbox(ctx context.Context, event Event) error {
 	return nil
 }
 
+// WriteOutboxIfAbsent writes event unless an event with its identity already
+// exists. It returns true when it inserted a row.
+func (o *PoolOutbox) WriteOutboxIfAbsent(ctx context.Context, event Event) (bool, error) {
+	eventJSON, err := marshalOutboxEvent(ctx, event)
+	if err != nil {
+		return false, err
+	}
+	result, err := o.pool.Exec(ctx, `
+		INSERT INTO public.ops_outbox (event_id, event)
+		VALUES ($1, $2)
+		ON CONFLICT (event_id) DO NOTHING
+	`, event.EventID, eventJSON)
+	if err != nil {
+		slog.ErrorContext(ctx, "audit.outbox.idempotent_write_failed",
+			slog.String("event_id", event.EventID.String()),
+			slog.String("err", err.Error()),
+		)
+		return false, fmt.Errorf("write idempotent ops outbox event %s: %w", event.EventID, err)
+	}
+	return result.RowsAffected() == 1, nil
+}
+
 // WriteOutboxTx writes event to the YugabyteDB operator outbox in tx.
 func (o *PoolOutbox) WriteOutboxTx(ctx context.Context, tx pgx.Tx, event Event) error {
 	eventJSON, err := marshalOutboxEvent(ctx, event)
