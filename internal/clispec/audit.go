@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -14,13 +14,8 @@ import (
 	"goodkind.io/tack/internal/clock"
 )
 
-type dryRunOutputKey struct{}
-
-func withDryRunOutput(ctx context.Context, output io.Writer) context.Context {
-	return context.WithValue(ctx, dryRunOutputKey{}, output)
-}
-
-// RunAudited records an operator command before running it.
+// RunAudited records an operator command before running it. A command that
+// creates the audit infrastructure records after it establishes a missing outbox.
 func RunAudited(
 	ctx context.Context,
 	output io.Writer,
@@ -28,9 +23,10 @@ func RunAudited(
 	source audit.OperatorIdentitySource,
 	execute bool,
 	outbox audit.OutboxWriter,
+	probe audit.InfrastructureProbe,
 	run func(context.Context) error,
 ) error {
-	return runAudited(withDryRunOutput(ctx, output), spec, source, execute, outbox, run)
+	return runAudited(withDryRunOutput(ctx, output), spec, source, execute, outbox, probe, run)
 }
 
 func runAudited(
@@ -39,6 +35,7 @@ func runAudited(
 	source audit.OperatorIdentitySource,
 	execute bool,
 	outbox audit.OutboxWriter,
+	probe audit.InfrastructureProbe,
 	run func(context.Context) error,
 ) error {
 	if err := validateAuditSpec(spec); err != nil {
@@ -76,6 +73,11 @@ func runAudited(
 	intent := event
 	intent.Outcome = audit.OutcomePending
 	if err := outbox.WriteOutbox(ctx, intent); err != nil {
+		if spec.CreatesAuditInfrastructure {
+			return runAfterCreatingAuditInfrastructure(
+				ctx, intent, event, runContext, outbox, probe, run, err,
+			)
+		}
 		return loggedAuditError(ctx, "record command intent", err)
 	}
 
@@ -113,6 +115,9 @@ func validateAuditSpec(spec audit.Spec) error {
 	if spec.Mutates == spec.Reads {
 		return fmt.Errorf("audit spec %q must mark exactly one command class", spec.Verb)
 	}
+	if spec.CreatesAuditInfrastructure && spec.Reads {
+		return fmt.Errorf("audit spec %q cannot create audit infrastructure for a read", spec.Verb)
+	}
 	return nil
 }
 
@@ -128,6 +133,7 @@ func newOperatorEvent(
 ) (audit.Event, error) {
 	extra, err := json.Marshal(operatorEventExtra{
 		OpID:           opID,
+		StartedAt:      nil,
 		OperatorSource: principal.Source,
 	})
 	if err != nil {
@@ -179,40 +185,9 @@ func newOperatorEvent(
 type operatorEventExtra struct {
 	// OpID is shared by an intent row and its outcome row.
 	OpID uuid.UUID `json:"op_id"`
+	// StartedAt records when a deferred infrastructure command entered the gate.
+	StartedAt *time.Time `json:"started_at,omitempty"`
 	// OperatorSource names the mechanism that established the identity, so a
 	// reader can tell a git-config identity from an asserted flag.
 	OperatorSource string `json:"operator_source"`
-}
-
-func printDryRun(
-	ctx context.Context,
-	principal audit.OperatorPrincipal,
-	spec audit.Spec,
-) error {
-	output, ok := ctx.Value(dryRunOutputKey{}).(io.Writer)
-	if !ok || output == nil {
-		slog.InfoContext(ctx, "cli.dry_run",
-			slog.String("operator_id", principal.ID.String()),
-			slog.String("operator_email", principal.Email),
-			slog.String("operator_name", principal.Name),
-			slog.String("operator_source", principal.Source),
-			slog.String("operation", spec.Verb),
-		)
-		return nil
-	}
-	_, err := fmt.Fprintf(output,
-		"operator: id=%s email=%s name=%s source=%s\nwould run: %s\n",
-		principal.ID, principal.Email, principal.Name, principal.Source, spec.Verb)
-	if err != nil {
-		return loggedAuditError(ctx, "print audit dry-run", err)
-	}
-	return nil
-}
-
-func loggedAuditError(ctx context.Context, action string, err error) error {
-	slog.ErrorContext(ctx, "cli.audit_failed",
-		slog.String("action", action),
-		slog.String("err", err.Error()),
-	)
-	return fmt.Errorf("%s: %w", action, err)
 }

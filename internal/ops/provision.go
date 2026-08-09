@@ -37,8 +37,12 @@ type provisionInput struct {
 // already-configured production cluster by accident.
 func provisionOp(f *cli.Factory) clispec.Operation[provisionInput] {
 	return clispec.Operation[provisionInput]{
-		Name:     clispec.Name{Canonical: "provision", CLIOverride: ""},
-		Audit:    audit.Spec{Verb: string(audit.VerbOpsProvision), Mutates: true},
+		Name: clispec.Name{Canonical: "provision", CLIOverride: ""},
+		Audit: audit.Spec{
+			Verb:                       string(audit.VerbOpsProvision),
+			Mutates:                    true,
+			CreatesAuditInfrastructure: true,
+		},
 		Group:    opsGroup,
 		Aliases:  nil,
 		Hidden:   false,

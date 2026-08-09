@@ -17,7 +17,8 @@ func TestRunAuditedMissingVerbNeverRuns(t *testing.T) {
 		audit.Spec{Reads: true},
 		testOperatorSource(),
 		true,
-		&auditTestOutbox{failAt: -1},
+		&auditTestOutbox{},
+		nil,
 		func(context.Context) error {
 			runCount++
 			return nil
@@ -35,13 +36,14 @@ func TestRunAuditedUnresolvableIdentityAbortsInBothModes(t *testing.T) {
 	for _, execute := range []bool{false, true} {
 		t.Run(map[bool]string{false: "dry-run", true: "execute"}[execute], func(t *testing.T) {
 			runCount := 0
-			outbox := &auditTestOutbox{failAt: -1}
+			outbox := &auditTestOutbox{}
 			err := runAudited(
 				context.Background(),
 				audit.Spec{Verb: "ops.test", Reads: true},
 				auditTestSource{err: errors.New("identity unavailable")},
 				execute,
 				outbox,
+				nil,
 				func(context.Context) error {
 					runCount++
 					return nil
@@ -58,7 +60,7 @@ func TestRunAuditedUnresolvableIdentityAbortsInBothModes(t *testing.T) {
 }
 
 func TestRunAuditedDryRunRunsNothingAndRecordsNothing(t *testing.T) {
-	outbox := &auditTestOutbox{failAt: -1}
+	outbox := &auditTestOutbox{}
 	output := &bytes.Buffer{}
 	runCount := 0
 	err := runAudited(
@@ -67,6 +69,7 @@ func TestRunAuditedDryRunRunsNothingAndRecordsNothing(t *testing.T) {
 		testOperatorSource(),
 		false,
 		outbox,
+		nil,
 		func(context.Context) error {
 			runCount++
 			return nil
@@ -85,7 +88,7 @@ func TestRunAuditedDryRunRunsNothingAndRecordsNothing(t *testing.T) {
 }
 
 func TestRunAuditedReadWriteFailureNeverRuns(t *testing.T) {
-	outbox := &auditTestOutbox{failAt: 0}
+	outbox := &auditTestOutbox{writeErrors: []error{errors.New("outbox write failed")}}
 	runCount := 0
 	err := runAudited(
 		context.Background(),
@@ -93,6 +96,7 @@ func TestRunAuditedReadWriteFailureNeverRuns(t *testing.T) {
 		testOperatorSource(),
 		true,
 		outbox,
+		nil,
 		func(context.Context) error {
 			runCount++
 			return nil
@@ -125,6 +129,7 @@ func TestRunAuditedNilOutboxNeverRuns(t *testing.T) {
 				spec,
 				testOperatorSource(),
 				true,
+				nil,
 				nil,
 				func(context.Context) error {
 					runCount++
