@@ -24,6 +24,7 @@ jobs:
       attestations: write
     secrets: inherit
     with:
+      runs_on: tack
       golangci_lint_version: v2.11.4
       job_layout: single
       pre_make_commands: |
@@ -37,7 +38,7 @@ jobs:
 
   integration:
     name: integration tests (FDB)
-    runs-on: ubuntu-latest
+    runs-on: tack-docker
     timeout-minutes: 20
     env:
       COMPOSE_PROJECT_NAME: tack-${{ github.run_id }}-${{ github.run_attempt }}
