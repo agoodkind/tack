@@ -70,7 +70,10 @@ type Operation[I Input] struct {
 	Args     []Arg[I]   `exhaustruct:"optional"`
 	Params   []Param[I] `exhaustruct:"optional"`
 	New      func() I
-	Run      func(ctx context.Context, in I, sink ResultSink) error
+	// DryRun reports planned work after the audit choke-point validates the
+	// operator identity. It must not write state.
+	DryRun func(ctx context.Context, in I, sink ResultSink) error `exhaustruct:"optional"`
+	Run    func(ctx context.Context, in I, sink ResultSink) error
 }
 
 // renderable is the type-erased view of an Operation. The type parameter stays

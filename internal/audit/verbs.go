@@ -19,9 +19,11 @@ const (
 	VerbPropertyDefDelete  Verb = "property_def.delete"
 	VerbNodeTypeCreate     Verb = "node_type.create"
 	VerbNodeTypeUpdate     Verb = "node_type.update"
-	VerbOrgMemberAdd       Verb = "org.member_add"
-	VerbOrgMemberRemove    Verb = "org.member_remove"
-	VerbOrgMemberRoleSet   Verb = "org.member_role_set"
+	// VerbNodeReferenceRename records a change to a node reference.
+	VerbNodeReferenceRename Verb = "node.reference_rename"
+	VerbOrgMemberAdd        Verb = "org.member_add"
+	VerbOrgMemberRemove     Verb = "org.member_remove"
+	VerbOrgMemberRoleSet    Verb = "org.member_role_set"
 	// VerbUserCreate records creation of an authenticated user.
 	VerbUserCreate Verb = "user.create"
 
@@ -71,6 +73,8 @@ const (
 	VerbAuditKeyGenerate Verb = "audit.key_generate"
 	// VerbAuditRolesSeed records audit role creation or rotation.
 	VerbAuditRolesSeed Verb = "audit.roles_seed"
+	// VerbOpsAuditReconstructReferenceRenames records ledger reconstruction.
+	VerbOpsAuditReconstructReferenceRenames Verb = "ops.audit_reconstruct_reference_renames"
 	// VerbOpsInspectRead records a node inspection read.
 	VerbOpsInspectRead Verb = "ops.inspect_read"
 	// VerbOpsInspectFind records an inspection lookup.
