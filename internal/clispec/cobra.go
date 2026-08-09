@@ -1,6 +1,7 @@
 package clispec
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -88,7 +89,11 @@ func (op Operation[I]) cobraCommand(f *cli.Factory) *cobra.Command {
 		for _, apply := range applies {
 			apply(&in)
 		}
-		return op.Run(cmd.Context(), in, NewCLISink(f))
+		ctx := withDryRunOutput(cmd.Context(), f.Out)
+		return runAudited(ctx, op.auditSpec(), f.OperatorIdentitySource(), f.Execute(), f.AuditOutbox(),
+			func(ctx context.Context) error {
+				return op.Run(ctx, in, NewCLISink(f))
+			})
 	}
 	return cmd
 }

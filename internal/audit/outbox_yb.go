@@ -7,6 +7,7 @@ import (
 	"log/slog"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -28,6 +29,57 @@ type PoolOutbox struct {
 // NewPoolOutbox returns a YugabyteDB outbox accessor over pool.
 func NewPoolOutbox(pool *pgxpool.Pool) *PoolOutbox {
 	return &PoolOutbox{pool: pool}
+}
+
+// WriteOutbox writes event to the YugabyteDB operator outbox on its own
+// connection, committing by itself.
+//
+// It is deliberately outside any caller's transaction, despite what this
+// type's own comment says about a command writing its event alongside its
+// work. That coupling is what WriteOutboxTx offers, and only a command that
+// already owns a transaction can take it. The choke-point uses this method,
+// because it records an intent before the command runs and an outcome after,
+// and neither row may be rolled back by whatever happens in between.
+func (o *PoolOutbox) WriteOutbox(ctx context.Context, event Event) error {
+	eventJSON, err := marshalOutboxEvent(ctx, event)
+	if err != nil {
+		return err
+	}
+	_, err = o.pool.Exec(ctx, `
+		INSERT INTO public.ops_outbox (event_id, event)
+		VALUES ($1, $2)
+	`, event.EventID, eventJSON)
+	if err != nil {
+		slog.ErrorContext(ctx, "audit.outbox.write_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("write ops outbox event %s: %w", event.EventID, err)
+	}
+	return nil
+}
+
+// WriteOutboxTx writes event to the YugabyteDB operator outbox in tx.
+func (o *PoolOutbox) WriteOutboxTx(ctx context.Context, tx pgx.Tx, event Event) error {
+	eventJSON, err := marshalOutboxEvent(ctx, event)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `
+		INSERT INTO public.ops_outbox (event_id, event)
+		VALUES ($1, $2)
+	`, event.EventID, eventJSON)
+	if err != nil {
+		slog.ErrorContext(ctx, "audit.outbox.write_tx_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("write ops outbox event %s in transaction: %w", event.EventID, err)
+	}
+	return nil
+}
+
+func marshalOutboxEvent(ctx context.Context, event Event) ([]byte, error) {
+	eventJSON, err := json.Marshal(event)
+	if err != nil {
+		slog.ErrorContext(ctx, "audit.outbox.event_encode_failed", slog.String("err", err.Error()))
+		return nil, fmt.Errorf("encode ops outbox event: %w", err)
+	}
+	return eventJSON, nil
 }
 
 // ReadBatch reads up to limit events in creation order.
