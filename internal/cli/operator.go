@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -37,9 +38,23 @@ func (s FlagOperatorSource) Resolve(ctx context.Context) (audit.OperatorPrincipa
 			slog.String("operator_id", operatorID), slog.String("err", err.Error()))
 		return audit.OperatorPrincipal{}, fmt.Errorf("parse operator-id %q: %w", operatorID, err)
 	}
+	// The all-zeros UUID parses cleanly and names nobody. Recording it would
+	// put a row in the ledger with no attributable actor, which is the one
+	// thing an operator identity exists to prevent.
+	if id == uuid.Nil {
+		err := errors.New("operator-id is the nil UUID, which identifies nobody")
+		slog.ErrorContext(ctx, "operator.flag.id_nil", slog.String("err", err.Error()))
+		return audit.OperatorPrincipal{}, err
+	}
+	trimmedEmail := strings.TrimSpace(email)
+	if trimmedEmail == "" {
+		err := errors.New("operator-email is required alongside operator-id")
+		slog.ErrorContext(ctx, "operator.flag.email_missing", slog.String("err", err.Error()))
+		return audit.OperatorPrincipal{}, err
+	}
 	return audit.OperatorPrincipal{
 		ID:     id,
-		Email:  strings.TrimSpace(email),
+		Email:  trimmedEmail,
 		Name:   strings.TrimSpace(name),
 		Source: "flag",
 	}, nil

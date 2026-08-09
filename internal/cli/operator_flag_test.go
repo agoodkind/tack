@@ -49,7 +49,8 @@ func TestNewOperatorSourcePrefersFlags(t *testing.T) {
 	t.Setenv("GIT_CONFIG_GLOBAL", "")
 	writeGitConfig(t, filepath.Join(home, ".gitconfig"), "Git User", "git@example.com")
 	operatorID := uuid.New().String()
-	factory := &Factory{operatorID: &operatorID}
+	operatorEmail := "flag@example.com"
+	factory := &Factory{operatorID: &operatorID, operatorEmail: &operatorEmail}
 
 	principal, err := NewOperatorSource(factory).Resolve(context.Background())
 	if err != nil {
@@ -57,6 +58,51 @@ func TestNewOperatorSourcePrefersFlags(t *testing.T) {
 	}
 	if principal.Source != "flag" || principal.ID.String() != operatorID {
 		t.Fatalf("principal = %+v", principal)
+	}
+}
+
+// TestFlagOperatorSourceRejectsUnattributableIdentity pins that an operator
+// cannot assert an identity naming nobody. Both of these parse cleanly and
+// would otherwise land in the ledger as an unattributable audit row.
+func TestFlagOperatorSourceRejectsUnattributableIdentity(t *testing.T) {
+	cases := []struct {
+		name       string
+		operatorID string
+		email      string
+		want       string
+	}{
+		{
+			name:       "nil uuid",
+			operatorID: "00000000-0000-0000-0000-000000000000",
+			email:      "ops@goodkind.io",
+			want:       "identifies nobody",
+		},
+		{
+			name:       "no email",
+			operatorID: "019dd222-440e-729a-a442-281aaf73ca30",
+			email:      "",
+			want:       "operator-email is required",
+		},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			factory := &Factory{Cfg: nil, In: nil, Out: nil, Err: nil}
+			root := &cobra.Command{Use: "tack"}
+			factory.RegisterGlobalFlags(root)
+			if err := root.ParseFlags([]string{
+				"--operator-id", testCase.operatorID,
+				"--operator-email", testCase.email,
+			}); err != nil {
+				t.Fatalf("parse flags: %v", err)
+			}
+			_, err := FlagOperatorSource{Factory: factory}.Resolve(t.Context())
+			if err == nil {
+				t.Fatal("identity accepted, want it refused")
+			}
+			if !strings.Contains(err.Error(), testCase.want) {
+				t.Fatalf("error = %v, want it to mention %q", err, testCase.want)
+			}
+		})
 	}
 }
 
