@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/spf13/cobra"
 
@@ -43,6 +45,7 @@ func buildRoot(f *cli.Factory) *cobra.Command {
 	f.RegisterGlobalFlags(root)
 	f.SetOperatorIdentitySource(cli.NewOperatorSource(f))
 	configureAuditOutbox(f)
+	configureAuditInfrastructureProbe(f)
 	clispec.AttachAudit(root, f, serve.Audit, func(ctx context.Context) error {
 		return runServer(ctx, f.Cfg)
 	})
@@ -57,6 +60,35 @@ func buildRoot(f *cli.Factory) *cobra.Command {
 		root.AddCommand(command)
 	}
 	return root
+}
+
+const auditInfrastructureProbeTimeout = 5 * time.Second
+
+func configureAuditInfrastructureProbe(f *cli.Factory) {
+	databaseURL := f.Cfg.DatabaseURL
+	f.SetAuditInfrastructureProbe(func(ctx context.Context) (audit.InfrastructureState, error) {
+		probeContext, cancel := context.WithTimeout(ctx, auditInfrastructureProbeTimeout)
+		defer cancel()
+
+		connection, err := pgx.Connect(probeContext, databaseURL)
+		if err != nil {
+			slog.ErrorContext(probeContext, "audit.infrastructure_probe_connect_failed",
+				slog.String("err", err.Error()))
+			return audit.InfrastructureState{}, fmt.Errorf("connect audit infrastructure probe: %w", err)
+		}
+		defer func() { connection.Close(probeContext) }()
+
+		var infrastructure audit.InfrastructureState
+		if err := connection.QueryRow(
+			probeContext,
+			"SELECT to_regclass('public.ops_outbox') IS NOT NULL, EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'tack_audit_operator')",
+		).Scan(&infrastructure.OutboxTableExists, &infrastructure.OperatorLoginExists); err != nil {
+			slog.ErrorContext(probeContext, "audit.infrastructure_probe_query_failed",
+				slog.String("err", err.Error()))
+			return audit.InfrastructureState{}, fmt.Errorf("query audit infrastructure probe: %w", err)
+		}
+		return infrastructure, nil
+	})
 }
 
 func configureAuditOutbox(f *cli.Factory) {

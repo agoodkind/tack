@@ -131,7 +131,7 @@ func TestReferenceRenameBackfillRecordsCommandAndReconstructedEvents(t *testing.
 	outbox := &auditBackfillTestOutbox{}
 	reader := referenceRenameTestReader{resolution: &node.NodeResolve{OrgID: uuid.MustParse("019ff30f-1b51-7b34-a20f-2f61b652b86e"), NodeType: "issue"}}
 	principal := audit.OperatorPrincipal{ID: uuid.MustParse("019ff315-bc5d-7a56-b12a-1a35f280c4dd"), Email: "operator@example.com", Name: "Operator User", Source: "test"}
-	err := clispec.RunAudited(context.Background(), bytes.NewBuffer(nil), audit.Spec{Verb: string(audit.VerbOpsAuditReconstructReferenceRenames), Mutates: true}, auditBackfillTestSource{}, true, outbox, func(ctx context.Context) error {
+	err := clispec.RunAudited(context.Background(), bytes.NewBuffer(nil), audit.Spec{Verb: string(audit.VerbOpsAuditReconstructReferenceRenames), Mutates: true}, auditBackfillTestSource{}, true, outbox, nil, func(ctx context.Context) error {
 		return recordReferenceRenameEvidence(ctx, outbox, reader, principal, time.Date(2026, time.August, 8, 20, 30, 0, 0, time.UTC))
 	})
 	if err != nil {

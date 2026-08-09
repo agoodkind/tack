@@ -29,14 +29,15 @@ type Factory struct {
 	Out io.Writer
 	Err io.Writer
 
-	output            *string
-	operatorID        *string                      `exhaustruct:"optional"`
-	operatorEmail     *string                      `exhaustruct:"optional"`
-	operatorName      *string                      `exhaustruct:"optional"`
-	execute           *bool                        `exhaustruct:"optional"`
-	operatorSource    audit.OperatorIdentitySource `exhaustruct:"optional"`
-	auditOutbox       audit.OutboxWriter           `exhaustruct:"optional"`
-	auditOutboxCloser auditOutboxCloser            `exhaustruct:"optional"`
+	output                   *string
+	operatorID               *string                      `exhaustruct:"optional"`
+	operatorEmail            *string                      `exhaustruct:"optional"`
+	operatorName             *string                      `exhaustruct:"optional"`
+	execute                  *bool                        `exhaustruct:"optional"`
+	operatorSource           audit.OperatorIdentitySource `exhaustruct:"optional"`
+	auditOutbox              audit.OutboxWriter           `exhaustruct:"optional"`
+	auditOutboxCloser        auditOutboxCloser            `exhaustruct:"optional"`
+	auditInfrastructureProbe audit.InfrastructureProbe    `exhaustruct:"optional"`
 }
 
 type auditOutboxCloser interface {
@@ -90,6 +91,18 @@ func (f *Factory) SetAuditOutbox(outbox audit.OutboxWriter) {
 // AuditOutbox returns the outbox used by audited commands.
 func (f *Factory) AuditOutbox() audit.OutboxWriter {
 	return f.auditOutbox
+}
+
+// SetAuditInfrastructureProbe stores the infrastructure probe used only when a
+// command creates its own audit infrastructure.
+func (f *Factory) SetAuditInfrastructureProbe(probe audit.InfrastructureProbe) {
+	f.auditInfrastructureProbe = probe
+}
+
+// AuditInfrastructureProbe returns the infrastructure probe for a command that
+// creates its own audit infrastructure.
+func (f *Factory) AuditInfrastructureProbe() audit.InfrastructureProbe {
+	return f.auditInfrastructureProbe
 }
 
 // CloseAuditOutbox releases the database pool used by audited commands.

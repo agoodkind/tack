@@ -30,9 +30,31 @@ type Spec struct {
 	Mutates bool `exhaustruct:"optional"`
 	Atomic  bool `exhaustruct:"optional"`
 	Reads   bool `exhaustruct:"optional"`
+	// CreatesAuditInfrastructure defers recording when the outbox table or
+	// operator login is absent, or when database authentication prevents the
+	// first intent write after both exist. It never skips recording: the gate
+	// writes intent and outcome after the infrastructure command returns. The
+	// authentication case is safe because the only in-band repair for a
+	// credential mismatch is the seed-roles step inside this command, and both
+	// rows land after it, so nothing goes unaudited. The operator role can drop
+	// neither object. Only a superuser can manufacture either absence, and an
+	// absent login proves no operator command has ever recorded.
+	CreatesAuditInfrastructure bool `exhaustruct:"optional"`
 }
 
-// OutboxWriter durably writes an operator event before its command proceeds.
+// InfrastructureState reports the audit infrastructure the operator gate needs.
+type InfrastructureState struct {
+	// OutboxTableExists reports whether public.ops_outbox exists.
+	OutboxTableExists bool
+	// OperatorLoginExists reports whether tack_audit_operator exists.
+	OperatorLoginExists bool
+}
+
+// InfrastructureProbe reports the audit infrastructure state before a command
+// that creates it runs.
+type InfrastructureProbe func(context.Context) (InfrastructureState, error)
+
+// OutboxWriter durably writes an operator event.
 type OutboxWriter interface {
 	WriteOutbox(ctx context.Context, event Event) error
 }

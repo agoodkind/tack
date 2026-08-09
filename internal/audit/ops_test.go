@@ -31,7 +31,7 @@ func TestSpecZeroValueHasNoClaims(t *testing.T) {
 	if spec.Verb != "" {
 		t.Fatalf("zero Spec verb = %q, want empty", spec.Verb)
 	}
-	if spec.Mutates || spec.Atomic || spec.Reads {
+	if spec.Mutates || spec.Atomic || spec.Reads || spec.CreatesAuditInfrastructure {
 		t.Fatal("zero Spec must not claim any behavior flags")
 	}
 }

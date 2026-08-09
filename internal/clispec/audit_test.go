@@ -27,17 +27,17 @@ func (s auditTestSource) Resolve(context.Context) (audit.OperatorPrincipal, erro
 // the table rejects the second row, so a pair of rows sharing an id loses the
 // outcome.
 type auditTestOutbox struct {
-	events  []audit.Event
-	seen    map[uuid.UUID]bool
-	failAt  int
-	callNum int
+	events      []audit.Event
+	seen        map[uuid.UUID]bool
+	writeErrors []error
+	callNum     int
 }
 
 func (o *auditTestOutbox) WriteOutbox(_ context.Context, event audit.Event) error {
 	callNum := o.callNum
 	o.callNum++
-	if o.failAt >= 0 && callNum == o.failAt {
-		return errors.New("outbox write failed")
+	if callNum < len(o.writeErrors) && o.writeErrors[callNum] != nil {
+		return fmt.Errorf("write test outbox: %w", o.writeErrors[callNum])
 	}
 	if o.seen == nil {
 		o.seen = map[uuid.UUID]bool{}
@@ -70,42 +70,49 @@ func testOperatorSource() audit.OperatorIdentitySource {
 }
 
 func TestRunAuditedMutationRecordsIntentThenOutcome(t *testing.T) {
-	outbox := &auditTestOutbox{failAt: -1}
-	runCount := 0
-	err := runAudited(
-		context.Background(),
-		audit.Spec{Verb: "ops.test", Mutates: true},
-		testOperatorSource(),
-		true,
-		outbox,
-		func(context.Context) error {
-			runCount++
-			return nil
-		},
-	)
-	if err != nil {
-		t.Fatalf("runAudited: %v", err)
-	}
-	if runCount != 1 {
-		t.Fatalf("run count = %d, want 1", runCount)
-	}
-	if len(outbox.events) != 2 {
-		t.Fatalf("outbox events = %d, want 2", len(outbox.events))
-	}
-	if outbox.events[0].Outcome != audit.OutcomePending {
-		t.Fatalf("intent outcome = %q, want %q", outbox.events[0].Outcome, audit.OutcomePending)
-	}
-	if outbox.events[1].Outcome != audit.OutcomeOK {
-		t.Fatalf("result outcome = %q, want %q", outbox.events[1].Outcome, audit.OutcomeOK)
-	}
-	if opIDOf(t, outbox.events[0]) != opIDOf(t, outbox.events[1]) {
-		t.Fatalf("operation ids differ: %s and %s",
-			opIDOf(t, outbox.events[0]), opIDOf(t, outbox.events[1]))
-	}
-	// The pair shares an operation id and must not share an event id: the
-	// outbox keys on event id, so a shared one loses the outcome row.
-	if outbox.events[0].EventID == outbox.events[1].EventID {
-		t.Fatalf("intent and outcome share event id %s", outbox.events[0].EventID)
+	for _, createsInfrastructure := range []bool{false, true} {
+		t.Run(fmt.Sprintf("creates infrastructure %t", createsInfrastructure), func(t *testing.T) {
+			outbox := &auditTestOutbox{}
+			runCount := 0
+			err := runAudited(
+				context.Background(),
+				audit.Spec{
+					Verb:                       "ops.test",
+					Mutates:                    true,
+					CreatesAuditInfrastructure: createsInfrastructure,
+				},
+				testOperatorSource(),
+				true,
+				outbox,
+				nil,
+				func(context.Context) error {
+					runCount++
+					return nil
+				},
+			)
+			if err != nil {
+				t.Fatalf("runAudited: %v", err)
+			}
+			if runCount != 1 {
+				t.Fatalf("run count = %d, want 1", runCount)
+			}
+			if len(outbox.events) != 2 {
+				t.Fatalf("outbox events = %d, want 2", len(outbox.events))
+			}
+			if outbox.events[0].Outcome != audit.OutcomePending {
+				t.Fatalf("intent outcome = %q, want %q", outbox.events[0].Outcome, audit.OutcomePending)
+			}
+			if outbox.events[1].Outcome != audit.OutcomeOK {
+				t.Fatalf("result outcome = %q, want %q", outbox.events[1].Outcome, audit.OutcomeOK)
+			}
+			if opIDOf(t, outbox.events[0]) != opIDOf(t, outbox.events[1]) {
+				t.Fatalf("operation ids differ: %s and %s",
+					opIDOf(t, outbox.events[0]), opIDOf(t, outbox.events[1]))
+			}
+			if outbox.events[0].EventID == outbox.events[1].EventID {
+				t.Fatalf("intent and outcome share event id %s", outbox.events[0].EventID)
+			}
+		})
 	}
 }
 
@@ -114,13 +121,14 @@ func TestRunAuditedMutationRecordsIntentThenOutcome(t *testing.T) {
 // share an event id, the second insert is rejected, and the command reports a
 // failure while the ledger keeps only a pending intent.
 func TestRunAuditedMutationOutcomeSurvivesOutboxKey(t *testing.T) {
-	outbox := &auditTestOutbox{failAt: -1, seen: map[uuid.UUID]bool{}}
+	outbox := &auditTestOutbox{seen: map[uuid.UUID]bool{}}
 	err := runAudited(
 		context.Background(),
 		audit.Spec{Verb: "ops.test.keyed", Mutates: true},
 		testOperatorSource(),
 		true,
 		outbox,
+		nil,
 		func(context.Context) error { return nil },
 	)
 	if err != nil {
@@ -132,7 +140,7 @@ func TestRunAuditedMutationOutcomeSurvivesOutboxKey(t *testing.T) {
 }
 
 func TestRunAuditedMutationIntentFailureNeverRuns(t *testing.T) {
-	outbox := &auditTestOutbox{failAt: 0}
+	outbox := &auditTestOutbox{writeErrors: []error{errors.New("outbox write failed")}}
 	runCount := 0
 	err := runAudited(
 		context.Background(),
@@ -140,6 +148,7 @@ func TestRunAuditedMutationIntentFailureNeverRuns(t *testing.T) {
 		testOperatorSource(),
 		true,
 		outbox,
+		nil,
 		func(context.Context) error {
 			runCount++
 			return nil
@@ -168,7 +177,8 @@ func TestRunAuditedAtomicIsRejectedUntilSupported(t *testing.T) {
 		audit.Spec{Verb: "ops.atomic", Mutates: true, Atomic: true},
 		testOperatorSource(),
 		true,
-		&auditTestOutbox{failAt: -1},
+		&auditTestOutbox{},
+		nil,
 		func(context.Context) error {
 			runCount++
 			return nil
