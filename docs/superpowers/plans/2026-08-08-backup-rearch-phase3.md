@@ -61,12 +61,24 @@ other. Announcing an address instead would bake a value that can move into
 the catalog, which is the wedge class the single-node name was chosen to
 prevent.
 
-Each node announces its own permanent name: `yb1`, `yb2`, or `yb3`. Every
-ledger container carries all three names in its own hosts file, mapped to
-the owning data guests' pinned addresses, which compose writes from values
-the rendered environment file supplies. The same names serve both
-environments, because each environment supplies its own addresses. Publish
-the ports peer nodes and clients need.
+Each node announces its own permanent name: `yb1`, `yb2`, or `yb3`.
+
+The startup script refuses to start when the bound address and the announced
+address differ, so a node binds exactly what it announces. The name a node
+announces must therefore resolve, inside that container, to an address the
+container can bind.
+
+Each name resolves differently depending on which container asks. A node's
+own name resolves to its own container address, which the container runtime
+maps automatically once the container carries that name. The other two names
+resolve to the peer guests' pinned addresses, written into the container's
+own hosts file from values the rendered environment file supplies. Publish
+the node ports peers need to reach.
+
+Giving the ledger container the guest's own network would also let it bind
+the guest address, and is rejected: it breaks the isolated address-per-guest
+bridge these services run on, and exposes every node port on the guest
+rather than only the ones peers need.
 
 A container does not inherit the guest's name resolution, measured on the
 testbed: a name added to a guest's hosts file resolved on that guest and
