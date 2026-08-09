@@ -8,6 +8,7 @@ import (
 
 	mcpmcp "github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/service"
@@ -126,6 +127,18 @@ func referencePropertyHandler(nt *node.NodeType, def *node.PropertyDef, alias st
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
+		rc := newRenderCtxWithTypes(ctx, b.Reader, b.Users, b.Resolver.typeIndex)
+		// Stamped before the write, like the generic update handler, so a
+		// failed attempt still records which node it targeted. A setter is a
+		// mutation on one named node; leaving the carrier empty here would
+		// record the change against the zero uuid.
+		audit.SetAuditEntity(ctx, audit.Entity{
+			Type:       "node",
+			NodeType:   existing.NodeType,
+			ID:         existing.ID,
+			Identifier: identifierFor(existing, rc),
+			Name:       existing.Name,
+		})
 		props, err := normalizeUpdateProps(ctx, b, nt, existing, map[string]json.RawMessage{def.Name: mustRawString(valueRef)})
 		if err != nil {
 			return classifyError(ctx, err), nil
@@ -140,7 +153,6 @@ func referencePropertyHandler(nt *node.NodeType, def *node.PropertyDef, alias st
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
-		rc := newRenderCtxWithTypes(ctx, b.Reader, b.Users, b.Resolver.typeIndex)
 		return successText(renderNode(rc, view), ""), nil
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	mcpmcp "github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/service"
 )
@@ -65,11 +66,11 @@ func listHandler(nt *node.NodeType, route scopeRoute, b NodeTypeBinding) mcpserv
 	}
 }
 
-// parseCreateProps converts the properties argument to raw JSON, tolerating
+// parseToolProps converts the properties argument to raw JSON, tolerating
 // payloads sent as a stringified JSON blob (see TACK-161). A parse failure
 // maps to the client-facing error result so the handler returns a nil Go
 // error, per the MCP handler contract.
-func parseCreateProps(raw json.RawMessage) (map[string]json.RawMessage, *mcpmcp.CallToolResult) {
+func parseToolProps(raw json.RawMessage) (map[string]json.RawMessage, *mcpmcp.CallToolResult) {
 	rawProps, err := parseProps(raw)
 	if err != nil {
 		return nil, recoverableError("invalid properties payload: " + err.Error())
@@ -108,7 +109,7 @@ func createHandler(nt *node.NodeType, route scopeRoute, b NodeTypeBinding) mcpse
 			scopeID = parent.ID
 		}
 
-		rawProps, propsResult := parseCreateProps(args["properties"])
+		rawProps, propsResult := parseToolProps(args["properties"])
 		if propsResult != nil {
 			return propsResult, nil
 		}
@@ -152,6 +153,13 @@ func createHandler(nt *node.NodeType, route scopeRoute, b NodeTypeBinding) mcpse
 			instr = "This create matched an existing operation. No new write was performed."
 		}
 		rc := newRenderCtxWithTypes(ctx, b.Reader, b.Users, b.Resolver.typeIndex)
+		audit.SetAuditEntity(ctx, audit.Entity{
+			Type:       "node",
+			NodeType:   result.View.NodeType,
+			ID:         result.View.ID,
+			Identifier: identifierFor(result.View, rc),
+			Name:       result.View.Name,
+		})
 		return successText(renderNode(rc, result.View), instr), nil
 	}
 }
