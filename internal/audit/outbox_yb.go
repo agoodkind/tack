@@ -89,12 +89,15 @@ func marshalOutboxEvent(ctx context.Context, event Event) ([]byte, error) {
 	return eventJSON, nil
 }
 
-// ReadBatch reads up to limit events in creation order.
+// ReadBatch reads up to limit events in creation order. The event id breaks
+// ties: now() is stable within a transaction, so two rows can share a
+// creation time, and without the tie-break the drain order would vary between
+// runs over the same data.
 func (o *PoolOutbox) ReadBatch(ctx context.Context, limit int) ([]OutboxRow, error) {
 	rows, err := o.pool.Query(ctx, `
 		SELECT event_id, event
 		  FROM public.ops_outbox
-		 ORDER BY created_at ASC
+		 ORDER BY created_at ASC, event_id ASC
 		 LIMIT $1
 	`, limit)
 	if err != nil {

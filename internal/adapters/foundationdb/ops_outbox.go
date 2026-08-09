@@ -1,6 +1,7 @@
 package foundationdb
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -51,6 +52,9 @@ func (s *OpsOutboxStore) ReadOutboxFrom(
 	}
 	begin := fdb.FirstGreaterOrEqual(outboxRange.Begin)
 	if len(mark) > 0 {
+		if err := checkOutboxMark(ctx, mark); err != nil {
+			return nil, err
+		}
 		begin = fdb.FirstGreaterThan(fdb.Key(mark))
 	}
 	readRange := fdb.SelectorRange{Begin: begin, End: fdb.FirstGreaterOrEqual(outboxRange.End)}
@@ -108,6 +112,13 @@ func (s *OpsOutboxStore) ClearThrough(ctx context.Context, mark []byte) (err err
 	if len(mark) == 0 {
 		return nil
 	}
+	// A mark that is not an outbox key would make the cleared range run past
+	// the outbox and destroy unrelated key families. The relay's mark comes
+	// from a previous read, so a bad one means corrupted state, and refusing
+	// costs one undelivered batch while proceeding costs other people's data.
+	if err := checkOutboxMark(ctx, mark); err != nil {
+		return err
+	}
 
 	// Strinc gives the first key after mark, which makes the exclusive end of
 	// the cleared range include mark itself.
@@ -146,4 +157,20 @@ func (s *OpsOutboxStore) ClearThrough(ctx context.Context, mark []byte) (err err
 			return fmt.Errorf("retry clear ops outbox through mark: %w", retryErr)
 		}
 	}
+}
+
+// checkOutboxMark rejects a mark that does not lie inside the outbox key
+// family. Both callers use the mark to bound a range, and ClearThrough
+// deletes that range, so an out-of-family mark is the difference between
+// clearing delivered events and deleting product data.
+func checkOutboxMark(ctx context.Context, mark []byte) error {
+	if bytes.HasPrefix(mark, opsOutboxPrefix()) {
+		return nil
+	}
+	err := fmt.Errorf("ops outbox mark is outside the outbox key family")
+	slog.ErrorContext(ctx, "ops_outbox.mark_out_of_family",
+		slog.Int("mark_len", len(mark)),
+		slog.String("err", err.Error()),
+	)
+	return err
 }
