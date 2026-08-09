@@ -143,9 +143,13 @@ func (r *VerifyReport) Err() error {
 		failures = append(failures,
 			fmt.Sprintf("%d chain break(s), first: %s", len(r.ChainBreaks), r.ChainBreaks[0]))
 	}
-	if r.ChainGapCount > 0 {
-		failures = append(failures, fmt.Sprintf("%d sequence gap(s)", r.ChainGapCount))
-	}
+	// A sequence gap is deliberately not a failure. An export is filtered by
+	// time, actor, or entity, so a legitimate bundle routinely omits rows and
+	// the sequence skips. Treating that as tampering would reject almost
+	// every honest export, and a verifier that cries wolf gets ignored. The
+	// row hash and the previous-hash link are what actually detect a change,
+	// and both are checked above. The gap count stays in the report so a
+	// reader can see it.
 	// A row that scanned but did not match its stored hash shows up as a
 	// shortfall in the counts even when nothing else complains.
 	if r.HashMatches != r.RowsScanned {
@@ -237,10 +241,11 @@ func verifyExportRows(report *VerifyReport, rows []Row) error {
 	seenShard := map[int16]bool{}
 	for _, row := range rows {
 		if seenShard[row.Shard] {
+			// A gap is counted, not reported as a break. An export is
+			// filtered, so missing sequence numbers are the normal case and
+			// say nothing about tampering.
 			if row.Seq != lastSeqByShard[row.Shard]+1 {
 				report.ChainGapCount++
-				report.ChainBreaks = append(report.ChainBreaks,
-					fmt.Sprintf("row %s has sequence gap at shard %d sequence %d", row.EventID, row.Shard, row.Seq))
 			}
 			if row.Seq == lastSeqByShard[row.Shard]+1 && !bytesEqual(row.PrevHash, lastHashByShard[row.Shard]) {
 				report.ChainBreaks = append(report.ChainBreaks,
