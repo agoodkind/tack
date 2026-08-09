@@ -1,10 +1,22 @@
 # Builds the audit-consumer image: the single writer of audit.events and the
-# ClickHouse projection. It tails Kafka and writes Yugabyte and ClickHouse, and
-# touches no FoundationDB, so it needs neither the FDB C client nor CGO and
-# stays a small static binary on debian-slim, separate from the server image.
+# ClickHouse projection. It tails Kafka, writes Yugabyte and ClickHouse, and
+# drains the operator-command outboxes, one of which lives in FoundationDB. The
+# FoundationDB Go bindings are a CGO wrapper over the C client, so this image
+# installs that client and builds with CGO enabled, the same way the server
+# image does.
+
+ARG FDB_VERSION=7.4.6
 
 # ── builder ───────────────────────────────────────────────────────────────────
 FROM golang:1.26-bookworm AS builder
+ARG FDB_VERSION
+
+# The FDB C client is required by the CGO bindings at link time.
+RUN curl -fsSL \
+    https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-clients_${FDB_VERSION}-1_amd64.deb \
+    -o /tmp/fdb-clients.deb \
+    && dpkg -i /tmp/fdb-clients.deb \
+    && rm /tmp/fdb-clients.deb
 
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -15,7 +27,7 @@ ARG COMMIT=unknown
 ARG BUILD_TIME=unknown
 ARG TAG=dev
 ARG DIRTY=false
-RUN CGO_ENABLED=0 go build -trimpath \
+RUN CGO_ENABLED=1 go build -tags fdb -trimpath \
     -ldflags="-s -w \
         -X goodkind.io/tack/internal/version.commit=${COMMIT} \
         -X goodkind.io/tack/internal/version.buildTime=${BUILD_TIME} \
@@ -28,8 +40,15 @@ RUN CGO_ENABLED=0 go build -trimpath \
 
 # ── runtime ───────────────────────────────────────────────────────────────────
 FROM debian:bookworm-slim AS runtime
+ARG FDB_VERSION
 
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
+    && curl -fsSL \
+       https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-clients_${FDB_VERSION}-1_amd64.deb \
+       -o /tmp/fdb-clients.deb \
+    && dpkg -i /tmp/fdb-clients.deb \
+    && rm /tmp/fdb-clients.deb \
+    && apt-get remove -y curl && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /bin/audit-consumer /usr/local/bin/audit-consumer

@@ -393,6 +393,7 @@ services:
       AUDIT_CONSUMER_YUGABYTE_DSN: ${AUDIT_WRITER_DSN}
       AUDIT_CONSUMER_CLICKHOUSE_DSN: ${AUDIT_CONSUMER_CLICKHOUSE_DSN:-clickhouse://default:@clickhouse:9000/audit}
       AUDIT_CONSUMER_SIGNING_KEY_PATH: ${AUDIT_CONSUMER_SIGNING_KEY_PATH:-/etc/tack/audit-signing.pem}
+      FDB_CLUSTER_FILE: /etc/foundationdb/fdb.cluster
       LOG_LEVEL: ${LOG_LEVEL:-debug}
       LOG_JSON_FILE: /var/log/tack/audit-consumer.jsonl
       LOG_TEXT_FILE: /var/log/tack/audit-consumer.log
@@ -402,6 +403,7 @@ services:
     volumes:
       - tack-logs:/var/log/tack
       - /etc/tack:/etc/tack:ro
+      - /etc/foundationdb:/etc/foundationdb:ro
     depends_on:
       kafka:
         condition: service_started
