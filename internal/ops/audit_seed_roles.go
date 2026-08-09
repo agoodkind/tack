@@ -107,12 +107,49 @@ func upsertAuditLoginRole(ctx context.Context, pool *pgxpool.Pool, role auditLog
 		return fmt.Errorf("audit seed-roles: upsert %s: %w", role.login, err)
 	}
 
+	// Seeding decides what a login role may do, so it must also decide what
+	// it may no longer do. Membership granted by an earlier seed, or by hand,
+	// otherwise survives and combines with INHERIT: an operator role that once
+	// held audit_writer would keep the delete right that lets it erase its own
+	// pending audit event. Revoking the others first makes each seed
+	// authoritative rather than additive.
+	if err := revokeOtherAuditBases(ctx, pool, role); err != nil {
+		return err
+	}
+
 	grantStmt := fmt.Sprintf("GRANT %s TO %s", role.base, role.login)
 	if _, err := pool.Exec(ctx, grantStmt); err != nil {
 		slog.ErrorContext(ctx, "audit.seed_roles.grant_failed",
 			slog.String("login_role", role.login), slog.String("base_role", role.base),
 			slog.String("err", err.Error()))
 		return fmt.Errorf("audit seed-roles: grant %s to %s: %w", role.base, role.login, err)
+	}
+	return nil
+}
+
+// auditBaseRoles is every base role the audit surface defines. A login role
+// gets exactly one of them, and this list is what the others are revoked from.
+var auditBaseRoles = []string{
+	"audit_writer",
+	"audit_reader",
+	"audit_redactor",
+	"audit_operator",
+}
+
+// revokeOtherAuditBases strips every audit base role except the one this login
+// role is supposed to hold.
+func revokeOtherAuditBases(ctx context.Context, pool *pgxpool.Pool, role auditLoginRole) error {
+	for _, base := range auditBaseRoles {
+		if base == role.base {
+			continue
+		}
+		revokeStmt := fmt.Sprintf("REVOKE %s FROM %s", base, role.login)
+		if _, err := pool.Exec(ctx, revokeStmt); err != nil {
+			slog.ErrorContext(ctx, "audit.seed_roles.revoke_failed",
+				slog.String("login_role", role.login), slog.String("base_role", base),
+				slog.String("err", err.Error()))
+			return fmt.Errorf("audit seed-roles: revoke %s from %s: %w", base, role.login, err)
+		}
 	}
 	return nil
 }
