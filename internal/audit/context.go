@@ -9,10 +9,7 @@ import (
 	"goodkind.io/tack/internal/clock"
 )
 
-type (
-	suppressKey struct{}
-	scopeKey    struct{}
-)
+type scopeKey struct{}
 
 // Scope is the audit-scope tuple a request resolves to before the audit
 // row is emitted. Stored on the context as a pointer so resolvers running
@@ -75,34 +72,15 @@ func ScopeFromContext(ctx context.Context) Scope {
 	return *cur
 }
 
-// WithSuppressed marks ctx so any Record call routed through SuppressIfNeeded
-// becomes a no-op. Used for seed and other internal automation that should
-// not emit audit events.
-func WithSuppressed(ctx context.Context) context.Context {
-	return context.WithValue(ctx, suppressKey{}, true)
-}
-
-// IsSuppressed reports whether ctx was produced by WithSuppressed.
-func IsSuppressed(ctx context.Context) bool {
-	v, _ := ctx.Value(suppressKey{}).(bool)
-	return v
-}
-
-// SuppressingRecorder wraps a Recorder so any Record call on a suppressed
-// context returns nil without writing. Wrap the production Recorder with
-// this once at startup; callers (seed, internal jobs) only need to set the
-// suppression marker on their context.
-type SuppressingRecorder struct{ Inner Recorder }
-
-// Record skips writes when ctx has the suppression marker. It also assigns
-// the canonical EventID and OccurredAt when unset, because the producer owns
+// CanonicalRecorder wraps a Recorder and assigns the canonical EventID and
+// OccurredAt when they are unset, because the producer owns
 // both. The Kafka producer keys the partition by the shard derived from
 // EventID, and the chain hashes over OccurredAt, so both must be fixed before
 // any backend marshals or shards the event.
-func (s SuppressingRecorder) Record(ctx context.Context, ev Event) error {
-	if IsSuppressed(ctx) {
-		return nil
-	}
+type CanonicalRecorder struct{ Inner Recorder }
+
+// Record assigns canonical event fields before recording the event.
+func (s CanonicalRecorder) Record(ctx context.Context, ev Event) error {
 	if ev.EventID == uuid.Nil {
 		ev.EventID = uuid.Must(uuid.NewV7())
 	}
@@ -118,7 +96,7 @@ func (s SuppressingRecorder) Record(ctx context.Context, ev Event) error {
 }
 
 // Close closes the wrapped Recorder when it supports closing.
-func (s SuppressingRecorder) Close() error {
+func (s CanonicalRecorder) Close() error {
 	switch recorder := s.Inner.(type) {
 	case interface{ Close() error }:
 		err := recorder.Close()

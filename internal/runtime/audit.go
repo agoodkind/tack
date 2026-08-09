@@ -23,8 +23,7 @@ type auditRuntime struct {
 // reader/redactor/querier used by the audit MCP tools.
 func buildAuditRuntime(ctx context.Context, cfg *config.Config) auditRuntime {
 	auditRec := buildAuditRecorder(ctx, cfg)
-	// Wrap once so internal automation can mute emission via audit.WithSuppressed.
-	auditRec = audit.SuppressingRecorder{Inner: auditRec}
+	auditRec = audit.CanonicalRecorder{Inner: auditRec}
 	mcptools.SetAuditRecorder(auditRec)
 	auth.SetAuditRecorder(auditRec)
 

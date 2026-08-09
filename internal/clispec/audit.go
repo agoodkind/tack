@@ -51,7 +51,7 @@ func runAudited(
 		return err
 	}
 
-	runContext := audit.WithOpID(ctx, opID)
+	runContext := audit.WithOperatorPrincipal(audit.WithOpID(ctx, opID), principal)
 	if outbox == nil {
 		return loggedAuditError(ctx, "record audit event", errors.New("audit outbox is nil"))
 	}
