@@ -25,6 +25,7 @@ jobs:
     secrets: inherit
     with:
       runs_on: tack
+      prepare_fetch_depth: 1
       golangci_lint_version: v2.11.4
       job_layout: single
       pre_make_commands: |
