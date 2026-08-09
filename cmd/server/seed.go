@@ -16,7 +16,6 @@ import (
 	"goodkind.io/tack/internal/clispec"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/domain"
-	"goodkind.io/tack/internal/domain/org"
 	"goodkind.io/tack/internal/domain/user"
 	"goodkind.io/tack/internal/service"
 	"goodkind.io/tack/internal/telemetry"
@@ -148,8 +147,8 @@ func execSeed(ctx context.Context, cfg *config.Config, recorder audit.Recorder) 
 		return fmt.Errorf("seed: seed org definitions: %w", err)
 	}
 
-	if err := members.AddMember(ctx, &org.Member{OrgID: orgID, UserID: u.ID, Role: 20}); err != nil && !errors.Is(err, domain.ErrAlreadyExists) {
-		log.WarnContext(ctx, "seed.add_member_failed", "err", err)
+	if err := seedMembership(ctx, members, recorder, orgID, u.ID); err != nil {
+		return err
 	}
 
 	// orgID is the parent of the workspace, so it doubles as the lookup orgID.

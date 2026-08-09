@@ -59,8 +59,6 @@ func (GitConfigOperatorSource) Resolve(ctx context.Context) (audit.OperatorPrinc
 
 // gitConfigPath returns the global config file, following git's own search
 // order: the explicit override, then the XDG location, then the home file. An
-// operator whose identity lives in the XDG file would otherwise look
-// unconfigured and every command would refuse to run.
 // readGitConfigIdentity reads every candidate that opens, in git's own order,
 // and lets a later file override an earlier one. Git reads both the XDG file
 // and the home file and takes the home file's value, so returning whichever
@@ -68,8 +66,12 @@ func (GitConfigOperatorSource) Resolve(ctx context.Context) (audit.OperatorPrinc
 // operator has an identity in each. It returns the resolved name and email
 // plus how many files were actually read.
 //
-// Each candidate is cleaned before use, so a path assembled from the
-// environment cannot climb out of the directory it names.
+// Paths are cleaned only to normalise them. Cleaning does not confine a path
+// to any directory, and nothing here sandboxes one: the candidates come from
+// the operator's own environment, and an operator who can set those variables
+// can already read those files. Saying otherwise in this comment, as an
+// earlier revision did, would invite a future change to rely on protection
+// that does not exist.
 func readGitConfigIdentity(ctx context.Context, candidates []string) (string, string, int) {
 	var name, email string
 	read := 0

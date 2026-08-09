@@ -150,12 +150,12 @@ func newOperatorEvent(
 		Entity: audit.Entity{
 			Type:       "system",
 			NodeType:   "",
-			ID:         audit.SystemOrgID,
+			ID:         audit.SystemOrgID(),
 			Identifier: "",
 			Name:       "",
 		},
 		Context: audit.EventContext{
-			OrgID:       audit.SystemOrgID,
+			OrgID:       audit.SystemOrgID(),
 			WorkspaceID: uuid.Nil,
 			ScopeID:     uuid.Nil,
 			ParentID:    uuid.Nil,

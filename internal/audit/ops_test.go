@@ -11,12 +11,17 @@ import (
 // the constant must be a fixed non-nil UUID that never changes once events
 // reference it.
 func TestSystemOrgID(t *testing.T) {
-	if SystemOrgID == uuid.Nil {
-		t.Fatal("SystemOrgID must not be uuid.Nil")
+	if SystemOrgID() == uuid.Nil {
+		t.Fatal("SystemOrgID must not be the nil UUID")
 	}
 	want := "00000000-0000-0000-0000-0000000005ee"
-	if SystemOrgID.String() != want {
-		t.Fatalf("SystemOrgID = %s, want %s", SystemOrgID, want)
+	if SystemOrgID().String() != want {
+		t.Fatalf("SystemOrgID = %s, want %s", SystemOrgID(), want)
+	}
+	// Two calls must agree. The value reaches stored rows, so a caller that
+	// could change it between calls would split one org's chain in two.
+	if SystemOrgID() != SystemOrgID() {
+		t.Fatal("SystemOrgID is not stable between calls")
 	}
 }
 
