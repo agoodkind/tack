@@ -271,12 +271,17 @@ func verifyExportRows(report *VerifyReport, rows []Row) error {
 			slog.Error("audit.export.hash_failed", slog.String("event_id", row.EventID.String()), slog.String("err", err.Error()))
 			return fmt.Errorf("verify hash row %s: %w", row.EventID, err)
 		}
-		if !bytesEqual(expected, row.RowHash) {
+		if bytesEqual(expected, row.RowHash) {
+			report.HashMatches++
+		} else {
 			report.ChainBreaks = append(report.ChainBreaks,
 				fmt.Sprintf("row %s hash mismatch", row.EventID))
-			continue
 		}
-		report.HashMatches++
+		// Tracking advances for every row, matched or not. Advancing only on
+		// a match would make the next row compare itself against a row that
+		// is not its predecessor, so one edited row would report every row
+		// after it as broken too, and a reader could not tell how much of the
+		// bundle was actually altered.
 		lastSeqByShard[row.Shard] = row.Seq
 		lastHashByShard[row.Shard] = row.RowHash
 		seenShard[row.Shard] = true
