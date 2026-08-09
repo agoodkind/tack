@@ -47,7 +47,9 @@ func TestSeedIsIdempotent(t *testing.T) {
 
 	// Re-run the seed against the same orgID. Same prefix, same orgID,
 	// same inputs everywhere.
-	env.Seeder.SeedOrg(env.Ctx, env.OrgID)
+	if err := env.Seeder.SeedOrg(env.Ctx, env.OrgID); err != nil {
+		t.Fatalf("reseed org: %v", err)
+	}
 
 	secondTypes := listNodeTypes(t, env)
 	secondProps := listPropertyDefs(t, env)

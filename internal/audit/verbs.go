@@ -22,6 +22,8 @@ const (
 	VerbOrgMemberAdd       Verb = "org.member_add"
 	VerbOrgMemberRemove    Verb = "org.member_remove"
 	VerbOrgMemberRoleSet   Verb = "org.member_role_set"
+	// VerbUserCreate records creation of an authenticated user.
+	VerbUserCreate Verb = "user.create"
 
 	// Auth covers every breath, including failures.
 	VerbAuthLoginSucceeded Verb = "auth.login_succeeded"
@@ -74,6 +76,7 @@ var stateChangeVerbs = map[Verb]bool{
 	VerbOrgMemberAdd:       true,
 	VerbOrgMemberRemove:    true,
 	VerbOrgMemberRoleSet:   true,
+	VerbUserCreate:         true,
 	VerbAuthLoginSucceeded: true,
 	VerbAuthLoginFailed:    true,
 	VerbAuthTokenCreate:    true,

@@ -54,7 +54,9 @@ func BootstrapIdentities(
 			if err := bootstrapOrg(ctx, stores, workspace); err != nil {
 				return Identities{}, err
 			}
-			service.NewSeeder(stores.PropertyDefs, stores.NodeTypes).SeedOrg(ctx, workspace.OrgID)
+			if err := service.NewSeeder(stores.PropertyDefs, stores.NodeTypes).SeedOrg(ctx, workspace.OrgID); err != nil {
+				return Identities{}, loggedError(ctx, "qa datagen: seed org", err)
+			}
 			if err := seedQAPropertyDefs(ctx, stores.PropertyDefs, workspace.OrgID); err != nil {
 				return Identities{}, err
 			}

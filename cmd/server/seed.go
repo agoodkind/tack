@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/trace"
@@ -33,7 +32,10 @@ type seedInput struct {
 // run against a non-empty database unless --allow-reseed is passed.
 func seedOp(f *cli.Factory) clispec.Operation[seedInput] {
 	return clispec.Operation[seedInput]{
-		Name:  clispec.Name{Canonical: "seed"},
+		Name: clispec.Name{Canonical: "seed"},
+		Audit: audit.Spec{
+			Verb: "seed", Mutates: true, Atomic: false, BootstrapExempt: false, Reads: false,
+		},
 		Short: "Seed the initial user, org, workspace, and API token",
 		Params: []clispec.Param[seedInput]{
 			clispec.BoolParam("allow-reseed",
@@ -52,7 +54,8 @@ func seedOp(f *cli.Factory) clispec.Operation[seedInput] {
 			if f.Cfg.SeedEmail == "" || f.Cfg.SeedName == "" {
 				return errors.New("seed: SEED_EMAIL and SEED_NAME are both required")
 			}
-			if err := execSeed(ctx, f.Cfg); err != nil {
+			recorder := audit.CanonicalRecorder{Inner: seedOutboxRecorder{outbox: f.AuditOutbox()}}
+			if err := execSeed(ctx, f.Cfg, recorder); err != nil {
 				return err
 			}
 			return sink.WriteText(ctx, "seed complete")
@@ -64,12 +67,7 @@ func seedOp(f *cli.Factory) clispec.Operation[seedInput] {
 // primitives. This is the one place in the system that references specific
 // NodeType names (via service.Seeder constants). It returns any fatal error to
 // the caller rather than exiting in place.
-func execSeed(ctx context.Context, cfg *config.Config) error {
-	// Seed runs without audit emission: it produces hundreds of node.create
-	// events with a system-shaped actor that aren't user actions. The
-	// suppression marker propagates through the same Recorder the running
-	// server would use, so the wiring is already correct.
-	ctx = audit.WithSuppressed(ctx)
+func execSeed(ctx context.Context, cfg *config.Config, recorder audit.Recorder) error {
 	ctx, span := telemetry.StartSpan(ctx, "seed.run", trace.WithSpanKind(trace.SpanKindInternal))
 	defer span.End()
 	ctx = telemetry.WithTraceLogger(ctx, slog.String("command", "seed"))
@@ -96,7 +94,10 @@ func execSeed(ctx context.Context, cfg *config.Config) error {
 	userRepo := postgres.NewUserRepo(pool)
 	tokenRepo := postgres.NewTokenRepo(pool)
 	members := postgres.NewOrgMemberRepo(pool)
-	seeder := service.NewSeeder(fdbStores.PropertyDefs, fdbStores.NodeTypes)
+	seeder := service.NewSeeder(
+		seedPropertyDefs{inner: fdbStores.PropertyDefs, recorder: recorder},
+		seedNodeTypes{inner: fdbStores.NodeTypes, recorder: recorder},
+	)
 
 	u, err := userRepo.GetByEmail(ctx, cfg.SeedEmail)
 	if err != nil && !errors.Is(err, domain.ErrNotFound) {
@@ -112,6 +113,9 @@ func execSeed(ctx context.Context, cfg *config.Config) error {
 		if err != nil {
 			slog.ErrorContext(ctx, "seed.create_user_failed", slog.String("err", err.Error()))
 			return fmt.Errorf("seed: create user: %w", err)
+		}
+		if err := recordSeedUser(ctx, recorder, u); err != nil {
+			return err
 		}
 		log.InfoContext(ctx, "seed.user_created", "id", u.ID, "email", u.Email)
 	} else {
@@ -130,40 +134,41 @@ func execSeed(ctx context.Context, cfg *config.Config) error {
 	if len(existingOrgIDs) > 0 {
 		knownOrgID = existingOrgIDs[0]
 	}
-	orgID, err := ensureNode(ctx, fdbStores, "org", cfg.SeedOrgSlug, cfg.SeedOrgName, uuid.Nil, knownOrgID)
+	orgID, orgCreated, err := ensureNode(ctx, fdbStores, "org", cfg.SeedOrgSlug, cfg.SeedOrgName, uuid.Nil, knownOrgID)
 	if err != nil {
 		return err
 	}
-	seeder.SeedOrg(ctx, orgID)
+	if orgCreated {
+		if err := recordSeedNode(ctx, recorder, orgID, orgID, uuid.Nil, "org", cfg.SeedOrgSlug, cfg.SeedOrgName); err != nil {
+			return err
+		}
+	}
+	if err := seeder.SeedOrg(ctx, orgID); err != nil {
+		log.ErrorContext(ctx, "seed.org_definitions_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("seed: seed org definitions: %w", err)
+	}
 
 	if err := members.AddMember(ctx, &org.Member{OrgID: orgID, UserID: u.ID, Role: 20}); err != nil && !errors.Is(err, domain.ErrAlreadyExists) {
 		log.WarnContext(ctx, "seed.add_member_failed", "err", err)
 	}
 
 	// orgID is the parent of the workspace, so it doubles as the lookup orgID.
-	wsID, err := ensureNode(ctx, fdbStores, "workspace", cfg.SeedWorkspaceSlug, cfg.SeedWorkspaceName, orgID, orgID)
+	wsID, workspaceCreated, err := ensureNode(ctx, fdbStores, "workspace", cfg.SeedWorkspaceSlug, cfg.SeedWorkspaceName, orgID, orgID)
 	if err != nil {
 		return err
+	}
+	if workspaceCreated {
+		if err := recordSeedNode(ctx, recorder, wsID, orgID, orgID, "workspace", cfg.SeedWorkspaceSlug, cfg.SeedWorkspaceName); err != nil {
+			return err
+		}
 	}
 
 	// Production mode: SHA-256 hash of the bearer is looked up in api_tokens.
 	// Dev mode (ENV=development): the bearer is the raw user UUID directly, no
 	// api_tokens lookup. Print both so the operator picks the right one.
-	raw := cfg.SeedAPIToken
-	if raw == "" {
-		raw, err = generateToken()
-		if err != nil {
-			return err
-		}
+	if err := seedToken(ctx, cfg, tokenRepo, u, orgID, recorder); err != nil {
+		return err
 	}
-	if _, err := tokenRepo.Create(ctx, u.ID, raw, "seed"); err != nil {
-		log.InfoContext(ctx, "seed.prod_token_exists")
-	} else {
-		_, _ = fmt.Fprintf(os.Stdout, "\nProduction-mode API token (copy now; not shown again):\n  %s\n", raw)
-	}
-	_, _ = fmt.Fprintf(os.Stdout, "\nDev-mode bearer (stable across wipes, derived from %s):\n  %s\n\n", cfg.SeedEmail, u.ID)
-	_, _ = fmt.Fprintln(os.Stdout, "Add to your MCP config:")
-	_, _ = fmt.Fprintln(os.Stdout, "  \"Authorization\": \"Bearer <token-above>\"")
 
 	log.InfoContext(ctx, "seed.completed", "user_id", u.ID, "org_id", orgID, "workspace_id", wsID)
 	return nil

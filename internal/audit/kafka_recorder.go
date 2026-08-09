@@ -110,7 +110,7 @@ func MarshalEvent(ev Event) ([]byte, error) {
 // Record marshals the event to JSON and produces it synchronously to the
 // configured topic. Returns the broker error on failure; never swallows.
 //
-// EventID and OccurredAt are taken verbatim from ev. SuppressingRecorder
+// EventID and OccurredAt are taken verbatim from ev. CanonicalRecorder
 // stamps both at the recording call site, so the Kafka payload and the
 // consumer's chain hash agree on one identity and one timestamp.
 func (k *KafkaRecorder) Record(ctx context.Context, ev Event) error {

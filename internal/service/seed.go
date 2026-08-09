@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 
 	"github.com/google/uuid"
@@ -45,19 +46,22 @@ func NewSeeder(propertyDefs node.PropertyDefRepository, nodeTypes node.TypeRepos
 // SeedOrg writes the default NodeTypes and PropertyDefs for a newly created org.
 // Called once on org creation and again after any NodeType / PropertyDef change
 // to propagate updated defaults.
-func (s *Seeder) SeedOrg(ctx context.Context, orgID uuid.UUID) {
+func (s *Seeder) SeedOrg(ctx context.Context, orgID uuid.UUID) error {
 	log := telemetry.L(ctx)
 
 	for _, def := range defaultPropertyDefs(orgID) {
 		if err := s.propertyDefs.Set(ctx, def); err != nil {
-			log.Warn("seed property def", slog.String("name", def.Name), slog.String("err", err.Error()))
+			log.ErrorContext(ctx, "seed.property_def_failed", slog.String("name", def.Name), slog.String("err", err.Error()))
+			return fmt.Errorf("seed property def %q: %w", def.Name, err)
 		}
 	}
 	for _, nt := range defaultNodeTypes(orgID) {
 		if err := s.nodeTypes.Set(ctx, nt); err != nil {
-			log.Warn("seed node type", slog.String("type_key", nt.TypeKey), slog.String("err", err.Error()))
+			log.ErrorContext(ctx, "seed.node_type_failed", slog.String("type_key", nt.TypeKey), slog.String("err", err.Error()))
+			return fmt.Errorf("seed node type %q: %w", nt.TypeKey, err)
 		}
 	}
+	return nil
 }
 
 func defaultPropertyDefs(orgID uuid.UUID) []*node.PropertyDef {

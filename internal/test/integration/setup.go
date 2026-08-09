@@ -142,7 +142,9 @@ func SetupTestEnv(t *testing.T) *TestEnv {
 	orgID := uuid.MustParse("019e6b4a-0000-7000-8000-000000000001")
 
 	seeder := service.NewSeeder(stores.PropertyDefs, stores.NodeTypes)
-	seeder.SeedOrg(ctx, orgID)
+	if err := seeder.SeedOrg(ctx, orgID); err != nil {
+		t.Fatalf("seed org: %v", err)
+	}
 
 	// Service.Create resolves a node's org by reading the parent's resolve
 	// record. The seed only writes NodeTypes and PropertyDefs, so we also
