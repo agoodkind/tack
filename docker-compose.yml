@@ -95,10 +95,18 @@ services:
     # major-version upgrade of the auth+audit database (TACK-330). The deliberate
     # 2024.2.8.0 -> 2025.2.3.0 upgrade is the separate, QA-validated TACK-329.
     #
-    # Do not advertise the current container IP: Docker Compose service IPs are
-    # intentionally replaceable. Literal GUAs persisted into Yugabyte
-    # master/tserver metadata caused an incident; the service DNS name "yugabyte"
-    # is the stable identity.
+    # Identity is a permanent name, never an address. The engine writes the
+    # announced identity into its own catalog, so an address written there goes
+    # stale when the address moves and the engine can no longer assemble itself
+    # to serve rows that are intact on disk. Replaceable container addresses
+    # persisted into that catalog caused an incident.
+    #
+    # The name comes from the guest's inventory entry via the rendered env.
+    # A node binds exactly what it announces, because yugabyted refuses to start
+    # when the two differ, so a node's own name must resolve inside its own
+    # container to an address it can bind. Compose maps the container's own name
+    # to its own address; the wrapper adds the peer names, which resolve to the
+    # peer guests' pinned addresses and reach them on the published node ports.
     #
     # The :ro bind-mount below patches yugabyted's is_port_available. The
     # upstream version (on every release through 2025.2.3.0, including this one)
@@ -112,12 +120,25 @@ services:
     image: yugabytedb/yugabyte:2024.2.8.0-b85
     restart: unless-stopped
     mem_limit: 10g
+    # The container answers to the name this node announces, which is what maps
+    # that name to this container's own address.
+    hostname: ${TACK_LEDGER_NODE_NAME:?TACK_LEDGER_NODE_NAME is required, set it in .env}
     command:
       - /bin/bash
       - -lc
       - |
         set -euo pipefail
-        ADDR=yugabyte
+        ADDR="$$TACK_LEDGER_NODE_NAME"
+        # Peer names resolve to the peer guests' pinned addresses. The list is
+        # semicolon separated, one "name address" pair per peer, and excludes
+        # this node, whose own name compose already maps to its own address.
+        IFS=';' read -ra PEERS <<< "$${TACK_LEDGER_PEERS:-}"
+        for peer in "$${PEERS[@]}"; do
+          [ -z "$$peer" ] && continue
+          set -- $$peer
+          echo "$$2 $$1" >> /etc/hosts
+          echo "yugabyte wrapper: peer $$1 at $$2" >&2
+        done
         if ! getent ahostsv6 "$$ADDR" >/dev/null; then
           echo "yugabyte wrapper: no IPv6 address found for $$ADDR in NSS" >&2
           exit 1
@@ -145,6 +166,9 @@ services:
       - "5433:5433" # YSQL (Postgres-compatible)
       - "7000:7000" # YugabyteDB master UI
       - "9000:9000" # YugabyteDB tserver UI
+      # Peer nodes reach this one on the guest's pinned address at these ports.
+      - "7100:7100" # master peer traffic
+      - "9100:9100" # tserver peer traffic
     volumes:
       - yugabyte-data:/home/yugabyte/var
       # Overlay patched yugabyted (upstream PR #23158). See header comment.
