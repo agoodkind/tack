@@ -53,6 +53,12 @@ the single source of truth for guest addresses. Per-guest DNS names are not
 used: the public wildcard record sends every name to the proxy, so a name for
 a non-proxied guest would resolve to the wrong place.
 
+The ledger node names below are the one exception, and they are not DNS. Each
+name resolves only inside the containers that carry it, from entries written
+into each container's own hosts file, so no name reaches public resolution.
+The names exist because the ledger engine stores whatever identity a node
+announces, and an address stored there goes stale when the address moves.
+
 QA mirrors the full topology on the testbed. Testbed guest ids are production
 plus 100. Every phase lands on QA before production.
 
