@@ -52,17 +52,28 @@ reaches the product store by naming the guest that serves it.
   explicit memory limit, and the patched startup script the single node already
   mounts. Task 2 consumes those services when it joins them.
 
-- [ ] **Step 1: Read how the single node starts today**
+- [ ] **Step 1: Split the bound address from the advertised address**
 
-Read the ledger service in `docker-compose.yml` and the startup script it
-mounts. Record the flags it passes, the volume it persists, and the ports it
-publishes. Do not change behavior in this step.
+The node today binds and advertises the same value, the container name
+`yugabyte`, which resolves only inside one guest's container network. Three
+nodes on three guests cannot find each other that way.
 
-- [ ] **Step 2: Parameterize the service by guest**
+The service takes those as two separate flags. Keep binding inside the
+container network, and advertise the guest's own address from the service
+inventory, which is pinned and does not change. Publish the ports the other
+nodes need to reach.
 
-The compose file gains the node's advertised address, its declared location,
-and its memory limits as environment values, so one file serves every data
-guest. The rendered environment file supplies them per guest.
+A comment on the service warns against advertising an address because
+persisting one into the cluster's metadata caused an incident. That warning is
+about container addresses, which Docker replaces freely. Extend the comment to
+say why a guest address is different, so the next reader does not take the
+warning as forbidding both.
+
+- [ ] **Step 2: Prove two guests can reach each other's node**
+
+Before any join, confirm from one data guest that the published port on another
+answers. A join attempted without that evidence creates a second cluster
+instead of growing the first.
 
 - [ ] **Step 3: Declare the values per guest**
 
