@@ -41,6 +41,22 @@ func TestRenderAuditRowsShowsCorrelation(t *testing.T) {
 	}
 }
 
+func TestRenderAuditRowShowsErrorAndExtra(t *testing.T) {
+	row := audit.Row{
+		EventID: uuid.Must(uuid.NewV7()),
+		Error:   json.RawMessage(`{"code":"permission_denied","message":"member required"}`),
+		Extra:   json.RawMessage(`{"intent_event_id":"0198a2d5-f15a-7e2f-9e0f-1f8509e1c639"}`),
+	}
+
+	out := renderAuditRow(row)
+
+	for _, want := range []string{"Error", "permission_denied", "member required", "Extra", "intent_event_id"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("rendered audit row missing %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestStampAuditNodeInEntryPointPopulatesWorkspace(t *testing.T) {
 	orgID := uuid.New()
 	workspaceID := uuid.New()

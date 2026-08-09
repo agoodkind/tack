@@ -24,7 +24,7 @@ func insertOLAPBatch(ctx context.Context, ch chdriver.Conn, batch []projectedEve
 	for _, p := range batch {
 		err := bw.Append(
 			p.OrgID, p.Shard, p.EventTime, p.EventID, p.Seq,
-			p.ActorID, p.ActorKind, p.Action, p.Outcome, p.EntityKind, p.EntityID,
+			p.ActorID, p.ActorKind, p.Action, p.Outcome, string(p.Error), string(p.Extra), p.EntityKind, p.EntityID,
 			string(p.Context), string(p.Delta), p.PIIRef,
 			hex.EncodeToString(p.PrevHash), hex.EncodeToString(p.RowHash), p.IdemKey,
 		)
