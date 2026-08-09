@@ -158,11 +158,24 @@ func auditVerifyOp(f *cli.Factory) clispec.Operation[auditVerifyInput] {
 				slog.ErrorContext(ctx, "audit.verify_failed", slog.String("err", err.Error()))
 				return fmt.Errorf("audit verify: scan: %w", err)
 			}
-			return clispec.WriteJSONValue(ctx, sink, auditVerifyResult{
+			if writeErr := clispec.WriteJSONValue(ctx, sink, auditVerifyResult{
 				BundleDir: report.BundleDir, RowsScanned: report.RowsScanned, HashMatches: report.HashMatches,
 				ChainGapCount: report.ChainGapCount, ChainBreaks: report.ChainBreaks, FileSHA256OK: report.FileSHA256OK,
 				SignatureOK: report.SignatureOK, ManifestSubject: report.ManifestSubject,
-			})
+			}); writeErr != nil {
+				slog.ErrorContext(ctx, "audit.verify_render_failed", slog.String("err", writeErr.Error()))
+				return fmt.Errorf("audit verify: render report: %w", writeErr)
+			}
+			// The report prints either way, so the human path is unchanged.
+			// The exit code has to carry the same verdict, because a script or
+			// a release gate reads only that.
+			if verdictErr := report.Err(); verdictErr != nil {
+				slog.ErrorContext(ctx, "audit.verify_rejected",
+					slog.String("bundle", report.BundleDir),
+					slog.String("err", verdictErr.Error()))
+				return fmt.Errorf("audit verify: %w", verdictErr)
+			}
+			return nil
 		},
 	}
 }

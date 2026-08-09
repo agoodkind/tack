@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -126,6 +127,43 @@ type VerifyReport struct {
 	ManifestSubject string
 }
 
+// Err returns an error naming every integrity check the bundle failed, and nil
+// when the bundle verified. A caller prints the report either way; this is
+// what a caller that reads only success or failure needs, so a tampered bundle
+// cannot pass silently through a script, a scheduled job, or a release gate.
+func (r *VerifyReport) Err() error {
+	var failures []string
+	if !r.FileSHA256OK {
+		failures = append(failures, "the events file digest does not match the manifest")
+	}
+	if !r.SignatureOK {
+		failures = append(failures, "the manifest signature did not verify")
+	}
+	if len(r.ChainBreaks) > 0 {
+		failures = append(failures,
+			fmt.Sprintf("%d chain break(s), first: %s", len(r.ChainBreaks), r.ChainBreaks[0]))
+	}
+	// A sequence gap is deliberately not a failure. An export is filtered by
+	// time, actor, or entity, so a legitimate bundle routinely omits rows and
+	// the sequence skips. Treating that as tampering would reject almost
+	// every honest export, and a verifier that cries wolf gets ignored. The
+	// row hash and the previous-hash link are what actually detect a change,
+	// and both are checked above. The gap count stays in the report so a
+	// reader can see it.
+	// A row that scanned but did not match its stored hash shows up as a
+	// shortfall in the counts even when nothing else complains.
+	if r.HashMatches != r.RowsScanned {
+		failures = append(failures,
+			fmt.Sprintf("%d of %d rows failed their hash check",
+				r.RowsScanned-r.HashMatches, r.RowsScanned))
+	}
+	if len(failures) == 0 {
+		return nil
+	}
+	return fmt.Errorf("bundle %s failed verification: %s",
+		r.BundleDir, strings.Join(failures, "; "))
+}
+
 // VerifyBundle re-hashes every row in <dir>/events.jsonl, checks the chain
 // links via prev_hash within each (org, shard) sequence, and validates the
 // manifest signature with the supplied public key. Pure offline check.
@@ -203,10 +241,11 @@ func verifyExportRows(report *VerifyReport, rows []Row) error {
 	seenShard := map[int16]bool{}
 	for _, row := range rows {
 		if seenShard[row.Shard] {
+			// A gap is counted, not reported as a break. An export is
+			// filtered, so missing sequence numbers are the normal case and
+			// say nothing about tampering.
 			if row.Seq != lastSeqByShard[row.Shard]+1 {
 				report.ChainGapCount++
-				report.ChainBreaks = append(report.ChainBreaks,
-					fmt.Sprintf("row %s has sequence gap at shard %d sequence %d", row.EventID, row.Shard, row.Seq))
 			}
 			if row.Seq == lastSeqByShard[row.Shard]+1 && !bytesEqual(row.PrevHash, lastHashByShard[row.Shard]) {
 				report.ChainBreaks = append(report.ChainBreaks,
@@ -232,12 +271,17 @@ func verifyExportRows(report *VerifyReport, rows []Row) error {
 			slog.Error("audit.export.hash_failed", slog.String("event_id", row.EventID.String()), slog.String("err", err.Error()))
 			return fmt.Errorf("verify hash row %s: %w", row.EventID, err)
 		}
-		if !bytesEqual(expected, row.RowHash) {
+		if bytesEqual(expected, row.RowHash) {
+			report.HashMatches++
+		} else {
 			report.ChainBreaks = append(report.ChainBreaks,
 				fmt.Sprintf("row %s hash mismatch", row.EventID))
-			continue
 		}
-		report.HashMatches++
+		// Tracking advances for every row, matched or not. Advancing only on
+		// a match would make the next row compare itself against a row that
+		// is not its predecessor, so one edited row would report every row
+		// after it as broken too, and a reader could not tell how much of the
+		// bundle was actually altered.
 		lastSeqByShard[row.Shard] = row.Seq
 		lastHashByShard[row.Shard] = row.RowHash
 		seenShard[row.Shard] = true

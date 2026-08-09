@@ -225,3 +225,132 @@ func writeSignedExportTestBundle(t *testing.T, dir string, rows []Row) ed25519.P
 	}
 	return pub
 }
+
+// TestVerifyReportErrTracksTheReport pins that the verdict a caller acts on
+// matches the report a human reads. A clean bundle returns nil; a tampered one
+// returns an error naming what failed. Before this, verification printed its
+// findings and reported success, so a script or a release gate treated a
+// tampered bundle as verified.
+func TestVerifyReportErrTracksTheReport(t *testing.T) {
+	dir := t.TempDir()
+	orgID := uuid.Must(uuid.NewV7())
+	row := Row{
+		OrgID: orgID, EventTime: time.Now().UTC(), EventID: uuid.Must(uuid.NewV7()),
+		Seq: 1, Shard: 1, ActorID: uuid.Must(uuid.NewV7()), ActorKind: 5,
+		Action: "ops.test.verdict", Outcome: OutcomeOK, EntityKind: "system", EntityID: orgID,
+		Context: json.RawMessage(`{}`), HashVersion: auditHashVersion1,
+	}
+	row.RowHash = hashExportTestRow(t, row)
+	pub := writeSignedExportTestBundle(t, dir, []Row{row})
+
+	clean, err := VerifyBundle(dir, pub)
+	if err != nil {
+		t.Fatalf("verify clean bundle: %v", err)
+	}
+	if verdict := clean.Err(); verdict != nil {
+		t.Fatalf("clean bundle rejected: %v", verdict)
+	}
+
+	jsonlPath := filepath.Join(dir, "events.jsonl")
+	jsonlBytes, err := os.ReadFile(jsonlPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var edited Row
+	if err := json.Unmarshal(jsonlBytes, &edited); err != nil {
+		t.Fatal(err)
+	}
+	edited.Action = "ops.test.tampered"
+	editedBytes, err := json.Marshal(edited)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(jsonlPath, append(editedBytes, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	tampered, err := VerifyBundle(dir, pub)
+	if err != nil {
+		t.Fatalf("verify tampered bundle: %v", err)
+	}
+	verdict := tampered.Err()
+	if verdict == nil {
+		t.Fatal("tampered bundle accepted, want a rejection")
+	}
+	if !strings.Contains(verdict.Error(), "hash") {
+		t.Fatalf("verdict = %v, want it to name the hash failure", verdict)
+	}
+}
+
+// TestVerifyOneEditedRowDoesNotCondemnTheRest pins that editing a single row
+// is reported as a single failure. Advancing the chain tracking only on a
+// matching row made the next row compare against the wrong predecessor, so
+// one edit cascaded into a break on every row after it, and a reader could
+// not tell how much of the bundle had actually been altered.
+func TestVerifyOneEditedRowDoesNotCondemnTheRest(t *testing.T) {
+	dir := t.TempDir()
+	orgID := uuid.Must(uuid.NewV7())
+	rows := make([]Row, 0, 4)
+	var prevHash []byte
+	for seq := int64(1); seq <= 4; seq++ {
+		row := Row{
+			OrgID: orgID, EventTime: time.Now().UTC(), EventID: uuid.Must(uuid.NewV7()),
+			Seq: seq, Shard: 1, ActorID: uuid.Must(uuid.NewV7()), ActorKind: 5,
+			Action: "ops.test.chain", Outcome: OutcomeOK, EntityKind: "system", EntityID: orgID,
+			Context: json.RawMessage(`{}`), HashVersion: auditHashVersion1,
+			PrevHash: prevHash,
+		}
+		row.RowHash = hashExportTestRow(t, row)
+		prevHash = row.RowHash
+		rows = append(rows, row)
+	}
+	pub := writeSignedExportTestBundle(t, dir, rows)
+
+	jsonlPath := filepath.Join(dir, "events.jsonl")
+	original, err := os.ReadFile(jsonlPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimRight(string(original), "\n"), "\n")
+	if len(lines) != 4 {
+		t.Fatalf("bundle lines = %d, want 4", len(lines))
+	}
+	var edited Row
+	if err := json.Unmarshal([]byte(lines[1]), &edited); err != nil {
+		t.Fatal(err)
+	}
+	edited.Action = "ops.test.tampered"
+	editedLine, err := json.Marshal(edited)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines[1] = string(editedLine)
+	if err := os.WriteFile(jsonlPath, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := VerifyBundle(dir, pub)
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if report.HashMatches != 3 {
+		t.Fatalf("hash matches = %d, want 3 of 4 rows still intact", report.HashMatches)
+	}
+	if len(report.ChainBreaks) != 1 {
+		t.Fatalf("chain breaks = %v, want exactly the one edited row", report.ChainBreaks)
+	}
+	if !strings.Contains(report.ChainBreaks[0], edited.EventID.String()) {
+		t.Fatalf("break = %q, want it to name the edited row %s",
+			report.ChainBreaks[0], edited.EventID)
+	}
+	// This assertion is what catches the cascade. The rows are contiguous, so
+	// a correct pass reports no gaps. Tracking that advanced only on a match
+	// would leave the sequence stuck at the last good row, and every row after
+	// the edit would be counted as a gap.
+	if report.ChainGapCount != 0 {
+		t.Fatalf("sequence gaps = %d in a contiguous bundle, want 0", report.ChainGapCount)
+	}
+	if report.Err() == nil {
+		t.Fatal("tampered bundle accepted")
+	}
+}
