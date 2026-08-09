@@ -36,7 +36,7 @@ func TestRunAuditedInfrastructureDefersAfterAuthenticationFailureWhenLoginIsAbse
 	err := runAudited(
 		context.Background(),
 		audit.Spec{Verb: "ops.provision", Mutates: true, CreatesAuditInfrastructure: true},
-		testOperatorSource(), true, outbox, probe.Check,
+		testOperatorSource(), "tack-443-deploy-commit", true, outbox, probe.Check,
 		func(context.Context) error {
 			runCount++
 			eventsDuringRun = len(outbox.events)
@@ -61,6 +61,12 @@ func TestRunAuditedInfrastructureDefersAfterAuthenticationFailureWhenLoginIsAbse
 	if extra.StartedAt == nil || extra.StartedAt.After(runStartedAt) {
 		t.Fatalf("intent start = %v, run start = %s", extra.StartedAt, runStartedAt)
 	}
+	for _, event := range outbox.events {
+		gotCommit, ok := deployCommitOf(t, event)
+		if !ok || gotCommit != "tack-443-deploy-commit" {
+			t.Fatalf("deploy commit = %q, present = %t", gotCommit, ok)
+		}
+	}
 }
 
 func TestRunAuditedInfrastructureDefersAfterAuthenticationFailureWhenTableIsAbsent(t *testing.T) {
@@ -72,7 +78,7 @@ func TestRunAuditedInfrastructureDefersAfterAuthenticationFailureWhenTableIsAbse
 	err := runAudited(
 		context.Background(),
 		audit.Spec{Verb: "ops.provision", Mutates: true, CreatesAuditInfrastructure: true},
-		testOperatorSource(), true, outbox, probe.Check,
+		testOperatorSource(), "", true, outbox, probe.Check,
 		func(context.Context) error {
 			runCount++
 			return nil
@@ -95,7 +101,7 @@ func TestRunAuditedInfrastructureRefusesWhenTableAndLoginExist(t *testing.T) {
 	err := runAudited(
 		context.Background(),
 		audit.Spec{Verb: "ops.provision", Mutates: true, CreatesAuditInfrastructure: true},
-		testOperatorSource(), true, &auditTestOutbox{writeErrors: []error{writeErr}}, probe.Check,
+		testOperatorSource(), "", true, &auditTestOutbox{writeErrors: []error{writeErr}}, probe.Check,
 		func(context.Context) error {
 			runCount++
 			return nil
@@ -115,7 +121,7 @@ func TestRunAuditedInfrastructureRefusesWhenProbeFails(t *testing.T) {
 	err := runAudited(
 		context.Background(),
 		audit.Spec{Verb: "ops.provision", Mutates: true, CreatesAuditInfrastructure: true},
-		testOperatorSource(), true, &auditTestOutbox{writeErrors: []error{errors.New("write failed")}}, probe.Check,
+		testOperatorSource(), "", true, &auditTestOutbox{writeErrors: []error{errors.New("write failed")}}, probe.Check,
 		func(context.Context) error {
 			runCount++
 			return nil
@@ -131,7 +137,7 @@ func TestRunAuditedInfrastructureRefusesWhenProbeIsUnwired(t *testing.T) {
 	err := runAudited(
 		context.Background(),
 		audit.Spec{Verb: "ops.provision", Mutates: true, CreatesAuditInfrastructure: true},
-		testOperatorSource(), true, &auditTestOutbox{writeErrors: []error{errors.New("write failed")}}, nil,
+		testOperatorSource(), "", true, &auditTestOutbox{writeErrors: []error{errors.New("write failed")}}, nil,
 		func(context.Context) error {
 			runCount++
 			return nil
@@ -146,7 +152,7 @@ func TestRunAuditedWithoutInfrastructureNeverProbes(t *testing.T) {
 	probe := &auditTestProbe{}
 	runCount := 0
 	err := runAudited(
-		context.Background(), audit.Spec{Verb: "ops.test", Mutates: true}, testOperatorSource(), true,
+		context.Background(), audit.Spec{Verb: "ops.test", Mutates: true}, testOperatorSource(), "", true,
 		&auditTestOutbox{writeErrors: []error{errors.New("write failed")}}, probe.Check,
 		func(context.Context) error {
 			runCount++
@@ -165,7 +171,7 @@ func TestRunAuditedHealthyOutboxNeverProbes(t *testing.T) {
 	err := runAudited(
 		context.Background(),
 		audit.Spec{Verb: "ops.provision", Mutates: true, CreatesAuditInfrastructure: true},
-		testOperatorSource(), true, outbox, probe.Check,
+		testOperatorSource(), "", true, outbox, probe.Check,
 		func(context.Context) error {
 			eventsDuringRun = len(outbox.events)
 			return nil
