@@ -5,6 +5,7 @@ import (
 
 	mcpmcp "github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
@@ -79,9 +80,9 @@ func updateHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFu
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
-		rawProps, err := parseProps(args["properties"])
-		if err != nil {
-			return recoverableError("invalid properties payload: " + err.Error()), nil
+		rawProps, propsResult := parseToolProps(args["properties"])
+		if propsResult != nil {
+			return propsResult, nil
 		}
 		existing, err := b.Reader.Get(ctx, id)
 		if err != nil {
@@ -93,6 +94,14 @@ func updateHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFu
 		if err := stampAuditNodeInEntryPoint(ctx, b.Resolver, entryPoint, existing); err != nil {
 			return classifyError(ctx, err), nil
 		}
+		rc := newRenderCtxWithTypes(ctx, b.Reader, b.Users, b.Resolver.typeIndex)
+		audit.SetAuditEntity(ctx, audit.Entity{
+			Type:       "node",
+			NodeType:   existing.NodeType,
+			ID:         existing.ID,
+			Identifier: identifierFor(existing, rc),
+			Name:       existing.Name,
+		})
 		rawProps, err = normalizeUpdateProps(ctx, b, nt, existing, rawProps)
 		if err != nil {
 			return classifyError(ctx, err), nil
@@ -108,7 +117,6 @@ func updateHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFu
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
-		rc := newRenderCtxWithTypes(ctx, b.Reader, b.Users, b.Resolver.typeIndex)
 		return successText(renderNode(rc, view), ""), nil
 	}
 }
@@ -149,10 +157,17 @@ func deleteHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFu
 		if err := stampAuditNodeInEntryPoint(ctx, b.Resolver, entryPoint, existing); err != nil {
 			return classifyError(ctx, err), nil
 		}
+		rc := newRenderCtxWithTypes(ctx, b.Reader, b.Users, b.Resolver.typeIndex)
+		audit.SetAuditEntity(ctx, audit.Entity{
+			Type:       "node",
+			NodeType:   existing.NodeType,
+			ID:         existing.ID,
+			Identifier: identifierFor(existing, rc),
+			Name:       existing.Name,
+		})
 		if err := b.NodeSvc.Delete(ctx, id, userID); err != nil {
 			return classifyError(ctx, err), nil
 		}
-		rc := newRenderCtxWithTypes(ctx, b.Reader, b.Users, b.Resolver.typeIndex)
 		return successText(renderDeletedNode(rc, existing, clock.Now().UTC()), ""), nil
 	}
 }

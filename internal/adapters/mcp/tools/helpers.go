@@ -251,6 +251,7 @@ func wrapToolHandler(name string, h mcpserver.ToolHandlerFunc) mcpserver.ToolHan
 		// reads it after the handler returns and feeds it into the audit
 		// event so workspace-scoped audit queries see the row.
 		ctx = audit.WithScopeBuilder(ctx)
+		ctx = audit.WithEntityBuilder(ctx)
 
 		res, err := h(ctx, req)
 		dur := clock.Since(start)
@@ -349,6 +350,10 @@ func recordToolAudit(ctx context.Context, toolName string, req mcpmcp.CallToolRe
 		return
 	}
 	ev.Verb = string(verb)
+	entity := audit.EntityFromContext(ctx)
+	if entity.ID != uuid.Nil {
+		ev.Entity = entity
+	}
 	if err := rec.Record(ctx, ev); err != nil {
 		telemetry.L(ctx).Warn("audit.record_failed",
 			slog.String("tool", toolName),

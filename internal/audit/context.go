@@ -11,6 +11,8 @@ import (
 
 type scopeKey struct{}
 
+type entityKey struct{}
+
 // Scope is the audit-scope tuple a request resolves to before the audit
 // row is emitted. Stored on the context as a pointer so resolvers running
 // inside the inner handler can mutate the same instance the MCP wrapper
@@ -70,6 +72,61 @@ func ScopeFromContext(ctx context.Context) Scope {
 		}
 	}
 	return *cur
+}
+
+// WithEntityBuilder attaches a fresh, mutable Entity to ctx. The MCP tool
+// wrapper calls this before the inner handler runs. The handler fills the
+// entity in place because the wrapper cannot inspect the handler internals
+// after it returns.
+func WithEntityBuilder(ctx context.Context) context.Context {
+	return context.WithValue(ctx, entityKey{}, &Entity{
+		Type:       "",
+		NodeType:   "",
+		ID:         uuid.Nil,
+		Identifier: "",
+		Name:       "",
+	})
+}
+
+// SetAuditEntity updates the Entity on ctx in place. Zero-valued fields are
+// left untouched; pass the fields the handler resolved. No-op when ctx has no
+// Entity attached.
+func SetAuditEntity(ctx context.Context, entity Entity) {
+	current, _ := ctx.Value(entityKey{}).(*Entity)
+	if current == nil {
+		return
+	}
+	if entity.Type != "" {
+		current.Type = entity.Type
+	}
+	if entity.NodeType != "" {
+		current.NodeType = entity.NodeType
+	}
+	if entity.ID != uuid.Nil {
+		current.ID = entity.ID
+	}
+	if entity.Identifier != "" {
+		current.Identifier = entity.Identifier
+	}
+	if entity.Name != "" {
+		current.Name = entity.Name
+	}
+}
+
+// EntityFromContext returns a copy of the Entity attached to ctx, or the zero
+// value when none is attached.
+func EntityFromContext(ctx context.Context) Entity {
+	current, _ := ctx.Value(entityKey{}).(*Entity)
+	if current == nil {
+		return Entity{
+			Type:       "",
+			NodeType:   "",
+			ID:         uuid.Nil,
+			Identifier: "",
+			Name:       "",
+		}
+	}
+	return *current
 }
 
 // CanonicalRecorder wraps a Recorder and assigns the canonical EventID and
