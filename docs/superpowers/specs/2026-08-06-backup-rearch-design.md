@@ -66,6 +66,20 @@ continue. This is automatic; no operator acts.
   nodes join the first, and the copy count rises to three when the third
   joins. Join the second and third back to back, because the intermediate
   two-node state has a fragile coordination quorum.
+- Each node announces a permanent name, never an address. The engine writes
+  the announced identity into its internal catalog beside the rows it serves,
+  so a stored address goes stale when the address moves, and the engine then
+  cannot assemble itself to serve rows that are intact on disk. Every tack
+  guest resolves each node name to the owning data guest's pinned address
+  through a hosts entry rendered at deploy from the guest inventory. A
+  renumber changes one inventory line and a redeploy; the stored identity
+  never changes.
+- Node names are permanent identity and carry nothing worth changing.
+  Renaming a node exists only at three nodes: retire the node under its old
+  name, rejoin it under the new one, and the surviving two re-replicate its
+  data onto it, one node at a time, with no catalog surgery. A single node
+  has no rename path; a stale identity there is a wedge, recoverable only by
+  restoring the exported rows into a fresh node.
 - Each node declares a distinct location so the cluster can express fault
   tolerance, mounts the same patched startup script the single node uses
   today, and carries explicit memory limits. Explicit limits replace the
