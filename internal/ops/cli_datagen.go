@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clispec"
 	"goodkind.io/tack/internal/datagen"
@@ -55,6 +56,7 @@ type datagenSeedResult struct {
 func datagenSeedOp(f *cli.Factory) clispec.Operation[datagenSeedInput] {
 	return clispec.Operation[datagenSeedInput]{
 		Name:  clispec.Name{Canonical: "seed", CLIOverride: ""},
+		Audit: audit.Spec{Verb: string(audit.VerbOpsDatagenSeed), Mutates: true},
 		Group: datagenGroup,
 		Short: "Generate deterministic QA data through authenticated MCP calls",
 		Long: "Defaults to a dry run. Pass --commit only where FoundationDB is " +
@@ -144,6 +146,7 @@ type datagenSoakResult struct {
 func datagenSoakOp(f *cli.Factory) clispec.Operation[datagenSoakInput] {
 	return clispec.Operation[datagenSoakInput]{
 		Name:  clispec.Name{Canonical: "soak", CLIOverride: ""},
+		Audit: audit.Spec{Verb: string(audit.VerbOpsDatagenSoak), Mutates: true},
 		Group: datagenGroup,
 		Short: "Run continuous bursty QA traffic through authenticated MCP calls",
 		Long: "Defaults to a dry run. A zero duration runs until SIGINT or SIGTERM. " +

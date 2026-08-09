@@ -4,12 +4,14 @@ import (
 	"context"
 
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/domain/node"
 )
 
 func init() {
 	Register(Operation{
 		Name:        "repair.read",
+		Audit:       audit.Spec{Verb: string(audit.VerbOpsInspectRead), Reads: true},
 		Description: "Read one node by UUID from TACK_REPAIR_NODE_ID and print a deterministic inspection summary.",
 		Run:         runRepairRead,
 	})

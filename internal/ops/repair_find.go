@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
+	"goodkind.io/tack/internal/audit"
 )
 
 // repairFindMode identifies the node-lookup strategy for repair.find.
@@ -23,6 +24,7 @@ const (
 func init() {
 	Register(Operation{
 		Name:        "repair.find",
+		Audit:       audit.Spec{Verb: string(audit.VerbOpsInspectFind), Reads: true},
 		Description: "Find nodes by address or indexed property from TACK_REPAIR_FIND_* env vars and print deterministic inspection summaries.",
 		Run:         runRepairFind,
 	})

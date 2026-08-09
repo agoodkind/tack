@@ -27,6 +27,7 @@ type emptyInput struct {
 // server; serve, migrate, seed, the audit bundle family, and the ops
 // maintenance family are subcommands rendered from one declarative registry.
 func buildRoot(f *cli.Factory) *cobra.Command {
+	serve := serveOp(f)
 	root := &cobra.Command{
 		Use:           "tack",
 		Short:         "Tack operator CLI and server",
@@ -34,9 +35,6 @@ func buildRoot(f *cli.Factory) *cobra.Command {
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		Args:          cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runServer(cmd.Context(), f.Cfg)
-		},
 	}
 	root.SetIn(f.In)
 	root.SetOut(f.Out)
@@ -45,9 +43,12 @@ func buildRoot(f *cli.Factory) *cobra.Command {
 	f.RegisterGlobalFlags(root)
 	f.SetOperatorIdentitySource(cli.NewOperatorSource(f))
 	configureAuditOutbox(f)
+	clispec.AttachAudit(root, f, serve.Audit, func(ctx context.Context) error {
+		return runServer(ctx, f.Cfg)
+	})
 
 	reg := clispec.NewRegistry()
-	clispec.Register(reg, serveOp(f))
+	clispec.Register(reg, serve)
 	clispec.Register(reg, migrateOp(f))
 	clispec.Register(reg, seedOp(f))
 	registerAudit(reg, f)
@@ -84,6 +85,7 @@ func configureAuditOutbox(f *cli.Factory) {
 func serveOp(f *cli.Factory) clispec.Operation[emptyInput] {
 	return clispec.Operation[emptyInput]{
 		Name:  clispec.Name{Canonical: "serve"},
+		Audit: audit.Spec{Verb: string(audit.VerbServerServe), Mutates: true},
 		Short: "Start the HTTP server (the default action with no subcommand)",
 		New:   func() emptyInput { return emptyInput{} },
 		Run: func(ctx context.Context, _ emptyInput, _ clispec.ResultSink) error {
@@ -95,6 +97,7 @@ func serveOp(f *cli.Factory) clispec.Operation[emptyInput] {
 func migrateOp(f *cli.Factory) clispec.Operation[emptyInput] {
 	return clispec.Operation[emptyInput]{
 		Name:  clispec.Name{Canonical: "migrate"},
+		Audit: audit.Spec{Verb: string(audit.VerbDatabaseMigrate), Mutates: true},
 		Short: "Run database migrations against DATABASE_URL",
 		New:   func() emptyInput { return emptyInput{} },
 		Run: func(ctx context.Context, _ emptyInput, sink clispec.ResultSink) error {

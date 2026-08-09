@@ -58,10 +58,78 @@ const (
 	VerbAuditNotarized     Verb = "audit.notarized"
 	VerbAuditPIIRedacted   Verb = "audit.pii_redacted"
 	VerbAuditChainVerified Verb = "audit.chain_verified"
+
+	// VerbServerServe records a server start and stop.
+	VerbServerServe Verb = "server.serve"
+	// VerbDatabaseMigrate records a database migration.
+	VerbDatabaseMigrate Verb = "database.migrate"
+	// VerbBootstrapSeed records an initial product seed.
+	VerbBootstrapSeed Verb = "bootstrap.seed"
+	// VerbAuditVerify records audit bundle verification.
+	VerbAuditVerify Verb = "audit.verify"
+	// VerbAuditKeyGenerate records audit signing key generation.
+	VerbAuditKeyGenerate Verb = "audit.key_generate"
+	// VerbAuditRolesSeed records audit role creation or rotation.
+	VerbAuditRolesSeed Verb = "audit.roles_seed"
+	// VerbOpsInspectRead records a node inspection read.
+	VerbOpsInspectRead Verb = "ops.inspect_read"
+	// VerbOpsInspectFind records an inspection lookup.
+	VerbOpsInspectFind Verb = "ops.inspect_find"
+	// VerbOpsInspectQuery records an inspection query.
+	VerbOpsInspectQuery Verb = "ops.inspect_query"
+	// VerbOpsVerifyNode records a node verification.
+	VerbOpsVerifyNode Verb = "ops.verify_node"
+	// VerbOpsValidateNode records repair validation.
+	VerbOpsValidateNode Verb = "ops.validate_node"
+	// VerbOpsRepairClasses records a repair class listing.
+	VerbOpsRepairClasses Verb = "ops.repair_classes"
+	// VerbOpsRepairPreview records a repair preview.
+	VerbOpsRepairPreview Verb = "ops.repair_preview"
+	// VerbOpsRepairApply records a repair application.
+	VerbOpsRepairApply Verb = "ops.repair_apply"
+	// VerbOpsRepairReferenceUniqueness records reference uniqueness repair work.
+	VerbOpsRepairReferenceUniqueness Verb = "ops.repair_reference_uniqueness"
+	// VerbOpsDatagenSeed records QA data generation.
+	VerbOpsDatagenSeed Verb = "ops.datagen_seed"
+	// VerbOpsDatagenSoak records QA traffic generation.
+	VerbOpsDatagenSoak Verb = "ops.datagen_soak"
+	// VerbOpsProvision records environment provisioning.
+	VerbOpsProvision Verb = "ops.provision"
+	// VerbOpsBackfillDefaultChildren records default child backfills.
+	VerbOpsBackfillDefaultChildren Verb = "ops.backfill_default_children"
+	// VerbOpsReindex records property index backfills.
+	VerbOpsReindex Verb = "ops.reindex"
+	// VerbOpsReferenceDuplicates records duplicate reference reports.
+	VerbOpsReferenceDuplicates Verb = "ops.reference_duplicates"
+	// VerbOpsBackup records a backup command without a subcommand.
+	VerbOpsBackup Verb = "ops.backup"
+	// VerbOpsBackupBucketsInit records backup bucket initialization.
+	VerbOpsBackupBucketsInit Verb = "ops.backup_buckets_init"
+	// VerbOpsBackupYBPITRInit records point-in-time recovery initialization.
+	VerbOpsBackupYBPITRInit Verb = "ops.backup_yb_pitr_init"
+	// VerbOpsBackupYBSnapshotExport records YugabyteDB snapshot export.
+	VerbOpsBackupYBSnapshotExport Verb = "ops.backup_yb_snapshot_export"
+	// VerbOpsBackupRestoreDrill records a backup restore drill.
+	VerbOpsBackupRestoreDrill Verb = "ops.backup_restore_drill"
+	// VerbOpsBackupFDBContinuousInit records FoundationDB continuous backup setup.
+	VerbOpsBackupFDBContinuousInit Verb = "ops.backup_fdb_continuous_init"
+	// VerbOpsDeploy records the full deployment command.
+	VerbOpsDeploy Verb = "ops.deploy"
+	// VerbOpsDeployBuild records deployment image creation.
+	VerbOpsDeployBuild Verb = "ops.deploy_build"
+	// VerbOpsDeployPush records deployment image publication.
+	VerbOpsDeployPush Verb = "ops.deploy_push"
+	// VerbOpsDeployPull records deployment image retrieval.
+	VerbOpsDeployPull Verb = "ops.deploy_pull"
+	// VerbOpsDeployUp records deployment container rollout.
+	VerbOpsDeployUp Verb = "ops.deploy_up"
+	// VerbOpsDeployVerify records deployment verification.
+	VerbOpsDeployVerify Verb = "ops.deploy_verify"
 )
 
-// stateChangeVerbs is the set of verbs that must be persisted synchronously
-// with the operation they describe. Anything not in this set is read-class.
+// stateChangeVerbs is the set of application events that must be persisted
+// synchronously with the operation they describe. Operator commands declare
+// their class in Spec.
 var stateChangeVerbs = map[Verb]bool{
 	VerbNodeCreate:         true,
 	VerbNodeUpdate:         true,

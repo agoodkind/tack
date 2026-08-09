@@ -5,12 +5,14 @@ import (
 	"log/slog"
 
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/domain/node"
 )
 
 func init() {
 	Register(Operation{
 		Name:        "reindex",
+		Audit:       audit.Spec{Verb: string(audit.VerbOpsReindex), Mutates: true},
 		Description: "Backfill secondary property index entries for every existing node. Idempotent; safe to re-run.",
 		Run:         runReindex,
 	})

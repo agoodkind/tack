@@ -34,7 +34,7 @@ func seedOp(f *cli.Factory) clispec.Operation[seedInput] {
 	return clispec.Operation[seedInput]{
 		Name: clispec.Name{Canonical: "seed"},
 		Audit: audit.Spec{
-			Verb: "seed", Mutates: true, Atomic: false, BootstrapExempt: false, Reads: false,
+			Verb: string(audit.VerbBootstrapSeed), Mutates: true,
 		},
 		Short: "Seed the initial user, org, workspace, and API token",
 		Params: []clispec.Param[seedInput]{

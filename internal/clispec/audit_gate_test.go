@@ -10,6 +10,27 @@ import (
 	"goodkind.io/tack/internal/audit"
 )
 
+func TestRunAuditedMissingVerbNeverRuns(t *testing.T) {
+	runCount := 0
+	err := runAudited(
+		context.Background(),
+		audit.Spec{Reads: true},
+		testOperatorSource(),
+		true,
+		&auditTestOutbox{failAt: -1},
+		func(context.Context) error {
+			runCount++
+			return nil
+		},
+	)
+	if err == nil || !strings.Contains(err.Error(), "must declare a verb") {
+		t.Fatalf("runAudited error = %v, want missing audit verb", err)
+	}
+	if runCount != 0 {
+		t.Fatalf("run count = %d, want 0", runCount)
+	}
+}
+
 func TestRunAuditedUnresolvableIdentityAbortsInBothModes(t *testing.T) {
 	for _, execute := range []bool{false, true} {
 		t.Run(map[bool]string{false: "dry-run", true: "execute"}[execute], func(t *testing.T) {

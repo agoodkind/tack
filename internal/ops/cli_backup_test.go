@@ -2,20 +2,42 @@ package ops
 
 import (
 	"bytes"
+	"context"
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
 )
+
+type backupTestOutbox struct{}
+
+func (backupTestOutbox) WriteOutbox(context.Context, audit.Event) error { return nil }
+
+type backupTestSource struct{}
+
+func (backupTestSource) Resolve(context.Context) (audit.OperatorPrincipal, error) {
+	return audit.OperatorPrincipal{
+		ID:     uuid.MustParse("019dd226-440e-729a-a442-281aaf73ca30"),
+		Email:  "operator@example.com",
+		Name:   "Operator User",
+		Source: "test",
+	}, nil
+}
 
 // TestBareBackupCommandRefuses locks in that `ops backup` with no
 // subcommand runs nothing and exits nonzero. The 2026-08-05 S0 was caused
 // by the bare command silently running a full production snapshot.
 func TestBareBackupCommandRefuses(t *testing.T) {
-	cmd := backupCommand(&cli.Factory{})
-	cmd.SetArgs([]string{})
+	factory := &cli.Factory{}
+	factory.SetOperatorIdentitySource(backupTestSource{})
+	factory.SetAuditOutbox(backupTestOutbox{})
+	cmd := backupCommand(factory)
+	factory.RegisterGlobalFlags(cmd)
+	cmd.SetArgs([]string{"--execute"})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("bare `ops backup` must return an error, ran something instead")

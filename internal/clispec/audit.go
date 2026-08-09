@@ -20,6 +20,19 @@ func withDryRunOutput(ctx context.Context, output io.Writer) context.Context {
 	return context.WithValue(ctx, dryRunOutputKey{}, output)
 }
 
+// RunAudited records an operator command before running it.
+func RunAudited(
+	ctx context.Context,
+	output io.Writer,
+	spec audit.Spec,
+	source audit.OperatorIdentitySource,
+	execute bool,
+	outbox audit.OutboxWriter,
+	run func(context.Context) error,
+) error {
+	return runAudited(withDryRunOutput(ctx, output), spec, source, execute, outbox, run)
+}
+
 func runAudited(
 	ctx context.Context,
 	spec audit.Spec,
@@ -28,9 +41,6 @@ func runAudited(
 	outbox audit.OutboxWriter,
 	run func(context.Context) error,
 ) error {
-	if spec.Verb == "" {
-		return run(ctx)
-	}
 	if err := validateAuditSpec(spec); err != nil {
 		return err
 	}
@@ -89,6 +99,9 @@ func runAudited(
 }
 
 func validateAuditSpec(spec audit.Spec) error {
+	if spec.Verb == "" {
+		return errors.New("audit spec must declare a verb")
+	}
 	if spec.Atomic {
 		// A FoundationDB command records inside its own transaction, and the
 		// gate must verify it actually did. That machinery lands with the

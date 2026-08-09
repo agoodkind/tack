@@ -51,6 +51,7 @@ type auditExportInput struct {
 func auditExportOp(f *cli.Factory) clispec.Operation[auditExportInput] {
 	return clispec.Operation[auditExportInput]{
 		Name:     clispec.Name{Canonical: "export", CLIOverride: ""},
+		Audit:    audit.Spec{Verb: string(audit.VerbAuditExport), Mutates: true},
 		Group:    auditGroup,
 		Aliases:  nil,
 		Hidden:   false,
@@ -127,6 +128,7 @@ func auditVerifyOp(f *cli.Factory) clispec.Operation[auditVerifyInput] {
 	_ = f
 	return clispec.Operation[auditVerifyInput]{
 		Name:     clispec.Name{Canonical: "verify", CLIOverride: ""},
+		Audit:    audit.Spec{Verb: string(audit.VerbAuditVerify), Reads: true},
 		Group:    auditGroup,
 		Aliases:  nil,
 		Hidden:   false,
@@ -189,6 +191,7 @@ func auditGenKeyOp(f *cli.Factory) clispec.Operation[auditGenKeyInput] {
 	_ = f
 	return clispec.Operation[auditGenKeyInput]{
 		Name:     clispec.Name{Canonical: "gen-key", CLIOverride: ""},
+		Audit:    audit.Spec{Verb: string(audit.VerbAuditKeyGenerate), Mutates: true},
 		Group:    auditGroup,
 		Aliases:  nil,
 		Hidden:   false,

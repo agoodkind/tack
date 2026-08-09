@@ -30,6 +30,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/adapters/postgres"
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/telemetry"
 )
@@ -38,6 +39,7 @@ import (
 // initialised Env; the framework owns lifecycle, the op owns logic.
 type Operation struct {
 	Name        string
+	Audit       audit.Spec
 	Description string
 	Run         func(ctx context.Context, env *Env) error
 }

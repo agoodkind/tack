@@ -11,19 +11,16 @@ import (
 // commands with no customer org still need a real org to record under.
 var SystemOrgID = uuid.MustParse("00000000-0000-0000-0000-0000000005ee")
 
-// Spec is the audit declaration every operator command carries. The zero
-// value, whose Verb is empty, is the only way a command records nothing, and
-// it is reserved for serve. Mutates marks a command that changes state.
+// Spec is the audit declaration every operator command carries. Mutates marks
+// a command that changes state.
 // Atomic marks a FoundationDB command whose event commits inside the same
-// transaction as the change, so the two can never disagree. BootstrapExempt
-// marks a command that may run before the outboxes exist on a fresh
-// environment. Reads marks a command that only reads and records the access.
+// transaction as the change, so the two can never disagree. Reads marks a
+// command that only reads and records the access.
 type Spec struct {
-	Verb            string
-	Mutates         bool
-	Atomic          bool
-	BootstrapExempt bool
-	Reads           bool
+	Verb    string
+	Mutates bool `exhaustruct:"optional"`
+	Atomic  bool `exhaustruct:"optional"`
+	Reads   bool `exhaustruct:"optional"`
 }
 
 // OutboxWriter durably writes an operator event before its command proceeds.

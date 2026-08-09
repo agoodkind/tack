@@ -7,12 +7,19 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
 )
 
+// AuditVerbAnnotation stores a command's audit verb in Cobra metadata.
+const AuditVerbAnnotation = "audit_verb"
+
+// GroupAnnotation marks a Cobra help-only command group.
+const GroupAnnotation = "clispec_group"
+
 // RenderCobra turns the registry into top-level cobra commands. Operations and
-// handwritten commands attach under their group, parents are created once per
-// *Group value, and a bare parent prints its help.
+// handwritten commands attach under their group, and parents are created once
+// per *Group value.
 func RenderCobra(reg *Registry, f *cli.Factory) []*cobra.Command {
 	parents := map[*Group]*cobra.Command{}
 	var tops []*cobra.Command
@@ -53,7 +60,14 @@ func RenderCobra(reg *Registry, f *cli.Factory) []*cobra.Command {
 
 // newGroupCommand builds a parent whose bare invocation prints help.
 func newGroupCommand(g *Group) *cobra.Command {
-	cmd := &cobra.Command{Use: g.Use, Short: g.Short, Long: g.Long}
+	cmd := &cobra.Command{
+		Use:   g.Use,
+		Short: g.Short,
+		Long:  g.Long,
+		Annotations: map[string]string{
+			GroupAnnotation: "true",
+		},
+	}
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error { return cmd.Help() }
 	return cmd
 }
@@ -76,6 +90,9 @@ func (op Operation[I]) cobraCommand(f *cli.Factory) *cobra.Command {
 		Long:    op.longHelp(),
 		Example: strings.Join(op.Examples, "\n"),
 		Args:    cobra.ExactArgs(len(op.Args)),
+		Annotations: map[string]string{
+			AuditVerbAnnotation: op.Audit.Verb,
+		},
 	}
 	applies := make([]func(in *I), 0, len(op.Params))
 	for _, param := range op.Params {
@@ -89,13 +106,28 @@ func (op Operation[I]) cobraCommand(f *cli.Factory) *cobra.Command {
 		for _, apply := range applies {
 			apply(&in)
 		}
-		ctx := withDryRunOutput(cmd.Context(), f.Out)
-		return runAudited(ctx, op.auditSpec(), f.OperatorIdentitySource(), f.Execute(), f.AuditOutbox(),
+		return RunAudited(cmd.Context(), f.Out, op.auditSpec(), f.OperatorIdentitySource(), f.Execute(), f.AuditOutbox(),
 			func(ctx context.Context) error {
 				return op.Run(ctx, in, NewCLISink(f))
 			})
 	}
 	return cmd
+}
+
+// AttachAudit adds audit metadata and an audited RunE to a Cobra command.
+func AttachAudit(
+	cmd *cobra.Command,
+	f *cli.Factory,
+	spec audit.Spec,
+	run func(context.Context) error,
+) {
+	if cmd.Annotations == nil {
+		cmd.Annotations = make(map[string]string)
+	}
+	cmd.Annotations[AuditVerbAnnotation] = spec.Verb
+	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
+		return RunAudited(cmd.Context(), cmd.OutOrStdout(), spec, f.OperatorIdentitySource(), f.Execute(), f.AuditOutbox(), run)
+	}
 }
 
 // longHelp builds the --help body: the author's Long (or Short), then a

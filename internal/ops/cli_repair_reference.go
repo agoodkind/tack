@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clispec"
 )
@@ -38,6 +39,7 @@ type repairReferenceUniquenessResult struct {
 func repairReferenceUniquenessOp(f *cli.Factory) clispec.Operation[repairReferenceUniquenessInput] {
 	return clispec.Operation[repairReferenceUniquenessInput]{
 		Name:    clispec.Name{Canonical: "reference-uniqueness", CLIOverride: ""},
+		Audit:   audit.Spec{Verb: string(audit.VerbOpsRepairReferenceUniqueness), Mutates: true},
 		Group:   repairGroup,
 		Aliases: nil,
 		Hidden:  false,

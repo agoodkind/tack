@@ -20,15 +20,13 @@ func TestSystemOrgID(t *testing.T) {
 	}
 }
 
-// TestSpecZeroValueIsOptOut pins the opt-out contract: the zero value
-// (empty Verb) is the only way a command skips the choke-point, and it is
-// reserved for serve.
-func TestSpecZeroValueIsOptOut(t *testing.T) {
+// TestSpecZeroValueHasNoClaims confirms the zero value carries no declaration.
+func TestSpecZeroValueHasNoClaims(t *testing.T) {
 	var spec Spec
 	if spec.Verb != "" {
 		t.Fatalf("zero AuditSpec verb = %q, want empty", spec.Verb)
 	}
-	if spec.Mutates || spec.Atomic || spec.BootstrapExempt || spec.Reads {
+	if spec.Mutates || spec.Atomic || spec.Reads {
 		t.Fatal("zero AuditSpec must not claim any behavior flags")
 	}
 }
