@@ -67,8 +67,8 @@ seed:
 test-unit:
 	docker compose -f docker-compose.test.yml --profile runner build tests
 	docker compose -f docker-compose.test.yml --profile runner run --rm \
-	    --no-deps tests \
-	    /usr/local/go/bin/go test -count=1 ./internal/ops/...
+	    --no-deps --entrypoint /usr/local/go/bin/go tests \
+	    test -count=1 ./internal/ops/...
 
 .PHONY: test-fdb-up
 test-fdb-up:

@@ -60,6 +60,7 @@ type Config struct {
 	AuditWriterDSN   string `env:"AUDIT_WRITER_DSN"`
 	AuditReaderDSN   string `env:"AUDIT_READER_DSN"`
 	AuditRedactorDSN string `env:"AUDIT_REDACTOR_DSN"`
+	AuditOperatorDSN string `env:"AUDIT_OPERATOR_DSN"`
 
 	// Audit role passwords. Read only by `./server ops audit seed-roles`,
 	// which creates or rotates the LOGIN roles the DSNs above authenticate as.
@@ -68,6 +69,7 @@ type Config struct {
 	AuditWriterPassword   string `env:"AUDIT_WRITER_PASSWORD"`
 	AuditReaderPassword   string `env:"AUDIT_READER_PASSWORD"`
 	AuditRedactorPassword string `env:"AUDIT_REDACTOR_PASSWORD"`
+	AuditOperatorPassword string `env:"AUDIT_OPERATOR_PASSWORD"`
 
 	// AuditSigningKeyPath points at a PEM-encoded Ed25519 private key used
 	// by the notarizer to sign per-org Merkle roots. Generate with:

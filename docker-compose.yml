@@ -24,6 +24,7 @@ services:
       AUDIT_WRITER_DSN: ${AUDIT_WRITER_DSN}
       AUDIT_READER_DSN: ${AUDIT_READER_DSN}
       AUDIT_REDACTOR_DSN: ${AUDIT_REDACTOR_DSN}
+      AUDIT_OPERATOR_DSN: ${AUDIT_OPERATOR_DSN}
       FDB_CLUSTER_FILE: /etc/foundationdb/fdb.cluster
       MEILI_URL: http://meilisearch:7700
       MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-tack-dev-meili-key-change-in-prod}
@@ -428,6 +429,7 @@ services:
       # pointing at 127.0.0.1:5433; the app service's DSN targets yugabyte
       # and cannot be reused here.
       DATABASE_URL: ${TACK_OPS_DATABASE_URL}
+      AUDIT_OPERATOR_DSN: ${TACK_OPS_AUDIT_OPERATOR_DSN:-}
       FDB_CLUSTER_FILE: /etc/foundationdb/fdb.cluster
       MEILI_URL: http://localhost:7700
       MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-tack-dev-meili-key-change-in-prod}
@@ -447,6 +449,7 @@ services:
       AUDIT_WRITER_PASSWORD: ${AUDIT_WRITER_PASSWORD:-}
       AUDIT_READER_PASSWORD: ${AUDIT_READER_PASSWORD:-}
       AUDIT_REDACTOR_PASSWORD: ${AUDIT_REDACTOR_PASSWORD:-}
+      AUDIT_OPERATOR_PASSWORD: ${AUDIT_OPERATOR_PASSWORD:-}
       # Object store for engine-native continuous backup. Read by the FDB
       # continuous backup path to build the blobstore destination URL.
       TACK_BACKUP_S3_ENDPOINT: ${TACK_BACKUP_S3_ENDPOINT:-}

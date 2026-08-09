@@ -5,12 +5,15 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/spf13/cobra"
 
 	"goodkind.io/tack/internal/adapters/postgres"
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clispec"
 	"goodkind.io/tack/internal/ops"
+	"goodkind.io/tack/internal/telemetry"
 	"goodkind.io/tack/internal/version"
 	"goodkind.io/tack/migrations"
 )
@@ -41,6 +44,7 @@ func buildRoot(f *cli.Factory) *cobra.Command {
 	root.CompletionOptions.DisableDefaultCmd = true
 	f.RegisterGlobalFlags(root)
 	f.SetOperatorIdentitySource(cli.NewOperatorSource(f))
+	configureAuditOutbox(f)
 
 	reg := clispec.NewRegistry()
 	clispec.Register(reg, serveOp(f))
@@ -52,6 +56,29 @@ func buildRoot(f *cli.Factory) *cobra.Command {
 		root.AddCommand(command)
 	}
 	return root
+}
+
+func configureAuditOutbox(f *cli.Factory) {
+	if f.Cfg.AuditOperatorDSN == "" {
+		return
+	}
+
+	ctx := context.Background()
+	poolConfig, err := pgxpool.ParseConfig(f.Cfg.AuditOperatorDSN)
+	if err != nil {
+		slog.ErrorContext(ctx, "audit.operator_outbox.config_failed", slog.String("err", err.Error()))
+		return
+	}
+	poolConfig.ConnConfig.Tracer = &telemetry.QueryTracer{}
+	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
+	if err != nil {
+		slog.ErrorContext(ctx, "audit.operator_outbox.open_failed", slog.String("err", err.Error()))
+		return
+	}
+	if err := pool.Ping(ctx); err != nil {
+		slog.WarnContext(ctx, "audit.operator_outbox.ping_deferred", slog.String("err", err.Error()))
+	}
+	f.SetAuditOutbox(audit.NewPoolOutbox(pool))
 }
 
 func serveOp(f *cli.Factory) clispec.Operation[emptyInput] {
