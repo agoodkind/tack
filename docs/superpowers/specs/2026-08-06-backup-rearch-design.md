@@ -53,6 +53,12 @@ the single source of truth for guest addresses. Per-guest DNS names are not
 used: the public wildcard record sends every name to the proxy, so a name for
 a non-proxied guest would resolve to the wrong place.
 
+The ledger node names below are the one exception, and they are not DNS. Each
+name resolves only inside the containers that carry it, from entries written
+into each container's own hosts file, so no name reaches public resolution.
+The names exist because the ledger engine stores whatever identity a node
+announces, and an address stored there goes stale when the address moves.
+
 QA mirrors the full topology on the testbed. Testbed guest ids are production
 plus 100. Every phase lands on QA before production.
 
@@ -66,6 +72,20 @@ continue. This is automatic; no operator acts.
   nodes join the first, and the copy count rises to three when the third
   joins. Join the second and third back to back, because the intermediate
   two-node state has a fragile coordination quorum.
+- Each node announces a permanent name, never an address. The engine writes
+  the announced identity into its internal catalog beside the rows it serves,
+  so a stored address goes stale when the address moves, and the engine then
+  cannot assemble itself to serve rows that are intact on disk. Every tack
+  guest resolves each node name to the owning data guest's pinned address
+  through a hosts entry rendered at deploy from the guest inventory. A
+  renumber changes one inventory line and a redeploy; the stored identity
+  never changes.
+- Node names are permanent identity and carry nothing worth changing.
+  Renaming a node exists only at three nodes: retire the node under its old
+  name, rejoin it under the new one, and the surviving two re-replicate its
+  data onto it, one node at a time, with no catalog surgery. A single node
+  has no rename path; a stale identity there is a wedge, recoverable only by
+  restoring the exported rows into a fresh node.
 - Each node declares a distinct location so the cluster can express fault
   tolerance, mounts the same patched startup script the single node uses
   today, and carries explicit memory limits. Explicit limits replace the
@@ -131,14 +151,20 @@ instance:
 1. The app gains a health endpoint that checks its datastores. The proxy's
    `tack-service` entry lists both instances and probes that endpoint.
 2. The ledger signer (the notarizer, which signs the audit chain every
-   minute) runs only in the audit-consumer process, never in the app. One
-   signer identity exists: a single vault-stored key in the configs repo,
-   rendered at deploy time instead of generated per host, rotated as one
-   operation, with the signing-key id recorded per signature (the schema
-   already does) and the signing hostname recorded in the notarization row
-   for forensics. Per-guest keys are rejected: they would make verification
-   depend on a registry of ephemeral guest identities and would recreate the
-   multiple-identities-on-one-chain ambiguity this fix removes.
+   minute) runs only in the audit-consumer process, never in the app. Each
+   guest keeps generating its own key, and the set of identifiers a chain
+   accepts becomes explicit: the signing host is recorded on each
+   notarization row, the valid identifiers per environment are held in the
+   configs vault, and verification rejects a signature whose identifier is
+   outside that set.
+
+   This reverses an earlier decision, on 2026-08-08, to share one
+   vault-stored key per environment. Sharing does not contain a leak. The
+   identifier stored on each row is written by whoever signed it, so without
+   an accepted set an attacker who reaches an app guest can generate a fresh
+   key, forge checkpoints, and write an identifier indistinguishable from a
+   legitimate new guest. The accepted set is what makes revocation mean
+   something, and it makes per-guest keys containable rather than ambiguous.
 
 The compose file pins development-mode auth, which accepts any UUID as a
 login. A second instance behind public ingress raises the urgency of the
@@ -198,6 +224,11 @@ adds the multi-guest pattern:
 - The deploy playbook splits: host preparation (Docker, IPv6 forwarding,
   neighbor proxy) runs on every guest; one-time steps (provisioning,
   migrations, seeding) run on exactly one.
+- Every guest runs a daily Docker prune as its own systemd service and
+  timer pair, removing stopped containers, unused networks, unreferenced
+  images, and build cache older than seven days. Image accumulation with no
+  reclaim is the same disk-fill mechanism that killed the databases in July.
+  The prune never touches volumes, so no persisted data is at risk.
 - Every loopback and compose-internal address in the rendered environment
   becomes a routable address from the mapping: the ops database URL, the
   audit database strings, the Kafka broker list, and the ClickHouse string.
