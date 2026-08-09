@@ -29,9 +29,9 @@ func TestSystemOrgID(t *testing.T) {
 func TestSpecZeroValueHasNoClaims(t *testing.T) {
 	var spec Spec
 	if spec.Verb != "" {
-		t.Fatalf("zero AuditSpec verb = %q, want empty", spec.Verb)
+		t.Fatalf("zero Spec verb = %q, want empty", spec.Verb)
 	}
 	if spec.Mutates || spec.Atomic || spec.Reads {
-		t.Fatal("zero AuditSpec must not claim any behavior flags")
+		t.Fatal("zero Spec must not claim any behavior flags")
 	}
 }
