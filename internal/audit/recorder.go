@@ -66,6 +66,9 @@ const (
 	ActorService ActorType = "service"
 	ActorSystem  ActorType = "system"
 	ActorToken   ActorType = "api_token"
+	// ActorOperator is a human running an operator command against the
+	// deployment itself, not a product user acting through the API.
+	ActorOperator ActorType = "operator"
 )
 
 // Entity is the target of the event. NodeType is the tack-specific kind
@@ -115,6 +118,8 @@ type Outcome string
 const (
 	OutcomeOK    Outcome = "ok"
 	OutcomeError Outcome = "error"
+	// OutcomePending is carried by intent rows until the outcome row lands.
+	OutcomePending Outcome = "pending"
 )
 
 type EventError struct {

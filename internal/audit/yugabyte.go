@@ -187,6 +187,8 @@ func actorKindCode(t ActorType) int16 {
 		return 3
 	case ActorToken:
 		return 4
+	case ActorOperator:
+		return 5
 	default:
 		return 0
 	}
