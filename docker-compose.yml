@@ -394,7 +394,12 @@ services:
       AUDIT_CONSUMER_YUGABYTE_DSN: ${AUDIT_WRITER_DSN}
       AUDIT_CONSUMER_CLICKHOUSE_DSN: ${AUDIT_CONSUMER_CLICKHOUSE_DSN:-clickhouse://default:@clickhouse:9000/audit}
       AUDIT_CONSUMER_SIGNING_KEY_PATH: ${AUDIT_CONSUMER_SIGNING_KEY_PATH:-/etc/tack/audit-signing.pem}
-      FDB_CLUSTER_FILE: /etc/foundationdb/fdb.cluster
+      # Set this to enable the FoundationDB half of the operator relay. It is
+      # deliberately not hardcoded: a set-but-unreadable cluster file makes the
+      # consumer refuse to start, which would also stop the YugabyteDB relay
+      # and halt every operator event, not just the FoundationDB ones. Leaving
+      # it unset on a host without that mount runs the YugabyteDB half alone.
+      FDB_CLUSTER_FILE: ${AUDIT_CONSUMER_FDB_CLUSTER_FILE:-}
       LOG_LEVEL: ${LOG_LEVEL:-debug}
       LOG_JSON_FILE: /var/log/tack/audit-consumer.jsonl
       LOG_TEXT_FILE: /var/log/tack/audit-consumer.log

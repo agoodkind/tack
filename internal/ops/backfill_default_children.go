@@ -7,6 +7,7 @@ import (
 	"log/slog"
 
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain/node"
 )
@@ -14,6 +15,7 @@ import (
 func init() {
 	Register(Operation{
 		Name:        "backfill.default_children",
+		Audit:       audit.Spec{Verb: string(audit.VerbOpsBackfillDefaultChildren), Mutates: true},
 		Description: "For every NodeType with DefaultChildren set, walk every existing node of that type and create any missing default child by name. Idempotent.",
 		Run:         runBackfillDefaultChildren,
 	})

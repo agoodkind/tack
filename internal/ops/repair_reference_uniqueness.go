@@ -6,6 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/audit"
 )
 
 const (
@@ -16,6 +17,7 @@ const (
 func init() {
 	Register(Operation{
 		Name:        "repair.reference_uniqueness",
+		Audit:       audit.Spec{Verb: string(audit.VerbOpsRepairReferenceUniqueness), Reads: true},
 		Description: "Report planned reference repairs without writing.",
 		Run:         runRepairReferenceUniqueness,
 	})

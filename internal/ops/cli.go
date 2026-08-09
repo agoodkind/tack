@@ -58,6 +58,7 @@ func registerBatchOps(reg *clispec.Registry, f *cli.Factory) {
 		name := op.Name
 		clispec.Register(reg, clispec.Operation[noInput]{
 			Name:     clispec.Name{Canonical: name, CLIOverride: name},
+			Audit:    op.Audit,
 			Group:    batchGroup,
 			Aliases:  nil,
 			Hidden:   false,

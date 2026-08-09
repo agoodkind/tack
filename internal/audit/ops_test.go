@@ -11,24 +11,27 @@ import (
 // the constant must be a fixed non-nil UUID that never changes once events
 // reference it.
 func TestSystemOrgID(t *testing.T) {
-	if SystemOrgID == uuid.Nil {
-		t.Fatal("SystemOrgID must not be uuid.Nil")
+	if SystemOrgID() == uuid.Nil {
+		t.Fatal("SystemOrgID must not be the nil UUID")
 	}
 	want := "00000000-0000-0000-0000-0000000005ee"
-	if SystemOrgID.String() != want {
-		t.Fatalf("SystemOrgID = %s, want %s", SystemOrgID, want)
+	if SystemOrgID().String() != want {
+		t.Fatalf("SystemOrgID = %s, want %s", SystemOrgID(), want)
+	}
+	// Two calls must agree. The value reaches stored rows, so a caller that
+	// could change it between calls would split one org's chain in two.
+	if SystemOrgID() != SystemOrgID() {
+		t.Fatal("SystemOrgID is not stable between calls")
 	}
 }
 
-// TestSpecZeroValueIsOptOut pins the opt-out contract: the zero value
-// (empty Verb) is the only way a command skips the choke-point, and it is
-// reserved for serve.
-func TestSpecZeroValueIsOptOut(t *testing.T) {
+// TestSpecZeroValueHasNoClaims confirms the zero value carries no declaration.
+func TestSpecZeroValueHasNoClaims(t *testing.T) {
 	var spec Spec
 	if spec.Verb != "" {
-		t.Fatalf("zero AuditSpec verb = %q, want empty", spec.Verb)
+		t.Fatalf("zero Spec verb = %q, want empty", spec.Verb)
 	}
-	if spec.Mutates || spec.Atomic || spec.BootstrapExempt || spec.Reads {
-		t.Fatal("zero AuditSpec must not claim any behavior flags")
+	if spec.Mutates || spec.Atomic || spec.Reads {
+		t.Fatal("zero Spec must not claim any behavior flags")
 	}
 }

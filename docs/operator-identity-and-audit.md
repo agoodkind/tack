@@ -13,8 +13,8 @@ leave an audit trail.
 
 Exactly one place records every CLI ops command: the `RunE` choke-point in
 `internal/clispec` (`cobra.go` / `audit.go`). Every command declares a static
-`audit.AuditSpec`; the zero value (empty verb) is the only opt-out, used by
-`serve`.
+audit spec with a verb, `serve` included; an empty verb fails the gate and the
+coverage test fails the build, so no opt-out exists.
 
 Do not weaken or bypass it:
 

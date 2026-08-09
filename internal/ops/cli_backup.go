@@ -1,12 +1,16 @@
 package ops
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
 	"github.com/spf13/cobra"
 
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
+	"goodkind.io/tack/internal/clispec"
+	"goodkind.io/tack/internal/config"
 )
 
 // backupCommand builds the `ops backup` subtree. The subcommands initialize
@@ -17,54 +21,33 @@ func backupCommand(f *cli.Factory) *cobra.Command {
 		Use:   "backup",
 		Short: "Manage production datastore backups",
 		Long:  "Subcommands initialize an object-store bucket and recovery schedules, export snapshots, and drill restores.",
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return fmt.Errorf("ops backup requires a subcommand (%s); the bare command deliberately runs nothing", strings.Join(backupSubcommandNames(cmd), ", "))
-		},
 	}
+	clispec.AttachAudit(cmd, f, audit.Spec{Verb: string(audit.VerbOpsBackup), Reads: true}, func(ctx context.Context) error {
+		return fmt.Errorf("ops backup requires a subcommand (%s); the bare command deliberately runs nothing", strings.Join(backupSubcommandNames(cmd), ", "))
+	})
 	cmd.AddCommand(
-		&cobra.Command{
-			Use:   "buckets-init",
-			Short: "Idempotently create the SeaweedFS S3 backup bucket",
-			Args:  cobra.NoArgs,
-			RunE: func(cmd *cobra.Command, _ []string) error {
-				return RunBackupBucketsInit(cmd.Context(), f.Cfg)
-			},
-		},
-		&cobra.Command{
-			Use:   "yb-pitr-init",
-			Short: "Create the YugabyteDB point-in-time-recovery snapshot schedule",
-			Args:  cobra.NoArgs,
-			RunE: func(cmd *cobra.Command, _ []string) error {
-				return RunBackupYBPITRInit(cmd.Context(), f.Cfg)
-			},
-		},
-		&cobra.Command{
-			Use:   "yb-snapshot-export",
-			Short: "Export a YugabyteDB distributed snapshot off-host to the object store",
-			Args:  cobra.NoArgs,
-			RunE: func(cmd *cobra.Command, _ []string) error {
-				return RunBackupYBSnapshotExport(cmd.Context(), f.Cfg)
-			},
-		},
-		&cobra.Command{
-			Use:   "restore-drill",
-			Short: "Restore each store into throwaway containers and assert data is present",
-			Args:  cobra.NoArgs,
-			RunE: func(cmd *cobra.Command, _ []string) error {
-				return RunBackupRestoreDrill(cmd.Context(), f.Cfg)
-			},
-		},
-		&cobra.Command{
-			Use:   "fdb-continuous-init",
-			Short: "Start the FoundationDB continuous backup session (idempotent)",
-			Args:  cobra.NoArgs,
-			RunE: func(cmd *cobra.Command, _ []string) error {
-				return RunBackupFDBContinuousInit(cmd.Context(), f.Cfg)
-			},
-		},
+		backupLeaf(f, "buckets-init", "Idempotently create the SeaweedFS S3 backup bucket", audit.VerbOpsBackupBucketsInit, RunBackupBucketsInit),
+		backupLeaf(f, "yb-pitr-init", "Create the YugabyteDB point-in-time-recovery snapshot schedule", audit.VerbOpsBackupYBPITRInit, RunBackupYBPITRInit),
+		backupLeaf(f, "yb-snapshot-export", "Export a YugabyteDB distributed snapshot off-host to the object store", audit.VerbOpsBackupYBSnapshotExport, RunBackupYBSnapshotExport),
+		backupLeaf(f, "restore-drill", "Restore each store into throwaway containers and assert data is present", audit.VerbOpsBackupRestoreDrill, RunBackupRestoreDrill),
+		backupLeaf(f, "fdb-continuous-init", "Start the FoundationDB continuous backup session (idempotent)", audit.VerbOpsBackupFDBContinuousInit, RunBackupFDBContinuousInit),
 	)
 	cmd.SetHelpCommand(backupHelpCommand())
 	cmd.InitDefaultHelpCmd()
+	return cmd
+}
+
+func backupLeaf(
+	f *cli.Factory,
+	use string,
+	short string,
+	verb audit.Verb,
+	run func(context.Context, *config.Config) error,
+) *cobra.Command {
+	cmd := &cobra.Command{Use: use, Short: short, Args: cobra.NoArgs}
+	clispec.AttachAudit(cmd, f, audit.Spec{Verb: string(verb), Mutates: true}, func(ctx context.Context) error {
+		return run(ctx, f.Cfg)
+	})
 	return cmd
 }
 

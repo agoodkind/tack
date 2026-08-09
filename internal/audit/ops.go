@@ -6,24 +6,30 @@ import (
 	"github.com/google/uuid"
 )
 
-// SystemOrgID is the org that global operator commands record against.
-// EventContext.OrgID is mandatory and the reader rejects uuid.Nil, so
-// commands with no customer org still need a real org to record under.
-var SystemOrgID = uuid.MustParse("00000000-0000-0000-0000-0000000005ee")
+// systemOrgID is the org that global operator commands record against.
+// EventContext.OrgID is mandatory and the reader rejects the nil UUID, so a
+// command with no customer org still needs a real org to record under.
+//
+// It is unexported deliberately. As an exported variable, any importing
+// package could reassign it, which would move later operator events onto a
+// different hash chain and change what the stored rows mean, silently.
+var systemOrgID = uuid.MustParse("00000000-0000-0000-0000-0000000005ee")
 
-// Spec is the audit declaration every operator command carries. The zero
-// value, whose Verb is empty, is the only way a command records nothing, and
-// it is reserved for serve. Mutates marks a command that changes state.
+// SystemOrgID returns the org that global operator commands record against.
+func SystemOrgID() uuid.UUID {
+	return systemOrgID
+}
+
+// Spec is the audit declaration every operator command carries. Mutates marks
+// a command that changes state.
 // Atomic marks a FoundationDB command whose event commits inside the same
-// transaction as the change, so the two can never disagree. BootstrapExempt
-// marks a command that may run before the outboxes exist on a fresh
-// environment. Reads marks a command that only reads and records the access.
+// transaction as the change, so the two can never disagree. Reads marks a
+// command that only reads and records the access.
 type Spec struct {
-	Verb            string
-	Mutates         bool
-	Atomic          bool
-	BootstrapExempt bool
-	Reads           bool
+	Verb    string
+	Mutates bool `exhaustruct:"optional"`
+	Atomic  bool `exhaustruct:"optional"`
+	Reads   bool `exhaustruct:"optional"`
 }
 
 // OutboxWriter durably writes an operator event before its command proceeds.

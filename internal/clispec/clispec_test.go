@@ -7,9 +7,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 	oteltrace "go.opentelemetry.io/otel/trace"
 
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clispec"
 )
@@ -21,9 +23,25 @@ type showInput struct {
 	Org   string
 }
 
+type showTestOutbox struct{}
+
+func (showTestOutbox) WriteOutbox(context.Context, audit.Event) error { return nil }
+
+type showTestSource struct{}
+
+func (showTestSource) Resolve(context.Context) (audit.OperatorPrincipal, error) {
+	return audit.OperatorPrincipal{
+		ID:     uuid.MustParse("019dd226-440e-729a-a442-281aaf73ca30"),
+		Email:  "operator@example.com",
+		Name:   "Operator User",
+		Source: "test",
+	}, nil
+}
+
 func showOp(group *clispec.Group) clispec.Operation[showInput] {
 	return clispec.Operation[showInput]{
 		Name:  clispec.Name{Canonical: "show"},
+		Audit: audit.Spec{Verb: "test.show", Reads: true},
 		Group: group,
 		Short: "Show one id",
 		Args: []clispec.Arg[showInput]{
@@ -54,11 +72,14 @@ func ctxWithSpan() context.Context {
 
 func execute(t *testing.T, reg *clispec.Registry, f *cli.Factory, args ...string) error {
 	t.Helper()
+	f.SetOperatorIdentitySource(showTestSource{})
+	f.SetAuditOutbox(showTestOutbox{})
 	root := &cobra.Command{Use: "tack", SilenceErrors: true, SilenceUsage: true}
+	f.RegisterGlobalFlags(root)
 	for _, c := range clispec.RenderCobra(reg, f) {
 		root.AddCommand(c)
 	}
-	root.SetArgs(args)
+	root.SetArgs(append([]string{"--execute"}, args...))
 	root.SetContext(ctxWithSpan())
 	return root.Execute()
 }
@@ -70,6 +91,8 @@ func TestOperationRendersAndRunsWithTraceHeader(t *testing.T) {
 
 	out := &bytes.Buffer{}
 	f := &cli.Factory{Out: out}
+	f.SetOperatorIdentitySource(showTestSource{})
+	f.SetAuditOutbox(showTestOutbox{})
 	if err := execute(t, reg, f, "demo", "show", "ABC", "--label", "hi"); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -89,12 +112,14 @@ func TestJSONModeWrapsResultUnderMeta(t *testing.T) {
 
 	out := &bytes.Buffer{}
 	f := &cli.Factory{Out: out}
+	f.SetOperatorIdentitySource(showTestSource{})
+	f.SetAuditOutbox(showTestOutbox{})
 	root := &cobra.Command{Use: "tack", SilenceErrors: true, SilenceUsage: true}
 	f.RegisterGlobalFlags(root)
 	for _, c := range clispec.RenderCobra(reg, f) {
 		root.AddCommand(c)
 	}
-	root.SetArgs([]string{"--output", "json", "demo", "show", "ABC"})
+	root.SetArgs([]string{"--execute", "--output", "json", "demo", "show", "ABC"})
 	root.SetContext(ctxWithSpan())
 	if err := root.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)

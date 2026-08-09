@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clispec"
 )
@@ -28,6 +29,7 @@ func repairClassesOp(f *cli.Factory) clispec.Operation[noInput] {
 	_ = f
 	return clispec.Operation[noInput]{
 		Name:     clispec.Name{Canonical: "classes", CLIOverride: ""},
+		Audit:    audit.Spec{Verb: string(audit.VerbOpsRepairClasses), Reads: true},
 		Group:    repairGroup,
 		Aliases:  nil,
 		Hidden:   false,
@@ -62,6 +64,7 @@ type repairPreviewInput struct {
 func repairPreviewOp(f *cli.Factory) clispec.Operation[repairPreviewInput] {
 	return clispec.Operation[repairPreviewInput]{
 		Name:     clispec.Name{Canonical: "preview", CLIOverride: ""},
+		Audit:    audit.Spec{Verb: string(audit.VerbOpsRepairPreview), Reads: true},
 		Group:    repairGroup,
 		Aliases:  nil,
 		Hidden:   false,
@@ -142,6 +145,7 @@ type repairApplyInput struct {
 func repairApplyOp(f *cli.Factory) clispec.Operation[repairApplyInput] {
 	return clispec.Operation[repairApplyInput]{
 		Name:     clispec.Name{Canonical: "apply", CLIOverride: ""},
+		Audit:    audit.Spec{Verb: string(audit.VerbOpsRepairApply), Mutates: true},
 		Group:    repairGroup,
 		Aliases:  nil,
 		Hidden:   false,

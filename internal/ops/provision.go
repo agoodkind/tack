@@ -10,6 +10,7 @@ import (
 
 	"github.com/moby/moby/client"
 	"goodkind.io/tack/internal/adapters/postgres"
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clispec"
 	"goodkind.io/tack/internal/config"
@@ -37,6 +38,7 @@ type provisionInput struct {
 func provisionOp(f *cli.Factory) clispec.Operation[provisionInput] {
 	return clispec.Operation[provisionInput]{
 		Name:     clispec.Name{Canonical: "provision", CLIOverride: ""},
+		Audit:    audit.Spec{Verb: string(audit.VerbOpsProvision), Mutates: true},
 		Group:    opsGroup,
 		Aliases:  nil,
 		Hidden:   false,

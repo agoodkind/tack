@@ -7,12 +7,14 @@ import (
 	"sort"
 
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/domain/node"
 )
 
 func init() {
 	Register(Operation{
 		Name:        "reference.duplicates",
+		Audit:       audit.Spec{Verb: string(audit.VerbOpsReferenceDuplicates), Reads: true},
 		Description: "Report every case where two nodes render the same reference for one template their org declared. Read-only.",
 		Run:         runReferenceDuplicates,
 	})

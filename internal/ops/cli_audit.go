@@ -3,6 +3,7 @@ package ops
 import (
 	"context"
 
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clispec"
 )
@@ -13,6 +14,7 @@ import (
 func auditSeedRolesOp(f *cli.Factory) clispec.Operation[noInput] {
 	return clispec.Operation[noInput]{
 		Name:    clispec.Name{Canonical: "seed-roles", CLIOverride: ""},
+		Audit:   audit.Spec{Verb: string(audit.VerbAuditRolesSeed), Mutates: true},
 		Group:   auditOpsGroup,
 		Aliases: nil,
 		Hidden:  false,

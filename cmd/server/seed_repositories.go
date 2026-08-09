@@ -16,17 +16,27 @@ type seedPropertyDefs struct {
 	recorder audit.Recorder
 }
 
+// Set records the intended change before making it, then records the result.
+//
+// Recording after the write would leave a change in the database with no
+// ledger row whenever the record failed, which is the exact gap this work
+// exists to close. Recording first costs a pending row when the write then
+// fails, and a pending row that never resolves is a visible loose end rather
+// than an invisible one.
 func (r seedPropertyDefs) Set(ctx context.Context, propertyDef *node.PropertyDef) error {
 	existing, err := r.inner.Get(ctx, propertyDef.OrgID, propertyDef.ID)
 	if err != nil {
 		return seedRepositoryError(ctx, "get property definition", err)
 	}
-	if err := r.inner.Set(ctx, propertyDef); err != nil {
-		return seedRepositoryError(ctx, "set property definition", err)
-	}
 	verb := audit.VerbPropertyDefCreate
 	if existing != nil {
 		verb = audit.VerbPropertyDefUpdate
+	}
+	if err := recordSeedPropertyDefIntent(ctx, r.recorder, verb, propertyDef); err != nil {
+		return err
+	}
+	if err := r.inner.Set(ctx, propertyDef); err != nil {
+		return seedRepositoryError(ctx, "set property definition", err)
 	}
 	return recordSeedPropertyDef(ctx, r.recorder, verb, propertyDef)
 }
@@ -59,17 +69,22 @@ type seedNodeTypes struct {
 	recorder audit.Recorder
 }
 
+// Set records the intended change before making it, then records the result,
+// for the same reason seedPropertyDefs.Set does.
 func (r seedNodeTypes) Set(ctx context.Context, nodeType *node.NodeType) error {
 	existing, err := r.inner.Get(ctx, nodeType.OrgID, nodeType.ID)
 	if err != nil {
 		return seedRepositoryError(ctx, "get node type", err)
 	}
-	if err := r.inner.Set(ctx, nodeType); err != nil {
-		return seedRepositoryError(ctx, "set node type", err)
-	}
 	verb := audit.VerbNodeTypeCreate
 	if existing != nil {
 		verb = audit.VerbNodeTypeUpdate
+	}
+	if err := recordSeedNodeTypeIntent(ctx, r.recorder, verb, nodeType); err != nil {
+		return err
+	}
+	if err := r.inner.Set(ctx, nodeType); err != nil {
+		return seedRepositoryError(ctx, "set node type", err)
 	}
 	return recordSeedNodeType(ctx, r.recorder, verb, nodeType)
 }
