@@ -61,11 +61,17 @@ other. Announcing an address instead would bake a value that can move into
 the catalog, which is the wedge class the single-node name was chosen to
 prevent.
 
-Each node announces its own permanent name: `yb1`, `yb2`, or `yb3`. The
-deploy renders a hosts entry on every tack guest mapping each name to the
-owning data guest's pinned address from the service inventory. The same
-names serve both environments, because each environment's guests resolve
-them to their own addresses. Publish the ports peer nodes and clients need.
+Each node announces its own permanent name: `yb1`, `yb2`, or `yb3`. Every
+ledger container carries all three names in its own hosts file, mapped to
+the owning data guests' pinned addresses, which compose writes from values
+the rendered environment file supplies. The same names serve both
+environments, because each environment supplies its own addresses. Publish
+the ports peer nodes and clients need.
+
+A container does not inherit the guest's name resolution, measured on the
+testbed: a name added to a guest's hosts file resolved on that guest and
+did not resolve inside a container on it. Writing the names on the guest
+alone leaves the nodes unable to find each other.
 
 Extend the service comment that forbids advertising an address so it states
 the full contract: identity is a permanent name, addresses stay behind the
