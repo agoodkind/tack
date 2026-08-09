@@ -93,30 +93,32 @@ func readGitConfigIdentity(ctx context.Context, candidates []string) (string, st
 }
 
 // gitConfigCandidates lists the global config files to read, in git's own
-// search order: an explicit override first, then the XDG location, then the
-// two home-directory paths. Order matters to the caller, which lets a later
-// file override an earlier one exactly as git does. An operator whose identity
-// lives only in the XDG file would otherwise look unconfigured, and every
-// command would refuse to run.
+// search order: an explicit override first, then one XDG-style location, then
+// the home file. Git treats $HOME/.config/git/config purely as the fallback
+// for an unset XDG_CONFIG_HOME, so exactly one of the two is a candidate;
+// reading both would let a stale identity in the fallback file override the
+// operator's real XDG identity and attribute the action to the wrong person.
+// Order matters to the caller, which lets a later file override an earlier one
+// exactly as git does.
 func gitConfigCandidates() ([]string, error) {
 	if path := strings.TrimSpace(os.Getenv("GIT_CONFIG_GLOBAL")); path != "" {
 		return []string{path}, nil
 	}
 	var candidates []string
-	if xdg := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")); xdg != "" {
-		candidates = append(candidates, filepath.Join(xdg, "git", "config"))
-	}
+	xdg := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME"))
 	home := strings.TrimSpace(os.Getenv("HOME"))
+	if xdg != "" {
+		candidates = append(candidates, filepath.Join(xdg, "git", "config"))
+	} else if home != "" {
+		candidates = append(candidates, filepath.Join(home, ".config", "git", "config"))
+	}
 	if home == "" {
 		if len(candidates) == 0 {
 			return nil, fmt.Errorf("HOME is not set and GIT_CONFIG_GLOBAL is empty")
 		}
 		return candidates, nil
 	}
-	candidates = append(candidates,
-		filepath.Join(home, ".config", "git", "config"),
-		filepath.Join(home, ".gitconfig"),
-	)
+	candidates = append(candidates, filepath.Join(home, ".gitconfig"))
 	return candidates, nil
 }
 
