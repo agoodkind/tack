@@ -4,21 +4,77 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
+	"time"
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain/node"
+	"goodkind.io/tack/internal/telemetry"
 )
 
+type repairedReferenceKey struct {
+	View *node.NodeView
+	Key  node.ReferenceKey
+}
+
 func writeAllReferenceKeys(ctx context.Context, env *Env, orgID uuid.UUID) (int, error) {
+	keys, err := enumerateReferenceKeys(ctx, env, orgID, nil)
+	if err != nil {
+		return 0, err
+	}
+	keysByNode := make(map[uuid.UUID][]node.ReferenceKey)
+	for _, key := range keys {
+		keysByNode[key.View.ID] = append(keysByNode[key.View.ID], key.Key)
+	}
+	if err := writeReferenceKeysByNode(ctx, env.Stores.Nodes, orgID, keysByNode); err != nil {
+		return 0, err
+	}
+	return len(keys), nil
+}
+
+type referenceKeyWriter interface {
+	SetReferenceKeys(context.Context, uuid.UUID, uuid.UUID, []node.ReferenceKey) error
+}
+
+func writeReferenceKeysByNode(
+	ctx context.Context,
+	writer referenceKeyWriter,
+	orgID uuid.UUID,
+	keysByNode map[uuid.UUID][]node.ReferenceKey,
+) error {
+	nodeIDs := make([]uuid.UUID, 0, len(keysByNode))
+	for nodeID := range keysByNode {
+		nodeIDs = append(nodeIDs, nodeID)
+	}
+	sort.Slice(nodeIDs, func(i, j int) bool {
+		return nodeIDs[i].String() < nodeIDs[j].String()
+	})
+	for _, nodeID := range nodeIDs {
+		if err := writer.SetReferenceKeys(ctx, orgID, nodeID, keysByNode[nodeID]); err != nil {
+			wrapped := fmt.Errorf("write reference keys for node %s: %w", nodeID, err)
+			telemetry.L(ctx).WarnContext(ctx, "repair.reference_uniqueness.keys_write_failed",
+				slog.String("node_id", nodeID.String()), slog.String("err", wrapped.Error()))
+			return wrapped
+		}
+	}
+	return nil
+}
+
+func enumerateReferenceKeys(
+	ctx context.Context,
+	env *Env,
+	orgID uuid.UUID,
+	createdBefore *time.Time,
+) ([]repairedReferenceKey, error) {
 	nodeTypes, err := env.Stores.NodeTypes.List(ctx, orgID)
 	if err != nil {
 		wrapped := fmt.Errorf("list node types for org %s: %w", orgID, err)
-		env.Log.WarnContext(ctx, "repair.reference_uniqueness.types_failed",
+		telemetry.L(ctx).Warn("repair.reference_uniqueness.types_failed",
 			slog.String("org_id", orgID.String()), slog.String("err", wrapped.Error()))
-		return 0, wrapped
+		return nil, wrapped
 	}
 	typeIndex := node.BuildTypeIndex(nodeTypes)
-	written := 0
+	allKeys := make([]repairedReferenceKey, 0)
 	scopeCache := make(map[uuid.UUID]map[string]string)
 	for _, nodeType := range nodeTypes {
 		if len(nodeType.ReferenceTemplates) == 0 {
@@ -31,38 +87,31 @@ func writeAllReferenceKeys(ctx context.Context, env *Env, orgID uuid.UUID) (int,
 			BySourceRelation: nil,
 			ByTargetRelation: nil,
 			CreatedAfter:     nil,
-			CreatedBefore:    nil,
+			CreatedBefore:    createdBefore,
 			PropFilters:      nil,
 			Limit:            0,
 			Cursor:           "",
 		})
 		if listErr != nil {
 			wrapped := fmt.Errorf("list %s nodes in org %s: %w", nodeType.TypeKey, orgID, listErr)
-			env.Log.WarnContext(ctx, "repair.reference_uniqueness.views_failed",
+			telemetry.L(ctx).Warn("repair.reference_uniqueness.views_failed",
 				slog.String("org_id", orgID.String()),
 				slog.String("node_type", nodeType.TypeKey),
 				slog.String("err", wrapped.Error()),
 			)
-			return 0, wrapped
+			return nil, wrapped
 		}
 		for _, view := range views {
 			keys, keyErr := referenceKeysForRepairedView(ctx, env, orgID, typeIndex, nodeType, view, scopeCache)
 			if keyErr != nil {
-				return 0, keyErr
+				return nil, keyErr
 			}
-			if len(keys) == 0 {
-				continue
+			for _, key := range keys {
+				allKeys = append(allKeys, repairedReferenceKey{View: view, Key: key})
 			}
-			if writeErr := env.Stores.Nodes.SetReferenceKeys(ctx, orgID, view.ID, keys); writeErr != nil {
-				wrapped := fmt.Errorf("write reference keys for node %s: %w", view.ID, writeErr)
-				env.Log.WarnContext(ctx, "repair.reference_uniqueness.keys_write_failed",
-					slog.String("node_id", view.ID.String()), slog.String("err", wrapped.Error()))
-				return 0, wrapped
-			}
-			written += len(keys)
 		}
 	}
-	return written, nil
+	return allKeys, nil
 }
 
 func referenceKeysForRepairedView(
@@ -94,7 +143,7 @@ func referenceKeysForRepairedView(
 		encoded, renderErr := template.Render(input)
 		if renderErr != nil {
 			wrapped := fmt.Errorf("render template %q for node %s: %w", template.Name, view.ID, renderErr)
-			env.Log.WarnContext(ctx, "repair.reference_uniqueness.render_failed",
+			telemetry.L(ctx).Warn("repair.reference_uniqueness.render_failed",
 				slog.String("node_id", view.ID.String()), slog.String("err", wrapped.Error()))
 			return nil, wrapped
 		}
