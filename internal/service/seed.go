@@ -49,19 +49,27 @@ func NewSeeder(propertyDefs node.PropertyDefRepository, nodeTypes node.TypeRepos
 func (s *Seeder) SeedOrg(ctx context.Context, orgID uuid.UUID) error {
 	log := telemetry.L(ctx)
 
-	for _, def := range defaultPropertyDefs(orgID) {
+	nodeTypes, propertyDefs := DefaultOrgDefinitions(orgID)
+	for _, def := range propertyDefs {
 		if err := s.propertyDefs.Set(ctx, def); err != nil {
 			log.ErrorContext(ctx, "seed.property_def_failed", slog.String("name", def.Name), slog.String("err", err.Error()))
 			return fmt.Errorf("seed property def %q: %w", def.Name, err)
 		}
 	}
-	for _, nt := range defaultNodeTypes(orgID) {
+	for _, nt := range nodeTypes {
 		if err := s.nodeTypes.Set(ctx, nt); err != nil {
 			log.ErrorContext(ctx, "seed.node_type_failed", slog.String("type_key", nt.TypeKey), slog.String("err", err.Error()))
 			return fmt.Errorf("seed node type %q: %w", nt.TypeKey, err)
 		}
 	}
 	return nil
+}
+
+// DefaultOrgDefinitions returns the exact records Seeder writes for an org.
+// Reconstructors use this to identify a historical seed without duplicating
+// the seed contract.
+func DefaultOrgDefinitions(orgID uuid.UUID) ([]*node.NodeType, []*node.PropertyDef) {
+	return defaultNodeTypes(orgID), defaultPropertyDefs(orgID)
 }
 
 func defaultPropertyDefs(orgID uuid.UUID) []*node.PropertyDef {

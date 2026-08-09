@@ -5,11 +5,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strconv"
+	"time"
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain/node"
 )
+
+type referenceCounter struct {
+	Key   string
+	Value int64
+}
 
 func seedReferenceCounters(
 	ctx context.Context,
@@ -17,12 +24,40 @@ func seedReferenceCounters(
 	orgID uuid.UUID,
 	execute bool,
 ) (int, error) {
+	counters, err := enumerateReferenceCounters(ctx, env, orgID, nil)
+	if err != nil {
+		return 0, err
+	}
+	if !execute {
+		return len(counters), nil
+	}
+	for _, counter := range counters {
+		if err := env.Stores.Nodes.SeedSequenceByKey(ctx, orgID, counter.Key, counter.Value); err != nil {
+			wrapped := fmt.Errorf("seed counter %q in org %s: %w", counter.Key, orgID, err)
+			env.Log.WarnContext(
+				ctx, "repair.reference_uniqueness.counter_seed_failed",
+				slog.String("org_id", orgID.String()),
+				slog.String("counter_key", counter.Key),
+				slog.String("err", wrapped.Error()),
+			)
+			return 0, wrapped
+		}
+	}
+	return len(counters), nil
+}
+
+func enumerateReferenceCounters(
+	ctx context.Context,
+	env *Env,
+	orgID uuid.UUID,
+	createdBefore *time.Time,
+) ([]referenceCounter, error) {
 	nodeTypes, err := env.Stores.NodeTypes.List(ctx, orgID)
 	if err != nil {
 		wrapped := fmt.Errorf("list node types for org %s: %w", orgID, err)
 		env.Log.WarnContext(ctx, "repair.reference_uniqueness.types_failed",
 			slog.String("org_id", orgID.String()), slog.String("err", wrapped.Error()))
-		return 0, wrapped
+		return nil, wrapped
 	}
 	typeIndex := node.BuildTypeIndex(nodeTypes)
 	highest := make(map[string]int64)
@@ -39,43 +74,35 @@ func seedReferenceCounters(
 			BySourceRelation: nil,
 			ByTargetRelation: nil,
 			CreatedAfter:     nil,
-			CreatedBefore:    nil,
+			CreatedBefore:    createdBefore,
 			PropFilters:      nil,
 			Limit:            0,
 			Cursor:           "",
 		})
 		if listErr != nil {
 			wrapped := fmt.Errorf("list %s nodes in org %s: %w", nodeType.TypeKey, orgID, listErr)
-			env.Log.WarnContext(ctx, "repair.reference_uniqueness.views_failed",
+			env.Log.WarnContext(
+				ctx, "repair.reference_uniqueness.views_failed",
 				slog.String("org_id", orgID.String()),
 				slog.String("node_type", nodeType.TypeKey),
 				slog.String("err", wrapped.Error()),
 			)
-			return 0, wrapped
+			return nil, wrapped
 		}
 		for _, view := range views {
 			if recordErr := recordHighestGenerated(
 				ctx, env, orgID, typeIndex, nodeType, *template, view, highest, scopeCache,
 			); recordErr != nil {
-				return 0, recordErr
+				return nil, recordErr
 			}
 		}
 	}
-	if !execute {
-		return len(highest), nil
-	}
+	counters := make([]referenceCounter, 0, len(highest))
 	for counterKey, value := range highest {
-		if seedErr := env.Stores.Nodes.SeedSequenceByKey(ctx, orgID, counterKey, value); seedErr != nil {
-			wrapped := fmt.Errorf("seed counter %q in org %s: %w", counterKey, orgID, seedErr)
-			env.Log.WarnContext(ctx, "repair.reference_uniqueness.counter_seed_failed",
-				slog.String("org_id", orgID.String()),
-				slog.String("counter_key", counterKey),
-				slog.String("err", wrapped.Error()),
-			)
-			return 0, wrapped
-		}
+		counters = append(counters, referenceCounter{Key: counterKey, Value: value})
 	}
-	return len(highest), nil
+	sort.Slice(counters, func(i, j int) bool { return counters[i].Key < counters[j].Key })
+	return counters, nil
 }
 
 func recordHighestGenerated(
