@@ -143,6 +143,7 @@ func TestFactoryParsesOperatorFlags(t *testing.T) {
 		"--operator-id", operatorID.String(),
 		"--operator-email", "operator@example.com",
 		"--operator-name", "Operator User",
+		"--deploy-commit", "  tack-443-deploy-commit  ",
 		"--execute",
 	})
 
@@ -155,6 +156,9 @@ func TestFactoryParsesOperatorFlags(t *testing.T) {
 	}
 	if !factory.Execute() {
 		t.Fatal("Execute = false, want true")
+	}
+	if factory.DeployCommit() != "tack-443-deploy-commit" {
+		t.Fatalf("deploy commit = %q", factory.DeployCommit())
 	}
 }
 

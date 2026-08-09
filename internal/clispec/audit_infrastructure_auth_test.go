@@ -27,7 +27,7 @@ func TestRunAuditedInfrastructureDefersAfterAuthenticationFailureWhenBothExist(t
 	err := runAudited(
 		context.Background(),
 		audit.Spec{Verb: "ops.provision", Mutates: true, CreatesAuditInfrastructure: true},
-		testOperatorSource(), true, outbox, probe.Check,
+		testOperatorSource(), "", true, outbox, probe.Check,
 		func(context.Context) error {
 			runCount++
 			eventsDuringRun = len(outbox.events)
@@ -63,7 +63,7 @@ func TestRunAuditedInfrastructureRefusesPlainErrorWhenTableAndLoginExist(t *test
 	err := runAudited(
 		context.Background(),
 		audit.Spec{Verb: "ops.provision", Mutates: true, CreatesAuditInfrastructure: true},
-		testOperatorSource(), true, &auditTestOutbox{writeErrors: []error{writeErr}}, probe.Check,
+		testOperatorSource(), "", true, &auditTestOutbox{writeErrors: []error{writeErr}}, probe.Check,
 		func(context.Context) error {
 			runCount++
 			return nil

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -21,18 +22,20 @@ func RunAudited(
 	output io.Writer,
 	spec audit.Spec,
 	source audit.OperatorIdentitySource,
+	deployCommit string,
 	execute bool,
 	outbox audit.OutboxWriter,
 	probe audit.InfrastructureProbe,
 	run func(context.Context) error,
 ) error {
-	return runAudited(withDryRunOutput(ctx, output), spec, source, execute, outbox, probe, run)
+	return runAudited(withDryRunOutput(ctx, output), spec, source, deployCommit, execute, outbox, probe, run)
 }
 
 func runAudited(
 	ctx context.Context,
 	spec audit.Spec,
 	source audit.OperatorIdentitySource,
+	deployCommit string,
 	execute bool,
 	outbox audit.OutboxWriter,
 	probe audit.InfrastructureProbe,
@@ -53,7 +56,7 @@ func runAudited(
 		return printDryRun(ctx, principal, spec)
 	}
 	opID := uuid.Must(uuid.NewV7())
-	event, err := newOperatorEvent(ctx, spec, principal, opID)
+	event, err := newOperatorEvent(ctx, spec, principal, opID, deployCommit)
 	if err != nil {
 		return err
 	}
@@ -130,11 +133,13 @@ func newOperatorEvent(
 	spec audit.Spec,
 	principal audit.OperatorPrincipal,
 	opID uuid.UUID,
+	deployCommit string,
 ) (audit.Event, error) {
 	extra, err := json.Marshal(operatorEventExtra{
 		OpID:           opID,
 		StartedAt:      nil,
 		OperatorSource: principal.Source,
+		DeployCommit:   strings.TrimSpace(deployCommit),
 	})
 	if err != nil {
 		return audit.Event{}, loggedAuditError(ctx, "encode operator event extra", err)
@@ -190,4 +195,6 @@ type operatorEventExtra struct {
 	// OperatorSource names the mechanism that established the identity, so a
 	// reader can tell a git-config identity from an asserted flag.
 	OperatorSource string `json:"operator_source"`
+	// DeployCommit identifies the opaque commit or branch supplied by the deploy playbook.
+	DeployCommit string `json:"deploy_commit,omitempty"`
 }
