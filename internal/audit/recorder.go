@@ -120,6 +120,10 @@ const (
 	OutcomeError Outcome = "error"
 	// OutcomePending is carried by intent rows until the outcome row lands.
 	OutcomePending Outcome = "pending"
+	// OutcomeUnrecorded is what a read returns for a row written before the
+	// ledger stored outcomes at all. It is never written, and it is distinct
+	// from OutcomeOK on purpose: nobody observed those events succeeding.
+	OutcomeUnrecorded Outcome = "unrecorded"
 )
 
 type EventError struct {

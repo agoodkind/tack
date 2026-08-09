@@ -8,8 +8,9 @@ import (
 
 func buildAuditQuery(filter QueryFilter) (string, []any) {
 	query := `SELECT org_id, event_time, event_id, seq, shard,
-	             actor_id, actor_kind, action, entity_kind, entity_id,
-	             context, delta, idempotency_key
+	             actor_id, actor_kind, action, outcome, entity_kind, entity_id,
+	             context, delta, error, extra, pii_ref, prev_hash, row_hash, hash_version,
+	             idempotency_key
 	      FROM audit.events
 	      WHERE org_id = $1
 	        AND event_time >= $2 AND event_time < $3`

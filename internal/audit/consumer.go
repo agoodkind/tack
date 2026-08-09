@@ -572,6 +572,7 @@ type projectedEvent struct {
 	ActorID    uuid.UUID
 	ActorKind  int16
 	Action     string
+	Outcome    Outcome
 	EntityKind string
 	EntityID   uuid.UUID
 	Context    []byte
@@ -688,6 +689,7 @@ func buildProjectedEvent(p preparedEvent, seq int64, prevHash, rowHash []byte) p
 		ActorID:    p.Event.Actor.ID,
 		ActorKind:  actorKindCode(p.Event.Actor.Type),
 		Action:     p.Event.Verb,
+		Outcome:    p.Event.Outcome,
 		EntityKind: p.Event.Entity.Type,
 		EntityID:   p.Event.Entity.ID,
 		Context:    p.ContextJSON,
@@ -738,28 +740,71 @@ type rowHashInput struct {
 	ContextJSON []byte
 	DeltaJSON   []byte
 	LastHash    []byte
+	Version     int16
 }
 
 // hashRowForEvent computes the per-event chain hash. Both the consumer and
 // YBRecorder reach it through appendChainRow, so the chain is byte-identical
 // regardless of which writer is active.
 func hashRowForEvent(in rowHashInput) ([]byte, error) {
-	payload := make(map[string]any, 14)
-	payload["org_id"] = in.Event.Context.OrgID
-	payload["shard"] = in.Shard
-	payload["seq"] = in.Seq
-	payload["event_id"] = in.EventID
-	payload["event_time"] = in.Event.OccurredAt.UTC().Format(time.RFC3339Nano)
-	payload["actor_id"] = in.Event.Actor.ID
-	payload["actor_kind"] = in.Event.Actor.Type
-	payload["action"] = in.Event.Verb
-	payload["entity_kind"] = in.Event.Entity.Type
-	payload["entity_id"] = in.Event.Entity.ID
-	payload["pii_ref"] = in.PIIRef
-	payload["context"] = json.RawMessage(in.ContextJSON)
-	payload["delta"] = json.RawMessage(in.DeltaJSON)
-	payload["idempotency"] = in.Event.IdempotencyKey
+	payload := rowHashPayloadV1{
+		OrgID:       in.Event.Context.OrgID,
+		Shard:       in.Shard,
+		Seq:         in.Seq,
+		EventID:     in.EventID,
+		EventTime:   in.Event.OccurredAt.UTC().Format(time.RFC3339Nano),
+		ActorID:     in.Event.Actor.ID,
+		ActorKind:   in.Event.Actor.Type,
+		Action:      in.Event.Verb,
+		EntityKind:  in.Event.Entity.Type,
+		EntityID:    in.Event.Entity.ID,
+		PIIRef:      in.PIIRef,
+		Context:     json.RawMessage(in.ContextJSON),
+		Delta:       json.RawMessage(in.DeltaJSON),
+		Idempotency: in.Event.IdempotencyKey,
+	}
+	if in.Version == auditHashVersion2 {
+		payloadV2 := rowHashPayloadV2{
+			rowHashPayloadV1: payload,
+			Outcome:          in.Event.Outcome,
+			Error:            in.Event.Error,
+			Extra:            in.Event.Extra,
+		}
+		return hashRow(in.LastHash, payloadV2)
+	}
+	if in.Version != 0 && in.Version != auditHashVersion1 {
+		return nil, fmt.Errorf("unsupported audit hash version %d", in.Version)
+	}
 	return hashRow(in.LastHash, payload)
+}
+
+const (
+	auditHashVersion1 int16 = 1
+	auditHashVersion2 int16 = 2
+)
+
+type rowHashPayloadV1 struct {
+	OrgID       uuid.UUID       `json:"org_id"`
+	Shard       int16           `json:"shard"`
+	Seq         int64           `json:"seq"`
+	EventID     uuid.UUID       `json:"event_id"`
+	EventTime   string          `json:"event_time"`
+	ActorID     uuid.UUID       `json:"actor_id"`
+	ActorKind   ActorType       `json:"actor_kind"`
+	Action      string          `json:"action"`
+	EntityKind  string          `json:"entity_kind"`
+	EntityID    uuid.UUID       `json:"entity_id"`
+	PIIRef      uuid.UUID       `json:"pii_ref"`
+	Context     json.RawMessage `json:"context"`
+	Delta       json.RawMessage `json:"delta"`
+	Idempotency string          `json:"idempotency"`
+}
+
+type rowHashPayloadV2 struct {
+	rowHashPayloadV1
+	Outcome Outcome         `json:"outcome"`
+	Error   *EventError     `json:"error"`
+	Extra   json.RawMessage `json:"extra"`
 }
 
 // piiRefArg returns the value to bind for audit.events.pii_ref. The pgx
@@ -807,6 +852,7 @@ func ensureClickHouseSchema(ctx context.Context, conn chdriver.Conn) error {
 		    actor_id        UUID,
 		    actor_kind      Int16,
 		    action          String,
+		    outcome         String,
 		    entity_kind     String,
 		    entity_id       UUID,
 		    context         String,
@@ -822,6 +868,10 @@ func ensureClickHouseSchema(ctx context.Context, conn chdriver.Conn) error {
 	if err := conn.Exec(ctx, stmt); err != nil {
 		slog.ErrorContext(ctx, "audit.consumer.clickhouse_table_create_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("create table: %w", err)
+	}
+	if err := conn.Exec(ctx, `ALTER TABLE audit.events_olap ADD COLUMN IF NOT EXISTS outcome String AFTER action`); err != nil {
+		slog.ErrorContext(ctx, "audit.consumer.clickhouse_outcome_column_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("add outcome column: %w", err)
 	}
 	return nil
 }

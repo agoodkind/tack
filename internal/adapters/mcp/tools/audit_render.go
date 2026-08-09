@@ -15,6 +15,7 @@ func renderAuditRows(rows []audit.Row) string {
 			markdownFieldValue("Time", formatDisplayTime(row.EventTime)),
 			markdownCodeFieldValue("Actor id", row.ActorID.String()),
 			markdownCodeFieldValue("Action", row.Action),
+			markdownCodeFieldValue("Outcome", string(row.Outcome)),
 			markdownFieldValue("Entity", fmt.Sprintf("`%s` `%s`", row.EntityKind, row.EntityID)),
 			markdownFieldValue("Request", auditContextValue(row.Context, "request_id")),
 			markdownFieldValue("Trace", auditContextValue(row.Context, "trace_id")),
@@ -29,6 +30,7 @@ func renderAuditRows(rows []audit.Row) string {
 func renderAuditRow(row audit.Row) string {
 	fields := []markdownField{
 		markdownCodeFieldValue("Action", row.Action),
+		markdownCodeFieldValue("Outcome", string(row.Outcome)),
 		markdownFieldValue("Time", formatDisplayTime(row.EventTime)),
 		markdownCodeFieldValue("Actor id", row.ActorID.String()),
 		markdownFieldValue("Actor kind", fmt.Sprintf("%d", row.ActorKind)),

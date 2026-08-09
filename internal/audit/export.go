@@ -9,8 +9,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -170,42 +172,137 @@ func VerifyBundle(dir string, pub ed25519.PublicKey) (*VerifyReport, error) {
 	}
 
 	dec := json.NewDecoder(newLineReader(jsonlBytes))
-	prevByShard := map[int16][]byte{}
-	for dec.More() {
+	rows := make([]Row, 0, mf.RowCount)
+	for {
 		var row Row
-		if err := dec.Decode(&row); err != nil {
+		err := dec.Decode(&row)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
 			return report, fmt.Errorf("verify decode: %w", err)
 		}
-		report.RowsScanned++
-		// Re-derive row hash. Mirrors yugabyte.go's hash payload.
-		expected, err := hashRow(prevByShard[row.Shard], map[string]any{
-			"org_id":      row.OrgID,
-			"shard":       row.Shard,
-			"seq":         row.Seq,
-			"event_id":    row.EventID,
-			"event_time":  row.EventTime.UTC().Format(time.RFC3339Nano),
-			"actor_id":    row.ActorID,
-			"actor_kind":  row.ActorKind,
-			"action":      row.Action,
-			"entity_kind": row.EntityKind,
-			"entity_id":   row.EntityID,
-			"pii_ref":     uuid.UUID{}, // export Row drops pii_ref; verifier sees the chain via the structural fields it has
-			"context":     row.Context,
-			"delta":       row.Delta,
-			"idempotency": row.IdempotencyKey,
-		})
-		if err != nil {
-			return report, fmt.Errorf("verify hash: %w", err)
-		}
-		_ = expected
-		// We cannot strictly compare expected to a stored row_hash in this
-		// MVP because the export Row struct does not yet round-trip
-		// row_hash / prev_hash. The chain-gap check below relies on seq
-		// monotonicity per shard, which catches most tampering.
-		prevByShard[row.Shard] = expected
-		report.HashMatches++
+		rows = append(rows, row)
+	}
+	report.RowsScanned = len(rows)
+	if err := verifyExportRows(report, rows); err != nil {
+		return report, err
 	}
 	return report, nil
+}
+
+func verifyExportRows(report *VerifyReport, rows []Row) error {
+	sort.SliceStable(rows, func(i, j int) bool {
+		if rows[i].Shard != rows[j].Shard {
+			return rows[i].Shard < rows[j].Shard
+		}
+		return rows[i].Seq < rows[j].Seq
+	})
+	lastSeqByShard := map[int16]int64{}
+	lastHashByShard := map[int16][]byte{}
+	seenShard := map[int16]bool{}
+	for _, row := range rows {
+		if seenShard[row.Shard] {
+			if row.Seq != lastSeqByShard[row.Shard]+1 {
+				report.ChainGapCount++
+				report.ChainBreaks = append(report.ChainBreaks,
+					fmt.Sprintf("row %s has sequence gap at shard %d sequence %d", row.EventID, row.Shard, row.Seq))
+			}
+			if row.Seq == lastSeqByShard[row.Shard]+1 && !bytesEqual(row.PrevHash, lastHashByShard[row.Shard]) {
+				report.ChainBreaks = append(report.ChainBreaks,
+					fmt.Sprintf("row %s has previous-hash link mismatch", row.EventID))
+			}
+		}
+		piiRef := uuid.Nil
+		if row.PIIRef != nil {
+			piiRef = *row.PIIRef
+		}
+		eventError, err := unmarshalEventError(row.Error)
+		if err != nil {
+			slog.Error("audit.export.row_error_decode_failed", slog.String("event_id", row.EventID.String()), slog.String("err", err.Error()))
+			return fmt.Errorf("verify row %s: %w", row.EventID, err)
+		}
+		expected, err := hashRowForEvent(rowHashInput{
+			Event:   exportEvent(row, eventError),
+			EventID: row.EventID, Shard: row.Shard, Seq: row.Seq,
+			PIIRef: piiRef, ContextJSON: row.Context, DeltaJSON: row.Delta,
+			LastHash: row.PrevHash, Version: row.HashVersion,
+		})
+		if err != nil {
+			slog.Error("audit.export.hash_failed", slog.String("event_id", row.EventID.String()), slog.String("err", err.Error()))
+			return fmt.Errorf("verify hash row %s: %w", row.EventID, err)
+		}
+		if !bytesEqual(expected, row.RowHash) {
+			report.ChainBreaks = append(report.ChainBreaks,
+				fmt.Sprintf("row %s hash mismatch", row.EventID))
+			continue
+		}
+		report.HashMatches++
+		lastSeqByShard[row.Shard] = row.Seq
+		lastHashByShard[row.Shard] = row.RowHash
+		seenShard[row.Shard] = true
+	}
+	return nil
+}
+
+func unmarshalEventError(raw json.RawMessage) (*EventError, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil, nil
+	}
+	var eventError EventError
+	if err := json.Unmarshal(raw, &eventError); err != nil {
+		slog.Error("audit.export.event_error_decode_failed", slog.String("err", err.Error()))
+		return nil, fmt.Errorf("encoding/json error: %w", err)
+	}
+	return &eventError, nil
+}
+
+func exportEvent(row Row, eventError *EventError) Event {
+	return Event{
+		Verb: row.Action, EventID: row.EventID,
+		Actor: Actor{
+			Type: actorTypeFromCode(row.ActorKind), ID: row.ActorID,
+			Email: "", Name: "", SessionID: "", IP: "", UserAgent: "", RequestID: "", APITokenLabel: "",
+		},
+		Entity: Entity{
+			Type: row.EntityKind, NodeType: "", ID: row.EntityID, Identifier: "", Name: "",
+		},
+		Context: EventContext{
+			OrgID: row.OrgID, WorkspaceID: uuid.Nil, ScopeID: uuid.Nil, ParentID: uuid.Nil,
+			RequestID: "", TraceID: "", Source: "", Tool: "", RPC: "", Reason: "",
+		},
+		Delta: nil, Outcome: row.Outcome, Error: eventError,
+		IdempotencyKey: row.IdempotencyKey, OccurredAt: row.EventTime, Extra: row.Extra,
+	}
+}
+
+func actorTypeFromCode(code int16) ActorType {
+	switch code {
+	case 1:
+		return ActorUser
+	case 2:
+		return ActorService
+	case 3:
+		return ActorSystem
+	case 4:
+		return ActorToken
+	case 5:
+		return ActorOperator
+	default:
+		return ""
+	}
+}
+
+func bytesEqual(left, right []byte) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // newLineReader returns an io.Reader over b. Helper to keep the JSON decoder
