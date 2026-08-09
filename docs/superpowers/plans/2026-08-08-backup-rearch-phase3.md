@@ -52,28 +52,31 @@ reaches the product store by naming the guest that serves it.
   explicit memory limit, and the patched startup script the single node already
   mounts. Task 2 consumes those services when it joins them.
 
-- [ ] **Step 1: Split the bound address from the advertised address**
+- [ ] **Step 1: Give each node a permanent name every guest resolves**
 
-The node today binds and advertises the same value, the container name
-`yugabyte`, which resolves only inside one guest's container network. Three
-nodes on three guests cannot find each other that way.
+The node announces the identity the engine stores in its internal catalog.
+Today that is the container name `yugabyte`, which resolves only inside one
+guest's container network, so three nodes on three guests cannot find each
+other. Announcing an address instead would bake a value that can move into
+the catalog, which is the wedge class the single-node name was chosen to
+prevent.
 
-The service takes those as two separate flags. Keep binding inside the
-container network, and advertise the guest's own address from the service
-inventory, which is pinned and does not change. Publish the ports the other
-nodes need to reach.
+Each node announces its own permanent name: `yb1`, `yb2`, or `yb3`. The
+deploy renders a hosts entry on every tack guest mapping each name to the
+owning data guest's pinned address from the service inventory. The same
+names serve both environments, because each environment's guests resolve
+them to their own addresses. Publish the ports peer nodes and clients need.
 
-A comment on the service warns against advertising an address because
-persisting one into the cluster's metadata caused an incident. That warning is
-about container addresses, which Docker replaces freely. Extend the comment to
-say why a guest address is different, so the next reader does not take the
-warning as forbidding both.
+Extend the service comment that forbids advertising an address so it states
+the full contract: identity is a permanent name, addresses stay behind the
+hosts entries, and a renumber changes one inventory line and a redeploy.
 
-- [ ] **Step 2: Prove two guests can reach each other's node**
+- [ ] **Step 2: Prove two guests resolve and reach each other's node**
 
-Before any join, confirm from one data guest that the published port on another
-answers. A join attempted without that evidence creates a second cluster
-instead of growing the first.
+Before any join, confirm from one data guest that another node's name
+resolves to that guest's pinned address and the published port answers. A
+join attempted without that evidence creates a second cluster instead of
+growing the first.
 
 - [ ] **Step 3: Declare the values per guest**
 
