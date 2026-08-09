@@ -108,20 +108,37 @@ Record the count before and after.
 - Produces: a three-node cluster holding three copies of every row. Task 3
   consumes the multi-node connection string.
 
-- [ ] **Step 1: Bring both new nodes up back to back**
+The target topology puts one ledger node on each data guest and none on an app
+guest. The node running today lives on an app guest, so reaching that topology
+means three new nodes join and the original retires, not two nodes joining a
+survivor.
 
-The deploy starts the ledger service on the second and third data guests in one
-run, never leaving the cluster at two nodes between runs.
+- [ ] **Step 1: Join all three data guest nodes back to back**
+
+The deploy starts the ledger service on all three data guests in one run. The
+cluster passes through four nodes, which is a stable state, and never rests at
+two, whose coordination quorum is fragile.
 
 - [ ] **Step 2: Raise the copy count to three**
 
-Set the cluster's replication factor to three once the third node has joined.
+Set the cluster's replication factor to three once all three have joined.
 
-- [ ] **Step 3: Verify from outside the cluster**
+- [ ] **Step 3: Wait for every copy to land before retiring anything**
 
-From the workstation, read the cluster's own status and confirm three live
-nodes, replication factor three, and no under-replicated data. Record the
-output.
+Confirm from outside the cluster that no data is under-replicated. Retiring the
+original node before its data has copied elsewhere loses the only copy of
+whatever it still leads alone.
+
+- [ ] **Step 4: Retire the original node**
+
+Remove the node on the app guest through the engine's own removal path, so the
+remaining three re-replicate what it held. The app guest then carries no data,
+which is what lets the export run somewhere that serves nothing.
+
+- [ ] **Step 5: Verify the end state from outside the cluster**
+
+Read the cluster's status and confirm three live nodes, all on data guests,
+replication factor three, and no under-replicated data. Record the output.
 
 ---
 
