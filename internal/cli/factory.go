@@ -1,7 +1,7 @@
-// Package cli holds the operator CLI's shared dependency factory and the
-// global output flag. The factory carries config and the IO streams every
-// command writes through, so commands take a *Factory instead of reaching for
-// package globals or the process streams directly.
+// Package cli holds the operator CLI's shared dependency factory and global
+// flags. The factory carries config and the IO streams every command writes
+// through, so commands take a *Factory instead of reaching for package
+// globals or the process streams directly.
 package cli
 
 import (
@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/config"
 )
 
@@ -28,7 +29,12 @@ type Factory struct {
 	Out io.Writer
 	Err io.Writer
 
-	output *string
+	output         *string
+	operatorID     *string                      `exhaustruct:"optional"`
+	operatorEmail  *string                      `exhaustruct:"optional"`
+	operatorName   *string                      `exhaustruct:"optional"`
+	execute        *bool                        `exhaustruct:"optional"`
+	operatorSource audit.OperatorIdentitySource `exhaustruct:"optional"`
 }
 
 // System builds a Factory wired to the process streams.
@@ -44,9 +50,44 @@ func (f *Factory) OutputFormat() string {
 	return FormatText
 }
 
-// RegisterGlobalFlags installs the persistent --output flag on root and binds
-// it so every command sees the operator's choice through OutputFormat.
+// Operator returns the raw values selected by the operator identity flags.
+func (f *Factory) Operator() (string, string, string) {
+	return stringValue(f.operatorID), stringValue(f.operatorEmail), stringValue(f.operatorName)
+}
+
+// Execute reports whether the operator passed the action gate.
+func (f *Factory) Execute() bool {
+	return f.execute != nil && *f.execute
+}
+
+// SetOperatorIdentitySource stores the source selected for the root command.
+func (f *Factory) SetOperatorIdentitySource(source audit.OperatorIdentitySource) {
+	f.operatorSource = source
+}
+
+// OperatorIdentitySource returns the source selected for the root command.
+func (f *Factory) OperatorIdentitySource() audit.OperatorIdentitySource {
+	return f.operatorSource
+}
+
+// RegisterGlobalFlags installs the persistent global flags on root and binds
+// them so every command sees the operator's choices through Factory accessors.
 func (f *Factory) RegisterGlobalFlags(root *cobra.Command) {
 	f.output = root.PersistentFlags().String(
 		"output", FormatText, "output format: text or json")
+	f.operatorID = root.PersistentFlags().String(
+		"operator-id", "", "operator UUID")
+	f.operatorEmail = root.PersistentFlags().String(
+		"operator-email", "", "operator email")
+	f.operatorName = root.PersistentFlags().String(
+		"operator-name", "", "operator name")
+	f.execute = root.PersistentFlags().Bool(
+		"execute", false, "execute the command instead of printing its dry-run")
+}
+
+func stringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
