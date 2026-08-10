@@ -69,8 +69,11 @@ func NewOperatorSource(f *Factory) audit.OperatorIdentitySource {
 	return selectingOperatorSource{factory: f}
 }
 
-// selectingOperatorSource picks the flag source when the operator supplied an
-// id, and the git config source otherwise.
+// selectingOperatorSource picks the service source when a service name was
+// supplied, the flag source when the operator supplied an id, and the git
+// config source otherwise. A command given both a service name and an operator
+// id refuses, because the two name different actors and picking one silently
+// would attribute the action to the wrong identity.
 type selectingOperatorSource struct {
 	factory *Factory
 }
@@ -78,7 +81,18 @@ type selectingOperatorSource struct {
 func (s selectingOperatorSource) Resolve(ctx context.Context) (audit.OperatorPrincipal, error) {
 	if s.factory != nil {
 		operatorID, _, _ := s.factory.Operator()
-		if strings.TrimSpace(operatorID) != "" {
+		serviceName := s.factory.OperatorService()
+		hasOperatorID := strings.TrimSpace(operatorID) != ""
+		hasServiceName := strings.TrimSpace(serviceName) != ""
+		if hasOperatorID && hasServiceName {
+			err := errors.New("--operator-service and --operator-id are mutually exclusive; pass exactly one identity")
+			slog.ErrorContext(ctx, "operator.select.ambiguous_identity", slog.String("err", err.Error()))
+			return audit.OperatorPrincipal{}, err
+		}
+		if hasServiceName {
+			return ServiceOperatorSource{Factory: s.factory}.Resolve(ctx)
+		}
+		if hasOperatorID {
 			return FlagOperatorSource{Factory: s.factory}.Resolve(ctx)
 		}
 	}

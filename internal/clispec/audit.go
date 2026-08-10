@@ -144,11 +144,15 @@ func newOperatorEvent(
 	if err != nil {
 		return audit.Event{}, loggedAuditError(ctx, "encode operator event extra", err)
 	}
+	actorType := principal.Kind
+	if actorType == "" {
+		actorType = audit.ActorOperator
+	}
 	return audit.Event{
 		Verb:    spec.Verb,
 		EventID: uuid.Must(uuid.NewV7()),
 		Actor: audit.Actor{
-			Type:          audit.ActorOperator,
+			Type:          actorType,
 			ID:            principal.ID,
 			Email:         principal.Email,
 			Name:          principal.Name,
