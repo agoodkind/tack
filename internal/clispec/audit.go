@@ -148,7 +148,7 @@ func newOperatorEvent(
 		Verb:    spec.Verb,
 		EventID: uuid.Must(uuid.NewV7()),
 		Actor: audit.Actor{
-			Type:          audit.ActorOperator,
+			Type:          principal.ActorType(),
 			ID:            principal.ID,
 			Email:         principal.Email,
 			Name:          principal.Name,

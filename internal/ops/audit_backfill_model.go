@@ -149,7 +149,7 @@ func reconstructionEvent(
 		Verb:    string(verb),
 		EventID: uuid.NewSHA1(referenceRepairBackfillNamespace, []byte(idempotencyKey)),
 		Actor: audit.Actor{
-			Type: audit.ActorOperator, ID: principal.ID, Email: principal.Email, Name: principal.Name,
+			Type: principal.ActorType(), ID: principal.ID, Email: principal.Email, Name: principal.Name,
 			SessionID: "", IP: "", UserAgent: "", RequestID: "", APITokenLabel: "",
 		},
 		Entity: entity,

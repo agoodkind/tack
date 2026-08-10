@@ -66,16 +66,32 @@ type IdempotentOutboxWriter interface {
 	WriteOutboxIfAbsent(ctx context.Context, event Event) (bool, error)
 }
 
-// OperatorPrincipal identifies the person running an operator command.
+// OperatorPrincipal identifies the person or service running an operator
+// command.
 type OperatorPrincipal struct {
 	// ID is the stable identity of the operator.
 	ID uuid.UUID
-	// Email is the operator email snapshot.
+	// Email is the operator email snapshot. A service principal has none.
 	Email string
 	// Name is the operator display name snapshot.
 	Name string
 	// Source identifies the mechanism that resolved the principal.
 	Source string
+	// Kind names the ledger actor kind. The zero value means ActorOperator,
+	// which keeps the existing human sources unchanged; the service identity
+	// source sets ActorService so a daemon is never recorded as a human.
+	Kind ActorType `exhaustruct:"optional"`
+}
+
+// ActorType returns the ledger actor kind this principal records as. The zero
+// Kind means ActorOperator, so every event built from one principal carries
+// one kind; a nested event that hardcoded the kind would misclassify a
+// service run as a human.
+func (p OperatorPrincipal) ActorType() ActorType {
+	if p.Kind == "" {
+		return ActorOperator
+	}
+	return p.Kind
 }
 
 // OperatorIdentitySource resolves the operator identity for a command.

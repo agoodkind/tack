@@ -44,7 +44,7 @@ func referenceRenameEvent(
 	return audit.Event{
 		Verb: string(audit.VerbNodeReferenceRename), EventID: referenceRenameEventID(rename),
 		Actor: audit.Actor{
-			Type: audit.ActorOperator, ID: principal.ID, Email: principal.Email, Name: principal.Name,
+			Type: principal.ActorType(), ID: principal.ID, Email: principal.Email, Name: principal.Name,
 			SessionID: "", IP: "", UserAgent: "", RequestID: "", APITokenLabel: "",
 		},
 		Entity: audit.Entity{Type: "node", NodeType: resolution.NodeType, ID: nodeID, Identifier: rename.NewReference, Name: ""},

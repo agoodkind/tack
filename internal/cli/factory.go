@@ -34,6 +34,7 @@ type Factory struct {
 	operatorID               *string                      `exhaustruct:"optional"`
 	operatorEmail            *string                      `exhaustruct:"optional"`
 	operatorName             *string                      `exhaustruct:"optional"`
+	operatorService          *string                      `exhaustruct:"optional"`
 	deployCommit             *string                      `exhaustruct:"optional"`
 	execute                  *bool                        `exhaustruct:"optional"`
 	operatorSource           audit.OperatorIdentitySource `exhaustruct:"optional"`
@@ -62,6 +63,12 @@ func (f *Factory) OutputFormat() string {
 // Operator returns the raw values selected by the operator identity flags.
 func (f *Factory) Operator() (string, string, string) {
 	return stringValue(f.operatorID), stringValue(f.operatorEmail), stringValue(f.operatorName)
+}
+
+// OperatorService returns the service name selected by the service identity
+// flag, empty when the command runs as a human operator.
+func (f *Factory) OperatorService() string {
+	return stringValue(f.operatorService)
 }
 
 // DeployCommit reports the deployment commit after trimming whitespace.
@@ -130,6 +137,9 @@ func (f *Factory) RegisterGlobalFlags(root *cobra.Command) {
 		"operator-email", "", "operator email")
 	f.operatorName = root.PersistentFlags().String(
 		"operator-name", "", "operator name")
+	f.operatorService = root.PersistentFlags().String(
+		"operator-service", "",
+		"service name for a non-human operator identity; mutually exclusive with --operator-id")
 	f.deployCommit = root.PersistentFlags().String(
 		"deploy-commit", "", "commit or branch being deployed, supplied by the deploy playbook")
 	f.execute = root.PersistentFlags().Bool(

@@ -9,6 +9,10 @@ services:
         BUILD_TIME: ${TACK_BUILD_TIME:-unknown}
         TAG: ${TACK_TAG:-dev}
         DIRTY: ${TACK_DIRTY:-false}
+    # serve is audited like every command: it needs the execute gate and an
+    # identity. The app runs as the service identity tack-app, because a
+    # long-running daemon is not a human operator (TACK-444).
+    command: ["serve", "--execute", "--operator-service", "tack-app"]
     restart: unless-stopped
     mem_limit: 1g
     dns:
