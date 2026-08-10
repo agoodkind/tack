@@ -157,6 +157,54 @@ func TestAppendChainRowConcurrent(t *testing.T) {
 	}
 }
 
+// TestAppendChainRowHashRecomputableFromStoredRow is the TACK-445 acceptance:
+// an event written with a nanosecond OccurredAt must verify from what the
+// database actually stored. The recomputation below mirrors VerifyBundle:
+// every hash input comes from the read-back row, none from the original
+// event, so a hash that covers anything the column truncates fails here.
+func TestAppendChainRowHashRecomputableFromStoredRow(t *testing.T) {
+	pool, orgID := chainTestPool(t)
+	ctx := context.Background()
+	const shard int16 = 11
+	in := chainTestEvent(orgID, shard)
+	if in.Event.OccurredAt.Nanosecond()%1000 == 0 {
+		t.Fatalf("clock produced a whole-microsecond timestamp %v; the round trip would not exercise truncation", in.Event.OccurredAt)
+	}
+
+	if err := appendWithRetry(ctx, pool, in); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+
+	reader := &Reader{pool: pool}
+	row, err := reader.GetByID(ctx, in.EventID)
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if row.HashVersion != auditHashVersionCurrent {
+		t.Fatalf("stored hash_version = %d, want %d", row.HashVersion, auditHashVersionCurrent)
+	}
+	piiRef := uuid.Nil
+	if row.PIIRef != nil {
+		piiRef = *row.PIIRef
+	}
+	eventError, err := unmarshalEventError(row.Error)
+	if err != nil {
+		t.Fatalf("row error: %v", err)
+	}
+	recomputed, err := hashRowForEvent(rowHashInput{
+		Event:   exportEvent(*row, eventError),
+		EventID: row.EventID, Shard: row.Shard, Seq: row.Seq,
+		PIIRef: piiRef, ContextJSON: row.Context, DeltaJSON: row.Delta,
+		LastHash: row.PrevHash, Version: row.HashVersion,
+	})
+	if err != nil {
+		t.Fatalf("recompute: %v", err)
+	}
+	if !bytes.Equal(recomputed, row.RowHash) {
+		t.Fatalf("stored row_hash does not recompute from the stored row; offline verification would reject this honest event")
+	}
+}
+
 // TestAppendChainRowIdempotent confirms a redelivered event (same event_id and
 // event_time) is rejected by the unique index and never advances the chain a
 // second time.

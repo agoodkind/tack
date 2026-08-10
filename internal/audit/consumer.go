@@ -764,12 +764,21 @@ type rowHashInput struct {
 // YBRecorder reach it through appendChainRow, so the chain is byte-identical
 // regardless of which writer is active.
 func hashRowForEvent(in rowHashInput) ([]byte, error) {
+	// Version 3 hashes event_time at the microsecond precision the
+	// TIMESTAMPTZ column stores, so offline verification can recompute the
+	// hash from the read-back row. Versions 1 and 2 hashed the producer's
+	// nanosecond timestamp, which the database never stored, so their rows
+	// can only ever be checked by chain linkage (TACK-445).
+	eventTime := in.Event.OccurredAt.UTC().Format(time.RFC3339Nano)
+	if in.Version == auditHashVersion3 {
+		eventTime = in.Event.OccurredAt.UTC().Truncate(time.Microsecond).Format(time.RFC3339Nano)
+	}
 	payload := rowHashPayloadV1{
 		OrgID:       in.Event.Context.OrgID,
 		Shard:       in.Shard,
 		Seq:         in.Seq,
 		EventID:     in.EventID,
-		EventTime:   in.Event.OccurredAt.UTC().Format(time.RFC3339Nano),
+		EventTime:   eventTime,
 		ActorID:     in.Event.Actor.ID,
 		ActorKind:   in.Event.Actor.Type,
 		Action:      in.Event.Verb,
@@ -780,7 +789,7 @@ func hashRowForEvent(in rowHashInput) ([]byte, error) {
 		Delta:       json.RawMessage(in.DeltaJSON),
 		Idempotency: in.Event.IdempotencyKey,
 	}
-	if in.Version == auditHashVersion2 {
+	if in.Version == auditHashVersion2 || in.Version == auditHashVersion3 {
 		payloadV2 := rowHashPayloadV2{
 			rowHashPayloadV1: payload,
 			Outcome:          in.Event.Outcome,
@@ -798,6 +807,10 @@ func hashRowForEvent(in rowHashInput) ([]byte, error) {
 const (
 	auditHashVersion1 int16 = 1
 	auditHashVersion2 int16 = 2
+	auditHashVersion3 int16 = 3
+	// auditHashVersionCurrent is what appendChainRow both hashes with and
+	// stores in the hash_version column, so the two cannot diverge.
+	auditHashVersionCurrent = auditHashVersion3
 )
 
 type rowHashPayloadV1 struct {

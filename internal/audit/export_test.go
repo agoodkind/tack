@@ -40,7 +40,7 @@ func TestVerifyBundleRoundTrip(t *testing.T) {
 			Outcome:     OutcomeOK,
 			EntityID:    uuid.Must(uuid.NewV7()),
 			Context:     json.RawMessage(`{"request_id":"req-export","trace_id":"trace-export"}`),
-			HashVersion: auditHashVersion1,
+			HashVersion: auditHashVersion3,
 		},
 	}
 	rows[0].RowHash = hashExportTestRow(t, rows[0])
@@ -119,7 +119,7 @@ func TestVerifyBundleReportsEditedRow(t *testing.T) {
 		OrgID: uuid.Must(uuid.NewV7()), EventTime: time.Now().UTC(), EventID: uuid.Must(uuid.NewV7()),
 		Seq: 1, Shard: 1, ActorID: uuid.Must(uuid.NewV7()), ActorKind: 1,
 		Action: "node.read", Outcome: OutcomeOK, EntityKind: "node", EntityID: uuid.Must(uuid.NewV7()),
-		Context: json.RawMessage(`{"request_id":"req-tamper"}`), HashVersion: auditHashVersion1,
+		Context: json.RawMessage(`{"request_id":"req-tamper"}`), HashVersion: auditHashVersion3,
 	}
 	row.RowHash = hashExportTestRow(t, row)
 	pub := writeSignedExportTestBundle(t, dir, []Row{row})
@@ -226,6 +226,41 @@ func writeSignedExportTestBundle(t *testing.T, dir string, rows []Row) ed25519.P
 	return pub
 }
 
+// TestVerifyBundleLegacyRowsAreLinkageOnly pins the TACK-445 story for rows
+// written under hash versions 1 and 2: their hash covered a nanosecond
+// timestamp the database never stored, so recomputation is impossible and
+// must not condemn an honest bundle. The row below reproduces the real
+// condition: its stored hash was computed from a nanosecond timestamp, and
+// the row read back carries the microsecond-truncated one.
+func TestVerifyBundleLegacyRowsAreLinkageOnly(t *testing.T) {
+	dir := t.TempDir()
+	orgID := uuid.Must(uuid.NewV7())
+	originalTime := time.Date(2026, 8, 10, 4, 17, 1, 59766789, time.UTC)
+	row := Row{
+		OrgID: orgID, EventTime: originalTime, EventID: uuid.Must(uuid.NewV7()),
+		Seq: 1, Shard: 1, ActorID: uuid.Must(uuid.NewV7()), ActorKind: 5,
+		Action: "ops.test.legacy", Outcome: OutcomeOK, EntityKind: "system", EntityID: orgID,
+		Context: json.RawMessage(`{}`), HashVersion: auditHashVersion2,
+	}
+	row.RowHash = hashExportTestRow(t, row)
+	row.EventTime = originalTime.Truncate(time.Microsecond)
+	pub := writeSignedExportTestBundle(t, dir, []Row{row})
+
+	report, err := VerifyBundle(dir, pub)
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if report.LinkageOnlyRows != 1 {
+		t.Fatalf("linkage-only rows = %d, want 1", report.LinkageOnlyRows)
+	}
+	if report.HashMatches != 0 {
+		t.Fatalf("hash matches = %d, want 0; a legacy row must not enter recomputation", report.HashMatches)
+	}
+	if verdict := report.Err(); verdict != nil {
+		t.Fatalf("honest legacy bundle rejected: %v", verdict)
+	}
+}
+
 // TestVerifyReportErrTracksTheReport pins that the verdict a caller acts on
 // matches the report a human reads. A clean bundle returns nil; a tampered one
 // returns an error naming what failed. Before this, verification printed its
@@ -238,7 +273,7 @@ func TestVerifyReportErrTracksTheReport(t *testing.T) {
 		OrgID: orgID, EventTime: time.Now().UTC(), EventID: uuid.Must(uuid.NewV7()),
 		Seq: 1, Shard: 1, ActorID: uuid.Must(uuid.NewV7()), ActorKind: 5,
 		Action: "ops.test.verdict", Outcome: OutcomeOK, EntityKind: "system", EntityID: orgID,
-		Context: json.RawMessage(`{}`), HashVersion: auditHashVersion1,
+		Context: json.RawMessage(`{}`), HashVersion: auditHashVersion3,
 	}
 	row.RowHash = hashExportTestRow(t, row)
 	pub := writeSignedExportTestBundle(t, dir, []Row{row})
@@ -297,7 +332,7 @@ func TestVerifyOneEditedRowDoesNotCondemnTheRest(t *testing.T) {
 			OrgID: orgID, EventTime: time.Now().UTC(), EventID: uuid.Must(uuid.NewV7()),
 			Seq: seq, Shard: 1, ActorID: uuid.Must(uuid.NewV7()), ActorKind: 5,
 			Action: "ops.test.chain", Outcome: OutcomeOK, EntityKind: "system", EntityID: orgID,
-			Context: json.RawMessage(`{}`), HashVersion: auditHashVersion1,
+			Context: json.RawMessage(`{}`), HashVersion: auditHashVersion3,
 			PrevHash: prevHash,
 		}
 		row.RowHash = hashExportTestRow(t, row)

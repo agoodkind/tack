@@ -125,6 +125,13 @@ type VerifyReport struct {
 	FileSHA256OK    bool
 	SignatureOK     bool
 	ManifestSubject string
+	// LinkageOnlyRows counts rows written under hash versions 1 and 2. Those
+	// versions hashed a nanosecond timestamp the TIMESTAMPTZ column never
+	// stored, so their content hash cannot be recomputed from the stored row
+	// by anyone, ever; only their previous-hash chain links are checked. The
+	// count is reported so a reader knows exactly how much of the bundle
+	// carries the weaker guarantee (TACK-445).
+	LinkageOnlyRows int
 }
 
 // Err returns an error naming every integrity check the bundle failed, and nil
@@ -151,11 +158,14 @@ func (r *VerifyReport) Err() error {
 	// and both are checked above. The gap count stays in the report so a
 	// reader can see it.
 	// A row that scanned but did not match its stored hash shows up as a
-	// shortfall in the counts even when nothing else complains.
-	if r.HashMatches != r.RowsScanned {
+	// shortfall in the counts even when nothing else complains. Linkage-only
+	// rows never entered the recomputation, so they are excluded from the
+	// expected match count rather than silently counted as matches.
+	if r.HashMatches != r.RowsScanned-r.LinkageOnlyRows {
 		failures = append(failures,
-			fmt.Sprintf("%d of %d rows failed their hash check",
-				r.RowsScanned-r.HashMatches, r.RowsScanned))
+			fmt.Sprintf("%d of %d recomputable rows failed their hash check",
+				r.RowsScanned-r.LinkageOnlyRows-r.HashMatches,
+				r.RowsScanned-r.LinkageOnlyRows))
 	}
 	if len(failures) == 0 {
 		return nil
@@ -168,7 +178,11 @@ func (r *VerifyReport) Err() error {
 // links via prev_hash within each (org, shard) sequence, and validates the
 // manifest signature with the supplied public key. Pure offline check.
 func VerifyBundle(dir string, pub ed25519.PublicKey) (*VerifyReport, error) {
-	report := &VerifyReport{BundleDir: dir}
+	report := &VerifyReport{
+		BundleDir: dir, RowsScanned: 0, HashMatches: 0, ChainGapCount: 0,
+		ChainBreaks: nil, FileSHA256OK: false, SignatureOK: false,
+		ManifestSubject: "", LinkageOnlyRows: 0,
+	}
 
 	mfBytes, err := os.ReadFile(filepath.Join(dir, "manifest.json"))
 	if err != nil {
@@ -251,6 +265,17 @@ func verifyExportRows(report *VerifyReport, rows []Row) error {
 				report.ChainBreaks = append(report.ChainBreaks,
 					fmt.Sprintf("row %s has previous-hash link mismatch", row.EventID))
 			}
+		}
+		// Rows hashed before version 3 covered a timestamp the database never
+		// stored, so recomputing their hash is impossible for verifier and
+		// forger alike. They are checked by their chain links above and
+		// counted so the report says how many rows carry that weaker check.
+		if row.HashVersion < auditHashVersion3 {
+			report.LinkageOnlyRows++
+			lastSeqByShard[row.Shard] = row.Seq
+			lastHashByShard[row.Shard] = row.RowHash
+			seenShard[row.Shard] = true
+			continue
 		}
 		piiRef := uuid.Nil
 		if row.PIIRef != nil {

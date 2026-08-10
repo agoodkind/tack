@@ -162,7 +162,8 @@ func auditVerifyOp(f *cli.Factory) clispec.Operation[auditVerifyInput] {
 			}
 			if writeErr := clispec.WriteJSONValue(ctx, sink, auditVerifyResult{
 				BundleDir: report.BundleDir, RowsScanned: report.RowsScanned, HashMatches: report.HashMatches,
-				ChainGapCount: report.ChainGapCount, ChainBreaks: report.ChainBreaks, FileSHA256OK: report.FileSHA256OK,
+				LinkageOnlyRows: report.LinkageOnlyRows,
+				ChainGapCount:   report.ChainGapCount, ChainBreaks: report.ChainBreaks, FileSHA256OK: report.FileSHA256OK,
 				SignatureOK: report.SignatureOK, ManifestSubject: report.ManifestSubject,
 			}); writeErr != nil {
 				slog.ErrorContext(ctx, "audit.verify_render_failed", slog.String("err", writeErr.Error()))
