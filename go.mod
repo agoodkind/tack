@@ -20,7 +20,7 @@ require (
 	github.com/moby/moby/client v0.5.0
 	github.com/pressly/goose/v3 v3.27.1
 	github.com/spf13/cobra v1.10.2
-	github.com/twmb/franz-go v1.21.3
+	github.com/twmb/franz-go v1.21.5
 	github.com/twmb/franz-go/pkg/kfake v0.0.0-20260504210720-963be6fd5989
 	github.com/twmb/franz-go/pkg/kmsg v1.13.1
 	go.opentelemetry.io/otel v1.44.0
