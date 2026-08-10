@@ -83,6 +83,17 @@ type OperatorPrincipal struct {
 	Kind ActorType `exhaustruct:"optional"`
 }
 
+// ActorType returns the ledger actor kind this principal records as. The zero
+// Kind means ActorOperator, so every event built from one principal carries
+// one kind; a nested event that hardcoded the kind would misclassify a
+// service run as a human.
+func (p OperatorPrincipal) ActorType() ActorType {
+	if p.Kind == "" {
+		return ActorOperator
+	}
+	return p.Kind
+}
+
 // OperatorIdentitySource resolves the operator identity for a command.
 type OperatorIdentitySource interface {
 	Resolve(ctx context.Context) (OperatorPrincipal, error)
