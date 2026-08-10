@@ -226,13 +226,13 @@ func writeSignedExportTestBundle(t *testing.T, dir string, rows []Row) ed25519.P
 	return pub
 }
 
-// TestVerifyBundleLegacyRowsAreLinkageOnly pins the TACK-445 story for rows
-// written under hash versions 1 and 2: their hash covered a nanosecond
-// timestamp the database never stored, so recomputation is impossible and
-// must not condemn an honest bundle. The row below reproduces the real
+// TestVerifyBundleRecoversLegacyRows pins the TACK-445 story for rows written
+// under hash versions 1 and 2: their hash covered a nanosecond timestamp the
+// database stored only to the microsecond, so the verifier recovers the lost
+// remainder by trying every possible value. The row below reproduces the real
 // condition: its stored hash was computed from a nanosecond timestamp, and
 // the row read back carries the microsecond-truncated one.
-func TestVerifyBundleLegacyRowsAreLinkageOnly(t *testing.T) {
+func TestVerifyBundleRecoversLegacyRows(t *testing.T) {
 	dir := t.TempDir()
 	orgID := uuid.Must(uuid.NewV7())
 	originalTime := time.Date(2026, 8, 10, 4, 17, 1, 59766789, time.UTC)
@@ -250,14 +250,53 @@ func TestVerifyBundleLegacyRowsAreLinkageOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}
-	if report.LinkageOnlyRows != 1 {
-		t.Fatalf("linkage-only rows = %d, want 1", report.LinkageOnlyRows)
-	}
-	if report.HashMatches != 0 {
-		t.Fatalf("hash matches = %d, want 0; a legacy row must not enter recomputation", report.HashMatches)
+	if report.HashMatches != 1 {
+		t.Fatalf("hash matches = %d, want 1; the candidate search must recover the legacy row", report.HashMatches)
 	}
 	if verdict := report.Err(); verdict != nil {
 		t.Fatalf("honest legacy bundle rejected: %v", verdict)
+	}
+}
+
+// TestVerifyBundleRejectsHashVersionDowngrade reproduces the review attack:
+// edit a version 3 row's content and relabel it version 2, leaving both
+// hashes untouched. The relabel buys the forger nothing, because a claimed
+// version 2 row is recomputed at every possible lost-nanosecond candidate and
+// the edited content matches none of them.
+func TestVerifyBundleRejectsHashVersionDowngrade(t *testing.T) {
+	dir := t.TempDir()
+	orgID := uuid.Must(uuid.NewV7())
+	rows := make([]Row, 0, 2)
+	var prevHash []byte
+	for seq := int64(1); seq <= 2; seq++ {
+		row := Row{
+			OrgID: orgID, EventTime: time.Now().UTC(), EventID: uuid.Must(uuid.NewV7()),
+			Seq: seq, Shard: 1, ActorID: uuid.Must(uuid.NewV7()), ActorKind: 5,
+			Action: "ops.test.downgrade", Outcome: OutcomeOK, EntityKind: "system", EntityID: orgID,
+			Context: json.RawMessage(`{}`), HashVersion: auditHashVersion3,
+			PrevHash: prevHash,
+		}
+		row.RowHash = hashExportTestRow(t, row)
+		prevHash = row.RowHash
+		rows = append(rows, row)
+	}
+	rows[1].Action = "ops.test.forged"
+	rows[1].HashVersion = auditHashVersion2
+	pub := writeSignedExportTestBundle(t, dir, rows)
+
+	report, err := VerifyBundle(dir, pub)
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	verdict := report.Err()
+	if verdict == nil {
+		t.Fatal("downgraded tampered row accepted, want a rejection")
+	}
+	if !strings.Contains(verdict.Error(), "hash") {
+		t.Fatalf("verdict = %v, want it to name the hash failure", verdict)
+	}
+	if len(report.ChainBreaks) == 0 || !strings.Contains(report.ChainBreaks[0], rows[1].EventID.String()) {
+		t.Fatalf("chain breaks = %v, want the relabeled row %s named", report.ChainBreaks, rows[1].EventID)
 	}
 }
 

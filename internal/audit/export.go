@@ -125,13 +125,6 @@ type VerifyReport struct {
 	FileSHA256OK    bool
 	SignatureOK     bool
 	ManifestSubject string
-	// LinkageOnlyRows counts rows written under hash versions 1 and 2. Those
-	// versions hashed a nanosecond timestamp the TIMESTAMPTZ column never
-	// stored, so their content hash cannot be recomputed from the stored row
-	// by anyone, ever; only their previous-hash chain links are checked. The
-	// count is reported so a reader knows exactly how much of the bundle
-	// carries the weaker guarantee (TACK-445).
-	LinkageOnlyRows int
 }
 
 // Err returns an error naming every integrity check the bundle failed, and nil
@@ -158,14 +151,11 @@ func (r *VerifyReport) Err() error {
 	// and both are checked above. The gap count stays in the report so a
 	// reader can see it.
 	// A row that scanned but did not match its stored hash shows up as a
-	// shortfall in the counts even when nothing else complains. Linkage-only
-	// rows never entered the recomputation, so they are excluded from the
-	// expected match count rather than silently counted as matches.
-	if r.HashMatches != r.RowsScanned-r.LinkageOnlyRows {
+	// shortfall in the counts even when nothing else complains.
+	if r.HashMatches != r.RowsScanned {
 		failures = append(failures,
-			fmt.Sprintf("%d of %d recomputable rows failed their hash check",
-				r.RowsScanned-r.LinkageOnlyRows-r.HashMatches,
-				r.RowsScanned-r.LinkageOnlyRows))
+			fmt.Sprintf("%d of %d rows failed their hash check",
+				r.RowsScanned-r.HashMatches, r.RowsScanned))
 	}
 	if len(failures) == 0 {
 		return nil
@@ -181,7 +171,7 @@ func VerifyBundle(dir string, pub ed25519.PublicKey) (*VerifyReport, error) {
 	report := &VerifyReport{
 		BundleDir: dir, RowsScanned: 0, HashMatches: 0, ChainGapCount: 0,
 		ChainBreaks: nil, FileSHA256OK: false, SignatureOK: false,
-		ManifestSubject: "", LinkageOnlyRows: 0,
+		ManifestSubject: "",
 	}
 
 	mfBytes, err := os.ReadFile(filepath.Join(dir, "manifest.json"))
@@ -266,37 +256,11 @@ func verifyExportRows(report *VerifyReport, rows []Row) error {
 					fmt.Sprintf("row %s has previous-hash link mismatch", row.EventID))
 			}
 		}
-		// Rows hashed before version 3 covered a timestamp the database never
-		// stored, so recomputing their hash is impossible for verifier and
-		// forger alike. They are checked by their chain links above and
-		// counted so the report says how many rows carry that weaker check.
-		if row.HashVersion < auditHashVersion3 {
-			report.LinkageOnlyRows++
-			lastSeqByShard[row.Shard] = row.Seq
-			lastHashByShard[row.Shard] = row.RowHash
-			seenShard[row.Shard] = true
-			continue
-		}
-		piiRef := uuid.Nil
-		if row.PIIRef != nil {
-			piiRef = *row.PIIRef
-		}
-		eventError, err := unmarshalEventError(row.Error)
+		matched, err := recomputeRowHash(row)
 		if err != nil {
-			slog.Error("audit.export.row_error_decode_failed", slog.String("event_id", row.EventID.String()), slog.String("err", err.Error()))
-			return fmt.Errorf("verify row %s: %w", row.EventID, err)
+			return err
 		}
-		expected, err := hashRowForEvent(rowHashInput{
-			Event:   exportEvent(row, eventError),
-			EventID: row.EventID, Shard: row.Shard, Seq: row.Seq,
-			PIIRef: piiRef, ContextJSON: row.Context, DeltaJSON: row.Delta,
-			LastHash: row.PrevHash, Version: row.HashVersion,
-		})
-		if err != nil {
-			slog.Error("audit.export.hash_failed", slog.String("event_id", row.EventID.String()), slog.String("err", err.Error()))
-			return fmt.Errorf("verify hash row %s: %w", row.EventID, err)
-		}
-		if bytesEqual(expected, row.RowHash) {
+		if matched {
 			report.HashMatches++
 		} else {
 			report.ChainBreaks = append(report.ChainBreaks,
@@ -312,6 +276,54 @@ func verifyExportRows(report *VerifyReport, rows []Row) error {
 		seenShard[row.Shard] = true
 	}
 	return nil
+}
+
+// legacyNanosecondCandidates is how many sub-microsecond values a version 1
+// or 2 row's hash can have covered. Those versions hashed the producer's
+// nanosecond timestamp while the column stores microseconds, so the only
+// unrecoverable input is the remainder in [0, 1000) nanoseconds. Trying every
+// candidate restores full content verification for the whole ledger: a row
+// matches under exactly the timestamp it was written with, and an edited row
+// matches under none, whatever version it claims (TACK-445).
+const legacyNanosecondCandidates = 1000
+
+// recomputeRowHash reports whether the stored row hash is reproducible from
+// the stored row. Version 3 rows recompute in one try because their hash
+// covers the timestamp at stored precision. Version 1 and 2 rows are tried at
+// every possible lost nanosecond remainder.
+func recomputeRowHash(row Row) (bool, error) {
+	piiRef := uuid.Nil
+	if row.PIIRef != nil {
+		piiRef = *row.PIIRef
+	}
+	eventError, err := unmarshalEventError(row.Error)
+	if err != nil {
+		slog.Error("audit.export.row_error_decode_failed", slog.String("event_id", row.EventID.String()), slog.String("err", err.Error()))
+		return false, fmt.Errorf("verify row %s: %w", row.EventID, err)
+	}
+	input := rowHashInput{
+		Event:   exportEvent(row, eventError),
+		EventID: row.EventID, Shard: row.Shard, Seq: row.Seq,
+		PIIRef: piiRef, ContextJSON: row.Context, DeltaJSON: row.Delta,
+		LastHash: row.PrevHash, Version: row.HashVersion,
+	}
+	candidates := 1
+	if row.HashVersion < auditHashVersion3 {
+		candidates = legacyNanosecondCandidates
+	}
+	base := row.EventTime
+	for remainder := range candidates {
+		input.Event.OccurredAt = base.Add(time.Duration(remainder) * time.Nanosecond)
+		expected, err := hashRowForEvent(input)
+		if err != nil {
+			slog.Error("audit.export.hash_failed", slog.String("event_id", row.EventID.String()), slog.String("err", err.Error()))
+			return false, fmt.Errorf("verify hash row %s: %w", row.EventID, err)
+		}
+		if bytesEqual(expected, row.RowHash) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func unmarshalEventError(raw json.RawMessage) (*EventError, error) {

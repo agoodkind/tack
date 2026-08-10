@@ -27,7 +27,6 @@ type auditVerifyResult struct {
 	BundleDir            string   `json:"bundle_dir"`
 	RowsScanned          int      `json:"rows_scanned"`
 	HashMatches          int      `json:"hash_matches"`
-	LinkageOnlyRows      int      `json:"linkage_only_rows"`
 	ChainGapCount        int      `json:"chain_gap_count"`
 	ChainBreaks          []string `json:"chain_breaks"`
 	FileSHA256OK         bool     `json:"file_sha256_ok"`
