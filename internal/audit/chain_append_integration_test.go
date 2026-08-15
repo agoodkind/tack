@@ -3,9 +3,12 @@ package audit
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"os"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -159,17 +162,19 @@ func TestAppendChainRowConcurrent(t *testing.T) {
 
 // TestAppendChainRowHashRecomputableFromStoredRow is the TACK-445 acceptance:
 // an event written with a nanosecond OccurredAt must verify from what the
-// database actually stored. The recomputation below mirrors VerifyBundle:
-// every hash input comes from the read-back row, none from the original
-// event, so a hash that covers anything the column truncates fails here.
+// database actually stored. The event goes through the real writer and the
+// real column, then through Export and VerifyBundle exactly as the operator
+// runs them, so every hash input comes from the read-back row and none from
+// the original event. A hash that covers anything the column truncates, or an
+// export mapping that drops a hashed field, fails here.
 func TestAppendChainRowHashRecomputableFromStoredRow(t *testing.T) {
 	pool, orgID := chainTestPool(t)
 	ctx := context.Background()
 	const shard int16 = 11
 	in := chainTestEvent(orgID, shard)
-	if in.Event.OccurredAt.Nanosecond()%1000 == 0 {
-		t.Fatalf("clock produced a whole-microsecond timestamp %v; the round trip would not exercise truncation", in.Event.OccurredAt)
-	}
+	// A deterministic remainder, so the round trip always exercises truncation
+	// and the recomputation is reproducible run to run.
+	in.Event.OccurredAt = in.Event.OccurredAt.Truncate(time.Microsecond).Add(789 * time.Nanosecond)
 
 	if err := appendWithRetry(ctx, pool, in); err != nil {
 		t.Fatalf("append: %v", err)
@@ -183,25 +188,35 @@ func TestAppendChainRowHashRecomputableFromStoredRow(t *testing.T) {
 	if row.HashVersion != auditHashVersionCurrent {
 		t.Fatalf("stored hash_version = %d, want %d", row.HashVersion, auditHashVersionCurrent)
 	}
-	piiRef := uuid.Nil
-	if row.PIIRef != nil {
-		piiRef = *row.PIIRef
+	if row.EventTime.Nanosecond()%1000 != 0 {
+		t.Fatalf("stored event_time %v carries a sub-microsecond remainder; the column contract changed", row.EventTime)
 	}
-	eventError, err := unmarshalEventError(row.Error)
+
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
-		t.Fatalf("row error: %v", err)
+		t.Fatal(err)
 	}
-	recomputed, err := hashRowForEvent(rowHashInput{
-		Event:   exportEvent(*row, eventError),
-		EventID: row.EventID, Shard: row.Shard, Seq: row.Seq,
-		PIIRef: piiRef, ContextJSON: row.Context, DeltaJSON: row.Delta,
-		LastHash: row.PrevHash, Version: row.HashVersion,
-	})
+	dir := t.TempDir()
+	filter := QueryFilter{
+		OrgID: orgID, Oldest: in.Event.OccurredAt.Add(-time.Minute), Latest: in.Event.OccurredAt.Add(time.Minute),
+		Action: "", ActorID: uuid.Nil, EntityID: uuid.Nil, RequestID: "", TraceID: "", Limit: 10,
+	}
+	manifest, err := Export(ctx, reader, priv, "ed25519:test", filter, dir)
 	if err != nil {
-		t.Fatalf("recompute: %v", err)
+		t.Fatalf("export: %v", err)
 	}
-	if !bytes.Equal(recomputed, row.RowHash) {
-		t.Fatalf("stored row_hash does not recompute from the stored row; offline verification would reject this honest event")
+	if manifest.RowCount != 1 {
+		t.Fatalf("exported %d rows, want 1", manifest.RowCount)
+	}
+	report, err := VerifyBundle(dir, pub)
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if verdict := report.Err(); verdict != nil {
+		t.Fatalf("honest bundle exported from the database rejected: %v", verdict)
+	}
+	if report.HashMatches != 1 {
+		t.Fatalf("hash matches = %d, want 1; the stored row_hash does not recompute from the exported row", report.HashMatches)
 	}
 }
 

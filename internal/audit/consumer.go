@@ -766,9 +766,10 @@ type rowHashInput struct {
 func hashRowForEvent(in rowHashInput) ([]byte, error) {
 	// Version 3 hashes event_time at the microsecond precision the
 	// TIMESTAMPTZ column stores, so offline verification can recompute the
-	// hash from the read-back row. Versions 1 and 2 hashed the producer's
-	// nanosecond timestamp, which the database never stored, so their rows
-	// can only ever be checked by chain linkage (TACK-445).
+	// hash from the read-back row in one try. Versions 1 and 2 hashed the
+	// producer's nanosecond timestamp, which the database never stored, so
+	// verification recovers their rows by trying every lost remainder
+	// (TACK-445).
 	eventTime := in.Event.OccurredAt.UTC().Format(time.RFC3339Nano)
 	if in.Version == auditHashVersion3 {
 		eventTime = in.Event.OccurredAt.UTC().Truncate(time.Microsecond).Format(time.RFC3339Nano)
@@ -789,19 +790,27 @@ func hashRowForEvent(in rowHashInput) ([]byte, error) {
 		Delta:       json.RawMessage(in.DeltaJSON),
 		Idempotency: in.Event.IdempotencyKey,
 	}
-	if in.Version == auditHashVersion2 || in.Version == auditHashVersion3 {
-		payloadV2 := rowHashPayloadV2{
-			rowHashPayloadV1: payload,
-			Outcome:          in.Event.Outcome,
-			Error:            in.Event.Error,
-			Extra:            in.Event.Extra,
-		}
-		return hashRow(in.LastHash, payloadV2)
+	payloadV2 := rowHashPayloadV2{
+		rowHashPayloadV1: payload,
+		Outcome:          in.Event.Outcome,
+		Error:            in.Event.Error,
+		Extra:            in.Event.Extra,
 	}
-	if in.Version != 0 && in.Version != auditHashVersion1 {
+	switch in.Version {
+	case auditHashVersion1:
+		return hashRow(in.LastHash, payload)
+	case auditHashVersion2:
+		return hashRow(in.LastHash, payloadV2)
+	case auditHashVersion3:
+		// The version is part of the hash from version 3 on. Versions 2 and 3
+		// otherwise cover the same fields, and a version 3 row already carries
+		// a whole-microsecond timestamp, so without this a forger could relabel
+		// a version 3 row as version 2 and the legacy candidate search would
+		// reproduce its hash on the first try.
+		return hashRow(in.LastHash, rowHashPayloadV3{rowHashPayloadV2: payloadV2, HashVersion: in.Version})
+	default:
 		return nil, fmt.Errorf("unsupported audit hash version %d", in.Version)
 	}
-	return hashRow(in.LastHash, payload)
 }
 
 const (
@@ -835,6 +844,11 @@ type rowHashPayloadV2 struct {
 	Outcome Outcome         `json:"outcome"`
 	Error   *EventError     `json:"error"`
 	Extra   json.RawMessage `json:"extra"`
+}
+
+type rowHashPayloadV3 struct {
+	rowHashPayloadV2
+	HashVersion int16 `json:"hash_version"`
 }
 
 // piiRefArg returns the value to bind for audit.events.pii_ref. The pgx

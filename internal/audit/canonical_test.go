@@ -66,7 +66,7 @@ func TestShardOfStableAndBucketed(t *testing.T) {
 // database stores, so an event hashed with a nanosecond OccurredAt and the
 // same event re-read at stored precision produce the same digest. Version 2
 // is shown precision-sensitive on the same pair, which is exactly why its
-// rows can never be recomputed from the database.
+// rows can only be recomputed by searching the lost nanosecond remainder.
 func TestHashRowVersion3HashesStoredPrecision(t *testing.T) {
 	base := rowHashInput{
 		Event: Event{
@@ -108,7 +108,7 @@ func TestHashRowVersion3HashesStoredPrecision(t *testing.T) {
 		t.Fatal(err)
 	}
 	if bytes.Equal(nanoV2Hash, storedV2Hash) {
-		t.Fatal("version 2 hash unexpectedly precision-insensitive; the linkage-only carve-out would be unnecessary")
+		t.Fatal("version 2 hash unexpectedly precision-insensitive; the legacy candidate search would be unnecessary")
 	}
 }
 

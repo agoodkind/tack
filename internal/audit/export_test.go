@@ -338,6 +338,68 @@ func TestVerifyBundleRejectsRelabelledVersion3Row(t *testing.T) {
 	}
 }
 
+// TestVerifyBundleRejectsPureVersionRelabel closes the hole a fifth review
+// pass found: versions 2 and 3 cover the same fields, and a version 3 row
+// already carries a whole-microsecond timestamp, so relabelling an untouched
+// version 3 row as version 2 let the legacy candidate search reproduce its
+// hash on the first try. Version 3 therefore hashes its own version number,
+// and a relabelled row matches under no candidate.
+func TestVerifyBundleRejectsPureVersionRelabel(t *testing.T) {
+	dir := t.TempDir()
+	orgID := uuid.Must(uuid.NewV7())
+	row := Row{
+		OrgID: orgID, EventTime: time.Now().UTC().Truncate(time.Microsecond), EventID: uuid.Must(uuid.NewV7()),
+		Seq: 1, Shard: 1, ActorID: uuid.Must(uuid.NewV7()), ActorKind: 5,
+		Action: "ops.test.relabel_only", Outcome: OutcomeOK, EntityKind: "system", EntityID: orgID,
+		Context: json.RawMessage(`{}`), HashVersion: auditHashVersion3,
+	}
+	row.RowHash = hashExportTestRow(t, row)
+
+	forged := row
+	forged.HashVersion = auditHashVersion2
+	pub := writeSignedExportTestBundle(t, dir, []Row{forged})
+
+	report, err := VerifyBundle(dir, pub)
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if report.HashMatches != 0 {
+		t.Fatalf("hash matches = %d, want 0; the relabelled row was accepted", report.HashMatches)
+	}
+	if report.Err() == nil {
+		t.Fatal("relabelled row accepted, want a rejection")
+	}
+}
+
+// TestVerifyBundleRejectsUnknownHashVersion pins that a row claiming a version
+// the ledger never wrote is reported as a broken row, not accepted as version
+// 1 and not treated as a verifier crash that hides the rest of the bundle.
+func TestVerifyBundleRejectsUnknownHashVersion(t *testing.T) {
+	dir := t.TempDir()
+	orgID := uuid.Must(uuid.NewV7())
+	row := Row{
+		OrgID: orgID, EventTime: time.Now().UTC().Truncate(time.Microsecond), EventID: uuid.Must(uuid.NewV7()),
+		Seq: 1, Shard: 1, ActorID: uuid.Must(uuid.NewV7()), ActorKind: 5,
+		Action: "ops.test.unknown_version", Outcome: OutcomeOK, EntityKind: "system", EntityID: orgID,
+		Context: json.RawMessage(`{}`), HashVersion: auditHashVersion1,
+	}
+	row.RowHash = hashExportTestRow(t, row)
+	forged := row
+	forged.HashVersion = 0
+	pub := writeSignedExportTestBundle(t, dir, []Row{forged})
+
+	report, err := VerifyBundle(dir, pub)
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if report.HashMatches != 0 {
+		t.Fatalf("hash matches = %d, want 0; version 0 was accepted as version 1", report.HashMatches)
+	}
+	if len(report.ChainBreaks) != 1 || !strings.Contains(report.ChainBreaks[0], "never wrote") {
+		t.Fatalf("breaks = %v, want the unknown version named", report.ChainBreaks)
+	}
+}
+
 // TestVerifyReportErrTracksTheReport pins that the verdict a caller acts on
 // matches the report a human reads. A clean bundle returns nil; a tampered one
 // returns an error naming what failed. Before this, verification printed its

@@ -86,8 +86,7 @@ func writeMismatchedBundle(t *testing.T, bundleDir, keyPath string) {
 		Seq: 1, Shard: 1, ActorID: uuid.Must(uuid.NewV7()), ActorKind: 5,
 		Action: "ops.test.verify", Outcome: audit.OutcomeOK,
 		EntityKind: "system", EntityID: orgID,
-		// Version 3 is the current recomputable version; versions 1 and 2 are
-		// checked by linkage only, so a wrong stored hash on them would pass.
+		// Version 3 recomputes in one try; a wrong stored hash fails outright.
 		Context: json.RawMessage(`{}`), HashVersion: 3,
 		RowHash: []byte("this is not the hash of this row"),
 	}

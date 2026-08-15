@@ -70,29 +70,32 @@ type QueryFilter struct {
 
 // Row is a flattened audit row sized for the MCP tool surface. The JSONB
 // columns come back as raw bytes so callers can re-render in their own
-// shape (markdown table, JSON, ...).
+// shape (markdown table, JSON, ...). The json tags repeat the field names on
+// purpose: an export bundle is a file of these rows, and every bundle already
+// written carries these exact keys, so the tags pin the format rather than
+// change it.
 type Row struct {
-	OrgID     uuid.UUID
-	EventTime time.Time
-	EventID   uuid.UUID
-	Seq       int64
-	Shard     int16
-	ActorID   uuid.UUID
-	ActorKind int16
-	Action    string
+	OrgID     uuid.UUID `json:"OrgID"`
+	EventTime time.Time `json:"EventTime"`
+	EventID   uuid.UUID `json:"EventID"`
+	Seq       int64     `json:"Seq"`
+	Shard     int16     `json:"Shard"`
+	ActorID   uuid.UUID `json:"ActorID"`
+	ActorKind int16     `json:"ActorKind"`
+	Action    string    `json:"Action"`
 	// Outcome records whether the action succeeded.
-	Outcome        Outcome
-	EntityKind     string
-	EntityID       uuid.UUID
-	Context        json.RawMessage
-	Delta          json.RawMessage
-	Error          json.RawMessage
-	Extra          json.RawMessage
-	PIIRef         *uuid.UUID
-	PrevHash       []byte
-	RowHash        []byte
-	HashVersion    int16
-	IdempotencyKey string
+	Outcome        Outcome         `json:"Outcome"`
+	EntityKind     string          `json:"EntityKind"`
+	EntityID       uuid.UUID       `json:"EntityID"`
+	Context        json.RawMessage `json:"Context"`
+	Delta          json.RawMessage `json:"Delta"`
+	Error          json.RawMessage `json:"Error"`
+	Extra          json.RawMessage `json:"Extra"`
+	PIIRef         *uuid.UUID      `json:"PIIRef"`
+	PrevHash       []byte          `json:"PrevHash"`
+	RowHash        []byte          `json:"RowHash"`
+	HashVersion    int16           `json:"HashVersion"`
+	IdempotencyKey string          `json:"IdempotencyKey"`
 }
 
 // Query returns events matching the filter, most recent first. The caller
