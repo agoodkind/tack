@@ -300,6 +300,44 @@ func TestVerifyBundleRejectsHashVersionDowngrade(t *testing.T) {
 	}
 }
 
+// TestVerifyBundleRejectsRelabelledVersion3Row closes the hole a second review
+// pass found in the legacy candidate search: a forger takes a genuine version 3
+// row, moves its timestamp back one nanosecond, and relabels the row as legacy.
+// The candidate search would add that nanosecond back, rediscover the original
+// instant, and accept the moved row. The ledger stores whole microseconds, so
+// the moved timestamp is itself the evidence.
+func TestVerifyBundleRejectsRelabelledVersion3Row(t *testing.T) {
+	dir := t.TempDir()
+	orgID := uuid.Must(uuid.NewV7())
+	stored := time.Now().UTC().Truncate(time.Microsecond)
+	row := Row{
+		OrgID: orgID, EventTime: stored, EventID: uuid.Must(uuid.NewV7()),
+		Seq: 1, Shard: 1, ActorID: uuid.Must(uuid.NewV7()), ActorKind: 5,
+		Action: "ops.test.relabel", Outcome: OutcomeOK, EntityKind: "system", EntityID: orgID,
+		Context: json.RawMessage(`{}`), HashVersion: auditHashVersion3,
+	}
+	row.RowHash = hashExportTestRow(t, row)
+
+	forged := row
+	forged.HashVersion = auditHashVersion2
+	forged.EventTime = stored.Add(-time.Nanosecond)
+	pub := writeSignedExportTestBundle(t, dir, []Row{forged})
+
+	report, err := VerifyBundle(dir, pub)
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if report.HashMatches != 0 {
+		t.Fatalf("hash matches = %d, want 0; the relabelled row was accepted", report.HashMatches)
+	}
+	if report.Err() == nil {
+		t.Fatal("relabelled row accepted, want a rejection")
+	}
+	if len(report.ChainBreaks) == 0 || !strings.Contains(report.ChainBreaks[0], "sub-microsecond") {
+		t.Fatalf("breaks = %v, want the sub-microsecond timestamp named", report.ChainBreaks)
+	}
+}
+
 // TestVerifyReportErrTracksTheReport pins that the verdict a caller acts on
 // matches the report a human reads. A clean bundle returns nil; a tampered one
 // returns an error naming what failed. Before this, verification printed its

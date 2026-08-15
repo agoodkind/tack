@@ -256,7 +256,7 @@ func verifyExportRows(report *VerifyReport, rows []Row) error {
 					fmt.Sprintf("row %s has previous-hash link mismatch", row.EventID))
 			}
 		}
-		matched, err := recomputeRowHash(row)
+		matched, reason, err := checkRowHash(row)
 		if err != nil {
 			return err
 		}
@@ -264,7 +264,7 @@ func verifyExportRows(report *VerifyReport, rows []Row) error {
 			report.HashMatches++
 		} else {
 			report.ChainBreaks = append(report.ChainBreaks,
-				fmt.Sprintf("row %s hash mismatch", row.EventID))
+				fmt.Sprintf("row %s %s", row.EventID, reason))
 		}
 		// Tracking advances for every row, matched or not. Advancing only on
 		// a match would make the next row compare itself against a row that
@@ -287,11 +287,22 @@ func verifyExportRows(report *VerifyReport, rows []Row) error {
 // matches under none, whatever version it claims (TACK-445).
 const legacyNanosecondCandidates = 1000
 
-// recomputeRowHash reports whether the stored row hash is reproducible from
-// the stored row. Version 3 rows recompute in one try because their hash
-// covers the timestamp at stored precision. Version 1 and 2 rows are tried at
-// every possible lost nanosecond remainder.
-func recomputeRowHash(row Row) (bool, error) {
+// checkRowHash reports whether the stored row hash is reproducible from the
+// stored row, and names the failure when it is not. Version 3 rows recompute
+// in one try because their hash covers the timestamp at stored precision.
+// Version 1 and 2 rows are tried at every possible lost nanosecond remainder.
+func checkRowHash(row Row) (bool, string, error) {
+	// The column stores microseconds, so every stored timestamp is a whole
+	// number of them. The candidate search below adds a remainder to the
+	// stored value, so a row that already carries one would let a forger move
+	// a version 3 row's time and relabel the row as legacy: the search would
+	// rediscover the original instant and accept the edit. A stored remainder
+	// is therefore a forged row, not history.
+	if row.HashVersion < auditHashVersion3 && row.EventTime.Nanosecond()%legacyNanosecondCandidates != 0 {
+		return false, fmt.Sprintf(
+			"claims hash version %d with a sub-microsecond timestamp the ledger cannot store",
+			row.HashVersion), nil
+	}
 	piiRef := uuid.Nil
 	if row.PIIRef != nil {
 		piiRef = *row.PIIRef
@@ -299,7 +310,7 @@ func recomputeRowHash(row Row) (bool, error) {
 	eventError, err := unmarshalEventError(row.Error)
 	if err != nil {
 		slog.Error("audit.export.row_error_decode_failed", slog.String("event_id", row.EventID.String()), slog.String("err", err.Error()))
-		return false, fmt.Errorf("verify row %s: %w", row.EventID, err)
+		return false, "", fmt.Errorf("verify row %s: %w", row.EventID, err)
 	}
 	input := rowHashInput{
 		Event:   exportEvent(row, eventError),
@@ -317,13 +328,13 @@ func recomputeRowHash(row Row) (bool, error) {
 		expected, err := hashRowForEvent(input)
 		if err != nil {
 			slog.Error("audit.export.hash_failed", slog.String("event_id", row.EventID.String()), slog.String("err", err.Error()))
-			return false, fmt.Errorf("verify hash row %s: %w", row.EventID, err)
+			return false, "", fmt.Errorf("verify hash row %s: %w", row.EventID, err)
 		}
 		if bytesEqual(expected, row.RowHash) {
-			return true, nil
+			return true, "", nil
 		}
 	}
-	return false, nil
+	return false, "hash mismatch", nil
 }
 
 func unmarshalEventError(raw json.RawMessage) (*EventError, error) {
