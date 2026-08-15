@@ -87,7 +87,7 @@ func writeMismatchedBundle(t *testing.T, bundleDir, keyPath string) {
 		Action: "ops.test.verify", Outcome: audit.OutcomeOK,
 		EntityKind: "system", EntityID: orgID,
 		// Version 3 recomputes in one try; a wrong stored hash fails outright.
-		Context: json.RawMessage(`{}`), HashVersion: 3,
+		Context: audit.EventContext{OrgID: orgID, Source: audit.SourceSystem}, HashVersion: 3,
 		RowHash: []byte("this is not the hash of this row"),
 	}
 	rowBytes, err := json.Marshal(row)

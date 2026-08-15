@@ -68,12 +68,17 @@ type QueryFilter struct {
 	Limit     int
 }
 
-// Row is a flattened audit row sized for the MCP tool surface. The JSONB
-// columns come back as raw bytes so callers can re-render in their own
-// shape (markdown table, JSON, ...). The json tags repeat the field names on
-// purpose: an export bundle is a file of these rows, and every bundle already
-// written carries these exact keys, so the tags pin the format rather than
-// change it.
+// Row is a flattened audit row sized for the MCP tool surface. The json tags
+// repeat the field names on purpose: an export bundle is a file of these
+// rows, and every bundle already written carries these exact keys, so the
+// tags pin the format rather than change it.
+//
+// Context, Delta, and Error decode into the same types the writer marshalled,
+// so verification re-canonicalizes them to the bytes the hash covered. Extra
+// stays raw: it is verb-specific (operator correlation, backfill
+// reconstruction evidence, and whatever a future emitter adds), and a fixed
+// struct would drop keys it does not know and make honest rows fail their
+// hash check.
 type Row struct {
 	OrgID     uuid.UUID `json:"OrgID"`
 	EventTime time.Time `json:"EventTime"`
@@ -84,12 +89,14 @@ type Row struct {
 	ActorKind int16     `json:"ActorKind"`
 	Action    string    `json:"Action"`
 	// Outcome records whether the action succeeded.
-	Outcome        Outcome         `json:"Outcome"`
-	EntityKind     string          `json:"EntityKind"`
-	EntityID       uuid.UUID       `json:"EntityID"`
-	Context        json.RawMessage `json:"Context"`
-	Delta          json.RawMessage `json:"Delta"`
-	Error          json.RawMessage `json:"Error"`
+	Outcome    Outcome      `json:"Outcome"`
+	EntityKind string       `json:"EntityKind"`
+	EntityID   uuid.UUID    `json:"EntityID"`
+	Context    EventContext `json:"Context"`
+	// Delta is nil for read verbs and for rows whose writer recorded no delta.
+	Delta *Delta `json:"Delta"`
+	// Error is nil when the action carried no error.
+	Error          *EventError     `json:"Error"`
 	Extra          json.RawMessage `json:"Extra"`
 	PIIRef         *uuid.UUID      `json:"PIIRef"`
 	PrevHash       []byte          `json:"PrevHash"`

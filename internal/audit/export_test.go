@@ -27,9 +27,10 @@ func TestVerifyBundleRoundTrip(t *testing.T) {
 	}
 
 	now := time.Now().UTC()
+	orgID := uuid.Must(uuid.NewV7())
 	rows := []Row{
 		{
-			OrgID:       uuid.Must(uuid.NewV7()),
+			OrgID:       orgID,
 			EventTime:   now,
 			EventID:     uuid.Must(uuid.NewV7()),
 			Seq:         1,
@@ -39,7 +40,7 @@ func TestVerifyBundleRoundTrip(t *testing.T) {
 			Action:      "node.read",
 			Outcome:     OutcomeOK,
 			EntityID:    uuid.Must(uuid.NewV7()),
-			Context:     json.RawMessage(`{"request_id":"req-export","trace_id":"trace-export"}`),
+			Context:     EventContext{OrgID: orgID, RequestID: "req-export", TraceID: "trace-export", Source: SourceMCP},
 			HashVersion: auditHashVersion3,
 		},
 	}
@@ -103,8 +104,8 @@ func TestVerifyBundleRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(jsonlBytes, &exported); err != nil {
 		t.Fatalf("exported row: %v", err)
 	}
-	if !strings.Contains(string(exported.Context), "req-export") {
-		t.Fatalf("context did not export request_id: %s", exported.Context)
+	if exported.Context.RequestID != "req-export" {
+		t.Fatalf("context did not export request_id: %+v", exported.Context)
 	}
 }
 
@@ -115,11 +116,12 @@ func sumSHA256(b []byte) []byte {
 
 func TestVerifyBundleReportsEditedRow(t *testing.T) {
 	dir := t.TempDir()
+	orgID := uuid.Must(uuid.NewV7())
 	row := Row{
-		OrgID: uuid.Must(uuid.NewV7()), EventTime: time.Now().UTC(), EventID: uuid.Must(uuid.NewV7()),
+		OrgID: orgID, EventTime: time.Now().UTC(), EventID: uuid.Must(uuid.NewV7()),
 		Seq: 1, Shard: 1, ActorID: uuid.Must(uuid.NewV7()), ActorKind: 1,
 		Action: "node.read", Outcome: OutcomeOK, EntityKind: "node", EntityID: uuid.Must(uuid.NewV7()),
-		Context: json.RawMessage(`{"request_id":"req-tamper"}`), HashVersion: auditHashVersion3,
+		Context: EventContext{OrgID: orgID, RequestID: "req-tamper", Source: SourceMCP}, HashVersion: auditHashVersion3,
 	}
 	row.RowHash = hashExportTestRow(t, row)
 	pub := writeSignedExportTestBundle(t, dir, []Row{row})
@@ -154,19 +156,29 @@ func TestVerifyBundleReportsEditedRow(t *testing.T) {
 	}
 }
 
+// hashExportTestRow computes a row's hash the way the writer does: from the
+// event's own typed fields, marshalled by the same encoder the consumer uses.
 func hashExportTestRow(t *testing.T, row Row) []byte {
 	t.Helper()
+	contextJSON, err := json.Marshal(row.Context)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deltaJSON, err := json.Marshal(row.Delta)
+	if err != nil {
+		t.Fatal(err)
+	}
 	hash, err := hashRowForEvent(rowHashInput{
 		Event: Event{
 			Verb: row.Action, EventID: row.EventID,
 			Actor:   Actor{Type: actorTypeFromCode(row.ActorKind), ID: row.ActorID},
 			Entity:  Entity{Type: row.EntityKind, ID: row.EntityID},
-			Context: EventContext{OrgID: row.OrgID}, Outcome: row.Outcome,
-			Error: nil, Extra: row.Extra, OccurredAt: row.EventTime,
+			Context: row.Context, Delta: row.Delta, Outcome: row.Outcome,
+			Error: row.Error, Extra: row.Extra, OccurredAt: row.EventTime,
 			IdempotencyKey: row.IdempotencyKey,
 		},
-		EventID: row.EventID, Shard: row.Shard, Seq: row.Seq, ContextJSON: row.Context,
-		DeltaJSON: row.Delta, LastHash: row.PrevHash, Version: row.HashVersion,
+		EventID: row.EventID, Shard: row.Shard, Seq: row.Seq, ContextJSON: contextJSON,
+		DeltaJSON: deltaJSON, LastHash: row.PrevHash, Version: row.HashVersion,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -240,7 +252,7 @@ func TestVerifyBundleRecoversLegacyRows(t *testing.T) {
 		OrgID: orgID, EventTime: originalTime, EventID: uuid.Must(uuid.NewV7()),
 		Seq: 1, Shard: 1, ActorID: uuid.Must(uuid.NewV7()), ActorKind: 5,
 		Action: "ops.test.legacy", Outcome: OutcomeOK, EntityKind: "system", EntityID: orgID,
-		Context: json.RawMessage(`{}`), HashVersion: auditHashVersion2,
+		Context: EventContext{OrgID: orgID, Source: SourceSystem}, HashVersion: auditHashVersion2,
 	}
 	row.RowHash = hashExportTestRow(t, row)
 	row.EventTime = originalTime.Truncate(time.Microsecond)
@@ -273,7 +285,7 @@ func TestVerifyBundleRejectsHashVersionDowngrade(t *testing.T) {
 			OrgID: orgID, EventTime: time.Now().UTC(), EventID: uuid.Must(uuid.NewV7()),
 			Seq: seq, Shard: 1, ActorID: uuid.Must(uuid.NewV7()), ActorKind: 5,
 			Action: "ops.test.downgrade", Outcome: OutcomeOK, EntityKind: "system", EntityID: orgID,
-			Context: json.RawMessage(`{}`), HashVersion: auditHashVersion3,
+			Context: EventContext{OrgID: orgID, Source: SourceSystem}, HashVersion: auditHashVersion3,
 			PrevHash: prevHash,
 		}
 		row.RowHash = hashExportTestRow(t, row)
@@ -314,7 +326,7 @@ func TestVerifyBundleRejectsRelabelledVersion3Row(t *testing.T) {
 		OrgID: orgID, EventTime: stored, EventID: uuid.Must(uuid.NewV7()),
 		Seq: 1, Shard: 1, ActorID: uuid.Must(uuid.NewV7()), ActorKind: 5,
 		Action: "ops.test.relabel", Outcome: OutcomeOK, EntityKind: "system", EntityID: orgID,
-		Context: json.RawMessage(`{}`), HashVersion: auditHashVersion3,
+		Context: EventContext{OrgID: orgID, Source: SourceSystem}, HashVersion: auditHashVersion3,
 	}
 	row.RowHash = hashExportTestRow(t, row)
 
@@ -351,7 +363,7 @@ func TestVerifyBundleRejectsPureVersionRelabel(t *testing.T) {
 		OrgID: orgID, EventTime: time.Now().UTC().Truncate(time.Microsecond), EventID: uuid.Must(uuid.NewV7()),
 		Seq: 1, Shard: 1, ActorID: uuid.Must(uuid.NewV7()), ActorKind: 5,
 		Action: "ops.test.relabel_only", Outcome: OutcomeOK, EntityKind: "system", EntityID: orgID,
-		Context: json.RawMessage(`{}`), HashVersion: auditHashVersion3,
+		Context: EventContext{OrgID: orgID, Source: SourceSystem}, HashVersion: auditHashVersion3,
 	}
 	row.RowHash = hashExportTestRow(t, row)
 
@@ -381,7 +393,7 @@ func TestVerifyBundleRejectsUnknownHashVersion(t *testing.T) {
 		OrgID: orgID, EventTime: time.Now().UTC().Truncate(time.Microsecond), EventID: uuid.Must(uuid.NewV7()),
 		Seq: 1, Shard: 1, ActorID: uuid.Must(uuid.NewV7()), ActorKind: 5,
 		Action: "ops.test.unknown_version", Outcome: OutcomeOK, EntityKind: "system", EntityID: orgID,
-		Context: json.RawMessage(`{}`), HashVersion: auditHashVersion1,
+		Context: EventContext{OrgID: orgID, Source: SourceSystem}, HashVersion: auditHashVersion1,
 	}
 	row.RowHash = hashExportTestRow(t, row)
 	forged := row
@@ -412,7 +424,7 @@ func TestVerifyReportErrTracksTheReport(t *testing.T) {
 		OrgID: orgID, EventTime: time.Now().UTC(), EventID: uuid.Must(uuid.NewV7()),
 		Seq: 1, Shard: 1, ActorID: uuid.Must(uuid.NewV7()), ActorKind: 5,
 		Action: "ops.test.verdict", Outcome: OutcomeOK, EntityKind: "system", EntityID: orgID,
-		Context: json.RawMessage(`{}`), HashVersion: auditHashVersion3,
+		Context: EventContext{OrgID: orgID, Source: SourceSystem}, HashVersion: auditHashVersion3,
 	}
 	row.RowHash = hashExportTestRow(t, row)
 	pub := writeSignedExportTestBundle(t, dir, []Row{row})
@@ -471,7 +483,7 @@ func TestVerifyOneEditedRowDoesNotCondemnTheRest(t *testing.T) {
 			OrgID: orgID, EventTime: time.Now().UTC(), EventID: uuid.Must(uuid.NewV7()),
 			Seq: seq, Shard: 1, ActorID: uuid.Must(uuid.NewV7()), ActorKind: 5,
 			Action: "ops.test.chain", Outcome: OutcomeOK, EntityKind: "system", EntityID: orgID,
-			Context: json.RawMessage(`{}`), HashVersion: auditHashVersion3,
+			Context: EventContext{OrgID: orgID, Source: SourceSystem}, HashVersion: auditHashVersion3,
 			PrevHash: prevHash,
 		}
 		row.RowHash = hashExportTestRow(t, row)

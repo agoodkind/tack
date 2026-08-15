@@ -14,22 +14,18 @@ import (
 )
 
 func TestRenderAuditRowsShowsCorrelation(t *testing.T) {
-	contextJSON, err := json.Marshal(audit.EventContext{
-		RequestID: "req-render",
-		TraceID:   "trace-render",
-		Source:    audit.SourceMCP,
-	})
-	if err != nil {
-		t.Fatalf("marshal context: %v", err)
-	}
 	row := audit.Row{
 		EventTime:  time.Unix(10, 0).UTC(),
 		ActorID:    uuid.Must(uuid.NewV7()),
 		Action:     "node.read",
 		EntityKind: "node",
 		EntityID:   uuid.Must(uuid.NewV7()),
-		Context:    contextJSON,
-		Seq:        1,
+		Context: audit.EventContext{
+			RequestID: "req-render",
+			TraceID:   "trace-render",
+			Source:    audit.SourceMCP,
+		},
+		Seq: 1,
 	}
 
 	out := renderAuditRows([]audit.Row{row})
@@ -44,7 +40,7 @@ func TestRenderAuditRowsShowsCorrelation(t *testing.T) {
 func TestRenderAuditRowShowsErrorAndExtra(t *testing.T) {
 	row := audit.Row{
 		EventID: uuid.Must(uuid.NewV7()),
-		Error:   json.RawMessage(`{"code":"permission_denied","message":"member required"}`),
+		Error:   &audit.EventError{Code: "permission_denied", Message: "member required"},
 		Extra:   json.RawMessage(`{"intent_event_id":"0198a2d5-f15a-7e2f-9e0f-1f8509e1c639"}`),
 	}
 

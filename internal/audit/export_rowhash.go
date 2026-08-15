@@ -43,15 +43,23 @@ func checkRowHash(row Row) (bool, string, error) {
 	if row.PIIRef != nil {
 		piiRef = *row.PIIRef
 	}
-	eventError, err := unmarshalEventError(row.Error)
+	// The writer hashed the JSON it marshalled from these same types, and the
+	// hash canonicalizes by parsed value, so re-marshalling the decoded row
+	// reproduces the covered bytes key for key.
+	contextJSON, err := json.Marshal(row.Context)
 	if err != nil {
-		slog.Error("audit.export.row_error_decode_failed", slog.String("event_id", row.EventID.String()), slog.String("err", err.Error()))
-		return false, "", fmt.Errorf("verify row %s: %w", row.EventID, err)
+		slog.Error("audit.export.row_context_encode_failed", slog.String("event_id", row.EventID.String()), slog.String("err", err.Error()))
+		return false, "", fmt.Errorf("verify row %s context: %w", row.EventID, err)
+	}
+	deltaJSON, err := json.Marshal(row.Delta)
+	if err != nil {
+		slog.Error("audit.export.row_delta_encode_failed", slog.String("event_id", row.EventID.String()), slog.String("err", err.Error()))
+		return false, "", fmt.Errorf("verify row %s delta: %w", row.EventID, err)
 	}
 	input := rowHashInput{
-		Event:   exportEvent(row, eventError),
+		Event:   exportEvent(row),
 		EventID: row.EventID, Shard: row.Shard, Seq: row.Seq,
-		PIIRef: piiRef, ContextJSON: row.Context, DeltaJSON: row.Delta,
+		PIIRef: piiRef, ContextJSON: contextJSON, DeltaJSON: deltaJSON,
 		LastHash: row.PrevHash, Version: row.HashVersion,
 	}
 	candidates := 1
@@ -73,19 +81,14 @@ func checkRowHash(row Row) (bool, string, error) {
 	return false, "hash mismatch", nil
 }
 
-func unmarshalEventError(raw json.RawMessage) (*EventError, error) {
-	if len(raw) == 0 || string(raw) == "null" {
-		return nil, nil
-	}
-	var eventError EventError
-	if err := json.Unmarshal(raw, &eventError); err != nil {
-		slog.Error("audit.export.event_error_decode_failed", slog.String("err", err.Error()))
-		return nil, fmt.Errorf("encoding/json error: %w", err)
-	}
-	return &eventError, nil
-}
-
-func exportEvent(row Row, eventError *EventError) Event {
+// exportEvent rebuilds the hash-relevant event from a stored row. The hash
+// payload reads its org through Context.OrgID, so that field carries the
+// row's org_id column: the stored context JSON is hashed separately from
+// row.Context itself, and this keeps an edit to either the column or the
+// context visible.
+func exportEvent(row Row) Event {
+	context := row.Context
+	context.OrgID = row.OrgID
 	return Event{
 		Verb: row.Action, EventID: row.EventID,
 		Actor: Actor{
@@ -95,11 +98,8 @@ func exportEvent(row Row, eventError *EventError) Event {
 		Entity: Entity{
 			Type: row.EntityKind, NodeType: "", ID: row.EntityID, Identifier: "", Name: "",
 		},
-		Context: EventContext{
-			OrgID: row.OrgID, WorkspaceID: uuid.Nil, ScopeID: uuid.Nil, ParentID: uuid.Nil,
-			RequestID: "", TraceID: "", Source: "", Tool: "", RPC: "", Reason: "",
-		},
-		Delta: nil, Outcome: row.Outcome, Error: eventError,
+		Context: context,
+		Delta:   row.Delta, Outcome: row.Outcome, Error: row.Error,
 		IdempotencyKey: row.IdempotencyKey, OccurredAt: row.EventTime, Extra: row.Extra,
 	}
 }

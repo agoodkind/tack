@@ -133,10 +133,10 @@ func (r *ClickHouseReader) Query(ctx context.Context, f QueryFilter) ([]Row, err
 			slog.ErrorContext(ctx, "audit.query_olap.scan_failed", slog.String("err", err.Error()))
 			return nil, fmt.Errorf("audit olap row scan: %w", err)
 		}
-		row.Context = json.RawMessage(contextStr)
-		row.Delta = json.RawMessage(deltaStr)
-		row.Error = json.RawMessage(errorStr)
-		row.Extra = json.RawMessage(extraStr)
+		if err := unmarshalOLAPRowPayloads(&row, contextStr, deltaStr, errorStr, extraStr); err != nil {
+			slog.ErrorContext(ctx, "audit.query_olap.payload_decode_failed", slog.String("event_id", row.EventID.String()), slog.String("err", err.Error()))
+			return nil, fmt.Errorf("audit olap row %s payload: %w", row.EventID, err)
+		}
 		row.Outcome = clickHouseOutcomeFromColumn(outcome)
 		out = append(out, row)
 	}
@@ -146,6 +146,36 @@ func (r *ClickHouseReader) Query(ctx context.Context, f QueryFilter) ([]Row, err
 		return nil, fmt.Errorf("audit olap rows: %w", err)
 	}
 	return out, nil
+}
+
+// unmarshalOLAPRowPayloads decodes the JSON string columns of an OLAP row into the
+// typed Row fields. The OLAP projection stores the same JSON the canonical
+// ledger stores, so the same types decode it; an empty string is what
+// ClickHouse returns for a value the projection never carried and reads as
+// absent.
+func unmarshalOLAPRowPayloads(row *Row, contextStr, deltaStr, errorStr, extraStr string) error {
+	if contextStr != "" {
+		if err := json.Unmarshal([]byte(contextStr), &row.Context); err != nil {
+			slog.Error("audit.query_olap.context_decode_failed", slog.String("event_id", row.EventID.String()), slog.String("err", err.Error()))
+			return fmt.Errorf("decode context: %w", err)
+		}
+	}
+	if deltaStr != "" {
+		if err := json.Unmarshal([]byte(deltaStr), &row.Delta); err != nil {
+			slog.Error("audit.query_olap.delta_decode_failed", slog.String("event_id", row.EventID.String()), slog.String("err", err.Error()))
+			return fmt.Errorf("decode delta: %w", err)
+		}
+	}
+	if errorStr != "" {
+		if err := json.Unmarshal([]byte(errorStr), &row.Error); err != nil {
+			slog.Error("audit.query_olap.error_decode_failed", slog.String("event_id", row.EventID.String()), slog.String("err", err.Error()))
+			return fmt.Errorf("decode error: %w", err)
+		}
+	}
+	if extraStr != "" {
+		row.Extra = json.RawMessage(extraStr)
+	}
+	return nil
 }
 
 func clickHouseOutcomeFromColumn(stored string) Outcome {
