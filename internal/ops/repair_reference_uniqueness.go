@@ -33,16 +33,36 @@ type RepairReferenceOptions struct {
 
 // ReferenceRename records one repaired node reference.
 type ReferenceRename struct {
+	OrgID  uuid.UUID
 	NodeID uuid.UUID
 	From   string
 	To     string
 }
 
+// ReferenceCounterSeed records one sequence counter the repair seeded to its
+// scope's high-water mark.
+type ReferenceCounterSeed struct {
+	OrgID uuid.UUID
+	Key   string
+	Value int64
+}
+
+// ReferenceKeyWrite records one reference key the repair claimed for a node.
+type ReferenceKeyWrite struct {
+	OrgID        uuid.UUID
+	NodeID       uuid.UUID
+	NodeType     string
+	TemplateName string
+	Encoded      string
+}
+
 // RepairReferenceReport records the work one repair run planned or applied.
+// Each slice names its items rather than counting them, because the ledger
+// records one event per item and a count cannot be turned back into one.
 type RepairReferenceReport struct {
-	Renumbered     []ReferenceRename
-	CountersSeeded int
-	KeysWritten    int
+	Renumbered []ReferenceRename
+	Counters   []ReferenceCounterSeed
+	Keys       []ReferenceKeyWrite
 }
 
 func runRepairReferenceUniqueness(ctx context.Context, env *Env) error {
@@ -62,8 +82,8 @@ func runRepairReferenceUniqueness(ctx context.Context, env *Env) error {
 	}
 	env.Log.InfoContext(ctx, "repair.reference_uniqueness.completed",
 		slog.Int("renumbered", len(report.Renumbered)),
-		slog.Int("counters_seeded", report.CountersSeeded),
-		slog.Int("keys_written", report.KeysWritten),
+		slog.Int("counters_seeded", len(report.Counters)),
+		slog.Int("keys_written", len(report.Keys)),
 	)
 	return nil
 }
@@ -84,9 +104,9 @@ func RepairReferenceUniqueness(
 		)
 	}
 	report := RepairReferenceReport{
-		Renumbered:     nil,
-		CountersSeeded: 0,
-		KeysWritten:    0,
+		Renumbered: nil,
+		Counters:   nil,
+		Keys:       nil,
 	}
 	orgIDs, err := listOrgIDs(ctx, env)
 	if err != nil {
@@ -97,7 +117,7 @@ func RepairReferenceUniqueness(
 		if seedErr != nil {
 			return report, seedErr
 		}
-		report.CountersSeeded += seeded
+		report.Counters = append(report.Counters, seeded...)
 	}
 	duplicates, err := FindDuplicateReferences(ctx, env)
 	if err != nil {
@@ -118,7 +138,7 @@ func RepairReferenceUniqueness(
 		if writeErr != nil {
 			return report, writeErr
 		}
-		report.KeysWritten += written
+		report.Keys = append(report.Keys, written...)
 	}
 	return report, nil
 }
