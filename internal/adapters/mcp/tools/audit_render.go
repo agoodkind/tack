@@ -17,8 +17,8 @@ func renderAuditRows(rows []audit.Row) string {
 			markdownCodeFieldValue("Action", row.Action),
 			markdownCodeFieldValue("Outcome", string(row.Outcome)),
 			markdownFieldValue("Entity", fmt.Sprintf("`%s` `%s`", row.EntityKind, row.EntityID)),
-			markdownFieldValue("Request", auditContextValue(row.Context, "request_id")),
-			markdownFieldValue("Trace", auditContextValue(row.Context, "trace_id")),
+			markdownFieldValue("Request", auditOptionalValue(row.Context.RequestID)),
+			markdownFieldValue("Trace", auditOptionalValue(row.Context.TraceID)),
 			markdownFieldValue("Sequence", fmt.Sprintf("%d", row.Seq)),
 		}
 		items = append(items, markdownItem{Title: markdownCodeValue(row.EventID.String()), Fields: fields})
@@ -54,12 +54,7 @@ func renderAuditRedaction(actorID uuid.UUID, rows int64) string {
 	return executeMarkdownTemplate("node.md.tmpl", data)
 }
 
-func auditContextValue(raw []byte, key string) string {
-	var context map[string]string
-	if err := json.Unmarshal(raw, &context); err != nil {
-		return "-"
-	}
-	value := context[key]
+func auditOptionalValue(value string) string {
 	if value == "" {
 		return "-"
 	}
@@ -68,21 +63,26 @@ func auditContextValue(raw []byte, key string) string {
 
 func auditSections(row audit.Row) []markdownSection {
 	sections := make([]markdownSection, 0, 4)
-	sections = appendRawJSONSection(sections, "Context", row.Context)
-	sections = appendRawJSONSection(sections, "Delta", row.Delta)
-	sections = appendRawJSONSection(sections, "Error", row.Error)
-	sections = appendRawJSONSection(sections, "Extra", row.Extra)
+	sections = appendJSONSection(sections, "Context", row.Context)
+	if row.Delta != nil {
+		sections = appendJSONSection(sections, "Delta", row.Delta)
+	}
+	if row.Error != nil {
+		sections = appendJSONSection(sections, "Error", row.Error)
+	}
+	if len(row.Extra) != 0 && string(row.Extra) != "null" {
+		sections = appendJSONSection(sections, "Extra", row.Extra)
+	}
 	return sections
 }
 
-func appendRawJSONSection(sections []markdownSection, heading string, raw json.RawMessage) []markdownSection {
-	if len(raw) == 0 || string(raw) == "null" {
-		return sections
-	}
-	var value any
-	if err := json.Unmarshal(raw, &value); err != nil {
-		return sections
-	}
+// auditSectionValue is the set of audit payloads a detail section renders:
+// the decoded context, delta, and error, plus the raw verb-specific extra.
+type auditSectionValue interface {
+	audit.EventContext | *audit.Delta | *audit.EventError | json.RawMessage
+}
+
+func appendJSONSection[V auditSectionValue](sections []markdownSection, heading string, value V) []markdownSection {
 	formatted, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
 		return sections

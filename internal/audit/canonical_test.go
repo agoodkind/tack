@@ -61,6 +61,57 @@ func TestShardOfStableAndBucketed(t *testing.T) {
 	}
 }
 
+// TestHashRowVersion3HashesStoredPrecision pins the TACK-445 contract: the
+// version 3 hash covers the timestamp at the microsecond precision the
+// database stores, so an event hashed with a nanosecond OccurredAt and the
+// same event re-read at stored precision produce the same digest. Version 2
+// is shown precision-sensitive on the same pair, which is exactly why its
+// rows can only be recomputed by searching the lost nanosecond remainder.
+func TestHashRowVersion3HashesStoredPrecision(t *testing.T) {
+	base := rowHashInput{
+		Event: Event{
+			EventID: uuid.MustParse("019dd226-440e-729a-a442-281aaf73ca30"),
+			Actor:   Actor{Type: ActorOperator, ID: uuid.MustParse("019dd227-440e-729a-a442-281aaf73ca30")},
+			Entity:  Entity{Type: "system", ID: uuid.MustParse("019dd228-440e-729a-a442-281aaf73ca30")},
+			Context: EventContext{OrgID: uuid.MustParse("019dd229-440e-729a-a442-281aaf73ca30")},
+			Verb:    "ops.test", Outcome: OutcomeOK,
+			OccurredAt: time.Date(2026, 8, 10, 4, 17, 1, 59766789, time.UTC),
+		},
+		EventID: uuid.MustParse("019dd226-440e-729a-a442-281aaf73ca30"),
+		Shard:   9, Seq: 1, PIIRef: uuid.Nil,
+		ContextJSON: []byte("{}"), DeltaJSON: []byte("null"), Version: auditHashVersion3,
+	}
+	nanoHash, err := hashRowForEvent(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored := base
+	stored.Event.OccurredAt = base.Event.OccurredAt.Truncate(time.Microsecond)
+	storedHash, err := hashRowForEvent(stored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(nanoHash, storedHash) {
+		t.Fatal("version 3 hash differs between nanosecond and stored-precision timestamps; verification cannot recompute it")
+	}
+
+	nanoV2 := base
+	nanoV2.Version = auditHashVersion2
+	storedV2 := stored
+	storedV2.Version = auditHashVersion2
+	nanoV2Hash, err := hashRowForEvent(nanoV2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	storedV2Hash, err := hashRowForEvent(storedV2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Equal(nanoV2Hash, storedV2Hash) {
+		t.Fatal("version 2 hash unexpectedly precision-insensitive; the legacy candidate search would be unnecessary")
+	}
+}
+
 func TestHashRowVersion1MatchesStoredDigest(t *testing.T) {
 	input := rowHashInput{
 		Event: Event{

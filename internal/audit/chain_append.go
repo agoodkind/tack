@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -71,7 +72,7 @@ func appendChainRow(ctx context.Context, tx pgx.Tx, in chainAppendInput) (chainA
 	rowHash, err := hashRowForEvent(rowHashInput{
 		Event: in.Event, EventID: in.EventID, Shard: in.Shard, Seq: seq,
 		PIIRef: in.PIIRef, ContextJSON: in.ContextJSON, DeltaJSON: in.DeltaJSON,
-		LastHash: lastHash, Version: auditHashVersion2,
+		LastHash: lastHash, Version: auditHashVersionCurrent,
 	})
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.chain.hash_failed", slog.String("err", err.Error()))
@@ -105,11 +106,14 @@ func appendChainRow(ctx context.Context, tx pgx.Tx, in chainAppendInput) (chainA
 		)
 		ON CONFLICT (event_id, event_time) DO NOTHING
 	`,
-		in.Event.Context.OrgID, in.Shard, in.Event.OccurredAt.UTC(), in.EventID, seq,
+		// event_time is truncated to microseconds before binding so the stored
+		// value is byte-identical to the value the version 3 hash covered, by
+		// construction rather than by trusting the driver's rounding.
+		in.Event.Context.OrgID, in.Shard, in.Event.OccurredAt.UTC().Truncate(time.Microsecond), in.EventID, seq,
 		in.Event.Actor.ID, actorKindCode(in.Event.Actor.Type), in.Event.Verb, in.Event.Outcome,
 		in.Event.Entity.Type, in.Event.Entity.ID,
 		in.ContextJSON, in.DeltaJSON, piiRefArg(in.PIIRef), lastHash, rowHash,
-		errorJSON, nullableJSON(in.Event.Extra), auditHashVersion2, in.Event.IdempotencyKey,
+		errorJSON, nullableJSON(in.Event.Extra), auditHashVersionCurrent, in.Event.IdempotencyKey,
 	)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.chain.event_insert_failed", slog.String("err", err.Error()))

@@ -27,9 +27,10 @@ func TestVerifyBundleRoundTrip(t *testing.T) {
 	}
 
 	now := time.Now().UTC()
+	orgID := uuid.Must(uuid.NewV7())
 	rows := []Row{
 		{
-			OrgID:       uuid.Must(uuid.NewV7()),
+			OrgID:       orgID,
 			EventTime:   now,
 			EventID:     uuid.Must(uuid.NewV7()),
 			Seq:         1,
@@ -39,8 +40,8 @@ func TestVerifyBundleRoundTrip(t *testing.T) {
 			Action:      "node.read",
 			Outcome:     OutcomeOK,
 			EntityID:    uuid.Must(uuid.NewV7()),
-			Context:     json.RawMessage(`{"request_id":"req-export","trace_id":"trace-export"}`),
-			HashVersion: auditHashVersion1,
+			Context:     EventContext{OrgID: orgID, RequestID: "req-export", TraceID: "trace-export", Source: SourceMCP},
+			HashVersion: auditHashVersion3,
 		},
 	}
 	rows[0].RowHash = hashExportTestRow(t, rows[0])
@@ -103,8 +104,8 @@ func TestVerifyBundleRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(jsonlBytes, &exported); err != nil {
 		t.Fatalf("exported row: %v", err)
 	}
-	if !strings.Contains(string(exported.Context), "req-export") {
-		t.Fatalf("context did not export request_id: %s", exported.Context)
+	if exported.Context.RequestID != "req-export" {
+		t.Fatalf("context did not export request_id: %+v", exported.Context)
 	}
 }
 
@@ -115,11 +116,12 @@ func sumSHA256(b []byte) []byte {
 
 func TestVerifyBundleReportsEditedRow(t *testing.T) {
 	dir := t.TempDir()
+	orgID := uuid.Must(uuid.NewV7())
 	row := Row{
-		OrgID: uuid.Must(uuid.NewV7()), EventTime: time.Now().UTC(), EventID: uuid.Must(uuid.NewV7()),
+		OrgID: orgID, EventTime: time.Now().UTC(), EventID: uuid.Must(uuid.NewV7()),
 		Seq: 1, Shard: 1, ActorID: uuid.Must(uuid.NewV7()), ActorKind: 1,
 		Action: "node.read", Outcome: OutcomeOK, EntityKind: "node", EntityID: uuid.Must(uuid.NewV7()),
-		Context: json.RawMessage(`{"request_id":"req-tamper"}`), HashVersion: auditHashVersion1,
+		Context: EventContext{OrgID: orgID, RequestID: "req-tamper", Source: SourceMCP}, HashVersion: auditHashVersion3,
 	}
 	row.RowHash = hashExportTestRow(t, row)
 	pub := writeSignedExportTestBundle(t, dir, []Row{row})
@@ -154,19 +156,29 @@ func TestVerifyBundleReportsEditedRow(t *testing.T) {
 	}
 }
 
+// hashExportTestRow computes a row's hash the way the writer does: from the
+// event's own typed fields, marshalled by the same encoder the consumer uses.
 func hashExportTestRow(t *testing.T, row Row) []byte {
 	t.Helper()
+	contextJSON, err := json.Marshal(row.Context)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deltaJSON, err := json.Marshal(row.Delta)
+	if err != nil {
+		t.Fatal(err)
+	}
 	hash, err := hashRowForEvent(rowHashInput{
 		Event: Event{
 			Verb: row.Action, EventID: row.EventID,
 			Actor:   Actor{Type: actorTypeFromCode(row.ActorKind), ID: row.ActorID},
 			Entity:  Entity{Type: row.EntityKind, ID: row.EntityID},
-			Context: EventContext{OrgID: row.OrgID}, Outcome: row.Outcome,
-			Error: nil, Extra: row.Extra, OccurredAt: row.EventTime,
+			Context: row.Context, Delta: row.Delta, Outcome: row.Outcome,
+			Error: row.Error, Extra: row.Extra, OccurredAt: row.EventTime,
 			IdempotencyKey: row.IdempotencyKey,
 		},
-		EventID: row.EventID, Shard: row.Shard, Seq: row.Seq, ContextJSON: row.Context,
-		DeltaJSON: row.Delta, LastHash: row.PrevHash, Version: row.HashVersion,
+		EventID: row.EventID, Shard: row.Shard, Seq: row.Seq, ContextJSON: contextJSON,
+		DeltaJSON: deltaJSON, LastHash: row.PrevHash, Version: row.HashVersion,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -226,6 +238,234 @@ func writeSignedExportTestBundle(t *testing.T, dir string, rows []Row) ed25519.P
 	return pub
 }
 
+// TestVerifyBundleRecoversLegacyRows pins the TACK-445 story for rows written
+// under hash versions 1 and 2: their hash covered a nanosecond timestamp the
+// database stored only to the microsecond, so the verifier recovers the lost
+// remainder by trying every possible value. The row below reproduces the real
+// condition: its stored hash was computed from a nanosecond timestamp, and
+// the row read back carries the microsecond-truncated one.
+func TestVerifyBundleRecoversLegacyRows(t *testing.T) {
+	dir := t.TempDir()
+	orgID := uuid.Must(uuid.NewV7())
+	originalTime := time.Date(2026, 8, 10, 4, 17, 1, 59766789, time.UTC)
+	row := Row{
+		OrgID: orgID, EventTime: originalTime, EventID: uuid.Must(uuid.NewV7()),
+		Seq: 1, Shard: 1, ActorID: uuid.Must(uuid.NewV7()), ActorKind: 5,
+		Action: "ops.test.legacy", Outcome: OutcomeOK, EntityKind: "system", EntityID: orgID,
+		Context: EventContext{OrgID: orgID, Source: SourceSystem}, HashVersion: auditHashVersion2,
+	}
+	row.RowHash = hashExportTestRow(t, row)
+	row.EventTime = originalTime.Truncate(time.Microsecond)
+	pub := writeSignedExportTestBundle(t, dir, []Row{row})
+
+	report, err := VerifyBundle(dir, pub)
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if report.HashMatches != 1 {
+		t.Fatalf("hash matches = %d, want 1; the candidate search must recover the legacy row", report.HashMatches)
+	}
+	if verdict := report.Err(); verdict != nil {
+		t.Fatalf("honest legacy bundle rejected: %v", verdict)
+	}
+}
+
+// TestVerifyBundleRejectsHashVersionDowngrade reproduces the review attack:
+// edit a version 3 row's content and relabel it version 2, leaving both
+// hashes untouched. The relabel buys the forger nothing, because a claimed
+// version 2 row is recomputed at every possible lost-nanosecond candidate and
+// the edited content matches none of them.
+func TestVerifyBundleRejectsHashVersionDowngrade(t *testing.T) {
+	dir := t.TempDir()
+	orgID := uuid.Must(uuid.NewV7())
+	rows := make([]Row, 0, 2)
+	var prevHash []byte
+	for seq := int64(1); seq <= 2; seq++ {
+		row := Row{
+			OrgID: orgID, EventTime: time.Now().UTC(), EventID: uuid.Must(uuid.NewV7()),
+			Seq: seq, Shard: 1, ActorID: uuid.Must(uuid.NewV7()), ActorKind: 5,
+			Action: "ops.test.downgrade", Outcome: OutcomeOK, EntityKind: "system", EntityID: orgID,
+			Context: EventContext{OrgID: orgID, Source: SourceSystem}, HashVersion: auditHashVersion3,
+			PrevHash: prevHash,
+		}
+		row.RowHash = hashExportTestRow(t, row)
+		prevHash = row.RowHash
+		rows = append(rows, row)
+	}
+	rows[1].Action = "ops.test.forged"
+	rows[1].HashVersion = auditHashVersion2
+	pub := writeSignedExportTestBundle(t, dir, rows)
+
+	report, err := VerifyBundle(dir, pub)
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	verdict := report.Err()
+	if verdict == nil {
+		t.Fatal("downgraded tampered row accepted, want a rejection")
+	}
+	if !strings.Contains(verdict.Error(), "hash") {
+		t.Fatalf("verdict = %v, want it to name the hash failure", verdict)
+	}
+	if len(report.ChainBreaks) == 0 || !strings.Contains(report.ChainBreaks[0], rows[1].EventID.String()) {
+		t.Fatalf("chain breaks = %v, want the relabeled row %s named", report.ChainBreaks, rows[1].EventID)
+	}
+}
+
+// TestVerifyBundleRejectsRelabelledVersion3Row closes the hole a second review
+// pass found in the legacy candidate search: a forger takes a genuine version 3
+// row, moves its timestamp back one nanosecond, and relabels the row as legacy.
+// The candidate search would add that nanosecond back, rediscover the original
+// instant, and accept the moved row. The ledger stores whole microseconds, so
+// the moved timestamp is itself the evidence.
+func TestVerifyBundleRejectsRelabelledVersion3Row(t *testing.T) {
+	dir := t.TempDir()
+	orgID := uuid.Must(uuid.NewV7())
+	stored := time.Now().UTC().Truncate(time.Microsecond)
+	row := Row{
+		OrgID: orgID, EventTime: stored, EventID: uuid.Must(uuid.NewV7()),
+		Seq: 1, Shard: 1, ActorID: uuid.Must(uuid.NewV7()), ActorKind: 5,
+		Action: "ops.test.relabel", Outcome: OutcomeOK, EntityKind: "system", EntityID: orgID,
+		Context: EventContext{OrgID: orgID, Source: SourceSystem}, HashVersion: auditHashVersion3,
+	}
+	row.RowHash = hashExportTestRow(t, row)
+
+	forged := row
+	forged.HashVersion = auditHashVersion2
+	forged.EventTime = stored.Add(-time.Nanosecond)
+	pub := writeSignedExportTestBundle(t, dir, []Row{forged})
+
+	report, err := VerifyBundle(dir, pub)
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if report.HashMatches != 0 {
+		t.Fatalf("hash matches = %d, want 0; the relabelled row was accepted", report.HashMatches)
+	}
+	if report.Err() == nil {
+		t.Fatal("relabelled row accepted, want a rejection")
+	}
+	if len(report.ChainBreaks) == 0 || !strings.Contains(report.ChainBreaks[0], "sub-microsecond") {
+		t.Fatalf("breaks = %v, want the sub-microsecond timestamp named", report.ChainBreaks)
+	}
+}
+
+// TestVerifyBundleRejectsPureVersionRelabel closes the hole a fifth review
+// pass found: versions 2 and 3 cover the same fields, and a version 3 row
+// already carries a whole-microsecond timestamp, so relabelling an untouched
+// version 3 row as version 2 let the legacy candidate search reproduce its
+// hash on the first try. Version 3 therefore hashes its own version number,
+// and a relabelled row matches under no candidate.
+func TestVerifyBundleRejectsPureVersionRelabel(t *testing.T) {
+	dir := t.TempDir()
+	orgID := uuid.Must(uuid.NewV7())
+	row := Row{
+		OrgID: orgID, EventTime: time.Now().UTC().Truncate(time.Microsecond), EventID: uuid.Must(uuid.NewV7()),
+		Seq: 1, Shard: 1, ActorID: uuid.Must(uuid.NewV7()), ActorKind: 5,
+		Action: "ops.test.relabel_only", Outcome: OutcomeOK, EntityKind: "system", EntityID: orgID,
+		Context: EventContext{OrgID: orgID, Source: SourceSystem}, HashVersion: auditHashVersion3,
+	}
+	row.RowHash = hashExportTestRow(t, row)
+
+	forged := row
+	forged.HashVersion = auditHashVersion2
+	pub := writeSignedExportTestBundle(t, dir, []Row{forged})
+
+	report, err := VerifyBundle(dir, pub)
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if report.HashMatches != 0 {
+		t.Fatalf("hash matches = %d, want 0; the relabelled row was accepted", report.HashMatches)
+	}
+	if report.Err() == nil {
+		t.Fatal("relabelled row accepted, want a rejection")
+	}
+}
+
+// TestVerifyBundleRejectsUnknownHashVersion pins that a row claiming a version
+// the ledger never wrote is reported as a broken row, not accepted as version
+// 1 and not treated as a verifier crash that hides the rest of the bundle.
+func TestVerifyBundleRejectsUnknownHashVersion(t *testing.T) {
+	dir := t.TempDir()
+	orgID := uuid.Must(uuid.NewV7())
+	row := Row{
+		OrgID: orgID, EventTime: time.Now().UTC().Truncate(time.Microsecond), EventID: uuid.Must(uuid.NewV7()),
+		Seq: 1, Shard: 1, ActorID: uuid.Must(uuid.NewV7()), ActorKind: 5,
+		Action: "ops.test.unknown_version", Outcome: OutcomeOK, EntityKind: "system", EntityID: orgID,
+		Context: EventContext{OrgID: orgID, Source: SourceSystem}, HashVersion: auditHashVersion1,
+	}
+	row.RowHash = hashExportTestRow(t, row)
+	forged := row
+	forged.HashVersion = 0
+	pub := writeSignedExportTestBundle(t, dir, []Row{forged})
+
+	report, err := VerifyBundle(dir, pub)
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if report.HashMatches != 0 {
+		t.Fatalf("hash matches = %d, want 0; version 0 was accepted as version 1", report.HashMatches)
+	}
+	if len(report.ChainBreaks) != 1 || !strings.Contains(report.ChainBreaks[0], "never wrote") {
+		t.Fatalf("breaks = %v, want the unknown version named", report.ChainBreaks)
+	}
+}
+
+// TestVerifyBundleRejectsPlantedPayloadKey closes the hole the sixth review
+// pass found: the verifier decodes context, delta, and error into their
+// types and re-marshals them for the hash, so a key those types do not
+// declare would be dropped and the planted row would still verify. The
+// decode is strict, so the planted key is a verification error that names
+// the bundle line.
+func TestVerifyBundleRejectsPlantedPayloadKey(t *testing.T) {
+	dir := t.TempDir()
+	orgID := uuid.Must(uuid.NewV7())
+	row := Row{
+		OrgID: orgID, EventTime: time.Now().UTC().Truncate(time.Microsecond), EventID: uuid.Must(uuid.NewV7()),
+		Seq: 1, Shard: 1, ActorID: uuid.Must(uuid.NewV7()), ActorKind: 5,
+		Action: "ops.test.planted", Outcome: OutcomeOK, EntityKind: "system", EntityID: orgID,
+		Context: EventContext{OrgID: orgID, Source: SourceSystem}, HashVersion: auditHashVersion3,
+	}
+	row.RowHash = hashExportTestRow(t, row)
+	pub := writeSignedExportTestBundle(t, dir, []Row{row})
+
+	jsonlPath := filepath.Join(dir, "events.jsonl")
+	jsonlBytes, err := os.ReadFile(jsonlPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var planted map[string]json.RawMessage
+	if err := json.Unmarshal(jsonlBytes, &planted); err != nil {
+		t.Fatal(err)
+	}
+	var plantedContext map[string]json.RawMessage
+	if err := json.Unmarshal(planted["Context"], &plantedContext); err != nil {
+		t.Fatal(err)
+	}
+	plantedContext["approved_by"] = json.RawMessage(`"alice"`)
+	contextBytes, err := json.Marshal(plantedContext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	planted["Context"] = contextBytes
+	plantedBytes, err := json.Marshal(planted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(jsonlPath, append(plantedBytes, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := VerifyBundle(dir, pub)
+	if err == nil {
+		t.Fatalf("planted context key accepted; report = %+v", report)
+	}
+	if !strings.Contains(err.Error(), "approved_by") || !strings.Contains(err.Error(), "line 1") {
+		t.Fatalf("verify error = %v, want the planted key and the bundle line named", err)
+	}
+}
+
 // TestVerifyReportErrTracksTheReport pins that the verdict a caller acts on
 // matches the report a human reads. A clean bundle returns nil; a tampered one
 // returns an error naming what failed. Before this, verification printed its
@@ -238,7 +478,7 @@ func TestVerifyReportErrTracksTheReport(t *testing.T) {
 		OrgID: orgID, EventTime: time.Now().UTC(), EventID: uuid.Must(uuid.NewV7()),
 		Seq: 1, Shard: 1, ActorID: uuid.Must(uuid.NewV7()), ActorKind: 5,
 		Action: "ops.test.verdict", Outcome: OutcomeOK, EntityKind: "system", EntityID: orgID,
-		Context: json.RawMessage(`{}`), HashVersion: auditHashVersion1,
+		Context: EventContext{OrgID: orgID, Source: SourceSystem}, HashVersion: auditHashVersion3,
 	}
 	row.RowHash = hashExportTestRow(t, row)
 	pub := writeSignedExportTestBundle(t, dir, []Row{row})
@@ -297,7 +537,7 @@ func TestVerifyOneEditedRowDoesNotCondemnTheRest(t *testing.T) {
 			OrgID: orgID, EventTime: time.Now().UTC(), EventID: uuid.Must(uuid.NewV7()),
 			Seq: seq, Shard: 1, ActorID: uuid.Must(uuid.NewV7()), ActorKind: 5,
 			Action: "ops.test.chain", Outcome: OutcomeOK, EntityKind: "system", EntityID: orgID,
-			Context: json.RawMessage(`{}`), HashVersion: auditHashVersion1,
+			Context: EventContext{OrgID: orgID, Source: SourceSystem}, HashVersion: auditHashVersion3,
 			PrevHash: prevHash,
 		}
 		row.RowHash = hashExportTestRow(t, row)

@@ -3,9 +3,13 @@ package audit
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/json"
 	"os"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -38,7 +42,11 @@ func chainTestPool(t *testing.T) (*pgxpool.Pool, uuid.UUID) {
 	return pool, orgID
 }
 
-func chainTestEvent(orgID uuid.UUID, shard int16) chainAppendInput {
+// chainTestEvent builds a chain input the way YBRecorder.Record and the
+// consumer do: the stored context and delta are the event's own typed fields
+// marshalled to JSON, never a hand-written literal.
+func chainTestEvent(t *testing.T, orgID uuid.UUID, shard int16) chainAppendInput {
+	t.Helper()
 	ev := Event{
 		EventID:    uuid.Must(uuid.NewV7()),
 		Verb:       string(VerbNodeRead),
@@ -48,12 +56,16 @@ func chainTestEvent(orgID uuid.UUID, shard int16) chainAppendInput {
 		Outcome:    OutcomeOK,
 		OccurredAt: clock.Now().UTC(),
 	}
+	contextJSON, err := json.Marshal(ev.Context)
+	if err != nil {
+		t.Fatalf("marshal context: %v", err)
+	}
 	return chainAppendInput{
 		Event:       ev,
 		EventID:     ev.EventID,
 		Shard:       shard,
 		PIIRef:      uuid.Nil,
-		ContextJSON: []byte("{}"),
+		ContextJSON: contextJSON,
 		DeltaJSON:   []byte("null"),
 	}
 }
@@ -104,7 +116,7 @@ func TestAppendChainRowConcurrent(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := appendWithRetry(ctx, pool, chainTestEvent(orgID, shard)); err != nil {
+			if err := appendWithRetry(ctx, pool, chainTestEvent(t, orgID, shard)); err != nil {
 				failures <- err
 			}
 		}()
@@ -157,6 +169,105 @@ func TestAppendChainRowConcurrent(t *testing.T) {
 	}
 }
 
+// TestAppendChainRowHashRecomputableFromStoredRow is the TACK-445 acceptance:
+// an event written with a nanosecond OccurredAt must verify from what the
+// database actually stored. The event goes through the real writer and the
+// real column, then through Export and VerifyBundle exactly as the operator
+// runs them, so every hash input comes from the read-back row and none from
+// the original event. A hash that covers anything the column truncates, or an
+// export mapping that drops a hashed field, fails here.
+func TestAppendChainRowHashRecomputableFromStoredRow(t *testing.T) {
+	pool, orgID := chainTestPool(t)
+	ctx := context.Background()
+	const shard int16 = 11
+	in := chainTestEvent(t, orgID, shard)
+	// A deterministic remainder, so the round trip always exercises truncation
+	// and the recomputation is reproducible run to run.
+	in.Event.OccurredAt = in.Event.OccurredAt.Truncate(time.Microsecond).Add(789 * time.Nanosecond)
+
+	if err := appendWithRetry(ctx, pool, in); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	// A second event on the same chain carries a delta, an error, and a
+	// correlation id, so every typed payload the row decodes is exercised
+	// through the real column, not only the nil and empty shapes.
+	failed := chainTestEvent(t, orgID, shard)
+	failed.Event.Verb = string(VerbNodeUpdate)
+	failed.Event.Outcome = OutcomeError
+	failed.Event.Error = &EventError{Code: "permission_denied", Message: "member required"}
+	failed.Event.Context.RequestID = "req-round-trip"
+	failed.Event.Delta = &Delta{
+		Before: json.RawMessage(`{"name":"before","count":1}`), After: json.RawMessage(`{"name":"after","count":2}`),
+		Changed: []string{"name", "count"},
+	}
+	failed.Event.OccurredAt = in.Event.OccurredAt.Add(time.Second)
+	contextJSON, err := json.Marshal(failed.Event.Context)
+	if err != nil {
+		t.Fatalf("marshal context: %v", err)
+	}
+	failed.ContextJSON = contextJSON
+	deltaJSON, err := json.Marshal(failed.Event.Delta)
+	if err != nil {
+		t.Fatalf("marshal delta: %v", err)
+	}
+	failed.DeltaJSON = deltaJSON
+	if err := appendWithRetry(ctx, pool, failed); err != nil {
+		t.Fatalf("append failed event: %v", err)
+	}
+
+	reader := &Reader{pool: pool}
+	row, err := reader.GetByID(ctx, in.EventID)
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if row.HashVersion != auditHashVersionCurrent {
+		t.Fatalf("stored hash_version = %d, want %d", row.HashVersion, auditHashVersionCurrent)
+	}
+	if row.EventTime.Nanosecond()%1000 != 0 {
+		t.Fatalf("stored event_time %v carries a sub-microsecond remainder; the column contract changed", row.EventTime)
+	}
+	failedRow, err := reader.GetByID(ctx, failed.EventID)
+	if err != nil {
+		t.Fatalf("read back failed event: %v", err)
+	}
+	if failedRow.Error == nil || failedRow.Error.Code != "permission_denied" {
+		t.Fatalf("stored error = %+v, want the typed error the writer recorded", failedRow.Error)
+	}
+	if failedRow.Delta == nil || len(failedRow.Delta.Changed) != 2 {
+		t.Fatalf("stored delta = %+v, want the typed delta the writer recorded", failedRow.Delta)
+	}
+	if failedRow.Context.RequestID != "req-round-trip" {
+		t.Fatalf("stored context = %+v, want request_id req-round-trip", failedRow.Context)
+	}
+
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	filter := QueryFilter{
+		OrgID: orgID, Oldest: in.Event.OccurredAt.Add(-time.Minute), Latest: in.Event.OccurredAt.Add(time.Minute),
+		Action: "", ActorID: uuid.Nil, EntityID: uuid.Nil, RequestID: "", TraceID: "", Limit: 10,
+	}
+	manifest, err := Export(ctx, reader, priv, "ed25519:test", filter, dir)
+	if err != nil {
+		t.Fatalf("export: %v", err)
+	}
+	if manifest.RowCount != 2 {
+		t.Fatalf("exported %d rows, want 2", manifest.RowCount)
+	}
+	report, err := VerifyBundle(dir, pub)
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if verdict := report.Err(); verdict != nil {
+		t.Fatalf("honest bundle exported from the database rejected: %v", verdict)
+	}
+	if report.HashMatches != 2 {
+		t.Fatalf("hash matches = %d, want 2; a stored row_hash does not recompute from the exported row", report.HashMatches)
+	}
+}
+
 // TestAppendChainRowIdempotent confirms a redelivered event (same event_id and
 // event_time) is rejected by the unique index and never advances the chain a
 // second time.
@@ -164,7 +275,7 @@ func TestAppendChainRowIdempotent(t *testing.T) {
 	pool, orgID := chainTestPool(t)
 	ctx := context.Background()
 	const shard int16 = 9
-	in := chainTestEvent(orgID, shard)
+	in := chainTestEvent(t, orgID, shard)
 
 	if err := appendWithRetry(ctx, pool, in); err != nil {
 		t.Fatalf("first append: %v", err)

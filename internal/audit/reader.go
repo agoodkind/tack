@@ -2,7 +2,6 @@ package audit
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -68,33 +67,6 @@ type QueryFilter struct {
 	Limit     int
 }
 
-// Row is a flattened audit row sized for the MCP tool surface. The JSONB
-// columns come back as raw bytes so callers can re-render in their own
-// shape (markdown table, JSON, ...).
-type Row struct {
-	OrgID     uuid.UUID
-	EventTime time.Time
-	EventID   uuid.UUID
-	Seq       int64
-	Shard     int16
-	ActorID   uuid.UUID
-	ActorKind int16
-	Action    string
-	// Outcome records whether the action succeeded.
-	Outcome        Outcome
-	EntityKind     string
-	EntityID       uuid.UUID
-	Context        json.RawMessage
-	Delta          json.RawMessage
-	Error          json.RawMessage
-	Extra          json.RawMessage
-	PIIRef         *uuid.UUID
-	PrevHash       []byte
-	RowHash        []byte
-	HashVersion    int16
-	IdempotencyKey string
-}
-
 // Query returns events matching the filter, most recent first. The caller
 // is responsible for upper-bounding the limit.
 func (r *Reader) Query(ctx context.Context, f QueryFilter) ([]Row, error) {
@@ -131,13 +103,17 @@ func (r *Reader) Query(ctx context.Context, f QueryFilter) ([]Row, error) {
 	for rows.Next() {
 		var row Row
 		var outcome *string
+		var contextRaw, deltaRaw, errorRaw, extraRaw []byte
 		if err := rows.Scan(
 			&row.OrgID, &row.EventTime, &row.EventID, &row.Seq, &row.Shard,
 			&row.ActorID, &row.ActorKind, &row.Action, &outcome,
-			&row.EntityKind, &row.EntityID, &row.Context, &row.Delta, &row.Error, &row.Extra, &row.PIIRef,
+			&row.EntityKind, &row.EntityID, &contextRaw, &deltaRaw, &errorRaw, &extraRaw, &row.PIIRef,
 			&row.PrevHash, &row.RowHash, &row.HashVersion, &row.IdempotencyKey,
 		); err != nil {
 			return nil, fmt.Errorf("audit row scan: %w", err)
+		}
+		if err := unmarshalRowPayloads(&row, contextRaw, deltaRaw, errorRaw, extraRaw); err != nil {
+			return nil, err
 		}
 		row.Outcome = outcomeFromColumn(outcome)
 		out = append(out, row)
@@ -159,6 +135,7 @@ func (r *Reader) GetByID(ctx context.Context, eventID uuid.UUID) (*Row, error) {
 	}
 	var row Row
 	var outcome *string
+	var contextRaw, deltaRaw, errorRaw, extraRaw []byte
 	err := r.pool.QueryRow(ctx, `
 		SELECT org_id, event_time, event_id, seq, shard,
 		       actor_id, actor_kind, action, outcome, entity_kind, entity_id,
@@ -170,10 +147,13 @@ func (r *Reader) GetByID(ctx context.Context, eventID uuid.UUID) (*Row, error) {
 	`, eventID).Scan(
 		&row.OrgID, &row.EventTime, &row.EventID, &row.Seq, &row.Shard,
 		&row.ActorID, &row.ActorKind, &row.Action, &outcome,
-		&row.EntityKind, &row.EntityID, &row.Context, &row.Delta, &row.Error, &row.Extra, &row.PIIRef,
+		&row.EntityKind, &row.EntityID, &contextRaw, &deltaRaw, &errorRaw, &extraRaw, &row.PIIRef,
 		&row.PrevHash, &row.RowHash, &row.HashVersion, &row.IdempotencyKey,
 	)
 	if err != nil {
+		return nil, err
+	}
+	if err := unmarshalRowPayloads(&row, contextRaw, deltaRaw, errorRaw, extraRaw); err != nil {
 		return nil, err
 	}
 	row.Outcome = outcomeFromColumn(outcome)

@@ -2,7 +2,6 @@ package audit
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -57,7 +56,7 @@ func (r *ClickHouseReader) Close() {
 
 // Query returns events matching the filter from audit.events_olap, most recent
 // first. The JSONB columns are stored as ClickHouse String, so context filters
-// use JSONExtractString and the rows scan back into [json.RawMessage].
+// use JSONExtractString and the rows decode into the typed Row payloads.
 //
 // The query binds a fixed argument list and disables each optional filter with
 // a sentinel guard, so the statement text is constant and plan-cacheable.
@@ -133,10 +132,12 @@ func (r *ClickHouseReader) Query(ctx context.Context, f QueryFilter) ([]Row, err
 			slog.ErrorContext(ctx, "audit.query_olap.scan_failed", slog.String("err", err.Error()))
 			return nil, fmt.Errorf("audit olap row scan: %w", err)
 		}
-		row.Context = json.RawMessage(contextStr)
-		row.Delta = json.RawMessage(deltaStr)
-		row.Error = json.RawMessage(errorStr)
-		row.Extra = json.RawMessage(extraStr)
+		// The OLAP projection stores the same JSON the canonical ledger stores,
+		// so the same strict decode applies; ClickHouse returns "" for a value
+		// the projection never carried, which reads as absent.
+		if err := unmarshalRowPayloads(&row, []byte(contextStr), []byte(deltaStr), []byte(errorStr), []byte(extraStr)); err != nil {
+			return nil, err
+		}
 		row.Outcome = clickHouseOutcomeFromColumn(outcome)
 		out = append(out, row)
 	}
