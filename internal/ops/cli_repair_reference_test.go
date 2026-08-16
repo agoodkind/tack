@@ -19,12 +19,12 @@ import (
 func TestReferenceRepairIsReachableFromTheCommandLine(t *testing.T) {
 	command := findCommand(t, "ops", "repair", "reference-uniqueness")
 
-	execute := command.Flags().Lookup("execute")
-	if execute == nil {
-		t.Fatal("the repair has no --execute flag, so it could never apply")
-	}
-	if execute.DefValue != "false" {
-		t.Fatalf("--execute default = %q, want false so a bare run reports instead of writing", execute.DefValue)
+	// The repair applies through the global --execute the audit choke-point
+	// reads. Declaring a flag of that name here would take the name over and
+	// leave the choke-point reading false forever, which is what
+	// TestExecuteReachesTheAuditGate covers.
+	if command.LocalNonPersistentFlags().Lookup("execute") != nil {
+		t.Fatal("the repair declares its own --execute, which shadows the audit gate")
 	}
 
 	keep := command.Flags().Lookup("keep")

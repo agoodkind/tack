@@ -12,8 +12,7 @@ import (
 
 type repairReferenceUniquenessInput struct {
 	clispec.InputMarker
-	Execute bool
-	Keep    string
+	Keep string
 }
 
 // repairReferenceRenameResult is one planned or applied reference change. An
@@ -44,14 +43,12 @@ func repairReferenceUniquenessOp(f *cli.Factory) clispec.Operation[repairReferen
 		Aliases: nil,
 		Hidden:  false,
 		Short:   "Renumber duplicated references, seed counters, and backfill the uniqueness index",
-		Long: "Defaults to a dry run that prints every planned rename and changes " +
-			"nothing. Pass --execute to apply. Renumbering changes a reference a " +
-			"person may have written down, so read the printed mapping first.",
+		Long: "Prints every planned rename and changes nothing until --execute is " +
+			"passed. Renumbering changes a reference a person may have written " +
+			"down, so read the printed mapping first.",
 		Examples: nil,
 		Args:     nil,
 		Params: []clispec.Param[repairReferenceUniquenessInput]{
-			clispec.BoolParam("execute", "apply the repair instead of reporting it", false,
-				func(input *repairReferenceUniquenessInput, value bool) { input.Execute = value }),
 			clispec.StringParam("keep", "which node keeps a contested reference: oldest or newest",
 				keepOldest, false,
 				func(input *repairReferenceUniquenessInput, value string) { input.Keep = value }),
@@ -59,16 +56,26 @@ func repairReferenceUniquenessOp(f *cli.Factory) clispec.Operation[repairReferen
 		New: func() repairReferenceUniquenessInput {
 			return repairReferenceUniquenessInput{
 				InputMarker: clispec.InputMarker{},
-				Execute:     false,
 				Keep:        keepOldest,
 			}
+		},
+		// The global --execute is the only action gate. Declaring a second flag
+		// of that name here would take the name over, leave the audit
+		// choke-point reading false, and make the command unable to apply
+		// anything (TACK-449).
+		DryRun: func(
+			ctx context.Context,
+			input repairReferenceUniquenessInput,
+			sink clispec.ResultSink,
+		) error {
+			return runRepairReferenceUniquenessCommand(ctx, f, input, sink, false)
 		},
 		Run: func(
 			ctx context.Context,
 			input repairReferenceUniquenessInput,
 			sink clispec.ResultSink,
 		) error {
-			return runRepairReferenceUniquenessCommand(ctx, f, input, sink)
+			return runRepairReferenceUniquenessCommand(ctx, f, input, sink, true)
 		},
 	}
 }
@@ -78,6 +85,7 @@ func runRepairReferenceUniquenessCommand(
 	factory *cli.Factory,
 	input repairReferenceUniquenessInput,
 	sink clispec.ResultSink,
+	execute bool,
 ) error {
 	env, err := NewEnv(ctx, factory.Cfg)
 	if err != nil {
@@ -88,7 +96,7 @@ func runRepairReferenceUniquenessCommand(
 	defer env.Close()
 
 	report, err := RepairReferenceUniqueness(ctx, env, RepairReferenceOptions{
-		Execute: input.Execute,
+		Execute: execute,
 		Keep:    input.Keep,
 	})
 	if err != nil {
@@ -108,7 +116,7 @@ func runRepairReferenceUniquenessCommand(
 	writeErr := clispec.WriteJSONValue(ctx, sink, repairReferenceUniquenessResult{
 		ResultMarker:   clispec.ResultMarker{},
 		Command:        "ops.repair.reference-uniqueness",
-		DryRun:         !input.Execute,
+		DryRun:         !execute,
 		Keep:           input.Keep,
 		CountersSeeded: report.CountersSeeded,
 		KeysWritten:    report.KeysWritten,
