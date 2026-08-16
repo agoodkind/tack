@@ -17,19 +17,32 @@ type repairedReferenceKey struct {
 	Key  node.ReferenceKey
 }
 
-func writeAllReferenceKeys(ctx context.Context, env *Env, orgID uuid.UUID) (int, error) {
+// writeAllReferenceKeys returns the keys it wrote, so the caller can record
+// one ledger event per key.
+func writeAllReferenceKeys(
+	ctx context.Context,
+	env *Env,
+	orgID uuid.UUID,
+) ([]ReferenceKeyWrite, error) {
 	keys, err := enumerateReferenceKeys(ctx, env, orgID, nil)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	keysByNode := make(map[uuid.UUID][]node.ReferenceKey)
 	for _, key := range keys {
 		keysByNode[key.View.ID] = append(keysByNode[key.View.ID], key.Key)
 	}
 	if err := writeReferenceKeysByNode(ctx, env.Stores.Nodes, orgID, keysByNode); err != nil {
-		return 0, err
+		return nil, err
 	}
-	return len(keys), nil
+	written := make([]ReferenceKeyWrite, 0, len(keys))
+	for _, key := range keys {
+		written = append(written, ReferenceKeyWrite{
+			OrgID: orgID, NodeID: key.View.ID, NodeType: key.View.NodeType,
+			TemplateName: key.Key.TemplateName, Encoded: key.Key.Encoded,
+		})
+	}
+	return written, nil
 }
 
 type referenceKeyWriter interface {

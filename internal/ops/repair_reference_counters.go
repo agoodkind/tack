@@ -18,18 +18,27 @@ type referenceCounter struct {
 	Value int64
 }
 
+// seedReferenceCounters returns the counters it seeded, so the caller can
+// record one ledger event per seed. A dry run returns the same list without
+// writing anything.
 func seedReferenceCounters(
 	ctx context.Context,
 	env *Env,
 	orgID uuid.UUID,
 	execute bool,
-) (int, error) {
+) ([]ReferenceCounterSeed, error) {
 	counters, err := enumerateReferenceCounters(ctx, env, orgID, nil)
 	if err != nil {
-		return 0, err
+		return nil, err
+	}
+	seeded := make([]ReferenceCounterSeed, 0, len(counters))
+	for _, counter := range counters {
+		seeded = append(seeded, ReferenceCounterSeed{
+			OrgID: orgID, Key: counter.Key, Value: counter.Value,
+		})
 	}
 	if !execute {
-		return len(counters), nil
+		return seeded, nil
 	}
 	for _, counter := range counters {
 		if err := env.Stores.Nodes.SeedSequenceByKey(ctx, orgID, counter.Key, counter.Value); err != nil {
@@ -40,10 +49,10 @@ func seedReferenceCounters(
 				slog.String("counter_key", counter.Key),
 				slog.String("err", wrapped.Error()),
 			)
-			return 0, wrapped
+			return nil, wrapped
 		}
 	}
-	return len(counters), nil
+	return seeded, nil
 }
 
 func enumerateReferenceCounters(

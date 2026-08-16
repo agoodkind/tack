@@ -82,6 +82,7 @@ func renumberOneNode(
 	}
 	if !execute {
 		return ReferenceRename{
+			OrgID:  duplicate.OrgID,
 			NodeID: nodeID,
 			From:   duplicate.Encoded,
 			To:     "(next value on " + counterKey + ")",
@@ -134,7 +135,9 @@ func renumberOneNode(
 			slog.String("node_id", nodeID.String()), slog.String("err", wrapped.Error()))
 		return ReferenceRename{}, wrapped
 	}
-	return ReferenceRename{NodeID: nodeID, From: duplicate.Encoded, To: rendered}, nil
+	return ReferenceRename{
+		OrgID: duplicate.OrgID, NodeID: nodeID, From: duplicate.Encoded, To: rendered,
+	}, nil
 }
 
 func repairReferenceTemplate(

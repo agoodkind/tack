@@ -8,6 +8,7 @@ import (
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clispec"
+	"goodkind.io/tack/internal/clock"
 )
 
 type repairReferenceUniquenessInput struct {
@@ -105,6 +106,14 @@ func runRepairReferenceUniquenessCommand(
 		return wrapped
 	}
 
+	// The ledger records what the repair did only after it did it, so a run
+	// that fails partway records the part that landed and nothing more.
+	if execute {
+		if err := recordRepairReferenceRun(ctx, factory, report); err != nil {
+			return err
+		}
+	}
+
 	renamed := make([]repairReferenceRenameResult, 0, len(report.Renumbered))
 	for _, rename := range report.Renumbered {
 		renamed = append(renamed, repairReferenceRenameResult{
@@ -118,8 +127,8 @@ func runRepairReferenceUniquenessCommand(
 		Command:        "ops.repair.reference-uniqueness",
 		DryRun:         !execute,
 		Keep:           input.Keep,
-		CountersSeeded: report.CountersSeeded,
-		KeysWritten:    report.KeysWritten,
+		CountersSeeded: len(report.Counters),
+		KeysWritten:    len(report.Keys),
 		RenamedCount:   len(renamed),
 		Renamed:        renamed,
 	})
@@ -129,4 +138,21 @@ func runRepairReferenceUniquenessCommand(
 		return wrapped
 	}
 	return nil
+}
+
+// recordRepairReferenceRun puts one ledger row behind every reference the run
+// changed, every counter it seeded, and every key it claimed.
+func recordRepairReferenceRun(
+	ctx context.Context,
+	factory *cli.Factory,
+	report RepairReferenceReport,
+) error {
+	principal, err := factory.OperatorIdentitySource().Resolve(ctx)
+	if err != nil {
+		wrapped := fmt.Errorf("resolve operator for the reference repair record: %w", err)
+		slog.ErrorContext(ctx, "repair.reference_uniqueness.principal_failed",
+			slog.String("err", wrapped.Error()))
+		return wrapped
+	}
+	return recordReferenceRepair(ctx, factory.AuditOutbox(), principal, report, clock.Now().UTC())
 }
