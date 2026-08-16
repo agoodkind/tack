@@ -3,13 +3,18 @@ package audit
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// uniqueViolationSQLState is the Postgres code for a rejected duplicate key.
+const uniqueViolationSQLState = "23505"
 
 // OutboxRow is one operator-command event waiting for relay delivery.
 type OutboxRow struct {
@@ -65,16 +70,26 @@ func (o *PoolOutbox) WriteOutbox(ctx context.Context, event Event) error {
 
 // WriteOutboxIfAbsent writes event unless an event with its identity already
 // exists. It returns true when it inserted a row.
+//
+// The insert carries no ON CONFLICT clause on purpose. Postgres resolves a
+// conflict target by reading the conflicting row, so that clause needs SELECT
+// on the table, and an operator command holds INSERT and nothing else exactly
+// so it cannot read pending events. The primary key reports the duplicate
+// through SQLSTATE 23505 instead, which needs no read: reconstruction stayed
+// idempotent while the command kept the narrowest grant it can run with
+// (TACK-450).
 func (o *PoolOutbox) WriteOutboxIfAbsent(ctx context.Context, event Event) (bool, error) {
 	eventJSON, err := marshalOutboxEvent(ctx, event)
 	if err != nil {
 		return false, err
 	}
-	result, err := o.pool.Exec(ctx, `
+	_, err = o.pool.Exec(ctx, `
 		INSERT INTO public.ops_outbox (event_id, event)
 		VALUES ($1, $2)
-		ON CONFLICT (event_id) DO NOTHING
 	`, event.EventID, eventJSON)
+	if isOutboxDuplicate(err) {
+		return false, nil
+	}
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.outbox.idempotent_write_failed",
 			slog.String("event_id", event.EventID.String()),
@@ -82,7 +97,14 @@ func (o *PoolOutbox) WriteOutboxIfAbsent(ctx context.Context, event Event) (bool
 		)
 		return false, fmt.Errorf("write idempotent ops outbox event %s: %w", event.EventID, err)
 	}
-	return result.RowsAffected() == 1, nil
+	return true, nil
+}
+
+// isOutboxDuplicate reports whether err is the primary key rejecting an event
+// identity the outbox already holds.
+func isOutboxDuplicate(err error) bool {
+	var postgresError *pgconn.PgError
+	return errors.As(err, &postgresError) && postgresError.Code == uniqueViolationSQLState
 }
 
 // WriteOutboxTx writes event to the YugabyteDB operator outbox in tx.
