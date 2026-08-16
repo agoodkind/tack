@@ -97,6 +97,9 @@ const (
 	VerbOpsDatagenSeed Verb = "ops.datagen_seed"
 	// VerbOpsDatagenSoak records QA traffic generation.
 	VerbOpsDatagenSoak Verb = "ops.datagen_soak"
+	// VerbOpsDatagenReferenceRepairShape records QA generation of the
+	// pre-repair reference shape.
+	VerbOpsDatagenReferenceRepairShape Verb = "ops.datagen_reference_repair_shape"
 	// VerbOpsProvision records environment provisioning.
 	VerbOpsProvision Verb = "ops.provision"
 	// VerbOpsBackfillDefaultChildren records default child backfills.
