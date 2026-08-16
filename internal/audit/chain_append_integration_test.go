@@ -268,9 +268,46 @@ func TestAppendChainRowHashRecomputableFromStoredRow(t *testing.T) {
 	}
 }
 
+// TestAppendChainRowRejectsRederivedEvent is the identity contract: one event
+// id is one ledger row, whatever time the producer stamps on it. The ledger's
+// own unique index carries event_time because the table is partitioned on it,
+// so it only catches a redelivery repeating the same instant. A producer that
+// re-derives an event keeps the identity and stamps a fresh time, which is
+// what the ledger reconstruction does on every run: before the identity claim
+// it wrote its whole history a second time (TACK-451).
+func TestAppendChainRowRejectsRederivedEvent(t *testing.T) {
+	pool, orgID := chainTestPool(t)
+	ctx := context.Background()
+	const shard int16 = 13
+	first := chainTestEvent(t, orgID, shard)
+	if err := appendWithRetry(ctx, pool, first); err != nil {
+		t.Fatalf("first append: %v", err)
+	}
+
+	rederived := first
+	rederived.Event.OccurredAt = first.Event.OccurredAt.Add(time.Minute)
+	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := appendChainRow(ctx, tx, rederived); err != errAlreadyProjected {
+		t.Fatalf("re-derived append returned %v, want errAlreadyProjected", err)
+	}
+
+	var count int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM audit.events WHERE event_id = $1
+	`, first.EventID).Scan(&count); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("rows for one event id = %d, want 1", count)
+	}
+}
+
 // TestAppendChainRowIdempotent confirms a redelivered event (same event_id and
-// event_time) is rejected by the unique index and never advances the chain a
-// second time.
+// event_time) is rejected and never advances the chain a second time.
 func TestAppendChainRowIdempotent(t *testing.T) {
 	pool, orgID := chainTestPool(t)
 	ctx := context.Background()
