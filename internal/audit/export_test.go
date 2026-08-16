@@ -412,6 +412,60 @@ func TestVerifyBundleRejectsUnknownHashVersion(t *testing.T) {
 	}
 }
 
+// TestVerifyBundleRejectsPlantedPayloadKey closes the hole the sixth review
+// pass found: the verifier decodes context, delta, and error into their
+// types and re-marshals them for the hash, so a key those types do not
+// declare would be dropped and the planted row would still verify. The
+// decode is strict, so the planted key is a verification error that names
+// the bundle line.
+func TestVerifyBundleRejectsPlantedPayloadKey(t *testing.T) {
+	dir := t.TempDir()
+	orgID := uuid.Must(uuid.NewV7())
+	row := Row{
+		OrgID: orgID, EventTime: time.Now().UTC().Truncate(time.Microsecond), EventID: uuid.Must(uuid.NewV7()),
+		Seq: 1, Shard: 1, ActorID: uuid.Must(uuid.NewV7()), ActorKind: 5,
+		Action: "ops.test.planted", Outcome: OutcomeOK, EntityKind: "system", EntityID: orgID,
+		Context: EventContext{OrgID: orgID, Source: SourceSystem}, HashVersion: auditHashVersion3,
+	}
+	row.RowHash = hashExportTestRow(t, row)
+	pub := writeSignedExportTestBundle(t, dir, []Row{row})
+
+	jsonlPath := filepath.Join(dir, "events.jsonl")
+	jsonlBytes, err := os.ReadFile(jsonlPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var planted map[string]json.RawMessage
+	if err := json.Unmarshal(jsonlBytes, &planted); err != nil {
+		t.Fatal(err)
+	}
+	var plantedContext map[string]json.RawMessage
+	if err := json.Unmarshal(planted["Context"], &plantedContext); err != nil {
+		t.Fatal(err)
+	}
+	plantedContext["approved_by"] = json.RawMessage(`"alice"`)
+	contextBytes, err := json.Marshal(plantedContext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	planted["Context"] = contextBytes
+	plantedBytes, err := json.Marshal(planted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(jsonlPath, append(plantedBytes, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := VerifyBundle(dir, pub)
+	if err == nil {
+		t.Fatalf("planted context key accepted; report = %+v", report)
+	}
+	if !strings.Contains(err.Error(), "approved_by") || !strings.Contains(err.Error(), "line 1") {
+		t.Fatalf("verify error = %v, want the planted key and the bundle line named", err)
+	}
+}
+
 // TestVerifyReportErrTracksTheReport pins that the verdict a caller acts on
 // matches the report a human reads. A clean bundle returns nil; a tampered one
 // returns an error naming what failed. Before this, verification printed its

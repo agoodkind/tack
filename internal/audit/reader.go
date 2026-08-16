@@ -2,7 +2,6 @@ package audit
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -68,43 +67,6 @@ type QueryFilter struct {
 	Limit     int
 }
 
-// Row is a flattened audit row sized for the MCP tool surface. The json tags
-// repeat the field names on purpose: an export bundle is a file of these
-// rows, and every bundle already written carries these exact keys, so the
-// tags pin the format rather than change it.
-//
-// Context, Delta, and Error decode into the same types the writer marshalled,
-// so verification re-canonicalizes them to the bytes the hash covered. Extra
-// stays raw: it is verb-specific (operator correlation, backfill
-// reconstruction evidence, and whatever a future emitter adds), and a fixed
-// struct would drop keys it does not know and make honest rows fail their
-// hash check.
-type Row struct {
-	OrgID     uuid.UUID `json:"OrgID"`
-	EventTime time.Time `json:"EventTime"`
-	EventID   uuid.UUID `json:"EventID"`
-	Seq       int64     `json:"Seq"`
-	Shard     int16     `json:"Shard"`
-	ActorID   uuid.UUID `json:"ActorID"`
-	ActorKind int16     `json:"ActorKind"`
-	Action    string    `json:"Action"`
-	// Outcome records whether the action succeeded.
-	Outcome    Outcome      `json:"Outcome"`
-	EntityKind string       `json:"EntityKind"`
-	EntityID   uuid.UUID    `json:"EntityID"`
-	Context    EventContext `json:"Context"`
-	// Delta is nil for read verbs and for rows whose writer recorded no delta.
-	Delta *Delta `json:"Delta"`
-	// Error is nil when the action carried no error.
-	Error          *EventError     `json:"Error"`
-	Extra          json.RawMessage `json:"Extra"`
-	PIIRef         *uuid.UUID      `json:"PIIRef"`
-	PrevHash       []byte          `json:"PrevHash"`
-	RowHash        []byte          `json:"RowHash"`
-	HashVersion    int16           `json:"HashVersion"`
-	IdempotencyKey string          `json:"IdempotencyKey"`
-}
-
 // Query returns events matching the filter, most recent first. The caller
 // is responsible for upper-bounding the limit.
 func (r *Reader) Query(ctx context.Context, f QueryFilter) ([]Row, error) {
@@ -141,13 +103,17 @@ func (r *Reader) Query(ctx context.Context, f QueryFilter) ([]Row, error) {
 	for rows.Next() {
 		var row Row
 		var outcome *string
+		var contextRaw, deltaRaw, errorRaw, extraRaw []byte
 		if err := rows.Scan(
 			&row.OrgID, &row.EventTime, &row.EventID, &row.Seq, &row.Shard,
 			&row.ActorID, &row.ActorKind, &row.Action, &outcome,
-			&row.EntityKind, &row.EntityID, &row.Context, &row.Delta, &row.Error, &row.Extra, &row.PIIRef,
+			&row.EntityKind, &row.EntityID, &contextRaw, &deltaRaw, &errorRaw, &extraRaw, &row.PIIRef,
 			&row.PrevHash, &row.RowHash, &row.HashVersion, &row.IdempotencyKey,
 		); err != nil {
 			return nil, fmt.Errorf("audit row scan: %w", err)
+		}
+		if err := unmarshalRowPayloads(&row, contextRaw, deltaRaw, errorRaw, extraRaw); err != nil {
+			return nil, err
 		}
 		row.Outcome = outcomeFromColumn(outcome)
 		out = append(out, row)
@@ -169,6 +135,7 @@ func (r *Reader) GetByID(ctx context.Context, eventID uuid.UUID) (*Row, error) {
 	}
 	var row Row
 	var outcome *string
+	var contextRaw, deltaRaw, errorRaw, extraRaw []byte
 	err := r.pool.QueryRow(ctx, `
 		SELECT org_id, event_time, event_id, seq, shard,
 		       actor_id, actor_kind, action, outcome, entity_kind, entity_id,
@@ -180,10 +147,13 @@ func (r *Reader) GetByID(ctx context.Context, eventID uuid.UUID) (*Row, error) {
 	`, eventID).Scan(
 		&row.OrgID, &row.EventTime, &row.EventID, &row.Seq, &row.Shard,
 		&row.ActorID, &row.ActorKind, &row.Action, &outcome,
-		&row.EntityKind, &row.EntityID, &row.Context, &row.Delta, &row.Error, &row.Extra, &row.PIIRef,
+		&row.EntityKind, &row.EntityID, &contextRaw, &deltaRaw, &errorRaw, &extraRaw, &row.PIIRef,
 		&row.PrevHash, &row.RowHash, &row.HashVersion, &row.IdempotencyKey,
 	)
 	if err != nil {
+		return nil, err
+	}
+	if err := unmarshalRowPayloads(&row, contextRaw, deltaRaw, errorRaw, extraRaw); err != nil {
 		return nil, err
 	}
 	row.Outcome = outcomeFromColumn(outcome)

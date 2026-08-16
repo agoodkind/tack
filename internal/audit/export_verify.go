@@ -124,6 +124,10 @@ func VerifyBundle(dir string, pub ed25519.PublicKey) (*VerifyReport, error) {
 	}
 
 	dec := json.NewDecoder(newLineReader(jsonlBytes))
+	// A bundle row carrying a key its type does not declare is rejected, not
+	// dropped: the typed decode is what the hash is recomputed from, so a
+	// silently dropped key would be a planted field that verifies.
+	dec.DisallowUnknownFields()
 	rows := make([]Row, 0, mf.RowCount)
 	for {
 		var row Row
@@ -132,8 +136,8 @@ func VerifyBundle(dir string, pub ed25519.PublicKey) (*VerifyReport, error) {
 			break
 		}
 		if err != nil {
-			slog.Error("audit.verify.row_decode_failed", slog.String("dir", dir), slog.String("err", err.Error()))
-			return report, fmt.Errorf("verify decode: %w", err)
+			slog.Error("audit.verify.row_decode_failed", slog.String("dir", dir), slog.Int("line", len(rows)+1), slog.String("err", err.Error()))
+			return report, fmt.Errorf("verify decode events.jsonl line %d: %w", len(rows)+1, err)
 		}
 		rows = append(rows, row)
 	}
