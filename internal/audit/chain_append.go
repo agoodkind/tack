@@ -35,6 +35,29 @@ type chainAppendResult struct {
 	RowHash  []byte
 }
 
+// claimEventIdentity records that this event id is being projected and reports
+// whether the claim was this caller's. It runs in the append's transaction, so
+// a rolled back append releases the claim with it.
+//
+// The ledger's own unique index has to carry event_time, because the table is
+// partitioned on it, so it only catches a redelivery that repeats the same
+// instant. A producer that re-derives an event keeps the identity and stamps a
+// new time, and the ledger took it as a second row: the ledger reconstruction
+// wrote its whole history twice that way (TACK-451). One identity is one row.
+func claimEventIdentity(ctx context.Context, tx pgx.Tx, eventID uuid.UUID) (bool, error) {
+	tag, err := tx.Exec(ctx, `
+		INSERT INTO audit.projected_events (event_id)
+		VALUES ($1)
+		ON CONFLICT (event_id) DO NOTHING
+	`, eventID)
+	if err != nil {
+		slog.ErrorContext(ctx, "audit.chain.identity_claim_failed",
+			slog.String("event_id", eventID.String()), slog.String("err", err.Error()))
+		return false, fmt.Errorf("claim event identity %s: %w", eventID, err)
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
 // appendChainRow inserts one event into audit.events and advances its
 // (org, shard) head in audit.chain_heads with a compare-and-swap. The head
 // write only succeeds when last_seq still equals the value this call read, so
@@ -42,16 +65,23 @@ type chainAppendResult struct {
 // zero rows affected (read-committed) or a serialization failure (repeatable
 // read), both of which the caller retries.
 //
-// It returns errAlreadyProjected when the (event_id, event_time) index rejects
-// a redelivered event, and errChainConflict when the head moved underneath it.
+// It returns errAlreadyProjected when the event's identity is already in the
+// ledger, and errChainConflict when the head moved underneath it.
 func appendChainRow(ctx context.Context, tx pgx.Tx, in chainAppendInput) (chainAppendResult, error) {
 	if in.Event.Outcome == "" {
 		in.Event.Outcome = OutcomeOK
 	}
+	claimed, err := claimEventIdentity(ctx, tx, in.EventID)
+	if err != nil {
+		return chainAppendResult{}, err
+	}
+	if !claimed {
+		return chainAppendResult{}, errAlreadyProjected
+	}
 	var lastSeq int64
 	var lastHash []byte
 	headExists := true
-	err := tx.QueryRow(ctx, `
+	err = tx.QueryRow(ctx, `
 		SELECT last_seq, last_hash FROM audit.chain_heads
 		WHERE org_id = $1 AND shard = $2
 	`, in.Event.Context.OrgID, in.Shard).Scan(&lastSeq, &lastHash)
