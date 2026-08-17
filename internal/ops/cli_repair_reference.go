@@ -25,6 +25,10 @@ type repairReferenceRenameResult struct {
 	To     string `json:"to"`
 }
 
+// repairReferenceUniquenessResult reports what a run changed, or what a dry
+// run would change. Every count is a change: a counter already at its scope's
+// highest number and a key its node already holds are re-asserted but not
+// counted, so a run over repaired data reports zeros and records nothing.
 type repairReferenceUniquenessResult struct {
 	clispec.ResultMarker
 	Command        string                        `json:"command"`
@@ -106,8 +110,9 @@ func runRepairReferenceUniquenessCommand(
 		return wrapped
 	}
 
-	// The ledger records what the repair did only after it did it, so a run
-	// that fails partway records the part that landed and nothing more.
+	// The ledger records what the repair did only after the run returns. A run
+	// that fails partway returns above without recording, so what it applied
+	// before failing is unrecorded; TACK-452 closes that window.
 	if execute {
 		if err := recordRepairReferenceRun(ctx, factory, report); err != nil {
 			return err

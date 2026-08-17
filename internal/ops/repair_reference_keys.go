@@ -17,14 +17,21 @@ type repairedReferenceKey struct {
 	Key  node.ReferenceKey
 }
 
-// writeAllReferenceKeys returns the keys it wrote, so the caller can record
-// one ledger event per key.
+// writeAllReferenceKeys re-asserts every rendered reference key in the org and
+// returns the keys that changed hands: the ones no node held, or another node
+// held, before the write. A key the same node already held is written again
+// but not returned, because re-asserting a claim changes nothing and must not
+// read as a mutation in the ledger the caller records into.
 func writeAllReferenceKeys(
 	ctx context.Context,
 	env *Env,
 	orgID uuid.UUID,
 ) ([]ReferenceKeyWrite, error) {
 	keys, err := enumerateReferenceKeys(ctx, env, orgID, nil)
+	if err != nil {
+		return nil, err
+	}
+	claimed, err := unheldReferenceKeys(ctx, env.Stores.Nodes, orgID, keys)
 	if err != nil {
 		return nil, err
 	}
@@ -35,14 +42,7 @@ func writeAllReferenceKeys(
 	if err := writeReferenceKeysByNode(ctx, env.Stores.Nodes, orgID, keysByNode); err != nil {
 		return nil, err
 	}
-	written := make([]ReferenceKeyWrite, 0, len(keys))
-	for _, key := range keys {
-		written = append(written, ReferenceKeyWrite{
-			OrgID: orgID, NodeID: key.View.ID, NodeType: key.View.NodeType,
-			TemplateName: key.Key.TemplateName, Encoded: key.Key.Encoded,
-		})
-	}
-	return written, nil
+	return claimed, nil
 }
 
 type referenceKeyWriter interface {
