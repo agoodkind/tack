@@ -100,6 +100,9 @@ const (
 	// VerbOpsDatagenReferenceRepairShape records QA generation of the
 	// pre-repair reference shape.
 	VerbOpsDatagenReferenceRepairShape Verb = "ops.datagen_reference_repair_shape"
+	// VerbOpsDatagenLegacyLedgerRow records QA generation of a ledger row in
+	// the shape the writer produced before the ledger stored outcomes.
+	VerbOpsDatagenLegacyLedgerRow Verb = "ops.datagen_legacy_ledger_row"
 	// VerbOpsProvision records environment provisioning.
 	VerbOpsProvision Verb = "ops.provision"
 	// VerbOpsBackfillDefaultChildren records default child backfills.

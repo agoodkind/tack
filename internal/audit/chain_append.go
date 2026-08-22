@@ -78,26 +78,12 @@ func appendChainRow(ctx context.Context, tx pgx.Tx, in chainAppendInput) (chainA
 	if !claimed {
 		return chainAppendResult{}, errAlreadyProjected
 	}
-	var lastSeq int64
-	var lastHash []byte
-	headExists := true
-	err = tx.QueryRow(ctx, `
-		SELECT last_seq, last_hash FROM audit.chain_heads
-		WHERE org_id = $1 AND shard = $2
-	`, in.Event.Context.OrgID, in.Shard).Scan(&lastSeq, &lastHash)
-	switch {
-	case errors.Is(err, pgx.ErrNoRows):
-		headExists = false
-		lastSeq = 0
-		lastHash = []byte{}
-	case err != nil:
-		slog.ErrorContext(ctx, "audit.chain.head_read_failed", slog.String("err", err.Error()))
-		return chainAppendResult{}, fmt.Errorf("chain head read: %w", err)
+	head, err := readChainHead(ctx, tx, in.Event.Context.OrgID, in.Shard)
+	if err != nil {
+		return chainAppendResult{}, err
 	}
-	if lastHash == nil {
-		lastHash = []byte{}
-	}
-	seq := lastSeq + 1
+	lastHash := head.LastHash
+	seq := head.LastSeq + 1
 
 	rowHash, err := hashRowForEvent(rowHashInput{
 		Event: in.Event, EventID: in.EventID, Shard: in.Shard, Seq: seq,
@@ -153,25 +139,8 @@ func appendChainRow(ctx context.Context, tx pgx.Tx, in chainAppendInput) (chainA
 		return chainAppendResult{}, errAlreadyProjected
 	}
 
-	if headExists {
-		tag, err = tx.Exec(ctx, `
-			UPDATE audit.chain_heads
-			SET last_seq = $3, last_hash = $4, updated_at = now()
-			WHERE org_id = $1 AND shard = $2 AND last_seq = $5
-		`, in.Event.Context.OrgID, in.Shard, seq, rowHash, lastSeq)
-	} else {
-		tag, err = tx.Exec(ctx, `
-			INSERT INTO audit.chain_heads (org_id, shard, last_seq, last_hash, updated_at)
-			VALUES ($1, $2, $3, $4, now())
-			ON CONFLICT (org_id, shard) DO NOTHING
-		`, in.Event.Context.OrgID, in.Shard, seq, rowHash)
-	}
-	if err != nil {
-		slog.ErrorContext(ctx, "audit.chain.head_write_failed", slog.String("err", err.Error()))
-		return chainAppendResult{}, fmt.Errorf("chain head write: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return chainAppendResult{}, errChainConflict
+	if err := writeChainHead(ctx, tx, in.Event.Context.OrgID, in.Shard, head, seq, rowHash); err != nil {
+		return chainAppendResult{}, err
 	}
 
 	return chainAppendResult{Seq: seq, PrevHash: lastHash, RowHash: rowHash}, nil
