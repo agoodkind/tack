@@ -134,6 +134,11 @@ func createHandler(nt *node.NodeType, route scopeRoute, b NodeTypeBinding) mcpse
 		if err != nil {
 			return unexpectedError(ctx, err), nil
 		}
+		// Refuse before the write, not only in the response: an unauthorized
+		// call must not commit anything.
+		if !isAuthorized(ctx) {
+			return permissionDenied(), nil
+		}
 		result, err := b.NodeSvc.Create(ctx, service.CreateInput{
 			ParentID:               parentID,
 			ScopeID:                scopeID,

@@ -2,43 +2,15 @@ package tools
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"log/slog"
 
 	"github.com/google/uuid"
 	mcpmcp "github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"goodkind.io/tack/internal/clock"
-	"goodkind.io/tack/internal/domain"
-	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/service"
-)
 
-// resolveRelationshipTarget resolves the target side of a relationship. A
-// target that is a node must lie in one of the caller's orgs, like any other
-// node reference. A UUID that names no node is accepted as an opaque target,
-// because relationships such as assigned_to and watches point at user ids,
-// which are not nodes; no data is read through such a target.
-func (r *Resolver) resolveRelationshipTarget(ctx context.Context, input string) (uuid.UUID, error) {
-	id, err := uuid.Parse(input)
-	if err != nil {
-		return r.ResolveNodeID(ctx, input)
-	}
-	resolve, err := r.reader.Resolve(ctx, id)
-	if errors.Is(err, domain.ErrNotFound) || (err == nil && resolve == nil) {
-		return id, nil
-	}
-	if err != nil {
-		slog.ErrorContext(ctx, "resolver.relationship_target_failed",
-			slog.String("input", input), slog.String("err", err.Error()))
-		return uuid.Nil, fmt.Errorf("resolve relationship target %q: %w", input, err)
-	}
-	if err := r.requireMembership(ctx, resolve.OrgID, "node", input); err != nil {
-		return uuid.Nil, err
-	}
-	return id, nil
-}
+	"goodkind.io/tack/internal/domain/node"
+)
 
 // RegisterRelationship registers tack_add_relationship / tack_remove_relationship /
 // tack_list_relationships. RelationType is arbitrary; seeds define the
@@ -59,54 +31,7 @@ func RegisterRelationship(s *mcpserver.MCPServer, svc *service.NodeService, rels
 			Description: "Adds a directed relationship between two nodes. relation_type is free-form (e.g. assigned_to, labeled_with, child_of, watches).",
 			InputSchema: addRemove,
 		},
-		func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
-			args, err := bindArgs(req)
-			if err != nil {
-				return recoverableError(err.Error()), nil
-			}
-			sourceIn, ok := requireString(args, "source_id")
-			if !ok {
-				return recoverableError("source_id is required"), nil
-			}
-			relType, ok := requireString(args, "relation_type")
-			if !ok {
-				return recoverableError("relation_type is required"), nil
-			}
-			targetIn, ok := requireString(args, "target_id")
-			if !ok {
-				return recoverableError("target_id is required"), nil
-			}
-
-			userID, err := mustUser(ctx)
-			if err != nil {
-				return unexpectedError(ctx, err), nil
-			}
-			sourceID, err := resolver.ResolveNodeID(ctx, sourceIn)
-			if err != nil {
-				return classifyError(ctx, err), nil
-			}
-			targetID, err := resolver.resolveRelationshipTarget(ctx, targetIn)
-			if err != nil {
-				return classifyError(ctx, err), nil
-			}
-			resolve, err := resolver.reader.Resolve(ctx, sourceID)
-			if err != nil {
-				return classifyError(ctx, err), nil
-			}
-			stampAuditNodeResolve(ctx, resolve)
-			if err := svc.AddRelationship(ctx, &node.Relationship{
-				OrgID:        resolve.OrgID,
-				SourceID:     sourceID,
-				RelationType: relType,
-				TargetID:     targetID,
-				CreatedBy:    userID,
-				CreatedAt:    clock.Now().UTC(),
-			}); err != nil {
-				return classifyError(ctx, err), nil
-			}
-			rc := newRenderCtxWithTypes(ctx, resolver.reader, nil, resolver.typeIndex)
-			return successText(renderRelationshipMutation(rc, "Added relationship", sourceID, relType, targetID), ""), nil
-		},
+		addRelationshipHandler(svc, resolver),
 	)
 
 	registerTool(s,
@@ -115,43 +40,7 @@ func RegisterRelationship(s *mcpserver.MCPServer, svc *service.NodeService, rels
 			Description: "Removes a directed relationship between two nodes.",
 			InputSchema: addRemove,
 		},
-		func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
-			args, err := bindArgs(req)
-			if err != nil {
-				return recoverableError(err.Error()), nil
-			}
-			sourceIn, ok := requireString(args, "source_id")
-			if !ok {
-				return recoverableError("source_id is required"), nil
-			}
-			relType, ok := requireString(args, "relation_type")
-			if !ok {
-				return recoverableError("relation_type is required"), nil
-			}
-			targetIn, ok := requireString(args, "target_id")
-			if !ok {
-				return recoverableError("target_id is required"), nil
-			}
-
-			sourceID, err := resolver.ResolveNodeID(ctx, sourceIn)
-			if err != nil {
-				return classifyError(ctx, err), nil
-			}
-			targetID, err := resolver.resolveRelationshipTarget(ctx, targetIn)
-			if err != nil {
-				return classifyError(ctx, err), nil
-			}
-			resolve, err := resolver.reader.Resolve(ctx, sourceID)
-			if err != nil {
-				return classifyError(ctx, err), nil
-			}
-			stampAuditNodeResolve(ctx, resolve)
-			if err := svc.RemoveRelationship(ctx, resolve.OrgID, sourceID, relType, targetID); err != nil {
-				return classifyError(ctx, err), nil
-			}
-			rc := newRenderCtxWithTypes(ctx, resolver.reader, nil, resolver.typeIndex)
-			return successText(renderRelationshipMutation(rc, "Removed relationship", sourceID, relType, targetID), ""), nil
-		},
+		removeRelationshipHandler(svc, resolver),
 	)
 
 	registerTool(s,
@@ -167,44 +56,96 @@ func RegisterRelationship(s *mcpserver.MCPServer, svc *service.NodeService, rels
 				Required: []string{"node_id"},
 			}.toMCP(),
 		},
-		func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
-			args, err := bindArgs(req)
-			if err != nil {
-				return recoverableError(err.Error()), nil
-			}
-			nodeIn, ok := requireString(args, "node_id")
-			if !ok {
-				return recoverableError("node_id is required"), nil
-			}
-			direction := optionalString(args, "direction")
-			relType := optionalString(args, "relation_type")
-
-			nodeID, err := resolver.ResolveNodeID(ctx, nodeIn)
-			if err != nil {
-				return classifyError(ctx, err), nil
-			}
-			resolve, err := resolver.reader.Resolve(ctx, nodeID)
-			if err != nil {
-				return classifyError(ctx, err), nil
-			}
-			stampAuditNodeResolve(ctx, resolve)
-			var relsOut []*node.Relationship
-			if direction == "in" {
-				relsOut, err = rels.ListByTarget(ctx, resolve.OrgID, nodeID, relType)
-			} else {
-				relsOut, err = rels.ListBySource(ctx, resolve.OrgID, nodeID, relType)
-			}
-			if err != nil {
-				return classifyError(ctx, err), nil
-			}
-			rc := newRenderCtxWithTypes(ctx, resolver.reader, nil, resolver.typeIndex)
-			label := "outgoing"
-			otherIsTarget := true
-			if direction == "in" {
-				label = "incoming"
-				otherIsTarget = false
-			}
-			return successText(renderRelationships(rc, label, relsOut, otherIsTarget), ""), nil
-		},
+		listRelationshipsHandler(rels, resolver),
 	)
+}
+
+// relationshipEndpoints is one resolved add or remove request: the source
+// node, its org, the relation type, and the target.
+type relationshipEndpoints struct {
+	orgID    uuid.UUID
+	sourceID uuid.UUID
+	targetID uuid.UUID
+	relType  string
+}
+
+// resolveRelationshipEndpoints binds and resolves the shared add/remove
+// arguments. A non-nil result is an early return the handler passes back to
+// the client unchanged. The source must be a node in one of the caller's
+// orgs; the guard before the write reads the mark this resolution set.
+func resolveRelationshipEndpoints(ctx context.Context, resolver *Resolver, req mcpmcp.CallToolRequest) (relationshipEndpoints, *mcpmcp.CallToolResult) {
+	none := relationshipEndpoints{orgID: uuid.Nil, sourceID: uuid.Nil, targetID: uuid.Nil, relType: ""}
+	args, err := bindArgs(req)
+	if err != nil {
+		return none, recoverableError(err.Error())
+	}
+	sourceIn, ok := requireString(args, "source_id")
+	if !ok {
+		return none, recoverableError("source_id is required")
+	}
+	relType, ok := requireString(args, "relation_type")
+	if !ok {
+		return none, recoverableError("relation_type is required")
+	}
+	targetIn, ok := requireString(args, "target_id")
+	if !ok {
+		return none, recoverableError("target_id is required")
+	}
+	sourceID, err := resolver.ResolveNodeID(ctx, sourceIn)
+	if err != nil {
+		return none, classifyError(ctx, err)
+	}
+	targetID, err := resolver.resolveRelationshipTarget(ctx, targetIn)
+	if err != nil {
+		return none, classifyError(ctx, err)
+	}
+	resolve, err := resolver.reader.Resolve(ctx, sourceID)
+	if err != nil {
+		return none, classifyError(ctx, err)
+	}
+	stampAuditNodeResolve(ctx, resolve)
+	// Refuse before the write, not only in the response.
+	if !isAuthorized(ctx) {
+		return none, permissionDenied()
+	}
+	return relationshipEndpoints{orgID: resolve.OrgID, sourceID: sourceID, targetID: targetID, relType: relType}, nil
+}
+
+func addRelationshipHandler(svc *service.NodeService, resolver *Resolver) mcpserver.ToolHandlerFunc {
+	return func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
+		userID, err := mustUser(ctx)
+		if err != nil {
+			return unexpectedError(ctx, err), nil
+		}
+		endpoints, early := resolveRelationshipEndpoints(ctx, resolver, req)
+		if early != nil {
+			return early, nil
+		}
+		if err := svc.AddRelationship(ctx, &node.Relationship{
+			OrgID:        endpoints.orgID,
+			SourceID:     endpoints.sourceID,
+			RelationType: endpoints.relType,
+			TargetID:     endpoints.targetID,
+			CreatedBy:    userID,
+			CreatedAt:    clock.Now().UTC(),
+		}); err != nil {
+			return classifyError(ctx, err), nil
+		}
+		rc := newRenderCtxWithTypes(ctx, resolver.reader, nil, resolver.typeIndex)
+		return successText(renderRelationshipMutation(rc, "Added relationship", endpoints.sourceID, endpoints.relType, endpoints.targetID), ""), nil
+	}
+}
+
+func removeRelationshipHandler(svc *service.NodeService, resolver *Resolver) mcpserver.ToolHandlerFunc {
+	return func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
+		endpoints, early := resolveRelationshipEndpoints(ctx, resolver, req)
+		if early != nil {
+			return early, nil
+		}
+		if err := svc.RemoveRelationship(ctx, endpoints.orgID, endpoints.sourceID, endpoints.relType, endpoints.targetID); err != nil {
+			return classifyError(ctx, err), nil
+		}
+		rc := newRenderCtxWithTypes(ctx, resolver.reader, nil, resolver.typeIndex)
+		return successText(renderRelationshipMutation(rc, "Removed relationship", endpoints.sourceID, endpoints.relType, endpoints.targetID), ""), nil
+	}
 }

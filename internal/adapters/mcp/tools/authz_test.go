@@ -329,6 +329,24 @@ func TestRelationshipListHidesForeignEndpointIdentity(t *testing.T) {
 	}
 }
 
+// TestMutationGuardRefusesWithoutAuthorization pins the pre-write guard's
+// primitive: a context that never passed a membership check reads as
+// unauthorized, including a context with no authorization slot at all, so a
+// mutating handler refuses before its write instead of after it.
+func TestMutationGuardRefusesWithoutAuthorization(t *testing.T) {
+	if isAuthorized(context.Background()) {
+		t.Fatal("a bare context read as authorized")
+	}
+	ctx := withAuthorization(context.Background())
+	if isAuthorized(ctx) {
+		t.Fatal("an unmarked context read as authorized")
+	}
+	markAuthorized(ctx)
+	if !isAuthorized(ctx) {
+		t.Fatal("a marked context read as unauthorized")
+	}
+}
+
 // TestMembershipComesFromRequestContextWhenAttached pins that the resolvers
 // read the per-request membership set: with the context naming only org B,
 // the same caller is refused on an org A node even though the members
