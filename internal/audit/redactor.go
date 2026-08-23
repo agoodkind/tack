@@ -85,3 +85,60 @@ func (r *Redactor) RedactActor(ctx context.Context, actorID uuid.UUID) (int64, e
 	)
 	return count, nil
 }
+
+// CountUnredacted reports how many of the given audit.pii rows still hold a
+// payload. The redactor role holds SELECT on audit.pii, so a plan can count
+// without touching the ledger.
+func (r *Redactor) CountUnredacted(ctx context.Context, refs []uuid.UUID) (int64, error) {
+	if r == nil || r.pool == nil {
+		return 0, errors.New("audit redactor not configured")
+	}
+	if len(refs) == 0 {
+		return 0, nil
+	}
+	var count int64
+	err := r.pool.QueryRow(ctx, `
+		SELECT count(*) FROM audit.pii
+		 WHERE pii_ref = ANY($1::uuid[]) AND redacted = false
+	`, uuidStrings(refs)).Scan(&count)
+	if err != nil {
+		slog.ErrorContext(ctx, "audit.pii.count_unredacted_failed", slog.String("err", err.Error()))
+		return 0, fmt.Errorf("audit count unredacted pii: %w", err)
+	}
+	return count, nil
+}
+
+// RedactPIIRefs erases the payload of the given audit.pii rows and returns how
+// many it changed. The caller resolves the references through the reader,
+// scoped to one org, so the redactor never reads audit.events itself.
+func (r *Redactor) RedactPIIRefs(ctx context.Context, refs []uuid.UUID) (int64, error) {
+	if r == nil || r.pool == nil {
+		return 0, errors.New("audit redactor not configured")
+	}
+	if len(refs) == 0 {
+		return 0, nil
+	}
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE audit.pii
+		   SET payload = NULL, redacted = true, redacted_at = now()
+		 WHERE pii_ref = ANY($1::uuid[]) AND redacted = false
+	`, uuidStrings(refs))
+	if err != nil {
+		slog.ErrorContext(ctx, "audit.pii.redact_refs_failed", slog.String("err", err.Error()))
+		return 0, fmt.Errorf("audit redact pii refs: %w", err)
+	}
+	count := tag.RowsAffected()
+	telemetry.L(ctx).Info("audit.pii.redacted",
+		slog.Int("pii_ref_count", len(refs)),
+		slog.Int64("redacted_count", count),
+	)
+	return count, nil
+}
+
+func uuidStrings(ids []uuid.UUID) []string {
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, id.String())
+	}
+	return out
+}

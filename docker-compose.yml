@@ -439,6 +439,11 @@ services:
       # and cannot be reused here.
       DATABASE_URL: ${TACK_OPS_DATABASE_URL}
       AUDIT_OPERATOR_DSN: ${TACK_OPS_AUDIT_OPERATOR_DSN:-}
+      # Ledger read and redaction for the `audit query`, `audit get`,
+      # `audit export`, and `audit redact-actor` host commands. Loopback DSNs
+      # like the operator one above; empty until the host .env renders them.
+      AUDIT_READER_DSN: ${TACK_OPS_AUDIT_READER_DSN:-}
+      AUDIT_REDACTOR_DSN: ${TACK_OPS_AUDIT_REDACTOR_DSN:-}
       FDB_CLUSTER_FILE: /etc/foundationdb/fdb.cluster
       MEILI_URL: http://localhost:7700
       MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-tack-dev-meili-key-change-in-prod}

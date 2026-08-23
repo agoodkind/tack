@@ -5,8 +5,41 @@ import (
 
 	"github.com/google/uuid"
 
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/clispec"
 )
+
+// auditQueryResult is the `audit query` output: the matching ledger rows,
+// most recent first, under the window that bounded them.
+type auditQueryResult struct {
+	clispec.ResultMarker `exhaustruct:"optional"`
+	Command              string      `json:"command"`
+	OrgID                uuid.UUID   `json:"org_id"`
+	Oldest               time.Time   `json:"oldest"`
+	Latest               time.Time   `json:"latest"`
+	RowCount             int         `json:"row_count"`
+	Rows                 []audit.Row `json:"rows"`
+}
+
+// auditGetResult is the `audit get` output: one ledger row.
+type auditGetResult struct {
+	clispec.ResultMarker `exhaustruct:"optional"`
+	Command              string    `json:"command"`
+	Row                  audit.Row `json:"row"`
+}
+
+// auditRedactActorResult is the `audit redact-actor` output for a plan and
+// for an applied run.
+type auditRedactActorResult struct {
+	clispec.ResultMarker `exhaustruct:"optional"`
+	Command              string    `json:"command"`
+	DryRun               bool      `json:"dry_run"`
+	OrgID                uuid.UUID `json:"org_id"`
+	ActorID              uuid.UUID `json:"actor_id"`
+	PIIRefCount          int       `json:"pii_ref_count"`
+	Unredacted           int64     `json:"unredacted"`
+	Redacted             int64     `json:"redacted"`
+}
 
 // auditExportResult mirrors audit.ExportManifest for CLI emission.
 type auditExportResult struct {
