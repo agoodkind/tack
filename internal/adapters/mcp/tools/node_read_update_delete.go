@@ -26,7 +26,10 @@ func getHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFunc 
 		if err != nil {
 			return recoverableError(err.Error()), nil
 		}
-		entryPoint, err := auditEntryPointArg(ctx, args, b)
+		entryPoint, missing, err := requireEntryPointArg(ctx, args, b)
+		if missing != "" {
+			return recoverableError(missing), nil
+		}
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
@@ -72,7 +75,10 @@ func updateHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFu
 		if err != nil {
 			return recoverableError(err.Error()), nil
 		}
-		entryPoint, err := auditEntryPointArg(ctx, args, b)
+		entryPoint, missing, err := requireEntryPointArg(ctx, args, b)
+		if missing != "" {
+			return recoverableError(missing), nil
+		}
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
@@ -105,6 +111,10 @@ func updateHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFu
 		rawProps, err = normalizeUpdateProps(ctx, b, nt, existing, rawProps)
 		if err != nil {
 			return classifyError(ctx, err), nil
+		}
+		// Refuse before the write, not only in the response.
+		if !isAuthorized(ctx) {
+			return permissionDenied(), nil
 		}
 
 		view, err := b.NodeSvc.Update(ctx, service.UpdateInput{
@@ -139,7 +149,10 @@ func deleteHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFu
 		if err != nil {
 			return recoverableError(err.Error()), nil
 		}
-		entryPoint, err := auditEntryPointArg(ctx, args, b)
+		entryPoint, missing, err := requireEntryPointArg(ctx, args, b)
+		if missing != "" {
+			return recoverableError(missing), nil
+		}
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
@@ -165,6 +178,10 @@ func deleteHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFu
 			Identifier: identifierFor(existing, rc),
 			Name:       existing.Name,
 		})
+		// Refuse before the write, not only in the response.
+		if !isAuthorized(ctx) {
+			return permissionDenied(), nil
+		}
 		if err := b.NodeSvc.Delete(ctx, id, userID); err != nil {
 			return classifyError(ctx, err), nil
 		}

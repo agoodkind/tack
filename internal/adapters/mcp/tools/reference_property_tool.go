@@ -143,6 +143,10 @@ func referencePropertyHandler(nt *node.NodeType, def *node.PropertyDef, alias st
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
+		// Refuse before the write, not only in the response.
+		if !isAuthorized(ctx) {
+			return permissionDenied(), nil
+		}
 		view, err := b.NodeSvc.Update(ctx, service.UpdateInput{
 			NodeID:              nodeID,
 			Name:                nil,

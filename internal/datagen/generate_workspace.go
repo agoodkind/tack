@@ -49,6 +49,9 @@ func (g *Generator) generateWorkspace(
 		}
 		g.recordEnsure(created)
 		g.summary.Projects++
+		if g.probeNodeID == "" {
+			g.probeNodeID = projectReference
+		}
 		if err := g.generateProject(
 			ctx,
 			globalIndex,

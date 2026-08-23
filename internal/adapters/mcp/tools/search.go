@@ -60,25 +60,37 @@ func RegisterSearch(s *mcpserver.MCPServer, searcher domainsearch.Searcher, reso
 			if err != nil {
 				return classifyError(ctx, err), nil
 			}
-			views := make([]*node.NodeView, 0, len(docs))
-			for _, d := range docs {
-				id, err := uuid.Parse(d.ID)
-				if err != nil {
-					continue
-				}
-				view, err := resolver.reader.Get(ctx, id)
-				if err != nil || view == nil {
-					continue
-				}
-				if scope != nil && !viewBelongsToScope(ctx, resolver, view, scope.ID) {
-					continue
-				}
-				views = append(views, view)
-			}
+			views := fullTextSearchViews(ctx, resolver, ws, scope, docs)
 			rc := newRenderCtxWithTypes(ctx, resolver.reader, nil, resolver.typeIndex)
 			return successText(renderSearchViews(rc, views), ""), nil
 		},
 	)
+}
+
+// fullTextSearchViews fetches every indexed hit and keeps only nodes of the
+// workspace's own org that lie under the requested scope. The index is not
+// the authority on org isolation: a stale or corrupted document must not
+// leak another org's node.
+func fullTextSearchViews(ctx context.Context, resolver *Resolver, ws *node.NodeView, scope *node.NodeView, docs []domainsearch.NodeDoc) []*node.NodeView {
+	views := make([]*node.NodeView, 0, len(docs))
+	for _, d := range docs {
+		id, err := uuid.Parse(d.ID)
+		if err != nil {
+			continue
+		}
+		view, err := resolver.reader.Get(ctx, id)
+		if err != nil || view == nil {
+			continue
+		}
+		if view.OrgID != ws.OrgID {
+			continue
+		}
+		if scope != nil && !viewBelongsToScope(ctx, resolver, view, scope.ID) {
+			continue
+		}
+		views = append(views, view)
+	}
+	return views
 }
 
 func searchScopeFields(resolver *Resolver) []schemaField {

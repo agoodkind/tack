@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"sync"
@@ -104,6 +105,21 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	span.SetAttributes(attribute.String("enduser.id", userID.String()))
 
+	// The membership set travels on every request, cache hit or not. The
+	// resolvers refuse any node outside it, and the tool wrapper refuses any
+	// result that never passed a membership check, so a failed lookup fails
+	// the request closed instead of serving with an empty set.
+	orgIDs, err := h.members.ListOrgIDsForUser(ctx, userID)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "list_org_ids_failed")
+		log.Error("mcp: list org ids", "err", err)
+		http.Error(w, `{"error":"membership unavailable"}`, http.StatusInternalServerError)
+		return
+	}
+	ctx = auth.WithOrgMembership(ctx, orgIDs)
+	r = r.WithContext(ctx)
+
 	h.mu.RLock()
 	c, ok := h.cache[userID]
 	h.mu.RUnlock()
@@ -114,12 +130,22 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	span.SetAttributes(attribute.Bool("mcp.server_cache_hit", false))
 
-	orgIDs, err := h.members.ListOrgIDsForUser(ctx, userID)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "list_org_ids_failed")
-		log.Error("mcp: list org ids", "err", err)
-	}
+	nodeTypes, propertyDefs := h.collectMetadata(ctx, span, orgIDs)
+	mcpSvr := h.buildServer(nodeTypes, propertyDefs)
+	httpSvr := mcpserver.NewStreamableHTTPServer(mcpSvr, mcpserver.WithStateLess(true))
+	span.SetAttributes(attribute.Int("mcp.node_type_count", len(nodeTypes)))
+
+	h.mu.Lock()
+	h.cache[userID] = &cachedServer{mcpSvr: mcpSvr, httpSvr: httpSvr, builtAt: clock.Now()}
+	h.mu.Unlock()
+	httpSvr.ServeHTTP(w, r)
+}
+
+// collectMetadata gathers the node types and property definitions of every
+// org the user belongs to, deduplicated by slug and name, for the per-user
+// server build.
+func (h *Handler) collectMetadata(ctx context.Context, span trace.Span, orgIDs []uuid.UUID) ([]*node.NodeType, []*node.PropertyDef) {
+	log := telemetry.L(ctx)
 	var nodeTypes []*node.NodeType
 	seen := make(map[string]struct{})
 	var propertyDefs []*node.PropertyDef
@@ -128,7 +154,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		nts, err := h.nodeTypes.List(ctx, orgID)
 		if err != nil {
 			span.RecordError(err)
-			log.Error("mcp: node type list", "org_id", orgID, "err", err)
+			log.ErrorContext(ctx, "mcp: node type list", "org_id", orgID, "err", err)
 			continue
 		}
 		for _, nt := range nts {
@@ -140,7 +166,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		defs, err := h.propertyDefs.List(ctx, orgID)
 		if err != nil {
 			span.RecordError(err)
-			log.Error("mcp: property def list", "org_id", orgID, "err", err)
+			log.ErrorContext(ctx, "mcp: property def list", "org_id", orgID, "err", err)
 			continue
 		}
 		for _, def := range defs {
@@ -150,15 +176,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-
-	mcpSvr := h.buildServer(nodeTypes, propertyDefs)
-	httpSvr := mcpserver.NewStreamableHTTPServer(mcpSvr, mcpserver.WithStateLess(true))
-	span.SetAttributes(attribute.Int("mcp.node_type_count", len(nodeTypes)))
-
-	h.mu.Lock()
-	h.cache[userID] = &cachedServer{mcpSvr: mcpSvr, httpSvr: httpSvr, builtAt: clock.Now()}
-	h.mu.Unlock()
-	httpSvr.ServeHTTP(w, r)
+	return nodeTypes, propertyDefs
 }
 
 func (h *Handler) buildServer(nodeTypes []*node.NodeType, propertyDefs []*node.PropertyDef) *mcpserver.MCPServer {

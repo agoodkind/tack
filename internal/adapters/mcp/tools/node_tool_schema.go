@@ -33,12 +33,17 @@ func createTool(nt *node.NodeType, slug string, route scopeRoute, epParam string
 	}
 }
 
+// nodeIDSchema is the get, update, and delete input. The entry point
+// reference is required alongside node_id so the handler always checks that
+// the node lies under a workspace the caller can name.
 func nodeIDSchema(entryPointParam string, resolver *Resolver) schema {
 	fields := []schemaField{{Name: "node_id", Type: schemaString}}
+	required := []string{"node_id"}
 	if entryPointParam != "" {
 		fields = append(fields, entryPointSchemaFields(resolver)...)
+		required = append(required, entryPointParam)
 	}
-	return schema{Fields: fields, Required: []string{"node_id"}}
+	return schema{Fields: fields, Required: required}
 }
 
 func getTool(nt *node.NodeType, slug string, entryPointParam string, resolver *Resolver) mcpmcp.Tool {
@@ -59,15 +64,16 @@ func getTool(nt *node.NodeType, slug string, entryPointParam string, resolver *R
 }
 
 func updateTool(nt *node.NodeType, slug string, entryPointParam string, resolver *Resolver) mcpmcp.Tool {
+	base := nodeIDSchema(entryPointParam, resolver)
 	return mcpmcp.Tool{
 		Name:        fmt.Sprintf("tack_update_%s", slug),
 		Description: fmt.Sprintf("Updates a %s. Only provided fields change.", nt.Name),
 		InputSchema: schema{
-			Fields: append(nodeIDSchema(entryPointParam, resolver).Fields,
+			Fields: append(base.Fields,
 				schemaField{Name: "name", Type: schemaString},
 				schemaField{Name: "properties", Type: schemaObject},
 			),
-			Required: []string{"node_id"},
+			Required: base.Required,
 		}.toMCP(),
 	}
 }
