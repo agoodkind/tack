@@ -71,9 +71,21 @@ container can bind.
 Each name resolves differently depending on which container asks. A node's
 own name resolves to its own container address, which the container runtime
 maps automatically once the container carries that name. The other two names
-resolve to the peer guests' pinned addresses, written into the container's
-own hosts file from values the rendered environment file supplies. Publish
-the node ports peers need to reach.
+resolve to the peer guests' pinned addresses. Published ports forward from
+the guest address under this bridge's routed gateway mode, measured on the
+testbed, so peers reach each other on the published node ports at those
+addresses.
+
+The deploy delivers the per-guest values as a rendered compose override
+file beside the base compose file, which compose merges automatically. The
+override carries only final values, no variables and no shell: the node
+name as the service hostname, the peer name to address map as extra_hosts,
+and a whole replacement command. Compose replaces a command list wholesale,
+so the replacement changes only the announced name and must keep the
+flagfile argument verbatim; dropping it silently reverts the engine to the
+self-sizing that caused the 2026-08-05 incident. The resource bounds
+themselves live in one flags file in the tack repository, one flag per
+line, mounted into the container.
 
 Giving the ledger container the guest's own network would also let it bind
 the guest address, and is rejected: it breaks the isolated address-per-guest
@@ -84,10 +96,6 @@ A container does not inherit the guest's name resolution, measured on the
 testbed: a name added to a guest's hosts file resolved on that guest and
 did not resolve inside a container on it. Writing the names on the guest
 alone leaves the nodes unable to find each other.
-
-Extend the service comment that forbids advertising an address so it states
-the full contract: identity is a permanent name, addresses stay behind the
-hosts entries, and a renumber changes one inventory line and a redeploy.
 
 - [ ] **Step 2: Prove two guests resolve and reach each other's node**
 
