@@ -112,6 +112,12 @@ func (r *Redactor) CountUnredacted(ctx context.Context, refs []uuid.UUID) (int64
 // many it changed. The caller resolves the references through the reader,
 // scoped to one org, so the redactor never reads audit.events itself.
 func (r *Redactor) RedactPIIRefs(ctx context.Context, refs []uuid.UUID) (int64, error) {
+	ctx, span := telemetry.StartSpan(ctx, "audit.redact_pii_refs",
+		trace.WithSpanKind(trace.SpanKindInternal),
+		trace.WithAttributes(attribute.Int("audit.pii_ref_count", len(refs))),
+	)
+	defer span.End()
+	ctx = telemetry.WithTraceLogger(ctx, slog.Int("pii_ref_count", len(refs)))
 	if r == nil || r.pool == nil {
 		return 0, errors.New("audit redactor not configured")
 	}
