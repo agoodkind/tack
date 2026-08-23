@@ -5,14 +5,15 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	mcpmcp "github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
-	searchadapter "goodkind.io/tack/internal/adapters/search"
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/auth"
 	"goodkind.io/tack/internal/domain/node"
+	domainsearch "goodkind.io/tack/internal/domain/search"
 )
 
 // authzFixture is one caller in org A facing a workspace and project of org A
@@ -28,20 +29,38 @@ type authzFixture struct {
 	projectType        *node.NodeType
 }
 
-type fakeRelationships struct{}
+type fakeRelationships struct {
+	edges []*node.Relationship
+}
 
-func (fakeRelationships) Add(context.Context, *node.Relationship) error { panic("Add called") }
+func (*fakeRelationships) Add(context.Context, *node.Relationship) error { panic("Add called") }
 
-func (fakeRelationships) Remove(context.Context, uuid.UUID, uuid.UUID, string, uuid.UUID) error {
+func (*fakeRelationships) Remove(context.Context, uuid.UUID, uuid.UUID, string, uuid.UUID) error {
 	panic("Remove called")
 }
 
-func (fakeRelationships) ListBySource(context.Context, uuid.UUID, uuid.UUID, string) ([]*node.Relationship, error) {
+func (f *fakeRelationships) ListBySource(context.Context, uuid.UUID, uuid.UUID, string) ([]*node.Relationship, error) {
+	return f.edges, nil
+}
+
+func (f *fakeRelationships) ListByTarget(context.Context, uuid.UUID, uuid.UUID, string) ([]*node.Relationship, error) {
 	return nil, nil
 }
 
-func (fakeRelationships) ListByTarget(context.Context, uuid.UUID, uuid.UUID, string) ([]*node.Relationship, error) {
-	return nil, nil
+// fakeSearcher returns a fixed document set regardless of filters, the way a
+// stale or corrupted index would.
+type fakeSearcher struct {
+	docs []domainsearch.NodeDoc
+}
+
+func (fakeSearcher) Index(context.Context, string, string, *domainsearch.NodeDoc) error {
+	panic("Index called")
+}
+
+func (fakeSearcher) Delete(context.Context, string, string) error { panic("Delete called") }
+
+func (f fakeSearcher) Search(context.Context, string, string, map[string]string) ([]domainsearch.NodeDoc, map[string]map[string]int64, error) {
+	return f.docs, nil, nil
 }
 
 func newAuthzFixture(t *testing.T) *authzFixture {
@@ -68,11 +87,20 @@ func newAuthzFixture(t *testing.T) *authzFixture {
 	repo := &fakeNodeRepo{scopeChildren: map[string][]*node.Node{
 		"workspace:slug:\"main\"": {{ID: f.workspaceID, OrgID: f.orgA, NodeType: "workspace", Props: map[string]json.RawMessage{"slug": mustRaw(t, "main")}}},
 	}}
+	// The fake relationships hold a cross-org edge a dual-org member could
+	// have created, and the fake searcher serves the foreign node the way a
+	// corrupted index would; neither may leak the foreign node's identity.
+	f.relationships.edges = []*node.Relationship{{
+		OrgID: f.orgA, SourceID: f.projectA, RelationType: "watches", TargetID: f.projectB,
+		CreatedBy: uuid.New(), CreatedAt: time.Time{},
+	}}
 	f.resolver = NewResolver(repo, f.reader, &fakeMembers{orgIDs: []uuid.UUID{f.orgA}}, []*node.NodeType{workspaceType, f.projectType})
 	f.server = mcpserver.NewMCPServer("tack", "0.2.0")
 	RegisterProperty(f.server, &fakePropertyDefs{defs: nil}, f.resolver)
 	RegisterRelationship(f.server, nil, f.relationships, f.resolver)
-	RegisterSearch(f.server, searchadapter.Noop{}, f.resolver)
+	RegisterSearch(f.server, fakeSearcher{docs: []domainsearch.NodeDoc{{
+		ID: f.projectB.String(), OrgID: f.orgB.String(), NodeType: "project", Name: "Theirs", Props: nil,
+	}}}, f.resolver)
 	RegisterNodeTools(f.server, f.projectType, NodeTypeBinding{
 		NodeSvc: nil, Reader: f.reader, PropertyDefs: &fakePropertyDefs{defs: nil}, Resolver: f.resolver, Users: nil,
 	})
@@ -262,6 +290,42 @@ func TestWrapperRefusesUnauthorizedResult(t *testing.T) {
 	}
 	if !strings.Contains(text, "authorized data") {
 		t.Fatalf("authorized handler's data missing:\n%s", text)
+	}
+}
+
+// TestFullTextSearchDoesNotTrustTheIndexForOrgIsolation pins that a document
+// the index returns from another org never renders: the handler re-checks the
+// fetched node's org against the workspace's org. Removing that check leaks
+// the foreign node when the index is stale or corrupted.
+func TestFullTextSearchDoesNotTrustTheIndexForOrgIsolation(t *testing.T) {
+	f := newAuthzFixture(t)
+	isError, text := f.callTool(t, "tack_search", map[string]string{
+		"workspace_reference": "main", "query": "anything at all",
+	})
+	if isError {
+		t.Fatalf("search failed:\n%s", text)
+	}
+	if strings.Contains(text, "Theirs") || strings.Contains(text, "THEIRS") {
+		t.Fatalf("search leaked the foreign node the index served:\n%s", text)
+	}
+}
+
+// TestRelationshipListHidesForeignEndpointIdentity pins that a cross-org edge
+// renders its foreign endpoint as a bare UUID for a caller who is not a
+// member of the endpoint's org.
+func TestRelationshipListHidesForeignEndpointIdentity(t *testing.T) {
+	f := newAuthzFixture(t)
+	isError, text := f.callTool(t, "tack_list_relationships", map[string]string{
+		"node_id": f.projectA.String(), "direction": "out",
+	})
+	if isError {
+		t.Fatalf("list relationships failed:\n%s", text)
+	}
+	if !strings.Contains(text, f.projectB.String()) {
+		t.Fatalf("the edge's endpoint UUID is missing:\n%s", text)
+	}
+	if strings.Contains(text, "Theirs") || strings.Contains(text, "THEIRS") {
+		t.Fatalf("the foreign endpoint's identity leaked:\n%s", text)
 	}
 }
 

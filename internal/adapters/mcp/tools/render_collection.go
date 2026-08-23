@@ -110,7 +110,7 @@ func relationshipListItem(rc *renderCtx, rel *node.Relationship, label string, o
 	if otherIsTarget {
 		otherID = rel.TargetID
 	}
-	ident, name, _ := rc.nodeSummary(otherID)
+	ident, name := rc.nodeSummaryInOrg(otherID, rel.OrgID)
 	if ident == "" {
 		ident = otherID.String()
 	}
