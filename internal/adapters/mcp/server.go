@@ -12,7 +12,6 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 	"goodkind.io/tack/internal/adapters/mcp/tools"
-	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/auth"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain/node"
@@ -43,9 +42,6 @@ type Handler struct {
 	members       org.MemberRepository
 	users         user.Repository
 	searcher      domainsearch.Searcher
-	auditReader   *audit.Reader
-	auditQuerier  audit.RowQuerier
-	auditRedactor *audit.Redactor
 
 	mu    sync.RWMutex
 	cache map[uuid.UUID]*cachedServer
@@ -62,9 +58,6 @@ type Deps struct {
 	Members       org.MemberRepository
 	Users         user.Repository
 	Searcher      domainsearch.Searcher
-	AuditReader   *audit.Reader
-	AuditQuerier  audit.RowQuerier
-	AuditRedactor *audit.Redactor
 }
 
 func NewHandler(d Deps) *Handler {
@@ -78,9 +71,6 @@ func NewHandler(d Deps) *Handler {
 		members:       d.Members,
 		users:         d.Users,
 		searcher:      d.Searcher,
-		auditReader:   d.AuditReader,
-		auditQuerier:  d.AuditQuerier,
-		auditRedactor: d.AuditRedactor,
 		cache:         make(map[uuid.UUID]*cachedServer),
 	}
 }
@@ -181,7 +171,6 @@ func (h *Handler) buildServer(nodeTypes []*node.NodeType, propertyDefs []*node.P
 	tools.RegisterProperty(s, h.propertyDefs, resolver)
 	tools.RegisterSearch(s, h.searcher, resolver)
 	tools.RegisterRelationship(s, h.nodeSvc, h.relationships, resolver)
-	tools.RegisterAudit(s, h.auditReader, h.auditQuerier, h.auditRedactor, resolver)
 
 	binding := tools.NodeTypeBinding{
 		NodeSvc:      h.nodeSvc,

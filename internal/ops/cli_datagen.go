@@ -62,12 +62,12 @@ func datagenSeedOp(f *cli.Factory) clispec.Operation[datagenSeedInput] {
 		Long: "Defaults to a dry run. Pass --commit only where FoundationDB is " +
 			"reachable and the app audit DSNs are present, such as the tack-app " +
 			"container environment, not the default tack-ops container. Audit PII " +
-			"redaction is opt-in and requires the synchronous audit writer.",
+			"redaction is opt-in and runs the host redaction path for one actor.",
 		Params: []clispec.Param[datagenSeedInput]{
 			clispec.StringParam("scale", "data volume: small, medium, or large", "small", false, func(input *datagenSeedInput, value string) { input.Scale = value }),
 			clispec.IntParam("seed", "deterministic content seed", defaultDatagenSeed, func(input *datagenSeedInput, value int) { input.Seed = value }),
 			clispec.BoolParam("commit", "send writes after target validation", false, func(input *datagenSeedInput, value bool) { input.Commit = value }),
-			clispec.BoolParam("redact-audit-pii", "redact one actor only with the synchronous audit writer", false, func(input *datagenSeedInput, value bool) { input.RedactAuditPII = value }),
+			clispec.BoolParam("redact-audit-pii", "erase one generated actor's audit PII through the host redaction path", false, func(input *datagenSeedInput, value bool) { input.RedactAuditPII = value }),
 		},
 		New: func() datagenSeedInput {
 			return datagenSeedInput{InputMarker: clispec.InputMarker{}, Scale: "small", Seed: defaultDatagenSeed}

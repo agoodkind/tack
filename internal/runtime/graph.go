@@ -75,9 +75,6 @@ func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
 		Members:       orgMembers,
 		Users:         userRepo,
 		Searcher:      searcher,
-		AuditReader:   auditRuntimeDeps.Reader,
-		AuditQuerier:  auditRuntimeDeps.Querier,
-		AuditRedactor: auditRuntimeDeps.Redactor,
 	})
 
 	authMiddleware := buildAuthMiddleware(cfg, tokenRepo)

@@ -75,40 +75,6 @@ func TestReadLastSSEData(t *testing.T) {
 	}
 }
 
-func TestDriverListToolsUsesAuthenticatedToolsListRequest(t *testing.T) {
-	t.Parallel()
-	handler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.Header.Get("Authorization") != "Bearer qa-token" {
-			t.Errorf("Authorization = %q", request.Header.Get("Authorization"))
-		}
-		var payload listToolsRequest
-		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
-			t.Fatalf("decode request: %v", err)
-		}
-		if payload.JSONRPC != "2.0" || payload.Method != "tools/list" {
-			t.Errorf("request = %#v", payload)
-		}
-		writer.Header().Set("Content-Type", "application/json")
-		_, _ = writer.Write([]byte(
-			`{"jsonrpc":"2.0","id":"1","result":{"tools":[` +
-				`{"name":"tack_list_workspaces"},{"name":"tack_audit_redact_actor"}]}}`,
-		))
-	})
-	graph := &runtime.Graph{
-		MCPHandler: handler,
-		AuthMiddleware: func(next http.Handler) http.Handler {
-			return next
-		},
-	}
-	names, err := NewDriver(graph, false, 245).ListTools(t.Context(), "qa-token")
-	if err != nil {
-		t.Fatalf("ListTools() error = %v", err)
-	}
-	if strings.Join(names, ",") != "tack_list_workspaces,tack_audit_redact_actor" {
-		t.Fatalf("ListTools() = %v", names)
-	}
-}
-
 func TestDriverSessionIDDependsOnlyOnSeed(t *testing.T) {
 	t.Parallel()
 	first := NewDriver(nil, true, 245)

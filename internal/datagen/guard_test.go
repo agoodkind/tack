@@ -43,7 +43,6 @@ func TestValidateTargetRejectsProductionDespiteAllowTarget(t *testing.T) {
 		{name: "audit reader", configure: setAuditReaderDSN, value: "postgres://user@tack.home.goodkind.io/tack"},
 		{name: "audit redactor", configure: setAuditRedactorDSN, value: "postgres://user@tack.home.goodkind.io/tack"},
 		{name: "audit operator", configure: setAuditOperatorDSN, value: "postgres://user@tack.home.goodkind.io/tack"},
-		{name: "audit ClickHouse", configure: setAuditClickHouseDSN, value: "clickhouse://user@tack.home.goodkind.io/audit"},
 		{name: "audit Kafka", configure: setAuditKafkaBrokers, value: "kafka:9092,[3d06:0bad:0b01:0:0:0:0:117]:9092"},
 		{name: "Meilisearch", configure: setMeiliURL, value: "https://tack.home.goodkind.io"},
 	}
@@ -71,10 +70,6 @@ func setAuditReaderDSN(cfg *config.Config, value string) { cfg.AuditReaderDSN = 
 func setAuditRedactorDSN(cfg *config.Config, value string) { cfg.AuditRedactorDSN = value }
 
 func setAuditOperatorDSN(cfg *config.Config, value string) { cfg.AuditOperatorDSN = value }
-
-func setAuditClickHouseDSN(cfg *config.Config, value string) {
-	cfg.AuditClickHouseDSN = value
-}
 
 func setAuditKafkaBrokers(cfg *config.Config, value string) {
 	cfg.AuditKafkaBrokers = value

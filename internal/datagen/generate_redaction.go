@@ -3,65 +3,55 @@ package datagen
 import (
 	"context"
 	"log/slog"
-	"slices"
+
+	"github.com/google/uuid"
+	"goodkind.io/tack/internal/audit"
 )
 
-const auditRedactionTool = "tack_audit_redact_actor"
+// ActorRedactor erases the audit PII one org recorded for one actor the way
+// the `audit redact-actor` host command does, and reports what it found.
+type ActorRedactor func(ctx context.Context, orgID, actorID uuid.UUID) (audit.ActorRedaction, error)
 
+// redactOneActor exercises the host redaction path for the first generated
+// actor of the first workspace. Redaction is an opt-in because it erases
+// data the rest of the corpus and its audit rows refer to.
 func (g *Generator) redactOneActor(ctx context.Context) error {
 	if !g.redactAuditPII {
-		logRedactionSkip(ctx, "explicit redaction opt-in is disabled", nil)
-		return nil
-	}
-	if !g.synchronousAudit {
-		logRedactionSkip(ctx, "synchronous audit writer is required", nil)
+		logRedactionSkip(ctx, "explicit redaction opt-in is disabled")
 		return nil
 	}
 	if len(g.identities.Workspaces) == 0 ||
 		len(g.identities.Workspaces[0].Actors) == 0 {
-		logRedactionSkip(ctx, "no generated actor is available", nil)
+		logRedactionSkip(ctx, "no generated actor is available")
 		return nil
 	}
-	actor := g.identities.Workspaces[0].Actors[0]
-	if !g.dryRun {
-		names, err := g.driver.ListTools(ctx, actor.Token)
-		if err != nil {
-			logRedactionSkip(ctx, "tools/list failed", err)
-			return nil
-		}
-		if !slices.Contains(names, auditRedactionTool) {
-			logRedactionSkip(ctx, "redaction tool is not registered", nil)
-			return nil
-		}
-	}
-	_, err := g.driver.Call(ctx, actor.Token, auditRedactionTool, ToolArguments{
-		ActorID: actor.UserID.String(),
-	})
-	if err != nil {
-		if isToolUnavailable(err) {
-			logRedactionSkip(ctx, "redaction tool became unavailable", err)
-			return nil
-		}
-		logRedactionSkip(ctx, "redaction request failed", err)
-		return nil
-	}
-	message := "qa.datagen.audit_redaction_requested"
+	workspace := g.identities.Workspaces[0]
+	actor := workspace.Actors[0]
 	if g.dryRun {
-		message = "qa.datagen.audit_redaction_planned"
+		slog.InfoContext(ctx, "qa.datagen.audit_redaction_planned",
+			slog.String("org_id", workspace.OrgID.String()),
+			slog.String("actor_id", actor.UserID.String()),
+		)
+		return nil
 	}
-	slog.InfoContext(ctx, message)
+	if g.redactActor == nil {
+		logRedactionSkip(ctx, "AUDIT_READER_DSN and AUDIT_REDACTOR_DSN are required")
+		return nil
+	}
+	redaction, err := g.redactActor(ctx, workspace.OrgID, actor.UserID)
+	if err != nil {
+		return loggedError(ctx, "qa datagen: redact audit pii for "+actor.Email, err)
+	}
+	slog.InfoContext(ctx, "qa.datagen.audit_redaction_requested",
+		slog.String("org_id", workspace.OrgID.String()),
+		slog.String("actor_id", actor.UserID.String()),
+		slog.Int("pii_ref_count", redaction.PIIRefCount),
+		slog.Int64("unredacted_before", redaction.Unredacted),
+		slog.Int64("redacted", redaction.Redacted),
+	)
 	return nil
 }
 
-func logRedactionSkip(ctx context.Context, reason string, err error) {
-	attributes := []slog.Attr{slog.String("reason", reason)}
-	if err != nil {
-		attributes = append(attributes, slog.String("err", err.Error()))
-	}
-	slog.LogAttrs(
-		ctx,
-		slog.LevelInfo,
-		"qa.datagen.audit_redaction_skipped",
-		attributes...,
-	)
+func logRedactionSkip(ctx context.Context, reason string) {
+	slog.InfoContext(ctx, "qa.datagen.audit_redaction_skipped", slog.String("reason", reason))
 }

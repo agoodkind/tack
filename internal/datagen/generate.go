@@ -29,19 +29,21 @@ type Generator struct {
 	identities       Identities
 	scale            Scale
 	seed             int64
-	dryRun           bool
-	productionAuth   bool
-	redactAuditPII   bool
-	synchronousAudit bool
-	summary          Summary
+	dryRun         bool
+	productionAuth bool
+	redactAuditPII bool
+	redactActor    ActorRedactor
+	summary        Summary
 }
 
-// GeneratorOptions controls environment-dependent corpus probes.
+// GeneratorOptions controls environment-dependent corpus probes. RedactActor
+// is the host redaction path the opt-in PII step runs through; nil means the
+// environment carries no reader and redactor DSN and the step is skipped.
 type GeneratorOptions struct {
-	DryRun           bool
-	ProductionAuth   bool
-	RedactAuditPII   bool
-	SynchronousAudit bool
+	DryRun         bool
+	ProductionAuth bool
+	RedactAuditPII bool
+	RedactActor    ActorRedactor `exhaustruct:"optional"`
 }
 
 // NewGenerator constructs a deterministic corpus generator.
@@ -56,9 +58,9 @@ func NewGenerator(
 	generator := &Generator{
 		driver: driver, content: content, identities: identities,
 		scale: scale, seed: seed, dryRun: options.DryRun,
-		productionAuth:   options.ProductionAuth,
-		redactAuditPII:   options.RedactAuditPII,
-		synchronousAudit: options.SynchronousAudit,
+		productionAuth: options.ProductionAuth,
+		redactAuditPII: options.RedactAuditPII,
+		redactActor:    options.RedactActor,
 		summary: Summary{
 			Scale: scale.Name, Seed: seed, DryRun: options.DryRun,
 			Workspaces: len(identities.Workspaces),
