@@ -16,8 +16,9 @@ import (
 	"goodkind.io/tack/internal/clispec"
 )
 
-// auditGroup is the top-level compliance audit bundle family.
-var auditGroup = &clispec.Group{Use: "audit", Short: "Compliance audit bundle commands", Long: "", Parent: nil}
+// auditGroup is the top-level compliance audit ledger family. Every ledger
+// read and redaction is an operator command here, never an MCP tool.
+var auditGroup = &clispec.Group{Use: "audit", Short: "Compliance audit ledger commands", Long: "", Parent: nil}
 
 // registerAudit adds the audit family plus hidden back-compat aliases for the
 // pre-cobra flat command names (audit-export, audit-verify, gen-audit-key).
@@ -25,6 +26,9 @@ func registerAudit(reg *clispec.Registry, f *cli.Factory) {
 	clispec.Register(reg, auditExportOp(f))
 	clispec.Register(reg, auditVerifyOp(f))
 	clispec.Register(reg, auditGenKeyOp(f))
+	clispec.Register(reg, auditQueryOp(f))
+	clispec.Register(reg, auditGetOp(f))
+	clispec.Register(reg, auditRedactActorOp(f))
 
 	exportAlias := auditExportOp(f)
 	exportAlias.Group, exportAlias.Hidden, exportAlias.Name = nil, true, clispec.Name{Canonical: "audit-export", CLIOverride: ""}
@@ -178,39 +182,6 @@ func auditVerifyOp(f *cli.Factory) clispec.Operation[auditVerifyInput] {
 				return fmt.Errorf("audit verify: %w", verdictErr)
 			}
 			return nil
-		},
-	}
-}
-
-type auditGenKeyInput struct {
-	clispec.InputMarker `exhaustruct:"optional"`
-	Output              string
-}
-
-func auditGenKeyOp(f *cli.Factory) clispec.Operation[auditGenKeyInput] {
-	_ = f
-	return clispec.Operation[auditGenKeyInput]{
-		Name:     clispec.Name{Canonical: "gen-key", CLIOverride: ""},
-		Audit:    audit.Spec{Verb: string(audit.VerbAuditKeyGenerate), Mutates: true},
-		Group:    auditGroup,
-		Aliases:  nil,
-		Hidden:   false,
-		Short:    "Generate an ed25519 audit signing key",
-		Long:     "",
-		Examples: nil,
-		Args: []clispec.Arg[auditGenKeyInput]{
-			clispec.StringArg("output.pem", "destination PEM path", func(in *auditGenKeyInput, v string) { in.Output = v }),
-		},
-		Params: nil,
-		New:    func() auditGenKeyInput { return auditGenKeyInput{InputMarker: clispec.InputMarker{}, Output: ""} },
-		Run: func(ctx context.Context, in auditGenKeyInput, sink clispec.ResultSink) error {
-			if err := audit.GenerateAuditSigningKey(in.Output); err != nil {
-				slog.ErrorContext(ctx, "audit.gen_key_failed", slog.String("err", err.Error()))
-				return fmt.Errorf("audit gen-key: %w", err)
-			}
-			return clispec.WriteJSONValue(ctx, sink, auditGenKeyResult{
-				Command: "audit.gen_key", Status: "created", Path: in.Output,
-			})
 		},
 	}
 }

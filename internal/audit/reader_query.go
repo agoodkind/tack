@@ -35,6 +35,12 @@ func buildAuditQuery(filter QueryFilter) (string, []any) {
 		args = append(args, filter.TraceID)
 		query += fmt.Sprintf(" AND context->>'trace_id' = $%d", len(args))
 	}
+	if !filter.BeforeTime.IsZero() {
+		args = append(args, filter.BeforeTime)
+		timeParam := len(args)
+		args = append(args, filter.BeforeSeq)
+		query += fmt.Sprintf(" AND (event_time, seq) < ($%d, $%d)", timeParam, len(args))
+	}
 	args = append(args, filter.Limit)
 	query += fmt.Sprintf(" ORDER BY event_time DESC, seq DESC LIMIT $%d", len(args))
 	return query, args

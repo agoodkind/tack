@@ -65,6 +65,12 @@ type QueryFilter struct {
 	RequestID string
 	TraceID   string
 	Limit     int
+	// BeforeTime and BeforeSeq resume a page: only rows strictly before this
+	// (event_time, seq) position in the DESC ordering return. Zero BeforeTime
+	// disables the cursor. The Yugabyte reader honors it; the OLAP reader
+	// does not, so paging callers read the canonical store.
+	BeforeTime time.Time `exhaustruct:"optional"`
+	BeforeSeq  int64     `exhaustruct:"optional"`
 }
 
 // Query returns events matching the filter, most recent first. The caller
