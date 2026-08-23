@@ -8,10 +8,6 @@ func (r *Resolver) entryPointReference(args argMap) (string, bool) {
 	return requireString(args, r.EntryPointParamName())
 }
 
-func (r *Resolver) optionalEntryPointReference(args argMap) string {
-	return optionalString(args, r.EntryPointParamName())
-}
-
 func (r *Resolver) entryPointRequiredMessage() string {
 	return r.EntryPointParamName() + " is required"
 }

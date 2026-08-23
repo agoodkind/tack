@@ -22,14 +22,15 @@ const (
 func (r *Resolver) ResolveTypedNodeID(ctx context.Context, nt *node.NodeType, input string) (uuid.UUID, error) {
 	if id, err := uuid.Parse(input); err == nil {
 		if nt == nil {
-			return id, nil
+			return r.resolveMemberNodeID(ctx, id, "node", input)
 		}
+		kind := strings.ToLower(nt.Slug)
 		resolve, err := r.reader.Resolve(ctx, id)
-		if err != nil {
-			return uuid.Nil, err
+		if err != nil || resolve == nil || resolve.NodeType != nt.TypeKey {
+			return uuid.Nil, fmt.Errorf("%s %q: %w", kind, input, domain.ErrNotFound)
 		}
-		if resolve == nil || resolve.NodeType != nt.TypeKey {
-			return uuid.Nil, fmt.Errorf("%s %q: %w", strings.ToLower(nt.Slug), input, domain.ErrNotFound)
+		if err := r.requireMembership(ctx, resolve.OrgID, kind, input); err != nil {
+			return uuid.Nil, err
 		}
 		stampAuditNodeResolve(ctx, resolve)
 		return id, nil

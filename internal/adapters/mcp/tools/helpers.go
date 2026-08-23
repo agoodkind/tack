@@ -252,10 +252,23 @@ func wrapToolHandler(name string, h mcpserver.ToolHandlerFunc) mcpserver.ToolHan
 		// event so workspace-scoped audit queries see the row.
 		ctx = audit.WithScopeBuilder(ctx)
 		ctx = audit.WithEntityBuilder(ctx)
+		ctx = withAuthorization(ctx)
 
 		res, err := h(ctx, req)
 		dur := clock.Since(start)
 		telemetry.IncMCPTool(name)
+
+		// Fail closed: a successful result whose handler never passed a
+		// membership check is refused here, so a handler that forgets the
+		// check cannot return data.
+		refused := err == nil && (res == nil || !res.IsError) && !isAuthorized(ctx)
+		if refused {
+			log.WarnContext(ctx, "mcp.tool.refused",
+				slog.String("tool", name),
+				slog.String("reason", "no membership check passed"),
+			)
+			res = permissionDenied()
+		}
 
 		switch {
 		case err != nil:
@@ -288,7 +301,7 @@ func wrapToolHandler(name string, h mcpserver.ToolHandlerFunc) mcpserver.ToolHan
 			attribute.Int64("mcp.tool.duration_ms", dur.Milliseconds()),
 			attribute.Bool("mcp.tool.error", err != nil || (res != nil && res.IsError)),
 		)
-		recordToolAudit(ctx, name, req, res, err)
+		recordToolAudit(ctx, name, req, res, err, refused)
 		return res, err
 	}
 }
@@ -299,7 +312,7 @@ func wrapToolHandler(name string, h mcpserver.ToolHandlerFunc) mcpserver.ToolHan
 // the user-visible operation already completed and we do not want audit to
 // back-pressure the MCP boundary. Read-class verbs additionally pass through
 // the WAL so a transient Yugabyte outage cannot drop them.
-func recordToolAudit(ctx context.Context, toolName string, req mcpmcp.CallToolRequest, res *mcpmcp.CallToolResult, runErr error) {
+func recordToolAudit(ctx context.Context, toolName string, req mcpmcp.CallToolRequest, res *mcpmcp.CallToolResult, runErr error, refused bool) {
 	verb, covered := audit.ToolVerb(toolName)
 	rec := currentAuditRecorder()
 	actor := audit.Actor{Type: audit.ActorUser}
@@ -311,6 +324,9 @@ func recordToolAudit(ctx context.Context, toolName string, req mcpmcp.CallToolRe
 	outcome := audit.OutcomeOK
 	var errInfo *audit.EventError
 	switch {
+	case refused:
+		outcome = audit.OutcomeError
+		errInfo = &audit.EventError{Code: "permission_denied", Message: "no membership check passed"}
 	case runErr != nil:
 		outcome = audit.OutcomeError
 		errInfo = &audit.EventError{Code: "tool_error", Message: runErr.Error()}

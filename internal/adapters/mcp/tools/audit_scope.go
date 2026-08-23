@@ -40,15 +40,20 @@ func stampAuditNodeResolve(ctx context.Context, resolve *node.NodeResolve) {
 	stampAuditOrg(ctx, resolve.OrgID)
 }
 
-func auditEntryPointArg(ctx context.Context, args argMap, b NodeTypeBinding) (*node.NodeView, error) {
+// requireEntryPointArg resolves the entry point reference that get, update,
+// and delete require. It reports the missing-argument message when the
+// caller omitted it, so the cross-org check in stampAuditNodeInEntryPoint
+// always has a workspace to compare against.
+func requireEntryPointArg(ctx context.Context, args argMap, b NodeTypeBinding) (*node.NodeView, string, error) {
 	if b.Resolver == nil {
-		return nil, nil
+		return nil, "", nil
 	}
-	entryPointReference := b.Resolver.optionalEntryPointReference(args)
-	if entryPointReference == "" {
-		return nil, nil
+	entryPointReference, ok := b.Resolver.entryPointReference(args)
+	if !ok {
+		return nil, b.Resolver.entryPointRequiredMessage(), nil
 	}
-	return b.Resolver.Workspace(ctx, entryPointReference)
+	view, err := b.Resolver.Workspace(ctx, entryPointReference)
+	return view, "", err
 }
 
 func stampAuditNodeInEntryPoint(ctx context.Context, resolver *Resolver, entryPoint *node.NodeView, view *node.NodeView) error {

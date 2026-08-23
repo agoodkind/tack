@@ -31,6 +31,15 @@ func recoverableError(instruction string) *mcp.CallToolResult {
 	}
 }
 
+// permissionDenied is the fail-closed result the tool wrapper returns when a
+// handler produced data without passing a membership check.
+func permissionDenied() *mcp.CallToolResult {
+	return &mcp.CallToolResult{
+		IsError: true,
+		Content: []mcp.Content{mcp.TextContent{Type: "text", Text: "#### Permission denied\n\nThe caller is not a member of the org that holds this data.\n\nNext step: Yield to the user."}},
+	}
+}
+
 func unexpectedError(ctx context.Context, err error) *mcp.CallToolResult {
 	telemetry.L(ctx).Error("mcp.tool.unexpected_error", "err", err)
 	return &mcp.CallToolResult{

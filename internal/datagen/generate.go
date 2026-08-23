@@ -33,7 +33,10 @@ type Generator struct {
 	productionAuth bool
 	redactAuditPII bool
 	redactActor    ActorRedactor
-	summary        Summary
+	// probeNodeID is the first generated node's raw id, kept for the
+	// cross-org isolation probe.
+	probeNodeID string
+	summary     Summary
 }
 
 // GeneratorOptions controls environment-dependent corpus probes. RedactActor
@@ -92,6 +95,9 @@ func (g *Generator) Run(ctx context.Context) (Summary, error) {
 		if err := g.generateWorkspace(ctx, workspaceIndex, workspace); err != nil {
 			return Summary{}, err
 		}
+	}
+	if err := g.probeCrossOrgIsolation(ctx); err != nil {
+		return Summary{}, err
 	}
 	if err := g.redactOneActor(ctx); err != nil {
 		return Summary{}, err

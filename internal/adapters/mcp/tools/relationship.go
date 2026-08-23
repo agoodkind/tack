@@ -2,13 +2,43 @@ package tools
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"log/slog"
 
+	"github.com/google/uuid"
 	mcpmcp "github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"goodkind.io/tack/internal/clock"
+	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/service"
 )
+
+// resolveRelationshipTarget resolves the target side of a relationship. A
+// target that is a node must lie in one of the caller's orgs, like any other
+// node reference. A UUID that names no node is accepted as an opaque target,
+// because relationships such as assigned_to and watches point at user ids,
+// which are not nodes; no data is read through such a target.
+func (r *Resolver) resolveRelationshipTarget(ctx context.Context, input string) (uuid.UUID, error) {
+	id, err := uuid.Parse(input)
+	if err != nil {
+		return r.ResolveNodeID(ctx, input)
+	}
+	resolve, err := r.reader.Resolve(ctx, id)
+	if errors.Is(err, domain.ErrNotFound) || (err == nil && resolve == nil) {
+		return id, nil
+	}
+	if err != nil {
+		slog.ErrorContext(ctx, "resolver.relationship_target_failed",
+			slog.String("input", input), slog.String("err", err.Error()))
+		return uuid.Nil, fmt.Errorf("resolve relationship target %q: %w", input, err)
+	}
+	if err := r.requireMembership(ctx, resolve.OrgID, "node", input); err != nil {
+		return uuid.Nil, err
+	}
+	return id, nil
+}
 
 // RegisterRelationship registers tack_add_relationship / tack_remove_relationship /
 // tack_list_relationships. RelationType is arbitrary; seeds define the
@@ -55,7 +85,7 @@ func RegisterRelationship(s *mcpserver.MCPServer, svc *service.NodeService, rels
 			if err != nil {
 				return classifyError(ctx, err), nil
 			}
-			targetID, err := resolver.ResolveNodeID(ctx, targetIn)
+			targetID, err := resolver.resolveRelationshipTarget(ctx, targetIn)
 			if err != nil {
 				return classifyError(ctx, err), nil
 			}
@@ -107,7 +137,7 @@ func RegisterRelationship(s *mcpserver.MCPServer, svc *service.NodeService, rels
 			if err != nil {
 				return classifyError(ctx, err), nil
 			}
-			targetID, err := resolver.ResolveNodeID(ctx, targetIn)
+			targetID, err := resolver.resolveRelationshipTarget(ctx, targetIn)
 			if err != nil {
 				return classifyError(ctx, err), nil
 			}

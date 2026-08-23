@@ -136,6 +136,9 @@ func (r *Resolver) Workspace(ctx context.Context, reference string) (*node.NodeV
 				if viewErr != nil || view == nil {
 					continue
 				}
+				// The match came from one of the caller's own orgs, so
+				// membership is established by construction.
+				markAuthorized(ctx)
 				stampAuditEntryPoint(ctx, view)
 				return view, nil
 			}
@@ -176,6 +179,9 @@ func (r *Resolver) WorkspacesForUser(ctx context.Context, userID uuid.UUID) ([]*
 	if err != nil {
 		return nil, err
 	}
+	// Listing by user id alone is authorized by that id: every workspace
+	// returned belongs to an org the user is a member of.
+	markAuthorized(ctx)
 	if len(orgIDs) == 1 {
 		stampAuditOrg(ctx, orgIDs[0])
 	}
@@ -194,14 +200,12 @@ func (r *Resolver) WorkspacesForUser(ctx context.Context, userID uuid.UUID) ([]*
 }
 
 // ResolveNodeID accepts a UUID, a metadata-declared reference, or a
-// sequence-style reference (e.g. "TACK-65"), and returns the node UUID.
+// sequence-style reference (e.g. "TACK-65"), and returns the node UUID. A
+// UUID resolves only when it names a node in an org the caller belongs to;
+// anything else reads as not found.
 func (r *Resolver) ResolveNodeID(ctx context.Context, input string) (uuid.UUID, error) {
 	if id, err := uuid.Parse(input); err == nil {
-		resolve, resolveErr := r.reader.Resolve(ctx, id)
-		if resolveErr == nil {
-			stampAuditNodeResolve(ctx, resolve)
-		}
-		return id, nil
+		return r.resolveMemberNodeID(ctx, id, "node", input)
 	}
 	id, err := r.resolveSequenceNodeID(ctx, input, r.sequenceTypeKeys)
 	if err == nil {
@@ -225,4 +229,22 @@ func (r *Resolver) ResolveNodeID(ctx context.Context, input string) (uuid.UUID, 
 		return uuid.Nil, invalidArgument
 	}
 	return uuid.Nil, fmt.Errorf("reference %q: %w", input, domain.ErrNotFound)
+}
+
+// resolveMemberNodeID resolves a UUID to its node and refuses with not-found
+// unless the node's org is in the caller's membership. A UUID that names no
+// node reads as not found too.
+func (r *Resolver) resolveMemberNodeID(ctx context.Context, id uuid.UUID, kind, input string) (uuid.UUID, error) {
+	resolve, err := r.reader.Resolve(ctx, id)
+	if err != nil || resolve == nil {
+		telemetry.IncResolverMiss("node_id")
+		slog.WarnContext(ctx, "resolver.node_id.miss",
+			slog.String("input", input), slog.String("kind", kind))
+		return uuid.Nil, fmt.Errorf("%s %q: %w", kind, input, domain.ErrNotFound)
+	}
+	if err := r.requireMembership(ctx, resolve.OrgID, kind, input); err != nil {
+		return uuid.Nil, err
+	}
+	stampAuditNodeResolve(ctx, resolve)
+	return id, nil
 }

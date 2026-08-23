@@ -26,7 +26,10 @@ func getHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFunc 
 		if err != nil {
 			return recoverableError(err.Error()), nil
 		}
-		entryPoint, err := auditEntryPointArg(ctx, args, b)
+		entryPoint, missing, err := requireEntryPointArg(ctx, args, b)
+		if missing != "" {
+			return recoverableError(missing), nil
+		}
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
@@ -72,7 +75,10 @@ func updateHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFu
 		if err != nil {
 			return recoverableError(err.Error()), nil
 		}
-		entryPoint, err := auditEntryPointArg(ctx, args, b)
+		entryPoint, missing, err := requireEntryPointArg(ctx, args, b)
+		if missing != "" {
+			return recoverableError(missing), nil
+		}
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
@@ -139,7 +145,10 @@ func deleteHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFu
 		if err != nil {
 			return recoverableError(err.Error()), nil
 		}
-		entryPoint, err := auditEntryPointArg(ctx, args, b)
+		entryPoint, missing, err := requireEntryPointArg(ctx, args, b)
+		if missing != "" {
+			return recoverableError(missing), nil
+		}
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
