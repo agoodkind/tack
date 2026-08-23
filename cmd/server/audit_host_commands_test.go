@@ -110,6 +110,27 @@ func TestAuditHostCommandsReadAndRedactWithinOneOrg(t *testing.T) {
 		t.Fatalf("audit query recorded %+v, want a second audit.read row", outbox.events)
 	}
 
+	// pagination: a full page carries next_cursor, and the cursor walks the
+	// remaining rows without overlap or a gap.
+	var pageOne auditQueryResult
+	decodeCommandOutput(t, run(append([]string{"audit", "query", "--org", orgA.String(), "--actor-id", actor.String(), "--limit", "1", "--execute"}, window...)...), &pageOne)
+	if pageOne.RowCount != 1 || pageOne.NextCursor == "" {
+		t.Fatalf("page one = %d rows with cursor %q, want 1 row and a cursor", pageOne.RowCount, pageOne.NextCursor)
+	}
+	var pageTwo auditQueryResult
+	decodeCommandOutput(t, run(append([]string{
+		"audit", "query", "--org", orgA.String(), "--actor-id", actor.String(), "--limit", "1",
+		"--cursor", pageOne.NextCursor,
+		"--execute",
+	}, window...)...), &pageTwo)
+	if pageTwo.RowCount != 1 || pageTwo.Rows[0].EventID == pageOne.Rows[0].EventID {
+		t.Fatalf("page two = %d rows, first %s, want the other event", pageTwo.RowCount, pageTwo.Rows[0].EventID)
+	}
+	seen := map[uuid.UUID]bool{pageOne.Rows[0].EventID: true, pageTwo.Rows[0].EventID: true}
+	if !seen[eventA1] || !seen[eventA2] {
+		t.Fatalf("the two pages did not cover both events: %v", seen)
+	}
+
 	// redact-actor without --execute: reports the two org rows, erases nothing,
 	// records nothing.
 	var planned auditRedactActorResult
@@ -120,8 +141,10 @@ func TestAuditHostCommandsReadAndRedactWithinOneOrg(t *testing.T) {
 	if n := unredactedCount(t, admin, eventA1, eventA2, eventB); n != 3 {
 		t.Fatalf("pii rows still holding a payload after the plan = %d, want 3", n)
 	}
-	if len(outbox.events) != 2 {
-		t.Fatalf("redact plan recorded %d rows, want none", len(outbox.events)-2)
+	// get + query + two pages have each recorded one audit.read; the plan
+	// added nothing.
+	if len(outbox.events) != 4 {
+		t.Fatalf("redact plan changed the recorded rows: %d, want 4", len(outbox.events))
 	}
 
 	// redact-actor --execute: erases exactly the org's two refs, leaves the
@@ -137,10 +160,10 @@ func TestAuditHostCommandsReadAndRedactWithinOneOrg(t *testing.T) {
 	if n := unredactedCount(t, admin, eventB); n != 1 {
 		t.Fatalf("other org's row still holding a payload = %d, want 1: the redaction left the org", n)
 	}
-	if len(outbox.events) != 4 ||
-		outbox.events[2].Verb != string(audit.VerbAuditPIIRedacted) || outbox.events[2].Outcome != audit.OutcomePending ||
-		outbox.events[3].Verb != string(audit.VerbAuditPIIRedacted) || outbox.events[3].Outcome != audit.OutcomeOK {
-		t.Fatalf("redact recorded %+v, want an audit.pii_redacted intent and outcome", outbox.events[2:])
+	if len(outbox.events) != 6 ||
+		outbox.events[4].Verb != string(audit.VerbAuditPIIRedacted) || outbox.events[4].Outcome != audit.OutcomePending ||
+		outbox.events[5].Verb != string(audit.VerbAuditPIIRedacted) || outbox.events[5].Outcome != audit.OutcomeOK {
+		t.Fatalf("redact recorded %+v, want an audit.pii_redacted intent and outcome", outbox.events[4:])
 	}
 
 	// A rerun finds the refs and nothing left to erase.

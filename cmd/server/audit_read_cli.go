@@ -16,8 +16,6 @@ import (
 	"goodkind.io/tack/internal/clispec"
 )
 
-const auditQueryDefaultLimit = 100
-
 type auditQueryInput struct {
 	clispec.InputMarker `exhaustruct:"optional"`
 	Org                 string
@@ -29,6 +27,7 @@ type auditQueryInput struct {
 	RequestID           string
 	TraceID             string
 	Limit               int
+	Cursor              string
 }
 
 // auditQueryOp declares `audit query`: the ledger rows of one org over a
@@ -36,13 +35,14 @@ type auditQueryInput struct {
 // audit.read.
 func auditQueryOp(f *cli.Factory) clispec.Operation[auditQueryInput] {
 	return clispec.Operation[auditQueryInput]{
-		Name:     clispec.Name{Canonical: "query", CLIOverride: ""},
-		Audit:    audit.Spec{Verb: string(audit.VerbAuditRead), Reads: true},
-		Group:    auditGroup,
-		Aliases:  nil,
-		Hidden:   false,
-		Short:    "Print the audit.events rows of an org over a bounded RFC3339 window as JSON",
-		Long:     "",
+		Name:    clispec.Name{Canonical: "query", CLIOverride: ""},
+		Audit:   audit.Spec{Verb: string(audit.VerbAuditRead), Reads: true},
+		Group:   auditGroup,
+		Aliases: nil,
+		Hidden:  false,
+		Short:   "Print one page of audit.events rows for an org over a bounded RFC3339 window as JSON",
+		Long: "Rows return most recent first, at most --limit (capped at 1000) per page. " +
+			"A full page carries next_cursor; pass it back as --cursor for the next page.",
 		Examples: nil,
 		Args:     nil,
 		Params: []clispec.Param[auditQueryInput]{
@@ -54,12 +54,14 @@ func auditQueryOp(f *cli.Factory) clispec.Operation[auditQueryInput] {
 			clispec.StringParam("entity-id", "entity_id (UUID)", "", false, func(in *auditQueryInput, v string) { in.EntityID = v }),
 			clispec.StringParam("request-id", "request_id stored in audit context", "", false, func(in *auditQueryInput, v string) { in.RequestID = v }),
 			clispec.StringParam("trace-id", "trace_id stored in audit context", "", false, func(in *auditQueryInput, v string) { in.TraceID = v }),
-			clispec.IntParam("limit", "max rows, most recent first", auditQueryDefaultLimit, func(in *auditQueryInput, v int) { in.Limit = v }),
+			clispec.IntParam("limit", "max rows per page, most recent first, capped at 1000", audit.DefaultQueryPageLimit, func(in *auditQueryInput, v int) { in.Limit = v }),
+			clispec.StringParam("cursor", "next_cursor from the previous page; empty starts at the newest row", "", false, func(in *auditQueryInput, v string) { in.Cursor = v }),
 		},
 		New: func() auditQueryInput {
 			return auditQueryInput{
 				InputMarker: clispec.InputMarker{}, Org: "", Oldest: "", Latest: "", Action: "",
-				ActorID: "", EntityID: "", RequestID: "", TraceID: "", Limit: auditQueryDefaultLimit,
+				ActorID: "", EntityID: "", RequestID: "", TraceID: "", Limit: audit.DefaultQueryPageLimit,
+				Cursor: "",
 			}
 		},
 		Run: runAuditQuery(f),
@@ -89,21 +91,21 @@ func runAuditQuery(f *cli.Factory) func(context.Context, auditQueryInput, clispe
 			return err
 		}
 		defer reader.Close()
-		rows, err := reader.Query(ctx, audit.QueryFilter{
+		page, err := reader.QueryPage(ctx, audit.QueryFilter{
 			OrgID: orgID, Oldest: oldest, Latest: latest, Action: in.Action,
 			ActorID: actorID, EntityID: entityID, RequestID: in.RequestID, TraceID: in.TraceID,
 			Limit: in.Limit,
-		})
+		}, in.Cursor)
 		if err != nil {
 			slog.ErrorContext(ctx, "audit.query_failed", slog.String("err", err.Error()))
 			return fmt.Errorf("audit query: %w", err)
 		}
-		if rows == nil {
-			rows = []audit.Row{}
+		if page.Rows == nil {
+			page.Rows = []audit.Row{}
 		}
 		return clispec.WriteJSONValue(ctx, sink, auditQueryResult{
 			Command: "audit.query", OrgID: orgID, Oldest: oldest, Latest: latest,
-			RowCount: len(rows), Rows: rows,
+			RowCount: len(page.Rows), Rows: page.Rows, NextCursor: page.NextCursor,
 		})
 	}
 }

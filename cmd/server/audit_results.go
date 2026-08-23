@@ -9,8 +9,9 @@ import (
 	"goodkind.io/tack/internal/clispec"
 )
 
-// auditQueryResult is the `audit query` output: the matching ledger rows,
-// most recent first, under the window that bounded them.
+// auditQueryResult is the `audit query` output: one page of matching ledger
+// rows, most recent first. A full page carries next_cursor; pass it back as
+// --cursor for the next page.
 type auditQueryResult struct {
 	clispec.ResultMarker `exhaustruct:"optional"`
 	Command              string      `json:"command"`
@@ -19,6 +20,7 @@ type auditQueryResult struct {
 	Latest               time.Time   `json:"latest"`
 	RowCount             int         `json:"row_count"`
 	Rows                 []audit.Row `json:"rows"`
+	NextCursor           string      `json:"next_cursor,omitempty"`
 }
 
 // auditGetResult is the `audit get` output: one ledger row.
