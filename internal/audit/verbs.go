@@ -183,9 +183,6 @@ var staticToolVerb = map[string]Verb{
 	"tack_list_relationships":  VerbRelationshipList,
 	"tack_search":              VerbNodeSearch,
 	"tack_getting_started":     VerbMCPPromptInvoked,
-	"tack_audit_query":         VerbAuditRead,
-	"tack_audit_get":           VerbAuditRead,
-	"tack_audit_redact_actor":  VerbAuditPIIRedacted,
 }
 
 // perTypePrefixVerb maps a tool name prefix (computed from NodeType slug)

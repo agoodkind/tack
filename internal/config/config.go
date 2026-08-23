@@ -89,13 +89,6 @@ type Config struct {
 	AuditKafkaClientID       string        `env:"AUDIT_KAFKA_CLIENT_ID"       envDefault:"tack-audit-producer"`
 	AuditKafkaProduceTimeout time.Duration `env:"AUDIT_KAFKA_PRODUCE_TIMEOUT" envDefault:"15s"`
 
-	// Audit query read tier. AuditClickHouseDSN points the app's query router
-	// at the audit.events_olap projection. When empty, tack_audit_query reads
-	// only Yugabyte. AuditQueryRecentWindow is the age boundary below which a
-	// query routes to ClickHouse instead of Yugabyte.
-	AuditClickHouseDSN     string        `env:"AUDIT_CLICKHOUSE_DSN"`
-	AuditQueryRecentWindow time.Duration `env:"AUDIT_QUERY_RECENT_WINDOW" envDefault:"720h"`
-
 	// Meilisearch: optional, no-op stub used when unset.
 	MeiliURL       string `env:"MEILI_URL"        envDefault:"http://localhost:7700"`
 	MeiliMasterKey string `env:"MEILI_MASTER_KEY" envDefault:"tack-dev-meili-key-change-in-prod"`

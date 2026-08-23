@@ -56,9 +56,6 @@ services:
       # broker lease expiry plus up to 5s of client metadata refresh, so a
       # smaller budget expires while delivery would still have succeeded.
       AUDIT_KAFKA_PRODUCE_TIMEOUT: ${AUDIT_KAFKA_PRODUCE_TIMEOUT:-15s}
-      # Audit query read tier. Empty reads only Yugabyte; set to route recent
-      # windows to the ClickHouse audit.events_olap projection.
-      AUDIT_CLICKHOUSE_DSN: ${AUDIT_CLICKHOUSE_DSN:-}
       # QA data generator write marker, read only by `ops qa datagen`. The
       # generator refuses to write unless this is exactly qa or local, so the
       # value is set on tack-qa and left empty on production. The app service

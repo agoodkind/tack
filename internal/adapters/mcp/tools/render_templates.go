@@ -23,11 +23,6 @@ type markdownItem struct {
 	Fields []markdownField
 }
 
-type markdownSection struct {
-	Heading string
-	Body    string
-}
-
 type nodeTemplateData struct {
 	Heading string
 	Fields  []markdownField
@@ -38,12 +33,6 @@ type collectionTemplateData struct {
 	Count   int
 	Noun    string
 	Items   []markdownItem
-}
-
-type detailTemplateData struct {
-	Heading  string
-	Fields   []markdownField
-	Sections []markdownSection
 }
 
 type rawJSONTemplateData struct {

@@ -226,10 +226,10 @@ not even healthy until the first of them runs. Until the provisioning layer land
    app and the audit-consumer cannot authenticate to YugabyteDB until this runs.
    The audit-consumer waits on its own: it pings Yugabyte until the roles exist,
    then ensures the Kafka topic and starts (TACK-301, TACK-305), so it needs no
-   restart. The app does need one: `docker compose restart app`, so it
-   re-initializes its audit reader pool and registers the audit
-   query/get/redact MCP tools, which are skipped when the app first starts before
-   the roles exist (TACK-319).
+   restart. The app holds no ledger read or redaction connection: every audit
+   read and redaction is a host command (`audit query`, `audit get`,
+   `audit export`, `audit redact-actor`) that opens its own reader and
+   redactor pools, never an MCP tool (TACK-456, TACK-458).
 4. **Kafka topic.** No manual step: the audit-consumer ensures `audit.events.v1`
    with 256 partitions on startup once Yugabyte is reachable (TACK-305). On a
    fresh broker it appears automatically after step 3.

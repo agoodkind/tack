@@ -11,47 +11,22 @@ import (
 )
 
 type auditRuntime struct {
-	Reader     *audit.Reader
-	ClickHouse *audit.ClickHouseReader
-	Querier    audit.RowQuerier
-	Redactor   *audit.Redactor
-	Recorder   audit.Recorder
+	Recorder audit.Recorder
 }
 
-// buildAuditRuntime selects and wires the audit Recorder, installs it as the
-// process-global sink for the MCP and auth boundaries, and opens the
-// reader/redactor/querier used by the audit MCP tools.
+// buildAuditRuntime selects and wires the audit Recorder and installs it as
+// the process-global sink for the MCP and auth boundaries. The server holds
+// no ledger read or redaction connection: every audit read and redaction is
+// an operator command on the host, never an MCP tool.
 func buildAuditRuntime(ctx context.Context, cfg *config.Config) auditRuntime {
 	auditRec := buildAuditRecorder(ctx, cfg)
 	auditRec = audit.CanonicalRecorder{Inner: auditRec}
 	mcptools.SetAuditRecorder(auditRec)
 	auth.SetAuditRecorder(auditRec)
-
-	reader := buildAuditReader(ctx, cfg)
-	clickHouse := buildAuditClickHouseReader(ctx, cfg)
-	var querier audit.RowQuerier
-	if reader != nil {
-		querier = audit.NewQueryRouter(reader, clickHouse, cfg.AuditQueryRecentWindow)
-	}
-	return auditRuntime{
-		Reader:     reader,
-		ClickHouse: clickHouse,
-		Querier:    querier,
-		Redactor:   buildAuditRedactor(ctx, cfg),
-		Recorder:   auditRec,
-	}
+	return auditRuntime{Recorder: auditRec}
 }
 
 func (r auditRuntime) Close() {
-	if r.Reader != nil {
-		r.Reader.Close()
-	}
-	if r.ClickHouse != nil {
-		r.ClickHouse.Close()
-	}
-	if r.Redactor != nil {
-		r.Redactor.Close()
-	}
 	switch c := r.Recorder.(type) {
 	case interface{ Close() error }:
 		_ = c.Close()
@@ -99,58 +74,4 @@ func buildAuditRecorder(ctx context.Context, cfg *config.Config) audit.Recorder 
 	}
 	slog.InfoContext(ctx, "audit.writer_connected")
 	return yb
-}
-
-// buildAuditClickHouseReader opens the ClickHouse read connection when
-// AUDIT_CLICKHOUSE_DSN is set. nil means tack_audit_query reads Yugabyte only.
-func buildAuditClickHouseReader(ctx context.Context, cfg *config.Config) *audit.ClickHouseReader {
-	if cfg.AuditClickHouseDSN == "" {
-		slog.InfoContext(ctx, "audit.clickhouse_reader_disabled",
-			slog.String("reason", "AUDIT_CLICKHOUSE_DSN unset; audit queries read Yugabyte only"),
-		)
-		return nil
-	}
-	rd, err := audit.NewClickHouseReader(ctx, cfg.AuditClickHouseDSN)
-	if err != nil {
-		slog.ErrorContext(ctx, "audit.clickhouse_reader_setup_failed", slog.String("err", err.Error()))
-		return nil
-	}
-	slog.InfoContext(ctx, "audit.clickhouse_reader_connected")
-	return rd
-}
-
-// buildAuditReader opens the audit_reader pool when AUDIT_READER_DSN is set.
-// nil return means the audit query MCP tools are not registered.
-func buildAuditReader(ctx context.Context, cfg *config.Config) *audit.Reader {
-	if cfg.AuditReaderDSN == "" {
-		slog.InfoContext(ctx, "audit.reader_disabled",
-			slog.String("reason", "AUDIT_READER_DSN unset; audit query tools disabled"),
-		)
-		return nil
-	}
-	rd, err := audit.NewReader(ctx, cfg.AuditReaderDSN)
-	if err != nil {
-		slog.ErrorContext(ctx, "audit.reader_setup_failed", slog.String("err", err.Error()))
-		return nil
-	}
-	slog.InfoContext(ctx, "audit.reader_connected")
-	return rd
-}
-
-// buildAuditRedactor opens the audit_redactor pool when AUDIT_REDACTOR_DSN is
-// set. nil disables the GDPR redaction MCP tool.
-func buildAuditRedactor(ctx context.Context, cfg *config.Config) *audit.Redactor {
-	if cfg.AuditRedactorDSN == "" {
-		slog.InfoContext(ctx, "audit.redactor_disabled",
-			slog.String("reason", "AUDIT_REDACTOR_DSN unset; redaction tool disabled"),
-		)
-		return nil
-	}
-	rd, err := audit.NewRedactor(ctx, cfg.AuditRedactorDSN)
-	if err != nil {
-		slog.ErrorContext(ctx, "audit.redactor_setup_failed", slog.String("err", err.Error()))
-		return nil
-	}
-	slog.InfoContext(ctx, "audit.redactor_connected")
-	return rd
 }

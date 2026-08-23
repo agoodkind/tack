@@ -20,7 +20,6 @@ type ToolArguments struct {
 	SourceID           string         `json:"source_id,omitempty"`
 	RelationType       string         `json:"relation_type,omitempty"`
 	TargetID           string         `json:"target_id,omitempty"`
-	ActorID            string         `json:"actor_id,omitempty"`
 }
 
 // NodeProperties is a typed raw-JSON property object.

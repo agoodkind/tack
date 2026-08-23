@@ -3,55 +3,13 @@ package tools
 import (
 	"context"
 	"encoding/json"
-	"strings"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/auth"
 	"goodkind.io/tack/internal/domain/node"
 )
-
-func TestRenderAuditRowsShowsCorrelation(t *testing.T) {
-	row := audit.Row{
-		EventTime:  time.Unix(10, 0).UTC(),
-		ActorID:    uuid.Must(uuid.NewV7()),
-		Action:     "node.read",
-		EntityKind: "node",
-		EntityID:   uuid.Must(uuid.NewV7()),
-		Context: audit.EventContext{
-			RequestID: "req-render",
-			TraceID:   "trace-render",
-			Source:    audit.SourceMCP,
-		},
-		Seq: 1,
-	}
-
-	out := renderAuditRows([]audit.Row{row})
-
-	for _, want := range []string{"Request", "Trace", "req-render", "trace-render"} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("rendered audit rows missing %q:\n%s", want, out)
-		}
-	}
-}
-
-func TestRenderAuditRowShowsErrorAndExtra(t *testing.T) {
-	row := audit.Row{
-		EventID: uuid.Must(uuid.NewV7()),
-		Error:   &audit.EventError{Code: "permission_denied", Message: "member required"},
-		Extra:   json.RawMessage(`{"intent_event_id":"0198a2d5-f15a-7e2f-9e0f-1f8509e1c639"}`),
-	}
-
-	out := renderAuditRow(row)
-
-	for _, want := range []string{"Error", "permission_denied", "member required", "Extra", "intent_event_id"} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("rendered audit row missing %q:\n%s", want, out)
-		}
-	}
-}
 
 func TestStampAuditNodeInEntryPointPopulatesWorkspace(t *testing.T) {
 	orgID := uuid.New()

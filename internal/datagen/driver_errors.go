@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 )
 
 type httpStatusError struct {
@@ -44,23 +43,4 @@ func isAuthenticationRejection(err error) bool {
 	var statusError *httpStatusError
 	return errors.As(err, &statusError) &&
 		statusError.statusCode == http.StatusUnauthorized
-}
-
-func isToolUnavailable(err error) bool {
-	var responseError *rpcError
-	if errors.As(err, &responseError) && responseError.Code == -32601 {
-		return true
-	}
-	message := strings.ToLower(err.Error())
-	for _, marker := range []string{
-		"tool not found",
-		"unknown tool",
-		"not registered",
-		"method not found",
-	} {
-		if strings.Contains(message, marker) {
-			return true
-		}
-	}
-	return false
 }

@@ -28,7 +28,6 @@ func ValidateTarget(cfg *config.Config) error {
 		{name: "AUDIT_READER_DSN", value: cfg.AuditReaderDSN},
 		{name: "AUDIT_REDACTOR_DSN", value: cfg.AuditRedactorDSN},
 		{name: "AUDIT_OPERATOR_DSN", value: cfg.AuditOperatorDSN},
-		{name: "AUDIT_CLICKHOUSE_DSN", value: cfg.AuditClickHouseDSN},
 		{name: "MEILI_URL", value: cfg.MeiliURL},
 	}
 	for _, endpoint := range endpoints {

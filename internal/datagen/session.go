@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 
-	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/runtime"
 )
@@ -27,7 +26,7 @@ type runSession struct {
 	seed              int64
 	dryRun            bool
 	productionAuth    bool
-	synchronousAudit  bool
+	redactActor       ActorRedactor
 	seedCorpusStarted func()
 }
 
@@ -49,8 +48,7 @@ func openRunSession(
 	session := &runSession{
 		content: content, scale: scale, seed: seed, dryRun: !commit,
 		productionAuth: cfg.Env != "development",
-		synchronousAudit: len(audit.SplitBrokers(cfg.AuditKafkaBrokers)) == 0 &&
-			cfg.AuditWriterDSN != "",
+		redactActor:    actorRedactorFor(cfg),
 	}
 	if !commit {
 		session.identities = PlanIdentities(cfg, seed, scale)
@@ -95,9 +93,9 @@ func (s *runSession) seedCorpus(
 		s.seed,
 		GeneratorOptions{
 			DryRun:           s.dryRun,
-			ProductionAuth:   s.productionAuth,
-			RedactAuditPII:   redactAuditPII,
-			SynchronousAudit: s.synchronousAudit,
+			ProductionAuth: s.productionAuth,
+			RedactAuditPII: redactAuditPII,
+			RedactActor:    s.redactActor,
 		},
 	)
 	return generator.Run(ctx)

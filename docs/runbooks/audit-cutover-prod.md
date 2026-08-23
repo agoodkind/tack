@@ -68,9 +68,8 @@ ClickHouse-outage chain resilience).
       audit-consumer crash-loop (TACK-301 and TACK-305 shipped in `c81d89e`).
 - [x] Prod `KAFKA_CLUSTER_ID` is distinct from QA (`tack_servers.yml` vs
       `tack_qa_servers.yml`).
-- [x] Audit profile renders unconditionally and `AUDIT_CLICKHOUSE_DSN` (app read)
-      and `AUDIT_CONSUMER_CLICKHOUSE_DSN` (consumer write) target the same
-      ClickHouse database.
+- [x] Audit profile renders unconditionally and `AUDIT_CONSUMER_CLICKHOUSE_DSN`
+      (consumer write) targets the ClickHouse audit database.
 
 Confirm at run time, not verifiable ahead of the deploy:
 
@@ -81,9 +80,9 @@ Confirm at run time, not verifiable ahead of the deploy:
 - [ ] You have explicit authorization to mutate prod; this cutover is
       operator-run, never automated.
 
-One manual step remains in the sequence: after `seed-roles`, restart the app
-(step 3) so it registers the audit query tools. The audit-consumer needs no
-restart and creates its topic itself.
+The audit-consumer needs no restart and creates its topic itself. The app holds
+no ledger read connection: every ledger read and redaction is a host command
+(`audit query`, `audit get`, `audit export`, `audit redact-actor`).
 
 ## Steps
 
@@ -119,11 +118,8 @@ passwords from the rendered `.env`.
    Creates or rotates the LOGIN audit roles the app and audit-consumer
    authenticate as. Passwords come from the rendered `.env`. The audit-consumer
    picks up the new roles on its own (it pings until ready, then ensures the
-   topic and starts, TACK-301), so it needs no restart. The app does: restart it
-   (`docker compose restart app`) so it re-initializes its audit reader pool and
-   registers the `tack_audit_query`/`tack_audit_get`/`tack_audit_redact_actor`
-   MCP tools, which are silently skipped when the app first started before the
-   roles existed (TACK-319).
+   topic and starts, TACK-301), so it needs no restart. The app publishes to
+   Kafka and holds no ledger read connection, so it needs no restart either.
 
 4. **Kafka topic.** No manual step: the audit-consumer ensures `audit.events.v1`
    with 256 partitions (the shardOf width) and broker-default replication factor
@@ -134,11 +130,9 @@ passwords from the rendered `.env`.
 
 5. **ClickHouse schema.** No manual step: the audit-consumer creates the audit
    database and `audit.events_olap` on connect (`ensureClickHouseSchema`). Verify
-   it exists after the consumer is healthy. CAVEAT to check before trusting reads:
-   the consumer write DSN (`AUDIT_CONSUMER_CLICKHOUSE_DSN`) and the app read DSN
-   (`AUDIT_CLICKHOUSE_DSN`) must point at the SAME ClickHouse database, or
-   `tack_audit_query` reads an empty table while the consumer writes elsewhere.
-   Confirm both DSNs agree on the database name.
+   it exists after the consumer is healthy. The consumer is the only process
+   that reads or writes ClickHouse (`AUDIT_CONSUMER_CLICKHOUSE_DSN`); ledger
+   reads go to YugabyteDB through the host commands.
 
 ## Verify
 
@@ -147,7 +141,7 @@ passwords from the rendered `.env`.
   sentinel is no longer logged as of the consumer fix).
 - One real product action produces exactly one `audit.events` row, the hash chain
   links (prev_hash chains to row_hash), and the notarizer signs a Merkle root.
-- `tack_audit_query` routes recent-window reads to ClickHouse and older reads to
+- `audit query` (host command, reader role, `--execute`) returns that row from
   YugabyteDB.
 - Kill ClickHouse briefly and confirm the chain keeps advancing (ClickHouse is
   best-effort, never blocks the canonical write).

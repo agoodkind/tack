@@ -57,20 +57,6 @@ func TestDriverRejectsInvalidRPCEnvelopes(t *testing.T) {
 	}
 }
 
-func TestDriverListToolsRejectsEmptyName(t *testing.T) {
-	t.Parallel()
-	handler := http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-		writer.Header().Set("Content-Type", "application/json")
-		_, _ = writer.Write([]byte(
-			`{"jsonrpc":"2.0","id":"1","result":{"tools":[{"name":""}]}}`,
-		))
-	})
-	_, err := NewDriver(testGraph(handler), false, 245).ListTools(t.Context(), "token")
-	if err == nil || !strings.Contains(err.Error(), "empty tool name") {
-		t.Fatalf("ListTools() error = %v, want empty-name error", err)
-	}
-}
-
 func TestReadLastSSEDataAcceptsLargeLine(t *testing.T) {
 	t.Parallel()
 	want := strings.Repeat("x", 128*1024)

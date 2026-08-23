@@ -2,100 +2,96 @@ package datagen
 
 import (
 	"bytes"
-	"encoding/json"
+	"context"
+	"errors"
 	"log/slog"
-	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/audit"
 )
 
-func TestAuditRedactionDryRunLogsPlanned(t *testing.T) {
+func captureLogs(t *testing.T) *bytes.Buffer {
+	t.Helper()
 	var output bytes.Buffer
 	previousLogger := slog.Default()
 	slog.SetDefault(slog.New(slog.NewTextHandler(&output, nil)))
-	t.Cleanup(func() {
-		slog.SetDefault(previousLogger)
-	})
+	t.Cleanup(func() { slog.SetDefault(previousLogger) })
+	return &output
+}
+
+func redactionIdentities() Identities {
+	return Identities{Workspaces: []WorkspaceIdentity{{
+		OrgID:  uuid.Must(uuid.NewV7()),
+		Actors: []Actor{{UserID: uuid.Must(uuid.NewV7()), Email: "qa@example.invalid", Token: "token"}},
+	}}}
+}
+
+func TestAuditRedactionDryRunPlansAndCallsNothing(t *testing.T) {
+	output := captureLogs(t)
 	generator := &Generator{
-		driver:           NewDriver(nil, true, 245),
-		dryRun:           true,
-		redactAuditPII:   true,
-		synchronousAudit: true,
-		identities: Identities{Workspaces: []WorkspaceIdentity{{
-			Actors: []Actor{{UserID: uuid.Nil, Token: "token"}},
-		}}},
+		driver: NewDriver(nil, true, 245), dryRun: true, redactAuditPII: true,
+		identities: redactionIdentities(),
+		redactActor: func(context.Context, uuid.UUID, uuid.UUID) (audit.ActorRedaction, error) {
+			return audit.ActorRedaction{}, errors.New("a dry run must not redact")
+		},
 	}
 	if err := generator.redactOneActor(t.Context()); err != nil {
 		t.Fatalf("redactOneActor() error = %v", err)
 	}
-	logs := output.String()
-	if !strings.Contains(logs, "qa.datagen.audit_redaction_planned") {
-		t.Fatalf("dry-run logs = %q, want planned event", logs)
-	}
-	if strings.Contains(logs, "qa.datagen.audit_redaction_requested") {
-		t.Fatalf("dry-run logs = %q, do not want requested event", logs)
+	if !strings.Contains(output.String(), "qa.datagen.audit_redaction_planned") {
+		t.Fatalf("dry-run logs = %q, want planned event", output.String())
 	}
 }
 
-func TestAuditRedactionSkipsWhenToolIsNotRegistered(t *testing.T) {
-	t.Parallel()
-	requestCount := 0
-	handler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		requestCount++
-		writer.Header().Set("Content-Type", "application/json")
-		_, _ = writer.Write([]byte(
-			`{"jsonrpc":"2.0","id":"1","result":{"tools":[` +
-				`{"name":"tack_list_workspaces"}]}}`,
-		))
-	})
-	generator := redactionGenerator(handler)
+func TestAuditRedactionRunsTheHostPathForTheFirstActor(t *testing.T) {
+	output := captureLogs(t)
+	identities := redactionIdentities()
+	var gotOrg, gotActor uuid.UUID
+	generator := &Generator{
+		driver: NewDriver(nil, false, 245), redactAuditPII: true, identities: identities,
+		redactActor: func(_ context.Context, orgID, actorID uuid.UUID) (audit.ActorRedaction, error) {
+			gotOrg, gotActor = orgID, actorID
+			return audit.ActorRedaction{OrgID: orgID, ActorID: actorID, PIIRefCount: 3, Unredacted: 3, Redacted: 3}, nil
+		},
+	}
 	if err := generator.redactOneActor(t.Context()); err != nil {
 		t.Fatalf("redactOneActor() error = %v", err)
 	}
-	if requestCount != 1 {
-		t.Fatalf("request count = %d, want tools/list only", requestCount)
+	workspace := identities.Workspaces[0]
+	if gotOrg != workspace.OrgID || gotActor != workspace.Actors[0].UserID {
+		t.Fatalf("redacted org %s actor %s, want org %s actor %s", gotOrg, gotActor, workspace.OrgID, workspace.Actors[0].UserID)
+	}
+	if !strings.Contains(output.String(), "qa.datagen.audit_redaction_requested") ||
+		!strings.Contains(output.String(), "redacted=3") {
+		t.Fatalf("logs = %q, want the requested event with its counts", output.String())
 	}
 }
 
-func TestAuditRedactionTreatsToolNotFoundAsBestEffortSkip(t *testing.T) {
-	t.Parallel()
-	handler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		var payload requestMethod
-		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
-			t.Fatalf("decode request: %v", err)
-		}
-		writer.Header().Set("Content-Type", "application/json")
-		if payload.Method == toolsList {
-			_, _ = writer.Write([]byte(
-				`{"jsonrpc":"2.0","id":"1","result":{"tools":[` +
-					`{"name":"tack_audit_redact_actor"}]}}`,
-			))
-			return
-		}
-		_, _ = writer.Write([]byte(
-			`{"jsonrpc":"2.0","id":"1","error":` +
-				`{"code":-32601,"message":"tool not found"}}`,
-		))
-	})
-	generator := redactionGenerator(handler)
+func TestAuditRedactionFailsLoudlyWhenTheHostPathFails(t *testing.T) {
+	captureLogs(t)
+	generator := &Generator{
+		driver: NewDriver(nil, false, 245), redactAuditPII: true, identities: redactionIdentities(),
+		redactActor: func(context.Context, uuid.UUID, uuid.UUID) (audit.ActorRedaction, error) {
+			return audit.ActorRedaction{}, errors.New("permission denied for table audit.pii")
+		},
+	}
+	err := generator.redactOneActor(t.Context())
+	if err == nil || !strings.Contains(err.Error(), "permission denied") {
+		t.Fatalf("redactOneActor() error = %v, want the redaction failure", err)
+	}
+}
+
+func TestAuditRedactionSkipsWithoutDSNs(t *testing.T) {
+	output := captureLogs(t)
+	generator := &Generator{
+		driver: NewDriver(nil, false, 245), redactAuditPII: true, identities: redactionIdentities(),
+	}
 	if err := generator.redactOneActor(t.Context()); err != nil {
 		t.Fatalf("redactOneActor() error = %v", err)
 	}
-}
-
-type requestMethod struct {
-	Method string `json:"method"`
-}
-
-func redactionGenerator(handler http.Handler) *Generator {
-	return &Generator{
-		driver:           NewDriver(testGraph(handler), false, 245),
-		redactAuditPII:   true,
-		synchronousAudit: true,
-		identities: Identities{Workspaces: []WorkspaceIdentity{{
-			Actors: []Actor{{UserID: uuid.Nil, Token: "token"}},
-		}}},
+	if !strings.Contains(output.String(), "qa.datagen.audit_redaction_skipped") {
+		t.Fatalf("logs = %q, want the skipped event", output.String())
 	}
 }
