@@ -101,14 +101,17 @@ services:
     # to serve rows that are intact on disk. Replaceable container addresses
     # persisted into that catalog caused an incident.
     #
-    # The deploy renders a docker-compose.override.yml beside this file with
-    # the guest's node name, the peer name to address map, and the tuning
-    # values; compose merges it automatically. A node binds exactly what it
-    # announces, because yugabyted refuses to start when the two differ, so a
-    # node's own name must resolve inside its own container to an address it
-    # can bind: the override's hostname maps the node's own name to the
-    # container address, and its extra_hosts map the peer names to the peer
-    # guests' pinned addresses, reached on the published node ports.
+    # The deploy renders a docker-compose.override.yml beside this file;
+    # compose merges it automatically. The override replaces hostname with
+    # the guest's node name, adds extra_hosts mapping the peer names to the
+    # peer guests' pinned addresses (reached on the published node ports),
+    # and replaces this whole command list, because compose only replaces a
+    # command wholesale: the replacement changes only the advertise and
+    # listen name and must keep the flagfile argument verbatim, or the
+    # tserver silently reverts to self-sizing (the 2026-08-05 S0). A node
+    # binds exactly what it announces, because yugabyted refuses to start
+    # when the two differ, so a node's own name must resolve inside its own
+    # container to an address it can bind; hostname is what maps it there.
     #
     # The :ro bind-mount below patches yugabyted's is_port_available. The
     # upstream version (on every release through 2025.2.3.0, including this one)
