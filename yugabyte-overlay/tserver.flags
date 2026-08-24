@@ -1,0 +1,18 @@
+# Tack ledger tserver flags, one per line. Bind-mounted read-only into the
+# yugabyte service and handed to the tserver by yugabyted through
+# --tserver_flags=flagfile=... in docker-compose.yml. This file is the one
+# home for these values.
+
+# Cap YSQL connections; every backend costs memory inside the hard limit
+# below.
+--ysql_pg_conf_csv=max_connections=100
+
+# Hard process ceiling: 8 GiB. Together with the fixed block cache below this
+# replaces use_memory_defaults_optimized_for_ysql self-sizing, which sizes
+# from guest RAM and let a full-table scan grow the tserver to 13.7 GiB and
+# starve the guest's page cache (2026-08-05 S0). Must stay under the compose
+# mem_limit.
+--memory_limit_hard_bytes=8589934592
+
+# Fixed block cache: 2 GiB.
+--db_block_cache_size_bytes=2147483648

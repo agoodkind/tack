@@ -92,10 +92,23 @@ services:
     # major-version upgrade of the auth+audit database (TACK-330). The deliberate
     # 2024.2.8.0 -> 2025.2.3.0 upgrade is the separate, QA-validated TACK-329.
     #
-    # Do not advertise the current container IP: Docker Compose service IPs are
-    # intentionally replaceable. Literal GUAs persisted into Yugabyte
-    # master/tserver metadata caused an incident; the service DNS name "yugabyte"
-    # is the stable identity.
+    # Identity is a permanent name, never an address. The engine writes the
+    # announced identity into its own catalog, so an address written there goes
+    # stale when the address moves and the engine can no longer assemble itself
+    # to serve rows that are intact on disk. Replaceable container addresses
+    # persisted into that catalog caused an incident.
+    #
+    # The deploy renders a docker-compose.override.yml beside this file;
+    # compose merges it automatically. The override replaces hostname with
+    # the guest's node name, adds extra_hosts mapping the peer names to the
+    # peer guests' pinned addresses (reached on the published node ports),
+    # and replaces this whole command list, because compose only replaces a
+    # command wholesale: the replacement changes only the advertise and
+    # listen name and must keep the flagfile argument verbatim, or the
+    # tserver silently reverts to self-sizing (the 2026-08-05 S0). A node
+    # binds exactly what it announces, because yugabyted refuses to start
+    # when the two differ, so a node's own name must resolve inside its own
+    # container to an address it can bind; hostname is what maps it there.
     #
     # The :ro bind-mount below patches yugabyted's is_port_available. The
     # upstream version (on every release through 2025.2.3.0, including this one)
@@ -109,31 +122,24 @@ services:
     image: yugabytedb/yugabyte:2024.2.8.0-b85
     restart: unless-stopped
     mem_limit: 10g
+    # The container answers to the name this node announces, which is what maps
+    # that name to this container's own address. This is the dev value; the
+    # deploy's rendered override replaces it with the guest's node name.
+    hostname: yugabyte
+    # --base_dir aims yugabyted at the persisted volume mount below. Without
+    # it, yugabyted defaults to ~/var, which is the container overlay and is
+    # lost on every recreate: a docker compose down then wipes the SQL side
+    # (2026-04-28 incident).
+    # The tserver resource bounds live in yugabyte-overlay/tserver.flags,
+    # mounted below; flagfile hands them to the tserver one flag per line.
     command:
-      - /bin/bash
-      - -lc
-      - |
-        set -euo pipefail
-        ADDR=yugabyte
-        if ! getent ahostsv6 "$$ADDR" >/dev/null; then
-          echo "yugabyte wrapper: no IPv6 address found for $$ADDR in NSS" >&2
-          exit 1
-        fi
-        echo "yugabyte wrapper: advertising $$ADDR" >&2
-        # --base_dir aims yugabyted at the persisted volume mount below.
-        # Without it, yugabyted defaults to ~/var which is the container
-        # overlay (lost on every recreate). This is THE reason a docker
-        # compose down wipes the SQL side: 2026-04-28 incident.
-        # Hard memory bound: 8 GiB process ceiling, 2 GiB block cache.
-        # Replaces use_memory_defaults_optimized_for_ysql self-sizing, which
-        # sizes from guest RAM and let a full-table scan grow the tserver to
-        # 13.7 GiB and starve the guest's page cache (2026-08-05 S0).
-        exec /home/yugabyte/bin/yugabyted start \
-          --daemon=false \
-          --base_dir=/home/yugabyte/var \
-          --advertise_address="$$ADDR" \
-          --listen="$$ADDR" \
-          --tserver_flags="ysql_pg_conf_csv=max_connections=100,memory_limit_hard_bytes=8589934592,db_block_cache_size_bytes=2147483648"
+      - /home/yugabyte/bin/yugabyted
+      - start
+      - --daemon=false
+      - --base_dir=/home/yugabyte/var
+      - --advertise_address=yugabyte
+      - --listen=yugabyte
+      - --tserver_flags=flagfile=/home/yugabyte/tserver.flags
     environment:
       YSQL_DB: ${YUGABYTE_DB:?YUGABYTE_DB is required, set it in .env}
       YSQL_USER: ${YUGABYTE_USER:?YUGABYTE_USER is required, set it in .env}
@@ -142,15 +148,20 @@ services:
       - "5433:5433" # YSQL (Postgres-compatible)
       - "7000:7000" # YugabyteDB master UI
       - "9000:9000" # YugabyteDB tserver UI
+      # Peer nodes reach this one on the guest's pinned address at these ports.
+      - "7100:7100" # master peer traffic
+      - "9100:9100" # tserver peer traffic
     volumes:
       - yugabyte-data:/home/yugabyte/var
       # Overlay patched yugabyted (upstream PR #23158). See header comment.
       - /root/tack/yugabyte-overlay/yugabyted:/home/yugabyte/bin/yugabyted:ro
+      # Tserver resource bounds, one flag per line with the incident notes.
+      - /root/tack/yugabyte-overlay/tserver.flags:/home/yugabyte/tserver.flags:ro
     healthcheck:
       test:
         - CMD-SHELL
         - |
-          ADDR=yugabyte
+          ADDR="$$(hostname)"
           PGPASSWORD=${YUGABYTE_PASSWORD:?} ysqlsh -h "$$ADDR" -p 5433 \
             -U ${YUGABYTE_USER:?} -d ${YUGABYTE_DB:?} -c 'SELECT 1' -t
       interval: 10s
