@@ -75,9 +75,11 @@ services:
       #   openssl genpkey -algorithm ed25519 -out /etc/tack/audit-signing.pem
       # The notarizer reuses it at every 60s tick; rotation is a follow-up.
       - /etc/tack:/etc/tack:ro
+    # No yugabyte dependency: deployed guests reach the ledger on the data
+    # guests through the rendered override's multi-host URL, and the deploy
+    # starts the app only after provision. This base file alone still dials
+    # the local single node above and relies on restart for ordering.
     depends_on:
-      yugabyte:
-        condition: service_healthy
       fdb:
         condition: service_healthy
       meilisearch:
@@ -422,11 +424,12 @@ services:
       - tack-logs:/var/log/tack
       - /etc/tack:/etc/tack:ro
       - /etc/foundationdb:/etc/foundationdb:ro
+    # No yugabyte dependency: deployed guests reach the ledger on the data
+    # guests through the rendered env's multi-host DSN; the startup ping
+    # retries until the ledger answers, so ordering is not load-bearing.
     depends_on:
       kafka:
         condition: service_started
-      yugabyte:
-        condition: service_healthy
       clickhouse:
         condition: service_healthy
 
