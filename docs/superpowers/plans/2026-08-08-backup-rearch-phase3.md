@@ -125,8 +125,8 @@ Record the count before and after.
 
 **Interfaces:**
 - Consumes: the per-guest ledger services from Task 1.
-- Produces: a three-node cluster holding three copies of every row. Task 3
-  consumes the multi-node connection string.
+- Produces: a four-node cluster holding three copies of every row. Task 3
+  repoints every consumer at the data nodes and then retires the original.
 
 The target topology puts one ledger node on each data guest and none on an app
 guest. The node running today lives on an app guest, so reaching that topology
@@ -149,20 +149,9 @@ Confirm from outside the cluster that no data is under-replicated. Retiring the
 original node before its data has copied elsewhere loses the only copy of
 whatever it still leads alone.
 
-- [ ] **Step 4: Retire the original node**
-
-Remove the node on the app guest through the engine's own removal path, so the
-remaining three re-replicate what it held. The app guest then carries no data,
-which is what lets the export run somewhere that serves nothing.
-
-- [ ] **Step 5: Verify the end state from outside the cluster**
-
-Read the cluster's status and confirm three live nodes, all on data guests,
-replication factor three, and no under-replicated data. Record the output.
-
 ---
 
-### Task 3: Point the app at all three nodes
+### Task 3: Point every consumer at the data nodes, then retire the original
 
 **Files:**
 - Modify: `tack/tack.env.j2` in the configs repository
@@ -170,8 +159,13 @@ replication factor three, and no under-replicated data. Record the output.
   `tack_qa_all.yml` in the configs repository
 
 **Interfaces:**
-- Consumes: the three-node cluster from Task 2.
-- Produces: connection strings listing all three nodes.
+- Consumes: the four-node cluster from Task 2.
+- Produces: connection strings listing the three data nodes, and a cluster
+  running only on the data guests.
+
+The repoint comes before the retirement, because every consumer resolves
+the retiring node's name today; retiring first cuts the app off from the
+database.
 
 - [ ] **Step 1: Build the three-node connection string**
 
@@ -184,6 +178,19 @@ driver supports this with no code change.
 Stop the ledger container on one data guest. From the workstation, confirm the
 app still answers and a write still commits. Restart the container and confirm
 the cluster reports full replication within fifteen minutes.
+
+- [ ] **Step 3: Retire the original node**
+
+Drain the node on the app guest through the engine's own removal path
+(blacklist its tablet server, wait for the engine's load-move metric to
+reach one hundred, move its master role to a data node) so the remaining
+three re-replicate what it held. The app guest then carries no data, which
+is what lets the export run somewhere that serves nothing.
+
+- [ ] **Step 4: Verify the end state from outside the cluster**
+
+Read the cluster's status and confirm three live nodes, all on data guests,
+replication factor three, and no under-replicated data. Record the output.
 
 ---
 
