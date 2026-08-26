@@ -202,19 +202,30 @@ replication factor three, and no under-replicated data. Record the output.
 
 **Interfaces:**
 - Consumes: the three-node cluster.
-- Produces: an export that collects snapshot files from every node according to
-  which node leads each piece of data. Task 5 schedules it.
+- Produces: an export whose run key holds every node's snapshot files plus a
+  completeness manifest. Task 5 schedules it.
+
+Inter-guest SSH was rejected as the collection mechanism: it adds a trust
+edge from the most exposed guest into the whole data tier, and guest SSH
+trust demonstrably drifts. Each node archives its own files instead, using
+only mechanisms every guest already carries.
 
 - [ ] **Step 1: Establish that the current export is invalid at three nodes**
 
-The current implementation archives from a single service container. Reproduce
-that limitation against the three-node testbed cluster and record what it
-misses. Stop and report if the premise does not hold.
+The current implementation archives from a single service container. Confirmed
+against the code and the retired topology: the schema dump and tablet tar run
+inside one named local container, which captures at most one node's third of
+the tablet files and no longer exists on the guest that runs the export.
 
-- [ ] **Step 2: Collect from every node by leadership**
+- [ ] **Step 2: Each node archives its own files; the orchestrator proves
+  completeness**
 
-The archive phase walks the nodes and collects each node's snapshot files for
-the data it leads.
+The orchestrator on the non-serving guest creates the cluster snapshot,
+exports its metadata, dumps the schema, and writes a manifest naming what
+every node must upload under the shared run key. Each data guest uploads its
+own node's tablet snapshot files for that run key. A restore refuses a run
+key whose manifest is not fully satisfied, so a partial run cannot look
+complete.
 
 - [ ] **Step 3: Prove a restore from the archive alone**
 
@@ -242,10 +253,11 @@ Copy both units, register each result, and compute the reload from those flags.
 Enable the timer, not the service. The repository already ships one service and
 timer pair this way.
 
-- [ ] **Step 2: Run it on a guest that does not lead**
+- [ ] **Step 2: Place the units where the amended criterion says**
 
-The unit installs only on a data guest that is not leading, so the export never
-competes with the serving path.
+The orchestrator timer installs only on the non-serving guest. Each data
+guest gets the small archive unit that uploads its own node's files, which
+is the only backup work a serving node performs.
 
 - [ ] **Step 3: Verify two unattended runs**
 

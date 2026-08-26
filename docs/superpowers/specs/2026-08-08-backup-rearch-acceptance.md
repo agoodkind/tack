@@ -47,8 +47,9 @@ so a failing guest cannot destroy its own evidence.
 
 - No backup path reads the dataset row by row; the export collects
   engine-native snapshot files by tablet leadership.
-- Export and rehearsal run on a non-serving guest, verified by where the
-  units are installed and where the runs execute.
+- Export orchestration and rehearsals run on the non-serving guest, and no
+  serving node performs backup work beyond archiving its own local files,
+  verified by where the units are installed and where the runs execute.
 
 ## 7. Disk stays bounded
 
