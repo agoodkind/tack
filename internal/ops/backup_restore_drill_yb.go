@@ -3,16 +3,15 @@ package ops
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
 
@@ -36,18 +35,10 @@ func restoreDrillYugabyte(ctx context.Context, r *restoreDrillCtx) error {
 	}
 	s3Client := newBackupS3Client(r.Cfg)
 
-	prefixes, err := listImmediatePrefixes(ctx, s3Client, r.Cfg.BackupS3BucketMain, "yugabyte-snapshot/")
+	manifest, err := resolveYBDrillExport(ctx, r, s3Client)
 	if err != nil {
 		return err
 	}
-	if len(prefixes) == 0 {
-		wrapped := fmt.Errorf("no yugabyte-snapshot export in bucket %s", r.Cfg.BackupS3BucketMain)
-		logger.ErrorContext(ctx, "backup.restore_drill.yb.no_export", slog.String("err", wrapped.Error()))
-		return wrapped
-	}
-	sort.Strings(prefixes)
-	srcPrefix := prefixes[len(prefixes)-1]
-	logger.InfoContext(ctx, "backup.restore_drill.yb.export", slog.String("prefix", srcPrefix))
 
 	stageDir := filepath.Join(r.Cfg.BackupRoot, "restore-drill-yb-"+r.RunID)
 	if err := os.MkdirAll(stageDir, 0o777); err != nil {
@@ -56,31 +47,9 @@ func restoreDrillYugabyte(ctx context.Context, r *restoreDrillCtx) error {
 		return wrapped
 	}
 	defer os.RemoveAll(stageDir)
-	for _, name := range []string{"manifest.json", "metadata.snapshot", "schema.sql", "tablets.tar.gz"} {
-		if err := getObjectToFile(ctx, s3Client, r.Cfg.BackupS3BucketMain, srcPrefix+name, filepath.Join(stageDir, name)); err != nil {
-			return err
-		}
-	}
-
-	manifestBytes, err := os.ReadFile(filepath.Join(stageDir, "manifest.json"))
+	nodeNames, err := stageYBDrillArtifacts(ctx, r, s3Client, manifest, stageDir)
 	if err != nil {
-		wrapped := fmt.Errorf("read yb drill manifest: %w", err)
-		logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", wrapped.Error()))
-		return wrapped
-	}
-	var manifest struct {
-		SnapshotID string `json:"snapshot_id"`
-		Database   string `json:"database"`
-	}
-	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
-		wrapped := fmt.Errorf("unmarshal yb drill manifest: %w", err)
-		logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", wrapped.Error()))
-		return wrapped
-	}
-	if manifest.SnapshotID == "" || manifest.Database == "" {
-		wrapped := fmt.Errorf("yb drill manifest missing snapshot_id or database")
-		logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", wrapped.Error()))
-		return wrapped
+		return err
 	}
 
 	name := "tack-rtyb-" + r.RunID
@@ -108,11 +77,87 @@ func restoreDrillYugabyte(ctx context.Context, r *restoreDrillCtx) error {
 		return wrapped
 	}
 
-	if err := importAndRestoreYBSnapshot(ctx, r, name, manifest.Database, manifest.SnapshotID); err != nil {
+	if err := importAndRestoreYBSnapshot(ctx, r, name, manifest.Database, manifest.SnapshotID, nodeNames); err != nil {
 		return err
 	}
 
 	return assertYBDrillRows(ctx, r, name, manifest.Database)
+}
+
+// resolveYBDrillExport picks the newest export run and enforces the
+// completeness gate: the run's manifest must name the snapshot, the database,
+// and at least one tablet-server node, and every listed node prefix must hold
+// its archive object. An incomplete run is refused with the missing node names
+// so the operator can see which archive timers have not fired yet.
+func resolveYBDrillExport(ctx context.Context, r *restoreDrillCtx, s3Client *s3.Client) (ybSnapshotManifest, error) {
+	logger := telemetry.L(ctx)
+	exportRunID, err := newestYBSnapshotRunID(ctx, s3Client, r.Cfg.BackupS3BucketMain)
+	if err != nil {
+		return ybSnapshotManifest{}, err
+	}
+	if exportRunID == "" {
+		wrapped := fmt.Errorf("no yugabyte-snapshot export in bucket %s", r.Cfg.BackupS3BucketMain)
+		logger.ErrorContext(ctx, "backup.restore_drill.yb.no_export", slog.String("err", wrapped.Error()))
+		return ybSnapshotManifest{}, wrapped
+	}
+	logger.InfoContext(ctx, "backup.restore_drill.yb.export", slog.String("run_id", exportRunID))
+
+	manifest, err := fetchYBSnapshotManifest(ctx, s3Client, r.Cfg.BackupS3BucketMain, exportRunID)
+	if err != nil {
+		return ybSnapshotManifest{}, err
+	}
+	if manifest.SnapshotID == "" || manifest.Database == "" {
+		wrapped := fmt.Errorf("yb drill manifest missing snapshot_id or database")
+		logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", wrapped.Error()))
+		return ybSnapshotManifest{}, wrapped
+	}
+	if len(manifest.Nodes) == 0 {
+		wrapped := fmt.Errorf("yb drill manifest for run %s lists no tablet-server nodes; refusing the run", exportRunID)
+		logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", wrapped.Error()))
+		return ybSnapshotManifest{}, wrapped
+	}
+	missing, err := missingYBNodeArchives(manifest, func(key string) (bool, error) {
+		return objectExists(ctx, s3Client, r.Cfg.BackupS3BucketMain, key)
+	})
+	if err != nil {
+		return ybSnapshotManifest{}, err
+	}
+	if len(missing) > 0 {
+		wrapped := fmt.Errorf("yb snapshot export run %s is incomplete: nodes %s have not uploaded their archives; refusing the run",
+			exportRunID, strings.Join(missing, ", "))
+		logger.ErrorContext(ctx, "backup.restore_drill.yb.incomplete", slog.String("err", wrapped.Error()))
+		return ybSnapshotManifest{}, wrapped
+	}
+	return manifest, nil
+}
+
+// stageYBDrillArtifacts downloads the run's metadata, schema, and every node
+// archive into stageDir, naming each archive tablets-<node>.tar.gz so the
+// scratch container can extract each node's files into its own directory. It
+// returns the node names in manifest order for the extraction step.
+func stageYBDrillArtifacts(
+	ctx context.Context,
+	r *restoreDrillCtx,
+	s3Client *s3.Client,
+	manifest ybSnapshotManifest,
+	stageDir string,
+) ([]string, error) {
+	srcPrefix := ybSnapshotKeyPrefix(manifest.RunID)
+	for _, name := range []string{"metadata.snapshot", "schema.sql"} {
+		if err := getObjectToFile(ctx, s3Client, r.Cfg.BackupS3BucketMain, srcPrefix+name, filepath.Join(stageDir, name)); err != nil {
+			return nil, err
+		}
+	}
+	nodeNames := make([]string, 0, len(manifest.Nodes))
+	for _, node := range manifest.Nodes {
+		nodeNames = append(nodeNames, node.Name)
+		key := ybNodeArchiveKey(manifest.RunID, node)
+		local := filepath.Join(stageDir, "tablets-"+node.Name+".tar.gz")
+		if err := getObjectToFile(ctx, s3Client, r.Cfg.BackupS3BucketMain, key, local); err != nil {
+			return nil, err
+		}
+	}
+	return nodeNames, nil
 }
 
 // startScratchYugabyte boots a throwaway yugabyted with the is_port_available

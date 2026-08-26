@@ -84,7 +84,8 @@ func TestBackupSubcommandsPresent(t *testing.T) {
 	cmd := backupCommand(&cli.Factory{})
 	want := map[string]bool{
 		"buckets-init": false, "yb-pitr-init": false,
-		"yb-snapshot-export": false, "restore-drill": false,
+		"yb-snapshot-export": false, "yb-archive-node": false,
+		"restore-drill":       false,
 		"fdb-continuous-init": false,
 	}
 	for _, sub := range cmd.Commands() {

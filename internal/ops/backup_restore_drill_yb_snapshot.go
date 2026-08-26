@@ -25,7 +25,10 @@ var ybUUIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-
 // importAndRestoreYBSnapshot imports the exported snapshot metadata, copies the
 // exported tablet files into the new tablets the import created, and runs
 // restore_snapshot. The schema must already be applied so the tables exist.
-func importAndRestoreYBSnapshot(ctx context.Context, r *restoreDrillCtx, container, database, exportSnap string) error {
+// nodes are the manifest's tablet-server names; each node's archive is staged
+// as /artifacts/tablets-<name>.tar.gz and extracted into its own directory so
+// replicas of the same tablet from different nodes never mix files.
+func importAndRestoreYBSnapshot(ctx context.Context, r *restoreDrillCtx, container, database, exportSnap string, nodes []string) error {
 	logger := telemetry.L(ctx)
 	master := container + ":7100"
 
@@ -51,23 +54,33 @@ func importAndRestoreYBSnapshot(ctx context.Context, r *restoreDrillCtx, contain
 		return err
 	}
 
-	if extractRes, err := containerExec(ctx, r.Cli, container,
-		[]string{"sh", "-c", "mkdir -p /tmp/exp && tar xzf /artifacts/tablets.tar.gz -C /tmp/exp"}); err != nil || extractRes.ExitCode != 0 {
-		wrapped := fmt.Errorf("extract tablets: exit %d: %w", extractRes.ExitCode, err)
-		logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", wrapped.Error()))
-		return wrapped
+	for _, node := range nodes {
+		extractCmd := fmt.Sprintf("mkdir -p /tmp/exp/%s && tar xzf /artifacts/tablets-%s.tar.gz -C /tmp/exp/%s",
+			node, node, node)
+		if extractRes, err := containerExec(ctx, r.Cli, container,
+			[]string{"sh", "-c", extractCmd}); err != nil || extractRes.ExitCode != 0 {
+			wrapped := fmt.Errorf("extract tablets for node %s: exit %d: %w", node, extractRes.ExitCode, err)
+			logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", wrapped.Error()))
+			return wrapped
+		}
 	}
 
 	var script strings.Builder
 	script.WriteString("set -e; ")
 	for _, m := range remaps {
-		src := fmt.Sprintf("/tmp/exp/table-%s/tablet-%s.snapshots/%s", m.table, m.old, exportSnap)
+		// The glob spans the per-node extraction dirs; with replication the
+		// same tablet exists under several nodes and any single replica's file
+		// set is a consistent copy, so the first match wins and the loop
+		// breaks before another node's replica can mix in.
+		srcGlob := fmt.Sprintf("/tmp/exp/*/table-%s/tablet-%s.snapshots/%s", m.table, m.old, exportSnap)
 		dst := fmt.Sprintf("%s/table-%s/tablet-%s.snapshots/%s", r.Cfg.BackupYBRocksDBDir, m.table, m.new, newSnap)
 		// cp -a preserves the tablet files' ownership from the export, and the
 		// placement exec runs as the container's default user (root in the
 		// yugabyted image), matching the rocksdb files yugabyted reads. No chown
 		// is needed, and the image has no `yugabyte` user name to chown to.
-		fmt.Fprintf(&script, "if [ -d %q ]; then mkdir -p %q && cp -a %q/. %q/; fi; ", src, dst, src, dst)
+		fmt.Fprintf(&script,
+			"for src in %s; do if [ -d \"$src\" ]; then mkdir -p %q && cp -a \"$src\"/. %q/; break; fi; done; ",
+			srcGlob, dst, dst)
 	}
 	if placeRes, err := containerExec(ctx, r.Cli, container, []string{"sh", "-c", script.String()}); err != nil || placeRes.ExitCode != 0 {
 		wrapped := fmt.Errorf("place tablet files: exit %d: %s: %w", placeRes.ExitCode, strings.TrimSpace(placeRes.Stderr), err)
