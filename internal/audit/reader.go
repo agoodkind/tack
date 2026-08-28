@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -104,21 +105,10 @@ func (r *Reader) Query(ctx context.Context, f QueryFilter) ([]Row, error) {
 	defer rows.Close()
 	var out []Row
 	for rows.Next() {
-		var row Row
-		var outcome *string
-		var contextRaw, deltaRaw, errorRaw, extraRaw []byte
-		if err := rows.Scan(
-			&row.OrgID, &row.EventTime, &row.EventID, &row.Seq, &row.Shard,
-			&row.ActorID, &row.ActorKind, &row.Action, &outcome,
-			&row.EntityKind, &row.EntityID, &contextRaw, &deltaRaw, &errorRaw, &extraRaw, &row.PIIRef,
-			&row.PrevHash, &row.RowHash, &row.HashVersion, &row.IdempotencyKey,
-		); err != nil {
-			return nil, fmt.Errorf("audit row scan: %w", err)
-		}
-		if err := unmarshalRowPayloads(&row, contextRaw, deltaRaw, errorRaw, extraRaw); err != nil {
+		row, err := readAuditRow(rows)
+		if err != nil {
 			return nil, err
 		}
-		row.Outcome = outcomeFromColumn(outcome)
 		out = append(out, row)
 	}
 	return out, rows.Err()
@@ -136,10 +126,7 @@ func (r *Reader) GetByID(ctx context.Context, eventID uuid.UUID) (*Row, error) {
 	if r == nil || r.pool == nil {
 		return nil, errors.New("audit reader not configured")
 	}
-	var row Row
-	var outcome *string
-	var contextRaw, deltaRaw, errorRaw, extraRaw []byte
-	err := r.pool.QueryRow(ctx, `
+	rows, err := r.pool.Query(ctx, `
 		SELECT org_id, event_time, event_id, seq, shard,
 		       actor_id, actor_kind, action, outcome, entity_kind, entity_id,
 		       context, delta, error, extra, pii_ref, prev_hash, row_hash, hash_version,
@@ -147,19 +134,25 @@ func (r *Reader) GetByID(ctx context.Context, eventID uuid.UUID) (*Row, error) {
 		FROM audit.events
 		WHERE event_id = $1
 		LIMIT 1
-	`, eventID).Scan(
-		&row.OrgID, &row.EventTime, &row.EventID, &row.Seq, &row.Shard,
-		&row.ActorID, &row.ActorKind, &row.Action, &outcome,
-		&row.EntityKind, &row.EntityID, &contextRaw, &deltaRaw, &errorRaw, &extraRaw, &row.PIIRef,
-		&row.PrevHash, &row.RowHash, &row.HashVersion, &row.IdempotencyKey,
-	)
+	`, eventID)
+	if err != nil {
+		slog.ErrorContext(ctx, "audit.get_query_failed",
+			slog.String("event_id", eventID.String()), slog.String("err", err.Error()))
+		return nil, fmt.Errorf("audit get %s: %w", eventID, err)
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			slog.ErrorContext(ctx, "audit.get_rows_failed",
+				slog.String("event_id", eventID.String()), slog.String("err", err.Error()))
+			return nil, fmt.Errorf("audit get %s: %w", eventID, err)
+		}
+		return nil, pgx.ErrNoRows
+	}
+	row, err := readAuditRow(rows)
 	if err != nil {
 		return nil, err
 	}
-	if err := unmarshalRowPayloads(&row, contextRaw, deltaRaw, errorRaw, extraRaw); err != nil {
-		return nil, err
-	}
-	row.Outcome = outcomeFromColumn(outcome)
 	return &row, nil
 }
 
