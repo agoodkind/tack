@@ -73,6 +73,9 @@ const (
 	VerbAuditKeyGenerate Verb = "audit.key_generate"
 	// VerbAuditRolesSeed records audit role creation or rotation.
 	VerbAuditRolesSeed Verb = "audit.roles_seed"
+	// VerbAuditOrgBackfilled records the one-time move of nil-org ledger rows
+	// onto the deployment's sole org (TACK-461).
+	VerbAuditOrgBackfilled Verb = "audit.org_backfilled"
 	// VerbOpsAuditReconstructReferenceRenames records ledger reconstruction.
 	VerbOpsAuditReconstructReferenceRenames Verb = "ops.audit_reconstruct_reference_renames"
 	// VerbOpsInspectRead records a node inspection read.
@@ -160,6 +163,7 @@ var stateChangeVerbs = map[Verb]bool{
 	VerbAuthTokenCreate:    true,
 	VerbAuthTokenRevoke:    true,
 	VerbAuditPIIRedacted:   true,
+	VerbAuditOrgBackfilled: true,
 }
 
 func IsRead(v Verb) bool { return !stateChangeVerbs[v] }

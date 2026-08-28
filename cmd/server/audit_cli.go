@@ -29,6 +29,7 @@ func registerAudit(reg *clispec.Registry, f *cli.Factory) {
 	clispec.Register(reg, auditQueryOp(f))
 	clispec.Register(reg, auditGetOp(f))
 	clispec.Register(reg, auditRedactActorOp(f))
+	clispec.Register(reg, auditBackfillOrgOp(f))
 
 	exportAlias := auditExportOp(f)
 	exportAlias.Group, exportAlias.Hidden, exportAlias.Name = nil, true, clispec.Name{Canonical: "audit-export", CLIOverride: ""}
