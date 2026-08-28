@@ -48,15 +48,6 @@ func (b *OrgBackfill) Close() {
 	}
 }
 
-// Pool exposes the owner pool so the command layer can run its sole-org
-// precondition queries over the same connection the move uses.
-func (b *OrgBackfill) Pool() *pgxpool.Pool {
-	if b == nil {
-		return nil
-	}
-	return b.pool
-}
-
 // OrgBackfillPlan reports what a move would touch, without touching it.
 type OrgBackfillPlan struct {
 	// NilRows is how many ledger rows carry the nil org today.

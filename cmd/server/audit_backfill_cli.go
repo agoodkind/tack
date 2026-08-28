@@ -5,10 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clispec"
@@ -21,9 +17,10 @@ type auditBackfillOrgInput struct {
 // auditBackfillOrgOp declares `audit backfill-org`: the one-time TACK-461
 // move of nil-org ledger rows onto the deployment's sole org. The command
 // takes no target flag on purpose: it derives the org from org_members and
-// refuses unless exactly one exists and the ledger names no other, so a
-// multi-org deployment can never reach the rewrite. Without --execute it
-// reports the derived target and row counts and changes nothing.
+// refuses unless exactly one exists, the ledger names no other, and every
+// nil-org actor belongs to it, so a multi-org deployment can never reach the
+// rewrite. Without --execute it reports the derived target and row counts
+// and changes nothing.
 func auditBackfillOrgOp(f *cli.Factory) clispec.Operation[auditBackfillOrgInput] {
 	return clispec.Operation[auditBackfillOrgInput]{
 		Name:    clispec.Name{Canonical: "backfill-org", CLIOverride: ""},
@@ -35,9 +32,9 @@ func auditBackfillOrgOp(f *cli.Factory) clispec.Operation[auditBackfillOrgInput]
 		Long: "Rewrites every audit.events row recorded under the all-zero org onto the " +
 			"sole org's hash chains: existing rows keep their seq and hashes, each moved " +
 			"row is appended with a recomputed hash, and the nil org's chain heads are " +
-			"removed. Refuses unless org_members holds exactly one org and the ledger " +
-			"names no other. Connects through DATABASE_URL, because the rewrite needs " +
-			"the owning role.",
+			"removed. Refuses unless org_members holds exactly one org, the ledger names " +
+			"no other, and every nil-org actor is a member. Connects through DATABASE_URL, " +
+			"because the rewrite needs the owning role.",
 		Examples: nil,
 		Args:     nil,
 		Params:   nil,
@@ -61,9 +58,10 @@ func runAuditBackfillOrg(ctx context.Context, f *cli.Factory, sink clispec.Resul
 	}
 	defer backfill.Close()
 
-	target, err := deriveBackfillTarget(ctx, backfill.Pool())
+	target, err := backfill.DeriveSoleOrg(ctx)
 	if err != nil {
-		return err
+		slog.ErrorContext(ctx, "audit.backfill_derive_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("audit backfill-org: %w", err)
 	}
 	plan, err := backfill.PlanNilOrgMove(ctx)
 	if err != nil {
@@ -75,7 +73,7 @@ func runAuditBackfillOrg(ctx context.Context, f *cli.Factory, sink clispec.Resul
 		NilRows: plan.NilRows, Shards: plan.Shards, RowsMoved: 0, ShardsTouched: 0, Passes: 0,
 	}
 	if apply {
-		move, err := backfill.MoveNilOrgRows(ctx, target, soleOrgGuard(target))
+		move, err := backfill.MoveNilOrgRows(ctx, target, audit.SoleOrgGuard(target))
 		if err != nil {
 			slog.ErrorContext(ctx, "audit.backfill_move_failed",
 				slog.String("target_org", target.String()), slog.String("err", err.Error()))
@@ -90,127 +88,4 @@ func runAuditBackfillOrg(ctx context.Context, f *cli.Factory, sink clispec.Resul
 		return fmt.Errorf("audit backfill-org: render report: %w", err)
 	}
 	return nil
-}
-
-// deriveBackfillTarget resolves the deployment's sole org and refuses when
-// the sole-org premise does not hold: the mapping "every nil row belongs to
-// this org" is only provable when no other org has ever existed here.
-func deriveBackfillTarget(ctx context.Context, pool *pgxpool.Pool) (uuid.UUID, error) {
-	memberRows, err := pool.Query(ctx, memberOrgsQuery)
-	if err != nil {
-		slog.ErrorContext(ctx, "audit.backfill_member_orgs_failed", slog.String("err", err.Error()))
-		return uuid.Nil, fmt.Errorf("audit backfill-org: list member orgs: %w", err)
-	}
-	memberOrgs, err := collectUUIDs(memberRows)
-	if err != nil {
-		return uuid.Nil, fmt.Errorf("audit backfill-org: list member orgs: %w", err)
-	}
-	if len(memberOrgs) != 1 {
-		return uuid.Nil, fmt.Errorf("audit backfill-org: org_members holds %d orgs, need exactly 1", len(memberOrgs))
-	}
-	target := memberOrgs[0]
-	ledgerRows, err := pool.Query(ctx, ledgerOrgsQuery)
-	if err != nil {
-		slog.ErrorContext(ctx, "audit.backfill_ledger_orgs_failed", slog.String("err", err.Error()))
-		return uuid.Nil, fmt.Errorf("audit backfill-org: list ledger orgs: %w", err)
-	}
-	ledgerOrgs, err := collectUUIDs(ledgerRows)
-	if err != nil {
-		return uuid.Nil, fmt.Errorf("audit backfill-org: list ledger orgs: %w", err)
-	}
-	for _, org := range ledgerOrgs {
-		// Operator commands record under the reserved system org, never a
-		// customer org and never nil, so its rows neither weaken the sole-org
-		// premise nor belong to the move.
-		if org == audit.SystemOrgID() {
-			continue
-		}
-		if org != target {
-			return uuid.Nil, fmt.Errorf("audit backfill-org: ledger names org %s besides the sole member org %s", org, target)
-		}
-	}
-	if err := verifyNilActorsBelong(ctx, pool, target); err != nil {
-		return uuid.Nil, err
-	}
-	return target, nil
-}
-
-// verifyNilActorsBelong checks the durable history the ledger itself holds:
-// every user actor behind a nil-org row must be a member of the target org
-// today. An org deleted from org_members whose events were all nil-stamped
-// is invisible to the membership and ledger-org checks, but its actors are
-// not, so the move refuses rather than absorbing a stranger's history.
-func verifyNilActorsBelong(ctx context.Context, pool *pgxpool.Pool, target uuid.UUID) error {
-	rows, err := pool.Query(ctx, `
-		SELECT DISTINCT e.actor_id FROM audit.events e
-		WHERE e.org_id = '00000000-0000-0000-0000-000000000000'
-		  AND e.actor_kind = 1
-		  AND e.actor_id <> '00000000-0000-0000-0000-000000000000'
-		  AND NOT EXISTS (
-		      SELECT 1 FROM org_members m
-		      WHERE m.user_id = e.actor_id AND m.org_id = $1
-		  )`, target)
-	if err != nil {
-		slog.ErrorContext(ctx, "audit.backfill_nil_actors_failed", slog.String("err", err.Error()))
-		return fmt.Errorf("audit backfill-org: list nil-org actors: %w", err)
-	}
-	strangers, err := collectUUIDs(rows)
-	if err != nil {
-		return fmt.Errorf("audit backfill-org: list nil-org actors: %w", err)
-	}
-	if len(strangers) > 0 {
-		return fmt.Errorf(
-			"audit backfill-org: %d nil-org actor(s) are not members of %s (first: %s): their history cannot be attributed to the sole org",
-			len(strangers), target, strangers[0])
-	}
-	return nil
-}
-
-// memberOrgsQuery and ledgerOrgsQuery are the two premise reads; the guard
-// and the derivation share them verbatim.
-const (
-	memberOrgsQuery = `SELECT DISTINCT org_id FROM org_members`
-	ledgerOrgsQuery = `SELECT DISTINCT org_id FROM audit.events WHERE org_id <> '00000000-0000-0000-0000-000000000000'`
-)
-
-// soleOrgGuard re-asserts the sole-org premise inside every chunk
-// transaction, so a membership created mid-run aborts the move before the
-// next chunk commits instead of silently attributing new history to the
-// wrong org.
-func soleOrgGuard(target uuid.UUID) audit.ShardGuard {
-	return func(ctx context.Context, tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, memberOrgsQuery)
-		if err != nil {
-			slog.ErrorContext(ctx, "audit.backfill_guard_failed", slog.String("err", err.Error()))
-			return fmt.Errorf("audit backfill-org: premise guard: %w", err)
-		}
-		orgs, err := collectUUIDs(rows)
-		if err != nil {
-			return fmt.Errorf("audit backfill-org: premise guard: %w", err)
-		}
-		if len(orgs) != 1 || orgs[0] != target {
-			return fmt.Errorf("audit backfill-org: sole-org premise broke mid-run: org_members holds %d orgs", len(orgs))
-		}
-		return nil
-	}
-}
-
-// collectUUIDs drains an already-opened single-UUID-column query result, so
-// pool-backed and transaction-backed queries share one path.
-func collectUUIDs(rows pgx.Rows) ([]uuid.UUID, error) {
-	defer rows.Close()
-	var out []uuid.UUID
-	for rows.Next() {
-		var id uuid.UUID
-		if err := rows.Scan(&id); err != nil {
-			slog.Error("audit.backfill_distinct_scan_failed", slog.String("err", err.Error()))
-			return nil, fmt.Errorf("distinct org scan: %w", err)
-		}
-		out = append(out, id)
-	}
-	if err := rows.Err(); err != nil {
-		slog.Error("audit.backfill_distinct_rows_failed", slog.String("err", err.Error()))
-		return nil, fmt.Errorf("distinct org rows: %w", err)
-	}
-	return out, nil
 }
