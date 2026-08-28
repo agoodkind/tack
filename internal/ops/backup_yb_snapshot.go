@@ -18,7 +18,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/moby/moby/client"
 
 	"goodkind.io/tack/internal/config"
@@ -273,8 +272,12 @@ const ybSnapshotCleanupMaxRuns = 30
 // still need the tablet files on disk. Snapshots no walked manifest references
 // (runs that failed before their manifest upload, which lands last) are
 // deleted as orphans, except snapshots owned by the PITR snapshot schedule.
-// Best effort throughout: any failure is logged and the new export proceeds,
-// and every kept snapshot is logged with the reason.
+// The orphan pass only runs when the reference set is trustworthy: it is
+// skipped when there are no run prefixes to walk or when any walked run's
+// manifest failed to resolve (a missing manifest counts as resolved), because
+// an incomplete reference set would misclassify a live run's snapshot as an
+// orphan and delete it. Best effort throughout: any failure is logged and the
+// new export proceeds, and every kept snapshot is logged with the reason.
 func cleanupYBPriorExportSnapshots(ctx context.Context, cli *client.Client, cfg *config.Config) {
 	logger := telemetry.L(ctx)
 	s3Client := newBackupS3Client(cfg)
@@ -291,80 +294,130 @@ func cleanupYBPriorExportSnapshots(ctx context.Context, cli *client.Client, cfg 
 		logger.WarnContext(ctx, "backup.yb_snapshot.cleanup_list_snapshots_failed", slog.String("err", err.Error()))
 		return
 	}
-	referenced := map[string]bool{}
-	for _, runID := range runIDs {
-		cleanupYBExportRun(ctx, cli, cfg, s3Client, runID, states, referenced)
+	referenced, orphanPassOK := cleanupYBExportRuns(ctx, runIDs, states,
+		func(runID string) (ybSnapshotManifest, error) {
+			return fetchYBSnapshotManifest(ctx, s3Client, cfg.BackupS3BucketMain, runID)
+		},
+		func(key string) (bool, error) {
+			return objectExists(ctx, s3Client, cfg.BackupS3BucketMain, key)
+		},
+		func(snapshotID string) error {
+			_, delErr := ybAdminOneShot(ctx, cli, cfg, nil, "delete_snapshot", snapshotID)
+			return delErr
+		},
+	)
+	if !orphanPassOK {
+		return
 	}
 	cleanupYBOrphanSnapshots(ctx, cli, cfg, states, referenced)
+}
+
+// cleanupYBExportRuns walks the (already clamped) run prefixes, handling each
+// through cleanupYBExportRun, and decides whether the orphan pass may run.
+// orphanPassOK is false, with the reason logged, when there are no run
+// prefixes to walk or when any walked run's manifest failed to resolve,
+// because either way referenced cannot vouch for which cluster snapshots are
+// orphans. The fetch, exists, and deleteSnapshot closures keep the walk
+// testable without an object store or a cluster.
+func cleanupYBExportRuns(
+	ctx context.Context,
+	runIDs []string,
+	states map[string]ybSnapshotStatus,
+	fetch func(runID string) (ybSnapshotManifest, error),
+	exists func(key string) (bool, error),
+	deleteSnapshot func(snapshotID string) error,
+) (referenced map[string]bool, orphanPassOK bool) {
+	logger := telemetry.L(ctx)
+	referenced = map[string]bool{}
+	if len(runIDs) == 0 {
+		logger.InfoContext(ctx, "backup.yb_snapshot.cleanup_orphans_skipped",
+			slog.String("reason", "no export run prefixes to build the reference set from"))
+		return referenced, false
+	}
+	var unresolved []string
+	for _, runID := range runIDs {
+		if !cleanupYBExportRun(ctx, runID, states, referenced, fetch, exists, deleteSnapshot) {
+			unresolved = append(unresolved, runID)
+		}
+	}
+	if len(unresolved) > 0 {
+		logger.InfoContext(ctx, "backup.yb_snapshot.cleanup_orphans_skipped",
+			slog.String("reason", "manifests for runs "+strings.Join(unresolved, ", ")+
+				" did not resolve, so the reference set is incomplete"))
+		return referenced, false
+	}
+	return referenced, true
 }
 
 // cleanupYBExportRun handles one prior export run: it records the run's
 // snapshot id in referenced so the orphan reconcile leaves it alone, deletes
 // the in-cluster snapshot when every node prefix the manifest lists is filled,
-// and logs why a kept snapshot survives.
+// and logs why a kept snapshot survives. It reports whether the run's manifest
+// resolved cleanly: a NotFound manifest (never uploaded) is clean, while any
+// other fetch or parse failure is not, because that run's snapshot id then
+// never reaches referenced and the orphan pass must not run.
 func cleanupYBExportRun(
 	ctx context.Context,
-	cli *client.Client,
-	cfg *config.Config,
-	s3Client *s3.Client,
 	runID string,
 	states map[string]ybSnapshotStatus,
 	referenced map[string]bool,
-) {
+	fetch func(runID string) (ybSnapshotManifest, error),
+	exists func(key string) (bool, error),
+	deleteSnapshot func(snapshotID string) error,
+) bool {
 	logger := telemetry.L(ctx)
-	manifest, err := fetchYBSnapshotManifest(ctx, s3Client, cfg.BackupS3BucketMain, runID)
+	manifest, err := fetch(runID)
 	if err != nil {
 		if isObjectNotFound(err) {
 			logger.InfoContext(ctx, "backup.yb_snapshot.cleanup_run_skipped",
 				slog.String("run_id", runID), slog.String("reason", "manifest not uploaded"))
-		} else {
-			logger.WarnContext(ctx, "backup.yb_snapshot.cleanup_manifest_failed",
-				slog.String("run_id", runID), slog.String("err", err.Error()))
+			return true
 		}
-		return
+		logger.WarnContext(ctx, "backup.yb_snapshot.cleanup_manifest_failed",
+			slog.String("run_id", runID), slog.String("err", err.Error()))
+		return false
 	}
 	if manifest.SnapshotID == "" {
-		return
+		return true
 	}
 	referenced[manifest.SnapshotID] = true
 	state, inCluster := states[manifest.SnapshotID]
 	if !inCluster {
 		// Already deleted by an earlier cleanup; nothing to do for this run.
-		return
+		return true
 	}
 	if len(manifest.Nodes) == 0 {
 		logger.InfoContext(ctx, "backup.yb_snapshot.snapshot_kept",
 			slog.String("run_id", runID), slog.String("snapshot_id", manifest.SnapshotID),
 			slog.String("reason", "manifest lists no nodes"))
-		return
+		return true
 	}
-	missing, err := missingYBNodeArchives(manifest, func(key string) (bool, error) {
-		return objectExists(ctx, s3Client, cfg.BackupS3BucketMain, key)
-	})
+	missing, err := missingYBNodeArchives(manifest, exists)
 	if err != nil {
 		logger.WarnContext(ctx, "backup.yb_snapshot.cleanup_check_failed",
 			slog.String("run_id", runID), slog.String("err", err.Error()))
-		return
+		return true
 	}
 	if len(missing) > 0 {
 		logger.InfoContext(ctx, "backup.yb_snapshot.snapshot_kept",
 			slog.String("run_id", runID), slog.String("snapshot_id", manifest.SnapshotID),
 			slog.String("reason", "nodes "+strings.Join(missing, ", ")+" have not archived"))
-		return
+		return true
 	}
 	if !ybSnapshotDeletable(state) {
 		logger.InfoContext(ctx, "backup.yb_snapshot.snapshot_kept",
 			slog.String("run_id", runID), slog.String("snapshot_id", manifest.SnapshotID),
 			slog.String("reason", "state "+string(state)+" is not deletable"))
-		return
+		return true
 	}
-	if _, delErr := ybAdminOneShot(ctx, cli, cfg, nil, "delete_snapshot", manifest.SnapshotID); delErr != nil {
+	if delErr := deleteSnapshot(manifest.SnapshotID); delErr != nil {
 		logger.WarnContext(ctx, "backup.yb_snapshot.delete_failed",
 			slog.String("snapshot_id", manifest.SnapshotID), slog.String("err", delErr.Error()))
-		return
+		return true
 	}
 	logger.InfoContext(ctx, "backup.yb_snapshot.prior_snapshot_deleted",
 		slog.String("run_id", runID), slog.String("snapshot_id", manifest.SnapshotID))
+	return true
 }
 
 // cleanupYBOrphanSnapshots deletes in-cluster snapshots that no walked export

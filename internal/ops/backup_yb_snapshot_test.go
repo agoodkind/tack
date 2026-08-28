@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 
 	"goodkind.io/tack/internal/config"
 )
@@ -149,5 +150,115 @@ func TestReconcileYBOrphanSnapshots(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("dispositions:\n got=%+v\nwant=%+v", got, want)
+	}
+}
+
+// ybCleanupManifestFixture is a satisfied one-node manifest for runID whose
+// snapshot id is snapshotID, for cleanupYBExportRuns tests.
+func ybCleanupManifestFixture(runID, snapshotID string) ybSnapshotManifest {
+	return ybSnapshotManifest{
+		RunID:      runID,
+		SnapshotID: snapshotID,
+		Database:   "tack",
+		Nodes:      []ybSnapshotManifestNode{{Name: "yb1", Prefix: "nodes/yb1/"}},
+	}
+}
+
+// TestCleanupYBExportRunsManifestErrorSkipsOrphanPass proves a non-NotFound
+// manifest fetch failure on one run forbids the orphan pass, because that
+// run's snapshot id never reached the reference set, while the satisfied-run
+// deletion for the other walked runs still happens. A NotFound manifest on a
+// third run stays a clean skip and does not forbid anything on its own.
+func TestCleanupYBExportRunsManifestErrorSkipsOrphanPass(t *testing.T) {
+	states := map[string]ybSnapshotStatus{
+		"snap-3":   ybSnapStatusComplete,
+		"orphan-1": ybSnapStatusComplete,
+	}
+	fetch := func(runID string) (ybSnapshotManifest, error) {
+		switch runID {
+		case "run-1":
+			return ybSnapshotManifest{}, fmt.Errorf("get manifest: %w", &s3types.NotFound{})
+		case "run-2":
+			return ybSnapshotManifest{}, fmt.Errorf("get manifest: 503 service unavailable")
+		default:
+			return ybCleanupManifestFixture(runID, "snap-3"), nil
+		}
+	}
+	exists := func(string) (bool, error) { return true, nil }
+	var deleted []string
+	deleteSnapshot := func(snapshotID string) error {
+		deleted = append(deleted, snapshotID)
+		return nil
+	}
+
+	referenced, orphanPassOK := cleanupYBExportRuns(context.Background(),
+		[]string{"run-1", "run-2", "run-3"}, states, fetch, exists, deleteSnapshot)
+
+	if orphanPassOK {
+		t.Fatal("orphan pass allowed even though run-2's manifest fetch failed")
+	}
+	if !reflect.DeepEqual(deleted, []string{"snap-3"}) {
+		t.Fatalf("deleted = %v, want only the satisfied run's snapshot [snap-3]", deleted)
+	}
+	if !referenced["snap-3"] {
+		t.Fatal("satisfied run's snapshot missing from the reference set")
+	}
+}
+
+// TestCleanupYBExportRunsMissingManifestAllowsOrphanPass proves a NotFound
+// manifest counts as cleanly resolved: a run that never uploaded its manifest
+// is exactly what the orphan pass exists to reap, so it must not forbid it.
+func TestCleanupYBExportRunsMissingManifestAllowsOrphanPass(t *testing.T) {
+	states := map[string]ybSnapshotStatus{"snap-2": ybSnapStatusComplete}
+	fetch := func(runID string) (ybSnapshotManifest, error) {
+		if runID == "run-1" {
+			return ybSnapshotManifest{}, fmt.Errorf("get manifest: %w", &s3types.NotFound{})
+		}
+		return ybCleanupManifestFixture(runID, "snap-2"), nil
+	}
+	exists := func(string) (bool, error) { return true, nil }
+	var deleted []string
+	deleteSnapshot := func(snapshotID string) error {
+		deleted = append(deleted, snapshotID)
+		return nil
+	}
+
+	referenced, orphanPassOK := cleanupYBExportRuns(context.Background(),
+		[]string{"run-1", "run-2"}, states, fetch, exists, deleteSnapshot)
+
+	if !orphanPassOK {
+		t.Fatal("orphan pass forbidden even though every manifest resolved cleanly")
+	}
+	if !reflect.DeepEqual(deleted, []string{"snap-2"}) {
+		t.Fatalf("deleted = %v, want [snap-2]", deleted)
+	}
+	if !referenced["snap-2"] {
+		t.Fatal("satisfied run's snapshot missing from the reference set")
+	}
+}
+
+// TestCleanupYBExportRunsNoRunsSkipsOrphanPass proves an empty run listing
+// forbids the orphan pass: with no manifests to reference, every non-schedule
+// cluster snapshot would look like an orphan and be deleted.
+func TestCleanupYBExportRunsNoRunsSkipsOrphanPass(t *testing.T) {
+	fetch := func(string) (ybSnapshotManifest, error) {
+		t.Fatal("fetch must not be called with no run prefixes")
+		return ybSnapshotManifest{}, nil
+	}
+	exists := func(string) (bool, error) { return true, nil }
+	deleteSnapshot := func(snapshotID string) error {
+		t.Fatalf("delete_snapshot issued for %s with no run prefixes", snapshotID)
+		return nil
+	}
+
+	referenced, orphanPassOK := cleanupYBExportRuns(context.Background(),
+		nil, map[string]ybSnapshotStatus{"snap-1": ybSnapStatusComplete},
+		fetch, exists, deleteSnapshot)
+
+	if orphanPassOK {
+		t.Fatal("orphan pass allowed with zero run prefixes")
+	}
+	if len(referenced) != 0 {
+		t.Fatalf("referenced = %v, want empty", referenced)
 	}
 }
