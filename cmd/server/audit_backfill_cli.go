@@ -96,18 +96,26 @@ func runAuditBackfillOrg(ctx context.Context, f *cli.Factory, sink clispec.Resul
 // the sole-org premise does not hold: the mapping "every nil row belongs to
 // this org" is only provable when no other org has ever existed here.
 func deriveBackfillTarget(ctx context.Context, pool *pgxpool.Pool) (uuid.UUID, error) {
-	memberOrgs, err := distinctUUIDs(ctx, pool, memberOrgsQuery)
+	memberRows, err := pool.Query(ctx, memberOrgsQuery)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.backfill_member_orgs_failed", slog.String("err", err.Error()))
+		return uuid.Nil, fmt.Errorf("audit backfill-org: list member orgs: %w", err)
+	}
+	memberOrgs, err := collectUUIDs(memberRows)
+	if err != nil {
 		return uuid.Nil, fmt.Errorf("audit backfill-org: list member orgs: %w", err)
 	}
 	if len(memberOrgs) != 1 {
 		return uuid.Nil, fmt.Errorf("audit backfill-org: org_members holds %d orgs, need exactly 1", len(memberOrgs))
 	}
 	target := memberOrgs[0]
-	ledgerOrgs, err := distinctUUIDs(ctx, pool, ledgerOrgsQuery)
+	ledgerRows, err := pool.Query(ctx, ledgerOrgsQuery)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.backfill_ledger_orgs_failed", slog.String("err", err.Error()))
+		return uuid.Nil, fmt.Errorf("audit backfill-org: list ledger orgs: %w", err)
+	}
+	ledgerOrgs, err := collectUUIDs(ledgerRows)
+	if err != nil {
 		return uuid.Nil, fmt.Errorf("audit backfill-org: list ledger orgs: %w", err)
 	}
 	for _, org := range ledgerOrgs {
@@ -185,15 +193,6 @@ func soleOrgGuard(target uuid.UUID) audit.ShardGuard {
 		}
 		return nil
 	}
-}
-
-func distinctUUIDs(ctx context.Context, pool *pgxpool.Pool, query string) ([]uuid.UUID, error) {
-	rows, err := pool.Query(ctx, query)
-	if err != nil {
-		slog.ErrorContext(ctx, "audit.backfill_distinct_query_failed", slog.String("err", err.Error()))
-		return nil, fmt.Errorf("distinct org query: %w", err)
-	}
-	return collectUUIDs(rows)
 }
 
 // collectUUIDs drains an already-opened single-UUID-column query result, so
