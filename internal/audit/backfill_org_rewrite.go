@@ -2,6 +2,7 @@ package audit
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 
@@ -9,16 +10,75 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// rewriteShardRows appends one shard's nil-org rows onto the target chain and
-// advances the target head. It returns how many rows it rewrote.
-func rewriteShardRows(ctx context.Context, tx pgx.Tx, target uuid.UUID, shard int16, realHead chainHeadState) (int64, error) {
+// moveChunk rewrites up to moveChunkRows of one shard inside one transaction:
+// run the caller's premise guard, read both heads, read the next chunk of nil
+// rows in chain order, append them to the target chain, and advance the
+// target head with the usual compare-and-swap. The chunk that observes the
+// shard empty removes the nil head under the same guard, so a row appended
+// concurrently is never orphaned, and reports the shard done.
+func (b *OrgBackfill) moveChunk(ctx context.Context, target uuid.UUID, shard int16, guard ShardGuard) (int64, bool, error) {
+	tx, err := b.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		slog.ErrorContext(ctx, "audit.backfill.begin_failed", slog.String("err", err.Error()))
+		return 0, false, fmt.Errorf("audit org backfill begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if guard != nil {
+		if err := guard(ctx, tx); err != nil {
+			return 0, false, err
+		}
+	}
+	nilHead, err := readChainHead(ctx, tx, uuid.Nil, shard)
+	if err != nil {
+		return 0, false, err
+	}
+	realHead, err := readChainHead(ctx, tx, target, shard)
+	if err != nil {
+		return 0, false, err
+	}
 	rows, err := nilShardRows(ctx, tx, shard)
 	if err != nil {
-		return 0, err
+		return 0, false, err
 	}
-	if len(rows) == 0 {
-		return 0, nil
+	done := len(rows) == 0
+	if done {
+		if nilHead.Exists {
+			if err := deleteNilHead(ctx, tx, shard, nilHead); err != nil {
+				return 0, false, err
+			}
+		}
+	} else if err := rewriteShardRows(ctx, tx, target, shard, realHead, rows); err != nil {
+		return 0, false, err
 	}
+	if err := tx.Commit(ctx); err != nil {
+		slog.ErrorContext(ctx, "audit.backfill.commit_failed", slog.String("err", err.Error()))
+		return 0, false, fmt.Errorf("audit org backfill commit: %w", err)
+	}
+	return int64(len(rows)), done, nil
+}
+
+// deleteNilHead removes the drained nil chain's head, guarded on the last_seq
+// this transaction read: a concurrent append to the nil chain makes the guard
+// miss, which surfaces as a conflict and reruns the chunk.
+func deleteNilHead(ctx context.Context, tx pgx.Tx, shard int16, head chainHeadState) error {
+	tag, err := tx.Exec(ctx, `
+		DELETE FROM audit.chain_heads
+		WHERE org_id = $1 AND shard = $2 AND last_seq = $3
+	`, uuid.Nil, shard, head.LastSeq)
+	if err != nil {
+		slog.ErrorContext(ctx, "audit.backfill.head_delete_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("audit org backfill head delete: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return errChainConflict
+	}
+	return nil
+}
+
+// rewriteShardRows appends one chunk of nil-org rows onto the target chain
+// and advances the target head.
+func rewriteShardRows(ctx context.Context, tx pgx.Tx, target uuid.UUID, shard int16, realHead chainHeadState, rows []Row) error {
 	seq := realHead.LastSeq
 	prev := realHead.LastHash
 	batch := &pgx.Batch{}
@@ -26,7 +86,7 @@ func rewriteShardRows(ctx context.Context, tx pgx.Tx, target uuid.UUID, shard in
 		seq++
 		rowHash, err := rehashMovedRow(row, target, seq, prev)
 		if err != nil {
-			return 0, err
+			return err
 		}
 		batch.Queue(`
 			UPDATE audit.events
@@ -37,16 +97,43 @@ func rewriteShardRows(ctx context.Context, tx pgx.Tx, target uuid.UUID, shard in
 		prev = rowHash
 	}
 	if err := sendMoveBatch(ctx, tx, batch, shard); err != nil {
-		return 0, err
+		return err
 	}
-	if err := writeChainHead(ctx, tx, target, shard, realHead, seq, prev); err != nil {
-		return 0, err
+	return writeChainHead(ctx, tx, target, shard, realHead, seq, prev)
+}
+
+// rehashMovedRow computes the moved row's current-version hash at its new
+// chain position. The stored context and delta columns are untouched history:
+// the hash canonicalizes them by parsed value, exactly as verification does,
+// so the recomputed hash verifies from the read-back row in one try.
+func rehashMovedRow(row Row, target uuid.UUID, seq int64, prev []byte) ([]byte, error) {
+	row.OrgID = target
+	piiRef := uuid.Nil
+	if row.PIIRef != nil {
+		piiRef = *row.PIIRef
 	}
-	return int64(len(rows)), nil
+	contextJSON, err := json.Marshal(row.Context)
+	if err != nil {
+		slog.Error("audit.backfill.context_encode_failed",
+			slog.String("event_id", row.EventID.String()), slog.String("err", err.Error()))
+		return nil, fmt.Errorf("audit org backfill row %s context: %w", row.EventID, err)
+	}
+	deltaJSON, err := json.Marshal(row.Delta)
+	if err != nil {
+		slog.Error("audit.backfill.delta_encode_failed",
+			slog.String("event_id", row.EventID.String()), slog.String("err", err.Error()))
+		return nil, fmt.Errorf("audit org backfill row %s delta: %w", row.EventID, err)
+	}
+	return hashRowForEvent(rowHashInput{
+		Event:   exportEvent(row),
+		EventID: row.EventID, Shard: row.Shard, Seq: seq,
+		PIIRef: piiRef, ContextJSON: contextJSON, DeltaJSON: deltaJSON,
+		LastHash: prev, Version: auditHashVersionCurrent,
+	})
 }
 
 // sendMoveBatch runs the queued row updates and demands exactly one row per
-// update: a miss means a concurrent writer touched the chain, so the shard
+// update: a miss means a concurrent writer touched the chain, so the chunk
 // reruns rather than committing a partial move.
 func sendMoveBatch(ctx context.Context, tx pgx.Tx, batch *pgx.Batch, shard int16) error {
 	results := tx.SendBatch(ctx, batch)
@@ -65,7 +152,8 @@ func sendMoveBatch(ctx context.Context, tx pgx.Tx, batch *pgx.Batch, shard int16
 	return nil
 }
 
-// nilShardRows reads one shard's nil-org rows in their original chain order.
+// nilShardRows reads the next chunk of one shard's nil-org rows in their
+// original chain order.
 func nilShardRows(ctx context.Context, tx pgx.Tx, shard int16) ([]Row, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT org_id, event_time, event_id, seq, shard,
@@ -75,7 +163,8 @@ func nilShardRows(ctx context.Context, tx pgx.Tx, shard int16) ([]Row, error) {
 		FROM audit.events
 		WHERE org_id = $1 AND shard = $2
 		ORDER BY seq
-	`, uuid.Nil, shard)
+		LIMIT $3
+	`, uuid.Nil, shard, moveChunkRows)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.backfill.row_select_failed",
 			slog.Int("shard", int(shard)), slog.String("err", err.Error()))

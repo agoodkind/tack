@@ -2,7 +2,7 @@ package audit
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -18,40 +18,80 @@ type OrgBackfillMove struct {
 	RowsMoved int64
 	// ShardsTouched is how many chains gained rows.
 	ShardsTouched int
+	// Passes is how many full shard sweeps ran before the ledger held no
+	// nil-org row or head.
+	Passes int
 }
 
-// moveShardAttempts bounds the per-shard retry loop. A retry only fires when
+// ShardGuard runs inside every shard transaction before any row moves. The
+// caller uses it to re-assert the premise that made the move safe (for the
+// org backfill, that org_members still holds exactly the target org), so a
+// premise broken mid-run aborts before the broken shard commits.
+type ShardGuard func(ctx context.Context, tx pgx.Tx) error
+
+// moveShardAttempts bounds the per-chunk retry loop. A retry only fires when
 // a concurrent writer advanced one of the two chain heads mid-transaction.
 const moveShardAttempts = 8
+
+// movePasses bounds the full-sweep loop. Nil rows found on a later pass were
+// appended during the run; with the auth-stamp fix deployed first that does
+// not happen, so exhausting the bound means a live nil-org writer and the
+// move fails loudly instead of reporting success over a growing remainder.
+const movePasses = 3
+
+// moveChunkRows caps how many rows one transaction rewrites, so the process
+// memory and transaction size stay bounded by the chunk, not by the largest
+// historical chain. A variable rather than a constant so the integration
+// test can drive multi-chunk shards with a small corpus.
+var moveChunkRows = 500
 
 // MoveNilOrgRows appends every nil-org row onto the target org's per-shard
 // chains. Rows already on the target's chains keep their seq and hashes
 // byte-identical, so their notarizations stay valid; each moved row gets the
 // next seq on its shard, a prev_hash linking the target's chain head, and a
 // recomputed current-version row hash, in the moved rows' original per-shard
-// order. The nil org's chain heads are removed as each shard drains. A rerun
-// finds no nil rows and moves nothing.
-func (b *OrgBackfill) MoveNilOrgRows(ctx context.Context, target uuid.UUID) (OrgBackfillMove, error) {
-	move := OrgBackfillMove{TargetOrg: target, RowsMoved: 0, ShardsTouched: 0}
+// order. Shards drain in bounded chunks, the nil org's chain head is removed
+// only by the pass that observes its shard empty, and full sweeps repeat
+// until no nil row or head remains. A rerun finds nothing and moves nothing.
+func (b *OrgBackfill) MoveNilOrgRows(ctx context.Context, target uuid.UUID, guard ShardGuard) (OrgBackfillMove, error) {
+	move := OrgBackfillMove{TargetOrg: target, RowsMoved: 0, ShardsTouched: 0, Passes: 0}
 	if b == nil || b.pool == nil {
-		return move, fmt.Errorf("audit org backfill not configured")
+		return move, errors.New("audit org backfill not configured")
 	}
 	if target == uuid.Nil {
-		return move, fmt.Errorf("audit org backfill: target org required")
+		return move, errors.New("audit org backfill: target org required")
 	}
-	shards, err := b.nilShards(ctx)
-	if err != nil {
-		return move, err
-	}
-	for _, shard := range shards {
-		moved, err := b.moveShardWithRetry(ctx, target, shard)
+	touched := map[int16]bool{}
+	for pass := range movePasses {
+		shards, err := b.nilShards(ctx)
 		if err != nil {
 			return move, err
 		}
-		if moved > 0 {
-			move.RowsMoved += moved
-			move.ShardsTouched++
+		move.Passes = pass + 1
+		if len(shards) == 0 {
+			move.ShardsTouched = len(touched)
+			return move, nil
 		}
+		for _, shard := range shards {
+			moved, err := b.drainShard(ctx, target, shard, guard)
+			if err != nil {
+				return move, err
+			}
+			if moved > 0 {
+				move.RowsMoved += moved
+				touched[shard] = true
+			}
+		}
+	}
+	move.ShardsTouched = len(touched)
+	plan, err := b.PlanNilOrgMove(ctx)
+	if err != nil {
+		return move, err
+	}
+	if plan.NilRows > 0 {
+		return move, fmt.Errorf(
+			"audit org backfill: %d nil-org rows remain after %d passes: a live writer is still recording the nil org",
+			plan.NilRows, movePasses)
 	}
 	return move, nil
 }
@@ -86,105 +126,40 @@ func (b *OrgBackfill) nilShards(ctx context.Context) ([]int16, error) {
 	return out, nil
 }
 
-// moveShardWithRetry runs one shard's move in a fresh transaction per
-// attempt, retrying only the conflicts a concurrent chain writer can cause.
-func (b *OrgBackfill) moveShardWithRetry(ctx context.Context, target uuid.UUID, shard int16) (int64, error) {
+// drainShard moves one shard chunk by chunk until a chunk observes it empty
+// and removes the nil head. Each chunk is one transaction, so a crash leaves
+// a consistent prefix moved and a rerun continues from the remainder.
+func (b *OrgBackfill) drainShard(ctx context.Context, target uuid.UUID, shard int16, guard ShardGuard) (int64, error) {
+	var total int64
+	// Progress bound: a chunk either moves at least one row or finishes the
+	// shard, so the shard cannot need more chunks than rows plus one.
+	for {
+		moved, done, err := b.moveChunkWithRetry(ctx, target, shard, guard)
+		if err != nil {
+			return total, err
+		}
+		total += moved
+		if done {
+			return total, nil
+		}
+	}
+}
+
+// moveChunkWithRetry runs one chunk in a fresh transaction per attempt,
+// retrying only the conflicts a concurrent chain writer can cause.
+func (b *OrgBackfill) moveChunkWithRetry(ctx context.Context, target uuid.UUID, shard int16, guard ShardGuard) (int64, bool, error) {
 	var lastErr error
 	for attempt := range moveShardAttempts {
-		moved, err := b.moveShard(ctx, target, shard)
+		moved, done, err := b.moveChunk(ctx, target, shard, guard)
 		if err == nil {
-			return moved, nil
+			return moved, done, nil
 		}
 		lastErr = err
 		if !isRetryableChainErr(err) {
-			return 0, err
+			return 0, false, err
 		}
-		slog.WarnContext(ctx, "audit.backfill.shard_retry",
+		slog.WarnContext(ctx, "audit.backfill.chunk_retry",
 			slog.Int("shard", int(shard)), slog.Int("attempt", attempt+1), slog.String("err", err.Error()))
 	}
-	return 0, fmt.Errorf("audit org backfill shard %d: retries exhausted: %w", shard, lastErr)
-}
-
-// moveShard rewrites one shard inside one transaction: read both heads, read
-// the nil rows in chain order, append them to the target chain, advance the
-// target head with the usual compare-and-swap, and remove the nil head with
-// the same guard so a row appended concurrently is never orphaned.
-func (b *OrgBackfill) moveShard(ctx context.Context, target uuid.UUID, shard int16) (int64, error) {
-	tx, err := b.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		slog.ErrorContext(ctx, "audit.backfill.begin_failed", slog.String("err", err.Error()))
-		return 0, fmt.Errorf("audit org backfill begin: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	nilHead, err := readChainHead(ctx, tx, uuid.Nil, shard)
-	if err != nil {
-		return 0, err
-	}
-	realHead, err := readChainHead(ctx, tx, target, shard)
-	if err != nil {
-		return 0, err
-	}
-	moved, err := rewriteShardRows(ctx, tx, target, shard, realHead)
-	if err != nil {
-		return 0, err
-	}
-	if nilHead.Exists {
-		if err := deleteNilHead(ctx, tx, shard, nilHead); err != nil {
-			return 0, err
-		}
-	}
-	if err := tx.Commit(ctx); err != nil {
-		slog.ErrorContext(ctx, "audit.backfill.commit_failed", slog.String("err", err.Error()))
-		return 0, fmt.Errorf("audit org backfill commit: %w", err)
-	}
-	return moved, nil
-}
-
-// deleteNilHead removes the drained nil chain's head, guarded on the last_seq
-// this transaction read: a concurrent append to the nil chain makes the guard
-// miss, which surfaces as a conflict and reruns the shard.
-func deleteNilHead(ctx context.Context, tx pgx.Tx, shard int16, head chainHeadState) error {
-	tag, err := tx.Exec(ctx, `
-		DELETE FROM audit.chain_heads
-		WHERE org_id = $1 AND shard = $2 AND last_seq = $3
-	`, uuid.Nil, shard, head.LastSeq)
-	if err != nil {
-		slog.ErrorContext(ctx, "audit.backfill.head_delete_failed", slog.String("err", err.Error()))
-		return fmt.Errorf("audit org backfill head delete: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return errChainConflict
-	}
-	return nil
-}
-
-// rehashMovedRow computes the moved row's current-version hash at its new
-// chain position. The stored context and delta columns are untouched history:
-// the hash canonicalizes them by parsed value, exactly as verification does,
-// so the recomputed hash verifies from the read-back row in one try.
-func rehashMovedRow(row Row, target uuid.UUID, seq int64, prev []byte) ([]byte, error) {
-	row.OrgID = target
-	piiRef := uuid.Nil
-	if row.PIIRef != nil {
-		piiRef = *row.PIIRef
-	}
-	contextJSON, err := json.Marshal(row.Context)
-	if err != nil {
-		slog.Error("audit.backfill.context_encode_failed",
-			slog.String("event_id", row.EventID.String()), slog.String("err", err.Error()))
-		return nil, fmt.Errorf("audit org backfill row %s context: %w", row.EventID, err)
-	}
-	deltaJSON, err := json.Marshal(row.Delta)
-	if err != nil {
-		slog.Error("audit.backfill.delta_encode_failed",
-			slog.String("event_id", row.EventID.String()), slog.String("err", err.Error()))
-		return nil, fmt.Errorf("audit org backfill row %s delta: %w", row.EventID, err)
-	}
-	return hashRowForEvent(rowHashInput{
-		Event:   exportEvent(row),
-		EventID: row.EventID, Shard: row.Shard, Seq: seq,
-		PIIRef: piiRef, ContextJSON: contextJSON, DeltaJSON: deltaJSON,
-		LastHash: prev, Version: auditHashVersionCurrent,
-	})
+	return 0, false, fmt.Errorf("audit org backfill shard %d: retries exhausted: %w", shard, lastErr)
 }

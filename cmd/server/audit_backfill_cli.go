@@ -6,6 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"goodkind.io/tack/internal/audit"
@@ -71,10 +72,10 @@ func runAuditBackfillOrg(ctx context.Context, f *cli.Factory, sink clispec.Resul
 	}
 	result := auditBackfillOrgResult{
 		Command: "audit.backfill_org", DryRun: !apply, TargetOrg: target,
-		NilRows: plan.NilRows, Shards: plan.Shards, RowsMoved: 0, ShardsTouched: 0,
+		NilRows: plan.NilRows, Shards: plan.Shards, RowsMoved: 0, ShardsTouched: 0, Passes: 0,
 	}
 	if apply {
-		move, err := backfill.MoveNilOrgRows(ctx, target)
+		move, err := backfill.MoveNilOrgRows(ctx, target, soleOrgGuard(target))
 		if err != nil {
 			slog.ErrorContext(ctx, "audit.backfill_move_failed",
 				slog.String("target_org", target.String()), slog.String("err", err.Error()))
@@ -82,6 +83,7 @@ func runAuditBackfillOrg(ctx context.Context, f *cli.Factory, sink clispec.Resul
 		}
 		result.RowsMoved = move.RowsMoved
 		result.ShardsTouched = move.ShardsTouched
+		result.Passes = move.Passes
 	}
 	if err := clispec.WriteJSONValue(ctx, sink, result); err != nil {
 		slog.ErrorContext(ctx, "audit.backfill_render_failed", slog.String("err", err.Error()))
@@ -123,24 +125,48 @@ func deriveBackfillTarget(ctx context.Context, pool *pgxpool.Pool) (uuid.UUID, e
 	return target, nil
 }
 
+// soleOrgGuard re-asserts the sole-org premise inside every chunk
+// transaction, so a membership created mid-run aborts the move before the
+// next chunk commits instead of silently attributing new history to the
+// wrong org.
+func soleOrgGuard(target uuid.UUID) audit.ShardGuard {
+	return func(ctx context.Context, tx pgx.Tx) error {
+		orgs, err := collectUUIDs(tx.Query(ctx, `SELECT DISTINCT org_id FROM org_members`))
+		if err != nil {
+			slog.ErrorContext(ctx, "audit.backfill_guard_failed", slog.String("err", err.Error()))
+			return fmt.Errorf("audit backfill-org: premise guard: %w", err)
+		}
+		if len(orgs) != 1 || orgs[0] != target {
+			return fmt.Errorf("audit backfill-org: sole-org premise broke mid-run: org_members holds %d orgs", len(orgs))
+		}
+		return nil
+	}
+}
+
 func distinctUUIDs(ctx context.Context, pool *pgxpool.Pool, query string) ([]uuid.UUID, error) {
-	rows, err := pool.Query(ctx, query)
-	if err != nil {
-		slog.ErrorContext(ctx, "audit.backfill_distinct_query_failed", slog.String("err", err.Error()))
-		return nil, fmt.Errorf("distinct org query: %w", err)
+	return collectUUIDs(pool.Query(ctx, query))
+}
+
+// collectUUIDs drains a single-UUID-column query result. It takes the query
+// call's pair directly so pool-backed and transaction-backed queries share
+// one path.
+func collectUUIDs(rows pgx.Rows, queryErr error) ([]uuid.UUID, error) {
+	if queryErr != nil {
+		slog.Error("audit.backfill_distinct_query_failed", slog.String("err", queryErr.Error()))
+		return nil, fmt.Errorf("distinct org query: %w", queryErr)
 	}
 	defer rows.Close()
 	var out []uuid.UUID
 	for rows.Next() {
 		var id uuid.UUID
 		if err := rows.Scan(&id); err != nil {
-			slog.ErrorContext(ctx, "audit.backfill_distinct_scan_failed", slog.String("err", err.Error()))
+			slog.Error("audit.backfill_distinct_scan_failed", slog.String("err", err.Error()))
 			return nil, fmt.Errorf("distinct org scan: %w", err)
 		}
 		out = append(out, id)
 	}
 	if err := rows.Err(); err != nil {
-		slog.ErrorContext(ctx, "audit.backfill_distinct_rows_failed", slog.String("err", err.Error()))
+		slog.Error("audit.backfill_distinct_rows_failed", slog.String("err", err.Error()))
 		return nil, fmt.Errorf("distinct org rows: %w", err)
 	}
 	return out, nil

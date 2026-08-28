@@ -80,6 +80,7 @@ type auditBackfillOrgResult struct {
 	Shards               int       `json:"shards"`
 	RowsMoved            int64     `json:"rows_moved"`
 	ShardsTouched        int       `json:"shards_touched"`
+	Passes               int       `json:"passes"`
 }
 
 // auditGenKeyResult reports a generated audit signing key path.

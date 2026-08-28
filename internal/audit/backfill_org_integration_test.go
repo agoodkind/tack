@@ -3,10 +3,12 @@ package audit
 import (
 	"bytes"
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -105,6 +107,13 @@ func TestMoveNilOrgRowsAppendsAndVerifies(t *testing.T) {
 	const shardWithReal int16 = 21
 	const shardNilOnly int16 = 22
 
+	// Three rows per chunk forces the five-row shard through two chunk
+	// transactions plus the drain pass, so the chunking is exercised rather
+	// than skipped by a small corpus.
+	savedChunk := moveChunkRows
+	moveChunkRows = 3
+	t.Cleanup(func() { moveChunkRows = savedChunk })
+
 	for range 3 {
 		if err := appendWithRetry(ctx, pool, chainTestEvent(t, orgID, shardWithReal)); err != nil {
 			t.Fatalf("seed real row: %v", err)
@@ -132,12 +141,27 @@ func TestMoveNilOrgRowsAppendsAndVerifies(t *testing.T) {
 	if plan.NilRows != 7 || plan.Shards != 2 {
 		t.Fatalf("plan = %+v, want 7 rows over 2 shards", plan)
 	}
-	move, err := backfill.MoveNilOrgRows(ctx, orgID)
+	// A guard that refuses aborts before anything moves: the negative case.
+	refusal := errors.New("premise gone")
+	_, err = backfill.MoveNilOrgRows(ctx, orgID, func(context.Context, pgx.Tx) error { return refusal })
+	if !errors.Is(err, refusal) {
+		t.Fatalf("refusing guard err = %v, want the guard's refusal", err)
+	}
+	if n := countRows(t, pool, `SELECT count(*) FROM audit.events WHERE org_id = $1`, uuid.Nil); n != 7 {
+		t.Fatalf("nil rows after refused move = %d, want the untouched 7", n)
+	}
+
+	guardRuns := 0
+	guard := func(context.Context, pgx.Tx) error { guardRuns++; return nil }
+	move, err := backfill.MoveNilOrgRows(ctx, orgID, guard)
 	if err != nil {
 		t.Fatalf("move: %v", err)
 	}
-	if move.RowsMoved != 7 || move.ShardsTouched != 2 {
-		t.Fatalf("move = %+v, want 7 rows over 2 shards", move)
+	if move.RowsMoved != 7 || move.ShardsTouched != 2 || move.Passes != 2 {
+		t.Fatalf("move = %+v, want 7 rows over 2 shards in 2 passes", move)
+	}
+	if guardRuns < 4 {
+		t.Fatalf("guard ran %d times, want one run per chunk transaction (at least 4)", guardRuns)
 	}
 
 	if n := countRows(t, pool, `SELECT count(*) FROM audit.events WHERE org_id = $1`, uuid.Nil); n != 0 {
@@ -160,7 +184,7 @@ func TestMoveNilOrgRowsAppendsAndVerifies(t *testing.T) {
 	}
 	assertMovedRowsVerify(t, pool, orgID, nilInputs)
 
-	again, err := backfill.MoveNilOrgRows(ctx, orgID)
+	again, err := backfill.MoveNilOrgRows(ctx, orgID, nil)
 	if err != nil {
 		t.Fatalf("rerun: %v", err)
 	}
