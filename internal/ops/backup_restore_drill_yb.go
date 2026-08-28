@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -23,8 +24,9 @@ import (
 // schema or the policy statements fail.
 var ybRolePattern = regexp.MustCompile(`\b(?:tack_)?audit_[a-z_]+\b`)
 
-// restoreDrillYugabyte restores the latest YugabyteDB distributed-snapshot
-// export into a throwaway yugabyted and asserts the auth tables hold rows.
+// restoreDrillYugabyte restores the newest complete YugabyteDB
+// distributed-snapshot export (or the explicitly requested run) into a
+// throwaway yugabyted and asserts the auth tables hold rows.
 func restoreDrillYugabyte(ctx context.Context, r *restoreDrillCtx) error {
 	logger := telemetry.L(ctx)
 	logger.InfoContext(ctx, "backup.restore_drill.yb.start")
@@ -84,35 +86,69 @@ func restoreDrillYugabyte(ctx context.Context, r *restoreDrillCtx) error {
 	return assertYBDrillRows(ctx, r, name, manifest.Database)
 }
 
-// resolveYBDrillExport picks the newest export run and enforces the
-// completeness gate: the run's manifest must name the snapshot, the database,
-// and at least one tablet-server node, and every listed node prefix must hold
-// its archive object. An incomplete run is refused with the missing node names
-// so the operator can see which archive timers have not fired yet.
+// resolveYBDrillExport picks the export run to drill. With an explicit run key
+// (--yb-run-key) that run is used as-is and refused if incomplete, because the
+// operator asked for it specifically. Without one the newest complete run
+// wins: the window between the orchestrator's upload and the last node's
+// archive timer is normal, so manifest-less or incomplete newer runs are
+// skipped with a log line naming the reason, and the drill fails only when no
+// complete run exists at all.
 func resolveYBDrillExport(ctx context.Context, r *restoreDrillCtx, s3Client *s3.Client) (ybSnapshotManifest, error) {
 	logger := telemetry.L(ctx)
-	exportRunID, err := newestYBSnapshotRunID(ctx, s3Client, r.Cfg.BackupS3BucketMain)
+	if r.YBRunKey != "" {
+		return resolveYBDrillExportStrict(ctx, r, s3Client, r.YBRunKey)
+	}
+	runIDs, err := listYBSnapshotRunIDs(ctx, s3Client, r.Cfg.BackupS3BucketMain)
 	if err != nil {
 		return ybSnapshotManifest{}, err
 	}
-	if exportRunID == "" {
+	if len(runIDs) == 0 {
 		wrapped := fmt.Errorf("no yugabyte-snapshot export in bucket %s", r.Cfg.BackupS3BucketMain)
 		logger.ErrorContext(ctx, "backup.restore_drill.yb.no_export", slog.String("err", wrapped.Error()))
 		return ybSnapshotManifest{}, wrapped
 	}
-	logger.InfoContext(ctx, "backup.restore_drill.yb.export", slog.String("run_id", exportRunID))
-
-	manifest, err := fetchYBSnapshotManifest(ctx, s3Client, r.Cfg.BackupS3BucketMain, exportRunID)
+	manifest, found, err := newestCompleteYBSnapshotRun(runIDs,
+		func(runID string) (ybSnapshotManifest, error) {
+			return fetchYBSnapshotManifest(ctx, s3Client, r.Cfg.BackupS3BucketMain, runID)
+		},
+		func(key string) (bool, error) {
+			return objectExists(ctx, s3Client, r.Cfg.BackupS3BucketMain, key)
+		},
+		func(runID, reason string) {
+			logger.InfoContext(ctx, "backup.restore_drill.yb.run_skipped",
+				slog.String("run_id", runID), slog.String("reason", reason))
+		})
 	if err != nil {
 		return ybSnapshotManifest{}, err
 	}
-	if manifest.SnapshotID == "" || manifest.Database == "" {
-		wrapped := fmt.Errorf("yb drill manifest missing snapshot_id or database")
-		logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", wrapped.Error()))
+	if !found {
+		wrapped := fmt.Errorf("no complete yugabyte-snapshot export run in bucket %s: every run is missing its manifest or node archives",
+			r.Cfg.BackupS3BucketMain)
+		logger.ErrorContext(ctx, "backup.restore_drill.yb.incomplete", slog.String("err", wrapped.Error()))
 		return ybSnapshotManifest{}, wrapped
 	}
-	if len(manifest.Nodes) == 0 {
-		wrapped := fmt.Errorf("yb drill manifest for run %s lists no tablet-server nodes; refusing the run", exportRunID)
+	logger.InfoContext(ctx, "backup.restore_drill.yb.export", slog.String("run_id", manifest.RunID))
+	return manifest, nil
+}
+
+// resolveYBDrillExportStrict enforces the completeness gate on one explicitly
+// requested export run: the manifest must name the snapshot, the database, and
+// at least one tablet-server node, and every listed node prefix must hold its
+// archive object. An incomplete run is refused with the missing node names so
+// the operator can see which archive timers have not fired yet.
+func resolveYBDrillExportStrict(
+	ctx context.Context,
+	r *restoreDrillCtx,
+	s3Client *s3.Client,
+	runID string,
+) (ybSnapshotManifest, error) {
+	logger := telemetry.L(ctx)
+	manifest, err := fetchYBSnapshotManifest(ctx, s3Client, r.Cfg.BackupS3BucketMain, runID)
+	if err != nil {
+		return ybSnapshotManifest{}, err
+	}
+	if defect := ybDrillManifestDefect(manifest); defect != "" {
+		wrapped := fmt.Errorf("yb drill manifest for run %s: %s; refusing the run", runID, defect)
 		logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", wrapped.Error()))
 		return ybSnapshotManifest{}, wrapped
 	}
@@ -124,11 +160,64 @@ func resolveYBDrillExport(ctx context.Context, r *restoreDrillCtx, s3Client *s3.
 	}
 	if len(missing) > 0 {
 		wrapped := fmt.Errorf("yb snapshot export run %s is incomplete: nodes %s have not uploaded their archives; refusing the run",
-			exportRunID, strings.Join(missing, ", "))
+			runID, strings.Join(missing, ", "))
 		logger.ErrorContext(ctx, "backup.restore_drill.yb.incomplete", slog.String("err", wrapped.Error()))
 		return ybSnapshotManifest{}, wrapped
 	}
+	logger.InfoContext(ctx, "backup.restore_drill.yb.export", slog.String("run_id", runID))
 	return manifest, nil
+}
+
+// newestCompleteYBSnapshotRun walks runIDs (sorted ascending) newest-first and
+// returns the first run whose manifest is present, well-formed, and fully
+// archived. skip is called with the run id and the reason for every run passed
+// over, so the operator can see why an older export was chosen. found is false
+// when no walked run is complete. Fetch errors other than a missing manifest
+// and archive-existence errors abort the walk, because a transient store error
+// must not silently demote the drill to an older run.
+func newestCompleteYBSnapshotRun(
+	runIDs []string,
+	fetch func(runID string) (ybSnapshotManifest, error),
+	exists func(key string) (bool, error),
+	skip func(runID, reason string),
+) (manifest ybSnapshotManifest, found bool, err error) {
+	for _, runID := range slices.Backward(runIDs) {
+		candidate, fetchErr := fetch(runID)
+		if fetchErr != nil {
+			if isObjectNotFound(fetchErr) {
+				skip(runID, "manifest not uploaded")
+				continue
+			}
+			return manifest, false, fetchErr
+		}
+		if defect := ybDrillManifestDefect(candidate); defect != "" {
+			skip(runID, defect)
+			continue
+		}
+		missing, missingErr := missingYBNodeArchives(candidate, exists)
+		if missingErr != nil {
+			return manifest, false, missingErr
+		}
+		if len(missing) > 0 {
+			skip(runID, "nodes "+strings.Join(missing, ", ")+" have not uploaded their archives")
+			continue
+		}
+		return candidate, true, nil
+	}
+	return manifest, false, nil
+}
+
+// ybDrillManifestDefect reports why a manifest cannot be drilled, or "" when
+// it is well-formed: the manifest must name the snapshot and the database, and
+// a manifest that lists no tablet-server nodes would gate nothing.
+func ybDrillManifestDefect(manifest ybSnapshotManifest) string {
+	if manifest.SnapshotID == "" || manifest.Database == "" {
+		return "manifest missing snapshot_id or database"
+	}
+	if len(manifest.Nodes) == 0 {
+		return "manifest lists no tablet-server nodes"
+	}
+	return ""
 }
 
 // stageYBDrillArtifacts downloads the run's metadata, schema, and every node
@@ -143,7 +232,7 @@ func stageYBDrillArtifacts(
 	stageDir string,
 ) ([]string, error) {
 	srcPrefix := ybSnapshotKeyPrefix(manifest.RunID)
-	for _, name := range []string{"metadata.snapshot", "schema.sql"} {
+	for _, name := range []string{ybSnapshotMetadataObject, "schema.sql"} {
 		if err := getObjectToFile(ctx, s3Client, r.Cfg.BackupS3BucketMain, srcPrefix+name, filepath.Join(stageDir, name)); err != nil {
 			return nil, err
 		}

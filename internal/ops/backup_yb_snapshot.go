@@ -9,13 +9,16 @@ package ops
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/moby/moby/client"
 
 	"goodkind.io/tack/internal/config"
@@ -97,7 +100,7 @@ func RunBackupYBSnapshotExport(ctx context.Context, cfg *config.Config) error {
 	// archived its tablet files, so cleanup happens here rather than at the end
 	// of the run that created it. Best effort: a failed cleanup must not block
 	// a new export.
-	cleanupYBPriorExportSnapshot(ctx, cli, cfg)
+	cleanupYBPriorExportSnapshots(ctx, cli, cfg)
 
 	createRes, err := ybAdminOneShot(ctx, cli, cfg, nil, "create_database_snapshot", filter)
 	if err != nil {
@@ -150,10 +153,9 @@ func exportYBSnapshotToObjectStore(
 	cfg *config.Config,
 	runID, stageDir, snapshotID string,
 ) error {
-	const metaName = "metadata.snapshot"
 	if _, err := ybAdminOneShot(ctx, cli, cfg,
 		[]string{stageDir + ":/out"},
-		"export_snapshot", snapshotID, "/out/"+metaName); err != nil {
+		"export_snapshot", snapshotID, "/out/"+ybSnapshotMetadataObject); err != nil {
 		return err
 	}
 
@@ -173,11 +175,11 @@ func exportYBSnapshotToObjectStore(
 		return err
 	}
 
-	return uploadYBSnapshotArtifacts(ctx, cfg, runID, map[string]string{
-		ybSnapshotManifestObject: manifestPath,
-		metaName:                 filepath.Join(stageDir, metaName),
-		"schema.sql":             schemaPath,
-	})
+	// The manifest uploads last: archivers and the restore drill treat a
+	// manifest-less run prefix as not yet published, so a failure part-way
+	// through the uploads can never leave a manifest gating absent objects.
+	return uploadYBSnapshotArtifacts(ctx, cfg, runID,
+		ybSnapshotUploadArtifacts(stageDir, schemaPath, manifestPath))
 }
 
 // listYBTabletServerNodes derives the tablet-server node names live from
@@ -257,25 +259,83 @@ func dumpYBSchemaOneShot(ctx context.Context, cli *client.Client, cfg *config.Co
 	return nil
 }
 
-// cleanupYBPriorExportSnapshot deletes the newest prior export run's in-cluster
-// snapshot once every node prefix its manifest lists is filled. Runs whose
-// manifests are still incomplete keep their snapshot, because the lagging
-// nodes' archive timers still need the tablet files on disk. Best effort
-// throughout: any failure is logged and the new export proceeds.
-func cleanupYBPriorExportSnapshot(ctx context.Context, cli *client.Client, cfg *config.Config) {
+// ybSnapshotCleanupMaxRuns bounds how many of the newest export run prefixes
+// the pre-export cleanup examines. The archivers only ever fill the newest
+// manifest, so a run still incomplete after this many newer exports will never
+// complete; its snapshot then falls to the orphan reconcile instead of being
+// tracked forever.
+const ybSnapshotCleanupMaxRuns = 30
+
+// cleanupYBPriorExportSnapshots reconciles the cluster's snapshots against the
+// export run prefixes before a new export starts. Every walked prior run whose
+// manifest is fully archived loses its in-cluster snapshot; runs still waiting
+// on node archives keep theirs, because the lagging nodes' archive timers
+// still need the tablet files on disk. Snapshots no walked manifest references
+// (runs that failed before their manifest upload, which lands last) are
+// deleted as orphans, except snapshots owned by the PITR snapshot schedule.
+// Best effort throughout: any failure is logged and the new export proceeds,
+// and every kept snapshot is logged with the reason.
+func cleanupYBPriorExportSnapshots(ctx context.Context, cli *client.Client, cfg *config.Config) {
 	logger := telemetry.L(ctx)
 	s3Client := newBackupS3Client(cfg)
-	runID, err := newestYBSnapshotRunID(ctx, s3Client, cfg.BackupS3BucketMain)
-	if err != nil || runID == "" {
+	runIDs, err := listYBSnapshotRunIDs(ctx, s3Client, cfg.BackupS3BucketMain)
+	if err != nil {
+		logger.WarnContext(ctx, "backup.yb_snapshot.cleanup_list_failed", slog.String("err", err.Error()))
 		return
 	}
+	if len(runIDs) > ybSnapshotCleanupMaxRuns {
+		runIDs = runIDs[len(runIDs)-ybSnapshotCleanupMaxRuns:]
+	}
+	states, err := listYBClusterSnapshots(ctx, cli, cfg)
+	if err != nil {
+		logger.WarnContext(ctx, "backup.yb_snapshot.cleanup_list_snapshots_failed", slog.String("err", err.Error()))
+		return
+	}
+	referenced := map[string]bool{}
+	for _, runID := range runIDs {
+		cleanupYBExportRun(ctx, cli, cfg, s3Client, runID, states, referenced)
+	}
+	cleanupYBOrphanSnapshots(ctx, cli, cfg, states, referenced)
+}
+
+// cleanupYBExportRun handles one prior export run: it records the run's
+// snapshot id in referenced so the orphan reconcile leaves it alone, deletes
+// the in-cluster snapshot when every node prefix the manifest lists is filled,
+// and logs why a kept snapshot survives.
+func cleanupYBExportRun(
+	ctx context.Context,
+	cli *client.Client,
+	cfg *config.Config,
+	s3Client *s3.Client,
+	runID string,
+	states map[string]ybSnapshotStatus,
+	referenced map[string]bool,
+) {
+	logger := telemetry.L(ctx)
 	manifest, err := fetchYBSnapshotManifest(ctx, s3Client, cfg.BackupS3BucketMain, runID)
 	if err != nil {
-		logger.WarnContext(ctx, "backup.yb_snapshot.cleanup_manifest_failed",
-			slog.String("run_id", runID), slog.String("err", err.Error()))
+		if isObjectNotFound(err) {
+			logger.InfoContext(ctx, "backup.yb_snapshot.cleanup_run_skipped",
+				slog.String("run_id", runID), slog.String("reason", "manifest not uploaded"))
+		} else {
+			logger.WarnContext(ctx, "backup.yb_snapshot.cleanup_manifest_failed",
+				slog.String("run_id", runID), slog.String("err", err.Error()))
+		}
 		return
 	}
-	if len(manifest.Nodes) == 0 || manifest.SnapshotID == "" {
+	if manifest.SnapshotID == "" {
+		return
+	}
+	referenced[manifest.SnapshotID] = true
+	state, inCluster := states[manifest.SnapshotID]
+	if !inCluster {
+		// Already deleted by an earlier cleanup; nothing to do for this run.
+		return
+	}
+	if len(manifest.Nodes) == 0 {
+		logger.InfoContext(ctx, "backup.yb_snapshot.snapshot_kept",
+			slog.String("run_id", runID), slog.String("snapshot_id", manifest.SnapshotID),
+			slog.String("reason", "manifest lists no nodes"))
 		return
 	}
 	missing, err := missingYBNodeArchives(manifest, func(key string) (bool, error) {
@@ -287,8 +347,15 @@ func cleanupYBPriorExportSnapshot(ctx context.Context, cli *client.Client, cfg *
 		return
 	}
 	if len(missing) > 0 {
-		logger.InfoContext(ctx, "backup.yb_snapshot.cleanup_pending",
-			slog.String("run_id", runID), slog.Any("missing_nodes", missing))
+		logger.InfoContext(ctx, "backup.yb_snapshot.snapshot_kept",
+			slog.String("run_id", runID), slog.String("snapshot_id", manifest.SnapshotID),
+			slog.String("reason", "nodes "+strings.Join(missing, ", ")+" have not archived"))
+		return
+	}
+	if !ybSnapshotDeletable(state) {
+		logger.InfoContext(ctx, "backup.yb_snapshot.snapshot_kept",
+			slog.String("run_id", runID), slog.String("snapshot_id", manifest.SnapshotID),
+			slog.String("reason", "state "+string(state)+" is not deletable"))
 		return
 	}
 	if _, delErr := ybAdminOneShot(ctx, cli, cfg, nil, "delete_snapshot", manifest.SnapshotID); delErr != nil {
@@ -298,6 +365,179 @@ func cleanupYBPriorExportSnapshot(ctx context.Context, cli *client.Client, cfg *
 	}
 	logger.InfoContext(ctx, "backup.yb_snapshot.prior_snapshot_deleted",
 		slog.String("run_id", runID), slog.String("snapshot_id", manifest.SnapshotID))
+}
+
+// cleanupYBOrphanSnapshots deletes in-cluster snapshots that no walked export
+// run manifest references, the leftovers of exports that failed after
+// create_database_snapshot but before their manifest upload. Snapshots owned
+// by the PITR snapshot schedule are never touched: the schedule retains them,
+// not an export run. When the schedule listing fails the orphan pass is
+// skipped entirely, because export orphans cannot be told apart from schedule
+// snapshots without it.
+func cleanupYBOrphanSnapshots(
+	ctx context.Context,
+	cli *client.Client,
+	cfg *config.Config,
+	states map[string]ybSnapshotStatus,
+	referenced map[string]bool,
+) {
+	logger := telemetry.L(ctx)
+	unreferenced := false
+	for id := range states {
+		if !referenced[id] {
+			unreferenced = true
+			break
+		}
+	}
+	if !unreferenced {
+		return
+	}
+	scheduleOwned, err := listYBScheduleSnapshotIDs(ctx, cli, cfg)
+	if err != nil {
+		logger.WarnContext(ctx, "backup.yb_snapshot.cleanup_schedules_failed", slog.String("err", err.Error()))
+		return
+	}
+	var kept []string
+	var deleted []string
+	for _, disposition := range reconcileYBOrphanSnapshots(states, referenced, scheduleOwned) {
+		if !disposition.delete {
+			kept = append(kept, disposition.id+": "+disposition.reason)
+			continue
+		}
+		if _, delErr := ybAdminOneShot(ctx, cli, cfg, nil, "delete_snapshot", disposition.id); delErr != nil {
+			logger.WarnContext(ctx, "backup.yb_snapshot.delete_failed",
+				slog.String("snapshot_id", disposition.id), slog.String("err", delErr.Error()))
+			continue
+		}
+		deleted = append(deleted, disposition.id)
+	}
+	if len(kept) > 0 {
+		logger.InfoContext(ctx, "backup.yb_snapshot.snapshots_kept", slog.Any("snapshots", kept))
+	}
+	if len(deleted) > 0 {
+		logger.InfoContext(ctx, "backup.yb_snapshot.orphan_snapshots_deleted",
+			slog.Any("snapshot_ids", deleted),
+			slog.String("reason", "no export run manifest references them"))
+	}
+}
+
+// ybOrphanSnapshotDisposition is the reconcile verdict for one in-cluster
+// snapshot that no walked export run manifest references.
+type ybOrphanSnapshotDisposition struct {
+	id     string
+	delete bool
+	reason string
+}
+
+// reconcileYBOrphanSnapshots classifies every cluster snapshot no walked run
+// manifest references: schedule-owned snapshots and snapshots in a
+// non-deletable state are kept with a reason, and the rest are orphans from
+// exports that failed before their manifest upload. Sorted by id so the log
+// order is deterministic.
+func reconcileYBOrphanSnapshots(
+	states map[string]ybSnapshotStatus,
+	referenced, scheduleOwned map[string]bool,
+) []ybOrphanSnapshotDisposition {
+	ids := make([]string, 0, len(states))
+	for id := range states {
+		if !referenced[id] {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	dispositions := make([]ybOrphanSnapshotDisposition, 0, len(ids))
+	for _, id := range ids {
+		switch {
+		case scheduleOwned[id]:
+			dispositions = append(dispositions, ybOrphanSnapshotDisposition{
+				id: id, delete: false, reason: "owned by a snapshot schedule",
+			})
+		case !ybSnapshotDeletable(states[id]):
+			dispositions = append(dispositions, ybOrphanSnapshotDisposition{
+				id: id, delete: false, reason: "state " + string(states[id]) + " is not deletable",
+			})
+		default:
+			dispositions = append(dispositions, ybOrphanSnapshotDisposition{
+				id: id, delete: true, reason: "no export run manifest references it",
+			})
+		}
+	}
+	return dispositions
+}
+
+// ybSnapshotDeletable reports whether delete_snapshot can act on a snapshot in
+// this state. CREATING snapshots are left for a later cleanup, and snapshots
+// already DELETING or DELETED are going away on their own.
+func ybSnapshotDeletable(state ybSnapshotStatus) bool {
+	return state == ybSnapStatusComplete || state == ybSnapStatusFailed
+}
+
+// listYBClusterSnapshots returns every snapshot the cluster reports, id to
+// state, via a list_snapshots one-shot.
+func listYBClusterSnapshots(ctx context.Context, cli *client.Client, cfg *config.Config) (map[string]ybSnapshotStatus, error) {
+	res, err := ybAdminOneShot(ctx, cli, cfg, nil, "list_snapshots")
+	if err != nil {
+		return nil, err
+	}
+	return parseYBClusterSnapshots(res.Stdout), nil
+}
+
+// parseYBClusterSnapshots parses list_snapshots output into id to state. Data
+// rows start with the snapshot UUID and carry the state second; the
+// restoration section that can follow the snapshot rows is ignored, because
+// restoration ids are also UUIDs and must not be mistaken for snapshots.
+func parseYBClusterSnapshots(stdout string) map[string]ybSnapshotStatus {
+	states := map[string]ybSnapshotStatus{}
+	for line := range strings.SplitSeq(stdout, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		if fields[0] == "Restoration" {
+			break
+		}
+		if len(fields) < 2 || !ybUUIDPattern.MatchString(fields[0]) {
+			continue
+		}
+		states[fields[0]] = ybSnapshotStatus(fields[1])
+	}
+	return states
+}
+
+// listYBScheduleSnapshotIDs returns the ids of every snapshot owned by a
+// snapshot schedule (the PITR layer), via a list_snapshot_schedules one-shot.
+func listYBScheduleSnapshotIDs(ctx context.Context, cli *client.Client, cfg *config.Config) (map[string]bool, error) {
+	res, err := ybAdminOneShot(ctx, cli, cfg, nil, "list_snapshot_schedules")
+	if err != nil {
+		return nil, err
+	}
+	return unmarshalYBScheduleSnapshotIDs(ctx, res.Stdout)
+}
+
+// unmarshalYBScheduleSnapshotIDs decodes list_snapshot_schedules JSON output
+// ({"schedules":[{"id":...,"snapshots":[{"id":...}]}]}) into the set of
+// schedule-owned snapshot ids.
+func unmarshalYBScheduleSnapshotIDs(ctx context.Context, stdout string) (map[string]bool, error) {
+	var parsed struct {
+		Schedules []struct {
+			Snapshots []struct {
+				ID string `json:"id"`
+			} `json:"snapshots"`
+		} `json:"schedules"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &parsed); err != nil {
+		wrapped := fmt.Errorf("parse list_snapshot_schedules output: %w", err)
+		telemetry.L(ctx).WarnContext(ctx, "backup.yb_snapshot.schedules_unparseable",
+			slog.String("err", wrapped.Error()))
+		return nil, wrapped
+	}
+	owned := map[string]bool{}
+	for _, schedule := range parsed.Schedules {
+		for _, snapshot := range schedule.Snapshots {
+			owned[snapshot.ID] = true
+		}
+	}
+	return owned, nil
 }
 
 // ybAdminOneShot runs one yb-admin subcommand in a one-shot container on the

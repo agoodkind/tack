@@ -105,10 +105,13 @@ func RunBackupYBArchiveNode(ctx context.Context, cfg *config.Config, runID strin
 
 // resolveYBArchiveTarget decides what, if anything, this node must archive.
 // A nil target with a nil error is the quiet nothing-to-do outcome, reachable
-// only in discovery mode (empty runID): no manifest exists yet, the newest
+// only in discovery mode (empty runID): no run has a manifest yet, the newest
 // manifest does not list this node, or this node's archive is already
-// uploaded. With an explicit runID an unlisted node is an error, because the
-// operator asked for that run specifically.
+// uploaded. The orchestrator uploads the manifest last, so discovery walks
+// past manifest-less run prefixes (runs that never finished) instead of
+// treating them as errors. With an explicit runID a missing manifest or an
+// unlisted node is an error, because the operator asked for that run
+// specifically.
 func resolveYBArchiveTarget(
 	ctx context.Context,
 	cfg *config.Config,
@@ -117,27 +120,30 @@ func resolveYBArchiveTarget(
 ) (*ybArchiveTarget, error) {
 	logger := telemetry.L(ctx)
 	discovered := runID == ""
+	var manifest ybSnapshotManifest
 	if discovered {
-		newest, err := newestYBSnapshotRunID(ctx, s3Client, cfg.BackupS3BucketMain)
+		newest, found, err := newestUploadedYBSnapshotManifest(ctx, s3Client, cfg.BackupS3BucketMain)
 		if err != nil {
 			return nil, err
 		}
-		if newest == "" {
+		if !found {
 			logger.InfoContext(ctx, "backup.yb_archive.no_manifest", slog.String("node", nodeName))
 			return nil, nil
 		}
-		runID = newest
+		manifest = newest
+	} else {
+		fetched, err := fetchYBSnapshotManifest(ctx, s3Client, cfg.BackupS3BucketMain, runID)
+		if err != nil {
+			return nil, err
+		}
+		manifest = fetched
 	}
 
-	manifest, err := fetchYBSnapshotManifest(ctx, s3Client, cfg.BackupS3BucketMain, runID)
-	if err != nil {
-		return nil, err
-	}
 	prefix, listed := manifest.nodePrefix(nodeName)
 	if !listed {
 		if discovered {
 			logger.InfoContext(ctx, "backup.yb_archive.node_not_listed",
-				slog.String("run_id", runID), slog.String("node", nodeName))
+				slog.String("run_id", manifest.RunID), slog.String("node", nodeName))
 			return nil, nil
 		}
 		err := fmt.Errorf("yb-archive-node: manifest for run %s does not list node %q", runID, nodeName)

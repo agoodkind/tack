@@ -1,9 +1,12 @@
 // backup_yb_manifest.go is the completeness contract between the yb snapshot
 // export orchestrator, the per-node archive command, and the restore drill.
-// The orchestrator writes a manifest listing every tablet-server node and the
-// object-store prefix that node must fill; each data guest's archive command
-// uploads its own tablet tar under its prefix; the restore drill refuses a run
-// whose manifest lists a node prefix with no archive object behind it.
+// The orchestrator writes a manifest listing every live tablet-server node and
+// the object-store prefix that node must fill, and uploads it last so a
+// manifest's presence implies every other run artifact landed; each data
+// guest's archive command uploads its own tablet tar under its prefix; the
+// restore drill never uses a run whose manifest lists a node prefix with no
+// archive object behind it (skipping it in discovery, refusing it when the
+// run was requested explicitly).
 
 package ops
 
@@ -15,6 +18,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -34,6 +38,9 @@ const (
 	// ybSnapshotManifestObject is the manifest's object base name under the
 	// run's key prefix.
 	ybSnapshotManifestObject = "manifest.json"
+	// ybSnapshotMetadataObject is the exported snapshot metadata's object base
+	// name under the run's key prefix.
+	ybSnapshotMetadataObject = "metadata.snapshot"
 	// ybNodeArchiveObject is the tablet archive's object base name under each
 	// node's prefix.
 	ybNodeArchiveObject = "tablets.tar.gz"
@@ -111,16 +118,26 @@ func missingYBNodeArchives(manifest ybSnapshotManifest, exists func(key string) 
 	return missing, nil
 }
 
+// ybTabletServerAliveStatus is the Status column value of a live tablet
+// server in yb-admin list_all_tablet_servers output.
+const ybTabletServerAliveStatus = "ALIVE"
+
 // parseYBTabletServers extracts the tablet-server node names from yb-admin
-// list_all_tablet_servers output. Data rows start with the server UUID and
-// carry the advertised RPC host:port in the second column; the host is the
-// node name the compose deploy announces (never an address, per the identity
-// contract in docker-compose.yml). Names are deduplicated and sorted.
+// list_all_tablet_servers output. Data rows start with the server UUID, carry
+// the advertised RPC host:port in the second column, and report liveness in
+// the fourth (Status) column. Only ALIVE servers are included: a DEAD server
+// can never archive its tablets, so listing it in the manifest would block
+// the completeness gate and every restore forever. The host is the node name
+// the compose deploy announces (never an address, per the identity contract
+// in docker-compose.yml). Names are deduplicated and sorted.
 func parseYBTabletServers(stdout string) []string {
 	seen := map[string]bool{}
 	for line := range strings.SplitSeq(stdout, "\n") {
 		fields := strings.Fields(line)
-		if len(fields) < 2 || !ybUUIDPattern.MatchString(fields[0]) {
+		if len(fields) < 4 || !ybUUIDPattern.MatchString(fields[0]) {
+			continue
+		}
+		if fields[3] != ybTabletServerAliveStatus {
 			continue
 		}
 		seen[hostFromHostPort(fields[1])] = true
@@ -152,7 +169,10 @@ func hostFromHostPort(hostPort string) string {
 }
 
 // fetchYBSnapshotManifest downloads and decodes the manifest of one export
-// run. The manifest is small, so it is read into memory rather than staged.
+// run. The manifest is small, so it is read into memory rather than staged. A
+// missing manifest comes back as a NotFound-wrapped error without an error
+// log, because the orchestrator uploads the manifest last and walkers over the
+// run prefixes probe for it, treating absence as a skip rather than a failure.
 func fetchYBSnapshotManifest(ctx context.Context, client *s3.Client, bucket, runID string) (ybSnapshotManifest, error) {
 	logger := telemetry.L(ctx)
 	key := ybSnapshotKeyPrefix(runID) + ybSnapshotManifestObject
@@ -162,7 +182,9 @@ func fetchYBSnapshotManifest(ctx context.Context, client *s3.Client, bucket, run
 	})
 	if err != nil {
 		wrapped := fmt.Errorf("get yb snapshot manifest %s/%s: %w", bucket, key, err)
-		logger.ErrorContext(ctx, "backup.s3.get_failed", slog.String("err", wrapped.Error()))
+		if !isObjectNotFound(err) {
+			logger.ErrorContext(ctx, "backup.s3.get_failed", slog.String("err", wrapped.Error()))
+		}
 		return ybSnapshotManifest{}, wrapped
 	}
 	defer out.Body.Close()
@@ -181,20 +203,60 @@ func fetchYBSnapshotManifest(ctx context.Context, client *s3.Client, bucket, run
 	return manifest, nil
 }
 
-// newestYBSnapshotRunID returns the run id of the newest export prefix in the
-// bucket, or "" when no export exists yet. Run ids are UTC timestamps, so the
-// lexicographic maximum is the newest.
-func newestYBSnapshotRunID(ctx context.Context, client *s3.Client, bucket string) (string, error) {
+// listYBSnapshotRunIDs returns every export run id in the bucket, sorted
+// ascending. Run ids are UTC timestamps, so the last element is the newest.
+func listYBSnapshotRunIDs(ctx context.Context, client *s3.Client, bucket string) ([]string, error) {
 	prefixes, err := listImmediatePrefixes(ctx, client, bucket, ybSnapshotRootPrefix)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	if len(prefixes) == 0 {
-		return "", nil
+	runIDs := make([]string, 0, len(prefixes))
+	for _, prefix := range prefixes {
+		runIDs = append(runIDs, strings.TrimSuffix(strings.TrimPrefix(prefix, ybSnapshotRootPrefix), "/"))
 	}
-	sort.Strings(prefixes)
-	newest := prefixes[len(prefixes)-1]
-	return strings.TrimSuffix(strings.TrimPrefix(newest, ybSnapshotRootPrefix), "/"), nil
+	sort.Strings(runIDs)
+	return runIDs, nil
+}
+
+// newestUploadedYBSnapshotManifest walks the export run prefixes newest-first
+// and returns the newest run whose manifest object exists. The orchestrator
+// uploads the manifest last, so a manifest-less prefix is a run that has not
+// finished (or never will); those are skipped and logged in one summary rather
+// than treated as errors. found is false when no run has a manifest yet.
+func newestUploadedYBSnapshotManifest(
+	ctx context.Context,
+	client *s3.Client,
+	bucket string,
+) (manifest ybSnapshotManifest, found bool, err error) {
+	runIDs, err := listYBSnapshotRunIDs(ctx, client, bucket)
+	if err != nil {
+		return manifest, false, err
+	}
+	var skipped []string
+	for _, runID := range slices.Backward(runIDs) {
+		candidate, fetchErr := fetchYBSnapshotManifest(ctx, client, bucket, runID)
+		if fetchErr != nil {
+			if isObjectNotFound(fetchErr) {
+				skipped = append(skipped, runID)
+				continue
+			}
+			return manifest, false, fetchErr
+		}
+		logSkippedYBRuns(ctx, skipped)
+		return candidate, true, nil
+	}
+	logSkippedYBRuns(ctx, skipped)
+	return manifest, false, nil
+}
+
+// logSkippedYBRuns logs one summary for the manifest-less run prefixes a walk
+// skipped, so the skips stay visible without a log line per run.
+func logSkippedYBRuns(ctx context.Context, skipped []string) {
+	if len(skipped) == 0 {
+		return
+	}
+	telemetry.L(ctx).InfoContext(ctx, "backup.yb_snapshot.runs_skipped",
+		slog.Any("run_ids", skipped), slog.String("reason", "manifest not uploaded"))
 }
 
 // objectExists reports whether bucket/key exists, treating a NotFound HeadObject

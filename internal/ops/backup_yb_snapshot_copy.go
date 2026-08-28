@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 
 	"github.com/moby/moby/client"
 
@@ -97,15 +98,40 @@ func ybSnapshotKeyPrefix(runID string) string {
 	return ybSnapshotRootPrefix + runID + "/"
 }
 
-// uploadYBSnapshotArtifacts uploads each staged file to the main backup bucket
-// under the run's key prefix. files maps the object base name to its local
-// path.
-func uploadYBSnapshotArtifacts(ctx context.Context, cfg *config.Config, runID string, files map[string]string) error {
+// putYBSnapshotObject uploads one staged export artifact. It is a package var
+// so tests can swap it to record upload order without an object store.
+var putYBSnapshotObject = putObjectFromFile
+
+// ybSnapshotArtifact names one staged export file and the object base name it
+// uploads to under the run's key prefix.
+type ybSnapshotArtifact struct {
+	name string
+	path string
+}
+
+// ybSnapshotUploadArtifacts returns an export run's staged artifacts in upload
+// order, the manifest strictly last. The manifest is the completeness gate the
+// archivers and the restore drill trust, so it must land only after every
+// object it vouches for.
+func ybSnapshotUploadArtifacts(stageDir, schemaPath, manifestPath string) []ybSnapshotArtifact {
+	return []ybSnapshotArtifact{
+		{name: ybSnapshotMetadataObject, path: filepath.Join(stageDir, ybSnapshotMetadataObject)},
+		{name: "schema.sql", path: schemaPath},
+		{name: ybSnapshotManifestObject, path: manifestPath},
+	}
+}
+
+// uploadYBSnapshotArtifacts uploads the staged files to the main backup bucket
+// under the run's key prefix, strictly in slice order and stopping at the
+// first failure. Order is load-bearing: the caller places the manifest last,
+// so a partial upload can never publish a manifest whose gated artifacts are
+// absent.
+func uploadYBSnapshotArtifacts(ctx context.Context, cfg *config.Config, runID string, files []ybSnapshotArtifact) error {
 	logger := telemetry.L(ctx)
 	s3Client := newBackupS3Client(cfg)
 	prefix := ybSnapshotKeyPrefix(runID)
-	for name, path := range files {
-		if err := putObjectFromFile(ctx, s3Client, cfg.BackupS3BucketMain, prefix+name, path); err != nil {
+	for _, file := range files {
+		if err := putYBSnapshotObject(ctx, s3Client, cfg.BackupS3BucketMain, prefix+file.name, file.path); err != nil {
 			return err
 		}
 	}
