@@ -96,7 +96,7 @@ func runAuditBackfillOrg(ctx context.Context, f *cli.Factory, sink clispec.Resul
 // the sole-org premise does not hold: the mapping "every nil row belongs to
 // this org" is only provable when no other org has ever existed here.
 func deriveBackfillTarget(ctx context.Context, pool *pgxpool.Pool) (uuid.UUID, error) {
-	memberOrgs, err := distinctUUIDs(ctx, pool, `SELECT DISTINCT org_id FROM org_members`)
+	memberOrgs, err := distinctUUIDs(ctx, pool, memberOrgsQuery)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.backfill_member_orgs_failed", slog.String("err", err.Error()))
 		return uuid.Nil, fmt.Errorf("audit backfill-org: list member orgs: %w", err)
@@ -105,8 +105,7 @@ func deriveBackfillTarget(ctx context.Context, pool *pgxpool.Pool) (uuid.UUID, e
 		return uuid.Nil, fmt.Errorf("audit backfill-org: org_members holds %d orgs, need exactly 1", len(memberOrgs))
 	}
 	target := memberOrgs[0]
-	ledgerOrgs, err := distinctUUIDs(ctx, pool,
-		`SELECT DISTINCT org_id FROM audit.events WHERE org_id <> '00000000-0000-0000-0000-000000000000'`)
+	ledgerOrgs, err := distinctUUIDs(ctx, pool, ledgerOrgsQuery)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.backfill_ledger_orgs_failed", slog.String("err", err.Error()))
 		return uuid.Nil, fmt.Errorf("audit backfill-org: list ledger orgs: %w", err)
@@ -125,15 +124,26 @@ func deriveBackfillTarget(ctx context.Context, pool *pgxpool.Pool) (uuid.UUID, e
 	return target, nil
 }
 
+// memberOrgsQuery and ledgerOrgsQuery are the two premise reads; the guard
+// and the derivation share them verbatim.
+const (
+	memberOrgsQuery = `SELECT DISTINCT org_id FROM org_members`
+	ledgerOrgsQuery = `SELECT DISTINCT org_id FROM audit.events WHERE org_id <> '00000000-0000-0000-0000-000000000000'`
+)
+
 // soleOrgGuard re-asserts the sole-org premise inside every chunk
 // transaction, so a membership created mid-run aborts the move before the
 // next chunk commits instead of silently attributing new history to the
 // wrong org.
 func soleOrgGuard(target uuid.UUID) audit.ShardGuard {
 	return func(ctx context.Context, tx pgx.Tx) error {
-		orgs, err := collectUUIDs(tx.Query(ctx, `SELECT DISTINCT org_id FROM org_members`))
+		rows, err := tx.Query(ctx, memberOrgsQuery)
 		if err != nil {
 			slog.ErrorContext(ctx, "audit.backfill_guard_failed", slog.String("err", err.Error()))
+			return fmt.Errorf("audit backfill-org: premise guard: %w", err)
+		}
+		orgs, err := collectUUIDs(rows)
+		if err != nil {
 			return fmt.Errorf("audit backfill-org: premise guard: %w", err)
 		}
 		if len(orgs) != 1 || orgs[0] != target {
@@ -144,17 +154,17 @@ func soleOrgGuard(target uuid.UUID) audit.ShardGuard {
 }
 
 func distinctUUIDs(ctx context.Context, pool *pgxpool.Pool, query string) ([]uuid.UUID, error) {
-	return collectUUIDs(pool.Query(ctx, query))
+	rows, err := pool.Query(ctx, query)
+	if err != nil {
+		slog.ErrorContext(ctx, "audit.backfill_distinct_query_failed", slog.String("err", err.Error()))
+		return nil, fmt.Errorf("distinct org query: %w", err)
+	}
+	return collectUUIDs(rows)
 }
 
-// collectUUIDs drains a single-UUID-column query result. It takes the query
-// call's pair directly so pool-backed and transaction-backed queries share
-// one path.
-func collectUUIDs(rows pgx.Rows, queryErr error) ([]uuid.UUID, error) {
-	if queryErr != nil {
-		slog.Error("audit.backfill_distinct_query_failed", slog.String("err", queryErr.Error()))
-		return nil, fmt.Errorf("distinct org query: %w", queryErr)
-	}
+// collectUUIDs drains an already-opened single-UUID-column query result, so
+// pool-backed and transaction-backed queries share one path.
+func collectUUIDs(rows pgx.Rows) ([]uuid.UUID, error) {
 	defer rows.Close()
 	var out []uuid.UUID
 	for rows.Next() {
