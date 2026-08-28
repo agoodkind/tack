@@ -11,7 +11,8 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// Row is a flattened audit row sized for the MCP tool surface. The json tags
+// Row is a flattened audit row sized for the export and operator read
+// surface. The json tags
 // repeat the field names on purpose: an export bundle is a file of these
 // rows, and every bundle already written carries these exact keys, so the
 // tags pin the format rather than change it.

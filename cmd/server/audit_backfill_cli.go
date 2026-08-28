@@ -110,6 +110,12 @@ func deriveBackfillTarget(ctx context.Context, pool *pgxpool.Pool) (uuid.UUID, e
 		return uuid.Nil, fmt.Errorf("audit backfill-org: list ledger orgs: %w", err)
 	}
 	for _, org := range ledgerOrgs {
+		// Operator commands record under the reserved system org, never a
+		// customer org and never nil, so its rows neither weaken the sole-org
+		// premise nor belong to the move.
+		if org == audit.SystemOrgID() {
+			continue
+		}
 		if org != target {
 			return uuid.Nil, fmt.Errorf("audit backfill-org: ledger names org %s besides the sole member org %s", org, target)
 		}
