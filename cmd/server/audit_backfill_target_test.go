@@ -12,12 +12,11 @@ import (
 	"goodkind.io/tack/internal/audit"
 )
 
-// seedMember creates a user with one org membership and returns a cleanup
-// that removes both.
-func seedMember(t *testing.T, admin *pgxpool.Pool, orgID uuid.UUID) {
+// seedMember creates the given user with one org membership and registers a
+// cleanup that removes both.
+func seedMember(t *testing.T, admin *pgxpool.Pool, orgID, userID uuid.UUID) {
 	t.Helper()
 	ctx := context.Background()
-	userID := uuid.Must(uuid.NewV7())
 	email := "backfill-" + userID.String() + "@example.com"
 	if _, err := admin.Exec(ctx,
 		`INSERT INTO users (id, email) VALUES ($1, $2)`, userID, email); err != nil {
@@ -53,6 +52,13 @@ func TestDeriveBackfillTarget(t *testing.T) {
 	if _, err := admin.Exec(ctx, `DELETE FROM org_members`); err != nil {
 		t.Fatalf("reset org_members: %v", err)
 	}
+	// The actor check reads every nil-org row, so leftovers from other
+	// suites on the shared throwaway would leak into this test's verdicts.
+	// Run the database suites separately rather than in one parallel go
+	// test invocation for the same reason.
+	if _, err := admin.Exec(ctx, `DELETE FROM audit.events WHERE org_id = '00000000-0000-0000-0000-000000000000'`); err != nil {
+		t.Fatalf("reset nil rows: %v", err)
+	}
 
 	// No member org: refused before any ledger reasoning.
 	if _, err := deriveBackfillTarget(ctx, admin); err == nil || !strings.Contains(err.Error(), "holds 0 orgs") {
@@ -61,7 +67,7 @@ func TestDeriveBackfillTarget(t *testing.T) {
 
 	memberOrg := uuid.Must(uuid.NewV7())
 	actor := uuid.Must(uuid.NewV7())
-	seedMember(t, admin, memberOrg)
+	seedMember(t, admin, memberOrg, uuid.Must(uuid.NewV7()))
 	recordActorEvent(t, admin, adminDSN, memberOrg, actor)
 	recordActorEvent(t, admin, adminDSN, audit.SystemOrgID(), actor)
 
@@ -85,8 +91,21 @@ func TestDeriveBackfillTarget(t *testing.T) {
 		t.Fatalf("remove foreign row: %v", err)
 	}
 
+	// A nil-org row by an actor who is not a member of the target refuses
+	// naming the actor: the phantom-org case, where an org deleted from
+	// org_members left only nil-stamped history behind.
+	stranger := uuid.Must(uuid.NewV7())
+	recordActorEvent(t, admin, adminDSN, uuid.Nil, stranger)
+	if _, err := deriveBackfillTarget(ctx, admin); err == nil || !strings.Contains(err.Error(), stranger.String()) {
+		t.Fatalf("stranger actor err = %v, want a refusal naming %s", err, stranger)
+	}
+	seedMember(t, admin, memberOrg, stranger)
+	if _, err := deriveBackfillTarget(ctx, admin); err != nil {
+		t.Fatalf("derive after the stranger joined: %v", err)
+	}
+
 	// A second member org is refused by count.
-	seedMember(t, admin, uuid.Must(uuid.NewV7()))
+	seedMember(t, admin, uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()))
 	if _, err := deriveBackfillTarget(ctx, admin); err == nil || !strings.Contains(err.Error(), "holds 2 orgs") {
 		t.Fatalf("two member orgs err = %v, want the 2-orgs refusal", err)
 	}

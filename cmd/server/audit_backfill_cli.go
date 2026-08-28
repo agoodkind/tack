@@ -121,7 +121,41 @@ func deriveBackfillTarget(ctx context.Context, pool *pgxpool.Pool) (uuid.UUID, e
 			return uuid.Nil, fmt.Errorf("audit backfill-org: ledger names org %s besides the sole member org %s", org, target)
 		}
 	}
+	if err := verifyNilActorsBelong(ctx, pool, target); err != nil {
+		return uuid.Nil, err
+	}
 	return target, nil
+}
+
+// verifyNilActorsBelong checks the durable history the ledger itself holds:
+// every user actor behind a nil-org row must be a member of the target org
+// today. An org deleted from org_members whose events were all nil-stamped
+// is invisible to the membership and ledger-org checks, but its actors are
+// not, so the move refuses rather than absorbing a stranger's history.
+func verifyNilActorsBelong(ctx context.Context, pool *pgxpool.Pool, target uuid.UUID) error {
+	rows, err := pool.Query(ctx, `
+		SELECT DISTINCT e.actor_id FROM audit.events e
+		WHERE e.org_id = '00000000-0000-0000-0000-000000000000'
+		  AND e.actor_kind = 1
+		  AND e.actor_id <> '00000000-0000-0000-0000-000000000000'
+		  AND NOT EXISTS (
+		      SELECT 1 FROM org_members m
+		      WHERE m.user_id = e.actor_id AND m.org_id = $1
+		  )`, target)
+	if err != nil {
+		slog.ErrorContext(ctx, "audit.backfill_nil_actors_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("audit backfill-org: list nil-org actors: %w", err)
+	}
+	strangers, err := collectUUIDs(rows)
+	if err != nil {
+		return fmt.Errorf("audit backfill-org: list nil-org actors: %w", err)
+	}
+	if len(strangers) > 0 {
+		return fmt.Errorf(
+			"audit backfill-org: %d nil-org actor(s) are not members of %s (first: %s): their history cannot be attributed to the sole org",
+			len(strangers), target, strangers[0])
+	}
+	return nil
 }
 
 // memberOrgsQuery and ledgerOrgsQuery are the two premise reads; the guard
