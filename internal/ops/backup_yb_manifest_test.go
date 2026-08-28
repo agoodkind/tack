@@ -100,18 +100,19 @@ func TestMissingYBNodeArchives(t *testing.T) {
 	}
 }
 
-// TestParseYBTabletServers parses the real column layout yb-admin
-// list_all_tablet_servers prints: a header row, then one row per server with
-// the UUID first, the advertised RPC host:port second, and the Status fourth.
-// A DEAD server is excluded, because it can never archive its tablets and
-// listing it would block the completeness gate forever. Duplicate hosts
-// collapse and the result is sorted.
+// TestParseYBTabletServers parses the column layout yb-admin
+// list_all_tablet_servers actually prints (fixture captured live from
+// 2024.2.8.0 on 2026-08-28): a header row, then one row per server with the
+// undashed 32-hex UUID first, the advertised RPC host:port second, and the
+// Status fourth. A DEAD server is excluded, because it can never archive its
+// tablets and listing it would block the completeness gate forever.
+// Duplicate hosts collapse and the result is sorted.
 func TestParseYBTabletServers(t *testing.T) {
-	out := "Tablet Server UUID                       RPC Host/Port    Heartbeat delay Status   Reads/s  Writes/s Uptime\n" +
-		"1a2b3c4d-1111-2222-3333-444455556666         yb2:9100         0.32s      ALIVE    0.00     0.00     12345\n" +
-		"9f8e7d6c-aaaa-bbbb-cccc-ddddeeeeffff         yb1:9100         0.10s      ALIVE    0.00     0.00     12345\n" +
-		"deadbeef-aaaa-bbbb-cccc-ddddeeeeffff         yb3:9100         60.00s     DEAD     0.00     0.00     0\n" +
-		"not-a-uuid                                   bogus:9100       0.10s      ALIVE    0.00     0.00     1\n"
+	out := "Tablet Server UUID               RPC Host/Port Heartbeat delay Status   Reads/s  Writes/s Uptime   SST total size  SST uncomp size SST #files      Memory   Broadcast Host/Port \n" +
+		"4f5e4f2de0294c44bc30c15d1e4ce337 yb2:9100 0.77s           ALIVE    0.00     0.20     1514     1.03 GB         9.58 GB         62              189.01 MB yb2:9100\n" +
+		"44f39a5171aa432d9d1ed77a234da0d7 yb3:9100 60.54s          DEAD     0.00     0.00     0        1.03 GB         9.58 GB         59              201.66 MB yb3:9100\n" +
+		"fb84db84104f43ffb3e5c33d409242ef yb1:9100 0.74s           ALIVE    0.00     0.00     1522     1.03 GB         9.58 GB         63              203.60 MB yb1:9100\n" +
+		"not-a-uuid                       bogus:9100 0.10s         ALIVE    0.00     0.00     1        0 B             0 B             0               0 B      bogus:9100\n"
 	got := parseYBTabletServers(out)
 	if !reflect.DeepEqual(got, []string{"yb1", "yb2"}) {
 		t.Fatalf("tablet servers = %v, want [yb1 yb2] with the DEAD yb3 excluded", got)
@@ -121,7 +122,7 @@ func TestParseYBTabletServers(t *testing.T) {
 // TestParseYBTabletServersIPv6Literal keeps the parser correct if a server
 // ever registers a bracketed IPv6 literal instead of a name.
 func TestParseYBTabletServersIPv6Literal(t *testing.T) {
-	out := "1a2b3c4d-1111-2222-3333-444455556666 [3d06:bad:b01::10]:9100 0.10s ALIVE\n"
+	out := "4f5e4f2de0294c44bc30c15d1e4ce337 [3d06:bad:b01::10]:9100 0.10s ALIVE\n"
 	got := parseYBTabletServers(out)
 	if !reflect.DeepEqual(got, []string{"3d06:bad:b01::10"}) {
 		t.Fatalf("tablet servers = %v, want the unbracketed IPv6 host", got)
