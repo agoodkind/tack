@@ -22,6 +22,12 @@ type ybTabletRemap struct {
 
 var ybUUIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
+// ybDrillRestoreWaitTimeout bounds the wait for restore_snapshot to reach
+// RESTORED on the scratch node. Warm, 130 tablets restore in ~20s; the budget
+// covers a cold page cache right after a deploy, where the same restoration
+// exceeded 90s (observed 2026-08-29 on the QA owner).
+const ybDrillRestoreWaitTimeout = 5 * time.Minute
+
 // importAndRestoreYBSnapshot imports the exported snapshot metadata, copies the
 // exported tablet files into the new tablets the import created, and runs
 // restore_snapshot. The schema must already be applied so the tables exist.
@@ -99,9 +105,17 @@ func importAndRestoreYBSnapshot(ctx context.Context, r *restoreDrillCtx, contain
 		return wrapped
 	}
 
-	// Wait for the restoration to finish; the row assertion is the final check.
-	_ = waitExecOK(ctx, r, container, 90*time.Second, nil,
-		[]string{"sh", "-c", ybAdminBinary + " --master_addresses " + master + " list_snapshot_restorations | grep -q RESTORED"})
+	// Wait for the restoration to finish, and fail on timeout: reading the
+	// tables while the restoration is still applying returns the pre-restore
+	// empty rows, which the row assertion would misreport as data loss (the
+	// 2026-08-29 drill failure: a cold-cached guest needed more than 90s for
+	// 130 tablets that restore in ~20s warm).
+	if err := waitExecOK(ctx, r, container, ybDrillRestoreWaitTimeout, nil,
+		[]string{"sh", "-c", ybAdminBinary + " --master_addresses " + master + " list_snapshot_restorations | grep -q RESTORED"}); err != nil {
+		wrapped := fmt.Errorf("snapshot restoration did not reach RESTORED: %w", err)
+		logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", wrapped.Error()))
+		return wrapped
+	}
 	return nil
 }
 
