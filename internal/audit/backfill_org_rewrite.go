@@ -24,11 +24,6 @@ func (b *OrgBackfill) moveChunk(ctx context.Context, target uuid.UUID, shard int
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if guard != nil {
-		if err := guard(ctx, tx); err != nil {
-			return 0, false, err
-		}
-	}
 	nilHead, err := readChainHead(ctx, tx, uuid.Nil, shard)
 	if err != nil {
 		return 0, false, err
@@ -40,6 +35,11 @@ func (b *OrgBackfill) moveChunk(ctx context.Context, target uuid.UUID, shard int
 	rows, err := nilShardRows(ctx, tx, shard)
 	if err != nil {
 		return 0, false, err
+	}
+	if guard != nil {
+		if err := guard(ctx, tx, rows); err != nil {
+			return 0, false, err
+		}
 	}
 	done := len(rows) == 0
 	if done {

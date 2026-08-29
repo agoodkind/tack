@@ -143,7 +143,7 @@ func TestMoveNilOrgRowsAppendsAndVerifies(t *testing.T) {
 	}
 	// A guard that refuses aborts before anything moves: the negative case.
 	refusal := errors.New("premise gone")
-	_, err = backfill.MoveNilOrgRows(ctx, orgID, func(context.Context, pgx.Tx) error { return refusal })
+	_, err = backfill.MoveNilOrgRows(ctx, orgID, func(context.Context, pgx.Tx, []Row) error { return refusal })
 	if !errors.Is(err, refusal) {
 		t.Fatalf("refusing guard err = %v, want the guard's refusal", err)
 	}
@@ -152,7 +152,13 @@ func TestMoveNilOrgRowsAppendsAndVerifies(t *testing.T) {
 	}
 
 	guardRuns := 0
-	guard := func(context.Context, pgx.Tx) error { guardRuns++; return nil }
+	guard := func(_ context.Context, _ pgx.Tx, chunk []Row) error {
+		guardRuns++
+		if len(chunk) > moveChunkRows {
+			t.Fatalf("guard saw %d rows, want at most the %d-row chunk", len(chunk), moveChunkRows)
+		}
+		return nil
+	}
 	move, err := backfill.MoveNilOrgRows(ctx, orgID, guard)
 	if err != nil {
 		t.Fatalf("move: %v", err)

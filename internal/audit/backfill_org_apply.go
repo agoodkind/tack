@@ -23,11 +23,13 @@ type OrgBackfillMove struct {
 	Passes int
 }
 
-// ShardGuard runs inside every shard transaction before any row moves. The
-// caller uses it to re-assert the premise that made the move safe (for the
-// org backfill, that org_members still holds exactly the target org), so a
-// premise broken mid-run aborts before the broken shard commits.
-type ShardGuard func(ctx context.Context, tx pgx.Tx) error
+// ShardGuard runs inside every chunk transaction after the chunk's rows are
+// read and before any of them move. The caller uses it to re-assert the
+// premise that made the move safe against the very rows about to be
+// rewritten (for the org backfill, that org_members still holds exactly the
+// target org and that every actor in the chunk belongs to it), so a premise
+// broken mid-run aborts before the broken chunk commits.
+type ShardGuard func(ctx context.Context, tx pgx.Tx, chunk []Row) error
 
 // moveShardAttempts bounds the per-chunk retry loop. A retry only fires when
 // a concurrent writer advanced one of the two chain heads mid-transaction.

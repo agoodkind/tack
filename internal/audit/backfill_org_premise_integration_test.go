@@ -132,3 +132,43 @@ func TestDeriveSoleOrg(t *testing.T) {
 		t.Fatalf("two member orgs err = %v, want the 2-orgs refusal", err)
 	}
 }
+
+// TestSoleOrgGuardRefusesStrangerChunk pins the in-transaction actor check: a
+// nil-org row whose actor joined after derivation would still move, so the
+// guard re-verifies the chunk's own actors and aborts on a stranger before
+// the chunk commits, leaving the row unmoved.
+func TestSoleOrgGuardRefusesStrangerChunk(t *testing.T) {
+	pool, orgID := chainTestPool(t)
+	ctx := context.Background()
+	purgeNilOrg(t, pool)
+	if _, err := pool.Exec(ctx, `DELETE FROM org_members`); err != nil {
+		t.Fatalf("reset org_members: %v", err)
+	}
+	seedPremiseMember(t, pool, orgID, uuid.Must(uuid.NewV7()))
+	stranger := uuid.Must(uuid.NewV7())
+	if err := appendWithRetry(ctx, pool, premiseEvent(t, uuid.Nil, stranger, 34)); err != nil {
+		t.Fatalf("seed stranger nil row: %v", err)
+	}
+	t.Cleanup(func() { purgeNilOrg(t, pool) })
+	backfill := &OrgBackfill{pool: pool}
+
+	if _, err := backfill.MoveNilOrgRows(ctx, orgID, SoleOrgGuard(orgID)); err == nil || !strings.Contains(err.Error(), stranger.String()) {
+		t.Fatalf("guarded move err = %v, want a refusal naming %s", err, stranger)
+	}
+	var remaining int64
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM audit.events WHERE org_id = $1`, uuid.Nil).Scan(&remaining); err != nil {
+		t.Fatalf("count nil rows: %v", err)
+	}
+	if remaining != 1 {
+		t.Fatalf("nil rows after refused chunk = %d, want the untouched 1", remaining)
+	}
+
+	seedPremiseMember(t, pool, orgID, stranger)
+	move, err := backfill.MoveNilOrgRows(ctx, orgID, SoleOrgGuard(orgID))
+	if err != nil {
+		t.Fatalf("guarded move after the stranger joined: %v", err)
+	}
+	if move.RowsMoved != 1 {
+		t.Fatalf("guarded move moved %d rows, want 1", move.RowsMoved)
+	}
+}

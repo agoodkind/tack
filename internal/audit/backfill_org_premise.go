@@ -91,11 +91,13 @@ func (b *OrgBackfill) verifyNilActorsBelong(ctx context.Context, target uuid.UUI
 }
 
 // SoleOrgGuard re-asserts the sole-org premise inside every chunk
-// transaction, so a membership created mid-run aborts the move before the
-// next chunk commits instead of silently attributing new history to the
-// wrong org.
+// transaction, against the very rows about to move: org_members must still
+// hold exactly the target org, and every user actor in the chunk must be a
+// member of it. A membership created mid-run, or a late nil-org row from a
+// nonmember, aborts before its chunk commits instead of silently attributing
+// history to the wrong org.
 func SoleOrgGuard(target uuid.UUID) ShardGuard {
-	return func(ctx context.Context, tx pgx.Tx) error {
+	return func(ctx context.Context, tx pgx.Tx, chunk []Row) error {
 		rows, err := tx.Query(ctx, memberOrgsQuery)
 		if err != nil {
 			slog.ErrorContext(ctx, "audit.backfill.guard_failed", slog.String("err", err.Error()))
@@ -108,8 +110,47 @@ func SoleOrgGuard(target uuid.UUID) ShardGuard {
 		if len(orgs) != 1 || orgs[0] != target {
 			return fmt.Errorf("audit org backfill: sole-org premise broke mid-run: org_members holds %d orgs", len(orgs))
 		}
+		return verifyChunkActors(ctx, tx, target, chunk)
+	}
+}
+
+// verifyChunkActors demands that every user actor behind the chunk's rows is
+// a member of the target org, read in the same transaction that moves them.
+func verifyChunkActors(ctx context.Context, tx pgx.Tx, target uuid.UUID, chunk []Row) error {
+	seen := map[uuid.UUID]bool{}
+	actors := make([]uuid.UUID, 0, len(chunk))
+	for _, row := range chunk {
+		if row.ActorKind != 1 || row.ActorID == uuid.Nil || seen[row.ActorID] {
+			continue
+		}
+		seen[row.ActorID] = true
+		actors = append(actors, row.ActorID)
+	}
+	if len(actors) == 0 {
 		return nil
 	}
+	rows, err := tx.Query(ctx, `
+		SELECT DISTINCT user_id FROM org_members
+		WHERE org_id = $1 AND user_id = ANY($2)
+	`, target, actors)
+	if err != nil {
+		slog.ErrorContext(ctx, "audit.backfill.chunk_actors_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("audit org backfill chunk actors: %w", err)
+	}
+	members, err := collectUUIDs(rows)
+	if err != nil {
+		return fmt.Errorf("audit org backfill chunk actors: %w", err)
+	}
+	isMember := map[uuid.UUID]bool{}
+	for _, id := range members {
+		isMember[id] = true
+	}
+	for _, id := range actors {
+		if !isMember[id] {
+			return fmt.Errorf("audit org backfill: chunk actor %s is not a member of %s: refusing to attribute their history", id, target)
+		}
+	}
+	return nil
 }
 
 // collectUUIDs drains an already-opened single-UUID-column query result, so
