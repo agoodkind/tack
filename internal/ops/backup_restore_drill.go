@@ -30,7 +30,11 @@ type restoreDrillCtx struct {
 	// YBPass is the throwaway YSQL password for the scratch yugabyted,
 	// derived per run so no credential literal lives in source. The scratch
 	// container is destroyed at teardown, so it is not a real secret.
-	YBPass         string
+	YBPass string
+	// YBRunKey is the yugabyte export run the operator explicitly asked to
+	// drill (--yb-run-key). Empty means discover the newest complete run; an
+	// explicit key is refused if that run is incomplete.
+	YBRunKey       string
 	containerNames []string
 	volumeNames    []string
 }
@@ -59,8 +63,9 @@ func cleanupRestoreDrill(ctx context.Context, r *restoreDrillCtx) {
 // and asserts each holds data. Meilisearch is excluded because it rebuilds from
 // FoundationDB, and Temporal is excluded because it holds no Tack data. Each leg
 // runs even if another fails so the drill reports a complete picture; the drill
-// errors if any attempted leg fails.
-func RunBackupRestoreDrill(ctx context.Context, cfg *config.Config) error {
+// errors if any attempted leg fails. ybRunKey optionally pins the yugabyte leg
+// to one export run; empty means the newest complete run.
+func RunBackupRestoreDrill(ctx context.Context, cfg *config.Config, ybRunKey string) error {
 	logger := telemetry.L(ctx)
 	if cfg.BackupS3Endpoint == "" || cfg.BackupS3AccessKey == "" || cfg.BackupS3SecretKey == "" {
 		err := fmt.Errorf("restore-drill: TACK_BACKUP_S3_ENDPOINT, _ACCESS_KEY_ID, and _SECRET_ACCESS_KEY are required")
@@ -80,6 +85,7 @@ func RunBackupRestoreDrill(ctx context.Context, cfg *config.Config) error {
 		Cli:            cli,
 		RunID:          runID,
 		YBPass:         "drill-" + runID,
+		YBRunKey:       ybRunKey,
 		containerNames: nil,
 		volumeNames:    nil,
 	}

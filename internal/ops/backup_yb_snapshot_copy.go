@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"time"
+	"path/filepath"
 
 	"github.com/moby/moby/client"
 
@@ -14,68 +14,18 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// yugabyteBackupContainer is the named live Yugabyte container the
-// production compose stack ships.
+// yugabyteBackupContainer is the named live Yugabyte container the compose
+// stack ships on each data guest. The per-node archive command runs against
+// this container to tar the node's own tablet snapshot files.
 const yugabyteBackupContainer = "tack-yugabyte-1"
 
-// dumpYBSchema writes a schema-only ysql_dump of the database to outPath,
-// running ysql_dump inside the live yugabyte container and streaming stdout to
-// disk. The export_snapshot metadata references table ids this schema recreates
-// on import; --include-yb-metadata preserves the YugabyteDB table properties
-// the import path needs.
-func dumpYBSchema(ctx context.Context, cli *client.Client, cfg *config.Config, outPath string) error {
-	logger := telemetry.L(ctx)
-	out, err := os.Create(outPath)
-	if err != nil {
-		wrapped := fmt.Errorf("create %s: %w", outPath, err)
-		logger.ErrorContext(ctx, "backup.yb_snapshot.schema_failed", slog.String("err", wrapped.Error()))
-		return wrapped
-	}
-	defer out.Close()
-
-	exitCode, stderr, err := containerExecStreaming(ctx, cli, yugabyteBackupContainer, []string{
-		"/home/yugabyte/postgres/bin/ysql_dump",
-		"-h", "yugabyte",
-		"-p", "5433",
-		"-U", cfg.YugabyteUser,
-		"-d", cfg.YugabyteDB,
-		"--schema-only",
-		"--include-yb-metadata",
-		"--no-owner",
-		"--no-privileges",
-	}, []string{"PGPASSWORD=" + cfg.YugabytePassword}, out)
-	if err != nil {
-		wrapped := fmt.Errorf("ysql_dump schema exec: %w", err)
-		logger.ErrorContext(ctx, "backup.yb_snapshot.schema_failed", slog.String("err", wrapped.Error()))
-		return wrapped
-	}
-	if exitCode != 0 {
-		wrapped := fmt.Errorf("ysql_dump schema exited %d: %s", exitCode, stderr)
-		logger.ErrorContext(ctx, "backup.yb_snapshot.schema_failed", slog.String("err", wrapped.Error()))
-		return wrapped
-	}
-
-	info, err := os.Stat(outPath)
-	if err != nil {
-		wrapped := fmt.Errorf("stat %s: %w", outPath, err)
-		logger.ErrorContext(ctx, "backup.yb_snapshot.schema_failed", slog.String("err", wrapped.Error()))
-		return wrapped
-	}
-	if info.Size() == 0 {
-		wrapped := fmt.Errorf("ysql_dump schema produced 0 bytes; refuse to ship empty schema")
-		logger.ErrorContext(ctx, "backup.yb_snapshot.schema_failed", slog.String("err", wrapped.Error()))
-		return wrapped
-	}
-	logger.InfoContext(ctx, "backup.yb_snapshot.schema_dumped",
-		slog.String("path", outPath), slog.Int64("bytes", info.Size()))
-	return nil
-}
-
 // tarYBTabletSnapshots streams a gzip tar of every tablet's snapshot directory
-// for snapshotID, running find and tar inside the live yugabyte container. The
-// script exits 3 when no snapshot directories match, so an empty tar (a few
-// non-zero bytes, which would otherwise pass) cannot report a false success.
-// -print0 with --null avoids path-splitting and ARG_MAX limits.
+// for snapshotID, running find and tar inside the data guest's live yugabyte
+// container. Only this node's tablets live under its data dir, so the tar is
+// one node's slice of the cluster snapshot. The script exits 3 when no
+// snapshot directories match, so an empty tar (a few non-zero bytes, which
+// would otherwise pass) cannot report a false success. -print0 with --null
+// avoids path-splitting and ARG_MAX limits.
 func tarYBTabletSnapshots(ctx context.Context, cli *client.Client, cfg *config.Config, snapshotID, outPath string) error {
 	logger := telemetry.L(ctx)
 	out, err := os.Create(outPath)
@@ -122,15 +72,18 @@ func tarYBTabletSnapshots(ctx context.Context, cli *client.Client, cfg *config.C
 	return nil
 }
 
-// writeYBSnapshotManifest records the snapshot id, database, and run id so the
-// restore path can find the snapshot the tablet files and metadata belong to.
-func writeYBSnapshotManifest(ctx context.Context, path, runID, snapshotID, database string) error {
+// writeYBSnapshotManifest validates and serializes the completeness manifest
+// so the restore path can find the snapshot the metadata belongs to and verify
+// every node archive is present before restoring. Validating on write keeps
+// the orchestrator honest against the decode-side allowlist: an export whose
+// derived run id or node names would be refused by every reader fails loudly
+// here instead of publishing an unusable manifest.
+func writeYBSnapshotManifest(ctx context.Context, path string, manifest ybSnapshotManifest) error {
 	logger := telemetry.L(ctx)
-	manifest := map[string]string{
-		"run_id":      runID,
-		"snapshot_id": snapshotID,
-		"database":    database,
-		"created_at":  opsNow().UTC().Format(time.RFC3339),
+	if err := manifest.validate(); err != nil {
+		wrapped := fmt.Errorf("yb snapshot manifest not writable: %w", err)
+		logger.ErrorContext(ctx, "backup.yb_snapshot.manifest_failed", slog.String("err", wrapped.Error()))
+		return wrapped
 	}
 	body, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
@@ -147,20 +100,46 @@ func writeYBSnapshotManifest(ctx context.Context, path, runID, snapshotID, datab
 }
 
 // ybSnapshotKeyPrefix is the object-store key prefix for one snapshot-export
-// run. All four artifacts live under it.
+// run. The orchestrator's artifacts and every node's archive prefix live
+// under it.
 func ybSnapshotKeyPrefix(runID string) string {
-	return "yugabyte-snapshot/" + runID + "/"
+	return ybSnapshotRootPrefix + runID + "/"
 }
 
-// uploadYBSnapshotArtifacts uploads each staged file to the main backup bucket
-// under the run's key prefix. files maps the object base name to its local
-// path.
-func uploadYBSnapshotArtifacts(ctx context.Context, cfg *config.Config, runID string, files map[string]string) error {
+// putYBSnapshotObject uploads one staged export artifact. It is a package var
+// so tests can swap it to record upload order without an object store.
+var putYBSnapshotObject = putObjectFromFile
+
+// ybSnapshotArtifact names one staged export file and the object base name it
+// uploads to under the run's key prefix.
+type ybSnapshotArtifact struct {
+	name string
+	path string
+}
+
+// ybSnapshotUploadArtifacts returns an export run's staged artifacts in upload
+// order, the manifest strictly last. The manifest is the completeness gate the
+// archivers and the restore drill trust, so it must land only after every
+// object it vouches for.
+func ybSnapshotUploadArtifacts(stageDir, schemaPath, manifestPath string) []ybSnapshotArtifact {
+	return []ybSnapshotArtifact{
+		{name: ybSnapshotMetadataObject, path: filepath.Join(stageDir, ybSnapshotMetadataObject)},
+		{name: "schema.sql", path: schemaPath},
+		{name: ybSnapshotManifestObject, path: manifestPath},
+	}
+}
+
+// uploadYBSnapshotArtifacts uploads the staged files to the main backup bucket
+// under the run's key prefix, strictly in slice order and stopping at the
+// first failure. Order is load-bearing: the caller places the manifest last,
+// so a partial upload can never publish a manifest whose gated artifacts are
+// absent.
+func uploadYBSnapshotArtifacts(ctx context.Context, cfg *config.Config, runID string, files []ybSnapshotArtifact) error {
 	logger := telemetry.L(ctx)
 	s3Client := newBackupS3Client(cfg)
 	prefix := ybSnapshotKeyPrefix(runID)
-	for name, path := range files {
-		if err := putObjectFromFile(ctx, s3Client, cfg.BackupS3BucketMain, prefix+name, path); err != nil {
+	for _, file := range files {
+		if err := putYBSnapshotObject(ctx, s3Client, cfg.BackupS3BucketMain, prefix+file.name, file.path); err != nil {
 			return err
 		}
 	}

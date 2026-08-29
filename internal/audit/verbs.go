@@ -122,6 +122,8 @@ const (
 	VerbOpsBackupYBPITRInit Verb = "ops.backup_yb_pitr_init"
 	// VerbOpsBackupYBSnapshotExport records YugabyteDB snapshot export.
 	VerbOpsBackupYBSnapshotExport Verb = "ops.backup_yb_snapshot_export"
+	// VerbOpsBackupYBArchiveNode records a per-node YugabyteDB tablet archive.
+	VerbOpsBackupYBArchiveNode Verb = "ops.backup_yb_archive_node"
 	// VerbOpsBackupRestoreDrill records a backup restore drill.
 	VerbOpsBackupRestoreDrill Verb = "ops.backup_restore_drill"
 	// VerbOpsBackupFDBContinuousInit records FoundationDB continuous backup setup.

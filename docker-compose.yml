@@ -482,6 +482,15 @@ services:
       TACK_BACKUP_S3_SECRET_ACCESS_KEY: ${TACK_BACKUP_S3_SECRET_ACCESS_KEY:-}
       TACK_BACKUP_S3_REGION: ${TACK_BACKUP_S3_REGION:-us-east-1}
       TACK_BACKUP_S3_BUCKET_MAIN: ${TACK_BACKUP_S3_BUCKET_MAIN:-tack-backups}
+      # Master quorum for the backup one-shot containers. The deploy renders
+      # the value from the ledger topology; the fallback is the dev single
+      # node, matching the compiled default.
+      TACK_BACKUP_YB_MASTER_ADDRESSES: ${TACK_BACKUP_YB_MASTER_ADDRESSES:-yugabyte:7100}
+      # Snapshot-export paths. Deliberately no fallback: the commands that
+      # need them error loudly when unset, per the config contract, rather
+      # than tar or restore against a wrong location.
+      TACK_BACKUP_YB_ROCKSDB_DIR: ${TACK_BACKUP_YB_ROCKSDB_DIR:-}
+      TACK_BACKUP_YB_OVERLAY_PATH: ${TACK_BACKUP_YB_OVERLAY_PATH:-}
     volumes:
       - /root/backups:/root/backups
       - /etc/foundationdb:/etc/foundationdb:ro

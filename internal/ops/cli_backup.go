@@ -29,7 +29,8 @@ func backupCommand(f *cli.Factory) *cobra.Command {
 		backupLeaf(f, "buckets-init", "Idempotently create the SeaweedFS S3 backup bucket", audit.VerbOpsBackupBucketsInit, RunBackupBucketsInit),
 		backupLeaf(f, "yb-pitr-init", "Create the YugabyteDB point-in-time-recovery snapshot schedule", audit.VerbOpsBackupYBPITRInit, RunBackupYBPITRInit),
 		backupLeaf(f, "yb-snapshot-export", "Export a YugabyteDB distributed snapshot off-host to the object store", audit.VerbOpsBackupYBSnapshotExport, RunBackupYBSnapshotExport),
-		backupLeaf(f, "restore-drill", "Restore each store into throwaway containers and assert data is present", audit.VerbOpsBackupRestoreDrill, RunBackupRestoreDrill),
+		backupYBArchiveNodeCommand(f),
+		backupRestoreDrillCommand(f),
 		backupLeaf(f, "fdb-continuous-init", "Start the FoundationDB continuous backup session (idempotent)", audit.VerbOpsBackupFDBContinuousInit, RunBackupFDBContinuousInit),
 	)
 	cmd.SetHelpCommand(backupHelpCommand())
@@ -47,6 +48,47 @@ func backupLeaf(
 	cmd := &cobra.Command{Use: use, Short: short, Args: cobra.NoArgs}
 	clispec.AttachAudit(cmd, f, audit.Spec{Verb: string(verb), Mutates: true}, func(ctx context.Context) error {
 		return run(ctx, f.Cfg)
+	})
+	return cmd
+}
+
+// backupYBArchiveNodeCommand builds the per-node half of the yb snapshot
+// export. It is the one backup leaf with a flag: --run-key targets a specific
+// export run, and without it the command discovers the newest manifest whose
+// prefix for this node is not yet filled. The snapshot id always comes from
+// the run's manifest so the archived files and the manifest can never name
+// different snapshots.
+func backupYBArchiveNodeCommand(f *cli.Factory) *cobra.Command {
+	var runKey string
+	cmd := &cobra.Command{
+		Use:   "yb-archive-node",
+		Short: "Archive this node's YugabyteDB tablet snapshot files for an export run",
+		Args:  cobra.NoArgs,
+	}
+	cmd.Flags().StringVar(&runKey, "run-key", "",
+		"export run key to archive (default: the newest manifest in the object store)")
+	clispec.AttachAudit(cmd, f, audit.Spec{Verb: string(audit.VerbOpsBackupYBArchiveNode), Mutates: true}, func(ctx context.Context) error {
+		return RunBackupYBArchiveNode(ctx, f.Cfg, runKey)
+	})
+	return cmd
+}
+
+// backupRestoreDrillCommand builds the restore-drill leaf. Its one flag,
+// --yb-run-key, pins the yugabyte leg to a specific export run, which is
+// refused if incomplete; without it the drill walks back to the newest
+// complete run, because the newest run being mid-archive is the normal window
+// between the orchestrator and the node timers.
+func backupRestoreDrillCommand(f *cli.Factory) *cobra.Command {
+	var ybRunKey string
+	cmd := &cobra.Command{
+		Use:   "restore-drill",
+		Short: "Restore each store into throwaway containers and assert data is present",
+		Args:  cobra.NoArgs,
+	}
+	cmd.Flags().StringVar(&ybRunKey, "yb-run-key", "",
+		"yugabyte export run key to drill, refused if incomplete (default: the newest complete run)")
+	clispec.AttachAudit(cmd, f, audit.Spec{Verb: string(audit.VerbOpsBackupRestoreDrill), Mutates: true}, func(ctx context.Context) error {
+		return RunBackupRestoreDrill(ctx, f.Cfg, ybRunKey)
 	})
 	return cmd
 }

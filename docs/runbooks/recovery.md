@@ -95,15 +95,23 @@ such marker; the latest is the live backup.
 
 ## YugabyteDB recovery
 
-The export is stored under `yugabyte-snapshot/<run-id>/` in the object store and
-holds four files: `manifest.json`, `metadata.snapshot`, `schema.sql`, and
-`tablets.tar.gz`. The latest prefix is the most recent export.
+The export is stored under `yugabyte-snapshot/<run-id>/` in the object store.
+The orchestrator (`ops backup yb-snapshot-export`) uploads `manifest.json`,
+`metadata.snapshot`, and `schema.sql` at the run root; each tablet-server guest
+then uploads its own `nodes/<node>/tablets.tar.gz` via
+`ops backup yb-archive-node`. The manifest lists every node prefix the run
+needs, and a run is restorable only when every listed prefix holds its archive.
+The restore drill enforces this and refuses an incomplete run, naming the
+missing nodes. The latest prefix is the most recent export.
 
 The restore drill performs these steps into a throwaway yugabyted and is the
 verified procedure. A real recovery applies the same steps to the recovery
 YugabyteDB:
 
-1. Stage the four files from `yugabyte-snapshot/<run-id>/`.
+1. Stage `manifest.json`, `metadata.snapshot`, and `schema.sql` from
+   `yugabyte-snapshot/<run-id>/`, then every node archive the manifest lists
+   from `yugabyte-snapshot/<run-id>/nodes/<node>/tablets.tar.gz`. If any listed
+   archive is missing, stop and pick a complete run.
 2. Bring up the recovery yugabyted with the `yugabyte-overlay/yugabyted` overlay,
    advertising on its own hostname.
 3. Create the audit roles the schema's row-level-security policies name (for
@@ -111,8 +119,10 @@ YugabyteDB:
    `schema.sql`. The schema fails to apply if the audit roles do not exist first.
 4. Run `yb-admin import_snapshot metadata.snapshot <database>`. It preserves
    table ids and assigns new tablet ids, printing the old-to-new tablet mapping.
-5. Copy each tablet's files from the export into the new tablet's snapshot
-   directory under the rocksdb root, following the mapping from step 4, then run
+5. Extract each node archive into its own directory, then copy each tablet's
+   files from any one node's copy (replicas of the same tablet exist on several
+   nodes; use one copy, never a mix) into the new tablet's snapshot directory
+   under the rocksdb root, following the mapping from step 4, then run
    `yb-admin restore_snapshot <new-snapshot-id>`.
 6. Verify the auth tables `users`, `api_tokens`, and `org_members` hold rows.
 
