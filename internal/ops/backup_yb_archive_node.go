@@ -73,6 +73,14 @@ func RunBackupYBArchiveNode(ctx context.Context, cfg *config.Config, runID strin
 	)
 
 	stageDir := filepath.Join(cfg.BackupRoot, "yb-archive-"+target.manifest.RunID)
+	// The manifest's run id is validated at decode, but this dir is recursively
+	// removed on exit, so independently refuse any resolved path that escapes
+	// the backup root before creating or deleting anything.
+	if !strings.HasPrefix(stageDir, filepath.Clean(cfg.BackupRoot)+string(filepath.Separator)) {
+		err := fmt.Errorf("yb-archive-node: stage dir %s escapes backup root %s", stageDir, cfg.BackupRoot)
+		logger.ErrorContext(ctx, "backup.yb_archive.failed", slog.String("err", err.Error()))
+		return err
+	}
 	if err := os.MkdirAll(stageDir, 0o750); err != nil {
 		wrapped := fmt.Errorf("mkdir yb archive stage %s: %w", stageDir, err)
 		logger.ErrorContext(ctx, "backup.yb_archive.failed", slog.String("err", wrapped.Error()))

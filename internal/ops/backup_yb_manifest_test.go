@@ -43,7 +43,7 @@ func TestNewYBSnapshotManifestAssignsNodePrefixes(t *testing.T) {
 // production writer and reads it back through the same JSON tags the fetch
 // path decodes, so the writer and reader can never disagree on field names.
 func TestYBSnapshotManifestFileRoundTrip(t *testing.T) {
-	manifest := newYBSnapshotManifest("run-1", "snap-1", "tack", []string{"yb1", "yb2"})
+	manifest := newYBSnapshotManifest("20260826T030000Z", "snap-1", "tack", []string{"yb1", "yb2"})
 	path := filepath.Join(t.TempDir(), "manifest.json")
 	if err := writeYBSnapshotManifest(context.Background(), path, manifest); err != nil {
 		t.Fatalf("writeYBSnapshotManifest: %v", err)
@@ -58,6 +58,79 @@ func TestYBSnapshotManifestFileRoundTrip(t *testing.T) {
 	}
 	if !reflect.DeepEqual(decoded, manifest) {
 		t.Fatalf("round trip mismatch:\n got=%+v\nwant=%+v", decoded, manifest)
+	}
+}
+
+// TestYBSnapshotManifestValidateRejectsTraversalRunID proves a manifest whose
+// run id carries traversal segments is refused at both trust boundaries: the
+// validate method every fetch runs, and the production writer. The run id
+// feeds filepath.Join on staging dirs that are recursively removed, so a
+// traversal run id must never survive decode or write.
+func TestYBSnapshotManifestValidateRejectsTraversalRunID(t *testing.T) {
+	for _, runID := range []string{"../../../etc", "20260826T030000Z/../..", "run-1", ""} {
+		manifest := newYBSnapshotManifest(runID, "snap-1", "tack", []string{"yb1"})
+		if err := manifest.validate(); err == nil {
+			t.Errorf("validate accepted run_id %q", runID)
+		}
+		path := filepath.Join(t.TempDir(), "manifest.json")
+		if err := writeYBSnapshotManifest(context.Background(), path, manifest); err == nil {
+			t.Errorf("writeYBSnapshotManifest accepted run_id %q", runID)
+		}
+		if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+			t.Errorf("manifest file written despite invalid run_id %q", runID)
+		}
+	}
+}
+
+// TestYBSnapshotManifestValidateRejectsBadNodeNames proves node names carrying
+// path separators, traversal segments, or shell metacharacters are refused:
+// they feed staged archive file names and the in-container extraction paths.
+// A node whose prefix disagrees with the one derived from its name is refused
+// too, because the prefix becomes part of the object key the archive uploads
+// to.
+func TestYBSnapshotManifestValidateRejectsBadNodeNames(t *testing.T) {
+	badNames := []string{
+		"../yb1", "a..b", "nodes/yb1", `yb\1`,
+		"yb1;reboot", "yb$(reboot)", "yb1 yb2", "-yb1", "",
+	}
+	for _, name := range badNames {
+		manifest := ybSnapshotManifest{
+			RunID:      "20260826T030000Z",
+			SnapshotID: "snap-1",
+			Database:   "tack",
+			CreatedAt:  "2026-08-26T03:00:00Z",
+			Nodes:      []ybSnapshotManifestNode{{Name: name, Prefix: "nodes/" + name + "/"}},
+		}
+		if err := manifest.validate(); err == nil {
+			t.Errorf("validate accepted node name %q", name)
+		}
+	}
+
+	mismatched := ybSnapshotManifest{
+		RunID:      "20260826T030000Z",
+		SnapshotID: "snap-1",
+		Database:   "tack",
+		CreatedAt:  "2026-08-26T03:00:00Z",
+		Nodes:      []ybSnapshotManifestNode{{Name: "yb1", Prefix: "nodes/yb2/"}},
+	}
+	if err := mismatched.validate(); err == nil {
+		t.Error("validate accepted a prefix that disagrees with its node name")
+	}
+}
+
+// TestYBSnapshotManifestValidateAcceptsOrchestratorShape proves the manifests
+// the orchestrator actually derives, run-key timestamp run id plus DNS node
+// names or an unbracketed IPv6 literal (the hostFromHostPort output for a
+// bracketed host:port), pass validation and the production writer.
+func TestYBSnapshotManifestValidateAcceptsOrchestratorShape(t *testing.T) {
+	manifest := newYBSnapshotManifest("20260826T030000Z", "snap-1", "tack",
+		[]string{"yb1", "yb2", "yb3", "3d06:bad:b01::10"})
+	if err := manifest.validate(); err != nil {
+		t.Fatalf("validate refused the orchestrator-shaped manifest: %v", err)
+	}
+	path := filepath.Join(t.TempDir(), "manifest.json")
+	if err := writeYBSnapshotManifest(context.Background(), path, manifest); err != nil {
+		t.Fatalf("writeYBSnapshotManifest: %v", err)
 	}
 }
 

@@ -65,6 +65,52 @@ type ybSnapshotManifest struct {
 	Nodes      []ybSnapshotManifestNode `json:"nodes"`
 }
 
+// ybRunIDPattern matches the run ids the export orchestrator generates,
+// opsNow().UTC().Format("20060102T150405Z"). RunID feeds [filepath.Join] on
+// staging dirs that are recursively removed, so nothing looser may pass.
+var ybRunIDPattern = regexp.MustCompile(`^[0-9]{8}T[0-9]{6}Z$`)
+
+// ybNodeNamePattern matches the node identities hostFromHostPort produces for
+// the manifest: DNS names or unbracketed IPv6 literals. Node names feed staged
+// file names and in-container extraction paths, so no separator, whitespace,
+// or shell metacharacter may pass.
+var ybNodeNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.:-]*$`)
+
+// validate rejects a manifest whose strings could escape the paths built from
+// them. The manifest is fetched from the object store, so a corrupted or
+// attacker-written manifest is untrusted input. Validation runs at both trust
+// boundaries, decode after fetch and write before upload, so every downstream
+// use of RunID, node names, and node prefixes handles only vetted strings.
+func (m ybSnapshotManifest) validate() error {
+	if !ybRunIDPattern.MatchString(m.RunID) {
+		return fmt.Errorf("manifest run_id %q is not a run-key timestamp", m.RunID)
+	}
+	for _, node := range m.Nodes {
+		if err := validateYBNodeName(node.Name); err != nil {
+			return err
+		}
+		derived := "nodes/" + node.Name + "/"
+		if node.Prefix != derived {
+			return fmt.Errorf("manifest node %q prefix %q is not the derived %q",
+				node.Name, node.Prefix, derived)
+		}
+	}
+	return nil
+}
+
+// validateYBNodeName enforces the node-name allowlist. The explicit
+// traversal-substring checks are redundant with the pattern today; they keep a
+// future pattern relaxation from silently reopening path traversal.
+func validateYBNodeName(name string) error {
+	if !ybNodeNamePattern.MatchString(name) {
+		return fmt.Errorf("manifest node name %q is not a host name or IPv6 literal", name)
+	}
+	if strings.Contains(name, "..") || strings.Contains(name, "/") || strings.Contains(name, `\`) {
+		return fmt.Errorf("manifest node name %q contains a path traversal component", name)
+	}
+	return nil
+}
+
 // newYBSnapshotManifest builds the manifest for a run, one node entry per
 // tablet-server name, sorted so the manifest bytes are deterministic for a
 // given node set.
@@ -175,11 +221,13 @@ func hostFromHostPort(hostPort string) string {
 	return host
 }
 
-// fetchYBSnapshotManifest downloads and decodes the manifest of one export
-// run. The manifest is small, so it is read into memory rather than staged. A
-// missing manifest comes back as a NotFound-wrapped error without an error
-// log, because the orchestrator uploads the manifest last and walkers over the
-// run prefixes probe for it, treating absence as a skip rather than a failure.
+// fetchYBSnapshotManifest downloads, decodes, and validates the manifest of
+// one export run; a manifest whose run id or node entries fail validation is
+// refused here so no downstream path builds paths or commands from them. The
+// manifest is small, so it is read into memory rather than staged. A missing
+// manifest comes back as a NotFound-wrapped error without an error log,
+// because the orchestrator uploads the manifest last and walkers over the run
+// prefixes probe for it, treating absence as a skip rather than a failure.
 func fetchYBSnapshotManifest(ctx context.Context, client *s3.Client, bucket, runID string) (ybSnapshotManifest, error) {
 	logger := telemetry.L(ctx)
 	key := ybSnapshotKeyPrefix(runID) + ybSnapshotManifestObject
@@ -204,6 +252,11 @@ func fetchYBSnapshotManifest(ctx context.Context, client *s3.Client, bucket, run
 	var manifest ybSnapshotManifest
 	if err := json.Unmarshal(body, &manifest); err != nil {
 		wrapped := fmt.Errorf("unmarshal yb snapshot manifest %s/%s: %w", bucket, key, err)
+		logger.ErrorContext(ctx, "backup.s3.get_failed", slog.String("err", wrapped.Error()))
+		return ybSnapshotManifest{}, wrapped
+	}
+	if err := manifest.validate(); err != nil {
+		wrapped := fmt.Errorf("yb snapshot manifest %s/%s: %w", bucket, key, err)
 		logger.ErrorContext(ctx, "backup.s3.get_failed", slog.String("err", wrapped.Error()))
 		return ybSnapshotManifest{}, wrapped
 	}

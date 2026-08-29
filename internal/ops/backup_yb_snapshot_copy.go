@@ -72,11 +72,19 @@ func tarYBTabletSnapshots(ctx context.Context, cli *client.Client, cfg *config.C
 	return nil
 }
 
-// writeYBSnapshotManifest serializes the completeness manifest so the restore
-// path can find the snapshot the metadata belongs to and verify every node
-// archive is present before restoring.
+// writeYBSnapshotManifest validates and serializes the completeness manifest
+// so the restore path can find the snapshot the metadata belongs to and verify
+// every node archive is present before restoring. Validating on write keeps
+// the orchestrator honest against the decode-side allowlist: an export whose
+// derived run id or node names would be refused by every reader fails loudly
+// here instead of publishing an unusable manifest.
 func writeYBSnapshotManifest(ctx context.Context, path string, manifest ybSnapshotManifest) error {
 	logger := telemetry.L(ctx)
+	if err := manifest.validate(); err != nil {
+		wrapped := fmt.Errorf("yb snapshot manifest not writable: %w", err)
+		logger.ErrorContext(ctx, "backup.yb_snapshot.manifest_failed", slog.String("err", wrapped.Error()))
+		return wrapped
+	}
 	body, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
 		wrapped := fmt.Errorf("marshal yb snapshot manifest: %w", err)

@@ -54,11 +54,13 @@ func importAndRestoreYBSnapshot(ctx context.Context, r *restoreDrillCtx, contain
 		return err
 	}
 
+	// The extraction program is constant shell text; the node name arrives as
+	// a positional argument ($1), so a manifest-supplied name can never be
+	// parsed as shell syntax. Manifest decode also allowlists the names.
+	const extractScript = `mkdir -p "/tmp/exp/$1" && tar xzf "/artifacts/tablets-$1.tar.gz" -C "/tmp/exp/$1"`
 	for _, node := range nodes {
-		extractCmd := fmt.Sprintf("mkdir -p /tmp/exp/%s && tar xzf /artifacts/tablets-%s.tar.gz -C /tmp/exp/%s",
-			node, node, node)
 		if extractRes, err := containerExec(ctx, r.Cli, container,
-			[]string{"sh", "-c", extractCmd}); err != nil || extractRes.ExitCode != 0 {
+			[]string{"sh", "-c", extractScript, "sh", node}); err != nil || extractRes.ExitCode != 0 {
 			wrapped := fmt.Errorf("extract tablets for node %s: exit %d: %w", node, extractRes.ExitCode, err)
 			logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", wrapped.Error()))
 			return wrapped
