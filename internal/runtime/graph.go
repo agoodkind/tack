@@ -77,7 +77,7 @@ func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
 		Searcher:      searcher,
 	})
 
-	authMiddleware := buildAuthMiddleware(cfg, tokenRepo)
+	authMiddleware := buildAuthMiddleware(cfg, tokenRepo, orgMembers)
 
 	return &Graph{
 		MCPHandler:     mcpHandler,
@@ -114,12 +114,12 @@ func (g *Graph) Close() {
 	}
 }
 
-func buildAuthMiddleware(cfg *config.Config, tokenRepo *postgres.TokenRepo) func(http.Handler) http.Handler {
+func buildAuthMiddleware(cfg *config.Config, tokenRepo *postgres.TokenRepo, orgMembers auth.OrgLister) func(http.Handler) http.Handler {
 	if cfg.Env == "development" {
 		slog.Warn("dev_auth.enabled")
-		return auth.DevBearer
+		return auth.DevBearer(orgMembers)
 	}
-	return auth.Bearer(tokenRepo)
+	return auth.Bearer(tokenRepo, orgMembers)
 }
 
 // buildSearcher creates a Meilisearch client and ensures the nodes index is

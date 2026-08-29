@@ -8,9 +8,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
-// Row is a flattened audit row sized for the MCP tool surface. The json tags
+// Row is a flattened audit row sized for the export and operator read
+// surface. The json tags
 // repeat the field names on purpose: an export bundle is a file of these
 // rows, and every bundle already written carries these exact keys, so the
 // tags pin the format rather than change it.
@@ -45,6 +47,31 @@ type Row struct {
 	RowHash        []byte          `json:"RowHash"`
 	HashVersion    int16           `json:"HashVersion"`
 	IdempotencyKey string          `json:"IdempotencyKey"`
+}
+
+// readAuditRow scans the current audit.events row in the canonical column
+// order every ledger SELECT uses: org_id, event_time, event_id, seq, shard,
+// actor_id, actor_kind, action, outcome, entity_kind, entity_id, context,
+// delta, error, extra, pii_ref, prev_hash, row_hash, hash_version,
+// idempotency_key.
+func readAuditRow(rows pgx.Rows) (Row, error) {
+	var row Row
+	var outcome *string
+	var contextRaw, deltaRaw, errorRaw, extraRaw []byte
+	if err := rows.Scan(
+		&row.OrgID, &row.EventTime, &row.EventID, &row.Seq, &row.Shard,
+		&row.ActorID, &row.ActorKind, &row.Action, &outcome,
+		&row.EntityKind, &row.EntityID, &contextRaw, &deltaRaw, &errorRaw, &extraRaw, &row.PIIRef,
+		&row.PrevHash, &row.RowHash, &row.HashVersion, &row.IdempotencyKey,
+	); err != nil {
+		slog.Error("audit.row.scan_failed", slog.String("err", err.Error()))
+		return row, fmt.Errorf("audit row scan: %w", err)
+	}
+	if err := unmarshalRowPayloads(&row, contextRaw, deltaRaw, errorRaw, extraRaw); err != nil {
+		return row, err
+	}
+	row.Outcome = outcomeFromColumn(outcome)
+	return row, nil
 }
 
 // rowPayloadTarget is the set of typed payloads a stored JSON column decodes

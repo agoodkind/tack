@@ -18,14 +18,21 @@ import (
 
 // auditRecorder receives auth-event records. SetAuditRecorder installs it
 // once at startup; until then auth events are silently dropped.
-var auditRecorder atomic.Value // audit.Recorder
+var auditRecorder atomic.Value // recorderBox
+
+// recorderBox gives every stored recorder one concrete type: [atomic.Value]
+// panics when consecutive stores carry different dynamic types, which two
+// recorder implementations otherwise would.
+type recorderBox struct {
+	recorder audit.Recorder
+}
 
 // SetAuditRecorder installs the auth-event audit sink.
 func SetAuditRecorder(r audit.Recorder) {
 	if r == nil {
 		r = audit.NoopRecorder{}
 	}
-	auditRecorder.Store(r)
+	auditRecorder.Store(recorderBox{recorder: r})
 }
 
 func currentRecorder() audit.Recorder {
@@ -33,7 +40,7 @@ func currentRecorder() audit.Recorder {
 	if v == nil {
 		return audit.NoopRecorder{}
 	}
-	return v.(audit.Recorder)
+	return v.(recorderBox).recorder
 }
 
 // hashBearer returns a short prefix of sha256(bearer) for audit fingerprinting
@@ -75,10 +82,37 @@ type TokenValidator interface {
 	Validate(ctx context.Context, raw string) (*token.Token, error)
 }
 
+// OrgLister resolves the orgs a user belongs to, so auth events carry the
+// actor's org instead of the nil org (TACK-461).
+type OrgLister interface {
+	ListOrgIDsForUser(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error)
+}
+
+// actorOrg returns the actor's sole org, and uuid.Nil when the actor belongs
+// to zero or several orgs: an auth event fires before any workspace names an
+// org, so the only honest stamp is a membership that admits no other answer.
+// A lookup failure also stamps nil, because enriching the audit context must
+// never fail the request that a working recorder would still record.
+func actorOrg(ctx context.Context, orgs OrgLister, userID uuid.UUID) uuid.UUID {
+	if orgs == nil {
+		return uuid.Nil
+	}
+	ids, err := orgs.ListOrgIDsForUser(ctx, userID)
+	if err != nil {
+		slog.WarnContext(ctx, "auth.org_stamp_failed",
+			slog.String("user_id", userID.String()), slog.String("err", err.Error()))
+		return uuid.Nil
+	}
+	if len(ids) == 1 {
+		return ids[0]
+	}
+	return uuid.Nil
+}
+
 // Bearer returns HTTP middleware that requires a valid API token.
 // On success injects the user ID into the request context.
 // On failure returns 401 with a JSON body.
-func Bearer(tokens TokenValidator) func(http.Handler) http.Handler {
+func Bearer(tokens TokenValidator, orgs OrgLister) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			raw := extractBearer(r)
@@ -113,13 +147,15 @@ func Bearer(tokens TokenValidator) func(http.Handler) http.Handler {
 			}
 
 			ctx := withAuthenticatedUser(r.Context(), t.UserID)
-			emitAuthAudit(ctx, r, audit.Event{
+			used := audit.Event{
 				EventID: uuid.Nil,
 				Verb:    string(audit.VerbAuthTokenUsed),
 				Actor:   audit.Actor{Type: audit.ActorUser, ID: t.UserID, APITokenLabel: hashBearer(raw)},
 				Entity:  audit.Entity{Type: "auth", ID: t.UserID, Name: "token_accepted"},
 				Outcome: audit.OutcomeOK,
-			})
+			}
+			used.Context.OrgID = actorOrg(ctx, orgs, t.UserID)
+			emitAuthAudit(ctx, r, used)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
@@ -128,42 +164,46 @@ func Bearer(tokens TokenValidator) func(http.Handler) http.Handler {
 // DevBearer is a shim for development: accepts any UUID in the Authorization
 // header directly as a user ID, bypassing the token table entirely.
 // Only active when env=development.
-func DevBearer(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		raw := extractBearer(r)
-		if raw == "" {
-			emitAuthAudit(r.Context(), r, audit.Event{
+func DevBearer(orgs OrgLister) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			raw := extractBearer(r)
+			if raw == "" {
+				emitAuthAudit(r.Context(), r, audit.Event{
+					EventID: uuid.Nil,
+					Verb:    string(audit.VerbAuthLoginFailed),
+					Actor:   audit.Actor{Type: audit.ActorToken},
+					Entity:  audit.Entity{Type: "auth", Name: "dev_missing_authorization"},
+					Outcome: audit.OutcomeError,
+				})
+				unauthorized(w, "missing Authorization header")
+				return
+			}
+			userID, err := uuid.Parse(raw)
+			if err != nil {
+				emitAuthAudit(r.Context(), r, audit.Event{
+					EventID: uuid.Nil,
+					Verb:    string(audit.VerbAuthTokenRejected),
+					Actor:   audit.Actor{Type: audit.ActorToken},
+					Entity:  audit.Entity{Type: "auth", Name: "dev_bearer_not_uuid"},
+					Outcome: audit.OutcomeError,
+				})
+				unauthorized(w, "dev mode: Authorization header must be a UUID")
+				return
+			}
+			ctx := withAuthenticatedUser(r.Context(), userID)
+			used := audit.Event{
 				EventID: uuid.Nil,
-				Verb:    string(audit.VerbAuthLoginFailed),
-				Actor:   audit.Actor{Type: audit.ActorToken},
-				Entity:  audit.Entity{Type: "auth", Name: "dev_missing_authorization"},
-				Outcome: audit.OutcomeError,
-			})
-			unauthorized(w, "missing Authorization header")
-			return
-		}
-		userID, err := uuid.Parse(raw)
-		if err != nil {
-			emitAuthAudit(r.Context(), r, audit.Event{
-				EventID: uuid.Nil,
-				Verb:    string(audit.VerbAuthTokenRejected),
-				Actor:   audit.Actor{Type: audit.ActorToken},
-				Entity:  audit.Entity{Type: "auth", Name: "dev_bearer_not_uuid"},
-				Outcome: audit.OutcomeError,
-			})
-			unauthorized(w, "dev mode: Authorization header must be a UUID")
-			return
-		}
-		ctx := withAuthenticatedUser(r.Context(), userID)
-		emitAuthAudit(ctx, r, audit.Event{
-			EventID: uuid.Nil,
-			Verb:    string(audit.VerbAuthTokenUsed),
-			Actor:   audit.Actor{Type: audit.ActorUser, ID: userID, APITokenLabel: "dev"},
-			Entity:  audit.Entity{Type: "auth", ID: userID, Name: "dev_bearer_accepted"},
-			Outcome: audit.OutcomeOK,
+				Verb:    string(audit.VerbAuthTokenUsed),
+				Actor:   audit.Actor{Type: audit.ActorUser, ID: userID, APITokenLabel: "dev"},
+				Entity:  audit.Entity{Type: "auth", ID: userID, Name: "dev_bearer_accepted"},
+				Outcome: audit.OutcomeOK,
+			}
+			used.Context.OrgID = actorOrg(ctx, orgs, userID)
+			emitAuthAudit(ctx, r, used)
+			next.ServeHTTP(w, r.WithContext(ctx))
 		})
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
+	}
 }
 
 func extractBearer(r *http.Request) string {

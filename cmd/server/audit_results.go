@@ -69,6 +69,20 @@ type auditVerifyResult struct {
 	ManifestSubject      string   `json:"manifest_subject"`
 }
 
+// auditBackfillOrgResult is the `audit backfill-org` output for a plan and
+// for an applied run.
+type auditBackfillOrgResult struct {
+	clispec.ResultMarker `exhaustruct:"optional"`
+	Command              string    `json:"command"`
+	DryRun               bool      `json:"dry_run"`
+	TargetOrg            uuid.UUID `json:"target_org"`
+	NilRows              int64     `json:"nil_rows"`
+	Shards               int       `json:"shards"`
+	RowsMoved            int64     `json:"rows_moved"`
+	ShardsTouched        int       `json:"shards_touched"`
+	Passes               int       `json:"passes"`
+}
+
 // auditGenKeyResult reports a generated audit signing key path.
 type auditGenKeyResult struct {
 	clispec.ResultMarker `exhaustruct:"optional"`
