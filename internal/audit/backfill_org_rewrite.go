@@ -17,7 +17,12 @@ import (
 // observes the shard empty removes the source head under the same guard, so a
 // row appended concurrently is never orphaned, and reports the shard done.
 func (b *OrgBackfill) moveChunk(ctx context.Context, source, target uuid.UUID, shard int16, guard ShardGuard) (int64, bool, error) {
-	tx, err := b.pool.BeginTx(ctx, pgx.TxOptions{})
+	// Serializable, because the premise guard's org_members reads must hold
+	// through commit: under read committed a membership row inserted between
+	// the guard and the commit would let the chunk move rows after the
+	// sole-org premise broke. A serialization failure surfaces as SQLSTATE
+	// 40001, which the caller's retry loop already classifies as retryable.
+	tx, err := b.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.backfill.begin_failed", slog.String("err", err.Error()))
 		return 0, false, fmt.Errorf("audit org backfill begin: %w", err)

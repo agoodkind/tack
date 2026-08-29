@@ -70,12 +70,17 @@ type auditVerifyResult struct {
 }
 
 // auditBackfillAbsorbedOrg reports one --absorb-org exemption: the rows it
-// would move on a plan, and what it moved on an applied run.
+// would move on a plan, and what it moved on an applied run. The top-level
+// moved counters describe the nil-org move alone; each absorbed source
+// carries its own, because shards of different sources overlap and a summed
+// count would double-count chains.
 type auditBackfillAbsorbedOrg struct {
-	OrgID     uuid.UUID `json:"org_id"`
-	Rows      int64     `json:"rows"`
-	Shards    int       `json:"shards"`
-	RowsMoved int64     `json:"rows_moved"`
+	OrgID         uuid.UUID `json:"org_id"`
+	Rows          int64     `json:"rows"`
+	Shards        int       `json:"shards"`
+	RowsMoved     int64     `json:"rows_moved"`
+	ShardsTouched int       `json:"shards_touched"`
+	Passes        int       `json:"passes"`
 }
 
 // auditBackfillOrgResult is the `audit backfill-org` output for a plan and

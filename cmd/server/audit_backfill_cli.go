@@ -150,7 +150,8 @@ func planBackfillResult(ctx context.Context, backfill *audit.OrgBackfill, target
 			return nil, fmt.Errorf("audit backfill-org: plan absorb org %s: %w", org, err)
 		}
 		result.AbsorbedOrgs = append(result.AbsorbedOrgs, auditBackfillAbsorbedOrg{
-			OrgID: org, Rows: orgPlan.Rows, Shards: orgPlan.Shards, RowsMoved: 0,
+			OrgID: org, Rows: orgPlan.Rows, Shards: orgPlan.Shards,
+			RowsMoved: 0, ShardsTouched: 0, Passes: 0,
 		})
 	}
 	return result, nil
@@ -175,6 +176,8 @@ func applyBackfillMoves(ctx context.Context, backfill *audit.OrgBackfill, target
 			return fmt.Errorf("audit backfill-org: absorb org %s: %w", org, err)
 		}
 		result.AbsorbedOrgs[i].RowsMoved = absorbMove.RowsMoved
+		result.AbsorbedOrgs[i].ShardsTouched = absorbMove.ShardsTouched
+		result.AbsorbedOrgs[i].Passes = absorbMove.Passes
 		result.RowsMoved += absorbMove.RowsMoved
 	}
 	return nil
