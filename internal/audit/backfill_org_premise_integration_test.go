@@ -76,7 +76,7 @@ func TestDeriveSoleOrg(t *testing.T) {
 	backfill := &OrgBackfill{pool: pool}
 
 	// No member org: refused before any ledger reasoning.
-	if _, err := backfill.DeriveSoleOrg(ctx); err == nil || !strings.Contains(err.Error(), "holds 0 orgs") {
+	if _, err := backfill.DeriveSoleOrg(ctx, OrgBackfillOptions{AbsorbOrgs: nil, AcknowledgedActors: nil}); err == nil || !strings.Contains(err.Error(), "holds 0 orgs") {
 		t.Fatalf("empty org_members err = %v, want the 0-orgs refusal", err)
 	}
 
@@ -92,7 +92,7 @@ func TestDeriveSoleOrg(t *testing.T) {
 
 	// The happy path: one member org, ledger holding that org plus the
 	// system org's operator rows, derives the member org.
-	target, err := backfill.DeriveSoleOrg(ctx)
+	target, err := backfill.DeriveSoleOrg(ctx, OrgBackfillOptions{AbsorbOrgs: nil, AcknowledgedActors: nil})
 	if err != nil {
 		t.Fatalf("derive with system-org rows present: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestDeriveSoleOrg(t *testing.T) {
 	if err := appendWithRetry(ctx, pool, premiseEvent(t, foreignOrg, actor, 32)); err != nil {
 		t.Fatalf("seed foreign-org row: %v", err)
 	}
-	if _, err := backfill.DeriveSoleOrg(ctx); err == nil || !strings.Contains(err.Error(), foreignOrg.String()) {
+	if _, err := backfill.DeriveSoleOrg(ctx, OrgBackfillOptions{AbsorbOrgs: nil, AcknowledgedActors: nil}); err == nil || !strings.Contains(err.Error(), foreignOrg.String()) {
 		t.Fatalf("foreign ledger org err = %v, want a refusal naming %s", err, foreignOrg)
 	}
 	purgeOrgChain(t, pool, foreignOrg)
@@ -118,17 +118,17 @@ func TestDeriveSoleOrg(t *testing.T) {
 		t.Fatalf("seed stranger nil row: %v", err)
 	}
 	t.Cleanup(func() { purgeNilOrg(t, pool) })
-	if _, err := backfill.DeriveSoleOrg(ctx); err == nil || !strings.Contains(err.Error(), stranger.String()) {
+	if _, err := backfill.DeriveSoleOrg(ctx, OrgBackfillOptions{AbsorbOrgs: nil, AcknowledgedActors: nil}); err == nil || !strings.Contains(err.Error(), stranger.String()) {
 		t.Fatalf("stranger actor err = %v, want a refusal naming %s", err, stranger)
 	}
 	seedPremiseMember(t, pool, orgID, stranger)
-	if _, err := backfill.DeriveSoleOrg(ctx); err != nil {
+	if _, err := backfill.DeriveSoleOrg(ctx, OrgBackfillOptions{AbsorbOrgs: nil, AcknowledgedActors: nil}); err != nil {
 		t.Fatalf("derive after the stranger joined: %v", err)
 	}
 
 	// A second member org is refused by count.
 	seedPremiseMember(t, pool, uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()))
-	if _, err := backfill.DeriveSoleOrg(ctx); err == nil || !strings.Contains(err.Error(), "holds 2 orgs") {
+	if _, err := backfill.DeriveSoleOrg(ctx, OrgBackfillOptions{AbsorbOrgs: nil, AcknowledgedActors: nil}); err == nil || !strings.Contains(err.Error(), "holds 2 orgs") {
 		t.Fatalf("two member orgs err = %v, want the 2-orgs refusal", err)
 	}
 }
@@ -152,7 +152,7 @@ func TestSoleOrgGuardRefusesStrangerChunk(t *testing.T) {
 	t.Cleanup(func() { purgeNilOrg(t, pool) })
 	backfill := &OrgBackfill{pool: pool}
 
-	if _, err := backfill.MoveNilOrgRows(ctx, orgID, SoleOrgGuard(orgID)); err == nil || !strings.Contains(err.Error(), stranger.String()) {
+	if _, err := backfill.MoveOrgRows(ctx, uuid.Nil, orgID, SoleOrgGuard(orgID, nil)); err == nil || !strings.Contains(err.Error(), stranger.String()) {
 		t.Fatalf("guarded move err = %v, want a refusal naming %s", err, stranger)
 	}
 	var remaining int64
@@ -164,7 +164,7 @@ func TestSoleOrgGuardRefusesStrangerChunk(t *testing.T) {
 	}
 
 	seedPremiseMember(t, pool, orgID, stranger)
-	move, err := backfill.MoveNilOrgRows(ctx, orgID, SoleOrgGuard(orgID))
+	move, err := backfill.MoveOrgRows(ctx, uuid.Nil, orgID, SoleOrgGuard(orgID, nil))
 	if err != nil {
 		t.Fatalf("guarded move after the stranger joined: %v", err)
 	}

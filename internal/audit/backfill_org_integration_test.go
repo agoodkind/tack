@@ -134,16 +134,16 @@ func TestMoveNilOrgRowsAppendsAndVerifies(t *testing.T) {
 	realBefore := readChain(t, pool, orgID, shardWithReal)
 
 	backfill := &OrgBackfill{pool: pool}
-	plan, err := backfill.PlanNilOrgMove(ctx)
+	plan, err := backfill.PlanOrgMove(ctx, uuid.Nil)
 	if err != nil {
 		t.Fatalf("plan: %v", err)
 	}
-	if plan.NilRows != 7 || plan.Shards != 2 {
+	if plan.Rows != 7 || plan.Shards != 2 {
 		t.Fatalf("plan = %+v, want 7 rows over 2 shards", plan)
 	}
 	// A guard that refuses aborts before anything moves: the negative case.
 	refusal := errors.New("premise gone")
-	_, err = backfill.MoveNilOrgRows(ctx, orgID, func(context.Context, pgx.Tx, []Row) error { return refusal })
+	_, err = backfill.MoveOrgRows(ctx, uuid.Nil, orgID, func(context.Context, pgx.Tx, []Row) error { return refusal })
 	if !errors.Is(err, refusal) {
 		t.Fatalf("refusing guard err = %v, want the guard's refusal", err)
 	}
@@ -159,7 +159,7 @@ func TestMoveNilOrgRowsAppendsAndVerifies(t *testing.T) {
 		}
 		return nil
 	}
-	move, err := backfill.MoveNilOrgRows(ctx, orgID, guard)
+	move, err := backfill.MoveOrgRows(ctx, uuid.Nil, orgID, guard)
 	if err != nil {
 		t.Fatalf("move: %v", err)
 	}
@@ -190,7 +190,7 @@ func TestMoveNilOrgRowsAppendsAndVerifies(t *testing.T) {
 	}
 	assertMovedRowsVerify(t, pool, orgID, nilInputs)
 
-	again, err := backfill.MoveNilOrgRows(ctx, orgID, nil)
+	again, err := backfill.MoveOrgRows(ctx, uuid.Nil, orgID, nil)
 	if err != nil {
 		t.Fatalf("rerun: %v", err)
 	}

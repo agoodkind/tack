@@ -11,12 +11,12 @@ import (
 )
 
 // moveChunk rewrites up to moveChunkRows of one shard inside one transaction:
-// run the caller's premise guard, read both heads, read the next chunk of nil
-// rows in chain order, append them to the target chain, and advance the
-// target head with the usual compare-and-swap. The chunk that observes the
-// shard empty removes the nil head under the same guard, so a row appended
-// concurrently is never orphaned, and reports the shard done.
-func (b *OrgBackfill) moveChunk(ctx context.Context, target uuid.UUID, shard int16, guard ShardGuard) (int64, bool, error) {
+// run the caller's premise guard, read both heads, read the next chunk of the
+// source org's rows in chain order, append them to the target chain, and
+// advance the target head with the usual compare-and-swap. The chunk that
+// observes the shard empty removes the source head under the same guard, so a
+// row appended concurrently is never orphaned, and reports the shard done.
+func (b *OrgBackfill) moveChunk(ctx context.Context, source, target uuid.UUID, shard int16, guard ShardGuard) (int64, bool, error) {
 	tx, err := b.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.backfill.begin_failed", slog.String("err", err.Error()))
@@ -24,7 +24,7 @@ func (b *OrgBackfill) moveChunk(ctx context.Context, target uuid.UUID, shard int
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	nilHead, err := readChainHead(ctx, tx, uuid.Nil, shard)
+	sourceHead, err := readChainHead(ctx, tx, source, shard)
 	if err != nil {
 		return 0, false, err
 	}
@@ -32,7 +32,7 @@ func (b *OrgBackfill) moveChunk(ctx context.Context, target uuid.UUID, shard int
 	if err != nil {
 		return 0, false, err
 	}
-	rows, err := nilShardRows(ctx, tx, shard)
+	rows, err := sourceShardRows(ctx, tx, source, shard)
 	if err != nil {
 		return 0, false, err
 	}
@@ -43,12 +43,12 @@ func (b *OrgBackfill) moveChunk(ctx context.Context, target uuid.UUID, shard int
 	}
 	done := len(rows) == 0
 	if done {
-		if nilHead.Exists {
-			if err := deleteNilHead(ctx, tx, shard, nilHead); err != nil {
+		if sourceHead.Exists {
+			if err := deleteSourceHead(ctx, tx, source, shard, sourceHead); err != nil {
 				return 0, false, err
 			}
 		}
-	} else if err := rewriteShardRows(ctx, tx, target, shard, realHead, rows); err != nil {
+	} else if err := rewriteShardRows(ctx, tx, source, target, shard, realHead, rows); err != nil {
 		return 0, false, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -58,14 +58,14 @@ func (b *OrgBackfill) moveChunk(ctx context.Context, target uuid.UUID, shard int
 	return int64(len(rows)), done, nil
 }
 
-// deleteNilHead removes the drained nil chain's head, guarded on the last_seq
-// this transaction read: a concurrent append to the nil chain makes the guard
-// miss, which surfaces as a conflict and reruns the chunk.
-func deleteNilHead(ctx context.Context, tx pgx.Tx, shard int16, head chainHeadState) error {
+// deleteSourceHead removes the drained source chain's head, guarded on the
+// last_seq this transaction read: a concurrent append to the source chain
+// makes the guard miss, which surfaces as a conflict and reruns the chunk.
+func deleteSourceHead(ctx context.Context, tx pgx.Tx, source uuid.UUID, shard int16, head chainHeadState) error {
 	tag, err := tx.Exec(ctx, `
 		DELETE FROM audit.chain_heads
 		WHERE org_id = $1 AND shard = $2 AND last_seq = $3
-	`, uuid.Nil, shard, head.LastSeq)
+	`, source, shard, head.LastSeq)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.backfill.head_delete_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("audit org backfill head delete: %w", err)
@@ -76,9 +76,9 @@ func deleteNilHead(ctx context.Context, tx pgx.Tx, shard int16, head chainHeadSt
 	return nil
 }
 
-// rewriteShardRows appends one chunk of nil-org rows onto the target chain
-// and advances the target head.
-func rewriteShardRows(ctx context.Context, tx pgx.Tx, target uuid.UUID, shard int16, realHead chainHeadState, rows []Row) error {
+// rewriteShardRows appends one chunk of the source org's rows onto the target
+// chain and advances the target head.
+func rewriteShardRows(ctx context.Context, tx pgx.Tx, source, target uuid.UUID, shard int16, realHead chainHeadState, rows []Row) error {
 	seq := realHead.LastSeq
 	prev := realHead.LastHash
 	batch := &pgx.Batch{}
@@ -93,7 +93,7 @@ func rewriteShardRows(ctx context.Context, tx pgx.Tx, target uuid.UUID, shard in
 			SET org_id = $1, seq = $2, prev_hash = $3, row_hash = $4, hash_version = $5
 			WHERE org_id = $6 AND shard = $7 AND event_time = $8 AND seq = $9 AND event_id = $10
 		`, target, seq, prev, rowHash, auditHashVersionCurrent,
-			uuid.Nil, shard, row.EventTime, row.Seq, row.EventID)
+			source, shard, row.EventTime, row.Seq, row.EventID)
 		prev = rowHash
 	}
 	if err := sendMoveBatch(ctx, tx, batch, shard); err != nil {
@@ -152,9 +152,9 @@ func sendMoveBatch(ctx context.Context, tx pgx.Tx, batch *pgx.Batch, shard int16
 	return nil
 }
 
-// nilShardRows reads the next chunk of one shard's nil-org rows in their
-// original chain order.
-func nilShardRows(ctx context.Context, tx pgx.Tx, shard int16) ([]Row, error) {
+// sourceShardRows reads the next chunk of one shard's source-org rows in
+// their original chain order.
+func sourceShardRows(ctx context.Context, tx pgx.Tx, source uuid.UUID, shard int16) ([]Row, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT org_id, event_time, event_id, seq, shard,
 		       actor_id, actor_kind, action, outcome, entity_kind, entity_id,
@@ -164,7 +164,7 @@ func nilShardRows(ctx context.Context, tx pgx.Tx, shard int16) ([]Row, error) {
 		WHERE org_id = $1 AND shard = $2
 		ORDER BY seq
 		LIMIT $3
-	`, uuid.Nil, shard, moveChunkRows)
+	`, source, shard, moveChunkRows)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.backfill.row_select_failed",
 			slog.Int("shard", int(shard)), slog.String("err", err.Error()))
