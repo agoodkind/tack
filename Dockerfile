@@ -1,7 +1,7 @@
 ARG FDB_VERSION=7.4.6
 
 # ── builder ───────────────────────────────────────────────────────────────────
-FROM golang:1.26-bookworm AS builder
+FROM golang:1.27-bookworm AS builder
 ARG FDB_VERSION
 
 # Install FDB C client library (required by CGO bindings at link time)
