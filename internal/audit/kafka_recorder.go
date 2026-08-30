@@ -102,8 +102,8 @@ func NewKafkaRecorder(cfg KafkaConfig) (*KafkaRecorder, error) {
 // until someone reads a log.
 //
 // A broker answering is not enough. The topic has to exist, be visible to this
-// client, and have a partition leader, because a reachable broker with no
-// topic or no authorization fails every Record while looking healthy at the
+// client, and have a leader on every partition, because a reachable broker
+// whose topic is missing or stranded fails Record while looking healthy at the
 // connection level.
 func (k *KafkaRecorder) Ready(ctx context.Context) error {
 	if err := k.client.Ping(ctx); err != nil {
@@ -114,7 +114,7 @@ func (k *KafkaRecorder) Ready(ctx context.Context) error {
 }
 
 // checkTopicWritable asks the cluster about the configured topic and demands a
-// partition with a leader. Auto-creation is disabled on the request: a topic
+// leader on every partition. Auto-creation is disabled on the request: a topic
 // conjured by the readiness check would report success while the partition
 // count the design fixes had never been applied.
 func (k *KafkaRecorder) checkTopicWritable(ctx context.Context) error {
@@ -143,24 +143,46 @@ func (k *KafkaRecorder) checkTopicWritable(ctx context.Context) error {
 				slog.String("topic", k.topic), slog.String("err", codeErr.Error()))
 			return fmt.Errorf("audit kafka topic %s: %w", k.topic, codeErr)
 		}
-		if !hasPartitionLeader(respTopic) {
-			err := fmt.Errorf("audit kafka topic %s: no partition has a leader", k.topic)
-			slog.ErrorContext(ctx, "audit.kafka.topic_leaderless",
-				slog.String("topic", k.topic), slog.String("err", err.Error()))
+		if err := k.checkPartitionLeaders(ctx, respTopic); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// hasPartitionLeader reports whether any partition can accept a produce.
-func hasPartitionLeader(respTopic kmsg.MetadataResponseTopic) bool {
+// checkPartitionLeaders demands a leader on every partition, not merely one.
+// The producer key hashes an (org, shard) pair across the whole partition
+// space, so a single leaderless partition fails every event that lands on it
+// while the rest of the topic looks healthy. A topic with no partitions at all
+// can accept nothing.
+func (k *KafkaRecorder) checkPartitionLeaders(ctx context.Context, respTopic kmsg.MetadataResponseTopic) error {
+	if len(respTopic.Partitions) == 0 {
+		err := fmt.Errorf("audit kafka topic %s: reports no partitions", k.topic)
+		slog.ErrorContext(ctx, "audit.kafka.topic_partitionless",
+			slog.String("topic", k.topic), slog.String("err", err.Error()))
+		return err
+	}
 	for _, partition := range respTopic.Partitions {
-		if partition.ErrorCode == 0 && partition.Leader >= 0 {
-			return true
+		if partition.ErrorCode != 0 {
+			codeErr := kerr.ErrorForCode(partition.ErrorCode)
+			slog.ErrorContext(ctx, "audit.kafka.partition_unwritable",
+				slog.String("topic", k.topic),
+				slog.Int("partition", int(partition.Partition)),
+				slog.String("err", codeErr.Error()))
+			return fmt.Errorf("audit kafka topic %s partition %d: %w",
+				k.topic, partition.Partition, codeErr)
+		}
+		if partition.Leader < 0 {
+			err := fmt.Errorf("audit kafka topic %s partition %d: no leader",
+				k.topic, partition.Partition)
+			slog.ErrorContext(ctx, "audit.kafka.partition_leaderless",
+				slog.String("topic", k.topic),
+				slog.Int("partition", int(partition.Partition)),
+				slog.String("err", err.Error()))
+			return err
 		}
 	}
-	return false
+	return nil
 }
 
 // MarshalEvent encodes an Event as canonical JSON. Exposed as an
