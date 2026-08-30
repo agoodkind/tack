@@ -199,8 +199,11 @@ services:
       start_period: 30s
 
   # Long-lived backup_agent that streams FoundationDB continuous backups to the
-  # object store. The fdbbackup session is started once by
-  # `ops backup fdb-continuous-init`; this agent drains its snapshots. The backup
+  # object store. The fdbbackup session is started by `ops provision` on a host
+  # whose TACK_BACKUP_FDB_CONTINUOUS is true, and by `ops backup
+  # fdb-continuous-init` for a deliberate out-of-band start; both are idempotent,
+  # so an already-streaming session is left alone. This agent drains the
+  # session's snapshots. The backup
   # profile keeps it off for a plain `docker compose up` without an object store,
   # and the deploy enables the profile. fdbbackup cannot resolve an IPv6 literal,
   # so it reaches the blobstore through the synthetic name fdb-blobstore-host
@@ -496,6 +499,15 @@ services:
       # nothing, which is the local default; the deploy renders the address.
       TACK_BACKUP_ALARM_EMAIL: ${TACK_BACKUP_ALARM_EMAIL:-}
       TACK_BACKUP_ALARM_MSMTPRC: ${TACK_BACKUP_ALARM_MSMTPRC:-/etc/msmtprc}
+      # FoundationDB continuous backup. Without this pass-through the container
+      # falls back to the compiled default false, so `ops provision` leaves the
+      # stream off and the restore drill and staleness check skip their FDB legs
+      # on a host whose .env says true. The overlay path is the patched fdb.bash
+      # the deploy places on the guest, which the restore drill bind-mounts into
+      # its throwaway cluster; deliberately no fallback, so the drill errors
+      # loudly when it is unset rather than mounting a wrong file.
+      TACK_BACKUP_FDB_CONTINUOUS: ${TACK_BACKUP_FDB_CONTINUOUS:-false}
+      TACK_BACKUP_FDB_OVERLAY_PATH: ${TACK_BACKUP_FDB_OVERLAY_PATH:-}
     volumes:
       - /root/backups:/root/backups
       - /etc/foundationdb:/etc/foundationdb:ro

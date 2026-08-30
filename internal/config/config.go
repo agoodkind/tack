@@ -107,9 +107,12 @@ type Config struct {
 	BackupFDBImage          string `env:"TACK_BACKUP_FDB_IMAGE"          envDefault:"foundationdb/foundationdb:7.4.6"`
 	BackupFDBTimeoutSeconds int    `env:"TACK_BACKUP_FDB_TIMEOUT_SECONDS" envDefault:"1800"`
 
-	// FDB continuous backup. BackupFDBContinuous enables the explicit
-	// continuous-init command and the FDB restore-drill leg. The
-	// fdb-continuous-init subcommand starts the continuous session.
+	// FDB continuous backup. BackupFDBContinuous enables the FDB legs of the
+	// restore drill and the staleness check, and it is the switch `ops
+	// provision` reads to start the continuous session unattended, so an
+	// environment that sets it needs no operator to run
+	// `ops backup fdb-continuous-init` by hand; that subcommand remains for a
+	// deliberate out-of-band start and refuses to run when this is false.
 	// BackupFDBSnapshotInterval is the snapshot interval in seconds passed to
 	// `fdbbackup start --snapshot-interval`. See
 	// https://apple.github.io/foundationdb/backups.html
