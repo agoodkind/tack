@@ -23,6 +23,41 @@ when a store must be rebuilt from off-host artifacts.
   restored. See `meilisearch-recovery.md`.
 - Temporal holds no Tack data and has no backup.
 
+## What each tier costs you
+
+Read this before choosing a recovery path, because the two stores lose
+different amounts.
+
+FoundationDB streams continuously, so a restore reaches any point still inside
+the stream's window. How far that window trails production is a measured value,
+not a promise: a stalled backup agent or an object store refusing writes moves
+the restorable point backwards while everything else looks healthy. Read the
+observed restorable point before assuming the loss is small, and treat the
+staleness check's fdb-restorable metric as the thing that tells you it drifted.
+
+YugabyteDB exports on a schedule, so a restore reaches the newest complete
+export and loses everything written since. Between exports the ledger's only
+protection is quorum replication across the three data guests, which survives
+losing a guest but not a corruption or an accidental delete, because
+replication copies those to every replica. The export is the tier that survives
+everything, so its cadence sets the ledger's floor for loss.
+
+Timers on the guests set that cadence. The owner guest exports daily at 03:17
+UTC with up to five minutes of randomized delay, and each data guest archives
+its own tablet files every 15 minutes, so a run becomes complete within roughly
+a quarter hour of the export that started it. The rehearsal that proves the
+artifacts restore runs daily at 05:40 UTC on the owner, clear of the export and
+its archives. A staleness check runs every 30 minutes on the owner and on one
+data guest, and mails when any mechanism ages past its threshold.
+
+One day plus the archive lag is the ledger's loss only while every scheduled
+export succeeds. A missed export widens it by another day, and the export
+threshold of 36 hours allows exactly one miss before it alerts. The other
+thresholds are looser and each allows a different number of misses: the
+rehearsal threshold of 8 days sits over a daily drill, so seven consecutive
+rehearsals can fail silently before the alarm fires. Read each threshold
+against its own schedule rather than assuming a single missed run everywhere.
+
 ## Confirming the backups restore
 
 `./server ops backup restore-drill` restores each store into throwaway
