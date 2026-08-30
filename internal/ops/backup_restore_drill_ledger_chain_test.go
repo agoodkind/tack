@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -40,12 +41,19 @@ func fixedExport(rows int) drillLedgerExportFunc {
 	}
 }
 
+// ledgerOrg is one org the restored ledger holds rows for. The count is what
+// the export's own row count is reconciled against, so a test that wants a
+// complete export passes the same number to both.
+func ledgerOrg(rows int) drillLedgerOrg {
+	return drillLedgerOrg{ID: uuid.Must(uuid.NewV7()), RowCount: rows}
+}
+
 // TestRestoredLedgerChainFailsOnReportedBreak is the point of the whole leg: a
 // verifier that reports a broken chain must fail the drill. The report is what
 // the drill reads, so a verifier that found breaks and still exited zero
 // cannot pass here either.
 func TestRestoredLedgerChainFailsOnReportedBreak(t *testing.T) {
-	orgID := uuid.Must(uuid.NewV7())
+	org := ledgerOrg(4)
 	verify := func(dir string) (*audit.VerifyReport, error) {
 		report := cleanLedgerReport(dir, 4)
 		report.ChainBreaks = []string{"row 019dd226-440e-729a-a442-281aaf73ca30 has previous-hash link mismatch"}
@@ -53,11 +61,11 @@ func TestRestoredLedgerChainFailsOnReportedBreak(t *testing.T) {
 	}
 
 	err := verifyRestoredLedgerChains(
-		context.Background(), []uuid.UUID{orgID}, t.TempDir(), fixedExport(4), verify)
+		context.Background(), []drillLedgerOrg{org}, t.TempDir(), fixedExport(4), verify)
 	if err == nil {
 		t.Fatal("the drill passed a restored ledger whose chain the verifier reported as broken")
 	}
-	if !strings.Contains(err.Error(), "1 chain break(s)") || !strings.Contains(err.Error(), orgID.String()) {
+	if !strings.Contains(err.Error(), "1 chain break(s)") || !strings.Contains(err.Error(), org.ID.String()) {
 		t.Fatalf("error = %v, want it to name the break count and the org", err)
 	}
 }
@@ -65,7 +73,7 @@ func TestRestoredLedgerChainFailsOnReportedBreak(t *testing.T) {
 // TestRestoredLedgerChainPassesOnCleanReport pins the other half: a ledger
 // whose bundles verify must not fail the drill, or the check is useless noise.
 func TestRestoredLedgerChainPassesOnCleanReport(t *testing.T) {
-	orgs := []uuid.UUID{uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())}
+	orgs := []drillLedgerOrg{ledgerOrg(3), ledgerOrg(3)}
 	verify := func(dir string) (*audit.VerifyReport, error) {
 		return cleanLedgerReport(dir, 3), nil
 	}
@@ -76,22 +84,81 @@ func TestRestoredLedgerChainPassesOnCleanReport(t *testing.T) {
 	}
 }
 
-// TestRestoredLedgerChainAcceptsSequenceGaps pins the distinction the leg is
-// built on. A gap is a missing sequence number, which a bounded export
-// produces by leaving rows out; it is not evidence of tampering and must not
-// fail the drill. A break is a prev_hash that does not name its predecessor,
-// and that does.
-func TestRestoredLedgerChainAcceptsSequenceGaps(t *testing.T) {
+// TestRestoredLedgerChainFailsOnSequenceGap pins the rule this leg reads a gap
+// by. The drill exports every row the ledger holds and reconciles the bundle
+// against the ledger's own count, so nothing was left out on purpose. A missing
+// sequence number in that bundle is a row the restore did not bring back, and
+// the verifier cannot compare prev_hash across it: the chain is unverified
+// exactly where the ledger is incomplete, so the drill fails. Tolerating gaps
+// here is only correct for a time-bounded export, which this is not.
+func TestRestoredLedgerChainFailsOnSequenceGap(t *testing.T) {
+	org := ledgerOrg(6)
 	verify := func(dir string) (*audit.VerifyReport, error) {
 		report := cleanLedgerReport(dir, 6)
 		report.ChainGapCount = 11
 		return report, nil
 	}
 
-	if err := verifyRestoredLedgerChains(
-		context.Background(), []uuid.UUID{uuid.Must(uuid.NewV7())}, t.TempDir(),
-		fixedExport(6), verify); err != nil {
-		t.Fatalf("sequence gaps failed the drill: %v", err)
+	err := verifyRestoredLedgerChains(
+		context.Background(), []drillLedgerOrg{org}, t.TempDir(), fixedExport(6), verify)
+	if err == nil {
+		t.Fatal("the drill passed a whole-ledger export with rows missing from inside the chain")
+	}
+	if !strings.Contains(err.Error(), "11 sequence gap(s)") || !strings.Contains(err.Error(), org.ID.String()) {
+		t.Fatalf("error = %v, want it to name the gap count and the org", err)
+	}
+}
+
+// TestRestoredLedgerChainFailsWhenTheExportHitsItsRowLimit is the second half
+// of the same rule, one step earlier. The export is capped so the drill cannot
+// be killed for memory on a production-sized org, and a cap that truncates
+// silently would leave the drill verifying the newest rows and reporting
+// success for the whole ledger, with older corruption and entire quiet shards
+// never read. Reaching the cap is a verdict the drill cannot reach, so it
+// fails and names how much of the ledger it did not check.
+func TestRestoredLedgerChainFailsWhenTheExportHitsItsRowLimit(t *testing.T) {
+	const held = drillLedgerExportRowLimit * 3
+	org := drillLedgerOrg{ID: uuid.Must(uuid.NewV7()), RowCount: held}
+	verify := func(string) (*audit.VerifyReport, error) {
+		t.Fatal("the verifier ran on a bundle holding only part of the org's rows")
+		return nil, nil
+	}
+
+	err := verifyRestoredLedgerChains(
+		context.Background(), []drillLedgerOrg{org}, t.TempDir(),
+		fixedExport(drillLedgerExportRowLimit), verify)
+	if err == nil {
+		t.Fatal("the drill passed an export that stopped at its row limit")
+	}
+	for _, want := range []string{
+		org.ID.String(),
+		strconv.Itoa(drillLedgerExportRowLimit),
+		strconv.Itoa(held),
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error = %v, want it to name %q", err, want)
+		}
+	}
+}
+
+// TestRestoredLedgerChainFailsOnAnyShortfall pins that the reconciliation is
+// against the ledger's row count and not against the cap alone. An export that
+// stops short for any other reason, such as a filter or a role that cannot see
+// every row, leaves the same unverified rows behind and fails the same way.
+func TestRestoredLedgerChainFailsOnAnyShortfall(t *testing.T) {
+	org := ledgerOrg(9)
+	verify := func(string) (*audit.VerifyReport, error) {
+		t.Fatal("the verifier ran on a bundle holding only part of the org's rows")
+		return nil, nil
+	}
+
+	err := verifyRestoredLedgerChains(
+		context.Background(), []drillLedgerOrg{org}, t.TempDir(), fixedExport(7), verify)
+	if err == nil {
+		t.Fatal("the drill passed an export that wrote fewer rows than the ledger holds")
+	}
+	if !strings.Contains(err.Error(), "wrote 7 of the 9 rows") {
+		t.Fatalf("error = %v, want it to name what the export covered", err)
 	}
 }
 
@@ -120,7 +187,7 @@ func TestRestoredLedgerChainFailsWhenVerifyCannotRun(t *testing.T) {
 	}
 
 	err := verifyRestoredLedgerChains(
-		context.Background(), []uuid.UUID{uuid.Must(uuid.NewV7())}, t.TempDir(), fixedExport(2), verify)
+		context.Background(), []drillLedgerOrg{ledgerOrg(2)}, t.TempDir(), fixedExport(2), verify)
 	if err == nil || !strings.Contains(err.Error(), "bundle manifest unreadable") {
 		t.Fatalf("error = %v, want the unrunnable verify to fail the drill", err)
 	}
@@ -139,7 +206,7 @@ func TestRestoredLedgerChainFailsWhenExportFails(t *testing.T) {
 	}
 
 	err := verifyRestoredLedgerChains(
-		context.Background(), []uuid.UUID{uuid.Must(uuid.NewV7())}, t.TempDir(), export, verify)
+		context.Background(), []drillLedgerOrg{ledgerOrg(2)}, t.TempDir(), export, verify)
 	if err == nil || !strings.Contains(err.Error(), "ledger unreachable") {
 		t.Fatalf("error = %v, want the failed export to fail the drill", err)
 	}
@@ -151,7 +218,7 @@ func TestRestoredLedgerChainFailsWhenExportFails(t *testing.T) {
 // one the test asserted. This is the wiring: swapping the drill's break check
 // for a row count leaves the report-level tests above green and this one red.
 func TestRestoredLedgerChainFailsOnTamperedBundleThroughTheRealVerifier(t *testing.T) {
-	orgID := uuid.Must(uuid.NewV7())
+	org := ledgerOrg(2)
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatalf("generate key: %v", err)
@@ -164,7 +231,7 @@ func TestRestoredLedgerChainFailsOnTamperedBundleThroughTheRealVerifier(t *testi
 	}
 
 	err = verifyRestoredLedgerChains(
-		context.Background(), []uuid.UUID{orgID}, t.TempDir(), export, verify)
+		context.Background(), []drillLedgerOrg{org}, t.TempDir(), export, verify)
 	if err == nil {
 		t.Fatal("the real verifier reported a broken bundle and the drill still passed")
 	}
@@ -254,6 +321,37 @@ func writeBundleManifest(
 	}
 	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), encoded, 0o600); err != nil {
 		t.Fatalf("write manifest: %v", err)
+	}
+}
+
+// TestRestoredLedgerOrgCarriesItsRowCount pins the format the row count is read
+// in. The count is what every export is reconciled against, so a line this
+// misreads would either fail every org or, worse, hand the verdict a number the
+// ledger never reported.
+func TestRestoredLedgerOrgCarriesItsRowCount(t *testing.T) {
+	const orgID = "019dd226-440e-729a-a442-281aaf73ca30"
+	org, err := parseRestoredLedgerOrg(context.Background(), orgID+"|412903")
+	if err != nil {
+		t.Fatalf("parse a ledger org row: %v", err)
+	}
+	if org.ID.String() != orgID {
+		t.Fatalf("org id = %s, want %s", org.ID, orgID)
+	}
+	if org.RowCount != 412903 {
+		t.Fatalf("row count = %d, want 412903", org.RowCount)
+	}
+}
+
+// TestRestoredLedgerOrgWithoutARowCountIsAnError pins that a line the drill
+// cannot read fails rather than being skipped. A skipped line is an org whose
+// chain nothing checked, which is the silent pass this leg exists to remove.
+func TestRestoredLedgerOrgWithoutARowCountIsAnError(t *testing.T) {
+	ctx := context.Background()
+	if _, err := parseRestoredLedgerOrg(ctx, "019dd226-440e-729a-a442-281aaf73ca30"); err == nil {
+		t.Fatal("a line carrying no row count parsed as an org")
+	}
+	if _, err := parseRestoredLedgerOrg(ctx, "019dd226-440e-729a-a442-281aaf73ca30|many"); err == nil {
+		t.Fatal("a line carrying an unreadable row count parsed as an org")
 	}
 }
 

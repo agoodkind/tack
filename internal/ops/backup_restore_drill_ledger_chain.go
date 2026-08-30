@@ -8,11 +8,18 @@
 // process exit code. A verifier that finds breaks and still exits zero would
 // otherwise pass the drill, which is the failure this leg exists to remove.
 //
-// What a passing chain proves, and what it does not: the rows that survived
-// are internally consistent with each other. It does not prove they are all
-// the rows the live ledger held, because a restore that dropped a tail still
-// verifies. Comparing the restored ledger against the live one is separate
-// work and deliberately out of scope here.
+// Every verdict here fails closed, for the same reason. A check that cannot
+// see all of what it is checking has not checked it, so a bundle covering part
+// of an org's rows fails rather than passing on the part it could read, and a
+// full-range bundle with a hole in a chain fails rather than verifying the rows
+// on either side of it.
+//
+// What a passing chain proves, and what it does not: every row the restored
+// ledger holds was exported, re-hashed, and linked to the row before it, with
+// no missing sequence number in between. It does not prove they are all the
+// rows the live ledger held, because a restore that dropped the newest rows
+// leaves an intact chain behind it. Comparing the restored ledger against the
+// live one is separate work and deliberately out of scope here.
 
 package ops
 
@@ -55,7 +62,7 @@ type drillLedgerVerifyFunc func(dir string) (*audit.VerifyReport, error)
 // auth-row assertion already fails on zero for the same reason.
 func verifyRestoredLedgerChains(
 	ctx context.Context,
-	orgs []uuid.UUID,
+	orgs []drillLedgerOrg,
 	bundleRoot string,
 	export drillLedgerExportFunc,
 	verify drillLedgerVerifyFunc,
@@ -68,16 +75,15 @@ func verifyRestoredLedgerChains(
 	}
 
 	var failures []string
-	totalRows, totalGaps := 0, 0
-	for _, orgID := range orgs {
-		rows, gaps, err := verifyRestoredOrgChain(
-			ctx, orgID, filepath.Join(bundleRoot, orgID.String()), export, verify)
+	totalRows := 0
+	for _, org := range orgs {
+		rows, err := verifyRestoredOrgChain(
+			ctx, org, filepath.Join(bundleRoot, org.ID.String()), export, verify)
 		if err != nil {
 			failures = append(failures, err.Error())
 			continue
 		}
 		totalRows += rows
-		totalGaps += gaps
 	}
 
 	if len(failures) > 0 {
@@ -89,35 +95,67 @@ func verifyRestoredLedgerChains(
 	}
 	logger.InfoContext(ctx, "backup.restore_drill.ledger_chain.ok",
 		slog.Int("orgs", len(orgs)),
-		slog.Int("rows_verified", totalRows),
-		slog.Int("chain_gaps", totalGaps))
+		slog.Int("rows_verified", totalRows))
+	return nil
+}
+
+// exportWholeOrgLedger writes one org's bundle and establishes that the bundle
+// holds every row the restored ledger has for that org.
+//
+// The export is bounded because it materialises every row before it writes, so
+// an unbounded export of a production-sized org would be killed for memory
+// instead of returning a verdict. A bound that silently truncates, though, is
+// the failure this leg exists to remove: the newest rows verify, the rows
+// behind them are never read, and older corruption or an entire quiet shard
+// passes as a rehearsed recovery. Reconciling what the export wrote against
+// what the ledger holds is what keeps a truncated run inconclusive instead of
+// green, and the message names both counts so the operator reads it as "the
+// corpus outgrew the check", not as "the ledger is sound".
+func exportWholeOrgLedger(
+	ctx context.Context,
+	org drillLedgerOrg,
+	dir string,
+	export drillLedgerExportFunc,
+) error {
+	logger := telemetry.L(ctx)
+	rowCount, err := export(ctx, org.ID, dir)
+	if err != nil {
+		wrapped := fmt.Errorf("org %s: export from the restored ledger: %w", org.ID, err)
+		logger.ErrorContext(ctx, "backup.restore_drill.ledger_chain.org_failed",
+			slog.String("err", wrapped.Error()))
+		return wrapped
+	}
+	if rowCount == 0 {
+		wrapped := fmt.Errorf(
+			"org %s: the restored ledger lists this org but the export wrote no rows", org.ID)
+		logger.ErrorContext(ctx, "backup.restore_drill.ledger_chain.org_failed",
+			slog.String("err", wrapped.Error()))
+		return wrapped
+	}
+	if rowCount != org.RowCount {
+		wrapped := fmt.Errorf(
+			"org %s: the export wrote %d of the %d rows the restored ledger holds, "+
+				"so the chain of the rows it left out is unchecked; the export is capped at %d rows",
+			org.ID, rowCount, org.RowCount, drillLedgerExportRowLimit)
+		logger.ErrorContext(ctx, "backup.restore_drill.ledger_chain.org_failed",
+			slog.String("err", wrapped.Error()))
+		return wrapped
+	}
 	return nil
 }
 
 // verifyRestoredOrgChain exports one org and reads its report, returning the
-// rows verified and the sequence gaps counted so the caller can log what the
-// leg actually covered.
+// rows verified so the caller can log what the leg actually covered.
 func verifyRestoredOrgChain(
 	ctx context.Context,
-	orgID uuid.UUID,
+	org drillLedgerOrg,
 	dir string,
 	export drillLedgerExportFunc,
 	verify drillLedgerVerifyFunc,
-) (int, int, error) {
+) (int, error) {
 	logger := telemetry.L(ctx)
-	rowCount, err := export(ctx, orgID, dir)
-	if err != nil {
-		wrapped := fmt.Errorf("org %s: export from the restored ledger: %w", orgID, err)
-		logger.ErrorContext(ctx, "backup.restore_drill.ledger_chain.org_failed",
-			slog.String("err", wrapped.Error()))
-		return 0, 0, wrapped
-	}
-	if rowCount == 0 {
-		wrapped := fmt.Errorf(
-			"org %s: the restored ledger lists this org but the export wrote no rows", orgID)
-		logger.ErrorContext(ctx, "backup.restore_drill.ledger_chain.org_failed",
-			slog.String("err", wrapped.Error()))
-		return 0, 0, wrapped
+	if err := exportWholeOrgLedger(ctx, org, dir, export); err != nil {
+		return 0, err
 	}
 
 	// A verifier that cannot run fails the drill. Logging the reason and
@@ -125,15 +163,15 @@ func verifyRestoredOrgChain(
 	// nothing, which is the shape of every silent backup failure.
 	report, err := verify(dir)
 	if err != nil {
-		wrapped := fmt.Errorf("org %s: verify the exported bundle: %w", orgID, err)
+		wrapped := fmt.Errorf("org %s: verify the exported bundle: %w", org.ID, err)
 		logger.ErrorContext(ctx, "backup.restore_drill.ledger_chain.org_failed",
 			slog.String("err", wrapped.Error()))
-		return 0, 0, wrapped
+		return 0, wrapped
 	}
 
 	breaks := len(report.ChainBreaks)
 	logger.InfoContext(ctx, "backup.restore_drill.ledger_chain.org",
-		slog.String("org_id", orgID.String()),
+		slog.String("org_id", org.ID.String()),
 		slog.Int("rows_scanned", report.RowsScanned),
 		slog.Int("hash_matches", report.HashMatches),
 		slog.Int("chain_breaks", breaks),
@@ -143,24 +181,44 @@ func verifyRestoredOrgChain(
 	// alone, so loosening that verdict cannot quietly let a broken chain pass
 	// this drill. A break is a prev_hash that does not name the row before it,
 	// or a row whose stored hash does not recompute, which is what a damaged
-	// restore produces. A gap is a missing sequence number, which any bounded
-	// export produces by leaving rows out, and which says nothing about
-	// tampering; this leg therefore never fails on gaps.
+	// restore produces.
 	if breaks > 0 {
 		wrapped := fmt.Errorf("org %s: %d chain break(s), first: %s",
-			orgID, breaks, report.ChainBreaks[0])
+			org.ID, breaks, report.ChainBreaks[0])
 		logger.ErrorContext(ctx, "backup.restore_drill.ledger_chain.org_failed",
 			slog.String("err", wrapped.Error()))
-		return 0, 0, wrapped
+		return 0, wrapped
+	}
+	// A gap is a sequence number the bundle does not carry, and whether that is
+	// an artifact or a finding depends entirely on what the export asked for.
+	// Over a filtered or time-bounded export it is an artifact: the window cut
+	// the chain, the omitted rows are still in the ledger, and failing on it
+	// would reject every honest bundle. That is why the shared verifier counts
+	// a gap instead of calling it a break, and why this leg must not inherit
+	// that tolerance. This export asks for the org's whole range, and the
+	// bundle has already been reconciled against the ledger's own row count, so
+	// nothing here left a row out on purpose. A gap is therefore a row the
+	// restore did not bring back, sitting between two rows it did: the verifier
+	// cannot compare prev_hash across it, so the chain is unverified exactly
+	// where the ledger is incomplete. That is an incomplete restore, and an
+	// incomplete restore is not a passing rehearsal.
+	if report.ChainGapCount > 0 {
+		wrapped := fmt.Errorf(
+			"org %s: %d sequence gap(s) in a whole-ledger export, so rows are missing from "+
+				"inside the chain and the links across them are unverified",
+			org.ID, report.ChainGapCount)
+		logger.ErrorContext(ctx, "backup.restore_drill.ledger_chain.org_failed",
+			slog.String("err", wrapped.Error()))
+		return 0, wrapped
 	}
 	// The rest of the bundle's verdict (the events digest, the manifest
 	// signature, and any row that scanned without matching its hash) still
 	// applies, and it is the same rule the operator verify command enforces.
 	if verdict := report.Err(); verdict != nil {
-		wrapped := fmt.Errorf("org %s: %w", orgID, verdict)
+		wrapped := fmt.Errorf("org %s: %w", org.ID, verdict)
 		logger.ErrorContext(ctx, "backup.restore_drill.ledger_chain.org_failed",
 			slog.String("err", wrapped.Error()))
-		return 0, 0, wrapped
+		return 0, wrapped
 	}
-	return report.RowsScanned, report.ChainGapCount, nil
+	return report.RowsScanned, nil
 }

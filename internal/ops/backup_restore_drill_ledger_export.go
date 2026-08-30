@@ -6,7 +6,6 @@
 package ops
 
 import (
-	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -35,21 +34,24 @@ const (
 	// drillLedgerExportRowLimit bounds one org's bundle. The export holds
 	// every matching row before it writes, and the drill runs inside the
 	// tack-ops sidecar under a 512 MiB memory limit, so an unbounded export of
-	// a production-sized org would be killed instead of returning a verdict.
-	// The reader orders newest first, so the bound keeps each shard's newest
-	// contiguous run and drops only its oldest rows, leaving every link inside
-	// the bundle intact.
+	// a production-sized org would be killed instead of returning a verdict
+	// (TACK-463 removed that failure by bounding what the export materialises).
+	// The bound is not a tolerance: an export that reaches it covered only the
+	// newest rows, and the chain verdict fails the drill rather than pass on
+	// the slice it could see. Raising this raises how large a ledger the drill
+	// can still reach a verdict on, and costs memory in proportion.
 	drillLedgerExportRowLimit = 50000
 )
 
 // drillLedgerOldest and drillLedgerLatest bound the export by nothing. The
 // reader requires both bounds, so the full range is stated with sentinels no
 // stored row can fall outside. Bounding by a time window instead would leave
-// rows out mid-chain, and every omission raises the report's chain-gap count;
-// a gap is a windowing artifact that says nothing about tampering, while a
-// break is a prev_hash that does not name its predecessor and is the real
-// signal. Exporting the whole range keeps the gap count honest rather than
-// noisy, and the leg fails on breaks alone either way.
+// rows out mid-chain, and every omission raises the report's chain-gap count.
+// Over a windowed export that count is an artifact of the window and says
+// nothing about the ledger, which is why the shared verifier counts a gap
+// rather than calling it a break. Asking for the whole range is what makes the
+// count mean something here: nothing was left out on purpose, so a gap is a
+// row the restore did not bring back, and the chain verdict fails on it.
 var (
 	drillLedgerOldest = time.Unix(0, 0).UTC()
 	drillLedgerLatest = time.Date(9999, time.January, 1, 0, 0, 0, 0, time.UTC)
@@ -144,46 +146,6 @@ func createDrillLedgerReader(ctx context.Context, r *restoreDrillCtx, containerN
 	logger.InfoContext(ctx, "backup.restore_drill.ledger_chain.reader_created",
 		slog.String("role", roleName))
 	return nil
-}
-
-// restoredLedgerOrgs lists the orgs holding rows in the restored ledger. It
-// reads over the container exec channel the rest of this leg uses, so the org
-// list and the row assertion come from the same place, and it reads as the
-// drill's reader role so a role that cannot see the ledger fails here rather
-// than looking like an empty ledger later.
-func restoredLedgerOrgs(
-	ctx context.Context,
-	r *restoreDrillCtx,
-	containerName, database, roleName string,
-) ([]uuid.UUID, error) {
-	logger := telemetry.L(ctx)
-	var buf bytes.Buffer
-	exitCode, stderr, err := containerExecStreaming(ctx, r.Cli, containerName,
-		ysqlshRoleArgs(containerName, database, roleName, "SELECT DISTINCT org_id FROM audit.events"),
-		[]string{"PGPASSWORD=" + r.YBPass}, &buf)
-	if err != nil || exitCode != 0 {
-		wrapped := fmt.Errorf("list the restored ledger's orgs: exit %d: %s: %w",
-			exitCode, strings.TrimSpace(stderr), err)
-		logger.ErrorContext(ctx, "backup.restore_drill.ledger_chain.failed", slog.String("err", wrapped.Error()))
-		return nil, wrapped
-	}
-
-	var orgs []uuid.UUID
-	for line := range strings.SplitSeq(buf.String(), "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			continue
-		}
-		orgID, parseErr := uuid.Parse(trimmed)
-		if parseErr != nil {
-			wrapped := fmt.Errorf("parse org id %q from the restored ledger: %w", trimmed, parseErr)
-			logger.ErrorContext(ctx, "backup.restore_drill.ledger_chain.failed", slog.String("err", wrapped.Error()))
-			return nil, wrapped
-		}
-		orgs = append(orgs, orgID)
-	}
-	logger.InfoContext(ctx, "backup.restore_drill.ledger_chain.orgs", slog.Int("count", len(orgs)))
-	return orgs, nil
 }
 
 // exportRestoredOrgBundle writes one org's signed bundle with the same export
