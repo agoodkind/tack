@@ -28,7 +28,8 @@ import (
 func cleanLedgerReport(dir string, rows int) *audit.VerifyReport {
 	return &audit.VerifyReport{
 		BundleDir: dir, RowsScanned: rows, HashMatches: rows, ChainGapCount: 0,
-		ChainBreaks: nil, FileSHA256OK: true, SignatureOK: true, ManifestSubject: "test-bundle",
+		ChainBreaks: nil, FileSHA256OK: true, SignatureOK: true,
+		ManifestRowCount: rows, ManifestSubject: "test-bundle",
 	}
 }
 
