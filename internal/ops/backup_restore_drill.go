@@ -1,7 +1,9 @@
 // backup_restore_drill.go runs the recovery drill: it restores each engine's
-// backup into a throwaway container, asserts the data is present, and tears the
-// scratch resources down. It proves the documented recovery procedure works
-// against real backups, rather than that an artifact is merely well-formed.
+// backup into a throwaway container, asserts the restored data is both present
+// and sound, and tears the scratch resources down. It proves the documented
+// recovery procedure works against real backups, rather than that an artifact
+// is merely well-formed. For the audit ledger, sound means its hash chain
+// verifies and not merely that rows came back.
 
 package ops
 
@@ -60,8 +62,10 @@ func cleanupRestoreDrill(ctx context.Context, r *restoreDrillCtx) {
 
 // RunBackupRestoreDrill restores FoundationDB (from the continuous backup) and
 // YugabyteDB (from the distributed-snapshot export) into throwaway containers
-// and asserts each holds data. Meilisearch is excluded because it rebuilds from
-// FoundationDB, and Temporal is excluded because it holds no Tack data. Each leg
+// and asserts each holds data. The YugabyteDB leg goes further and verifies the
+// restored audit ledger's hash chain. Meilisearch is excluded because it
+// rebuilds from FoundationDB, and Temporal is excluded because it holds no Tack
+// data. Each leg
 // runs even if another fails so the drill reports a complete picture; the drill
 // errors if any attempted leg fails. ybRunKey optionally pins the yugabyte leg
 // to one export run; empty means the newest complete run. A drill where every
