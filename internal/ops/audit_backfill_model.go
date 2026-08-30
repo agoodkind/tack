@@ -43,6 +43,10 @@ type auditBackfillCount struct {
 	Class    string `json:"class"`
 	Derived  int    `json:"derived"`
 	Recorded int    `json:"recorded"`
+	// DeletedSubjects is how much of Derived came from nodes the ledger shows
+	// were deleted after the repair rather than from nodes present today, so a
+	// reader can see why the two agree.
+	DeletedSubjects int `json:"deleted_subjects,omitempty"`
 }
 
 type auditBackfillClass struct {
@@ -71,6 +75,15 @@ type reconstructionExtra struct {
 	ObservedReferenceTemplate          string                  `json:"observed_reference_template_at_reconstruction,omitempty"`
 	HistoricalDefinitionSetUnproven    bool                    `json:"historical_definition_set_unproven,omitempty"`
 	ObservedSeedDefinition             *observedSeedDefinition `json:"observed_seed_definition_at_reconstruction,omitempty"`
+	// SubjectDeletedAt and SubjectDeletionEventID appear on a key
+	// reconstructed for a node that was deleted after the repair, so a reader
+	// can follow the row back to the deletion that explains why the node is
+	// not present today.
+	SubjectDeletedAt       string `json:"subject_deleted_at,omitempty"`
+	SubjectDeletionEventID string `json:"subject_deletion_event_id,omitempty"`
+	// SubjectIdentityUnrecorded says the deletion did not record which node it
+	// removed, so the event names the zero id rather than inventing one.
+	SubjectIdentityUnrecorded bool `json:"subject_identity_unrecorded,omitempty"`
 }
 
 type observedSeedDefinition struct {

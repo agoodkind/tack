@@ -15,6 +15,7 @@ import (
 func deriveReferenceKeyClasses(
 	ctx context.Context,
 	env *Env,
+	querier auditRowQuerier,
 	principal audit.OperatorPrincipal,
 	orgID uuid.UUID,
 	occurredAt time.Time,
@@ -33,8 +34,8 @@ func deriveReferenceKeyClasses(
 		return nil, err
 	}
 	sortedReferenceKeys(keys)
-	initial := auditBackfillClass{Count: auditBackfillCount{Class: "reference keys 2026-08-07", Derived: 0, Recorded: recordedReferenceKeys}, Events: nil}
-	followup := auditBackfillClass{Count: auditBackfillCount{Class: "reference keys 2026-08-08", Derived: 0, Recorded: recordedFollowupReferenceKey}, Events: nil}
+	initial := auditBackfillClass{Count: auditBackfillCount{Class: "reference keys 2026-08-07", Derived: 0, Recorded: recordedReferenceKeys, DeletedSubjects: 0}, Events: nil}
+	followup := auditBackfillClass{Count: auditBackfillCount{Class: "reference keys 2026-08-08", Derived: 0, Recorded: recordedFollowupReferenceKey, DeletedSubjects: 0}, Events: nil}
 	for _, key := range keys {
 		date := referenceRepairDate
 		class := &initial
@@ -48,6 +49,22 @@ func deriveReferenceKeyClasses(
 		}
 		class.Events = append(class.Events, event)
 	}
+	// A node deleted after the repair is absent from the enumeration above but
+	// present in the count the repair recorded, so its keys are reconstructed
+	// from the ledger's own delete rows. They join the 2026-08-07 class, which
+	// is the run that wrote them.
+	nodeTypes, err := env.Stores.NodeTypes.List(ctx, orgID)
+	if err != nil {
+		wrapped := fmt.Errorf("list node types for org %s: %w", orgID, err)
+		telemetry.L(ctx).Error("audit.reference_repair_backfill.types_failed", slog.String("err", wrapped.Error()))
+		return nil, wrapped
+	}
+	deleted, err := deletedSubjectKeyEvents(ctx, querier, nodeTypes, principal, orgID, occurredAt, repairStart)
+	if err != nil {
+		return nil, err
+	}
+	initial.Events = append(initial.Events, deleted...)
+	initial.Count.DeletedSubjects = len(deleted)
 	initial.Count.Derived = len(initial.Events)
 	followup.Count.Derived = len(followup.Events)
 	return []auditBackfillClass{initial, followup}, nil
@@ -69,7 +86,8 @@ func referenceKeyEvent(
 		SeedEmail: "", OrgSlug: "", WorkspaceSlug: "", HistoricalReferenceKey: "",
 		HistoricalReferenceKeyTextUnproven: false, ObservedReferenceKey: "",
 		ObservedReferenceTemplate: "", HistoricalDefinitionSetUnproven: false,
-		ObservedSeedDefinition: nil,
+		ObservedSeedDefinition: nil, SubjectDeletedAt: "", SubjectDeletionEventID: "",
+		SubjectIdentityUnrecorded: false,
 	}
 	if rename.NodeID != "" {
 		entity.Identifier = rename.NewReference
