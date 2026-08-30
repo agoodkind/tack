@@ -162,6 +162,14 @@ func scanBundleRows(dir string, report *VerifyReport, mf ExportManifest) ([]chai
 			return nil, fmt.Errorf("verify decode events.jsonl line %d: %w", len(links)+1, err)
 		}
 		report.RowsScanned++
+		// An export is one org's ledger. A row from another org inside it is
+		// not a filtered gap but a bundle that does not describe itself, and
+		// the row's own hash does not cover the org column, so it has to be
+		// checked here.
+		if row.OrgID != mf.OrgID {
+			report.ChainBreaks = append(report.ChainBreaks,
+				fmt.Sprintf("row %s belongs to org %s, not the manifest's %s", row.EventID, row.OrgID, mf.OrgID))
+		}
 		matched, reason, err := checkRowHash(row)
 		if err != nil {
 			return nil, err
