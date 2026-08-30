@@ -28,6 +28,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -74,11 +75,20 @@ func verifyRestoredLedgerChains(
 		return err
 	}
 
+	// Each org's bundle is removed as soon as its verdict is read, so the disk
+	// this needs is the largest single org rather than the sum of every org.
+	// Keeping them all until the run ends would make the drill's footprint grow
+	// with tenant count, which is the one number a multi-tenant product is
+	// certain to grow.
 	var failures []string
 	totalRows := 0
 	for _, org := range orgs {
-		rows, err := verifyRestoredOrgChain(
-			ctx, org, filepath.Join(bundleRoot, org.ID.String()), export, verify)
+		orgBundle := filepath.Join(bundleRoot, org.ID.String())
+		rows, err := verifyRestoredOrgChain(ctx, org, orgBundle, export, verify)
+		if removeErr := os.RemoveAll(orgBundle); removeErr != nil {
+			logger.WarnContext(ctx, "backup.restore_drill.ledger_chain.bundle_not_removed",
+				slog.String("path", orgBundle), slog.String("err", removeErr.Error()))
+		}
 		if err != nil {
 			failures = append(failures, err.Error())
 			continue

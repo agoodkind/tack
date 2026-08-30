@@ -70,6 +70,16 @@ func Export(ctx context.Context, reader RowSource, signer ed25519.PrivateKey, ke
 		return nil, fmt.Errorf("audit export mkdir: %w", err)
 	}
 
+	// A re-export into a directory that already holds a bundle removes the old
+	// manifest before writing anything. The manifest is what makes a bundle
+	// readable as complete and signed, so leaving a previous run's copy in place
+	// while this run writes rows is what would let a failure halfway produce a
+	// bundle that verifies against rows it never described.
+	mfPath := filepath.Join(dir, "manifest.json")
+	if err := os.Remove(mfPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("audit export clear stale manifest: %w", err)
+	}
+
 	rowCount, fileDigest, err := writeExportRows(ctx, reader, filter, filepath.Join(dir, "events.jsonl"))
 	if err != nil {
 		return nil, err
@@ -88,13 +98,20 @@ func Export(ctx context.Context, reader RowSource, signer ed25519.PrivateKey, ke
 	sig := ed25519.Sign(signer, exportSignableManifest(manifest))
 	manifest.Signature = hex.EncodeToString(sig)
 
-	mfPath := filepath.Join(dir, "manifest.json")
 	mfBytes, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
 		return nil, fmt.Errorf("audit export marshal manifest: %w", err)
 	}
-	if err := os.WriteFile(mfPath, mfBytes, 0o600); err != nil {
+	// Published by rename for the same reason the rows are: a manifest written
+	// in place can be left half-written, and half a manifest beside a whole
+	// bundle is another shape of the artifact lying about itself.
+	mfPartial := mfPath + ".partial"
+	if err := os.WriteFile(mfPartial, mfBytes, 0o600); err != nil {
 		return nil, fmt.Errorf("audit export write manifest: %w", err)
+	}
+	if err := os.Rename(mfPartial, mfPath); err != nil {
+		_ = os.Remove(mfPartial)
+		return nil, fmt.Errorf("audit export publish manifest: %w", err)
 	}
 	return manifest, nil
 }
@@ -107,11 +124,18 @@ func Export(ctx context.Context, reader RowSource, signer ed25519.PrivateKey, ke
 // is a counter. Collecting the rows into a slice first is what made a
 // production-sized org unexportable, because the slice, not the file, is what
 // had to fit in memory.
+// The rows are written to a temporary name and renamed into place only once
+// the whole stream succeeded. Writing straight to events.jsonl truncates it the
+// moment the export starts, so a re-export that fails partway would leave the
+// previous run's signed manifest sitting beside a half-written file: a bundle
+// that reads as complete and is not. Nothing may pair a signed manifest with
+// rows it does not describe.
 func writeExportRows(ctx context.Context, source RowSource, filter QueryFilter, path string) (int, string, error) {
-	file, err := os.Create(path)
+	partialPath := path + ".partial"
+	file, err := os.Create(partialPath)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.export.open_failed",
-			slog.String("path", path), slog.String("err", err.Error()))
+			slog.String("path", partialPath), slog.String("err", err.Error()))
 		return 0, "", fmt.Errorf("audit export open: %w", err)
 	}
 	fileDigest := sha256.New()
@@ -128,6 +152,7 @@ func writeExportRows(ctx context.Context, source RowSource, filter QueryFilter, 
 	})
 	if streamErr != nil {
 		_ = file.Close()
+		_ = os.Remove(partialPath)
 		return 0, "", fmt.Errorf("audit export query: %w", streamErr)
 	}
 	// The buffer holds the tail of the file, and the digest has already counted
@@ -136,10 +161,18 @@ func writeExportRows(ctx context.Context, source RowSource, filter QueryFilter, 
 	// swallowed by the deferred close.
 	if flushErr := buffered.Flush(); flushErr != nil {
 		_ = file.Close()
+		_ = os.Remove(partialPath)
 		return 0, "", fmt.Errorf("audit export flush: %w", flushErr)
 	}
 	if closeErr := file.Close(); closeErr != nil {
+		_ = os.Remove(partialPath)
 		return 0, "", fmt.Errorf("audit export close: %w", closeErr)
+	}
+	if renameErr := os.Rename(partialPath, path); renameErr != nil {
+		_ = os.Remove(partialPath)
+		slog.ErrorContext(ctx, "audit.export.publish_failed",
+			slog.String("path", path), slog.String("err", renameErr.Error()))
+		return 0, "", fmt.Errorf("audit export publish: %w", renameErr)
 	}
 	return rowCount, hex.EncodeToString(fileDigest.Sum(nil)), nil
 }

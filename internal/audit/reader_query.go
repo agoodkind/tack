@@ -6,6 +6,11 @@ import (
 	"github.com/google/uuid"
 )
 
+// auditQueryPageDefault is how many rows a paged read returns when the caller
+// names no limit. It bounds a page, never an export: the streaming export asks
+// for zero, which means every row.
+const auditQueryPageDefault = 100
+
 func buildAuditQuery(filter QueryFilter) (string, []any) {
 	query := `SELECT org_id, event_time, event_id, seq, shard,
 	             actor_id, actor_kind, action, outcome, entity_kind, entity_id,
@@ -57,9 +62,18 @@ func buildAuditQuery(filter QueryFilter) (string, []any) {
 // that streaming removes on the client side. Nothing downstream reads the file
 // order: the verifier sorts what it scans into per-shard sequence order before
 // it walks the chain.
+//
+// Exactly zero is what means every row. A negative limit is a caller mistake,
+// not a request for the whole ledger, and Reader.Query normalises one to the
+// page default, so reading it as unlimited here would make the same filter mean
+// opposite things on the two paths: a page of a hundred rows one way, and an
+// unbounded scan the other.
 func appendAuditQueryOrder(query string, args []any, limit int) (string, []any) {
-	if limit <= 0 {
+	if limit == 0 {
 		return query, args
+	}
+	if limit < 0 {
+		limit = auditQueryPageDefault
 	}
 	args = append(args, limit)
 	return query + fmt.Sprintf(" ORDER BY event_time DESC, seq DESC LIMIT $%d", len(args)), args
