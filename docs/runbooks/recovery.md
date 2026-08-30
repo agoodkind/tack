@@ -150,6 +150,18 @@ YugabyteDB:
    under the rocksdb root, following the mapping from step 4, then run
    `yb-admin restore_snapshot <new-snapshot-id>`.
 6. Verify the auth tables `users`, `api_tokens`, and `org_members` hold rows.
+7. Verify the restored ledger's hash chain. Export a signed bundle per org over
+   the full time range and verify each one, then read the report's chain-break
+   count. A break is a row whose `prev_hash` does not name the row before it, or
+   whose stored hash does not recompute, and it fails the recovery. A sequence
+   gap is not a break: any bounded export leaves rows out, so gaps are expected
+   and say nothing about tampering. The drill does this automatically and fails
+   when a chain breaks or when the ledger comes back empty.
+
+   A verified chain shows the rows that survived are consistent with each other.
+   It does not show they are all the rows the source held: a restore that lost a
+   tail still verifies. Compare row counts against the source separately when
+   completeness matters.
 
 ### Audit ledger caveat
 

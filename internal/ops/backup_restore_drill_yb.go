@@ -26,7 +26,8 @@ var ybRolePattern = regexp.MustCompile(`\b(?:tack_)?audit_[a-z_]+\b`)
 
 // restoreDrillYugabyte restores the newest complete YugabyteDB
 // distributed-snapshot export (or the explicitly requested run) into a
-// throwaway yugabyted and asserts the auth tables hold rows.
+// throwaway yugabyted, asserts the auth tables hold rows, and verifies the
+// restored audit ledger's hash chain.
 func restoreDrillYugabyte(ctx context.Context, r *restoreDrillCtx) error {
 	logger := telemetry.L(ctx)
 	logger.InfoContext(ctx, "backup.restore_drill.yb.start")
@@ -83,7 +84,13 @@ func restoreDrillYugabyte(ctx context.Context, r *restoreDrillCtx) error {
 		return err
 	}
 
-	return assertYBDrillRows(ctx, r, name, manifest.Database)
+	if err := assertYBDrillRows(ctx, r, name, manifest.Database); err != nil {
+		return err
+	}
+	// Rows on their own say nothing about the ledger's hash chain, and a
+	// restore is where a chain breaks silently, so the chain is verified from
+	// the restored database before this leg passes.
+	return assertRestoredLedgerChain(ctx, r, name, manifest.Database)
 }
 
 // resolveYBDrillExport picks the export run to drill. With an explicit run key
@@ -299,10 +306,11 @@ func startScratchYugabyte(ctx context.Context, r *restoreDrillCtx, name, databas
 	return nil
 }
 
-// ysqlshArgs builds a ysqlsh command vector. The user equals the database name
-// (the scratch is created with YSQL_USER set to it).
+// ysqlshArgs builds a ysqlsh command vector for the scratch's bootstrap user,
+// whose name equals the database name (the scratch is created with YSQL_USER
+// set to it). Use [ysqlshRoleArgs] to connect as any other role.
 func ysqlshArgs(host, database, sql string) []string {
-	return []string{"ysqlsh", "-h", host, "-p", "5433", "-U", database, "-d", database, "-tAc", sql}
+	return ysqlshRoleArgs(host, database, database, sql)
 }
 
 // ybRunSQL runs ysqlsh with the given trailing args inside the scratch
