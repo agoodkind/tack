@@ -34,8 +34,8 @@ func deriveReferenceKeyClasses(
 		return nil, err
 	}
 	sortedReferenceKeys(keys)
-	initial := auditBackfillClass{Count: auditBackfillCount{Class: "reference keys 2026-08-07", Derived: 0, Recorded: recordedReferenceKeys, DeletedSubjects: 0}, Events: nil}
-	followup := auditBackfillClass{Count: auditBackfillCount{Class: "reference keys 2026-08-08", Derived: 0, Recorded: recordedFollowupReferenceKey, DeletedSubjects: 0}, Events: nil}
+	initial := auditBackfillClass{Count: auditBackfillCount{Class: "reference keys 2026-08-07", Derived: 0, Recorded: recordedReferenceKeys, DeletedSubjects: 0, AbsentSubjects: 0}, Events: nil}
+	followup := auditBackfillClass{Count: auditBackfillCount{Class: "reference keys 2026-08-08", Derived: 0, Recorded: recordedFollowupReferenceKey, DeletedSubjects: 0, AbsentSubjects: 0}, Events: nil}
 	for _, key := range keys {
 		date := referenceRepairDate
 		class := &initial

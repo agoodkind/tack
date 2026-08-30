@@ -63,28 +63,30 @@ func deriveReferenceRenameClass(
 	if err != nil {
 		return auditBackfillClass{}, uuid.Nil, err
 	}
+	resolutions, err := resolveRenameEvidence(ctx, env.Stores.Views, renames)
+	if err != nil {
+		return auditBackfillClass{}, uuid.Nil, err
+	}
 	events := make([]audit.Event, 0, len(renames))
-	orgID := uuid.Nil
 	for _, rename := range renames {
-		event, eventErr := referenceRenameEvent(ctx, env.Stores.Views, principal, rename, occurredAt)
+		event, eventErr := referenceRenameEvent(ctx, resolutions, principal, rename, occurredAt)
 		if eventErr != nil {
 			return auditBackfillClass{}, uuid.Nil, eventErr
 		}
-		if orgID != uuid.Nil && orgID != event.Context.OrgID {
-			err := fmt.Errorf("reference rename evidence spans orgs %s and %s", orgID, event.Context.OrgID)
-			telemetry.L(ctx).Error("audit.reference_repair_backfill.org_mismatch", slog.String("err", err.Error()))
-			return auditBackfillClass{}, uuid.Nil, err
-		}
-		orgID = event.Context.OrgID
 		events = append(events, event)
 	}
 	// Recorded is the count from the rollout record, not the length of the
 	// evidence file. Comparing the file against itself would pass even if the
 	// file were truncated, which is the one way this class can silently
 	// reconstruct less history than the repair performed.
+	//
+	// AbsentSubjects reports how many of those renamed nodes no longer exist.
+	// It never reduces Derived: the repair renamed them, so the reconstruction
+	// owes their history whether or not the node survived.
 	return auditBackfillClass{Count: auditBackfillCount{
-		Class: "reference renames", Derived: len(events), Recorded: recordedReferenceRenames, DeletedSubjects: 0,
-	}, Events: events}, orgID, nil
+		Class: "reference renames", Derived: len(events), Recorded: recordedReferenceRenames,
+		DeletedSubjects: 0, AbsentSubjects: len(resolutions.Unresolvable),
+	}, Events: events}, resolutions.OrgID, nil
 }
 
 func verifyProductionSeedIdentity(ctx context.Context, env *Env, orgID uuid.UUID) error {
