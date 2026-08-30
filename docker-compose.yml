@@ -34,7 +34,11 @@ services:
       MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-tack-dev-meili-key-change-in-prod}
       TEMPORAL_ADDRESS: temporal:7233
       PORT: 8000
-      ENV: development
+      # ENV selects the auth mode: development accepts a raw user UUID as the
+      # bearer with no token lookup, production requires an API token. It is
+      # required rather than defaulted so no environment can start with an
+      # auth mode nobody declared; the deploy renders it into .env (TACK-261).
+      ENV: ${ENV:?ENV is required, set it in .env}
       # Dev policy: noisiest level on, every rotated log kept forever.
       # Logs are append-only history we can grep against post-incident.
       LOG_LEVEL: ${LOG_LEVEL:-debug}
