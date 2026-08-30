@@ -158,7 +158,7 @@ func TestRestoreDrillRehearsalMarkerIsReadBackByTheCheck(t *testing.T) {
 	}
 
 	// The age the report would show comes straight off that marker.
-	metric := knownBackupStalenessMetric(backupStalenessRehearsalName,
+	metric := knownBackupStalenessMetric(ctx, backupStalenessRehearsalName,
 		drilledAt.Add(2*time.Hour), marker.At, 8*24*time.Hour, marker.Detail)
 	if metric.stale() {
 		t.Fatal("a drill two hours old must not read as stale")

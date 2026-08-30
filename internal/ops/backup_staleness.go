@@ -1,17 +1,21 @@
 // backup_staleness.go is the freshness verdict for every backup mechanism:
 // how long ago each one last succeeded, whether that age is past the operator's
-// threshold, and the report the alert mail carries. Everything here is pure, so
-// the classification the alert acts on is exercised without an object store, a
-// cluster, or a clock; the probes that supply the timestamps live in
+// threshold, and the report the alert mail carries. Nothing here reads an object
+// store, a cluster, or the clock, so the classification the alert acts on is
+// exercised from plain values; the probes that supply the timestamps live in
 // backup_staleness_check.go.
 
 package ops
 
 import (
+	"context"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
+
+	"goodkind.io/tack/internal/telemetry"
 )
 
 const (
@@ -27,6 +31,15 @@ const (
 	// restorable point.
 	backupStalenessFDBName = "fdb-restorable"
 )
+
+// backupStalenessFutureTolerance is how far ahead of the checking host's clock
+// a success timestamp may sit and still be read as a real success. No
+// mechanism's timestamp is produced by this host at this moment: markers are
+// JSON in the object store, the export run key is a name in the store, and the
+// FoundationDB restorable point comes off the cluster's clock. A lead of
+// seconds to a few minutes is therefore ordinary skew between hosts, and
+// anything past it is a wrong or forged clock.
+const backupStalenessFutureTolerance = 5 * time.Minute
 
 // backupStalenessMetric is one mechanism's freshness reading: how long ago it
 // last succeeded, the age past which the operator must be told, and what the
@@ -58,8 +71,32 @@ func (m backupStalenessMetric) verdict() string {
 	return "FRESH"
 }
 
-// knownBackupStalenessMetric builds a metric from a success timestamp.
-func knownBackupStalenessMetric(name string, now, at time.Time, threshold time.Duration, detail string) backupStalenessMetric {
+// knownBackupStalenessMetric builds a metric from a success timestamp, unless
+// that timestamp is implausibly far in the future. Every datable mechanism
+// funnels through here, so none can opt out of the plausibility check: a
+// timestamp past the skew tolerance is corruption rather than freshness, and
+// the metric becomes age-unknown, which classifies as stale. Trusting it
+// instead would floor the age at zero and read FRESH against every threshold
+// for as long as that timestamp stands, which is the silent failure this whole
+// check exists to eliminate.
+func knownBackupStalenessMetric(
+	ctx context.Context,
+	name string,
+	now, at time.Time,
+	threshold time.Duration,
+	detail string,
+) backupStalenessMetric {
+	if lead := at.Sub(now); lead > backupStalenessFutureTolerance {
+		telemetry.L(ctx).ErrorContext(ctx, "backup.staleness.timestamp_implausible",
+			slog.String("metric", name),
+			slog.Time("at", at.UTC()),
+			slog.Time("now", now.UTC()),
+			slog.String("lead", backupStalenessSeconds(lead)),
+			slog.String("tolerance", backupStalenessSeconds(backupStalenessFutureTolerance)),
+		)
+		return unknownBackupStalenessMetric(name, threshold,
+			implausibleFutureDetail(at, lead, detail))
+	}
 	return backupStalenessMetric{
 		Name:      name,
 		Age:       backupStalenessAge(now, at),
@@ -67,6 +104,20 @@ func knownBackupStalenessMetric(name string, now, at time.Time, threshold time.D
 		Threshold: threshold,
 		Detail:    detail,
 	}
+}
+
+// implausibleFutureDetail is the report's reason for refusing a success
+// timestamp. It keeps the reading's provenance, because that names the marker
+// or run whose clock is wrong.
+func implausibleFutureDetail(at time.Time, lead time.Duration, provenance string) string {
+	detail := fmt.Sprintf("success timestamp %s is %s in the future, past the %s clock-skew tolerance",
+		at.UTC().Format(time.RFC3339),
+		backupStalenessSeconds(lead),
+		backupStalenessSeconds(backupStalenessFutureTolerance))
+	if provenance == "" {
+		return detail
+	}
+	return detail + ": " + provenance
 }
 
 // unknownBackupStalenessMetric builds a metric for a mechanism with no datable
@@ -83,8 +134,9 @@ func unknownBackupStalenessMetric(name string, threshold time.Duration, detail s
 }
 
 // backupStalenessAge is how old a success timestamp is at now, floored at zero
-// so a timestamp written by a host whose clock runs ahead reads as brand new
-// rather than as a negative age.
+// so the ordinary clock skew knownBackupStalenessMetric tolerates reads as
+// brand new rather than as a negative age. A larger lead never reaches here:
+// that funnel refuses it before any age is taken.
 func backupStalenessAge(now, at time.Time) time.Duration {
 	age := now.Sub(at)
 	if age < 0 {

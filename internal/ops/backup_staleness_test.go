@@ -3,6 +3,7 @@ package ops
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -48,6 +49,7 @@ const ybHealthAllGood = `{"dead_nodes":[],"most_recent_uptime":0,"under_replicat
 // mechanism inside its window is fresh, one exactly at the threshold is still
 // fresh, and one past it is stale.
 func TestBackupStalenessClassification(t *testing.T) {
+	ctx := context.Background()
 	now := time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)
 	threshold := 36 * time.Hour
 	tests := []struct {
@@ -62,7 +64,7 @@ func TestBackupStalenessClassification(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			metric := knownBackupStalenessMetric("ledger-export", now, test.at, threshold, "run")
+			metric := knownBackupStalenessMetric(ctx, "ledger-export", now, test.at, threshold, "run")
 			if metric.stale() != test.wantStale {
 				t.Fatalf("stale() = %v for age %s against threshold %s, want %v",
 					metric.stale(), metric.Age, threshold, test.wantStale)
@@ -95,15 +97,147 @@ func TestUnknownAgeIsStale(t *testing.T) {
 	}
 }
 
-// TestBackupStalenessAgeFloorsAtZero proves a success timestamp from a host
-// whose clock runs ahead reads as brand new rather than as a negative age.
+// TestBackupStalenessAgeFloorsAtZero proves the tolerated clock skew reads as
+// brand new rather than as a negative age. Only skew inside the tolerance
+// reaches this helper; a larger lead is refused before an age is taken.
 func TestBackupStalenessAgeFloorsAtZero(t *testing.T) {
 	now := time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)
 	if got := backupStalenessAge(now, now.Add(-90*time.Second)); got != 90*time.Second {
 		t.Fatalf("age = %s, want 90s", got)
 	}
-	if got := backupStalenessAge(now, now.Add(5*time.Minute)); got != 0 {
-		t.Fatalf("age of a future timestamp = %s, want 0", got)
+	if got := backupStalenessAge(now, now.Add(backupStalenessFutureTolerance)); got != 0 {
+		t.Fatalf("age of a tolerated future timestamp = %s, want 0", got)
+	}
+}
+
+// TestMarkerStalenessMetricRefusesAFutureMarker drives the marker leg through
+// the real object-store client against markers dated ahead of the checking
+// host's clock. A marker is JSON another process wrote, so ordinary skew still
+// dates a success, while a lead past the tolerance is refused: trusting it
+// would pin the mechanism at a zero age and report FRESH against every
+// threshold for as long as that marker stands, however dead the cluster is.
+func TestMarkerStalenessMetricRefusesAFutureMarker(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)
+	threshold := 30 * time.Minute
+	tests := []struct {
+		name         string
+		at           time.Time
+		wantStale    bool
+		wantAgeKnown bool
+	}{
+		{
+			name: "observed ten minutes ago", at: now.Add(-10 * time.Minute),
+			wantStale: false, wantAgeKnown: true,
+		},
+		{
+			name: "at the skew tolerance", at: now.Add(backupStalenessFutureTolerance),
+			wantStale: false, wantAgeKnown: true,
+		},
+		{
+			name: "one second past the skew tolerance", at: now.Add(backupStalenessFutureTolerance + time.Second),
+			wantStale: true, wantAgeKnown: false,
+		},
+		{
+			name: "clock jumped to 2099", at: time.Date(2099, 12, 31, 23, 59, 59, 0, time.UTC),
+			wantStale: true, wantAgeKnown: false,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			body, err := json.Marshal(backupStatusMarker{
+				At:     test.at,
+				Detail: "0 dead nodes, 0 under-replicated tablets",
+			})
+			if err != nil {
+				t.Fatalf("marshal marker: %v", err)
+			}
+			s3Client, cfg := newFakeBackupObjectStore(t, "tack-backups", map[string][]byte{
+				backupStatusKey(backupStalenessReplicationName): body,
+			})
+
+			metric := markerStalenessMetric(ctx, cfg, s3Client,
+				backupStalenessReplicationName, now, threshold)
+
+			if metric.stale() != test.wantStale {
+				t.Fatalf("stale() = %v, want %v (age field %q, detail %q)",
+					metric.stale(), test.wantStale, backupStalenessAgeField(metric), metric.Detail)
+			}
+			if metric.AgeKnown != test.wantAgeKnown {
+				t.Fatalf("AgeKnown = %v, want %v", metric.AgeKnown, test.wantAgeKnown)
+			}
+			if test.wantAgeKnown {
+				return
+			}
+			if got := backupStalenessAgeField(metric); got != "unknown" {
+				t.Fatalf("age field = %q, want unknown", got)
+			}
+			if !strings.Contains(metric.Detail, "in the future, past the") {
+				t.Fatalf("the report must say why the timestamp was refused, got %q", metric.Detail)
+			}
+		})
+	}
+}
+
+// TestExportStalenessMetricRefusesAnUndatableRun drives the export leg through
+// the real object-store client. The export carries no marker: it is dated from
+// the newest complete run's key, and that key is only pattern-checked, so a run
+// prefix dated in 2099 and a manifest that declares a different run than the
+// prefix it sits under both reach the metric. Either one must report an unknown
+// age, which is stale, rather than a fresh export nobody produced.
+func TestExportStalenessMetricRefusesAnUndatableRun(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name          string
+		prefixRunID   string
+		manifestRunID string
+		wantStale     bool
+		wantAgeKnown  bool
+		wantDetail    string
+	}{
+		{
+			name:        "complete run from two hours ago",
+			prefixRunID: "20260829T100000Z", manifestRunID: "20260829T100000Z",
+			wantStale: false, wantAgeKnown: true,
+			wantDetail: "newest complete run 20260829T100000Z",
+		},
+		{
+			name:        "run key dated 2099",
+			prefixRunID: "20991231T235959Z", manifestRunID: "20991231T235959Z",
+			wantStale: true, wantAgeKnown: false,
+			wantDetail: "in the future, past the",
+		},
+		{
+			name:        "manifest declaring another run",
+			prefixRunID: "20260829T100000Z", manifestRunID: "20991231T235959Z",
+			wantStale: true, wantAgeKnown: false,
+			wantDetail: "is not the run",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			s3Client, cfg := newFakeBackupObjectStore(t, "tack-backups",
+				fakeYBExportRunObjects(t, test.prefixRunID,
+					newYBSnapshotManifest(test.manifestRunID, "snap-1", "tack", []string{"yb1"})))
+			cfg.BackupStalenessExportMaxSeconds = 129600
+
+			metric := exportStalenessMetric(ctx, cfg, s3Client, now)
+
+			if metric.stale() != test.wantStale {
+				t.Fatalf("stale() = %v, want %v (age field %q, detail %q)",
+					metric.stale(), test.wantStale, backupStalenessAgeField(metric), metric.Detail)
+			}
+			if metric.AgeKnown != test.wantAgeKnown {
+				t.Fatalf("AgeKnown = %v, want %v (detail %q)", metric.AgeKnown, test.wantAgeKnown, metric.Detail)
+			}
+			if !strings.Contains(metric.Detail, test.wantDetail) {
+				t.Fatalf("detail = %q, want it to name %q", metric.Detail, test.wantDetail)
+			}
+			if test.wantAgeKnown && metric.Age != 2*time.Hour {
+				t.Fatalf("age = %s, want the run key's own age of 2h", metric.Age)
+			}
+		})
 	}
 }
 
@@ -112,7 +246,7 @@ func TestBackupStalenessAgeFloorsAtZero(t *testing.T) {
 func TestBackupStalenessReport(t *testing.T) {
 	now := time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)
 	report := backupStalenessReport([]backupStalenessMetric{
-		knownBackupStalenessMetric(backupStalenessExportName, now, now.Add(-2*time.Hour),
+		knownBackupStalenessMetric(context.Background(), backupStalenessExportName, now, now.Add(-2*time.Hour),
 			36*time.Hour, "newest complete run 20260829T100000Z"),
 		unknownBackupStalenessMetric(backupStalenessRehearsalName, 8*24*time.Hour,
 			"no backup-status/rehearsal.json in tack-backups"),
@@ -143,11 +277,12 @@ func TestBackupStalenessReportKeepsOneLinePerMetric(t *testing.T) {
 // TestStaleBackupStalenessMetrics names only the mechanisms past threshold, in
 // report order, because that list becomes the command's error.
 func TestStaleBackupStalenessMetrics(t *testing.T) {
+	ctx := context.Background()
 	now := time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)
 	stale := staleBackupStalenessMetrics([]backupStalenessMetric{
-		knownBackupStalenessMetric("a", now, now.Add(-time.Hour), 2*time.Hour, ""),
+		knownBackupStalenessMetric(ctx, "a", now, now.Add(-time.Hour), 2*time.Hour, ""),
 		unknownBackupStalenessMetric("b", time.Hour, ""),
-		knownBackupStalenessMetric("c", now, now.Add(-3*time.Hour), 2*time.Hour, ""),
+		knownBackupStalenessMetric(ctx, "c", now, now.Add(-3*time.Hour), 2*time.Hour, ""),
 	})
 	if strings.Join(stale, ",") != "b,c" {
 		t.Fatalf("stale = %v, want [b c]", stale)

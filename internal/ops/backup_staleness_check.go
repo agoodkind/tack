@@ -126,7 +126,7 @@ func exportStalenessMetric(
 		return unknownBackupStalenessMetric(backupStalenessExportName, threshold,
 			"export run key "+manifest.RunID+" is not a run-key timestamp")
 	}
-	return knownBackupStalenessMetric(backupStalenessExportName, now, at, threshold,
+	return knownBackupStalenessMetric(ctx, backupStalenessExportName, now, at, threshold,
 		"newest complete run "+manifest.RunID)
 }
 
@@ -152,7 +152,7 @@ func markerStalenessMetric(
 		return unknownBackupStalenessMetric(name, threshold,
 			"no "+backupStatusKey(name)+" in "+cfg.BackupS3BucketMain)
 	}
-	return knownBackupStalenessMetric(name, now, marker.At, threshold, marker.Detail)
+	return knownBackupStalenessMetric(ctx, name, now, marker.At, threshold, marker.Detail)
 }
 
 // replicationStalenessMetric probes the live cluster and records the moment it
@@ -218,6 +218,6 @@ func fdbStalenessMetric(ctx context.Context, cfg *config.Config, now time.Time) 
 		return unknownBackupStalenessMetric(backupStalenessFDBName, threshold,
 			redactSecret(cfg, err.Error()))
 	}
-	return knownBackupStalenessMetric(backupStalenessFDBName, now, at, threshold,
+	return knownBackupStalenessMetric(ctx, backupStalenessFDBName, now, at, threshold,
 		"restorable through "+at.UTC().Format(time.RFC3339))
 }
