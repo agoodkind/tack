@@ -466,7 +466,11 @@ services:
       MEILI_URL: http://localhost:7700
       MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-tack-dev-meili-key-change-in-prod}
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      ENV: ${ENV:-production}
+      # Same ENV the app requires, read the same way. A default here would
+      # make one variable name mean two things in one stack file, so a host
+      # whose .env said development would still run this container as
+      # production (TACK-261).
+      ENV: ${ENV:?ENV is required, set it in .env}
       # Yugabyte connection details for the backup ysql_dump step. The
       # backup binary reads these directly from its config struct (not
       # from the parsed DATABASE_URL DSN), so they must be passed through
