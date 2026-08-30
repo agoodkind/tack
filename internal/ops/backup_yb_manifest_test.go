@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -131,6 +132,40 @@ func TestYBSnapshotManifestValidateAcceptsOrchestratorShape(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "manifest.json")
 	if err := writeYBSnapshotManifest(context.Background(), path, manifest); err != nil {
 		t.Fatalf("writeYBSnapshotManifest: %v", err)
+	}
+}
+
+// TestFetchYBSnapshotManifestRefusesAForeignRunID fetches manifests through the
+// real object-store client and proves a manifest is refused when it declares a
+// run other than the prefix it was fetched from. Every downstream path keys off
+// the manifest's own run id rather than the prefix, so a manifest planted or
+// copied under an older run's prefix would otherwise date the export from the
+// run it names and walk the wrong prefix for the node archives.
+func TestFetchYBSnapshotManifestRefusesAForeignRunID(t *testing.T) {
+	ctx := context.Background()
+	const storedUnder = "20260829T100000Z"
+	const declares = "20260830T100000Z"
+
+	foreign := newYBSnapshotManifest(declares, "snap-1", "tack", []string{"yb1"})
+	s3Client, cfg := newFakeBackupObjectStore(t, "tack-backups",
+		fakeYBExportRunObjects(t, storedUnder, foreign))
+	_, err := fetchYBSnapshotManifest(ctx, s3Client, cfg.BackupS3BucketMain, storedUnder)
+	if err == nil {
+		t.Fatalf("a manifest declaring run %s under the prefix of run %s must be refused", declares, storedUnder)
+	}
+	if !strings.Contains(err.Error(), "is not the run") {
+		t.Fatalf("the error must name the disagreement, got: %v", err)
+	}
+
+	own := newYBSnapshotManifest(storedUnder, "snap-1", "tack", []string{"yb1"})
+	ownClient, ownCfg := newFakeBackupObjectStore(t, "tack-backups",
+		fakeYBExportRunObjects(t, storedUnder, own))
+	got, err := fetchYBSnapshotManifest(ctx, ownClient, ownCfg.BackupS3BucketMain, storedUnder)
+	if err != nil {
+		t.Fatalf("a manifest under its own run prefix must fetch cleanly: %v", err)
+	}
+	if got.RunID != storedUnder {
+		t.Fatalf("fetched run_id = %q, want %q", got.RunID, storedUnder)
 	}
 }
 

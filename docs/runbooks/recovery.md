@@ -43,9 +43,31 @@ TACK_IMAGE_TAG=<image-sha> docker compose run --rm \
   tack-ops ops backup restore-drill
 ```
 
-The drill exits zero when both legs assert data is present. The FoundationDB leg
-runs only when `TACK_BACKUP_FDB_CONTINUOUS` is true and is otherwise skipped with
-a warning.
+The drill exits zero when both legs assert data is present and the rehearsal it
+records lands in the object store. The FoundationDB leg runs only when
+`TACK_BACKUP_FDB_CONTINUOUS` is true and is otherwise skipped with a warning.
+
+## Confirming the backups are still current
+
+`./server ops backup staleness-check --execute` reports how long ago each backup
+mechanism last succeeded and exits nonzero once an age passes its threshold, so a
+mechanism that quietly stopped producing artifacts surfaces as an alert instead
+of a discovery during a recovery. It prints one line per mechanism:
+
+```
+ledger-export age=11520s threshold=129600s FRESH newest complete run 20260829T010000Z
+rehearsal     age=7200s threshold=691200s FRESH restore drill rt20260829T060000Z-42 passed: fdb, yugabyte
+replication   age=0s threshold=1800s FRESH 0 dead nodes, 0 under-replicated tablets
+```
+
+The ledger export is dated from the newest complete export run, the rehearsal
+from the last passing restore drill, and replication from the last time this
+check saw every node alive and every tablet fully replicated, an observation the
+check makes and records itself. A mechanism with no recorded success reads
+`age=unknown` and counts as stale, because a backup that has never demonstrably
+succeeded is the failure this check exists to catch. The FoundationDB restorable
+point joins the report only when `TACK_BACKUP_FDB_CONTINUOUS` is true. The
+windows are the `TACK_BACKUP_STALENESS_*` settings, in seconds.
 
 ## Prerequisites
 

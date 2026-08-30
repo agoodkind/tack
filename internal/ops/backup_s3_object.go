@@ -1,6 +1,7 @@
 package ops
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -53,6 +54,74 @@ func putObjectFromFile(ctx context.Context, client *s3.Client, bucket, key, path
 		slog.Int64("bytes", info.Size()),
 	)
 	return nil
+}
+
+// putObjectBytes uploads an in-memory body to bucket under key. Used for the
+// backup-status success markers, which are a few hundred bytes; anything large
+// enough to stage on disk goes through putObjectFromFile instead.
+func putObjectBytes(ctx context.Context, client *s3.Client, bucket, key string, body []byte) error {
+	logger := telemetry.L(ctx)
+	_, err := client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket:        aws.String(bucket),
+		Key:           aws.String(key),
+		Body:          bytes.NewReader(body),
+		ContentLength: aws.Int64(int64(len(body))),
+	})
+	if err != nil {
+		wrapped := fmt.Errorf("put object %s/%s: %w", bucket, key, err)
+		logger.ErrorContext(ctx, "backup.s3.put_failed", slog.String("err", wrapped.Error()))
+		return wrapped
+	}
+	logger.InfoContext(ctx, "backup.s3.put",
+		slog.String("bucket", bucket),
+		slog.String("key", key),
+		slog.Int("bytes", len(body)),
+	)
+	return nil
+}
+
+// smallObjectMaxBytes bounds what getObjectBytes will hold in memory. Its
+// callers read status markers, which are a few hundred bytes of JSON, so this
+// is generous by four orders of magnitude and still small enough that a
+// corrupted or hostile object cannot exhaust the process. Use
+// [getObjectToFile] for artifacts that are legitimately large.
+const smallObjectMaxBytes = 64 * 1024
+
+// getObjectBytes downloads a small bucket/key into memory. A missing key comes
+// back as a NotFound-wrapped error without an error log, because callers probe
+// for optional objects and treat absence as a state rather than a failure. A
+// body past smallObjectMaxBytes is refused rather than read: the staleness
+// check is the mechanism that reports silence, so it must not be the thing an
+// oversized object takes down.
+func getObjectBytes(ctx context.Context, client *s3.Client, bucket, key string) ([]byte, error) {
+	logger := telemetry.L(ctx)
+	out, err := client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		wrapped := fmt.Errorf("get object %s/%s: %w", bucket, key, err)
+		if !isObjectNotFound(err) {
+			logger.ErrorContext(ctx, "backup.s3.get_failed", slog.String("err", wrapped.Error()))
+		}
+		return nil, wrapped
+	}
+	defer out.Body.Close()
+	// Read one byte past the limit so an object sitting exactly at it still
+	// reads cleanly while anything larger is detectable without buffering it.
+	body, err := io.ReadAll(io.LimitReader(out.Body, smallObjectMaxBytes+1))
+	if err != nil {
+		wrapped := fmt.Errorf("read object %s/%s: %w", bucket, key, err)
+		logger.ErrorContext(ctx, "backup.s3.get_failed", slog.String("err", wrapped.Error()))
+		return nil, wrapped
+	}
+	if len(body) > smallObjectMaxBytes {
+		wrapped := fmt.Errorf("object %s/%s is larger than the %d byte limit for in-memory reads",
+			bucket, key, smallObjectMaxBytes)
+		logger.ErrorContext(ctx, "backup.s3.get_failed", slog.String("err", wrapped.Error()))
+		return nil, wrapped
+	}
+	return body, nil
 }
 
 // getObjectToFile downloads bucket/key to a local file at path, streaming the

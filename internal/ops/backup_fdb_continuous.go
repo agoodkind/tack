@@ -113,13 +113,11 @@ func ensureFDBContinuousSession(ctx context.Context, b *backupCtx) error {
 	return nil
 }
 
-// fdbBackupActive reports whether a FoundationDB backup is currently running on
-// the default tag and targets the configured bucket and endpoint host. The
-// status output embeds blobstore credentials in BackupURL, so the URL is only
-// compared in memory. An infrastructure error returns false so the caller can
-// proceed to start, while an active backup at another destination returns an
-// error.
-func fdbBackupActive(ctx context.Context, b *backupCtx) (bool, error) {
+// fdbBackupStatusText runs `fdbbackup status` in a one-shot container against
+// the live cluster and returns its combined output. The output embeds
+// blobstore credentials in BackupURL, so callers keep it in memory and redact
+// anything they log or print.
+func fdbBackupStatusText(ctx context.Context, b *backupCtx) (string, error) {
 	res, err := runOneShot(ctx, b.Cli, b.Log, runOneShotOptions{
 		Image:      b.Cfg.BackupFDBImage,
 		Network:    b.Cfg.BackupFDBNetwork,
@@ -131,9 +129,23 @@ func fdbBackupActive(ctx context.Context, b *backupCtx) (bool, error) {
 		Name:       "",
 	})
 	if err != nil {
+		return "", err
+	}
+	return res.Stdout + "\n" + res.Stderr, nil
+}
+
+// fdbBackupActive reports whether a FoundationDB backup is currently running on
+// the default tag and targets the configured bucket and endpoint host. The
+// status output embeds blobstore credentials in BackupURL, so the URL is only
+// compared in memory. An infrastructure error returns false so the caller can
+// proceed to start, while an active backup at another destination returns an
+// error.
+func fdbBackupActive(ctx context.Context, b *backupCtx) (bool, error) {
+	status, err := fdbBackupStatusText(ctx, b)
+	if err != nil {
 		return false, err
 	}
-	return fdbBackupActiveFromStatus(b.Cfg, res.Stdout+"\n"+res.Stderr)
+	return fdbBackupActiveFromStatus(b.Cfg, status)
 }
 
 func fdbBackupActiveFromStatus(cfg *config.Config, status string) (bool, error) {

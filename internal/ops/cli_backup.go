@@ -32,6 +32,7 @@ func backupCommand(f *cli.Factory) *cobra.Command {
 		backupYBArchiveNodeCommand(f),
 		backupRestoreDrillCommand(f),
 		backupLeaf(f, "fdb-continuous-init", "Start the FoundationDB continuous backup session (idempotent)", audit.VerbOpsBackupFDBContinuousInit, RunBackupFDBContinuousInit),
+		backupStalenessCheckCommand(f),
 	)
 	cmd.SetHelpCommand(backupHelpCommand())
 	cmd.InitDefaultHelpCmd()
@@ -89,6 +90,22 @@ func backupRestoreDrillCommand(f *cli.Factory) *cobra.Command {
 		"yugabyte export run key to drill, refused if incomplete (default: the newest complete run)")
 	clispec.AttachAudit(cmd, f, audit.Spec{Verb: string(audit.VerbOpsBackupRestoreDrill), Mutates: true}, func(ctx context.Context) error {
 		return RunBackupRestoreDrill(ctx, f.Cfg, ybRunKey)
+	})
+	return cmd
+}
+
+// backupStalenessCheckCommand builds the staleness-check leaf. It writes the
+// report to the command's output stream so the alert timer mails what the
+// operator would have read on a terminal, and it is audited as a mutating
+// command because observing the cluster healthy writes the replication marker.
+func backupStalenessCheckCommand(f *cli.Factory) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "staleness-check",
+		Short: "Report how long ago each backup mechanism last succeeded, exiting nonzero past threshold",
+		Args:  cobra.NoArgs,
+	}
+	clispec.AttachAudit(cmd, f, audit.Spec{Verb: string(audit.VerbOpsBackupStalenessCheck), Mutates: true}, func(ctx context.Context) error {
+		return RunBackupStalenessCheck(ctx, f.Cfg, cmd.OutOrStdout())
 	})
 	return cmd
 }
