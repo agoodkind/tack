@@ -95,9 +95,9 @@ func backupRestoreDrillCommand(f *cli.Factory) *cobra.Command {
 }
 
 // backupStalenessCheckCommand builds the staleness-check leaf. It writes the
-// report to the command's output stream so the alert timer mails what the
-// operator would have read on a terminal, and it is audited as a mutating
-// command because observing the cluster healthy writes the replication marker.
+// report to the command's output stream, mails that same text when anything is
+// stale, and is audited as a mutating command because observing the cluster
+// healthy writes the replication marker.
 func backupStalenessCheckCommand(f *cli.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "staleness-check",

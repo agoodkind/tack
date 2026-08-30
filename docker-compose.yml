@@ -491,9 +491,18 @@ services:
       # than tar or restore against a wrong location.
       TACK_BACKUP_YB_ROCKSDB_DIR: ${TACK_BACKUP_YB_ROCKSDB_DIR:-}
       TACK_BACKUP_YB_OVERLAY_PATH: ${TACK_BACKUP_YB_OVERLAY_PATH:-}
+      # Backup staleness alarm mail. A staleness-check run that finds anything
+      # past its threshold mails the report it printed. Empty recipient mails
+      # nothing, which is the local default; the deploy renders the address.
+      TACK_BACKUP_ALARM_EMAIL: ${TACK_BACKUP_ALARM_EMAIL:-}
+      TACK_BACKUP_ALARM_MSMTPRC: ${TACK_BACKUP_ALARM_MSMTPRC:-/etc/msmtprc}
     volumes:
       - /root/backups:/root/backups
       - /etc/foundationdb:/etc/foundationdb:ro
+      # The staleness alarm reads the guest's SMTP account out of this file and
+      # then speaks SMTP itself, so the file is all it needs: no msmtp binary
+      # lives in this image, and nothing here execs one.
+      - /etc/msmtprc:/etc/msmtprc:ro
       # Docker socket mount is intentional for this short-lived ops container:
       # the backup binary orchestrates scratch containers on the local daemon.
       # This exception is explicitly scoped to tack-ops and must not be added
