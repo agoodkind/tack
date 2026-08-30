@@ -102,6 +102,24 @@ func (m ybSnapshotManifest) validate() error {
 	return nil
 }
 
+// validateFetchedUnder validates a manifest decoded from the object store and
+// additionally requires that it declares the run it was fetched under. Every
+// downstream path keys off the manifest's own RunID rather than the prefix it
+// came from: the node archive keys the completeness walk probes, the artifact
+// prefix the restore drill stages from, and the timestamp the staleness check
+// dates the export by. A manifest copied or planted under another run's prefix
+// would redirect all three at a run it does not belong to, so the two must
+// agree before any of them runs.
+func (m ybSnapshotManifest) validateFetchedUnder(runID string) error {
+	if err := m.validate(); err != nil {
+		return err
+	}
+	if m.RunID != runID {
+		return fmt.Errorf("manifest run_id %q is not the run %q it was fetched under", m.RunID, runID)
+	}
+	return nil
+}
+
 // validateYBNodeName enforces the node-name allowlist. The explicit
 // traversal-substring checks are redundant with the pattern today; they keep a
 // future pattern relaxation from silently reopening path traversal.
@@ -226,8 +244,9 @@ func hostFromHostPort(hostPort string) string {
 }
 
 // fetchYBSnapshotManifest downloads, decodes, and validates the manifest of
-// one export run; a manifest whose run id or node entries fail validation is
-// refused here so no downstream path builds paths or commands from them. The
+// one export run; a manifest whose run id or node entries fail validation, or
+// which declares a run other than the prefix it was fetched from, is refused
+// here so no downstream path builds paths, keys, or commands from them. The
 // manifest is small, so it is read into memory rather than staged. A missing
 // manifest comes back as a NotFound-wrapped error without an error log,
 // because the orchestrator uploads the manifest last and walkers over the run
@@ -259,7 +278,7 @@ func fetchYBSnapshotManifest(ctx context.Context, client *s3.Client, bucket, run
 		logger.ErrorContext(ctx, "backup.s3.get_failed", slog.String("err", wrapped.Error()))
 		return ybSnapshotManifest{}, wrapped
 	}
-	if err := manifest.validate(); err != nil {
+	if err := manifest.validateFetchedUnder(runID); err != nil {
 		wrapped := fmt.Errorf("yb snapshot manifest %s/%s: %w", bucket, key, err)
 		logger.ErrorContext(ctx, "backup.s3.get_failed", slog.String("err", wrapped.Error()))
 		return ybSnapshotManifest{}, wrapped
