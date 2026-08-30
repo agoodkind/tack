@@ -334,6 +334,16 @@ func TestFDBRestorablePointFromStatus(t *testing.T) {
 		"is restorable but continuing\n Last complete log version and timestamp - 5, not-a-timestamp\n"); err == nil {
 		t.Fatal("an unparseable timestamp must be an error, not a silent success")
 	}
+
+	// The word alone appears in destination URLs and tag names, so a backup
+	// that is merely writing to a bucket named for restorability must not be
+	// able to vouch for itself and report its advancing log timestamp.
+	inProgressToNamedURL := "The backup on tag `default' is in progress to " +
+		"blobstore://key@host/restorable-backups?bucket=restorable-backups\n" +
+		" Last complete log version and timestamp        - 100720665, 2026/08/30.01:07:23+0000\n"
+	if _, err := fdbRestorablePointFromStatus(ctx, inProgressToNamedURL); err == nil {
+		t.Fatal("an in-progress backup whose URL contains the word must not read as restorable")
+	}
 }
 
 // TestYBClusterHealthFromBody reads the master health payload the pinned

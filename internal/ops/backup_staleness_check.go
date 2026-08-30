@@ -34,18 +34,22 @@ func RunBackupStalenessCheck(ctx context.Context, cfg *config.Config, out io.Wri
 		return err
 	}
 
-	now := opsNow().UTC()
 	s3Client := newBackupS3Client(cfg)
 	logger.InfoContext(ctx, "backup.staleness.start", slog.String("bucket", cfg.BackupS3BucketMain))
 
+	// Each metric is dated against a clock read when its own probe runs, not
+	// against one reading taken up front. The probes are serial and talk to an
+	// object store, a cluster, and a container runtime, so a slow earlier probe
+	// would otherwise push a later sample past the future-timestamp tolerance
+	// and report a healthy mechanism as corrupt.
 	metrics := []backupStalenessMetric{
-		exportStalenessMetric(ctx, cfg, s3Client, now),
-		markerStalenessMetric(ctx, cfg, s3Client, backupStalenessRehearsalName, now,
+		exportStalenessMetric(ctx, cfg, s3Client, opsNow().UTC()),
+		markerStalenessMetric(ctx, cfg, s3Client, backupStalenessRehearsalName, opsNow().UTC(),
 			backupStalenessThreshold(cfg.BackupStalenessRehearsalMaxSeconds)),
-		replicationStalenessMetric(ctx, cfg, s3Client, now),
+		replicationStalenessMetric(ctx, cfg, s3Client, opsNow().UTC()),
 	}
 	if cfg.BackupFDBContinuous {
-		metrics = append(metrics, fdbStalenessMetric(ctx, cfg, now))
+		metrics = append(metrics, fdbStalenessMetric(ctx, cfg, opsNow().UTC()))
 	} else {
 		logger.WarnContext(ctx, "backup.staleness.metric_skipped",
 			slog.String("metric", backupStalenessFDBName),

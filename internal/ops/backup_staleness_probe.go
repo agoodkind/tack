@@ -156,16 +156,19 @@ const (
 	fdbLastCompleteLogLabel = "Last complete log version and timestamp"
 	// fdbStatusTimestampLayout parses the timestamps in that output.
 	fdbStatusTimestampLayout = "2006/01/02.15:04:05-0700"
-	// fdbRestorableStatusText marks a backup that has a restorable point at
-	// all. On 7.4.6 the steady state of a continuous backup reads "The backup
-	// on tag `default' is restorable but continuing to <url>", while a backup
-	// whose first snapshot has not finished reads "is in progress to <url>"
-	// and has no restorable point yet.
-	fdbRestorableStatusText = "restorable"
-	// fdbNotRestorableStatusText guards the substring match above against a
-	// negated phrasing, so a status that denies restorability can never be
-	// read as vouching for it.
-	fdbNotRestorableStatusText = "not restorable"
+	// fdbRestorableStatusText is the predicate a status uses to vouch for a
+	// restorable point. On 7.4.6 the steady state of a continuous backup reads
+	// "The backup on tag `default' is restorable but continuing to <url>",
+	// while a backup whose first snapshot has not finished reads "is in
+	// progress to <url>" and has no restorable point yet. The leading verb is
+	// part of the match on purpose: the bare word also appears in destination
+	// URLs and tag names, so matching it alone would let an in-progress backup
+	// vouch for itself and report its advancing log timestamp as fresh.
+	fdbRestorableStatusText = " is restorable"
+	// fdbNotRestorableStatusText guards the match above against a negated
+	// phrasing, so a status that denies restorability can never be read as
+	// vouching for it.
+	fdbNotRestorableStatusText = " is not restorable"
 )
 
 // fdbRestorablePointFromStatus extracts how far a FoundationDB continuous
