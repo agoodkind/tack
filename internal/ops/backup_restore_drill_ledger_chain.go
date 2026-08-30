@@ -80,14 +80,26 @@ func verifyRestoredLedgerChains(
 	// Keeping them all until the run ends would make the drill's footprint grow
 	// with tenant count, which is the one number a multi-tenant product is
 	// certain to grow.
+	//
+	// A cleanup that fails stops the run rather than being logged and carried
+	// past. The reclaim is what bounds the footprint, so continuing without it
+	// exports the next org onto a volume that is not being freed, and the drill
+	// would keep going until the disk it shares with the backups ran out. It
+	// also fails rather than merely stopping, because a run that could not clean
+	// up has not shown the rehearsal works.
 	var failures []string
 	totalRows := 0
 	for _, org := range orgs {
 		orgBundle := filepath.Join(bundleRoot, org.ID.String())
 		rows, err := verifyRestoredOrgChain(ctx, org, orgBundle, export, verify)
 		if removeErr := os.RemoveAll(orgBundle); removeErr != nil {
-			logger.WarnContext(ctx, "backup.restore_drill.ledger_chain.bundle_not_removed",
-				slog.String("path", orgBundle), slog.String("err", removeErr.Error()))
+			wrapped := fmt.Errorf(
+				"org %s: could not free the exported bundle at %s, so the drill stopped "+
+					"rather than export another org onto a volume it cannot reclaim: %w",
+				org.ID, orgBundle, removeErr)
+			logger.ErrorContext(ctx, "backup.restore_drill.ledger_chain.failed",
+				slog.String("err", wrapped.Error()))
+			return wrapped
 		}
 		if err != nil {
 			failures = append(failures, err.Error())

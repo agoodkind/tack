@@ -1,12 +1,14 @@
 package audit
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -297,4 +299,79 @@ type failingRowSource struct{}
 
 func (*failingRowSource) StreamQuery(_ context.Context, _ QueryFilter, _ RowVisitor) error {
 	return context.DeadlineExceeded
+}
+
+// TestFailedReExportLeavesThePublishedBundleIntact pins what a re-export may
+// destroy, which is nothing. An operator re-exporting into a directory that
+// already holds a bundle is the ordinary case, and the export can fail partway
+// for reasons that have nothing to do with the bundle sitting there: a dropped
+// connection, a full disk, a cancelled command. Two earlier shapes of this code
+// damaged that bundle. Writing rows straight to events.jsonl truncated it at the
+// first byte, leaving the old signed manifest describing rows that were gone.
+// Removing the manifest first destroyed the only thing that makes the directory
+// readable as a bundle, for the whole length of an export that then failed.
+// Either way the operator loses evidence they still had a moment earlier, and
+// the second one loses it silently.
+func TestFailedReExportLeavesThePublishedBundleIntact(t *testing.T) {
+	dir := t.TempDir()
+	orgID := uuid.Must(uuid.NewV7())
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	const publishedRows = 40
+	source := &ledgerRowStream{
+		t: t, orgID: orgID, rows: publishedRows, shards: 4,
+		base: time.Now().UTC().Add(-publishedRows * time.Second), observe: nil,
+	}
+
+	published, err := Export(
+		context.Background(), source, privateKey, "ed25519:test", exportTestFilter(orgID), dir)
+	if err != nil {
+		t.Fatalf("first export: %v", err)
+	}
+	rowsBefore, err := os.ReadFile(filepath.Join(dir, "events.jsonl"))
+	if err != nil {
+		t.Fatalf("read published rows: %v", err)
+	}
+
+	if _, err := Export(context.Background(), &failingRowSource{}, privateKey, "ed25519:test",
+		exportTestFilter(orgID), dir); err == nil {
+		t.Fatal("the re-export reported success on a ledger read that failed")
+	}
+
+	rowsAfter, err := os.ReadFile(filepath.Join(dir, "events.jsonl"))
+	if err != nil {
+		t.Fatalf("the failed re-export destroyed the published rows: %v", err)
+	}
+	if !bytes.Equal(rowsBefore, rowsAfter) {
+		t.Fatalf("the failed re-export rewrote the published rows: %d bytes before, %d after",
+			len(rowsBefore), len(rowsAfter))
+	}
+
+	// The surviving pair still has to verify. Rows that survived beside a
+	// manifest that did not would be the same defect wearing the other mask.
+	report, err := VerifyBundle(dir, publicKey)
+	if err != nil {
+		t.Fatalf("the bundle that survived the failed re-export no longer verifies: %v", err)
+	}
+	if verdict := report.Err(); verdict != nil {
+		t.Fatalf("surviving bundle failed verification: %v", verdict)
+	}
+	if report.RowsScanned != published.RowCount {
+		t.Fatalf("surviving bundle holds %d rows, want the %d it was published with",
+			report.RowsScanned, published.RowCount)
+	}
+
+	// Nothing staged may be left behind either: a leftover partial file grows
+	// the directory every time an export fails.
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read bundle dir: %v", err)
+	}
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), stagedSuffix) {
+			t.Fatalf("the failed re-export left %s behind", entry.Name())
+		}
+	}
 }

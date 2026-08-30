@@ -70,17 +70,19 @@ func Export(ctx context.Context, reader RowSource, signer ed25519.PrivateKey, ke
 		return nil, fmt.Errorf("audit export mkdir: %w", err)
 	}
 
-	// A re-export into a directory that already holds a bundle removes the old
-	// manifest before writing anything. The manifest is what makes a bundle
-	// readable as complete and signed, so leaving a previous run's copy in place
-	// while this run writes rows is what would let a failure halfway produce a
-	// bundle that verifies against rows it never described.
+	// Both files are staged under temporary names and published together at the
+	// end, so a re-export never damages the bundle already in the directory.
+	// Writing either file in place would: truncating events.jsonl strands the
+	// previous run's signed manifest beside half-written rows, and removing that
+	// manifest up front destroys a valid bundle for the whole length of an
+	// export that may then fail. Neither may happen, because both leave a
+	// directory that reads as a bundle and is not one.
+	rowsPath := filepath.Join(dir, "events.jsonl")
 	mfPath := filepath.Join(dir, "manifest.json")
-	if err := os.Remove(mfPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("audit export clear stale manifest: %w", err)
-	}
+	rowsStaged := rowsPath + stagedSuffix
+	mfStaged := mfPath + stagedSuffix
 
-	rowCount, fileDigest, err := writeExportRows(ctx, reader, filter, filepath.Join(dir, "events.jsonl"))
+	rowCount, fileDigest, err := writeExportRows(ctx, reader, filter, rowsStaged)
 	if err != nil {
 		return nil, err
 	}
@@ -100,20 +102,53 @@ func Export(ctx context.Context, reader RowSource, signer ed25519.PrivateKey, ke
 
 	mfBytes, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
+		_ = os.Remove(rowsStaged)
 		return nil, fmt.Errorf("audit export marshal manifest: %w", err)
 	}
-	// Published by rename for the same reason the rows are: a manifest written
-	// in place can be left half-written, and half a manifest beside a whole
-	// bundle is another shape of the artifact lying about itself.
-	mfPartial := mfPath + ".partial"
-	if err := os.WriteFile(mfPartial, mfBytes, 0o600); err != nil {
+	if err := os.WriteFile(mfStaged, mfBytes, 0o600); err != nil {
+		_ = os.Remove(rowsStaged)
 		return nil, fmt.Errorf("audit export write manifest: %w", err)
 	}
-	if err := os.Rename(mfPartial, mfPath); err != nil {
-		_ = os.Remove(mfPartial)
-		return nil, fmt.Errorf("audit export publish manifest: %w", err)
+	if err := publishExportBundle(ctx, rowsStaged, rowsPath, mfStaged, mfPath); err != nil {
+		return nil, err
 	}
 	return manifest, nil
+}
+
+// stagedSuffix names a file that is being written and is not part of a bundle
+// yet. Verification reads events.jsonl and manifest.json, so nothing carrying
+// this suffix is ever mistaken for an artifact.
+const stagedSuffix = ".partial"
+
+// publishExportBundle swaps the staged pair in for the published one.
+//
+// The manifest is what makes a directory readable as a signed bundle, so it is
+// removed first and written last. That leaves exactly one window in which the
+// directory is inconsistent, between the two renames, and a crash inside it
+// leaves rows with no manifest: a bundle that reads as absent rather than one
+// that reads as complete while describing rows it does not hold. Absent is
+// recoverable by re-exporting; a manifest that vouches for the wrong rows is
+// not, because nothing downstream can tell.
+func publishExportBundle(ctx context.Context, rowsStaged, rowsPath, mfStaged, mfPath string) error {
+	if err := os.Remove(mfPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		_ = os.Remove(rowsStaged)
+		_ = os.Remove(mfStaged)
+		return fmt.Errorf("audit export clear published manifest: %w", err)
+	}
+	if err := os.Rename(rowsStaged, rowsPath); err != nil {
+		_ = os.Remove(rowsStaged)
+		_ = os.Remove(mfStaged)
+		slog.ErrorContext(ctx, "audit.export.publish_failed",
+			slog.String("path", rowsPath), slog.String("err", err.Error()))
+		return fmt.Errorf("audit export publish rows: %w", err)
+	}
+	if err := os.Rename(mfStaged, mfPath); err != nil {
+		_ = os.Remove(mfStaged)
+		slog.ErrorContext(ctx, "audit.export.publish_failed",
+			slog.String("path", mfPath), slog.String("err", err.Error()))
+		return fmt.Errorf("audit export publish manifest: %w", err)
+	}
+	return nil
 }
 
 // writeExportRows streams the filter's rows straight into the bundle file and
@@ -124,18 +159,14 @@ func Export(ctx context.Context, reader RowSource, signer ed25519.PrivateKey, ke
 // is a counter. Collecting the rows into a slice first is what made a
 // production-sized org unexportable, because the slice, not the file, is what
 // had to fit in memory.
-// The rows are written to a temporary name and renamed into place only once
-// the whole stream succeeded. Writing straight to events.jsonl truncates it the
-// moment the export starts, so a re-export that fails partway would leave the
-// previous run's signed manifest sitting beside a half-written file: a bundle
-// that reads as complete and is not. Nothing may pair a signed manifest with
-// rows it does not describe.
+// The caller passes a staged path, never the published events.jsonl, and
+// removes it on every failure below, so a stream that dies partway leaves the
+// bundle already in the directory untouched.
 func writeExportRows(ctx context.Context, source RowSource, filter QueryFilter, path string) (int, string, error) {
-	partialPath := path + ".partial"
-	file, err := os.Create(partialPath)
+	file, err := os.Create(path)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.export.open_failed",
-			slog.String("path", partialPath), slog.String("err", err.Error()))
+			slog.String("path", path), slog.String("err", err.Error()))
 		return 0, "", fmt.Errorf("audit export open: %w", err)
 	}
 	fileDigest := sha256.New()
@@ -152,7 +183,7 @@ func writeExportRows(ctx context.Context, source RowSource, filter QueryFilter, 
 	})
 	if streamErr != nil {
 		_ = file.Close()
-		_ = os.Remove(partialPath)
+		_ = os.Remove(path)
 		return 0, "", fmt.Errorf("audit export query: %w", streamErr)
 	}
 	// The buffer holds the tail of the file, and the digest has already counted
@@ -161,18 +192,12 @@ func writeExportRows(ctx context.Context, source RowSource, filter QueryFilter, 
 	// swallowed by the deferred close.
 	if flushErr := buffered.Flush(); flushErr != nil {
 		_ = file.Close()
-		_ = os.Remove(partialPath)
+		_ = os.Remove(path)
 		return 0, "", fmt.Errorf("audit export flush: %w", flushErr)
 	}
 	if closeErr := file.Close(); closeErr != nil {
-		_ = os.Remove(partialPath)
+		_ = os.Remove(path)
 		return 0, "", fmt.Errorf("audit export close: %w", closeErr)
-	}
-	if renameErr := os.Rename(partialPath, path); renameErr != nil {
-		_ = os.Remove(partialPath)
-		slog.ErrorContext(ctx, "audit.export.publish_failed",
-			slog.String("path", path), slog.String("err", renameErr.Error()))
-		return 0, "", fmt.Errorf("audit export publish: %w", renameErr)
 	}
 	return rowCount, hex.EncodeToString(fileDigest.Sum(nil)), nil
 }
