@@ -83,8 +83,11 @@ windows are the `TACK_BACKUP_STALENESS_*` settings, in seconds.
 ## FoundationDB recovery
 
 The continuous backup is stored in the object store under a marker object at
-`backups/<run-id>`. Each `./server ops backup fdb-continuous-init` records one
-such marker; the latest is the live backup.
+`backups/<run-id>`. A host that streams starts its session during
+`./server ops provision`, which every deploy runs, so no operator has to arm it.
+Each start records one such marker; the latest is the live backup.
+`./server ops backup fdb-continuous-init` performs the same start out of band and
+is idempotent, so it leaves a running session alone.
 
 1. Find the backup name. List the marker objects under `backups/` in the
    `tack-backups` bucket and take the latest run id. The restore drill does this

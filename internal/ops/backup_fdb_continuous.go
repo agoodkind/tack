@@ -31,8 +31,10 @@ type backupCtx struct {
 // RunBackupFDBContinuousInit starts the FoundationDB continuous backup session
 // that streams to the object store, and is safe to run repeatedly. The
 // long-lived backup_agent that drains snapshots is the fdb-backup-agent compose
-// service; this command only starts the session. The command remains gated by
-// TACK_BACKUP_FDB_CONTINUOUS=true.
+// service; this only starts the session. `ops provision` calls it on every run
+// so a streaming environment arms itself, and the `fdb-continuous-init`
+// subcommand exposes the same call for a deliberate out-of-band start. Both
+// remain gated by TACK_BACKUP_FDB_CONTINUOUS=true.
 func RunBackupFDBContinuousInit(ctx context.Context, cfg *config.Config) error {
 	logger := telemetry.L(ctx)
 	if !cfg.BackupFDBContinuous {

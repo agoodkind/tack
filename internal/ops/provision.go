@@ -46,8 +46,8 @@ func provisionOp(f *cli.Factory) clispec.Operation[provisionInput] {
 		Group:    opsGroup,
 		Aliases:  nil,
 		Hidden:   false,
-		Short:    "Bring a fresh environment to ready: fdb init (opt-in), migrate, seed audit roles, seed product",
-		Long:     "Ordered and idempotent: configure fdb only when unconfigured and --allow-fdb-init is set (fresh environments only, never prod), run migrations, seed the audit roles, then seed initial product data when SEED_EMAIL and SEED_NAME are set. Safe to re-run; each step no-ops when already done.",
+		Short:    "Bring a fresh environment to ready: fdb init (opt-in), migrate, seed audit roles, start fdb continuous backup, seed product",
+		Long:     "Ordered and idempotent: configure fdb only when unconfigured and --allow-fdb-init is set (fresh environments only, never prod), run migrations, seed the audit roles, start the FoundationDB continuous backup session when TACK_BACKUP_FDB_CONTINUOUS is true, then seed initial product data when SEED_EMAIL and SEED_NAME are set. Safe to re-run; each step no-ops when already done.",
 		Examples: nil,
 		Args:     nil,
 		Params: []clispec.Param[provisionInput]{
@@ -89,6 +89,10 @@ func provisionRun(ctx context.Context, cfg *config.Config, allowFDBInit bool) er
 		return fmt.Errorf("provision seed roles: %w", err)
 	}
 
+	if err := provisionFDBContinuous(ctx, cfg, RunBackupFDBContinuousInit); err != nil {
+		return err
+	}
+
 	if cfg.SeedEmail == "" || cfg.SeedName == "" {
 		slog.InfoContext(ctx, "provision.seed.skipped",
 			slog.String("reason", "SEED_EMAIL and SEED_NAME unset; product seed is left to a deliberate run"))
@@ -122,6 +126,38 @@ func provisionFDB(ctx context.Context, cli *client.Client, containerName string,
 		return fmt.Errorf("provision fdb configure: %w", err)
 	}
 	slog.InfoContext(ctx, "provision.fdb.configured", slog.String("out", strings.TrimSpace(res.Stdout)))
+	return nil
+}
+
+// provisionFDBContinuous arms the FoundationDB continuous backup stream so no
+// operator has to remember `ops backup fdb-continuous-init`. The flag is the
+// only switch: an environment that does not stream leaves it false and this is
+// a no-op. start is idempotent, because a session already running on the
+// configured destination is treated as success, so a re-run converges rather
+// than issuing a duplicate start.
+//
+// A failed start fails provision instead of being logged and swallowed,
+// including when the object store is unreachable. A provision that reports
+// success while nothing streams is exactly the silent gap this step closes,
+// and provision is re-runnable, so an operator who fixes the object store and
+// runs it again completes what a false success would have hidden forever.
+func provisionFDBContinuous(
+	ctx context.Context,
+	cfg *config.Config,
+	start func(context.Context, *config.Config) error,
+) error {
+	if !cfg.BackupFDBContinuous {
+		slog.InfoContext(ctx, "provision.fdb_continuous.skipped",
+			slog.String("reason", "TACK_BACKUP_FDB_CONTINUOUS is false"))
+		return nil
+	}
+	slog.InfoContext(ctx, "provision.fdb_continuous.start")
+	if err := start(ctx, cfg); err != nil {
+		wrapped := fmt.Errorf("provision fdb continuous backup: %w", err)
+		slog.ErrorContext(ctx, "provision.fdb_continuous.failed", slog.String("err", wrapped.Error()))
+		return wrapped
+	}
+	slog.InfoContext(ctx, "provision.fdb_continuous.ok")
 	return nil
 }
 
