@@ -34,7 +34,10 @@ type restoreDrillCtx struct {
 	// YBRunKey is the yugabyte export run the operator explicitly asked to
 	// drill (--yb-run-key). Empty means discover the newest complete run; an
 	// explicit key is refused if that run is incomplete.
-	YBRunKey       string
+	YBRunKey string
+	// FDBTargetTime is the moment the FoundationDB leg restores to
+	// (--fdb-target-time). The zero time restores the latest restorable point.
+	FDBTargetTime  time.Time
 	containerNames []string
 	volumeNames    []string
 }
@@ -58,16 +61,28 @@ func cleanupRestoreDrill(ctx context.Context, r *restoreDrillCtx) {
 	}
 }
 
+// RestoreDrillOptions carries the operator's per-leg targeting choices. Its
+// zero value runs the plain drill.
+type RestoreDrillOptions struct {
+	// YBRunKey pins the yugabyte leg to one export run, which is refused if
+	// incomplete. Empty means the newest complete run.
+	YBRunKey string
+	// FDBTargetTime restores FoundationDB to that moment instead of the latest
+	// restorable point, and is refused when it falls outside the backup's
+	// restorable window. The zero time means the latest.
+	FDBTargetTime time.Time
+}
+
 // RunBackupRestoreDrill restores FoundationDB (from the continuous backup) and
 // YugabyteDB (from the distributed-snapshot export) into throwaway containers
 // and asserts each holds data. Meilisearch is excluded because it rebuilds from
 // FoundationDB, and Temporal is excluded because it holds no Tack data. Each leg
 // runs even if another fails so the drill reports a complete picture; the drill
-// errors if any attempted leg fails. ybRunKey optionally pins the yugabyte leg
-// to one export run; empty means the newest complete run. A drill where every
+// errors if any attempted leg fails. opts optionally pins the yugabyte leg to
+// one export run and the FoundationDB leg to one moment. A drill where every
 // attempted leg passed records a rehearsal marker in the object store, which is
 // what `ops backup staleness-check` dates the rehearsal from.
-func RunBackupRestoreDrill(ctx context.Context, cfg *config.Config, ybRunKey string) error {
+func RunBackupRestoreDrill(ctx context.Context, cfg *config.Config, opts RestoreDrillOptions) error {
 	logger := telemetry.L(ctx)
 	if cfg.BackupS3Endpoint == "" || cfg.BackupS3AccessKey == "" || cfg.BackupS3SecretKey == "" {
 		err := fmt.Errorf("restore-drill: TACK_BACKUP_S3_ENDPOINT, _ACCESS_KEY_ID, and _SECRET_ACCESS_KEY are required")
@@ -87,7 +102,8 @@ func RunBackupRestoreDrill(ctx context.Context, cfg *config.Config, ybRunKey str
 		Cli:            cli,
 		RunID:          runID,
 		YBPass:         "drill-" + runID,
-		YBRunKey:       ybRunKey,
+		YBRunKey:       opts.YBRunKey,
+		FDBTargetTime:  opts.FDBTargetTime,
 		containerNames: nil,
 		volumeNames:    nil,
 	}

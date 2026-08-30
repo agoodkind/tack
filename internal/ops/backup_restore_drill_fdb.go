@@ -35,6 +35,11 @@ func redactSecret(cfg *config.Config, s string) string {
 // non-empty. The scratch cluster uses its own data and a loopback-free
 // container-mode coordinator; it never joins the live cluster. The backup name
 // is discovered from the bucket, not a local pointer.
+//
+// r.FDBTargetTime selects the moment to restore to. The zero time restores the
+// latest restorable point. A target time is checked against the backup's
+// restorable window before any restore starts, so a moment the backup cannot
+// reach stops the drill instead of quietly restoring the latest.
 func restoreDrillFDB(ctx context.Context, r *restoreDrillCtx) error {
 	logger := telemetry.L(ctx)
 	logger.InfoContext(ctx, "backup.restore_drill.fdb.start")
@@ -77,10 +82,13 @@ func restoreDrillFDB(ctx context.Context, r *restoreDrillCtx) error {
 		return err
 	}
 
+	if err := assertFDBTargetRestorable(ctx, r, name, dest); err != nil {
+		return err
+	}
+
 	restoreRes, err := containerExec(ctx, r.Cli, name, []string{
 		"sh", "-c",
-		fmt.Sprintf("timeout %d fdbrestore start --dest-cluster-file /var/fdb/fdb.cluster -r '%s' --waitfordone",
-			r.Cfg.BackupFDBTimeoutSeconds, dest),
+		fdbRestoreShellCommand(dest, r.FDBTargetTime, r.Cfg.BackupFDBTimeoutSeconds),
 	})
 	if err != nil {
 		return fmt.Errorf("fdbrestore exec: %w", err)
@@ -123,16 +131,23 @@ func bootScratchFDB(ctx context.Context, r *restoreDrillCtx, name string, extraH
 	if err := ensureImage(ctx, r.Cli, logger, r.Cfg.BackupFDBImage); err != nil {
 		return err
 	}
+	binds := []string{
+		volume + ":/var/fdb",
+		r.Cfg.BackupFDBOverlayPath + ":/var/fdb/scripts/fdb.bash:ro",
+	}
+	if !r.FDBTargetTime.IsZero() {
+		// fdbrestore resolves a wall-clock target against the source cluster,
+		// so the live cluster's file has to be readable in here. Read-only,
+		// and only for a run that asked for a point in time.
+		binds = append(binds, fdbOrigClusterMount)
+	}
 	created, err := r.Cli.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Config: &container.Config{
 			Image: r.Cfg.BackupFDBImage,
 			Env:   []string{"FDB_NETWORKING_MODE=container", "FDB_PORT=4500", "FDB_PROCESS_CLASS=unset"},
 		},
 		HostConfig: &container.HostConfig{
-			Binds: []string{
-				volume + ":/var/fdb",
-				r.Cfg.BackupFDBOverlayPath + ":/var/fdb/scripts/fdb.bash:ro",
-			},
+			Binds:      binds,
 			ExtraHosts: extraHosts,
 		},
 		NetworkingConfig: netMode(r.Cfg.BackupFDBNetwork),

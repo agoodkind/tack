@@ -47,6 +47,14 @@ The drill exits zero when both legs assert data is present and the rehearsal it
 records lands in the object store. The FoundationDB leg runs only when
 `TACK_BACKUP_FDB_CONTINUOUS` is true and is otherwise skipped with a warning.
 
+Add `--fdb-target-time` to restore FoundationDB to one moment instead of the
+latest restorable point. Write the moment as RFC 3339 (`2026-08-30T01:07:23Z`)
+or in FoundationDB's own form (`2026/08/30.01:07:23+0000`); both carry an
+explicit offset, so a target time means the same instant wherever it is typed.
+The drill reads the backup's restorable window before it restores and stops
+when the target falls outside it, naming the window. It never substitutes the
+latest for a moment it cannot reach.
+
 ## Confirming the backups are still current
 
 `./server ops backup staleness-check --execute` reports how long ago each backup
@@ -113,6 +121,34 @@ is idempotent, so it leaves a running session alone.
    `fdb-blobstore-host` must resolve to the object store's IPv6 address, the same
    `--add-host fdb-blobstore-host:<ipv6>` mapping the backup uses, because
    fdbbackup cannot resolve an IPv6 literal.
+
+   That form restores the latest restorable point. To restore to a chosen
+   moment, name the moment and a cluster file for the source cluster.
+   fdbrestore converts a wall-clock time into a version using the source's
+   version metadata, so the source has to be reachable and its cluster file
+   readable during the restore:
+
+   ```
+   fdbrestore start \
+     --dest-cluster-file <recovery-cluster-file> \
+     --orig-cluster-file <source-cluster-file> \
+     --timestamp '2026/08/30.01:07:23+0000' \
+     -r '<the same backup URL>' \
+     --waitfordone
+   ```
+
+   The two cluster files must name different clusters. Every write goes to the
+   destination; the source is only read for the time-to-version lookup. Naming
+   the live cluster as the destination overwrites production, so mount the
+   source read-only and keep it off FoundationDB's default client path
+   (`/etc/foundationdb/fdb.cluster`), where a command that omitted its
+   cluster-file flag would otherwise pick it up.
+
+   Check the moment against the backup's restorable window before restoring.
+   `fdbbackup describe -d '<backup URL>' -C <source-cluster-file>
+   --version-timestamps` prints `MinRestorableVersion` and
+   `MaxRestorableVersion` with wall-clock times; a moment outside that span
+   cannot be reached, and fdbrestore given one does not restore that moment.
 
 4. Verify. The product-data keys are tuple-encoded, so confirm the keyspace is
    non-empty with a range read (`fdbcli --exec 'getrange "" \xff 5'`) rather than
