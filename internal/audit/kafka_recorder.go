@@ -10,9 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/twmb/franz-go/pkg/kerr"
 	"github.com/twmb/franz-go/pkg/kgo"
-	"github.com/twmb/franz-go/pkg/kmsg"
 	"goodkind.io/tack/internal/telemetry"
 )
 
@@ -94,108 +92,6 @@ func NewKafkaRecorder(cfg KafkaConfig) (*KafkaRecorder, error) {
 		topic:          cfg.Topic,
 		produceTimeout: cfg.ProduceTimeout,
 	}, nil
-}
-
-// Ready reports whether this producer can publish its ledger. The client
-// connects lazily, so construction alone proves nothing; startup calls this so
-// a server that cannot record refuses to serve instead of running unrecorded
-// until someone reads a log.
-//
-// A broker answering is not enough. The topic has to exist, be visible to this
-// client, and have a leader on every partition, because a reachable broker
-// whose topic is missing or stranded fails Record while looking healthy at the
-// connection level.
-func (k *KafkaRecorder) Ready(ctx context.Context) error {
-	if err := k.client.Ping(ctx); err != nil {
-		slog.ErrorContext(ctx, "audit.kafka.ping_failed", slog.String("err", err.Error()))
-		return fmt.Errorf("audit kafka ping: %w", err)
-	}
-	return k.checkTopicWritable(ctx)
-}
-
-// checkTopicWritable asks the cluster about the configured topic and demands a
-// leader on every partition. Auto-creation is disabled on the request: a topic
-// conjured by the readiness check would report success while the partition
-// count the design fixes had never been applied.
-func (k *KafkaRecorder) checkTopicWritable(ctx context.Context) error {
-	req := kmsg.NewPtrMetadataRequest()
-	reqTopic := kmsg.NewMetadataRequestTopic()
-	reqTopic.Topic = &k.topic
-	req.Topics = append(req.Topics, reqTopic)
-	req.AllowAutoTopicCreation = false
-
-	resp, err := req.RequestWith(ctx, k.client)
-	if err != nil {
-		slog.ErrorContext(ctx, "audit.kafka.topic_metadata_failed",
-			slog.String("topic", k.topic), slog.String("err", err.Error()))
-		return fmt.Errorf("audit kafka topic %s metadata: %w", k.topic, err)
-	}
-	if len(resp.Topics) == 0 {
-		err := fmt.Errorf("audit kafka topic %s: cluster returned no metadata for it", k.topic)
-		slog.ErrorContext(ctx, "audit.kafka.topic_absent",
-			slog.String("topic", k.topic), slog.String("err", err.Error()))
-		return err
-	}
-	for _, respTopic := range resp.Topics {
-		if respTopic.ErrorCode != 0 {
-			codeErr := kerr.ErrorForCode(respTopic.ErrorCode)
-			slog.ErrorContext(ctx, "audit.kafka.topic_unwritable",
-				slog.String("topic", k.topic), slog.String("err", codeErr.Error()))
-			return fmt.Errorf("audit kafka topic %s: %w", k.topic, codeErr)
-		}
-		if err := k.checkPartitionLeaders(ctx, respTopic); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// checkPartitionLeaders demands a usable leader and in-sync set on every
-// partition, not merely one.
-// The producer key hashes an (org, shard) pair across the whole partition
-// space, so a single leaderless partition fails every event that lands on it
-// while the rest of the topic looks healthy. A topic with no partitions at all
-// can accept nothing.
-func (k *KafkaRecorder) checkPartitionLeaders(ctx context.Context, respTopic kmsg.MetadataResponseTopic) error {
-	if len(respTopic.Partitions) == 0 {
-		err := fmt.Errorf("audit kafka topic %s: reports no partitions", k.topic)
-		slog.ErrorContext(ctx, "audit.kafka.topic_partitionless",
-			slog.String("topic", k.topic), slog.String("err", err.Error()))
-		return err
-	}
-	for _, partition := range respTopic.Partitions {
-		if partition.ErrorCode != 0 {
-			codeErr := kerr.ErrorForCode(partition.ErrorCode)
-			slog.ErrorContext(ctx, "audit.kafka.partition_unwritable",
-				slog.String("topic", k.topic),
-				slog.Int("partition", int(partition.Partition)),
-				slog.String("err", codeErr.Error()))
-			return fmt.Errorf("audit kafka topic %s partition %d: %w",
-				k.topic, partition.Partition, codeErr)
-		}
-		if partition.Leader < 0 {
-			err := fmt.Errorf("audit kafka topic %s partition %d: no leader",
-				k.topic, partition.Partition)
-			slog.ErrorContext(ctx, "audit.kafka.partition_leaderless",
-				slog.String("topic", k.topic),
-				slog.Int("partition", int(partition.Partition)),
-				slog.String("err", err.Error()))
-			return err
-		}
-		// This producer requires acks from every in-sync replica, so a
-		// partition with an empty in-sync set rejects each produce even though
-		// it reports a leader.
-		if len(partition.ISR) == 0 {
-			err := fmt.Errorf("audit kafka topic %s partition %d: no in-sync replica",
-				k.topic, partition.Partition)
-			slog.ErrorContext(ctx, "audit.kafka.partition_no_isr",
-				slog.String("topic", k.topic),
-				slog.Int("partition", int(partition.Partition)),
-				slog.String("err", err.Error()))
-			return err
-		}
-	}
-	return nil
 }
 
 // MarshalEvent encodes an Event as canonical JSON. Exposed as an
