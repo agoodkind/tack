@@ -96,3 +96,28 @@ func metadataPartition(id int32, leader int32) kmsg.MetadataResponseTopicPartiti
 	}
 	return partition
 }
+
+// TestReadyRefusesAPartitionWithNoInSyncReplica covers the produce
+// prerequisite a leader alone does not carry. This producer asks for acks from
+// every in-sync replica, so a partition whose in-sync set is empty rejects each
+// produce while still naming a leader.
+func TestReadyRefusesAPartitionWithNoInSyncReplica(t *testing.T) {
+	t.Parallel()
+	cluster := newFakeCluster(t)
+	led := metadataPartition(0, 1)
+	stranded := metadataPartition(1, 1)
+	stranded.ISR = nil
+	serveMetadata(cluster, led, stranded)
+	recorder := newKafkaRecorderForTest(t, cluster)
+	ctx, cancel := context.WithTimeout(context.Background(), testFetchDeadline)
+	defer cancel()
+
+	err := recorder.Ready(ctx)
+
+	if err == nil {
+		t.Fatal("a partition with no in-sync replica must refuse: acks=all rejects every produce to it")
+	}
+	if !strings.Contains(err.Error(), "no in-sync replica") {
+		t.Fatalf("err = %v, want it to name the missing in-sync replica", err)
+	}
+}

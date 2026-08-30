@@ -150,7 +150,8 @@ func (k *KafkaRecorder) checkTopicWritable(ctx context.Context) error {
 	return nil
 }
 
-// checkPartitionLeaders demands a leader on every partition, not merely one.
+// checkPartitionLeaders demands a usable leader and in-sync set on every
+// partition, not merely one.
 // The producer key hashes an (org, shard) pair across the whole partition
 // space, so a single leaderless partition fails every event that lands on it
 // while the rest of the topic looks healthy. A topic with no partitions at all
@@ -176,6 +177,18 @@ func (k *KafkaRecorder) checkPartitionLeaders(ctx context.Context, respTopic kms
 			err := fmt.Errorf("audit kafka topic %s partition %d: no leader",
 				k.topic, partition.Partition)
 			slog.ErrorContext(ctx, "audit.kafka.partition_leaderless",
+				slog.String("topic", k.topic),
+				slog.Int("partition", int(partition.Partition)),
+				slog.String("err", err.Error()))
+			return err
+		}
+		// This producer requires acks from every in-sync replica, so a
+		// partition with an empty in-sync set rejects each produce even though
+		// it reports a leader.
+		if len(partition.ISR) == 0 {
+			err := fmt.Errorf("audit kafka topic %s partition %d: no in-sync replica",
+				k.topic, partition.Partition)
+			slog.ErrorContext(ctx, "audit.kafka.partition_no_isr",
 				slog.String("topic", k.topic),
 				slog.Int("partition", int(partition.Partition)),
 				slog.String("err", err.Error()))

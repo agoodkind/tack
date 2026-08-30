@@ -113,13 +113,25 @@ func TestUnwiredRecorderRefusesInsteadOfDiscarding(t *testing.T) {
 // deployment.
 func TestBuildKafkaRecorderWaitsForASlowBroker(t *testing.T) {
 	t.Parallel()
-	address := reservedLocalAddress(t)
+	// The port stays held until the moment the broker binds it. Releasing it up
+	// front leaves a window where another process can take it, which would fail
+	// this test for a reason that has nothing to do with the readiness budget.
+	reservation, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("reserve port: %v", err)
+	}
+	address := reservation.Addr().String()
+	port := portOf(t, address)
 	started := make(chan *kfake.Cluster, 1)
 	go func() {
 		time.Sleep(1500 * time.Millisecond)
+		if closeErr := reservation.Close(); closeErr != nil {
+			started <- nil
+			return
+		}
 		cluster, err := kfake.NewCluster(
 			kfake.NumBrokers(1),
-			kfake.Ports(portOf(t, address)),
+			kfake.Ports(port),
 			kfake.SeedTopics(1, "audit.events.v1"),
 		)
 		if err != nil {
@@ -146,21 +158,6 @@ func TestBuildKafkaRecorderWaitsForASlowBroker(t *testing.T) {
 	if closer, ok := recorder.(interface{ Close() error }); ok {
 		_ = closer.Close()
 	}
-}
-
-// reservedLocalAddress returns a loopback address that nothing is listening on
-// yet, so the first reachability attempt fails.
-func reservedLocalAddress(t *testing.T) string {
-	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	address := listener.Addr().String()
-	if err := listener.Close(); err != nil {
-		t.Fatalf("close: %v", err)
-	}
-	return address
 }
 
 func portOf(t *testing.T, address string) int {
