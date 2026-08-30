@@ -23,6 +23,32 @@ when a store must be rebuilt from off-host artifacts.
   restored. See `meilisearch-recovery.md`.
 - Temporal holds no Tack data and has no backup.
 
+## What each tier costs you
+
+Read this before choosing a recovery path, because the two stores lose
+different amounts.
+
+FoundationDB streams continuously, so a restore reaches any point in the
+stream's window and loses seconds at worst. YugabyteDB exports on a schedule,
+so a restore reaches the last complete export and loses everything written
+since it. Between exports the ledger's only protection is quorum replication
+across the three data guests, which survives losing a guest but not a
+corruption or an accidental delete, because replication copies those to every
+replica. The export is the tier that survives everything, and its cadence is
+therefore the ledger's real worst-case loss.
+
+Timers on the guests set that cadence. The owner guest exports daily at 03:17
+UTC with up to five minutes of randomized delay, and each data guest archives
+its own tablet files every 15 minutes, so a run becomes complete within roughly
+a quarter hour of the export that started it. The rehearsal that proves the
+artifacts restore runs daily at 05:40 UTC on the owner, clear of the export and
+its archives. A staleness check runs every 30 minutes on the owner and on one
+data guest, and mails when any mechanism ages past its threshold.
+
+Worst-case ledger loss is therefore one day plus the archive lag, and the
+staleness thresholds are sized to allow one missed run of each schedule before
+alerting.
+
 ## Confirming the backups restore
 
 `./server ops backup restore-drill` restores each store into throwaway
