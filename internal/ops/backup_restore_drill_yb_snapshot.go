@@ -104,39 +104,53 @@ func importAndRestoreYBSnapshot(ctx context.Context, r *restoreDrillCtx, contain
 	return nil
 }
 
-// ybPlacementChunkSize is how many tablet remaps one placement script carries.
-// The script travels to the container as a single `sh -c` argument, and Linux
-// caps one exec argument at 128KiB (MAX_ARG_STRLEN); one remap clause is about
-// 300 bytes, so the 2026-08-30 QA drill broke that cap once the recreated
-// corpus passed ~440 tablets. 128 remaps keeps a chunk near 40KiB.
-const ybPlacementChunkSize = 128
+// The placement script travels to the container as a single `sh -c` argument,
+// and Linux caps one exec argument at 128KiB (MAX_ARG_STRLEN): the 2026-08-30
+// QA drill broke that cap once the recreated corpus passed ~440 tablets, so
+// scripts are built by measured bytes, never by clause count, because each
+// clause embeds the configured rocksdb directory twice and a longer directory
+// value would shrink how many clauses fit. Half the kernel cap leaves the
+// margin; one clause is bounded by two PATH_MAX (4KiB) paths plus constants,
+// so a single clause can never exceed the budget on its own.
+const ybPlacementScriptMaxBytes = 64 * 1024
+
+// ybPlacementScriptPrefix opens every placement script, so a failed copy stops
+// the chunk instead of silently skipping tablets.
+const ybPlacementScriptPrefix = "set -e; "
 
 // ybPlacementScripts builds the shell scripts that copy each exported tablet's
-// files into the tablet the import created, split into bounded chunks so no
+// files into the tablet the import created, flushing to a new script whenever
+// the next clause would push the current one past the byte budget, so no
 // script exceeds the kernel's per-argument limit however many tablets the
 // corpus holds.
 func ybPlacementScripts(remaps []ybTabletRemap, rocksdbDir, exportSnap, newSnap string) []string {
 	var scripts []string
-	for start := 0; start < len(remaps); start += ybPlacementChunkSize {
-		end := min(start+ybPlacementChunkSize, len(remaps))
-		var script strings.Builder
-		script.WriteString("set -e; ")
-		for _, m := range remaps[start:end] {
-			// The glob spans the per-node extraction dirs; with replication the
-			// same tablet exists under several nodes and any single replica's
-			// file set is a consistent copy, so the first match wins and the
-			// loop breaks before another node's replica can mix in.
-			srcGlob := fmt.Sprintf("/tmp/exp/*/table-%s/tablet-%s.snapshots/%s", m.table, m.old, exportSnap)
-			dst := fmt.Sprintf("%s/table-%s/tablet-%s.snapshots/%s", rocksdbDir, m.table, m.new, newSnap)
-			// cp -a preserves the tablet files' ownership from the export, and
-			// the placement exec runs as the container's default user (root in
-			// the yugabyted image), matching the rocksdb files yugabyted reads.
-			// No chown is needed, and the image has no `yugabyte` user name to
-			// chown to.
-			fmt.Fprintf(&script,
-				"for src in %s; do if [ -d \"$src\" ]; then mkdir -p %q && cp -a \"$src\"/. %q/; break; fi; done; ",
-				srcGlob, dst, dst)
+	var script strings.Builder
+	for _, m := range remaps {
+		// The glob spans the per-node extraction dirs; with replication the
+		// same tablet exists under several nodes and any single replica's
+		// file set is a consistent copy, so the first match wins and the
+		// loop breaks before another node's replica can mix in.
+		srcGlob := fmt.Sprintf("/tmp/exp/*/table-%s/tablet-%s.snapshots/%s", m.table, m.old, exportSnap)
+		dst := fmt.Sprintf("%s/table-%s/tablet-%s.snapshots/%s", rocksdbDir, m.table, m.new, newSnap)
+		// cp -a preserves the tablet files' ownership from the export, and
+		// the placement exec runs as the container's default user (root in
+		// the yugabyted image), matching the rocksdb files yugabyted reads.
+		// No chown is needed, and the image has no `yugabyte` user name to
+		// chown to.
+		clause := fmt.Sprintf(
+			"for src in %s; do if [ -d \"$src\" ]; then mkdir -p %q && cp -a \"$src\"/. %q/; break; fi; done; ",
+			srcGlob, dst, dst)
+		if script.Len() > 0 && script.Len()+len(clause) > ybPlacementScriptMaxBytes {
+			scripts = append(scripts, script.String())
+			script.Reset()
 		}
+		if script.Len() == 0 {
+			script.WriteString(ybPlacementScriptPrefix)
+		}
+		script.WriteString(clause)
+	}
+	if script.Len() > 0 {
 		scripts = append(scripts, script.String())
 	}
 	return scripts
