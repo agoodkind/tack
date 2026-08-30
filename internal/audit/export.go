@@ -111,23 +111,3 @@ func Export(ctx context.Context, reader *Reader, signer ed25519.PrivateKey, keyI
 	}
 	return manifest, nil
 }
-
-// newLineReader returns an io.Reader over b. Helper to keep the JSON decoder
-// happy without pulling in bytes.NewReader at call sites.
-func newLineReader(b []byte) io.Reader {
-	return &bytesReader{b: b}
-}
-
-type bytesReader struct {
-	b []byte
-	i int
-}
-
-func (r *bytesReader) Read(p []byte) (int, error) {
-	if r.i >= len(r.b) {
-		return 0, io.EOF
-	}
-	n := copy(p, r.b[r.i:])
-	r.i += n
-	return n, nil
-}
