@@ -47,6 +47,11 @@ type auditBackfillCount struct {
 	// were deleted after the repair rather than from nodes present today, so a
 	// reader can see why the two agree.
 	DeletedSubjects int `json:"deleted_subjects,omitempty"`
+	// AbsentSubjects is how many of the class's events name a node that no
+	// longer resolves. It does not reduce Derived, because the repair acted on
+	// those nodes; it tells the operator how much of the reconstruction could
+	// not be enriched from live state.
+	AbsentSubjects int `json:"absent_subjects,omitempty"`
 }
 
 type auditBackfillClass struct {

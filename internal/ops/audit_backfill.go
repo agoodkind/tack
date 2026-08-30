@@ -39,6 +39,10 @@ type referenceRenameExtra struct {
 	Reconstruction bool   `json:"reconstruction"`
 	HistoricalTime string `json:"historical_time"`
 	Evidence       string `json:"evidence"`
+	// SubjectAbsent says the renamed node no longer exists, so the event's
+	// node type could not be read from live state. The rename itself is
+	// unaffected: the evidence file records it, and it happened.
+	SubjectAbsent bool `json:"subject_absent,omitempty"`
 }
 
 type referenceRenameResolver interface {

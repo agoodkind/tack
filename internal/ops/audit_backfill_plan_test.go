@@ -60,9 +60,13 @@ func recordReferenceRenameEvidence(ctx context.Context, outbox audit.IdempotentO
 	if err != nil {
 		return err
 	}
+	resolutions, err := resolveRenameEvidence(ctx, reader, renames)
+	if err != nil {
+		return err
+	}
 	events := make([]audit.Event, 0, len(renames))
 	for _, rename := range renames {
-		event, eventErr := referenceRenameEvent(ctx, reader, principal, rename, occurredAt)
+		event, eventErr := referenceRenameEvent(ctx, resolutions, principal, rename, occurredAt)
 		if eventErr != nil {
 			return eventErr
 		}
@@ -90,7 +94,13 @@ func TestReferenceRenameEventMarksReconstruction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load evidence: %v", err)
 	}
-	event, err := referenceRenameEvent(context.Background(), referenceRenameTestReader{resolution: &node.NodeResolve{OrgID: uuid.MustParse("019ff30f-1b51-7b34-a20f-2f61b652b86e"), NodeType: "issue"}}, audit.OperatorPrincipal{ID: uuid.MustParse("019ff315-bc5d-7a56-b12a-1a35f280c4dd")}, renames[0], time.Date(2026, time.August, 8, 20, 30, 0, 0, time.UTC))
+	resolutions, err := resolveRenameEvidence(context.Background(),
+		referenceRenameTestReader{resolution: &node.NodeResolve{OrgID: uuid.MustParse("019ff30f-1b51-7b34-a20f-2f61b652b86e"), NodeType: "issue"}},
+		renames)
+	if err != nil {
+		t.Fatalf("resolve evidence: %v", err)
+	}
+	event, err := referenceRenameEvent(context.Background(), resolutions, audit.OperatorPrincipal{ID: uuid.MustParse("019ff315-bc5d-7a56-b12a-1a35f280c4dd")}, renames[0], time.Date(2026, time.August, 8, 20, 30, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("build event: %v", err)
 	}
