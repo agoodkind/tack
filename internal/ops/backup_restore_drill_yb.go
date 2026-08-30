@@ -1,7 +1,6 @@
 package ops
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"log/slog"
@@ -375,31 +374,5 @@ func ybRunSQL(ctx context.Context, r *restoreDrillCtx, container, database strin
 		logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", wrapped.Error()))
 		return wrapped
 	}
-	return nil
-}
-
-// assertYBDrillRows fails unless the restored auth tables hold rows.
-func assertYBDrillRows(ctx context.Context, r *restoreDrillCtx, container, database string) error {
-	logger := telemetry.L(ctx)
-	rowCounts := make([]any, 0, 3)
-	for _, table := range []string{"users", "api_tokens", "org_members"} {
-		var buf bytes.Buffer
-		exitCode, stderr, err := containerExecStreaming(ctx, r.Cli, container,
-			ysqlshArgs(container, database, "select count(*) from "+table),
-			[]string{"PGPASSWORD=" + r.YBPass}, &buf)
-		if err != nil || exitCode != 0 {
-			wrapped := fmt.Errorf("count %s: exit %d: %s: %w", table, exitCode, strings.TrimSpace(stderr), err)
-			logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", wrapped.Error()))
-			return wrapped
-		}
-		count := strings.TrimSpace(buf.String())
-		if count == "0" {
-			wrapped := fmt.Errorf("restored table %s has 0 rows", table)
-			logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", wrapped.Error()))
-			return wrapped
-		}
-		rowCounts = append(rowCounts, slog.String(table, count))
-	}
-	logger.InfoContext(ctx, "backup.restore_drill.yb.rows", rowCounts...)
 	return nil
 }

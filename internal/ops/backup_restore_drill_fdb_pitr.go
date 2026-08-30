@@ -41,6 +41,16 @@ const (
 	// the throwaway container read-only. The host side is the file the fdb
 	// service writes and the continuous backup already reads.
 	fdbOrigClusterMount = "/etc/foundationdb/fdb.cluster:" + fdbOrigClusterFilePath + ":ro"
+
+	// fdbDescribeTimeoutSeconds bounds the window lookup. The describe runs as
+	// one synchronous exec that nothing watches, so without a bound a source
+	// cluster or blobstore host that accepts the connection and then says
+	// nothing would hang the drill forever. Bounding it is safe in the way
+	// bounding the restore is not: describe reads the backup's metadata, whose
+	// cost does not grow with the dataset, so no amount of stored data makes a
+	// healthy describe approach this. The restore is bounded by inactivity
+	// instead, because its work does scale.
+	fdbDescribeTimeoutSeconds = 1800
 )
 
 // fdbRestoreCommand builds the argument vector the drill execs inside the
@@ -50,16 +60,21 @@ const (
 // wall-clock moment into a version. The destination stays the throwaway's own
 // cluster file either way.
 //
-// The vector reaches the engine through docker exec, so no shell parses it and
-// the destination URL is one argument however it is punctuated. That matters
-// twice over: the URL carries the blobstore access key and secret, and the
-// backup name inside it comes from whatever objects the bucket holds.
+// The vector is never shell text. The launch hands it to sh as positional
+// parameters and the engine gets it through "$@", so the destination URL is one
+// argument however it is punctuated. That matters twice over: the URL carries
+// the blobstore access key and secret, and the backup name inside it comes from
+// whatever objects the bucket holds.
+//
+// Nothing here bounds how long the restore may run. A restore's duration scales
+// with the dataset, so a total-work budget is a wall a growing corpus
+// eventually hits; the drill watches the restore's progress counters instead
+// and fails only one that stops moving.
 //
 // Flag names and the timestamp form are foundationdb 7.4.6's own, from
 // `fdbrestore --help` in the pinned image.
-func fdbRestoreCommand(destURL string, targetTime *time.Time, timeoutSeconds int) ([]string, error) {
+func fdbRestoreCommand(destURL string, targetTime *time.Time) ([]string, error) {
 	command := []string{
-		"timeout", strconv.Itoa(timeoutSeconds),
 		"fdbrestore", "start",
 		"--dest-cluster-file", fdbScratchClusterFile,
 		"-r", destURL,
@@ -83,9 +98,12 @@ func fdbRestoreCommand(destURL string, targetTime *time.Time, timeoutSeconds int
 // into wall-clock times and needs a cluster file to do it; that cluster file is
 // the source cluster, because the versions in the backup are the source's. Like
 // the restore, it is a vector so the credential-bearing URL is never shell text.
-func fdbDescribeCommand(destURL string, timeoutSeconds int) []string {
+//
+// Unlike the restore, it keeps a bound on its own run time, because nothing
+// watches it and reading metadata is not work that grows with the dataset.
+func fdbDescribeCommand(destURL string) []string {
 	return []string{
-		"timeout", strconv.Itoa(timeoutSeconds),
+		"timeout", strconv.Itoa(fdbDescribeTimeoutSeconds),
 		"fdbbackup", "describe",
 		"-d", destURL,
 		"-C", fdbOrigClusterFilePath,
@@ -112,8 +130,7 @@ func assertFDBTargetRestorable(ctx context.Context, r *restoreDrillCtx, containe
 		logger.ErrorContext(ctx, "backup.restore_drill.fdb.failed", slog.String("err", err.Error()))
 		return err
 	}
-	res, err := containerExec(ctx, r.Cli, containerName,
-		fdbDescribeCommand(destURL, r.Cfg.BackupFDBTimeoutSeconds))
+	res, err := containerExec(ctx, r.Cli, containerName, fdbDescribeCommand(destURL))
 	if err != nil {
 		return fail(fmt.Errorf("fdbbackup describe exec: %w", err))
 	}

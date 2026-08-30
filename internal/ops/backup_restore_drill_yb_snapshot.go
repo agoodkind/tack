@@ -66,7 +66,8 @@ func importAndRestoreYBSnapshot(ctx context.Context, r *restoreDrillCtx, contain
 	// The extraction program is constant shell text; the node name arrives as
 	// a positional argument ($1), so a manifest-supplied name can never be
 	// parsed as shell syntax. Manifest decode also allowlists the names.
-	const extractScript = `mkdir -p "/tmp/exp/$1" && tar xzf "/artifacts/tablets-$1.tar.gz" -C "/tmp/exp/$1"`
+	const extractScript = `mkdir -p "` + ybTabletExportRoot + `/$1" && tar xzf "/artifacts/tablets-$1.tar.gz" -C "` +
+		ybTabletExportRoot + `/$1"`
 	for _, node := range nodes {
 		if extractRes, err := containerExec(ctx, r.Cli, container,
 			[]string{"sh", "-c", extractScript, "sh", node}); err != nil || extractRes.ExitCode != 0 {
@@ -76,15 +77,23 @@ func importAndRestoreYBSnapshot(ctx context.Context, r *restoreDrillCtx, contain
 		}
 	}
 
-	for _, script := range ybPlacementScripts(remaps, r.Cfg.BackupYBRocksDBDir, exportSnap, newSnap) {
+	layout := drillPlacementLayout(r.Cfg.BackupYBRocksDBDir)
+	for _, script := range ybPlacementScripts(remaps, layout, exportSnap, newSnap) {
 		if placeRes, err := containerExec(ctx, r.Cli, container, []string{"sh", "-c", script}); err != nil || placeRes.ExitCode != 0 {
 			wrapped := fmt.Errorf("place tablet files: exit %d: %s: %w", placeRes.ExitCode, strings.TrimSpace(placeRes.Stderr), err)
 			logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", wrapped.Error()))
 			return wrapped
 		}
 	}
-	logger.InfoContext(ctx, "backup.restore_drill.yb.tablets_placed",
-		slog.Int("tablets", len(remaps)), slog.String("new_snapshot_id", newSnap))
+	// Every tablet the import created has to have been found in the export
+	// before the restore is allowed to proceed. Without this the copies that
+	// found nothing are indistinguishable from copies that worked, and the
+	// row assertion downstream passes on whatever fraction did land.
+	if err := auditYBPlacement(ctx, r, container, layout, remaps); err != nil {
+		return err
+	}
+	logger.InfoContext(ctx, "backup.restore_drill.yb.snapshot_imported",
+		slog.String("new_snapshot_id", newSnap))
 
 	if restoreRes, err := containerExec(ctx, r.Cli, container,
 		[]string{ybAdminBinary, "--master_addresses", master, "restore_snapshot", newSnap}); err != nil || restoreRes.ExitCode != 0 {
@@ -105,58 +114,6 @@ func importAndRestoreYBSnapshot(ctx context.Context, r *restoreDrillCtx, contain
 		return wrapped
 	}
 	return nil
-}
-
-// The placement script travels to the container as a single `sh -c` argument,
-// and Linux caps one exec argument at 128KiB (MAX_ARG_STRLEN): the 2026-08-30
-// QA drill broke that cap once the recreated corpus passed ~440 tablets, so
-// scripts are built by measured bytes, never by clause count, because each
-// clause embeds the configured rocksdb directory twice and a longer directory
-// value would shrink how many clauses fit. Half the kernel cap leaves the
-// margin; one clause is bounded by two PATH_MAX (4KiB) paths plus constants,
-// so a single clause can never exceed the budget on its own.
-const ybPlacementScriptMaxBytes = 64 * 1024
-
-// ybPlacementScriptPrefix opens every placement script, so a failed copy stops
-// the chunk instead of silently skipping tablets.
-const ybPlacementScriptPrefix = "set -e; "
-
-// ybPlacementScripts builds the shell scripts that copy each exported tablet's
-// files into the tablet the import created, flushing to a new script whenever
-// the next clause would push the current one past the byte budget, so no
-// script exceeds the kernel's per-argument limit however many tablets the
-// corpus holds.
-func ybPlacementScripts(remaps []ybTabletRemap, rocksdbDir, exportSnap, newSnap string) []string {
-	var scripts []string
-	var script strings.Builder
-	for _, m := range remaps {
-		// The glob spans the per-node extraction dirs; with replication the
-		// same tablet exists under several nodes and any single replica's
-		// file set is a consistent copy, so the first match wins and the
-		// loop breaks before another node's replica can mix in.
-		srcGlob := fmt.Sprintf("/tmp/exp/*/table-%s/tablet-%s.snapshots/%s", m.table, m.old, exportSnap)
-		dst := fmt.Sprintf("%s/table-%s/tablet-%s.snapshots/%s", rocksdbDir, m.table, m.new, newSnap)
-		// cp -a preserves the tablet files' ownership from the export, and
-		// the placement exec runs as the container's default user (root in
-		// the yugabyted image), matching the rocksdb files yugabyted reads.
-		// No chown is needed, and the image has no `yugabyte` user name to
-		// chown to.
-		clause := fmt.Sprintf(
-			"for src in %s; do if [ -d \"$src\" ]; then mkdir -p %q && cp -a \"$src\"/. %q/; break; fi; done; ",
-			srcGlob, dst, dst)
-		if script.Len() > 0 && script.Len()+len(clause) > ybPlacementScriptMaxBytes {
-			scripts = append(scripts, script.String())
-			script.Reset()
-		}
-		if script.Len() == 0 {
-			script.WriteString(ybPlacementScriptPrefix)
-		}
-		script.WriteString(clause)
-	}
-	if script.Len() > 0 {
-		scripts = append(scripts, script.String())
-	}
-	return scripts
 }
 
 // newestYBSnapshotID returns the single snapshot id on the scratch cluster (the

@@ -86,21 +86,37 @@ func restoreDrillFDB(ctx context.Context, r *restoreDrillCtx) error {
 		return err
 	}
 
-	restoreCmd, err := fdbRestoreCommand(dest, r.FDBTargetTime, r.Cfg.BackupFDBTimeoutSeconds)
+	restoreCmd, err := fdbRestoreCommand(dest, r.FDBTargetTime)
 	if err != nil {
 		logger.ErrorContext(ctx, "backup.restore_drill.fdb.failed", slog.String("err", err.Error()))
 		return err
 	}
-	restoreRes, err := containerExec(ctx, r.Cli, name, restoreCmd)
-	if err != nil {
-		return fmt.Errorf("fdbrestore exec: %w", err)
+	if err := launchFDBRestore(ctx, r, name, restoreCmd); err != nil {
+		return err
 	}
-	if restoreRes.ExitCode != 0 {
-		wrapped := fmt.Errorf("fdbrestore exited %d: %s", restoreRes.ExitCode,
-			redactSecret(r.Cfg, strings.TrimSpace(restoreRes.Stdout+" "+restoreRes.Stderr)))
+	// The restore is watched for progress, not timed. A restore that keeps
+	// moving runs as long as its dataset needs; only one that stops moving
+	// fails the drill, and it fails naming what it had done when it stopped.
+	progress, exitCode, err := awaitFDBRestore(ctx, fdbRestoreWatch{
+		Finished: func(pollCtx context.Context) (int, bool, error) {
+			return fdbRestoreExitCode(pollCtx, r, name)
+		},
+		Status: func(pollCtx context.Context) (string, error) {
+			return fdbRestoreStatusText(pollCtx, r, name)
+		},
+	}, fdbDrillRestoreStallWindow, fdbDrillRestorePollInterval)
+	if err != nil {
+		wrapped := fmt.Errorf("%w; the restore's last output was: %s", err, fdbRestoreLogTail(ctx, r, name))
 		logger.ErrorContext(ctx, "backup.restore_drill.fdb.failed", slog.String("err", wrapped.Error()))
 		return wrapped
 	}
+	if exitCode != 0 {
+		wrapped := fmt.Errorf("fdbrestore exited %d after %s: %s",
+			exitCode, progress.summary(), fdbRestoreLogTail(ctx, r, name))
+		logger.ErrorContext(ctx, "backup.restore_drill.fdb.failed", slog.String("err", wrapped.Error()))
+		return wrapped
+	}
+	logger.InfoContext(ctx, "backup.restore_drill.fdb.restored", slog.String("progress", progress.summary()))
 
 	assertRes, err := containerExec(ctx, r.Cli, name,
 		[]string{"fdbcli", "-C", "/var/fdb/fdb.cluster", "--exec", `getrange "" \xff 5`})

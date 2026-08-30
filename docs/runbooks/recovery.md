@@ -83,6 +83,10 @@ The drill exits zero when both legs assert data is present and the rehearsal it
 records lands in the object store. The FoundationDB leg runs only when
 `TACK_BACKUP_FDB_CONTINUOUS` is true and is otherwise skipped with a warning.
 
+That leg watches the restore's progress instead of giving it a deadline, so a
+restore is never failed for being large. It fails when the restore stops
+advancing, naming how long nothing moved and where its counters stopped.
+
 Add `--fdb-target-time` to restore FoundationDB to one moment instead of the
 latest restorable point. Write the moment as RFC 3339 (`2026-08-30T01:07:23Z`)
 or in FoundationDB's own form (`2026/08/30.01:07:23+0000`); both carry an
@@ -92,9 +96,10 @@ timestamp that has no fractional-second field, so the drill refuses a fraction
 rather than restoring the whole second before the moment you asked for.
 
 The drill reads the backup's restorable window before it restores and stops
-when the target falls outside it, naming the window. Giving the flag is what
-selects a moment, so every moment you name is checked, and the drill never
-substitutes the latest for one it cannot reach.
+when the target falls outside it, naming the window. That check runs before the
+restore starts, so it is the one part of the leg that does have a time limit of
+its own. Giving the flag is what selects a moment, so every moment you name is
+checked, and the drill never substitutes the latest for one it cannot reach.
 
 ## Confirming the backups are still current
 
@@ -283,8 +288,17 @@ YugabyteDB:
 5. Extract each node archive into its own directory, then copy each tablet's
    files from any one node's copy (replicas of the same tablet exist on several
    nodes; use one copy, never a mix) into the new tablet's snapshot directory
-   under the rocksdb root, following the mapping from step 4, then run
-   `yb-admin restore_snapshot <new-snapshot-id>`.
+   under the rocksdb root, following the mapping from step 4.
+
+   Count the tablets you copied against the tablets the mapping names before
+   going further. A tablet whose files are in no node's extraction is a hole
+   the export did not carry, and `restore_snapshot` succeeds over it: the
+   database comes back smaller with nothing to say it did. Stop and pick a
+   complete run rather than restoring a partial one. Only once every tablet in
+   the mapping has its files in place, run
+   `yb-admin restore_snapshot <new-snapshot-id>`. The drill does this count
+   itself and fails on any difference, naming how many tablets the import
+   created and how many the export carried.
 6. Verify the auth tables `users`, `api_tokens`, and `org_members` hold rows.
 7. Verify the restored ledger's hash chain, reading it as a login role whose
    only membership is `audit_reader`, which is the base role the product reads

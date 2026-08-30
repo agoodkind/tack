@@ -38,15 +38,17 @@ func TestYBPlacementScriptsStayUnderTheExecArgLimit(t *testing.T) {
 		{name: "pathological long dir", rocksdbDir: "/" + strings.Repeat("d", 4000)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			scripts := ybPlacementScripts(remaps, tc.rocksdbDir,
+			layout := drillPlacementLayout(tc.rocksdbDir)
+			scripts := ybPlacementScripts(remaps, layout,
 				"e3e4ff5d-cf6c-42a6-93a2-1518823d5a86", "80086029-2a1e-4625-bad1-3ea00e4109a6")
 
 			placed := 0
 			for i, script := range scripts {
 				if len(script) >= maxExecArgBytes {
-					t.Fatalf("script %d is %d bytes, at or past the %d byte exec argument limit", i, len(script), maxExecArgBytes)
+					t.Fatalf("script %d is %d bytes, at or past the %d byte exec argument limit",
+						i, len(script), maxExecArgBytes)
 				}
-				if !strings.HasPrefix(script, ybPlacementScriptPrefix) {
+				if !strings.HasPrefix(script, ybPlacementScriptPrefix(layout)) {
 					t.Fatalf("script %d lost the fail-fast prefix: %q", i, script[:20])
 				}
 				placed += strings.Count(script, "for src in ")
@@ -54,16 +56,16 @@ func TestYBPlacementScriptsStayUnderTheExecArgLimit(t *testing.T) {
 			if placed != tabletCount {
 				t.Fatalf("scripts place %d tablets, want %d", placed, tabletCount)
 			}
-			for _, m := range []ybTabletRemap{remaps[0], remaps[tabletCount-1]} {
+			for _, remap := range []ybTabletRemap{remaps[0], remaps[tabletCount-1]} {
 				found := false
 				for _, script := range scripts {
-					if strings.Contains(script, "tablet-"+m.new+".snapshots") {
+					if strings.Contains(script, "tablet-"+remap.new+".snapshots") {
 						found = true
 						break
 					}
 				}
 				if !found {
-					t.Fatalf("no script places tablet %s", m.new)
+					t.Fatalf("no script places tablet %s", remap.new)
 				}
 			}
 		})
@@ -73,7 +75,7 @@ func TestYBPlacementScriptsStayUnderTheExecArgLimit(t *testing.T) {
 // TestYBPlacementScriptsEmpty locks that zero remaps produce zero scripts, so
 // the drill cannot run an empty placement exec.
 func TestYBPlacementScriptsEmpty(t *testing.T) {
-	if scripts := ybPlacementScripts(nil, "/data", "old", "new"); len(scripts) != 0 {
+	if scripts := ybPlacementScripts(nil, drillPlacementLayout("/data"), "old", "new"); len(scripts) != 0 {
 		t.Fatalf("scripts = %d, want none for zero remaps", len(scripts))
 	}
 }

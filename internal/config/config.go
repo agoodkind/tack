@@ -120,10 +120,9 @@ type Config struct {
 	// Backup operations. The subcommands initialize backup storage and recovery
 	// schedules, export snapshots, drill restores, and start continuous
 	// FoundationDB backup. Defaults match the production layout on CT 117.
-	BackupRoot              string `env:"TACK_BACKUP_ROOT"               envDefault:"/root/backups"`
-	BackupFDBNetwork        string `env:"TACK_BACKUP_FDB_NETWORK"        envDefault:"tack_default"`
-	BackupFDBImage          string `env:"TACK_BACKUP_FDB_IMAGE"          envDefault:"foundationdb/foundationdb:7.4.6"`
-	BackupFDBTimeoutSeconds int    `env:"TACK_BACKUP_FDB_TIMEOUT_SECONDS" envDefault:"1800"`
+	BackupRoot       string `env:"TACK_BACKUP_ROOT"        envDefault:"/root/backups"`
+	BackupFDBNetwork string `env:"TACK_BACKUP_FDB_NETWORK" envDefault:"tack_default"`
+	BackupFDBImage   string `env:"TACK_BACKUP_FDB_IMAGE"   envDefault:"foundationdb/foundationdb:7.4.6"`
 
 	// FDB continuous backup. BackupFDBContinuous enables the FDB legs of the
 	// restore drill and the staleness check, and it is the switch `ops
