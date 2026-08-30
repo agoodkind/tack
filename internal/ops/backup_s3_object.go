@@ -1,6 +1,7 @@
 package ops
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -53,6 +54,56 @@ func putObjectFromFile(ctx context.Context, client *s3.Client, bucket, key, path
 		slog.Int64("bytes", info.Size()),
 	)
 	return nil
+}
+
+// putObjectBytes uploads an in-memory body to bucket under key. Used for the
+// backup-status success markers, which are a few hundred bytes; anything large
+// enough to stage on disk goes through putObjectFromFile instead.
+func putObjectBytes(ctx context.Context, client *s3.Client, bucket, key string, body []byte) error {
+	logger := telemetry.L(ctx)
+	_, err := client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket:        aws.String(bucket),
+		Key:           aws.String(key),
+		Body:          bytes.NewReader(body),
+		ContentLength: aws.Int64(int64(len(body))),
+	})
+	if err != nil {
+		wrapped := fmt.Errorf("put object %s/%s: %w", bucket, key, err)
+		logger.ErrorContext(ctx, "backup.s3.put_failed", slog.String("err", wrapped.Error()))
+		return wrapped
+	}
+	logger.InfoContext(ctx, "backup.s3.put",
+		slog.String("bucket", bucket),
+		slog.String("key", key),
+		slog.Int("bytes", len(body)),
+	)
+	return nil
+}
+
+// getObjectBytes downloads bucket/key into memory. A missing key comes back as
+// a NotFound-wrapped error without an error log, because callers probe for
+// optional objects and treat absence as a state rather than a failure.
+func getObjectBytes(ctx context.Context, client *s3.Client, bucket, key string) ([]byte, error) {
+	logger := telemetry.L(ctx)
+	out, err := client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		wrapped := fmt.Errorf("get object %s/%s: %w", bucket, key, err)
+		if !isObjectNotFound(err) {
+			logger.ErrorContext(ctx, "backup.s3.get_failed", slog.String("err", wrapped.Error()))
+		}
+		return nil, wrapped
+	}
+	defer out.Body.Close()
+	body, err := io.ReadAll(out.Body)
+	if err != nil {
+		wrapped := fmt.Errorf("read object %s/%s: %w", bucket, key, err)
+		logger.ErrorContext(ctx, "backup.s3.get_failed", slog.String("err", wrapped.Error()))
+		return nil, wrapped
+	}
+	return body, nil
 }
 
 // getObjectToFile downloads bucket/key to a local file at path, streaming the

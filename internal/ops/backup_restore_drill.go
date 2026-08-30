@@ -64,7 +64,9 @@ func cleanupRestoreDrill(ctx context.Context, r *restoreDrillCtx) {
 // FoundationDB, and Temporal is excluded because it holds no Tack data. Each leg
 // runs even if another fails so the drill reports a complete picture; the drill
 // errors if any attempted leg fails. ybRunKey optionally pins the yugabyte leg
-// to one export run; empty means the newest complete run.
+// to one export run; empty means the newest complete run. A drill where every
+// attempted leg passed records a rehearsal marker in the object store, which is
+// what `ops backup staleness-check` dates the rehearsal from.
 func RunBackupRestoreDrill(ctx context.Context, cfg *config.Config, ybRunKey string) error {
 	logger := telemetry.L(ctx)
 	if cfg.BackupS3Endpoint == "" || cfg.BackupS3AccessKey == "" || cfg.BackupS3SecretKey == "" {
@@ -94,11 +96,13 @@ func RunBackupRestoreDrill(ctx context.Context, cfg *config.Config, ybRunKey str
 	logger.InfoContext(ctx, "backup.restore_drill.started", slog.String("run_id", rctx.RunID))
 
 	var failures []string
+	var passed []string
 
 	if cfg.BackupFDBContinuous {
 		if legErr := restoreDrillFDB(ctx, rctx); legErr != nil {
 			failures = append(failures, "fdb: "+legErr.Error())
 		} else {
+			passed = append(passed, "fdb")
 			logger.InfoContext(ctx, "backup.restore_drill.leg_ok", slog.String("leg", "fdb"))
 		}
 	} else {
@@ -110,6 +114,7 @@ func RunBackupRestoreDrill(ctx context.Context, cfg *config.Config, ybRunKey str
 	if legErr := restoreDrillYugabyte(ctx, rctx); legErr != nil {
 		failures = append(failures, "yugabyte: "+legErr.Error())
 	} else {
+		passed = append(passed, "yugabyte")
 		logger.InfoContext(ctx, "backup.restore_drill.leg_ok", slog.String("leg", "yugabyte"))
 	}
 
@@ -118,8 +123,34 @@ func RunBackupRestoreDrill(ctx context.Context, cfg *config.Config, ybRunKey str
 		logger.ErrorContext(ctx, "backup.restore_drill.failed", slog.String("err", err.Error()))
 		return err
 	}
+	s3Client := newBackupS3Client(cfg)
+	markerPut := func(key string, body []byte) error {
+		return putObjectBytes(ctx, s3Client, cfg.BackupS3BucketMain, key, body)
+	}
+	if err := recordRestoreDrillRehearsal(ctx, markerPut, rctx.RunID, passed); err != nil {
+		wrapped := fmt.Errorf("restore-drill: every leg passed but the rehearsal marker did not land: %w", err)
+		logger.ErrorContext(ctx, "backup.restore_drill.failed", slog.String("err", wrapped.Error()))
+		return wrapped
+	}
 	logger.InfoContext(ctx, "backup.restore_drill.ok", slog.String("run_id", rctx.RunID))
 	return nil
+}
+
+// recordRestoreDrillRehearsal records a passing drill so the staleness check
+// can tell how long ago recovery was last rehearsed. The marker is part of the
+// drill's success, not a side effect: a drill nobody can date is
+// indistinguishable from a drill that never ran, which is the failure the
+// staleness alert exists to catch. put is bound to the object store by the
+// caller, so what the drill records stays checkable against what the staleness
+// check reads.
+func recordRestoreDrillRehearsal(
+	ctx context.Context,
+	put func(key string, body []byte) error,
+	runID string,
+	legs []string,
+) error {
+	return writeBackupStatusMarker(ctx, put, backupStalenessRehearsalName, opsNow().UTC(),
+		"restore drill "+runID+" passed: "+strings.Join(legs, ", "))
 }
 
 // waitExecOK polls a check command inside a container until it exits zero or the

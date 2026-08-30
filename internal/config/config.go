@@ -159,6 +159,20 @@ type Config struct {
 	// live fdb service mounts. No default, for the same reason as the YB paths.
 	BackupFDBOverlayPath string `env:"TACK_BACKUP_FDB_OVERLAY_PATH"`
 
+	// Backup staleness thresholds, in seconds. `./server ops backup
+	// staleness-check` reports how long ago each mechanism last succeeded and
+	// exits nonzero once an age passes its threshold, which the alert timer
+	// turns into mail. Every default leaves room for one missed run of the
+	// schedule that feeds it, so a single transient failure is not an alert:
+	// 36h over the daily ledger export, 8 days over the weekly restore drill
+	// rehearsal, 30m over the replication health probe that runs with this
+	// check, and 2h over the FoundationDB restorable point, whose default
+	// snapshot interval is one hour.
+	BackupStalenessExportMaxSeconds      int `env:"TACK_BACKUP_STALENESS_EXPORT_MAX_SECONDS"      envDefault:"129600"`
+	BackupStalenessRehearsalMaxSeconds   int `env:"TACK_BACKUP_STALENESS_REHEARSAL_MAX_SECONDS"   envDefault:"691200"`
+	BackupStalenessReplicationMaxSeconds int `env:"TACK_BACKUP_STALENESS_REPLICATION_MAX_SECONDS" envDefault:"1800"`
+	BackupStalenessFDBMaxSeconds         int `env:"TACK_BACKUP_STALENESS_FDB_MAX_SECONDS"         envDefault:"7200"`
+
 	// Yugabyte credentials. Read by the backup family for the ysql_dump call;
 	// the live tack server reads YUGABYTE_PASSWORD via the DATABASE_URL DSN
 	// instead, so these are only consulted by ops backup.

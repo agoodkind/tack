@@ -87,6 +87,7 @@ func TestBackupSubcommandsPresent(t *testing.T) {
 		"yb-snapshot-export": false, "yb-archive-node": false,
 		"restore-drill":       false,
 		"fdb-continuous-init": false,
+		"staleness-check":     false,
 	}
 	for _, sub := range cmd.Commands() {
 		name := strings.Fields(sub.Use)[0]

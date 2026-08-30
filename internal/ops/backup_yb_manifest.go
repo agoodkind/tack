@@ -45,6 +45,10 @@ const (
 	// ybNodeArchiveObject is the tablet archive's object base name under each
 	// node's prefix.
 	ybNodeArchiveObject = "tablets.tar.gz"
+	// ybSnapshotRunIDLayout is the layout the export orchestrator formats a run
+	// id with. A run id is therefore a UTC timestamp, which is what lets the
+	// staleness check date the newest complete run without a marker.
+	ybSnapshotRunIDLayout = "20060102T150405Z"
 )
 
 // ybSnapshotManifestNode is one tablet server's slot in the manifest: the node
@@ -66,7 +70,7 @@ type ybSnapshotManifest struct {
 }
 
 // ybRunIDPattern matches the run ids the export orchestrator generates,
-// opsNow().UTC().Format("20060102T150405Z"). RunID feeds [filepath.Join] on
+// opsNow().UTC().Format(ybSnapshotRunIDLayout). RunID feeds [filepath.Join] on
 // staging dirs that are recursively removed, so nothing looser may pass.
 var ybRunIDPattern = regexp.MustCompile(`^[0-9]{8}T[0-9]{6}Z$`)
 

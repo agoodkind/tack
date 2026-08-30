@@ -66,7 +66,7 @@ func RunBackupYBSnapshotExport(ctx context.Context, cfg *config.Config) error {
 	}
 
 	filter := "ysql." + cfg.YugabyteDB
-	runID := opsNow().UTC().Format("20060102T150405Z")
+	runID := opsNow().UTC().Format(ybSnapshotRunIDLayout)
 	stageDir := filepath.Join(cfg.BackupRoot, "yb-snapshot-"+runID)
 	if err := os.MkdirAll(stageDir, 0o750); err != nil {
 		wrapped := fmt.Errorf("mkdir yb snapshot stage %s: %w", stageDir, err)

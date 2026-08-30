@@ -128,6 +128,8 @@ const (
 	VerbOpsBackupRestoreDrill Verb = "ops.backup_restore_drill"
 	// VerbOpsBackupFDBContinuousInit records FoundationDB continuous backup setup.
 	VerbOpsBackupFDBContinuousInit Verb = "ops.backup_fdb_continuous_init"
+	// VerbOpsBackupStalenessCheck records a backup staleness report.
+	VerbOpsBackupStalenessCheck Verb = "ops.backup_staleness_check"
 	// VerbOpsDeploy records the full deployment command.
 	VerbOpsDeploy Verb = "ops.deploy"
 	// VerbOpsDeployBuild records deployment image creation.
