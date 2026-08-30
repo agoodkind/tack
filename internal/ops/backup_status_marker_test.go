@@ -1,6 +1,7 @@
 package ops
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"strings"
@@ -127,6 +128,36 @@ func TestReadBackupStatusMarkerRejectsUndatedMarker(t *testing.T) {
 	if _, found, err := readBackupStatusMarker(context.Background(), store.get,
 		backupStalenessReplicationName); err == nil || found {
 		t.Fatalf("an undated marker must be an error, got found=%v err=%v", found, err)
+	}
+}
+
+// TestGetObjectBytesRefusesAnOversizedObject proves an object past the
+// in-memory limit is refused rather than buffered. The staleness check is what
+// reports silence, so a corrupted or hostile marker must not be able to take
+// the check itself down; the run instead fails loudly with the size named.
+func TestGetObjectBytesRefusesAnOversizedObject(t *testing.T) {
+	ctx := context.Background()
+	const key = "backup-status/oversized.json"
+	oversized := bytes.Repeat([]byte("x"), smallObjectMaxBytes+1)
+	atLimit := bytes.Repeat([]byte("y"), smallObjectMaxBytes)
+
+	client, cfg := newFakeBackupObjectStore(t, "tack-backups", map[string][]byte{
+		key:               oversized,
+		"backup-status/2": atLimit,
+	})
+
+	if _, err := getObjectBytes(ctx, client, cfg.BackupS3BucketMain, key); err == nil {
+		t.Fatal("an object past the in-memory limit must be refused")
+	} else if !strings.Contains(err.Error(), "larger than") {
+		t.Fatalf("the error must name the limit, got: %v", err)
+	}
+
+	body, err := getObjectBytes(ctx, client, cfg.BackupS3BucketMain, "backup-status/2")
+	if err != nil {
+		t.Fatalf("an object exactly at the limit must still read: %v", err)
+	}
+	if len(body) != smallObjectMaxBytes {
+		t.Fatalf("read %d bytes, want %d", len(body), smallObjectMaxBytes)
 	}
 }
 
