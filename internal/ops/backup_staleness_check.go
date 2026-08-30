@@ -1,9 +1,10 @@
 // backup_staleness_check.go runs the staleness check: it dates every backup
 // mechanism's last success, writes the replication marker whenever it observes
 // the cluster healthy, prints one line per mechanism, and exits nonzero when
-// any age is past its threshold. The configs-side timer mails that report, so a
-// backup that quietly stopped producing anything becomes a message rather than
-// a discovery during a restore.
+// any age is past its threshold. A run that finds anything stale mails the same
+// report it printed before returning that error, so a backup that quietly
+// stopped producing anything becomes a message rather than a discovery during
+// a restore.
 
 package ops
 
@@ -23,9 +24,10 @@ import (
 
 // RunBackupStalenessCheck reports how long ago each backup mechanism last
 // succeeded and returns an error when any mechanism is past its threshold. The
-// report goes to out whether or not anything is stale, because the alert mail
-// is built from it. The FoundationDB leg is skipped when continuous backup is
-// disabled, the same way the restore drill skips its FoundationDB leg.
+// report goes to out whether or not anything is stale, and the same text is
+// mailed when something is. The FoundationDB leg is skipped when continuous
+// backup is disabled, the same way the restore drill skips its FoundationDB
+// leg.
 func RunBackupStalenessCheck(ctx context.Context, cfg *config.Config, out io.Writer) error {
 	logger := telemetry.L(ctx)
 	if cfg.BackupS3Endpoint == "" || cfg.BackupS3AccessKey == "" || cfg.BackupS3SecretKey == "" {
@@ -56,7 +58,8 @@ func RunBackupStalenessCheck(ctx context.Context, cfg *config.Config, out io.Wri
 			slog.String("reason", "TACK_BACKUP_FDB_CONTINUOUS is false"))
 	}
 
-	if _, err := io.WriteString(out, backupStalenessReport(metrics)); err != nil {
+	report := backupStalenessReport(metrics)
+	if _, err := io.WriteString(out, report); err != nil {
 		wrapped := fmt.Errorf("write staleness report: %w", err)
 		logger.ErrorContext(ctx, "backup.staleness.failed", slog.String("err", wrapped.Error()))
 		return wrapped
@@ -68,6 +71,9 @@ func RunBackupStalenessCheck(ctx context.Context, cfg *config.Config, out io.Wri
 		err := fmt.Errorf("staleness-check: %d backup mechanism(s) past threshold: %s",
 			len(stale), strings.Join(stale, ", "))
 		logger.ErrorContext(ctx, "backup.staleness.stale", slog.String("err", err.Error()))
+		// The mail is an attempt, never a gate: whatever it does, the stale
+		// verdict is what this run returns.
+		mailBackupStalenessAlarm(ctx, cfg, report, stale)
 		return err
 	}
 	logger.InfoContext(ctx, "backup.staleness.ok", slog.Int("metric_count", len(metrics)))

@@ -161,8 +161,8 @@ type Config struct {
 
 	// Backup staleness thresholds, in seconds. `./server ops backup
 	// staleness-check` reports how long ago each mechanism last succeeded and
-	// exits nonzero once an age passes its threshold, which the alert timer
-	// turns into mail. Every default leaves room for one missed run of the
+	// exits nonzero once an age passes its threshold, mailing that report as
+	// it goes. Every default leaves room for one missed run of the
 	// schedule that feeds it, so a single transient failure is not an alert:
 	// 36h over the daily ledger export, 8 days over the daily restore drill
 	// rehearsal (the acceptance criterion's own freshness bound, which a daily
@@ -173,6 +173,16 @@ type Config struct {
 	BackupStalenessRehearsalMaxSeconds   int `env:"TACK_BACKUP_STALENESS_REHEARSAL_MAX_SECONDS"   envDefault:"691200"`
 	BackupStalenessReplicationMaxSeconds int `env:"TACK_BACKUP_STALENESS_REPLICATION_MAX_SECONDS" envDefault:"1800"`
 	BackupStalenessFDBMaxSeconds         int `env:"TACK_BACKUP_STALENESS_FDB_MAX_SECONDS"         envDefault:"7200"`
+
+	// Backup staleness alarm mail. A staleness-check run that finds any
+	// mechanism past its threshold mails the same per-metric report it prints
+	// and still exits nonzero. BackupAlarmEmail is the recipient; empty mails
+	// nothing and logs that it did not, which is how a local run works with no
+	// mail configured. BackupAlarmMsmtprcPath is the msmtp-format account file
+	// the mailer parses for host, port, and credentials. It then speaks SMTP
+	// itself, so a container needs that file mounted but no msmtp binary.
+	BackupAlarmEmail       string `env:"TACK_BACKUP_ALARM_EMAIL"`
+	BackupAlarmMsmtprcPath string `env:"TACK_BACKUP_ALARM_MSMTPRC" envDefault:"/etc/msmtprc"`
 
 	// Yugabyte credentials. Read by the backup family for the ysql_dump call;
 	// the live tack server reads YUGABYTE_PASSWORD via the DATABASE_URL DSN
