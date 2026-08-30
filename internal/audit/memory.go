@@ -2,6 +2,8 @@ package audit
 
 import (
 	"context"
+	"errors"
+	"log/slog"
 	"sync"
 
 	"goodkind.io/tack/internal/clock"
@@ -42,8 +44,29 @@ func (m *MemoryRecorder) Reset() {
 	m.mu.Unlock()
 }
 
-// NoopRecorder discards every event. Useful when wiring needs a non-nil
-// Recorder before the production implementation is ready.
+// NoopRecorder discards every event. A deployment reaches it only by setting
+// AUDIT_ALLOW_UNRECORDED, which is the operator saying unrecorded operation is
+// intended. Nothing may substitute it for a recorder that failed to open.
 type NoopRecorder struct{}
 
 func (NoopRecorder) Record(context.Context, Event) error { return nil }
+
+// ErrRecorderUnwired is what an uninstalled sink returns. It names a wiring
+// bug rather than a backend failure, so a reader of the log can tell the two
+// apart.
+var ErrRecorderUnwired = errors.New("audit: no recorder installed")
+
+// UnwiredRecorder is the sink a boundary holds before startup installs the
+// real one. It refuses and says so, because the previous default discarded
+// events silently: a wiring mistake then produced a server that recorded
+// nothing and looked healthy from outside.
+type UnwiredRecorder struct{}
+
+// Record refuses the event and names the wiring bug that caused it.
+func (UnwiredRecorder) Record(_ context.Context, ev Event) error {
+	slog.Error("audit.recorder_unwired",
+		slog.String("verb", ev.Verb),
+		slog.String("err", ErrRecorderUnwired.Error()),
+	)
+	return ErrRecorderUnwired
+}

@@ -49,7 +49,11 @@ func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
 	}
 
 	searcher := buildSearcher(cfg)
-	auditRuntimeDeps := buildAuditRuntime(ctx, cfg)
+	auditRuntimeDeps, err := buildAuditRuntime(ctx, cfg)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
 
 	tokenRepo := postgres.NewTokenRepo(pool)
 	userRepo := postgres.NewUserRepo(pool)

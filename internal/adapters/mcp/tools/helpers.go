@@ -44,7 +44,7 @@ func SetAuditRecorder(r audit.Recorder) {
 func currentAuditRecorder() audit.Recorder {
 	v := auditRecorder.Load()
 	if v == nil {
-		return audit.NoopRecorder{}
+		return audit.UnwiredRecorder{}
 	}
 	return v.(*auditRecorderValue).recorder
 }

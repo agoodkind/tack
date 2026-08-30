@@ -10,22 +10,36 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgproto3"
+	"github.com/twmb/franz-go/pkg/kfake"
 	"goodkind.io/tack/internal/config"
 )
 
 func TestAppRuntimeDoesNotStartNotarizer(t *testing.T) {
 	server := newAuditPostgresServer(t)
+	cluster, err := kfake.NewCluster(kfake.NumBrokers(1), kfake.SeedTopics(1, "audit.events.v1"))
+	if err != nil {
+		t.Fatalf("kfake.NewCluster: %v", err)
+	}
+	t.Cleanup(cluster.Close)
 	ctx := context.Background()
-	appRuntime := buildAuditRuntime(ctx, &config.Config{
-		AuditKafkaBrokers:   "127.0.0.1:1",
-		AuditKafkaTopic:     "audit.events.v1",
-		AuditSigningKeyPath: writeAuditSigningKey(t),
-		AuditWriterDSN:      server.DSN(),
+	// The brokers have to answer, because startup now refuses an unreachable
+	// backend rather than degrading to a recorder that discards events.
+	appRuntime, err := buildAuditRuntime(ctx, &config.Config{
+		AuditKafkaBrokers:        strings.Join(cluster.ListenAddrs(), ","),
+		AuditKafkaTopic:          "audit.events.v1",
+		AuditKafkaProduceTimeout: 10 * time.Second,
+		AuditSigningKeyPath:      writeAuditSigningKey(t),
+		AuditWriterDSN:           server.DSN(),
 	})
+	if err != nil {
+		t.Fatalf("build audit runtime: %v", err)
+	}
 	t.Cleanup(appRuntime.Close)
 
 	if got := server.connections.Load(); got != 0 {

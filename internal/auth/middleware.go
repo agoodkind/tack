@@ -17,7 +17,8 @@ import (
 )
 
 // auditRecorder receives auth-event records. SetAuditRecorder installs it
-// once at startup; until then auth events are silently dropped.
+// once at startup; until then every auth event is refused and logged, so a
+// missed installation is visible rather than silent.
 var auditRecorder atomic.Value // recorderBox
 
 // recorderBox gives every stored recorder one concrete type: [atomic.Value]
@@ -38,7 +39,7 @@ func SetAuditRecorder(r audit.Recorder) {
 func currentRecorder() audit.Recorder {
 	v := auditRecorder.Load()
 	if v == nil {
-		return audit.NoopRecorder{}
+		return audit.UnwiredRecorder{}
 	}
 	return v.(recorderBox).recorder
 }
