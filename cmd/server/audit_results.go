@@ -69,18 +69,36 @@ type auditVerifyResult struct {
 	ManifestSubject      string   `json:"manifest_subject"`
 }
 
+// auditBackfillAbsorbedOrg reports one --absorb-org exemption: the rows it
+// would move on a plan, and what it moved on an applied run. The top-level
+// moved counters describe the nil-org move alone; each absorbed source
+// carries its own, because shards of different sources overlap and a summed
+// count would double-count chains.
+type auditBackfillAbsorbedOrg struct {
+	OrgID         uuid.UUID `json:"org_id"`
+	Rows          int64     `json:"rows"`
+	Shards        int       `json:"shards"`
+	RowsMoved     int64     `json:"rows_moved"`
+	ShardsTouched int       `json:"shards_touched"`
+	Passes        int       `json:"passes"`
+}
+
 // auditBackfillOrgResult is the `audit backfill-org` output for a plan and
-// for an applied run.
+// for an applied run. The exemption fields name every absorbed org and
+// acknowledged actor, so the report the operator files is the durable record
+// of what the flags exempted.
 type auditBackfillOrgResult struct {
 	clispec.ResultMarker `exhaustruct:"optional"`
-	Command              string    `json:"command"`
-	DryRun               bool      `json:"dry_run"`
-	TargetOrg            uuid.UUID `json:"target_org"`
-	NilRows              int64     `json:"nil_rows"`
-	Shards               int       `json:"shards"`
-	RowsMoved            int64     `json:"rows_moved"`
-	ShardsTouched        int       `json:"shards_touched"`
-	Passes               int       `json:"passes"`
+	Command              string                     `json:"command"`
+	DryRun               bool                       `json:"dry_run"`
+	TargetOrg            uuid.UUID                  `json:"target_org"`
+	NilRows              int64                      `json:"nil_rows"`
+	Shards               int                        `json:"shards"`
+	AbsorbedOrgs         []auditBackfillAbsorbedOrg `json:"absorbed_orgs,omitempty"`
+	AcknowledgedActors   []uuid.UUID                `json:"acknowledged_actors,omitempty"`
+	RowsMoved            int64                      `json:"rows_moved"`
+	ShardsTouched        int                        `json:"shards_touched"`
+	Passes               int                        `json:"passes"`
 }
 
 // auditGenKeyResult reports a generated audit signing key path.
