@@ -4,12 +4,45 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 )
+
+// acquirePingTimeout bounds the liveness ping the pool runs on an idle pooled
+// connection before handing that connection out.
+//
+// Losing a ledger guest black-holes its sockets rather than refusing them, so
+// a pooled connection to that guest accepts a write and then never answers.
+// The driver only surfaces that as an error when some deadline fires. With no
+// bound here the deadline is the caller's, so one caller retires one dead
+// connection and pays its whole budget doing it; a /healthz probe on a
+// two-second deadline therefore served 503 for as many probes as the pool held
+// connections (TACK-464). Bounding the ping lets a single caller walk past
+// every dead connection and reach a live one inside its own deadline.
+//
+// The pool sizes itself to the CPU count with a floor of four, so this value
+// times a realistic pool size must stay well inside the health deadline. It is
+// two orders of magnitude above a healthy same-network round trip; exceeding it
+// costs a reconnect, never a failed request, because the pool destroys the
+// connection and retries the acquire.
+//
+// This cannot move into the connection string. The pool parses exactly seven
+// pool_* keys out of a DSN and passes every other unrecognized key to the
+// server as a startup parameter, and no key names this timeout.
+const acquirePingTimeout = 200 * time.Millisecond
+
+// applyPoolSettings applies the settings the connection string cannot carry.
+// tracer may be nil; when provided, every query is logged via it.
+func applyPoolSettings(cfg *pgxpool.Config, tracer pgx.QueryTracer) {
+	cfg.PingTimeout = acquirePingTimeout
+	if tracer != nil {
+		cfg.ConnConfig.Tracer = tracer
+	}
+}
 
 // NewPool creates a connection pool without running migrations.
 // tracer may be nil; when provided, every query is logged via it.
@@ -18,9 +51,7 @@ func NewPool(ctx context.Context, dsn string, tracer pgx.QueryTracer) (*pgxpool.
 	if err != nil {
 		return nil, fmt.Errorf("pgxpool parse config: %w", err)
 	}
-	if tracer != nil {
-		cfg.ConnConfig.Tracer = tracer
-	}
+	applyPoolSettings(cfg, tracer)
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("pgxpool.New: %w", err)
