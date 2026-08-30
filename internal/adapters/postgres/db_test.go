@@ -286,7 +286,7 @@ func TestPoolSurfacesASilentHeldConnectionWithoutSpendingTheCallerDeadline(t *te
 			callerDeadline, elapsed)
 	}
 	// The pool's ping bound, plus one bounded dial to the same silent host.
-	if budget := acquirePingTimeout + 2*time.Second; elapsed > budget {
+	if budget := acquirePingCeiling + 2*time.Second; elapsed > budget {
 		t.Fatalf("ping returned after %s, want within %s", elapsed, budget)
 	}
 }
@@ -336,18 +336,41 @@ func TestPoolConfigConsumesConnectTimeoutWithoutForwardingItToTheServer(t *testi
 	}
 }
 
-// The pool's ping bound has to leave room for a caller to walk several dead
-// connections and still dial a live host inside a two-second health deadline.
-func TestPoolConfigBoundsTheAcquirePing(t *testing.T) {
+// The pool's ping bound has to leave room for a caller to walk the ENTIRE
+// pool dead and still dial a live host inside a two-second health deadline,
+// whatever size the pool resolved to: the pool sizes itself to the CPU count,
+// so a constant bound breaches the deadline on larger hosts.
+func TestPoolConfigBoundsTheFullPoolWalkUnderTheHealthDeadline(t *testing.T) {
 	cfg := configuredPool(t, deployDSN(2, "yb1:5433"))
-	if cfg.PingTimeout != acquirePingTimeout {
-		t.Fatalf("PingTimeout = %s, want %s", cfg.PingTimeout, acquirePingTimeout)
-	}
 	if cfg.PingTimeout <= 0 {
 		t.Fatal("PingTimeout is unset, so a dead connection is surfaced on the caller's deadline")
 	}
-	if minimumPoolSize := 4; time.Duration(minimumPoolSize)*cfg.PingTimeout > time.Second {
-		t.Fatalf("walking %d dead connections costs %s, which leaves no room inside a two-second health deadline",
-			minimumPoolSize, time.Duration(minimumPoolSize)*cfg.PingTimeout)
+	if cfg.PingTimeout != acquirePingTimeoutFor(cfg.MaxConns) {
+		t.Fatalf("PingTimeout = %s, want %s for a pool of %d",
+			cfg.PingTimeout, acquirePingTimeoutFor(cfg.MaxConns), cfg.MaxConns)
+	}
+	if walk := time.Duration(cfg.MaxConns) * cfg.PingTimeout; walk > acquireWalkBudget {
+		t.Fatalf("walking all %d dead connections costs %s, past the %s budget inside the two-second health deadline",
+			cfg.MaxConns, walk, acquireWalkBudget)
+	}
+
+	// The derivation itself, across pool sizes: small pools cap at the
+	// ceiling, large pools divide the budget, absurd pools floor.
+	for _, tc := range []struct {
+		maxConns int32
+		want     time.Duration
+	}{
+		{maxConns: 1, want: acquirePingCeiling},
+		{maxConns: 4, want: acquirePingCeiling},
+		{maxConns: 8, want: acquireWalkBudget / 8},
+		{maxConns: 16, want: acquireWalkBudget / 16},
+		{maxConns: 128, want: acquirePingFloor},
+	} {
+		if got := acquirePingTimeoutFor(tc.maxConns); got != tc.want {
+			t.Errorf("acquirePingTimeoutFor(%d) = %s, want %s", tc.maxConns, got, tc.want)
+		}
+		if walk := time.Duration(tc.maxConns) * acquirePingTimeoutFor(tc.maxConns); tc.maxConns <= 64 && walk > acquireWalkBudget {
+			t.Errorf("pool of %d walks dead in %s, past the %s budget", tc.maxConns, walk, acquireWalkBudget)
+		}
 	}
 }
