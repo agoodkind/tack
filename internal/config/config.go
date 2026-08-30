@@ -164,10 +164,11 @@ type Config struct {
 	// exits nonzero once an age passes its threshold, which the alert timer
 	// turns into mail. Every default leaves room for one missed run of the
 	// schedule that feeds it, so a single transient failure is not an alert:
-	// 36h over the daily ledger export, 8 days over the weekly restore drill
-	// rehearsal, 30m over the replication health probe that runs with this
-	// check, and 2h over the FoundationDB restorable point, whose default
-	// snapshot interval is one hour.
+	// 36h over the daily ledger export, 8 days over the daily restore drill
+	// rehearsal (the acceptance criterion's own freshness bound, which a daily
+	// drill clears with a week of margin), 30m over the replication health
+	// probe that runs with this check, and 2h over the FoundationDB restorable
+	// point, whose default snapshot interval is one hour.
 	BackupStalenessExportMaxSeconds      int `env:"TACK_BACKUP_STALENESS_EXPORT_MAX_SECONDS"      envDefault:"129600"`
 	BackupStalenessRehearsalMaxSeconds   int `env:"TACK_BACKUP_STALENESS_REHEARSAL_MAX_SECONDS"   envDefault:"691200"`
 	BackupStalenessReplicationMaxSeconds int `env:"TACK_BACKUP_STALENESS_REPLICATION_MAX_SECONDS" envDefault:"1800"`
