@@ -38,7 +38,8 @@ func deriveCounterSeedClass(
 				SeedEmail: "", OrgSlug: "", WorkspaceSlug: "", HistoricalReferenceKey: "",
 				HistoricalReferenceKeyTextUnproven: false, ObservedReferenceKey: "",
 				ObservedReferenceTemplate: "", HistoricalDefinitionSetUnproven: false,
-				ObservedSeedDefinition: nil,
+				ObservedSeedDefinition: nil, SubjectDeletedAt: "", SubjectDeletionEventID: "",
+				SubjectIdentityUnrecorded: false,
 			},
 			occurredAt,
 		)
@@ -47,7 +48,7 @@ func deriveCounterSeedClass(
 		}
 		events = append(events, event)
 	}
-	return auditBackfillClass{Count: auditBackfillCount{Class: "counter seeds", Derived: len(events), Recorded: recordedCounterSeeds}, Events: events}, nil
+	return auditBackfillClass{Count: auditBackfillCount{Class: "counter seeds", Derived: len(events), Recorded: recordedCounterSeeds, DeletedSubjects: 0}, Events: events}, nil
 }
 
 func deriveSeedClasses(
@@ -57,8 +58,8 @@ func deriveSeedClasses(
 	occurredAt time.Time,
 ) ([]auditBackfillClass, error) {
 	nodeTypes, propertyDefs := service.DefaultOrgDefinitions(orgID)
-	runClass := auditBackfillClass{Count: auditBackfillCount{Class: "seed runs", Derived: 0, Recorded: recordedSeedRuns}, Events: nil}
-	definitionClass := auditBackfillClass{Count: auditBackfillCount{Class: "seed definitions", Derived: 0, Recorded: recordedSeedDefinitions}, Events: nil}
+	runClass := auditBackfillClass{Count: auditBackfillCount{Class: "seed runs", Derived: 0, Recorded: recordedSeedRuns, DeletedSubjects: 0}, Events: nil}
+	definitionClass := auditBackfillClass{Count: auditBackfillCount{Class: "seed definitions", Derived: 0, Recorded: recordedSeedDefinitions, DeletedSubjects: 0}, Events: nil}
 	for _, run := range historicalSeedRuns {
 		runEvent, err := reconstructionEvent(
 			ctx,
@@ -74,6 +75,7 @@ func deriveSeedClasses(
 				HistoricalReferenceKey: "", HistoricalReferenceKeyTextUnproven: false,
 				ObservedReferenceKey: "", ObservedReferenceTemplate: "",
 				HistoricalDefinitionSetUnproven: false, ObservedSeedDefinition: nil,
+				SubjectDeletedAt: "", SubjectDeletionEventID: "", SubjectIdentityUnrecorded: false,
 			},
 			occurredAt,
 		)
@@ -159,5 +161,6 @@ func seedDefinitionExtra(run historicalSeedRun, observed *observedSeedDefinition
 		SeedEmail: "", OrgSlug: "", WorkspaceSlug: "", HistoricalReferenceKey: "",
 		HistoricalReferenceKeyTextUnproven: false, ObservedReferenceKey: "",
 		ObservedReferenceTemplate: "", HistoricalDefinitionSetUnproven: true, ObservedSeedDefinition: observed,
+		SubjectDeletedAt: "", SubjectDeletionEventID: "", SubjectIdentityUnrecorded: false,
 	}
 }

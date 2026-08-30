@@ -34,7 +34,12 @@ func deriveReferenceRepairHistory(
 	if err != nil {
 		return auditBackfillPlan{}, err
 	}
-	keyClasses, err := deriveReferenceKeyClasses(ctx, env, principal, orgID, occurredAt, referenceRepairStart)
+	querier, err := newAuditRowQuerier(ctx, env)
+	if err != nil {
+		return auditBackfillPlan{}, err
+	}
+	defer querier.Close()
+	keyClasses, err := deriveReferenceKeyClasses(ctx, env, querier, principal, orgID, occurredAt, referenceRepairStart)
 	if err != nil {
 		return auditBackfillPlan{}, err
 	}
@@ -78,7 +83,7 @@ func deriveReferenceRenameClass(
 	// file were truncated, which is the one way this class can silently
 	// reconstruct less history than the repair performed.
 	return auditBackfillClass{Count: auditBackfillCount{
-		Class: "reference renames", Derived: len(events), Recorded: recordedReferenceRenames,
+		Class: "reference renames", Derived: len(events), Recorded: recordedReferenceRenames, DeletedSubjects: 0,
 	}, Events: events}, orgID, nil
 }
 

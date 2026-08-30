@@ -37,7 +37,19 @@ type LegacyRowInput struct {
 	// that needs the row on a particular (org, shard) chain picks one whose
 	// shard matches, because the shard derives from the actor and event ids.
 	EventID uuid.UUID
+	// Action is the verb the row records. Empty writes mcp.tool_invoked, the
+	// shape production holds in quantity.
+	Action string
+	// Tool names the MCP tool the row attributes the action to. Setting it also
+	// writes the entity kind the pre-fix build used for a tool invocation,
+	// mcp_tool, which is why those rows cannot name the node they touched.
+	Tool string
 }
+
+// legacyEntityKind is the entity kind the pre-fix build stamped on a tool
+// invocation. A row carrying it names no node, which is exactly the production
+// shape TACK-455 has to reconstruct against.
+const legacyEntityKind = "mcp_tool"
 
 // WriteLegacyRow appends one ledger row in the shape the writer produced
 // before the ledger stored outcomes: hash version 1, whose payload does not
@@ -163,19 +175,27 @@ func appendLegacyChainRow(
 // tool invocation had before the outcome column existed, which is what
 // production holds in quantity.
 func legacyEvent(in LegacyRowInput, row LegacyRow) Event {
+	verb := string(VerbMCPToolInvoked)
+	if in.Action != "" {
+		verb = in.Action
+	}
+	entityKind := "node"
+	if in.Tool != "" {
+		entityKind = legacyEntityKind
+	}
 	return Event{
-		Verb:    string(VerbMCPToolInvoked),
+		Verb:    verb,
 		EventID: row.EventID,
 		Actor: Actor{
 			Type: ActorUser, ID: in.ActorID, Email: "", Name: "", SessionID: "",
 			IP: "", UserAgent: "", RequestID: "", APITokenLabel: "",
 		},
 		Entity: Entity{
-			Type: "node", NodeType: "", ID: in.EntityID, Identifier: "", Name: "",
+			Type: entityKind, NodeType: "", ID: in.EntityID, Identifier: "", Name: "",
 		},
 		Context: EventContext{
 			OrgID: in.OrgID, WorkspaceID: uuid.Nil, ScopeID: uuid.Nil, ParentID: uuid.Nil,
-			RequestID: "", TraceID: "", Source: SourceMCP, Tool: "", RPC: "", Reason: "",
+			RequestID: "", TraceID: "", Source: SourceMCP, Tool: in.Tool, RPC: "", Reason: "",
 		},
 		Delta: nil, Outcome: "", Error: nil,
 		IdempotencyKey: "", OccurredAt: row.EventTime, Extra: nil,
