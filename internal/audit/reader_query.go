@@ -41,7 +41,26 @@ func buildAuditQuery(filter QueryFilter) (string, []any) {
 		args = append(args, filter.BeforeSeq)
 		query += fmt.Sprintf(" AND (event_time, seq) < ($%d, $%d)", timeParam, len(args))
 	}
-	args = append(args, filter.Limit)
-	query += fmt.Sprintf(" ORDER BY event_time DESC, seq DESC LIMIT $%d", len(args))
-	return query, args
+	return appendAuditQueryOrder(query, args, filter.Limit)
+}
+
+// appendAuditQueryOrder finishes the statement. A positive limit reads the
+// newest rows, so it orders and caps.
+//
+// A limit of zero asks for every matching row, which only the streaming export
+// does, and it deliberately carries no ORDER BY. No index serves event_time
+// order under an org-only filter: the ledger indexes event_time under an actor,
+// an entity, or an action, and orders the primary key under a hashed
+// (org_id, shard). Ordering an unbounded result therefore means a sort, and a
+// sort must read and hold every matching row before it can emit the first one,
+// which is the same "memory grows with the ledger" failure on the database side
+// that streaming removes on the client side. Nothing downstream reads the file
+// order: the verifier sorts what it scans into per-shard sequence order before
+// it walks the chain.
+func appendAuditQueryOrder(query string, args []any, limit int) (string, []any) {
+	if limit <= 0 {
+		return query, args
+	}
+	args = append(args, limit)
+	return query + fmt.Sprintf(" ORDER BY event_time DESC, seq DESC LIMIT $%d", len(args)), args
 }

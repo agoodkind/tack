@@ -198,10 +198,16 @@ YugabyteDB:
    a gap appears, when the export covers fewer rows than the ledger holds, or
    when the ledger comes back empty.
 
-   The drill's export is capped so it cannot exhaust memory on a large ledger.
-   An org that outgrows the cap fails the drill as inconclusive, naming how many
-   rows it covered out of how many the ledger holds. That is a signal to raise
-   the cap and rerun, not a chain failure.
+   The export streams. It writes and releases each row as it reads it, so a
+   ledger of any size costs it about as much memory as a single row, and it
+   carries no row cap for an operator to raise. A shortfall against the ledger's
+   own count is therefore a defect to investigate, not a corpus that outgrew a
+   limit. The `audit export` command runs the same export and covers the whole
+   range you ask for unless you pass `--limit`.
+
+   The bundle's rows are not in any particular order. Verification sorts them
+   into per-shard sequence order before it walks the chain, so the chain-break
+   and gap counts do not depend on the order the rows were written in.
 
    A verified chain shows every row the restored ledger holds is consistent with
    the row before it. It does not show they are all the rows the source held: a

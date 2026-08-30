@@ -42,6 +42,13 @@ func registerAudit(reg *clispec.Registry, f *cli.Factory) {
 	clispec.Register(reg, genKeyAlias)
 }
 
+// auditExportAllRows is the --limit that exports the whole range. It is the
+// default because a compliance export is evidence, and a default that stopped
+// at a row count would hand an auditor a bundle that reads as complete while
+// leaving the older rows out. The export streams, so the whole range costs the
+// same memory as one row.
+const auditExportAllRows = 0
+
 type auditExportInput struct {
 	clispec.InputMarker `exhaustruct:"optional"`
 	Org                 string
@@ -71,10 +78,11 @@ func auditExportOp(f *cli.Factory) clispec.Operation[auditExportInput] {
 			clispec.StringParam("out", "output directory", "", true, func(in *auditExportInput, v string) { in.Out = v }),
 			clispec.StringParam("request-id", "request_id stored in audit context", "", false, func(in *auditExportInput, v string) { in.RequestID = v }),
 			clispec.StringParam("trace-id", "trace_id stored in audit context", "", false, func(in *auditExportInput, v string) { in.TraceID = v }),
-			clispec.IntParam("limit", "max rows", 100000, func(in *auditExportInput, v int) { in.Limit = v }),
+			clispec.IntParam("limit", "max rows; 0, the default, exports every row in the range",
+				auditExportAllRows, func(in *auditExportInput, v int) { in.Limit = v }),
 		},
 		New: func() auditExportInput {
-			return auditExportInput{InputMarker: clispec.InputMarker{}, Org: "", Oldest: "", Latest: "", Out: "", RequestID: "", TraceID: "", Limit: 100000}
+			return auditExportInput{InputMarker: clispec.InputMarker{}, Org: "", Oldest: "", Latest: "", Out: "", RequestID: "", TraceID: "", Limit: auditExportAllRows}
 		},
 		Run: runAuditExport(f),
 	}

@@ -102,15 +102,14 @@ func verifyRestoredLedgerChains(
 // exportWholeOrgLedger writes one org's bundle and establishes that the bundle
 // holds every row the restored ledger has for that org.
 //
-// The export is bounded because it materialises every row before it writes, so
-// an unbounded export of a production-sized org would be killed for memory
-// instead of returning a verdict. A bound that silently truncates, though, is
-// the failure this leg exists to remove: the newest rows verify, the rows
-// behind them are never read, and older corruption or an entire quiet shard
-// passes as a rehearsed recovery. Reconciling what the export wrote against
-// what the ledger holds is what keeps a truncated run inconclusive instead of
-// green, and the message names both counts so the operator reads it as "the
-// corpus outgrew the check", not as "the ledger is sound".
+// The export asks for the org's whole range with no row limit, so a shortfall
+// is a defect rather than a corpus that outgrew a cap. Reconciling the bundle
+// against the ledger's own count is still the check that catches one, and it is
+// the only check that can: a row dropped from the middle of a chain shows up as
+// a sequence gap, but a row dropped from the newest or oldest end of a shard
+// leaves the remaining rows contiguous and correctly linked, so the chain
+// verdict alone would pass a bundle that quietly lost a shard's head. The ends
+// are exactly where a streaming read's off-by-one lands.
 func exportWholeOrgLedger(
 	ctx context.Context,
 	org drillLedgerOrg,
@@ -135,8 +134,8 @@ func exportWholeOrgLedger(
 	if rowCount != org.RowCount {
 		wrapped := fmt.Errorf(
 			"org %s: the export wrote %d of the %d rows the restored ledger holds, "+
-				"so the chain of the rows it left out is unchecked; the export is capped at %d rows",
-			org.ID, rowCount, org.RowCount, drillLedgerExportRowLimit)
+				"so the chain of the rows it left out is unchecked",
+			org.ID, rowCount, org.RowCount)
 		logger.ErrorContext(ctx, "backup.restore_drill.ledger_chain.org_failed",
 			slog.String("err", wrapped.Error()))
 		return wrapped

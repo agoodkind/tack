@@ -46,6 +46,38 @@ func TestBuildAuditQueryFiltersContextCorrelation(t *testing.T) {
 	}
 }
 
+// TestBuildAuditQueryWithoutALimitAsksForEveryRow pins the statement the
+// streaming export runs. A zero limit must not fall back to a page, or the
+// bundle stops short of the ledger; and it must not carry an ORDER BY, because
+// no index serves event_time order under an org-only filter, so ordering an
+// unbounded result makes the database hold every matching row before it returns
+// the first one.
+func TestBuildAuditQueryWithoutALimitAsksForEveryRow(t *testing.T) {
+	filter := QueryFilter{
+		OrgID:     uuid.Must(uuid.NewV7()),
+		Oldest:    time.Unix(10, 0).UTC(),
+		Latest:    time.Unix(20, 0).UTC(),
+		Action:    "",
+		ActorID:   uuid.Nil,
+		EntityID:  uuid.Nil,
+		RequestID: "",
+		TraceID:   "",
+		Limit:     0,
+	}
+
+	query, args := buildAuditQuery(filter)
+
+	if strings.Contains(query, "LIMIT") {
+		t.Fatalf("a whole-range export carries a LIMIT:\n%s", query)
+	}
+	if strings.Contains(query, "ORDER BY") {
+		t.Fatalf("a whole-range export carries an ORDER BY:\n%s", query)
+	}
+	if len(args) != 3 {
+		t.Fatalf("args len = %d, want the org and the two time bounds", len(args))
+	}
+}
+
 func TestCanonicalizeCorrelationKeepsRequestIDInContext(t *testing.T) {
 	ev := Event{
 		Actor:   Actor{RequestID: "req-from-actor"},

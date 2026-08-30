@@ -22,26 +22,21 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-const (
-	// drillLedgerSigningKeyID labels the throwaway signing key in the bundle
-	// manifest. The drill signs with a key it generates per run and discards,
-	// so the production signing key never enters the drill and the signature
-	// check proves only that the bundle is the one the export just wrote. The
-	// row-hash and chain-link checks, which are what this leg exists for,
-	// cover the ledger's own integrity and involve no key at all.
-	drillLedgerSigningKeyID = "ed25519:restore-drill"
+// drillLedgerSigningKeyID labels the throwaway signing key in the bundle
+// manifest. The drill signs with a key it generates per run and discards, so
+// the production signing key never enters the drill and the signature check
+// proves only that the bundle is the one the export just wrote. The row-hash
+// and chain-link checks, which are what this leg exists for, cover the ledger's
+// own integrity and involve no key at all.
+const drillLedgerSigningKeyID = "ed25519:restore-drill"
 
-	// drillLedgerExportRowLimit bounds one org's bundle. The export holds
-	// every matching row before it writes, and the drill runs inside the
-	// tack-ops sidecar under a 512 MiB memory limit, so an unbounded export of
-	// a production-sized org would be killed instead of returning a verdict
-	// (TACK-463 removed that failure by bounding what the export materialises).
-	// The bound is not a tolerance: an export that reaches it covered only the
-	// newest rows, and the chain verdict fails the drill rather than pass on
-	// the slice it could see. Raising this raises how large a ledger the drill
-	// can still reach a verdict on, and costs memory in proportion.
-	drillLedgerExportRowLimit = 50000
-)
+// drillLedgerExportUnlimited is the row limit the drill asks the export for:
+// none. The export streams, writing and releasing each row as it reads it, so
+// its cost does not grow with the org and the drill inside the 512 MiB
+// tack-ops sidecar reaches a verdict on a ledger of any size. A cap here would
+// have to rise every time the ledger grows, and an operator who has not raised
+// it yet gets no verdict at all.
+const drillLedgerExportUnlimited = 0
 
 // drillLedgerOldest and drillLedgerLatest bound the export by nothing. The
 // reader requires both bounds, so the full range is stated with sentinels no
@@ -151,9 +146,14 @@ func createDrillLedgerReader(ctx context.Context, r *restoreDrillCtx, containerN
 // exportRestoredOrgBundle writes one org's signed bundle with the same export
 // the operator `audit export` command runs, so the drill rehearses the
 // documented procedure rather than a private imitation of it.
+//
+// It takes the ledger read as an interface rather than the concrete reader so a
+// test can assert what the drill asks the export for. What it asks for is the
+// whole thing, and a drill that quietly asked for less would still write a
+// bundle and still verify it.
 func exportRestoredOrgBundle(
 	ctx context.Context,
-	reader *audit.Reader,
+	reader audit.RowSource,
 	signer ed25519.PrivateKey,
 	orgID uuid.UUID,
 	dir string,
@@ -167,7 +167,7 @@ func exportRestoredOrgBundle(
 		EntityID:  uuid.Nil,
 		RequestID: "",
 		TraceID:   "",
-		Limit:     drillLedgerExportRowLimit,
+		Limit:     drillLedgerExportUnlimited,
 	}, dir)
 	if err != nil {
 		wrapped := fmt.Errorf("export org %s from the restored ledger: %w", orgID, err)

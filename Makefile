@@ -66,12 +66,17 @@ seed:
 #
 # The postgres adapter is here because its pool tests stand up loopback
 # listeners that stand in for a lost ledger guest; they need no cluster.
+#
+# The audit package is here for the export and verify scale tests. They are the
+# gate on the compliance bundle's memory footprint, and a footprint assertion
+# nothing runs is not a gate. Its database-backed tests skip on an unset DSN, so
+# they cost nothing here.
 .PHONY: test-unit
 test-unit:
 	docker compose -f docker-compose.test.yml --profile runner build tests
 	docker compose -f docker-compose.test.yml --profile runner run --rm \
 	    --no-deps --entrypoint /usr/local/go/bin/go tests \
-	    test -count=1 ./internal/ops/... ./internal/adapters/postgres/...
+	    test -count=1 ./internal/ops/... ./internal/adapters/postgres/... ./internal/audit/...
 
 .PHONY: test-fdb-up
 test-fdb-up:

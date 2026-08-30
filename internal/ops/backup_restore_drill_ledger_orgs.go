@@ -1,9 +1,10 @@
 // backup_restore_drill_ledger_orgs.go reads what the restored ledger actually
 // holds: which orgs carry rows, and how many rows each one carries. The counts
-// are the yardstick the chain verdict measures its own coverage against. The
-// export that feeds that verdict is bounded, so without a count taken from the
-// ledger itself a bundle covering the newest slice of an org would be
-// indistinguishable from one covering all of it.
+// are the yardstick the chain verdict measures its own coverage against.
+// Without a count taken from the ledger itself, a bundle covering part of an
+// org would be indistinguishable from one covering all of it, because a bundle
+// missing a shard's newest or oldest rows still chains cleanly across the rows
+// it does carry.
 
 package ops
 

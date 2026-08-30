@@ -12,7 +12,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -110,42 +109,62 @@ func TestRestoredLedgerChainFailsOnSequenceGap(t *testing.T) {
 	}
 }
 
-// TestRestoredLedgerChainFailsWhenTheExportHitsItsRowLimit is the second half
-// of the same rule, one step earlier. The export is capped so the drill cannot
-// be killed for memory on a production-sized org, and a cap that truncates
-// silently would leave the drill verifying the newest rows and reporting
-// success for the whole ledger, with older corruption and entire quiet shards
-// never read. Reaching the cap is a verdict the drill cannot reach, so it
-// fails and names how much of the ledger it did not check.
-func TestRestoredLedgerChainFailsWhenTheExportHitsItsRowLimit(t *testing.T) {
-	const held = drillLedgerExportRowLimit * 3
-	org := drillLedgerOrg{ID: uuid.Must(uuid.NewV7()), RowCount: held}
-	verify := func(string) (*audit.VerifyReport, error) {
-		t.Fatal("the verifier ran on a bundle holding only part of the org's rows")
-		return nil, nil
+// TestDrillExportAsksTheLedgerForEveryRow drives the drill's real export and
+// reads back the filter it handed the ledger. A row limit there would have to
+// rise every time the ledger grows, and until an operator raised it the drill
+// would reach no verdict on the orgs that matter most, while still writing a
+// bundle that verified clean over the slice it could see.
+func TestDrillExportAsksTheLedgerForEveryRow(t *testing.T) {
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	orgID := uuid.Must(uuid.NewV7())
+	ledger := &capturedLedgerRead{}
+
+	if _, err := exportRestoredOrgBundle(
+		context.Background(), ledger, privateKey, orgID, t.TempDir()); err != nil {
+		t.Fatalf("export: %v", err)
 	}
 
-	err := verifyRestoredLedgerChains(
-		context.Background(), []drillLedgerOrg{org}, t.TempDir(),
-		fixedExport(drillLedgerExportRowLimit), verify)
-	if err == nil {
-		t.Fatal("the drill passed an export that stopped at its row limit")
+	if ledger.calls != 1 {
+		t.Fatalf("ledger reads = %d, want exactly one", ledger.calls)
 	}
-	for _, want := range []string{
-		org.ID.String(),
-		strconv.Itoa(drillLedgerExportRowLimit),
-		strconv.Itoa(held),
-	} {
-		if !strings.Contains(err.Error(), want) {
-			t.Fatalf("error = %v, want it to name %q", err, want)
-		}
+	if ledger.filter.Limit != 0 {
+		t.Fatalf("export limit = %d, want 0 so the bundle covers every row", ledger.filter.Limit)
+	}
+	if ledger.filter.OrgID != orgID {
+		t.Fatalf("export org = %s, want %s", ledger.filter.OrgID, orgID)
+	}
+	// The range sentinels matter as much as the limit: a time window would leave
+	// rows out mid-chain, and the drill fails on the gaps that creates.
+	if !ledger.filter.Oldest.Equal(drillLedgerOldest) || !ledger.filter.Latest.Equal(drillLedgerLatest) {
+		t.Fatalf("export range = [%s, %s), want the whole range [%s, %s)",
+			ledger.filter.Oldest, ledger.filter.Latest, drillLedgerOldest, drillLedgerLatest)
 	}
 }
 
-// TestRestoredLedgerChainFailsOnAnyShortfall pins that the reconciliation is
-// against the ledger's row count and not against the cap alone. An export that
-// stops short for any other reason, such as a filter or a role that cannot see
-// every row, leaves the same unverified rows behind and fails the same way.
+// capturedLedgerRead stands in for the restored ledger and records the filter
+// the drill asked it for.
+type capturedLedgerRead struct {
+	filter audit.QueryFilter
+	calls  int
+}
+
+func (c *capturedLedgerRead) StreamQuery(
+	_ context.Context, filter audit.QueryFilter, _ audit.RowVisitor,
+) error {
+	c.filter = filter
+	c.calls++
+	return nil
+}
+
+// TestRestoredLedgerChainFailsOnAnyShortfall pins the reconciliation against
+// the ledger's own row count. It is the only check that sees a bundle missing
+// a shard's newest or oldest rows: those leave the rows that remain contiguous
+// and correctly linked, so the chain verdict passes them. An export that stops
+// short for any reason, a streaming read that loses a row at a boundary or a
+// role that cannot see every row, leaves unverified rows behind and fails here.
 func TestRestoredLedgerChainFailsOnAnyShortfall(t *testing.T) {
 	org := ledgerOrg(9)
 	verify := func(string) (*audit.VerifyReport, error) {
