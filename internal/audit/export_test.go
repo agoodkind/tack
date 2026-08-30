@@ -188,6 +188,14 @@ func hashExportTestRow(t *testing.T, row Row) []byte {
 
 func writeSignedExportTestBundle(t *testing.T, dir string, rows []Row) ed25519.PublicKey {
 	t.Helper()
+	return writeSignedExportTestBundleDeclaring(t, dir, rows, len(rows))
+}
+
+// writeSignedExportTestBundleDeclaring writes the rows and a manifest that is
+// validly signed over declaredRowCount rather than over the true count, which
+// is the shape a truncating exporter or a lying manifest produces.
+func writeSignedExportTestBundleDeclaring(t *testing.T, dir string, rows []Row, declaredRowCount int) ed25519.PublicKey {
+	t.Helper()
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -212,7 +220,7 @@ func writeSignedExportTestBundle(t *testing.T, dir string, rows []Row) ed25519.P
 	now := time.Now().UTC()
 	manifest := ExportManifest{
 		ExportID: uuid.Must(uuid.NewV7()), OrgID: rows[0].OrgID,
-		Oldest: now.Add(-time.Hour), Latest: now.Add(time.Hour), RowCount: len(rows),
+		Oldest: now.Add(-time.Hour), Latest: now.Add(time.Hour), RowCount: declaredRowCount,
 		FileSHA256: hex.EncodeToString(sumSHA256(jsonlBytes)), SignatureBy: "test",
 	}
 	signable, err := json.Marshal(struct {

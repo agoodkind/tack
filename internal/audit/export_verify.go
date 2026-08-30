@@ -12,23 +12,25 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 )
 
 // VerifyReport summarises the result of validating an exported bundle.
 type VerifyReport struct {
-	BundleDir       string
-	RowsScanned     int
-	HashMatches     int
-	ChainGapCount   int
-	ChainBreaks     []string
-	FileSHA256OK    bool
-	SignatureOK     bool
-	ManifestSubject string
+	BundleDir     string
+	RowsScanned   int
+	HashMatches   int
+	ChainGapCount int
+	ChainBreaks   []string
+	FileSHA256OK  bool
+	SignatureOK   bool
+	// ManifestRowCount is what the manifest claims the file holds. It is
+	// reported beside RowsScanned so a bundle whose own two halves disagree
+	// fails on that disagreement, not only on the signature it also breaks.
+	ManifestRowCount int
+	ManifestSubject  string
 }
 
 // Err returns an error naming every integrity check the bundle failed, and nil
@@ -60,6 +62,15 @@ func (r *VerifyReport) Err() error {
 		failures = append(failures,
 			fmt.Sprintf("%d of %d rows failed their hash check",
 				r.RowsScanned-r.HashMatches, r.RowsScanned))
+	}
+	// The manifest names how many rows it signed for. A file that holds a
+	// different number is either a manifest that was edited or an export
+	// that stopped short of what it certified, and either way the bundle
+	// does not describe itself truthfully.
+	if r.ManifestRowCount != r.RowsScanned {
+		failures = append(failures,
+			fmt.Sprintf("the manifest declares %d rows but the events file holds %d",
+				r.ManifestRowCount, r.RowsScanned))
 	}
 	if len(failures) == 0 {
 		return nil
@@ -94,7 +105,7 @@ func VerifyBundle(dir string, pub ed25519.PublicKey) (*VerifyReport, error) {
 	report := &VerifyReport{
 		BundleDir: dir, RowsScanned: 0, HashMatches: 0, ChainGapCount: 0,
 		ChainBreaks: nil, FileSHA256OK: false, SignatureOK: false,
-		ManifestSubject: "",
+		ManifestRowCount: 0, ManifestSubject: "",
 	}
 
 	mf, err := readExportManifest(dir)
@@ -102,6 +113,7 @@ func VerifyBundle(dir string, pub ed25519.PublicKey) (*VerifyReport, error) {
 		return nil, err
 	}
 	report.ManifestSubject = mf.ExportID.String()
+	report.ManifestRowCount = mf.RowCount
 	report.SignatureOK = manifestSignatureOK(dir, mf, pub)
 
 	links, err := scanBundleRows(dir, report, mf)
@@ -110,53 +122,6 @@ func VerifyBundle(dir string, pub ed25519.PublicKey) (*VerifyReport, error) {
 	}
 	verifyChainLinks(report, links)
 	return report, nil
-}
-
-// readExportManifest loads and parses the bundle manifest.
-func readExportManifest(dir string) (ExportManifest, error) {
-	var mf ExportManifest
-	mfBytes, err := os.ReadFile(filepath.Join(dir, "manifest.json"))
-	if err != nil {
-		slog.Error("audit.verify.manifest_read_failed", slog.String("dir", dir), slog.String("err", err.Error()))
-		return mf, fmt.Errorf("verify manifest: %w", err)
-	}
-	if err := json.Unmarshal(mfBytes, &mf); err != nil {
-		slog.Error("audit.verify.manifest_parse_failed", slog.String("dir", dir), slog.String("err", err.Error()))
-		return mf, fmt.Errorf("verify manifest parse: %w", err)
-	}
-	return mf, nil
-}
-
-// manifestSignatureOK reports whether the manifest's signature verifies. A
-// malformed signature or a missing key is a failed check, not a hard error,
-// so the rest of the report still reaches the caller.
-func manifestSignatureOK(dir string, mf ExportManifest, pub ed25519.PublicKey) bool {
-	manifestForVerify, err := json.Marshal(struct {
-		ExportID    uuid.UUID `json:"export_id"`
-		OrgID       uuid.UUID `json:"org_id"`
-		Oldest      time.Time `json:"oldest"`
-		Latest      time.Time `json:"latest"`
-		RowCount    int       `json:"row_count"`
-		FileSHA256  string    `json:"file_sha256"`
-		SignatureBy string    `json:"signing_key_id"`
-	}{
-		ExportID:    mf.ExportID,
-		OrgID:       mf.OrgID,
-		Oldest:      mf.Oldest,
-		Latest:      mf.Latest,
-		RowCount:    mf.RowCount,
-		FileSHA256:  mf.FileSHA256,
-		SignatureBy: mf.SignatureBy,
-	})
-	if err != nil {
-		slog.Error("audit.verify.manifest_marshal_failed", slog.String("dir", dir), slog.String("err", err.Error()))
-		return false
-	}
-	sig, err := hex.DecodeString(mf.Signature)
-	if err != nil || pub == nil {
-		return false
-	}
-	return ed25519.Verify(pub, manifestForVerify, sig)
 }
 
 // scanBundleRows streams events.jsonl once: it digests the bytes for the
@@ -179,7 +144,12 @@ func scanBundleRows(dir string, report *VerifyReport, mf ExportManifest) ([]chai
 	// silently dropped key would be a planted field that verifies.
 	dec.DisallowUnknownFields()
 
-	links := make([]chainLink, 0, mf.RowCount)
+	// The manifest's row count is not a size hint. It is unverified input
+	// until the signature and the file agree with it, and a bundle claiming
+	// a hundred million rows over a two-row file would otherwise have the
+	// verifier allocate for the claim before it had checked anything. The
+	// slice grows with what the file actually holds.
+	links := make([]chainLink, 0)
 	for {
 		var row Row
 		err := dec.Decode(&row)
@@ -192,6 +162,14 @@ func scanBundleRows(dir string, report *VerifyReport, mf ExportManifest) ([]chai
 			return nil, fmt.Errorf("verify decode events.jsonl line %d: %w", len(links)+1, err)
 		}
 		report.RowsScanned++
+		// An export is one org's ledger. A row from another org inside it is
+		// not a filtered gap but a bundle that does not describe itself, and
+		// the row's own hash does not cover the org column, so it has to be
+		// checked here.
+		if row.OrgID != mf.OrgID {
+			report.ChainBreaks = append(report.ChainBreaks,
+				fmt.Sprintf("row %s belongs to org %s, not the manifest's %s", row.EventID, row.OrgID, mf.OrgID))
+		}
 		matched, reason, err := checkRowHash(row)
 		if err != nil {
 			return nil, err
@@ -214,53 +192,4 @@ func scanBundleRows(dir string, report *VerifyReport, mf ExportManifest) ([]chai
 	}
 	report.FileSHA256OK = hex.EncodeToString(hasher.Sum(nil)) == mf.FileSHA256
 	return links, nil
-}
-
-// newChainLink copies a row's chain coordinates into the fixed-width record
-// the link pass reads. A hash of unexpected length copies as far as it fits;
-// the row's own hash check has already reported that row.
-func newChainLink(row Row) chainLink {
-	link := chainLink{
-		Shard: row.Shard, Seq: row.Seq, EventID: row.EventID,
-		PrevHash: [sha256.Size]byte{}, RowHash: [sha256.Size]byte{},
-	}
-	copy(link.PrevHash[:], row.PrevHash)
-	copy(link.RowHash[:], row.RowHash)
-	return link
-}
-
-// verifyChainLinks walks the links in per-shard sequence order and reports a
-// break wherever a row's prev_hash does not name its immediate predecessor.
-func verifyChainLinks(report *VerifyReport, links []chainLink) {
-	sort.SliceStable(links, func(i, j int) bool {
-		if links[i].Shard != links[j].Shard {
-			return links[i].Shard < links[j].Shard
-		}
-		return links[i].Seq < links[j].Seq
-	})
-	lastSeqByShard := map[int16]int64{}
-	lastHashByShard := map[int16][sha256.Size]byte{}
-	seenShard := map[int16]bool{}
-	for _, link := range links {
-		if seenShard[link.Shard] {
-			// A gap is counted, not reported as a break. An export is
-			// filtered, so missing sequence numbers are the normal case and
-			// say nothing about tampering.
-			if link.Seq != lastSeqByShard[link.Shard]+1 {
-				report.ChainGapCount++
-			}
-			if link.Seq == lastSeqByShard[link.Shard]+1 && link.PrevHash != lastHashByShard[link.Shard] {
-				report.ChainBreaks = append(report.ChainBreaks,
-					fmt.Sprintf("row %s has previous-hash link mismatch", link.EventID))
-			}
-		}
-		// Tracking advances for every row, matched or not. Advancing only on
-		// a match would make the next row compare itself against a row that
-		// is not its predecessor, so one edited row would report every row
-		// after it as broken too, and a reader could not tell how much of the
-		// bundle was actually altered.
-		lastSeqByShard[link.Shard] = link.Seq
-		lastHashByShard[link.Shard] = link.RowHash
-		seenShard[link.Shard] = true
-	}
 }
