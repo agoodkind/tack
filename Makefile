@@ -63,12 +63,15 @@ seed:
 # Run unit tests for the ops package (and any other package without
 # integration deps) inside the test runner image. The compose file already
 # bind-mounts the source tree to /src so edits are visible without a rebuild.
+#
+# The postgres adapter is here because its pool tests stand up loopback
+# listeners that stand in for a lost ledger guest; they need no cluster.
 .PHONY: test-unit
 test-unit:
 	docker compose -f docker-compose.test.yml --profile runner build tests
 	docker compose -f docker-compose.test.yml --profile runner run --rm \
 	    --no-deps --entrypoint /usr/local/go/bin/go tests \
-	    test -count=1 ./internal/ops/...
+	    test -count=1 ./internal/ops/... ./internal/adapters/postgres/...
 
 .PHONY: test-fdb-up
 test-fdb-up:
