@@ -125,7 +125,7 @@ func waitForBrokers(ctx context.Context, cfg *config.Config, recorder *audit.Kaf
 	var lastErr error
 	for {
 		attemptCtx, cancelAttempt := context.WithTimeout(deadlineCtx, attemptTimeout)
-		lastErr = recorder.Ping(attemptCtx)
+		lastErr = recorder.Ready(attemptCtx)
 		cancelAttempt()
 		if lastErr == nil {
 			return nil

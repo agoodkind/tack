@@ -175,3 +175,33 @@ func portOf(t *testing.T, address string) int {
 	}
 	return number
 }
+
+// TestBuildAuditRecorderRefusesAMissingTopic answers the review finding that a
+// broker answering is not the same as a ledger that can be written. This
+// cluster is up and healthy at the connection level and has no audit topic, so
+// every Record would fail while the old check passed.
+func TestBuildAuditRecorderRefusesAMissingTopic(t *testing.T) {
+	t.Parallel()
+	cluster, err := kfake.NewCluster(kfake.NumBrokers(1))
+	if err != nil {
+		t.Fatalf("kfake.NewCluster: %v", err)
+	}
+	t.Cleanup(cluster.Close)
+
+	recorder, err := buildAuditRecorder(context.Background(), &config.Config{
+		AuditKafkaBrokers:        strings.Join(cluster.ListenAddrs(), ","),
+		AuditKafkaTopic:          "audit.events.v1",
+		AuditKafkaProduceTimeout: time.Second,
+		AuditBrokerReadyTimeout:  2 * time.Second,
+	})
+
+	if err == nil {
+		t.Fatal("a reachable broker with no audit topic must still refuse")
+	}
+	if recorder != nil {
+		t.Fatalf("recorder = %T, want none", recorder)
+	}
+	if !strings.Contains(err.Error(), "audit.events.v1") {
+		t.Fatalf("err = %v, want it to name the topic that cannot be written", err)
+	}
+}

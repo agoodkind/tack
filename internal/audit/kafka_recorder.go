@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/twmb/franz-go/pkg/kerr"
 	"github.com/twmb/franz-go/pkg/kgo"
+	"github.com/twmb/franz-go/pkg/kmsg"
 	"goodkind.io/tack/internal/telemetry"
 )
 
@@ -94,16 +96,71 @@ func NewKafkaRecorder(cfg KafkaConfig) (*KafkaRecorder, error) {
 	}, nil
 }
 
-// Ping reaches the seed brokers and reports whether they answered. The client
-// connects lazily, so construction alone proves nothing about reachability;
-// startup calls this so a server that cannot publish its ledger refuses to
-// serve instead of running unrecorded until someone reads a log.
-func (k *KafkaRecorder) Ping(ctx context.Context) error {
+// Ready reports whether this producer can publish its ledger. The client
+// connects lazily, so construction alone proves nothing; startup calls this so
+// a server that cannot record refuses to serve instead of running unrecorded
+// until someone reads a log.
+//
+// A broker answering is not enough. The topic has to exist, be visible to this
+// client, and have a partition leader, because a reachable broker with no
+// topic or no authorization fails every Record while looking healthy at the
+// connection level.
+func (k *KafkaRecorder) Ready(ctx context.Context) error {
 	if err := k.client.Ping(ctx); err != nil {
 		slog.ErrorContext(ctx, "audit.kafka.ping_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("audit kafka ping: %w", err)
 	}
+	return k.checkTopicWritable(ctx)
+}
+
+// checkTopicWritable asks the cluster about the configured topic and demands a
+// partition with a leader. Auto-creation is disabled on the request: a topic
+// conjured by the readiness check would report success while the partition
+// count the design fixes had never been applied.
+func (k *KafkaRecorder) checkTopicWritable(ctx context.Context) error {
+	req := kmsg.NewPtrMetadataRequest()
+	reqTopic := kmsg.NewMetadataRequestTopic()
+	reqTopic.Topic = &k.topic
+	req.Topics = append(req.Topics, reqTopic)
+	req.AllowAutoTopicCreation = false
+
+	resp, err := req.RequestWith(ctx, k.client)
+	if err != nil {
+		slog.ErrorContext(ctx, "audit.kafka.topic_metadata_failed",
+			slog.String("topic", k.topic), slog.String("err", err.Error()))
+		return fmt.Errorf("audit kafka topic %s metadata: %w", k.topic, err)
+	}
+	if len(resp.Topics) == 0 {
+		err := fmt.Errorf("audit kafka topic %s: cluster returned no metadata for it", k.topic)
+		slog.ErrorContext(ctx, "audit.kafka.topic_absent",
+			slog.String("topic", k.topic), slog.String("err", err.Error()))
+		return err
+	}
+	for _, respTopic := range resp.Topics {
+		if respTopic.ErrorCode != 0 {
+			codeErr := kerr.ErrorForCode(respTopic.ErrorCode)
+			slog.ErrorContext(ctx, "audit.kafka.topic_unwritable",
+				slog.String("topic", k.topic), slog.String("err", codeErr.Error()))
+			return fmt.Errorf("audit kafka topic %s: %w", k.topic, codeErr)
+		}
+		if !hasPartitionLeader(respTopic) {
+			err := fmt.Errorf("audit kafka topic %s: no partition has a leader", k.topic)
+			slog.ErrorContext(ctx, "audit.kafka.topic_leaderless",
+				slog.String("topic", k.topic), slog.String("err", err.Error()))
+			return err
+		}
+	}
 	return nil
+}
+
+// hasPartitionLeader reports whether any partition can accept a produce.
+func hasPartitionLeader(respTopic kmsg.MetadataResponseTopic) bool {
+	for _, partition := range respTopic.Partitions {
+		if partition.ErrorCode == 0 && partition.Leader >= 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // MarshalEvent encodes an Event as canonical JSON. Exposed as an
