@@ -94,6 +94,18 @@ func NewKafkaRecorder(cfg KafkaConfig) (*KafkaRecorder, error) {
 	}, nil
 }
 
+// Ping reaches the seed brokers and reports whether they answered. The client
+// connects lazily, so construction alone proves nothing about reachability;
+// startup calls this so a server that cannot publish its ledger refuses to
+// serve instead of running unrecorded until someone reads a log.
+func (k *KafkaRecorder) Ping(ctx context.Context) error {
+	if err := k.client.Ping(ctx); err != nil {
+		slog.ErrorContext(ctx, "audit.kafka.ping_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("audit kafka ping: %w", err)
+	}
+	return nil
+}
+
 // MarshalEvent encodes an Event as canonical JSON. Exposed as an
 // encoder-shaped helper so the wrapped error from [encoding/json.Marshal]
 // is a codec error, not a side-effecting recorder error. Used by Record

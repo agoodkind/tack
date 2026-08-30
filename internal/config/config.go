@@ -71,6 +71,24 @@ type Config struct {
 	AuditRedactorPassword string `env:"AUDIT_REDACTOR_PASSWORD"`
 	AuditOperatorPassword string `env:"AUDIT_OPERATOR_PASSWORD"`
 
+	// AuditAllowUnrecorded lets a deployment run with no ledger at all. It
+	// exists because "no audit backend is configured" and "the audit backend
+	// is broken" are different situations that used to look identical: both
+	// silently substituted a recorder that discarded every event, and the
+	// server served normally either way. The server now refuses to start
+	// unless it can record, and this flag is the only way to say that
+	// unrecorded operation is intended. Production leaves it false.
+	AuditAllowUnrecorded bool `env:"AUDIT_ALLOW_UNRECORDED"`
+
+	// AuditBrokerReadyTimeout is how long startup waits for the ledger
+	// transport to answer before refusing. It is a budget rather than a single
+	// attempt because a compose or reboot cold start brings the broker up
+	// alongside the app: a first-attempt refusal there would crash-loop a
+	// healthy deployment, which is the failure TACK-453 removed from the
+	// provision path. A broker that is genuinely down still refuses, one
+	// budget later.
+	AuditBrokerReadyTimeout time.Duration `env:"AUDIT_BROKER_READY_TIMEOUT" envDefault:"60s"`
+
 	// AuditSigningKeyPath points at a PEM-encoded Ed25519 private key used
 	// by the notarizer to sign per-org Merkle roots. Generate with:
 	//   ./server gen-audit-key /etc/tack/audit-signing.pem
