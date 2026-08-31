@@ -60,6 +60,15 @@ func drillFDBRestoreFiles() fdbRestoreFiles {
 // drill did not write is ever parsed as shell program text; the three file
 // names are the drill's own constants and are quoted as single words anyway.
 //
+// Clearing the previous run's files is a guard rather than a courtesy, so it
+// carries `|| exit 1`. The status file is what tells the watch a restore
+// finished, and the log is what an error quotes; a clear that failed and was
+// stepped over would leave the last run's answers in place for this run's watch
+// to read as its own, which is a restore reporting an outcome it never
+// produced. The whole program cannot run under `set -e` instead: the group
+// below is where a failing restore's status is published, and -e would exit the
+// shell on that failure before `echo $?` ever ran.
+//
 // The shell is here for the backgrounding alone, and every part of it is a
 // shell feature no engine CLI offers. `fdbrestore --waitfordone` runs for as
 // long as the dataset needs while the exec that starts it has to return so the
@@ -70,7 +79,7 @@ func drillFDBRestoreFiles() fdbRestoreFiles {
 // is the only thing carrying a value from outside.
 func fdbRestoreLaunchScript(files fdbRestoreFiles) string {
 	log, exit, partial := shellQuote(files.Log), shellQuote(files.Exit), shellQuote(files.Partial)
-	return "rm -f " + log + " " + exit + " " + partial + "; " +
+	return "rm -f " + log + " " + exit + " " + partial + " || exit 1; " +
 		`{ "$@"; echo $? >` + partial + "; " +
 		"mv " + partial + " " + exit + "; } >" + log + " 2>&1 &"
 }

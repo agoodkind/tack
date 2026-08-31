@@ -122,6 +122,41 @@ func TestLaunchFDBRestorePublishesTheCommandsExitStatus(t *testing.T) {
 	}
 }
 
+// TestLaunchFDBRestoreAbortsWhenTheStaleStatusCannotBeCleared is the silent
+// success the clear's guard exists for. The watch decides a restore finished by
+// reading the status file, so a launch that could not clear the previous run's
+// status and started anyway hands the watch that run's answer as this one's,
+// which is a restore reporting an outcome it never produced. Here a directory
+// stands where the status file goes, which `rm -f` refuses; the launch must
+// exit non-zero and the restore must not start.
+func TestLaunchFDBRestoreAbortsWhenTheStaleStatusCannotBeCleared(t *testing.T) {
+	fixture := newLaunchFixture(t)
+	if err := os.WriteFile(fixture.files.Log, []byte("the previous restore's output\n"), 0o600); err != nil {
+		t.Fatalf("stage the previous restore log: %v", err)
+	}
+	if err := os.Mkdir(fixture.files.Exit, 0o755); err != nil {
+		t.Fatalf("stage an unremovable status name: %v", err)
+	}
+	canary := filepath.Join(fixture.dir, "canary")
+
+	argv := fdbRestoreLaunchArgv(fixture.files, []string{"touch", canary})
+	out, err := exec.CommandContext(t.Context(), argv[0], argv[1:]...).CombinedOutput()
+
+	if err == nil {
+		t.Fatalf("a launch whose clear failed must exit non-zero, got output %q", out)
+	}
+	// The guard exits before the group is forked, so the restore never runs.
+	// A launch that stepped over the failed clear forks it immediately, so a
+	// short window is enough to catch one that did.
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if _, statErr := os.Stat(canary); statErr == nil {
+			t.Fatal("the restore started even though the previous run's status could not be cleared")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
 // TestFDBRestoreCommandCarriesTheDestinationUnaltered locks that the engine
 // vector hands fdbrestore the destination as one argument with no quoting of
 // its own, because the quoting is what the shell would have had to undo.
