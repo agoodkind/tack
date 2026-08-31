@@ -70,17 +70,19 @@ func Export(ctx context.Context, reader RowSource, signer ed25519.PrivateKey, ke
 		return nil, fmt.Errorf("audit export mkdir: %w", err)
 	}
 
-	// Both files are staged under temporary names and published together at the
-	// end, so a re-export never damages the bundle already in the directory.
-	// Writing either file in place would: truncating events.jsonl strands the
-	// previous run's signed manifest beside half-written rows, and removing that
-	// manifest up front destroys a valid bundle for the whole length of an
-	// export that may then fail. Neither may happen, because both leave a
-	// directory that reads as a bundle and is not one.
+	// Both files are staged under names of this export's own and published
+	// together at the end, so a re-export never damages the bundle already in
+	// the directory. Writing either file in place would: truncating
+	// events.jsonl strands the previous run's signed manifest beside
+	// half-written rows, and removing that manifest up front destroys a valid
+	// bundle for the whole length of an export that may then fail. Neither may
+	// happen, because both leave a directory that reads as a bundle and is not
+	// one.
+	exportID := uuid.Must(uuid.NewV7())
 	rowsPath := filepath.Join(dir, "events.jsonl")
 	mfPath := filepath.Join(dir, "manifest.json")
-	rowsStaged := rowsPath + stagedSuffix
-	mfStaged := mfPath + stagedSuffix
+	rowsStaged := stagedExportPath(rowsPath, exportID)
+	mfStaged := stagedExportPath(mfPath, exportID)
 
 	rowCount, fileDigest, err := writeExportRows(ctx, reader, filter, rowsStaged)
 	if err != nil {
@@ -88,7 +90,7 @@ func Export(ctx context.Context, reader RowSource, signer ed25519.PrivateKey, ke
 	}
 
 	manifest := &ExportManifest{
-		ExportID:    uuid.Must(uuid.NewV7()),
+		ExportID:    exportID,
 		OrgID:       filter.OrgID,
 		Oldest:      filter.Oldest,
 		Latest:      filter.Latest,
@@ -120,21 +122,46 @@ func Export(ctx context.Context, reader RowSource, signer ed25519.PrivateKey, ke
 // this suffix is ever mistaken for an artifact.
 const stagedSuffix = ".partial"
 
+// stagedExportPath names the file one export writes before it publishes.
+//
+// The export id is in the name because the staged names are otherwise fixed,
+// and two exports into one directory then create, truncate, and rename the same
+// two paths. The second one's create truncates the first one's staged rows
+// while the first still holds the descriptor, so the first goes on writing into
+// a file the second has already published, and each run's manifest can end up
+// signed for the other run's rows. Naming them per export is what removes that
+// without a lock, and a lock every caller has to remember to take is the class
+// of defect this path exists to remove. It also names the export that abandoned
+// a staged file when one is left behind.
+//
+// A process killed mid-export leaves its staged file, since no later export
+// reuses the name. Nothing reads it: verification opens events.jsonl and
+// manifest.json by name, and every failure this code returns from removes its
+// own staged files on the way out.
+func stagedExportPath(publishedPath string, exportID uuid.UUID) string {
+	return publishedPath + "." + exportID.String() + stagedSuffix
+}
+
 // publishExportBundle swaps the staged pair in for the published one.
 //
-// The manifest is what makes a directory readable as a signed bundle, so it is
-// removed first and written last. That leaves exactly one window in which the
-// directory is inconsistent, between the two renames, and a crash inside it
-// leaves rows with no manifest: a bundle that reads as absent rather than one
-// that reads as complete while describing rows it does not hold. Absent is
-// recoverable by re-exporting; a manifest that vouches for the wrong rows is
-// not, because nothing downstream can tell.
+// Both steps rename over the published name, which replaces the file there
+// atomically, so the bundle already in the directory stays whole and readable
+// until the instant each half is replaced. Nothing is unlinked first: removing
+// the manifest up front would destroy the only thing that makes the directory
+// readable as a bundle, and a rename that then failed, or a crash before it
+// ran, would leave that loss permanent.
+//
+// The rows go first, so a crash between the two renames leaves the new rows
+// beside the previous run's manifest. Downstream detects that pair rather than
+// accepting it: the manifest's file_sha256 covers the bytes it was signed for,
+// verification digests the events file it actually finds (scanBundleRows) and
+// compares, and the mismatch fails the bundle's verdict, as does the row count
+// the manifest declares against the rows the file holds. The one pair that
+// passes is one where the new rows are byte-identical to the old, which is the
+// bundle the manifest already described. Recovery is to re-export. A failure of
+// the second rename leaves the same torn pair and reports it, which is why the
+// error reaches the caller rather than being logged and swallowed.
 func publishExportBundle(ctx context.Context, rowsStaged, rowsPath, mfStaged, mfPath string) error {
-	if err := os.Remove(mfPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-		_ = os.Remove(rowsStaged)
-		_ = os.Remove(mfStaged)
-		return fmt.Errorf("audit export clear published manifest: %w", err)
-	}
 	if err := os.Rename(rowsStaged, rowsPath); err != nil {
 		_ = os.Remove(rowsStaged)
 		_ = os.Remove(mfStaged)
