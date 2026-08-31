@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -143,6 +144,34 @@ func TestFDBRestoreCommandCarriesTheDestinationUnaltered(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("the restore vector names no destination: %v", command)
+	}
+}
+
+// TestLaunchArgvRunsTheBuiltRestoreVector is the seam between the two halves of
+// the FoundationDB restore. The vector is built with the operator's target and
+// checked against the backup's restorable window; the launch has to run that
+// vector. A launch that assembled its own command from the destination would
+// drop the target and restore the latest point instead, and report success
+// doing it, which is the failure the target exists to prevent.
+func TestLaunchArgvRunsTheBuiltRestoreVector(t *testing.T) {
+	target := time.Date(2026, 8, 30, 1, 5, 0, 0, time.UTC)
+	restore, err := fdbRestoreCommand(drillDestURL, &target)
+	if err != nil {
+		t.Fatalf("fdbRestoreCommand: %v", err)
+	}
+
+	argv := fdbRestoreLaunchArgv(drillFDBRestoreFiles(), restore)
+
+	if len(argv) < len(restore) {
+		t.Fatalf("the launch dropped the restore vector: %q", argv)
+	}
+	if tail := argv[len(argv)-len(restore):]; !slices.Equal(tail, restore) {
+		t.Fatalf("the launch does not run the vector it was given:\n got %q\nwant %q", tail, restore)
+	}
+	for _, want := range []string{"--timestamp", "2026/08/30.01:05:00+0000", "--orig-cluster-file"} {
+		if !slices.Contains(argv, want) {
+			t.Fatalf("the operator's target did not reach the launched command, %q missing: %q", want, argv)
+		}
 	}
 }
 
