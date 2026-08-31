@@ -239,14 +239,16 @@ func repairRecordOutcome(
 	return wrapped
 }
 
-// unrecordedIdentityLimit bounds how many identities the fallback log names
-// per class. A full production repair carries thousands of items, and one line
-// each during an outbox outage is a log storm that outlives the command's own
-// deadline. The counts are always exact; the identities are a sample, and the
-// line says how many it left out so nobody reads the sample as the whole.
-const unrecordedIdentityLimit = 50
+// unrecordedBatchSize is how many identities one fallback log line carries.
+// Every identity is logged; the batching bounds the size of each line rather
+// than the number of identities, because a renamed node cannot be rediscovered
+// by a rerun and the command returns before writing its own report, so a
+// dropped identity is gone. One line per item was the other failure: a
+// production-sized repair during an outbox outage is a log storm that outlives
+// the command's own deadline.
+const unrecordedBatchSize = 50
 
-// logUnrecordedRepair names the changes that are applied and unrecorded. A
+// logUnrecordedRepair names every change that is applied and unrecorded. A
 // count cannot be reconciled against the store later; an identity can, which is
 // why the identities are logged at all rather than the totals alone.
 func logUnrecordedRepair(ctx context.Context, report RepairReferenceReport, recordErr error) {
@@ -254,39 +256,48 @@ func logUnrecordedRepair(ctx context.Context, report RepairReferenceReport, reco
 		slog.Int("renamed", len(report.Renumbered)),
 		slog.Int("counters_seeded", len(report.Counters)),
 		slog.Int("keys_written", len(report.Keys)),
-		slog.Int("identities_logged_per_class", unrecordedIdentityLimit),
+		slog.Int("identities_per_line", unrecordedBatchSize),
 		slog.String("err", recordErr.Error()))
-	renames := make([]string, 0, min(len(report.Renumbered), unrecordedIdentityLimit))
-	for _, rename := range report.Renumbered[:min(len(report.Renumbered), unrecordedIdentityLimit)] {
+
+	renames := make([]string, 0, len(report.Renumbered))
+	for _, rename := range report.Renumbered {
 		renames = append(renames, rename.NodeID.String()+" "+rename.From+" to "+rename.To)
 	}
-	logUnrecordedClass(ctx, "renames", renames, len(report.Renumbered), recordErr)
+	logUnrecordedClass(ctx, "renames", renames, recordErr)
 
-	counters := make([]string, 0, min(len(report.Counters), unrecordedIdentityLimit))
-	for _, counter := range report.Counters[:min(len(report.Counters), unrecordedIdentityLimit)] {
+	counters := make([]string, 0, len(report.Counters))
+	for _, counter := range report.Counters {
 		counters = append(counters, counter.Key+"="+strconv.FormatInt(counter.Value, 10))
 	}
-	logUnrecordedClass(ctx, "counter seeds", counters, len(report.Counters), recordErr)
+	logUnrecordedClass(ctx, "counter seeds", counters, recordErr)
 
-	keys := make([]string, 0, min(len(report.Keys), unrecordedIdentityLimit))
-	for _, key := range report.Keys[:min(len(report.Keys), unrecordedIdentityLimit)] {
+	keys := make([]string, 0, len(report.Keys))
+	for _, key := range report.Keys {
 		keys = append(keys, key.NodeID.String()+" "+key.Encoded)
 	}
-	logUnrecordedClass(ctx, "reference keys", keys, len(report.Keys), recordErr)
+	logUnrecordedClass(ctx, "reference keys", keys, recordErr)
 }
 
-// logUnrecordedClass writes one line for a class of unrecorded work, carrying
-// a bounded sample of identities and the number it omitted.
-func logUnrecordedClass(ctx context.Context, class string, sample []string, total int, recordErr error) {
+// logUnrecordedClass writes every identity in a class across bounded batches,
+// each line naming its position so a reader can tell a truncated log from a
+// complete one.
+func logUnrecordedClass(ctx context.Context, class string, identities []string, recordErr error) {
+	total := len(identities)
 	if total == 0 {
 		return
 	}
-	slog.ErrorContext(ctx, "repair.reference_uniqueness.unrecorded",
-		slog.String("class", class),
-		slog.Int("total", total),
-		slog.Int("omitted", total-len(sample)),
-		slog.String("identities", strings.Join(sample, "; ")),
-		slog.String("err", recordErr.Error()))
+	batches := (total + unrecordedBatchSize - 1) / unrecordedBatchSize
+	for batch := range batches {
+		start := batch * unrecordedBatchSize
+		end := min(start+unrecordedBatchSize, total)
+		slog.ErrorContext(ctx, "repair.reference_uniqueness.unrecorded",
+			slog.String("class", class),
+			slog.Int("total", total),
+			slog.Int("batch", batch+1),
+			slog.Int("batches", batches),
+			slog.String("identities", strings.Join(identities[start:end], "; ")),
+			slog.String("err", recordErr.Error()))
+	}
 }
 
 // recordRepairReferenceRun puts one ledger row behind every reference the run

@@ -242,12 +242,13 @@ func TestInjectedFaultStopsAfterTheGivenRenames(t *testing.T) {
 	}
 }
 
-// TestUnrecordedLoggingStaysBoundedOnALargeRepair pins the cap on the fallback
-// log. A full production repair carries thousands of items, and one line each
-// during an outbox outage is a log storm that outlives the command's own
-// deadline, so the identities are a bounded sample and the line says how many
-// it left out.
-func TestUnrecordedLoggingStaysBoundedOnALargeRepair(t *testing.T) {
+// TestUnrecordedLoggingKeepsEveryIdentityInBoundedBatches pins both halves of
+// the fallback log. Every identity survives, because a renamed node cannot be
+// rediscovered by a rerun and the command returns before writing its own
+// report, so a dropped identity is gone for good. The lines stay bounded,
+// because one line per item is a log storm that outlives the command's own
+// deadline on a production-sized repair.
+func TestUnrecordedLoggingKeepsEveryIdentityInBoundedBatches(t *testing.T) {
 	var recorded bytes.Buffer
 	previous := slog.Default()
 	slog.SetDefault(slog.New(slog.NewTextHandler(&recorded, &slog.HandlerOptions{
@@ -267,14 +268,24 @@ func TestUnrecordedLoggingStaysBoundedOnALargeRepair(t *testing.T) {
 
 	logUnrecordedRepair(context.Background(), report, errors.New("outbox unavailable"))
 
-	lines := strings.Count(recorded.String(), "\n")
-	if lines > 4 {
-		t.Fatalf("log lines = %d, want a bounded handful for a 500-item repair", lines)
+	logged := recorded.String()
+	// Every rename has to appear, first and last included: the ones a sample
+	// would have dropped are exactly the ones no rerun can recover.
+	for _, rename := range report.Renumbered {
+		if !strings.Contains(logged, rename.NodeID.String()) {
+			t.Fatalf("rename %s is missing from the log, so its change is unrecorded and unrecoverable", rename.NodeID)
+		}
 	}
-	if !strings.Contains(recorded.String(), "omitted=450") {
-		t.Fatalf("log = %s, want it to name the 450 identities it left out", recorded.String())
+	// 500 identities at 50 per line is 10 batch lines plus the summary. The
+	// bound is on line size, so the count stays far below one line per item.
+	lines := strings.Count(logged, "\n")
+	if lines != 11 {
+		t.Fatalf("log lines = %d, want 11: one summary plus ten batches of fifty", lines)
 	}
-	if !strings.Contains(recorded.String(), "total=500") {
-		t.Fatalf("log = %s, want the exact total", recorded.String())
+	if !strings.Contains(logged, "batch=10") || !strings.Contains(logged, "batches=10") {
+		t.Fatalf("log = %s, want each line to name its position so a truncated log is visible", logged)
+	}
+	if !strings.Contains(logged, "total=500") {
+		t.Fatalf("log = %s, want the exact total", logged)
 	}
 }
