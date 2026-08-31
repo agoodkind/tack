@@ -178,3 +178,30 @@ func assertNodeAuditEvent(
 	}
 	t.Errorf("missing %s event", verb)
 }
+
+// TestResourceReadRecordsTheRead pins that reading the getting-started
+// resource lands in the ledger. The handler used to take a context and ignore
+// it, so mcp.resource_read was declared for months and emitted by nothing,
+// while its ticket recorded the wiring as shipped (TACK-340).
+func TestResourceReadRecordsTheRead(t *testing.T) {
+	recorder := audit.NewMemoryRecorder()
+	previousRecorder := currentAuditRecorder()
+	SetAuditRecorder(recorder)
+	t.Cleanup(func() {
+		SetAuditRecorder(previousRecorder)
+	})
+
+	actorID := uuid.New()
+	resolver := NewResolver(nil, nil, &fakeMembers{}, nil)
+	handler := gettingStartedHandler(resolver, nil, nil)
+
+	contents, err := handler(auth.WithUser(t.Context(), actorID), mcpmcp.ReadResourceRequest{})
+	if err != nil {
+		t.Fatalf("read the resource: %v", err)
+	}
+	if len(contents) != 1 {
+		t.Fatalf("contents = %d, want the one markdown document", len(contents))
+	}
+
+	assertAuditEvent(t, recorder.Events(), string(audit.VerbMCPResourceRead), actorID, "mcp_resource", gettingStartedURI)
+}
