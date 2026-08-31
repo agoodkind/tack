@@ -78,7 +78,7 @@ func TestYBPlacementVerdictNamesHowManyItLeftOut(t *testing.T) {
 	if err == nil {
 		t.Fatal("500 missing tablets must fail the drill")
 	}
-	if !strings.Contains(err.Error(), "so 500 have no files") {
+	if !strings.Contains(err.Error(), "so 500 have no data") {
 		t.Fatalf("the failure must name the exact number missing, got: %v", err)
 	}
 	if !strings.Contains(err.Error(), "and 480 more") {

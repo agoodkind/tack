@@ -286,16 +286,20 @@ YugabyteDB:
 4. Run `yb-admin import_snapshot metadata.snapshot <database>`. It preserves
    table ids and assigns new tablet ids, printing the old-to-new tablet mapping.
 5. Extract each node archive into its own directory, then copy each tablet's
-   files from any one node's copy (replicas of the same tablet exist on several
-   nodes; use one copy, never a mix) into the new tablet's snapshot directory
-   under the rocksdb root, following the mapping from step 4.
+   files from any one node's copy that carries data (replicas of the same
+   tablet exist on several nodes; use one copy, never a mix) into the new
+   tablet's snapshot directory under the rocksdb root, following the mapping
+   from step 4.
 
    Count the tablets you copied against the tablets the mapping names before
    going further. A tablet whose files are in no node's extraction is a hole
    the export did not carry, and `restore_snapshot` succeeds over it: the
-   database comes back smaller with nothing to say it did. Stop and pick a
-   complete run rather than restoring a partial one. Only once every tablet in
-   the mapping has its files in place, run
+   database comes back smaller with nothing to say it did. A tablet directory
+   that exists and holds no file with bytes in it is the same hole, because an
+   archive truncated after its directory entries restores the directories
+   without their contents. Count a tablet only once its copy carries data.
+   Stop and pick a complete run rather than restoring a partial one. Only once
+   every tablet in the mapping has its files in place, run
    `yb-admin restore_snapshot <new-snapshot-id>`. The drill does this count
    itself and fails on any difference, naming how many tablets the import
    created and how many the export carried.

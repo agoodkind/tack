@@ -63,9 +63,10 @@ func auditYBPlacement(
 }
 
 // ybPlacementVerdict fails unless the placement attempted every tablet the
-// import created and found files for every one it attempted. Both halves
+// import created and found data for every one it attempted. Both halves
 // matter: the attempted count catches a chunk that never ran, and the placed
-// count catches an export that did not carry the tablet.
+// count catches an export that did not carry the tablet's contents, whether it
+// carried nothing for that tablet or only its directory entries.
 func ybPlacementVerdict(audit ybPlacementAudit, wanted int) error {
 	if audit.Expected != wanted {
 		return fmt.Errorf(
@@ -74,7 +75,7 @@ func ybPlacementVerdict(audit ybPlacementAudit, wanted int) error {
 	}
 	if audit.Placed != audit.Expected {
 		return fmt.Errorf(
-			"tablet placement is incomplete: the import created %d tablets and the export carried %d, so %d have no files: %s",
+			"tablet placement is incomplete: the import created %d tablets and the export carried %d, so %d have no data: %s",
 			audit.Expected, audit.Placed, len(audit.Missing), sampleTabletIdentities(audit.Missing))
 	}
 	return nil

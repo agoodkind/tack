@@ -2,11 +2,13 @@
 // into the tablet the import created, and accounts for every one of them. A
 // tablet the import expects but the export does not carry is a hole in the
 // restore, and until the placement counted what it copied that hole was
-// invisible: the copy is guarded by a directory test, a false test is not a
+// invisible: the copy was guarded by a directory test, a false test is not a
 // command failure, so `set -e` never fired and a restore missing most of its
 // tablet files still reached restore_snapshot and passed the row assertion.
 // The clauses now record what they attempt and what they find, and the drill
-// fails on any difference.
+// fails on any difference. A directory test alone left the same hole open one
+// step further in, because a directory that exists and holds nothing passed it,
+// so a tablet counts as found only when its source carries data.
 
 package ops
 
@@ -64,16 +66,21 @@ func drillPlacementLayout(rocksdbDir string) ybPlacementLayout {
 // scripts are built by measured bytes, never by clause count, because each
 // clause embeds the configured rocksdb directory twice and a longer directory
 // value would shrink how many clauses fit. Half the kernel cap leaves the
-// margin; one clause is bounded by two PATH_MAX (4KiB) paths plus constants,
-// so a single clause can never exceed the budget on its own.
+// margin. One clause carries four PATH_MAX (4KiB) values plus constants, and
+// quoting adds two bytes to each value plus three per quote character in it, so
+// a clause built from values no real deployment produces still fits inside the
+// kernel cap; a clause that on its own exceeds the budget below is emitted as
+// its own script rather than merged into another.
 const ybPlacementScriptMaxBytes = 64 * 1024
 
 // ybPlacementScriptPrefix opens every placement script, so a failed copy stops
 // the chunk instead of silently skipping tablets, and binds both ledger paths
 // to one-letter names so each clause spends a few bytes on the accounting
-// rather than two more absolute paths.
+// rather than two more absolute paths. The paths are quoted, so a ledger
+// directory carrying a space is one word rather than a command name.
 func ybPlacementScriptPrefix(layout ybPlacementLayout) string {
-	return "set -e; e=" + layout.ExpectedLedger + "; p=" + layout.PlacedLedger + "; "
+	return "set -e; e=" + shellQuote(layout.ExpectedLedger) +
+		"; p=" + shellQuote(layout.PlacedLedger) + "; "
 }
 
 // ybPlacementScripts builds the shell scripts that copy each exported tablet's
@@ -103,25 +110,46 @@ func ybPlacementScripts(remaps []ybTabletRemap, layout ybPlacementLayout, export
 }
 
 // ybPlacementClause is the shell for one tablet: record it as expected, copy
-// the first replica any node's extraction directory holds, and record it as
-// placed only once that copy has run. A tablet with no source directory falls
-// through the loop leaving no placed record, which is what the audit reads.
+// the first replica whose extraction directory actually carries data, and
+// record it as placed only once that copy has run. A tablet no node carried
+// falls through the loop leaving no placed record, which is what the audit
+// reads.
+//
+// The source test is what a tablet has to pass to count. A directory test alone
+// passed a directory that exists and holds nothing, so an archive truncated
+// after its directory entries placed every tablet and audited clean while
+// carrying none of their contents. The test therefore asks for at least one
+// regular file of non-zero size beneath the source. That is a statement about
+// bytes rather than about names: it holds whatever the engine calls its files,
+// where requiring a named file such as CURRENT would be a guess at a layout
+// this repo cannot check without a live cluster. It is the weaker claim, and it
+// is the one that is certainly true of a tablet that carries data and certainly
+// false of a directory that does not.
 func ybPlacementClause(remap ybTabletRemap, layout ybPlacementLayout, exportSnap, newSnap string) string {
-	// The glob spans the per-node extraction dirs; with replication the same
-	// tablet exists under several nodes and any single replica's file set is a
-	// consistent copy, so the first match wins and the loop breaks before
+	// Only the glob's own `*` sits outside quotes, so every path and id around
+	// it is one shell word: a configured directory carrying a space stays one
+	// word, and an id carrying $(...) or a backtick stays data. The glob spans
+	// the per-node extraction dirs; with replication the same tablet exists
+	// under several nodes and any single replica's file set is a consistent
+	// copy, so the first match carrying data wins and the loop breaks before
 	// another node's replica can mix in.
-	srcGlob := fmt.Sprintf("%s/*/table-%s/tablet-%s.snapshots/%s",
-		layout.ExportRoot, remap.table, remap.old, exportSnap)
-	dst := fmt.Sprintf("%s/table-%s/tablet-%s.snapshots/%s",
-		layout.RocksDBDir, remap.table, remap.new, newSnap)
-	identity := ybTabletIdentity(remap)
+	srcGlob := shellQuote(layout.ExportRoot) + "/*/" + shellQuote(fmt.Sprintf(
+		"table-%s/tablet-%s.snapshots/%s", remap.table, remap.old, exportSnap))
+	dst := shellQuote(fmt.Sprintf("%s/table-%s/tablet-%s.snapshots/%s",
+		layout.RocksDBDir, remap.table, remap.new, newSnap))
+	identity := shellQuote(ybTabletIdentity(remap))
 	// cp -a preserves the tablet files' ownership from the export, and the
 	// placement exec runs as the container's default user (root in the
 	// yugabyted image), matching the rocksdb files yugabyted reads. No chown
 	// is needed, and the image has no `yugabyte` user name to chown to.
+	// The ledger redirects name "$e" and "$p" in quotes: bash rejects a
+	// redirection whose unquoted expansion splits into more than one word as an
+	// ambiguous redirect, so an unquoted target loses every placement record the
+	// moment a ledger path carries a space.
 	return fmt.Sprintf(
-		"printf '%%s\\n' %q >>$e; for src in %s; do if [ -d \"$src\" ]; then mkdir -p %q && cp -a \"$src\"/. %q/ && printf '%%s\\n' %q >>$p; break; fi; done; ",
+		"printf '%%s\\n' %s >>\"$e\"; for src in %s; do if [ -d \"$src\" ] && "+
+			"[ -n \"$(find \"$src\" -type f -size +0c | head -n 1)\" ]; then "+
+			"mkdir -p %s && cp -a \"$src\"/. %s/ && printf '%%s\\n' %s >>\"$p\"; break; fi; done; ",
 		identity, srcGlob, dst, dst, identity)
 }
 
@@ -137,7 +165,8 @@ func ybTabletIdentity(remap ybTabletRemap) string {
 // difference is computed in the container, so a healthy run answers with two
 // numbers rather than one line per tablet.
 func ybPlacementAuditScript(layout ybPlacementLayout) string {
-	return "set -e; e=" + layout.ExpectedLedger + "; p=" + layout.PlacedLedger + "; " +
+	return "set -e; e=" + shellQuote(layout.ExpectedLedger) +
+		"; p=" + shellQuote(layout.PlacedLedger) + "; " +
 		`touch "$e" "$p"; sort -u "$e" >"$e.sorted"; sort -u "$p" >"$p.sorted"; ` +
 		`printf 'expected %s\nplaced %s\nmissing\n' "$(wc -l <"$e.sorted")" "$(wc -l <"$p.sorted")"; ` +
 		`comm -23 "$e.sorted" "$p.sorted"`
