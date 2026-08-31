@@ -154,11 +154,7 @@ func verbNamesReferencedOutsideDeclarations(t *testing.T) map[string]bool {
 		if filepath.Base(path) == "verbs.go" && strings.Contains(path, filepath.Join("internal", "audit")) {
 			return nil
 		}
-		source, readErr := os.ReadFile(path)
-		if readErr != nil {
-			return readErr
-		}
-		for _, name := range verbIdentifiers(string(source)) {
+		for _, name := range verbIdentifiers(t, path) {
 			referenced[name] = true
 		}
 		return nil
@@ -219,34 +215,30 @@ func collectVerbMapEntries(t *testing.T, referenced map[string]bool) {
 	}
 }
 
-// verbIdentifiers pulls Verb-prefixed identifiers out of a source file. A
-// textual scan is enough here: the question is whether the name appears at
-// all, and a name that appears only in a comment still points at code a reader
-// can follow, while a verb that appears nowhere points at nothing.
-func verbIdentifiers(source string) []string {
-	var names []string
-	for index := 0; index < len(source); index++ {
-		if !strings.HasPrefix(source[index:], "Verb") {
-			continue
-		}
-		if index > 0 && isIdentifierByte(source[index-1]) {
-			continue
-		}
-		end := index + len("Verb")
-		for end < len(source) && isIdentifierByte(source[end]) {
-			end++
-		}
-		if end > index+len("Verb") {
-			names = append(names, source[index:end])
-		}
-		index = end - 1
+// verbIdentifiers returns the Verb-prefixed identifiers a file actually uses.
+//
+// It parses rather than scans text. A textual scan was the first version and
+// it was wrong in a way that mattered: a verb named in a comment or a string
+// counted as emitted, so a verb could be documented into coverage it did not
+// have. Parsing sees identifiers only, so prose about a verb no longer stands
+// in for code that records it.
+func verbIdentifiers(t *testing.T, path string) []string {
+	t.Helper()
+	fileSet := token.NewFileSet()
+	parsed, err := parser.ParseFile(fileSet, path, nil, 0)
+	if err != nil {
+		// A file the compiler accepts must parse here too, so a failure means
+		// this test is walking something it should not, and skipping it would
+		// silently shrink the search.
+		t.Fatalf("parse %s: %v", path, err)
 	}
+	var names []string
+	ast.Inspect(parsed, func(n ast.Node) bool {
+		ident, ok := n.(*ast.Ident)
+		if ok && strings.HasPrefix(ident.Name, "Verb") && len(ident.Name) > len("Verb") {
+			names = append(names, ident.Name)
+		}
+		return true
+	})
 	return names
-}
-
-func isIdentifierByte(b byte) bool {
-	return b == '_' ||
-		(b >= 'a' && b <= 'z') ||
-		(b >= 'A' && b <= 'Z') ||
-		(b >= '0' && b <= '9')
 }
