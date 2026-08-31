@@ -2,6 +2,7 @@ package ops
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -29,7 +30,17 @@ type RepairReferenceOptions struct {
 	Execute bool
 	// Keep selects the retained node: oldest or newest. Empty keeps oldest.
 	Keep string
+	// FailAfterRenames stops the run once it has applied that many renames,
+	// so a partway failure can be produced against a real store on a testbed.
+	// Zero disables it. The CLI refuses the flag outside a QA or local target,
+	// so a production run cannot reach this (TACK-452).
+	FailAfterRenames int
 }
+
+// ErrRepairFaultInjected is what a run stopped by FailAfterRenames returns.
+// It is a real failure by design: the point is to leave applied renames behind
+// and prove the command still records them.
+var ErrRepairFaultInjected = errors.New("repair stopped by the injected testbed fault")
 
 // ReferenceRename records one repaired node reference.
 type ReferenceRename struct {
@@ -67,8 +78,9 @@ type RepairReferenceReport struct {
 
 func runRepairReferenceUniqueness(ctx context.Context, env *Env) error {
 	report, err := RepairReferenceUniqueness(ctx, env, RepairReferenceOptions{
-		Execute: false,
-		Keep:    keepOldest,
+		Execute:          false,
+		Keep:             keepOldest,
+		FailAfterRenames: 0,
 	})
 	if err != nil {
 		return err
@@ -127,8 +139,20 @@ func RepairReferenceUniqueness(
 	if err != nil {
 		return report, err
 	}
+	applied := 0
+	beforeRename := func() error {
+		if opts.FailAfterRenames > 0 && applied >= opts.FailAfterRenames {
+			faultErr := fmt.Errorf("%w after %d rename(s)", ErrRepairFaultInjected, applied)
+			env.Log.WarnContext(ctx, "repair.reference_uniqueness.fault_injected",
+				slog.Int("applied_renames", applied),
+				slog.String("err", faultErr.Error()))
+			return faultErr
+		}
+		applied++
+		return nil
+	}
 	for _, duplicate := range duplicates {
-		renamed, renameErr := renumberDuplicateGroup(ctx, env, duplicate, opts)
+		renamed, renameErr := renumberDuplicateGroup(ctx, env, duplicate, opts, beforeRename)
 		report.Renumbered = append(report.Renumbered, renamed...)
 		if renameErr != nil {
 			return report, renameErr

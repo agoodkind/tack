@@ -17,6 +17,7 @@ func renumberDuplicateGroup(
 	env *Env,
 	duplicate DuplicateReference,
 	opts RepairReferenceOptions,
+	beforeRename func() error,
 ) ([]ReferenceRename, error) {
 	ordered := append([]uuid.UUID(nil), duplicate.NodeIDs...)
 	sort.Slice(ordered, func(i, j int) bool {
@@ -31,6 +32,11 @@ func renumberDuplicateGroup(
 		retainIndex = len(ordered) - 1
 	}
 	return renumberGroupNodes(ordered, retainIndex, func(nodeID uuid.UUID) (ReferenceRename, error) {
+		if beforeRename != nil {
+			if err := beforeRename(); err != nil {
+				return ReferenceRename{}, err
+			}
+		}
 		return renumberOneNode(ctx, env, duplicate, nodeID, opts.Execute)
 	})
 }

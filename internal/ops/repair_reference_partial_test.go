@@ -1,14 +1,20 @@
 package ops
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 
 	"goodkind.io/tack/internal/audit"
+	"goodkind.io/tack/internal/cli"
+	"goodkind.io/tack/internal/config"
 )
 
 // TestFailedRepairRecordsWhatItAppliedBeforeFailing is TACK-452's core case.
@@ -173,5 +179,102 @@ func TestRenumberGroupReturnsTheRenamesItAppliedBeforeFailing(t *testing.T) {
 	}
 	if len(renamed) != 1 || renamed[0].NodeID != second {
 		t.Fatalf("renamed = %+v, want the one rename that landed before the failure", renamed)
+	}
+}
+
+// TestRepairFaultIsRefusedOutsideATestbed pins the gate on the fault flag. It
+// exists to leave a repair half applied on purpose, which is a thing to do to
+// a disposable environment and never to production, so it reuses the marker
+// the QA generator gates its writes on.
+func TestRepairFaultIsRefusedOutsideATestbed(t *testing.T) {
+	for _, target := range []string{"", "prod", "production"} {
+		factory := &cli.Factory{Cfg: &config.Config{DatagenAllowTarget: target}}
+		if err := checkRepairFaultAllowed(context.Background(), factory, 1); err == nil {
+			t.Fatalf("target %q accepted the fault flag", target)
+		}
+	}
+	for _, target := range []string{"qa", "local"} {
+		factory := &cli.Factory{Cfg: &config.Config{DatagenAllowTarget: target}}
+		if err := checkRepairFaultAllowed(context.Background(), factory, 1); err != nil {
+			t.Fatalf("target %q refused the fault flag: %v", target, err)
+		}
+	}
+	// Without the flag the marker is irrelevant, so a production repair still
+	// runs: the gate must not become a second condition on ordinary work.
+	factory := &cli.Factory{Cfg: &config.Config{DatagenAllowTarget: ""}}
+	if err := checkRepairFaultAllowed(context.Background(), factory, 0); err != nil {
+		t.Fatalf("an ordinary run was refused: %v", err)
+	}
+}
+
+// TestInjectedFaultStopsAfterTheGivenRenames pins the counter the testbed
+// proof depends on: the run applies exactly that many renames and then fails,
+// so the ledger rows it records afterwards can be counted against a number
+// chosen in advance.
+func TestInjectedFaultStopsAfterTheGivenRenames(t *testing.T) {
+	applied := 0
+	beforeRename := func() error {
+		if applied >= 2 {
+			return ErrRepairFaultInjected
+		}
+		applied++
+		return nil
+	}
+	ids := []uuid.UUID{
+		uuid.MustParse("00000000-0000-0000-0000-000000000001"),
+		uuid.MustParse("00000000-0000-0000-0000-000000000002"),
+		uuid.MustParse("00000000-0000-0000-0000-000000000003"),
+		uuid.MustParse("00000000-0000-0000-0000-000000000004"),
+	}
+
+	renamed, err := renumberGroupNodes(ids, 0, func(nodeID uuid.UUID) (ReferenceRename, error) {
+		if faultErr := beforeRename(); faultErr != nil {
+			return ReferenceRename{}, faultErr
+		}
+		return ReferenceRename{NodeID: nodeID, From: "APP-1", To: "APP-9"}, nil
+	})
+
+	if !errors.Is(err, ErrRepairFaultInjected) {
+		t.Fatalf("err = %v, want the injected fault", err)
+	}
+	if len(renamed) != 2 {
+		t.Fatalf("renamed = %d, want exactly the 2 renames the fault allowed", len(renamed))
+	}
+}
+
+// TestUnrecordedLoggingStaysBoundedOnALargeRepair pins the cap on the fallback
+// log. A full production repair carries thousands of items, and one line each
+// during an outbox outage is a log storm that outlives the command's own
+// deadline, so the identities are a bounded sample and the line says how many
+// it left out.
+func TestUnrecordedLoggingStaysBoundedOnALargeRepair(t *testing.T) {
+	var recorded bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&recorded, &slog.HandlerOptions{
+		AddSource: false, Level: slog.LevelError, ReplaceAttr: nil,
+	})))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+
+	report := RepairReferenceReport{Renumbered: nil, Counters: nil, Keys: nil}
+	for i := range 500 {
+		report.Renumbered = append(report.Renumbered, ReferenceRename{
+			OrgID:  uuid.Nil,
+			NodeID: uuid.New(),
+			From:   "APP-" + strconv.Itoa(i),
+			To:     "APP-" + strconv.Itoa(1000+i),
+		})
+	}
+
+	logUnrecordedRepair(context.Background(), report, errors.New("outbox unavailable"))
+
+	lines := strings.Count(recorded.String(), "\n")
+	if lines > 4 {
+		t.Fatalf("log lines = %d, want a bounded handful for a 500-item repair", lines)
+	}
+	if !strings.Contains(recorded.String(), "omitted=450") {
+		t.Fatalf("log = %s, want it to name the 450 identities it left out", recorded.String())
+	}
+	if !strings.Contains(recorded.String(), "total=500") {
+		t.Fatalf("log = %s, want the exact total", recorded.String())
 	}
 }

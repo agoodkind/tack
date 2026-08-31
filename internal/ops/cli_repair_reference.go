@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
+	"strings"
 	"time"
 
 	"goodkind.io/tack/internal/audit"
@@ -21,7 +23,8 @@ const repairRecordTimeout = 30 * time.Second
 
 type repairReferenceUniquenessInput struct {
 	clispec.InputMarker
-	Keep string
+	Keep             string
+	FailAfterRenames int
 }
 
 // repairReferenceRenameResult is one planned or applied reference change. An
@@ -65,11 +68,18 @@ func repairReferenceUniquenessOp(f *cli.Factory) clispec.Operation[repairReferen
 			clispec.StringParam("keep", "which node keeps a contested reference: oldest or newest",
 				keepOldest, false,
 				func(input *repairReferenceUniquenessInput, value string) { input.Keep = value }),
+			clispec.IntParam("fail-after-renames",
+				"testbed only: stop the run after this many renames to prove a partway "+
+					"failure still records what it applied; refused unless "+
+					"TACK_DATAGEN_ALLOW_TARGET is qa or local",
+				0,
+				func(input *repairReferenceUniquenessInput, value int) { input.FailAfterRenames = value }),
 		},
 		New: func() repairReferenceUniquenessInput {
 			return repairReferenceUniquenessInput{
-				InputMarker: clispec.InputMarker{},
-				Keep:        keepOldest,
+				InputMarker:      clispec.InputMarker{},
+				Keep:             keepOldest,
+				FailAfterRenames: 0,
 			}
 		},
 		// The global --execute is the only action gate. Declaring a second flag
@@ -100,6 +110,9 @@ func runRepairReferenceUniquenessCommand(
 	sink clispec.ResultSink,
 	execute bool,
 ) error {
+	if err := checkRepairFaultAllowed(ctx, factory, input.FailAfterRenames); err != nil {
+		return err
+	}
 	env, err := NewEnv(ctx, factory.Cfg)
 	if err != nil {
 		wrapped := fmt.Errorf("open ops environment for the reference repair: %w", err)
@@ -109,8 +122,9 @@ func runRepairReferenceUniquenessCommand(
 	defer env.Close()
 
 	report, err := RepairReferenceUniqueness(ctx, env, RepairReferenceOptions{
-		Execute: execute,
-		Keep:    input.Keep,
+		Execute:          execute,
+		Keep:             input.Keep,
+		FailAfterRenames: input.FailAfterRenames,
 	})
 	if outcomeErr := repairRecordOutcome(ctx, report, err, execute, func(recordCtx context.Context) error {
 		return recordRepairReferenceRun(recordCtx, factory, report)
@@ -142,6 +156,30 @@ func runRepairReferenceUniquenessCommand(
 		return wrapped
 	}
 	return nil
+}
+
+// checkRepairFaultAllowed refuses the fault flag anywhere but a testbed. The
+// flag exists to leave a repair half applied on purpose, which is a thing to
+// do to a disposable environment and never to production, so it reuses the
+// same marker the QA data generator gates its writes on: an environment that
+// does not opt in cannot be made to fail this way.
+func checkRepairFaultAllowed(ctx context.Context, factory *cli.Factory, failAfterRenames int) error {
+	if failAfterRenames <= 0 {
+		return nil
+	}
+	target := ""
+	if factory != nil && factory.Cfg != nil {
+		target = factory.Cfg.DatagenAllowTarget
+	}
+	if target == "qa" || target == "local" {
+		return nil
+	}
+	err := fmt.Errorf(
+		"--fail-after-renames is a testbed fault and needs TACK_DATAGEN_ALLOW_TARGET to be qa or local, not %q",
+		target)
+	slog.ErrorContext(ctx, "repair.reference_uniqueness.fault_refused",
+		slog.String("target", target), slog.String("err", err.Error()))
+	return err
 }
 
 // repairRecordOutcome records what the run applied and returns the error the
@@ -201,33 +239,54 @@ func repairRecordOutcome(
 	return wrapped
 }
 
-// logUnrecordedRepair names every change that is applied and unrecorded. A
-// count cannot be reconciled against the store later; an identity can.
+// unrecordedIdentityLimit bounds how many identities the fallback log names
+// per class. A full production repair carries thousands of items, and one line
+// each during an outbox outage is a log storm that outlives the command's own
+// deadline. The counts are always exact; the identities are a sample, and the
+// line says how many it left out so nobody reads the sample as the whole.
+const unrecordedIdentityLimit = 50
+
+// logUnrecordedRepair names the changes that are applied and unrecorded. A
+// count cannot be reconciled against the store later; an identity can, which is
+// why the identities are logged at all rather than the totals alone.
 func logUnrecordedRepair(ctx context.Context, report RepairReferenceReport, recordErr error) {
 	slog.ErrorContext(ctx, "repair.reference_uniqueness.partial_record_failed",
 		slog.Int("renamed", len(report.Renumbered)),
 		slog.Int("counters_seeded", len(report.Counters)),
 		slog.Int("keys_written", len(report.Keys)),
+		slog.Int("identities_logged_per_class", unrecordedIdentityLimit),
 		slog.String("err", recordErr.Error()))
-	for _, rename := range report.Renumbered {
-		slog.ErrorContext(ctx, "repair.reference_uniqueness.unrecorded_rename",
-			slog.String("node_id", rename.NodeID.String()),
-			slog.String("from", rename.From),
-			slog.String("to", rename.To),
-			slog.String("err", recordErr.Error()))
+	renames := make([]string, 0, min(len(report.Renumbered), unrecordedIdentityLimit))
+	for _, rename := range report.Renumbered[:min(len(report.Renumbered), unrecordedIdentityLimit)] {
+		renames = append(renames, rename.NodeID.String()+" "+rename.From+" to "+rename.To)
 	}
-	for _, counter := range report.Counters {
-		slog.ErrorContext(ctx, "repair.reference_uniqueness.unrecorded_counter",
-			slog.String("counter_key", counter.Key),
-			slog.Int64("value", counter.Value),
-			slog.String("err", recordErr.Error()))
+	logUnrecordedClass(ctx, "renames", renames, len(report.Renumbered), recordErr)
+
+	counters := make([]string, 0, min(len(report.Counters), unrecordedIdentityLimit))
+	for _, counter := range report.Counters[:min(len(report.Counters), unrecordedIdentityLimit)] {
+		counters = append(counters, counter.Key+"="+strconv.FormatInt(counter.Value, 10))
 	}
-	for _, key := range report.Keys {
-		slog.ErrorContext(ctx, "repair.reference_uniqueness.unrecorded_key",
-			slog.String("node_id", key.NodeID.String()),
-			slog.String("encoded", key.Encoded),
-			slog.String("err", recordErr.Error()))
+	logUnrecordedClass(ctx, "counter seeds", counters, len(report.Counters), recordErr)
+
+	keys := make([]string, 0, min(len(report.Keys), unrecordedIdentityLimit))
+	for _, key := range report.Keys[:min(len(report.Keys), unrecordedIdentityLimit)] {
+		keys = append(keys, key.NodeID.String()+" "+key.Encoded)
 	}
+	logUnrecordedClass(ctx, "reference keys", keys, len(report.Keys), recordErr)
+}
+
+// logUnrecordedClass writes one line for a class of unrecorded work, carrying
+// a bounded sample of identities and the number it omitted.
+func logUnrecordedClass(ctx context.Context, class string, sample []string, total int, recordErr error) {
+	if total == 0 {
+		return
+	}
+	slog.ErrorContext(ctx, "repair.reference_uniqueness.unrecorded",
+		slog.String("class", class),
+		slog.Int("total", total),
+		slog.Int("omitted", total-len(sample)),
+		slog.String("identities", strings.Join(sample, "; ")),
+		slog.String("err", recordErr.Error()))
 }
 
 // recordRepairReferenceRun puts one ledger row behind every reference the run
