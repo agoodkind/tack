@@ -51,9 +51,14 @@ Add `--fdb-target-time` to restore FoundationDB to one moment instead of the
 latest restorable point. Write the moment as RFC 3339 (`2026-08-30T01:07:23Z`)
 or in FoundationDB's own form (`2026/08/30.01:07:23+0000`); both carry an
 explicit offset, so a target time means the same instant wherever it is typed.
+Name a whole second. FoundationDB resolves a target to a version through a
+timestamp that has no fractional-second field, so the drill refuses a fraction
+rather than restoring the whole second before the moment you asked for.
+
 The drill reads the backup's restorable window before it restores and stops
-when the target falls outside it, naming the window. It never substitutes the
-latest for a moment it cannot reach.
+when the target falls outside it, naming the window. Giving the flag is what
+selects a moment, so every moment you name is checked, and the drill never
+substitutes the latest for one it cannot reach.
 
 ## Confirming the backups are still current
 

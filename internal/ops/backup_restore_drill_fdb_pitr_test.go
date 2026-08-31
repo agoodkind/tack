@@ -2,6 +2,7 @@ package ops
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +12,13 @@ import (
 
 const drillDestURL = "blobstore://drill-access:drill-secret@fdb-blobstore-host:8333/20260830T000000Z" + // gitleaks:allow test placeholder
 	"?bucket=tack-backups&region=us-east-1&secure_connection=0"
+
+// hostileDestURL is a destination URL whose backup name carries shell syntax.
+// The backup name is read out of the bucket rather than written here, so it is
+// only as trustworthy as the objects under backups/, and the URL as a whole
+// carries the blobstore access key and secret.
+const hostileDestURL = "blobstore://drill-access:drill-secret@fdb-blobstore-host:8333/" + // gitleaks:allow test placeholder
+	"20260830T000000Z'; touch /tmp/pwned; '?bucket=tack-backups"
 
 // describeWithTimestamps is the shape `fdbbackup describe --version-timestamps`
 // prints on foundationdb 7.4.6, per the format strings compiled into its
@@ -25,49 +33,113 @@ const describeWithTimestamps = "URL: " + drillDestURL + "\n" +
 	"MinRestorableVersion:    100700000 (2026/08/30.01:00:00+0000)\n" +
 	"MaxRestorableVersion:    100731044 (2026/08/30.01:10:03+0000)\n"
 
-// TestFDBRestoreShellCommandRestoresLatestByDefault locks the unchanged
-// default: with no target time the drill runs exactly the command it ran
-// before point-in-time restore existed, naming neither a moment nor the source
+// TestFDBRestoreCommandRestoresLatestByDefault locks the unchanged default:
+// with no target the drill runs exactly the restore it ran before
+// point-in-time restore existed, naming neither a moment nor the source
 // cluster.
-func TestFDBRestoreShellCommandRestoresLatestByDefault(t *testing.T) {
-	got := fdbRestoreShellCommand(drillDestURL, time.Time{}, 1800)
-
-	want := "timeout 1800 fdbrestore start --dest-cluster-file /var/fdb/fdb.cluster" +
-		" -r '" + drillDestURL + "' --waitfordone"
-	if got != want {
-		t.Fatalf("default restore command changed:\n got %q\nwant %q", got, want)
+func TestFDBRestoreCommandRestoresLatestByDefault(t *testing.T) {
+	got, err := fdbRestoreCommand(drillDestURL, nil, 1800)
+	if err != nil {
+		t.Fatalf("fdbRestoreCommand with no target: %v", err)
 	}
-	if strings.Contains(got, "--timestamp") || strings.Contains(got, "--orig-cluster-file") {
-		t.Fatalf("default restore must name no target time and no source cluster: %q", got)
+
+	want := []string{
+		"timeout", "1800",
+		"fdbrestore", "start",
+		"--dest-cluster-file", "/var/fdb/fdb.cluster",
+		"-r", drillDestURL,
+		"--waitfordone",
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("default restore command changed:\n got %q\nwant %q", got, want)
 	}
 }
 
-// TestFDBRestoreShellCommandCarriesTargetAndSourceCluster proves a target time
-// reaches fdbrestore together with the source cluster file it needs to convert
-// that time to a version, and that the restore still writes to the throwaway.
-func TestFDBRestoreShellCommandCarriesTargetAndSourceCluster(t *testing.T) {
+// TestFDBRestoreCommandCarriesTargetAndSourceCluster proves a target reaches
+// fdbrestore together with the source cluster file it needs to convert that
+// time to a version, and that the restore still writes to the throwaway.
+func TestFDBRestoreCommandCarriesTargetAndSourceCluster(t *testing.T) {
 	target := time.Date(2026, 8, 30, 1, 5, 0, 0, time.UTC)
 
-	got := fdbRestoreShellCommand(drillDestURL, target, 1800)
-
-	for _, want := range []string{
-		"--dest-cluster-file /var/fdb/fdb.cluster",
-		"--timestamp '2026/08/30.01:05:00+0000'",
-		"--orig-cluster-file /tack-orig-fdb/fdb.cluster",
-		"--waitfordone",
-	} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("restore command missing %q: %q", want, got)
-		}
+	got, err := fdbRestoreCommand(drillDestURL, &target, 1800)
+	if err != nil {
+		t.Fatalf("fdbRestoreCommand with a whole-second target: %v", err)
 	}
-	if strings.Contains(got, "--dest-cluster-file "+fdbOrigClusterFilePath) {
-		t.Fatalf("restore must never write to the source cluster: %q", got)
+
+	want := []string{
+		"timeout", "1800",
+		"fdbrestore", "start",
+		"--dest-cluster-file", "/var/fdb/fdb.cluster",
+		"-r", drillDestURL,
+		"--waitfordone",
+		"--timestamp", "2026/08/30.01:05:00+0000",
+		"--orig-cluster-file", "/tack-orig-fdb/fdb.cluster",
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("targeted restore command changed:\n got %q\nwant %q", got, want)
 	}
 	// FoundationDB falls back to /etc/foundationdb/fdb.cluster when no cluster
 	// file is named, so the live cluster must not sit on that path inside the
 	// throwaway container.
 	if strings.Contains(fdbOrigClusterFilePath, "/etc/foundationdb/") {
 		t.Fatalf("source cluster file must not occupy FoundationDB's default path: %q", fdbOrigClusterFilePath)
+	}
+}
+
+// TestFDBCommandsCarryTheDestinationAsOneArgument is the guard against a
+// destination URL becoming shell syntax. The URL carries the blobstore
+// credentials and a backup name read out of the bucket, so quoting it into a
+// shell string is what would let a quote in either append commands to a
+// container that can reach the live cluster. A vector cannot be escaped from.
+func TestFDBCommandsCarryTheDestinationAsOneArgument(t *testing.T) {
+	target := time.Date(2026, 8, 30, 1, 5, 0, 0, time.UTC)
+	restore, err := fdbRestoreCommand(hostileDestURL, &target, 1800)
+	if err != nil {
+		t.Fatalf("fdbRestoreCommand: %v", err)
+	}
+	describe := fdbDescribeCommand(hostileDestURL, 1800)
+
+	for name, command := range map[string][]string{"restore": restore, "describe": describe} {
+		t.Run(name, func(t *testing.T) {
+			if slices.Contains(command, "sh") || slices.Contains(command, "-c") {
+				t.Fatalf("engine commands must not run through a shell: %q", command)
+			}
+			whole := 0
+			for _, arg := range command {
+				if arg == hostileDestURL {
+					whole++
+					continue
+				}
+				if strings.Contains(arg, "touch /tmp/pwned") {
+					t.Fatalf("destination URL leaked out of its own argument: %q", command)
+				}
+			}
+			if whole != 1 {
+				t.Fatalf("destination URL must be exactly one whole argument, appeared %d times: %q",
+					whole, command)
+			}
+		})
+	}
+}
+
+// TestFDBRestoreCommandRefusesSubSecondTarget proves no caller can assemble a
+// restore that silently drops the fraction of a second an operator named. The
+// flag path refuses it earlier, but a target only becomes a moment here.
+func TestFDBRestoreCommandRefusesSubSecondTarget(t *testing.T) {
+	target := time.Date(2026, 8, 30, 1, 5, 0, 900000000, time.UTC)
+
+	got, err := fdbRestoreCommand(drillDestURL, &target, 1800)
+
+	if err == nil {
+		t.Fatalf("a sub-second target must not assemble a restore: %q", got)
+	}
+	if got != nil {
+		t.Fatalf("a refused target must yield no command: %q", got)
+	}
+	for _, want := range []string{"2026-08-30T01:05:00.9Z", fdbTimestampArgForm, "2026/08/30.01:05:00+0000"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("refusal must name %q so the operator can pick a moment: %v", want, err)
+		}
 	}
 }
 
@@ -80,21 +152,21 @@ func TestFDBTargetTimeMountIsReadOnlySourceCluster(t *testing.T) {
 	}
 }
 
-// TestFDBDescribeShellCommandReadsWindowFromSourceCluster proves the window
-// lookup asks the source cluster and requests wall-clock timestamps, without
-// which the window cannot be compared to an operator's target time.
-func TestFDBDescribeShellCommandReadsWindowFromSourceCluster(t *testing.T) {
-	got := fdbDescribeShellCommand(drillDestURL, 1800)
+// TestFDBDescribeCommandReadsWindowFromSourceCluster proves the window lookup
+// asks the source cluster and requests wall-clock timestamps, without which the
+// window cannot be compared to an operator's target time.
+func TestFDBDescribeCommandReadsWindowFromSourceCluster(t *testing.T) {
+	got := fdbDescribeCommand(drillDestURL, 1800)
 
-	for _, want := range []string{
-		"fdbbackup describe",
-		"-d '" + drillDestURL + "'",
-		"-C " + fdbOrigClusterFilePath,
+	want := []string{
+		"timeout", "1800",
+		"fdbbackup", "describe",
+		"-d", drillDestURL,
+		"-C", fdbOrigClusterFilePath,
 		"--version-timestamps",
-	} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("describe command missing %q: %q", want, got)
-		}
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("describe command changed:\n got %q\nwant %q", got, want)
 	}
 }
 
@@ -252,6 +324,57 @@ func TestParseFDBTargetTimeRefusesAmbiguousInput(t *testing.T) {
 	}
 }
 
+// TestParseFDBTargetTimeRefusesSubSecondInput covers the fraction of a second
+// FoundationDB's --timestamp cannot express. Go's time.Parse takes a fraction
+// after the seconds even though neither accepted layout declares one, so both
+// input forms can carry a precision the restore would drop, landing the drill
+// on the whole second before the moment asked for.
+func TestParseFDBTargetTimeRefusesSubSecondInput(t *testing.T) {
+	for _, input := range []string{
+		"2026-08-30T01:05:00.9Z",
+		"2026-08-29T21:05:00.000000001-04:00",
+		"2026/08/30.01:05:00.9+0000",
+	} {
+		t.Run(input, func(t *testing.T) {
+			got, err := parseFDBTargetTime(input)
+			if err == nil {
+				t.Fatalf("parseFDBTargetTime(%q) = %s, must refuse a precision the restore drops",
+					input, formatFDBTime(got))
+			}
+			if !strings.Contains(err.Error(), fdbTimestampArgForm) {
+				t.Fatalf("refusal must name the form a target has to fit: %v", err)
+			}
+		})
+	}
+}
+
+// TestParseFDBTargetTimeKeepsTheZeroTimeExplicit is the other half of that
+// guard. The zero instant parses like any other moment, and the drill must
+// still treat it as a moment the operator named rather than as no moment at
+// all, which is what carrying it in a pointer buys.
+func TestParseFDBTargetTimeKeepsTheZeroTimeExplicit(t *testing.T) {
+	parsed, err := parseFDBTargetTime("0001-01-01T00:00:00Z")
+	if err != nil {
+		t.Fatalf("parseFDBTargetTime of the zero instant: %v", err)
+	}
+
+	latest, err := fdbRestoreCommand(drillDestURL, nil, 1800)
+	if err != nil {
+		t.Fatalf("fdbRestoreCommand with no target: %v", err)
+	}
+	explicit, err := fdbRestoreCommand(drillDestURL, &parsed, 1800)
+	if err != nil {
+		t.Fatalf("fdbRestoreCommand with the zero instant: %v", err)
+	}
+
+	if slices.Equal(explicit, latest) {
+		t.Fatalf("an explicit target assembled the latest-point restore: %q", explicit)
+	}
+	if !slices.Contains(explicit, "0001/01/01.00:00:00+0000") {
+		t.Fatalf("an explicit target must reach fdbrestore as itself: %q", explicit)
+	}
+}
+
 // TestAssertFDBTargetRestorableSkipsTheWindowCheckByDefault proves the default
 // drill never reads the window and never reaches the source cluster: the
 // context carries no Docker client, so any attempt to exec would panic.
@@ -262,10 +385,47 @@ func TestAssertFDBTargetRestorableSkipsTheWindowCheckByDefault(t *testing.T) {
 		RunID:         "run",
 		YBPass:        "pass",
 		YBRunKey:      "",
-		FDBTargetTime: time.Time{},
+		FDBTargetTime: nil,
 	}
 
 	if err := assertFDBTargetRestorable(context.Background(), drill, "tack-rtfdb-run", drillDestURL); err != nil {
 		t.Fatalf("a drill with no target time must not check a window: %v", err)
+	}
+}
+
+// TestAssertFDBTargetRestorableChecksTheWindowForTheZeroTime proves the check
+// no longer reads an explicit target as an absent one. The context carries no
+// Docker client, so a drill that reaches the describe exec panics; recovering
+// that panic is the observation that the window check ran. Before the target
+// became a pointer this returned nil and the drill went on to restore the
+// latest point.
+func TestAssertFDBTargetRestorableChecksTheWindowForTheZeroTime(t *testing.T) {
+	zeroInstant := time.Time{}
+	drill := &restoreDrillCtx{
+		Cfg:           &config.Config{BackupFDBTimeoutSeconds: 1800},
+		Cli:           nil,
+		RunID:         "run",
+		YBPass:        "pass",
+		YBRunKey:      "",
+		FDBTargetTime: &zeroInstant,
+	}
+
+	reached := false
+	func() {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				t.Logf("window check reached the describe exec and panicked on the absent client: %v", recovered)
+				reached = true
+			}
+		}()
+		if err := assertFDBTargetRestorable(
+			context.Background(), drill, "tack-rtfdb-run", drillDestURL); err != nil {
+			t.Logf("window check reached the describe exec and errored: %v", err)
+			reached = true
+		}
+	}()
+
+	if !reached {
+		t.Fatal("an explicitly named zero instant was treated as no target and skipped the window check")
 	}
 }

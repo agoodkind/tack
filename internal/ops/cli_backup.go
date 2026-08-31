@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 
@@ -85,8 +84,10 @@ func backupYBArchiveNodeCommand(f *cli.Factory) *cobra.Command {
 //
 // --fdb-target-time restores FoundationDB to one moment instead of the latest
 // restorable point, and is refused when that moment falls outside the backup's
-// restorable window. Without it the FoundationDB leg restores the latest, which
-// is what the drill has always done.
+// restorable window or names a fraction of a second fdbrestore cannot express.
+// Whether the flag was given is what selects a moment, so any moment the
+// operator names is an explicit target. Without the flag the FoundationDB leg
+// restores the latest, which is what the drill has always done.
 func backupRestoreDrillCommand(f *cli.Factory) *cobra.Command {
 	var ybRunKey string
 	var fdbTargetTime string
@@ -98,16 +99,16 @@ func backupRestoreDrillCommand(f *cli.Factory) *cobra.Command {
 	cmd.Flags().StringVar(&ybRunKey, "yb-run-key", "",
 		"yugabyte export run key to drill, refused if incomplete (default: the newest complete run)")
 	cmd.Flags().StringVar(&fdbTargetTime, "fdb-target-time", "",
-		"moment to restore FoundationDB to, as RFC 3339 (2026-08-30T01:07:23Z) or 2026/08/30.01:07:23+0000,"+
+		"whole second to restore FoundationDB to, as RFC 3339 (2026-08-30T01:07:23Z) or 2026/08/30.01:07:23+0000,"+
 			" refused if outside the backup's restorable window (default: the latest restorable point)")
 	clispec.AttachAudit(cmd, f, audit.Spec{Verb: string(audit.VerbOpsBackupRestoreDrill), Mutates: true}, func(ctx context.Context) error {
-		opts := RestoreDrillOptions{YBRunKey: ybRunKey, FDBTargetTime: time.Time{}}
+		opts := RestoreDrillOptions{YBRunKey: ybRunKey, FDBTargetTime: nil}
 		if fdbTargetTime != "" {
 			parsed, err := parseFDBTargetTime(fdbTargetTime)
 			if err != nil {
 				return err
 			}
-			opts.FDBTargetTime = parsed
+			opts.FDBTargetTime = &parsed
 		}
 		return RunBackupRestoreDrill(ctx, f.Cfg, opts)
 	})

@@ -36,8 +36,10 @@ type restoreDrillCtx struct {
 	// explicit key is refused if that run is incomplete.
 	YBRunKey string
 	// FDBTargetTime is the moment the FoundationDB leg restores to
-	// (--fdb-target-time). The zero time restores the latest restorable point.
-	FDBTargetTime  time.Time
+	// (--fdb-target-time). Nil restores the latest restorable point. Presence
+	// carries the operator's choice, so no moment they can name reads as
+	// having named none.
+	FDBTargetTime  *time.Time
 	containerNames []string
 	volumeNames    []string
 }
@@ -69,8 +71,10 @@ type RestoreDrillOptions struct {
 	YBRunKey string
 	// FDBTargetTime restores FoundationDB to that moment instead of the latest
 	// restorable point, and is refused when it falls outside the backup's
-	// restorable window. The zero time means the latest.
-	FDBTargetTime time.Time
+	// restorable window. Nil means the latest. It is a pointer so that a
+	// moment carrying no information, such as the zero time, is still an
+	// explicit target and is still checked against the window.
+	FDBTargetTime *time.Time
 }
 
 // RunBackupRestoreDrill restores FoundationDB (from the continuous backup) and

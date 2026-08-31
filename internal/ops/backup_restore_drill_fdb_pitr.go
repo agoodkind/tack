@@ -1,7 +1,8 @@
 // backup_restore_drill_fdb_pitr.go restores FoundationDB to an operator-chosen
 // moment instead of the latest restorable point. It assembles the two engine
-// command lines the drill runs, and refuses a target the backup cannot reach
-// before any restore starts.
+// commands the drill runs and refuses a target the backup cannot reach, both
+// before any restore starts. Reading and rendering the target itself lives
+// beside the flag that carries it.
 
 package ops
 
@@ -9,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -41,55 +43,77 @@ const (
 	fdbOrigClusterMount = "/etc/foundationdb/fdb.cluster:" + fdbOrigClusterFilePath + ":ro"
 )
 
-// fdbRestoreShellCommand builds the shell command the drill runs inside the
-// throwaway container. With the zero target time it restores the latest
-// restorable point, which is all the drill could do before point-in-time
-// restore existed. With a target time it adds --timestamp and
-// --orig-cluster-file, the pair fdbrestore needs to turn a wall-clock moment
-// into a version. The destination stays the throwaway's own cluster file
-// either way.
+// fdbRestoreCommand builds the argument vector the drill execs inside the
+// throwaway container. A nil target restores the latest restorable point, which
+// is all the drill could do before point-in-time restore existed. A target adds
+// --timestamp and --orig-cluster-file, the pair fdbrestore needs to turn a
+// wall-clock moment into a version. The destination stays the throwaway's own
+// cluster file either way.
 //
-// Flag names and the timestamp layout are foundationdb 7.4.6's own, from
+// The vector reaches the engine through docker exec, so no shell parses it and
+// the destination URL is one argument however it is punctuated. That matters
+// twice over: the URL carries the blobstore access key and secret, and the
+// backup name inside it comes from whatever objects the bucket holds.
+//
+// Flag names and the timestamp form are foundationdb 7.4.6's own, from
 // `fdbrestore --help` in the pinned image.
-func fdbRestoreShellCommand(destURL string, targetTime time.Time, timeoutSeconds int) string {
-	command := fmt.Sprintf(
-		"timeout %d fdbrestore start --dest-cluster-file %s -r '%s' --waitfordone",
-		timeoutSeconds, fdbScratchClusterFile, destURL)
-	if targetTime.IsZero() {
-		return command
+func fdbRestoreCommand(destURL string, targetTime *time.Time, timeoutSeconds int) ([]string, error) {
+	command := []string{
+		"timeout", strconv.Itoa(timeoutSeconds),
+		"fdbrestore", "start",
+		"--dest-cluster-file", fdbScratchClusterFile,
+		"-r", destURL,
+		"--waitfordone",
 	}
-	return command + fmt.Sprintf(" --timestamp '%s' --orig-cluster-file %s",
-		formatFDBTime(targetTime), fdbOrigClusterFilePath)
+	if targetTime == nil {
+		return command, nil
+	}
+	timestamp, err := fdbRestoreTimestampArg(*targetTime)
+	if err != nil {
+		return nil, err
+	}
+	return append(command,
+		"--timestamp", timestamp,
+		"--orig-cluster-file", fdbOrigClusterFilePath,
+	), nil
 }
 
-// fdbDescribeShellCommand builds the `fdbbackup describe` call that reads the
+// fdbDescribeCommand builds the `fdbbackup describe` vector that reads the
 // backup's restorable window. --version-timestamps turns the reported versions
 // into wall-clock times and needs a cluster file to do it; that cluster file is
-// the source cluster, because the versions in the backup are the source's.
-func fdbDescribeShellCommand(destURL string, timeoutSeconds int) string {
-	return fmt.Sprintf(
-		"timeout %d fdbbackup describe -d '%s' -C %s --version-timestamps",
-		timeoutSeconds, destURL, fdbOrigClusterFilePath)
+// the source cluster, because the versions in the backup are the source's. Like
+// the restore, it is a vector so the credential-bearing URL is never shell text.
+func fdbDescribeCommand(destURL string, timeoutSeconds int) []string {
+	return []string{
+		"timeout", strconv.Itoa(timeoutSeconds),
+		"fdbbackup", "describe",
+		"-d", destURL,
+		"-C", fdbOrigClusterFilePath,
+		"--version-timestamps",
+	}
 }
 
 // assertFDBTargetRestorable refuses a target time the backup cannot reach,
-// before the restore runs. A drill with no target time is a no-op here, so the
-// default path neither reads the window nor touches the source cluster.
+// before the restore runs. A drill with no target is a no-op here, so the
+// default path neither reads the window nor touches the source cluster. A drill
+// that has a target always runs this check, because the target is present or
+// absent rather than present-or-zero, so no moment an operator can name reads
+// as no moment at all.
 //
 // The describe output embeds the blobstore credentials in the destination URL,
 // so it is redacted on the error path and never logged whole.
 func assertFDBTargetRestorable(ctx context.Context, r *restoreDrillCtx, containerName, destURL string) error {
-	if r.FDBTargetTime.IsZero() {
+	if r.FDBTargetTime == nil {
 		return nil
 	}
+	target := *r.FDBTargetTime
 	logger := telemetry.L(ctx)
 	fail := func(err error) error {
 		logger.ErrorContext(ctx, "backup.restore_drill.fdb.failed", slog.String("err", err.Error()))
 		return err
 	}
-	res, err := containerExec(ctx, r.Cli, containerName, []string{
-		"sh", "-c", fdbDescribeShellCommand(destURL, r.Cfg.BackupFDBTimeoutSeconds),
-	})
+	res, err := containerExec(ctx, r.Cli, containerName,
+		fdbDescribeCommand(destURL, r.Cfg.BackupFDBTimeoutSeconds))
 	if err != nil {
 		return fail(fmt.Errorf("fdbbackup describe exec: %w", err))
 	}
@@ -101,49 +125,13 @@ func assertFDBTargetRestorable(ctx context.Context, r *restoreDrillCtx, containe
 	if err != nil {
 		return fail(err)
 	}
-	if err := assertTargetWithinWindow(r.FDBTargetTime, window); err != nil {
+	if err := assertTargetWithinWindow(target, window); err != nil {
 		return fail(err)
 	}
 	logger.InfoContext(ctx, "backup.restore_drill.fdb.target_in_window",
-		slog.String("target", formatFDBTime(r.FDBTargetTime)),
+		slog.String("target", formatFDBTime(target)),
 		slog.String("window_min", formatFDBTime(window.Min)),
 		slog.String("window_max", formatFDBTime(window.Max)),
 	)
 	return nil
-}
-
-// assertTargetWithinWindow refuses a target the backup cannot reach, naming the
-// window so the operator can pick a moment that works. Handing an out-of-window
-// time to fdbrestore is exactly what this guard exists for: the restore would
-// otherwise produce data from some other moment and report success.
-func assertTargetWithinWindow(target time.Time, window fdbRestorableWindow) error {
-	if target.Before(window.Min) || target.After(window.Max) {
-		return fmt.Errorf(
-			"restore target %s is outside the backup's restorable window %s .. %s",
-			formatFDBTime(target), formatFDBTime(window.Min), formatFDBTime(window.Max))
-	}
-	return nil
-}
-
-// parseFDBTargetTime reads the operator's --fdb-target-time. Both accepted
-// forms carry an explicit UTC offset, so a target time can never mean two
-// moments depending on where it was typed. RFC 3339 is the form an operator
-// writes; the FoundationDB form is the one they can copy straight out of
-// `fdbbackup describe` or `fdbbackup status` output.
-func parseFDBTargetTime(value string) (time.Time, error) {
-	for _, layout := range []string{time.RFC3339, fdbStatusTimestampLayout} {
-		at, err := time.Parse(layout, value)
-		if err == nil {
-			return at, nil
-		}
-	}
-	return time.Time{}, fmt.Errorf("restore target time %q is not a time:"+
-		" write it as RFC 3339 (2026-08-30T01:07:23Z)"+
-		" or in FoundationDB's own form (2026/08/30.01:07:23+0000)", value)
-}
-
-// formatFDBTime renders a moment the way FoundationDB's own tools print and
-// accept it, in UTC so a drill's logs and errors read the same everywhere.
-func formatFDBTime(at time.Time) string {
-	return at.UTC().Format(fdbStatusTimestampLayout)
 }

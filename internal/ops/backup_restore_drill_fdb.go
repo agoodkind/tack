@@ -36,10 +36,10 @@ func redactSecret(cfg *config.Config, s string) string {
 // container-mode coordinator; it never joins the live cluster. The backup name
 // is discovered from the bucket, not a local pointer.
 //
-// r.FDBTargetTime selects the moment to restore to. The zero time restores the
-// latest restorable point. A target time is checked against the backup's
-// restorable window before any restore starts, so a moment the backup cannot
-// reach stops the drill instead of quietly restoring the latest.
+// r.FDBTargetTime selects the moment to restore to. No target restores the
+// latest restorable point. A target is checked against the backup's restorable
+// window before any restore starts, so a moment the backup cannot reach stops
+// the drill instead of quietly restoring the latest.
 func restoreDrillFDB(ctx context.Context, r *restoreDrillCtx) error {
 	logger := telemetry.L(ctx)
 	logger.InfoContext(ctx, "backup.restore_drill.fdb.start")
@@ -86,10 +86,12 @@ func restoreDrillFDB(ctx context.Context, r *restoreDrillCtx) error {
 		return err
 	}
 
-	restoreRes, err := containerExec(ctx, r.Cli, name, []string{
-		"sh", "-c",
-		fdbRestoreShellCommand(dest, r.FDBTargetTime, r.Cfg.BackupFDBTimeoutSeconds),
-	})
+	restoreCmd, err := fdbRestoreCommand(dest, r.FDBTargetTime, r.Cfg.BackupFDBTimeoutSeconds)
+	if err != nil {
+		logger.ErrorContext(ctx, "backup.restore_drill.fdb.failed", slog.String("err", err.Error()))
+		return err
+	}
+	restoreRes, err := containerExec(ctx, r.Cli, name, restoreCmd)
 	if err != nil {
 		return fmt.Errorf("fdbrestore exec: %w", err)
 	}
@@ -135,7 +137,7 @@ func bootScratchFDB(ctx context.Context, r *restoreDrillCtx, name string, extraH
 		volume + ":/var/fdb",
 		r.Cfg.BackupFDBOverlayPath + ":/var/fdb/scripts/fdb.bash:ro",
 	}
-	if !r.FDBTargetTime.IsZero() {
+	if r.FDBTargetTime != nil {
 		// fdbrestore resolves a wall-clock target against the source cluster,
 		// so the live cluster's file has to be readable in here. Read-only,
 		// and only for a run that asked for a point in time.
