@@ -47,6 +47,28 @@ func TestBareBackupCommandRefuses(t *testing.T) {
 	}
 }
 
+// TestRestoreDrillRefusesUnparseableTargetTime drives the real command and
+// proves --fdb-target-time is validated before the drill does anything. The
+// factory has no Docker daemon and no object store, so reaching the drill body
+// would fail with a different error than the one asserted here.
+func TestRestoreDrillRefusesUnparseableTargetTime(t *testing.T) {
+	factory := &cli.Factory{}
+	factory.SetOperatorIdentitySource(backupTestSource{})
+	factory.SetAuditOutbox(backupTestOutbox{})
+	cmd := backupCommand(factory)
+	factory.RegisterGlobalFlags(cmd)
+	cmd.SetArgs([]string{"restore-drill", "--fdb-target-time", "yesterday", "--execute"})
+
+	err := cmd.Execute()
+
+	if err == nil {
+		t.Fatal("an unparseable --fdb-target-time must stop the drill")
+	}
+	if !strings.Contains(err.Error(), "is not a time") {
+		t.Fatalf("error must explain the target time was rejected, got: %v", err)
+	}
+}
+
 func TestBackupHelpSubcommand(t *testing.T) {
 	tests := []struct {
 		name string

@@ -74,13 +74,23 @@ func backupYBArchiveNodeCommand(f *cli.Factory) *cobra.Command {
 	return cmd
 }
 
-// backupRestoreDrillCommand builds the restore-drill leaf. Its one flag,
-// --yb-run-key, pins the yugabyte leg to a specific export run, which is
-// refused if incomplete; without it the drill walks back to the newest
-// complete run, because the newest run being mid-archive is the normal window
-// between the orchestrator and the node timers.
+// backupRestoreDrillCommand builds the restore-drill leaf. Each flag pins one
+// leg to something narrower than its default.
+//
+// --yb-run-key pins the yugabyte leg to a specific export run, which is refused
+// if incomplete; without it the drill walks back to the newest complete run,
+// because the newest run being mid-archive is the normal window between the
+// orchestrator and the node timers.
+//
+// --fdb-target-time restores FoundationDB to one moment instead of the latest
+// restorable point, and is refused when that moment falls outside the backup's
+// restorable window or names a fraction of a second fdbrestore cannot express.
+// Whether the flag was given is what selects a moment, so any moment the
+// operator names is an explicit target. Without the flag the FoundationDB leg
+// restores the latest, which is what the drill has always done.
 func backupRestoreDrillCommand(f *cli.Factory) *cobra.Command {
 	var ybRunKey string
+	var fdbTargetTime string
 	cmd := &cobra.Command{
 		Use:   "restore-drill",
 		Short: "Restore each store into throwaway containers and assert data is present",
@@ -88,8 +98,19 @@ func backupRestoreDrillCommand(f *cli.Factory) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&ybRunKey, "yb-run-key", "",
 		"yugabyte export run key to drill, refused if incomplete (default: the newest complete run)")
+	cmd.Flags().StringVar(&fdbTargetTime, "fdb-target-time", "",
+		"whole second to restore FoundationDB to, as RFC 3339 (2026-08-30T01:07:23Z) or 2026/08/30.01:07:23+0000,"+
+			" refused if outside the backup's restorable window (default: the latest restorable point)")
 	clispec.AttachAudit(cmd, f, audit.Spec{Verb: string(audit.VerbOpsBackupRestoreDrill), Mutates: true}, func(ctx context.Context) error {
-		return RunBackupRestoreDrill(ctx, f.Cfg, ybRunKey)
+		opts := RestoreDrillOptions{YBRunKey: ybRunKey, FDBTargetTime: nil}
+		if fdbTargetTime != "" {
+			parsed, err := parseFDBTargetTime(fdbTargetTime)
+			if err != nil {
+				return err
+			}
+			opts.FDBTargetTime = &parsed
+		}
+		return RunBackupRestoreDrill(ctx, f.Cfg, opts)
 	})
 	return cmd
 }
