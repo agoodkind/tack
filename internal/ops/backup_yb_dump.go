@@ -17,15 +17,10 @@ package ops
 
 import (
 	"context"
-	"fmt"
-	"log/slog"
-	"os"
-	"strings"
 
 	"github.com/moby/moby/client"
 
 	"goodkind.io/tack/internal/config"
-	"goodkind.io/tack/internal/telemetry"
 )
 
 const (
@@ -85,95 +80,59 @@ func ybRolesDumpArgs(cfg *config.Config) []string {
 
 // ybDumpSpec is one dump one-shot: which dumper runs, the arguments after the
 // shared connection flags, where the file it writes lands on the host, and the
-// log events and error text that name it.
+// log events and error text that name it. attemptEvent names one endpoint's
+// refusal, which is a note about the cluster rather than a failed dump, and is
+// logged even on a run that goes on to succeed elsewhere.
 type ybDumpSpec struct {
-	binary    string
-	args      []string
-	outPath   string
-	label     string
-	okEvent   string
-	failEvent string
+	binary       string
+	args         []string
+	outPath      string
+	label        string
+	okEvent      string
+	attemptEvent string
+	failEvent    string
+}
+
+// ybSchemaDumpSpec describes the schema dump's one-shot. The export_snapshot
+// metadata references table ids this schema recreates on import;
+// --include-yb-metadata preserves the YugabyteDB table properties the import
+// path needs.
+func ybSchemaDumpSpec(cfg *config.Config, schemaPath string) ybDumpSpec {
+	return ybDumpSpec{
+		binary:       ysqlDumpBinary,
+		args:         ybSchemaDumpArgs(cfg),
+		outPath:      schemaPath,
+		label:        "schema",
+		okEvent:      "backup.yb_snapshot.schema_dumped",
+		attemptEvent: "backup.yb_snapshot.schema_endpoint_refused",
+		failEvent:    "backup.yb_snapshot.schema_failed",
+	}
+}
+
+// ybRolesDumpSpec describes the roles dump's one-shot. Without the artifact it
+// writes, a restore has no identity to grant anything to: the schema's
+// privilege statements name roles, and the restore that applies them creates
+// none.
+func ybRolesDumpSpec(cfg *config.Config, rolesPath string) ybDumpSpec {
+	return ybDumpSpec{
+		binary:       ysqlDumpAllBinary,
+		args:         ybRolesDumpArgs(cfg),
+		outPath:      rolesPath,
+		label:        "roles",
+		okEvent:      "backup.yb_snapshot.roles_dumped",
+		attemptEvent: "backup.yb_snapshot.roles_endpoint_refused",
+		failEvent:    "backup.yb_snapshot.roles_failed",
+	}
 }
 
 // dumpYBSchemaOneShot writes a schema-only dump of the database into the
-// bind-mounted stage dir. The export_snapshot metadata references table ids
-// this schema recreates on import; --include-yb-metadata preserves the
-// YugabyteDB table properties the import path needs.
+// bind-mounted stage dir.
 func dumpYBSchemaOneShot(ctx context.Context, cli *client.Client, cfg *config.Config, stageDir, schemaPath string) error {
-	return runYBDumpOneShot(ctx, cli, cfg, stageDir, ybDumpSpec{
-		binary:    ysqlDumpBinary,
-		args:      ybSchemaDumpArgs(cfg),
-		outPath:   schemaPath,
-		label:     "schema",
-		okEvent:   "backup.yb_snapshot.schema_dumped",
-		failEvent: "backup.yb_snapshot.schema_failed",
-	})
+	return runYBDumpOneShot(ctx, cli, cfg, stageDir, ybSchemaDumpSpec(cfg, schemaPath))
 }
 
 // dumpYBRolesOneShot writes the cluster's roles into the bind-mounted stage
-// dir. Without it a restore has no identity to grant anything to: the schema's
-// privilege statements name roles, and the restore that applies them creates
-// none.
+// dir.
 func dumpYBRolesOneShot(ctx context.Context, cli *client.Client, cfg *config.Config, stageDir, rolesPath string) error {
-	return runYBDumpOneShot(ctx, cli, cfg, stageDir, ybDumpSpec{
-		binary:    ysqlDumpAllBinary,
-		args:      ybRolesDumpArgs(cfg),
-		outPath:   rolesPath,
-		label:     "roles",
-		okEvent:   "backup.yb_snapshot.roles_dumped",
-		failEvent: "backup.yb_snapshot.roles_failed",
-	})
-}
-
-// runYBDumpOneShot runs one dumper in a one-shot container the same way the
-// yb-admin one-shots run, pointing it at the first master's node name with the
-// stage dir bind-mounted. A dump that wrote nothing is refused rather than
-// shipped, because an empty artifact restores as an absence nobody notices.
-func runYBDumpOneShot(
-	ctx context.Context,
-	cli *client.Client,
-	cfg *config.Config,
-	stageDir string,
-	spec ybDumpSpec,
-) error {
-	logger := telemetry.L(ctx)
-	host := ybFirstMasterHost(cfg.BackupYBMasterAddresses)
-	cmd := append([]string{"-h", host, "-p", ybDumpPort, "-U", cfg.YugabyteUser}, spec.args...)
-	res, err := runOneShot(ctx, cli, logger, runOneShotOptions{
-		Image:      cfg.BackupYBPITRImage,
-		Network:    cfg.BackupFDBNetwork,
-		Entrypoint: []string{spec.binary},
-		Cmd:        cmd,
-		Env:        []string{"PGPASSWORD=" + cfg.YugabytePassword},
-		Binds:      []string{stageDir + ":" + ybDumpOutDir},
-		ExtraHosts: nil,
-		Name:       "",
-	})
-	if err != nil {
-		wrapped := fmt.Errorf("ysql %s dump one-shot: %w", spec.label, err)
-		logger.ErrorContext(ctx, spec.failEvent, slog.String("err", wrapped.Error()))
-		return wrapped
-	}
-	if res.ExitCode != 0 {
-		wrapped := fmt.Errorf("ysql %s dump exited %d: %s", spec.label, res.ExitCode,
-			strings.TrimSpace(res.Stdout+" "+res.Stderr))
-		logger.ErrorContext(ctx, spec.failEvent, slog.String("err", wrapped.Error()))
-		return wrapped
-	}
-
-	info, err := os.Stat(spec.outPath)
-	if err != nil {
-		wrapped := fmt.Errorf("stat %s: %w", spec.outPath, err)
-		logger.ErrorContext(ctx, spec.failEvent, slog.String("err", wrapped.Error()))
-		return wrapped
-	}
-	if info.Size() == 0 {
-		wrapped := fmt.Errorf("ysql %s dump produced 0 bytes; refuse to ship an empty %s",
-			spec.label, spec.label)
-		logger.ErrorContext(ctx, spec.failEvent, slog.String("err", wrapped.Error()))
-		return wrapped
-	}
-	logger.InfoContext(ctx, spec.okEvent,
-		slog.String("path", spec.outPath), slog.Int64("bytes", info.Size()))
-	return nil
+	return runYBDumpOneShot(ctx, cli, cfg, stageDir, ybRolesDumpSpec(cfg, rolesPath))
 }

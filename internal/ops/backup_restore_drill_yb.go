@@ -71,7 +71,7 @@ func restoreDrillYugabyte(ctx context.Context, r *restoreDrillCtx) error {
 		return err
 	}
 	if err := ybRunSQL(ctx, r, name, manifest.Database,
-		"-v", "ON_ERROR_STOP=1", "-q", "-f", "/artifacts/"+ybSnapshotSchemaObject); err != nil {
+		"-v", "ON_ERROR_STOP=1", "-q", "-f", ybDrillArtifactPath(ybSnapshotSchemaObject)); err != nil {
 		wrapped := fmt.Errorf("apply schema: %w", err)
 		logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", wrapped.Error()))
 		return wrapped
@@ -231,17 +231,25 @@ func newestCompleteYBSnapshotRun(
 }
 
 // ybDrillManifestDefect reports why a manifest cannot be drilled, or "" when
-// it is well-formed: the manifest must name the snapshot and the database, and
-// a manifest that lists no tablet-server nodes or no run artifacts would gate
-// nothing. A manifest declaring no artifacts is an export written before the
-// run carried its own roles file, and a restore from it produces a database no
-// application role can read, so it is refused rather than drilled.
+// it is well-formed: the manifest must name the snapshot and the database, it
+// must declare every artifact the restore opens by name, and it must list at
+// least one tablet-server node or it would gate nothing.
+//
+// The declaration is checked here, against the manifest alone, because it is a
+// defect in how the run describes itself rather than a report on the object
+// store. A run declaring fewer artifacts than a restore reads (an export
+// written before the run carried its own roles file, or one whose declaration
+// was truncated) is unusable however many of the objects it named are present:
+// the drill would select it as the newest complete run and then fail deep in
+// the restore on a path nothing gated. Naming the undeclared artifacts here
+// keeps that separate from "the run declared them and one is absent", which
+// missingYBRunArtifacts reports and a re-upload fixes.
 func ybDrillManifestDefect(manifest ybSnapshotManifest) string {
 	if manifest.SnapshotID == "" || manifest.Database == "" {
 		return "manifest missing snapshot_id or database"
 	}
-	if len(manifest.Artifacts) == 0 {
-		return "manifest lists no run artifacts"
+	if undeclared := undeclaredYBRequiredArtifacts(manifest); len(undeclared) > 0 {
+		return "manifest does not declare required artifacts " + strings.Join(undeclared, ", ")
 	}
 	if len(manifest.Nodes) == 0 {
 		return "manifest lists no tablet-server nodes"
@@ -249,12 +257,25 @@ func ybDrillManifestDefect(manifest ybSnapshotManifest) string {
 	return ""
 }
 
+// ybDrillArtifactsDir is where stageYBDrillArtifacts' staging directory is
+// bind-mounted inside the scratch container.
+const ybDrillArtifactsDir = "/artifacts"
+
+// ybDrillArtifactPath is where one staged run-root artifact appears to the
+// scratch container. Every fixed path the restore opens is built here from the
+// artifact's own object name, so the files the restore reads and the names
+// ybRequiredRunArtifacts makes the manifest declare cannot drift apart.
+func ybDrillArtifactPath(artifact string) string {
+	return ybDrillArtifactsDir + "/" + artifact
+}
+
 // stageYBDrillArtifacts downloads every artifact the run declares, plus every
 // node archive, into stageDir, naming each archive tablets-<node>.tar.gz so the
 // scratch container can extract each node's files into its own directory. The
 // artifacts come from the manifest rather than a list held here, so the drill
-// stages whatever the export published. It returns the node names in manifest
-// order for the extraction step.
+// stages whatever the export published, and the manifest is refused before this
+// runs unless it declares everything the restore opens by name. It returns the
+// node names in manifest order for the extraction step.
 func stageYBDrillArtifacts(
 	ctx context.Context,
 	r *restoreDrillCtx,
@@ -307,7 +328,7 @@ func startScratchYugabyte(ctx context.Context, r *restoreDrillCtx, name, databas
 	hostCfg := &container.HostConfig{
 		Binds: []string{
 			r.Cfg.BackupYBOverlayPath + ":/home/yugabyte/bin/yugabyted:ro",
-			stageDir + ":/artifacts:ro",
+			stageDir + ":" + ybDrillArtifactsDir + ":ro",
 		},
 	}
 	created, err := r.Cli.ContainerCreate(ctx, client.ContainerCreateOptions{

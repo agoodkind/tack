@@ -8,6 +8,14 @@
 // manifest declares an artifact or a node prefix with no object behind it
 // (skipping it in discovery, refusing it when the run was requested
 // explicitly).
+//
+// Completeness is two separate rules, because a manifest that misdescribes its
+// own run and a run that lost an object are different failures with different
+// fixes. A manifest that does not declare every artifact a restore reads is
+// defective whatever the object store holds, so the run is unusable and a new
+// export is the only remedy; a manifest that declares them all while one object
+// is absent describes a run that did not finish, which a re-upload or the next
+// export resolves. Both refuse the run, and each says which it is.
 
 package ops
 
@@ -76,9 +84,11 @@ type ybSnapshotManifest struct {
 	CreatedAt  string `json:"created_at"`
 	// Artifacts are the run-relative object names the orchestrator published
 	// at the run root, all of which must be present before the run is
-	// restorable. The run declares them rather than the completeness check
-	// naming them, so an artifact added to the export joins the gate without
-	// the gate knowing what it is.
+	// restorable. The run declares them, so an artifact added to the export
+	// joins the presence gate without the gate knowing what it is; the
+	// declaration is not free-form, because a run must still declare every
+	// artifact in ybRequiredRunArtifacts, which are the ones a restore opens by
+	// name whatever the manifest says.
 	Artifacts []string                 `json:"artifacts"`
 	Nodes     []ybSnapshotManifestNode `json:"nodes"`
 }
@@ -219,6 +229,32 @@ func ybRunArtifactKey(runID, artifact string) string {
 	return ybSnapshotKeyPrefix(runID) + artifact
 }
 
+// ybRequiredRunArtifacts returns the run-root artifacts a restore opens by
+// name, so a run that does not carry all three cannot be restored however
+// complete it otherwise looks. The restore drill reads each one at
+// ybDrillArtifactPath: the exported snapshot metadata every tablet mapping
+// comes from, the schema that recreates the tables and their grants, and the
+// roles the grants name. A declaration short of this list is the manifest
+// describing a run that cannot work, which is why it is refused before any
+// object is probed for.
+func ybRequiredRunArtifacts() []string {
+	return []string{ybSnapshotMetadataObject, ybSnapshotSchemaObject, ybSnapshotRolesObject}
+}
+
+// undeclaredYBRequiredArtifacts returns the required artifacts the manifest
+// leaves out of its declaration, in the required order. This reads the
+// manifest only: it says what the run claims to hold, never what the object
+// store holds, so its result stays distinguishable from missingYBRunArtifacts.
+func undeclaredYBRequiredArtifacts(manifest ybSnapshotManifest) []string {
+	var undeclared []string
+	for _, required := range ybRequiredRunArtifacts() {
+		if !slices.Contains(manifest.Artifacts, required) {
+			undeclared = append(undeclared, required)
+		}
+	}
+	return undeclared
+}
+
 // missingYBRunArtifacts returns the names of the run-root artifacts the
 // manifest declares whose object is absent. The manifest uploads last, so in a
 // run that finished this is empty; a name here means an object the run
@@ -291,14 +327,6 @@ func parseYBTabletServers(stdout string) []string {
 	}
 	sort.Strings(names)
 	return names
-}
-
-// ybFirstMasterHost returns the host of the first entry in a comma-separated
-// master_addresses list, for one-shot clients that need any reachable ledger
-// node rather than the whole quorum.
-func ybFirstMasterHost(masterAddresses string) string {
-	first, _, _ := strings.Cut(masterAddresses, ",")
-	return hostFromHostPort(strings.TrimSpace(first))
 }
 
 // hostFromHostPort strips the port from a host:port pair, unbracketing IPv6

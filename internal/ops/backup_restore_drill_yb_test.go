@@ -173,20 +173,92 @@ func TestNewestCompleteYBSnapshotRunSkipsRunMissingAnArtifact(t *testing.T) {
 	}
 }
 
-// TestYBDrillManifestDefectRefusesAManifestWithoutArtifacts proves an export
-// written before the run carried its own roles file is refused rather than
-// drilled. Such a run restores tables, rows, and row-level-security policies
-// with none of the privileges those policies depend on, so a drill that passed
-// on it would report a recovery nobody can actually read.
-func TestYBDrillManifestDefectRefusesAManifestWithoutArtifacts(t *testing.T) {
-	artifactless := newYBSnapshotManifest("run-1", "snap-1", "tack", []string{"yb1"}, nil)
-	if defect := ybDrillManifestDefect(artifactless); defect != "manifest lists no run artifacts" {
-		t.Fatalf("defect = %q, want the missing-artifacts refusal", defect)
+// TestYBDrillManifestDefectRequiresEveryArtifactTheRestoreOpens proves a
+// manifest is refused unless it declares all three artifacts the restore reads
+// by name, and that the refusal names the ones it left out.
+//
+// A run declaring none predates the roles file; a run declaring some was
+// truncated. Either restores tables, rows, and row-level-security policies with
+// none of the privileges those policies depend on, or with no schema at all, so
+// a drill that passed on one would report a recovery nobody can actually read.
+func TestYBDrillManifestDefectRequiresEveryArtifactTheRestoreOpens(t *testing.T) {
+	tests := []struct {
+		name      string
+		artifacts []string
+		want      string
+	}{
+		{
+			name:      "no artifacts at all",
+			artifacts: nil,
+			want: "manifest does not declare required artifacts " +
+				ybSnapshotMetadataObject + ", " + ybSnapshotSchemaObject + ", " + ybSnapshotRolesObject,
+		},
+		{
+			name:      "only the snapshot metadata",
+			artifacts: []string{ybSnapshotMetadataObject},
+			want: "manifest does not declare required artifacts " +
+				ybSnapshotSchemaObject + ", " + ybSnapshotRolesObject,
+		},
+		{
+			name:      "everything but the roles file",
+			artifacts: []string{ybSnapshotMetadataObject, ybSnapshotSchemaObject},
+			want:      "manifest does not declare required artifacts " + ybSnapshotRolesObject,
+		},
+		{
+			name:      "what a real export declares",
+			artifacts: ybTestArtifactNames(),
+			want:      "",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			manifest := newYBSnapshotManifest("run-1", "snap-1", "tack", []string{"yb1"}, test.artifacts)
+			if defect := ybDrillManifestDefect(manifest); defect != test.want {
+				t.Fatalf("defect:\n got=%q\nwant=%q", defect, test.want)
+			}
+		})
+	}
+}
+
+// TestNewestCompleteYBSnapshotRunSkipsATruncatedDeclaration proves discovery
+// walks past a run that declares fewer artifacts than the restore reads, even
+// though every object that run declared is present.
+//
+// This is the gap a declared-complete gate leaves open. Such a run passes every
+// presence check, because a presence check can only probe for what was
+// declared, so it would be selected as the newest complete run and then fail
+// deep in the restore on a fixed path nothing ever gated. The skip reason says
+// the manifest is at fault, which is a different repair from an object that did
+// not land.
+func TestNewestCompleteYBSnapshotRunSkipsATruncatedDeclaration(t *testing.T) {
+	fixture := &drillWalkFixture{
+		manifests: map[string]ybSnapshotManifest{},
+		present:   map[string]bool{},
+		skips:     nil,
+	}
+	fixture.manifests["run-1"] = completeYBRun(fixture, "run-1", []string{"yb1"})
+	truncated := newYBSnapshotManifest("run-2", "snap-run-2", "tack",
+		[]string{"yb1"}, []string{ybSnapshotMetadataObject})
+	fixture.manifests["run-2"] = truncated
+	markYBRunArtifactsPresent(fixture, truncated)
+	for _, node := range truncated.Nodes {
+		fixture.present[ybNodeArchiveKey("run-2", node)] = true
 	}
 
-	complete := newYBSnapshotManifest("run-1", "snap-1", "tack", []string{"yb1"}, ybTestArtifactNames())
-	if defect := ybDrillManifestDefect(complete); defect != "" {
-		t.Fatalf("a manifest declaring its artifacts must be drillable, got %q", defect)
+	got, found, err := newestCompleteYBSnapshotRun(
+		[]string{"run-1", "run-2"}, fixture.fetch, fixture.exists, fixture.skip)
+	if err != nil {
+		t.Fatalf("newestCompleteYBSnapshotRun: %v", err)
+	}
+	if !found || got.RunID != "run-1" {
+		t.Fatalf("chosen run = %s (found=%v), want the complete run-1", got.RunID, found)
+	}
+	wantSkips := []string{
+		"run-2: manifest does not declare required artifacts " +
+			ybSnapshotSchemaObject + ", " + ybSnapshotRolesObject,
+	}
+	if !reflect.DeepEqual(fixture.skips, wantSkips) {
+		t.Fatalf("skips:\n got=%v\nwant=%v", fixture.skips, wantSkips)
 	}
 }
 

@@ -202,16 +202,25 @@ The orchestrator (`ops backup yb-snapshot-export`) uploads `metadata.snapshot`,
 tablet-server guest then uploads its own `nodes/<node>/tablets.tar.gz` via
 `ops backup yb-archive-node`. The manifest lists both the run-root artifacts and
 every node prefix the run needs, and a run is restorable only when every one of
-them holds its object. The restore drill enforces this and refuses an incomplete
-run, naming what is absent. The latest prefix is the most recent export.
+them holds its object. The restore drill enforces this and refuses a run it
+cannot restore, naming what is wrong with it. The latest prefix is the most
+recent export.
 
 The two SQL files together describe the restored database's access control.
 `roles.sql` carries every role the source cluster held and their memberships,
 with no passwords in it; `schema.sql` carries the grants and revokes as they
 stood at backup time. Apply the roles first: the schema's grants name roles, and
-a grant naming a role the database does not have fails. An export whose manifest
-declares no artifacts predates the roles file, restores into a database no
-application role can read, and is refused rather than restored.
+a grant naming a role the database does not have fails.
+
+A run must declare `metadata.snapshot`, `schema.sql`, and `roles.sql`, the three
+a restore opens by name. A manifest declaring fewer is refused whatever the
+object store holds: it either predates the roles file or was truncated, and
+either way it restores into a database with no schema or one no application role
+can read. That refusal reads "manifest does not declare required artifacts", and
+it means the run is finished and only a new export fixes it. It is a different
+failure from "artifacts ... are absent", which means the run declared them and an
+upload did not land, and which the next archive timer or a re-upload can still
+resolve.
 
 The restore drill performs these steps into a throwaway yugabyted and is the
 verified procedure. A real recovery applies the same steps to the recovery
@@ -228,19 +237,31 @@ YugabyteDB:
    `ON_ERROR_STOP`, then read the errors back:
 
    ```
+   PGOPTIONS="-c lc_messages=C" LC_ALL= LC_MESSAGES=C \
    ysqlsh -h <host> -p 5433 -U <bootstrap-user> -d <database> \
      -v VERBOSITY=verbose -q -f roles.sql
    ```
 
-   Every error it raises must read `ERROR:  42710: role "..." already exists`,
-   and each one names a role the recovery cluster's own engine created
-   (`postgres`, `yugabyte`, `yb_db_admin`, `yb_extension`, `yb_fdw`) or its
-   bootstrap user. Those are expected and lose nothing: the file follows each
-   `CREATE ROLE` with an `ALTER ROLE` that sets the role's attributes, and that
-   still runs. Any other error means a role the database did not get, so stop
-   and fix it before applying the schema, rather than restoring a ledger nobody
-   can read. Apply `schema.sql` with `ON_ERROR_STOP=1`, so a grant naming a
-   missing role fails the restore instead of passing silently.
+   The locale settings fix what the errors say. A recovery cluster renders both
+   the severity word and the message in its own `lc_messages`, and the engine
+   image ships catalogs for 19 languages, so without the pin the errors below may
+   arrive in another language and read as nothing you can check. `PGOPTIONS` sets
+   the server's rendering and needs a superuser connection, which the bootstrap
+   user a fresh yugabyted creates is; the two client variables set the `LOCATION`
+   and `DETAIL` labels libpq prints itself.
+
+   Every error it raises must then carry SQLSTATE `42710` and read
+   `role "..." already exists`, each naming a role the recovery cluster's own
+   engine created (`postgres`, `yugabyte`, `yb_db_admin`, `yb_extension`,
+   `yb_fdw`) or its bootstrap user. Those are expected and lose nothing: the file
+   follows each `CREATE ROLE` with an `ALTER ROLE` that sets the role's
+   attributes, and that still runs. Read the SQLSTATE rather than the word in
+   front of it: a code outside classes `00`, `01`, and `02` is a failed
+   statement whatever language it is written in. Any other error means a role the
+   database did not get, so stop and fix it before applying the schema, rather
+   than restoring a ledger nobody can read. Apply `schema.sql` with
+   `ON_ERROR_STOP=1`, so a grant naming a missing role fails the restore instead
+   of passing silently.
 
    Restored login roles carry no password, because the export deliberately
    excludes them. Run `ops audit seed-roles` against the recovered database

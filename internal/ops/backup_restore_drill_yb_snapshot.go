@@ -39,7 +39,10 @@ func importAndRestoreYBSnapshot(ctx context.Context, r *restoreDrillCtx, contain
 	master := container + ":7100"
 
 	importRes, err := containerExec(ctx, r.Cli, container,
-		[]string{ybAdminBinary, "--master_addresses", master, "import_snapshot", "/artifacts/metadata.snapshot", database})
+		[]string{
+			ybAdminBinary, "--master_addresses", master, "import_snapshot",
+			ybDrillArtifactPath(ybSnapshotMetadataObject), database,
+		})
 	if err != nil {
 		return fmt.Errorf("import_snapshot exec: %w", err)
 	}

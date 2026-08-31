@@ -303,20 +303,71 @@ func TestParseYBTabletServersIPv6Literal(t *testing.T) {
 	}
 }
 
-// TestYBFirstMasterHost covers the three master_addresses shapes the schema
-// one-shot must resolve: single name, quorum list, and bracketed IPv6 literal.
-func TestYBFirstMasterHost(t *testing.T) {
+// TestUndeclaredYBRequiredArtifacts proves the declaration rule reads the
+// manifest and nothing else: it reports which artifacts a restore opens by name
+// that the run never claimed to hold, and reports none for the declaration a
+// real export writes.
+//
+// A run is not restorable without all three whatever the object store holds, so
+// this is what separates a manifest that misdescribes its own run from a run
+// that lost an object. A truncated declaration is the more dangerous of the two,
+// because every presence check downstream only ever probes for what was
+// declared and so finds nothing wrong.
+func TestUndeclaredYBRequiredArtifacts(t *testing.T) {
 	tests := []struct {
-		masters string
-		want    string
+		name      string
+		artifacts []string
+		want      []string
 	}{
-		{masters: "yugabyte:7100", want: "yugabyte"},
-		{masters: "yb1:7100,yb2:7100,yb3:7100", want: "yb1"},
-		{masters: "[3d06:bad:b01::10]:7100,yb2:7100", want: "3d06:bad:b01::10"},
+		{
+			name:      "an export written before the run carried its roles file",
+			artifacts: nil,
+			want:      []string{ybSnapshotMetadataObject, ybSnapshotSchemaObject, ybSnapshotRolesObject},
+		},
+		{
+			name:      "a declaration truncated to one artifact",
+			artifacts: []string{ybSnapshotMetadataObject},
+			want:      []string{ybSnapshotSchemaObject, ybSnapshotRolesObject},
+		},
+		{
+			name:      "the roles file left out of an otherwise full declaration",
+			artifacts: []string{ybSnapshotMetadataObject, ybSnapshotSchemaObject},
+			want:      []string{ybSnapshotRolesObject},
+		},
+		{
+			name:      "what a real export declares",
+			artifacts: ybTestArtifactNames(),
+			want:      nil,
+		},
 	}
 	for _, test := range tests {
-		if got := ybFirstMasterHost(test.masters); got != test.want {
-			t.Errorf("ybFirstMasterHost(%q) = %q, want %q", test.masters, got, test.want)
-		}
+		t.Run(test.name, func(t *testing.T) {
+			manifest := newYBSnapshotManifest("20260826T030000Z", "snap-1", "tack",
+				[]string{"yb1"}, test.artifacts)
+			got := undeclaredYBRequiredArtifacts(manifest)
+			if !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("undeclared:\n got=%v\nwant=%v", got, test.want)
+			}
+		})
+	}
+}
+
+// TestWriteYBSnapshotManifestRefusesATruncatedDeclaration proves the export
+// cannot publish a manifest that omits an artifact the restore opens by name.
+// The check runs while the export is still in flight and can be fixed, and no
+// file is left behind for an uploader to find.
+func TestWriteYBSnapshotManifestRefusesATruncatedDeclaration(t *testing.T) {
+	manifest := newYBSnapshotManifest("20260826T030000Z", "snap-1", "tack",
+		[]string{"yb1"}, []string{ybSnapshotMetadataObject, ybSnapshotSchemaObject})
+	path := filepath.Join(t.TempDir(), "manifest.json")
+	err := writeYBSnapshotManifest(context.Background(), path, manifest)
+	if err == nil {
+		t.Fatal("a manifest omitting the roles file must not be written")
+	}
+	if !strings.Contains(err.Error(), ybSnapshotRolesObject) {
+		t.Fatalf("the error must name the undeclared artifact, got: %v", err)
+	}
+	if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+		t.Error("manifest file written despite a truncated declaration")
 	}
 }
