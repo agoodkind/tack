@@ -112,12 +112,16 @@ func RepairReferenceUniqueness(
 	if err != nil {
 		return report, err
 	}
+	// Every stage returns what it applied even when it fails, and the partial
+	// work is folded into the report before the error goes up. A run that dies
+	// midway has already written those changes to FoundationDB, so the report
+	// the caller records from has to carry them (TACK-452).
 	for orgID := range orgIDs {
 		seeded, seedErr := seedReferenceCounters(ctx, env, orgID, opts.Execute)
+		report.Counters = append(report.Counters, seeded...)
 		if seedErr != nil {
 			return report, seedErr
 		}
-		report.Counters = append(report.Counters, seeded...)
 	}
 	duplicates, err := FindDuplicateReferences(ctx, env)
 	if err != nil {
@@ -125,20 +129,20 @@ func RepairReferenceUniqueness(
 	}
 	for _, duplicate := range duplicates {
 		renamed, renameErr := renumberDuplicateGroup(ctx, env, duplicate, opts)
+		report.Renumbered = append(report.Renumbered, renamed...)
 		if renameErr != nil {
 			return report, renameErr
 		}
-		report.Renumbered = append(report.Renumbered, renamed...)
 	}
 	if !opts.Execute {
 		return report, nil
 	}
 	for orgID := range orgIDs {
 		written, writeErr := writeAllReferenceKeys(ctx, env, orgID)
+		report.Keys = append(report.Keys, written...)
 		if writeErr != nil {
 			return report, writeErr
 		}
-		report.Keys = append(report.Keys, written...)
 	}
 	return report, nil
 }

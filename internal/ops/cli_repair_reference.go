@@ -104,19 +104,10 @@ func runRepairReferenceUniquenessCommand(
 		Execute: execute,
 		Keep:    input.Keep,
 	})
-	if err != nil {
-		wrapped := fmt.Errorf("repair reference uniqueness: %w", err)
-		slog.ErrorContext(ctx, "repair.reference_uniqueness.failed", slog.String("err", wrapped.Error()))
-		return wrapped
-	}
-
-	// The ledger records what the repair did only after the run returns. A run
-	// that fails partway returns above without recording, so what it applied
-	// before failing is unrecorded; TACK-452 closes that window.
-	if execute {
-		if err := recordRepairReferenceRun(ctx, factory, report); err != nil {
-			return err
-		}
+	if outcomeErr := repairRecordOutcome(ctx, report, err, execute, func() error {
+		return recordRepairReferenceRun(ctx, factory, report)
+	}); outcomeErr != nil {
+		return outcomeErr
 	}
 
 	renamed := make([]repairReferenceRenameResult, 0, len(report.Renumbered))
@@ -143,6 +134,52 @@ func runRepairReferenceUniquenessCommand(
 		return wrapped
 	}
 	return nil
+}
+
+// repairRecordOutcome records what the run applied and returns the error the
+// operator has to act on, or nil when the run succeeded and was recorded.
+//
+// The recording happens whether or not the run failed, because a run that
+// failed partway has already written its renames, counter seeds, and key
+// claims to FoundationDB; returning the error without recording leaves those
+// mutations with no ledger row naming them, which is the 2026-08-07 hole in
+// miniature (TACK-452). Recording twice is safe: event identities are derived
+// from the facts and the outbox writes only if absent, so a later successful
+// rerun re-records the same work rather than doubling it.
+//
+// When both the run and the recording fail, the run's error is the one
+// returned, because that is the failure an operator acts on. The recording
+// failure is logged with the counts it could not record rather than dropped,
+// since a silent recording failure is the same silence this ticket removes.
+func repairRecordOutcome(
+	ctx context.Context,
+	report RepairReferenceReport,
+	runErr error,
+	execute bool,
+	record func() error,
+) error {
+	if execute {
+		if recordErr := record(); recordErr != nil {
+			if runErr == nil {
+				return recordErr
+			}
+			slog.ErrorContext(ctx, "repair.reference_uniqueness.partial_record_failed",
+				slog.Int("renamed", len(report.Renumbered)),
+				slog.Int("counters_seeded", len(report.Counters)),
+				slog.Int("keys_written", len(report.Keys)),
+				slog.String("err", recordErr.Error()))
+		}
+	}
+	if runErr == nil {
+		return nil
+	}
+	wrapped := fmt.Errorf("repair reference uniqueness: %w", runErr)
+	slog.ErrorContext(ctx, "repair.reference_uniqueness.failed",
+		slog.Int("renamed_before_failure", len(report.Renumbered)),
+		slog.Int("counters_seeded_before_failure", len(report.Counters)),
+		slog.Int("keys_written_before_failure", len(report.Keys)),
+		slog.String("err", wrapped.Error()))
+	return wrapped
 }
 
 // recordRepairReferenceRun puts one ledger row behind every reference the run

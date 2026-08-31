@@ -39,22 +39,42 @@ func writeAllReferenceKeys(
 	for _, key := range keys {
 		keysByNode[key.View.ID] = append(keysByNode[key.View.ID], key.Key)
 	}
-	if err := writeReferenceKeysByNode(ctx, env.Stores.Nodes, orgID, keysByNode); err != nil {
-		return nil, err
+	written, err := writeReferenceKeysByNode(ctx, env.Stores.Nodes, orgID, keysByNode)
+	if err != nil {
+		// The keys that changed hands on the nodes written before the failure
+		// are returned with the error, so the caller can record them. Returning
+		// every claimed key would over-report changes that never happened, and
+		// returning none would under-report ones that did (TACK-452).
+		return claimedOnWrittenNodes(claimed, written), err
 	}
 	return claimed, nil
+}
+
+// claimedOnWrittenNodes narrows the keys that changed hands to the nodes whose
+// write actually landed.
+func claimedOnWrittenNodes(claimed []ReferenceKeyWrite, written map[uuid.UUID]bool) []ReferenceKeyWrite {
+	applied := make([]ReferenceKeyWrite, 0, len(claimed))
+	for _, key := range claimed {
+		if written[key.NodeID] {
+			applied = append(applied, key)
+		}
+	}
+	return applied
 }
 
 type referenceKeyWriter interface {
 	SetReferenceKeys(context.Context, uuid.UUID, uuid.UUID, []node.ReferenceKey) error
 }
 
+// writeReferenceKeysByNode writes each node's keys and reports which nodes it
+// wrote, including on failure, so a caller can tell applied work from work that
+// never started.
 func writeReferenceKeysByNode(
 	ctx context.Context,
 	writer referenceKeyWriter,
 	orgID uuid.UUID,
 	keysByNode map[uuid.UUID][]node.ReferenceKey,
-) error {
+) (map[uuid.UUID]bool, error) {
 	nodeIDs := make([]uuid.UUID, 0, len(keysByNode))
 	for nodeID := range keysByNode {
 		nodeIDs = append(nodeIDs, nodeID)
@@ -62,15 +82,17 @@ func writeReferenceKeysByNode(
 	sort.Slice(nodeIDs, func(i, j int) bool {
 		return nodeIDs[i].String() < nodeIDs[j].String()
 	})
+	written := make(map[uuid.UUID]bool, len(nodeIDs))
 	for _, nodeID := range nodeIDs {
 		if err := writer.SetReferenceKeys(ctx, orgID, nodeID, keysByNode[nodeID]); err != nil {
 			wrapped := fmt.Errorf("write reference keys for node %s: %w", nodeID, err)
 			telemetry.L(ctx).WarnContext(ctx, "repair.reference_uniqueness.keys_write_failed",
 				slog.String("node_id", nodeID.String()), slog.String("err", wrapped.Error()))
-			return wrapped
+			return written, wrapped
 		}
+		written[nodeID] = true
 	}
-	return nil
+	return written, nil
 }
 
 func enumerateReferenceKeys(

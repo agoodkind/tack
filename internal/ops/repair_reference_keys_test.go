@@ -28,11 +28,16 @@ func TestWriteReferenceKeysByNodeKeepsTheLowestIDOnConflict(t *testing.T) {
 	secondID := uuid.MustParse("00000000-0000-0000-0000-000000000002")
 	key := node.ReferenceKey{TemplateName: "reference", Encoded: "TACK-1"}
 	writer := &referenceKeyWriteSpy{owners: make(map[string]uuid.UUID)}
-	err := writeReferenceKeysByNode(context.Background(), writer, uuid.New(), map[uuid.UUID][]node.ReferenceKey{secondID: {key}, firstID: {key}})
+	written, err := writeReferenceKeysByNode(context.Background(), writer, uuid.New(), map[uuid.UUID][]node.ReferenceKey{secondID: {key}, firstID: {key}})
 	if err == nil {
 		t.Fatal("duplicate key write succeeded")
 	}
 	if owner := writer.owners["reference:TACK-1"]; owner != firstID {
 		t.Fatalf("duplicate key owner = %s, want %s", owner, firstID)
+	}
+	// The node written before the failure is reported, and the one that failed
+	// is not: that split is what lets the caller record exactly what landed.
+	if !written[firstID] || written[secondID] {
+		t.Fatalf("written = %v, want only %s", written, firstID)
 	}
 }
