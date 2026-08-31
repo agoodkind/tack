@@ -17,6 +17,7 @@ func renumberDuplicateGroup(
 	env *Env,
 	duplicate DuplicateReference,
 	opts RepairReferenceOptions,
+	beforeRename func() error,
 ) ([]ReferenceRename, error) {
 	ordered := append([]uuid.UUID(nil), duplicate.NodeIDs...)
 	sort.Slice(ordered, func(i, j int) bool {
@@ -30,14 +31,37 @@ func renumberDuplicateGroup(
 	if opts.Keep == keepNewest {
 		retainIndex = len(ordered) - 1
 	}
-	renamed := make([]ReferenceRename, 0, len(ordered)-1)
+	return renumberGroupNodes(ordered, retainIndex, func(nodeID uuid.UUID) (ReferenceRename, error) {
+		if beforeRename != nil {
+			if err := beforeRename(); err != nil {
+				return ReferenceRename{}, err
+			}
+		}
+		return renumberOneNode(ctx, env, duplicate, nodeID, opts.Execute)
+	})
+}
+
+// renumberGroupNodes renames every node in the group except the one at
+// retainIndex, and returns the renames it applied even when one fails.
+//
+// Each rename lands in its own FoundationDB transaction, so the ones before a
+// failure are live in the store. Returning nil on the first failure, which is
+// what this did, discarded them and left applied mutations with no ledger row
+// naming them; a rerun cannot recover the record either, because a renamed
+// node is no longer a duplicate and never appears in a later plan (TACK-452).
+func renumberGroupNodes(
+	ordered []uuid.UUID,
+	retainIndex int,
+	renameOne func(uuid.UUID) (ReferenceRename, error),
+) ([]ReferenceRename, error) {
+	renamed := make([]ReferenceRename, 0, len(ordered))
 	for index, nodeID := range ordered {
 		if index == retainIndex {
 			continue
 		}
-		rename, err := renumberOneNode(ctx, env, duplicate, nodeID, opts.Execute)
+		rename, err := renameOne(nodeID)
 		if err != nil {
-			return nil, err
+			return renamed, err
 		}
 		renamed = append(renamed, rename)
 	}

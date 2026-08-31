@@ -28,7 +28,10 @@ func seedReferenceCounters(
 	for _, counter := range counters {
 		raised, raiseErr := raiseReferenceCounter(ctx, env, orgID, counter, execute)
 		if raiseErr != nil {
-			return nil, raiseErr
+			// The counters already raised are returned with the error, for the
+			// same reason the renames are: they are live in the store and the
+			// caller owes each one a ledger row (TACK-452).
+			return seeded, raiseErr
 		}
 		if !raised {
 			continue

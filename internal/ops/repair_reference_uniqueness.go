@@ -2,6 +2,7 @@ package ops
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -29,7 +30,17 @@ type RepairReferenceOptions struct {
 	Execute bool
 	// Keep selects the retained node: oldest or newest. Empty keeps oldest.
 	Keep string
+	// FailAfterRenames stops the run once it has applied that many renames,
+	// so a partway failure can be produced against a real store on a testbed.
+	// Zero disables it. The CLI refuses the flag outside a QA or local target,
+	// so a production run cannot reach this (TACK-452).
+	FailAfterRenames int
 }
+
+// ErrRepairFaultInjected is what a run stopped by FailAfterRenames returns.
+// It is a real failure by design: the point is to leave applied renames behind
+// and prove the command still records them.
+var ErrRepairFaultInjected = errors.New("repair stopped by the injected testbed fault")
 
 // ReferenceRename records one repaired node reference.
 type ReferenceRename struct {
@@ -67,8 +78,9 @@ type RepairReferenceReport struct {
 
 func runRepairReferenceUniqueness(ctx context.Context, env *Env) error {
 	report, err := RepairReferenceUniqueness(ctx, env, RepairReferenceOptions{
-		Execute: false,
-		Keep:    keepOldest,
+		Execute:          false,
+		Keep:             keepOldest,
+		FailAfterRenames: 0,
 	})
 	if err != nil {
 		return err
@@ -112,33 +124,49 @@ func RepairReferenceUniqueness(
 	if err != nil {
 		return report, err
 	}
+	// Every stage returns what it applied even when it fails, and the partial
+	// work is folded into the report before the error goes up. A run that dies
+	// midway has already written those changes to FoundationDB, so the report
+	// the caller records from has to carry them (TACK-452).
 	for orgID := range orgIDs {
 		seeded, seedErr := seedReferenceCounters(ctx, env, orgID, opts.Execute)
+		report.Counters = append(report.Counters, seeded...)
 		if seedErr != nil {
 			return report, seedErr
 		}
-		report.Counters = append(report.Counters, seeded...)
 	}
 	duplicates, err := FindDuplicateReferences(ctx, env)
 	if err != nil {
 		return report, err
 	}
+	applied := 0
+	beforeRename := func() error {
+		if opts.FailAfterRenames > 0 && applied >= opts.FailAfterRenames {
+			faultErr := fmt.Errorf("%w after %d rename(s)", ErrRepairFaultInjected, applied)
+			env.Log.WarnContext(ctx, "repair.reference_uniqueness.fault_injected",
+				slog.Int("applied_renames", applied),
+				slog.String("err", faultErr.Error()))
+			return faultErr
+		}
+		applied++
+		return nil
+	}
 	for _, duplicate := range duplicates {
-		renamed, renameErr := renumberDuplicateGroup(ctx, env, duplicate, opts)
+		renamed, renameErr := renumberDuplicateGroup(ctx, env, duplicate, opts, beforeRename)
+		report.Renumbered = append(report.Renumbered, renamed...)
 		if renameErr != nil {
 			return report, renameErr
 		}
-		report.Renumbered = append(report.Renumbered, renamed...)
 	}
 	if !opts.Execute {
 		return report, nil
 	}
 	for orgID := range orgIDs {
 		written, writeErr := writeAllReferenceKeys(ctx, env, orgID)
+		report.Keys = append(report.Keys, written...)
 		if writeErr != nil {
 			return report, writeErr
 		}
-		report.Keys = append(report.Keys, written...)
 	}
 	return report, nil
 }
