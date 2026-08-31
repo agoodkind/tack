@@ -125,8 +125,9 @@ func runAuditExport(f *cli.Factory) func(context.Context, auditExportInput, clis
 		}
 		return clispec.WriteJSONValue(ctx, sink, auditExportResult{
 			ExportID: manifest.ExportID, OrgID: manifest.OrgID, Oldest: manifest.Oldest,
-			Latest: manifest.Latest, RowCount: manifest.RowCount, FileSHA256: manifest.FileSHA256,
-			SignatureBy: manifest.SignatureBy, Signature: manifest.Signature,
+			Latest: manifest.Latest, RowCount: manifest.RowCount, EventsFile: manifest.EventsFile,
+			FileSHA256: manifest.FileSHA256, SignatureBy: manifest.SignatureBy,
+			Signature: manifest.Signature,
 		})
 	}
 }

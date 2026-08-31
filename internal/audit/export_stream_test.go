@@ -411,10 +411,10 @@ func TestExportStopsWhenTheLedgerReadFails(t *testing.T) {
 				exportTestFilter(orgID), dir); err == nil {
 				t.Fatal("export reported success on a ledger read that failed")
 			}
-			if _, statErr := os.Stat(filepath.Join(dir, "manifest.json")); statErr == nil {
+			if _, statErr := os.Stat(filepath.Join(dir, exportManifestFile)); statErr == nil {
 				t.Fatal("a failed export left a signed manifest behind")
 			}
-			assertNoStagedFiles(t, dir)
+			assertDirectoryHoldsOnlyItsBundle(t, dir)
 		})
 	}
 }
@@ -486,10 +486,7 @@ func TestFailedReExportLeavesThePublishedBundleIntact(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first export: %v", err)
 	}
-	rowsBefore, err := os.ReadFile(filepath.Join(dir, "events.jsonl"))
-	if err != nil {
-		t.Fatalf("read published rows: %v", err)
-	}
+	_, rowsBefore := publishedBundle(t, dir)
 	// The failing re-export below hands over this same number of rows, so this
 	// is what establishes that its rows were flushed to disk rather than held in
 	// the write buffer and discarded. A failure the buffer absorbed would never
@@ -506,10 +503,7 @@ func TestFailedReExportLeavesThePublishedBundleIntact(t *testing.T) {
 		t.Fatal("the re-export reported success on a ledger read that failed")
 	}
 
-	rowsAfter, err := os.ReadFile(filepath.Join(dir, "events.jsonl"))
-	if err != nil {
-		t.Fatalf("the failed re-export destroyed the published rows: %v", err)
-	}
+	_, rowsAfter := publishedBundle(t, dir)
 	if !bytes.Equal(rowsBefore, rowsAfter) {
 		t.Fatalf("the failed re-export rewrote the published rows: %d bytes before, %d after",
 			len(rowsBefore), len(rowsAfter))
@@ -529,5 +523,5 @@ func TestFailedReExportLeavesThePublishedBundleIntact(t *testing.T) {
 			report.RowsScanned, published.RowCount)
 	}
 
-	assertNoStagedFiles(t, dir)
+	assertDirectoryHoldsOnlyItsBundle(t, dir)
 }

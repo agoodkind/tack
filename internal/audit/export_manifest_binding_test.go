@@ -1,0 +1,235 @@
+// export_manifest_binding_test.go covers the binding between a manifest and the
+// rows it names: that the name is inside the signature, that it cannot point
+// outside the bundle, and that a bundle written before the manifest carried a
+// name still verifies.
+
+package audit
+
+import (
+	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/google/uuid"
+)
+
+// rewriteManifestField edits one key of the published manifest in place and
+// leaves the signature as it was, which is what a tampered manifest looks like.
+// A nil value removes the key.
+func rewriteManifestField(t *testing.T, dir, key string, value *string) {
+	t.Helper()
+	path := filepath.Join(dir, exportManifestFile)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var loose map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &loose); err != nil {
+		t.Fatal(err)
+	}
+	if value == nil {
+		delete(loose, key)
+	} else {
+		encoded, marshalErr := json.Marshal(*value)
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		loose[key] = encoded
+	}
+	edited, err := json.Marshal(loose)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, edited, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestAManifestRepointedAtAnotherExportsRowsFailsItsSignature is the reason the
+// events file name has to be signed. Verification opens the file the manifest
+// names, so an unsigned name would let anyone holding a genuine signed manifest
+// present it over a different export's rows and have the pair read as a bundle.
+// The name is inside what the signature covers, so the repointed manifest is
+// refused on the signature, before any question of what the rows contain.
+func TestAManifestRepointedAtAnotherExportsRowsFailsItsSignature(t *testing.T) {
+	orgID := uuid.Must(uuid.NewV7())
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	const genuineRows, foreignRows = 30, 70
+	dir, foreignDir := t.TempDir(), t.TempDir()
+	if _, err := Export(context.Background(), exportTestRows(t, orgID, genuineRows, nil),
+		privateKey, "ed25519:test", exportTestFilter(orgID), dir); err != nil {
+		t.Fatalf("genuine export: %v", err)
+	}
+	foreign, err := Export(context.Background(), exportTestRows(t, orgID, foreignRows, nil),
+		privateKey, "ed25519:test", exportTestFilter(orgID), foreignDir)
+	if err != nil {
+		t.Fatalf("foreign export: %v", err)
+	}
+	copyBundleRows(t, foreignDir, dir, foreign.EventsFile)
+	rewriteManifestField(t, dir, "events_file", &foreign.EventsFile)
+
+	report, err := VerifyBundle(dir, publicKey)
+	if err != nil {
+		t.Fatalf("VerifyBundle must report on a repointed manifest, not fail outright: %v", err)
+	}
+	if report.RowsScanned != foreignRows {
+		t.Fatalf("rows scanned = %d, want the %d rows the name points at; the manifest's name is what is read",
+			report.RowsScanned, foreignRows)
+	}
+	if report.SignatureOK {
+		t.Fatal("a manifest repointed at another export's rows verified, so the name is outside the signature")
+	}
+	if report.Err() == nil {
+		t.Fatal("the repointed bundle passed its verdict")
+	}
+}
+
+// TestNamingItsOwnRowsIsPartOfWhatAManifestSigns pins the binding in both
+// directions on a bundle nothing else is wrong with. The name added below
+// resolves to the very file the manifest already described, so the rows, the
+// digest, and the row count all still agree; only the signature can fail, and
+// it must, because the name is covered whether it is present or absent.
+func TestNamingItsOwnRowsIsPartOfWhatAManifestSigns(t *testing.T) {
+	t.Run("a name added to a manifest that had none", func(t *testing.T) {
+		dir := t.TempDir()
+		pub := writeSignedExportTestBundle(t, dir, chainedExportTestRows(t, 3))
+		if report, err := VerifyBundle(dir, pub); err != nil || report.Err() != nil {
+			t.Fatalf("the bundle must verify before it is edited: %v %v", err, report.Err())
+		}
+
+		sameFile := legacyExportEventsFile
+		rewriteManifestField(t, dir, "events_file", &sameFile)
+
+		report, err := VerifyBundle(dir, pub)
+		if err != nil {
+			t.Fatalf("VerifyBundle: %v", err)
+		}
+		if !report.FileSHA256OK || report.HashMatches != report.RowsScanned {
+			t.Fatalf("digest=%v hashes=%d/%d: every other check must pass so the signature is the one under test",
+				report.FileSHA256OK, report.HashMatches, report.RowsScanned)
+		}
+		if report.SignatureOK {
+			t.Fatal("a name added after signing verified, so an unsigned name can decide which rows are read")
+		}
+	})
+
+	t.Run("a name stripped from a manifest that had one", func(t *testing.T) {
+		dir := t.TempDir()
+		orgID := uuid.Must(uuid.NewV7())
+		publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			t.Fatalf("generate key: %v", err)
+		}
+		manifest, err := Export(context.Background(), exportTestRows(t, orgID, 20, nil),
+			privateKey, "ed25519:test", exportTestFilter(orgID), dir)
+		if err != nil {
+			t.Fatalf("export: %v", err)
+		}
+		// The rows are placed under the name the fallback resolves to as well, so
+		// stripping the name leaves the digest and the count intact and the
+		// signature alone decides.
+		copyBundleRows(t, dir, dir, manifest.EventsFile)
+		rows, err := os.ReadFile(filepath.Join(dir, manifest.EventsFile))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, legacyExportEventsFile), rows, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		rewriteManifestField(t, dir, "events_file", nil)
+
+		report, err := VerifyBundle(dir, publicKey)
+		if err != nil {
+			t.Fatalf("VerifyBundle: %v", err)
+		}
+		if !report.FileSHA256OK || report.HashMatches != report.RowsScanned {
+			t.Fatalf("digest=%v hashes=%d/%d: every other check must pass so the signature is the one under test",
+				report.FileSHA256OK, report.HashMatches, report.RowsScanned)
+		}
+		if report.SignatureOK {
+			t.Fatal("a manifest with its name stripped verified, so the name is outside the signature")
+		}
+	})
+}
+
+// TestABundleWrittenBeforeTheNameExistedStillVerifies pins what operators
+// holding older bundles get. Those manifests name no events file, and their
+// format fixed the name instead, so the name is resolved from the format rather
+// than from anything unsigned. An archive that could no longer be verified
+// would be a compliance record that had quietly expired.
+func TestABundleWrittenBeforeTheNameExistedStillVerifies(t *testing.T) {
+	dir := t.TempDir()
+	rows := chainedExportTestRows(t, 4)
+	pub := writeSignedExportTestBundle(t, dir, rows)
+	if _, err := os.Stat(filepath.Join(dir, legacyExportEventsFile)); err != nil {
+		t.Fatalf("the fixture must be a bundle in the older layout: %v", err)
+	}
+	manifest, err := readExportManifest(dir)
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	if manifest.EventsFile != "" {
+		t.Fatalf("events_file = %q, want the older layout's empty name", manifest.EventsFile)
+	}
+
+	report, err := VerifyBundle(dir, pub)
+	if err != nil {
+		t.Fatalf("verify an older bundle: %v", err)
+	}
+	if verdict := report.Err(); verdict != nil {
+		t.Fatalf("an older bundle no longer verifies: %v", verdict)
+	}
+	if report.RowsScanned != len(rows) {
+		t.Fatalf("rows scanned = %d, want %d", report.RowsScanned, len(rows))
+	}
+}
+
+// TestAManifestCannotNameAFileOutsideTheBundle pins that the manifest is
+// untrusted input. The scan opens the file the manifest names before the
+// signature verdict is reported, so a manifest able to name any path would make
+// the verifier read whatever a foreign bundle chose to point it at.
+func TestAManifestCannotNameAFileOutsideTheBundle(t *testing.T) {
+	for _, name := range []string{"../events.jsonl", "sub/events.jsonl", "/etc/passwd", "..", "."} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			dir := filepath.Join(root, "bundle")
+			if err := os.MkdirAll(filepath.Join(dir, "sub"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			rows := chainedExportTestRows(t, 2)
+			pub := writeSignedExportTestBundle(t, dir, rows)
+			// A decoy at each reachable target, so a verifier that followed the
+			// name would find something to scan rather than fail on an absent file.
+			decoy, err := os.ReadFile(filepath.Join(dir, legacyExportEventsFile))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, target := range []string{
+				filepath.Join(root, legacyExportEventsFile),
+				filepath.Join(dir, "sub", legacyExportEventsFile),
+			} {
+				if err := os.WriteFile(target, decoy, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			outside := name
+			rewriteManifestField(t, dir, "events_file", &outside)
+
+			_, err = VerifyBundle(dir, pub)
+			if err == nil {
+				t.Fatalf("a manifest naming %q was followed", name)
+			}
+			if !strings.Contains(err.Error(), "not a file name inside the bundle") {
+				t.Fatalf("err = %v, want the name refused for leaving the bundle", err)
+			}
+		})
+	}
+}

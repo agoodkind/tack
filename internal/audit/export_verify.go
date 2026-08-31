@@ -94,9 +94,14 @@ type chainLink struct {
 	RowHash  [sha256.Size]byte
 }
 
-// VerifyBundle re-hashes every row in <dir>/events.jsonl, checks the chain
-// links via prev_hash within each (org, shard) sequence, and validates the
-// manifest signature with the supplied public key. Pure offline check.
+// VerifyBundle re-hashes every row in the events file the manifest names,
+// checks the chain links via prev_hash within each (org, shard) sequence, and
+// validates the manifest signature with the supplied public key. Pure offline
+// check.
+//
+// The rows come from the file the manifest names rather than from a fixed path,
+// and that name is inside what the signature covers, so a manifest presented
+// beside another export's rows cannot be read as a bundle at all.
 //
 // The events file is streamed rather than read whole, and each row is hashed
 // and released as it is decoded, so peak memory tracks the row count times a
@@ -114,9 +119,15 @@ func VerifyBundle(dir string, pub ed25519.PublicKey) (*VerifyReport, error) {
 	}
 	report.ManifestSubject = mf.ExportID.String()
 	report.ManifestRowCount = mf.RowCount
-	report.SignatureOK = manifestSignatureOK(dir, mf, pub)
+	report.SignatureOK = manifestSignatureOK(mf, pub)
 
-	links, err := scanBundleRows(dir, report, mf)
+	eventsName, err := bundleEventsFileName(mf)
+	if err != nil {
+		slog.Error("audit.verify.events_name_rejected",
+			slog.String("dir", dir), slog.String("err", err.Error()))
+		return report, err
+	}
+	links, err := scanBundleRows(dir, eventsName, report, mf)
 	if err != nil {
 		return report, err
 	}
@@ -124,11 +135,12 @@ func VerifyBundle(dir string, pub ed25519.PublicKey) (*VerifyReport, error) {
 	return report, nil
 }
 
-// scanBundleRows streams events.jsonl once: it digests the bytes for the
-// manifest check, decodes one row at a time, verifies that row's own hash, and
-// keeps only its chain link. The decoded row goes out of scope immediately.
-func scanBundleRows(dir string, report *VerifyReport, mf ExportManifest) ([]chainLink, error) {
-	path := filepath.Join(dir, "events.jsonl")
+// scanBundleRows streams the manifest's events file once: it digests the bytes
+// for the manifest check, decodes one row at a time, verifies that row's own
+// hash, and keeps only its chain link. The decoded row goes out of scope
+// immediately.
+func scanBundleRows(dir, eventsName string, report *VerifyReport, mf ExportManifest) ([]chainLink, error) {
+	path := filepath.Join(dir, eventsName)
 	file, err := os.Open(path)
 	if err != nil {
 		slog.Error("audit.verify.events_read_failed", slog.String("dir", dir), slog.String("err", err.Error()))
@@ -159,7 +171,7 @@ func scanBundleRows(dir string, report *VerifyReport, mf ExportManifest) ([]chai
 		if err != nil {
 			slog.Error("audit.verify.row_decode_failed", slog.String("dir", dir),
 				slog.Int("line", len(links)+1), slog.String("err", err.Error()))
-			return nil, fmt.Errorf("verify decode events.jsonl line %d: %w", len(links)+1, err)
+			return nil, fmt.Errorf("verify decode %s line %d: %w", eventsName, len(links)+1, err)
 		}
 		report.RowsScanned++
 		// An export is one org's ledger. A row from another org inside it is
@@ -188,7 +200,7 @@ func scanBundleRows(dir string, report *VerifyReport, mf ExportManifest) ([]chai
 	// the hasher.
 	if _, err := io.Copy(io.Discard, reader); err != nil {
 		slog.Error("audit.verify.events_drain_failed", slog.String("dir", dir), slog.String("err", err.Error()))
-		return nil, fmt.Errorf("verify drain events.jsonl: %w", err)
+		return nil, fmt.Errorf("verify drain %s: %w", eventsName, err)
 	}
 	report.FileSHA256OK = hex.EncodeToString(hasher.Sum(nil)) == mf.FileSHA256
 	return links, nil

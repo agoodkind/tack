@@ -10,9 +10,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"time"
-
-	"github.com/google/uuid"
 )
 
 // maxManifestBytes bounds the manifest read. A real manifest is a few hundred
@@ -26,7 +23,7 @@ const maxManifestBytes = 1 << 20
 // from what the manifest claims.
 func readExportManifest(dir string) (ExportManifest, error) {
 	var mf ExportManifest
-	path := filepath.Join(dir, "manifest.json")
+	path := filepath.Join(dir, exportManifestFile)
 	file, err := os.Open(path)
 	if err != nil {
 		slog.Error("audit.verify.manifest_read_failed", slog.String("dir", dir), slog.String("err", err.Error()))
@@ -58,28 +55,13 @@ func readExportManifest(dir string) (ExportManifest, error) {
 // manifestSignatureOK reports whether the manifest's signature verifies. A
 // malformed signature, a missing key, or a key of the wrong size is a failed
 // check, not a hard error, so the rest of the report still reaches the caller.
-func manifestSignatureOK(dir string, mf ExportManifest, pub ed25519.PublicKey) bool {
-	manifestForVerify, err := json.Marshal(struct {
-		ExportID    uuid.UUID `json:"export_id"`
-		OrgID       uuid.UUID `json:"org_id"`
-		Oldest      time.Time `json:"oldest"`
-		Latest      time.Time `json:"latest"`
-		RowCount    int       `json:"row_count"`
-		FileSHA256  string    `json:"file_sha256"`
-		SignatureBy string    `json:"signing_key_id"`
-	}{
-		ExportID:    mf.ExportID,
-		OrgID:       mf.OrgID,
-		Oldest:      mf.Oldest,
-		Latest:      mf.Latest,
-		RowCount:    mf.RowCount,
-		FileSHA256:  mf.FileSHA256,
-		SignatureBy: mf.SignatureBy,
-	})
-	if err != nil {
-		slog.Error("audit.verify.manifest_marshal_failed", slog.String("dir", dir), slog.String("err", err.Error()))
-		return false
-	}
+//
+// The signed bytes are rendered by the same function the export signs, so the
+// set of fields the signature covers cannot drift between the two sides. Adding
+// a field to one and not the other would leave that field unsigned and
+// forgeable, which is exactly what the events file name must never be.
+func manifestSignatureOK(mf ExportManifest, pub ed25519.PublicKey) bool {
+	manifestForVerify := exportSignableManifest(&mf)
 	sig, err := hex.DecodeString(mf.Signature)
 	// ed25519.Verify panics on a key of the wrong length rather than
 	// returning false, so a malformed key has to be refused here.
