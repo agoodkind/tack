@@ -3,8 +3,14 @@ package audit
 import "strings"
 
 // Verb is the stable identifier of what happened. New verbs must be added
-// here and to ToolVerb (when MCP-triggerable). The coverage test in
-// coverage_test.go fails the build if a registered MCP tool lacks a mapping.
+// here and to ToolVerb (when MCP-triggerable).
+//
+// Two tests guard the list from opposite sides. coverage_test.go fails when
+// a listed MCP tool resolves to no verb. verb_emitter_test.go fails when a
+// declared verb is recorded nowhere, which is the direction that catches a
+// verb whose emitter was never written; mcp.session_start and
+// mcp.session_end were removed because the transport is stateless and no
+// session boundary exists to record (TACK-340).
 type Verb string
 
 const (
@@ -48,9 +54,9 @@ const (
 	VerbAuditRead         Verb = "audit.read"
 	VerbAuditExport       Verb = "audit.export"
 
-	// MCP transport plumbing.
-	VerbMCPSessionStart  Verb = "mcp.session_start"
-	VerbMCPSessionEnd    Verb = "mcp.session_end"
+	// VerbMCPToolInvoked and the two below it record the transport itself
+	// rather than the domain change a call made, so every request leaves a
+	// row even when its tool maps to no semantic verb.
 	VerbMCPToolInvoked   Verb = "mcp.tool_invoked"
 	VerbMCPResourceRead  Verb = "mcp.resource_read"
 	VerbMCPPromptInvoked Verb = "mcp.prompt_invoked"
