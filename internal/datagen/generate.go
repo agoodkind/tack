@@ -88,14 +88,15 @@ func registerIdentityTokens(driver *Driver, identities Identities) {
 
 // Run generates all requested tenants and exercises negative authentication.
 func (g *Generator) Run(ctx context.Context) (Summary, error) {
-	if err := g.exerciseRejectedTokens(ctx); err != nil {
+	// The orientation resource is read first because that is what its own
+	// description tells clients to do, so a generator that read it later would
+	// not model a real session. It runs ahead of the rejected-token probes
+	// too: those are tool calls, so leaving them first would have made the
+	// ordering claim false while reading as if it held.
+	if err := g.readGettingStartedResource(ctx); err != nil {
 		return Summary{}, err
 	}
-	// The orientation resource is read before any tool call because that is
-	// what its own description tells clients to do, so a generator that read it
-	// last would not model a real session. It also means corpus trouble later
-	// in the run cannot silently remove the only resource traffic there is.
-	if err := g.readGettingStartedResource(ctx); err != nil {
+	if err := g.exerciseRejectedTokens(ctx); err != nil {
 		return Summary{}, err
 	}
 	for workspaceIndex, workspace := range g.identities.Workspaces {
