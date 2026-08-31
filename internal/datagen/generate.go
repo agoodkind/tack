@@ -91,13 +91,17 @@ func (g *Generator) Run(ctx context.Context) (Summary, error) {
 	if err := g.exerciseRejectedTokens(ctx); err != nil {
 		return Summary{}, err
 	}
+	// The orientation resource is read before any tool call because that is
+	// what its own description tells clients to do, so a generator that read it
+	// last would not model a real session. It also means corpus trouble later
+	// in the run cannot silently remove the only resource traffic there is.
+	if err := g.readGettingStartedResource(ctx); err != nil {
+		return Summary{}, err
+	}
 	for workspaceIndex, workspace := range g.identities.Workspaces {
 		if err := g.generateWorkspace(ctx, workspaceIndex, workspace); err != nil {
 			return Summary{}, err
 		}
-	}
-	if err := g.readGettingStartedResource(ctx); err != nil {
-		return Summary{}, err
 	}
 	if err := g.probeCrossOrgIsolation(ctx); err != nil {
 		return Summary{}, err
