@@ -245,7 +245,7 @@ func TestBackupStalenessCheckWithEverythingFreshMailsNothing(t *testing.T) {
 	captured := captureBackupAlarmSends(t, nil)
 
 	objects := fakeYBExportRunObjects(t, "20260829T100000Z",
-		newYBSnapshotManifest("20260829T100000Z", "snap-1", "tack", []string{"yb1"}))
+		newYBSnapshotManifest("20260829T100000Z", "snap-1", "tack", []string{"yb1"}, ybTestArtifactNames()))
 	maps.Copy(objects, map[string][]byte{
 		backupStatusKey(backupStalenessRehearsalName): marshalBackupStatusMarker(t,
 			now.Add(-6*time.Hour), "restore drill passed every leg"),

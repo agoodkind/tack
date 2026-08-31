@@ -121,12 +121,29 @@ type ybSnapshotArtifact struct {
 // order, the manifest strictly last. The manifest is the completeness gate the
 // archivers and the restore drill trust, so it must land only after every
 // object it vouches for.
-func ybSnapshotUploadArtifacts(stageDir, schemaPath, manifestPath string) []ybSnapshotArtifact {
+func ybSnapshotUploadArtifacts(stageDir, schemaPath, rolesPath, manifestPath string) []ybSnapshotArtifact {
 	return []ybSnapshotArtifact{
 		{name: ybSnapshotMetadataObject, path: filepath.Join(stageDir, ybSnapshotMetadataObject)},
-		{name: "schema.sql", path: schemaPath},
+		{name: ybSnapshotSchemaObject, path: schemaPath},
+		{name: ybSnapshotRolesObject, path: rolesPath},
 		{name: ybSnapshotManifestObject, path: manifestPath},
 	}
+}
+
+// ybSnapshotGatedArtifactNames returns the object names the manifest declares
+// as the run's artifacts: every uploaded artifact except the manifest, which
+// cannot gate its own presence because its presence is what makes the run
+// visible at all. Deriving the declaration from the upload set is what lets a
+// new artifact join the completeness gate without the gate naming it.
+func ybSnapshotGatedArtifactNames(files []ybSnapshotArtifact) []string {
+	names := make([]string, 0, len(files))
+	for _, file := range files {
+		if file.name == ybSnapshotManifestObject {
+			continue
+		}
+		names = append(names, file.name)
+	}
+	return names
 }
 
 // uploadYBSnapshotArtifacts uploads the staged files to the main backup bucket

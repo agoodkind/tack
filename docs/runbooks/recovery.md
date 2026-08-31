@@ -197,27 +197,54 @@ is idempotent, so it leaves a running session alone.
 ## YugabyteDB recovery
 
 The export is stored under `yugabyte-snapshot/<run-id>/` in the object store.
-The orchestrator (`ops backup yb-snapshot-export`) uploads `manifest.json`,
-`metadata.snapshot`, and `schema.sql` at the run root; each tablet-server guest
-then uploads its own `nodes/<node>/tablets.tar.gz` via
-`ops backup yb-archive-node`. The manifest lists every node prefix the run
-needs, and a run is restorable only when every listed prefix holds its archive.
-The restore drill enforces this and refuses an incomplete run, naming the
-missing nodes. The latest prefix is the most recent export.
+The orchestrator (`ops backup yb-snapshot-export`) uploads `metadata.snapshot`,
+`schema.sql`, `roles.sql`, and `manifest.json` at the run root; each
+tablet-server guest then uploads its own `nodes/<node>/tablets.tar.gz` via
+`ops backup yb-archive-node`. The manifest lists both the run-root artifacts and
+every node prefix the run needs, and a run is restorable only when every one of
+them holds its object. The restore drill enforces this and refuses an incomplete
+run, naming what is absent. The latest prefix is the most recent export.
+
+The two SQL files together describe the restored database's access control.
+`roles.sql` carries every role the source cluster held and their memberships,
+with no passwords in it; `schema.sql` carries the grants and revokes as they
+stood at backup time. Apply the roles first: the schema's grants name roles, and
+a grant naming a role the database does not have fails. An export whose manifest
+declares no artifacts predates the roles file, restores into a database no
+application role can read, and is refused rather than restored.
 
 The restore drill performs these steps into a throwaway yugabyted and is the
 verified procedure. A real recovery applies the same steps to the recovery
 YugabyteDB:
 
-1. Stage `manifest.json`, `metadata.snapshot`, and `schema.sql` from
-   `yugabyte-snapshot/<run-id>/`, then every node archive the manifest lists
-   from `yugabyte-snapshot/<run-id>/nodes/<node>/tablets.tar.gz`. If any listed
-   archive is missing, stop and pick a complete run.
+1. Stage `manifest.json` from `yugabyte-snapshot/<run-id>/`, then every artifact
+   and every node archive it lists, from `yugabyte-snapshot/<run-id>/<artifact>`
+   and `yugabyte-snapshot/<run-id>/nodes/<node>/tablets.tar.gz`. If any listed
+   object is missing, stop and pick a complete run.
 2. Bring up the recovery yugabyted with the `yugabyte-overlay/yugabyted` overlay,
    advertising on its own hostname.
-3. Create the audit roles the schema's row-level-security policies name (for
-   example `audit_reader`), then create the `pgcrypto` extension, then apply
-   `schema.sql`. The schema fails to apply if the audit roles do not exist first.
+3. Apply `roles.sql`, then create the `pgcrypto` extension, then apply
+   `schema.sql`. Run the roles file with `VERBOSITY=verbose` and without
+   `ON_ERROR_STOP`, then read the errors back:
+
+   ```
+   ysqlsh -h <host> -p 5433 -U <bootstrap-user> -d <database> \
+     -v VERBOSITY=verbose -q -f roles.sql
+   ```
+
+   Every error it raises must read `ERROR:  42710: role "..." already exists`,
+   and each one names a role the recovery cluster's own engine created
+   (`postgres`, `yugabyte`, `yb_db_admin`, `yb_extension`, `yb_fdw`) or its
+   bootstrap user. Those are expected and lose nothing: the file follows each
+   `CREATE ROLE` with an `ALTER ROLE` that sets the role's attributes, and that
+   still runs. Any other error means a role the database did not get, so stop
+   and fix it before applying the schema, rather than restoring a ledger nobody
+   can read. Apply `schema.sql` with `ON_ERROR_STOP=1`, so a grant naming a
+   missing role fails the restore instead of passing silently.
+
+   Restored login roles carry no password, because the export deliberately
+   excludes them. Run `ops audit seed-roles` against the recovered database
+   before pointing the application at it, which is what sets those passwords.
 4. Run `yb-admin import_snapshot metadata.snapshot <database>`. It preserves
    table ids and assigns new tablet ids, printing the old-to-new tablet mapping.
 5. Extract each node archive into its own directory, then copy each tablet's
@@ -226,9 +253,13 @@ YugabyteDB:
    under the rocksdb root, following the mapping from step 4, then run
    `yb-admin restore_snapshot <new-snapshot-id>`.
 6. Verify the auth tables `users`, `api_tokens`, and `org_members` hold rows.
-7. Verify the restored ledger's hash chain. Export a signed bundle per org over
-   the full time range and verify each one, then read the report's chain-break
-   count. A break is a row whose `prev_hash` does not name the row before it, or
+7. Verify the restored ledger's hash chain, reading it as a login role whose
+   only membership is `audit_reader`, which is the base role the product reads
+   through. Reading as the recovery cluster's bootstrap user proves nothing: it
+   holds a superuser bypass and sees the ledger whatever the grants say, which
+   is how a restore that granted nothing went unnoticed for as long as the
+   backup existed. Export a signed bundle per org over the full time range and
+   verify each one, then read the report's chain-break count. A break is a row whose `prev_hash` does not name the row before it, or
    whose stored hash does not recompute, and it fails the recovery. A sequence
    gap fails it too. This export leaves nothing out on purpose, so a missing
    sequence number is a row the restore did not bring back, and the link across

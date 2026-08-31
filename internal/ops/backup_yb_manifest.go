@@ -1,12 +1,13 @@
 // backup_yb_manifest.go is the completeness contract between the yb snapshot
 // export orchestrator, the per-node archive command, and the restore drill.
-// The orchestrator writes a manifest listing every live tablet-server node and
-// the object-store prefix that node must fill, and uploads it last so a
-// manifest's presence implies every other run artifact landed; each data
-// guest's archive command uploads its own tablet tar under its prefix; the
-// restore drill never uses a run whose manifest lists a node prefix with no
-// archive object behind it (skipping it in discovery, refusing it when the
-// run was requested explicitly).
+// The orchestrator writes a manifest listing the artifacts it published at the
+// run root and every live tablet-server node with the object-store prefix that
+// node must fill, and uploads the manifest last so its presence implies every
+// other run artifact landed; each data guest's archive command uploads its own
+// tablet tar under its prefix; the restore drill never uses a run whose
+// manifest declares an artifact or a node prefix with no object behind it
+// (skipping it in discovery, refusing it when the run was requested
+// explicitly).
 
 package ops
 
@@ -42,6 +43,12 @@ const (
 	// ybSnapshotMetadataObject is the exported snapshot metadata's object base
 	// name under the run's key prefix.
 	ybSnapshotMetadataObject = "metadata.snapshot"
+	// ybSnapshotSchemaObject is the schema dump's object base name under the
+	// run's key prefix.
+	ybSnapshotSchemaObject = "schema.sql"
+	// ybSnapshotRolesObject is the roles dump's object base name under the
+	// run's key prefix.
+	ybSnapshotRolesObject = "roles.sql"
 	// ybNodeArchiveObject is the tablet archive's object base name under each
 	// node's prefix.
 	ybNodeArchiveObject = "tablets.tar.gz"
@@ -59,14 +66,21 @@ type ybSnapshotManifestNode struct {
 	Prefix string `json:"prefix"`
 }
 
-// ybSnapshotManifest describes one export run: which snapshot it captured and
-// which node prefixes must be filled before the run is restorable.
+// ybSnapshotManifest describes one export run: which snapshot it captured,
+// which artifacts the orchestrator published at the run root, and which node
+// prefixes must be filled before the run is restorable.
 type ybSnapshotManifest struct {
-	RunID      string                   `json:"run_id"`
-	SnapshotID string                   `json:"snapshot_id"`
-	Database   string                   `json:"database"`
-	CreatedAt  string                   `json:"created_at"`
-	Nodes      []ybSnapshotManifestNode `json:"nodes"`
+	RunID      string `json:"run_id"`
+	SnapshotID string `json:"snapshot_id"`
+	Database   string `json:"database"`
+	CreatedAt  string `json:"created_at"`
+	// Artifacts are the run-relative object names the orchestrator published
+	// at the run root, all of which must be present before the run is
+	// restorable. The run declares them rather than the completeness check
+	// naming them, so an artifact added to the export joins the gate without
+	// the gate knowing what it is.
+	Artifacts []string                 `json:"artifacts"`
+	Nodes     []ybSnapshotManifestNode `json:"nodes"`
 }
 
 // ybRunIDPattern matches the run ids the export orchestrator generates,
@@ -80,6 +94,12 @@ var ybRunIDPattern = regexp.MustCompile(`^[0-9]{8}T[0-9]{6}Z$`)
 // or shell metacharacter may pass.
 var ybNodeNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.:-]*$`)
 
+// ybArtifactNamePattern matches the run-root artifact base names the export
+// publishes. Artifact names feed object keys and staged file names, so no
+// separator, whitespace, or shell metacharacter may pass, for the same reason
+// node names are constrained.
+var ybArtifactNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+
 // validate rejects a manifest whose strings could escape the paths built from
 // them. The manifest is fetched from the object store, so a corrupted or
 // attacker-written manifest is untrusted input. Validation runs at both trust
@@ -88,6 +108,11 @@ var ybNodeNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.:-]*$`)
 func (m ybSnapshotManifest) validate() error {
 	if !ybRunIDPattern.MatchString(m.RunID) {
 		return fmt.Errorf("manifest run_id %q is not a run-key timestamp", m.RunID)
+	}
+	for _, artifact := range m.Artifacts {
+		if err := validateYBArtifactName(artifact); err != nil {
+			return err
+		}
 	}
 	for _, node := range m.Nodes {
 		if err := validateYBNodeName(node.Name); err != nil {
@@ -133,10 +158,26 @@ func validateYBNodeName(name string) error {
 	return nil
 }
 
-// newYBSnapshotManifest builds the manifest for a run, one node entry per
-// tablet-server name, sorted so the manifest bytes are deterministic for a
+// validateYBArtifactName enforces the artifact-name allowlist, so a manifest
+// cannot redirect a staged file or an object key somewhere else.
+func validateYBArtifactName(name string) error {
+	if !ybArtifactNamePattern.MatchString(name) {
+		return fmt.Errorf("manifest artifact name %q is not an object base name", name)
+	}
+	if strings.Contains(name, "..") || strings.Contains(name, "/") || strings.Contains(name, `\`) {
+		return fmt.Errorf("manifest artifact name %q contains a path traversal component", name)
+	}
+	return nil
+}
+
+// newYBSnapshotManifest builds the manifest for a run: the artifact names the
+// orchestrator published at the run root, in upload order, and one node entry
+// per tablet-server name, sorted so the manifest bytes are deterministic for a
 // given node set.
-func newYBSnapshotManifest(runID, snapshotID, database string, nodeNames []string) ybSnapshotManifest {
+func newYBSnapshotManifest(
+	runID, snapshotID, database string,
+	nodeNames, artifactNames []string,
+) ybSnapshotManifest {
 	sorted := make([]string, len(nodeNames))
 	copy(sorted, nodeNames)
 	sort.Strings(sorted)
@@ -144,11 +185,14 @@ func newYBSnapshotManifest(runID, snapshotID, database string, nodeNames []strin
 	for _, name := range sorted {
 		nodes = append(nodes, ybSnapshotManifestNode{Name: name, Prefix: "nodes/" + name + "/"})
 	}
+	artifacts := make([]string, len(artifactNames))
+	copy(artifacts, artifactNames)
 	return ybSnapshotManifest{
 		RunID:      runID,
 		SnapshotID: snapshotID,
 		Database:   database,
 		CreatedAt:  opsNow().UTC().Format(time.RFC3339),
+		Artifacts:  artifacts,
 		Nodes:      nodes,
 	}
 }
@@ -168,6 +212,30 @@ func (m ybSnapshotManifest) nodePrefix(name string) (string, bool) {
 // manifest's run.
 func ybNodeArchiveKey(runID string, node ybSnapshotManifestNode) string {
 	return ybSnapshotKeyPrefix(runID) + node.Prefix + ybNodeArchiveObject
+}
+
+// ybRunArtifactKey is the full object key of one run-root artifact.
+func ybRunArtifactKey(runID, artifact string) string {
+	return ybSnapshotKeyPrefix(runID) + artifact
+}
+
+// missingYBRunArtifacts returns the names of the run-root artifacts the
+// manifest declares whose object is absent. The manifest uploads last, so in a
+// run that finished this is empty; a name here means an object the run
+// published was lost or never landed, and the run restores into a database
+// missing whatever that artifact described.
+func missingYBRunArtifacts(manifest ybSnapshotManifest, exists func(key string) (bool, error)) ([]string, error) {
+	var missing []string
+	for _, artifact := range manifest.Artifacts {
+		present, err := exists(ybRunArtifactKey(manifest.RunID, artifact))
+		if err != nil {
+			return nil, err
+		}
+		if !present {
+			missing = append(missing, artifact)
+		}
+	}
+	return missing, nil
 }
 
 // missingYBNodeArchives returns the names of the manifest's nodes whose archive

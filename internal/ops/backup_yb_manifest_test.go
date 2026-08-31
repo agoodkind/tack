@@ -11,15 +11,29 @@ import (
 	"time"
 )
 
+// ybTestArtifactNames is the run-root artifact set a real export declares,
+// derived from the production upload list so a test manifest gates on what an
+// export actually publishes rather than on a list maintained here.
+func ybTestArtifactNames() []string {
+	return ybSnapshotGatedArtifactNames(ybSnapshotUploadArtifacts(
+		"/stage", "/stage/schema.sql", "/stage/roles.sql", "/stage/manifest.json"))
+}
+
 // TestNewYBSnapshotManifestAssignsNodePrefixes locks the completeness
 // contract's shape: one entry per tablet server, sorted by name, each with the
-// run-relative prefix its archive command must fill.
+// run-relative prefix its archive command must fill, plus the run-root
+// artifacts the export published, in upload order.
 func TestNewYBSnapshotManifestAssignsNodePrefixes(t *testing.T) {
 	nowFunc = func() time.Time { return time.Date(2026, 8, 26, 3, 0, 0, 0, time.UTC) }
 	t.Cleanup(func() { nowFunc = time.Now })
 
-	manifest := newYBSnapshotManifest("20260826T030000Z", "snap-id", "tack", []string{"yb2", "yb1", "yb3"})
+	manifest := newYBSnapshotManifest("20260826T030000Z", "snap-id", "tack",
+		[]string{"yb2", "yb1", "yb3"}, ybTestArtifactNames())
 
+	wantArtifacts := []string{"metadata.snapshot", "schema.sql", "roles.sql"}
+	if !reflect.DeepEqual(manifest.Artifacts, wantArtifacts) {
+		t.Fatalf("artifacts mismatch:\n got=%v\nwant=%v", manifest.Artifacts, wantArtifacts)
+	}
 	wantNodes := []ybSnapshotManifestNode{
 		{Name: "yb1", Prefix: "nodes/yb1/"},
 		{Name: "yb2", Prefix: "nodes/yb2/"},
@@ -44,7 +58,8 @@ func TestNewYBSnapshotManifestAssignsNodePrefixes(t *testing.T) {
 // production writer and reads it back through the same JSON tags the fetch
 // path decodes, so the writer and reader can never disagree on field names.
 func TestYBSnapshotManifestFileRoundTrip(t *testing.T) {
-	manifest := newYBSnapshotManifest("20260826T030000Z", "snap-1", "tack", []string{"yb1", "yb2"})
+	manifest := newYBSnapshotManifest("20260826T030000Z", "snap-1", "tack",
+		[]string{"yb1", "yb2"}, ybTestArtifactNames())
 	path := filepath.Join(t.TempDir(), "manifest.json")
 	if err := writeYBSnapshotManifest(context.Background(), path, manifest); err != nil {
 		t.Fatalf("writeYBSnapshotManifest: %v", err)
@@ -69,7 +84,7 @@ func TestYBSnapshotManifestFileRoundTrip(t *testing.T) {
 // traversal run id must never survive decode or write.
 func TestYBSnapshotManifestValidateRejectsTraversalRunID(t *testing.T) {
 	for _, runID := range []string{"../../../etc", "20260826T030000Z/../..", "run-1", ""} {
-		manifest := newYBSnapshotManifest(runID, "snap-1", "tack", []string{"yb1"})
+		manifest := newYBSnapshotManifest(runID, "snap-1", "tack", []string{"yb1"}, ybTestArtifactNames())
 		if err := manifest.validate(); err == nil {
 			t.Errorf("validate accepted run_id %q", runID)
 		}
@@ -100,6 +115,7 @@ func TestYBSnapshotManifestValidateRejectsBadNodeNames(t *testing.T) {
 			SnapshotID: "snap-1",
 			Database:   "tack",
 			CreatedAt:  "2026-08-26T03:00:00Z",
+			Artifacts:  ybTestArtifactNames(),
 			Nodes:      []ybSnapshotManifestNode{{Name: name, Prefix: "nodes/" + name + "/"}},
 		}
 		if err := manifest.validate(); err == nil {
@@ -112,6 +128,7 @@ func TestYBSnapshotManifestValidateRejectsBadNodeNames(t *testing.T) {
 		SnapshotID: "snap-1",
 		Database:   "tack",
 		CreatedAt:  "2026-08-26T03:00:00Z",
+		Artifacts:  ybTestArtifactNames(),
 		Nodes:      []ybSnapshotManifestNode{{Name: "yb1", Prefix: "nodes/yb2/"}},
 	}
 	if err := mismatched.validate(); err == nil {
@@ -125,7 +142,7 @@ func TestYBSnapshotManifestValidateRejectsBadNodeNames(t *testing.T) {
 // bracketed host:port), pass validation and the production writer.
 func TestYBSnapshotManifestValidateAcceptsOrchestratorShape(t *testing.T) {
 	manifest := newYBSnapshotManifest("20260826T030000Z", "snap-1", "tack",
-		[]string{"yb1", "yb2", "yb3", "3d06:bad:b01::10"})
+		[]string{"yb1", "yb2", "yb3", "3d06:bad:b01::10"}, ybTestArtifactNames())
 	if err := manifest.validate(); err != nil {
 		t.Fatalf("validate refused the orchestrator-shaped manifest: %v", err)
 	}
@@ -146,7 +163,7 @@ func TestFetchYBSnapshotManifestRefusesAForeignRunID(t *testing.T) {
 	const storedUnder = "20260829T100000Z"
 	const declares = "20260830T100000Z"
 
-	foreign := newYBSnapshotManifest(declares, "snap-1", "tack", []string{"yb1"})
+	foreign := newYBSnapshotManifest(declares, "snap-1", "tack", []string{"yb1"}, ybTestArtifactNames())
 	s3Client, cfg := newFakeBackupObjectStore(t, "tack-backups",
 		fakeYBExportRunObjects(t, storedUnder, foreign))
 	_, err := fetchYBSnapshotManifest(ctx, s3Client, cfg.BackupS3BucketMain, storedUnder)
@@ -157,7 +174,7 @@ func TestFetchYBSnapshotManifestRefusesAForeignRunID(t *testing.T) {
 		t.Fatalf("the error must name the disagreement, got: %v", err)
 	}
 
-	own := newYBSnapshotManifest(storedUnder, "snap-1", "tack", []string{"yb1"})
+	own := newYBSnapshotManifest(storedUnder, "snap-1", "tack", []string{"yb1"}, ybTestArtifactNames())
 	ownClient, ownCfg := newFakeBackupObjectStore(t, "tack-backups",
 		fakeYBExportRunObjects(t, storedUnder, own))
 	got, err := fetchYBSnapshotManifest(ctx, ownClient, ownCfg.BackupS3BucketMain, storedUnder)
@@ -184,7 +201,8 @@ func TestYBNodeArchiveKey(t *testing.T) {
 // gates on: only nodes whose archive object is absent are reported, in
 // manifest order.
 func TestMissingYBNodeArchives(t *testing.T) {
-	manifest := newYBSnapshotManifest("run-1", "snap-1", "tack", []string{"yb1", "yb2", "yb3"})
+	manifest := newYBSnapshotManifest("run-1", "snap-1", "tack",
+		[]string{"yb1", "yb2", "yb3"}, ybTestArtifactNames())
 	present := map[string]bool{
 		ybNodeArchiveKey("run-1", ybSnapshotManifestNode{Name: "yb1", Prefix: "nodes/yb1/"}): true,
 		ybNodeArchiveKey("run-1", ybSnapshotManifestNode{Name: "yb3", Prefix: "nodes/yb3/"}): true,
@@ -205,6 +223,54 @@ func TestMissingYBNodeArchives(t *testing.T) {
 	}
 	if len(allPresent) != 0 {
 		t.Fatalf("missing = %v, want none", allPresent)
+	}
+}
+
+// TestMissingYBRunArtifacts exercises the run-root half of the completeness
+// rule: only the declared artifacts whose object is absent are reported, in
+// manifest order, and a run holding every artifact it declared reports none.
+func TestMissingYBRunArtifacts(t *testing.T) {
+	manifest := newYBSnapshotManifest("run-1", "snap-1", "tack",
+		[]string{"yb1"}, ybTestArtifactNames())
+	present := map[string]bool{
+		ybRunArtifactKey("run-1", ybSnapshotMetadataObject): true,
+		ybRunArtifactKey("run-1", ybSnapshotSchemaObject):   true,
+	}
+	missing, err := missingYBRunArtifacts(manifest, func(key string) (bool, error) {
+		return present[key], nil
+	})
+	if err != nil {
+		t.Fatalf("missingYBRunArtifacts: %v", err)
+	}
+	if !reflect.DeepEqual(missing, []string{ybSnapshotRolesObject}) {
+		t.Fatalf("missing = %v, want [%s]", missing, ybSnapshotRolesObject)
+	}
+
+	allPresent, err := missingYBRunArtifacts(manifest, func(string) (bool, error) { return true, nil })
+	if err != nil {
+		t.Fatalf("missingYBRunArtifacts all present: %v", err)
+	}
+	if len(allPresent) != 0 {
+		t.Fatalf("missing = %v, want none", allPresent)
+	}
+}
+
+// TestYBSnapshotManifestValidateRejectsBadArtifactNames proves artifact names
+// carrying path separators, traversal segments, or shell metacharacters are
+// refused. The drill joins each declared name onto the staging directory and
+// onto the run's object prefix, so a manifest from the object store must not be
+// able to redirect either.
+func TestYBSnapshotManifestValidateRejectsBadArtifactNames(t *testing.T) {
+	badNames := []string{
+		"../schema.sql", "a..b", "nodes/schema.sql", `schema\.sql`,
+		"schema.sql;reboot", "schema $(reboot)", "schema sql", "-schema.sql", "",
+	}
+	for _, name := range badNames {
+		manifest := newYBSnapshotManifest("20260826T030000Z", "snap-1", "tack",
+			[]string{"yb1"}, []string{name})
+		if err := manifest.validate(); err == nil {
+			t.Errorf("validate accepted artifact name %q", name)
+		}
 	}
 }
 

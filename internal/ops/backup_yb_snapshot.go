@@ -141,11 +141,11 @@ func RunBackupYBSnapshotExport(ctx context.Context, cfg *config.Config) error {
 }
 
 // exportYBSnapshotToObjectStore runs the post-creation pipeline for a snapshot
-// already known COMPLETE: export the metadata file, dump the schema, write the
-// completeness manifest from the live tablet-server list, and upload all three
-// under the run's key prefix. The tablet archives themselves are each data
-// guest's job (`ops backup yb-archive-node`); this pipeline only declares the
-// node prefixes those archives must fill.
+// already known COMPLETE: export the metadata file, dump the schema and the
+// cluster's roles, write the completeness manifest from the live tablet-server
+// list, and upload everything under the run's key prefix. The tablet archives
+// themselves are each data guest's job (`ops backup yb-archive-node`); this
+// pipeline only declares the node prefixes those archives must fill.
 func exportYBSnapshotToObjectStore(
 	ctx context.Context,
 	cli *client.Client,
@@ -153,13 +153,18 @@ func exportYBSnapshotToObjectStore(
 	runID, stageDir, snapshotID string,
 ) error {
 	if _, err := ybAdminOneShot(ctx, cli, cfg,
-		[]string{stageDir + ":/out"},
-		"export_snapshot", snapshotID, "/out/"+ybSnapshotMetadataObject); err != nil {
+		[]string{stageDir + ":" + ybDumpOutDir},
+		"export_snapshot", snapshotID, ybDumpOutDir+"/"+ybSnapshotMetadataObject); err != nil {
 		return err
 	}
 
-	schemaPath := filepath.Join(stageDir, "schema.sql")
+	schemaPath := filepath.Join(stageDir, ybSnapshotSchemaObject)
 	if err := dumpYBSchemaOneShot(ctx, cli, cfg, stageDir, schemaPath); err != nil {
+		return err
+	}
+
+	rolesPath := filepath.Join(stageDir, ybSnapshotRolesObject)
+	if err := dumpYBRolesOneShot(ctx, cli, cfg, stageDir, rolesPath); err != nil {
 		return err
 	}
 
@@ -168,8 +173,10 @@ func exportYBSnapshotToObjectStore(
 		return err
 	}
 
-	manifest := newYBSnapshotManifest(runID, snapshotID, cfg.YugabyteDB, nodes)
 	manifestPath := filepath.Join(stageDir, ybSnapshotManifestObject)
+	artifacts := ybSnapshotUploadArtifacts(stageDir, schemaPath, rolesPath, manifestPath)
+	manifest := newYBSnapshotManifest(runID, snapshotID, cfg.YugabyteDB, nodes,
+		ybSnapshotGatedArtifactNames(artifacts))
 	if err := writeYBSnapshotManifest(ctx, manifestPath, manifest); err != nil {
 		return err
 	}
@@ -177,8 +184,7 @@ func exportYBSnapshotToObjectStore(
 	// The manifest uploads last: archivers and the restore drill treat a
 	// manifest-less run prefix as not yet published, so a failure part-way
 	// through the uploads can never leave a manifest gating absent objects.
-	return uploadYBSnapshotArtifacts(ctx, cfg, runID,
-		ybSnapshotUploadArtifacts(stageDir, schemaPath, manifestPath))
+	return uploadYBSnapshotArtifacts(ctx, cfg, runID, artifacts)
 }
 
 // listYBTabletServerNodes derives the tablet-server node names live from
@@ -199,63 +205,6 @@ func listYBTabletServerNodes(ctx context.Context, cli *client.Client, cfg *confi
 	}
 	logger.InfoContext(ctx, "backup.yb_snapshot.tablet_servers", slog.Any("nodes", nodes))
 	return nodes, nil
-}
-
-// dumpYBSchemaOneShot writes a schema-only ysql_dump of the database into the
-// bind-mounted stage dir, running ysql_dump in a one-shot container the same
-// way yb-admin one-shots run and pointing it at the first master's node name.
-// The export_snapshot metadata references table ids this schema recreates on
-// import; --include-yb-metadata preserves the YugabyteDB table properties the
-// import path needs.
-func dumpYBSchemaOneShot(ctx context.Context, cli *client.Client, cfg *config.Config, stageDir, schemaPath string) error {
-	logger := telemetry.L(ctx)
-	host := ybFirstMasterHost(cfg.BackupYBMasterAddresses)
-	res, err := runOneShot(ctx, cli, logger, runOneShotOptions{
-		Image:      cfg.BackupYBPITRImage,
-		Network:    cfg.BackupFDBNetwork,
-		Entrypoint: []string{"/home/yugabyte/postgres/bin/ysql_dump"},
-		Cmd: []string{
-			"-h", host,
-			"-p", "5433",
-			"-U", cfg.YugabyteUser,
-			"-d", cfg.YugabyteDB,
-			"--schema-only",
-			"--include-yb-metadata",
-			"--no-owner",
-			"--no-privileges",
-			"-f", "/out/schema.sql",
-		},
-		Env:        []string{"PGPASSWORD=" + cfg.YugabytePassword},
-		Binds:      []string{stageDir + ":/out"},
-		ExtraHosts: nil,
-		Name:       "",
-	})
-	if err != nil {
-		wrapped := fmt.Errorf("ysql_dump schema one-shot: %w", err)
-		logger.ErrorContext(ctx, "backup.yb_snapshot.schema_failed", slog.String("err", wrapped.Error()))
-		return wrapped
-	}
-	if res.ExitCode != 0 {
-		wrapped := fmt.Errorf("ysql_dump schema exited %d: %s", res.ExitCode,
-			strings.TrimSpace(res.Stdout+" "+res.Stderr))
-		logger.ErrorContext(ctx, "backup.yb_snapshot.schema_failed", slog.String("err", wrapped.Error()))
-		return wrapped
-	}
-
-	info, err := os.Stat(schemaPath)
-	if err != nil {
-		wrapped := fmt.Errorf("stat %s: %w", schemaPath, err)
-		logger.ErrorContext(ctx, "backup.yb_snapshot.schema_failed", slog.String("err", wrapped.Error()))
-		return wrapped
-	}
-	if info.Size() == 0 {
-		wrapped := fmt.Errorf("ysql_dump schema produced 0 bytes; refuse to ship empty schema")
-		logger.ErrorContext(ctx, "backup.yb_snapshot.schema_failed", slog.String("err", wrapped.Error()))
-		return wrapped
-	}
-	logger.InfoContext(ctx, "backup.yb_snapshot.schema_dumped",
-		slog.String("path", schemaPath), slog.Int64("bytes", info.Size()))
-	return nil
 }
 
 // ybSnapshotCleanupMaxRuns bounds how many of the newest export run prefixes

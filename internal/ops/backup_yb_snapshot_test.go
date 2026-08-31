@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -14,18 +15,78 @@ import (
 
 // TestYBSnapshotUploadArtifactsManifestLast locks the upload order the export
 // relies on: the manifest is the completeness gate, so it must be the last
-// artifact in the slice and land only after everything it vouches for.
+// artifact in the slice and land only after everything it vouches for. The
+// roles file is one of the things it vouches for: without it a restore has no
+// identity to grant the schema's privileges to.
 func TestYBSnapshotUploadArtifactsManifestLast(t *testing.T) {
-	files := ybSnapshotUploadArtifacts("/stage", "/stage/schema.sql", "/stage/manifest.json")
-	if len(files) != 3 {
-		t.Fatalf("artifact count = %d, want 3", len(files))
+	files := ybSnapshotUploadArtifacts("/stage", "/stage/schema.sql", "/stage/roles.sql", "/stage/manifest.json")
+	got := make([]string, 0, len(files))
+	for _, file := range files {
+		got = append(got, file.name)
 	}
-	last := files[len(files)-1]
-	if last.name != ybSnapshotManifestObject {
-		t.Fatalf("last artifact = %q, want the manifest %q", last.name, ybSnapshotManifestObject)
+	want := []string{
+		ybSnapshotMetadataObject, ybSnapshotSchemaObject,
+		ybSnapshotRolesObject, ybSnapshotManifestObject,
 	}
-	if files[0].name != ybSnapshotMetadataObject || files[1].name != "schema.sql" {
-		t.Fatalf("artifact order = %v, want metadata then schema then manifest", files)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("artifact order:\n got=%v\nwant=%v", got, want)
+	}
+}
+
+// TestYBSnapshotGatedArtifactNamesExcludeTheManifest proves the manifest
+// declares every artifact except itself. Its own presence is what makes the run
+// visible to a walk at all, so a manifest gating it would assert nothing, while
+// every other artifact the export uploads must be gated without the gate being
+// told which artifacts exist.
+func TestYBSnapshotGatedArtifactNamesExcludeTheManifest(t *testing.T) {
+	files := ybSnapshotUploadArtifacts("/stage", "/stage/schema.sql", "/stage/roles.sql", "/stage/manifest.json")
+	got := ybSnapshotGatedArtifactNames(files)
+	want := []string{ybSnapshotMetadataObject, ybSnapshotSchemaObject, ybSnapshotRolesObject}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("gated artifacts:\n got=%v\nwant=%v", got, want)
+	}
+}
+
+// TestYBSchemaDumpArgsDescribePrivileges proves the schema dump asks the engine
+// to describe the database's access control.
+//
+// The dump used to pass --no-privileges, which stripped every GRANT and REVOKE
+// from the artifact. A restore then rebuilt the tables and the row-level
+// security policies with none of the privileges those policies depend on, and
+// the ledger came back unreadable to every application role, including the
+// audit_reader the product reads through (TACK-474). Nothing else in a recovery
+// re-establishes them: the migration that granted them is never re-run against
+// a restored database.
+func TestYBSchemaDumpArgsDescribePrivileges(t *testing.T) {
+	args := ybSchemaDumpArgs(&config.Config{YugabyteDB: "tack"})
+	for _, banned := range []string{"--no-privileges", "-x", "--dump-role-checks"} {
+		if slices.Contains(args, banned) {
+			t.Fatalf("schema dump passes %s, which drops or conditions the grants: %v", banned, args)
+		}
+	}
+	for _, required := range []string{"--schema-only", "--include-yb-metadata", "--no-owner"} {
+		if !slices.Contains(args, required) {
+			t.Fatalf("schema dump is missing %s: %v", required, args)
+		}
+	}
+	if !slices.Contains(args, "-d") || !slices.Contains(args, "tack") {
+		t.Fatalf("schema dump does not name the database: %v", args)
+	}
+}
+
+// TestYBRolesDumpArgsCarryIdentitiesNotCredentials proves the roles dump asks
+// for the cluster's roles and refuses to carry their passwords. Roles are
+// cluster objects, so the per-database schema dump cannot describe them, and
+// the grants the schema carries name roles a restore must already have.
+func TestYBRolesDumpArgsCarryIdentitiesNotCredentials(t *testing.T) {
+	args := ybRolesDumpArgs(&config.Config{YugabyteDB: "tack"})
+	for _, required := range []string{"--roles-only", "--no-role-passwords"} {
+		if !slices.Contains(args, required) {
+			t.Fatalf("roles dump is missing %s: %v", required, args)
+		}
+	}
+	if !slices.Contains(args, ybDumpOutDir+"/"+ybSnapshotRolesObject) {
+		t.Fatalf("roles dump does not write the roles artifact: %v", args)
 	}
 }
 
@@ -40,13 +101,14 @@ func TestUploadYBSnapshotArtifactsUploadsInOrder(t *testing.T) {
 	t.Cleanup(func() { putYBSnapshotObject = putObjectFromFile })
 
 	cfg := &config.Config{BackupS3BucketMain: "backups"}
-	files := ybSnapshotUploadArtifacts("/stage", "/stage/schema.sql", "/stage/manifest.json")
+	files := ybSnapshotUploadArtifacts("/stage", "/stage/schema.sql", "/stage/roles.sql", "/stage/manifest.json")
 	if err := uploadYBSnapshotArtifacts(context.Background(), cfg, "run-1", files); err != nil {
 		t.Fatalf("uploadYBSnapshotArtifacts: %v", err)
 	}
 	want := []string{
 		"yugabyte-snapshot/run-1/metadata.snapshot",
 		"yugabyte-snapshot/run-1/schema.sql",
+		"yugabyte-snapshot/run-1/roles.sql",
 		"yugabyte-snapshot/run-1/manifest.json",
 	}
 	if !reflect.DeepEqual(uploaded, want) {
@@ -69,7 +131,7 @@ func TestUploadYBSnapshotArtifactsStopsBeforeManifest(t *testing.T) {
 	t.Cleanup(func() { putYBSnapshotObject = putObjectFromFile })
 
 	cfg := &config.Config{BackupS3BucketMain: "backups"}
-	files := ybSnapshotUploadArtifacts("/stage", "/stage/schema.sql", "/stage/manifest.json")
+	files := ybSnapshotUploadArtifacts("/stage", "/stage/schema.sql", "/stage/roles.sql", "/stage/manifest.json")
 	err := uploadYBSnapshotArtifacts(context.Background(), cfg, "run-1", files)
 	if err == nil {
 		t.Fatal("uploadYBSnapshotArtifacts must fail when a payload upload fails")
