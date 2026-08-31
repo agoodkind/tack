@@ -2,14 +2,22 @@ package ops
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clispec"
 	"goodkind.io/tack/internal/clock"
 )
+
+// repairRecordTimeout bounds the audit write that runs after the repair. The
+// write is mandatory and detached from the caller's cancellation, so it needs
+// its own deadline: an interrupted command must still end rather than hang on
+// an unreachable ledger.
+const repairRecordTimeout = 30 * time.Second
 
 type repairReferenceUniquenessInput struct {
 	clispec.InputMarker
@@ -104,8 +112,8 @@ func runRepairReferenceUniquenessCommand(
 		Execute: execute,
 		Keep:    input.Keep,
 	})
-	if outcomeErr := repairRecordOutcome(ctx, report, err, execute, func() error {
-		return recordRepairReferenceRun(ctx, factory, report)
+	if outcomeErr := repairRecordOutcome(ctx, report, err, execute, func(recordCtx context.Context) error {
+		return recordRepairReferenceRun(recordCtx, factory, report)
 	}); outcomeErr != nil {
 		return outcomeErr
 	}
@@ -147,27 +155,35 @@ func runRepairReferenceUniquenessCommand(
 // from the facts and the outbox writes only if absent, so a later successful
 // rerun re-records the same work rather than doubling it.
 //
-// When both the run and the recording fail, the run's error is the one
-// returned, because that is the failure an operator acts on. The recording
-// failure is logged with the counts it could not record rather than dropped,
-// since a silent recording failure is the same silence this ticket removes.
+// When both the run and the recording fail, both errors are returned joined.
+// The run failure is what an operator acts on, so it must not be replaced; the
+// recording failure must not vanish either, because it means applied changes
+// are still unrecorded and a rerun cannot rediscover them. Every applied
+// change is also logged by identity, so a ledger that was unreachable leaves
+// the operator something to reconcile from rather than a count.
+//
+// The recording runs on a context detached from cancellation. A run that
+// failed because the command was interrupted or timed out would otherwise hand
+// the same dead context to the audit write, guaranteeing the record fails
+// exactly when it matters most.
 func repairRecordOutcome(
 	ctx context.Context,
 	report RepairReferenceReport,
 	runErr error,
 	execute bool,
-	record func() error,
+	record func(context.Context) error,
 ) error {
+	var recordErr error
 	if execute {
-		if recordErr := record(); recordErr != nil {
+		recordCtx, cancel := context.WithTimeout(
+			context.WithoutCancel(ctx), repairRecordTimeout)
+		recordErr = record(recordCtx)
+		cancel()
+		if recordErr != nil {
+			logUnrecordedRepair(ctx, report, recordErr)
 			if runErr == nil {
 				return recordErr
 			}
-			slog.ErrorContext(ctx, "repair.reference_uniqueness.partial_record_failed",
-				slog.Int("renamed", len(report.Renumbered)),
-				slog.Int("counters_seeded", len(report.Counters)),
-				slog.Int("keys_written", len(report.Keys)),
-				slog.String("err", recordErr.Error()))
 		}
 	}
 	if runErr == nil {
@@ -179,7 +195,39 @@ func repairRecordOutcome(
 		slog.Int("counters_seeded_before_failure", len(report.Counters)),
 		slog.Int("keys_written_before_failure", len(report.Keys)),
 		slog.String("err", wrapped.Error()))
+	if recordErr != nil {
+		return errors.Join(wrapped, recordErr)
+	}
 	return wrapped
+}
+
+// logUnrecordedRepair names every change that is applied and unrecorded. A
+// count cannot be reconciled against the store later; an identity can.
+func logUnrecordedRepair(ctx context.Context, report RepairReferenceReport, recordErr error) {
+	slog.ErrorContext(ctx, "repair.reference_uniqueness.partial_record_failed",
+		slog.Int("renamed", len(report.Renumbered)),
+		slog.Int("counters_seeded", len(report.Counters)),
+		slog.Int("keys_written", len(report.Keys)),
+		slog.String("err", recordErr.Error()))
+	for _, rename := range report.Renumbered {
+		slog.ErrorContext(ctx, "repair.reference_uniqueness.unrecorded_rename",
+			slog.String("node_id", rename.NodeID.String()),
+			slog.String("from", rename.From),
+			slog.String("to", rename.To),
+			slog.String("err", recordErr.Error()))
+	}
+	for _, counter := range report.Counters {
+		slog.ErrorContext(ctx, "repair.reference_uniqueness.unrecorded_counter",
+			slog.String("counter_key", counter.Key),
+			slog.Int64("value", counter.Value),
+			slog.String("err", recordErr.Error()))
+	}
+	for _, key := range report.Keys {
+		slog.ErrorContext(ctx, "repair.reference_uniqueness.unrecorded_key",
+			slog.String("node_id", key.NodeID.String()),
+			slog.String("encoded", key.Encoded),
+			slog.String("err", recordErr.Error()))
+	}
 }
 
 // recordRepairReferenceRun puts one ledger row behind every reference the run

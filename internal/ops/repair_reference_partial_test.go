@@ -21,9 +21,9 @@ func TestFailedRepairRecordsWhatItAppliedBeforeFailing(t *testing.T) {
 	report := partialRepairReport()
 	runErr := errors.New("write renumbered node: transaction too old")
 
-	returned := repairRecordOutcome(context.Background(), report, runErr, true, func() error {
+	returned := repairRecordOutcome(context.Background(), report, runErr, true, func(recordCtx context.Context) error {
 		return recordReferenceRepair(
-			context.Background(), outbox, repairAuditTestPrincipal(), report,
+			recordCtx, outbox, repairAuditTestPrincipal(), report,
 			time.Date(2026, time.August, 31, 1, 0, 0, 0, time.UTC),
 		)
 	})
@@ -51,9 +51,9 @@ func TestDryRunFailureRecordsNothing(t *testing.T) {
 	outbox := &auditBackfillTestOutbox{}
 	report := partialRepairReport()
 
-	returned := repairRecordOutcome(context.Background(), report, errors.New("list nodes: unavailable"), false, func() error {
+	returned := repairRecordOutcome(context.Background(), report, errors.New("list nodes: unavailable"), false, func(recordCtx context.Context) error {
 		return recordReferenceRepair(
-			context.Background(), outbox, repairAuditTestPrincipal(), report,
+			recordCtx, outbox, repairAuditTestPrincipal(), report,
 			time.Date(2026, time.August, 31, 1, 0, 0, 0, time.UTC),
 		)
 	})
@@ -66,22 +66,52 @@ func TestDryRunFailureRecordsNothing(t *testing.T) {
 	}
 }
 
-// TestRunFailureOutranksRecordFailure pins which error reaches the operator
-// when both halves fail. The run's failure is the one to act on; the recording
-// failure must not replace it, and must not vanish either.
-func TestRunFailureOutranksRecordFailure(t *testing.T) {
+// TestBothFailuresReachTheOperator pins what happens when the run and the
+// recording both fail. Returning only the run failure would hide that applied
+// changes are still unrecorded, and a rerun cannot rediscover them; returning
+// only the recording failure would hide what the operator has to act on. Both
+// are preserved, so either can be matched.
+func TestBothFailuresReachTheOperator(t *testing.T) {
 	runErr := errors.New("allocate replacement value: transaction too old")
 	recordErr := errors.New("outbox unavailable")
 
-	returned := repairRecordOutcome(context.Background(), partialRepairReport(), runErr, true, func() error {
+	returned := repairRecordOutcome(context.Background(), partialRepairReport(), runErr, true, func(context.Context) error {
 		return recordErr
 	})
 
 	if !errors.Is(returned, runErr) {
-		t.Fatalf("returned = %v, want the run failure", returned)
+		t.Fatalf("returned = %v, want the run failure preserved", returned)
 	}
-	if errors.Is(returned, recordErr) {
-		t.Fatal("the recording failure replaced the run failure the operator must act on")
+	if !errors.Is(returned, recordErr) {
+		t.Fatalf("returned = %v, want the recording failure preserved: unrecorded changes are live in the store", returned)
+	}
+}
+
+// TestRecordingSurvivesACancelledRun pins the context split. A run that failed
+// because the command was interrupted or timed out hands back a dead context,
+// and the audit write is mandatory, so it must not inherit that cancellation:
+// the record would fail exactly when the applied work most needs one.
+func TestRecordingSurvivesACancelledRun(t *testing.T) {
+	outbox := &auditBackfillTestOutbox{}
+	report := partialRepairReport()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	returned := repairRecordOutcome(ctx, report, context.Canceled, true, func(recordCtx context.Context) error {
+		if recordCtx.Err() != nil {
+			return recordCtx.Err()
+		}
+		return recordReferenceRepair(
+			recordCtx, outbox, repairAuditTestPrincipal(), report,
+			time.Date(2026, time.August, 31, 1, 0, 0, 0, time.UTC),
+		)
+	})
+
+	if !errors.Is(returned, context.Canceled) {
+		t.Fatalf("returned = %v, want the run's cancellation", returned)
+	}
+	if len(outbox.events) != 1 {
+		t.Fatalf("recorded events = %d, want the applied rename recorded despite the cancelled run", len(outbox.events))
 	}
 }
 
@@ -91,7 +121,7 @@ func TestRunFailureOutranksRecordFailure(t *testing.T) {
 func TestRecordFailureSurfacesWhenTheRunSucceeded(t *testing.T) {
 	recordErr := errors.New("outbox unavailable")
 
-	returned := repairRecordOutcome(context.Background(), partialRepairReport(), nil, true, func() error {
+	returned := repairRecordOutcome(context.Background(), partialRepairReport(), nil, true, func(context.Context) error {
 		return recordErr
 	})
 
