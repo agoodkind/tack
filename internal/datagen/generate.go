@@ -96,6 +96,9 @@ func (g *Generator) Run(ctx context.Context) (Summary, error) {
 			return Summary{}, err
 		}
 	}
+	if err := g.readGettingStartedResource(ctx); err != nil {
+		return Summary{}, err
+	}
 	if err := g.probeCrossOrgIsolation(ctx); err != nil {
 		return Summary{}, err
 	}
@@ -155,6 +158,26 @@ func (g *Generator) exerciseRejectedTokens(ctx context.Context) error {
 type authProbe struct {
 	label string
 	token string
+}
+
+// readGettingStartedResource reads the one MCP resource the server exposes, as
+// the first workspace's first actor.
+//
+// This is the generator's only resource traffic, and it exists so a testbed run
+// produces an mcp.resource_read row. A generator that exercises every tool and
+// no resource leaves that verb with no way to appear on a testbed at all, which
+// is how it went unnoticed that nothing emitted it (TACK-340).
+func (g *Generator) readGettingStartedResource(ctx context.Context) error {
+	if len(g.identities.Workspaces) == 0 || len(g.identities.Workspaces[0].Actors) == 0 {
+		slog.InfoContext(ctx, "qa.datagen.resource_read_skipped",
+			slog.String("reason", "the scale generates no actor to read as"))
+		return nil
+	}
+	actor := g.identities.Workspaces[0].Actors[0]
+	if _, err := g.driver.ReadResource(ctx, actor.Token, gettingStartedURI); err != nil {
+		return loggedError(ctx, "qa datagen: read "+gettingStartedURI, err)
+	}
+	return nil
 }
 
 func (g *Generator) now() time.Time {
