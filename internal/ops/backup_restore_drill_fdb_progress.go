@@ -42,9 +42,10 @@ type fdbRestoreWatch struct {
 
 // awaitFDBRestore blocks until the restore exits or stops making progress. It
 // never bounds the restore's total run time: a restore whose counters keep
-// climbing runs for as long as the dataset needs. stallWindow bounds only the
-// time since the last observed movement, so what fails the drill is a restore
-// that stopped, never a restore that is big.
+// moving in the direction that counter moves under work runs for as long as the
+// dataset needs. stallWindow bounds only the time since the last observed
+// movement, so what fails the drill is a restore that stopped, never a restore
+// that is big.
 func awaitFDBRestore(
 	ctx context.Context,
 	watch fdbRestoreWatch,
@@ -84,7 +85,7 @@ func awaitFDBRestore(
 }
 
 // fdbRestoreStallError names what the drill saw before it gave up: how long
-// nothing moved, the high-water mark of every counter it read, and the last
+// nothing moved, the furthest mark of every counter it read, and the last
 // status read that failed, so a wedged restore reads differently from a
 // status the drill could not read.
 func fdbRestoreStallError(stalled time.Duration, progress *fdbRestoreProgress, lastStatusErr string) error {
