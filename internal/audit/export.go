@@ -109,6 +109,15 @@ func Export(ctx context.Context, reader RowSource, signer ed25519.PrivateKey, ke
 		_ = os.Remove(eventsPath)
 		return nil, err
 	}
+	// The rename that published this manifest is a change to the directory, so
+	// it is not on disk until the directory is synced. The reclaim below unlinks
+	// the rows the previous bundle named, and a power loss between an unlink
+	// that persisted and a rename that did not leaves the previous manifest
+	// naming rows that are gone. Nothing is removed here: the bundle is
+	// published and whole, and only its durability is unproven.
+	if err := syncExportDirectory(dir); err != nil {
+		return nil, err
+	}
 
 	// The reclaim runs after the manifest is published and after this export
 	// stops counting as active, so what it sees is a settled directory: the
@@ -126,6 +135,11 @@ func Export(ctx context.Context, reader RowSource, signer ed25519.PrivateKey, ke
 // before it ran, would leave that loss permanent. A failure of the rename
 // leaves the directory exactly as it was and reports it, which is why the error
 // reaches the caller rather than being logged and swallowed.
+//
+// The staged manifest is on stable storage before the rename runs. A rename
+// publishes a name, not the bytes behind it, so publishing over contents that
+// had not landed yet would let a power loss leave a signed compliance artifact
+// that is empty or torn.
 func publishExportManifest(ctx context.Context, dir string, exportID uuid.UUID, manifest *ExportManifest) error {
 	manifestBytes, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
@@ -133,7 +147,7 @@ func publishExportManifest(ctx context.Context, dir string, exportID uuid.UUID, 
 	}
 	published := filepath.Join(dir, exportManifestFile)
 	staged := stagedExportPath(published, exportID)
-	if err := os.WriteFile(staged, manifestBytes, 0o600); err != nil {
+	if err := writeSyncedFile(staged, manifestBytes, 0o600); err != nil {
 		_ = os.Remove(staged)
 		slog.ErrorContext(ctx, "audit.export.publish_failed",
 			slog.String("path", staged), slog.String("err", err.Error()))

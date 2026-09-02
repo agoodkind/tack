@@ -13,6 +13,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 )
 
 // exportWriteBufferBytes buffers the bundle's writes. Encoding straight to the
@@ -32,6 +33,10 @@ const exportWriteBufferBytes = 1 << 20
 // The path is this export's own, named for its export id, so the create below
 // can truncate nothing another export is writing or has published, and every
 // failure removes the file rather than leaving rows no manifest will name.
+//
+// It returns only once the rows and the directory entry naming them are both on
+// stable storage. That is what makes it safe for the caller's next steps to sign
+// a manifest over these rows and to free the rows this bundle replaces.
 func writeExportRows(ctx context.Context, source RowSource, filter QueryFilter, path string) (int, string, error) {
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
@@ -65,9 +70,27 @@ func writeExportRows(ctx context.Context, source RowSource, filter QueryFilter, 
 		_ = os.Remove(path)
 		return 0, "", fmt.Errorf("audit export flush: %w", flushErr)
 	}
+	// Flushing moves the tail of the file out of this process and no further.
+	// The bytes are in the kernel's page cache, where a power loss takes them,
+	// and the caller's next steps sign a manifest naming this file and free the
+	// rows it replaces. Both of those are irreversible against a file that is
+	// not on disk yet, so the sync happens here rather than being left to
+	// whenever the kernel gets to it.
+	if syncErr := file.Sync(); syncErr != nil {
+		_ = file.Close()
+		_ = os.Remove(path)
+		return 0, "", fmt.Errorf("audit export sync: %w", syncErr)
+	}
 	if closeErr := file.Close(); closeErr != nil {
 		_ = os.Remove(path)
 		return 0, "", fmt.Errorf("audit export close: %w", closeErr)
+	}
+	// The rows are on disk; the entry naming them is a change to the directory
+	// and is not, so the directory is synced too. Only after this does the file
+	// exist for a host that comes back from a power loss.
+	if syncErr := syncExportDirectory(filepath.Dir(path)); syncErr != nil {
+		_ = os.Remove(path)
+		return 0, "", syncErr
 	}
 	return rowCount, hex.EncodeToString(fileDigest.Sum(nil)), nil
 }
