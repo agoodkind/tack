@@ -62,8 +62,17 @@ func (r *YBRecorder) Close() {
 // It appends to audit.events and advances audit.chain_heads through the shared
 // compare-and-swap helper, retrying when a concurrent writer (another app
 // replica) advances the same (org, shard) head. Any final failure increments
-// the dropped counter and returns; state-change verbs abort their parent FDB
-// transaction on audit failure (TACK-173).
+// the dropped counter and returns the error to the caller.
+//
+// What the caller does with that error is the caller's decision, and today no
+// product write is gated on it. The MCP tool wrapper records after the handler
+// has returned and logs a failure at Warn, so a state change whose audit row
+// could not be written is committed and unrecorded. This comment used to claim
+// the opposite, that state-change verbs abort their parent FoundationDB
+// transaction on audit failure under TACK-173; that was the design's intent
+// and never its code, and reading it as fact is how TACK-335 spent its
+// investigation looking for rejected writes that were in fact accepted. The
+// 2026-07-06 gap left eight issue creations in the store with no row here.
 func (r *YBRecorder) Record(ctx context.Context, ev Event) error {
 	ctx, span := telemetry.StartSpan(ctx, "audit.record",
 		trace.WithSpanKind(trace.SpanKindInternal),
