@@ -34,17 +34,6 @@ import (
 // CREATE ROLE for a role the target already carries raises.
 const ybDuplicateObjectSQLState = "42710"
 
-// ybDiagnosticPattern matches the rendered shape psql gives every server
-// diagnostic under VERBOSITY=verbose: a severity token, the five-character
-// SQLSTATE, then the message. The severity token is matched only to reach the
-// code behind it and is never read, because the server localizes it; the code
-// and the message are captured. Verified live against
-// yugabytedb/yugabyte:2025.2.3.0-b149 on 2026-08-30, which renders
-// "ERROR:  42710: role ..." under lc_messages=C and
-// "FEHLER:  42710: Rolle ..." under lc_messages=de_DE.utf8, and puts the same
-// code on a notice ("NOTICE:  00000: ...", "HINWEIS:  00000: ...").
-var ybDiagnosticPattern = regexp.MustCompile(`(?:^|\s)[^\s:]+:\s+([0-9A-Z]{5}):\s+(.*)$`)
-
 // ybDuplicateRoleMessagePattern matches the message a duplicate CREATE ROLE
 // raises, in the C locale the apply pins. It reads the message only to tell
 // which object the duplicate was: SQLSTATE 42710 covers duplicate objects of
@@ -54,22 +43,25 @@ var ybDiagnosticPattern = regexp.MustCompile(`(?:^|\s)[^\s:]+:\s+([0-9A-Z]{5}):\
 // The server interpolates the role's name into this message unescaped, and a
 // quoted identifier may carry a double quote, so a capture that forbids one
 // stops short on a legitimate name, reports no duplicate, and fails the drill
-// on the one diagnostic this classification exists to tolerate.
+// on the one diagnostic this classification exists to tolerate. A quoted
+// identifier may carry a newline the same way, which the client prints as it
+// is, so the capture spans lines too: the message it reads is the one
+// ybRenderedDiagnostics put back together.
 //
 // Anchoring the suffix at the end of the message leaves exactly one possible
 // split whatever the name holds, because the true name is by construction
 // everything between the opening quote and the last suffix. A name that itself
 // ends in the suffix text therefore still captures whole, which a capture that
 // stopped at the first suffix would truncate.
-var ybDuplicateRoleMessagePattern = regexp.MustCompile(`^role "(.+)" already exists$`)
+var ybDuplicateRoleMessagePattern = regexp.MustCompile(`(?s)^role "(.+)" already exists$`)
 
 // ybRolesApplyReport is what one roles-file application produced: the roles
-// the target already carried, and every error line that was not that.
+// the target already carried, and every error that was not that.
 type ybRolesApplyReport struct {
 	// AlreadyPresent names the roles whose CREATE was refused because the
 	// target already has them.
 	AlreadyPresent []string
-	// Unexpected holds every other error line, verbatim.
+	// Unexpected holds the line that opened every other error, verbatim.
 	Unexpected []string
 }
 
@@ -117,10 +109,11 @@ func ybDuplicateRoleName(sqlState, message string) string {
 	return match[1]
 }
 
-// classifyYBRolesApply reads the apply's stderr and sorts every diagnostic into
-// the one tolerated class or the rest. rolesFilePath is the file the apply was
-// pointed at, which is how a diagnostic about that file is recognized without
-// reading any word a locale could change.
+// classifyYBRolesApply reads the apply's stderr, one reassembled diagnostic at
+// a time, and sorts every diagnostic into the one tolerated class or the rest.
+// rolesFilePath is the file the apply was pointed at, which is how a
+// diagnostic about that file is recognized without reading any word a locale
+// could change.
 //
 // Exactly one class is tolerated: a role that already exists. The engine
 // creates its own roles at initdb (postgres, yugabyte, yb_db_admin,
@@ -140,22 +133,17 @@ func ybDuplicateRoleName(sqlState, message string) string {
 // passing through it unread.
 func classifyYBRolesApply(stderr, rolesFilePath string) ybRolesApplyReport {
 	report := ybRolesApplyReport{AlreadyPresent: nil, Unexpected: nil}
-	for line := range strings.SplitSeq(stderr, "\n") {
-		trimmed := strings.TrimSpace(line)
-		match := ybDiagnosticPattern.FindStringSubmatch(trimmed)
-		if match == nil {
-			if strings.Contains(trimmed, rolesFilePath+":") {
-				report.Unexpected = append(report.Unexpected, trimmed)
-			}
+	for _, diagnostic := range ybRenderedDiagnostics(stderr, rolesFilePath) {
+		if diagnostic.SQLState == "" {
+			report.Unexpected = append(report.Unexpected, diagnostic.Line)
 			continue
 		}
-		sqlState, message := match[1], match[2]
-		if !ybSQLStateIsFailure(sqlState) {
+		if !ybSQLStateIsFailure(diagnostic.SQLState) {
 			continue
 		}
-		role := ybDuplicateRoleName(sqlState, message)
+		role := ybDuplicateRoleName(diagnostic.SQLState, diagnostic.Message)
 		if role == "" {
-			report.Unexpected = append(report.Unexpected, trimmed)
+			report.Unexpected = append(report.Unexpected, diagnostic.Line)
 			continue
 		}
 		report.AlreadyPresent = append(report.AlreadyPresent, role)

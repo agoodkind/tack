@@ -57,6 +57,63 @@ func TestClassifyYBRolesApplyReadsRoleNamesTheMessageShapeCannotDelimit(t *testi
 	}
 }
 
+// liveNewlineRolesApplyStderr is the stderr a real roles file produced when the
+// target already held two roles whose names carry newlines, captured on
+// 2026-09-01 by applying a ysql_dumpall --roles-only --no-role-passwords file
+// to yugabytedb/yugabyte:2025.2.3.0-b149 (the configured restore-drill image)
+// under the exact command and environment applyYBDrillRoles uses.
+//
+// The server interpolates the name into the message unescaped and the client
+// prints the message as it is, so a name's newline splits the diagnostic across
+// lines: the first line ends mid-name, the rest of the name follows with no
+// prefix, label, or indent, and a name with two consecutive newlines puts an
+// empty line inside the message. Only the first line carries the file locus
+// and the SQLSTATE.
+const liveNewlineRolesApplyStderr = `ysqlsh:/artifacts/roles.sql:14: ERROR:  42710: role "drill" already exists
+LOCATION:  CreateRole, user.c:319
+ysqlsh:/artifacts/roles.sql:17: ERROR:  42710: role "first
+second" already exists
+LOCATION:  CreateRole, user.c:319
+ysqlsh:/artifacts/roles.sql:20: ERROR:  42710: role "postgres" already exists
+LOCATION:  CreateRole, user.c:319
+ysqlsh:/artifacts/roles.sql:24: ERROR:  42710: role "third
+
+fourth" already exists
+LOCATION:  CreateRole, user.c:319
+ysqlsh:/artifacts/roles.sql:28: ERROR:  42710: role "yb_db_admin" already exists
+LOCATION:  CreateRole, user.c:319
+ysqlsh:/artifacts/roles.sql:30: ERROR:  42710: role "yb_extension" already exists
+LOCATION:  CreateRole, user.c:319
+ysqlsh:/artifacts/roles.sql:32: ERROR:  42710: role "yb_fdw" already exists
+LOCATION:  CreateRole, user.c:319
+ysqlsh:/artifacts/roles.sql:34: ERROR:  42710: role "yugabyte" already exists
+LOCATION:  CreateRole, user.c:319
+`
+
+// TestClassifyYBRolesApplyReassemblesARoleNameSplitAcrossLines proves the
+// tolerated duplicate is still recognized when the role's name carries a
+// newline, on the real rendering of that case.
+//
+// A quoted SQL identifier may hold a newline, and the client prints the
+// server's message with the newline in it, so the one diagnostic arrives split
+// across lines. Classifying each line alone sees a first fragment with no
+// closing suffix, which it cannot tolerate, and a rest that matches nothing,
+// which it drops: the drill fails on the one class it exists to pass over.
+// The diagnostic has to be put back together before it is read.
+func TestClassifyYBRolesApplyReassemblesARoleNameSplitAcrossLines(t *testing.T) {
+	report := classifyYBRolesApply(liveNewlineRolesApplyStderr, ybTestRolesFilePath)
+	if len(report.Unexpected) > 0 {
+		t.Fatalf("a duplicate role must not fail the drill, got %q", report.Unexpected)
+	}
+	want := []string{
+		"drill", "first\nsecond", "postgres", "third\n\nfourth",
+		"yb_db_admin", "yb_extension", "yb_fdw", "yugabyte",
+	}
+	if !reflect.DeepEqual(report.AlreadyPresent, want) {
+		t.Fatalf("already present:\n got=%q\nwant=%q", report.AlreadyPresent, want)
+	}
+}
+
 // TestClassifyYBRolesApplyStillRefusesADuplicateThatIsNotARole proves the
 // widened capture did not widen what is tolerated. SQLSTATE 42710 covers
 // duplicate objects of every kind, and only a duplicate role may be passed
