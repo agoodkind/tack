@@ -8,10 +8,11 @@
 package ops
 
 // ybNodeArtifactObjects names every object one node's archive run publishes,
-// in upload order. The tablet archive is last because it is the object the
-// archive command's own idempotency probe keys off: a run interrupted between
-// the two uploads must look unarchived on the next timer, so it re-uploads
-// both rather than leaving the inventory behind forever.
+// in upload order. The tablet archive is last so that no archive is ever in
+// the store without the inventory recorded from it. The archive command's own
+// idempotency probe requires every object here, the same rule as the gate, so
+// a run interrupted between the two uploads, or an archive published before
+// inventories existed, looks unarchived on the next timer and is redone.
 func ybNodeArtifactObjects() []string {
 	return []string{ybNodeInventoryObject, ybNodeArchiveObject}
 }

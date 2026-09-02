@@ -23,7 +23,8 @@ import (
 // export run. With an explicit runID it archives that run and errors when the
 // run's manifest does not list this node; with an empty runID it discovers the
 // newest manifest and exits 0 with a log line when there is no manifest, the
-// manifest does not list this node, or this node's archive already exists.
+// manifest does not list this node, or every artifact this node owes the run
+// already exists.
 func RunBackupYBArchiveNode(ctx context.Context, cfg *config.Config, runID string) error {
 	logger := telemetry.L(ctx)
 	if cfg.BackupS3Endpoint == "" || cfg.BackupS3AccessKey == "" || cfg.BackupS3SecretKey == "" {
@@ -87,9 +88,9 @@ func RunBackupYBArchiveNode(ctx context.Context, cfg *config.Config, runID strin
 		return err
 	}
 	// The inventory is recorded from the finished archive and uploaded ahead of
-	// it, so the archive's presence, which is what every gate and this
-	// command's own idempotency probe key off, implies the record of what it
-	// carries landed too.
+	// it, so no archive is ever in the store without the record of what it
+	// carries; every gate and this command's own idempotency probe require
+	// both.
 	if err := writeYBArchiveInventory(ctx, target.manifest.RunID, nodeName, stageDir, tarPath); err != nil {
 		return err
 	}

@@ -28,12 +28,12 @@ type ybArchiveTarget struct {
 // resolveYBArchiveTarget decides what, if anything, this node must archive.
 // A nil target with a nil error is the quiet nothing-to-do outcome, reachable
 // only in discovery mode (empty runID): no run has a manifest yet, the newest
-// manifest does not list this node, or this node's archive is already
-// uploaded. The orchestrator uploads the manifest last, so discovery walks
-// past manifest-less run prefixes (runs that never finished) instead of
-// treating them as errors. With an explicit runID a missing manifest or an
-// unlisted node is an error, because the operator asked for that run
-// specifically.
+// manifest does not list this node, or every artifact this node owes the run
+// is already uploaded. The orchestrator uploads the manifest last, so
+// discovery walks past manifest-less run prefixes (runs that never finished)
+// instead of treating them as errors. With an explicit runID a missing
+// manifest or an unlisted node is an error, because the operator asked for
+// that run specifically.
 func resolveYBArchiveTarget(
 	ctx context.Context,
 	cfg *config.Config,
@@ -74,14 +74,22 @@ func resolveYBArchiveTarget(
 	}
 
 	node := ybSnapshotManifestNode{Name: nodeName, Prefix: prefix}
-	// The archive object is uploaded last, so its presence is what says this
-	// node's whole archive run finished; a run interrupted between the
-	// inventory and the archive looks unarchived here and is redone.
-	present, err := objectExists(ctx, s3Client, cfg.BackupS3BucketMain, ybNodeArchiveKey(manifest.RunID, node))
+	// Done means every artifact this node owes the run is in the store, by the
+	// same rule the restore drill and the snapshot cleanup apply. Probing the
+	// archive alone read an archive uploaded before inventories existed as
+	// finished, so no inventory was ever written for it: the drill refused the
+	// run for lacking one and nothing healed it. A node with such an archive
+	// redoes its whole run, re-tarring the snapshot and uploading the archive
+	// again beside the inventory, because the inventory is recorded from the
+	// archive it is uploaded with and cannot vouch for bytes another run put in
+	// the store.
+	complete, err := ybNodeFullyArchived(manifest.RunID, node, func(key string) (bool, error) {
+		return objectExists(ctx, s3Client, cfg.BackupS3BucketMain, key)
+	})
 	if err != nil {
 		return nil, err
 	}
-	if present {
+	if complete {
 		logger.InfoContext(ctx, "backup.yb_archive.already_archived",
 			slog.String("run_id", manifest.RunID), slog.String("node", nodeName),
 			slog.String("key_prefix", ybNodeKeyPrefix(manifest.RunID, node)))
