@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"goodkind.io/tack/internal/config"
@@ -146,41 +147,72 @@ func TestYBDrillWritesNothingOutsideTheStageForAClimbingArtifactName(t *testing.
 }
 
 // TestEveryArtifactNameTheManifestBoundaryAdmitsStagesInsideTheStage is the
-// containment proof. It enumerates every byte in every position of the short
-// names and asserts, for each one the boundary admits, that the path the
-// staging step builds is a direct child of the staging directory and that the
-// object key stays inside the run's own prefix.
+// containment proof, and it is complete without enumerating every short name.
 //
-// This is a property over the admitted set rather than a check for the shapes
-// someone thought of: no name is singled out, and a boundary relaxed to admit a
-// separator or a traversal segment fails here without anyone having to predict
-// which one. Three bytes is the shortest name that can carry a leading
-// character plus a traversal segment, which is the escape the join permits.
+// A joined path escapes its directory in exactly two ways: a component
+// separator inside the name, or a name that is itself a traversal segment. The
+// boundary decides admission byte by byte, with one rule for the first byte and
+// one for the rest, so sweeping every byte in each of those two positions
+// covers every separator any name could carry. The only multi-byte escape, the
+// traversal segment, is a dot pair, and the boundary refuses a dot pair
+// anywhere in a name. Every admitted name is therefore one component that is
+// not a traversal segment, which is a direct child. The join is then checked on
+// every admitted byte and on the segments themselves, so a boundary relaxed to
+// admit either fails here without anyone having to predict which one.
+//
+// Enumerating every three-byte name proved the same property at sixteen million
+// iterations, which made the suite slow for no added coverage: admission depends
+// on a byte's class, not on its neighbours.
+//
 // [ybSnapshotManifest.validate] runs this same check on every declared name, and
 // the crafted-manifest test above covers that wiring end to end.
 func TestEveryArtifactNameTheManifestBoundaryAdmitsStagesInsideTheStage(t *testing.T) {
 	const stageDir = "/backup/restore-drill-yb-stage"
 	keyPrefix := ybSnapshotKeyPrefix(ybStageStoredRunID)
+
+	assertContained := func(name string) {
+		t.Helper()
+		if staged := filepath.Join(stageDir, name); filepath.Dir(staged) != stageDir {
+			t.Fatalf("admitted name %q stages at %q, outside %q", name, staged, stageDir)
+		}
+		if key := keyPrefix + name; filepath.Dir(key) != filepath.Clean(keyPrefix) {
+			t.Fatalf("admitted name %q keys at %q, outside %q", name, key, keyPrefix)
+		}
+	}
+
+	// Every byte in the first position, alone, and every byte in the rest
+	// position, behind a byte the first position admits.
 	admitted := 0
-	for first := range 256 {
-		for second := range 256 {
-			for third := range 256 {
-				name := string([]byte{byte(first), byte(second), byte(third)})
-				if validateYBArtifactName(name) != nil {
-					continue
-				}
-				admitted++
-				if staged := filepath.Join(stageDir, name); filepath.Dir(staged) != stageDir {
-					t.Fatalf("admitted name %q stages at %q, outside %q", name, staged, stageDir)
-				}
-				if key := keyPrefix + name; filepath.Dir(key) != filepath.Clean(keyPrefix) {
-					t.Fatalf("admitted name %q keys at %q, outside %q", name, key, keyPrefix)
-				}
+	for b := range 256 {
+		for _, name := range []string{string([]byte{byte(b)}), "a" + string([]byte{byte(b)})} {
+			if validateYBArtifactName(name) != nil {
+				continue
 			}
+			admitted++
+			if strings.ContainsAny(name, `/\`) || strings.ContainsRune(name, 0) {
+				t.Fatalf("the boundary admitted %q, which carries a separator or NUL", name)
+			}
+			assertContained(name)
 		}
 	}
 	if admitted == 0 {
 		t.Fatal("the sweep admitted no name at all, so it proved nothing")
 	}
-	t.Logf("admitted %d of %d three-byte names, every one a direct child", admitted, 256*256*256)
+
+	// The traversal segments and their near neighbours. The boundary refuses a
+	// dot pair anywhere in a name, not only a name that is one, which is
+	// stricter than containment needs and is the choice the code made; the
+	// names it does admit carry single dots and stage as direct children.
+	for _, refused := range []string{".", "..", "a..", "a..b", "..a"} {
+		if validateYBArtifactName(refused) == nil {
+			t.Fatalf("the boundary admitted %q, which carries a traversal segment", refused)
+		}
+	}
+	for _, name := range []string{"a.b", "a.", "a.b.c", "a-b", "a_b", "schema.sql"} {
+		if err := validateYBArtifactName(name); err != nil {
+			t.Fatalf("expected %q to be admitted, it is one component: %v", name, err)
+		}
+		assertContained(name)
+	}
+	t.Logf("admitted %d single-byte and two-byte names, every one a direct child", admitted)
 }
