@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -141,7 +140,7 @@ func VerifyBundle(dir string, pub ed25519.PublicKey) (*VerifyReport, error) {
 // immediately.
 func scanBundleRows(dir, eventsName string, report *VerifyReport, mf ExportManifest) ([]chainLink, error) {
 	path := filepath.Join(dir, eventsName)
-	file, err := os.Open(path)
+	file, err := openBundleRowsFile(path)
 	if err != nil {
 		slog.Error("audit.verify.events_read_failed", slog.String("dir", dir), slog.String("err", err.Error()))
 		return nil, fmt.Errorf("verify jsonl: %w", err)

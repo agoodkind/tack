@@ -68,6 +68,10 @@ func stagedExportPath(publishedPath string, exportID uuid.UUID) string {
 // The manifest is untrusted input until its signature verifies, and the scan
 // opens the file it names before that verdict is reported, so a manifest must
 // not be able to point the verifier at a path of its choosing.
+//
+// This settles where the verifier reads, and only that. What the name resolves
+// to inside the directory is not a property of the name, so the kind of entry
+// that gets read is decided by the open itself.
 func bundleEventsFileName(manifest ExportManifest) (string, error) {
 	if manifest.EventsFile == "" {
 		return legacyExportEventsFile, nil
