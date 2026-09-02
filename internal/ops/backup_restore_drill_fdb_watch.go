@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 
+	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/telemetry"
 )
 
@@ -155,8 +156,14 @@ func parseFDBRestoreExit(out string) (int, bool, error) {
 }
 
 // fdbRestoreStatusText returns one `fdbrestore status` reading from the
-// scratch cluster. The reading can name the blobstore URL, so it is redacted
-// before it reaches an error.
+// scratch cluster, redacted. Every reading names the blobstore URL, access key
+// and secret included, because foundationdb 7.4.6's restore status appends
+// "URL: <source container>" to each tag's line (RestoreConfig::getFullStatus_impl
+// in fdbclient/FileBackupAgent.actor.cpp) and the source container is the URL
+// the restore was started with. Redacting here, on the success path as well as
+// the error path, is what keeps the reading safe to carry into any log or
+// error downstream; the watch reads only the counters out of it, and they
+// survive the redaction untouched.
 func fdbRestoreStatusText(ctx context.Context, r *restoreDrillCtx, container string) (string, error) {
 	res, err := containerExec(ctx, r.Cli, container,
 		[]string{"fdbrestore", "status", "--dest-cluster-file", fdbScratchClusterFile})
@@ -169,11 +176,17 @@ func fdbRestoreStatusText(ctx context.Context, r *restoreDrillCtx, container str
 			slog.String("err", wrapped.Error()))
 		return "", wrapped
 	}
+	return fdbRestoreStatusReading(r.Cfg, res)
+}
+
+// fdbRestoreStatusReading turns the status exec's result into the reading the
+// watch gets, with the credentials removed from whichever stream carries them.
+func fdbRestoreStatusReading(cfg *config.Config, res execResult) (string, error) {
 	if res.ExitCode != 0 {
 		return "", fmt.Errorf("fdbrestore status exited %d: %s", res.ExitCode,
-			redactSecret(r.Cfg, strings.TrimSpace(res.Stderr)))
+			redactSecret(cfg, strings.TrimSpace(res.Stderr)))
 	}
-	return res.Stdout, nil
+	return redactSecret(cfg, res.Stdout), nil
 }
 
 // fdbRestoreLogTail returns the end of the restore's own output, redacted, for

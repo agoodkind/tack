@@ -47,8 +47,9 @@ var fdbRestoreFallingCounters = map[string]bool{
 // parseFDBRestoreProgress reads the directional work counters out of one
 // `fdbrestore status` output. A status holding none of them yields no
 // counters, which the wait reads as no progress rather than as an error: an
-// unreadable status then ends as a named stall carrying the raw reading,
-// instead of as an unbounded wait.
+// unreadable status then ends as a named stall, which says no counter was ever
+// read, instead of as an unbounded wait. The raw reading itself is never
+// carried into an error or a log; only the counters are.
 func parseFDBRestoreProgress(status string) map[string]int64 {
 	counters := map[string]int64{}
 	fields := strings.Fields(status)
