@@ -9,6 +9,7 @@ import (
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
+	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/telemetry"
 )
 
@@ -52,6 +53,15 @@ func (s *OpsOutboxStore) Append(ctx context.Context, event json.RawMessage) (err
 		return fmt.Errorf("create ops outbox append transaction: %w", transactionErr)
 	}
 	defer transaction.Cancel()
+	// The caller's deadline becomes the transaction's own timeout, so a
+	// commit blocked on an unreachable cluster fails inside the caller's
+	// budget rather than FoundationDB's, and the retry loop stops when the
+	// context is done rather than after the next OnError backoff. Without
+	// both, a request that lost Kafka and then hit a retryable
+	// FoundationDB error could sit here past its budget.
+	if deadline, hasDeadline := ctx.Deadline(); hasDeadline {
+		transaction.Options().SetTimeout(max(deadline.Sub(clock.Now()).Milliseconds(), 1))
+	}
 	for {
 		transaction.SetVersionstampedKey(fdb.Key(key), event)
 		commitErr := transaction.Commit().Get()
@@ -62,6 +72,12 @@ func (s *OpsOutboxStore) Append(ctx context.Context, event json.RawMessage) (err
 		if !errors.As(commitErr, &fdbErr) {
 			slog.ErrorContext(ctx, "ops_outbox.append_failed", slog.String("err", commitErr.Error()))
 			return fmt.Errorf("append ops outbox event: %w", commitErr)
+		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			slog.ErrorContext(ctx, "ops_outbox.append_abandoned",
+				slog.String("commit_err", commitErr.Error()),
+				slog.String("err", ctxErr.Error()))
+			return fmt.Errorf("append ops outbox event: %w", errors.Join(ctxErr, commitErr))
 		}
 		if retryErr := transaction.OnError(fdbErr).Get(); retryErr != nil {
 			slog.ErrorContext(ctx, "ops_outbox.append_retry_failed",

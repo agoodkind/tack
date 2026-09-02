@@ -7,9 +7,15 @@ import (
 	"fmt"
 	"log/slog"
 	"sync/atomic"
+	"time"
 
 	"goodkind.io/tack/internal/telemetry"
 )
+
+// spillTimeout bounds one spill. It is the FoundationDB transaction limit
+// doubled, so a slow cluster gets one retry inside the budget and a stuck one
+// cannot hold the request open.
+const spillTimeout = 10 * time.Second
 
 // OutboxAppender is a durable landing zone for an event the primary recorder
 // could not take. The FoundationDB operator outbox is the production
@@ -58,7 +64,15 @@ func (s *SpillRecorder) Record(ctx context.Context, ev Event) error {
 		telemetry.IncAuditDropped(ev.Verb, "spill_marshal")
 		return errors.Join(primaryErr, marshalErr)
 	}
-	if spillErr := s.Spill.Append(ctx, payload); spillErr != nil {
+	// The spill runs detached from the request's cancellation with a deadline
+	// of its own. The primary may have failed precisely because the request
+	// context expired, and a spill that inherits that expiry fails the same
+	// way, after the product write it describes has already committed. The
+	// request's values stay attached so the trace and request ids still
+	// reach the logs.
+	spillCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), spillTimeout)
+	defer cancel()
+	if spillErr := s.Spill.Append(spillCtx, payload); spillErr != nil {
 		telemetry.IncAuditDropped(ev.Verb, "spill")
 		slog.ErrorContext(ctx, "audit.spill_failed",
 			slog.String("verb", ev.Verb),

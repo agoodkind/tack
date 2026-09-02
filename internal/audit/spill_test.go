@@ -23,11 +23,15 @@ type memoryOutbox struct {
 	mu      sync.Mutex
 	entries []json.RawMessage
 	fail    error
+	// lastAppendCtxErr records whether the context handed to Append was
+	// already done, which is the cancellation-inheritance defect under test.
+	lastAppendCtxErr error
 }
 
-func (m *memoryOutbox) Append(_ context.Context, event json.RawMessage) error {
+func (m *memoryOutbox) Append(ctx context.Context, event json.RawMessage) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.lastAppendCtxErr = ctx.Err()
 	if m.fail != nil {
 		return m.fail
 	}
@@ -215,5 +219,31 @@ func TestSpillIsNotUsedWhileTheBrokerAnswers(t *testing.T) {
 	}
 	if outbox.count() != 0 {
 		t.Fatalf("outbox entries = %d, want 0: a delivered event must not also be spilled", outbox.count())
+	}
+}
+
+// TestSpillSurvivesTheRequestContextExpiring pins the review finding on the
+// first version: the spill ran on the request context, and the primary may
+// have failed precisely because that context expired, so the fallback failed
+// the same way after the product write had committed. Here the request is
+// already cancelled when the primary refuses, and the outbox must still be
+// handed a live context.
+func TestSpillSurvivesTheRequestContextExpiring(t *testing.T) {
+	cluster := newFakeCluster(t)
+	stop := refuseProduce(cluster)
+	t.Cleanup(stop)
+	outbox := &memoryOutbox{}
+	recorder := &SpillRecorder{Primary: newKafkaRecorderForTest(t, cluster), Spill: outbox}
+	requestCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if err := recorder.Record(requestCtx, spillTestEvent()); err != nil {
+		t.Fatalf("Record = %v, want nil: the spill must not inherit the request's cancellation", err)
+	}
+	if outbox.count() != 1 {
+		t.Fatalf("outbox entries = %d, want the refused event", outbox.count())
+	}
+	if outbox.lastAppendCtxErr != nil {
+		t.Fatalf("the outbox was handed a context already done (%v); the spill must run on its own deadline", outbox.lastAppendCtxErr)
 	}
 }
