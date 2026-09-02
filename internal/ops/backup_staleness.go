@@ -1,6 +1,6 @@
 // backup_staleness.go is the freshness verdict for every backup mechanism:
 // how long ago each one last succeeded, whether that age is past the operator's
-// threshold, and the report the alert mail carries. Nothing here reads an object
+// threshold, and the report the check prints. Nothing here reads an object
 // store, a cluster, or the clock, so the classification the alert acts on is
 // exercised from plain values; the probes that supply the timestamps live in
 // backup_staleness_check.go.
@@ -41,11 +41,13 @@ const (
 // anything past it is a wrong or forged clock.
 const backupStalenessFutureTolerance = 5 * time.Minute
 
-// backupStalenessMetric is one mechanism's freshness reading: how long ago it
-// last succeeded, the age past which the operator must be told, and what the
-// reading came from.
+// backupStalenessMetric is one mechanism's freshness reading: when and how long
+// ago it last succeeded, the age past which the operator must be told, and what
+// the reading came from. At is the last success in UTC and is zero when the age
+// is unknown.
 type backupStalenessMetric struct {
 	Name      string
+	At        time.Time
 	Age       time.Duration
 	AgeKnown  bool
 	Threshold time.Duration
@@ -99,6 +101,7 @@ func knownBackupStalenessMetric(
 	}
 	return backupStalenessMetric{
 		Name:      name,
+		At:        at.UTC(),
 		Age:       backupStalenessAge(now, at),
 		AgeKnown:  true,
 		Threshold: threshold,
@@ -126,6 +129,7 @@ func implausibleFutureDetail(at time.Time, lead time.Duration, provenance string
 func unknownBackupStalenessMetric(name string, threshold time.Duration, detail string) backupStalenessMetric {
 	return backupStalenessMetric{
 		Name:      name,
+		At:        time.Time{},
 		Age:       0,
 		AgeKnown:  false,
 		Threshold: threshold,
@@ -152,8 +156,9 @@ func backupStalenessThreshold(seconds int) time.Duration {
 }
 
 // backupStalenessReport renders one line per metric, naming the mechanism, its
-// age, its threshold, and the verdict, with the reading's provenance last. The
-// alert mail carries this text verbatim, so it stays plain and greppable.
+// age, its threshold, and the verdict, with the reading's provenance last. It
+// is the terminal and journal form of the reading, so it stays plain and
+// greppable; the alarm mail says the same thing in plain words instead.
 func backupStalenessReport(metrics []backupStalenessMetric) string {
 	width := 0
 	for _, metric := range metrics {
@@ -187,7 +192,7 @@ func backupStalenessAgeField(metric backupStalenessMetric) string {
 
 // backupStalenessDetailField flattens a metric's provenance onto one line. A
 // detail can carry an error string from a store or a cluster, and one line per
-// mechanism is the shape the alert mail is read in.
+// mechanism is the shape the report is read in.
 func backupStalenessDetailField(metric backupStalenessMetric) string {
 	return strings.Join(strings.Fields(metric.Detail), " ")
 }
