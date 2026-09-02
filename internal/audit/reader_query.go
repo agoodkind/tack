@@ -6,11 +6,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// auditQueryPageDefault is how many rows a paged read returns when the caller
-// names no limit. It bounds a page, never an export: the streaming export asks
-// for zero, which means every row.
-const auditQueryPageDefault = 100
-
 func buildAuditQuery(filter QueryFilter) (string, []any) {
 	query := `SELECT org_id, event_time, event_id, seq, shard,
 	             actor_id, actor_kind, action, outcome, entity_kind, entity_id,
@@ -73,7 +68,7 @@ func appendAuditQueryOrder(query string, args []any, limit int) (string, []any) 
 		return query, args
 	}
 	if limit < 0 {
-		limit = auditQueryPageDefault
+		limit = DefaultQueryPageLimit
 	}
 	args = append(args, limit)
 	return query + fmt.Sprintf(" ORDER BY event_time DESC, seq DESC LIMIT $%d", len(args)), args

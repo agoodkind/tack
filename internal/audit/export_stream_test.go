@@ -97,7 +97,7 @@ func (s *ledgerRowStream) StreamQuery(_ context.Context, filter QueryFilter, vis
 func filteredRowBudget(filter QueryFilter, available int) int {
 	limit := filter.Limit
 	if limit < 0 {
-		limit = auditQueryPageDefault
+		limit = DefaultQueryPageLimit
 	}
 	if limit > 0 && limit < available {
 		return limit

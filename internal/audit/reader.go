@@ -105,7 +105,7 @@ func (r *Reader) Query(ctx context.Context, f QueryFilter) ([]Row, error) {
 		return nil, err
 	}
 	if f.Limit <= 0 {
-		f.Limit = auditQueryPageDefault
+		f.Limit = DefaultQueryPageLimit
 	}
 
 	q, args := buildAuditQuery(f)
