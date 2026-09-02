@@ -11,15 +11,6 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// ybTabletRemap is one row of the import_snapshot mapping: the table id is
-// preserved while the tablet id is reassigned, so the export's tablet files
-// (named by the old tablet id) are copied into the new tablet's snapshot dir.
-type ybTabletRemap struct {
-	table string
-	old   string
-	new   string
-}
-
 var ybUUIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 // ybDrillRestoreWaitTimeout bounds the wait for restore_snapshot to reach
@@ -58,7 +49,11 @@ func importAndRestoreYBSnapshot(
 		logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", wrapped.Error()))
 		return wrapped
 	}
-	remaps := parseYBSnapshotMapping(importRes.Stdout)
+	remaps, err := parseYBSnapshotMapping(importRes.Stdout)
+	if err != nil {
+		logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", err.Error()))
+		return err
+	}
 	if len(remaps) == 0 {
 		wrapped := fmt.Errorf("import_snapshot produced no tablet mapping")
 		logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", wrapped.Error()))
@@ -155,31 +150,4 @@ func newestYBSnapshotID(ctx context.Context, r *restoreDrillCtx, container, mast
 	wrapped := fmt.Errorf("no snapshot id found after import_snapshot")
 	logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", wrapped.Error()))
 	return "", wrapped
-}
-
-// parseYBSnapshotMapping extracts the table-id-preserved, tablet-id-remapped
-// rows from import_snapshot output. The mapping section begins at the line
-// starting with "Object"; a "Table" row sets the current table id and each
-// following "Tablet" row pairs an old tablet id with its new one.
-func parseYBSnapshotMapping(out string) []ybTabletRemap {
-	var remaps []ybTabletRemap
-	started := false
-	table := ""
-	for line := range strings.SplitSeq(out, "\n") {
-		fields := strings.Fields(line)
-		if len(fields) == 0 {
-			continue
-		}
-		switch {
-		case fields[0] == "Object":
-			started = true
-		case !started:
-			continue
-		case fields[0] == "Table" && len(fields) >= 2:
-			table = fields[1]
-		case fields[0] == "Tablet" && len(fields) >= 4 && table != "":
-			remaps = append(remaps, ybTabletRemap{table: table, old: fields[2], new: fields[3]})
-		}
-	}
-	return remaps
 }
