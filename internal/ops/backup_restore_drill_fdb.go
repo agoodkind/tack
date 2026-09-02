@@ -37,9 +37,10 @@ func redactSecret(cfg *config.Config, s string) string {
 // is discovered from the bucket, not a local pointer.
 //
 // r.FDBTargetTime selects the moment to restore to. No target restores the
-// latest restorable point. A target is checked against the backup's restorable
-// window before any restore starts, so a moment the backup cannot reach stops
-// the drill instead of quietly restoring the latest.
+// latest restorable point of the newest backup. A target selects the newest
+// backup whose restorable window covers it, checked before any restore starts,
+// so a moment no backup can reach stops the drill instead of quietly restoring
+// the latest.
 func restoreDrillFDB(ctx context.Context, r *restoreDrillCtx) error {
 	logger := telemetry.L(ctx)
 	logger.InfoContext(ctx, "backup.restore_drill.fdb.start")
@@ -52,25 +53,17 @@ func restoreDrillFDB(ctx context.Context, r *restoreDrillCtx) error {
 	s3Client := newBackupS3Client(r.Cfg)
 	// The FoundationDB blobstore registers each backup as a marker object at
 	// backups/<name>, so the markers are listed (not the engine's internal
-	// backups/ subfolder) to discover backups.
-	names, err := listImmediateObjects(ctx, s3Client, r.Cfg.BackupS3BucketMain, "backups/")
+	// backups/ subfolder) to discover backups. fdbrestore re-adds the backups/
+	// folder from the backup name, so the selection strips the prefix to
+	// recover the bare name fdbrestore addresses.
+	markers, err := listImmediateObjects(ctx, s3Client, r.Cfg.BackupS3BucketMain, fdbBackupMarkerPrefix)
 	if err != nil {
 		return err
 	}
-	if len(names) == 0 {
+	if len(markers) == 0 {
 		wrapped := fmt.Errorf("no FDB backup under backups/ in bucket %s", r.Cfg.BackupS3BucketMain)
 		logger.ErrorContext(ctx, "backup.restore_drill.fdb.no_backup", slog.String("err", wrapped.Error()))
 		return wrapped
-	}
-	// Latest marker by sortable key. fdbrestore re-adds the backups/ folder from
-	// the backup name, so the backups/ prefix is stripped here to recover the bare
-	// name fdbrestore addresses. fdbrestore fails clearly if it is not restorable.
-	backupName := strings.TrimPrefix(names[len(names)-1], "backups/")
-	logger.InfoContext(ctx, "backup.restore_drill.fdb.backup", slog.String("name", backupName))
-
-	dest, err := fdbBlobstoreURL(r.Cfg, backupName)
-	if err != nil {
-		return err
 	}
 	extraHosts, err := blobstoreExtraHosts(r.Cfg.BackupS3Endpoint)
 	if err != nil {
@@ -82,7 +75,13 @@ func restoreDrillFDB(ctx context.Context, r *restoreDrillCtx) error {
 		return err
 	}
 
-	if err := assertFDBTargetRestorable(ctx, r, name, dest); err != nil {
+	backupName, err := selectFDBBackup(ctx, r, name, markers)
+	if err != nil {
+		return err
+	}
+	logger.InfoContext(ctx, "backup.restore_drill.fdb.backup", slog.String("name", backupName))
+	dest, err := fdbBlobstoreURL(r.Cfg, backupName)
+	if err != nil {
 		return err
 	}
 

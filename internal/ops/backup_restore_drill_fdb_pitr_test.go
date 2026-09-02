@@ -404,10 +404,11 @@ func TestParseFDBTargetTimeKeepsTheZeroTimeExplicit(t *testing.T) {
 	}
 }
 
-// TestAssertFDBTargetRestorableSkipsTheWindowCheckByDefault proves the default
-// drill never reads the window and never reaches the source cluster: the
-// context carries no Docker client, so any attempt to exec would panic.
-func TestAssertFDBTargetRestorableSkipsTheWindowCheckByDefault(t *testing.T) {
+// TestSelectFDBBackupSkipsTheWindowCheckByDefault proves the default drill
+// never reads a window and never reaches the source cluster: the context
+// carries no Docker client, so any attempt to exec would panic. It restores
+// the newest backup, as it did before point-in-time restore existed.
+func TestSelectFDBBackupSkipsTheWindowCheckByDefault(t *testing.T) {
 	drill := &restoreDrillCtx{
 		Cfg:           &config.Config{},
 		Cli:           nil,
@@ -417,18 +418,23 @@ func TestAssertFDBTargetRestorableSkipsTheWindowCheckByDefault(t *testing.T) {
 		FDBTargetTime: nil,
 	}
 
-	if err := assertFDBTargetRestorable(context.Background(), drill, "tack-rtfdb-run", drillDestURL); err != nil {
+	name, err := selectFDBBackup(context.Background(), drill, "tack-rtfdb-run",
+		[]string{"backups/20260829T000000Z", "backups/20260830T000000Z"})
+	if err != nil {
 		t.Fatalf("a drill with no target time must not check a window: %v", err)
+	}
+	if name != "20260830T000000Z" {
+		t.Fatalf("selected %q, want the newest backup's bare name", name)
 	}
 }
 
-// TestAssertFDBTargetRestorableChecksTheWindowForTheZeroTime proves the check
-// no longer reads an explicit target as an absent one. The context carries no
+// TestSelectFDBBackupChecksTheWindowForTheZeroTime proves the selection no
+// longer reads an explicit target as an absent one. The context carries no
 // Docker client, so a drill that reaches the describe exec panics; recovering
 // that panic is the observation that the window check ran. Before the target
 // became a pointer this returned nil and the drill went on to restore the
 // latest point.
-func TestAssertFDBTargetRestorableChecksTheWindowForTheZeroTime(t *testing.T) {
+func TestSelectFDBBackupChecksTheWindowForTheZeroTime(t *testing.T) {
 	zeroInstant := time.Time{}
 	drill := &restoreDrillCtx{
 		Cfg:           &config.Config{},
@@ -447,8 +453,8 @@ func TestAssertFDBTargetRestorableChecksTheWindowForTheZeroTime(t *testing.T) {
 				reached = true
 			}
 		}()
-		if err := assertFDBTargetRestorable(
-			context.Background(), drill, "tack-rtfdb-run", drillDestURL); err != nil {
+		if _, err := selectFDBBackup(
+			context.Background(), drill, "tack-rtfdb-run", []string{"backups/20260830T000000Z"}); err != nil {
 			t.Logf("window check reached the describe exec and errored: %v", err)
 			reached = true
 		}

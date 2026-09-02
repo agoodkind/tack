@@ -1,7 +1,8 @@
 // backup_restore_drill_fdb_pitr.go restores FoundationDB to an operator-chosen
 // moment instead of the latest restorable point. It assembles the two engine
-// commands the drill runs and refuses a target the backup cannot reach, both
-// before any restore starts. Reading and rendering the target itself lives
+// commands the drill runs and reads one backup's restorable window. Which
+// backup is restored, and the refusal of a target no backup can reach, live
+// beside the backup selection; reading and rendering the target itself lives
 // beside the flag that carries it.
 
 package ops
@@ -111,44 +112,34 @@ func fdbDescribeCommand(destURL string) []string {
 	}
 }
 
-// assertFDBTargetRestorable refuses a target time the backup cannot reach,
-// before the restore runs. A drill with no target is a no-op here, so the
-// default path neither reads the window nor touches the source cluster. A drill
-// that has a target always runs this check, because the target is present or
-// absent rather than present-or-zero, so no moment an operator can name reads
-// as no moment at all.
+// describeFDBBackupWindow reads one backup's restorable window through the
+// scratch container. Which backup the drill then restores from is decided
+// beside the backup selection, against every session in the store.
 //
 // The describe output embeds the blobstore credentials in the destination URL,
 // so it is redacted on the error path and never logged whole.
-func assertFDBTargetRestorable(ctx context.Context, r *restoreDrillCtx, containerName, destURL string) error {
-	if r.FDBTargetTime == nil {
-		return nil
-	}
-	target := *r.FDBTargetTime
-	logger := telemetry.L(ctx)
-	fail := func(err error) error {
-		logger.ErrorContext(ctx, "backup.restore_drill.fdb.failed", slog.String("err", err.Error()))
-		return err
+func describeFDBBackupWindow(
+	ctx context.Context,
+	r *restoreDrillCtx,
+	containerName, backupName string,
+) (fdbRestorableWindow, error) {
+	destURL, err := fdbBlobstoreURL(r.Cfg, backupName)
+	if err != nil {
+		return fdbRestorableWindow{}, err
 	}
 	res, err := containerExec(ctx, r.Cli, containerName, fdbDescribeCommand(destURL))
 	if err != nil {
-		return fail(fmt.Errorf("fdbbackup describe exec: %w", err))
+		wrapped := fmt.Errorf("fdbbackup describe exec: %w", err)
+		// One backup's describe failing is passed over by the selection, which
+		// may still find an older backup that covers the target, so it is
+		// warned here; the selection errors if no backup does.
+		telemetry.L(ctx).WarnContext(ctx, "backup.restore_drill.fdb.describe_failed",
+			slog.String("name", backupName), slog.String("err", wrapped.Error()))
+		return fdbRestorableWindow{}, wrapped
 	}
 	if res.ExitCode != 0 {
-		return fail(fmt.Errorf("fdbbackup describe exited %d: %s", res.ExitCode,
-			redactSecret(r.Cfg, strings.TrimSpace(res.Stdout+" "+res.Stderr))))
+		return fdbRestorableWindow{}, fmt.Errorf("fdbbackup describe exited %d: %s", res.ExitCode,
+			redactSecret(r.Cfg, strings.TrimSpace(res.Stdout+" "+res.Stderr)))
 	}
-	window, err := fdbRestorableWindowFromDescribe(res.Stdout)
-	if err != nil {
-		return fail(err)
-	}
-	if err := assertTargetWithinWindow(target, window); err != nil {
-		return fail(err)
-	}
-	logger.InfoContext(ctx, "backup.restore_drill.fdb.target_in_window",
-		slog.String("target", formatFDBTime(target)),
-		slog.String("window_min", formatFDBTime(window.Min)),
-		slog.String("window_max", formatFDBTime(window.Max)),
-	)
-	return nil
+	return fdbRestorableWindowFromDescribe(res.Stdout)
 }
