@@ -49,7 +49,7 @@ func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
 	}
 
 	searcher := buildSearcher(cfg)
-	auditRuntimeDeps, err := buildAuditRuntime(ctx, cfg)
+	auditRuntimeDeps, err := buildAuditRuntime(ctx, cfg, fdbStores.OpsOutbox)
 	if err != nil {
 		pool.Close()
 		return nil, err

@@ -33,10 +33,22 @@ type auditRuntime struct {
 // the process-global sink for the MCP and auth boundaries. The server holds
 // no ledger read or redaction connection: every audit read and redaction is
 // an operator command on the host, never an MCP tool.
-func buildAuditRuntime(ctx context.Context, cfg *config.Config) (auditRuntime, error) {
+func buildAuditRuntime(ctx context.Context, cfg *config.Config, spill audit.OutboxAppender) (auditRuntime, error) {
 	auditRec, err := buildAuditRecorder(ctx, cfg)
 	if err != nil {
 		return auditRuntime{Recorder: nil}, err
+	}
+	// The spill sits between the canonical stamp and the backend so what it
+	// stores already carries the event id and time the relay must preserve.
+	// It wraps only the Kafka producer: the synchronous Yugabyte recorder
+	// writes to the same database the relay would deliver into, so an outage
+	// there has no second store to fall back on, and the discarding recorder
+	// records nothing by the operator's own declaration.
+	if spill != nil {
+		if _, isKafka := auditRec.(*audit.KafkaRecorder); isKafka {
+			auditRec = &audit.SpillRecorder{Primary: auditRec, Spill: spill}
+			slog.InfoContext(ctx, "audit.spill_enabled")
+		}
 	}
 	wired := audit.Recorder(audit.CanonicalRecorder{Inner: auditRec})
 	mcptools.SetAuditRecorder(wired)

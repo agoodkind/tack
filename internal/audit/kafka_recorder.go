@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -24,6 +25,9 @@ type KafkaRecorder struct {
 	client         *kgo.Client
 	topic          string
 	produceTimeout time.Duration
+	// refusing is true between the first refused produce and the next
+	// accepted one, so the outage is logged once rather than per event.
+	refusing atomic.Bool
 }
 
 // KafkaConfig collects the producer knobs that vary between deployments.
@@ -91,6 +95,7 @@ func NewKafkaRecorder(cfg KafkaConfig) (*KafkaRecorder, error) {
 		client:         client,
 		topic:          cfg.Topic,
 		produceTimeout: cfg.ProduceTimeout,
+		refusing:       atomic.Bool{},
 	}, nil
 }
 
@@ -135,16 +140,35 @@ func (k *KafkaRecorder) Record(ctx context.Context, ev Event) error {
 	telemetry.ObserveAuditKafkaProduceLatency(sinceMs(start))
 	if produceErr := res.FirstErr(); produceErr != nil {
 		telemetry.IncAuditKafkaProduce("error")
-		slog.ErrorContext(ctx, "kafka.produce.failed",
-			slog.String("err", produceErr.Error()),
-			slog.String("topic", k.topic),
-			slog.String("event_id", eventID),
-			slog.Int("attempt", 1),
-			slog.String("verb", ev.Verb),
-		)
+		// A refusal is logged once per outage rather than once per event.
+		// The first after a success logs at Warn with the broker's error;
+		// every refusal until the next success logs at Debug. A broker down
+		// for an hour therefore costs one Warn and one Info line rather
+		// than one Error per write, which was the flood TACK-320 names.
+		// What became of the refused event is the caller's to say: behind
+		// a SpillRecorder it is durable, and a caller with nowhere to put
+		// it logs its own loss.
+		if k.refusing.CompareAndSwap(false, true) {
+			slog.WarnContext(ctx, "kafka.produce.refusing",
+				slog.String("err", produceErr.Error()),
+				slog.String("topic", k.topic),
+				slog.String("event_id", eventID),
+				slog.String("verb", ev.Verb),
+			)
+		} else {
+			slog.DebugContext(ctx, "kafka.produce.failed",
+				slog.String("err", produceErr.Error()),
+				slog.String("topic", k.topic),
+				slog.String("event_id", eventID),
+				slog.String("verb", ev.Verb),
+			)
+		}
 		return fmt.Errorf("audit kafka produce verb=%s: %w", ev.Verb, produceErr)
 	}
 	telemetry.IncAuditKafkaProduce("ok")
+	if k.refusing.CompareAndSwap(true, false) {
+		slog.InfoContext(ctx, "kafka.produce.recovered", slog.String("topic", k.topic))
+	}
 	telemetry.L(ctx).Debug("audit.kafka.produced",
 		slog.String("verb", ev.Verb),
 		slog.String("topic", k.topic),

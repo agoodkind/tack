@@ -30,6 +30,7 @@ var (
 	// as "verb:stage" so a single expvar.Map suffices.
 	auditRecords = expvar.NewMap("tack_audit_records_total")
 	auditDropped = expvar.NewMap("tack_audit_dropped_total")
+	auditSpilled = expvar.NewMap("tack_audit_spilled_total")
 )
 
 // IncFDBTx records one successful FDB transaction.
@@ -54,6 +55,11 @@ func IncAuditRecord(verb string) { auditRecords.Add(verb, 1) }
 // IncAuditDropped bumps the per-(verb,stage) drop counter, where stage names
 // the failure point: begin, head_read, hash, insert, head_write, commit.
 func IncAuditDropped(verb, stage string) { auditDropped.Add(verb+":"+stage, 1) }
+
+// IncAuditSpilled bumps the per-verb counter of events the primary recorder
+// refused and the outbox took instead. A spilled event is not dropped: it is
+// owed to the ledger by the relay, and this counter is what says how many.
+func IncAuditSpilled(verb string) { auditSpilled.Add(verb, 1) }
 
 // Audit pipeline metrics. The producer (Kafka) and the consumer
 // (audit-consumer projector) each get their own expvar handles so the operator

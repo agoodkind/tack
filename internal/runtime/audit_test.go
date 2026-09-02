@@ -36,7 +36,7 @@ func TestAppRuntimeDoesNotStartNotarizer(t *testing.T) {
 		AuditKafkaProduceTimeout: 10 * time.Second,
 		AuditSigningKeyPath:      writeAuditSigningKey(t),
 		AuditWriterDSN:           server.DSN(),
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("build audit runtime: %v", err)
 	}

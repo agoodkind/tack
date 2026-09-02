@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
-	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
 	"github.com/google/uuid"
 )
 
@@ -34,11 +33,16 @@ func TestOpsOutboxReadAndClear(t *testing.T) {
 		SetTestPrefix(nil)
 	})
 
-	writeOpsOutboxTestEvent(t, db, json.RawMessage(`{"verb":"first"}`))
-	writeOpsOutboxTestEvent(t, db, json.RawMessage(`{"verb":"second"}`))
-
 	store := NewOpsOutboxStore(db)
 	ctx := context.Background()
+	// Written through the production Append rather than a test-only writer,
+	// so the commit-order and clear-through proof below covers the path the
+	// producer spill uses.
+	for _, event := range []string{`{"verb":"first"}`, `{"verb":"second"}`} {
+		if err := store.Append(ctx, json.RawMessage(event)); err != nil {
+			t.Fatalf("append %s: %v", event, err)
+		}
+	}
 	entries, err := store.ReadOutboxFrom(ctx, nil, 10)
 	if err != nil {
 		t.Fatalf("read outbox: %v", err)
@@ -73,23 +77,6 @@ func TestOpsOutboxReadAndClear(t *testing.T) {
 	}
 	if len(remaining) != 1 || !bytes.Equal(remaining[0].Event, entries[1].Event) {
 		t.Fatalf("entries after clear = %+v, want second event", remaining)
-	}
-}
-
-func writeOpsOutboxTestEvent(t *testing.T, db fdb.Database, event json.RawMessage) {
-	t.Helper()
-	_, err := db.Transact(func(tr fdb.Transaction) (any, error) {
-		// The tuple packer places the incomplete versionstamp in the key and
-		// appends its four-byte little-endian offset from the full key start.
-		key, err := tuple.Tuple{keyOpsOutbox, tuple.IncompleteVersionstamp(0)}.PackWithVersionstamp(testPrefix)
-		if err != nil {
-			return nil, err
-		}
-		tr.SetVersionstampedKey(fdb.Key(key), event)
-		return nil, nil
-	})
-	if err != nil {
-		t.Fatalf("write versionstamped event: %v", err)
 	}
 }
 
