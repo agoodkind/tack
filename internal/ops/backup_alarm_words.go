@@ -121,9 +121,19 @@ func backupAlarmFaultParagraph(cfg *config.Config, fault backupStalenessMetric) 
 		detail)
 }
 
-// backupAlarmClock renders a duration in hours and minutes, the units a
-// reader thinks in: "15h 38m", "36h", "45m".
+// backupAlarmClock renders a duration in the units a reader thinks in: "45m",
+// "15h 38m", "36h", and from two days up "8 days" or "9 days 3h", because a
+// rehearsal threshold rendered as "192h" makes the reader do the division.
 func backupAlarmClock(d time.Duration) string {
+	const day = 24 * time.Hour
+	if d >= 2*day {
+		days := int(d / day)
+		remainingHours := int(d%day) / int(time.Hour)
+		if remainingHours > 0 {
+			return fmt.Sprintf("%d days %dh", days, remainingHours)
+		}
+		return fmt.Sprintf("%d days", days)
+	}
 	hours := int(d / time.Hour)
 	minutes := int(d%time.Hour) / int(time.Minute)
 	if hours > 0 && minutes > 0 {

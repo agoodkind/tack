@@ -68,8 +68,8 @@ func TestBackupStalenessAlarmMailIsPlainWords(t *testing.T) {
 		"The newest complete nightly ledger export finished at 2026-08-27 20:00:00 UTC, 40h ago, " +
 			"which is older than the 36h allowed for an export that runs daily.",
 		"Check the tack-ledger-export timer on the owner guest and the tack-ledger-archive timer on each data guest.",
-		"No restore rehearsal has passed within the 192h allowed for a drill that runs daily: " +
-			"the last pass was at 2026-08-20 12:00:00 UTC, 216h ago.",
+		"No restore rehearsal has passed within the 8 days allowed for a drill that runs daily: " +
+			"the last pass was at 2026-08-20 12:00:00 UTC, 9 days ago.",
 		"Check the tack-backup-restore-drill service journal on the owner guest.",
 		"The ledger cluster has reported dead nodes or under-replicated tablets continuously since " +
 			"2026-08-29 11:15:00 UTC, for 45m, which is longer than the 30m allowed. The cluster reports: ",
@@ -149,7 +149,9 @@ func TestBackupAlarmClock(t *testing.T) {
 		{d: 15*time.Hour + 38*time.Minute, want: "15h 38m"},
 		{d: 36 * time.Hour, want: "36h"},
 		{d: 45 * time.Minute, want: "45m"},
-		{d: 8 * 24 * time.Hour, want: "192h"},
+		{d: 40 * time.Hour, want: "40h"},
+		{d: 8 * 24 * time.Hour, want: "8 days"},
+		{d: 9*24*time.Hour + 3*time.Hour + 20*time.Minute, want: "9 days 3h"},
 		{d: 59 * time.Second, want: "0m"},
 	}
 	for _, test := range tests {
