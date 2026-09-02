@@ -91,16 +91,47 @@ func bundleEventsFileName(manifest ExportManifest) (string, error) {
 // file, the fixed rows name bundles used before that, a staged manifest, and
 // the staged rows name earlier revisions wrote. The published manifest is
 // deliberately absent: it is the one file that is always the bundle.
+//
+// Each of those names carries the id of the export that wrote it, so the id is
+// required rather than merely bracketed. A directory a compliance export writes
+// into is a directory an operator also works in, and matching a prefix and a
+// suffix alone made every file of that broad shape a candidate for removal:
+// events-before-the-incident.jsonl is one an auditor might reasonably leave
+// there, and it is not a name any export produced.
 func exporterOwnedFile(name string) bool {
 	if name == legacyExportEventsFile {
 		return true
 	}
-	if strings.HasPrefix(name, exportEventsPrefix) && strings.HasSuffix(name, exportEventsSuffix) {
-		return true
+	if afterPrefix, hasPrefix := strings.CutPrefix(name, exportEventsPrefix); hasPrefix {
+		exportID, hasSuffix := strings.CutSuffix(afterPrefix, exportEventsSuffix)
+		return hasSuffix && isExportIDText(exportID)
 	}
-	if !strings.HasSuffix(name, stagedSuffix) {
+	stagedName, isStaged := strings.CutSuffix(name, stagedSuffix)
+	if !isStaged {
 		return false
 	}
-	return strings.HasPrefix(name, exportManifestFile+".") ||
-		strings.HasPrefix(name, legacyExportEventsFile+".")
+	return stagedForExport(stagedName, exportManifestFile) ||
+		stagedForExport(stagedName, legacyExportEventsFile)
+}
+
+// stagedForExport reports whether a staged name is base followed by the id of
+// the export that staged it.
+func stagedForExport(stagedName, base string) bool {
+	exportID, found := strings.CutPrefix(stagedName, base+".")
+	return found && isExportIDText(exportID)
+}
+
+// isExportIDText reports whether text is an export id as this exporter renders
+// one.
+//
+// The rendering matters, not just the value. uuid.Parse also accepts the urn
+// form, the braced form, the undashed form, and uppercase hex, and this exporter
+// writes none of them, so a name carrying one of those is not a name it wrote
+// and is not its to remove.
+func isExportIDText(text string) bool {
+	parsed, err := uuid.Parse(text)
+	if err != nil {
+		return false
+	}
+	return parsed.String() == text
 }
