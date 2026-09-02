@@ -5,6 +5,7 @@
 package audit
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -97,5 +98,37 @@ func copyBundleRows(t *testing.T, fromDir, toDir, name string) {
 	}
 	if err := os.WriteFile(filepath.Join(toDir, name), body, 0o600); err != nil {
 		t.Fatalf("place rows %s: %v", name, err)
+	}
+}
+
+// rewriteManifestField edits one key of the published manifest in place and
+// leaves the signature as it was, which is what a tampered manifest looks like.
+// A nil value removes the key.
+func rewriteManifestField(t *testing.T, dir, key string, value *string) {
+	t.Helper()
+	path := filepath.Join(dir, exportManifestFile)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var loose map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &loose); err != nil {
+		t.Fatal(err)
+	}
+	if value == nil {
+		delete(loose, key)
+	} else {
+		encoded, marshalErr := json.Marshal(*value)
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		loose[key] = encoded
+	}
+	edited, err := json.Marshal(loose)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, edited, 0o600); err != nil {
+		t.Fatal(err)
 	}
 }

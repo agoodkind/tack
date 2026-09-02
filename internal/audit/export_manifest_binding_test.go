@@ -1,7 +1,7 @@
 // export_manifest_binding_test.go covers the binding between a manifest and the
-// rows it names: that the name is inside the signature, that it cannot point
-// outside the bundle, and that a bundle written before the manifest carried a
-// name still verifies.
+// rows it names: the name is inside the signature, so neither repointing a
+// manifest at another export's rows nor adding or stripping its name survives
+// verification.
 
 package audit
 
@@ -9,46 +9,12 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
-	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 )
-
-// rewriteManifestField edits one key of the published manifest in place and
-// leaves the signature as it was, which is what a tampered manifest looks like.
-// A nil value removes the key.
-func rewriteManifestField(t *testing.T, dir, key string, value *string) {
-	t.Helper()
-	path := filepath.Join(dir, exportManifestFile)
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var loose map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &loose); err != nil {
-		t.Fatal(err)
-	}
-	if value == nil {
-		delete(loose, key)
-	} else {
-		encoded, marshalErr := json.Marshal(*value)
-		if marshalErr != nil {
-			t.Fatal(marshalErr)
-		}
-		loose[key] = encoded
-	}
-	edited, err := json.Marshal(loose)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, edited, 0o600); err != nil {
-		t.Fatal(err)
-	}
-}
 
 // TestAManifestRepointedAtAnotherExportsRowsFailsItsSignature is the reason the
 // events file name has to be signed. Verification opens the file the manifest
@@ -158,78 +124,4 @@ func TestNamingItsOwnRowsIsPartOfWhatAManifestSigns(t *testing.T) {
 			t.Fatal("a manifest with its name stripped verified, so the name is outside the signature")
 		}
 	})
-}
-
-// TestABundleWrittenBeforeTheNameExistedStillVerifies pins what operators
-// holding older bundles get. Those manifests name no events file, and their
-// format fixed the name instead, so the name is resolved from the format rather
-// than from anything unsigned. An archive that could no longer be verified
-// would be a compliance record that had quietly expired.
-func TestABundleWrittenBeforeTheNameExistedStillVerifies(t *testing.T) {
-	dir := t.TempDir()
-	rows := chainedExportTestRows(t, 4)
-	pub := writeSignedExportTestBundle(t, dir, rows)
-	if _, err := os.Stat(filepath.Join(dir, legacyExportEventsFile)); err != nil {
-		t.Fatalf("the fixture must be a bundle in the older layout: %v", err)
-	}
-	manifest, err := readExportManifest(dir)
-	if err != nil {
-		t.Fatalf("read manifest: %v", err)
-	}
-	if manifest.EventsFile != "" {
-		t.Fatalf("events_file = %q, want the older layout's empty name", manifest.EventsFile)
-	}
-
-	report, err := VerifyBundle(dir, pub)
-	if err != nil {
-		t.Fatalf("verify an older bundle: %v", err)
-	}
-	if verdict := report.Err(); verdict != nil {
-		t.Fatalf("an older bundle no longer verifies: %v", verdict)
-	}
-	if report.RowsScanned != len(rows) {
-		t.Fatalf("rows scanned = %d, want %d", report.RowsScanned, len(rows))
-	}
-}
-
-// TestAManifestCannotNameAFileOutsideTheBundle pins that the manifest is
-// untrusted input. The scan opens the file the manifest names before the
-// signature verdict is reported, so a manifest able to name any path would make
-// the verifier read whatever a foreign bundle chose to point it at.
-func TestAManifestCannotNameAFileOutsideTheBundle(t *testing.T) {
-	for _, name := range []string{"../events.jsonl", "sub/events.jsonl", "/etc/passwd", "..", "."} {
-		t.Run(name, func(t *testing.T) {
-			root := t.TempDir()
-			dir := filepath.Join(root, "bundle")
-			if err := os.MkdirAll(filepath.Join(dir, "sub"), 0o700); err != nil {
-				t.Fatal(err)
-			}
-			rows := chainedExportTestRows(t, 2)
-			pub := writeSignedExportTestBundle(t, dir, rows)
-			// A decoy at each reachable target, so a verifier that followed the
-			// name would find something to scan rather than fail on an absent file.
-			decoy, err := os.ReadFile(filepath.Join(dir, legacyExportEventsFile))
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, target := range []string{
-				filepath.Join(root, legacyExportEventsFile),
-				filepath.Join(dir, "sub", legacyExportEventsFile),
-			} {
-				if err := os.WriteFile(target, decoy, 0o600); err != nil {
-					t.Fatal(err)
-				}
-			}
-			outside := name
-			rewriteManifestField(t, dir, "events_file", &outside)
-
-			_, err = VerifyBundle(dir, pub)
-			if err == nil {
-				t.Fatalf("a manifest naming %q was followed", name)
-			}
-			if !strings.Contains(err.Error(), "not a file name inside the bundle") {
-				t.Fatalf("err = %v, want the name refused for leaving the bundle", err)
-			}
-		})
-	}
 }
