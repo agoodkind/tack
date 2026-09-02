@@ -60,7 +60,15 @@ func (s *OpsOutboxStore) Append(ctx context.Context, event json.RawMessage) (err
 	// both, a request that lost Kafka and then hit a retryable
 	// FoundationDB error could sit here past its budget.
 	if deadline, hasDeadline := ctx.Deadline(); hasDeadline {
-		transaction.Options().SetTimeout(max(deadline.Sub(clock.Now()).Milliseconds(), 1))
+		budget := max(deadline.Sub(clock.Now()).Milliseconds(), 1)
+		if optionErr := transaction.Options().SetTimeout(budget); optionErr != nil {
+			// Refusing is right here: proceeding would run on FoundationDB's
+			// default timeout while the caller believes its budget holds.
+			slog.ErrorContext(ctx, "ops_outbox.append_timeout_option_failed",
+				slog.Int64("budget_ms", budget),
+				slog.String("err", optionErr.Error()))
+			return fmt.Errorf("set ops outbox append timeout %dms: %w", budget, optionErr)
+		}
 	}
 	for {
 		transaction.SetVersionstampedKey(fdb.Key(key), event)
