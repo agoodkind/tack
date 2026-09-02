@@ -49,7 +49,19 @@ var ybDiagnosticPattern = regexp.MustCompile(`(?:^|\s)[^\s:]+:\s+([0-9A-Z]{5}):\
 // raises, in the C locale the apply pins. It reads the message only to tell
 // which object the duplicate was: SQLSTATE 42710 covers duplicate objects of
 // every kind, and only a duplicate role is tolerable in a roles file.
-var ybDuplicateRoleMessagePattern = regexp.MustCompile(`^role "([^"]+)" already exists$`)
+//
+// The name spans to the fixed suffix rather than stopping at the first quote.
+// The server interpolates the role's name into this message unescaped, and a
+// quoted identifier may carry a double quote, so a capture that forbids one
+// stops short on a legitimate name, reports no duplicate, and fails the drill
+// on the one diagnostic this classification exists to tolerate.
+//
+// Anchoring the suffix at the end of the message leaves exactly one possible
+// split whatever the name holds, because the true name is by construction
+// everything between the opening quote and the last suffix. A name that itself
+// ends in the suffix text therefore still captures whole, which a capture that
+// stopped at the first suffix would truncate.
+var ybDuplicateRoleMessagePattern = regexp.MustCompile(`^role "(.+)" already exists$`)
 
 // ybRolesApplyReport is what one roles-file application produced: the roles
 // the target already carried, and every error line that was not that.
