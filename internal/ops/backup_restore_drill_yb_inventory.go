@@ -26,6 +26,7 @@ const (
 	// The comparison's working file names. Each is truncated by the
 	// redirection that writes it, so one node's run cannot read another's
 	// leftovers.
+	ybInventorySizeList = "tack-drill-sizes"
 	ybInventoryHaveList = "tack-drill-extracted"
 	ybInventoryWantList = "tack-drill-archived"
 	ybInventoryGoneList = "tack-drill-missing"
@@ -54,16 +55,30 @@ const ybInventorySizeFilter = "sed -n 's/^ *\\([0-9][0-9]*\\) \\.\\/\\(.*\\)$/\\
 // goes through `wc -c` rather than a `find -printf` or `stat` format, because
 // those spellings differ between the GNU tools the yugabyted image ships and
 // the BSD tools the tests run against, and a check that cannot run locally is a
-// check nobody proves. A listing step that broke would leave the extraction
-// looking empty, which fails the drill rather than passing it.
+// check nobody proves.
+//
+// No step is a pipeline. `set -e` sees only a pipeline's last command, so an
+// inventory that could not be read, piped into sort, was a sort of nothing
+// that succeeded: the check then wanted no files, found none missing, and
+// passed a tablet it had verified against nothing. Each step instead writes a
+// file and the next reads it, so every command is one the shell's error mode
+// observes, and a read that fails ends the check with its own error. This
+// holds under any POSIX sh; `set -o pipefail` would not, because the dash the
+// unit suite runs the scripts under rejects it. The count is taken in an
+// assignment for the same reason: a substitution inside printf's arguments
+// would fail without printf failing.
 func ybInventoryCheckScript(nodeRoot, inventoryPath, workDir string) string {
-	have, want, gone := shellQuote(workDir+"/"+ybInventoryHaveList),
-		shellQuote(workDir+"/"+ybInventoryWantList), shellQuote(workDir+"/"+ybInventoryGoneList)
+	sizes, have := shellQuote(workDir+"/"+ybInventorySizeList), shellQuote(workDir+"/"+ybInventoryHaveList)
+	want, gone := shellQuote(workDir+"/"+ybInventoryWantList), shellQuote(workDir+"/"+ybInventoryGoneList)
 	return "set -e; cd " + shellQuote(nodeRoot) + "; " +
-		"find . -type f -exec wc -c {} + | " + ybInventorySizeFilter + " | LC_ALL=C sort >" + have + "; " +
-		"tail -n +2 " + shellQuote(inventoryPath) + " | LC_ALL=C sort >" + want + "; " +
+		"find . -type f -exec wc -c {} + >" + sizes + "; " +
+		ybInventorySizeFilter + " " + sizes + " >" + have + "; " +
+		"LC_ALL=C sort -o " + have + " " + have + "; " +
+		"tail -n +2 " + shellQuote(inventoryPath) + " >" + want + "; " +
+		"LC_ALL=C sort -o " + want + " " + want + "; " +
 		"comm -23 " + want + " " + have + " >" + gone + "; " +
-		`printf 'missing %s\n' "$(wc -l <` + gone + `)"; ` +
+		"count=$(wc -l <" + gone + "); " +
+		`printf 'missing %s\n' "$count"; ` +
 		"head -n " + strconv.Itoa(ybInventoryMissingLimit) + " " + gone
 }
 
