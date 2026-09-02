@@ -53,7 +53,28 @@ func (s *OpsOutboxStore) Append(ctx context.Context, event json.RawMessage) (err
 		return fmt.Errorf("create ops outbox append transaction: %w", transactionErr)
 	}
 	defer transaction.Cancel()
-	// The caller's deadline becomes the transaction's own timeout, so a
+	// A blocked Commit or OnError wait does not watch the context on its
+	// own, so a watcher cancels the transaction the moment the context ends
+	// and the blocked Get returns with a cancellation error. That covers a
+	// context with no deadline, which the timeout option below cannot.
+	// Cancel is idempotent, so the deferred one after commit is harmless.
+	watchDone := make(chan struct{})
+	defer close(watchDone)
+	go func() {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				slog.ErrorContext(ctx, "ops_outbox.append_watch_panic",
+					slog.Any("panic", recovered),
+					slog.String("err", fmt.Sprintf("%v", recovered)))
+			}
+		}()
+		select {
+		case <-ctx.Done():
+			transaction.Cancel()
+		case <-watchDone:
+		}
+	}()
+	// The caller's deadline also becomes the transaction's own timeout, so a
 	// commit blocked on an unreachable cluster fails inside the caller's
 	// budget rather than FoundationDB's, and the retry loop stops when the
 	// context is done rather than after the next OnError backoff. Without
