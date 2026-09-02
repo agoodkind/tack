@@ -32,6 +32,34 @@ import (
 //
 // Nothing about publishing depends on this. Exports never contend for it, since
 // a shared lock admits any number of them; it says only that one is running.
+//
+// Readers deliberately do not take it. VerifyBundle is an offline check run
+// against copies of a bundle: on another host, out of object storage, off
+// read-only media, by an auditor holding read access and nothing more. Taking
+// the beacon means creating and locking a file inside the bundle directory, so
+// a verification that depended on it would either fail where it is most needed
+// or carry on unlocked, which is no guarantee at all.
+//
+// What a reader gives up by not holding it is one window: between reading the
+// manifest and opening the rows it names, a reclaim can free those rows, and the
+// verify fails to start. It cannot do worse than that. Once the rows are open
+// the descriptor keeps them readable to their end, so a scan already running is
+// unaffected by an unlink, and a verify either reports on the whole file it
+// opened or reports that it could not open one.
+//
+// What a reader would cost by holding it is unbounded. The shared side admits
+// any number of holders, so a verify would not delay an export's writes; the
+// side it blocks is the exclusive one, which only the reclaim takes. A
+// ledger-sized verify runs for minutes, and a scheduled verification that
+// overlaps the next would suppress the reclaim for as long as it kept running.
+// The reclaim is the only thing that frees superseded and abandoned rows files,
+// and each of those is the size of a ledger export.
+//
+// Retrying inside the verifier is not the middle ground it looks like. A report
+// names the export id it is about, so a verify that quietly re-read after losing
+// its rows would return a clean verdict about a different export than the one it
+// was asked about. Failing loudly and letting the operator run it again is the
+// only outcome that keeps the report true about its subject.
 const exportActivityLockFile = ".export.lock"
 
 // exportActivityRetry is how often an export retries the shared beacon while a
