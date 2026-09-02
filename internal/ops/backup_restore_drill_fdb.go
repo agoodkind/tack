@@ -97,6 +97,8 @@ func restoreDrillFDB(ctx context.Context, r *restoreDrillCtx) error {
 	// The restore is watched for progress, not timed. A restore that keeps
 	// moving runs as long as its dataset needs; only one that stops moving
 	// fails the drill, and it fails naming what it had done when it stopped.
+	// Each probe is bounded on its own, so a hung exec cannot keep the watch
+	// from deciding.
 	progress, exitCode, err := awaitFDBRestore(ctx, fdbRestoreWatch{
 		Finished: func(pollCtx context.Context) (int, bool, error) {
 			return fdbRestoreExitCode(pollCtx, r, name)
@@ -104,7 +106,7 @@ func restoreDrillFDB(ctx context.Context, r *restoreDrillCtx) error {
 		Status: func(pollCtx context.Context) (string, error) {
 			return fdbRestoreStatusText(pollCtx, r, name)
 		},
-	}, fdbDrillRestoreStallWindow, fdbDrillRestorePollInterval)
+	}, fdbDrillRestoreStallWindow, fdbDrillRestorePollInterval, fdbDrillProbeTimeout)
 	if err != nil {
 		wrapped := fmt.Errorf("%w; the restore's last output was: %s", err, fdbRestoreLogTail(ctx, r, name))
 		logger.ErrorContext(ctx, "backup.restore_drill.fdb.failed", slog.String("err", wrapped.Error()))

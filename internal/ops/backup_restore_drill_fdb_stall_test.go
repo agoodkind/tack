@@ -20,7 +20,7 @@ func TestAwaitFDBRestoreFailsARestoreThatStopsMoving(t *testing.T) {
 		polls:       0,
 	}
 
-	_, _, err := awaitFDBRestore(t.Context(), restore.watch(), testStallWindow, testPollInterval)
+	_, _, err := awaitFDBRestore(t.Context(), restore.watch(), testStallWindow, testPollInterval, testProbeTimeout)
 
 	if err == nil {
 		t.Fatal("a restore that stopped making progress must fail the drill")
@@ -46,7 +46,7 @@ func TestAwaitFDBRestoreIgnoresBlocksInProgress(t *testing.T) {
 	}
 	restore := &scriptedRestore{statuses: statuses, finishAfter: polls, exitCode: 0, polls: 0}
 
-	_, _, err := awaitFDBRestore(t.Context(), restore.watch(), testStallWindow, testPollInterval)
+	_, _, err := awaitFDBRestore(t.Context(), restore.watch(), testStallWindow, testPollInterval, testProbeTimeout)
 
 	if err == nil {
 		t.Fatal("a field that rises and falls is not evidence the restore moved")
@@ -71,7 +71,7 @@ func TestAwaitFDBRestoreCountsAFallingApplyVersionLagAsProgress(t *testing.T) {
 	}
 	restore := &scriptedRestore{statuses: statuses, finishAfter: polls, exitCode: 0, polls: 0}
 
-	progress, exitCode, err := awaitFDBRestore(t.Context(), restore.watch(), testStallWindow, testPollInterval)
+	progress, exitCode, err := awaitFDBRestore(t.Context(), restore.watch(), testStallWindow, testPollInterval, testProbeTimeout)
 	if err != nil {
 		t.Fatalf("a restore still applying its mutation log must not read as stalled: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestAwaitFDBRestoreIgnoresAnApplyVersionLagThatClimbs(t *testing.T) {
 	}
 	restore := &scriptedRestore{statuses: statuses, finishAfter: polls, exitCode: 0, polls: 0}
 
-	_, _, err := awaitFDBRestore(t.Context(), restore.watch(), testStallWindow, testPollInterval)
+	_, _, err := awaitFDBRestore(t.Context(), restore.watch(), testStallWindow, testPollInterval, testProbeTimeout)
 
 	if err == nil {
 		t.Fatal("a lag that climbs back up is not evidence the restore moved")
@@ -119,7 +119,7 @@ func TestAwaitFDBRestoreReportsAStatusItCannotRead(t *testing.T) {
 		},
 	}
 
-	_, _, err := awaitFDBRestore(t.Context(), watch, testStallWindow, testPollInterval)
+	_, _, err := awaitFDBRestore(t.Context(), watch, testStallWindow, testPollInterval, testProbeTimeout)
 
 	if err == nil {
 		t.Fatal("a status the drill can never read must not wait forever")

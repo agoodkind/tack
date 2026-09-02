@@ -11,11 +11,13 @@ import (
 // testStallWindow, testClockStep, and testPollInterval keep a scripted run fast
 // in real time while the fake clock moves half an hour per read. The window is
 // deliberately not the deployed one, so the wait is exercised against a window
-// it does not hardcode.
+// it does not hardcode. testProbeTimeout is real time, because a probe's
+// deadline is what ends a probe that never answers on its own.
 const (
 	testStallWindow  = 90 * time.Minute
 	testClockStep    = 30 * time.Minute
 	testPollInterval = time.Millisecond
+	testProbeTimeout = 5 * time.Millisecond
 )
 
 // fdbStatusLine renders one `fdbrestore status` reading in the exact shape
@@ -82,7 +84,7 @@ func TestAwaitFDBRestoreLetsALargeRestoreRunPastAnyFixedBudget(t *testing.T) {
 	}
 	restore := &scriptedRestore{statuses: statuses, finishAfter: polls, exitCode: 0, polls: 0}
 
-	progress, exitCode, err := awaitFDBRestore(t.Context(), restore.watch(), testStallWindow, testPollInterval)
+	progress, exitCode, err := awaitFDBRestore(t.Context(), restore.watch(), testStallWindow, testPollInterval, testProbeTimeout)
 	if err != nil {
 		t.Fatalf("a restore that keeps making progress must not be failed for its size: %v", err)
 	}
@@ -106,7 +108,7 @@ func TestAwaitFDBRestoreCountsTheGrowingBlockTotalAsProgress(t *testing.T) {
 	}
 	restore := &scriptedRestore{statuses: statuses, finishAfter: polls, exitCode: 0, polls: 0}
 
-	_, _, err := awaitFDBRestore(t.Context(), restore.watch(), testStallWindow, testPollInterval)
+	_, _, err := awaitFDBRestore(t.Context(), restore.watch(), testStallWindow, testPollInterval, testProbeTimeout)
 	if err != nil {
 		t.Fatalf("a restore still enumerating its files must not read as stalled: %v", err)
 	}
@@ -123,7 +125,7 @@ func TestAwaitFDBRestoreReturnsTheRestoresExitCode(t *testing.T) {
 		polls:       0,
 	}
 
-	_, exitCode, err := awaitFDBRestore(t.Context(), restore.watch(), testStallWindow, testPollInterval)
+	_, exitCode, err := awaitFDBRestore(t.Context(), restore.watch(), testStallWindow, testPollInterval, testProbeTimeout)
 	if err != nil {
 		t.Fatalf("awaitFDBRestore: %v", err)
 	}

@@ -277,6 +277,10 @@ func runOneShot(
 // captured streams plus exit code. Equivalent to `docker exec` but typed
 // and stream-safe. Use [containerExecStreaming] when stdout may be large
 // (multi-MB+) to avoid buffering it in memory.
+//
+// The exec's streams close when ctx ends. The attach is a hijacked connection
+// the SDK does not tie to the context, so without this a command that never
+// exits would hold the read past any deadline the caller set.
 func containerExec(
 	ctx context.Context,
 	cli *client.Client,
@@ -304,6 +308,8 @@ func containerExec(
 		return execResult{}, fmt.Errorf("exec attach: %w", err)
 	}
 	defer att.Close()
+	stopClosing := context.AfterFunc(ctx, att.Close)
+	defer stopClosing()
 	var stdout, stderr bytes.Buffer
 	_, err = stdcopy.StdCopy(&stdout, &stderr, att.Reader)
 	if err != nil && !errors.Is(err, io.EOF) {
@@ -365,6 +371,10 @@ func containerExecStreaming(
 		return 0, "", fmt.Errorf("exec attach: %w", err)
 	}
 	defer att.Close()
+	// As in containerExec: the hijacked attach outlives the context on its
+	// own, so the stream is closed when ctx ends.
+	stopClosing := context.AfterFunc(ctx, att.Close)
+	defer stopClosing()
 	var stderrBuf bytes.Buffer
 	_, err = stdcopy.StdCopy(stdout, &stderrBuf, att.Reader)
 	if err != nil && !errors.Is(err, io.EOF) {

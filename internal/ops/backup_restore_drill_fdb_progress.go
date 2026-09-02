@@ -31,7 +31,8 @@ const fdbDrillRestorePollInterval = 15 * time.Second
 
 // fdbRestoreWatch is what the wait reads on each poll. Both are functions so
 // the loop's decisions can be exercised against real status text without a
-// Docker daemon.
+// Docker daemon. Each is called under its own deadline and must return once
+// its context ends.
 type fdbRestoreWatch struct {
 	// Finished reports the exit code of the `fdbrestore ... --waitfordone`
 	// the drill launched, and done=false while it is still running.
@@ -45,29 +46,48 @@ type fdbRestoreWatch struct {
 // moving in the direction that counter moves under work runs for as long as the
 // dataset needs. stallWindow bounds only the time since the last observed
 // movement, so what fails the drill is a restore that stopped, never a restore
-// that is big.
+// that is big. probeTimeout bounds each reading, so a probe that never answers
+// cannot keep the stall check from running; a reading that timed out is not
+// progress, and the wait gives up once fdbDrillProbeTimeoutTolerance polls in
+// a row ended that way, naming them rather than a stall it never observed.
 func awaitFDBRestore(
 	ctx context.Context,
 	watch fdbRestoreWatch,
-	stallWindow, pollInterval time.Duration,
+	stallWindow, pollInterval, probeTimeout time.Duration,
 ) (*fdbRestoreProgress, int, error) {
 	progress := newFDBRestoreProgress()
 	lastMoved := opsNow()
-	lastStatusErr := ""
+	var lastStatusErr string
+	blindPolls := 0
 	for {
-		exitCode, done, err := watch.Finished(ctx)
+		reading, err := readFDBRestore(ctx, watch, probeTimeout)
+		if ctx.Err() != nil {
+			return progress, 0, fdbRestoreWaitCancelled(ctx, progress)
+		}
 		if err != nil {
 			return progress, 0, err
 		}
-		if done {
-			return progress, exitCode, nil
+		if reading.done {
+			return progress, reading.exitCode, nil
 		}
-		status, statusErr := watch.Status(ctx)
 		switch {
-		case statusErr != nil:
-			lastStatusErr = statusErr.Error()
-		case progress.observe(status):
+		case reading.timedOut:
+			blindPolls++
+			lastStatusErr = reading.statusErr.Error()
+			if blindPolls >= fdbDrillProbeTimeoutTolerance {
+				return progress, 0, fdbRestoreBlindError(blindPolls, probeTimeout, progress, lastStatusErr)
+			}
+		case reading.statusErr != nil:
+			blindPolls = 0
+			lastStatusErr = reading.statusErr.Error()
+		case progress.observe(reading.status):
+			blindPolls = 0
 			lastMoved = opsNow()
+			lastStatusErr = ""
+		default:
+			// A status that was read but showed no movement: the drill can
+			// see the restore, so neither failure count carries forward.
+			blindPolls = 0
 			lastStatusErr = ""
 		}
 		if stalled := opsNow().Sub(lastMoved); stalled >= stallWindow {
@@ -75,13 +95,19 @@ func awaitFDBRestore(
 		}
 		select {
 		case <-ctx.Done():
-			wrapped := fmt.Errorf("waiting for the FoundationDB restore: %w", ctx.Err())
-			telemetry.L(ctx).ErrorContext(ctx, "backup.restore_drill.fdb.wait_cancelled",
-				slog.String("err", wrapped.Error()), slog.String("progress", progress.summary()))
-			return progress, 0, wrapped
+			return progress, 0, fdbRestoreWaitCancelled(ctx, progress)
 		case <-time.After(pollInterval):
 		}
 	}
+}
+
+// fdbRestoreWaitCancelled reports a wait the drill's own context ended, with
+// how far the restore had got.
+func fdbRestoreWaitCancelled(ctx context.Context, progress *fdbRestoreProgress) error {
+	wrapped := fmt.Errorf("waiting for the FoundationDB restore: %w", ctx.Err())
+	telemetry.L(ctx).ErrorContext(ctx, "backup.restore_drill.fdb.wait_cancelled",
+		slog.String("err", wrapped.Error()), slog.String("progress", progress.summary()))
+	return wrapped
 }
 
 // fdbRestoreStallError names what the drill saw before it gave up: how long
