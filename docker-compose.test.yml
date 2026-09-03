@@ -37,6 +37,13 @@ services:
 
   yugabyte:
     image: yugabytedb/yugabyte:2024.2.8.0-b85
+    # The arm64 build of this release corrupts itself under the chain-append
+    # concurrency test: pggate fails an internal size check with a garbage
+    # length, the tserver then aborts on a fourteen-year clock skew, and every
+    # backend dies with them (TACK-459). The amd64 build passes the same test
+    # repeatedly, so an Apple silicon host runs it under emulation; on the
+    # amd64 CI runner this line changes nothing.
+    platform: linux/amd64
     command: >
       bin/yugabyted start --daemon=false --base_dir=/home/yugabyte/var
     environment:
