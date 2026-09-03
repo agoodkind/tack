@@ -65,13 +65,13 @@ so a failing guest cannot destroy its own evidence.
   number of fixed-size volumes. Production's backup died on 2026-07-29
   when its bucket's single 1 GB volume filled, with 91 GB free on the
   disk, and nothing said so for five weeks.
-- One mail per fault. The mail goes out once, when a mechanism transitions
-  into stale, and not again while it stays stale or when it recovers. It
-  says in plain words what stopped, since when, and what to check, and it
-  claims only what the reading supports: a record that could not be read is
-  reported as unreadable, not as a mechanism that stopped. It carries no
-  metric names, no thresholds in seconds, no run identifiers, and no
-  object-store endpoint or credential. Twenty-five identical machine
+- One email per fault. The email goes out once, when a mechanism
+  transitions into stale, and not again while it stays stale or when it
+  recovers. It says in plain words what stopped, since when, and what to
+  check, and it claims only what the reading supports: a record that could
+  not be read is reported as unreadable, not as a mechanism that stopped.
+  It carries no metric names, no thresholds in seconds, no run identifiers,
+  and no object-store endpoint or credential. Twenty-five identical machine
   reports for one fault is a failure of this criterion.
 
 ## 6. Scalable, and placement holds
