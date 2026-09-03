@@ -185,11 +185,17 @@ func TestBuildAuditRecorderRefusesAMissingTopic(t *testing.T) {
 	}
 	t.Cleanup(cluster.Close)
 
+	// The ready budget is generous because the assertion is on the reason
+	// for the refusal, not on the refusal itself. Under a loaded runner the
+	// fake broker's first metadata answer can take longer than a couple of
+	// seconds, and a budget that expires first turns a missing-topic refusal
+	// into a deadline refusal, which is the wrong thing proven for the wrong
+	// reason.
 	recorder, err := buildAuditRecorder(context.Background(), &config.Config{
 		AuditKafkaBrokers:        strings.Join(cluster.ListenAddrs(), ","),
 		AuditKafkaTopic:          "audit.events.v1",
 		AuditKafkaProduceTimeout: time.Second,
-		AuditBrokerReadyTimeout:  2 * time.Second,
+		AuditBrokerReadyTimeout:  20 * time.Second,
 	})
 
 	if err == nil {

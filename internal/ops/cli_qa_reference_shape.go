@@ -40,8 +40,19 @@ type datagenReferenceShapeResult struct {
 	Collisions    int    `json:"collisions"`
 	Renames       int    `json:"expected_renames"`
 	NodesCreated  int    `json:"nodes_created"`
-	CounterKeys   int    `json:"counter_keys_before_repair"`
-	ReferenceKeys int    `json:"reference_keys_before_repair"`
+	NodesRestored int    `json:"nodes_restored"`
+	// LiveCollisions is counted from the org after writing, through the
+	// repair's own duplicate scan. Collisions above is what the shape
+	// describes; this is what exists. A commit that leaves them unequal
+	// fails, because a generator that reports collisions it did not create
+	// leaves the repair nothing to do while claiming otherwise (TACK-475).
+	LiveCollisions int `json:"live_collisions"`
+	// LiveRenames is the number of nodes the repair will move, counted the
+	// same way. It catches a corpus with the right number of groups but a
+	// holder missing from one, which the group count alone would pass.
+	LiveRenames   int `json:"live_renames"`
+	CounterKeys   int `json:"counter_keys_before_repair"`
+	ReferenceKeys int `json:"reference_keys_before_repair"`
 }
 
 func datagenReferenceShapeOp(f *cli.Factory) clispec.Operation[datagenReferenceShapeInput] {
@@ -91,20 +102,23 @@ func runDatagenReferenceShape(
 		return err
 	}
 	result := datagenReferenceShapeResult{
-		ResultMarker: clispec.ResultMarker{},
-		Command:      "ops.qa.datagen.reference-repair-shape",
-		DryRun:       !input.Commit,
-		OrgSlug:      productionSeedOrgSlug,
-		OrgID:        shape.OrgID.String(),
-		Scopes:       len(shape.Projects),
-		Issues:       len(shape.Issues),
-		Collisions:   len(shape.Groups),
-		Renames:      shape.Renames,
-		NodesCreated: 0,
+		ResultMarker:  clispec.ResultMarker{},
+		Command:       "ops.qa.datagen.reference-repair-shape",
+		DryRun:        !input.Commit,
+		OrgSlug:       productionSeedOrgSlug,
+		OrgID:         shape.OrgID.String(),
+		Scopes:        len(shape.Projects),
+		Issues:        len(shape.Issues),
+		Collisions:    len(shape.Groups),
+		Renames:       shape.Renames,
+		NodesCreated:  0,
+		NodesRestored: 0,
 		// A dry run reports what the corpus will derive once it exists; a
-		// commit replaces both with what it measures after writing.
-		CounterKeys:   len(shape.Projects),
-		ReferenceKeys: len(shape.Issues),
+		// commit replaces these with what it measures after writing.
+		LiveCollisions: len(shape.Groups),
+		LiveRenames:    shape.Renames,
+		CounterKeys:    len(shape.Projects),
+		ReferenceKeys:  len(shape.Issues),
 	}
 	if !input.Commit {
 		return writeReferenceShapeReport(ctx, sink, result)
@@ -132,8 +146,9 @@ func commitReferenceShape(
 	}
 	defer env.Close()
 
-	created, err := writeReferenceShape(ctx, env, shape)
-	result.NodesCreated = created
+	written, err := writeReferenceShape(ctx, env, shape)
+	result.NodesCreated = written.Created
+	result.NodesRestored = written.Restored
 	if err != nil {
 		return err
 	}
@@ -144,10 +159,16 @@ func commitReferenceShape(
 	if err != nil {
 		return err
 	}
+	live, err := countLiveReferenceCollisions(ctx, env, shape.OrgID)
+	if err != nil {
+		return err
+	}
+	result.LiveCollisions = live.Collisions
+	result.LiveRenames = live.Renames
 	if err := writeReferenceShapeReport(ctx, sink, result); err != nil {
 		return err
 	}
-	return checkReferenceShape(result.CounterKeys, result.ReferenceKeys)
+	return checkReferenceShape(result)
 }
 
 func writeReferenceShapeReport(
@@ -158,32 +179,6 @@ func writeReferenceShapeReport(
 	if err := clispec.WriteJSONValue(ctx, sink, result); err != nil {
 		slog.ErrorContext(ctx, "qa.reference_shape.report_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("write the reference shape report: %w", err)
-	}
-	return nil
-}
-
-// measureReferenceShape reads back what the reconstruction will derive from
-// the corpus, through the same enumeration the reconstruction uses.
-func measureReferenceShape(ctx context.Context, env *Env, orgID uuid.UUID) (int, int, error) {
-	counters, err := enumerateReferenceCounters(ctx, env, orgID, &referenceRepairStart)
-	if err != nil {
-		return 0, 0, err
-	}
-	keys, err := enumerateReferenceKeys(ctx, env, orgID, &referenceRepairStart)
-	if err != nil {
-		return 0, 0, err
-	}
-	return len(counters), len(keys), nil
-}
-
-func checkReferenceShape(counters, keys int) error {
-	if counters != recordedCounterSeeds {
-		return fmt.Errorf("the corpus derives %d counter seeds, want %d",
-			counters, recordedCounterSeeds)
-	}
-	want := recordedReferenceKeys + recordedFollowupReferenceKey
-	if keys != want {
-		return fmt.Errorf("the corpus derives %d reference keys, want %d", keys, want)
 	}
 	return nil
 }

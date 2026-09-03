@@ -36,37 +36,52 @@ type referenceShapeNode struct {
 	ParentID uuid.UUID
 }
 
-// writeReferenceShape puts the corpus in place and returns how many nodes it
-// created. Re-running skips nodes that are already there, so an interrupted
-// run resumes instead of writing the corpus twice.
-func writeReferenceShape(ctx context.Context, env *Env, shape referenceShape) (int, error) {
-	created, err := ensureReferenceShapeNode(ctx, env.Stores, referenceShapeNode{
+// referenceShapeWritten counts what a write did: nodes that did not exist and
+// were created, and nodes a repair had moved that were put back on the shape.
+type referenceShapeWritten struct {
+	Created  int
+	Restored int
+}
+
+func (w referenceShapeWritten) add(other referenceShapeWritten) referenceShapeWritten {
+	return referenceShapeWritten{
+		Created:  w.Created + other.Created,
+		Restored: w.Restored + other.Restored,
+	}
+}
+
+// writeReferenceShape puts the corpus in place and returns what it created and
+// what it restored. Re-running leaves matching nodes alone, so an interrupted
+// run resumes instead of writing the corpus twice, and puts back any node a
+// repair moved off the shape, so a repaired org becomes the pre-repair corpus
+// again rather than staying repaired under a report that says otherwise.
+func writeReferenceShape(ctx context.Context, env *Env, shape referenceShape) (referenceShapeWritten, error) {
+	written, err := ensureReferenceShapeNode(ctx, env.Stores, referenceShapeNode{
 		ID: shape.OrgID, OrgID: shape.OrgID, TypeKey: referenceShapeOrgType,
 		Name:    "Goodkind",
 		Props:   referenceShapeProps(map[string]string{"slug": productionSeedOrgSlug}),
 		Indexed: []string{"slug"}, ParentID: uuid.Nil,
 	})
 	if err != nil {
-		return 0, err
+		return written, err
 	}
 	if err := service.NewSeeder(env.Stores.PropertyDefs, env.Stores.NodeTypes).
 		SeedOrg(ctx, shape.OrgID); err != nil {
 		slog.ErrorContext(ctx, "qa.reference_shape.seed_org_failed",
 			slog.String("err", err.Error()))
-		return created, fmt.Errorf("seed org definitions for the reference shape: %w", err)
+		return written, fmt.Errorf("seed org definitions for the reference shape: %w", err)
 	}
-	written, err := writeReferenceShapeScopes(ctx, env, shape)
-	created += written
+	scopes, err := writeReferenceShapeScopes(ctx, env, shape)
+	written = written.add(scopes)
 	if err != nil {
-		return created, err
+		return written, err
 	}
-	written, err = writeReferenceShapeIssues(ctx, env, shape)
-	created += written
-	return created, err
+	issues, err := writeReferenceShapeIssues(ctx, env, shape)
+	return written.add(issues), err
 }
 
-func writeReferenceShapeScopes(ctx context.Context, env *Env, shape referenceShape) (int, error) {
-	created, err := ensureReferenceShapeNode(ctx, env.Stores, referenceShapeNode{
+func writeReferenceShapeScopes(ctx context.Context, env *Env, shape referenceShape) (referenceShapeWritten, error) {
+	written, err := ensureReferenceShapeNode(ctx, env.Stores, referenceShapeNode{
 		ID: shape.WorkspaceID, OrgID: shape.OrgID, TypeKey: referenceShapeWorkspaceType,
 		Name: "Main",
 		Props: referenceShapeProps(map[string]string{
@@ -75,10 +90,10 @@ func writeReferenceShapeScopes(ctx context.Context, env *Env, shape referenceSha
 		Indexed: []string{"slug", "parent_id"}, ParentID: shape.OrgID,
 	})
 	if err != nil {
-		return created, err
+		return written, err
 	}
 	for _, project := range shape.Projects {
-		written, projectErr := ensureReferenceShapeNode(ctx, env.Stores, referenceShapeNode{
+		projectWritten, projectErr := ensureReferenceShapeNode(ctx, env.Stores, referenceShapeNode{
 			ID: project.ID, OrgID: shape.OrgID, TypeKey: referenceShapeProjectType,
 			Name: project.Identifier,
 			Props: referenceShapeProps(map[string]string{
@@ -88,58 +103,61 @@ func writeReferenceShapeScopes(ctx context.Context, env *Env, shape referenceSha
 			}),
 			Indexed: []string{"identifier", "slug", "parent_id"}, ParentID: shape.WorkspaceID,
 		})
-		created += written
+		written = written.add(projectWritten)
 		if projectErr != nil {
-			return created, projectErr
+			return written, projectErr
 		}
 	}
-	return created, nil
+	return written, nil
 }
 
-func writeReferenceShapeIssues(ctx context.Context, env *Env, shape referenceShape) (int, error) {
+func writeReferenceShapeIssues(ctx context.Context, env *Env, shape referenceShape) (referenceShapeWritten, error) {
 	scopes := make(map[string]uuid.UUID, len(shape.Projects))
 	for _, project := range shape.Projects {
 		scopes[project.Identifier] = project.ID
 	}
-	created := 0
+	var written referenceShapeWritten
 	for index, issue := range shape.Issues {
 		scopeID := scopes[issue.Project]
 		props := referenceShapeProps(map[string]string{
 			"parent_id": scopeID.String(), "scope_id": scopeID.String(),
 		})
-		props["sequence"] = json.RawMessage(strconv.Itoa(issue.Sequence))
-		written, err := ensureReferenceShapeNode(ctx, env.Stores, referenceShapeNode{
+		props[referenceShapeSequenceProp] = json.RawMessage(strconv.Itoa(issue.Sequence))
+		issueWritten, err := ensureReferenceShapeNode(ctx, env.Stores, referenceShapeNode{
 			ID: issue.ID, OrgID: shape.OrgID, TypeKey: referenceShapeIssueType,
 			Name:    referenceShapeReference(issue.Project, issue.Sequence),
 			Props:   props,
-			Indexed: []string{"parent_id", "scope_id", "sequence"}, ParentID: scopeID,
+			Indexed: []string{"parent_id", "scope_id", referenceShapeSequenceProp}, ParentID: scopeID,
 		})
-		created += written
+		written = written.add(issueWritten)
 		if err != nil {
-			return created, err
+			return written, err
 		}
 		if (index+1)%referenceShapeLogEvery == 0 {
 			telemetry.L(ctx).InfoContext(ctx, "qa.reference_shape.progress",
 				slog.Int("written", index+1), slog.Int("total", len(shape.Issues)))
 		}
 	}
-	return created, nil
+	return written, nil
 }
 
-// ensureReferenceShapeNode writes one node and reports whether it created it.
+// ensureReferenceShapeNode writes one node and reports what it did to it: a
+// missing node is created, and an existing one is restored when a repair has
+// moved it off the shape.
 func ensureReferenceShapeNode(
 	ctx context.Context,
 	stores *fdbadapter.Stores,
 	input referenceShapeNode,
-) (int, error) {
+) (referenceShapeWritten, error) {
 	existing, err := stores.Views.Get(ctx, input.ID)
 	if err != nil {
 		slog.ErrorContext(ctx, "qa.reference_shape.read_failed",
 			slog.String("node_id", input.ID.String()), slog.String("err", err.Error()))
-		return 0, fmt.Errorf("read %s %s for the reference shape: %w", input.TypeKey, input.ID, err)
+		return referenceShapeWritten{}, fmt.Errorf("read %s %s for the reference shape: %w", input.TypeKey, input.ID, err)
 	}
 	if existing != nil {
-		return 0, nil
+		restored, restoreErr := restoreReferenceShapeNode(ctx, stores, existing, input)
+		return referenceShapeWritten{Created: 0, Restored: restored}, restoreErr
 	}
 	value := &node.Node{
 		ID: input.ID, OrgID: input.OrgID, NodeType: input.TypeKey, Name: input.Name,
@@ -164,9 +182,9 @@ func ensureReferenceShapeNode(
 	); err != nil {
 		slog.ErrorContext(ctx, "qa.reference_shape.write_failed",
 			slog.String("node_id", input.ID.String()), slog.String("err", err.Error()))
-		return 0, fmt.Errorf("write %s %s for the reference shape: %w", input.TypeKey, input.ID, err)
+		return referenceShapeWritten{}, fmt.Errorf("write %s %s for the reference shape: %w", input.TypeKey, input.ID, err)
 	}
-	return 1, nil
+	return referenceShapeWritten{Created: 1, Restored: 0}, nil
 }
 
 func referenceShapeProps(values map[string]string) map[string]json.RawMessage {
