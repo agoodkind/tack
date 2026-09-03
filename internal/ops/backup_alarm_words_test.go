@@ -154,9 +154,15 @@ func TestBackupStalenessAlarmFDBWords(t *testing.T) {
 		t.Errorf("body does not say nothing is restorable, followed by what to check:\n%s", body)
 	}
 
-	two := backupStalenessAlarmSubject("tack-qa", []backupStalenessMetric{stopped, unreadable})
-	if two != "[tack] tack-qa: 2 backup mechanisms have stopped" {
-		t.Errorf("two-fault subject = %q", two)
+	// A counted subject may say the mechanisms stopped only when every fault
+	// supports that: one unreadable reading among them makes it neutral.
+	stoppedTwice := backupStalenessAlarmSubject("tack-qa", []backupStalenessMetric{stopped, none})
+	if stoppedTwice != "[tack] tack-qa: 2 backup mechanisms have stopped" {
+		t.Errorf("stopped and never-recorded subject = %q", stoppedTwice)
+	}
+	mixed := backupStalenessAlarmSubject("tack-qa", []backupStalenessMetric{stopped, unreadable})
+	if mixed != "[tack] tack-qa: 2 backup mechanisms need attention" {
+		t.Errorf("stopped and unreadable subject = %q", mixed)
 	}
 }
 

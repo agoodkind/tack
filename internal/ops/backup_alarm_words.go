@@ -88,12 +88,23 @@ var backupAlarmVocabulary = map[string]backupAlarmWords{
 }
 
 // backupStalenessAlarmSubject names the guest and the fault. One fault is
-// named outright; several are counted, and the body names each.
+// named outright; several are counted, and the body names each. The count's
+// verb claims only what every fault supports: mechanisms whose age is known or
+// that never recorded a success have stopped, while an unreadable reading
+// proves nothing about the mechanism, so one such fault makes the subject
+// neutral.
 func backupStalenessAlarmSubject(host string, faults []backupStalenessMetric) string {
 	if len(faults) == 1 {
 		return "[tack] " + host + ": " + backupAlarmFaultPhrase(faults[0])
 	}
-	return fmt.Sprintf("[tack] %s: %d backup mechanisms have stopped", host, len(faults))
+	verb := "have stopped"
+	for _, fault := range faults {
+		if !fault.AgeKnown && fault.Unknown != backupStalenessNeverRecorded {
+			verb = "need attention"
+			break
+		}
+	}
+	return fmt.Sprintf("[tack] %s: %d backup mechanisms %s", host, len(faults), verb)
 }
 
 // backupStalenessAlarmBody carries one paragraph per fault, each followed by

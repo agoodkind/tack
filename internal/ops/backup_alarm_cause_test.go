@@ -20,6 +20,10 @@ func TestBackupStalenessAlarmUnreadableWords(t *testing.T) {
 	if len(captured.messages) != 1 {
 		t.Fatalf("three faults on one run must mail once, sent %d", len(captured.messages))
 	}
+	wantSubject := "[tack] " + backupAlarmHost() + ": 3 backup mechanisms need attention"
+	if captured.messages[0].Subject != wantSubject {
+		t.Errorf("subject = %q, want %q", captured.messages[0].Subject, wantSubject)
+	}
 	body := captured.messages[0].Body
 	for _, sentence := range []string{
 		"The newest complete nightly ledger export could not be dated: listing export runs failed: ",
