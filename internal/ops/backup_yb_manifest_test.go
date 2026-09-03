@@ -198,14 +198,19 @@ func TestYBNodeArchiveKey(t *testing.T) {
 }
 
 // TestMissingYBNodeArchives exercises the completeness rule the restore drill
-// gates on: only nodes whose archive object is absent are reported, in
-// manifest order.
+// gates on: a node is reported unless every artifact its archive run publishes
+// is present, in manifest order. yb2 has published nothing and yb3 has
+// published its archive without the inventory that says what the archive
+// carries, which the restore cannot verify and so must not use.
 func TestMissingYBNodeArchives(t *testing.T) {
 	manifest := newYBSnapshotManifest("run-1", "snap-1", "tack",
 		[]string{"yb1", "yb2", "yb3"}, ybTestArtifactNames())
+	yb1 := ybSnapshotManifestNode{Name: "yb1", Prefix: "nodes/yb1/"}
+	yb3 := ybSnapshotManifestNode{Name: "yb3", Prefix: "nodes/yb3/"}
 	present := map[string]bool{
-		ybNodeArchiveKey("run-1", ybSnapshotManifestNode{Name: "yb1", Prefix: "nodes/yb1/"}): true,
-		ybNodeArchiveKey("run-1", ybSnapshotManifestNode{Name: "yb3", Prefix: "nodes/yb3/"}): true,
+		ybNodeArchiveKey("run-1", yb1):   true,
+		ybNodeInventoryKey("run-1", yb1): true,
+		ybNodeArchiveKey("run-1", yb3):   true,
 	}
 	missing, err := missingYBNodeArchives(manifest, func(key string) (bool, error) {
 		return present[key], nil
@@ -213,8 +218,8 @@ func TestMissingYBNodeArchives(t *testing.T) {
 	if err != nil {
 		t.Fatalf("missingYBNodeArchives: %v", err)
 	}
-	if !reflect.DeepEqual(missing, []string{"yb2"}) {
-		t.Fatalf("missing = %v, want [yb2]", missing)
+	if !reflect.DeepEqual(missing, []string{"yb2", "yb3"}) {
+		t.Fatalf("missing = %v, want [yb2 yb3]", missing)
 	}
 
 	allPresent, err := missingYBNodeArchives(manifest, func(string) (bool, error) { return true, nil })
@@ -270,6 +275,30 @@ func TestYBSnapshotManifestValidateRejectsBadArtifactNames(t *testing.T) {
 			[]string{"yb1"}, []string{name})
 		if err := manifest.validate(); err == nil {
 			t.Errorf("validate accepted artifact name %q", name)
+		}
+	}
+}
+
+// TestYBNodeArtifactKeysGateEveryPublishedObject proves the gate walks the same
+// declaration the archive command uploads, so an artifact added to a node's run
+// is gated by declaring it rather than by remembering to probe for it.
+func TestYBNodeArtifactKeysGateEveryPublishedObject(t *testing.T) {
+	node := ybSnapshotManifestNode{Name: "yb1", Prefix: "nodes/yb1/"}
+	keys := ybNodeArtifactKeys("20260826T030000Z", node)
+	want := []string{
+		"yugabyte-snapshot/20260826T030000Z/nodes/yb1/tablets.inventory",
+		"yugabyte-snapshot/20260826T030000Z/nodes/yb1/tablets.tar.gz",
+	}
+	if !reflect.DeepEqual(keys, want) {
+		t.Fatalf("node artifact keys:\n got=%v\nwant=%v", keys, want)
+	}
+	if keys[len(keys)-1] != ybNodeArchiveKey("20260826T030000Z", node) {
+		t.Fatalf("the archive must be the last artifact, got %v", keys)
+	}
+	uploaded := ybNodeUploadArtifacts("/stage")
+	for i, file := range uploaded {
+		if !strings.HasSuffix(keys[i], "/"+file.name) || file.path != "/stage/"+file.name {
+			t.Fatalf("upload %d is %+v, which does not match gated key %s", i, file, keys[i])
 		}
 	}
 }

@@ -1,8 +1,9 @@
 // backup_restore_drill_yb_placement_audit.go reads what the tablet placement
-// covered and decides whether the restore is whole. This is the only thing
-// standing between a restore missing tablet files and a passing drill, so
-// output it cannot read fails the drill rather than counting as nothing
-// missing.
+// covered and decides whether every copy it was built to make actually ran.
+// What the export carried is settled before the scripts exist, so this is the
+// half that catches the scripts themselves falling short: a chunk that never
+// ran, or a copy that recorded nothing. Output it cannot read fails the drill
+// rather than counting as nothing missing.
 
 package ops
 
@@ -23,8 +24,8 @@ import (
 const ybPlacementMissingSample = 20
 
 // ybPlacementAudit is what the container counted once every placement script
-// had run: how many tablets the placement attempted, how many it found files
-// for, and which ones it did not.
+// had run: how many tablets the placement attempted, how many it copied, and
+// which ones recorded no copy.
 type ybPlacementAudit struct {
 	Expected int
 	Placed   int
@@ -63,10 +64,10 @@ func auditYBPlacement(
 }
 
 // ybPlacementVerdict fails unless the placement attempted every tablet the
-// import created and found data for every one it attempted. Both halves
-// matter: the attempted count catches a chunk that never ran, and the placed
-// count catches an export that did not carry the tablet's contents, whether it
-// carried nothing for that tablet or only its directory entries.
+// import created and copied every one it attempted. Both halves matter: the
+// attempted count catches a chunk that never ran, and the placed count catches
+// a copy that did not, since a clause is built only for a tablet whose source
+// was already verified against the export's own record of it.
 func ybPlacementVerdict(audit ybPlacementAudit, wanted int) error {
 	if audit.Expected != wanted {
 		return fmt.Errorf(
@@ -75,8 +76,8 @@ func ybPlacementVerdict(audit ybPlacementAudit, wanted int) error {
 	}
 	if audit.Placed != audit.Expected {
 		return fmt.Errorf(
-			"tablet placement is incomplete: the import created %d tablets and the export carried %d, so %d have no data: %s",
-			audit.Expected, audit.Placed, len(audit.Missing), sampleTabletIdentities(audit.Missing))
+			"tablet placement is incomplete: %d of the %d tablets it attempted recorded no copy: %s",
+			audit.Expected-audit.Placed, audit.Expected, sampleTabletIdentities(audit.Missing))
 	}
 	return nil
 }
@@ -92,8 +93,8 @@ func countDistinctTablets(remaps []ybTabletRemap) int {
 	return len(seen)
 }
 
-// sampleTabletIdentities renders missing tablet names for an error message,
-// naming how many it did not list.
+// sampleTabletIdentities renders tablet names, or the reasons tablets were
+// refused, for an error message, naming how many it did not list.
 func sampleTabletIdentities(identities []string) string {
 	if len(identities) <= ybPlacementMissingSample {
 		return strings.Join(identities, ", ")

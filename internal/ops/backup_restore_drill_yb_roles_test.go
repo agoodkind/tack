@@ -191,7 +191,7 @@ func TestYBDrillArtifactPathsCoverEveryRequiredArtifact(t *testing.T) {
 		if !strings.HasSuffix(path, "/"+artifact) {
 			t.Errorf("staged path %q does not name the artifact %q", path, artifact)
 		}
-		if !strings.HasPrefix(path, ybDrillArtifactsDir+"/") {
+		if !strings.HasPrefix(path, ybDrillArtifactMount+"/") {
 			t.Errorf("staged path %q is not under the bind-mounted stage dir", path)
 		}
 	}

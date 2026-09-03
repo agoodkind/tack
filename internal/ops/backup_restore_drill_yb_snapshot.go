@@ -31,10 +31,17 @@ const ybDrillRestoreWaitTimeout = 5 * time.Minute
 // importAndRestoreYBSnapshot imports the exported snapshot metadata, copies the
 // exported tablet files into the new tablets the import created, and runs
 // restore_snapshot. The schema must already be applied so the tables exist.
-// nodes are the manifest's tablet-server names; each node's archive is staged
-// as /artifacts/tablets-<name>.tar.gz and extracted into its own directory so
-// replicas of the same tablet from different nodes never mix files.
-func importAndRestoreYBSnapshot(ctx context.Context, r *restoreDrillCtx, container, database, exportSnap string, nodes []string) error {
+// inventories are the staged records of what each node's archive carries, in
+// manifest order; each node's archive is extracted into its own directory so
+// replicas of the same tablet from different nodes never mix files, and each
+// extraction is checked against its own node's record before any of it is
+// copied.
+func importAndRestoreYBSnapshot(
+	ctx context.Context,
+	r *restoreDrillCtx,
+	container, database, exportSnap string,
+	inventories []ybArchiveInventory,
+) error {
 	logger := telemetry.L(ctx)
 	master := container + ":7100"
 
@@ -63,22 +70,34 @@ func importAndRestoreYBSnapshot(ctx context.Context, r *restoreDrillCtx, contain
 		return err
 	}
 
-	// The extraction program is constant shell text; the node name arrives as
-	// a positional argument ($1), so a manifest-supplied name can never be
-	// parsed as shell syntax. Manifest decode also allowlists the names.
-	const extractScript = `mkdir -p "` + ybTabletExportRoot + `/$1" && tar xzf "/artifacts/tablets-$1.tar.gz" -C "` +
-		ybTabletExportRoot + `/$1"`
-	for _, node := range nodes {
+	layout := drillPlacementLayout(r.Cfg.BackupYBRocksDBDir)
+	extractScript := ybTabletExtractScript(layout.ExportRoot, ybDrillArtifactMount)
+	extractions := make([]ybNodeExtraction, 0, len(inventories))
+	for _, inventory := range inventories {
 		if extractRes, err := containerExec(ctx, r.Cli, container,
-			[]string{"sh", "-c", extractScript, "sh", node}); err != nil || extractRes.ExitCode != 0 {
-			wrapped := fmt.Errorf("extract tablets for node %s: exit %d: %w", node, extractRes.ExitCode, err)
+			[]string{"sh", "-c", extractScript, "sh", inventory.Node}); err != nil || extractRes.ExitCode != 0 {
+			wrapped := fmt.Errorf("extract tablets for node %s: exit %d: %w", inventory.Node, extractRes.ExitCode, err)
 			logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", wrapped.Error()))
 			return wrapped
 		}
+		// A clean extraction is tar's own account of itself. What the export
+		// recorded is the independent one, and it is the one each tablet is
+		// judged against below.
+		missing, err := checkYBNodeExtraction(ctx, r, container, layout.ExportRoot, inventory)
+		if err != nil {
+			return err
+		}
+		extractions = append(extractions, newYBNodeExtraction(inventory, missing))
 	}
 
-	layout := drillPlacementLayout(r.Cfg.BackupYBRocksDBDir)
-	for _, script := range ybPlacementScripts(remaps, layout, exportSnap, newSnap) {
+	placements, defects := chooseYBTabletReplicas(remaps, layout.ExportRoot, exportSnap, extractions)
+	if len(defects) > 0 {
+		wrapped := ybTabletDefectError(defects, countDistinctTablets(remaps))
+		logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", wrapped.Error()))
+		return wrapped
+	}
+
+	for _, script := range ybPlacementScripts(placements, layout, newSnap) {
 		if placeRes, err := containerExec(ctx, r.Cli, container, []string{"sh", "-c", script}); err != nil || placeRes.ExitCode != 0 {
 			wrapped := fmt.Errorf("place tablet files: exit %d: %s: %w", placeRes.ExitCode, strings.TrimSpace(placeRes.Stderr), err)
 			logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", wrapped.Error()))

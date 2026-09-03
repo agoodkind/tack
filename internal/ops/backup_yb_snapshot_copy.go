@@ -161,15 +161,26 @@ func ybSnapshotGatedArtifactNames(files []ybSnapshotArtifact) []string {
 	return names
 }
 
+// ybNodeUploadArtifacts returns one node's staged artifacts in upload order,
+// each staged under the object name it uploads to so the two can never drift.
+// The order is the declaration's, which puts the gated archive last.
+func ybNodeUploadArtifacts(stageDir string) []ybSnapshotArtifact {
+	objects := ybNodeArtifactObjects()
+	files := make([]ybSnapshotArtifact, 0, len(objects))
+	for _, object := range objects {
+		files = append(files, ybSnapshotArtifact{name: object, path: filepath.Join(stageDir, object)})
+	}
+	return files
+}
+
 // uploadYBSnapshotArtifacts uploads the staged files to the main backup bucket
-// under the run's key prefix, strictly in slice order and stopping at the
-// first failure. Order is load-bearing: the caller places the manifest last,
-// so a partial upload can never publish a manifest whose gated artifacts are
-// absent.
-func uploadYBSnapshotArtifacts(ctx context.Context, cfg *config.Config, runID string, files []ybSnapshotArtifact) error {
+// under prefix, strictly in slice order and stopping at the first failure.
+// Order is load-bearing: the caller places the object others gate on last, so a
+// partial upload can never publish a manifest whose gated artifacts are absent,
+// nor an archive whose inventory is.
+func uploadYBSnapshotArtifacts(ctx context.Context, cfg *config.Config, prefix string, files []ybSnapshotArtifact) error {
 	logger := telemetry.L(ctx)
 	s3Client := newBackupS3Client(cfg)
-	prefix := ybSnapshotKeyPrefix(runID)
 	for _, file := range files {
 		if err := putYBSnapshotObject(ctx, s3Client, cfg.BackupS3BucketMain, prefix+file.name, file.path); err != nil {
 			return err

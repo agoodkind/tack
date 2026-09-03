@@ -184,7 +184,7 @@ func exportYBSnapshotToObjectStore(
 	// The manifest uploads last: archivers and the restore drill treat a
 	// manifest-less run prefix as not yet published, so a failure part-way
 	// through the uploads can never leave a manifest gating absent objects.
-	return uploadYBSnapshotArtifacts(ctx, cfg, runID, artifacts)
+	return uploadYBSnapshotArtifacts(ctx, cfg, ybSnapshotKeyPrefix(runID), artifacts)
 }
 
 // listYBTabletServerNodes derives the tablet-server node names live from

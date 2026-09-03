@@ -43,7 +43,7 @@ func restoreDrillYugabyte(ctx context.Context, r *restoreDrillCtx) error {
 		return wrapped
 	}
 	defer os.RemoveAll(stageDir)
-	nodeNames, err := stageYBDrillArtifacts(ctx, r, s3Client, manifest, stageDir)
+	inventories, err := stageYBDrillArtifacts(ctx, r, s3Client, manifest, stageDir)
 	if err != nil {
 		return err
 	}
@@ -76,7 +76,7 @@ func restoreDrillYugabyte(ctx context.Context, r *restoreDrillCtx) error {
 		return wrapped
 	}
 
-	if err := importAndRestoreYBSnapshot(ctx, r, name, manifest.Database, manifest.SnapshotID, nodeNames); err != nil {
+	if err := importAndRestoreYBSnapshot(ctx, r, name, manifest.Database, manifest.SnapshotID, inventories); err != nil {
 		return err
 	}
 
@@ -256,50 +256,6 @@ func ybDrillManifestDefect(manifest ybSnapshotManifest) string {
 	return ""
 }
 
-// ybDrillArtifactsDir is where stageYBDrillArtifacts' staging directory is
-// bind-mounted inside the scratch container.
-const ybDrillArtifactsDir = "/artifacts"
-
-// ybDrillArtifactPath is where one staged run-root artifact appears to the
-// scratch container. Every fixed path the restore opens is built here from the
-// artifact's own object name, so the files the restore reads and the names
-// ybRequiredRunArtifacts makes the manifest declare cannot drift apart.
-func ybDrillArtifactPath(artifact string) string {
-	return ybDrillArtifactsDir + "/" + artifact
-}
-
-// stageYBDrillArtifacts downloads every artifact the run declares, plus every
-// node archive, into stageDir, naming each archive tablets-<node>.tar.gz so the
-// scratch container can extract each node's files into its own directory. The
-// artifacts come from the manifest rather than a list held here, so the drill
-// stages whatever the export published, and the manifest is refused before this
-// runs unless it declares everything the restore opens by name. It returns the
-// node names in manifest order for the extraction step.
-func stageYBDrillArtifacts(
-	ctx context.Context,
-	r *restoreDrillCtx,
-	s3Client *s3.Client,
-	manifest ybSnapshotManifest,
-	stageDir string,
-) ([]string, error) {
-	srcPrefix := ybSnapshotKeyPrefix(manifest.RunID)
-	for _, name := range manifest.Artifacts {
-		if err := getObjectToFile(ctx, s3Client, r.Cfg.BackupS3BucketMain, srcPrefix+name, filepath.Join(stageDir, name)); err != nil {
-			return nil, err
-		}
-	}
-	nodeNames := make([]string, 0, len(manifest.Nodes))
-	for _, node := range manifest.Nodes {
-		nodeNames = append(nodeNames, node.Name)
-		key := ybNodeArchiveKey(manifest.RunID, node)
-		local := filepath.Join(stageDir, "tablets-"+node.Name+".tar.gz")
-		if err := getObjectToFile(ctx, s3Client, r.Cfg.BackupS3BucketMain, key, local); err != nil {
-			return nil, err
-		}
-	}
-	return nodeNames, nil
-}
-
 // startScratchYugabyte boots a throwaway yugabyted with the is_port_available
 // overlay, advertising on its own container name so the embedded DNS resolves
 // it on the IPv6-only bridge. stageDir is bind-mounted read-only at /artifacts.
@@ -327,7 +283,7 @@ func startScratchYugabyte(ctx context.Context, r *restoreDrillCtx, name, databas
 	hostCfg := &container.HostConfig{
 		Binds: []string{
 			r.Cfg.BackupYBOverlayPath + ":/home/yugabyte/bin/yugabyted:ro",
-			stageDir + ":" + ybDrillArtifactsDir + ":ro",
+			stageDir + ":" + ybDrillArtifactMount + ":ro",
 		},
 	}
 	created, err := r.Cli.ContainerCreate(ctx, client.ContainerCreateOptions{

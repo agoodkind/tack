@@ -33,13 +33,13 @@ func (f *drillWalkFixture) skip(runID, reason string) {
 }
 
 // completeYBRun builds a manifest for the run and marks every object it
-// declares present in the fixture: each run-root artifact and each node
-// archive.
+// declares present in the fixture: each run-root artifact and every artifact
+// every node owes.
 func completeYBRun(f *drillWalkFixture, runID string, nodes []string) ybSnapshotManifest {
 	manifest := newYBSnapshotManifest(runID, "snap-"+runID, "tack", nodes, ybTestArtifactNames())
 	markYBRunArtifactsPresent(f, manifest)
 	for _, node := range manifest.Nodes {
-		f.present[ybNodeArchiveKey(runID, node)] = true
+		archiveYBNode(f, runID, node)
 	}
 	return manifest
 }
@@ -49,6 +49,13 @@ func completeYBRun(f *drillWalkFixture, runID string, nodes []string) ybSnapshot
 func markYBRunArtifactsPresent(f *drillWalkFixture, manifest ybSnapshotManifest) {
 	for _, artifact := range manifest.Artifacts {
 		f.present[ybRunArtifactKey(manifest.RunID, artifact)] = true
+	}
+}
+
+// archiveYBNode marks one node's whole archive run present in the fixture.
+func archiveYBNode(f *drillWalkFixture, runID string, node ybSnapshotManifestNode) {
+	for _, key := range ybNodeArtifactKeys(runID, node) {
+		f.present[key] = true
 	}
 }
 
@@ -68,7 +75,7 @@ func TestNewestCompleteYBSnapshotRunWalksBack(t *testing.T) {
 		[]string{"yb1", "yb2"}, ybTestArtifactNames())
 	fixture.manifests["run-2"] = incomplete
 	markYBRunArtifactsPresent(fixture, incomplete)
-	fixture.present[ybNodeArchiveKey("run-2", incomplete.Nodes[0])] = true
+	archiveYBNode(fixture, "run-2", incomplete.Nodes[0])
 	// run-3 (the newest) has no manifest at all.
 
 	got, found, err := newestCompleteYBSnapshotRun(
@@ -242,7 +249,7 @@ func TestNewestCompleteYBSnapshotRunSkipsATruncatedDeclaration(t *testing.T) {
 	fixture.manifests["run-2"] = truncated
 	markYBRunArtifactsPresent(fixture, truncated)
 	for _, node := range truncated.Nodes {
-		fixture.present[ybNodeArchiveKey("run-2", node)] = true
+		archiveYBNode(fixture, "run-2", node)
 	}
 
 	got, found, err := newestCompleteYBSnapshotRun(

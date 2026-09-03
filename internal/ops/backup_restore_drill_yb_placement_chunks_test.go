@@ -2,6 +2,7 @@ package ops
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -21,12 +22,17 @@ const maxExecArgBytes = 128 * 1024
 // which is the red proof this test exists for.
 func TestYBPlacementScriptsStayUnderTheExecArgLimit(t *testing.T) {
 	const tabletCount = 5000
-	remaps := make([]ybTabletRemap, 0, tabletCount)
+	const exportSnap = "e3e4ff5d-cf6c-42a6-93a2-1518823d5a86"
+	placements := make([]ybTabletPlacement, 0, tabletCount)
 	for i := range tabletCount {
-		remaps = append(remaps, ybTabletRemap{
+		remap := ybTabletRemap{
 			table: fmt.Sprintf("0000400000003000800000000000%04x", i),
 			old:   fmt.Sprintf("%08x-1111-2222-3333-444455556666", i),
 			new:   fmt.Sprintf("%08x-aaaa-bbbb-cccc-ddddeeeeffff", i),
+		}
+		placements = append(placements, ybTabletPlacement{
+			remap:  remap,
+			source: ybTabletExportRoot + "/yb1/" + ybTabletSourceDir(remap, exportSnap),
 		})
 	}
 
@@ -39,8 +45,7 @@ func TestYBPlacementScriptsStayUnderTheExecArgLimit(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			layout := drillPlacementLayout(tc.rocksdbDir)
-			scripts := ybPlacementScripts(remaps, layout,
-				"e3e4ff5d-cf6c-42a6-93a2-1518823d5a86", "80086029-2a1e-4625-bad1-3ea00e4109a6")
+			scripts := ybPlacementScripts(placements, layout, "80086029-2a1e-4625-bad1-3ea00e4109a6")
 
 			placed := 0
 			for i, script := range scripts {
@@ -51,31 +56,57 @@ func TestYBPlacementScriptsStayUnderTheExecArgLimit(t *testing.T) {
 				if !strings.HasPrefix(script, ybPlacementScriptPrefix(layout)) {
 					t.Fatalf("script %d lost the fail-fast prefix: %q", i, script[:20])
 				}
-				placed += strings.Count(script, "for src in ")
+				placed += strings.Count(script, "mkdir -p ")
 			}
 			if placed != tabletCount {
 				t.Fatalf("scripts place %d tablets, want %d", placed, tabletCount)
 			}
-			for _, remap := range []ybTabletRemap{remaps[0], remaps[tabletCount-1]} {
+			for _, placement := range []ybTabletPlacement{placements[0], placements[tabletCount-1]} {
 				found := false
 				for _, script := range scripts {
-					if strings.Contains(script, "tablet-"+remap.new+".snapshots") {
+					if strings.Contains(script, "tablet-"+placement.remap.new+".snapshots") {
 						found = true
 						break
 					}
 				}
 				if !found {
-					t.Fatalf("no script places tablet %s", remap.new)
+					t.Fatalf("no script places tablet %s", placement.remap.new)
 				}
 			}
 		})
 	}
 }
 
-// TestYBPlacementScriptsEmpty locks that zero remaps produce zero scripts, so
-// the drill cannot run an empty placement exec.
+// TestYBPlacementScriptsEmpty locks that zero placements produce zero scripts,
+// so the drill cannot run an empty placement exec.
 func TestYBPlacementScriptsEmpty(t *testing.T) {
-	if scripts := ybPlacementScripts(nil, drillPlacementLayout("/data"), "old", "new"); len(scripts) != 0 {
-		t.Fatalf("scripts = %d, want none for zero remaps", len(scripts))
+	if scripts := ybPlacementScripts(nil, drillPlacementLayout("/data"), "new"); len(scripts) != 0 {
+		t.Fatalf("scripts = %d, want none for zero placements", len(scripts))
+	}
+}
+
+// TestChooseYBTabletReplicasDecidesEachTabletOnce proves a mapping that names
+// one tablet twice yields one copy and one refusal, not two. The audit counts
+// tablets, so a doubled placement would attempt more than the import created
+// and a doubled refusal would claim the export is short of more than it holds.
+func TestChooseYBTabletReplicasDecidesEachTabletOnce(t *testing.T) {
+	const exportSnap = "expsnap"
+	whole := ybTabletRemap{table: "t1", old: "o1", new: "n1"}
+	absent := ybTabletRemap{table: "t2", old: "o2", new: "n2"}
+	remaps := []ybTabletRemap{whole, whole, absent, absent}
+	nodes := []ybNodeExtraction{{
+		node:    "yb1",
+		carried: map[string]int{ybTabletSourceDir(whole, exportSnap): 2},
+		missing: map[string]int{},
+	}}
+
+	placements, defects := chooseYBTabletReplicas(remaps, "/tmp/exp", exportSnap, nodes)
+
+	if len(placements) != 1 || placements[0].source != "/tmp/exp/yb1/"+ybTabletSourceDir(whole, exportSnap) {
+		t.Fatalf("placements = %+v, want the one whole tablet once", placements)
+	}
+	want := []ybTabletDefect{{identity: ybTabletIdentity(absent), carried: false, missing: 0}}
+	if !slices.Equal(defects, want) {
+		t.Fatalf("defects = %+v, want the uncarried tablet once %+v", defects, want)
 	}
 }

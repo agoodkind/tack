@@ -216,12 +216,14 @@ is idempotent, so it leaves a running session alone.
 The export is stored under `yugabyte-snapshot/<run-id>/` in the object store.
 The orchestrator (`ops backup yb-snapshot-export`) uploads `metadata.snapshot`,
 `schema.sql`, `roles.sql`, and `manifest.json` at the run root; each
-tablet-server guest then uploads its own `nodes/<node>/tablets.tar.gz` via
-`ops backup yb-archive-node`. The manifest lists both the run-root artifacts and
-every node prefix the run needs, and a run is restorable only when every one of
-them holds its object. The restore drill enforces this and refuses a run it
-cannot restore, naming what is wrong with it. The latest prefix is the most
-recent export.
+tablet-server guest then fills its own `nodes/<node>/` prefix via
+`ops backup yb-archive-node` with `tablets.tar.gz` and `tablets.inventory`,
+which lists the path and size of every file that tar carries. The manifest
+lists both the run-root artifacts and every node prefix the run needs, and a
+run is restorable only when every run-root artifact holds its object and every
+listed prefix holds both node files. The restore drill enforces this and
+refuses a run it cannot restore, naming what is wrong with it. The latest
+prefix is the most recent export.
 
 The two SQL files together describe the restored database's access control.
 `roles.sql` carries every role the source cluster held and their memberships,
@@ -244,9 +246,11 @@ verified procedure. A real recovery applies the same steps to the recovery
 YugabyteDB:
 
 1. Stage `manifest.json` from `yugabyte-snapshot/<run-id>/`, then every artifact
-   and every node archive it lists, from `yugabyte-snapshot/<run-id>/<artifact>`
-   and `yugabyte-snapshot/<run-id>/nodes/<node>/tablets.tar.gz`. If any listed
-   object is missing, stop and pick a complete run.
+   it lists from `yugabyte-snapshot/<run-id>/<artifact>`, then, for every node
+   it lists, both `nodes/<node>/tablets.tar.gz` and
+   `nodes/<node>/tablets.inventory`. If any listed artifact is missing, or
+   either node file is missing for any listed node, stop and pick a complete
+   run.
 2. Bring up the recovery yugabyted with the `yugabyte-overlay/yugabyted` overlay,
    advertising on its own hostname.
 3. Apply `roles.sql`, then create the `pgcrypto` extension, then apply
@@ -285,24 +289,23 @@ YugabyteDB:
    before pointing the application at it, which is what sets those passwords.
 4. Run `yb-admin import_snapshot metadata.snapshot <database>`. It preserves
    table ids and assigns new tablet ids, printing the old-to-new tablet mapping.
-5. Extract each node archive into its own directory, then copy each tablet's
-   files from any one node's copy that carries data (replicas of the same
-   tablet exist on several nodes; use one copy, never a mix) into the new
-   tablet's snapshot directory under the rocksdb root, following the mapping
-   from step 4.
+5. Extract each node archive into its own directory, then check that extraction
+   against that node's `tablets.inventory`: every file it lists must be present
+   at the size it lists. Copy each tablet's files from one node's copy that
+   passes the check (copies of the same tablet exist on several nodes; use one
+   copy, never a mix) into the new tablet's snapshot directory under the rocksdb
+   root, following the mapping from step 4.
 
-   Count the tablets you copied against the tablets the mapping names before
-   going further. A tablet whose files are in no node's extraction is a hole
-   the export did not carry, and `restore_snapshot` succeeds over it: the
-   database comes back smaller with nothing to say it did. A tablet directory
-   that exists and holds no file with bytes in it is the same hole, because an
-   archive truncated after its directory entries restores the directories
-   without their contents. Count a tablet only once its copy carries data.
-   Stop and pick a complete run rather than restoring a partial one. Only once
-   every tablet in the mapping has its files in place, run
-   `yb-admin restore_snapshot <new-snapshot-id>`. The drill does this count
-   itself and fails on any difference, naming how many tablets the import
-   created and how many the export carried.
+   Do not judge a tablet by what its directory happens to hold. A directory that
+   exists, and a directory holding one file with bytes in it, both tell you
+   nothing about how much of that tablet arrived; the inventory is the only
+   record of what this backup captured. A tablet no copy passes the check for is
+   a hole, and `restore_snapshot` succeeds over it: the database comes back
+   smaller with nothing to say it did. Stop and pick a complete run rather than
+   restoring a partial one. Only once every tablet in the mapping has a whole
+   copy in place, run `yb-admin restore_snapshot <new-snapshot-id>`. The drill
+   does this itself and fails before it copies anything, naming each tablet it
+   cannot supply and how many of that tablet's archived files are gone.
 6. Verify the auth tables `users`, `api_tokens`, and `org_members` hold rows.
 7. Verify the restored ledger's hash chain, reading it as a login role whose
    only membership is `audit_reader`, which is the base role the product reads

@@ -3,11 +3,12 @@
 // The orchestrator writes a manifest listing the artifacts it published at the
 // run root and every live tablet-server node with the object-store prefix that
 // node must fill, and uploads the manifest last so its presence implies every
-// other run artifact landed; each data guest's archive command uploads its own
-// tablet tar under its prefix; the restore drill never uses a run whose
-// manifest declares an artifact or a node prefix with no object behind it
-// (skipping it in discovery, refusing it when the run was requested
-// explicitly).
+// other run artifact landed; each data guest's archive command fills its own
+// prefix with its tablet tar and the inventory of what that tar carries (the
+// node artifacts ybNodeArtifactObjects declares); the restore drill never uses
+// a run whose manifest declares a run-root artifact with no object behind it
+// or lists a node prefix those node artifacts are missing from (skipping it in
+// discovery, refusing it when the run was requested explicitly).
 //
 // Completeness is two separate rules, because a manifest that misdescribes its
 // own run and a run that lost an object are different failures with different
@@ -60,6 +61,9 @@ const (
 	// ybNodeArchiveObject is the tablet archive's object base name under each
 	// node's prefix.
 	ybNodeArchiveObject = "tablets.tar.gz"
+	// ybNodeInventoryObject is the object base name, beside the archive under
+	// the same node prefix, of the record of what that archive carries.
+	ybNodeInventoryObject = "tablets.inventory"
 	// ybSnapshotRunIDLayout is the layout the export orchestrator formats a run
 	// id with. A run id is therefore a UTC timestamp, which is what lets the
 	// staleness check date the newest complete run without a marker.
@@ -218,12 +222,6 @@ func (m ybSnapshotManifest) nodePrefix(name string) (string, bool) {
 	return "", false
 }
 
-// ybNodeArchiveKey is the full object key of one node's tablet archive for the
-// manifest's run.
-func ybNodeArchiveKey(runID string, node ybSnapshotManifestNode) string {
-	return ybSnapshotKeyPrefix(runID) + node.Prefix + ybNodeArchiveObject
-}
-
 // ybRunArtifactKey is the full object key of one run-root artifact.
 func ybRunArtifactKey(runID, artifact string) string {
 	return ybSnapshotKeyPrefix(runID) + artifact
@@ -269,23 +267,6 @@ func missingYBRunArtifacts(manifest ybSnapshotManifest, exists func(key string) 
 		}
 		if !present {
 			missing = append(missing, artifact)
-		}
-	}
-	return missing, nil
-}
-
-// missingYBNodeArchives returns the names of the manifest's nodes whose archive
-// object is absent, using the caller's existence check so the completeness rule
-// stays testable without an object store.
-func missingYBNodeArchives(manifest ybSnapshotManifest, exists func(key string) (bool, error)) ([]string, error) {
-	var missing []string
-	for _, node := range manifest.Nodes {
-		present, err := exists(ybNodeArchiveKey(manifest.RunID, node))
-		if err != nil {
-			return nil, err
-		}
-		if !present {
-			missing = append(missing, node.Name)
 		}
 	}
 	return missing, nil
