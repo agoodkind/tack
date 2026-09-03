@@ -40,8 +40,15 @@ type datagenReferenceShapeResult struct {
 	Collisions    int    `json:"collisions"`
 	Renames       int    `json:"expected_renames"`
 	NodesCreated  int    `json:"nodes_created"`
-	CounterKeys   int    `json:"counter_keys_before_repair"`
-	ReferenceKeys int    `json:"reference_keys_before_repair"`
+	NodesRestored int    `json:"nodes_restored"`
+	// LiveCollisions is counted from the org after writing, through the
+	// repair's own duplicate scan. Collisions above is what the shape
+	// describes; this is what exists. A commit that leaves them unequal
+	// fails, because a generator that reports collisions it did not create
+	// leaves the repair nothing to do while claiming otherwise (TACK-475).
+	LiveCollisions int `json:"live_collisions"`
+	CounterKeys    int `json:"counter_keys_before_repair"`
+	ReferenceKeys  int `json:"reference_keys_before_repair"`
 }
 
 func datagenReferenceShapeOp(f *cli.Factory) clispec.Operation[datagenReferenceShapeInput] {
@@ -91,20 +98,22 @@ func runDatagenReferenceShape(
 		return err
 	}
 	result := datagenReferenceShapeResult{
-		ResultMarker: clispec.ResultMarker{},
-		Command:      "ops.qa.datagen.reference-repair-shape",
-		DryRun:       !input.Commit,
-		OrgSlug:      productionSeedOrgSlug,
-		OrgID:        shape.OrgID.String(),
-		Scopes:       len(shape.Projects),
-		Issues:       len(shape.Issues),
-		Collisions:   len(shape.Groups),
-		Renames:      shape.Renames,
-		NodesCreated: 0,
+		ResultMarker:  clispec.ResultMarker{},
+		Command:       "ops.qa.datagen.reference-repair-shape",
+		DryRun:        !input.Commit,
+		OrgSlug:       productionSeedOrgSlug,
+		OrgID:         shape.OrgID.String(),
+		Scopes:        len(shape.Projects),
+		Issues:        len(shape.Issues),
+		Collisions:    len(shape.Groups),
+		Renames:       shape.Renames,
+		NodesCreated:  0,
+		NodesRestored: 0,
 		// A dry run reports what the corpus will derive once it exists; a
-		// commit replaces both with what it measures after writing.
-		CounterKeys:   len(shape.Projects),
-		ReferenceKeys: len(shape.Issues),
+		// commit replaces these with what it measures after writing.
+		LiveCollisions: len(shape.Groups),
+		CounterKeys:    len(shape.Projects),
+		ReferenceKeys:  len(shape.Issues),
 	}
 	if !input.Commit {
 		return writeReferenceShapeReport(ctx, sink, result)
@@ -132,8 +141,9 @@ func commitReferenceShape(
 	}
 	defer env.Close()
 
-	created, err := writeReferenceShape(ctx, env, shape)
-	result.NodesCreated = created
+	written, err := writeReferenceShape(ctx, env, shape)
+	result.NodesCreated = written.Created
+	result.NodesRestored = written.Restored
 	if err != nil {
 		return err
 	}
@@ -144,10 +154,14 @@ func commitReferenceShape(
 	if err != nil {
 		return err
 	}
+	result.LiveCollisions, err = countLiveReferenceCollisions(ctx, env, shape.OrgID)
+	if err != nil {
+		return err
+	}
 	if err := writeReferenceShapeReport(ctx, sink, result); err != nil {
 		return err
 	}
-	return checkReferenceShape(result.CounterKeys, result.ReferenceKeys)
+	return checkReferenceShape(result)
 }
 
 func writeReferenceShapeReport(
@@ -176,14 +190,22 @@ func measureReferenceShape(ctx context.Context, env *Env, orgID uuid.UUID) (int,
 	return len(counters), len(keys), nil
 }
 
-func checkReferenceShape(counters, keys int) error {
-	if counters != recordedCounterSeeds {
+// checkReferenceShape refuses to call a commit good unless the org now holds
+// what the report describes. The live collision count is the one that matters
+// to the repair: a corpus with the right keys and no collisions gives the
+// repair nothing to rename, which is the state TACK-475 found.
+func checkReferenceShape(result datagenReferenceShapeResult) error {
+	if result.CounterKeys != recordedCounterSeeds {
 		return fmt.Errorf("the corpus derives %d counter seeds, want %d",
-			counters, recordedCounterSeeds)
+			result.CounterKeys, recordedCounterSeeds)
 	}
 	want := recordedReferenceKeys + recordedFollowupReferenceKey
-	if keys != want {
-		return fmt.Errorf("the corpus derives %d reference keys, want %d", keys, want)
+	if result.ReferenceKeys != want {
+		return fmt.Errorf("the corpus derives %d reference keys, want %d", result.ReferenceKeys, want)
+	}
+	if result.LiveCollisions != result.Collisions {
+		return fmt.Errorf("the org holds %d colliding references after writing, the shape describes %d: "+
+			"the repair would find nothing to rename", result.LiveCollisions, result.Collisions)
 	}
 	return nil
 }

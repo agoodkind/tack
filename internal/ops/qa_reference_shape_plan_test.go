@@ -1,6 +1,7 @@
 package ops
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -110,5 +111,31 @@ func TestReferenceShapeCollidesOnlyOnEvidenceReferences(t *testing.T) {
 		if count > 1 && !colliding[reference] {
 			t.Fatalf("%s is held by %d issues and the evidence never names it", reference, count)
 		}
+	}
+}
+
+// TestReferenceShapeCommitRefusesWhenTheOrgHoldsNoCollisions pins TACK-475:
+// a commit whose report says 102 collisions while the org holds none used to
+// exit 0, and the repair run against it then had nothing to rename. The check
+// now compares what the shape describes with what the duplicate scan found.
+func TestReferenceShapeCommitRefusesWhenTheOrgHoldsNoCollisions(t *testing.T) {
+	result := datagenReferenceShapeResult{
+		Collisions:     102,
+		LiveCollisions: 0,
+		CounterKeys:    recordedCounterSeeds,
+		ReferenceKeys:  recordedReferenceKeys + recordedFollowupReferenceKey,
+	}
+
+	err := checkReferenceShape(result)
+
+	if err == nil {
+		t.Fatal("a corpus with no live collisions must not be reported as written")
+	}
+	if !strings.Contains(err.Error(), "holds 0 colliding references") {
+		t.Fatalf("err = %v, want the live count named", err)
+	}
+	result.LiveCollisions = 102
+	if err := checkReferenceShape(result); err != nil {
+		t.Fatalf("a corpus whose live collisions match the shape must pass: %v", err)
 	}
 }
