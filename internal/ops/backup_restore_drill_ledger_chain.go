@@ -28,6 +28,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -74,11 +75,32 @@ func verifyRestoredLedgerChains(
 		return err
 	}
 
+	// Each org's bundle is removed as soon as its verdict is read, so the disk
+	// this needs is the largest single org rather than the sum of every org.
+	// Keeping them all until the run ends would make the drill's footprint grow
+	// with tenant count, which is the one number a multi-tenant product is
+	// certain to grow.
+	//
+	// A cleanup that fails stops the run rather than being logged and carried
+	// past. The reclaim is what bounds the footprint, so continuing without it
+	// exports the next org onto a volume that is not being freed, and the drill
+	// would keep going until the disk it shares with the backups ran out. It
+	// also fails rather than merely stopping, because a run that could not clean
+	// up has not shown the rehearsal works.
 	var failures []string
 	totalRows := 0
 	for _, org := range orgs {
-		rows, err := verifyRestoredOrgChain(
-			ctx, org, filepath.Join(bundleRoot, org.ID.String()), export, verify)
+		orgBundle := filepath.Join(bundleRoot, org.ID.String())
+		rows, err := verifyRestoredOrgChain(ctx, org, orgBundle, export, verify)
+		if removeErr := os.RemoveAll(orgBundle); removeErr != nil {
+			wrapped := fmt.Errorf(
+				"org %s: could not free the exported bundle at %s, so the drill stopped "+
+					"rather than export another org onto a volume it cannot reclaim: %w",
+				org.ID, orgBundle, removeErr)
+			logger.ErrorContext(ctx, "backup.restore_drill.ledger_chain.failed",
+				slog.String("err", wrapped.Error()))
+			return wrapped
+		}
 		if err != nil {
 			failures = append(failures, err.Error())
 			continue
@@ -102,15 +124,14 @@ func verifyRestoredLedgerChains(
 // exportWholeOrgLedger writes one org's bundle and establishes that the bundle
 // holds every row the restored ledger has for that org.
 //
-// The export is bounded because it materialises every row before it writes, so
-// an unbounded export of a production-sized org would be killed for memory
-// instead of returning a verdict. A bound that silently truncates, though, is
-// the failure this leg exists to remove: the newest rows verify, the rows
-// behind them are never read, and older corruption or an entire quiet shard
-// passes as a rehearsed recovery. Reconciling what the export wrote against
-// what the ledger holds is what keeps a truncated run inconclusive instead of
-// green, and the message names both counts so the operator reads it as "the
-// corpus outgrew the check", not as "the ledger is sound".
+// The export asks for the org's whole range with no row limit, so a shortfall
+// is a defect rather than a corpus that outgrew a cap. Reconciling the bundle
+// against the ledger's own count is still the check that catches one, and it is
+// the only check that can: a row dropped from the middle of a chain shows up as
+// a sequence gap, but a row dropped from the newest or oldest end of a shard
+// leaves the remaining rows contiguous and correctly linked, so the chain
+// verdict alone would pass a bundle that quietly lost a shard's head. The ends
+// are exactly where a streaming read's off-by-one lands.
 func exportWholeOrgLedger(
 	ctx context.Context,
 	org drillLedgerOrg,
@@ -135,8 +156,8 @@ func exportWholeOrgLedger(
 	if rowCount != org.RowCount {
 		wrapped := fmt.Errorf(
 			"org %s: the export wrote %d of the %d rows the restored ledger holds, "+
-				"so the chain of the rows it left out is unchecked; the export is capped at %d rows",
-			org.ID, rowCount, org.RowCount, drillLedgerExportRowLimit)
+				"so the chain of the rows it left out is unchecked",
+			org.ID, rowCount, org.RowCount)
 		logger.ErrorContext(ctx, "backup.restore_drill.ledger_chain.org_failed",
 			slog.String("err", wrapped.Error()))
 		return wrapped

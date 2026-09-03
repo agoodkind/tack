@@ -51,6 +51,7 @@ type auditExportResult struct {
 	Oldest               time.Time `json:"oldest"`
 	Latest               time.Time `json:"latest"`
 	RowCount             int       `json:"row_count"`
+	EventsFile           string    `json:"events_file"`
 	FileSHA256           string    `json:"file_sha256"`
 	SignatureBy          string    `json:"signing_key_id"`
 	Signature            string    `json:"signature"`

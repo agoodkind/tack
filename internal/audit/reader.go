@@ -71,8 +71,26 @@ type QueryFilter struct {
 	BeforeSeq  int64     `exhaustruct:"optional"`
 }
 
-// Query returns events matching the filter, most recent first. The caller
-// is responsible for upper-bounding the limit.
+// checkQueryFilter rejects a filter no ledger read can run: a reader that was
+// never configured, a missing org, or a time range with an open end. Shared by
+// Query and StreamQuery so both refuse the same inputs.
+func (r *Reader) checkQueryFilter(f QueryFilter) error {
+	if r == nil || r.pool == nil {
+		return errors.New("audit reader not configured")
+	}
+	if f.OrgID == uuid.Nil {
+		return errors.New("audit query: org_id required")
+	}
+	if f.Oldest.IsZero() || f.Latest.IsZero() {
+		return errors.New("audit query: oldest and latest required")
+	}
+	return nil
+}
+
+// Query returns events matching the filter, most recent first, holding every
+// matching row in memory. It is the page-sized read; a caller that wants the
+// whole match set streams it through StreamQuery instead. The caller is
+// responsible for upper-bounding the limit.
 func (r *Reader) Query(ctx context.Context, f QueryFilter) ([]Row, error) {
 	ctx, span := telemetry.StartSpan(ctx, "audit.query",
 		trace.WithSpanKind(trace.SpanKindInternal),
@@ -83,17 +101,11 @@ func (r *Reader) Query(ctx context.Context, f QueryFilter) ([]Row, error) {
 	)
 	defer span.End()
 	ctx = telemetry.WithTraceLogger(ctx, slog.String("org_id", f.OrgID.String()))
-	if r == nil || r.pool == nil {
-		return nil, errors.New("audit reader not configured")
-	}
-	if f.OrgID == uuid.Nil {
-		return nil, errors.New("audit query: org_id required")
-	}
-	if f.Oldest.IsZero() || f.Latest.IsZero() {
-		return nil, errors.New("audit query: oldest and latest required")
+	if err := r.checkQueryFilter(f); err != nil {
+		return nil, err
 	}
 	if f.Limit <= 0 {
-		f.Limit = 100
+		f.Limit = DefaultQueryPageLimit
 	}
 
 	q, args := buildAuditQuery(f)
