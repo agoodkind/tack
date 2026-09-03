@@ -146,8 +146,10 @@ func TestAContendedExportHoldsNoDescriptorEither(t *testing.T) {
 	probeCtx, cancelProbe := context.WithTimeout(context.Background(), beaconContendedDeadline)
 	defer cancelProbe()
 	probe := beginExportActivity(probeCtx, dir)
+	// Read before end(), which clears the flag as part of releasing.
+	probeHeld := probe.held
 	probe.end()
-	if probe.held {
+	if probeHeld {
 		t.Fatal("an export took the shared beacon while it was held exclusively")
 	}
 
