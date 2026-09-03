@@ -69,22 +69,41 @@ type QueryFilter struct {
 	// does not, so paging callers read the canonical store.
 	BeforeTime time.Time `exhaustruct:"optional"`
 	BeforeSeq  int64     `exhaustruct:"optional"`
+	// NilOrg asks for the rows stored under the nil org: history recorded
+	// before every event carried an org, which chains per (org, shard) like
+	// any other org's rows. A nil OrgID on its own is refused as a filter
+	// that forgot its org, so a caller has to name the nil org on purpose,
+	// and naming it beside a real OrgID is refused too, so the flag cannot be
+	// left on by mistake.
+	NilOrg bool `exhaustruct:"optional"`
 }
 
-// checkQueryFilter rejects a filter no ledger read can run: a reader that was
-// never configured, a missing org, or a time range with an open end. Shared by
-// Query and StreamQuery so both refuse the same inputs.
-func (r *Reader) checkQueryFilter(f QueryFilter) error {
-	if r == nil || r.pool == nil {
-		return errors.New("audit reader not configured")
+// Validate rejects a filter no ledger read can run: an org that was neither
+// given nor named as the nil org on purpose, the nil org named beside a real
+// one, or a time range with an open end. The Reader applies it to every read;
+// it is exported so a row source that stands in for the ledger can refuse the
+// same filters the ledger refuses.
+func (f QueryFilter) Validate() error {
+	if f.NilOrg && f.OrgID != uuid.Nil {
+		return fmt.Errorf("audit query: nil_org set beside org %s", f.OrgID)
 	}
-	if f.OrgID == uuid.Nil {
+	if f.OrgID == uuid.Nil && !f.NilOrg {
 		return errors.New("audit query: org_id required")
 	}
 	if f.Oldest.IsZero() || f.Latest.IsZero() {
 		return errors.New("audit query: oldest and latest required")
 	}
 	return nil
+}
+
+// checkQueryFilter rejects a read on a reader that was never configured, then
+// applies the filter's own rule. Shared by Query and StreamQuery so both refuse
+// the same inputs.
+func (r *Reader) checkQueryFilter(f QueryFilter) error {
+	if r == nil || r.pool == nil {
+		return errors.New("audit reader not configured")
+	}
+	return f.Validate()
 }
 
 // Query returns events matching the filter, most recent first, holding every

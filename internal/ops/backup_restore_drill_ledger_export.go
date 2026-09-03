@@ -151,6 +151,12 @@ func createDrillLedgerReader(ctx context.Context, r *restoreDrillCtx, containerN
 // test can assert what the drill asks the export for. What it asks for is the
 // whole thing, and a drill that quietly asked for less would still write a
 // bundle and still verify it.
+//
+// The org list comes from the rows themselves, and a ledger holding rows
+// recorded before every event carried an org lists the nil org among them.
+// Those rows chain per (org, shard) like any other org's, so the drill names
+// the nil org on purpose rather than leaving the one chain the reader refuses
+// by default unverified.
 func exportRestoredOrgBundle(
 	ctx context.Context,
 	reader audit.RowSource,
@@ -168,6 +174,7 @@ func exportRestoredOrgBundle(
 		RequestID: "",
 		TraceID:   "",
 		Limit:     drillLedgerExportUnlimited,
+		NilOrg:    orgID == uuid.Nil,
 	}, dir)
 	if err != nil {
 		wrapped := fmt.Errorf("export org %s from the restored ledger: %w", orgID, err)

@@ -39,35 +39,28 @@ func checkRowHash(row Row) (bool, string, error) {
 			"claims hash version %d with a sub-microsecond timestamp the ledger cannot store",
 			row.HashVersion), nil
 	}
-	piiRef := uuid.Nil
-	if row.PIIRef != nil {
-		piiRef = *row.PIIRef
-	}
-	// The writer hashed the JSON it marshalled from these same types, and the
-	// hash canonicalizes by parsed value, so re-marshalling the decoded row
-	// reproduces the covered bytes key for key.
-	contextJSON, err := json.Marshal(row.Context)
-	if err != nil {
-		slog.Error("audit.export.row_context_encode_failed", slog.String("event_id", row.EventID.String()), slog.String("err", err.Error()))
-		return false, "", fmt.Errorf("verify row %s context: %w", row.EventID, err)
-	}
-	deltaJSON, err := json.Marshal(row.Delta)
-	if err != nil {
-		slog.Error("audit.export.row_delta_encode_failed", slog.String("event_id", row.EventID.String()), slog.String("err", err.Error()))
-		return false, "", fmt.Errorf("verify row %s delta: %w", row.EventID, err)
-	}
-	input := rowHashInput{
-		Event:   exportEvent(row),
-		EventID: row.EventID, Shard: row.Shard, Seq: row.Seq,
-		PIIRef: piiRef, ContextJSON: contextJSON, DeltaJSON: deltaJSON,
-		LastHash: row.PrevHash, Version: row.HashVersion,
-	}
-	candidates := 1
 	if row.HashVersion < auditHashVersion3 {
-		candidates = legacyNanosecondCandidates
+		return checkLegacyRowHash(row)
+	}
+	expected, err := ComputeRowHash(row)
+	if err != nil {
+		return false, "", err
+	}
+	if bytesEqual(expected, row.RowHash) {
+		return true, "", nil
+	}
+	return false, "hash mismatch", nil
+}
+
+// checkLegacyRowHash tries a version 1 or 2 row at every nanosecond remainder
+// its stored timestamp could have carried.
+func checkLegacyRowHash(row Row) (bool, string, error) {
+	input, err := rowHashInputFor(row)
+	if err != nil {
+		return false, "", err
 	}
 	base := row.EventTime
-	for remainder := range candidates {
+	for remainder := range legacyNanosecondCandidates {
 		input.Event.OccurredAt = base.Add(time.Duration(remainder) * time.Nanosecond)
 		expected, err := hashRowForEvent(input)
 		if err != nil {
@@ -79,6 +72,53 @@ func checkRowHash(row Row) (bool, string, error) {
 		}
 	}
 	return false, "hash mismatch", nil
+}
+
+// ComputeRowHash returns the hash a row carries at its chain position,
+// computed from the row's own fields under its stored hash version, the way
+// the writer computed it. The verifier compares a current-version row's stored
+// hash against it, and a row source that stands in for the ledger uses it to
+// hand over rows the verifier accepts. A legacy row is not compared against it
+// directly, because its stored timestamp lost precision that only the
+// candidate search recovers.
+func ComputeRowHash(row Row) ([]byte, error) {
+	input, err := rowHashInputFor(row)
+	if err != nil {
+		return nil, err
+	}
+	hash, err := hashRowForEvent(input)
+	if err != nil {
+		slog.Error("audit.export.hash_failed", slog.String("event_id", row.EventID.String()), slog.String("err", err.Error()))
+		return nil, fmt.Errorf("verify hash row %s: %w", row.EventID, err)
+	}
+	return hash, nil
+}
+
+// rowHashInputFor rebuilds the hash input from a stored row. The writer hashed
+// the JSON it marshalled from these same types, and the hash canonicalizes by
+// parsed value, so re-marshalling the decoded row reproduces the covered bytes
+// key for key.
+func rowHashInputFor(row Row) (rowHashInput, error) {
+	piiRef := uuid.Nil
+	if row.PIIRef != nil {
+		piiRef = *row.PIIRef
+	}
+	contextJSON, err := json.Marshal(row.Context)
+	if err != nil {
+		slog.Error("audit.export.row_context_encode_failed", slog.String("event_id", row.EventID.String()), slog.String("err", err.Error()))
+		return rowHashInput{}, fmt.Errorf("verify row %s context: %w", row.EventID, err)
+	}
+	deltaJSON, err := json.Marshal(row.Delta)
+	if err != nil {
+		slog.Error("audit.export.row_delta_encode_failed", slog.String("event_id", row.EventID.String()), slog.String("err", err.Error()))
+		return rowHashInput{}, fmt.Errorf("verify row %s delta: %w", row.EventID, err)
+	}
+	return rowHashInput{
+		Event:   exportEvent(row),
+		EventID: row.EventID, Shard: row.Shard, Seq: row.Seq,
+		PIIRef: piiRef, ContextJSON: contextJSON, DeltaJSON: deltaJSON,
+		LastHash: row.PrevHash, Version: row.HashVersion,
+	}, nil
 }
 
 // exportEvent rebuilds the hash-relevant event from a stored row. The hash
