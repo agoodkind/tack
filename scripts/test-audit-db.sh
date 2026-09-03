@@ -66,16 +66,47 @@ if [[ -z "${TEST_YB_PASSWORD:-}" ]]; then
 fi
 export TEST_YB_PASSWORD
 
+# Percent-encode one URI user-info component, so a caller-supplied password
+# holding @ : / ? % or # still parses as the password and not as the host.
+url_encode() {
+    local value="$1" out="" char
+    local i
+    for (( i = 0; i < ${#value}; i++ )); do
+        char="${value:i:1}"
+        case "$char" in
+            [A-Za-z0-9._~-]) out+="$char" ;;
+            *) out+="$(printf '%%%02X' "'$char")" ;;
+        esac
+    done
+    printf '%s' "$out"
+}
+
 yb_dsn() {
     local user="$1" pw="$2" host="$3" db="$4"
-    printf '%s://%s:%s@%s/%s?sslmode=disable' postgres "$user" "$pw" "$host" "$db"
+    printf '%s://%s:%s@%s/%s?sslmode=disable' postgres "$user" "$(url_encode "$pw")" "$host" "$db"
 }
 export TEST_DATABASE_URL="$(yb_dsn yugabyte "$TEST_YB_PASSWORD" yugabyte:5433 tack)"
 export TEST_AUDIT_WRITER_DSN="$(yb_dsn audit_writer_app "$TEST_YB_PASSWORD" yugabyte:5433 tack)"
 export TEST_AUDIT_READER_DSN="$(yb_dsn audit_reader_app "$TEST_YB_PASSWORD" yugabyte:5433 tack)"
 
 echo ">> bringing up test YugabyteDB"
-"${COMPOSE[@]}" -f docker-compose.test.yml up -d --wait --wait-timeout 300 yugabyte
+"${COMPOSE[@]}" -f docker-compose.test.yml up -d yugabyte
+
+# Wait until the database answers a query as the admin role, the same probe
+# the service's healthcheck runs, so this works on any compose implementation.
+READY=0
+for _ in $(seq 1 60); do
+    if "${COMPOSE[@]}" -f docker-compose.test.yml exec -T -e PGPASSWORD="$TEST_YB_PASSWORD" yugabyte \
+        ysqlsh -h yugabyte -p 5433 -U yugabyte -d tack -t -c 'SELECT 1' >/dev/null 2>&1; then
+        READY=1
+        break
+    fi
+    sleep 5
+done
+if [[ "$READY" -ne 1 ]]; then
+    echo "test YugabyteDB did not answer within five minutes; check: docker compose -f docker-compose.test.yml logs yugabyte" >&2
+    exit 1
+fi
 
 "${COMPOSE[@]}" -f docker-compose.test.yml --profile runner build tests
 
