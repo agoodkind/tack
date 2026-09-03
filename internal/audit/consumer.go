@@ -558,8 +558,9 @@ func (c *Consumer) projectBatchOnce(ctx context.Context, tp topicPartition, reco
 // 2026-07-06 to 07-21 events were lost (TACK-336). The savepoint lets the
 // failed statement be rolled back without aborting the batch, so the record
 // is written to the dead-letter table in the same transaction that advances
-// the offset. A chain conflict still fails the batch, because that is the
-// retry the chain protocol depends on.
+// the offset. Only a failure about the record itself is dead-lettered (see
+// isDeadLetterable); a chain conflict, a lost connection, or a deployment
+// fault still fails the batch, because retrying is the right answer to those.
 //
 // A replayed record that lands deletes the dead-letter row it came from in
 // the same transaction; one the ledger already holds does the same, since the
@@ -584,16 +585,16 @@ func (c *Consumer) projectRecord(ctx context.Context, tx pgx.Tx, rec *kgo.Record
 		return projectedEvent{}, false, resolveDeadLetter(ctx, tx, rec)
 	case isRetryableChainErr(perr):
 		return projectedEvent{}, false, perr
-	default:
+	case isDeadLetterable(perr):
 		// Malformed payloads and refused inserts alike: the record is kept,
 		// named, and counted in the dead-letter table, and the batch goes on.
-		if !errors.Is(perr, errMalformedPayload) {
-			slog.ErrorContext(ctx, "audit.consumer.project_record_failed",
-				slog.String("err", perr.Error()),
-				slog.Int64("offset", rec.Offset),
-			)
-		}
 		return projectedEvent{}, false, deadLetterRecord(ctx, tx, rec, perr)
+	default:
+		slog.ErrorContext(ctx, "audit.consumer.project_record_failed",
+			slog.String("err", perr.Error()),
+			slog.Int64("offset", rec.Offset),
+		)
+		return projectedEvent{}, false, fmt.Errorf("project record offset=%d: %w", rec.Offset, perr)
 	}
 }
 

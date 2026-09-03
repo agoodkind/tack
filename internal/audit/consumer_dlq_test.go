@@ -2,6 +2,9 @@ package audit
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -36,6 +39,39 @@ func countDeadLetters(t *testing.T, pool *pgxpool.Pool, topic string) (int, int,
 		t.Fatalf("count dead letters: %v", err)
 	}
 	return rows, attempts, errText
+}
+
+// writerLoginDSN creates a throwaway login that inherits audit_writer, the
+// role the deployed consumer runs as, and returns the test DSN rewritten to
+// connect as it. The consumer under test then holds exactly the privileges
+// migration 010 grants and nothing the admin role has, so a missing grant
+// fails here rather than on a deployment.
+func writerLoginDSN(t *testing.T, admin *pgxpool.Pool, adminDSN string) string {
+	t.Helper()
+	ctx := context.Background()
+	suffix := make([]byte, 4)
+	if _, err := rand.Read(suffix); err != nil {
+		t.Fatalf("login suffix: %v", err)
+	}
+	secret := make([]byte, 16)
+	if _, err := rand.Read(secret); err != nil {
+		t.Fatalf("login secret: %v", err)
+	}
+	login := "tack_test_dlq_writer_" + hex.EncodeToString(suffix)
+	encodedSecret := hex.EncodeToString(secret)
+	if _, err := admin.Exec(ctx, "CREATE ROLE "+login+" LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD '"+encodedSecret+"'"); err != nil {
+		t.Fatalf("create %s: %v", login, err)
+	}
+	t.Cleanup(func() { _, _ = admin.Exec(ctx, "DROP ROLE IF EXISTS "+login) })
+	if _, err := admin.Exec(ctx, "GRANT audit_writer TO "+login); err != nil {
+		t.Fatalf("grant audit_writer to %s: %v", login, err)
+	}
+	parsed, err := url.Parse(adminDSN)
+	if err != nil {
+		t.Fatalf("parse the test DSN: %v", err)
+	}
+	parsed.User = url.UserPassword(login, encodedSecret)
+	return parsed.String()
 }
 
 func produceRaw(t *testing.T, brokers []string, topic string, value []byte, headers []kgo.RecordHeader) {
@@ -80,7 +116,7 @@ func TestConsumerDeadLettersARefusedInsertAndReplaysIt(t *testing.T) {
 	cfg := ConsumerConfig{
 		Brokers: brokers, Topic: topic, GroupID: groupID,
 		BatchSize: 32, PollInterval: 100 * time.Millisecond,
-		YugabyteDSN: os.Getenv("AUDIT_CONSUMER_TEST_DSN"),
+		YugabyteDSN: writerLoginDSN(t, pool, os.Getenv("AUDIT_CONSUMER_TEST_DSN")),
 	}
 	runConsumerOnce(t, cfg, 1)
 

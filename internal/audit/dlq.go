@@ -2,6 +2,7 @@ package audit
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
@@ -36,6 +38,30 @@ type DeadLetterKey struct {
 // String renders the key in the shape the replay header carries.
 func (k DeadLetterKey) String() string {
 	return k.Topic + "/" + strconv.FormatInt(int64(k.Partition), 10) + "/" + strconv.FormatInt(k.Offset, 10)
+}
+
+// isDeadLetterable reports whether a projection failure is about the record
+// itself, so that retrying the batch could never land it: a payload the
+// decoder rejects, or a statement the ledger refused for the record's data
+// (SQLSTATE class 22, data exception) or for a constraint it violates (class
+// 23, which includes a row dated into a week no partition covers). Every
+// other failure, a lost connection, a lock timeout, a permission the role
+// lacks, a table that is missing, is about the deployment and must keep
+// failing the batch, so the offset stays put and the record is retried once
+// the fault is fixed.
+func isDeadLetterable(err error) bool {
+	if errors.Is(err, errMalformedPayload) {
+		return true
+	}
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return false
+	}
+	class := ""
+	if len(pgErr.Code) >= 2 {
+		class = pgErr.Code[:2]
+	}
+	return class == "22" || class == "23"
 }
 
 // noDeadLetter is the zero key, returned where no row is named.
