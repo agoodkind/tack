@@ -10,6 +10,8 @@ package ops
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -85,13 +87,15 @@ func saveBackupAlarmState(ctx context.Context, cfg *config.Config, state backupA
 			slog.String("path", path), slog.String("err", err.Error()))
 		return
 	}
-	partial := path + ".partial"
-	if err := writeBackupAlarmPartial(ctx, partial, body); err != nil {
+	partial, err := stageBackupAlarmState(ctx, path, body)
+	if err != nil {
 		logger.ErrorContext(ctx, "backup.staleness.alarm_state_write_failed",
 			slog.String("path", path), slog.String("err", err.Error()))
 		return
 	}
 	if err := os.Rename(partial, path); err != nil {
+		// The temporary is this invocation's own, so removing it is safe.
+		_ = os.Remove(partial)
 		renameErr := fmt.Errorf("rename %s into place: %w", partial, err)
 		logger.ErrorContext(ctx, "backup.staleness.alarm_state_write_failed",
 			slog.String("path", path), slog.String("err", renameErr.Error()))
@@ -101,44 +105,60 @@ func saveBackupAlarmState(ctx context.Context, cfg *config.Config, state backupA
 		slog.String("path", path), slog.Int("alarmed_count", len(state.Alarmed)))
 }
 
-// writeBackupAlarmPartial creates the temporary file the state is renamed
-// from and writes body into it. The name is fixed and sits under the backup
-// root, which other processes can write, so the file is never opened through
-// whatever already sits at that name: a regular file left by a crashed run is
-// removed first, and the open then creates the file exclusively and refuses a
-// symbolic link, the same way the audit verifier opens a bundle's rows. A
-// link planted at the name fails the write instead of redirecting it to a
-// file writable under this process's privileges.
-func writeBackupAlarmPartial(ctx context.Context, partial string, body []byte) error {
-	info, err := os.Lstat(partial)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		wrapped := fmt.Errorf("inspect %s: %w", partial, err)
+// backupAlarmPartialSuffix names one invocation's temporary. It is a variable
+// so a test can pin the name and plant an entry at it.
+var backupAlarmPartialSuffix = randomBackupAlarmPartialSuffix
+
+// randomBackupAlarmPartialSuffix draws 64 random bits, which no other
+// invocation and no planter can predict.
+func randomBackupAlarmPartialSuffix(ctx context.Context) (string, error) {
+	var raw [8]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		wrapped := fmt.Errorf("draw temporary name: %w", err)
 		slog.ErrorContext(ctx, "backup.staleness.alarm_state_partial_refused", slog.String("err", wrapped.Error()))
-		return wrapped
+		return "", wrapped
 	}
-	if err == nil && info.Mode().IsRegular() {
-		if err := os.Remove(partial); err != nil {
-			wrapped := fmt.Errorf("remove stale %s: %w", partial, err)
-			slog.ErrorContext(ctx, "backup.staleness.alarm_state_partial_refused", slog.String("err", wrapped.Error()))
-			return wrapped
-		}
+	return hex.EncodeToString(raw[:]), nil
+}
+
+// stageBackupAlarmState writes body into a temporary of its own next to path
+// and returns that temporary's name, which is the only file the caller may
+// rename. The name carries a random suffix, so two invocations that overlap
+// never share a temporary and neither can unlink or rename the other's bytes,
+// and the open creates the name exclusively and refuses a symbolic link, the
+// same way the audit verifier opens a bundle's rows.
+//
+// Nothing here removes another temporary. A file left by a crashed run keeps
+// the fixed prefix with a suffix this invocation did not draw, and no safe
+// test tells it apart from a live temporary of an overlapping invocation that
+// started earlier: a modification time before this process started is exactly
+// what that live temporary carries for the milliseconds between its write and
+// its rename. Leftovers are small, harmless to the rename, and left to the
+// operator.
+func stageBackupAlarmState(ctx context.Context, path string, body []byte) (string, error) {
+	suffix, err := backupAlarmPartialSuffix(ctx)
+	if err != nil {
+		return "", err
 	}
+	partial := path + ".partial." + suffix
 	file, err := os.OpenFile(partial, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o600)
 	if err != nil {
 		wrapped := fmt.Errorf("create %s: %w", partial, err)
 		slog.ErrorContext(ctx, "backup.staleness.alarm_state_partial_refused", slog.String("err", wrapped.Error()))
-		return wrapped
+		return "", wrapped
 	}
 	if _, err := file.Write(body); err != nil {
 		_ = file.Close()
+		_ = os.Remove(partial)
 		wrapped := fmt.Errorf("write %s: %w", partial, err)
 		slog.ErrorContext(ctx, "backup.staleness.alarm_state_partial_refused", slog.String("err", wrapped.Error()))
-		return wrapped
+		return "", wrapped
 	}
 	if err := file.Close(); err != nil {
+		_ = os.Remove(partial)
 		wrapped := fmt.Errorf("close %s: %w", partial, err)
 		slog.ErrorContext(ctx, "backup.staleness.alarm_state_partial_refused", slog.String("err", wrapped.Error()))
-		return wrapped
+		return "", wrapped
 	}
-	return nil
+	return partial, nil
 }
