@@ -78,10 +78,10 @@ func filesUnder(t *testing.T, root string) []string {
 
 // TestStageYBDrillArtifactsWritesEachDeclaredNameDirectlyUnderTheStage drives
 // the real staging step against the real object-store client and proves the
-// files it creates are exactly the declared artifacts and one archive per node,
-// each a direct child of the staging directory. This is what ties the sweep
-// below to the path the production code actually builds: a staging step that
-// stopped joining names this way would fail here.
+// files it creates are exactly the declared run-root artifacts and, per node,
+// one archive and one inventory, each a direct child of the staging directory.
+// This is what ties the sweep below to the path the production code actually
+// builds: a staging step that stopped joining names this way would fail here.
 func TestStageYBDrillArtifactsWritesEachDeclaredNameDirectlyUnderTheStage(t *testing.T) {
 	manifest := newYBSnapshotManifest(ybStageStoredRunID, "snap-1", "tack",
 		[]string{"yb1", "yb2"}, ybTestArtifactNames())
@@ -89,12 +89,19 @@ func TestStageYBDrillArtifactsWritesEachDeclaredNameDirectlyUnderTheStage(t *tes
 		fakeYBExportRunObjects(t, ybStageStoredRunID, manifest))
 	drill, root, stageDir := newYBDrillStage(t, cfg)
 
-	nodeNames, err := stageYBDrillArtifacts(context.Background(), drill, s3Client, manifest, stageDir)
+	inventories, err := stageYBDrillArtifacts(context.Background(), drill, s3Client, manifest, stageDir)
 	if err != nil {
 		t.Fatalf("stageYBDrillArtifacts: %v", err)
 	}
+	nodeNames := make([]string, 0, len(inventories))
+	for _, inventory := range inventories {
+		if inventory.RunID != ybStageStoredRunID {
+			t.Fatalf("inventory for %s was read for run %q, want %q", inventory.Node, inventory.RunID, ybStageStoredRunID)
+		}
+		nodeNames = append(nodeNames, inventory.Node)
+	}
 	if !reflect.DeepEqual(nodeNames, []string{"yb1", "yb2"}) {
-		t.Fatalf("node names = %v, want [yb1 yb2]", nodeNames)
+		t.Fatalf("inventoried nodes = %v, want [yb1 yb2]", nodeNames)
 	}
 	stageRelative, err := filepath.Rel(root, stageDir)
 	if err != nil {
@@ -104,8 +111,10 @@ func TestStageYBDrillArtifactsWritesEachDeclaredNameDirectlyUnderTheStage(t *tes
 		filepath.ToSlash(filepath.Join(stageRelative, ybSnapshotMetadataObject)),
 		filepath.ToSlash(filepath.Join(stageRelative, ybSnapshotRolesObject)),
 		filepath.ToSlash(filepath.Join(stageRelative, ybSnapshotSchemaObject)),
-		filepath.ToSlash(filepath.Join(stageRelative, "tablets-yb1.tar.gz")),
-		filepath.ToSlash(filepath.Join(stageRelative, "tablets-yb2.tar.gz")),
+		filepath.ToSlash(filepath.Join(stageRelative, ybDrillArchiveName("yb1"))),
+		filepath.ToSlash(filepath.Join(stageRelative, ybDrillInventoryName("yb1"))),
+		filepath.ToSlash(filepath.Join(stageRelative, ybDrillArchiveName("yb2"))),
+		filepath.ToSlash(filepath.Join(stageRelative, ybDrillInventoryName("yb2"))),
 	}
 	slices.Sort(want)
 	if got := filesUnder(t, root); !reflect.DeepEqual(got, want) {

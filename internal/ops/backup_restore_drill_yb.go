@@ -1,7 +1,6 @@
 package ops
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"log/slog"
@@ -44,7 +43,7 @@ func restoreDrillYugabyte(ctx context.Context, r *restoreDrillCtx) error {
 		return wrapped
 	}
 	defer os.RemoveAll(stageDir)
-	nodeNames, err := stageYBDrillArtifacts(ctx, r, s3Client, manifest, stageDir)
+	inventories, err := stageYBDrillArtifacts(ctx, r, s3Client, manifest, stageDir)
 	if err != nil {
 		return err
 	}
@@ -77,7 +76,7 @@ func restoreDrillYugabyte(ctx context.Context, r *restoreDrillCtx) error {
 		return wrapped
 	}
 
-	if err := importAndRestoreYBSnapshot(ctx, r, name, manifest.Database, manifest.SnapshotID, nodeNames); err != nil {
+	if err := importAndRestoreYBSnapshot(ctx, r, name, manifest.Database, manifest.SnapshotID, inventories); err != nil {
 		return err
 	}
 
@@ -257,50 +256,6 @@ func ybDrillManifestDefect(manifest ybSnapshotManifest) string {
 	return ""
 }
 
-// ybDrillArtifactsDir is where stageYBDrillArtifacts' staging directory is
-// bind-mounted inside the scratch container.
-const ybDrillArtifactsDir = "/artifacts"
-
-// ybDrillArtifactPath is where one staged run-root artifact appears to the
-// scratch container. Every fixed path the restore opens is built here from the
-// artifact's own object name, so the files the restore reads and the names
-// ybRequiredRunArtifacts makes the manifest declare cannot drift apart.
-func ybDrillArtifactPath(artifact string) string {
-	return ybDrillArtifactsDir + "/" + artifact
-}
-
-// stageYBDrillArtifacts downloads every artifact the run declares, plus every
-// node archive, into stageDir, naming each archive tablets-<node>.tar.gz so the
-// scratch container can extract each node's files into its own directory. The
-// artifacts come from the manifest rather than a list held here, so the drill
-// stages whatever the export published, and the manifest is refused before this
-// runs unless it declares everything the restore opens by name. It returns the
-// node names in manifest order for the extraction step.
-func stageYBDrillArtifacts(
-	ctx context.Context,
-	r *restoreDrillCtx,
-	s3Client *s3.Client,
-	manifest ybSnapshotManifest,
-	stageDir string,
-) ([]string, error) {
-	srcPrefix := ybSnapshotKeyPrefix(manifest.RunID)
-	for _, name := range manifest.Artifacts {
-		if err := getObjectToFile(ctx, s3Client, r.Cfg.BackupS3BucketMain, srcPrefix+name, filepath.Join(stageDir, name)); err != nil {
-			return nil, err
-		}
-	}
-	nodeNames := make([]string, 0, len(manifest.Nodes))
-	for _, node := range manifest.Nodes {
-		nodeNames = append(nodeNames, node.Name)
-		key := ybNodeArchiveKey(manifest.RunID, node)
-		local := filepath.Join(stageDir, "tablets-"+node.Name+".tar.gz")
-		if err := getObjectToFile(ctx, s3Client, r.Cfg.BackupS3BucketMain, key, local); err != nil {
-			return nil, err
-		}
-	}
-	return nodeNames, nil
-}
-
 // startScratchYugabyte boots a throwaway yugabyted with the is_port_available
 // overlay, advertising on its own container name so the embedded DNS resolves
 // it on the IPv6-only bridge. stageDir is bind-mounted read-only at /artifacts.
@@ -328,7 +283,7 @@ func startScratchYugabyte(ctx context.Context, r *restoreDrillCtx, name, databas
 	hostCfg := &container.HostConfig{
 		Binds: []string{
 			r.Cfg.BackupYBOverlayPath + ":/home/yugabyte/bin/yugabyted:ro",
-			stageDir + ":" + ybDrillArtifactsDir + ":ro",
+			stageDir + ":" + ybDrillArtifactMount + ":ro",
 		},
 	}
 	created, err := r.Cli.ContainerCreate(ctx, client.ContainerCreateOptions{
@@ -375,31 +330,5 @@ func ybRunSQL(ctx context.Context, r *restoreDrillCtx, container, database strin
 		logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", wrapped.Error()))
 		return wrapped
 	}
-	return nil
-}
-
-// assertYBDrillRows fails unless the restored auth tables hold rows.
-func assertYBDrillRows(ctx context.Context, r *restoreDrillCtx, container, database string) error {
-	logger := telemetry.L(ctx)
-	rowCounts := make([]any, 0, 3)
-	for _, table := range []string{"users", "api_tokens", "org_members"} {
-		var buf bytes.Buffer
-		exitCode, stderr, err := containerExecStreaming(ctx, r.Cli, container,
-			ysqlshArgs(container, database, "select count(*) from "+table),
-			[]string{"PGPASSWORD=" + r.YBPass}, &buf)
-		if err != nil || exitCode != 0 {
-			wrapped := fmt.Errorf("count %s: exit %d: %s: %w", table, exitCode, strings.TrimSpace(stderr), err)
-			logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", wrapped.Error()))
-			return wrapped
-		}
-		count := strings.TrimSpace(buf.String())
-		if count == "0" {
-			wrapped := fmt.Errorf("restored table %s has 0 rows", table)
-			logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", wrapped.Error()))
-			return wrapped
-		}
-		rowCounts = append(rowCounts, slog.String(table, count))
-	}
-	logger.InfoContext(ctx, "backup.restore_drill.yb.rows", rowCounts...)
 	return nil
 }

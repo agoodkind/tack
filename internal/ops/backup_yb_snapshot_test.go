@@ -102,7 +102,7 @@ func TestUploadYBSnapshotArtifactsUploadsInOrder(t *testing.T) {
 
 	cfg := &config.Config{BackupS3BucketMain: "backups"}
 	files := ybSnapshotUploadArtifacts("/stage", "/stage/schema.sql", "/stage/roles.sql", "/stage/manifest.json")
-	if err := uploadYBSnapshotArtifacts(context.Background(), cfg, "run-1", files); err != nil {
+	if err := uploadYBSnapshotArtifacts(context.Background(), cfg, ybSnapshotKeyPrefix("run-1"), files); err != nil {
 		t.Fatalf("uploadYBSnapshotArtifacts: %v", err)
 	}
 	want := []string{
@@ -113,6 +113,34 @@ func TestUploadYBSnapshotArtifactsUploadsInOrder(t *testing.T) {
 	}
 	if !reflect.DeepEqual(uploaded, want) {
 		t.Fatalf("upload order:\n got=%v\nwant=%v", uploaded, want)
+	}
+}
+
+// TestYBNodeArtifactsUploadTheArchiveLast proves one node's run publishes its
+// inventory before the archive. The archive's presence is what the completeness
+// gate and the archive command's own idempotency probe read, so an archive that
+// landed first could stand for a run whose inventory never arrived, and every
+// later reader would treat that node as done.
+func TestYBNodeArtifactsUploadTheArchiveLast(t *testing.T) {
+	var uploaded []string
+	putYBSnapshotObject = func(_ context.Context, _ *s3.Client, _, key, _ string) error {
+		uploaded = append(uploaded, key)
+		return nil
+	}
+	t.Cleanup(func() { putYBSnapshotObject = putObjectFromFile })
+
+	cfg := &config.Config{BackupS3BucketMain: "backups"}
+	node := ybSnapshotManifestNode{Name: "yb1", Prefix: "nodes/yb1/"}
+	prefix := ybNodeKeyPrefix("run-1", node)
+	if err := uploadYBSnapshotArtifacts(context.Background(), cfg, prefix, ybNodeUploadArtifacts("/stage")); err != nil {
+		t.Fatalf("uploadYBSnapshotArtifacts: %v", err)
+	}
+	want := []string{
+		"yugabyte-snapshot/run-1/nodes/yb1/tablets.inventory",
+		"yugabyte-snapshot/run-1/nodes/yb1/tablets.tar.gz",
+	}
+	if !reflect.DeepEqual(uploaded, want) {
+		t.Fatalf("node upload order:\n got=%v\nwant=%v", uploaded, want)
 	}
 }
 
@@ -132,7 +160,7 @@ func TestUploadYBSnapshotArtifactsStopsBeforeManifest(t *testing.T) {
 
 	cfg := &config.Config{BackupS3BucketMain: "backups"}
 	files := ybSnapshotUploadArtifacts("/stage", "/stage/schema.sql", "/stage/roles.sql", "/stage/manifest.json")
-	err := uploadYBSnapshotArtifacts(context.Background(), cfg, "run-1", files)
+	err := uploadYBSnapshotArtifacts(context.Background(), cfg, ybSnapshotKeyPrefix("run-1"), files)
 	if err == nil {
 		t.Fatal("uploadYBSnapshotArtifacts must fail when a payload upload fails")
 	}

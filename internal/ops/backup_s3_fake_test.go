@@ -3,8 +3,10 @@ package ops
 import (
 	"encoding/json"
 	"encoding/xml"
+	"maps"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -69,10 +71,10 @@ func newFakeBackupObjectStore(t *testing.T, bucket string, objects map[string][]
 
 // fakeYBExportRunObjects is the object set a finished export run leaves under
 // one run prefix: the manifest the walk reads, every run-root artifact the
-// manifest declares, and one archive per node the manifest lists, which is
-// what the completeness gate probes for. The manifest is placed under
-// prefixRunID whatever run it declares, so a manifest that names a run other
-// than its own prefix can be exercised.
+// manifest declares, and, per node the manifest lists, every artifact that
+// node's archive run publishes, which is what the completeness gate probes for.
+// The manifest is placed under prefixRunID whatever run it declares, so a
+// manifest that names a run other than its own prefix can be exercised.
 func fakeYBExportRunObjects(t *testing.T, prefixRunID string, manifest ybSnapshotManifest) map[string][]byte {
 	t.Helper()
 	body, err := json.Marshal(manifest)
@@ -85,9 +87,22 @@ func fakeYBExportRunObjects(t *testing.T, prefixRunID string, manifest ybSnapsho
 		objects[prefix+artifact] = []byte("export artifact " + artifact)
 	}
 	for _, node := range manifest.Nodes {
-		objects[prefix+node.Prefix+ybNodeArchiveObject] = []byte("tablet archive")
+		for _, object := range ybNodeArtifactObjects() {
+			objects[prefix+node.Prefix+object] = fakeYBNodeArtifact(manifest, node, object)
+		}
 	}
 	return objects
+}
+
+// fakeYBNodeArtifact is the body of one node artifact in the fake store. The
+// inventory is rendered through the production writer for the manifest's own
+// run and node, recording no files, so the drill's staging step reads it back
+// the way it reads a real one; every other node artifact is opaque bytes.
+func fakeYBNodeArtifact(manifest ybSnapshotManifest, node ybSnapshotManifestNode, object string) []byte {
+	if object == ybNodeInventoryObject {
+		return ybArchiveInventory{RunID: manifest.RunID, Node: node.Name, Files: nil}.render()
+	}
+	return []byte("node artifact")
 }
 
 func (s *fakeBackupObjectStore) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -116,7 +131,9 @@ func (s *fakeBackupObjectStore) ServeHTTP(w http.ResponseWriter, r *http.Request
 
 // writeList answers a delimited ListObjectsV2: a key with the delimiter still
 // in its remainder collapses into its first folder, which is what makes the
-// export run prefixes discoverable.
+// export run prefixes discoverable. Keys are listed in ascending order, as S3
+// lists them, which is the order the FoundationDB backup selection reads as
+// oldest first.
 func (s *fakeBackupObjectStore) writeList(w http.ResponseWriter, prefix, delimiter string) {
 	result := fakeS3ListResult{
 		Name:        s.bucket,
@@ -126,7 +143,9 @@ func (s *fakeBackupObjectStore) writeList(w http.ResponseWriter, prefix, delimit
 		IsTruncated: false,
 	}
 	seenPrefix := map[string]bool{}
-	for key, body := range s.objects {
+	keys := slices.Sorted(maps.Keys(s.objects))
+	for _, key := range keys {
+		body := s.objects[key]
 		if !strings.HasPrefix(key, prefix) {
 			continue
 		}
