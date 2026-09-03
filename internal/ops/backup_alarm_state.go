@@ -16,6 +16,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"goodkind.io/tack/internal/config"
@@ -85,7 +86,7 @@ func saveBackupAlarmState(ctx context.Context, cfg *config.Config, state backupA
 		return
 	}
 	partial := path + ".partial"
-	if err := os.WriteFile(partial, body, 0o600); err != nil {
+	if err := writeBackupAlarmPartial(ctx, partial, body); err != nil {
 		logger.ErrorContext(ctx, "backup.staleness.alarm_state_write_failed",
 			slog.String("path", path), slog.String("err", err.Error()))
 		return
@@ -98,4 +99,46 @@ func saveBackupAlarmState(ctx context.Context, cfg *config.Config, state backupA
 	}
 	logger.InfoContext(ctx, "backup.staleness.alarm_state_written",
 		slog.String("path", path), slog.Int("alarmed_count", len(state.Alarmed)))
+}
+
+// writeBackupAlarmPartial creates the temporary file the state is renamed
+// from and writes body into it. The name is fixed and sits under the backup
+// root, which other processes can write, so the file is never opened through
+// whatever already sits at that name: a regular file left by a crashed run is
+// removed first, and the open then creates the file exclusively and refuses a
+// symbolic link, the same way the audit verifier opens a bundle's rows. A
+// link planted at the name fails the write instead of redirecting it to a
+// file writable under this process's privileges.
+func writeBackupAlarmPartial(ctx context.Context, partial string, body []byte) error {
+	info, err := os.Lstat(partial)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		wrapped := fmt.Errorf("inspect %s: %w", partial, err)
+		slog.ErrorContext(ctx, "backup.staleness.alarm_state_partial_refused", slog.String("err", wrapped.Error()))
+		return wrapped
+	}
+	if err == nil && info.Mode().IsRegular() {
+		if err := os.Remove(partial); err != nil {
+			wrapped := fmt.Errorf("remove stale %s: %w", partial, err)
+			slog.ErrorContext(ctx, "backup.staleness.alarm_state_partial_refused", slog.String("err", wrapped.Error()))
+			return wrapped
+		}
+	}
+	file, err := os.OpenFile(partial, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o600)
+	if err != nil {
+		wrapped := fmt.Errorf("create %s: %w", partial, err)
+		slog.ErrorContext(ctx, "backup.staleness.alarm_state_partial_refused", slog.String("err", wrapped.Error()))
+		return wrapped
+	}
+	if _, err := file.Write(body); err != nil {
+		_ = file.Close()
+		wrapped := fmt.Errorf("write %s: %w", partial, err)
+		slog.ErrorContext(ctx, "backup.staleness.alarm_state_partial_refused", slog.String("err", wrapped.Error()))
+		return wrapped
+	}
+	if err := file.Close(); err != nil {
+		wrapped := fmt.Errorf("close %s: %w", partial, err)
+		slog.ErrorContext(ctx, "backup.staleness.alarm_state_partial_refused", slog.String("err", wrapped.Error()))
+		return wrapped
+	}
+	return nil
 }
