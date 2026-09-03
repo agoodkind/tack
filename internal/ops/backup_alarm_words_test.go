@@ -71,8 +71,9 @@ func TestBackupStalenessAlarmMailIsPlainWords(t *testing.T) {
 		"No restore rehearsal has passed within the 8 days allowed for a drill that runs daily: " +
 			"the last pass was at 2026-08-20 12:00:00 UTC, 9 days ago.",
 		"Check the tack-backup-restore-drill service journal on the owner guest.",
-		"The ledger cluster has reported dead nodes or under-replicated tablets continuously since " +
-			"2026-08-29 11:15:00 UTC, for 45m, which is longer than the 30m allowed. The cluster reports: ",
+		"The ledger cluster has not been observed healthy since 2026-08-29 11:15:00 UTC, 45m ago, " +
+			"which is longer than the 30m allowed. The last observation reported: no master answered " +
+			"the health check: ",
 		"Check the ledger cluster's node and tablet state.",
 		"This mail is sent once when the condition begins and does not repeat. " +
 			"Every run's reading is in the tack-backup-staleness journal on " + backupAlarmHost() + ".",
@@ -119,19 +120,39 @@ func TestBackupStalenessAlarmFDBWords(t *testing.T) {
 	}
 	assertBackupAlarmPlainWords(t, subject, body, cfg.BackupS3Endpoint)
 
-	unreadable := unknownBackupStalenessMetric(backupStalenessFDBName, threshold,
+	// A status that could not be read says nothing about what is restorable,
+	// so the mail must not claim writes are lost.
+	unreadable := unknownBackupStalenessMetric(backupStalenessFDBName, threshold, backupStalenessUnreadable,
 		"fdbbackup status failed: blobstore://test-access:test-secret@127.0.0.1:1/run?bucket=tack-backups") // gitleaks:allow test placeholder
 	subject = backupStalenessAlarmSubject("tack-qa", []backupStalenessMetric{unreadable})
-	if subject != "[tack] tack-qa: FoundationDB backup restorable point is unknown" {
+	if subject != "[tack] tack-qa: FoundationDB backup restorable point could not be read" {
 		t.Errorf("subject = %q", subject)
 	}
 	body = backupStalenessAlarmBody(cfg, "tack-qa", []backupStalenessMetric{unreadable})
 	if !strings.Contains(body, "The FoundationDB continuous backup's restorable point could not be read: "+
 		"fdbbackup status failed: blobstore://***REDACTED***:***REDACTED***@the object store/run?bucket=tack-backups. "+
-		"Writes since the last restorable point are not restorable from the object store.") {
+		"Whether recent writes are restorable is not known until the status can be read.") {
 		t.Errorf("body does not carry the redacted reason:\n%s", body)
 	}
+	if strings.Contains(body, "not restorable") {
+		t.Errorf("an unreadable status must not claim writes are unrestorable:\n%s", body)
+	}
 	assertBackupAlarmPlainWords(t, subject, body, cfg.BackupS3Endpoint)
+
+	// A status that was read and vouches for no restorable point is the one
+	// case where nothing can be restored, and the mail may say so.
+	none := unknownBackupStalenessMetric(backupStalenessFDBName, threshold, backupStalenessNeverRecorded,
+		errFDBNoRestorablePoint.Error())
+	subject = backupStalenessAlarmSubject("tack-qa", []backupStalenessMetric{none})
+	if subject != "[tack] tack-qa: FoundationDB backup has no restorable point" {
+		t.Errorf("subject = %q", subject)
+	}
+	body = backupStalenessAlarmBody(cfg, "tack-qa", []backupStalenessMetric{none})
+	if !strings.Contains(body, "The FoundationDB continuous backup reports no restorable point, "+
+		"so nothing can be restored from it yet: fdbbackup status reports no restorable backup.\n"+
+		"Check whether the container tack-fdb-backup-agent-1") {
+		t.Errorf("body does not say nothing is restorable, followed by what to check:\n%s", body)
+	}
 
 	two := backupStalenessAlarmSubject("tack-qa", []backupStalenessMetric{stopped, unreadable})
 	if two != "[tack] tack-qa: 2 backup mechanisms have stopped" {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -85,7 +86,8 @@ func TestBackupStalenessClassification(t *testing.T) {
 // incident this check exists to catch, so an absent marker must never read as
 // a success.
 func TestUnknownAgeIsStale(t *testing.T) {
-	metric := unknownBackupStalenessMetric("rehearsal", 8*24*time.Hour, "no marker in tack-backups")
+	metric := unknownBackupStalenessMetric("rehearsal", 8*24*time.Hour,
+		backupStalenessNeverRecorded, "no marker in tack-backups")
 	if !metric.stale() {
 		t.Fatal("a metric with no known age must be stale")
 	}
@@ -249,7 +251,7 @@ func TestBackupStalenessReport(t *testing.T) {
 		knownBackupStalenessMetric(context.Background(), backupStalenessExportName, now, now.Add(-2*time.Hour),
 			36*time.Hour, "newest complete run 20260829T100000Z"),
 		unknownBackupStalenessMetric(backupStalenessRehearsalName, 8*24*time.Hour,
-			"no backup-status/rehearsal.json in tack-backups"),
+			backupStalenessNeverRecorded, "no backup-status/rehearsal.json in tack-backups"),
 	})
 	want := "ledger-export age=7200s threshold=129600s FRESH newest complete run 20260829T100000Z\n" +
 		"rehearsal     age=unknown threshold=691200s STALE no backup-status/rehearsal.json in tack-backups\n"
@@ -263,7 +265,7 @@ func TestBackupStalenessReport(t *testing.T) {
 // alert mail is read one line per mechanism.
 func TestBackupStalenessReportKeepsOneLinePerMetric(t *testing.T) {
 	report := backupStalenessReport([]backupStalenessMetric{
-		unknownBackupStalenessMetric(backupStalenessExportName, time.Hour,
+		unknownBackupStalenessMetric(backupStalenessExportName, time.Hour, backupStalenessUnreadable,
 			"listing export runs failed: operation error S3: ListObjectsV2,\n\texceeded maximum number of attempts"),
 	})
 	if strings.Count(report, "\n") != 1 {
@@ -281,7 +283,7 @@ func TestStaleBackupStalenessMetrics(t *testing.T) {
 	now := time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)
 	stale := staleBackupStalenessMetrics([]backupStalenessMetric{
 		knownBackupStalenessMetric(ctx, "a", now, now.Add(-time.Hour), 2*time.Hour, ""),
-		unknownBackupStalenessMetric("b", time.Hour, ""),
+		unknownBackupStalenessMetric("b", time.Hour, backupStalenessUnreadable, ""),
 		knownBackupStalenessMetric(ctx, "c", now, now.Add(-3*time.Hour), 2*time.Hour, ""),
 	})
 	if strings.Join(stale, ",") != "b,c" {
@@ -324,15 +326,20 @@ func TestFDBRestorablePointFromStatus(t *testing.T) {
 		t.Fatalf("restorable point = %s, want %s", at.UTC(), want)
 	}
 
-	if _, err := fdbRestorablePointFromStatus(ctx, fdbStatusNotYetRestorable); err == nil {
-		t.Fatal("a backup whose first snapshot has not finished has no restorable point")
-	}
-	if _, err := fdbRestorablePointFromStatus(ctx, "The backup on tag `default' is not restorable.\n"); err == nil {
-		t.Fatal("a status that denies restorability must not be read as restorable")
+	// A status that vouches for no restorable point is told apart from one
+	// that could not be parsed, because the mail says different things about
+	// each: nothing exists to restore from, versus nothing could be read.
+	if _, err := fdbRestorablePointFromStatus(ctx, fdbStatusNotYetRestorable); !errors.Is(err, errFDBNoRestorablePoint) {
+		t.Fatalf("a backup whose first snapshot has not finished has no restorable point, got %v", err)
 	}
 	if _, err := fdbRestorablePointFromStatus(ctx,
-		"is restorable but continuing\n Last complete log version and timestamp - 5, not-a-timestamp\n"); err == nil {
-		t.Fatal("an unparseable timestamp must be an error, not a silent success")
+		"The backup on tag `default' is not restorable.\n"); !errors.Is(err, errFDBNoRestorablePoint) {
+		t.Fatalf("a status that denies restorability must not be read as restorable, got %v", err)
+	}
+	if _, err := fdbRestorablePointFromStatus(ctx,
+		"The backup is restorable but continuing\n Last complete log version and timestamp - 5, not-a-timestamp\n"); err == nil ||
+		errors.Is(err, errFDBNoRestorablePoint) {
+		t.Fatalf("an unparseable timestamp must be an error of its own, not a silent success, got %v", err)
 	}
 
 	// The word alone appears in destination URLs and tag names, so a backup

@@ -44,12 +44,13 @@ const backupStalenessFutureTolerance = 5 * time.Minute
 // backupStalenessMetric is one mechanism's freshness reading: when and how long
 // ago it last succeeded, the age past which the operator must be told, and what
 // the reading came from. At is the last success in UTC and is zero when the age
-// is unknown.
+// is unknown, and Unknown then says why.
 type backupStalenessMetric struct {
 	Name      string
 	At        time.Time
 	Age       time.Duration
 	AgeKnown  bool
+	Unknown   backupStalenessUnknownCause
 	Threshold time.Duration
 	Detail    string
 }
@@ -96,7 +97,7 @@ func knownBackupStalenessMetric(
 			slog.String("lead", backupStalenessSeconds(lead)),
 			slog.String("tolerance", backupStalenessSeconds(backupStalenessFutureTolerance)),
 		)
-		return unknownBackupStalenessMetric(name, threshold,
+		return unknownBackupStalenessMetric(name, threshold, backupStalenessUnreadable,
 			implausibleFutureDetail(at, lead, detail))
 	}
 	return backupStalenessMetric{
@@ -104,6 +105,7 @@ func knownBackupStalenessMetric(
 		At:        at.UTC(),
 		Age:       backupStalenessAge(now, at),
 		AgeKnown:  true,
+		Unknown:   backupStalenessAgeKnown,
 		Threshold: threshold,
 		Detail:    detail,
 	}
@@ -124,14 +126,20 @@ func implausibleFutureDetail(at time.Time, lead time.Duration, provenance string
 }
 
 // unknownBackupStalenessMetric builds a metric for a mechanism with no datable
-// success, which classifies as stale. detail carries why the age is unknown,
-// because that reason is what the operator acts on.
-func unknownBackupStalenessMetric(name string, threshold time.Duration, detail string) backupStalenessMetric {
+// success, which classifies as stale. cause says which kind of unknown this is
+// and detail says why, because that reason is what the operator acts on.
+func unknownBackupStalenessMetric(
+	name string,
+	threshold time.Duration,
+	cause backupStalenessUnknownCause,
+	detail string,
+) backupStalenessMetric {
 	return backupStalenessMetric{
 		Name:      name,
 		At:        time.Time{},
 		Age:       0,
 		AgeKnown:  false,
+		Unknown:   cause,
 		Threshold: threshold,
 		Detail:    detail,
 	}

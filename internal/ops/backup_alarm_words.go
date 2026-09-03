@@ -21,54 +21,67 @@ const backupAlarmTimeLayout = "2006-01-02 15:04:05 UTC"
 const backupAlarmObjectStoreStandIn = "the object store"
 
 // backupAlarmWords is one mechanism's vocabulary. The known templates take the
-// last success time, the age, the threshold, and the detail, in that order; the
-// unknown templates take the detail alone.
+// last success time, the age, the threshold, and the detail, in that order. An
+// unknown age has two vocabularies, chosen by the metric's cause, because a
+// success that was never recorded and a record that could not be read support
+// different claims; both templates take the detail alone.
 type backupAlarmWords struct {
-	subjectKnown     string
-	subjectUnknown   string
-	paragraphKnown   string
-	paragraphUnknown string
-	check            string
+	subjectKnown           string
+	subjectNeverRecorded   string
+	subjectUnreadable      string
+	paragraphKnown         string
+	paragraphNeverRecorded string
+	paragraphUnreadable    string
+	check                  string
 }
 
 // backupAlarmVocabulary maps each metric to its words.
 var backupAlarmVocabulary = map[string]backupAlarmWords{
 	backupStalenessExportName: {
-		subjectKnown:   "nightly ledger export last completed %s ago",
-		subjectUnknown: "nightly ledger export has no completed run to date",
+		subjectKnown:         "nightly ledger export last completed %s ago",
+		subjectNeverRecorded: "nightly ledger export has no completed run to date",
+		subjectUnreadable:    "nightly ledger export could not be dated",
 		paragraphKnown: "The newest complete nightly ledger export finished at %[1]s, %[2]s ago, " +
 			"which is older than the %[3]s allowed for an export that runs daily.",
-		paragraphUnknown: "No complete nightly ledger export could be dated, so its age is unknown: %[1]s.",
+		paragraphNeverRecorded: "The object store holds no complete nightly ledger export, " +
+			"so there is none to restore the ledger from: %[1]s.",
+		paragraphUnreadable: "The newest complete nightly ledger export could not be dated: %[1]s. " +
+			"Whether a current export exists is not known until it can be read.",
 		check: "Check the tack-ledger-export timer on the owner guest and the " +
 			"tack-ledger-archive timer on each data guest.",
 	},
 	backupStalenessRehearsalName: {
-		subjectKnown:   "restore rehearsal last passed %s ago",
-		subjectUnknown: "restore rehearsal has no recorded pass",
+		subjectKnown:         "restore rehearsal last passed %s ago",
+		subjectNeverRecorded: "restore rehearsal has no recorded pass",
+		subjectUnreadable:    "restore rehearsal's last pass could not be read",
 		paragraphKnown: "No restore rehearsal has passed within the %[3]s allowed for a drill that " +
 			"runs daily: the last pass was at %[1]s, %[2]s ago.",
-		paragraphUnknown: "No restore rehearsal pass has ever been recorded, or the record could not " +
-			"be read: %[1]s.",
+		paragraphNeverRecorded: "No restore rehearsal pass has been recorded in the object store: %[1]s.",
+		paragraphUnreadable: "The restore rehearsal's last pass could not be read: %[1]s. " +
+			"Whether the drill has passed recently is not known until the record can be read.",
 		check: "Check the tack-backup-restore-drill service journal on the owner guest.",
 	},
 	backupStalenessReplicationName: {
-		subjectKnown:   "ledger cluster has been degraded for %s",
-		subjectUnknown: "ledger cluster health is unknown",
-		paragraphKnown: "The ledger cluster has reported dead nodes or under-replicated tablets " +
-			"continuously since %[1]s, for %[2]s, which is longer than the %[3]s allowed. " +
-			"The cluster reports: %[4]s.",
-		paragraphUnknown: "The ledger cluster has never been observed healthy, or its health could " +
-			"not be read: %[1]s.",
-		check: "Check the ledger cluster's node and tablet state.",
+		subjectKnown:         "ledger cluster not observed healthy for %s",
+		subjectNeverRecorded: "ledger cluster has never been observed healthy",
+		subjectUnreadable:    "ledger cluster's last healthy observation could not be read",
+		paragraphKnown: "The ledger cluster has not been observed healthy since %[1]s, %[2]s ago, " +
+			"which is longer than the %[3]s allowed. The last observation reported: %[4]s.",
+		paragraphNeverRecorded: "The ledger cluster has never been observed healthy: %[1]s.",
+		paragraphUnreadable:    "The ledger cluster's last healthy observation could not be read: %[1]s.",
+		check:                  "Check the ledger cluster's node and tablet state.",
 	},
 	backupStalenessFDBName: {
-		subjectKnown:   "FoundationDB backup stopped advancing %s ago",
-		subjectUnknown: "FoundationDB backup restorable point is unknown",
+		subjectKnown:         "FoundationDB backup stopped advancing %s ago",
+		subjectNeverRecorded: "FoundationDB backup has no restorable point",
+		subjectUnreadable:    "FoundationDB backup restorable point could not be read",
 		paragraphKnown: "The FoundationDB continuous backup's restorable point is %[1]s, %[2]s ago, " +
 			"which is older than the %[3]s allowed. It normally trails the cluster by seconds, " +
 			"so writes since that point are not restorable from the object store.",
-		paragraphUnknown: "The FoundationDB continuous backup's restorable point could not be read: " +
-			"%[1]s. Writes since the last restorable point are not restorable from the object store.",
+		paragraphNeverRecorded: "The FoundationDB continuous backup reports no restorable point, " +
+			"so nothing can be restored from it yet: %[1]s.",
+		paragraphUnreadable: "The FoundationDB continuous backup's restorable point could not be read: " +
+			"%[1]s. Whether recent writes are restorable is not known until the status can be read.",
 		check: "Check whether the container tack-fdb-backup-agent-1 is running and can reach " +
 			"the object-store endpoint from the configuration.",
 	},
@@ -102,17 +115,25 @@ func backupStalenessAlarmBody(cfg *config.Config, host string, faults []backupSt
 func backupAlarmFaultPhrase(fault backupStalenessMetric) string {
 	words := backupAlarmVocabulary[fault.Name]
 	if !fault.AgeKnown {
-		return words.subjectUnknown
+		if fault.Unknown == backupStalenessNeverRecorded {
+			return words.subjectNeverRecorded
+		}
+		return words.subjectUnreadable
 	}
 	return fmt.Sprintf(words.subjectKnown, backupAlarmClock(fault.Age))
 }
 
-// backupAlarmFaultParagraph says what is wrong with one mechanism.
+// backupAlarmFaultParagraph says what is wrong with one mechanism. An unknown
+// age whose cause is anything but a never-recorded success is worded as
+// unreadable, the claim that assumes least.
 func backupAlarmFaultParagraph(cfg *config.Config, fault backupStalenessMetric) string {
 	words := backupAlarmVocabulary[fault.Name]
 	detail := backupAlarmDetail(cfg, fault.Detail)
 	if !fault.AgeKnown {
-		return fmt.Sprintf(words.paragraphUnknown, detail)
+		if fault.Unknown == backupStalenessNeverRecorded {
+			return fmt.Sprintf(words.paragraphNeverRecorded, detail)
+		}
+		return fmt.Sprintf(words.paragraphUnreadable, detail)
 	}
 	return fmt.Sprintf(words.paragraphKnown,
 		fault.At.UTC().Format(backupAlarmTimeLayout),
