@@ -45,7 +45,8 @@ type referenceShapeWritten struct {
 
 func (w referenceShapeWritten) add(other referenceShapeWritten) referenceShapeWritten {
 	return referenceShapeWritten{
-		Created: w.Created + other.Created, Restored: w.Restored + other.Restored,
+		Created:  w.Created + other.Created,
+		Restored: w.Restored + other.Restored,
 	}
 }
 

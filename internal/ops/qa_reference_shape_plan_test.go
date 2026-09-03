@@ -121,7 +121,9 @@ func TestReferenceShapeCollidesOnlyOnEvidenceReferences(t *testing.T) {
 func TestReferenceShapeCommitRefusesWhenTheOrgHoldsNoCollisions(t *testing.T) {
 	result := datagenReferenceShapeResult{
 		Collisions:     102,
+		Renames:        103,
 		LiveCollisions: 0,
+		LiveRenames:    0,
 		CounterKeys:    recordedCounterSeeds,
 		ReferenceKeys:  recordedReferenceKeys + recordedFollowupReferenceKey,
 	}
@@ -134,8 +136,18 @@ func TestReferenceShapeCommitRefusesWhenTheOrgHoldsNoCollisions(t *testing.T) {
 	if !strings.Contains(err.Error(), "holds 0 colliding references") {
 		t.Fatalf("err = %v, want the live count named", err)
 	}
+
+	// The right number of groups with one holder missing from a three-way
+	// collision: the group count passes and the rename count must not.
 	result.LiveCollisions = 102
+	result.LiveRenames = 102
+	err = checkReferenceShape(result)
+	if err == nil || !strings.Contains(err.Error(), "holds 102 nodes for the repair to rename") {
+		t.Fatalf("err = %v, want the missing holder named through the rename count", err)
+	}
+
+	result.LiveRenames = 103
 	if err := checkReferenceShape(result); err != nil {
-		t.Fatalf("a corpus whose live collisions match the shape must pass: %v", err)
+		t.Fatalf("a corpus whose live collisions and renames match the shape must pass: %v", err)
 	}
 }

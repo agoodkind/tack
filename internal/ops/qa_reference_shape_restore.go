@@ -69,16 +69,31 @@ func restoreReferenceShapeNode(
 	return 1, nil
 }
 
-// countLiveReferenceCollisions reports how many colliding references the org
-// holds now, through the same scan the repair uses to find them. The report
-// carries this beside the count the shape describes, so a run that collided
-// nothing says so instead of reporting the number it meant to create.
-func countLiveReferenceCollisions(ctx context.Context, env *Env, orgID uuid.UUID) (int, error) {
+// referenceShapeLive is what the org holds after writing, counted through the
+// same scan the repair uses to find its work.
+type referenceShapeLive struct {
+	// Collisions is the number of references held by more than one node.
+	Collisions int
+	// Renames is the number of nodes a repair would move: every holder of a
+	// collided reference but the one it keeps.
+	Renames int
+}
+
+// countLiveReferenceCollisions reports the collisions the org holds now and
+// the renames they imply. The report carries both beside what the shape
+// describes, so a run that collided nothing says so, and a corpus with the
+// right number of groups but a member missing from one of them is caught by
+// the rename count rather than passing on the group count alone.
+func countLiveReferenceCollisions(ctx context.Context, env *Env, orgID uuid.UUID) (referenceShapeLive, error) {
 	duplicates, err := findOrgDuplicateReferences(ctx, env, orgID)
 	if err != nil {
 		slog.ErrorContext(ctx, "qa.reference_shape.live_collision_count_failed",
 			slog.String("org_id", orgID.String()), slog.String("err", err.Error()))
-		return 0, fmt.Errorf("count live collisions in the reference shape org: %w", err)
+		return referenceShapeLive{}, fmt.Errorf("count live collisions in the reference shape org: %w", err)
 	}
-	return len(duplicates), nil
+	live := referenceShapeLive{Collisions: len(duplicates), Renames: 0}
+	for _, duplicate := range duplicates {
+		live.Renames += len(duplicate.NodeIDs) - 1
+	}
+	return live, nil
 }

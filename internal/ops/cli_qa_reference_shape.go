@@ -47,8 +47,12 @@ type datagenReferenceShapeResult struct {
 	// fails, because a generator that reports collisions it did not create
 	// leaves the repair nothing to do while claiming otherwise (TACK-475).
 	LiveCollisions int `json:"live_collisions"`
-	CounterKeys    int `json:"counter_keys_before_repair"`
-	ReferenceKeys  int `json:"reference_keys_before_repair"`
+	// LiveRenames is the number of nodes the repair will move, counted the
+	// same way. It catches a corpus with the right number of groups but a
+	// holder missing from one, which the group count alone would pass.
+	LiveRenames   int `json:"live_renames"`
+	CounterKeys   int `json:"counter_keys_before_repair"`
+	ReferenceKeys int `json:"reference_keys_before_repair"`
 }
 
 func datagenReferenceShapeOp(f *cli.Factory) clispec.Operation[datagenReferenceShapeInput] {
@@ -112,6 +116,7 @@ func runDatagenReferenceShape(
 		// A dry run reports what the corpus will derive once it exists; a
 		// commit replaces these with what it measures after writing.
 		LiveCollisions: len(shape.Groups),
+		LiveRenames:    shape.Renames,
 		CounterKeys:    len(shape.Projects),
 		ReferenceKeys:  len(shape.Issues),
 	}
@@ -154,10 +159,12 @@ func commitReferenceShape(
 	if err != nil {
 		return err
 	}
-	result.LiveCollisions, err = countLiveReferenceCollisions(ctx, env, shape.OrgID)
+	live, err := countLiveReferenceCollisions(ctx, env, shape.OrgID)
 	if err != nil {
 		return err
 	}
+	result.LiveCollisions = live.Collisions
+	result.LiveRenames = live.Renames
 	if err := writeReferenceShapeReport(ctx, sink, result); err != nil {
 		return err
 	}
@@ -206,6 +213,10 @@ func checkReferenceShape(result datagenReferenceShapeResult) error {
 	if result.LiveCollisions != result.Collisions {
 		return fmt.Errorf("the org holds %d colliding references after writing, the shape describes %d: "+
 			"the repair would find nothing to rename", result.LiveCollisions, result.Collisions)
+	}
+	if result.LiveRenames != result.Renames {
+		return fmt.Errorf("the org holds %d nodes for the repair to rename after writing, the shape describes %d: "+
+			"a collision is missing a holder", result.LiveRenames, result.Renames)
 	}
 	return nil
 }
