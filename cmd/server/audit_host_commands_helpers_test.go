@@ -27,8 +27,9 @@ func (o *recordingOutbox) WriteOutbox(_ context.Context, event audit.Event) erro
 
 // auditLoginRoleDSN creates a throwaway LOGIN role that inherits exactly one
 // audit base role and returns the admin DSN rewritten to connect as it. The
-// throwaway database authenticates loopback connections by trust, so the
-// role carries no password.
+// role carries a per-test password, so the test holds whether the database
+// trusts its connections or asks every login for a password, as the compose
+// test database does.
 func auditLoginRoleDSN(t *testing.T, admin *pgxpool.Pool, adminDSN, base string) string {
 	t.Helper()
 	ctx := context.Background()
@@ -36,8 +37,13 @@ func auditLoginRoleDSN(t *testing.T, admin *pgxpool.Pool, adminDSN, base string)
 	if _, err := rand.Read(suffix); err != nil {
 		t.Fatalf("role suffix: %v", err)
 	}
+	secret := make([]byte, 16)
+	if _, err := rand.Read(secret); err != nil {
+		t.Fatalf("role secret: %v", err)
+	}
 	login := fmt.Sprintf("tack_test_%s_%s", base, hex.EncodeToString(suffix))
-	if _, err := admin.Exec(ctx, "CREATE ROLE "+login+" LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE"); err != nil {
+	encodedSecret := hex.EncodeToString(secret)
+	if _, err := admin.Exec(ctx, "CREATE ROLE "+login+" LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD '"+encodedSecret+"'"); err != nil {
 		t.Fatalf("create %s: %v", login, err)
 	}
 	t.Cleanup(func() { _, _ = admin.Exec(ctx, "DROP ROLE IF EXISTS "+login) })
@@ -48,7 +54,7 @@ func auditLoginRoleDSN(t *testing.T, admin *pgxpool.Pool, adminDSN, base string)
 	if err != nil {
 		t.Fatalf("parse %s: %v", auditHostTestDSNEnv, err)
 	}
-	parsed.User = url.User(login)
+	parsed.User = url.UserPassword(login, encodedSecret)
 	return parsed.String()
 }
 

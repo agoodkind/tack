@@ -90,6 +90,14 @@ test-fdb-down:
 test-integration: test-fdb-up
 	./scripts/test-integration.sh
 
+# Database-gated audit tests (chain append, outbox, token lifecycle) against
+# the test YugabyteDB alone, migrated and run inside the sibling runner with
+# AUDIT_CHAIN_TEST_DSN set. Needs no FoundationDB, so it runs on hosts where
+# the FDB image cannot. The service is pinned to the amd64 build (TACK-459).
+.PHONY: test-audit-db
+test-audit-db:
+	./scripts/test-audit-db.sh
+
 # Bump every direct and indirect dependency to its latest minor/patch
 # version, plus track the latest main commit of any goodkind.io/* module
 # we own. Tack does not pin to tagged releases; freshness wins.
