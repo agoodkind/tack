@@ -63,6 +63,42 @@ func TestParseYBSnapshotMappingReadsTheEngineRows(t *testing.T) {
 	}
 }
 
+// TestParseYBSnapshotMappingRefusesRowsItCannotPlace is the silent skip this
+// test exists for. A tablet row short of its ids, or one before any table row,
+// matched no case and fell out of the mapping: a tablet the placement never
+// tried and the audit never counted, since both work from the mapping. Each
+// row below must refuse the whole mapping with the row named.
+func TestParseYBSnapshotMappingRefusesRowsItCannotPlace(t *testing.T) {
+	tableRow := mappingRow("Table", usersTableID, usersTableID)
+	for _, tc := range []struct {
+		name   string
+		before []string
+		row    string
+	}{
+		{name: "a tablet row short of its new id", before: []string{tableRow}, row: "Tablet 0        \t" + usersTabletOld},
+		{name: "a tablet row with no ids", before: []string{tableRow}, row: "Tablet 0"},
+		{name: "a tablet row before any table row", before: nil, row: mappingRow("Tablet 0", usersTabletOld, usersTabletNew)},
+		{name: "a table row with no id", before: nil, row: "Table"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rows := append(append([]string{}, tc.before...), tc.row, mappingRow("Tablet 1", tokensTabletOld, tokensTabletNew))
+			out := importSnapshotOutput(rows...)
+
+			remaps, err := parseYBSnapshotMapping(out)
+
+			if err == nil {
+				t.Fatalf("a mapping row the placement cannot use must be refused, got %+v", remaps)
+			}
+			if remaps != nil {
+				t.Fatalf("a refused mapping must yield no rows for the placement, got %+v", remaps)
+			}
+			if !strings.Contains(err.Error(), strings.Join(strings.Fields(tc.row), " ")) {
+				t.Fatalf("the refusal must name the row, got: %v", err)
+			}
+		})
+	}
+}
+
 // TestParseYBSnapshotMappingRefusesIdsOutsideTheEngineForm is the path
 // traversal this file exists for. The ids are fields of engine output, but
 // that output is produced by importing a metadata file staged from the object

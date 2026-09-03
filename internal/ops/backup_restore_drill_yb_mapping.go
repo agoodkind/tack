@@ -51,10 +51,11 @@ var ybObjectIDPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
 // tablet rows numbered, which is why a tablet's ids are its third and fourth
 // fields.
 //
-// Every id is required to have the engine's form before it is kept. The whole
-// mapping is refused on the first row that does not, naming it, because a row
-// dropped in silence would be a tablet the placement never tries and the audit
-// never misses.
+// Every id is required to have the engine's form before it is kept, a table
+// row must carry its id, and a tablet row must carry both of its ids and
+// follow a table row. The whole mapping is refused on the first row that does
+// not, naming it, because a row dropped in silence would be a tablet the
+// placement never tries and the audit never misses.
 func parseYBSnapshotMapping(out string) ([]ybTabletRemap, error) {
 	var remaps []ybTabletRemap
 	started := false
@@ -69,12 +70,21 @@ func parseYBSnapshotMapping(out string) ([]ybTabletRemap, error) {
 			started = true
 		case !started:
 			continue
-		case fields[0] == "Table" && len(fields) >= 2:
+		case fields[0] == "Table":
+			if len(fields) < ybTableRowFields {
+				return nil, ybMappingRowError(fields, "names no table id")
+			}
 			if err := requireYBObjectIDs(fields, fields[1]); err != nil {
 				return nil, err
 			}
 			table = fields[1]
-		case fields[0] == "Tablet" && len(fields) >= 4 && table != "":
+		case fields[0] == "Tablet":
+			if len(fields) < ybTabletRowFields {
+				return nil, ybMappingRowError(fields, "does not name both an old and a new tablet id")
+			}
+			if table == "" {
+				return nil, ybMappingRowError(fields, "precedes every Table row, so its tablet belongs to no table")
+			}
 			if err := requireYBObjectIDs(fields, fields[2], fields[3]); err != nil {
 				return nil, err
 			}
@@ -84,14 +94,29 @@ func parseYBSnapshotMapping(out string) ([]ybTabletRemap, error) {
 	return remaps, nil
 }
 
+const (
+	// ybTableRowFields is the fewest fields a Table row carries: the word and
+	// the preserved table id.
+	ybTableRowFields = 2
+	// ybTabletRowFields is the fewest fields a Tablet row carries: the word,
+	// its number, the old tablet id, and the new one.
+	ybTabletRowFields = 4
+)
+
 // requireYBObjectIDs refuses a mapping row carrying an id that is not in the
 // engine's form, naming the row's fields and the id.
 func requireYBObjectIDs(row []string, ids ...string) error {
 	for _, id := range ids {
 		if !ybObjectIDPattern.MatchString(id) {
-			return fmt.Errorf("import_snapshot mapping row %q names %q, which is not a 32-character"+
-				" hexadecimal table or tablet id", strings.Join(row, " "), id)
+			return ybMappingRowError(row, fmt.Sprintf("names %q, which is not a 32-character"+
+				" hexadecimal table or tablet id", id))
 		}
 	}
 	return nil
+}
+
+// ybMappingRowError refuses one mapping row, naming its fields and what is
+// wrong with it.
+func ybMappingRowError(row []string, reason string) error {
+	return fmt.Errorf("import_snapshot mapping row %q %s", strings.Join(row, " "), reason)
 }
