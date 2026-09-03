@@ -15,7 +15,7 @@ import (
 func TestResolveYBArchiveTargetRedoesAnArchiveWithoutItsInventory(t *testing.T) {
 	ctx := context.Background()
 	const runID = "20260830T010203Z"
-	manifest := newYBSnapshotManifest(runID, "snap-1", "tack", []string{"yb1", "yb2"})
+	manifest := newYBSnapshotManifest(runID, "snap-1", "tack", []string{"yb1", "yb2"}, ybTestArtifactNames())
 	yb1 := ybSnapshotManifestNode{Name: "yb1", Prefix: "nodes/yb1/"}
 	objects := fakeYBExportRunObjects(t, runID, manifest)
 	delete(objects, ybNodeInventoryKey(runID, yb1))
@@ -48,7 +48,7 @@ func TestResolveYBArchiveTargetRedoesAnArchiveWithoutItsInventory(t *testing.T) 
 func TestResolveYBArchiveTargetRedoesAnExplicitRunWithoutItsInventory(t *testing.T) {
 	ctx := context.Background()
 	const runID = "20260830T010203Z"
-	manifest := newYBSnapshotManifest(runID, "snap-1", "tack", []string{"yb1"})
+	manifest := newYBSnapshotManifest(runID, "snap-1", "tack", []string{"yb1"}, ybTestArtifactNames())
 	yb1 := ybSnapshotManifestNode{Name: "yb1", Prefix: "nodes/yb1/"}
 	objects := fakeYBExportRunObjects(t, runID, manifest)
 	delete(objects, ybNodeInventoryKey(runID, yb1))
