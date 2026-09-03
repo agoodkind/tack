@@ -151,11 +151,21 @@ type Config struct {
 	// YugabyteDB point-in-time-recovery (PITR). Read by
 	// `./server ops backup yb-pitr-init`, which creates a yb-admin snapshot
 	// schedule over the auth + audit YSQL database so a fresh deploy can roll
-	// back to any point within the retention window. The image tag must match
-	// the live yugabyte service in docker-compose.yml so yb-admin's wire
-	// protocol agrees with the running masters. Interval and retention are in
-	// minutes, matching yb-admin create_snapshot_schedule's argument units.
-	BackupYBPITRImage            string `env:"TACK_BACKUP_YB_IMAGE"                    envDefault:"yugabytedb/yugabyte:2025.2.3.0-b149"`
+	// back to any point within the retention window. Interval and retention
+	// are in minutes, matching yb-admin create_snapshot_schedule's argument
+	// units.
+	//
+	// BackupYBImage is the ledger's own engine image. Every yb-admin
+	// one-shot, the ysql_dump and ysql_dumpall one-shots, and the restore
+	// drill's throwaway yugabyted run from it, so the dumper matches the server
+	// and a rehearsal restores into the version the cluster runs.
+	// docker-compose.yml renders it for tack-ops from the yugabyte service's
+	// pin. There is no compiled default because a default here is a second
+	// home for the tag, and it drifted: the binary carried 2025.2 against a
+	// 2024.2 cluster, and the drill's schema apply failed on a statement the
+	// 2025.2 dumper wrote for the 2024.2 extension set. Every command that
+	// runs a container from it refuses to start while it is empty.
+	BackupYBImage                string `env:"TACK_BACKUP_YB_IMAGE"`
 	BackupYBMasterAddresses      string `env:"TACK_BACKUP_YB_MASTER_ADDRESSES"         envDefault:"yugabyte:7100"`
 	BackupYBPITRIntervalMinutes  int    `env:"TACK_BACKUP_YB_PITR_INTERVAL_MINUTES"    envDefault:"60"`
 	BackupYBPITRRetentionMinutes int    `env:"TACK_BACKUP_YB_PITR_RETENTION_MINUTES"   envDefault:"10080"`

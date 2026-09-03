@@ -1,3 +1,9 @@
+# The ledger's engine image, declared once. The yugabyte service runs it, and
+# tack-ops receives it as TACK_BACKUP_YB_IMAGE so the backup tooling and the
+# restore drill's throwaway engine run the same version the cluster runs. See
+# the pin comment on the yugabyte service before changing the tag.
+x-yugabyte-image: &yugabyte_image yugabytedb/yugabyte:2024.2.8.0-b85
+
 services:
   app:
     image: ghcr.io/agoodkind/tack-server:${TACK_IMAGE_TAG:-latest}
@@ -124,8 +130,9 @@ services:
     # been open since 2024-07 with no movement. We apply the same patch via
     # the overlay in yugabyte-overlay/yugabyted until upstream lands a fix.
     # See AGENTS.md "YugabyteDB identity and data contract" for the full story
-    # and the refresh procedure on image bump.
-    image: yugabytedb/yugabyte:2024.2.8.0-b85
+    # and the refresh procedure on image bump. The tag itself is the
+    # x-yugabyte-image anchor at the top of this file.
+    image: *yugabyte_image
     restart: unless-stopped
     mem_limit: 10g
     # The container answers to the name this node announces, which is what maps
@@ -497,6 +504,13 @@ services:
       # the value from the ledger topology; the fallback is the dev single
       # node, matching the compiled default.
       TACK_BACKUP_YB_MASTER_ADDRESSES: ${TACK_BACKUP_YB_MASTER_ADDRESSES:-yugabyte:7100}
+      # The ledger's own image, from the anchor the yugabyte service uses. The
+      # backup tooling (yb-admin, ysql_dump, ysql_dumpall) and the restore
+      # drill's throwaway engine run it, so a rehearsal restores into the
+      # version the cluster runs and the dumper matches the server. There is
+      # no compiled default: a default in the binary drifted to 2025.2 against
+      # this 2024.2 cluster, and the drill's schema apply failed on it.
+      TACK_BACKUP_YB_IMAGE: *yugabyte_image
       # Snapshot-export paths. Deliberately no fallback: the commands that
       # need them error loudly when unset, per the config contract, rather
       # than tar or restore against a wrong location.

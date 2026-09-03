@@ -64,6 +64,9 @@ func RunBackupYBSnapshotExport(ctx context.Context, cfg *config.Config) error {
 		logger.ErrorContext(ctx, "backup.yb_snapshot.failed", slog.String("err", err.Error()))
 		return err
 	}
+	if err := requireBackupYBImage(ctx, cfg, "yb-snapshot-export", "backup.yb_snapshot.failed"); err != nil {
+		return err
+	}
 
 	filter := "ysql." + cfg.YugabyteDB
 	runID := opsNow().UTC().Format(ybSnapshotRunIDLayout)
@@ -556,7 +559,7 @@ func ybAdminOneShot(
 	logger := telemetry.L(ctx)
 	cmd := append([]string{"--master_addresses", cfg.BackupYBMasterAddresses}, args...)
 	res, err := runOneShot(ctx, cli, logger, runOneShotOptions{
-		Image:      cfg.BackupYBPITRImage,
+		Image:      cfg.BackupYBImage,
 		Network:    cfg.BackupFDBNetwork,
 		Entrypoint: []string{ybAdminBinary},
 		Cmd:        cmd,

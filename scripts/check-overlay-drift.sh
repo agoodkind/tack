@@ -10,7 +10,8 @@
 # We store the upstream's hash rather than the file itself: the upstream yugabyted
 # is ~600 KB and its public default constants trip secret scanners. Tracked as
 # TACK-302. Tags come from the source of truth: FDB_VERSION in the Makefile and
-# the yugabyte image line in docker-compose.yml.
+# the x-yugabyte-image anchor in docker-compose.yml, the one place the ledger
+# image is declared (the yugabyte service and tack-ops both reference it).
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -18,10 +19,10 @@ cd "$(dirname "$0")/.."
 note() { printf '%s\n' "$*" >&2; }
 
 fdb_version=$(sed -nE 's/^FDB_VERSION[[:space:]]*\?=[[:space:]]*([^[:space:]]+).*/\1/p' Makefile | head -n1)
-yb_image=$(sed -nE 's#.*image:[[:space:]]*(yugabytedb/yugabyte:[^[:space:]]+).*#\1#p' docker-compose.yml | head -n1)
+yb_image=$(sed -nE 's#^x-yugabyte-image:[[:space:]]*&[^[:space:]]+[[:space:]]+(yugabytedb/yugabyte:[^[:space:]]+).*#\1#p' docker-compose.yml | head -n1)
 
 if [[ -z "$fdb_version" ]]; then note "could not read FDB_VERSION from Makefile"; exit 2; fi
-if [[ -z "$yb_image" ]]; then note "could not read yugabyte image from docker-compose.yml"; exit 2; fi
+if [[ -z "$yb_image" ]]; then note "could not read the x-yugabyte-image anchor from docker-compose.yml"; exit 2; fi
 
 # Each entry: image | path-inside-image | overlay | upstream-sha256 | patch
 entries=(

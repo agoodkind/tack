@@ -29,6 +29,9 @@ func restoreDrillYugabyte(ctx context.Context, r *restoreDrillCtx) error {
 		logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", err.Error()))
 		return err
 	}
+	if err := requireBackupYBImage(ctx, r.Cfg, "restore-drill yb", "backup.restore_drill.yb.failed"); err != nil {
+		return err
+	}
 	s3Client := newBackupS3Client(r.Cfg)
 
 	manifest, err := resolveYBDrillExport(ctx, r, s3Client)
@@ -261,11 +264,11 @@ func ybDrillManifestDefect(manifest ybSnapshotManifest) string {
 // it on the IPv6-only bridge. stageDir is bind-mounted read-only at /artifacts.
 func startScratchYugabyte(ctx context.Context, r *restoreDrillCtx, name, database, stageDir string) error {
 	logger := telemetry.L(ctx)
-	if err := ensureImage(ctx, r.Cli, logger, r.Cfg.BackupYBPITRImage); err != nil {
+	if err := ensureImage(ctx, r.Cli, logger, r.Cfg.BackupYBImage); err != nil {
 		return err
 	}
 	cfg := &container.Config{
-		Image:    r.Cfg.BackupYBPITRImage,
+		Image:    r.Cfg.BackupYBImage,
 		Hostname: name,
 		Env: []string{
 			"YSQL_DB=" + database,

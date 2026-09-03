@@ -32,9 +32,8 @@ LOCATION:  CreateRole, user.c:348
 
 // liveGermanRolesApplyStderr is the same kind of apply against a cluster whose
 // message locale is not English, captured live on 2026-08-30 from
-// yugabytedb/yugabyte:2025.2.3.0-b149 (the configured restore-drill image) with
-// the server's lc_messages set to de_DE.utf8, a locale that image ships a
-// message catalog for. Both the severity token and the message text change; the
+// yugabytedb/yugabyte:2025.2.3.0-b149 with the server's lc_messages set to
+// de_DE.utf8, a locale that image ships a message catalog for. Both the severity token and the message text change; the
 // SQLSTATE does not.
 //
 // The two lines are deliberately different failures. The first is the one a

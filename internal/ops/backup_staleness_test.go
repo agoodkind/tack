@@ -43,7 +43,7 @@ const fdbStatusNotYetRestorable = "The backup on tag `default' is in progress to
 	" Backup supposed to stop at next snapshot completion - No\n"
 
 // ybHealthAllGood is the /api/v1/health-check body captured verbatim from
-// yugabytedb/yugabyte:2025.2.3.0-b149, the image the backup family pins.
+// yugabytedb/yugabyte:2025.2.3.0-b149, the engine image it was captured on.
 const ybHealthAllGood = `{"dead_nodes":[],"most_recent_uptime":0,"under_replicated_tablets":[]}`
 
 // TestBackupStalenessClassification covers the verdict every alert acts on: a
