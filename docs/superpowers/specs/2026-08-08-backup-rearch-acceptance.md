@@ -22,9 +22,10 @@ so a failing guest cannot destroy its own evidence.
   product-store range read is non-empty, the audit chain verifies.
 - Every read the rehearsal makes against the restored ledger runs as a role
   holding only the application's own base role, never as the scratch
-  database's bootstrap user, whose superuser bypass reads a database the
-  application cannot. A restore the application cannot read is a failed
-  restore.
+  database's bootstrap user. The bootstrap user is a superuser, so it can
+  read rows the application's roles cannot, and a rehearsal that reads as
+  it proves nothing about the application. A restore the application
+  cannot read is a failed restore.
 - The last passing rehearsal is never older than eight days.
 
 ## 3. Single-guest loss heals in seconds
@@ -53,9 +54,11 @@ so a failing guest cannot destroy its own evidence.
 - An alarm means a fault the system could not fix on its own. The nightly
   export and the restore drill retry a failed run on their own before the
   day is lost; a container that dies restarts on its own; the object store
-  grows its capacity from free disk rather than from a fixed volume count.
-  Production's backup died on 2026-07-29 against a 1 GB store cap with
-  91 GB free, and nothing said so for five weeks.
+  sizes the number of volumes it may create from free disk, so a bucket
+  keeps growing while the disk has room, instead of stopping at a fixed
+  number of fixed-size volumes. Production's backup died on 2026-07-29
+  when its bucket's single 1 GB volume filled, with 91 GB free on the
+  disk, and nothing said so for five weeks.
 - One mail per fault. The mail goes out once, when a mechanism transitions
   into stale, and not again while it stays stale or when it recovers. It
   says in plain words what stopped, since when, and what to check, and it
