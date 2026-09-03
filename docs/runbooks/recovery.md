@@ -47,8 +47,9 @@ UTC with up to five minutes of randomized delay, and each data guest archives
 its own tablet files every 15 minutes, so a run becomes complete within roughly
 a quarter hour of the export that started it. The rehearsal that proves the
 artifacts restore runs daily at 05:40 UTC on the owner, clear of the export and
-its archives. A staleness check runs every 30 minutes on the owner and on one
-data guest, and mails when any mechanism ages past its threshold.
+its archives. A staleness check runs on a timer on the owner and on one data
+guest, and mails once, in plain words, when a mechanism ages past its
+threshold.
 
 One day plus the archive lag is the ledger's loss only while every scheduled
 export succeeds. A missed export widens it by another day, and the export
@@ -116,6 +117,17 @@ check makes and records itself. A mechanism with no recorded success reads
 succeeded is the failure this check exists to catch. The FoundationDB restorable
 point joins the report only when `TACK_BACKUP_FDB_CONTINUOUS` is true. The
 windows are the `TACK_BACKUP_STALENESS_*` settings, in seconds.
+
+The run that first finds a mechanism stale mails one message to
+`TACK_BACKUP_ALARM_EMAIL`. The subject names the guest and the fault, and the
+body says in plain words what has stopped, when it last succeeded, and what to
+check. The mail does not repeat while the mechanism stays stale, and nothing is
+mailed when it comes back; every run's reading is in the check's journal on the
+guest. Each guest that runs the check remembers what it has mailed in
+`staleness-alarm-state.json` under its backup root (`/root/backups`), so a
+fault produces one mail per observing guest. A mail the relay refused is not
+remembered, so the next run tries again. Delete that file on a guest to make
+its next stale run mail again.
 
 ## Prerequisites
 

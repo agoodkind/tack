@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"maps"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -47,9 +48,12 @@ func fixBackupStalenessClock(t *testing.T, now time.Time) {
 
 // unreachableBackupStalenessConfig is a host whose object store and ledger
 // masters both refuse connections, so every mechanism is unmeasurable and
-// therefore stale.
-func unreachableBackupStalenessConfig(recipient string) *config.Config {
+// therefore stale. The backup root is a fresh directory, the state of a guest
+// that has never alarmed.
+func unreachableBackupStalenessConfig(t *testing.T, recipient string) *config.Config {
+	t.Helper()
 	return &config.Config{
+		BackupRoot:                           t.TempDir(),
 		BackupS3Endpoint:                     "http://127.0.0.1:1",
 		BackupS3AccessKey:                    "test-access", // gitleaks:allow test placeholder
 		BackupS3SecretKey:                    "test-secret", // gitleaks:allow test placeholder
@@ -65,91 +69,88 @@ func unreachableBackupStalenessConfig(recipient string) *config.Config {
 	}
 }
 
-// TestBackupStalenessAlarmComposition pins the text of the alarm. The subject
-// has to name the guest, because two guests run this check and an operator
-// reading a phone notification must know which one is complaining. The body has
-// to carry every metric line and name what is stale, because the mail is the
-// only copy of the report anyone reads.
-func TestBackupStalenessAlarmComposition(t *testing.T) {
-	now := time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)
-	report := backupStalenessReport([]backupStalenessMetric{
-		knownBackupStalenessMetric(context.Background(), backupStalenessExportName, now,
-			now.Add(-2*time.Hour), 36*time.Hour, "newest complete run 20260829T100000Z"),
-		unknownBackupStalenessMetric(backupStalenessRehearsalName, 8*24*time.Hour,
-			"no backup-status/rehearsal.json in tack-backups"),
-		unknownBackupStalenessMetric(backupStalenessReplicationName, 30*time.Minute,
-			"2 dead nodes, 7 under-replicated tablets"),
-	})
-
-	tests := []struct {
-		name  string
-		host  string
-		stale []string
-	}{
-		{
-			name:  "one stale mechanism",
-			host:  "tack-qa",
-			stale: []string{backupStalenessRehearsalName},
-		},
-		{
-			name:  "two stale mechanisms",
-			host:  "tack-prod",
-			stale: []string{backupStalenessRehearsalName, backupStalenessReplicationName},
-		},
-		{
-			name:  "host that cannot name itself",
-			host:  backupAlarmUnknownHost,
-			stale: []string{backupStalenessReplicationName},
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			subject := backupStalenessAlarmSubject(test.host)
-			if !strings.Contains(subject, test.host) {
-				t.Errorf("subject %q does not name the host %q", subject, test.host)
-			}
-			if !strings.Contains(subject, "stale") {
-				t.Errorf("subject %q does not say the backups are stale", subject)
-			}
-
-			body := backupStalenessAlarmBody(test.host, report, test.stale)
-			for _, line := range strings.Split(strings.TrimSuffix(report, "\n"), "\n") {
-				if !strings.Contains(body, line) {
-					t.Errorf("body is missing the metric line %q:\n%s", line, body)
-				}
-			}
-			for _, name := range test.stale {
-				if !strings.Contains(body, name) {
-					t.Errorf("body does not name the stale mechanism %q:\n%s", name, body)
-				}
-			}
-			if !strings.Contains(body, test.host) {
-				t.Errorf("body does not name the host %q:\n%s", test.host, body)
-			}
-		})
-	}
+// storedBackupStalenessConfig is a host whose object store is the fake store
+// over objects and whose ledger masters refuse connections. Thresholds are the
+// production defaults and mail goes to the test recipient.
+func storedBackupStalenessConfig(t *testing.T, objects map[string][]byte) *config.Config {
+	t.Helper()
+	_, cfg := newFakeBackupObjectStore(t, "tack-backups", objects)
+	cfg.BackupRoot = t.TempDir()
+	cfg.BackupYBMasterAddresses = "127.0.0.1:7100"
+	cfg.BackupFDBContinuous = false
+	cfg.BackupStalenessExportMaxSeconds = 129600
+	cfg.BackupStalenessRehearsalMaxSeconds = 691200
+	cfg.BackupStalenessReplicationMaxSeconds = 1800
+	cfg.BackupStalenessFDBMaxSeconds = 7200
+	cfg.BackupAlarmEmail = "backups@example.test"
+	return cfg
 }
 
-// TestBackupStalenessCheckMailsTheReportItPrinted runs the whole command on a
-// host where nothing is measurable and proves the mail carries the same report
-// the operator would have read on a terminal, addressed to the configured
-// recipient. From stays empty on purpose: the library then sends as
-// <hostname>-mailer@, the sender whose mail arrives, and pinning any address
-// here would reintroduce the silently-dropped sender this change removed.
-func TestBackupStalenessCheckMailsTheReportItPrinted(t *testing.T) {
-	fixBackupStalenessClock(t, time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC))
-	captured := captureBackupAlarmSends(t, nil)
-	cfg := unreachableBackupStalenessConfig("backups@example.test")
-
+// runStaleBackupStalenessCheck runs the command once and asserts the stale
+// verdict came back, which is the exit code every stale run must carry whether
+// or not it mailed.
+func runStaleBackupStalenessCheck(t *testing.T, cfg *config.Config) string {
+	t.Helper()
 	var out bytes.Buffer
 	err := RunBackupStalenessCheck(context.Background(), cfg, &out)
 	if err == nil {
-		t.Fatal("unmeasurable backups must exit nonzero")
+		t.Fatal("a stale run must exit nonzero")
 	}
-	if len(captured.messages) != 1 {
-		t.Fatalf("stale backups must send exactly one alarm, sent %d", len(captured.messages))
+	if !strings.Contains(err.Error(), "past threshold") {
+		t.Fatalf("the returned error must be the staleness verdict: %v", err)
+	}
+	return out.String()
+}
+
+// alarmedBackupMetrics reads the alarm's memory from the backup root. found is
+// false when no state file exists.
+func alarmedBackupMetrics(t *testing.T, cfg *config.Config) (alarmed map[string]time.Time, found bool) {
+	t.Helper()
+	body, err := os.ReadFile(backupAlarmStatePath(cfg))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, false
+	}
+	if err != nil {
+		t.Fatalf("read alarm state: %v", err)
+	}
+	var state backupAlarmState
+	if err := json.Unmarshal(body, &state); err != nil {
+		t.Fatalf("decode alarm state %q: %v", body, err)
+	}
+	return state.Alarmed, true
+}
+
+// TestBackupStalenessAlarmMailsOncePerFault is the rule this alarm exists for:
+// a fault that persists across runs mails on the run that found it and on no
+// later run, while every one of those runs still exits nonzero. The guest
+// starts with no state file, the state of a freshly provisioned host.
+func TestBackupStalenessAlarmMailsOncePerFault(t *testing.T) {
+	fixBackupStalenessClock(t, time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC))
+	captured := captureBackupAlarmSends(t, nil)
+	cfg := unreachableBackupStalenessConfig(t, "backups@example.test")
+	if _, found := alarmedBackupMetrics(t, cfg); found {
+		t.Fatal("a fresh backup root must hold no alarm state")
 	}
 
+	for run := 1; run <= 3; run++ {
+		runStaleBackupStalenessCheck(t, cfg)
+		if len(captured.messages) != 1 {
+			t.Fatalf("after run %d the fault must have mailed exactly once, sent %d", run, len(captured.messages))
+		}
+	}
+
+	alarmed, found := alarmedBackupMetrics(t, cfg)
+	if !found {
+		t.Fatal("an accepted mail must be remembered in the state file")
+	}
+	for _, name := range []string{backupStalenessExportName, backupStalenessRehearsalName, backupStalenessReplicationName} {
+		if _, ok := alarmed[name]; !ok {
+			t.Errorf("state file does not remember %s: %v", name, alarmed)
+		}
+	}
+	if len(alarmed) != 3 {
+		t.Errorf("state file remembers %d metrics, want the 3 that were read: %v", len(alarmed), alarmed)
+	}
 	message := captured.messages[0]
 	if message.To != "backups@example.test" {
 		t.Errorf("To = %q, want the configured recipient", message.To)
@@ -160,39 +161,69 @@ func TestBackupStalenessCheckMailsTheReportItPrinted(t *testing.T) {
 	if message.Caller == "" {
 		t.Error("Caller must identify the command that raised the alarm")
 	}
-	if !strings.Contains(message.Body, out.String()) {
-		t.Errorf("the mail must carry the printed report verbatim:\nbody=%q\nreport=%q",
-			message.Body, out.String())
+}
+
+// TestBackupStalenessAlarmMailsAgainAfterAClear proves the memory resets: a
+// mechanism that comes back is forgotten, silently, so its next fault mails
+// again rather than being swallowed by the first one.
+func TestBackupStalenessAlarmMailsAgainAfterAClear(t *testing.T) {
+	now := time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)
+	fixBackupStalenessClock(t, now)
+	captured := captureBackupAlarmSends(t, nil)
+	objects := fakeYBExportRunObjects(t, "20260829T100000Z",
+		newYBSnapshotManifest("20260829T100000Z", "snap-1", "tack", []string{"yb1"}))
+	objects[backupStatusKey(backupStalenessReplicationName)] = marshalBackupStatusMarker(t,
+		now.Add(-10*time.Minute), "0 dead nodes, 0 under-replicated tablets")
+	cfg := storedBackupStalenessConfig(t, objects)
+	rehearsalKey := backupStatusKey(backupStalenessRehearsalName)
+	freshRehearsal := marshalBackupStatusMarker(t, now.Add(-6*time.Hour), "restore drill passed every leg")
+
+	// Run 1: the rehearsal has never passed.
+	runStaleBackupStalenessCheck(t, cfg)
+	if len(captured.messages) != 1 {
+		t.Fatalf("the first fault must mail once, sent %d", len(captured.messages))
 	}
-	for _, name := range []string{
-		backupStalenessExportName,
-		backupStalenessRehearsalName,
-		backupStalenessReplicationName,
-	} {
-		if !strings.Contains(message.Body, name) {
-			t.Errorf("the mail does not name the stale mechanism %q:\n%s", name, message.Body)
-		}
+	wantSubject := "[tack] " + backupAlarmHost() + ": restore rehearsal has no recorded pass"
+	if captured.messages[0].Subject != wantSubject {
+		t.Errorf("subject = %q, want %q", captured.messages[0].Subject, wantSubject)
+	}
+
+	// Run 2: the drill passed, so the fault clears without a mail.
+	objects[rehearsalKey] = freshRehearsal
+	var out bytes.Buffer
+	if err := RunBackupStalenessCheck(context.Background(), cfg, &out); err != nil {
+		t.Fatalf("every mechanism is fresh, so the check must pass: %v\n%s", err, out.String())
+	}
+	if len(captured.messages) != 1 {
+		t.Fatalf("a clear must mail nothing, sent %d in total", len(captured.messages))
+	}
+	alarmed, _ := alarmedBackupMetrics(t, cfg)
+	if _, ok := alarmed[backupStalenessRehearsalName]; ok {
+		t.Fatalf("a cleared mechanism must be forgotten, state = %v", alarmed)
+	}
+
+	// Run 3: the marker is gone again, a second fault.
+	delete(objects, rehearsalKey)
+	runStaleBackupStalenessCheck(t, cfg)
+	if len(captured.messages) != 2 {
+		t.Fatalf("a second fault must mail again, sent %d in total", len(captured.messages))
 	}
 }
 
-// TestBackupStalenessAlarmSendFailureDoesNotMaskTheStaleError is the rule the
-// whole alarm rests on. Mail is best effort; the staleness verdict is not. A
-// relay that refuses the message must not turn a stale-backup run into a
-// mail-transport error, because the operator would then chase the mail path and
-// never learn the backups had stopped.
-func TestBackupStalenessAlarmSendFailureDoesNotMaskTheStaleError(t *testing.T) {
+// TestBackupStalenessAlarmRetriesAnUnsentMail covers a relay that refuses the
+// message: the run still returns the stale verdict and never the transport
+// error, nothing is remembered, and the next run tries again. Once a mail is
+// accepted the memory is written and the run after that is silent.
+func TestBackupStalenessAlarmRetriesAnUnsentMail(t *testing.T) {
 	fixBackupStalenessClock(t, time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC))
 	sendErr := errors.New("smtp dial mail.example.test:587: connection refused")
 	captured := captureBackupAlarmSends(t, sendErr)
-	cfg := unreachableBackupStalenessConfig("backups@example.test")
+	cfg := unreachableBackupStalenessConfig(t, "backups@example.test")
 
 	var out bytes.Buffer
 	err := RunBackupStalenessCheck(context.Background(), cfg, &out)
 	if err == nil {
 		t.Fatal("a failed alarm mail must not turn a stale run into a success")
-	}
-	if len(captured.messages) != 1 {
-		t.Fatalf("the alarm must still have been attempted, attempts = %d", len(captured.messages))
 	}
 	if errors.Is(err, sendErr) || strings.Contains(err.Error(), "connection refused") {
 		t.Fatalf("the mail failure must not become the returned error: %v", err)
@@ -200,38 +231,46 @@ func TestBackupStalenessAlarmSendFailureDoesNotMaskTheStaleError(t *testing.T) {
 	if !strings.Contains(err.Error(), "past threshold") {
 		t.Fatalf("the returned error must still be the staleness verdict: %v", err)
 	}
-	for _, name := range []string{
-		backupStalenessExportName,
-		backupStalenessRehearsalName,
-		backupStalenessReplicationName,
-	} {
-		if !strings.Contains(err.Error(), name) {
-			t.Errorf("the returned error must still name the stale mechanism %q: %v", name, err)
-		}
+	if len(captured.messages) != 1 {
+		t.Fatalf("the alarm must have been attempted once, attempts = %d", len(captured.messages))
+	}
+	if alarmed, found := alarmedBackupMetrics(t, cfg); found && len(alarmed) != 0 {
+		t.Fatalf("a refused mail must not be remembered, state = %v", alarmed)
+	}
+
+	captured.sendErr = nil
+	runStaleBackupStalenessCheck(t, cfg)
+	if len(captured.messages) != 2 {
+		t.Fatalf("the next run must retry the unsent mail, attempts = %d", len(captured.messages))
+	}
+	if alarmed, found := alarmedBackupMetrics(t, cfg); !found || len(alarmed) != 3 {
+		t.Fatalf("an accepted mail must be remembered, found = %v state = %v", found, alarmed)
+	}
+
+	runStaleBackupStalenessCheck(t, cfg)
+	if len(captured.messages) != 2 {
+		t.Fatalf("a remembered fault must not mail again, attempts = %d", len(captured.messages))
 	}
 }
 
 // TestBackupStalenessAlarmWithNoRecipientAttemptsNoSend proves the command
 // still works where no mail is configured, which is every local run: it reports
-// and exits nonzero, and it does not try to dial anything.
+// and exits nonzero, it does not try to dial anything, and it remembers
+// nothing, so the fault mails once a recipient is configured.
 func TestBackupStalenessAlarmWithNoRecipientAttemptsNoSend(t *testing.T) {
 	fixBackupStalenessClock(t, time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC))
 	captured := captureBackupAlarmSends(t, nil)
-	cfg := unreachableBackupStalenessConfig("")
+	cfg := unreachableBackupStalenessConfig(t, "")
 
-	var out bytes.Buffer
-	err := RunBackupStalenessCheck(context.Background(), cfg, &out)
-	if err == nil {
-		t.Fatal("unmeasurable backups must exit nonzero with or without a recipient")
-	}
-	if !strings.Contains(err.Error(), "past threshold") {
-		t.Fatalf("the returned error must be the staleness verdict: %v", err)
-	}
+	report := runStaleBackupStalenessCheck(t, cfg)
 	if len(captured.messages) != 0 {
 		t.Fatalf("no recipient must mean no send attempt, got %d", len(captured.messages))
 	}
-	if out.Len() == 0 {
+	if report == "" {
 		t.Fatal("the report must still be printed when there is nobody to mail")
+	}
+	if _, found := alarmedBackupMetrics(t, cfg); found {
+		t.Fatal("nothing was mailed, so nothing may be remembered")
 	}
 }
 
@@ -252,16 +291,7 @@ func TestBackupStalenessCheckWithEverythingFreshMailsNothing(t *testing.T) {
 		backupStatusKey(backupStalenessReplicationName): marshalBackupStatusMarker(t,
 			now.Add(-10*time.Minute), "0 dead nodes, 0 under-replicated tablets"),
 	})
-	// The command builds its own client from the config, so only the config
-	// the fake store hands back is needed here.
-	_, cfg := newFakeBackupObjectStore(t, "tack-backups", objects)
-	cfg.BackupYBMasterAddresses = "127.0.0.1:7100"
-	cfg.BackupFDBContinuous = false
-	cfg.BackupStalenessExportMaxSeconds = 129600
-	cfg.BackupStalenessRehearsalMaxSeconds = 691200
-	cfg.BackupStalenessReplicationMaxSeconds = 1800
-	cfg.BackupStalenessFDBMaxSeconds = 7200
-	cfg.BackupAlarmEmail = "backups@example.test"
+	cfg := storedBackupStalenessConfig(t, objects)
 
 	var out bytes.Buffer
 	if err := RunBackupStalenessCheck(context.Background(), cfg, &out); err != nil {

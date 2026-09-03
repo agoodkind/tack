@@ -182,8 +182,8 @@ type Config struct {
 
 	// Backup staleness thresholds, in seconds. `./server ops backup
 	// staleness-check` reports how long ago each mechanism last succeeded and
-	// exits nonzero once an age passes its threshold, mailing that report as
-	// it goes. Every default leaves room for one missed run of the
+	// exits nonzero once an age passes its threshold, mailing once when it
+	// does. Every default leaves room for one missed run of the
 	// schedule that feeds it, so a single transient failure is not an alert:
 	// 36h over the daily ledger export, 8 days over the daily restore drill
 	// rehearsal (the acceptance criterion's own freshness bound, which a daily
@@ -195,11 +195,14 @@ type Config struct {
 	BackupStalenessReplicationMaxSeconds int `env:"TACK_BACKUP_STALENESS_REPLICATION_MAX_SECONDS" envDefault:"1800"`
 	BackupStalenessFDBMaxSeconds         int `env:"TACK_BACKUP_STALENESS_FDB_MAX_SECONDS"         envDefault:"7200"`
 
-	// Backup staleness alarm mail. A staleness-check run that finds any
-	// mechanism past its threshold mails the same per-metric report it prints
-	// and still exits nonzero. BackupAlarmEmail is the recipient; empty mails
-	// nothing and logs that it did not, which is how a local run works with no
-	// mail configured. BackupAlarmMsmtprcPath is the msmtp-format account file
+	// Backup staleness alarm mail. The staleness-check run that first finds a
+	// mechanism past its threshold mails a plain-words account of the fault,
+	// once per mechanism per guest (the memory is a JSON file under
+	// BackupRoot), and every stale run still exits nonzero. BackupAlarmEmail is
+	// the recipient; empty mails nothing and logs that it did not, which is how
+	// a local run works with no mail configured, and records nothing, so the
+	// fault mails when a recipient is set. BackupAlarmMsmtprcPath is the
+	// msmtp-format account file
 	// the mailer parses for host, port, and credentials. It then speaks SMTP
 	// itself, so a container needs that file mounted but no msmtp binary.
 	BackupAlarmEmail       string `env:"TACK_BACKUP_ALARM_EMAIL"`

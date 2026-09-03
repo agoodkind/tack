@@ -8,6 +8,7 @@ package ops
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -171,6 +172,10 @@ const (
 	fdbNotRestorableStatusText = " is not restorable"
 )
 
+// errFDBNoRestorablePoint is returned when a status was read and vouches for no
+// restorable point, as distinct from a status that could not be parsed.
+var errFDBNoRestorablePoint = errors.New("fdbbackup status reports no restorable backup")
+
 // fdbRestorablePointFromStatus extracts how far a FoundationDB continuous
 // backup can restore to, from `fdbbackup status` output. The timestamp stops
 // advancing as soon as the backup agent stops draining logs, which is the
@@ -179,7 +184,7 @@ func fdbRestorablePointFromStatus(ctx context.Context, status string) (time.Time
 	lowered := strings.ToLower(status)
 	if !strings.Contains(lowered, fdbRestorableStatusText) ||
 		strings.Contains(lowered, fdbNotRestorableStatusText) {
-		return time.Time{}, fmt.Errorf("fdbbackup status reports no restorable backup")
+		return time.Time{}, errFDBNoRestorablePoint
 	}
 	for line := range strings.SplitSeq(status, "\n") {
 		if strings.Contains(line, fdbLastCompleteLogLabel) {

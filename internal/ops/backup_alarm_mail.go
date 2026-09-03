@@ -1,11 +1,13 @@
-// backup_alarm_mail.go mails the backup staleness report from inside the check
-// that produced it, rather than from a systemd OnFailure= handler outside it.
-// The handler piped the failed run's journal to msmtp under the guest's plain
-// hostname; SMTP2GO accepted every one of those with 250 OK and delivered none
-// of them, so the alarm was reporting success while telling nobody. The mailer
-// here sends from the address that demonstrably delivers, and it speaks SMTP
-// itself over net/smtp after parsing the msmtp account file, so no mail binary
-// is executed and the repo's no-shell-outs rule holds.
+// backup_alarm_mail.go mails a backup fault from inside the check that found
+// it, rather than from a systemd OnFailure= handler outside it. The handler
+// piped the failed run's journal to msmtp under the guest's plain hostname;
+// SMTP2GO accepted every one of those with 250 OK and delivered none of them,
+// so the alarm was reporting success while telling nobody. The mailer here
+// sends from the address that demonstrably delivers, and it speaks SMTP itself
+// over net/smtp after parsing the msmtp account file, so no mail binary is
+// executed and the repo's no-shell-outs rule holds. The words the mail carries
+// come from backup_alarm_words.go; when to send is decided in
+// backup_alarm_policy.go.
 
 package ops
 
@@ -36,25 +38,32 @@ const backupAlarmUnknownHost = "unknown-host"
 // masks the staleness error, without standing up an SMTP server.
 var backupAlarmSendFunc = sendBackupAlarmMail
 
-// mailBackupStalenessAlarm mails the report the run just printed. It returns
-// nothing on purpose. The staleness error is the run's verdict, and a mail that
-// could not be sent must never replace or mask it, so every failure here ends
-// in a log line instead of an error the caller could mistake for the verdict.
-// A mail path that fails quietly is the defect this whole change exists to
-// remove, so each failure is logged at Error with its reason.
-func mailBackupStalenessAlarm(ctx context.Context, cfg *config.Config, report string, stale []string) {
+// mailBackupStalenessAlarm mails the faults that began on this run and reports
+// whether the transport accepted the message, which is what the caller records
+// so an unsent mail is retried on the next run. It returns no error on purpose.
+// The staleness error is the run's verdict, and a mail that could not be sent
+// must never replace or mask it, so every failure here ends in a log line
+// instead of an error the caller could mistake for the verdict. A mail path
+// that fails quietly is the defect this alarm exists to remove, so each failure
+// is logged at Error with its reason.
+func mailBackupStalenessAlarm(ctx context.Context, cfg *config.Config, faults []backupStalenessMetric) bool {
 	logger := telemetry.L(ctx)
+	names := make([]string, 0, len(faults))
+	for _, fault := range faults {
+		names = append(names, fault.Name)
+	}
 	if cfg.BackupAlarmEmail == "" {
 		logger.WarnContext(ctx, "backup.staleness.alarm_recipient_unset",
-			slog.String("reason", "TACK_BACKUP_ALARM_EMAIL is empty, so the stale report was printed but not mailed"))
-		return
+			slog.String("reason", "TACK_BACKUP_ALARM_EMAIL is empty, so the fault was printed but not mailed"),
+			slog.Any("metrics", names))
+		return false
 	}
 
 	host := backupAlarmHost()
 	message := mailer.Message{
 		To:      cfg.BackupAlarmEmail,
-		Subject: backupStalenessAlarmSubject(host),
-		Body:    backupStalenessAlarmBody(host, report, stale),
+		Subject: backupStalenessAlarmSubject(host, faults),
+		Body:    backupStalenessAlarmBody(cfg, host, faults),
 		// From is deliberately empty: the library then sends as
 		// <hostname>-mailer@goodkind.io, the sender whose mail actually
 		// arrives, instead of the guest's plain hostname address that the
@@ -66,13 +75,14 @@ func mailBackupStalenessAlarm(ctx context.Context, cfg *config.Config, report st
 	if err := backupAlarmSendFunc(ctx, cfg, message); err != nil {
 		logger.ErrorContext(ctx, "backup.staleness.alarm_undelivered",
 			slog.String("to", cfg.BackupAlarmEmail),
-			slog.Int("stale_count", len(stale)),
+			slog.Any("metrics", names),
 			slog.String("err", err.Error()))
-		return
+		return false
 	}
 	logger.InfoContext(ctx, "backup.staleness.alarm_sent",
 		slog.String("to", cfg.BackupAlarmEmail),
-		slog.Int("stale_count", len(stale)))
+		slog.Any("metrics", names))
+	return true
 }
 
 // sendBackupAlarmMail delivers the message over the SMTP account in the msmtp
@@ -107,21 +117,4 @@ func backupAlarmHost() string {
 		return backupAlarmUnknownHost
 	}
 	return host
-}
-
-// backupStalenessAlarmSubject is the one line a reader sees before opening
-// anything, so it carries the verdict and the guest it came from.
-func backupStalenessAlarmSubject(host string) string {
-	return "[tack] backups are stale on " + host
-}
-
-// backupStalenessAlarmBody names the stale mechanisms and then carries the
-// per-metric report verbatim, so the mail and the terminal say the same thing
-// and neither has to be trusted over the other.
-func backupStalenessAlarmBody(host, report string, stale []string) string {
-	var body strings.Builder
-	fmt.Fprintf(&body, "%d backup mechanism(s) on %s are past their staleness threshold: %s\n\n",
-		len(stale), host, strings.Join(stale, ", "))
-	body.WriteString(report)
-	return body.String()
 }

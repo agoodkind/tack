@@ -1,15 +1,16 @@
 // backup_staleness_check.go runs the staleness check: it dates every backup
 // mechanism's last success, writes the replication marker whenever it observes
 // the cluster healthy, prints one line per mechanism, and exits nonzero when
-// any age is past its threshold. A run that finds anything stale mails the same
-// report it printed before returning that error, so a backup that quietly
-// stopped producing anything becomes a message rather than a discovery during
-// a restore.
+// any age is past its threshold. The run that first finds a mechanism stale
+// mails a plain-words account of the fault before returning that error, so a
+// backup that quietly stopped producing anything becomes one message rather
+// than a discovery during a restore.
 
 package ops
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -24,10 +25,10 @@ import (
 
 // RunBackupStalenessCheck reports how long ago each backup mechanism last
 // succeeded and returns an error when any mechanism is past its threshold. The
-// report goes to out whether or not anything is stale, and the same text is
-// mailed when something is. The FoundationDB leg is skipped when continuous
-// backup is disabled, the same way the restore drill skips its FoundationDB
-// leg.
+// report goes to out whether or not anything is stale; a mechanism that has
+// just become stale is mailed once, in plain words. The FoundationDB leg is
+// skipped when continuous backup is disabled, the same way the restore drill
+// skips its FoundationDB leg.
 func RunBackupStalenessCheck(ctx context.Context, cfg *config.Config, out io.Writer) error {
 	logger := telemetry.L(ctx)
 	if cfg.BackupS3Endpoint == "" || cfg.BackupS3AccessKey == "" || cfg.BackupS3SecretKey == "" {
@@ -58,23 +59,31 @@ func RunBackupStalenessCheck(ctx context.Context, cfg *config.Config, out io.Wri
 			slog.String("reason", "TACK_BACKUP_FDB_CONTINUOUS is false"))
 	}
 
-	report := backupStalenessReport(metrics)
-	if _, err := io.WriteString(out, report); err != nil {
-		wrapped := fmt.Errorf("write staleness report: %w", err)
-		logger.ErrorContext(ctx, "backup.staleness.failed", slog.String("err", wrapped.Error()))
-		return wrapped
+	// A report that cannot be written is noted and carried to the end: the
+	// reading was taken, the log still records it, and the alarm below must
+	// not depend on the output stream. The write failure is what the run
+	// returns only when nothing is stale.
+	var writeErr error
+	if _, err := io.WriteString(out, backupStalenessReport(metrics)); err != nil {
+		writeErr = fmt.Errorf("write staleness report: %w", err)
+		logger.ErrorContext(ctx, "backup.staleness.failed", slog.String("err", writeErr.Error()))
 	}
 	logBackupStalenessMetrics(ctx, metrics)
+
+	// The alarm runs on every reading, stale or not, because a mechanism that
+	// has come back is what resets its memory. The mail is an attempt, never
+	// a gate: whatever it does, the stale verdict is what this run returns.
+	alarmBackupStalenessTransitions(ctx, cfg, metrics)
 
 	stale := staleBackupStalenessMetrics(metrics)
 	if len(stale) > 0 {
 		err := fmt.Errorf("staleness-check: %d backup mechanism(s) past threshold: %s",
 			len(stale), strings.Join(stale, ", "))
 		logger.ErrorContext(ctx, "backup.staleness.stale", slog.String("err", err.Error()))
-		// The mail is an attempt, never a gate: whatever it does, the stale
-		// verdict is what this run returns.
-		mailBackupStalenessAlarm(ctx, cfg, report, stale)
 		return err
+	}
+	if writeErr != nil {
+		return writeErr
 	}
 	logger.InfoContext(ctx, "backup.staleness.ok", slog.Int("metric_count", len(metrics)))
 	return nil
@@ -110,7 +119,7 @@ func exportStalenessMetric(
 	runIDs, err := listYBSnapshotRunIDs(ctx, s3Client, cfg.BackupS3BucketMain)
 	if err != nil {
 		return unknownBackupStalenessMetric(backupStalenessExportName, threshold,
-			"listing export runs failed: "+err.Error())
+			backupStalenessUnreadable, "listing export runs failed: "+err.Error())
 	}
 	manifest, found, err := newestCompleteYBSnapshotRun(runIDs,
 		func(runID string) (ybSnapshotManifest, error) {
@@ -125,16 +134,16 @@ func exportStalenessMetric(
 		})
 	if err != nil {
 		return unknownBackupStalenessMetric(backupStalenessExportName, threshold,
-			"walking export runs failed: "+err.Error())
+			backupStalenessUnreadable, "walking export runs failed: "+err.Error())
 	}
 	if !found {
 		return unknownBackupStalenessMetric(backupStalenessExportName, threshold,
-			"no complete export run in "+cfg.BackupS3BucketMain)
+			backupStalenessNeverRecorded, "no complete export run in "+cfg.BackupS3BucketMain)
 	}
 	at, err := time.Parse(ybSnapshotRunIDLayout, manifest.RunID)
 	if err != nil {
 		return unknownBackupStalenessMetric(backupStalenessExportName, threshold,
-			"export run key "+manifest.RunID+" is not a run-key timestamp")
+			backupStalenessUnreadable, "export run key "+manifest.RunID+" is not a run-key timestamp")
 	}
 	return knownBackupStalenessMetric(ctx, backupStalenessExportName, now, at, threshold,
 		"newest complete run "+manifest.RunID)
@@ -155,11 +164,11 @@ func markerStalenessMetric(
 			return getObjectBytes(ctx, s3Client, cfg.BackupS3BucketMain, key)
 		}, name)
 	if err != nil {
-		return unknownBackupStalenessMetric(name, threshold,
+		return unknownBackupStalenessMetric(name, threshold, backupStalenessUnreadable,
 			"reading "+backupStatusKey(name)+" failed: "+err.Error())
 	}
 	if !found {
-		return unknownBackupStalenessMetric(name, threshold,
+		return unknownBackupStalenessMetric(name, threshold, backupStalenessNeverRecorded,
 			"no "+backupStatusKey(name)+" in "+cfg.BackupS3BucketMain)
 	}
 	return knownBackupStalenessMetric(ctx, name, now, marker.At, threshold, marker.Detail)
@@ -169,7 +178,10 @@ func markerStalenessMetric(
 // last looked healthy. Nothing else writes this marker, so the check both makes
 // and reads the observation: a healthy answer refreshes the marker, and any
 // other answer leaves the marker where it was, which ages into an alert if the
-// cluster stays degraded.
+// cluster stays degraded. An unhealthy answer becomes the metric's detail: on
+// its own when the marker dated the last healthy observation, and after the
+// marker's own reason when nothing did, so the report and the mail keep both
+// why the age is unknown and what this run saw.
 func replicationStalenessMetric(
 	ctx context.Context,
 	cfg *config.Config,
@@ -192,9 +204,14 @@ func replicationStalenessMetric(
 			slog.String("detail", detail))
 	}
 	metric := markerStalenessMetric(ctx, cfg, s3Client, backupStalenessReplicationName, now, threshold)
-	if !healthy {
-		metric.Detail = detail
+	if healthy {
+		return metric
 	}
+	if metric.AgeKnown {
+		metric.Detail = detail
+		return metric
+	}
+	metric.Detail += "; this run observed: " + detail
 	return metric
 }
 
@@ -208,7 +225,7 @@ func fdbStalenessMetric(ctx context.Context, cfg *config.Config, now time.Time) 
 	cli, err := newDockerClient(ctx)
 	if err != nil {
 		return unknownBackupStalenessMetric(backupStalenessFDBName, threshold,
-			"docker client unavailable: "+redactSecret(cfg, err.Error()))
+			backupStalenessUnreadable, "docker client unavailable: "+redactSecret(cfg, err.Error()))
 	}
 	defer cli.Close()
 
@@ -221,12 +238,16 @@ func fdbStalenessMetric(ctx context.Context, cfg *config.Config, now time.Time) 
 	})
 	if err != nil {
 		return unknownBackupStalenessMetric(backupStalenessFDBName, threshold,
-			"fdbbackup status failed: "+redactSecret(cfg, err.Error()))
+			backupStalenessUnreadable, "fdbbackup status failed: "+redactSecret(cfg, err.Error()))
 	}
 	at, err := fdbRestorablePointFromStatus(ctx, status)
+	if errors.Is(err, errFDBNoRestorablePoint) {
+		return unknownBackupStalenessMetric(backupStalenessFDBName, threshold,
+			backupStalenessNeverRecorded, redactSecret(cfg, err.Error()))
+	}
 	if err != nil {
 		return unknownBackupStalenessMetric(backupStalenessFDBName, threshold,
-			redactSecret(cfg, err.Error()))
+			backupStalenessUnreadable, redactSecret(cfg, err.Error()))
 	}
 	return knownBackupStalenessMetric(ctx, backupStalenessFDBName, now, at, threshold,
 		"restorable through "+at.UTC().Format(time.RFC3339))
