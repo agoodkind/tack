@@ -71,6 +71,9 @@ export TEST_YB_PASSWORD
 url_encode() {
     local value="$1" out="" char
     local i
+    # Bytewise, so a non-ASCII password encodes as its UTF-8 bytes rather
+    # than as code points.
+    local LC_ALL=C
     for (( i = 0; i < ${#value}; i++ )); do
         char="${value:i:1}"
         case "$char" in
@@ -95,7 +98,7 @@ echo ">> bringing up test YugabyteDB"
 # Wait until the database answers a query as the admin role, the same probe
 # the service's healthcheck runs, so this works on any compose implementation.
 READY=0
-for _ in $(seq 1 60); do
+for (( attempt = 0; attempt < 60; attempt++ )); do
     if "${COMPOSE[@]}" -f docker-compose.test.yml exec -T -e PGPASSWORD="$TEST_YB_PASSWORD" yugabyte \
         ysqlsh -h yugabyte -p 5433 -U yugabyte -d tack -t -c 'SELECT 1' >/dev/null 2>&1; then
         READY=1
@@ -104,7 +107,7 @@ for _ in $(seq 1 60); do
     sleep 5
 done
 if [[ "$READY" -ne 1 ]]; then
-    echo "test YugabyteDB did not answer within five minutes; check: docker compose -f docker-compose.test.yml logs yugabyte" >&2
+    echo "test YugabyteDB did not answer within five minutes; check: ${COMPOSE[*]} -f docker-compose.test.yml logs yugabyte" >&2
     exit 1
 fi
 
