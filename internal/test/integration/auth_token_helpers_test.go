@@ -54,23 +54,25 @@ func (o cancelAfterIntentOutbox) WriteOutbox(ctx context.Context, event audit.Ev
 	return err
 }
 
-// authSchemaOnce applies the SQL migrations once per test binary. The
-// integration stack starts a bare database: the node tests never touch SQL,
-// so nothing before these tests needed the users and api_tokens tables.
-var authSchemaOnce sync.Once
+// ledgerSchemaOnce applies every SQL migration once per test binary. The
+// token tests read the operator outbox back, which the auth-only migration
+// the other tests use does not create.
+var ledgerSchemaOnce sync.Once
 
-func migrateAuthSchema(t *testing.T, env *TestEnv) {
+func migrateLedgerSchema(t *testing.T, env *TestEnv) {
 	t.Helper()
-	authSchemaOnce.Do(func() {
-		if err := postgres.Migrate(env.Ctx, os.Getenv("DATABASE_URL"), migrations.FS); err != nil {
-			t.Fatalf("migrate the test database: %v", err)
-		}
+	var migrateErr error
+	ledgerSchemaOnce.Do(func() {
+		migrateErr = postgres.Migrate(env.Ctx, os.Getenv("DATABASE_URL"), migrations.FS)
 	})
+	if migrateErr != nil {
+		t.Fatalf("migrate the test database: %v", migrateErr)
+	}
 }
 
 func authTokenTestUser(t *testing.T, env *TestEnv) *user.User {
 	t.Helper()
-	migrateAuthSchema(t, env)
+	migrateLedgerSchema(t, env)
 	now := time.Now().UTC()
 	created, err := postgres.NewUserRepo(env.Ops.Pool).Create(env.Ctx, &user.User{
 		ID: uuid.Must(uuid.NewV7()), Email: "token-" + uuid.NewString() + "@example.invalid",
