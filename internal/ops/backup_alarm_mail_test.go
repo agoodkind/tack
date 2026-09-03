@@ -171,7 +171,7 @@ func TestBackupStalenessAlarmMailsAgainAfterAClear(t *testing.T) {
 	fixBackupStalenessClock(t, now)
 	captured := captureBackupAlarmSends(t, nil)
 	objects := fakeYBExportRunObjects(t, "20260829T100000Z",
-		newYBSnapshotManifest("20260829T100000Z", "snap-1", "tack", []string{"yb1"}))
+		newYBSnapshotManifest("20260829T100000Z", "snap-1", "tack", []string{"yb1"}, ybTestArtifactNames()))
 	objects[backupStatusKey(backupStalenessReplicationName)] = marshalBackupStatusMarker(t,
 		now.Add(-10*time.Minute), "0 dead nodes, 0 under-replicated tablets")
 	cfg := storedBackupStalenessConfig(t, objects)
