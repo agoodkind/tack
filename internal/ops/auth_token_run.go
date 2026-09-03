@@ -71,6 +71,14 @@ func authTokenPool(ctx context.Context, factory *cli.Factory) (*pgxpool.Pool, er
 	return pool, nil
 }
 
+func writeAuthTokenResult(ctx context.Context, sink clispec.ResultSink, result clispec.Result) error {
+	if err := clispec.WriteJSONValue(ctx, sink, result); err != nil {
+		slog.ErrorContext(ctx, "auth.token.report_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("write the token command report: %w", err)
+	}
+	return nil
+}
+
 func authTokenPrincipal(ctx context.Context, factory *cli.Factory) (audit.OperatorPrincipal, error) {
 	principal, err := factory.OperatorIdentitySource().Resolve(ctx)
 	if err != nil {
@@ -100,7 +108,7 @@ func runAuthTokenCreate(ctx context.Context, factory *cli.Factory, input authTok
 			return err
 		}
 		result.UserID, result.Email, result.OrgID = holder.ID.String(), holder.Email, orgID.String()
-		return clispec.WriteJSONValue(ctx, sink, result)
+		return writeAuthTokenResult(ctx, sink, result)
 	}
 	principal, err := authTokenPrincipal(ctx, factory)
 	if err != nil {
@@ -113,7 +121,7 @@ func runAuthTokenCreate(ctx context.Context, factory *cli.Factory, input authTok
 	result.UserID, result.Email, result.OrgID = issue.Holder.ID.String(), issue.Holder.Email, issue.OrgID.String()
 	result.TokenID, result.CreatedAt = issue.Token.ID.String(), issue.Token.CreatedAt.UTC().Format(time.RFC3339)
 	result.Token = issue.Raw
-	return clispec.WriteJSONValue(ctx, sink, result)
+	return writeAuthTokenResult(ctx, sink, result)
 }
 
 func runAuthTokenList(ctx context.Context, factory *cli.Factory, input authTokenListInput, sink clispec.ResultSink) error {
@@ -146,7 +154,7 @@ func runAuthTokenList(ctx context.Context, factory *cli.Factory, input authToken
 		}
 		entries = append(entries, entry)
 	}
-	return clispec.WriteJSONValue(ctx, sink, authTokenListResult{
+	return writeAuthTokenResult(ctx, sink, authTokenListResult{
 		ResultMarker: clispec.ResultMarker{}, Command: "ops.auth.token-list",
 		UserID: holder.ID.String(), Email: holder.Email, Tokens: entries,
 	})
@@ -179,7 +187,7 @@ func runAuthTokenRevoke(ctx context.Context, factory *cli.Factory, input authTok
 			return err
 		}
 	}
-	return clispec.WriteJSONValue(ctx, sink, authTokenRevokeResult{
+	return writeAuthTokenResult(ctx, sink, authTokenRevokeResult{
 		ResultMarker: clispec.ResultMarker{}, Command: "ops.auth.token-revoke", DryRun: !execute,
 		TokenID: revocation.Token.ID.String(), UserID: revocation.Holder.ID.String(),
 		Email: revocation.Holder.Email, Label: revocation.Token.Label, OrgID: revocation.OrgID.String(),

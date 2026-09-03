@@ -82,7 +82,8 @@ func IssueAuthToken(
 	}
 	raw, err := auth.NewBearerToken()
 	if err != nil {
-		return AuthTokenIssue{}, err
+		slog.ErrorContext(ctx, "auth.token.generate_failed", slog.String("err", err.Error()))
+		return AuthTokenIssue{}, fmt.Errorf("issue token for %s: %w", holder.Email, err)
 	}
 	tokens := postgres.NewTokenRepo(pool)
 	issued, err := tokens.Create(ctx, holder.ID, raw, strings.TrimSpace(label))
@@ -91,7 +92,7 @@ func IssueAuthToken(
 			slog.String("user_id", holder.ID.String()), slog.String("err", err.Error()))
 		return AuthTokenIssue{}, fmt.Errorf("issue token for %s: %w", holder.Email, err)
 	}
-	event := authTokenEvent(audit.VerbAuthTokenCreate, authTokenCreateKeyPrefix, principal, issued, holder, orgID, occurredAt)
+	event := authTokenEvent(audit.VerbAuthTokenCreate, authIssueKeyPrefix, principal, issued, holder, orgID, occurredAt)
 	if recordErr := recordAuthTokenEvent(ctx, outbox, event); recordErr != nil {
 		if deleteErr := tokens.Delete(ctx, issued.ID); deleteErr != nil {
 			slog.ErrorContext(ctx, "auth.token.unrecorded_token_remains",
@@ -129,7 +130,7 @@ func RevokeAuthToken(
 			slog.String("token_id", tokenID.String()), slog.String("err", err.Error()))
 		return AuthTokenRevocation{}, fmt.Errorf("revoke token %s: %w", tokenID, err)
 	}
-	event := authTokenEvent(audit.VerbAuthTokenRevoke, authTokenRevokeKeyPrefix, principal,
+	event := authTokenEvent(audit.VerbAuthTokenRevoke, authRevokeKeyPrefix, principal,
 		revocation.Token, revocation.Holder, revocation.OrgID, occurredAt)
 	if recordErr := recordAuthTokenEvent(ctx, outbox, event); recordErr != nil {
 		slog.ErrorContext(ctx, "auth.token.revocation_unrecorded",
