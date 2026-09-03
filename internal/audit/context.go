@@ -146,8 +146,11 @@ func (s CanonicalRecorder) Record(ctx context.Context, ev Event) error {
 	}
 	err := s.Inner.Record(ctx, ev)
 	if err != nil {
-		slog.ErrorContext(ctx, "audit.record_failed", slog.String("err", err.Error()))
-		return fmt.Errorf("record audit event: %w", err)
+		slog.ErrorContext(ctx, "audit.record_failed",
+			slog.String("verb", ev.Verb),
+			slog.String("event_id", ev.EventID.String()),
+			slog.String("err", err.Error()))
+		return fmt.Errorf("record audit event %s: %w", ev.Verb, err)
 	}
 	return nil
 }

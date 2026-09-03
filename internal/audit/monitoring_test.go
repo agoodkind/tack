@@ -107,8 +107,10 @@ func TestKafkaRecorderProduceErrorEmitsMetricAndLog(t *testing.T) {
 	if totalsAfter <= totalsBefore {
 		t.Fatalf("audit_kafka_produce_total{error}: got %d, want > %d", totalsAfter, totalsBefore)
 	}
-	if !containsLogEvent(buf, "kafka.produce.failed") {
-		t.Fatalf("expected kafka.produce.failed log; got: %s", buf.String())
+	// The first refusal of an outage is the one the operator sees; later
+	// refusals in the same outage log at Debug (TACK-320).
+	if !containsLogEvent(buf, "kafka.produce.refusing") {
+		t.Fatalf("expected kafka.produce.refusing log; got: %s", buf.String())
 	}
 }
 
