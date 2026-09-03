@@ -79,6 +79,23 @@ func (r *UserRepo) GetByIDIncludingInactive(ctx context.Context, id uuid.UUID) (
 	return u, nil
 }
 
+// GetByEmailIncludingInactive returns a user by exact email whether or not
+// the account is active, so a deactivated user's credentials can be listed
+// and revoked.
+func (r *UserRepo) GetByEmailIncludingInactive(ctx context.Context, email string) (*user.User, error) {
+	const q = `SELECT id, email, display_name, created_at, updated_at FROM users WHERE email = $1`
+	u := &user.User{}
+	err := r.db.QueryRow(ctx, q, email).Scan(&u.ID, &u.Email, &u.DisplayName, &u.CreatedAt, &u.UpdatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		slog.ErrorContext(ctx, "user.get_by_email_failed", slog.String("err", err.Error()))
+		return nil, fmt.Errorf("user get by email including inactive: %w", err)
+	}
+	return u, nil
+}
+
 func (r *UserRepo) GetByEmail(ctx context.Context, email string) (*user.User, error) {
 	const q = `SELECT id, email, display_name, created_at, updated_at FROM users WHERE email = $1 AND is_active = true`
 	u := &user.User{}

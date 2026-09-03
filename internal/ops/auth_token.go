@@ -29,22 +29,34 @@ type AuthTokenIssue struct {
 	Raw    string
 }
 
-// authTokenHolder finds the active user a token is issued to, by the email
-// exactly as the users table holds it: the column is case-sensitive and the
-// seed stores the address as given, so no case folding happens here. Only an
-// existing user can hold a token; creating users is the seed's job.
-func authTokenHolder(ctx context.Context, pool *pgxpool.Pool, email string) (*user.User, error) {
+// authTokenHolder finds the user a token belongs to, by the email exactly as
+// the users table holds it: the column is case-sensitive and the seed stores
+// the address as given, so no case folding happens here. Issuing needs an
+// active user; listing reaches a deactivated one too, because that user's
+// tokens still authenticate and are the ones to find and revoke. Creating
+// users is the seed's job.
+func authTokenHolder(ctx context.Context, pool *pgxpool.Pool, email string, includeInactive bool) (*user.User, error) {
 	trimmed := strings.TrimSpace(email)
 	if trimmed == "" {
 		return nil, errors.New("an email is required to name the token's user")
 	}
-	holder, err := postgres.NewUserRepo(pool).GetByEmail(ctx, trimmed)
+	users := postgres.NewUserRepo(pool)
+	var holder *user.User
+	var err error
+	if includeInactive {
+		holder, err = users.GetByEmailIncludingInactive(ctx, trimmed)
+	} else {
+		holder, err = users.GetByEmail(ctx, trimmed)
+	}
 	if err != nil && !errors.Is(err, domain.ErrNotFound) {
 		slog.ErrorContext(ctx, "auth.token.user_lookup_failed",
 			slog.String("email", trimmed), slog.String("err", err.Error()))
 		return nil, fmt.Errorf("find user %q: %w", trimmed, err)
 	}
 	if holder == nil || errors.Is(err, domain.ErrNotFound) {
+		if includeInactive {
+			return nil, fmt.Errorf("no user %q exists", trimmed)
+		}
 		return nil, fmt.Errorf("no active user %q exists; tokens are issued only to existing users", trimmed)
 	}
 	return holder, nil
@@ -72,7 +84,7 @@ func IssueAuthToken(
 	if trimmedLabel == "" {
 		return AuthTokenIssue{}, errors.New("a label is required so the token names the client that holds it")
 	}
-	holder, err := authTokenHolder(ctx, pool, email)
+	holder, err := authTokenHolder(ctx, pool, email, false)
 	if err != nil {
 		return AuthTokenIssue{}, err
 	}
@@ -101,12 +113,8 @@ func IssueAuthToken(
 		slog.ErrorContext(ctx, "auth.token.create_failed",
 			slog.String("token_id", attempt.Token.ID.String()),
 			slog.String("user_id", holder.ID.String()), slog.String("err", err.Error()))
-		wrapped := fmt.Errorf("issue token %s for %s: %w", attempt.Token.ID, holder.Email, err)
-		failure := authTokenFailureEvent(audit.VerbAuthTokenCreate, authIssueKeyPrefix, attempt, wrapped, clock.Now())
-		if recordErr := recordAuthTokenEvent(ctx, outbox, failure); recordErr != nil {
-			return AuthTokenIssue{}, errors.Join(wrapped, recordErr)
-		}
-		return AuthTokenIssue{}, wrapped
+		return AuthTokenIssue{}, failIssue(ctx, pool, outbox, attempt,
+			fmt.Errorf("issue token %s for %s: %w", attempt.Token.ID, holder.Email, err))
 	}
 	attempt.Token = issued
 	outcome := authTokenEvent(audit.VerbAuthTokenCreate, authIssueKeyPrefix, attempt, audit.OutcomeOK, clock.Now())
@@ -118,6 +126,33 @@ func IssueAuthToken(
 		slog.String("user_id", holder.ID.String()),
 		slog.String("label", issued.Label))
 	return AuthTokenIssue{Token: issued, Holder: holder, OrgID: orgID, Raw: raw}, nil
+}
+
+// failIssue answers an issue intent whose insert reported failure. The insert
+// can fail after the database committed it, so the preselected id is looked
+// up first: a row that exists is withdrawn through a recorded revocation,
+// and either way the issue attempt records an error outcome, because from
+// the operator's side the issue did not happen.
+func failIssue(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	outbox audit.OutboxWriter,
+	attempt authTokenAttempt,
+	cause error,
+) error {
+	reconcileCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), authTokenRecordTimeout)
+	defer cancel()
+	result := cause
+	if _, lookupErr := postgres.NewTokenRepo(pool).GetByID(reconcileCtx, attempt.Token.ID); lookupErr == nil {
+		slog.WarnContext(ctx, "auth.token.create_committed_despite_error",
+			slog.String("token_id", attempt.Token.ID.String()))
+		result = withdrawUnconfirmedToken(ctx, pool, outbox, attempt.Principal, attempt.Token.ID, cause)
+	}
+	failure := authTokenFailureEvent(audit.VerbAuthTokenCreate, authIssueKeyPrefix, attempt, result, clock.Now())
+	if recordErr := recordAuthTokenEvent(ctx, outbox, failure); recordErr != nil {
+		return errors.Join(result, recordErr)
+	}
+	return result
 }
 
 // withdrawUnconfirmedToken revokes a token whose issue outcome could not be
@@ -137,10 +172,17 @@ func withdrawUnconfirmedToken(
 ) error {
 	withdrawCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), authTokenRecordTimeout)
 	defer cancel()
-	if _, revokeErr := RevokeAuthToken(withdrawCtx, pool, outbox, principal, tokenID, clock.Now()); revokeErr != nil {
+	revocation, revokeErr := RevokeAuthToken(withdrawCtx, pool, outbox, principal, tokenID, clock.Now())
+	if revokeErr != nil && revocation.Token == nil {
 		slog.ErrorContext(ctx, "auth.token.unconfirmed_token_remains",
 			slog.String("token_id", tokenID.String()), slog.String("err", revokeErr.Error()))
 		return fmt.Errorf("token %s was issued and could not be withdrawn; revoke it by id: %w",
+			tokenID, errors.Join(cause, revokeErr))
+	}
+	if revokeErr != nil {
+		// The delete committed and only the confirming row is missing, so a
+		// manual revoke would find nothing; say what is actually owed.
+		return fmt.Errorf("token %s withdrawn, its revocation intent is recorded and its confirming row is owed: %w",
 			tokenID, errors.Join(cause, revokeErr))
 	}
 	slog.WarnContext(ctx, "auth.token.withdrawn", slog.String("token_id", tokenID.String()))

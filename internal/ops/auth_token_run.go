@@ -59,7 +59,12 @@ func runAuthTokenCreate(ctx context.Context, factory *cli.Factory, input authTok
 		UserID: "", Email: "", Label: strings.TrimSpace(input.Label), OrgID: "", TokenID: "", CreatedAt: "", Token: "",
 	}
 	if !execute {
-		holder, err := authTokenHolder(ctx, pool, input.Email)
+		// The dry run refuses what the execute would refuse, so its report
+		// never promises an issue that would fail.
+		if result.Label == "" {
+			return errors.New("a label is required so the token names the client that holds it")
+		}
+		holder, err := authTokenHolder(ctx, pool, input.Email, false)
 		if err != nil {
 			return err
 		}
@@ -97,7 +102,7 @@ func runAuthTokenList(ctx context.Context, factory *cli.Factory, input authToken
 		return err
 	}
 	defer pool.Close()
-	holder, err := authTokenHolder(ctx, pool, input.Email)
+	holder, err := authTokenHolder(ctx, pool, input.Email, true)
 	if err != nil {
 		return err
 	}

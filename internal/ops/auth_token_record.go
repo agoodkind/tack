@@ -2,6 +2,7 @@ package ops
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"time"
@@ -43,11 +44,13 @@ type authTokenAttempt struct {
 	OrgID     uuid.UUID
 }
 
-// authTokenOrg names the org a token event belongs to by the rule the bearer
-// middleware stamps on auth events (TACK-461): the user's sole org when
-// membership admits exactly one, and the nil org otherwise. The issue row and
-// the token's later auth.token_used rows must land under the same org, or a
-// query by org finds one and not the other.
+// authTokenOrg names the org a token event belongs to: the user's sole org
+// when membership admits exactly one, and the system org otherwise. The
+// bearer middleware stamps the nil org on auth events for the same user, so a
+// multi-org holder's issue rows and token_used rows part ways; the system org
+// is chosen here anyway because the ledger reader refuses a nil org, and a
+// credential's history that no query can reach is the worse failure. The
+// nil-org rows are the state the TACK-461 org backfill exists to move.
 func authTokenOrg(ctx context.Context, members org.MemberRepository, userID uuid.UUID) (uuid.UUID, error) {
 	orgIDs, err := members.ListOrgIDsForUser(ctx, userID)
 	if err != nil {
@@ -58,8 +61,12 @@ func authTokenOrg(ctx context.Context, members org.MemberRepository, userID uuid
 	if len(orgIDs) == 1 {
 		return orgIDs[0], nil
 	}
-	return uuid.Nil, nil
+	return audit.SystemOrgID(), nil
 }
+
+// Each row's Extra carries attempt_id, pairing intent and outcome the way the
+// choke-point pairs them by op_id, so a reader joins them without parsing
+// keys.
 
 // authTokenEvent builds one row for an issue or revocation. The operator is
 // the actor, the token is the entity, and the user it belongs to is the
@@ -79,6 +86,9 @@ func authTokenEvent(
 	occurredAt time.Time,
 ) audit.Event {
 	key := keyPrefix + attempt.Token.ID.String() + ":" + attempt.ID.String() + ":" + string(outcome)
+	// A UUID renders as hex and dashes, so the document needs no escaping and
+	// no encoder that could fail.
+	extra := json.RawMessage(`{"attempt_id":"` + attempt.ID.String() + `"}`)
 	return audit.Event{
 		Verb:    string(verb),
 		EventID: uuid.NewSHA1(authTokenAuditNamespace, []byte(key)),
@@ -96,7 +106,7 @@ func authTokenEvent(
 			RequestID: "", TraceID: "", Source: audit.SourceSystem, Tool: "", RPC: "", Reason: "",
 		},
 		Delta: nil, Outcome: outcome, Error: nil,
-		IdempotencyKey: key, OccurredAt: occurredAt.UTC(), Extra: nil,
+		IdempotencyKey: key, OccurredAt: occurredAt.UTC(), Extra: extra,
 	}
 }
 
