@@ -39,6 +39,7 @@ type consumerEnv struct {
 	LagWarnMessages int64         `env:"TACK_AUDIT_CONSUMER_LAG_WARN_MESSAGES" envDefault:"1000"`
 	SummaryEvery    int           `env:"TACK_AUDIT_CONSUMER_SUMMARY_EVERY" envDefault:"100"`
 	PartitionPeriod time.Duration `env:"AUDIT_CONSUMER_PARTITION_PERIOD" envDefault:"24h"`
+	TopicRetention  time.Duration `env:"AUDIT_CONSUMER_TOPIC_RETENTION"  envDefault:"8760h"`
 	MetricsAddr     string        `env:"AUDIT_CONSUMER_METRICS_ADDR" envDefault:"127.0.0.1:9109"`
 	// FDBClusterFile enables the FoundationDB relay when set.
 	FDBClusterFile string `env:"FDB_CLUSTER_FILE"`
@@ -152,6 +153,7 @@ func newAuditConsumer(ctx context.Context, cfg consumerEnv) (*audit.Consumer, er
 		LagWarnMessages: cfg.LagWarnMessages,
 		SummaryEvery:    cfg.SummaryEvery,
 		PartitionPeriod: cfg.PartitionPeriod,
+		TopicRetention:  cfg.TopicRetention,
 	})
 	if err != nil {
 		slog.ErrorContext(ctx, "audit_consumer.consumer_failed", slog.String("err", err.Error()))

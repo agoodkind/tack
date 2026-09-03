@@ -43,11 +43,24 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # One password for the whole job: the database volume is created with
+      # it by the first script and every later script must present the same.
+      - name: set the test database password
+        run: |
+          password="$(openssl rand -hex 16)"
+          echo "::add-mask::${password}"
+          echo "TEST_YB_PASSWORD=${password}" >> "$GITHUB_ENV"
+
       - name: bring up FDB
         run: ./scripts/test-fdb-up.sh
 
       - name: run integration tests
         run: ./scripts/test-integration.sh
+
+      # The chain-append, outbox, dead-letter, and token tests skip without a
+      # migrated ledger DSN, so without this step nothing in CI ran them.
+      - name: run database-gated audit tests
+        run: ./scripts/test-audit-db.sh
 
       - name: tear down
         if: always()
