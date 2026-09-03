@@ -56,10 +56,12 @@ func authTokenHolder(ctx context.Context, pool *pgxpool.Pool, email string) (*us
 
 // IssueAuthToken mints one token for an existing user and records the issue.
 //
-// The record is not optional. A credential that exists with no ledger row is
-// the state the audit epic forbids, so when the record cannot be written the
-// token row is deleted again and the issue fails: the operator gets an error
-// rather than a usable token nobody can account for.
+// The order is intent, write, outcome. The token id is chosen here so the
+// intent row can name it before the row exists. If the intent cannot be
+// recorded nothing is issued. If the outcome cannot be recorded the token is
+// withdrawn and the issue fails, because a usable credential whose issue the
+// ledger does not confirm is the state the audit epic forbids; the pending
+// row then stands as the record of the attempt.
 func IssueAuthToken(
 	ctx context.Context,
 	pool *pgxpool.Pool,
@@ -69,7 +71,8 @@ func IssueAuthToken(
 	label string,
 	occurredAt time.Time,
 ) (AuthTokenIssue, error) {
-	if strings.TrimSpace(label) == "" {
+	trimmedLabel := strings.TrimSpace(label)
+	if trimmedLabel == "" {
 		return AuthTokenIssue{}, errors.New("a label is required so the token names the client that holds it")
 	}
 	holder, err := authTokenHolder(ctx, pool, email)
@@ -85,22 +88,27 @@ func IssueAuthToken(
 		slog.ErrorContext(ctx, "auth.token.generate_failed", slog.String("err", err.Error()))
 		return AuthTokenIssue{}, fmt.Errorf("issue token for %s: %w", holder.Email, err)
 	}
+	intended := &token.Token{
+		ID: uuid.Must(uuid.NewV7()), UserID: holder.ID, Label: trimmedLabel,
+		LastUsed: nil, ExpiresAt: nil, CreatedAt: occurredAt,
+	}
+	intent := authTokenEvent(audit.VerbAuthTokenCreate, authIssueKeyPrefix, principal,
+		intended, holder, orgID, audit.OutcomePending, occurredAt)
+	if err := recordAuthTokenEvent(ctx, outbox, intent); err != nil {
+		return AuthTokenIssue{}, fmt.Errorf("nothing issued: %w", err)
+	}
 	tokens := postgres.NewTokenRepo(pool)
-	issued, err := tokens.Create(ctx, holder.ID, raw, strings.TrimSpace(label))
+	issued, err := tokens.CreateWithID(ctx, intended.ID, holder.ID, raw, trimmedLabel)
 	if err != nil {
 		slog.ErrorContext(ctx, "auth.token.create_failed",
+			slog.String("token_id", intended.ID.String()),
 			slog.String("user_id", holder.ID.String()), slog.String("err", err.Error()))
-		return AuthTokenIssue{}, fmt.Errorf("issue token for %s: %w", holder.Email, err)
+		return AuthTokenIssue{}, fmt.Errorf("issue token %s for %s: %w", intended.ID, holder.Email, err)
 	}
-	event := authTokenEvent(audit.VerbAuthTokenCreate, authIssueKeyPrefix, principal, issued, holder, orgID, occurredAt)
-	if recordErr := recordAuthTokenEvent(ctx, outbox, event); recordErr != nil {
-		if deleteErr := tokens.Delete(ctx, issued.ID); deleteErr != nil {
-			slog.ErrorContext(ctx, "auth.token.unrecorded_token_remains",
-				slog.String("token_id", issued.ID.String()), slog.String("err", deleteErr.Error()))
-			return AuthTokenIssue{}, fmt.Errorf("token %s was issued, could not be recorded, and could not be withdrawn; revoke it by id: %w",
-				issued.ID, errors.Join(recordErr, deleteErr))
-		}
-		return AuthTokenIssue{}, fmt.Errorf("token issue withdrawn because it could not be recorded: %w", recordErr)
+	outcome := authTokenEvent(audit.VerbAuthTokenCreate, authIssueKeyPrefix, principal,
+		issued, holder, orgID, audit.OutcomeOK, occurredAt)
+	if recordErr := recordAuthTokenEvent(ctx, outbox, outcome); recordErr != nil {
+		return AuthTokenIssue{}, withdrawUnrecordedToken(ctx, tokens, issued.ID, recordErr)
 	}
 	slog.InfoContext(ctx, "auth.token.issued",
 		slog.String("token_id", issued.ID.String()),
@@ -109,10 +117,25 @@ func IssueAuthToken(
 	return AuthTokenIssue{Token: issued, Holder: holder, OrgID: orgID, Raw: raw}, nil
 }
 
-// RevokeAuthToken deletes one token and records the revocation. The row is
-// gone from the moment the delete commits, so a record failure afterwards is
-// reported with the token's identity rather than hidden: the revocation
-// happened and the ledger owes a row for it.
+// withdrawUnrecordedToken deletes a token whose issue outcome could not be
+// recorded and builds the error the operator acts on. When even the delete
+// fails, the error names the token id so it can be revoked by hand.
+func withdrawUnrecordedToken(ctx context.Context, tokens *postgres.TokenRepo, tokenID uuid.UUID, recordErr error) error {
+	if deleteErr := tokens.Delete(ctx, tokenID); deleteErr != nil {
+		slog.ErrorContext(ctx, "auth.token.unrecorded_token_remains",
+			slog.String("token_id", tokenID.String()), slog.String("err", deleteErr.Error()))
+		return fmt.Errorf("token %s was issued, could not be recorded, and could not be withdrawn; revoke it by id: %w",
+			tokenID, errors.Join(recordErr, deleteErr))
+	}
+	slog.WarnContext(ctx, "auth.token.withdrawn", slog.String("token_id", tokenID.String()))
+	return fmt.Errorf("token %s withdrawn because its issue could not be recorded: %w", tokenID, recordErr)
+}
+
+// RevokeAuthToken deletes one token and records the revocation, intent
+// first. The row is gone from the moment the delete commits, so an outcome
+// record that fails afterwards is reported with the token's identity rather
+// than hidden: the pending row already names what was revoked, and the error
+// says the confirming row is owed.
 func RevokeAuthToken(
 	ctx context.Context,
 	pool *pgxpool.Pool,
@@ -125,20 +148,25 @@ func RevokeAuthToken(
 	if err != nil {
 		return AuthTokenRevocation{}, err
 	}
+	intent := authTokenEvent(audit.VerbAuthTokenRevoke, authRevokeKeyPrefix, principal,
+		revocation.Token, revocation.Holder, revocation.OrgID, audit.OutcomePending, occurredAt)
+	if err := recordAuthTokenEvent(ctx, outbox, intent); err != nil {
+		return AuthTokenRevocation{}, fmt.Errorf("nothing revoked: %w", err)
+	}
 	if err := postgres.NewTokenRepo(pool).Delete(ctx, tokenID); err != nil {
 		slog.ErrorContext(ctx, "auth.token.revoke_failed",
 			slog.String("token_id", tokenID.String()), slog.String("err", err.Error()))
 		return AuthTokenRevocation{}, fmt.Errorf("revoke token %s: %w", tokenID, err)
 	}
-	event := authTokenEvent(audit.VerbAuthTokenRevoke, authRevokeKeyPrefix, principal,
-		revocation.Token, revocation.Holder, revocation.OrgID, occurredAt)
-	if recordErr := recordAuthTokenEvent(ctx, outbox, event); recordErr != nil {
-		slog.ErrorContext(ctx, "auth.token.revocation_unrecorded",
+	outcome := authTokenEvent(audit.VerbAuthTokenRevoke, authRevokeKeyPrefix, principal,
+		revocation.Token, revocation.Holder, revocation.OrgID, audit.OutcomeOK, occurredAt)
+	if recordErr := recordAuthTokenEvent(ctx, outbox, outcome); recordErr != nil {
+		slog.ErrorContext(ctx, "auth.token.revocation_unconfirmed",
 			slog.String("token_id", tokenID.String()),
 			slog.String("user_id", revocation.Holder.ID.String()),
 			slog.String("label", revocation.Token.Label),
 			slog.String("err", recordErr.Error()))
-		return revocation, fmt.Errorf("token %s was revoked but the revocation could not be recorded: %w", tokenID, recordErr)
+		return revocation, fmt.Errorf("token %s was revoked but the confirming row could not be recorded: %w", tokenID, recordErr)
 	}
 	slog.InfoContext(ctx, "auth.token.revoked",
 		slog.String("token_id", tokenID.String()),

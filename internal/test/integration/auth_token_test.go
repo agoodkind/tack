@@ -2,6 +2,7 @@ package integration
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -15,12 +16,25 @@ import (
 	"goodkind.io/tack/internal/ops"
 )
 
-// refusingOutbox is a ledger that cannot be written, which is the case the
+// refusingOutbox is a ledger that cannot be written, which is the case an
 // issue must not survive: a token nobody can account for.
 type refusingOutbox struct{}
 
 func (refusingOutbox) WriteOutbox(context.Context, audit.Event) error {
 	return errors.New("ledger unreachable")
+}
+
+// outcomeRefusingOutbox accepts the intent row and refuses the outcome row,
+// which is the window where a token exists that the ledger has not confirmed.
+type outcomeRefusingOutbox struct {
+	inner audit.OutboxWriter
+}
+
+func (o outcomeRefusingOutbox) WriteOutbox(ctx context.Context, event audit.Event) error {
+	if event.Outcome == audit.OutcomeOK {
+		return errors.New("ledger unreachable after the write")
+	}
+	return o.inner.WriteOutbox(ctx, event)
 }
 
 func authTokenTestUser(t *testing.T, env *TestEnv) *user.User {
@@ -42,39 +56,66 @@ func authTokenTestPrincipal() audit.OperatorPrincipal {
 	}
 }
 
-// outboxEventFor finds the row the outbox holds for one token and verb, and
-// removes it after the test so the shared outbox does not accumulate.
-func outboxEventFor(t *testing.T, env *TestEnv, outbox *audit.PoolOutbox, verb audit.Verb, tokenID uuid.UUID) audit.Event {
+// outboxRowsFor reads every outbox row for one token and verb straight from
+// the table by the event's own fields, so rows other tests left behind cannot
+// hide the ones this test wrote. It removes them after the test.
+func outboxRowsFor(t *testing.T, env *TestEnv, verb audit.Verb, tokenID uuid.UUID) map[audit.Outcome]audit.Event {
 	t.Helper()
-	rows, err := outbox.ReadBatch(env.Ctx, 1000)
+	rows, err := env.Ops.Pool.Query(env.Ctx, `
+		SELECT event_id, event FROM public.ops_outbox
+		 WHERE event->>'verb' = $1 AND event->'entity'->>'id' = $2`,
+		string(verb), tokenID.String())
 	if err != nil {
-		t.Fatalf("read the outbox: %v", err)
+		t.Fatalf("read the outbox for token %s: %v", tokenID, err)
 	}
-	for _, row := range rows {
-		if row.Event.Verb == string(verb) && row.Event.Entity.ID == tokenID {
-			eventID := row.EventID
-			t.Cleanup(func() { _ = outbox.Delete(context.Background(), eventID) })
-			return row.Event
+	defer rows.Close()
+	found := make(map[audit.Outcome]audit.Event)
+	for rows.Next() {
+		var eventID uuid.UUID
+		var raw []byte
+		if err := rows.Scan(&eventID, &raw); err != nil {
+			t.Fatalf("scan an outbox row: %v", err)
 		}
+		var event audit.Event
+		if err := json.Unmarshal(raw, &event); err != nil {
+			t.Fatalf("decode an outbox row: %v", err)
+		}
+		found[event.Outcome] = event
+		t.Cleanup(func() {
+			_, _ = env.Ops.Pool.Exec(context.Background(), `DELETE FROM public.ops_outbox WHERE event_id = $1`, eventID)
+		})
 	}
-	t.Fatalf("no %s row in the outbox for token %s among %d rows", verb, tokenID, len(rows))
-	return audit.Event{}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("read outbox rows: %v", err)
+	}
+	return found
+}
+
+func requireIntentAndOutcome(t *testing.T, rows map[audit.Outcome]audit.Event, principal audit.OperatorPrincipal, what string) {
+	t.Helper()
+	pending, hasPending := rows[audit.OutcomePending]
+	confirmed, hasOK := rows[audit.OutcomeOK]
+	if !hasPending || !hasOK {
+		t.Fatalf("%s rows = %d, want a pending and an ok row", what, len(rows))
+	}
+	if pending.Actor.ID != principal.ID || confirmed.Actor.ID != principal.ID {
+		t.Fatalf("%s rows name actors %s and %s, want operator %s", what, pending.Actor.ID, confirmed.Actor.ID, principal.ID)
+	}
 }
 
 // TestAuthTokenIssueAuthenticatesAndIsRecorded is TACK-472's contract end to
 // end: the issued value authenticates as the user through the same repository
-// the bearer middleware uses, the issue is in the ledger naming the operator
-// and the token, and after revocation the value is refused and the revocation
-// is in the ledger too.
+// the bearer middleware uses, the issue is in the ledger as an intent and an
+// outcome naming the operator and the token, and after revocation the value
+// is refused and the revocation is in the ledger the same way.
 func TestAuthTokenIssueAuthenticatesAndIsRecorded(t *testing.T) {
 	env := SetupTestEnv(t)
 	holder := authTokenTestUser(t, env)
 	outbox := audit.NewPoolOutbox(env.Ops.Pool)
-	t.Cleanup(outbox.Close)
 	principal := authTokenTestPrincipal()
 	tokens := postgres.NewTokenRepo(env.Ops.Pool)
 
-	issue, err := ops.IssueAuthToken(env.Ctx, env.Ops.Pool, outbox, principal, holder.Email, "integration", time.Now())
+	issue, err := ops.IssueAuthToken(env.Ctx, env.Ops.Pool, outbox, principal, holder.Email, "  integration ", time.Now())
 	if err != nil {
 		t.Fatalf("issue: %v", err)
 	}
@@ -87,15 +128,16 @@ func TestAuthTokenIssueAuthenticatesAndIsRecorded(t *testing.T) {
 	if validated.UserID != holder.ID {
 		t.Fatalf("issued value authenticates as %s, want %s", validated.UserID, holder.ID)
 	}
-	created := outboxEventFor(t, env, outbox, audit.VerbAuthTokenCreate, issue.Token.ID)
-	if created.Actor.ID != principal.ID || created.Entity.Identifier != holder.Email || created.Entity.Name != "integration" {
-		t.Fatalf("create row = actor %s entity %q/%q, want operator %s for %s/integration",
-			created.Actor.ID, created.Entity.Identifier, created.Entity.Name, principal.ID, holder.Email)
+	created := outboxRowsFor(t, env, audit.VerbAuthTokenCreate, issue.Token.ID)
+	requireIntentAndOutcome(t, created, principal, "create")
+	confirmed := created[audit.OutcomeOK]
+	if confirmed.Entity.Identifier != holder.Email || confirmed.Entity.Name != "integration" {
+		t.Fatalf("create row entity = %q/%q, want %s/integration", confirmed.Entity.Identifier, confirmed.Entity.Name, holder.Email)
 	}
 	// A user in no org gets the system org, the same answer auth events give
 	// (TACK-461), rather than a nil org that no tenant query can find.
-	if created.Context.OrgID != audit.SystemOrgID() {
-		t.Fatalf("create row org = %s, want the system org for a user with no membership", created.Context.OrgID)
+	if confirmed.Context.OrgID != audit.SystemOrgID() {
+		t.Fatalf("create row org = %s, want the system org for a user with no membership", confirmed.Context.OrgID)
 	}
 
 	revocation, err := ops.RevokeAuthToken(env.Ctx, env.Ops.Pool, outbox, principal, issue.Token.ID, time.Now())
@@ -108,30 +150,53 @@ func TestAuthTokenIssueAuthenticatesAndIsRecorded(t *testing.T) {
 	if _, err := tokens.Validate(env.Ctx, issue.Raw); !errors.Is(err, domain.ErrUnauthenticated) {
 		t.Fatalf("after revocation Validate err = %v, want ErrUnauthenticated", err)
 	}
-	revoked := outboxEventFor(t, env, outbox, audit.VerbAuthTokenRevoke, issue.Token.ID)
-	if revoked.Actor.ID != principal.ID {
-		t.Fatalf("revoke row actor = %s, want operator %s", revoked.Actor.ID, principal.ID)
-	}
+	requireIntentAndOutcome(t, outboxRowsFor(t, env, audit.VerbAuthTokenRevoke, issue.Token.ID), principal, "revoke")
 }
 
-// TestAuthTokenIssueIsWithdrawnWhenItCannotBeRecorded pins the rule the whole
-// epic rests on: a credential with no ledger row must not exist. When the
-// ledger refuses, the token row is removed again and the user holds nothing.
-func TestAuthTokenIssueIsWithdrawnWhenItCannotBeRecorded(t *testing.T) {
+// TestAuthTokenIssueRefusedByTheLedgerIssuesNothing pins the rule the whole
+// epic rests on: a credential with no ledger row must not exist. A ledger that
+// refuses the intent issues nothing; a ledger that refuses the outcome leaves
+// the pending row and withdraws the token. Either way the user holds nothing.
+func TestAuthTokenIssueRefusedByTheLedgerIssuesNothing(t *testing.T) {
 	env := SetupTestEnv(t)
 	holder := authTokenTestUser(t, env)
+	principal := authTokenTestPrincipal()
+	realOutbox := audit.NewPoolOutbox(env.Ops.Pool)
 
-	_, err := ops.IssueAuthToken(env.Ctx, env.Ops.Pool, refusingOutbox{}, authTokenTestPrincipal(), holder.Email, "integration", time.Now())
+	_, intentErr := ops.IssueAuthToken(env.Ctx, env.Ops.Pool, refusingOutbox{}, principal, holder.Email, "integration", time.Now())
+	_, outcomeErr := ops.IssueAuthToken(env.Ctx, env.Ops.Pool, outcomeRefusingOutbox{inner: realOutbox}, principal, holder.Email, "integration", time.Now())
 
-	if err == nil {
-		t.Fatal("an issue the ledger refused must fail")
+	if intentErr == nil || outcomeErr == nil {
+		t.Fatalf("errs = %v / %v, want both issues to fail", intentErr, outcomeErr)
 	}
 	remaining, listErr := postgres.NewTokenRepo(env.Ops.Pool).List(env.Ctx, holder.ID)
 	if listErr != nil {
 		t.Fatalf("list tokens: %v", listErr)
 	}
 	if len(remaining) != 0 {
-		t.Fatalf("user holds %d token(s) after a refused issue, want none", len(remaining))
+		t.Fatalf("user holds %d token(s) after refused issues, want none", len(remaining))
+	}
+	pendingRows, err := env.Ops.Pool.Query(env.Ctx, `
+		SELECT event_id FROM public.ops_outbox
+		 WHERE event->>'verb' = $1 AND event->'entity'->>'identifier' = $2 AND event->>'outcome' = $3`,
+		string(audit.VerbAuthTokenCreate), holder.Email, string(audit.OutcomePending))
+	if err != nil {
+		t.Fatalf("read pending rows: %v", err)
+	}
+	defer pendingRows.Close()
+	pendingCount := 0
+	for pendingRows.Next() {
+		var eventID uuid.UUID
+		if err := pendingRows.Scan(&eventID); err != nil {
+			t.Fatalf("scan pending row: %v", err)
+		}
+		pendingCount++
+		t.Cleanup(func() {
+			_, _ = env.Ops.Pool.Exec(context.Background(), `DELETE FROM public.ops_outbox WHERE event_id = $1`, eventID)
+		})
+	}
+	if pendingCount != 1 {
+		t.Fatalf("pending rows for %s = %d, want exactly the one the withdrawn issue left", holder.Email, pendingCount)
 	}
 }
 
@@ -140,7 +205,6 @@ func TestAuthTokenIssueIsWithdrawnWhenItCannotBeRecorded(t *testing.T) {
 func TestAuthTokenIssueRefusesAnUnknownUser(t *testing.T) {
 	env := SetupTestEnv(t)
 	outbox := audit.NewPoolOutbox(env.Ops.Pool)
-	t.Cleanup(outbox.Close)
 
 	_, err := ops.IssueAuthToken(env.Ctx, env.Ops.Pool, outbox, authTokenTestPrincipal(), "nobody-"+uuid.NewString()+"@example.invalid", "integration", time.Now())
 

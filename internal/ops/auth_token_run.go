@@ -2,8 +2,10 @@ package ops
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -16,48 +18,6 @@ import (
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/telemetry"
 )
-
-type authTokenCreateResult struct {
-	clispec.ResultMarker
-	Command   string `json:"command"`
-	DryRun    bool   `json:"dry_run"`
-	UserID    string `json:"user_id"`
-	Email     string `json:"email"`
-	Label     string `json:"label"`
-	OrgID     string `json:"org_id"`
-	TokenID   string `json:"token_id,omitempty"`
-	CreatedAt string `json:"created_at,omitempty"`
-	// Token is the raw bearer. It appears here once and nowhere else: not in
-	// a log, not in the ledger, not in the database.
-	Token string `json:"token,omitempty"`
-}
-
-type authTokenListEntry struct {
-	TokenID   string `json:"token_id"`
-	Label     string `json:"label"`
-	CreatedAt string `json:"created_at"`
-	LastUsed  string `json:"last_used,omitempty"`
-	ExpiresAt string `json:"expires_at,omitempty"`
-}
-
-type authTokenListResult struct {
-	clispec.ResultMarker
-	Command string               `json:"command"`
-	UserID  string               `json:"user_id"`
-	Email   string               `json:"email"`
-	Tokens  []authTokenListEntry `json:"tokens"`
-}
-
-type authTokenRevokeResult struct {
-	clispec.ResultMarker
-	Command string `json:"command"`
-	DryRun  bool   `json:"dry_run"`
-	TokenID string `json:"token_id"`
-	UserID  string `json:"user_id"`
-	Email   string `json:"email"`
-	Label   string `json:"label"`
-	OrgID   string `json:"org_id"`
-}
 
 // authTokenPool opens the auth database. Token commands are SQL only, so they
 // run wherever DATABASE_URL resolves, including the host-networked ops
@@ -96,7 +56,7 @@ func runAuthTokenCreate(ctx context.Context, factory *cli.Factory, input authTok
 	defer pool.Close()
 	result := authTokenCreateResult{
 		ResultMarker: clispec.ResultMarker{}, Command: "ops.auth.token-create", DryRun: !execute,
-		UserID: "", Email: "", Label: input.Label, OrgID: "", TokenID: "", CreatedAt: "", Token: "",
+		UserID: "", Email: "", Label: strings.TrimSpace(input.Label), OrgID: "", TokenID: "", CreatedAt: "", Token: "",
 	}
 	if !execute {
 		holder, err := authTokenHolder(ctx, pool, input.Email)
@@ -120,8 +80,21 @@ func runAuthTokenCreate(ctx context.Context, factory *cli.Factory, input authTok
 	}
 	result.UserID, result.Email, result.OrgID = issue.Holder.ID.String(), issue.Holder.Email, issue.OrgID.String()
 	result.TokenID, result.CreatedAt = issue.Token.ID.String(), issue.Token.CreatedAt.UTC().Format(time.RFC3339)
-	result.Token = issue.Raw
-	return writeAuthTokenResult(ctx, sink, result)
+	result.Label, result.Token = issue.Token.Label, issue.Raw
+	if writeErr := writeAuthTokenResult(ctx, sink, result); writeErr != nil {
+		// The raw value is shown once and never stored, so a report that
+		// failed to reach the operator leaves a live credential nobody
+		// holds. Revoke it, recorded like any revocation, and say so.
+		if _, revokeErr := RevokeAuthToken(ctx, pool, factory.AuditOutbox(), principal, issue.Token.ID, clock.Now().UTC()); revokeErr != nil {
+			slog.ErrorContext(ctx, "auth.token.unreported_token_remains",
+				slog.String("token_id", issue.Token.ID.String()), slog.String("err", revokeErr.Error()))
+			return fmt.Errorf("token %s could not be reported and could not be revoked; revoke it by id: %w",
+				issue.Token.ID, errors.Join(writeErr, revokeErr))
+		}
+		slog.WarnContext(ctx, "auth.token.revoked_unreported", slog.String("token_id", issue.Token.ID.String()))
+		return fmt.Errorf("token %s revoked because its value could not be reported: %w", issue.Token.ID, writeErr)
+	}
+	return nil
 }
 
 func runAuthTokenList(ctx context.Context, factory *cli.Factory, input authTokenListInput, sink clispec.ResultSink) error {
