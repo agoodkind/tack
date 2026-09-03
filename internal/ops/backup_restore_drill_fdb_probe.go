@@ -86,7 +86,7 @@ func readFDBRestore(ctx context.Context, watch fdbRestoreWatch, probeTimeout tim
 // probe abandoned at the deadline keeps a cancelled context, which is what
 // ends the exec behind it, and its late answer goes nowhere.
 //
-// A probe that answers with the deadline's own error is a probe that did not
+// A probe that answers with its own deadline's error is a probe that did not
 // answer. The exec behind it returns that error at the moment the probe's
 // context ends, so the answer and the context's done channel are ready
 // together and the select may take either; which one it takes must not decide
@@ -111,11 +111,7 @@ func runFDBRestoreProbe(
 	}()
 	select {
 	case reading := <-answered:
-		if ctx.Err() == nil && errors.Is(reading.statusErr, context.DeadlineExceeded) {
-			err := fmt.Errorf("%w within %s: %w", errFDBRestoreProbeTimedOut, timeout, reading.statusErr)
-			return fdbRestoreReading{exitCode: 0, done: false, status: "", statusErr: err, timedOut: true}
-		}
-		return reading
+		return classifyFDBRestoreProbeAnswer(reading, probeCtx, ctx, timeout)
 	case <-probeCtx.Done():
 		if ctx.Err() != nil {
 			err := fmt.Errorf("the probe was cancelled: %w", ctx.Err())
@@ -124,6 +120,28 @@ func runFDBRestoreProbe(
 		err := fmt.Errorf("%w within %s", errFDBRestoreProbeTimedOut, timeout)
 		return fdbRestoreReading{exitCode: 0, done: false, status: "", statusErr: err, timedOut: true}
 	}
+}
+
+// classifyFDBRestoreProbeAnswer decides whether an answer that did arrive is a
+// probe that did not answer. Only the probe's own deadline counts: the answer
+// must carry the deadline error and probeCtx must have expired with that
+// deadline, with the drill's own context still live. A deadline error the
+// probe returned while its context was live came from some nested operation
+// of the probe's own and is a probe failure like any other, so it is returned
+// as answered.
+func classifyFDBRestoreProbeAnswer(
+	reading fdbRestoreReading,
+	probeCtx, ctx context.Context,
+	timeout time.Duration,
+) fdbRestoreReading {
+	if ctx.Err() != nil || !errors.Is(probeCtx.Err(), context.DeadlineExceeded) {
+		return reading
+	}
+	if !errors.Is(reading.statusErr, context.DeadlineExceeded) {
+		return reading
+	}
+	err := fmt.Errorf("%w within %s: %w", errFDBRestoreProbeTimedOut, timeout, reading.statusErr)
+	return fdbRestoreReading{exitCode: 0, done: false, status: "", statusErr: err, timedOut: true}
 }
 
 // fdbRestoreBlindError names a restore the drill could no longer observe: how
