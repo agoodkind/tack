@@ -85,6 +85,12 @@ func readFDBRestore(ctx context.Context, watch fdbRestoreWatch, probeTimeout tim
 // on its own goroutine so the deadline holds however the probe behaves; a
 // probe abandoned at the deadline keeps a cancelled context, which is what
 // ends the exec behind it, and its late answer goes nowhere.
+//
+// A probe that answers with the deadline's own error is a probe that did not
+// answer. The exec behind it returns that error at the moment the probe's
+// context ends, so the answer and the context's done channel are ready
+// together and the select may take either; which one it takes must not decide
+// whether the poll counts as blind.
 func runFDBRestoreProbe(
 	ctx context.Context,
 	timeout time.Duration,
@@ -105,6 +111,10 @@ func runFDBRestoreProbe(
 	}()
 	select {
 	case reading := <-answered:
+		if ctx.Err() == nil && errors.Is(reading.statusErr, context.DeadlineExceeded) {
+			err := fmt.Errorf("%w within %s: %w", errFDBRestoreProbeTimedOut, timeout, reading.statusErr)
+			return fdbRestoreReading{exitCode: 0, done: false, status: "", statusErr: err, timedOut: true}
+		}
 		return reading
 	case <-probeCtx.Done():
 		if ctx.Err() != nil {
