@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -57,6 +58,23 @@ func (r *UserRepo) GetByID(ctx context.Context, id uuid.UUID) (*user.User, error
 			return nil, domain.ErrNotFound
 		}
 		return nil, fmt.Errorf("user get: %w", err)
+	}
+	return u, nil
+}
+
+// GetByIDIncludingInactive returns a user whether or not the account is
+// active. Revoking a credential must reach a deactivated holder, because a
+// token keeps authenticating after its user is deactivated.
+func (r *UserRepo) GetByIDIncludingInactive(ctx context.Context, id uuid.UUID) (*user.User, error) {
+	const q = `SELECT id, email, display_name, created_at, updated_at FROM users WHERE id = $1`
+	u := &user.User{}
+	err := r.db.QueryRow(ctx, q, id).Scan(&u.ID, &u.Email, &u.DisplayName, &u.CreatedAt, &u.UpdatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		slog.ErrorContext(ctx, "user.get_failed", slog.String("user_id", id.String()), slog.String("err", err.Error()))
+		return nil, fmt.Errorf("user get including inactive: %w", err)
 	}
 	return u, nil
 }

@@ -27,14 +27,27 @@ const (
 	authTokenRecordTimeout = 30 * time.Second
 )
 
-// authTokenAuditNamespace derives one event identity per row, so a rerun that
-// finds the row already recorded writes nothing new.
+// authTokenAuditNamespace derives one event identity per row from its key.
 var authTokenAuditNamespace = uuid.MustParse("9c1f6a3e-2b4d-5e7f-8a90-1b2c3d4e5f60")
 
-// authTokenOrg names the org a token event belongs to: the user's sole org
-// when membership admits exactly one, and the system org otherwise, which is
-// the honest answer when nothing singles one out. The same rule stamps auth
-// events (TACK-461), so a token's issue and its later uses land in one org.
+// authTokenAttempt is one run of an issue or a revocation. Its id is part of
+// every row key the run writes, so a retry after a failed run records its own
+// intent and outcome instead of colliding with the earlier run's rows in the
+// outbox, which would refuse the retry for as long as the relay had not
+// drained them. Two attempts are two facts, and the ledger holds both.
+type authTokenAttempt struct {
+	ID        uuid.UUID
+	Principal audit.OperatorPrincipal
+	Token     *token.Token
+	Holder    *user.User
+	OrgID     uuid.UUID
+}
+
+// authTokenOrg names the org a token event belongs to by the rule the bearer
+// middleware stamps on auth events (TACK-461): the user's sole org when
+// membership admits exactly one, and the nil org otherwise. The issue row and
+// the token's later auth.token_used rows must land under the same org, or a
+// query by org finds one and not the other.
 func authTokenOrg(ctx context.Context, members org.MemberRepository, userID uuid.UUID) (uuid.UUID, error) {
 	orgIDs, err := members.ListOrgIDsForUser(ctx, userID)
 	if err != nil {
@@ -45,7 +58,7 @@ func authTokenOrg(ctx context.Context, members org.MemberRepository, userID uuid
 	if len(orgIDs) == 1 {
 		return orgIDs[0], nil
 	}
-	return audit.SystemOrgID(), nil
+	return uuid.Nil, nil
 }
 
 // authTokenEvent builds one row for an issue or revocation. The operator is
@@ -61,33 +74,46 @@ func authTokenOrg(ctx context.Context, members org.MemberRepository, userID uuid
 func authTokenEvent(
 	verb audit.Verb,
 	keyPrefix string,
-	principal audit.OperatorPrincipal,
-	issued *token.Token,
-	holder *user.User,
-	orgID uuid.UUID,
+	attempt authTokenAttempt,
 	outcome audit.Outcome,
 	occurredAt time.Time,
 ) audit.Event {
-	key := keyPrefix + issued.ID.String() + ":" + string(outcome)
+	key := keyPrefix + attempt.Token.ID.String() + ":" + attempt.ID.String() + ":" + string(outcome)
 	return audit.Event{
 		Verb:    string(verb),
 		EventID: uuid.NewSHA1(authTokenAuditNamespace, []byte(key)),
 		Actor: audit.Actor{
-			Type: principal.ActorType(), ID: principal.ID,
-			Email: principal.Email, Name: principal.Name,
+			Type: attempt.Principal.ActorType(), ID: attempt.Principal.ID,
+			Email: attempt.Principal.Email, Name: attempt.Principal.Name,
 			SessionID: "", IP: "", UserAgent: "", RequestID: "", APITokenLabel: "",
 		},
 		Entity: audit.Entity{
-			Type: authIssueEntityType, NodeType: "", ID: issued.ID,
-			Identifier: holder.Email, Name: issued.Label,
+			Type: authIssueEntityType, NodeType: "", ID: attempt.Token.ID,
+			Identifier: attempt.Holder.Email, Name: attempt.Token.Label,
 		},
 		Context: audit.EventContext{
-			OrgID: orgID, WorkspaceID: uuid.Nil, ScopeID: uuid.Nil, ParentID: uuid.Nil,
+			OrgID: attempt.OrgID, WorkspaceID: uuid.Nil, ScopeID: uuid.Nil, ParentID: uuid.Nil,
 			RequestID: "", TraceID: "", Source: audit.SourceSystem, Tool: "", RPC: "", Reason: "",
 		},
 		Delta: nil, Outcome: outcome, Error: nil,
 		IdempotencyKey: key, OccurredAt: occurredAt.UTC(), Extra: nil,
 	}
+}
+
+// authTokenFailureEvent builds the outcome row for an attempt whose write
+// failed after its intent was recorded, so the ledger never holds a pending
+// row with no answer. The failure text carries the database error, never a
+// credential.
+func authTokenFailureEvent(
+	verb audit.Verb,
+	keyPrefix string,
+	attempt authTokenAttempt,
+	failure error,
+	occurredAt time.Time,
+) audit.Event {
+	event := authTokenEvent(verb, keyPrefix, attempt, audit.OutcomeError, occurredAt)
+	event.Error = &audit.EventError{Code: "command_failed", Message: failure.Error()}
+	return event
 }
 
 // recordAuthTokenEvent writes one token event through the outbox on its own

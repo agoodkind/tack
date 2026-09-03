@@ -84,15 +84,9 @@ func runAuthTokenCreate(ctx context.Context, factory *cli.Factory, input authTok
 	if writeErr := writeAuthTokenResult(ctx, sink, result); writeErr != nil {
 		// The raw value is shown once and never stored, so a report that
 		// failed to reach the operator leaves a live credential nobody
-		// holds. Revoke it, recorded like any revocation, and say so.
-		if _, revokeErr := RevokeAuthToken(ctx, pool, factory.AuditOutbox(), principal, issue.Token.ID, clock.Now().UTC()); revokeErr != nil {
-			slog.ErrorContext(ctx, "auth.token.unreported_token_remains",
-				slog.String("token_id", issue.Token.ID.String()), slog.String("err", revokeErr.Error()))
-			return fmt.Errorf("token %s could not be reported and could not be revoked; revoke it by id: %w",
-				issue.Token.ID, errors.Join(writeErr, revokeErr))
-		}
-		slog.WarnContext(ctx, "auth.token.revoked_unreported", slog.String("token_id", issue.Token.ID.String()))
-		return fmt.Errorf("token %s revoked because its value could not be reported: %w", issue.Token.ID, writeErr)
+		// holds. Withdraw it through a recorded revocation and say so.
+		return withdrawUnconfirmedToken(ctx, pool, factory.AuditOutbox(), principal, issue.Token.ID,
+			fmt.Errorf("the token value could not be reported: %w", writeErr))
 	}
 	return nil
 }
@@ -134,10 +128,13 @@ func runAuthTokenList(ctx context.Context, factory *cli.Factory, input authToken
 }
 
 func runAuthTokenRevoke(ctx context.Context, factory *cli.Factory, input authTokenRevokeInput, sink clispec.ResultSink, execute bool) error {
+	// The value is not echoed anywhere: an operator who pastes the raw bearer
+	// where the id belongs would otherwise put it in a log line and, through
+	// the choke-point's error row, in the ledger.
 	tokenID, err := uuid.Parse(input.TokenID)
 	if err != nil {
-		slog.ErrorContext(ctx, "auth.token.id_invalid", slog.String("id", input.TokenID), slog.String("err", err.Error()))
-		return fmt.Errorf("--id %q is not a token id: %w", input.TokenID, err)
+		slog.ErrorContext(ctx, "auth.token.id_invalid", slog.String("err", "--id is not a token id"))
+		return errors.New("--id is not a token id; pass the id from token-list or token-create, never the bearer value")
 	}
 	pool, err := authTokenPool(ctx, factory)
 	if err != nil {

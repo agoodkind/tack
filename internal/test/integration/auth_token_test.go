@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -134,10 +135,11 @@ func TestAuthTokenIssueAuthenticatesAndIsRecorded(t *testing.T) {
 	if confirmed.Entity.Identifier != holder.Email || confirmed.Entity.Name != "integration" {
 		t.Fatalf("create row entity = %q/%q, want %s/integration", confirmed.Entity.Identifier, confirmed.Entity.Name, holder.Email)
 	}
-	// A user in no org gets the system org, the same answer auth events give
-	// (TACK-461), rather than a nil org that no tenant query can find.
-	if confirmed.Context.OrgID != audit.SystemOrgID() {
-		t.Fatalf("create row org = %s, want the system org for a user with no membership", confirmed.Context.OrgID)
+	// A user in no org gets the nil org, the same answer the bearer middleware
+	// stamps on that user's auth.token_used rows (TACK-461), so the issue and
+	// the uses of one token are found by the same query.
+	if confirmed.Context.OrgID != uuid.Nil {
+		t.Fatalf("create row org = %s, want the nil org for a user with no membership", confirmed.Context.OrgID)
 	}
 
 	revocation, err := ops.RevokeAuthToken(env.Ctx, env.Ops.Pool, outbox, principal, issue.Token.ID, time.Now())
@@ -151,6 +153,41 @@ func TestAuthTokenIssueAuthenticatesAndIsRecorded(t *testing.T) {
 		t.Fatalf("after revocation Validate err = %v, want ErrUnauthenticated", err)
 	}
 	requireIntentAndOutcome(t, outboxRowsFor(t, env, audit.VerbAuthTokenRevoke, issue.Token.ID), principal, "revoke")
+}
+
+// TestAuthTokenRevokeRetriesAfterAFailedAttempt pins that a revocation whose
+// first attempt died after its intent row can be run again: the retry records
+// its own rows instead of colliding with the first attempt's pending row in
+// the outbox, which would refuse it until the relay drained.
+func TestAuthTokenRevokeRetriesAfterAFailedAttempt(t *testing.T) {
+	env := SetupTestEnv(t)
+	holder := authTokenTestUser(t, env)
+	principal := authTokenTestPrincipal()
+	realOutbox := audit.NewPoolOutbox(env.Ops.Pool)
+	tokens := postgres.NewTokenRepo(env.Ops.Pool)
+	issue, err := ops.IssueAuthToken(env.Ctx, env.Ops.Pool, realOutbox, principal, holder.Email, "integration", time.Now())
+	if err != nil {
+		t.Fatalf("issue: %v", err)
+	}
+	t.Cleanup(func() { _ = tokens.Delete(context.Background(), issue.Token.ID) })
+	outboxRowsFor(t, env, audit.VerbAuthTokenCreate, issue.Token.ID)
+
+	// First attempt: the intent lands and the outcome is refused, so the
+	// token is gone but unconfirmed. Second attempt against a gone token must
+	// fail on the lookup, not on a duplicate outbox row.
+	_, firstErr := ops.RevokeAuthToken(env.Ctx, env.Ops.Pool, outcomeRefusingOutbox{inner: realOutbox}, principal, issue.Token.ID, time.Now())
+	_, secondErr := ops.RevokeAuthToken(env.Ctx, env.Ops.Pool, realOutbox, principal, issue.Token.ID, time.Now())
+
+	if firstErr == nil {
+		t.Fatal("a revocation whose confirming row was refused must report it")
+	}
+	if secondErr == nil || !strings.Contains(secondErr.Error(), "no token") {
+		t.Fatalf("second attempt err = %v, want the token reported as gone, not an outbox conflict", secondErr)
+	}
+	rows := outboxRowsFor(t, env, audit.VerbAuthTokenRevoke, issue.Token.ID)
+	if _, hasPending := rows[audit.OutcomePending]; !hasPending {
+		t.Fatal("the first attempt's pending row must stand as the record of the revocation")
+	}
 }
 
 // TestAuthTokenIssueRefusedByTheLedgerIssuesNothing pins the rule the whole
