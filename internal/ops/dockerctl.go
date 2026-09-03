@@ -281,6 +281,16 @@ func runOneShot(
 // The exec's streams close when ctx ends. The attach is a hijacked connection
 // the SDK does not tie to the context, so without this a command that never
 // exits would hold the read past any deadline the caller set.
+//
+// Closing the attach ends the read, not the command: the Engine API has no
+// exec kill, so a command still running when ctx ends keeps running inside the
+// container until it exits on its own. That is accepted because every exec a
+// deadline or cancellation can cut short is one the restore drill runs inside
+// its own scratch containers (the probes, readiness checks, and describes on
+// tack-rtfdb-* and tack-rtyb-*), and cleanupRestoreDrill force-removes those
+// containers, which kills every process in them. The execs against live
+// containers (provisioning's fdbcli and seed, the export's tar) run commands
+// that finish on their own.
 func containerExec(
 	ctx context.Context,
 	cli *client.Client,
@@ -372,7 +382,8 @@ func containerExecStreaming(
 	}
 	defer att.Close()
 	// As in containerExec: the hijacked attach outlives the context on its
-	// own, so the stream is closed when ctx ends.
+	// own, so the stream is closed when ctx ends; the command behind it is
+	// not, for the reasons given there.
 	stopClosing := context.AfterFunc(ctx, att.Close)
 	defer stopClosing()
 	var stderrBuf bytes.Buffer
