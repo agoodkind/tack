@@ -149,14 +149,14 @@ func backupAlarmClock(d time.Duration) string {
 	const day = 24 * time.Hour
 	if d >= 2*day {
 		days := int(d / day)
-		remainingHours := int(d%day) / int(time.Hour)
+		remainingHours := int((d % day) / time.Hour)
 		if remainingHours > 0 {
 			return fmt.Sprintf("%d days %dh", days, remainingHours)
 		}
 		return fmt.Sprintf("%d days", days)
 	}
 	hours := int(d / time.Hour)
-	minutes := int(d%time.Hour) / int(time.Minute)
+	minutes := int((d % time.Hour) / time.Minute)
 	if hours > 0 && minutes > 0 {
 		return fmt.Sprintf("%dh %dm", hours, minutes)
 	}
