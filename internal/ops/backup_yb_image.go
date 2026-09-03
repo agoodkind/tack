@@ -21,7 +21,7 @@ import (
 // the other required-value checks in this family are. Call it before any Docker
 // client is opened or container created.
 func requireBackupYBImage(ctx context.Context, cfg *config.Config, command, failEvent string) error {
-	if cfg.BackupYBPITRImage != "" {
+	if cfg.BackupYBImage != "" {
 		return nil
 	}
 	err := fmt.Errorf("%s: TACK_BACKUP_YB_IMAGE is required; docker-compose.yml renders it for tack-ops from the yugabyte service's image", command)

@@ -155,7 +155,7 @@ type Config struct {
 	// are in minutes, matching yb-admin create_snapshot_schedule's argument
 	// units.
 	//
-	// BackupYBPITRImage is the ledger's own engine image. Every yb-admin
+	// BackupYBImage is the ledger's own engine image. Every yb-admin
 	// one-shot, the ysql_dump and ysql_dumpall one-shots, and the restore
 	// drill's throwaway yugabyted run from it, so the dumper matches the server
 	// and a rehearsal restores into the version the cluster runs.
@@ -165,7 +165,7 @@ type Config struct {
 	// 2024.2 cluster, and the drill's schema apply failed on a statement the
 	// 2025.2 dumper wrote for the 2024.2 extension set. Every command that
 	// runs a container from it refuses to start while it is empty.
-	BackupYBPITRImage            string `env:"TACK_BACKUP_YB_IMAGE"`
+	BackupYBImage                string `env:"TACK_BACKUP_YB_IMAGE"`
 	BackupYBMasterAddresses      string `env:"TACK_BACKUP_YB_MASTER_ADDRESSES"         envDefault:"yugabyte:7100"`
 	BackupYBPITRIntervalMinutes  int    `env:"TACK_BACKUP_YB_PITR_INTERVAL_MINUTES"    envDefault:"60"`
 	BackupYBPITRRetentionMinutes int    `env:"TACK_BACKUP_YB_PITR_RETENTION_MINUTES"   envDefault:"10080"`

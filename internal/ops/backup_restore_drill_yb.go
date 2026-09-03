@@ -264,11 +264,11 @@ func ybDrillManifestDefect(manifest ybSnapshotManifest) string {
 // it on the IPv6-only bridge. stageDir is bind-mounted read-only at /artifacts.
 func startScratchYugabyte(ctx context.Context, r *restoreDrillCtx, name, database, stageDir string) error {
 	logger := telemetry.L(ctx)
-	if err := ensureImage(ctx, r.Cli, logger, r.Cfg.BackupYBPITRImage); err != nil {
+	if err := ensureImage(ctx, r.Cli, logger, r.Cfg.BackupYBImage); err != nil {
 		return err
 	}
 	cfg := &container.Config{
-		Image:    r.Cfg.BackupYBPITRImage,
+		Image:    r.Cfg.BackupYBImage,
 		Hostname: name,
 		Env: []string{
 			"YSQL_DB=" + database,

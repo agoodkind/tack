@@ -146,7 +146,7 @@ func dumpYBFromEndpoint(
 	logger := telemetry.L(ctx)
 	cmd := append([]string{"-h", host, "-p", ybDumpPort, "-U", cfg.YugabyteUser}, spec.args...)
 	res, err := runOneShot(ctx, cli, logger, runOneShotOptions{
-		Image:      cfg.BackupYBPITRImage,
+		Image:      cfg.BackupYBImage,
 		Network:    cfg.BackupFDBNetwork,
 		Entrypoint: []string{spec.binary},
 		Cmd:        cmd,

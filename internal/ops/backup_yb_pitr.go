@@ -63,7 +63,7 @@ func RunBackupYBPITRInit(ctx context.Context, cfg *config.Config) error {
 	// one-shot joins the compose network so the embedded Docker DNS resolves
 	// the masters hostname.
 	res, err := runOneShot(ctx, cli, logger, runOneShotOptions{
-		Image:      cfg.BackupYBPITRImage,
+		Image:      cfg.BackupYBImage,
 		Network:    cfg.BackupFDBNetwork,
 		Entrypoint: []string{ybAdminBinary},
 		Cmd: []string{

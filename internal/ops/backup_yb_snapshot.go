@@ -559,7 +559,7 @@ func ybAdminOneShot(
 	logger := telemetry.L(ctx)
 	cmd := append([]string{"--master_addresses", cfg.BackupYBMasterAddresses}, args...)
 	res, err := runOneShot(ctx, cli, logger, runOneShotOptions{
-		Image:      cfg.BackupYBPITRImage,
+		Image:      cfg.BackupYBImage,
 		Network:    cfg.BackupFDBNetwork,
 		Entrypoint: []string{ybAdminBinary},
 		Cmd:        cmd,
