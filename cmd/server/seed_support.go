@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -13,6 +11,7 @@ import (
 
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/adapters/postgres"
+	"goodkind.io/tack/internal/auth"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/domain/node"
@@ -117,14 +116,15 @@ func ensureNode(ctx context.Context, s *fdbadapter.Stores, typeKey, slug, name s
 	return id, true, nil
 }
 
-// generateToken returns a fresh random bearer token.
+// generateToken returns a fresh random bearer token in the one shape every
+// issuer produces.
 func generateToken() (string, error) {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
+	raw, err := auth.NewBearerToken()
+	if err != nil {
 		slog.Error("seed.token_failed", slog.String("err", err.Error()))
 		return "", fmt.Errorf("seed: generate token: %w", err)
 	}
-	return "tack_" + base64.RawURLEncoding.EncodeToString(b), nil
+	return raw, nil
 }
 
 // orgsExist opens a read-only Postgres connection and returns true if

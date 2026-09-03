@@ -17,6 +17,7 @@ var (
 	validateGroup = &clispec.Group{Use: "validate", Short: "Check repair applicability for a node", Long: "", Parent: opsGroup}
 	repairGroup   = &clispec.Group{Use: "repair", Short: "Preview and apply targeted repairs", Long: "", Parent: opsGroup}
 	auditOpsGroup = &clispec.Group{Use: "audit", Short: "Compliance audit operations", Long: "", Parent: opsGroup}
+	authOpsGroup  = &clispec.Group{Use: "auth", Short: "Issue, list, and revoke API tokens for existing users", Long: "", Parent: opsGroup}
 	batchGroup    = &clispec.Group{Use: "batch", Short: "Run registered batch maintenance operations", Long: "", Parent: opsGroup}
 )
 
@@ -40,6 +41,9 @@ func RegisterCommands(reg *clispec.Registry, f *cli.Factory) {
 	clispec.Register(reg, repairReferenceUniquenessOp(f))
 	clispec.Register(reg, auditSeedRolesOp(f))
 	clispec.Register(reg, auditReconstructReferenceRepairOp(f))
+	clispec.Register(reg, authTokenCreateOp(f))
+	clispec.Register(reg, authTokenListOp(f))
+	clispec.Register(reg, authTokenRevokeOp(f))
 	clispec.Register(reg, datagenSeedOp(f))
 	clispec.Register(reg, datagenSoakOp(f))
 	clispec.Register(reg, datagenReferenceShapeOp(f))

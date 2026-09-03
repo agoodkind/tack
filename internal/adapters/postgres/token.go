@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -45,7 +46,8 @@ func (r *TokenRepo) Validate(ctx context.Context, raw string) (*token.Token, err
 	return t, nil
 }
 
-// Create stores a hashed token. raw is the plaintext; it is hashed here and never stored.
+// Create stores a hashed token under a database-assigned id. raw is the
+// plaintext; it is hashed here and never stored.
 func (r *TokenRepo) Create(ctx context.Context, userID uuid.UUID, raw, label string) (*token.Token, error) {
 	const q = `
 		INSERT INTO api_tokens (user_id, token_hash, label)
@@ -58,6 +60,26 @@ func (r *TokenRepo) Create(ctx context.Context, userID uuid.UUID, raw, label str
 	)
 	if err != nil {
 		return nil, fmt.Errorf("token create: %w", pgErr(err))
+	}
+	return t, nil
+}
+
+// CreateWithID stores a hashed token under an id the caller chose, so the
+// caller can record its intent to issue that exact token before the row
+// exists. raw is the plaintext; it is hashed here and never stored.
+func (r *TokenRepo) CreateWithID(ctx context.Context, id, userID uuid.UUID, raw, label string) (*token.Token, error) {
+	const q = `
+		INSERT INTO api_tokens (id, user_id, token_hash, label)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id, user_id, label, last_used, expires_at, created_at`
+
+	t := &token.Token{}
+	err := r.db.QueryRow(ctx, q, id, userID, hashToken(raw), label).Scan(
+		&t.ID, &t.UserID, &t.Label, &t.LastUsed, &t.ExpiresAt, &t.CreatedAt,
+	)
+	if err != nil {
+		slog.ErrorContext(ctx, "token.create_failed", slog.String("token_id", id.String()), slog.String("err", err.Error()))
+		return nil, fmt.Errorf("token create %s: %w", id, pgErr(err))
 	}
 	return t, nil
 }
@@ -84,6 +106,28 @@ func (r *TokenRepo) List(ctx context.Context, userID uuid.UUID) ([]*token.Token,
 		tokens = append(tokens, t)
 	}
 	return tokens, rows.Err()
+}
+
+// GetByID returns one token record by primary key without touching last_used.
+// Returns domain.ErrNotFound when no row carries the id.
+func (r *TokenRepo) GetByID(ctx context.Context, id uuid.UUID) (*token.Token, error) {
+	const q = `
+		SELECT id, user_id, label, last_used, expires_at, created_at
+		FROM api_tokens
+		WHERE id = $1`
+
+	t := &token.Token{}
+	err := r.db.QueryRow(ctx, q, id).Scan(
+		&t.ID, &t.UserID, &t.Label, &t.LastUsed, &t.ExpiresAt, &t.CreatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		slog.ErrorContext(ctx, "token.get_failed", slog.String("token_id", id.String()), slog.String("err", err.Error()))
+		return nil, fmt.Errorf("token get: %w", err)
+	}
+	return t, nil
 }
 
 func (r *TokenRepo) Delete(ctx context.Context, id uuid.UUID) error {

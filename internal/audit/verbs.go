@@ -114,6 +114,13 @@ const (
 	VerbOpsDatagenLegacyLedgerRow Verb = "ops.datagen_legacy_ledger_row"
 	// VerbOpsProvision records environment provisioning.
 	VerbOpsProvision Verb = "ops.provision"
+	// VerbOpsAuthTokenCreate records an operator minting an API token for an
+	// existing user.
+	VerbOpsAuthTokenCreate Verb = "ops.auth_token_create"
+	// VerbOpsAuthTokenList records an operator listing a user's API tokens.
+	VerbOpsAuthTokenList Verb = "ops.auth_token_list"
+	// VerbOpsAuthTokenRevoke records an operator revoking an API token.
+	VerbOpsAuthTokenRevoke Verb = "ops.auth_token_revoke"
 	// VerbOpsBackfillDefaultChildren records default child backfills.
 	VerbOpsBackfillDefaultChildren Verb = "ops.backfill_default_children"
 	// VerbOpsReindex records property index backfills.
