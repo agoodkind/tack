@@ -88,6 +88,10 @@ var (
 	auditConsumerBatchLatencyStats = expvar.NewMap("tack_audit_consumer_batch_latency_ms_stats")
 	// audit_consumer_offset_committed{topic,partition} gauge map.
 	auditConsumerOffsetCommitted = expvar.NewMap("tack_audit_consumer_offset_committed")
+	// audit_consumer_dead_lettered_total counter: records the ledger refused
+	// that were written to the dead-letter table instead. Any rise means an
+	// audit event is waiting to be replayed.
+	auditConsumerDeadLettered = expvar.NewInt("tack_audit_consumer_dead_lettered_total")
 
 	// audit_partition_headroom_weeks gauge: count of future weekly partitions
 	// beyond the one covering now(). A stalled partition-manager shows up here
@@ -126,6 +130,10 @@ func SetAuditConsumerLag(topic string, partition int32, lag int64) {
 	key := topic + ":" + strconv.FormatInt(int64(partition), 10)
 	auditConsumerLagMessages.Set(key, &expvarInt64{value: lag})
 }
+
+// IncAuditConsumerDeadLettered counts one record written to the dead-letter
+// table instead of the ledger.
+func IncAuditConsumerDeadLettered() { auditConsumerDeadLettered.Add(1) }
 
 // IncAuditConsumerProcessed records one record outcome (result is "ok",
 // "error", or "skip").

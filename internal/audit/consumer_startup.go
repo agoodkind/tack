@@ -100,8 +100,13 @@ func ensureAuditTopic(ctx context.Context, client *kgo.Client, topic string, ret
 		}
 		codeErr := kerr.ErrorForCode(respTopic.ErrorCode)
 		if errors.Is(codeErr, kerr.TopicAlreadyExists) {
+			// A broker that refuses the alter (an ACL, an older version)
+			// leaves the topic at its current retention; that is a
+			// shorter buffer, not a stopped consumer, so it is logged and
+			// the consumer keeps projecting.
 			if err := setTopicRetention(ctx, client, topic, retentionMs); err != nil {
-				return err
+				slog.ErrorContext(ctx, "audit.consumer.topic_retention_unchanged",
+					slog.String("topic", topic), slog.String("err", err.Error()))
 			}
 			continue
 		}

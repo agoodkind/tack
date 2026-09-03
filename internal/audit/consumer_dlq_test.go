@@ -15,17 +15,18 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
-// deadLetterTestPartition covers one week in 2028 that no premade partition
-// reaches, so an event dated inside it is refused by the ledger exactly the
-// way the 2026-07-06 events were, and creating the partition afterwards is
-// the cause clearing.
-const (
-	deadLetterTestPartition = "audit.events_test_dlq_2028w10"
-	deadLetterTestFrom      = "2028-03-06"
-	deadLetterTestTo        = "2028-03-13"
-)
+// deadLetterTestPartition is the hand-made partition the test creates once
+// the refusal has been observed. Its week sits five years out, past anything
+// the partition manager premakes, so the refusal keeps happening year after
+// year and the created partition never collides with a managed one.
+const deadLetterTestPartition = "audit.events_test_dlq_far_future"
 
-var deadLetterTestOccurredAt = time.Date(2028, time.March, 8, 12, 0, 0, 0, time.UTC)
+// deadLetterTestWeek returns the start of the week five years from now and
+// an instant inside it.
+func deadLetterTestWeek() (time.Time, time.Time) {
+	start := time.Now().UTC().AddDate(5, 0, 0).Truncate(24 * time.Hour)
+	return start, start.Add(36 * time.Hour)
+}
 
 func countDeadLetters(t *testing.T, pool *pgxpool.Pool, topic string) (int, int, string) {
 	t.Helper()
@@ -39,6 +40,25 @@ func countDeadLetters(t *testing.T, pool *pgxpool.Pool, topic string) (int, int,
 		t.Fatalf("count dead letters: %v", err)
 	}
 	return rows, attempts, errText
+}
+
+// waitForDeadLetters polls until the table holds the expected row count with
+// at least the expected attempts, or fails after the deadline. A replay's
+// records can land in separate polls, so the ledger count alone is not the
+// end of the run.
+func waitForDeadLetters(t *testing.T, pool *pgxpool.Pool, topic string, wantRows, wantAttempts int) (int, int, string) {
+	t.Helper()
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		rows, attempts, errText := countDeadLetters(t, pool, topic)
+		if rows == wantRows && attempts >= wantAttempts {
+			return rows, attempts, errText
+		}
+		if time.Now().After(deadline) {
+			return rows, attempts, errText
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
 }
 
 // writerLoginDSN creates a throwaway login that inherits audit_writer, the
@@ -94,11 +114,13 @@ func produceRaw(t *testing.T, brokers []string, topic string, value []byte, head
 // batch's other event still commits, and the offset advances past both. Once
 // the partition exists, a replay through the topic lands the event and the
 // consumer deletes the row. A payload the decoder rejects stays after a
-// replay with its attempt counted.
+// replay with exactly one attempt counted: the second consumer, in the same
+// group, resumes from the committed offset and never re-reads the original.
 func TestConsumerDeadLettersARefusedInsertAndReplaysIt(t *testing.T) {
 	pool, brokers, topic := newConsumerEnv(t)
 	ctx := context.Background()
 	orgID := uuid.Must(uuid.NewV7())
+	weekStart, occurredAt := deadLetterTestWeek()
 	t.Cleanup(func() {
 		purgeOrg(t, pool, orgID)
 		_, _ = pool.Exec(ctx, `DELETE FROM audit.events_dlq WHERE topic = $1`, topic)
@@ -107,7 +129,7 @@ func TestConsumerDeadLettersARefusedInsertAndReplaysIt(t *testing.T) {
 	_, _ = pool.Exec(ctx, `DROP TABLE IF EXISTS `+deadLetterTestPartition)
 
 	refused := makeReadEvent(orgID, "refused")
-	refused.OccurredAt = deadLetterTestOccurredAt
+	refused.OccurredAt = occurredAt
 	accepted := makeReadEvent(orgID, "accepted")
 	produceEvents(t, brokers, topic, []Event{refused, accepted})
 	produceRaw(t, brokers, topic, []byte(`{"not":"an event"`), nil)
@@ -118,7 +140,7 @@ func TestConsumerDeadLettersARefusedInsertAndReplaysIt(t *testing.T) {
 		BatchSize: 32, PollInterval: 100 * time.Millisecond,
 		YugabyteDSN: writerLoginDSN(t, pool, os.Getenv("AUDIT_CONSUMER_TEST_DSN")),
 	}
-	runConsumerOnce(t, cfg, 1)
+	runConsumerOnce(t, cfg, orgID, 1)
 
 	rows, _, refusedErr := countDeadLetters(t, pool, topic)
 	if rows != 2 {
@@ -136,7 +158,10 @@ func TestConsumerDeadLettersARefusedInsertAndReplaysIt(t *testing.T) {
 	}
 
 	// The cause clears: the week gains a partition. Replay everything.
-	if _, err := pool.Exec(ctx, `CREATE TABLE `+deadLetterTestPartition+` PARTITION OF audit.events FOR VALUES FROM ('`+deadLetterTestFrom+`') TO ('`+deadLetterTestTo+`')`); err != nil {
+	// DDL takes no bind parameters; the bounds are dates this test computed.
+	partitionDDL := `CREATE TABLE ` + deadLetterTestPartition + ` PARTITION OF audit.events FOR VALUES FROM ('` +
+		weekStart.Format("2006-01-02") + `') TO ('` + weekStart.AddDate(0, 0, 7).Format("2006-01-02") + `')`
+	if _, err := pool.Exec(ctx, partitionDDL); err != nil {
 		t.Fatalf("create the missing partition: %v", err)
 	}
 	reader := &Reader{pool: pool}
@@ -147,17 +172,14 @@ func TestConsumerDeadLettersARefusedInsertAndReplaysIt(t *testing.T) {
 	for _, letter := range letters {
 		produceRaw(t, brokers, topic, letter.Payload, []kgo.RecordHeader{{Key: dlqReplayHeader, Value: []byte(letter.Key.String())}})
 	}
-	runConsumerOnce(t, cfg, 2)
+	runConsumerOnce(t, cfg, orgID, 2)
 
-	rows, attempts, remainingErr := countDeadLetters(t, pool, topic)
+	rows, attempts, remainingErr := waitForDeadLetters(t, pool, topic, 1, 1)
 	if rows != 1 {
 		t.Fatalf("dead letters after the replay = %d, want only the malformed payload", rows)
 	}
-	// At least one: the replay itself. A consumer that resumes from the
-	// topic's start counts the original record's second failure too, and
-	// every failed projection of one key is an attempt worth counting.
-	if attempts < 1 || !strings.Contains(remainingErr, "malformed") {
-		t.Fatalf("remaining dead letter attempts = %d error = %q, want the replay counted on the malformed payload", attempts, remainingErr)
+	if attempts != 1 || !strings.Contains(remainingErr, "malformed") {
+		t.Fatalf("remaining dead letter attempts = %d error = %q, want exactly the replay counted on the malformed payload", attempts, remainingErr)
 	}
 	var landed int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM audit.events WHERE event_id = $1`, refused.EventID).Scan(&landed); err != nil {
@@ -166,4 +188,26 @@ func TestConsumerDeadLettersARefusedInsertAndReplaysIt(t *testing.T) {
 	if landed != 1 {
 		t.Fatalf("the replayed event is in the ledger %d times, want 1", landed)
 	}
+}
+
+// TestConsumerIgnoresAnUnparseableReplayHeader pins that a record carrying a
+// replay header the consumer cannot read is projected as a fresh record and
+// the partition keeps moving, rather than the batch failing on every poll.
+func TestConsumerIgnoresAnUnparseableReplayHeader(t *testing.T) {
+	pool, brokers, topic := newConsumerEnv(t)
+	orgID := uuid.Must(uuid.NewV7())
+	t.Cleanup(func() { purgeOrg(t, pool, orgID) })
+
+	body, err := MarshalEvent(makeReadEvent(orgID, "hostile-header"))
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	produceRaw(t, brokers, topic, body, []kgo.RecordHeader{{Key: dlqReplayHeader, Value: []byte("not/a/valid/key/at/all")}})
+	produceEvents(t, brokers, topic, []Event{makeReadEvent(orgID, "after")})
+
+	runConsumerOnce(t, ConsumerConfig{
+		Brokers: brokers, Topic: topic, GroupID: "tack-audit-projector-test-" + uuid.NewString()[:8],
+		BatchSize: 8, PollInterval: 100 * time.Millisecond,
+		YugabyteDSN: os.Getenv("AUDIT_CONSUMER_TEST_DSN"),
+	}, orgID, 2)
 }

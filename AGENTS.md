@@ -229,7 +229,13 @@ not even healthy until the first of them runs. Until the provisioning layer land
    restart. The app holds no ledger read or redaction connection: every audit
    read and redaction is a host command (`audit query`, `audit get`,
    `audit export`, `audit redact-actor`) that opens its own reader and
-   redactor pools, never an MCP tool (TACK-456, TACK-458).
+   redactor pools, never an MCP tool (TACK-456, TACK-458). The dead-letter
+   commands (`ops audit dlq inspect`, `ops audit dlq replay`) run through the
+   `app` service, which carries both the reader DSN and the Kafka brokers a
+   replay needs; tack-ops is host-networked and cannot reach the broker.
+   Migration 010 must be applied before an audit-consumer image that carries
+   it, which the full deploy's provision step does and `./server ops deploy`
+   does not (TACK-336).
 4. **Kafka topic.** No manual step: the audit-consumer ensures `audit.events.v1`
    with 256 partitions on startup once Yugabyte is reachable (TACK-305). On a
    fresh broker it appears automatically after step 3.

@@ -2,6 +2,7 @@ package audit
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 
@@ -9,8 +10,10 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// ListDeadLetters reads up to limit dead-letter rows, oldest first, with
-// their payloads, for a replay.
+// ListDeadLetters reads up to limit dead-letter rows with their payloads for
+// a replay: rows never attempted first, then the fewest attempts, oldest
+// first within a count, so a payload that can never land does not sit at
+// the front of every run and starve the rows behind it.
 func (r *Reader) ListDeadLetters(ctx context.Context, limit int) ([]DeadLetter, error) {
 	if r == nil || r.pool == nil {
 		return nil, fmt.Errorf("audit reader not configured")
@@ -18,7 +21,7 @@ func (r *Reader) ListDeadLetters(ctx context.Context, limit int) ([]DeadLetter, 
 	rows, err := r.pool.Query(ctx, `
 		SELECT topic, partition, "offset", received_at, payload, error, attempt_count, last_attempt_at
 		  FROM audit.events_dlq
-		 ORDER BY received_at ASC, topic ASC, partition ASC, "offset" ASC
+		 ORDER BY attempt_count ASC, received_at ASC, topic ASC, partition ASC, "offset" ASC
 		 LIMIT $1
 	`, limit)
 	if err != nil {
@@ -79,14 +82,18 @@ func (r *Reader) SummarizeDeadLetters(ctx context.Context) ([]DeadLetterSummary,
 // byte for byte, under a header naming the row. The consumer decodes and
 // projects it exactly as it would a fresh record and, as the ledger's one
 // writer, deletes the row when the event lands or counts the attempt when it
-// fails again. The payload is not decoded here on purpose: a row the current
-// decoder still rejects must reach the consumer to be counted as another
-// failed attempt, and a replay that parsed first would hide that.
+// fails again. The payload is not validated here on purpose: a row the
+// current decoder still rejects must reach the consumer to be counted as
+// another failed attempt, and a replay that refused it first would hide
+// that. The partition key is the one the producer would have used, read from
+// the payload when it decodes, so the replay lands on the partition that
+// owns the event's chain and no second consumer advances it.
 func (k *KafkaRecorder) Replay(ctx context.Context, letter DeadLetter) error {
 	produceCtx, cancel := context.WithTimeout(ctx, k.produceTimeout)
 	defer cancel()
 	rec := &kgo.Record{
 		Topic:   k.topic,
+		Key:     replayPartitionKey(letter.Payload),
 		Value:   letter.Payload,
 		Headers: []kgo.RecordHeader{{Key: dlqReplayHeader, Value: []byte(letter.Key.String())}},
 	}
@@ -108,4 +115,15 @@ func (k *KafkaRecorder) Replay(ctx context.Context, letter DeadLetter) error {
 		slog.Int("attempt_count", letter.AttemptCount),
 		slog.Time("received_at", letter.ReceivedAt))
 	return nil
+}
+
+// replayPartitionKey derives the producer's partition key from a dead-letter
+// payload. A payload that does not decode gets no key and lands anywhere,
+// which is harmless: the consumer will refuse it again and count the attempt.
+func replayPartitionKey(payload []byte) []byte {
+	var ev Event
+	if err := json.Unmarshal(payload, &ev); err != nil {
+		return nil
+	}
+	return kafkaPartitionKey(ev)
 }

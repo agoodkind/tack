@@ -60,7 +60,7 @@ func auditDLQProducer(ctx context.Context, f *cli.Factory) (*audit.KafkaRecorder
 		return nil, err
 	}
 	producer, err := audit.NewKafkaRecorder(audit.KafkaConfig{
-		Brokers:        strings.Split(brokers, ","),
+		Brokers:        audit.SplitBrokers(brokers),
 		Topic:          f.Cfg.AuditKafkaTopic,
 		ClientID:       "tack-audit-dlq-replay",
 		ProduceTimeout: f.Cfg.AuditKafkaProduceTimeout,

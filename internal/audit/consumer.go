@@ -121,6 +121,12 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 		return nil, err
 	}
 
+	// Autocommit stays off: the loop commits the records of each batch
+	// explicitly, right after the ledger transaction that projected them
+	// commits, so the group offset never runs ahead of the ledger. The
+	// earlier loop marked records for an autocommit that was never enabled,
+	// so no offset was ever committed and every restart re-read the topic
+	// from its start (TACK-336 review).
 	kclient, err := kgo.NewClient(
 		kgo.SeedBrokers(cfg.Brokers...),
 		kgo.ConsumerGroup(cfg.GroupID),
@@ -340,6 +346,7 @@ func (c *Consumer) loop(ctx context.Context) {
 		}
 
 		batches := groupByPartition(fetches)
+		committed := make([]*kgo.Record, 0, len(batches))
 		for tp, records := range batches {
 			if err := c.projectBatch(ctx, tp, records); err != nil {
 				telemetry.IncAuditConsumerProcessed("error", int64(len(records)))
@@ -351,14 +358,19 @@ func (c *Consumer) loop(ctx context.Context) {
 				continue
 			}
 			last := records[len(records)-1]
-			c.kclient.MarkCommitRecords(last)
+			committed = append(committed, last)
 			telemetry.IncAuditConsumerProcessed("ok", int64(len(records)))
 			telemetry.SetAuditConsumerOffsetCommitted(tp.Topic, tp.Partition, last.Offset+1)
 			c.recordSummary(ctx, records, last.Offset+1)
 		}
 
-		if err := c.kclient.CommitMarkedOffsets(ctx); err != nil {
-			slog.ErrorContext(ctx, "audit.consumer.commit_failed", slog.String("err", err.Error()))
+		// A commit lost to a rebalance only redelivers, and a redelivered
+		// record is refused by the ledger's identity claim, so the group
+		// offset may lag the ledger but never lead it.
+		if len(committed) > 0 {
+			if err := c.kclient.CommitRecords(ctx, committed...); err != nil {
+				slog.ErrorContext(ctx, "audit.consumer.commit_failed", slog.String("err", err.Error()))
+			}
 		}
 
 		telemetry.ObserveAuditConsumerBatchLatency(sinceMs(pollStart))
@@ -588,6 +600,7 @@ func (c *Consumer) projectRecord(ctx context.Context, tx pgx.Tx, rec *kgo.Record
 	case isDeadLetterable(perr):
 		// Malformed payloads and refused inserts alike: the record is kept,
 		// named, and counted in the dead-letter table, and the batch goes on.
+		telemetry.IncAuditConsumerDeadLettered()
 		return projectedEvent{}, false, deadLetterRecord(ctx, tx, rec, perr)
 	default:
 		slog.ErrorContext(ctx, "audit.consumer.project_record_failed",
