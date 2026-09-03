@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -78,4 +79,48 @@ func TestYBInventoryCheckStillReportsTheMissingFile(t *testing.T) {
 			t.Fatalf("missing = %+v, want only %s at its archived size", missing, wantPath)
 		}
 	})
+}
+
+// TestParseYBInventoryCheckRefusesWhatItCannotAttribute proves the extraction
+// check never reports a subset. Each missing file is attributed to the tablet
+// it belongs to, so a count the report cannot cover, or one that disagrees with
+// the lines, has to fail rather than leave tablets it could not account for
+// looking whole.
+func TestParseYBInventoryCheckRefusesWhatItCannotAttribute(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		out  string
+	}{
+		{name: "no count", out: "table-a/x\t3\n"},
+		{name: "unreadable count", out: "missing lots\n"},
+		{name: "count above the report limit", out: "missing 4097\n"},
+		{name: "count disagrees with the lines", out: "missing 2\ntable-a/x\t3\n"},
+		{name: "an unreadable line", out: "missing 1\ntable-a/x\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := parseYBInventoryCheck("yb1", tc.out); err == nil {
+				t.Fatalf("reading %q as an extraction check must fail", tc.out)
+			}
+		})
+	}
+}
+
+// TestParseYBInventoryCheckReadsAWholeRun proves the two answers the check
+// gives: nothing missing, and the files that are, padding from wc included.
+func TestParseYBInventoryCheckReadsAWholeRun(t *testing.T) {
+	missing, err := parseYBInventoryCheck("yb1", "missing       0\n")
+	if err != nil || len(missing) != 0 {
+		t.Fatalf("whole extraction = %v, %v; want none missing", missing, err)
+	}
+	missing, err = parseYBInventoryCheck("yb1", "missing 2\ntable-a/t.snapshots/s/CURRENT\t3\ntable-a/t.snapshots/s/x\t9\n")
+	if err != nil {
+		t.Fatalf("parseYBInventoryCheck: %v", err)
+	}
+	want := []ybArchivedFile{
+		{Path: "table-a/t.snapshots/s/CURRENT", Size: 3},
+		{Path: "table-a/t.snapshots/s/x", Size: 9},
+	}
+	if !reflect.DeepEqual(missing, want) {
+		t.Fatalf("missing:\n got=%+v\nwant=%+v", missing, want)
+	}
 }
