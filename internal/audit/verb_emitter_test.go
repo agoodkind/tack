@@ -24,7 +24,6 @@ var unemittedVerbs = map[Verb]string{
 	VerbOrgMemberRemove:    "no membership removal mutation exists; TACK-340 tracks the feature",
 	VerbOrgMemberRoleSet:   "no role mutation exists; TACK-340 tracks the feature",
 	VerbAuthLoginSucceeded: "there is no login endpoint; bearer auth emits auth.token_used instead; TACK-340",
-	VerbAuthTokenRevoke:    "no revoke caller or API exists; TACK-472 covers the token lifecycle",
 	VerbAuditNotarized:     "the notarizer writes its own table row and records no ledger event; TACK-340",
 	VerbAuditChainVerified: "bundle verification is offline with no operator actor; TACK-340",
 	VerbAuditDropped:       "a recorder that cannot record cannot record its own failure; TACK-320 owns the outage log",

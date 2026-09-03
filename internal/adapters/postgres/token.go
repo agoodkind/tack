@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -84,6 +85,28 @@ func (r *TokenRepo) List(ctx context.Context, userID uuid.UUID) ([]*token.Token,
 		tokens = append(tokens, t)
 	}
 	return tokens, rows.Err()
+}
+
+// GetByID returns one token record by primary key without touching last_used.
+// Returns domain.ErrNotFound when no row carries the id.
+func (r *TokenRepo) GetByID(ctx context.Context, id uuid.UUID) (*token.Token, error) {
+	const q = `
+		SELECT id, user_id, label, last_used, expires_at, created_at
+		FROM api_tokens
+		WHERE id = $1`
+
+	t := &token.Token{}
+	err := r.db.QueryRow(ctx, q, id).Scan(
+		&t.ID, &t.UserID, &t.Label, &t.LastUsed, &t.ExpiresAt, &t.CreatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		slog.ErrorContext(ctx, "token.get_failed", slog.String("token_id", id.String()), slog.String("err", err.Error()))
+		return nil, fmt.Errorf("token get: %w", err)
+	}
+	return t, nil
 }
 
 func (r *TokenRepo) Delete(ctx context.Context, id uuid.UUID) error {
