@@ -88,10 +88,21 @@ func fakeYBExportRunObjects(t *testing.T, prefixRunID string, manifest ybSnapsho
 	}
 	for _, node := range manifest.Nodes {
 		for _, object := range ybNodeArtifactObjects() {
-			objects[prefix+node.Prefix+object] = []byte("node artifact")
+			objects[prefix+node.Prefix+object] = fakeYBNodeArtifact(manifest, node, object)
 		}
 	}
 	return objects
+}
+
+// fakeYBNodeArtifact is the body of one node artifact in the fake store. The
+// inventory is rendered through the production writer for the manifest's own
+// run and node, recording no files, so the drill's staging step reads it back
+// the way it reads a real one; every other node artifact is opaque bytes.
+func fakeYBNodeArtifact(manifest ybSnapshotManifest, node ybSnapshotManifestNode, object string) []byte {
+	if object == ybNodeInventoryObject {
+		return ybArchiveInventory{RunID: manifest.RunID, Node: node.Name, Files: nil}.render()
+	}
+	return []byte("node artifact")
 }
 
 func (s *fakeBackupObjectStore) ServeHTTP(w http.ResponseWriter, r *http.Request) {
