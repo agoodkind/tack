@@ -20,6 +20,12 @@ so a failing guest cannot destroy its own evidence.
 - The scheduled restore rehearsal rebuilds both stores into throwaway
   containers from object-store artifacts only: auth tables hold rows, a
   product-store range read is non-empty, the audit chain verifies.
+- The throwaway engines run the same image the live stores run, and the
+  dump tooling is that same image, so the rehearsal restores into the
+  version production would restore into. A rehearsal on another engine
+  version rehearses a different recovery: the first privilege-carrying
+  export applied cleanly nowhere, because a 2025.2 scratch refused a
+  2024.2 catalog signature.
 - Every read the rehearsal makes against the restored ledger runs as a role
   holding only the application's own base role, never as the scratch
   database's bootstrap user. The bootstrap user is a superuser, so it can
