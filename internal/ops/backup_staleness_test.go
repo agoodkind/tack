@@ -219,7 +219,8 @@ func TestExportStalenessMetricRefusesAnUndatableRun(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			s3Client, cfg := newFakeBackupObjectStore(t, "tack-backups",
 				fakeYBExportRunObjects(t, test.prefixRunID,
-					newYBSnapshotManifest(test.manifestRunID, "snap-1", "tack", []string{"yb1"})))
+					newYBSnapshotManifest(test.manifestRunID, "snap-1", "tack",
+						[]string{"yb1"}, ybTestArtifactNames())))
 			cfg.BackupStalenessExportMaxSeconds = 129600
 
 			metric := exportStalenessMetric(ctx, cfg, s3Client, now)

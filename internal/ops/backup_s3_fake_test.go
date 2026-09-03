@@ -68,10 +68,11 @@ func newFakeBackupObjectStore(t *testing.T, bucket string, objects map[string][]
 }
 
 // fakeYBExportRunObjects is the object set a finished export run leaves under
-// one run prefix: the manifest the walk reads and one archive per node the
-// manifest lists, which is what the completeness gate probes for. The manifest
-// is placed under prefixRunID whatever run it declares, so a manifest that
-// names a run other than its own prefix can be exercised.
+// one run prefix: the manifest the walk reads, every run-root artifact the
+// manifest declares, and one archive per node the manifest lists, which is
+// what the completeness gate probes for. The manifest is placed under
+// prefixRunID whatever run it declares, so a manifest that names a run other
+// than its own prefix can be exercised.
 func fakeYBExportRunObjects(t *testing.T, prefixRunID string, manifest ybSnapshotManifest) map[string][]byte {
 	t.Helper()
 	body, err := json.Marshal(manifest)
@@ -80,6 +81,9 @@ func fakeYBExportRunObjects(t *testing.T, prefixRunID string, manifest ybSnapsho
 	}
 	prefix := ybSnapshotKeyPrefix(prefixRunID)
 	objects := map[string][]byte{prefix + ybSnapshotManifestObject: body}
+	for _, artifact := range manifest.Artifacts {
+		objects[prefix+artifact] = []byte("export artifact " + artifact)
+	}
 	for _, node := range manifest.Nodes {
 		objects[prefix+node.Prefix+ybNodeArchiveObject] = []byte("tablet archive")
 	}

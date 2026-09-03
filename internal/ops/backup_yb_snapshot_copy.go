@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/moby/moby/client"
 
@@ -78,10 +79,24 @@ func tarYBTabletSnapshots(ctx context.Context, cli *client.Client, cfg *config.C
 // the orchestrator honest against the decode-side allowlist: an export whose
 // derived run id or node names would be refused by every reader fails loudly
 // here instead of publishing an unusable manifest.
+//
+// The required-artifact declaration is enforced here too, at the moment the
+// export is still running and can still be fixed, rather than only when a
+// recovery reaches for the run. It is deliberately not folded into validate():
+// that method is the untrusted-input boundary every reader of every run shares,
+// including the archive command and the pre-export snapshot cleanup, and runs
+// exported before the roles file existed still have to decode there so those
+// walks can pass over them by name instead of aborting on the first one.
 func writeYBSnapshotManifest(ctx context.Context, path string, manifest ybSnapshotManifest) error {
 	logger := telemetry.L(ctx)
 	if err := manifest.validate(); err != nil {
 		wrapped := fmt.Errorf("yb snapshot manifest not writable: %w", err)
+		logger.ErrorContext(ctx, "backup.yb_snapshot.manifest_failed", slog.String("err", wrapped.Error()))
+		return wrapped
+	}
+	if undeclared := undeclaredYBRequiredArtifacts(manifest); len(undeclared) > 0 {
+		wrapped := fmt.Errorf("yb snapshot manifest does not declare required artifacts %s; the run would restore into an unusable database",
+			strings.Join(undeclared, ", "))
 		logger.ErrorContext(ctx, "backup.yb_snapshot.manifest_failed", slog.String("err", wrapped.Error()))
 		return wrapped
 	}
@@ -121,12 +136,29 @@ type ybSnapshotArtifact struct {
 // order, the manifest strictly last. The manifest is the completeness gate the
 // archivers and the restore drill trust, so it must land only after every
 // object it vouches for.
-func ybSnapshotUploadArtifacts(stageDir, schemaPath, manifestPath string) []ybSnapshotArtifact {
+func ybSnapshotUploadArtifacts(stageDir, schemaPath, rolesPath, manifestPath string) []ybSnapshotArtifact {
 	return []ybSnapshotArtifact{
 		{name: ybSnapshotMetadataObject, path: filepath.Join(stageDir, ybSnapshotMetadataObject)},
-		{name: "schema.sql", path: schemaPath},
+		{name: ybSnapshotSchemaObject, path: schemaPath},
+		{name: ybSnapshotRolesObject, path: rolesPath},
 		{name: ybSnapshotManifestObject, path: manifestPath},
 	}
+}
+
+// ybSnapshotGatedArtifactNames returns the object names the manifest declares
+// as the run's artifacts: every uploaded artifact except the manifest, which
+// cannot gate its own presence because its presence is what makes the run
+// visible at all. Deriving the declaration from the upload set is what lets a
+// new artifact join the completeness gate without the gate naming it.
+func ybSnapshotGatedArtifactNames(files []ybSnapshotArtifact) []string {
+	names := make([]string, 0, len(files))
+	for _, file := range files {
+		if file.name == ybSnapshotManifestObject {
+			continue
+		}
+		names = append(names, file.name)
+	}
+	return names
 }
 
 // uploadYBSnapshotArtifacts uploads the staged files to the main backup bucket

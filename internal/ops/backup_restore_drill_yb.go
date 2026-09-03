@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -18,11 +17,6 @@ import (
 
 	"goodkind.io/tack/internal/telemetry"
 )
-
-// ybRolePattern matches the audit role names the exported schema's row-level
-// security policies reference; the restore must create them before applying the
-// schema or the policy statements fail.
-var ybRolePattern = regexp.MustCompile(`\b(?:tack_)?audit_[a-z_]+\b`)
 
 // restoreDrillYugabyte restores the newest complete YugabyteDB
 // distributed-snapshot export (or the explicitly requested run) into a
@@ -68,13 +62,16 @@ func restoreDrillYugabyte(ctx context.Context, r *restoreDrillCtx) error {
 		return wrapped
 	}
 
-	if err := createYBDrillRoles(ctx, r, name, manifest.Database, filepath.Join(stageDir, "schema.sql")); err != nil {
+	// Roles first: the schema carries the ledger's grants, and a GRANT naming a
+	// role the database does not have fails the schema apply.
+	if err := applyYBDrillRoles(ctx, r, name, manifest.Database); err != nil {
 		return err
 	}
 	if err := ybRunSQL(ctx, r, name, manifest.Database, "-c", "CREATE EXTENSION IF NOT EXISTS pgcrypto"); err != nil {
 		return err
 	}
-	if err := ybRunSQL(ctx, r, name, manifest.Database, "-v", "ON_ERROR_STOP=1", "-q", "-f", "/artifacts/schema.sql"); err != nil {
+	if err := ybRunSQL(ctx, r, name, manifest.Database,
+		"-v", "ON_ERROR_STOP=1", "-q", "-f", ybDrillArtifactPath(ybSnapshotSchemaObject)); err != nil {
 		wrapped := fmt.Errorf("apply schema: %w", err)
 		logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", wrapped.Error()))
 		return wrapped
@@ -159,9 +156,20 @@ func resolveYBDrillExportStrict(
 		logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", wrapped.Error()))
 		return ybSnapshotManifest{}, wrapped
 	}
-	missing, err := missingYBNodeArchives(manifest, func(key string) (bool, error) {
+	exists := func(key string) (bool, error) {
 		return objectExists(ctx, s3Client, r.Cfg.BackupS3BucketMain, key)
-	})
+	}
+	missingArtifacts, err := missingYBRunArtifacts(manifest, exists)
+	if err != nil {
+		return ybSnapshotManifest{}, err
+	}
+	if len(missingArtifacts) > 0 {
+		wrapped := fmt.Errorf("yb snapshot export run %s is incomplete: artifacts %s are absent; refusing the run",
+			runID, strings.Join(missingArtifacts, ", "))
+		logger.ErrorContext(ctx, "backup.restore_drill.yb.incomplete", slog.String("err", wrapped.Error()))
+		return ybSnapshotManifest{}, wrapped
+	}
+	missing, err := missingYBNodeArchives(manifest, exists)
 	if err != nil {
 		return ybSnapshotManifest{}, err
 	}
@@ -201,6 +209,14 @@ func newestCompleteYBSnapshotRun(
 			skip(runID, defect)
 			continue
 		}
+		missingArtifacts, artifactErr := missingYBRunArtifacts(candidate, exists)
+		if artifactErr != nil {
+			return manifest, false, artifactErr
+		}
+		if len(missingArtifacts) > 0 {
+			skip(runID, "artifacts "+strings.Join(missingArtifacts, ", ")+" are absent")
+			continue
+		}
 		missing, missingErr := missingYBNodeArchives(candidate, exists)
 		if missingErr != nil {
 			return manifest, false, missingErr
@@ -215,11 +231,25 @@ func newestCompleteYBSnapshotRun(
 }
 
 // ybDrillManifestDefect reports why a manifest cannot be drilled, or "" when
-// it is well-formed: the manifest must name the snapshot and the database, and
-// a manifest that lists no tablet-server nodes would gate nothing.
+// it is well-formed: the manifest must name the snapshot and the database, it
+// must declare every artifact the restore opens by name, and it must list at
+// least one tablet-server node or it would gate nothing.
+//
+// The declaration is checked here, against the manifest alone, because it is a
+// defect in how the run describes itself rather than a report on the object
+// store. A run declaring fewer artifacts than a restore reads (an export
+// written before the run carried its own roles file, or one whose declaration
+// was truncated) is unusable however many of the objects it named are present:
+// the drill would select it as the newest complete run and then fail deep in
+// the restore on a path nothing gated. Naming the undeclared artifacts here
+// keeps that separate from "the run declared them and one is absent", which
+// missingYBRunArtifacts reports and a re-upload fixes.
 func ybDrillManifestDefect(manifest ybSnapshotManifest) string {
 	if manifest.SnapshotID == "" || manifest.Database == "" {
 		return "manifest missing snapshot_id or database"
+	}
+	if undeclared := undeclaredYBRequiredArtifacts(manifest); len(undeclared) > 0 {
+		return "manifest does not declare required artifacts " + strings.Join(undeclared, ", ")
 	}
 	if len(manifest.Nodes) == 0 {
 		return "manifest lists no tablet-server nodes"
@@ -227,10 +257,25 @@ func ybDrillManifestDefect(manifest ybSnapshotManifest) string {
 	return ""
 }
 
-// stageYBDrillArtifacts downloads the run's metadata, schema, and every node
-// archive into stageDir, naming each archive tablets-<node>.tar.gz so the
-// scratch container can extract each node's files into its own directory. It
-// returns the node names in manifest order for the extraction step.
+// ybDrillArtifactsDir is where stageYBDrillArtifacts' staging directory is
+// bind-mounted inside the scratch container.
+const ybDrillArtifactsDir = "/artifacts"
+
+// ybDrillArtifactPath is where one staged run-root artifact appears to the
+// scratch container. Every fixed path the restore opens is built here from the
+// artifact's own object name, so the files the restore reads and the names
+// ybRequiredRunArtifacts makes the manifest declare cannot drift apart.
+func ybDrillArtifactPath(artifact string) string {
+	return ybDrillArtifactsDir + "/" + artifact
+}
+
+// stageYBDrillArtifacts downloads every artifact the run declares, plus every
+// node archive, into stageDir, naming each archive tablets-<node>.tar.gz so the
+// scratch container can extract each node's files into its own directory. The
+// artifacts come from the manifest rather than a list held here, so the drill
+// stages whatever the export published, and the manifest is refused before this
+// runs unless it declares everything the restore opens by name. It returns the
+// node names in manifest order for the extraction step.
 func stageYBDrillArtifacts(
 	ctx context.Context,
 	r *restoreDrillCtx,
@@ -239,7 +284,7 @@ func stageYBDrillArtifacts(
 	stageDir string,
 ) ([]string, error) {
 	srcPrefix := ybSnapshotKeyPrefix(manifest.RunID)
-	for _, name := range []string{ybSnapshotMetadataObject, "schema.sql"} {
+	for _, name := range manifest.Artifacts {
 		if err := getObjectToFile(ctx, s3Client, r.Cfg.BackupS3BucketMain, srcPrefix+name, filepath.Join(stageDir, name)); err != nil {
 			return nil, err
 		}
@@ -283,7 +328,7 @@ func startScratchYugabyte(ctx context.Context, r *restoreDrillCtx, name, databas
 	hostCfg := &container.HostConfig{
 		Binds: []string{
 			r.Cfg.BackupYBOverlayPath + ":/home/yugabyte/bin/yugabyted:ro",
-			stageDir + ":/artifacts:ro",
+			stageDir + ":" + ybDrillArtifactsDir + ":ro",
 		},
 	}
 	created, err := r.Cli.ContainerCreate(ctx, client.ContainerCreateOptions{
@@ -330,32 +375,6 @@ func ybRunSQL(ctx context.Context, r *restoreDrillCtx, container, database strin
 		logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", wrapped.Error()))
 		return wrapped
 	}
-	return nil
-}
-
-// createYBDrillRoles creates every audit role the schema references, as NOLOGIN
-// roles, so the schema's row-level-security policies apply. A duplicate-role
-// error is ignored.
-func createYBDrillRoles(ctx context.Context, r *restoreDrillCtx, container, database, schemaPath string) error {
-	logger := telemetry.L(ctx)
-	schema, err := os.ReadFile(schemaPath)
-	if err != nil {
-		wrapped := fmt.Errorf("read schema for roles: %w", err)
-		logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", wrapped.Error()))
-		return wrapped
-	}
-	seen := map[string]bool{}
-	for _, role := range ybRolePattern.FindAllString(string(schema), -1) {
-		if seen[role] {
-			continue
-		}
-		seen[role] = true
-		// Best effort: a role that already exists is fine.
-		_, _, _ = containerExecStreaming(ctx, r.Cli, container,
-			[]string{"ysqlsh", "-h", container, "-p", "5433", "-U", database, "-d", database, "-c", "CREATE ROLE \"" + role + "\""},
-			[]string{"PGPASSWORD=" + r.YBPass}, devNull{})
-	}
-	logger.InfoContext(ctx, "backup.restore_drill.yb.roles_created", slog.Int("count", len(seen)))
 	return nil
 }
 
