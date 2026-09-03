@@ -29,6 +29,9 @@ func restoreDrillYugabyte(ctx context.Context, r *restoreDrillCtx) error {
 		logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", err.Error()))
 		return err
 	}
+	if err := requireBackupYBImage(ctx, r.Cfg, "restore-drill yb", "backup.restore_drill.yb.failed"); err != nil {
+		return err
+	}
 	s3Client := newBackupS3Client(r.Cfg)
 
 	manifest, err := resolveYBDrillExport(ctx, r, s3Client)

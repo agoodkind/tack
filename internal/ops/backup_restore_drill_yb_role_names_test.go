@@ -60,8 +60,8 @@ func TestClassifyYBRolesApplyReadsRoleNamesTheMessageShapeCannotDelimit(t *testi
 // liveNewlineRolesApplyStderr is the stderr a real roles file produced when the
 // target already held two roles whose names carry newlines, captured on
 // 2026-09-01 by applying a ysql_dumpall --roles-only --no-role-passwords file
-// to yugabytedb/yugabyte:2025.2.3.0-b149 (the configured restore-drill image)
-// under the exact command and environment applyYBDrillRoles uses.
+// to yugabytedb/yugabyte:2025.2.3.0-b149 under the exact command and
+// environment applyYBDrillRoles uses.
 //
 // The server interpolates the name into the message unescaped and the client
 // prints the message as it is, so a name's newline splits the diagnostic across

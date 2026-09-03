@@ -64,6 +64,9 @@ func RunBackupYBSnapshotExport(ctx context.Context, cfg *config.Config) error {
 		logger.ErrorContext(ctx, "backup.yb_snapshot.failed", slog.String("err", err.Error()))
 		return err
 	}
+	if err := requireBackupYBImage(ctx, cfg, "yb-snapshot-export", "backup.yb_snapshot.failed"); err != nil {
+		return err
+	}
 
 	filter := "ysql." + cfg.YugabyteDB
 	runID := opsNow().UTC().Format(ybSnapshotRunIDLayout)

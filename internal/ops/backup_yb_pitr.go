@@ -39,6 +39,9 @@ const ybAdminBinary = "/home/yugabyte/bin/yb-admin"
 // distinct exit code for that case.
 func RunBackupYBPITRInit(ctx context.Context, cfg *config.Config) error {
 	logger := telemetry.L(ctx)
+	if err := requireBackupYBImage(ctx, cfg, "yb-pitr-init", "backup.yb_pitr.failed"); err != nil {
+		return err
+	}
 	filter := "ysql." + cfg.YugabyteDB
 	interval := strconv.Itoa(cfg.BackupYBPITRIntervalMinutes)
 	retention := strconv.Itoa(cfg.BackupYBPITRRetentionMinutes)
