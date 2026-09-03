@@ -31,10 +31,7 @@ const fdbBackupMarkerPrefix = "backups/"
 // drill instead of quietly restoring some other moment. markers are the
 // backups/ marker keys sorted ascending.
 func selectFDBBackup(ctx context.Context, r *restoreDrillCtx, containerName string, markers []string) (string, error) {
-	names := make([]string, 0, len(markers))
-	for _, marker := range markers {
-		names = append(names, strings.TrimPrefix(marker, fdbBackupMarkerPrefix))
-	}
+	names := fdbBackupNames(markers)
 	if r.FDBTargetTime == nil {
 		return names[len(names)-1], nil
 	}
@@ -59,6 +56,16 @@ func selectFDBBackup(ctx context.Context, r *restoreDrillCtx, containerName stri
 		slog.String("window_max", formatFDBTime(window.Max)),
 	)
 	return name, nil
+}
+
+// fdbBackupNames turns the backups/ marker keys, in the order the store listed
+// them, into the bare names fdbrestore addresses, keeping that order.
+func fdbBackupNames(markers []string) []string {
+	names := make([]string, 0, len(markers))
+	for _, marker := range markers {
+		names = append(names, strings.TrimPrefix(marker, fdbBackupMarkerPrefix))
+	}
+	return names
 }
 
 // chooseFDBBackupForTarget walks the backup names newest first and returns

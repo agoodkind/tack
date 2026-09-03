@@ -3,8 +3,10 @@ package ops
 import (
 	"encoding/json"
 	"encoding/xml"
+	"maps"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -118,7 +120,9 @@ func (s *fakeBackupObjectStore) ServeHTTP(w http.ResponseWriter, r *http.Request
 
 // writeList answers a delimited ListObjectsV2: a key with the delimiter still
 // in its remainder collapses into its first folder, which is what makes the
-// export run prefixes discoverable.
+// export run prefixes discoverable. Keys are listed in ascending order, as S3
+// lists them, which is the order the FoundationDB backup selection reads as
+// oldest first.
 func (s *fakeBackupObjectStore) writeList(w http.ResponseWriter, prefix, delimiter string) {
 	result := fakeS3ListResult{
 		Name:        s.bucket,
@@ -128,7 +132,9 @@ func (s *fakeBackupObjectStore) writeList(w http.ResponseWriter, prefix, delimit
 		IsTruncated: false,
 	}
 	seenPrefix := map[string]bool{}
-	for key, body := range s.objects {
+	keys := slices.Sorted(maps.Keys(s.objects))
+	for _, key := range keys {
+		body := s.objects[key]
 		if !strings.HasPrefix(key, prefix) {
 			continue
 		}
