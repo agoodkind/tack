@@ -129,10 +129,12 @@ func IssueAuthToken(
 }
 
 // failIssue answers an issue intent whose insert reported failure. The insert
-// can fail after the database committed it, so the preselected id is looked
-// up first: a row that exists is withdrawn through a recorded revocation,
-// and either way the issue attempt records an error outcome, because from
-// the operator's side the issue did not happen.
+// can fail after the database committed it, so a recorded revocation of the
+// preselected id is attempted on a detached context: a row that exists is
+// withdrawn, a row that provably does not exist costs nothing, and a lookup
+// the same outage also broke is reported as unverified rather than as a clean
+// failure. Either way the issue attempt records an error outcome, because
+// from the operator's side the issue did not happen.
 func failIssue(
 	ctx context.Context,
 	pool *pgxpool.Pool,
@@ -142,11 +144,23 @@ func failIssue(
 ) error {
 	reconcileCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), authTokenRecordTimeout)
 	defer cancel()
-	result := cause
-	if _, lookupErr := postgres.NewTokenRepo(pool).GetByID(reconcileCtx, attempt.Token.ID); lookupErr == nil {
-		slog.WarnContext(ctx, "auth.token.create_committed_despite_error",
-			slog.String("token_id", attempt.Token.ID.String()))
-		result = withdrawUnconfirmedToken(ctx, pool, outbox, attempt.Principal, attempt.Token.ID, cause)
+	tokenID := attempt.Token.ID
+	revocation, revokeErr := RevokeAuthToken(reconcileCtx, pool, outbox, attempt.Principal, tokenID, clock.Now())
+	var result error
+	switch {
+	case revokeErr == nil:
+		slog.WarnContext(ctx, "auth.token.create_committed_despite_error", slog.String("token_id", tokenID.String()))
+		result = fmt.Errorf("token %s was created despite the reported failure and has been withdrawn: %w", tokenID, cause)
+	case errors.Is(revokeErr, domain.ErrNotFound):
+		result = cause
+	case revocation.Token != nil:
+		result = fmt.Errorf("token %s was created despite the reported failure and withdrawn, its confirming row is owed: %w",
+			tokenID, errors.Join(cause, revokeErr))
+	default:
+		slog.ErrorContext(ctx, "auth.token.create_unverified",
+			slog.String("token_id", tokenID.String()), slog.String("err", revokeErr.Error()))
+		result = fmt.Errorf("token %s may or may not exist; check token-list and revoke it by id if it does: %w",
+			tokenID, errors.Join(cause, revokeErr))
 	}
 	failure := authTokenFailureEvent(audit.VerbAuthTokenCreate, authIssueKeyPrefix, attempt, result, clock.Now())
 	if recordErr := recordAuthTokenEvent(ctx, outbox, failure); recordErr != nil {

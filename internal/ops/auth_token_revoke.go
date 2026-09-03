@@ -84,7 +84,7 @@ func lookupAuthToken(ctx context.Context, pool *pgxpool.Pool, tokenID uuid.UUID)
 	stored, err := postgres.NewTokenRepo(pool).GetByID(ctx, tokenID)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
-			return AuthTokenRevocation{}, fmt.Errorf("no token %s exists", tokenID)
+			return AuthTokenRevocation{}, fmt.Errorf("no token %s exists: %w", tokenID, err)
 		}
 		slog.ErrorContext(ctx, "auth.token.lookup_failed",
 			slog.String("token_id", tokenID.String()), slog.String("err", err.Error()))

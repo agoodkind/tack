@@ -64,13 +64,12 @@ func authTokenOrg(ctx context.Context, members org.MemberRepository, userID uuid
 	return audit.SystemOrgID(), nil
 }
 
-// Each row's Extra carries attempt_id, pairing intent and outcome the way the
-// choke-point pairs them by op_id, so a reader joins them without parsing
-// keys.
-
 // authTokenEvent builds one row for an issue or revocation. The operator is
 // the actor, the token is the entity, and the user it belongs to is the
 // entity's identifier, so a query by user, by token, or by operator finds it.
+// Extra carries attempt_id, pairing intent and outcome the way the
+// choke-point pairs them by op_id, so a reader joins them without parsing
+// keys.
 //
 // The token table and the outbox belong to different database roles, so no
 // single transaction can cover both. Each action therefore records an intent
