@@ -66,8 +66,11 @@ func TestParseYBSnapshotMappingReadsTheEngineRows(t *testing.T) {
 // TestParseYBSnapshotMappingRefusesRowsItCannotPlace is the silent skip this
 // test exists for. A tablet row short of its ids, or one before any table row,
 // matched no case and fell out of the mapping: a tablet the placement never
-// tried and the audit never counted, since both work from the mapping. Each
-// row below must refuse the whole mapping with the row named.
+// tried and the audit never counted, since both work from the mapping. A
+// table row whose new id differs from its old one was read for the old id
+// alone, though the import preserves table ids and the placement's paths are
+// built from the one the row is read for. Each row below must refuse the
+// whole mapping with the row named.
 func TestParseYBSnapshotMappingRefusesRowsItCannotPlace(t *testing.T) {
 	tableRow := mappingRow("Table", usersTableID, usersTableID)
 	for _, tc := range []struct {
@@ -79,6 +82,8 @@ func TestParseYBSnapshotMappingRefusesRowsItCannotPlace(t *testing.T) {
 		{name: "a tablet row with no ids", before: []string{tableRow}, row: "Tablet 0"},
 		{name: "a tablet row before any table row", before: nil, row: mappingRow("Tablet 0", usersTabletOld, usersTabletNew)},
 		{name: "a table row with no id", before: nil, row: "Table"},
+		{name: "a table row whose new id differs from its old", before: nil, row: mappingRow("Table", usersTableID, tokensTableID)},
+		{name: "a table row whose new id is outside the engine form", before: nil, row: mappingRow("Table", usersTableID, "../..")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rows := append(append([]string{}, tc.before...), tc.row, mappingRow("Tablet 1", tokensTabletOld, tokensTabletNew))
@@ -96,6 +101,26 @@ func TestParseYBSnapshotMappingRefusesRowsItCannotPlace(t *testing.T) {
 				t.Fatalf("the refusal must name the row, got: %v", err)
 			}
 		})
+	}
+}
+
+// TestParseYBSnapshotMappingReadsATableRowCarryingOneId settles the one
+// tolerated short form: a table row naming only the preserved id is read for
+// it, since there is no second id to disagree with.
+func TestParseYBSnapshotMappingReadsATableRowCarryingOneId(t *testing.T) {
+	out := importSnapshotOutput(
+		"Table            \t"+usersTableID,
+		mappingRow("Tablet 0", usersTabletOld, usersTabletNew),
+	)
+
+	remaps, err := parseYBSnapshotMapping(out)
+	if err != nil {
+		t.Fatalf("parseYBSnapshotMapping: %v", err)
+	}
+
+	want := []ybTabletRemap{{table: usersTableID, old: usersTabletOld, new: usersTabletNew}}
+	if !reflect.DeepEqual(remaps, want) {
+		t.Fatalf("remaps:\n got=%+v\nwant=%+v", remaps, want)
 	}
 }
 

@@ -55,10 +55,11 @@ var ybObjectIDPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
 // fields.
 //
 // Every id is required to have the engine's form before it is kept, a table
-// row must carry its id, and a tablet row must carry both of its ids and
-// follow a table row. The whole mapping is refused on the first row that does
-// not, naming it, because a row dropped in silence would be a tablet the
-// placement never tries and the audit never misses.
+// row must carry its id and, when it carries a new id too, that must be the
+// same id, since the import preserves table ids, and a tablet row must carry
+// both of its ids and follow a table row. The whole mapping is refused on the
+// first row that does not, naming it, because a row dropped in silence would
+// be a tablet the placement never tries and the audit never misses.
 func parseYBSnapshotMapping(out string) ([]ybTabletRemap, error) {
 	var remaps []ybTabletRemap
 	started := false
@@ -74,13 +75,11 @@ func parseYBSnapshotMapping(out string) ([]ybTabletRemap, error) {
 		case !started:
 			continue
 		case fields[0] == "Table":
-			if len(fields) < ybTableRowFields {
-				return nil, ybMappingRowError(fields, "names no table id")
-			}
-			if err := requireYBObjectIDs(fields, fields[1]); err != nil {
+			tableID, err := parseYBMappingTableRow(fields)
+			if err != nil {
 				return nil, err
 			}
-			table = fields[1]
+			table = tableID
 		case fields[0] == "Tablet":
 			if len(fields) < ybTabletRowFields {
 				return nil, ybMappingRowError(fields, "does not name both an old and a new tablet id")
@@ -95,6 +94,32 @@ func parseYBSnapshotMapping(out string) ([]ybTabletRemap, error) {
 		}
 	}
 	return remaps, nil
+}
+
+// parseYBMappingTableRow reads the preserved table id out of a Table row. The
+// engine prints the id twice, old and new, and they are the same id because
+// the import keeps YSQL table ids; a row whose two ids differ is refused
+// rather than read for one of them, since the placement's paths are built
+// from whichever is kept. A row naming the id once is read for it.
+func parseYBMappingTableRow(fields []string) (string, error) {
+	if len(fields) < ybTableRowFields {
+		return "", ybMappingRowError(fields, "names no table id")
+	}
+	old := fields[1]
+	if err := requireYBObjectIDs(fields, old); err != nil {
+		return "", err
+	}
+	if len(fields) == ybTableRowFields {
+		return old, nil
+	}
+	newID := fields[2]
+	if err := requireYBObjectIDs(fields, newID); err != nil {
+		return "", err
+	}
+	if newID != old {
+		return "", ybMappingRowError(fields, "names a new table id that differs from its old one, which the import preserves")
+	}
+	return old, nil
 }
 
 const (
