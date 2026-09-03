@@ -59,11 +59,14 @@ func RunBackupStalenessCheck(ctx context.Context, cfg *config.Config, out io.Wri
 			slog.String("reason", "TACK_BACKUP_FDB_CONTINUOUS is false"))
 	}
 
-	report := backupStalenessReport(metrics)
-	if _, err := io.WriteString(out, report); err != nil {
-		wrapped := fmt.Errorf("write staleness report: %w", err)
-		logger.ErrorContext(ctx, "backup.staleness.failed", slog.String("err", wrapped.Error()))
-		return wrapped
+	// A report that cannot be written is noted and carried to the end: the
+	// reading was taken, the log still records it, and the alarm below must
+	// not depend on the output stream. The write failure is what the run
+	// returns only when nothing is stale.
+	var writeErr error
+	if _, err := io.WriteString(out, backupStalenessReport(metrics)); err != nil {
+		writeErr = fmt.Errorf("write staleness report: %w", err)
+		logger.ErrorContext(ctx, "backup.staleness.failed", slog.String("err", writeErr.Error()))
 	}
 	logBackupStalenessMetrics(ctx, metrics)
 
@@ -78,6 +81,9 @@ func RunBackupStalenessCheck(ctx context.Context, cfg *config.Config, out io.Wri
 			len(stale), strings.Join(stale, ", "))
 		logger.ErrorContext(ctx, "backup.staleness.stale", slog.String("err", err.Error()))
 		return err
+	}
+	if writeErr != nil {
+		return writeErr
 	}
 	logger.InfoContext(ctx, "backup.staleness.ok", slog.Int("metric_count", len(metrics)))
 	return nil
