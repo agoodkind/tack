@@ -20,6 +20,18 @@ so a failing guest cannot destroy its own evidence.
 - The scheduled restore rehearsal rebuilds both stores into throwaway
   containers from object-store artifacts only: auth tables hold rows, a
   product-store range read is non-empty, the audit chain verifies.
+- The throwaway engines run the same image the live stores run, and the
+  dump tooling is that same image, so the rehearsal restores into the
+  version production would restore into. A rehearsal on another engine
+  version rehearses a different recovery: the first privilege-carrying
+  export applied cleanly nowhere, because a 2025.2 scratch refused a
+  2024.2 catalog signature.
+- Every read the rehearsal makes against the restored ledger runs as a role
+  holding only the application's own base role, never as the scratch
+  database's bootstrap user. The bootstrap user is a superuser, so it can
+  read rows the application's roles cannot, and a rehearsal that reads as
+  it proves nothing about the application. A restore the application
+  cannot read is a failed restore.
 - The last passing rehearsal is never older than eight days.
 
 ## 3. Single-guest loss heals in seconds
@@ -42,6 +54,25 @@ so a failing guest cannot destroy its own evidence.
   pass, under-replication): induce silent staleness by pausing the job so
   nothing errors; the alarm fires within threshold plus 15 minutes; resume,
   and it clears. A silently broken mechanism can never stay dark.
+- The check runs often enough that its interval plus its randomized delay
+  fits inside that 15 minutes; a 30 minute cadence cannot meet the bound
+  and was measured missing it by 14m56s.
+- An alarm means a fault the system could not fix on its own. The nightly
+  export and the restore drill retry a failed run on their own before the
+  day is lost; a container that dies restarts on its own; the object store
+  sizes the number of volumes it may create from free disk, so a bucket
+  keeps growing while the disk has room, instead of stopping at a fixed
+  number of fixed-size volumes. Production's backup died on 2026-07-29
+  when its bucket's single 1 GB volume filled, with 91 GB free on the
+  disk, and nothing said so for five weeks.
+- One email per fault. The email goes out once, when a mechanism
+  transitions into stale, and not again while it stays stale or when it
+  recovers. It says in plain words what stopped, since when, and what to
+  check, and it claims only what the reading supports: a record that could
+  not be read is reported as unreadable, not as a mechanism that stopped.
+  It carries no metric names, no thresholds in seconds, no run identifiers,
+  and no object-store endpoint or credential. Twenty-five identical machine
+  reports for one fault is a failure of this criterion.
 
 ## 6. Scalable, and placement holds
 
@@ -59,6 +90,16 @@ so a failing guest cannot destroy its own evidence.
 
 ## 8. Production observed directly
 
+- Production runs the same guest layout the criteria above assume: an
+  owner guest that serves nothing but orchestrates, a second app guest, and
+  three data guests carrying the ledger. Until the production data-tier
+  cutover is done, none of the backup units install on production, because
+  every one of them is gated on the ledger consumers being repointed to the
+  data tier. The cutover is therefore a named step of this workstream, in
+  order: prepare the four guests, join the three ledger nodes to the
+  existing cluster (never bootstrap a second universe), wait for full
+  replication, repoint the consumers, retire the legacy node. Each step is
+  confirmed with the operator before it runs.
 - Every state above (alarms armed, timers armed, exports flowing, full
   replication, prune armed) is read from the running production system,
   not inferred from the repo.
