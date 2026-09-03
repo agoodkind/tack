@@ -137,6 +137,7 @@ func TestAuthTokenRevokeRetriesAfterAFailedAttempt(t *testing.T) {
 // users that exist: it never creates one on the way.
 func TestAuthTokenIssueRefusesAnUnknownUser(t *testing.T) {
 	env := SetupTestEnv(t)
+	migrateAuthSchema(t, env)
 	outbox := audit.NewPoolOutbox(env.Ops.Pool)
 
 	_, err := ops.IssueAuthToken(env.Ctx, env.Ops.Pool, outbox, authTokenTestPrincipal(), "nobody-"+uuid.NewString()+"@example.invalid", "integration", time.Now())

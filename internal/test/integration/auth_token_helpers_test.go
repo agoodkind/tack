@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -12,6 +14,7 @@ import (
 	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/domain/user"
+	"goodkind.io/tack/migrations"
 )
 
 // refusingOutbox is a ledger that cannot be written, which is the case an
@@ -51,8 +54,23 @@ func (o cancelAfterIntentOutbox) WriteOutbox(ctx context.Context, event audit.Ev
 	return err
 }
 
+// authSchemaOnce applies the SQL migrations once per test binary. The
+// integration stack starts a bare database: the node tests never touch SQL,
+// so nothing before these tests needed the users and api_tokens tables.
+var authSchemaOnce sync.Once
+
+func migrateAuthSchema(t *testing.T, env *TestEnv) {
+	t.Helper()
+	authSchemaOnce.Do(func() {
+		if err := postgres.Migrate(env.Ctx, os.Getenv("DATABASE_URL"), migrations.FS); err != nil {
+			t.Fatalf("migrate the test database: %v", err)
+		}
+	})
+}
+
 func authTokenTestUser(t *testing.T, env *TestEnv) *user.User {
 	t.Helper()
+	migrateAuthSchema(t, env)
 	now := time.Now().UTC()
 	created, err := postgres.NewUserRepo(env.Ops.Pool).Create(env.Ctx, &user.User{
 		ID: uuid.Must(uuid.NewV7()), Email: "token-" + uuid.NewString() + "@example.invalid",
