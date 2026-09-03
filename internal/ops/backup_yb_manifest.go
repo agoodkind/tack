@@ -276,25 +276,20 @@ func missingYBRunArtifacts(manifest ybSnapshotManifest, exists func(key string) 
 // server in yb-admin list_all_tablet_servers output.
 const ybTabletServerAliveStatus = "ALIVE"
 
-// ybTabletServerUUIDPattern matches the server id column of yb-admin
-// list_all_tablet_servers, which prints 32 hex characters with no dashes
-// (observed live against 2024.2.8.0), unlike the dashed snapshot ids
-// ybUUIDPattern matches.
-var ybTabletServerUUIDPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
-
 // parseYBTabletServers extracts the tablet-server node names from yb-admin
 // list_all_tablet_servers output. Data rows start with the undashed server
-// UUID, carry the advertised RPC host:port in the second column, and report
-// liveness in the fourth (Status) column. Only ALIVE servers are included: a DEAD server
-// can never archive its tablets, so listing it in the manifest would block
-// the completeness gate and every restore forever. The host is the node name
-// the compose deploy announces (never an address, per the identity contract
-// in docker-compose.yml). Names are deduplicated and sorted.
+// UUID, in the form ybObjectIDPattern names, carry the advertised RPC
+// host:port in the second column, and report liveness in the fourth (Status)
+// column. Only ALIVE servers are included: a DEAD server can never archive its
+// tablets, so listing it in the manifest would block the completeness gate and
+// every restore forever. The host is the node name the compose deploy
+// announces (never an address, per the identity contract in
+// docker-compose.yml). Names are deduplicated and sorted.
 func parseYBTabletServers(stdout string) []string {
 	seen := map[string]bool{}
 	for line := range strings.SplitSeq(stdout, "\n") {
 		fields := strings.Fields(line)
-		if len(fields) < 4 || !ybTabletServerUUIDPattern.MatchString(fields[0]) {
+		if len(fields) < 4 || !ybObjectIDPattern.MatchString(fields[0]) {
 			continue
 		}
 		if fields[3] != ybTabletServerAliveStatus {

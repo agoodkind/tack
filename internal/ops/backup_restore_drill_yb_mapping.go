@@ -32,7 +32,10 @@ type ybTabletRemap struct {
 // IsPgsqlId check requires exactly 32 characters). The colocated parent table
 // forms, which append ".colocated.parent.uuid" and the like, do not arise
 // because the tack database is not colocated, and a row in any other form is
-// refused by name rather than placed.
+// refused by name rather than placed. The tablet-server ids `yb-admin
+// list_all_tablet_servers` prints have the same form (observed live against
+// 2024.2.8.0), unlike the dashed snapshot ids ybUUIDPattern matches, so the
+// export's server listing reads them with this pattern too.
 //
 // Requiring the form at the parse boundary is what contains the ids: they
 // come out of `yb-admin import_snapshot`, whose input is the metadata file

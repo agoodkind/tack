@@ -437,11 +437,13 @@ func TestYBPlacementHandlesConfiguredPathsWithASpace(t *testing.T) {
 }
 
 // TestYBPlacementTreatsTabletIdsAsData proves the ids the placement builds its
-// paths from are data. They are fields of `yb-admin import_snapshot` output and
-// are matched against no pattern, so metadata reaching them is a path to
-// execution: Go's %q wrapped them in double quotes, which a shell still expands,
-// leaving $(...) and backticks live inside a container holding the cluster's
-// data. The payloads below must land as directory names, and their canaries
+// paths from are data. They are fields of `yb-admin import_snapshot` output,
+// and the placement itself matches them against no pattern, so metadata
+// reaching them is a path to execution: Go's %q wrapped them in double quotes,
+// which a shell still expands, leaving $(...) and backticks live inside a
+// container holding the cluster's data. The parser now refuses ids outside the
+// engine's form before they get here; the payloads below bypass it to prove the
+// placement holds on its own, must land as directory names, and their canaries
 // must not exist.
 func TestYBPlacementTreatsTabletIdsAsData(t *testing.T) {
 	eachPlacementShell(t, func(t *testing.T, shell string) {
