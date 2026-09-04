@@ -68,6 +68,9 @@ type auditVerifyResult struct {
 	FileSHA256OK         bool     `json:"file_sha256_ok"`
 	SignatureOK          bool     `json:"signature_ok"`
 	ManifestSubject      string   `json:"manifest_subject"`
+	ManifestSigner       string   `json:"manifest_signer"`
+	SignerSetConfigured  bool     `json:"signer_set_configured"`
+	SignerAllowed        bool     `json:"signer_allowed"`
 }
 
 // auditBackfillAbsorbedOrg reports one --absorb-org exemption: the rows it

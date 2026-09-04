@@ -30,6 +30,13 @@ type VerifyReport struct {
 	// fails on that disagreement, not only on the signature it also breaks.
 	ManifestRowCount int
 	ManifestSubject  string
+	// ManifestSigner is the identifier the manifest names as its signer.
+	// SignerSetConfigured says whether a valid signer set was given, and
+	// SignerAllowed whether that identifier is in it; with no set the
+	// identifier is reported and not judged, and the report says so.
+	ManifestSigner      string
+	SignerSetConfigured bool
+	SignerAllowed       bool
 }
 
 // Err returns an error naming every integrity check the bundle failed, and nil
@@ -43,6 +50,13 @@ func (r *VerifyReport) Err() error {
 	}
 	if !r.SignatureOK {
 		failures = append(failures, "the manifest signature did not verify")
+	}
+	// A valid signature under a key the environment does not accept is the
+	// leaked-key case, not a pass: the key proves who signed, the set says
+	// whether that signer is allowed to (TACK-437).
+	if r.SignerSetConfigured && !r.SignerAllowed {
+		failures = append(failures,
+			fmt.Sprintf("the manifest signer %s is outside the valid signer set", r.ManifestSigner))
 	}
 	if len(r.ChainBreaks) > 0 {
 		failures = append(failures,
@@ -106,10 +120,18 @@ type chainLink struct {
 // and released as it is decoded, so peak memory tracks the row count times a
 // fixed-width link record instead of the size of the bundle.
 func VerifyBundle(dir string, pub ed25519.PublicKey) (*VerifyReport, error) {
+	return VerifyBundleWithSigners(dir, pub, SignerSet{ordered: nil, members: nil})
+}
+
+// VerifyBundleWithSigners is VerifyBundle plus the signer-set check: with a
+// configured set, a manifest whose signer identifier is outside it fails the
+// report even when its signature verifies (TACK-437).
+func VerifyBundleWithSigners(dir string, pub ed25519.PublicKey, signers SignerSet) (*VerifyReport, error) {
 	report := &VerifyReport{
 		BundleDir: dir, RowsScanned: 0, HashMatches: 0, ChainGapCount: 0,
 		ChainBreaks: nil, FileSHA256OK: false, SignatureOK: false,
-		ManifestRowCount: 0, ManifestSubject: "",
+		ManifestRowCount: 0, ManifestSubject: "", ManifestSigner: "",
+		SignerSetConfigured: signers.Configured(), SignerAllowed: false,
 	}
 
 	mf, err := readExportManifest(dir)
@@ -118,6 +140,8 @@ func VerifyBundle(dir string, pub ed25519.PublicKey) (*VerifyReport, error) {
 	}
 	report.ManifestSubject = mf.ExportID.String()
 	report.ManifestRowCount = mf.RowCount
+	report.ManifestSigner = mf.SignatureBy
+	report.SignerAllowed = signers.Allows(mf.SignatureBy)
 	report.SignatureOK = manifestSignatureOK(mf, pub)
 
 	eventsName, err := bundleEventsFileName(mf)

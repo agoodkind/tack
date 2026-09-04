@@ -75,6 +75,9 @@ const (
 	VerbBootstrapSeed Verb = "bootstrap.seed"
 	// VerbAuditVerify records audit bundle verification.
 	VerbAuditVerify Verb = "audit.verify"
+	// VerbAuditSignersVerified records an operator checking every notarization
+	// against the valid signer set (TACK-437).
+	VerbAuditSignersVerified Verb = "audit.signers_verified"
 	// VerbAuditKeyGenerate records audit signing key generation.
 	VerbAuditKeyGenerate Verb = "audit.key_generate"
 	// VerbAuditRolesSeed records audit role creation or rotation.

@@ -33,6 +33,7 @@ type Notarizer struct {
 	pool   *pgxpool.Pool
 	signer ed25519.PrivateKey
 	keyID  string
+	host   string
 	period time.Duration
 
 	stop    chan struct{}
@@ -47,6 +48,9 @@ type NotarizerConfig struct {
 	// with `openssl genpkey -algorithm ed25519 -out audit-signing.pem`.
 	// Empty disables the notarizer entirely.
 	SigningKeyPath string
+	// SigningHost names the host whose key signs, stamped on every row so a
+	// notarization claims an origin (TACK-437). Empty is stored as empty.
+	SigningHost string
 	// Period is how often the notarizer runs. Defaults to 60s.
 	Period time.Duration
 }
@@ -81,6 +85,7 @@ func NewNotarizer(ctx context.Context, dsn string, cfg NotarizerConfig) (*Notari
 		pool:    pool,
 		signer:  priv,
 		keyID:   keyID,
+		host:    cfg.SigningHost,
 		period:  period,
 		stop:    make(chan struct{}),
 		stopped: make(chan struct{}),
@@ -183,9 +188,9 @@ func (n *Notarizer) runOnce(ctx context.Context) {
 		sig := ed25519.Sign(n.signer, root)
 		if _, err := n.pool.Exec(ctx, `
 			INSERT INTO audit.notarizations (
-				org_id, notarized_at, merkle_root, shard_heads, signature, signing_key
-			) VALUES ($1, now(), $2, $3, $4, $5)
-		`, orgID, root, manifest, sig, n.keyID); err != nil {
+				org_id, notarized_at, merkle_root, shard_heads, signature, signing_key, signing_host
+			) VALUES ($1, now(), $2, $3, $4, $5, $6)
+		`, orgID, root, manifest, sig, n.keyID, n.host); err != nil {
 			span.RecordError(err)
 			telemetry.L(ctx).Error("audit.notarizer.insert_failed",
 				slog.String("org_id", orgID.String()),
@@ -198,6 +203,7 @@ func (n *Notarizer) runOnce(ctx context.Context) {
 			slog.String("merkle_root", hex.EncodeToString(root)),
 			slog.Int("shard_count", len(list)),
 			slog.String("key_id", n.keyID),
+			slog.String("signing_host", n.host),
 			slog.Int64("duration_ms", clock.Since(start).Milliseconds()),
 		)
 	}

@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+
+	"goodkind.io/tack/internal/audit"
 )
 
 // loadAuditKey reads the ed25519 private key and derives its key id. The path
@@ -37,8 +39,11 @@ func loadAuditKey(path string) (ed25519.PrivateKey, string, error) {
 	if !ok {
 		return nil, "", fmt.Errorf("audit key public half is not ed25519")
 	}
-	keyID := "ed25519:" + fmt.Sprintf("%x", pub[:8])
-	return priv, keyID, nil
+	// The identifier is the audit package's, so an export manifest names its
+	// signer the way audit.notarizations and the valid signer set do
+	// (TACK-437). Manifests written before this named the key by its first
+	// raw bytes instead; a signer set never lists those.
+	return priv, audit.KeyIdentifier(pub), nil
 }
 
 // loadAuditPublic reads the ed25519 public key from a private key PEM file.

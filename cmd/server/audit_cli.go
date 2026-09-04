@@ -26,6 +26,7 @@ func registerAudit(reg *clispec.Registry, f *cli.Factory) {
 	clispec.Register(reg, auditExportOp(f))
 	clispec.Register(reg, auditVerifyOp(f))
 	clispec.Register(reg, auditGenKeyOp(f))
+	clispec.Register(reg, auditSignersOp(f))
 	clispec.Register(reg, auditQueryOp(f))
 	clispec.Register(reg, auditGetOp(f))
 	clispec.Register(reg, auditRedactActorOp(f))
@@ -136,6 +137,7 @@ type auditVerifyInput struct {
 	clispec.InputMarker `exhaustruct:"optional"`
 	Bundle              string
 	Pub                 string
+	Signers             string
 }
 
 func auditVerifyOp(f *cli.Factory) clispec.Operation[auditVerifyInput] {
@@ -153,9 +155,10 @@ func auditVerifyOp(f *cli.Factory) clispec.Operation[auditVerifyInput] {
 		Params: []clispec.Param[auditVerifyInput]{
 			clispec.StringParam("bundle", "bundle directory produced by audit export", "", true, func(in *auditVerifyInput, v string) { in.Bundle = v }),
 			clispec.StringParam("pub", "PEM path to ed25519 public key (defaults to AUDIT_SIGNING_KEY_PATH)", "", false, func(in *auditVerifyInput, v string) { in.Pub = v }),
+			clispec.StringParam("signers", "comma-separated valid signer identifiers; overrides AUDIT_VALID_SIGNERS", "", false, func(in *auditVerifyInput, v string) { in.Signers = v }),
 		},
 		New: func() auditVerifyInput {
-			return auditVerifyInput{InputMarker: clispec.InputMarker{}, Bundle: "", Pub: ""}
+			return auditVerifyInput{InputMarker: clispec.InputMarker{}, Bundle: "", Pub: "", Signers: ""}
 		},
 		Run: func(ctx context.Context, in auditVerifyInput, sink clispec.ResultSink) error {
 			keyPath := in.Pub
@@ -169,7 +172,19 @@ func auditVerifyOp(f *cli.Factory) clispec.Operation[auditVerifyInput] {
 			if err != nil {
 				return err
 			}
-			report, err := audit.VerifyBundle(in.Bundle, pub)
+			signers, err := auditSignerSet(ctx, f, in.Signers)
+			if err != nil {
+				return err
+			}
+			if !signers.Configured() {
+				// The bundle is still judged on its digest, signature, and chain;
+				// only the signer check has nothing to compare against. Said
+				// out loud so a run without the set is never mistaken for one.
+				slog.WarnContext(ctx, "audit.verify_signer_set_unconfigured",
+					slog.String("bundle", in.Bundle),
+					slog.String("reason", "AUDIT_VALID_SIGNERS unset and --signers not passed; the manifest signer is reported, not judged"))
+			}
+			report, err := audit.VerifyBundleWithSigners(in.Bundle, pub, signers)
 			if err != nil {
 				slog.ErrorContext(ctx, "audit.verify_failed", slog.String("err", err.Error()))
 				return fmt.Errorf("audit verify: scan: %w", err)
@@ -178,6 +193,8 @@ func auditVerifyOp(f *cli.Factory) clispec.Operation[auditVerifyInput] {
 				BundleDir: report.BundleDir, RowsScanned: report.RowsScanned, HashMatches: report.HashMatches,
 				ChainGapCount: report.ChainGapCount, ChainBreaks: report.ChainBreaks, FileSHA256OK: report.FileSHA256OK,
 				SignatureOK: report.SignatureOK, ManifestSubject: report.ManifestSubject,
+				ManifestSigner: report.ManifestSigner, SignerSetConfigured: report.SignerSetConfigured,
+				SignerAllowed: report.SignerAllowed,
 			}); writeErr != nil {
 				slog.ErrorContext(ctx, "audit.verify_render_failed", slog.String("err", writeErr.Error()))
 				return fmt.Errorf("audit verify: render report: %w", writeErr)

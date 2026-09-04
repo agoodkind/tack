@@ -32,6 +32,9 @@ type ConsumerConfig struct {
 	ClickHouseDSN   string
 	SigningKeyPath  string
 	NotarizerPeriod time.Duration
+	// SigningHost is stamped on every notarization the embedded notarizer
+	// writes (TACK-437).
+	SigningHost string
 
 	// ReconcilePeriod and ReconcileWindow drive the ClickHouse backfill: every
 	// period, audit.events rows in the trailing window that are missing from
@@ -177,6 +180,7 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 	if cfg.SigningKeyPath != "" {
 		n, nerr := NewNotarizer(ctx, cfg.YugabyteDSN, NotarizerConfig{
 			SigningKeyPath: cfg.SigningKeyPath,
+			SigningHost:    cfg.SigningHost,
 			Period:         cfg.NotarizerPeriod,
 		})
 		if nerr != nil {

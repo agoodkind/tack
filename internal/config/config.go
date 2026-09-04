@@ -95,6 +95,13 @@ type Config struct {
 	// Empty disables the notarizer.
 	AuditSigningKeyPath string `env:"AUDIT_SIGNING_KEY_PATH"`
 
+	// AuditValidSigners is the comma-separated set of signing-key identifiers
+	// this environment accepts (TACK-437). `audit signers` refuses to run
+	// without it, and `audit verify` rejects a manifest signed outside it.
+	// Each entry is the identifier `audit.KeyIdentifier` derives, the string
+	// audit.notarizations.signing_key holds.
+	AuditValidSigners string `env:"AUDIT_VALID_SIGNERS"`
+
 	// Kafka audit producer. AuditKafkaBrokers is a comma-separated bootstrap
 	// broker list. When empty, the Kafka producer path is disabled and audit
 	// recording uses the synchronous Yugabyte recorder.

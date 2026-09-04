@@ -3,9 +3,7 @@ package audit
 import (
 	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/sha256"
 	"crypto/x509"
-	"encoding/hex"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -29,9 +27,11 @@ func loadEd25519Key(path string) (ed25519.PrivateKey, string, error) {
 	if !ok {
 		return nil, "", errors.New("audit signing key: not ed25519")
 	}
-	pub := priv.Public().(ed25519.PublicKey)
-	pubHash := sha256.Sum256(pub)
-	return priv, "ed25519:" + hex.EncodeToString(pubHash[:8]), nil
+	pub, ok := priv.Public().(ed25519.PublicKey)
+	if !ok {
+		return nil, "", errors.New("audit signing key: public half is not ed25519")
+	}
+	return priv, KeyIdentifier(pub), nil
 }
 
 // GenerateAuditSigningKey writes a fresh Ed25519 private key in PKCS#8 PEM

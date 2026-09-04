@@ -34,6 +34,10 @@ type consumerEnv struct {
 	ClickHouseDSN   string        `env:"AUDIT_CONSUMER_CLICKHOUSE_DSN"`
 	SigningKeyPath  string        `env:"AUDIT_CONSUMER_SIGNING_KEY_PATH"`
 	NotarizerPeriod time.Duration `env:"AUDIT_CONSUMER_NOTARIZER_PERIOD" envDefault:"60s"`
+	// SigningHost names the guest whose key signs, stamped on every
+	// notarization (TACK-437). The deploy renders the guest's inventory name;
+	// unset falls back to the container's hostname.
+	SigningHost     string        `env:"AUDIT_CONSUMER_SIGNING_HOST"`
 	ReconcilePeriod time.Duration `env:"AUDIT_CONSUMER_RECONCILE_PERIOD" envDefault:"30m"`
 	ReconcileWindow time.Duration `env:"AUDIT_CONSUMER_RECONCILE_WINDOW" envDefault:"24h"`
 	LagWarnMessages int64         `env:"TACK_AUDIT_CONSUMER_LAG_WARN_MESSAGES" envDefault:"1000"`
@@ -138,6 +142,15 @@ func newAuditRelay(
 }
 
 func newAuditConsumer(ctx context.Context, cfg consumerEnv) (*audit.Consumer, error) {
+	signingHost := cfg.SigningHost
+	if signingHost == "" {
+		hostname, err := os.Hostname()
+		if err != nil {
+			slog.ErrorContext(ctx, "audit_consumer.hostname_failed", slog.String("err", err.Error()))
+			return nil, fmt.Errorf("read the hostname for the signing host: %w", err)
+		}
+		signingHost = hostname
+	}
 	consumer, err := audit.NewConsumer(ctx, audit.ConsumerConfig{
 		Brokers:         splitBrokers(cfg.Brokers),
 		Topic:           cfg.Topic,
@@ -148,6 +161,7 @@ func newAuditConsumer(ctx context.Context, cfg consumerEnv) (*audit.Consumer, er
 		ClickHouseDSN:   cfg.ClickHouseDSN,
 		SigningKeyPath:  cfg.SigningKeyPath,
 		NotarizerPeriod: cfg.NotarizerPeriod,
+		SigningHost:     signingHost,
 		ReconcilePeriod: cfg.ReconcilePeriod,
 		ReconcileWindow: cfg.ReconcileWindow,
 		LagWarnMessages: cfg.LagWarnMessages,
