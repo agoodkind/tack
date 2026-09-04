@@ -376,6 +376,7 @@ func TestConsumerNotarizerSigns(t *testing.T) {
 		YugabyteDSN:     os.Getenv("AUDIT_CONSUMER_TEST_DSN"),
 		SigningKeyPath:  keyPath,
 		NotarizerPeriod: 1 * time.Second,
+		SigningHost:     "test-guest",
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
@@ -400,7 +401,7 @@ func TestConsumerNotarizerSigns(t *testing.T) {
 	}
 
 	rows, err := pool.Query(ctx, `
-		SELECT merkle_root, signature, signing_key
+		SELECT merkle_root, signature, signing_key, signing_host
 		  FROM audit.notarizations WHERE org_id = $1
 	`, orgID)
 	if err != nil {
@@ -412,12 +413,15 @@ func TestConsumerNotarizerSigns(t *testing.T) {
 	var seen int
 	for rows.Next() {
 		var root, sig []byte
-		var keyID string
-		if err := rows.Scan(&root, &sig, &keyID); err != nil {
+		var keyID, host string
+		if err := rows.Scan(&root, &sig, &keyID, &host); err != nil {
 			t.Fatalf("scan: %v", err)
 		}
 		if !ed25519.Verify(pubKey, root, sig) {
 			t.Fatalf("invalid signature for key_id=%s", keyID)
+		}
+		if keyID != KeyIdentifier(pubKey) || host != "test-guest" {
+			t.Fatalf("row stamped key_id=%s host=%q, want %s from test-guest", keyID, host, KeyIdentifier(pubKey))
 		}
 		seen++
 	}

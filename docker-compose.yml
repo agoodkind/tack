@@ -56,6 +56,11 @@ services:
       LOG_JSON_FILE: ${LOG_JSON_FILE:-/var/log/tack/app.jsonl}
       LOG_TEXT_FILE: ${LOG_TEXT_FILE:-/var/log/tack/app.log}
       AUDIT_SIGNING_KEY_PATH: ${AUDIT_SIGNING_KEY_PATH:-/etc/tack/audit-signing.pem}
+      # Valid audit signer set (TACK-437): the key identifiers this environment
+      # accepts, rendered per environment by the configs deploy. `audit
+      # signers` refuses to run without it; `audit verify` rejects a manifest
+      # signed outside it and reports the signer unjudged when it is empty.
+      AUDIT_VALID_SIGNERS: ${AUDIT_VALID_SIGNERS:-}
       # Audit producer. When AUDIT_KAFKA_BROKERS is set, Record publishes to
       # Kafka and the audit-consumer becomes the only writer of audit.events.
       # Empty uses the synchronous Yugabyte recorder.
@@ -422,6 +427,10 @@ services:
       AUDIT_CONSUMER_YUGABYTE_DSN: ${AUDIT_WRITER_DSN}
       AUDIT_CONSUMER_CLICKHOUSE_DSN: ${AUDIT_CONSUMER_CLICKHOUSE_DSN:-clickhouse://default:@clickhouse:9000/audit}
       AUDIT_CONSUMER_SIGNING_KEY_PATH: ${AUDIT_CONSUMER_SIGNING_KEY_PATH:-/etc/tack/audit-signing.pem}
+      # The guest whose key signs, stamped on every notarization as its
+      # claimed origin (TACK-437). The configs deploy renders the guest's
+      # inventory name; empty falls back to the container's hostname.
+      AUDIT_CONSUMER_SIGNING_HOST: ${AUDIT_CONSUMER_SIGNING_HOST:-}
       # Set this to enable the FoundationDB half of the operator relay. It is
       # deliberately not hardcoded: a set-but-unreadable cluster file makes the
       # consumer refuse to start, which would also stop the YugabyteDB relay
@@ -469,6 +478,10 @@ services:
       # like the operator one above; empty until the host .env renders them.
       AUDIT_READER_DSN: ${TACK_OPS_AUDIT_READER_DSN:-}
       AUDIT_REDACTOR_DSN: ${TACK_OPS_AUDIT_REDACTOR_DSN:-}
+      # The valid signer set (TACK-437), the same value the app carries, so
+      # `audit verify` here judges a bundle's signer. `audit signers` still
+      # runs through the app service: this container mounts no signing key.
+      AUDIT_VALID_SIGNERS: ${AUDIT_VALID_SIGNERS:-}
       FDB_CLUSTER_FILE: /etc/foundationdb/fdb.cluster
       MEILI_URL: http://localhost:7700
       MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-tack-dev-meili-key-change-in-prod}
