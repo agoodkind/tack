@@ -88,10 +88,11 @@ var (
 	auditConsumerBatchLatencyStats = expvar.NewMap("tack_audit_consumer_batch_latency_ms_stats")
 	// audit_consumer_offset_committed{topic,partition} gauge map.
 	auditConsumerOffsetCommitted = expvar.NewMap("tack_audit_consumer_offset_committed")
-	// audit_consumer_dead_lettered_total counts the records the consumer
-	// wrote to the dead-letter table instead of the ledger, whether the
-	// payload did not decode or the ledger refused the insert. Any rise
-	// means a record is waiting for an operator to replay or discard it.
+	// audit_consumer_dead_lettered_total counts the records this process
+	// wrote to the dead-letter table instead of the ledger since it started,
+	// whether the payload did not decode or the ledger refused the insert.
+	// It only ever grows; what is waiting in the table right now is read
+	// with ops audit dlq inspect.
 	auditConsumerDeadLettered = expvar.NewInt("tack_audit_consumer_dead_lettered_total")
 
 	// audit_partition_headroom_weeks gauge: count of future weekly partitions

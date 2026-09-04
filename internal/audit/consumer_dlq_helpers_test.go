@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"expvar"
 	"net/url"
 	"testing"
 	"time"
@@ -89,6 +90,34 @@ func writerLoginDSN(t *testing.T, admin *pgxpool.Pool, adminDSN string) string {
 	}
 	parsed.User = url.UserPassword(login, encodedSecret)
 	return parsed.String()
+}
+
+// consumerErrorCount reads the process-wide count of records whose batch
+// failed, from the same counter the operator scrapes.
+func consumerErrorCount(t *testing.T) int64 {
+	t.Helper()
+	processed, ok := expvar.Get("tack_audit_consumer_processed_total").(*expvar.Map)
+	if !ok {
+		t.Fatalf("the consumer's processed counter is not published")
+	}
+	errored, ok := processed.Get("error").(*expvar.Int)
+	if !ok {
+		return 0
+	}
+	return errored.Value()
+}
+
+// waitUntil polls the condition until it holds or the deadline passes.
+func waitUntil(t *testing.T, limit time.Duration, failure string, condition func() bool) {
+	t.Helper()
+	deadline := time.After(limit)
+	for !condition() {
+		select {
+		case <-deadline:
+			t.Fatal(failure)
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
 }
 
 // loginOfDSN returns the login name a DSN connects as.

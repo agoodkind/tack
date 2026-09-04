@@ -158,22 +158,23 @@ func TestConsumerRewindsAFailedBatch(t *testing.T) {
 		t.Fatalf("NewConsumer: %v", err)
 	}
 	t.Cleanup(func() { _ = consumer.Close() })
+	failedBefore := consumerErrorCount(t)
 	consumer.Start(runCtx)
-	time.Sleep(3 * time.Second)
+	// The privileges come back only after the consumer has fetched the
+	// batch and failed it, so the test proves the re-fetch and not a first
+	// fetch that happened to come late.
+	waitUntil(t, 20*time.Second, "the consumer never failed a batch", func() bool {
+		return consumerErrorCount(t) > failedBefore
+	})
 	if got := countRowsForOrg(t, os.Getenv("AUDIT_CONSUMER_TEST_DSN"), orgID); got != 0 {
 		t.Fatalf("a batch the login could not write landed %d rows", got)
 	}
 	if _, err := pool.Exec(ctx, "ALTER ROLE "+login+" INHERIT"); err != nil {
 		t.Fatalf("give the login's privileges back: %v", err)
 	}
-	deadline := time.After(30 * time.Second)
-	for countRowsForOrg(t, os.Getenv("AUDIT_CONSUMER_TEST_DSN"), orgID) < 2 {
-		select {
-		case <-deadline:
-			t.Fatalf("the failed batch was never re-fetched after the fault cleared")
-		case <-time.After(200 * time.Millisecond):
-		}
-	}
+	waitUntil(t, 30*time.Second, "the failed batch was never re-fetched after the fault cleared", func() bool {
+		return countRowsForOrg(t, os.Getenv("AUDIT_CONSUMER_TEST_DSN"), orgID) >= 2
+	})
 	if err := consumer.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
