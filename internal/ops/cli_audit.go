@@ -18,9 +18,11 @@ func auditSeedRolesOp(f *cli.Factory) clispec.Operation[noInput] {
 		Group:   auditOpsGroup,
 		Aliases: nil,
 		Hidden:  false,
-		Short:   "Create or rotate the LOGIN audit roles (tack_audit_writer/reader/redactor)",
+		Short:   "Create or rotate the LOGIN roles (tack_audit_writer/reader/redactor/operator, tack_app)",
 		Long: "Idempotently create or rotate the LOGIN audit roles used by the app " +
-			"and the audit-consumer to write and read the compliance ledger.",
+			"and the audit-consumer to write and read the compliance ledger, and " +
+			"tack_app, the non-superuser login the application's DATABASE_URL uses " +
+			"for the auth tables (TACK-180).",
 		Examples: nil,
 		Args:     nil,
 		Params:   nil,

@@ -36,21 +36,23 @@ func newAuditLoginRole(login, base, secret string) auditLoginRole {
 	return auditLoginRole{login: login, base: base, password: secret}
 }
 
-// RunAuditSeedRoles creates or rotates the four LOGIN audit roles
-// (tack_audit_writer, tack_audit_reader, tack_audit_redactor,
-// tack_audit_operator), each granting the matching base role. It connects as
-// DATABASE_URL, which holds role-creation privilege because the migrate path
-// creates the base roles through the same DSN. Idempotent.
+// RunAuditSeedRoles creates or rotates the five LOGIN roles the deployment
+// connects as: the four audit roles (tack_audit_writer, tack_audit_reader,
+// tack_audit_redactor, tack_audit_operator) and the application's own
+// tack_app (TACK-180), each granting exactly the matching base role. It
+// connects as DATABASE_URL, which holds role-creation privilege because the
+// migrate path creates the base roles through the same DSN. Idempotent.
 func RunAuditSeedRoles(ctx context.Context, cfg *config.Config) error {
 	roles := []auditLoginRole{
 		newAuditLoginRole("tack_audit_writer", "audit_writer", cfg.AuditWriterPassword),
 		newAuditLoginRole("tack_audit_reader", "audit_reader", cfg.AuditReaderPassword),
 		newAuditLoginRole("tack_audit_redactor", "audit_redactor", cfg.AuditRedactorPassword),
 		newAuditLoginRole("tack_audit_operator", "audit_operator", cfg.AuditOperatorPassword),
+		newAuditLoginRole("tack_app", "app_auth", cfg.AppPassword),
 	}
 	for _, role := range roles {
 		if role.password == "" {
-			err := fmt.Errorf("audit seed-roles: password for %s is empty; set its AUDIT_*_PASSWORD env", role.login)
+			err := fmt.Errorf("audit seed-roles: password for %s is empty; set its AUDIT_*_PASSWORD or TACK_APP_PASSWORD env", role.login)
 			slog.ErrorContext(ctx, "audit.seed_roles.password_missing",
 				slog.String("login_role", role.login), slog.String("err", err.Error()))
 			return err
@@ -127,13 +129,17 @@ func upsertAuditLoginRole(ctx context.Context, pool *pgxpool.Pool, role auditLog
 	return nil
 }
 
-// auditBaseRoles is every base role the audit surface defines. A login role
-// gets exactly one of them, and this list is what the others are revoked from.
+// auditBaseRoles is every base role a seeded login can hold: the audit
+// surface's four and the application's app_auth (TACK-180). A login role gets
+// exactly one of them, and this list is what the others are revoked from, so
+// the application login can never hold a ledger role and no ledger login can
+// reach the auth tables.
 var auditBaseRoles = []string{
 	"audit_writer",
 	"audit_reader",
 	"audit_redactor",
 	"audit_operator",
+	"app_auth",
 }
 
 // revokeOtherAuditBases strips every audit base role except the one this login
