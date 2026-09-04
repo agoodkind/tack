@@ -93,14 +93,20 @@ func TestConsumerDeadLettersARefusedInsertAndReplaysIt(t *testing.T) {
 	}
 }
 
-// TestConsumerIgnoresAnUnparseableReplayHeader pins that a record carrying a
-// replay header the consumer cannot read is projected as a fresh record and
-// the partition keeps moving, rather than the batch failing on every poll.
-func TestConsumerIgnoresAnUnparseableReplayHeader(t *testing.T) {
+// TestConsumerSurvivesHostileRecords pins two records that must not stop a
+// partition: one with no value at all (a tombstone), which is dead-lettered
+// as an empty payload, and one carrying a replay header the consumer cannot
+// read, which is projected as a fresh record. The events after them land.
+func TestConsumerSurvivesHostileRecords(t *testing.T) {
 	pool, brokers, topic := newConsumerEnv(t)
+	ctx := context.Background()
 	orgID := uuid.Must(uuid.NewV7())
-	t.Cleanup(func() { purgeOrg(t, pool, orgID) })
+	t.Cleanup(func() {
+		purgeOrg(t, pool, orgID)
+		_, _ = pool.Exec(ctx, `DELETE FROM audit.events_dlq WHERE topic = $1`, topic)
+	})
 
+	produceRaw(t, brokers, topic, nil, nil)
 	body, err := MarshalEvent(makeReadEvent(orgID, "hostile-header"))
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
@@ -111,6 +117,70 @@ func TestConsumerIgnoresAnUnparseableReplayHeader(t *testing.T) {
 	runConsumerOnce(t, ConsumerConfig{
 		Brokers: brokers, Topic: topic, GroupID: "tack-audit-projector-test-" + uuid.NewString()[:8],
 		BatchSize: 8, PollInterval: 100 * time.Millisecond,
-		YugabyteDSN: os.Getenv("AUDIT_CONSUMER_TEST_DSN"),
+		YugabyteDSN: writerLoginDSN(t, pool, os.Getenv("AUDIT_CONSUMER_TEST_DSN")),
 	}, orgID, 2)
+
+	var rows, payloadBytes int
+	err = pool.QueryRow(ctx, `SELECT count(*), coalesce(max(length(payload)), 0) FROM audit.events_dlq WHERE topic = $1`, topic).Scan(&rows, &payloadBytes)
+	if err != nil {
+		t.Fatalf("read the dead letters: %v", err)
+	}
+	if rows != 1 || payloadBytes != 0 {
+		t.Fatalf("dead letters = %d with a payload of %d bytes, want the one empty tombstone", rows, payloadBytes)
+	}
+}
+
+// TestConsumerRewindsAFailedBatch pins that a batch failing for a deployment
+// fault (here the writer login losing every privilege) commits nothing and
+// re-fetches the same records once the fault clears, so no offset is ever
+// committed past records the ledger never saw.
+func TestConsumerRewindsAFailedBatch(t *testing.T) {
+	pool, brokers, topic := newConsumerEnv(t)
+	ctx := context.Background()
+	orgID := uuid.Must(uuid.NewV7())
+	t.Cleanup(func() { purgeOrg(t, pool, orgID) })
+
+	dsn := writerLoginDSN(t, pool, os.Getenv("AUDIT_CONSUMER_TEST_DSN"))
+	login := loginOfDSN(t, dsn)
+	if _, err := pool.Exec(ctx, "ALTER ROLE "+login+" NOINHERIT"); err != nil {
+		t.Fatalf("take the login's privileges away: %v", err)
+	}
+	produceEvents(t, brokers, topic, []Event{makeReadEvent(orgID, "first"), makeReadEvent(orgID, "second")})
+
+	cfg := ConsumerConfig{
+		Brokers: brokers, Topic: topic, GroupID: "tack-audit-projector-test-" + uuid.NewString()[:8],
+		BatchSize: 8, PollInterval: 100 * time.Millisecond, YugabyteDSN: dsn,
+	}
+	runCtx, cancel := context.WithTimeout(ctx, 40*time.Second)
+	defer cancel()
+	consumer, err := NewConsumer(runCtx, cfg)
+	if err != nil {
+		t.Fatalf("NewConsumer: %v", err)
+	}
+	consumer.Start(runCtx)
+	time.Sleep(3 * time.Second)
+	if got := countRowsForOrg(t, os.Getenv("AUDIT_CONSUMER_TEST_DSN"), orgID); got != 0 {
+		t.Fatalf("a batch the login could not write landed %d rows", got)
+	}
+	if _, err := pool.Exec(ctx, "ALTER ROLE "+login+" INHERIT"); err != nil {
+		t.Fatalf("give the login's privileges back: %v", err)
+	}
+	deadline := time.After(30 * time.Second)
+	for countRowsForOrg(t, os.Getenv("AUDIT_CONSUMER_TEST_DSN"), orgID) < 2 {
+		select {
+		case <-deadline:
+			t.Fatalf("the failed batch was never re-fetched after the fault cleared")
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+	if err := consumer.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	var committed int64
+	if err := pool.QueryRow(ctx, `SELECT coalesce(max("offset"), -1) FROM audit.consumer_offsets WHERE consumer_group = $1`, cfg.GroupID).Scan(&committed); err != nil {
+		t.Fatalf("offsets: %v", err)
+	}
+	if committed < 2 {
+		t.Fatalf("committed offset = %d after both records landed, want at least 2", committed)
+	}
 }

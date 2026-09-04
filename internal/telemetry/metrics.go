@@ -89,8 +89,9 @@ var (
 	// audit_consumer_offset_committed{topic,partition} gauge map.
 	auditConsumerOffsetCommitted = expvar.NewMap("tack_audit_consumer_offset_committed")
 	// audit_consumer_dead_lettered_total counts the records the consumer
-	// wrote to the dead-letter table because the ledger refused them. Any
-	// rise means an audit event is waiting to be replayed.
+	// wrote to the dead-letter table instead of the ledger, whether the
+	// payload did not decode or the ledger refused the insert. Any rise
+	// means a record is waiting for an operator to replay or discard it.
 	auditConsumerDeadLettered = expvar.NewInt("tack_audit_consumer_dead_lettered_total")
 
 	// audit_partition_headroom_weeks gauge: count of future weekly partitions
@@ -132,7 +133,7 @@ func SetAuditConsumerLag(topic string, partition int32, lag int64) {
 }
 
 // IncAuditConsumerDeadLettered counts one record written to the dead-letter
-// table instead of the ledger.
+// table instead of the ledger, undecodable or refused alike.
 func IncAuditConsumerDeadLettered() { auditConsumerDeadLettered.Add(1) }
 
 // IncAuditConsumerProcessed records one record outcome (result is "ok",

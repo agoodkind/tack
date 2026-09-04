@@ -76,8 +76,12 @@ func (c *Consumer) backOffAfterFailures(ctx context.Context, failed bool) {
 		return
 	}
 	c.consecutiveFailures++
-	doublings := min(c.consecutiveFailures, failureBackoffDoublings)
-	wait := min(c.cfg.PollInterval<<uint(doublings), failureBackoffCap)
+	// Doubling stops at the cap, so no poll interval and no failure count
+	// can push the duration past it or over the type's range.
+	wait := min(c.cfg.PollInterval, failureBackoffCap)
+	for i := 0; i < c.consecutiveFailures && i < failureBackoffDoublings && wait < failureBackoffCap; i++ {
+		wait = min(wait*2, failureBackoffCap)
+	}
 	slog.WarnContext(ctx, "audit.consumer.retry_backoff",
 		slog.Int("consecutive_failures", c.consecutiveFailures),
 		slog.String("wait", wait.String()),

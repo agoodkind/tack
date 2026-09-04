@@ -33,6 +33,19 @@ func (k DeadLetterKey) String() string {
 // noDeadLetter is the zero key, returned where no row is named.
 var noDeadLetter = DeadLetterKey{Topic: "", Partition: 0, Offset: 0}
 
+// recordPayload returns the record's value as the bytes the table stores. A
+// record with no value (a tombstone, or a producer that sent nothing) has a
+// nil slice, which the driver binds as SQL NULL and the table's NOT NULL
+// payload refuses; that refusal came back from the dead-letter write itself,
+// so the batch failed, was wound back, and the partition stalled behind the
+// record for ever. An empty payload is stored as zero bytes instead.
+func recordPayload(rec *kgo.Record) []byte {
+	if rec.Value == nil {
+		return []byte{}
+	}
+	return rec.Value
+}
+
 // parseDeadLetterKey reads a key back out of a replay header value. A value
 // that does not parse is logged here, once, with the record's offset.
 func parseDeadLetterKey(ctx context.Context, value string, offset int64) (DeadLetterKey, error) {
@@ -93,7 +106,7 @@ func verifiedReplayOrigin(ctx context.Context, tx pgx.Tx, rec *kgo.Record) (Dead
 			SELECT 1 FROM audit.events_dlq
 			 WHERE topic = $1 AND partition = $2 AND "offset" = $3 AND payload = $4
 		)
-	`, origin.Topic, origin.Partition, origin.Offset, rec.Value).Scan(&matches)
+	`, origin.Topic, origin.Partition, origin.Offset, recordPayload(rec)).Scan(&matches)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.consumer.dlq_origin_check_failed",
 			slog.String("err", err.Error()), slog.String("dead_letter", origin.String()))

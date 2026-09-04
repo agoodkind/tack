@@ -62,9 +62,12 @@ type DeadLetterSummary struct {
 	Newest time.Time
 }
 
-// deadLetterRecord upserts one failed record into the dead-letter table
-// inside tx. A first failure inserts the row; a replay that fails again
-// counts the attempt on the original row and refreshes its failure text.
+// deadLetterRecord writes one failed record to the dead-letter table inside
+// tx. A first failure inserts the row, and a redelivery of the same record
+// (a rebalance, a commit that was lost) leaves the row as it is; only a
+// replay that fails again counts the attempt on the original row and
+// refreshes its failure text, so attempt_count counts operator replays and
+// nothing else.
 //
 // It runs after the failing statement's savepoint is rolled back, so the
 // transaction is live and the dead-letter row commits with the batch's
@@ -78,15 +81,18 @@ func deadLetterRecord(ctx context.Context, tx pgx.Tx, rec *kgo.Record, cause err
 	}
 	if replaying {
 		key = origin
+		_, err = tx.Exec(ctx, `
+			UPDATE audit.events_dlq
+			   SET attempt_count = attempt_count + 1, last_attempt_at = now(), error = $4
+			 WHERE topic = $1 AND partition = $2 AND "offset" = $3
+		`, key.Topic, key.Partition, key.Offset, cause.Error())
+	} else {
+		_, err = tx.Exec(ctx, `
+			INSERT INTO audit.events_dlq (received_at, topic, partition, "offset", payload, error, attempt_count, last_attempt_at)
+			VALUES (now(), $1, $2, $3, $4, $5, 0, NULL)
+			ON CONFLICT (topic, partition, "offset") DO NOTHING
+		`, key.Topic, key.Partition, key.Offset, recordPayload(rec), cause.Error())
 	}
-	_, err = tx.Exec(ctx, `
-		INSERT INTO audit.events_dlq (received_at, topic, partition, "offset", payload, error, attempt_count, last_attempt_at)
-		VALUES (now(), $1, $2, $3, $4, $5, 0, NULL)
-		ON CONFLICT (topic, partition, "offset") DO UPDATE
-		    SET attempt_count   = audit.events_dlq.attempt_count + 1,
-		        last_attempt_at = now(),
-		        error           = EXCLUDED.error
-	`, key.Topic, key.Partition, key.Offset, rec.Value, cause.Error())
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.consumer.dlq_write_failed",
 			slog.String("err", err.Error()),
@@ -116,15 +122,22 @@ func resolveDeadLetter(ctx context.Context, tx pgx.Tx, rec *kgo.Record) error {
 	tag, err := tx.Exec(ctx, `
 		DELETE FROM audit.events_dlq
 		 WHERE topic = $1 AND partition = $2 AND "offset" = $3 AND payload = $4
-	`, origin.Topic, origin.Partition, origin.Offset, rec.Value)
+	`, origin.Topic, origin.Partition, origin.Offset, recordPayload(rec))
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.consumer.dlq_resolve_failed",
 			slog.String("err", err.Error()), slog.String("dead_letter", origin.String()))
 		return fmt.Errorf("resolve dead-letter %s: %w", origin, err)
 	}
+	if tag.RowsAffected() == 0 {
+		// The named row is gone already (a second replay of it landed first)
+		// or its stored payload is not these bytes; either way nothing was
+		// resolved by this record.
+		slog.WarnContext(ctx, "audit.consumer.dead_letter_not_resolved",
+			slog.String("dead_letter", origin.String()), slog.Int64("offset", rec.Offset))
+		return nil
+	}
 	slog.InfoContext(ctx, "audit.consumer.dead_letter_resolved",
 		slog.String("dead_letter", origin.String()),
-		slog.Int64("rows", tag.RowsAffected()),
 	)
 	return nil
 }

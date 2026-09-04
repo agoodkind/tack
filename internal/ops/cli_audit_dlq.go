@@ -85,14 +85,16 @@ func auditDLQReplayOp(f *cli.Factory) clispec.Operation[auditDLQReplayInput] {
 		Aliases: nil,
 		Hidden:  false,
 		Short:   "Send dead-letter rows back through the audit topic",
-		Long: "Re-publishes the oldest dead-letter rows to the audit topic, byte for " +
-			"byte, so the consumer projects each one again. A row that lands is " +
-			"deleted by the consumer; one that fails again keeps its row with the " +
-			"attempt counted. Nothing is sent without --execute.",
+		Long: "Re-publishes dead-letter rows to the audit topic, byte for byte, so " +
+			"the consumer projects each one again: rows with the fewest attempts " +
+			"first, oldest first among equals, so a row that never lands does not " +
+			"hold the rest back. A row that lands is deleted by the consumer; one " +
+			"that fails again keeps its row with the attempt counted. Nothing is " +
+			"sent without --execute.",
 		Examples: nil,
 		Args:     nil,
 		Params: []clispec.Param[auditDLQReplayInput]{
-			clispec.IntParam("limit", "how many rows to send this run, oldest first", defaultDLQReplayLimit,
+			clispec.IntParam("limit", "how many rows to send this run, fewest attempts then oldest first", defaultDLQReplayLimit,
 				func(input *auditDLQReplayInput, value int) { input.Limit = value }),
 		},
 		New: func() auditDLQReplayInput {

@@ -91,6 +91,16 @@ func writerLoginDSN(t *testing.T, admin *pgxpool.Pool, adminDSN string) string {
 	return parsed.String()
 }
 
+// loginOfDSN returns the login name a DSN connects as.
+func loginOfDSN(t *testing.T, dsn string) string {
+	t.Helper()
+	parsed, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatalf("parse the DSN: %v", err)
+	}
+	return parsed.User.Username()
+}
+
 func produceRaw(t *testing.T, brokers []string, topic string, value []byte, headers []kgo.RecordHeader) {
 	t.Helper()
 	cl, err := kgo.NewClient(kgo.SeedBrokers(brokers...), kgo.RequiredAcks(kgo.AllISRAcks()))

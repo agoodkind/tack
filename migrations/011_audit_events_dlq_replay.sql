@@ -15,10 +15,12 @@ ALTER TABLE audit.events_dlq ADD COLUMN IF NOT EXISTS attempt_count   INT       
 ALTER TABLE audit.events_dlq ADD COLUMN IF NOT EXISTS last_attempt_at TIMESTAMPTZ;
 
 -- The writer already holds a FOR ALL policy on the table; the grant was the
--- narrower of the two and never allowed the delete a replay ends with.
-GRANT UPDATE, DELETE ON audit.events_dlq TO audit_writer;
+-- narrower of the two and never allowed the delete a replay ends with. The
+-- update is scoped to the replay bookkeeping so the queued payload, the
+-- bytes a replay must reproduce, stays beyond the writer's reach.
+GRANT UPDATE (attempt_count, last_attempt_at, error), DELETE ON audit.events_dlq TO audit_writer;
 
 -- +goose Down
-REVOKE UPDATE, DELETE ON audit.events_dlq FROM audit_writer;
+REVOKE UPDATE (attempt_count, last_attempt_at, error), DELETE ON audit.events_dlq FROM audit_writer;
 ALTER TABLE audit.events_dlq DROP COLUMN IF EXISTS last_attempt_at;
 ALTER TABLE audit.events_dlq DROP COLUMN IF EXISTS attempt_count;
