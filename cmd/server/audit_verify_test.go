@@ -53,8 +53,8 @@ func TestAuditVerifyCommandFailsOnTamperedBundle(t *testing.T) {
 	if err == nil {
 		t.Fatal("command accepted a bundle whose row hash does not match, want failure")
 	}
-	if !strings.Contains(err.Error(), "failed verification") {
-		t.Fatalf("error = %v, want it to name the verification failure", err)
+	if !strings.Contains(err.Error(), "failed their hash check") || strings.Contains(err.Error(), "signer") {
+		t.Fatalf("error = %v, want the row hash named and nothing about the signer", err)
 	}
 }
 
@@ -82,7 +82,7 @@ func writeVerifyTestKey(t *testing.T, dir string) string {
 // row hash comparison, which is the check under test.
 func writeMismatchedBundle(t *testing.T, bundleDir, keyPath string) {
 	t.Helper()
-	priv, _, err := loadAuditKey(keyPath)
+	priv, keyID, err := loadAuditKey(keyPath)
 	if err != nil {
 		t.Fatalf("load key: %v", err)
 	}
@@ -110,7 +110,9 @@ func writeMismatchedBundle(t *testing.T, bundleDir, keyPath string) {
 	manifest := audit.ExportManifest{
 		ExportID: uuid.Must(uuid.NewV7()), OrgID: orgID,
 		Oldest: now.Add(-time.Hour), Latest: now.Add(time.Hour), RowCount: 1,
-		FileSHA256: hex.EncodeToString(digest[:]), SignatureBy: "test",
+		// The manifest names the key that signs it, so the signer checks pass
+		// and the planted row hash is the only thing left to reject.
+		FileSHA256: hex.EncodeToString(digest[:]), SignatureBy: keyID,
 	}
 	signable, err := json.Marshal(struct {
 		ExportID    uuid.UUID `json:"export_id"`
