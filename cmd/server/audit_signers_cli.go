@@ -3,10 +3,8 @@ package main
 import (
 	"context"
 	"crypto/ed25519"
-	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"strings"
 	"time"
 
@@ -15,15 +13,12 @@ import (
 	"goodkind.io/tack/internal/clispec"
 )
 
-// errNoSignerSet is the refusal when neither the flag nor the environment
-// names a valid signer.
-var errNoSignerSet = errors.New("no valid signer set: set AUDIT_VALID_SIGNERS or pass --signers")
-
 type auditSignersInput struct {
 	clispec.InputMarker `exhaustruct:"optional"`
 	Since               string
 	Signers             string
 	Pub                 string
+	AllowUnverified     bool
 }
 
 // auditSignersResult is the `audit signers` output: the scan of
@@ -45,10 +40,13 @@ func auditSignersOp(f *cli.Factory) clispec.Operation[auditSignersInput] {
 		Aliases: nil,
 		Hidden:  false,
 		Short:   "Check every notarization against the valid signer set and report any signed outside it",
-		Long: "Reads audit.notarizations through the reader role. A row whose signing key is " +
-			"outside the set fails the command and is reported with its claimed host; a row " +
-			"under the local key also has its signature verified. The set comes from " +
-			"AUDIT_VALID_SIGNERS or --signers, and the command refuses to run without one.",
+		Long: "Run it through the app service, which mounts the signing key and carries the set. " +
+			"Reads audit.notarizations through the reader role. A row whose signing key is " +
+			"outside the set fails the command and is reported with the hosts it claimed; a row " +
+			"under the local key has its signature verified; a row under another allowed key " +
+			"cannot be verified here and fails the command unless --allow-unverified is passed. " +
+			"The set comes from AUDIT_VALID_SIGNERS or --signers, the key from " +
+			"AUDIT_SIGNING_KEY_PATH or --pub, and the command refuses to run without either.",
 		Examples: nil,
 		Args:     nil,
 		Params: []clispec.Param[auditSignersInput]{
@@ -58,9 +56,11 @@ func auditSignersOp(f *cli.Factory) clispec.Operation[auditSignersInput] {
 				func(in *auditSignersInput, v string) { in.Signers = v }),
 			clispec.StringParam("pub", "PEM path to the local ed25519 key (defaults to AUDIT_SIGNING_KEY_PATH)", "", false,
 				func(in *auditSignersInput, v string) { in.Pub = v }),
+			clispec.BoolParam("allow-unverified", "accept rows under allowed identifiers this host holds no key for", false,
+				func(in *auditSignersInput, v bool) { in.AllowUnverified = v }),
 		},
 		New: func() auditSignersInput {
-			return auditSignersInput{InputMarker: clispec.InputMarker{}, Since: "", Signers: "", Pub: ""}
+			return auditSignersInput{InputMarker: clispec.InputMarker{}, Since: "", Signers: "", Pub: "", AllowUnverified: false}
 		},
 		Run: runAuditSigners(f),
 	}
@@ -84,8 +84,8 @@ func runAuditSigners(f *cli.Factory) func(context.Context, auditSignersInput, cl
 		if !set.Configured() {
 			// Refused before anything is opened: an empty set would accept
 			// nothing and a skipped check would accept everything.
-			slog.ErrorContext(ctx, "audit.signers_no_set", slog.String("err", errNoSignerSet.Error()))
-			return fmt.Errorf("audit signers: %w", errNoSignerSet)
+			slog.ErrorContext(ctx, "audit.signers_no_set", slog.String("err", audit.ErrNoSignerSet.Error()))
+			return fmt.Errorf("audit signers: %w", audit.ErrNoSignerSet)
 		}
 		localPub, err := auditLocalPublicKey(ctx, f, in.Pub)
 		if err != nil {
@@ -96,7 +96,9 @@ func runAuditSigners(f *cli.Factory) func(context.Context, auditSignersInput, cl
 			return err
 		}
 		defer reader.Close()
-		report, err := reader.VerifySigners(ctx, set, localPub, since)
+		report, err := reader.VerifySigners(ctx, audit.SignerCheck{
+			Set: set, LocalPub: localPub, Since: since, AcknowledgeUnverified: in.AllowUnverified,
+		})
 		if err != nil {
 			slog.ErrorContext(ctx, "audit.signers_failed", slog.String("err", err.Error()))
 			return fmt.Errorf("audit signers: %w", err)
@@ -132,23 +134,22 @@ func auditSignerSet(ctx context.Context, f *cli.Factory, flagValue string) (audi
 }
 
 // auditLocalPublicKey loads the public half of the local signing key from the
-// flag, else from AUDIT_SIGNING_KEY_PATH. No key at all is allowed: the set
-// check still runs, and every allowed row counts as unverified here.
+// flag, else from AUDIT_SIGNING_KEY_PATH. No key is a refusal: a run that
+// verified no signature would read as a pass while proving only that
+// identifier strings matched.
 func auditLocalPublicKey(ctx context.Context, f *cli.Factory, flagValue string) (ed25519.PublicKey, error) {
 	keyPath := strings.TrimSpace(flagValue)
-	if keyPath == "" {
-		keyPath = os.Getenv("AUDIT_SIGNING_KEY_PATH")
-	}
 	if keyPath == "" && f != nil && f.Cfg != nil {
 		keyPath = f.Cfg.AuditSigningKeyPath
 	}
 	if keyPath == "" {
-		return nil, nil
+		slog.ErrorContext(ctx, "audit.signers_no_key", slog.String("err", audit.ErrNoLocalKey.Error()))
+		return nil, fmt.Errorf("audit signers: %w", audit.ErrNoLocalKey)
 	}
 	pub, err := loadAuditPublic(keyPath)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.signers_key_failed", slog.String("err", err.Error()))
-		return nil, errors.Join(errors.New("audit signers: local key"), err)
+		return nil, fmt.Errorf("audit signers: local key: %w", err)
 	}
 	return pub, nil
 }

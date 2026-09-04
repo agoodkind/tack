@@ -1,7 +1,9 @@
--- Every notarization names the host that signed it (TACK-437). The signature
--- proves the key; the host column makes a row claim an origin, so a forged
--- row from a leaked key has to name a host and attribution no longer rests on
--- the key alone. Rows written before this carry an empty host.
+-- Every notarization names the host that signed it (TACK-437). The host is a
+-- claim written beside the signature, not inside it: the signature covers the
+-- Merkle root alone, so a holder of a leaked key can claim any host. What the
+-- column adds is that every row now states an origin, so the signer report can
+-- name which hosts a rejected key claimed to be. Rows written before this
+-- carry an empty host.
 --
 -- Idempotent: YugabyteDB keeps completed DDL when a migration transaction
 -- rolls back, so a retry must reconcile partial work.

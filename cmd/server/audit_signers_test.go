@@ -18,11 +18,25 @@ import (
 func TestAuditSignersCommandRefusesWithoutASet(t *testing.T) {
 	factory := &cli.Factory{Cfg: nil, In: nil, Out: os.Stdout, Err: os.Stderr}
 	operation := auditSignersOp(factory)
-	input := auditSignersInput{InputMarker: clispec.InputMarker{}, Since: "", Signers: "", Pub: ""}
+	input := auditSignersInput{InputMarker: clispec.InputMarker{}, Since: "", Signers: "", Pub: "", AllowUnverified: false}
 
 	err := operation.Run(context.Background(), input, clispec.NewCLISink(factory))
 	if err == nil || !strings.Contains(err.Error(), "no valid signer set") {
 		t.Fatalf("err = %v, want the refusal to run without a signer set", err)
+	}
+}
+
+// TestAuditSignersCommandRefusesWithoutALocalKey pins that a set alone is not
+// enough: with no key to verify signatures the command stops rather than
+// report every row as unverified and exit clean.
+func TestAuditSignersCommandRefusesWithoutALocalKey(t *testing.T) {
+	factory := &cli.Factory{Cfg: nil, In: nil, Out: os.Stdout, Err: os.Stderr}
+	operation := auditSignersOp(factory)
+	input := auditSignersInput{InputMarker: clispec.InputMarker{}, Since: "", Signers: "ed25519:0000000000000000", Pub: "", AllowUnverified: false}
+
+	err := operation.Run(context.Background(), input, clispec.NewCLISink(factory))
+	if err == nil || !strings.Contains(err.Error(), "no local signing key") {
+		t.Fatalf("err = %v, want the refusal to run without a local key", err)
 	}
 }
 

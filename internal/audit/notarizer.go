@@ -48,8 +48,10 @@ type NotarizerConfig struct {
 	// with `openssl genpkey -algorithm ed25519 -out audit-signing.pem`.
 	// Empty disables the notarizer entirely.
 	SigningKeyPath string
-	// SigningHost names the host whose key signs, stamped on every row so a
-	// notarization claims an origin (TACK-437). Empty is stored as empty.
+	// SigningHost names the host whose key signs, stamped on every row as a
+	// claimed origin (TACK-437). It sits beside the signature, not inside it,
+	// so it labels a row for the signer report rather than proving where the
+	// row came from. Empty is stored as empty.
 	SigningHost string
 	// Period is how often the notarizer runs. Defaults to 60s.
 	Period time.Duration

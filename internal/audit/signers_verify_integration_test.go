@@ -70,15 +70,19 @@ func TestVerifySignersRejectsAKeyOutsideTheSet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	report, err := reader.VerifySigners(ctx, set, issuedPub, since)
+	report, err := reader.VerifySigners(ctx, SignerCheck{Set: set, LocalPub: issuedPub, Since: since, AcknowledgeUnverified: false})
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}
 	if report.RowsScanned != 3 || report.Accepted != 1 || report.SignatureVerified != 1 || report.RejectedUnknownSigner != 2 || report.SignatureFailed != 0 {
 		t.Fatalf("report = %+v, want 3 scanned, 1 accepted and verified, 2 rejected", *report)
 	}
-	if len(report.UnknownSigners) != 1 || report.UnknownSigners[0].SigningKey != rogue || report.UnknownSigners[0].SigningHost != "rogue-guest" || report.UnknownSigners[0].Rows != 2 {
+	if len(report.UnknownSigners) != 1 || report.UnknownSigners[0].SigningKey != rogue || report.UnknownSigners[0].Rows != 2 ||
+		len(report.UnknownSigners[0].SigningHosts) != 1 || report.UnknownSigners[0].SigningHosts[0] != "rogue-guest" {
 		t.Fatalf("unknown signers = %+v, want the rogue key from rogue-guest with 2 rows", report.UnknownSigners)
+	}
+	if report.LocalSigner != issued {
+		t.Fatalf("local signer = %s, want %s", report.LocalSigner, issued)
 	}
 	verdict := report.Err()
 	if verdict == nil || !strings.Contains(verdict.Error(), rogue) {
@@ -88,7 +92,7 @@ func TestVerifySignersRejectsAKeyOutsideTheSet(t *testing.T) {
 	// The identifier alone is not proof: a row that claims the accepted key
 	// over a signature that key never made fails the signature check.
 	insertNotarization(t, pool, orgID, roguePriv, issued, "rogue-guest", since.Add(4*time.Second), false)
-	report, err = reader.VerifySigners(ctx, set, issuedPub, since)
+	report, err = reader.VerifySigners(ctx, SignerCheck{Set: set, LocalPub: issuedPub, Since: since, AcknowledgeUnverified: false})
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}
@@ -96,22 +100,37 @@ func TestVerifySignersRejectsAKeyOutsideTheSet(t *testing.T) {
 		t.Fatalf("report = %+v, want the forged-identifier row counted as a signature failure", *report)
 	}
 
-	// Once the rogue identifier is admitted to the set its rows are accepted
-	// on the set alone, and counted as unverified here because this host does
-	// not hold that key.
+	// Once the rogue identifier is admitted to the set its rows are no longer
+	// rejected, but this host holds no key for them, so they fail the report
+	// as unverified until the operator acknowledges that.
 	both, err := ParseSignerSet(issued + "," + rogue)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	report, err = reader.VerifySigners(ctx, both, issuedPub, since)
+	report, err = reader.VerifySigners(ctx, SignerCheck{Set: both, LocalPub: issuedPub, Since: since, AcknowledgeUnverified: false})
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}
 	if report.RejectedUnknownSigner != 0 || report.AllowedUnverifiedHere != 2 || len(report.UnknownSigners) != 0 {
 		t.Fatalf("report = %+v, want no rejections and two rows unverified here", *report)
 	}
+	if verdict := report.Err(); verdict == nil || !strings.Contains(verdict.Error(), "allow-unverified") {
+		t.Fatalf("verdict = %v, want unverified rows to fail without acknowledgement", verdict)
+	}
+	acknowledged, err := reader.VerifySigners(ctx, SignerCheck{Set: both, LocalPub: issuedPub, Since: since, AcknowledgeUnverified: true})
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	// The forged-identifier row still fails on its signature even when the
+	// unverified rows are acknowledged.
+	if verdict := acknowledged.Err(); verdict == nil || strings.Contains(verdict.Error(), "allow-unverified") || !strings.Contains(verdict.Error(), "signature") {
+		t.Fatalf("verdict = %v, want only the signature failure left", verdict)
+	}
 
-	if _, err := reader.VerifySigners(ctx, SignerSet{ordered: nil, members: nil}, issuedPub, since); err == nil {
+	if _, err := reader.VerifySigners(ctx, SignerCheck{Set: SignerSet{ordered: nil, members: nil}, LocalPub: issuedPub, Since: since, AcknowledgeUnverified: false}); err == nil {
 		t.Fatal("verification ran without a signer set")
+	}
+	if _, err := reader.VerifySigners(ctx, SignerCheck{Set: set, LocalPub: nil, Since: since, AcknowledgeUnverified: false}); err == nil {
+		t.Fatal("verification ran without a local key")
 	}
 }
