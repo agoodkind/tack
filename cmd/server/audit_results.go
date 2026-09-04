@@ -69,6 +69,7 @@ type auditVerifyResult struct {
 	SignatureOK          bool     `json:"signature_ok"`
 	ManifestSubject      string   `json:"manifest_subject"`
 	ManifestSigner       string   `json:"manifest_signer"`
+	VerifiedSigner       string   `json:"verified_signer"`
 	SignerSetConfigured  bool     `json:"signer_set_configured"`
 	SignerAllowed        bool     `json:"signer_allowed"`
 }

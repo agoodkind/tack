@@ -30,11 +30,15 @@ type VerifyReport struct {
 	// fails on that disagreement, not only on the signature it also breaks.
 	ManifestRowCount int
 	ManifestSubject  string
-	// ManifestSigner is the identifier the manifest names as its signer.
-	// SignerSetConfigured says whether a valid signer set was given, and
-	// SignerAllowed whether that identifier is in it; with no set the
-	// identifier is reported and not judged, and the report says so.
+	// ManifestSigner is the identifier the manifest names as its signer and
+	// VerifiedSigner the identifier of the key the signature verified under.
+	// The set is checked against the verified key, never the manifest's
+	// claim: a manifest can name any signer, and only the key that verifies
+	// it proves who signed. SignerSetConfigured says whether a set was given
+	// and SignerAllowed whether the verified key is in it; with no set the
+	// identifiers are reported and not judged, and the report says so.
 	ManifestSigner      string
+	VerifiedSigner      string
 	SignerSetConfigured bool
 	SignerAllowed       bool
 }
@@ -56,7 +60,15 @@ func (r *VerifyReport) Err() error {
 	// whether that signer is allowed to (TACK-437).
 	if r.SignerSetConfigured && !r.SignerAllowed {
 		failures = append(failures,
-			fmt.Sprintf("the manifest signer %s is outside the valid signer set", r.ManifestSigner))
+			fmt.Sprintf("the key the signature verified under, %s, is outside the valid signer set", r.VerifiedSigner))
+	}
+	// A manifest that names one signer and verifies under another is lying
+	// about its origin, whichever of the two the set allows. Judged only with
+	// a set, because bundles written before the one identifier existed name
+	// their key differently and are verified without a set on purpose.
+	if r.SignerSetConfigured && r.ManifestSigner != r.VerifiedSigner {
+		failures = append(failures,
+			fmt.Sprintf("the manifest names signer %s but its signature verified under %s", r.ManifestSigner, r.VerifiedSigner))
 	}
 	if len(r.ChainBreaks) > 0 {
 		failures = append(failures,
@@ -124,14 +136,19 @@ func VerifyBundle(dir string, pub ed25519.PublicKey) (*VerifyReport, error) {
 }
 
 // VerifyBundleWithSigners is VerifyBundle plus the signer-set check: with a
-// configured set, a manifest whose signer identifier is outside it fails the
-// report even when its signature verifies (TACK-437).
+// configured set, a bundle whose signature verifies under a key outside the
+// set fails the report, as does one whose manifest names a signer other than
+// the key that verified it (TACK-437).
 func VerifyBundleWithSigners(dir string, pub ed25519.PublicKey, signers SignerSet) (*VerifyReport, error) {
 	report := &VerifyReport{
 		BundleDir: dir, RowsScanned: 0, HashMatches: 0, ChainGapCount: 0,
 		ChainBreaks: nil, FileSHA256OK: false, SignatureOK: false,
-		ManifestRowCount: 0, ManifestSubject: "", ManifestSigner: "",
+		ManifestRowCount: 0, ManifestSubject: "", ManifestSigner: "", VerifiedSigner: "",
 		SignerSetConfigured: signers.Configured(), SignerAllowed: false,
+	}
+	if len(pub) == ed25519.PublicKeySize {
+		report.VerifiedSigner = KeyIdentifier(pub)
+		report.SignerAllowed = signers.Allows(report.VerifiedSigner)
 	}
 
 	mf, err := readExportManifest(dir)
@@ -141,7 +158,6 @@ func VerifyBundleWithSigners(dir string, pub ed25519.PublicKey, signers SignerSe
 	report.ManifestSubject = mf.ExportID.String()
 	report.ManifestRowCount = mf.RowCount
 	report.ManifestSigner = mf.SignatureBy
-	report.SignerAllowed = signers.Allows(mf.SignatureBy)
 	report.SignatureOK = manifestSignatureOK(mf, pub)
 
 	eventsName, err := bundleEventsFileName(mf)

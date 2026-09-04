@@ -40,6 +40,21 @@ func TestAuditSignersCommandRefusesWithoutALocalKey(t *testing.T) {
 	}
 }
 
+// TestAuditVerifyCommandRefusesWithoutASet pins that bundle verification no
+// longer runs on the signature alone: with neither --signers nor
+// AUDIT_VALID_SIGNERS the command refuses before it reads the bundle.
+func TestAuditVerifyCommandRefusesWithoutASet(t *testing.T) {
+	dir := t.TempDir()
+	keyPath := writeVerifyTestKey(t, dir)
+	factory := &cli.Factory{Cfg: nil, In: nil, Out: os.Stdout, Err: os.Stderr}
+	input := auditVerifyInput{InputMarker: clispec.InputMarker{}, Bundle: filepath.Join(dir, "absent"), Pub: keyPath, Signers: ""}
+
+	err := auditVerifyOp(factory).Run(context.Background(), input, clispec.NewCLISink(factory))
+	if err == nil || !strings.Contains(err.Error(), "no valid signer set") {
+		t.Fatalf("err = %v, want the refusal to verify without a signer set", err)
+	}
+}
+
 // TestAuditVerifyCommandRejectsASignerOutsideTheSet runs the real verify
 // command against a bundle whose manifest names a signer the given set does
 // not, and asserts the verdict names that.

@@ -63,13 +63,13 @@ func runAuditVerify(f *cli.Factory) func(context.Context, auditVerifyInput, clis
 			return err
 		}
 		if !signers.Configured() {
-			// The bundle is still judged on its digest, signature, and chain;
-			// only the signer check has nothing to compare against. On a
-			// deployed host the set is rendered, so its absence is a
-			// misconfiguration and is logged at the level the alarm reads.
-			slog.ErrorContext(ctx, "audit.verify_signer_set_unconfigured",
-				slog.String("bundle", in.Bundle),
-				slog.String("err", "AUDIT_VALID_SIGNERS unset and --signers not passed; the manifest signer is reported, not judged"))
+			// Refused rather than run without the signer verdict: a bundle
+			// that verified on signature alone would read as a pass under a
+			// key the environment may have revoked. On a deployed host the set
+			// is rendered, so its absence is a misconfiguration.
+			slog.ErrorContext(ctx, "audit.verify_no_signer_set", slog.String("bundle", in.Bundle),
+				slog.String("err", audit.ErrNoSignerSet.Error()))
+			return fmt.Errorf("audit verify: %w", audit.ErrNoSignerSet)
 		}
 		report, err := audit.VerifyBundleWithSigners(in.Bundle, pub, signers)
 		if err != nil {
@@ -80,8 +80,8 @@ func runAuditVerify(f *cli.Factory) func(context.Context, auditVerifyInput, clis
 			BundleDir: report.BundleDir, RowsScanned: report.RowsScanned, HashMatches: report.HashMatches,
 			ChainGapCount: report.ChainGapCount, ChainBreaks: report.ChainBreaks, FileSHA256OK: report.FileSHA256OK,
 			SignatureOK: report.SignatureOK, ManifestSubject: report.ManifestSubject,
-			ManifestSigner: report.ManifestSigner, SignerSetConfigured: report.SignerSetConfigured,
-			SignerAllowed: report.SignerAllowed,
+			ManifestSigner: report.ManifestSigner, VerifiedSigner: report.VerifiedSigner,
+			SignerSetConfigured: report.SignerSetConfigured, SignerAllowed: report.SignerAllowed,
 		}); writeErr != nil {
 			slog.ErrorContext(ctx, "audit.verify_render_failed", slog.String("err", writeErr.Error()))
 			return fmt.Errorf("audit verify: render report: %w", writeErr)

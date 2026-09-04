@@ -109,7 +109,7 @@ func TestVerifyBundleRejectsASignerOutsideTheSet(t *testing.T) {
 	}
 	verdict := report.Err()
 	if verdict == nil || !strings.Contains(verdict.Error(), "outside the valid signer set") || !strings.Contains(verdict.Error(), KeyIdentifier(pub)) {
-		t.Fatalf("verdict = %v, want a rejection naming the signer", verdict)
+		t.Fatalf("verdict = %v, want a rejection naming the verifying key", verdict)
 	}
 
 	unconfigured, err := VerifyBundleWithSigners(dir, pub, SignerSet{ordered: nil, members: nil})
@@ -118,5 +118,24 @@ func TestVerifyBundleRejectsASignerOutsideTheSet(t *testing.T) {
 	}
 	if unconfigured.SignerSetConfigured || unconfigured.Err() != nil {
 		t.Fatalf("with no set the bundle must be reported, not judged: configured %v err %v", unconfigured.SignerSetConfigured, unconfigured.Err())
+	}
+
+	// The set is judged on the key that verified, never on the manifest's
+	// own claim: a manifest naming an allowed signer while signed by the
+	// verifying key is caught as a mismatch, and one signed by a leaked key
+	// that names an allowed signer never reaches "allowed" at all.
+	claimDir := t.TempDir()
+	if _, err := Export(context.Background(), exportTestRows(t, orgID, 2, nil), priv, "ed25519:0000000000000000", filter, claimDir); err != nil {
+		t.Fatalf("export with a false signer claim: %v", err)
+	}
+	claimed, err := VerifyBundleWithSigners(claimDir, pub, allowed)
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if !claimed.SignatureOK || !claimed.SignerAllowed || claimed.VerifiedSigner != KeyIdentifier(pub) {
+		t.Fatalf("report = %+v, want the verifying key allowed and the signature valid", *claimed)
+	}
+	if verdict := claimed.Err(); verdict == nil || !strings.Contains(verdict.Error(), "names signer ed25519:0000000000000000") {
+		t.Fatalf("verdict = %v, want the manifest's false signer claim rejected", verdict)
 	}
 }

@@ -39,11 +39,17 @@ func TestAuditVerifyCommandFailsOnTamperedBundle(t *testing.T) {
 	}
 	writeMismatchedBundle(t, bundleDir, keyPath)
 
+	_, keyID, err := loadAuditKey(keyPath)
+	if err != nil {
+		t.Fatalf("load key: %v", err)
+	}
 	factory := &cli.Factory{Cfg: nil, In: nil, Out: os.Stdout, Err: os.Stderr}
 	operation := auditVerifyOp(factory)
-	input := auditVerifyInput{InputMarker: clispec.InputMarker{}, Bundle: bundleDir, Pub: keyPath}
+	// The set names the verifying key, so the only failure left to catch is
+	// the row hash the test planted.
+	input := auditVerifyInput{InputMarker: clispec.InputMarker{}, Bundle: bundleDir, Pub: keyPath, Signers: keyID}
 
-	err := operation.Run(context.Background(), input, clispec.NewCLISink(factory))
+	err = operation.Run(context.Background(), input, clispec.NewCLISink(factory))
 	if err == nil {
 		t.Fatal("command accepted a bundle whose row hash does not match, want failure")
 	}

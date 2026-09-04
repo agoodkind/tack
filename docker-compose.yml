@@ -478,6 +478,10 @@ services:
       # like the operator one above; empty until the host .env renders them.
       AUDIT_READER_DSN: ${TACK_OPS_AUDIT_READER_DSN:-}
       AUDIT_REDACTOR_DSN: ${TACK_OPS_AUDIT_REDACTOR_DSN:-}
+      # The valid signer set (TACK-437), the same value the app carries, so
+      # `audit verify` here judges a bundle's signer. `audit signers` still
+      # runs through the app service: this container mounts no signing key.
+      AUDIT_VALID_SIGNERS: ${AUDIT_VALID_SIGNERS:-}
       FDB_CLUSTER_FILE: /etc/foundationdb/fdb.cluster
       MEILI_URL: http://localhost:7700
       MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-tack-dev-meili-key-change-in-prod}
