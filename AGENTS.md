@@ -233,11 +233,11 @@ not even healthy until the first of them runs. Until the provisioning layer land
    commands (`ops audit dlq inspect`, `ops audit dlq replay`) run through the
    `app` service, which carries both the reader DSN and the Kafka brokers a
    replay needs; tack-ops is host-networked and cannot reach the broker.
-   Migration 010 must be applied before an audit-consumer image that carries
+   Migration 011 must be applied before an audit-consumer image that carries
    it: the full deploy runs `ops provision --execute`, whose ordered steps
    include the pending migrations, before the app and consumer start
    (TACK-453); `./server ops deploy` swaps images only, so on a host whose
-   database sits below migration 010 run step 2 above first (TACK-336).
+   database sits below migration 011 run step 2 above first (TACK-336).
 4. **Kafka topic.** No manual step: the audit-consumer ensures `audit.events.v1`
    with 256 partitions on startup once Yugabyte is reachable (TACK-305). On a
    fresh broker it appears automatically after step 3.
