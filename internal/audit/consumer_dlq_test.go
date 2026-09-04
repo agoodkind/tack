@@ -151,7 +151,9 @@ func TestConsumerRewindsAFailedBatch(t *testing.T) {
 		Brokers: brokers, Topic: topic, GroupID: "tack-audit-projector-test-" + uuid.NewString()[:8],
 		BatchSize: 8, PollInterval: 100 * time.Millisecond, YugabyteDSN: dsn,
 	}
-	runCtx, cancel := context.WithTimeout(ctx, 40*time.Second)
+	// Longer than the two waits below together, so the context never ends
+	// the consumer while the test is still allowed to wait on it.
+	runCtx, cancel := context.WithTimeout(ctx, 70*time.Second)
 	defer cancel()
 	consumer, err := NewConsumer(runCtx, cfg)
 	if err != nil {
