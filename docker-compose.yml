@@ -245,7 +245,7 @@ services:
     # Meilisearch refuses to start when the engine version differs from the
     # database version, so bumping this requires a reindex from FoundationDB.
     # Engine upgrade is tracked separately (TACK-332).
-    image: getmeili/meilisearch:v1.12
+    image: getmeili/meilisearch:v1.53
     restart: unless-stopped
     mem_limit: 2g
     environment:
