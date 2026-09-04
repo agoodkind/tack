@@ -114,6 +114,11 @@ const (
 	VerbOpsDatagenLegacyLedgerRow Verb = "ops.datagen_legacy_ledger_row"
 	// VerbOpsProvision records environment provisioning.
 	VerbOpsProvision Verb = "ops.provision"
+	// VerbOpsAuditDLQInspect records an operator listing the dead-letter table.
+	VerbOpsAuditDLQInspect Verb = "ops.audit_dlq_inspect"
+	// VerbOpsAuditDLQReplay records an operator re-publishing dead-letter
+	// rows to the audit topic.
+	VerbOpsAuditDLQReplay Verb = "ops.audit_dlq_replay"
 	// VerbOpsAuthTokenCreate records an operator minting an API token for an
 	// existing user.
 	VerbOpsAuthTokenCreate Verb = "ops.auth_token_create"

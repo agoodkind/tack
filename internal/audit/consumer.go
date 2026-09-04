@@ -52,7 +52,19 @@ type ConsumerConfig struct {
 	// PartitionPeriod is how often the partition-manager runs pg_partman
 	// maintenance for audit.events. Zero falls back to 24h.
 	PartitionPeriod time.Duration
+
+	// TopicRetention is how long the broker keeps an audit record nobody has
+	// consumed. The consumer sets it on the topic at startup. Zero falls back
+	// to one year: the topic is the buffer that survives a consumer outage,
+	// and the broker default of seven days lost fifteen days of events
+	// (TACK-336).
+	TopicRetention time.Duration
 }
+
+// defaultTopicRetention is one year, well past any outage the operator would
+// leave unattended, while still bounded so a broker disk cannot fill without
+// end.
+const defaultTopicRetention = 365 * 24 * time.Hour
 
 // Consumer projects audit events from Kafka into Yugabyte (audit.events) and
 // ClickHouse (audit.events_olap) and runs an embedded notarizer goroutine. The
@@ -72,6 +84,9 @@ type Consumer struct {
 	once    sync.Once
 
 	summary processedSummary
+	// consecutiveFailures counts polls in a row that failed a batch; the loop
+	// alone reads and writes it.
+	consecutiveFailures int
 }
 
 // processedSummary buffers per-batch counts so the consumer emits one
@@ -109,6 +124,12 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 		return nil, err
 	}
 
+	// Autocommit stays off: the loop commits the records of each batch
+	// explicitly, right after the ledger transaction that projected them
+	// commits, so the group offset never runs ahead of the ledger. The
+	// earlier loop marked records for an autocommit that was never enabled,
+	// so no offset was ever committed and every restart re-read the topic
+	// from its start (TACK-336 review).
 	kclient, err := kgo.NewClient(
 		kgo.SeedBrokers(cfg.Brokers...),
 		kgo.ConsumerGroup(cfg.GroupID),
@@ -125,7 +146,7 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 		return nil, fmt.Errorf("audit consumer kafka client: %w", err)
 	}
 
-	if err := ensureAuditTopic(ctx, kclient, cfg.Topic); err != nil {
+	if err := ensureAuditTopic(ctx, kclient, cfg.Topic, cfg.TopicRetention); err != nil {
 		kclient.Close()
 		ybpool.Close()
 		if ch != nil {
@@ -150,6 +171,7 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 			verbCounts:   make(map[string]int),
 			commitOffset: 0,
 		},
+		consecutiveFailures: 0,
 	}
 
 	if cfg.SigningKeyPath != "" {
@@ -197,6 +219,9 @@ func applyConsumerDefaults(cfg ConsumerConfig) ConsumerConfig {
 	}
 	if cfg.PartitionPeriod <= 0 {
 		cfg.PartitionPeriod = 24 * time.Hour
+	}
+	if cfg.TopicRetention <= 0 {
+		cfg.TopicRetention = defaultTopicRetention
 	}
 	return cfg
 }
@@ -324,29 +349,9 @@ func (c *Consumer) loop(ctx context.Context) {
 			continue
 		}
 
-		batches := groupByPartition(fetches)
-		for tp, records := range batches {
-			if err := c.projectBatch(ctx, tp, records); err != nil {
-				telemetry.IncAuditConsumerProcessed("error", int64(len(records)))
-				slog.ErrorContext(ctx, "audit.consumer.project_failed",
-					slog.String("topic", tp.Topic),
-					slog.Int("partition", int(tp.Partition)),
-					slog.String("err", err.Error()),
-				)
-				continue
-			}
-			last := records[len(records)-1]
-			c.kclient.MarkCommitRecords(last)
-			telemetry.IncAuditConsumerProcessed("ok", int64(len(records)))
-			telemetry.SetAuditConsumerOffsetCommitted(tp.Topic, tp.Partition, last.Offset+1)
-			c.recordSummary(ctx, records, last.Offset+1)
-		}
-
-		if err := c.kclient.CommitMarkedOffsets(ctx); err != nil {
-			slog.ErrorContext(ctx, "audit.consumer.commit_failed", slog.String("err", err.Error()))
-		}
-
+		failed := c.projectFetches(ctx, fetches)
 		telemetry.ObserveAuditConsumerBatchLatency(sinceMs(pollStart))
+		c.backOffAfterFailures(ctx, failed)
 	}
 }
 
@@ -503,25 +508,13 @@ func (c *Consumer) projectBatchOnce(ctx context.Context, tp topicPartition, reco
 
 	projected := make([]projectedEvent, 0, len(records))
 	for _, rec := range records {
-		pe, perr := c.projectOne(ctx, tx, rec)
+		pe, landed, perr := c.projectRecord(ctx, tx, rec)
 		if perr != nil {
-			if errors.Is(perr, errAlreadyProjected) {
-				continue
-			}
-			if errors.Is(perr, errMalformedPayload) {
-				writeDLQ(ctx, tx, rec, perr)
-				continue
-			}
-			if isRetryableChainErr(perr) {
-				return nil, perr
-			}
-			slog.ErrorContext(ctx, "audit.consumer.project_record_failed",
-				slog.String("err", perr.Error()),
-				slog.Int64("offset", rec.Offset),
-			)
-			return nil, fmt.Errorf("project record offset=%d: %w", rec.Offset, perr)
+			return nil, perr
 		}
-		projected = append(projected, pe)
+		if landed {
+			projected = append(projected, pe)
+		}
 	}
 
 	last := records[len(records)-1]
@@ -544,6 +537,56 @@ func (c *Consumer) projectBatchOnce(ctx context.Context, tp topicPartition, reco
 	}
 
 	return projected, nil
+}
+
+// projectRecord projects one record inside a savepoint of the batch
+// transaction and reports whether it produced a ledger row.
+//
+// A record the ledger refuses, such as one dated into a week no partition
+// covers, used to fail the whole batch, which left the offset in place and the
+// record redelivered until Kafka's retention discarded it: that is how the
+// 2026-07-06 to 07-21 events were lost (TACK-336). The savepoint lets the
+// failed statement be rolled back without aborting the batch, so the record
+// is written to the dead-letter table in the same transaction that advances
+// the offset. Only a failure about the record itself is dead-lettered (see
+// isDeadLetterable); a chain conflict, a lost connection, or a deployment
+// fault still fails the batch, because retrying is the right answer to those.
+//
+// A replayed record that lands deletes the dead-letter row it came from in
+// the same transaction; one the ledger already holds does the same, since the
+// event is accounted for either way.
+func (c *Consumer) projectRecord(ctx context.Context, tx pgx.Tx, rec *kgo.Record) (projectedEvent, bool, error) {
+	savepoint, err := tx.Begin(ctx)
+	if err != nil {
+		slog.ErrorContext(ctx, "audit.consumer.savepoint_failed", slog.String("err", err.Error()))
+		return projectedEvent{}, false, fmt.Errorf("savepoint for offset=%d: %w", rec.Offset, err)
+	}
+	pe, perr := c.projectOne(ctx, savepoint, rec)
+	if perr == nil {
+		if err := savepoint.Commit(ctx); err != nil {
+			slog.ErrorContext(ctx, "audit.consumer.savepoint_release_failed", slog.String("err", err.Error()))
+			return projectedEvent{}, false, fmt.Errorf("release savepoint for offset=%d: %w", rec.Offset, err)
+		}
+		return pe, true, resolveDeadLetter(ctx, tx, rec)
+	}
+	_ = savepoint.Rollback(ctx)
+	switch {
+	case errors.Is(perr, errAlreadyProjected):
+		return projectedEvent{}, false, resolveDeadLetter(ctx, tx, rec)
+	case isRetryableChainErr(perr):
+		return projectedEvent{}, false, perr
+	case isDeadLetterable(perr):
+		// Malformed payloads and refused inserts alike: the record is kept,
+		// named, and counted in the dead-letter table, and the batch goes on.
+		telemetry.IncAuditConsumerDeadLettered()
+		return projectedEvent{}, false, deadLetterRecord(ctx, tx, rec, perr)
+	default:
+		slog.ErrorContext(ctx, "audit.consumer.project_record_failed",
+			slog.String("err", perr.Error()),
+			slog.Int64("offset", rec.Offset),
+		)
+		return projectedEvent{}, false, fmt.Errorf("project record offset=%d: %w", rec.Offset, perr)
+	}
 }
 
 // writeClickHouseBatch projects a committed batch into ClickHouse. The OLAP
@@ -859,24 +902,6 @@ func piiRefArg(ref uuid.UUID) pgtype.UUID {
 		return pgtype.UUID{Bytes: [16]byte{}, Valid: false}
 	}
 	return pgtype.UUID{Bytes: ref, Valid: true}
-}
-
-// writeDLQ records a malformed Kafka payload into audit.events_dlq so the
-// operator can investigate. Best effort. Failures are logged.
-func writeDLQ(ctx context.Context, tx pgx.Tx, rec *kgo.Record, cause error) {
-	_, err := tx.Exec(ctx, `
-		INSERT INTO audit.events_dlq (received_at, topic, partition, "offset", payload, error)
-		VALUES (now(), $1, $2, $3, $4, $5)
-		ON CONFLICT (topic, partition, "offset") DO NOTHING
-	`, rec.Topic, rec.Partition, rec.Offset, rec.Value, cause.Error())
-	if err != nil {
-		slog.ErrorContext(ctx, "audit.consumer.dlq_write_failed",
-			slog.String("err", err.Error()),
-			slog.String("topic", rec.Topic),
-			slog.Int("partition", int(rec.Partition)),
-			slog.Int64("offset", rec.Offset),
-		)
-	}
 }
 
 // ensureClickHouseSchema creates the audit database and audit.events_olap

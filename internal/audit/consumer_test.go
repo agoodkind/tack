@@ -91,7 +91,13 @@ func produceEvents(t *testing.T, brokers []string, topic string, events []Event)
 	return ids
 }
 
-func runConsumerOnce(t *testing.T, cfg ConsumerConfig, expect int) {
+// runConsumerOnce starts a consumer and stops it once the test's org holds
+// at least expect ledger rows. The count is by org, because that is the one
+// column the test controls: an earlier version counted through
+// audit.consumer_offsets, which has no org column, so the subquery
+// correlated to the outer table and counted every row in the ledger once
+// any offset row existed.
+func runConsumerOnce(t *testing.T, cfg ConsumerConfig, orgID uuid.UUID, expect int) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -102,7 +108,7 @@ func runConsumerOnce(t *testing.T, cfg ConsumerConfig, expect int) {
 	consumer.Start(ctx)
 	deadline := time.After(20 * time.Second)
 	for {
-		got := countRowsForGroup(t, cfg.YugabyteDSN, cfg.GroupID)
+		got := countRowsForOrg(t, cfg.YugabyteDSN, orgID)
 		if got >= expect {
 			break
 		}
@@ -117,7 +123,44 @@ func runConsumerOnce(t *testing.T, cfg ConsumerConfig, expect int) {
 	}
 }
 
-func countRowsForGroup(t *testing.T, dsn, group string) int {
+// runConsumerUntilOffset starts a consumer and stops it once its group has
+// recorded an offset of at least want on some partition of the topic.
+func runConsumerUntilOffset(t *testing.T, cfg ConsumerConfig, want int64) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	consumer, err := NewConsumer(ctx, cfg)
+	if err != nil {
+		t.Fatalf("NewConsumer: %v", err)
+	}
+	consumer.Start(ctx)
+	pool, err := pgxpool.New(ctx, cfg.YugabyteDSN)
+	if err != nil {
+		t.Fatalf("pool: %v", err)
+	}
+	defer pool.Close()
+	deadline := time.After(20 * time.Second)
+	for {
+		var got int64
+		_ = pool.QueryRow(ctx, `
+			SELECT coalesce(max("offset"), 0) FROM audit.consumer_offsets
+			 WHERE consumer_group = $1 AND topic = $2
+		`, cfg.GroupID, cfg.Topic).Scan(&got)
+		if got >= want {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("waited for group %s to reach offset %d; got %d", cfg.GroupID, want, got)
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+	if err := consumer.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+}
+
+func countRowsForOrg(t *testing.T, dsn string, orgID uuid.UUID) int {
 	t.Helper()
 	ctx := context.Background()
 	pool, err := pgxpool.New(ctx, dsn)
@@ -126,10 +169,7 @@ func countRowsForGroup(t *testing.T, dsn, group string) int {
 	}
 	defer pool.Close()
 	var n int
-	err = pool.QueryRow(ctx, `
-		SELECT count(*) FROM audit.events
-		WHERE org_id IN (SELECT org_id FROM audit.consumer_offsets WHERE consumer_group = $1)
-	`, group).Scan(&n)
+	err = pool.QueryRow(ctx, `SELECT count(*) FROM audit.events WHERE org_id = $1`, orgID).Scan(&n)
 	if err != nil {
 		return 0
 	}
@@ -191,7 +231,7 @@ func TestConsumerProjectsToEvents(t *testing.T) {
 		BatchSize:    32,
 		PollInterval: 100 * time.Millisecond,
 		YugabyteDSN:  os.Getenv("AUDIT_CONSUMER_TEST_DSN"),
-	}, total)
+	}, orgID, total)
 
 	ctx := context.Background()
 	rows, err := pool.Query(ctx, `
@@ -243,14 +283,17 @@ func TestConsumerIdempotentOnEventID(t *testing.T) {
 		Brokers: brokers, Topic: topic, GroupID: groupA,
 		BatchSize: 32, PollInterval: 100 * time.Millisecond,
 		YugabyteDSN: dsn,
-	}, total)
+	}, orgID, total)
 
+	// The second group re-reads the topic from its start; the run ends only
+	// once that group has committed an offset past every produced record,
+	// so a broken dedupe cannot hide behind a consumer that never got there.
 	groupB := "tack-audit-projector-test-" + uuid.NewString()[:8]
-	runConsumerOnce(t, ConsumerConfig{
+	runConsumerUntilOffset(t, ConsumerConfig{
 		Brokers: brokers, Topic: topic, GroupID: groupB,
 		BatchSize: 32, PollInterval: 100 * time.Millisecond,
 		YugabyteDSN: dsn,
-	}, 0)
+	}, total)
 
 	ctx := context.Background()
 	var n int
@@ -297,7 +340,7 @@ func TestConsumerOffsetAdvanceIsAtomicWithProjection(t *testing.T) {
 	_ = first.Close()
 	cancel()
 
-	runConsumerOnce(t, cfg, total)
+	runConsumerOnce(t, cfg, orgID, total)
 
 	c := context.Background()
 	var n int
@@ -418,7 +461,7 @@ func TestConsumerHandlesMalformedPayload(t *testing.T) {
 		Brokers: brokers, Topic: topic, GroupID: groupID,
 		BatchSize: 8, PollInterval: 100 * time.Millisecond,
 		YugabyteDSN: os.Getenv("AUDIT_CONSUMER_TEST_DSN"),
-	}, 1)
+	}, orgID, 1)
 
 	var dlqCount int
 	err = pool.QueryRow(ctx,

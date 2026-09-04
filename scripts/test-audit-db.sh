@@ -130,6 +130,6 @@ echo ">> migrating with goose ${GOOSE_VERSION}"
 # concurrency test's read lands on a catalog the other package is migrating.
 echo ">> running database-gated audit tests"
 exec "${COMPOSE[@]}" -f docker-compose.test.yml --profile runner run --rm \
-    --no-deps -e AUDIT_CHAIN_TEST_DSN="$TEST_DATABASE_URL" \
+    --no-deps -e AUDIT_CHAIN_TEST_DSN="$TEST_DATABASE_URL" -e AUDIT_CONSUMER_TEST_DSN="$TEST_DATABASE_URL" \
     --entrypoint /usr/local/go/bin/go tests \
     test -count=1 -p 1 ./internal/audit/... ./internal/ops/... ./cmd/server/... "$@"

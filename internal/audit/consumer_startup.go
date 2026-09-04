@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -60,17 +61,29 @@ func pingYugabyteUntilReady(ctx context.Context, pool *pgxpool.Pool) error {
 	return nil
 }
 
+// retentionConfigKey is the topic setting that decides how long the broker
+// keeps a record nobody has consumed.
+const retentionConfigKey = "retention.ms"
+
 // ensureAuditTopic creates the audit topic with auditTopicPartitions partitions
 // when it does not already exist, so a fresh broker does not leave the consumer
 // fetching a topic that nothing has created (TACK-305). The replication factor
 // is left to the broker default (-1) so the same call works at one broker or
-// many. An existing topic is a safe no-op.
-func ensureAuditTopic(ctx context.Context, client *kgo.Client, topic string) error {
+// many. An existing topic keeps its partitions and has its retention brought
+// to the configured value, because the topic is the buffer that holds every
+// event the consumer has not yet committed: the broker default of seven days
+// discarded the 2026-07-06 to 07-21 events during a consumer outage (TACK-336).
+func ensureAuditTopic(ctx context.Context, client *kgo.Client, topic string, retention time.Duration) error {
+	retentionMs := strconv.FormatInt(retention.Milliseconds(), 10)
 	req := kmsg.NewPtrCreateTopicsRequest()
 	reqTopic := kmsg.NewCreateTopicsRequestTopic()
 	reqTopic.Topic = topic
 	reqTopic.NumPartitions = auditTopicPartitions
 	reqTopic.ReplicationFactor = -1
+	reqConfig := kmsg.NewCreateTopicsRequestTopicConfig()
+	reqConfig.Name = retentionConfigKey
+	reqConfig.Value = &retentionMs
+	reqTopic.Configs = append(reqTopic.Configs, reqConfig)
 	req.Topics = append(req.Topics, reqTopic)
 
 	resp, err := req.RequestWith(ctx, client)
@@ -87,6 +100,14 @@ func ensureAuditTopic(ctx context.Context, client *kgo.Client, topic string) err
 		}
 		codeErr := kerr.ErrorForCode(respTopic.ErrorCode)
 		if errors.Is(codeErr, kerr.TopicAlreadyExists) {
+			// A broker that refuses the alter (an ACL, an older version)
+			// leaves the topic at its current retention; that is a
+			// shorter buffer, not a stopped consumer, so it is logged and
+			// the consumer keeps projecting.
+			if err := setTopicRetention(ctx, client, topic, retentionMs); err != nil {
+				slog.ErrorContext(ctx, "audit.consumer.topic_retention_unchanged",
+					slog.String("topic", topic), slog.String("err", err.Error()))
+			}
 			continue
 		}
 		slog.ErrorContext(ctx, "audit.consumer.topic_create_failed",
@@ -98,6 +119,41 @@ func ensureAuditTopic(ctx context.Context, client *kgo.Client, topic string) err
 	slog.InfoContext(ctx, "audit.consumer.topic_ensured",
 		slog.String("topic", topic),
 		slog.Int("partitions", auditTopicPartitions),
+		slog.String("retention", retention.String()),
 	)
+	return nil
+}
+
+// setTopicRetention sets retention.ms on an existing topic. It is one
+// incremental alter of one key, so every other topic setting is untouched.
+func setTopicRetention(ctx context.Context, client *kgo.Client, topic string, retentionMs string) error {
+	req := kmsg.NewPtrIncrementalAlterConfigsRequest()
+	resource := kmsg.NewIncrementalAlterConfigsRequestResource()
+	resource.ResourceType = kmsg.ConfigResourceTypeTopic
+	resource.ResourceName = topic
+	config := kmsg.NewIncrementalAlterConfigsRequestResourceConfig()
+	config.Name = retentionConfigKey
+	config.Op = kmsg.IncrementalAlterConfigOpSet
+	config.Value = &retentionMs
+	resource.Configs = append(resource.Configs, config)
+	req.Resources = append(req.Resources, resource)
+
+	resp, err := req.RequestWith(ctx, client)
+	if err != nil {
+		slog.ErrorContext(ctx, "audit.consumer.topic_retention_request_failed",
+			slog.String("topic", topic), slog.String("err", err.Error()))
+		return fmt.Errorf("audit consumer set retention on %s: %w", topic, err)
+	}
+	for _, respResource := range resp.Resources {
+		if respResource.ErrorCode == 0 {
+			continue
+		}
+		codeErr := kerr.ErrorForCode(respResource.ErrorCode)
+		slog.ErrorContext(ctx, "audit.consumer.topic_retention_failed",
+			slog.String("topic", topic), slog.String("err", codeErr.Error()))
+		return fmt.Errorf("audit consumer set retention on %s: %w", topic, codeErr)
+	}
+	slog.InfoContext(ctx, "audit.consumer.topic_retention_set",
+		slog.String("topic", topic), slog.String("retention_ms", retentionMs))
 	return nil
 }
