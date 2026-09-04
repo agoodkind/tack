@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -48,7 +49,10 @@ func TestVerifySignersRejectsAKeyOutsideTheSet(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 	orgID := uuid.Must(uuid.NewV7())
-	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM audit.notarizations WHERE org_id = $1`, orgID) })
+	otherOrgID := uuid.Must(uuid.NewV7())
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM audit.notarizations WHERE org_id = $1 OR org_id = $2`, orgID, otherOrgID)
+	})
 
 	issuedPub, issuedPriv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -60,10 +64,15 @@ func TestVerifySignersRejectsAKeyOutsideTheSet(t *testing.T) {
 	}
 	issued := KeyIdentifier(issuedPub)
 	rogue := KeyIdentifier(roguePub)
-	since := time.Now().UTC().Add(-time.Minute)
+	// The column holds microseconds, so the times the report hands back are
+	// compared at that precision.
+	since := time.Now().UTC().Add(-time.Minute).Truncate(time.Microsecond)
 	insertNotarization(t, pool, orgID, issuedPriv, issued, "tack-qa-owner", since.Add(time.Second), false)
-	insertNotarization(t, pool, orgID, roguePriv, rogue, "rogue-guest", since.Add(2*time.Second), false)
+	// The rogue rows land under two orgs and are inserted newest first, so
+	// the scan reaches them out of time order and the span must come from
+	// their times, not from the order the engine returns them in.
 	insertNotarization(t, pool, orgID, roguePriv, rogue, "rogue-guest", since.Add(3*time.Second), false)
+	insertNotarization(t, pool, otherOrgID, roguePriv, rogue, "rogue-guest", since.Add(2*time.Second), false)
 
 	reader := &Reader{pool: pool}
 	set, err := ParseSignerSet(issued)
@@ -83,6 +92,9 @@ func TestVerifySignersRejectsAKeyOutsideTheSet(t *testing.T) {
 	}
 	if report.LocalSigner != issued {
 		t.Fatalf("local signer = %s, want %s", report.LocalSigner, issued)
+	}
+	if first, last := report.UnknownSigners[0].First, report.UnknownSigners[0].Last; !first.Equal(since.Add(2*time.Second)) || !last.Equal(since.Add(3*time.Second)) {
+		t.Fatalf("rogue span = %s to %s, want the earliest and latest row times regardless of scan order", first, last)
 	}
 	verdict := report.Err()
 	if verdict == nil || !strings.Contains(verdict.Error(), rogue) {
@@ -132,5 +144,15 @@ func TestVerifySignersRejectsAKeyOutsideTheSet(t *testing.T) {
 	}
 	if _, err := reader.VerifySigners(ctx, SignerCheck{Set: set, LocalPub: nil, Since: since, AcknowledgeUnverified: false}); err == nil {
 		t.Fatal("verification ran without a local key")
+	}
+	// A local key the set does not list would leave every allowed row
+	// unverifiable, and an acknowledgement would then clear them all having
+	// verified nothing, so that run is refused before the scan.
+	rogueOnly, err := ParseSignerSet(rogue)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if _, err := reader.VerifySigners(ctx, SignerCheck{Set: rogueOnly, LocalPub: issuedPub, Since: since, AcknowledgeUnverified: true}); !errors.Is(err, ErrLocalKeyNotInSet) {
+		t.Fatalf("err = %v, want the refusal for a local key outside the set", err)
 	}
 }
