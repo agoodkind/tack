@@ -345,7 +345,7 @@ services:
   # not stamp a fresh metadata directory and orphan the existing logs.
   # No external port is exposed: traffic stays inside the IPv6 bridge.
   kafka:
-    image: apache/kafka:4.2.0
+    image: apache/kafka:4.3.1
     profiles: [audit]
     restart: unless-stopped
     mem_limit: 2g
