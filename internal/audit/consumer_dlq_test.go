@@ -157,6 +157,7 @@ func TestConsumerRewindsAFailedBatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewConsumer: %v", err)
 	}
+	t.Cleanup(func() { _ = consumer.Close() })
 	consumer.Start(runCtx)
 	time.Sleep(3 * time.Second)
 	if got := countRowsForOrg(t, os.Getenv("AUDIT_CONSUMER_TEST_DSN"), orgID); got != 0 {

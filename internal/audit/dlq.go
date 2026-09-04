@@ -80,13 +80,24 @@ func deadLetterRecord(ctx context.Context, tx pgx.Tx, rec *kgo.Record, cause err
 		return err
 	}
 	if replaying {
-		key = origin
-		_, err = tx.Exec(ctx, `
+		var tag pgconn.CommandTag
+		tag, err = tx.Exec(ctx, `
 			UPDATE audit.events_dlq
 			   SET attempt_count = attempt_count + 1, last_attempt_at = now(), error = $4
 			 WHERE topic = $1 AND partition = $2 AND "offset" = $3
-		`, key.Topic, key.Partition, key.Offset, cause.Error())
-	} else {
+		`, origin.Topic, origin.Partition, origin.Offset, cause.Error())
+		if err == nil && tag.RowsAffected() == 0 {
+			// The verified row went away between the check and the count
+			// (an operator's delete); the record is kept under its own key
+			// instead, so the failed replay is still accounted for.
+			slog.WarnContext(ctx, "audit.consumer.dlq_replay_origin_gone",
+				slog.String("dead_letter", origin.String()), slog.Int64("offset", rec.Offset))
+			replaying = false
+		} else {
+			key = origin
+		}
+	}
+	if !replaying {
 		_, err = tx.Exec(ctx, `
 			INSERT INTO audit.events_dlq (received_at, topic, partition, "offset", payload, error, attempt_count, last_attempt_at)
 			VALUES (now(), $1, $2, $3, $4, $5, 0, NULL)
