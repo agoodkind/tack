@@ -123,6 +123,43 @@ func runConsumerOnce(t *testing.T, cfg ConsumerConfig, orgID uuid.UUID, expect i
 	}
 }
 
+// runConsumerUntilOffset starts a consumer and stops it once its group has
+// recorded an offset of at least want on some partition of the topic.
+func runConsumerUntilOffset(t *testing.T, cfg ConsumerConfig, want int64) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	consumer, err := NewConsumer(ctx, cfg)
+	if err != nil {
+		t.Fatalf("NewConsumer: %v", err)
+	}
+	consumer.Start(ctx)
+	pool, err := pgxpool.New(ctx, cfg.YugabyteDSN)
+	if err != nil {
+		t.Fatalf("pool: %v", err)
+	}
+	defer pool.Close()
+	deadline := time.After(20 * time.Second)
+	for {
+		var got int64
+		_ = pool.QueryRow(ctx, `
+			SELECT coalesce(max("offset"), 0) FROM audit.consumer_offsets
+			 WHERE consumer_group = $1 AND topic = $2
+		`, cfg.GroupID, cfg.Topic).Scan(&got)
+		if got >= want {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("waited for group %s to reach offset %d; got %d", cfg.GroupID, want, got)
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+	if err := consumer.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+}
+
 func countRowsForOrg(t *testing.T, dsn string, orgID uuid.UUID) int {
 	t.Helper()
 	ctx := context.Background()
@@ -248,12 +285,15 @@ func TestConsumerIdempotentOnEventID(t *testing.T) {
 		YugabyteDSN: dsn,
 	}, orgID, total)
 
+	// The second group re-reads the topic from its start; the run ends only
+	// once that group has committed an offset past every produced record,
+	// so a broken dedupe cannot hide behind a consumer that never got there.
 	groupB := "tack-audit-projector-test-" + uuid.NewString()[:8]
-	runConsumerOnce(t, ConsumerConfig{
+	runConsumerUntilOffset(t, ConsumerConfig{
 		Brokers: brokers, Topic: topic, GroupID: groupB,
 		BatchSize: 32, PollInterval: 100 * time.Millisecond,
 		YugabyteDSN: dsn,
-	}, orgID, 0)
+	}, total)
 
 	ctx := context.Background()
 	var n int

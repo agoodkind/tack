@@ -84,6 +84,9 @@ type Consumer struct {
 	once    sync.Once
 
 	summary processedSummary
+	// consecutiveFailures counts polls in a row that failed a batch; the loop
+	// alone reads and writes it.
+	consecutiveFailures int
 }
 
 // processedSummary buffers per-batch counts so the consumer emits one
@@ -168,6 +171,7 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 			verbCounts:   make(map[string]int),
 			commitOffset: 0,
 		},
+		consecutiveFailures: 0,
 	}
 
 	if cfg.SigningKeyPath != "" {
@@ -345,35 +349,9 @@ func (c *Consumer) loop(ctx context.Context) {
 			continue
 		}
 
-		batches := groupByPartition(fetches)
-		committed := make([]*kgo.Record, 0, len(batches))
-		for tp, records := range batches {
-			if err := c.projectBatch(ctx, tp, records); err != nil {
-				telemetry.IncAuditConsumerProcessed("error", int64(len(records)))
-				slog.ErrorContext(ctx, "audit.consumer.project_failed",
-					slog.String("topic", tp.Topic),
-					slog.Int("partition", int(tp.Partition)),
-					slog.String("err", err.Error()),
-				)
-				continue
-			}
-			last := records[len(records)-1]
-			committed = append(committed, last)
-			telemetry.IncAuditConsumerProcessed("ok", int64(len(records)))
-			telemetry.SetAuditConsumerOffsetCommitted(tp.Topic, tp.Partition, last.Offset+1)
-			c.recordSummary(ctx, records, last.Offset+1)
-		}
-
-		// A commit lost to a rebalance only redelivers, and a redelivered
-		// record is refused by the ledger's identity claim, so the group
-		// offset may lag the ledger but never lead it.
-		if len(committed) > 0 {
-			if err := c.kclient.CommitRecords(ctx, committed...); err != nil {
-				slog.ErrorContext(ctx, "audit.consumer.commit_failed", slog.String("err", err.Error()))
-			}
-		}
-
+		failed := c.projectFetches(ctx, fetches)
 		telemetry.ObserveAuditConsumerBatchLatency(sinceMs(pollStart))
+		c.backOffAfterFailures(ctx, failed)
 	}
 }
 

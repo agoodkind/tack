@@ -88,9 +88,9 @@ var (
 	auditConsumerBatchLatencyStats = expvar.NewMap("tack_audit_consumer_batch_latency_ms_stats")
 	// audit_consumer_offset_committed{topic,partition} gauge map.
 	auditConsumerOffsetCommitted = expvar.NewMap("tack_audit_consumer_offset_committed")
-	// audit_consumer_dead_lettered_total counter: records the ledger refused
-	// that were written to the dead-letter table instead. Any rise means an
-	// audit event is waiting to be replayed.
+	// audit_consumer_dead_lettered_total counts the records the consumer
+	// wrote to the dead-letter table because the ledger refused them. Any
+	// rise means an audit event is waiting to be replayed.
 	auditConsumerDeadLettered = expvar.NewInt("tack_audit_consumer_dead_lettered_total")
 
 	// audit_partition_headroom_weeks gauge: count of future weekly partitions
