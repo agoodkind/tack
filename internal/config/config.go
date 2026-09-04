@@ -70,6 +70,11 @@ type Config struct {
 	AuditReaderPassword   string `env:"AUDIT_READER_PASSWORD"`
 	AuditRedactorPassword string `env:"AUDIT_REDACTOR_PASSWORD"`
 	AuditOperatorPassword string `env:"AUDIT_OPERATOR_PASSWORD"`
+	// AppPassword is the password seed-roles sets on tack_app, the
+	// non-superuser login the application's DATABASE_URL authenticates as
+	// (TACK-180). The deploy generates it per host; the running server never
+	// reads it.
+	AppPassword string `env:"TACK_APP_PASSWORD"`
 
 	// AuditAllowUnrecorded lets a deployment run with no ledger at all. It
 	// exists because "no audit backend is configured" and "the audit backend

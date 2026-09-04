@@ -2,16 +2,19 @@ package ops
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
 
 	"github.com/google/uuid"
 
+	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clispec"
 	"goodkind.io/tack/internal/datagen"
+	"goodkind.io/tack/internal/telemetry"
 )
 
 type datagenLegacyLedgerRowInput struct {
@@ -127,7 +130,21 @@ func runDatagenLegacyLedgerRow(
 		}
 		result.DeletedNode = deleteNodeID.String()
 	}
-	row, err := audit.WriteLegacyRow(ctx, env.Pool, audit.LegacyRowInput{
+	// The row is a ledger write, so it goes through the writer role the
+	// ledger's grants admit; the application pool holds nothing on the audit
+	// schema (TACK-180).
+	if factory.Cfg.AuditWriterDSN == "" {
+		err := errors.New("legacy ledger row: AUDIT_WRITER_DSN required")
+		slog.ErrorContext(ctx, "qa.legacy_ledger_row.writer_dsn_missing", slog.String("err", err.Error()))
+		return err
+	}
+	writer, err := postgres.NewPool(ctx, factory.Cfg.AuditWriterDSN, &telemetry.QueryTracer{})
+	if err != nil {
+		slog.ErrorContext(ctx, "qa.legacy_ledger_row.writer_pool_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("open the ledger writer pool for the legacy ledger row: %w", err)
+	}
+	defer writer.Close()
+	row, err := audit.WriteLegacyRow(ctx, writer, audit.LegacyRowInput{
 		OrgID: orgID, ActorID: uuid.Must(uuid.NewV7()), EntityID: uuid.Nil,
 		EventID: uuid.Nil, Action: input.Action, Tool: input.Tool,
 	})

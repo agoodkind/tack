@@ -27,7 +27,11 @@ services:
     ports:
       - "${PORT:-8000}:8000"
     environment:
-      DATABASE_URL: postgres://${YUGABYTE_USER:?YUGABYTE_USER is required, set it in .env}:${YUGABYTE_PASSWORD:?YUGABYTE_PASSWORD is required, set it in .env}@yugabyte:5433/${YUGABYTE_DB:?YUGABYTE_DB is required, set it in .env}?sslmode=disable
+      # The application's own non-superuser login (TACK-180). tack_app is
+      # created by `ops audit seed-roles` from TACK_APP_PASSWORD and holds the
+      # three auth tables and nothing else; the yugabyte superuser stays with
+      # the ops sidecar for migrations, seeding, and backups.
+      DATABASE_URL: postgres://tack_app:${TACK_APP_PASSWORD:?TACK_APP_PASSWORD is required, set it in .env}@yugabyte:5433/${YUGABYTE_DB:?YUGABYTE_DB is required, set it in .env}?sslmode=disable
       # Audit ledger pools. Each DSN is composed entirely from .env values;
       # if AUDIT_*_PASSWORD is unset the DSN auth fails fast and the audit
       # subsystem degrades to NoopRecorder until seed-audit-roles is run.
@@ -506,6 +510,9 @@ services:
       AUDIT_READER_PASSWORD: ${AUDIT_READER_PASSWORD:-}
       AUDIT_REDACTOR_PASSWORD: ${AUDIT_REDACTOR_PASSWORD:-}
       AUDIT_OPERATOR_PASSWORD: ${AUDIT_OPERATOR_PASSWORD:-}
+      # The application login's password, set by the same seed-roles run
+      # (TACK-180); the app service reads it inside its DATABASE_URL.
+      TACK_APP_PASSWORD: ${TACK_APP_PASSWORD:-}
       # Object store for engine-native continuous backup. Read by the FDB
       # continuous backup path to build the blobstore destination URL.
       TACK_BACKUP_S3_ENDPOINT: ${TACK_BACKUP_S3_ENDPOINT:-}
