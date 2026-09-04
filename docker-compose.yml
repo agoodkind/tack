@@ -385,7 +385,7 @@ services:
   # Internal-only: 8123 (HTTP) and 9000 (native) are not exposed to the
   # host. Apache 2.0 image so the open-source-only constraint holds.
   clickhouse:
-    image: clickhouse/clickhouse-server:26.5
+    image: clickhouse/clickhouse-server:26.8
     profiles: [audit]
     restart: unless-stopped
     mem_limit: 2g
