@@ -280,7 +280,7 @@ services:
     # on prod. Postgres 18 images refuse the pre-18 /var/lib/postgresql/data
     # layout, so bumping this requires a pg_upgrade or a workflow-state reset.
     # Major upgrade is tracked separately (TACK-332).
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     restart: unless-stopped
     mem_limit: 1g
     environment:
