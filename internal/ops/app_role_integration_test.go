@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/url"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -79,19 +80,57 @@ func TestAppRoleReachesTheAuthTablesAndNothingElse(t *testing.T) {
 		t.Fatalf("remove a membership as the app login: %v", err)
 	}
 
-	for _, refused := range []string{
-		`SELECT count(*) FROM audit.events`,
-		`SELECT count(*) FROM audit.notarizations`,
-		`SELECT count(*) FROM public.ops_outbox`,
-		`SELECT count(*) FROM public.goose_db_version`,
+	// Every verb on every protected table, not only reads: an accidental
+	// INSERT, UPDATE, or DELETE grant would let application SQL change the
+	// compliance record while the read check still passed. Each statement
+	// runs in its own transaction that is always rolled back, so a grant
+	// that slipped through fails the test without leaving a row behind.
+	for _, table := range []string{
+		"audit.events", "audit.notarizations", "public.ops_outbox", "public.goose_db_version",
 	} {
-		var n int64
-		err := app.QueryRow(ctx, refused).Scan(&n)
-		var pgErr *pgconn.PgError
-		if !errors.As(err, &pgErr) || pgErr.Code != permissionDeniedSQLState {
-			t.Fatalf("%q as the app login: err = %v, want permission denied", refused, err)
+		for _, refused := range []string{
+			"SELECT count(*) FROM " + table,
+			"INSERT INTO " + table + " DEFAULT VALUES",
+			"UPDATE " + table + " SET " + firstColumn(ctx, t, admin, table) + " = " + firstColumn(ctx, t, admin, table) + " WHERE false",
+			"DELETE FROM " + table + " WHERE false",
+		} {
+			assertPermissionDenied(ctx, t, app, refused)
 		}
 	}
+	// The public schema's default CREATE grant to PUBLIC would let the app
+	// login create arbitrary objects beside the auth tables.
+	assertPermissionDenied(ctx, t, app, "CREATE TABLE public.tack180_probe (id int)")
+}
+
+// assertPermissionDenied runs statement as the app login inside a transaction
+// it always rolls back and requires the engine to refuse it with 42501.
+func assertPermissionDenied(ctx context.Context, t *testing.T, app *pgxpool.Pool, statement string) {
+	t.Helper()
+	transaction, err := app.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin as the app login: %v", err)
+	}
+	defer func() { _ = transaction.Rollback(ctx) }()
+	_, err = transaction.Exec(ctx, statement)
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != permissionDeniedSQLState {
+		t.Fatalf("%q as the app login: err = %v, want permission denied", statement, err)
+	}
+}
+
+// firstColumn names a column of table so an UPDATE can be phrased against it
+// without knowing the schema; the permission check fires before any row.
+func firstColumn(ctx context.Context, t *testing.T, admin *pgxpool.Pool, table string) string {
+	t.Helper()
+	schema, name, _ := strings.Cut(table, ".")
+	var column string
+	if err := admin.QueryRow(ctx,
+		`SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2 ORDER BY ordinal_position LIMIT 1`,
+		schema, name,
+	).Scan(&column); err != nil {
+		t.Fatalf("first column of %s: %v", table, err)
+	}
+	return column
 }
 
 // appAuthLoginDSN creates a throwaway login that inherits app_auth and nothing

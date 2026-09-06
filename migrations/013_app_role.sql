@@ -22,6 +22,11 @@ BEGIN
 END$$;
 -- +goose StatementEnd
 
+-- The engine grants CREATE on public to PUBLIC by default, which USAGE alone
+-- does not take away; without this the application login could create
+-- arbitrary objects beside the auth tables. Migrations run as the superuser
+-- and are unaffected.
+REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 GRANT USAGE ON SCHEMA public TO app_auth;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.users, public.api_tokens, public.org_members TO app_auth;
 

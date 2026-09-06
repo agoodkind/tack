@@ -119,20 +119,11 @@ func runDatagenLegacyLedgerRow(
 		return fmt.Errorf("open the ops environment for the legacy ledger row: %w", err)
 	}
 	defer env.Close()
-	// The node is removed before the row is written, so the ledger's own
-	// ordering matches production: the deletion row is the last trace of a node
-	// that is already gone.
-	if deleteNodeID != uuid.Nil {
-		if err := env.Stores.NodeDeleter.DeleteNode(ctx, orgID, deleteNodeID); err != nil {
-			slog.ErrorContext(ctx, "qa.legacy_ledger_row.delete_failed",
-				slog.String("node_id", deleteNodeID.String()), slog.String("err", err.Error()))
-			return fmt.Errorf("delete node %s for the legacy ledger row: %w", deleteNodeID, err)
-		}
-		result.DeletedNode = deleteNodeID.String()
-	}
 	// The row is a ledger write, so it goes through the writer role the
 	// ledger's grants admit; the application pool holds nothing on the audit
-	// schema (TACK-180).
+	// schema (TACK-180). Opened before the deletion below: a missing or
+	// refused writer must fail with the node still present, never after it
+	// is gone with no row to say so.
 	if factory.Cfg.AuditWriterDSN == "" {
 		err := errors.New("legacy ledger row: AUDIT_WRITER_DSN required")
 		slog.ErrorContext(ctx, "qa.legacy_ledger_row.writer_dsn_missing", slog.String("err", err.Error()))
@@ -144,6 +135,17 @@ func runDatagenLegacyLedgerRow(
 		return fmt.Errorf("open the ledger writer pool for the legacy ledger row: %w", err)
 	}
 	defer writer.Close()
+	// The node is removed before the row is written, so the ledger's own
+	// ordering matches production: the deletion row is the last trace of a node
+	// that is already gone.
+	if deleteNodeID != uuid.Nil {
+		if err := env.Stores.NodeDeleter.DeleteNode(ctx, orgID, deleteNodeID); err != nil {
+			slog.ErrorContext(ctx, "qa.legacy_ledger_row.delete_failed",
+				slog.String("node_id", deleteNodeID.String()), slog.String("err", err.Error()))
+			return fmt.Errorf("delete node %s for the legacy ledger row: %w", deleteNodeID, err)
+		}
+		result.DeletedNode = deleteNodeID.String()
+	}
 	row, err := audit.WriteLegacyRow(ctx, writer, audit.LegacyRowInput{
 		OrgID: orgID, ActorID: uuid.Must(uuid.NewV7()), EntityID: uuid.Nil,
 		EventID: uuid.Nil, Action: input.Action, Tool: input.Tool,
