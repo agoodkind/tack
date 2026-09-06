@@ -12,6 +12,14 @@
 // staleness-check event recorded by the primary's service actor, and leaves
 // the fault unrecorded, so it mails from the deputy on a later run if the
 // primary stops running while the fault is still stale.
+//
+// Two bounds keep the check honest. Each ledger read is given a fixed time,
+// and a read that runs out of it counts as a ledger that cannot be read, so a
+// hung pool never holds the alarm. And a first read that finds no fresh
+// primary run is not yet a takeover: after a fresh deployment or a long pause
+// both timers fire within seconds of each other, and the primary's intent row
+// may not be committed when the deputy looks, so the deputy waits out a grace
+// period and reads once more before it mails.
 
 package ops
 
@@ -41,6 +49,26 @@ type backupAlarmLedger interface {
 // fixture in place of a database, while the query it runs stays the real one.
 var backupAlarmLedgerOpenFunc = openBackupAlarmLedger
 
+// backupAlarmPrimaryQueryTimeout bounds one ledger read, pool open and query
+// together. It is a variable so a test can shorten it.
+var backupAlarmPrimaryQueryTimeout = 10 * time.Second
+
+// backupAlarmSleepFunc waits out the grace period. It is a package variable
+// for the same reason nowFunc is: a test substitutes it so the wait costs
+// nothing and so it can change the ledger between the two reads.
+var backupAlarmSleepFunc = sleepBackupAlarmGrace
+
+// sleepBackupAlarmGrace waits for the grace period or the context, whichever
+// ends first.
+func sleepBackupAlarmGrace(ctx context.Context, grace time.Duration) {
+	timer := time.NewTimer(grace)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+	case <-ctx.Done():
+	}
+}
+
 // openBackupAlarmLedger opens the audit reader pool the deputy's container
 // carries as AUDIT_READER_DSN. The transport detail is logged here and the
 // alarm-level verdict at the caller, the way the mailer logs a transport
@@ -59,9 +87,9 @@ func openBackupAlarmLedger(ctx context.Context, cfg *config.Config) (backupAlarm
 // backupAlarmDeferredToPrimary reports whether a deputy should leave these
 // faults to the primary. A checker with no primary service is the primary and
 // never defers. A deputy defers only when the ledger holds a staleness-check
-// event recorded by the primary's service within the window; no such event,
-// or a ledger that cannot be read, means the deputy mails as the primary
-// would.
+// event recorded by the primary's service within the window, on the first
+// read or on the one after the grace period; no such event, or a ledger that
+// cannot be read, means the deputy mails as the primary would.
 func backupAlarmDeferredToPrimary(ctx context.Context, cfg *config.Config, faults []backupStalenessMetric) bool {
 	primary := cfg.BackupAlarmPrimaryService
 	if primary == "" {
@@ -69,8 +97,13 @@ func backupAlarmDeferredToPrimary(ctx context.Context, cfg *config.Config, fault
 	}
 	logger := telemetry.L(ctx)
 	window := time.Duration(cfg.BackupAlarmPrimaryWindowSeconds) * time.Second
-	latest := opsNow().UTC()
-	seenAt, seen, err := newestBackupAlarmPrimaryRun(ctx, cfg, primary, latest.Add(-window), latest)
+	seenAt, seen, err := backupAlarmPrimaryRunInWindow(ctx, cfg, primary, window)
+	if err == nil && !seen {
+		logger.InfoContext(ctx, "backup.staleness.primary_grace",
+			slog.String("primary", primary), slog.Int("seconds", cfg.BackupAlarmPrimaryGraceSeconds))
+		backupAlarmSleepFunc(ctx, time.Duration(cfg.BackupAlarmPrimaryGraceSeconds)*time.Second)
+		seenAt, seen, err = backupAlarmPrimaryRunInWindow(ctx, cfg, primary, window)
+	}
 	if err != nil {
 		logger.WarnContext(ctx, "backup.staleness.primary_not_seen",
 			slog.String("primary", primary), slog.String("window", window.String()),
@@ -90,6 +123,21 @@ func backupAlarmDeferredToPrimary(ctx context.Context, cfg *config.Config, fault
 		slog.Any("metrics", names), slog.String("primary", primary),
 		slog.Time("primary_seen_at", seenAt))
 	return true
+}
+
+// backupAlarmPrimaryRunInWindow is one bounded ledger read: the window ends
+// at this instant, and the whole read, pool open included, has the query
+// timeout to finish in.
+func backupAlarmPrimaryRunInWindow(
+	ctx context.Context,
+	cfg *config.Config,
+	primary string,
+	window time.Duration,
+) (seenAt time.Time, seen bool, err error) {
+	queryCtx, cancel := context.WithTimeout(ctx, backupAlarmPrimaryQueryTimeout)
+	defer cancel()
+	latest := opsNow().UTC()
+	return newestBackupAlarmPrimaryRun(queryCtx, cfg, primary, latest.Add(-window), latest)
 }
 
 // newestBackupAlarmPrimaryRun reads the newest staleness-check event the

@@ -3,6 +3,7 @@ package ops
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 	"testing"
@@ -24,14 +25,46 @@ const (
 )
 
 // deputyBackupStalenessConfig is an unreachable-store host that defers to the
-// primary checker recorded under primaryService, over the default window.
+// primary checker recorded under primary, over the default window and grace.
+// The grace wait itself is replaced by a seam that returns at once and counts
+// its calls, so no test sleeps; a test that needs the wait to do something
+// installs its own seam on top.
 func deputyBackupStalenessConfig(t *testing.T, primary string) *config.Config {
 	t.Helper()
 	cfg := unreachableBackupStalenessConfig(t, "backups@example.test")
 	cfg.BackupAlarmPrimaryService = primary
 	cfg.BackupAlarmPrimaryWindowSeconds = 1500
+	cfg.BackupAlarmPrimaryGraceSeconds = 90
+	skipBackupAlarmGrace(t, func() {})
 	return cfg
 }
+
+// skipBackupAlarmGrace substitutes the grace wait with during, which runs in
+// its place, and returns a counter of the waits the deputy asked for.
+func skipBackupAlarmGrace(t *testing.T, during func()) *int {
+	t.Helper()
+	waits := 0
+	previous := backupAlarmSleepFunc
+	backupAlarmSleepFunc = func(context.Context, time.Duration) {
+		waits++
+		during()
+	}
+	t.Cleanup(func() { backupAlarmSleepFunc = previous })
+	return &waits
+}
+
+// blockingLedger is a ledger whose read never answers: it returns only when
+// the context ends, the way a pool waiting on a partitioned database does.
+type blockingLedger struct{ blockedFor time.Duration }
+
+func (l *blockingLedger) StreamQuery(ctx context.Context, _ audit.QueryFilter, _ audit.RowVisitor) error {
+	started := time.Now()
+	<-ctx.Done()
+	l.blockedFor = time.Since(started)
+	return fmt.Errorf("blocked ledger: %w", ctx.Err())
+}
+
+func (*blockingLedger) Close() {}
 
 // systemLedger is a restored-ledger fixture holding the system org's operator
 // events, handed to the deputy in place of the database for the test's
@@ -204,6 +237,94 @@ func TestBackupStalenessDeputyMailsWhenTheLedgerCannotBeRead(t *testing.T) {
 	}
 	if alarmed, found := alarmedBackupMetrics(t, cfg); !found || len(alarmed) != 3 {
 		t.Fatalf("the mailed fault must be recorded, found = %v state = %v", found, alarmed)
+	}
+}
+
+// TestBackupStalenessDeputyMailsWhenTheLedgerHangs bounds the ledger read: a
+// read that never answers is cut off at the query timeout, counts as a ledger
+// that cannot be read, and the deputy mails.
+func TestBackupStalenessDeputyMailsWhenTheLedgerHangs(t *testing.T) {
+	fixBackupStalenessClock(t, time.Date(2026, 9, 5, 4, 0, 0, 0, time.UTC))
+	captured := captureBackupAlarmSends(t, nil)
+	previousTimeout := backupAlarmPrimaryQueryTimeout
+	backupAlarmPrimaryQueryTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { backupAlarmPrimaryQueryTimeout = previousTimeout })
+	ledger := &blockingLedger{blockedFor: 0}
+	previousOpen := backupAlarmLedgerOpenFunc
+	backupAlarmLedgerOpenFunc = func(context.Context, *config.Config) (backupAlarmLedger, error) {
+		return ledger, nil
+	}
+	t.Cleanup(func() { backupAlarmLedgerOpenFunc = previousOpen })
+	cfg := deputyBackupStalenessConfig(t, primaryService)
+
+	logs := runStaleDeputyCheck(t, cfg)
+	if len(captured.messages) != 1 {
+		t.Fatalf("a deputy whose ledger read timed out must mail once, sent %d", len(captured.messages))
+	}
+	if ledger.blockedFor == 0 || ledger.blockedFor > time.Second {
+		t.Fatalf("the read must be cut off at the query timeout, it blocked for %s", ledger.blockedFor)
+	}
+	if !strings.Contains(logs, "msg=backup.staleness.primary_not_seen") ||
+		!strings.Contains(logs, "context deadline exceeded") {
+		t.Fatalf("the timed-out read must be logged as an unreadable ledger:\n%s", logs)
+	}
+}
+
+// TestBackupStalenessDeputyDefersWhenThePrimaryRunLandsDuringGrace is the
+// takeover race: the primary's row is not committed when the deputy first
+// looks, so the deputy waits out the grace period, and the row is there on
+// the second read. Nothing mails and nothing is recorded.
+func TestBackupStalenessDeputyDefersWhenThePrimaryRunLandsDuringGrace(t *testing.T) {
+	now := time.Date(2026, 9, 5, 4, 0, 0, 0, time.UTC)
+	fixBackupStalenessClock(t, now)
+	captured := captureBackupAlarmSends(t, nil)
+	ledger := installSystemLedger(t)
+	cfg := deputyBackupStalenessConfig(t, primaryService)
+	// The clock is pinned, so the row lands a second before the deputy's
+	// second read the way a real commit precedes the read that sees it.
+	waits := skipBackupAlarmGrace(t, func() {
+		ledger.rowsByOrg[audit.SystemOrgID()] = append(ledger.rowsByOrg[audit.SystemOrgID()],
+			operatorRunRow(primaryService, audit.VerbOpsBackupStalenessCheck, now.Add(-time.Second)))
+	})
+
+	logs := runStaleDeputyCheck(t, cfg)
+	if len(captured.messages) != 0 {
+		t.Fatalf("a primary run that landed during the grace period must defer, sent %d", len(captured.messages))
+	}
+	if _, found := alarmedBackupMetrics(t, cfg); found {
+		t.Fatal("a deferred fault must not be recorded")
+	}
+	if *waits != 1 {
+		t.Fatalf("the deputy must wait out the grace period once, waited %d times", *waits)
+	}
+	if !strings.Contains(logs, "msg=backup.staleness.primary_grace") ||
+		!strings.Contains(logs, "seconds=90") ||
+		!strings.Contains(logs, "msg=backup.staleness.alarm_deferred") {
+		t.Fatalf("the grace wait and the deferral must both be logged:\n%s", logs)
+	}
+}
+
+// TestBackupStalenessDeputyMailsAfterGraceFindsNoPrimaryRun is the other side
+// of the race: with no primary run on either read, the deputy waits once and
+// then mails once.
+func TestBackupStalenessDeputyMailsAfterGraceFindsNoPrimaryRun(t *testing.T) {
+	now := time.Date(2026, 9, 5, 4, 0, 0, 0, time.UTC)
+	fixBackupStalenessClock(t, now)
+	captured := captureBackupAlarmSends(t, nil)
+	installSystemLedger(t)
+	cfg := deputyBackupStalenessConfig(t, primaryService)
+	waits := skipBackupAlarmGrace(t, func() {})
+
+	logs := runStaleDeputyCheck(t, cfg)
+	if len(captured.messages) != 1 {
+		t.Fatalf("with no primary run after the grace period the deputy must mail once, sent %d", len(captured.messages))
+	}
+	if *waits != 1 {
+		t.Fatalf("the deputy must wait out the grace period once, waited %d times", *waits)
+	}
+	if !strings.Contains(logs, "msg=backup.staleness.primary_grace") ||
+		!strings.Contains(logs, "msg=backup.staleness.primary_not_seen") {
+		t.Fatalf("the grace wait and the missing primary must both be logged:\n%s", logs)
 	}
 }
 
