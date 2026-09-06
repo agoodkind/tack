@@ -31,9 +31,14 @@ func checkReferenceShape(result datagenReferenceShapeResult) error {
 		return fmt.Errorf("the corpus derives %d counter seeds, want %d",
 			result.CounterKeys, recordedCounterSeeds)
 	}
-	want := recordedReferenceKeys + recordedFollowupReferenceKey
+	// The reconstruction adds the ledger's post-repair deletions to what is
+	// present, so present alone must fall short of the recorded count by
+	// exactly those deletions (TACK-473).
+	deleted := result.DeletedSubjectsRecorded + result.DeletedSubjectsUnrecorded
+	want := recordedReferenceKeys + recordedFollowupReferenceKey - deleted
 	if result.ReferenceKeys != want {
-		return fmt.Errorf("the corpus derives %d reference keys, want %d", result.ReferenceKeys, want)
+		return fmt.Errorf("the corpus derives %d reference keys, want %d (%d recorded less %d the ledger records deleted)",
+			result.ReferenceKeys, want, recordedReferenceKeys+recordedFollowupReferenceKey, deleted)
 	}
 	if result.LiveCollisions != result.Collisions {
 		return fmt.Errorf("the org holds %d colliding references after writing, the shape describes %d",
