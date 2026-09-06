@@ -218,16 +218,19 @@ type Config struct {
 
 	// Backup staleness alarm mail. The staleness-check run that first finds a
 	// mechanism past its threshold mails a plain-words account of the fault,
-	// once per mechanism per guest (the memory is a JSON file under
-	// BackupRoot), and every stale run still exits nonzero. BackupAlarmEmail is
-	// the recipient; empty mails nothing and logs that it did not, which is how
-	// a local run works with no mail configured, and records nothing, so the
-	// fault mails when a recipient is set. BackupAlarmMsmtprcPath is the
-	// msmtp-format account file
-	// the mailer parses for host, port, and credentials. It then speaks SMTP
-	// itself, so a container needs that file mounted but no msmtp binary.
+	// once per mechanism (the memory is a JSON file under BackupRoot), and
+	// every stale run still exits nonzero. BackupAlarmEmail is the recipient;
+	// empty mails nothing and logs that it did not, which is how a local run
+	// works with no mail configured, and records nothing, so the fault mails
+	// when a recipient is set. BackupAlarmMsmtprcPath is the msmtp-format
+	// account file the mailer parses for host, port, and credentials. It then
+	// speaks SMTP itself, so a container needs that file mounted but no msmtp
+	// binary. BackupAlarmPrimaryURL is the primary checker's health URL; empty
+	// means this checker is the primary and mails on every transition; set on
+	// a deputy, which mails a fault only when that URL does not answer.
 	BackupAlarmEmail       string `env:"TACK_BACKUP_ALARM_EMAIL"`
 	BackupAlarmMsmtprcPath string `env:"TACK_BACKUP_ALARM_MSMTPRC" envDefault:"/etc/msmtprc"`
+	BackupAlarmPrimaryURL  string `env:"TACK_BACKUP_ALARM_PRIMARY_URL"`
 
 	// Yugabyte credentials. Read by the backup family for the ysql_dump call;
 	// the live tack server reads YUGABYTE_PASSWORD via the DATABASE_URL DSN

@@ -3,7 +3,9 @@
 // stays stale. A mechanism that comes back is logged and forgotten, so its next
 // fault mails again. The memory is the state file in backup_alarm_state.go, and
 // a mechanism is recorded there only after the transport accepted its mail, so
-// a mail that did not go out is retried on the next run.
+// a mail that did not go out is retried on the next run. A deputy checker
+// first asks whether the primary is alive (backup_alarm_primary.go) and, while
+// it is, neither mails nor records the new faults.
 
 package ops
 
@@ -42,6 +44,9 @@ func alarmBackupStalenessTransitions(ctx context.Context, cfg *config.Config, me
 		logger.InfoContext(ctx, "backup.staleness.cleared", slog.Any("metrics", cleared))
 	}
 	changed := len(cleared) > 0
+	if len(faults) > 0 && backupAlarmDeferredToPrimary(ctx, cfg, faults) {
+		faults = nil
+	}
 	if len(faults) > 0 && mailBackupStalenessAlarm(ctx, cfg, faults) {
 		acceptedAt := opsNow().UTC()
 		for _, fault := range faults {
