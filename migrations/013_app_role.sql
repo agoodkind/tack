@@ -38,3 +38,4 @@ REVOKE ALL ON SCHEMA audit FROM app_auth;
 -- +goose Down
 REVOKE ALL ON public.users, public.api_tokens, public.org_members FROM app_auth;
 REVOKE USAGE ON SCHEMA public FROM app_auth;
+GRANT CREATE ON SCHEMA public TO PUBLIC;

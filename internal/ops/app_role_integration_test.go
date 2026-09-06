@@ -91,7 +91,10 @@ func TestAppRoleReachesTheAuthTablesAndNothingElse(t *testing.T) {
 		for _, refused := range []string{
 			"SELECT count(*) FROM " + table,
 			"INSERT INTO " + table + " DEFAULT VALUES",
-			"UPDATE " + table + " SET " + firstColumn(ctx, t, admin, table) + " = " + firstColumn(ctx, t, admin, table) + " WHERE false",
+			// DEFAULT rather than a column read: an UPDATE that reads a column
+			// also needs SELECT, and SELECT is already denied, so a stray
+			// UPDATE grant would still fail for the wrong reason and pass.
+			"UPDATE " + table + " SET " + firstColumn(ctx, t, admin, table) + " = DEFAULT WHERE false",
 			"DELETE FROM " + table + " WHERE false",
 		} {
 			assertPermissionDenied(ctx, t, app, refused)
