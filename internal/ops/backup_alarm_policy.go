@@ -4,8 +4,9 @@
 // fault mails again. The memory is the state file in backup_alarm_state.go, and
 // a mechanism is recorded there only after the transport accepted its mail, so
 // a mail that did not go out is retried on the next run. A deputy checker
-// first asks whether the primary is alive (backup_alarm_primary.go) and, while
-// it is, neither mails nor records the new faults.
+// first asks the ledger whether the primary has run recently
+// (backup_alarm_primary_ledger.go) and, while it has, neither mails nor
+// records the new faults.
 
 package ops
 
