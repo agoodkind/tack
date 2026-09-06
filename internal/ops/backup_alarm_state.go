@@ -2,9 +2,10 @@
 // has already mailed about, so a fault mails once when it begins and not on
 // every run while it lasts. The record is one small JSON file under the backup
 // root, which the check's container mounts from the guest, so each observing
-// guest keeps its own memory and a fault produces one mail per guest. A missing
-// or unreadable file means nothing has been alarmed: a fresh guest mails once
-// and then stops.
+// guest keeps its own memory; a deputy guest defers to the primary
+// (backup_alarm_primary_ledger.go) so a fault still produces one mail. A missing or
+// unreadable file means nothing has been alarmed: a fresh guest mails once and
+// then stops.
 
 package ops
 

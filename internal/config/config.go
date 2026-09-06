@@ -218,16 +218,34 @@ type Config struct {
 
 	// Backup staleness alarm mail. The staleness-check run that first finds a
 	// mechanism past its threshold mails a plain-words account of the fault,
-	// once per mechanism per guest (the memory is a JSON file under
-	// BackupRoot), and every stale run still exits nonzero. BackupAlarmEmail is
-	// the recipient; empty mails nothing and logs that it did not, which is how
-	// a local run works with no mail configured, and records nothing, so the
-	// fault mails when a recipient is set. BackupAlarmMsmtprcPath is the
-	// msmtp-format account file
-	// the mailer parses for host, port, and credentials. It then speaks SMTP
-	// itself, so a container needs that file mounted but no msmtp binary.
-	BackupAlarmEmail       string `env:"TACK_BACKUP_ALARM_EMAIL"`
-	BackupAlarmMsmtprcPath string `env:"TACK_BACKUP_ALARM_MSMTPRC" envDefault:"/etc/msmtprc"`
+	// once per mechanism (the memory is a JSON file under BackupRoot), and
+	// every stale run still exits nonzero. BackupAlarmEmail is the recipient;
+	// empty mails nothing and logs that it did not, which is how a local run
+	// works with no mail configured, and records nothing, so the fault mails
+	// when a recipient is set. BackupAlarmMsmtprcPath is the msmtp-format
+	// account file the mailer parses for host, port, and credentials. It then
+	// speaks SMTP itself, so a container needs that file mounted but no msmtp
+	// binary.
+	//
+	// BackupAlarmPrimaryService is the --operator-service name the primary
+	// checker runs under (the owner's unit uses tack-backup); empty means this
+	// checker is the primary and mails on every transition. Set on a deputy,
+	// which mails a fault only when the ledger holds no staleness-check event
+	// recorded by that service within BackupAlarmPrimaryWindowSeconds. The
+	// window covers two missed runs of the primary's timer plus five minutes,
+	// so a single missed run does not hand the alarm to the deputy: 1500
+	// seconds over a ten-minute timer. A deputy that cannot read the ledger
+	// mails, which is the failure mode that loses least.
+	// BackupAlarmPrimaryGraceSeconds is how long a deputy whose first ledger
+	// read found no fresh primary run waits before reading once more, so two
+	// timers that fire within seconds of each other after a deployment or a
+	// pause do not both mail the same transition: 90 seconds covers the 60
+	// seconds of random delay the timers carry.
+	BackupAlarmEmail                string `env:"TACK_BACKUP_ALARM_EMAIL"`
+	BackupAlarmMsmtprcPath          string `env:"TACK_BACKUP_ALARM_MSMTPRC" envDefault:"/etc/msmtprc"`
+	BackupAlarmPrimaryService       string `env:"TACK_BACKUP_ALARM_PRIMARY_SERVICE"`
+	BackupAlarmPrimaryWindowSeconds int    `env:"TACK_BACKUP_ALARM_PRIMARY_WINDOW_SECONDS" envDefault:"1500"`
+	BackupAlarmPrimaryGraceSeconds  int    `env:"TACK_BACKUP_ALARM_PRIMARY_GRACE_SECONDS"  envDefault:"90"`
 
 	// Yugabyte credentials. Read by the backup family for the ysql_dump call;
 	// the live tack server reads YUGABYTE_PASSWORD via the DATABASE_URL DSN

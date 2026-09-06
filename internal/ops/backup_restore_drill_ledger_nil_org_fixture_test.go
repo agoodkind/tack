@@ -35,12 +35,29 @@ func (l *restoredLedger) StreamQuery(
 		return fmt.Errorf("restored ledger: %w", err)
 	}
 	for _, row := range l.rowsByOrg[filter.OrgID] {
+		if !restoredLedgerRowMatches(filter, row) {
+			continue
+		}
 		if err := visit(row); err != nil {
 			return fmt.Errorf("restored ledger row %s: %w", row.EventID, err)
 		}
 		l.served[filter.OrgID]++
 	}
 	return nil
+}
+
+// restoredLedgerRowMatches applies the filter's action, actor, and time
+// bounds the way the ledger's own query does, so a caller that asks for one
+// actor's runs inside a window is answered the way the database answers it.
+// The drill's whole-range filters match every row.
+func restoredLedgerRowMatches(filter audit.QueryFilter, row audit.Row) bool {
+	if filter.Action != "" && row.Action != filter.Action {
+		return false
+	}
+	if filter.ActorID != uuid.Nil && row.ActorID != filter.ActorID {
+		return false
+	}
+	return !row.EventTime.Before(filter.Oldest) && row.EventTime.Before(filter.Latest)
 }
 
 // orgs lists what the ledger holds the way the drill reads it from the

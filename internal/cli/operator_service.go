@@ -18,6 +18,13 @@ import (
 // in the ledger, so it is fixed for the life of the deployment.
 var serviceNamespace = uuid.MustParse("0a6f7572-cafe-dead-beef-000000000005")
 
+// ServiceActorID is the ledger actor id a service name records under. It is
+// the one derivation, shared by the identity source that records a service's
+// events and by any reader that looks those events up by service name.
+func ServiceActorID(serviceName string) uuid.UUID {
+	return uuid.NewSHA1(serviceNamespace, []byte(serviceName))
+}
+
 // ServiceOperatorSource resolves a non-human identity from the service name
 // flag. A daemon such as serve runs as a service actor, never as the human who
 // happened to deploy it.
@@ -40,7 +47,7 @@ func (s ServiceOperatorSource) Resolve(ctx context.Context) (audit.OperatorPrinc
 		return audit.OperatorPrincipal{}, err
 	}
 	return audit.OperatorPrincipal{
-		ID:     uuid.NewSHA1(serviceNamespace, []byte(serviceName)),
+		ID:     ServiceActorID(serviceName),
 		Email:  "",
 		Name:   serviceName,
 		Source: "service",
