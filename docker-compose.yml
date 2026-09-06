@@ -541,6 +541,14 @@ services:
       # nothing, which is the local default; the deploy renders the address.
       TACK_BACKUP_ALARM_EMAIL: ${TACK_BACKUP_ALARM_EMAIL:-}
       TACK_BACKUP_ALARM_MSMTPRC: ${TACK_BACKUP_ALARM_MSMTPRC:-/etc/msmtprc}
+      # Deputy staleness alarm (TACK-481): the primary checker's service name,
+      # the window its run must appear in, and the in-run grace before the
+      # deputy takes over. An empty service means this checker is the primary.
+      # Without this pass-through a data guest's check ran as a primary and
+      # mailed a second time for the same fault.
+      TACK_BACKUP_ALARM_PRIMARY_SERVICE: ${TACK_BACKUP_ALARM_PRIMARY_SERVICE:-}
+      TACK_BACKUP_ALARM_PRIMARY_WINDOW_SECONDS: ${TACK_BACKUP_ALARM_PRIMARY_WINDOW_SECONDS:-1500}
+      TACK_BACKUP_ALARM_PRIMARY_GRACE_SECONDS: ${TACK_BACKUP_ALARM_PRIMARY_GRACE_SECONDS:-90}
       # FoundationDB continuous backup. Without this pass-through the container
       # falls back to the compiled default false, so `ops provision` leaves the
       # stream off and the restore drill and staleness check skip their FDB legs
