@@ -9,10 +9,10 @@ import (
 
 // TestBackupStalenessAlarmMailThroughTheCommand runs the whole command against
 // an object store whose every datable mechanism last succeeded too long ago,
-// and reads the one mail as an operator would: the subject labels the
-// environment and counts the faults, the body opens with the guest, says what
-// happened with each time in UTC, and lists what to do under each fault's
-// name. The printed report is not in it.
+// and reads the one mail as an operator would: the subject names the guest and
+// counts the faults, and each block in the body opens with the fault's phrase,
+// then its sentence with the time in UTC, then its steps. The printed report
+// is not in it, and neither is a footer: the mailer appends its own.
 func TestBackupStalenessAlarmMailThroughTheCommand(t *testing.T) {
 	now := time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)
 	fixBackupStalenessClock(t, now)
@@ -30,33 +30,33 @@ func TestBackupStalenessAlarmMailThroughTheCommand(t *testing.T) {
 		t.Fatalf("three faults on one run must mail once, sent %d", len(captured.messages))
 	}
 	message := captured.messages[0]
-	if message.Subject != "[Tack QA] 3 backup problems need attention" {
+	if message.Subject != "["+backupAlarmHost()+"] 3 backup problems" {
 		t.Errorf("subject = %q", message.Subject)
 	}
 	if message.Caller != backupAlarmCaller {
 		t.Errorf("Caller = %q, want the command's name for the library's footer", message.Caller)
 	}
-	host := backupAlarmHost()
 	for _, sentence := range []string{
-		"This is the QA environment, guest " + host + ", not production.\n\nWHAT HAPPENED\n",
-		"The nightly ledger export (the daily copy of the ledger in the object store) last completed at " +
-			"8:00 PM UTC on Aug 27, 2026, 40 hours ago; the limit is 36 hours.\n",
-		"The restore rehearsal (the daily test restore) last passed at 12:00 PM UTC on Aug 20, 2026, " +
-			"9 days ago; the limit is 8 days.\n",
-		"The ledger cluster (logins and audit trail) was last healthy at 11:15 AM UTC on Aug 29, 2026, " +
+		"Nightly ledger export is 40 hours old\n" +
+			"The nightly ledger export (the daily copy of the ledger in the object store) last completed at " +
+			"8:00 PM UTC on Aug 27, 2026, 40 hours ago; the limit is 36 hours.\n" +
+			"1. On the owner guest, run journalctl -u tack-ledger-export.\n",
+		"\n\nRestore rehearsal has not passed in 9 days\n" +
+			"The restore rehearsal (the daily test restore) last passed at 12:00 PM UTC on Aug 20, 2026, " +
+			"9 days ago; the limit is 8 days.\n" +
+			"1. On the owner guest, run journalctl -u tack-backup-restore-drill.\n",
+		"\n\nLedger cluster unhealthy for 45 minutes\n" +
+			"The ledger cluster (logins and audit trail) was last healthy at 11:15 AM UTC on Aug 29, 2026, " +
 			"45 minutes ago; the limit is 30 minutes. The last check reported: no master answered the health check: ",
-		"\n\nWHAT TO DO\nNightly ledger export\n1. On the owner guest, run journalctl -u tack-ledger-export.\n",
-		"\nRestore rehearsal\n1. On the owner guest, run journalctl -u tack-backup-restore-drill.\n",
-		"\nLedger cluster\n1. Confirm every ledger guest is up.\n",
-		"\n\nThis mail is sent once per problem. " +
-			"Every check's reading is in the tack-backup-staleness journal on " + host + ".",
+		"\n1. Confirm every ledger guest is up.\n",
 	} {
 		if !strings.Contains(message.Body, sentence) {
 			t.Errorf("body is missing %q:\n%s", sentence, message.Body)
 		}
 	}
-	if strings.Contains(message.Body, "Caller:") || strings.HasSuffix(message.Body, "\n") {
-		t.Errorf("the body must leave the footer to the mailer and end on its last sentence:\n%q", message.Body)
+	if !strings.HasPrefix(message.Body, "Nightly ledger export is 40 hours old\n") ||
+		!strings.HasSuffix(message.Body, "the alarm clears itself once the cluster is healthy.") {
+		t.Errorf("the body must start on the first fault and end on the last step:\n%q", message.Body)
 	}
 	for line := range strings.SplitSeq(strings.TrimSpace(report), "\n") {
 		if strings.Contains(message.Body, line) {
@@ -79,22 +79,17 @@ func TestBackupStalenessAlarmFDBWords(t *testing.T) {
 
 	stopped := knownBackupStalenessMetric(ctx, backupStalenessFDBName, now,
 		now.Add(-(15*time.Hour + 38*time.Minute)), threshold, "restorable through 2026-08-28T20:22:00Z")
-	subject := backupStalenessAlarmSubject(qaScene, []backupStalenessMetric{stopped})
-	if subject != "[Tack QA] Product database backup stopped 15 hours 38 minutes ago" {
+	subject := backupStalenessAlarmSubject(qaHost, []backupStalenessMetric{stopped})
+	if subject != "[tack-qa] Product database backup stopped 15 hours 38 minutes ago" {
 		t.Errorf("subject = %q", subject)
 	}
-	body := backupStalenessAlarmBody(cfg, qaScene, []backupStalenessMetric{stopped})
-	wantBody := "This is the QA environment, guest tack-qa, not production.\n" +
-		"\n" +
-		"WHAT HAPPENED\n" +
-		"The product database backup (FoundationDB, continuous) last advanced at 8:22 PM UTC on Aug 28, 2026, " +
+	body := backupStalenessAlarmBody(cfg, []backupStalenessMetric{stopped})
+	wantBody := "The product database backup (FoundationDB, continuous) last advanced at 8:22 PM UTC on Aug 28, 2026, " +
 		"15 hours 38 minutes ago; the limit is 2 hours.\n" +
 		"\n" +
-		"WHAT TO DO\n" +
 		"1. On the owner guest, run docker ps and confirm tack-fdb-backup-agent-1 is running.\n" +
 		"2. Run docker logs tack-fdb-backup-agent-1 and read what it reports.\n" +
-		"3. Confirm the object store accepts writes, then run docker compose restart fdb-backup-agent.\n" +
-		backupAlarmClosing
+		"3. Confirm the object store accepts writes, then run docker compose restart fdb-backup-agent."
 	if body != wantBody {
 		t.Errorf("body mismatch:\n got=%q\nwant=%q", body, wantBody)
 	}
@@ -104,14 +99,14 @@ func TestBackupStalenessAlarmFDBWords(t *testing.T) {
 	// so the mail must not claim there is no restorable point.
 	unreadable := unknownBackupStalenessMetric(backupStalenessFDBName, threshold, backupStalenessUnreadable,
 		"fdbbackup status failed: blobstore://test-access:test-secret@127.0.0.1:1/run?bucket=tack-backups") // gitleaks:allow test placeholder
-	subject = backupStalenessAlarmSubject(qaScene, []backupStalenessMetric{unreadable})
-	if subject != "[Tack QA] Product database backup status could not be read" {
+	subject = backupStalenessAlarmSubject(qaHost, []backupStalenessMetric{unreadable})
+	if subject != "[tack-qa] Product database backup status could not be read" {
 		t.Errorf("subject = %q", subject)
 	}
-	body = backupStalenessAlarmBody(cfg, qaScene, []backupStalenessMetric{unreadable})
-	if !strings.Contains(body, "The product database backup's status could not be read. "+
+	body = backupStalenessAlarmBody(cfg, []backupStalenessMetric{unreadable})
+	if !strings.HasPrefix(body, "The product database backup's status could not be read. "+
 		"The last check reported: fdbbackup status failed: "+
-		"blobstore://***REDACTED***:***REDACTED***@the object store/run?bucket=tack-backups.\n") {
+		"blobstore://***REDACTED***:***REDACTED***@the object store/run?bucket=tack-backups.\n\n1. ") {
 		t.Errorf("body does not carry the redacted reason:\n%s", body)
 	}
 	if strings.Contains(body, "no restorable point") {
@@ -123,15 +118,15 @@ func TestBackupStalenessAlarmFDBWords(t *testing.T) {
 	// case where nothing can be restored, and the mail may say so.
 	none := unknownBackupStalenessMetric(backupStalenessFDBName, threshold, backupStalenessNeverRecorded,
 		errFDBNoRestorablePoint.Error())
-	subject = backupStalenessAlarmSubject(qaScene, []backupStalenessMetric{none})
-	if subject != "[Tack QA] Product database backup has no restorable point" {
+	subject = backupStalenessAlarmSubject(qaHost, []backupStalenessMetric{none})
+	if subject != "[tack-qa] Product database backup has no restorable point" {
 		t.Errorf("subject = %q", subject)
 	}
-	body = backupStalenessAlarmBody(cfg, qaScene, []backupStalenessMetric{none})
-	if !strings.Contains(body, "The product database backup (FoundationDB, continuous) has no restorable point. "+
-		"The last check reported: fdbbackup status reports no restorable backup.\n"+
-		"\nWHAT TO DO\n1. On the owner guest, run docker ps") {
-		t.Errorf("body does not say nothing is restorable, followed by what to do:\n%s", body)
+	body = backupStalenessAlarmBody(cfg, []backupStalenessMetric{none})
+	if !strings.HasPrefix(body, "The product database backup (FoundationDB, continuous) has no restorable point. "+
+		"The last check reported: fdbbackup status reports no restorable backup.\n\n"+
+		"1. On the owner guest, run docker ps") {
+		t.Errorf("body does not say nothing is restorable, followed by the steps:\n%s", body)
 	}
 	assertBackupAlarmPlainWords(t, subject, body, cfg.BackupS3Endpoint)
 }

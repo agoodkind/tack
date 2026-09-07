@@ -38,17 +38,13 @@ func assertBackupAlarmPlainWords(t *testing.T, subject, body, endpoint string) {
 	}
 }
 
-// qaScene is the guest the composed mails in this file come from.
-var qaScene = backupAlarmScene{Environment: "QA", Host: "tack-qa"}
-
-// backupAlarmClosing is the last paragraph of every mail from that guest.
-const backupAlarmClosing = "\nThis mail is sent once per problem. " +
-	"Every check's reading is in the tack-backup-staleness journal on tack-qa."
+// qaHost is the guest the composed mails in this file come from.
+const qaHost = "tack-qa"
 
 // TestBackupStalenessAlarmOneFaultMail pins the whole mail for one fault: the
 // ledger cluster last seen healthy 32 minutes ago against a 30 minute limit.
-// The subject labels the environment and names the fault; the body says where
-// it is from, what happened with the time in UTC, and what to do.
+// The subject names the guest and the fault; the body is the one sentence of
+// fact with the time in UTC and the steps, nothing else.
 func TestBackupStalenessAlarmOneFaultMail(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 9, 6, 16, 23, 0, 0, time.UTC)
@@ -57,23 +53,18 @@ func TestBackupStalenessAlarmOneFaultMail(t *testing.T) {
 		now.Add(-32*time.Minute), 30*time.Minute, "1 dead nodes, 4 under-replicated tablets")
 	faults := []backupStalenessMetric{fault}
 
-	subject := backupStalenessAlarmSubject(qaScene, faults)
-	if subject != "[Tack QA] Ledger cluster unhealthy for 32 minutes" {
+	subject := backupStalenessAlarmSubject(qaHost, faults)
+	if subject != "[tack-qa] Ledger cluster unhealthy for 32 minutes" {
 		t.Errorf("subject = %q", subject)
 	}
-	body := backupStalenessAlarmBody(cfg, qaScene, faults)
-	wantBody := "This is the QA environment, guest tack-qa, not production.\n" +
-		"\n" +
-		"WHAT HAPPENED\n" +
-		"The ledger cluster (logins and audit trail) was last healthy at 3:51 PM UTC on Sep 6, 2026, " +
+	body := backupStalenessAlarmBody(cfg, faults)
+	wantBody := "The ledger cluster (logins and audit trail) was last healthy at 3:51 PM UTC on Sep 6, 2026, " +
 		"32 minutes ago; the limit is 30 minutes. " +
 		"The last check reported: 1 dead nodes, 4 under-replicated tablets.\n" +
 		"\n" +
-		"WHAT TO DO\n" +
 		"1. Confirm every ledger guest is up.\n" +
 		"2. On the owner guest, confirm every node is alive on the ledger master page.\n" +
-		"3. Wait for tablets to re-copy; the alarm clears itself once the cluster is healthy.\n" +
-		backupAlarmClosing
+		"3. Wait for tablets to re-copy; the alarm clears itself once the cluster is healthy."
 	if body != wantBody {
 		t.Errorf("body mismatch:\n got=%q\nwant=%q", body, wantBody)
 	}
@@ -81,8 +72,8 @@ func TestBackupStalenessAlarmOneFaultMail(t *testing.T) {
 }
 
 // TestBackupStalenessAlarmThreeFaultMail pins the whole mail for three faults
-// at once: the subject counts them, each has its own paragraph, and each has
-// its own list of steps under its plain name.
+// at once: the subject counts them, and each block opens with the fault's
+// phrase, then its sentence, then its steps.
 func TestBackupStalenessAlarmThreeFaultMail(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)
@@ -96,39 +87,31 @@ func TestBackupStalenessAlarmThreeFaultMail(t *testing.T) {
 			now.Add(-45*time.Minute), 30*time.Minute, "1 dead nodes, 2 under-replicated tablets"),
 	}
 
-	subject := backupStalenessAlarmSubject(qaScene, faults)
-	if subject != "[Tack QA] 3 backup problems need attention" {
+	subject := backupStalenessAlarmSubject(qaHost, faults)
+	if subject != "[tack-qa] 3 backup problems" {
 		t.Errorf("subject = %q", subject)
 	}
-	body := backupStalenessAlarmBody(cfg, qaScene, faults)
-	wantBody := "This is the QA environment, guest tack-qa, not production.\n" +
-		"\n" +
-		"WHAT HAPPENED\n" +
+	body := backupStalenessAlarmBody(cfg, faults)
+	wantBody := "Nightly ledger export is 40 hours old\n" +
 		"The nightly ledger export (the daily copy of the ledger in the object store) last completed at " +
 		"8:00 PM UTC on Aug 27, 2026, 40 hours ago; the limit is 36 hours.\n" +
-		"\n" +
-		"The restore rehearsal (the daily test restore) last passed at 12:00 PM UTC on Aug 20, 2026, " +
-		"9 days ago; the limit is 8 days.\n" +
-		"\n" +
-		"The ledger cluster (logins and audit trail) was last healthy at 11:15 AM UTC on Aug 29, 2026, " +
-		"45 minutes ago; the limit is 30 minutes. " +
-		"The last check reported: 1 dead nodes, 2 under-replicated tablets.\n" +
-		"\n" +
-		"WHAT TO DO\n" +
-		"Nightly ledger export\n" +
 		"1. On the owner guest, run journalctl -u tack-ledger-export.\n" +
 		"2. On each data guest, run journalctl -u tack-ledger-archive.\n" +
 		"3. Confirm the object store accepts writes, then run systemctl start tack-ledger-export.\n" +
 		"\n" +
-		"Restore rehearsal\n" +
+		"Restore rehearsal has not passed in 9 days\n" +
+		"The restore rehearsal (the daily test restore) last passed at 12:00 PM UTC on Aug 20, 2026, " +
+		"9 days ago; the limit is 8 days.\n" +
 		"1. On the owner guest, run journalctl -u tack-backup-restore-drill.\n" +
 		"2. Fix what it names, then run systemctl start tack-backup-restore-drill.\n" +
 		"\n" +
-		"Ledger cluster\n" +
+		"Ledger cluster unhealthy for 45 minutes\n" +
+		"The ledger cluster (logins and audit trail) was last healthy at 11:15 AM UTC on Aug 29, 2026, " +
+		"45 minutes ago; the limit is 30 minutes. " +
+		"The last check reported: 1 dead nodes, 2 under-replicated tablets.\n" +
 		"1. Confirm every ledger guest is up.\n" +
 		"2. On the owner guest, confirm every node is alive on the ledger master page.\n" +
-		"3. Wait for tablets to re-copy; the alarm clears itself once the cluster is healthy.\n" +
-		backupAlarmClosing
+		"3. Wait for tablets to re-copy; the alarm clears itself once the cluster is healthy."
 	if body != wantBody {
 		t.Errorf("body mismatch:\n got=%q\nwant=%q", body, wantBody)
 	}
@@ -136,32 +119,6 @@ func TestBackupStalenessAlarmThreeFaultMail(t *testing.T) {
 		t.Errorf("the export run id must not reach the mail:\n%s", body)
 	}
 	assertBackupAlarmPlainWords(t, subject, body, cfg.BackupS3Endpoint)
-}
-
-// TestBackupAlarmOpening pins the first line: production says so, every other
-// label says it is not, and a missing label is visible as unnamed.
-func TestBackupAlarmOpening(t *testing.T) {
-	tests := []struct {
-		configured string
-		want       string
-	}{
-		{configured: "QA", want: "This is the QA environment, guest tack, not production."},
-		{configured: "Production", want: "This is the production environment, guest tack."},
-		{configured: "", want: "This is an unnamed environment, guest tack, not production."},
-	}
-	for _, test := range tests {
-		scene := backupAlarmScene{Environment: backupAlarmEnvironmentLabel(test.configured), Host: "tack"}
-		if got := backupAlarmOpening(scene); got != test.want {
-			t.Errorf("opening for %q = %q, want %q", test.configured, got, test.want)
-		}
-	}
-	unnamed := backupAlarmScene{Environment: backupAlarmEnvironmentLabel(""), Host: "tack-qa"}
-	subject := backupStalenessAlarmSubject(unnamed, []backupStalenessMetric{
-		unknownBackupStalenessMetric(backupStalenessRehearsalName, time.Hour, backupStalenessNeverRecorded, ""),
-	})
-	if subject != "[Tack unnamed environment] Restore rehearsal has never passed" {
-		t.Errorf("unnamed subject = %q", subject)
-	}
 }
 
 // TestBackupAlarmClock pins the words the subject and body render a duration

@@ -1,8 +1,8 @@
 // backup_alarm_vocabulary.go is each backup mechanism's share of the alarm
-// mail: its plain name, the subject phrase for each kind of fault, the one
-// sentence that says what happened, and the steps that fix it. Metric names,
-// thresholds in seconds, and run identifiers stay in the journal report; none
-// of them appear here. The composition is in backup_alarm_words.go.
+// mail: the phrase that names each kind of fault, the one sentence that says
+// what happened, and the steps that fix it. Metric names, thresholds in
+// seconds, and run identifiers stay in the journal report; none of them appear
+// here. The composition is in backup_alarm_words.go.
 
 package ops
 
@@ -12,10 +12,9 @@ package ops
 // that was never recorded and a record that could not be read support
 // different claims; both templates take the detail alone.
 type backupAlarmWords struct {
-	name                   string
-	subjectKnown           string
-	subjectNeverRecorded   string
-	subjectUnreadable      string
+	phraseKnown            string
+	phraseNeverRecorded    string
+	phraseUnreadable       string
 	paragraphKnown         string
 	paragraphNeverRecorded string
 	paragraphUnreadable    string
@@ -34,10 +33,9 @@ const (
 // backupAlarmVocabulary maps each metric to its words.
 var backupAlarmVocabulary = map[string]backupAlarmWords{
 	backupStalenessExportName: {
-		name:                   "Nightly ledger export",
-		subjectKnown:           "Nightly ledger export is %s old",
-		subjectNeverRecorded:   "Nightly ledger export has never completed",
-		subjectUnreadable:      "Nightly ledger export status could not be read",
+		phraseKnown:            "Nightly ledger export is %s old",
+		phraseNeverRecorded:    "Nightly ledger export has never completed",
+		phraseUnreadable:       "Nightly ledger export status could not be read",
 		paragraphKnown:         backupAlarmExportNoun + " last completed" + backupAlarmKnownFact,
 		paragraphNeverRecorded: backupAlarmExportNoun + " has never completed." + backupAlarmLastCheck,
 		paragraphUnreadable:    "The nightly ledger export's newest copy could not be dated." + backupAlarmLastCheck,
@@ -48,10 +46,9 @@ var backupAlarmVocabulary = map[string]backupAlarmWords{
 		},
 	},
 	backupStalenessRehearsalName: {
-		name:                   "Restore rehearsal",
-		subjectKnown:           "Restore rehearsal has not passed in %s",
-		subjectNeverRecorded:   "Restore rehearsal has never passed",
-		subjectUnreadable:      "Restore rehearsal status could not be read",
+		phraseKnown:            "Restore rehearsal has not passed in %s",
+		phraseNeverRecorded:    "Restore rehearsal has never passed",
+		phraseUnreadable:       "Restore rehearsal status could not be read",
 		paragraphKnown:         backupAlarmRehearsalNoun + " last passed" + backupAlarmKnownFact,
 		paragraphNeverRecorded: backupAlarmRehearsalNoun + " has never passed." + backupAlarmLastCheck,
 		paragraphUnreadable:    "The restore rehearsal's last pass could not be read." + backupAlarmLastCheck,
@@ -61,10 +58,9 @@ var backupAlarmVocabulary = map[string]backupAlarmWords{
 		},
 	},
 	backupStalenessReplicationName: {
-		name:                   "Ledger cluster",
-		subjectKnown:           "Ledger cluster unhealthy for %s",
-		subjectNeverRecorded:   "Ledger cluster has never been seen healthy",
-		subjectUnreadable:      "Ledger cluster health status could not be read",
+		phraseKnown:            "Ledger cluster unhealthy for %s",
+		phraseNeverRecorded:    "Ledger cluster has never been seen healthy",
+		phraseUnreadable:       "Ledger cluster health status could not be read",
 		paragraphKnown:         backupAlarmReplicationNoun + " was last healthy" + backupAlarmKnownFact + " The last check reported: %[4]s.",
 		paragraphNeverRecorded: backupAlarmReplicationNoun + " has never been seen healthy." + backupAlarmLastCheck,
 		paragraphUnreadable:    "The ledger cluster's last healthy reading could not be read." + backupAlarmLastCheck,
@@ -75,10 +71,9 @@ var backupAlarmVocabulary = map[string]backupAlarmWords{
 		},
 	},
 	backupStalenessFDBName: {
-		name:                   "Product database backup",
-		subjectKnown:           "Product database backup stopped %s ago",
-		subjectNeverRecorded:   "Product database backup has no restorable point",
-		subjectUnreadable:      "Product database backup status could not be read",
+		phraseKnown:            "Product database backup stopped %s ago",
+		phraseNeverRecorded:    "Product database backup has no restorable point",
+		phraseUnreadable:       "Product database backup status could not be read",
 		paragraphKnown:         backupAlarmFDBNoun + " last advanced" + backupAlarmKnownFact,
 		paragraphNeverRecorded: backupAlarmFDBNoun + " has no restorable point." + backupAlarmLastCheck,
 		paragraphUnreadable:    "The product database backup's status could not be read." + backupAlarmLastCheck,

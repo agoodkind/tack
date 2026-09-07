@@ -59,14 +59,10 @@ func mailBackupStalenessAlarm(ctx context.Context, cfg *config.Config, faults []
 		return false
 	}
 
-	scene := backupAlarmScene{
-		Environment: backupAlarmEnvironmentLabel(cfg.BackupAlarmEnvironment),
-		Host:        backupAlarmHost(),
-	}
 	message := mailer.Message{
 		To:      cfg.BackupAlarmEmail,
-		Subject: backupStalenessAlarmSubject(scene, faults),
-		Body:    backupStalenessAlarmBody(cfg, scene, faults),
+		Subject: backupStalenessAlarmSubject(backupAlarmHost(), faults),
+		Body:    backupStalenessAlarmBody(cfg, faults),
 		// From is deliberately empty: the library then sends as
 		// <hostname>-mailer@goodkind.io, the sender whose mail actually
 		// arrives, instead of the guest's plain hostname address that the

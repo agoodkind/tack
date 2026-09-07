@@ -1,7 +1,9 @@
 // backup_alarm_words.go composes the backup alarm mail an operator reads on a
-// phone: which environment it is from, what happened in plain words, and what
-// to do about it. Every time is UTC and says so where it is printed. Each
-// mechanism's own words are in backup_alarm_vocabulary.go.
+// phone: the guest in the subject, what happened in one sentence per fault,
+// and the steps that fix it. Every time is UTC and says so where it is
+// printed. The host and the send time appear only in the footer the mailer
+// library appends. Each mechanism's own words are in
+// backup_alarm_vocabulary.go.
 
 package ops
 
@@ -18,100 +20,62 @@ import (
 // with the zone beside the clock so no time in the mail is mistaken for local.
 const backupAlarmTimeLayout = "3:04 PM MST on Jan 2, 2006"
 
-// backupAlarmUnnamedEnvironment labels the mail when no environment name is
-// configured, so a missing label is visible rather than silently absent.
-const backupAlarmUnnamedEnvironment = "unnamed environment"
-
-// backupAlarmProductionLabel is the one environment whose mail says it is
-// production; every other label says it is not.
-const backupAlarmProductionLabel = "Production"
-
 // backupAlarmObjectStoreStandIn replaces the object-store endpoint wherever a
 // probe's error text echoes it, so the mail never carries the store's address.
 const backupAlarmObjectStoreStandIn = "the object store"
 
-// backupAlarmScene is where the mail is from: the environment label it carries
-// and the guest whose check found the fault.
-type backupAlarmScene struct {
-	Environment string
-	Host        string
-}
-
-// backupAlarmEnvironmentLabel is the configured environment name, or the
-// unnamed stand-in when none is set.
-func backupAlarmEnvironmentLabel(configured string) string {
-	if strings.TrimSpace(configured) == "" {
-		return backupAlarmUnnamedEnvironment
-	}
-	return strings.TrimSpace(configured)
-}
-
-// backupStalenessAlarmSubject labels the environment and names the fault. One
-// fault is named outright; several are counted, and the body names each.
-func backupStalenessAlarmSubject(scene backupAlarmScene, faults []backupStalenessMetric) string {
-	prefix := "[Tack " + scene.Environment + "] "
+// backupStalenessAlarmSubject names the guest and the fault. One fault is
+// named outright; several are counted, and the body names each.
+func backupStalenessAlarmSubject(host string, faults []backupStalenessMetric) string {
+	prefix := "[" + host + "] "
 	if len(faults) == 1 {
 		return prefix + backupAlarmFaultPhrase(faults[0])
 	}
-	return prefix + strconv.Itoa(len(faults)) + " backup problems need attention"
+	return prefix + strconv.Itoa(len(faults)) + " backup problems"
 }
 
-// backupStalenessAlarmBody opens with where the mail is from, says what
-// happened one paragraph per fault, lists what to do, and ends by saying the
-// mail does not repeat. With several faults each list sits under the fault's
-// plain name.
-func backupStalenessAlarmBody(cfg *config.Config, scene backupAlarmScene, faults []backupStalenessMetric) string {
+// backupStalenessAlarmBody is one sentence of fact and the steps for each
+// fault. A single fault needs no name, because the subject carries it; with
+// several, each block opens with the fault's phrase and a blank line separates
+// the blocks.
+func backupStalenessAlarmBody(cfg *config.Config, faults []backupStalenessMetric) string {
 	var body strings.Builder
-	body.WriteString(backupAlarmOpening(scene))
-	body.WriteString("\n\nWHAT HAPPENED\n")
 	for i, fault := range faults {
 		if i > 0 {
-			body.WriteString("\n")
+			body.WriteString("\n\n")
 		}
-		body.WriteString(backupAlarmFaultParagraph(cfg, fault))
-		body.WriteString("\n")
-	}
-	body.WriteString("\nWHAT TO DO\n")
-	for i, fault := range faults {
-		words := backupAlarmVocabulary[fault.Name]
 		if len(faults) > 1 {
-			if i > 0 {
-				body.WriteString("\n")
-			}
-			body.WriteString(words.name + "\n")
+			body.WriteString(backupAlarmFaultPhrase(fault) + "\n")
+			body.WriteString(backupAlarmFaultParagraph(cfg, fault) + "\n")
+		} else {
+			body.WriteString(backupAlarmFaultParagraph(cfg, fault) + "\n\n")
 		}
-		for n, step := range words.steps {
-			body.WriteString(strconv.Itoa(n+1) + ". " + step + "\n")
-		}
+		body.WriteString(backupAlarmSteps(fault))
 	}
-	body.WriteString("\nThis mail is sent once per problem. " +
-		"Every check's reading is in the tack-backup-staleness journal on " + scene.Host + ".")
 	return body.String()
 }
 
-// backupAlarmOpening is the first sentence: the environment, the guest, and
-// whether this is production, said outright either way.
-func backupAlarmOpening(scene backupAlarmScene) string {
-	if strings.EqualFold(scene.Environment, backupAlarmProductionLabel) {
-		return "This is the production environment, guest " + scene.Host + "."
+// backupAlarmSteps numbers one mechanism's steps, one per line.
+func backupAlarmSteps(fault backupStalenessMetric) string {
+	words := backupAlarmVocabulary[fault.Name]
+	lines := make([]string, 0, len(words.steps))
+	for n, step := range words.steps {
+		lines = append(lines, strconv.Itoa(n+1)+". "+step)
 	}
-	where := "the " + scene.Environment + " environment"
-	if scene.Environment == backupAlarmUnnamedEnvironment {
-		where = "an unnamed environment"
-	}
-	return "This is " + where + ", guest " + scene.Host + ", not production."
+	return strings.Join(lines, "\n")
 }
 
-// backupAlarmFaultPhrase is the subject's description of one fault.
+// backupAlarmFaultPhrase names one fault in the subject and, with several
+// faults, at the head of its block.
 func backupAlarmFaultPhrase(fault backupStalenessMetric) string {
 	words := backupAlarmVocabulary[fault.Name]
 	if !fault.AgeKnown {
 		if fault.Unknown == backupStalenessNeverRecorded {
-			return words.subjectNeverRecorded
+			return words.phraseNeverRecorded
 		}
-		return words.subjectUnreadable
+		return words.phraseUnreadable
 	}
-	return fmt.Sprintf(words.subjectKnown, backupAlarmClock(fault.Age))
+	return fmt.Sprintf(words.phraseKnown, backupAlarmClock(fault.Age))
 }
 
 // backupAlarmFaultParagraph says what is wrong with one mechanism. An unknown

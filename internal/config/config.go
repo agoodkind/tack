@@ -241,14 +241,8 @@ type Config struct {
 	// timers that fire within seconds of each other after a deployment or a
 	// pause do not both mail the same transition: 90 seconds covers the 60
 	// seconds of random delay the timers carry.
-	//
-	// BackupAlarmEnvironment is the environment name the mail labels itself
-	// with, in the subject and the first line of the body ("QA",
-	// "Production"). Empty renders as "unnamed environment", so a missing
-	// label is visible in the mail rather than silently absent.
 	BackupAlarmEmail                string `env:"TACK_BACKUP_ALARM_EMAIL"`
 	BackupAlarmMsmtprcPath          string `env:"TACK_BACKUP_ALARM_MSMTPRC" envDefault:"/etc/msmtprc"`
-	BackupAlarmEnvironment          string `env:"TACK_BACKUP_ALARM_ENVIRONMENT"`
 	BackupAlarmPrimaryService       string `env:"TACK_BACKUP_ALARM_PRIMARY_SERVICE"`
 	BackupAlarmPrimaryWindowSeconds int    `env:"TACK_BACKUP_ALARM_PRIMARY_WINDOW_SECONDS" envDefault:"1500"`
 	BackupAlarmPrimaryGraceSeconds  int    `env:"TACK_BACKUP_ALARM_PRIMARY_GRACE_SECONDS"  envDefault:"90"`

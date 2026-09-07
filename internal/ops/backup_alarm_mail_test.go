@@ -46,14 +46,13 @@ func fixBackupStalenessClock(t *testing.T, now time.Time) {
 	t.Cleanup(func() { nowFunc = time.Now })
 }
 
-// unreachableBackupStalenessConfig is a QA host whose object store and ledger
+// unreachableBackupStalenessConfig is a host whose object store and ledger
 // masters both refuse connections, so every mechanism is unmeasurable and
 // therefore stale. The backup root is a fresh directory, the state of a guest
 // that has never alarmed.
 func unreachableBackupStalenessConfig(t *testing.T, recipient string) *config.Config {
 	t.Helper()
 	return &config.Config{
-		BackupAlarmEnvironment:               "QA",
 		BackupRoot:                           t.TempDir(),
 		BackupS3Endpoint:                     "http://127.0.0.1:1",
 		BackupS3AccessKey:                    "test-access", // gitleaks:allow test placeholder
@@ -70,13 +69,12 @@ func unreachableBackupStalenessConfig(t *testing.T, recipient string) *config.Co
 	}
 }
 
-// storedBackupStalenessConfig is a QA host whose object store is the fake
-// store over objects and whose ledger masters refuse connections. Thresholds
-// are the production defaults and mail goes to the test recipient.
+// storedBackupStalenessConfig is a host whose object store is the fake store
+// over objects and whose ledger masters refuse connections. Thresholds are the
+// production defaults and mail goes to the test recipient.
 func storedBackupStalenessConfig(t *testing.T, objects map[string][]byte) *config.Config {
 	t.Helper()
 	_, cfg := newFakeBackupObjectStore(t, "tack-backups", objects)
-	cfg.BackupAlarmEnvironment = "QA"
 	cfg.BackupRoot = t.TempDir()
 	cfg.BackupYBMasterAddresses = "127.0.0.1:7100"
 	cfg.BackupFDBContinuous = false
@@ -185,7 +183,7 @@ func TestBackupStalenessAlarmMailsAgainAfterAClear(t *testing.T) {
 	if len(captured.messages) != 1 {
 		t.Fatalf("the first fault must mail once, sent %d", len(captured.messages))
 	}
-	wantSubject := "[Tack QA] Restore rehearsal has never passed"
+	wantSubject := "[" + backupAlarmHost() + "] Restore rehearsal has never passed"
 	if captured.messages[0].Subject != wantSubject {
 		t.Errorf("subject = %q, want %q", captured.messages[0].Subject, wantSubject)
 	}
