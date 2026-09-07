@@ -25,4 +25,19 @@ func TestExitCodeOfTellsAMarkerFailureFromARestoreFailure(t *testing.T) {
 	if got := exitCodeOf(legFailure); got != 1 {
 		t.Fatalf("leg failure exit code = %d, want 1", got)
 	}
+	// An error carrying another process's exit status is not this process's:
+	// a child that exited 3 must not read as the marker failure.
+	childExit := &childExitError{code: 3}
+	if got := exitCodeOf(fmt.Errorf("run child: %w", childExit)); got != 1 {
+		t.Fatalf("a child's exit code leaked into the process exit code: got %d, want 1", got)
+	}
 }
+
+// childExitError has the ExitCode method shape of a child process's exit
+// error, so the test does not need to spawn one.
+type childExitError struct {
+	code int
+}
+
+func (e *childExitError) Error() string { return "exit status 3" }
+func (e *childExitError) ExitCode() int { return e.code }

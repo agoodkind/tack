@@ -44,8 +44,11 @@ func (e *RestoreDrillMarkerError) Error() string {
 // Unwrap exposes the last put's error.
 func (e *RestoreDrillMarkerError) Unwrap() error { return e.Err }
 
-// ExitCode is the process exit status the CLI reports for this failure.
-func (e *RestoreDrillMarkerError) ExitCode() int { return restoreDrillMarkerExitStatus }
+// OperatorExitStatus is the process exit status the CLI reports for this
+// failure. The name is deliberately not ExitCode, which other error types such
+// as a child process's exit error also carry, so a child's status is never
+// mistaken for this one.
+func (e *RestoreDrillMarkerError) OperatorExitStatus() int { return restoreDrillMarkerExitStatus }
 
 // recordRestoreDrillRehearsal records a passing drill so the staleness check
 // can tell how long ago recovery was last rehearsed. The marker is part of the

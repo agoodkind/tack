@@ -83,14 +83,16 @@ func run() int {
 }
 
 // exitCodeOf is the process exit status for a failed command: the status the
-// error declares through an ExitCode method, else 1. A command declares one
-// when the unit that runs it must tell that failure apart from the rest, such
-// as a restore drill that only failed to record its marker and must not have
-// its restores repeated.
+// error declares through an OperatorExitStatus method, else 1. A command
+// declares one when the unit that runs it must tell that failure apart from
+// the rest, such as a restore drill that only failed to record its marker and
+// must not have its restores repeated. The method name is specific to this
+// contract so an error carrying some other process's exit code, such as
+// [exec.ExitError], does not set this process's.
 func exitCodeOf(err error) int {
-	var coded interface{ ExitCode() int }
+	var coded interface{ OperatorExitStatus() int }
 	if errors.As(err, &coded) {
-		return coded.ExitCode()
+		return coded.OperatorExitStatus()
 	}
 	return 1
 }
