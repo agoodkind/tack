@@ -536,9 +536,10 @@ services:
       # than tar or restore against a wrong location.
       TACK_BACKUP_YB_ROCKSDB_DIR: ${TACK_BACKUP_YB_ROCKSDB_DIR:-}
       TACK_BACKUP_YB_OVERLAY_PATH: ${TACK_BACKUP_YB_OVERLAY_PATH:-}
-      # Backup staleness alarm mail. A staleness-check run that finds anything
-      # past its threshold mails the report it printed. Empty recipient mails
-      # nothing, which is the local default; the deploy renders the address.
+      # Backup staleness alarm mail. A staleness-check run that first finds a
+      # mechanism past its threshold mails a plain-words account of the fault.
+      # Empty recipient mails nothing, which is the local default; the deploy
+      # renders the address.
       TACK_BACKUP_ALARM_EMAIL: ${TACK_BACKUP_ALARM_EMAIL:-}
       TACK_BACKUP_ALARM_MSMTPRC: ${TACK_BACKUP_ALARM_MSMTPRC:-/etc/msmtprc}
       # Deputy staleness alarm (TACK-481): the primary checker's service name,

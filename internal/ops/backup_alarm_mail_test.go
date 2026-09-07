@@ -183,7 +183,7 @@ func TestBackupStalenessAlarmMailsAgainAfterAClear(t *testing.T) {
 	if len(captured.messages) != 1 {
 		t.Fatalf("the first fault must mail once, sent %d", len(captured.messages))
 	}
-	wantSubject := "[tack] " + backupAlarmHost() + ": restore rehearsal has no recorded pass"
+	wantSubject := "[" + backupAlarmHost() + "] Restore rehearsal has never passed"
 	if captured.messages[0].Subject != wantSubject {
 		t.Errorf("subject = %q, want %q", captured.messages[0].Subject, wantSubject)
 	}

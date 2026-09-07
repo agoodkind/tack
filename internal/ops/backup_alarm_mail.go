@@ -6,8 +6,8 @@
 // sends from the address that demonstrably delivers, and it speaks SMTP itself
 // over net/smtp after parsing the msmtp account file, so no mail binary is
 // executed and the repo's no-shell-outs rule holds. The words the mail carries
-// come from backup_alarm_words.go; when to send is decided in
-// backup_alarm_policy.go.
+// come from backup_alarm_words.go and backup_alarm_vocabulary.go; when to send
+// is decided in backup_alarm_policy.go.
 
 package ops
 
@@ -59,11 +59,10 @@ func mailBackupStalenessAlarm(ctx context.Context, cfg *config.Config, faults []
 		return false
 	}
 
-	host := backupAlarmHost()
 	message := mailer.Message{
 		To:      cfg.BackupAlarmEmail,
-		Subject: backupStalenessAlarmSubject(host, faults),
-		Body:    backupStalenessAlarmBody(cfg, host, faults),
+		Subject: backupStalenessAlarmSubject(backupAlarmHost(), faults),
+		Body:    backupStalenessAlarmBody(cfg, faults),
 		// From is deliberately empty: the library then sends as
 		// <hostname>-mailer@goodkind.io, the sender whose mail actually
 		// arrives, instead of the guest's plain hostname address that the
