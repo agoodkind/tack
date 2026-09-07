@@ -26,25 +26,22 @@ func TestBackupStalenessAlarmUnreadableWords(t *testing.T) {
 	}
 	body := captured.messages[0].Body
 	for _, sentence := range []string{
-		"The nightly ledger export (the daily copy of the ledger database saved to the object store) " +
-			"could not be dated, so whether a current copy exists is not known. " +
-			"The last check saw: listing export runs failed: ",
-		"The restore rehearsal (the daily test restore of both databases from the object store) " +
-			"status could not be read, so whether it has passed recently is not known. " +
-			"The last check saw: reading backup-status/rehearsal.json failed: ",
-		"The ledger cluster (the database holding logins and the audit trail) health record could not " +
-			"be read, so how long it has been unhealthy is not known. " +
-			"The last check saw: reading backup-status/replication.json failed: ",
+		"Nightly ledger export (daily ledger copy in the object store) could not be dated. " +
+			"Last check: listing export runs failed: ",
+		"Restore rehearsal (daily test restore) could not be read. " +
+			"Last check: reading backup-status/rehearsal.json failed: ",
+		"Ledger cluster (logins and audit trail) health could not be read. " +
+			"Last check: reading backup-status/replication.json failed: ",
 		"; this run observed: no master answered the health check: ",
-		"\nWHAT TO DO\nNightly ledger export\n1. On the owner guest, read the export journal: ",
-		"\nRestore rehearsal\n1. On the owner guest, read the drill journal: ",
-		"\nLedger cluster\n1. Check every ledger guest is running and reachable.\n",
+		"\nWHAT TO DO\nNightly ledger export\n1. On the owner guest: journalctl -u tack-ledger-export.\n",
+		"\nRestore rehearsal\n1. On the owner guest: journalctl -u tack-backup-restore-drill.\n",
+		"\nLedger cluster\n1. Confirm every ledger guest is up.\n",
 	} {
 		if !strings.Contains(body, sentence) {
 			t.Errorf("body is missing %q:\n%s", sentence, body)
 		}
 	}
-	for _, claim := range []string{"has never", "no copy to restore", "never passed", "never been seen"} {
+	for _, claim := range []string{"has never", "never passed", "never been seen"} {
 		if strings.Contains(body, claim) {
 			t.Errorf("an unreadable store must not be described as empty (%q):\n%s", claim, body)
 		}
@@ -68,17 +65,16 @@ func TestBackupStalenessAlarmNeverRecordedWords(t *testing.T) {
 	}
 	body := captured.messages[0].Body
 	for _, sentence := range []string{
-		"The nightly ledger export (the daily copy of the ledger database saved to the object store) " +
-			"has never completed, so there is no copy to restore the ledger from. " +
-			"The last check saw: no complete export run in tack-backups.\n",
-		"The restore rehearsal (the daily test restore of both databases from the object store) " +
-			"has never passed. The last check saw: no backup-status/rehearsal.json in tack-backups.\n",
-		"The ledger cluster (the database holding logins and the audit trail) has never been seen healthy. " +
-			"The last check saw: no backup-status/replication.json in tack-backups; " +
+		"Nightly ledger export (daily ledger copy in the object store) has never completed. " +
+			"Last check: no complete export run in tack-backups.\n",
+		"Restore rehearsal (daily test restore) has never passed. " +
+			"Last check: no backup-status/rehearsal.json in tack-backups.\n",
+		"Ledger cluster (logins and audit trail) has never been seen healthy. " +
+			"Last check: no backup-status/replication.json in tack-backups; " +
 			"this run observed: no master answered the health check: ",
-		"\nWHAT TO DO\nNightly ledger export\n1. On the owner guest, read the export journal: ",
-		"\nRestore rehearsal\n1. On the owner guest, read the drill journal: ",
-		"\nLedger cluster\n1. Check every ledger guest is running and reachable.\n",
+		"\nWHAT TO DO\nNightly ledger export\n1. On the owner guest: journalctl -u tack-ledger-export.\n",
+		"\nRestore rehearsal\n1. On the owner guest: journalctl -u tack-backup-restore-drill.\n",
+		"\nLedger cluster\n1. Confirm every ledger guest is up.\n",
 	} {
 		if !strings.Contains(body, sentence) {
 			t.Errorf("body is missing %q:\n%s", sentence, body)

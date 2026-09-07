@@ -38,20 +38,16 @@ func TestBackupStalenessAlarmMailThroughTheCommand(t *testing.T) {
 	}
 	host := backupAlarmHost()
 	for _, sentence := range []string{
-		"QA environment, guest " + host + ". This is not production.\n\nWHAT HAPPENED\n",
-		"The nightly ledger export (the daily copy of the ledger database saved to the object store) " +
-			"last completed at 8:00 PM UTC on Aug 27, 2026, 40 hours ago. The allowed limit is 36 hours.\n",
-		"The restore rehearsal (the daily test restore of both databases from the object store) " +
-			"last passed at 12:00 PM UTC on Aug 20, 2026, 9 days ago. The allowed limit is 8 days.\n",
-		"The ledger cluster (the database holding logins and the audit trail) was last seen healthy at " +
-			"11:15 AM UTC on Aug 29, 2026, 45 minutes ago. The allowed limit is 30 minutes. " +
-			"The last check saw: no master answered the health check: ",
-		"\n\nWHAT TO DO\nNightly ledger export\n" +
-			"1. On the owner guest, read the export journal: journalctl -u tack-ledger-export.\n",
-		"\nRestore rehearsal\n1. On the owner guest, read the drill journal: journalctl -u tack-backup-restore-drill.\n",
-		"\nLedger cluster\n1. Check every ledger guest is running and reachable.\n",
-		"\n\nThis mail is sent once per problem and does not repeat. " +
-			"Every check's reading is in the tack-backup-staleness journal on " + host + ".",
+		"QA, guest " + host + ". Not production.\n\nWHAT HAPPENED\n",
+		"Nightly ledger export (daily ledger copy in the object store) last completed " +
+			"8:00 PM UTC, Aug 27, 2026: 40 hours ago, limit 36 hours.\n",
+		"Restore rehearsal (daily test restore) last passed 12:00 PM UTC, Aug 20, 2026: 9 days ago, limit 8 days.\n",
+		"Ledger cluster (logins and audit trail) last healthy 11:15 AM UTC, Aug 29, 2026: 45 minutes ago, " +
+			"limit 30 minutes. Last check: no master answered the health check: ",
+		"\n\nWHAT TO DO\nNightly ledger export\n1. On the owner guest: journalctl -u tack-ledger-export.\n",
+		"\nRestore rehearsal\n1. On the owner guest: journalctl -u tack-backup-restore-drill.\n",
+		"\nLedger cluster\n1. Confirm every ledger guest is up.\n",
+		"\n\nSent once per problem. Readings: tack-backup-staleness journal on " + host + ".",
 	} {
 		if !strings.Contains(message.Body, sentence) {
 			t.Errorf("body is missing %q:\n%s", sentence, message.Body)
@@ -86,17 +82,16 @@ func TestBackupStalenessAlarmFDBWords(t *testing.T) {
 		t.Errorf("subject = %q", subject)
 	}
 	body := backupStalenessAlarmBody(cfg, qaScene, []backupStalenessMetric{stopped})
-	wantBody := "QA environment, guest tack-qa. This is not production.\n" +
+	wantBody := "QA, guest tack-qa. Not production.\n" +
 		"\n" +
 		"WHAT HAPPENED\n" +
-		"The product database's continuous backup (FoundationDB) last advanced at " +
-		"8:22 PM UTC on Aug 28, 2026, 15 hours 38 minutes ago. The allowed limit is 2 hours. " +
-		"Writes since that point cannot yet be restored from the object store.\n" +
+		"Product database backup (FoundationDB, continuous) last advanced 8:22 PM UTC, Aug 28, 2026: " +
+		"15 hours 38 minutes ago, limit 2 hours.\n" +
 		"\n" +
 		"WHAT TO DO\n" +
-		"1. On the owner guest, check the backup agent is running: docker ps (container tack-fdb-backup-agent-1).\n" +
+		"1. On the owner guest, confirm the agent is running: docker ps (tack-fdb-backup-agent-1).\n" +
 		"2. Read its log: docker logs tack-fdb-backup-agent-1.\n" +
-		"3. Confirm the object store accepts writes, then restart the agent: docker compose restart fdb-backup-agent.\n" +
+		"3. Confirm the object store accepts writes, then: docker compose restart fdb-backup-agent.\n" +
 		backupAlarmClosing
 	if body != wantBody {
 		t.Errorf("body mismatch:\n got=%q\nwant=%q", body, wantBody)
@@ -104,7 +99,7 @@ func TestBackupStalenessAlarmFDBWords(t *testing.T) {
 	assertBackupAlarmPlainWords(t, subject, body, cfg.BackupS3Endpoint)
 
 	// A status that could not be read says nothing about what is restorable,
-	// so the mail must not claim writes are lost.
+	// so the mail must not claim there is no restorable point.
 	unreadable := unknownBackupStalenessMetric(backupStalenessFDBName, threshold, backupStalenessUnreadable,
 		"fdbbackup status failed: blobstore://test-access:test-secret@127.0.0.1:1/run?bucket=tack-backups") // gitleaks:allow test placeholder
 	subject = backupStalenessAlarmSubject(qaScene, []backupStalenessMetric{unreadable})
@@ -112,13 +107,13 @@ func TestBackupStalenessAlarmFDBWords(t *testing.T) {
 		t.Errorf("subject = %q", subject)
 	}
 	body = backupStalenessAlarmBody(cfg, qaScene, []backupStalenessMetric{unreadable})
-	if !strings.Contains(body, "The product database's continuous backup (FoundationDB) status could not be read, "+
-		"so whether recent writes are restorable is not known. The last check saw: fdbbackup status failed: "+
+	if !strings.Contains(body, "Product database backup (FoundationDB, continuous) status could not be read. "+
+		"Last check: fdbbackup status failed: "+
 		"blobstore://***REDACTED***:***REDACTED***@the object store/run?bucket=tack-backups.\n") {
 		t.Errorf("body does not carry the redacted reason:\n%s", body)
 	}
-	if strings.Contains(body, "cannot") {
-		t.Errorf("an unreadable status must not claim writes are unrestorable:\n%s", body)
+	if strings.Contains(body, "no restorable point") {
+		t.Errorf("an unreadable status must not claim there is no restorable point:\n%s", body)
 	}
 	assertBackupAlarmPlainWords(t, subject, body, cfg.BackupS3Endpoint)
 
@@ -131,9 +126,9 @@ func TestBackupStalenessAlarmFDBWords(t *testing.T) {
 		t.Errorf("subject = %q", subject)
 	}
 	body = backupStalenessAlarmBody(cfg, qaScene, []backupStalenessMetric{none})
-	if !strings.Contains(body, "The product database's continuous backup (FoundationDB) has no restorable point yet, "+
-		"so nothing can be restored from it. The last check saw: fdbbackup status reports no restorable backup.\n"+
-		"\nWHAT TO DO\n1. On the owner guest, check the backup agent is running") {
+	if !strings.Contains(body, "Product database backup (FoundationDB, continuous) has no restorable point. "+
+		"Last check: fdbbackup status reports no restorable backup.\n"+
+		"\nWHAT TO DO\n1. On the owner guest, confirm the agent is running") {
 		t.Errorf("body does not say nothing is restorable, followed by what to do:\n%s", body)
 	}
 	assertBackupAlarmPlainWords(t, subject, body, cfg.BackupS3Endpoint)
