@@ -116,13 +116,14 @@ func (s *NodeStore) UpdateAtomic(
 		if err := applyRelationshipChanges(ctx, tr, relationshipChanges); err != nil {
 			return nil, err
 		}
-		return nil, nil
+		return nil, writeStagedIntent(ctx, tr)
 	})
 	if err != nil {
 		wrapped := fmt.Errorf("update node %s atomically: %w", n.ID, err)
 		slog.ErrorContext(ctx, "node.update_atomic_failed", slog.String("err", wrapped.Error()))
 		return wrapped
 	}
+	commitStagedIntent(ctx)
 	return nil
 }
 
@@ -314,13 +315,14 @@ func (s *NodeStore) Delete(ctx context.Context, orgID, nodeID uuid.UUID) (err er
 			return nil, err
 		}
 
-		return nil, nil
+		return nil, writeStagedIntent(ctx, tr)
 	})
 	if transactionErr != nil {
 		err = fmt.Errorf("delete node %s: %w", nodeID, transactionErr)
 		slog.ErrorContext(ctx, "node.delete_failed", slog.String("err", err.Error()))
 		return err
 	}
+	commitStagedIntent(ctx)
 	return nil
 }
 
@@ -393,13 +395,16 @@ func (s *NodeStore) CreateAtomic(
 			tr.Set(fdb.Key(relationshipKey(rel.OrgID, rel.SourceID, rel.RelationType, rel.TargetID)), metadata)
 			tr.Set(fdb.Key(relationshipReverseKey(rel.OrgID, rel.TargetID, rel.RelationType, rel.SourceID)), []byte{})
 		}
-		return nil, nil
+		// 6. The audit event for this create, in the same transaction.
+		return nil, writeStagedIntent(ctx, tr)
 	})
 	if transactionErr != nil {
 		slog.ErrorContext(ctx, "node.create_atomic_failed", slog.String("err", transactionErr.Error()))
 		err = fmt.Errorf("create node atomically: %w", transactionErr)
+		return err
 	}
-	return err
+	commitStagedIntent(ctx)
+	return nil
 }
 
 func writeCreateIdempotency(ctx context.Context, tr fdb.Transaction, orgID uuid.UUID, record *node.IdempotencyRecord) error {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/auditintent"
 	"goodkind.io/tack/internal/domain/node"
 	domainsearch "goodkind.io/tack/internal/domain/search"
 )
@@ -29,6 +30,32 @@ func (r *createAuditNodeRepo) CreateAtomic(
 	_ *node.IdempotencyRecord,
 ) error {
 	r.created = created
+	return nil
+}
+
+// intentAuditNodeRepo behaves like the FoundationDB store under TACK-173: it
+// takes the staged audit event, keeps what it would have written into the
+// outbox, and marks it committed with the node.
+type intentAuditNodeRepo struct {
+	*fakeNodeRepo
+	created *node.Node
+	written json.RawMessage
+}
+
+func (r *intentAuditNodeRepo) CreateAtomic(
+	ctx context.Context,
+	created *node.Node,
+	_ *node.NodeView,
+	_ []*node.Relationship,
+	_ []string,
+	_ []node.ReferenceKey,
+	_ *node.IdempotencyRecord,
+) error {
+	r.created = created
+	if payload, ok := auditintent.Pending(ctx); ok {
+		r.written = payload
+		auditintent.Commit(ctx)
+	}
 	return nil
 }
 

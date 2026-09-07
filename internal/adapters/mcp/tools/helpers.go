@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 	"goodkind.io/tack/internal/audit"
+	"goodkind.io/tack/internal/auditintent"
 	"goodkind.io/tack/internal/auth"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/telemetry"
@@ -253,6 +254,10 @@ func wrapToolHandler(name string, h mcpserver.ToolHandlerFunc) mcpserver.ToolHan
 		ctx = audit.WithScopeBuilder(ctx)
 		ctx = audit.WithEntityBuilder(ctx)
 		ctx = withAuthorization(ctx)
+		// A state change stages its ledger row here and the store commits it
+		// with the change; the wrapper then records nothing further for it.
+		actorID, _ := auth.UserID(ctx)
+		ctx = auditintent.WithSlot(ctx, name, actorID)
 
 		res, err := h(ctx, req)
 		dur := clock.Since(start)
@@ -310,8 +315,8 @@ func wrapToolHandler(name string, h mcpserver.ToolHandlerFunc) mcpserver.ToolHan
 // invocation. Outcome is derived from the same signal wrapToolHandler used for
 // slog. Failure to record is logged at Warn rather than failing the request:
 // the user-visible operation already completed and we do not want audit to
-// back-pressure the MCP boundary. Read-class verbs additionally pass through
-// the WAL so a transient Yugabyte outage cannot drop them.
+// back-pressure the MCP boundary. A state change that committed its own row
+// inside its FoundationDB transaction is not recorded again here.
 func recordToolAudit(ctx context.Context, toolName string, req mcpmcp.CallToolRequest, res *mcpmcp.CallToolResult, runErr error, refused bool) {
 	verb, covered := audit.ToolVerb(toolName)
 	rec := currentAuditRecorder()
@@ -363,6 +368,12 @@ func recordToolAudit(ctx context.Context, toolName string, req mcpmcp.CallToolRe
 		)
 	}
 	if !covered || verb == "" {
+		return
+	}
+	// The change's own transaction already carried this row (TACK-173). A
+	// failure after the commit is still recorded, because the change stands
+	// and the caller saw an error.
+	if outcome == audit.OutcomeOK && auditintent.Committed(ctx) {
 		return
 	}
 	ev.Verb = string(verb)

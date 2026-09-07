@@ -202,10 +202,10 @@ func IsRead(v Verb) bool { return !stateChangeVerbs[v] }
 // etc.) are resolved in ToolVerb by prefix.
 //
 // Every entry resolves to a non-empty verb so the MCP wrapper unconditionally
-// records one event per tool call. The TACK-173 FDB-intent path will later
-// move state-change emission earlier (inside the FDB transaction) and the
-// MCP wrapper will skip when an inner hook already fired; until then the
-// MCP boundary is the single canonical site.
+// records one event per tool call. State-change verbs are staged by the
+// service and committed inside the FoundationDB transaction that makes the
+// change (TACK-173); the wrapper records those only when no transaction
+// committed the staged row, and records every read-class verb itself.
 var staticToolVerb = map[string]Verb{
 	"tack_list_workspaces":     VerbWorkspaceList,
 	"tack_list_members":        VerbMembersList,

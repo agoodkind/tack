@@ -3,14 +3,25 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/telemetry"
 )
+
+// firstReferenceKey is the rendered reference a node's ledger row names, or ""
+// for a type that renders none.
+func firstReferenceKey(keys []node.ReferenceKey) string {
+	if len(keys) == 0 {
+		return ""
+	}
+	return keys[0].Encoded
+}
 
 // CreateInput holds the arguments for Create. Relationships lets callers attach
 // edges (assigned_to, labeled_with, etc.) in the same FDB transaction as the
@@ -98,6 +109,15 @@ func (s *NodeService) Create(ctx context.Context, in CreateInput) (*CreateResult
 	referenceKeys, err := s.referenceKeysFor(ctx, orgID, nt, in.ScopeID, props)
 	if err != nil {
 		return nil, err
+	}
+	// The ledger row commits with the node or not at all: the store writes
+	// the staged event inside the create transaction (TACK-173).
+	if err := audit.StageStateChange(ctx, audit.VerbNodeCreate, audit.Entity{
+		Type: "node", NodeType: nt.TypeKey, ID: id,
+		Identifier: firstReferenceKey(referenceKeys), Name: in.Name,
+	}); err != nil {
+		log.ErrorContext(ctx, "node.Create: stage audit row", slog.String("err", err.Error()))
+		return nil, fmt.Errorf("stage the audit row for creating %s: %w", id, err)
 	}
 
 	createResult, err := s.createNodeAtomic(ctx, log, in, n, view, relationships, indexedProps, referenceKeys, now)
