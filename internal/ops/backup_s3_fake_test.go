@@ -3,6 +3,7 @@ package ops
 import (
 	"encoding/json"
 	"encoding/xml"
+	"io"
 	"maps"
 	"net/http"
 	"net/http/httptest"
@@ -19,9 +20,10 @@ import (
 // fakeBackupObjectStore is an in-memory stand-in for the SeaweedFS S3 endpoint
 // the backup family reads, so the object-store paths are exercised through the
 // real S3 client, the real signing, and real HTTP rather than through swapped
-// closures. It serves the three operations those paths issue: a delimited
-// ListObjectsV2 for the run prefixes, GetObject for manifests and markers, and
-// HeadObject for the node archives. Addressing is path-style, the only style
+// closures. It serves the four operations those paths issue: a delimited
+// ListObjectsV2 for the run prefixes, GetObject for manifests and markers,
+// HeadObject for the node archives, and PutObject for the markers and the
+// shared alarm memory. Addressing is path-style, the only style
 // SeaweedFS supports and the style newBackupS3Client forces.
 type fakeBackupObjectStore struct {
 	bucket  string
@@ -115,6 +117,10 @@ func (s *fakeBackupObjectStore) ServeHTTP(w http.ResponseWriter, r *http.Request
 		s.writeList(w, r.URL.Query().Get("prefix"), r.URL.Query().Get("delimiter"))
 		return
 	}
+	if r.Method == http.MethodPut {
+		s.storePut(w, r, key)
+		return
+	}
 	body, found := s.objects[key]
 	if !found {
 		writeFakeS3Error(w, r, http.StatusNotFound, "NoSuchKey")
@@ -127,6 +133,19 @@ func (s *fakeBackupObjectStore) ServeHTTP(w http.ResponseWriter, r *http.Request
 		return
 	}
 	_, _ = w.Write(body)
+}
+
+// storePut answers a PutObject by keeping the body under key, so what one run
+// writes is what the next run reads back. A small seekable body carries its
+// checksum in a header, not a trailing chunk, so the bytes are the object's own.
+func (s *fakeBackupObjectStore) storePut(w http.ResponseWriter, r *http.Request, key string) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeFakeS3Error(w, r, http.StatusBadRequest, "IncompleteBody")
+		return
+	}
+	s.objects[key] = body
+	w.WriteHeader(http.StatusOK)
 }
 
 // writeList answers a delimited ListObjectsV2: a key with the delimiter still
