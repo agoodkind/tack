@@ -122,6 +122,10 @@ const (
 	// VerbOpsAuditDLQReplay records an operator re-publishing dead-letter
 	// rows to the audit topic.
 	VerbOpsAuditDLQReplay Verb = "ops.audit_dlq_replay"
+	// VerbOpsDBBreakGlass records an operator running one SQL statement
+	// against the production database through the audited command, the only
+	// sanctioned path once the raw one is closed (TACK-327).
+	VerbOpsDBBreakGlass Verb = "ops.db_break_glass"
 	// VerbOpsAuthTokenCreate records an operator minting an API token for an
 	// existing user.
 	VerbOpsAuthTokenCreate Verb = "ops.auth_token_create"
