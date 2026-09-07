@@ -1,19 +1,17 @@
 # Plan: cut the audit ledger over to Apache Kafka
 
-## Status
-
-Design of record for the audit Kafka cutover. Not yet implemented. The settled
-decisions below are also recorded in `AGENTS.md`; if the two ever disagree,
-`AGENTS.md` wins.
+Design of record for the audit Kafka cutover. The settled decisions below are
+also recorded in `AGENTS.md`; if the two ever disagree, `AGENTS.md` wins.
+Delivery is tracked on TACK-232.
 
 ## Context
 
-Today every audit `Record()` call writes synchronously into `audit.events` in
-YugabyteDB through `internal/audit/yugabyte.go`. This cutover moves the producer
-onto Apache Kafka: `Record()` publishes to a Kafka topic, the `audit-consumer`
-service reads the topic, and the consumer becomes the only writer of
-`audit.events` and `audit.chain_heads`. That single-writer property also closes
-the concurrent-write race in TACK-271 (the audit chain-race ticket).
+Before the cutover every audit `Record()` call wrote synchronously into
+`audit.events` in YugabyteDB through `internal/audit/yugabyte.go`. The cutover
+moves the producer onto Apache Kafka: `Record()` publishes to a Kafka topic, the
+`audit-consumer` service reads the topic, and the consumer becomes the only
+writer of `audit.events` and `audit.chain_heads`. That single-writer property
+also closes the concurrent-write race in TACK-271 (the audit chain-race ticket).
 
 A superseded earlier design used a dual-write period and a sibling table
 `audit.events_v2`. That is abandoned. The canonical table stays `audit.events`,
