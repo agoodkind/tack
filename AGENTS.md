@@ -233,6 +233,10 @@ not even healthy until the first of them runs. Until the provisioning layer land
    commands (`ops audit dlq inspect`, `ops audit dlq replay`) run through the
    `app` service, which carries both the reader DSN and the Kafka brokers a
    replay needs; tack-ops is host-networked and cannot reach the broker.
+   The recorded break-glass path to the database (`ops db sql`) runs through
+   `tack-ops`, whose database login is the engine superuser and whose
+   environment carries the alarm mail settings the command needs; the `app`
+   service connects as `tack_app`, which cannot read the ledger (TACK-327).
    Migration 011 must be applied before an audit-consumer image that carries
    it: the full deploy runs `ops provision --execute`, whose ordered steps
    include the pending migrations, before the app and consumer start
