@@ -1,9 +1,11 @@
 // db_break_glass.go runs one operator SQL statement against the database and
-// leaves the two traces the raw path never did: a ledger row naming the
-// operator, the reason, and the statement, and a mail to the alarm address
-// sent before the statement runs. The order is the control: a statement whose
-// mail cannot be delivered does not run, so nobody reaches the database
-// unobserved even when the ledger is the thing being examined.
+// leaves the traces the raw path never did: a mail to the alarm address sent
+// before the statement runs, a ledger row recording the intent before the
+// statement runs, and an outcome row after. The order is the control: a
+// statement whose mail cannot be delivered or whose intent cannot be recorded
+// does not run, so nobody reaches the database unobserved even when the
+// ledger is the thing being examined, and a crash mid-statement leaves a
+// pending row naming exactly what was attempted.
 
 package ops
 
@@ -28,12 +30,16 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// dbBreakGlassCaller names the command in the mail it sends.
-const dbBreakGlassCaller = "tack ops db sql"
-
-// dbBreakGlassRecordTimeout bounds the ledger write, detached from the
-// command's own cancellation the way the token commands are.
-const dbBreakGlassRecordTimeout = 30 * time.Second
+const (
+	// dbBreakGlassCaller names the command in the mail it sends.
+	dbBreakGlassCaller = "tack ops db sql"
+	// dbBreakGlassRecordTimeout bounds each ledger write, detached from the
+	// command's own cancellation the way the token commands are.
+	dbBreakGlassRecordTimeout = 30 * time.Second
+	// dbBreakGlassRowLimit caps what one statement returns to the operator.
+	// A break-glass read is a look, not an export; the export commands stream.
+	dbBreakGlassRowLimit = 1000
+)
 
 // dbSQLDeps is what the command needs, split from the factory so a test can
 // hand it a captured outbox and a fixed operator.
@@ -43,22 +49,27 @@ type dbSQLDeps struct {
 	identity audit.OperatorIdentitySource
 }
 
+// dbSQLResult reports the statement's outcome. Cells are positional under
+// Columns, so a query with two columns of one name keeps both, and a SQL null
+// is a JSON null rather than a string that could also be a value.
 type dbSQLResult struct {
 	clispec.ResultMarker
-	Command      string              `json:"command"`
-	DryRun       bool                `json:"dry_run"`
-	Statement    string              `json:"statement"`
-	Reason       string              `json:"reason"`
-	MailedTo     string              `json:"mailed_to,omitempty"`
-	CommandTag   string              `json:"command_tag,omitempty"`
-	RowsReturned int                 `json:"rows_returned"`
-	Columns      []string            `json:"columns,omitempty"`
-	Rows         []map[string]string `json:"rows,omitempty"`
+	Command      string      `json:"command"`
+	DryRun       bool        `json:"dry_run"`
+	Statement    string      `json:"statement"`
+	Reason       string      `json:"reason"`
+	MailedTo     string      `json:"mailed_to,omitempty"`
+	CommandTag   string      `json:"command_tag,omitempty"`
+	RowsReturned int         `json:"rows_returned"`
+	Truncated    bool        `json:"truncated"`
+	Columns      []string    `json:"columns,omitempty"`
+	Rows         [][]*string `json:"rows,omitempty"`
 }
 
-// dbBreakGlassExtra is what the ledger row carries beyond the choke-point's
+// dbBreakGlassExtra is what the ledger rows carry beyond the choke-point's
 // pair: the statement and the reason, so the record says what was done and
-// why rather than only that the command ran.
+// why rather than only that the command ran. The attempt id pairs the intent
+// row with its outcome row.
 type dbBreakGlassExtra struct {
 	AttemptID    uuid.UUID `json:"attempt_id"`
 	Statement    string    `json:"statement"`
@@ -66,6 +77,15 @@ type dbBreakGlassExtra struct {
 	MailedTo     string    `json:"mailed_to"`
 	CommandTag   string    `json:"command_tag,omitempty"`
 	RowsReturned int       `json:"rows_returned"`
+	Truncated    bool      `json:"truncated,omitempty"`
+}
+
+// dbStatementResult is what one statement produced.
+type dbStatementResult struct {
+	Tag       string
+	Columns   []string
+	Rows      [][]*string
+	Truncated bool
 }
 
 func runDBSQL(ctx context.Context, deps dbSQLDeps, input dbSQLInput, sink clispec.ResultSink, execute bool) error {
@@ -83,7 +103,7 @@ func runDBSQL(ctx context.Context, deps dbSQLDeps, input dbSQLInput, sink clispe
 	result := dbSQLResult{
 		ResultMarker: clispec.ResultMarker{}, Command: "ops.db.sql", DryRun: !execute,
 		Statement: statement, Reason: reason, MailedTo: deps.cfg.BackupAlarmEmail,
-		CommandTag: "", RowsReturned: 0, Columns: nil, Rows: nil,
+		CommandTag: "", RowsReturned: 0, Truncated: false, Columns: nil, Rows: nil,
 	}
 	if !execute {
 		return writeDBSQLResult(ctx, sink, result)
@@ -96,19 +116,27 @@ func runDBSQL(ctx context.Context, deps dbSQLDeps, input dbSQLInput, sink clispe
 	if err := mailDBBreakGlass(ctx, deps.cfg, principal, statement, reason); err != nil {
 		return err
 	}
-	attemptID := uuid.Must(uuid.NewV7())
-	tag, columns, rows, err := runDBStatement(ctx, deps.cfg.DatabaseURL, statement)
 	extra := dbBreakGlassExtra{
-		AttemptID: attemptID, Statement: statement, Reason: reason,
-		MailedTo: deps.cfg.BackupAlarmEmail, CommandTag: tag, RowsReturned: len(rows),
+		AttemptID: uuid.Must(uuid.NewV7()), Statement: statement, Reason: reason,
+		MailedTo: deps.cfg.BackupAlarmEmail, CommandTag: "", RowsReturned: 0, Truncated: false,
 	}
-	if recordErr := recordDBBreakGlass(ctx, deps.outbox, principal, reason, extra, err); recordErr != nil {
-		return recordErr
-	}
-	if err != nil {
+	if err := recordDBBreakGlass(ctx, deps.outbox, principal, extra, audit.OutcomePending, nil); err != nil {
 		return err
 	}
-	result.CommandTag, result.Columns, result.Rows, result.RowsReturned = tag, columns, rows, len(rows)
+	outcome, runErr := runDBStatement(ctx, deps.cfg.DatabaseURL, statement)
+	extra.CommandTag, extra.RowsReturned, extra.Truncated = outcome.Tag, len(outcome.Rows), outcome.Truncated
+	recorded := audit.OutcomeOK
+	if runErr != nil {
+		recorded = audit.OutcomeError
+	}
+	if err := recordDBBreakGlass(ctx, deps.outbox, principal, extra, recorded, runErr); err != nil {
+		return errors.Join(runErr, err)
+	}
+	if runErr != nil {
+		return runErr
+	}
+	result.CommandTag, result.Columns, result.Rows = outcome.Tag, outcome.Columns, outcome.Rows
+	result.RowsReturned, result.Truncated = len(outcome.Rows), outcome.Truncated
 	return writeDBSQLResult(ctx, sink, result)
 }
 
@@ -136,52 +164,70 @@ func mailDBBreakGlass(ctx context.Context, cfg *config.Config, principal audit.O
 	return nil
 }
 
-// runDBStatement runs the statement over the simple protocol, so every column
-// comes back as text and the report needs no type knowledge.
-func runDBStatement(ctx context.Context, dsn, statement string) (string, []string, []map[string]string, error) {
+// runDBStatement runs the statement through the extended protocol as one
+// unnamed prepared statement, which the server refuses for more than one
+// command, so the one-statement contract is enforced by the database rather
+// than by parsing here. Results are requested in text so every cell is
+// reported as the server renders it.
+func runDBStatement(ctx context.Context, dsn, statement string) (dbStatementResult, error) {
+	none := dbStatementResult{Tag: "", Columns: nil, Rows: nil, Truncated: false}
 	pool, err := postgres.NewPool(ctx, dsn, &telemetry.QueryTracer{})
 	if err != nil {
 		slog.ErrorContext(ctx, "db.break_glass.pool_failed", slog.String("err", err.Error()))
-		return "", nil, nil, fmt.Errorf("open the database for the break-glass statement: %w", err)
+		return none, fmt.Errorf("open the database for the break-glass statement: %w", err)
 	}
 	defer pool.Close()
-	rows, err := pool.Query(ctx, statement, pgx.QueryExecModeSimpleProtocol)
+	rows, err := pool.Query(ctx, statement, pgx.QueryExecModeExec, pgx.QueryResultFormats{pgx.TextFormatCode})
 	if err != nil {
 		slog.ErrorContext(ctx, "db.break_glass.query_failed", slog.String("err", err.Error()))
-		return "", nil, nil, fmt.Errorf("run the break-glass statement: %w", err)
+		return none, fmt.Errorf("run the break-glass statement: %w", err)
 	}
 	defer rows.Close()
-	columns := make([]string, 0, len(rows.FieldDescriptions()))
+	outcome := dbStatementResult{Tag: "", Columns: nil, Rows: nil, Truncated: false}
 	for _, field := range rows.FieldDescriptions() {
-		columns = append(columns, field.Name)
+		outcome.Columns = append(outcome.Columns, field.Name)
 	}
-	var out []map[string]string
 	for rows.Next() {
-		row := make(map[string]string, len(columns))
-		for index, raw := range rows.RawValues() {
-			if raw == nil {
-				row[columns[index]] = "NULL"
-				continue
-			}
-			row[columns[index]] = string(raw)
+		if len(outcome.Rows) == dbBreakGlassRowLimit {
+			outcome.Truncated = true
+			break
 		}
-		out = append(out, row)
+		outcome.Rows = append(outcome.Rows, textCells(rows.RawValues()))
 	}
+	rows.Close()
 	if err := rows.Err(); err != nil {
 		slog.ErrorContext(ctx, "db.break_glass.rows_failed", slog.String("err", err.Error()))
-		return "", nil, nil, fmt.Errorf("read the break-glass statement result: %w", err)
+		return none, fmt.Errorf("run the break-glass statement: %w", err)
 	}
-	return rows.CommandTag().String(), columns, out, nil
+	outcome.Tag = rows.CommandTag().String()
+	return outcome, nil
 }
 
-// recordDBBreakGlass writes the detail row: the choke-point already recorded
-// that the command ran and how it ended; this row says what it ran.
+// textCells copies one row out of the connection's buffers, keeping a SQL
+// null as a nil cell.
+func textCells(raw [][]byte) []*string {
+	cells := make([]*string, 0, len(raw))
+	for _, value := range raw {
+		if value == nil {
+			cells = append(cells, nil)
+			continue
+		}
+		text := string(value)
+		cells = append(cells, &text)
+	}
+	return cells
+}
+
+// recordDBBreakGlass writes one detail row. The pending row goes in before
+// the statement and the ok or error row after, paired by attempt id, so a
+// process lost mid-statement leaves a pending row naming exactly what was
+// attempted. Both carry the statement and the reason.
 func recordDBBreakGlass(
 	ctx context.Context,
 	outbox audit.OutboxWriter,
 	principal audit.OperatorPrincipal,
-	reason string,
 	extra dbBreakGlassExtra,
+	outcome audit.Outcome,
 	runErr error,
 ) error {
 	encoded, err := json.Marshal(extra)
@@ -198,20 +244,20 @@ func recordDBBreakGlass(
 		Entity: audit.Entity{Type: "database", NodeType: "", ID: extra.AttemptID, Identifier: "", Name: extra.CommandTag},
 		Context: audit.EventContext{
 			OrgID: audit.SystemOrgID(), WorkspaceID: uuid.Nil, ScopeID: uuid.Nil, ParentID: uuid.Nil,
-			RequestID: "", TraceID: "", Source: audit.SourceSystem, Tool: "", RPC: "", Reason: reason,
+			RequestID: "", TraceID: "", Source: audit.SourceSystem, Tool: "", RPC: "", Reason: extra.Reason,
 		},
-		Delta: nil, Outcome: audit.OutcomeOK, Error: nil, IdempotencyKey: "",
+		Delta: nil, Outcome: outcome, Error: nil, IdempotencyKey: "",
 		OccurredAt: clock.Now().UTC(), Extra: encoded,
 	}
 	if runErr != nil {
-		event.Outcome = audit.OutcomeError
 		event.Error = &audit.EventError{Code: "statement_failed", Message: runErr.Error()}
 	}
 	recordCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), dbBreakGlassRecordTimeout)
 	defer cancel()
 	if err := outbox.WriteOutbox(recordCtx, event); err != nil {
-		slog.ErrorContext(ctx, "db.break_glass.record_failed", slog.String("err", err.Error()))
-		return fmt.Errorf("record the break-glass statement: %w", err)
+		slog.ErrorContext(ctx, "db.break_glass.record_failed",
+			slog.String("outcome", string(outcome)), slog.String("err", err.Error()))
+		return fmt.Errorf("record the break-glass statement (%s): %w", outcome, err)
 	}
 	return nil
 }
