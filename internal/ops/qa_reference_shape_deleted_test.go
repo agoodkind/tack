@@ -100,10 +100,51 @@ func TestReferenceShapeHonorsARecordedDeletionOfARenamedNode(t *testing.T) {
 	}
 }
 
-// TestReferenceShapeRefusesADeletionItCannotPlace pins two refusals: a
+// TestReferenceShapeHonorsARecordedDeletionOfAKeeper pins the collision
+// holder the evidence never names: the node the repair kept. With it gone,
+// the oldest surviving holder is kept and the rest are renamed, so a
+// collision of two loses its rename and a collision of one holder ends.
+func TestReferenceShapeHonorsARecordedDeletionOfAKeeper(t *testing.T) {
+	shape := referenceShapeUnderTest(t)
+	for _, group := range shape.Groups {
+		keeper := referenceShapeNodeID("keeper", group.Reference)
+
+		reduced, removed, err := applyReferenceShapeDeletions(shape,
+			referenceShapeDeletions{Recorded: []uuid.UUID{keeper}, Unrecorded: 0})
+		if err != nil {
+			t.Fatalf("applyReferenceShapeDeletions(%s keeper): %v", group.Reference, err)
+		}
+		if len(removed) != 1 || removed[0].ID != keeper {
+			t.Fatalf("removed = %+v, want the keeper of %s alone", removed, group.Reference)
+		}
+		if reduced.Renames != shape.Renames-1 {
+			t.Fatalf("%s: renames = %d, want %d: the oldest survivor is kept, not renamed",
+				group.Reference, reduced.Renames, shape.Renames-1)
+		}
+		wantGroups := len(shape.Groups)
+		if len(group.Renamed) < 2 {
+			wantGroups--
+		}
+		if len(reduced.Groups) != wantGroups {
+			t.Fatalf("%s: groups = %d, want %d", group.Reference, len(reduced.Groups), wantGroups)
+		}
+		for _, reducedGroup := range reduced.Groups {
+			if reducedGroup.Reference != group.Reference {
+				continue
+			}
+			if reducedGroup.Renamed[0] == group.Renamed[0] {
+				t.Fatalf("%s: the oldest survivor %s must be kept, not renamed", group.Reference, group.Renamed[0])
+			}
+		}
+	}
+}
+
+// TestReferenceShapeRefusesADeletionItCannotPlace pins three refusals: a
 // recorded deletion of a node the shape never held, which the reconstruction
-// would count past the recorded number, and more unrecorded deletions than
-// there are plain issues to leave out.
+// would count past the recorded number; a node the ledger records deleted
+// more than once, which it counts twice while the node can be absent only
+// once; and more unrecorded deletions than there are plain issues to leave
+// out.
 func TestReferenceShapeRefusesADeletionItCannotPlace(t *testing.T) {
 	shape := referenceShapeUnderTest(t)
 
@@ -111,6 +152,13 @@ func TestReferenceShapeRefusesADeletionItCannotPlace(t *testing.T) {
 		referenceShapeDeletions{Recorded: []uuid.UUID{uuid.New()}, Unrecorded: 0})
 	if err == nil || !strings.Contains(err.Error(), "never held") {
 		t.Fatalf("err = %v, want the unknown node refused", err)
+	}
+
+	twice := shape.Groups[0].Renamed[0]
+	_, _, err = applyReferenceShapeDeletions(shape,
+		referenceShapeDeletions{Recorded: []uuid.UUID{twice, twice}, Unrecorded: 0})
+	if err == nil || !strings.Contains(err.Error(), "more than once") {
+		t.Fatalf("err = %v, want the repeated deletion refused", err)
 	}
 
 	_, _, err = applyReferenceShapeDeletions(shape,

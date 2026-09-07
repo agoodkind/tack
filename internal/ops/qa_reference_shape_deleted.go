@@ -79,6 +79,14 @@ func applyReferenceShapeDeletions(
 			return referenceShape{}, nil, fmt.Errorf(
 				"the ledger records the deletion of node %s, which the reference shape never held", nodeID)
 		}
+		// The reconstruction counts every delete row, so a node deleted, put
+		// back, and deleted again is counted twice while it can be absent only
+		// once. No corpus reproduces that, and leaving out a different issue
+		// instead would fake the match.
+		if absent[nodeID] {
+			return referenceShape{}, nil, fmt.Errorf(
+				"the ledger records the deletion of node %s more than once, which no corpus can reproduce", nodeID)
+		}
 		absent[nodeID] = true
 	}
 	candidates := referenceShapeDeletionCandidates(shape, absent)
@@ -140,8 +148,11 @@ func referenceShapeDeletionCandidates(
 }
 
 // referenceShapeGroupsWithout drops the absent nodes from every collision. A
-// collision whose renamed holders are all absent is no collision at all: its
-// keeper holds the reference alone, so the repair has nothing to rename there.
+// reference held by fewer than two surviving nodes is no collision at all, so
+// the repair has nothing to rename there. When the keeper itself is absent,
+// the oldest surviving holder is what the repair keeps and the rest are what
+// it renames, which is the repair's own keep-oldest rule; the holders are
+// already in identifier order.
 func referenceShapeGroupsWithout(
 	groups []referenceShapeGroup,
 	absent map[uuid.UUID]bool,
@@ -154,6 +165,12 @@ func referenceShapeGroupsWithout(
 			if !absent[nodeID] {
 				renamed = append(renamed, nodeID)
 			}
+		}
+		if absent[referenceShapeNodeID("keeper", group.Reference)] {
+			if len(renamed) < 2 {
+				continue
+			}
+			renamed = renamed[1:]
 		}
 		if len(renamed) == 0 {
 			continue
