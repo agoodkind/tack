@@ -2,11 +2,11 @@
 // mechanism, on the run that first finds it stale, and never again while it
 // stays stale. A mechanism that comes back is logged and forgotten, so its next
 // fault mails again. The memory is the state file in backup_alarm_state.go
-// merged with the copy both checkers share in the object store
-// (backup_alarm_memory.go), so a fault the other checker mailed is held here
-// too. A mechanism is recorded only after the transport accepted its mail, so
-// a mail that did not go out is retried on the next run, and every change is
-// written to both copies. A deputy checker first asks the ledger whether the
+// and the copy both checkers share in the object store, reconciled by
+// generation (backup_alarm_memory.go), so a fault the other checker mailed is
+// held here too and a clear it recorded is honored here. A mechanism is
+// recorded only after the transport accepted its mail, so a mail that did not
+// go out is retried on the next run. A deputy checker first asks the ledger whether the
 // primary has run recently (backup_alarm_primary_ledger.go) and, while it has,
 // neither mails nor records the new faults.
 
@@ -32,10 +32,10 @@ func alarmBackupStalenessTransitions(
 	metrics []backupStalenessMetric,
 ) {
 	logger := telemetry.L(ctx)
-	shared := loadSharedBackupAlarmMemory(ctx, func(key string) ([]byte, error) {
+	memory := loadBackupAlarmMemory(ctx, cfg, func(key string) ([]byte, error) {
 		return getObjectBytes(ctx, s3Client, cfg.BackupS3BucketMain, key)
 	})
-	state := mergeBackupAlarmState(loadBackupAlarmState(ctx, cfg), shared)
+	state := memory.state
 	var faults []backupStalenessMetric
 	var held, cleared []string
 	for _, metric := range metrics {
@@ -67,10 +67,7 @@ func alarmBackupStalenessTransitions(
 		}
 		changed = true
 	}
-	if changed {
-		saveBackupAlarmState(ctx, cfg, state)
-		saveSharedBackupAlarmMemory(ctx, func(key string, body []byte) error {
-			return putObjectBytes(ctx, s3Client, cfg.BackupS3BucketMain, key, body)
-		}, state)
-	}
+	saveBackupAlarmMemory(ctx, cfg, func(key string, body []byte) error {
+		return putObjectBytes(ctx, s3Client, cfg.BackupS3BucketMain, key, body)
+	}, memory, state, changed)
 }

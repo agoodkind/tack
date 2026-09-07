@@ -1,7 +1,6 @@
 package ops
 
 import (
-	"encoding/json"
 	"encoding/xml"
 	"io"
 	"maps"
@@ -28,6 +27,9 @@ import (
 type fakeBackupObjectStore struct {
 	bucket  string
 	objects map[string][]byte
+	// refusePut, while set, answers every PutObject with AccessDenied, the
+	// shape of a store that still serves reads but refuses writes (TACK-481).
+	refusePut bool
 }
 
 // fakeS3ListResult is the ListObjectsV2 body S3 returns for a delimited list:
@@ -58,7 +60,19 @@ type fakeS3Prefixes struct {
 // returns a client and a config pointed at it, both torn down with the test.
 func newFakeBackupObjectStore(t *testing.T, bucket string, objects map[string][]byte) (*s3.Client, *config.Config) {
 	t.Helper()
-	store := &fakeBackupObjectStore{bucket: bucket, objects: objects}
+	_, client, cfg := startFakeBackupObjectStore(t, bucket, objects)
+	return client, cfg
+}
+
+// startFakeBackupObjectStore is newFakeBackupObjectStore returning the store
+// as well, for a test that changes how it answers between runs.
+func startFakeBackupObjectStore(
+	t *testing.T,
+	bucket string,
+	objects map[string][]byte,
+) (*fakeBackupObjectStore, *s3.Client, *config.Config) {
+	t.Helper()
+	store := &fakeBackupObjectStore{bucket: bucket, objects: objects, refusePut: false}
 	server := httptest.NewServer(store)
 	t.Cleanup(server.Close)
 	cfg := &config.Config{
@@ -68,43 +82,7 @@ func newFakeBackupObjectStore(t *testing.T, bucket string, objects map[string][]
 		BackupS3Region:     "us-east-1",
 		BackupS3BucketMain: bucket,
 	}
-	return newBackupS3Client(cfg), cfg
-}
-
-// fakeYBExportRunObjects is the object set a finished export run leaves under
-// one run prefix: the manifest the walk reads, every run-root artifact the
-// manifest declares, and, per node the manifest lists, every artifact that
-// node's archive run publishes, which is what the completeness gate probes for.
-// The manifest is placed under prefixRunID whatever run it declares, so a
-// manifest that names a run other than its own prefix can be exercised.
-func fakeYBExportRunObjects(t *testing.T, prefixRunID string, manifest ybSnapshotManifest) map[string][]byte {
-	t.Helper()
-	body, err := json.Marshal(manifest)
-	if err != nil {
-		t.Fatalf("marshal yb snapshot manifest: %v", err)
-	}
-	prefix := ybSnapshotKeyPrefix(prefixRunID)
-	objects := map[string][]byte{prefix + ybSnapshotManifestObject: body}
-	for _, artifact := range manifest.Artifacts {
-		objects[prefix+artifact] = []byte("export artifact " + artifact)
-	}
-	for _, node := range manifest.Nodes {
-		for _, object := range ybNodeArtifactObjects() {
-			objects[prefix+node.Prefix+object] = fakeYBNodeArtifact(manifest, node, object)
-		}
-	}
-	return objects
-}
-
-// fakeYBNodeArtifact is the body of one node artifact in the fake store. The
-// inventory is rendered through the production writer for the manifest's own
-// run and node, recording no files, so the drill's staging step reads it back
-// the way it reads a real one; every other node artifact is opaque bytes.
-func fakeYBNodeArtifact(manifest ybSnapshotManifest, node ybSnapshotManifestNode, object string) []byte {
-	if object == ybNodeInventoryObject {
-		return ybArchiveInventory{RunID: manifest.RunID, Node: node.Name, Files: nil}.render()
-	}
-	return []byte("node artifact")
+	return store, newBackupS3Client(cfg), cfg
 }
 
 func (s *fakeBackupObjectStore) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -139,6 +117,10 @@ func (s *fakeBackupObjectStore) ServeHTTP(w http.ResponseWriter, r *http.Request
 // writes is what the next run reads back. A small seekable body carries its
 // checksum in a header, not a trailing chunk, so the bytes are the object's own.
 func (s *fakeBackupObjectStore) storePut(w http.ResponseWriter, r *http.Request, key string) {
+	if s.refusePut {
+		writeFakeS3Error(w, r, http.StatusForbidden, "AccessDenied")
+		return
+	}
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		writeFakeS3Error(w, r, http.StatusBadRequest, "IncompleteBody")

@@ -94,8 +94,8 @@ func TestBackupStalenessAlarmInterleavedSavesLoseNothing(t *testing.T) {
 	cfg := unreachableBackupStalenessConfig(t, "backups@example.test")
 	path := backupAlarmStatePath(cfg)
 	at := time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)
-	first := backupAlarmState{Alarmed: map[string]time.Time{backupStalenessRehearsalName: at}}
-	second := backupAlarmState{Alarmed: map[string]time.Time{backupStalenessExportName: at}}
+	first := backupAlarmState{Alarmed: map[string]time.Time{backupStalenessRehearsalName: at}, Generation: 1}
+	second := backupAlarmState{Alarmed: map[string]time.Time{backupStalenessExportName: at}, Generation: 1}
 	firstBody, err := json.Marshal(first)
 	if err != nil {
 		t.Fatalf("marshal first: %v", err)

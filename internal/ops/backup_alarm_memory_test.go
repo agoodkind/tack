@@ -73,8 +73,9 @@ func TestBackupStalenessAlarmSharedMemoryHoldsTheDeputyAfterTheOwnerMails(t *tes
 	if !strings.Contains(logs, "msg=backup.staleness.alarm_held") {
 		t.Fatalf("the deputy must log the fault as held:\n%s", logs)
 	}
-	if _, found := alarmedBackupMetrics(t, deputy); found {
-		t.Fatal("a held fault changes nothing, so the deputy writes no state file")
+	cached, found := readBackupAlarmStateFile(t, deputy)
+	if !found || len(cached.Alarmed) != 3 || cached.Generation != 1 {
+		t.Fatalf("the deputy must cache the claims it took from the store at the store's generation, found = %v state = %+v", found, cached)
 	}
 }
 

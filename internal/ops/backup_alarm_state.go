@@ -34,8 +34,11 @@ const backupAlarmStateFile = "staleness-alarm-state.json"
 
 // backupAlarmState is the alarm's memory: each mechanism whose fault has been
 // mailed, keyed by metric name, with the UTC instant the mail was accepted.
+// Generation counts the shared copy's writes; in the file it is the store
+// generation the file last synced with (backup_alarm_memory.go).
 type backupAlarmState struct {
-	Alarmed map[string]time.Time `json:"alarmed"`
+	Alarmed    map[string]time.Time `json:"alarmed"`
+	Generation int                  `json:"generation"`
 }
 
 // backupAlarmStatePath is where the state lives for this configuration.
@@ -48,7 +51,7 @@ func backupAlarmStatePath(cfg *config.Config) string {
 // be read or decoded is logged and also treated as empty, so the alarm still
 // mails rather than staying silent behind a damaged record.
 func loadBackupAlarmState(ctx context.Context, cfg *config.Config) backupAlarmState {
-	empty := backupAlarmState{Alarmed: map[string]time.Time{}}
+	empty := backupAlarmState{Alarmed: map[string]time.Time{}, Generation: 0}
 	path := backupAlarmStatePath(cfg)
 	body, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -105,7 +108,8 @@ func saveBackupAlarmState(ctx context.Context, cfg *config.Config, state backupA
 		return
 	}
 	logger.InfoContext(ctx, "backup.staleness.alarm_state_written",
-		slog.String("path", path), slog.Int("alarmed_count", len(state.Alarmed)))
+		slog.String("path", path), slog.Int("generation", state.Generation),
+		slog.Int("alarmed_count", len(state.Alarmed)))
 }
 
 // backupAlarmPartialSuffix names one invocation's temporary. It is a variable
