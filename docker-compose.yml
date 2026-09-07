@@ -536,11 +536,15 @@ services:
       # than tar or restore against a wrong location.
       TACK_BACKUP_YB_ROCKSDB_DIR: ${TACK_BACKUP_YB_ROCKSDB_DIR:-}
       TACK_BACKUP_YB_OVERLAY_PATH: ${TACK_BACKUP_YB_OVERLAY_PATH:-}
-      # Backup staleness alarm mail. A staleness-check run that finds anything
-      # past its threshold mails the report it printed. Empty recipient mails
-      # nothing, which is the local default; the deploy renders the address.
+      # Backup staleness alarm mail. A staleness-check run that first finds a
+      # mechanism past its threshold mails a plain-words account of the fault.
+      # Empty recipient mails nothing, which is the local default; the deploy
+      # renders the address.
       TACK_BACKUP_ALARM_EMAIL: ${TACK_BACKUP_ALARM_EMAIL:-}
       TACK_BACKUP_ALARM_MSMTPRC: ${TACK_BACKUP_ALARM_MSMTPRC:-/etc/msmtprc}
+      # The environment label the alarm mail carries ("QA", "Production"); the
+      # deploy renders it per host, and an empty label reads "unnamed environment".
+      TACK_BACKUP_ALARM_ENVIRONMENT: ${TACK_BACKUP_ALARM_ENVIRONMENT:-}
       # Deputy staleness alarm (TACK-481): the primary checker's service name,
       # the window its run must appear in, and the in-run grace before the
       # deputy takes over. An empty service means this checker is the primary.
