@@ -205,3 +205,43 @@ func TestResourceReadRecordsTheRead(t *testing.T) {
 
 	assertAuditEvent(t, recorder.Events(), string(audit.VerbMCPResourceRead), actorID, "mcp_resource", gettingStartedURI)
 }
+
+// TestResourceReadCarriesTheReadersSoleOrg is TACK-477: a resource read
+// resolves no workspace, so the row used to carry the nil org and no tenant
+// query could reach it. A reader with exactly one org gets that org; a reader
+// with two gets nil, because no single org is provable.
+func TestResourceReadCarriesTheReadersSoleOrg(t *testing.T) {
+	orgID := uuid.New()
+	cases := map[string]struct {
+		orgs []uuid.UUID
+		want uuid.UUID
+	}{
+		"one":  {orgs: []uuid.UUID{orgID}, want: orgID},
+		"two":  {orgs: []uuid.UUID{orgID, uuid.New()}, want: uuid.Nil},
+		"none": {orgs: nil, want: uuid.Nil},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			recorder := audit.NewMemoryRecorder()
+			previousRecorder := currentAuditRecorder()
+			SetAuditRecorder(recorder)
+			t.Cleanup(func() { SetAuditRecorder(previousRecorder) })
+
+			resolver := NewResolver(nil, nil, &fakeMembers{orgIDs: tc.orgs}, nil)
+			handler := gettingStartedHandler(resolver, nil, nil)
+			if _, err := handler(auth.WithUser(t.Context(), uuid.New()), mcpmcp.ReadResourceRequest{}); err != nil {
+				t.Fatalf("read the resource: %v", err)
+			}
+			for _, event := range recorder.Events() {
+				if event.Verb != string(audit.VerbMCPResourceRead) {
+					continue
+				}
+				if event.Context.OrgID != tc.want {
+					t.Fatalf("resource_read org = %s, want %s", event.Context.OrgID, tc.want)
+				}
+				return
+			}
+			t.Fatal("no mcp.resource_read event recorded")
+		})
+	}
+}

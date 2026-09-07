@@ -54,7 +54,7 @@ func gettingStartedHandler(
 		// is recorded like any other. This handler took the context and ignored
 		// it, which is why mcp.resource_read was declared and never emitted
 		// (TACK-340).
-		recordResourceRead(ctx, gettingStartedURI)
+		recordResourceRead(ctx, gettingStartedURI, resolver)
 		return []mcpmcp.ResourceContents{
 			mcpmcp.TextResourceContents{URI: gettingStartedURI, MIMEType: "text/markdown", Text: buildGettingStartedText(resolver, nodeTypes, propertyDefs)},
 		}, nil
@@ -66,7 +66,13 @@ func gettingStartedHandler(
 // A failure to record is logged rather than returned, matching the tool
 // wrapper: the read has already happened, and refusing the response afterwards
 // would neither unmake it nor record it.
-func recordResourceRead(ctx context.Context, uri string) {
+//
+// A resource read resolves no workspace, so nothing stamps a scope and the
+// row would carry the nil org, which no per-tenant query, redaction, or chain
+// reaches (TACK-477). The row therefore carries the reader's sole org when
+// their membership admits exactly one, and nil when it admits zero or
+// several, the same honesty rule the auth events follow (TACK-461).
+func recordResourceRead(ctx context.Context, uri string, resolver *Resolver) {
 	actor := audit.Actor{
 		Type: audit.ActorUser, ID: uuid.Nil, Email: "", Name: "", SessionID: "",
 		IP: "", UserAgent: "", RequestID: telemetry.RequestID(ctx), APITokenLabel: "",
@@ -75,6 +81,9 @@ func recordResourceRead(ctx context.Context, uri string) {
 		actor.ID = userID
 	}
 	scope := audit.ScopeFromContext(ctx)
+	if scope.OrgID == uuid.Nil {
+		scope.OrgID = readerSoleOrg(ctx, resolver)
+	}
 	event := audit.Event{
 		EventID: uuid.Nil,
 		Verb:    string(audit.VerbMCPResourceRead),
@@ -106,4 +115,22 @@ func recordResourceRead(ctx context.Context, uri string) {
 			slog.String("resource", uri),
 			slog.String("err", err.Error()))
 	}
+}
+
+// readerSoleOrg returns the org the reader belongs to when the membership
+// admits exactly one, and nil otherwise. A lookup failure also returns nil:
+// enriching the row must never cost the read it describes.
+func readerSoleOrg(ctx context.Context, resolver *Resolver) uuid.UUID {
+	if resolver == nil || resolver.members == nil {
+		return uuid.Nil
+	}
+	orgIDs, err := resolver.callerOrgIDs(ctx)
+	if err != nil {
+		telemetry.L(ctx).Warn("audit.resource_org_stamp_failed", slog.String("err", err.Error()))
+		return uuid.Nil
+	}
+	if len(orgIDs) == 1 {
+		return orgIDs[0]
+	}
+	return uuid.Nil
 }
