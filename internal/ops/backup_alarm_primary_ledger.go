@@ -1,17 +1,16 @@
 // backup_alarm_primary_ledger.go keeps one fault to one mail when the
-// staleness check runs on more than one guest. Every guest keeps its own alarm
-// memory, so without coordination each of them mails the same fault
-// (TACK-481). The object store cannot carry the coordination: the fault that
-// produced those duplicate mails was the store refusing writes, so shared
-// state there fails exactly when the alarm is needed. Instead one checker is
-// the primary and the others are deputies, and the proof that the primary is
-// doing its job is the audit ledger: every ops command records an operator
-// event through the clispec choke-point, the ledger is quorum-replicated
-// across the data guests, and it stays readable when the object store is
-// down. A deputy defers a new fault while the ledger holds a recent
-// staleness-check event recorded by the primary's service actor, and leaves
-// the fault unrecorded, so it mails from the deputy on a later run if the
-// primary stops running while the fault is still stale.
+// staleness check runs on more than one guest and the object store is down.
+// The guests share an alarm memory in the store (backup_alarm_memory.go), but
+// the fault that first produced duplicate mails was the store refusing writes
+// (TACK-481), so that memory fails exactly when the alarm is needed. For that
+// case one checker is the primary and the others are deputies, and the proof
+// that the primary is doing its job is the audit ledger: every ops command
+// records an operator event through the clispec choke-point, the ledger is
+// quorum-replicated across the data guests, and it stays readable when the
+// object store is down. A deputy defers a new fault while the ledger holds a
+// recent staleness-check event recorded by the primary's service actor, and
+// leaves the fault unrecorded, so it mails from the deputy on a later run if
+// the primary stops running while the fault is still stale.
 //
 // Two bounds keep the check honest. Each ledger read is given a fixed time,
 // and a read that runs out of it counts as a ledger that cannot be read, so a

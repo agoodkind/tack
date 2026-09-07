@@ -1,12 +1,14 @@
 // backup_alarm_policy.go decides when the staleness alarm mails: once per
 // mechanism, on the run that first finds it stale, and never again while it
 // stays stale. A mechanism that comes back is logged and forgotten, so its next
-// fault mails again. The memory is the state file in backup_alarm_state.go, and
-// a mechanism is recorded there only after the transport accepted its mail, so
-// a mail that did not go out is retried on the next run. A deputy checker
-// first asks the ledger whether the primary has run recently
-// (backup_alarm_primary_ledger.go) and, while it has, neither mails nor
-// records the new faults.
+// fault mails again. The memory is the state file in backup_alarm_state.go
+// and the copy both checkers share in the object store, reconciled by
+// generation (backup_alarm_memory.go), so a fault the other checker mailed is
+// held here too and a clear it recorded is honored here. A mechanism is
+// recorded only after the transport accepted its mail, so a mail that did not
+// go out is retried on the next run. A deputy checker first asks the ledger whether the
+// primary has run recently (backup_alarm_primary_ledger.go) and, while it has,
+// neither mails nor records the new faults.
 
 package ops
 
@@ -14,16 +16,26 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/telemetry"
 )
 
 // alarmBackupStalenessTransitions mails the mechanisms that became stale on
 // this run and updates the alarm's memory. It returns nothing: the stale
-// verdict is the run's result whatever the mail or the state file did.
-func alarmBackupStalenessTransitions(ctx context.Context, cfg *config.Config, metrics []backupStalenessMetric) {
+// verdict is the run's result whatever the mail or the memory did.
+func alarmBackupStalenessTransitions(
+	ctx context.Context,
+	cfg *config.Config,
+	s3Client *s3.Client,
+	metrics []backupStalenessMetric,
+) {
 	logger := telemetry.L(ctx)
-	state := loadBackupAlarmState(ctx, cfg)
+	memory := loadBackupAlarmMemory(ctx, cfg, func(key string) ([]byte, error) {
+		return getObjectBytes(ctx, s3Client, cfg.BackupS3BucketMain, key)
+	})
+	state := memory.state
 	var faults []backupStalenessMetric
 	var held, cleared []string
 	for _, metric := range metrics {
@@ -55,7 +67,7 @@ func alarmBackupStalenessTransitions(ctx context.Context, cfg *config.Config, me
 		}
 		changed = true
 	}
-	if changed {
-		saveBackupAlarmState(ctx, cfg, state)
-	}
+	saveBackupAlarmMemory(ctx, cfg, func(key string, body []byte) error {
+		return putObjectBytes(ctx, s3Client, cfg.BackupS3BucketMain, key, body)
+	}, memory, state, changed)
 }

@@ -73,7 +73,7 @@ func RunBackupStalenessCheck(ctx context.Context, cfg *config.Config, out io.Wri
 	// The alarm runs on every reading, stale or not, because a mechanism that
 	// has come back is what resets its memory. The mail is an attempt, never
 	// a gate: whatever it does, the stale verdict is what this run returns.
-	alarmBackupStalenessTransitions(ctx, cfg, metrics)
+	alarmBackupStalenessTransitions(ctx, cfg, s3Client, metrics)
 
 	stale := staleBackupStalenessMetrics(metrics)
 	if len(stale) > 0 {

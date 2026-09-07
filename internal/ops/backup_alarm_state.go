@@ -2,10 +2,12 @@
 // has already mailed about, so a fault mails once when it begins and not on
 // every run while it lasts. The record is one small JSON file under the backup
 // root, which the check's container mounts from the guest, so each observing
-// guest keeps its own memory; a deputy guest defers to the primary
-// (backup_alarm_primary_ledger.go) so a fault still produces one mail. A missing or
-// unreadable file means nothing has been alarmed: a fresh guest mails once and
-// then stops.
+// guest keeps a copy of its own; the copy the guests share is the same shape
+// in the object store (backup_alarm_memory.go), and a deputy guest also defers
+// to the primary (backup_alarm_primary_ledger.go) while the store is down. A
+// missing or unreadable file means this guest has alarmed nothing: a fresh
+// guest mails once, unless the shared copy already holds the fault, and then
+// stops.
 
 package ops
 
@@ -32,8 +34,11 @@ const backupAlarmStateFile = "staleness-alarm-state.json"
 
 // backupAlarmState is the alarm's memory: each mechanism whose fault has been
 // mailed, keyed by metric name, with the UTC instant the mail was accepted.
+// Generation counts the shared copy's writes; in the file it is the store
+// generation the file last synced with (backup_alarm_memory.go).
 type backupAlarmState struct {
-	Alarmed map[string]time.Time `json:"alarmed"`
+	Alarmed    map[string]time.Time `json:"alarmed"`
+	Generation int                  `json:"generation"`
 }
 
 // backupAlarmStatePath is where the state lives for this configuration.
@@ -46,7 +51,7 @@ func backupAlarmStatePath(cfg *config.Config) string {
 // be read or decoded is logged and also treated as empty, so the alarm still
 // mails rather than staying silent behind a damaged record.
 func loadBackupAlarmState(ctx context.Context, cfg *config.Config) backupAlarmState {
-	empty := backupAlarmState{Alarmed: map[string]time.Time{}}
+	empty := backupAlarmState{Alarmed: map[string]time.Time{}, Generation: 0}
 	path := backupAlarmStatePath(cfg)
 	body, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -103,7 +108,8 @@ func saveBackupAlarmState(ctx context.Context, cfg *config.Config, state backupA
 		return
 	}
 	logger.InfoContext(ctx, "backup.staleness.alarm_state_written",
-		slog.String("path", path), slog.Int("alarmed_count", len(state.Alarmed)))
+		slog.String("path", path), slog.Int("generation", state.Generation),
+		slog.Int("alarmed_count", len(state.Alarmed)))
 }
 
 // backupAlarmPartialSuffix names one invocation's temporary. It is a variable

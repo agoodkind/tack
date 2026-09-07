@@ -128,11 +128,13 @@ The run that first finds a mechanism stale mails one message to
 body says in plain words what has stopped, when it last succeeded, and what to
 check. The mail does not repeat while the mechanism stays stale, and nothing is
 mailed when it comes back; every run's reading is in the check's journal on the
-guest. Each guest that runs the check remembers what it has mailed in
-`staleness-alarm-state.json` under its backup root (`/root/backups`), so a
-fault produces one mail per observing guest. A mail the relay refused is not
-remembered, so the next run tries again. Delete that file on a guest to make
-its next stale run mail again.
+guest. The checkers share what they have mailed through
+`backup-status/alarm-state.json` in the backup bucket, and each guest also
+keeps its own copy in `staleness-alarm-state.json` under its backup root
+(`/root/backups`), so a fault produces one mail across both guests, and a guest
+that cannot read the store still mails from its own copy. A mail the relay
+refused is not remembered, so the next run tries again. Delete the object in
+the bucket and the file on each guest to make the next stale run mail again.
 
 ## Prerequisites
 
