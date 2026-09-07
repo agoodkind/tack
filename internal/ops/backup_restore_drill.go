@@ -89,7 +89,9 @@ type RestoreDrillOptions struct {
 // errors if any attempted leg fails. opts optionally pins the yugabyte leg to
 // one export run and the FoundationDB leg to one moment. A drill where every
 // attempted leg passed records a rehearsal marker in the object store, which is
-// what `ops backup staleness-check` dates the rehearsal from.
+// what `ops backup staleness-check` dates the rehearsal from. The marker put
+// is retried on its own; a marker that never lands fails the drill without
+// re-running any leg.
 func RunBackupRestoreDrill(ctx context.Context, cfg *config.Config, opts RestoreDrillOptions) error {
 	logger := telemetry.L(ctx)
 	if cfg.BackupS3Endpoint == "" || cfg.BackupS3AccessKey == "" || cfg.BackupS3SecretKey == "" {
@@ -152,29 +154,10 @@ func RunBackupRestoreDrill(ctx context.Context, cfg *config.Config, opts Restore
 		return putObjectBytes(ctx, s3Client, cfg.BackupS3BucketMain, key, body)
 	}
 	if err := recordRestoreDrillRehearsal(ctx, markerPut, rctx.RunID, passed); err != nil {
-		wrapped := fmt.Errorf("restore-drill: every leg passed but the rehearsal marker did not land: %w", err)
-		logger.ErrorContext(ctx, "backup.restore_drill.failed", slog.String("err", wrapped.Error()))
-		return wrapped
+		return err
 	}
 	logger.InfoContext(ctx, "backup.restore_drill.ok", slog.String("run_id", rctx.RunID))
 	return nil
-}
-
-// recordRestoreDrillRehearsal records a passing drill so the staleness check
-// can tell how long ago recovery was last rehearsed. The marker is part of the
-// drill's success, not a side effect: a drill nobody can date is
-// indistinguishable from a drill that never ran, which is the failure the
-// staleness alert exists to catch. put is bound to the object store by the
-// caller, so what the drill records stays checkable against what the staleness
-// check reads.
-func recordRestoreDrillRehearsal(
-	ctx context.Context,
-	put func(key string, body []byte) error,
-	runID string,
-	legs []string,
-) error {
-	return writeBackupStatusMarker(ctx, put, backupStalenessRehearsalName, opsNow().UTC(),
-		"restore drill "+runID+" passed: "+strings.Join(legs, ", "))
 }
 
 // waitExecOK polls a check command inside a container until it exits zero or the
