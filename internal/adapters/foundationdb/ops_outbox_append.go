@@ -8,7 +8,6 @@ import (
 	"log/slog"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
-	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/telemetry"
 )
@@ -33,9 +32,7 @@ func (s *OpsOutboxStore) Append(ctx context.Context, event json.RawMessage) (err
 		slog.ErrorContext(ctx, "ops_outbox.append_empty", slog.String("err", err.Error()))
 		return err
 	}
-	// The packer places the incomplete versionstamp in the key and appends
-	// the four-byte offset FoundationDB needs to fill it at commit.
-	key, packErr := tuple.Tuple{keyOpsOutbox, tuple.IncompleteVersionstamp(0)}.PackWithVersionstamp(testPrefix)
+	key, packErr := marshalOpsOutboxVersionstampedKey()
 	if packErr != nil {
 		slog.ErrorContext(ctx, "ops_outbox.append_pack_failed", slog.String("err", packErr.Error()))
 		return fmt.Errorf("ops outbox append key: %w", packErr)
@@ -92,7 +89,7 @@ func (s *OpsOutboxStore) Append(ctx context.Context, event json.RawMessage) (err
 		}
 	}
 	for {
-		transaction.SetVersionstampedKey(fdb.Key(key), event)
+		transaction.SetVersionstampedKey(key, event)
 		commitErr := transaction.Commit().Get()
 		if commitErr == nil {
 			return nil

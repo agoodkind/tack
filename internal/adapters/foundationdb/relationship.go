@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
@@ -30,9 +31,14 @@ func (s *RelationshipStore) Add(ctx context.Context, rel *node.Relationship) (er
 	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
 		tr.Set(fdb.Key(relationshipKey(rel.OrgID, rel.SourceID, rel.RelationType, rel.TargetID)), metadata)
 		tr.Set(fdb.Key(relationshipReverseKey(rel.OrgID, rel.TargetID, rel.RelationType, rel.SourceID)), []byte{})
-		return nil, nil
+		return nil, writeStagedIntent(ctx, tr)
 	})
-	return
+	if err != nil {
+		slog.ErrorContext(ctx, "relationship.add_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("add relationship %s: %w", rel.RelationType, err)
+	}
+	commitStagedIntent(ctx)
+	return nil
 }
 
 func (s *RelationshipStore) Remove(ctx context.Context, orgID, sourceID uuid.UUID, relationType string, targetID uuid.UUID) (err error) {
@@ -40,9 +46,14 @@ func (s *RelationshipStore) Remove(ctx context.Context, orgID, sourceID uuid.UUI
 	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
 		tr.Clear(fdb.Key(relationshipKey(orgID, sourceID, relationType, targetID)))
 		tr.Clear(fdb.Key(relationshipReverseKey(orgID, targetID, relationType, sourceID)))
-		return nil, nil
+		return nil, writeStagedIntent(ctx, tr)
 	})
-	return
+	if err != nil {
+		slog.ErrorContext(ctx, "relationship.remove_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("remove relationship %s: %w", relationType, err)
+	}
+	commitStagedIntent(ctx)
+	return nil
 }
 
 func (s *RelationshipStore) ListBySource(ctx context.Context, orgID, sourceID uuid.UUID, relationType string) (rels []*node.Relationship, err error) {

@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
@@ -132,6 +133,13 @@ func (s *NodeService) Update(ctx context.Context, in UpdateInput) (*node.NodeVie
 		return nil, err
 	}
 	relationshipChanges := stampRelationshipChanges(in.RelationshipChanges, in.ActorID, now)
+	if err := audit.StageStateChange(ctx, audit.VerbNodeUpdate, audit.Entity{
+		Type: "node", NodeType: existing.NodeType, ID: existing.ID,
+		Identifier: firstReferenceKey(referenceKeys), Name: name,
+	}); err != nil {
+		log.ErrorContext(ctx, "node.Update: stage audit row", slog.String("err", err.Error()))
+		return nil, fmt.Errorf("stage the audit row for updating %s: %w", existing.ID, err)
+	}
 	if err := s.nodes.UpdateAtomic(ctx, n, view, existing.Props, indexedProps, referenceKeys, relationshipChanges); err != nil {
 		log.Error("node.Update",
 			slog.String("node_id", in.NodeID.String()),
@@ -176,6 +184,12 @@ func (s *NodeService) Delete(ctx context.Context, nodeID, actorID uuid.UUID) err
 		return domain.ErrNotFound
 	}
 
+	if err := audit.StageStateChange(ctx, audit.VerbNodeDelete, audit.Entity{
+		Type: "node", NodeType: existing.NodeType, ID: nodeID, Identifier: "", Name: existing.Name,
+	}); err != nil {
+		log.ErrorContext(ctx, "node.Delete: stage audit row", slog.String("err", err.Error()))
+		return fmt.Errorf("stage the audit row for deleting %s: %w", nodeID, err)
+	}
 	if err := s.deleter.DeleteNode(ctx, existing.OrgID, nodeID); err != nil {
 		log.Error("node.Delete", slog.String("node_id", nodeID.String()), slog.String("err", err.Error()))
 		return fmt.Errorf("delete node: %w", err)
@@ -206,7 +220,20 @@ func (s *NodeService) AddRelationship(ctx context.Context, rel *node.Relationshi
 	if rel.CreatedAt.IsZero() {
 		rel.CreatedAt = clock.Now().UTC()
 	}
+	if err := audit.StageStateChange(ctx, audit.VerbRelationshipAdd,
+		relationshipAuditEntity(rel.SourceID, rel.RelationType, rel.TargetID)); err != nil {
+		slog.ErrorContext(ctx, "node.AddRelationship: stage audit row", slog.String("err", err.Error()))
+		return fmt.Errorf("stage the audit row for adding %s: %w", rel.RelationType, err)
+	}
 	return s.relationships.Add(ctx, rel)
+}
+
+// relationshipAuditEntity names a relationship in its ledger row: the source
+// node is the entity, the relation type its identifier, the target its name.
+func relationshipAuditEntity(sourceID uuid.UUID, relationType string, targetID uuid.UUID) audit.Entity {
+	return audit.Entity{
+		Type: "relationship", NodeType: "", ID: sourceID, Identifier: relationType, Name: targetID.String(),
+	}
 }
 
 // RemoveRelationship removes a directed edge.
@@ -225,6 +252,11 @@ func (s *NodeService) RemoveRelationship(ctx context.Context, orgID, sourceID uu
 		slog.String("source_id", sourceID.String()),
 		slog.String("target_id", targetID.String()),
 	)
+	if err := audit.StageStateChange(ctx, audit.VerbRelationshipRemove,
+		relationshipAuditEntity(sourceID, relationType, targetID)); err != nil {
+		slog.ErrorContext(ctx, "node.RemoveRelationship: stage audit row", slog.String("err", err.Error()))
+		return fmt.Errorf("stage the audit row for removing %s: %w", relationType, err)
+	}
 	return s.relationships.Remove(ctx, orgID, sourceID, relationType, targetID)
 }
 
