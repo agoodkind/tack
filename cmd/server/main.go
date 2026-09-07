@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"os"
 
@@ -73,8 +74,23 @@ func run() int {
 	root := buildRoot(f)
 	root.SetContext(ctx)
 	if err := root.Execute(); err != nil {
-		telemetry.L(ctx).ErrorContext(ctx, "cli.failed", slog.String("err", err.Error()))
-		return 1
+		code := exitCodeOf(err)
+		telemetry.L(ctx).ErrorContext(ctx, "cli.failed",
+			slog.String("err", err.Error()), slog.Int("code", code))
+		return code
 	}
 	return 0
+}
+
+// exitCodeOf is the process exit status for a failed command: the status the
+// error declares through an ExitCode method, else 1. A command declares one
+// when the unit that runs it must tell that failure apart from the rest, such
+// as a restore drill that only failed to record its marker and must not have
+// its restores repeated.
+func exitCodeOf(err error) int {
+	var coded interface{ ExitCode() int }
+	if errors.As(err, &coded) {
+		return coded.ExitCode()
+	}
+	return 1
 }

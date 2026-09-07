@@ -7,7 +7,6 @@ package ops
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -23,6 +22,31 @@ const restoreDrillMarkerAttempts = 5
 // outage still fails the run promptly.
 const restoreDrillMarkerFirstWait = 8 * time.Second
 
+// restoreDrillMarkerExitStatus is the process exit status of a drill whose
+// every leg passed and whose marker still did not land. It is not 1 so the
+// unit that runs the drill can decline to restart it: a restart would repeat
+// both restores to reach the same put.
+const restoreDrillMarkerExitStatus = 3
+
+// RestoreDrillMarkerError is the failure of a drill whose every leg passed
+// and whose rehearsal marker did not land after every put attempt. Err is the
+// last put's error.
+type RestoreDrillMarkerError struct {
+	Err error
+}
+
+// Error names the marker as the failed step so the operator does not read the
+// failure as a failed restore.
+func (e *RestoreDrillMarkerError) Error() string {
+	return "restore-drill: every leg passed but the rehearsal marker did not land: " + e.Err.Error()
+}
+
+// Unwrap exposes the last put's error.
+func (e *RestoreDrillMarkerError) Unwrap() error { return e.Err }
+
+// ExitCode is the process exit status the CLI reports for this failure.
+func (e *RestoreDrillMarkerError) ExitCode() int { return restoreDrillMarkerExitStatus }
+
 // recordRestoreDrillRehearsal records a passing drill so the staleness check
 // can tell how long ago recovery was last rehearsed. The marker is part of the
 // drill's success, not a side effect: a drill nobody can date is
@@ -33,9 +57,10 @@ const restoreDrillMarkerFirstWait = 8 * time.Second
 //
 // A failed put is retried with a bounded backoff, and the marker keeps the
 // time the drill passed rather than the time an attempt landed. When every
-// attempt fails, or the context ends between attempts, the returned error
-// names the marker as the failed step so the operator does not read it as a
-// failed restore.
+// attempt fails, or the context ends between attempts, the returned error is
+// a RestoreDrillMarkerError, which names the marker as the failed step and
+// carries its own exit status, so neither the operator nor the unit reads it
+// as a failed restore.
 func recordRestoreDrillRehearsal(
 	ctx context.Context,
 	put func(key string, body []byte) error,
@@ -66,7 +91,9 @@ func recordRestoreDrillRehearsal(
 		}
 		wait *= 2
 	}
-	wrapped := fmt.Errorf("restore-drill: every leg passed but the rehearsal marker did not land: %w", putErr)
-	slog.ErrorContext(ctx, "backup.restore_drill.failed", slog.String("err", wrapped.Error()))
-	return wrapped
+	failure := &RestoreDrillMarkerError{Err: putErr}
+	slog.ErrorContext(ctx, "backup.restore_drill.failed",
+		slog.String("err", failure.Error()),
+		slog.Int("exit_status", restoreDrillMarkerExitStatus))
+	return failure
 }

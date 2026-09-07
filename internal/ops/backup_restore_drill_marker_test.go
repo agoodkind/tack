@@ -98,6 +98,10 @@ func TestRestoreDrillMarkerGivesUpAfterEveryAttemptFails(t *testing.T) {
 	if !strings.Contains(err.Error(), "StatusCode: 500") {
 		t.Fatalf("the error must carry the store's refusal, got: %v", err)
 	}
+	var coded interface{ ExitCode() int }
+	if !errors.As(err, &coded) || coded.ExitCode() != restoreDrillMarkerExitStatus {
+		t.Fatalf("a marker-only failure must declare exit status %d, got: %#v", restoreDrillMarkerExitStatus, err)
+	}
 	if store.puts != restoreDrillMarkerAttempts {
 		t.Fatalf("puts = %d, want every one of the %d attempts and no more", store.puts, restoreDrillMarkerAttempts)
 	}
