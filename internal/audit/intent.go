@@ -26,10 +26,18 @@ func StageStateChange(ctx context.Context, verb Verb, entity Entity) error {
 	if !auditintent.Attached(ctx) {
 		return nil
 	}
+	// An id the entropy source cannot produce fails this one operation; a
+	// panic here would take the serving process down on a product write.
+	eventID, err := uuid.NewV7()
+	if err != nil {
+		slog.ErrorContext(ctx, "audit.intent_id_failed",
+			slog.String("verb", string(verb)), slog.String("err", err.Error()))
+		return fmt.Errorf("stage audit event %s id: %w", verb, err)
+	}
 	scope := ScopeFromContext(ctx)
 	event := Event{
 		Verb:    string(verb),
-		EventID: uuid.Must(uuid.NewV7()),
+		EventID: eventID,
 		Actor: Actor{
 			Type: ActorUser, ID: auditintent.Actor(ctx), Email: "", Name: "", SessionID: "",
 			IP: "", UserAgent: "", RequestID: telemetry.RequestID(ctx), APITokenLabel: "",
