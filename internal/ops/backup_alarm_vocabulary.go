@@ -23,12 +23,12 @@ type backupAlarmWords struct {
 }
 
 const (
-	backupAlarmExportNoun      = "Nightly ledger export (daily ledger copy in the object store)"
-	backupAlarmRehearsalNoun   = "Restore rehearsal (daily test restore)"
-	backupAlarmReplicationNoun = "Ledger cluster (logins and audit trail)"
-	backupAlarmFDBNoun         = "Product database backup (FoundationDB, continuous)"
-	backupAlarmKnownFact       = " %[1]s: %[2]s ago, limit %[3]s."
-	backupAlarmLastCheck       = " Last check: %[1]s."
+	backupAlarmExportNoun      = "The nightly ledger export (the daily copy of the ledger in the object store)"
+	backupAlarmRehearsalNoun   = "The restore rehearsal (the daily test restore)"
+	backupAlarmReplicationNoun = "The ledger cluster (logins and audit trail)"
+	backupAlarmFDBNoun         = "The product database backup (FoundationDB, continuous)"
+	backupAlarmKnownFact       = " at %[1]s, %[2]s ago; the limit is %[3]s."
+	backupAlarmLastCheck       = " The last check reported: %[1]s."
 )
 
 // backupAlarmVocabulary maps each metric to its words.
@@ -40,11 +40,11 @@ var backupAlarmVocabulary = map[string]backupAlarmWords{
 		subjectUnreadable:      "Nightly ledger export status could not be read",
 		paragraphKnown:         backupAlarmExportNoun + " last completed" + backupAlarmKnownFact,
 		paragraphNeverRecorded: backupAlarmExportNoun + " has never completed." + backupAlarmLastCheck,
-		paragraphUnreadable:    backupAlarmExportNoun + " could not be dated." + backupAlarmLastCheck,
+		paragraphUnreadable:    "The nightly ledger export's newest copy could not be dated." + backupAlarmLastCheck,
 		steps: []string{
-			"On the owner guest: journalctl -u tack-ledger-export.",
-			"On each data guest: journalctl -u tack-ledger-archive.",
-			"Confirm the object store accepts writes, then: systemctl start tack-ledger-export.",
+			"On the owner guest, run journalctl -u tack-ledger-export.",
+			"On each data guest, run journalctl -u tack-ledger-archive.",
+			"Confirm the object store accepts writes, then run systemctl start tack-ledger-export.",
 		},
 	},
 	backupStalenessRehearsalName: {
@@ -54,10 +54,10 @@ var backupAlarmVocabulary = map[string]backupAlarmWords{
 		subjectUnreadable:      "Restore rehearsal status could not be read",
 		paragraphKnown:         backupAlarmRehearsalNoun + " last passed" + backupAlarmKnownFact,
 		paragraphNeverRecorded: backupAlarmRehearsalNoun + " has never passed." + backupAlarmLastCheck,
-		paragraphUnreadable:    backupAlarmRehearsalNoun + " could not be read." + backupAlarmLastCheck,
+		paragraphUnreadable:    "The restore rehearsal's last pass could not be read." + backupAlarmLastCheck,
 		steps: []string{
-			"On the owner guest: journalctl -u tack-backup-restore-drill.",
-			"Fix what it names, then: systemctl start tack-backup-restore-drill.",
+			"On the owner guest, run journalctl -u tack-backup-restore-drill.",
+			"Fix what it names, then run systemctl start tack-backup-restore-drill.",
 		},
 	},
 	backupStalenessReplicationName: {
@@ -65,13 +65,13 @@ var backupAlarmVocabulary = map[string]backupAlarmWords{
 		subjectKnown:           "Ledger cluster unhealthy for %s",
 		subjectNeverRecorded:   "Ledger cluster has never been seen healthy",
 		subjectUnreadable:      "Ledger cluster health status could not be read",
-		paragraphKnown:         backupAlarmReplicationNoun + " last healthy" + backupAlarmKnownFact + " Last check: %[4]s.",
+		paragraphKnown:         backupAlarmReplicationNoun + " was last healthy" + backupAlarmKnownFact + " The last check reported: %[4]s.",
 		paragraphNeverRecorded: backupAlarmReplicationNoun + " has never been seen healthy." + backupAlarmLastCheck,
-		paragraphUnreadable:    backupAlarmReplicationNoun + " health could not be read." + backupAlarmLastCheck,
+		paragraphUnreadable:    "The ledger cluster's last healthy reading could not be read." + backupAlarmLastCheck,
 		steps: []string{
 			"Confirm every ledger guest is up.",
 			"On the owner guest, confirm every node is alive on the ledger master page.",
-			"Wait for tablets to re-copy; the alarm clears itself.",
+			"Wait for tablets to re-copy; the alarm clears itself once the cluster is healthy.",
 		},
 	},
 	backupStalenessFDBName: {
@@ -81,11 +81,11 @@ var backupAlarmVocabulary = map[string]backupAlarmWords{
 		subjectUnreadable:      "Product database backup status could not be read",
 		paragraphKnown:         backupAlarmFDBNoun + " last advanced" + backupAlarmKnownFact,
 		paragraphNeverRecorded: backupAlarmFDBNoun + " has no restorable point." + backupAlarmLastCheck,
-		paragraphUnreadable:    backupAlarmFDBNoun + " status could not be read." + backupAlarmLastCheck,
+		paragraphUnreadable:    "The product database backup's status could not be read." + backupAlarmLastCheck,
 		steps: []string{
-			"On the owner guest, confirm the agent is running: docker ps (tack-fdb-backup-agent-1).",
-			"Read its log: docker logs tack-fdb-backup-agent-1.",
-			"Confirm the object store accepts writes, then: docker compose restart fdb-backup-agent.",
+			"On the owner guest, run docker ps and confirm tack-fdb-backup-agent-1 is running.",
+			"Run docker logs tack-fdb-backup-agent-1 and read what it reports.",
+			"Confirm the object store accepts writes, then run docker compose restart fdb-backup-agent.",
 		},
 	},
 }

@@ -42,7 +42,8 @@ func assertBackupAlarmPlainWords(t *testing.T, subject, body, endpoint string) {
 var qaScene = backupAlarmScene{Environment: "QA", Host: "tack-qa"}
 
 // backupAlarmClosing is the last paragraph of every mail from that guest.
-const backupAlarmClosing = "\nSent once per problem. Readings: tack-backup-staleness journal on tack-qa."
+const backupAlarmClosing = "\nThis mail is sent once per problem. " +
+	"Every check's reading is in the tack-backup-staleness journal on tack-qa."
 
 // TestBackupStalenessAlarmOneFaultMail pins the whole mail for one fault: the
 // ledger cluster last seen healthy 32 minutes ago against a 30 minute limit.
@@ -61,16 +62,17 @@ func TestBackupStalenessAlarmOneFaultMail(t *testing.T) {
 		t.Errorf("subject = %q", subject)
 	}
 	body := backupStalenessAlarmBody(cfg, qaScene, faults)
-	wantBody := "QA, guest tack-qa. Not production.\n" +
+	wantBody := "This is the QA environment, guest tack-qa, not production.\n" +
 		"\n" +
 		"WHAT HAPPENED\n" +
-		"Ledger cluster (logins and audit trail) last healthy 3:51 PM UTC, Sep 6, 2026: 32 minutes ago, " +
-		"limit 30 minutes. Last check: 1 dead nodes, 4 under-replicated tablets.\n" +
+		"The ledger cluster (logins and audit trail) was last healthy at 3:51 PM UTC on Sep 6, 2026, " +
+		"32 minutes ago; the limit is 30 minutes. " +
+		"The last check reported: 1 dead nodes, 4 under-replicated tablets.\n" +
 		"\n" +
 		"WHAT TO DO\n" +
 		"1. Confirm every ledger guest is up.\n" +
 		"2. On the owner guest, confirm every node is alive on the ledger master page.\n" +
-		"3. Wait for tablets to re-copy; the alarm clears itself.\n" +
+		"3. Wait for tablets to re-copy; the alarm clears itself once the cluster is healthy.\n" +
 		backupAlarmClosing
 	if body != wantBody {
 		t.Errorf("body mismatch:\n got=%q\nwant=%q", body, wantBody)
@@ -99,31 +101,33 @@ func TestBackupStalenessAlarmThreeFaultMail(t *testing.T) {
 		t.Errorf("subject = %q", subject)
 	}
 	body := backupStalenessAlarmBody(cfg, qaScene, faults)
-	wantBody := "QA, guest tack-qa. Not production.\n" +
+	wantBody := "This is the QA environment, guest tack-qa, not production.\n" +
 		"\n" +
 		"WHAT HAPPENED\n" +
-		"Nightly ledger export (daily ledger copy in the object store) last completed " +
-		"8:00 PM UTC, Aug 27, 2026: 40 hours ago, limit 36 hours.\n" +
+		"The nightly ledger export (the daily copy of the ledger in the object store) last completed at " +
+		"8:00 PM UTC on Aug 27, 2026, 40 hours ago; the limit is 36 hours.\n" +
 		"\n" +
-		"Restore rehearsal (daily test restore) last passed 12:00 PM UTC, Aug 20, 2026: 9 days ago, limit 8 days.\n" +
+		"The restore rehearsal (the daily test restore) last passed at 12:00 PM UTC on Aug 20, 2026, " +
+		"9 days ago; the limit is 8 days.\n" +
 		"\n" +
-		"Ledger cluster (logins and audit trail) last healthy 11:15 AM UTC, Aug 29, 2026: 45 minutes ago, " +
-		"limit 30 minutes. Last check: 1 dead nodes, 2 under-replicated tablets.\n" +
+		"The ledger cluster (logins and audit trail) was last healthy at 11:15 AM UTC on Aug 29, 2026, " +
+		"45 minutes ago; the limit is 30 minutes. " +
+		"The last check reported: 1 dead nodes, 2 under-replicated tablets.\n" +
 		"\n" +
 		"WHAT TO DO\n" +
 		"Nightly ledger export\n" +
-		"1. On the owner guest: journalctl -u tack-ledger-export.\n" +
-		"2. On each data guest: journalctl -u tack-ledger-archive.\n" +
-		"3. Confirm the object store accepts writes, then: systemctl start tack-ledger-export.\n" +
+		"1. On the owner guest, run journalctl -u tack-ledger-export.\n" +
+		"2. On each data guest, run journalctl -u tack-ledger-archive.\n" +
+		"3. Confirm the object store accepts writes, then run systemctl start tack-ledger-export.\n" +
 		"\n" +
 		"Restore rehearsal\n" +
-		"1. On the owner guest: journalctl -u tack-backup-restore-drill.\n" +
-		"2. Fix what it names, then: systemctl start tack-backup-restore-drill.\n" +
+		"1. On the owner guest, run journalctl -u tack-backup-restore-drill.\n" +
+		"2. Fix what it names, then run systemctl start tack-backup-restore-drill.\n" +
 		"\n" +
 		"Ledger cluster\n" +
 		"1. Confirm every ledger guest is up.\n" +
 		"2. On the owner guest, confirm every node is alive on the ledger master page.\n" +
-		"3. Wait for tablets to re-copy; the alarm clears itself.\n" +
+		"3. Wait for tablets to re-copy; the alarm clears itself once the cluster is healthy.\n" +
 		backupAlarmClosing
 	if body != wantBody {
 		t.Errorf("body mismatch:\n got=%q\nwant=%q", body, wantBody)
@@ -141,9 +145,9 @@ func TestBackupAlarmOpening(t *testing.T) {
 		configured string
 		want       string
 	}{
-		{configured: "QA", want: "QA, guest tack. Not production."},
-		{configured: "Production", want: "Production, guest tack. This is production."},
-		{configured: "", want: "Unnamed environment, guest tack. Not production."},
+		{configured: "QA", want: "This is the QA environment, guest tack, not production."},
+		{configured: "Production", want: "This is the production environment, guest tack."},
+		{configured: "", want: "This is an unnamed environment, guest tack, not production."},
 	}
 	for _, test := range tests {
 		scene := backupAlarmScene{Environment: backupAlarmEnvironmentLabel(test.configured), Host: "tack"}

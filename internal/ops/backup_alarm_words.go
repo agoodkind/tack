@@ -16,7 +16,7 @@ import (
 
 // backupAlarmTimeLayout renders a last-good instant the way a reader says it,
 // with the zone beside the clock so no time in the mail is mistaken for local.
-const backupAlarmTimeLayout = "3:04 PM MST, Jan 2, 2006"
+const backupAlarmTimeLayout = "3:04 PM MST on Jan 2, 2006"
 
 // backupAlarmUnnamedEnvironment labels the mail when no environment name is
 // configured, so a missing label is visible rather than silently absent.
@@ -84,22 +84,22 @@ func backupStalenessAlarmBody(cfg *config.Config, scene backupAlarmScene, faults
 			body.WriteString(strconv.Itoa(n+1) + ". " + step + "\n")
 		}
 	}
-	body.WriteString("\nSent once per problem. Readings: tack-backup-staleness journal on " + scene.Host + ".")
+	body.WriteString("\nThis mail is sent once per problem. " +
+		"Every check's reading is in the tack-backup-staleness journal on " + scene.Host + ".")
 	return body.String()
 }
 
-// backupAlarmOpening is the first line: the environment, the guest, and
+// backupAlarmOpening is the first sentence: the environment, the guest, and
 // whether this is production, said outright either way.
 func backupAlarmOpening(scene backupAlarmScene) string {
-	where := scene.Environment
-	if scene.Environment == backupAlarmUnnamedEnvironment {
-		where = "Unnamed environment"
-	}
-	opening := where + ", guest " + scene.Host + ". "
 	if strings.EqualFold(scene.Environment, backupAlarmProductionLabel) {
-		return opening + "This is production."
+		return "This is the production environment, guest " + scene.Host + "."
 	}
-	return opening + "Not production."
+	where := "the " + scene.Environment + " environment"
+	if scene.Environment == backupAlarmUnnamedEnvironment {
+		where = "an unnamed environment"
+	}
+	return "This is " + where + ", guest " + scene.Host + ", not production."
 }
 
 // backupAlarmFaultPhrase is the subject's description of one fault.
