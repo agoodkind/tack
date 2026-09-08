@@ -77,3 +77,53 @@ func TestYBAdminClusterAccessCarriesCertificatesOnlyWhenTheClusterEncrypts(t *te
 		})
 	}
 }
+
+// TestYBDumpTransportVerifiesTheNodeOnlyWhenTheClusterEncrypts pins what the
+// schema and roles dumps are told. The dumpers take no connection-string flag,
+// so an encrypted ledger has to reach them through the environment; without
+// this they connect in the clear and an encrypted node refuses them, which
+// would fail the nightly export rather than a test.
+func TestYBDumpTransportVerifiesTheNodeOnlyWhenTheClusterEncrypts(t *testing.T) {
+	const certsDir = "/etc/tack/ledger-certs"
+
+	tests := []struct {
+		name      string
+		cfg       *config.Config
+		wantEnv   []string
+		wantBinds []string
+	}{
+		{
+			name:      "plaintext cluster",
+			cfg:       &config.Config{LedgerTLSEnabled: false, LedgerCertsDir: certsDir},
+			wantEnv:   nil,
+			wantBinds: nil,
+		},
+		{
+			name: "encrypted cluster",
+			cfg:  &config.Config{LedgerTLSEnabled: true, LedgerCertsDir: certsDir},
+			wantEnv: []string{
+				"PGSSLMODE=verify-full",
+				"PGSSLROOTCERT=" + certsDir + "/ca.crt",
+			},
+			wantBinds: []string{certsDir + ":" + certsDir + ":ro"},
+		},
+		{
+			name:      "encrypted cluster with no directory rendered",
+			cfg:       &config.Config{LedgerTLSEnabled: true, LedgerCertsDir: ""},
+			wantEnv:   nil,
+			wantBinds: nil,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			env, binds := ybDumpTransport(test.cfg)
+			if !slices.Equal(env, test.wantEnv) {
+				t.Errorf("env = %v, want %v", env, test.wantEnv)
+			}
+			if !slices.Equal(binds, test.wantBinds) {
+				t.Errorf("binds = %v, want %v", binds, test.wantBinds)
+			}
+		})
+	}
+}

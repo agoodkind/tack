@@ -144,18 +144,50 @@ func dumpYBFromEndpoint(
 	host string,
 ) (size int64, reason string) {
 	logger := telemetry.L(ctx)
-	cmd := append([]string{"-h", host, "-p", ybDumpPort, "-U", cfg.YugabyteUser}, spec.args...)
+	cmd := make([]string, 0, 6+len(spec.args))
+	cmd = append(cmd, "-h", host, "-p", ybDumpPort, "-U", cfg.YugabyteUser)
+	cmd = append(cmd, spec.args...)
+	tlsEnv, tlsBinds := ybDumpTransport(cfg)
+	env := make([]string, 0, 1+len(tlsEnv))
+	env = append(env, ybDumpPasswordVar+"="+cfg.YugabytePassword)
+	env = append(env, tlsEnv...)
+	mounts := make([]string, 0, 1+len(tlsBinds))
+	mounts = append(mounts, stageDir+":"+ybDumpOutDir)
+	mounts = append(mounts, tlsBinds...)
 	res, err := runOneShot(ctx, cli, logger, runOneShotOptions{
 		Image:      cfg.BackupYBImage,
 		Network:    cfg.BackupFDBNetwork,
 		Entrypoint: []string{spec.binary},
 		Cmd:        cmd,
-		Env:        []string{"PGPASSWORD=" + cfg.YugabytePassword},
-		Binds:      []string{stageDir + ":" + ybDumpOutDir},
+		Env:        env,
+		Binds:      mounts,
 		ExtraHosts: nil,
 		Name:       "",
 	})
 	return ybDumpAttemptOutcome(res, err, spec.outPath)
+}
+
+// ybDumpTransport returns the connection settings and the mount a dump
+// one-shot needs against a ledger that encrypts client traffic (TACK-460).
+// The dumpers take no connection-string flag, so the settings ride in the
+// environment the client library reads, and they verify the node fully: the
+// dumpers dial the guests' pinned addresses, which every node certificate
+// carries beside its name.
+//
+// A plaintext ledger gets nothing, so a dump against it still connects, and an
+// encrypted environment with no directory rendered gets nothing either, so the
+// failure stays a plain connection refusal rather than a certificate error
+// about a directory the deploy never filled.
+func ybDumpTransport(cfg *config.Config) (env []string, binds []string) {
+	if !cfg.LedgerTLSEnabled || cfg.LedgerCertsDir == "" {
+		return nil, nil
+	}
+	env = []string{
+		"PGSSLMODE=verify-full",
+		"PGSSLROOTCERT=" + cfg.LedgerCertsDir + "/ca.crt",
+	}
+	binds = []string{cfg.LedgerCertsDir + ":" + cfg.LedgerCertsDir + ":ro"}
+	return env, binds
 }
 
 // ybDumpAttemptOutcome reads one attempt's result and the file it was supposed
