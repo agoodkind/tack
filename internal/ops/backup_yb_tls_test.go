@@ -1,7 +1,9 @@
 package ops
 
 import (
+	"context"
 	"slices"
+	"strings"
 	"testing"
 
 	"goodkind.io/tack/internal/config"
@@ -108,9 +110,13 @@ func TestYBDumpTransportVerifiesTheNodeOnlyWhenTheClusterEncrypts(t *testing.T) 
 			wantBinds: []string{certsDir + ":" + certsDir + ":ro"},
 		},
 		{
+			// Fail closed: with no directory there is nothing to mount, so the
+			// mode alone goes in. Verification then has no authority to read
+			// and the connection fails, rather than falling back to the client
+			// library's default, which would accept an unverified one.
 			name:      "encrypted cluster with no directory rendered",
 			cfg:       &config.Config{LedgerTLSEnabled: true, LedgerCertsDir: ""},
-			wantEnv:   nil,
+			wantEnv:   []string{"PGSSLMODE=verify-full"},
 			wantBinds: nil,
 		},
 	}
@@ -125,5 +131,27 @@ func TestYBDumpTransportVerifiesTheNodeOnlyWhenTheClusterEncrypts(t *testing.T) 
 				t.Errorf("binds = %v, want %v", binds, test.wantBinds)
 			}
 		})
+	}
+}
+
+// TestRunYBDumpOneShotRefusesAnEncryptedLedgerWithNoCertificateDirectory pins
+// the fail-closed rule at the only place that can enforce it before a
+// container starts. A host whose ledger encrypts client traffic but whose
+// certificate directory is unset cannot verify the node, and an export that
+// ran anyway would ship an artifact taken over a connection nobody checked.
+func TestRunYBDumpOneShotRefusesAnEncryptedLedgerWithNoCertificateDirectory(t *testing.T) {
+	cfg := &config.Config{
+		LedgerTLSEnabled:        true,
+		LedgerCertsDir:          "",
+		BackupYBMasterAddresses: "yb1:7100",
+	}
+	spec := ybDumpSpec{label: "schema", failEvent: "backup.yb_snapshot.schema_failed"}
+
+	err := runYBDumpOneShot(context.Background(), nil, cfg, t.TempDir(), spec)
+	if err == nil {
+		t.Fatal("runYBDumpOneShot returned no error for an encrypted ledger with no certificate directory")
+	}
+	if !strings.Contains(err.Error(), "TACK_LEDGER_CERTS_DIR") {
+		t.Errorf("error = %q, want it to name the missing setting", err.Error())
 	}
 }

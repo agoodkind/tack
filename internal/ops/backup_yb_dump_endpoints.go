@@ -61,6 +61,19 @@ func runYBDumpOneShot(
 	stageDir string,
 	spec ybDumpSpec,
 ) error {
+	// A ledger that encrypts client traffic but names no certificate
+	// directory is a half-configured host, and a dump against it must not
+	// start. Without the authority the client library falls back to its own
+	// default, which accepts an unverified connection, so the export would
+	// quietly produce an artifact over a connection nobody checked. Refuse
+	// here, before any container runs, and say which setting is missing
+	// (TACK-460).
+	if cfg.LedgerTLSEnabled && cfg.LedgerCertsDir == "" {
+		err := fmt.Errorf("ysql %s dump: the ledger encrypts client traffic but TACK_LEDGER_CERTS_DIR is empty, so the node cannot be verified",
+			spec.label)
+		telemetry.L(ctx).ErrorContext(ctx, spec.failEvent, slog.String("err", err.Error()))
+		return err
+	}
 	return walkYBDumpEndpoints(ctx, ybDumpHosts(cfg.BackupYBMasterAddresses), spec,
 		func(host string) (int64, string) {
 			return dumpYBFromEndpoint(ctx, cli, cfg, stageDir, spec, host)
@@ -174,13 +187,19 @@ func dumpYBFromEndpoint(
 // dumpers dial the guests' pinned addresses, which every node certificate
 // carries beside its name.
 //
-// A plaintext ledger gets nothing, so a dump against it still connects, and an
-// encrypted environment with no directory rendered gets nothing either, so the
-// failure stays a plain connection refusal rather than a certificate error
-// about a directory the deploy never filled.
+// A plaintext ledger gets nothing, so a dump against it still connects. An
+// encrypted ledger always gets the full-verification setting, even where the
+// directory is unnamed and the mount therefore cannot be made: the caller
+// refuses that host before any container starts, and setting the mode here
+// regardless means no path through this function can leave a dump falling back
+// to the client library's default, which would accept an unverified
+// connection.
 func ybDumpTransport(cfg *config.Config) (env []string, binds []string) {
-	if !cfg.LedgerTLSEnabled || cfg.LedgerCertsDir == "" {
+	if !cfg.LedgerTLSEnabled {
 		return nil, nil
+	}
+	if cfg.LedgerCertsDir == "" {
+		return []string{"PGSSLMODE=verify-full"}, nil
 	}
 	env = []string{
 		"PGSSLMODE=verify-full",
