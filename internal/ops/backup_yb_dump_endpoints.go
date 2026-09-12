@@ -68,7 +68,7 @@ func runYBDumpOneShot(
 	// quietly produce an artifact over a connection nobody checked. Refuse
 	// here, before any container runs, and say which setting is missing
 	// (TACK-460).
-	if cfg.LedgerTLSEnabled && cfg.LedgerCertsDir == "" {
+	if cfg.LedgerTLSEnabled && ledgerCertsDir(cfg) == "" {
 		err := fmt.Errorf("ysql %s dump: the ledger encrypts client traffic but TACK_LEDGER_CERTS_DIR is empty, so the node cannot be verified",
 			spec.label)
 		telemetry.L(ctx).ErrorContext(ctx, spec.failEvent, slog.String("err", err.Error()))
@@ -198,14 +198,15 @@ func ybDumpTransport(cfg *config.Config) (env []string, binds []string) {
 	if !cfg.LedgerTLSEnabled {
 		return nil, nil
 	}
-	if cfg.LedgerCertsDir == "" {
+	certsDir := ledgerCertsDir(cfg)
+	if certsDir == "" {
 		return []string{"PGSSLMODE=verify-full"}, nil
 	}
 	env = []string{
 		"PGSSLMODE=verify-full",
-		"PGSSLROOTCERT=" + cfg.LedgerCertsDir + "/ca.crt",
+		"PGSSLROOTCERT=" + certsDir + "/ca.crt",
 	}
-	binds = []string{cfg.LedgerCertsDir + ":" + cfg.LedgerCertsDir + ":ro"}
+	binds = []string{certsDir + ":" + certsDir + ":ro"}
 	return env, binds
 }
 

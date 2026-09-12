@@ -155,3 +155,37 @@ func TestRunYBDumpOneShotRefusesAnEncryptedLedgerWithNoCertificateDirectory(t *t
 		t.Errorf("error = %q, want it to name the missing setting", err.Error())
 	}
 }
+
+// TestLedgerCertificateSettingsTreatABlankDirectoryAsNone pins that a value
+// made of whitespace counts as no directory in every caller. The value is
+// rendered into an environment file where a stray space is invisible, and a
+// path of spaces would otherwise mount nothing and be handed to the engine's
+// tools as if it were real. Found in review of this branch.
+func TestLedgerCertificateSettingsTreatABlankDirectoryAsNone(t *testing.T) {
+	cfg := &config.Config{
+		LedgerTLSEnabled:        true,
+		LedgerCertsDir:          "   ",
+		BackupYBMasterAddresses: "yb1:7100",
+	}
+
+	args, binds := ybAdminClusterAccess(cfg)
+	if slices.Contains(args, "--certs_dir_name") {
+		t.Errorf("args = %v, want no certificate flag for a blank directory", args)
+	}
+	if len(binds) != 0 {
+		t.Errorf("binds = %v, want none for a blank directory", binds)
+	}
+
+	env, dumpBinds := ybDumpTransport(cfg)
+	if !slices.Equal(env, []string{"PGSSLMODE=verify-full"}) {
+		t.Errorf("env = %v, want the verification mode alone", env)
+	}
+	if len(dumpBinds) != 0 {
+		t.Errorf("dump binds = %v, want none for a blank directory", dumpBinds)
+	}
+
+	spec := ybDumpSpec{label: "schema", failEvent: "backup.yb_snapshot.schema_failed"}
+	if err := runYBDumpOneShot(context.Background(), nil, cfg, t.TempDir(), spec); err == nil {
+		t.Error("runYBDumpOneShot returned no error for a blank certificate directory")
+	}
+}

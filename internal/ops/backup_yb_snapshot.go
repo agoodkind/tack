@@ -559,11 +559,20 @@ func unmarshalYBScheduleSnapshotIDs(ctx context.Context, stdout string) (map[str
 // outcome for a half-configured host.
 func ybAdminClusterAccess(cfg *config.Config) (args []string, binds []string) {
 	args = []string{"--master_addresses", cfg.BackupYBMasterAddresses}
-	if !cfg.LedgerTLSEnabled || cfg.LedgerCertsDir == "" {
+	certsDir := ledgerCertsDir(cfg)
+	if !cfg.LedgerTLSEnabled || certsDir == "" {
 		return args, nil
 	}
-	args = append(args, "--certs_dir_name", cfg.LedgerCertsDir)
-	return args, []string{cfg.LedgerCertsDir + ":" + cfg.LedgerCertsDir + ":ro"}
+	args = append(args, "--certs_dir_name", certsDir)
+	return args, []string{certsDir + ":" + certsDir + ":ro"}
+}
+
+// ledgerCertsDir is the certificate directory this host declares, with
+// surrounding whitespace removed. The value is rendered into an environment
+// file, where a stray space is invisible, and every caller treats a blank
+// value as no directory at all rather than as a path made of spaces.
+func ledgerCertsDir(cfg *config.Config) string {
+	return strings.TrimSpace(cfg.LedgerCertsDir)
 }
 
 // ybAdminOneShot runs one yb-admin subcommand in a one-shot container on the
