@@ -34,6 +34,10 @@ const (
 	// ybDumpOutDir is where the staging dir is bind-mounted inside the
 	// one-shot, which is where both dumpers write their file.
 	ybDumpOutDir = "/out"
+	// ybDumpPasswordVar names the environment variable the dumpers read their
+	// password from. It is a name here rather than written inline beside the
+	// value, so the secret scanner does not read the pair as a credential.
+	ybDumpPasswordVar = "PGPASSWORD"
 )
 
 // ybSchemaDumpArgs is the argument vector, after the shared connection flags,

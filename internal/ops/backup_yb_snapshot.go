@@ -545,8 +545,38 @@ func unmarshalYBScheduleSnapshotIDs(ctx context.Context, stdout string) (map[str
 	return owned, nil
 }
 
+// ybAdminClusterAccess returns the flags and mounts a one-shot needs to reach
+// this environment's cluster: the master addresses always, and on a cluster
+// that encrypts its traffic (TACK-460) the certificate directory as well. The
+// administration tool speaks the cluster's own protocol rather than SQL, so it
+// carries its certificates as a flag instead of a connection string, and it
+// reads them from the same directory the engine reads its own from. Mounting
+// read-only at the host's own path keeps one path in the logs and in the
+// flag.
+//
+// An encrypted environment that has not rendered the directory gets the flags
+// it can: the command then fails to connect and says so, which is the honest
+// outcome for a half-configured host.
+func ybAdminClusterAccess(cfg *config.Config) (args []string, binds []string) {
+	args = []string{"--master_addresses", cfg.BackupYBMasterAddresses}
+	certsDir := ledgerCertsDir(cfg)
+	if !cfg.LedgerTLSEnabled || certsDir == "" {
+		return args, nil
+	}
+	args = append(args, "--certs_dir_name", certsDir)
+	return args, []string{certsDir + ":" + certsDir + ":ro"}
+}
+
+// ledgerCertsDir is the certificate directory this host declares, with
+// surrounding whitespace removed. The value is rendered into an environment
+// file, where a stray space is invisible, and every caller treats a blank
+// value as no directory at all rather than as a path made of spaces.
+func ledgerCertsDir(cfg *config.Config) string {
+	return strings.TrimSpace(cfg.LedgerCertsDir)
+}
+
 // ybAdminOneShot runs one yb-admin subcommand in a one-shot container on the
-// tack compose network, prepending the master_addresses flag. binds is optional
+// tack compose network, prepending the cluster-access flags. binds is optional
 // (export_snapshot needs the staging dir bound to write its metadata file). It
 // returns an error on a non-zero exit so callers do not inspect codes.
 func ybAdminOneShot(
@@ -557,14 +587,20 @@ func ybAdminOneShot(
 	args ...string,
 ) (execResult, error) {
 	logger := telemetry.L(ctx)
-	cmd := append([]string{"--master_addresses", cfg.BackupYBMasterAddresses}, args...)
+	accessArgs, accessBinds := ybAdminClusterAccess(cfg)
+	cmd := make([]string, 0, len(accessArgs)+len(args))
+	cmd = append(cmd, accessArgs...)
+	cmd = append(cmd, args...)
+	mounts := make([]string, 0, len(accessBinds)+len(binds))
+	mounts = append(mounts, accessBinds...)
+	mounts = append(mounts, binds...)
 	res, err := runOneShot(ctx, cli, logger, runOneShotOptions{
 		Image:      cfg.BackupYBImage,
 		Network:    cfg.BackupFDBNetwork,
 		Entrypoint: []string{ybAdminBinary},
 		Cmd:        cmd,
 		Env:        nil,
-		Binds:      binds,
+		Binds:      mounts,
 		ExtraHosts: nil,
 		Name:       "",
 	})

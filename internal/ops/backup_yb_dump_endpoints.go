@@ -61,6 +61,19 @@ func runYBDumpOneShot(
 	stageDir string,
 	spec ybDumpSpec,
 ) error {
+	// A ledger that encrypts client traffic but names no certificate
+	// directory is a half-configured host, and a dump against it must not
+	// start. Without the authority the client library falls back to its own
+	// default, which accepts an unverified connection, so the export would
+	// quietly produce an artifact over a connection nobody checked. Refuse
+	// here, before any container runs, and say which setting is missing
+	// (TACK-460).
+	if cfg.LedgerTLSEnabled && ledgerCertsDir(cfg) == "" {
+		err := fmt.Errorf("ysql %s dump: the ledger encrypts client traffic but TACK_LEDGER_CERTS_DIR is empty, so the node cannot be verified",
+			spec.label)
+		telemetry.L(ctx).ErrorContext(ctx, spec.failEvent, slog.String("err", err.Error()))
+		return err
+	}
 	return walkYBDumpEndpoints(ctx, ybDumpHosts(cfg.BackupYBMasterAddresses), spec,
 		func(host string) (int64, string) {
 			return dumpYBFromEndpoint(ctx, cli, cfg, stageDir, spec, host)
@@ -144,18 +157,57 @@ func dumpYBFromEndpoint(
 	host string,
 ) (size int64, reason string) {
 	logger := telemetry.L(ctx)
-	cmd := append([]string{"-h", host, "-p", ybDumpPort, "-U", cfg.YugabyteUser}, spec.args...)
+	cmd := make([]string, 0, 6+len(spec.args))
+	cmd = append(cmd, "-h", host, "-p", ybDumpPort, "-U", cfg.YugabyteUser)
+	cmd = append(cmd, spec.args...)
+	tlsEnv, tlsBinds := ybDumpTransport(cfg)
+	env := make([]string, 0, 1+len(tlsEnv))
+	env = append(env, ybDumpPasswordVar+"="+cfg.YugabytePassword)
+	env = append(env, tlsEnv...)
+	mounts := make([]string, 0, 1+len(tlsBinds))
+	mounts = append(mounts, stageDir+":"+ybDumpOutDir)
+	mounts = append(mounts, tlsBinds...)
 	res, err := runOneShot(ctx, cli, logger, runOneShotOptions{
 		Image:      cfg.BackupYBImage,
 		Network:    cfg.BackupFDBNetwork,
 		Entrypoint: []string{spec.binary},
 		Cmd:        cmd,
-		Env:        []string{"PGPASSWORD=" + cfg.YugabytePassword},
-		Binds:      []string{stageDir + ":" + ybDumpOutDir},
+		Env:        env,
+		Binds:      mounts,
 		ExtraHosts: nil,
 		Name:       "",
 	})
 	return ybDumpAttemptOutcome(res, err, spec.outPath)
+}
+
+// ybDumpTransport returns the connection settings and the mount a dump
+// one-shot needs against a ledger that encrypts client traffic (TACK-460).
+// The dumpers take no connection-string flag, so the settings ride in the
+// environment the client library reads, and they verify the node fully: the
+// dumpers dial the guests' pinned addresses, which every node certificate
+// carries beside its name.
+//
+// A plaintext ledger gets nothing, so a dump against it still connects. An
+// encrypted ledger always gets the full-verification setting, even where the
+// directory is unnamed and the mount therefore cannot be made: the caller
+// refuses that host before any container starts, and setting the mode here
+// regardless means no path through this function can leave a dump falling back
+// to the client library's default, which would accept an unverified
+// connection.
+func ybDumpTransport(cfg *config.Config) (env []string, binds []string) {
+	if !cfg.LedgerTLSEnabled {
+		return nil, nil
+	}
+	certsDir := ledgerCertsDir(cfg)
+	if certsDir == "" {
+		return []string{"PGSSLMODE=verify-full"}, nil
+	}
+	env = []string{
+		"PGSSLMODE=verify-full",
+		"PGSSLROOTCERT=" + certsDir + "/ca.crt",
+	}
+	binds = []string{certsDir + ":" + certsDir + ":ro"}
+	return env, binds
 }
 
 // ybDumpAttemptOutcome reads one attempt's result and the file it was supposed
