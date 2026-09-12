@@ -6,10 +6,10 @@ require (
 	connectrpc.com/connect v1.20.0
 	github.com/ClickHouse/clickhouse-go/v2 v2.46.0
 	github.com/apple/foundationdb/bindings/go v0.0.0-20250923185926-685eda6efef7
-	github.com/aws/aws-sdk-go-v2 v1.42.0
+	github.com/aws/aws-sdk-go-v2 v1.43.3
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.24
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.104.0
-	github.com/aws/smithy-go v1.27.2
+	github.com/aws/smithy-go v1.27.6
 	github.com/brianvoe/gofakeit/v7 v7.15.0
 	github.com/caarlos0/env/v11 v11.4.1
 	github.com/gofrs/flock v0.13.0
