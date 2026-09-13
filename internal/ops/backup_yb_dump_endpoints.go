@@ -157,8 +157,9 @@ func dumpYBFromEndpoint(
 	host string,
 ) (size int64, reason string) {
 	logger := telemetry.L(ctx)
+	dialHost, extraHosts := ybDumpDial(cfg, host)
 	cmd := make([]string, 0, 6+len(spec.args))
-	cmd = append(cmd, "-h", host, "-p", ybDumpPort, "-U", cfg.YugabyteUser)
+	cmd = append(cmd, "-h", dialHost, "-p", ybDumpPort, "-U", cfg.YugabyteUser)
 	cmd = append(cmd, spec.args...)
 	tlsEnv, tlsBinds := ybDumpTransport(cfg)
 	env := make([]string, 0, 1+len(tlsEnv))
@@ -174,7 +175,7 @@ func dumpYBFromEndpoint(
 		Cmd:        cmd,
 		Env:        env,
 		Binds:      mounts,
-		ExtraHosts: nil,
+		ExtraHosts: extraHosts,
 		Name:       "",
 	})
 	return ybDumpAttemptOutcome(res, err, spec.outPath)

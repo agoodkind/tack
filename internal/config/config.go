@@ -196,6 +196,15 @@ type Config struct {
 	// them.
 	LedgerTLSEnabled bool   `env:"TACK_LEDGER_TLS_ENABLED" envDefault:"false"`
 	LedgerCertsDir   string `env:"TACK_LEDGER_CERTS_DIR"`
+	// LedgerNodeHosts maps each ledger node's permanent name to the pinned
+	// address of the guest that runs it, as name=address pairs separated by
+	// commas, the same map the deploy renders into every ledger container's
+	// hosts file. The SQL dumpers need it under encryption: they run in the
+	// engine's own image, whose client library verifies a certificate against
+	// a name only, never an address, so a dump that dialed the address it
+	// reached the node at would be refused by the certificate that names it.
+	// Empty where the ledger runs in the clear or on the local service name.
+	LedgerNodeHosts string `env:"TACK_LEDGER_NODE_HOSTS"`
 
 	// YugabyteDB distributed-snapshot export and restore. No defaults: these
 	// are deployment- and image-specific paths that must be declared in .env so
