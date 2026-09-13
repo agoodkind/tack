@@ -38,8 +38,7 @@ services:
       AUDIT_OPERATOR_DSN: ${AUDIT_OPERATOR_DSN}
       FDB_CLUSTER_FILE: /etc/foundationdb/fdb.cluster
       MEILI_URL: http://meilisearch:7700
-      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-tack-dev-meili-key-change-in-prod}
-      TEMPORAL_ADDRESS: temporal:7233
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?MEILI_MASTER_KEY is required, set it in .env}
       PORT: 8000
       # ENV selects the auth mode: development accepts a raw user UUID as the
       # bearer with no token lookup, production requires an API token. It is
@@ -258,7 +257,7 @@ services:
     restart: unless-stopped
     mem_limit: 2g
     environment:
-      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-tack-dev-meili-key-change-in-prod}
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?MEILI_MASTER_KEY is required, set it in .env}
       MEILI_ENV: production
       # Without an explicit budget the indexer sizes itself from system
       # memory, which inside a container is the host figure, so the first
@@ -493,7 +492,7 @@ services:
       AUDIT_VALID_SIGNERS: ${AUDIT_VALID_SIGNERS:-}
       FDB_CLUSTER_FILE: /etc/foundationdb/fdb.cluster
       MEILI_URL: http://localhost:7700
-      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-tack-dev-meili-key-change-in-prod}
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?MEILI_MASTER_KEY is required, set it in .env}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       # Same ENV the app requires, read the same way. A default here would
       # make one variable name mean two things in one stack file, so a host
