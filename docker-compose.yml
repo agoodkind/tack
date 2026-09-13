@@ -524,6 +524,10 @@ services:
       # the value from the ledger topology; the fallback is the dev single
       # node, matching the compiled default.
       TACK_BACKUP_YB_MASTER_ADDRESSES: ${TACK_BACKUP_YB_MASTER_ADDRESSES:-yugabyte:7100}
+      # Ledger node names paired with their guests' addresses (TACK-460), so
+      # the SQL dumpers can dial an encrypted node by the name its
+      # certificate carries. The deploy renders it; empty in the clear.
+      TACK_LEDGER_NODE_HOSTS: ${TACK_LEDGER_NODE_HOSTS:-}
       # The ledger's own image, from the anchor the yugabyte service uses. The
       # backup tooling (yb-admin, ysql_dump, ysql_dumpall) and the restore
       # drill's throwaway engine run it, so a rehearsal restores into the
