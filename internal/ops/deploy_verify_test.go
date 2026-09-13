@@ -31,8 +31,17 @@ func TestDeployVerifyTargetsFollowTheRenderedTag(t *testing.T) {
 		}
 	}
 	explicit := deployVerifyTargets(cfg, " 2eb962e ")
-	if explicit[0].Image != "ghcr.io/agoodkind/tack-server:2eb962e" {
-		t.Fatalf("explicit tag ignored: %s", explicit[0].Image)
+	wantExplicit := []deployVerifyTarget{
+		{Container: "tack-app-1", Image: "ghcr.io/agoodkind/tack-server:2eb962e"},
+		{Container: "tack-audit-consumer-1", Image: "ghcr.io/agoodkind/tack-audit-consumer:2eb962e"},
+	}
+	if len(explicit) != len(wantExplicit) {
+		t.Fatalf("explicit targets = %v, want %v", explicit, wantExplicit)
+	}
+	for i := range wantExplicit {
+		if explicit[i] != wantExplicit[i] {
+			t.Fatalf("explicit target %d = %v, want %v", i, explicit[i], wantExplicit[i])
+		}
 	}
 }
 
