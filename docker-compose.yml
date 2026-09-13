@@ -189,7 +189,22 @@ services:
       interval: 10s
       timeout: 10s
       retries: 10
-      start_period: 60s
+      # The SQL layer answers only after every tablet has replayed its log.
+      # A node stopped cleanly (see stop_grace_period) replays little and
+      # answers within a minute; one that was killed replays every open
+      # segment, which took a production node holding 11 GB five minutes
+      # (2026-09-12 retire) and outran a 60 s start period, so the rolling
+      # deploy that waits on this status moved on to the next node while
+      # this one was still starting. Failed checks inside the start period
+      # do not count; the first passing one marks the node healthy.
+      start_period: 180s
+    # A stop signal reaches yugabyted, and the overlay copy of it asks the
+    # master and tserver to shut down and waits for them before it exits
+    # (the upstream copy kills them outright). A killed tserver replays
+    # every open log segment on the next start; a shut-down one replays
+    # almost nothing. The grace period covers the tserver flushing and
+    # closing its segments on a full node.
+    stop_grace_period: 120s
 
   fdb:
     # Version is set by tack's Makefile FDB_VERSION variable, also baked

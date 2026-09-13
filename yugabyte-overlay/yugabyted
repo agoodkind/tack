@@ -3405,6 +3405,17 @@ class ControlScript(object):
             p.delete_pidfile()
         self.script.delete_pidfile()
 
+        # tack overlay: ask the servers to shut down before the group is
+        # killed. Upstream kills the process group outright, which leaves
+        # every tablet's log segment open, and the next start replays them
+        # all (five minutes on a node holding 11 GB, 2026-09-12 retire).
+        # yb-tserver and yb-master shut down on SIGTERM: the tserver flushes
+        # and closes its segments, so the next start replays almost nothing.
+        # The tserver goes first so it finishes under a live master. The
+        # deadline stays inside the container's stop_grace_period in
+        # docker-compose.yml; whatever is left is killed below as before.
+        self.terminate_servers(deadline_seconds=90)
+
         try:
             # Kill process group instead of self.processes to ensure
             # any spawned child processes are killed. Use SIGKILL because YugaWare
@@ -3419,6 +3430,27 @@ class ControlScript(object):
 
         # exit no matter what
         os._exit(os.EX_OK)
+
+    # tack overlay: send SIGTERM to the tserver, then the master, and wait
+    # for each to exit within one shared deadline. A server this process
+    # did not start (self.process unset) or that already exited is skipped.
+    def terminate_servers(self, deadline_seconds):
+        deadline = time.time() + deadline_seconds
+        for name in ("tserver", "master"):
+            p = self.processes.get(name)
+            if p is None or p.process is None or p.process.poll() is not None:
+                continue
+            try:
+                p.process.send_signal(SIGTERM)
+            except OSError as err:
+                Output.log("Failed to signal {}: {}".format(name, str(err)))
+                continue
+            while p.process.poll() is None and time.time() < deadline:
+                time.sleep(0.5)
+            if p.process.poll() is None:
+                Output.log("{} did not stop within {} s".format(name, deadline_seconds))
+            else:
+                Output.log("{} stopped with status {}".format(name, p.process.returncode))
 
     def start_ybc_server(self):
 
