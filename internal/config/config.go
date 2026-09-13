@@ -182,6 +182,21 @@ type Config struct {
 	BackupYBPITRIntervalMinutes  int    `env:"TACK_BACKUP_YB_PITR_INTERVAL_MINUTES"    envDefault:"60"`
 	BackupYBPITRRetentionMinutes int    `env:"TACK_BACKUP_YB_PITR_RETENTION_MINUTES"   envDefault:"10080"`
 
+	// Ledger transport encryption (TACK-460). LedgerTLSEnabled says whether
+	// this environment's ledger nodes encrypt their traffic and refuse an
+	// unencrypted connection; LedgerCertsDir is the directory holding the
+	// authority that issued them, which is also where each node keeps its own
+	// certificate. The deploy renders both on every host.
+	//
+	// The database pools need nothing from these: their DSNs already carry
+	// sslmode and the authority's path. They exist for the engine's own
+	// administration tool, which speaks the encrypted cluster protocol rather
+	// than SQL and takes its certificate directory as a flag, so a backup or a
+	// snapshot export against an encrypted cluster fails to connect without
+	// them.
+	LedgerTLSEnabled bool   `env:"TACK_LEDGER_TLS_ENABLED" envDefault:"false"`
+	LedgerCertsDir   string `env:"TACK_LEDGER_CERTS_DIR"`
+
 	// YugabyteDB distributed-snapshot export and restore. No defaults: these
 	// are deployment- and image-specific paths that must be declared in .env so
 	// a wrong value fails loudly rather than silently writing or reading the

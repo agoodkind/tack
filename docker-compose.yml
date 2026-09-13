@@ -559,6 +559,14 @@ services:
       # loudly when it is unset rather than mounting a wrong file.
       TACK_BACKUP_FDB_CONTINUOUS: ${TACK_BACKUP_FDB_CONTINUOUS:-false}
       TACK_BACKUP_FDB_OVERLAY_PATH: ${TACK_BACKUP_FDB_OVERLAY_PATH:-}
+      # Ledger transport encryption (TACK-460). The ledger DSNs above already
+      # carry sslmode and the authority's path; these two are for the engine's
+      # administration tool, which the backup and snapshot commands run in
+      # one-shot containers and which takes its certificate directory as a
+      # flag. Without the pass-through those commands dial an encrypted
+      # cluster with no certificates and fail to connect.
+      TACK_LEDGER_TLS_ENABLED: ${TACK_LEDGER_TLS_ENABLED:-false}
+      TACK_LEDGER_CERTS_DIR: ${TACK_LEDGER_CERTS_DIR:-}
     volumes:
       - /root/backups:/root/backups
       - /etc/foundationdb:/etc/foundationdb:ro
@@ -566,6 +574,11 @@ services:
       # then speaks SMTP itself, so the file is all it needs: no msmtp binary
       # lives in this image, and nothing here execs one.
       - /etc/msmtprc:/etc/msmtprc:ro
+      # The ledger's certificate authority, for the DSNs above and for the
+      # one-shots this container starts. Only the certificate directory, not
+      # the whole of /etc/tack: the audit signing key lives beside it and this
+      # container deliberately holds no signing key.
+      - ${TACK_LEDGER_CERTS_DIR:-/etc/tack/ledger-certs}:${TACK_LEDGER_CERTS_DIR:-/etc/tack/ledger-certs}:ro
       # Docker socket mount is intentional for this short-lived ops container:
       # the backup binary orchestrates scratch containers on the local daemon.
       # This exception is explicitly scoped to tack-ops and must not be added

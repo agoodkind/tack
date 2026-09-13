@@ -61,20 +61,24 @@ func RunBackupYBPITRInit(ctx context.Context, cfg *config.Config) error {
 
 	// yb-admin is the entrypoint; the schedule arguments follow in Cmd. The
 	// one-shot joins the compose network so the embedded Docker DNS resolves
-	// the masters hostname.
+	// the masters hostname. It reaches the cluster the same way every other
+	// one-shot does, including the certificates an encrypted cluster requires;
+	// this call builds its own command rather than going through the shared
+	// helper because it reads the exit code and the output itself, to treat a
+	// schedule that already exists as success.
+	accessArgs, accessBinds := ybAdminClusterAccess(cfg)
 	res, err := runOneShot(ctx, cli, logger, runOneShotOptions{
 		Image:      cfg.BackupYBImage,
 		Network:    cfg.BackupFDBNetwork,
 		Entrypoint: []string{ybAdminBinary},
-		Cmd: []string{
-			"--master_addresses", cfg.BackupYBMasterAddresses,
+		Cmd: append(accessArgs,
 			"create_snapshot_schedule",
 			interval,
 			retention,
 			filter,
-		},
+		),
 		Env:        nil,
-		Binds:      nil,
+		Binds:      accessBinds,
 		ExtraHosts: nil,
 		Name:       "",
 	})
