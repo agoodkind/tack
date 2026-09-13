@@ -21,9 +21,6 @@ services:
     command: ["serve", "--execute", "--operator-service", "tack-app"]
     restart: unless-stopped
     mem_limit: 1g
-    dns:
-      # TODO: switch to IPv6 loopback
-      - 127.0.0.11
     ports:
       - "${PORT:-8000}:8000"
     environment:
