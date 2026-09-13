@@ -133,6 +133,13 @@ const (
 	VerbOpsAuthTokenList Verb = "ops.auth_token_list"
 	// VerbOpsAuthTokenRevoke records an operator revoking an API token.
 	VerbOpsAuthTokenRevoke Verb = "ops.auth_token_revoke"
+	// VerbOpsActAsCreate records the operator command that creates one node
+	// as a named user (TACK-424).
+	VerbOpsActAsCreate Verb = "ops.act_as_create"
+	// VerbOpsActAsGrant records the grant under which an operator acted as a
+	// user: the user, the org, the reason, and the grant id the user's own
+	// row carries (TACK-424).
+	VerbOpsActAsGrant Verb = "ops.act_as_grant"
 	// VerbOpsBackfillDefaultChildren records default child backfills.
 	VerbOpsBackfillDefaultChildren Verb = "ops.backfill_default_children"
 	// VerbOpsReindex records property index backfills.

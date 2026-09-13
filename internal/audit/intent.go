@@ -34,6 +34,12 @@ func StageStateChange(ctx context.Context, verb Verb, entity Entity) error {
 			slog.String("verb", string(verb)), slog.String("err", err.Error()))
 		return fmt.Errorf("stage audit event %s id: %w", verb, err)
 	}
+	// An operator acting as the user rides along in Extra and marks the
+	// source; the actor stays the user (TACK-424).
+	extra, err := stagedExtra(ctx)
+	if err != nil {
+		return fmt.Errorf("stage audit event %s: %w", verb, err)
+	}
 	scope := ScopeFromContext(ctx)
 	event := Event{
 		Verb:    string(verb),
@@ -46,11 +52,11 @@ func StageStateChange(ctx context.Context, verb Verb, entity Entity) error {
 		Context: EventContext{
 			OrgID: scope.OrgID, WorkspaceID: scope.WorkspaceID, ScopeID: scope.ScopeID,
 			ParentID: scope.ParentID, RequestID: telemetry.RequestID(ctx),
-			TraceID: telemetry.TraceID(ctx), Source: SourceMCP, Tool: auditintent.Tool(ctx),
+			TraceID: telemetry.TraceID(ctx), Source: stagedSource(ctx), Tool: auditintent.Tool(ctx),
 			RPC: "", Reason: "",
 		},
 		Delta: nil, Outcome: OutcomeOK, Error: nil, IdempotencyKey: "",
-		OccurredAt: clock.Now().UTC(), Extra: nil,
+		OccurredAt: clock.Now().UTC(), Extra: extra,
 	}
 	payload, err := MarshalEvent(event)
 	if err != nil {
