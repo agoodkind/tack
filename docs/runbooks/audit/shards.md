@@ -45,17 +45,21 @@ steps below drain Kafka between the old build and the new one.
    under the wrong count. Wait for 0 on every partition.
 4. Deploy the merged build through the normal deploy path. The deploy recreates
    the app and the consumer on the new image, and the app serves again.
-5. Read the shard space of the rows written since the deploy, through the
-   recorded break-glass command from the install directory:
+5. Read the shard space of the rows written since the new app started. Take
+   the boundary from the app container itself, then read the ledger through
+   the recorded break-glass command, both from the install directory:
 
    ```
+   docker inspect tack-app-1 --format '{{.State.StartedAt}}'
    docker compose run --rm tack-ops ops db sql \
-     --statement "SELECT max(shard) FROM audit.events WHERE event_time > now() - interval '10 minutes'" \
+     --statement "SELECT min(shard), max(shard), count(*) FROM audit.events WHERE event_time > '<the StartedAt value>'" \
      --reason "read back the shard space after the ShardCount change" \
      --operator-id <your id> --operator-email <your email> --execute
    ```
 
-   The value is below the new count.
+   Every row after that boundary was produced under the new count, so the
+   maximum is below the new count; rows before it keep shards from the old
+   space and are excluded by the boundary whichever way the count moved.
 6. Export one org that has rows on both sides of the change and verify the
    bundle:
 
