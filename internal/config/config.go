@@ -299,25 +299,13 @@ type Config struct {
 	// `consumer.processed` debug summaries. Default 100.
 	AuditConsumerSummaryEvery int `env:"TACK_AUDIT_CONSUMER_SUMMARY_EVERY" envDefault:"100"`
 
-	// Deploy: ./server ops deploy reads these. Operator-facing only; the
-	// running server never references them. Kept on Config for env-parity
-	// with the rest of the binary so a single .env drives both the server
-	// and the deploy subcommand.
-	//
-	// DeployRegistry is the image repository the SHA-tagged image is pushed
-	// to in registry mode. DeployMode selects "registry" (default) or
-	// "offline"; offline pipes ImageSave through ImageLoad over the docker
-	// context. DeployDockerContext names the docker context that talks to
-	// the target daemon over ssh://; it has no default because a compiled-in
-	// context name would aim a deploy at a host nobody named, so the deploy
-	// family refuses an empty value (TACK-268). DeployRemoteComposeFile is
-	// the compose path on the remote. DeployTimeout is the overall deploy
-	// timeout (build is the usual long pole).
-	DeployRegistry          string `env:"TACK_DEPLOY_REGISTRY"            envDefault:"ghcr.io/agoodkind/tack"`
-	DeployMode              string `env:"TACK_DEPLOY_MODE"                envDefault:"registry"`
-	DeployDockerContext     string `env:"TACK_DEPLOY_DOCKER_CONTEXT"`
-	DeployRemoteComposeFile string `env:"TACK_DEPLOY_REMOTE_COMPOSE_FILE" envDefault:"/root/tack/docker-compose.yml"`
-	DeployTimeoutSeconds    int    `env:"TACK_DEPLOY_TIMEOUT_SECONDS"     envDefault:"600"`
+	// Deploy verification: `./server ops deploy verify` reads these to name
+	// the images the rolled containers must run. DeployRegistry is the
+	// registry namespace the build workflow pushes tack-server and
+	// tack-audit-consumer under; DeployImageTag is the tag the compose file
+	// pins them at, the same TACK_IMAGE_TAG the deploy renders into .env.
+	DeployRegistry string `env:"TACK_DEPLOY_REGISTRY" envDefault:"ghcr.io/agoodkind"`
+	DeployImageTag string `env:"TACK_IMAGE_TAG"       envDefault:"latest"`
 
 	// Provision: `./server ops provision` reads these to reach the running fdb
 	// and app containers through the Docker socket (tack-ops is host-networked

@@ -8,7 +8,33 @@ package ops
 import (
 	"strings"
 	"testing"
+
+	"goodkind.io/tack/internal/config"
 )
+
+// TestDeployVerifyTargetsFollowTheRenderedTag pins the two images a deploy
+// rolls, at the tag the environment pins unless the operator names one, so
+// the check reads the same references the compose file resolves.
+func TestDeployVerifyTargetsFollowTheRenderedTag(t *testing.T) {
+	cfg := &config.Config{DeployRegistry: "ghcr.io/agoodkind/", DeployImageTag: "a6af885"}
+	got := deployVerifyTargets(cfg, "")
+	want := []deployVerifyTarget{
+		{Container: "tack-app-1", Image: "ghcr.io/agoodkind/tack-server:a6af885"},
+		{Container: "tack-audit-consumer-1", Image: "ghcr.io/agoodkind/tack-audit-consumer:a6af885"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("targets = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("target %d = %v, want %v", i, got[i], want[i])
+		}
+	}
+	explicit := deployVerifyTargets(cfg, " 2eb962e ")
+	if explicit[0].Image != "ghcr.io/agoodkind/tack-server:2eb962e" {
+		t.Fatalf("explicit tag ignored: %s", explicit[0].Image)
+	}
+}
 
 func TestCompareDigestsEqual(t *testing.T) {
 	digest := "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd"

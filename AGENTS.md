@@ -32,16 +32,18 @@ Ansible re-renders `.env` from
 [`tack.env.j2`](https://github.com/agoodkind/configs/blob/main/tack/tack.env.j2)
 on every deploy.
 
-Two deploy actions, split by phase:
+One deploy path:
 
+- The repository's build workflow builds and pushes the `tack-server` and
+  `tack-audit-consumer` images for every commit on `main`.
 - **Ansible
   [`deploy-tack.yml`](https://github.com/agoodkind/configs/blob/main/ansible/playbooks/deploy-tack.yml)**
-  does first boot and any full-stack change: it prepares the LXC, renders
-  `.env`, fetches the stack from this repo at the deployed ref, and runs
+  does first boot and every change: it prepares the LXC, renders `.env` with
+  the image tag, fetches the stack from this repo at the deployed ref, and runs
   `docker compose up -d` for every service.
-- **`./server ops deploy`** does app-image updates only (`app`,
-  `audit-consumer`): build, push, pull, `up -d`, and verify the running digest.
-  It never does first boot and never starts the databases.
+- **`./server ops deploy verify`** runs on the guest afterwards and asserts
+  the `app` and `audit-consumer` containers run the images the deploy named.
+  Nothing in this repo builds, pushes, or rolls images from a laptop.
 
 ## Settled decisions (do not re-litigate)
 

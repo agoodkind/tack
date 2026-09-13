@@ -1,86 +1,116 @@
-// Package ops: deploy_verify.go is the post-up correctness gate. After
-// `docker compose up` returns, the running container's image reference must
-// match the digest the push step recorded. Mismatch means compose pulled or
-// rolled back to a stale image; the deploy fails loudly so the operator
-// notices before walking away.
+// deploy_verify.go is the post-deploy correctness gate: the app and
+// audit-consumer containers must run the images the deploy named. A mismatch
+// means compose kept or rolled back to a stale image, and the check fails
+// loudly so the operator notices before walking away. Images are built by the
+// repository's build workflow and rolled by the configs deploy; this command
+// only reads the daemon it runs against.
 
 package ops
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
 
 	"github.com/moby/moby/client"
+
+	"goodkind.io/tack/internal/clispec"
+	"goodkind.io/tack/internal/config"
 )
 
-func runDeployVerify(ctx context.Context, dctx *deployContext) error {
-	dctx.log.InfoContext(ctx, "ops.deploy.verify.start",
-		slog.String("image_ref", dctx.imageRef),
-	)
+// deployVerifyTarget pairs a rolled container with the image it must run.
+type deployVerifyTarget struct {
+	Container string
+	Image     string
+}
+
+// deployVerifyTargets names the containers a deploy rolls, in the compose
+// project's naming, with the image each must run: the registry namespace and
+// image names the build workflow pushes, at the operator's explicit tag or the
+// tag the rendered environment pins.
+func deployVerifyTargets(cfg *config.Config, explicitTag string) []deployVerifyTarget {
+	tag := strings.TrimSpace(explicitTag)
+	if tag == "" {
+		tag = strings.TrimSpace(cfg.DeployImageTag)
+	}
+	registry := strings.TrimSuffix(strings.TrimSpace(cfg.DeployRegistry), "/")
+	return []deployVerifyTarget{
+		{Container: "tack-app-1", Image: registry + "/tack-server:" + tag},
+		{Container: "tack-audit-consumer-1", Image: registry + "/tack-audit-consumer:" + tag},
+	}
+}
+
+// runDeployVerify reads each expected image's registry digest from the daemon
+// and compares it with the digest the matching container runs.
+func runDeployVerify(ctx context.Context, cfg *config.Config, sink clispec.ResultSink, explicitTag string) error {
+	const command = "ops deploy verify"
+	targets := deployVerifyTargets(cfg, explicitTag)
 	cli, err := newDockerClient(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("%s: %w", command, err)
 	}
 	defer func() { _ = cli.Close() }()
 
-	expected, err := resolveExpectedDigest(ctx, cli, dctx)
-	if err != nil {
-		return err
-	}
-	if expected == "" {
-		err := errors.New("deploy verify: no expected digest available; push step did not record one")
-		dctx.log.ErrorContext(ctx, "ops.deploy.verify.no_expected",
-			slog.String("err", err.Error()))
-		return err
-	}
-	matched := []string{}
-	for _, name := range []string{"tack-app-1", "tack-audit-consumer-1"} {
-		actual, derr := containerImageDigest(ctx, cli, name)
-		if derr != nil {
-			return derr
+	lines := make([]string, 0, len(targets))
+	for _, target := range targets {
+		slog.DebugContext(ctx, "ops.deploy.verify.target",
+			slog.String("container", target.Container), slog.String("image_ref", target.Image))
+		expected, err := inspectImageDigest(ctx, cli, target.Image)
+		if err != nil {
+			return fmt.Errorf("%s: %w", command, err)
 		}
-		cerr := compareDigests(name, expected, actual)
-		if cerr != nil {
-			dctx.log.ErrorContext(ctx, "ops.deploy.verify.mismatch",
-				slog.String("container", name),
+		if expected == "" {
+			err := fmt.Errorf("image %s carries no registry digest on this daemon", target.Image)
+			slog.ErrorContext(ctx, "ops.deploy.verify.no_expected", slog.String("err", err.Error()))
+			return fmt.Errorf("%s: %w", command, err)
+		}
+		actual, err := containerImageDigest(ctx, cli, target.Container)
+		if err != nil {
+			return fmt.Errorf("%s: %w", command, err)
+		}
+		if err := compareDigests(target.Container, expected, actual); err != nil {
+			slog.ErrorContext(ctx, "ops.deploy.verify.mismatch",
+				slog.String("container", target.Container),
 				slog.String("expected", expected),
 				slog.String("actual", actual),
-				slog.String("err", cerr.Error()))
-			return cerr
+				slog.String("err", err.Error()))
+			return fmt.Errorf("%s: %w", command, err)
 		}
-		matched = append(matched, name)
+		lines = append(lines, target.Container+" runs "+target.Image+" ("+expected+")")
 	}
-	dctx.log.InfoContext(ctx, "ops.deploy.verify.completed",
-		slog.String("digest", expected),
-		slog.Any("containers", matched),
-	)
+	slog.InfoContext(ctx, "ops.deploy.verify.completed", slog.Int("containers", len(targets)))
+	if err := sink.WriteText(ctx, strings.Join(lines, "\n")); err != nil {
+		slog.ErrorContext(ctx, "ops.deploy.verify.write_result_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("%s: write result: %w", command, err)
+	}
 	return nil
 }
 
-// resolveExpectedDigest returns the manifest digest the push step recorded.
-// If no digest was recorded (push was skipped), inspect the image on the
-// remote daemon as a fallback so `./server ops deploy verify` works
-// standalone.
-func resolveExpectedDigest(
-	ctx context.Context,
-	cli *client.Client,
-	dctx *deployContext,
-) (string, error) {
-	if len(dctx.pushedDigests) > 0 {
-		return dctx.pushedDigests[0], nil
+// inspectImageDigest returns the first registry digest of the named image,
+// the content-addressable manifest digest a registry returns on push. An empty
+// string means the image was never pulled from or pushed to a registry.
+func inspectImageDigest(ctx context.Context, cli *client.Client, ref string) (string, error) {
+	insp, err := cli.ImageInspect(ctx, ref)
+	if err != nil {
+		slog.ErrorContext(ctx, "ops.deploy.image.inspect_failed",
+			slog.String("ref", ref), slog.String("err", err.Error()))
+		return "", fmt.Errorf("inspect %s: %w", ref, err)
 	}
-	return inspectImageDigest(ctx, cli, dctx.imageRef)
+	for _, rd := range insp.RepoDigests {
+		_, after, ok := strings.Cut(rd, "@")
+		if ok {
+			return after, nil
+		}
+	}
+	return "", nil
 }
 
 // containerImageDigest returns the manifest digest the named container is
-// actually running. The InspectResponse's Image field holds either an
-// `image:tag` reference or a `sha256:...` digest depending on docker version
-// and how the container was started; this function normalizes to digest
-// form by re-inspecting the image when needed. Marshal-shape style: error
-// log lives at the caller (runDeployVerify) which has full deploy context.
+// actually running. The inspect response's Image field holds either an
+// `image:tag` reference or a `sha256:...` digest depending on how the
+// container was started; this normalizes to digest form by re-inspecting the
+// image when needed.
 func containerImageDigest(ctx context.Context, cli *client.Client, name string) (string, error) {
 	insp, err := cli.ContainerInspect(ctx, name, client.ContainerInspectOptions{})
 	if err != nil {

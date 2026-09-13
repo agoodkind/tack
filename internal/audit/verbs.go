@@ -155,17 +155,8 @@ const (
 	VerbOpsBackupFDBContinuousInit Verb = "ops.backup_fdb_continuous_init"
 	// VerbOpsBackupStalenessCheck records a backup staleness report.
 	VerbOpsBackupStalenessCheck Verb = "ops.backup_staleness_check"
-	// VerbOpsDeploy records the full deployment command.
-	VerbOpsDeploy Verb = "ops.deploy"
-	// VerbOpsDeployBuild records deployment image creation.
-	VerbOpsDeployBuild Verb = "ops.deploy_build"
-	// VerbOpsDeployPush records deployment image publication.
-	VerbOpsDeployPush Verb = "ops.deploy_push"
-	// VerbOpsDeployPull records deployment image retrieval.
-	VerbOpsDeployPull Verb = "ops.deploy_pull"
-	// VerbOpsDeployUp records deployment container rollout.
-	VerbOpsDeployUp Verb = "ops.deploy_up"
-	// VerbOpsDeployVerify records deployment verification.
+	// VerbOpsDeployVerify records a check that the rolled containers run the
+	// deployed images.
 	VerbOpsDeployVerify Verb = "ops.deploy_verify"
 	// VerbOpsLedgerNodePrepare records a deploy aligning a ledger node's saved
 	// master list with the environment before the node restarts (TACK-489).
