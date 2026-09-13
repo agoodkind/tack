@@ -87,6 +87,13 @@ func newDeployContext(ctx context.Context, cfg *config.Config) (*deployContext, 
 	}
 	registry := strings.TrimSpace(cfg.DeployRegistry)
 	dockerCtx := strings.TrimSpace(cfg.DeployDockerContext)
+	if dockerCtx == "" {
+		err := errors.New(
+			"TACK_DEPLOY_DOCKER_CONTEXT is required: name the docker context that reaches the target daemon")
+		slog.ErrorContext(ctx, "ops.deploy.context.missing_docker_context",
+			slog.String("err", err.Error()))
+		return nil, err
+	}
 	composeFile := strings.TrimSpace(cfg.DeployRemoteComposeFile)
 	timeoutSecs := cfg.DeployTimeoutSeconds
 	if timeoutSecs <= 0 {

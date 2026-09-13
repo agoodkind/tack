@@ -119,12 +119,12 @@ type Config struct {
 	AuditKafkaClientID       string        `env:"AUDIT_KAFKA_CLIENT_ID"       envDefault:"tack-audit-producer"`
 	AuditKafkaProduceTimeout time.Duration `env:"AUDIT_KAFKA_PRODUCE_TIMEOUT" envDefault:"15s"`
 
-	// Meilisearch: optional, no-op stub used when unset.
-	MeiliURL       string `env:"MEILI_URL"        envDefault:"http://localhost:7700"`
-	MeiliMasterKey string `env:"MEILI_MASTER_KEY" envDefault:"tack-dev-meili-key-change-in-prod"`
-
-	// Temporal: background workflow engine. Defaults to localhost for dev.
-	TemporalAddress string `env:"TEMPORAL_ADDRESS" envDefault:"localhost:7233"`
+	// Meilisearch. Both values are required: a compiled-in address or key
+	// would let a process start against the wrong search engine, or with a
+	// key everyone knows, without saying so (TACK-268). docker-compose.yml
+	// sets the address per service and the key from .env.
+	MeiliURL       string `env:"MEILI_URL,required"`
+	MeiliMasterKey string `env:"MEILI_MASTER_KEY,required"`
 
 	// Optional: if unset, OTEL tracing is a no-op.
 	OTELEndpoint string `env:"OTEL_EXPORTER_OTLP_ENDPOINT"`
@@ -308,12 +308,14 @@ type Config struct {
 	// to in registry mode. DeployMode selects "registry" (default) or
 	// "offline"; offline pipes ImageSave through ImageLoad over the docker
 	// context. DeployDockerContext names the docker context that talks to
-	// the production daemon over ssh://. DeployRemoteComposeFile is the
-	// compose path on the remote. DeployTimeout is the overall deploy
+	// the target daemon over ssh://; it has no default because a compiled-in
+	// context name would aim a deploy at a host nobody named, so the deploy
+	// family refuses an empty value (TACK-268). DeployRemoteComposeFile is
+	// the compose path on the remote. DeployTimeout is the overall deploy
 	// timeout (build is the usual long pole).
 	DeployRegistry          string `env:"TACK_DEPLOY_REGISTRY"            envDefault:"ghcr.io/agoodkind/tack"`
 	DeployMode              string `env:"TACK_DEPLOY_MODE"                envDefault:"registry"`
-	DeployDockerContext     string `env:"TACK_DEPLOY_DOCKER_CONTEXT"      envDefault:"tack"`
+	DeployDockerContext     string `env:"TACK_DEPLOY_DOCKER_CONTEXT"`
 	DeployRemoteComposeFile string `env:"TACK_DEPLOY_REMOTE_COMPOSE_FILE" envDefault:"/root/tack/docker-compose.yml"`
 	DeployTimeoutSeconds    int    `env:"TACK_DEPLOY_TIMEOUT_SECONDS"     envDefault:"600"`
 
