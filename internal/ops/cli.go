@@ -52,6 +52,8 @@ func RegisterCommands(reg *clispec.Registry, f *cli.Factory) {
 	clispec.Register(reg, datagenReferenceShapeOp(f))
 	clispec.Register(reg, datagenLegacyLedgerRowOp(f))
 	clispec.Register(reg, provisionOp(f))
+	clispec.Register(reg, ledgerNodePrepareOp(f))
+	clispec.Register(reg, ledgerNodeWaitOp(f))
 	registerBatchOps(reg, f)
 	reg.AddHandwritten(clispec.HandwrittenCommand{Group: opsGroup, Build: backupCommand})
 	reg.AddHandwritten(clispec.HandwrittenCommand{Group: opsGroup, Build: deployCommand})

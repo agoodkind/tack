@@ -167,6 +167,12 @@ const (
 	VerbOpsDeployUp Verb = "ops.deploy_up"
 	// VerbOpsDeployVerify records deployment verification.
 	VerbOpsDeployVerify Verb = "ops.deploy_verify"
+	// VerbOpsLedgerNodePrepare records a deploy aligning a ledger node's saved
+	// master list with the environment before the node restarts (TACK-489).
+	VerbOpsLedgerNodePrepare Verb = "ops.ledger_node_prepare"
+	// VerbOpsLedgerNodeWait records a deploy waiting for a restarted ledger
+	// node, keyed on its replication progress (TACK-471).
+	VerbOpsLedgerNodeWait Verb = "ops.ledger_node_wait"
 )
 
 // stateChangeVerbs is the set of application events that must be persisted
