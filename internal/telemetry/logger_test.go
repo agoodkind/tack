@@ -12,6 +12,8 @@ import (
 // configured with, not only the startup line (TACK-263).
 func TestSetupStampsEnvOnEveryRecord(t *testing.T) {
 	jsonFile := filepath.Join(t.TempDir(), "app.jsonl")
+	previous := slog.Default()
+	defer slog.SetDefault(previous)
 	closer, err := Setup(LogConfig{
 		Level:         "info",
 		JSONFile:      jsonFile,
