@@ -27,16 +27,18 @@ const (
 )
 
 // ledgerNodePrepareResult is what the command emits: what the saved list was,
-// what it is now, and whether the node was stopped for the restart.
+// what it is now, which flags the running server holds at a value the flag
+// file no longer carries, and whether the node was stopped for the restart.
 type ledgerNodePrepareResult struct {
 	clispec.ResultMarker
-	Command   string `json:"command"`
-	Container string `json:"container"`
-	State     string `json:"state"`
-	Before    string `json:"before,omitempty"`
-	After     string `json:"after,omitempty"`
-	Stopped   bool   `json:"stopped"`
-	DryRun    bool   `json:"dry_run"`
+	Command    string   `json:"command"`
+	Container  string   `json:"container"`
+	State      string   `json:"state"`
+	Before     string   `json:"before,omitempty"`
+	After      string   `json:"after,omitempty"`
+	StaleFlags []string `json:"stale_flags,omitempty"`
+	Stopped    bool     `json:"stopped"`
+	DryRun     bool     `json:"dry_run"`
 }
 
 // runLedgerNodePrepare aligns the local node's saved master list. With
@@ -57,7 +59,7 @@ func runLedgerNodePrepare(ctx context.Context, cfg *config.Config, sink clispec.
 
 	result := ledgerNodePrepareResult{
 		ResultMarker: clispec.ResultMarker{}, Command: command, Container: yugabyteBackupContainer,
-		State: "", Before: "", After: "", Stopped: false, DryRun: !execute,
+		State: "", Before: "", After: "", StaleFlags: nil, Stopped: false, DryRun: !execute,
 	}
 	saved, found, err := readLauncherConfig(ctx, cli, yugabyteBackupContainer)
 	if err != nil {
@@ -76,8 +78,26 @@ func runLedgerNodePrepare(ctx context.Context, cfg *config.Config, sink clispec.
 	result.Before = strings.Join(current, ",")
 	result.After = strings.Join(wanted, ",")
 	if equalStringSets(current, wanted) {
-		result.State = ledgerNodeStateUnchanged
-		slog.InfoContext(ctx, "ops.ledger.node_prepare.unchanged", slog.String("masters", result.Before))
+		stale, err := staleLedgerNodeFlags(ctx, cli, yugabyteBackupContainer)
+		if err != nil {
+			return fmt.Errorf("%s: %w", command, err)
+		}
+		if len(stale) == 0 {
+			result.State = ledgerNodeStateUnchanged
+			slog.InfoContext(ctx, "ops.ledger.node_prepare.unchanged", slog.String("masters", result.Before))
+			return writeLedgerNodePrepareResult(ctx, sink, result)
+		}
+		result.State = ledgerNodeStateChanged
+		result.StaleFlags = stale
+		if !execute {
+			return writeLedgerNodePrepareResult(ctx, sink, result)
+		}
+		if _, err := cli.ContainerStop(ctx, yugabyteBackupContainer, client.ContainerStopOptions{}); err != nil {
+			slog.ErrorContext(ctx, "ops.ledger.node_prepare.stop_failed", slog.String("err", err.Error()))
+			return fmt.Errorf("%s: stop %s for its changed flag file: %w", command, yugabyteBackupContainer, err)
+		}
+		result.Stopped = true
+		slog.InfoContext(ctx, "ops.ledger.node_prepare.flags_changed", slog.Any("stale_flags", stale))
 		return writeLedgerNodePrepareResult(ctx, sink, result)
 	}
 	result.State = ledgerNodeStateChanged

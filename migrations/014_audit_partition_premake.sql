@@ -40,7 +40,8 @@ BEGIN
            AND child_ns.nspname = 'audit'
            AND c.relname ~ '^events_p[0-9]{4}_[0-9]{2}_[0-9]{2}$'
     LOOP
-        lower_bound := to_date(substring(child.relname from 8), 'YYYY_MM_DD');
+        /* events_pYYYY_MM_DD: the date starts at the ninth character. */
+        lower_bound := to_date(substring(child.relname from 9), 'YYYY_MM_DD');
         IF lower_bound > keep_through THEN
             EXECUTE format('SELECT count(*) FROM audit.%I', child.relname)
                INTO row_count;
