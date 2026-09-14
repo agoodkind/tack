@@ -37,7 +37,7 @@ func recordActAsGrant(ctx context.Context, outbox audit.OutboxWriter, principal 
 		Entity: audit.Entity{Type: "user", NodeType: "", ID: grant.TargetUserID, Identifier: grant.TargetEmail, Name: ""},
 		Context: audit.EventContext{
 			OrgID: grant.OrgID, WorkspaceID: uuid.Nil, ScopeID: uuid.Nil, ParentID: grant.ParentID,
-			RequestID: "", TraceID: "", Source: audit.SourceSystem, Tool: actAsTool, RPC: "", Reason: grant.Reason,
+			RequestID: "", TraceID: "", Source: audit.SourceOperator, Tool: actAsTool, RPC: "", Reason: grant.Reason,
 		},
 		Delta: nil, Outcome: audit.OutcomeOK, Error: nil, IdempotencyKey: "",
 		OccurredAt: clock.Now().UTC(), Extra: encoded,

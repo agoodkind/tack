@@ -115,8 +115,13 @@ func runActAsCreate(ctx context.Context, deps actAsDeps, input actAsCreateInput,
 		slog.ErrorContext(ctx, "act_as.principal_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("resolve the operator for the act-as grant: %w", err)
 	}
+	grantID, err := uuid.NewV7()
+	if err != nil {
+		slog.ErrorContext(ctx, "act_as.grant_id_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("generate the act-as grant id: %w", err)
+	}
 	grant := actAsGrantExtra{
-		GrantID: uuid.Must(uuid.NewV7()), TargetUserID: target.user.ID, TargetEmail: target.user.Email,
+		GrantID: grantID, TargetUserID: target.user.ID, TargetEmail: target.user.Email,
 		OrgID: target.orgID, Reason: reason, NodeType: input.NodeType, ParentID: target.parentID,
 	}
 	if err := recordActAsGrant(ctx, deps.outbox, principal, grant); err != nil {
