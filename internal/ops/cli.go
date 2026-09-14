@@ -27,8 +27,8 @@ type noInput struct {
 }
 
 // RegisterCommands adds the whole `ops` family to reg: the declared leaf
-// operations plus the hand-written backup and deploy subtrees. Bare backup
-// rejects invocation, while deploy carries a default action.
+// operations plus the hand-written backup subtree, whose bare command rejects
+// invocation.
 func RegisterCommands(reg *clispec.Registry, f *cli.Factory) {
 	clispec.Register(reg, inspectReadOp(f))
 	clispec.Register(reg, inspectFindOp(f))
@@ -54,9 +54,9 @@ func RegisterCommands(reg *clispec.Registry, f *cli.Factory) {
 	clispec.Register(reg, provisionOp(f))
 	clispec.Register(reg, ledgerNodePrepareOp(f))
 	clispec.Register(reg, ledgerNodeWaitOp(f))
+	clispec.Register(reg, deployVerifyOp(f))
 	registerBatchOps(reg, f)
 	reg.AddHandwritten(clispec.HandwrittenCommand{Group: opsGroup, Build: backupCommand})
-	reg.AddHandwritten(clispec.HandwrittenCommand{Group: opsGroup, Build: deployCommand})
 }
 
 // registerBatchOps renders one leaf under `ops batch` per registered batch op,

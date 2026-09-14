@@ -1,8 +1,8 @@
-// Package ops: dockerctl.go is a thin Docker SDK helper shared by the backup
-// and deploy families. The plan calls for laptop-side invocation with
-// `DOCKER_CONTEXT=tack` over `ssh://`. The SDK's `client.FromEnv` honors
-// `DOCKER_HOST`, `DOCKER_CONTEXT`, and `DOCKER_TLS_VERIFY` automatically;
-// this file does not reimplement that.
+// Package ops: dockerctl.go is a thin Docker SDK helper shared by every ops
+// family that touches the container runtime. Nothing here runs the docker
+// program: the SDK's `client.FromEnv` reads `DOCKER_HOST`, `DOCKER_CERT_PATH`,
+// and `DOCKER_TLS_VERIFY`, and the commands run on the guest whose daemon they
+// address, through the socket the tack-ops service mounts.
 
 package ops
 
@@ -13,8 +13,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"os/exec"
-	"strings"
 	"time"
 
 	"github.com/moby/moby/api/pkg/stdcopy"
@@ -23,10 +21,9 @@ import (
 	"github.com/moby/moby/client"
 )
 
-// newDockerClient builds a docker client honoring DOCKER_HOST, DOCKER_CONTEXT,
-// and DOCKER_TLS_VERIFY. The deploy family uses this for the remote daemon
-// (the `tack` context over ssh://); the backup family uses it for the
-// production daemon. Boundary event so dispatch-time failures have a log line
+// newDockerClient builds a docker client honoring DOCKER_HOST, DOCKER_CERT_PATH,
+// and DOCKER_TLS_VERIFY, which is the guest's own daemon under the tack-ops
+// service. Boundary event so dispatch-time failures have a log line
 // independent of the wrapped error.
 func newDockerClient(ctx context.Context) (*client.Client, error) {
 	slog.DebugContext(ctx, "ops.docker.client.connect", slog.String("scope", "env"))
@@ -37,76 +34,6 @@ func newDockerClient(ctx context.Context) (*client.Client, error) {
 		return nil, fmt.Errorf("docker client: %w", err)
 	}
 	return cli, nil
-}
-
-// newLocalDockerClient pins to the local daemon by overriding any
-// DOCKER_HOST/DOCKER_CONTEXT inherited from the operator env. Used when the
-// build half of a deploy must run on the laptop while the up half talks to
-// the remote.
-func newLocalDockerClient(ctx context.Context) (*client.Client, error) {
-	slog.DebugContext(ctx, "ops.docker.client.connect", slog.String("scope", "local"))
-	cli, err := client.New(client.WithHost(client.DefaultDockerHost))
-	if err != nil {
-		slog.ErrorContext(ctx, "ops.docker.client.connect_local_failed",
-			slog.String("err", err.Error()))
-		return nil, fmt.Errorf("local docker client: %w", err)
-	}
-	return cli, nil
-}
-
-// assertDockerContext verifies the named docker context is registered before
-// the backup or deploy family starts. Fails fast: without this, an unset
-// context surfaces as a TLS or dial error several layers down. Empty
-// contextName is a no-op so callers running against the laptop's default
-// daemon are not penalized.
-//
-// `docker context inspect` is invoked via os/exec because the docker SDK
-// does not expose context registration; the CLI owns that file.
-func assertDockerContext(ctx context.Context, contextName string) error {
-	if contextName == "" {
-		slog.DebugContext(ctx, "ops.docker.context.skip", slog.String("reason", "empty name"))
-		return nil
-	}
-	slog.DebugContext(ctx, "ops.docker.context.inspect", slog.String("context", contextName))
-	cmd := exec.CommandContext(ctx, "docker", "context", "inspect", contextName)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	err := cmd.Run()
-	if err != nil {
-		slog.ErrorContext(ctx, "ops.docker.context.unconfigured",
-			slog.String("context", contextName),
-			slog.String("err", err.Error()),
-			slog.String("stderr", strings.TrimSpace(stderr.String())))
-		return fmt.Errorf("docker context %q not configured: %w (stderr: %s)",
-			contextName, err, strings.TrimSpace(stderr.String()))
-	}
-	return nil
-}
-
-// runDockerCmd runs `docker <args...>` against the env-configured daemon and
-// returns combined output. Used by the few operations the SDK does not cover
-// cleanly (compose up, fdbbackup). The plan's "no shell scripts" rule allows
-// individual typed command invocations; what it forbids is writing new .sh files.
-func runDockerCmd(ctx context.Context, log *slog.Logger, args ...string) (string, error) {
-	if log == nil {
-		log = slog.Default()
-	}
-	log.DebugContext(ctx, "ops.docker.cmd.start", slog.Any("args", args))
-	cmd := exec.CommandContext(ctx, "docker", args...)
-	out, err := cmd.CombinedOutput()
-	log.DebugContext(ctx, "ops.docker.cmd.done",
-		slog.Any("args", args),
-		slog.Int("output_bytes", len(out)),
-	)
-	if err != nil {
-		log.ErrorContext(ctx, "ops.docker.cmd.failed",
-			slog.Any("args", args),
-			slog.String("err", err.Error()),
-			slog.String("output", strings.TrimSpace(string(out))))
-		return string(out), fmt.Errorf("docker %s: %w (output: %s)",
-			strings.Join(args, " "), err, strings.TrimSpace(string(out)))
-	}
-	return string(out), nil
 }
 
 // execResult bundles a single ContainerExec invocation's stdout, stderr, and

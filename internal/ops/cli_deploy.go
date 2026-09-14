@@ -3,58 +3,49 @@ package ops
 import (
 	"context"
 
-	"github.com/spf13/cobra"
-
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clispec"
 )
 
-// deployCommand builds the `ops deploy` subtree. The bare command runs the full
-// build, push, pull, up, verify flow; each subcommand stops after one step.
-func deployCommand(f *cli.Factory) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "deploy",
-		Short: "Build, push, and roll the production image to CT 117",
-		Long:  "Run the canonical build, push, pull, up, verify flow. Each subcommand stops after one step.",
+// deployGroup holds the read that follows a deploy. Images are built by the
+// repository's build workflow and rolled by the configs deploy, so the only
+// command here checks the outcome.
+var deployGroup = &clispec.Group{
+	Use: "deploy", Short: "Check the outcome of a deploy on this daemon",
+	Long: "", Parent: opsGroup,
+}
+
+// deployVerifyInput carries the optional explicit image tag.
+type deployVerifyInput struct {
+	clispec.InputMarker
+	Tag string
+}
+
+// deployVerifyOp declares `ops deploy verify`.
+func deployVerifyOp(f *cli.Factory) clispec.Operation[deployVerifyInput] {
+	return clispec.Operation[deployVerifyInput]{
+		Name:    clispec.Name{Canonical: "verify", CLIOverride: ""},
+		Audit:   audit.Spec{Verb: string(audit.VerbOpsDeployVerify), Reads: true},
+		Group:   deployGroup,
+		Aliases: nil,
+		Hidden:  false,
+		Short:   "Assert the app and audit-consumer containers run the deployed images",
+		Long: "Reads the registry digest of each expected image from the daemon and " +
+			"compares it with the digest the matching container runs. The expected " +
+			"images are tack-server and tack-audit-consumer under TACK_DEPLOY_REGISTRY " +
+			"at TACK_IMAGE_TAG, unless --tag names another tag.",
+		Examples: nil,
+		Args:     nil,
+		Params: []clispec.Param[deployVerifyInput]{
+			clispec.StringParam("tag", "image tag the containers must run", "", false,
+				func(in *deployVerifyInput, v string) { in.Tag = v }),
+		},
+		New: func() deployVerifyInput {
+			return deployVerifyInput{InputMarker: clispec.InputMarker{}, Tag: ""}
+		},
+		Run: func(ctx context.Context, in deployVerifyInput, sink clispec.ResultSink) error {
+			return runDeployVerify(ctx, f.Cfg, sink, in.Tag)
+		},
 	}
-	attachDeployAudit(cmd, f, audit.VerbOpsDeploy, true, runDeployAll)
-	cmd.AddCommand(
-		deployLeaf(f, "build", "Compile the tack-server image locally", audit.VerbOpsDeployBuild, true, runDeployBuild),
-		deployLeaf(f, "push", "Ship the image to the registry or save it for offline load", audit.VerbOpsDeployPush, true, runDeployPush),
-		deployLeaf(f, "pull", "Fetch the image on the remote host", audit.VerbOpsDeployPull, true, runDeployPull),
-		deployLeaf(f, "up", "Roll the running container with docker compose up -d", audit.VerbOpsDeployUp, true, runDeployUp),
-		deployLeaf(f, "verify", "Assert the running digest matches the pushed image", audit.VerbOpsDeployVerify, false, runDeployVerify),
-	)
-	return cmd
-}
-
-func deployLeaf(
-	f *cli.Factory,
-	use string,
-	short string,
-	verb audit.Verb,
-	mutates bool,
-	run func(context.Context, *deployContext) error,
-) *cobra.Command {
-	cmd := &cobra.Command{Use: use, Short: short}
-	attachDeployAudit(cmd, f, verb, mutates, run)
-	return cmd
-}
-
-func attachDeployAudit(
-	cmd *cobra.Command,
-	f *cli.Factory,
-	verb audit.Verb,
-	mutates bool,
-	run func(context.Context, *deployContext) error,
-) {
-	spec := audit.Spec{Verb: string(verb), Mutates: mutates, Reads: !mutates}
-	clispec.AttachAudit(cmd, f, spec, func(ctx context.Context) error {
-		deployContext, err := newDeployContext(ctx, f.Cfg)
-		if err != nil {
-			return err
-		}
-		return run(ctx, deployContext)
-	})
 }

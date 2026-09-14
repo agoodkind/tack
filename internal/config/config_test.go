@@ -61,18 +61,3 @@ func TestLoadRefusesMissingSearchValues(t *testing.T) {
 		})
 	}
 }
-
-// The deploy docker context has no compiled-in value; an unset variable
-// loads as empty and the deploy family refuses it at its own boundary.
-func TestLoadLeavesDeployDockerContextEmptyWhenUnset(t *testing.T) {
-	setRequiredForTest(t)
-	unsetForTest(t, "TACK_DEPLOY_DOCKER_CONTEXT")
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if cfg.DeployDockerContext != "" {
-		t.Fatalf("DeployDockerContext = %q, want empty", cfg.DeployDockerContext)
-	}
-}

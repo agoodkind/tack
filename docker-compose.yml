@@ -575,6 +575,9 @@ services:
       # cluster with no certificates and fail to connect.
       TACK_LEDGER_TLS_ENABLED: ${TACK_LEDGER_TLS_ENABLED:-false}
       TACK_LEDGER_CERTS_DIR: ${TACK_LEDGER_CERTS_DIR:-}
+      # The tag this stack pins the app images at, so `ops deploy verify`
+      # checks the running containers against the image the deploy named.
+      TACK_IMAGE_TAG: ${TACK_IMAGE_TAG:-latest}
     volumes:
       - /root/backups:/root/backups
       - /etc/foundationdb:/etc/foundationdb:ro

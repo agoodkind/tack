@@ -55,9 +55,8 @@ This plan codifies the fail-loud-and-early pattern across the binary, compose, a
 
    Concrete tier 2 expansion: AUDIT_WRITER_DSN, AUDIT_READER_DSN, AUDIT_REDACTOR_DSN, AUDIT_SIGNING_KEY_PATH, YUGABYTE_PASSWORD. Remove the dev default on MEILI_MASTER_KEY (`tack-dev-meili-key-change-in-prod`) so it can't ship to production silently.
 
-   Tier 3 examples: TACK_BACKUP_TEMPORAL_DB_PASSWORD, SEED_EMAIL/SEED_NAME, GHCR_USERNAME/GHCR_TOKEN, deploy-only vars.
-   - `SEED_EMAIL`, `SEED_NAME` — only seed needs them (already validated at `cmd/server/seed.go:67-71`)
-   - `GHCR_USERNAME`, `GHCR_TOKEN` — only `./server ops deploy` needs them; read via `os.Getenv` in `internal/ops/deploy.go`
+   Tier 3 examples: TACK_BACKUP_TEMPORAL_DB_PASSWORD, SEED_EMAIL/SEED_NAME.
+   - `SEED_EMAIL` and `SEED_NAME`: only seed needs them (already validated at `cmd/server/seed.go:67-71`)
 
 3. **Subcommand-scoped required via embedded config structs.**
 
