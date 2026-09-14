@@ -159,7 +159,11 @@ func resolveActAsTarget(ctx context.Context, deps actAsDeps, input actAsCreateIn
 		return none, fmt.Errorf("--parent must be a UUID: %w", err)
 	}
 	resolve, err := deps.reader.Resolve(ctx, parentID)
-	if err != nil || resolve == nil {
+	if err != nil {
+		slog.ErrorContext(ctx, "act_as.parent_lookup_failed", slog.String("parent_id", parentID.String()), slog.String("err", err.Error()))
+		return none, fmt.Errorf("resolve parent %s: %w", parentID, err)
+	}
+	if resolve == nil {
 		slog.WarnContext(ctx, "act_as.parent_unknown", slog.String("parent_id", parentID.String()))
 		return none, fmt.Errorf("parent %s: %w", parentID, domain.ErrNotFound)
 	}
