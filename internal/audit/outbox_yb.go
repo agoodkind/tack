@@ -57,11 +57,7 @@ func (o *PoolOutbox) WriteOutbox(ctx context.Context, event Event) error {
 	if err != nil {
 		return err
 	}
-	_, err = o.pool.Exec(ctx, `
-		INSERT INTO public.ops_outbox (event_id, event)
-		VALUES ($1, $2)
-	`, event.EventID, eventJSON)
-	if err != nil {
+	if err := o.insertOutboxEvent(ctx, event, eventJSON); err != nil {
 		slog.ErrorContext(ctx, "audit.outbox.write_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("write ops outbox event %s: %w", event.EventID, err)
 	}
