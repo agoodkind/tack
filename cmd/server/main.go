@@ -43,6 +43,7 @@ func run() int {
 		MaxBackups:    cfg.LogMaxBackups,
 		MaxAgeDays:    cfg.LogMaxAgeDays,
 		OTELEndpoint:  cfg.OTELEndpoint,
+		Env:           cfg.Env,
 	})
 	if err != nil {
 		slog.Error("telemetry.setup", "err", err)
@@ -54,7 +55,6 @@ func run() int {
 		}
 	}()
 	slog.Info("server.startup",
-		slog.String("env", cfg.Env),
 		slog.String("version", version.Tag()),
 		slog.String("commit", version.Commit()),
 	)

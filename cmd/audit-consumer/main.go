@@ -48,6 +48,10 @@ type consumerEnv struct {
 	// FDBClusterFile enables the FoundationDB relay when set.
 	FDBClusterFile string `env:"FDB_CLUSTER_FILE"`
 
+	// Env names the deployment environment for the "env" log attribute; the
+	// consumer has no auth mode, so it only labels the log lines.
+	Env string `env:"ENV,required"`
+
 	LogLevel         string `env:"LOG_LEVEL"`
 	LogJSONFile      string `env:"LOG_JSON_FILE"`
 	LogTextFile      string `env:"LOG_TEXT_FILE"`
@@ -198,6 +202,7 @@ func run() error {
 		MaxBackups:    cfg.LogMaxBackups,
 		MaxAgeDays:    cfg.LogMaxAgeDays,
 		OTELEndpoint:  cfg.OTELEndpoint,
+		Env:           cfg.Env,
 	})
 	if err != nil {
 		return fmt.Errorf("telemetry setup: %w", err)

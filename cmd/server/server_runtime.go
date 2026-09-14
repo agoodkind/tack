@@ -37,7 +37,6 @@ func runServer(ctx context.Context, cfg *config.Config) error {
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	slog.InfoContext(ctx, "starting server",
 		"addr", addr,
-		"env", cfg.Env,
 		"version", version.Tag(),
 		"commit", version.Commit(),
 		"build_hash", version.BuildHash(),

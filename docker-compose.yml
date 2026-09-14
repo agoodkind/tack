@@ -445,6 +445,9 @@ services:
       # and halt every operator event, not just the FoundationDB ones. Leaving
       # it unset on a host without that mount runs the YugabyteDB half alone.
       FDB_CLUSTER_FILE: ${AUDIT_CONSUMER_FDB_CLUSTER_FILE:-}
+      # The same ENV the app requires, read the same way, so every consumer
+      # log line names its environment (TACK-263).
+      ENV: ${ENV:?ENV is required, set it in .env}
       LOG_LEVEL: ${LOG_LEVEL:-debug}
       LOG_JSON_FILE: /var/log/tack/audit-consumer.jsonl
       LOG_TEXT_FILE: /var/log/tack/audit-consumer.log

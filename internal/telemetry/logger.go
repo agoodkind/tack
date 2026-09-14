@@ -52,6 +52,11 @@ type LogConfig struct {
 
 	// OTELEndpoint enables OTLP trace export when non-empty.
 	OTELEndpoint string
+
+	// Env is the deployment environment name the process runs as. It rides
+	// on every record as the "env" attribute, the way the build does, so a
+	// line read out of a log names the environment that wrote it (TACK-263).
+	Env string
 }
 
 // Setup initializes the global slog logger via gklog. Returns an io.Closer
@@ -91,6 +96,7 @@ func Setup(cfg LogConfig) (io.Closer, error) {
 		BuildVersion: buildVersion(),
 		Handlers:     handlers,
 	})
+	logger = logger.With(slog.String("env", cfg.Env))
 	slog.SetDefault(logger)
 
 	traceCloser, err := trace.Setup(trace.Options{
