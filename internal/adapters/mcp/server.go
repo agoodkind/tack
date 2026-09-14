@@ -95,14 +95,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx = telemetry.WithTraceLogger(ctx, slog.String("user_id", userID.String()))
-	r = r.WithContext(ctx)
-	r, err := withMCPRequestMetadata(r)
+	metadata, err := readMCPRequestMetadata(r)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "read_request_body_failed")
 		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
 		return
 	}
+	// One context chain carries the JSON-RPC id, the session id, and the
+	// membership set into the MCP server. A create's idempotency key reads
+	// the first two, so a context rebuilt without them lets a retried create
+	// write a second node (TACK-476).
+	ctx = tools.WithMCPRequestMetadata(ctx, metadata)
 	span.SetAttributes(attribute.String("enduser.id", userID.String()))
 
 	// The membership set travels on every request, cache hit or not. The

@@ -5,28 +5,27 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 
 	"goodkind.io/tack/internal/adapters/mcp/tools"
 )
 
-func withMCPRequestMetadata(r *http.Request) (*http.Request, error) {
+// readMCPRequestMetadata reads the JSON-RPC id and the session id off the
+// request and rewinds the body so the MCP server can read it again.
+func readMCPRequestMetadata(r *http.Request) (tools.MCPRequestMetadata, error) {
+	metadata := tools.MCPRequestMetadata{RequestID: "", SessionID: r.Header.Get("Mcp-Session-Id")}
 	if r.Body == nil {
-		return r, nil
+		return metadata, nil
 	}
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		return nil, fmt.Errorf("read mcp request body: %w", err)
+		slog.ErrorContext(r.Context(), "mcp.request_body_read_failed", slog.String("err", err.Error()))
+		return metadata, fmt.Errorf("read mcp request body: %w", err)
 	}
 	r.Body = io.NopCloser(bytes.NewReader(body))
-	metadata := tools.MCPRequestMetadata{
-		RequestID: jsonRPCRequestID(body),
-		SessionID: r.Header.Get("Mcp-Session-Id"),
-	}
-	if metadata.RequestID == "" && metadata.SessionID == "" {
-		return r, nil
-	}
-	return r.WithContext(tools.WithMCPRequestMetadata(r.Context(), metadata)), nil
+	metadata.RequestID = jsonRPCRequestID(body)
+	return metadata, nil
 }
 
 func jsonRPCRequestID(body []byte) string {
