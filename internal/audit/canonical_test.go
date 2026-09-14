@@ -49,15 +49,29 @@ func TestHashRowChainsPreviousHash(t *testing.T) {
 	}
 }
 
-func TestShardOfStableAndBucketed(t *testing.T) {
+// The shard of a fixed pair is pinned to the value the ledger already holds
+// for it: a change to the hash, the mask, or ShardCount moves rows onto new
+// chains, which is the forward-only procedure in
+// docs/runbooks/audit/shards.md, never an accident.
+func TestShardOfPinnedAndBucketed(t *testing.T) {
 	a := uuid.MustParse("019dd220-440e-729a-a442-281aaf73ca30")
 	e := uuid.MustParse("019dd221-440e-729a-a442-281aaf73ca30")
-	got := shardOf(a, e)
-	if shardOf(a, e) != got {
-		t.Errorf("shardOf not stable")
+	if got := shardOf(a, e); got != 46 {
+		t.Fatalf("shardOf(pinned pair) = %d, want 46", got)
 	}
-	if got < 0 || got > 255 {
-		t.Errorf("shardOf out of [0,255]: %d", got)
+	if ShardCount != 256 {
+		t.Fatalf("ShardCount = %d, want 256; a change here is a rebucket, see the runbook", ShardCount)
+	}
+	for i := range 4096 {
+		actor := uuid.New()
+		event := uuid.New()
+		got := shardOf(actor, event)
+		if got < 0 || got >= ShardCount {
+			t.Fatalf("sample %d: shardOf out of [0, %d): %d", i, ShardCount, got)
+		}
+		if shardOf(actor, event) != got {
+			t.Fatalf("sample %d: shardOf not stable", i)
+		}
 	}
 }
 

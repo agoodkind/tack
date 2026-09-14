@@ -82,25 +82,35 @@ func writeCanonical(buf *bytes.Buffer, v any) error {
 	return nil
 }
 
+// ShardCount is the number of load-distribution shards an org's ledger writes
+// spread across. Each (org, shard) pair is its own hash chain in
+// audit.chain_heads, so the count sets how many parallel chains an org can
+// carry. It is tunable, not a permanent lock: the shard is stored on every
+// audit.events row and verification enumerates the existing (org, shard) heads,
+// so old chains stay closed and valid after a change. The shard column is
+// int16 and the Kafka key encodes two bytes, both well past this value, and
+// the Kafka partition count is decoupled because the consumer recomputes the
+// shard from the payload. The count must be a power of two, because shardOf
+// masks a checksum with ShardCount - 1. Changing it is forward-only and
+// follows docs/runbooks/audit/shards.md (TACK-306).
+const ShardCount = 256
+
+// shardMask turns a checksum into a shard in [0, ShardCount).
+const shardMask = ShardCount - 1
+
+// The mask is only a modulus when ShardCount is a power of two; any other
+// value fails to compile here (index out of range on a one-element array).
+var _ = [1]struct{}{}[ShardCount&shardMask]
+
 // shardOf returns the load-distribution shard for a (actor, event) pair, in
-// [0, 256). The shard is a per-event bucket, not a logical key: it spreads
-// writes across parallel per-(org, shard) hash chains and Kafka partitions, away
-// from a hot actor or event id.
-//
-// The 256 (the 0xFF mask) is arbitrary and tunable, not a permanent lock. The
-// shard is stored on every audit.events row, and verification enumerates the
-// existing (org, shard) heads from chain_heads, so it is count-agnostic. The
-// shard column is int16 and the Kafka key encodes two bytes, both well past 256.
-// The Kafka partition count is decoupled because the consumer recomputes the
-// shard from the payload. Changing the count is forward-only: drain in-flight
-// Kafka first (an event produced under one shard must not be reprojected under
-// another), then flip the mask; old chains stay closed and valid, new writes
-// distribute over the new space. No migration. See TACK-306.
+// [0, ShardCount). The shard is a per-event bucket, not a logical key: it
+// spreads writes across parallel per-(org, shard) hash chains and Kafka
+// partitions, away from a hot actor or event id.
 func shardOf(actor, eventID uuid.UUID) int16 {
 	var buf [32]byte
 	copy(buf[0:16], actor[:])
 	copy(buf[16:32], eventID[:])
-	return int16(crc32.ChecksumIEEE(buf[:]) & 0xFF)
+	return int16(crc32.ChecksumIEEE(buf[:]) & shardMask)
 }
 
 // hashRow returns sha256(prevHash || canonical(payload)). prevHash is the
