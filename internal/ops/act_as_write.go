@@ -28,8 +28,13 @@ func recordActAsGrant(ctx context.Context, outbox audit.OutboxWriter, principal 
 		slog.ErrorContext(ctx, "act_as.grant_encode_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("encode the act-as grant: %w", err)
 	}
+	eventID, err := uuid.NewV7()
+	if err != nil {
+		slog.ErrorContext(ctx, "act_as.grant_event_id_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("generate the act-as grant event id: %w", err)
+	}
 	event := audit.Event{
-		Verb: string(audit.VerbOpsActAsGrant), EventID: uuid.Must(uuid.NewV7()),
+		Verb: string(audit.VerbOpsActAsGrant), EventID: eventID,
 		Actor: audit.Actor{
 			Type: principal.ActorType(), ID: principal.ID, Email: principal.Email, Name: principal.Name,
 			SessionID: "", IP: "", UserAgent: "", RequestID: "", APITokenLabel: "",
