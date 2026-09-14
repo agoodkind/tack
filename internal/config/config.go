@@ -119,12 +119,13 @@ type Config struct {
 	AuditKafkaClientID       string        `env:"AUDIT_KAFKA_CLIENT_ID"       envDefault:"tack-audit-producer"`
 	AuditKafkaProduceTimeout time.Duration `env:"AUDIT_KAFKA_PRODUCE_TIMEOUT" envDefault:"15s"`
 
-	// Meilisearch. Both values are required: a compiled-in address or key
-	// would let a process start against the wrong search engine, or with a
-	// key everyone knows, without saying so (TACK-268). docker-compose.yml
-	// sets the address per service and the key from .env.
-	MeiliURL       string `env:"MEILI_URL,required"`
-	MeiliMasterKey string `env:"MEILI_MASTER_KEY,required"`
+	// Meilisearch. Both values are required and may not be empty: a
+	// compiled-in address or key would let a process start against the
+	// wrong search engine, or with a key everyone knows, without saying so,
+	// and an empty rendered value is the same silence (TACK-268).
+	// docker-compose.yml sets the address per service and the key from .env.
+	MeiliURL       string `env:"MEILI_URL,required,notEmpty"`
+	MeiliMasterKey string `env:"MEILI_MASTER_KEY,required,notEmpty"`
 
 	// Optional: if unset, OTEL tracing is a no-op.
 	OTELEndpoint string `env:"OTEL_EXPORTER_OTLP_ENDPOINT"`
