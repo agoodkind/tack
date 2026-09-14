@@ -99,10 +99,7 @@ func operationIDFromMeta(req mcpmcp.CallToolRequest) string {
 }
 
 func operationIDFromContext(ctx context.Context) string {
-	metadata, ok := ctx.Value(mcpRequestMetadataKey{}).(MCPRequestMetadata)
-	if !ok {
-		return ""
-	}
+	metadata, _ := MCPRequestMetadataFromContext(ctx)
 	return metadata.RequestID
 }
 
@@ -111,9 +108,6 @@ func sessionIDFromRequest(ctx context.Context, req mcpmcp.CallToolRequest) strin
 	if sessionID != "" {
 		return sessionID
 	}
-	metadata, ok := ctx.Value(mcpRequestMetadataKey{}).(MCPRequestMetadata)
-	if !ok {
-		return ""
-	}
+	metadata, _ := MCPRequestMetadataFromContext(ctx)
 	return metadata.SessionID
 }

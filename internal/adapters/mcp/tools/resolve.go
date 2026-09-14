@@ -170,6 +170,11 @@ func (r *Resolver) ResolveScope(ctx context.Context, parent *node.NodeView, leve
 		slog.String("parent_type", parent.NodeType),
 		slog.String("err", err.Error()),
 	)
+	// An ambiguous reference names several nodes; reporting it as not found
+	// hides the candidates the caller needs to disambiguate (TACK-476).
+	if errors.Is(err, domain.ErrInvalidArgument) {
+		return nil, fmt.Errorf("%s reference %q: %w", level.Slug, reference, err)
+	}
 	return nil, fmt.Errorf("%s reference %q: %w", level.Slug, reference, domain.ErrNotFound)
 }
 
