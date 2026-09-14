@@ -104,6 +104,9 @@ const (
 	SourceSystem    Source = "system"
 	SourceMigration Source = "migration"
 	SourceSeed      Source = "seed"
+	// SourceOperator marks a product row written through the operator
+	// surface on a user's behalf (TACK-424).
+	SourceOperator Source = "operator"
 )
 
 // Delta captures before/after for state-change verbs. Read verbs leave it nil.
