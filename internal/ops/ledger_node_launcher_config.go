@@ -30,8 +30,14 @@ type launcherConfigFile struct {
 // found is false when the container or the file does not exist, which is the
 // state of a node that has never started; every other failure is an error.
 func readLauncherConfig(ctx context.Context, cli *client.Client, containerName string) (launcherConfigFile, bool, error) {
+	return readContainerFile(ctx, cli, containerName, ledgerLauncherConfigDir+"/"+ledgerLauncherConfigName)
+}
+
+// readContainerFile copies one file out of the named container. found is
+// false when the container or the file does not exist; every other failure is
+// an error.
+func readContainerFile(ctx context.Context, cli *client.Client, containerName, path string) (launcherConfigFile, bool, error) {
 	var none launcherConfigFile
-	path := ledgerLauncherConfigDir + "/" + ledgerLauncherConfigName
 	copied, err := cli.CopyFromContainer(ctx, containerName, client.CopyFromContainerOptions{SourcePath: path})
 	if err != nil {
 		if cerrdefs.IsNotFound(err) {
