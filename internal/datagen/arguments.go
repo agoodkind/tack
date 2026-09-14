@@ -20,9 +20,6 @@ type ToolArguments struct {
 	SourceID           string         `json:"source_id,omitempty"`
 	RelationType       string         `json:"relation_type,omitempty"`
 	TargetID           string         `json:"target_id,omitempty"`
-	// IdempotencyKey is the explicit create key the driver sets on every
-	// create call, so a rerun reuses the node the same call made (TACK-476).
-	IdempotencyKey string `json:"idempotency_key,omitempty"`
 }
 
 // NodeProperties is a typed raw-JSON property object.

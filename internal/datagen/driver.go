@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -17,8 +16,6 @@ import (
 const (
 	jsonRPCVersion = "2.0"
 	toolsCall      = "tools/call"
-	// createToolPrefix names the tools whose calls carry an idempotency key.
-	createToolPrefix = "tack_create_"
 )
 
 type callParams struct {
@@ -100,12 +97,6 @@ func (d *Driver) call(
 	requestID, err := d.requestID(ctx, token, toolName, args)
 	if err != nil {
 		return Result{}, err
-	}
-	// A create carries its own idempotency key, the request identity, so a
-	// rerun with the same seed reuses the node it made instead of creating a
-	// second one; an explicit key never expires (TACK-476).
-	if strings.HasPrefix(toolName, createToolPrefix) && args.IdempotencyKey == "" {
-		args.IdempotencyKey = requestID
 	}
 	if d.dryRun {
 		slog.InfoContext(ctx, "qa.datagen.call_planned",
