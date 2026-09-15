@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"strconv"
 	"strings"
 
 	"goodkind.io/tack/internal/telemetry"
@@ -23,7 +24,11 @@ const (
 	ybCounterTServerAnswers = "tserver_answers"
 	ybCounterRunningTablets = "running_tablets"
 	ybCounterSSTFiles       = "sst_files"
+	ybCounterDataBytes      = "data_bytes"
 	ybTabletStateRunning    = "RUNNING"
+	// ybScratchDataDir is the scratch engine's data directory under the
+	// --base_dir the drill starts it with.
+	ybScratchDataDir = "/home/yugabyte/var/data"
 )
 
 // ybScratchTablet is the part of one tablet server status entry the wait
@@ -78,10 +83,49 @@ func readYBScratchCounters(ctx context.Context, r *restoreDrillCtx, container st
 		}
 		maps.Copy(counters, tabletCounters)
 	}
+	dataBytes, err := readYBScratchDataBytes(ctx, r, container)
+	if err != nil {
+		failures = append(failures, err.Error())
+	} else {
+		counters[ybCounterDataBytes] = dataBytes
+	}
 	if len(counters) == 0 {
 		return nil, errors.New(strings.Join(failures, "; "))
 	}
 	return counters, nil
+}
+
+// readYBScratchDataBytes reads how many bytes the scratch engine's data
+// directory holds. A master replaying its catalog onto a slow disk shows no
+// new status page and no new tablet for minutes while it writes, so the bytes
+// it writes are the reading that moves in that phase (observed on QA
+// 2026-09-15: the master answered its page but stayed not leader-ready while
+// its log fsyncs took up to 0.19 s each).
+func readYBScratchDataBytes(ctx context.Context, r *restoreDrillCtx, container string) (int64, error) {
+	res, err := containerExec(ctx, r.Cli, container, []string{"du", "-sb", ybScratchDataDir})
+	if err != nil {
+		wrapped := fmt.Errorf("du %s: %w", ybScratchDataDir, err)
+		telemetry.L(ctx).WarnContext(ctx, "backup.restore_drill.yb.data_bytes_unreadable", slog.String("err", wrapped.Error()))
+		return 0, wrapped
+	}
+	return parseYBScratchDataBytes(ctx, res.ExitCode, res.Stdout)
+}
+
+// parseYBScratchDataBytes reads the byte count from one `du -sb` output.
+func parseYBScratchDataBytes(ctx context.Context, exitCode int, stdout string) (int64, error) {
+	fields := strings.Fields(stdout)
+	if exitCode != 0 || len(fields) == 0 {
+		err := fmt.Errorf("du %s exited %d with %q", ybScratchDataDir, exitCode, strings.TrimSpace(stdout))
+		telemetry.L(ctx).WarnContext(ctx, "backup.restore_drill.yb.data_bytes_unreadable", slog.String("err", err.Error()))
+		return 0, err
+	}
+	bytes, err := strconv.ParseInt(fields[0], 10, 64)
+	if err != nil {
+		wrapped := fmt.Errorf("parse du %s output %q: %w", ybScratchDataDir, fields[0], err)
+		telemetry.L(ctx).WarnContext(ctx, "backup.restore_drill.yb.data_bytes_unreadable", slog.String("err", wrapped.Error()))
+		return 0, wrapped
+	}
+	return bytes, nil
 }
 
 // fetchYBScratchPage runs curl inside the scratch container and returns the

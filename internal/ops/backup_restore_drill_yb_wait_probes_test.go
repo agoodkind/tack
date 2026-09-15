@@ -27,6 +27,22 @@ func TestYBScratchTabletCountersReadsTheServedPage(t *testing.T) {
 	}
 }
 
+// TestParseYBScratchDataBytesReadsDuOutput proves the byte count is read from
+// the shape `du -sb` prints, and that a failed or empty du is an error rather
+// than a zero that would read as a reading.
+func TestParseYBScratchDataBytesReadsDuOutput(t *testing.T) {
+	bytes, err := parseYBScratchDataBytes(t.Context(), 0, "48123904\t/home/yugabyte/var/data\n")
+	if err != nil || bytes != 48123904 {
+		t.Fatalf("bytes = %d, err = %v, want 48123904", bytes, err)
+	}
+	if _, err := parseYBScratchDataBytes(t.Context(), 1, "du: cannot access '/home/yugabyte/var/data'"); err == nil {
+		t.Fatal("a du that exited non-zero must be an error")
+	}
+	if _, err := parseYBScratchDataBytes(t.Context(), 0, ""); err == nil {
+		t.Fatal("an empty du output must be an error")
+	}
+}
+
 // TestYBScratchTabletCountersRefusesAnotherPage proves a page that is not the
 // tablets page yields an error, so an endpoint that answers with something
 // else never vouches for progress.
