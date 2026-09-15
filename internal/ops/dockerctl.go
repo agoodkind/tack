@@ -142,7 +142,7 @@ func runOneShot(
 	defer func() {
 		teardown, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 		defer cancel()
-		_, _ = cli.ContainerRemove(teardown, created.ID, client.ContainerRemoveOptions{Force: true})
+		removeContainerForce(teardown, cli, created.ID)
 	}()
 
 	_, err = cli.ContainerStart(ctx, created.ID, client.ContainerStartOptions{})
@@ -334,9 +334,13 @@ func containerExecStreaming(
 }
 
 // removeContainerForce removes a container by name, ignoring not-found
-// errors. Used by deferred teardown paths.
+// errors. Used by deferred teardown paths. It removes the container's
+// anonymous volumes with it: the yugabyte and foundationdb images declare
+// VOLUMEs, so every scratch container otherwise leaves them behind, and the
+// guest's prune never removes volumes (634 had piled up on the production
+// owner by 2026-09-15, TACK-498). Named volumes are never removed this way.
 func removeContainerForce(ctx context.Context, cli *client.Client, name string) {
-	_, _ = cli.ContainerRemove(ctx, name, client.ContainerRemoveOptions{Force: true})
+	_, _ = cli.ContainerRemove(ctx, name, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
 }
 
 // netMode constructs a NetworkingConfig that joins the named docker network.
