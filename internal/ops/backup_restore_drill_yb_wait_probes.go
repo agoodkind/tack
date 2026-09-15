@@ -39,13 +39,16 @@ type ybScratchTablet struct {
 }
 
 // newYBScratchWatch builds the watch for one step against the scratch
-// container. readyCmd is the step's readiness command and env its environment.
-func newYBScratchWatch(r *restoreDrillCtx, container string, env, readyCmd []string) ybScratchWatch {
+// container. master is the scratch master address whose restorations the
+// failure check reads, or "" for a step that runs no restoration. readyCmd is
+// the step's readiness command and env its environment.
+func newYBScratchWatch(r *restoreDrillCtx, container, master string, env, readyCmd []string) ybScratchWatch {
 	return ybScratchWatch{
 		Running: func(ctx context.Context) (bool, error) {
 			health, err := inspectLedgerNodeHealth(ctx, r.Cli, container)
 			return health.running, err
 		},
+		Failed: newYBScratchFailureProbe(r, container, master),
 		Ready: func(ctx context.Context) (bool, error) {
 			exitCode, _, err := containerExecStreaming(ctx, r.Cli, container, readyCmd, env, devNull{})
 			if err != nil {
@@ -59,11 +62,12 @@ func newYBScratchWatch(r *restoreDrillCtx, container string, env, readyCmd []str
 	}
 }
 
-// readYBScratchCounters reads the master's and tablet server's status pages.
-// A page that answers sets its answers counter to 1, so an engine moving
-// through its start reads as moving; the tablet page adds the count of running
-// tablets and the files they hold, which rise as a restoration lands. Only a
-// reading where neither page answered is an error.
+// readYBScratchCounters reads the master's and tablet server's status pages
+// and the data directory's size. A page that answers sets its answers counter
+// to 1, so an engine moving through its start reads as moving; the tablet page
+// adds the count of running tablets and the files they hold, which rise as a
+// restoration lands. Only a reading where no counter could be read is an
+// error.
 func readYBScratchCounters(ctx context.Context, r *restoreDrillCtx, container string) (map[string]int64, error) {
 	counters := map[string]int64{}
 	var failures []string
@@ -113,10 +117,12 @@ func readYBScratchDataBytes(ctx context.Context, r *restoreDrillCtx, container s
 	return parseYBScratchDataBytes(ctx, res.ExitCode, res.Stdout)
 }
 
-// parseYBScratchDataBytes reads the byte count from one `du -sb` output.
+// parseYBScratchDataBytes reads the byte count from one `du -sb` output. GNU
+// du exits 1 when a file vanished during the walk, which compaction causes,
+// and still prints the total, so exit 1 with a total is a reading.
 func parseYBScratchDataBytes(ctx context.Context, exitCode int, stdout string) (int64, error) {
 	fields := strings.Fields(stdout)
-	if exitCode != 0 || len(fields) == 0 {
+	if exitCode > 1 || len(fields) == 0 {
 		err := fmt.Errorf("du %s exited %d with %q", ybScratchDataDir, exitCode, strings.TrimSpace(stdout))
 		telemetry.L(ctx).WarnContext(ctx, "backup.restore_drill.yb.data_bytes_unreadable", slog.String("err", err.Error()))
 		return 0, err

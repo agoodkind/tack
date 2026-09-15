@@ -55,7 +55,7 @@ func restoreDrillYugabyte(ctx context.Context, r *restoreDrillCtx) error {
 		return err
 	}
 
-	startWatch := newYBScratchWatch(r, name, []string{"PGPASSWORD=" + r.YBPass},
+	startWatch := newYBScratchWatch(r, name, "", []string{"PGPASSWORD=" + r.YBPass},
 		ysqlshArgs(name, manifest.Database, "select 1"))
 	took, err := awaitYBScratch(ctx, "scratch yugabyted start", startWatch,
 		ybScratchStallWindow, ybScratchPollInterval, ybScratchProbeTimeout)

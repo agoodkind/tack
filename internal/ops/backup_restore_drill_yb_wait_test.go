@@ -27,11 +27,21 @@ type scriptedYBScratch struct {
 	progressErr error
 	running     bool
 	polls       int
+	// failReason, when set, is reported by the failure check from poll
+	// failAfter on.
+	failReason string
+	failAfter  int
 }
 
 func (s *scriptedYBScratch) watch() ybScratchWatch {
 	return ybScratchWatch{
 		Running: func(context.Context) (bool, error) { return s.running, nil },
+		Failed: func(context.Context) (string, error) {
+			if s.failReason != "" && s.polls >= s.failAfter {
+				return s.failReason, nil
+			}
+			return "", nil
+		},
 		Ready: func(context.Context) (bool, error) {
 			return s.polls >= s.readyAfter, nil
 		},

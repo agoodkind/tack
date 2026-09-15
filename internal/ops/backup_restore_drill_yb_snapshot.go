@@ -112,8 +112,9 @@ func importAndRestoreYBSnapshot(
 	// Wait for the restoration to finish: reading the tables while it is still
 	// applying returns the pre-restore empty rows, which the row assertion
 	// would misreport as data loss. The wait ends on a stall, never on a
-	// duration, because restoration time grows with the ledger.
-	restoreWatch := newYBScratchWatch(r, container, nil,
+	// duration, because restoration time grows with the ledger. A restoration
+	// the master marks failed ends the wait at once.
+	restoreWatch := newYBScratchWatch(r, container, master, nil,
 		[]string{"sh", "-c", ybAdminBinary + " --master_addresses " + master + " list_snapshot_restorations | grep -q RESTORED"})
 	took, err := awaitYBScratch(ctx, "snapshot restoration", restoreWatch,
 		ybScratchStallWindow, ybScratchPollInterval, ybScratchProbeTimeout)

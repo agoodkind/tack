@@ -27,10 +27,11 @@ const (
 	ybScratchStallWindow = 10 * time.Minute
 	// ybScratchPollInterval is how often the drill reads the scratch engine.
 	ybScratchPollInterval = 10 * time.Second
-	// ybScratchProbeTimeout bounds one reading. Each probe does constant work
-	// (an inspect, one readiness command, one status page), so a large ledger
-	// never makes a healthy probe approach it; a reading that hits it is
-	// counted as a failed read, not as progress.
+	// ybScratchProbeTimeout bounds one probe. Most probes do constant work (an
+	// inspect, one readiness command, one status page); the data directory walk
+	// grows with the scratch engine's file count, which at today's ledger size
+	// takes well under a second. A probe that hits the deadline counts as a
+	// failed read, not as progress.
 	ybScratchProbeTimeout = 2 * time.Minute
 )
 
@@ -39,6 +40,11 @@ const (
 type ybScratchWatch struct {
 	// Running reports whether the scratch container is still running.
 	Running func(ctx context.Context) (bool, error)
+	// Failed returns a reason the step can never succeed, such as a crashed
+	// process yugabyted restarted or a restoration the master marked failed,
+	// or "" while the step can still succeed. Without it, the bytes a
+	// restarting engine writes would read as progress.
+	Failed func(ctx context.Context) (string, error)
 	// Ready reports whether the step's readiness check passed.
 	Ready func(ctx context.Context) (bool, error)
 	// Progress returns counters that only rise while the engine does work.
@@ -86,7 +92,8 @@ func (p *ybScratchProgress) summary() string {
 }
 
 // awaitYBScratch blocks until the step's readiness check passes, the scratch
-// container stops running, or nothing moves for stallWindow. step names what
+// container stops running, the failure check reports a reason, or nothing
+// moves for stallWindow. step names what
 // is being waited for in every error. A read that fails is remembered and
 // carried into the stall error, so a wedged engine reads differently from one
 // the drill could not look at.
@@ -105,6 +112,11 @@ func awaitYBScratch(
 		if reading.exited {
 			err := fmt.Errorf("%s: the scratch yugabyted container is not running: %s", step, progress.summary())
 			slog.ErrorContext(ctx, "backup.restore_drill.yb.wait_exited", slog.String("err", err.Error()))
+			return 0, err
+		}
+		if reading.failure != "" {
+			err := fmt.Errorf("%s: %s: %s", step, reading.failure, progress.summary())
+			slog.ErrorContext(ctx, "backup.restore_drill.yb.wait_failed", slog.String("err", err.Error()))
 			return 0, err
 		}
 		if reading.ready {
@@ -129,51 +141,6 @@ func awaitYBScratch(
 			return 0, err
 		}
 	}
-}
-
-// ybScratchReading is what one poll observed. readErr is the last read that
-// failed this poll, and counters is nil when no progress was read.
-type ybScratchReading struct {
-	exited   bool
-	ready    bool
-	counters map[string]int64
-	readErr  string
-}
-
-// readYBScratch takes one poll's reading, each probe under its own deadline.
-// A container that is not running ends the reading before anything else is
-// asked, and a passed readiness check ends it before progress is read.
-func readYBScratch(ctx context.Context, watch ybScratchWatch, timeout time.Duration) ybScratchReading {
-	var reading ybScratchReading
-	runningCtx, cancelRunning := context.WithTimeout(ctx, timeout)
-	running, err := watch.Running(runningCtx)
-	cancelRunning()
-	switch {
-	case err != nil:
-		reading.readErr = "container inspect: " + err.Error()
-	case !running:
-		reading.exited = true
-		return reading
-	}
-	readyCtx, cancelReady := context.WithTimeout(ctx, timeout)
-	ready, err := watch.Ready(readyCtx)
-	cancelReady()
-	if err == nil && ready {
-		reading.ready = true
-		return reading
-	}
-	if err != nil {
-		reading.readErr = "readiness check: " + err.Error()
-	}
-	progressCtx, cancelProgress := context.WithTimeout(ctx, timeout)
-	counters, err := watch.Progress(progressCtx)
-	cancelProgress()
-	if err != nil {
-		reading.readErr = "progress read: " + err.Error()
-		return reading
-	}
-	reading.counters = counters
-	return reading
 }
 
 // ybScratchStallError names what the drill saw before it gave up: how long
