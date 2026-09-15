@@ -1,0 +1,118 @@
+// backup_restore_drill_yb_wait_probes.go wires the scratch yugabyted wait to
+// what it reads: the container's running state from the Docker daemon, the
+// step's readiness command, and progress counters from the engine's own status
+// pages, fetched with the curl the yugabyte image carries.
+
+package ops
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"maps"
+	"strings"
+
+	"goodkind.io/tack/internal/telemetry"
+)
+
+// Progress counter names, as they appear in a stall error.
+const (
+	ybCounterMasterAnswers  = "master_answers"
+	ybCounterTServerAnswers = "tserver_answers"
+	ybCounterRunningTablets = "running_tablets"
+	ybCounterSSTFiles       = "sst_files"
+	ybTabletStateRunning    = "RUNNING"
+)
+
+// ybScratchTablet is the part of one tablet server status entry the wait
+// reads. The page is keyed by tablet id.
+type ybScratchTablet struct {
+	State       string `json:"state"`
+	NumSSTFiles int64  `json:"num_sst_files"`
+}
+
+// newYBScratchWatch builds the watch for one step against the scratch
+// container. readyCmd is the step's readiness command and env its environment.
+func newYBScratchWatch(r *restoreDrillCtx, container string, env, readyCmd []string) ybScratchWatch {
+	return ybScratchWatch{
+		Running: func(ctx context.Context) (bool, error) {
+			health, err := inspectLedgerNodeHealth(ctx, r.Cli, container)
+			return health.running, err
+		},
+		Ready: func(ctx context.Context) (bool, error) {
+			exitCode, _, err := containerExecStreaming(ctx, r.Cli, container, readyCmd, env, devNull{})
+			if err != nil {
+				return false, err
+			}
+			return exitCode == 0, nil
+		},
+		Progress: func(ctx context.Context) (map[string]int64, error) {
+			return readYBScratchCounters(ctx, r, container)
+		},
+	}
+}
+
+// readYBScratchCounters reads the master's and tablet server's status pages.
+// A page that answers sets its answers counter to 1, so an engine moving
+// through its start reads as moving; the tablet page adds the count of running
+// tablets and the files they hold, which rise as a restoration lands. Only a
+// reading where neither page answered is an error.
+func readYBScratchCounters(ctx context.Context, r *restoreDrillCtx, container string) (map[string]int64, error) {
+	counters := map[string]int64{}
+	var failures []string
+	if _, err := fetchYBScratchPage(ctx, r, container, "http://"+container+":7000/"); err != nil {
+		failures = append(failures, "master: "+err.Error())
+	} else {
+		counters[ybCounterMasterAnswers] = 1
+	}
+	body, err := fetchYBScratchPage(ctx, r, container, "http://"+container+":9000/api/v1/tablets")
+	if err != nil {
+		failures = append(failures, "tablet server: "+err.Error())
+	} else {
+		counters[ybCounterTServerAnswers] = 1
+		tabletCounters, parseErr := ybScratchTabletCounters(ctx, body)
+		if parseErr != nil {
+			failures = append(failures, parseErr.Error())
+		}
+		maps.Copy(counters, tabletCounters)
+	}
+	if len(counters) == 0 {
+		return nil, errors.New(strings.Join(failures, "; "))
+	}
+	return counters, nil
+}
+
+// fetchYBScratchPage runs curl inside the scratch container and returns the
+// body of a page that answered with a success status.
+func fetchYBScratchPage(ctx context.Context, r *restoreDrillCtx, container, url string) (string, error) {
+	res, err := containerExec(ctx, r.Cli, container, []string{"curl", "-sf", "-m", "20", url})
+	if err != nil {
+		return "", err
+	}
+	if res.ExitCode != 0 {
+		return "", fmt.Errorf("curl %s exited %d", url, res.ExitCode)
+	}
+	return res.Stdout, nil
+}
+
+// ybScratchTabletCounters counts running tablets and the files they hold from
+// the tablet server's tablet page.
+func ybScratchTabletCounters(ctx context.Context, body string) (map[string]int64, error) {
+	var tablets map[string]ybScratchTablet
+	if err := json.Unmarshal([]byte(body), &tablets); err != nil {
+		wrapped := fmt.Errorf("unmarshal tablet server tablets page: %w", err)
+		telemetry.L(ctx).WarnContext(ctx, "backup.restore_drill.yb.tablets_unparseable",
+			slog.String("err", wrapped.Error()))
+		return nil, wrapped
+	}
+	var running, files int64
+	for _, tablet := range tablets {
+		if tablet.State == ybTabletStateRunning {
+			running++
+		}
+		files += tablet.NumSSTFiles
+	}
+	return map[string]int64{ybCounterRunningTablets: running, ybCounterSSTFiles: files}, nil
+}
