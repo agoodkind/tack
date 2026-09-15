@@ -96,13 +96,15 @@ func readYBScratchCounters(ctx context.Context, r *restoreDrillCtx, container st
 }
 
 // readYBScratchDataBytes reads how many bytes the scratch engine's data
-// directory holds. A master replaying its catalog onto a slow disk shows no
-// new status page and no new tablet for minutes while it writes, so the bytes
-// it writes are the reading that moves in that phase (observed on QA
-// 2026-09-15: the master answered its page but stayed not leader-ready while
-// its log fsyncs took up to 0.19 s each).
+// directory holds, leaving out its logs. A master replaying its catalog onto a
+// slow disk shows no new status page and no new tablet for minutes while it
+// writes, so the bytes it writes are the reading that moves in that phase
+// (observed on QA 2026-09-15: the master answered its page but stayed not
+// leader-ready while its log fsyncs took up to 0.19 s each). The engine's logs
+// sit under the same directory and grow on every heartbeat, so counting them
+// would read a wedged engine as one still moving.
 func readYBScratchDataBytes(ctx context.Context, r *restoreDrillCtx, container string) (int64, error) {
-	res, err := containerExec(ctx, r.Cli, container, []string{"du", "-sb", ybScratchDataDir})
+	res, err := containerExec(ctx, r.Cli, container, []string{"du", "-sb", "--exclude=logs", ybScratchDataDir})
 	if err != nil {
 		wrapped := fmt.Errorf("du %s: %w", ybScratchDataDir, err)
 		telemetry.L(ctx).WarnContext(ctx, "backup.restore_drill.yb.data_bytes_unreadable", slog.String("err", wrapped.Error()))
