@@ -10,12 +10,14 @@ import (
 )
 
 // ybScratchReading is what one poll observed. failure is a reason the step can
-// never succeed, readErr is the last read that failed this poll, and counters
-// is nil when no progress was read.
+// never succeed, blind is a poll whose failure check could not be read, readErr
+// is the last read that failed this poll, and counters is nil when no progress
+// was read.
 type ybScratchReading struct {
 	exited   bool
 	ready    bool
 	failure  string
+	blind    bool
 	counters map[string]int64
 	readErr  string
 }
@@ -37,6 +39,7 @@ func readYBScratch(ctx context.Context, watch ybScratchWatch, timeout time.Durat
 	switch {
 	case err != nil:
 		reading.readErr = "failure check: " + err.Error()
+		reading.blind = true
 	case failure != "":
 		reading.failure = failure
 		return reading

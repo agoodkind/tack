@@ -20,21 +20,25 @@ const (
 	// ybScratchLogPath is yugabyted's own log under the --base_dir the drill
 	// starts it with.
 	ybScratchLogPath = "/home/yugabyte/var/logs/yugabyted.log"
-	// ybScratchRestartMarker is the line yugabyted logs when it restarts a
-	// master or tablet server that stopped running.
-	ybScratchRestartMarker = "died unexpectedly"
+	// ybScratchRestartMarker matches the line yugabyted logs when it restarts
+	// a master or tablet server that stopped running. yugabyted logs the same
+	// sentence for its own web server, which the drill never uses, so the
+	// pattern names the two processes the restore depends on.
+	ybScratchRestartMarker = "(master|tserver) died unexpectedly"
 )
 
-// ybRestorationFailedStates are the restoration states the master never
-// leaves, quoted as the listing prints them.
-var ybRestorationFailedStates = []string{`"FAILED"`, `"CANCELLED"`}
+// ybRestorationFailedState is the state a restoration never leaves, quoted as
+// the listing prints it. yb-admin renders the restoration's state enum into a
+// three-field JSON object (id, snapshot_id, state), so this cannot match a
+// field name.
+const ybRestorationFailedState = `"FAILED"`
 
 // newYBScratchFailureProbe builds the failure check for one step. master is
 // the scratch master address whose restorations are checked, or "" for a step
 // that runs no restoration.
 func newYBScratchFailureProbe(r *restoreDrillCtx, container, master string) func(context.Context) (string, error) {
 	return func(ctx context.Context) (string, error) {
-		res, err := containerExec(ctx, r.Cli, container, []string{"grep", "-c", ybScratchRestartMarker, ybScratchLogPath})
+		res, err := containerExec(ctx, r.Cli, container, []string{"grep", "-cE", ybScratchRestartMarker, ybScratchLogPath})
 		if err != nil {
 			wrapped := fmt.Errorf("count yugabyted restarts: %w", err)
 			telemetry.L(ctx).WarnContext(ctx, "backup.restore_drill.yb.restarts_unreadable", slog.String("err", wrapped.Error()))
@@ -51,8 +55,13 @@ func newYBScratchFailureProbe(r *restoreDrillCtx, container, master string) func
 			return "", nil
 		}
 		listing, err := containerExec(ctx, r.Cli, container, []string{ybAdminBinary, "--master_addresses", master, "list_snapshot_restorations"})
-		if err != nil || listing.ExitCode != 0 {
-			wrapped := fmt.Errorf("list snapshot restorations: exit %d: %w", listing.ExitCode, err)
+		if err != nil {
+			wrapped := fmt.Errorf("list snapshot restorations: %w", err)
+			telemetry.L(ctx).WarnContext(ctx, "backup.restore_drill.yb.restorations_unreadable", slog.String("err", wrapped.Error()))
+			return "", wrapped
+		}
+		if listing.ExitCode != 0 {
+			wrapped := fmt.Errorf("list snapshot restorations exited %d: %s", listing.ExitCode, strings.TrimSpace(listing.Stderr))
 			telemetry.L(ctx).WarnContext(ctx, "backup.restore_drill.yb.restorations_unreadable", slog.String("err", wrapped.Error()))
 			return "", wrapped
 		}
@@ -81,10 +90,8 @@ func parseYBScratchRestarts(ctx context.Context, exitCode int, stdout string) (i
 // ybRestorationFailure returns why a restoration listing shows a restoration
 // that will never reach RESTORED, or "" when none does.
 func ybRestorationFailure(listing string) string {
-	for _, state := range ybRestorationFailedStates {
-		if strings.Contains(listing, state) {
-			return "the master marked the snapshot restoration " + strings.Trim(state, `"`)
-		}
+	if strings.Contains(listing, ybRestorationFailedState) {
+		return "the master marked the snapshot restoration " + strings.Trim(ybRestorationFailedState, `"`)
 	}
 	return ""
 }

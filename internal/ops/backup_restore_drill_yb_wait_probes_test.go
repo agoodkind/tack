@@ -1,6 +1,7 @@
 package ops
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -69,6 +70,26 @@ func TestParseYBScratchRestartsReadsGrepCount(t *testing.T) {
 	}
 	if _, err := parseYBScratchRestarts(t.Context(), 2, "grep: yugabyted.log: No such file or directory"); err == nil {
 		t.Fatal("a log grep could not read must be an error")
+	}
+}
+
+// TestYBScratchRestartMarkerMatchesOnlyTheEngineProcesses proves the restart
+// pattern names the two processes the restore depends on. yugabyted logs the
+// same sentence for its own web server, which no drill step uses, and a
+// pattern that matched it would fail a healthy drill with a false cause.
+func TestYBScratchRestartMarkerMatchesOnlyTheEngineProcesses(t *testing.T) {
+	marker := regexp.MustCompile(ybScratchRestartMarker)
+	for _, line := range []string{
+		"[yugabyted start] 2026-09-15 15:08:56,229 ERROR: | 3.5s | master died unexpectedly. Restarting...",
+		"[yugabyted start] 2026-09-15 15:08:56,229 ERROR: | 3.5s | tserver died unexpectedly. Restarting...",
+	} {
+		if !marker.MatchString(line) {
+			t.Errorf("marker must match %q", line)
+		}
+	}
+	webserver := "[yugabyted start] 2026-09-15 15:08:56,229 ERROR: | 3.5s | Webserver died unexpectedly. Restarting..."
+	if marker.MatchString(webserver) {
+		t.Errorf("marker must not match the web server line %q", webserver)
 	}
 }
 

@@ -27,6 +27,13 @@ const (
 	ybScratchStallWindow = 10 * time.Minute
 	// ybScratchPollInterval is how often the drill reads the scratch engine.
 	ybScratchPollInterval = 10 * time.Second
+	// ybScratchBlindTolerance is how many polls in a row may leave the drill
+	// unable to read whether the step failed. A crash loop writes bytes that
+	// read as progress, so the failure check is what stops the wait running to
+	// the unit's backstop; a wait that cannot run it is not one that can vouch
+	// for the engine. One unreadable poll is a transient, such as the daemon
+	// answering late under load.
+	ybScratchBlindTolerance = 3
 	// ybScratchProbeTimeout bounds one probe. Most probes do constant work (an
 	// inspect, one readiness command, one status page); the data directory walk
 	// grows with the scratch engine's file count, which at today's ledger size
@@ -107,6 +114,7 @@ func awaitYBScratch(
 	started := opsNow()
 	lastMoved := started
 	var lastReadErr string
+	blindPolls := 0
 	for {
 		reading := readYBScratch(ctx, watch, probeTimeout)
 		if reading.exited {
@@ -122,8 +130,17 @@ func awaitYBScratch(
 		if reading.ready {
 			return opsNow().Sub(started), nil
 		}
-		if reading.readErr != "" {
-			lastReadErr = reading.readErr
+		lastReadErr = reading.readErr
+		if reading.blind {
+			blindPolls++
+			if blindPolls >= ybScratchBlindTolerance {
+				err := fmt.Errorf("%s: the drill could not check whether the scratch yugabyted failed on %d polls in a row: %s (%s)",
+					step, blindPolls, lastReadErr, progress.summary())
+				slog.ErrorContext(ctx, "backup.restore_drill.yb.wait_blind", slog.String("err", err.Error()))
+				return 0, err
+			}
+		} else {
+			blindPolls = 0
 		}
 		if reading.counters != nil && progress.observe(reading.counters) {
 			lastMoved = opsNow()
