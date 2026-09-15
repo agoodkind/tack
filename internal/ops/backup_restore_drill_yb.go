@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/moby/moby/api/types/container"
@@ -56,13 +55,16 @@ func restoreDrillYugabyte(ctx context.Context, r *restoreDrillCtx) error {
 		return err
 	}
 
-	if err := waitExecOK(ctx, r, name, 120*time.Second,
-		[]string{"PGPASSWORD=" + r.YBPass},
-		ysqlshArgs(name, manifest.Database, "select 1")); err != nil {
+	startWatch := newYBScratchWatch(r, name, "", []string{"PGPASSWORD=" + r.YBPass},
+		ysqlshArgs(name, manifest.Database, "select 1"))
+	took, err := awaitYBScratch(ctx, "scratch yugabyted start", startWatch,
+		ybScratchStallWindow, ybScratchPollInterval, ybScratchProbeTimeout)
+	if err != nil {
 		wrapped := fmt.Errorf("scratch yugabyted never became ready: %w", err)
 		logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", wrapped.Error()))
 		return wrapped
 	}
+	logger.InfoContext(ctx, "backup.restore_drill.yb.scratch_ready", slog.Duration("took", took))
 
 	// Roles first: the schema carries the ledger's grants, and a GRANT naming a
 	// role the database does not have fails the schema apply.

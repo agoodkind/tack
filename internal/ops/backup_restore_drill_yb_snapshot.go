@@ -6,18 +6,11 @@ import (
 	"log/slog"
 	"regexp"
 	"strings"
-	"time"
 
 	"goodkind.io/tack/internal/telemetry"
 )
 
 var ybUUIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
-
-// ybDrillRestoreWaitTimeout bounds the wait for restore_snapshot to reach
-// RESTORED on the scratch node. Warm, 130 tablets restore in ~20s; the budget
-// covers a cold page cache right after a deploy, where the same restoration
-// exceeded 90s (observed 2026-08-29 on the QA owner).
-const ybDrillRestoreWaitTimeout = 5 * time.Minute
 
 // importAndRestoreYBSnapshot imports the exported snapshot metadata, copies the
 // exported tablet files into the new tablets the import created, and runs
@@ -116,17 +109,21 @@ func importAndRestoreYBSnapshot(
 		return wrapped
 	}
 
-	// Wait for the restoration to finish, and fail on timeout: reading the
-	// tables while the restoration is still applying returns the pre-restore
-	// empty rows, which the row assertion would misreport as data loss (the
-	// 2026-08-29 drill failure: a cold-cached guest needed more than 90s for
-	// 130 tablets that restore in ~20s warm).
-	if err := waitExecOK(ctx, r, container, ybDrillRestoreWaitTimeout, nil,
-		[]string{"sh", "-c", ybAdminBinary + " --master_addresses " + master + " list_snapshot_restorations | grep -q RESTORED"}); err != nil {
+	// Wait for the restoration to finish: reading the tables while it is still
+	// applying returns the pre-restore empty rows, which the row assertion
+	// would misreport as data loss. The wait ends on a stall, never on a
+	// duration, because restoration time grows with the ledger. A restoration
+	// the master marks failed ends the wait at once.
+	restoreWatch := newYBScratchWatch(r, container, master, nil,
+		[]string{"sh", "-c", ybAdminBinary + " --master_addresses " + master + " list_snapshot_restorations | grep -q RESTORED"})
+	took, err := awaitYBScratch(ctx, "snapshot restoration", restoreWatch,
+		ybScratchStallWindow, ybScratchPollInterval, ybScratchProbeTimeout)
+	if err != nil {
 		wrapped := fmt.Errorf("snapshot restoration did not reach RESTORED: %w", err)
 		logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", wrapped.Error()))
 		return wrapped
 	}
+	logger.InfoContext(ctx, "backup.restore_drill.yb.restored", slog.Duration("took", took))
 	return nil
 }
 
