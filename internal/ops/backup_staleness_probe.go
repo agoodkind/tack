@@ -21,10 +21,12 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
+// ybMasterHealthPort is the master's HTTP admin port. The configured master
+// addresses carry RPC ports (7100), so the probe swaps this in. It is a package
+// var so a test can point the probe at its own listener.
+var ybMasterHealthPort = "7000"
+
 const (
-	// ybMasterHealthPort is the master's HTTP admin port. The configured
-	// master addresses carry RPC ports (7100), so the probe swaps this in.
-	ybMasterHealthPort = "7000"
 	// ybMasterHealthPath is the master endpoint that summarizes cluster
 	// health. Verified against yugabytedb/yugabyte:2025.2.3.0-b149, which
 	// answers 200 with
@@ -50,9 +52,11 @@ type ybMasterHealthCheck struct {
 }
 
 // probeYBClusterHealth asks each configured master in turn and returns the
-// first usable answer, because any master serves the whole cluster's view.
-// detail always says what happened, healthy or not: it becomes the marker's
-// detail on success and the report's reason on failure.
+// first usable answer, because only the leader serves the cluster's view: a
+// follower answers with a page that names the leader instead, which is a
+// reason to ask the next master, not a fault worth a warning. detail always
+// says what happened, healthy or not: it becomes the marker's detail on
+// success and the report's reason on failure.
 func probeYBClusterHealth(ctx context.Context, cfg *config.Config) (healthy bool, detail string) {
 	urls := ybMasterHealthURLs(cfg.BackupYBMasterAddresses)
 	if len(urls) == 0 {
@@ -63,6 +67,11 @@ func probeYBClusterHealth(ctx context.Context, cfg *config.Config) (healthy bool
 		body, err := fetchYBMasterHealth(ctx, url)
 		if err != nil {
 			failures = append(failures, err.Error())
+			continue
+		}
+		if ybMasterAnswersAsFollower(body) {
+			telemetry.L(ctx).DebugContext(ctx, "backup.staleness.master_follower", slog.String("url", url))
+			failures = append(failures, url+" answered as a follower")
 			continue
 		}
 		replicated, healthDetail, parseErr := ybClusterHealthFromBody(ctx, body)
