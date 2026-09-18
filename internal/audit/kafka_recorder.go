@@ -134,6 +134,7 @@ func (k *KafkaRecorder) Record(ctx context.Context, ev Event) error {
 		Value: payload,
 	}
 	telemetry.IncAuditKafkaProduceInflight()
+	telemetry.CountSyncProduce(ctx)
 	start := monoStart()
 	res := k.client.ProduceSync(produceCtx, rec)
 	telemetry.DecAuditKafkaProduceInflight()
