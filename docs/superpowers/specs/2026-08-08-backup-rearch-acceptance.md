@@ -1,6 +1,6 @@
 # Backup rearchitecture: acceptance and empirical validation
 
-Scope: the full workstream (spec 2026-08-06, phases 2 through 7), not any
+Scope: the full workstream (spec 2026-08-06, phases 2 through 8), not any
 one slice. Done means every criterion below passes its stated measurement,
 QA first, then observed on production. Instruments live outside the guest
 under test (workstation probes, hypervisor gauges, object-store listings),
@@ -40,6 +40,9 @@ so a failing guest cannot destroy its own evidence.
   show no non-200 window longer than 10 s; a write acknowledged before the
   kill reads back after it; ledger leader election completes under 5 s;
   every cluster reports full replication within 15 minutes of restore.
+- The kill is measured against every service the guest carries. Once
+  phases 4 and 5 land, the same kill covers the product store process and
+  the broker on that guest, with the same bounds.
 
 ## 4. Disaster loses at most seconds
 
@@ -87,12 +90,19 @@ so a failing guest cannot destroy its own evidence.
 - The prune timer is armed on every guest; across five consecutive
   deploys, per-guest disk usage returns to within five percent of its
   pre-deploy baseline.
+- Storage placement holds, read from the hypervisor: the ledger guest
+  roots, the product store's data, and the app guests sit on the NVMe; the
+  object store guest, the owner's drill scratch and export staging, and the
+  hypervisor's guest backups sit on the SATA SSD. No unthrottled bulk copy
+  runs on the ledger's pool: the drill and the export finish on production
+  with no slow ledger sync and no leader election in their windows.
 
 ## 8. Production observed directly
 
 - Production runs the same guest layout the criteria above assume: an
   owner guest that serves nothing but orchestrates, a second app guest, and
-  three data guests carrying the ledger. Until the production data-tier
+  three data guests carrying the ledger, and after phases 4 and 5 the
+  product store and a broker as well. Until the production data-tier
   cutover is done, none of the backup units install on production, because
   every one of them is gated on the ledger consumers being repointed to the
   data tier. The cutover is therefore a named step of this workstream, in
@@ -103,6 +113,47 @@ so a failing guest cannot destroy its own evidence.
 - Every state above (alarms armed, timers armed, exports flowing, full
   replication, prune armed) is read from the running production system,
   not inferred from the repo.
+
+## 9. Product store distributed
+
+- One FoundationDB process per data guest, redundancy mode double, three
+  coordinators (one per data guest), and one backup agent per data guest,
+  read from the cluster's own status.
+- Every client's cluster file is writable by the client and lists the real
+  coordinators; a coordinator change is reflected in each client's file
+  without a restart.
+- Kill any one data guest: product-store reads and writes continue with no
+  non-200 window longer than 10 s, and the restorable point keeps advancing
+  through the kill.
+
+## 10. Event queue distributed
+
+- Three brokers, the audit topic and the consumer-position topic at three
+  copies, writes requiring two live copies, each broker advertising its own
+  routable address, read from the brokers' own metadata.
+- Kill any one broker: state-change events still commit and reach the
+  ledger, the consumer keeps writing, and a count of events produced during
+  the kill equals the count of rows the ledger holds for them.
+
+## 11. App tier distributed
+
+- Both app guests serve through the proxy, which probes the datastore
+  health endpoint of each and routes only to a live one, read from the
+  proxy's own state.
+- Kill one app guest: external probes through the proxy show no non-200
+  window longer than 10 s.
+
+## 12. The request path is off the ledger and the broker
+
+- A request-path trace of one authenticated read call on QA shows zero
+  ledger writes, at most one ledger read, and zero synchronous broker
+  round trips. The same trace for a state change shows the event staged in
+  the product store transaction, unchanged from today.
+- The token's last-use time still reads exact: after a call, the stored
+  time equals the call's time within the flush interval, and a token used on
+  two app guests within one interval stores the later time.
+- Pause the ledger's writes for the flush interval: the read call still
+  answers 200 within its normal latency.
 
 Residual: hypervisor loss is covered by restore only; there is no second
 hypervisor to fail over to, and this workstream does not add one.
