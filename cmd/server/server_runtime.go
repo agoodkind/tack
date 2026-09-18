@@ -48,7 +48,7 @@ func runServer(ctx context.Context, cfg *config.Config) error {
 	// the supported replacement for the deprecated x/net/http2/h2c handler.
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           telemetry.RequestLogger(mux),
+		Handler:           telemetry.RequestLogger(telemetry.RequestPathCounter(mux)),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	protocols := new(http.Protocols)

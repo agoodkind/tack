@@ -35,7 +35,7 @@ type Graph struct {
 // MCP handler, and auth middleware. It also installs the process-global audit
 // sinks. On failure it releases anything it already opened and returns the error.
 func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
-	pool, err := postgres.NewPool(ctx, cfg.DatabaseURL, &telemetry.QueryTracer{})
+	pool, err := postgres.NewPool(ctx, cfg.DatabaseURL, &telemetry.CountingQueryTracer{Next: &telemetry.QueryTracer{}})
 	if err != nil {
 		slog.ErrorContext(ctx, "server.postgres_failed", slog.String("err", err.Error()))
 		return nil, fmt.Errorf("runtime: postgres: %w", err)
