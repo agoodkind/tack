@@ -119,6 +119,16 @@ type Config struct {
 	AuditKafkaClientID       string        `env:"AUDIT_KAFKA_CLIENT_ID"       envDefault:"tack-audit-producer"`
 	AuditKafkaProduceTimeout time.Duration `env:"AUDIT_KAFKA_PRODUCE_TIMEOUT" envDefault:"15s"`
 
+	// Read-class audit events are queued in the app and delivered in batches
+	// behind the request (TACK-506). AuditReadBufferCapacity is the queue
+	// depth past which an arriving event goes to the outbox instead;
+	// AuditReadBatchSize is the most events one flush delivers;
+	// AuditReadFlushInterval is the longest a queued event waits for a flush,
+	// which is also the most a token's last use can lag its request.
+	AuditReadBufferCapacity int           `env:"AUDIT_READ_BUFFER_CAPACITY" envDefault:"8192"`
+	AuditReadBatchSize      int           `env:"AUDIT_READ_BATCH_SIZE"      envDefault:"256"`
+	AuditReadFlushInterval  time.Duration `env:"AUDIT_READ_FLUSH_INTERVAL"  envDefault:"200ms"`
+
 	// Meilisearch. Both values are required and may not be empty: a
 	// compiled-in address or key would let a process start against the
 	// wrong search engine, or with a key everyone knows, without saying so,

@@ -44,12 +44,23 @@ func buildAuditRuntime(ctx context.Context, cfg *config.Config, spill audit.Outb
 	// writes to the same database the relay would deliver into, so an outage
 	// there has no second store to fall back on, and the discarding recorder
 	// records nothing by the operator's own declaration.
+	var overflow audit.OutboxAppender
 	if spill != nil {
 		if _, isKafka := auditRec.(*audit.KafkaRecorder); isKafka {
 			auditRec = &audit.SpillRecorder{Primary: auditRec, Spill: spill}
+			overflow = spill
 			slog.InfoContext(ctx, "audit.spill_enabled")
 		}
 	}
+	// Read-class events leave the request path here: the queue answers the
+	// request and the flusher delivers batches behind it (TACK-506). The
+	// canonical stamp sits outside, so a queued event already carries the id
+	// and time of the request that made it.
+	auditRec = audit.NewBufferedRecorder(ctx, auditRec, overflow, audit.BufferedConfig{
+		Capacity:      cfg.AuditReadBufferCapacity,
+		BatchSize:     cfg.AuditReadBatchSize,
+		FlushInterval: cfg.AuditReadFlushInterval,
+	})
 	wired := audit.Recorder(audit.CanonicalRecorder{Inner: auditRec})
 	mcptools.SetAuditRecorder(wired)
 	auth.SetAuditRecorder(wired)

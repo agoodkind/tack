@@ -61,6 +61,14 @@ func IncAuditDropped(verb, stage string) { auditDropped.Add(verb+":"+stage, 1) }
 // owed to the ledger by the relay, and this counter is what says how many.
 func IncAuditSpilled(verb string) { auditSpilled.Add(verb, 1) }
 
+// auditBufferOverflow counts read-class events that found the in-process
+// queue full and went to the outbox instead (TACK-506). Like a spilled event,
+// an overflowed event is owed to the ledger by the relay, not lost.
+var auditBufferOverflow = expvar.NewMap("tack_audit_buffer_overflow_total")
+
+// IncAuditBufferOverflow bumps the per-verb overflow counter.
+func IncAuditBufferOverflow(verb string) { auditBufferOverflow.Add(verb, 1) }
+
 // Audit pipeline metrics. The producer (Kafka) and the consumer
 // (audit-consumer projector) each get their own expvar handles so the operator
 // can drill in without cross-correlating every signal in /debug/vars at once.

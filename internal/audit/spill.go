@@ -59,6 +59,16 @@ func (s *SpillRecorder) Record(ctx context.Context, ev Event) error {
 		s.noteRecovered(ctx)
 		return nil
 	}
+	return s.spill(ctx, ev, primaryErr)
+}
+
+// errBrokerRefused stands for the per-event refusal a batch produce reports,
+// which names no error of its own.
+var errBrokerRefused = errors.New("broker refused the produce")
+
+// spill appends one event the primary refused to the outbox, logging once per
+// outage. A successful spill returns nil: the event is durable.
+func (s *SpillRecorder) spill(ctx context.Context, ev Event, primaryErr error) error {
 	payload, marshalErr := MarshalEvent(ev)
 	if marshalErr != nil {
 		telemetry.IncAuditDropped(ev.Verb, "spill_marshal")
