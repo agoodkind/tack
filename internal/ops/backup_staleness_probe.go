@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -186,47 +187,56 @@ const (
 var errFDBNoRestorablePoint = errors.New("fdbbackup status reports no restorable backup")
 
 // fdbRestorablePointFromStatus extracts how far a FoundationDB continuous
-// backup can restore to, from `fdbbackup status` output. The timestamp stops
-// advancing as soon as the backup agent stops draining logs, which is the
-// failure this metric exists to surface.
-func fdbRestorablePointFromStatus(ctx context.Context, status string) (time.Time, error) {
+// backup can restore to, from `fdbbackup status` output: the moment, and the
+// version a restore names once the source cluster can no longer convert that
+// moment (TACK-468). The timestamp stops advancing as soon as the backup agent
+// stops draining logs, which is the failure this metric exists to surface.
+func fdbRestorablePointFromStatus(ctx context.Context, status string) (fdbRestorablePoint, error) {
+	var none fdbRestorablePoint
 	lowered := strings.ToLower(status)
 	if !strings.Contains(lowered, fdbRestorableStatusText) ||
 		strings.Contains(lowered, fdbNotRestorableStatusText) {
-		return time.Time{}, errFDBNoRestorablePoint
+		return none, errFDBNoRestorablePoint
 	}
 	for line := range strings.SplitSeq(status, "\n") {
 		if strings.Contains(line, fdbLastCompleteLogLabel) {
-			return fdbLogTimestampFromLine(ctx, line)
+			return fdbRestorablePointFromLine(ctx, line)
 		}
 	}
-	return time.Time{}, fmt.Errorf("fdbbackup status has no %q line", fdbLastCompleteLogLabel)
+	return none, fmt.Errorf("fdbbackup status has no %q line", fdbLastCompleteLogLabel)
 }
 
-// fdbLogTimestampFromLine parses the timestamp out of one status detail line,
-// which reads "<label>   - <version>, <timestamp>". A line that does not carry
-// a parseable timestamp is logged here, because the caller only reports that
-// the restorable point is unknown.
-func fdbLogTimestampFromLine(ctx context.Context, line string) (time.Time, error) {
+// fdbRestorablePointFromLine parses one status detail line, which reads
+// "<label>   - <version>, <timestamp>". A line that does not carry both is
+// logged here, because the caller only reports that the restorable point is
+// unknown.
+func fdbRestorablePointFromLine(ctx context.Context, line string) (fdbRestorablePoint, error) {
 	logger := telemetry.L(ctx)
+	var none fdbRestorablePoint
 	trimmed := strings.TrimSpace(line)
 	_, value, found := strings.Cut(line, " - ")
 	if !found {
 		shapeErr := fmt.Errorf("fdbbackup status line %q has no value", trimmed)
 		logger.WarnContext(ctx, "backup.staleness.fdb_status_unparseable", slog.String("err", shapeErr.Error()))
-		return time.Time{}, shapeErr
+		return none, shapeErr
 	}
-	_, stamp, found := strings.Cut(value, ",")
+	rawVersion, stamp, found := strings.Cut(value, ",")
 	if !found {
 		shapeErr := fmt.Errorf("fdbbackup status line %q has no timestamp", trimmed)
 		logger.WarnContext(ctx, "backup.staleness.fdb_status_unparseable", slog.String("err", shapeErr.Error()))
-		return time.Time{}, shapeErr
+		return none, shapeErr
+	}
+	version, err := strconv.ParseInt(strings.TrimSpace(rawVersion), 10, 64)
+	if err != nil {
+		wrapped := fmt.Errorf("parse fdbbackup version %q: %w", strings.TrimSpace(rawVersion), err)
+		logger.WarnContext(ctx, "backup.staleness.fdb_status_unparseable", slog.String("err", wrapped.Error()))
+		return none, wrapped
 	}
 	at, err := time.Parse(fdbStatusTimestampLayout, strings.TrimSpace(stamp))
 	if err != nil {
 		wrapped := fmt.Errorf("parse fdbbackup timestamp %q: %w", strings.TrimSpace(stamp), err)
 		logger.WarnContext(ctx, "backup.staleness.fdb_status_unparseable", slog.String("err", wrapped.Error()))
-		return time.Time{}, wrapped
+		return none, wrapped
 	}
-	return at, nil
+	return fdbRestorablePoint{Version: version, At: at.UTC()}, nil
 }

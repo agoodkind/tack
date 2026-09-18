@@ -52,7 +52,7 @@ func RunBackupStalenessCheck(ctx context.Context, cfg *config.Config, out io.Wri
 		replicationStalenessMetric(ctx, cfg, s3Client, opsNow().UTC()),
 	}
 	if cfg.BackupFDBContinuous {
-		metrics = append(metrics, fdbStalenessMetric(ctx, cfg, opsNow().UTC()))
+		metrics = append(metrics, fdbStalenessMetric(ctx, cfg, s3Client, opsNow().UTC()))
 	} else {
 		logger.WarnContext(ctx, "backup.staleness.metric_skipped",
 			slog.String("metric", backupStalenessFDBName),
@@ -216,10 +216,17 @@ func replicationStalenessMetric(
 }
 
 // fdbStalenessMetric dates the FoundationDB continuous backup from its
-// restorable point. It runs only when continuous backup is enabled, so the
-// docker client and the one-shot container are not built for a deployment that
-// has no FoundationDB backup to measure.
-func fdbStalenessMetric(ctx context.Context, cfg *config.Config, now time.Time) backupStalenessMetric {
+// restorable point, and records that point's version beside its timestamp so a
+// restore after a total loss can convert a moment the dead cluster can no
+// longer convert (TACK-468). It runs only when continuous backup is enabled, so
+// the docker client and the one-shot container are not built for a deployment
+// that has no FoundationDB backup to measure.
+func fdbStalenessMetric(
+	ctx context.Context,
+	cfg *config.Config,
+	s3Client *s3.Client,
+	now time.Time,
+) backupStalenessMetric {
 	logger := telemetry.L(ctx)
 	threshold := backupStalenessThreshold(cfg.BackupStalenessFDBMaxSeconds)
 	cli, err := newDockerClient(ctx)
@@ -240,7 +247,7 @@ func fdbStalenessMetric(ctx context.Context, cfg *config.Config, now time.Time) 
 		return unknownBackupStalenessMetric(backupStalenessFDBName, threshold,
 			backupStalenessUnreadable, "fdbbackup status failed: "+redactSecret(cfg, err.Error()))
 	}
-	at, err := fdbRestorablePointFromStatus(ctx, status)
+	point, err := fdbRestorablePointFromStatus(ctx, status)
 	if errors.Is(err, errFDBNoRestorablePoint) {
 		return unknownBackupStalenessMetric(backupStalenessFDBName, threshold,
 			backupStalenessNeverRecorded, redactSecret(cfg, err.Error()))
@@ -249,6 +256,16 @@ func fdbStalenessMetric(ctx context.Context, cfg *config.Config, now time.Time) 
 		return unknownBackupStalenessMetric(backupStalenessFDBName, threshold,
 			backupStalenessUnreadable, redactSecret(cfg, err.Error()))
 	}
-	return knownBackupStalenessMetric(ctx, backupStalenessFDBName, now, at, threshold,
-		"restorable through "+at.UTC().Format(time.RFC3339))
+	// A failed record is logged by the writer and left alone: the reading is
+	// real, and refusing the metric over it would turn a lost lookup entry
+	// into a false staleness alarm.
+	_ = appendFDBRestorablePoint(ctx,
+		func(key string) ([]byte, error) {
+			return getObjectBytes(ctx, s3Client, cfg.BackupS3BucketMain, key)
+		},
+		func(key string, body []byte) error {
+			return putObjectBytes(ctx, s3Client, cfg.BackupS3BucketMain, key, body)
+		}, point)
+	return knownBackupStalenessMetric(ctx, backupStalenessFDBName, now, point.At, threshold,
+		"restorable through "+point.At.UTC().Format(time.RFC3339))
 }
