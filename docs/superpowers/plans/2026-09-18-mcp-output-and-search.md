@@ -15,7 +15,7 @@
 | Phase | Ticket | Priority | Depends on |
 | --- | --- | --- | --- |
 | A. Bound MCP tool output | TACK-508 | high | none |
-| B. Make keyword search work | TACK-509 | urgent | Task A0 (test harness) |
+| B. Make keyword search work | TACK-509 | urgent | Task 1 (test harness) |
 | C. Per-org synonyms | TACK-510 | medium | TACK-509 |
 
 Move each ticket to `TACK::In Progress` when its first task starts and to `TACK::Done` after its acceptance checks pass on production. Use `tack_set_issue_state`.
@@ -70,7 +70,7 @@ Move each ticket to `TACK::In Progress` when its first task starts and to `TACK:
 
 ## Phase A: Bound MCP tool output (TACK-508)
 
-### Task A0: MCP integration test harness
+### Task 1: MCP integration test harness
 
 The integration suite has no test that calls MCP tools. `datagen.Driver` already sends JSON-RPC `tools/call` requests to `graph.MCPHandler` with real tokens (`internal/datagen/driver.go`, `internal/datagen/session.go` `RunSeed` commit branch). The harness reuses that path.
 
@@ -180,7 +180,7 @@ git add internal/test/integration/mcp_harness.go internal/test/integration/mcp_h
 git commit -S -m "Add MCP integration harness that calls tools through the HTTP handler (TACK-508)"
 ```
 
-### Task A1: Cursor-paged FDB reads
+### Task 2: Cursor-paged FDB reads
 
 **Files:**
 - Create: `internal/domain/node/cursor.go`
@@ -515,7 +515,7 @@ git add internal/domain/node internal/adapters/foundationdb/view_page.go interna
 git commit -S -m "Add cursor-paged NodeReader.ListPage for property and type scans (TACK-508)"
 ```
 
-### Task A2: `limit` and `cursor` on MCP list tools
+### Task 3: `limit` and `cursor` on MCP list tools
 
 **Files:**
 - Create: `internal/adapters/mcp/tools/list_page_args.go`
@@ -702,7 +702,7 @@ git add internal/adapters/mcp/tools internal/test/integration
 git commit -S -m "Add limit and cursor inputs to generated MCP list tools (TACK-508)"
 ```
 
-### Task A3: Short confirmations from write tools
+### Task 4: Short confirmations from write tools
 
 **Files:**
 - Create: `internal/adapters/mcp/tools/render_write.go`
@@ -814,7 +814,7 @@ git add internal/adapters/mcp/tools internal/test/integration
 git commit -S -m "Return short confirmations from MCP create, update, and set tools (TACK-508)"
 ```
 
-### Task A4: Bounded describe, single name, byte cap, and guide text
+### Task 5: Bounded describe, single name, byte cap, and guide text
 
 **Files:**
 - Modify: `internal/adapters/mcp/tools/workspace.go:72-93`, `render_collection.go:20-41,89-106`, `templates/workspace_describe.md.tmpl`
@@ -928,7 +928,7 @@ git add internal/adapters/mcp/tools internal/test/integration
 git commit -S -m "Count workspace children, print comment names once, and cap MCP response size (TACK-508)"
 ```
 
-### Task A5: Datagen coverage and release (TACK-508)
+### Task 6: Datagen coverage and release (TACK-508)
 
 - [ ] **Step 1: Add datagen paging coverage.** In `internal/datagen/generate_search_checks.go` add `func (g *Generator) verifyListPaging(ctx context.Context, workspace WorkspaceIdentity, projectReference string) error`. It calls `tack_list_issues` with `limit: 5`, requires `Next cursor` in the text when the project has more than 5 issues, calls again with that cursor, and returns an error when the second page repeats a reference from the first. Call it from `Generator.Run` after issues are generated.
 - [ ] **Step 2: Run datagen locally**
@@ -943,7 +943,7 @@ Expected: exit 0.
 
 ## Phase B: Make keyword search work (TACK-509)
 
-### Task B1: Report an unavailable search backend
+### Task 7: Report an unavailable search backend
 
 **Files:**
 - Modify: `internal/domain/search/searcher.go`
@@ -955,7 +955,7 @@ Expected: exit 0.
 **Interfaces:**
 - Produces: `var ErrUnavailable = errors.New("search backend unavailable")` in `domainsearch`.
 
-- [ ] **Step 1: Write the failing test.** The test stack has no Meilisearch until Task B3, so `BuildGraph` returns `Noop`.
+- [ ] **Step 1: Write the failing test.** The test stack has no Meilisearch until Task 9, so `BuildGraph` returns `Noop`.
 
 ```go
 func TestSearchReportsUnavailableBackend(t *testing.T) {
@@ -991,7 +991,7 @@ Expected: FAIL. The call succeeds with `0 results`.
 git commit -S -m "Report an unavailable search backend from tack_search instead of zero results (TACK-509)"
 ```
 
-### Task B2: Metadata-driven search documents and searchable attributes
+### Task 8: Metadata-driven search documents and searchable attributes
 
 **Files:**
 - Create: `internal/service/search_doc.go`
@@ -1001,7 +1001,7 @@ git commit -S -m "Report an unavailable search backend from tack_search instead 
 - Test: `internal/service/search_doc_test.go`
 
 **Interfaces:**
-- Produces: `func SearchDocFromView(view *node.NodeView, defs []*node.PropertyDef) *domainsearch.NodeDoc` (exported for Task B4), `var searchableAttributes = []string{"name", "props"}`.
+- Produces: `func SearchDocFromView(view *node.NodeView, defs []*node.PropertyDef) *domainsearch.NodeDoc` (exported for Task 10), `var searchableAttributes = []string{"name", "props"}`.
 
 - [ ] **Step 1: Write the failing test.** This is a pure function over real domain values, so no fakes are involved.
 
@@ -1097,7 +1097,7 @@ In `buildSearcher` pass `[]string{"name", "props"}`. The order ranks a name matc
 git commit -S -m "Index only searchable property types and rank name above properties (TACK-509)"
 ```
 
-### Task B3: Meilisearch in the test stack and an end-to-end search test
+### Task 9: Meilisearch in the test stack and an end-to-end search test
 
 **Files:**
 - Modify: `docker-compose.test.yml`
@@ -1139,7 +1139,7 @@ Expected: PASS for both search tests.
 git commit -S -m "Add Meilisearch to the test stack and test tack_search end to end (TACK-509)"
 ```
 
-### Task B4: `ops search-reindex` backfill
+### Task 10: `ops search-reindex` backfill
 
 **Files:**
 - Modify: `internal/domain/search/searcher.go`, `internal/adapters/search/meilisearch.go`, `internal/adapters/search/search.go`
@@ -1302,10 +1302,10 @@ Expected: PASS, including `cli_execute_gate_test.go`.
 git commit -S -m "Add ops batch search-reindex to backfill Meilisearch from FoundationDB (TACK-509)"
 ```
 
-### Task B5: Datagen search check and release (TACK-509)
+### Task 11: Datagen search check and release (TACK-509)
 
 - [ ] **Step 1: Add the check.** In `generate_search_checks.go` add `func (g *Generator) verifySearchFindsIssue(ctx context.Context, token string, workspace WorkspaceIdentity, reference, titleWord string) error`. It calls `tack_search` with `query: titleWord` up to 20 times, 500 ms apart, and returns an error naming the reference when the result text never contains it. Call it once per project after issues are generated, using the first word of the first issue name.
-- [ ] **Step 2: Run datagen locally** as in Task A5 Step 2. Expected: exit 0.
+- [ ] **Step 2: Run datagen locally** as in Task 6 Step 2. Expected: exit 0.
 - [ ] **Step 3: Commit, open a pull request, merge after CI passes.**
 - [ ] **Step 4: Find the production cause.** Read the app logs on production for `meilisearch.connected` or `meilisearch.setup_failed` since the last restart, and record which one appears in the TACK-509 description.
 - [ ] **Step 5: Deploy to QA.** Run `docker compose run --rm app ops batch search-reindex --execute`. Confirm `tack_search` for `backup` returns backup tickets.
@@ -1315,7 +1315,7 @@ git commit -S -m "Add ops batch search-reindex to backfill Meilisearch from Foun
 
 ## Phase C: Per-org synonyms (TACK-510)
 
-### Task C1: `synonym_set` node type
+### Task 12: `synonym_set` node type
 
 **Files:**
 - Modify: `internal/domain/node/types.go` (add `FeatureHasSynonyms`)
@@ -1364,7 +1364,7 @@ Add the property def:
 		},
 ```
 
-- [ ] **Step 4: Re-seed existing orgs.** `Seeder.SeedOrg` is idempotent. Find the command that calls `SeedOrg` for existing orgs with `search_code` on this repository ("call SeedOrg for existing orgs"). If none exists, add `ops batch seed-orgs` in `internal/ops/seed_orgs.go` following Task B4 Step 4: it lists orgs with `listOrgIDs` and calls `service.NewSeeder(env.Stores.PropertyDefs, env.Stores.NodeTypes).SeedOrg` for each.
+- [ ] **Step 4: Re-seed existing orgs.** `Seeder.SeedOrg` is idempotent. Find the command that calls `SeedOrg` for existing orgs with `search_code` on this repository ("call SeedOrg for existing orgs"). If none exists, add `ops batch seed-orgs` in `internal/ops/seed_orgs.go` following Task 10 Step 4: it lists orgs with `listOrgIDs` and calls `service.NewSeeder(env.Stores.PropertyDefs, env.Stores.NodeTypes).SeedOrg` for each.
 
 - [ ] **Step 5: Run to confirm pass,** then commit:
 
@@ -1372,7 +1372,7 @@ Add the property def:
 git commit -S -m "Add synonym_set node type with a terms property to the org seed (TACK-510)"
 ```
 
-### Task C2: Expand search queries with synonyms
+### Task 13: Expand search queries with synonyms
 
 **Files:**
 - Create: `internal/adapters/mcp/tools/search_synonyms.go`
@@ -1438,7 +1438,7 @@ func TestSynonymsDoNotCrossOrgs(t *testing.T) {
 }
 ```
 
-`NewMCPHarness` must create a separate org per call for the second test. Confirm that in Task A0 and adjust it if `BootstrapIdentities` reuses one org.
+`NewMCPHarness` must create a separate org per call for the second test. Confirm that in Task 1 and adjust it if `BootstrapIdentities` reuses one org.
 
 - [ ] **Step 2: Run to confirm failure.** Expected: `TestSearchUsesOrgSynonyms` FAILS.
 
@@ -1527,7 +1527,7 @@ Move the filter-string loop and hit decoding out of `Search` into `buildFilter` 
 			docs, err := searcher.SearchVariants(ctx, "nodes", expandQuery(query, synonymSets), filters, maxListLimit)
 ```
 
-The Task A2 `limit` argument can replace `maxListLimit` here if Task A2 added paging to `tack_search`.
+The Task 3 `limit` argument can replace `maxListLimit` here if Task 3 added paging to `tack_search`.
 
 - [ ] **Step 6: Run to confirm pass**
 
@@ -1540,10 +1540,10 @@ Expected: PASS.
 git commit -S -m "Expand tack_search queries with org synonym sets through federated search (TACK-510)"
 ```
 
-### Task C3: Datagen, guide, and release (TACK-510)
+### Task 14: Datagen, guide, and release (TACK-510)
 
 - [ ] **Step 1: Add datagen coverage.** In `generate_search_checks.go` add `verifySynonymSearch`: create a synonym set `db, database` in each workspace, create an issue named `Database datagen check`, and require that `tack_search` for `db` returns it within 10 seconds.
 - [ ] **Step 2: Update the guide.** Add a sentence to the "Search" section of `getting_started.md.tmpl`: `tack_search` also matches words listed together in the workspace's synonym sets, which are managed with `tack_create_synonym_set`.
 - [ ] **Step 3: Run datagen locally, commit, open a pull request, merge after CI passes.**
-- [ ] **Step 4: Deploy to QA.** Re-seed orgs (Task C1 Step 4), create a synonym set, and confirm the synonym search works.
+- [ ] **Step 4: Deploy to QA.** Re-seed orgs (Task 12 Step 4), create a synonym set, and confirm the synonym search works.
 - [ ] **Step 5: Deploy to production,** re-seed orgs, repeat the check, and set TACK-510 to `TACK::Done`.
