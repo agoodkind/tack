@@ -62,6 +62,23 @@ announces, and an address stored there goes stale when the address moves.
 QA mirrors the full topology on the testbed. Testbed guest ids are production
 plus 100. Every phase lands on QA before production.
 
+## Storage placement
+
+The hypervisor has two drives and no third is added. The split is by path,
+not by device class:
+
+- The request path lives on the NVMe: the three ledger guest roots (the
+  write-ahead log and tablet data), the product store's data, and the app
+  guests.
+- Slower, asynchronous, and non-critical IO lives on the SATA SSD, which has
+  a DRAM cache: the object store guest that receives every backup, the owner
+  guest's throwaway drill engines and export staging, the hypervisor's own
+  guest backups, and the broker data once the request path no longer waits
+  on the broker.
+- No unthrottled bulk copy runs on the pool the ledger shares. A bulk write
+  on that pool stalls the ledger's write-ahead log, which stalls the leader
+  and triggers an election.
+
 ## The ledger database (YugabyteDB)
 
 Three nodes hold three copies of every row. When the node leading a piece of
@@ -170,6 +187,25 @@ The compose file pins development-mode auth, which accepts any UUID as a
 login. A second instance behind public ingress raises the urgency of the
 existing fix ticket (TACK-261).
 
+## The request path
+
+The ledger database is both the auth store and the compliance record, so a
+slow ledger write becomes a slow request. The request path leaves the ledger
+and the broker before the data tier gains replicas, because every replica
+added to a synchronous write is added to every request that waits on it.
+
+Per authenticated read call the app performs zero ledger writes, at most one
+ledger read, and zero synchronous broker round trips:
+
+- The token's last-use time stays exact and is written off the request path.
+- Membership is read once per request at most and cached per principal; the
+  cache is invalidated by the membership write.
+- The token lookup is cached per token hash for a short lifetime and
+  invalidated on revoke.
+- Read-class and auth-accepted audit events are buffered in the app and
+  flushed in batches. State-change events keep their current path: staged in
+  the product store transaction and committed with the change.
+
 ## Derived stores
 
 The search index (Meilisearch) and the analytics projection (ClickHouse)
@@ -259,6 +295,13 @@ Every phase lands on QA first.
    advertised addresses.
 6. Second app instance behind the health-checked proxy.
 7. Scheduled rehearsals and the complete alarm set.
+8. The request path off the ledger and the broker: exact last-use time
+   written asynchronously, one membership read at most, token and membership
+   caches, batched read-class audit events.
+
+Phase 8 and the storage placement land before phases 4 and 5, because those
+two phases add replicas to every synchronous write and add three copies of
+product-store and broker IO to the drive the ledger shares.
 
 ## Interactions
 
