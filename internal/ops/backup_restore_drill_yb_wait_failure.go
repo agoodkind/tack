@@ -33,12 +33,24 @@ const (
 // field name.
 const ybRestorationFailedState = `"FAILED"`
 
+// ybScratchRestartCountCommand counts the restart lines, and answers 0 when
+// the log does not exist yet: a scratch yugabyted that has not written its
+// first line has restarted nothing, which is a reading rather than a blind
+// poll. Every drill's first poll runs before that first line (TACK-499), and
+// three blind polls in a row fail the drill. grep's own exit codes are kept
+// for a log that exists: 1 with "0" when nothing matched, 2 when it cannot be
+// read.
+var ybScratchRestartCountCommand = []string{
+	"sh", "-c",
+	"if [ -e " + ybScratchLogPath + " ]; then grep -cE '" + ybScratchRestartMarker + "' " + ybScratchLogPath + "; else echo 0; fi",
+}
+
 // newYBScratchFailureProbe builds the failure check for one step. master is
 // the scratch master address whose restorations are checked, or "" for a step
 // that runs no restoration.
 func newYBScratchFailureProbe(r *restoreDrillCtx, container, master string) func(context.Context) (string, error) {
 	return func(ctx context.Context) (string, error) {
-		res, err := containerExec(ctx, r.Cli, container, []string{"grep", "-cE", ybScratchRestartMarker, ybScratchLogPath})
+		res, err := containerExec(ctx, r.Cli, container, ybScratchRestartCountCommand)
 		if err != nil {
 			wrapped := fmt.Errorf("count yugabyted restarts: %w", err)
 			telemetry.L(ctx).WarnContext(ctx, "backup.restore_drill.yb.restarts_unreadable", slog.String("err", wrapped.Error()))
@@ -69,8 +81,9 @@ func newYBScratchFailureProbe(r *restoreDrillCtx, container, master string) func
 	}
 }
 
-// parseYBScratchRestarts reads the count from one `grep -c` run. grep exits 1
-// when it counted no match and 2 when it could not read the log.
+// parseYBScratchRestarts reads the count from one run of the count command:
+// 0 with a count, 1 with "0" when grep matched nothing, 2 when a log that
+// exists could not be read.
 func parseYBScratchRestarts(ctx context.Context, exitCode int, stdout string) (int64, error) {
 	fields := strings.Fields(stdout)
 	if exitCode > 1 || len(fields) == 0 {
