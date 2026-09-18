@@ -52,6 +52,16 @@ type Config struct {
 	// If unset, a random token is generated and printed once.
 	SeedAPIToken string `env:"SEED_API_TOKEN"`
 
+	// Auth caches (TACK-504, TACK-505). An accepted token and a user's org
+	// set are remembered in each app instance for the lifetime, so a repeat
+	// request costs no ledger read. The lifetime is also how long a
+	// revocation or a membership change made in another process takes to
+	// reach every instance. A lifetime of 0 caches nothing.
+	AuthTokenCacheLifetime      time.Duration `env:"AUTH_TOKEN_CACHE_LIFETIME"      envDefault:"30s"`
+	AuthTokenCacheSize          int           `env:"AUTH_TOKEN_CACHE_SIZE"          envDefault:"65536"`
+	AuthMembershipCacheLifetime time.Duration `env:"AUTH_MEMBERSHIP_CACHE_LIFETIME" envDefault:"30s"`
+	AuthMembershipCacheSize     int           `env:"AUTH_MEMBERSHIP_CACHE_SIZE"     envDefault:"65536"`
+
 	// Audit ledger pools. Each role connects through its own DSN so the app
 	// pool (DATABASE_URL) cannot accidentally inherit audit privileges.
 	// Empty values disable the corresponding subsystem. AuditWriterDSN is

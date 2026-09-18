@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -136,7 +137,7 @@ func Bearer(tokens TokenValidator, orgs OrgLister) func(http.Handler) http.Handl
 
 			t, err := tokens.Validate(r.Context(), raw)
 			if err != nil {
-				if err == domain.ErrUnauthenticated {
+				if isUnauthenticated(err) {
 					emitAuthAudit(r.Context(), r, audit.Event{
 						EventID: uuid.Nil,
 						Verb:    string(audit.VerbAuthTokenRejected),
@@ -213,6 +214,12 @@ func DevBearer(orgs OrgLister) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+// isUnauthenticated reports whether a token lookup refused the token, as
+// distinct from failing to answer, through any wrapping a cache added.
+func isUnauthenticated(err error) bool {
+	return errors.Is(err, domain.ErrUnauthenticated)
 }
 
 func extractBearer(r *http.Request) string {
