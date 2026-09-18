@@ -148,23 +148,23 @@ func bootstrapActors(
 	return nil
 }
 
+// expireToken stores a token that is already past its expiry. It writes the
+// expiry in the INSERT because the app login holds no UPDATE on api_tokens:
+// migration 015 gave last_used to the audit-consumer alone (TACK-502).
 func expireToken(ctx context.Context, pool *pgxpool.Pool, raw string, actor Actor) error {
-	tokenRepo := postgres.NewTokenRepo(pool)
-	if _, err := tokenRepo.Create(ctx, actor.UserID, raw, "qa-datagen-expired"); err != nil &&
-		!errors.Is(err, domain.ErrAlreadyExists) {
-		return loggedError(ctx, "qa datagen: create expired token", err)
-	}
 	sum := sha256.Sum256([]byte(raw))
 	tag, err := pool.Exec(
 		ctx,
-		`UPDATE api_tokens SET expires_at = now() - interval '1 hour' WHERE token_hash = $1`,
+		`INSERT INTO api_tokens (user_id, token_hash, label, expires_at)
+		 VALUES ($1, $2, 'qa-datagen-expired', now() - interval '1 hour')`,
+		actor.UserID,
 		hex.EncodeToString(sum[:]),
 	)
 	if err != nil {
-		return loggedError(ctx, "qa datagen: expire token", err)
+		return loggedError(ctx, "qa datagen: create expired token", err)
 	}
 	if tag.RowsAffected() != 1 {
-		return fmt.Errorf("qa datagen: expire token updated %d rows", tag.RowsAffected())
+		return fmt.Errorf("qa datagen: create expired token inserted %d rows", tag.RowsAffected())
 	}
 	return nil
 }
