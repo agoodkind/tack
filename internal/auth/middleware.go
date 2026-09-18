@@ -89,25 +89,30 @@ type OrgLister interface {
 	ListOrgIDsForUser(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error)
 }
 
-// actorOrg returns the actor's sole org, and uuid.Nil when the actor belongs
-// to zero or several orgs: an auth event fires before any workspace names an
-// org, so the only honest stamp is a membership that admits no other answer.
-// A lookup failure also stamps nil, because enriching the audit context must
-// never fail the request that a working recorder would still record.
-func actorOrg(ctx context.Context, orgs OrgLister, userID uuid.UUID) uuid.UUID {
+// attachMembership reads the actor's org memberships once per request,
+// attaches the set to the context for the handlers behind the middleware,
+// and returns the actor's sole org for the auth event: uuid.Nil when the
+// actor belongs to zero or several orgs, because an auth event fires before
+// any workspace names an org and the only honest stamp is a membership that
+// admits no other answer. A lookup failure attaches nothing and stamps nil,
+// because enriching the audit context must never fail the request that a
+// working recorder would still record; the MCP handler then makes its own
+// lookup and fails closed (TACK-503).
+func attachMembership(ctx context.Context, orgs OrgLister, userID uuid.UUID) (context.Context, uuid.UUID) {
 	if orgs == nil {
-		return uuid.Nil
+		return ctx, uuid.Nil
 	}
 	ids, err := orgs.ListOrgIDsForUser(ctx, userID)
 	if err != nil {
 		slog.WarnContext(ctx, "auth.org_stamp_failed",
 			slog.String("user_id", userID.String()), slog.String("err", err.Error()))
-		return uuid.Nil
+		return ctx, uuid.Nil
 	}
+	ctx = WithOrgMembership(ctx, ids)
 	if len(ids) == 1 {
-		return ids[0]
+		return ctx, ids[0]
 	}
-	return uuid.Nil
+	return ctx, uuid.Nil
 }
 
 // Bearer returns HTTP middleware that requires a valid API token.
@@ -148,6 +153,7 @@ func Bearer(tokens TokenValidator, orgs OrgLister) func(http.Handler) http.Handl
 			}
 
 			ctx := withAuthenticatedUser(r.Context(), t.UserID)
+			ctx, soleOrg := attachMembership(ctx, orgs, t.UserID)
 			used := audit.Event{
 				EventID: uuid.Nil,
 				Verb:    string(audit.VerbAuthTokenUsed),
@@ -155,7 +161,7 @@ func Bearer(tokens TokenValidator, orgs OrgLister) func(http.Handler) http.Handl
 				Entity:  audit.Entity{Type: "auth", ID: t.UserID, Name: "token_accepted"},
 				Outcome: audit.OutcomeOK,
 			}
-			used.Context.OrgID = actorOrg(ctx, orgs, t.UserID)
+			used.Context.OrgID = soleOrg
 			emitAuthAudit(ctx, r, used)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
@@ -193,6 +199,7 @@ func DevBearer(orgs OrgLister) func(http.Handler) http.Handler {
 				return
 			}
 			ctx := withAuthenticatedUser(r.Context(), userID)
+			ctx, soleOrg := attachMembership(ctx, orgs, userID)
 			used := audit.Event{
 				EventID: uuid.Nil,
 				Verb:    string(audit.VerbAuthTokenUsed),
@@ -200,7 +207,7 @@ func DevBearer(orgs OrgLister) func(http.Handler) http.Handler {
 				Entity:  audit.Entity{Type: "auth", ID: userID, Name: "dev_bearer_accepted"},
 				Outcome: audit.OutcomeOK,
 			}
-			used.Context.OrgID = actorOrg(ctx, orgs, userID)
+			used.Context.OrgID = soleOrg
 			emitAuthAudit(ctx, r, used)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})

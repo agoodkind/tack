@@ -109,19 +109,25 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx = tools.WithMCPRequestMetadata(ctx, metadata)
 	span.SetAttributes(attribute.String("enduser.id", userID.String()))
 
-	// The membership set travels on every request, cache hit or not. The
+	// The membership set is on every request, cache hit or not. The
 	// resolvers refuse any node outside it, and the tool wrapper refuses any
-	// result that never passed a membership check, so a failed lookup fails
+	// result that never passed a membership check. The auth middleware
+	// attaches the set it read for the auth event, so a request normally
+	// costs one membership read (TACK-503); when the middleware's read
+	// failed and attached nothing, the lookup runs here and a failure fails
 	// the request closed instead of serving with an empty set.
-	orgIDs, err := h.members.ListOrgIDsForUser(ctx, userID)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "list_org_ids_failed")
-		log.Error("mcp: list org ids", "err", err)
-		http.Error(w, `{"error":"membership unavailable"}`, http.StatusInternalServerError)
-		return
+	orgIDs, attached := auth.OrgMembership(ctx)
+	if !attached {
+		orgIDs, err = h.members.ListOrgIDsForUser(ctx, userID)
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "list_org_ids_failed")
+			log.Error("mcp: list org ids", "err", err)
+			http.Error(w, `{"error":"membership unavailable"}`, http.StatusInternalServerError)
+			return
+		}
+		ctx = auth.WithOrgMembership(ctx, orgIDs)
 	}
-	ctx = auth.WithOrgMembership(ctx, orgIDs)
 	r = r.WithContext(ctx)
 
 	h.mu.RLock()
