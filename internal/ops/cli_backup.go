@@ -33,6 +33,7 @@ func backupCommand(f *cli.Factory) *cobra.Command {
 		backupRestoreDrillCommand(f),
 		backupLeaf(f, "fdb-continuous-init", "Start the FoundationDB continuous backup session (idempotent)", audit.VerbOpsBackupFDBContinuousInit, RunBackupFDBContinuousInit),
 		backupStalenessCheckCommand(f),
+		backupFDBRestoreVersionCommand(f),
 	)
 	cmd.SetHelpCommand(backupHelpCommand())
 	cmd.InitDefaultHelpCmd()
@@ -127,6 +128,33 @@ func backupStalenessCheckCommand(f *cli.Factory) *cobra.Command {
 	}
 	clispec.AttachAudit(cmd, f, audit.Spec{Verb: string(audit.VerbOpsBackupStalenessCheck), Mutates: true}, func(ctx context.Context) error {
 		return RunBackupStalenessCheck(ctx, f.Cfg, cmd.OutOrStdout())
+	})
+	return cmd
+}
+
+// backupFDBRestoreVersionCommand builds the restore-version leaf: it converts
+// a wall-clock moment into the FoundationDB version a restore names, reading
+// only the object store, because the cluster that would otherwise convert the
+// moment is what a total loss destroyed (TACK-468).
+func backupFDBRestoreVersionCommand(f *cli.Factory) *cobra.Command {
+	var at string
+	cmd := &cobra.Command{
+		Use:   "restore-version",
+		Short: "Convert a moment into the FoundationDB version to restore to, from the object store alone",
+		Args:  cobra.NoArgs,
+	}
+	cmd.Flags().StringVar(&at, "at", "",
+		"the moment to restore to, as RFC 3339 (2026-08-30T01:07:23Z) or 2026/08/30.01:07:23+0000 (default: now)")
+	clispec.AttachAudit(cmd, f, audit.Spec{Verb: string(audit.VerbOpsBackupFDBRestoreVersion), Reads: true}, func(ctx context.Context) error {
+		want := opsNow().UTC()
+		if at != "" {
+			parsed, err := parseFDBTargetTime(at)
+			if err != nil {
+				return err
+			}
+			want = parsed
+		}
+		return RunBackupFDBRestoreVersion(ctx, f.Cfg, want, cmd.OutOrStdout())
 	})
 	return cmd
 }

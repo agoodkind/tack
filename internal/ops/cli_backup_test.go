@@ -110,6 +110,7 @@ func TestBackupSubcommandsPresent(t *testing.T) {
 		"restore-drill":       false,
 		"fdb-continuous-init": false,
 		"staleness-check":     false,
+		"restore-version":     false,
 	}
 	for _, sub := range cmd.Commands() {
 		name := strings.Fields(sub.Use)[0]

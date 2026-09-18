@@ -162,6 +162,9 @@ const (
 	VerbOpsBackupFDBContinuousInit Verb = "ops.backup_fdb_continuous_init"
 	// VerbOpsBackupStalenessCheck records a backup staleness report.
 	VerbOpsBackupStalenessCheck Verb = "ops.backup_staleness_check"
+	// VerbOpsBackupFDBRestoreVersion records an operator converting a moment
+	// into the FoundationDB version a restore names.
+	VerbOpsBackupFDBRestoreVersion Verb = "ops.backup_fdb_restore_version"
 	// VerbOpsDeployVerify records a check that the rolled containers run the
 	// deployed images.
 	VerbOpsDeployVerify Verb = "ops.deploy_verify"

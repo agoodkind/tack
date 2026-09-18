@@ -318,13 +318,23 @@ func TestExportRunKeyIsDatable(t *testing.T) {
 // output of a backup that has no restorable point yet.
 func TestFDBRestorablePointFromStatus(t *testing.T) {
 	ctx := context.Background()
-	at, err := fdbRestorablePointFromStatus(ctx, fdbStatusRestorable)
+	point, err := fdbRestorablePointFromStatus(ctx, fdbStatusRestorable)
 	if err != nil {
 		t.Fatalf("fdbRestorablePointFromStatus: %v", err)
 	}
 	want := time.Date(2026, 8, 30, 1, 7, 23, 0, time.UTC)
-	if !at.Equal(want) {
-		t.Fatalf("restorable point = %s, want %s", at.UTC(), want)
+	if !point.At.Equal(want) {
+		t.Fatalf("restorable point = %s, want %s", point.At.UTC(), want)
+	}
+	// The version is read beside the timestamp, because a restore after a
+	// total loss names the version and nothing else can convert the moment.
+	if point.Version != 100720665 {
+		t.Fatalf("version = %d, want 100720665", point.Version)
+	}
+
+	if _, err := fdbRestorablePointFromStatus(ctx,
+		"The backup is restorable but continuing\n Last complete log version and timestamp - not-a-version, 2026/08/30.01:07:23+0000\n"); err == nil {
+		t.Fatal("an unparseable version must be an error, not a silent zero")
 	}
 
 	// A status that vouches for no restorable point is told apart from one
