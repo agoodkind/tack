@@ -40,8 +40,10 @@ const ybRestorationFailedState = `"FAILED"`
 // three blind polls in a row fail the drill. grep's own exit codes are kept
 // for a log that exists: 1 with "0" when nothing matched, 2 when it cannot be
 // read.
-var ybScratchRestartCountCommand = []string{"sh", "-c",
-	"if [ -e " + ybScratchLogPath + " ]; then grep -cE '" + ybScratchRestartMarker + "' " + ybScratchLogPath + "; else echo 0; fi"}
+var ybScratchRestartCountCommand = []string{
+	"sh", "-c",
+	"if [ -e " + ybScratchLogPath + " ]; then grep -cE '" + ybScratchRestartMarker + "' " + ybScratchLogPath + "; else echo 0; fi",
+}
 
 // newYBScratchFailureProbe builds the failure check for one step. master is
 // the scratch master address whose restorations are checked, or "" for a step
