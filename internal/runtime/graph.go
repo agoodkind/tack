@@ -55,9 +55,15 @@ func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
 		return nil, err
 	}
 
-	tokenRepo := postgres.NewTokenRepo(pool)
+	// The token and membership caches take the two remaining ledger reads
+	// off most requests (TACK-504, TACK-505); the lifetimes bound how long a
+	// revocation or a membership change made elsewhere takes to reach this
+	// instance.
+	tokenRepo := auth.NewCachedTokenValidator(postgres.NewTokenRepo(pool),
+		cfg.AuthTokenCacheLifetime, cfg.AuthTokenCacheSize)
 	userRepo := postgres.NewUserRepo(pool)
-	orgMembers := postgres.NewOrgMemberRepo(pool)
+	orgMembers := auth.NewCachedMembers(postgres.NewOrgMemberRepo(pool),
+		cfg.AuthMembershipCacheLifetime, cfg.AuthMembershipCacheSize)
 
 	nodeSvc := service.NewNodeService(
 		fdbStores.Nodes,
@@ -118,7 +124,7 @@ func (g *Graph) Close() {
 	}
 }
 
-func buildAuthMiddleware(cfg *config.Config, tokenRepo *postgres.TokenRepo, orgMembers auth.OrgLister) func(http.Handler) http.Handler {
+func buildAuthMiddleware(cfg *config.Config, tokenRepo auth.TokenValidator, orgMembers auth.OrgLister) func(http.Handler) http.Handler {
 	if cfg.Env == "development" {
 		slog.Warn("dev_auth.enabled")
 		return auth.DevBearer(orgMembers)
