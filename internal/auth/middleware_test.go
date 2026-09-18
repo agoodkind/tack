@@ -54,11 +54,12 @@ func (f fixedOrgs) ListOrgIDsForUser(context.Context, uuid.UUID) ([]uuid.UUID, e
 // fixedValidator accepts every bearer as one user, standing in for the token
 // table.
 type fixedValidator struct {
-	userID uuid.UUID
+	userID  uuid.UUID
+	tokenID uuid.UUID
 }
 
 func (f fixedValidator) Validate(context.Context, string) (*token.Token, error) {
-	return &token.Token{ID: uuid.Nil, UserID: f.userID, Label: "test", LastUsed: nil, ExpiresAt: nil, CreatedAt: time.Time{}}, nil
+	return &token.Token{ID: f.tokenID, UserID: f.userID, Label: "test", LastUsed: nil, ExpiresAt: nil, CreatedAt: time.Time{}}, nil
 }
 
 // driveAuth sends one authenticated request through the given middleware and
@@ -136,16 +137,22 @@ func TestDevBearerLookupFailureNeverFailsAuth(t *testing.T) {
 }
 
 // TestBearerStampsSoleOrg covers the production token path with the same
-// sole-org stamp.
+// sole-org stamp, and pins that the accepted token's id rides on the event,
+// which is what the audit-consumer projects the token's last use from
+// (TACK-502).
 func TestBearerStampsSoleOrg(t *testing.T) {
 	userID := uuid.Must(uuid.NewV7())
 	orgID := uuid.Must(uuid.NewV7())
-	middleware := Bearer(fixedValidator{userID: userID}, fixedOrgs{orgs: []uuid.UUID{orgID}, err: nil})
+	tokenID := uuid.Must(uuid.NewV7())
+	middleware := Bearer(fixedValidator{userID: userID, tokenID: tokenID}, fixedOrgs{orgs: []uuid.UUID{orgID}, err: nil})
 	ev, status := driveAuth(t, middleware, "raw-token")
 	if status != http.StatusOK {
 		t.Fatalf("status = %d, want 200", status)
 	}
 	if ev.Context.OrgID != orgID {
 		t.Fatalf("token_used org = %s, want %s", ev.Context.OrgID, orgID)
+	}
+	if ev.Context.APITokenID != tokenID {
+		t.Fatalf("token_used token = %s, want %s", ev.Context.APITokenID, tokenID)
 	}
 }

@@ -94,6 +94,12 @@ type EventContext struct {
 	Tool        string    `json:"tool,omitempty"`
 	RPC         string    `json:"rpc,omitempty"`
 	Reason      string    `json:"reason,omitempty"`
+
+	// APITokenID names the token that authenticated the request, on the
+	// auth event that accepted it. The audit-consumer projects the token's
+	// last use from it, so the app never writes the token table on the
+	// request path (TACK-502).
+	APITokenID uuid.UUID `json:"api_token_id,omitempty" exhaustruct:"optional"`
 }
 
 type Source string

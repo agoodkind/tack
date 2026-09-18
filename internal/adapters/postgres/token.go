@@ -23,15 +23,16 @@ func NewTokenRepo(db *pgxpool.Pool) *TokenRepo {
 	return &TokenRepo{db: db}
 }
 
-// Validate looks up a raw Bearer token, updates last_used, and returns the token record.
+// Validate looks up a raw Bearer token and returns the token record. It is a
+// read: the token's last use is projected by the audit-consumer from the auth
+// event the request records, so no request writes the token table (TACK-502).
 // Returns domain.ErrUnauthenticated if not found or expired.
 func (r *TokenRepo) Validate(ctx context.Context, raw string) (*token.Token, error) {
 	const q = `
-		UPDATE api_tokens
-		SET last_used = now()
+		SELECT id, user_id, label, last_used, expires_at, created_at
+		FROM api_tokens
 		WHERE token_hash = $1
-		  AND (expires_at IS NULL OR expires_at > now())
-		RETURNING id, user_id, label, last_used, expires_at, created_at`
+		  AND (expires_at IS NULL OR expires_at > now())`
 
 	t := &token.Token{}
 	err := r.db.QueryRow(ctx, q, hashToken(raw)).Scan(

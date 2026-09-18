@@ -162,6 +162,7 @@ func Bearer(tokens TokenValidator, orgs OrgLister) func(http.Handler) http.Handl
 				Outcome: audit.OutcomeOK,
 			}
 			used.Context.OrgID = soleOrg
+			used.Context.APITokenID = t.ID
 			emitAuthAudit(ctx, r, used)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})

@@ -520,6 +520,9 @@ func (c *Consumer) projectBatchOnce(ctx context.Context, tp topicPartition, reco
 			projected = append(projected, pe)
 		}
 	}
+	if err := recordTokenUses(ctx, tx, projected); err != nil {
+		return nil, err
+	}
 
 	last := records[len(records)-1]
 	_, err = tx.Exec(ctx, `
@@ -630,6 +633,10 @@ type projectedEvent struct {
 	PrevHash   []byte
 	RowHash    []byte
 	IdemKey    string
+	// APITokenID is the token an auth event accepted, kept beside the row so
+	// the batch can project the token's last use once it has committed the
+	// event that proves it (TACK-502).
+	APITokenID uuid.UUID
 }
 
 // projectOne writes one event's PII row, then appends it to audit.events and
@@ -762,6 +769,7 @@ func buildProjectedEvent(p preparedEvent, seq int64, prevHash, rowHash []byte) p
 		PrevHash:   prevHash,
 		RowHash:    rowHash,
 		IdemKey:    p.Event.IdempotencyKey,
+		APITokenID: p.Event.Context.APITokenID,
 	}
 }
 
