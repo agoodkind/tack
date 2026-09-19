@@ -67,6 +67,10 @@ func (f fakeSearcher) Search(context.Context, string, string, map[string]string)
 	return f.docs, nil, nil
 }
 
+func (f fakeSearcher) SearchVariants(context.Context, string, []string, map[string]string, int) ([]domainsearch.NodeDoc, error) {
+	return f.docs, nil
+}
+
 func newAuthzFixture(t *testing.T) *authzFixture {
 	t.Helper()
 	f := &authzFixture{
@@ -104,7 +108,7 @@ func newAuthzFixture(t *testing.T) *authzFixture {
 	RegisterRelationship(f.server, nil, f.relationships, f.resolver)
 	RegisterSearch(f.server, fakeSearcher{docs: []domainsearch.NodeDoc{{
 		ID: f.projectB.String(), OrgID: f.orgB.String(), NodeType: "project", Name: "Theirs", Props: nil,
-	}}}, f.resolver)
+	}}}, &fakePropertyDefs{defs: nil}, f.resolver)
 	RegisterNodeTools(f.server, f.projectType, NodeTypeBinding{
 		NodeSvc: nil, Reader: f.reader, PropertyDefs: &fakePropertyDefs{defs: nil}, Resolver: f.resolver, Users: nil,
 	})

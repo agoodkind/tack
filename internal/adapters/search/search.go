@@ -25,3 +25,8 @@ func (Noop) Delete(_ context.Context, _, _ string) error { return nil }
 func (Noop) Search(_ context.Context, _, _ string, _ map[string]string) ([]domainsearch.NodeDoc, map[string]map[string]int64, error) {
 	return nil, nil, domainsearch.ErrUnavailable
 }
+
+// SearchVariants reports the backend as unavailable.
+func (Noop) SearchVariants(_ context.Context, _ string, _ []string, _ map[string]string, _ int) ([]domainsearch.NodeDoc, error) {
+	return nil, domainsearch.ErrUnavailable
+}

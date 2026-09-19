@@ -180,3 +180,7 @@ func (s idempotencySearcher) Delete(context.Context, string, string) error {
 func (s idempotencySearcher) Search(context.Context, string, string, map[string]string) ([]domainsearch.NodeDoc, map[string]map[string]int64, error) {
 	panic("idempotencySearcher.Search called")
 }
+
+func (s idempotencySearcher) SearchVariants(context.Context, string, []string, map[string]string, int) ([]domainsearch.NodeDoc, error) {
+	panic("idempotencySearcher.SearchVariants called")
+}
