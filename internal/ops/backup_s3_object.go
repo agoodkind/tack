@@ -124,46 +124,6 @@ func getObjectBytes(ctx context.Context, client *s3.Client, bucket, key string) 
 	return body, nil
 }
 
-// getObjectToFile downloads bucket/key to a local file at path, streaming the
-// body to disk through [copyToStagedFile], which keeps what the download
-// leaves in the page cache bounded whatever the object's size. Used by the
-// restore drill to stage backup artifacts before loading them into a scratch
-// engine.
-func getObjectToFile(ctx context.Context, client *s3.Client, bucket, key, path string) error {
-	logger := telemetry.L(ctx)
-	out, err := client.GetObject(ctx, &s3.GetObjectInput{
-		Bucket: aws.String(bucket),
-		Key:    aws.String(key),
-	})
-	if err != nil {
-		wrapped := fmt.Errorf("get object %s/%s: %w", bucket, key, err)
-		logger.ErrorContext(ctx, "backup.s3.get_failed", slog.String("err", wrapped.Error()))
-		return wrapped
-	}
-	defer out.Body.Close()
-
-	f, err := os.Create(path)
-	if err != nil {
-		wrapped := fmt.Errorf("create %s for download of %s/%s: %w", path, bucket, key, err)
-		logger.ErrorContext(ctx, "backup.s3.get_failed", slog.String("err", wrapped.Error()))
-		return wrapped
-	}
-	defer f.Close()
-
-	written, err := copyToStagedFile(ctx, f, out.Body)
-	if err != nil {
-		wrapped := fmt.Errorf("write %s from %s/%s: %w", path, bucket, key, err)
-		logger.ErrorContext(ctx, "backup.s3.get_failed", slog.String("err", wrapped.Error()))
-		return wrapped
-	}
-	logger.InfoContext(ctx, "backup.s3.get",
-		slog.String("bucket", bucket),
-		slog.String("key", key),
-		slog.Int64("bytes", written),
-	)
-	return nil
-}
-
 // listImmediatePrefixes returns the immediate child prefixes under prefix using
 // the delimiter, for example the per-run folders under "yugabyte-snapshot/" or
 // the backup names under "backups/". The returned values include the trailing
