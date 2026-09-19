@@ -6,7 +6,12 @@ package search
 import (
 	"context"
 	"encoding/json"
+	"errors"
 )
+
+// ErrUnavailable reports that no search backend is connected, so a query
+// cannot be answered. Callers must surface it instead of an empty result.
+var ErrUnavailable = errors.New("search backend unavailable")
 
 // NodeDoc is the generic document shape stored and returned from the search
 // index. Only universal fields are first-class; everything concept-specific
