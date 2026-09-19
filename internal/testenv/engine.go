@@ -34,9 +34,11 @@ type engine struct {
 	superuserKey string
 }
 
-// startAttempts bounds how often ensureEngine replaces a container another
-// process removed or left stopped between two of its calls.
-const startAttempts = 3
+// startAttempts bounds how often ensureEngine looks for the container again.
+// A process that loses the create race sees the name taken before the winner's
+// container can be inspected, and a stopped container is removed before the
+// next attempt creates it again; both settle within a few poll intervals.
+const startAttempts = 30
 
 // ensureEngine returns the running engine for spec, creating it when absent.
 // An engine that stopped is removed and created again rather than restarted,
@@ -56,6 +58,9 @@ func ensureEngine(ctx context.Context, cli *client.Client, spec engineSpec) (eng
 			return running, nil
 		}
 		lastErr = err
+		if !sleepOrDone(ctx) {
+			break
+		}
 	}
 	return engine{}, lastErr
 }

@@ -3,6 +3,7 @@ package testenv
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/gofrs/flock"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	_ "github.com/jackc/pgx/v5/stdlib" // registers the pgx database/sql driver goose migrates through
 	"github.com/pressly/goose/v3"
 
@@ -52,23 +54,58 @@ func createLedgerDatabase(ctx context.Context, running engine, setupDSN string) 
 	defer func() { _ = admin.Close(context.WithoutCancel(ctx)) }()
 	dropStaleDatabases(ctx, admin)
 
+	for attempt := 1; ; attempt++ {
+		dsn, err := createMigratedDatabase(ctx, admin, running)
+		if err == nil {
+			return dsn, nil
+		}
+		if attempt == migrateAttempts || !isSerializationFailure(err) {
+			return "", err
+		}
+		slog.DebugContext(ctx, "testenv.ledger.migrate_retry", slog.Int("attempt", attempt), slog.String("err", err.Error()))
+	}
+}
+
+// migrateAttempts bounds how often a migration that lost a serialization
+// conflict is retried on a fresh database. The engine keeps a failed
+// migration's completed DDL, so a retry never reuses the half-migrated one.
+// Tests in other binaries run DDL on the same engine while this one migrates,
+// and the engine fails a migration statement whose catalog snapshot that DDL
+// invalidated with SQLSTATE 40001.
+const migrateAttempts = 5
+
+// createMigratedDatabase creates one database and migrates it, dropping it
+// again when the migration fails.
+func createMigratedDatabase(ctx context.Context, admin *pgx.Conn, running engine) (string, error) {
 	suffix, err := randomHex(ctx, 4)
 	if err != nil {
 		return "", err
 	}
 	name := testDatabasePrefix + strconv.FormatInt(clock.Now().Unix(), 10) + "_" + suffix
-	if _, err := admin.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{name}.Sanitize()); err != nil {
+	identifier := pgx.Identifier{name}.Sanitize()
+	if _, err := admin.Exec(ctx, "CREATE DATABASE "+identifier); err != nil {
 		slog.ErrorContext(ctx, "testenv.ledger.create_failed", slog.String("err", err.Error()))
 		return "", fmt.Errorf("create database %s: %w", name, err)
 	}
 	dsn := ledgerDSN(running, name)
 	if err := migrateLedger(ctx, dsn); err != nil {
+		_, _ = admin.Exec(ctx, "DROP DATABASE IF EXISTS "+identifier)
 		slog.ErrorContext(ctx, "testenv.ledger.migrate_failed", slog.String("err", err.Error()))
 		return "", fmt.Errorf("migrate database %s: %w", name, err)
 	}
 	slog.InfoContext(ctx, "testenv.ledger.ready", slog.String("database", name))
 	return dsn, nil
 }
+
+// isSerializationFailure reports whether err carries the engine's
+// serialization failure, SQLSTATE 40001.
+func isSerializationFailure(err error) bool {
+	var engineErr *pgconn.PgError
+	return errors.As(err, &engineErr) && engineErr.Code == serializationFailure
+}
+
+// serializationFailure is the SQLSTATE of a transaction that lost a conflict.
+const serializationFailure = "40001"
 
 // migrateLedger applies every embedded migration, the same set
 // `./server migrate` applies.
