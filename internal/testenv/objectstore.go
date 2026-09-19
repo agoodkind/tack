@@ -26,16 +26,27 @@ const (
 	// identities.
 	objectStoreWriterName = "tack-testenv"
 	objectStoreReaderName = "tack-testenv-read-only"
+	// objectStoreVolumeCount is the engine's volume count.
+	objectStoreVolumeCount = "512"
 	// objectStoreKeyBytes is the random size of each generated key.
 	objectStoreKeyBytes = 16
 )
 
 // objectStoreCommand is the weed invocation production's service runs, with
-// the data directory at the image's volume.
+// the data directory at the image's volume and one change: a fixed volume
+// count in place of -volume.max=0. Every bucket is a collection that takes
+// volumes of its own, and a test binary makes a bucket per test, so sizing
+// the count from a CI runner's free disk leaves too few, and writes to later
+// buckets fail with "failed to find writable volumes". Volumes are not
+// preallocated, so the count costs no disk.
 var objectStoreCommand = []string{
 	"server", "-dir=/data", "-s3", "-s3.config=" + objectStoreConfigPath,
-	"-ip.bind=::", "-master.volumeSizeLimitMB=1024", "-volume.max=0",
+	"-ip.bind=::", "-master.volumeSizeLimitMB=1024", "-volume.max=" + objectStoreVolumeCount,
 }
+
+// objectStoreEnv makes a new collection grow one volume rather than seven, so
+// the fixed count covers every bucket a test binary makes.
+var objectStoreEnv = []string{"WEED_MASTER_VOLUME_GROWTH_COPY_1=1"}
 
 // ObjectStoreBucket is one empty bucket on a test object store and what a
 // client needs to reach it.
@@ -115,7 +126,7 @@ func provisionObjectStore(ctx context.Context) (string, error) {
 		image:    objectStoreImage,
 		platform: nil,
 		cmd:      objectStoreCommand,
-		env:      nil,
+		env:      objectStoreEnv,
 		files:    map[string][]byte{objectStoreConfigPath: contents},
 	})
 	if err != nil {
