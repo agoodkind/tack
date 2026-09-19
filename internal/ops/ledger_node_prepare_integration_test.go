@@ -33,11 +33,14 @@ func TestLauncherConfigRoundTripsThroughTheContainer(t *testing.T) {
 	}
 	// The file is written by uid 1000 the way the launcher, which runs as
 	// the yugabyte user, writes its own; the round trip must keep that owner
-	// or the launcher can no longer save its config after the rewrite.
-	script := "mkdir -p " + ledgerLauncherConfigDir + " && printf '%s' \"$CONF\" > " +
-		ledgerLauncherConfigDir + "/" + ledgerLauncherConfigName +
-		" && chown 1000:1000 " + ledgerLauncherConfigDir + "/" + ledgerLauncherConfigName +
-		" && chmod 0644 " + ledgerLauncherConfigDir + "/" + ledgerLauncherConfigName + " && sleep 300"
+	// or the launcher can no longer save its config after the rewrite. The
+	// file is staged and moved into place after its owner and mode are set,
+	// so the read below never sees it half made.
+	configPath := ledgerLauncherConfigDir + "/" + ledgerLauncherConfigName
+	script := "mkdir -p " + ledgerLauncherConfigDir + " && printf '%s' \"$CONF\" > " + configPath + ".staged" +
+		" && chown 1000:1000 " + configPath + ".staged" +
+		" && chmod 0644 " + configPath + ".staged" +
+		" && mv " + configPath + ".staged " + configPath + " && sleep 300"
 	created, err := cli.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Config: &container.Config{
 			Image: image, Cmd: []string{"sh", "-c", script},
