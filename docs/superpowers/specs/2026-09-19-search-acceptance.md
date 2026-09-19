@@ -11,11 +11,13 @@ data or tenant isolation.
 
 ## Paging and reads
 
-- Create 150 issues whose names contain the unique phrase `paging probe` in
-  one project. A project-scoped search for `paging probe` returns six pages of
-  25 issues. The pages contain every issue exactly once.
-- Application traces show one OpenSearch request and one FoundationDB
-  transaction for each page.
+- Create 149 ordinary issues and one large issue in one project. Every issue
+  contains the unique phrase `paging probe`. The large issue contains the
+  phrase in more than 1,000 passages. A project-scoped search returns six pages
+  of 25 issues. The pages contain every issue exactly once.
+- Application traces show one OpenSearch request and one byte-bounded
+  `ViewStore.GetMany` batch for each page. The read path does not issue one
+  FoundationDB transaction per result.
 
 ## Tenant and type isolation
 
@@ -47,15 +49,18 @@ All seven checks must pass without manually maintained synonyms.
 
 ## Complete embedding coverage
 
-- Create a node through Tack with 90,000 bytes of searchable text. Place
-  `Application terminated unexpectedly` only at the end. A search for `crash`
-  returns that node on the first page.
-- Read the indexed node after the same write. `passage_chunk` contains the
-  beginning and end of the source text, no passage exceeds 384 tokens, and the
-  number of nested vectors equals the number of passages.
-- Index a probe document through the deployed `nodes-embed` pipeline with 101
-  passages and a semantic target only in passage 101. A nested neural query for
-  that target returns the probe. Delete the probe after the check.
+- Create an 8 MiB node through the TACK-525 storage path. Place `Application
+  terminated unexpectedly` only in the final stored chunk. A search for
+  `crash` returns that node on the first page.
+- Read every indexed passage after the same write. The ordinals are contiguous
+  from zero, every passage has exactly one 384-dimensional vector, no passage
+  exceeds 192 model tokens, and the final phrase appears in the final passage.
+  The passage count exceeds 100.
+- Update the large node. Remove the old final phrase and add `Billing
+  reconciliation` only at the end. After indexing converges, `crash` does not
+  return the node and `invoice` does. No document from the prior content
+  generation remains.
+- Delete the large node. No passage document with its node ID remains.
 - Record primary-store bytes before and after indexing probe documents with
   known passage counts. Capacity planning uses the measured bytes per passage
   and the measured distribution of passage counts.
@@ -67,6 +72,7 @@ All seven checks must pass without manually maintained synonyms.
   within its timeout, and the new node becomes searchable within 10 seconds.
   The OpenSearch cluster assigns every primary shard and reports non-red
   health.
-- `ops batch search-reindex --execute` recreates a deleted `nodes` index with
-  the normal deployment configuration. All seven semantic query pairs and the
-  90,000-byte embedding coverage check pass after the rebuild.
+- `ops batch search-reindex --execute` creates a versioned backing index with
+  the normal deployment configuration and switches the `node-passages` alias
+  only after the new index passes its checks. All seven semantic query pairs
+  and the 8 MiB embedding coverage check pass after the rebuild.
