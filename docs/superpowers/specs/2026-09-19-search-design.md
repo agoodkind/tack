@@ -1,159 +1,208 @@
-# Search on OpenSearch
+# OpenSearch search architecture
 
-Epic TACK-517. Resolves TACK-518, TACK-519, TACK-520. Acceptance criteria
-are in [the acceptance page](2026-09-19-search-acceptance.md); the cutover
-order is in the implementation plan.
+Epic TACK-517. This design resolves TACK-518, TACK-519, and TACK-520.
 
 ## Problem
 
-Search runs in one Meilisearch 1.12 container on the app guest with a 2 GB
-memory limit. Three defects follow from that engine.
+Production search depends on one Meilisearch 1.12 container with a 2 GB memory
+limit. Search stops if that container or its guest stops. Community
+Meilisearch 1.12 cannot divide one index across several guests or store a
+replica on another guest. Meilisearch offers distributed search under its
+[Enterprise Edition license](https://www.meilisearch.com/blog/enterprise-license),
+which places sharding under the Business Source License.
 
-1. Capacity is one guest. Community Meilisearch has no sharding or
-   replication. Sharding exists in the Enterprise Edition from 1.37, and its
-   [license](https://www.meilisearch.com/blog/enterprise-license) allows
-   production use only under a commercial agreement. Routing orgs across
-   several community instances from the app was rejected because the app
-   would then own shard placement.
-2. The engine does not enforce tenancy. The org filter is a string built with
-   `fmt.Sprintf` that includes the caller's `node_type` argument, and one
-   master key serves every org. The control that keeps other orgs out is in
-   the tool, not the engine: it re-reads every hit from FoundationDB and
-   removes results outside the caller's org.
-3. Matching is lexical. Lexical matching does not relate `db` to
-   `Database failover`. The synonym feature that tried to cover this
-   (TACK-510) required hand-written word pairs and was reverted.
+The search engine is not a tenant boundary today. The client converts filter
+values into a formatted string, and every organization uses the same master
+key. The MCP tool provides the final isolation check: it reads each result
+from FoundationDB and rejects results whose `org_id` differs from the caller's
+organization.
 
-Production holds 3,842 indexed nodes after the 2026-09-19 reindex. Tack is a
-multi-tenant product, and the requirement is that index capacity grows by
-adding guests rather than by enlarging one, so the current count does not
-size the design.
+Search also matches words rather than meaning. A query such as `db` does not
+match a title such as `Database failover`. TACK-510 tried to close that gap
+with organization-specific synonym lists, but that approach required people
+to predict and maintain each related term.
+
+Production contained 3,842 indexed nodes after the reindex on 2026-09-19.
+That count describes the current deployment. The new architecture must add
+capacity with more storage or search nodes without assigning shards in the
+Tack application.
 
 ## Decision
 
-Replace Meilisearch with an OpenSearch 3.8 cluster of three nodes on three
-new guests, one index, and hybrid keyword and vector ranking with an
-embedding model the cluster runs on its own CPUs. OpenSearch is Apache 2.0
-and shards and replicates without a license. Its ml-commons plugin serves
+Tack will replace Meilisearch with OpenSearch 3.8. Each environment will use
+three OpenSearch nodes, one `nodes` index, and hybrid keyword and semantic
+ranking. OpenSearch will generate embeddings on the cluster with a local CPU
+model.
+
+OpenSearch provides shard placement and replication under the Apache 2.0
+license. Its ML Commons plugin can serve
 [pretrained sentence-embedding models](https://docs.opensearch.org/latest/ml-commons-plugin/pretrained-models/)
-in process, so no node text leaves the guests and the design incurs no
-external inference API fee.
+inside the cluster. Search will not depend on an external inference service
+because the model will process node text on the search guests.
+
+FoundationDB will remain the source of truth. OpenSearch will contain a
+rebuildable projection used for ranking and result IDs. Tack will read the
+current node views from FoundationDB before returning a page.
 
 ## Cluster
 
-Each environment gets three LXC guests, `tack-search1` to `tack-search3`,
-on the suburban hypervisor for QA and vault for production, with 4 GB of
-memory, 2 cores, and a 40 GB root on the hot storage tier. Vault had 64 GB
-of memory free on 2026-09-19. Each guest runs one
-`opensearchproject/opensearch:3.8.0` container from the tack compose file,
-the same shape as one ledger node per data guest. The JVM heap is 2 GB,
-which follows the
-[install guidance](https://docs.opensearch.org/latest/install-and-configure/install-opensearch/index/#important-settings)
-of half the system memory. All three nodes are master eligible. The
-cluster must continue serving reads and writes after one guest stops.
+Search must continue to accept reads and writes after any one search guest
+stops. Each environment will use this topology:
 
-Transport and REST traffic use TLS from the private certificate authority
-the ledger already uses, with one certificate per node. The app
-authenticates as an internal user whose password the deploy generates once
-per host, next to the ledger password. The configs repo provisions the
-guests, issues the certificates, and renders the URL, user, password, and
-CA path into `.env`. The tack repo owns the compose service and the client.
+| Setting | QA | Production |
+| --- | --- | --- |
+| Hypervisor | suburban | vault |
+| Guests | `tack-search1`, `tack-search2`, `tack-search3` | `tack-search1`, `tack-search2`, `tack-search3` |
+| Resources per guest | 4 GB memory, 2 cores, 40 GB hot-tier root | 4 GB memory, 2 cores, 40 GB hot-tier root |
+| Container | `opensearchproject/opensearch:3.8.0` | `opensearchproject/opensearch:3.8.0` |
+| JVM heap | 2 GB | 2 GB |
 
-Serving a model on the data nodes needs two cluster settings,
+All three nodes will store data and remain eligible to manage the cluster.
+The 2 GB heap follows OpenSearch's guidance to start at half of available
+memory in its
+[installation settings](https://docs.opensearch.org/latest/install-and-configure/install-opensearch/index/#important-settings).
+
+The private certificate authority used by the ledger will issue one
+certificate per search node. OpenSearch will require TLS for REST and
+transport traffic. The Tack application will authenticate as an internal
+OpenSearch user. Deployment will generate that user's password once per host.
+
+The configs repository will provision the guests and certificates. It will
+also render the OpenSearch URL, user, password, and certificate authority path
+into `.env`. This repository will own the OpenSearch Compose service, index
+configuration, and client.
+
+OpenSearch will run
+`huggingface/sentence-transformers/all-MiniLM-L6-v2` version 1.0.2 as a
+TorchScript model. The model produces 384-dimensional vectors and requires
+about 90 MB of storage. The cluster configuration will set
 `plugins.ml_commons.only_run_on_ml_node=false` and
-`plugins.ml_commons.native_memory_threshold=99`. The provisioning step
-registers `huggingface/sentence-transformers/all-MiniLM-L6-v2` version
-1.0.2 (384 dimensions, TorchScript, about 90 MB) and deploys it. OpenSearch
-downloads the artifact from its own artifact host, so the search guests
-need outbound HTTPS to it, as every tack guest already has to ghcr.io.
+`plugins.ml_commons.native_memory_threshold=99` because the three data nodes
+will also run inference. The guests need outbound HTTPS while OpenSearch
+downloads the model artifact.
 
 ## Index
 
-One index, `nodes`, with three primary shards and one replica per primary.
-Every shard is then on two of the three nodes, and one node loss leaves
-every shard served.
+The index must remain available after one node fails because every shard will
+have a copy on a different node. The `nodes` index will have three primary
+shards and one replica for each primary. OpenSearch must place each primary
+and its replica on different nodes.
 
-Sizing: a document is about 4 KB (a 384-float vector of 1.5 KB, its HNSW
-graph entry, the name, and the text properties). One million nodes is
-about 4 GB of primaries and 8 GB with replicas, or under 3 GB per node,
-which fits the 40 GB roots. Beyond that the roots grow or the
-[split API](https://docs.opensearch.org/latest/api-reference/index-apis/split/)
-raises the primary count by a multiple with a rehashing pass and no
-reindex.
+The document ID will equal the node ID. Each document will contain these
+fields:
 
-| Field | Type | Written from |
+| Field | OpenSearch type | Source |
 | --- | --- | --- |
-| `org_id` | keyword | the node |
-| `scope_ids` | keyword array | every ancestor id up to the org, walked through `parent_id` at index time |
-| `node_type` | keyword | the node |
-| `name` | text | the node |
-| `text` | text | the values of every property whose definition is text, select, multi-select, or URL, joined with newlines; no property name appears in code |
-| `embedding` | knn_vector, 384, lucene hnsw, cosine | the ingest pipeline |
+| `org_id` | `keyword` | The node's organization ID. |
+| `scope_ids` | `keyword` array | Every ancestor ID from the node through its organization, calculated from `parent_id` while indexing. |
+| `node_type` | `keyword` | The node's type key. |
+| `name` | `text` | The node's current name when indexed. |
+| `text` | `text` | Values from text, select, multi-select, and URL properties, joined with newlines. |
+| `embedding` | 384-dimensional `knn_vector` using Lucene HNSW and cosine similarity | The `nodes-embed` ingest pipeline. |
 
-The document id is the node id. An ingest pipeline `nodes-embed` with one
-`text_embedding` processor computes `embedding` from `name` and `text`, so
-the app never handles a vector and the reindex attaches the same pipeline
-to its bulk requests. The index omits `Props` and the facet counts: the
-tool prints nodes from the store, and it discards the facet return value
-today (`docs, _, err := searcher.Search(...)` in the search tool).
+The application must not create or store vectors. The `nodes-embed` ingest
+pipeline will use a `text_embedding` processor to generate `embedding` from
+`name` and `text`. The application will use that pipeline for individual
+writes and bulk reindex requests.
 
-## Query
+The proposed index document omits the existing `Props` object and facet counts.
+Search results need ranked node IDs, and the MCP tool currently discards the
+facet counts. Property definitions will determine which values contribute to
+`text`; application code will not name individual properties.
 
-Every search must reach the engine with an org filter the engine applies
-before scoring, built from Go values and never from a formatted string. One
-request per search, a
-[hybrid query](https://docs.opensearch.org/latest/query-dsl/compound/hybrid/)
-with two sub-queries and one filter:
+The initial capacity estimate is 4 KB per document, including the vector and
+its HNSW data. At that estimate, one million documents require about 4 GB for
+primary data and about 8 GB with one replica. QA measurements must replace
+this estimate before production capacity decisions. OpenSearch can increase
+the primary count with its
+[split index API](https://docs.opensearch.org/latest/api-reference/index-apis/split/)
+if measured growth exceeds the initial layout.
+
+## Query and isolation
+
+Each search will send one hybrid query. The keyword branch will search `name`
+with a boost of 3 and `text` with the default weight. The semantic branch will
+use the local embedding model and request 100 nearest candidates. The
+`nodes-hybrid` search pipeline will normalize both score sets with `min_max`
+and combine them with `arithmetic_mean`. Both branches will start with a
+weight of 0.5. QA results will determine the final weights.
+
+Every request will contain an `org_id` term filter. The application will add
+a `node_type` term only after it confirms that the type belongs to the
+caller's organization. It will build both terms as structured JSON values.
+It will reject an unknown `node_type` before sending the request.
+
+A project, workspace, or other resolved search scope will add that node's ID
+as a `scope_ids` term. The existing resolver must confirm that the scope
+belongs to the caller's organization before Tack builds the query. Engine-side
+scope filtering is required because filtering only 25 returned IDs cannot
+produce a complete page from a larger organization. The same filter applies
+to both branches of the
+[hybrid query](https://docs.opensearch.org/latest/query-dsl/compound/hybrid/).
 
 ```json
 {
-  "from": 25, "size": 25,
+  "from": 25,
+  "size": 25,
   "query": {
     "hybrid": {
       "pagination_depth": 1000,
-      "filter": { "bool": { "filter": [
-        { "term": { "org_id": "<caller org>" } },
-        { "term": { "node_type": "<validated type key>" } }
-      ] } },
+      "filter": {
+        "bool": {
+          "filter": [
+            { "term": { "org_id": "<caller org>" } },
+            { "term": { "node_type": "<validated type key>" } },
+            { "term": { "scope_ids": "<validated scope id>" } }
+          ]
+        }
+      },
       "queries": [
-        { "multi_match": { "query": "<text>", "fields": ["name^3", "text"] } },
-        { "neural": { "embedding": { "query_text": "<text>", "model_id": "<id>", "k": 100 } } }
+        { "multi_match": {
+          "query": "<text>", "fields": ["name^3", "text"]
+        } },
+        { "neural": { "embedding": {
+          "query_text": "<text>", "model_id": "<id>", "k": 100
+        } } }
       ]
     }
   }
 }
 ```
 
-The `filter` parameter applies to both sub-queries. The search pipeline
-`nodes-hybrid` normalizes both score lists with `min_max` and combines them
-with `arithmetic_mean` at weights 0.5 and 0.5; the weights are one setting,
-tuned on QA against the acceptance pairs. The `node_type` term is present
-only when the argument names a type in the org's type index; any other
-value is refused before the request is built. A later rule such as "hide
-project X from group Y" is one more term on `scope_ids` in the same filter.
+The request omits the `node_type` or `scope_ids` term when the caller does not
+provide that filter. Later visibility rules can add terms to the same Boolean
+filter. This design does not define those rules.
 
-## Paging
+## Paging and result reads
 
-Each page must preserve relevance order, print current FoundationDB views,
-and exclude every node outside the caller's org. A page is 25 rows and the
-cursor is the next offset, base64 like the list cursors.
+Each page must preserve relevance order, render current FoundationDB views,
+and exclude nodes outside the caller's organization. Search will return 25
+results per page. The cursor will encode the next offset as base64, consistent
+with the existing list cursors.
 
-Hybrid results page with `from` and `size`, and
-[`pagination_depth`](https://docs.opensearch.org/latest/vector-search/ai-search/hybrid-search/pagination/)
-fixes the candidate set per shard so page two does not reorder page one.
-`search_after` on a field is possible but returns a null score, so it is
-not used. The deepest reachable row is 1,000 per shard per sub-query, and
-the tool says so when a cursor runs out. The engine returns ids; the page
-reads its 25 views from FoundationDB in one transaction through a new
-`ViewStore.GetMany`, drops any view outside the caller's org, and renders
-from the store, so a renamed node prints its current name.
+Each page will repeat the same query and search pipeline with a new `from`
+value. Hybrid score normalization will remain consistent across the reachable
+result set because every page will use `pagination_depth=1000`, as described
+in the
+[hybrid pagination documentation](https://docs.opensearch.org/latest/vector-search/ai-search/hybrid-search/pagination/).
+The tool will report that limit when the next offset would exceed 1,000.
 
-## Writes and rebuild
+OpenSearch will return ordered node IDs. `ViewStore.GetMany` will read the 25
+corresponding views and their ancestor chains in one FoundationDB transaction.
+The application will restore the OpenSearch order and render the current
+FoundationDB values. It will reject a view whose `org_id` differs from the
+caller or whose FoundationDB ancestors do not contain the requested scope.
 
-The node service must index on create and update and delete on delete, as
-it does now, through the same `Searcher` interface with an OpenSearch
-client (`opensearch-go` v4) behind it. `ops batch search-reindex` must
-restore an empty or damaged cluster and migrate the current Meilisearch
-data. It keeps its shape: per org, per type, 500 views per page from
-`ListPage`, one bulk request per page with the ingest pipeline attached,
-and the first error stops the run.
+## Writes and recovery
+
+The node service will update OpenSearch after a node is created or updated and
+will delete the document after a node is deleted. The OpenSearch adapter will
+implement the existing `Searcher` interface with `opensearch-go` v4.
+
+`ops batch search-reindex` must recreate the index from FoundationDB after a
+migration or index loss. It will read 500 views at a time for each organization
+and type, then send one bulk request for each page through `nodes-embed`. The
+command must stop at the first failed read or bulk request.
+
+The [acceptance criteria](2026-09-19-search-acceptance.md) define the QA and
+production gates.

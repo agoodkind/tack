@@ -1,38 +1,57 @@
-# Search on OpenSearch: acceptance
+# OpenSearch search acceptance criteria
 
-Scope: the design in [Search on OpenSearch](2026-09-19-search-design.md).
-Done means every criterion below passes on QA and is then observed on
-production. Measurements come from the MCP client, the cluster API, and the
-FoundationDB store, never from the index alone.
+These criteria decide whether the
+[OpenSearch search architecture](2026-09-19-search-design.md) is ready for an
+environment. QA must pass every criterion before production changes.
+Production must pass them again before Meilisearch is removed.
 
-## 1. Scale
+Measurements must use the MCP client, OpenSearch cluster APIs, application
+traces, and FoundationDB reads. OpenSearch results alone cannot prove current
+data or tenant isolation.
 
-- A project with 150 issues returns 25 rows and a cursor; following cursors
-  yields all 150 exactly once.
-- One page costs one engine request and one FoundationDB transaction,
-  counted in the app's trace spans.
-- FAIL if any page reads views one at a time.
+## Paging and reads
 
-## 2. Isolation
+- Create 150 issues whose names contain the unique phrase `paging probe` in
+  one project. A project-scoped search for `paging probe` returns six pages of
+  25 issues. The pages contain every issue exactly once.
+- Application traces show one OpenSearch request and one FoundationDB
+  transaction for each page.
 
-- A `node_type` argument that is not a type of the caller's org is refused
-  before any request is built, asserted on the request body the client sent.
-- Two orgs each index a node with the same title; a search from either org
-  never returns the other org's node.
-- FAIL if the org filter is absent from any engine request.
+## Tenant and type isolation
 
-## 3. Meaning
+- Tack rejects a `node_type` that does not belong to the caller's organization
+  before it sends an OpenSearch request.
+- Every captured OpenSearch request contains the caller's `org_id` filter.
+- A project-scoped request contains the validated project ID in its
+  `scope_ids` filter.
+- A search never returns the other organization's node when two organizations
+  index nodes with the same title.
+- A project-scoped search rejects a node from another project in the same
+  organization even when its indexed `scope_ids` value falsely includes the
+  requested project.
 
-- After a reindex on QA, `db` finds `Database failover`, `biscuits` finds
-  `Cookie banner`, and five more fixed query and title pairs match, with no
-  synonym list in the org.
-- FAIL if any pair needs a hand-written word pair to match.
+## Semantic ranking
 
-## 4. Operations
+- `Database failover` appears on the first page for `db` after reindexing
+  without an organization synonym list.
+- `Cookie banner` appears on the first page for `biscuits` under the same
+  condition.
+- `Authentication failure` appears on the first page for `signin`.
+- `Slow request processing` appears on the first page for `lag`.
+- `Billing reconciliation` appears on the first page for `invoice`.
+- `Application terminated unexpectedly` appears on the first page for
+  `crash`.
+- `Delete account` appears on the first page for `remove user`.
 
-- Stop one search guest; search answers within the request timeout and the
-  cluster health is yellow, not red.
-- Delete the `nodes` index; `ops batch search-reindex --execute` recreates
-  it and the meaning pairs match again.
-- FAIL if recovery needs any step outside the reindex command and the
-  deploy.
+All seven checks must pass without manually maintained synonyms.
+
+## Failure tolerance and recovery
+
+- Each search guest is stopped by itself. For every stopped guest, a search
+  returns a known node within the request timeout. A create request completes
+  within its timeout, and the new node becomes searchable within 10 seconds.
+  The OpenSearch cluster assigns every primary shard and reports non-red
+  health.
+- `ops batch search-reindex --execute` recreates a deleted `nodes` index with
+  the normal deployment configuration. All seven semantic query pairs pass
+  after the rebuild.
