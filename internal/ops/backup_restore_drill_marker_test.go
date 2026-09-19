@@ -131,7 +131,11 @@ func TestRestoreDrillMarkerGivesUpAfterEveryAttemptFails(t *testing.T) {
 	if len(*waits) != restoreDrillMarkerAttempts-1 {
 		t.Fatalf("waits = %v, want one pause between each pair of attempts", *waits)
 	}
-	if _, found, _ := readBackupStatusMarker(context.Background(), store.store.getBytes, backupStalenessRehearsalName); found {
+	_, found, err := readBackupStatusMarker(context.Background(), store.store.getBytes, backupStalenessRehearsalName)
+	if err != nil {
+		t.Fatalf("read the rehearsal marker: %v", err)
+	}
+	if found {
 		t.Fatal("no marker may land when every put was refused")
 	}
 }
