@@ -11,8 +11,6 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/twmb/franz-go/pkg/kgo"
-
-	"goodkind.io/tack/internal/testenv"
 )
 
 // deadLetterTestPartition is the hand-made partition the test creates once
@@ -66,8 +64,9 @@ func waitForDeadLetters(t *testing.T, pool *pgxpool.Pool, topic string, wantRows
 // connect as it. The consumer under test then holds exactly the privileges
 // migration 011 grants and nothing the admin role has, so a missing grant
 // fails here rather than on a deployment.
-func writerLoginDSN(t *testing.T, adminDSN string) string {
+func writerLoginDSN(t *testing.T, admin *pgxpool.Pool, adminDSN string) string {
 	t.Helper()
+	ctx := context.Background()
 	suffix := make([]byte, 4)
 	if _, err := rand.Read(suffix); err != nil {
 		t.Fatalf("login suffix: %v", err)
@@ -78,10 +77,13 @@ func writerLoginDSN(t *testing.T, adminDSN string) string {
 	}
 	login := "tack_test_dlq_writer_" + hex.EncodeToString(suffix)
 	encodedSecret := hex.EncodeToString(secret)
-	testenv.ChangeRoles(t, adminDSN,
-		"CREATE ROLE "+login+" LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD '"+encodedSecret+"'",
-		"GRANT audit_writer TO "+login)
-	t.Cleanup(func() { testenv.ChangeRoles(t, adminDSN, "DROP ROLE IF EXISTS "+login) })
+	if _, err := admin.Exec(ctx, "CREATE ROLE "+login+" LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD '"+encodedSecret+"'"); err != nil {
+		t.Fatalf("create %s: %v", login, err)
+	}
+	t.Cleanup(func() { _, _ = admin.Exec(ctx, "DROP ROLE IF EXISTS "+login) })
+	if _, err := admin.Exec(ctx, "GRANT audit_writer TO "+login); err != nil {
+		t.Fatalf("grant audit_writer to %s: %v", login, err)
+	}
 	parsed, err := url.Parse(adminDSN)
 	if err != nil {
 		t.Fatalf("parse the test DSN: %v", err)

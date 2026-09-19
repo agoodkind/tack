@@ -29,8 +29,8 @@ func TestAuditHostCommandsReadAndRedactWithinOneOrg(t *testing.T) {
 		t.Fatalf("admin pool: %v", err)
 	}
 	t.Cleanup(admin.Close)
-	readerDSN := auditLoginRoleDSN(t, adminDSN, "audit_reader")
-	redactorDSN := auditLoginRoleDSN(t, adminDSN, "audit_redactor")
+	readerDSN := auditLoginRoleDSN(t, admin, adminDSN, "audit_reader")
+	redactorDSN := auditLoginRoleDSN(t, admin, adminDSN, "audit_redactor")
 
 	orgA, orgB, actor := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	eventA1 := recordActorEvent(t, admin, adminDSN, orgA, actor)

@@ -14,7 +14,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"goodkind.io/tack/internal/audit"
-	"goodkind.io/tack/internal/testenv"
 )
 
 type recordingOutbox struct {
@@ -31,8 +30,9 @@ func (o *recordingOutbox) WriteOutbox(_ context.Context, event audit.Event) erro
 // role carries a per-test password, so the test holds whether the database
 // trusts its connections or asks every login for a password, as the compose
 // test database does.
-func auditLoginRoleDSN(t *testing.T, adminDSN, base string) string {
+func auditLoginRoleDSN(t *testing.T, admin *pgxpool.Pool, adminDSN, base string) string {
 	t.Helper()
+	ctx := context.Background()
 	suffix := make([]byte, 4)
 	if _, err := rand.Read(suffix); err != nil {
 		t.Fatalf("role suffix: %v", err)
@@ -43,10 +43,13 @@ func auditLoginRoleDSN(t *testing.T, adminDSN, base string) string {
 	}
 	login := fmt.Sprintf("tack_test_%s_%s", base, hex.EncodeToString(suffix))
 	encodedSecret := hex.EncodeToString(secret)
-	testenv.ChangeRoles(t, adminDSN,
-		"CREATE ROLE "+login+" LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD '"+encodedSecret+"'",
-		"GRANT "+base+" TO "+login)
-	t.Cleanup(func() { testenv.ChangeRoles(t, adminDSN, "DROP ROLE IF EXISTS "+login) })
+	if _, err := admin.Exec(ctx, "CREATE ROLE "+login+" LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD '"+encodedSecret+"'"); err != nil {
+		t.Fatalf("create %s: %v", login, err)
+	}
+	t.Cleanup(func() { _, _ = admin.Exec(ctx, "DROP ROLE IF EXISTS "+login) })
+	if _, err := admin.Exec(ctx, "GRANT "+base+" TO "+login); err != nil {
+		t.Fatalf("grant %s to %s: %v", base, login, err)
+	}
 	parsed, err := url.Parse(adminDSN)
 	if err != nil {
 		t.Fatalf("parse the admin DSN: %v", err)

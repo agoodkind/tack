@@ -51,9 +51,10 @@ seed:
 
 # Tests run inside the test runner image (docker-compose.test.yml), which
 # bind-mounts the source tree to /src and the Docker socket. A test that needs
-# FoundationDB or the ledger starts it through internal/testenv, which reuses
-# one engine container per store across runs; `make test-env-down` removes
-# them. Only `go test -short` skips the store-backed tests.
+# FoundationDB or the ledger starts it through internal/testenv, which gives
+# each test binary its own engine containers and removes them when the binary
+# exits; `make test-env-down` removes any a killed binary left. Only
+# `go test -short` skips the store-backed tests.
 
 # The ops, postgres adapter, and audit packages. The audit package carries the
 # export and verify scale tests, the gate on the compliance bundle's memory
@@ -75,12 +76,12 @@ test-integration:
 	docker compose -f docker-compose.test.yml --profile runner run --rm tests \
 	    test -count=1 -timeout 30m -v $(TEST_STORE_PACKAGES)
 
-# Remove the engine containers and network internal/testenv created.
+# Remove every engine internal/testenv or cmd/testenv started, and their
+# network. A test binary removes its own engines when it exits normally; this
+# clears what a killed binary or `go run ./cmd/testenv ledger` left running.
 .PHONY: test-env-down
 test-env-down:
-	@ids="$$(docker ps -aq --filter label=io.goodkind.tack.testenv)"; \
-	if [ -n "$$ids" ]; then docker rm -f -v $$ids; fi
-	-docker network rm tack-testenv
+	go run ./cmd/testenv down
 
 # Bump every direct and indirect dependency to its latest minor/patch
 # version, plus track the latest main commit of any goodkind.io/* module

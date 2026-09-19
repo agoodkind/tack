@@ -27,8 +27,8 @@ const (
 	databaseExists = "Database already exists"
 )
 
-// provisionFoundationDB starts or reuses the cluster, configures a fresh one,
-// and returns the path of a local copy of its cluster file.
+// provisionFoundationDB starts this process's cluster, configures it, and
+// returns the path of a local copy of its cluster file.
 func provisionFoundationDB(ctx context.Context) (string, error) {
 	image, err := serviceImage(ctx, foundationDBService)
 	if err != nil {
@@ -39,28 +39,24 @@ func provisionFoundationDB(ctx context.Context) (string, error) {
 		return "", err
 	}
 	defer func() { _ = cli.Close() }()
-	spec := engineSpec{
-		name:     engineName("foundationdb", image, nil),
+	started, err := startEngine(ctx, cli, engineSpec{
+		kind:     "foundationdb",
 		image:    image,
 		platform: nil,
 		cmd:      nil,
-		env: func(string) []string {
-			return []string{"FDB_NETWORKING_MODE=container", "FDB_PORT=4500", "FDB_COORDINATOR_PORT=4500"}
-		},
-	}
-	if _, err := ensureEngine(ctx, cli, spec); err != nil {
-		return "", err
-	}
-	readyCtx, cancel := context.WithTimeout(ctx, readyTimeout)
-	defer cancel()
-	clusterFile, err := waitForClusterFile(readyCtx, cli, spec.name)
+		env:      []string{"FDB_NETWORKING_MODE=container", "FDB_PORT=4500", "FDB_COORDINATOR_PORT=4500"},
+	})
 	if err != nil {
 		return "", err
 	}
-	if err := ensureConfigured(readyCtx, cli, spec.name); err != nil {
+	clusterFile, err := waitForClusterFile(ctx, cli, started.name)
+	if err != nil {
 		return "", err
 	}
-	return writeClusterFile(ctx, spec.name, clusterFile)
+	if err := ensureConfigured(ctx, cli, started.name); err != nil {
+		return "", err
+	}
+	return writeClusterFile(ctx, started.name, clusterFile)
 }
 
 // waitForClusterFile polls until the entrypoint has written the cluster file.
@@ -78,8 +74,9 @@ func waitForClusterFile(ctx context.Context, cli *client.Client, containerName s
 
 // ensureConfigured waits until the database is available, creating it the
 // first time the cluster reports none. `configure new` runs only while status
-// says the database is unavailable, and FoundationDB refuses it on a cluster
-// that already holds a database, so it never replaces one.
+// says the database is unavailable, on a cluster this process just started,
+// and FoundationDB refuses it on a cluster that already holds a database, so
+// it never replaces one.
 func ensureConfigured(ctx context.Context, cli *client.Client, containerName string) error {
 	configured := false
 	for {
@@ -113,9 +110,10 @@ func fdbcli(ctx context.Context, cli *client.Client, containerName, command stri
 	})
 }
 
-// writeClusterFile stores the cluster file under the user cache directory,
-// one directory per container, replacing it atomically so concurrent test
-// binaries never read a partial file.
+// writeClusterFile stores the cluster file in a directory of its own under
+// the user cache directory, named after the container, and records the
+// directory for Release. It lives beyond the process only for cmd/testenv,
+// whose operator reads it after the command exits.
 func writeClusterFile(ctx context.Context, containerName string, contents []byte) (string, error) {
 	cacheRoot, err := os.UserCacheDir()
 	if err != nil {
@@ -126,22 +124,11 @@ func writeClusterFile(ctx context.Context, containerName string, contents []byte
 		slog.ErrorContext(ctx, "testenv.foundationdb.cluster_file_failed", slog.String("err", err.Error()))
 		return "", fmt.Errorf("create %s: %w", directory, err)
 	}
-	staged, err := os.CreateTemp(directory, "fdb.cluster.*")
-	if err != nil {
-		slog.ErrorContext(ctx, "testenv.foundationdb.cluster_file_failed", slog.String("err", err.Error()))
-		return "", fmt.Errorf("stage the cluster file in %s: %w", directory, err)
-	}
-	_, writeErr := staged.Write(contents)
-	if err := errors.Join(writeErr, staged.Close()); err != nil {
-		_ = os.Remove(staged.Name())
-		slog.ErrorContext(ctx, "testenv.foundationdb.cluster_file_failed", slog.String("err", err.Error()))
-		return "", fmt.Errorf("write %s: %w", staged.Name(), err)
-	}
+	ownDirectory(directory)
 	path := filepath.Join(directory, "fdb.cluster")
-	if err := os.Rename(staged.Name(), path); err != nil {
-		_ = os.Remove(staged.Name())
+	if err := os.WriteFile(path, contents, 0o600); err != nil {
 		slog.ErrorContext(ctx, "testenv.foundationdb.cluster_file_failed", slog.String("err", err.Error()))
-		return "", fmt.Errorf("replace %s: %w", path, err)
+		return "", fmt.Errorf("write %s: %w", path, err)
 	}
 	return path, nil
 }

@@ -6,9 +6,9 @@
 # run it.
 #
 # Tests that need a store start it themselves through internal/testenv, which
-# drives the Docker daemon through the SDK over the mounted socket: it starts
-# or reuses a single-node FoundationDB and a YugabyteDB on the tack-testenv
-# network and attaches this container to that network, so the engines are
+# drives the Docker daemon through the SDK over the mounted socket: each test
+# binary starts its own single-node FoundationDB and YugabyteDB on the
+# tack-testenv network and attaches this container to that network, so the engines are
 # reached at their network addresses rather than through Docker Desktop's port
 # forwarder, which drops FoundationDB's connect-packet exchange on macOS.
 

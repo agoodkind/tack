@@ -31,7 +31,7 @@ func TestExpireTokenRunsAsTheAppLogin(t *testing.T) {
 		t.Fatalf("admin pool: %v", err)
 	}
 	t.Cleanup(admin.Close)
-	app, err := pgxpool.New(ctx, appLoginDSN(t, dsn))
+	app, err := pgxpool.New(ctx, appLoginDSN(ctx, t, admin, dsn))
 	if err != nil {
 		t.Fatalf("app pool: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestExpireTokenRunsAsTheAppLogin(t *testing.T) {
 
 // appLoginDSN creates a throwaway login that inherits app_auth and nothing
 // else and returns the DSN rewritten to connect as it.
-func appLoginDSN(t *testing.T, adminDSN string) string {
+func appLoginDSN(ctx context.Context, t *testing.T, admin *pgxpool.Pool, adminDSN string) string {
 	t.Helper()
 	suffix := make([]byte, 4)
 	if _, err := rand.Read(suffix); err != nil {
@@ -81,10 +81,13 @@ func appLoginDSN(t *testing.T, adminDSN string) string {
 	}
 	login := "tack_test_datagen_" + hex.EncodeToString(suffix)
 	encodedSecret := hex.EncodeToString(secret)
-	testenv.ChangeRoles(t, adminDSN,
-		"CREATE ROLE "+login+" LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD '"+encodedSecret+"'",
-		"GRANT app_auth TO "+login)
-	t.Cleanup(func() { testenv.ChangeRoles(t, adminDSN, "DROP ROLE IF EXISTS "+login) })
+	if _, err := admin.Exec(ctx, "CREATE ROLE "+login+" LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD '"+encodedSecret+"'"); err != nil {
+		t.Fatalf("create %s: %v", login, err)
+	}
+	t.Cleanup(func() { _, _ = admin.Exec(ctx, "DROP ROLE IF EXISTS "+login) })
+	if _, err := admin.Exec(ctx, "GRANT app_auth TO "+login); err != nil {
+		t.Fatalf("grant app_auth to %s: %v", login, err)
+	}
 	parsed, err := url.Parse(adminDSN)
 	if err != nil {
 		t.Fatalf("parse the test DSN: %v", err)

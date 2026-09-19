@@ -29,7 +29,7 @@ func TestWriteOutboxIfAbsentUnderInsertOnlyRole(t *testing.T) {
 	}
 	t.Cleanup(owner.Close)
 
-	restricted, err := pgxpool.New(ctx, insertOnlyOutboxDSN(t, dsn))
+	restricted, err := pgxpool.New(ctx, insertOnlyOutboxDSN(ctx, t, owner, dsn))
 	if err != nil {
 		t.Fatalf("restricted pool: %v", err)
 	}
@@ -70,26 +70,40 @@ func TestWriteOutboxIfAbsentUnderInsertOnlyRole(t *testing.T) {
 // nothing else, mirroring the deployment role an operator command uses, and
 // returns a connection string for it. The credential is generated per run and
 // never logged.
-func insertOnlyOutboxDSN(t *testing.T, ownerDSN string) string {
+func insertOnlyOutboxDSN(
+	ctx context.Context,
+	t *testing.T,
+	owner *pgxpool.Pool,
+	ownerDSN string,
+) string {
 	t.Helper()
 	entropy := make([]byte, 16)
 	if _, err := rand.Read(entropy); err != nil {
 		t.Fatalf("generate role credential: %v", err)
 	}
 	credential := hex.EncodeToString(entropy)
-	// Roles belong to the whole engine, which other test binaries share, so
-	// the name carries a per-run suffix rather than being fixed.
-	role := "outbox_insert_only_test_" + hex.EncodeToString(entropy[:4])
+	suffix := make([]byte, 4)
+	if _, err := rand.Read(suffix); err != nil {
+		t.Fatalf("generate role suffix: %v", err)
+	}
+	// Roles belong to the whole engine rather than one database, so the name
+	// carries a per-run suffix and never meets a role an earlier run left.
+	role := "outbox_insert_only_test_" + hex.EncodeToString(suffix)
 
-	testenv.ChangeRoles(t, ownerDSN,
-		`CREATE ROLE `+role+` LOGIN PASSWORD `+quoteLiteral(credential),
-		`REVOKE ALL ON public.ops_outbox FROM `+role,
-		`GRANT INSERT ON public.ops_outbox TO `+role)
+	if _, err := owner.Exec(ctx,
+		`CREATE ROLE `+role+` LOGIN PASSWORD `+quoteLiteral(credential)); err != nil {
+		t.Fatalf("create role: %v", err)
+	}
 	t.Cleanup(func() {
-		testenv.ChangeRoles(t, ownerDSN,
-			`REVOKE ALL ON public.ops_outbox FROM `+role,
-			`DROP ROLE IF EXISTS `+role)
+		_, _ = owner.Exec(ctx, `REVOKE ALL ON public.ops_outbox FROM `+role)
+		_, _ = owner.Exec(ctx, `DROP ROLE IF EXISTS `+role)
 	})
+	if _, err := owner.Exec(ctx, `REVOKE ALL ON public.ops_outbox FROM `+role); err != nil {
+		t.Fatalf("revoke: %v", err)
+	}
+	if _, err := owner.Exec(ctx, `GRANT INSERT ON public.ops_outbox TO `+role); err != nil {
+		t.Fatalf("grant insert: %v", err)
+	}
 	parsed, err := url.Parse(ownerDSN)
 	if err != nil {
 		t.Fatalf("parse dsn: %v", err)

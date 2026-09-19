@@ -17,11 +17,9 @@ const (
 	// an engine at its address on this network: directly from a Linux host,
 	// and by joining the network when the process itself runs in a container.
 	networkName = "tack-testenv"
-	// managedLabel marks the network and the containers this package owns.
+	// managedLabel marks the network and the containers this package owns, so
+	// Down finds every engine whatever process started it.
 	managedLabel = "io.goodkind.tack.testenv"
-	// credentialLabel holds the credential an engine was started with, so a later
-	// process that reuses the engine reads the same credential.
-	credentialLabel = "io.goodkind.tack.testenv.credential"
 )
 
 // dockerClient connects to the local daemon, pinned to the default socket so

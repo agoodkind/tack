@@ -2,6 +2,7 @@ package testenv
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -10,7 +11,11 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	_ "github.com/jackc/pgx/v5/stdlib" // registers the pgx database/sql driver goose migrates through
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/pressly/goose/v3"
+
+	"goodkind.io/tack/migrations"
 )
 
 const (
@@ -20,10 +25,10 @@ const (
 	ledgerPort = "5433"
 	// ledgerAdminUser is the engine superuser the container is started with.
 	ledgerAdminUser = "yugabyte"
-	// ledgerSetupDatabase is the database the container creates at start. It
-	// answers only once the engine has applied the password, so readiness is
-	// probed against it, and test databases are created from it.
-	ledgerSetupDatabase = "tack"
+	// ledgerDatabase is the database the container creates at start and the
+	// one the migrations run in. It answers only once the engine has applied
+	// the password, so readiness is probed against it.
+	ledgerDatabase = "tack"
 	// ledgerProbeTimeout bounds one readiness probe.
 	ledgerProbeTimeout = 10 * time.Second
 )
@@ -46,10 +51,15 @@ func ledgerPlatform() *ocispec.Platform {
 	return &ocispec.Platform{Architecture: "amd64", OS: "linux", OSVersion: "", OSFeatures: nil, Variant: ""}
 }
 
-// provisionLedger starts or reuses the ledger engine and returns the
-// connection string of a new migrated database for this process.
+// provisionLedger starts this process's ledger engine, migrates it, and
+// returns its connection string. The superuser credential is generated here
+// and lives only in the container's environment and the returned DSN.
 func provisionLedger(ctx context.Context) (string, error) {
 	image, err := serviceImage(ctx, ledgerService)
+	if err != nil {
+		return "", err
+	}
+	superuserKey, err := randomHex(ctx, 16)
 	if err != nil {
 		return "", err
 	}
@@ -58,50 +68,42 @@ func provisionLedger(ctx context.Context) (string, error) {
 		return "", err
 	}
 	defer func() { _ = cli.Close() }()
-	running, err := ensureEngine(ctx, cli, engineSpec{
-		name:     engineName("yugabyte", image, ledgerCommand),
+	started, err := startEngine(ctx, cli, engineSpec{
+		kind:     "yugabyte",
 		image:    image,
 		platform: ledgerPlatform(),
 		cmd:      ledgerCommand,
-		env: func(credential string) []string {
-			return []string{
-				"YSQL_USER=" + ledgerAdminUser,
-				"YSQL_PASSWORD=" + credential,
-				"YSQL_DB=" + ledgerSetupDatabase,
-			}
+		env: []string{
+			"YSQL_USER=" + ledgerAdminUser,
+			"YSQL_PASSWORD=" + superuserKey,
+			"YSQL_DB=" + ledgerDatabase,
 		},
 	})
 	if err != nil {
 		return "", err
 	}
-	setupDSN := ledgerDSN(running, ledgerSetupDatabase)
-	if err := waitForLedger(ctx, setupDSN); err != nil {
-		return "", err
-	}
-	return createLedgerDatabase(ctx, running, setupDSN)
-}
-
-// ledgerDSN is the superuser connection string for one database on the
-// engine. The credential comes from the running container, never from source.
-func ledgerDSN(running engine, database string) string {
 	dsn := url.URL{
 		Scheme:   "postgres",
-		User:     url.UserPassword(ledgerAdminUser, running.superuserKey),
-		Host:     net.JoinHostPort(running.address, ledgerPort),
-		Path:     "/" + database,
+		User:     url.UserPassword(ledgerAdminUser, superuserKey),
+		Host:     net.JoinHostPort(started.address, ledgerPort),
+		Path:     "/" + ledgerDatabase,
 		RawQuery: "sslmode=disable",
 	}
-	return dsn.String()
+	if err := waitForLedger(ctx, dsn.String()); err != nil {
+		return "", err
+	}
+	if err := migrateLedger(ctx, dsn.String()); err != nil {
+		return "", err
+	}
+	slog.InfoContext(ctx, "testenv.ledger.ready", slog.String("container", started.name))
+	return dsn.String(), nil
 }
 
 // waitForLedger polls until the engine answers a query as the superuser, or
-// fails at the readiness deadline with the last probe's error.
+// fails when ctx ends with the last probe's error.
 func waitForLedger(ctx context.Context, dsn string) error {
-	ctx, cancel := context.WithTimeout(ctx, readyTimeout)
-	defer cancel()
-	var lastErr error
 	for {
-		lastErr = probeLedger(ctx, dsn)
+		lastErr := probeLedger(ctx, dsn)
 		if lastErr == nil {
 			return nil
 		}
@@ -128,6 +130,27 @@ func probeLedger(ctx context.Context, dsn string) error {
 	if err := connection.QueryRow(probeCtx, "SELECT 1").Scan(&answer); err != nil {
 		slog.DebugContext(ctx, "testenv.ledger.probe", slog.String("err", err.Error()))
 		return errors.New("query: " + err.Error())
+	}
+	return nil
+}
+
+// migrateLedger applies every embedded migration, the same set
+// `./server migrate` applies.
+func migrateLedger(ctx context.Context, dsn string) error {
+	database, err := sql.Open("pgx", dsn)
+	if err != nil {
+		slog.ErrorContext(ctx, "testenv.ledger.open_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("open the test ledger: %w", err)
+	}
+	defer func() { _ = database.Close() }()
+	provider, err := goose.NewProvider(goose.DialectPostgres, database, migrations.FS)
+	if err != nil {
+		slog.ErrorContext(ctx, "testenv.ledger.migrate_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("load migrations: %w", err)
+	}
+	if _, err := provider.Up(ctx); err != nil {
+		slog.ErrorContext(ctx, "testenv.ledger.migrate_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("migrate the test ledger: %w", err)
 	}
 	return nil
 }

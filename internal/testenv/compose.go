@@ -3,7 +3,6 @@ package testenv
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -11,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strings"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -83,15 +81,6 @@ func repoRoot(ctx context.Context) (string, error) {
 		}
 		directory = parent
 	}
-}
-
-// engineName names the container for one engine, image, and command. The
-// digest in the name keeps engines of two different pins or configurations
-// apart, so a branch that changes either never reuses or replaces the other's
-// engine.
-func engineName(engineKind, image string, command []string) string {
-	sum := sha256.Sum256([]byte(image + "\x00" + strings.Join(command, "\x00")))
-	return "tack-testenv-" + engineKind + "-" + hex.EncodeToString(sum[:4])
 }
 
 // randomHex returns size random bytes, hex encoded.
