@@ -28,6 +28,12 @@ services:
       # only compiles what changed.
       - tack-test-go-cache:/root/.cache/go-build
       - tack-test-go-mod:/go/pkg/mod
+      # Test temporary files on a disk filesystem rather than the container's
+      # overlayfs, through which the kernel reports no page cache: the staging
+      # test reads the cache of the file it downloads.
+      - /tmp/tack-test
+    environment:
+      TMPDIR: /tmp/tack-test
     profiles: ["runner"]
 
 volumes:
