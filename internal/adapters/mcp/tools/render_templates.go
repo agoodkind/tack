@@ -33,6 +33,9 @@ type collectionTemplateData struct {
 	Count   int
 	Noun    string
 	Items   []markdownItem
+	// NextCursor resumes a paged list; empty on the last page and for
+	// collections that are not paged.
+	NextCursor string `exhaustruct:"optional"`
 }
 
 type rawJSONTemplateData struct {

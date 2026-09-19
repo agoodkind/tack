@@ -17,6 +17,15 @@ func renderList(rc *renderCtx, kind string, views []*node.NodeView) string {
 	return executeMarkdownTemplate("collection.md.tmpl", data)
 }
 
+func renderListPage(rc *renderCtx, kind string, page node.Page) string {
+	items := make([]markdownItem, 0, len(page.Views))
+	for _, view := range page.Views {
+		items = append(items, nodeListItem(rc, view))
+	}
+	data := collectionTemplateData{Heading: titleText(kind), Count: len(page.Views), Noun: kind, Items: items, NextCursor: page.NextCursor}
+	return executeMarkdownTemplate("collection.md.tmpl", data)
+}
+
 func renderWorkspaceDescribe(rc *renderCtx, ws *node.NodeView, types []nodeTypeSummary, children []*node.NodeView) string {
 	items := make([]markdownItem, 0, len(types))
 	for _, nodeType := range types {

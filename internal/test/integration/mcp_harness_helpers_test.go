@@ -8,10 +8,12 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/datagen"
 	appruntime "goodkind.io/tack/internal/runtime"
+	"goodkind.io/tack/migrations"
 )
 
 // MCPHarness calls MCP tools through the production HTTP handler with a real
@@ -67,6 +69,15 @@ func NewMCPHarness(t *testing.T) *MCPHarness {
 	// ledger roles this suite does not otherwise need.
 	cfg.AuditWriterDSN = ""
 	cfg.AuditAllowUnrecorded = true
+	// Bootstrap writes users and memberships, so the auth tables must exist
+	// even when a harness test runs alone against a fresh database.
+	var migrateErr error
+	ledgerSchemaOnce.Do(func() {
+		migrateErr = postgres.Migrate(ctx, os.Getenv("DATABASE_URL"), migrations.FS)
+	})
+	if migrateErr != nil {
+		t.Fatalf("migrate the test database: %v", migrateErr)
+	}
 	graph, err := appruntime.BuildGraph(ctx, cfg)
 	if err != nil {
 		t.Fatalf("build graph: %v", err)
