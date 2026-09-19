@@ -125,8 +125,10 @@ func getObjectBytes(ctx context.Context, client *s3.Client, bucket, key string) 
 }
 
 // getObjectToFile downloads bucket/key to a local file at path, streaming the
-// body to disk. Used by the restore drill to stage backup artifacts before
-// loading them into a scratch engine.
+// body to disk through [copyToStagedFile], which keeps what the download
+// leaves in the page cache bounded whatever the object's size. Used by the
+// restore drill to stage backup artifacts before loading them into a scratch
+// engine.
 func getObjectToFile(ctx context.Context, client *s3.Client, bucket, key, path string) error {
 	logger := telemetry.L(ctx)
 	out, err := client.GetObject(ctx, &s3.GetObjectInput{
@@ -148,7 +150,7 @@ func getObjectToFile(ctx context.Context, client *s3.Client, bucket, key, path s
 	}
 	defer f.Close()
 
-	written, err := io.Copy(f, out.Body)
+	written, err := copyToStagedFile(ctx, f, out.Body)
 	if err != nil {
 		wrapped := fmt.Errorf("write %s from %s/%s: %w", path, bucket, key, err)
 		logger.ErrorContext(ctx, "backup.s3.get_failed", slog.String("err", wrapped.Error()))
