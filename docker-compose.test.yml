@@ -1,10 +1,12 @@
 # Local integration test stack.
 #
-# Two services on a shared default network:
+# Services on a shared default network:
 #
-#   fdb     single-node FoundationDB cluster
-#   tests   Go test runner that builds against the same FDB client library
-#           and runs ./internal/test/integration/...
+#   fdb          single-node FoundationDB cluster
+#   yugabyte     single-node YugabyteDB for the auth and audit tables
+#   meilisearch  search engine behind tack_search
+#   tests        Go test runner that builds against the same FDB client library
+#                and runs ./internal/test/integration/...
 #
 # `make test-integration` brings fdb up, waits for it to be healthy, then
 # runs `docker compose run --rm tests`. Tests connect to the FDB container by
@@ -59,6 +61,24 @@ services:
     volumes:
       - tack-test-yb-data:/home/yugabyte/var
 
+  meilisearch:
+    # Same engine version as production (docker-compose.yml). The index lives
+    # in the container only, so every stack start begins with an empty index.
+    image: getmeili/meilisearch:v1.12
+    environment:
+      MEILI_MASTER_KEY: tack-test-meili-key
+      MEILI_ENV: development
+      MEILI_MAX_INDEXING_MEMORY: "1073741824"
+      # The test network is not the IPv6-only production bridge, so bind the
+      # IPv4 wildcard that the runner reaches through Docker DNS.
+      MEILI_HTTP_ADDR: "0.0.0.0:7700"
+    healthcheck:
+      test:
+        ["CMD-SHELL", "curl -sf http://localhost:7700/health | grep -q 'available'"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
   tests:
     build:
       context: .
@@ -70,10 +90,14 @@ services:
         condition: service_healthy
       yugabyte:
         condition: service_healthy
+      meilisearch:
+        condition: service_healthy
     environment:
       DATABASE_URL: ${TEST_DATABASE_URL}
       AUDIT_WRITER_DSN: ${TEST_AUDIT_WRITER_DSN}
       AUDIT_READER_DSN: ${TEST_AUDIT_READER_DSN}
+      MEILI_URL: http://meilisearch:7700
+      MEILI_MASTER_KEY: tack-test-meili-key
     volumes:
       # Source bind-mount: edits on the host are visible without a rebuild.
       - .:/src

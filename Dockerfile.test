@@ -38,10 +38,10 @@ RUN go mod download
 # the rest of the source comes in at runtime. Default command runs the
 # integration tests with the cluster file the entrypoint generates.
 #
-# MEILI_URL and MEILI_MASTER_KEY are required by config.Load (TACK-268); the
-# test stack has no Meilisearch service, so these point at an address nothing
-# serves. runtime.BuildGraph's searcher falls back to a no-op Searcher when
-# EnsureIndex fails, so an unreachable Meilisearch does not fail the build.
+# MEILI_URL and MEILI_MASTER_KEY are required by config.Load (TACK-268).
+# docker-compose.test.yml overrides both on the runner with its meilisearch
+# service and key; these values only satisfy config.Load when the image runs
+# outside that compose file.
 ENV CGO_ENABLED=1 \
     TACK_INTEGRATION=1 \
     FDB_CLUSTER_FILE=/etc/foundationdb/fdb.cluster \
