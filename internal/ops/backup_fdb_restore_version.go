@@ -27,9 +27,7 @@ func RunBackupFDBRestoreVersion(ctx context.Context, cfg *config.Config, want ti
 		return err
 	}
 	s3Client := newBackupS3Client(cfg)
-	log, err := readFDBVersionLog(ctx, func(key string) ([]byte, error) {
-		return getObjectBytes(ctx, s3Client, cfg.BackupS3BucketMain, key)
-	})
+	log, err := readFDBVersionLog(ctx, fdbVersionLogGetter(ctx, s3Client, cfg.BackupS3BucketMain))
 	if err != nil {
 		return err
 	}

@@ -15,7 +15,8 @@ import (
 // smallObjectMaxBytes bounds what getObjectBytes will hold in memory. Its
 // callers read status markers, which are a few hundred bytes of JSON, so this
 // is generous by four orders of magnitude and still small enough that a
-// corrupted or hostile object cannot exhaust the process. Use
+// corrupted or hostile object cannot exhaust the process. A record with a
+// larger known bound reads through getObjectBytesUpTo with that bound; use
 // [getObjectToFile] for artifacts that are legitimately large.
 const smallObjectMaxBytes = 64 * 1024
 
@@ -26,6 +27,12 @@ const smallObjectMaxBytes = 64 * 1024
 // check is the mechanism that reports silence, so it must not be the thing an
 // oversized object takes down.
 func getObjectBytes(ctx context.Context, client *s3.Client, bucket, key string) ([]byte, error) {
+	return getObjectBytesUpTo(ctx, client, bucket, key, smallObjectMaxBytes)
+}
+
+// getObjectBytesUpTo is getObjectBytes with the in-memory limit set to
+// maxBytes.
+func getObjectBytesUpTo(ctx context.Context, client *s3.Client, bucket, key string, maxBytes int) ([]byte, error) {
 	logger := telemetry.L(ctx)
 	out, err := client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(bucket),
@@ -41,15 +48,15 @@ func getObjectBytes(ctx context.Context, client *s3.Client, bucket, key string) 
 	defer out.Body.Close()
 	// Read one byte past the limit so an object sitting exactly at it still
 	// reads cleanly while anything larger is detectable without buffering it.
-	body, err := io.ReadAll(io.LimitReader(out.Body, smallObjectMaxBytes+1))
+	body, err := io.ReadAll(io.LimitReader(out.Body, int64(maxBytes)+1))
 	if err != nil {
 		wrapped := fmt.Errorf("read object %s/%s: %w", bucket, key, err)
 		logger.ErrorContext(ctx, "backup.s3.get_failed", slog.String("err", wrapped.Error()))
 		return nil, wrapped
 	}
-	if len(body) > smallObjectMaxBytes {
+	if len(body) > maxBytes {
 		wrapped := fmt.Errorf("object %s/%s is larger than the %d byte limit for in-memory reads",
-			bucket, key, smallObjectMaxBytes)
+			bucket, key, maxBytes)
 		logger.ErrorContext(ctx, "backup.s3.get_failed", slog.String("err", wrapped.Error()))
 		return nil, wrapped
 	}

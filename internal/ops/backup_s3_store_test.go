@@ -131,3 +131,9 @@ func (s *backupTestStore) getBytes(key string) ([]byte, error) {
 func (s *backupTestStore) putBytes(key string, body []byte) error {
 	return putObjectBytes(context.Background(), s.client, s.bucket.Bucket, key, body)
 }
+
+// versionLogGetter is the production getter for the FoundationDB version
+// record, bounded by the record's own read limit.
+func (s *backupTestStore) versionLogGetter() func(key string) ([]byte, error) {
+	return fdbVersionLogGetter(context.Background(), s.client, s.bucket.Bucket)
+}

@@ -19,6 +19,8 @@ import (
 	"slices"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+
 	"goodkind.io/tack/internal/telemetry"
 )
 
@@ -31,6 +33,21 @@ const fdbVersionLogKey = backupStatusPrefix + "fdb-versions.json"
 // kilobytes.
 const fdbVersionLogMaxEntries = 6000
 
+const (
+	// fdbVersionLogMaxEntryBytes is the widest one entry encodes to, its
+	// separating comma included: a 20-character version (the most negative
+	// int64) and a 30-character UTC timestamp with nanoseconds, in
+	// {"version":V,"at":"T"},
+	fdbVersionLogMaxEntryBytes = 71
+	// fdbVersionLogMarginBytes covers the {"points":[]} envelope with room to
+	// spare.
+	fdbVersionLogMarginBytes = 1024
+	// fdbVersionLogMaxBytes is the in-memory read limit for the record: a full
+	// record of the widest entries fits, while an object far past any record
+	// the writer produces is still refused unread.
+	fdbVersionLogMaxBytes = fdbVersionLogMaxEntries*fdbVersionLogMaxEntryBytes + fdbVersionLogMarginBytes
+)
+
 // fdbRestorablePoint is one reading of the continuous backup's restorable
 // point: the version a restore would name and the moment it corresponds to.
 type fdbRestorablePoint struct {
@@ -41,6 +58,14 @@ type fdbRestorablePoint struct {
 // fdbVersionLog is the stored record, oldest entry first.
 type fdbVersionLog struct {
 	Points []fdbRestorablePoint `json:"points"`
+}
+
+// fdbVersionLogGetter reads objects from bucket up to fdbVersionLogMaxBytes,
+// the getter every reader and writer of the record passes.
+func fdbVersionLogGetter(ctx context.Context, client *s3.Client, bucket string) func(key string) ([]byte, error) {
+	return func(key string) ([]byte, error) {
+		return getObjectBytesUpTo(ctx, client, bucket, key, fdbVersionLogMaxBytes)
+	}
 }
 
 // readFDBVersionLog fetches the record through get. An absent record is an
