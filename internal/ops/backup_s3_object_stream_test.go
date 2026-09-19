@@ -23,9 +23,6 @@ import (
 	"time"
 
 	"golang.org/x/sys/unix"
-
-	"goodkind.io/tack/internal/config"
-	"goodkind.io/tack/internal/testenv"
 )
 
 const (
@@ -60,19 +57,10 @@ type streamPeaks struct {
 // the part of it dirty or under writeback, never to exceed two sync intervals,
 // and the Go heap to grow by less than streamTestHeapGrowthLimit.
 func TestGetObjectToFileBoundsUnwrittenStagingData(t *testing.T) {
-	endpoint := testenv.ObjectStore(t)
 	ctx := t.Context()
-	cfg := &config.Config{
-		BackupS3Endpoint:   endpoint,
-		BackupS3AccessKey:  "test-access", // gitleaks:allow test placeholder
-		BackupS3SecretKey:  "test-secret", // gitleaks:allow test placeholder
-		BackupS3Region:     "us-east-1",
-		BackupS3BucketMain: "tack-stream-test",
-	}
-	client := newBackupS3Client(cfg)
-	if err := ensureBucket(ctx, client, cfg.BackupS3BucketMain); err != nil {
-		t.Fatalf("ensure bucket: %v", err)
-	}
+	store := newBackupTestStore(t, nil)
+	cfg := store.config()
+	client := store.client
 	dir := t.TempDir()
 	source := filepath.Join(dir, "source")
 	wantSum := writeStreamTestSource(t, source)
