@@ -20,7 +20,8 @@ const legacyNanosecondCandidates = 1000
 
 // checkRowHash reports whether the stored row hash is reproducible from the
 // stored row, and names the failure when it is not. Version 3 rows recompute
-// in one try because their hash covers the timestamp at stored precision.
+// in one try because their hash covers the timestamp at stored precision,
+// plus one more for a row whose context may carry an explicit zero token id.
 // Version 1 and 2 rows are tried at every possible lost nanosecond remainder.
 func checkRowHash(row Row) (bool, string, error) {
 	// The ledger has only ever written versions 1 through the current one, so
@@ -49,7 +50,7 @@ func checkRowHash(row Row) (bool, string, error) {
 	if bytesEqual(expected, row.RowHash) {
 		return true, "", nil
 	}
-	return false, "hash mismatch", nil
+	return checkZeroTokenIDRowHash(row)
 }
 
 // checkLegacyRowHash tries a version 1 or 2 row at every nanosecond remainder
