@@ -128,7 +128,7 @@ func (s *NodeService) Create(ctx context.Context, in CreateInput) (*CreateResult
 		return createResult, nil
 	}
 
-	s.indexCreateSearch(ctx, log, id, view)
+	s.indexSearchDoc(ctx, log, view)
 	s.createDefaultChildren(ctx, log, nt, id, in.ActorID)
 
 	log.InfoContext(ctx, "node.Create",

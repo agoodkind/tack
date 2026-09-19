@@ -169,6 +169,10 @@ func (s idempotencySearcher) Index(context.Context, string, string, *domainsearc
 	return nil
 }
 
+func (s idempotencySearcher) IndexBatch(context.Context, string, []*domainsearch.NodeDoc) error {
+	panic("idempotencySearcher.IndexBatch called")
+}
+
 func (s idempotencySearcher) Delete(context.Context, string, string) error {
 	return nil
 }

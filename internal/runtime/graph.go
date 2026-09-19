@@ -139,11 +139,11 @@ func buildAuthMiddleware(cfg *config.Config, tokenRepo auth.TokenValidator, orgM
 }
 
 // buildSearcher creates a Meilisearch client and ensures the nodes index is
-// configured with a generic filterable set. Falls back to a no-op Searcher on
-// setup failure.
+// configured through searchadapter.EnsureNodesIndex. Falls back to a no-op
+// Searcher on setup failure.
 func buildSearcher(cfg *config.Config) domainsearch.Searcher {
 	meiliClient := searchadapter.New(cfg.MeiliURL, cfg.MeiliMasterKey)
-	err := meiliClient.EnsureIndex("nodes", []string{"org_id", "node_type"})
+	err := searchadapter.EnsureNodesIndex(meiliClient)
 	if err != nil {
 		slog.Error("meilisearch.setup_failed",
 			slog.String("url", cfg.MeiliURL),

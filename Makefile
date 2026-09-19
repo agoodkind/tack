@@ -72,7 +72,7 @@ seed:
 test-unit:
 	docker compose -f docker-compose.test.yml --profile runner build tests
 	docker compose -f docker-compose.test.yml --profile runner run --rm tests \
-	    test -count=1 -timeout 30m ./internal/ops/... ./internal/adapters/postgres/... ./internal/audit/...
+	    test -count=1 -timeout 30m ./internal/ops/... ./internal/adapters/postgres/... ./internal/audit/... ./internal/service/...
 
 # Every package whose tests reach FoundationDB or the ledger, and the go test
 # arguments that run them. test-store-host runs them on the current host,

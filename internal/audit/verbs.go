@@ -136,6 +136,8 @@ const (
 	VerbOpsBackfillDefaultChildren Verb = "ops.backfill_default_children"
 	// VerbOpsReindex records property index backfills.
 	VerbOpsReindex Verb = "ops.reindex"
+	// VerbOpsSearchReindex records search index backfills from FoundationDB.
+	VerbOpsSearchReindex Verb = "ops.search_reindex"
 	// VerbOpsReferenceDuplicates records duplicate reference reports.
 	VerbOpsReferenceDuplicates Verb = "ops.reference_duplicates"
 	// VerbOpsBackup records a backup command without a subcommand.

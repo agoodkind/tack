@@ -3,6 +3,7 @@
 //
 //	testenv ledger        start a YugabyteDB ledger, migrate it, print its DSN
 //	testenv foundationdb  start a single-node FoundationDB, print its cluster file
+//	testenv meilisearch   start a Meilisearch engine, print its URL and master key
 //	testenv down          remove every engine the tool or any test started
 //
 // An engine the tool starts keeps running after it exits, for the operator to
@@ -25,10 +26,11 @@ type subcommand string
 const (
 	subcommandLedger       subcommand = "ledger"
 	subcommandFoundationDB subcommand = "foundationdb"
+	subcommandMeilisearch  subcommand = "meilisearch"
 	subcommandDown         subcommand = "down"
 )
 
-const usage = "usage: testenv ledger | foundationdb | down"
+const usage = "usage: testenv ledger | foundationdb | meilisearch | down"
 
 func main() {
 	code := run(os.Args[1:])
@@ -50,6 +52,11 @@ func run(args []string) int {
 		return runStep(func(step *cliStep) { _, _ = fmt.Println(testenv.Ledger(step)) })
 	case subcommandFoundationDB:
 		return runStep(func(step *cliStep) { _, _ = fmt.Println(testenv.FoundationDB(step)) })
+	case subcommandMeilisearch:
+		return runStep(func(step *cliStep) {
+			url, masterKey := testenv.Meilisearch(step)
+			_, _ = fmt.Println(url, masterKey)
+		})
 	case subcommandDown:
 		return runStep(func(step *cliStep) {
 			testenv.RequireDocker(step)

@@ -23,19 +23,23 @@ type MCPHarness struct {
 	Project   string
 }
 
-// unreachableMeiliURL points config.Load at an address nothing serves. The
-// runtime graph falls back to its no-op searcher when Meilisearch is
-// unreachable, and the harness exercises the MCP tools, not search.
+// unreachableMeiliURL is an address nothing serves. A harness built on it
+// proves what the tools do when the search backend is down.
 const unreachableMeiliURL = "http://[::1]:1"
 
 // harnessConfig loads the server configuration against this process's test
-// engines, started through testenv.
-func harnessConfig(t *testing.T) *config.Config {
+// engines, started through testenv. An empty meiliURL uses the test search
+// engine; any other value replaces it.
+func harnessConfig(t *testing.T, meiliURL string) *config.Config {
 	t.Helper()
 	t.Setenv("DATABASE_URL", testenv.Ledger(t))
 	t.Setenv("FDB_CLUSTER_FILE", testenv.FoundationDB(t))
-	t.Setenv("MEILI_URL", unreachableMeiliURL)
-	t.Setenv("MEILI_MASTER_KEY", "tack-test-unused-key")
+	searchURL, searchKey := testenv.Meilisearch(t)
+	if meiliURL != "" {
+		searchURL = meiliURL
+	}
+	t.Setenv("MEILI_URL", searchURL)
+	t.Setenv("MEILI_MASTER_KEY", searchKey)
 	cfg, err := config.Load()
 	if err != nil {
 		t.Fatalf("load config: %v", err)
@@ -59,12 +63,19 @@ func nextHarnessSeed() int64 {
 	return harnessSeedCounter.Add(1)
 }
 
-// NewMCPHarness builds the runtime graph against the test stack and
+// NewMCPHarness builds the runtime graph against the test engines and
 // bootstraps a fresh org, workspace, and project for the calling test.
 func NewMCPHarness(t *testing.T) *MCPHarness {
 	t.Helper()
+	return newMCPHarnessWithSearch(t, "")
+}
+
+// newMCPHarnessWithSearch is NewMCPHarness with the search backend at
+// meiliURL instead of the test engine.
+func newMCPHarnessWithSearch(t *testing.T, meiliURL string) *MCPHarness {
+	t.Helper()
 	ctx := t.Context()
-	cfg := harnessConfig(t)
+	cfg := harnessConfig(t, meiliURL)
 	// The test ledger has no audit roles. The harness exercises MCP tool
 	// behavior, not the audit pipeline, so the graph runs unrecorded.
 	cfg.AuditWriterDSN = ""

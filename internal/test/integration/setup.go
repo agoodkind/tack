@@ -22,6 +22,7 @@ import (
 	"github.com/google/uuid"
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/adapters/postgres"
+	searchadapter "goodkind.io/tack/internal/adapters/search"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/ops"
@@ -164,7 +165,7 @@ func SetupTestEnv(t *testing.T) *TestEnv {
 		stores.PropertyDefs,
 		stores.Relationships,
 		stores.NodeDeleter,
-		noopSearcher{},
+		searchadapter.Noop{},
 	)
 
 	return &TestEnv{

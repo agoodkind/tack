@@ -209,6 +209,10 @@ func (s *repairSearcher) Index(context.Context, string, string, *domainsearch.No
 	return nil
 }
 
+func (s *repairSearcher) IndexBatch(context.Context, string, []*domainsearch.NodeDoc) error {
+	panic("repairSearcher.IndexBatch called")
+}
+
 func (s *repairSearcher) Delete(context.Context, string, string) error { return nil }
 
 func (s *repairSearcher) Search(context.Context, string, string, map[string]string) ([]domainsearch.NodeDoc, map[string]map[string]int64, error) {

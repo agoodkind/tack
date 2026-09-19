@@ -148,9 +148,7 @@ func (s *NodeService) Update(ctx context.Context, in UpdateInput) (*node.NodeVie
 		return nil, fmt.Errorf("update node: %w", err)
 	}
 
-	if err := s.searcher.Index(ctx, "nodes", in.NodeID.String(), searchDocFromView(view)); err != nil {
-		log.Warn("node.Update: search index", slog.String("err", err.Error()))
-	}
+	s.indexSearchDoc(ctx, log, view)
 	return view, nil
 }
 
@@ -336,24 +334,4 @@ func viewFromNode(n *node.Node) *node.NodeView {
 		CreatedAt: n.CreatedAt,
 		UpdatedAt: n.UpdatedAt,
 	}
-}
-
-// searchDocFromView builds a generic search document. The doc contains the
-// universal fields plus the raw JSON Props map; the search adapter indexes
-// the JSON values directly so it can filter on any indexed property without
-// the service layer having to know which props are filterable.
-func searchDocFromView(v *node.NodeView) *domainsearch.NodeDoc {
-	doc := &domainsearch.NodeDoc{
-		ID:       v.ID.String(),
-		OrgID:    v.OrgID.String(),
-		NodeType: v.NodeType,
-		Name:     v.Name,
-	}
-	if len(v.Props) > 0 {
-		doc.Props = make(map[string]json.RawMessage, len(v.Props))
-		for k, raw := range v.Props {
-			doc.Props[k] = raw
-		}
-	}
-	return doc
 }

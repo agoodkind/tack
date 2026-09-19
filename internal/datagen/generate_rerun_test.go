@@ -109,7 +109,7 @@ func (f *rerunMCP) ServeHTTP(writer http.ResponseWriter, request *http.Request) 
 		payload.Params.Arguments.NodeID != "":
 		f.get(writer, payload)
 	default:
-		writeRerunResult(writer, "ok", false)
+		f.answerOther(writer, payload)
 	}
 }
 

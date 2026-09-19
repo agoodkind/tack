@@ -6,13 +6,19 @@ package search
 import (
 	"context"
 	"encoding/json"
+	"errors"
 )
+
+// ErrUnavailable reports that no search backend is connected, so a query
+// cannot be answered. Callers must surface it instead of an empty result.
+var ErrUnavailable = errors.New("search backend unavailable")
 
 // NodeDoc is the generic document shape stored and returned from the search
 // index. Only universal fields are first-class; everything concept-specific
 // (priority, state_id, assignees, labels, etc.) lives in Props so no code path
-// privileges one property over another. Props mirrors Node.Props as raw JSON
-// so the search engine indexes whatever shape the property actually has.
+// privileges one property over another. Props holds the node's properties
+// whose definitions have a searchable type, as raw JSON, so the search engine
+// indexes whatever shape the property actually has.
 type NodeDoc struct {
 	ID       string                     `json:"id"`
 	OrgID    string                     `json:"org_id"`
@@ -27,6 +33,9 @@ type NodeDoc struct {
 // index.
 type Searcher interface {
 	Index(ctx context.Context, collection string, id string, doc *NodeDoc) error
+	// IndexBatch adds or replaces docs and returns only after the engine has
+	// applied them, so a backfill sees rejected documents as an error.
+	IndexBatch(ctx context.Context, collection string, docs []*NodeDoc) error
 	Delete(ctx context.Context, collection string, id string) error
 	// Search returns NodeDocs matching query, scoped by equality filters
 	// (passed straight to the underlying engine), plus facet counts.
