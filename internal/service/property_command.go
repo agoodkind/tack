@@ -52,28 +52,28 @@ func CompileCreatePropertyCommand(
 	if err != nil {
 		return nil, err
 	}
-	parentID := scopeID
 	if compiled == nil {
-		return &PropertyCommand{ParentID: parentID}, nil
+		return &PropertyCommand{ParentID: scopeID}, nil
 	}
-	raw, ok := compiled["parent_id"]
-	if !ok || len(raw) == 0 || string(raw) == "null" {
+	if raw, ok := compiled["parent_id"]; ok && isDeletedPropValue(raw) {
+		// An absent or null parent on create means the scope itself.
 		delete(compiled, "parent_id")
-		return &PropertyCommand{ParentID: parentID, Props: compiled}, nil
 	}
-	parentRef, ok := rawString(raw)
-	if !ok || strings.TrimSpace(parentRef) == "" {
-		return nil, fmt.Errorf("properties.parent_id must be a node reference string: %w", domain.ErrInvalidArgument)
-	}
-	parentID, err = resolveParent(ctx, nt, orgID, scopeID, parentRef)
+	parentID, present, err := resolveCommandParent(ctx, nt, orgID, scopeID, compiled, resolveParent)
 	if err != nil {
 		return nil, err
+	}
+	if !present {
+		parentID = scopeID
 	}
 	delete(compiled, "parent_id")
 	return &PropertyCommand{ParentID: parentID, Props: compiled}, nil
 }
 
-// CompileUpdatePropertyCommand canonicalizes user-facing property input for update.
+// CompileUpdatePropertyCommand canonicalizes user-facing property input for
+// update. A parent_id entry is resolved the same way create resolves it and
+// is kept in Props as the canonical id, so the write never stores a printed
+// reference as text (TACK-523). ParentID is set only when parent_id was given.
 func CompileUpdatePropertyCommand(
 	ctx context.Context,
 	defs []*node.PropertyDef,
@@ -83,12 +83,23 @@ func CompileUpdatePropertyCommand(
 	scopeID uuid.UUID,
 	props map[string]json.RawMessage,
 	resolveReference ReferenceResolver,
+	resolveParent ParentResolver,
 ) (*PropertyCommand, error) {
 	compiled, err := compilePropertyCommand(ctx, defs, typeIndex, nt, orgID, scopeID, props, resolveReference)
 	if err != nil {
 		return nil, err
 	}
-	return &PropertyCommand{Props: compiled}, nil
+	if compiled == nil {
+		return &PropertyCommand{ParentID: uuid.Nil, Props: nil}, nil
+	}
+	parentID, present, err := resolveCommandParent(ctx, nt, orgID, scopeID, compiled, resolveParent)
+	if err != nil {
+		return nil, err
+	}
+	if present {
+		compiled["parent_id"] = mustRawString(parentID.String())
+	}
+	return &PropertyCommand{ParentID: parentID, Props: compiled}, nil
 }
 
 func compilePropertyCommand(

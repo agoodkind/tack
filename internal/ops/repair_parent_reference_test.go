@@ -16,6 +16,16 @@ func TestApplyParentReferenceUpdatesParentAndRelationship(t *testing.T) {
 	issueID := uuid.New()
 	epicID := uuid.New()
 	actorID := uuid.New()
+	epic := &node.NodeView{
+		ID:       epicID,
+		OrgID:    orgID,
+		NodeType: "epic",
+		Name:     "Migration Epic",
+		Props: map[string]json.RawMessage{
+			"parent_id": mustRaw(t, projectID.String()),
+			"title":     mustRaw(t, "Migration Epic"),
+		},
+	}
 	reader := &repairReader{
 		views: map[uuid.UUID]*node.NodeView{
 			issueID: {
@@ -30,19 +40,11 @@ func TestApplyParentReferenceUpdatesParentAndRelationship(t *testing.T) {
 					"parent_epic_title": mustRaw(t, "Migration Epic"),
 				},
 			},
+			// The update refuses a parent the store cannot resolve (TACK-523),
+			// so the epic must be readable by id as well as listable.
+			epicID: epic,
 		},
-		listViews: []*node.NodeView{
-			{
-				ID:       epicID,
-				OrgID:    orgID,
-				NodeType: "epic",
-				Name:     "Migration Epic",
-				Props: map[string]json.RawMessage{
-					"parent_id": mustRaw(t, projectID.String()),
-					"title":     mustRaw(t, "Migration Epic"),
-				},
-			},
-		},
+		listViews: []*node.NodeView{epic},
 	}
 	nodeRepo := &repairNodeRepo{reader: reader}
 	console := NewRepairConsole(nodeRepo, reader, &repairTypeRepo{types: repairParentTypes()}, &repairPropRepo{defs: repairDefs()}, &repairSearcher{})
