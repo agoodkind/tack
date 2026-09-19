@@ -157,7 +157,7 @@ func referencePropertyHandler(nt *node.NodeType, def *node.PropertyDef, alias st
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
-		return successText(renderNode(rc, view), ""), nil
+		return successText(renderWriteConfirmation(rc, "Updated", view, []string{def.Name}), ""), nil
 	}
 }
 

@@ -171,6 +171,6 @@ func createHandler(nt *node.NodeType, route scopeRoute, b NodeTypeBinding) mcpse
 			Identifier: identifierFor(result.View, rc),
 			Name:       result.View.Name,
 		})
-		return successText(renderNode(rc, result.View), instr), nil
+		return successText(renderWriteConfirmation(rc, "Created", result.View, changedFieldNames(&name, rawProps)), instr), nil
 	}
 }
