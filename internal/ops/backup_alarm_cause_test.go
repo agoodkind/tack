@@ -7,10 +7,12 @@ import (
 )
 
 // TestBackupStalenessAlarmUnreadableWords runs the whole command against an
-// object store and ledger masters that refuse every connection. Nothing here
-// proves a backup was never made, only that nothing could be read, so every
-// sentence must say the record could not be read and none may say the record
-// does not exist. Each fault still gets its steps under its phrase.
+// object store and ledger masters that refuse every connection, on a guest
+// that has never read the store. Nothing here proves a backup was never made,
+// only that nothing could be read, so every sentence must say the record could
+// not be read and none may say the record does not exist. The store is named
+// once, before the faults, and each fault still gets its steps under its
+// phrase with none of the client's error text.
 func TestBackupStalenessAlarmUnreadableWords(t *testing.T) {
 	fixBackupStalenessClock(t, time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC))
 	captured := captureBackupAlarmSends(t, nil)
@@ -26,25 +28,26 @@ func TestBackupStalenessAlarmUnreadableWords(t *testing.T) {
 	}
 	body := captured.messages[0].Body
 	for _, sentence := range []string{
-		"Nightly ledger export status could not be read\n" +
-			"The nightly ledger export's newest copy could not be dated. " +
-			"The last check reported: listing export runs failed: ",
-		"\n1. On the owner guest, run journalctl -u tack-ledger-export.\n",
+		"The object store (where the backups are kept) did not answer this check. " +
+			"Confirm the object store guest is running before the steps below.\n\n" +
+			"Nightly ledger export status could not be read\n" +
+			"The nightly ledger export's newest copy could not be dated.\n" +
+			"1. On the owner guest, run journalctl -u tack-ledger-export.\n",
 		"\n\nRestore rehearsal status could not be read\n" +
-			"The restore rehearsal's last pass could not be read. " +
-			"The last check reported: reading backup-status/rehearsal.json failed: ",
-		"\n1. On the owner guest, run journalctl -u tack-backup-restore-drill.\n",
+			"The restore rehearsal's last pass could not be read.\n" +
+			"1. On the owner guest, run journalctl -u tack-backup-restore-drill.\n",
 		"\n\nLedger cluster health status could not be read\n" +
-			"The ledger cluster's last healthy reading could not be read. " +
-			"The last check reported: reading backup-status/replication.json failed: ",
-		"; this run observed: no master answered the health check: ",
-		"\n1. Confirm every ledger guest is up.\n",
+			"The ledger cluster's last healthy reading could not be read.\n" +
+			"1. Confirm every ledger guest is up.\n",
 	} {
 		if !strings.Contains(body, sentence) {
 			t.Errorf("body is missing %q:\n%s", sentence, body)
 		}
 	}
-	for _, claim := range []string{"has never", "never passed", "never been seen"} {
+	if !strings.HasPrefix(body, "The object store") {
+		t.Errorf("the body must open on the object store, named once:\n%s", body)
+	}
+	for _, claim := range []string{"has never", "never passed", "never been seen", "reported", "failed"} {
 		if strings.Contains(body, claim) {
 			t.Errorf("an unreadable store must not be described as empty (%q):\n%s", claim, body)
 		}
@@ -79,7 +82,7 @@ func TestBackupStalenessAlarmNeverRecordedWords(t *testing.T) {
 		"\n\nLedger cluster has never been seen healthy\n" +
 			"The ledger cluster (logins and audit trail) has never been seen healthy. " +
 			"The last check reported: no backup-status/replication.json in tack-backups; " +
-			"this run observed: no master answered the health check: ",
+			"this run observed: no master answered the health check.\n",
 		"\n1. Confirm every ledger guest is up.\n",
 	} {
 		if !strings.Contains(body, sentence) {

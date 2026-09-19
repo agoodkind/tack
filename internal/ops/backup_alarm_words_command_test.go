@@ -47,7 +47,7 @@ func TestBackupStalenessAlarmMailThroughTheCommand(t *testing.T) {
 			"1. On the owner guest, run journalctl -u tack-backup-restore-drill.\n",
 		"\n\nLedger cluster unhealthy for 45 minutes\n" +
 			"The ledger cluster (logins and audit trail) was last healthy at 11:15 AM UTC on Aug 29, 2026, " +
-			"45 minutes ago; the limit is 30 minutes. The last check reported: no master answered the health check: ",
+			"45 minutes ago; the limit is 30 minutes. The last check reported: no master answered the health check.\n",
 		"\n1. Confirm every ledger guest is up.\n",
 	} {
 		if !strings.Contains(message.Body, sentence) {
@@ -96,7 +96,8 @@ func TestBackupStalenessAlarmFDBWords(t *testing.T) {
 	assertBackupAlarmPlainWords(t, subject, body, cfg.BackupS3Endpoint)
 
 	// A status that could not be read says nothing about what is restorable,
-	// so the mail must not claim there is no restorable point.
+	// so the mail must not claim there is no restorable point, and the error
+	// text stays out of it.
 	unreadable := unknownBackupStalenessMetric(backupStalenessFDBName, threshold, backupStalenessUnreadable,
 		"fdbbackup status failed: blobstore://test-access:test-secret@127.0.0.1:1/run?bucket=tack-backups") // gitleaks:allow test placeholder
 	subject = backupStalenessAlarmSubject(qaHost, []backupStalenessMetric{unreadable})
@@ -104,10 +105,11 @@ func TestBackupStalenessAlarmFDBWords(t *testing.T) {
 		t.Errorf("subject = %q", subject)
 	}
 	body = backupStalenessAlarmBody(cfg, []backupStalenessMetric{unreadable})
-	if !strings.HasPrefix(body, "The product database backup's status could not be read. "+
-		"The last check reported: fdbbackup status failed: "+
-		"blobstore://***REDACTED***:***REDACTED***@the object store/run?bucket=tack-backups.\n\n1. ") {
-		t.Errorf("body does not carry the redacted reason:\n%s", body)
+	if !strings.HasPrefix(body, "The product database backup's status could not be read.\n\n1. ") {
+		t.Errorf("body must say the status could not be read, then the steps:\n%s", body)
+	}
+	if strings.Contains(body, "fdbbackup") || strings.Contains(body, "blobstore") {
+		t.Errorf("an unreadable status must not carry the error text:\n%s", body)
 	}
 	if strings.Contains(body, "no restorable point") {
 		t.Errorf("an unreadable status must not claim there is no restorable point:\n%s", body)

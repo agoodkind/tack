@@ -44,15 +44,18 @@ const backupStalenessFutureTolerance = 5 * time.Minute
 // backupStalenessMetric is one mechanism's freshness reading: when and how long
 // ago it last succeeded, the age past which the operator must be told, and what
 // the reading came from. At is the last success in UTC and is zero when the age
-// is unknown, and Unknown then says why.
+// is unknown, and Unknown then says why. A reading that could not be taken but
+// is dated from this guest's last one that was keeps its Unknown cause with a
+// known age, and LastReadAt is when that earlier reading was taken.
 type backupStalenessMetric struct {
-	Name      string
-	At        time.Time
-	Age       time.Duration
-	AgeKnown  bool
-	Unknown   backupStalenessUnknownCause
-	Threshold time.Duration
-	Detail    string
+	Name       string
+	At         time.Time
+	Age        time.Duration
+	AgeKnown   bool
+	Unknown    backupStalenessUnknownCause
+	Threshold  time.Duration
+	Detail     string
+	LastReadAt time.Time `exhaustruct:"optional"`
 }
 
 // stale reports whether the mechanism has missed its window. An unknown age is

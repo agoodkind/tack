@@ -109,8 +109,10 @@ func TestProbeYBClusterHealthPassesOverFollowersQuietly(t *testing.T) {
 
 // TestProbeYBClusterHealthReportsWhenEveryMasterIsAFollower proves a cluster
 // with no reachable leader still fails the probe with a reason that names it.
+// Each master's answer goes to the journal; the detail, which the report and
+// the mail carry, names no master address.
 func TestProbeYBClusterHealthReportsWhenEveryMasterIsAFollower(t *testing.T) {
-	captureOpsLogs(t)
+	logs := captureOpsLogs(t)
 	startYBMasterHealthServer(t, ybFollowerHealthPage)
 	cfg := &config.Config{BackupYBMasterAddresses: "[::1]:7100,[::1]:7100"}
 
@@ -119,8 +121,12 @@ func TestProbeYBClusterHealthReportsWhenEveryMasterIsAFollower(t *testing.T) {
 	if healthy {
 		t.Fatal("no leader answered, so the cluster must not read as healthy")
 	}
-	if !strings.Contains(detail, "no master answered the health check") || !strings.Contains(detail, "answered as a follower") {
+	if detail != "no master answered the health check" {
 		t.Fatalf("detail = %q", detail)
+	}
+	if !strings.Contains(logs.String(), "backup.staleness.masters_unanswered") ||
+		!strings.Contains(logs.String(), "answered as a follower") {
+		t.Fatalf("each master's answer must be logged:\n%s", logs.String())
 	}
 }
 

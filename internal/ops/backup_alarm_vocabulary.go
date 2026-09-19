@@ -10,7 +10,11 @@ package ops
 // last-good time, the age, the limit, and the detail, in that order. An unknown
 // age has two vocabularies, chosen by the metric's cause, because a success
 // that was never recorded and a record that could not be read support
-// different claims; both templates take the detail alone.
+// different claims. The never-recorded template takes the detail alone. The
+// unreadable sentence takes nothing, because the only detail is a client's
+// error text, which stays in the journal; the remembered sentence that may
+// follow it takes the last-good time, the age, and the limit of the last
+// reading this guest took.
 type backupAlarmWords struct {
 	phraseKnown            string
 	phraseNeverRecorded    string
@@ -18,6 +22,7 @@ type backupAlarmWords struct {
 	paragraphKnown         string
 	paragraphNeverRecorded string
 	paragraphUnreadable    string
+	paragraphRemembered    string
 	steps                  []string
 }
 
@@ -38,7 +43,8 @@ var backupAlarmVocabulary = map[string]backupAlarmWords{
 		phraseUnreadable:       "Nightly ledger export status could not be read",
 		paragraphKnown:         backupAlarmExportNoun + " last completed" + backupAlarmKnownFact,
 		paragraphNeverRecorded: backupAlarmExportNoun + " has never completed." + backupAlarmLastCheck,
-		paragraphUnreadable:    "The nightly ledger export's newest copy could not be dated." + backupAlarmLastCheck,
+		paragraphUnreadable:    "The nightly ledger export's newest copy could not be dated.",
+		paragraphRemembered:    " The newest copy this guest last read was made" + backupAlarmKnownFact,
 		steps: []string{
 			"On the owner guest, run journalctl -u tack-ledger-export.",
 			"On each data guest, run journalctl -u tack-ledger-archive.",
@@ -51,7 +57,8 @@ var backupAlarmVocabulary = map[string]backupAlarmWords{
 		phraseUnreadable:       "Restore rehearsal status could not be read",
 		paragraphKnown:         backupAlarmRehearsalNoun + " last passed" + backupAlarmKnownFact,
 		paragraphNeverRecorded: backupAlarmRehearsalNoun + " has never passed." + backupAlarmLastCheck,
-		paragraphUnreadable:    "The restore rehearsal's last pass could not be read." + backupAlarmLastCheck,
+		paragraphUnreadable:    "The restore rehearsal's last pass could not be read.",
+		paragraphRemembered:    " The newest pass this guest last read was" + backupAlarmKnownFact,
 		steps: []string{
 			"On the owner guest, run journalctl -u tack-backup-restore-drill.",
 			"Fix what it names, then run systemctl start tack-backup-restore-drill.",
@@ -63,7 +70,8 @@ var backupAlarmVocabulary = map[string]backupAlarmWords{
 		phraseUnreadable:       "Ledger cluster health status could not be read",
 		paragraphKnown:         backupAlarmReplicationNoun + " was last healthy" + backupAlarmKnownFact + " The last check reported: %[4]s.",
 		paragraphNeverRecorded: backupAlarmReplicationNoun + " has never been seen healthy." + backupAlarmLastCheck,
-		paragraphUnreadable:    "The ledger cluster's last healthy reading could not be read." + backupAlarmLastCheck,
+		paragraphUnreadable:    "The ledger cluster's last healthy reading could not be read.",
+		paragraphRemembered:    " This guest last recorded it healthy" + backupAlarmKnownFact,
 		steps: []string{
 			"Confirm every ledger guest is up.",
 			"On the owner guest, confirm every node is alive on the ledger master page.",
@@ -76,7 +84,8 @@ var backupAlarmVocabulary = map[string]backupAlarmWords{
 		phraseUnreadable:       "Product database backup status could not be read",
 		paragraphKnown:         backupAlarmFDBNoun + " last advanced" + backupAlarmKnownFact,
 		paragraphNeverRecorded: backupAlarmFDBNoun + " has no restorable point." + backupAlarmLastCheck,
-		paragraphUnreadable:    "The product database backup's status could not be read." + backupAlarmLastCheck,
+		paragraphUnreadable:    "The product database backup's status could not be read.",
+		paragraphRemembered:    " The newest restorable point this guest last read was" + backupAlarmKnownFact,
 		steps: []string{
 			"On the owner guest, run docker ps and confirm tack-fdb-backup-agent-1 is running.",
 			"Run docker logs tack-fdb-backup-agent-1 and read what it reports.",

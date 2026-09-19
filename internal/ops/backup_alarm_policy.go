@@ -1,7 +1,8 @@
 // backup_alarm_policy.go decides when the staleness alarm mails: once per
 // mechanism, on the run that first finds it stale, and never again while it
 // stays stale. A mechanism that comes back is logged and forgotten, so its next
-// fault mails again. The memory is the state file in backup_alarm_state.go
+// fault mails again; a reading that could not be taken never counts as coming
+// back, even while this guest's last reading still dates it as fresh. The memory is the state file in backup_alarm_state.go
 // and the copy both checkers share in the object store, reconciled by
 // generation (backup_alarm_memory.go), so a fault the other checker mailed is
 // held here too and a clear it recorded is honored here. A mechanism is
@@ -44,6 +45,10 @@ func alarmBackupStalenessTransitions(
 		case metric.stale() && !alarmed:
 			faults = append(faults, metric)
 		case metric.stale():
+			held = append(held, metric.Name)
+		case alarmed && metric.Unknown != backupStalenessAgeKnown:
+			// A reading dated from an earlier one proves nothing new, so it
+			// holds the fault rather than clearing it.
 			held = append(held, metric.Name)
 		case alarmed:
 			cleared = append(cleared, metric.Name)

@@ -57,7 +57,8 @@ type ybMasterHealthCheck struct {
 // follower answers with a page that names the leader instead, which is a
 // reason to ask the next master, not a fault worth a warning. detail always
 // says what happened, healthy or not: it becomes the marker's detail on
-// success and the report's reason on failure.
+// success and the report's reason on failure. It never carries a master's
+// client error, which the journal records instead.
 func probeYBClusterHealth(ctx context.Context, cfg *config.Config) (healthy bool, detail string) {
 	urls := ybMasterHealthURLs(cfg.BackupYBMasterAddresses)
 	if len(urls) == 0 {
@@ -82,7 +83,12 @@ func probeYBClusterHealth(ctx context.Context, cfg *config.Config) (healthy bool
 		}
 		return replicated, healthDetail
 	}
-	return false, "no master answered the health check: " + strings.Join(failures, "; ")
+	// Each master's failure is a client error that names its address, so it
+	// goes to the journal only; the detail the report and the mail carry says
+	// what the operator acts on.
+	telemetry.L(ctx).WarnContext(ctx, "backup.staleness.masters_unanswered",
+		slog.Any("failures", failures))
+	return false, "no master answered the health check"
 }
 
 // ybMasterHealthURLs turns the configured comma-separated master addresses
