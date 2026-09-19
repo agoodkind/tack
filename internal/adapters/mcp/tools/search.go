@@ -11,10 +11,8 @@ import (
 	domainsearch "goodkind.io/tack/internal/domain/search"
 )
 
-// RegisterSearch registers tack_search. A query is expanded with the
-// workspace's synonym sets, read through propertyDefs and the resolver, and
-// every variant runs as one federated search.
-func RegisterSearch(s *mcpserver.MCPServer, searcher domainsearch.Searcher, propertyDefs node.PropertyDefRepository, resolver *Resolver) {
+// RegisterSearch registers tack_search.
+func RegisterSearch(s *mcpserver.MCPServer, searcher domainsearch.Searcher, resolver *Resolver) {
 	registerTool(s,
 		mcpmcp.Tool{
 			Name:        "tack_search",
@@ -58,11 +56,7 @@ func RegisterSearch(s *mcpserver.MCPServer, searcher domainsearch.Searcher, prop
 			if nodeTypeFilter != "" {
 				filters["node_type"] = nodeTypeFilter
 			}
-			synonymSets, err := loadSynonymSets(ctx, resolver, propertyDefs, ws)
-			if err != nil {
-				return classifyError(ctx, err), nil
-			}
-			docs, err := searcher.SearchVariants(ctx, "nodes", expandQuery(query, synonymSets), filters, maxListLimit)
+			docs, _, err := searcher.Search(ctx, "nodes", query, filters)
 			if err != nil {
 				return classifyError(ctx, err), nil
 			}

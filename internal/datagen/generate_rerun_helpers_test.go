@@ -23,15 +23,14 @@ func isCorpusListTool(toolName string) bool {
 
 func corpusCreateTool(listTool string) string {
 	return map[string]string{
-		"tack_list_projects":     "tack_create_project",
-		"tack_list_labels":       "tack_create_label",
-		"tack_list_states":       "tack_create_state",
-		"tack_list_epics":        "tack_create_epic",
-		"tack_list_cycles":       "tack_create_cycle",
-		"tack_list_modules":      "tack_create_module",
-		"tack_list_issues":       "tack_create_issue",
-		"tack_list_comments":     "tack_create_comment",
-		"tack_list_activities":   "tack_create_activity",
-		"tack_list_synonym_sets": "tack_create_synonym_set",
+		"tack_list_projects":   "tack_create_project",
+		"tack_list_labels":     "tack_create_label",
+		"tack_list_states":     "tack_create_state",
+		"tack_list_epics":      "tack_create_epic",
+		"tack_list_cycles":     "tack_create_cycle",
+		"tack_list_modules":    "tack_create_module",
+		"tack_list_issues":     "tack_create_issue",
+		"tack_list_comments":   "tack_create_comment",
+		"tack_list_activities": "tack_create_activity",
 	}[listTool]
 }

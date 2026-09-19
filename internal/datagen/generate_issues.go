@@ -78,11 +78,8 @@ func (g *Generator) generateIssues(
 	); err != nil {
 		return err
 	}
-	if err := g.verifySearchFindsIssue(ctx, workspace.Actors[0].Token, workspace,
-		projectIdentifier, firstIssueName, firstWord(firstIssueName)); err != nil {
-		return err
-	}
-	return g.verifySynonymSearch(ctx, workspace, projectIdentifier)
+	return g.verifySearchFindsIssue(ctx, workspace.Actors[0].Token, workspace,
+		projectIdentifier, firstIssueName, firstWord(firstIssueName))
 }
 
 func (g *Generator) generateDeletedIssue(

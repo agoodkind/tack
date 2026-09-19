@@ -197,7 +197,7 @@ func (h *Handler) buildServer(nodeTypes []*node.NodeType, propertyDefs []*node.P
 	tools.RegisterWorkspace(s, h.reader, resolver, nodeTypes)
 	tools.RegisterMembers(s, h.members, h.users, resolver)
 	tools.RegisterProperty(s, h.propertyDefs, resolver)
-	tools.RegisterSearch(s, h.searcher, h.propertyDefs, resolver)
+	tools.RegisterSearch(s, h.searcher, resolver)
 	tools.RegisterRelationship(s, h.nodeSvc, h.relationships, resolver)
 
 	binding := tools.NodeTypeBinding{

@@ -219,10 +219,6 @@ func (s *repairSearcher) Search(context.Context, string, string, map[string]stri
 	panic("repairSearcher.Search called")
 }
 
-func (s *repairSearcher) SearchVariants(context.Context, string, []string, map[string]string, int) ([]domainsearch.NodeDoc, error) {
-	panic("repairSearcher.SearchVariants called")
-}
-
 func repairTypes() []*node.NodeType {
 	return []*node.NodeType{
 		{TypeKey: "container", Slug: "containers", Reference: node.ReferenceConfig{Strategy: node.ReferenceDirectProperty, Property: "code"}},
