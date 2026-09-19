@@ -5,13 +5,13 @@ import (
 	"testing"
 )
 
-// fakeYBExportRunObjects is the object set a finished export run leaves under
+// ybExportRunObjects is the object set a finished export run leaves under
 // one run prefix: the manifest the walk reads, every run-root artifact the
 // manifest declares, and, per node the manifest lists, every artifact that
 // node's archive run publishes, which is what the completeness gate probes for.
 // The manifest is placed under prefixRunID whatever run it declares, so a
 // manifest that names a run other than its own prefix can be exercised.
-func fakeYBExportRunObjects(t *testing.T, prefixRunID string, manifest ybSnapshotManifest) map[string][]byte {
+func ybExportRunObjects(t *testing.T, prefixRunID string, manifest ybSnapshotManifest) map[string][]byte {
 	t.Helper()
 	body, err := json.Marshal(manifest)
 	if err != nil {
@@ -24,17 +24,17 @@ func fakeYBExportRunObjects(t *testing.T, prefixRunID string, manifest ybSnapsho
 	}
 	for _, node := range manifest.Nodes {
 		for _, object := range ybNodeArtifactObjects() {
-			objects[prefix+node.Prefix+object] = fakeYBNodeArtifact(manifest, node, object)
+			objects[prefix+node.Prefix+object] = ybNodeArtifactBody(manifest, node, object)
 		}
 	}
 	return objects
 }
 
-// fakeYBNodeArtifact is the body of one node artifact in the fake store. The
+// ybNodeArtifactBody is the body of one node artifact in a test store. The
 // inventory is rendered through the production writer for the manifest's own
 // run and node, recording no files, so the drill's staging step reads it back
 // the way it reads a real one; every other node artifact is opaque bytes.
-func fakeYBNodeArtifact(manifest ybSnapshotManifest, node ybSnapshotManifestNode, object string) []byte {
+func ybNodeArtifactBody(manifest ybSnapshotManifest, node ybSnapshotManifestNode, object string) []byte {
 	if object == ybNodeInventoryObject {
 		return ybArchiveInventory{RunID: manifest.RunID, Node: node.Name, Files: nil}.render()
 	}

@@ -4,7 +4,10 @@
 //	testenv ledger        start a YugabyteDB ledger, migrate it, print its DSN
 //	testenv foundationdb  start a single-node FoundationDB, print its cluster file
 //	testenv meilisearch   start a Meilisearch engine, print its URL and master key
-//	testenv objectstore   start an S3-compatible object store, print its endpoint
+//	testenv objectstore   start a SeaweedFS object store, create a bucket, and
+//	                      print its endpoint, bucket, keys, and container
+//	testenv objectstore-stop CONTAINER   stop that object store, as its guest stops
+//	testenv objectstore-start CONTAINER  start it again and print its endpoint
 //	testenv shared-dir    create a directory the Docker daemon sees at the same path, print it
 //	testenv down          remove every engine the tool or any test started
 //
@@ -31,11 +34,14 @@ const (
 	subcommandFoundationDB subcommand = "foundationdb"
 	subcommandMeilisearch  subcommand = "meilisearch"
 	subcommandObjectStore  subcommand = "objectstore"
+	subcommandStopStore    subcommand = "objectstore-stop"
+	subcommandStartStore   subcommand = "objectstore-start"
 	subcommandSharedDir    subcommand = "shared-dir"
 	subcommandDown         subcommand = "down"
 )
 
-const usage = "usage: testenv ledger | foundationdb | meilisearch | objectstore | shared-dir | down"
+const usage = "usage: testenv ledger | foundationdb | meilisearch | objectstore | " +
+	"objectstore-stop CONTAINER | objectstore-start CONTAINER | shared-dir | down"
 
 func main() {
 	code := run(os.Args[1:])
@@ -47,12 +53,21 @@ func main() {
 
 // run dispatches one subcommand and returns the process exit code.
 func run(args []string) int {
-	if len(args) != 1 {
+	if len(args) == 0 || len(args) > 2 {
 		_, _ = fmt.Fprintln(os.Stderr, usage)
 		return 2
 	}
-	slog.Info("testenv.start", slog.String("command", args[0]))
-	switch subcommand(args[0]) {
+	command := subcommand(args[0])
+	containerName := ""
+	if len(args) == 2 {
+		containerName = args[1]
+	}
+	if (containerName != "") != (command == subcommandStopStore || command == subcommandStartStore) {
+		_, _ = fmt.Fprintln(os.Stderr, usage)
+		return 2
+	}
+	slog.Info("testenv.start", slog.String("command", args[0]), slog.String("container", containerName))
+	switch command {
 	case subcommandLedger:
 		return runStep(func(step *cliStep) { _, _ = fmt.Println(testenv.Ledger(step)) })
 	case subcommandFoundationDB:
@@ -63,7 +78,15 @@ func run(args []string) int {
 			_, _ = fmt.Println(url, masterKey)
 		})
 	case subcommandObjectStore:
-		return runStep(func(step *cliStep) { _, _ = fmt.Println(testenv.ObjectStore(step)) })
+		return runStep(func(step *cliStep) {
+			store := testenv.ObjectStore(step)
+			_, _ = fmt.Println(store.Endpoint, store.Bucket, store.AccessKey, store.SecretKey,
+				store.ReadOnlyAccessKey, store.ReadOnlySecretKey, store.Container)
+		})
+	case subcommandStopStore:
+		return runStep(func(step *cliStep) { testenv.StopObjectStore(step, containerName) })
+	case subcommandStartStore:
+		return runStep(func(step *cliStep) { _, _ = fmt.Println(testenv.StartObjectStore(step, containerName)) })
 	case subcommandSharedDir:
 		return runStep(func(step *cliStep) { _, _ = fmt.Println(testenv.SharedDir(step)) })
 	case subcommandDown:

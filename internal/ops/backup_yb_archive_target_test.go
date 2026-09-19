@@ -9,17 +9,18 @@ import (
 // this file exists for. The archive command decided it was done by probing the
 // archive object alone, so an archive uploaded before inventories existed read
 // as finished and no inventory was ever written for it; the restore drill then
-// refused the run for lacking one, and nothing healed it. Against a real store
-// over HTTP, yb1's prefix holds the archive and no inventory and must come back
+// refused the run for lacking one, and nothing healed it. Against the test
+// SeaweedFS engine, yb1's prefix holds the archive and no inventory and must come back
 // as work to do, while yb2, which holds both, has nothing to do.
 func TestResolveYBArchiveTargetRedoesAnArchiveWithoutItsInventory(t *testing.T) {
 	ctx := context.Background()
 	const runID = "20260830T010203Z"
 	manifest := newYBSnapshotManifest(runID, "snap-1", "tack", []string{"yb1", "yb2"}, ybTestArtifactNames())
 	yb1 := ybSnapshotManifestNode{Name: "yb1", Prefix: "nodes/yb1/"}
-	objects := fakeYBExportRunObjects(t, runID, manifest)
+	objects := ybExportRunObjects(t, runID, manifest)
 	delete(objects, ybNodeInventoryKey(runID, yb1))
-	s3Client, cfg := newFakeBackupObjectStore(t, "tack-backups", objects)
+	store := newBackupTestStore(t, objects)
+	s3Client, cfg := store.client, store.config()
 
 	target, err := resolveYBArchiveTarget(ctx, cfg, s3Client, "yb1", "")
 	if err != nil {
@@ -50,9 +51,10 @@ func TestResolveYBArchiveTargetRedoesAnExplicitRunWithoutItsInventory(t *testing
 	const runID = "20260830T010203Z"
 	manifest := newYBSnapshotManifest(runID, "snap-1", "tack", []string{"yb1"}, ybTestArtifactNames())
 	yb1 := ybSnapshotManifestNode{Name: "yb1", Prefix: "nodes/yb1/"}
-	objects := fakeYBExportRunObjects(t, runID, manifest)
+	objects := ybExportRunObjects(t, runID, manifest)
 	delete(objects, ybNodeInventoryKey(runID, yb1))
-	s3Client, cfg := newFakeBackupObjectStore(t, "tack-backups", objects)
+	store := newBackupTestStore(t, objects)
+	s3Client, cfg := store.client, store.config()
 
 	target, err := resolveYBArchiveTarget(ctx, cfg, s3Client, "yb1", runID)
 	if err != nil {

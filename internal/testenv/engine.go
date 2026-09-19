@@ -23,6 +23,15 @@ type engineSpec struct {
 	platform *ocispec.Platform
 	cmd      []string
 	env      []string
+	// files are written into the created container, path to contents, before
+	// it starts, for an engine that reads its configuration from a file.
+	files map[string][]byte `exhaustruct:"optional"`
+	// entrypoint replaces the image's entrypoint when set.
+	entrypoint []string `exhaustruct:"optional"`
+	// networkOf names a container whose network stack the engine shares, so
+	// the engine's address outlives the engine when it stops. Empty joins the
+	// engines' network directly.
+	networkOf string `exhaustruct:"optional"`
 }
 
 // engine is a started engine container.
@@ -48,35 +57,42 @@ func startEngine(ctx context.Context, cli *client.Client, spec engineSpec) (engi
 		return engine{}, err
 	}
 	name := "tack-testenv-" + spec.kind + "-" + strconv.Itoa(os.Getpid()) + "-" + suffix
+	hostConfig := &container.HostConfig{}
+	networking := &network.NetworkingConfig{
+		EndpointsConfig: map[string]*network.EndpointSettings{networkName: {}},
+	}
+	if spec.networkOf != "" {
+		hostConfig.NetworkMode = container.NetworkMode("container:" + spec.networkOf)
+		networking = &network.NetworkingConfig{EndpointsConfig: nil}
+	}
 	_, err = cli.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Config: &container.Config{
-			Image:  spec.image,
-			Cmd:    spec.cmd,
-			Env:    spec.env,
-			Labels: map[string]string{managedLabel: "true"},
+			Image:      spec.image,
+			Entrypoint: spec.entrypoint,
+			Cmd:        spec.cmd,
+			Env:        spec.env,
+			Labels:     map[string]string{managedLabel: "true"},
 		},
-		HostConfig: &container.HostConfig{},
-		NetworkingConfig: &network.NetworkingConfig{
-			EndpointsConfig: map[string]*network.EndpointSettings{networkName: {}},
-		},
-		Platform: spec.platform,
-		Name:     name,
+		HostConfig:       hostConfig,
+		NetworkingConfig: networking,
+		Platform:         spec.platform,
+		Name:             name,
 	})
 	if err != nil {
 		slog.ErrorContext(ctx, "testenv.engine.create_failed", slog.String("err", err.Error()))
 		return engine{}, fmt.Errorf("create container %s from %s: %w", name, spec.image, err)
 	}
 	own(name)
+	for path, contents := range spec.files {
+		if err := writeContainerFile(ctx, cli, name, path, contents); err != nil {
+			return engine{}, err
+		}
+	}
 	if _, err := cli.ContainerStart(ctx, name, client.ContainerStartOptions{}); err != nil {
 		slog.ErrorContext(ctx, "testenv.engine.start_failed", slog.String("err", err.Error()))
 		return engine{}, fmt.Errorf("start container %s: %w", name, err)
 	}
-	started, err := cli.ContainerInspect(ctx, name, client.ContainerInspectOptions{Size: false})
-	if err != nil {
-		slog.ErrorContext(ctx, "testenv.engine.inspect_failed", slog.String("err", err.Error()))
-		return engine{}, fmt.Errorf("inspect container %s: %w", name, err)
-	}
-	address, err := engineAddress(started.Container)
+	address, err := containerAddress(ctx, cli, name)
 	if err != nil {
 		return engine{}, err
 	}

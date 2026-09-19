@@ -17,13 +17,13 @@ func TestBackupStalenessAlarmMailThroughTheCommand(t *testing.T) {
 	now := time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)
 	fixBackupStalenessClock(t, now)
 	captured := captureBackupAlarmSends(t, nil)
-	objects := fakeYBExportRunObjects(t, "20260827T200000Z",
+	objects := ybExportRunObjects(t, "20260827T200000Z",
 		newYBSnapshotManifest("20260827T200000Z", "snap-1", "tack", []string{"yb1"}, ybTestArtifactNames()))
 	objects[backupStatusKey(backupStalenessRehearsalName)] = marshalBackupStatusMarker(t,
 		now.Add(-9*24*time.Hour), "restore drill passed every leg")
 	objects[backupStatusKey(backupStalenessReplicationName)] = marshalBackupStatusMarker(t,
 		now.Add(-45*time.Minute), "0 dead nodes, 0 under-replicated tablets")
-	cfg := storedBackupStalenessConfig(t, objects)
+	cfg := storedBackupStalenessConfig(t, newBackupTestStore(t, objects))
 
 	report := runStaleBackupStalenessCheck(t, cfg)
 	if len(captured.messages) != 1 {

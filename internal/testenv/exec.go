@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"path"
+	"strings"
 
 	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/moby/moby/client"
@@ -71,4 +73,42 @@ func readContainerFile(ctx context.Context, cli *client.Client, containerName, p
 		return nil, fmt.Errorf("read %s: %w", path, err)
 	}
 	return contents, nil
+}
+
+// writeContainerFile writes contents to an absolute path in a container,
+// creating the file's directory. The file is readable by every user, because
+// an engine's entrypoint may drop to an unprivileged user before reading it.
+func writeContainerFile(ctx context.Context, cli *client.Client, containerName, filePath string, contents []byte) error {
+	var archive bytes.Buffer
+	writer := tar.NewWriter(&archive)
+	relative := strings.TrimPrefix(filePath, "/")
+	headers := []*tar.Header{
+		{Typeflag: tar.TypeDir, Name: path.Dir(relative) + "/", Mode: 0o755},
+		{Typeflag: tar.TypeReg, Name: relative, Mode: 0o644, Size: int64(len(contents))},
+	}
+	for _, header := range headers {
+		if err := writer.WriteHeader(header); err != nil {
+			slog.ErrorContext(ctx, "testenv.copy.archive_failed", slog.String("err", err.Error()))
+			return fmt.Errorf("archive %s: %w", filePath, err)
+		}
+	}
+	if _, err := writer.Write(contents); err != nil {
+		slog.ErrorContext(ctx, "testenv.copy.archive_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("archive %s: %w", filePath, err)
+	}
+	if err := writer.Close(); err != nil {
+		slog.ErrorContext(ctx, "testenv.copy.archive_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("archive %s: %w", filePath, err)
+	}
+	_, err := cli.CopyToContainer(ctx, containerName, client.CopyToContainerOptions{
+		DestinationPath:           "/",
+		Content:                   &archive,
+		AllowOverwriteDirWithFile: false,
+		CopyUIDGID:                false,
+	})
+	if err != nil {
+		slog.ErrorContext(ctx, "testenv.copy.write_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("copy %s into %s: %w", filePath, containerName, err)
+	}
+	return nil
 }

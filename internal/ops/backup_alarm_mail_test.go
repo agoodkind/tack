@@ -18,7 +18,7 @@ import (
 
 // capturedBackupAlarm records what the staleness alarm handed the mailer. Only
 // the SMTP dial is substituted: the command still runs end to end, still talks
-// to a real object-store client, and still composes the real message.
+// to a real object store, and still composes the real message.
 type capturedBackupAlarm struct {
 	messages []mailer.Message
 	sendErr  error
@@ -69,12 +69,12 @@ func unreachableBackupStalenessConfig(t *testing.T, recipient string) *config.Co
 	}
 }
 
-// storedBackupStalenessConfig is a host whose object store is the fake store
-// over objects and whose ledger masters refuse connections. Thresholds are the
-// production defaults and mail goes to the test recipient.
-func storedBackupStalenessConfig(t *testing.T, objects map[string][]byte) *config.Config {
+// storedBackupStalenessConfig is a host whose object store is store's bucket
+// and whose ledger masters refuse connections. Thresholds are the production
+// defaults and mail goes to the test recipient.
+func storedBackupStalenessConfig(t *testing.T, store *backupTestStore) *config.Config {
 	t.Helper()
-	_, cfg := newFakeBackupObjectStore(t, "tack-backups", objects)
+	cfg := store.config()
 	cfg.BackupRoot = t.TempDir()
 	cfg.BackupYBMasterAddresses = "127.0.0.1:7100"
 	cfg.BackupFDBContinuous = false
@@ -170,11 +170,12 @@ func TestBackupStalenessAlarmMailsAgainAfterAClear(t *testing.T) {
 	now := time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)
 	fixBackupStalenessClock(t, now)
 	captured := captureBackupAlarmSends(t, nil)
-	objects := fakeYBExportRunObjects(t, "20260829T100000Z",
+	objects := ybExportRunObjects(t, "20260829T100000Z",
 		newYBSnapshotManifest("20260829T100000Z", "snap-1", "tack", []string{"yb1"}, ybTestArtifactNames()))
 	objects[backupStatusKey(backupStalenessReplicationName)] = marshalBackupStatusMarker(t,
 		now.Add(-10*time.Minute), "0 dead nodes, 0 under-replicated tablets")
-	cfg := storedBackupStalenessConfig(t, objects)
+	store := newBackupTestStore(t, objects)
+	cfg := storedBackupStalenessConfig(t, store)
 	rehearsalKey := backupStatusKey(backupStalenessRehearsalName)
 	freshRehearsal := marshalBackupStatusMarker(t, now.Add(-6*time.Hour), "restore drill passed every leg")
 
@@ -189,7 +190,7 @@ func TestBackupStalenessAlarmMailsAgainAfterAClear(t *testing.T) {
 	}
 
 	// Run 2: the drill passed, so the fault clears without a mail.
-	objects[rehearsalKey] = freshRehearsal
+	store.put(rehearsalKey, freshRehearsal)
 	var out bytes.Buffer
 	if err := RunBackupStalenessCheck(context.Background(), cfg, &out); err != nil {
 		t.Fatalf("every mechanism is fresh, so the check must pass: %v\n%s", err, out.String())
@@ -203,7 +204,7 @@ func TestBackupStalenessAlarmMailsAgainAfterAClear(t *testing.T) {
 	}
 
 	// Run 3: the marker is gone again, a second fault.
-	delete(objects, rehearsalKey)
+	store.remove(rehearsalKey)
 	runStaleBackupStalenessCheck(t, cfg)
 	if len(captured.messages) != 2 {
 		t.Fatalf("a second fault must mail again, sent %d in total", len(captured.messages))
@@ -283,7 +284,7 @@ func TestBackupStalenessCheckWithEverythingFreshMailsNothing(t *testing.T) {
 	fixBackupStalenessClock(t, now)
 	captured := captureBackupAlarmSends(t, nil)
 
-	objects := fakeYBExportRunObjects(t, "20260829T100000Z",
+	objects := ybExportRunObjects(t, "20260829T100000Z",
 		newYBSnapshotManifest("20260829T100000Z", "snap-1", "tack", []string{"yb1"}, ybTestArtifactNames()))
 	maps.Copy(objects, map[string][]byte{
 		backupStatusKey(backupStalenessRehearsalName): marshalBackupStatusMarker(t,
@@ -291,7 +292,7 @@ func TestBackupStalenessCheckWithEverythingFreshMailsNothing(t *testing.T) {
 		backupStatusKey(backupStalenessReplicationName): marshalBackupStatusMarker(t,
 			now.Add(-10*time.Minute), "0 dead nodes, 0 under-replicated tablets"),
 	})
-	cfg := storedBackupStalenessConfig(t, objects)
+	cfg := storedBackupStalenessConfig(t, newBackupTestStore(t, objects))
 
 	var out bytes.Buffer
 	if err := RunBackupStalenessCheck(context.Background(), cfg, &out); err != nil {

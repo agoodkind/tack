@@ -265,9 +265,7 @@ func fdbStalenessMetric(
 	// real, and refusing the metric over it would turn a lost lookup entry
 	// into a false staleness alarm.
 	_ = appendFDBRestorablePoint(ctx,
-		func(key string) ([]byte, error) {
-			return getObjectBytes(ctx, s3Client, cfg.BackupS3BucketMain, key)
-		},
+		fdbVersionLogGetter(ctx, s3Client, cfg.BackupS3BucketMain),
 		func(key string, body []byte) error {
 			return putObjectBytes(ctx, s3Client, cfg.BackupS3BucketMain, key, body)
 		}, point)

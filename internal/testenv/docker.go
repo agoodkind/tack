@@ -136,3 +136,19 @@ func engineAddress(inspected container.InspectResponse) (string, error) {
 	}
 	return address.String(), nil
 }
+
+// containerAddress returns a container's IP address on the engines' network,
+// read from the container whose network stack it shares when it has none of
+// its own.
+func containerAddress(ctx context.Context, cli *client.Client, containerName string) (string, error) {
+	inspected, err := cli.ContainerInspect(ctx, containerName, client.ContainerInspectOptions{Size: false})
+	if err != nil {
+		slog.ErrorContext(ctx, "testenv.engine.inspect_failed", slog.String("err", err.Error()))
+		return "", fmt.Errorf("inspect container %s: %w", containerName, err)
+	}
+	hostConfig := inspected.Container.HostConfig
+	if hostConfig != nil && hostConfig.NetworkMode.IsContainer() {
+		return containerAddress(ctx, cli, hostConfig.NetworkMode.ConnectedContainer())
+	}
+	return engineAddress(inspected.Container)
+}
