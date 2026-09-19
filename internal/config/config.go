@@ -61,6 +61,11 @@ type Config struct {
 	AuthTokenCacheSize          int           `env:"AUTH_TOKEN_CACHE_SIZE"          envDefault:"65536"`
 	AuthMembershipCacheLifetime time.Duration `env:"AUTH_MEMBERSHIP_CACHE_LIFETIME" envDefault:"30s"`
 	AuthMembershipCacheSize     int           `env:"AUTH_MEMBERSHIP_CACHE_SIZE"     envDefault:"65536"`
+	// AuthUserCache* bound the user records tool output renders by id; the
+	// lifetime is how long a display-name change takes to reach every
+	// instance.
+	AuthUserCacheLifetime time.Duration `env:"AUTH_USER_CACHE_LIFETIME" envDefault:"5m"`
+	AuthUserCacheSize     int           `env:"AUTH_USER_CACHE_SIZE"     envDefault:"65536"`
 
 	// Audit ledger pools. Each role connects through its own DSN so the app
 	// pool (DATABASE_URL) cannot accidentally inherit audit privileges.

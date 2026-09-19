@@ -61,7 +61,10 @@ func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
 	// instance.
 	tokenRepo := auth.NewCachedTokenValidator(postgres.NewTokenRepo(pool),
 		cfg.AuthTokenCacheLifetime, cfg.AuthTokenCacheSize)
-	userRepo := postgres.NewUserRepo(pool)
+	// Tool output renders who created or changed a node; the user cache keeps
+	// that rendering off the ledger on most calls (criterion 12).
+	userRepo := auth.NewCachedUsers(postgres.NewUserRepo(pool),
+		cfg.AuthUserCacheLifetime, cfg.AuthUserCacheSize)
 	orgMembers := auth.NewCachedMembers(postgres.NewOrgMemberRepo(pool),
 		cfg.AuthMembershipCacheLifetime, cfg.AuthMembershipCacheSize)
 	// A cold request reads the token and its holder's org set in one query,
