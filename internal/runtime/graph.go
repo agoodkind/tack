@@ -64,6 +64,9 @@ func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
 	userRepo := postgres.NewUserRepo(pool)
 	orgMembers := auth.NewCachedMembers(postgres.NewOrgMemberRepo(pool),
 		cfg.AuthMembershipCacheLifetime, cfg.AuthMembershipCacheSize)
+	// A cold request reads the token and its holder's org set in one query,
+	// so it costs one ledger read, not two (criterion 12).
+	tokenRepo.PrimeMembers(orgMembers)
 
 	nodeSvc := service.NewNodeService(
 		fdbStores.Nodes,

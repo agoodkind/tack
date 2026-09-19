@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/google/uuid"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/token"
@@ -24,6 +25,23 @@ type CachedTokenValidator struct {
 	inner    TokenValidator
 	cache    *entryCache[*token.Token]
 	lifetime time.Duration
+	// members, when set and inner can answer the token and its org set in
+	// one read, receives the org set, so the membership lookup that follows
+	// in the same request is a cache hit (criterion 12: one ledger read on
+	// a cold request).
+	members *CachedMembers `exhaustruct:"optional"`
+}
+
+// TokenOrgsValidator answers a token and the org set of its holder in one
+// ledger read.
+type TokenOrgsValidator interface {
+	ValidateWithOrgs(ctx context.Context, raw string) (*token.Token, []uuid.UUID, error)
+}
+
+// PrimeMembers makes every miss that inner can answer with the holder's org
+// set store that set in members.
+func (c *CachedTokenValidator) PrimeMembers(members *CachedMembers) {
+	c.members = members
 }
 
 // NewCachedTokenValidator wraps inner. A lifetime of zero or less returns a
@@ -49,18 +67,46 @@ func (c *CachedTokenValidator) Validate(ctx context.Context, raw string) (*token
 			return &record, nil
 		}
 	}
-	record, err := c.inner.Validate(ctx, raw)
+	record, err := c.lookup(ctx, raw, now)
 	if err != nil {
-		if !isUnauthenticated(err) {
-			slog.ErrorContext(ctx, "auth.token_validate_failed", slog.String("err", err.Error()))
-		}
-		return nil, fmt.Errorf("validate token: %w", err)
+		return nil, err
 	}
 	if c.lifetime > 0 {
 		stored := *record
 		c.cache.put(key, &stored, now.Add(c.lifetime))
 	}
 	return record, nil
+}
+
+// lookup asks inner for the token, in the same read as the holder's org set
+// when both inner and members allow it.
+func (c *CachedTokenValidator) lookup(ctx context.Context, raw string, now time.Time) (*token.Token, error) {
+	withOrgs, ok := c.inner.(TokenOrgsValidator)
+	if !ok || c.members == nil {
+		record, err := c.inner.Validate(ctx, raw)
+		if err != nil {
+			logLookupFailure(ctx, err)
+			return nil, fmt.Errorf("validate token: %w", err)
+		}
+		return record, nil
+	}
+	record, orgIDs, err := withOrgs.ValidateWithOrgs(ctx, raw)
+	if err != nil {
+		logLookupFailure(ctx, err)
+		return nil, fmt.Errorf("validate token with orgs: %w", err)
+	}
+	c.members.prime(record.UserID, orgIDs, now)
+	return record, nil
+}
+
+// logLookupFailure logs a lookup that failed for a reason other than a
+// refused token; a refusal is the middleware's to record.
+func logLookupFailure(ctx context.Context, err error) {
+	if isUnauthenticated(err) {
+		slog.DebugContext(ctx, "auth.token_refused")
+		return
+	}
+	slog.ErrorContext(ctx, "auth.token_validate_failed", slog.String("err", err.Error()))
 }
 
 // tokenCacheKey is the full SHA-256 of the bearer, the same identity the

@@ -54,6 +54,15 @@ func (c *CachedMembers) ListOrgIDsForUser(ctx context.Context, userID uuid.UUID)
 	return orgIDs, nil
 }
 
+// prime stores an org set read by another lookup in the same ledger read,
+// so the request that made that read finds the set here.
+func (c *CachedMembers) prime(userID uuid.UUID, orgIDs []uuid.UUID, now time.Time) {
+	if c.lifetime <= 0 {
+		return
+	}
+	c.cache.put(userID.String(), copyOrgIDs(orgIDs), now.Add(c.lifetime))
+}
+
 // AddMember writes through inner and forgets the user's cached set.
 func (c *CachedMembers) AddMember(ctx context.Context, m *org.Member) error {
 	c.cache.remove(m.UserID.String())
