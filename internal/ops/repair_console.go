@@ -162,7 +162,7 @@ func newRepairSearcher(cfg *config.Config) domainsearch.Searcher {
 		return searchadapter.Noop{}
 	}
 	client := searchadapter.New(cfg.MeiliURL, cfg.MeiliMasterKey)
-	if err := client.EnsureIndex("nodes", []string{"org_id", "node_type"}); err != nil {
+	if err := client.EnsureIndex("nodes", []string{"org_id", "node_type"}, []string{"name", "props"}); err != nil {
 		return searchadapter.Noop{}
 	}
 	return client

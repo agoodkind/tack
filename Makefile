@@ -71,12 +71,15 @@ seed:
 # gate on the compliance bundle's memory footprint, and a footprint assertion
 # nothing runs is not a gate. Its database-backed tests skip on an unset DSN, so
 # they cost nothing here.
+#
+# The service package is here for its pure and fake-backed tests, such as the
+# search document builder; none of them opens a datastore.
 .PHONY: test-unit
 test-unit:
 	docker compose -f docker-compose.test.yml --profile runner build tests
 	docker compose -f docker-compose.test.yml --profile runner run --rm \
 	    --no-deps --entrypoint /usr/local/go/bin/go tests \
-	    test -count=1 ./internal/ops/... ./internal/adapters/postgres/... ./internal/audit/...
+	    test -count=1 ./internal/ops/... ./internal/adapters/postgres/... ./internal/audit/... ./internal/service/...
 
 .PHONY: test-fdb-up
 test-fdb-up:

@@ -10,17 +10,6 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-func (s *NodeService) indexCreateSearch(
-	ctx context.Context,
-	log *slog.Logger,
-	nodeID uuid.UUID,
-	view *node.NodeView,
-) {
-	if err := s.searcher.Index(ctx, "nodes", nodeID.String(), searchDocFromView(view)); err != nil {
-		log.WarnContext(ctx, "node.Create: search index", slog.String("err", err.Error()))
-	}
-}
-
 func (s *NodeService) createDefaultChildren(
 	ctx context.Context,
 	log *slog.Logger,

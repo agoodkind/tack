@@ -135,12 +135,17 @@ func buildAuthMiddleware(cfg *config.Config, tokenRepo auth.TokenValidator, orgM
 	return auth.Bearer(tokenRepo, orgMembers)
 }
 
+// searchableAttributes lists the nodes index fields Meilisearch matches a
+// query against, in ranking order.
+var searchableAttributes = []string{"name", "props"}
+
 // buildSearcher creates a Meilisearch client and ensures the nodes index is
-// configured with a generic filterable set. Falls back to a no-op Searcher on
-// setup failure.
+// configured with a generic filterable set and a searchable set that ranks a
+// name match above a property match. Falls back to a no-op Searcher on setup
+// failure.
 func buildSearcher(cfg *config.Config) domainsearch.Searcher {
 	meiliClient := searchadapter.New(cfg.MeiliURL, cfg.MeiliMasterKey)
-	err := meiliClient.EnsureIndex("nodes", []string{"org_id", "node_type"})
+	err := meiliClient.EnsureIndex("nodes", []string{"org_id", "node_type"}, searchableAttributes)
 	if err != nil {
 		slog.Error("meilisearch.setup_failed",
 			slog.String("url", cfg.MeiliURL),

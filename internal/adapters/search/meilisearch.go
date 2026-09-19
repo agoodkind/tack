@@ -30,8 +30,9 @@ func New(url, masterKey string) *Client {
 }
 
 // EnsureIndex creates the named collection if it does not exist and sets the
-// given fields as filterable attributes. Safe to call on every startup (idempotent).
-func (c *Client) EnsureIndex(collection string, filterableAttributes []string) error {
+// given fields as filterable and searchable attributes. The searchable order
+// is the ranking order. Safe to call on every startup (idempotent).
+func (c *Client) EnsureIndex(collection string, filterableAttributes, searchableAttributes []string) error {
 	_, err := c.meili.CreateIndex(&meilisearch.IndexConfig{
 		Uid:        collection,
 		PrimaryKey: "id",
@@ -48,6 +49,10 @@ func (c *Client) EnsureIndex(collection string, filterableAttributes []string) e
 	}
 	if _, err := c.meili.Index(collection).UpdateFilterableAttributes(&attrs); err != nil {
 		return fmt.Errorf("set filterable attributes on %s: %w", collection, err)
+	}
+	searchable := append([]string(nil), searchableAttributes...)
+	if _, err := c.meili.Index(collection).UpdateSearchableAttributes(&searchable); err != nil {
+		return fmt.Errorf("set searchable attributes on %s: %w", collection, err)
 	}
 	return nil
 }

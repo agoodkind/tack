@@ -16,8 +16,9 @@ var ErrUnavailable = errors.New("search backend unavailable")
 // NodeDoc is the generic document shape stored and returned from the search
 // index. Only universal fields are first-class; everything concept-specific
 // (priority, state_id, assignees, labels, etc.) lives in Props so no code path
-// privileges one property over another. Props mirrors Node.Props as raw JSON
-// so the search engine indexes whatever shape the property actually has.
+// privileges one property over another. Props holds the node's properties
+// whose definitions have a searchable type, as raw JSON, so the search engine
+// indexes whatever shape the property actually has.
 type NodeDoc struct {
 	ID       string                     `json:"id"`
 	OrgID    string                     `json:"org_id"`
