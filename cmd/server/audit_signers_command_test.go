@@ -16,6 +16,7 @@ import (
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clispec"
 	"goodkind.io/tack/internal/config"
+	"goodkind.io/tack/internal/testenv"
 )
 
 // TestAuditSignersCommandWiresTheFlagsThroughTheReader runs the real command
@@ -25,10 +26,7 @@ import (
 // --allow-unverified and --since flags reach the verification and change the
 // exit code, which the refusal tests above never get far enough to show.
 func TestAuditSignersCommandWiresTheFlagsThroughTheReader(t *testing.T) {
-	dsn := os.Getenv("AUDIT_CONSUMER_TEST_DSN")
-	if dsn == "" {
-		t.Skip("AUDIT_CONSUMER_TEST_DSN unset; the command test needs a migrated ledger")
-	}
+	dsn := testenv.Ledger(t)
 	ctx := context.Background()
 	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {

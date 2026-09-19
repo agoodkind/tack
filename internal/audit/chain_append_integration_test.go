@@ -6,7 +6,6 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
-	"os"
 	"sync"
 	"testing"
 	"time"
@@ -15,20 +14,15 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"goodkind.io/tack/internal/clock"
+	"goodkind.io/tack/internal/testenv"
 )
 
-// chainTestDSNEnv names the DSN of a migrated audit database. The tests below
-// validate the cutover's concurrency and idempotency guarantees against a real
-// Postgres-compatible engine (YugabyteDB), and skip when it is unset.
-const chainTestDSNEnv = "AUDIT_CHAIN_TEST_DSN"
-
+// chainTestPool opens a pool on the test ledger. The tests below validate the
+// cutover's concurrency and idempotency guarantees against a real
+// Postgres-compatible engine (YugabyteDB).
 func chainTestPool(t *testing.T) (*pgxpool.Pool, uuid.UUID) {
 	t.Helper()
-	dsn := os.Getenv(chainTestDSNEnv)
-	if dsn == "" {
-		t.Skipf("set %s to a migrated audit DSN to run", chainTestDSNEnv)
-	}
-	pool, err := pgxpool.New(context.Background(), dsn)
+	pool, err := pgxpool.New(context.Background(), testenv.Ledger(t))
 	if err != nil {
 		t.Fatalf("pool: %v", err)
 	}

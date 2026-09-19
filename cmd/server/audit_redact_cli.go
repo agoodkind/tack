@@ -23,12 +23,13 @@ type auditRedactActorInput struct {
 // and outcome under audit.pii_redacted around the erasure.
 func auditRedactActorOp(f *cli.Factory) clispec.Operation[auditRedactActorInput] {
 	return clispec.Operation[auditRedactActorInput]{
-		Name:    clispec.Name{Canonical: "redact-actor", CLIOverride: ""},
-		Audit:   audit.Spec{Verb: string(audit.VerbAuditPIIRedacted), Mutates: true},
-		Group:   auditGroup,
-		Aliases: nil,
-		Hidden:  false,
-		Short:   "Erase the audit PII payloads of one actor within one org",
+		Name:     clispec.Name{Canonical: "redact-actor", CLIOverride: ""},
+		Lifetime: clispec.Permanent,
+		Audit:    audit.Spec{Verb: string(audit.VerbAuditPIIRedacted), Mutates: true},
+		Group:    auditGroup,
+		Aliases:  nil,
+		Hidden:   false,
+		Short:    "Erase the audit PII payloads of one actor within one org",
 		Long: "Prints how many audit.pii rows would be erased and changes nothing until " +
 			"--execute is passed. The ledger rows and their hash chain stay intact; only " +
 			"the actor's PII payload becomes null. Events the actor left in other orgs " +

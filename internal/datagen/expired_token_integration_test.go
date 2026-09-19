@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"net/url"
-	"os"
 	"testing"
 
 	"github.com/google/uuid"
@@ -16,11 +15,8 @@ import (
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/user"
+	"goodkind.io/tack/internal/testenv"
 )
-
-// expiredTokenTestDSNEnv names a migrated ledger DSN with role-creation
-// privilege, the same one the app-role acceptance test reads.
-const expiredTokenTestDSNEnv = "AUDIT_CHAIN_TEST_DSN"
 
 // TestExpireTokenRunsAsTheAppLogin pins the QA failure of 2026-09-18: after
 // migration 015 took UPDATE on api_tokens away from app_auth, the generator's
@@ -28,10 +24,7 @@ const expiredTokenTestDSNEnv = "AUDIT_CHAIN_TEST_DSN"
 // bootstrap. The step now runs as a login holding only app_auth, stores a
 // token already past its expiry, and the real validator refuses it.
 func TestExpireTokenRunsAsTheAppLogin(t *testing.T) {
-	dsn := os.Getenv(expiredTokenTestDSNEnv)
-	if dsn == "" {
-		t.Skipf("set %s to a migrated ledger DSN to run", expiredTokenTestDSNEnv)
-	}
+	dsn := testenv.Ledger(t)
 	ctx := context.Background()
 	admin, err := pgxpool.New(ctx, dsn)
 	if err != nil {

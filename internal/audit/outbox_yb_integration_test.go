@@ -3,20 +3,18 @@ package audit
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"reflect"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"goodkind.io/tack/internal/testenv"
 )
 
 func TestOutboxReadBatchAndDelete(t *testing.T) {
-	dsn := os.Getenv(chainTestDSNEnv)
-	if dsn == "" {
-		t.Skipf("set %s to a migrated audit DSN to run", chainTestDSNEnv)
-	}
+	dsn := testenv.Ledger(t)
 
 	pool, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {

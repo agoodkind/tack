@@ -59,12 +59,13 @@ type auditDLQReplayResult struct {
 
 func auditDLQInspectOp(f *cli.Factory) clispec.Operation[auditDLQInspectInput] {
 	return clispec.Operation[auditDLQInspectInput]{
-		Name:    clispec.Name{Canonical: "inspect", CLIOverride: ""},
-		Audit:   audit.Spec{Verb: string(audit.VerbOpsAuditDLQInspect), Reads: true},
-		Group:   auditDLQGroup,
-		Aliases: nil,
-		Hidden:  false,
-		Short:   "Count the dead-letter rows by failure",
+		Name:     clispec.Name{Canonical: "inspect", CLIOverride: ""},
+		Lifetime: clispec.Permanent,
+		Audit:    audit.Spec{Verb: string(audit.VerbOpsAuditDLQInspect), Reads: true},
+		Group:    auditDLQGroup,
+		Aliases:  nil,
+		Hidden:   false,
+		Short:    "Count the dead-letter rows by failure",
 		Long: "Reads the dead-letter table through the ledger reader and groups its " +
 			"rows by the failure text the consumer recorded, oldest and newest first seen.",
 		Examples: nil,
@@ -79,12 +80,13 @@ func auditDLQInspectOp(f *cli.Factory) clispec.Operation[auditDLQInspectInput] {
 
 func auditDLQReplayOp(f *cli.Factory) clispec.Operation[auditDLQReplayInput] {
 	return clispec.Operation[auditDLQReplayInput]{
-		Name:    clispec.Name{Canonical: "replay", CLIOverride: ""},
-		Audit:   audit.Spec{Verb: string(audit.VerbOpsAuditDLQReplay), Mutates: true},
-		Group:   auditDLQGroup,
-		Aliases: nil,
-		Hidden:  false,
-		Short:   "Send dead-letter rows back through the audit topic",
+		Name:     clispec.Name{Canonical: "replay", CLIOverride: ""},
+		Lifetime: clispec.Permanent,
+		Audit:    audit.Spec{Verb: string(audit.VerbOpsAuditDLQReplay), Mutates: true},
+		Group:    auditDLQGroup,
+		Aliases:  nil,
+		Hidden:   false,
+		Short:    "Send dead-letter rows back through the audit topic",
 		Long: "Re-publishes dead-letter rows to the audit topic, byte for byte, so " +
 			"the consumer projects each one again: rows with the fewest attempts " +
 			"first, oldest first among equals, so a row that never lands does not " +

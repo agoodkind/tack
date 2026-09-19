@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -14,20 +13,16 @@ import (
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/config"
+	"goodkind.io/tack/internal/testenv"
 )
 
-// auditHostTestDSNEnv names a migrated audit database. The test below drives
-// the real `audit get`, `audit query`, and `audit redact-actor` commands
-// through the cobra root against it, as LOGIN roles that hold exactly the
-// audit_reader and audit_redactor grants, so a query the migration does not
-// allow fails here the way it fails on a host.
-const auditHostTestDSNEnv = "AUDIT_CHAIN_TEST_DSN"
-
+// TestAuditHostCommandsReadAndRedactWithinOneOrg drives the real `audit get`,
+// `audit query`, and `audit redact-actor` commands through the cobra root
+// against the test ledger, as LOGIN roles that hold exactly the audit_reader
+// and audit_redactor grants, so a query the migration does not allow fails
+// here the way it fails on a host.
 func TestAuditHostCommandsReadAndRedactWithinOneOrg(t *testing.T) {
-	adminDSN := os.Getenv(auditHostTestDSNEnv)
-	if adminDSN == "" {
-		t.Skipf("set %s to a migrated audit DSN to run", auditHostTestDSNEnv)
-	}
+	adminDSN := testenv.Ledger(t)
 	ctx := context.Background()
 	admin, err := pgxpool.New(ctx, adminDSN)
 	if err != nil {

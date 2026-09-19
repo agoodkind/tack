@@ -284,6 +284,13 @@ TACK-304.
    tack-qa sets it and production leaves it empty, so the generator refuses
    there. Dry run is the default and needs no marker.
 
+5. **Backfills expire.** A one-time command declares
+   `Lifetime: clispec.Lifetime{Ticket: "TACK-nnn", RemoveBy: time.Date(...)}`.
+   It renders under a `backfill` group with the `once-` prefix, and
+   `make build` fails once the removal day has passed. Every other command
+   declares `clispec.Permanent`.
+   No package outside `internal/service` reads the seed sample data (TACK-512).
+
 ## No config files
 
 Server configuration is environment variables only, through `caarlos0/env`.

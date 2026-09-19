@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/audit"
+	"goodkind.io/tack/internal/clispec"
 )
 
 const (
@@ -18,6 +19,7 @@ const (
 func init() {
 	Register(Operation{
 		Name:        "repair.reference_uniqueness",
+		Lifetime:    clispec.Permanent,
 		Audit:       audit.Spec{Verb: string(audit.VerbOpsRepairReferenceUniqueness), Reads: true},
 		Description: "Report planned reference repairs without writing.",
 		Run:         runRepairReferenceUniqueness,

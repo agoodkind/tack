@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"net/url"
-	"os"
 	"strings"
 	"testing"
 
@@ -17,10 +16,8 @@ import (
 	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/domain/org"
 	"goodkind.io/tack/internal/domain/user"
+	"goodkind.io/tack/internal/testenv"
 )
-
-// appRoleTestDSNEnv names a migrated ledger DSN with role-creation privilege.
-const appRoleTestDSNEnv = "AUDIT_CHAIN_TEST_DSN"
 
 // permissionDeniedSQLState is what the engine answers a role that holds no
 // grant on the object it named.
@@ -34,10 +31,7 @@ const permissionDeniedSQLState = "42501"
 // the operator outbox, and on the migration ledger, so an injection through
 // the application pool cannot read or touch the compliance record.
 func TestAppRoleReachesTheAuthTablesAndNothingElse(t *testing.T) {
-	dsn := os.Getenv(appRoleTestDSNEnv)
-	if dsn == "" {
-		t.Skipf("set %s to a migrated ledger DSN to run", appRoleTestDSNEnv)
-	}
+	dsn := testenv.Ledger(t)
 	ctx := context.Background()
 	admin, err := pgxpool.New(ctx, dsn)
 	if err != nil {

@@ -35,6 +35,15 @@ endif
 
 include bootstrap.mk
 
+# A backfill declares a clispec.Lifetime with a removal day. The build refuses
+# once that day has passed, so a finished backfill cannot stay in the tree
+# (TACK-512). This is a project gate, not a copy of a central linter.
+.PHONY: backfill-expiry
+backfill-expiry:
+	go run ./cmd/backfillcheck
+
+build: backfill-expiry
+
 .PHONY: run
 run:
 	go run $(GO_BUILD_FLAGS) $(CMD)
@@ -49,54 +58,46 @@ migrate:
 seed:
 	go run $(GO_BUILD_FLAGS) $(CMD) seed
 
-# Integration tests against a real FDB cluster.
-#
-# `make test-integration` brings up a docker-compose FDB, builds a sibling Go
-# test runner image, and runs the suite inside that container on the same
-# Docker network. Sibling-container tests sidestep Docker Desktop's TCP port
-# forwarder, which drops FDB's connect-packet exchange on macOS. The cluster
-# stays up between runs; `make test-fdb-down` cleans up.
-#
-# TACK_INTEGRATION inside the test runner gates the suite so a casual
-# `make test` (host-side) still skips them.
+# Tests run inside the test runner image (docker-compose.test.yml), which
+# bind-mounts the source tree to /src and the Docker socket. A test that needs
+# FoundationDB or the ledger starts it through internal/testenv, which gives
+# each test binary its own engine containers and removes them when the binary
+# exits; `make test-env-down` removes any a killed binary left. Only
+# `go test -short` skips the store-backed tests.
 
-# Run unit tests for the ops package (and any other package without
-# integration deps) inside the test runner image. The compose file already
-# bind-mounts the source tree to /src so edits are visible without a rebuild.
-#
-# The postgres adapter is here because its pool tests stand up loopback
-# listeners that stand in for a lost ledger guest; they need no cluster.
-#
-# The audit package is here for the export and verify scale tests. They are the
-# gate on the compliance bundle's memory footprint, and a footprint assertion
-# nothing runs is not a gate. Its database-backed tests skip on an unset DSN, so
-# they cost nothing here.
+# The ops, postgres adapter, and audit packages. The audit package carries the
+# export and verify scale tests, the gate on the compliance bundle's memory
+# footprint, and a footprint assertion nothing runs is not a gate.
 .PHONY: test-unit
 test-unit:
 	docker compose -f docker-compose.test.yml --profile runner build tests
-	docker compose -f docker-compose.test.yml --profile runner run --rm \
-	    --no-deps --entrypoint /usr/local/go/bin/go tests \
-	    test -count=1 ./internal/ops/... ./internal/adapters/postgres/... ./internal/audit/...
+	docker compose -f docker-compose.test.yml --profile runner run --rm tests \
+	    test -count=1 -timeout 30m ./internal/ops/... ./internal/adapters/postgres/... ./internal/audit/...
 
-.PHONY: test-fdb-up
-test-fdb-up:
-	./scripts/test-fdb-up.sh
+# Every package whose tests reach FoundationDB or the ledger, and the go test
+# arguments that run them. test-store-host runs them on the current host,
+# which needs the FoundationDB client library and a reachable Docker daemon;
+# the CI integration job runs it. test-integration runs them in the runner.
+TEST_STORE_PACKAGES := ./internal/test/integration/... ./internal/adapters/foundationdb/... \
+	./internal/audit/... ./internal/ops/... ./internal/datagen/... ./cmd/server/...
+TEST_STORE_ARGS := -count=1 -timeout 30m -v $(TEST_STORE_PACKAGES)
 
-.PHONY: test-fdb-down
-test-fdb-down:
-	./scripts/test-fdb-down.sh
+.PHONY: test-store-host
+test-store-host:
+	go test $(TEST_STORE_ARGS)
 
 .PHONY: test-integration
-test-integration: test-fdb-up
-	./scripts/test-integration.sh
+test-integration:
+	docker compose -f docker-compose.test.yml --profile runner build tests
+	docker compose -f docker-compose.test.yml --profile runner run --rm tests \
+	    test $(TEST_STORE_ARGS)
 
-# Database-gated audit tests (chain append, outbox, token lifecycle) against
-# the test YugabyteDB alone, migrated and run inside the sibling runner with
-# AUDIT_CHAIN_TEST_DSN set. Needs no FoundationDB, so it runs on hosts where
-# the FDB image cannot. The service is pinned to the amd64 build (TACK-459).
-.PHONY: test-audit-db
-test-audit-db:
-	./scripts/test-audit-db.sh
+# Remove every engine internal/testenv or cmd/testenv started, and their
+# network. A test binary removes its own engines when it exits normally; this
+# clears what a killed binary or `go run ./cmd/testenv ledger` left running.
+.PHONY: test-env-down
+test-env-down:
+	go run ./cmd/testenv down
 
 # Bump every direct and indirect dependency to its latest minor/patch
 # version, plus track the latest main commit of any goodkind.io/* module

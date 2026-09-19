@@ -46,6 +46,7 @@ type verifyNodeInput struct {
 func verifyNodeOp(f *cli.Factory) clispec.Operation[verifyNodeInput] {
 	return clispec.Operation[verifyNodeInput]{
 		Name:     clispec.Name{Canonical: "node", CLIOverride: ""},
+		Lifetime: clispec.Permanent,
 		Audit:    audit.Spec{Verb: string(audit.VerbOpsVerifyNode), Reads: true},
 		Group:    verifyGroup,
 		Aliases:  nil,
@@ -134,6 +135,7 @@ type validateNodeInput struct {
 func validateNodeOp(f *cli.Factory) clispec.Operation[validateNodeInput] {
 	return clispec.Operation[validateNodeInput]{
 		Name:     clispec.Name{Canonical: "node", CLIOverride: ""},
+		Lifetime: clispec.Permanent,
 		Audit:    audit.Spec{Verb: string(audit.VerbOpsValidateNode), Reads: true},
 		Group:    validateGroup,
 		Aliases:  nil,

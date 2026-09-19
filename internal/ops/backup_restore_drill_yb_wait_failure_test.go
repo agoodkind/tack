@@ -1,26 +1,24 @@
 // backup_restore_drill_yb_wait_failure_test.go runs the failure check against
 // a real container: no log yet reads as zero restarts, restart lines are
 // counted, and a container that is gone is a read failure. It needs a Docker
-// daemon, so it is gated the same way the exec deadline test is and skips in
-// the unit suite.
+// daemon, which testenv.RequireDocker demands.
 
 package ops
 
 import (
 	"context"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
+
+	"goodkind.io/tack/internal/testenv"
 )
 
 func TestYBScratchFailureProbeReadsAMissingLogAsZeroRestarts(t *testing.T) {
-	if os.Getenv("DEPLOY_TEST_INTEGRATION") != "1" {
-		t.Skip("DEPLOY_TEST_INTEGRATION!=1; skipping daemon-bound integration test")
-	}
+	testenv.RequireDocker(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	cli, err := newLocalDockerClient(ctx)

@@ -4,24 +4,18 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"os"
 	"testing"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/google/uuid"
+
+	"goodkind.io/tack/internal/testenv"
 )
 
 // TestOpsOutboxReadAndClear writes separate committed versionstamped events,
 // reads them in commit order, and clears through the first mark.
 func TestOpsOutboxReadAndClear(t *testing.T) {
-	if os.Getenv("TACK_INTEGRATION") == "" {
-		t.Skip("integration test: set TACK_INTEGRATION=1 to run")
-	}
-	clusterFile := os.Getenv("FDB_CLUSTER_FILE")
-	if clusterFile == "" {
-		clusterFile = defaultFDBClusterFile
-	}
-	db, err := Open(clusterFile)
+	db, err := Open(testenv.FoundationDB(t))
 	if err != nil {
 		t.Fatalf("open fdb: %v", err)
 	}

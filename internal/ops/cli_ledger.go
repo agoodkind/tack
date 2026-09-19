@@ -29,12 +29,13 @@ type ledgerNodeWaitInput struct {
 // ledgerNodePrepareOp declares `ops ledger node-prepare`.
 func ledgerNodePrepareOp(f *cli.Factory) clispec.Operation[noInput] {
 	return clispec.Operation[noInput]{
-		Name:    clispec.Name{Canonical: "node-prepare", CLIOverride: ""},
-		Audit:   audit.Spec{Verb: string(audit.VerbOpsLedgerNodePrepare), Mutates: true},
-		Group:   ledgerGroup,
-		Aliases: nil,
-		Hidden:  false,
-		Short:   "Align this guest's ledger node saved master list with the environment before it starts",
+		Name:     clispec.Name{Canonical: "node-prepare", CLIOverride: ""},
+		Lifetime: clispec.Permanent,
+		Audit:    audit.Spec{Verb: string(audit.VerbOpsLedgerNodePrepare), Mutates: true},
+		Group:    ledgerGroup,
+		Aliases:  nil,
+		Hidden:   false,
+		Short:    "Align this guest's ledger node saved master list with the environment before it starts",
 		Long: "Reads the node's saved launcher config out of its container, compares " +
 			"its master list with the names in TACK_LEDGER_NODE_HOSTS, and when they " +
 			"differ rewrites the list and stops the container so the next compose up " +
@@ -57,12 +58,13 @@ func ledgerNodePrepareOp(f *cli.Factory) clispec.Operation[noInput] {
 // ledgerNodeWaitOp declares `ops ledger node-wait`.
 func ledgerNodeWaitOp(f *cli.Factory) clispec.Operation[ledgerNodeWaitInput] {
 	return clispec.Operation[ledgerNodeWaitInput]{
-		Name:    clispec.Name{Canonical: "node-wait", CLIOverride: ""},
-		Audit:   audit.Spec{Verb: string(audit.VerbOpsLedgerNodeWait), Reads: true},
-		Group:   ledgerGroup,
-		Aliases: nil,
-		Hidden:  false,
-		Short:   "Wait until this guest's ledger node is healthy, bounded by inactivity rather than a clock",
+		Name:     clispec.Name{Canonical: "node-wait", CLIOverride: ""},
+		Lifetime: clispec.Permanent,
+		Audit:    audit.Spec{Verb: string(audit.VerbOpsLedgerNodeWait), Reads: true},
+		Group:    ledgerGroup,
+		Aliases:  nil,
+		Hidden:   false,
+		Short:    "Wait until this guest's ledger node is healthy, bounded by inactivity rather than a clock",
 		Long: "Polls the node's container health and the master quorum's dead node and " +
 			"under-replicated tablet counts. A count that falls is progress; the wait " +
 			"fails only when nothing has moved for the stall window or the container " +

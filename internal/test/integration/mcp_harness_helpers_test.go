@@ -2,18 +2,16 @@ package integration
 
 import (
 	"encoding/json"
-	"os"
 	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
 
-	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/datagen"
 	appruntime "goodkind.io/tack/internal/runtime"
-	"goodkind.io/tack/migrations"
+	"goodkind.io/tack/internal/testenv"
 )
 
 // MCPHarness calls MCP tools through the production HTTP handler with a real
@@ -25,15 +23,24 @@ type MCPHarness struct {
 	Project   string
 }
 
-// requireIntegration skips the test unless TACK_INTEGRATION is set, the same
-// gate every integration test shares. CI sets it after bringing up FDB and
-// postgres via docker-compose; a host-side `go test` leaves it unset so this
-// package's tests skip instead of failing on a missing cluster.
-func requireIntegration(t *testing.T) {
+// unreachableMeiliURL points config.Load at an address nothing serves. The
+// runtime graph falls back to its no-op searcher when Meilisearch is
+// unreachable, and the harness exercises the MCP tools, not search.
+const unreachableMeiliURL = "http://[::1]:1"
+
+// harnessConfig loads the server configuration against this process's test
+// engines, started through testenv.
+func harnessConfig(t *testing.T) *config.Config {
 	t.Helper()
-	if os.Getenv("TACK_INTEGRATION") == "" {
-		t.Skip("integration test: set TACK_INTEGRATION=1 to run")
+	t.Setenv("DATABASE_URL", testenv.Ledger(t))
+	t.Setenv("FDB_CLUSTER_FILE", testenv.FoundationDB(t))
+	t.Setenv("MEILI_URL", unreachableMeiliURL)
+	t.Setenv("MEILI_MASTER_KEY", "tack-test-unused-key")
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
 	}
+	return cfg
 }
 
 // harnessSeedCounter mints a distinct seed for every harness. Bootstrap
@@ -56,28 +63,12 @@ func nextHarnessSeed() int64 {
 // bootstraps a fresh org, workspace, and project for the calling test.
 func NewMCPHarness(t *testing.T) *MCPHarness {
 	t.Helper()
-	requireIntegration(t)
 	ctx := t.Context()
-	cfg, err := config.Load()
-	if err != nil {
-		t.Fatalf("load config: %v", err)
-	}
-	// The test stack never runs `ops audit seed-roles` against its YugabyteDB,
-	// so the writer DSN docker-compose.test.yml sets names a role that does
-	// not exist. The harness exercises MCP tool behavior, not the audit
-	// pipeline, so it declares the graph unrecorded instead of provisioning
-	// ledger roles this suite does not otherwise need.
+	cfg := harnessConfig(t)
+	// The test ledger has no audit roles. The harness exercises MCP tool
+	// behavior, not the audit pipeline, so the graph runs unrecorded.
 	cfg.AuditWriterDSN = ""
 	cfg.AuditAllowUnrecorded = true
-	// Bootstrap writes users and memberships, so the auth tables must exist
-	// even when a harness test runs alone against a fresh database.
-	var migrateErr error
-	ledgerSchemaOnce.Do(func() {
-		migrateErr = postgres.Migrate(ctx, os.Getenv("DATABASE_URL"), migrations.FS)
-	})
-	if migrateErr != nil {
-		t.Fatalf("migrate the test database: %v", migrateErr)
-	}
 	graph, err := appruntime.BuildGraph(ctx, cfg)
 	if err != nil {
 		t.Fatalf("build graph: %v", err)

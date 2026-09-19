@@ -52,7 +52,7 @@ func auditLoginRoleDSN(t *testing.T, admin *pgxpool.Pool, adminDSN, base string)
 	}
 	parsed, err := url.Parse(adminDSN)
 	if err != nil {
-		t.Fatalf("parse %s: %v", auditHostTestDSNEnv, err)
+		t.Fatalf("parse the admin DSN: %v", err)
 	}
 	parsed.User = url.UserPassword(login, encodedSecret)
 	return parsed.String()

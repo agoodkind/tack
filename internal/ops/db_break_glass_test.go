@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"os"
 	"strings"
 	"testing"
 
@@ -13,6 +12,7 @@ import (
 
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/config"
+	"goodkind.io/tack/internal/testenv"
 )
 
 // capturedOutbox keeps every event a command records, so a test reads the
@@ -128,10 +128,7 @@ func breakGlassExtra(t *testing.T, row audit.Event) dbBreakGlassExtra {
 // written before the statement and an ok row after, paired by attempt, each
 // naming the operator, the reason, and the statement.
 func TestDBBreakGlassRunsTheStatementAndRecordsIt(t *testing.T) {
-	dsn := os.Getenv(appRoleTestDSNEnv)
-	if dsn == "" {
-		t.Skipf("set %s to a migrated ledger DSN to run", appRoleTestDSNEnv)
-	}
+	dsn := testenv.Ledger(t)
 	captured := captureBackupAlarmSends(t, nil)
 	outbox := &capturedOutbox{}
 	deps := breakGlassDeps(dsn, "alarm@example.test", outbox)

@@ -3,16 +3,74 @@ package ops
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"goodkind.io/tack/internal/audit"
 )
 
-func repairAuditTestReport() RepairReferenceReport {
-	orgID := uuid.MustParse("019ff30f-1b51-7b34-a20f-2f61b652b86e")
+// repairAuditDSNEnv names the migrated ledger database whose outbox these
+// tests write to.
+const repairAuditDSNEnv = "AUDIT_CHAIN_TEST_DSN"
+
+// repairAuditReadLimit is above the row count the gated test packages leave
+// in the outbox, because the org filter runs after the read.
+const repairAuditReadLimit = 10000
+
+// repairAuditOutbox opens the ledger outbox and returns a fresh org id.
+// Cleanup deletes that org's outbox rows.
+func repairAuditOutbox(t *testing.T) (*audit.PoolOutbox, uuid.UUID) {
+	t.Helper()
+	dsn := os.Getenv(repairAuditDSNEnv)
+	if dsn == "" {
+		t.Skipf("set %s to a migrated ledger DSN to run", repairAuditDSNEnv)
+	}
+	pool, err := pgxpool.New(context.Background(), dsn)
+	if err != nil {
+		t.Fatalf("open the ledger pool: %v", err)
+	}
+	outbox := audit.NewPoolOutbox(pool)
+	orgID := uuid.Must(uuid.NewV7())
+	t.Cleanup(func() {
+		ctx := context.Background()
+		rows, readErr := outbox.ReadBatch(ctx, repairAuditReadLimit)
+		if readErr != nil {
+			t.Errorf("read the outbox during cleanup: %v", readErr)
+		}
+		for _, row := range rows {
+			if row.Event.Context.OrgID != orgID {
+				continue
+			}
+			if deleteErr := outbox.Delete(ctx, row.EventID); deleteErr != nil {
+				t.Errorf("delete outbox row %s during cleanup: %v", row.EventID, deleteErr)
+			}
+		}
+		outbox.Close()
+	})
+	return outbox, orgID
+}
+
+// repairAuditRecordedEvents returns the outbox events that belong to orgID.
+func repairAuditRecordedEvents(t *testing.T, outbox *audit.PoolOutbox, orgID uuid.UUID) []audit.Event {
+	t.Helper()
+	rows, err := outbox.ReadBatch(context.Background(), repairAuditReadLimit)
+	if err != nil {
+		t.Fatalf("read the outbox: %v", err)
+	}
+	events := make([]audit.Event, 0, len(rows))
+	for _, row := range rows {
+		if row.Event.Context.OrgID == orgID {
+			events = append(events, row.Event)
+		}
+	}
+	return events
+}
+
+func repairAuditTestReport(orgID uuid.UUID) RepairReferenceReport {
 	nodeID := uuid.MustParse("019dc5ed-eac1-7ab4-b86b-cebc6ce06de8")
 	return RepairReferenceReport{
 		Renumbered: []ReferenceRename{
@@ -48,17 +106,11 @@ func repairAuditExtra(t *testing.T, event audit.Event) referenceRepairExtra {
 }
 
 // repairAuditEventOfClass returns the one recorded event for a repair class.
-// The outbox keys by event id, which is what the ledger keys by, so a test
-// finds a row the way a reader would rather than by write order.
-func repairAuditEventOfClass(
-	t *testing.T,
-	outbox *auditBackfillTestOutbox,
-	class string,
-) audit.Event {
+func repairAuditEventOfClass(t *testing.T, events []audit.Event, class string) audit.Event {
 	t.Helper()
 	var found audit.Event
 	matches := 0
-	for _, event := range outbox.events {
+	for _, event := range events {
 		if repairAuditExtra(t, event).Class == class {
 			found = event
 			matches++
@@ -76,21 +128,22 @@ func repairAuditEventOfClass(
 // repaired ticket returned nothing, which is the hole the 2026-08-07
 // production repair left.
 func TestReferenceRepairRecordsEveryChangeItApplied(t *testing.T) {
-	outbox := &auditBackfillTestOutbox{}
+	outbox, orgID := repairAuditOutbox(t)
 	occurredAt := time.Date(2026, time.August, 16, 21, 0, 0, 0, time.UTC)
 
 	err := recordReferenceRepair(
 		context.Background(), outbox, repairAuditTestPrincipal(),
-		repairAuditTestReport(), occurredAt,
+		repairAuditTestReport(orgID), occurredAt,
 	)
 	if err != nil {
 		t.Fatalf("record repair: %v", err)
 	}
-	if len(outbox.events) != 3 {
-		t.Fatalf("events = %d, want one per rename, counter seed, and key", len(outbox.events))
+	events := repairAuditRecordedEvents(t, outbox, orgID)
+	if len(events) != 3 {
+		t.Fatalf("events = %d, want one per rename, counter seed, and key", len(events))
 	}
 
-	rename := repairAuditEventOfClass(t, outbox, "reference renames")
+	rename := repairAuditEventOfClass(t, events, "reference renames")
 	if rename.Verb != string(audit.VerbNodeReferenceRename) {
 		t.Fatalf("rename verb = %q, want %q", rename.Verb, audit.VerbNodeReferenceRename)
 	}
@@ -102,7 +155,7 @@ func TestReferenceRepairRecordsEveryChangeItApplied(t *testing.T) {
 		t.Fatalf("rename extra = %+v, want APP-10 to APP-18", renameExtra)
 	}
 
-	counter := repairAuditEventOfClass(t, outbox, "counter seeds")
+	counter := repairAuditEventOfClass(t, events, "counter seeds")
 	if counter.Entity.Type != "sequence_counter" || counter.Entity.Identifier != "APP-" {
 		t.Fatalf("counter entity = %+v, want the seeded counter", counter.Entity)
 	}
@@ -110,7 +163,7 @@ func TestReferenceRepairRecordsEveryChangeItApplied(t *testing.T) {
 		t.Fatalf("counter extra = %+v, want the seeded value 17", got)
 	}
 
-	key := repairAuditEventOfClass(t, outbox, "reference keys")
+	key := repairAuditEventOfClass(t, events, "reference keys")
 	if key.Entity.Type != "node" || key.Entity.NodeType != "issue" || key.Entity.Identifier != "APP-18" {
 		t.Fatalf("key entity = %+v, want the node the key was claimed for", key.Entity)
 	}
@@ -118,30 +171,30 @@ func TestReferenceRepairRecordsEveryChangeItApplied(t *testing.T) {
 		t.Fatalf("key extra = %+v, want the template that rendered it", got)
 	}
 
-	for _, event := range outbox.events {
+	for _, event := range events {
 		if event.Outcome != audit.OutcomeOK {
 			t.Fatalf("%s outcome = %q, want ok", event.Verb, event.Outcome)
 		}
-		if event.OccurredAt != occurredAt {
+		if !event.OccurredAt.Equal(occurredAt) {
 			t.Fatalf("%s occurred at %s, want the run time %s", event.Verb, event.OccurredAt, occurredAt)
 		}
 	}
 }
 
-// TestReferenceRepairRowsAreNotReconstructions pins the one field that tells a
-// reader whether history was recorded when it happened. These rows are
-// contemporaneous, so they carry no reconstruction marker, no historical time,
-// and no evidence citation; the TACK-429 reconstruction rows carry all three.
+// TestReferenceRepairRowsAreNotReconstructions pins that a live repair row
+// has no reconstruction marker, historical time, or evidence citation,
+// because a reader tells reconstructed history from live history by those
+// fields.
 func TestReferenceRepairRowsAreNotReconstructions(t *testing.T) {
-	outbox := &auditBackfillTestOutbox{}
+	outbox, orgID := repairAuditOutbox(t)
 	err := recordReferenceRepair(
 		context.Background(), outbox, repairAuditTestPrincipal(),
-		repairAuditTestReport(), time.Date(2026, time.August, 16, 21, 0, 0, 0, time.UTC),
+		repairAuditTestReport(orgID), time.Date(2026, time.August, 16, 21, 0, 0, 0, time.UTC),
 	)
 	if err != nil {
 		t.Fatalf("record repair: %v", err)
 	}
-	for _, event := range outbox.events {
+	for _, event := range repairAuditRecordedEvents(t, outbox, orgID) {
 		var fields map[string]json.RawMessage
 		if unmarshalErr := json.Unmarshal(event.Extra, &fields); unmarshalErr != nil {
 			t.Fatalf("decode extra: %v", unmarshalErr)
@@ -160,23 +213,23 @@ func TestReferenceRepairRowsAreNotReconstructions(t *testing.T) {
 // a second execute does. Event identity comes from the fact recorded, so the
 // ledger keeps one row per fact however many times the repair runs.
 func TestReferenceRepairSecondRunRecordsNothingNew(t *testing.T) {
-	outbox := &auditBackfillTestOutbox{}
+	outbox, orgID := repairAuditOutbox(t)
 	principal := repairAuditTestPrincipal()
 	first := time.Date(2026, time.August, 16, 21, 0, 0, 0, time.UTC)
 	second := first.Add(time.Hour)
 
 	if err := recordReferenceRepair(
-		context.Background(), outbox, principal, repairAuditTestReport(), first,
+		context.Background(), outbox, principal, repairAuditTestReport(orgID), first,
 	); err != nil {
 		t.Fatalf("first run: %v", err)
 	}
 	if err := recordReferenceRepair(
-		context.Background(), outbox, principal, repairAuditTestReport(), second,
+		context.Background(), outbox, principal, repairAuditTestReport(orgID), second,
 	); err != nil {
 		t.Fatalf("second run: %v", err)
 	}
-	if len(outbox.events) != 3 {
-		t.Fatalf("events = %d after two runs, want 3", len(outbox.events))
+	if events := repairAuditRecordedEvents(t, outbox, orgID); len(events) != 3 {
+		t.Fatalf("events = %d after two runs, want 3", len(events))
 	}
 }
 
@@ -185,7 +238,7 @@ func TestReferenceRepairSecondRunRecordsNothingNew(t *testing.T) {
 func TestReferenceRepairRefusesAnOutboxItCannotDedupe(t *testing.T) {
 	err := recordReferenceRepair(
 		context.Background(), appendOnlyRepairOutbox{}, repairAuditTestPrincipal(),
-		repairAuditTestReport(), time.Date(2026, time.August, 16, 21, 0, 0, 0, time.UTC),
+		repairAuditTestReport(uuid.Must(uuid.NewV7())), time.Date(2026, time.August, 16, 21, 0, 0, 0, time.UTC),
 	)
 	if err == nil {
 		t.Fatal("recorded through an outbox that cannot write idempotently")

@@ -34,12 +34,13 @@ type auditSignersResult struct {
 // is reported by identifier and claimed host (TACK-437).
 func auditSignersOp(f *cli.Factory) clispec.Operation[auditSignersInput] {
 	return clispec.Operation[auditSignersInput]{
-		Name:    clispec.Name{Canonical: "signers", CLIOverride: ""},
-		Audit:   audit.Spec{Verb: string(audit.VerbAuditSignersVerified), Reads: true},
-		Group:   auditGroup,
-		Aliases: nil,
-		Hidden:  false,
-		Short:   "Check every notarization against the valid signer set and report any signed outside it",
+		Name:     clispec.Name{Canonical: "signers", CLIOverride: ""},
+		Lifetime: clispec.Permanent,
+		Audit:    audit.Spec{Verb: string(audit.VerbAuditSignersVerified), Reads: true},
+		Group:    auditGroup,
+		Aliases:  nil,
+		Hidden:   false,
+		Short:    "Check every notarization against the valid signer set and report any signed outside it",
 		Long: "Run it through the app service, which mounts the signing key and carries the set. " +
 			"Reads audit.notarizations through the reader role. A row whose signing key is " +
 			"outside the set fails the command and is reported with the hosts it claimed; a row " +

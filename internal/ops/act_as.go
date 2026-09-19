@@ -20,6 +20,7 @@ import (
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/clispec"
 	"goodkind.io/tack/internal/domain"
+	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/domain/user"
 	"goodkind.io/tack/internal/service"
 )
@@ -45,6 +46,10 @@ type actAsNodeCreator interface {
 	Create(ctx context.Context, in service.CreateInput) (*service.CreateResult, error)
 }
 
+type actAsNodeResolver interface {
+	Resolve(ctx context.Context, nodeID uuid.UUID) (*node.NodeResolve, error)
+}
+
 // actAsDeps is what the command needs, split from the factory so a test can
 // hand it fakes and a captured outbox.
 type actAsDeps struct {
@@ -52,7 +57,7 @@ type actAsDeps struct {
 	identity audit.OperatorIdentitySource
 	users    actAsUserFinder
 	members  actAsOrgLister
-	reader   referenceRenameResolver
+	reader   actAsNodeResolver
 	nodes    actAsNodeCreator
 }
 
