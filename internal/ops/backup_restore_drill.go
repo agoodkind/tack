@@ -22,9 +22,9 @@ import (
 )
 
 // restoreDrillCtx bundles per-run state. The unique RunID namespaces every
-// scratch container and volume so a drill never collides with the live stack or
-// a parallel drill, and the tracked names let teardown remove them even on
-// partial failure or interrupt.
+// scratch container and scratch directory so a drill never collides with the
+// live stack or a parallel drill, and the tracked names let teardown remove
+// them even on partial failure or interrupt.
 type restoreDrillCtx struct {
 	Cfg   *config.Config
 	Cli   *client.Client
@@ -43,26 +43,26 @@ type restoreDrillCtx struct {
 	// having named none.
 	FDBTargetTime  *time.Time
 	containerNames []string
-	volumeNames    []string
+	// scratchImage is the engine image teardown removes the run's scratch
+	// directory with. Empty means no scratch directory was created.
+	scratchImage string
 }
 
 func (r *restoreDrillCtx) trackContainer(name string) {
 	r.containerNames = append(r.containerNames, name)
 }
-func (r *restoreDrillCtx) trackVolume(name string) { r.volumeNames = append(r.volumeNames, name) }
 
-// cleanupRestoreDrill force-removes every scratch container and volume on best
-// effort. It derives a non-cancellable context so teardown still runs after a
-// SIGINT cancels the parent.
+// cleanupRestoreDrill force-removes every scratch container, then the run's
+// scratch directory, on best effort. The containers go first so no engine is
+// still writing into the directory. It derives a non-cancellable context so
+// teardown still runs after a SIGINT cancels the parent.
 func cleanupRestoreDrill(ctx context.Context, r *restoreDrillCtx) {
 	bg, cancel := context.WithTimeout(context.WithoutCancel(ctx), 90*time.Second)
 	defer cancel()
 	for _, name := range r.containerNames {
 		removeContainerForce(bg, r.Cli, name)
 	}
-	for _, vol := range r.volumeNames {
-		_, _ = r.Cli.VolumeRemove(bg, vol, client.VolumeRemoveOptions{Force: true})
-	}
+	removeDrillScratch(ctx, r)
 }
 
 // RestoreDrillOptions carries the operator's per-leg targeting choices. Its
@@ -115,7 +115,7 @@ func RunBackupRestoreDrill(ctx context.Context, cfg *config.Config, opts Restore
 		YBRunKey:       opts.YBRunKey,
 		FDBTargetTime:  opts.FDBTargetTime,
 		containerNames: nil,
-		volumeNames:    nil,
+		scratchImage:   "",
 	}
 	defer cleanupRestoreDrill(ctx, rctx)
 
