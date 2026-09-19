@@ -1,19 +1,17 @@
 # OpenSearch search architecture
 
 TACK-517 specifies search; TACK-518, TACK-519, and TACK-520 implement it.
-Search requires a paginated node reader. TACK-524 and TACK-525 address storage.
+Search uses a paginated read interface from the start. TACK-524 and TACK-525 address storage.
 
 ## Search behavior
 
-People and agents must find Tack nodes by words or meaning, including text at
-the end of a large node. Results must respect current authorization and scope.
-Search must continue after any one search guest fails.
+Search must find text throughout each node and enforce current authorization
+and scope. Search must continue after any one search guest fails.
 
 OpenSearch 3.8 will provide keyword and semantic ranking. FoundationDB will
 store the authoritative nodes, properties, relationships, and type metadata.
-Each page of searchable text becomes a separate OpenSearch document. Search
-returns distinct nodes with current FoundationDB content. Neither search workers
-nor OpenSearch assemble the entire node.
+Each returned text page becomes a separate OpenSearch document. Search returns
+distinct nodes with current FoundationDB content without assembling multiple pages.
 
 A request supplies query text and a metadata-defined entry point, with optional
 scope, node type, and continuation cursor. Tack derives the organization from
@@ -49,23 +47,28 @@ category totals are not part of this search contract.
 
 ## Paginated node reads
 
-Search must cover the entire searchable text of every node Tack accepts. It
-must not impose a fixed total node size or page count. Each read and indexing
-request has a byte limit; more text requires more requests. The storage
-abstraction owns pagination and hides FoundationDB keys, value limits, and
-record layout. Search must use this contract from its first implementation.
+Search must cover all accepted text without a fixed total size or page count.
+Production initially returns one page per node through the paginated interface.
+The worker must accept more pages on any read and continue until an explicit
+end marker. It cannot infer completion from page size, current storage limits,
+or earlier nodes returning one page. Later FDB pagination requires no change
+to the search loop, index mapping, page IDs, retries, or result grouping.
+
+Each read and indexing request has a byte limit. The storage abstraction owns
+pagination and hides FoundationDB keys, value limits, and record layout.
+The initial adapter may read the existing bounded record to return one page.
+The future adapter must decode and paginate larger records with bounded memory.
 
 The reader returns bounded Unicode text pages for one committed node revision,
 with stable ordinals, a resumable cursor, and an explicit end marker. Metadata
 and boundaries remain fixed for that read. Resuming another revision is an error.
-Corrupt or missing data is an error, never an end marker. Decoding and metadata
-interpretation must also use bounded memory.
+Corrupt or missing data is an error, never an end marker.
 
 The worker submits each returned page without model-specific splitting. The
 reader's pagination contract must preserve text at page boundaries, including
 bounded adjacent context needed by search. It must not depend on a tokenizer.
-Reading, hashing, or validating the whole node before its first indexed page is
-forbidden. Existing storage limits do not satisfy the large-node acceptance cases.
+Search must not collect, hash, or validate all pages before indexing the first.
+Multi-page behavior must pass acceptance before the first search release.
 
 ## OpenSearch text splitting and embeddings
 
@@ -107,18 +110,16 @@ property names do not create OpenSearch mapping fields.
 | `page_text` | A semantic field with raw text and OpenSearch-generated nested embeddings. |
 
 Document IDs combine organization, node ID, revision, projection version, and
-page ordinal. Retrying a page overwrites that document. IDs require no complete
-node hash. A metadata or scope change creates a new projection version even
-when the node text is unchanged. Each nested embedding has 384 dimensions and
-uses Lucene HNSW with cosine similarity.
+page ordinal. Retrying a page overwrites that document. Metadata or scope changes
+create a new projection version even with unchanged text. Nested embeddings use
+384 dimensions, Lucene HNSW, and cosine similarity.
 
 ## Ranking and pagination
 
-A hybrid query searches `name` with boost 3 and `page_text` with ordinary
-keyword weight, and uses a neural query on `page_text` for semantic similarity.
-The `node-pages-hybrid` search pipeline uses `min_max` score normalization and
-`arithmetic_mean` combination, initially with equal branch weights. QA relevance
-measurements determine the release configuration without maintained synonyms.
+A hybrid query searches `name` with boost 3 and `page_text` by keyword and neural
+similarity. The `node-pages-hybrid` pipeline uses `min_max` normalization and
+`arithmetic_mean` combination, initially with equal weights. QA relevance tests
+determine the release configuration without maintained synonyms.
 
 Every branch applies validated organization, scope, and optional type filters
 as structured JSON. All returned candidates, including any exact-reference
@@ -127,9 +128,8 @@ Unavailable authoritative reads fail the request; deleted or no-longer-visible
 nodes are omitted. Candidate text is never used as the returned node body.
 
 OpenSearch's [hybrid collapse](https://docs.opensearch.org/latest/vector-search/ai-search/hybrid-search/collapse/)
-groups page candidates by `node_id`. Candidate depth and nearest-neighbor
-counts require validation against many matching pages from one node. Thousands
-of such pages must not prevent other eligible nodes from filling a result page.
+groups pages by `node_id`. Validate candidate depth and nearest-neighbor counts:
+thousands of pages from one node must not crowd other nodes out of a result page.
 
 A continuation represents one bounded ranked set of at most 1,000 distinct node
 IDs. It binds the query, resolved filters, authenticated principal, and index
@@ -139,7 +139,7 @@ Reaching the ranked-set bound reports that bound rather than claiming exhaustive
 results. OpenSearch page hit counts are never presented as node totals.
 
 The reader fetches current authorization data and bounded summaries without
-reconstructing full nodes. Results follow rank order. Candidate refill may
+collecting multiple content pages. Results follow rank order. Candidate refill may
 require several search or storage requests; each request must remain bounded.
 
 ## Durable indexing and recovery
@@ -164,8 +164,8 @@ each result remains one authorized node with current FoundationDB content.
 
 Bulk requests contain at most 500 page documents and 5 MiB of encoded data,
 including action lines. Page sizing reserves room for metadata and encoding.
-Reads, metadata interpretation, inference, cleanup, and concurrent work use
-bounded memory independent of total node size. Backpressure retains pending work.
+Search memory depends on page size and concurrency, not total node size.
+Backpressure retains pending work; cleanup and inference also remain bounded.
 
 Reindexing builds a fresh versioned index from verified FoundationDB reads.
 It records a mutation boundary, catches up changes committed during the scan,
