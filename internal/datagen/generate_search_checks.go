@@ -5,12 +5,20 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 )
 
 // listPagingCheckLimit is the page size the paging check requests. The small
 // scale generates more issues than this per project, so the check always
 // reads at least two pages there.
 const listPagingCheckLimit = 5
+
+// searchCheckAttempts and searchCheckInterval bound how long the search check
+// waits for Meilisearch to index a generated issue.
+const (
+	searchCheckAttempts = 20
+	searchCheckInterval = 500 * time.Millisecond
+)
 
 const (
 	nextCursorMarker = "Next cursor: `"
@@ -55,6 +63,48 @@ func (g *Generator) verifyListPaging(ctx context.Context, workspace WorkspaceIde
 	}
 	slog.InfoContext(ctx, "qa.datagen.list_paging_verified", slog.String("project", projectReference))
 	return nil
+}
+
+// verifySearchFindsIssue calls tack_search for titleWord until the result
+// lists the issue named issueName. The check matches the name because
+// ensureNode returns the raw id, which search results never print.
+// Meilisearch indexes asynchronously, so the check retries before it reports
+// the issue as unsearchable.
+func (g *Generator) verifySearchFindsIssue(ctx context.Context, token string, workspace WorkspaceIdentity, issueName, titleWord string) error {
+	if g.dryRun || issueName == "" || titleWord == "" {
+		return nil
+	}
+	arguments := ToolArguments{WorkspaceReference: workspace.Slug, Query: titleWord}
+	reference := ""
+	for attempt := 0; attempt < searchCheckAttempts && reference == ""; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return loggedError(ctx, "qa datagen: search check canceled", ctx.Err())
+			case <-time.After(searchCheckInterval):
+			}
+		}
+		result, err := g.driver.Call(ctx, token, "tack_search", arguments)
+		if err != nil {
+			return loggedError(ctx, "qa datagen: search for "+titleWord, err)
+		}
+		reference = result.ReferenceForName(issueName)
+	}
+	if reference == "" {
+		return fmt.Errorf("qa datagen: tack_search for %q never returned issue %q after %d attempts", titleWord, issueName, searchCheckAttempts)
+	}
+	slog.InfoContext(ctx, "qa.datagen.search_verified",
+		slog.String("reference", reference), slog.String("query", titleWord))
+	return nil
+}
+
+// firstWord returns the first whitespace-separated word of name, or "".
+func firstWord(name string) string {
+	words := strings.Fields(name)
+	if len(words) == 0 {
+		return ""
+	}
+	return words[0]
 }
 
 // nextCursor returns the cursor a list response prints, or "" on the last page.
