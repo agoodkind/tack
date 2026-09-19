@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -28,7 +29,7 @@ func (r *TokenRepo) ValidateWithOrgs(ctx context.Context, raw string) (*token.To
 		  AND (t.expires_at IS NULL OR t.expires_at > now())
 		GROUP BY t.id, t.user_id, t.label, t.last_used, t.expires_at, t.created_at`
 
-	record := &token.Token{}
+	record := &token.Token{ID: uuid.Nil, UserID: uuid.Nil, Label: "", LastUsed: nil, ExpiresAt: nil, CreatedAt: time.Time{}}
 	var orgIDs []uuid.UUID
 	err := r.db.QueryRow(ctx, q, hashToken(raw)).Scan(
 		&record.ID, &record.UserID, &record.Label, &record.LastUsed, &record.ExpiresAt, &record.CreatedAt,

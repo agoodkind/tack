@@ -84,29 +84,25 @@ func (c *CachedTokenValidator) lookup(ctx context.Context, raw string, now time.
 	withOrgs, ok := c.inner.(TokenOrgsValidator)
 	if !ok || c.members == nil {
 		record, err := c.inner.Validate(ctx, raw)
+		if isUnauthenticated(err) {
+			return nil, domain.ErrUnauthenticated
+		}
 		if err != nil {
-			logLookupFailure(ctx, err)
+			slog.ErrorContext(ctx, "auth.token_validate_failed", slog.String("err", err.Error()))
 			return nil, fmt.Errorf("validate token: %w", err)
 		}
 		return record, nil
 	}
 	record, orgIDs, err := withOrgs.ValidateWithOrgs(ctx, raw)
+	if isUnauthenticated(err) {
+		return nil, domain.ErrUnauthenticated
+	}
 	if err != nil {
-		logLookupFailure(ctx, err)
+		slog.ErrorContext(ctx, "auth.token_validate_failed", slog.String("err", err.Error()))
 		return nil, fmt.Errorf("validate token with orgs: %w", err)
 	}
 	c.members.prime(record.UserID, orgIDs, now)
 	return record, nil
-}
-
-// logLookupFailure logs a lookup that failed for a reason other than a
-// refused token; a refusal is the middleware's to record.
-func logLookupFailure(ctx context.Context, err error) {
-	if isUnauthenticated(err) {
-		slog.DebugContext(ctx, "auth.token_refused")
-		return
-	}
-	slog.ErrorContext(ctx, "auth.token_validate_failed", slog.String("err", err.Error()))
 }
 
 // tokenCacheKey is the full SHA-256 of the bearer, the same identity the
