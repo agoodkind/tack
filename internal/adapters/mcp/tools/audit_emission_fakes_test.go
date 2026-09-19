@@ -98,6 +98,10 @@ func (createAuditSearcher) Index(context.Context, string, string, *domainsearch.
 	return nil
 }
 
+func (createAuditSearcher) IndexBatch(context.Context, string, []*domainsearch.NodeDoc) error {
+	panic("createAuditSearcher.IndexBatch called")
+}
+
 func (createAuditSearcher) Delete(context.Context, string, string) error {
 	return nil
 }

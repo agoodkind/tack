@@ -33,6 +33,9 @@ type NodeDoc struct {
 // index.
 type Searcher interface {
 	Index(ctx context.Context, collection string, id string, doc *NodeDoc) error
+	// IndexBatch adds or replaces docs and returns only after the engine has
+	// applied them, so a backfill sees rejected documents as an error.
+	IndexBatch(ctx context.Context, collection string, docs []*NodeDoc) error
 	Delete(ctx context.Context, collection string, id string) error
 	// Search returns NodeDocs matching query, scoped by equality filters
 	// (passed straight to the underlying engine), plus facet counts.

@@ -57,6 +57,10 @@ func (fakeSearcher) Index(context.Context, string, string, *domainsearch.NodeDoc
 	panic("Index called")
 }
 
+func (fakeSearcher) IndexBatch(context.Context, string, []*domainsearch.NodeDoc) error {
+	panic("IndexBatch called")
+}
+
 func (fakeSearcher) Delete(context.Context, string, string) error { panic("Delete called") }
 
 func (f fakeSearcher) Search(context.Context, string, string, map[string]string) ([]domainsearch.NodeDoc, map[string]map[string]int64, error) {
