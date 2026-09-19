@@ -25,7 +25,13 @@ func TestRestoreDrillYugabyteScratchLivesUnderBackupRoot(t *testing.T) {
 		BackupYBOverlayPath: repoFilePath(t, "yugabyte-overlay", "yugabyted"),
 		BackupFDBNetwork:    scratchDrillNetwork(ctx, t, cli),
 	}
-	runID := "rtscratch-yb-" + time.Now().UTC().Format("20060102T150405Z")
+	// The run ID is short because the scratch container's name is also its
+	// advertise address, and yugabyted checks that address against a DNS
+	// regex whose cost doubles with each character when the name does not end
+	// in two letters. A 39-character name took that regex 55s in native
+	// Python and held the emulated amd64 launcher on an arm64 host past the
+	// drill's stall window (TACK-522).
+	runID := "rtyb-" + time.Now().UTC().Format("150405")
 	drill := &restoreDrillCtx{Cfg: cfg, Cli: cli, RunID: runID, YBPass: "drill-" + runID}
 	t.Cleanup(func() { cleanupRestoreDrill(ctx, drill) })
 	stageDir := filepath.Join(cfg.BackupRoot, "restore-drill-yb-"+runID)
