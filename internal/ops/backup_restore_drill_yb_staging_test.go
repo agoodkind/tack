@@ -13,6 +13,7 @@ import (
 	"context"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -21,8 +22,8 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
-// ybStageStoredRunID is the export run the staging tests plant in the fake
-// object store. It is a run-key timestamp because nothing looser survives the
+// ybStageStoredRunID is the export run the staging tests plant in the object
+// store. It is a run-key timestamp because nothing looser survives the
 // manifest boundary.
 const ybStageStoredRunID = "20260830T030000Z"
 
@@ -85,9 +86,9 @@ func filesUnder(t *testing.T, root string) []string {
 func TestStageYBDrillArtifactsWritesEachDeclaredNameDirectlyUnderTheStage(t *testing.T) {
 	manifest := newYBSnapshotManifest(ybStageStoredRunID, "snap-1", "tack",
 		[]string{"yb1", "yb2"}, ybTestArtifactNames())
-	s3Client, cfg := newFakeBackupObjectStore(t, "tack-backups",
-		fakeYBExportRunObjects(t, ybStageStoredRunID, manifest))
-	drill, root, stageDir := newYBDrillStage(t, cfg)
+	store := newBackupTestStore(t, ybExportRunObjects(t, ybStageStoredRunID, manifest))
+	s3Client := store.client
+	drill, root, stageDir := newYBDrillStage(t, store.config())
 
 	inventories, err := stageYBDrillArtifacts(context.Background(), drill, s3Client, manifest, stageDir)
 	if err != nil {
@@ -124,8 +125,9 @@ func TestStageYBDrillArtifactsWritesEachDeclaredNameDirectlyUnderTheStage(t *tes
 
 // TestYBDrillWritesNothingOutsideTheStageForAClimbingArtifactName plants an
 // export whose manifest declares an artifact name that points above the staging
-// directory, with the object behind that name present so a download would
-// succeed, and drives the real selection the drill runs.
+// directory, and drives the real selection the drill runs. SeaweedFS refuses a
+// key holding "..", so the object is planted under the key that name collapses
+// to, where a download that cleaned the joined key would find it.
 //
 // Two things must hold, and the second is the security property. The run must
 // not be drilled at all, because a manifest naming something outside its own
@@ -135,9 +137,13 @@ func TestYBDrillWritesNothingOutsideTheStageForAClimbingArtifactName(t *testing.
 	const climbing = "../../escaped.txt"
 	manifest := newYBSnapshotManifest(ybStageStoredRunID, "snap-1", "tack",
 		[]string{"yb1"}, append(ybTestArtifactNames(), climbing))
-	s3Client, cfg := newFakeBackupObjectStore(t, "tack-backups",
-		fakeYBExportRunObjects(t, ybStageStoredRunID, manifest))
-	drill, root, stageDir := newYBDrillStage(t, cfg)
+	objects := ybExportRunObjects(t, ybStageStoredRunID, manifest)
+	climbingKey := ybSnapshotKeyPrefix(ybStageStoredRunID) + climbing
+	objects[path.Clean(climbingKey)] = objects[climbingKey]
+	delete(objects, climbingKey)
+	store := newBackupTestStore(t, objects)
+	s3Client := store.client
+	drill, root, stageDir := newYBDrillStage(t, store.config())
 	drill.YBRunKey = ybStageStoredRunID
 
 	ctx := context.Background()

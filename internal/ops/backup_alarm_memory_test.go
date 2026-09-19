@@ -11,12 +11,12 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
-// storedDeputyBackupStalenessConfig is a deputy checker over the fake store
-// whose ledger holds no primary run, so without the shared memory it would mail
+// storedDeputyBackupStalenessConfig is a deputy checker over store whose
+// ledger holds no primary run, so without the shared memory it would mail
 // every new fault the way the data guest did on QA (TACK-484).
-func storedDeputyBackupStalenessConfig(t *testing.T, objects map[string][]byte) *config.Config {
+func storedDeputyBackupStalenessConfig(t *testing.T, store *backupTestStore) *config.Config {
 	t.Helper()
-	cfg := storedBackupStalenessConfig(t, objects)
+	cfg := storedBackupStalenessConfig(t, store)
 	cfg.BackupAlarmPrimaryService = primaryService
 	cfg.BackupAlarmPrimaryWindowSeconds = 1500
 	cfg.BackupAlarmPrimaryGraceSeconds = 90
@@ -26,10 +26,10 @@ func storedDeputyBackupStalenessConfig(t *testing.T, objects map[string][]byte) 
 }
 
 // sharedAlarmedBackupMetrics reads the alarm memory the checkers share from
-// the fake store's objects. found is false when no memory has been written.
-func sharedAlarmedBackupMetrics(t *testing.T, objects map[string][]byte) (alarmed map[string]time.Time, found bool) {
+// store. found is false when no memory has been written.
+func sharedAlarmedBackupMetrics(t *testing.T, store *backupTestStore) (alarmed map[string]time.Time, found bool) {
 	t.Helper()
-	body, ok := objects[backupAlarmMemoryKey]
+	body, ok := store.object(backupAlarmMemoryKey)
 	if !ok {
 		return nil, false
 	}
@@ -48,15 +48,15 @@ func TestBackupStalenessAlarmSharedMemoryHoldsTheDeputyAfterTheOwnerMails(t *tes
 	now := time.Date(2026, 9, 6, 1, 25, 0, 0, time.UTC)
 	fixBackupStalenessClock(t, now)
 	captured := captureBackupAlarmSends(t, nil)
-	objects := map[string][]byte{}
-	owner := storedBackupStalenessConfig(t, objects)
-	deputy := storedDeputyBackupStalenessConfig(t, objects)
+	store := newBackupTestStore(t, nil)
+	owner := storedBackupStalenessConfig(t, store)
+	deputy := storedDeputyBackupStalenessConfig(t, store)
 
 	runStaleBackupStalenessCheck(t, owner)
 	if len(captured.messages) != 1 {
 		t.Fatalf("the owner must mail the fault once, sent %d", len(captured.messages))
 	}
-	shared, found := sharedAlarmedBackupMetrics(t, objects)
+	shared, found := sharedAlarmedBackupMetrics(t, store)
 	if !found || len(shared) != 3 {
 		t.Fatalf("the accepted mail must be recorded in the store, found = %v state = %v", found, shared)
 	}
@@ -87,9 +87,9 @@ func TestBackupStalenessAlarmSharedMemoryHoldsTheOwnerAfterTheDeputyMails(t *tes
 	now := time.Date(2026, 9, 6, 1, 25, 48, 0, time.UTC)
 	fixBackupStalenessClock(t, now)
 	captured := captureBackupAlarmSends(t, nil)
-	objects := map[string][]byte{}
-	deputy := storedDeputyBackupStalenessConfig(t, objects)
-	owner := storedBackupStalenessConfig(t, objects)
+	store := newBackupTestStore(t, nil)
+	deputy := storedDeputyBackupStalenessConfig(t, store)
+	owner := storedBackupStalenessConfig(t, store)
 
 	logs := runStaleDeputyCheck(t, deputy)
 	if len(captured.messages) != 1 {
@@ -98,7 +98,7 @@ func TestBackupStalenessAlarmSharedMemoryHoldsTheOwnerAfterTheDeputyMails(t *tes
 	if !strings.Contains(logs, "msg=backup.staleness.primary_not_seen") {
 		t.Fatalf("the deputy must have mailed because the primary was not seen:\n%s", logs)
 	}
-	if shared, found := sharedAlarmedBackupMetrics(t, objects); !found || len(shared) != 3 {
+	if shared, found := sharedAlarmedBackupMetrics(t, store); !found || len(shared) != 3 {
 		t.Fatalf("the deputy's mail must be recorded in the store, found = %v state = %v", found, shared)
 	}
 
@@ -119,10 +119,10 @@ func TestBackupStalenessAlarmSharedMemoryHoldsTheOwnerAfterTheDeputyMails(t *tes
 func TestBackupStalenessAlarmMailsWhenTheSharedMemoryCannotBeRead(t *testing.T) {
 	fixBackupStalenessClock(t, time.Date(2026, 9, 6, 1, 25, 0, 0, time.UTC))
 	captured := captureBackupAlarmSends(t, nil)
-	objects := map[string][]byte{
+	store := newBackupTestStore(t, map[string][]byte{
 		backupAlarmMemoryKey: bytes.Repeat([]byte("x"), smallObjectMaxBytes+1),
-	}
-	cfg := storedBackupStalenessConfig(t, objects)
+	})
+	cfg := storedBackupStalenessConfig(t, store)
 
 	logs := runStaleDeputyCheck(t, cfg)
 	if len(captured.messages) != 1 {
@@ -151,12 +151,13 @@ func TestBackupStalenessAlarmSharedMemoryForgetsAClearFromEitherChecker(t *testi
 	now := time.Date(2026, 9, 6, 1, 25, 0, 0, time.UTC)
 	fixBackupStalenessClock(t, now)
 	captured := captureBackupAlarmSends(t, nil)
-	objects := fakeYBExportRunObjects(t, "20260905T230000Z",
+	objects := ybExportRunObjects(t, "20260905T230000Z",
 		newYBSnapshotManifest("20260905T230000Z", "snap-1", "tack", []string{"yb1"}, ybTestArtifactNames()))
 	objects[backupStatusKey(backupStalenessReplicationName)] = marshalBackupStatusMarker(t,
 		now.Add(-10*time.Minute), "0 dead nodes, 0 under-replicated tablets")
-	owner := storedBackupStalenessConfig(t, objects)
-	deputy := storedDeputyBackupStalenessConfig(t, objects)
+	store := newBackupTestStore(t, objects)
+	owner := storedBackupStalenessConfig(t, store)
+	deputy := storedDeputyBackupStalenessConfig(t, store)
 	rehearsalKey := backupStatusKey(backupStalenessRehearsalName)
 
 	// Run 1, owner: the rehearsal has never passed.
@@ -164,12 +165,12 @@ func TestBackupStalenessAlarmSharedMemoryForgetsAClearFromEitherChecker(t *testi
 	if len(captured.messages) != 1 {
 		t.Fatalf("the first fault must mail once, sent %d", len(captured.messages))
 	}
-	if shared, _ := sharedAlarmedBackupMetrics(t, objects); len(shared) != 1 || shared[backupStalenessRehearsalName].IsZero() {
+	if shared, _ := sharedAlarmedBackupMetrics(t, store); len(shared) != 1 || shared[backupStalenessRehearsalName].IsZero() {
 		t.Fatalf("the store must remember the rehearsal fault, state = %v", shared)
 	}
 
 	// Run 2, deputy: the drill passed, so the deputy clears the fault in the store.
-	objects[rehearsalKey] = marshalBackupStatusMarker(t, now.Add(-6*time.Hour), "restore drill passed every leg")
+	store.put(rehearsalKey, marshalBackupStatusMarker(t, now.Add(-6*time.Hour), "restore drill passed every leg"))
 	var out bytes.Buffer
 	if err := RunBackupStalenessCheck(context.Background(), deputy, &out); err != nil {
 		t.Fatalf("every mechanism is fresh, so the deputy's check must pass: %v\n%s", err, out.String())
@@ -177,13 +178,13 @@ func TestBackupStalenessAlarmSharedMemoryForgetsAClearFromEitherChecker(t *testi
 	if len(captured.messages) != 1 {
 		t.Fatalf("a clear must mail nothing, sent %d in total", len(captured.messages))
 	}
-	shared, found := sharedAlarmedBackupMetrics(t, objects)
+	shared, found := sharedAlarmedBackupMetrics(t, store)
 	if !found || len(shared) != 0 {
 		t.Fatalf("a clear on the deputy must remove the mechanism from the store, found = %v state = %v", found, shared)
 	}
 
 	// Run 3, deputy: the marker is gone again, a second fault, which mails.
-	delete(objects, rehearsalKey)
+	store.remove(rehearsalKey)
 	runStaleDeputyCheck(t, deputy)
 	if len(captured.messages) != 2 {
 		t.Fatalf("a second fault after a clear must mail again, sent %d in total", len(captured.messages))

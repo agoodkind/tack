@@ -3,64 +3,35 @@ package ops
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"strings"
 	"testing"
 	"time"
-
-	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
-// markerStore is an in-memory stand-in for the backup bucket. It keeps the
-// production writer and reader on both ends of the round trip and swaps only
-// the transport, so the JSON the object store would hold is the JSON under test.
-type markerStore struct {
-	objects map[string][]byte
-}
-
-func newMarkerStore() *markerStore {
-	return &markerStore{objects: map[string][]byte{}}
-}
-
-func (s *markerStore) put(key string, body []byte) error {
-	s.objects[key] = body
-	return nil
-}
-
-func (s *markerStore) get(key string) ([]byte, error) {
-	body, ok := s.objects[key]
-	if !ok {
-		// Shaped like getObjectBytes' miss: the typed S3 not-found error,
-		// wrapped in the context the production helper adds.
-		return nil, fmt.Errorf("get object tack-backups/%s: %w", key, &s3types.NoSuchKey{})
-	}
-	return body, nil
-}
-
 // TestBackupStatusMarkerRoundTrip writes a marker through the production writer
-// and reads it back through the production reader, so the two can never
-// disagree on the key or the field names. The stored bytes are asserted too,
-// because the marker is an operator-readable artifact.
+// into the object store and reads it back through the production reader, so
+// the two can never disagree on the key or the field names. The stored bytes
+// are asserted too, because the marker is an operator-readable artifact.
 func TestBackupStatusMarkerRoundTrip(t *testing.T) {
 	ctx := context.Background()
-	store := newMarkerStore()
+	store := newBackupTestStore(t, nil)
 	at := time.Date(2026, 8, 29, 3, 30, 0, 0, time.UTC)
 
-	if err := writeBackupStatusMarker(ctx, store.put, backupStalenessRehearsalName, at,
+	if err := writeBackupStatusMarker(ctx, store.putBytes, backupStalenessRehearsalName, at,
 		"restore drill rt20260829T033000Z passed: fdb, yugabyte"); err != nil {
 		t.Fatalf("writeBackupStatusMarker: %v", err)
 	}
 
-	body, ok := store.objects["backup-status/rehearsal.json"]
+	body, ok := store.object("backup-status/rehearsal.json")
 	if !ok {
-		t.Fatalf("marker landed under an unexpected key: %v", store.objects)
+		t.Fatal("marker landed under an unexpected key")
 	}
 	wantBody := `{"at":"2026-08-29T03:30:00Z","detail":"restore drill rt20260829T033000Z passed: fdb, yugabyte"}`
 	if string(body) != wantBody {
 		t.Fatalf("marker body mismatch:\n got=%s\nwant=%s", body, wantBody)
 	}
 
-	marker, found, err := readBackupStatusMarker(ctx, store.get, backupStalenessRehearsalName)
+	marker, found, err := readBackupStatusMarker(ctx, store.getBytes, backupStalenessRehearsalName)
 	if err != nil {
 		t.Fatalf("readBackupStatusMarker: %v", err)
 	}
@@ -80,19 +51,20 @@ func TestBackupStatusMarkerRoundTrip(t *testing.T) {
 // it are comparable across hosts.
 func TestBackupStatusMarkerWrittenInUTC(t *testing.T) {
 	ctx := context.Background()
-	store := newMarkerStore()
+	store := newBackupTestStore(t, nil)
 	zone := time.FixedZone("PDT", -7*60*60)
 	at := time.Date(2026, 8, 29, 3, 30, 0, 0, zone)
 
-	if err := writeBackupStatusMarker(ctx, store.put, backupStalenessReplicationName, at, "0 dead nodes"); err != nil {
+	if err := writeBackupStatusMarker(ctx, store.putBytes, backupStalenessReplicationName, at, "0 dead nodes"); err != nil {
 		t.Fatalf("writeBackupStatusMarker: %v", err)
 	}
-	body := string(store.objects["backup-status/replication.json"])
+	stored, _ := store.object("backup-status/replication.json")
+	body := string(stored)
 	if !strings.Contains(body, `"at":"2026-08-29T10:30:00Z"`) {
 		t.Fatalf("marker must store UTC, got %s", body)
 	}
 
-	marker, found, err := readBackupStatusMarker(ctx, store.get, backupStalenessReplicationName)
+	marker, found, err := readBackupStatusMarker(ctx, store.getBytes, backupStalenessReplicationName)
 	if err != nil || !found {
 		t.Fatalf("readBackupStatusMarker: %v found=%v", err, found)
 	}
@@ -104,7 +76,7 @@ func TestBackupStatusMarkerWrittenInUTC(t *testing.T) {
 // TestReadBackupStatusMarkerAbsent proves a mechanism that never recorded a
 // success reads as absent rather than as an error or a zero-time success.
 func TestReadBackupStatusMarkerAbsent(t *testing.T) {
-	marker, found, err := readBackupStatusMarker(context.Background(), newMarkerStore().get,
+	marker, found, err := readBackupStatusMarker(context.Background(), newBackupTestStore(t, nil).getBytes,
 		backupStalenessRehearsalName)
 	if err != nil {
 		t.Fatalf("a missing marker is a state, not an error: %v", err)
@@ -122,10 +94,10 @@ func TestReadBackupStatusMarkerAbsent(t *testing.T) {
 // the zero time, which reads as an enormous age rather than as the corruption
 // it is.
 func TestReadBackupStatusMarkerRejectsUndatedMarker(t *testing.T) {
-	store := newMarkerStore()
-	store.objects[backupStatusKey(backupStalenessReplicationName)] = []byte(`{"detail":"no timestamp"}`)
+	store := newBackupTestStore(t, nil)
+	store.put(backupStatusKey(backupStalenessReplicationName), []byte(`{"detail":"no timestamp"}`))
 
-	if _, found, err := readBackupStatusMarker(context.Background(), store.get,
+	if _, found, err := readBackupStatusMarker(context.Background(), store.getBytes,
 		backupStalenessReplicationName); err == nil || found {
 		t.Fatalf("an undated marker must be an error, got found=%v err=%v", found, err)
 	}
@@ -141,10 +113,11 @@ func TestGetObjectBytesRefusesAnOversizedObject(t *testing.T) {
 	oversized := bytes.Repeat([]byte("x"), smallObjectMaxBytes+1)
 	atLimit := bytes.Repeat([]byte("y"), smallObjectMaxBytes)
 
-	client, cfg := newFakeBackupObjectStore(t, "tack-backups", map[string][]byte{
+	store := newBackupTestStore(t, map[string][]byte{
 		key:               oversized,
 		"backup-status/2": atLimit,
 	})
+	client, cfg := store.client, store.config()
 
 	if _, err := getObjectBytes(ctx, client, cfg.BackupS3BucketMain, key); err == nil {
 		t.Fatal("an object past the in-memory limit must be refused")
@@ -171,13 +144,13 @@ func TestRestoreDrillRehearsalMarkerIsReadBackByTheCheck(t *testing.T) {
 	t.Cleanup(func() { nowFunc = time.Now })
 
 	ctx := context.Background()
-	store := newMarkerStore()
-	if err := recordRestoreDrillRehearsal(ctx, store.put, "rt20260829T060000Z-42",
+	store := newBackupTestStore(t, nil)
+	if err := recordRestoreDrillRehearsal(ctx, store.putBytes, "rt20260829T060000Z-42",
 		[]string{"fdb", "yugabyte"}); err != nil {
 		t.Fatalf("recordRestoreDrillRehearsal: %v", err)
 	}
 
-	marker, found, err := readBackupStatusMarker(ctx, store.get, backupStalenessRehearsalName)
+	marker, found, err := readBackupStatusMarker(ctx, store.getBytes, backupStalenessRehearsalName)
 	if err != nil || !found {
 		t.Fatalf("the check must find the drill's marker: found=%v err=%v", found, err)
 	}

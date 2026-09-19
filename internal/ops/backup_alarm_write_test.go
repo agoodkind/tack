@@ -41,7 +41,7 @@ func TestBackupStalenessAlarmMailsWhenTheReportCannotBeWritten(t *testing.T) {
 		t.Fatalf("an accepted mail must be remembered, found = %v state = %v", found, alarmed)
 	}
 
-	objects := fakeYBExportRunObjects(t, "20260829T100000Z",
+	objects := ybExportRunObjects(t, "20260829T100000Z",
 		newYBSnapshotManifest("20260829T100000Z", "snap-1", "tack", []string{"yb1"}, ybTestArtifactNames()))
 	maps.Copy(objects, map[string][]byte{
 		backupStatusKey(backupStalenessRehearsalName): marshalBackupStatusMarker(t,
@@ -49,7 +49,7 @@ func TestBackupStalenessAlarmMailsWhenTheReportCannotBeWritten(t *testing.T) {
 		backupStatusKey(backupStalenessReplicationName): marshalBackupStatusMarker(t,
 			now.Add(-10*time.Minute), "0 dead nodes, 0 under-replicated tablets"),
 	})
-	freshCfg := storedBackupStalenessConfig(t, objects)
+	freshCfg := storedBackupStalenessConfig(t, newBackupTestStore(t, objects))
 	err = RunBackupStalenessCheck(context.Background(), freshCfg, out)
 	if !errors.Is(err, writeErr) {
 		t.Fatalf("a fresh run whose report cannot be written must return the write error, got %v", err)

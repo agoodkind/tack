@@ -164,9 +164,8 @@ func TestFetchYBSnapshotManifestRefusesAForeignRunID(t *testing.T) {
 	const declares = "20260830T100000Z"
 
 	foreign := newYBSnapshotManifest(declares, "snap-1", "tack", []string{"yb1"}, ybTestArtifactNames())
-	s3Client, cfg := newFakeBackupObjectStore(t, "tack-backups",
-		fakeYBExportRunObjects(t, storedUnder, foreign))
-	_, err := fetchYBSnapshotManifest(ctx, s3Client, cfg.BackupS3BucketMain, storedUnder)
+	foreignStore := newBackupTestStore(t, ybExportRunObjects(t, storedUnder, foreign))
+	_, err := fetchYBSnapshotManifest(ctx, foreignStore.client, foreignStore.bucket.Bucket, storedUnder)
 	if err == nil {
 		t.Fatalf("a manifest declaring run %s under the prefix of run %s must be refused", declares, storedUnder)
 	}
@@ -175,9 +174,8 @@ func TestFetchYBSnapshotManifestRefusesAForeignRunID(t *testing.T) {
 	}
 
 	own := newYBSnapshotManifest(storedUnder, "snap-1", "tack", []string{"yb1"}, ybTestArtifactNames())
-	ownClient, ownCfg := newFakeBackupObjectStore(t, "tack-backups",
-		fakeYBExportRunObjects(t, storedUnder, own))
-	got, err := fetchYBSnapshotManifest(ctx, ownClient, ownCfg.BackupS3BucketMain, storedUnder)
+	ownStore := newBackupTestStore(t, ybExportRunObjects(t, storedUnder, own))
+	got, err := fetchYBSnapshotManifest(ctx, ownStore.client, ownStore.bucket.Bucket, storedUnder)
 	if err != nil {
 		t.Fatalf("a manifest under its own run prefix must fetch cleanly: %v", err)
 	}

@@ -154,9 +154,10 @@ func TestMarkerStalenessMetricRefusesAFutureMarker(t *testing.T) {
 			if err != nil {
 				t.Fatalf("marshal marker: %v", err)
 			}
-			s3Client, cfg := newFakeBackupObjectStore(t, "tack-backups", map[string][]byte{
+			store := newBackupTestStore(t, map[string][]byte{
 				backupStatusKey(backupStalenessReplicationName): body,
 			})
+			s3Client, cfg := store.client, store.config()
 
 			metric := markerStalenessMetric(ctx, cfg, s3Client,
 				backupStalenessReplicationName, now, threshold)
@@ -219,10 +220,10 @@ func TestExportStalenessMetricRefusesAnUndatableRun(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			s3Client, cfg := newFakeBackupObjectStore(t, "tack-backups",
-				fakeYBExportRunObjects(t, test.prefixRunID,
-					newYBSnapshotManifest(test.manifestRunID, "snap-1", "tack",
-						[]string{"yb1"}, ybTestArtifactNames())))
+			store := newBackupTestStore(t, ybExportRunObjects(t, test.prefixRunID,
+				newYBSnapshotManifest(test.manifestRunID, "snap-1", "tack",
+					[]string{"yb1"}, ybTestArtifactNames())))
+			s3Client, cfg := store.client, store.config()
 			cfg.BackupStalenessExportMaxSeconds = 129600
 
 			metric := exportStalenessMetric(ctx, cfg, s3Client, now)

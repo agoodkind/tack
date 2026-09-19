@@ -63,7 +63,7 @@ func TestBackupStalenessAlarmUnreadableWords(t *testing.T) {
 func TestBackupStalenessAlarmNeverRecordedWords(t *testing.T) {
 	fixBackupStalenessClock(t, time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC))
 	captured := captureBackupAlarmSends(t, nil)
-	cfg := storedBackupStalenessConfig(t, map[string][]byte{})
+	cfg := storedBackupStalenessConfig(t, newBackupTestStore(t, nil))
 
 	runStaleBackupStalenessCheck(t, cfg)
 	if len(captured.messages) != 1 {
@@ -73,15 +73,15 @@ func TestBackupStalenessAlarmNeverRecordedWords(t *testing.T) {
 	for _, sentence := range []string{
 		"Nightly ledger export has never completed\n" +
 			"The nightly ledger export (the daily copy of the ledger in the object store) has never completed. " +
-			"The last check reported: no complete export run in tack-backups.\n" +
+			"The last check reported: no complete export run in " + cfg.BackupS3BucketMain + ".\n" +
 			"1. On the owner guest, run journalctl -u tack-ledger-export.\n",
 		"\n\nRestore rehearsal has never passed\n" +
 			"The restore rehearsal (the daily test restore) has never passed. " +
-			"The last check reported: no backup-status/rehearsal.json in tack-backups.\n" +
+			"The last check reported: no backup-status/rehearsal.json in " + cfg.BackupS3BucketMain + ".\n" +
 			"1. On the owner guest, run journalctl -u tack-backup-restore-drill.\n",
 		"\n\nLedger cluster has never been seen healthy\n" +
 			"The ledger cluster (logins and audit trail) has never been seen healthy. " +
-			"The last check reported: no backup-status/replication.json in tack-backups; " +
+			"The last check reported: no backup-status/replication.json in " + cfg.BackupS3BucketMain + "; " +
 			"this run observed: no master answered the health check.\n",
 		"\n1. Confirm every ledger guest is up.\n",
 	} {

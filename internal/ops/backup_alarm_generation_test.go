@@ -30,11 +30,11 @@ func readBackupAlarmStateFile(t *testing.T, cfg *config.Config) (state backupAla
 	return state, true
 }
 
-// readSharedBackupAlarmMemory reads the whole shared memory object from the
-// fake store's objects, generation included. found is false when absent.
-func readSharedBackupAlarmMemory(t *testing.T, objects map[string][]byte) (state backupAlarmState, found bool) {
+// readSharedBackupAlarmMemory reads the whole shared memory object from
+// store, generation included. found is false when absent.
+func readSharedBackupAlarmMemory(t *testing.T, store *backupTestStore) (state backupAlarmState, found bool) {
 	t.Helper()
-	body, ok := objects[backupAlarmMemoryKey]
+	body, ok := store.object(backupAlarmMemoryKey)
 	if !ok {
 		return state, false
 	}
@@ -48,7 +48,7 @@ func readSharedBackupAlarmMemory(t *testing.T, objects map[string][]byte) (state
 // fault: a fresh export run and a fresh replication marker, no rehearsal.
 func rehearsalFaultObjects(t *testing.T, now time.Time) map[string][]byte {
 	t.Helper()
-	objects := fakeYBExportRunObjects(t, "20260905T230000Z",
+	objects := ybExportRunObjects(t, "20260905T230000Z",
 		newYBSnapshotManifest("20260905T230000Z", "snap-1", "tack", []string{"yb1"}, ybTestArtifactNames()))
 	objects[backupStatusKey(backupStalenessReplicationName)] = marshalBackupStatusMarker(t,
 		now.Add(-10*time.Minute), "0 dead nodes, 0 under-replicated tablets")
@@ -64,9 +64,9 @@ func TestBackupStalenessAlarmAdoptsAClearTheOtherCheckerRecorded(t *testing.T) {
 	now := time.Date(2026, 9, 6, 1, 25, 0, 0, time.UTC)
 	fixBackupStalenessClock(t, now)
 	captured := captureBackupAlarmSends(t, nil)
-	objects := rehearsalFaultObjects(t, now)
-	owner := storedBackupStalenessConfig(t, objects)
-	deputy := storedDeputyBackupStalenessConfig(t, objects)
+	store := newBackupTestStore(t, rehearsalFaultObjects(t, now))
+	owner := storedBackupStalenessConfig(t, store)
+	deputy := storedDeputyBackupStalenessConfig(t, store)
 	rehearsalKey := backupStatusKey(backupStalenessRehearsalName)
 
 	runStaleBackupStalenessCheck(t, owner)
@@ -78,17 +78,17 @@ func TestBackupStalenessAlarmAdoptsAClearTheOtherCheckerRecorded(t *testing.T) {
 		t.Fatalf("the owner's file must sync with the store at generation 1, got %+v", ownerFile)
 	}
 
-	objects[rehearsalKey] = marshalBackupStatusMarker(t, now.Add(-6*time.Hour), "restore drill passed every leg")
+	store.put(rehearsalKey, marshalBackupStatusMarker(t, now.Add(-6*time.Hour), "restore drill passed every leg"))
 	var out bytes.Buffer
 	if err := RunBackupStalenessCheck(context.Background(), deputy, &out); err != nil {
 		t.Fatalf("every mechanism is fresh, so the deputy's check must pass: %v\n%s", err, out.String())
 	}
-	shared, _ := readSharedBackupAlarmMemory(t, objects)
+	shared, _ := readSharedBackupAlarmMemory(t, store)
 	if shared.Generation != 2 || len(shared.Alarmed) != 0 {
 		t.Fatalf("the deputy's clear must advance the store to generation 2 with nothing alarmed, got %+v", shared)
 	}
 
-	delete(objects, rehearsalKey)
+	store.remove(rehearsalKey)
 	logs := runStaleDeputyCheck(t, owner)
 	if len(captured.messages) != 2 {
 		t.Fatalf("the owner must adopt the clear from the store and mail the second fault, sent %d in total", len(captured.messages))
@@ -97,7 +97,7 @@ func TestBackupStalenessAlarmAdoptsAClearTheOtherCheckerRecorded(t *testing.T) {
 		!strings.Contains(logs, "generation=2 local_generation=1") {
 		t.Fatalf("the owner must log that it adopted the newer store copy:\n%s", logs)
 	}
-	shared, _ = readSharedBackupAlarmMemory(t, objects)
+	shared, _ = readSharedBackupAlarmMemory(t, store)
 	ownerFile, _ = readBackupAlarmStateFile(t, owner)
 	if shared.Generation != 3 || ownerFile.Generation != 3 || len(shared.Alarmed) != 1 {
 		t.Fatalf("the second mail must land in the store at generation 3 and sync the file, store %+v file %+v", shared, ownerFile)
@@ -111,9 +111,9 @@ func TestBackupStalenessAlarmAdoptsAClearTheOtherCheckerRecorded(t *testing.T) {
 func TestBackupStalenessAlarmHoldsFromTheCacheWhenTheStoreTurnsUnreadable(t *testing.T) {
 	fixBackupStalenessClock(t, time.Date(2026, 9, 6, 1, 25, 0, 0, time.UTC))
 	captured := captureBackupAlarmSends(t, nil)
-	objects := map[string][]byte{}
-	owner := storedBackupStalenessConfig(t, objects)
-	deputy := storedDeputyBackupStalenessConfig(t, objects)
+	store := newBackupTestStore(t, nil)
+	owner := storedBackupStalenessConfig(t, store)
+	deputy := storedDeputyBackupStalenessConfig(t, store)
 
 	runStaleBackupStalenessCheck(t, owner)
 	runStaleDeputyCheck(t, deputy)
@@ -125,7 +125,7 @@ func TestBackupStalenessAlarmHoldsFromTheCacheWhenTheStoreTurnsUnreadable(t *tes
 		t.Fatalf("the deputy must cache the held claims at the store's generation, found = %v state = %+v", found, cached)
 	}
 
-	objects[backupAlarmMemoryKey] = bytes.Repeat([]byte("x"), smallObjectMaxBytes+1)
+	store.put(backupAlarmMemoryKey, bytes.Repeat([]byte("x"), smallObjectMaxBytes+1))
 	logs := runStaleDeputyCheck(t, deputy)
 	if len(captured.messages) != 1 {
 		t.Fatalf("a deputy that cached the claims must hold them while the store is unreadable, sent %d in total", len(captured.messages))
@@ -137,15 +137,16 @@ func TestBackupStalenessAlarmHoldsFromTheCacheWhenTheStoreTurnsUnreadable(t *tes
 }
 
 // TestBackupStalenessAlarmWritesTheStoreOnTheRunAfterAFailedPut covers a
-// store that serves reads but refuses writes: the mail is recorded in the
-// file at the store's old generation, and the next run, with the store
-// accepting writes again and still without the fault, unions the file back
-// in, writes the store, and mails nothing.
+// store that serves reads but refuses writes, which the engine does for the
+// identity it lets only read: the mail is recorded in the file at the store's
+// old generation, and the next run, signing as the writer again and still
+// without the fault, unions the file back in, writes the store, and mails
+// nothing.
 func TestBackupStalenessAlarmWritesTheStoreOnTheRunAfterAFailedPut(t *testing.T) {
 	fixBackupStalenessClock(t, time.Date(2026, 9, 6, 1, 25, 0, 0, time.UTC))
 	captured := captureBackupAlarmSends(t, nil)
-	objects := map[string][]byte{}
-	store, _, cfg := startFakeBackupObjectStore(t, "tack-backups", objects)
+	store := newBackupTestStore(t, nil)
+	cfg := store.config()
 	cfg.BackupRoot = t.TempDir()
 	cfg.BackupYBMasterAddresses = "127.0.0.1:7100"
 	cfg.BackupStalenessExportMaxSeconds = 129600
@@ -153,7 +154,7 @@ func TestBackupStalenessAlarmWritesTheStoreOnTheRunAfterAFailedPut(t *testing.T)
 	cfg.BackupStalenessReplicationMaxSeconds = 1800
 	cfg.BackupAlarmEmail = "backups@example.test"
 
-	store.refusePut = true
+	store.signAsReader(cfg)
 	logs := runStaleDeputyCheck(t, cfg)
 	if len(captured.messages) != 1 {
 		t.Fatalf("the fault must mail once whatever the store does with the record, sent %d", len(captured.messages))
@@ -162,7 +163,7 @@ func TestBackupStalenessAlarmWritesTheStoreOnTheRunAfterAFailedPut(t *testing.T)
 		!strings.Contains(logs, "AccessDenied") {
 		t.Fatalf("the refused put must be logged at error with its cause:\n%s", logs)
 	}
-	if _, found := readSharedBackupAlarmMemory(t, objects); found {
+	if _, found := readSharedBackupAlarmMemory(t, store); found {
 		t.Fatal("a refused put must leave no memory object in the store")
 	}
 	file, found := readBackupAlarmStateFile(t, cfg)
@@ -170,12 +171,12 @@ func TestBackupStalenessAlarmWritesTheStoreOnTheRunAfterAFailedPut(t *testing.T)
 		t.Fatalf("the file must record the mail at the store's old generation, found = %v state = %+v", found, file)
 	}
 
-	store.refusePut = false
+	store.signAsWriter(cfg)
 	runStaleDeputyCheck(t, cfg)
 	if len(captured.messages) != 1 {
 		t.Fatalf("the next run must hold the fault from the file, sent %d in total", len(captured.messages))
 	}
-	shared, found := readSharedBackupAlarmMemory(t, objects)
+	shared, found := readSharedBackupAlarmMemory(t, store)
 	if !found || len(shared.Alarmed) != 3 || shared.Generation != 1 {
 		t.Fatalf("the next run must write the unioned file into the store at generation 1, found = %v state = %+v", found, shared)
 	}

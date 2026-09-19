@@ -1,6 +1,6 @@
 // backup_fdb_version_log_test.go exercises the version-to-time record through
 // the production writer, reader, and lookup, plus the command an operator runs
-// after a total loss, over an object store that answers real HTTP.
+// after a total loss, over the test SeaweedFS engine.
 
 package ops
 
@@ -13,10 +13,10 @@ import (
 )
 
 // recordFDBPoints appends each point through the production writer.
-func recordFDBPoints(t *testing.T, store *markerStore, points ...fdbRestorablePoint) {
+func recordFDBPoints(t *testing.T, store *backupTestStore, points ...fdbRestorablePoint) {
 	t.Helper()
 	for _, point := range points {
-		if err := appendFDBRestorablePoint(context.Background(), store.get, store.put, point); err != nil {
+		if err := appendFDBRestorablePoint(context.Background(), store.getBytes, store.putBytes, point); err != nil {
 			t.Fatalf("appendFDBRestorablePoint(%d): %v", point.Version, err)
 		}
 	}
@@ -27,7 +27,7 @@ func recordFDBPoints(t *testing.T, store *markerStore, points ...fdbRestorablePo
 // version that does not overshoot it.
 func TestFDBVersionLogRoundTripAndLookup(t *testing.T) {
 	ctx := context.Background()
-	store := newMarkerStore()
+	store := newBackupTestStore(t, nil)
 	base := time.Date(2026, 9, 18, 4, 0, 0, 0, time.UTC)
 	recordFDBPoints(t, store,
 		fdbRestorablePoint{Version: 100, At: base},
@@ -35,7 +35,7 @@ func TestFDBVersionLogRoundTripAndLookup(t *testing.T) {
 		fdbRestorablePoint{Version: 300, At: base.Add(20 * time.Minute)},
 	)
 
-	log, err := readFDBVersionLog(ctx, store.get)
+	log, err := readFDBVersionLog(ctx, store.getBytes)
 	if err != nil {
 		t.Fatalf("readFDBVersionLog: %v", err)
 	}
@@ -63,14 +63,14 @@ func TestFDBVersionLogRoundTripAndLookup(t *testing.T) {
 // while the backup is idle.
 func TestAppendFDBRestorablePointIgnoresARepeatedReading(t *testing.T) {
 	ctx := context.Background()
-	store := newMarkerStore()
+	store := newBackupTestStore(t, nil)
 	at := time.Date(2026, 9, 18, 4, 0, 0, 0, time.UTC)
 	recordFDBPoints(t, store,
 		fdbRestorablePoint{Version: 100, At: at},
 		fdbRestorablePoint{Version: 100, At: at.Add(10 * time.Minute)},
 	)
 
-	log, err := readFDBVersionLog(ctx, store.get)
+	log, err := readFDBVersionLog(ctx, store.getBytes)
 	if err != nil {
 		t.Fatalf("readFDBVersionLog: %v", err)
 	}
@@ -86,16 +86,16 @@ func TestAppendFDBRestorablePointIgnoresARepeatedReading(t *testing.T) {
 // oldest entries rather than growing without limit.
 func TestAppendFDBRestorablePointBoundsTheRecord(t *testing.T) {
 	ctx := context.Background()
-	store := newMarkerStore()
+	store := newBackupTestStore(t, nil)
 	base := time.Date(2026, 9, 18, 4, 0, 0, 0, time.UTC)
 	for i := range fdbVersionLogMaxEntries + 5 {
 		point := fdbRestorablePoint{Version: int64(i + 1), At: base.Add(time.Duration(i) * time.Minute)}
-		if err := appendFDBRestorablePoint(ctx, store.get, store.put, point); err != nil {
+		if err := appendFDBRestorablePoint(ctx, store.getBytes, store.putBytes, point); err != nil {
 			t.Fatalf("appendFDBRestorablePoint(%d): %v", point.Version, err)
 		}
 	}
 
-	log, err := readFDBVersionLog(ctx, store.get)
+	log, err := readFDBVersionLog(ctx, store.getBytes)
 	if err != nil {
 		t.Fatalf("readFDBVersionLog: %v", err)
 	}
@@ -111,7 +111,7 @@ func TestAppendFDBRestorablePointBoundsTheRecord(t *testing.T) {
 // answers with an empty record rather than an error, because the first check
 // has to start somewhere.
 func TestReadFDBVersionLogAbsent(t *testing.T) {
-	log, err := readFDBVersionLog(context.Background(), newMarkerStore().get)
+	log, err := readFDBVersionLog(context.Background(), newBackupTestStore(t, nil).getBytes)
 	if err != nil {
 		t.Fatalf("an absent record is a state, not an error: %v", err)
 	}
@@ -121,19 +121,17 @@ func TestReadFDBVersionLogAbsent(t *testing.T) {
 }
 
 // TestRunBackupFDBRestoreVersionAnswersFromTheObjectStore drives the operator
-// command against an object store that answers real HTTP, with no cluster
-// anywhere, which is the total-loss case the record exists for.
+// command against the object store, with no cluster anywhere, which is the
+// total-loss case the record exists for.
 func TestRunBackupFDBRestoreVersionAnswersFromTheObjectStore(t *testing.T) {
 	ctx := context.Background()
 	base := time.Date(2026, 9, 18, 4, 0, 0, 0, time.UTC)
-	store := newMarkerStore()
+	store := newBackupTestStore(t, nil)
 	recordFDBPoints(t, store,
 		fdbRestorablePoint{Version: 100720665, At: base},
 		fdbRestorablePoint{Version: 100999999, At: base.Add(10 * time.Minute)},
 	)
-	_, cfg := newFakeBackupObjectStore(t, "tack-backups", map[string][]byte{
-		fdbVersionLogKey: store.objects[fdbVersionLogKey],
-	})
+	cfg := store.config()
 
 	var out bytes.Buffer
 	if err := RunBackupFDBRestoreVersion(ctx, cfg, base.Add(5*time.Minute), &out); err != nil {
@@ -156,7 +154,7 @@ func TestRunBackupFDBRestoreVersionAnswersFromTheObjectStore(t *testing.T) {
 // TestRunBackupFDBRestoreVersionRefusesAnEmptyRecord proves a store holding no
 // readings says so rather than naming a zero version.
 func TestRunBackupFDBRestoreVersionRefusesAnEmptyRecord(t *testing.T) {
-	_, cfg := newFakeBackupObjectStore(t, "tack-backups", map[string][]byte{})
+	cfg := newBackupTestStore(t, nil).config()
 	var out bytes.Buffer
 
 	err := RunBackupFDBRestoreVersion(context.Background(), cfg, time.Now(), &out)
