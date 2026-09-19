@@ -2,6 +2,7 @@ package integration
 
 import (
 	"encoding/json"
+	"os"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -20,6 +21,17 @@ type MCPHarness struct {
 	token     string
 	Workspace string
 	Project   string
+}
+
+// requireIntegration skips the test unless TACK_INTEGRATION is set, the same
+// gate every integration test shares. CI sets it after bringing up FDB and
+// postgres via docker-compose; a host-side `go test` leaves it unset so this
+// package's tests skip instead of failing on a missing cluster.
+func requireIntegration(t *testing.T) {
+	t.Helper()
+	if os.Getenv("TACK_INTEGRATION") == "" {
+		t.Skip("integration test: set TACK_INTEGRATION=1 to run")
+	}
 }
 
 // harnessSeedCounter mints a distinct seed for every harness. Bootstrap
