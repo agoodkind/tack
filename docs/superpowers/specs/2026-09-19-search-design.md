@@ -1,253 +1,200 @@
 # OpenSearch search architecture
 
-Epic TACK-517. This design resolves TACK-518, TACK-519, and TACK-520. It also
-defines how search indexes the large nodes introduced by TACK-525.
+TACK-517 defines Tack search. TACK-518, TACK-519, and TACK-520 implement this
+architecture. TACK-524 and TACK-525 define the separate node-storage contract.
 
-## Problem
+## Search behavior
 
-Production search depends on one Meilisearch 1.12 container with a 2 GB memory
-limit. Search stops if that container or its guest stops. Community
-Meilisearch 1.12 cannot divide one index across several guests or store a
-replica on another guest. Meilisearch offers distributed search under its
-[Enterprise Edition license](https://www.meilisearch.com/blog/enterprise-license),
-which places sharding under the Business Source License.
+People and agents must be able to find a Tack node by its words or meaning,
+including information near the end of a large node. Results must belong
+to the caller's authorized organization and requested scope. Search must
+continue after any one search guest fails.
 
-The search engine is not a tenant boundary today. The client converts filter
-values into a formatted string, and every organization uses the same master
-key. The MCP tool provides the final isolation check: it reads each result
-from FoundationDB and rejects results whose `org_id` differs from the caller's
-organization.
+OpenSearch 3.8 will provide keyword and semantic ranking. FoundationDB will
+store the authoritative nodes, properties, relationships, and type metadata.
+Search will return distinct node results populated from current FoundationDB
+reads. A passage is a bounded portion of a node's searchable text.
 
-Search also matches words rather than meaning. A query such as `db` does not
-match a title such as `Database failover`. TACK-510 tried to close that gap
-with organization-specific synonym lists, but that approach required people
-to predict and maintain each related term.
+A request supplies query text and a metadata-defined entry point, with optional
+scope, node type, and continuation cursor. Tack derives the organization from
+that entry point and verifies membership. The caller cannot select an arbitrary
+organization ID. Scope and type names follow metadata at any hierarchy depth.
 
-Production contained 3,842 indexed nodes after the reindex on 2026-09-19.
-That count describes the current deployment. The new architecture must add
-capacity with more storage or search nodes without assigning shards in the
-Tack application.
+Results contain node identity, the current name, and bounded current-node
+summaries. Full content remains available through node retrieval. A page holds
+at most 25 nodes and respects Tack's response-byte budget. Fewer results are
+valid when the byte budget is reached; the cursor must retain the next result.
+Search failure is an explicit error, never a successful empty result.
 
-## Decision
+## Searchable content
 
-Tack will replace Meilisearch with OpenSearch 3.8. Each environment will use
-three OpenSearch nodes, one `node-passages` alias, and hybrid keyword and
-semantic ranking. Tack will divide every persisted node text into passages.
-OpenSearch will store and embed one document for each passage with a local CPU
-model. The number of passages per node will have no separate search limit.
+Node types, property types, and property names are opaque identifiers. Search
+must work with definitions created after deployment and without product seeds.
+It must not maintain an allowlist, switch on a type identifier, or infer meaning
+from an identifier's spelling.
 
-OpenSearch provides shard placement and replication under the Apache 2.0
-license. Its ML Commons plugin can serve
-[pretrained sentence-embedding models](https://docs.opensearch.org/latest/ml-commons-plugin/pretrained-models/)
-inside the cluster. Search will not depend on an external inference service
-because the model will process node text on the search guests.
+The node metadata declares which values contribute searchable content and how
+their stored structure becomes text. Tack's generic metadata interpreter
+produces ordered text fragments from the node name and declared values. Search
+consumes those fragments without interpreting the underlying types. Projection
+rules describe value structure and text representation declaratively; a new
+type must not require a new type-specific extractor in application code.
 
-FoundationDB will remain the source of truth. OpenSearch will contain a
-rebuildable projection used for ranking and result IDs. Tack will read the
-current node views from FoundationDB before returning a page.
+The target metadata contract must express applicability, inclusion or exclusion,
+text representation, and deterministic ordering for structured values.
+Missing or invalid projection declarations fail
+explicitly; an unfamiliar type must never be silently excluded from search.
 
-## Cluster
+Every included fragment contains its complete decoded text. Absent values
+contribute no text; empty property sets still permit name search. Malformed
+values fail indexing with node and property identifiers. Equivalent values and
+metadata produce the same ordered fragments regardless of map iteration order.
 
-Search must continue to accept reads and writes after any one search guest
-stops. Each environment will use this topology:
+Tack will reindex affected nodes when projection declarations, display text,
+applicability, type metadata, or ancestry change. A moved subtree must acquire
+its new search scope. Structured property filtering, property sorting, and
+category totals are not part of this search contract.
 
-| Setting | QA | Production |
-| --- | --- | --- |
-| Hypervisor | suburban | vault |
-| Guests | `tack-search1`, `tack-search2`, `tack-search3` | `tack-search1`, `tack-search2`, `tack-search3` |
-| Resources per guest | 4 GB memory, 2 cores, 40 GB hot-tier root | 4 GB memory, 2 cores, 40 GB hot-tier root |
-| Container | `opensearchproject/opensearch:3.8.0` | `opensearchproject/opensearch:3.8.0` |
-| JVM heap | 2 GB | 2 GB |
+## Complete passage coverage
 
-All three nodes will store data and remain eligible to manage the cluster.
-The 2 GB heap follows OpenSearch's guidance to start at half of available
-memory in its
-[installation settings](https://docs.opensearch.org/latest/install-and-configure/install-opensearch/index/#important-settings).
+Search must cover the entire searchable text of every node Tack accepts. It
+must not impose a fixed passage count or combine excess text into an oversized
+last passage. TACK-524 provides recoverable size errors while storage remains
+limited. TACK-525 introduces chunked storage and proposes an 8 MiB serialized
+node limit. Search accepts the storage contract's supported size; it does not
+embed a separate 8 MiB ceiling.
 
-The private certificate authority used by the ledger will issue one
-certificate per search node. OpenSearch will require TLS for REST and
-transport traffic. The Tack application will authenticate as an internal
-OpenSearch user. Deployment will generate that user's password once per host.
+The indexer reads a complete, verified node view through Tack's reader. Storage
+chunks do not define passage boundaries. Corrupt or incomplete storage records
+fail indexing without publishing a replacement generation.
 
-The configs repository will provision the guests and certificates. It will
-also render the OpenSearch URL, user, password, and certificate authority path
-into `.env`. This repository will own the OpenSearch Compose service, index
-configuration, and client.
+OpenSearch ML Commons will run
+`huggingface/sentence-transformers/all-MiniLM-L6-v2` version 1.0.2 in TorchScript
+format. It produces 384-dimensional vectors. The upstream model declares a
+[256-token sequence limit](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/blob/main/sentence_bert_config.json).
+Deployment pins compatible model and tokenizer artifacts with their checksums.
 
-OpenSearch will run
-`huggingface/sentence-transformers/all-MiniLM-L6-v2` version 1.0.2 as a
-TorchScript model. The model produces 384-dimensional vectors, requires about
-90 MB of storage, and declares a
-[maximum sequence length of 256 tokens](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/blob/main/sentence_bert_config.json).
-The Tack deployment will pin the model's `tokenizer.json` and checksum beside
-the model version. The cluster configuration will set
-`plugins.ml_commons.only_run_on_ml_node=false` and
-`plugins.ml_commons.native_memory_threshold=99` because the three data nodes
-will also run inference. The guests need outbound HTTPS while OpenSearch
-downloads the model artifact.
+Tack divides original text spans into passages of at most 192 model tokens
+including special tokens and 16 KiB of UTF-8, with a target overlap of 32 tokens.
+It preserves Unicode boundaries and re-tokenizes each emitted span to verify that
+inference cannot truncate it. Adjacent spans cover every source character;
+overlap must not prevent forward progress. Every passage has its own
+OpenSearch document. OpenSearch generates its embedding through the
+`node-passages-embed` ingest pipeline's `text_embedding` processor.
 
-## Index
+Query text uses the same tokenizer and model. Empty queries and queries above
+192 model tokens return a recoverable validation error with the limit. Tack
+must not silently shorten a query. Model mismatch, missing inference capacity,
+and embedding failure are explicit failures.
 
-The index must remain available after one node fails because every shard will
-have a copy on a different node. Each versioned backing index for the
-`node-passages` alias will have three primary shards and one replica for each
-primary. OpenSearch must place each primary and its replica on different
-nodes.
+## Passage documents
 
-Each OpenSearch document will represent one passage. Its document ID will
-combine the node ID, content generation, and passage ordinal. The content
-generation will be the SHA-256 digest of the canonical search projection.
-Each document will contain these fields:
+The `node-passages` alias selects one versioned index. Each backing index has
+three primary shards and one replica per primary on a different guest. Each
+document has the following fields; arbitrary property names do not create
+OpenSearch mapping fields.
 
-| Field | OpenSearch type | Source |
-| --- | --- | --- |
-| `node_id` | `keyword` | The source node ID. |
-| `content_generation` | `keyword` | The SHA-256 digest of the canonical search projection. |
-| `passage_ordinal` | `integer` | The zero-based position of this passage in the projection. |
-| `org_id` | `keyword` | The node's organization ID. |
-| `scope_ids` | `keyword` array | Every ancestor ID from the node through its organization, calculated from `parent_id` while indexing. |
-| `node_type` | `keyword` | The node's type key. |
-| `name` | `text` | The node's current name when indexed. |
-| `passage_text` | `text` | One bounded passage from the canonical search projection. |
-| `embedding` | 384-dimensional `knn_vector`, using Lucene HNSW and cosine similarity | The `node-passages-embed` ingest pipeline embeds `passage_text`. |
+| Field | Representation |
+| --- | --- |
+| `node_id` | Canonical node UUID as a keyword. |
+| `org_id` | Authoritative organization UUID as a keyword. |
+| `scope_ids` | The node and its authorized ancestor IDs as keywords. |
+| `node_type` | The metadata-defined type key as a keyword. |
+| `content_generation` | SHA-256 of the canonical projection and indexing configuration. |
+| `passage_ordinal` | Zero-based integer position within the generation. |
+| `name` | A Unicode-safe prefix of at most 1 KiB for keyword boosting; passages cover the full name. |
+| `passage_text` | One complete original text span. |
+| `embedding` | A 384-dimensional Lucene HNSW vector using cosine similarity. |
 
-The embedding contract covers all searchable text in every node that Tack
-successfully persists, including an 8 MiB node stored through TACK-525.
-OpenSearch must not add a passage-count limit or silently omit the end of a
-valid node.
+The canonical generation input includes identity, organization, scope, type,
+name, projected fragments and metadata, and model, tokenizer, and projection
+versions. Equivalent inputs produce identical passage IDs. Each ID combines
+node ID, generation, and ordinal. Identical text in different organizations
+never shares an index document.
 
-The application must not create or store vectors. It will build the canonical
-search projection by joining the node name and searchable property values in
-property order. It will use the pinned model tokenizer to divide that
-projection into passages of at most 192 model tokens with a 32-token overlap.
-This bound leaves room below the model's 256-token maximum for special tokens.
-The application will continue until it consumes the complete projection. It
-will not apply a maximum passage count.
+## Ranking and pagination
 
-The `node-passages-embed` ingest pipeline will use `text_embedding` to write
-one `embedding` vector from each document's `passage_text`. The processor will
-reject the index request on failure. The application will use this pipeline
-for individual writes and bulk reindex requests. This design does not use the
-`text_chunking` processor or nested vectors because both representations keep
-every passage under one OpenSearch source document and impose a per-document
-ceiling.
+A hybrid query searches `name` with boost 3 and `passage_text` with ordinary
+keyword weight, and searches `embedding` for semantic similarity. The
+`node-passages-hybrid` search pipeline uses `min_max` score normalization and
+`arithmetic_mean` combination, initially with equal branch weights. QA relevance
+measurements determine the release configuration without maintained synonyms.
 
-The proposed index document omits the existing `Props` object and facet counts.
-Search results need ranked node IDs, and the MCP tool currently discards the
-facet counts. Property definitions will determine which values contribute to
-the canonical search projection; application code will not name individual
-properties.
+Every branch applies validated organization, scope, and optional type filters
+as structured JSON. All returned candidates, including any exact-reference
+lookup, undergo current authorization and scope checks through the node reader.
+Unavailable authoritative reads fail the request; deleted or no-longer-visible
+nodes are omitted. Candidate text is never used as the returned node body.
 
-Vector storage depends on total passage count. Each passage adds 1,536 raw
-vector bytes before repeated metadata, Lucene, and HNSW overhead. One replica
-doubles the indexed storage. QA must measure bytes per passage and the
-distribution of passage counts before production capacity decisions.
-OpenSearch can increase the primary count with its
-[split index API](https://docs.opensearch.org/latest/api-reference/index-apis/split/)
-if measured growth exceeds the initial layout.
+OpenSearch's [hybrid collapse](https://docs.opensearch.org/latest/vector-search/ai-search/hybrid-search/collapse/)
+groups passage candidates by `node_id`. Candidate depth and nearest-neighbor
+counts are tuning parameters, not unique-node guarantees. A node with thousands
+of passages must not prevent other eligible nodes from filling a result page.
+The implementation must pass the duplicate-heavy acceptance case before its
+candidate settings are accepted.
 
-## Query and isolation
+A continuation represents one bounded ranked set of at most 1,000 distinct node
+IDs. It binds the query, resolved filters, authenticated principal, and index
+version. Its ordering is fixed for that continuation; current authorization is
+checked on every page. Expired or mismatched cursors return a recoverable error.
+Reaching the ranked-set bound reports that bound rather than claiming exhaustive
+results. OpenSearch passage hit counts are never presented as node totals.
 
-Each search will send one hybrid query. The keyword branch will search `name`
-with a boost of 3 and `passage_text` with the default weight. The semantic
-branch will use the local embedding model and request 100 nearest passage
-candidates. OpenSearch will collapse both branches by `node_id` and retain the
-best-scoring passage for each node. The `node-passages-hybrid` search pipeline
-will normalize both score sets with `min_max` and combine them with
-`arithmetic_mean`. Both branches will start with a weight of 0.5. QA results
-will determine the final weights.
+The reader fetches candidates in batches bounded by reconstructed bytes and
+renders results in rank order. A response limit cannot silently consume an
+unreturned node. Candidate refill may require more than one search or storage
+request; acceptance measures correctness and resource bounds, not call counts.
 
-Every request will contain an `org_id` term filter. The application will add
-a `node_type` term only after it confirms that the type belongs to the
-caller's organization. It will build both terms as structured JSON values.
-It will reject an unknown `node_type` before sending the request.
+## Durable indexing and recovery
 
-A project, workspace, or other resolved search scope will add that node's ID
-as a `scope_ids` term. The existing resolver must confirm that the scope
-belongs to the caller's organization before Tack builds the query. Engine-side
-scope filtering is required because filtering only 25 returned IDs cannot
-produce a complete page from a larger organization. The same filter applies
-to both branches of the
-[hybrid query](https://docs.opensearch.org/latest/query-dsl/compound/hybrid/).
+A committed node mutation records pending indexing work durably in FoundationDB
+as part of the authoritative commit. A failed index write cannot lose that work
+or invalidate the committed node. Workers resume pending creates, updates, and
+deletions after restart; logs alone are not a retry mechanism. Metadata and
+ancestry changes also schedule durable work for affected nodes.
 
-```json
-{
-  "from": 25,
-  "size": 25,
-  "query": {
-    "hybrid": {
-      "pagination_depth": 1000,
-      "filter": {
-        "bool": {
-          "filter": [
-            { "term": { "org_id": "<caller org>" } },
-            { "term": { "node_type": "<validated type key>" } },
-            { "term": { "scope_ids": "<validated scope id>" } }
-          ]
-        }
-      },
-      "queries": [
-        { "multi_match": {
-          "query": "<text>", "fields": ["name^3", "passage_text"]
-        } },
-        { "neural": { "embedding": {
-          "query_text": "<text>", "model_id": "<id>", "k": 100
-        } } }
-      ]
-    }
-  },
-  "collapse": { "field": "node_id" }
-}
-```
+Workers use node revision ordering and fenced ownership so a delayed writer
+cannot replace a newer projection or resurrect a deleted node. The content hash
+identifies a projection; it does not establish which mutation is newer. New
+passages are indexed and refreshed before prior passages are removed. Partial
+bulk failure keeps work pending. Temporary mixed generations can affect ranking,
+but each result remains one authorized node with current FoundationDB content.
 
-The request omits the `node_type` or `scope_ids` term when the caller does not
-provide that filter. Later visibility rules can add terms to the same Boolean
-filter. This design does not define those rules.
+Bulk requests contain at most 500 passage documents and at most 5 MiB of encoded
+request data, including action lines. An oversized individual document fails
+explicitly. Readers, tokenizer work, inference batches, and concurrent workers
+have bounded memory. Backpressure retains work durably instead of dropping it.
 
-## Paging and result reads
+Reindexing builds a fresh versioned index from verified FoundationDB reads.
+It records a mutation boundary, catches up changes committed during the scan,
+and coordinates the final alias switch with index workers. Scan, inference,
+catch-up, or validation failure leaves the serving alias unchanged. After
+switching, live workers target the new index. Restoring FoundationDB also
+rebuilds search; stale search data cannot override restored source records.
 
-Each page must preserve relevance order, render current FoundationDB views,
-and exclude nodes outside the caller's organization. Search will return 25
-results per page. The cursor will encode the next offset as base64, consistent
-with the existing list cursors.
+## Deployment and capacity
 
-Each page will repeat the same query and search pipeline with a new `from`
-value. Hybrid score normalization will remain consistent across the reachable
-result set because every page will use `pagination_depth=1000`, as described
-in the
-[hybrid pagination documentation](https://docs.opensearch.org/latest/vector-search/ai-search/hybrid-search/pagination/).
-The request will also use OpenSearch's
-[hybrid result collapsing](https://docs.opensearch.org/latest/vector-search/ai-search/hybrid-search/collapse/)
-to return one result per node. The tool will report the 1,000-result limit when
-the next offset would exceed it. It will not expose OpenSearch's passage hit
-count as a node count.
+QA and production each use three LXC guests. QA runs on `suburban`; production
+runs on `vault`. Each environment has `tack-search1`, `tack-search2`, and
+`tack-search3`, each with 4 GB memory, 2 CPU cores, 40 GB hot-tier storage, and
+2 GB JVM heap. The container image is `opensearchproject/opensearch:3.8.0`.
+This topology tolerates a guest failure, not loss of its single hypervisor.
 
-OpenSearch will return ordered node IDs. `ViewStore.GetMany` will read the 25
-corresponding views and their ancestor chains through one byte-bounded batch.
-That batch may use several FoundationDB transactions for chunked TACK-525
-views. The application will restore the OpenSearch order and render the
-current FoundationDB values. It will reject a view whose `org_id` differs from
-the caller or whose FoundationDB ancestors do not contain the requested scope.
+All three guests store data and are cluster-manager eligible. Inference must
+remain available after any one guest stops. ML Commons permits inference on
+these data nodes with `plugins.ml_commons.only_run_on_ml_node=false`. The model
+artifact is about 90 MB; that is not its runtime memory requirement. JVM, native
+inference memory, filesystem cache, and concurrent work must fit the guest limit.
 
-## Writes and recovery
+The configs repository provisions LXCs, networking, secrets, certificates, and
+environment variables. Tack owns the containers, mappings, pipelines, and Go
+client. Deployment follows the repository's Ansible path and IPv6-only network
+contract. REST and transport require verified TLS. The application uses scoped
+credentials; provisioning credentials are separate. Model download requires
+outbound HTTPS during provisioning, not an external inference service.
 
-The node service will update OpenSearch after a node is created or updated.
-It will index every passage for the new content generation before it deletes
-documents with the same `node_id` and a different `content_generation`. A
-partial bulk failure will leave the prior generation searchable and report the
-failure. A later update or reindex will replace it. Node deletion will delete
-every passage with the node ID. The OpenSearch adapter will implement the
-existing `Searcher` interface with `opensearch-go` v4.
-
-`ops batch search-reindex` must create a new versioned index from FoundationDB
-after a migration or index loss. It will stream reconstructed views and flush
-each bulk request after 500 passage documents or 5 MiB of serialized request
-data, whichever comes first. It will use `node-passages-embed` for every bulk.
-The command must stop at the first failed read or bulk request. After the
-complete rebuild passes its checks, the command will atomically switch the
-`node-passages` alias to the new index. A failed live index request will leave
-the FoundationDB write intact and report the failure. A later successful
-reindex will regenerate every passage from the stored view.
-
-The [acceptance criteria](2026-09-19-search-acceptance.md) define the QA and
-production gates.
+Capacity depends on total passages, repeated metadata, vectors, replicas, and
+rebuild headroom. Measurements must include disk use, peak memory, latency,
+indexing throughput, and pending-work age. Adding search nodes must redistribute
+shards without application-owned placement. A rebuild needs room for both indexes.
+The [acceptance criteria](2026-09-19-search-acceptance.md) define release evidence.

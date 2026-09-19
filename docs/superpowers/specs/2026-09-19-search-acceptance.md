@@ -1,78 +1,187 @@
 # OpenSearch search acceptance criteria
 
-These criteria decide whether the
-[OpenSearch search architecture](2026-09-19-search-design.md) is ready for an
-environment. QA must pass every criterion before production changes.
-Production must pass them again before Meilisearch is removed.
+These criteria verify the [search architecture](2026-09-19-search-design.md)
+through observable caller behavior and persisted state. A deployment is ready
+only when its evidence demonstrates the complete contract.
 
-Measurements must use the MCP client, OpenSearch cluster APIs, application
-traces, and FoundationDB reads. OpenSearch results alone cannot prove current
-data or tenant isolation.
+## Evidence and environment
 
-## Paging and reads
+Automated tests enter through the public MCP or operations boundary and use
+real FoundationDB, OpenSearch, the deployed embedding model, and authentication.
+They run in the local container test environment. Mocks, recorded responses,
+and private-helper tests do not establish acceptance. Engine APIs and traces
+provide supporting evidence after public operations.
 
-- Create 149 ordinary issues and one large issue in one project. Every issue
-  contains the unique phrase `paging probe`. The large issue contains the
-  phrase in more than 1,000 passages. A project-scoped search returns six pages
-  of 25 issues. The pages contain every issue exactly once.
-- Application traces show one OpenSearch request and one byte-bounded
-  `ViewStore.GetMany` batch for each page. The read path does not issue one
-  FoundationDB transaction per result.
+The same release passes QA validation before production deployment. Destructive
+fault, corruption, rebuild, and load scenarios use disposable local or QA
+fixtures. Production verification checks the deployed artifacts, topology,
+authorization, and authorized smoke fixtures without destroying production data.
+New public search behavior also receives QA data-generator coverage.
 
-## Tenant and type isolation
+Record the Tack and configs revisions, container digests, model and tokenizer
+checksums, index and pipeline settings, fixture identities, and measured results.
+A passing source test alone does not prove deployment.
 
-- Tack rejects a `node_type` that does not belong to the caller's organization
-  before it sends an OpenSearch request.
-- Every captured OpenSearch request contains the caller's `org_id` filter.
-- A project-scoped request contains the validated project ID in its
-  `scope_ids` filter.
-- A search never returns the other organization's node when two organizations
-  index nodes with the same title.
-- A project-scoped search rejects a node from another project in the same
-  organization even when its indexed `scope_ids` value falsely includes the
-  requested project.
+## Opaque types and metadata
 
-## Semantic ranking
+- Initialize only the metadata and authentication needed to use Tack. Load no
+  product seeds. Create node types, property types, properties, and hierarchy
+  definitions with fresh opaque identifiers through public metadata operations.
+  Define their value structures and text projections in metadata.
+- Add distinct phrases to declared fragments of scalar and structured values.
+  Public search finds each phrase under these unfamiliar types without changing
+  or restarting application code. Repeat with a new type after indexing starts.
+- Change every type and property identifier while preserving the declared
+  meanings and values. Text coverage and relative ranking remain equivalent.
+  Type-filter results follow the new identifiers. No fixture uses a known
+  product type to obtain special behavior.
+- Declare included, excluded, and inapplicable values, with absent and populated
+  instances. Only declared contributions appear in indexed text. Name-only
+  nodes remain searchable. Reorder maps and equivalent metadata input; the
+  ordered fragments, generation, and passage IDs remain unchanged.
+- Change a projection declaration or its display text through public metadata
+  operations. Affected nodes reindex automatically. Exact keyword probes find
+  newly included text and stop matching removed text after convergence.
+- Omit or invalidate a required projection declaration on an unfamiliar type.
+  Tack returns an explicit error rather than silently omitting its values.
+  Correct the metadata and verify indexing resumes without an application change.
+- Add many opaque property identifiers. The OpenSearch mapping retains its
+  fixed fields. Corrupt a declared value in a disposable storage fixture and
+  invoke reindexing; the error identifies the node and property. Repairing the
+  fixture permits retry without publishing a malformed replacement.
 
-- `Database failover` appears on the first page for `db` after reindexing
-  without an organization synonym list.
-- `Cookie banner` appears on the first page for `biscuits` under the same
-  condition.
-- `Authentication failure` appears on the first page for `signin`.
-- `Slow request processing` appears on the first page for `lag`.
-- `Billing reconciliation` appears on the first page for `invoice`.
-- `Application terminated unexpectedly` appears on the first page for
-  `crash`.
-- `Delete account` appears on the first page for `remove user`.
+## Semantic relevance
 
-All seven checks must pass without manually maintained synonyms.
+Use one fixed corpus with at least 150 plausible distractor nodes. Record each
+expected result's rank under the release configuration. Repeat after reindexing
+with identical input and configuration. Each expected node appears in the first
+25 results without query-specific rules or maintained synonyms.
+All corpus text is ordinary fixture content under the opaque definitions above;
+none of these phrases defines a node type, property, or special search behavior.
 
-## Complete embedding coverage
+| Query | Relevant node text |
+| --- | --- |
+| `db` | Database failover |
+| `signin` | Authentication failure |
+| `lag` | Slow request processing |
+| `invoice` | Billing reconciliation |
+| `crash` | Application terminated unexpectedly |
+| `remove user` | Delete account |
 
-- Create an 8 MiB node through the TACK-525 storage path. Place `Application
-  terminated unexpectedly` only in the final stored chunk. A search for
-  `crash` returns that node on the first page.
-- Read every indexed passage after the same write. The ordinals are contiguous
-  from zero, every passage has exactly one 384-dimensional vector, no passage
-  exceeds 192 model tokens, and the final phrase appears in the final passage.
-  The passage count exceeds 100.
-- Update the large node. Remove the old final phrase and add `Billing
-  reconciliation` only at the end. After indexing converges, `crash` does not
-  return the node and `invoice` does. No document from the prior content
-  generation remains.
-- Delete the large node. No passage document with its node ID remains.
-- Record primary-store bytes before and after indexing probe documents with
-  known passage counts. Capacity planning uses the measured bytes per passage
-  and the measured distribution of passage counts.
+A controlled lexical-only query must miss at least one non-overlapping pair
+that the production hybrid request retrieves. This proves semantic contribution
+rather than a fixture that passes because every node fits on one page.
+Do not require unrelated meanings of an ambiguous word to match.
 
-## Failure tolerance and recovery
+## Complete content coverage
 
-- Each search guest is stopped by itself. For every stopped guest, a search
-  returns a known node within the request timeout. A create request completes
-  within its timeout, and the new node becomes searchable within 10 seconds.
-  The OpenSearch cluster assigns every primary shard and reports non-red
-  health.
-- `ops batch search-reindex --execute` creates a versioned backing index with
-  the normal deployment configuration and switches the `node-passages` alias
-  only after the new index passes its checks. All seven semantic query pairs
-  and the 8 MiB embedding coverage check pass after the rebuild.
+- Through public create and update operations, store nodes below the temporary
+  storage limit and, with TACK-525 enabled, serialized nodes at 128 KiB, 1 MiB,
+  4 MiB, and 8 MiB. Put semantic targets near the beginning, middle, across a
+  storage-chunk boundary, and at the end. Each target is retrievable.
+- Put `Application terminated unexpectedly` only in the final stored chunk of
+  the largest fixture. A `crash` search ranks the node in its first 25 results
+  among distractors. Its generation contains more than 100 passage documents.
+- Inspect every passage for contiguous ordinals, one finite 384-dimensional
+  vector, and the permitted token length under the deployed tokenizer including
+  special tokens. Verify complete source-span coverage without gaps. The last
+  source character belongs to an embedded passage.
+- Repeat with emoji, combining characters, non-Latin text, Markdown, long URLs,
+  the largest accepted node name, and multi-megabyte whitespace spans. Verify
+  both passage byte bounds and full-name coverage beyond the keyword prefix.
+  No input causes truncation, invalid Unicode, omitted spans, or an overlap loop
+  that fails to advance.
+- Repeat indexing the same verified input. Document IDs and passage counts are
+  unchanged. No extra generation appears because map iteration order changed.
+- Before TACK-525 is available, oversized writes return TACK-524's recoverable
+  size error. Search work is not recorded for a rejected mutation. An 8 MiB
+  storage rejection cannot count as a passing large-content search test.
+
+## Authorization and query validation
+
+- Create matching nodes in two organizations and sibling scopes. Search returns
+  only nodes allowed by the authenticated caller's resolved entry point, scope,
+  and optional node type. Repeat at several hierarchy depths using only opaque
+  definitions created by the test.
+- Capture both ranking branches. Each contains the same validated organization
+  and scope filters as structured JSON. Quotes and JSON-like input cannot
+  change filter meaning. Undefined type identifiers and foreign scopes are
+  rejected before a ranking request is sent. Newly declared types are accepted.
+- Deliberately corrupt a fixture's indexed organization or scope metadata.
+  Public search still withholds the node when authoritative checks reject it.
+  Repeat for an exact UUID or human-reference query and for a stale cursor
+  after membership revocation or subtree movement.
+- Empty queries and queries one token above the specified limit return a
+  recoverable error. A query at the limit is processed in full. A missing model,
+  mismatched tokenizer, unavailable engine, or failed authoritative read returns
+  an explicit error rather than an apparently successful empty result.
+
+## Distinct results and continuation
+
+- Create 149 ordinary nodes and one node with more than 1,000 matching passages
+  under one scope. Give each node the same unique search phrase. With small
+  result summaries, paging returns six pages of 25 distinct nodes, covering
+  every fixture exactly once. Repeat across all three primary shards.
+- Place deleted and unauthorized candidates ahead of valid results. Search
+  omits those nodes and refills pages where eligible nodes remain.
+- Index overlapping generations during an update. Search returns each node at
+  most once with current authorized content, even if an old passage ranks it.
+- Store nodes large enough to trigger storage-batch and response-byte bounds.
+  Results contain bounded current summaries, and continuation returns every
+  unreturned candidate exactly once. Public node retrieval returns full content.
+- Continue a query while scores or indexed content change. Its established node
+  order remains fixed, and authorization is checked again. A cursor used with
+  another query, scope, principal, or incompatible index version is rejected.
+- Expired cursors return a recoverable restart error. A query with more than
+  1,000 eligible nodes reports the ranked-set limit; it does not claim that
+  1,000 is an exhaustive count. Passage counts are never shown as node counts.
+
+## Durable changes and recovery
+
+- Stop OpenSearch, commit node creates, updates, and deletes, then restart both
+  the application and index workers. Pending operations survive and converge
+  without another user edit or manual full rebuild.
+- Interrupt a large update between bulk requests and after indexing but before
+  cleanup. The authoritative mutation remains intact. Retrying completes one
+  projection and removes superseded passages without deleting the new ones.
+- Delay an older update until a newer update or deletion finishes. Resume it.
+  It cannot replace the newer generation or resurrect deleted documents.
+- Move a subtree and update searchable metadata. Indexing updates every affected
+  node, including descendants. Current authorization holds during catch-up.
+- After convergence, rename or remove a distinctive phrase. An exact lexical
+  probe no longer matches its obsolete passages. Do not require an approximate
+  semantic query to return zero merely because that phrase was removed.
+- Corrupt a stored chunk in a disposable fixture and request reindexing through
+  the operations boundary. Reconstruction fails explicitly, the serving alias
+  stays unchanged, and no partial replacement is declared complete.
+- Rebuild while public creates, updates, and deletes continue. After alias
+  switching, the new index reflects every mutation through the handoff boundary
+  and subsequent live indexing. Fail the scan, embedding, and catch-up stages
+  separately; each failure preserves the serving index and permits a retry.
+- Restore a FoundationDB backup into a disposable environment and rebuild an
+  empty index. Verify current nodes, deleted-node absence, semantic relevance,
+  and the final-chunk fixture from the restored source.
+
+## Cluster and resource bounds
+
+- Verify three independent LXCs in each environment, the specified per-guest
+  resources, image version, verified REST and transport TLS, and IPv6-only
+  reachability. Application credentials cannot perform provisioning operations.
+- Stop each QA search guest in turn. Public searches and node writes succeed
+  within the configured request timeout. A small newly created node becomes
+  searchable within 10 seconds. Every primary remains assigned, inference
+  remains available, and no shard shares its guest with its replica.
+- Verify model provisioning can repeat without duplicate registrations and
+  that a guest restart restores inference. Deny outbound model-download access
+  after provisioning; ordinary local inference remains available.
+- Index the large fixtures concurrently with queries and a full rebuild.
+  Record p50 and p95 latency, peak JVM and native memory, CPU, disk, indexing
+  throughput, queue depth, and oldest pending-work age. Every worker respects
+  its bounds; no process is killed for memory exhaustion or drops pending work.
+- Inspect bulk requests: both the document-count and encoded-byte limits hold,
+  including action lines. Inject backpressure and an individual document too
+  large for a bulk request. Work remains pending with a specific error.
+- Add a QA search node and verify shard redistribution without a Tack routing
+  change. Confirm sufficient disk for the serving and replacement indexes.
+  Production sizing requires measured capacity for the declared workload,
+  including guest failure and rebuild, rather than the model's download size.
