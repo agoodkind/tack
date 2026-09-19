@@ -104,12 +104,21 @@ func clearPrefix(t *testing.T, clusterFile string, prefix []byte) {
 	}
 }
 
-// SetupTestEnv creates isolated test dependencies.
-func SetupTestEnv(t *testing.T) *TestEnv {
+// requireIntegration skips the test unless TACK_INTEGRATION is set, the same
+// gate every integration test shares. CI sets it after bringing up FDB and
+// postgres via docker-compose; a host-side `go test` leaves it unset so this
+// package's tests skip instead of failing on a missing cluster.
+func requireIntegration(t *testing.T) {
 	t.Helper()
 	if os.Getenv("TACK_INTEGRATION") == "" {
 		t.Skip("integration test: set TACK_INTEGRATION=1 to run")
 	}
+}
+
+// SetupTestEnv creates isolated test dependencies.
+func SetupTestEnv(t *testing.T) *TestEnv {
+	t.Helper()
+	requireIntegration(t)
 
 	clusterFile := os.Getenv("FDB_CLUSTER_FILE")
 	if clusterFile == "" {

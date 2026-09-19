@@ -37,8 +37,15 @@ RUN go mod download
 # The container runs `go test` against a bind-mount of the working tree, so
 # the rest of the source comes in at runtime. Default command runs the
 # integration tests with the cluster file the entrypoint generates.
+#
+# MEILI_URL and MEILI_MASTER_KEY are required by config.Load (TACK-268); the
+# test stack has no Meilisearch service, so these point at an address nothing
+# serves. runtime.BuildGraph's searcher falls back to a no-op Searcher when
+# EnsureIndex fails, so an unreachable Meilisearch does not fail the build.
 ENV CGO_ENABLED=1 \
     TACK_INTEGRATION=1 \
-    FDB_CLUSTER_FILE=/etc/foundationdb/fdb.cluster
+    FDB_CLUSTER_FILE=/etc/foundationdb/fdb.cluster \
+    MEILI_URL=http://meilisearch:7700 \
+    MEILI_MASTER_KEY=tack-test-unused-key
 
 ENTRYPOINT ["/usr/local/go/bin/go", "test", "-v", "-count=1", "./internal/test/integration/..."]
