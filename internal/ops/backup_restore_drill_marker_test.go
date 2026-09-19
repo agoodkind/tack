@@ -6,19 +6,38 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
-// countingMarkerStore puts markers into the test object store and counts the
-// attempts, so a test can stop the engine under the drill and see each put the
-// drill makes fail for real.
+// unansweredMarkerEndpoint is an address where nothing listens, so every
+// connection to it is refused, the answer a stopped object store gives.
+const unansweredMarkerEndpoint = "http://localhost:1"
+
+// countingMarkerStore puts markers through the production client and counts
+// the attempts. While reachable is false the client points at
+// unansweredMarkerEndpoint, so each put fails with a real refused connection;
+// once it is true, puts land in the test object store. A refused put makes one
+// attempt rather than the client's three: the drill's own retry loop is under
+// test, and the client's jittered backoff would add seconds per put without
+// changing the error the loop sees.
 type countingMarkerStore struct {
-	store *backupTestStore
-	puts  int
+	store     *backupTestStore
+	puts      int
+	reachable bool
 }
 
 func (s *countingMarkerStore) put(key string, body []byte) error {
 	s.puts++
-	return s.store.putBytes(key, body)
+	if s.reachable {
+		return s.store.putBytes(key, body)
+	}
+	cfg := s.store.config()
+	cfg.BackupS3Endpoint = unansweredMarkerEndpoint
+	client := s3.New(newBackupS3Client(cfg).Options(), func(options *s3.Options) {
+		options.RetryMaxAttempts = 1
+	})
+	return putObjectBytes(context.Background(), client, cfg.BackupS3BucketMain, key, body)
 }
 
 // recordMarkerWaits swaps the package pause for one that records each requested
@@ -36,23 +55,21 @@ func recordMarkerWaits(t *testing.T, onWait func(waits int)) *[]time.Duration {
 	return &waits
 }
 
-// noMarkerWaitAction leaves the engine as it is during a pause.
+// noMarkerWaitAction leaves the store as it is during a pause.
 func noMarkerWaitAction(int) {}
 
-// TestRestoreDrillMarkerRetriesAFailedPut stops the object store under the
-// drill and starts it again during the third pause, and proves the marker
+// TestRestoreDrillMarkerRetriesAFailedPut refuses the drill's first puts and
+// reaches the object store from the third pause on, and proves the marker
 // still lands, dated to when the drill passed rather than to the attempt that
 // landed, after a backoff that doubles between attempts.
 func TestRestoreDrillMarkerRetriesAFailedPut(t *testing.T) {
 	passedAt := time.Date(2026, 9, 5, 3, 30, 0, 0, time.UTC)
 	nowFunc = func() time.Time { return passedAt }
 	t.Cleanup(func() { nowFunc = time.Now })
-	store := &countingMarkerStore{store: newBackupTestStore(t, nil), puts: 0}
-	store.store.stop()
-	defer store.store.ensureStarted()
+	store := &countingMarkerStore{store: newBackupTestStore(t, nil), puts: 0, reachable: false}
 	waits := recordMarkerWaits(t, func(waits int) {
 		if waits == 3 {
-			store.store.start()
+			store.reachable = true
 		}
 	})
 
@@ -91,9 +108,7 @@ func TestRestoreDrillMarkerRetriesAFailedPut(t *testing.T) {
 // nothing the staleness check could mistake for a rehearsal.
 func TestRestoreDrillMarkerGivesUpAfterEveryAttemptFails(t *testing.T) {
 	waits := recordMarkerWaits(t, noMarkerWaitAction)
-	store := &countingMarkerStore{store: newBackupTestStore(t, nil), puts: 0}
-	store.store.stop()
-	defer store.store.ensureStarted()
+	store := &countingMarkerStore{store: newBackupTestStore(t, nil), puts: 0, reachable: false}
 
 	err := recordRestoreDrillRehearsal(context.Background(), store.put, "rt20260906T033000Z-7",
 		[]string{"fdb", "yugabyte"})
@@ -116,7 +131,6 @@ func TestRestoreDrillMarkerGivesUpAfterEveryAttemptFails(t *testing.T) {
 	if len(*waits) != restoreDrillMarkerAttempts-1 {
 		t.Fatalf("waits = %v, want one pause between each pair of attempts", *waits)
 	}
-	store.store.start()
 	if _, found, _ := readBackupStatusMarker(context.Background(), store.store.getBytes, backupStalenessRehearsalName); found {
 		t.Fatal("no marker may land when every put was refused")
 	}
@@ -127,9 +141,7 @@ func TestRestoreDrillMarkerGivesUpAfterEveryAttemptFails(t *testing.T) {
 // remaining pauses against a context that has already ended.
 func TestRestoreDrillMarkerStopsWhenTheContextEnds(t *testing.T) {
 	waits := recordMarkerWaits(t, noMarkerWaitAction)
-	store := &countingMarkerStore{store: newBackupTestStore(t, nil), puts: 0}
-	store.store.stop()
-	defer store.store.ensureStarted()
+	store := &countingMarkerStore{store: newBackupTestStore(t, nil), puts: 0, reachable: false}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
