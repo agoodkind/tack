@@ -2,7 +2,6 @@ package audit
 
 import (
 	"context"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -41,7 +40,7 @@ func TestConsumerDeadLettersARefusedInsertAndReplaysIt(t *testing.T) {
 	cfg := ConsumerConfig{
 		Brokers: brokers, Topic: topic, GroupID: groupID,
 		BatchSize: 32, PollInterval: 100 * time.Millisecond,
-		YugabyteDSN: writerLoginDSN(t, pool, os.Getenv("AUDIT_CONSUMER_TEST_DSN")),
+		YugabyteDSN: writerLoginDSN(t, pool, integrationDSN(t)),
 	}
 	runConsumerOnce(t, cfg, orgID, 1)
 
@@ -117,7 +116,7 @@ func TestConsumerSurvivesHostileRecords(t *testing.T) {
 	runConsumerOnce(t, ConsumerConfig{
 		Brokers: brokers, Topic: topic, GroupID: "tack-audit-projector-test-" + uuid.NewString()[:8],
 		BatchSize: 8, PollInterval: 100 * time.Millisecond,
-		YugabyteDSN: writerLoginDSN(t, pool, os.Getenv("AUDIT_CONSUMER_TEST_DSN")),
+		YugabyteDSN: writerLoginDSN(t, pool, integrationDSN(t)),
 	}, orgID, 2)
 
 	var rows, payloadBytes int
@@ -140,7 +139,7 @@ func TestConsumerRewindsAFailedBatch(t *testing.T) {
 	orgID := uuid.Must(uuid.NewV7())
 	t.Cleanup(func() { purgeOrg(t, pool, orgID) })
 
-	dsn := writerLoginDSN(t, pool, os.Getenv("AUDIT_CONSUMER_TEST_DSN"))
+	dsn := writerLoginDSN(t, pool, integrationDSN(t))
 	login := loginOfDSN(t, dsn)
 	if _, err := pool.Exec(ctx, "ALTER ROLE "+login+" NOINHERIT"); err != nil {
 		t.Fatalf("take the login's privileges away: %v", err)
@@ -168,14 +167,14 @@ func TestConsumerRewindsAFailedBatch(t *testing.T) {
 	waitUntil(t, 20*time.Second, "the consumer never failed a batch", func() bool {
 		return consumerErrorCount(t) > failedBefore
 	})
-	if got := countRowsForOrg(t, os.Getenv("AUDIT_CONSUMER_TEST_DSN"), orgID); got != 0 {
+	if got := countRowsForOrg(t, integrationDSN(t), orgID); got != 0 {
 		t.Fatalf("a batch the login could not write landed %d rows", got)
 	}
 	if _, err := pool.Exec(ctx, "ALTER ROLE "+login+" INHERIT"); err != nil {
 		t.Fatalf("give the login's privileges back: %v", err)
 	}
 	waitUntil(t, 30*time.Second, "the failed batch was never re-fetched after the fault cleared", func() bool {
-		return countRowsForOrg(t, os.Getenv("AUDIT_CONSUMER_TEST_DSN"), orgID) >= 2
+		return countRowsForOrg(t, integrationDSN(t), orgID) >= 2
 	})
 	if err := consumer.Close(); err != nil {
 		t.Fatalf("Close: %v", err)

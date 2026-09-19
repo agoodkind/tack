@@ -1,19 +1,19 @@
 // dockerctl_remove_test.go proves scratch container teardown takes the
 // container's anonymous volumes with it and leaves named volumes alone. It
-// needs a Docker daemon, so it is gated the same way the exec deadline test is
-// and skips in the unit suite.
+// needs a Docker daemon, which testenv.RequireDocker demands.
 
 package ops
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/client"
+
+	"goodkind.io/tack/internal/testenv"
 )
 
 // TestRemoveContainerForceRemovesAnonymousVolumes is the leak TACK-498 found:
@@ -23,9 +23,7 @@ import (
 // volume the way the live stack mounts one; teardown must remove the first
 // and keep the second.
 func TestRemoveContainerForceRemovesAnonymousVolumes(t *testing.T) {
-	if os.Getenv("DEPLOY_TEST_INTEGRATION") != "1" {
-		t.Skip("DEPLOY_TEST_INTEGRATION!=1; skipping daemon-bound integration test")
-	}
+	testenv.RequireDocker(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	cli, err := newLocalDockerClient(ctx)

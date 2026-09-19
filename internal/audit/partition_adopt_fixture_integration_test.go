@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"net/url"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -14,9 +13,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-)
 
-const partmanTestDSN = "AUDIT_CHAIN_TEST_DSN"
+	"goodkind.io/tack/internal/testenv"
+)
 
 type partmanTestDatabase struct {
 	adminPool      *pgxpool.Pool
@@ -28,10 +27,7 @@ type partmanTestDatabase struct {
 
 func newPartmanTestDatabase(t *testing.T) *partmanTestDatabase {
 	t.Helper()
-	baseDSN := os.Getenv(partmanTestDSN)
-	if baseDSN == "" {
-		t.Skipf("set %s to run the partition adoption tests", partmanTestDSN)
-	}
+	baseDSN := testenv.Ledger(t)
 	ctx := context.Background()
 	adminPool, err := pgxpool.New(ctx, baseDSN)
 	if err != nil {

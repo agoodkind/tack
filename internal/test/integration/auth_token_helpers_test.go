@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"os"
-	"sync"
 	"testing"
 	"time"
 
@@ -14,7 +12,6 @@ import (
 	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/domain/user"
-	"goodkind.io/tack/migrations"
 )
 
 // refusingOutbox is a ledger that cannot be written, which is the case an
@@ -54,25 +51,8 @@ func (o cancelAfterIntentOutbox) WriteOutbox(ctx context.Context, event audit.Ev
 	return err
 }
 
-// ledgerSchemaOnce applies every SQL migration once per test binary. The
-// token tests read the operator outbox back, which the auth-only migration
-// the other tests use does not create.
-var ledgerSchemaOnce sync.Once
-
-func migrateLedgerSchema(t *testing.T, env *TestEnv) {
-	t.Helper()
-	var migrateErr error
-	ledgerSchemaOnce.Do(func() {
-		migrateErr = postgres.Migrate(env.Ctx, os.Getenv("DATABASE_URL"), migrations.FS)
-	})
-	if migrateErr != nil {
-		t.Fatalf("migrate the test database: %v", migrateErr)
-	}
-}
-
 func authTokenTestUser(t *testing.T, env *TestEnv) *user.User {
 	t.Helper()
-	migrateLedgerSchema(t, env)
 	now := time.Now().UTC()
 	created, err := postgres.NewUserRepo(env.Ops.Pool).Create(env.Ctx, &user.User{
 		ID: uuid.Must(uuid.NewV7()), Email: "token-" + uuid.NewString() + "@example.invalid",

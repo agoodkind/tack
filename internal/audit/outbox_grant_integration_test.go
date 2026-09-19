@@ -5,11 +5,12 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"net/url"
-	"os"
 	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"goodkind.io/tack/internal/testenv"
 )
 
 // TestWriteOutboxIfAbsentUnderInsertOnlyRole runs the idempotent outbox write
@@ -20,10 +21,7 @@ import (
 // target reads the table. The command could not have written its history on
 // any environment that enforces the privilege split, production included.
 func TestWriteOutboxIfAbsentUnderInsertOnlyRole(t *testing.T) {
-	dsn := os.Getenv(chainTestDSNEnv)
-	if dsn == "" {
-		t.Skipf("set %s to a migrated audit DSN to run", chainTestDSNEnv)
-	}
+	dsn := testenv.Ledger(t)
 	ctx := context.Background()
 	owner, err := pgxpool.New(ctx, dsn)
 	if err != nil {
@@ -84,11 +82,14 @@ func insertOnlyOutboxDSN(
 		t.Fatalf("generate role credential: %v", err)
 	}
 	credential := hex.EncodeToString(entropy)
-	role := "outbox_insert_only_test"
-
-	if _, err := owner.Exec(ctx, `DROP ROLE IF EXISTS `+role); err != nil {
-		t.Skipf("cannot manage roles on this database: %v", err)
+	suffix := make([]byte, 4)
+	if _, err := rand.Read(suffix); err != nil {
+		t.Fatalf("generate role suffix: %v", err)
 	}
+	// Roles belong to the whole engine rather than one database, so the name
+	// carries a per-run suffix and never meets a role an earlier run left.
+	role := "outbox_insert_only_test_" + hex.EncodeToString(suffix)
+
 	if _, err := owner.Exec(ctx,
 		`CREATE ROLE `+role+` LOGIN PASSWORD `+quoteLiteral(credential)); err != nil {
 		t.Fatalf("create role: %v", err)

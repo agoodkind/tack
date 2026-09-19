@@ -20,19 +20,14 @@ import (
 	"github.com/twmb/franz-go/pkg/kfake"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"goodkind.io/tack/internal/clock"
+	"goodkind.io/tack/internal/testenv"
 )
 
-// integrationDSN returns the Yugabyte DSN used by consumer tests. The DSN is
-// taken from AUDIT_CONSUMER_TEST_DSN; when unset every test in this file
-// calls t.Skip. The same role used in production (audit_writer) must be
-// authorized in the target database.
+// integrationDSN returns the Yugabyte DSN used by consumer tests: the test
+// ledger's superuser DSN, on a database that carries every migration.
 func integrationDSN(t *testing.T) string {
 	t.Helper()
-	dsn := os.Getenv("AUDIT_CONSUMER_TEST_DSN")
-	if dsn == "" {
-		t.Skip("AUDIT_CONSUMER_TEST_DSN unset; consumer integration tests skipped")
-	}
-	return dsn
+	return testenv.Ledger(t)
 }
 
 func newConsumerEnv(t *testing.T) (*pgxpool.Pool, []string, string) {
@@ -230,7 +225,7 @@ func TestConsumerProjectsToEvents(t *testing.T) {
 		GroupID:      groupID,
 		BatchSize:    32,
 		PollInterval: 100 * time.Millisecond,
-		YugabyteDSN:  os.Getenv("AUDIT_CONSUMER_TEST_DSN"),
+		YugabyteDSN:  integrationDSN(t),
 	}, orgID, total)
 
 	ctx := context.Background()
@@ -278,7 +273,7 @@ func TestConsumerIdempotentOnEventID(t *testing.T) {
 	produceEvents(t, brokers, topic, events)
 
 	groupA := "tack-audit-projector-test-" + uuid.NewString()[:8]
-	dsn := os.Getenv("AUDIT_CONSUMER_TEST_DSN")
+	dsn := integrationDSN(t)
 	runConsumerOnce(t, ConsumerConfig{
 		Brokers: brokers, Topic: topic, GroupID: groupA,
 		BatchSize: 32, PollInterval: 100 * time.Millisecond,
@@ -322,7 +317,7 @@ func TestConsumerOffsetAdvanceIsAtomicWithProjection(t *testing.T) {
 	produceEvents(t, brokers, topic, events)
 
 	groupID := "tack-audit-projector-test-" + uuid.NewString()[:8]
-	dsn := os.Getenv("AUDIT_CONSUMER_TEST_DSN")
+	dsn := integrationDSN(t)
 	cfg := ConsumerConfig{
 		Brokers: brokers, Topic: topic, GroupID: groupID,
 		BatchSize: 8, PollInterval: 100 * time.Millisecond,
@@ -373,7 +368,7 @@ func TestConsumerNotarizerSigns(t *testing.T) {
 	cfg := ConsumerConfig{
 		Brokers: brokers, Topic: topic, GroupID: groupID,
 		BatchSize: 8, PollInterval: 100 * time.Millisecond,
-		YugabyteDSN:     os.Getenv("AUDIT_CONSUMER_TEST_DSN"),
+		YugabyteDSN:     integrationDSN(t),
 		SigningKeyPath:  keyPath,
 		NotarizerPeriod: 1 * time.Second,
 		SigningHost:     "test-guest",
@@ -464,7 +459,7 @@ func TestConsumerHandlesMalformedPayload(t *testing.T) {
 	runConsumerOnce(t, ConsumerConfig{
 		Brokers: brokers, Topic: topic, GroupID: groupID,
 		BatchSize: 8, PollInterval: 100 * time.Millisecond,
-		YugabyteDSN: os.Getenv("AUDIT_CONSUMER_TEST_DSN"),
+		YugabyteDSN: integrationDSN(t),
 	}, orgID, 1)
 
 	var dlqCount int
