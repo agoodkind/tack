@@ -3,18 +3,13 @@ package testenv
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/gofrs/flock"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	_ "github.com/jackc/pgx/v5/stdlib" // registers the pgx database/sql driver goose migrates through
 	"github.com/pressly/goose/v3"
 
@@ -30,21 +25,21 @@ const (
 	// staleDatabaseAge is how old an unused test database must be before a
 	// later process drops it. A test binary never runs this long.
 	staleDatabaseAge = 3 * time.Hour
-	// ledgerLockName is the file lock that serializes database creation and
-	// migration among the test binaries of one machine. The migrations create
-	// cluster-wide roles, which two concurrent migrations would race on.
+	// ledgerLockName is the file lock that serializes database creation,
+	// migration, and ChangeRoles among the test binaries of one machine. Roles
+	// belong to the whole engine, so concurrent role changes and migrations in
+	// different databases conflict.
 	ledgerLockName = "tack-testenv-ledger.lock"
 )
 
 // createLedgerDatabase creates this process's database, migrates it, and
 // returns its connection string.
 func createLedgerDatabase(ctx context.Context, running engine, setupDSN string) (string, error) {
-	lock := flock.New(filepath.Join(os.TempDir(), ledgerLockName))
-	if err := lock.Lock(); err != nil {
-		slog.ErrorContext(ctx, "testenv.ledger.lock_failed", slog.String("err", err.Error()))
-		return "", fmt.Errorf("lock %s: %w", lock.Path(), err)
+	unlock, err := lockEngine(ctx)
+	if err != nil {
+		return "", err
 	}
-	defer func() { _ = lock.Unlock() }()
+	defer unlock()
 
 	admin, err := pgx.Connect(ctx, setupDSN)
 	if err != nil {
@@ -59,7 +54,7 @@ func createLedgerDatabase(ctx context.Context, running engine, setupDSN string) 
 		if err == nil {
 			return dsn, nil
 		}
-		if attempt == migrateAttempts || !isSerializationFailure(err) {
+		if attempt == migrateAttempts || !hasSQLState(err, serializationFailure) {
 			return "", err
 		}
 		slog.DebugContext(ctx, "testenv.ledger.migrate_retry", slog.Int("attempt", attempt), slog.String("err", err.Error()))
@@ -95,13 +90,6 @@ func createMigratedDatabase(ctx context.Context, admin *pgx.Conn, running engine
 	}
 	slog.InfoContext(ctx, "testenv.ledger.ready", slog.String("database", name))
 	return dsn, nil
-}
-
-// isSerializationFailure reports whether err carries the engine's
-// serialization failure, SQLSTATE 40001.
-func isSerializationFailure(err error) bool {
-	var engineErr *pgconn.PgError
-	return errors.As(err, &engineErr) && engineErr.Code == serializationFailure
 }
 
 // serializationFailure is the SQLSTATE of a transaction that lost a conflict.

@@ -90,7 +90,7 @@ func TestConsumerProjectsTokenLastUseFromTheAuthEvent(t *testing.T) {
 		GroupID:      "tack-audit-projector-test-" + uuid.NewString()[:8],
 		BatchSize:    32,
 		PollInterval: 100 * time.Millisecond,
-		YugabyteDSN:  writerLoginDSN(t, pool, integrationDSN(t)),
+		YugabyteDSN:  writerLoginDSN(t, integrationDSN(t)),
 	}, orgID, 2)
 
 	got := lastUsedOf(t, pool, tokenID)

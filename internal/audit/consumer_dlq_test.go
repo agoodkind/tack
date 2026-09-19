@@ -8,6 +8,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/twmb/franz-go/pkg/kgo"
+
+	"goodkind.io/tack/internal/testenv"
 )
 
 // TestConsumerDeadLettersARefusedInsertAndReplaysIt is TACK-336's consumer
@@ -40,7 +42,7 @@ func TestConsumerDeadLettersARefusedInsertAndReplaysIt(t *testing.T) {
 	cfg := ConsumerConfig{
 		Brokers: brokers, Topic: topic, GroupID: groupID,
 		BatchSize: 32, PollInterval: 100 * time.Millisecond,
-		YugabyteDSN: writerLoginDSN(t, pool, integrationDSN(t)),
+		YugabyteDSN: writerLoginDSN(t, integrationDSN(t)),
 	}
 	runConsumerOnce(t, cfg, orgID, 1)
 
@@ -116,7 +118,7 @@ func TestConsumerSurvivesHostileRecords(t *testing.T) {
 	runConsumerOnce(t, ConsumerConfig{
 		Brokers: brokers, Topic: topic, GroupID: "tack-audit-projector-test-" + uuid.NewString()[:8],
 		BatchSize: 8, PollInterval: 100 * time.Millisecond,
-		YugabyteDSN: writerLoginDSN(t, pool, integrationDSN(t)),
+		YugabyteDSN: writerLoginDSN(t, integrationDSN(t)),
 	}, orgID, 2)
 
 	var rows, payloadBytes int
@@ -139,11 +141,10 @@ func TestConsumerRewindsAFailedBatch(t *testing.T) {
 	orgID := uuid.Must(uuid.NewV7())
 	t.Cleanup(func() { purgeOrg(t, pool, orgID) })
 
-	dsn := writerLoginDSN(t, pool, integrationDSN(t))
+	dsn := writerLoginDSN(t, integrationDSN(t))
 	login := loginOfDSN(t, dsn)
-	if _, err := pool.Exec(ctx, "ALTER ROLE "+login+" NOINHERIT"); err != nil {
-		t.Fatalf("take the login's privileges away: %v", err)
-	}
+	// Take the login's privileges away.
+	testenv.ChangeRoles(t, integrationDSN(t), "ALTER ROLE "+login+" NOINHERIT")
 	produceEvents(t, brokers, topic, []Event{makeReadEvent(orgID, "first"), makeReadEvent(orgID, "second")})
 
 	cfg := ConsumerConfig{
@@ -170,9 +171,8 @@ func TestConsumerRewindsAFailedBatch(t *testing.T) {
 	if got := countRowsForOrg(t, integrationDSN(t), orgID); got != 0 {
 		t.Fatalf("a batch the login could not write landed %d rows", got)
 	}
-	if _, err := pool.Exec(ctx, "ALTER ROLE "+login+" INHERIT"); err != nil {
-		t.Fatalf("give the login's privileges back: %v", err)
-	}
+	// Give the login's privileges back.
+	testenv.ChangeRoles(t, integrationDSN(t), "ALTER ROLE "+login+" INHERIT")
 	waitUntil(t, 30*time.Second, "the failed batch was never re-fetched after the fault cleared", func() bool {
 		return countRowsForOrg(t, integrationDSN(t), orgID) >= 2
 	})
