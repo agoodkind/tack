@@ -15,17 +15,18 @@ import (
 // live as source-code constants. Runtime code reads NodeType.TypeKey from the
 // FDB-loaded NodeType records.
 const (
-	nodeTypeIssue     = "issue"
-	nodeTypeEpic      = "epic"
-	nodeTypeCycle     = "cycle"
-	nodeTypeModule    = "module"
-	nodeTypeOrg       = "org"
-	nodeTypeWorkspace = "workspace"
-	nodeTypeProject   = "project"
-	nodeTypeState     = "state"
-	nodeTypeLabel     = "label"
-	nodeTypeComment   = "comment"
-	nodeTypeActivity  = "activity"
+	nodeTypeIssue      = "issue"
+	nodeTypeEpic       = "epic"
+	nodeTypeCycle      = "cycle"
+	nodeTypeModule     = "module"
+	nodeTypeOrg        = "org"
+	nodeTypeWorkspace  = "workspace"
+	nodeTypeProject    = "project"
+	nodeTypeState      = "state"
+	nodeTypeLabel      = "label"
+	nodeTypeComment    = "comment"
+	nodeTypeActivity   = "activity"
+	nodeTypeSynonymSet = "synonym_set"
 )
 
 // builtinTypeNamespace is the UUID v5 namespace for deterministic builtin NodeType IDs.
@@ -73,11 +74,17 @@ func defaultOrgDefinitions(orgID uuid.UUID) ([]*node.NodeType, []*node.PropertyD
 }
 
 func defaultPropertyDefs(orgID uuid.UUID) []*node.PropertyDef {
-	jsonRaw := func(v any) json.RawMessage {
-		b, _ := json.Marshal(v)
-		return b
-	}
+	return append(workflowPropertyDefs(orgID), structuralPropertyDefs(orgID)...)
+}
 
+func seedJSON(v any) json.RawMessage {
+	b, _ := json.Marshal(v)
+	return b
+}
+
+// workflowPropertyDefs are the sample properties of nodes that move through
+// workflow states.
+func workflowPropertyDefs(orgID uuid.UUID) []*node.PropertyDef {
 	return []*node.PropertyDef{
 		{
 			ID:                node.SystemPropID(orgID, "priority"),
@@ -93,7 +100,7 @@ func defaultPropertyDefs(orgID uuid.UUID) []*node.PropertyDef {
 				{Key: "low", Label: "Low", Color: "#22C55E", SortRank: 3},
 				{Key: "none", Label: "No Priority", Color: "#9B9B9B", SortRank: 4},
 			},
-			DefaultValue: jsonRaw("none"),
+			DefaultValue: seedJSON("none"),
 		},
 		{
 			ID:                node.SystemPropID(orgID, "due_date"),
@@ -132,8 +139,15 @@ func defaultPropertyDefs(orgID uuid.UUID) []*node.PropertyDef {
 			Type:              node.PropertyTypeCheckbox,
 			AppliesToFeatures: []string{node.FeatureHasWorkflowStates},
 			Indexed:           false,
-			DefaultValue:      jsonRaw(false),
+			DefaultValue:      seedJSON(false),
 		},
+	}
+}
+
+// structuralPropertyDefs are the sample properties that place, name, or
+// describe a node.
+func structuralPropertyDefs(orgID uuid.UUID) []*node.PropertyDef {
+	return []*node.PropertyDef{
 		{
 			ID:                node.SystemPropID(orgID, "description"),
 			OrgID:             orgID,
@@ -213,6 +227,16 @@ func defaultPropertyDefs(orgID uuid.UUID) []*node.PropertyDef {
 			Name:              "sort_order",
 			Type:              node.PropertyTypeNumber,
 			AppliesToFeatures: nil,
+			Indexed:           false,
+		},
+		{
+			// Comma-separated words that tack_search treats as equal, for
+			// example "db, database".
+			ID:                node.SystemPropID(orgID, "terms"),
+			OrgID:             orgID,
+			Name:              "terms",
+			Type:              node.PropertyTypeText,
+			AppliesToFeatures: []string{node.FeatureHasSynonyms},
 			Indexed:           false,
 		},
 	}
@@ -305,7 +329,7 @@ func defaultNodeTypes(orgID uuid.UUID) []*node.NodeType {
 
 	specs := []spec{
 		{"org", "orgs", "Org", nodeTypeOrg, orgFeatures, slugAddressReference, []string{nodeTypeWorkspace}, nil, nil},
-		{"workspace", "workspaces", "Workspace", nodeTypeWorkspace, workspaceFeatures, slugAddressReference, []string{nodeTypeProject, nodeTypeLabel, nodeTypeWorkspace}, []string{nodeTypeOrg}, nil},
+		{"workspace", "workspaces", "Workspace", nodeTypeWorkspace, workspaceFeatures, slugAddressReference, []string{nodeTypeProject, nodeTypeLabel, nodeTypeWorkspace, nodeTypeSynonymSet}, []string{nodeTypeOrg}, nil},
 		{"project", "projects", "Project", nodeTypeProject, projectFeatures, directIdentifier, []string{nodeTypeIssue, nodeTypeEpic, nodeTypeCycle, nodeTypeModule, nodeTypeState}, []string{nodeTypeWorkspace}, projectDefaultStates},
 		{"issue", "issues", "Issue", nodeTypeIssue, issueFeatures, scopedSequence, []string{nodeTypeComment, nodeTypeActivity}, []string{nodeTypeProject}, nil},
 		{"epic", "epics", "Epic", nodeTypeEpic, epicFeatures, scopedSequence, []string{nodeTypeIssue, nodeTypeComment, nodeTypeActivity}, []string{nodeTypeProject}, nil},
@@ -315,6 +339,7 @@ func defaultNodeTypes(orgID uuid.UUID) []*node.NodeType {
 		{"label", "labels", "Label", nodeTypeLabel, nil, scopedName, nil, []string{nodeTypeWorkspace}, nil},
 		{"comment", "comments", "Comment", nodeTypeComment, nil, uuidOnly, nil, []string{nodeTypeIssue, nodeTypeEpic}, nil},
 		{"activity", "activities", "Activity", nodeTypeActivity, nil, uuidOnly, nil, []string{nodeTypeIssue, nodeTypeEpic, nodeTypeCycle, nodeTypeModule}, nil},
+		{"synonym_set", "synonym_sets", "Synonym Set", nodeTypeSynonymSet, node.Features{node.FeatureHasSynonyms}, scopedName, nil, []string{nodeTypeWorkspace}, nil},
 	}
 
 	types := make([]*node.NodeType, 0, len(specs))

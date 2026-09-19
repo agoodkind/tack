@@ -89,7 +89,7 @@ Use `tack_add_relationship`, `tack_remove_relationship`, `tack_list_relationship
 
 ## Search
 
-`tack_search` with `{{.EntryParam}}` and `query` runs full-text search across the org. Optional `node_type` narrows by type.
+`tack_search` with `{{.EntryParam}}` and `query` runs full-text search across the org. Optional `node_type` narrows by type. A query word also matches every word listed with it in one of the workspace's synonym sets, which are nodes of any type with the `has_synonyms` feature; create one with `tack_create_synonym_set` and a comma-separated `terms` property such as `db, database`.
 
 ## Response format
 

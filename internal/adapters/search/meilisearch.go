@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 
 	"github.com/meilisearch/meilisearch-go"
 	"go.opentelemetry.io/otel/attribute"
@@ -146,11 +145,6 @@ func (c *Client) Search(ctx context.Context, collection, query string, filters m
 	defer span.End()
 
 	start := clock.Now()
-	filterParts := make([]string, 0, len(filters))
-	for k, v := range filters {
-		filterParts = append(filterParts, fmt.Sprintf(`%s = "%s"`, k, v))
-	}
-
 	rawFacets, err := c.meili.Index(collection).GetFilterableAttributes()
 	var facetFields []string
 	if err == nil && rawFacets != nil {
@@ -161,7 +155,7 @@ func (c *Client) Search(ctx context.Context, collection, query string, filters m
 		}
 	}
 	res, err := c.meili.Index(collection).Search(query, &meilisearch.SearchRequest{
-		Filter: strings.Join(filterParts, " AND "),
+		Filter: buildFilter(filters),
 		Limit:  200,
 		Facets: facetFields,
 	})
@@ -177,22 +171,7 @@ func (c *Client) Search(ctx context.Context, collection, query string, filters m
 		return nil, nil, fmt.Errorf("search %s: %w", collection, err)
 	}
 
-	docs := make([]domainsearch.NodeDoc, 0, len(res.Hits))
-	for _, hit := range res.Hits {
-		b, err := json.Marshal(hit)
-		if err != nil {
-			continue
-		}
-		var doc domainsearch.NodeDoc
-		if err := json.Unmarshal(b, &doc); err != nil {
-			continue
-		}
-		if doc.ID == "" {
-			continue
-		}
-		docs = append(docs, doc)
-	}
-
+	docs := decodeHits(res.Hits)
 	facets := parseFacets(res.FacetDistribution)
 	span.SetStatus(codes.Ok, "ok")
 	span.SetAttributes(

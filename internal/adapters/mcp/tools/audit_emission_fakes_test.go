@@ -109,3 +109,7 @@ func (createAuditSearcher) Delete(context.Context, string, string) error {
 func (createAuditSearcher) Search(context.Context, string, string, map[string]string) ([]domainsearch.NodeDoc, map[string]map[string]int64, error) {
 	panic("createAuditSearcher.Search called")
 }
+
+func (createAuditSearcher) SearchVariants(context.Context, string, []string, map[string]string, int) ([]domainsearch.NodeDoc, error) {
+	panic("createAuditSearcher.SearchVariants called")
+}

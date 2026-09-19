@@ -37,6 +37,7 @@ const (
 	FeatureIsEntryPoint            = "is_entry_point"             // top-level MCP entry (workspace today)
 	FeatureIsScope                 = "is_scope"                   // defines an FDB key scope level
 	FeatureExcludeFromGenericTools = "exclude_from_generic_tools" // skip generic CRUD tool registration
+	FeatureHasSynonyms             = "has_synonyms"               // lists search terms that match each other
 )
 
 // Features is a set of capability strings on a NodeType.
