@@ -11,9 +11,10 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// maxSuccessTextBytes bounds every tool response. Paging keeps normal output
-// far below it; the cap stops a single oversized property from flooding an
-// agent's context.
+// maxSuccessTextBytes bounds every tool response. List pages stop adding rows
+// before this size so their Next cursor line survives; capText is the final
+// guard for single-node output, where one oversized property would otherwise
+// flood an agent's context.
 const maxSuccessTextBytes = 32 * 1024
 
 const truncationNotice = "\n\nOutput truncated at 32 KB. Narrow the request, lower `limit`, or use `cursor`."
