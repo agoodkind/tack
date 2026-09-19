@@ -47,7 +47,6 @@ type rawJSONTemplateData struct {
 type workspaceDescribeTemplateData struct {
 	Node      string
 	NodeTypes []markdownItem
-	Children  string
 }
 
 func executeMarkdownTemplate(name string, data any) string {

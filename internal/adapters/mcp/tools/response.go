@@ -4,11 +4,30 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/telemetry"
 )
+
+// maxSuccessTextBytes bounds every tool response. Paging keeps normal output
+// far below it; the cap stops a single oversized property from flooding an
+// agent's context.
+const maxSuccessTextBytes = 32 * 1024
+
+const truncationNotice = "\n\nOutput truncated at 32 KB. Narrow the request, lower `limit`, or use `cursor`."
+
+func capText(text string) string {
+	if len(text) <= maxSuccessTextBytes {
+		return text
+	}
+	cut := strings.LastIndexByte(text[:maxSuccessTextBytes], '\n')
+	if cut <= 0 {
+		cut = maxSuccessTextBytes
+	}
+	return text[:cut] + truncationNotice
+}
 
 func successText(body, instruction string) *mcp.CallToolResult {
 	text := body
@@ -18,6 +37,7 @@ func successText(body, instruction string) *mcp.CallToolResult {
 		}
 		text += "\nNext step: " + instruction
 	}
+	text = capText(text)
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{mcp.TextContent{Type: "text", Text: text}},
 	}
