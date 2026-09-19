@@ -2,8 +2,8 @@
 // killed before its teardown leaves, starts a drill beside a drill that is
 // still running, and proves the new drill's claim removes the killed run's
 // scratch engine, scratch directory, and staging directory while the running
-// drill keeps its own. It needs a Docker daemon that sees this process's
-// files, since the scratch directory is removed through a bind mount.
+// drill keeps its own. Its backup root is a testenv.SharedDir, since the
+// scratch directory is removed through a bind mount.
 
 package ops
 
@@ -21,13 +21,14 @@ import (
 	"github.com/moby/moby/client"
 
 	"goodkind.io/tack/internal/config"
+	"goodkind.io/tack/internal/testenv"
 )
 
 func TestClaimDrillRunSweepsKilledRunAndKeepsLiveRun(t *testing.T) {
 	ctx, cli := scratchDrillDocker(t)
 	image := composeServiceImage(t, "fdb")
 	cfg := &config.Config{
-		BackupRoot:       filepath.Join(t.TempDir(), "backups"),
+		BackupRoot:       filepath.Join(testenv.SharedDir(t), "backups"),
 		BackupYBImage:    image,
 		BackupFDBNetwork: scratchDrillNetwork(ctx, t, cli),
 	}
@@ -36,7 +37,6 @@ func TestClaimDrillRunSweepsKilledRunAndKeepsLiveRun(t *testing.T) {
 		return &restoreDrillCtx{Cfg: cfg, Cli: cli, RunID: "rt" + stamp + "-" + pid}
 	}
 	live, killed, current := newDrill("101"), newDrill("102"), newDrill("103")
-	requireDaemonSeesFiles(ctx, t, current, image)
 
 	if err := claimDrillRun(ctx, live); err != nil {
 		t.Fatalf("claim the live run: %v", err)

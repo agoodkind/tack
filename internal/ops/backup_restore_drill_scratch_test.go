@@ -3,8 +3,8 @@
 // the run's directory under the backup root, not in a Docker volume, that the
 // engine can write there, and that the drill's teardown removes the directory.
 // The yugabyte counterpart is backup_restore_drill_scratch_yb_test.go. Both
-// need a Docker daemon that sees this process's files, since the scratch
-// directories are bind-mount sources.
+// put the backup root in a testenv.SharedDir, since the scratch directories
+// are bind-mount sources the Docker daemon must see at this process's paths.
 
 package ops
 
@@ -32,13 +32,12 @@ func TestRestoreDrillFDBScratchLivesUnderBackupRoot(t *testing.T) {
 	ctx, cli := scratchDrillDocker(t)
 	image := composeServiceImage(t, "fdb")
 	cfg := &config.Config{
-		BackupRoot:           filepath.Join(t.TempDir(), "backups"),
+		BackupRoot:           filepath.Join(testenv.SharedDir(t), "backups"),
 		BackupFDBImage:       image,
 		BackupFDBOverlayPath: repoFilePath(t, "fdb-overlay", "fdb.bash"),
 		BackupFDBNetwork:     scratchDrillNetwork(ctx, t, cli),
 	}
 	drill := &restoreDrillCtx{Cfg: cfg, Cli: cli, RunID: "rtscratch-fdb-" + time.Now().UTC().Format("20060102T150405Z")}
-	requireDaemonSeesFiles(ctx, t, drill, image)
 	t.Cleanup(func() { cleanupRestoreDrill(ctx, drill) })
 	name := "tack-rtfdb-" + drill.RunID
 
@@ -102,31 +101,6 @@ func repoFilePath(t *testing.T, parts ...string) string {
 		t.Fatalf("resolve %v: %v", parts, err)
 	}
 	return path
-}
-
-// requireDaemonSeesFiles skips the test when the daemon cannot see a file
-// this process wrote under the backup root. That is the case when the test
-// runs in a container talking to the host's daemon, where a bind-mount source
-// names a host path this process cannot read; the CI integration job runs
-// these tests on the host.
-func requireDaemonSeesFiles(ctx context.Context, t *testing.T, drill *restoreDrillCtx, image string) {
-	t.Helper()
-	if err := os.MkdirAll(drill.Cfg.BackupRoot, 0o755); err != nil {
-		t.Fatalf("mkdir backup root: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(drill.Cfg.BackupRoot, "sentinel"), nil, 0o644); err != nil {
-		t.Fatalf("write sentinel: %v", err)
-	}
-	res, err := runOneShot(ctx, drill.Cli, nopLogger(), runOneShotOptions{
-		Image: image, Network: drill.Cfg.BackupFDBNetwork, Entrypoint: []string{"test"},
-		Cmd: []string{"-f", "/probe/sentinel"}, Binds: []string{drill.Cfg.BackupRoot + ":/probe:ro"},
-	})
-	if err != nil {
-		t.Fatalf("probe the daemon's view of %s: %v", drill.Cfg.BackupRoot, err)
-	}
-	if res.ExitCode != 0 {
-		t.Skipf("the Docker daemon cannot see %s, so this process is not on the daemon's host; run on the host", drill.Cfg.BackupRoot)
-	}
 }
 
 // scratchMounts returns a container's mounts by their path inside it.

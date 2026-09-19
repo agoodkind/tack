@@ -13,20 +13,20 @@ import (
 	"time"
 
 	"goodkind.io/tack/internal/config"
+	"goodkind.io/tack/internal/testenv"
 )
 
 func TestRestoreDrillYugabyteScratchLivesUnderBackupRoot(t *testing.T) {
 	ctx, cli := scratchDrillDocker(t)
 	image := composeServiceImage(t, "yugabyte")
 	cfg := &config.Config{
-		BackupRoot:          filepath.Join(t.TempDir(), "backups"),
+		BackupRoot:          filepath.Join(testenv.SharedDir(t), "backups"),
 		BackupYBImage:       image,
 		BackupYBOverlayPath: repoFilePath(t, "yugabyte-overlay", "yugabyted"),
 		BackupFDBNetwork:    scratchDrillNetwork(ctx, t, cli),
 	}
 	runID := "rtscratch-yb-" + time.Now().UTC().Format("20060102T150405Z")
 	drill := &restoreDrillCtx{Cfg: cfg, Cli: cli, RunID: runID, YBPass: "drill-" + runID}
-	requireDaemonSeesFiles(ctx, t, drill, image)
 	t.Cleanup(func() { cleanupRestoreDrill(ctx, drill) })
 	stageDir := filepath.Join(cfg.BackupRoot, "restore-drill-yb-"+runID)
 	if err := os.MkdirAll(stageDir, 0o755); err != nil {
