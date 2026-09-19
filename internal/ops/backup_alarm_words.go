@@ -1,8 +1,8 @@
 // backup_alarm_words.go composes the backup alarm mail an operator reads on a
 // phone: the guest in the subject, what happened in one sentence per fault,
 // and the steps that fix it. Every time is UTC and says so where it is
-// printed. The host and the send time appear only in the footer the mailer
-// library appends. Each mechanism's own words are in
+// printed. The run, the host and the send time appear only in the footer
+// backup_alarm_message.go appends. Each mechanism's own words are in
 // backup_alarm_vocabulary.go.
 
 package ops
@@ -122,8 +122,12 @@ func backupAlarmFaultPhrase(fault backupStalenessMetric) string {
 // backupAlarmFaultParagraph says what is wrong with one mechanism. A reading
 // whose cause is anything but a never-recorded success is worded as
 // unreadable, the claim that assumes least, and carries none of the failure's
-// text; when this guest's last reading dates it, the sentence adds what that
-// reading showed.
+// text; when this guest's last reading dates it, the sentence adds when that
+// reading dated the mechanism's last success.
+//
+// A dated reading's detail is appended only where the mechanism's words declare
+// the sentence that names it (paragraphKnownDetail). Handing it to every
+// mechanism is what dropped it from three of the four mails without a trace.
 func backupAlarmFaultParagraph(cfg *config.Config, fault backupStalenessMetric) string {
 	words := backupAlarmVocabulary[fault.Name]
 	if fault.Unknown == backupStalenessNeverRecorded {
@@ -138,12 +142,14 @@ func backupAlarmFaultParagraph(cfg *config.Config, fault backupStalenessMetric) 
 			backupAlarmClock(fault.Age),
 			backupAlarmClock(fault.Threshold))
 	}
-	detail := backupAlarmDetail(cfg, fault.Detail)
-	return fmt.Sprintf(words.paragraphKnown,
+	paragraph := fmt.Sprintf(words.paragraphKnown,
 		fault.At.UTC().Format(backupAlarmTimeLayout),
 		backupAlarmClock(fault.Age),
-		backupAlarmClock(fault.Threshold),
-		detail)
+		backupAlarmClock(fault.Threshold))
+	if words.paragraphKnownDetail == "" {
+		return paragraph
+	}
+	return paragraph + fmt.Sprintf(words.paragraphKnownDetail, backupAlarmDetail(cfg, fault.Detail))
 }
 
 // backupAlarmClock renders a duration in the words a reader thinks in:
