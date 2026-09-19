@@ -58,6 +58,10 @@ func RunBackupStalenessCheck(ctx context.Context, cfg *config.Config, out io.Wri
 			slog.String("metric", backupStalenessFDBName),
 			slog.String("reason", "TACK_BACKUP_FDB_CONTINUOUS is false"))
 	}
+	// A reading that could not be taken is dated from this guest's last one
+	// that was, so a brief outage of the store or a probe stays quiet until
+	// the mechanism could have gone stale unseen (TACK-515).
+	metrics = rememberBackupStalenessReadings(ctx, cfg, metrics, opsNow().UTC())
 
 	// A report that cannot be written is noted and carried to the end: the
 	// reading was taken, the log still records it, and the alarm below must
@@ -107,7 +111,8 @@ func logBackupStalenessMetrics(ctx context.Context, metrics []backupStalenessMet
 // complete export run's key, so the export needs no marker of its own: a run
 // key is a UTC timestamp and the completeness walk already knows which run is
 // restorable. A store that cannot be listed and a bucket with no complete run
-// both report an unknown age, which is stale.
+// both report an unknown age, which is stale unless this guest's last reading
+// still dates the export (backup_staleness_last_reading.go).
 func exportStalenessMetric(
 	ctx context.Context,
 	cfg *config.Config,
@@ -119,7 +124,7 @@ func exportStalenessMetric(
 	runIDs, err := listYBSnapshotRunIDs(ctx, s3Client, cfg.BackupS3BucketMain)
 	if err != nil {
 		return unknownBackupStalenessMetric(backupStalenessExportName, threshold,
-			backupStalenessUnreadable, "listing export runs failed: "+err.Error())
+			backupStoreReadCause(err), "listing export runs failed: "+err.Error())
 	}
 	manifest, found, err := newestCompleteYBSnapshotRun(runIDs,
 		func(runID string) (ybSnapshotManifest, error) {
@@ -134,7 +139,7 @@ func exportStalenessMetric(
 		})
 	if err != nil {
 		return unknownBackupStalenessMetric(backupStalenessExportName, threshold,
-			backupStalenessUnreadable, "walking export runs failed: "+err.Error())
+			backupStoreReadCause(err), "walking export runs failed: "+err.Error())
 	}
 	if !found {
 		return unknownBackupStalenessMetric(backupStalenessExportName, threshold,
@@ -164,7 +169,7 @@ func markerStalenessMetric(
 			return getObjectBytes(ctx, s3Client, cfg.BackupS3BucketMain, key)
 		}, name)
 	if err != nil {
-		return unknownBackupStalenessMetric(name, threshold, backupStalenessUnreadable,
+		return unknownBackupStalenessMetric(name, threshold, backupStoreReadCause(err),
 			"reading "+backupStatusKey(name)+" failed: "+err.Error())
 	}
 	if !found {

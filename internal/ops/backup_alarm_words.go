@@ -24,6 +24,15 @@ const backupAlarmTimeLayout = "3:04 PM MST on Jan 2, 2006"
 // probe's error text echoes it, so the mail never carries the store's address.
 const backupAlarmObjectStoreStandIn = "the object store"
 
+const (
+	// backupAlarmStoreNoun opens the one sentence that says the object store
+	// did not answer, defining the store at its first mention.
+	backupAlarmStoreNoun = "The object store (where the backups are kept) did not answer"
+	// backupAlarmStoreStep sends the reader to the store before the steps of
+	// the mechanisms it could not date.
+	backupAlarmStoreStep = " Confirm the object store guest is running before the steps below."
+)
+
 // backupStalenessAlarmSubject names the guest and the fault. One fault is
 // named outright; several are counted, and the body names each.
 func backupStalenessAlarmSubject(host string, faults []backupStalenessMetric) string {
@@ -38,8 +47,14 @@ func backupStalenessAlarmSubject(host string, faults []backupStalenessMetric) st
 // fault. A single fault needs no name, because the subject carries it; with
 // several, each block opens with the fault's phrase and a blank line separates
 // the blocks.
+//
+// When the object store did not answer for any fault, the body opens with one
+// paragraph that says so, and the faults' own sentences do not repeat it.
 func backupStalenessAlarmBody(cfg *config.Config, faults []backupStalenessMetric) string {
 	var body strings.Builder
+	if store, unreachable := backupAlarmObjectStoreParagraph(faults); unreachable {
+		body.WriteString(store + "\n\n")
+	}
 	for i, fault := range faults {
 		if i > 0 {
 			body.WriteString("\n\n")
@@ -53,6 +68,32 @@ func backupStalenessAlarmBody(cfg *config.Config, faults []backupStalenessMetric
 		body.WriteString(backupAlarmSteps(fault))
 	}
 	return body.String()
+}
+
+// backupAlarmObjectStoreParagraph says the object store did not answer, and
+// when this guest last read it, if any fault's reading failed that way. The
+// last read is the newest one any of those faults was dated from; with none,
+// this guest has never read the store, and the sentence claims no time.
+func backupAlarmObjectStoreParagraph(faults []backupStalenessMetric) (string, bool) {
+	unreachable := false
+	var lastRead time.Time
+	for _, fault := range faults {
+		if fault.Unknown != backupStalenessStoreUnreachable {
+			continue
+		}
+		unreachable = true
+		if fault.LastReadAt.After(lastRead) {
+			lastRead = fault.LastReadAt
+		}
+	}
+	if !unreachable {
+		return "", false
+	}
+	if lastRead.IsZero() {
+		return backupAlarmStoreNoun + " this check." + backupAlarmStoreStep, true
+	}
+	return backupAlarmStoreNoun + "; this guest last read it at " +
+		lastRead.UTC().Format(backupAlarmTimeLayout) + "." + backupAlarmStoreStep, true
 }
 
 // backupAlarmSteps numbers one mechanism's steps, one per line.
@@ -69,27 +110,35 @@ func backupAlarmSteps(fault backupStalenessMetric) string {
 // faults, at the head of its block.
 func backupAlarmFaultPhrase(fault backupStalenessMetric) string {
 	words := backupAlarmVocabulary[fault.Name]
-	if !fault.AgeKnown {
-		if fault.Unknown == backupStalenessNeverRecorded {
-			return words.phraseNeverRecorded
-		}
+	if fault.Unknown == backupStalenessNeverRecorded {
+		return words.phraseNeverRecorded
+	}
+	if fault.Unknown != backupStalenessAgeKnown {
 		return words.phraseUnreadable
 	}
 	return fmt.Sprintf(words.phraseKnown, backupAlarmClock(fault.Age))
 }
 
-// backupAlarmFaultParagraph says what is wrong with one mechanism. An unknown
-// age whose cause is anything but a never-recorded success is worded as
-// unreadable, the claim that assumes least.
+// backupAlarmFaultParagraph says what is wrong with one mechanism. A reading
+// whose cause is anything but a never-recorded success is worded as
+// unreadable, the claim that assumes least, and carries none of the failure's
+// text; when this guest's last reading dates it, the sentence adds what that
+// reading showed.
 func backupAlarmFaultParagraph(cfg *config.Config, fault backupStalenessMetric) string {
 	words := backupAlarmVocabulary[fault.Name]
-	detail := backupAlarmDetail(cfg, fault.Detail)
-	if !fault.AgeKnown {
-		if fault.Unknown == backupStalenessNeverRecorded {
-			return fmt.Sprintf(words.paragraphNeverRecorded, detail)
-		}
-		return fmt.Sprintf(words.paragraphUnreadable, detail)
+	if fault.Unknown == backupStalenessNeverRecorded {
+		return fmt.Sprintf(words.paragraphNeverRecorded, backupAlarmDetail(cfg, fault.Detail))
 	}
+	if fault.Unknown != backupStalenessAgeKnown {
+		if !fault.AgeKnown {
+			return words.paragraphUnreadable
+		}
+		return words.paragraphUnreadable + fmt.Sprintf(words.paragraphRemembered,
+			fault.At.UTC().Format(backupAlarmTimeLayout),
+			backupAlarmClock(fault.Age),
+			backupAlarmClock(fault.Threshold))
+	}
+	detail := backupAlarmDetail(cfg, fault.Detail)
 	return fmt.Sprintf(words.paragraphKnown,
 		fault.At.UTC().Format(backupAlarmTimeLayout),
 		backupAlarmClock(fault.Age),
