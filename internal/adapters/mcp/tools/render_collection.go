@@ -2,6 +2,7 @@ package tools
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain/node"
@@ -17,7 +18,7 @@ func renderList(rc *renderCtx, kind string, views []*node.NodeView) string {
 	return executeMarkdownTemplate("collection.md.tmpl", data)
 }
 
-func renderWorkspaceDescribe(rc *renderCtx, ws *node.NodeView, types []nodeTypeSummary, children []*node.NodeView) string {
+func renderWorkspaceDescribe(rc *renderCtx, ws *node.NodeView, types []nodeTypeSummary) string {
 	items := make([]markdownItem, 0, len(types))
 	for _, nodeType := range types {
 		fields := []markdownField{
@@ -30,14 +31,20 @@ func renderWorkspaceDescribe(rc *renderCtx, ws *node.NodeView, types []nodeTypeS
 		if ref := referenceSummary(nodeType.Reference); ref != "" {
 			fields = append(fields, markdownCodeFieldValue("Reference", ref))
 		}
+		fields = append(fields, markdownFieldValue("Direct children", childCountText(nodeType)))
 		items = append(items, markdownItem{Title: "Tool token " + markdownCodeValue(nodeType.Slug), Fields: fields})
 	}
-	childrenText := ""
-	if len(children) > 0 {
-		childrenText = renderList(rc, "children", children)
-	}
-	data := workspaceDescribeTemplateData{Node: renderNode(rc, ws), NodeTypes: items, Children: childrenText}
+	data := workspaceDescribeTemplateData{Node: renderNode(rc, ws), NodeTypes: items}
 	return executeMarkdownTemplate("workspace_describe.md.tmpl", data)
+}
+
+// childCountText prints a type's direct child count, with a trailing plus
+// when the count stopped at one page.
+func childCountText(nodeType nodeTypeSummary) string {
+	if nodeType.ChildCountMore {
+		return fmt.Sprintf("%d+", nodeType.ChildCount)
+	}
+	return strconv.Itoa(nodeType.ChildCount)
 }
 
 func renderMembers(users []*user.User) string {
@@ -88,12 +95,13 @@ func renderSearchViews(rc *renderCtx, views []*node.NodeView) string {
 
 func nodeListItem(rc *renderCtx, view *node.NodeView) markdownItem {
 	ident := identifierFor(view, rc)
+	fields := []markdownField{markdownCodeFieldValue("Type", view.NodeType)}
+	// identifierFor falls back to the name, so the Name field is printed only
+	// when the title is a reference distinct from it.
 	if ident == "" {
 		ident = view.Name
-	}
-	fields := []markdownField{
-		markdownFieldValue("Name", view.Name),
-		markdownCodeFieldValue("Type", view.NodeType),
+	} else if ident != view.Name {
+		fields = append([]markdownField{markdownFieldValue("Name", view.Name)}, fields...)
 	}
 	if state := rc.nodeIdentifier(uuidProp(view, "state_id")); state != "" {
 		fields = append(fields, markdownCodeFieldValue("State", state))

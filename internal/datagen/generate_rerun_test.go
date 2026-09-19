@@ -101,7 +101,7 @@ func (f *rerunMCP) ServeHTTP(writer http.ResponseWriter, request *http.Request) 
 	case strings.HasPrefix(payload.Params.Name, "tack_create_"):
 		f.create(writer, payload)
 	case isCorpusListTool(payload.Params.Name):
-		f.list(writer, payload.Params.Name)
+		f.list(writer, payload.Params.Name, payload.Params.Arguments)
 	case payload.Params.Name == "tack_delete_issue":
 		f.delete(payload.Params.Arguments.NodeID)
 		writeRerunResult(writer, "ok", false)
@@ -155,7 +155,7 @@ func (f *rerunMCP) delete(rawID string) {
 	}
 }
 
-func (f *rerunMCP) list(writer http.ResponseWriter, toolName string) {
+func (f *rerunMCP) list(writer http.ResponseWriter, toolName string, args ToolArguments) {
 	createTool := corpusCreateTool(toolName)
 	nodes := make([]rerunNode, 0, len(f.nodes[createTool]))
 	for _, stored := range f.nodes[createTool] {
@@ -164,8 +164,9 @@ func (f *rerunMCP) list(writer http.ResponseWriter, toolName string) {
 	sort.Slice(nodes, func(left, right int) bool {
 		return nodes[left].name < nodes[right].name
 	})
+	nodes, cursor := pageRerunNodes(nodes, args)
 	var output strings.Builder
-	fmt.Fprintf(&output, "%d %s found.\n", len(nodes), strings.TrimPrefix(toolName, "tack_list_"))
+	fmt.Fprintf(&output, "%d %s shown.\n", len(nodes), strings.TrimPrefix(toolName, "tack_list_"))
 	for _, stored := range nodes {
 		fmt.Fprintf(
 			&output,
@@ -174,6 +175,7 @@ func (f *rerunMCP) list(writer http.ResponseWriter, toolName string) {
 			stored.name,
 		)
 	}
+	writeRerunCursor(&output, cursor)
 	writeRerunResult(writer, output.String(), false)
 }
 

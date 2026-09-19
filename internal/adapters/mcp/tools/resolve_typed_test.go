@@ -75,6 +75,17 @@ func (r *resolverReader) Stream(context.Context, node.NodeListQuery) (<-chan nod
 	panic("resolverReader.Stream called")
 }
 
+func (r *resolverReader) ListPage(ctx context.Context, q node.NodeListQuery) (node.Page, error) {
+	views, err := r.List(ctx, q)
+	if err != nil {
+		return node.Page{}, err
+	}
+	if q.Limit > 0 && len(views) > q.Limit {
+		views = views[:q.Limit]
+	}
+	return node.Page{Views: views, NextCursor: ""}, nil
+}
+
 type fakeNodeRepo struct {
 	scopeChildren map[string][]*node.Node
 }

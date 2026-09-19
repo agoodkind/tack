@@ -61,6 +61,13 @@ type NodeStreamResult struct {
 	Err  error
 }
 
+// Page is one page of a ListPage call. NextCursor is empty on the last
+// page.
+type Page struct {
+	Views      []*NodeView
+	NextCursor string
+}
+
 // NodeReader is the read path for all node types. The service layer MUST use
 // NodeReader for reads; it must not call storage-layer repositories directly.
 type NodeReader interface {
@@ -77,4 +84,8 @@ type NodeReader interface {
 
 	// Stream is for large or unbounded scans.
 	Stream(ctx context.Context, q NodeListQuery) (<-chan NodeStreamResult, error)
+
+	// ListPage returns at most q.Limit views after q.Cursor, in node ID
+	// order. It supports ByProperty and full type scans.
+	ListPage(ctx context.Context, q NodeListQuery) (Page, error)
 }

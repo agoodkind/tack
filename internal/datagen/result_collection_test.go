@@ -6,7 +6,7 @@ func TestResultParsesCollectionReferencesAndNodeFields(t *testing.T) {
 	t.Parallel()
 	result := Result{Content: []ToolContent{{
 		Type: "text",
-		Text: "#### States\n\n2 states found.\n" +
+		Text: "#### States\n\n2 states shown.\n" +
 			"- `QA::Todo`\n" +
 			"  - Name: Todo\n" +
 			"  - Type: `state`\n" +

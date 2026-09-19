@@ -1,10 +1,14 @@
 #### {{.Heading}}
 
-{{.Count}} {{.Noun}} found.
+{{.Count}} {{.Noun}} shown.
 
 {{- range .Items}}
 - {{.Title}}
 {{- range .Fields}}
   - {{.Label}}: {{.Value}}
 {{- end}}
+{{- end}}
+{{- if .NextCursor}}
+
+More results exist. Next cursor: `{{.NextCursor}}`
 {{- end}}

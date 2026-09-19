@@ -127,7 +127,7 @@ func updateHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFu
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
-		return successText(renderNode(rc, view), ""), nil
+		return successText(renderWriteConfirmation(rc, "Updated", view, changedFieldNames(in.Name, rawProps)), ""), nil
 	}
 }
 

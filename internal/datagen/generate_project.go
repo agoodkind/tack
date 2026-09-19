@@ -26,7 +26,7 @@ func (g *Generator) generateProject(
 	if err != nil {
 		return err
 	}
-	return g.generateIssues(
+	if err := g.generateIssues(
 		ctx,
 		projectIndex,
 		workspace,
@@ -34,7 +34,10 @@ func (g *Generator) generateProject(
 		projectReference,
 		containers,
 		labels,
-	)
+	); err != nil {
+		return err
+	}
+	return g.verifyListPaging(ctx, workspace, projectIdentifier)
 }
 
 func (g *Generator) generateStates(

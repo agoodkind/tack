@@ -119,6 +119,10 @@ func (r *idempotencyReader) Stream(context.Context, node.NodeListQuery) (<-chan 
 	panic("idempotencyReader.Stream called")
 }
 
+func (r *idempotencyReader) ListPage(context.Context, node.NodeListQuery) (node.Page, error) {
+	panic("idempotencyReader.ListPage called")
+}
+
 type idempotencyTypes struct {
 	types []*node.NodeType
 }

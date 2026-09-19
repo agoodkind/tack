@@ -71,6 +71,10 @@ func TestGettingStartedDocumentsProjectQueueWorkflow(t *testing.T) {
 		`filters={"state":"CLYDE::In Progress"}`,
 		"Use `tack_get_<tool-token>` only when the user gives a known UUID or printed reference",
 		"Do not use search as the first step for a full project queue",
+		"List tools return 25 rows by default and accept `limit` up to 100",
+		"pass that value back as `cursor`",
+		"Create, update, and set tools return a short confirmation",
+		"a count of direct children per node type",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("getting started should contain %q:\n%s", want, body)

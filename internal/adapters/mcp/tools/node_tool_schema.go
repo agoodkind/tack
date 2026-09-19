@@ -11,6 +11,7 @@ import (
 func listTool(nt *node.NodeType, plural string, route scopeRoute, epParam string, resolver *Resolver) mcpmcp.Tool {
 	fields := append([]schemaField{}, entryPointSchemaFields(resolver)...)
 	fields = append(fields, schemaField{Name: "filters", Type: schemaObject, Desc: "Optional exact property filters keyed by property name or reference alias, for example {\"state\": \"TACK::In Progress\"} or {\"priority\": \"high\"}."})
+	fields = append(fields, pageSchemaFields()...)
 	fields = append(fields, route.schemaFields(resolver)...)
 	return mcpmcp.Tool{
 		Name:        fmt.Sprintf("tack_list_%s", plural),

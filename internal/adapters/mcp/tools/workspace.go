@@ -22,6 +22,11 @@ type nodeTypeSummary struct {
 	Name       string
 	Features   []string
 	Reference  node.ReferenceConfig
+	// ChildCount is the number of direct children of this type under the
+	// described workspace, read one page deep. ChildCountMore is true when
+	// more than ChildCount exist.
+	ChildCount     int
+	ChildCountMore bool
 }
 
 // RegisterWorkspace registers tack_list_workspaces and tack_describe_workspace
@@ -50,7 +55,7 @@ func RegisterWorkspace(s *mcpserver.MCPServer, reader node.NodeReader, resolver 
 	registerTool(s,
 		mcpmcp.Tool{
 			Name:        fmt.Sprintf("tack_describe_%s", resolver.entryPointSlug),
-			Description: "Describes a workspace: its node types, property defs, and direct children.",
+			Description: "Describes a workspace: its node types and a count of direct children per node type.",
 			InputSchema: schema{
 				Fields:   entryPointSchemaFields(resolver),
 				Required: []string{resolver.EntryPointParamName()},
@@ -75,22 +80,33 @@ func RegisterWorkspace(s *mcpserver.MCPServer, reader node.NodeReader, resolver 
 				if nt.OrgID != ws.OrgID {
 					continue
 				}
+				page, err := reader.ListPage(ctx, node.NodeListQuery{
+					OrgID:            ws.OrgID,
+					NodeType:         nt.TypeKey,
+					ByProperty:       &node.PropertyMatch{PropName: "parent_id", Value: parentIDRaw},
+					BySourceRelation: nil,
+					ByTargetRelation: nil,
+					CreatedAfter:     nil,
+					CreatedBefore:    nil,
+					PropFilters:      nil,
+					Limit:            maxListLimit,
+					Cursor:           "",
+				})
+				if err != nil {
+					return classifyError(ctx, err), nil
+				}
 				types = append(types, nodeTypeSummary{
-					Slug:       nt.Slug,
-					PluralSlug: nt.PluralSlug,
-					Name:       nt.Name,
-					Features:   []string(nt.Features),
-					Reference:  nt.Reference,
+					Slug:           nt.Slug,
+					PluralSlug:     nt.PluralSlug,
+					Name:           nt.Name,
+					Features:       []string(nt.Features),
+					Reference:      nt.Reference,
+					ChildCount:     len(page.Views),
+					ChildCountMore: page.NextCursor != "",
 				})
 			}
-			children, _ := reader.List(ctx, node.NodeListQuery{
-				OrgID: ws.OrgID,
-				PropFilters: []node.PropertyMatch{
-					{PropName: "parent_id", Value: parentIDRaw},
-				},
-			})
 			rc := newRenderCtxWithTypes(ctx, reader, nil, resolver.typeIndex)
-			return successText(renderWorkspaceDescribe(rc, ws, types, children), ""), nil
+			return successText(renderWorkspaceDescribe(rc, ws, types), ""), nil
 		},
 	)
 }

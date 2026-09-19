@@ -52,8 +52,14 @@ func listHandler(nt *node.NodeType, route scopeRoute, b NodeTypeBinding) mcpserv
 			return classifyError(ctx, err), nil
 		}
 		q.PropFilters = append(q.PropFilters, propFilters...)
+		limit, cursor, err := pageArgs(args)
+		if err != nil {
+			return classifyError(ctx, err), nil
+		}
+		q.Limit = limit
+		q.Cursor = cursor
 
-		views, err := b.Reader.List(ctx, q)
+		page, err := b.Reader.ListPage(ctx, q)
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
@@ -62,7 +68,7 @@ func listHandler(nt *node.NodeType, route scopeRoute, b NodeTypeBinding) mcpserv
 			plural = nt.Slug + "s"
 		}
 		rc := newRenderCtxWithTypes(ctx, b.Reader, b.Users, b.Resolver.typeIndex)
-		return successText(renderList(rc, plural, views), ""), nil
+		return successText(renderListPage(rc, plural, page), ""), nil
 	}
 }
 
@@ -165,6 +171,6 @@ func createHandler(nt *node.NodeType, route scopeRoute, b NodeTypeBinding) mcpse
 			Identifier: identifierFor(result.View, rc),
 			Name:       result.View.Name,
 		})
-		return successText(renderNode(rc, result.View), instr), nil
+		return successText(renderWriteConfirmation(rc, "Created", result.View, changedFieldNames(&name, rawProps)), instr), nil
 	}
 }
