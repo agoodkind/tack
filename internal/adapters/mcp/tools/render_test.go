@@ -35,6 +35,10 @@ func (r *fakeReader) Stream(context.Context, node.NodeListQuery) (<-chan node.No
 	panic("fakeReader.Stream called")
 }
 
+func (r *fakeReader) ListPage(context.Context, node.NodeListQuery) (node.Page, error) {
+	panic("fakeReader.ListPage called")
+}
+
 type fakeUsers struct {
 	users map[uuid.UUID]*user.User
 }

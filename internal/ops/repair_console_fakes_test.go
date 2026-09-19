@@ -155,6 +155,17 @@ func (r *repairReader) Stream(context.Context, node.NodeListQuery) (<-chan node.
 	panic("repairReader.Stream called")
 }
 
+func (r *repairReader) ListPage(ctx context.Context, q node.NodeListQuery) (node.Page, error) {
+	views, err := r.List(ctx, q)
+	if err != nil {
+		return node.Page{}, err
+	}
+	if q.Limit > 0 && len(views) > q.Limit {
+		views = views[:q.Limit]
+	}
+	return node.Page{Views: views, NextCursor: ""}, nil
+}
+
 type repairTypeRepo struct{ types []*node.NodeType }
 
 func (r *repairTypeRepo) Set(context.Context, *node.NodeType) error {
