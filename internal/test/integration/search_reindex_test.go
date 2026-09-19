@@ -22,9 +22,7 @@ func TestSearchReindexIndexesExistingNodes(t *testing.T) {
 	// this issue until the backfill runs.
 	issueID := createTestIssue(t, env, projectID, "Reindexed quarry ticket")
 	client := searchadapter.New(cfg.MeiliURL, cfg.MeiliMasterKey)
-	// The backfill writes into the index the server configures at startup;
-	// configure it here so the org filter below works on a fresh stack.
-	if err := client.EnsureIndex("nodes", []string{"org_id", "node_type"}, []string{"name", "props"}); err != nil {
+	if err := searchadapter.EnsureNodesIndex(client); err != nil {
 		t.Fatalf("ensure index: %v", err)
 	}
 

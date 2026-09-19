@@ -30,6 +30,10 @@ func init() {
 // partial backfill as a failure.
 func runSearchReindex(ctx context.Context, env *Env) error {
 	searcher := searchadapter.New(env.Cfg.MeiliURL, env.Cfg.MeiliMasterKey)
+	if err := searchadapter.EnsureNodesIndex(searcher); err != nil {
+		env.Log.ErrorContext(ctx, "search_reindex.ensure_index_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("search reindex: ensure nodes index: %w", err)
+	}
 	orgIDs, err := listOrgIDs(ctx, env)
 	if err != nil {
 		env.Log.ErrorContext(ctx, "search_reindex.list_orgs_failed", slog.String("err", err.Error()))
