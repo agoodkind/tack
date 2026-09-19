@@ -5,17 +5,13 @@ import (
 	"time"
 
 	searchadapter "goodkind.io/tack/internal/adapters/search"
-	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/ops"
 )
 
 func TestSearchReindexIndexesExistingNodes(t *testing.T) {
 	env := SetupTestEnv(t)
 	registerOpsOrg(t, env)
-	cfg, err := config.Load()
-	if err != nil {
-		t.Fatalf("load config: %v", err)
-	}
+	cfg := harnessConfig(t, "")
 	env.Ops.Cfg = cfg
 	projectID := createTestProject(t, env)
 	// env.NodeSvc indexes through the no-op searcher, so Meilisearch never sees

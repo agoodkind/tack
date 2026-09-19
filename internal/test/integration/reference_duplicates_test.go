@@ -3,18 +3,12 @@ package integration
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"os"
-	"sync"
 	"testing"
 
 	"github.com/google/uuid"
-	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/pressly/goose/v3"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/ops"
-	"goodkind.io/tack/migrations"
 )
 
 func TestReferenceDuplicatesAreRegistered(t *testing.T) {
@@ -74,7 +68,6 @@ func TestFindDuplicateReferencesReturnsNoGroupsWithoutCollisions(t *testing.T) {
 
 func registerOpsOrg(t *testing.T, env *TestEnv) {
 	t.Helper()
-	migrateAuthSchema(t, env)
 	userID := uuid.New()
 	if _, err := env.Ops.Pool.Exec(
 		env.Ctx,
@@ -92,40 +85,6 @@ func registerOpsOrg(t *testing.T, env *TestEnv) {
 		userID,
 	); err != nil {
 		t.Fatalf("insert ops test member for org %s: %v", env.OrgID, err)
-	}
-}
-
-// authSchemaVersion is the goose version holding users, api_tokens, and
-// org_members. Later migrations carry the audit schema, whose role grants the
-// test database does not provision, so the test migrates up to auth only.
-const authSchemaVersion = 1
-
-var authSchemaOnce sync.Once
-
-// migrateAuthSchema applies the auth migration through the same goose path the
-// migrate subcommand uses, so the ops org listing reads the real tables.
-func migrateAuthSchema(t *testing.T, env *TestEnv) {
-	t.Helper()
-	var migrateErr error
-	authSchemaOnce.Do(func() {
-		goose.SetBaseFS(migrations.FS)
-		if err := goose.SetDialect("postgres"); err != nil {
-			migrateErr = fmt.Errorf("set goose dialect: %w", err)
-			return
-		}
-		database, err := goose.OpenDBWithDriver("pgx", os.Getenv("DATABASE_URL"))
-		if err != nil {
-			migrateErr = fmt.Errorf("open migration database: %w", err)
-			return
-		}
-		upErr := goose.UpToContext(env.Ctx, database, ".", authSchemaVersion)
-		_ = database.Close()
-		if upErr != nil {
-			migrateErr = fmt.Errorf("goose up to %d: %w", authSchemaVersion, upErr)
-		}
-	})
-	if migrateErr != nil {
-		t.Fatalf("migrate auth schema: %v", migrateErr)
 	}
 }
 

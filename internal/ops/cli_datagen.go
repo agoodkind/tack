@@ -55,10 +55,11 @@ type datagenSeedResult struct {
 
 func datagenSeedOp(f *cli.Factory) clispec.Operation[datagenSeedInput] {
 	return clispec.Operation[datagenSeedInput]{
-		Name:  clispec.Name{Canonical: "seed", CLIOverride: ""},
-		Audit: audit.Spec{Verb: string(audit.VerbOpsDatagenSeed), Mutates: true},
-		Group: datagenGroup,
-		Short: "Generate deterministic QA data through authenticated MCP calls",
+		Name:     clispec.Name{Canonical: "seed", CLIOverride: ""},
+		Lifetime: clispec.Permanent,
+		Audit:    audit.Spec{Verb: string(audit.VerbOpsDatagenSeed), Mutates: true},
+		Group:    datagenGroup,
+		Short:    "Generate deterministic QA data through authenticated MCP calls",
 		Long: "Defaults to a dry run. Pass --commit only where FoundationDB is " +
 			"reachable and the app audit DSNs are present, such as the tack-app " +
 			"container environment, not the default tack-ops container. Audit PII " +
@@ -145,10 +146,11 @@ type datagenSoakResult struct {
 
 func datagenSoakOp(f *cli.Factory) clispec.Operation[datagenSoakInput] {
 	return clispec.Operation[datagenSoakInput]{
-		Name:  clispec.Name{Canonical: "soak", CLIOverride: ""},
-		Audit: audit.Spec{Verb: string(audit.VerbOpsDatagenSoak), Mutates: true},
-		Group: datagenGroup,
-		Short: "Run continuous bursty QA traffic through authenticated MCP calls",
+		Name:     clispec.Name{Canonical: "soak", CLIOverride: ""},
+		Lifetime: clispec.Permanent,
+		Audit:    audit.Spec{Verb: string(audit.VerbOpsDatagenSoak), Mutates: true},
+		Group:    datagenGroup,
+		Short:    "Run continuous bursty QA traffic through authenticated MCP calls",
 		Long: "Defaults to a dry run. A zero duration runs until SIGINT or SIGTERM. " +
 			"Pass --commit only in the same app environment required by seed.",
 		Params: []clispec.Param[datagenSoakInput]{

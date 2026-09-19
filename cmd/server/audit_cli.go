@@ -28,7 +28,6 @@ func registerAudit(reg *clispec.Registry, f *cli.Factory) {
 	clispec.Register(reg, auditQueryOp(f))
 	clispec.Register(reg, auditGetOp(f))
 	clispec.Register(reg, auditRedactActorOp(f))
-	clispec.Register(reg, auditBackfillOrgOp(f))
 
 	exportAlias := auditExportOp(f)
 	exportAlias.Group, exportAlias.Hidden, exportAlias.Name = nil, true, clispec.Name{Canonical: "audit-export", CLIOverride: ""}
@@ -62,6 +61,7 @@ type auditExportInput struct {
 func auditExportOp(f *cli.Factory) clispec.Operation[auditExportInput] {
 	return clispec.Operation[auditExportInput]{
 		Name:     clispec.Name{Canonical: "export", CLIOverride: ""},
+		Lifetime: clispec.Permanent,
 		Audit:    audit.Spec{Verb: string(audit.VerbAuditExport), Mutates: true},
 		Group:    auditGroup,
 		Aliases:  nil,

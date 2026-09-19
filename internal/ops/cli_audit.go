@@ -13,12 +13,13 @@ import (
 // read the compliance ledger.
 func auditSeedRolesOp(f *cli.Factory) clispec.Operation[noInput] {
 	return clispec.Operation[noInput]{
-		Name:    clispec.Name{Canonical: "seed-roles", CLIOverride: ""},
-		Audit:   audit.Spec{Verb: string(audit.VerbAuditRolesSeed), Mutates: true},
-		Group:   auditOpsGroup,
-		Aliases: nil,
-		Hidden:  false,
-		Short:   "Create or rotate the LOGIN roles (tack_audit_writer/reader/redactor/operator, tack_app)",
+		Name:     clispec.Name{Canonical: "seed-roles", CLIOverride: ""},
+		Lifetime: clispec.Permanent,
+		Audit:    audit.Spec{Verb: string(audit.VerbAuditRolesSeed), Mutates: true},
+		Group:    auditOpsGroup,
+		Aliases:  nil,
+		Hidden:   false,
+		Short:    "Create or rotate the LOGIN roles (tack_audit_writer/reader/redactor/operator, tack_app)",
 		Long: "Idempotently create or rotate the LOGIN audit roles used by the app " +
 			"and the audit-consumer to write and read the compliance ledger, and " +
 			"tack_app, the non-superuser login the application's DATABASE_URL uses " +

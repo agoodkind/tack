@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	searchadapter "goodkind.io/tack/internal/adapters/search"
 	"goodkind.io/tack/internal/audit"
+	"goodkind.io/tack/internal/clispec"
 	"goodkind.io/tack/internal/domain/node"
 	domainsearch "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/service"
@@ -19,6 +20,7 @@ const searchReindexPageSize = 500
 func init() {
 	Register(Operation{
 		Name:        "search-reindex",
+		Lifetime:    clispec.Permanent,
 		Audit:       audit.Spec{Verb: string(audit.VerbOpsSearchReindex), Mutates: true},
 		Description: "Rebuild the Meilisearch nodes index from FoundationDB views",
 		Run:         runSearchReindex,

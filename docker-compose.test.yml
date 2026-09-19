@@ -1,108 +1,29 @@
-# Local integration test stack.
+# Local Go test runner.
 #
-# Services on a shared default network:
+# One service, tests, builds a Go image that links the same FoundationDB
+# client library the production server links and runs go test against a
+# bind-mount of the working tree. `make test-unit` and `make test-integration`
+# run it.
 #
-#   fdb          single-node FoundationDB cluster
-#   yugabyte     single-node YugabyteDB for the auth and audit tables
-#   meilisearch  search engine behind tack_search
-#   tests        Go test runner that builds against the same FDB client library
-#                and runs ./internal/test/integration/...
-#
-# `make test-integration` brings fdb up, waits for it to be healthy, then
-# runs `docker compose run --rm tests`. Tests connect to the FDB container by
-# Docker DNS name, so FDB protocol reconnects resolve through the in-network
-# IP and never need host port forwarding. This avoids Docker Desktop's TCP
-# port-forwarder, which drops FDB's connect-packet exchange on macOS.
-#
-# This compose file deliberately diverges from the production
-# docker-compose.yml: production runs IPv6-only with NDP-proxied GUAs, which
-# Docker Desktop on macOS cannot replicate. The integration tests do not
-# exercise the v6-only contract; they only exercise the storage layer.
+# Tests that need a store start it themselves through internal/testenv, which
+# drives the Docker daemon through the SDK over the mounted socket: each test
+# binary starts its own single-node FoundationDB and YugabyteDB on the
+# tack-testenv network and attaches this container to that network, so the engines are
+# reached at their network addresses rather than through Docker Desktop's port
+# forwarder, which drops FoundationDB's connect-packet exchange on macOS.
 
 services:
-  fdb:
-    image: foundationdb/foundationdb:${FDB_VERSION:-7.4.6}
-    environment:
-      FDB_NETWORKING_MODE: container
-      FDB_PORT: "4500"
-      FDB_COORDINATOR_PORT: "4500"
-    volumes:
-      - tack-test-fdb-config:/etc/foundationdb
-      - tack-test-fdb-data:/var/fdb
-      - ./fdb-overlay/fdb.bash:/var/fdb/scripts/fdb.bash:ro
-    healthcheck:
-      test: ["CMD-SHELL", "fdbcli --exec 'status minimal' 2>&1 | grep -q 'available'"]
-      interval: 3s
-      timeout: 3s
-      retries: 30
-      start_period: 10s
-
-  yugabyte:
-    image: yugabytedb/yugabyte:2024.2.8.0-b85
-    # The arm64 build of this release corrupts itself under the chain-append
-    # concurrency test: pggate fails an internal size check with a garbage
-    # length, the tserver then aborts on a fourteen-year clock skew, and every
-    # backend dies with them (TACK-459). The amd64 build passes the same test
-    # repeatedly, so an Apple silicon host runs it under emulation; on the
-    # amd64 CI runner this line changes nothing.
-    platform: linux/amd64
-    command: >
-      bin/yugabyted start --daemon=false --base_dir=/home/yugabyte/var
-    environment:
-      YSQL_DB:       tack
-      YSQL_USER:     yugabyte
-      YSQL_PASSWORD: ${TEST_YB_PASSWORD}
-    healthcheck:
-      test: ["CMD-SHELL", "PGPASSWORD=${TEST_YB_PASSWORD} ysqlsh -h $$(hostname -i) -p 5433 -U yugabyte -d tack -c 'SELECT 1' -t"]
-      interval: 5s
-      timeout: 10s
-      retries: 30
-      start_period: 60s
-    volumes:
-      - tack-test-yb-data:/home/yugabyte/var
-
-  meilisearch:
-    # Same engine version as production (docker-compose.yml). The index lives
-    # in the container only, so every stack start begins with an empty index.
-    image: getmeili/meilisearch:v1.12
-    environment:
-      MEILI_MASTER_KEY: tack-test-meili-key
-      MEILI_ENV: development
-      MEILI_MAX_INDEXING_MEMORY: "1073741824"
-      # The test network is not the IPv6-only production bridge, so bind the
-      # IPv4 wildcard that the runner reaches through Docker DNS.
-      MEILI_HTTP_ADDR: "0.0.0.0:7700"
-    healthcheck:
-      test:
-        ["CMD-SHELL", "curl -sf http://localhost:7700/health | grep -q 'available'"]
-      interval: 3s
-      timeout: 5s
-      retries: 20
-
   tests:
     build:
       context: .
       dockerfile: Dockerfile.test
       args:
         FDB_VERSION: ${FDB_VERSION:-7.4.6}
-    depends_on:
-      fdb:
-        condition: service_healthy
-      yugabyte:
-        condition: service_healthy
-      meilisearch:
-        condition: service_healthy
-    environment:
-      DATABASE_URL: ${TEST_DATABASE_URL}
-      AUDIT_WRITER_DSN: ${TEST_AUDIT_WRITER_DSN}
-      AUDIT_READER_DSN: ${TEST_AUDIT_READER_DSN}
-      MEILI_URL: http://meilisearch:7700
-      MEILI_MASTER_KEY: tack-test-meili-key
     volumes:
       # Source bind-mount: edits on the host are visible without a rebuild.
       - .:/src
-      # Reuse the FDB cluster file the server wrote, mounted read-only.
-      - tack-test-fdb-config:/etc/foundationdb:ro
+      # The daemon internal/testenv starts the test engines on.
+      - /var/run/docker.sock:/var/run/docker.sock
       # Persist Go's build and module caches across runs so the second invocation
       # only compiles what changed.
       - tack-test-go-cache:/root/.cache/go-build
@@ -110,8 +31,5 @@ services:
     profiles: ["runner"]
 
 volumes:
-  tack-test-fdb-config:
-  tack-test-fdb-data:
   tack-test-go-cache:
   tack-test-go-mod:
-  tack-test-yb-data:

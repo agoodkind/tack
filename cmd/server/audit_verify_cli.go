@@ -25,6 +25,7 @@ type auditVerifyInput struct {
 func auditVerifyOp(f *cli.Factory) clispec.Operation[auditVerifyInput] {
 	return clispec.Operation[auditVerifyInput]{
 		Name:     clispec.Name{Canonical: "verify", CLIOverride: ""},
+		Lifetime: clispec.Permanent,
 		Audit:    audit.Spec{Verb: string(audit.VerbAuditVerify), Reads: true},
 		Group:    auditGroup,
 		Aliases:  nil,

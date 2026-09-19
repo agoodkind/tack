@@ -2,10 +2,11 @@ package audit
 
 import (
 	"context"
-	"os"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"goodkind.io/tack/internal/testenv"
 )
 
 // TestWriteOutboxSurvivesALostConnection reproduces TACK-497 against a real
@@ -13,10 +14,7 @@ import (
 // between two writes, the way `ops ledger node-prepare` kills its own node's
 // connection when it stops that node. The second write must still land.
 func TestWriteOutboxSurvivesALostConnection(t *testing.T) {
-	dsn := os.Getenv(chainTestDSNEnv)
-	if dsn == "" {
-		t.Skipf("set %s to a migrated audit DSN to run", chainTestDSNEnv)
-	}
+	dsn := testenv.Ledger(t)
 	ctx := context.Background()
 
 	config, err := pgxpool.ParseConfig(dsn)

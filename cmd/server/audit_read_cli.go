@@ -35,12 +35,13 @@ type auditQueryInput struct {
 // audit.read.
 func auditQueryOp(f *cli.Factory) clispec.Operation[auditQueryInput] {
 	return clispec.Operation[auditQueryInput]{
-		Name:    clispec.Name{Canonical: "query", CLIOverride: ""},
-		Audit:   audit.Spec{Verb: string(audit.VerbAuditRead), Reads: true},
-		Group:   auditGroup,
-		Aliases: nil,
-		Hidden:  false,
-		Short:   "Print one page of audit.events rows for an org over a bounded RFC3339 window as JSON",
+		Name:     clispec.Name{Canonical: "query", CLIOverride: ""},
+		Lifetime: clispec.Permanent,
+		Audit:    audit.Spec{Verb: string(audit.VerbAuditRead), Reads: true},
+		Group:    auditGroup,
+		Aliases:  nil,
+		Hidden:   false,
+		Short:    "Print one page of audit.events rows for an org over a bounded RFC3339 window as JSON",
 		Long: "Rows return most recent first, at most --limit (capped at 1000) per page. " +
 			"A full page carries next_cursor; pass it back as --cursor for the next page.",
 		Examples: nil,
@@ -120,6 +121,7 @@ type auditGetInput struct {
 func auditGetOp(f *cli.Factory) clispec.Operation[auditGetInput] {
 	return clispec.Operation[auditGetInput]{
 		Name:     clispec.Name{Canonical: "get", CLIOverride: ""},
+		Lifetime: clispec.Permanent,
 		Audit:    audit.Spec{Verb: string(audit.VerbAuditRead), Reads: true},
 		Group:    auditGroup,
 		Aliases:  nil,

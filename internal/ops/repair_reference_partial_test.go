@@ -12,7 +12,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/config"
 )
@@ -23,8 +22,8 @@ import (
 // applied mutations with no ledger row naming them, and a rerun cannot recover
 // the record because a renamed node is no longer a duplicate.
 func TestFailedRepairRecordsWhatItAppliedBeforeFailing(t *testing.T) {
-	outbox := &auditBackfillTestOutbox{}
-	report := partialRepairReport()
+	outbox, orgID := repairAuditOutbox(t)
+	report := partialRepairReport(orgID)
 	runErr := errors.New("write renumbered node: transaction too old")
 
 	returned := repairRecordOutcome(context.Background(), report, runErr, true, func(recordCtx context.Context) error {
@@ -37,14 +36,11 @@ func TestFailedRepairRecordsWhatItAppliedBeforeFailing(t *testing.T) {
 	if returned == nil || !errors.Is(returned, runErr) {
 		t.Fatalf("returned = %v, want the run's own failure so the operator acts on it", returned)
 	}
-	if len(outbox.events) != 1 {
-		t.Fatalf("recorded events = %d, want the one rename that landed before the failure", len(outbox.events))
+	events := repairAuditRecordedEvents(t, outbox, orgID)
+	if len(events) != 1 {
+		t.Fatalf("recorded events = %d, want the one rename that landed before the failure", len(events))
 	}
-	var recorded audit.Event
-	for _, event := range outbox.events {
-		recorded = event
-	}
-	rename := repairAuditExtra(t, recorded)
+	rename := repairAuditExtra(t, events[0])
 	if rename.From != "APP-10" || rename.To != "APP-18" {
 		t.Fatalf("recorded rename = %s to %s, want APP-10 to APP-18", rename.From, rename.To)
 	}
@@ -54,8 +50,8 @@ func TestFailedRepairRecordsWhatItAppliedBeforeFailing(t *testing.T) {
 // actually applied. A dry run changes nothing, so a dry run that fails owes
 // the ledger nothing and must not write rows for renames that never happened.
 func TestDryRunFailureRecordsNothing(t *testing.T) {
-	outbox := &auditBackfillTestOutbox{}
-	report := partialRepairReport()
+	outbox, orgID := repairAuditOutbox(t)
+	report := partialRepairReport(orgID)
 
 	returned := repairRecordOutcome(context.Background(), report, errors.New("list nodes: unavailable"), false, func(recordCtx context.Context) error {
 		return recordReferenceRepair(
@@ -67,8 +63,8 @@ func TestDryRunFailureRecordsNothing(t *testing.T) {
 	if returned == nil {
 		t.Fatal("a failed dry run must still return its error")
 	}
-	if len(outbox.events) != 0 {
-		t.Fatalf("recorded events = %d, want none: a dry run applied nothing", len(outbox.events))
+	if events := repairAuditRecordedEvents(t, outbox, orgID); len(events) != 0 {
+		t.Fatalf("recorded events = %d, want none: a dry run applied nothing", len(events))
 	}
 }
 
@@ -81,7 +77,7 @@ func TestBothFailuresReachTheOperator(t *testing.T) {
 	runErr := errors.New("allocate replacement value: transaction too old")
 	recordErr := errors.New("outbox unavailable")
 
-	returned := repairRecordOutcome(context.Background(), partialRepairReport(), runErr, true, func(context.Context) error {
+	returned := repairRecordOutcome(context.Background(), partialRepairReport(uuid.Nil), runErr, true, func(context.Context) error {
 		return recordErr
 	})
 
@@ -98,8 +94,8 @@ func TestBothFailuresReachTheOperator(t *testing.T) {
 // and the audit write is mandatory, so it must not inherit that cancellation:
 // the record would fail exactly when the applied work most needs one.
 func TestRecordingSurvivesACancelledRun(t *testing.T) {
-	outbox := &auditBackfillTestOutbox{}
-	report := partialRepairReport()
+	outbox, orgID := repairAuditOutbox(t)
+	report := partialRepairReport(orgID)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -116,8 +112,8 @@ func TestRecordingSurvivesACancelledRun(t *testing.T) {
 	if !errors.Is(returned, context.Canceled) {
 		t.Fatalf("returned = %v, want the run's cancellation", returned)
 	}
-	if len(outbox.events) != 1 {
-		t.Fatalf("recorded events = %d, want the applied rename recorded despite the cancelled run", len(outbox.events))
+	if events := repairAuditRecordedEvents(t, outbox, orgID); len(events) != 1 {
+		t.Fatalf("recorded events = %d, want the applied rename recorded despite the cancelled run", len(events))
 	}
 }
 
@@ -127,7 +123,7 @@ func TestRecordingSurvivesACancelledRun(t *testing.T) {
 func TestRecordFailureSurfacesWhenTheRunSucceeded(t *testing.T) {
 	recordErr := errors.New("outbox unavailable")
 
-	returned := repairRecordOutcome(context.Background(), partialRepairReport(), nil, true, func(context.Context) error {
+	returned := repairRecordOutcome(context.Background(), partialRepairReport(uuid.Nil), nil, true, func(context.Context) error {
 		return recordErr
 	})
 
@@ -138,8 +134,7 @@ func TestRecordFailureSurfacesWhenTheRunSucceeded(t *testing.T) {
 
 // partialRepairReport is what a run carries when its first rename landed and
 // its second failed: one applied rename, nothing else.
-func partialRepairReport() RepairReferenceReport {
-	orgID := uuid.MustParse("019ff30f-1b51-7b34-a20f-2f61b652b86e")
+func partialRepairReport(orgID uuid.UUID) RepairReferenceReport {
 	nodeID := uuid.MustParse("019dc5ed-eac1-7ab4-b86b-cebc6ce06de8")
 	return RepairReferenceReport{
 		Renumbered: []ReferenceRename{
@@ -149,8 +144,6 @@ func partialRepairReport() RepairReferenceReport {
 		Keys:     nil,
 	}
 }
-
-var _ audit.OutboxWriter = (*auditBackfillTestOutbox)(nil)
 
 // TestRenumberGroupReturnsTheRenamesItAppliedBeforeFailing covers the group
 // level, which is where the partial work was dropped first. Each rename lands

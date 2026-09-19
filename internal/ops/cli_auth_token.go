@@ -34,12 +34,13 @@ type authTokenRevokeInput struct {
 
 func authTokenCreateOp(f *cli.Factory) clispec.Operation[authTokenCreateInput] {
 	return clispec.Operation[authTokenCreateInput]{
-		Name:    clispec.Name{Canonical: "token-create", CLIOverride: ""},
-		Audit:   audit.Spec{Verb: string(audit.VerbOpsAuthTokenCreate), Mutates: true},
-		Group:   authOpsGroup,
-		Aliases: nil,
-		Hidden:  false,
-		Short:   "Mint an API token for an existing user and print it once",
+		Name:     clispec.Name{Canonical: "token-create", CLIOverride: ""},
+		Lifetime: clispec.Permanent,
+		Audit:    audit.Spec{Verb: string(audit.VerbOpsAuthTokenCreate), Mutates: true},
+		Group:    authOpsGroup,
+		Aliases:  nil,
+		Hidden:   false,
+		Short:    "Mint an API token for an existing user and print it once",
 		Long: "Creates one bearer token for the user named by --email, stores only " +
 			"its hash, records the issue in the ledger, and prints the raw value " +
 			"exactly once. Nothing writes without --execute; without it the command " +
@@ -66,12 +67,13 @@ func authTokenCreateOp(f *cli.Factory) clispec.Operation[authTokenCreateInput] {
 
 func authTokenListOp(f *cli.Factory) clispec.Operation[authTokenListInput] {
 	return clispec.Operation[authTokenListInput]{
-		Name:    clispec.Name{Canonical: "token-list", CLIOverride: ""},
-		Audit:   audit.Spec{Verb: string(audit.VerbOpsAuthTokenList), Reads: true},
-		Group:   authOpsGroup,
-		Aliases: nil,
-		Hidden:  false,
-		Short:   "List a user's API tokens by id, label, and last use",
+		Name:     clispec.Name{Canonical: "token-list", CLIOverride: ""},
+		Lifetime: clispec.Permanent,
+		Audit:    audit.Spec{Verb: string(audit.VerbOpsAuthTokenList), Reads: true},
+		Group:    authOpsGroup,
+		Aliases:  nil,
+		Hidden:   false,
+		Short:    "List a user's API tokens by id, label, and last use",
 		Long: "Reads every token issued to the user named by --email. Raw values " +
 			"are never stored, so none is shown; use token-create for a new one.",
 		Examples: nil,
@@ -91,12 +93,13 @@ func authTokenListOp(f *cli.Factory) clispec.Operation[authTokenListInput] {
 
 func authTokenRevokeOp(f *cli.Factory) clispec.Operation[authTokenRevokeInput] {
 	return clispec.Operation[authTokenRevokeInput]{
-		Name:    clispec.Name{Canonical: "token-revoke", CLIOverride: ""},
-		Audit:   audit.Spec{Verb: string(audit.VerbOpsAuthTokenRevoke), Mutates: true},
-		Group:   authOpsGroup,
-		Aliases: nil,
-		Hidden:  false,
-		Short:   "Revoke one API token by id",
+		Name:     clispec.Name{Canonical: "token-revoke", CLIOverride: ""},
+		Lifetime: clispec.Permanent,
+		Audit:    audit.Spec{Verb: string(audit.VerbOpsAuthTokenRevoke), Mutates: true},
+		Group:    authOpsGroup,
+		Aliases:  nil,
+		Hidden:   false,
+		Short:    "Revoke one API token by id",
 		Long: "Deletes the token row named by --id, so the bearer it hashed to is " +
 			"refused from the next request on, and records the revocation. Nothing " +
 			"writes without --execute; without it the command reports the token it " +

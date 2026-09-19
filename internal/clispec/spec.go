@@ -59,7 +59,11 @@ type Group struct {
 // Run is the single work function; it writes results through the sink and
 // never sees cobra types. Aliases register alternate terminal spellings.
 type Operation[I Input] struct {
-	Name     Name
+	Name Name
+	// Lifetime is Permanent for a product command, or names the ticket and
+	// removal day of a backfill. A backfill renders under a backfill group
+	// with the once- prefix, and the build fails after its removal day.
+	Lifetime Lifetime
 	Group    *Group     `exhaustruct:"optional"`
 	Audit    audit.Spec `exhaustruct:"optional"`
 	Aliases  []string   `exhaustruct:"optional"`
@@ -79,12 +83,10 @@ type Operation[I Input] struct {
 // renderable is the type-erased view of an Operation. The type parameter stays
 // captured in the methods and never escapes as any.
 type renderable interface {
-	group() *Group
+	renderParent(backfills backfillGroups) *Group
 	auditSpec() audit.Spec
 	cobraCommand(f *cli.Factory) *cobra.Command
 }
-
-func (op Operation[I]) group() *Group { return op.Group }
 
 func (op Operation[I]) auditSpec() audit.Spec { return op.Audit }
 

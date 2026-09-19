@@ -7,12 +7,14 @@ import (
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain/token"
+	"goodkind.io/tack/internal/domain/user"
 )
 
-// cacheable is what the auth caches hold: a token record or a membership
-// set. The union keeps the cache concrete rather than open to any value.
+// cacheable is what the auth caches hold: a token record, a membership set,
+// or a user record. The union keeps the cache concrete rather than open to
+// any value.
 type cacheable interface {
-	*token.Token | []uuid.UUID
+	*token.Token | []uuid.UUID | *user.User
 }
 
 // entryCache is a bounded cache with a lifetime per entry. When it is full

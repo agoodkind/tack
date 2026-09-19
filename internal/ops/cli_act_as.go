@@ -31,12 +31,13 @@ type actAsCreateInput struct {
 
 func actAsCreateOp(f *cli.Factory) clispec.Operation[actAsCreateInput] {
 	return clispec.Operation[actAsCreateInput]{
-		Name:    clispec.Name{Canonical: "create", CLIOverride: ""},
-		Audit:   audit.Spec{Verb: string(audit.VerbOpsActAsCreate), Mutates: true},
-		Group:   actAsGroup,
-		Aliases: nil,
-		Hidden:  false,
-		Short:   "Create one node as a named user, with the operator on the row",
+		Name:     clispec.Name{Canonical: "create", CLIOverride: ""},
+		Lifetime: clispec.Permanent,
+		Audit:    audit.Spec{Verb: string(audit.VerbOpsActAsCreate), Mutates: true},
+		Group:    actAsGroup,
+		Aliases:  nil,
+		Hidden:   false,
+		Short:    "Create one node as a named user, with the operator on the row",
 		Long: "Creates one node under --parent as the user named by --user, who " +
 			"must be an active user and a member of the org that holds the parent. " +
 			"A grant row names the user, the org, and the reason; the node's own " +

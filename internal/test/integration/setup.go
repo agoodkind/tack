@@ -1,9 +1,9 @@
 // Package integration holds end-to-end tests that exercise the real FDB
 // cluster, the generic NodeService, the resolver, and the seed.
 //
-// Tests in this package are gated on the TACK_INTEGRATION environment
-// variable. Without it, every test calls t.Skip. CI brings up FDB and
-// postgres via docker-compose and sets TACK_INTEGRATION=1.
+// Tests in this package run against the single-node FoundationDB cluster and
+// the migrated YugabyteDB ledger that internal/testenv starts through the
+// Docker SDK; they skip only under go test -short.
 //
 // Each test gets its own per-test FDB key prefix, set via
 // foundationdb.SetTestPrefix at SetupTestEnv. After the test finishes a
@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"os"
 	"testing"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
@@ -28,6 +27,7 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/ops"
 	"goodkind.io/tack/internal/service"
+	"goodkind.io/tack/internal/testenv"
 )
 
 // TestEnv holds isolated test dependencies.
@@ -108,14 +108,8 @@ func clearPrefix(t *testing.T, clusterFile string, prefix []byte) {
 // SetupTestEnv creates isolated test dependencies.
 func SetupTestEnv(t *testing.T) *TestEnv {
 	t.Helper()
-	if os.Getenv("TACK_INTEGRATION") == "" {
-		t.Skip("integration test: set TACK_INTEGRATION=1 to run")
-	}
-
-	clusterFile := os.Getenv("FDB_CLUSTER_FILE")
-	if clusterFile == "" {
-		clusterFile = "/etc/foundationdb/fdb.cluster"
-	}
+	clusterFile := testenv.FoundationDB(t)
+	ledgerDSN := testenv.Ledger(t)
 
 	prefix := uuid.New()
 	prefixBytes := append([]byte("tack-test:"), prefix[:]...)
@@ -127,7 +121,7 @@ func SetupTestEnv(t *testing.T) *TestEnv {
 		t.Fatalf("open fdb: %v", err)
 	}
 	ctx := context.Background()
-	pool, err := postgres.NewPool(ctx, os.Getenv("DATABASE_URL"), nil)
+	pool, err := postgres.NewPool(ctx, ledgerDSN, nil)
 	if err != nil {
 		fdbadapter.SetTestPrefix(nil)
 		t.Fatalf("open postgres: %v", err)

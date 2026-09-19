@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/audit"
+	"goodkind.io/tack/internal/clispec"
 	"goodkind.io/tack/internal/domain/node"
 )
 
@@ -15,6 +16,7 @@ const maxRepairParentDepth = 32
 func init() {
 	Register(Operation{
 		Name:        "repair.sequence_scope_ids",
+		Lifetime:    clispec.Permanent,
 		Audit:       audit.Spec{Verb: string(audit.VerbOpsRepairApply), Mutates: true},
 		Description: "Repair missing or stale scope_id props on sequence-bearing nodes by deriving the owning scope from the parent chain. Idempotent.",
 		Run:         runRepairSequenceScopeIDs,

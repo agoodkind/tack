@@ -42,10 +42,11 @@ type datagenLegacyLedgerRowResult struct {
 
 func datagenLegacyLedgerRowOp(f *cli.Factory) clispec.Operation[datagenLegacyLedgerRowInput] {
 	return clispec.Operation[datagenLegacyLedgerRowInput]{
-		Name:  clispec.Name{Canonical: "legacy-ledger-row", CLIOverride: ""},
-		Audit: audit.Spec{Verb: string(audit.VerbOpsDatagenLegacyLedgerRow), Mutates: true},
-		Group: datagenGroup,
-		Short: "Write one ledger row in the shape that predates the outcome column",
+		Name:     clispec.Name{Canonical: "legacy-ledger-row", CLIOverride: ""},
+		Lifetime: clispec.Permanent,
+		Audit:    audit.Spec{Verb: string(audit.VerbOpsDatagenLegacyLedgerRow), Mutates: true},
+		Group:    datagenGroup,
+		Short:    "Write one ledger row in the shape that predates the outcome column",
 		Long: "Appends a row whose hash version is 1 and whose outcome, error, and " +
 			"extra columns are NULL, which is what the writer produced before " +
 			"migration 006 added them. Only production holds such rows, so the " +

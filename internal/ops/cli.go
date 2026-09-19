@@ -40,7 +40,6 @@ func RegisterCommands(reg *clispec.Registry, f *cli.Factory) {
 	clispec.Register(reg, repairApplyOp(f))
 	clispec.Register(reg, repairReferenceUniquenessOp(f))
 	clispec.Register(reg, auditSeedRolesOp(f))
-	clispec.Register(reg, auditReconstructReferenceRepairOp(f))
 	clispec.Register(reg, auditDLQInspectOp(f))
 	clispec.Register(reg, auditDLQReplayOp(f))
 	clispec.Register(reg, authTokenCreateOp(f))
@@ -50,7 +49,6 @@ func RegisterCommands(reg *clispec.Registry, f *cli.Factory) {
 	clispec.Register(reg, dbSQLOp(f))
 	clispec.Register(reg, datagenSeedOp(f))
 	clispec.Register(reg, datagenSoakOp(f))
-	clispec.Register(reg, datagenReferenceShapeOp(f))
 	clispec.Register(reg, datagenLegacyLedgerRowOp(f))
 	clispec.Register(reg, provisionOp(f))
 	clispec.Register(reg, ledgerNodePrepareOp(f))
@@ -71,6 +69,7 @@ func registerBatchOps(reg *clispec.Registry, f *cli.Factory) {
 		name := op.Name
 		clispec.Register(reg, clispec.Operation[noInput]{
 			Name:     clispec.Name{Canonical: name, CLIOverride: name},
+			Lifetime: op.Lifetime,
 			Audit:    op.Audit,
 			Group:    batchGroup,
 			Aliases:  nil,

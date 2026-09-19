@@ -24,8 +24,7 @@ func TestSearchFindsIssueByTitleWord(t *testing.T) {
 }
 
 func TestSearchReportsUnavailableBackend(t *testing.T) {
-	t.Setenv("MEILI_URL", "http://[::1]:1")
-	harness := NewMCPHarness(t)
+	harness := newMCPHarnessWithSearch(t, unreachableMeiliURL)
 	arguments := harness.projectArgs()
 	arguments.ProjectReference = ""
 	arguments.Query = "anything"
