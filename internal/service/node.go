@@ -118,6 +118,10 @@ func (s *NodeService) Update(ctx context.Context, in UpdateInput) (*node.NodeVie
 	if err := s.validateUpdateProps(ctx, existing.OrgID, nt, in.Props); err != nil {
 		return nil, err
 	}
+	parentChanges, err := s.parentChangeForUpdate(ctx, existing, in.Props, in.ActorID, now)
+	if err != nil {
+		return nil, err
+	}
 	indexedProps, err := s.indexedPropNames(ctx, existing.OrgID, nt)
 	if err != nil {
 		return nil, err
@@ -132,7 +136,7 @@ func (s *NodeService) Update(ctx context.Context, in UpdateInput) (*node.NodeVie
 	if err != nil {
 		return nil, err
 	}
-	relationshipChanges := stampRelationshipChanges(in.RelationshipChanges, in.ActorID, now)
+	relationshipChanges := stampRelationshipChanges(mergeRelationshipChanges(in.RelationshipChanges, parentChanges), in.ActorID, now)
 	if err := audit.StageStateChange(ctx, audit.VerbNodeUpdate, audit.Entity{
 		Type: "node", NodeType: existing.NodeType, ID: existing.ID,
 		Identifier: firstReferenceKey(referenceKeys), Name: name,

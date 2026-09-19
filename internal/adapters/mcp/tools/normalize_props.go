@@ -3,6 +3,8 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/google/uuid"
@@ -84,14 +86,24 @@ func normalizeUpdateProps(
 		func(ctx context.Context, orgID uuid.UUID, scopeID uuid.UUID, targetType *node.NodeType, ref string) (uuid.UUID, error) {
 			return resolveReferenceProp(ctx, b.Resolver, orgID, scopeID, targetType, ref)
 		},
+		func(ctx context.Context, childType *node.NodeType, orgID uuid.UUID, scopeID uuid.UUID, ref string) (uuid.UUID, error) {
+			return resolveParentReference(ctx, b, childType, orgID, scopeID, ref)
+		},
 	)
 	if err != nil {
-		return nil, err
+		return nil, loggedNormalizeError(ctx, nt, "update", err)
 	}
 	if command == nil {
 		return nil, nil
 	}
 	return command.Props, nil
+}
+
+// loggedNormalizeError logs a refused property command and wraps its cause.
+func loggedNormalizeError(ctx context.Context, nt *node.NodeType, command string, err error) error {
+	slog.WarnContext(ctx, "node.props_refused",
+		slog.String("node_type", nt.TypeKey), slog.String("command", command), slog.String("err", err.Error()))
+	return fmt.Errorf("normalize %s %s properties: %w", nt.TypeKey, command, err)
 }
 
 func normalizePropertyCommandReferences(
@@ -120,9 +132,12 @@ func normalizePropertyCommandReferences(
 		func(ctx context.Context, orgID uuid.UUID, scopeID uuid.UUID, targetType *node.NodeType, ref string) (uuid.UUID, error) {
 			return resolveReferenceProp(ctx, b.Resolver, orgID, scopeID, targetType, ref)
 		},
+		func(ctx context.Context, childType *node.NodeType, orgID uuid.UUID, scopeID uuid.UUID, ref string) (uuid.UUID, error) {
+			return resolveParentReference(ctx, b, childType, orgID, scopeID, ref)
+		},
 	)
 	if err != nil {
-		return nil, err
+		return nil, loggedNormalizeError(ctx, nt, "filter", err)
 	}
 	if compiled == nil {
 		return nil, nil
