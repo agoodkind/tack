@@ -65,16 +65,23 @@ test-unit:
 	docker compose -f docker-compose.test.yml --profile runner run --rm tests \
 	    test -count=1 -timeout 30m ./internal/ops/... ./internal/adapters/postgres/... ./internal/audit/...
 
-# Every package whose tests reach FoundationDB or the ledger. CI runs the same
-# list on the runner host (.github/workflows/ci.yml).
+# Every package whose tests reach FoundationDB or the ledger, and the go test
+# arguments that run them. test-store-host runs them on the current host,
+# which needs the FoundationDB client library and a reachable Docker daemon;
+# the CI integration job runs it. test-integration runs them in the runner.
 TEST_STORE_PACKAGES := ./internal/test/integration/... ./internal/adapters/foundationdb/... \
 	./internal/audit/... ./internal/ops/... ./internal/datagen/... ./cmd/server/...
+TEST_STORE_ARGS := -count=1 -timeout 30m -v $(TEST_STORE_PACKAGES)
+
+.PHONY: test-store-host
+test-store-host:
+	go test $(TEST_STORE_ARGS)
 
 .PHONY: test-integration
 test-integration:
 	docker compose -f docker-compose.test.yml --profile runner build tests
 	docker compose -f docker-compose.test.yml --profile runner run --rm tests \
-	    test -count=1 -timeout 30m -v $(TEST_STORE_PACKAGES)
+	    test $(TEST_STORE_ARGS)
 
 # Remove every engine internal/testenv or cmd/testenv started, and their
 # network. A test binary removes its own engines when it exits normally; this

@@ -56,11 +56,6 @@ jobs:
 
       # The tests start FoundationDB and the ledger themselves through
       # internal/testenv and reach them at their bridge addresses from the
-      # host. The package list matches TEST_STORE_PACKAGES in the Makefile.
+      # host.
       - name: run the store-backed tests
-        env:
-          CGO_ENABLED: "1"
-        run: |
-          go test -count=1 -timeout 30m -v \
-            ./internal/test/integration/... ./internal/adapters/foundationdb/... \
-            ./internal/audit/... ./internal/ops/... ./internal/datagen/... ./cmd/server/...
+        run: make test-store-host
