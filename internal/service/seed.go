@@ -49,7 +49,7 @@ func NewSeeder(propertyDefs node.PropertyDefRepository, nodeTypes node.TypeRepos
 func (s *Seeder) SeedOrg(ctx context.Context, orgID uuid.UUID) error {
 	log := telemetry.L(ctx)
 
-	nodeTypes, propertyDefs := DefaultOrgDefinitions(orgID)
+	nodeTypes, propertyDefs := defaultOrgDefinitions(orgID)
 	for _, def := range propertyDefs {
 		if err := s.propertyDefs.Set(ctx, def); err != nil {
 			log.ErrorContext(ctx, "seed.property_def_failed", slog.String("name", def.Name), slog.String("err", err.Error()))
@@ -65,10 +65,10 @@ func (s *Seeder) SeedOrg(ctx context.Context, orgID uuid.UUID) error {
 	return nil
 }
 
-// DefaultOrgDefinitions returns the exact records Seeder writes for an org.
-// Reconstructors use this to identify a historical seed without duplicating
-// the seed contract.
-func DefaultOrgDefinitions(orgID uuid.UUID) ([]*node.NodeType, []*node.PropertyDef) {
+// defaultOrgDefinitions returns the sample records Seeder writes for an org.
+// It is unexported because the sample data changes freely, and no other
+// package may pin its contents (TACK-512).
+func defaultOrgDefinitions(orgID uuid.UUID) ([]*node.NodeType, []*node.PropertyDef) {
 	return defaultNodeTypes(orgID), defaultPropertyDefs(orgID)
 }
 

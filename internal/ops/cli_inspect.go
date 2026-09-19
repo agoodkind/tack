@@ -46,6 +46,7 @@ type inspectReadInput struct {
 func inspectReadOp(f *cli.Factory) clispec.Operation[inspectReadInput] {
 	return clispec.Operation[inspectReadInput]{
 		Name:     clispec.Name{Canonical: "read", CLIOverride: ""},
+		Lifetime: clispec.Permanent,
 		Audit:    audit.Spec{Verb: string(audit.VerbOpsInspectRead), Reads: true},
 		Group:    inspectGroup,
 		Aliases:  nil,
@@ -106,6 +107,7 @@ type inspectFindInput struct {
 func inspectFindOp(f *cli.Factory) clispec.Operation[inspectFindInput] {
 	return clispec.Operation[inspectFindInput]{
 		Name:     clispec.Name{Canonical: "find", CLIOverride: ""},
+		Lifetime: clispec.Permanent,
 		Audit:    audit.Spec{Verb: string(audit.VerbOpsInspectFind), Reads: true},
 		Group:    inspectGroup,
 		Aliases:  nil,
@@ -176,6 +178,7 @@ type inspectQueryInput struct {
 func inspectQueryOp(f *cli.Factory) clispec.Operation[inspectQueryInput] {
 	return clispec.Operation[inspectQueryInput]{
 		Name:     clispec.Name{Canonical: "query", CLIOverride: ""},
+		Lifetime: clispec.Permanent,
 		Audit:    audit.Spec{Verb: string(audit.VerbOpsInspectQuery), Reads: true},
 		Group:    inspectGroup,
 		Aliases:  nil,

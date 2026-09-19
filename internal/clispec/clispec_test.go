@@ -40,10 +40,11 @@ func (showTestSource) Resolve(context.Context) (audit.OperatorPrincipal, error) 
 
 func showOp(group *clispec.Group) clispec.Operation[showInput] {
 	return clispec.Operation[showInput]{
-		Name:  clispec.Name{Canonical: "show"},
-		Audit: audit.Spec{Verb: "test.show", Reads: true},
-		Group: group,
-		Short: "Show one id",
+		Name:     clispec.Name{Canonical: "show"},
+		Lifetime: clispec.Permanent,
+		Audit:    audit.Spec{Verb: "test.show", Reads: true},
+		Group:    group,
+		Short:    "Show one id",
 		Args: []clispec.Arg[showInput]{
 			clispec.StringArg("id", "the id", func(in *showInput, v string) { in.ID = v }),
 		},

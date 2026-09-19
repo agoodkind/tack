@@ -53,12 +53,13 @@ type repairReferenceUniquenessResult struct {
 
 func repairReferenceUniquenessOp(f *cli.Factory) clispec.Operation[repairReferenceUniquenessInput] {
 	return clispec.Operation[repairReferenceUniquenessInput]{
-		Name:    clispec.Name{Canonical: "reference-uniqueness", CLIOverride: ""},
-		Audit:   audit.Spec{Verb: string(audit.VerbOpsRepairReferenceUniqueness), Mutates: true},
-		Group:   repairGroup,
-		Aliases: nil,
-		Hidden:  false,
-		Short:   "Renumber duplicated references, seed counters, and backfill the uniqueness index",
+		Name:     clispec.Name{Canonical: "reference-uniqueness", CLIOverride: ""},
+		Lifetime: clispec.Permanent,
+		Audit:    audit.Spec{Verb: string(audit.VerbOpsRepairReferenceUniqueness), Mutates: true},
+		Group:    repairGroup,
+		Aliases:  nil,
+		Hidden:   false,
+		Short:    "Renumber duplicated references, seed counters, and backfill the uniqueness index",
 		Long: "Prints every planned rename and changes nothing until --execute is " +
 			"passed. Renumbering changes a reference a person may have written " +
 			"down, so read the printed mapping first.",

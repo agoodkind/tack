@@ -31,7 +31,8 @@ type seedInput struct {
 // run against a non-empty database unless --allow-reseed is passed.
 func seedOp(f *cli.Factory) clispec.Operation[seedInput] {
 	return clispec.Operation[seedInput]{
-		Name: clispec.Name{Canonical: "seed"},
+		Name:     clispec.Name{Canonical: "seed"},
+		Lifetime: clispec.Permanent,
 		Audit: audit.Spec{
 			Verb: string(audit.VerbBootstrapSeed), Mutates: true,
 		},

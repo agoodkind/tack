@@ -19,6 +19,7 @@ func auditGenKeyOp(f *cli.Factory) clispec.Operation[auditGenKeyInput] {
 	_ = f
 	return clispec.Operation[auditGenKeyInput]{
 		Name:     clispec.Name{Canonical: "gen-key", CLIOverride: ""},
+		Lifetime: clispec.Permanent,
 		Audit:    audit.Spec{Verb: string(audit.VerbAuditKeyGenerate), Mutates: true},
 		Group:    auditGroup,
 		Aliases:  nil,

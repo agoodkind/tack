@@ -116,10 +116,11 @@ func configureAuditOutbox(f *cli.Factory) {
 
 func serveOp(f *cli.Factory) clispec.Operation[emptyInput] {
 	return clispec.Operation[emptyInput]{
-		Name:  clispec.Name{Canonical: "serve"},
-		Audit: audit.Spec{Verb: string(audit.VerbServerServe), Mutates: true},
-		Short: "Start the HTTP server (the default action with no subcommand)",
-		New:   func() emptyInput { return emptyInput{} },
+		Name:     clispec.Name{Canonical: "serve"},
+		Lifetime: clispec.Permanent,
+		Audit:    audit.Spec{Verb: string(audit.VerbServerServe), Mutates: true},
+		Short:    "Start the HTTP server (the default action with no subcommand)",
+		New:      func() emptyInput { return emptyInput{} },
 		Run: func(ctx context.Context, _ emptyInput, _ clispec.ResultSink) error {
 			return runServer(ctx, f.Cfg)
 		},
@@ -128,10 +129,11 @@ func serveOp(f *cli.Factory) clispec.Operation[emptyInput] {
 
 func migrateOp(f *cli.Factory) clispec.Operation[emptyInput] {
 	return clispec.Operation[emptyInput]{
-		Name:  clispec.Name{Canonical: "migrate"},
-		Audit: audit.Spec{Verb: string(audit.VerbDatabaseMigrate), Mutates: true},
-		Short: "Run database migrations against DATABASE_URL",
-		New:   func() emptyInput { return emptyInput{} },
+		Name:     clispec.Name{Canonical: "migrate"},
+		Lifetime: clispec.Permanent,
+		Audit:    audit.Spec{Verb: string(audit.VerbDatabaseMigrate), Mutates: true},
+		Short:    "Run database migrations against DATABASE_URL",
+		New:      func() emptyInput { return emptyInput{} },
 		Run: func(ctx context.Context, _ emptyInput, sink clispec.ResultSink) error {
 			if err := postgres.Migrate(ctx, f.Cfg.DatabaseURL, migrations.FS); err != nil {
 				slog.ErrorContext(ctx, "migrate.failed", slog.String("err", err.Error()))
