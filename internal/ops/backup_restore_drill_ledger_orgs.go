@@ -47,7 +47,7 @@ func restoredLedgerOrgs(
 	logger := telemetry.L(ctx)
 	var buf bytes.Buffer
 	exitCode, stderr, err := containerExecStreaming(ctx, r.Cli, containerName,
-		ysqlshRoleArgs(containerName, database, roleName, restoredLedgerOrgsSQL),
+		ysqlshRoleArgs(ybScratchHost(containerName), database, roleName, restoredLedgerOrgsSQL),
 		[]string{"PGPASSWORD=" + r.YBPass}, &buf)
 	if err != nil || exitCode != 0 {
 		wrapped := fmt.Errorf("list the restored ledger's orgs: exit %d: %s: %w",

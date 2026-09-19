@@ -27,7 +27,7 @@ func importAndRestoreYBSnapshot(
 	inventories []ybArchiveInventory,
 ) error {
 	logger := telemetry.L(ctx)
-	master := container + ":7100"
+	master := ybScratchHost(container) + ":7100"
 
 	importRes, err := containerExec(ctx, r.Cli, container,
 		[]string{

@@ -71,12 +71,12 @@ func newYBScratchWatch(r *restoreDrillCtx, container, master string, env, readyC
 func readYBScratchCounters(ctx context.Context, r *restoreDrillCtx, container string) (map[string]int64, error) {
 	counters := map[string]int64{}
 	var failures []string
-	if _, err := fetchYBScratchPage(ctx, r, container, "http://"+container+":7000/"); err != nil {
+	if _, err := fetchYBScratchPage(ctx, r, container, "http://"+ybScratchHost(container)+":7000/"); err != nil {
 		failures = append(failures, "master: "+err.Error())
 	} else {
 		counters[ybCounterMasterAnswers] = 1
 	}
-	body, err := fetchYBScratchPage(ctx, r, container, "http://"+container+":9000/api/v1/tablets")
+	body, err := fetchYBScratchPage(ctx, r, container, "http://"+ybScratchHost(container)+":9000/api/v1/tablets")
 	if err != nil {
 		failures = append(failures, "tablet server: "+err.Error())
 	} else {

@@ -189,7 +189,7 @@ func applyYBDrillRoles(ctx context.Context, r *restoreDrillCtx, containerName, d
 	logger := telemetry.L(ctx)
 	rolesFilePath := ybDrillArtifactPath(ybSnapshotRolesObject)
 	cmd := []string{
-		"ysqlsh", "-h", containerName, "-p", drillLedgerPort,
+		"ysqlsh", "-h", ybScratchHost(containerName), "-p", drillLedgerPort,
 		"-U", database, "-d", database,
 		"-v", "VERBOSITY=verbose", "-q", "-f", rolesFilePath,
 	}
