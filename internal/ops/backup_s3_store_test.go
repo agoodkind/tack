@@ -92,9 +92,9 @@ func (s *backupTestStore) object(key string) (body []byte, found bool) {
 	return body, true
 }
 
-// stop stops the engine holding the bucket, the way the object store's guest
-// stops: its address stops answering and the bucket stays on its disk. The
-// caller defers ensureStarted, so the tests after it find the engine running.
+// stop stops the engine holding the bucket: its address refuses connections
+// and the bucket stays on its disk. The caller defers ensureStarted, so the
+// tests after it find the engine running.
 func (s *backupTestStore) stop() {
 	s.t.Helper()
 	testenv.StopObjectStore(s.t, s.bucket.Container)
@@ -102,7 +102,7 @@ func (s *backupTestStore) stop() {
 }
 
 // start starts the stopped engine again and returns the endpoint it answers
-// on, which may differ from the one before the stop.
+// on.
 func (s *backupTestStore) start() string {
 	s.t.Helper()
 	s.bucket.Endpoint = testenv.StartObjectStore(s.t, s.bucket.Container)

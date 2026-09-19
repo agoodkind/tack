@@ -9,13 +9,13 @@ import (
 )
 
 // objectStoreStopSeconds is how long a stop waits for the engine to exit
-// before killing it.
-const objectStoreStopSeconds = 5
+// before killing it. The engine does not exit on SIGTERM within seconds, and
+// an outage needs no clean shutdown, so a stop kills it at once.
+const objectStoreStopSeconds = 0
 
-// StopObjectStore stops the engine in containerName the way a guest stops:
-// its address stops answering, and its buckets stay on its volume for
-// [StartObjectStore]. Docker may hand the stopped engine's address to another
-// container, so a test must not rely on it staying silent for long.
+// StopObjectStore kills the engine in containerName, the way the object
+// store's service dies: its address refuses connections, and its buckets stay
+// on its volume for [StartObjectStore].
 func StopObjectStore(t T, containerName string) {
 	t.Helper()
 	skipWhenShort(t)
@@ -26,8 +26,7 @@ func StopObjectStore(t T, containerName string) {
 }
 
 // StartObjectStore starts the stopped engine in containerName and returns
-// its endpoint once it stores objects again. The endpoint may differ from the
-// one before the stop, because Docker assigns the address anew.
+// its endpoint once it stores objects again.
 func StartObjectStore(t T, containerName string) string {
 	t.Helper()
 	skipWhenShort(t)

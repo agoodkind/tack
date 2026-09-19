@@ -28,20 +28,26 @@ const (
 	objectStoreReaderName = "tack-testenv-read-only"
 	// objectStoreVolumeCount is the engine's volume count.
 	objectStoreVolumeCount = "512"
+	// objectStoreHolderSeconds is how long the address holder sleeps, which is
+	// longer than any test binary runs.
+	objectStoreHolderSeconds = "2147483647"
 	// objectStoreKeyBytes is the random size of each generated key.
 	objectStoreKeyBytes = 16
 )
 
 // objectStoreCommand is the weed invocation production's service runs, with
-// the data directory at the image's volume and one change: a fixed volume
-// count in place of -volume.max=0. Every bucket is a collection that takes
+// the data directory at the image's volume and two changes. A fixed volume
+// count replaces -volume.max=0: every bucket is a collection that takes
 // volumes of its own, and a test binary makes a bucket per test, so sizing
 // the count from a CI runner's free disk leaves too few, and writes to later
 // buckets fail with "failed to find writable volumes". Volumes are not
-// preallocated, so the count costs no disk.
+// preallocated, so the count costs no disk. -master.resumeState=false makes a
+// restarted engine elect itself leader in seconds rather than a minute; the
+// buckets and objects survive the restart either way.
 var objectStoreCommand = []string{
 	"server", "-dir=/data", "-s3", "-s3.config=" + objectStoreConfigPath,
 	"-ip.bind=::", "-master.volumeSizeLimitMB=1024", "-volume.max=" + objectStoreVolumeCount,
+	"-master.resumeState=false",
 }
 
 // objectStoreEnv makes a new collection grow one volume rather than seven, so
@@ -105,7 +111,11 @@ func ObjectStore(t T) ObjectStoreBucket {
 }
 
 // provisionObjectStore starts this process's engine with a generated pair of
-// identities and returns its container name once it accepts writes.
+// identities and returns its container name once it accepts writes. The
+// engine shares the network stack of a container that only sleeps, so its
+// address stays assigned while the engine is stopped: a stopped engine
+// refuses connections at once, and Docker cannot hand the address to another
+// container.
 func provisionObjectStore(ctx context.Context) (string, error) {
 	identities, err := newObjectStoreConfig(ctx)
 	if err != nil {
@@ -121,13 +131,25 @@ func provisionObjectStore(ctx context.Context) (string, error) {
 		return "", err
 	}
 	defer func() { _ = cli.Close() }()
+	holder, err := startEngine(ctx, cli, engineSpec{
+		kind:       "seaweedfs-address",
+		image:      objectStoreImage,
+		platform:   nil,
+		entrypoint: []string{"sleep"},
+		cmd:        []string{objectStoreHolderSeconds},
+		env:        nil,
+	})
+	if err != nil {
+		return "", err
+	}
 	started, err := startEngine(ctx, cli, engineSpec{
-		kind:     "seaweedfs",
-		image:    objectStoreImage,
-		platform: nil,
-		cmd:      objectStoreCommand,
-		env:      objectStoreEnv,
-		files:    map[string][]byte{objectStoreConfigPath: contents},
+		kind:      "seaweedfs",
+		image:     objectStoreImage,
+		platform:  nil,
+		cmd:       objectStoreCommand,
+		env:       objectStoreEnv,
+		files:     map[string][]byte{objectStoreConfigPath: contents},
+		networkOf: holder.name,
 	})
 	if err != nil {
 		return "", err

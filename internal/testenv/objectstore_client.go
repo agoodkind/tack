@@ -126,12 +126,7 @@ func probeObjectStore(ctx context.Context, s3Client *s3.Client) error {
 // identities back from its container, so a process that did not start the
 // engine can still reach it.
 func objectStoreAccess(ctx context.Context, cli *client.Client, containerName string) (ObjectStoreBucket, error) {
-	inspected, err := cli.ContainerInspect(ctx, containerName, client.ContainerInspectOptions{Size: false})
-	if err != nil {
-		slog.ErrorContext(ctx, "testenv.objectstore.inspect_failed", slog.String("err", err.Error()))
-		return ObjectStoreBucket{}, fmt.Errorf("inspect container %s: %w", containerName, err)
-	}
-	address, err := engineAddress(inspected.Container)
+	address, err := containerAddress(ctx, cli, containerName)
 	if err != nil {
 		return ObjectStoreBucket{}, err
 	}
