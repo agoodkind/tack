@@ -1,10 +1,13 @@
 # Search on OpenSearch
 
-Search runs on an OpenSearch cluster of three nodes, one per dedicated guest.
-The cluster replaces the single Meilisearch container on the app guest. This
-page describes the designed system for epic TACK-517, which resolves the
-scale defect TACK-518, the isolation defect TACK-519, and the meaning defect
-TACK-520.
+Search cannot grow past one guest, cannot match meaning, and keeps other
+orgs out only by a check that runs after the engine has already matched
+across them. The cause is the engine: Community Meilisearch holds one copy of
+the index in one container on the app guest, matches letters only, and
+receives the org filter as a formatted string. The decision is to replace it
+with an OpenSearch cluster of three nodes on dedicated guests. This page
+describes that system for epic TACK-517, which resolves the scale defect
+TACK-518, the isolation defect TACK-519, and the meaning defect TACK-520.
 
 The engine shards and replicates the index itself. It ranks by keyword and by
 meaning with a model it runs locally. The server adds a visibility filter to
@@ -85,15 +88,13 @@ index is proven on QA.
 4. Search keeps serving after one search guest is lost, and the reindex
    command rebuilds the index from FoundationDB on QA.
 
-## Why OpenSearch replaces Meilisearch
+## Alternatives rejected
 
-Community Meilisearch cannot shard or replicate, because one instance holds
-one copy of the data. Sharding exists only in the Enterprise Edition, version
-1.37 or later, whose license allows production use only with a commercial
-agreement. Routing orgs across several community instances from the app was
-rejected because the app would then own the sharding. OpenSearch shards and
-replicates natively under the Apache 2.0 license and runs embedding models
-inside the cluster.
+Meilisearch Enterprise Edition shards and replicates from version 1.37, but
+its license allows production use only with a commercial agreement. Routing
+orgs across several community instances from the app was rejected because the
+app would then own the sharding. OpenSearch shards and replicates natively
+under the Apache 2.0 license and runs embedding models inside the cluster.
 
 Sources: [Meilisearch sharding](https://www.meilisearch.com/docs/learn/multi_search/implement_sharding)
 and the [Meilisearch Enterprise Edition license](https://www.meilisearch.com/blog/enterprise-license).
