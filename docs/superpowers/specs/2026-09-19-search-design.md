@@ -31,8 +31,8 @@ Tack application.
 
 Tack will replace Meilisearch with OpenSearch 3.8. Each environment will use
 three OpenSearch nodes, one `nodes` index, and hybrid keyword and semantic
-ranking. OpenSearch will generate embeddings on the cluster with a local CPU
-model.
+ranking. OpenSearch will divide every persisted node text into passages and
+generate an embedding for every passage on the cluster with a local CPU model.
 
 OpenSearch provides shard placement and replication under the Apache 2.0
 license. Its ML Commons plugin can serve
@@ -98,23 +98,37 @@ fields:
 | `node_type` | `keyword` | The node's type key. |
 | `name` | `text` | The node's current name when indexed. |
 | `text` | `text` | Values from text, select, multi-select, and URL properties, joined with newlines. |
-| `embedding` | 384-dimensional `knn_vector` using Lucene HNSW and cosine similarity | The `nodes-embed` ingest pipeline. |
+| `passage_text` | `text` | The `nodes-embed` ingest pipeline joins `name` and `text`. |
+| `passage_chunk` | `text` array | The `nodes-embed` ingest pipeline divides `passage_text`. |
+| `passage_embedding` | `nested`; each object contains a 384-dimensional `knn_vector` named `knn`, using Lucene HNSW and cosine similarity | The `nodes-embed` ingest pipeline embeds each value in `passage_chunk`. |
+
+The embedding contract covers all searchable text in every node that Tack
+successfully persists. FoundationDB limits each stored node and node view to a
+[100,000-byte value](https://apple.github.io/foundationdb/known-limitations.html),
+including JSON structure and non-searchable properties. OpenSearch must not
+add a smaller text limit or silently omit the end of a valid node.
 
 The application must not create or store vectors. The `nodes-embed` ingest
-pipeline will use a `text_embedding` processor to generate `embedding` from
-`name` and `text`. The application will use that pipeline for individual
-writes and bulk reindex requests.
+pipeline will join `name` and `text` into `passage_text`, then use
+`text_chunking` to write `passage_chunk` with the
+`fixed_token_length` algorithm, the `standard` tokenizer, a 384-token limit,
+a 0.1 overlap rate, and `max_chunk_limit=-1`. Disabling the chunk limit
+prevents OpenSearch from appending excess input to a final oversized passage.
+The pipeline will then use `text_embedding` to generate one nested
+`passage_embedding.knn` vector for every value in `passage_chunk`. Both
+processors will reject the index request on failure. The application will use
+this pipeline for individual writes and bulk reindex requests.
 
 The proposed index document omits the existing `Props` object and facet counts.
 Search results need ranked node IDs, and the MCP tool currently discards the
 facet counts. Property definitions will determine which values contribute to
 `text`; application code will not name individual properties.
 
-The initial capacity estimate is 4 KB per document, including the vector and
-its HNSW data. At that estimate, one million documents require about 4 GB for
-primary data and about 8 GB with one replica. QA measurements must replace
-this estimate before production capacity decisions. OpenSearch can increase
-the primary count with its
+Vector storage depends on passage count. Each passage adds 1,536 raw vector
+bytes before Lucene and HNSW overhead, and one replica doubles the indexed
+storage. QA must measure bytes per passage and the distribution of passage
+counts before production capacity decisions. OpenSearch can increase the
+primary count with its
 [split index API](https://docs.opensearch.org/latest/api-reference/index-apis/split/)
 if measured growth exceeds the initial layout.
 
@@ -122,10 +136,11 @@ if measured growth exceeds the initial layout.
 
 Each search will send one hybrid query. The keyword branch will search `name`
 with a boost of 3 and `text` with the default weight. The semantic branch will
-use the local embedding model and request 100 nearest candidates. The
-`nodes-hybrid` search pipeline will normalize both score sets with `min_max`
-and combine them with `arithmetic_mean`. Both branches will start with a
-weight of 0.5. QA results will determine the final weights.
+use the local embedding model, score every document by its best matching
+passage, and request 100 nearest candidates. The `nodes-hybrid` search
+pipeline will normalize both score sets with `min_max` and combine them with
+`arithmetic_mean`. Both branches will start with a weight of 0.5. QA results
+will determine the final weights.
 
 Every request will contain an `org_id` term filter. The application will add
 a `node_type` term only after it confirms that the type belongs to the
@@ -160,9 +175,15 @@ to both branches of the
         { "multi_match": {
           "query": "<text>", "fields": ["name^3", "text"]
         } },
-        { "neural": { "embedding": {
-          "query_text": "<text>", "model_id": "<id>", "k": 100
-        } } }
+        { "nested": {
+          "path": "passage_embedding",
+          "score_mode": "max",
+          "query": {
+            "neural": { "passage_embedding.knn": {
+              "query_text": "<text>", "model_id": "<id>", "k": 100
+            } }
+          }
+        } }
       ]
     }
   }
@@ -202,7 +223,9 @@ implement the existing `Searcher` interface with `opensearch-go` v4.
 `ops batch search-reindex` must recreate the index from FoundationDB after a
 migration or index loss. It will read 500 views at a time for each organization
 and type, then send one bulk request for each page through `nodes-embed`. The
-command must stop at the first failed read or bulk request.
+command must stop at the first failed read or bulk request. A failed live index
+request will leave the FoundationDB write intact and report the failure. A
+later successful reindex will regenerate every passage from that stored view.
 
 The [acceptance criteria](2026-09-19-search-acceptance.md) define the QA and
 production gates.

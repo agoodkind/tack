@@ -45,6 +45,21 @@ data or tenant isolation.
 
 All seven checks must pass without manually maintained synonyms.
 
+## Complete embedding coverage
+
+- Create a node through Tack with 90,000 bytes of searchable text. Place
+  `Application terminated unexpectedly` only at the end. A search for `crash`
+  returns that node on the first page.
+- Read the indexed node after the same write. `passage_chunk` contains the
+  beginning and end of the source text, no passage exceeds 384 tokens, and the
+  number of nested vectors equals the number of passages.
+- Index a probe document through the deployed `nodes-embed` pipeline with 101
+  passages and a semantic target only in passage 101. A nested neural query for
+  that target returns the probe. Delete the probe after the check.
+- Record primary-store bytes before and after indexing probe documents with
+  known passage counts. Capacity planning uses the measured bytes per passage
+  and the measured distribution of passage counts.
+
 ## Failure tolerance and recovery
 
 - Each search guest is stopped by itself. For every stopped guest, a search
@@ -53,5 +68,5 @@ All seven checks must pass without manually maintained synonyms.
   The OpenSearch cluster assigns every primary shard and reports non-red
   health.
 - `ops batch search-reindex --execute` recreates a deleted `nodes` index with
-  the normal deployment configuration. All seven semantic query pairs pass
-  after the rebuild.
+  the normal deployment configuration. All seven semantic query pairs and the
+  90,000-byte embedding coverage check pass after the rebuild.
