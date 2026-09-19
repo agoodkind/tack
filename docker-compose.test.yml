@@ -3,7 +3,7 @@
 # One service, tests, builds a Go image that links the same FoundationDB
 # client library the production server links and runs go test against a
 # bind-mount of the working tree. `make test-unit` and `make test-integration`
-# run it.
+# run it, and set TACK_TEST_ROOT to the tree's host path.
 #
 # Tests that need a store start it themselves through internal/testenv, which
 # drives the Docker daemon through the SDK over the mounted socket: each test
@@ -11,6 +11,10 @@
 # tack-testenv network and attaches this container to that network, so the engines are
 # reached at their network addresses rather than through Docker Desktop's port
 # forwarder, which drops FoundationDB's connect-packet exchange on macOS.
+#
+# The tree is mounted at its host path, not a fixed one, because a test that
+# asks the daemon to bind-mount a file names it by this container's path, and
+# the daemon reads that path on its own host (testenv.SharedDir).
 
 services:
   tests:
@@ -21,7 +25,7 @@ services:
         FDB_VERSION: ${FDB_VERSION:-7.4.6}
     volumes:
       # Source bind-mount: edits on the host are visible without a rebuild.
-      - .:/src
+      - .:${TACK_TEST_ROOT:?set TACK_TEST_ROOT to the repository's host path}
       # The daemon internal/testenv starts the test engines on.
       - /var/run/docker.sock:/var/run/docker.sock
       # Persist Go's build and module caches across runs so the second invocation
@@ -34,6 +38,7 @@ services:
       - /tmp/tack-test
     environment:
       TMPDIR: /tmp/tack-test
+    working_dir: ${TACK_TEST_ROOT:?set TACK_TEST_ROOT to the repository's host path}
     profiles: ["runner"]
 
 volumes:

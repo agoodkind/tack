@@ -5,10 +5,12 @@
 //	testenv foundationdb  start a single-node FoundationDB, print its cluster file
 //	testenv meilisearch   start a Meilisearch engine, print its URL and master key
 //	testenv objectstore   start an S3-compatible object store, print its endpoint
+//	testenv shared-dir    create a directory the Docker daemon sees at the same path, print it
 //	testenv down          remove every engine the tool or any test started
 //
 // An engine the tool starts keeps running after it exits, for the operator to
-// use, until `testenv down` removes it. The tool is not an `./server ops`
+// use, until `testenv down` removes it. A shared directory stays until the
+// operator deletes it. The tool is not an `./server ops`
 // command: it touches no environment's stores, only throwaway local engines.
 package main
 
@@ -29,10 +31,11 @@ const (
 	subcommandFoundationDB subcommand = "foundationdb"
 	subcommandMeilisearch  subcommand = "meilisearch"
 	subcommandObjectStore  subcommand = "objectstore"
+	subcommandSharedDir    subcommand = "shared-dir"
 	subcommandDown         subcommand = "down"
 )
 
-const usage = "usage: testenv ledger | foundationdb | meilisearch | objectstore | down"
+const usage = "usage: testenv ledger | foundationdb | meilisearch | objectstore | shared-dir | down"
 
 func main() {
 	code := run(os.Args[1:])
@@ -61,6 +64,8 @@ func run(args []string) int {
 		})
 	case subcommandObjectStore:
 		return runStep(func(step *cliStep) { _, _ = fmt.Println(testenv.ObjectStore(step)) })
+	case subcommandSharedDir:
+		return runStep(func(step *cliStep) { _, _ = fmt.Println(testenv.SharedDir(step)) })
 	case subcommandDown:
 		return runStep(func(step *cliStep) {
 			testenv.RequireDocker(step)

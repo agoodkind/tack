@@ -29,6 +29,7 @@
 __pycache__/
 *.pyc
 .test-fdb/
+.testenv/
 .test-audit-db/
 lm-review-report-*.md
 trace.*.json
