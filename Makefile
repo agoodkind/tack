@@ -61,10 +61,11 @@ seed:
 # Tests run inside the test runner image (docker-compose.test.yml), which
 # bind-mounts the Docker socket and the source tree at the tree's host path,
 # so a path a test names in a bind mount means the same file to the daemon.
-# A test that needs FoundationDB or the ledger starts it through
-# internal/testenv, which gives each test binary its own engine containers and
-# removes them when the binary exits; `make test-env-down` removes any a killed
-# binary left. Only `go test -short` skips the store-backed tests.
+# A test that needs FoundationDB, the ledger, Meilisearch, or the object store
+# starts it through internal/testenv, which gives each test binary its own
+# engine containers and removes them when the binary exits; `make
+# test-env-down` removes any a killed binary left. Only `go test -short` skips
+# the store-backed tests.
 TEST_RUNNER := TACK_TEST_ROOT=$(CURDIR) docker compose -f docker-compose.test.yml --profile runner
 
 # The ops, postgres adapter, and audit packages. The audit package carries the

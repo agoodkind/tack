@@ -23,6 +23,9 @@ type engineSpec struct {
 	platform *ocispec.Platform
 	cmd      []string
 	env      []string
+	// files are written into the created container, path to contents, before
+	// it starts, for an engine that reads its configuration from a file.
+	files map[string][]byte `exhaustruct:"optional"`
 }
 
 // engine is a started engine container.
@@ -67,6 +70,11 @@ func startEngine(ctx context.Context, cli *client.Client, spec engineSpec) (engi
 		return engine{}, fmt.Errorf("create container %s from %s: %w", name, spec.image, err)
 	}
 	own(name)
+	for path, contents := range spec.files {
+		if err := writeContainerFile(ctx, cli, name, path, contents); err != nil {
+			return engine{}, err
+		}
+	}
 	if _, err := cli.ContainerStart(ctx, name, client.ContainerStartOptions{}); err != nil {
 		slog.ErrorContext(ctx, "testenv.engine.start_failed", slog.String("err", err.Error()))
 		return engine{}, fmt.Errorf("start container %s: %w", name, err)
