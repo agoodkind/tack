@@ -4,6 +4,7 @@
 //	testenv ledger        start a YugabyteDB ledger, migrate it, print its DSN
 //	testenv foundationdb  start a single-node FoundationDB, print its cluster file
 //	testenv meilisearch   start a Meilisearch engine, print its URL and master key
+//	testenv objectstore   start an S3-compatible object store, print its endpoint
 //	testenv down          remove every engine the tool or any test started
 //
 // An engine the tool starts keeps running after it exits, for the operator to
@@ -27,10 +28,11 @@ const (
 	subcommandLedger       subcommand = "ledger"
 	subcommandFoundationDB subcommand = "foundationdb"
 	subcommandMeilisearch  subcommand = "meilisearch"
+	subcommandObjectStore  subcommand = "objectstore"
 	subcommandDown         subcommand = "down"
 )
 
-const usage = "usage: testenv ledger | foundationdb | meilisearch | down"
+const usage = "usage: testenv ledger | foundationdb | meilisearch | objectstore | down"
 
 func main() {
 	code := run(os.Args[1:])
@@ -57,6 +59,8 @@ func run(args []string) int {
 			url, masterKey := testenv.Meilisearch(step)
 			_, _ = fmt.Println(url, masterKey)
 		})
+	case subcommandObjectStore:
+		return runStep(func(step *cliStep) { _, _ = fmt.Println(testenv.ObjectStore(step)) })
 	case subcommandDown:
 		return runStep(func(step *cliStep) {
 			testenv.RequireDocker(step)
