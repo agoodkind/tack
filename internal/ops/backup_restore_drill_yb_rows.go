@@ -53,7 +53,7 @@ func readYBDrillRowCount(
 	logger := telemetry.L(ctx)
 	var buf bytes.Buffer
 	exitCode, stderr, err := containerExecStreaming(ctx, r.Cli, container,
-		ysqlshArgs(container, database, "select count(*) from "+table),
+		ysqlshArgs(ybScratchHost(container), database, "select count(*) from "+table),
 		[]string{"PGPASSWORD=" + r.YBPass}, &buf)
 	if err != nil || exitCode != 0 {
 		wrapped := fmt.Errorf("count %s: exit %d: %s: %w", table, exitCode, strings.TrimSpace(stderr), err)

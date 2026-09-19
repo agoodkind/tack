@@ -56,7 +56,7 @@ func restoreDrillYugabyte(ctx context.Context, r *restoreDrillCtx) error {
 	}
 
 	startWatch := newYBScratchWatch(r, name, "", []string{"PGPASSWORD=" + r.YBPass},
-		ysqlshArgs(name, manifest.Database, "select 1"))
+		ysqlshArgs(ybScratchHost(name), manifest.Database, "select 1"))
 	took, err := awaitYBScratch(ctx, "scratch yugabyted start", startWatch,
 		ybScratchStallWindow, ybScratchPollInterval, ybScratchProbeTimeout)
 	if err != nil {
@@ -262,8 +262,8 @@ func ybDrillManifestDefect(manifest ybSnapshotManifest) string {
 }
 
 // startScratchYugabyte boots a throwaway yugabyted with the is_port_available
-// overlay, advertising on its own container name so the embedded DNS resolves
-// it on the IPv6-only bridge. stageDir is bind-mounted read-only at /artifacts,
+// overlay, advertising on [ybScratchHost], which the container's hostname and
+// its network alias both resolve on the IPv6-only bridge. stageDir is bind-mounted read-only at /artifacts,
 // and the engine's base directory is a fresh per-run directory under the
 // backup root.
 func startScratchYugabyte(ctx context.Context, r *restoreDrillCtx, name, database, stageDir string) error {
@@ -275,9 +275,10 @@ func startScratchYugabyte(ctx context.Context, r *restoreDrillCtx, name, databas
 	if err != nil {
 		return err
 	}
+	host := ybScratchHost(name)
 	cfg := &container.Config{
 		Image:    r.Cfg.BackupYBImage,
-		Hostname: name,
+		Hostname: host,
 		Env: []string{
 			"YSQL_DB=" + database,
 			"YSQL_USER=" + database,
@@ -287,8 +288,8 @@ func startScratchYugabyte(ctx context.Context, r *restoreDrillCtx, name, databas
 		Cmd: []string{
 			"start", "--daemon=false",
 			"--base_dir=/home/yugabyte/var",
-			"--advertise_address=" + name,
-			"--listen=" + name,
+			"--advertise_address=" + host,
+			"--listen=" + host,
 		},
 	}
 	hostCfg := &container.HostConfig{
@@ -301,7 +302,7 @@ func startScratchYugabyte(ctx context.Context, r *restoreDrillCtx, name, databas
 	created, err := r.Cli.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Config:           cfg,
 		HostConfig:       hostCfg,
-		NetworkingConfig: netMode(r.Cfg.BackupFDBNetwork),
+		NetworkingConfig: ybScratchNetworking(r.Cfg.BackupFDBNetwork, host),
 		Name:             name,
 	})
 	if err != nil {
@@ -329,7 +330,7 @@ func ysqlshArgs(host, database, sql string) []string {
 // container, passing the throwaway password, and errors on a non-zero exit.
 func ybRunSQL(ctx context.Context, r *restoreDrillCtx, container, database string, args ...string) error {
 	logger := telemetry.L(ctx)
-	cmd := append([]string{"ysqlsh", "-h", container, "-p", "5433", "-U", database, "-d", database}, args...)
+	cmd := append([]string{"ysqlsh", "-h", ybScratchHost(container), "-p", "5433", "-U", database, "-d", database}, args...)
 	exitCode, stderr, err := containerExecStreaming(ctx, r.Cli, container, cmd,
 		[]string{"PGPASSWORD=" + r.YBPass}, devNull{})
 	if err != nil {
