@@ -40,8 +40,4 @@ type Searcher interface {
 	// Search returns NodeDocs matching query, scoped by equality filters
 	// (passed straight to the underlying engine), plus facet counts.
 	Search(ctx context.Context, collection string, query string, filters map[string]string) ([]NodeDoc, map[string]map[string]int64, error)
-	// SearchVariants runs every query in queries as one federated search
-	// under the same filters and returns at most limit NodeDocs, merged and
-	// ranked by the engine. A query and its synonym variants are one request.
-	SearchVariants(ctx context.Context, collection string, queries []string, filters map[string]string, limit int) ([]NodeDoc, error)
 }
