@@ -73,10 +73,33 @@ func childOfEdge(existing *node.NodeView, targetID uuid.UUID, actorID uuid.UUID,
 	}
 }
 
-// mergeRelationshipChanges appends the parent move onto the caller's changes.
+// mergeRelationshipChanges appends the parent move onto the caller's changes,
+// skipping an edge the caller already adds or removes, so a caller that
+// plans the child_of move itself (the repair console) writes it once.
 func mergeRelationshipChanges(base node.RelationshipChanges, extra node.RelationshipChanges) node.RelationshipChanges {
 	return node.RelationshipChanges{
-		Add:    append(append([]*node.Relationship(nil), base.Add...), extra.Add...),
-		Remove: append(append([]*node.Relationship(nil), base.Remove...), extra.Remove...),
+		Add:    appendMissingRelationships(base.Add, extra.Add),
+		Remove: appendMissingRelationships(base.Remove, extra.Remove),
 	}
+}
+
+func appendMissingRelationships(base []*node.Relationship, extra []*node.Relationship) []*node.Relationship {
+	merged := append([]*node.Relationship(nil), base...)
+	for _, candidate := range extra {
+		if !containsRelationship(merged, candidate) {
+			merged = append(merged, candidate)
+		}
+	}
+	return merged
+}
+
+func containsRelationship(relationships []*node.Relationship, candidate *node.Relationship) bool {
+	for _, relationship := range relationships {
+		if relationship.SourceID == candidate.SourceID &&
+			relationship.RelationType == candidate.RelationType &&
+			relationship.TargetID == candidate.TargetID {
+			return true
+		}
+	}
+	return false
 }
