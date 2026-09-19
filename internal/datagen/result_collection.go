@@ -27,7 +27,7 @@ func (r Result) collectionItems() []collectionItem {
 	current := -1
 	inCollection := false
 	for _, line := range strings.Split(r.Text(), "\n") {
-		if strings.HasSuffix(line, " found.") {
+		if strings.HasSuffix(line, " shown.") {
 			inCollection = true
 			continue
 		}
@@ -35,9 +35,10 @@ func (r Result) collectionItems() []collectionItem {
 			continue
 		}
 		if strings.HasPrefix(line, "- ") {
-			items = append(items, collectionItem{
-				Reference: trimMarkdownValue(strings.TrimPrefix(line, "- ")),
-			})
+			// The server omits the Name field when the name is the printed
+			// title, so the title stands in until a Name line overrides it.
+			reference := trimMarkdownValue(strings.TrimPrefix(line, "- "))
+			items = append(items, collectionItem{Reference: reference, Name: reference, NodeType: ""})
 			current = len(items) - 1
 			continue
 		}

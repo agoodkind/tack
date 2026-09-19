@@ -128,10 +128,16 @@ func (r Result) RawID() string {
 }
 
 // ReferenceForName reads a list item's printed reference for an exact name.
+// The server omits the Name field when the name is the printed title, so a
+// title equal to the name is its own reference.
 func (r Result) ReferenceForName(name string) string {
 	lines := strings.Split(r.Text(), "\n")
 	target := "  - Name: " + name
+	titleTarget := "- `" + name + "`"
 	for index, line := range lines {
+		if line == titleTarget {
+			return name
+		}
 		if line != target || index == 0 {
 			continue
 		}

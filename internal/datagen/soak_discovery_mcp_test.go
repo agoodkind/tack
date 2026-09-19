@@ -84,7 +84,7 @@ func writeDiscoveryListItems(
 	var builder strings.Builder
 	fmt.Fprintf(
 		&builder,
-		"#### %s\n\n%d %s found.\n",
+		"#### %s\n\n%d %s shown.\n",
 		strings.ToUpper(plural[:1])+plural[1:],
 		len(items),
 		plural,
@@ -117,7 +117,7 @@ func writeDiscoveryListText(
 ) {
 	fmt.Fprintf(
 		builder,
-		"#### %s\n\n%d %s found.\n",
+		"#### %s\n\n%d %s shown.\n",
 		strings.ToUpper(plural[:1])+plural[1:],
 		len(items),
 		plural,
