@@ -35,6 +35,15 @@ endif
 
 include bootstrap.mk
 
+# A backfill declares a clispec.Lifetime with a removal day. The build refuses
+# once that day has passed, so a finished backfill cannot stay in the tree
+# (TACK-512). This is a project gate, not a copy of a central linter.
+.PHONY: backfill-expiry
+backfill-expiry:
+	go run ./cmd/backfillcheck
+
+build: backfill-expiry
+
 .PHONY: run
 run:
 	go run $(GO_BUILD_FLAGS) $(CMD)

@@ -39,9 +39,10 @@ func RenderCobra(reg *Registry, f *cli.Factory) []*cobra.Command {
 		return c
 	}
 
+	backfills := backfillGroups{}
 	for _, op := range reg.ops {
 		cmd := op.cobraCommand(f)
-		if g := op.group(); g != nil {
+		if g := op.renderParent(backfills); g != nil {
 			ensure(g).AddCommand(cmd)
 		} else {
 			tops = append(tops, cmd)
@@ -58,26 +59,12 @@ func RenderCobra(reg *Registry, f *cli.Factory) []*cobra.Command {
 	return tops
 }
 
-// newGroupCommand builds a parent whose bare invocation prints help.
-func newGroupCommand(g *Group) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   g.Use,
-		Short: g.Short,
-		Long:  g.Long,
-		Annotations: map[string]string{
-			GroupAnnotation: "true",
-		},
-	}
-	cmd.RunE = func(cmd *cobra.Command, _ []string) error { return cmd.Help() }
-	return cmd
-}
-
 // cobraCommand renders one operation. Flags come from the parameters, the
 // positional placeholders and exact count come from the arguments, and RunE
 // decodes both into a fresh input before calling the work function.
 func (op Operation[I]) cobraCommand(f *cli.Factory) *cobra.Command {
 	var use strings.Builder
-	use.WriteString(op.Name.CLI())
+	use.WriteString(op.terminalName())
 	for _, arg := range op.Args {
 		use.WriteString(" ")
 		use.WriteString(arg.placeholder())

@@ -25,12 +25,13 @@ type deployVerifyInput struct {
 // deployVerifyOp declares `ops deploy verify`.
 func deployVerifyOp(f *cli.Factory) clispec.Operation[deployVerifyInput] {
 	return clispec.Operation[deployVerifyInput]{
-		Name:    clispec.Name{Canonical: "verify", CLIOverride: ""},
-		Audit:   audit.Spec{Verb: string(audit.VerbOpsDeployVerify), Reads: true},
-		Group:   deployGroup,
-		Aliases: nil,
-		Hidden:  false,
-		Short:   "Assert the app and audit-consumer containers run the deployed images",
+		Name:     clispec.Name{Canonical: "verify", CLIOverride: ""},
+		Lifetime: clispec.Permanent,
+		Audit:    audit.Spec{Verb: string(audit.VerbOpsDeployVerify), Reads: true},
+		Group:    deployGroup,
+		Aliases:  nil,
+		Hidden:   false,
+		Short:    "Assert the app and audit-consumer containers run the deployed images",
 		Long: "Reads the registry digest of each expected image from the daemon and " +
 			"compares it with the digest the matching container runs. The expected " +
 			"images are tack-server and tack-audit-consumer under TACK_DEPLOY_REGISTRY " +
