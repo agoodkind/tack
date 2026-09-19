@@ -263,10 +263,16 @@ func ybDrillManifestDefect(manifest ybSnapshotManifest) string {
 
 // startScratchYugabyte boots a throwaway yugabyted with the is_port_available
 // overlay, advertising on its own container name so the embedded DNS resolves
-// it on the IPv6-only bridge. stageDir is bind-mounted read-only at /artifacts.
+// it on the IPv6-only bridge. stageDir is bind-mounted read-only at /artifacts,
+// and the engine's base directory is a fresh per-run directory under the
+// backup root.
 func startScratchYugabyte(ctx context.Context, r *restoreDrillCtx, name, database, stageDir string) error {
 	logger := telemetry.L(ctx)
 	if err := ensureImage(ctx, r.Cli, logger, r.Cfg.BackupYBImage); err != nil {
+		return err
+	}
+	baseDir, err := makeDrillScratchDir(ctx, r, r.Cfg.BackupYBImage, "yb")
+	if err != nil {
 		return err
 	}
 	cfg := &container.Config{
@@ -289,6 +295,7 @@ func startScratchYugabyte(ctx context.Context, r *restoreDrillCtx, name, databas
 		Binds: []string{
 			r.Cfg.BackupYBOverlayPath + ":/home/yugabyte/bin/yugabyted:ro",
 			stageDir + ":" + ybDrillArtifactMount + ":ro",
+			baseDir + ":/home/yugabyte/var",
 		},
 	}
 	created, err := r.Cli.ContainerCreate(ctx, client.ContainerCreateOptions{
