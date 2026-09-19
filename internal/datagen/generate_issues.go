@@ -79,7 +79,7 @@ func (g *Generator) generateIssues(
 		return err
 	}
 	return g.verifySearchFindsIssue(ctx, workspace.Actors[0].Token, workspace,
-		firstIssueName, firstWord(firstIssueName))
+		projectIdentifier, firstIssueName, firstWord(firstIssueName))
 }
 
 func (g *Generator) generateDeletedIssue(

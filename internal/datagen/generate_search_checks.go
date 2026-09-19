@@ -65,16 +65,19 @@ func (g *Generator) verifyListPaging(ctx context.Context, workspace WorkspaceIde
 	return nil
 }
 
-// verifySearchFindsIssue calls tack_search for titleWord until the result
-// lists the issue named issueName. The check matches the name because
+// verifySearchFindsIssue calls tack_search for titleWord, scoped to the
+// project, until the result lists the issue named issueName. The project
+// scope keeps other projects' issues from crowding it out of the capped
+// result. The check matches the name because
 // ensureNode returns the raw id, which search results never print.
 // Meilisearch indexes asynchronously, so the check retries before it reports
 // the issue as unsearchable.
-func (g *Generator) verifySearchFindsIssue(ctx context.Context, token string, workspace WorkspaceIdentity, issueName, titleWord string) error {
+func (g *Generator) verifySearchFindsIssue(ctx context.Context, token string, workspace WorkspaceIdentity, projectReference, issueName, titleWord string) error {
 	if g.dryRun || issueName == "" || titleWord == "" {
 		return nil
 	}
-	arguments := ToolArguments{WorkspaceReference: workspace.Slug, Query: titleWord}
+	arguments := scopeArgs(workspace.Slug, projectReference)
+	arguments.Query = titleWord
 	reference := ""
 	for attempt := 0; attempt < searchCheckAttempts && reference == ""; attempt++ {
 		if attempt > 0 {
