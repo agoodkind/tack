@@ -8,7 +8,9 @@ package ops
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path"
@@ -35,7 +37,7 @@ const (
 // mounts the backup root at the same path the guest uses, so the path is valid
 // both here and as a bind-mount source for the daemon.
 func drillScratchRunDir(r *restoreDrillCtx) string {
-	return filepath.Join(r.Cfg.BackupRoot, drillScratchDirName, r.RunID)
+	return filepath.Join(drillScratchRoot(r), r.RunID)
 }
 
 // makeDrillScratchDir creates the directory at parts under the run's scratch
@@ -65,22 +67,35 @@ func makeDrillScratchDir(ctx context.Context, r *restoreDrillCtx, image string, 
 // removal runs as root in a one-shot container, so teardown works whatever
 // user the drill itself runs as. It joins the scratch engines' network, the
 // one network the drill already knows the daemon can attach to. A failed
-// removal is logged with the directory to delete by hand.
+// removal is logged with the directory to delete by hand. A run whose engines
+// never started holds only the empty directory claimDrillRun made, which the
+// drill removes itself.
 func removeDrillScratch(ctx context.Context, r *restoreDrillCtx) {
-	if r.scratchImage == "" {
+	if r.scratchImage != "" {
+		removeDrillScratchRun(ctx, r, r.scratchImage, r.RunID)
 		return
 	}
+	runDir := drillScratchRunDir(r)
+	if err := os.Remove(runDir); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		telemetry.L(ctx).ErrorContext(ctx, "backup.restore_drill.scratch_leaked",
+			slog.String("dir", runDir), slog.String("err", err.Error()))
+	}
+}
+
+// removeDrillScratchRun deletes run's scratch directory with a one-shot
+// container of image, for this drill's own run or for one a killed drill left.
+func removeDrillScratchRun(ctx context.Context, r *restoreDrillCtx, image, run string) {
 	logger := telemetry.L(ctx)
 	removeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), drillScratchRemoveTimeout)
 	defer cancel()
-	runDir := drillScratchRunDir(r)
+	runDir := filepath.Join(drillScratchRoot(r), run)
 	res, err := runOneShot(removeCtx, r.Cli, logger, runOneShotOptions{
-		Image:      r.scratchImage,
+		Image:      image,
 		Network:    r.Cfg.BackupFDBNetwork,
 		Entrypoint: []string{"rm"},
-		Cmd:        []string{"-rf", "--", path.Join(drillScratchMount, r.RunID)},
+		Cmd:        []string{"-rf", "--", path.Join(drillScratchMount, run)},
 		Env:        nil,
-		Binds:      []string{filepath.Join(r.Cfg.BackupRoot, drillScratchDirName) + ":" + drillScratchMount},
+		Binds:      []string{drillScratchRoot(r) + ":" + drillScratchMount},
 		ExtraHosts: nil,
 		Name:       "",
 	})

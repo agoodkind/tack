@@ -44,8 +44,10 @@ type restoreDrillCtx struct {
 	FDBTargetTime  *time.Time
 	containerNames []string
 	// scratchImage is the engine image teardown removes the run's scratch
-	// directory with. Empty means no scratch directory was created.
+	// directory with. Empty means no engine wrote into the scratch directory.
 	scratchImage string
+	// runLock holds this run's scratch directory locked; see claimDrillRun.
+	runLock *os.File
 }
 
 func (r *restoreDrillCtx) trackContainer(name string) {
@@ -53,9 +55,11 @@ func (r *restoreDrillCtx) trackContainer(name string) {
 }
 
 // cleanupRestoreDrill force-removes every scratch container, then the run's
-// scratch directory, on best effort. The containers go first so no engine is
-// still writing into the directory. It derives a non-cancellable context so
-// teardown still runs after a SIGINT cancels the parent.
+// scratch directory, on best effort, and releases the run's lock last. The
+// containers go first so no engine is still writing into the directory, and
+// the lock goes last so no sweep removes a directory teardown is removing. It
+// derives a non-cancellable context so teardown still runs after a SIGINT
+// cancels the parent.
 func cleanupRestoreDrill(ctx context.Context, r *restoreDrillCtx) {
 	bg, cancel := context.WithTimeout(context.WithoutCancel(ctx), 90*time.Second)
 	defer cancel()
@@ -63,6 +67,7 @@ func cleanupRestoreDrill(ctx context.Context, r *restoreDrillCtx) {
 		removeContainerForce(bg, r.Cli, name)
 	}
 	removeDrillScratch(ctx, r)
+	releaseDrillRun(r)
 }
 
 // RestoreDrillOptions carries the operator's per-leg targeting choices. Its
@@ -91,7 +96,7 @@ type RestoreDrillOptions struct {
 // attempted leg passed records a rehearsal marker in the object store, which is
 // what `ops backup staleness-check` dates the rehearsal from. The marker put
 // is retried on its own; a marker that never lands fails the drill without
-// re-running any leg.
+// re-running any leg. Before either leg it sweeps killed drills' leftovers.
 func RunBackupRestoreDrill(ctx context.Context, cfg *config.Config, opts RestoreDrillOptions) error {
 	logger := telemetry.L(ctx)
 	if cfg.BackupS3Endpoint == "" || cfg.BackupS3AccessKey == "" || cfg.BackupS3SecretKey == "" {
@@ -116,8 +121,12 @@ func RunBackupRestoreDrill(ctx context.Context, cfg *config.Config, opts Restore
 		FDBTargetTime:  opts.FDBTargetTime,
 		containerNames: nil,
 		scratchImage:   "",
+		runLock:        nil,
 	}
 	defer cleanupRestoreDrill(ctx, rctx)
+	if err := claimDrillRun(ctx, rctx); err != nil {
+		return err
+	}
 
 	logger.InfoContext(ctx, "backup.restore_drill.started", slog.String("run_id", rctx.RunID))
 
