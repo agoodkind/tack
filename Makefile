@@ -49,54 +49,38 @@ migrate:
 seed:
 	go run $(GO_BUILD_FLAGS) $(CMD) seed
 
-# Integration tests against a real FDB cluster.
-#
-# `make test-integration` brings up a docker-compose FDB, builds a sibling Go
-# test runner image, and runs the suite inside that container on the same
-# Docker network. Sibling-container tests sidestep Docker Desktop's TCP port
-# forwarder, which drops FDB's connect-packet exchange on macOS. The cluster
-# stays up between runs; `make test-fdb-down` cleans up.
-#
-# TACK_INTEGRATION inside the test runner gates the suite so a casual
-# `make test` (host-side) still skips them.
+# Tests run inside the test runner image (docker-compose.test.yml), which
+# bind-mounts the source tree to /src and the Docker socket. A test that needs
+# FoundationDB or the ledger starts it through internal/testenv, which reuses
+# one engine container per store across runs; `make test-env-down` removes
+# them. Only `go test -short` skips the store-backed tests.
 
-# Run unit tests for the ops package (and any other package without
-# integration deps) inside the test runner image. The compose file already
-# bind-mounts the source tree to /src so edits are visible without a rebuild.
-#
-# The postgres adapter is here because its pool tests stand up loopback
-# listeners that stand in for a lost ledger guest; they need no cluster.
-#
-# The audit package is here for the export and verify scale tests. They are the
-# gate on the compliance bundle's memory footprint, and a footprint assertion
-# nothing runs is not a gate. Its database-backed tests skip on an unset DSN, so
-# they cost nothing here.
+# The ops, postgres adapter, and audit packages. The audit package carries the
+# export and verify scale tests, the gate on the compliance bundle's memory
+# footprint, and a footprint assertion nothing runs is not a gate.
 .PHONY: test-unit
 test-unit:
 	docker compose -f docker-compose.test.yml --profile runner build tests
-	docker compose -f docker-compose.test.yml --profile runner run --rm \
-	    --no-deps --entrypoint /usr/local/go/bin/go tests \
-	    test -count=1 ./internal/ops/... ./internal/adapters/postgres/... ./internal/audit/...
+	docker compose -f docker-compose.test.yml --profile runner run --rm tests \
+	    test -count=1 -timeout 30m ./internal/ops/... ./internal/adapters/postgres/... ./internal/audit/...
 
-.PHONY: test-fdb-up
-test-fdb-up:
-	./scripts/test-fdb-up.sh
-
-.PHONY: test-fdb-down
-test-fdb-down:
-	./scripts/test-fdb-down.sh
+# Every package whose tests reach FoundationDB or the ledger. CI runs the same
+# list on the runner host (.github/workflows/ci.yml).
+TEST_STORE_PACKAGES := ./internal/test/integration/... ./internal/adapters/foundationdb/... \
+	./internal/audit/... ./internal/ops/... ./internal/datagen/... ./cmd/server/...
 
 .PHONY: test-integration
-test-integration: test-fdb-up
-	./scripts/test-integration.sh
+test-integration:
+	docker compose -f docker-compose.test.yml --profile runner build tests
+	docker compose -f docker-compose.test.yml --profile runner run --rm tests \
+	    test -count=1 -timeout 30m -v $(TEST_STORE_PACKAGES)
 
-# Database-gated audit tests (chain append, outbox, token lifecycle) against
-# the test YugabyteDB alone, migrated and run inside the sibling runner with
-# AUDIT_CHAIN_TEST_DSN set. Needs no FoundationDB, so it runs on hosts where
-# the FDB image cannot. The service is pinned to the amd64 build (TACK-459).
-.PHONY: test-audit-db
-test-audit-db:
-	./scripts/test-audit-db.sh
+# Remove the engine containers and network internal/testenv created.
+.PHONY: test-env-down
+test-env-down:
+	@ids="$$(docker ps -aq --filter label=io.goodkind.tack.testenv)"; \
+	if [ -n "$$ids" ]; then docker rm -f -v $$ids; fi
+	-docker network rm tack-testenv
 
 # Bump every direct and indirect dependency to its latest minor/patch
 # version, plus track the latest main commit of any goodkind.io/* module

@@ -1,17 +1,17 @@
 // dockerctl_exec_test.go proves a container exec ends when its context does.
-// It needs a Docker daemon, so it is gated the same way the deploy round trip
-// is and skips in the unit suite.
+// It needs a Docker daemon, which testenv.RequireDocker demands.
 
 package ops
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
+
+	"goodkind.io/tack/internal/testenv"
 )
 
 // TestContainerExecEndsWhenItsContextDoes is the mechanism under the restore
@@ -21,9 +21,7 @@ import (
 // the restore. Here a command that sleeps far past the deadline must return
 // with the deadline, not with the command.
 func TestContainerExecEndsWhenItsContextDoes(t *testing.T) {
-	if os.Getenv("DEPLOY_TEST_INTEGRATION") != "1" {
-		t.Skip("DEPLOY_TEST_INTEGRATION!=1; skipping daemon-bound integration test")
-	}
+	testenv.RequireDocker(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	cli, err := newLocalDockerClient(ctx)

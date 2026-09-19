@@ -3,7 +3,6 @@ package ops
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"testing"
 	"time"
 
@@ -11,20 +10,17 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"goodkind.io/tack/internal/audit"
+	"goodkind.io/tack/internal/testenv"
 )
 
-// deletedKeysDSNEnv names a migrated audit database. The unit tests above run
-// against a fake querier, which proves the filtering rules but not the SQL:
-// the action filter, the time bounds, and reading the tool back out of the
-// stored context JSON are all the reader's work, and a fake cannot fail them.
-const deletedKeysDSNEnv = "AUDIT_CHAIN_TEST_DSN"
-
+// deletedKeysTestPool opens a pool on the test ledger. The unit tests above
+// run against a fake querier, which proves the filtering rules but not the
+// SQL: the action filter, the time bounds, and reading the tool back out of
+// the stored context JSON are all the reader's work, and a fake cannot fail
+// them.
 func deletedKeysTestPool(t *testing.T) (*pgxpool.Pool, string, uuid.UUID) {
 	t.Helper()
-	dsn := os.Getenv(deletedKeysDSNEnv)
-	if dsn == "" {
-		t.Skipf("set %s to a migrated audit DSN to run", deletedKeysDSNEnv)
-	}
+	dsn := testenv.Ledger(t)
 	pool, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {
 		t.Fatalf("pool: %v", err)

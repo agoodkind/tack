@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
-	"os"
 	"testing"
 	"time"
 
@@ -91,7 +90,7 @@ func TestConsumerProjectsTokenLastUseFromTheAuthEvent(t *testing.T) {
 		GroupID:      "tack-audit-projector-test-" + uuid.NewString()[:8],
 		BatchSize:    32,
 		PollInterval: 100 * time.Millisecond,
-		YugabyteDSN:  writerLoginDSN(t, pool, os.Getenv("AUDIT_CONSUMER_TEST_DSN")),
+		YugabyteDSN:  writerLoginDSN(t, pool, integrationDSN(t)),
 	}, orgID, 2)
 
 	got := lastUsedOf(t, pool, tokenID)

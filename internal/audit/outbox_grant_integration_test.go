@@ -5,11 +5,12 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"net/url"
-	"os"
 	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"goodkind.io/tack/internal/testenv"
 )
 
 // TestWriteOutboxIfAbsentUnderInsertOnlyRole runs the idempotent outbox write
@@ -20,10 +21,7 @@ import (
 // target reads the table. The command could not have written its history on
 // any environment that enforces the privilege split, production included.
 func TestWriteOutboxIfAbsentUnderInsertOnlyRole(t *testing.T) {
-	dsn := os.Getenv(chainTestDSNEnv)
-	if dsn == "" {
-		t.Skipf("set %s to a migrated audit DSN to run", chainTestDSNEnv)
-	}
+	dsn := testenv.Ledger(t)
 	ctx := context.Background()
 	owner, err := pgxpool.New(ctx, dsn)
 	if err != nil {
@@ -87,7 +85,7 @@ func insertOnlyOutboxDSN(
 	role := "outbox_insert_only_test"
 
 	if _, err := owner.Exec(ctx, `DROP ROLE IF EXISTS `+role); err != nil {
-		t.Skipf("cannot manage roles on this database: %v", err)
+		t.Fatalf("drop role %s: %v", role, err)
 	}
 	if _, err := owner.Exec(ctx,
 		`CREATE ROLE `+role+` LOGIN PASSWORD `+quoteLiteral(credential)); err != nil {

@@ -1,26 +1,24 @@
 // ledger_node_prepare_integration_test.go proves the saved-config round trip
 // against a real container: the file comes out, the rewrite goes back in
 // under the same owner and mode, and a missing file reads as absent. It needs
-// a Docker daemon, so it is gated the same way the deploy round trip is and
-// skips in the unit suite.
+// a Docker daemon, which testenv.RequireDocker demands.
 
 package ops
 
 import (
 	"context"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
+
+	"goodkind.io/tack/internal/testenv"
 )
 
 func TestLauncherConfigRoundTripsThroughTheContainer(t *testing.T) {
-	if os.Getenv("DEPLOY_TEST_INTEGRATION") != "1" {
-		t.Skip("DEPLOY_TEST_INTEGRATION!=1; skipping daemon-bound integration test")
-	}
+	testenv.RequireDocker(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	cli, err := newLocalDockerClient(ctx)

@@ -37,31 +37,30 @@ jobs:
   integration:
     name: integration tests (FDB)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    env:
-      COMPOSE_PROJECT_NAME: tack-${{ github.run_id }}-${{ github.run_attempt }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
 
-      # One password for the whole job: the database volume is created with
-      # it by the first script and every later script must present the same.
-      - name: set the test database password
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: install the FoundationDB client library
         run: |
-          password="$(openssl rand -hex 16)"
-          echo "::add-mask::${password}"
-          echo "TEST_YB_PASSWORD=${password}" >> "$GITHUB_ENV"
+          fdb_version=7.4.6
+          curl -fsSL \
+            "https://github.com/apple/foundationdb/releases/download/${fdb_version}/foundationdb-clients_${fdb_version}-1_amd64.deb" \
+            -o /tmp/fdb-clients.deb
+          sudo dpkg -i /tmp/fdb-clients.deb
+          rm /tmp/fdb-clients.deb
 
-      - name: bring up FDB
-        run: ./scripts/test-fdb-up.sh
-
-      - name: run integration tests
-        run: ./scripts/test-integration.sh
-
-      # The chain-append, outbox, dead-letter, and token tests skip without a
-      # migrated ledger DSN, so without this step nothing in CI ran them.
-      - name: run database-gated audit tests
-        run: ./scripts/test-audit-db.sh
-
-      - name: tear down
-        if: always()
-        run: ./scripts/test-fdb-down.sh
+      # The tests start FoundationDB and the ledger themselves through
+      # internal/testenv and reach them at their bridge addresses from the
+      # host. The package list matches TEST_STORE_PACKAGES in the Makefile.
+      - name: run the store-backed tests
+        env:
+          CGO_ENABLED: "1"
+        run: |
+          go test -count=1 -timeout 30m -v \
+            ./internal/test/integration/... ./internal/adapters/foundationdb/... \
+            ./internal/audit/... ./internal/ops/... ./internal/datagen/... ./cmd/server/...
