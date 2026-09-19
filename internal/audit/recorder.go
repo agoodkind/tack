@@ -98,8 +98,10 @@ type EventContext struct {
 	// APITokenID names the token that authenticated the request, on the
 	// auth event that accepted it. The audit-consumer projects the token's
 	// last use from it, so the app never writes the token table on the
-	// request path (TACK-502).
-	APITokenID uuid.UUID `json:"api_token_id,omitempty" exhaustruct:"optional"`
+	// request path (TACK-502). omitzero, not omitempty: encoding/json never
+	// omits an array under omitempty, and a zero id written into every other
+	// event's context changed the bytes those rows' hashes covered (TACK-514).
+	APITokenID uuid.UUID `json:"api_token_id,omitzero" exhaustruct:"optional"`
 }
 
 type Source string
