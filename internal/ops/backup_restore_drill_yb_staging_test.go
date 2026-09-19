@@ -45,7 +45,7 @@ func newYBDrillStage(t *testing.T, cfg *config.Config) (*restoreDrillCtx, string
 		YBRunKey:       "",
 		FDBTargetTime:  nil,
 		containerNames: nil,
-		volumeNames:    nil,
+		scratchImage:   "",
 	}, root, stageDir
 }
 

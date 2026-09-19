@@ -133,25 +133,28 @@ func restoreDrillFDB(ctx context.Context, r *restoreDrillCtx) error {
 	return nil
 }
 
-// bootScratchFDB creates a fresh volume and boots a standalone container-mode
-// FoundationDB with the IPv6 overlay, configures a new single-ssd database, and
-// starts a backup_agent so fdbrestore can drain the blobstore snapshot. The
-// scratch cluster has its own data and never joins the live cluster.
+// bootScratchFDB boots a standalone container-mode FoundationDB with the IPv6
+// overlay, configures a new single-ssd database, and starts a backup_agent so
+// fdbrestore can drain the blobstore snapshot. The scratch cluster has its own
+// data and never joins the live cluster. Its data and log directories are
+// fresh per-run directories under the backup root; the rest of /var/fdb stays
+// the image's own, so the image's scripts are not hidden.
 func bootScratchFDB(ctx context.Context, r *restoreDrillCtx, name string, extraHosts []string) error {
 	logger := telemetry.L(ctx)
-	volume := "tack-rtfdb-data-" + r.RunID
-	if _, err := r.Cli.VolumeCreate(ctx, client.VolumeCreateOptions{Name: volume}); err != nil {
-		wrapped := fmt.Errorf("create scratch fdb volume %s: %w", volume, err)
-		logger.ErrorContext(ctx, "backup.restore_drill.fdb.failed", slog.String("err", wrapped.Error()))
-		return wrapped
-	}
-	r.trackVolume(volume)
-
 	if err := ensureImage(ctx, r.Cli, logger, r.Cfg.BackupFDBImage); err != nil {
 		return err
 	}
+	dataDir, err := makeDrillScratchDir(ctx, r, r.Cfg.BackupFDBImage, "fdb", "data")
+	if err != nil {
+		return err
+	}
+	logsDir, err := makeDrillScratchDir(ctx, r, r.Cfg.BackupFDBImage, "fdb", "logs")
+	if err != nil {
+		return err
+	}
 	binds := []string{
-		volume + ":/var/fdb",
+		dataDir + ":/var/fdb/data",
+		logsDir + ":/var/fdb/logs",
 		r.Cfg.BackupFDBOverlayPath + ":/var/fdb/scripts/fdb.bash:ro",
 	}
 	if r.FDBTargetTime != nil {
