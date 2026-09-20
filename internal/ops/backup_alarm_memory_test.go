@@ -158,6 +158,7 @@ func TestBackupStalenessAlarmSharedMemoryForgetsAClearFromEitherChecker(t *testi
 	store := newBackupTestStore(t, objects)
 	owner := storedBackupStalenessConfig(t, store)
 	deputy := storedDeputyBackupStalenessConfig(t, store)
+	seesHealthyCluster(t, owner, deputy)
 	rehearsalKey := backupStatusKey(backupStalenessRehearsalName)
 
 	// Run 1, owner: the rehearsal has never passed.

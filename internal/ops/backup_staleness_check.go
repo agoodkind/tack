@@ -1,10 +1,10 @@
 // backup_staleness_check.go runs the staleness check: it dates every backup
-// mechanism's last success, writes the replication marker whenever it observes
-// the cluster healthy, prints one line per mechanism, and exits nonzero when
-// any age is past its threshold. The run that first finds a mechanism stale
-// mails a plain-words account of the fault before returning that error, so a
-// backup that quietly stopped producing anything becomes one message rather
-// than a discovery during a restore.
+// mechanism's last success, prints one line per mechanism, and exits nonzero
+// when any age is past its threshold. The run that first finds a mechanism
+// stale mails a plain-words account of the fault before returning that error,
+// so a backup that quietly stopped producing anything becomes one message
+// rather than a discovery during a restore. The ledger cluster's own leg is in
+// backup_staleness_replication.go.
 
 package ops
 
@@ -177,47 +177,6 @@ func markerStalenessMetric(
 			"no "+backupStatusKey(name)+" in "+cfg.BackupS3BucketMain)
 	}
 	return knownBackupStalenessMetric(ctx, name, now, marker.At, threshold, marker.Detail)
-}
-
-// replicationStalenessMetric probes the live cluster and records the moment it
-// last looked healthy. Nothing else writes this marker, so the check both makes
-// and reads the observation: a healthy answer refreshes the marker, and any
-// other answer leaves the marker where it was, which ages into an alert if the
-// cluster stays degraded. An unhealthy answer becomes the metric's detail: on
-// its own when the marker dated the last healthy observation, and after the
-// marker's own reason when nothing did, so the report and the mail keep both
-// why the age is unknown and what this run saw.
-func replicationStalenessMetric(
-	ctx context.Context,
-	cfg *config.Config,
-	s3Client *s3.Client,
-	now time.Time,
-) backupStalenessMetric {
-	logger := telemetry.L(ctx)
-	threshold := backupStalenessThreshold(cfg.BackupStalenessReplicationMaxSeconds)
-	healthy, detail := probeYBClusterHealth(ctx, cfg)
-	if healthy {
-		// A failed write is logged by the marker writer and left to age: the
-		// observation is real, but an unrecorded observation must not be
-		// reported as a success.
-		_ = writeBackupStatusMarker(ctx,
-			func(key string, body []byte) error {
-				return putObjectBytes(ctx, s3Client, cfg.BackupS3BucketMain, key, body)
-			}, backupStalenessReplicationName, now, detail)
-	} else {
-		logger.WarnContext(ctx, "backup.staleness.replication_unhealthy",
-			slog.String("detail", detail))
-	}
-	metric := markerStalenessMetric(ctx, cfg, s3Client, backupStalenessReplicationName, now, threshold)
-	if healthy {
-		return metric
-	}
-	if metric.AgeKnown {
-		metric.Detail = detail
-		return metric
-	}
-	metric.Detail += "; this run observed: " + detail
-	return metric
 }
 
 // fdbStalenessMetric dates the FoundationDB continuous backup from its

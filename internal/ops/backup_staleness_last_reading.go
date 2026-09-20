@@ -42,10 +42,23 @@ type backupLastReadings struct {
 	Readings map[string]backupLastReading `json:"readings"`
 }
 
+// lastBackupStalenessSuccess is the newest success this guest could read for
+// one mechanism. The ledger cluster's leg reads it directly, because that
+// mechanism's age is this guest's own last healthy observation rather than
+// anything the shared store holds (backup_staleness_replication.go).
+func lastBackupStalenessSuccess(ctx context.Context, cfg *config.Config, name string) (time.Time, bool) {
+	last, found := loadBackupLastReadings(ctx, cfg).Readings[name]
+	if !found || last.SucceededAt.IsZero() {
+		return time.Time{}, false
+	}
+	return last.SucceededAt.UTC(), true
+}
+
 // rememberBackupStalenessReadings records every reading taken this run and
 // dates every reading that could not be taken from the record. A reading that
 // proves no success exists removes the record, so a later outage is not dated
-// from a success the store has since denied.
+// from a success the store has since denied. A reading that already carries an
+// age was dated from this record by the leg that took it, so it is left alone.
 func rememberBackupStalenessReadings(
 	ctx context.Context,
 	cfg *config.Config,
@@ -61,7 +74,7 @@ func rememberBackupStalenessReadings(
 			record.Readings[metric.Name] = backupLastReading{SucceededAt: metric.At, ReadAt: now}
 		case metric.Unknown == backupStalenessNeverRecorded:
 			delete(record.Readings, metric.Name)
-		case found:
+		case found && !metric.AgeKnown:
 			metric = rememberedBackupStalenessMetric(ctx, metric, last, now)
 		}
 		remembered = append(remembered, metric)

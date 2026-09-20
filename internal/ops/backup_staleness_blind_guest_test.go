@@ -11,7 +11,21 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"goodkind.io/tack/internal/config"
 )
+
+// seesHealthyCluster points cfg's ledger masters at a master that answers
+// healthy, so the guest running the check observes the cluster for itself. A
+// guest that cannot see the cluster alarms on its own blindness, so a test
+// whose subject is another mechanism has to let this guest see the cluster.
+func seesHealthyCluster(t *testing.T, cfgs ...*config.Config) {
+	t.Helper()
+	startYBMasterHealthServer(t, ybHealthAllGood)
+	for _, cfg := range cfgs {
+		cfg.BackupYBMasterAddresses = "[::1]:7100"
+	}
+}
 
 // readBackupStatusMarkerObject reads one mechanism's marker straight out of
 // the store, so a test can tell what the check left there.
@@ -118,4 +132,41 @@ func TestBlindGuestAlarmsWhileAnotherGuestKeepsTheMarkerFresh(t *testing.T) {
 	if alarmed, _ := alarmedBackupMetrics(t, owner); len(alarmed) != 0 {
 		t.Fatalf("the cleared fault must be forgotten, state = %v", alarmed)
 	}
+}
+
+// TestDegradedClusterStillSaysTheClusterIsUnhealthy keeps the claim a master's
+// own answer supports. A master that answers and describes a cluster short of
+// its replicas is a degraded cluster, so the mail names it rather than this
+// guest's eyesight, and the age still counts from this guest's own last
+// healthy observation.
+func TestDegradedClusterStillSaysTheClusterIsUnhealthy(t *testing.T) {
+	sawCluster := time.Date(2026, 9, 19, 17, 0, 0, 0, time.UTC)
+	fixBackupStalenessClock(t, sawCluster)
+	captured := captureBackupAlarmSends(t, nil)
+	objects := ybExportRunObjects(t, "20260919T060000Z",
+		newYBSnapshotManifest("20260919T060000Z", "snap-1", "tack", []string{"yb1"}, ybTestArtifactNames()))
+	objects[backupStatusKey(backupStalenessRehearsalName)] = marshalBackupStatusMarker(t,
+		sawCluster.Add(-6*time.Hour), "restore drill passed every leg")
+	owner := storedBackupStalenessConfig(t, newBackupTestStore(t, objects))
+	startYBMasterHealthServer(t, ybHealthAllGood,
+		`{"dead_nodes":["7ba1"],"most_recent_uptime":9,"under_replicated_tablets":["t1"]}`)
+	owner.BackupYBMasterAddresses = "[::1]:7100"
+
+	runFreshBackupStalenessCheck(t, owner)
+	fixBackupStalenessClock(t, sawCluster.Add(45*time.Minute))
+	runStaleBackupStalenessCheck(t, owner)
+
+	if len(captured.messages) != 1 {
+		t.Fatalf("a degraded cluster must mail once, sent %d", len(captured.messages))
+	}
+	message := captured.messages[0]
+	if message.Subject != "["+backupAlarmHost()+"] Ledger cluster unhealthy for 45 minutes" {
+		t.Errorf("subject = %q", message.Subject)
+	}
+	if !strings.Contains(message.Body, "The ledger cluster (logins and audit trail) was last healthy at "+
+		"5:00 PM UTC on Sep 19, 2026, 45 minutes ago; the limit is 30 minutes. "+
+		"The last check reported: 1 dead nodes, 1 under-replicated tablets.") {
+		t.Errorf("body mismatch:\n%s", message.Body)
+	}
+	assertBackupAlarmPlainWords(t, message.Subject, message.Body, owner.BackupS3Endpoint)
 }

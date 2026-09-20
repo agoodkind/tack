@@ -91,10 +91,10 @@ func TestProbeYBClusterHealthPassesOverFollowersQuietly(t *testing.T) {
 	startYBMasterHealthServer(t, ybFollowerHealthPage, ybFollowerHealthPage, ybHealthAllGood)
 	cfg := &config.Config{BackupYBMasterAddresses: "[::1]:7100,[::1]:7100,[::1]:7100"}
 
-	healthy, detail := probeYBClusterHealth(context.Background(), cfg)
+	observation, detail := probeYBClusterHealth(context.Background(), cfg)
 
-	if !healthy {
-		t.Fatalf("healthy = false, detail %q; the leader's payload must be read", detail)
+	if observation != ybClusterHealthy {
+		t.Fatalf("observation = %d, detail %q; the leader's payload must be read", observation, detail)
 	}
 	if detail != "0 dead nodes, 0 under-replicated tablets" {
 		t.Fatalf("detail = %q", detail)
@@ -116,10 +116,10 @@ func TestProbeYBClusterHealthReportsWhenEveryMasterIsAFollower(t *testing.T) {
 	startYBMasterHealthServer(t, ybFollowerHealthPage)
 	cfg := &config.Config{BackupYBMasterAddresses: "[::1]:7100,[::1]:7100"}
 
-	healthy, detail := probeYBClusterHealth(context.Background(), cfg)
+	observation, detail := probeYBClusterHealth(context.Background(), cfg)
 
-	if healthy {
-		t.Fatal("no leader answered, so the cluster must not read as healthy")
+	if observation != ybClusterUnseen {
+		t.Fatalf("no leader answered, so this guest saw nothing, got observation %d", observation)
 	}
 	if detail != "no master answered the health check" {
 		t.Fatalf("detail = %q", detail)
@@ -137,10 +137,10 @@ func TestProbeYBClusterHealthStillWarnsOnAnUnreadablePayload(t *testing.T) {
 	startYBMasterHealthServer(t, "<html>maintenance</html>")
 	cfg := &config.Config{BackupYBMasterAddresses: "[::1]:7100"}
 
-	healthy, _ := probeYBClusterHealth(context.Background(), cfg)
+	observation, _ := probeYBClusterHealth(context.Background(), cfg)
 
-	if healthy {
-		t.Fatal("an unreadable payload must not read as healthy")
+	if observation != ybClusterUnseen {
+		t.Fatalf("an unreadable payload establishes nothing, got observation %d", observation)
 	}
 	if !strings.Contains(logs.String(), "backup.staleness.health_unparseable") {
 		t.Fatalf("an unreadable payload must still warn:\n%s", logs.String())

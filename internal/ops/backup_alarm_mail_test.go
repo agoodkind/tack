@@ -176,6 +176,7 @@ func TestBackupStalenessAlarmMailsAgainAfterAClear(t *testing.T) {
 		now.Add(-10*time.Minute), "0 dead nodes, 0 under-replicated tablets")
 	store := newBackupTestStore(t, objects)
 	cfg := storedBackupStalenessConfig(t, store)
+	seesHealthyCluster(t, cfg)
 	rehearsalKey := backupStatusKey(backupStalenessRehearsalName)
 	freshRehearsal := marshalBackupStatusMarker(t, now.Add(-6*time.Hour), "restore drill passed every leg")
 
@@ -293,6 +294,7 @@ func TestBackupStalenessCheckWithEverythingFreshMailsNothing(t *testing.T) {
 			now.Add(-10*time.Minute), "0 dead nodes, 0 under-replicated tablets"),
 	})
 	cfg := storedBackupStalenessConfig(t, newBackupTestStore(t, objects))
+	seesHealthyCluster(t, cfg)
 
 	var out bytes.Buffer
 	if err := RunBackupStalenessCheck(context.Background(), cfg, &out); err != nil {

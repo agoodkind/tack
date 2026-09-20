@@ -55,14 +55,18 @@ type ybMasterHealthCheck struct {
 // probeYBClusterHealth asks each configured master in turn and returns the
 // first usable answer, because only the leader serves the cluster's view: a
 // follower answers with a page that names the leader instead, which is a
-// reason to ask the next master, not a fault worth a warning. detail always
-// says what happened, healthy or not: it becomes the marker's detail on
-// success and the report's reason on failure. It never carries a master's
-// client error, which the journal records instead.
-func probeYBClusterHealth(ctx context.Context, cfg *config.Config) (healthy bool, detail string) {
+// reason to ask the next master, not a fault worth a warning.
+//
+// The answer separates a cluster this guest saw from one it did not see at
+// all, because the two support different claims: a master's own answer says
+// whether the cluster is replicated, while no answer says only that this guest
+// is blind (TACK-529). detail always says what happened: it becomes the
+// marker's detail on a healthy answer and the report's reason otherwise. It
+// never carries a master's client error, which the journal records instead.
+func probeYBClusterHealth(ctx context.Context, cfg *config.Config) (ybClusterObservation, string) {
 	urls := ybMasterHealthURLs(cfg.BackupYBMasterAddresses)
 	if len(urls) == 0 {
-		return false, "TACK_BACKUP_YB_MASTER_ADDRESSES names no master to probe"
+		return ybClusterUnseen, "TACK_BACKUP_YB_MASTER_ADDRESSES names no master to probe"
 	}
 	var failures []string
 	for _, url := range urls {
@@ -81,14 +85,17 @@ func probeYBClusterHealth(ctx context.Context, cfg *config.Config) (healthy bool
 			failures = append(failures, parseErr.Error())
 			continue
 		}
-		return replicated, healthDetail
+		if replicated {
+			return ybClusterHealthy, healthDetail
+		}
+		return ybClusterDegraded, healthDetail
 	}
 	// Each master's failure is a client error that names its address, so it
 	// goes to the journal only; the detail the report and the mail carry says
 	// what the operator acts on.
 	telemetry.L(ctx).WarnContext(ctx, "backup.staleness.masters_unanswered",
 		slog.Any("failures", failures))
-	return false, "no master answered the health check"
+	return ybClusterUnseen, "no master answered the health check"
 }
 
 // ybMasterHealthURLs turns the configured comma-separated master addresses
