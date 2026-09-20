@@ -37,6 +37,12 @@ services:
       AUDIT_REDACTOR_DSN: ${AUDIT_REDACTOR_DSN}
       AUDIT_OPERATOR_DSN: ${AUDIT_OPERATOR_DSN}
       FDB_CLUSTER_FILE: /etc/foundationdb/fdb.cluster
+      # How long one product-store transaction may run, its retries included.
+      # At API version 740 a retry does not reset this option, so the one value
+      # bounds the whole retry loop. Without it a transaction issued while the
+      # store elects a new leader retries without end, and the only bound left
+      # is the caller's context, which not every caller sets (TACK-408).
+      FDB_TRANSACTION_TIMEOUT: ${FDB_TRANSACTION_TIMEOUT:-5s}
       MEILI_URL: http://meilisearch:7700
       MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?MEILI_MASTER_KEY is required, set it in .env}
       PORT: 8000
@@ -84,7 +90,11 @@ services:
       TACK_BACKUP_S3_REGION: ${TACK_BACKUP_S3_REGION:-us-east-1}
       TACK_BACKUP_S3_BUCKET_MAIN: ${TACK_BACKUP_S3_BUCKET_MAIN:-tack-backups}
     volumes:
-      - /etc/foundationdb:/etc/foundationdb:ro
+      # Writable, because the FoundationDB client writes the new coordinator
+      # list into this file when the cluster changes coordinators. Mounted
+      # read-only, the client keeps the coordinators it started with and stops
+      # finding the cluster once every one of them is gone (TACK-408).
+      - /etc/foundationdb:/etc/foundationdb
       - tack-logs:/var/log/tack
       # Audit ledger signing key. Generated once on the host with
       #   openssl genpkey -algorithm ed25519 -out /etc/tack/audit-signing.pem
@@ -94,9 +104,13 @@ services:
     # guests through the rendered override's multi-host URL, and the deploy
     # starts the app only after provision. This base file alone still dials
     # the local single node above and relies on restart for ordering.
+    #
+    # No fdb dependency either. Deployed guests reach the product store on the
+    # data guests through the coordinator list in the cluster file, and the
+    # owner guest runs no store process after phase 4, so a dependency here
+    # would start one (TACK-408). Locally the app restarts until the store
+    # answers, the same ordering the ledger relies on.
     depends_on:
-      fdb:
-        condition: service_healthy
       meilisearch:
         condition: service_healthy
       temporal:
@@ -206,6 +220,25 @@ services:
       FDB_NETWORKING_MODE: container
       FDB_PORT: "4500"
       FDB_PROCESS_CLASS: unset
+      # One cluster file for the server process and for every client on this
+      # guest. The image defaults the server to /var/fdb/fdb.cluster, a second
+      # file the clients never read, so a coordinator change the server wrote
+      # there reached nobody (TACK-408).
+      FDB_CLUSTER_FILE: /etc/foundationdb/fdb.cluster
+      # This guest's identity in the cluster, rendered by the deploy from the
+      # service inventory. The address is the guest's pinned address, which
+      # peers and clients on other guests reach and which survives a container
+      # recreate; the zone is the guest name, which is the fault domain the
+      # replication counts. Empty here so a local `docker compose up` keeps
+      # announcing the container's own address and hostname.
+      FDB_PUBLIC_ADDRESS: ${FDB_PUBLIC_ADDRESS:-}
+      FDB_ZONE_ID: ${FDB_ZONE_ID:-}
+      FDB_MACHINE_ID: ${FDB_MACHINE_ID:-}
+      # The coordinator list a guest's first process starts from. The deploy
+      # renders the environment's three coordinators; a guest that already has
+      # a cluster file ignores this, because the cluster owns that file once it
+      # exists. Empty locally, where the process is its own coordinator.
+      FDB_CLUSTER_FILE_CONTENTS: ${FDB_CLUSTER_FILE_CONTENTS:-}
     volumes:
       - fdb-data:/var/fdb
       - /etc/foundationdb:/etc/foundationdb
@@ -215,7 +248,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "fdbcli --exec 'status minimal' 2>&1 | grep -q 'available'",
+          "fdbcli -C /etc/foundationdb/fdb.cluster --exec 'status minimal' 2>&1 | grep -q 'available'",
         ]
       interval: 10s
       timeout: 10s
@@ -233,20 +266,27 @@ services:
   # so it reaches the blobstore through the synthetic name fdb-blobstore-host
   # mapped to TACK_BACKUP_S3_HOST, the bare object-store address configs renders
   # alongside the full TACK_BACKUP_S3_ENDPOINT.
+  #
+  # One agent runs per data guest. Agents divide the session's work between
+  # themselves, so the count is a throughput and survival choice rather than a
+  # configuration the session records: the session keeps streaming while any
+  # one agent runs (TACK-408). It declares no fdb dependency, because the agent
+  # retries its own connection and because a dependency would start the store
+  # process on the owner guest, which runs none.
   fdb-backup-agent:
     image: foundationdb/foundationdb:${FDB_VERSION:-7.4.6}
     profiles: [backup]
     restart: unless-stopped
     mem_limit: 512m
-    depends_on:
-      fdb:
-        condition: service_healthy
     entrypoint: ["/usr/bin/backup_agent"]
     command: ["-C", "/etc/foundationdb/fdb.cluster"]
     extra_hosts:
       - "fdb-blobstore-host:${TACK_BACKUP_S3_HOST}"
     volumes:
-      - /etc/foundationdb:/etc/foundationdb:ro
+      # Writable for the same reason the app's mount is: the agent is a
+      # FoundationDB client, and its client library records a coordinator
+      # change in this file.
+      - /etc/foundationdb:/etc/foundationdb
 
   meilisearch:
     # Pinned to v1.12 to match the persisted index version (1.12.8) on prod.
@@ -457,7 +497,9 @@ services:
     volumes:
       - tack-logs:/var/log/tack
       - /etc/tack:/etc/tack:ro
-      - /etc/foundationdb:/etc/foundationdb:ro
+      # Writable: this process is a FoundationDB client too, and the client
+      # library records a coordinator change in this file (TACK-408).
+      - /etc/foundationdb:/etc/foundationdb
     # No yugabyte dependency: deployed guests reach the ledger on the data
     # guests through the rendered env's multi-host DSN; the startup ping
     # retries until the ledger answers, so ordering is not load-bearing.
@@ -494,6 +536,13 @@ services:
       # runs through the app service: this container mounts no signing key.
       AUDIT_VALID_SIGNERS: ${AUDIT_VALID_SIGNERS:-}
       FDB_CLUSTER_FILE: /etc/foundationdb/fdb.cluster
+      FDB_TRANSACTION_TIMEOUT: ${FDB_TRANSACTION_TIMEOUT:-5s}
+      # The redundancy mode `ops provision` configures on a store that has
+      # never been configured. single is the local and single-guest value;
+      # an environment running one process per data guest renders double, so
+      # a rebuilt environment comes back with the replication it had rather
+      # than with one copy of every key (TACK-408).
+      TACK_OPS_FDB_REDUNDANCY_MODE: ${TACK_OPS_FDB_REDUNDANCY_MODE:-single}
       MEILI_URL: http://localhost:7700
       MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?MEILI_MASTER_KEY is required, set it in .env}
       LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -583,7 +632,10 @@ services:
       TACK_IMAGE_TAG: ${TACK_IMAGE_TAG:-latest}
     volumes:
       - /root/backups:/root/backups
-      - /etc/foundationdb:/etc/foundationdb:ro
+      # Writable: the ops commands that open the product store are
+      # FoundationDB clients, and the client library records a coordinator
+      # change in this file (TACK-408).
+      - /etc/foundationdb:/etc/foundationdb
       # The staleness alarm reads the guest's SMTP account out of this file and
       # then speaks SMTP itself, so the file is all it needs: no msmtp binary
       # lives in this image, and nothing here execs one.

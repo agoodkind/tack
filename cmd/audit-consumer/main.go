@@ -47,6 +47,11 @@ type consumerEnv struct {
 	MetricsAddr     string        `env:"AUDIT_CONSUMER_METRICS_ADDR" envDefault:"127.0.0.1:9109"`
 	// FDBClusterFile enables the FoundationDB relay when set.
 	FDBClusterFile string `env:"FDB_CLUSTER_FILE"`
+	// FDBTransactionTimeout bounds each relay transaction against the product
+	// store, retries included. The relay reads and clears the operator outbox
+	// on a timer from one goroutine, so an unbounded transaction issued during
+	// a store leader election stops every later relay tick (TACK-408).
+	FDBTransactionTimeout time.Duration `env:"FDB_TRANSACTION_TIMEOUT" envDefault:"5s"`
 
 	// Env names the deployment environment for the "env" log attribute; the
 	// consumer has no auth mode, so it only labels the log lines.
@@ -106,7 +111,7 @@ func newAuditRelay(
 
 	var relayFoundationDB audit.FoundationDBOutbox
 	if cfg.FDBClusterFile != "" {
-		stores, storesErr := foundationdb.NewStores(cfg.FDBClusterFile, relayPool)
+		stores, storesErr := foundationdb.NewStores(cfg.FDBClusterFile, cfg.FDBTransactionTimeout, relayPool)
 		if storesErr != nil {
 			relayPool.Close()
 			slog.ErrorContext(ctx, "audit_consumer.relay_foundationdb_open_failed", slog.String("err", storesErr.Error()))

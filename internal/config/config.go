@@ -11,11 +11,19 @@ import (
 )
 
 type Config struct {
-	DatabaseURL        string `env:"DATABASE_URL,required"`
-	FDBClusterFile     string `env:"FDB_CLUSTER_FILE" envDefault:"/etc/foundationdb/fdb.cluster"`
-	Port               int    `env:"PORT"             envDefault:"8000"`
-	Env                string `env:"ENV"              envDefault:"development"`
-	DatagenAllowTarget string `env:"TACK_DATAGEN_ALLOW_TARGET"`
+	DatabaseURL    string `env:"DATABASE_URL,required"`
+	FDBClusterFile string `env:"FDB_CLUSTER_FILE" envDefault:"/etc/foundationdb/fdb.cluster"`
+	// FDBTransactionTimeout bounds one product-store transaction, its retries
+	// included. It is set as a database option, and at API version 740 a retry
+	// does not reset it, so it bounds the whole retry loop rather than one
+	// attempt. Without it a transaction issued while the store elects a new
+	// leader retries until the caller's context ends, and not every caller
+	// sets one (TACK-408). Five seconds sits above a healthy cross-guest
+	// commit and below the ten-second bound a guest loss is measured against.
+	FDBTransactionTimeout time.Duration `env:"FDB_TRANSACTION_TIMEOUT" envDefault:"5s"`
+	Port                  int           `env:"PORT"                    envDefault:"8000"`
+	Env                   string        `env:"ENV"                     envDefault:"development"`
+	DatagenAllowTarget    string        `env:"TACK_DATAGEN_ALLOW_TARGET"`
 
 	// Logging. Every field is plain pass-through to telemetry.Setup, which
 	// hands them to gklog. Setup itself never branches on ENV.
@@ -338,7 +346,15 @@ type Config struct {
 	// and cannot resolve the bridge DNS names). Defaults match the compose
 	// project name "tack" (<project>-<service>-1).
 	OpsFDBContainer string `env:"TACK_OPS_FDB_CONTAINER" envDefault:"tack-fdb-1"`
-	OpsAppContainer string `env:"TACK_OPS_APP_CONTAINER" envDefault:"tack-app-1"`
+	// OpsFDBRedundancyMode is the redundancy `ops provision` configures on a
+	// store that has never been configured, and the mode `ops store
+	// set-redundancy` sets without an argument. single is the local and
+	// single-guest value; an environment running one process per data guest
+	// renders double, so a rebuild comes back replicated rather than with one
+	// copy of every key (TACK-408). Only single, double, and triple are
+	// accepted, because the value reaches fdbcli as a word in a command.
+	OpsFDBRedundancyMode string `env:"TACK_OPS_FDB_REDUNDANCY_MODE" envDefault:"single"`
+	OpsAppContainer      string `env:"TACK_OPS_APP_CONTAINER" envDefault:"tack-app-1"`
 }
 
 func Load() (*Config, error) {

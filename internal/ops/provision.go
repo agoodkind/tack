@@ -75,7 +75,7 @@ func provisionRun(ctx context.Context, cfg *config.Config, allowFDBInit bool) er
 	}
 	defer func() { _ = cli.Close() }()
 
-	if err := provisionFDB(ctx, cli, cfg.OpsFDBContainer, allowFDBInit); err != nil {
+	if err := provisionFDB(ctx, cli, cfg, allowFDBInit); err != nil {
 		return err
 	}
 
@@ -105,13 +105,29 @@ func provisionRun(ctx context.Context, cfg *config.Config, allowFDBInit bool) er
 // provisionFDB configures a fresh FoundationDB cluster exactly once. A
 // configured cluster is detected via `fdbcli status minimal` and left
 // untouched. Configuring is destructive, so it requires the explicit opt-in.
-func provisionFDB(ctx context.Context, cli *client.Client, containerName string, allowFDBInit bool) error {
-	status, err := containerExec(ctx, cli, containerName, []string{"fdbcli", "--exec", "status minimal"})
-	if err != nil {
+//
+// It reads and configures through a one-shot fdbcli container against this
+// guest's cluster file, not by exec-ing into a local store container: the
+// guest that provisions runs no store process once the store is on the data
+// guests, and the cluster file names those guests' addresses (TACK-408).
+//
+// The redundancy comes from TACK_OPS_FDB_REDUNDANCY_MODE, so a rebuilt
+// environment comes back with the replication it had. On a fresh environment
+// where the store processes are not all up yet, the configure fails here
+// rather than setting a mode the live processes cannot satisfy; provision is
+// re-runnable.
+func provisionFDB(ctx context.Context, cli *client.Client, cfg *config.Config, allowFDBInit bool) error {
+	mode := cfg.OpsFDBRedundancyMode
+	if err := validateRedundancyMode(mode); err != nil {
+		slog.ErrorContext(ctx, "provision.fdb.redundancy_rejected", slog.String("err", err.Error()))
+		return fmt.Errorf("provision fdb redundancy: %w", err)
+	}
+	status, err := runStoreCLIWith(ctx, cli, cfg, "status minimal")
+	if err != nil && status == "" {
 		slog.ErrorContext(ctx, "provision.fdb.status_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("provision fdb status: %w", err)
 	}
-	if strings.Contains(status.Stdout, fdbAvailableMarker) {
+	if strings.Contains(status, fdbAvailableMarker) {
 		slog.InfoContext(ctx, "provision.fdb.already_configured")
 		return nil
 	}
@@ -120,13 +136,13 @@ func provisionFDB(ctx context.Context, cli *client.Client, containerName string,
 		slog.ErrorContext(ctx, "provision.fdb.unconfigured_no_optin", slog.String("err", unconfigured.Error()))
 		return unconfigured
 	}
-	slog.WarnContext(ctx, "provision.fdb.configuring_new", slog.String("container", containerName))
-	res, err := containerExec(ctx, cli, containerName, []string{"fdbcli", "--exec", "configure new single ssd"})
+	slog.WarnContext(ctx, "provision.fdb.configuring_new", slog.String("redundancy", mode))
+	out, err := runStoreCLIWith(ctx, cli, cfg, "configure new "+mode+" "+storeStorageEngine)
 	if err != nil {
 		slog.ErrorContext(ctx, "provision.fdb.configure_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("provision fdb configure: %w", err)
 	}
-	slog.InfoContext(ctx, "provision.fdb.configured", slog.String("out", strings.TrimSpace(res.Stdout)))
+	slog.InfoContext(ctx, "provision.fdb.configured", slog.String("out", out))
 	return nil
 }
 

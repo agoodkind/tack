@@ -8,7 +8,7 @@ import (
 )
 
 func TestStoresPing(t *testing.T) {
-	stores, err := NewStores(testenv.FoundationDB(t), nil)
+	stores, err := NewStores(testenv.FoundationDB(t), testTransactionTimeout, nil)
 	if err != nil {
 		t.Fatalf("NewStores: %v", err)
 	}

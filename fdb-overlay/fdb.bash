@@ -1,7 +1,11 @@
 #!/bin/bash
 # IPv6-aware patch of foundationdb/foundationdb:7.4.6 /var/fdb/scripts/fdb.bash.
 # Fixes: (1) bracket IPv6 addresses in the connection string, (2) listen on
-# [::] when running v6, not 0.0.0.0.
+# [::] when running v6, not 0.0.0.0, (3) keep the coordinator list already in
+# the cluster file instead of replacing it with this one process's address,
+# (4) announce the guest's pinned address and the guest's identity rather than
+# the container's, so a container recreate changes nothing the cluster stored
+# (TACK-408).
 
 function bracketed() {
     local ip="$1"
@@ -12,9 +16,20 @@ function bracketed() {
     fi
 }
 
+# create_cluster_file seeds the cluster file the first time a process starts on
+# this guest, and never touches it again. FoundationDB owns the file after
+# that: it writes the new coordinator list into every client's copy when the
+# coordinators change. A start that overwrote the file would replace the real
+# list with this one process's own address, and on a guest joining an existing
+# cluster that address is a second cluster beside the real one.
 function create_cluster_file() {
     FDB_CLUSTER_FILE=${FDB_CLUSTER_FILE:-/etc/foundationdb/fdb.cluster}
-    mkdir -p "$(dirname $FDB_CLUSTER_FILE)"
+    mkdir -p "$(dirname "$FDB_CLUSTER_FILE")"
+
+    if [[ -s "$FDB_CLUSTER_FILE" ]]; then
+        echo "Keeping the cluster file already on this guest at $FDB_CLUSTER_FILE"
+        return 0
+    fi
 
     if [[ -n "$FDB_CLUSTER_FILE_CONTENTS" ]]; then
         echo "$FDB_CLUSTER_FILE_CONTENTS" > "$FDB_CLUSTER_FILE"
@@ -38,7 +53,13 @@ function create_cluster_file() {
 function create_server_environment() {
     env_file=/var/fdb/.fdbenv
 
-    if [[ "$FDB_NETWORKING_MODE" == "host" ]]; then
+    if [[ -n "$FDB_PUBLIC_ADDRESS" ]]; then
+        # The guest's pinned address from the service inventory. Peers and
+        # clients on other guests reach this process here, and that address
+        # outlives every container recreate, which a container address does
+        # not. Deployed guests set it; local development leaves it empty.
+        public_ip="$FDB_PUBLIC_ADDRESS"
+    elif [[ "$FDB_NETWORKING_MODE" == "host" ]]; then
         public_ip=127.0.0.1
     elif [[ "$FDB_NETWORKING_MODE" == "container" ]]; then
         # Prefer global IPv6 if present, otherwise fall back to IPv4.
@@ -62,17 +83,6 @@ function create_server_environment() {
 create_server_environment
 source /var/fdb/.fdbenv
 
-# Clients (app, fdb-backup-agent, tack-ops) read /etc/foundationdb/fdb.cluster.
-# Pin that file to the Docker DNS name so it survives an fdb container IP change
-# on a network recreate (TACK-49). The server keeps its own FDB_CLUSTER_FILE
-# (/var/fdb/fdb.cluster) with the literal address; copy that file's
-# description:id prefix so both files always agree on cluster identity.
-server_cluster_file=${FDB_CLUSTER_FILE:-/var/fdb/fdb.cluster}
-client_cluster_file=/etc/foundationdb/fdb.cluster
-if [[ -f "$server_cluster_file" && -d "$(dirname "$client_cluster_file")" ]]; then
-    echo "$(cut -d@ -f1 "$server_cluster_file")@fdb:$FDB_PORT" > "$client_cluster_file"
-fi
-
 # Listen address: IPv6 catch-all when public_ip is v6, else v4 catch-all.
 if [[ "$PUBLIC_IP" == *:* ]]; then
     LISTEN_ADDR="[::]:$FDB_PORT"
@@ -82,7 +92,15 @@ else
     PUBLIC_ADDR="$PUBLIC_IP:$FDB_PORT"
 fi
 
-echo "Starting FDB server on $PUBLIC_ADDR (listen $LISTEN_ADDR)"
+# Fault domain. FoundationDB places the copies of a key in separate zones, so
+# the zone has to name the guest. A container hostname here makes three
+# processes on three guests read as three zones only by accident, and makes
+# two processes on one guest read as two zones, which permits both copies of a
+# key on one guest. Losing that guest then loses the key.
+ZONE_ID=${FDB_ZONE_ID:-$(hostname)}
+MACHINE_ID=${FDB_MACHINE_ID:-$(hostname)}
+
+echo "Starting FDB server on $PUBLIC_ADDR (listen $LISTEN_ADDR, zone $ZONE_ID)"
 fdbserver --listen-address "$LISTEN_ADDR" --public-address "$PUBLIC_ADDR" \
     --datadir /var/fdb/data --logdir /var/fdb/logs \
-    --locality-zoneid="$(hostname)" --locality-machineid="$(hostname)" --class "$FDB_PROCESS_CLASS" --knob_disable_posix_kernel_aio=1
+    --locality-zoneid="$ZONE_ID" --locality-machineid="$MACHINE_ID" --class "$FDB_PROCESS_CLASS" --knob_disable_posix_kernel_aio=1

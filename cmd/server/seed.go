@@ -85,7 +85,7 @@ func execSeed(ctx context.Context, cfg *config.Config, recorder audit.Recorder) 
 	}
 	defer pool.Close()
 
-	fdbStores, err := fdbadapter.NewStores(cfg.FDBClusterFile, pool)
+	fdbStores, err := fdbadapter.NewStores(cfg.FDBClusterFile, cfg.FDBTransactionTimeout, pool)
 	if err != nil {
 		slog.ErrorContext(ctx, "seed.foundationdb_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("seed: foundationdb: %w", err)

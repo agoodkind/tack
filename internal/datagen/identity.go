@@ -40,7 +40,7 @@ func BootstrapIdentities(
 		return Identities{}, loggedError(ctx, "qa datagen: open postgres", err)
 	}
 	defer pool.Close()
-	stores, err := fdbadapter.NewStores(cfg.FDBClusterFile, pool)
+	stores, err := fdbadapter.NewStores(cfg.FDBClusterFile, cfg.FDBTransactionTimeout, pool)
 	if err != nil {
 		return Identities{}, loggedError(ctx, "qa datagen: open foundationdb", err)
 	}

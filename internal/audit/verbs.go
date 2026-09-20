@@ -168,6 +168,18 @@ const (
 	// VerbOpsLedgerNodeWait records a deploy waiting for a restarted ledger
 	// node, keyed on its replication progress (TACK-471).
 	VerbOpsLedgerNodeWait Verb = "ops.ledger_node_wait"
+	// VerbOpsStoreStatus records an operator reading the product store's own
+	// cluster status (TACK-408).
+	VerbOpsStoreStatus Verb = "ops.store_status"
+	// VerbOpsStoreSetRedundancy records a change to how many copies of every
+	// key the product store keeps (TACK-408).
+	VerbOpsStoreSetRedundancy Verb = "ops.store_set_redundancy"
+	// VerbOpsStoreSetCoordinators records a change to the product store's
+	// coordinator list (TACK-408).
+	VerbOpsStoreSetCoordinators Verb = "ops.store_set_coordinators"
+	// VerbOpsStoreExclude records an operator taking product-store processes
+	// out of service, which moves their data first (TACK-408).
+	VerbOpsStoreExclude Verb = "ops.store_exclude"
 )
 
 // stateChangeVerbs is the set of application events that must be persisted
