@@ -15,7 +15,7 @@ import (
 // TestOpsOutboxReadAndClear writes separate committed versionstamped events,
 // reads them in commit order, and clears through the first mark.
 func TestOpsOutboxReadAndClear(t *testing.T) {
-	db, err := Open(testenv.FoundationDB(t))
+	db, err := Open(testenv.FoundationDB(t), testTransactionTimeout)
 	if err != nil {
 		t.Fatalf("open fdb: %v", err)
 	}

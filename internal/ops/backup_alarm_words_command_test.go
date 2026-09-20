@@ -89,9 +89,9 @@ func TestBackupStalenessAlarmFDBWords(t *testing.T) {
 	wantBody := "The product database backup (FoundationDB, continuous) last advanced at 8:22 PM UTC on Aug 28, 2026, " +
 		"15 hours 38 minutes ago; the limit is 2 hours.\n" +
 		"\n" +
-		"1. On the owner guest, run docker ps and confirm tack-fdb-backup-agent-1 is running.\n" +
-		"2. Run docker logs tack-fdb-backup-agent-1 and read what it reports.\n" +
-		"3. Confirm the object store accepts writes, then run docker compose restart fdb-backup-agent."
+		"1. On each data guest, run docker ps and confirm tack-fdb-backup-agent-1 is there.\n" +
+		"2. On a data guest that is missing it, run docker logs tack-fdb-backup-agent-1 and read what it reports.\n" +
+		"3. Confirm the object store accepts writes, then run docker compose restart fdb-backup-agent on that guest."
 	if body != wantBody {
 		t.Errorf("body mismatch:\n got=%q\nwant=%q", body, wantBody)
 	}
@@ -129,7 +129,7 @@ func TestBackupStalenessAlarmFDBWords(t *testing.T) {
 	body = backupStalenessAlarmBody(cfg, []backupStalenessMetric{none})
 	if !strings.HasPrefix(body, "The product database backup (FoundationDB, continuous) has no restorable point. "+
 		"The last check reported: fdbbackup status reports no restorable backup.\n\n"+
-		"1. On the owner guest, run docker ps") {
+		"1. On each data guest, run docker ps") {
 		t.Errorf("body does not say nothing is restorable, followed by the steps:\n%s", body)
 	}
 	assertBackupAlarmPlainWords(t, subject, body, cfg.BackupS3Endpoint)

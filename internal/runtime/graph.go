@@ -41,7 +41,7 @@ func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
 		return nil, fmt.Errorf("runtime: postgres: %w", err)
 	}
 
-	fdbStores, err := fdbadapter.NewStores(cfg.FDBClusterFile, pool)
+	fdbStores, err := fdbadapter.NewStores(cfg.FDBClusterFile, cfg.FDBTransactionTimeout, pool)
 	if err != nil {
 		slog.ErrorContext(ctx, "server.foundationdb_failed", slog.String("err", err.Error()))
 		pool.Close()

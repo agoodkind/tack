@@ -72,7 +72,7 @@ func NewEnv(ctx context.Context, cfg *config.Config) (*Env, error) {
 	if err != nil {
 		return nil, fmt.Errorf("postgres: %w", err)
 	}
-	stores, err := fdbadapter.NewStores(cfg.FDBClusterFile, pool)
+	stores, err := fdbadapter.NewStores(cfg.FDBClusterFile, cfg.FDBTransactionTimeout, pool)
 	if err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("foundationdb: %w", err)

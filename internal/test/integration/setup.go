@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/google/uuid"
@@ -29,6 +30,12 @@ import (
 	"goodkind.io/tack/internal/service"
 	"goodkind.io/tack/internal/testenv"
 )
+
+// testTransactionTimeout bounds every product-store transaction these tests
+// run, retries included. It matches the deployed default, so a test that stops
+// making progress against the store fails on the same bound the app runs
+// under.
+const testTransactionTimeout = 5 * time.Second
 
 // TestEnv holds isolated test dependencies.
 type TestEnv struct {
@@ -89,7 +96,7 @@ func mustJSON(v any) json.RawMessage {
 // independent of the test's stores.
 func clearPrefix(t *testing.T, clusterFile string, prefix []byte) {
 	t.Helper()
-	db, err := fdbadapter.Open(clusterFile)
+	db, err := fdbadapter.Open(clusterFile, testTransactionTimeout)
 	if err != nil {
 		t.Logf("cleanup: open fdb: %v", err)
 		return
@@ -115,7 +122,7 @@ func SetupTestEnv(t *testing.T) *TestEnv {
 	prefixBytes := append([]byte("tack-test:"), prefix[:]...)
 	fdbadapter.SetTestPrefix(prefixBytes)
 
-	stores, err := fdbadapter.NewStores(clusterFile, nil)
+	stores, err := fdbadapter.NewStores(clusterFile, testTransactionTimeout, nil)
 	if err != nil {
 		fdbadapter.SetTestPrefix(nil)
 		t.Fatalf("open fdb: %v", err)

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -32,8 +33,9 @@ type Stores struct {
 
 // NewStores opens FDB once and wires all generic stores to the same connection.
 // sqlPool is reserved for auth-adjacent queries (org_members), not domain data.
-func NewStores(clusterFile string, sqlPool *pgxpool.Pool) (*Stores, error) {
-	db, err := Open(clusterFile)
+// transactionTimeout bounds every transaction these stores run; see [Open].
+func NewStores(clusterFile string, transactionTimeout time.Duration, sqlPool *pgxpool.Pool) (*Stores, error) {
+	db, err := Open(clusterFile, transactionTimeout)
 	if err != nil {
 		return nil, err
 	}
