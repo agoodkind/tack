@@ -180,7 +180,7 @@ A lexical-only control must miss at least one non-overlapping pair that the comb
 - Predeclare corpus size, page distribution, query mix, concurrency, indexing rate,
   rebuild activity, and pass thresholds for p50, p95, error rate, throughput, oldest
   work age, peak memory, and disk. Run the workload normally and with one guest down.
-- Before provisioning, record physical-host memory and the measured peak for all three search guests alongside existing guests. Reject an environment without the declared host reserve. The 2026-09-20 suburban snapshot had 10.7 GiB available; three prior 3.4 GiB post-workload readings would leave about 0.5 GiB before peaks, filesystem cache, and the proxy, so current evidence blocks the QA cluster until capacity changes or a new measurement passes this gate.
+- Before provisioning, require the initial QA host to provide at least 56.52 GiB usable memory, 12 logical CPUs, and three 40 GiB fast disks. Require at least 66.52 GiB usable memory, 16 logical CPUs, and four 40 GiB fast disks when one temporary scale node runs on the same host. Keep 20 percent host memory and fast-pool space uncommitted. Current suburban hardware is limited to 32 GB and eight threads; its fast pool supports the initial three disks but needs 44.45 GiB more usable capacity for the fourth while preserving the reserve.
 - Saturate the role under test before each scale-out run. Predeclare the required
   throughput gain and require the added capacity to process measured work.
 - Before removing storage limits, test 128 KiB, 1 MiB, 8 MiB, over 100 MB, and nodes
@@ -193,5 +193,4 @@ A lexical-only control must miss at least one non-overlapping pair that the comb
 - Add a Tack process and FoundationDB capacity independently. Require the fixed
   request and worker workloads to improve without changing session or work formats.
   Remove temporary nodes only after work, model, and shard relocation complete.
-- Require disk for the serving, replacement, and retiring indexes. Capacity results,
-  not model download size or one successful request, determine production sizing.
+- Measure non-index disk use after provisioning and primary index bytes after rebuilding. For the initial three-node topology, require each disk to be at least `(non-index bytes + 2 * primary-index bytes) / 0.85`; the factor includes three generations and one replica, and 0.85 keeps OpenSearch below its default low watermark. Capacity results, not model download size or one successful request, determine production sizing.

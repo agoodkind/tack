@@ -40,6 +40,7 @@ The native sparse indexing and ranking configuration passed local engine validat
   pool owns retries, TLS, and transport metrics. The hypervisor proxy owns backend
   health and selection. OpenSearch owns shard and ML worker selection.
 - QA and production start with three LXC guests, with at least 8 GiB memory, 2 CPU cores, 40 GiB storage, and a 2 GiB JVM heap per guest. Three is the release topology, not a capacity ceiling.
+- The initial QA host requires at least 64 GB installed memory and 12 logical CPUs. Full scale-out acceptance on the same host requires at least 96 GB installed memory, 16 logical CPUs, and four 40 GiB fast disks. Current suburban hardware cannot satisfy either profile.
 - Adding Tack processes, FoundationDB capacity, OpenSearch ML nodes, data nodes, replicas, or coordinating endpoints must not require application code or stored-format changes. A higher primary-shard count uses native splitting along its reserved routing path and a full replacement otherwise.
 - Persist all search sessions and work in FoundationDB. Distribute their keys across stable hash buckets. Do not require sticky requests, a process-local cache, a global sequence, or one claim range.
 - Worker claims, cleanup, sessions, rebuilds, and physical indexes have explicit work and lifetime bounds.

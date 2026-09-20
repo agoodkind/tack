@@ -189,7 +189,7 @@ ranking capacity. Native index splitting increases primary shards without regene
 existing embeddings when the reserved routing path permits it. Tack selects neither
 ML workers nor shard nodes.
 
-The final GTE sparse workload opened the ML memory circuit breaker at 4 GiB. It completed at 8 GiB and used about 3.4 GiB afterward. Eight GiB is the QA floor and production starting allocation, not a production capacity result. The 2026-09-20 suburban snapshot lacked a safe three-node margin, so QA provisioning waits for more capacity or a passing host-capacity measurement.
+The final GTE sparse workload opened the ML memory circuit breaker at 4 GiB. It completed at 8 GiB and used about 3.4 GiB afterward. Eight GiB is the per-guest floor, not a capacity result. The initial QA topology requires at least 56.52 GiB usable host memory and 12 logical CPUs, so use at least 64 GB installed memory. Running the temporary scale node on the same host requires at least 66.52 GiB usable memory, 16 logical CPUs, and 160 GiB of fast guest storage, so use at least 96 GB installed memory. Current suburban hardware is limited to 32 GB and eight threads and cannot host QA OpenSearch.
 
 Release capacity sets pass thresholds for latency, throughput, pending-work age,
 memory, disk, one-guest failure, and concurrent replacement. Separate tests add Tack,
