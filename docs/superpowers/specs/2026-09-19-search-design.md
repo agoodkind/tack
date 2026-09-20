@@ -7,8 +7,7 @@ TACK-517 specifies search; TACK-518 through TACK-520 implement it. TACK-524 and 
 Search must find text throughout each node and enforce current authorization
 and scope. Search must continue after any one search guest fails.
 
-OpenSearch 3.8 will provide keyword and semantic ranking. FoundationDB will
-store the authoritative nodes, properties, relationships, and type metadata.
+OpenSearch 3.8 will provide keyword and semantic ranking. FoundationDB will store the authoritative nodes, properties, relationships, and type metadata.
 Each returned text page becomes a separate OpenSearch document. Search returns
 distinct nodes with current FoundationDB content without assembling multiple pages.
 
@@ -46,8 +45,7 @@ category totals are not part of this search contract.
 
 ## Paginated node reads
 
-Search must cover all accepted text without a fixed total size or page count.
-The reader returns one bounded part per call. The worker indexes each part and
+Search must cover all accepted text without a fixed total size or page count. The reader returns one bounded part per call. The worker indexes each part and
 continues until an explicit end marker. It cannot infer completion from part
 size, current storage limits, or previous reads. Later FDB pagination requires no change
 to the search loop, index mapping, page IDs, retries, or result grouping.
@@ -57,8 +55,7 @@ pagination and hides FoundationDB keys, value limits, and record layout.
 The initial adapter may read the existing bounded record without changing its storage model.
 The future adapter must decode and paginate larger records with bounded memory.
 
-The reader returns bounded Unicode text pages for one committed node revision,
-with stable ordinals, a resumable cursor, and an explicit end marker. Metadata
+The reader returns bounded Unicode text pages for one committed node revision, with stable ordinals, a resumable cursor, and an explicit end marker. Metadata
 and boundaries remain fixed for that read. Resuming another revision is an error.
 Corrupt or missing data is an error, never an end marker.
 
@@ -117,10 +114,9 @@ create a new projection version even with unchanged text. Nested embeddings use
 
 ## Ranking and pagination
 
-The `node-pages-search` request pipeline generates the query embedding locally.
-A Boolean query sums keyword scores from `name` with boost 3 and `page_text`
+OpenSearch generates one query embedding locally for each search session. A Boolean query sums keyword scores from `name` with boost 3 and `page_text`
 with OpenSearch's exact vector score. Each page uses its highest text-vector
-score. Ordinary field collapse returns the highest-scoring page for each node.
+score. Pages sort by descending score, then ascending node ID. Each node's first match determines its rank.
 
 The query applies validated organization, scope, optional type, and retirement filters
 as structured JSON. All returned candidates, including any exact-reference
@@ -128,20 +124,24 @@ lookup, undergo current authorization and scope checks through the node reader.
 Unavailable authoritative reads fail the request; deleted or no-longer-visible
 nodes are omitted. Candidate text is never used as the returned node body.
 
-Exact scoring uses no fixed nearest-neighbor cutoff. Many parts from one node
-cannot consume the distinct-node result limit. Query work increases with indexed
+Exact scoring uses no fixed nearest-neighbor cutoff. Repeated parts cannot
+exclude other matching nodes. Query work increases with indexed
 content; QA must measure that cost.
 
-A continuation represents one bounded ranked set of at most 1,000 distinct node
-IDs. It binds the query, resolved filters, authenticated principal, and index
-version. Its ordering is fixed for that continuation; current authorization is
-checked on every page. Expired or mismatched cursors return a recoverable error.
-Reaching the ranked-set bound reports that bound rather than claiming exhaustive
-results. OpenSearch page hit counts are never presented as node totals.
+A continuation can reach every matching node without a total-result limit.
+OpenSearch freezes the index view with a point in time and returns at most 100
+ranked page matches per request using `search_after`. Tack persists the fixed
+query vector, last consumed sort values, and separate records for visited node IDs.
+Later matches for visited nodes are skipped. No request assembles the complete result set.
+The session binds the query, filters, principal, and physical index. Current
+authorization applies to every response. Committed advancement renews a 15-minute inactivity
+expiry; expired snapshots or mismatched cursors return an explicit restart error.
 
 The reader fetches current authorization data and bounded summaries without
-collecting multiple content pages. Results follow rank order. Candidate refill may
-require several search or storage requests; each request must remain bounded.
+collecting multiple content pages. A response scans at most four engine batches;
+it may contain no nodes and still have a continuation. Only exhausted engine results
+end pagination. Byte limits preserve the first unreturned candidate. Committed
+pages support retry without advancing twice or renewing expiry. Later access grants require a new search to reconsider omitted nodes. OpenSearch page counts are not node totals.
 
 ## Durable indexing and recovery
 

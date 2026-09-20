@@ -1,7 +1,6 @@
 # OpenSearch search acceptance criteria
 
-These criteria verify the [search architecture](2026-09-19-search-design.md).
-The first release must pass single-page and multi-page behavior with current
+These criteria verify the [search architecture](2026-09-19-search-design.md). The first release must pass single-page and multi-page behavior with current
 storage. Larger-node capacity tests additionally gate removal of storage limits.
 
 ## Evidence and environment
@@ -11,8 +10,7 @@ OpenSearch, the deployed model, and authentication in local test containers.
 Mocks, recorded responses, and private-helper tests do not establish acceptance.
 Engine APIs and traces provide supporting evidence after public operations.
 
-QA must pass before production. Destructive scenarios use disposable fixtures.
-Production checks artifacts, topology, authorization, and authorized smoke data.
+QA must pass before production. Destructive scenarios use disposable fixtures. Production checks artifacts, topology, authorization, and authorized smoke data.
 Public search behavior also requires QA data-generator coverage.
 
 Record the Tack and configs revisions, container digests, model and tokenizer
@@ -121,12 +119,12 @@ Do not require unrelated meanings of an ambiguous word to match.
 
 ## Distinct results and continuation
 
-- Create 149 ordinary nodes and one node with more than 1,000 matching pages
-  using small reader pages within current storage limits. Give each node the same phrase. With small
-  result summaries, paging returns six pages of 25 distinct nodes, covering
-  every fixture exactly once. Separately test the engine adapter with 36,000 matching parts from one node across three shards.
+- Create at least 1,501 matching nodes, including one with more than 1,000 pages
+  using small reader pages within current storage limits. Follow every cursor;
+  require all eligible nodes exactly once in rank order without a total-result cap.
+  Repeat with 36,000 parts from one node across three shards and lower-scoring repeated parts.
 - Place deleted and unauthorized candidates ahead of valid results. Search
-  omits those nodes and refills pages where eligible nodes remain.
+  omits those nodes and refills within the four-batch work budget. Each engine batch has at most 100 matches.
 - Index overlapping revisions during an update. Search returns each node at
   most once with current authorized content, even if an old page ranks it.
 - Store nodes large enough to trigger storage-batch and response-byte bounds.
@@ -136,9 +134,12 @@ Do not require unrelated meanings of an ambiguous word to match.
 - Continue a query while scores or indexed content change. Its established node
   order remains fixed, and authorization is checked again. A cursor used with
   another query, scope, principal, or incompatible index version is rejected.
-- Expired cursors return a recoverable restart error. A query with more than
-  1,000 eligible nodes reports the ranked-set limit; it does not claim that
-  1,000 is an exhaustive count. Page counts are never shown as node counts.
+- Force the work budget to produce an empty response with a continuation; later
+  calls must reach the remaining nodes. A byte boundary must preserve the next eligible node.
+- Retry after a lost response, concurrent cursor calls, and a process restart;
+  committed pages replay without advancing twice. Session writes and memory remain bounded.
+- Renew advancing sessions beyond 15 minutes; replay does not renew expiry. Expired snapshots return a restart error.
+  A new search must find newly authorized nodes omitted earlier. Exhaustion requires an empty engine batch; page counts are not node counts.
 
 ## Durable changes and recovery
 

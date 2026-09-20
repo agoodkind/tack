@@ -21,10 +21,10 @@ The native embedding and ranking configuration passed local engine validation. T
 - The container image is `opensearchproject/opensearch:3.8.0`.
 - Use `huggingface/sentence-transformers/all-MiniLM-L6-v2` version 1.0.2 and 384-dimensional vectors.
 - Reader parts contain at most 4,096 UTF-8 bytes; queries contain at most 126 UTF-8 bytes.
-- OpenSearch uses gsub, delimiter chunking, local inference, exact vector scores, and ordinary field collapse.
+- OpenSearch uses gsub, delimiter chunking, local inference, exact vector scores, and point-in-time pagination.
 - Bulk requests contain at most 500 page documents and 5 MiB of encoded data, including action lines.
 - A result page has at most 25 nodes within Tack's response-byte budget.
-- A continuation represents one bounded ranked set of at most 1,000 distinct node IDs.
+- Continuation can reach every matching node. Engine batches contain at most 100 matches; responses scan at most four batches.
 - QA and production each use three LXC guests, with 4 GB memory, 2 CPU cores, 40 GB storage, and 2 GB JVM heap per guest.
 - All product state and search progress use FoundationDB. SQL remains authentication and audit only.
 - Reads use `NodeReader`. Configuration uses environment variables through `caarlos0/env`.
