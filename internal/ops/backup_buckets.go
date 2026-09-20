@@ -59,12 +59,10 @@ func RunBackupBucketsInit(ctx context.Context, cfg *config.Config) error {
 	return nil
 }
 
-// backupS3DefaultMaxAttempts is the AWS SDK's own default, stated rather than
-// inherited.
+// backupS3DefaultMaxAttempts is the AWS SDK's own default.
 const backupS3DefaultMaxAttempts = 3
 
-// backupS3MaxAttempts is a var so a test pointed at a refusing address can cut
-// it to one attempt (TACK-528).
+// backupS3MaxAttempts is a var so a test can cut it to one attempt (TACK-528).
 var backupS3MaxAttempts = backupS3DefaultMaxAttempts
 
 // newBackupS3Client builds an S3 client for the SeaweedFS endpoint using static
