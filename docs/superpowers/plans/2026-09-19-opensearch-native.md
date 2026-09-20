@@ -26,6 +26,7 @@ Local OpenSearch 3.8.0 validated this configuration on 2026-09-19.
 - One query inference produced weights that returned every relevance target within the first 18 distinct nodes. Lexical controls returned no target. Three repeats preserved order.
 - Point-in-time traversal returned 37,500 page matches and 1,501 distinct node IDs in 375 batches of 100. One node contributed 36,000 pages. The traversal completed in 4.786 seconds after one query inference.
 - A 4 GiB container opened the ML memory circuit breaker. The equivalent 8 GiB run completed and used about 3.4 GiB afterward. Eight GiB remains the QA floor and production starting allocation.
+- On 2026-09-20, client v4.7.3's typed `Indices.Split` API split this exact semantic mapping from one primary shard to two. The undeployed model proved that existing documents were not inferred again. Mappings, five documents, seven chunks, sparse weights, and the saved raw-sparse query matched byte for byte. Repeated native splits completed from one to two, four, and eight primary shards. A combined lexical query kept its result order but changed numeric scores because primary shards use local term statistics.
 
 ## Task 1: Implement native sparse indexing and regression coverage
 
@@ -55,15 +56,15 @@ type ModelInfo struct {
 func New(config opensearch.Config) (*Adapter, error)
 func (a *Adapter) Close() error
 func (a *Adapter) Provision(context.Context) (ModelInfo, error)
-func (a *Adapter) CreateIndex(context.Context, string, ModelInfo, int) error
+func (a *Adapter) CreateIndex(ctx context.Context, index string, model ModelInfo, primaryShards, routingShards int) error
 ```
 
 - [ ] Add v4.7.3 and run a compatibility test through the production adapter against `opensearchproject/opensearch:3.8.0`. Exercise every typed core API used by later tasks. Treat this gate as required because the v4 client documents later 3.x releases as best effort.
 - [ ] Run `^TestSearchNativeSparse$` and record the missing-adapter failure.
 - [ ] Convert the central application configuration to `opensearch.Config`. Configure every address, credentials, CA bytes, request timeout, retry statuses, retry count, timeout retry policy, `opensearchtransport.NewRoundRobinRouter`, client metrics, error reporting for partial bulk and search failures, and lifecycle close. Do not construct another `http.Client` or retry loop.
-- [ ] Use typed client APIs for index, bulk, point-in-time, alias, document, health, block, and statistics operations. Build search requests with the typed API. Decode the narrow search response with `opensearch.Do`. Define narrow ML Commons request types that satisfy `opensearch.Request`, then call `opensearch.Do` and `opensearch.ParseError`. Stable v4.7.3 omits replacement PIT IDs from `SearchResp` and lacks ML Commons APIs. Do not expose a generic method-and-path JSON function or import the temporary v5 preview package.
+- [ ] Use typed client APIs for index creation and split, bulk, point-in-time, alias, document, health, block, and statistics operations. Build search requests with the typed API. Decode the narrow search response with `opensearch.Do`. Define narrow ML Commons request types that satisfy `opensearch.Request`, then call `opensearch.Do` and `opensearch.ParseError`. Stable v4.7.3 omits replacement PIT IDs from `SearchResp` and lacks ML Commons APIs. Do not expose a generic method-and-path JSON function or import the temporary v5 preview package.
 - [ ] Provision the pinned model. Reuse a registration only after checking its name, version, algorithm, size, bundle hash, deployment state, and worker placement. A mismatch produces an operator error.
-- [ ] Create the index with `opensearchapi.Indices.Create`, a caller-supplied positive primary-shard count, one replica in deployment, and zero replicas in the one-node fixture. Use `dynamic: strict` and this native field configuration:
+- [ ] Create the index with `opensearchapi.Indices.Create`, caller-supplied positive primary and routing-shard counts, one replica in deployment, and zero replicas in the one-node fixture. Require the routing count to be divisible by the primary count and every approved split target. Store both counts with the physical generation. Use `dynamic: strict` and this native field configuration:
 
 ```json
 {

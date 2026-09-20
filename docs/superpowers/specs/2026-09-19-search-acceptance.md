@@ -14,7 +14,7 @@ Record Tack and configs revisions, image digests, model and tokenizer checksums,
 index settings, shard counts, byte and work bounds, fixture identities, workload,
 and measurements. QA must pass before production.
 
-- Pin `github.com/opensearch-project/opensearch-go/v4` v4.7.3. Run the production adapter against `opensearchproject/opensearch:3.8.0`. Exercise typed index creation, bulk, refresh, point-in-time creation and deletion, search request construction, alias changes, index and document reads, index deletion, metrics, routing, and close. Verify that the narrow search decoder preserves replacement PIT IDs and exact sort JSON.
+- Pin `github.com/opensearch-project/opensearch-go/v4` v4.7.3. Run the production adapter against `opensearchproject/opensearch:3.8.0`. Exercise typed index creation, split, bulk, refresh, point-in-time creation and deletion, search request construction, alias changes, index and document reads, index deletion, metrics, routing, and close. Verify that the narrow search decoder preserves replacement PIT IDs and exact sort JSON.
 - Exercise concrete ML Commons `opensearch.Request` types through `opensearch.Do` and `opensearch.ParseError`. Reject another HTTP client, generic method-and-path API, temporary v5 preview dependency, custom route selection, retry loop, connection pool, or error decoder.
 
 ## Meilisearch removal
@@ -146,22 +146,18 @@ A lexical-only control must miss at least one non-overlapping pair that the comb
   Repeat many edits. Completed work, old generations, issued IDs, replay records,
   and rebuild journals must be removed. State must not grow with edit history.
 
-## Rebuild and index lifecycle
+## Index replacement lifecycle
 
-- Rebuild while creates, edits, deletes, metadata changes, and subtree moves continue.
-  Fail scan, inference, replay, validation, and alias switching separately. The
-  serving alias must remain correct and recovery must resume.
-- Attempt two rebuilds. Exactly one may run. At every point, list physical indexes
-  and require no more than one serving, one replacement, and one retiring index.
-- Configure low retired-page, retirement-age, and index-byte thresholds. Cross each
-  threshold separately and require a rebuild. Exhaust reserved disk headroom and
-  require index workers to leave work pending while source writes remain durable.
-- Keep a session open on the old index. New sessions must use the new index. The old
-  session must end by its absolute deadline, then bounded cleanup must delete the
-  old index and obsolete retirement records.
-- Restore a FoundationDB backup into a disposable environment. Create a new search
-  generation and empty index. Restored cursors must fail. Rebuilt search must include
-  current nodes, exclude deleted nodes, and pass relevance and final-page checks.
+- Run a full FoundationDB replacement while creates, edits, deletes, metadata changes, and subtree moves continue. Fail scan, inference, replay, validation, and alias switching separately. The serving alias must remain correct and recovery must resume.
+- Create the initial index with a reserved routing-shard count divisible by every approved split target. Reject a lower or nonmultiplicative primary count before blocking engine writes.
+- Increase only the primary count through the typed Split Index API. Keep the alias on the readable source while it is write-blocked. FoundationDB mutations must commit and remain queued.
+- Undeploy the document model before splitting. Require identical mappings, documents, generated chunks, sparse weights, and saved raw-sparse query results. Combined lexical scores may change with shard-local term statistics, so rerun relevance and continuation acceptance instead of requiring equal numeric scores.
+- Exercise the complete reserved path from one primary shard through two, four, and eight. Require green targets and no FoundationDB node scan.
+- Fail write blocking, split creation, replay, validation, and alias switching separately. Recovery must restore source writes, preserve the old alias, clean failed targets, and resume from durable state.
+- Attempt two replacements. Exactly one may run. Require no more than one serving, one replacement, and one retiring index at every checkpoint.
+- Configure low retired-page, retirement-age, and index-byte thresholds. Each threshold must start a full FoundationDB replacement because splitting preserves obsolete documents. Exhaust reserved disk and require pending engine work while source writes remain durable.
+- Keep a session open on the old index. New sessions must use the new index. Bounded cleanup must delete the old index and retirement records after the absolute session deadline.
+- Restore a FoundationDB backup into a disposable environment. Create a new search generation and empty index. Restored cursors must fail. Rebuilt search must include current nodes, exclude deleted nodes, and pass relevance and final-page checks.
 
 ## Cluster and capacity
 
@@ -189,8 +185,8 @@ A lexical-only control must miss at least one non-overlapping pair that the comb
 - Add an ML-only QA node. Require automatic model deployment and improved new-session
   inference throughput without reindexing or application changes.
 - Add a data-only QA node and another replica. Require improved ranking throughput
-  without reindexing. Then rebuild the same corpus with a higher primary-shard count
-  and require improved indexing throughput without a Tack routing change.
+  without reindexing. Then split the same corpus to a higher primary-shard count and
+  require improved indexing throughput without inference or a Tack routing change.
 - Add a Tack process and FoundationDB capacity independently. Require the fixed
   request and worker workloads to improve without changing session or work formats.
   Remove temporary nodes only after work, model, and shard relocation complete.

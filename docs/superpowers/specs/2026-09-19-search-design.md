@@ -83,10 +83,9 @@ Tack pins `github.com/opensearch-project/opensearch-go/v4` v4.7.3, the latest st
 
 ## Indexed pages
 
-The `node-pages` alias selects one versioned physical index. Each index generation
-records its model identity, semantic mapping version, primary shard count, and replica
-count. Operators can increase primary shards only by building and validating a
-replacement index. Adding a node requires no Tack routing change.
+The `node-pages` alias selects one versioned physical index. Each generation records its model, mapping version, primary shards, reserved routing shards, and replicas.
+When only the primary count changes, OpenSearch splits the serving index into a validated replacement along its reserved routing path.
+Model, mapping, restore, cleanup, and unsupported shard changes rebuild from FoundationDB. Adding a node requires no Tack routing change.
 
 The mapping contains only these fixed fields:
 
@@ -155,16 +154,15 @@ deletes obsolete work, cursor, error, and issued-ID records. Rebuild journals ar
 removed after no active rebuild needs them. State does not grow with mutation
 history.
 
-## Rebuild and index lifecycle
+## Index replacement lifecycle
 
-Only one rebuild can run in an environment. A rebuild scans FoundationDB into one
-replacement index, replays mutations after its boundary, verifies the replacement,
-then switches the alias atomically. At most one serving, one replacement, and one
-retiring index can exist. A second rebuild waits until retirement finishes.
+Only one index replacement can run in an environment. A full replacement scans FoundationDB. A primary-shard-only replacement blocks engine writes briefly and uses OpenSearch's native split operation.
+FoundationDB writes still commit and record durable search work. Both paths replay pending mutations, verify the target, switch the alias atomically, and use the same retirement state.
+At most one serving, one replacement, and one retiring index can exist. Another replacement waits.
 
 Each environment sets maximum retired-page count, oldest-retirement age, and
 physical-index bytes from its validated disk budget. Crossing any threshold starts
-a replacement-index rebuild. The disk budget reserves space for the serving,
+a full FoundationDB replacement. The disk budget reserves space for the serving,
 replacement, and retiring indexes. When that reserve is unavailable, workers leave
 new index work pending instead of consuming it, while source writes remain durable.
 
@@ -186,14 +184,15 @@ a primary or the model.
 OpenSearch dispatches ML work across eligible ML nodes and routes search across primary
 and replica shards. Model deployment specifies no node IDs and includes new ML
 nodes. ML-only nodes increase inference capacity. Data nodes and replicas increase
-ranking capacity. Higher primary-shard counts use the existing rebuild. Tack selects
-neither ML workers nor shard nodes.
+ranking capacity. Native index splitting increases primary shards without regenerating
+existing embeddings when the reserved routing path permits it. Tack selects neither
+ML workers nor shard nodes.
 
 The final GTE sparse workload opened the ML memory circuit breaker at 4 GiB. It
 completed at 8 GiB and used about 3.4 GiB afterward. Eight GiB is the QA floor and
 production starting allocation, not a production capacity result.
 
 Release capacity sets pass thresholds for latency, throughput, pending-work age,
-memory, disk, one-guest failure, and concurrent rebuild. Separate tests add Tack,
+memory, disk, one-guest failure, and concurrent replacement. Separate tests add Tack,
 FoundationDB, ML, and data capacity. Each addition must improve the relevant fixed
 workload without application code changes. Disk must fit all three index generations.

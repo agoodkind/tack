@@ -2,13 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Assemble the replacement runtime and rebuild search safely from FoundationDB.
+**Goal:** Assemble the replacement runtime and replace search indexes without losing committed changes.
 
-**Architecture:** Runtime workers use the durable work store. Rebuilds scan into a fresh physical index, replay changes, and persist an alias-switch state that can recover after interruption. Restored source data always requires a fresh index.
+**Architecture:** Runtime workers use the durable work store. A full replacement scans FoundationDB when indexed contents must change. A primary-shard-only replacement uses native OpenSearch splitting. Both paths replay changes and use the same recoverable alias switch. Restored source data always requires a full replacement.
 
-**Tech Stack:** Go, FoundationDB, official OpenSearch Go client v4.7.3, typed aliases, existing audited operations, and datagen.
+**Tech Stack:** Go, FoundationDB, official OpenSearch Go client v4.7.3, typed split and alias APIs, existing audited operations, and datagen.
 
-**Spec:** [Recovery requirements](../specs/2026-09-19-search-acceptance.md#durable-work-and-state-lifecycle).
+**Spec:** [Durable work](../specs/2026-09-19-search-acceptance.md#durable-work-and-state-lifecycle) and [index replacement](../specs/2026-09-19-search-acceptance.md#index-replacement-lifecycle).
 
 ## Global Constraints
 
@@ -82,34 +82,61 @@ internal/domain/search/rebuild.go                   persistent rebuild state
 internal/adapters/foundationdb/search_rebuild.go    scan and journal checkpoints
 internal/service/search_rebuild.go                 rebuild coordinator
 internal/adapters/search/opensearch_alias.go        physical-index switch
+internal/adapters/search/opensearch_split.go        native primary-shard increase
 internal/test/integration/search_rebuild_test.go    concurrent mutation and failure
+internal/test/integration/search_split_test.go      split, replay, and recovery
 internal/test/integration/search_restore_test.go    real backup and restore
 ```
 
 Replace the body of [search reindexing](../../../internal/ops/search_reindex.go). Keep its existing audited command registration and dry-run behavior. Consume `NodeReader.ScanSearch`, the same content reader, worker, and page writer used for live changes. Produce:
 
 ```go
+type ReplacementMode uint8
+const (
+    ReplacementFull ReplacementMode = iota + 1
+    ReplacementSplit
+)
 type Rebuild struct {
     ID, SourceIndex, TargetIndex, ScanCursor string
     Boundary, Applied []byte
     State string
-    PrimaryShards int
+    Mode ReplacementMode
+    PrimaryShards, RoutingShards int
 }
 type Rebuilder interface { Run(context.Context) error }
+func (a *Adapter) SplitIndex(ctx context.Context, source, target string, primaryShards int) error
 func (a *Adapter) SwitchAlias(ctx context.Context, alias, oldIndex, newIndex string) error
 ```
 
-- [ ] Add `TestSearchRebuildDuringChanges`: run the real audited reindex command while MCP creates, edits, deletes, changes metadata, and moves a subtree. Wait for the command's successful completion; search must reflect each completed change and must not return deleted or foreign-scope nodes.
-- [ ] Run `^TestSearchRebuildDuringChanges$`; expect the old reindex command to lack a replacement index and persisted handoff.
+- [ ] Add `TestSearchRebuildDuringChanges` and `TestSearchSplitDuringChanges`. Run the real audited command while MCP creates, edits, deletes, changes metadata, and moves a subtree. Search must reflect each completed change and must not return deleted or foreign-scope nodes.
+- [ ] Run `^TestSearch(Rebuild|Split)DuringChanges$`; expect the old reindex command to lack a replacement index and persisted handoff.
 - [ ] Acquire one environment-wide rebuild lease before creating an index. Reject or
   queue another rebuild until the first replacement and any prior retiring index
-  finish. Record an FDB journal boundary and a positive primary-shard count. Create
-  one unique physical index with that stored count. Scan with the same bounded page
-  worker. Persist scan and replay checkpoints independently.
-- [ ] Start this same rebuild when the serving index crosses its configured maximum
-  retired-page count, retirement age, or physical bytes. Verify reserved disk can
-  contain the serving, replacement, and retiring indexes before scanning. If it
-  cannot, report the capacity error and leave new index work pending in FDB.
+  finish. Persist the mode, source, target, journal boundary, positive primary count,
+  and reserved routing count. Require disk for the serving, replacement, and retiring
+  indexes before either mode starts.
+- [ ] Use `ReplacementFull` for the first index, restore, model or mapping changes,
+  cleanup thresholds, lower shard counts, and targets outside the reserved routing
+  path. Create one empty target, scan through the bounded page worker, and persist
+  scan and replay checkpoints independently.
+- [ ] Use `ReplacementSplit` only when the model, mapping, projection, and routing
+  count match and the requested primary count is a larger permitted multiple. Record
+  the split boundary. Pause new claims, wait for existing claims to finish or expire,
+  set `index.blocks.write`, and keep the source alias readable. FoundationDB writes
+  continue and append durable work.
+- [ ] Call `opensearchapi.Client.Indices.Split` with the persisted physical names and
+  target primary count. Set zero replicas during construction and clear the target
+  write block. Do not call Reindex, scan FoundationDB, infer existing documents, or
+  implement the HTTP endpoint. Wait for a green target, restore source writes, resume
+  live source claims, and replay the split-start backlog plus later journal entries
+  into the target. Restore the recorded replica count and require green health before
+  alias switching.
+- [ ] If splitting fails, keep the alias on the source, restore source writes, resume
+  claims, and delete the failed target through existing resumable cleanup. Recovery
+  must inspect the persisted state, write block, target, and alias before retrying.
+- [ ] Start a full replacement when the serving index crosses its retired-page,
+  retirement-age, or physical-byte limit because splitting would preserve obsolete
+  documents. Insufficient disk leaves new index work pending in FoundationDB.
 - [ ] Replay mutations after the boundary, including metadata scans and deletions. Enter a durable `switching` state that pauses new worker claims but still permits source mutations to enqueue. Record a final journal boundary and finish the new index through that boundary. Verify refresh and index health before changing the alias.
 - [ ] Change the alias in one OpenSearch request:
 
@@ -134,13 +161,16 @@ The adapter substitutes the concrete persisted index names and calls the typed `
   one retiring index. Delete failed replacements through resumable cleanup before
   another rebuild starts. Release rebuild journal entries after no active rebuild
   boundary needs them.
-- [ ] Add a scale-out case that provisions another data node, requests a larger
-  stored primary-shard count, and rebuilds. Verify native redistribution and improved
-  throughput under the predeclared workload without application routing changes.
-- [ ] Fail real scan, embedding, and replay operations separately before switching and assert the serving alias is unchanged. Stop the process immediately after switching and assert restart completes the handoff. A dry run must neither create an index nor alter journal retention.
+- [ ] Add a scale-out case that provisions another data node and splits from one to
+  two, four, then eight primaries. Undeploy the document model before each split.
+  Require identical source bytes, generated embeddings, and saved raw-sparse query
+  results. Rerun relevance and continuation, then require improved throughput.
+- [ ] Fail real scan, inference, split, replay, and alias operations separately. The
+  serving alias must remain correct. Stop immediately after switching and require
+  restart to complete the handoff. A dry run creates no index or journal state.
 - [ ] Restore a real FDB backup into a disposable local environment using the existing backup/restore operations. Change the search generation before accepting requests; bind sessions to that generation and reject restored cursors. Rebuild an empty search index and require current nodes, deleted-node absence, relevance, and final-page text. Never reuse a pre-restore index as authoritative.
-- [ ] Reuse existing lifecycle cancellation, bounded close, context-aware backoff, telemetry, logger, and FoundationDB retry conventions. Native Reindex and Index State Management cannot replay FoundationDB changes, preserve Tack sessions, or coordinate the authoritative rebuild, so keep the application rebuild state.
-- [ ] Run `^TestSearch(Rebuild|Restore)` and `make check`; commit with subject `Rebuild OpenSearch with durable catch-up and alias recovery`.
+- [ ] Reuse existing lifecycle cancellation, bounded close, context-aware backoff, telemetry, logger, and FoundationDB retry conventions. Native split creates index bytes only. It cannot replay FoundationDB changes, preserve sessions, or coordinate the alias, so keep the application replacement state.
+- [ ] Run `^TestSearch(Rebuild|Split|Restore)` and `make check`; commit with subject `Replace OpenSearch indexes with durable catch-up and alias recovery`.
 
 ## Task 10: Add public QA generator coverage
 

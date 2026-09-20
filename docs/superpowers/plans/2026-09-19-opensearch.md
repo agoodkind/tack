@@ -30,16 +30,16 @@ The native sparse indexing and ranking configuration passed local engine validat
 - Reader parts contain at most 4,096 UTF-8 bytes; queries contain at most 126 UTF-8 bytes.
 - Map page text as a native `semantic` field. OpenSearch performs fixed-character chunking, sparse encoding, pruning, and point-in-time pagination.
 - Pin the latest stable Go client, v4.7.3. Task 1 must keep its core API compatibility test against the exact OpenSearch 3.8.0 image because the client documents later 3.x releases as best effort.
-- Use typed client APIs for core index, bulk, point-in-time, alias, document, health, block, and statistics operations. Build searches with the typed request API and decode the few response fields the typed response omits with `opensearch.Do`. Define narrow request types for ML Commons operations that stable v4 does not include, then use `opensearch.Do` and `opensearch.ParseError`. Do not add a generic method-and-path JSON API or import the temporary v5 preview package.
+- Use typed client APIs for core index creation and split, bulk, point-in-time, alias, document, health, block, and statistics operations. Build searches with the typed request API and decode the few response fields the typed response omits with `opensearch.Do`. Define narrow request types for ML Commons operations that stable v4 does not include, then use `opensearch.Do` and `opensearch.ParseError`. Do not add a generic method-and-path JSON API or import the temporary v5 preview package.
 - Bulk requests contain at most 500 page documents and 5 MiB of encoded data, including action lines.
 - A result page has at most 25 nodes within Tack's response-byte budget.
 - Continuation can reach every matching node. Engine batches contain at most 100 matches; responses scan at most four batches.
 - Configure every OpenSearch address in the official client. Its connection pool owns routing, retries, failed-node recovery, TLS, and transport metrics.
 - QA and production start with three LXC guests, with at least 8 GiB memory, 2 CPU cores, 40 GiB storage, and a 2 GiB JVM heap per guest. Three is the release topology, not a capacity ceiling.
-- Adding Tack processes, FoundationDB capacity, OpenSearch ML nodes, data nodes, replicas, or coordinating endpoints must not require application code or stored-format changes. A higher primary-shard count uses the existing replacement-index rebuild.
+- Adding Tack processes, FoundationDB capacity, OpenSearch ML nodes, data nodes, replicas, or coordinating endpoints must not require application code or stored-format changes. A higher primary-shard count uses native splitting along its reserved routing path and a full replacement otherwise.
 - Persist all search sessions and work in FoundationDB. Distribute their keys across stable hash buckets. Do not require sticky requests, a process-local cache, a global sequence, or one claim range.
 - Worker claims, cleanup, sessions, rebuilds, and physical indexes have explicit work and lifetime bounds.
-- Each physical index stores its primary shard count. Increasing shard parallelism requires a validated rebuild.
+- Each physical index stores primary and reserved routing-shard counts. Every shard increase creates and validates a replacement through native splitting or a full FoundationDB rebuild.
 - All product state and search progress use FoundationDB. SQL remains authentication and audit only.
 - Reads use `NodeReader`. Configuration uses environment variables through `caarlos0/env`.
 - Tests use real dependencies and public boundaries. No mocks, product seeds, or production tokenizer dependency establish acceptance.
@@ -65,7 +65,7 @@ The native sparse indexing and ranking configuration passed local engine validat
 2. A paused old writer must not restore deleted text after another worker completes cleanup. Worker tasks test actual delayed requests.
 3. A long uninterrupted Unicode string must not disappear inside model truncation. Native coverage tests inspect the semantic field's generated chunks and embeddings.
 4. A byte-limited response must retain the first result it cannot render. Query tasks test continuation with large names.
-5. A metadata or ancestry change during a rebuild must appear after the alias switch. Recovery tasks test concurrent public changes.
+5. A metadata or ancestry change during an index replacement must appear after the alias switch. Recovery tasks test concurrent public changes.
 6. A large node, cleanup, or rebuild must yield before it starves live mutation work. Worker and capacity tasks measure every work class.
 7. Session and rebuild cleanup must bound the number and lifetime of retained physical indexes.
 8. Adding each capacity role must increase its measured throughput without changing application code or session behavior.
@@ -88,7 +88,7 @@ authenticated calls for the owning tasks.
 3. Implement Task 2 in the [reader tasks](2026-09-19-opensearch-reader.md), including revision identity, bounded pages, and summaries.
 4. Implement the [durable indexing tasks](2026-09-19-opensearch-worker.md), including transaction scheduling, retries, and deletion.
 5. Complete Task 6 in the [query tasks](2026-09-19-opensearch-query.md). It adds ranking and continuation behind internal boundaries.
-6. Complete the [recovery tasks](2026-09-19-opensearch-recovery.md), including rebuild, restore, and QA generator coverage.
+6. Complete the [recovery tasks](2026-09-19-opensearch-recovery.md), including full rebuild, native split, restore, and QA generator coverage.
 7. Complete Task 11 in the [deployment tasks](2026-09-19-opensearch-deployment.md). It prepares role-specific services and configuration without deploying or changing application search.
 8. Complete Tasks 7 and 8 in the query plan as one review and commit. This is the sole application cutover. Complete Task 3's metadata refresh test against this runtime.
 9. Complete Task 10's public QA checks, then apply Task 12 only after deployment authorization.
