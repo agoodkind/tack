@@ -6,9 +6,8 @@
 // sends from the address that demonstrably delivers, and it speaks SMTP itself
 // over net/smtp after parsing the msmtp account file, so no mail binary is
 // executed and the repo's no-shell-outs rule holds. The words the mail carries
-// come from backup_alarm_words.go and backup_alarm_vocabulary.go, the message
-// they are put into from backup_alarm_message.go, and the delivery from
-// backup_alarm_smtp.go; when to send is decided in backup_alarm_policy.go.
+// come from backup_alarm_words.go and backup_alarm_vocabulary.go; when to send
+// is decided in backup_alarm_policy.go.
 
 package ops
 
@@ -25,8 +24,8 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// backupAlarmCaller names this command in the mail's footer, so a message read
-// on a phone says which run produced it.
+// backupAlarmCaller names this command in the mail the library renders, so a
+// message read on a phone says which run produced it.
 const backupAlarmCaller = "tack ops backup staleness-check"
 
 // backupAlarmUnknownHost stands in when the host cannot name itself. Naming the
@@ -64,7 +63,7 @@ func mailBackupStalenessAlarm(ctx context.Context, cfg *config.Config, faults []
 		To:      cfg.BackupAlarmEmail,
 		Subject: backupStalenessAlarmSubject(backupAlarmHost(), faults),
 		Body:    backupStalenessAlarmBody(cfg, faults),
-		// From is deliberately empty: the transport then sends as
+		// From is deliberately empty: the library then sends as
 		// <hostname>-mailer@goodkind.io, the sender whose mail actually
 		// arrives, instead of the guest's plain hostname address that the
 		// relay accepted and dropped.
@@ -86,14 +85,15 @@ func mailBackupStalenessAlarm(ctx context.Context, cfg *config.Config, faults []
 }
 
 // sendBackupAlarmMail delivers the message over the SMTP account in the msmtp
-// file. The account file is the one credential source, so an SMTP2GO key that
-// happens to sit in the environment cannot reroute the alarm onto an HTTP API.
-//
-// The message is composed here rather than by the library's renderer, which
-// appends a footer naming this guest's public address, its ISP and every
-// interface address, with no way to turn it off: see backup_alarm_message.go.
+// file. The transport is pinned to sendmail rather than left on auto so the
+// account file is the one credential source, and an SMTP2GO key that happens to
+// sit in the environment cannot silently reroute the alarm onto the HTTP API.
 func sendBackupAlarmMail(ctx context.Context, cfg *config.Config, message mailer.Message) error {
-	if err := deliverBackupAlarmMail(ctx, cfg, message); err != nil {
+	sender := mailer.New(mailer.Config{
+		Transport:   mailer.MethodSendmail,
+		MsmtprcPath: cfg.BackupAlarmMsmtprcPath,
+	})
+	if err := sender.Send(ctx, message); err != nil {
 		wrapped := fmt.Errorf("mail backup staleness alarm to %s: %w", message.To, err)
 		// The transport detail is logged here and the alarm-level verdict at
 		// the caller, so a mail that never left names both the account file it
@@ -104,21 +104,6 @@ func sendBackupAlarmMail(ctx context.Context, cfg *config.Config, message mailer
 		return wrapped
 	}
 	return nil
-}
-
-// deliverBackupAlarmMail reads the account, builds the submission and hands it
-// to the relay.
-func deliverBackupAlarmMail(ctx context.Context, cfg *config.Config, message mailer.Message) error {
-	account, err := mailer.LoadMsmtprc(cfg.BackupAlarmMsmtprcPath)
-	if err != nil {
-		return failBackupAlarmSMTP(ctx, "read the mail account file "+cfg.BackupAlarmMsmtprcPath, err)
-	}
-	host := backupAlarmHost()
-	mime, err := backupAlarmMIME(message, host, opsNow())
-	if err != nil {
-		return err
-	}
-	return sendBackupAlarmSMTP(ctx, account, backupAlarmFromAddress(host), message.To, mime)
 }
 
 // backupAlarmHost names the guest the reading came from.
