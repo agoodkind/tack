@@ -162,7 +162,7 @@ func verbNamesReferencedOutsideDeclarations(t *testing.T) map[string]bool {
 		return nil
 	})
 	if walkErr != nil {
-		t.Fatalf("walk the repository: %v", walkErr)
+		t.Fatalf("read every Go file in the repository: %v", walkErr)
 	}
 	return referenced
 }
