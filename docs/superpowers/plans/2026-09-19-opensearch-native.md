@@ -16,7 +16,7 @@ Apply the [implementation constraints](2026-09-19-opensearch.md#global-constrain
 
 ## Verified configuration
 
-Local OpenSearch 3.8.0 validated this configuration on 2026-09-19.
+The [prototype and validation record](2026-09-19-opensearch-validation.md) preserves the passed, failed, and superseded experiments that selected this configuration. Local OpenSearch 3.8.0 validated the final field and client configuration on 2026-09-19. Native split validation followed on 2026-09-20.
 
 - Client v4.7.3 completed index creation, typed bulk, refresh, point-in-time creation and deletion, typed search, atomic alias changes, index and document reads, index deletion, close, and the official round-robin router against the exact 3.8.0 image.
 - Model `amazon/neural-sparse/opensearch-neural-sparse-encoding-doc-v3-gte` version 1.0.0 has bundle SHA-256 `08879b93faf4a92506a44e150f47bbc4cadc9a2f083350c4dc79434738303047`.

@@ -12,6 +12,8 @@ The native sparse indexing and ranking configuration passed local engine validat
 
 **Spec:** [Search architecture](../specs/2026-09-19-search-design.md). The [acceptance criteria](../specs/2026-09-19-search-acceptance.md) define release evidence.
 
+**Validation record:** [OpenSearch prototypes and experiments](2026-09-19-opensearch-validation.md).
+
 ## Global Constraints
 
 - Multi-page behavior must pass acceptance before the first search release.
