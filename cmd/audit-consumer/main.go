@@ -44,9 +44,7 @@ type consumerEnv struct {
 	SummaryEvery    int           `env:"TACK_AUDIT_CONSUMER_SUMMARY_EVERY" envDefault:"100"`
 	PartitionPeriod time.Duration `env:"AUDIT_CONSUMER_PARTITION_PERIOD" envDefault:"24h"`
 	TopicRetention  time.Duration `env:"AUDIT_CONSUMER_TOPIC_RETENTION"  envDefault:"8760h"`
-	// TopicReplicationFactor and TopicMinInSyncReplicas describe the audit
-	// topic on a cluster this consumer creates it on. Zero leaves both to
-	// the broker, which is the one-broker stack (TACK-409).
+	// Zero leaves both counts to the broker (TACK-409).
 	TopicReplicationFactor int    `env:"AUDIT_CONSUMER_TOPIC_REPLICATION_FACTOR"`
 	TopicMinInSyncReplicas int    `env:"AUDIT_CONSUMER_TOPIC_MIN_INSYNC_REPLICAS"`
 	MetricsAddr            string `env:"AUDIT_CONSUMER_METRICS_ADDR" envDefault:"127.0.0.1:9109"`

@@ -389,23 +389,13 @@ services:
   #
   # Persist the result into KAFKA_CLUSTER_ID in .env so a recreate does
   # not stamp a fresh metadata directory and orphan the existing logs.
-  # This file publishes no port: traffic stays inside the IPv6 bridge. The
-  # deploy's rendered override adds the ports and the network mode on a guest
-  # that runs a broker other guests join.
+  # No external port is exposed: traffic stays inside the IPv6 bridge. The
+  # deploy's rendered override adds the network mode for a multi-guest cluster.
   #
-  # One broker per data guest (TACK-409). Each setting that differs between
-  # brokers reads a variable. Every default below renders the exact single
-  # broker this file has always described, and a deploy made before an
-  # operator sets the variables leaves the running broker's configuration
-  # unchanged. A variable states a complete setting rather than a fragment,
-  # because a guest's pinned address is an IPv6 literal and a listener string
-  # brackets it.
-  #
-  # TACK_QUEUE_ADVERTISED_LISTENERS is the address the cluster hands a client
-  # after the client bootstraps. The Docker service name kafka resolves inside
-  # one guest's bridge only. A client on another guest that received that name
-  # would reach its own stack or nothing, so a multi-broker deploy renders the
-  # guest's own pinned address here.
+  # Every TACK_QUEUE_* default below renders the single broker this file has
+  # always described (TACK-409). Each variable states a whole setting, because
+  # a guest's pinned address is an IPv6 literal that a listener string
+  # brackets.
   kafka:
     image: apache/kafka:4.2.0
     profiles: [audit]
@@ -421,9 +411,8 @@ services:
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_LOG_DIRS: /var/lib/kafka/data
-      # The broker applies these two counts at topic creation. An existing
-      # topic keeps the copy count it was created with; `ops queue
-      # set-replication` raises that count instead (TACK-409).
+      # The broker applies these counts at topic creation only. `ops queue
+      # set-replication` changes an existing topic (TACK-409).
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: ${TACK_QUEUE_REPLICATION_FACTOR:-1}
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: ${TACK_QUEUE_REPLICATION_FACTOR:-1}
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: ${TACK_QUEUE_MIN_INSYNC_REPLICAS:-1}
@@ -431,21 +420,16 @@ services:
       KAFKA_DEFAULT_REPLICATION_FACTOR: ${TACK_QUEUE_REPLICATION_FACTOR:-1}
       KAFKA_MIN_INSYNC_REPLICAS: ${TACK_QUEUE_MIN_INSYNC_REPLICAS:-1}
       KAFKA_UNCLEAN_LEADER_ELECTION_ENABLE: "false"
-      # The empty default keeps the core stack parseable while kafka is
-      # profile-gated off. The audit-profile deploy must set KAFKA_CLUSTER_ID
-      # (a kafka-storage.sh random-uuid) in .env before enabling the audit
-      # profile.
+      # The empty default lets the core stack parse while kafka is
+      # profile-gated off. An audit-profile deploy must set KAFKA_CLUSTER_ID to
+      # a kafka-storage.sh random-uuid in .env first.
       CLUSTER_ID: ${KAFKA_CLUSTER_ID:-}
     volumes:
       - kafka-data:/var/lib/kafka/data
     healthcheck:
-      # kafka-broker-api-versions.sh asks the cluster for every node and then
-      # connects to each one at the address that node advertises. On a
-      # three-broker cluster one broker's health then depends on its peers: a
-      # guest loss would mark the two survivors unhealthy and restart them
-      # during the failure the cluster exists to absorb. A deploy running more
-      # than one broker renders TACK_QUEUE_PROBE with a command that asks this
-      # node alone.
+      # The default probe connects to every node in the cluster, which would
+      # mark surviving brokers unhealthy after a guest loss. A multi-broker
+      # deploy renders TACK_QUEUE_PROBE with a per-broker command.
       test:
         - CMD-SHELL
         - ${TACK_QUEUE_PROBE:-/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server kafka:9092} >/dev/null 2>&1
@@ -496,18 +480,11 @@ services:
       AUDIT_CONSUMER_KAFKA_TOPIC: ${AUDIT_CONSUMER_KAFKA_TOPIC:-audit.events.v1}
       AUDIT_CONSUMER_GROUP_ID: ${AUDIT_CONSUMER_GROUP_ID:-tack-audit-projector}
       AUDIT_CONSUMER_BATCH_SIZE: ${AUDIT_CONSUMER_BATCH_SIZE:-256}
-      # The audit topic's shape on a cluster this consumer creates it on
-      # (TACK-409). Zero leaves both counts to the broker, which is the
-      # one-broker stack. An existing topic keeps the copy count it was
-      # created with, and `ops queue set-replication` raises that.
-      #
-      # TACK_QUEUE_AUDIT_TOPIC_MIN_INSYNC is written onto the audit topic on
-      # every consumer start, existing topic included. It is separate from the
-      # broker-wide TACK_QUEUE_MIN_INSYNC_REPLICAS above, which applies to
-      # topics created from here on. Raising this one above the audit topic's
-      # copy count stops every write to that topic with NOT_ENOUGH_REPLICAS,
-      # so an operator sets it only after the reassignment reports three
-      # copies on every partition.
+      # Zero leaves both counts to the broker (TACK-409).
+      # TACK_QUEUE_AUDIT_TOPIC_MIN_INSYNC applies to the audit topic on every
+      # start, existing topic included. A value above that topic's copy count
+      # fails every write with NOT_ENOUGH_REPLICAS, so raise it only after
+      # `ops queue set-replication` finishes.
       AUDIT_CONSUMER_TOPIC_REPLICATION_FACTOR: ${TACK_QUEUE_REPLICATION_FACTOR:-0}
       AUDIT_CONSUMER_TOPIC_MIN_INSYNC_REPLICAS: ${TACK_QUEUE_AUDIT_TOPIC_MIN_INSYNC:-0}
       AUDIT_CONSUMER_POLL_INTERVAL: ${AUDIT_CONSUMER_POLL_INTERVAL:-250ms}

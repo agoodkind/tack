@@ -17,8 +17,7 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
-// Every number an `ops queue` command prints comes from a request the brokers
-// answer. A deploy's rendered intent is never the reading (TACK-409).
+// Reads against the audit event queue's brokers (TACK-409).
 
 const (
 	// queueClientID labels these operator requests in the brokers' logs.
@@ -30,7 +29,7 @@ const (
 	// cluster otherwise leaves the command waiting with nothing to report.
 	queueRequestTimeout = queueRequestTimeoutMillis * time.Millisecond
 	// queueConsumerPositionTopic is the topic each consumer group commits its
-	// position to. Criterion 10 counts its copies beside the audit topic's.
+	// position to.
 	queueConsumerPositionTopic = "__consumer_offsets"
 	// queueMetadataTopic is the KRaft controller log. DescribeQuorum names it.
 	queueMetadataTopic = "__cluster_metadata"
@@ -47,8 +46,7 @@ var errQueueNoConfiguredBrokers = errors.New("AUDIT_KAFKA_BROKERS is empty: no b
 var errQueueQuorumAbsent = errors.New("the cluster reported no controller quorum state")
 
 // queueBroker pairs one broker id with the address that broker advertises to
-// clients. A broker advertising an address no client can route to still answers
-// the bootstrap connection, and criterion 10 is read from the advertised value.
+// clients.
 type queueBroker struct {
 	NodeID  int32
 	Address string
@@ -110,9 +108,7 @@ func queueBrokerIDs(brokers []queueBroker) []int32 {
 	return identifiers
 }
 
-// readQueueQuorum asks the controller for its quorum state. Three brokers
-// running KRaft combined roles report three voters. A single voter is a
-// controller with no redundancy.
+// readQueueQuorum asks the controller for its quorum state.
 func readQueueQuorum(ctx context.Context, client *kgo.Client) (queueQuorum, error) {
 	req := kmsg.NewPtrDescribeQuorumRequest()
 	reqTopic := kmsg.NewDescribeQuorumRequestTopic()

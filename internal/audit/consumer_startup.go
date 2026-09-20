@@ -75,15 +75,11 @@ type topicSetting struct {
 	Value string
 }
 
-// auditTopicShape is what the consumer requires of the audit topic. Retention
-// is always written. ReplicationFactor and MinInSyncReplicas apply only above
-// zero; zero keeps the broker's defaults, which is the single-broker stack
-// this repository ran before TACK-409 and the value a deploy renders until an
-// operator raises it.
-//
-// The two counts must move in order. A topic with one copy and a two-copy
-// minimum rejects every acks=all produce with NOT_ENOUGH_REPLICAS. An operator
-// runs `ops queue set-replication` first and raises the minimum second.
+// auditTopicShape is what the consumer requires of the audit topic.
+// ReplicationFactor and MinInSyncReplicas apply only above zero; zero leaves
+// both to the broker. A topic with one copy and a two-copy minimum rejects
+// every acks=all produce with NOT_ENOUGH_REPLICAS, so an operator runs
+// `ops queue set-replication` before raising the minimum (TACK-409).
 type auditTopicShape struct {
 	Retention         time.Duration
 	ReplicationFactor int
@@ -106,9 +102,8 @@ func (shape auditTopicShape) settings() []topicSetting {
 }
 
 // createReplicationFactor returns the copy count for a topic this call
-// creates. The create-topics field is a signed 16-bit integer. A configured
-// value outside that range is a mistake in the environment rather than a state
-// of the cluster, and it is refused here.
+// creates. The create-topics field is a signed 16-bit integer, and a value
+// outside that range is refused.
 func (shape auditTopicShape) createReplicationFactor() (int16, error) {
 	if shape.ReplicationFactor <= 0 {
 		return brokerChoosesReplicationFactor, nil

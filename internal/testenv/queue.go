@@ -16,8 +16,8 @@ import (
 const (
 	// queueService is the stack file service the brokers take their image from.
 	queueService = "kafka"
-	// queueBrokerCount is the size of the test cluster. Three brokers hold a
-	// topic at three copies with a two-copy write minimum (TACK-409).
+	// queueBrokerCount is the size of the test cluster. Three brokers give a
+	// topic three copies with a two-copy write minimum (TACK-409).
 	queueBrokerCount = 3
 	// queueClientPort is the port producers and consumers connect to.
 	queueClientPort = "9092"
@@ -35,8 +35,7 @@ const (
 )
 
 // queueBrokerContainers lists each broker's container by broker index.
-// provisionQueue fills it inside the once that guards queueState, and every
-// reader passes that once first.
+// provisionQueue fills it inside the once that guards queueState.
 var queueBrokerContainers []string
 
 // provisionQueue starts the cluster and returns its bootstrap list once every
@@ -86,11 +85,10 @@ func provisionQueue(ctx context.Context) (string, error) {
 	return list, nil
 }
 
-// startQueueHolders starts one container per broker. A holder keeps a name and
-// an address on the engines' network while it sleeps. Each broker shares its
-// holder's network stack. Container names are therefore fixed before any
-// broker starts, which the static quorum below requires. A peer dialing such a
-// name reaches the same address after a broker restart.
+// startQueueHolders starts one sleeping container per broker, and each broker
+// shares its holder's network stack. Container names are then fixed before any
+// broker starts, which the static quorum requires, and a name still resolves
+// to the same address across a broker restart.
 func startQueueHolders(ctx context.Context, cli *client.Client, image string) ([]string, error) {
 	holders := make([]string, 0, queueBrokerCount)
 	for index := range queueBrokerCount {
@@ -120,13 +118,10 @@ func queueVoters(holders []string) string {
 	return strings.Join(voters, ",")
 }
 
-// queueBrokerEnv is one broker's configuration. The listeners bind every IPv4
-// address. That is the one departure from the stack file: the engines' bridge
-// is IPv4 only (see ensureNetwork) and production's bridge is IPv6 only. The
-// protocol map and the two listener names match the stack file. This list
-// omits the internal-topic replication settings. Kafka's own defaults
-// replicate those topics three ways, which three brokers satisfy. The stack
-// file lowers them to one for the single broker it describes.
+// queueBrokerEnv is one broker's configuration. The listeners bind IPv4,
+// because ensureNetwork creates an IPv4-only bridge while production runs
+// IPv6 only. The internal-topic replication settings are omitted: Kafka's own
+// defaults replicate those topics three ways.
 func queueBrokerEnv(index int, holder, voters, clusterID string) []string {
 	node := strconv.Itoa(index + 1)
 	return []string{
@@ -143,8 +138,8 @@ func queueBrokerEnv(index int, holder, voters, clusterID string) []string {
 }
 
 // queueClusterID generates the id every broker formats its metadata with. The
-// engine reads 16 bytes of unpadded base64, the form kafka-storage random-uuid
-// prints, which is not the hex helper's alphabet.
+// engine reads 16 bytes of unpadded base64, the form kafka-storage
+// random-uuid prints.
 func queueClusterID(ctx context.Context) (string, error) {
 	buffer := make([]byte, queueClusterIDBytes)
 	if _, err := rand.Read(buffer); err != nil {

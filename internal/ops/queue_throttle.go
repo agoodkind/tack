@@ -11,9 +11,9 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
-// A reassignment copies whole partitions between brokers. Left unbounded it
-// saturates the link the live audit traffic also uses, and a throttle caps the
-// bytes per second each broker spends on that copying.
+// A throttle caps the bytes per second each broker spends copying partitions
+// during a reassignment, which otherwise saturates the link live audit
+// traffic uses.
 
 const (
 	// queueLeaderThrottleRateKey caps what a broker sends as a partition
@@ -71,8 +71,8 @@ func setQueueThrottle(
 }
 
 // RunQueueClearThrottle removes the four throttle keys a reassignment set. A
-// cap left behind after the move keeps slowing the recovery of any replica that
-// falls behind later.
+// cap left in place also slows the recovery of a replica that falls behind
+// later.
 func RunQueueClearThrottle(
 	ctx context.Context,
 	cfg *config.Config,

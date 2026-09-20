@@ -63,13 +63,9 @@ type ConsumerConfig struct {
 	// (TACK-336).
 	TopicRetention time.Duration
 
-	// TopicReplicationFactor and TopicMinInSyncReplicas describe the audit
-	// topic a fresh broker cluster should hold: how many copies of every
-	// partition, and how many of those copies must be in sync before an
-	// acks=all produce is acknowledged. Zero leaves both to the broker,
-	// which is the one-broker stack (TACK-409). On an existing topic the
-	// copy count is fixed at creation and only `ops queue set-replication`
-	// changes it; the minimum is written on every start.
+	// Zero leaves both counts to the broker. On an existing topic only
+	// `ops queue set-replication` changes the copy count; the minimum is
+	// written on every start (TACK-409).
 	TopicReplicationFactor int
 	TopicMinInSyncReplicas int
 }
