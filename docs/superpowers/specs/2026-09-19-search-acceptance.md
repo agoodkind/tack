@@ -165,6 +165,9 @@ the identical opaque token-weight map.
 - Stop each QA guest in turn. Public search and writes must succeed. New small nodes
   must become searchable within 10 seconds. Every primary and local inference must
   remain available.
+- Run a fixed happy-path query count and record which guest accepts every REST
+  request. Every healthy guest must accept requests, and the counts must match
+  round-robin allocation. Stop each guest and require retry through another address.
 - Predeclare corpus size, page distribution, query mix, concurrency, indexing rate,
   rebuild activity, and pass thresholds for p50, p95, error rate, throughput, oldest
   work age, peak memory, and disk. Run the workload normally and with one guest down.

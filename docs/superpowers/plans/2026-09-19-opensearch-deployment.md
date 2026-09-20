@@ -26,7 +26,9 @@ Meilisearch deployment. No step writes to both engines.
 
 ## Review Focus
 
-Test loss of each guest, model availability after restart, verified TLS, IPv6-only connectivity, and concurrent rebuilding within the guest memory and disk limits.
+Test normal coordinator distribution, loss of each guest, model availability after
+restart, verified TLS, IPv6-only connectivity, and concurrent rebuilding within the
+guest memory and disk limits.
 
 ---
 
@@ -100,7 +102,13 @@ memory-map prerequisite; validate them inside the LXC before container startup.
   sparse model on every guest so one stopped guest cannot remove inference. Store
   the chosen primary-shard count with each physical index. Native placement owns
   distribution; Tack must not select a guest for each node.
-- [ ] Add a three-node local integration test using real containers, then stop each container in turn through the Docker SDK. Search must succeed; a newly written small node must become searchable within 10 seconds. Restart each node and repeat. Deny model-download network access after provisioning and require ordinary inference to keep working.
+- [ ] Add a three-node local integration test using real containers. Record each
+  request's accepting container during a fixed query run. Require every healthy
+  container to accept requests with round-robin counts. Stop each container in turn
+  through the Docker SDK. Search must retry another address and succeed; a newly
+  written small node must become searchable within 10 seconds. Restart each node
+  and repeat. Deny model-download network access after provisioning and require
+  ordinary inference to keep working.
 - [ ] Run the render tests, `tofu validate` in both OpenTofu directories, the local cluster test, and repository checks. Review a saved OpenTofu plan for exactly the intended six additions and no unrelated replacement or deletion. Commit Tack with subject `Provision and verify the OpenSearch container cluster`; commit configs with subject `Add QA and production Tack search guests`.
 - [ ] Do not preserve or migrate the old Meilisearch volume. Its deletion is a
   separate destructive deployment action. Request authorization after the empty

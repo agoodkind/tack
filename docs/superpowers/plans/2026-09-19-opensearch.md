@@ -30,6 +30,8 @@ The native sparse indexing and ranking configuration passed local engine validat
 - Bulk requests contain at most 500 page documents and 5 MiB of encoded data, including action lines.
 - A result page has at most 25 nodes within Tack's response-byte budget.
 - Continuation can reach every matching node. Engine batches contain at most 100 matches; responses scan at most four batches.
+- Tack selects configured OpenSearch addresses in round-robin order. Search requests
+  retry through the next address after a connection failure.
 - QA and production each use three LXC guests, with at least 8 GiB memory, 2 CPU cores, 40 GiB storage, and a 2 GiB JVM heap per guest.
 - Worker claims, cleanup, sessions, rebuilds, and physical indexes have explicit work and lifetime bounds.
 - Each physical index stores its primary shard count. Increasing shard parallelism requires a validated rebuild.

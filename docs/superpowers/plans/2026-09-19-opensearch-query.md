@@ -15,6 +15,8 @@
 Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints).
 Each public response returns at most 25 nodes and reads at most four engine batches
 of at most 100 page matches. These bounds never limit total continuation results.
+Each engine request starts with the next configured OpenSearch address. Search
+requests use the next address after a connection failure.
 
 ## Task 6: Rank and paginate native sparse matches
 

@@ -129,10 +129,12 @@ OpenSearch sorts page matches by descending score, ascending node ID, then
 page-level tie breaker. The first page match for a node establishes that node's
 rank. Tack skips later matches for visited nodes.
 
-Each engine request returns at most 100 page matches through `search_after`. Each
-public response reads at most four engine batches. An empty deduplicated response
-can still include a continuation. Only an empty raw engine batch ends traversal.
-No request assembles every match or every visited ID.
+Each engine request selects the next configured address in round-robin order and
+returns at most 100 page matches through `search_after`. A connection failure
+retries the search request through the next address. OpenSearch distributes shard
+work across the three containers. Each public response reads at most four engine
+batches. An empty deduplicated response can still include a continuation. Only an
+empty raw engine batch ends traversal. No request assembles all matches or visited IDs.
 
 The session binds the normalized query, filters, principal, physical index, and
 search generation. Current authorization applies before each node is returned.

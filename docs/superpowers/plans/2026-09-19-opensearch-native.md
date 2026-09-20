@@ -89,8 +89,9 @@ func (c *OpenSearchClient) CreateIndex(context.Context, string, ModelInfo, int) 
   ordinary, Unicode, newline-only, empty, missing, and retired pages through the real
   pipeline. Require strict mapping errors for unknown fields.
 - [ ] Run `^TestSearchNativeSparse$` and record the missing-adapter failure.
-- [ ] Implement `JSON` with verified TLS, endpoint failover, timeout, response-size
-  limit, body closure, and typed non-2xx errors. Never log credentials or headers.
+- [ ] Implement `JSON` with verified TLS, round-robin starting-address selection,
+  timeout, response-size limit, body closure, and typed non-2xx errors. Never log
+  credentials or headers. The query task owns search retries through another address.
 - [ ] Provision the pinned model. Reuse a registration only after checking its name,
   version, algorithm, size, bundle hash, tokenizer hash, deployment state, and worker
   placement. A mismatch requires an explicit operator error.
