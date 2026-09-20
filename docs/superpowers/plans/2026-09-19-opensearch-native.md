@@ -10,6 +10,28 @@
 
 **Spec:** [Embedding requirements](../specs/2026-09-19-search-design.md#opensearch-text-splitting-and-embeddings).
 
+## Validation result
+
+Stop dependent implementation. Local semantic-field testing on 2026-09-19
+found silent truncation in the proposed configuration. Keep the requirements unchanged until a
+replacement configuration passes them.
+
+OpenSearch 3.8.0 ran with the actual 1.0.2 TorchScript model in a disposable
+4 GiB container with a 2 GiB heap. The model bundle truncates at 128 tokens.
+Direct inference returned identical vectors for 126 repetitions of `alpha`
+with and without a final `omega`. Replacing repetition 126 with `omega`
+changed the vector. Repeating the control produced an identical vector.
+
+| Configuration | Observed result |
+| --- | --- |
+| Proposed `fixed_token_length`, limit 384, overlap 0.2, unlimited chunks | Indexing succeeded with a segment requiring 2,306 model tokens. Punctuation-only and whitespace-only inputs failed with `empty docs`. |
+| Native `fixed_char_length`, limit 32, overlap 0.2, unlimited chunks | The repeat corpus produced at most 95 model tokens per decoded segment and 647 segments in one document. An emoji fixture produced unpaired surrogate escapes that strict Unicode decoding rejected. Overlap preserved intact copies elsewhere; this does not prove emoji omission. |
+| Diagnostic 96-byte Unicode-safe reader pages, native chunking disabled | All 13 inputs were reconstructed exactly from indexed pages with finite vectors. No page exceeded 98 model tokens. This alternative requires multiple production pages immediately and has not been accepted. |
+
+These tests exercised actual engine indexing and inference. They did not verify
+Tack integration, retrieval quality with small pages, or deployment capacity.
+The mapping below remains the rejected candidate, not an approved default.
+
 ## Global Constraints
 
 Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). The model is `huggingface/sentence-transformers/all-MiniLM-L6-v2` version 1.0.2. No tokenizer dependency enters Tack's production indexing or query packages.

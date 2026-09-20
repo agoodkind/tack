@@ -1,5 +1,7 @@
 # OpenSearch Implementation Plan
 
+Stop implementation. The proposed native configuration failed coverage validation. Resolve the failed requirement and revise this plan before executing its tasks.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Search every accepted node through a paginated reader and return authorized, distinct nodes ranked by OpenSearch.
