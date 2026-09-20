@@ -23,7 +23,8 @@ type backupTestStore struct {
 }
 
 // newBackupTestStore creates an empty bucket and writes objects (key to body)
-// into it.
+// into it. This engine answers, so the client takes the budget every deployment
+// runs under, whatever a refused endpoint earlier in the test cut it to.
 func newBackupTestStore(t *testing.T, objects map[string][]byte) *backupTestStore {
 	t.Helper()
 	backupS3Attempts(t, backupS3DefaultMaxAttempts)
