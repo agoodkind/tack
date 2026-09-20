@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Production initially returns one page per node. Tests require multiple pages from the real adapter. Do not implement larger FDB values in this task.
+Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Preserve the current node storage model. Test successive parts using smaller byte bounds on the real reader.
 
 ## Review Focus
 
@@ -157,7 +157,7 @@ written; do not silently reinterpret invalid stored declarations during a read.
 - [ ] Implement an `io.Writer` that records only the requested page and bounded adjacent context while advancing a UTF-8 byte offset. Split at valid rune boundaries; reserve at most one quarter of the page for repeated preceding context. Return its length in OverlapBytes and record the unique-text offset separately. An empty final page may set Done; an empty nonfinal page must still advance. Never append all emitted text to a slice. Reject MaxBytes below 16. The initial adapter may replay its bounded record to reach the offset; the later storage adapter must seek without decoding earlier pages.
 - [ ] Store node revision counters and an organization projection epoch in separate FDB keys. Increment the node revision with every node write or deletion; increment the epoch with metadata or relationship changes. Encode node ID, revision, epoch, ProjectionConfig, pagination algorithm version, byte bound, next unique-text offset, and ordinal in the reader cursor. Read and validate them in one transaction before each page. Return ErrContentChanged on mismatch, ErrNotFound on deletion, and an explicit corruption error for missing expected records. ProjectionConfig is an opaque hash of the approved mapping/model configuration; the reader does not inspect its model settings.
 - [ ] Implement `ScanSearch` over the FDB global node resolution keys with bounded range reads. Its cursor advances by raw key; it does not list organizations from SQL or decode whole nodes. Implement Summary from current node identity, current ancestry, and bounded name/text prefixes. Initial decoding may read the existing bounded value; later storage must supply those prefixes without assembling all pages.
-- [ ] Add assertions for complete decoded coverage after removing recorded overlap, deterministic text across reordered maps, invalid declarations, excluded/inapplicable values, a long name, and a cursor resumed after `Nodes.Set`. Assert `errors.Is(err, node.ErrContentChanged)` for the edit. Repeat with the approved production byte budget and require one page with Done true.
+- [ ] Add assertions for complete decoded coverage after removing recorded overlap, deterministic text across reordered maps, invalid declarations, excluded/inapplicable values, a long name, and a cursor resumed after `Nodes.Set`. Assert `errors.Is(err, node.ErrContentChanged)` for the edit. Vary part counts across reads and after edits. Require indexing before the final part is read and completion only after Done. Repeat with the production byte budget without asserting a particular part count.
 - [ ] Run `^TestSearchReader`, run `make check`, and commit with subject `Add metadata-driven paginated node content reads`.
 
 Embed ContentReader into NodeReader when assembling the new runtime. Until that

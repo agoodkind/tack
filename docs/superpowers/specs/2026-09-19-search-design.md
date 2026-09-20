@@ -48,15 +48,14 @@ category totals are not part of this search contract.
 ## Paginated node reads
 
 Search must cover all accepted text without a fixed total size or page count.
-Production initially returns one page per node through the paginated interface.
-The worker must accept more pages on any read and continue until an explicit
-end marker. It cannot infer completion from page size, current storage limits,
-or earlier nodes returning one page. Later FDB pagination requires no change
+The reader returns one bounded part per call. The worker indexes each part and
+continues until an explicit end marker. It cannot infer completion from part
+size, current storage limits, or previous reads. Later FDB pagination requires no change
 to the search loop, index mapping, page IDs, retries, or result grouping.
 
 Each read and indexing request has a byte limit. The storage abstraction owns
 pagination and hides FoundationDB keys, value limits, and record layout.
-The initial adapter may read the existing bounded record to return one page.
+The initial adapter may read the existing bounded record without changing its storage model.
 The future adapter must decode and paginate larger records with bounded memory.
 
 The reader returns bounded Unicode text pages for one committed node revision,

@@ -74,10 +74,10 @@ Do not require unrelated meanings of an ambiguous word to match.
 ## Paginated content and embedding coverage
 
 - Create and edit nodes through public operations within current FDB limits.
-  Verify that the production adapter returns one page and an end marker.
-  Repeat with smaller page-byte bounds on the real reader to return multiple
-  pages from those stored nodes. Use the production search loop and OpenSearch,
-  not a simulated reader. Multi-page behavior is required for the first release.
+  Use smaller page-byte bounds on the real reader to exercise successive parts
+  with the production search loop and OpenSearch. Verify indexing starts before
+  the final part is read and continues until the explicit end marker. Vary the
+  part count between reads without restarting or reconfiguring search.
 - Put semantic targets near the beginning, middle, across page boundaries, and
   at the end. Include one property value and one node name that each span many
   pages. A `crash` query finds `Application terminated unexpectedly` present only

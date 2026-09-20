@@ -6,7 +6,7 @@ Stop implementation. The proposed native configuration failed coverage validatio
 
 **Goal:** Search every accepted node through a paginated reader and return authorized, distinct nodes ranked by OpenSearch.
 
-**Architecture:** The reader returns one page per node in the initial production configuration. The search worker always reads until an explicit end marker and indexes each page separately. OpenSearch performs text splitting, local embedding, and ranking.
+**Architecture:** The reader returns one bounded part per call. The search worker indexes each part and continues until an explicit end marker. OpenSearch performs text splitting, local embedding, and ranking.
 
 **Tech Stack:** Go, FoundationDB, OpenSearch 3.8.0, ML Commons, Docker SDK, MCP, Ansible, OpenTofu.
 
@@ -14,7 +14,6 @@ Stop implementation. The proposed native configuration failed coverage validatio
 
 ## Global Constraints
 
-- Production initially returns one page per node through the paginated interface.
 - Multi-page behavior must pass acceptance before the first search release.
 - Tack neither loads a tokenizer nor counts model tokens. OpenSearch remains unmodified.
 - Custom plugins, forks, and external inference are excluded.
@@ -104,9 +103,9 @@ and raw `gpgsig` header in `origin/main..HEAD`.
 
 ## Storage expansion boundary
 
-The first release tests multiple pages using a smaller byte budget in the real
-reader, with nodes that fit the current store. The production adapter uses the
-tested budget that returns one page for currently accepted nodes.
+The current node storage model remains unchanged. Tests use smaller byte bounds
+on the real reader to exercise successive parts within current storage limits.
+Search depends only on the reader contract, including explicit completion.
 
 TACK-524 and TACK-525 implement storage changes separately. Their acceptance must
 rerun this search suite with 128 KiB, 1 MiB, 8 MiB, over 100 MB, and nodes larger

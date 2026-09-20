@@ -26,10 +26,12 @@ changed the vector. Repeating the control produced an identical vector.
 | --- | --- |
 | Proposed `fixed_token_length`, limit 384, overlap 0.2, unlimited chunks | Indexing succeeded with a segment requiring 2,306 model tokens. Punctuation-only and whitespace-only inputs failed with `empty docs`. |
 | Native `fixed_char_length`, limit 32, overlap 0.2, unlimited chunks | The repeat corpus produced at most 95 model tokens per decoded segment and 647 segments in one document. An emoji fixture produced unpaired surrogate escapes that strict Unicode decoding rejected. Overlap preserved intact copies elsewhere; this does not prove emoji omission. |
-| Diagnostic 96-byte Unicode-safe reader pages, native chunking disabled | All 13 inputs were reconstructed exactly from indexed pages with finite vectors. No page exceeded 98 model tokens. This alternative requires multiple production pages immediately and has not been accepted. |
+| Diagnostic 96-byte Unicode-safe reader pages, native chunking disabled | All 13 inputs were reconstructed exactly from indexed pages with finite vectors. No page exceeded 98 model tokens. This experiment does not set the production page size. |
 
-These tests exercised actual engine indexing and inference. They did not verify
-Tack integration, retrieval quality with small pages, or deployment capacity.
+Hybrid search on 162 nodes and 197 pages returned all 12 relevance targets within
+the first 18 distinct nodes, including six targets split across page boundaries.
+These engine tests did not verify Tack integration, arbitrary page counts in
+ranking, or deployment capacity.
 The mapping below remains the rejected candidate, not an approved default.
 
 ## Global Constraints
