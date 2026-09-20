@@ -14,9 +14,15 @@
 
 Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Each environment has `tack-search1`, `tack-search2`, and `tack-search3`, each with at least 8 GiB memory, 2 CPU cores, 40 GiB storage, and a 2 GiB JVM heap. QA runs on suburban; production runs on vault. This task prepares changes and evidence; deployment requires separate authorization.
 
-Rendered and live environments contain no Meilisearch service, endpoint, secret,
-volume, dependency, or fallback. FoundationDB supplies every initial OpenSearch
-rebuild. No deployment operation reads or converts the Meilisearch index.
+Final rendered and live environments contain no Meilisearch service, endpoint,
+secret, volume, dependency, or fallback. FoundationDB supplies every initial
+OpenSearch rebuild. No deployment operation reads or converts the Meilisearch index.
+
+Task 11 prepares role-specific OpenSearch services and guest configuration. It does
+not deploy them or change the active application search path. Tasks 7 and 8 own the
+only application cutover. Task 12 provisions an empty OpenSearch index, deploys that
+cutover, rebuilds from FoundationDB, verifies public search, and removes the unused
+Meilisearch deployment. No step writes to both engines.
 
 ## Review Focus
 
@@ -58,10 +64,10 @@ Implement `runSearchProvision(ctx context.Context, env *Env) error` and
 `runSearchVerify(ctx context.Context, env *Env) error` in the new ops files.
 
 - [ ] Add a configs render test using the existing `AnsibleRender.render` runner. Render the real override for a search guest and an application guest. Parse the resulting YAML and assert that the search guest starts OpenSearch with persistent storage, while the application receives all three HTTPS endpoints and no provisioning credential.
-- [ ] Remove the Meilisearch service, application dependency, endpoint, secret,
-  volume, and inventory or template values from Tack and configs. Render an
-  application guest and both environment groups. Require OpenSearch settings and
-  reject any live Meilisearch resource.
+- [ ] Add the role-specific OpenSearch service and application endpoints. Keep this
+  preparation inactive. Tasks 7 and 8 delete the Meilisearch application dependency,
+  endpoint, and Tack service during the single cutover. Task 12 removes the remaining
+  deployed secret, volume, inventory, and template values after public verification.
 - [ ] Run `bundle exec rspec spec/ansible/tack_search_spec.rb`. Expect failure before the inventory and templates define search guests.
 - [ ] Allocate six distinct guest IDs, addresses, pinned MACs, and Docker IPv6 subnets in service_mapping. Check the entire mapping and live guest inventory before reserving them. The existing `tack_data1/2/3` entries are ledger guests and must remain separate. Use production keys `tack_search1/2/3` and QA keys with `_suburban`; use QA VMIDs equal to their production counterpart plus 100 where the verified inventory permits it.
 - [ ] Add the LXC resources using mapping-derived identities. Match the existing production and QA bridge, gateway, DNS, Debian template, unprivileged nesting, discard, and prevent_destroy settings. Set memory to at least 8192 MiB, cores to 2, and disk size to 40 GiB. Do not provision a fourth permanent search guest.
@@ -108,13 +114,18 @@ provisioning plan. Produce deployment evidence with revisions, image digests,
 model/tokenizer checksums, TLS identities, topology, and acceptance measurements.
 
 - [ ] Present the concrete guest additions and deployment commits for authorization before applying them. Never disable a branch rule or rewrite shared history to publish these changes.
-- [ ] Apply the approved QA provisioning plan and deploy through the existing entry point:
+- [ ] Apply the approved QA provisioning plan to the three search guests. Create an
+  empty OpenSearch index. Do not read or convert Meilisearch data.
+- [ ] Deploy the reviewed application cutover through the existing entry point:
 
 ```sh
 ./configsctl deploy deploy-tack --limit tack_qa_all
 ```
 
-- [ ] Run audited search provisioning, reindexing, verification, and guarded QA datagen on QA. Verify three independent LXCs, actual resource allocations, IPv6-only REST/transport connectivity, valid TLS, model identity, and all primary/replica placements.
+- [ ] Keep public search unavailable until the FoundationDB rebuild activates the
+  verified alias. Run audited reindexing, verification, and guarded QA datagen.
+  Verify three independent LXCs, actual resources, IPv6-only REST and transport
+  connectivity, valid TLS, model identity, and all primary and replica placements.
 - [ ] Verify the QA application process, containers, volumes, environment, secrets,
   and inventory contain no Meilisearch resource. After search passes, present the
   exact old volume deletion for separate authorization.

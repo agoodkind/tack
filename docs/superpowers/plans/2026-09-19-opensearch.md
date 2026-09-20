@@ -56,17 +56,21 @@ The native sparse indexing and ranking configuration passed local engine validat
 
 Each linked task document specifies its files, interfaces, tests, and commit boundary.
 These are parts of one implementation. None introduces a temporary search design.
-The runtime change enables OpenSearch and deletes Meilisearch in the same review
-and commit. Main never contains two active search engines.
+Tasks 11 in Tack and configs add inactive OpenSearch components. They do not change
+the active application search path. Tasks 7 and 8 perform the only application
+cutover. That review enables OpenSearch and deletes Meilisearch together. No task
+implements dual writes, a compatibility layer, or an interim search engine.
 The [fixture code](2026-09-19-opensearch-fixtures.md) supplies real-store setup and
 authenticated calls for the owning tasks.
 
 1. Complete the [native coverage task](2026-09-19-opensearch-native.md). Implement the validated sparse engine configuration and its regression tests.
 2. Implement Task 2 in the [reader tasks](2026-09-19-opensearch-reader.md), including metadata declarations, revision identity, bounded pages, and summaries.
 3. Implement the [durable indexing tasks](2026-09-19-opensearch-worker.md), including transaction scheduling, retries, and deletion.
-4. Implement the [query tasks](2026-09-19-opensearch-query.md). Complete native ranking first. Treat MCP integration in Task 7 and runtime assembly in Task 8 as one review and commit unit; neither public path can pass independently. Then complete Task 3's metadata refresh test against that runtime.
-5. Complete the remaining [recovery tasks](2026-09-19-opensearch-recovery.md), including rebuild, restore, and QA generator coverage.
-6. Prepare and validate the [deployment tasks](2026-09-19-opensearch-deployment.md) in Tack and configs. Apply only after deployment authorization.
+4. Complete Task 6 in the [query tasks](2026-09-19-opensearch-query.md). It adds ranking and continuation behind internal boundaries.
+5. Complete the [recovery tasks](2026-09-19-opensearch-recovery.md), including rebuild, restore, and QA generator coverage.
+6. Complete Task 11 in the [deployment tasks](2026-09-19-opensearch-deployment.md). It prepares role-specific services and configuration without deploying or changing application search.
+7. Complete Tasks 7 and 8 in the query plan as one review and commit. This is the sole application cutover. Complete Task 3's metadata refresh test against this runtime.
+8. Complete Task 10's public QA checks, then apply Task 12 only after deployment authorization.
 
 ## Delivery tickets
 

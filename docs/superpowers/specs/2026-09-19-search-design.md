@@ -1,7 +1,8 @@
 # OpenSearch search architecture
 
-TACK-517 specifies search. TACK-518 through TACK-520 implement it. TACK-524 and
-TACK-525 replace the current node storage limit behind the same paginated reader.
+TACK-517 specifies search. TACK-518 through TACK-520 retain cross-cutting
+acceptance. TACK-530 through TACK-541 implement it. TACK-524 and TACK-525 replace
+the current node storage limit behind the same paginated reader.
 
 Meilisearch is absent from the target architecture. The implementation deletes
 its client, configuration, adapters, test environment, container, volume,
@@ -186,10 +187,9 @@ hot-tier storage, and a 2 GiB JVM heap. The image is
 cluster, and runs local inference. One guest can stop without losing a primary or
 the model.
 
-The full model reports about 666 MB of inference memory. A local container used
-about 3.2 GiB after deployment and validation. The same test opened the ML memory
-circuit breaker at a 4 GiB container limit. Eight GiB is the validation floor, not
-a production capacity claim.
+The final GTE sparse workload opened the ML memory circuit breaker at 4 GiB. It
+completed at 8 GiB and used about 3.2 GiB afterward. Eight GiB is the QA floor and
+production starting allocation, not a production capacity result.
 
 Release capacity uses a declared workload and pass thresholds for query latency,
 index throughput, pending-work age, memory, disk, one-guest failure, and concurrent

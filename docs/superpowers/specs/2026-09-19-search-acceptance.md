@@ -159,9 +159,9 @@ the identical opaque token-weight map.
 
 - Verify three independent LXCs per environment, OpenSearch 3.8.0, verified REST and
   transport TLS, IPv6-only reachability, and least-privilege application credentials.
-- Require at least 8 GiB per guest before QA. Record actual JVM, native model, process,
-  and filesystem memory. The local full-model test used about 3.2 GiB and failed at
-  a 4 GiB container limit.
+- Require at least 8 GiB per guest before QA. The final GTE sparse workload failed
+  at 4 GiB, passed at 8 GiB, and used about 3.2 GiB afterward. Record actual JVM,
+  model, process, and filesystem memory.
 - Stop each QA guest in turn. Public search and writes must succeed. New small nodes
   must become searchable within 10 seconds. Every primary and local inference must
   remain available.

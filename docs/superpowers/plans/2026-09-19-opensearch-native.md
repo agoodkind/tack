@@ -41,9 +41,10 @@ nodes. The lexical control found none. Three repeats preserved order. OpenSearch
 accepted query weights from one native inference call and returned identical ranks
 when later searches reused `query_tokens`.
 
-The full model and validation data used about 3.2 GiB in an 8 GiB container. A
-4 GiB limit opened the ML memory circuit breaker. These measurements set the QA
-floor but do not establish production capacity.
+The final GTE sparse run opened the ML memory circuit breaker at 4 GiB. The
+equivalent 8 GiB run completed and used about 3.2 GiB afterward. Eight GiB sets the
+QA floor and production starting allocation. Three-node QA still determines
+production capacity.
 
 ## Task 1: Implement native sparse indexing and regression coverage
 
@@ -59,8 +60,9 @@ internal/test/integration/search_native_test.go    public adapter coverage
 internal/test/integration/search_tokenizer.py      isolated tokenizer proof
 ```
 
-Modify [Compose](../../../docker-compose.yml) to use the pinned image. Reuse the
-existing test environment lifecycle and Docker SDK. Keep test credentials in memory.
+Launch the pinned image through the real test environment and Docker SDK. Keep test
+credentials in memory. Do not modify deployed Compose in this task. Task 11 owns
+the role-specific OpenSearch service.
 
 Produce:
 
