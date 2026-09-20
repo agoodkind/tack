@@ -14,12 +14,10 @@ type Config struct {
 	DatabaseURL    string `env:"DATABASE_URL,required"`
 	FDBClusterFile string `env:"FDB_CLUSTER_FILE" envDefault:"/etc/foundationdb/fdb.cluster"`
 	// FDBTransactionTimeout bounds one product-store transaction, its retries
-	// included. It is set as a database option, and at API version 740 a retry
-	// does not reset it, so it bounds the whole retry loop rather than one
-	// attempt. Without it a transaction issued while the store elects a new
-	// leader retries until the caller's context ends, and not every caller
-	// sets one (TACK-408). Five seconds sits above a healthy cross-guest
-	// commit and below the ten-second bound a guest loss is measured against.
+	// included. A transaction issued while the store elects a new leader
+	// otherwise retries until the caller's context ends, and not every caller
+	// sets one (TACK-408). Five seconds sits above a healthy cross-guest commit
+	// and below the ten-second bound a guest loss is measured against.
 	FDBTransactionTimeout time.Duration `env:"FDB_TRANSACTION_TIMEOUT" envDefault:"5s"`
 	Port                  int           `env:"PORT"                    envDefault:"8000"`
 	Env                   string        `env:"ENV"                     envDefault:"development"`

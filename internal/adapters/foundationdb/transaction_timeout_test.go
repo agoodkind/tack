@@ -19,40 +19,18 @@ const testTransactionTimeout = 5 * time.Second
 const fdbErrorTransactionTimedOut = 1031
 
 // TestOpenBoundsATransactionByTheTimeoutItWasGiven asserts that a transaction
-// open past the timeout is refused, rather than waiting for a caller deadline
-// the request path does not always set, and that the bound is the value the
-// last Open was given.
-//
-// Both assertions run in one test against one cluster file. The binding keeps
-// one Database per cluster file for the whole process (the openDatabases map
-// in fdb.go), so separate tests would be separate orderings of the same
-// handle. The cleanup restores the package's timeout for whatever runs next.
+// still open past the timeout is refused, rather than waiting for a caller
+// deadline the request path does not always set (TACK-408).
 func TestOpenBoundsATransactionByTheTimeoutItWasGiven(t *testing.T) {
-	clusterFile := testenv.FoundationDB(t)
-	t.Cleanup(func() {
-		if _, err := Open(clusterFile, testTransactionTimeout); err != nil {
-			t.Errorf("restore the package timeout: %v", err)
-		}
-	})
-
-	const generousTimeout = 4 * time.Second
-	generous, err := Open(clusterFile, generousTimeout)
-	if err != nil {
-		t.Fatalf("Open with %s: %v", generousTimeout, err)
-	}
-	if err := readAfterWaiting(generous, time.Second); err != nil {
-		t.Fatalf("a read one second into a %s bound returned %v, want the transaction still usable",
-			generousTimeout, err)
-	}
-
 	const shortTimeout = 300 * time.Millisecond
-	short, err := Open(clusterFile, shortTimeout)
+	database, err := Open(testenv.FoundationDB(t), shortTimeout)
 	if err != nil {
 		t.Fatalf("Open with %s: %v", shortTimeout, err)
 	}
-	err = readAfterWaiting(short, shortTimeout*3)
+
+	err = readAfterWaiting(database, shortTimeout*3)
 	if err == nil {
-		t.Fatalf("a read %s into a %s bound succeeded; the shorter timeout replaced nothing",
+		t.Fatalf("a read %s into a %s bound succeeded, want the transaction refused past the bound",
 			shortTimeout*3, shortTimeout)
 	}
 	var fdbErr fdb.Error

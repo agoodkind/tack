@@ -37,11 +37,9 @@ services:
       AUDIT_REDACTOR_DSN: ${AUDIT_REDACTOR_DSN}
       AUDIT_OPERATOR_DSN: ${AUDIT_OPERATOR_DSN}
       FDB_CLUSTER_FILE: /etc/foundationdb/fdb.cluster
-      # How long one product-store transaction may run, its retries included.
-      # At API version 740 a retry does not reset this option, so the one value
-      # bounds the whole retry loop. Without it a transaction issued while the
-      # store elects a new leader retries without end, and the only bound left
-      # is the caller's context, which not every caller sets (TACK-408).
+      # A transaction issued while the store elects a new leader retries
+      # without end, bounded only by the caller's context, which not every
+      # caller sets. This value bounds it, retries included (TACK-408).
       FDB_TRANSACTION_TIMEOUT: ${FDB_TRANSACTION_TIMEOUT:-5s}
       MEILI_URL: http://meilisearch:7700
       MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?MEILI_MASTER_KEY is required, set it in .env}
