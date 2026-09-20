@@ -8,7 +8,7 @@
 
 **Tech Stack:** Go, FoundationDB, OpenSearch aliases, existing audited operations and datagen.
 
-**Spec:** [Recovery requirements](../specs/2026-09-19-search-acceptance.md#durable-changes-and-recovery).
+**Spec:** [Recovery requirements](../specs/2026-09-19-search-acceptance.md#durable-work-and-state-lifecycle).
 
 ## Global Constraints
 
@@ -44,7 +44,13 @@ func (r searchRuntime) Close()
 - [ ] Run `^TestSearchRuntimeUnavailable$` and record the pre-change failure.
 - [ ] Add required environment fields `OPENSEARCH_URLS`, `OPENSEARCH_USERNAME`, `OPENSEARCH_PASSWORD`, `OPENSEARCH_CA_FILE`, `SEARCH_PAGE_BYTES`, and `SEARCH_QUERY_BYTES`; add positive bounded worker-concurrency and timeout fields. Require page bytes between 16 and 4,096 and query bytes between 1 and 126. Do not load runtime JSON/YAML configuration files or log secret values.
 - [ ] Construct the verified-TLS client independently of engine readiness. Invalid configuration fails startup. An unavailable engine leaves durable work pending and makes search return ErrUnavailable. Model/index provisioning belongs to the audited operator path, not every application startup.
-- [ ] Start bounded worker claim loops and expired-session cleanup. Each worker calls Worker.RunOne and records errors before capped, context-aware backoff. Cleanup atomically marks an expired header closing, persists its deletion cursor, and deletes PIT, visited-node, and replay records in bounded batches. Renewal must conflict with closing. Resume closing sessions after restart, tolerate already absent PITs, and delete the header last. Close cancels new work, waits for in-flight deadlines, releases ownership, and closes storage resources.
+- [ ] Start bounded claim loops with explicit worker limits for live mutations,
+  cleanup, metadata rescans, and rebuild work. Each worker calls one bounded
+  `Worker.RunOne` slice and records errors before capped, context-aware backoff.
+  Cleanup marks an idle-expired or absolute-expired session closing, persists its
+  deletion cursor, and removes PIT, token, visited-node, and replay records in
+  bounded batches. Renewal must conflict with closing. Resume cleanup after restart,
+  tolerate absent PITs, and delete the header last.
 
 ```go
 func (r searchRuntime) Close() {
@@ -72,14 +78,27 @@ internal/test/integration/search_restore_test.go    real backup and restore
 Replace the body of [search reindexing](../../../internal/ops/search_reindex.go). Keep its existing audited command registration and dry-run behavior. Consume `NodeReader.ScanSearch`, the same content reader, worker, and page writer used for live changes. Produce:
 
 ```go
-type Rebuild struct { ID, SourceIndex, TargetIndex, ScanCursor string; Boundary, Applied []byte; State string }
+type Rebuild struct {
+    ID, SourceIndex, TargetIndex, ScanCursor string
+    Boundary, Applied []byte
+    State string
+    PrimaryShards int
+}
 type Rebuilder interface { Run(context.Context) error }
 func (c *OpenSearchClient) SwitchAlias(ctx context.Context, alias, oldIndex, newIndex string) error
 ```
 
 - [ ] Add `TestSearchRebuildDuringChanges`: run the real audited reindex command while MCP creates, edits, deletes, changes metadata, and moves a subtree. Wait for the command's successful completion; search must reflect each completed change and must not return deleted or foreign-scope nodes.
 - [ ] Run `^TestSearchRebuildDuringChanges$`; expect the old reindex command to lack a replacement index and persisted handoff.
-- [ ] Record an FDB journal boundary before scanning. Retain journal entries needed by the oldest active rebuild. Create a unique physical index with the pinned configuration. Scan node IDs using ScanSearch and run the existing page worker against that target. Persist scan and replay checkpoints independently.
+- [ ] Acquire one environment-wide rebuild lease before creating an index. Reject or
+  queue another rebuild until the first replacement and any prior retiring index
+  finish. Record an FDB journal boundary and a positive primary-shard count. Create
+  one unique physical index with that stored count. Scan with the same bounded page
+  worker. Persist scan and replay checkpoints independently.
+- [ ] Start this same rebuild when the serving index crosses its configured maximum
+  retired-page count, retirement age, or physical bytes. Verify reserved disk can
+  contain the serving, replacement, and retiring indexes before scanning. If it
+  cannot, report the capacity error and leave new index work pending in FDB.
 - [ ] Replay mutations after the boundary, including metadata scans and deletions. Enter a durable `switching` state that pauses new worker claims but still permits source mutations to enqueue. Record a final journal boundary and finish the new index through that boundary. Verify refresh and index health before changing the alias.
 - [ ] Change the alias in one OpenSearch request:
 
@@ -94,7 +113,20 @@ The client substitutes the concrete persisted index names using typed request
 fields. Set an explicit write index when required by the alias configuration.
 
 - [ ] After the alias request, persist the new worker target and resume claims. If the process stops before that FDB commit, recovery reads the alias: the old target means retry or cancel the switch; the new target means finish the FDB handoff. A third target is an explicit coordination error. Never assume an HTTP timeout means the alias operation failed.
-- [ ] Keep outstanding old workers bound to the old physical index. Mark that index retiring in FDB after switching; SessionStore.Create must reject retiring indexes atomically and retry against the current alias after closing its unused PIT. Maintain per-index session keys on creation, completion, and cleanup. A bounded scan must prove no unexpired, incomplete session remains before audited index deletion. Advancing sessions may retain the index indefinitely. Block writes, revoke write permissions, and disable automatic recreation before deletion. Rebuild and cleanup remain resumable.
+- [ ] Keep outstanding old workers bound to the old physical index. Mark that index
+  retiring after switching. `SessionStore.Create` must reject retiring indexes and
+  retry against the current alias after closing its unused PIT. Maintain per-index
+  session keys. The two-hour absolute session deadline guarantees retirement can
+  finish. Bounded cleanup must prove no active session remains before audited index
+  deletion. Block writes, revoke write permissions, disable automatic recreation,
+  and delete obsolete retirement records with the index.
+- [ ] At every checkpoint, require no more than one serving, one replacement, and
+  one retiring index. Delete failed replacements through resumable cleanup before
+  another rebuild starts. Release rebuild journal entries after no active rebuild
+  boundary needs them.
+- [ ] Add a scale-out case that provisions another data node, requests a larger
+  stored primary-shard count, and rebuilds. Verify native redistribution and improved
+  throughput under the predeclared workload without application routing changes.
 - [ ] Fail real scan, embedding, and replay operations separately before switching and assert the serving alias is unchanged. Stop the process immediately after switching and assert restart completes the handoff. A dry run must neither create an index nor alter journal retention.
 - [ ] Restore a real FDB backup into a disposable local environment using the existing backup/restore operations. Change the search generation before accepting requests; bind sessions to that generation and reject restored cursors. Rebuild an empty search index and require current nodes, deleted-node absence, relevance, and final-page text. Never reuse a pre-restore index as authoritative.
 - [ ] Run `^TestSearch(Rebuild|Restore)` and `make check`; commit with subject `Rebuild OpenSearch with durable catch-up and alias recovery`.

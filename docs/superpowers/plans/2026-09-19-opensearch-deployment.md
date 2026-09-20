@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Each environment has `tack-search1`, `tack-search2`, and `tack-search3`, each with 4 GB memory, 2 CPU cores, 40 GB storage, and 2 GB JVM heap. QA runs on suburban; production runs on vault. This task prepares changes and evidence; deployment requires separate authorization.
+Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Each environment has `tack-search1`, `tack-search2`, and `tack-search3`, each with at least 8 GiB memory, 2 CPU cores, 40 GiB storage, and a 2 GiB JVM heap. QA runs on suburban; production runs on vault. This task prepares changes and evidence; deployment requires separate authorization.
 
 ## Review Focus
 
@@ -56,7 +56,7 @@ Implement `runSearchProvision(ctx context.Context, env *Env) error` and
 - [ ] Add a configs render test using the existing `AnsibleRender.render` runner. Render the real override for a search guest and an application guest. Parse the resulting YAML and assert that the search guest starts OpenSearch with persistent storage, while the application receives all three HTTPS endpoints and no provisioning credential.
 - [ ] Run `bundle exec rspec spec/ansible/tack_search_spec.rb`. Expect failure before the inventory and templates define search guests.
 - [ ] Allocate six distinct guest IDs, addresses, pinned MACs, and Docker IPv6 subnets in service_mapping. Check the entire mapping and live guest inventory before reserving them. The existing `tack_data1/2/3` entries are ledger guests and must remain separate. Use production keys `tack_search1/2/3` and QA keys with `_suburban`; use QA VMIDs equal to their production counterpart plus 100 where the verified inventory permits it.
-- [ ] Add the LXC resources using mapping-derived identities. Match the existing production and QA bridge, gateway, DNS, Debian template, unprivileged nesting, discard, and prevent_destroy settings. Set memory to 4096 MiB, cores to 2, and disk size to 40 GiB. Do not provision a fourth permanent search guest.
+- [ ] Add the LXC resources using mapping-derived identities. Match the existing production and QA bridge, gateway, DNS, Debian template, unprivileged nesting, discard, and prevent_destroy settings. Set memory to at least 8192 MiB, cores to 2, and disk size to 40 GiB. Do not provision a fourth permanent search guest.
 - [ ] Render the following container settings from environment-specific inventory. Supply the three actual node names to discovery and initial cluster bootstrap. Use the bootstrap setting only when forming a new cluster, not when restarting or joining an existing one.
 
 ```yaml
@@ -82,7 +82,10 @@ Apply required host kernel settings through configs, including the OpenSearch
 memory-map prerequisite; validate them inside the LXC before container startup.
 
 - [ ] Restrict application credentials to required index, query, and local inference actions. Provisioning credentials create models, mappings, pipelines, and aliases. Verify denied administrative calls with the application identity. Use secret references and Ansible no_log for secret-bearing tasks.
-- [ ] Ensure replicas cannot share a guest with their primary. Deploy the model so any one guest can stop without losing inference. Native cluster placement owns shard distribution; Tack must not select a guest for each node.
+- [ ] Ensure replicas cannot share a guest with their primary. Deploy the pinned
+  sparse model on every guest so one stopped guest cannot remove inference. Store
+  the chosen primary-shard count with each physical index. Native placement owns
+  distribution; Tack must not select a guest for each node.
 - [ ] Add a three-node local integration test using real containers, then stop each container in turn through the Docker SDK. Search must succeed; a newly written small node must become searchable within 10 seconds. Restart each node and repeat. Deny model-download network access after provisioning and require ordinary inference to keep working.
 - [ ] Run the render tests, `tofu validate` in both OpenTofu directories, the local cluster test, and repository checks. Review a saved OpenTofu plan for exactly the intended six additions and no unrelated replacement or deletion. Commit Tack with subject `Provision and verify the OpenSearch container cluster`; commit configs with subject `Add QA and production Tack search guests`.
 
@@ -101,8 +104,15 @@ model/tokenizer checksums, TLS identities, topology, and acceptance measurements
 
 - [ ] Run audited search provisioning, reindexing, verification, and guarded QA datagen on QA. Verify three independent LXCs, actual resource allocations, IPv6-only REST/transport connectivity, valid TLS, model identity, and all primary/replica placements.
 - [ ] Stop each QA search guest separately and repeat public search and node-write checks. Require inference and all primaries to remain available. These guests share a hypervisor; this test does not claim hypervisor fault tolerance.
-- [ ] Run concurrent indexing, querying, and rebuilding at fixed concurrency. Record p50/p95 latency, peak JVM/native memory, CPU, disk use, indexing throughput, and oldest pending-work age. Require disk for both indexes and bounded request sizes. Record the actual workload; do not infer capacity from the model's download size.
-- [ ] Add one temporary QA search guest through an approved disposable capacity test and verify native shard redistribution. Remove only that test guest after its shards have relocated. Keep the release topology at three guests.
+- [ ] Before the capacity run, record corpus size, page distribution, query mix,
+  concurrency, mutation rate, rebuild activity, and pass thresholds for latency,
+  errors, throughput, oldest work age, memory, and disk. Run the exact workload with
+  all guests and with each guest stopped. Require disk for serving, replacement,
+  and retiring indexes. Do not infer capacity from the model bundle size.
+- [ ] Add one temporary QA search guest and verify native shard redistribution.
+  Rebuild the same corpus with a higher primary-shard count and repeat the fixed
+  workload. Require improved throughput without a Tack routing change. Remove the
+  guest only after its shards relocate. Keep three guests in the release topology.
 - [ ] Require all first-release acceptance checks, including multi-page behavior under today's FDB limit. Tests beyond that limit remain mandatory for the later storage change, not a reason to defer current multi-page coverage.
 - [ ] After QA passes and production deployment is authorized, use the existing production entry point:
 

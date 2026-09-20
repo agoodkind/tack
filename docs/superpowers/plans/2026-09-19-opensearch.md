@@ -1,12 +1,12 @@
-# OpenSearch Implementation Plan
+# OpenSearch implementation plan
 
-The native embedding and ranking configuration passed local engine validation. The implementation tasks must repeat that behavior through Tack's public boundaries.
+The native sparse indexing and ranking configuration passed local engine validation. The implementation tasks must repeat that behavior through Tack's public boundaries.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Search every accepted node through a paginated reader and return authorized, distinct nodes ranked by OpenSearch.
 
-**Architecture:** The reader returns one bounded part per call. The search worker indexes each part and continues until an explicit end marker. OpenSearch performs text splitting, local embedding, and ranking.
+**Architecture:** The reader returns one bounded part per call. Bounded worker slices index and retire parts. OpenSearch performs text splitting, local sparse encoding, and inverted-index ranking. Durable sessions continue across every ranked page match.
 
 **Tech Stack:** Go, FoundationDB, OpenSearch 3.8.0, ML Commons, Docker SDK, MCP, Ansible, OpenTofu.
 
@@ -19,13 +19,15 @@ The native embedding and ranking configuration passed local engine validation. T
 - Custom plugins, forks, and external inference are excluded.
 - Node types, property types, and property names are opaque identifiers.
 - The container image is `opensearchproject/opensearch:3.8.0`.
-- Use `huggingface/sentence-transformers/all-MiniLM-L6-v2` version 1.0.2 and 384-dimensional vectors.
+- Use `amazon/neural-sparse/opensearch-neural-sparse-encoding-doc-v3-gte` version 1.0.0 and nested `rank_features`.
 - Reader parts contain at most 4,096 UTF-8 bytes; queries contain at most 126 UTF-8 bytes.
-- OpenSearch uses gsub, delimiter chunking, local inference, exact vector scores, and point-in-time pagination.
+- OpenSearch uses gsub, delimiter chunking, local sparse inference, conventional sparse search, and point-in-time pagination.
 - Bulk requests contain at most 500 page documents and 5 MiB of encoded data, including action lines.
 - A result page has at most 25 nodes within Tack's response-byte budget.
 - Continuation can reach every matching node. Engine batches contain at most 100 matches; responses scan at most four batches.
-- QA and production each use three LXC guests, with 4 GB memory, 2 CPU cores, 40 GB storage, and 2 GB JVM heap per guest.
+- QA and production each use three LXC guests, with at least 8 GiB memory, 2 CPU cores, 40 GiB storage, and a 2 GiB JVM heap per guest.
+- Worker claims, cleanup, sessions, rebuilds, and physical indexes have explicit work and lifetime bounds.
+- Each physical index stores its primary shard count. Increasing shard parallelism requires a validated rebuild.
 - All product state and search progress use FoundationDB. SQL remains authentication and audit only.
 - Reads use `NodeReader`. Configuration uses environment variables through `caarlos0/env`.
 - Tests use real dependencies and public boundaries. No mocks, product seeds, or production tokenizer dependency establish acceptance.
@@ -40,6 +42,8 @@ The native embedding and ranking configuration passed local engine validation. T
 3. A long uninterrupted Unicode string must not disappear inside model truncation. Native coverage tests verify the configured processors and pinned tokenizer.
 4. A byte-limited response must retain the first result it cannot render. Query tasks test continuation with large names.
 5. A metadata or ancestry change during a rebuild must appear after the alias switch. Recovery tasks test concurrent public changes.
+6. A large node, cleanup, or rebuild must yield before it starves live mutation work. Worker and capacity tasks measure every work class.
+7. Session and rebuild cleanup must bound the number and lifetime of retained physical indexes.
 
 ---
 
@@ -50,7 +54,7 @@ These are parts of one implementation. None introduces a temporary search design
 The [fixture code](2026-09-19-opensearch-fixtures.md) supplies real-store setup and
 authenticated calls for the owning tasks.
 
-1. Complete the [native coverage task](2026-09-19-opensearch-native.md). Implement the validated engine configuration and its regression tests.
+1. Complete the [native coverage task](2026-09-19-opensearch-native.md). Implement the validated sparse engine configuration and its regression tests.
 2. Implement Task 2 in the [reader tasks](2026-09-19-opensearch-reader.md), including metadata declarations, revision identity, bounded pages, and summaries.
 3. Implement the [durable indexing tasks](2026-09-19-opensearch-worker.md), including transaction scheduling, retries, and deletion.
 4. Implement the [query tasks](2026-09-19-opensearch-query.md). Complete native ranking first. Treat MCP integration in Task 7 and runtime assembly in Task 8 as one review and commit unit; neither public path can pass independently. Then complete Task 3's metadata refresh test against that runtime.

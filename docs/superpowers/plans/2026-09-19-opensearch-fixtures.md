@@ -8,7 +8,7 @@
 
 **Tech Stack:** Go, FoundationDB, SQL authentication, MCP.
 
-**Spec:** [Evidence and opaque metadata](../specs/2026-09-19-search-acceptance.md#opaque-types-and-metadata).
+**Spec:** [Evidence and opaque metadata](../specs/2026-09-19-search-acceptance.md#opaque-metadata).
 
 ## Global Constraints
 
@@ -142,7 +142,7 @@ func TestSearchDelayedWriter(t *testing.T) {
     model, err := client.Provision(ctx)
     if err != nil { t.Fatal(err) }
     index := "delayed-" + uuid.Must(uuid.NewV7()).String()
-    if err := client.CreateIndex(ctx, index, model, 384); err != nil { t.Fatal(err) }
+    if err := client.CreateIndex(ctx, index, model, 3); err != nil { t.Fatal(err) }
     t.Cleanup(func() { _, err := client.JSON(context.Background(), "DELETE", "/"+index, nil); if err != nil { t.Error(err) } })
     if err := stores.SearchWork.InitializeIndex(ctx, index); err != nil { t.Fatal(err) }
     id := putSearchText(t, stores, "obsolete text")
