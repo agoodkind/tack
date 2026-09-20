@@ -61,7 +61,8 @@ func RunBackupBucketsInit(ctx context.Context, cfg *config.Config) error {
 
 const backupS3DefaultMaxAttempts = 3
 
-// A var so a test can cut it to one attempt (TACK-528).
+// Retries against a refusing address only repeat the refusal, so tests cut
+// this to one attempt (TACK-528).
 var backupS3MaxAttempts = backupS3DefaultMaxAttempts
 
 // newBackupS3Client builds an S3 client for the SeaweedFS endpoint using static
