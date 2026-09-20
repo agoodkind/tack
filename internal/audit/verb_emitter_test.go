@@ -142,7 +142,10 @@ func verbNamesReferencedOutsideDeclarations(t *testing.T) map[string]bool {
 			return err
 		}
 		if entry.IsDir() {
-			if entry.Name() == ".git" || entry.Name() == "node_modules" {
+			// .testenv holds engine data directories an engine's own user owns,
+			// so walking into them fails with permission denied.
+			switch entry.Name() {
+			case ".git", ".testenv", "node_modules":
 				return filepath.SkipDir
 			}
 			return nil
@@ -159,7 +162,7 @@ func verbNamesReferencedOutsideDeclarations(t *testing.T) map[string]bool {
 		return nil
 	})
 	if walkErr != nil {
-		t.Fatalf("walk the repository: %v", walkErr)
+		t.Fatalf("read every Go file in the repository: %v", walkErr)
 	}
 	return referenced
 }

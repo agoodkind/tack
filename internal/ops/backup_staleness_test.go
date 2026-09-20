@@ -474,6 +474,7 @@ func TestRunBackupStalenessCheckRequiresObjectStoreConfig(t *testing.T) {
 func TestRunBackupStalenessCheckReportsUnreachableStoreAsStale(t *testing.T) {
 	nowFunc = func() time.Time { return time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC) }
 	t.Cleanup(func() { nowFunc = time.Now })
+	backupS3Attempts(t, 1)
 
 	cfg := &config.Config{
 		BackupS3Endpoint:                     "http://127.0.0.1:1",

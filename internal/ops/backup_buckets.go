@@ -59,6 +59,12 @@ func RunBackupBucketsInit(ctx context.Context, cfg *config.Config) error {
 	return nil
 }
 
+const backupS3DefaultMaxAttempts = 3
+
+// Retries against a refusing address only repeat the refusal, so tests cut
+// this to one attempt (TACK-528).
+var backupS3MaxAttempts = backupS3DefaultMaxAttempts
+
 // newBackupS3Client builds an S3 client for the SeaweedFS endpoint using static
 // credentials from config. UsePathStyle is mandatory because SeaweedFS does not
 // support virtual-hosted-style bucket addressing.
@@ -75,6 +81,7 @@ func newBackupS3Client(cfg *config.Config) *s3.Client {
 	return s3.NewFromConfig(awsCfg, func(o *s3.Options) {
 		o.BaseEndpoint = aws.String(cfg.BackupS3Endpoint)
 		o.UsePathStyle = true
+		o.RetryMaxAttempts = backupS3MaxAttempts
 	})
 }
 

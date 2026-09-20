@@ -26,6 +26,7 @@ type backupTestStore struct {
 // into it.
 func newBackupTestStore(t *testing.T, objects map[string][]byte) *backupTestStore {
 	t.Helper()
+	backupS3Attempts(t, backupS3DefaultMaxAttempts)
 	store := &backupTestStore{t: t, bucket: testenv.ObjectStore(t), client: nil, stopped: false}
 	store.client = newBackupS3Client(store.config())
 	for key, body := range objects {
@@ -99,6 +100,7 @@ func (s *backupTestStore) stop() {
 	s.t.Helper()
 	testenv.StopObjectStore(s.t, s.bucket.Container)
 	s.stopped = true
+	backupS3Attempts(s.t, 1)
 }
 
 // start starts the stopped engine again and returns the endpoint it answers
@@ -107,6 +109,7 @@ func (s *backupTestStore) start() string {
 	s.t.Helper()
 	s.bucket.Endpoint = testenv.StartObjectStore(s.t, s.bucket.Container)
 	s.stopped = false
+	backupS3Attempts(s.t, backupS3DefaultMaxAttempts)
 	s.client = newBackupS3Client(s.config())
 	return s.bucket.Endpoint
 }

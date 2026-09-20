@@ -52,6 +52,7 @@ func fixBackupStalenessClock(t *testing.T, now time.Time) {
 // that has never alarmed.
 func unreachableBackupStalenessConfig(t *testing.T, recipient string) *config.Config {
 	t.Helper()
+	backupS3Attempts(t, 1)
 	return &config.Config{
 		BackupRoot:                           t.TempDir(),
 		BackupS3Endpoint:                     "http://127.0.0.1:1",
