@@ -35,7 +35,9 @@ The native sparse indexing and ranking configuration passed local engine validat
 - A result page has at most 25 nodes within Tack's response-byte budget.
 - Continuation can reach every matching node. Engine batches contain at most 100 matches; responses scan at most four batches.
 - Configure every OpenSearch address in the official client. Its connection pool owns routing, retries, failed-node recovery, TLS, and transport metrics.
-- QA and production each use three LXC guests, with at least 8 GiB memory, 2 CPU cores, 40 GiB storage, and a 2 GiB JVM heap per guest.
+- QA and production start with three LXC guests, with at least 8 GiB memory, 2 CPU cores, 40 GiB storage, and a 2 GiB JVM heap per guest. Three is the release topology, not a capacity ceiling.
+- Adding Tack processes, FoundationDB capacity, OpenSearch ML nodes, data nodes, replicas, or coordinating endpoints must not require application code or stored-format changes. A higher primary-shard count uses the existing replacement-index rebuild.
+- Persist all search sessions and work in FoundationDB. Distribute their keys across stable hash buckets. Do not require sticky requests, a process-local cache, a global sequence, or one claim range.
 - Worker claims, cleanup, sessions, rebuilds, and physical indexes have explicit work and lifetime bounds.
 - Each physical index stores its primary shard count. Increasing shard parallelism requires a validated rebuild.
 - All product state and search progress use FoundationDB. SQL remains authentication and audit only.
@@ -66,6 +68,7 @@ The native sparse indexing and ranking configuration passed local engine validat
 5. A metadata or ancestry change during a rebuild must appear after the alias switch. Recovery tasks test concurrent public changes.
 6. A large node, cleanup, or rebuild must yield before it starves live mutation work. Worker and capacity tasks measure every work class.
 7. Session and rebuild cleanup must bound the number and lifetime of retained physical indexes.
+8. Adding each capacity role must increase its measured throughput without changing application code or session behavior.
 
 ---
 

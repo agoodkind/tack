@@ -175,13 +175,24 @@ A lexical-only control must miss at least one non-overlapping pair that the comb
   remain available.
 - Run a fixed happy-path query count and record selected connections through the official test-only `ConnectionObserver`. Every healthy node must accept work, and one node must not remain the sole coordinator. Do not require exact round-robin counts. Stop each node and require the official client to recover.
 - Deploy the model without `node_ids`. Require ML Commons to report `DEPLOYED` on all three eligible `ml` nodes before and after each restart. Keep native automatic redeployment enabled.
+- Run one search session across two Tack processes by alternating every request.
+  Require exact continuation, replay, authorization, and cleanup without sticky routing.
+- Verify session and work keys use stable hash buckets and bounded bucket scans. A
+  fixed workload must not serialize on one counter, lease, queue, or key range.
 - Predeclare corpus size, page distribution, query mix, concurrency, indexing rate,
   rebuild activity, and pass thresholds for p50, p95, error rate, throughput, oldest
   work age, peak memory, and disk. Run the workload normally and with one guest down.
+- Saturate the role under test before each scale-out run. Predeclare the required
+  throughput gain and require the added capacity to process measured work.
 - Before removing storage limits, test 128 KiB, 1 MiB, 8 MiB, over 100 MB, and nodes
   larger than worker memory. Keep page and work bounds fixed.
-- Add a QA node. Measure redistribution. Rebuild the same corpus with a higher stored
-  primary-shard count and rerun the fixed workload. Throughput must improve without
-  a Tack routing change. Remove the temporary node only after shard relocation.
+- Add an ML-only QA node. Require automatic model deployment and improved new-session
+  inference throughput without reindexing or application changes.
+- Add a data-only QA node and another replica. Require improved ranking throughput
+  without reindexing. Then rebuild the same corpus with a higher primary-shard count
+  and require improved indexing throughput without a Tack routing change.
+- Add a Tack process and FoundationDB capacity independently. Require the fixed
+  request and worker workloads to improve without changing session or work formats.
+  Remove temporary nodes only after work, model, and shard relocation complete.
 - Require disk for the serving, replacement, and retiring indexes. Capacity results,
   not model download size or one successful request, determine production sizing.

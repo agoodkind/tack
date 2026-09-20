@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Each environment has `tack-search1`, `tack-search2`, and `tack-search3`, each with at least 8 GiB memory, 2 CPU cores, 40 GiB storage, and a 2 GiB JVM heap. QA runs on suburban; production runs on vault. This task prepares changes and evidence; deployment requires separate authorization.
+Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Each environment starts with `tack-search1`, `tack-search2`, and `tack-search3`, each with at least 8 GiB memory, 2 CPU cores, 40 GiB storage, and a 2 GiB JVM heap. QA runs on suburban; production runs on vault. The same inventory and container template must support later ML-only, data-only, and coordinating-only guests. This task prepares changes and evidence; deployment requires separate authorization.
 
 Final rendered and live environments contain no Meilisearch service, endpoint,
 secret, volume, dependency, or fallback. FoundationDB supplies every initial
@@ -27,8 +27,8 @@ Meilisearch deployment. No step writes to both engines.
 ## Review Focus
 
 Test normal coordinator distribution, loss of each guest, model availability after
-restart, verified TLS, IPv6-only connectivity, and concurrent rebuilding within the
-guest memory and disk limits.
+restart, independent ML and data scale-out, cross-process Tack continuation, verified
+TLS, IPv6-only connectivity, and concurrent rebuilding within resource limits.
 
 ---
 
@@ -95,7 +95,7 @@ Apply required host kernel settings through configs, including the OpenSearch
 memory-map prerequisite; validate them inside the LXC before container startup.
 
 - [ ] Restrict application credentials to the typed index, bulk, query, point-in-time, document, health, and local inference operations used by the official client. Provisioning credentials create models, semantic mappings, and aliases. Test monitoring and discovery permissions required by client routing and metrics. Verify denied administrative calls with the application identity. Use secret references and Ansible no_log for secret-bearing tasks.
-- [ ] Ensure replicas cannot share a guest with their primary. Each guest already has the `ml` role. Deploy the pinned model without `node_ids` so ML Commons selects every eligible ML node. Require the deployment task to reach `DEPLOYED` on all three nodes. Keep native automatic redeployment enabled and verify the worker-node list after each restart. Store the chosen primary-shard count with each physical index. Tack must not select a guest for each node.
+- [ ] Ensure replicas cannot share a guest with their primary. Set `plugins.ml_commons.only_run_on_ml_node` to true, use `least_load` task dispatch, and keep automatic redeployment enabled. Deploy the pinned model without `node_ids` so ML Commons selects every eligible ML node. Require `DEPLOYED` on all three release nodes and every later ML node. Store the chosen primary-shard count with each physical index. Tack must not select an ML worker or shard node.
 - [ ] Add a three-node local integration test using real containers and the production official client. Record selected connections through its test-only `ConnectionObserver`. During a fixed query run, require every healthy node to accept work and require that one node does not remain the sole coordinator. Do not require exact round-robin counts. Stop each node in turn through the Docker SDK. The client must recover and search must succeed; a newly written small node must become searchable within 10 seconds. Restart each node and repeat. Deny model-download network access after provisioning and require ordinary inference to keep working.
 - [ ] Run the render tests, `tofu validate` in both OpenTofu directories, the local cluster test, and repository checks. Review a saved OpenTofu plan for exactly the intended six additions and no unrelated replacement or deletion. Commit Tack with subject `Provision and verify the OpenSearch container cluster`; commit configs with subject `Add QA and production Tack search guests`.
 - [ ] Do not preserve or migrate the old Meilisearch volume. Its deletion is a
@@ -134,10 +134,17 @@ model/tokenizer checksums, TLS identities, topology, and acceptance measurements
   errors, throughput, oldest work age, memory, and disk. Run the exact workload with
   all guests and with each guest stopped. Require disk for serving, replacement,
   and retiring indexes. Do not infer capacity from the model bundle size.
-- [ ] Add one temporary QA search guest and verify native shard redistribution.
-  Rebuild the same corpus with a higher primary-shard count and repeat the fixed
-  workload. Require improved throughput without a Tack routing change. Remove the
-  guest only after its shards relocate. Keep three guests in the release topology.
+- [ ] Add one temporary ML-only QA guest. Require automatic model deployment and
+  improved new-session inference throughput without rebuilding the index or changing
+  Tack. Remove it only after ML Commons removes it from eligible workers.
+- [ ] Add one temporary data-only QA guest and increase the replica count. Require
+  improved ranking throughput without rebuilding. Then rebuild the same corpus with
+  a higher primary-shard count and require improved indexing throughput. Remove the
+  guest only after its shards relocate.
+- [ ] Run two Tack processes against the same FoundationDB and OpenSearch. Alternate
+  one session between them, then increase request and worker load. Add FoundationDB
+  capacity independently and require improved throughput without stored-format changes.
+  Keep three OpenSearch guests in the release topology.
 - [ ] Require all first-release acceptance checks, including multi-page behavior under today's FDB limit. Tests beyond that limit remain mandatory for the later storage change, not a reason to defer current multi-page coverage.
 - [ ] After QA passes and production deployment is authorized, use the existing production entry point:
 

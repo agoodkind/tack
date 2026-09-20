@@ -77,13 +77,17 @@ consume every worker.
 - [ ] Use the established `db.Transact` or bounded `CreateTransaction` and `OnError` pattern for claims, registrations, checkpoints, and yields. A scan completion cannot clear a newer event. Lease expiry cannot permit the old owner to register another page. Do not add a generic search retry package.
 - [ ] Keep job headers, cursors, errors, and issued IDs in separate bounded keys.
   Replace obsolete desired generations instead of appending history.
+- [ ] Prefix claimable work with the first SHA-256 byte of the organization and node
+  identity, creating 256 stable buckets. Workers claim buckets independently. Do not
+  use a global queue, sequence, lease, or scan position.
 - [ ] When a generation completes and retirement finishes, delete its claim, cursor,
   error, completed events, obsolete generations, and acknowledged issued-ID records.
   Preserve only current desired state and IDs needed to reject delayed writes.
 - [ ] Repeat hundreds of edits and compare FDB key-family counts before and after
   convergence. Counts must depend on current pages and pending work, not edit history.
 - [ ] Test node, relationship, metadata, deletion, failed source transaction, scan
-  overlap, claim expiry, and restart paths independently.
+  overlap, claim expiry, and restart paths independently. Increase worker count under
+  a fixed workload and require higher throughput without changing stored work.
 - [ ] Run work tests and `make check`. Commit with subject
   `Record durable search work in FoundationDB mutations`.
 

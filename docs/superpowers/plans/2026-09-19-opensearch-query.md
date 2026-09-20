@@ -156,6 +156,10 @@ Bind principal, query, filters, physical index, and search generation with
 deterministic serialization and SHA-256. Authenticate cursors with HMAC-SHA256.
 Store one bounded header, bounded query-token chunks, one key per visited node, and
 one bounded replay record per response. Never read all visited IDs in one transaction.
+Prefix every session key family with the first SHA-256 byte of the complete session
+ID, creating 256 stable buckets. Put expiry entries in that bucket before their
+ordered deadline. Cleanup claims buckets independently. Do not add a global session
+counter, expiry range, owner process, or correctness cache.
 
 `CommitPage` writes at most 400 visited IDs, 25 result IDs, consumed sort values,
 latest PIT ID, replay data, and the next page atomically. It renews only the
@@ -184,5 +188,8 @@ only the PIT ID. It preserves sort position, page number, and both deadlines.
 - [ ] Corrupt indexed authorization fields, revoke membership, move scopes, lose a
   response, restart the process, and force four visited-only batches. Require current
   authorization, exact replay, and eventual continuation.
+- [ ] Open a session on one Tack runtime and alternate every continuation between two
+  runtimes against the same FoundationDB and OpenSearch. Require identical replay and
+  cleanup. Increase runtime count under a fixed workload and require higher throughput.
 - [ ] Run `^TestSearch(Auth|Cursor|DistinctNodes)` and `make check`. Commit with
   subject `Return authorized search results with durable continuation`.

@@ -174,18 +174,26 @@ retiring index. Restore operations always create a new search generation and ind
 
 ## Deployment and capacity
 
-QA and production each use three LXC guests. QA runs on `suburban`; production runs
-on `vault`. Each guest starts with at least 8 GiB of memory, 2 CPU cores, 40 GiB of
-hot-tier storage, and a 2 GiB JVM heap. The image is
-`opensearchproject/opensearch:3.8.0`. Every guest stores data, can manage the
-cluster, and has the `ml` role. ML Commons deploys the model without explicit node IDs and maintains it on every eligible node. One guest can stop without losing a primary or the model.
+Tack request handlers keep no process-local search state. Every instance opens or
+continues sessions through FoundationDB. Stable hash buckets distribute session and
+work keys without sticky routing or a global claim range.
+
+QA and production start with three combined-role LXC guests on `suburban` and
+`vault`, respectively. Each guest uses OpenSearch 3.8.0 with at least 8 GiB memory,
+2 CPU cores, 40 GiB storage, and a 2 GiB JVM heap. One guest can stop without losing
+a primary or the model.
+
+OpenSearch dispatches ML work across eligible ML nodes and routes search across primary
+and replica shards. Model deployment specifies no node IDs and includes new ML
+nodes. ML-only nodes increase inference capacity. Data nodes and replicas increase
+ranking capacity. Higher primary-shard counts use the existing rebuild. Tack selects
+neither ML workers nor shard nodes.
 
 The final GTE sparse workload opened the ML memory circuit breaker at 4 GiB. It
 completed at 8 GiB and used about 3.4 GiB afterward. Eight GiB is the QA floor and
 production starting allocation, not a production capacity result.
 
-Release capacity uses a declared workload and pass thresholds for query latency,
-index throughput, pending-work age, memory, disk, one-guest failure, and concurrent
-rebuild. A scale-out test adds a node and rebuilds with a higher primary-shard count.
-It must increase measured throughput without application routing changes. Disk must
-fit serving, replacement, and retiring indexes during handoff.
+Release capacity sets pass thresholds for latency, throughput, pending-work age,
+memory, disk, one-guest failure, and concurrent rebuild. Separate tests add Tack,
+FoundationDB, ML, and data capacity. Each addition must improve the relevant fixed
+workload without application code changes. Disk must fit all three index generations.
