@@ -59,9 +59,10 @@ func RunBackupBucketsInit(ctx context.Context, cfg *config.Config) error {
 	return nil
 }
 
-// backupS3DefaultMaxAttempts is how many times the client tries one request
-// before it gives up, the AWS SDK's own default written out so the budget every
-// deployment runs under is stated rather than inherited.
+// backupS3DefaultMaxAttempts is the AWS SDK's default retry budget, written out
+// explicitly so the limit every deployment runs under is visible in this
+// package rather than inherited silently. It is how many times the client tries
+// one request before it gives up.
 const backupS3DefaultMaxAttempts = 3
 
 // backupS3MaxAttempts is the budget the next client is built with. It is a
