@@ -59,17 +59,12 @@ func RunBackupBucketsInit(ctx context.Context, cfg *config.Config) error {
 	return nil
 }
 
-// backupS3DefaultMaxAttempts is the AWS SDK's default retry budget, written out
-// explicitly so the limit every deployment runs under is visible in this
-// package rather than inherited silently. It is how many times the client tries
-// one request before it gives up.
+// backupS3DefaultMaxAttempts is the AWS SDK's own default, stated rather than
+// inherited.
 const backupS3DefaultMaxAttempts = 3
 
-// backupS3MaxAttempts is the budget the next client is built with. It is a
-// package var so a test aiming the client at an address nothing listens on can
-// cut it to a single attempt: against a refusal the second and third attempts
-// add only the SDK's jittered backoff to an answer the first one already
-// settled (TACK-528).
+// backupS3MaxAttempts is a var so a test pointed at a refusing address can cut
+// it to one attempt (TACK-528).
 var backupS3MaxAttempts = backupS3DefaultMaxAttempts
 
 // newBackupS3Client builds an S3 client for the SeaweedFS endpoint using static
