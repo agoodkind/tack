@@ -36,7 +36,9 @@ The native sparse indexing and ranking configuration passed local engine validat
 - Bulk requests contain at most 500 page documents and 5 MiB of encoded data, including action lines.
 - A result page has at most 25 nodes within Tack's response-byte budget.
 - Continuation can reach every matching node. Engine batches contain at most 100 matches; responses scan at most four batches.
-- Configure every OpenSearch address in the official client. Its connection pool owns routing, retries, failed-node recovery, TLS, and transport metrics.
+- Configure one environment search endpoint in the official client. Its connection
+  pool owns retries, TLS, and transport metrics. The hypervisor proxy owns backend
+  health and selection. OpenSearch owns shard and ML worker selection.
 - QA and production start with three LXC guests, with at least 8 GiB memory, 2 CPU cores, 40 GiB storage, and a 2 GiB JVM heap per guest. Three is the release topology, not a capacity ceiling.
 - Adding Tack processes, FoundationDB capacity, OpenSearch ML nodes, data nodes, replicas, or coordinating endpoints must not require application code or stored-format changes. A higher primary-shard count uses native splitting along its reserved routing path and a full replacement otherwise.
 - Persist all search sessions and work in FoundationDB. Distribute their keys across stable hash buckets. Do not require sticky requests, a process-local cache, a global sequence, or one claim range.
@@ -164,4 +166,4 @@ The current node storage model remains unchanged. Tests use smaller byte bounds
 on the real reader to exercise successive parts within current storage limits.
 Search depends only on the reader contract, including explicit completion.
 
-TACK-524 and TACK-525 implement storage changes separately. Their acceptance must rerun this search suite with 128 KiB, 1 MiB, 8 MiB, over 100 MB, and nodes larger than worker memory. They replace the reader's storage implementation. They must not alter the worker loop, mapping, page IDs, client routing, or result grouping.
+TACK-524 and TACK-525 implement storage changes separately. Their acceptance must rerun this search suite with 128 KiB, 1 MiB, 8 MiB, over 100 MB, and nodes larger than worker memory. They replace the reader's storage implementation. They must not alter the worker loop, mapping, page IDs, stable search endpoint, or result grouping.

@@ -60,6 +60,8 @@ combined into a production throughput claim.
 | Native split with the GTE model undeployed | One source shard with eight reserved routing shards split to two green primaries. Five documents, seven generated chunks, every sparse weight, and the saved raw-sparse query matched exactly. The serving alias remained on the source until one atomic switch. | Use native split for a pure primary-shard increase. Existing embeddings are reused. |
 | Repeated native split | The same index split from one to two, four, and eight primaries while the model remained undeployed. The typed v4.7.3 `Indices.Split` request succeeded. After model redeployment, the target accepted and embedded a new document. | Reserve the routing path at index creation and keep split inside the existing replacement coordinator. |
 | Combined lexical and sparse ranking after split | Result order remained the same, but numeric scores changed because lexical scoring uses shard-local term statistics. | Rerun relevance and continuation after a split. Do not require identical combined scores. |
+| Existing infrastructure endpoint feasibility | Both Tack application guests in production reached `3d06:bad:b01::254`; both QA guests reached `3d06:bad:b01:210::5`. Port 9200 was unused on both hypervisors. Configs already deploys systemd services to both. The existing production Traefik 3.0 process was active with zero restarts and about 54 MiB resident memory, but it is one production-only LXC. | Run a separate Traefik service on each hypervisor. Tack receives one endpoint. The proxy checks and selects the three combined-role OpenSearch nodes. Do not route QA through the production proxy LXC. |
+| QA host memory snapshot | Suburban had 10.7 GiB available and no swap. Three prior 3.4 GiB post-workload readings total about 10.2 GiB before peaks, filesystem cache, the proxy, or a host reserve. | The endpoint is feasible, but current evidence blocks the three-node QA cluster. Require more memory or a new peak-capacity measurement that includes a declared host reserve before provisioning. |
 
 ## Investigated approaches that did not reach a prototype
 
@@ -88,6 +90,7 @@ behavior through Tack's public boundaries.
 | `sparse.tar.gz` | `2c6c996795ef0cd12c55a5c299e3f640c5cc230ef1672c8b069671f0715ba31c` | Mini sparse failure, GTE sparse success, memory, and error cases |
 | `native-semantic-client-audit.tar.gz` | `17fcea34be605e9268664c35a6bf563a75129e82d5d3b22fa14e13b9aa2f0182` | Native semantic field, query reuse, pagination, and Go client audit |
 | `native-opensearch-split-audit-2026-09-20.tar.gz` | `5fa7d0edae571f067b800b4da3a8da6d493bede488465dca228bcf81e914a810` | One-to-two split, repeated split path, alias switch, and typed client call |
+| `search-endpoint-feasibility-2026-09-20.tar.gz` | `66068ae4a7a7aea4a49d56bd04b6509c22c85d1cbcf82918c5a1cb828509dbe0` | Current configs revision, DNS, live host memory, app-to-hypervisor reachability, free listeners, guest resources, and the existing Traefik process |
 
 Future experiments must add their question, setup, observed result, plan consequence,
 raw artifact name, and SHA-256 here before the plan or PR claims the result.

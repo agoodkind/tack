@@ -4,9 +4,9 @@
 
 **Goal:** Prepare three search guests in QA and three in production, then verify the approved release.
 
-**Architecture:** Configs provisions guests, networking, credentials, and certificates. Tack defines the containers and search setup. QA must pass the complete acceptance suite before production deployment.
+**Architecture:** Configs provisions guests, networking, credentials, certificates, and one health-checking Traefik endpoint on each hypervisor. Tack defines the containers and search setup. QA must pass the complete acceptance suite before production deployment.
 
-**Tech Stack:** OpenTofu, Proxmox LXC, Ansible, Docker Compose, OpenSearch 3.8.0, and official OpenSearch Go client v4.7.3.
+**Tech Stack:** OpenTofu, Proxmox LXC, Ansible, Traefik 3.0, Docker Compose, OpenSearch 3.8.0, and official OpenSearch Go client v4.7.3.
 
 **Spec:** [Deployment and capacity](../specs/2026-09-19-search-design.md#deployment-and-capacity).
 
@@ -26,9 +26,7 @@ Meilisearch deployment. No step writes to both engines.
 
 ## Review Focus
 
-Test normal coordinator distribution, loss of each guest, model availability after
-restart, independent ML and data scale-out, cross-process Tack continuation, verified
-TLS, IPv6-only connectivity, and concurrent rebuilding within resource limits.
+Test the stable endpoint, normal coordinator distribution, loss of each guest, model availability after restart, independent ML and data scale-out, cross-process Tack continuation, verified TLS, IPv6-only connectivity, and concurrent rebuilding within resource limits.
 
 ---
 
@@ -50,26 +48,35 @@ ansible/inventory/group_vars/all/service_mapping.yml guest identities and groups
 ansible/inventory/group_vars/tack_search.yml          search guest settings
 ansible/inventory/group_vars/tack_prod_all.yml        production endpoints
 ansible/inventory/group_vars/tack_qa_all.yml          QA endpoints
+ansible/inventory/group_vars/proxmox_servers.yml      shared proxy settings
+ansible/inventory/group_vars/vault_servers.yml        production listener
+ansible/inventory/group_vars/suburban_servers.yml     QA listener
 ansible/playbooks/deploy-tack.yml                    role-specific service startup
+ansible/playbooks/tasks/tack-search-proxy.yml        hypervisor proxy deployment
 opentofu/vault/tack_search.tf                        production LXCs
 opentofu/suburban/tack_search_qa.tf                   QA LXCs
+proxmox/config/tack-search-proxy.yml.j2              proxy routes and health checks
+proxmox/services/tack-search-proxy.service.j2        supervised proxy process
 tack/tack.env.j2                                    application search environment
 tack/docker-compose.override.yml.j2                 guest-specific container settings
 spec/ansible/tack_search_spec.rb                     real template rendering
+spec/ansible/tack_search_proxy_spec.rb               proxy rendering and service tests
 ```
 
 Consume the native task's verified configuration and measured artifact checksums.
-Produce the six inventory entries, three HTTPS application endpoints per
-environment, and separate provisioning credentials. `ops search provision` and
+Produce the six inventory entries, one HTTPS application endpoint per environment,
+three proxy backends per environment, and separate provisioning credentials. `ops search provision` and
 `ops search verify` register through clispec and its existing audit policy. Add one `searchOpsGroup` under `opsGroup` in `internal/ops/cli_search.go`. Define two `clispec.Operation[noInput]` values and register them through `RegisterCommands`. Do not add legacy operation registration. Implement `runSearchProvision(ctx context.Context, env *Env) error` and `runSearchVerify(ctx context.Context, env *Env) error` in the new ops files.
 
-- [ ] Add a configs render test using the existing `AnsibleRender.render` runner. Render the real override for a search guest and an application guest. Parse the resulting YAML and assert that the search guest starts OpenSearch with persistent storage, while the application receives all three HTTPS endpoints and no provisioning credential.
+- [ ] Add configs render tests using the existing `AnsibleRender.render` runner. Render one search guest, one application guest, and each hypervisor. Require persistent OpenSearch storage, exactly one application endpoint, and exactly three verified proxy backends. The application must receive no provisioning or readiness credential.
 - [ ] Add the role-specific OpenSearch service and application endpoints. Keep this
   preparation inactive. Tasks 7 and 8 delete the Meilisearch application dependency,
   endpoint, and Tack service during the single cutover. Task 12 removes the remaining
   deployed secret, volume, inventory, and template values after public verification.
 - [ ] Run `bundle exec rspec spec/ansible/tack_search_spec.rb`. Expect failure before the inventory and templates define search guests.
 - [ ] Allocate six distinct guest IDs, addresses, pinned MACs, and Docker IPv6 subnets in service_mapping. Check the entire mapping and live guest inventory before reserving them. The existing `tack_data1/2/3` entries are ledger guests and must remain separate. Use production keys `tack_search1/2/3` and QA keys with `_suburban`; use QA VMIDs equal to their production counterpart plus 100 where the verified inventory permits it.
+- [ ] Install the pinned Traefik release through `deploy-proxmox.yml`. Listen only on `service_mapping.vault_hypervisor.ipv6:9200` in production and `service_mapping.vmbrtrunk_suburban.ipv6:9200` in QA. Restrict callers to the Tack application guests. Run a separate systemd service with restart enabled.
+- [ ] Terminate verified client TLS at the stable endpoint, re-encrypt to all three OpenSearch backends, verify backend certificates with the search CA, and use an authenticated cluster-health request for readiness. Store its dedicated credential root-only through Ansible `no_log`. Keep application authorization headers intact.
 - [ ] Add the LXC resources using mapping-derived identities. Match the existing production and QA bridge, gateway, DNS, Debian template, unprivileged nesting, discard, and prevent_destroy settings. Set memory to at least 8192 MiB, cores to 2, and disk size to 40 GiB. Do not provision a fourth permanent search guest.
 - [ ] Render the following container settings from environment-specific inventory. Supply the three actual node names to discovery and initial cluster bootstrap. Use the bootstrap setting only when forming a new cluster, not when restarting or joining an existing one.
 
@@ -94,9 +101,10 @@ ownership in the existing templates. Reject disabled certificate verification.
 Apply required host kernel settings through configs, including the OpenSearch
 memory-map prerequisite; validate them inside the LXC before container startup.
 
-- [ ] Restrict application credentials to the typed index creation and split, block, bulk, query, point-in-time, document, health, and local inference operations used by the official client. Provisioning credentials create models, semantic mappings, and aliases. Test monitoring and discovery permissions required by client routing and metrics. Verify denied unrelated administrative calls with the application identity. Use secret references and Ansible no_log for secret-bearing tasks.
+- [ ] Restrict application credentials to the typed index creation and split, block, bulk, query, point-in-time, document, health, and local inference operations used by the official client. Provisioning credentials create models, semantic mappings, and aliases. The application needs no discovery permission. Verify denied unrelated administrative calls with the application identity. Use secret references and Ansible no_log for secret-bearing tasks.
 - [ ] Ensure replicas cannot share a guest with their primary. Set `plugins.ml_commons.only_run_on_ml_node` to true, use `least_load` task dispatch, and keep automatic redeployment enabled. Deploy the pinned model without `node_ids` so ML Commons selects every eligible ML node. Require `DEPLOYED` on all three release nodes and every later ML node. Store the chosen primary and reserved routing-shard counts with each physical index. Tack must not select an ML worker or shard node.
-- [ ] Add a three-node local integration test using real containers and the production official client. Record selected connections through its test-only `ConnectionObserver`. During a fixed query run, require every healthy node to accept work and require that one node does not remain the sole coordinator. Do not require exact round-robin counts. Stop each node in turn through the Docker SDK. The client must recover and search must succeed; a newly written small node must become searchable within 10 seconds. Restart each node and repeat. Deny model-download network access after provisioning and require ordinary inference to keep working.
+- [ ] Add a three-node local integration test with a real Traefik process and the production official client. `ConnectionObserver` must record only the stable endpoint. Proxy access records must show every healthy backend accepting work without exact count requirements. Stop each OpenSearch container in turn through the Docker SDK. Search must continue, the failed backend must leave rotation, and a newly written small node must become searchable within 10 seconds. Restart each backend and require readiness checks before it accepts work. Deny model-download network access after provisioning and require ordinary inference to keep working.
+- [ ] Gate the saved OpenTofu plan on physical-host capacity. Record existing guests, host memory, three measured OpenSearch peak workloads, and a declared hypervisor reserve. Current suburban evidence does not pass: 10.7 GiB was available, while three prior 3.4 GiB post-workload readings leave about 0.5 GiB before peaks and reserve. Add memory or produce a new passing measurement before creating the QA guests.
 - [ ] Run the render tests, `tofu validate` in both OpenTofu directories, the local cluster test, and repository checks. Review a saved OpenTofu plan for exactly the intended six additions and no unrelated replacement or deletion. Commit Tack with subject `Provision and verify the OpenSearch container cluster`; commit configs with subject `Add QA and production Tack search guests`.
 - [ ] Do not preserve or migrate the old Meilisearch volume. Its deletion is a
   separate destructive deployment action. Request authorization after the empty
@@ -112,6 +120,7 @@ model/tokenizer checksums, TLS identities, topology, and acceptance measurements
 - [ ] Present the concrete guest additions and deployment commits for authorization before applying them. Never disable a branch rule or rewrite shared history to publish these changes.
 - [ ] Apply the approved QA provisioning plan to the three search guests. Create an
   empty OpenSearch index. Do not read or convert Meilisearch data.
+- [ ] Deploy and verify the QA hypervisor endpoint through `./configsctl deploy deploy-proxmox --limit suburban`. Confirm its listener, certificate, backend verification, readiness checks, and source restrictions before application cutover.
 - [ ] Deploy the reviewed application cutover through the existing entry point:
 
 ```sh
@@ -146,7 +155,8 @@ model/tokenizer checksums, TLS identities, topology, and acceptance measurements
   capacity independently and require improved throughput without stored-format changes.
   Keep three OpenSearch guests in the release topology.
 - [ ] Require all first-release acceptance checks, including multi-page behavior under today's FDB limit. Tests beyond that limit remain mandatory for the later storage change, not a reason to defer current multi-page coverage.
-- [ ] After QA passes and production deployment is authorized, use the existing production entry point:
+- [ ] After QA passes and production deployment is authorized, deploy and verify the production hypervisor endpoint through `./configsctl deploy deploy-proxmox --limit vault`. Confirm its listener, certificate, backend verification, readiness checks, and source restrictions before application cutover.
+- [ ] Use the existing production application entry point:
 
 ```sh
 ./configsctl deploy deploy-tack --limit tack_prod_all

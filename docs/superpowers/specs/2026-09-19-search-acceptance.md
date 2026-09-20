@@ -169,7 +169,9 @@ A lexical-only control must miss at least one non-overlapping pair that the comb
 - Stop each QA guest in turn. Public search and writes must succeed. New small nodes
   must become searchable within 10 seconds. Every primary and local inference must
   remain available.
-- Run a fixed happy-path query count and record selected connections through the official test-only `ConnectionObserver`. Every healthy node must accept work, and one node must not remain the sole coordinator. Do not require exact round-robin counts. Stop each node and require the official client to recover.
+- Configure one HTTPS search endpoint per environment on the hypervisor's guest-segment address. Require the official client's `ConnectionObserver` to record only that endpoint. Verify the endpoint certificate and require the proxy to verify every backend certificate.
+- Run a fixed happy-path query count. Proxy access records must show every healthy combined-role node accepting requests without requiring exact counts. Stop each node in turn. The proxy must remove it, keep the stable endpoint usable, and restore it after authenticated readiness checks pass.
+- Add temporary ML-only and data-only nodes. The Tack endpoint and proxy backend list must remain unchanged because OpenSearch assigns model and shard work after a combined-role node accepts each request.
 - Deploy the model without `node_ids`. Require ML Commons to report `DEPLOYED` on all three eligible `ml` nodes before and after each restart. Keep native automatic redeployment enabled.
 - Run one search session across two Tack processes by alternating every request.
   Require exact continuation, replay, authorization, and cleanup without sticky routing.
@@ -178,6 +180,7 @@ A lexical-only control must miss at least one non-overlapping pair that the comb
 - Predeclare corpus size, page distribution, query mix, concurrency, indexing rate,
   rebuild activity, and pass thresholds for p50, p95, error rate, throughput, oldest
   work age, peak memory, and disk. Run the workload normally and with one guest down.
+- Before provisioning, record physical-host memory and the measured peak for all three search guests alongside existing guests. Reject an environment without the declared host reserve. The 2026-09-20 suburban snapshot had 10.7 GiB available; three prior 3.4 GiB post-workload readings would leave about 0.5 GiB before peaks, filesystem cache, and the proxy, so current evidence blocks the QA cluster until capacity changes or a new measurement passes this gate.
 - Saturate the role under test before each scale-out run. Predeclare the required
   throughput gain and require the added capacity to process measured work.
 - Before removing storage limits, test 128 KiB, 1 MiB, 8 MiB, over 100 MB, and nodes

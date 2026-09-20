@@ -14,40 +14,25 @@ The only application cutover enables OpenSearch and deletes the Meilisearch clie
 
 ## Search behavior
 
-Search finds declared text throughout each node. FoundationDB remains authoritative
-for nodes, metadata, relationships, and authorization. OpenSearch 3.8 indexes and
-ranks bounded text pages. Each text page becomes one OpenSearch document.
+Search finds declared text throughout each node. FoundationDB remains authoritative for nodes, metadata, relationships, and authorization. OpenSearch 3.8 indexes and ranks bounded text pages. Each text page becomes one OpenSearch document.
 
-A request supplies query text and a metadata-defined entry point. Tack resolves
-the organization and verifies membership. Optional scope and node type filters use
-opaque metadata identifiers. The caller cannot select an arbitrary organization.
+A request supplies query text and a metadata-defined entry point. Tack resolves the organization and verifies membership. Optional scope and node type filters use opaque metadata identifiers. The caller cannot select an arbitrary organization.
 
-Each response contains at most 25 distinct node IDs with bounded current summaries.
-The node reader supplies those summaries and current authorization. Search never
-returns indexed page text as the node body. A continuation can reach every matching
-node. Engine, inference, source, and session failures return explicit errors.
+Each response contains at most 25 distinct node IDs with bounded current summaries. The node reader supplies those summaries and current authorization.
+Search never returns indexed page text as the node body. A continuation can reach every matching node. Engine, inference, source, and session failures return explicit errors.
 
 ## Searchable content
 
-Node types, property types, and property names are opaque identifiers. Metadata
-defines applicability, inclusion, text representation, and order. Tack uses one
-generic interpreter. Application code contains no product type allowlist and no
-property-specific extraction switch.
+Node types, property types, and property names are opaque identifiers. Metadata defines applicability, inclusion, text representation, and order.
+Tack uses one generic interpreter. Application code contains no product type allowlist and no property-specific extraction switch.
 
-Every applicable property definition explicitly includes or excludes search. A
-missing declaration is invalid. The FoundationDB `Indexed` flag cannot supply a
-default because it controls secondary lookup keys rather than searchable text.
-Seeds for new organizations and QA data declare search behavior for convenience,
-but runtime behavior depends only on stored metadata.
+Every applicable property definition explicitly includes or excludes search. A missing declaration is invalid. The FoundationDB `Indexed` flag cannot supply a default because it controls secondary lookup keys rather than searchable text.
+Seeds for new organizations and QA data declare search behavior for convenience, but runtime behavior depends only on stored metadata.
 
-Pages collectively contain the complete decoded text of every included value and
-name. One value can span any number of pages. Invalid declarations or values fail
-with node and property identifiers. Equivalent values and metadata produce the
-same ordered text regardless of map iteration order.
+Pages collectively contain the complete decoded text of every included value and name. One value can span any number of pages.
+Invalid declarations or values fail with node and property identifiers. Equivalent values and metadata produce the same ordered text regardless of map iteration order.
 
-Projection, display text, type metadata, and ancestry changes schedule affected
-nodes for indexing. Structured property filtering, property sorting, and category
-totals are outside this contract.
+Projection, display text, type metadata, and ancestry changes schedule affected nodes for indexing. Structured property filtering, property sorting, and category totals are outside this contract.
 
 Before the first OpenSearch rebuild, an audited one-time command applies a
 complete manifest reviewed by an operator to existing definitions. It never
@@ -126,7 +111,14 @@ OpenSearch sorts page matches by descending score, ascending node ID, then
 page-level tie breaker. The first page match for a node establishes that node's
 rank. Tack skips later matches for visited nodes.
 
-The official client receives all three addresses and owns TLS, connection pooling, routing, retries, failed-node recovery, and transport metrics. Each engine response returns at most 100 page matches through `search_after`. OpenSearch distributes shard work across the three containers. Each public response reads at most four engine batches. An empty deduplicated response can still include a continuation. Only an empty raw engine batch ends traversal. No request assembles all matches or visited IDs.
+The official client receives one environment endpoint and owns TLS, connection
+pooling, retries, and transport metrics. A health-checking proxy on that
+environment's hypervisor selects one of the three initial OpenSearch nodes. The
+selected node coordinates shard work. Each engine response returns at most 100
+page matches through `search_after`. Each public response reads at most four
+engine batches. An empty deduplicated response can still include a continuation.
+Only an empty raw engine batch ends traversal. No request assembles all matches
+or visited IDs.
 
 The session binds the normalized query, filters, principal, physical index, and
 search generation. Current authorization applies before each node is returned.
@@ -182,6 +174,14 @@ QA and production start with three combined-role LXC guests on `suburban` and
 2 CPU cores, 40 GiB storage, and a 2 GiB JVM heap. One guest can stop without losing
 a primary or the model.
 
+Each hypervisor exposes one stable HTTPS search endpoint on its guest-segment
+address. Its proxy verifies backend certificates, checks readiness, and selects
+among the three combined-role nodes. Tack never stores cluster membership. Adding
+ML-only or data-only nodes changes only OpenSearch membership. Dedicated
+coordinating nodes can later replace the proxy's backend pool without changing
+Tack. The endpoint adds no new host failure domain because every search guest in
+an environment already depends on that hypervisor.
+
 OpenSearch dispatches ML work across eligible ML nodes and routes search across primary
 and replica shards. Model deployment specifies no node IDs and includes new ML
 nodes. ML-only nodes increase inference capacity. Data nodes and replicas increase
@@ -189,9 +189,7 @@ ranking capacity. Native index splitting increases primary shards without regene
 existing embeddings when the reserved routing path permits it. Tack selects neither
 ML workers nor shard nodes.
 
-The final GTE sparse workload opened the ML memory circuit breaker at 4 GiB. It
-completed at 8 GiB and used about 3.4 GiB afterward. Eight GiB is the QA floor and
-production starting allocation, not a production capacity result.
+The final GTE sparse workload opened the ML memory circuit breaker at 4 GiB. It completed at 8 GiB and used about 3.4 GiB afterward. Eight GiB is the QA floor and production starting allocation, not a production capacity result. The 2026-09-20 suburban snapshot lacked a safe three-node margin, so QA provisioning waits for more capacity or a passing host-capacity measurement.
 
 Release capacity sets pass thresholds for latency, throughput, pending-work age,
 memory, disk, one-guest failure, and concurrent replacement. Separate tests add Tack,

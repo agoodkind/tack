@@ -15,7 +15,8 @@
 Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints).
 Each public response returns at most 25 nodes and reads at most four engine batches
 of at most 100 page matches. These bounds never limit total continuation results.
-The official client owns connection selection, retries, and failed-node recovery.
+The official client owns connection reuse and retries against the stable environment
+endpoint. The hypervisor proxy owns backend health and selection.
 
 ## Task 6: Rank and paginate native sparse matches
 

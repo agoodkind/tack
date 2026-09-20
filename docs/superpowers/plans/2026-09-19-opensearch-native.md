@@ -4,7 +4,7 @@
 
 **Goal:** Index every reader page with complete native sparse semantic coverage.
 
-**Architecture:** OpenSearch preserves the original page. Its `semantic` field creates bounded overlapping text and sparse embeddings. The official Go client owns TLS, connection pooling, routing, retries, failed-node recovery, and core API encoding.
+**Architecture:** OpenSearch preserves the original page. Its `semantic` field creates bounded overlapping text and sparse embeddings. The official Go client owns TLS, connection pooling, retries, and core API encoding. Deployment supplies one stable environment endpoint.
 
 **Tech Stack:** OpenSearch 3.8.0, `github.com/opensearch-project/opensearch-go/v4` v4.7.3, ML Commons, Docker SDK, and Go.
 
@@ -18,7 +18,7 @@ Apply the [implementation constraints](2026-09-19-opensearch.md#global-constrain
 
 The [prototype and validation record](2026-09-19-opensearch-validation.md) preserves the passed, failed, and superseded experiments that selected this configuration. Local OpenSearch 3.8.0 validated the final field and client configuration on 2026-09-19. Native split validation followed on 2026-09-20.
 
-- Client v4.7.3 completed index creation, typed bulk, refresh, point-in-time creation and deletion, typed search, atomic alias changes, index and document reads, index deletion, close, and the official round-robin router against the exact 3.8.0 image.
+- Client v4.7.3 completed index creation, typed bulk, refresh, point-in-time creation and deletion, typed search, atomic alias changes, index and document reads, index deletion, close, and transport metrics against the exact 3.8.0 image.
 - Model `amazon/neural-sparse/opensearch-neural-sparse-encoding-doc-v3-gte` version 1.0.0 has bundle SHA-256 `08879b93faf4a92506a44e150f47bbc4cadc9a2f083350c4dc79434738303047`.
 - The bundled `tokenizer.json` has SHA-256 `ea725c60b9022a7a491ffc348b5622a199853c806d625f673d0e2ebf1c3b5312`. Tack records this artifact identity but does not run or reproduce its logic.
 - The bundle uses 554,924,400 bytes. OpenSearch reports 665,909,280 bytes of inference memory.
@@ -61,7 +61,7 @@ func (a *Adapter) CreateIndex(ctx context.Context, index string, model ModelInfo
 
 - [ ] Add v4.7.3 and run a compatibility test through the production adapter against `opensearchproject/opensearch:3.8.0`. Exercise every typed core API used by later tasks. Treat this gate as required because the v4 client documents later 3.x releases as best effort.
 - [ ] Run `^TestSearchNativeSparse$` and record the missing-adapter failure.
-- [ ] Convert the central application configuration to `opensearch.Config`. Configure every address, credentials, CA bytes, request timeout, retry statuses, retry count, timeout retry policy, `opensearchtransport.NewRoundRobinRouter`, client metrics, error reporting for partial bulk and search failures, and lifecycle close. Do not construct another `http.Client` or retry loop.
+- [ ] Convert the central application configuration to `opensearch.Config`. Configure one endpoint, credentials, CA bytes, request timeout, retry statuses, retry count, timeout retry policy, client metrics, error reporting for partial bulk and search failures, and lifecycle close. Do not construct another `http.Client`, retry loop, or backend selector.
 - [ ] Use typed client APIs for index creation and split, bulk, point-in-time, alias, document, health, block, and statistics operations. Build search requests with the typed API. Decode the narrow search response with `opensearch.Do`. Define narrow ML Commons request types that satisfy `opensearch.Request`, then call `opensearch.Do` and `opensearch.ParseError`. Stable v4.7.3 omits replacement PIT IDs from `SearchResp` and lacks ML Commons APIs. Do not expose a generic method-and-path JSON function or import the temporary v5 preview package.
 - [ ] Provision the pinned model. Reuse a registration only after checking its name, version, algorithm, size, bundle hash, deployment state, and worker placement. A mismatch produces an operator error.
 - [ ] Create the index with `opensearchapi.Indices.Create`, caller-supplied positive primary and routing-shard counts, one replica in deployment, and zero replicas in the one-node fixture. Require the routing count to be divisible by the primary count and every approved split target. Store both counts with the physical generation. Use `dynamic: strict` and this native field configuration:
@@ -96,7 +96,7 @@ func (a *Adapter) CreateIndex(ctx context.Context, index string, model ModelInfo
 - [ ] Index 4,096 newlines. Require bounded forward progress and native sparse output for every nonempty generated chunk. Never infer reader completion from a chunk count.
 - [ ] Replace a same-ID document with `{"retired":true}` at the retirement version. Require no text or semantic fields and no active search match. Accept active empty text without inference. Reject a missing required `page_text`.
 - [ ] Reject source pages over 4,096 UTF-8 bytes before OpenSearch. Accept complete queries through the query task's byte bound without loading the tokenizer in Tack.
-- [ ] Use the official test-only `ConnectionObserver` to record selected connections. Do not add a proxy, custom transport, or exact route-count requirement.
+- [ ] Use the official test-only `ConnectionObserver` to prove every adapter request uses the configured environment endpoint. Do not add application-side node discovery, a custom transport, or an exact route-count requirement.
 - [ ] Record bundle size, reported runtime memory, process memory, peak ingest memory, and inference latency in an 8 GiB container. Preserve the 4 GiB circuit-breaker regression. Do not infer concurrent capacity from this test.
 - [ ] Run native tests and `make check`. Commit with subject `Add native OpenSearch sparse indexing validation` through the signed procedure.
 
