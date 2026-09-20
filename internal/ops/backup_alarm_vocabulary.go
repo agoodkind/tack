@@ -21,8 +21,8 @@ package ops
 // success rather than an observation this run made, because "the last check
 // reported" would be a false claim about a run identifier or a restorable
 // point. Only the ledger cluster's check replaces the detail with its own live
-// reading (replicationStalenessMetric in backup_staleness_check.go), so only
-// that mechanism declares the sentence. Every mechanism declares this field one
+// reading (replicationStalenessMetric in backup_staleness_replication.go), so
+// only that mechanism declares the sentence. Every mechanism declares this field one
 // way or the other: a composer that handed these words an argument they do not
 // name printed nothing where it was dropped, which is how the sentence reached
 // one mail and no other.

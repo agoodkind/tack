@@ -16,9 +16,12 @@ var backupOutageStart = time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)
 
 // readBackupStoreBeforeOutage runs the command once against a store where
 // every mechanism is fresh: the export finished 35 hours 50 minutes ago
-// against a 36 hour limit, the rehearsal passed a day ago, and the cluster
-// was last recorded healthy 5 minutes ago against a 30 minute limit. It
-// returns the store and the config, still pointed at that store.
+// against a 36 hour limit, the rehearsal passed a day ago, and a master
+// answers that first probe healthy, which is the guest's own observation of
+// the cluster against a 30 minute limit. Every probe after it comes back as a
+// follower's page, so the guest hears from no leader for the rest of the test
+// and its cluster reading ages from that first observation. It returns the
+// store and the config, still pointed at that store.
 func readBackupStoreBeforeOutage(t *testing.T) (*backupTestStore, *config.Config) {
 	t.Helper()
 	fixBackupStalenessClock(t, backupOutageStart)
@@ -26,10 +29,10 @@ func readBackupStoreBeforeOutage(t *testing.T) (*backupTestStore, *config.Config
 		newYBSnapshotManifest("20260828T001000Z", "snap-1", "tack", []string{"yb1"}, ybTestArtifactNames()))
 	objects[backupStatusKey(backupStalenessRehearsalName)] = marshalBackupStatusMarker(t,
 		backupOutageStart.Add(-24*time.Hour), "restore drill passed every leg")
-	objects[backupStatusKey(backupStalenessReplicationName)] = marshalBackupStatusMarker(t,
-		backupOutageStart.Add(-5*time.Minute), "0 dead nodes, 0 under-replicated tablets")
 	store := newBackupTestStore(t, objects)
 	cfg := storedBackupStalenessConfig(t, store)
+	startYBMasterHealthServer(t, ybHealthAllGood, ybFollowerHealthPage)
+	cfg.BackupYBMasterAddresses = "[::1]:7100"
 	runFreshBackupStalenessCheck(t, cfg)
 	return store, cfg
 }
@@ -62,8 +65,13 @@ func TestBackupStalenessAlarmStaysQuietThroughAShortStoreOutage(t *testing.T) {
 	if len(captured.messages) != 0 {
 		t.Fatalf("an outage inside every limit must not mail, sent %q", captured.messages[0].Subject)
 	}
-	if strings.Count(report, "unreadable, dated from the reading at 2026-08-29T12:00:00Z") != 3 {
+	if strings.Count(report, "unreadable, dated from the reading at 2026-08-29T12:00:00Z") != 2 {
 		t.Errorf("the report must date each unreadable reading from the last run:\n%s", report)
+	}
+	// The cluster's reading is the guest's own, so the store's silence never
+	// touches it: it ages from the observation the first run took.
+	if !strings.Contains(report, "age=180s threshold=1800s FRESH") {
+		t.Errorf("the cluster reading must age from this guest's own observation:\n%s", report)
 	}
 }
 
@@ -80,7 +88,7 @@ func TestBackupStalenessAlarmMailsTheObjectStoreOnceAfterTheThreshold(t *testing
 	fixBackupStalenessClock(t, backupOutageStart.Add(3*time.Minute))
 	runFreshBackupStalenessCheck(t, cfg)
 
-	fixBackupStalenessClock(t, backupOutageStart.Add(26*time.Minute))
+	fixBackupStalenessClock(t, backupOutageStart.Add(31*time.Minute))
 	runStaleBackupStalenessCheck(t, cfg)
 	if len(captured.messages) != 1 {
 		t.Fatalf("two mechanisms past their limits must mail once, sent %d", len(captured.messages))
@@ -95,17 +103,18 @@ func TestBackupStalenessAlarmMailsTheObjectStoreOnceAfterTheThreshold(t *testing
 		"\n" +
 		"Nightly ledger export status could not be read\n" +
 		"The nightly ledger export's newest copy could not be dated. The newest copy this guest last read " +
-		"was made at 12:10 AM UTC on Aug 28, 2026, 36 hours 16 minutes ago; the limit is 36 hours.\n" +
+		"was made at 12:10 AM UTC on Aug 28, 2026, 36 hours 21 minutes ago; the limit is 36 hours.\n" +
 		"1. On the owner guest, run journalctl -u tack-ledger-export.\n" +
 		"2. On each data guest, run journalctl -u tack-ledger-archive.\n" +
 		"3. Confirm the object store accepts writes, then run systemctl start tack-ledger-export.\n" +
 		"\n" +
-		"Ledger cluster health status could not be read\n" +
-		"The ledger cluster's last healthy reading could not be read. This guest last recorded it healthy " +
-		"at 11:55 AM UTC on Aug 29, 2026, 31 minutes ago; the limit is 30 minutes.\n" +
+		"This guest cannot see the ledger cluster\n" +
+		"This guest cannot reach the ledger cluster (logins and audit trail), so it cannot say whether " +
+		"the cluster is healthy. It last saw the cluster healthy " +
+		"at 12:00 PM UTC on Aug 29, 2026, 31 minutes ago; the limit is 30 minutes.\n" +
 		"1. Confirm every ledger guest is up.\n" +
-		"2. On the owner guest, confirm every node is alive on the ledger master page.\n" +
-		"3. Wait for tablets to re-copy; the alarm clears itself once the cluster is healthy."
+		"2. From this guest, confirm the ledger master page answers.\n" +
+		"3. Fix what blocks it; the alarm clears itself once this guest sees the cluster again."
 	if message.Body != wantBody {
 		t.Errorf("body mismatch:\n got=%q\nwant=%q", message.Body, wantBody)
 	}

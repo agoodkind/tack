@@ -98,7 +98,7 @@ func backupAlarmObjectStoreParagraph(faults []backupStalenessMetric) (string, bo
 
 // backupAlarmSteps numbers one mechanism's steps, one per line.
 func backupAlarmSteps(fault backupStalenessMetric) string {
-	words := backupAlarmVocabulary[fault.Name]
+	words := backupAlarmWordsFor(fault)
 	lines := make([]string, 0, len(words.steps))
 	for n, step := range words.steps {
 		lines = append(lines, strconv.Itoa(n+1)+". "+step)
@@ -109,7 +109,7 @@ func backupAlarmSteps(fault backupStalenessMetric) string {
 // backupAlarmFaultPhrase names one fault in the subject and, with several
 // faults, at the head of its block.
 func backupAlarmFaultPhrase(fault backupStalenessMetric) string {
-	words := backupAlarmVocabulary[fault.Name]
+	words := backupAlarmWordsFor(fault)
 	if fault.Unknown == backupStalenessNeverRecorded {
 		return words.phraseNeverRecorded
 	}
@@ -129,7 +129,7 @@ func backupAlarmFaultPhrase(fault backupStalenessMetric) string {
 // the sentence that names it (paragraphKnownDetail). Handing it to every
 // mechanism is what dropped it from three of the four mails without a trace.
 func backupAlarmFaultParagraph(cfg *config.Config, fault backupStalenessMetric) string {
-	words := backupAlarmVocabulary[fault.Name]
+	words := backupAlarmWordsFor(fault)
 	if fault.Unknown == backupStalenessNeverRecorded {
 		return fmt.Sprintf(words.paragraphNeverRecorded, backupAlarmDetail(cfg, fault.Detail))
 	}

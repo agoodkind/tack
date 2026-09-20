@@ -45,9 +45,11 @@ func TestBackupStalenessAlarmMailThroughTheCommand(t *testing.T) {
 			"The restore rehearsal (the daily test restore) last passed at 12:00 PM UTC on Aug 20, 2026, " +
 			"9 days ago; the limit is 8 days.\n" +
 			"1. On the owner guest, run journalctl -u tack-backup-restore-drill.\n",
-		"\n\nLedger cluster unhealthy for 45 minutes\n" +
-			"The ledger cluster (logins and audit trail) was last healthy at 11:15 AM UTC on Aug 29, 2026, " +
-			"45 minutes ago; the limit is 30 minutes. The last check reported: no master answered the health check.\n",
+		// This guest reached no master, so the marker another guest keeps
+		// dates nothing here and the mail claims only this guest's blindness.
+		"\n\nThis guest cannot see the ledger cluster\n" +
+			"This guest cannot reach the ledger cluster (logins and audit trail), " +
+			"so it cannot say whether the cluster is healthy.\n",
 		"\n1. Confirm every ledger guest is up.\n",
 	} {
 		if !strings.Contains(message.Body, sentence) {
@@ -55,7 +57,7 @@ func TestBackupStalenessAlarmMailThroughTheCommand(t *testing.T) {
 		}
 	}
 	if !strings.HasPrefix(message.Body, "Nightly ledger export is 40 hours old\n") ||
-		!strings.HasSuffix(message.Body, "the alarm clears itself once the cluster is healthy.") {
+		!strings.HasSuffix(message.Body, "the alarm clears itself once this guest sees the cluster again.") {
 		t.Errorf("the body must start on the first fault and end on the last step:\n%q", message.Body)
 	}
 	for line := range strings.SplitSeq(strings.TrimSpace(report), "\n") {

@@ -36,8 +36,9 @@ func TestBackupStalenessAlarmUnreadableWords(t *testing.T) {
 		"\n\nRestore rehearsal status could not be read\n" +
 			"The restore rehearsal's last pass could not be read.\n" +
 			"1. On the owner guest, run journalctl -u tack-backup-restore-drill.\n",
-		"\n\nLedger cluster health status could not be read\n" +
-			"The ledger cluster's last healthy reading could not be read.\n" +
+		"\n\nThis guest cannot see the ledger cluster\n" +
+			"This guest cannot reach the ledger cluster (logins and audit trail), " +
+			"so it cannot say whether the cluster is healthy.\n" +
 			"1. Confirm every ledger guest is up.\n",
 	} {
 		if !strings.Contains(body, sentence) {
@@ -79,10 +80,12 @@ func TestBackupStalenessAlarmNeverRecordedWords(t *testing.T) {
 			"The restore rehearsal (the daily test restore) has never passed. " +
 			"The last check reported: no backup-status/rehearsal.json in " + cfg.BackupS3BucketMain + ".\n" +
 			"1. On the owner guest, run journalctl -u tack-backup-restore-drill.\n",
-		"\n\nLedger cluster has never been seen healthy\n" +
-			"The ledger cluster (logins and audit trail) has never been seen healthy. " +
-			"The last check reported: no backup-status/replication.json in " + cfg.BackupS3BucketMain + "; " +
-			"this run observed: no master answered the health check.\n",
+		// The store answered and holds no cluster record, but this guest
+		// heard from no master either, so the only claim it can make is
+		// about its own eyesight.
+		"\n\nThis guest cannot see the ledger cluster\n" +
+			"This guest cannot reach the ledger cluster (logins and audit trail), " +
+			"so it cannot say whether the cluster is healthy.\n",
 		"\n1. Confirm every ledger guest is up.\n",
 	} {
 		if !strings.Contains(body, sentence) {

@@ -67,6 +67,7 @@ func TestBackupStalenessAlarmAdoptsAClearTheOtherCheckerRecorded(t *testing.T) {
 	store := newBackupTestStore(t, rehearsalFaultObjects(t, now))
 	owner := storedBackupStalenessConfig(t, store)
 	deputy := storedDeputyBackupStalenessConfig(t, store)
+	seesHealthyCluster(t, owner, deputy)
 	rehearsalKey := backupStatusKey(backupStalenessRehearsalName)
 
 	runStaleBackupStalenessCheck(t, owner)

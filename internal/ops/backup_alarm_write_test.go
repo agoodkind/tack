@@ -50,6 +50,7 @@ func TestBackupStalenessAlarmMailsWhenTheReportCannotBeWritten(t *testing.T) {
 			now.Add(-10*time.Minute), "0 dead nodes, 0 under-replicated tablets"),
 	})
 	freshCfg := storedBackupStalenessConfig(t, newBackupTestStore(t, objects))
+	seesHealthyCluster(t, freshCfg)
 	err = RunBackupStalenessCheck(context.Background(), freshCfg, out)
 	if !errors.Is(err, writeErr) {
 		t.Fatalf("a fresh run whose report cannot be written must return the write error, got %v", err)
