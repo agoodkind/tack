@@ -1,0 +1,113 @@
+# Search Cluster Deployment Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Prepare three search guests in QA and three in production, then verify the approved release.
+
+**Architecture:** Configs provisions guests, networking, credentials, and certificates. Tack defines the containers and search setup. QA must pass the complete acceptance suite before production deployment.
+
+**Tech Stack:** OpenTofu, Proxmox LXC, Ansible, Docker Compose, OpenSearch 3.8.0.
+
+**Spec:** [Deployment and capacity](../specs/2026-09-19-search-design.md#deployment-and-capacity).
+
+## Global Constraints
+
+Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Each environment has `tack-search1`, `tack-search2`, and `tack-search3`, each with 4 GB memory, 2 CPU cores, 40 GB storage, and 2 GB JVM heap. QA runs on suburban; production runs on vault. This task prepares changes and evidence; deployment requires separate authorization.
+
+## Review Focus
+
+Test loss of each guest, model availability after restart, verified TLS, IPv6-only connectivity, and concurrent rebuilding within the guest memory and disk limits.
+
+---
+
+## Task 11: Define containers and prepare the six guests
+
+Tack changes:
+
+```text
+docker-compose.yml                                OpenSearch service definition
+internal/ops/search_provision.go                   audited model/index provisioning
+internal/ops/search_verify.go                      deployed search verification
+internal/test/integration/search_cluster_test.go   real three-node local cluster
+```
+
+Configs changes, relative to its repository root:
+
+```text
+ansible/inventory/group_vars/all/service_mapping.yml guest identities and groups
+ansible/inventory/group_vars/tack_search.yml          search guest settings
+ansible/inventory/group_vars/tack_prod_all.yml        production endpoints
+ansible/inventory/group_vars/tack_qa_all.yml          QA endpoints
+ansible/playbooks/deploy-tack.yml                    role-specific service startup
+opentofu/vault/tack_search.tf                        production LXCs
+opentofu/suburban/tack_search_qa.tf                   QA LXCs
+tack/tack.env.j2                                    application search environment
+tack/docker-compose.override.yml.j2                 guest-specific container settings
+spec/ansible/tack_search_spec.rb                     real template rendering
+```
+
+Consume the native task's verified configuration and measured artifact checksums.
+Produce the six inventory entries, three HTTPS application endpoints per
+environment, and separate provisioning credentials. `ops search provision` and
+`ops search verify` register through clispec and its existing audit policy.
+Implement `runSearchProvision(ctx context.Context, env *Env) error` and
+`runSearchVerify(ctx context.Context, env *Env) error` in the new ops files.
+
+- [ ] Add a configs render test using the existing `AnsibleRender.render` runner. Render the real override for a search guest and an application guest. Parse the resulting YAML and assert that the search guest starts OpenSearch with persistent storage, while the application receives all three HTTPS endpoints and no provisioning credential.
+- [ ] Run `bundle exec rspec spec/ansible/tack_search_spec.rb`. Expect failure before the inventory and templates define search guests.
+- [ ] Allocate six distinct guest IDs, addresses, pinned MACs, and Docker IPv6 subnets in service_mapping. Check the entire mapping and live guest inventory before reserving them. The existing `tack_data1/2/3` entries are ledger guests and must remain separate. Use production keys `tack_search1/2/3` and QA keys with `_suburban`; use QA VMIDs equal to their production counterpart plus 100 where the verified inventory permits it.
+- [ ] Add the LXC resources using mapping-derived identities. Match the existing production and QA bridge, gateway, DNS, Debian template, unprivileged nesting, discard, and prevent_destroy settings. Set memory to 4096 MiB, cores to 2, and disk size to 40 GiB. Do not provision a fourth permanent search guest.
+- [ ] Render the following container settings from environment-specific inventory. Supply the three actual node names to discovery and initial cluster bootstrap. Use the bootstrap setting only when forming a new cluster, not when restarting or joining an existing one.
+
+```yaml
+services:
+  opensearch:
+    image: opensearchproject/opensearch:3.8.0
+    environment:
+      OPENSEARCH_JAVA_OPTS: -Xms2g -Xmx2g
+      plugins.ml_commons.only_run_on_ml_node: "false"
+      node.roles: cluster_manager,data,ingest,ml
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+```
+
+This fragment is the resource configuration. Add real inventory-derived discovery,
+REST and transport certificate mounts, trust settings, and persistent volume
+ownership in the existing templates. Reject disabled certificate verification.
+Apply required host kernel settings through configs, including the OpenSearch
+memory-map prerequisite; validate them inside the LXC before container startup.
+
+- [ ] Restrict application credentials to required index, query, and local inference actions. Provisioning credentials create models, mappings, pipelines, and aliases. Verify denied administrative calls with the application identity. Use secret references and Ansible no_log for secret-bearing tasks.
+- [ ] Ensure replicas cannot share a guest with their primary. Deploy the model so any one guest can stop without losing inference. Native cluster placement owns shard distribution; Tack must not select a guest for each node.
+- [ ] Add a three-node local integration test using real containers, then stop each container in turn through the Docker SDK. Search must succeed; a newly written small node must become searchable within 10 seconds. Restart each node and repeat. Deny model-download network access after provisioning and require ordinary inference to keep working.
+- [ ] Run the render tests, `tofu validate` in both OpenTofu directories, the local cluster test, and repository checks. Review a saved OpenTofu plan for exactly the intended six additions and no unrelated replacement or deletion. Commit Tack with subject `Provision and verify the OpenSearch container cluster`; commit configs with subject `Add QA and production Tack search guests`.
+
+## Task 12: Verify QA and production after authorization
+
+Consume the reviewed commits, successful native coverage report, and saved
+provisioning plan. Produce deployment evidence with revisions, image digests,
+model/tokenizer checksums, TLS identities, topology, and acceptance measurements.
+
+- [ ] Present the concrete guest additions and deployment commits for authorization before applying them. Never disable a branch rule or rewrite shared history to publish these changes.
+- [ ] Apply the approved QA provisioning plan and deploy through the existing entry point:
+
+```sh
+./configsctl deploy deploy-tack --limit tack_qa_all
+```
+
+- [ ] Run audited search provisioning, reindexing, verification, and guarded QA datagen on QA. Verify three independent LXCs, actual resource allocations, IPv6-only REST/transport connectivity, valid TLS, model identity, and all primary/replica placements.
+- [ ] Stop each QA search guest separately and repeat public search and node-write checks. Require inference and all primaries to remain available. These guests share a hypervisor; this test does not claim hypervisor fault tolerance.
+- [ ] Run concurrent indexing, querying, and rebuilding at fixed concurrency. Record p50/p95 latency, peak JVM/native memory, CPU, disk use, indexing throughput, and oldest pending-work age. Require disk for both indexes and bounded request sizes. Record the actual workload; do not infer capacity from the model's download size.
+- [ ] Add one temporary QA search guest through an approved disposable capacity test and verify native shard redistribution. Remove only that test guest after its shards have relocated. Keep the release topology at three guests.
+- [ ] Require all first-release acceptance checks, including multi-page behavior under today's FDB limit. Tests beyond that limit remain mandatory for the later storage change, not a reason to defer current multi-page coverage.
+- [ ] After QA passes and production deployment is authorized, use the existing production entry point:
+
+```sh
+./configsctl deploy deploy-tack --limit tack_prod_all
+```
+
+- [ ] Verify deployed revisions, image/model identity, TLS, topology, and authorized smoke fixtures. Record provisioning, deployment, and live verification separately. Do not report the implementation tickets complete merely because source tests passed.
