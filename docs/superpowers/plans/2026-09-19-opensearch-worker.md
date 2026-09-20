@@ -6,7 +6,7 @@
 
 **Architecture:** Every source mutation records durable desired state in the same FoundationDB transaction. Workers execute bounded page or cleanup slices, persist progress, then yield. Retirement records reject delayed writes.
 
-**Tech Stack:** Go, FoundationDB, OpenSearch bulk API and external versioning.
+**Tech Stack:** Go, FoundationDB, official OpenSearch Go client v4.7.3, typed bulk API, and external versioning.
 
 **Spec:** [Durable indexing and bounded work](../specs/2026-09-19-search-design.md#durable-indexing-and-bounded-work).
 
@@ -25,7 +25,7 @@ Create:
 
 ```text
 internal/domain/search/work.go                    work and checkpoint contracts
-internal/adapters/foundationdb/search_keys.go      search key families
+internal/adapters/foundationdb/keys.go             extend the central key catalog
 internal/adapters/foundationdb/search_work.go      claims and checkpoints
 internal/adapters/foundationdb/search_schedule.go  transactional scheduling
 internal/adapters/foundationdb/search_scan.go      bounded metadata rescans
@@ -72,12 +72,9 @@ consume every worker.
   OpenSearch is unavailable, reopen stores, claim it, then delete it. The stale claim
   must fail registration with `ErrWorkChanged`.
 - [ ] Run `^TestSearchWorkSurvivesRestart$` and record the missing API failure.
-- [ ] Schedule search work inside every source mutation transaction. Store one current
-  desired generation per node and a versionstamped event. Metadata and ancestry
-  changes create bounded organization scan jobs without filtering on seeded types.
-- [ ] Use explicit FoundationDB transaction retry loops for claims, registrations,
-  checkpoints, and yields. A scan completion cannot clear a newer event. Lease expiry
-  cannot permit the old owner to register another page.
+- [ ] Add search key constants and tuple packers to the central `keys.go` catalog. Preserve its `withPrefix` and `stripPrefix` rules. Do not create an independent search key registry.
+- [ ] Schedule search work inside the source mutation's existing FoundationDB transaction. Store one current desired generation per node and a versionstamped event. Metadata and ancestry changes create bounded organization scan jobs without filtering on seeded types. Do not open a nested transaction.
+- [ ] Use the established `db.Transact` or bounded `CreateTransaction` and `OnError` pattern for claims, registrations, checkpoints, and yields. A scan completion cannot clear a newer event. Lease expiry cannot permit the old owner to register another page. Do not add a generic search retry package.
 - [ ] Keep job headers, cursors, errors, and issued IDs in separate bounded keys.
   Replace obsolete desired generations instead of appending history.
 - [ ] When a generation completes and retirement finishes, delete its claim, cursor,
@@ -151,6 +148,7 @@ jobs start in cleanup. A failed refresh or retirement never marks work complete.
 - [ ] Reject `page_text` above 4,096 UTF-8 bytes. Encode action and source lines before
   bulk admission. Flush before 500 documents or 5 MiB. Inspect every item and
   checkpoint only a contiguous successful prefix.
+- [ ] Submit deterministic NDJSON with `opensearchapi.Client.Bulk`. Configure typed partial-error reporting and inspect every `BulkRespItem` against its work intent. Do not use `opensearchutil.BulkIndexer`; its asynchronous queues and callbacks cannot preserve one known durable slice and exact FoundationDB checkpoints.
 - [ ] Pause a real worker after registration. Complete a newer edit or deletion with
   another worker, then resume the old HTTP request. Old text must not reappear.
   Repeat across process restart, partial bulk failure, refresh, and cleanup.
@@ -159,6 +157,7 @@ jobs start in cleanup. A failed refresh or retirement never marks work complete.
   within its declared age threshold.
 - [ ] Record page reads, writes, encoded bytes, slice duration, and peak memory.
   Require a write before the final read and constant memory at fixed concurrency.
+- [ ] Record FoundationDB work with `telemetry.FDBOp`. Record OpenSearch operations with `telemetry.Op`, existing spans, the context logger, and selected official client metrics. Do not add a search metric registry or direct service-level `expvar` metrics.
 - [ ] Run recovery and fairness tests plus `make check`. Commit with subject
   `Index node pages with bounded durable work slices`.
 

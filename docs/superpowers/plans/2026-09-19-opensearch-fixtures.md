@@ -6,7 +6,7 @@
 
 **Architecture:** Store tests construct only the records they need. Public acceptance tests create real credentials and use the production authenticated MCP handler through the existing datagen driver.
 
-**Tech Stack:** Go, FoundationDB, SQL authentication, MCP.
+**Tech Stack:** Go, FoundationDB, SQL authentication, MCP, and official OpenSearch Go client v4.7.3.
 
 **Spec:** [Evidence and opaque metadata](../specs/2026-09-19-search-acceptance.md#opaque-metadata).
 
@@ -71,38 +71,13 @@ func putSearchText(t *testing.T, stores *foundationdb.Stores, text string) uuid.
 
 ## Authenticated calls for Tasks 7 and 10
 
-Create `internal/datagen/driver_raw.go`. This method consumes the existing
-Driver.send and decodeResponse implementations, preserving actual authentication,
-session headers, response bounds, and JSON/SSE decoding. It produces
-`Driver.CallRaw(context.Context, string, string, map[string]json.RawMessage) (Result, error)`.
+Create `internal/datagen/driver_raw.go`. Refactor the existing private `Driver.call` into one internal path that accepts typed or raw arguments. Make `Driver.Call` and `Driver.CallRaw` delegate to it. Preserve authentication, context checks, request IDs, call counts, dry-run behavior, JSON-RPC framing, session headers, response bounds, sending, and JSON/SSE decoding in that single path.
 
-- [ ] Implement the generic call method:
+- [ ] Implement the public raw entry point without copying the existing call body:
 
 ```go
 func (d *Driver) CallRaw(ctx context.Context, token, tool string, arguments map[string]json.RawMessage) (Result, error) {
-    if err := ctx.Err(); err != nil { return Result{}, err }
-    encoded, err := json.Marshal(arguments)
-    if err != nil { return Result{}, err }
-    identity := d.sessionID + ":" + d.requestToken(token) + ":" + tool + ":"
-    digest := sha256.Sum256(append([]byte(identity), encoded...))
-    requestID := "datagen-" + hex.EncodeToString(digest[:12])
-    d.callCount.Add(1)
-    if d.dryRun { return syntheticResult(requestID), nil }
-    request := struct {
-        JSONRPC string `json:"jsonrpc"`
-        ID string `json:"id"`
-        Method string `json:"method"`
-        Params struct {
-            Name string `json:"name"`
-            Arguments map[string]json.RawMessage `json:"arguments"`
-        } `json:"params"`
-    }{JSONRPC: "2.0", ID:requestID, Method:"tools/call"}
-    request.Params.Name, request.Params.Arguments = tool, arguments
-    body, err := json.Marshal(request)
-    if err != nil { return Result{}, err }
-    response, err := d.send(ctx, token, body, true)
-    if err != nil { return Result{}, err }
-    return decodeResponse(ctx, tool, response)
+    return d.call(ctx, token, tool, arguments)
 }
 ```
 
@@ -137,13 +112,13 @@ to OpenSearch. Add it to the worker's recovery test file.
 func TestSearchDelayedWriter(t *testing.T) {
     ctx := t.Context()
     stores := newSearchStore(t)
-    client, err := searchadapter.NewOpenSearch(testenv.OpenSearch(t))
+    client, err := searchadapter.New(testenv.OpenSearch(t))
     if err != nil { t.Fatal(err) }
     model, err := client.Provision(ctx)
     if err != nil { t.Fatal(err) }
     index := "delayed-" + uuid.Must(uuid.NewV7()).String()
     if err := client.CreateIndex(ctx, index, model, 3); err != nil { t.Fatal(err) }
-    t.Cleanup(func() { _, err := client.JSON(context.Background(), "DELETE", "/"+index, nil); if err != nil { t.Error(err) } })
+    t.Cleanup(func() { if err := client.DeleteIndex(context.Background(), index); err != nil { t.Error(err) } })
     if err := stores.SearchWork.InitializeIndex(ctx, index); err != nil { t.Fatal(err) }
     id := putSearchText(t, stores, "obsolete text")
     oldWork, err := stores.SearchWork.Claim(ctx, "old-worker", time.Minute)
@@ -160,12 +135,12 @@ func TestSearchDelayedWriter(t *testing.T) {
     worker := service.Worker{Reader:stores.Views, Work:stores.SearchWork, Writer:client, PageBytes:128}
     if err := worker.RunOne(ctx, deletion); err != nil { t.Fatal(err) }
     if err := client.Put(ctx, oldRequest); err == nil { t.Fatal("obsolete write accepted") }
-    raw, err := client.JSON(ctx, "GET", "/"+index+"/_doc/"+url.PathEscape(oldRequest.DocumentID), nil)
+    result, err := client.GetDocument(ctx, index, oldRequest.DocumentID)
     if err != nil { t.Fatal(err) }
-    var result struct { Source map[string]json.RawMessage `json:"_source"` }
-    if err := json.Unmarshal(raw, &result); err != nil { t.Fatal(err) }
     if string(result.Source["retired"]) != "true" || len(result.Source["page_text"]) != 0 { t.Fatal("deleted text restored") }
 }
 ```
+
+`DeleteIndex` and `GetDocument` must call the official typed `Indices.Delete` and `Document.Get` APIs. The fixture and production adapter use the same client and transport.
 
 - [ ] Run `^TestSearchDelayedWriter$` after retirement implementation. Require the retained version-2 record and rejected delayed request, not merely an empty MCP response.

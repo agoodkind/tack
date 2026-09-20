@@ -61,31 +61,18 @@ or split text for the model.
 
 ## Native sparse semantic indexing
 
-OpenSearch ML Commons runs
-`amazon/neural-sparse/opensearch-neural-sparse-encoding-doc-v3-gte` version 1.0.0.
-Deployment pins the 554,924,400-byte TorchScript bundle with SHA-256
-`08879b93faf4a92506a44e150f47bbc4cadc9a2f083350c4dc79434738303047` and its
-tokenizer with SHA-256
-`ea725c60b9022a7a491ffc348b5622a199853c806d625f673d0e2ebf1c3b5312`.
-OpenSearch remains unmodified. Custom plugins, forks, and external inference are
-excluded.
+OpenSearch ML Commons runs `amazon/neural-sparse/opensearch-neural-sparse-encoding-doc-v3-gte` version 1.0.0. Deployment pins its 554,924,400-byte TorchScript bundle with SHA-256 `08879b93faf4a92506a44e150f47bbc4cadc9a2f083350c4dc79434738303047` and records the bundled tokenizer SHA-256 `ea725c60b9022a7a491ffc348b5622a199853c806d625f673d0e2ebf1c3b5312`. Tack does not run or reproduce the tokenizer. OpenSearch remains unmodified. Custom plugins, forks, external inference, and application-defined ingest pipelines are excluded.
 
-OpenSearch preserves `page_text` for keyword search. Its ingest pipeline uses a
-native `gsub` processor to create 160-character texts at 80-character intervals.
-Its native `text_chunking` delimiter processor preserves those inputs and every
-existing newline. `max_chunk_limit` is `-1`. Its native `sparse_encoding` processor
-stores each result in a nested `rank_features` field. Retired and empty pages do
-not invoke the model.
+The native `semantic` field preserves `page_text` for lexical search. Its fixed-character chunking uses a 160-character limit, 0.5 overlap, and unlimited chunk count. Native sparse encoding applies `max_ratio` pruning at 0.1 and stores each embedding in the generated nested `page_text_semantic_info.chunks.embedding` `rank_features` field.
 
-Reader pages contain at most 4,096 UTF-8 bytes. Validation extracts the tokenizer
-from the pinned bundle and proves every generated input fits the model's 512-token
-limit. Tack enforces only the byte bound. Model or processor changes require the
-same coverage proof before release.
+Reader pages contain at most 4,096 UTF-8 bytes. Validation inspects the source, every generated chunk, every sparse embedding, and the final character through OpenSearch. Tack enforces only the byte bound and does not reproduce the model tokenizer. Model or semantic field changes require the same coverage proof before release.
+
+Tack pins `github.com/opensearch-project/opensearch-go/v4` v4.7.3, the latest stable client. A compatibility test runs every used core API against the exact OpenSearch 3.8.0 image because the client documents later 3.x releases as best effort. Typed APIs implement core operations and construct search requests. A narrow search response decoder preserves replacement point-in-time IDs and exact sort JSON that `SearchResp` omits or converts. Concrete ML Commons request types satisfy `opensearch.Request`; `opensearch.Do` decodes responses and `opensearch.ParseError` decodes failures. Stable v4.7.3 lacks ML Commons APIs. Tack exposes no generic method-and-path JSON transport and does not import the temporary v5 preview package.
 
 ## Indexed pages
 
 The `node-pages` alias selects one versioned physical index. Each index generation
-records its model identity, pipeline version, primary shard count, and replica
+records its model identity, semantic mapping version, primary shard count, and replica
 count. Operators can increase primary shards only by building and validating a
 replacement index. Adding a node requires no Tack routing change.
 
@@ -98,13 +85,11 @@ The mapping contains only these fixed fields:
 | `scope_ids` | The node and authorized ancestor IDs as keywords. |
 | `node_type` | The metadata-defined type key as a keyword. |
 | `node_revision` | The committed source revision. |
-| `projection_version` | The metadata, pagination, pipeline, and model version. |
+| `projection_version` | The metadata, pagination, semantic mapping, and model version. |
 | `page_ordinal` | The stable page position. |
 | `name` | A bounded Unicode prefix for lexical boosting. |
-| `page_text` | Original text for lexical search. |
-| `sparse_text` | Temporary overlapping text with indexing disabled. |
-| `sparse_chunks` | OpenSearch-generated bounded model inputs. |
-| `sparse_embedding` | Nested sparse token weights in `rank_features`. |
+| `page_text` | Native `semantic` field with original text for lexical search. |
+| `page_text_semantic_info` | OpenSearch-generated nested chunks and sparse `rank_features` embeddings. |
 | `retired` | A Boolean that excludes obsolete records. |
 
 Document IDs combine organization, node, revision, projection version, and page
@@ -129,12 +114,7 @@ OpenSearch sorts page matches by descending score, ascending node ID, then
 page-level tie breaker. The first page match for a node establishes that node's
 rank. Tack skips later matches for visited nodes.
 
-Each engine request selects the next configured address in round-robin order and
-returns at most 100 page matches through `search_after`. A connection failure
-retries the search request through the next address. OpenSearch distributes shard
-work across the three containers. Each public response reads at most four engine
-batches. An empty deduplicated response can still include a continuation. Only an
-empty raw engine batch ends traversal. No request assembles all matches or visited IDs.
+The official client receives all three addresses and owns TLS, connection pooling, routing, retries, failed-node recovery, and transport metrics. Each engine response returns at most 100 page matches through `search_after`. OpenSearch distributes shard work across the three containers. Each public response reads at most four engine batches. An empty deduplicated response can still include a continuation. Only an empty raw engine batch ends traversal. No request assembles all matches or visited IDs.
 
 The session binds the normalized query, filters, principal, physical index, and
 search generation. Current authorization applies before each node is returned.
@@ -186,11 +166,10 @@ QA and production each use three LXC guests. QA runs on `suburban`; production r
 on `vault`. Each guest starts with at least 8 GiB of memory, 2 CPU cores, 40 GiB of
 hot-tier storage, and a 2 GiB JVM heap. The image is
 `opensearchproject/opensearch:3.8.0`. Every guest stores data, can manage the
-cluster, and runs local inference. One guest can stop without losing a primary or
-the model.
+cluster, and has the `ml` role. ML Commons deploys the model without explicit node IDs and maintains it on every eligible node. One guest can stop without losing a primary or the model.
 
 The final GTE sparse workload opened the ML memory circuit breaker at 4 GiB. It
-completed at 8 GiB and used about 3.2 GiB afterward. Eight GiB is the QA floor and
+completed at 8 GiB and used about 3.4 GiB afterward. Eight GiB is the QA floor and
 production starting allocation, not a production capacity result.
 
 Release capacity uses a declared workload and pass thresholds for query latency,

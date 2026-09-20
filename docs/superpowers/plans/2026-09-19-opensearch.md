@@ -8,7 +8,7 @@ The native sparse indexing and ranking configuration passed local engine validat
 
 **Architecture:** The reader returns one bounded part per call. Bounded worker slices index and retire parts. OpenSearch performs text splitting, local sparse encoding, and inverted-index ranking. Durable sessions continue across every ranked page match.
 
-**Tech Stack:** Go, FoundationDB, OpenSearch 3.8.0, ML Commons, Docker SDK, MCP, Ansible, OpenTofu.
+**Tech Stack:** Go, FoundationDB, OpenSearch 3.8.0, `github.com/opensearch-project/opensearch-go/v4` v4.7.3, ML Commons, Docker SDK, MCP, Ansible, OpenTofu.
 
 **Spec:** [Search architecture](../specs/2026-09-19-search-design.md). The [acceptance criteria](../specs/2026-09-19-search-acceptance.md) define release evidence.
 
@@ -26,12 +26,13 @@ The native sparse indexing and ranking configuration passed local engine validat
 - The container image is `opensearchproject/opensearch:3.8.0`.
 - Use `amazon/neural-sparse/opensearch-neural-sparse-encoding-doc-v3-gte` version 1.0.0 and nested `rank_features`.
 - Reader parts contain at most 4,096 UTF-8 bytes; queries contain at most 126 UTF-8 bytes.
-- OpenSearch uses gsub, delimiter chunking, local sparse inference, conventional sparse search, and point-in-time pagination.
+- Map page text as a native `semantic` field. OpenSearch performs fixed-character chunking, sparse encoding, pruning, and point-in-time pagination.
+- Pin the latest stable Go client, v4.7.3. Task 1 must keep its core API compatibility test against the exact OpenSearch 3.8.0 image because the client documents later 3.x releases as best effort.
+- Use typed client APIs for core index, bulk, point-in-time, alias, document, health, block, and statistics operations. Build searches with the typed request API and decode the few response fields the typed response omits with `opensearch.Do`. Define narrow request types for ML Commons operations that stable v4 does not include, then use `opensearch.Do` and `opensearch.ParseError`. Do not add a generic method-and-path JSON API or import the temporary v5 preview package.
 - Bulk requests contain at most 500 page documents and 5 MiB of encoded data, including action lines.
 - A result page has at most 25 nodes within Tack's response-byte budget.
 - Continuation can reach every matching node. Engine batches contain at most 100 matches; responses scan at most four batches.
-- Tack selects configured OpenSearch addresses in round-robin order. Search requests
-  retry through the next address after a connection failure.
+- Configure every OpenSearch address in the official client. Its connection pool owns routing, retries, failed-node recovery, TLS, and transport metrics.
 - QA and production each use three LXC guests, with at least 8 GiB memory, 2 CPU cores, 40 GiB storage, and a 2 GiB JVM heap per guest.
 - Worker claims, cleanup, sessions, rebuilds, and physical indexes have explicit work and lifetime bounds.
 - Each physical index stores its primary shard count. Increasing shard parallelism requires a validated rebuild.
@@ -42,11 +43,21 @@ The native sparse indexing and ranking configuration passed local engine validat
 - Run `make check` before each signed commit. Include `Co-authored-by: Codex <noreply@openai.com>`.
 - This plan does not authorize a push, merge, deployment, ruleset change, or storage-limit removal.
 
+## Reuse boundaries
+
+- Extend the existing FoundationDB key catalog, transaction loops, tuple encoding, retry conventions, telemetry, logger, cancellation, wait groups, and bounded shutdown. Do not create search copies.
+- Add search fields to `config.Config`. Convert those fields to `opensearch.Config` in focused validation code. Do not add another environment parser, root configuration object, or default path.
+- Refactor `Driver.Call` and `Driver.CallRaw` through one internal call path. Do not duplicate context checks, request IDs, dry-run behavior, JSON-RPC framing, sending, or decoding.
+- Register provision and verification operations through the existing `clispec.Operation` and `RegisterCommands` path. Do not add legacy command registration.
+- Reuse the existing membership middleware, scope resolver, typed node resolver, and membership checks. Search must not introduce another authorization query, cache, context value, or marker.
+- Reuse MCP response byte limits and rendering, FoundationDB telemetry, and OpenSearch client metrics. Do not create search-specific truncation or metric registries.
+- Keep search claims, sessions, content cursors, HMAC cursors, rebuild coordination, visited node IDs, and one query embedding per session. OpenSearch does not provide those application guarantees.
+
 ## Review Focus
 
 1. An edit between content reads must produce an explicit revision error, never a mixed document. Reader and worker tasks test it.
 2. A paused old writer must not restore deleted text after another worker completes cleanup. Worker tasks test actual delayed requests.
-3. A long uninterrupted Unicode string must not disappear inside model truncation. Native coverage tests verify the configured processors and pinned tokenizer.
+3. A long uninterrupted Unicode string must not disappear inside model truncation. Native coverage tests inspect the semantic field's generated chunks and embeddings.
 4. A byte-limited response must retain the first result it cannot render. Query tasks test continuation with large names.
 5. A metadata or ancestry change during a rebuild must appear after the alias switch. Recovery tasks test concurrent public changes.
 6. A large node, cleanup, or rebuild must yield before it starves live mutation work. Worker and capacity tasks measure every work class.
@@ -95,9 +106,7 @@ TACK-518, TACK-519, and TACK-520 retain the cross-cutting scalability,
 isolation, and semantic acceptance. TACK-524 and TACK-525 remain separate
 storage work.
 
-The native task repeats the successful engine tests through the production adapter.
-Preserve reproductions of any regression. Do not substitute truncation, a Tack
-tokenizer, an OpenSearch modification, or an external service.
+The native task repeats the successful engine tests through the production adapter. Preserve reproductions of any regression. Do not substitute truncation, a Tack tokenizer, an OpenSearch modification, or an external service.
 
 ## File responsibilities
 
@@ -105,7 +114,7 @@ tokenizer, an OpenSearch modification, or an external service.
 | --- | --- |
 | Reader contracts and metadata representation | Extend [NodeReader](../../../internal/domain/node/reader.go); create the domain content and projection files specified in the reader tasks. |
 | Transactional scheduling and revision identity | Extend the node, relationship, and metadata stores; add dedicated search storage files. |
-| Page indexing and native model setup | Add focused OpenSearch client, model, mapping, bulk, and query files; delete all Meilisearch adapter code and its module dependency. |
+| Page indexing and native model setup | Add a focused official-client adapter, native semantic mapping, typed bulk and search operations, and concrete ML Commons requests; delete all Meilisearch adapter code and its module dependency. |
 | Worker ownership and recovery | Add search worker, cleanup, and rebuild files under the existing service and FDB adapter packages. |
 | Authentication and rendered results | Replace [MCP search](../../../internal/adapters/mcp/tools/search.go); reuse response-byte enforcement. |
 | Runtime and operator entry points | Update [graph assembly](../../../internal/runtime/graph.go) and [search reindexing](../../../internal/ops/search_reindex.go). |
@@ -144,7 +153,4 @@ The current node storage model remains unchanged. Tests use smaller byte bounds
 on the real reader to exercise successive parts within current storage limits.
 Search depends only on the reader contract, including explicit completion.
 
-TACK-524 and TACK-525 implement storage changes separately. Their acceptance must
-rerun this search suite with 128 KiB, 1 MiB, 8 MiB, over 100 MB, and nodes larger
-than worker memory. They replace the reader's storage implementation. They must
-not alter the worker loop, mapping, page IDs, retries, or result grouping.
+TACK-524 and TACK-525 implement storage changes separately. Their acceptance must rerun this search suite with 128 KiB, 1 MiB, 8 MiB, over 100 MB, and nodes larger than worker memory. They replace the reader's storage implementation. They must not alter the worker loop, mapping, page IDs, client routing, or result grouping.

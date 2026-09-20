@@ -6,7 +6,7 @@
 
 **Architecture:** Runtime workers use the durable work store. Rebuilds scan into a fresh physical index, replay changes, and persist an alias-switch state that can recover after interruption. Restored source data always requires a fresh index.
 
-**Tech Stack:** Go, FoundationDB, OpenSearch aliases, existing audited operations and datagen.
+**Tech Stack:** Go, FoundationDB, official OpenSearch Go client v4.7.3, typed aliases, existing audited operations, and datagen.
 
 **Spec:** [Recovery requirements](../specs/2026-09-19-search-acceptance.md#durable-work-and-state-lifecycle).
 
@@ -26,7 +26,7 @@ Create:
 
 ```text
 internal/runtime/search.go                         worker lifecycle
-internal/config/search.go                          search environment validation
+internal/config/search.go                          official client conversion and validation
 internal/test/integration/search_runtime_test.go   restart and outage behavior
 ```
 
@@ -42,7 +42,7 @@ func (r searchRuntime) Close()
 
 - [ ] Add `TestSearchRuntimeUnavailable`: build the application against a correctly configured but stopped local engine, commit a node mutation through MCP, and require search to return an explicit error. Restart the engine and require automatic indexing. Assert the mutation remained committed during the outage.
 - [ ] Run `^TestSearchRuntimeUnavailable$` and record the pre-change failure.
-- [ ] Add required environment fields `OPENSEARCH_URLS`, `OPENSEARCH_USERNAME`, `OPENSEARCH_PASSWORD`, `OPENSEARCH_CA_FILE`, `SEARCH_PAGE_BYTES`, and `SEARCH_QUERY_BYTES`; add positive bounded worker-concurrency and timeout fields. Require page bytes between 16 and 4,096 and query bytes between 1 and 126. Do not load runtime JSON/YAML configuration files or log secret values.
+- [ ] Add required fields to the central `config.Config`: `OPENSEARCH_URLS`, `OPENSEARCH_USERNAME`, `OPENSEARCH_PASSWORD`, `OPENSEARCH_CA_FILE`, `SEARCH_PAGE_BYTES`, and `SEARCH_QUERY_BYTES`; add positive bounded worker-concurrency and timeout fields. Make `internal/config/search.go` validate those fields and return `opensearch.Config`. Do not add another environment parser, root configuration object, default path, or secret log.
 - [ ] Remove `MEILI_URL`, `MEILI_MASTER_KEY`, the Meilisearch Compose service and
   volume, its application dependency, the testenv subcommand and helper, datagen
   guards and checks, module entries, operator paths, and recovery instructions.
@@ -51,7 +51,7 @@ func (r searchRuntime) Close()
 - [ ] Provision one empty versioned OpenSearch index. Run the audited rebuild from
   FoundationDB before search becomes ready. Never query, copy, or translate the
   existing Meilisearch index.
-- [ ] Construct the verified-TLS client independently of engine readiness. Invalid configuration fails startup. An unavailable engine leaves durable work pending and makes search return ErrUnavailable. Model/index provisioning belongs to the audited operator path, not every application startup.
+- [ ] Construct the official client independently of engine readiness. Invalid configuration fails startup. An unavailable engine leaves durable work pending and makes search return `ErrUnavailable`. Model and index provisioning belong to the audited operator path, not every application startup.
 - [ ] Start bounded claim loops with explicit worker limits for live mutations,
   cleanup, metadata rescans, and rebuild work. Each worker calls one bounded
   `Worker.RunOne` slice and records errors before capped, context-aware backoff.
@@ -96,7 +96,7 @@ type Rebuild struct {
     PrimaryShards int
 }
 type Rebuilder interface { Run(context.Context) error }
-func (c *OpenSearchClient) SwitchAlias(ctx context.Context, alias, oldIndex, newIndex string) error
+func (a *Adapter) SwitchAlias(ctx context.Context, alias, oldIndex, newIndex string) error
 ```
 
 - [ ] Add `TestSearchRebuildDuringChanges`: run the real audited reindex command while MCP creates, edits, deletes, changes metadata, and moves a subtree. Wait for the command's successful completion; search must reflect each completed change and must not return deleted or foreign-scope nodes.
@@ -120,8 +120,7 @@ func (c *OpenSearchClient) SwitchAlias(ctx context.Context, alias, oldIndex, new
 ]}
 ```
 
-The client substitutes the concrete persisted index names using typed request
-fields. Set an explicit write index when required by the alias configuration.
+The adapter substitutes the concrete persisted index names and calls the typed `Aliases` API. Set an explicit write index when required by the alias configuration. Use typed `Indices.Get`, alias get, refresh, health, block, statistics, and delete operations throughout rebuild and retirement.
 
 - [ ] After the alias request, persist the new worker target and resume claims. If the process stops before that FDB commit, recovery reads the alias: the old target means retry or cancel the switch; the new target means finish the FDB handoff. A third target is an explicit coordination error. Never assume an HTTP timeout means the alias operation failed.
 - [ ] Keep outstanding old workers bound to the old physical index. Mark that index
@@ -140,6 +139,7 @@ fields. Set an explicit write index when required by the alias configuration.
   throughput under the predeclared workload without application routing changes.
 - [ ] Fail real scan, embedding, and replay operations separately before switching and assert the serving alias is unchanged. Stop the process immediately after switching and assert restart completes the handoff. A dry run must neither create an index nor alter journal retention.
 - [ ] Restore a real FDB backup into a disposable local environment using the existing backup/restore operations. Change the search generation before accepting requests; bind sessions to that generation and reject restored cursors. Rebuild an empty search index and require current nodes, deleted-node absence, relevance, and final-page text. Never reuse a pre-restore index as authoritative.
+- [ ] Reuse existing lifecycle cancellation, bounded close, context-aware backoff, telemetry, logger, and FoundationDB retry conventions. Native Reindex and Index State Management cannot replay FoundationDB changes, preserve Tack sessions, or coordinate the authoritative rebuild, so keep the application rebuild state.
 - [ ] Run `^TestSearch(Rebuild|Restore)` and `make check`; commit with subject `Rebuild OpenSearch with durable catch-up and alias recovery`.
 
 ## Task 10: Add public QA generator coverage

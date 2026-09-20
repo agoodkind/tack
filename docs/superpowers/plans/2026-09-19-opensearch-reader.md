@@ -14,6 +14,8 @@
 
 Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Preserve the current node storage model. Test successive parts using smaller byte bounds on the real reader.
 
+Add revision, projection, and cursor key families to the existing FoundationDB `keys.go` catalog. Reuse its tuple encoding, prefixes, `withPrefix`, and `stripPrefix`. Do not create a search-specific key registry.
+
 ## Review Focus
 
 Test edited revisions, reordered maps, structured values under unfamiliar types, names spanning pages, and UTF-8 characters at page boundaries.

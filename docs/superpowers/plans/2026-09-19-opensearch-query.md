@@ -6,7 +6,7 @@
 
 **Architecture:** OpenSearch infers sparse query weights once. Every ranked page request reuses those opaque weights against `rank_features`. A point in time freezes index contents. FoundationDB stores position, visited nodes, replay records, and deadlines.
 
-**Tech Stack:** Go, OpenSearch conventional neural sparse search, FoundationDB, MCP Streamable HTTP.
+**Tech Stack:** Go, OpenSearch conventional neural sparse search, official OpenSearch Go client v4.7.3, FoundationDB, MCP Streamable HTTP.
 
 **Spec:** [Ranking and continuation](../specs/2026-09-19-search-design.md#ranking-and-continuation).
 
@@ -15,8 +15,7 @@
 Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints).
 Each public response returns at most 25 nodes and reads at most four engine batches
 of at most 100 page matches. These bounds never limit total continuation results.
-Each engine request starts with the next configured OpenSearch address. Search
-requests use the next address after a connection failure.
+The official client owns connection selection, retries, and failed-node recovery.
 
 ## Task 6: Rank and paginate native sparse matches
 
@@ -43,11 +42,7 @@ type Ranker interface {
 }
 ```
 
-`Open` resolves the physical index, calls native sparse inference once, validates a
-nonempty finite token-weight map, and opens a point in time. Store the encoded map
-without interpreting token keys. Split persisted bytes across bounded FDB values if
-needed and reject output above the configured total session bound. `Read` reuses the
-map and persists replacement PIT IDs before authorization or rendering.
+`Open` resolves the physical index, calls ML Commons once through a concrete `opensearch.Request` and `opensearch.Do`, validates a nonempty finite token-weight map, and opens a point in time through the typed client. Store the encoded map without interpreting token keys. Split persisted bytes across bounded FDB values if needed and reject output above the configured total session bound. `Read` reuses the map and persists replacement PIT IDs before authorization or rendering.
 
 - [ ] Add `TestSearchSemanticRelevance` with the six acceptance pairs and at least
   150 distractors. Require every target within the first 25 distinct nodes across
@@ -57,13 +52,8 @@ map and persists replacement PIT IDs before authorization or rendering.
   node occurrences with a bounded test-only collapse reference. Require every node.
 - [ ] Run `^TestSearch(SemanticRelevance|DistinctNodes)$` and record the existing
   interface failure.
-- [ ] Infer query weights with
-  `POST /_plugins/_ml/_predict/sparse_encoding/{model_id}` and typed
-  `{"text_docs":[query.Text]}`. Require one response map with finite nonnegative
-  numbers. Persist its exact encoded representation for continuation.
-- [ ] Open
-  `POST /{physical_index}/_search/point_in_time?keep_alive=15m&allow_partial_pit_creation=false`.
-  Send ranked requests to `POST /_search?allow_partial_search_results=false`:
+- [ ] Infer query weights once with a concrete ML Commons predict request, `{"text_docs":[query.Text]}`, `opensearch.Do`, and `opensearch.ParseError`. Require one response map with finite nonnegative numbers. Persist its exact encoded representation for continuation. Do not use the high-level `semantic` query because it reruns model inference for every continuation request. Its analyzer also failed the required `signin` relevance case.
+- [ ] Open and delete point-in-time snapshots with the typed client. Build ranked requests with `opensearchapi.SearchReq.GetRequest`:
 
 ```json
 {
@@ -85,10 +75,10 @@ map and persists replacement PIT IDs before authorization or rendering.
     "should": [
       {"multi_match": {"query": "query-text", "fields": ["name^3", "page_text"]}},
       {"nested": {
-        "path": "sparse_embedding",
+        "path": "page_text_semantic_info.chunks",
         "score_mode": "max",
         "query": {"neural_sparse": {
-          "sparse_embedding.sparse_encoding": {"query_tokens": {}}
+          "page_text_semantic_info.chunks.embedding": {"query_tokens": {}}
         }}
       }}
     ]
@@ -96,9 +86,7 @@ map and persists replacement PIT IDs before authorization or rendering.
 }
 ```
 
-Substitute validated fields and the stored token map through typed structures and
-`json.Marshal`. Add the optional metadata-defined type filter. Never insert query
-text into JSON manually.
+Substitute validated fields and the stored token map through typed structures and `json.Marshal`. Add the optional metadata-defined type filter. Send the generated request through `opensearch.Do`. Decode a narrow response that preserves replacement PIT IDs and exact sort JSON because `SearchResp` omits the PIT ID and converts sort values to `[]any`. Use `opensearch.ParseError` for failed responses. Do not reimplement paths, query parameters, routing, retries, error decoding, or insert query text into JSON manually.
 
 - [ ] Require exactly three sort values. `_shard_doc` prevents equal score and node
   ID values from skipping page documents. Preserve exact sort JSON in `search_after`.
@@ -177,6 +165,7 @@ only the PIT ID. It preserves sort position, page number, and both deadlines.
 
 - [ ] Build authenticated fixtures through real user, token, membership, metadata,
   FoundationDB, and MCP operations. Load no product seed.
+- [ ] Reuse membership middleware, `Resolver.Workspace`, `ResolveScope`, `ResolveTypedNodeID`, and `requireMembership`. Reuse `maxSuccessTextBytes`, `capText`, `successText`, and existing cursor-byte reservation. Do not add another authorization cache, response limit, or truncation path.
 - [ ] Resolve membership, entry point, scope, type, and query byte bounds before
   `Open`. Undefined types and foreign scopes fail before any engine request.
 - [ ] Check committed replay before advancing. Reauthorize saved result IDs. Replay
