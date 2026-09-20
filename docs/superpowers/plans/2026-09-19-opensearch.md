@@ -23,6 +23,8 @@ The native sparse indexing and ranking configuration passed local engine validat
 - Tack neither loads a tokenizer nor counts model tokens. OpenSearch remains unmodified.
 - Custom plugins, forks, and external inference are excluded.
 - Node types, property types, and property names are opaque identifiers.
+- Every applicable property definition explicitly includes or excludes search.
+  Do not infer that decision from identifiers, types, or the FDB `Indexed` flag.
 - The container image is `opensearchproject/opensearch:3.8.0`.
 - Use `amazon/neural-sparse/opensearch-neural-sparse-encoding-doc-v3-gte` version 1.0.0 and nested `rank_features`.
 - Reader parts contain at most 4,096 UTF-8 bytes; queries contain at most 126 UTF-8 bytes.
@@ -51,6 +53,8 @@ The native sparse indexing and ranking configuration passed local engine validat
 - Register provision and verification operations through the existing `clispec.Operation` and `RegisterCommands` path. Do not add legacy command registration.
 - Reuse the existing membership middleware, scope resolver, typed node resolver, and membership checks. Search must not introduce another authorization query, cache, context value, or marker.
 - Reuse MCP response byte limits and rendering, FoundationDB telemetry, and OpenSearch client metrics. Do not create search-specific truncation or metric registries.
+- Register the one-time metadata migration through the existing `clispec` lifetime,
+  dry-run, audit, and build expiration machinery. Do not add another migration CLI.
 - Keep search claims, sessions, content cursors, HMAC cursors, rebuild coordination, visited node IDs, and one query embedding per session. OpenSearch does not provide those application guarantees.
 
 ## Review Focus
@@ -77,19 +81,21 @@ The [fixture code](2026-09-19-opensearch-fixtures.md) supplies real-store setup 
 authenticated calls for the owning tasks.
 
 1. Complete the [native coverage task](2026-09-19-opensearch-native.md). Implement the validated sparse engine configuration and its regression tests.
-2. Implement Task 2 in the [reader tasks](2026-09-19-opensearch-reader.md), including metadata declarations, revision identity, bounded pages, and summaries.
-3. Implement the [durable indexing tasks](2026-09-19-opensearch-worker.md), including transaction scheduling, retries, and deletion.
-4. Complete Task 6 in the [query tasks](2026-09-19-opensearch-query.md). It adds ranking and continuation behind internal boundaries.
-5. Complete the [recovery tasks](2026-09-19-opensearch-recovery.md), including rebuild, restore, and QA generator coverage.
-6. Complete Task 11 in the [deployment tasks](2026-09-19-opensearch-deployment.md). It prepares role-specific services and configuration without deploying or changing application search.
-7. Complete Tasks 7 and 8 in the query plan as one review and commit. This is the sole application cutover. Complete Task 3's metadata refresh test against this runtime.
-8. Complete Task 10's public QA checks, then apply Task 12 only after deployment authorization.
+2. Complete the [projection rollout task](2026-09-19-opensearch-metadata.md). Add explicit declarations for new metadata and the expiring manifest backfill for existing definitions.
+3. Implement Task 2 in the [reader tasks](2026-09-19-opensearch-reader.md), including revision identity, bounded pages, and summaries.
+4. Implement the [durable indexing tasks](2026-09-19-opensearch-worker.md), including transaction scheduling, retries, and deletion.
+5. Complete Task 6 in the [query tasks](2026-09-19-opensearch-query.md). It adds ranking and continuation behind internal boundaries.
+6. Complete the [recovery tasks](2026-09-19-opensearch-recovery.md), including rebuild, restore, and QA generator coverage.
+7. Complete Task 11 in the [deployment tasks](2026-09-19-opensearch-deployment.md). It prepares role-specific services and configuration without deploying or changing application search.
+8. Complete Tasks 7 and 8 in the query plan as one review and commit. This is the sole application cutover. Complete Task 3's metadata refresh test against this runtime.
+9. Complete Task 10's public QA checks, then apply Task 12 only after deployment authorization.
 
 ## Delivery tickets
 
 | Plan scope | Ticket |
 | --- | --- |
 | Task 1: Native sparse indexing | TACK-530 |
+| Explicit projection rollout and backfill | TACK-542 |
 | Task 2: Paginated node content reads | TACK-531 |
 | Task 3: Metadata refresh | TACK-532 |
 | Task 4: Durable search work | TACK-533 |

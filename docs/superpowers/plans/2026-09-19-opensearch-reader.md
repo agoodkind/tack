@@ -70,9 +70,11 @@ type ContentReader interface {
 }
 ```
 
-Add `Search *SearchProjection` to PropertyDef. A nil declaration is invalid for
-an applicable definition, including an unfamiliar PropertyType. `Include:false`
-explicitly excludes it. Existing `Indexed` continues to mean FDB secondary indexing.
+Add `Search *SearchProjection` to PropertyDef. The [projection rollout task](2026-09-19-opensearch-metadata.md)
+owns seeds, generated metadata, existing-definition backfill, and write validation.
+The reader rejects a nil declaration for an applicable definition, including an
+unfamiliar PropertyType. `Include:false` explicitly excludes it. Existing `Indexed`
+continues to mean FDB secondary indexing.
 
 - [ ] Add newSearchStore and putSearchText from the [real-store fixture code](2026-09-19-opensearch-fixtures.md#reader-fixture-for-task-2).
 - [ ] Add the failing public reader test:

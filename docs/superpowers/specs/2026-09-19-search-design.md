@@ -1,7 +1,7 @@
 # OpenSearch search architecture
 
 TACK-517 specifies search. TACK-518 through TACK-520 retain cross-cutting
-acceptance. TACK-530 through TACK-541 implement it. TACK-524 and TACK-525 replace
+acceptance. TACK-530 through TACK-542 implement it. TACK-524 and TACK-525 replace
 the current node storage limit behind the same paginated reader.
 
 Meilisearch is absent from the target architecture. The implementation deletes
@@ -33,6 +33,12 @@ defines applicability, inclusion, text representation, and order. Tack uses one
 generic interpreter. Application code contains no product type allowlist and no
 property-specific extraction switch.
 
+Every applicable property definition explicitly includes or excludes search. A
+missing declaration is invalid. The FoundationDB `Indexed` flag cannot supply a
+default because it controls secondary lookup keys rather than searchable text.
+Seeds for new organizations and QA data declare search behavior for convenience,
+but runtime behavior depends only on stored metadata.
+
 Pages collectively contain the complete decoded text of every included value and
 name. One value can span any number of pages. Invalid declarations or values fail
 with node and property identifiers. Equivalent values and metadata produce the
@@ -41,6 +47,12 @@ same ordered text regardless of map iteration order.
 Projection, display text, type metadata, and ancestry changes schedule affected
 nodes for indexing. Structured property filtering, property sorting, and category
 totals are outside this contract.
+
+Before the first OpenSearch rebuild, an audited one-time command applies a
+complete manifest reviewed by an operator to existing definitions. It never
+infers behavior from an identifier or type and never overwrites an existing
+declaration. Public search remains unavailable until no definition lacks an
+explicit decision.
 
 ## Paginated node reads
 

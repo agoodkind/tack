@@ -118,6 +118,9 @@ model/tokenizer checksums, TLS identities, topology, and acceptance measurements
 ./configsctl deploy deploy-tack --limit tack_qa_all
 ```
 
+- [ ] Generate and review the complete QA search-projection manifest. Run the
+  expiring backfill in dry-run mode, execute that exact manifest, rerun it, and
+  require zero changes and zero missing declarations before rebuilding.
 - [ ] Keep public search unavailable until the FoundationDB rebuild activates the
   verified alias. Run audited reindexing, verification, and guarded QA datagen.
   Verify three independent LXCs, actual resources, IPv6-only REST and transport
@@ -142,6 +145,9 @@ model/tokenizer checksums, TLS identities, topology, and acceptance measurements
 ./configsctl deploy deploy-tack --limit tack_prod_all
 ```
 
+- [ ] Repeat the manifest dry run, reviewed backfill, idempotent rerun, and
+  requirement for zero missing declarations against production before its first
+  OpenSearch rebuild.
 - [ ] Verify deployed revisions, image/model identity, TLS, topology, and authorized smoke fixtures. Record provisioning, deployment, and live verification separately. Do not report the implementation tickets complete merely because source tests passed.
 - [ ] Verify the production application process, containers, volumes, environment,
   secrets, and inventory contain no Meilisearch resource. Delete an old volume only

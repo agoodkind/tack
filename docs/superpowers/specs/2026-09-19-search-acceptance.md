@@ -35,6 +35,18 @@ and measurements. QA must pass before production.
 
 ## Opaque metadata
 
+- Require every property definition to declare search inclusion or exclusion.
+  Reject new definitions without that declaration. Do not derive it from the
+  property name, property type, or FoundationDB `Indexed` flag.
+- Update built-in seeds and QA data generation with explicit declarations. Search
+  behavior must remain identical when tests replace all identifiers and omit seeds.
+- Run the expiring one-time backfill in dry-run mode against existing metadata.
+  Require a complete manifest, no writes, bounded output, and an error for missing,
+  duplicate, unknown, or conflicting entries. Then execute the same manifest twice
+  and require the second run to make no changes.
+- Refuse the first OpenSearch rebuild and public search while any property
+  definition lacks a declaration. Verify zero missing definitions in QA and
+  production before each environment's first rebuild.
 - Load only the metadata and authentication required for the test. Load no product
   seeds. Create unfamiliar node types, property types, property identifiers, and
   hierarchy definitions through public operations.

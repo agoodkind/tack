@@ -17,6 +17,9 @@ Apply the [implementation constraints](2026-09-19-opensearch.md#global-constrain
 ## Review Focus
 
 Exercise unfamiliar property types, unrelated names, no product seed, real bearer validation, and both JSON/SSE tool responses.
+Every fixture property definition explicitly includes or excludes search. Add one
+excluded value beside each included fixture and prove that the excluded value never
+appears in search results.
 
 ---
 
