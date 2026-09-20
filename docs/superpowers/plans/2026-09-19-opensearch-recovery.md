@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Preserve the operations audit entry point. Search outages must not discard committed node changes. No Meilisearch compatibility layer is required.
+Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Preserve the operations audit entry point. Search outages must not discard committed node changes. Delete Meilisearch completely. Do not migrate its index or preserve a fallback.
 
 ## Review Focus
 
@@ -30,7 +30,7 @@ internal/config/search.go                          search environment validation
 internal/test/integration/search_runtime_test.go   restart and outage behavior
 ```
 
-Modify [runtime graph](../../../internal/runtime/graph.go), [configuration](../../../internal/config/config.go), [NodeService](../../../internal/service/node.go), node creation, MCP dependency assembly, and existing search integration fixtures. Remove the Meilisearch client dependency and adapter files, old NodeDoc conversion, synchronous best-effort search writes, and tests for removed behavior. Preserve unrelated node operations and list pagination.
+Modify [runtime graph](../../../internal/runtime/graph.go), [configuration](../../../internal/config/config.go), [NodeService](../../../internal/service/node.go), node creation, MCP dependency assembly, Compose, testenv, datagen, operator commands, recovery documentation, and existing search integration fixtures. Delete the Meilisearch module dependency, adapter files, NodeDoc conversion, synchronous best-effort writes, no-op fallback, service, volume, environment variables, credentials, test helper, and runbook. Preserve unrelated node operations and list pagination.
 
 Interfaces consumed: `search.WorkStore`, `service.Worker`, `search.Ranker`, and `search.SessionStore`. Produce:
 
@@ -43,6 +43,14 @@ func (r searchRuntime) Close()
 - [ ] Add `TestSearchRuntimeUnavailable`: build the application against a correctly configured but stopped local engine, commit a node mutation through MCP, and require search to return an explicit error. Restart the engine and require automatic indexing. Assert the mutation remained committed during the outage.
 - [ ] Run `^TestSearchRuntimeUnavailable$` and record the pre-change failure.
 - [ ] Add required environment fields `OPENSEARCH_URLS`, `OPENSEARCH_USERNAME`, `OPENSEARCH_PASSWORD`, `OPENSEARCH_CA_FILE`, `SEARCH_PAGE_BYTES`, and `SEARCH_QUERY_BYTES`; add positive bounded worker-concurrency and timeout fields. Require page bytes between 16 and 4,096 and query bytes between 1 and 126. Do not load runtime JSON/YAML configuration files or log secret values.
+- [ ] Remove `MEILI_URL`, `MEILI_MASTER_KEY`, the Meilisearch Compose service and
+  volume, its application dependency, the testenv subcommand and helper, datagen
+  guards and checks, module entries, operator paths, and recovery instructions.
+  Run `go mod tidy`. The application must build and start with OpenSearch
+  configuration only.
+- [ ] Provision one empty versioned OpenSearch index. Run the audited rebuild from
+  FoundationDB before search becomes ready. Never query, copy, or translate the
+  existing Meilisearch index.
 - [ ] Construct the verified-TLS client independently of engine readiness. Invalid configuration fails startup. An unavailable engine leaves durable work pending and makes search return ErrUnavailable. Model/index provisioning belongs to the audited operator path, not every application startup.
 - [ ] Start bounded claim loops with explicit worker limits for live mutations,
   cleanup, metadata rescans, and rebuild work. Each worker calls one bounded
@@ -60,7 +68,10 @@ func (r searchRuntime) Close() {
 ```
 
 - [ ] Extend Graph.Close to close search before its databases. Remove the old searcher parameter from NodeService after every mutation schedules through FDB. Replace remaining Noop-backed tests with real engine fixtures when they exercise search; unrelated tests must not require a fabricated search dependency.
-- [ ] Run all integration tests, `make build`, and `make check`; commit with subject `Replace Meilisearch runtime with durable OpenSearch workers`.
+- [ ] Inspect the complete Tack and configs diffs for remaining live Meilisearch
+  services, secrets, endpoints, dependencies, volumes, and recovery paths. Delete
+  Meilisearch in the same review and commit that enables the OpenSearch runtime.
+- [ ] Run all integration tests, `make build`, and `make check`; commit with subject `Remove Meilisearch and enable durable OpenSearch workers`.
 
 ## Task 9: Build and switch a replacement index
 

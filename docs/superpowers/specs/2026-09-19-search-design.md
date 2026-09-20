@@ -3,6 +3,13 @@
 TACK-517 specifies search. TACK-518 through TACK-520 implement it. TACK-524 and
 TACK-525 replace the current node storage limit behind the same paginated reader.
 
+Meilisearch is absent from the target architecture. The implementation deletes
+its client, configuration, adapters, test environment, container, volume,
+credentials, and operational documentation. It does not migrate the Meilisearch
+index, write to both engines, preserve a fallback, or retain a compatibility
+layer. Provisioning creates an empty OpenSearch index and rebuilds it only from
+FoundationDB.
+
 ## Search behavior
 
 Search finds declared text throughout each node. FoundationDB remains authoritative

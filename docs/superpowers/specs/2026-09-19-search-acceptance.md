@@ -14,6 +14,22 @@ Record Tack and configs revisions, image digests, model and tokenizer checksums,
 index settings, shard counts, byte and work bounds, fixture identities, workload,
 and measurements. QA must pass before production.
 
+## Meilisearch removal
+
+- Build and start Tack without a Meilisearch service, image, volume, endpoint,
+  key, client library, or runtime dependency.
+- Commit node creates, edits, and deletes through real FoundationDB. Require the
+  OpenSearch workers to index each change through public operations.
+- Stop OpenSearch. Source writes must still commit, and search must return an
+  explicit unavailable error instead of reporting success through a no-op client.
+- Provision an empty OpenSearch index and rebuild it only from FoundationDB. The
+  provisioning and rebuild operations must not read or transfer Meilisearch data.
+- Inspect rendered QA and production configuration and the live deployments.
+  Neither environment may contain a Meilisearch process, container, secret,
+  endpoint, volume, or dependency.
+- Run the current recovery and operator procedures. Every search operation must
+  use OpenSearch, and recovery must treat FoundationDB as the only source.
+
 ## Opaque metadata
 
 - Load only the metadata and authentication required for the test. Load no product

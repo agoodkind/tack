@@ -15,6 +15,11 @@ The native sparse indexing and ranking configuration passed local engine validat
 ## Global Constraints
 
 - Multi-page behavior must pass acceptance before the first search release.
+- Delete the complete Meilisearch stack, including its client, adapter, runtime
+  configuration, test environment, container, volume, credentials, and runbook.
+- Do not migrate the Meilisearch index, write to both engines, preserve a fallback,
+  retain a compatibility layer, or keep Meilisearch deployment resources.
+- Create the first OpenSearch index empty and rebuild it only from FoundationDB.
 - Tack neither loads a tokenizer nor counts model tokens. OpenSearch remains unmodified.
 - Custom plugins, forks, and external inference are excluded.
 - Node types, property types, and property names are opaque identifiers.
@@ -51,6 +56,8 @@ The native sparse indexing and ranking configuration passed local engine validat
 
 Each linked task document specifies its files, interfaces, tests, and commit boundary.
 These are parts of one implementation. None introduces a temporary search design.
+The runtime change enables OpenSearch and deletes Meilisearch in the same review
+and commit. Main never contains two active search engines.
 The [fixture code](2026-09-19-opensearch-fixtures.md) supplies real-store setup and
 authenticated calls for the owning tasks.
 
@@ -71,12 +78,12 @@ tokenizer, an OpenSearch modification, or an external service.
 | --- | --- |
 | Reader contracts and metadata representation | Extend [NodeReader](../../../internal/domain/node/reader.go); create the domain content and projection files specified in the reader tasks. |
 | Transactional scheduling and revision identity | Extend the node, relationship, and metadata stores; add dedicated search storage files. |
-| Page indexing and native model setup | Replace the Meilisearch adapter with focused OpenSearch client, model, mapping, bulk, and query files. |
+| Page indexing and native model setup | Add focused OpenSearch client, model, mapping, bulk, and query files; delete all Meilisearch adapter code and its module dependency. |
 | Worker ownership and recovery | Add search worker, cleanup, and rebuild files under the existing service and FDB adapter packages. |
 | Authentication and rendered results | Replace [MCP search](../../../internal/adapters/mcp/tools/search.go); reuse response-byte enforcement. |
 | Runtime and operator entry points | Update [graph assembly](../../../internal/runtime/graph.go) and [search reindexing](../../../internal/ops/search_reindex.go). |
-| Local proof and QA coverage | Extend the existing testenv, integration, and datagen packages. |
-| Containers and environment configuration | Update [Compose](../../../docker-compose.yml); prepare LXC, TLS, inventory, and Ansible changes in configs. |
+| Local proof and QA coverage | Replace the Meilisearch test environment and checks with real OpenSearch integration and datagen coverage. |
+| Containers and environment configuration | Delete Meilisearch services, volumes, variables, and secrets from [Compose](../../../docker-compose.yml) and configs; prepare LXC, TLS, inventory, and Ansible changes for OpenSearch. |
 
 ## Commands and commit procedure
 

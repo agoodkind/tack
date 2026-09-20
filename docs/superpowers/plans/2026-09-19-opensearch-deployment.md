@@ -14,6 +14,10 @@
 
 Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Each environment has `tack-search1`, `tack-search2`, and `tack-search3`, each with at least 8 GiB memory, 2 CPU cores, 40 GiB storage, and a 2 GiB JVM heap. QA runs on suburban; production runs on vault. This task prepares changes and evidence; deployment requires separate authorization.
 
+Rendered and live environments contain no Meilisearch service, endpoint, secret,
+volume, dependency, or fallback. FoundationDB supplies every initial OpenSearch
+rebuild. No deployment operation reads or converts the Meilisearch index.
+
 ## Review Focus
 
 Test loss of each guest, model availability after restart, verified TLS, IPv6-only connectivity, and concurrent rebuilding within the guest memory and disk limits.
@@ -54,6 +58,10 @@ Implement `runSearchProvision(ctx context.Context, env *Env) error` and
 `runSearchVerify(ctx context.Context, env *Env) error` in the new ops files.
 
 - [ ] Add a configs render test using the existing `AnsibleRender.render` runner. Render the real override for a search guest and an application guest. Parse the resulting YAML and assert that the search guest starts OpenSearch with persistent storage, while the application receives all three HTTPS endpoints and no provisioning credential.
+- [ ] Remove the Meilisearch service, application dependency, endpoint, secret,
+  volume, and inventory or template values from Tack and configs. Render an
+  application guest and both environment groups. Require OpenSearch settings and
+  reject any live Meilisearch resource.
 - [ ] Run `bundle exec rspec spec/ansible/tack_search_spec.rb`. Expect failure before the inventory and templates define search guests.
 - [ ] Allocate six distinct guest IDs, addresses, pinned MACs, and Docker IPv6 subnets in service_mapping. Check the entire mapping and live guest inventory before reserving them. The existing `tack_data1/2/3` entries are ledger guests and must remain separate. Use production keys `tack_search1/2/3` and QA keys with `_suburban`; use QA VMIDs equal to their production counterpart plus 100 where the verified inventory permits it.
 - [ ] Add the LXC resources using mapping-derived identities. Match the existing production and QA bridge, gateway, DNS, Debian template, unprivileged nesting, discard, and prevent_destroy settings. Set memory to at least 8192 MiB, cores to 2, and disk size to 40 GiB. Do not provision a fourth permanent search guest.
@@ -88,6 +96,10 @@ memory-map prerequisite; validate them inside the LXC before container startup.
   distribution; Tack must not select a guest for each node.
 - [ ] Add a three-node local integration test using real containers, then stop each container in turn through the Docker SDK. Search must succeed; a newly written small node must become searchable within 10 seconds. Restart each node and repeat. Deny model-download network access after provisioning and require ordinary inference to keep working.
 - [ ] Run the render tests, `tofu validate` in both OpenTofu directories, the local cluster test, and repository checks. Review a saved OpenTofu plan for exactly the intended six additions and no unrelated replacement or deletion. Commit Tack with subject `Provision and verify the OpenSearch container cluster`; commit configs with subject `Add QA and production Tack search guests`.
+- [ ] Do not preserve or migrate the old Meilisearch volume. Its deletion is a
+  separate destructive deployment action. Request authorization after the empty
+  OpenSearch index has rebuilt from FoundationDB and public search checks pass.
+  Do not define a Meilisearch rollback path.
 
 ## Task 12: Verify QA and production after authorization
 
@@ -103,6 +115,9 @@ model/tokenizer checksums, TLS identities, topology, and acceptance measurements
 ```
 
 - [ ] Run audited search provisioning, reindexing, verification, and guarded QA datagen on QA. Verify three independent LXCs, actual resource allocations, IPv6-only REST/transport connectivity, valid TLS, model identity, and all primary/replica placements.
+- [ ] Verify the QA application process, containers, volumes, environment, secrets,
+  and inventory contain no Meilisearch resource. After search passes, present the
+  exact old volume deletion for separate authorization.
 - [ ] Stop each QA search guest separately and repeat public search and node-write checks. Require inference and all primaries to remain available. These guests share a hypervisor; this test does not claim hypervisor fault tolerance.
 - [ ] Before the capacity run, record corpus size, page distribution, query mix,
   concurrency, mutation rate, rebuild activity, and pass thresholds for latency,
@@ -121,3 +136,6 @@ model/tokenizer checksums, TLS identities, topology, and acceptance measurements
 ```
 
 - [ ] Verify deployed revisions, image/model identity, TLS, topology, and authorized smoke fixtures. Record provisioning, deployment, and live verification separately. Do not report the implementation tickets complete merely because source tests passed.
+- [ ] Verify the production application process, containers, volumes, environment,
+  secrets, and inventory contain no Meilisearch resource. Delete an old volume only
+  after its exact destructive action has separate authorization.
