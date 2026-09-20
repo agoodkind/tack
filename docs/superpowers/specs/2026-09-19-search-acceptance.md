@@ -27,6 +27,9 @@ and measurements. QA must pass before production.
   explicit unavailable error instead of reporting success through a no-op client.
 - Provision an empty OpenSearch index and rebuild it only from FoundationDB. The
   provisioning and rebuild operations must not read or transfer Meilisearch data.
+- Do not export, translate, import, attach, or inspect a Meilisearch index, snapshot,
+  dump, volume, document, schema, synonym, ranking setting, or result as an input to
+  OpenSearch provisioning, fixtures, relevance checks, or rebuilds.
 - Inspect rendered QA and production configuration and the live deployments.
   Neither environment may contain a Meilisearch process, container, secret,
   endpoint, volume, or dependency.

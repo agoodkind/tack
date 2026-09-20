@@ -4,13 +4,13 @@ TACK-517 specifies search. TACK-518 through TACK-520 retain cross-cutting accept
 
 ## Problem
 
-The current search path uses one Meilisearch 1.12 container with a 2 GiB memory limit. Search stops when that container or its guest stops, and the deployed index has no copy on another guest. Every organization also shares one master-key connection, and the adapter formats filters as strings. Meilisearch therefore cannot enforce the tenant boundary; the MCP tool must read each result from FoundationDB and apply current organization and scope checks. Meilisearch matches words rather than meaning, so queries such as `db` require maintained synonyms to find `Database failover`. FoundationDB already stores the authoritative nodes and can rebuild the index, so migrating or preserving Meilisearch state would add work without protecting source data.
+The current search path uses one Meilisearch 1.12 container with a 2 GiB memory limit. The search endpoint receives little use today. Search stops when that container or its guest stops, and the deployed index has no copy on another guest. Every organization also shares one master-key connection, and the adapter formats filters as strings. Meilisearch therefore cannot enforce the tenant boundary; the MCP tool must read each result from FoundationDB and apply current organization and scope checks. Meilisearch matches words rather than meaning, so queries such as `db` require maintained synonyms to find `Database failover`. FoundationDB already stores the authoritative nodes and can rebuild the index, so migrating or preserving Meilisearch state would add work without protecting source data.
 
 ## Decision
 
 Tack replaces Meilisearch with OpenSearch 3.8. Production uses three nodes and one replica. QA uses one node and no replica because suburban cannot safely host the production topology. OpenSearch generates local sparse semantic embeddings through its native `semantic` field and ranks any number of bounded reader pages. FoundationDB remains authoritative for nodes, metadata, relationships, authorization, durable indexing work, search sessions, and rebuild coordination. Tack does not select shard nodes, count model tokens, or implement a tokenizer.
 
-The only application cutover enables OpenSearch and deletes the Meilisearch client, configuration, adapters, test environment, container, volume, credentials, and operational documentation. It does not migrate the Meilisearch index, write to both engines, preserve a fallback, or retain a compatibility layer. Provisioning creates an empty OpenSearch index and rebuilds it only from FoundationDB.
+The only application cutover enables OpenSearch and deletes the Meilisearch client, configuration, adapters, test environment, container, volume, credentials, and operational documentation. It does not migrate the Meilisearch index, write to both engines, preserve a fallback, or retain a compatibility layer. No Meilisearch document, schema, setting, synonym, ranking rule, result, or code becomes an OpenSearch input. Provisioning creates an empty OpenSearch index and rebuilds it only from FoundationDB.
 
 ## Search behavior
 

@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Preserve the operations audit entry point. Search outages must not discard committed node changes. Delete Meilisearch completely. Do not migrate its index or preserve a fallback.
+Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Preserve the operations audit entry point. Search outages must not discard committed node changes. Delete Meilisearch completely. Do not migrate its index, adapt its behavior, use its data for validation, or preserve a fallback.
 
 ## Review Focus
 
@@ -49,8 +49,9 @@ func (r searchRuntime) Close()
   Run `go mod tidy`. The application must build and start with OpenSearch
   configuration only.
 - [ ] Provision one empty versioned OpenSearch index. Run the audited rebuild from
-  FoundationDB before search becomes ready. Never query, copy, or translate the
-  existing Meilisearch index.
+  FoundationDB before search becomes ready. Never query, export, copy, translate,
+  attach, or inspect the existing Meilisearch index or volume. Do not use its schema,
+  settings, synonyms, ranking rules, documents, or results as fixtures or validation.
 - [ ] Construct the official client independently of engine readiness. Invalid configuration fails startup. An unavailable engine leaves durable work pending and makes search return `ErrUnavailable`. Model and index provisioning belong to the audited operator path, not every application startup.
 - [ ] Start bounded claim loops with explicit worker limits for live mutations,
   cleanup, metadata rescans, and rebuild work. Each worker calls one bounded

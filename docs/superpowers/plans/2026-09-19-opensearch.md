@@ -21,6 +21,8 @@ The native sparse indexing and ranking configuration passed local engine validat
   configuration, test environment, container, volume, credentials, and runbook.
 - Do not migrate the Meilisearch index, write to both engines, preserve a fallback,
   retain a compatibility layer, or keep Meilisearch deployment resources.
+- Do not use Meilisearch documents, schema, settings, synonyms, ranking rules,
+  results, or code as inputs to OpenSearch provisioning, fixtures, or validation.
 - Create the first OpenSearch index empty and rebuild it only from FoundationDB.
 - Tack neither loads a tokenizer nor counts model tokens. OpenSearch remains unmodified.
 - Custom plugins, forks, and external inference are excluded.
