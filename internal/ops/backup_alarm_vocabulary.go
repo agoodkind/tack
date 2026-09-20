@@ -107,8 +107,8 @@ var backupAlarmVocabulary = map[string]backupAlarmWords{
 		paragraphUnreadable:    "The product database backup's status could not be read.",
 		paragraphRemembered:    " The newest restorable point this guest last read was" + backupAlarmKnownFact,
 		steps: []string{
-			"On each data guest, run docker ps and confirm tack-fdb-backup-agent-1 is running.",
-			"On a data guest where it is missing or restarting, run docker logs tack-fdb-backup-agent-1 and read what it reports.",
+			"On each data guest, run docker ps and confirm tack-fdb-backup-agent-1 is there.",
+			"On a data guest that is missing it, run docker logs tack-fdb-backup-agent-1 and read what it reports.",
 			"Confirm the object store accepts writes, then run docker compose restart fdb-backup-agent on that guest.",
 		},
 	},

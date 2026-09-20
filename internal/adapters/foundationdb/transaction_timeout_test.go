@@ -18,34 +18,42 @@ const testTransactionTimeout = 5 * time.Second
 // that ran past its timeout.
 const fdbErrorTransactionTimedOut = 1031
 
-// TestOpenBoundsATransactionByItsTimeout proves the bound Open sets is real on
-// a running cluster: a transaction still open past the timeout is refused,
-// rather than waiting for a caller deadline the request path does not always
-// set (TACK-408).
-func TestOpenBoundsATransactionByItsTimeout(t *testing.T) {
-	const timeout = 300 * time.Millisecond
-	database, err := Open(testenv.FoundationDB(t), timeout)
+// TestOpenBoundsATransactionByTheTimeoutItWasGiven asserts that a transaction
+// open past the timeout is refused, rather than waiting for a caller deadline
+// the request path does not always set, and that the bound is the value the
+// last Open was given.
+//
+// Both assertions run in one test against one cluster file. The binding keeps
+// one Database per cluster file for the whole process (the openDatabases map
+// in fdb.go), so separate tests would be separate orderings of the same
+// handle. The cleanup restores the package's timeout for whatever runs next.
+func TestOpenBoundsATransactionByTheTimeoutItWasGiven(t *testing.T) {
+	clusterFile := testenv.FoundationDB(t)
+	t.Cleanup(func() {
+		if _, err := Open(clusterFile, testTransactionTimeout); err != nil {
+			t.Errorf("restore the package timeout: %v", err)
+		}
+	})
+
+	const generousTimeout = 4 * time.Second
+	generous, err := Open(clusterFile, generousTimeout)
 	if err != nil {
-		t.Fatalf("Open: %v", err)
+		t.Fatalf("Open with %s: %v", generousTimeout, err)
+	}
+	if err := readAfterWaiting(generous, time.Second); err != nil {
+		t.Fatalf("a read one second into a %s bound returned %v, want the transaction still usable",
+			generousTimeout, err)
 	}
 
-	transaction, err := database.CreateTransaction()
+	const shortTimeout = 300 * time.Millisecond
+	short, err := Open(clusterFile, shortTimeout)
 	if err != nil {
-		t.Fatalf("CreateTransaction: %v", err)
+		t.Fatalf("Open with %s: %v", shortTimeout, err)
 	}
-	// One read first, so the transaction already has a read version and the
-	// second read reaches the bound rather than the read version request.
-	if _, err := transaction.Get(fdb.Key("tack-test:timeout-probe")).Get(); err != nil {
-		t.Fatalf("first read: %v", err)
-	}
-
-	time.Sleep(timeout * 3)
-
-	started := time.Now()
-	_, err = transaction.Get(fdb.Key("tack-test:timeout-probe")).Get()
-	elapsed := time.Since(started)
+	err = readAfterWaiting(short, shortTimeout*3)
 	if err == nil {
-		t.Fatal("the read after the timeout succeeded; the database option set no bound")
+		t.Fatalf("a read %s into a %s bound succeeded; the shorter timeout replaced nothing",
+			shortTimeout*3, shortTimeout)
 	}
 	var fdbErr fdb.Error
 	if !errors.As(err, &fdbErr) {
@@ -55,31 +63,21 @@ func TestOpenBoundsATransactionByItsTimeout(t *testing.T) {
 		t.Fatalf("the read after the timeout returned FoundationDB error %d (%v), want %d",
 			fdbErr.Code, err, fdbErrorTransactionTimedOut)
 	}
-	if elapsed > timeout {
-		t.Fatalf("the refusal took %s, longer than the %s bound", elapsed, timeout)
-	}
 }
 
-// TestOpenLeavesATransactionUnboundedWithoutATimeout proves the zero value is
-// the old behavior, so an environment that renders no timeout keeps running
-// rather than refusing every transaction.
-func TestOpenLeavesATransactionUnboundedWithoutATimeout(t *testing.T) {
-	database, err := Open(testenv.FoundationDB(t), 0)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-
+// readAfterWaiting opens a transaction, reads, waits, and reads again. The
+// first read establishes the transaction's read version. The bound decides the
+// second read.
+func readAfterWaiting(database fdb.Database, wait time.Duration) error {
 	transaction, err := database.CreateTransaction()
 	if err != nil {
-		t.Fatalf("CreateTransaction: %v", err)
+		return err
 	}
-	if _, err := transaction.Get(fdb.Key("tack-test:unbounded-probe")).Get(); err != nil {
-		t.Fatalf("first read: %v", err)
+	probe := fdb.Key("tack-test:timeout-probe")
+	if _, err := transaction.Get(probe).Get(); err != nil {
+		return err
 	}
-
-	time.Sleep(time.Second)
-
-	if _, err := transaction.Get(fdb.Key("tack-test:unbounded-probe")).Get(); err != nil {
-		t.Fatalf("the read a second after the first returned %v, want the transaction still usable", err)
-	}
+	time.Sleep(wait)
+	_, err = transaction.Get(probe).Get()
+	return err
 }

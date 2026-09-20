@@ -14,8 +14,12 @@ import (
 // transactionTimeout bounds every transaction this database creates, retries
 // included: at API version 740 the binding does not reset the option after a
 // retryable error, so one value bounds the whole retry loop. A zero or
-// negative value leaves the transactions unbounded, which is what the cluster
-// did before a coordinator change could stall one (TACK-408).
+// negative value sets no option (TACK-408).
+//
+// The binding keeps one Database per cluster file for the whole process. The
+// timeout therefore reaches every holder of that cluster file, and the last
+// Open of a given file decides it. Each process opens once and names its own
+// value.
 func Open(clusterFile string, transactionTimeout time.Duration) (fdb.Database, error) {
 	if err := fdb.APIVersion(740); err != nil {
 		return fdb.Database{}, fmt.Errorf("fdb api version: %w", err)

@@ -136,12 +136,15 @@ tack_store_node_present: true
 Set in `tack_qa_all.yml`:
 
 ```yaml
+tack_store_seed_cluster_file: true
 tack_store_bootstrap_coordinators:
   - "3d06:bad:b01:210::217"
 ```
 
 The per-guest file is where `tack_store_node_present` belongs, because the
-owner guest reads the environment group too.
+owner guest reads the environment group too. The seed flag and the list change
+together: the deploy writes the seeded file when the flag is true, and a file
+assembled from an empty list would name no coordinator at all.
 
 Deploy. Each data guest seeds its cluster file with the coordinator from step
 3, starts one store process on host networking, and starts one backup agent.
@@ -195,6 +198,7 @@ Set in `tack_qa_all.yml`:
 
 ```yaml
 tack_store_legacy_node_present: false
+tack_store_seed_cluster_file: true
 tack_store_bootstrap_coordinators:
   - "3d06:bad:b01:210::220"
   - "3d06:bad:b01:210::221"
