@@ -122,8 +122,11 @@ func provisionFDB(ctx context.Context, cli *client.Client, cfg *config.Config, a
 		slog.ErrorContext(ctx, "provision.fdb.redundancy_rejected", slog.String("err", err.Error()))
 		return fmt.Errorf("provision fdb redundancy: %w", err)
 	}
-	status, err := runStoreCLIWith(ctx, cli, cfg, "status minimal")
-	if err != nil && status == "" {
+	// fdbcli exits nonzero when the cluster it is asked about was never
+	// configured, which is the reading this step wants. The exit code is
+	// therefore data; a container that could not run at all is the error.
+	status, _, err := readStoreCLI(ctx, cli, cfg, "status minimal")
+	if err != nil {
 		slog.ErrorContext(ctx, "provision.fdb.status_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("provision fdb status: %w", err)
 	}

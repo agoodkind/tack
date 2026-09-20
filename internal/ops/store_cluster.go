@@ -117,6 +117,30 @@ func runStoreCLI(ctx context.Context, cfg *config.Config, command string) (strin
 // runStoreCLIWith is runStoreCLI against a Docker client the caller owns, so a
 // command issuing several fdbcli calls opens one client.
 func runStoreCLIWith(ctx context.Context, cli *client.Client, cfg *config.Config, command string) (string, error) {
+	output, exitCode, err := readStoreCLI(ctx, cli, cfg, command)
+	if err != nil {
+		return "", err
+	}
+	if exitCode != 0 {
+		exitErr := fmt.Errorf("store %q exited %d: %s", command, exitCode, output)
+		slog.ErrorContext(ctx, "ops.store.cli_nonzero",
+			slog.String("command", command), slog.Int("code", exitCode), slog.String("err", exitErr.Error()))
+		return output, exitErr
+	}
+	return output, nil
+}
+
+// readStoreCLI runs one fdbcli command and returns what it printed with the
+// exit code beside it. The two are separate answers. fdbcli exits nonzero when
+// it is asked about a cluster it cannot reach or one that was never
+// configured, and that is a reading. The error here is a container that could
+// not run at all.
+func readStoreCLI(
+	ctx context.Context,
+	cli *client.Client,
+	cfg *config.Config,
+	command string,
+) (output string, exitCode int, err error) {
 	res, err := runOneShot(ctx, cli, slog.Default(), runOneShotOptions{
 		Image:      cfg.BackupFDBImage,
 		Network:    cfg.BackupFDBNetwork,
@@ -134,14 +158,7 @@ func runStoreCLIWith(ctx context.Context, cli *client.Client, cfg *config.Config
 	if err != nil {
 		slog.ErrorContext(ctx, "ops.store.cli_failed",
 			slog.String("command", command), slog.String("err", err.Error()))
-		return "", fmt.Errorf("store %q: %w", command, err)
+		return "", 0, fmt.Errorf("store %q: %w", command, err)
 	}
-	output := strings.TrimSpace(res.Stdout + res.Stderr)
-	if res.ExitCode != 0 {
-		exitErr := fmt.Errorf("store %q exited %d: %s", command, res.ExitCode, output)
-		slog.ErrorContext(ctx, "ops.store.cli_nonzero",
-			slog.String("command", command), slog.Int("code", res.ExitCode), slog.String("err", exitErr.Error()))
-		return output, exitErr
-	}
-	return output, nil
+	return strings.TrimSpace(res.Stdout + res.Stderr), res.ExitCode, nil
 }
