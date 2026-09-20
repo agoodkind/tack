@@ -162,8 +162,12 @@ The adapter substitutes the concrete persisted index names and calls the typed `
   one retiring index. Delete failed replacements through resumable cleanup before
   another rebuild starts. Release rebuild journal entries after no active rebuild
   boundary needs them.
-- [ ] Add a scale-out case that provisions another data node and splits from one to
-  two, four, then eight primaries. Undeploy the document model before each split.
+- [ ] Add a scale-out case that starts with a normal one-member cluster, joins two
+  data and ML members through the existing member, changes replicas from zero to
+  one, records that count with the generation, and splits from one to two, four, then
+  eight primaries. Require unchanged sparse weights after replica allocation and each
+  split. Never repeat initial cluster bootstrap. Undeploy the document model before
+  each split.
   Require identical source bytes, generated embeddings, and saved raw-sparse query
   results. Rerun relevance and continuation, then require improved throughput.
 - [ ] Fail real scan, inference, split, replay, and alias operations separately. The

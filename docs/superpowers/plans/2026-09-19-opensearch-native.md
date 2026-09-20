@@ -57,14 +57,15 @@ func New(config opensearch.Config) (*Adapter, error)
 func (a *Adapter) Close() error
 func (a *Adapter) Provision(context.Context) (ModelInfo, error)
 func (a *Adapter) CreateIndex(ctx context.Context, index string, model ModelInfo, primaryShards, routingShards, replicas int) error
+func (a *Adapter) SetReplicas(ctx context.Context, index string, replicas int) error
 ```
 
 - [ ] Add v4.7.3 and run a compatibility test through the production adapter against `opensearchproject/opensearch:3.8.0`. Exercise every typed core API used by later tasks. Treat this gate as required because the v4 client documents later 3.x releases as best effort.
 - [ ] Run `^TestSearchNativeSparse$` and record the missing-adapter failure.
 - [ ] Convert the central application configuration to `opensearch.Config`. Configure one endpoint, credentials, CA bytes, request timeout, retry statuses, retry count, timeout retry policy, client metrics, error reporting for partial bulk and search failures, and lifecycle close. Do not construct another `http.Client`, retry loop, or backend selector.
-- [ ] Use typed client APIs for index creation and split, bulk, point-in-time, alias, document, health, block, and statistics operations. Build search requests with the typed API. Decode the narrow search response with `opensearch.Do`. Define narrow ML Commons request types that satisfy `opensearch.Request`, then call `opensearch.Do` and `opensearch.ParseError`. Stable v4.7.3 omits replacement PIT IDs from `SearchResp` and lacks ML Commons APIs. Do not expose a generic method-and-path JSON function or import the temporary v5 preview package.
+- [ ] Use typed client APIs for index creation, settings, split, bulk, point-in-time, alias, document, health, block, and statistics operations. Build search requests with the typed API. Decode the narrow search response with `opensearch.Do`. Define narrow ML Commons request types that satisfy `opensearch.Request`, then call `opensearch.Do` and `opensearch.ParseError`. Stable v4.7.3 omits replacement PIT IDs from `SearchResp` and lacks ML Commons APIs. Do not expose a generic method-and-path JSON function or import the temporary v5 preview package.
 - [ ] Provision the pinned model. Reuse a registration only after checking its name, version, algorithm, size, bundle hash, deployment state, and worker placement. A mismatch produces an operator error.
-- [ ] Create the index with `opensearchapi.Indices.Create` and caller-supplied replica, positive primary, and positive routing-shard counts. QA and the one-node fixture use zero replicas. Production uses one. Require the routing count to be divisible by the primary count and every approved split target. Store all three counts with the physical generation. Use `dynamic: strict` and this native field configuration:
+- [ ] Create the index with `opensearchapi.Indices.Create` and caller-supplied replica, positive primary, and positive routing-shard counts. Implement `SetReplicas` with the typed index settings API. QA, initial production, and the one-node fixture use zero replicas. Production changes the count to one only after additional data nodes join. Require the routing count to be divisible by the primary count and every approved split target. Store all three counts with the physical generation. Use `dynamic: strict` and this native field configuration:
 
 ```json
 {
@@ -100,4 +101,4 @@ func (a *Adapter) CreateIndex(ctx context.Context, index string, model ModelInfo
 - [ ] Record bundle size, reported runtime memory, process memory, peak ingest memory, and inference latency in an 8 GiB container. Preserve the 4 GiB circuit-breaker regression. Do not infer concurrent capacity from this test.
 - [ ] Run native tests and `make check`. Commit with subject `Add native OpenSearch sparse indexing validation` through the signed procedure.
 
-The query task proves one-time query inference, relevance, and complete continuation. The deployment task proves single-node QA recovery and three-node production failover.
+The query task proves one-time query inference, relevance, and complete continuation. The deployment task proves single-node recovery in both initial environments and requires separate scale-out acceptance before production claims failover.

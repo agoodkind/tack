@@ -34,14 +34,14 @@ The native sparse indexing and ranking configuration passed local engine validat
 - Reader parts contain at most 4,096 UTF-8 bytes; queries contain at most 126 UTF-8 bytes.
 - Map page text as a native `semantic` field. OpenSearch performs fixed-character chunking, sparse encoding, pruning, and point-in-time pagination.
 - Pin the latest stable Go client, v4.7.3. Task 1 must keep its core API compatibility test against the exact OpenSearch 3.8.0 image because the client documents later 3.x releases as best effort.
-- Use typed client APIs for core index creation and split, bulk, point-in-time, alias, document, health, block, and statistics operations. Build searches with the typed request API and decode the few response fields the typed response omits with `opensearch.Do`. Define narrow request types for ML Commons operations that stable v4 does not include, then use `opensearch.Do` and `opensearch.ParseError`. Do not add a generic method-and-path JSON API or import the temporary v5 preview package.
+- Use typed client APIs for core index creation, settings, split, bulk, point-in-time, alias, document, health, block, and statistics operations. Build searches with the typed request API and decode the few response fields the typed response omits with `opensearch.Do`. Define narrow request types for ML Commons operations that stable v4 does not include, then use `opensearch.Do` and `opensearch.ParseError`. Do not add a generic method-and-path JSON API or import the temporary v5 preview package.
 - Bulk requests contain at most 500 page documents and 5 MiB of encoded data, including action lines.
 - A result page has at most 25 nodes within Tack's response-byte budget.
 - Continuation can reach every matching node. Engine batches contain at most 100 matches; responses scan at most four batches.
 - Configure one environment search endpoint in the official client. Its connection
   pool owns retries, TLS, and transport metrics. The hypervisor proxy owns backend
   health and selection. OpenSearch owns shard and ML worker selection.
-- QA starts with one LXC guest and zero replicas. Production starts with three LXC guests and one replica. Every combined-role guest has at least 8 GiB memory, 2 CPU cores, 40 GiB storage, and a 2 GiB JVM heap.
+- QA and production each start with one LXC guest and zero replicas. Production forms a normal one-member cluster and must not use `discovery.type: single-node`. Every combined-role guest has at least 8 GiB memory, 2 CPU cores, 40 GiB storage, and a 2 GiB JVM heap.
 - Keep at least 6.26 GiB of suburban host memory available throughout the complete QA workload. The one-node CPU and fast-storage projections pass. QA does not claim OpenSearch node failover or horizontal scale.
 - Adding Tack processes, FoundationDB capacity, OpenSearch ML nodes, data nodes, replicas, or coordinating endpoints must not require application code or stored-format changes. A higher primary-shard count uses native splitting along its reserved routing path and a full replacement otherwise.
 - Persist all search sessions and work in FoundationDB. Distribute their keys across stable hash buckets. Do not require sticky requests, a process-local cache, a global sequence, or one claim range.
@@ -75,7 +75,7 @@ The native sparse indexing and ranking configuration passed local engine validat
 5. A metadata or ancestry change during an index replacement must appear after the alias switch. Recovery tasks test concurrent public changes.
 6. A large node, cleanup, or rebuild must yield before it starves live mutation work. Worker and capacity tasks measure every work class.
 7. Session and rebuild cleanup must bound the number and lifetime of retained physical indexes.
-8. The inactive production cluster must tolerate one stopped node before application cutover. QA validates single-node recovery instead of multi-node availability.
+8. Each initial environment must recover durable work after its only search node restarts. Production must pass cluster join, proxy distribution, replica placement, and one-member failure checks before it claims multi-node availability.
 
 ---
 
@@ -115,7 +115,7 @@ authenticated calls for the owning tasks.
 | Task 9: Rebuild and restore | TACK-537 |
 | Task 10: QA datagen coverage | TACK-538 |
 | Task 11, Tack: Containers and provisioning operations | TACK-539 |
-| Task 11, configs: One QA guest, three production guests, and rendered configuration | TACK-540 |
+| Task 11, configs: One initial guest per environment and scalable rendered configuration | TACK-540 |
 | Task 12: QA, production, and Meilisearch deployment removal | TACK-541 |
 
 TACK-518, TACK-519, and TACK-520 retain the cross-cutting scalability,

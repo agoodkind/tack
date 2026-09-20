@@ -8,7 +8,7 @@ The current search path uses one Meilisearch 1.12 container with a 2 GiB memory 
 
 ## Decision
 
-Tack replaces Meilisearch with OpenSearch 3.8. Production uses three nodes and one replica. QA uses one node and no replica because suburban cannot safely host the production topology. OpenSearch generates local sparse semantic embeddings through its native `semantic` field and ranks any number of bounded reader pages. FoundationDB remains authoritative for nodes, metadata, relationships, authorization, durable indexing work, search sessions, and rebuild coordination. Tack does not select shard nodes, count model tokens, or implement a tokenizer.
+Tack replaces Meilisearch with OpenSearch 3.8. QA and production each start with one node and no replica. QA uses OpenSearch's single-node discovery mode. Production forms a normal cluster with one initial member so later nodes can join without changing Tack or rebuilding embeddings. OpenSearch generates local sparse semantic embeddings through its native `semantic` field and ranks any number of bounded reader pages. FoundationDB remains authoritative for nodes, metadata, relationships, authorization, durable indexing work, search sessions, and rebuild coordination. Tack does not select shard nodes, count model tokens, or implement a tokenizer.
 
 The only application cutover enables OpenSearch and deletes the Meilisearch client, configuration, adapters, test environment, container, volume, credentials, and operational documentation. It does not migrate the Meilisearch index, write to both engines, preserve a fallback, or retain a compatibility layer. No Meilisearch document, schema, setting, synonym, ranking rule, result, or code becomes an OpenSearch input. Provisioning creates an empty OpenSearch index and rebuilds it only from FoundationDB.
 
@@ -113,8 +113,8 @@ rank. Tack skips later matches for visited nodes.
 
 The official client receives one environment endpoint and owns TLS, connection
 pooling, retries, and transport metrics. A health-checking proxy on that
-environment's hypervisor selects an OpenSearch node. QA has one backend. Production
-has three. The selected node coordinates shard work. Each engine response returns at most 100
+environment's hypervisor selects an OpenSearch node. Each environment starts with
+one backend. The selected node coordinates shard work. Each engine response returns at most 100
 page matches through `search_after`. Each public response reads at most four
 engine batches. An empty deduplicated response can still include a continuation.
 Only an empty raw engine batch ends traversal. No request assembles all matches
@@ -169,19 +169,21 @@ Tack request handlers keep no process-local search state. Every instance opens o
 continues sessions through FoundationDB. Stable hash buckets distribute session and
 work keys without sticky routing or a global claim range.
 
-QA starts with one combined-role LXC guest on `suburban`. Production starts with
-three combined-role LXC guests on `vault`. Each guest uses OpenSearch 3.8.0 with at
-least 8 GiB memory, 2 CPU cores, 40 GiB storage, and a 2 GiB JVM heap. QA uses zero
-replicas and becomes unavailable when its guest stops. Production uses one replica,
-and one production guest can stop without losing a primary or the model.
+QA starts with one combined-role LXC guest on `suburban`. Production starts with one
+on `vault`. Each guest uses OpenSearch 3.8.0 with at least 8 GiB memory, 2 CPU cores,
+40 GiB storage, and a 2 GiB JVM heap. Both environments use zero replicas and become
+unavailable when their search guest stops. Production claims node failover only after
+at least three members and one replica pass the production failure test.
 
 Each hypervisor exposes one stable HTTPS search endpoint on its guest-segment
 address. Its proxy verifies backend certificates, checks readiness, and selects
-the configured backends. Tack never stores cluster membership. Adding
-ML-only or data-only nodes changes only OpenSearch membership. Dedicated
-coordinating nodes can later replace the proxy's backend pool without changing
-Tack. The endpoint adds no new host failure domain because every search guest in
-an environment already depends on that hypervisor.
+the configured backends. Tack never stores cluster membership. Production uses
+normal discovery from its first start. New members discover the existing cluster,
+then the proxy adds their addresses. Adding ML-only or data-only nodes changes only
+OpenSearch membership and proxy configuration. Dedicated coordinating nodes can
+later replace the proxy's backend pool without changing Tack. The endpoint adds no
+new host failure domain because every search guest in an environment already
+depends on that hypervisor.
 
 OpenSearch dispatches ML work across eligible ML nodes and routes search across primary
 and replica shards. Model deployment specifies no node IDs and includes new ML
@@ -192,8 +194,7 @@ ML workers nor shard nodes.
 
 The final GTE sparse workload opened the ML memory circuit breaker at 4 GiB. It completed at 8 GiB and used about 3.4 GiB afterward. Eight GiB is the per-guest floor, not a capacity result. Suburban can provision one capped 8 GiB QA guest, but the permanent workload must keep at least 6.26 GiB of host memory available. The earlier 3.4 GiB post-workload reading plus the proxy would leave about 6.69 GiB. That reading did not measure peak use, so QA activation requires a complete indexing, query, and rebuild workload before the guest remains enabled. One guest passes the host CPU and fast-storage projections.
 
-QA capacity sets pass thresholds for latency, throughput, pending-work age, memory,
-disk, node unavailability, recovery, and concurrent replacement. QA makes no
-multi-node failover or horizontal scaling claim. The inactive production cluster must
-pass one-guest failure checks before application cutover. Disk must fit all three
-index generations.
+QA and production capacity set pass thresholds for latency, throughput, pending-work age, memory, disk, recovery, and concurrent replacement. The initial release makes no
+OpenSearch failover claim. Before production adds nodes, verify cluster joining, model
+placement, proxy selection, replica creation, shard placement, and one-member failure.
+Disk must fit all three index generations.
