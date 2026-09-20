@@ -1,17 +1,18 @@
 // Package testenv gives tests a real YugabyteDB ledger, a real FoundationDB
-// cluster, a real Meilisearch engine, and a real SeaweedFS object store. Each
-// process starts its own engines as containers through the Docker SDK, so test
-// binaries running in parallel share no engine state, and removes them when
-// [Release] runs at the end of the binary's TestMain. The engine images are
+// cluster, a real Meilisearch engine, a real SeaweedFS object store, and a
+// real three-broker Apache Kafka cluster. Each process starts its own engines
+// as containers through the Docker SDK, so test binaries running in parallel
+// share no engine state, and removes them when [Release] runs at the end of
+// the binary's TestMain. The engine images are
 // the ones docker-compose.yml runs for the live stores; the object store,
 // which the configs repo runs outside that stack, pins the release that repo
 // deploys.
 //
-// A test that needs a store calls [Ledger], [FoundationDB], [Meilisearch], or
-// [ObjectStore]. When the Docker daemon cannot be reached the test fails with
-// the reason; only a `go test -short` run skips it. cmd/testenv drives the
-// same helpers for an operator, and its `down` subcommand removes every engine
-// by label.
+// A test that needs a store calls [Ledger], [FoundationDB], [Meilisearch],
+// [ObjectStore], or [Queue]. When the Docker daemon cannot be reached the
+// test fails with the reason; only a `go test -short` run skips it.
+// cmd/testenv drives the same helpers for an operator, and its `down`
+// subcommand removes every engine by label.
 package testenv
 
 import (
@@ -66,6 +67,7 @@ func (state *provisioned) get(t T, provision func(context.Context) (string, erro
 var (
 	ledgerState       provisioned
 	foundationDBState provisioned
+	queueState        provisioned
 	dockerState       provisioned
 )
 
@@ -95,6 +97,15 @@ func FoundationDB(t T) string {
 	t.Helper()
 	skipWhenShort(t)
 	return foundationDBState.get(t, provisionFoundationDB)
+}
+
+// Queue returns the comma-separated bootstrap list of this process's
+// three-broker Apache Kafka cluster, each broker in the KRaft combined broker
+// and controller role.
+func Queue(t T) string {
+	t.Helper()
+	skipWhenShort(t)
+	return queueState.get(t, provisionQueue)
 }
 
 // RequireDocker fails the test unless the local Docker daemon answers, for
