@@ -59,6 +59,18 @@ func RunBackupBucketsInit(ctx context.Context, cfg *config.Config) error {
 	return nil
 }
 
+// backupS3DefaultMaxAttempts is how many times the client tries one request
+// before it gives up, the AWS SDK's own default written out so the budget every
+// deployment runs under is stated rather than inherited.
+const backupS3DefaultMaxAttempts = 3
+
+// backupS3MaxAttempts is the budget the next client is built with. It is a
+// package var so a test aiming the client at an address nothing listens on can
+// cut it to a single attempt: against a refusal the second and third attempts
+// add only the SDK's jittered backoff to an answer the first one already
+// settled (TACK-528).
+var backupS3MaxAttempts = backupS3DefaultMaxAttempts
+
 // newBackupS3Client builds an S3 client for the SeaweedFS endpoint using static
 // credentials from config. UsePathStyle is mandatory because SeaweedFS does not
 // support virtual-hosted-style bucket addressing.
@@ -75,6 +87,7 @@ func newBackupS3Client(cfg *config.Config) *s3.Client {
 	return s3.NewFromConfig(awsCfg, func(o *s3.Options) {
 		o.BaseEndpoint = aws.String(cfg.BackupS3Endpoint)
 		o.UsePathStyle = true
+		o.RetryMaxAttempts = backupS3MaxAttempts
 	})
 }
 
