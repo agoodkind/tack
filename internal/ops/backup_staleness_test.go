@@ -474,7 +474,6 @@ func TestRunBackupStalenessCheckRequiresObjectStoreConfig(t *testing.T) {
 func TestRunBackupStalenessCheckReportsUnreachableStoreAsStale(t *testing.T) {
 	nowFunc = func() time.Time { return time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC) }
 	t.Cleanup(func() { nowFunc = time.Now })
-	// Every S3 call below is refused, so one attempt settles it.
 	backupS3Attempts(t, 1)
 
 	cfg := &config.Config{

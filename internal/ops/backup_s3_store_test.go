@@ -23,8 +23,7 @@ type backupTestStore struct {
 }
 
 // newBackupTestStore creates an empty bucket and writes objects (key to body)
-// into it. This engine answers, so the client takes the budget every deployment
-// runs under, whatever a refused endpoint earlier in the test cut it to.
+// into it.
 func newBackupTestStore(t *testing.T, objects map[string][]byte) *backupTestStore {
 	t.Helper()
 	backupS3Attempts(t, backupS3DefaultMaxAttempts)
@@ -96,9 +95,7 @@ func (s *backupTestStore) object(key string) (body []byte, found bool) {
 
 // stop stops the engine holding the bucket: its address refuses connections
 // and the bucket stays on its disk. The caller defers ensureStarted, so the
-// tests after it find the engine running. Every S3 call until the engine starts
-// again is refused, so the client takes one attempt rather than three
-// (backupS3Attempts).
+// tests after it find the engine running.
 func (s *backupTestStore) stop() {
 	s.t.Helper()
 	testenv.StopObjectStore(s.t, s.bucket.Container)
@@ -107,8 +104,7 @@ func (s *backupTestStore) stop() {
 }
 
 // start starts the stopped engine again and returns the endpoint it answers
-// on. The engine answers again, so the client goes back to the budget every
-// deployment runs under.
+// on.
 func (s *backupTestStore) start() string {
 	s.t.Helper()
 	s.bucket.Endpoint = testenv.StartObjectStore(s.t, s.bucket.Container)

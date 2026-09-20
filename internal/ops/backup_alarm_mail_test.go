@@ -49,8 +49,7 @@ func fixBackupStalenessClock(t *testing.T, now time.Time) {
 // unreachableBackupStalenessConfig is a host whose object store and ledger
 // masters both refuse connections, so every mechanism is unmeasurable and
 // therefore stale. The backup root is a fresh directory, the state of a guest
-// that has never alarmed. Every S3 call made under this config is refused, so
-// the client takes one attempt rather than three (backupS3Attempts).
+// that has never alarmed.
 func unreachableBackupStalenessConfig(t *testing.T, recipient string) *config.Config {
 	t.Helper()
 	backupS3Attempts(t, 1)
