@@ -6,7 +6,7 @@
 
 **Architecture:** OpenSearch ranks and groups page matches. FoundationDB stores each bounded ranked set. The node reader supplies current visibility and bounded summaries before MCP renders each result.
 
-**Tech Stack:** Go, OpenSearch hybrid search, FoundationDB, MCP Streamable HTTP.
+**Tech Stack:** Go, OpenSearch exact vector scoring and field collapse, FoundationDB, MCP Streamable HTTP.
 
 **Spec:** [Ranking and pagination](../specs/2026-09-19-search-design.md#ranking-and-pagination).
 
@@ -26,8 +26,8 @@ Create:
 
 ```text
 internal/domain/search/query.go                    typed query and result contracts
-internal/adapters/search/opensearch_query.go       structured hybrid requests
-internal/adapters/search/opensearch_pipeline.go    normalization pipeline
+internal/adapters/search/opensearch_query.go       structured combined requests
+internal/adapters/search/opensearch_pipeline.go    native query inference
 internal/test/integration/search_ranking_test.go  relevance and distinct-node tests
 ```
 
@@ -40,37 +40,56 @@ type Ranker interface { Rank(context.Context, Query) (RankedSet, error) }
 func (c *OpenSearchClient) Rank(ctx context.Context, query search.Query) (search.RankedSet, error)
 ```
 
-- [ ] Add `TestSearchDistinctNodes`: create 149 ordinary nodes and one node with more than 1,000 pages under the real reader's small byte budget. Give all nodes the same phrase, index them through Worker.RunOne, and call OpenSearchClient.Rank. Require 150 unique IDs. The next task requires six MCP responses of 25 unique nodes. Repeat across all three primary shards.
+- [ ] Add `TestSearchDistinctNodes`: create 149 ordinary nodes and one node with more than 1,000 pages under the real reader's small byte budget. Give all nodes the same phrase, index them through Worker.RunOne, and call OpenSearchClient.Rank. Require 150 unique IDs. The next task requires six MCP responses of 25 unique nodes. Repeat across three primary shards and with 36,000 repeated parts indexed through the public adapter.
 - [ ] Add `TestSearchSemanticRelevance` using every query/text pair from acceptance and 150 distractors. Require each target within the first 25 results. Send a lexical-only control request to the real index and require at least one target to be missed by that control.
 - [ ] Run `^TestSearch(DistinctNodes|SemanticRelevance)$`; expect the existing interface to lack semantic ranking and continuation.
-- [ ] Install `node-pages-hybrid` with `min_max` normalization and `arithmetic_mean` combination. Use two equal initial weights. Build this request through typed fields and `json.Marshal`; never interpolate user input into JSON or filter strings.
+- [ ] Install `node-pages-search` with the native query inference processor below. Substitute the provisioned model ID. The input JSONPath must produce an array of query strings; a literal unresolved template can produce plausible but incorrect vectors.
+
+```json
+{"request_processors":[{"ml_inference":{
+  "model_id":"registered-model-id", "function_name":"text_embedding",
+  "model_input":"{\"text_docs\": ${input_map.text_docs}, \"return_number\": true, \"target_response\": [\"sentence_embedding\"]}",
+  "input_map":[{"text_docs":"$.query.bool.should[*].multi_match.query"}],
+  "output_map":[{"query.bool.should[1].nested.query.script_score.script.params.query_value":"$.inference_results[0].output[0].data"}],
+  "full_response_path":true, "ignore_missing":false, "ignore_failure":false
+}}]}
+```
+
+- [ ] Build this request through typed fields and `json.Marshal`; never interpolate user input into JSON or filter strings. Send it with `search_pipeline=node-pages-search` and disable successful partial search responses.
 
 ```json
 {
   "size": 1000,
   "_source": ["node_id"],
-  "query": {"hybrid": {"queries": [
-    {"bool": {
-      "must": [{"multi_match": {"query": "query-text", "fields": ["name^3", "page_text"]}}],
-      "filter": [{"term": {"org_id": "resolved-org"}}, {"term": {"scope_ids": "resolved-scope"}}, {"term": {"retired": false}}]
-    }},
-    {"neural": {"page_text": {
-      "query_text": "query-text", "k": 10000,
-      "filter": {"bool": {"filter": [{"term": {"org_id": "resolved-org"}}, {"term": {"scope_ids": "resolved-scope"}}, {"term": {"retired": false}}]}}
-    }}}
-  ]}},
+  "sort": [{"_score":"desc"}, {"node_id":"asc"}],
+  "query": {"bool": {
+    "filter": [{"term":{"org_id":"resolved-org"}}, {"term":{"scope_ids":"resolved-scope"}}, {"term":{"retired":false}}],
+    "minimum_should_match": 1,
+    "should": [
+      {"multi_match":{"query":"query-text", "fields":["name^3", "page_text"]}},
+      {"nested": {"path":"embedding_text_semantic_info.chunks", "score_mode":"max",
+        "query": {"script_score": {"query":{"match_all":{}}, "script": {
+          "lang":"knn", "source":"knn_score", "params": {
+            "field":"embedding_text_semantic_info.chunks.embedding",
+            "query_value":[], "space_type":"l2"
+          }
+        }}}
+      }}
+    ]
+  }},
   "collapse": {"field": "node_id"}
 }
 ```
 
 `query-text`, `resolved-org`, and `resolved-scope` are illustrative JSON values;
 the implementation uses Query fields. Add the optional validated node-type filter
-to both branches. Validate the semantic field's filter rewrite against the real
-3.8 engine. Fail the test if filters apply outside the intended node documents.
+to the enclosing Boolean query. OpenSearch generates the vector, sums lexical
+and vector scores, chooses each page's best embedding, and groups by node ID.
 
-- [ ] Validate the proposed candidate depth against the duplicate-heavy fixture and resource bounds. `k:10000` is an initial experiment, not proof that arbitrary page duplication is harmless. Require the distinct-node test to pass before accepting the query configuration. Do not compensate with a fixed Tack page-count limit.
+- [ ] Preserve the duplicate-heavy regression: the rejected hybrid query returned one of 150 nodes with 36,000 parts from that node. Ordinary collapse with exact scoring returned all 150. Use no nearest-neighbor `k` cutoff or hybrid normalization queue. Measure query cost as vector count increases; exact scoring does more work as content grows. Require explicit errors for timeouts or failed shards, never partial successful results.
 - [ ] Decode only canonical node IDs. Reject malformed backend responses and duplicate IDs after native collapse. Freeze the physical index name in RankedSet. Set Limited when the bounded collection reaches 1,000; do not expose OpenSearch hit totals as node totals.
-- [ ] Run ranking tests and `make check`; commit with subject `Rank and collapse node pages with OpenSearch hybrid search`.
+- [ ] Repeat the six relevance queries three times with the native ingest pipeline, unfamiliar metadata, and foreign organization/scope/retirement controls. Require the expected targets within 25 distinct results, stable ordering, and exclusion of all ineligible controls. Compare the pipeline vectors for `db` and `invoice` with direct local inference; require exact matches and different vectors for these distinct meanings. Failed inference must fail the request.
+- [ ] Run ranking tests and `make check`; commit with subject `Rank and collapse node pages with OpenSearch exact vector scores`.
 
 ## Task 7: Enforce current authorization and preserve continuation
 

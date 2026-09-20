@@ -1,6 +1,6 @@
 # OpenSearch Implementation Plan
 
-Stop implementation. The proposed native configuration failed coverage validation. Resolve the failed requirement and revise this plan before executing its tasks.
+The native embedding and ranking configuration passed local engine validation. The implementation tasks must repeat that behavior through Tack's public boundaries.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -20,7 +20,8 @@ Stop implementation. The proposed native configuration failed coverage validatio
 - Node types, property types, and property names are opaque identifiers.
 - The container image is `opensearchproject/opensearch:3.8.0`.
 - Use `huggingface/sentence-transformers/all-MiniLM-L6-v2` version 1.0.2 and 384-dimensional vectors.
-- The native chunker uses `max_chunk_limit: -1`.
+- Reader parts contain at most 4,096 UTF-8 bytes; queries contain at most 126 UTF-8 bytes.
+- OpenSearch uses gsub, delimiter chunking, local inference, exact vector scores, and ordinary field collapse.
 - Bulk requests contain at most 500 page documents and 5 MiB of encoded data, including action lines.
 - A result page has at most 25 nodes within Tack's response-byte budget.
 - A continuation represents one bounded ranked set of at most 1,000 distinct node IDs.
@@ -36,7 +37,7 @@ Stop implementation. The proposed native configuration failed coverage validatio
 
 1. An edit between content reads must produce an explicit revision error, never a mixed document. Reader and worker tasks test it.
 2. A paused old writer must not restore deleted text after another worker completes cleanup. Worker tasks test actual delayed requests.
-3. A long uninterrupted Unicode string must not disappear inside model truncation. Native coverage tests inspect the deployed tokenizer inputs.
+3. A long uninterrupted Unicode string must not disappear inside model truncation. Native coverage tests verify the configured processors and pinned tokenizer.
 4. A byte-limited response must retain the first result it cannot render. Query tasks test continuation with large names.
 5. A metadata or ancestry change during a rebuild must appear after the alias switch. Recovery tasks test concurrent public changes.
 
@@ -49,18 +50,16 @@ These are parts of one implementation. None introduces a temporary search design
 The [fixture code](2026-09-19-opensearch-fixtures.md) supplies real-store setup and
 authenticated calls for the owning tasks.
 
-1. Complete the [native coverage task](2026-09-19-opensearch-native.md). It establishes whether the unchanged engine can satisfy the approved embedding requirement.
+1. Complete the [native coverage task](2026-09-19-opensearch-native.md). Implement the validated engine configuration and its regression tests.
 2. Implement Task 2 in the [reader tasks](2026-09-19-opensearch-reader.md), including metadata declarations, revision identity, bounded pages, and summaries.
 3. Implement the [durable indexing tasks](2026-09-19-opensearch-worker.md), including transaction scheduling, retries, and deletion.
 4. Implement the [query tasks](2026-09-19-opensearch-query.md). Complete native ranking first. Treat MCP integration in Task 7 and runtime assembly in Task 8 as one review and commit unit; neither public path can pass independently. Then complete Task 3's metadata refresh test against that runtime.
 5. Complete the remaining [recovery tasks](2026-09-19-opensearch-recovery.md), including rebuild, restore, and QA generator coverage.
 6. Prepare and validate the [deployment tasks](2026-09-19-opensearch-deployment.md) in Tack and configs. Apply only after deployment authorization.
 
-The native coverage task is a prerequisite for approving the release configuration.
-If it fails, retain its reproducer and report the failing input. Do not substitute
-truncation, a Tack tokenizer, an OpenSearch modification, or an external service.
-The remaining tasks specify the accepted interfaces; a failed prerequisite does
-not authorize implementing a different design.
+The native task repeats the successful engine tests through the production adapter.
+Preserve reproductions of any regression. Do not substitute truncation, a Tack
+tokenizer, an OpenSearch modification, or an external service.
 
 ## File responsibilities
 

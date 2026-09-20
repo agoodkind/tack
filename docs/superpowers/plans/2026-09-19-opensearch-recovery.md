@@ -42,7 +42,7 @@ func (r searchRuntime) Close()
 
 - [ ] Add `TestSearchRuntimeUnavailable`: build the application against a correctly configured but stopped local engine, commit a node mutation through MCP, and require search to return an explicit error. Restart the engine and require automatic indexing. Assert the mutation remained committed during the outage.
 - [ ] Run `^TestSearchRuntimeUnavailable$` and record the pre-change failure.
-- [ ] Add required environment fields `OPENSEARCH_URLS`, `OPENSEARCH_USERNAME`, `OPENSEARCH_PASSWORD`, `OPENSEARCH_CA_FILE`, `SEARCH_PAGE_BYTES`, and `SEARCH_QUERY_BYTES`; add positive bounded worker-concurrency and timeout fields. The two byte values must come from the native coverage task. Do not load runtime JSON/YAML configuration files or log secret values.
+- [ ] Add required environment fields `OPENSEARCH_URLS`, `OPENSEARCH_USERNAME`, `OPENSEARCH_PASSWORD`, `OPENSEARCH_CA_FILE`, `SEARCH_PAGE_BYTES`, and `SEARCH_QUERY_BYTES`; add positive bounded worker-concurrency and timeout fields. Require page bytes between 16 and 4,096 and query bytes between 1 and 126. Do not load runtime JSON/YAML configuration files or log secret values.
 - [ ] Construct the verified-TLS client independently of engine readiness. Invalid configuration fails startup. An unavailable engine leaves durable work pending and makes search return ErrUnavailable. Model/index provisioning belongs to the audited operator path, not every application startup.
 - [ ] Start a bounded number of claim loops. Each loop claims work, calls Worker.RunOne, and records errors before retry. Use context-aware timers with capped backoff. Close cancels new claims, waits for in-flight work up to its request deadline, releases ownership, and then closes storage resources.
 

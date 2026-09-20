@@ -1,7 +1,6 @@
 # OpenSearch search architecture
 
-TACK-517 specifies search; TACK-518, TACK-519, and TACK-520 implement it.
-Search uses a paginated read interface from the start. TACK-524 and TACK-525 address storage.
+TACK-517 specifies search; TACK-518 through TACK-520 implement it. TACK-524 and TACK-525 address storage.
 
 ## Search behavior
 
@@ -77,18 +76,19 @@ OpenSearch ML Commons will run the TorchScript model
 checksum. Tack neither loads a tokenizer nor counts model tokens. OpenSearch
 remains unmodified. Custom plugins, forks, and external inference are excluded.
 
-The page text uses OpenSearch's [semantic field](https://docs.opensearch.org/latest/mappings/supported-field-types/semantic/)
-with local inference and built-in text chunking enabled. OpenSearch divides
-each page into smaller texts and stores their embeddings within that page's
-document. The native chunker uses `max_chunk_limit: -1`; its overflow behavior
-must not merge remaining text into an oversized final chunk.
-The page byte limit must also bound nested objects and inference memory.
+OpenSearch preserves the original page text for keyword search. Its built-in
+gsub processor prepares overlapping texts of at most 40 Unicode characters.
+Its [semantic field](https://docs.opensearch.org/latest/mappings/supported-field-types/semantic/)
+splits those texts on inserted newlines and embeds each through local inference.
+The delimiter chunker uses `max_chunk_limit: -1`. Existing newlines may split
+texts further. Every original character remains covered; emoji stay intact.
 
-OpenSearch's splitter and model can count tokens differently, as reported in
-the [model-based tokenizer proposal](https://github.com/opensearch-project/neural-search/issues/794).
-Pagination does not resolve this mismatch. Complete embedding coverage requires
-proof before release. Copying tokenizer logic into Tack is not an accepted fix.
-Query text must also be processed in full or rejected without a Tack token counter.
+Reader parts contain at most 4,096 UTF-8 bytes. This bounds generated nested
+objects below 10,000, including inputs consisting entirely of newlines.
+The pinned tokenizer requires at most 122 tokens for each generated text,
+including its special tokens. Its actual input limit is 128. Validation checks
+the exact model bundle and tokenizer runtime; changes require renewed proof.
+Queries contain at most 126 UTF-8 bytes. Tack checks bytes, never model tokens.
 
 ## Indexed pages
 
@@ -106,29 +106,31 @@ property names do not create OpenSearch mapping fields.
 | `projection_version` | The pinned metadata, scope, pagination, and model configuration version. |
 | `page_ordinal` | The page's stable position within that revision and projection. |
 | `name` | A Unicode-safe prefix of at most 1 KiB for keyword boosting; pages cover the full name. |
-| `page_text` | A semantic field with raw text and OpenSearch-generated nested embeddings. |
+| `page_text` | Original text for keyword search. |
+| `embedding_text` | OpenSearch-generated text and nested semantic embeddings. |
+| `retired` | A Boolean that excludes obsolete page records from search. |
 
 Document IDs combine organization, node ID, revision, projection version, and
 page ordinal. Retrying a page overwrites that document. Metadata or scope changes
 create a new projection version even with unchanged text. Nested embeddings use
-384 dimensions, Lucene HNSW, and cosine similarity.
+384 dimensions and the model's L2 distance. The semantic mapping requires Lucene HNSW indexing.
 
 ## Ranking and pagination
 
-A hybrid query searches `name` with boost 3 and `page_text` by keyword and neural
-similarity. The `node-pages-hybrid` pipeline uses `min_max` normalization and
-`arithmetic_mean` combination, initially with equal weights. QA relevance tests
-determine the release configuration without maintained synonyms.
+The `node-pages-search` request pipeline generates the query embedding locally.
+A Boolean query sums keyword scores from `name` with boost 3 and `page_text`
+with OpenSearch's exact vector score. Each page uses its highest text-vector
+score. Ordinary field collapse returns the highest-scoring page for each node.
 
-Every branch applies validated organization, scope, and optional type filters
+The query applies validated organization, scope, optional type, and retirement filters
 as structured JSON. All returned candidates, including any exact-reference
 lookup, undergo current authorization and scope checks through the node reader.
 Unavailable authoritative reads fail the request; deleted or no-longer-visible
 nodes are omitted. Candidate text is never used as the returned node body.
 
-OpenSearch's [hybrid collapse](https://docs.opensearch.org/latest/vector-search/ai-search/hybrid-search/collapse/)
-groups pages by `node_id`. Validate candidate depth and nearest-neighbor counts:
-thousands of pages from one node must not crowd other nodes out of a result page.
+Exact scoring uses no fixed nearest-neighbor cutoff. Many parts from one node
+cannot consume the distinct-node result limit. Query work increases with indexed
+content; QA must measure that cost.
 
 A continuation represents one bounded ranked set of at most 1,000 distinct node
 IDs. It binds the query, resolved filters, authenticated principal, and index
@@ -192,7 +194,6 @@ environment variables. Tack owns containers, mappings, pipelines, and the client
 Deployment uses Ansible and IPv6-only networking. REST and transport verify TLS.
 Application credentials are scoped and separate from provisioning credentials.
 Model provisioning requires outbound HTTPS; ordinary inference remains local.
-
 Measure disk use, peak memory, latency, indexing throughput, and pending-work age
 with pages, nested embeddings, metadata, and replicas included. A rebuild needs
 room for both indexes. Added search nodes must redistribute shards without Tack
