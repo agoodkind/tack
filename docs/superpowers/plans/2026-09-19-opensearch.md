@@ -68,6 +68,27 @@ authenticated calls for the owning tasks.
 5. Complete the remaining [recovery tasks](2026-09-19-opensearch-recovery.md), including rebuild, restore, and QA generator coverage.
 6. Prepare and validate the [deployment tasks](2026-09-19-opensearch-deployment.md) in Tack and configs. Apply only after deployment authorization.
 
+## Delivery tickets
+
+| Plan scope | Ticket |
+| --- | --- |
+| Task 1: Native sparse indexing | TACK-530 |
+| Task 2: Paginated node content reads | TACK-531 |
+| Task 3: Metadata refresh | TACK-532 |
+| Task 4: Durable search work | TACK-533 |
+| Task 5: Bounded indexing and retirement | TACK-534 |
+| Task 6: Ranked continuation | TACK-535 |
+| Tasks 7 and 8: Authorized public search, runtime, and Meilisearch removal | TACK-536 |
+| Task 9: Rebuild and restore | TACK-537 |
+| Task 10: QA datagen coverage | TACK-538 |
+| Task 11, Tack: Containers and provisioning operations | TACK-539 |
+| Task 11, configs: Six search guests and rendered configuration | TACK-540 |
+| Task 12: QA, production, and Meilisearch deployment removal | TACK-541 |
+
+TACK-518, TACK-519, and TACK-520 retain the cross-cutting scalability,
+isolation, and semantic acceptance. TACK-524 and TACK-525 remain separate
+storage work.
+
 The native task repeats the successful engine tests through the production adapter.
 Preserve reproductions of any regression. Do not substitute truncation, a Tack
 tokenizer, an OpenSearch modification, or an external service.
