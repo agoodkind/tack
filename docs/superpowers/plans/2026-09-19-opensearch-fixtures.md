@@ -120,7 +120,7 @@ func TestSearchDelayedWriter(t *testing.T) {
     model, err := client.Provision(ctx)
     if err != nil { t.Fatal(err) }
     index := "delayed-" + uuid.Must(uuid.NewV7()).String()
-    if err := client.CreateIndex(ctx, index, model, 3); err != nil { t.Fatal(err) }
+    if err := client.CreateIndex(ctx, index, model, 1, 8, 0); err != nil { t.Fatal(err) }
     t.Cleanup(func() { if err := client.DeleteIndex(context.Background(), index); err != nil { t.Error(err) } })
     if err := stores.SearchWork.InitializeIndex(ctx, index); err != nil { t.Fatal(err) }
     id := putSearchText(t, stores, "obsolete text")

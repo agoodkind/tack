@@ -39,8 +39,8 @@ The native sparse indexing and ranking configuration passed local engine validat
 - Configure one environment search endpoint in the official client. Its connection
   pool owns retries, TLS, and transport metrics. The hypervisor proxy owns backend
   health and selection. OpenSearch owns shard and ML worker selection.
-- QA and production start with three LXC guests, with at least 8 GiB memory, 2 CPU cores, 40 GiB storage, and a 2 GiB JVM heap per guest. Three is the release topology, not a capacity ceiling.
-- The initial QA host requires at least 64 GB installed memory and 12 logical CPUs. Full scale-out acceptance on the same host requires at least 96 GB installed memory, 16 logical CPUs, and four 40 GiB fast disks. Current suburban hardware cannot satisfy either profile.
+- QA starts with one LXC guest and zero replicas. Production starts with three LXC guests and one replica. Every combined-role guest has at least 8 GiB memory, 2 CPU cores, 40 GiB storage, and a 2 GiB JVM heap.
+- Keep at least 6.26 GiB of suburban host memory available throughout the complete QA workload. The one-node CPU and fast-storage projections pass. QA does not claim OpenSearch node failover or horizontal scale.
 - Adding Tack processes, FoundationDB capacity, OpenSearch ML nodes, data nodes, replicas, or coordinating endpoints must not require application code or stored-format changes. A higher primary-shard count uses native splitting along its reserved routing path and a full replacement otherwise.
 - Persist all search sessions and work in FoundationDB. Distribute their keys across stable hash buckets. Do not require sticky requests, a process-local cache, a global sequence, or one claim range.
 - Worker claims, cleanup, sessions, rebuilds, and physical indexes have explicit work and lifetime bounds.
@@ -73,7 +73,7 @@ The native sparse indexing and ranking configuration passed local engine validat
 5. A metadata or ancestry change during an index replacement must appear after the alias switch. Recovery tasks test concurrent public changes.
 6. A large node, cleanup, or rebuild must yield before it starves live mutation work. Worker and capacity tasks measure every work class.
 7. Session and rebuild cleanup must bound the number and lifetime of retained physical indexes.
-8. Adding each capacity role must increase its measured throughput without changing application code or session behavior.
+8. The inactive production cluster must tolerate one stopped node before application cutover. QA validates single-node recovery instead of multi-node availability.
 
 ---
 
@@ -113,7 +113,7 @@ authenticated calls for the owning tasks.
 | Task 9: Rebuild and restore | TACK-537 |
 | Task 10: QA datagen coverage | TACK-538 |
 | Task 11, Tack: Containers and provisioning operations | TACK-539 |
-| Task 11, configs: Six search guests and rendered configuration | TACK-540 |
+| Task 11, configs: One QA guest, three production guests, and rendered configuration | TACK-540 |
 | Task 12: QA, production, and Meilisearch deployment removal | TACK-541 |
 
 TACK-518, TACK-519, and TACK-520 retain the cross-cutting scalability,

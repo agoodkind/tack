@@ -161,36 +161,30 @@ A lexical-only control must miss at least one non-overlapping pair that the comb
 
 ## Cluster and capacity
 
-- Verify three independent LXCs per environment, OpenSearch 3.8.0, verified REST and
-  transport TLS, IPv6-only reachability, and least-privilege application credentials.
-- Require at least 8 GiB per guest before QA. The final GTE sparse workload failed
-  at 4 GiB, passed at 8 GiB, and used about 3.4 GiB afterward. Record actual JVM,
-  model, process, and filesystem memory.
-- Stop each QA guest in turn. Public search and writes must succeed. New small nodes
-  must become searchable within 10 seconds. Every primary and local inference must
-  remain available.
-- Configure one HTTPS search endpoint per environment on the hypervisor's guest-segment address. Require the official client's `ConnectionObserver` to record only that endpoint. Verify the endpoint certificate and require the proxy to verify every backend certificate.
-- Run a fixed happy-path query count. Proxy access records must show every healthy combined-role node accepting requests without requiring exact counts. Stop each node in turn. The proxy must remove it, keep the stable endpoint usable, and restore it after authenticated readiness checks pass.
-- Add temporary ML-only and data-only nodes. The Tack endpoint and proxy backend list must remain unchanged because OpenSearch assigns model and shard work after a combined-role node accepts each request.
-- Deploy the model without `node_ids`. Require ML Commons to report `DEPLOYED` on all three eligible `ml` nodes before and after each restart. Keep native automatic redeployment enabled.
-- Run one search session across two Tack processes by alternating every request.
+- Verify one QA LXC and three independent production LXCs with OpenSearch 3.8.0,
+  verified REST and transport TLS, IPv6-only reachability, and least-privilege
+  application credentials. QA uses zero replicas. Production uses one replica.
+- Require at least 8 GiB for every guest that runs the model. The final GTE sparse
+  workload failed at 4 GiB, passed at 8 GiB, and used about 3.4 GiB afterward.
+  Record actual JVM, model, process, filesystem, and peak host memory.
+- Stop the QA guest during active source writes. FoundationDB writes must commit,
+  public search must return an explicit unavailable error, and durable search work
+  must remain pending. Restart the guest and require the backlog to become searchable.
+- Configure one HTTPS search endpoint per environment on the hypervisor's guest-segment address. Require the official client's `ConnectionObserver` to record only that endpoint. Verify the endpoint certificate and require the proxy to verify every backend certificate. QA has one backend. Production has three.
+- Run a fixed production happy-path query count before application cutover. Proxy access records must show all three healthy production nodes accepting requests without exact count requirements. Stop each production node in turn. The proxy must remove it, keep the endpoint usable, and restore it after authenticated readiness checks pass.
+- Deploy the model without `node_ids`. Require ML Commons to report `DEPLOYED` on the QA node and all three eligible production nodes after provisioning and restart. Keep native automatic redeployment enabled.
+- Run one QA search session across two Tack processes by alternating every request.
   Require exact continuation, replay, authorization, and cleanup without sticky routing.
 - Verify session and work keys use stable hash buckets and bounded bucket scans. A
   fixed workload must not serialize on one counter, lease, queue, or key range.
 - Predeclare corpus size, page distribution, query mix, concurrency, indexing rate,
   rebuild activity, and pass thresholds for p50, p95, error rate, throughput, oldest
-  work age, peak memory, and disk. Run the workload normally and with one guest down.
-- Before provisioning, require the initial QA host to provide at least 56.52 GiB usable memory, 12 logical CPUs, and three 40 GiB fast disks. Require at least 66.52 GiB usable memory, 16 logical CPUs, and four 40 GiB fast disks when one temporary scale node runs on the same host. Keep 20 percent host memory and fast-pool space uncommitted. Current suburban hardware is limited to 32 GB and eight threads; its fast pool supports the initial three disks but needs 44.45 GiB more usable capacity for the fourth while preserving the reserve.
-- Saturate the role under test before each scale-out run. Predeclare the required
-  throughput gain and require the added capacity to process measured work.
+  work age, peak memory, and disk. Run the complete workload on the single QA node.
+- Suburban provides 31.31 GiB usable memory, eight logical CPUs, and 215.92 GiB available fast storage. The one-week minimum available memory was 10.22 GiB. Keep at least 6.26 GiB available during the QA workload. The earlier 3.4 GiB post-workload reading plus the 0.125 GiB proxy budget would leave about 6.69 GiB, but it did not establish peak use. Do not leave the QA guest enabled unless the complete workload passes this live memory gate.
+- One QA guest requires two logical CPUs and one 40 GiB fast disk. The measured CPU projection requires 5.43 total logical CPUs with reserve, and the host provides eight. The disk leaves 175.92 GiB, or 38.46 percent of the fast pool, available.
+- QA does not claim OpenSearch node failover or horizontal scale. Do not create temporary ML-only or data-only QA nodes. The inactive three-node production cluster must pass one-node failure checks before application cutover. Measure production capacity on `vault`; do not reuse suburban measurements.
 - Before removing storage limits, test 128 KiB, 1 MiB, 8 MiB, over 100 MB, and nodes
   larger than worker memory. Keep page and work bounds fixed.
-- Add an ML-only QA node. Require automatic model deployment and improved new-session
-  inference throughput without reindexing or application changes.
-- Add a data-only QA node and another replica. Require improved ranking throughput
-  without reindexing. Then split the same corpus to a higher primary-shard count and
-  require improved indexing throughput without inference or a Tack routing change.
-- Add a Tack process and FoundationDB capacity independently. Require the fixed
+- Add a Tack process and FoundationDB capacity independently in QA. Require the fixed
   request and worker workloads to improve without changing session or work formats.
-  Remove temporary nodes only after work, model, and shard relocation complete.
-- Measure non-index disk use after provisioning and primary index bytes after rebuilding. For the initial three-node topology, require each disk to be at least `(non-index bytes + 2 * primary-index bytes) / 0.85`; the factor includes three generations and one replica, and 0.85 keeps OpenSearch below its default low watermark. Capacity results, not model download size or one successful request, determine production sizing.
+- Measure non-index disk use after provisioning and primary index bytes after rebuilding. QA requires each disk to be at least `(non-index bytes + 3 * primary-index bytes) / 0.85` because one node stores three generations without a replica. Production requires each disk to be at least `(non-index bytes + 2 * primary-index bytes) / 0.85` because three nodes distribute three generations with one replica. Capacity results, not model download size or one successful request, determine production sizing.
