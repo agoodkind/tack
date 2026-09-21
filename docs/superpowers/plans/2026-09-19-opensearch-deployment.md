@@ -136,14 +136,17 @@ bundle exec rspec spec/ansible/tack_search_spec.rb spec/ansible/tack_search_prox
 
 Do not connect to Proxmox, start OpenSearch, or save an apply plan. The final validation plan runs disposable cluster tests. The release plan saves and reviews live OpenTofu plans.
 
-- [ ] **Step 12: Commit each repository.**
+- [ ] **Step 12: Create the Tack stack tip and the independent Configs pull request.**
 
 ```sh
 git add docker-compose.yml internal/test/integration/search_cluster_test.go
-git commit -S -m "Define the pinned OpenSearch container" -m "Co-authored-by: Codex <noreply@openai.com>"
 ```
+
+Run Graphite MCP with `create --message "Define the pinned OpenSearch container"` from stack position 7. This branch is stack position 8.
 
 ```sh
 git add ansible/inventory/group_vars/all/service_mapping.yml ansible/inventory/group_vars/tack_search.yml ansible/inventory/group_vars/tack_prod_all.yml ansible/inventory/group_vars/tack_qa_all.yml ansible/inventory/group_vars/proxmox_servers.yml ansible/inventory/group_vars/vault_servers.yml ansible/inventory/group_vars/suburban_servers.yml ansible/playbooks/deploy-tack.yml ansible/playbooks/deploy-proxmox.yml ansible/playbooks/tasks/tack-search-proxy.yml opentofu/vault/tack_search.tf opentofu/suburban/tack_search_qa.tf proxmox/config/tack-search-proxy.yml.j2 proxmox/services/tack-search-proxy.service.j2 tack/tack.env.j2 tack/docker-compose.override.yml.j2 spec/ansible/tack_search_spec.rb spec/ansible/tack_search_proxy_spec.rb
 git commit -S -m "Add initial QA and production Tack search guests" -m "Co-authored-by: Codex <noreply@openai.com>"
 ```
+
+Create the Configs commit from the current remote trunk and publish it through the normal `pr` workflow. It is independent of the Tack Graphite stack.

@@ -86,9 +86,4 @@ type SessionStore interface { Create(context.Context, Session) (Session, error);
 
 - [ ] **Prove horizontal Tack scaling.** Open a session on one Tack process and alternate every continuation between two processes backed by the same FoundationDB and OpenSearch. Require exact replay, no duplicate node, complete exhaustion, and cleanup. Increase Tack processes under fixed query load and require higher throughput without changing stored formats.
 
-- [ ] **Run and commit the slice.** Run the focused real-dependency integration tests. Run `make build` once and fix every failure. Review `git diff --check` and the complete diff. Commit all files together because the production handler depends on the complete slice:
-
-```sh
-git add internal
-git commit -S -m "Add ranked authorized OpenSearch queries" -m "Co-authored-by: Codex <noreply@openai.com>"
-```
+- [ ] **Run checks and create the next Graphite slice.** Run the focused real-dependency integration tests. Run `make build` once and fix every failure. Review `git diff --check` and the complete diff. Stage only the files listed by this plan. Run Graphite MCP with `create --message "Add ranked authorized OpenSearch queries"` from stack position 3. This branch is stack position 4. Keep the complete public handler together because strict dead-code checks reject smaller intermediate branches.

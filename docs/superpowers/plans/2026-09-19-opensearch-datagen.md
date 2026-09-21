@@ -109,9 +109,10 @@ Run: `make build`
 
 Expected: PASS after compiling the integration package without executing its tests. The final validation plan runs real JSON and SSE public verification.
 
-- [ ] **Step 10: Commit the task.**
+- [ ] **Step 10: Create the next Graphite slice.**
 
 ```sh
 git add internal/datagen/search_fixture.go internal/datagen/search_pages.go internal/datagen/search_results.go internal/datagen/generate_search_checks.go internal/test/integration/search_datagen_test.go
-git commit -S -m "Exercise paginated semantic search in QA datagen" -m "Co-authored-by: Codex <noreply@openai.com>"
 ```
+
+Run Graphite MCP with `create --message "Exercise paginated semantic search in QA datagen"` from stack position 6. This branch is stack position 7.

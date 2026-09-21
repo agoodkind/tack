@@ -151,9 +151,10 @@ Run: `make build`
 
 Expected: PASS after compiling the integration package without executing its tests. The final validation plan runs the real OpenSearch checks.
 
-- [ ] **Step 14: Commit the task.**
+- [ ] **Step 14: Create the bottom Graphite slice.**
 
 ```sh
 git add go.mod go.sum internal/adapters/search internal/testenv/opensearch.go internal/testenv/opensearch_tls.go internal/ops/cli_search.go internal/ops/search_provision.go internal/ops/search_verify.go internal/config/search.go internal/config/config.go internal/test/integration/search_native_test.go internal/test/integration/search_control_test.go
-git commit -S -m "Add native OpenSearch control operations" -m "Co-authored-by: Codex <noreply@openai.com>"
 ```
+
+Run Graphite MCP with `create --message "Add native OpenSearch control operations"`. This branch is stack position 1 and starts from the released Meilisearch-removal `main`.

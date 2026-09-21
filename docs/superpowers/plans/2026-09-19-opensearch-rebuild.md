@@ -144,9 +144,10 @@ Run: `make build`
 
 Expected: PASS after compiling the integration package without executing its tests. The final validation plan runs rebuild, split, restore, and injected failures.
 
-- [ ] **Step 12: Commit the task.**
+- [ ] **Step 12: Create the next Graphite slice.**
 
 ```sh
 git add internal/domain/search/rebuild.go internal/adapters/foundationdb/search_rebuild.go internal/service/search_rebuild.go internal/adapters/search/opensearch_alias.go internal/adapters/search/opensearch_split.go internal/ops/search_reindex.go internal/ops/cli_search.go internal/test/integration/search_rebuild_test.go internal/test/integration/search_split_test.go internal/test/integration/search_restore_test.go
-git commit -S -m "Replace OpenSearch indexes with durable catch-up and alias recovery" -m "Co-authored-by: Codex <noreply@openai.com>"
 ```
+
+Run Graphite MCP with `create --message "Replace OpenSearch indexes with durable catch-up and alias recovery"` from stack position 5. This branch is stack position 6.

@@ -95,11 +95,6 @@ type PageWriter interface { Put(context.Context, WriteIntent) error; UpdateAcces
 
 - [ ] **Prove scale behavior.** Run live, access, cleanup, rescan, and rebuild work together. Require every class to progress. Record page reads, encoded bytes, slice duration, oldest work age, and peak memory. Increase workers under fixed load and require throughput to increase without a stored-format change.
 
-- [ ] **Run and commit the slice.** Run the focused integration tests. Run `make build` once and fix every failure. Review `git diff --check` and the complete diff. Commit all files together because the production entry point depends on the complete slice:
-
-```sh
-git add internal
-git commit -S -m "Add the durable OpenSearch index pipeline" -m "Co-authored-by: Codex <noreply@openai.com>"
-```
+- [ ] **Run checks and create the next Graphite slice.** Run the focused integration tests. Run `make build` once and fix every failure. Review `git diff --check` and the complete diff. Stage only the files listed by this plan. Run Graphite MCP with `create --message "Add the durable OpenSearch index pipeline"` from stack position 2. This branch is stack position 3. Keep the complete production entry point together because strict dead-code checks reject smaller intermediate branches.
 
 The final validation plan repeats these tests with 128 KiB, 1 MiB, 8 MiB, over 100 MB, and larger-than-worker-memory source nodes after TACK-524 and TACK-525 implement multipart FoundationDB reads.

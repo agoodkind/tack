@@ -122,11 +122,12 @@ Run: `make build`
 
 Expected: PASS after compiling the integration package without executing its tests. The final validation plan runs the backfill and readiness checks.
 
-- [ ] **Step 11: Commit the task.**
+- [ ] **Step 11: Create the next Graphite slice.**
 
 ```sh
 git add internal/domain/node/types.go internal/domain/node/search_projection.go internal/service/seed.go internal/service/seed_search_test.go internal/datagen/property_defs.go internal/datagen/property_defs_search_test.go internal/ops/cli_search_projection_backfill.go internal/ops/search_projection_backfill.go internal/ops/search_provision.go internal/ops/search_verify.go internal/audit/verbs.go internal/test/integration/search_projection_backfill_test.go
-git commit -S -m "Backfill explicit search projection metadata" -m "Co-authored-by: Codex <noreply@openai.com>"
 ```
+
+Run Graphite MCP with `create --message "Backfill explicit search projection metadata"` from stack position 1. This branch is stack position 2.
 
 After QA and production both record zero missing declarations, delete the command, its integration test, and its audit verb before the removal date. Keep permanent validation, seeds, QA data, and the readiness gate.

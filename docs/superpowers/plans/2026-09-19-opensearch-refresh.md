@@ -146,9 +146,10 @@ Run: `make build`
 
 Expected: PASS after compiling the integration package without executing its tests. The final validation plan runs metadata refresh and the complete access transition with real dependencies.
 
-- [ ] **Step 12: Commit the task.**
+- [ ] **Step 12: Create the next Graphite slice.**
 
 ```sh
 git add internal/domain/search/access_rollout.go internal/domain/node/reader.go internal/adapters/foundationdb/search_access_rollout.go internal/adapters/foundationdb/search_projection_epoch.go internal/adapters/foundationdb/property.go internal/adapters/foundationdb/node_type.go internal/adapters/mcp/server.go internal/service/search_access_rollout.go internal/runtime/graph.go internal/test/integration/search_access_refresh_test.go internal/test/integration/search_metadata_refresh_test.go
-git commit -S -m "Refresh search metadata and access keys without rebuilding" -m "Co-authored-by: Codex <noreply@openai.com>"
 ```
+
+Run Graphite MCP with `create --message "Refresh search metadata and access keys without rebuilding"` from stack position 4. This branch is stack position 5.

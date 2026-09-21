@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Validate the completed OpenSearch implementation against real dependencies, correct every failure, and leave one reviewed branch ready for authorized QA deployment.
+**Goal:** Validate the completed OpenSearch implementation against real dependencies, correct every failure on its owning branch, and leave one reviewed Tack stack plus one Configs pull request ready for authorized QA deployment.
 
-**Architecture:** Luna completes the serial coding and configuration plans without running the live suite. Sol starts the pinned OpenSearch and FoundationDB environment, validates each dependency layer in order, corrects failures at the owning layer, then repeats the affected tail and complete suite. The release plan separately validates deployed QA and production.
+**Architecture:** Luna completes and submits the Tack Graphite stack plus the independent Configs pull request without running the live suite. Sol starts the pinned OpenSearch and FoundationDB environment from the stack tip, validates each dependency layer in order, corrects failures on the owning Graphite branch, restacks its descendants, then repeats the affected tail and complete suite. The release plan separately validates deployed QA and production.
 
 **Tech Stack:** Go, Docker Compose test runner, FoundationDB 7.4.6, OpenSearch 3.8.0, official OpenSearch Go client v4.7.3, RSpec, OpenTofu.
 
@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-Start only after every preceding serial plan is committed on the linear Tack and configs branches and both worktrees are clean. Require `CONFIGS_ROOT` to identify the reviewed configs checkout. Use real dependencies and public boundaries. Do not use mocks, skip tests, weaken assertions, raise accepted limits, or replace the selected design to make a test pass. Correct implementation defects directly. Stop with evidence when a failure requires a design or acceptance change. Do not apply OpenTofu, deploy QA or production, delete volumes, or change branch rules. Record both starting commits, exact commands, image digests, failures, corrections, measurements, and final commits for the pull request.
+Start only after Graphite has submitted every Tack slice, the independent Configs pull request exists, and both worktrees are clean. Require `CONFIGS_ROOT` to identify the reviewed Configs checkout. Use real dependencies and public boundaries. Do not use mocks, skip tests, weaken assertions, raise accepted limits, or replace the selected design to make a test pass. Correct implementation defects directly. Stop with evidence when a failure requires a design or acceptance change. Do not apply OpenTofu, deploy QA or production, delete volumes, or change branch rules. Record the starting stack, Configs commit, exact commands, image digests, failures, corrections, measurements, and final commits for every affected pull request.
 
 ## Review Focus
 
@@ -48,7 +48,7 @@ metadata refresh, and single-node restart.
 **Interfaces:**
 
 - Consumes: the committed outputs and authored tests from every preceding serial plan.
-- Produces: a corrected signed branch, complete real-dependency results, resource measurements, and the evidence the release plan requires.
+- Produces: a corrected signed Tack stack, a corrected Configs pull request, complete real-dependency results, resource measurements, and the evidence the release plan requires.
 
 - [ ] **Step 1: Record the exact starting state and clear stale test services.**
 
@@ -139,7 +139,7 @@ Require one stable client endpoint, one-member restart recovery, later member jo
 
 - [ ] **Step 8: Correct each reproduced failure at its owning layer.**
 
-For each failure, rerun the smallest exact test until it fails consistently. Trace the production path. Correct the files owned by the responsible serial plan. Add a regression only when the existing test does not identify the failure. Run the exact test, the current step's group, every later affected group, and then Step 9. Commit each coherent correction with `git commit -S` and the Codex trailer. Do not edit an assertion or threshold unless the specification changed first.
+For each failure, rerun the smallest exact test until it fails consistently. Trace the production path. Check out the Graphite branch that owns the behavior. Correct only that slice and add a regression only when the existing test does not identify the failure. Stage the named files. Use Graphite MCP `modify` for a direct correction. Use `absorb --dry-run` and review the destination before `absorb --force` when one change spans existing slices. Restack from the corrected branch through its upstack. Verify every rewritten signature. Preview and submit the complete stack again. Run the exact test, the current step's group, every later affected group, and then Step 9. Correct Configs failures in its independent pull request through the normal signed-commit workflow. Do not edit an assertion or threshold unless the specification changed first.
 
 - [ ] **Step 9: Run the complete search suite from a clean test environment.**
 

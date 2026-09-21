@@ -42,7 +42,7 @@
 - Do not edit lint baselines or run an `accept-new` baseline target. New lint, complexity, strict-analyzer, and dead-code findings must remain zero.
 - Use concrete types, injected clocks, contextual logging, returned errors, and recovered goroutines. Do not introduce `any`, empty interfaces, `panic`, direct `time.Now`, `context.TODO`, unprotected goroutines, or `//nolint`.
 - Include `Co-authored-by: Codex <noreply@openai.com>` in every signed commit.
-- No plan authorizes a push, merge, deployment, ruleset change, shared-history rewrite, or volume deletion.
+- This plan authorizes submitting the listed implementation pull requests through their specified workflows. It does not authorize a merge, deployment, ruleset change, shared-history rewrite, or volume deletion.
 
 ## Review Focus
 
@@ -59,7 +59,7 @@
 
 ## Serial execution order
 
-The first plan produces a separately reviewable and deployable outage release. Later Tack branches may be prepared in one Luna run, but each branch starts from the preceding committed branch and remains independently reviewable. Do not squash unrelated tickets into the removal release. Sol performs the final live validation and corrections after the coding and configuration plans finish.
+The first plan produces two independent pull requests, one in Tack and one in Configs. Merge and deploy both removal pull requests before creating the OpenSearch stack. Luna then prepares the dependent Tack slices as one Graphite stack. Sol validates the stack tip and applies each correction to the branch that owns the behavior.
 
 1. [Remove Meilisearch and preserve the public outage contract](2026-09-20-meilisearch-removal.md). Ticket: TACK-541.
 2. Merge and deploy that removal release through the first phase of the [release plan](2026-09-19-opensearch-release.md). Search remains temporarily unavailable.
@@ -75,6 +75,42 @@ The first plan produces a separately reviewable and deployable outage release. L
 12. Activate OpenSearch in QA and production through the second phase of the [release plan](2026-09-19-opensearch-release.md). Tickets: TACK-536 and TACK-541.
 
 The [fixture reference](2026-09-19-opensearch-fixtures.md) supplies shared real-dependency setup. It does not define another execution step. TACK-524 and TACK-525 remain separate storage work behind the reader interface. Their implementation reruns the same search suite at 128 KiB, 1 MiB, 8 MiB, over 100 MB, and larger than worker memory.
+
+## Pull request split and Graphite execution
+
+Use the `split-to-prs`, `graphite`, and `pr` skills during implementation. Reuse an open implementation pull request only when it already contains the same slice and preserves all unique work. The current design pull request is documentation and cannot become an implementation branch.
+
+Create these independent removal pull requests from each repository's current remote trunk:
+
+| Repository | Pull request | Dependency |
+| --- | --- | --- |
+| Tack | `[TACK-541] Remove Meilisearch and return temporary search outage` | None |
+| Configs | `[TACK-541] Remove the deployed Meilisearch service` | None |
+
+Merge and deploy both removal pull requests through release Phase A. Start the following Tack stack from the updated `origin/main`:
+
+| Stack position | Pull request | Plan |
+| --- | --- | --- |
+| 1 | `[TACK-530] Add native OpenSearch client and provisioning` | Native control |
+| 2 | `[TACK-542] Add explicit search projection metadata` | Metadata |
+| 3 | `[TACK-531] Add durable paginated OpenSearch indexing` | Index pipeline, including TACK-533 and TACK-534 |
+| 4 | `[TACK-535] Add ranked authorized OpenSearch queries` | Query pipeline, including TACK-536 |
+| 5 | `[TACK-532] Add search metadata and permission refresh` | Refresh |
+| 6 | `[TACK-537] Add durable OpenSearch index replacement` | Rebuild and native split |
+| 7 | `[TACK-538] Add guarded OpenSearch QA verification` | QA datagen |
+| 8 | `[TACK-539] Add the pinned OpenSearch container` | Tack deployment files |
+
+These dependencies are real. Each higher slice calls interfaces or production paths created by the slice below it. Each branch must pass `make build` at its stack position. Keep every test in the branch that adds the behavior.
+
+Create `[TACK-540] Add initial OpenSearch guests and stable endpoints` as one independent Configs pull request after the Tack container contract is committed. A branch in another repository cannot join the Tack Graphite stack.
+
+Before creating the stack, save dirty work under `refs/backup/`, fetch `origin`, identify the worktree that owns `main`, and run Graphite MCP `state --no-interactive` with the absolute Tack worktree path. Do not move `main` from another worktree. Confirm `commit.gpgSign=true` and `rebase.gpgSign=true` before Graphite creates or rewrites commits.
+
+Create the slices from bottom to top with Graphite MCP `create --message <message>`. Each message contains the plan's imperative subject, a blank line, and `Co-authored-by: Codex <noreply@openai.com>`. Stage only the files or hunks listed by the current slice. Do not use `git commit`, `git push`, `git add .`, or `git add -A` for stack work. Preview with `submit --stack --dry-run --no-interactive`, inspect every create or update action, then run `submit --stack --no-interactive`.
+
+Use the `pr` skill to write every title and body after Graphite assigns pull request numbers. Add `(PR x/N)` only when the numbers are not consecutive in bottom-to-top order. Mark the pull requests ready after their bodies are complete.
+
+Sol validates the stack tip with the independent Configs pull request. Route a correction to its owning branch with Graphite MCP `modify` or a reviewed `absorb --dry-run` followed by `absorb --force`. Restack from the corrected branch through its upstack, verify every rewritten signature, preview the stack submission, and submit it again. Do not merge the stack until the final validation plan passes. Merge it bottom to top through Graphite after separate authorization.
 
 ## Durable interface boundaries
 
@@ -100,6 +136,6 @@ Each slice owns all files needed by its production entry point. Later slices ext
 
 ## Commit and validation procedure
 
-Run the exact test named by a task when that task changes behavior. Run `make build` once after the task is complete. Commit only after both pass. Before any push, fetch the remote, inspect `origin/main..HEAD`, verify every commit with `git verify-commit`, and confirm every raw commit object contains a `gpgsig` header.
+Run the exact test named by a task when that task changes behavior. Run `make build` once after the task is complete. Create or modify its Graphite slice only after both pass. Before each stack submission, fetch the remote, inspect `origin/main..HEAD`, verify every commit with `git verify-commit`, and confirm every raw commit object contains a `gpgsig` header. Repeat this verification after every restack.
 
 The final validation plan starts the real dependencies, corrects failures in the owning slice, reruns the affected tail, runs the complete search suite, and finishes with one clean `make build`. The release plan records provisioning, deployment, activation, live acceptance, capacity, and cleanup as separate facts.

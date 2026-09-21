@@ -30,11 +30,12 @@ Phase A proves the outage contract and complete active-service removal. Phase B 
 - [ ] **Verify the rest of Tack.** Create, edit, read, and delete nodes through MCP. Exercise every representative non-search tool. Require FoundationDB and SQL writes to succeed.
 - [ ] **Verify active Meilisearch removal.** Inspect running containers, processes, application environment, proxy routes, credentials, startup logs, and outbound requests. Require no active service or application dependency. Record the preserved old volume separately without reading it.
 
-Search remains unavailable after Phase A. OpenSearch implementation and configuration start only from this released state.
+Search remains unavailable after Phase A. Update `origin/main` to these merged commits before creating the Tack Graphite stack. OpenSearch implementation and configuration start only from this released state.
 
 ### Phase B: Provision and activate OpenSearch
 
-- [ ] **Require completed implementation evidence.** Require the final validation plan's signed Tack and Configs commits, every real-dependency result, exact image digests, corrected failures, and clean worktrees.
+- [ ] **Require completed implementation evidence.** Require the final validation plan's signed Tack Graphite stack, independent Configs pull request, every real-dependency result, exact image digests, corrected failures, and clean worktrees.
+- [ ] **Merge the validated implementation.** Obtain separate authorization. Merge the Tack stack bottom to top through Graphite. Merge the independent Configs pull request through its protected pull-request path. Record every merged commit. Do not bypass branch rules or rewrite shared history.
 - [ ] **Present concrete QA changes for authorization.** Show the saved OpenTofu plan, one suburban guest, one stable proxy endpoint, rendered application values, secrets referenced by name, and exact apply and deployment commands.
 - [ ] **Provision one empty QA node.** Apply only the approved suburban plan. Start the pinned OpenSearch 3.8.0 container and deploy the QA proxy. Verify listener address, client certificate, backend certificate, authenticated health, caller restrictions, one backend, 8 GiB memory, two CPU cores, 40 GiB fast storage, and a 2 GiB JVM heap.
 - [ ] **Complete QA projection metadata.** Generate the complete manifest. Run the expiring backfill in dry-run mode. Review and apply that exact manifest. Rerun it and require zero changes and zero missing declarations.

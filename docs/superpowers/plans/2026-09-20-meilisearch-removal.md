@@ -106,10 +106,7 @@ Require the exact unavailable response for every search request. Require all oth
 - [ ] Review `git diff --check` and the complete Tack diff.
 - [ ] Create one signed Tack commit:
 
-```sh
-git add -A
-git commit -S -m "Remove the Meilisearch application path" -m "Co-authored-by: Codex <noreply@openai.com>"
-```
+Stage only the files and deletions listed in Tasks 1 through 4. Create the signed commit `Remove the Meilisearch application path` with the Codex coauthor trailer. Publish `[TACK-541] Remove Meilisearch and return temporary search outage` through the normal `pr` workflow. This independent release does not use Graphite.
 
 ### Task 6: Remove deployed Meilisearch configuration
 
@@ -123,5 +120,7 @@ git commit -S -m "Remove the Meilisearch application path" -m "Co-authored-by: C
 - [ ] Run the Configs repository's focused unit checks for the edited roles and `tofu validate` for each edited stack.
 - [ ] Review the planned infrastructure changes. Require no data-volume deletion and no unrelated resource replacement.
 - [ ] Create one signed Configs commit with the Codex coauthor trailer.
+
+Publish `[TACK-541] Remove the deployed Meilisearch service` through the normal `pr` workflow. This independent release does not use Graphite.
 
 The first phase of the [release plan](2026-09-19-opensearch-release.md) deploys these two commits. Search remains unavailable until the later OpenSearch activation phase passes its acceptance checks.
