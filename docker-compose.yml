@@ -41,8 +41,6 @@ services:
       # without end, bounded only by the caller's context, which not every
       # caller sets. This value bounds it, retries included (TACK-408).
       FDB_TRANSACTION_TIMEOUT: ${FDB_TRANSACTION_TIMEOUT:-5s}
-      MEILI_URL: http://meilisearch:7700
-      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?MEILI_MASTER_KEY is required, set it in .env}
       PORT: 8000
       # ENV selects the auth mode: development accepts a raw user UUID as the
       # bearer with no token lookup, production requires an API token. It is
@@ -108,9 +106,6 @@ services:
     # owner guest runs no store process after phase 4, so a dependency here
     # would start one (TACK-408). Locally the app restarts until the store
     # answers, the same ordering the ledger relies on.
-    depends_on:
-      meilisearch:
-        condition: service_healthy
 
   yugabyte:
     # Pinned to 2024.2.8.0-b85 to match the running production engine. The audit
@@ -284,41 +279,6 @@ services:
       # change in this file.
       - /etc/foundationdb:/etc/foundationdb
 
-  meilisearch:
-    # Pinned to v1.12 to match the persisted index version (1.12.8) on prod.
-    # Meilisearch refuses to start when the engine version differs from the
-    # database version, so bumping this requires a reindex from FoundationDB.
-    # Engine upgrade is tracked separately (TACK-332).
-    image: getmeili/meilisearch:v1.12
-    restart: unless-stopped
-    mem_limit: 2g
-    environment:
-      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?MEILI_MASTER_KEY is required, set it in .env}
-      MEILI_ENV: production
-      # Without an explicit budget the indexer sizes itself from system
-      # memory, which inside a container is the host figure, so the first
-      # indexing batch blows through mem_limit and the kernel OOM-kills the
-      # container in a restart loop (TACK-421). Budget inside the 2g limit;
-      # the value is exact bytes (1 GiB) to dodge bits-vs-bytes suffix
-      # ambiguity in the size parser.
-      MEILI_MAX_INDEXING_MEMORY: "1073741824"
-      # Inter-container DNS on this network resolves AAAA only. Without an
-      # explicit v6 listen address, Meilisearch binds 0.0.0.0:7700 (v4 only)
-      # and the app's connection to meilisearch:7700 fails with
-      # "connect: connection refused" on the GUA. Bind to all addresses on
-      # both stacks so v6-only callers connect successfully.
-      MEILI_HTTP_ADDR: "[::]:7700"
-    ports:
-      - "7700:7700"
-    volumes:
-      - meili-data:/meili_data
-    healthcheck:
-      test:
-        ["CMD-SHELL", "curl -sf http://[::1]:7700/health | grep -q 'available'"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
   # Apache Kafka 4.x in KRaft combined broker+controller role. The audit
   # cutover uses this as the broker for the audit.events.v1 topic that the
   # producer publishes to and the audit-consumer projects into audit.events.
@@ -482,8 +442,6 @@ services:
       # a rebuilt environment comes back with the replication it had rather
       # than with one copy of every key (TACK-408).
       TACK_OPS_FDB_REDUNDANCY_MODE: ${TACK_OPS_FDB_REDUNDANCY_MODE:-single}
-      MEILI_URL: http://localhost:7700
-      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?MEILI_MASTER_KEY is required, set it in .env}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       # Same ENV the app requires, read the same way. A default here would
       # make one variable name mean two things in one stack file, so a host
@@ -594,7 +552,6 @@ services:
 volumes:
   yugabyte-data:
   fdb-data:
-  meili-data:
   tack-logs:
   kafka-data:
   clickhouse-data:

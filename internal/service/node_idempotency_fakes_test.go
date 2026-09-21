@@ -7,7 +7,6 @@ import (
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
-	domainsearch "goodkind.io/tack/internal/domain/search"
 )
 
 type idempotencyNodeRepo struct {
@@ -161,22 +160,4 @@ func (r *idempotencyProps) List(context.Context, uuid.UUID) ([]*node.PropertyDef
 
 func (r *idempotencyProps) Delete(context.Context, uuid.UUID, uuid.UUID) error {
 	panic("idempotencyProps.Delete called")
-}
-
-type idempotencySearcher struct{}
-
-func (s idempotencySearcher) Index(context.Context, string, string, *domainsearch.NodeDoc) error {
-	return nil
-}
-
-func (s idempotencySearcher) IndexBatch(context.Context, string, []*domainsearch.NodeDoc) error {
-	panic("idempotencySearcher.IndexBatch called")
-}
-
-func (s idempotencySearcher) Delete(context.Context, string, string) error {
-	return nil
-}
-
-func (s idempotencySearcher) Search(context.Context, string, string, map[string]string) ([]domainsearch.NodeDoc, map[string]map[string]int64, error) {
-	panic("idempotencySearcher.Search called")
 }

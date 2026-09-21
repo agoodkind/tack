@@ -85,23 +85,15 @@ func (s *Soak) readProject(
 ) error {
 	var toolName string
 	var args ToolArguments
-	switch operationIndex / soakOperationKinds % 3 {
+	switch operationIndex / soakOperationKinds % 2 {
 	case 0:
 		toolName = "tack_list_issues"
 		args = scopeArgs(project.Workspace.Slug, project.Reference)
-	case 1:
+	default:
 		toolName = "tack_get_project"
 		args = ToolArguments{
 			WorkspaceReference: project.Workspace.Slug,
 			NodeID:             project.RawID,
-		}
-	default:
-		toolName = "tack_search"
-		args = ToolArguments{
-			WorkspaceReference: project.Workspace.Slug,
-			ProjectReference:   project.Reference,
-			Query:              "soak",
-			NodeType:           "issue",
 		}
 	}
 	if _, err := s.driver.Call(ctx, actor.Token, toolName, args); err != nil {

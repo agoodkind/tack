@@ -14,7 +14,6 @@ import (
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
-	domainsearch "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/telemetry"
 )
 
@@ -28,7 +27,6 @@ type NodeService struct {
 	propertyDefs  node.PropertyDefRepository
 	relationships node.RelationshipRepository
 	deleter       node.NodeDeleter
-	searcher      domainsearch.Searcher
 }
 
 func NewNodeService(
@@ -38,7 +36,6 @@ func NewNodeService(
 	propertyDefs node.PropertyDefRepository,
 	relationships node.RelationshipRepository,
 	deleter node.NodeDeleter,
-	searcher domainsearch.Searcher,
 ) *NodeService {
 	return &NodeService{
 		nodes:         nodes,
@@ -47,7 +44,6 @@ func NewNodeService(
 		propertyDefs:  propertyDefs,
 		relationships: relationships,
 		deleter:       deleter,
-		searcher:      searcher,
 	}
 }
 
@@ -152,7 +148,6 @@ func (s *NodeService) Update(ctx context.Context, in UpdateInput) (*node.NodeVie
 		return nil, fmt.Errorf("update node: %w", err)
 	}
 
-	s.indexSearchDoc(ctx, log, view)
 	return view, nil
 }
 
@@ -197,9 +192,6 @@ func (s *NodeService) Delete(ctx context.Context, nodeID, actorID uuid.UUID) err
 		return fmt.Errorf("delete node: %w", err)
 	}
 
-	if err := s.searcher.Delete(ctx, "nodes", nodeID.String()); err != nil {
-		log.Warn("node.Delete: search removal", slog.String("err", err.Error()))
-	}
 	return nil
 }
 

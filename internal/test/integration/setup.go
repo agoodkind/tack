@@ -23,7 +23,6 @@ import (
 	"github.com/google/uuid"
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/adapters/postgres"
-	searchadapter "goodkind.io/tack/internal/adapters/search"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/ops"
@@ -163,8 +162,6 @@ func SetupTestEnv(t *testing.T) *TestEnv {
 		fdbadapter.SetTestPrefix(nil)
 	})
 
-	// Build NodeService against the prefixed stores. Some downstream calls
-	// expect a non-nil searcher; pass a noop.
 	svc := service.NewNodeService(
 		stores.Nodes,
 		stores.Views,
@@ -172,7 +169,6 @@ func SetupTestEnv(t *testing.T) *TestEnv {
 		stores.PropertyDefs,
 		stores.Relationships,
 		stores.NodeDeleter,
-		searchadapter.Noop{},
 	)
 
 	return &TestEnv{

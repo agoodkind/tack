@@ -182,8 +182,8 @@ DB lookup. Per-entity auth resolves the entity to its `orgID` and checks
 
 The `default` Docker network is IPv6-only (`enable_ipv4: false`,
 `gateway_mode_v6: routed`). Do not flip it to IPv4 or dual-stack; v4 lets
-services silently fall back. Service hostnames (`fdb`, `yugabyte`, `meilisearch`)
-resolve to v6 only.
+services silently fall back. Service hostnames (`fdb`, `yugabyte`) resolve to v6
+only.
 
 YugabyteDB's database identity must be the stable Docker DNS name `yugabyte`, not
 a container GUA. The `yugabyted` command advertises and listens on `yugabyte`

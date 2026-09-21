@@ -96,7 +96,7 @@ func templateSequenceService(t *testing.T, typeKey string, templates []node.Refe
 	}}
 	types := []*node.NodeType{templateScopeNodeType(), {TypeKey: typeKey, ReferenceTemplates: templates}}
 	defs := []*node.PropertyDef{{Name: "parent_id"}, {Name: "scope_id"}, {Name: "number"}}
-	return NewNodeService(repo, reader, &idempotencyTypes{types: types}, &idempotencyProps{defs: defs}, nil, nil, idempotencySearcher{}), repo, parentID
+	return NewNodeService(repo, reader, &idempotencyTypes{types: types}, &idempotencyProps{defs: defs}, nil, nil), repo, parentID
 }
 
 func templateScopeNodeType() *node.NodeType {

@@ -27,7 +27,7 @@ func TestPreviewPropsTransformRenamesAppendsAndRemovesFields(t *testing.T) {
 			},
 		},
 	}}
-	console := NewRepairConsole(&repairNodeRepo{reader: reader}, reader, &repairTypeRepo{types: repairTypes()}, &repairPropRepo{defs: repairDefs()}, &repairSearcher{})
+	console := NewRepairConsole(&repairNodeRepo{reader: reader}, reader, &repairTypeRepo{types: repairTypes()}, &repairPropRepo{defs: repairDefs()})
 	profile := &RepairReferenceProfile{
 		Name:         "legacy-props",
 		RemoveFields: []string{"progress"},

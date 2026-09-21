@@ -2,11 +2,14 @@ package integration
 
 import (
 	"encoding/json"
+	"net/http"
 	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
+	"github.com/google/uuid"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/datagen"
@@ -18,28 +21,20 @@ import (
 // bearer token, so each call runs auth, org membership, audit, and rendering.
 type MCPHarness struct {
 	driver    *datagen.Driver
+	handler   http.Handler
 	token     string
+	ledgerDSN string
+	orgID     uuid.UUID
 	Workspace string
 	Project   string
 }
 
-// unreachableMeiliURL is an address nothing serves. A harness built on it
-// proves what the tools do when the search backend is down.
-const unreachableMeiliURL = "http://[::1]:1"
-
-// harnessConfig loads the server configuration against this process's test
-// engines, started through testenv. An empty meiliURL uses the test search
-// engine; any other value replaces it.
-func harnessConfig(t *testing.T, meiliURL string) *config.Config {
+// harnessConfig loads the server configuration for the test engines that
+// testenv starts for this process.
+func harnessConfig(t *testing.T) *config.Config {
 	t.Helper()
 	t.Setenv("DATABASE_URL", testenv.Ledger(t))
 	t.Setenv("FDB_CLUSTER_FILE", testenv.FoundationDB(t))
-	searchURL, searchKey := testenv.Meilisearch(t)
-	if meiliURL != "" {
-		searchURL = meiliURL
-	}
-	t.Setenv("MEILI_URL", searchURL)
-	t.Setenv("MEILI_MASTER_KEY", searchKey)
 	cfg, err := config.Load()
 	if err != nil {
 		t.Fatalf("load config: %v", err)
@@ -66,20 +61,28 @@ func nextHarnessSeed() int64 {
 // NewMCPHarness builds the runtime graph against the test engines and
 // bootstraps a fresh org, workspace, and project for the calling test.
 func NewMCPHarness(t *testing.T) *MCPHarness {
-	t.Helper()
-	return newMCPHarnessWithSearch(t, "")
+	return newMCPHarness(t, false)
 }
 
-// newMCPHarnessWithSearch is NewMCPHarness with the search backend at
-// meiliURL instead of the test engine.
-func newMCPHarnessWithSearch(t *testing.T, meiliURL string) *MCPHarness {
+// NewAuditedMCPHarness builds the same public MCP boundary with the real
+// Yugabyte audit writer enabled.
+func NewAuditedMCPHarness(t *testing.T) *MCPHarness {
+	return newMCPHarness(t, true)
+}
+
+func newMCPHarness(t *testing.T, audited bool) *MCPHarness {
 	t.Helper()
 	ctx := t.Context()
-	cfg := harnessConfig(t, meiliURL)
-	// The test ledger has no audit roles. The harness exercises MCP tool
-	// behavior, not the audit pipeline, so the graph runs unrecorded.
-	cfg.AuditWriterDSN = ""
-	cfg.AuditAllowUnrecorded = true
+	cfg := harnessConfig(t)
+	cfg.AuditKafkaBrokers = ""
+	if audited {
+		cfg.AuditWriterDSN = cfg.DatabaseURL
+		cfg.AuditAllowUnrecorded = false
+		cfg.AuditReadFlushInterval = 10 * time.Millisecond
+	} else {
+		cfg.AuditWriterDSN = ""
+		cfg.AuditAllowUnrecorded = true
+	}
 	graph, err := appruntime.BuildGraph(ctx, cfg)
 	if err != nil {
 		t.Fatalf("build graph: %v", err)
@@ -97,7 +100,10 @@ func newMCPHarnessWithSearch(t *testing.T, meiliURL string) *MCPHarness {
 	workspace := identities.Workspaces[0]
 	harness := &MCPHarness{
 		driver:    datagen.NewDriver(graph, false, seed),
+		handler:   graph.AuthMiddleware(graph.MCPHandler),
 		token:     workspace.Actors[0].Token,
+		ledgerDSN: cfg.DatabaseURL,
+		orgID:     workspace.OrgID,
 		Workspace: workspace.Slug,
 		Project:   "",
 	}

@@ -7,11 +7,8 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	searchadapter "goodkind.io/tack/internal/adapters/search"
-	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
-	domainsearch "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/service"
 )
 
@@ -65,12 +62,8 @@ func NewRepairConsole(
 	reader node.NodeReader,
 	nodeTypes node.TypeRepository,
 	propertyDefs node.PropertyDefRepository,
-	searcher domainsearch.Searcher,
 	relationships ...node.RelationshipRepository,
 ) *RepairConsole {
-	if searcher == nil {
-		searcher = searchadapter.Noop{}
-	}
 	var relationshipRepo node.RelationshipRepository
 	if len(relationships) > 0 {
 		relationshipRepo = relationships[0]
@@ -79,7 +72,7 @@ func NewRepairConsole(
 		nodeTypes:     nodeTypes,
 		propertyDefs:  propertyDefs,
 		reader:        reader,
-		updater:       service.NewNodeService(nodes, reader, nodeTypes, propertyDefs, relationshipRepo, nil, searcher),
+		updater:       service.NewNodeService(nodes, reader, nodeTypes, propertyDefs, relationshipRepo, nil),
 		relationships: relationshipRepo,
 	}
 }
@@ -91,7 +84,6 @@ func NewRepairConsoleFromEnv(env *Env) *RepairConsole {
 		env.Stores.Views,
 		env.Stores.NodeTypes,
 		env.Stores.PropertyDefs,
-		newRepairSearcher(env.Cfg),
 		env.Stores.Relationships,
 	)
 }
@@ -155,15 +147,4 @@ func (c *RepairConsole) plan(ctx context.Context, class RepairClass, nodeID uuid
 	default:
 		return nil, fmt.Errorf("repair class %q: %w", class, domain.ErrInvalidArgument)
 	}
-}
-
-func newRepairSearcher(cfg *config.Config) domainsearch.Searcher {
-	if cfg == nil {
-		return searchadapter.Noop{}
-	}
-	client := searchadapter.New(cfg.MeiliURL, cfg.MeiliMasterKey)
-	if err := searchadapter.EnsureNodesIndex(client); err != nil {
-		return searchadapter.Noop{}
-	}
-	return client
 }

@@ -13,7 +13,7 @@ import (
 )
 
 func TestApplyReferencePropertyRejectsMissingActorID(t *testing.T) {
-	console := NewRepairConsole(&repairNodeRepo{}, &repairReader{}, &repairTypeRepo{types: repairTypes()}, &repairPropRepo{defs: repairDefs()}, &repairSearcher{})
+	console := NewRepairConsole(&repairNodeRepo{}, &repairReader{}, &repairTypeRepo{types: repairTypes()}, &repairPropRepo{defs: repairDefs()})
 	_, err := console.Apply(context.Background(), RepairApplyInput{Class: RepairClassReferenceProperty, NodeID: uuid.New(), ConfirmationToken: "token", Profile: phaseProfile()})
 	if !errors.Is(err, domain.ErrInvalidArgument) {
 		t.Fatalf("Apply err = %v want ErrInvalidArgument", err)
@@ -21,7 +21,7 @@ func TestApplyReferencePropertyRejectsMissingActorID(t *testing.T) {
 }
 
 func TestApplyReferencePropertyRejectsBlankConfirmationToken(t *testing.T) {
-	console := NewRepairConsole(&repairNodeRepo{}, &repairReader{}, &repairTypeRepo{types: repairTypes()}, &repairPropRepo{defs: repairDefs()}, &repairSearcher{})
+	console := NewRepairConsole(&repairNodeRepo{}, &repairReader{}, &repairTypeRepo{types: repairTypes()}, &repairPropRepo{defs: repairDefs()})
 	_, err := console.Apply(context.Background(), RepairApplyInput{ActorID: uuid.New(), Class: RepairClassReferenceProperty, NodeID: uuid.New(), ConfirmationToken: "   ", Profile: phaseProfile()})
 	if !errors.Is(err, domain.ErrInvalidArgument) {
 		t.Fatalf("Apply err = %v want ErrInvalidArgument", err)
@@ -40,7 +40,7 @@ func TestApplyReferencePropertyRequiresMatchingConfirmationToken(t *testing.T) {
 		listViews: []*node.NodeView{phaseView(t, phaseID, orgID, containerID, "Ready", 1)},
 	}
 	nodeRepo := &repairNodeRepo{reader: reader}
-	console := NewRepairConsole(nodeRepo, reader, &repairTypeRepo{types: repairTypes()}, &repairPropRepo{defs: repairDefs()}, &repairSearcher{})
+	console := NewRepairConsole(nodeRepo, reader, &repairTypeRepo{types: repairTypes()}, &repairPropRepo{defs: repairDefs()})
 
 	_, err := console.Apply(context.Background(), RepairApplyInput{ActorID: uuid.New(), Class: RepairClassReferenceProperty, NodeID: ticketID, ConfirmationToken: "wrong", Profile: phaseProfile()})
 	if !errors.Is(err, domain.ErrFailedPrecondition) {
@@ -64,8 +64,7 @@ func TestApplyReferencePropertyCleansSourceAndUpdatesTarget(t *testing.T) {
 		listViews: []*node.NodeView{phaseView(t, phaseID, orgID, containerID, "Ready", 1)},
 	}
 	nodeRepo := &repairNodeRepo{reader: reader}
-	searcher := &repairSearcher{}
-	console := NewRepairConsole(nodeRepo, reader, &repairTypeRepo{types: repairTypes()}, &repairPropRepo{defs: repairDefs()}, searcher)
+	console := NewRepairConsole(nodeRepo, reader, &repairTypeRepo{types: repairTypes()}, &repairPropRepo{defs: repairDefs()})
 
 	preview, err := console.Preview(context.Background(), RepairPreviewInput{Class: RepairClassReferenceProperty, NodeID: ticketID, Profile: phaseProfile()})
 	if err != nil {
@@ -86,8 +85,5 @@ func TestApplyReferencePropertyCleansSourceAndUpdatesTarget(t *testing.T) {
 	}
 	if len(nodeRepo.indexedProps) != 1 || nodeRepo.indexedProps[0] != "phase_id" {
 		t.Fatalf("indexedProps = %v want [phase_id]", nodeRepo.indexedProps)
-	}
-	if searcher.indexCount == 0 {
-		t.Fatal("Apply did not reindex search document")
 	}
 }

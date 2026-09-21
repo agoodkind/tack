@@ -7,7 +7,6 @@ import (
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain/node"
-	domainsearch "goodkind.io/tack/internal/domain/search"
 )
 
 type repairNodeRepo struct {
@@ -200,23 +199,6 @@ func (r *repairPropRepo) List(context.Context, uuid.UUID) ([]*node.PropertyDef, 
 
 func (r *repairPropRepo) Delete(context.Context, uuid.UUID, uuid.UUID) error {
 	panic("repairPropRepo.Delete called")
-}
-
-type repairSearcher struct{ indexCount int }
-
-func (s *repairSearcher) Index(context.Context, string, string, *domainsearch.NodeDoc) error {
-	s.indexCount++
-	return nil
-}
-
-func (s *repairSearcher) IndexBatch(context.Context, string, []*domainsearch.NodeDoc) error {
-	panic("repairSearcher.IndexBatch called")
-}
-
-func (s *repairSearcher) Delete(context.Context, string, string) error { return nil }
-
-func (s *repairSearcher) Search(context.Context, string, string, map[string]string) ([]domainsearch.NodeDoc, map[string]map[string]int64, error) {
-	panic("repairSearcher.Search called")
 }
 
 func repairTypes() []*node.NodeType {

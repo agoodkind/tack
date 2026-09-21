@@ -23,7 +23,6 @@ func TestCreateRejectsUndeclaredProp(t *testing.T) {
 		&idempotencyProps{defs: []*node.PropertyDef{{Name: "scope_id"}, {Name: "parent_id"}}},
 		nil,
 		nil,
-		idempotencySearcher{},
 	)
 
 	_, err := service.Create(context.Background(), CreateInput{
@@ -63,7 +62,6 @@ func TestUpdateRejectsUndeclaredProp(t *testing.T) {
 		&idempotencyProps{defs: []*node.PropertyDef{{Name: "scope_id"}, {Name: "parent_id"}}},
 		nil,
 		nil,
-		idempotencySearcher{},
 	)
 
 	_, err := service.Update(context.Background(), UpdateInput{
@@ -100,7 +98,6 @@ func TestUpdatePatchesDeclaredPropWithPersistedUndeclaredProp(t *testing.T) {
 		&idempotencyProps{defs: []*node.PropertyDef{{Name: "scope_id"}, {Name: "parent_id"}, {Name: "priority"}}},
 		nil,
 		nil,
-		idempotencySearcher{},
 	)
 
 	_, err := service.Update(context.Background(), UpdateInput{
@@ -149,7 +146,6 @@ func TestUpdateDeletesPersistedUndeclaredProp(t *testing.T) {
 		&idempotencyProps{defs: []*node.PropertyDef{{Name: "scope_id"}, {Name: "parent_id"}}},
 		nil,
 		nil,
-		idempotencySearcher{},
 	)
 
 	_, err := service.Update(context.Background(), UpdateInput{

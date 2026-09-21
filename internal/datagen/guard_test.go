@@ -44,7 +44,6 @@ func TestValidateTargetRejectsProductionDespiteAllowTarget(t *testing.T) {
 		{name: "audit redactor", configure: setAuditRedactorDSN, value: "postgres://user@tack.home.goodkind.io/tack"},
 		{name: "audit operator", configure: setAuditOperatorDSN, value: "postgres://user@tack.home.goodkind.io/tack"},
 		{name: "audit Kafka", configure: setAuditKafkaBrokers, value: "kafka:9092,[3d06:0bad:0b01:0:0:0:0:117]:9092"},
-		{name: "Meilisearch", configure: setMeiliURL, value: "https://tack.home.goodkind.io"},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -74,8 +73,6 @@ func setAuditOperatorDSN(cfg *config.Config, value string) { cfg.AuditOperatorDS
 func setAuditKafkaBrokers(cfg *config.Config, value string) {
 	cfg.AuditKafkaBrokers = value
 }
-
-func setMeiliURL(cfg *config.Config, value string) { cfg.MeiliURL = value }
 
 func TestValidateTargetRejectsUnknownAllowTarget(t *testing.T) {
 	t.Parallel()

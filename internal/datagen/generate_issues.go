@@ -20,7 +20,6 @@ func (g *Generator) generateIssues(
 		return loggedError(ctx, "qa datagen: list issues", err)
 	}
 	createdIssue := false
-	firstIssueName := ""
 	for issueIndex := range g.scale.IssuesPerProject {
 		globalIndex := projectIndex*g.scale.IssuesPerProject + issueIndex
 		actor := workspace.Actors[globalIndex%len(workspace.Actors)]
@@ -51,9 +50,6 @@ func (g *Generator) generateIssues(
 		if created {
 			createdIssue = true
 		}
-		if issueIndex == 0 {
-			firstIssueName = name
-		}
 		g.recordEnsure(created)
 		g.summary.Issues++
 		if err := g.generateIssueDetails(
@@ -78,8 +74,7 @@ func (g *Generator) generateIssues(
 	); err != nil {
 		return err
 	}
-	return g.verifySearchFindsIssue(ctx, workspace.Actors[0].Token, workspace,
-		projectIdentifier, firstIssueName, firstWord(firstIssueName))
+	return nil
 }
 
 func (g *Generator) generateDeletedIssue(

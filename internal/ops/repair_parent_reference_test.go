@@ -47,7 +47,7 @@ func TestApplyParentReferenceUpdatesParentAndRelationship(t *testing.T) {
 		listViews: []*node.NodeView{epic},
 	}
 	nodeRepo := &repairNodeRepo{reader: reader}
-	console := NewRepairConsole(nodeRepo, reader, &repairTypeRepo{types: repairParentTypes()}, &repairPropRepo{defs: repairDefs()}, &repairSearcher{})
+	console := NewRepairConsole(nodeRepo, reader, &repairTypeRepo{types: repairParentTypes()}, &repairPropRepo{defs: repairDefs()})
 	profile := &RepairReferenceProfile{
 		Name:                "parent-epic",
 		TargetTypeKey:       "epic",
@@ -137,7 +137,6 @@ func TestPreviewParentReferenceAddsMissingRelationshipWhenParentPropExists(t *te
 		reader,
 		&repairTypeRepo{types: repairParentTypes()},
 		&repairPropRepo{defs: repairDefs()},
-		&repairSearcher{},
 		&repairRelationshipRepo{},
 	)
 	profile := &RepairReferenceProfile{
