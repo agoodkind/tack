@@ -68,11 +68,9 @@ func TestSearchNativeSparse(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the test and record the missing-adapter failure.**
+- [ ] **Step 2: Record the deferred failure contract.**
 
-Run: `go test ./internal/test/integration -run '^TestSearchNativeSparse$' -count=1`
-
-Expected: FAIL because the OpenSearch adapter and fixture do not exist.
+Task 13 runs `^TestSearchNativeSparse$` against the completed branch. The test must fail when the adapter, pinned model checks, native semantic mapping, or complete chunk coverage is absent. Do not start OpenSearch during this coding task.
 
 - [ ] **Step 3: Add the official client and real TLS fixture.**
 
@@ -94,25 +92,25 @@ Require a nonempty access version, positive primary and routing-shard counts, a 
 {"page_text":{"type":"semantic","raw_field_type":"text","model_id":"registered-document-model-id","semantic_info_field_name":"page_text_semantic_info","chunking":[{"algorithm":"fixed_char_length","parameters":{"char_limit":160,"overlap_rate":0.5,"max_chunk_limit":-1}}],"sparse_encoding_config":{"prune_type":"max_ratio","prune_ratio":0.1},"skip_existing_embedding":true}}
 ```
 
-- [ ] **Step 7: Verify native chunk and source behavior.**
+- [ ] **Step 7: Add native chunk and source coverage.**
 
 Index ordinary, Unicode, newline-only, empty, missing, retired, and unknown-field documents through typed bulk. Require the complete 4,096-byte source and final character, valid generated chunk text, forward progress, and finite sparse weights. Require strict mapping errors for unknown fields. Reject a missing required `page_text`. Accept active empty text without inference.
 
-- [ ] **Step 8: Verify retirement and byte bounds.**
+- [ ] **Step 8: Add retirement and byte-bound coverage.**
 
 Replace a same-ID document with `{"retired":true}` at the retirement version. Require no text or semantic fields and no active match. Reject page text above 4,096 UTF-8 bytes before an engine request.
 
-- [ ] **Step 9: Verify endpoint and resource behavior.**
+- [ ] **Step 9: Add endpoint and resource coverage.**
 
 Require `ConnectionObserver` to record only the configured stable endpoint. Record bundle size, reported inference memory, process memory, peak ingest memory, and latency in an 8 GiB container. Preserve the 4 GiB circuit-breaker failure as a regression. Do not infer concurrent capacity from this test.
 
-- [ ] **Step 10: Run the complete task checks.**
+- [ ] **Step 10: Run the serial coding checks.**
 
-Run: `go test ./internal/test/integration -run '^TestSearchNative' -count=1`
+Run: `go test ./internal/test/integration -run '^$' -count=1`
 
 Run: `make check`
 
-Expected: PASS against OpenSearch 3.8.0 with no skipped test.
+Expected: PASS after compiling the integration package without executing its tests. Task 13 runs the real OpenSearch checks.
 
 - [ ] **Step 11: Commit the task.**
 

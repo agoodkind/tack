@@ -22,7 +22,7 @@ appears in search results.
 
 ---
 
-## Reader fixture for Task 2
+## Reader fixture for Task 3
 
 Create the fixture file listed in the reader task. It consumes the existing
 `clearPrefix`, testenv FoundationDB, and the new declaration types. It produces
@@ -69,9 +69,9 @@ func putSearchText(t *testing.T, stores *foundationdb.Stores, text string) uuid.
 }
 ```
 
-- [ ] Run the reader and work-store tests with real FDB. Assert that renaming the generated type and property keys cannot change projected text. Do not use `t.Parallel` with the process-global prefix.
+- [ ] Keep the reader and work-store tests ready for Task 13. Assert that renaming the generated type and property keys cannot change projected text. Do not use `t.Parallel` with the process-global prefix.
 
-## Authenticated calls for Tasks 7 and 10
+## Authenticated calls for Tasks 7 and 11
 
 Create `internal/datagen/driver_raw.go`. Refactor the existing private `Driver.call` into one internal path that accepts typed or raw arguments. Make `Driver.Call` and `Driver.CallRaw` delegate to it. Preserve authentication, context checks, request IDs, call counts, dry-run behavior, JSON-RPC framing, session headers, response bounds, sending, and JSON/SSE decoding in that single path.
 
@@ -100,7 +100,7 @@ func TestSearchEmptyQuery(t *testing.T) {
 }
 ```
 
-- [ ] Run `^TestSearchEmptyQuery$` before and after query implementation, then run the complete search suite. Include these fixture files in their owning reader or MCP commit.
+- [ ] Include these fixture files in their owning reader or MCP commit. Task 13 runs `^TestSearchEmptyQuery$` and the complete search suite.
 
 ## Delayed-write test for Task 5
 
@@ -108,7 +108,7 @@ This test consumes the real stores, native client, and page worker. It delays an
 already registered request until deletion has completed, then sends that request
 to OpenSearch. Add it to the worker's recovery test file.
 
-- [ ] Add and run this test before implementing retirement; require it to fail when an old request can restore text.
+- [ ] Add this test before implementing retirement. Task 13 requires it to fail when an old request can restore text.
 
 ```go
 func TestSearchDelayedWriter(t *testing.T) {
@@ -146,7 +146,7 @@ func TestSearchDelayedWriter(t *testing.T) {
 
 `DeleteIndex` and `GetDocument` must call the official typed `Indices.Delete` and `Document.Get` APIs. The fixture and production adapter use the same client and transport.
 
-- [ ] Run `^TestSearchDelayedWriter$` after retirement implementation. Require the retained version-2 record and rejected delayed request, not merely an empty MCP response.
+- [ ] Task 13 runs `^TestSearchDelayedWriter$`. Require the retained version-2 record and rejected delayed request, not merely an empty MCP response.
 
 ## Helper contracts used by task plans
 Each helper below is test code in the named owning file. It calls real dependencies and production boundaries. No helper replaces a production dependency.

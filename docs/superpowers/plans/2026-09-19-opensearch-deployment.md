@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). QA starts on suburban with zero replicas. Production starts on vault with zero replicas. Each guest has at least 8 GiB memory, 2 CPU cores, 40 GiB fast storage, and a 2 GiB JVM heap. This task prepares configuration only. It does not deploy.
+Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Require `CONFIGS_ROOT` to identify a clean isolated configs checkout based on `origin/main`. QA starts on suburban with zero replicas. Production starts on vault with zero replicas. Each guest has at least 8 GiB memory, 2 CPU cores, 40 GiB fast storage, and a 2 GiB JVM heap. This task prepares configuration only. It does not deploy.
 
 ## Review Focus
 
@@ -20,7 +20,7 @@ Test stable endpoints, verified TLS, IPv6-only connections, single-node restart,
 
 ---
 
-### Task 11: Define containers and initial guests
+### Task 12: Define containers and initial guests
 
 **Files:**
 
@@ -49,7 +49,7 @@ Test stable endpoints, verified TLS, IPv6-only connections, single-node restart,
 **Interfaces:**
 
 - Consumes: Task 1 image, model identity, mapping, and client configuration.
-- Produces: one HTTPS endpoint per environment, one backend initially, reusable member lists, and audited `ops search provision` and `ops search verify` commands for Task 12.
+- Produces: one HTTPS endpoint per environment, one backend initially, reusable member lists, and audited `ops search provision` and `ops search verify` commands for Tasks 13 and 14.
 
 ```ruby
 def production_inventory(member_count)
@@ -114,17 +114,30 @@ Set `plugins.ml_commons.only_run_on_ml_node: true`, least-load dispatch, and aut
 
 Register `ops search provision` and `ops search verify` through `clispec.Operation` and `RegisterCommands`. Provision applies the validated replica count through the typed client, waits for green, records it with the physical generation, and reconciles identical retries. Verify checks image, model, mapping, shards, routing shards, replicas, TLS, and alias.
 
-- [ ] **Step 9: Add real single-node and scale-out tests.**
+- [ ] **Step 9: Author real single-node and scale-out tests.**
 
-For each environment, send every client request through real Traefik and require `ConnectionObserver` to record only the stable endpoint. Stop the node while FDB writes commit, then restart it and require backlog recovery. For production scale-out, join two members, add proxy backends, deploy the model, set one replica, stop each member, and require search and indexing to continue. The initial OpenTofu plan still creates one production guest.
+The tests send every client request through real Traefik and require `ConnectionObserver` to record only the stable endpoint. They stop the node while FDB writes commit, then restart it and require backlog recovery. The production scale-out case joins two members, adds proxy backends, deploys the model, sets one replica, stops each member, and requires search and indexing to continue. The initial OpenTofu plan still creates one production guest. Task 13 executes the disposable cases.
 
-- [ ] **Step 10: Enforce the QA capacity gate.**
+- [ ] **Step 10: Encode the QA capacity gate.**
 
-Run the complete workload on suburban. Require at least 6.26 GiB host memory available throughout. Confirm one 40 GiB guest leaves 38.46 percent of the fast pool and one two-vCPU guest passes the CPU projection. Reject multi-node QA on suburban.
+Add the 6.26 GiB minimum available-memory threshold, 40 GiB fast-pool allocation, two-vCPU allocation, and single-node QA restriction to the verification command and rendered configuration tests. Task 14 measures the live suburban host during the complete workload.
 
-- [ ] **Step 11: Run configuration checks.**
+- [ ] **Step 11: Run offline configuration checks.**
 
-Run the two RSpec files, `tofu validate` in both directories, the single-node and scale-out integration cases, and both repository check commands. Save OpenTofu plans and require exactly two guest additions with no replacement or deletion.
+Run in Tack:
+
+```sh
+make check
+```
+
+Run in configs:
+
+```sh
+bundle exec rspec spec/ansible/tack_search_spec.rb spec/ansible/tack_search_proxy_spec.rb
+./configsctl tofu validate
+```
+
+Do not connect to Proxmox, start OpenSearch, or save an apply plan. Task 13 runs disposable cluster tests. Task 14 saves and reviews the live OpenTofu plans.
 
 - [ ] **Step 12: Commit each repository.**
 

@@ -38,7 +38,7 @@ Test failed source transactions, claim expiry, stale owners, metadata scan overl
 
 **Interfaces:**
 
-- Consumes: Task 2 content revisions and projection epochs.
+- Consumes: Task 3 content revisions and projection epochs.
 - Produces: `WorkStore`, `Work`, and `WriteIntent` for Task 5 and Task 9.
 
 ```go
@@ -89,11 +89,9 @@ func TestSearchWorkSurvivesRestart(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the test and record the missing-store failure.**
+- [ ] **Step 2: Record the deferred failure contract.**
 
-Run: `go test ./internal/test/integration -run '^TestSearchWorkSurvivesRestart$' -count=1`
-
-Expected: FAIL because `SearchWork` and its key families do not exist.
+Task 13 runs `^TestSearchWorkSurvivesRestart$` against the completed branch. The test must fail when durable work, leases, restart recovery, or work-class fairness is absent. Do not start FoundationDB during this coding task.
 
 - [ ] **Step 3: Add bounded key families to the central catalog.**
 
@@ -132,13 +130,13 @@ After current generation indexing and retirement finish, delete its claim, curso
 
 Test node writes, relationships, metadata, deletion, failed source transactions, scan overlap, claim expiry, restart, and hundreds of edits. Compare key-family counts before and after convergence. Increase worker count under a fixed workload and require higher throughput without a key-format change.
 
-- [ ] **Step 9: Run the complete task checks.**
+- [ ] **Step 9: Run the serial coding checks.**
 
-Run: `go test ./internal/test/integration -run '^TestSearchWork' -count=1`
+Run: `go test ./internal/test/integration -run '^$' -count=1`
 
 Run: `make check`
 
-Expected: PASS with bounded keys after convergence.
+Expected: PASS after compiling the integration package without executing its tests. Task 13 runs the restart and bounded-state checks.
 
 - [ ] **Step 10: Commit the task.**
 

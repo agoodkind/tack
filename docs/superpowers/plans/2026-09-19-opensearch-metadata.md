@@ -20,7 +20,7 @@ Test incomplete manifests, duplicate identities, cross-organization entries, con
 
 ---
 
-### Task 1B: Roll out explicit search projections
+### Task 2: Roll out explicit search projections
 
 **Files:**
 
@@ -72,11 +72,9 @@ func TestSearchProjectionBackfill(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the test and record the missing-command failure.**
+- [ ] **Step 2: Record the deferred failure contract.**
 
-Run: `go test ./internal/test/integration -run '^TestSearchProjectionBackfill$' -count=1`
-
-Expected: FAIL because the manifest command and permanent declaration validation do not exist.
+Task 13 runs `^TestSearchProjectionBackfill$` against the completed branch. The test must fail when the manifest command, retry rules, or permanent declaration validation is absent. Do not start FoundationDB during this coding task.
 
 - [ ] **Step 3: Add declaration types and explicit values to new metadata.**
 
@@ -114,13 +112,13 @@ Set a projection only when stored `Search` is nil. Accept an already equal value
 
 Test incomplete, duplicate, unknown, cross-organization, malformed, and conflicting entries. Inject a partial failure and rerun the exact manifest. Test included and excluded seed and QA definitions. Require dry run to leave all key families unchanged.
 
-- [ ] **Step 10: Run the complete task checks.**
+- [ ] **Step 10: Run the serial coding checks.**
 
-Run: `go test ./internal/test/integration -run '^TestSearchProjection' -count=1`
+Run: `go test ./internal/test/integration -run '^$' -count=1`
 
 Run: `make check`
 
-Expected: PASS with zero missing declarations after apply.
+Expected: PASS after compiling the integration package without executing its tests. Task 13 runs the backfill and readiness checks.
 
 - [ ] **Step 11: Commit the task.**
 

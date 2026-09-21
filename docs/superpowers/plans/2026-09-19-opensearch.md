@@ -53,7 +53,10 @@ The native sparse indexing and ranking configuration passed local engine validat
 - Reads use `NodeReader`. Configuration uses environment variables through `caarlos0/env`.
 - Tests use real dependencies and public boundaries. No mocks, product seeds, or production tokenizer dependency establish acceptance.
 - Keep each new or edited file within 200 lines. Use focused files instead of adding to an oversized file.
-- Run `make check` before each signed commit. Include `Co-authored-by: Codex <noreply@openai.com>`.
+- Execute Tasks 1 through 12 once, in number order. Tasks 1 through 11 use one linear Tack branch. Task 12 commits its Tack change, then its configs change on one linear configs branch. Do not parallelize, skip ahead, or rewrite an earlier task's interface in a later task.
+- Each coding task authors its real-dependency tests, compiles the integration package with an empty test selection, runs `make check`, and commits. It does not start OpenSearch, FoundationDB, Traefik, or Proxmox.
+- Task 13 runs the real dependencies, corrects failures, repeats affected tests, and runs the full search suite. Task 14 performs authorized QA and production operations.
+- Include `Co-authored-by: Codex <noreply@openai.com>` in every signed commit.
 - This plan does not authorize a push, merge, deployment, ruleset change, or storage-limit removal.
 
 ## Reuse boundaries
@@ -74,10 +77,10 @@ The current policy returns version `org-scope-v1` and fields `org_id:A` and `sco
 
 A future permission model changes only these owned surfaces:
 
-1. Extend the Task 2 access policy so indexed fields and caller clauses use the same rules.
+1. Extend the Task 3 access policy so indexed fields and caller clauses use the same rules.
 2. Add the new strict `access` mapping fields and increment the access version.
 3. Keep the Task 5 field copier and Task 6 clause inserter unchanged.
-4. Bump the projection and mapping version, then use Task 9 to rebuild from FoundationDB.
+4. Bump the projection and mapping version, then use Task 8 to rebuild from FoundationDB.
 5. Add one raw-ranker test dominated by forbidden matches and one corrupt-index public test.
 
 The extension cannot change content pages, document identity, durable work, sessions, continuation, result grouping, or the final FoundationDB authorization check.
@@ -98,44 +101,42 @@ The extension cannot change content pages, document identity, durable work, sess
 
 ## Execution order
 
-Each linked task document specifies exact files, interfaces, failing tests, implementation examples, verification commands, and commit boundaries.
-These are parts of one implementation. None introduces a temporary search design.
-Tasks 11 in Tack and configs add inactive OpenSearch components. They do not change
-the active application search path. Task 8 performs the only application cutover.
-That review enables OpenSearch and deletes Meilisearch together. No task
-implements dual writes, a compatibility layer, or an interim search engine.
-The [fixture code](2026-09-19-opensearch-fixtures.md) supplies real-store setup and
-authenticated calls for the owning tasks.
+Assign Tasks 1 through 12 to one Luna run with `superpowers:executing-plans`. Each task consumes only committed outputs from earlier numbered tasks. Run one task at a time. Keep one linear branch in each repository. The [fixture code](2026-09-19-opensearch-fixtures.md) supplies real-store setup and authenticated calls, but Tasks 1 through 12 only compile those tests. Assign Task 13 to Sol for live execution and corrective commits. Task 14 owns authorized deployment.
 
 1. Complete the [native coverage task](2026-09-19-opensearch-native.md). Implement the validated sparse engine configuration and its regression tests.
 2. Complete the [projection rollout task](2026-09-19-opensearch-metadata.md). Add declaration types, new-definition values, and the expiring manifest backfill.
 3. Complete the [paginated reader task](2026-09-19-opensearch-reader.md), including the shared organization and scope access policy.
-4. Complete the [durable work task](2026-09-19-opensearch-worker.md), then the [bounded indexing task](2026-09-19-opensearch-indexing.md).
-5. Complete the [ranked query task](2026-09-19-opensearch-query.md). It proves that OpenSearch applies the access filter before ranking.
-6. Complete the [authorized public search task](2026-09-19-opensearch-public-search.md) behind an inactive registration. It defines sessions and the final authorization check without changing the active MCP tool.
-7. Complete the [index replacement task](2026-09-19-opensearch-rebuild.md) against those session interfaces.
-8. Complete the [cluster configuration task](2026-09-19-opensearch-deployment.md). It prepares services and configuration without deploying or changing application search.
-9. Complete the [runtime cutover task](2026-09-19-opensearch-recovery.md). It activates ranked search, starts workers and rebuild recovery, and deletes Meilisearch in the only application cutover.
-10. Complete the [metadata refresh task](2026-09-19-opensearch-refresh.md) and [public QA data task](2026-09-19-opensearch-datagen.md) against the replacement runtime.
-11. Apply the [QA and production release plan](2026-09-19-opensearch-release.md) only after deployment authorization.
+4. Complete the [durable work task](2026-09-19-opensearch-worker.md).
+5. Complete the [bounded indexing task](2026-09-19-opensearch-indexing.md).
+6. Complete the [ranked query task](2026-09-19-opensearch-query.md). It proves that OpenSearch applies the access filter before ranking.
+7. Complete the [authorized public search task](2026-09-19-opensearch-public-search.md) behind an inactive registration.
+8. Complete the [index replacement task](2026-09-19-opensearch-rebuild.md) against Tasks 3 through 7.
+9. Complete the [runtime cutover task](2026-09-19-opensearch-recovery.md). It activates the replacement and deletes the application Meilisearch path.
+10. Complete the [metadata refresh task](2026-09-19-opensearch-refresh.md) against the replacement runtime.
+11. Complete the [public QA data task](2026-09-19-opensearch-datagen.md).
+12. Complete the [cluster configuration task](2026-09-19-opensearch-deployment.md) without applying it.
+13. Give the completed branch to Sol and execute the [live validation and correction plan](2026-09-19-opensearch-final-validation.md).
+14. Apply the [QA and production release plan](2026-09-19-opensearch-release.md) only after deployment authorization.
 
 ## Delivery tickets
 
 | Plan scope | Ticket |
 | --- | --- |
 | [Task 1: Native sparse indexing](2026-09-19-opensearch-native.md) | TACK-530 |
-| [Explicit projection rollout and backfill](2026-09-19-opensearch-metadata.md) | TACK-542 |
-| [Task 2: Paginated node content reads](2026-09-19-opensearch-reader.md) | TACK-531 |
-| [Task 3: Metadata refresh](2026-09-19-opensearch-refresh.md) | TACK-532 |
+| [Task 2: Explicit projection rollout and backfill](2026-09-19-opensearch-metadata.md) | TACK-542 |
+| [Task 3: Paginated node content reads](2026-09-19-opensearch-reader.md) | TACK-531 |
 | [Task 4: Durable search work](2026-09-19-opensearch-worker.md) | TACK-533 |
 | [Task 5: Bounded indexing and retirement](2026-09-19-opensearch-indexing.md) | TACK-534 |
 | [Task 6: Ranked continuation](2026-09-19-opensearch-query.md) | TACK-535 |
-| [Task 7: Authorized public search](2026-09-19-opensearch-public-search.md) and [Task 8: runtime and Meilisearch removal](2026-09-19-opensearch-recovery.md) | TACK-536 |
-| [Task 9: Rebuild and restore](2026-09-19-opensearch-rebuild.md) | TACK-537 |
-| [Task 10: QA datagen coverage](2026-09-19-opensearch-datagen.md) | TACK-538 |
-| [Task 11, Tack: Containers and provisioning operations](2026-09-19-opensearch-deployment.md) | TACK-539 |
-| [Task 11, configs: One initial guest per environment and scalable rendered configuration](2026-09-19-opensearch-deployment.md) | TACK-540 |
-| [Task 12: QA, production, and Meilisearch deployment removal](2026-09-19-opensearch-release.md) | TACK-541 |
+| [Task 7: Authorized public search](2026-09-19-opensearch-public-search.md) | TACK-536 |
+| [Task 8: Rebuild and restore](2026-09-19-opensearch-rebuild.md) | TACK-537 |
+| [Task 9: Runtime and Meilisearch removal](2026-09-19-opensearch-recovery.md) | TACK-536 |
+| [Task 10: Metadata refresh](2026-09-19-opensearch-refresh.md) | TACK-532 |
+| [Task 11: QA datagen coverage](2026-09-19-opensearch-datagen.md) | TACK-538 |
+| [Task 12, Tack: Containers and provisioning operations](2026-09-19-opensearch-deployment.md) | TACK-539 |
+| [Task 12, configs: One initial guest per environment and scalable rendered configuration](2026-09-19-opensearch-deployment.md) | TACK-540 |
+| [Task 13: Live validation and correction](2026-09-19-opensearch-final-validation.md) | TACK-518, TACK-519, TACK-520 |
+| [Task 14: QA, production, and Meilisearch deployment removal](2026-09-19-opensearch-release.md) | TACK-541 |
 
 TACK-518, TACK-519, and TACK-520 retain the cross-cutting scalability,
 isolation, and semantic acceptance. TACK-524 and TACK-525 remain separate
@@ -159,21 +160,7 @@ The native task repeats the successful engine tests through the production adapt
 
 ## Commands and commit procedure
 
-Run these commands inside the Tack checkout. The integration runner supplies the
-FoundationDB client library and real engine connectivity.
-
-```sh
-TACK_TEST_ROOT="$PWD" docker compose -f docker-compose.test.yml --profile runner build tests
-TACK_TEST_ROOT="$PWD" docker compose -f docker-compose.test.yml --profile runner run --rm tests test -count=1 -timeout 30m -run '^TestSearch' ./internal/test/integration
-make check
-```
-
-Each task first adds its test and runs the matching `-run` expression. A missing
-new API must fail compilation; a present but incorrect implementation must fail
-the specified assertion. Record the actual failure before implementing the task.
-After implementation, require the matching test to pass without skips.
-
-Stage only the files changed by that task. The native task's commit command is:
+Tasks 1 through 12 run only their stated compile, offline render, static, and build checks. Task 13 runs every real-dependency command and owns corrections. Stage only the files changed by each task. The native task's commit command is:
 
 ```sh
 git commit -S -m "Add native OpenSearch sparse indexing validation" -m "Co-authored-by: Codex <noreply@openai.com>"

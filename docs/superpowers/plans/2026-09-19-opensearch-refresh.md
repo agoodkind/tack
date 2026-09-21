@@ -20,7 +20,7 @@ Test new opaque types, changed projections, concurrent requests, a failed metada
 
 ---
 
-### Task 3: Refresh search metadata after writes
+### Task 10: Refresh search metadata after writes
 
 **Files:**
 
@@ -33,7 +33,7 @@ Test new opaque types, changed projections, concurrent requests, a failed metada
 
 **Interfaces:**
 
-- Consumes: `PropertyDefStore.Set`, `NodeTypeStore.Set`, Task 2 projection declarations.
+- Consumes: Task 2 projection declarations, Task 7 public search, `PropertyDefStore.Set`, and `NodeTypeStore.Set`.
 - Produces: `ProjectionVersion(context.Context, uuid.UUID) (string, error)` and epoch-aware MCP registration.
 
 - [ ] **Step 1: Add the failing authenticated refresh test.**
@@ -52,11 +52,9 @@ func TestSearchMetadataAfterStartup(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the test and record the stale-registration failure.**
+- [ ] **Step 2: Record the deferred failure contract.**
 
-Run: `go test ./internal/test/integration -run '^TestSearchMetadataAfterStartup$' -count=1`
-
-Expected: FAIL because the running MCP server does not expose the second metadata definition.
+Task 13 runs `^TestSearchMetadataAfterStartup$` against the completed branch. The test must fail when a running MCP server retains stale metadata, publishes partial metadata, or requires restart. Do not start live dependencies during this coding task.
 
 - [ ] **Step 3: Store and increment the organization projection epoch.**
 
@@ -92,15 +90,15 @@ Inject a real FDB read failure by stopping the disposable FDB dependency after t
 
 - [ ] **Step 6: Add concurrent and deletion coverage.**
 
-Run searches while updating one projection from excluded to included and deleting another opaque type. Each completed request may use one complete epoch. No request may mix old type registration with new projection rules.
+Add a test that searches while updating one projection from excluded to included and deleting another opaque type. Each completed request may use one complete epoch. No request may mix old type registration with new projection rules. Task 13 executes this test.
 
-- [ ] **Step 7: Run the task checks.**
+- [ ] **Step 7: Run the serial coding checks.**
 
-Run: `go test ./internal/test/integration -run '^TestSearchMetadata' -count=1`
+Run: `go test ./internal/test/integration -run '^$' -count=1`
 
 Run: `make check`
 
-Expected: PASS with no process restart.
+Expected: PASS after compiling the integration package without executing its tests. Task 13 runs metadata refresh and failure recovery.
 
 - [ ] **Step 8: Commit the task.**
 

@@ -20,7 +20,7 @@ Test startup with an unavailable engine, graceful shutdown, worker restart, inva
 
 ---
 
-### Task 8: Replace runtime assembly and preserve public errors
+### Task 9: Replace runtime assembly and preserve public errors
 
 **Files:**
 
@@ -40,7 +40,7 @@ Test startup with an unavailable engine, graceful shutdown, worker restart, inva
 
 **Interfaces:**
 
-- Consumes: `WorkStore`, `Worker`, `Ranker`, `SessionStore`, and Task 9 `Rebuilder`.
+- Consumes: Tasks 4 through 7 contracts and Task 8 `Rebuilder`.
 - Produces: `searchRuntime` and `searchDependencies` for MCP.
 
 ```go
@@ -63,11 +63,9 @@ func TestSearchRuntimeUnavailable(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the outage test and record the current failure.**
+- [ ] **Step 2: Record the deferred failure contract.**
 
-Run: `go test ./internal/test/integration -run '^TestSearchRuntimeUnavailable$' -count=1`
-
-Expected: FAIL because the current runtime substitutes a Meilisearch no-op and does not drain durable work.
+Task 13 runs `^TestSearchRuntimeUnavailable$` against the completed branch. The test must fail when the runtime hides an outage, drops durable work, or retains a Meilisearch path. Do not start live dependencies during this coding task.
 
 - [ ] **Step 3: Add and validate OpenSearch configuration.**
 
@@ -125,15 +123,15 @@ Run: `rg -n -i 'meili|MEILI_' --glob '!docs/superpowers/**' .`
 
 Expected: no runtime, configuration, dependency, container, secret, volume, test, or runbook match. Historical migration records may remain only when required by repository policy.
 
-- [ ] **Step 10: Run the complete task checks.**
+- [ ] **Step 10: Run the serial coding checks.**
 
-Run: `go test ./internal/test/integration -run '^TestSearchRuntime' -count=1`
+Run: `go test ./internal/test/integration -run '^$' -count=1`
 
 Run: `make build`
 
 Run: `make check`
 
-Expected: PASS with an explicit outage error and automatic backlog recovery.
+Expected: PASS after compiling the integration package without executing its tests. Task 13 runs outage and backlog recovery.
 
 - [ ] **Step 11: Commit the task.**
 

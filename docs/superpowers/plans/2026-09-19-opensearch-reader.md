@@ -20,7 +20,7 @@ Test edited revisions, reordered maps, unfamiliar property types, names spanning
 
 ---
 
-### Task 2: Add metadata-driven paginated node reads
+### Task 3: Add metadata-driven paginated node reads
 
 **Files:**
 
@@ -40,8 +40,8 @@ Test edited revisions, reordered maps, unfamiliar property types, names spanning
 
 **Interfaces:**
 
-- Consumes: Task 1B `SearchProjection`, `NodeView`, current ancestry reads, central FDB tuple helpers.
-- Produces: `ContentReader`, `AccessPolicy`, `AccessFilter`, `ContentPage`, `Summary`, and `SearchScan` for Tasks 4 through 10.
+- Consumes: Task 2 `SearchProjection`, `NodeView`, current ancestry reads, central FDB tuple helpers.
+- Produces: `ContentReader`, `AccessPolicy`, `AccessFilter`, `ContentPage`, `Summary`, and `SearchScan` for Tasks 4 through 11.
 
 ```go
 type AccessField struct { Name string; Values []string }
@@ -93,13 +93,11 @@ func TestSearchReaderPages(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the reader test and record the expected failure.**
+- [ ] **Step 2: Record the deferred failure contract.**
 
-Run: `go test ./internal/test/integration -run '^TestSearchReaderPages$' -count=1`
+Task 13 runs `^TestSearchReaderPages$` against the completed branch. The test must fail when paging, revision binding, complete text, or access projection is absent. Do not start FoundationDB during this coding task.
 
-Expected: FAIL because `Content`, `ContentRequest`, and `SearchAccess` do not exist.
-
-- [ ] **Step 3: Use the projection declarations from Task 1B.**
+- [ ] **Step 3: Use the projection declarations from Task 2.**
 
 ```go
 type TextRule struct {
@@ -166,13 +164,13 @@ Embed `ContentReader` in `NodeReader`; the concrete `ViewStore` implements both.
 
 Test complete text after removing overlap, reordered maps, excluded fields, unfamiliar property types, long names, malformed declarations, edits between pages, ancestry changes, deletion, and empty nonfinal pages. Require every nonfinal cursor to advance and every page after an edit to return `errors.Is(err, node.ErrContentChanged)`.
 
-- [ ] **Step 9: Run the complete task checks.**
+- [ ] **Step 9: Run the serial coding checks.**
 
-Run: `go test ./internal/test/integration -run '^TestSearchReader' -count=1`
+Run: `go test ./internal/test/integration -run '^$' -count=1`
 
 Run: `make check`
 
-Expected: PASS with no skipped search test.
+Expected: PASS after compiling the integration package without executing its tests. Task 13 runs the real FoundationDB checks.
 
 - [ ] **Step 10: Commit the task.**
 

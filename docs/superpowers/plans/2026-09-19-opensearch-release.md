@@ -20,7 +20,7 @@ Verify the applied revision, running image, model identity, TLS, topology, backl
 
 ---
 
-### Task 12: Verify QA and production after authorization
+### Task 14: Verify QA and production after authorization
 
 **Files:**
 
@@ -30,7 +30,7 @@ Verify the applied revision, running image, model identity, TLS, topology, backl
 
 **Interfaces:**
 
-- Consumes: reviewed Tack and configs commits, Tasks 1 through 11, `ops search provision`, `ops search verify`, `ops backfill once-search-projections`, and `datagen.VerifySearch`.
+- Consumes: reviewed Tack and configs commits, completed Task 13 evidence, `ops search provision`, `ops search verify`, `ops backfill once-search-projections`, and `datagen.VerifySearch`.
 - Produces: separate provisioning, deployment, live acceptance, and cleanup evidence.
 
 - [ ] **Step 1: Present concrete QA changes for authorization.**

@@ -20,7 +20,7 @@ Test concurrent metadata and ancestry edits, failure before and after alias swit
 
 ---
 
-### Task 9: Build and switch replacement indexes
+### Task 8: Build and switch replacement indexes
 
 **Files:**
 
@@ -37,7 +37,7 @@ Test concurrent metadata and ancestry edits, failure before and after alias swit
 **Interfaces:**
 
 - Consumes: `ContentReader.ScanSearch`, Task 5 worker and writer, mutation journal, current generation and replica settings.
-- Produces: `Rebuilder`, typed split, and atomic alias switching for Tasks 8 and 12.
+- Produces: `Rebuilder`, typed split, and atomic alias switching for Tasks 9 and 12.
 
 ```go
 type ReplacementMode uint8
@@ -70,11 +70,9 @@ func TestSearchRebuildDuringChanges(t *testing.T) {
 
 Add the same test for native split. Create, edit, delete, change metadata, and move a subtree while replacement is paused. Require current nodes only and no foreign-scope result.
 
-- [ ] **Step 2: Run the tests and record the missing-handoff failure.**
+- [ ] **Step 2: Record the deferred failure contract.**
 
-Run: `go test ./internal/test/integration -run '^TestSearch(Rebuild|Split)DuringChanges$' -count=1`
-
-Expected: FAIL because the current command lacks persisted replacement state and journal catch-up.
+Task 13 runs `^TestSearch(Rebuild|Split)DuringChanges$` against the completed branch. The tests must fail when replacement state, journal catch-up, validation, or atomic alias switching is broken. Do not start live dependencies during this coding task.
 
 - [ ] **Step 3: Persist one replacement state machine.**
 
@@ -115,13 +113,13 @@ Bind sessions to physical indexes. Reject new sessions on retiring indexes. Keep
 
 Restore a real FDB backup into a disposable environment, change the search generation, reject restored cursors, and rebuild an empty index. Split one to two, four, then eight primaries with the model undeployed. Require identical stored source and sparse weights, then redeploy and rerun relevance and continuation.
 
-- [ ] **Step 10: Run the complete task checks.**
+- [ ] **Step 10: Run the serial coding checks.**
 
-Run: `go test ./internal/test/integration -run '^TestSearch(Rebuild|Split|Restore)' -count=1`
+Run: `go test ./internal/test/integration -run '^$' -count=1`
 
 Run: `make check`
 
-Expected: PASS with the serving alias correct after each injected failure.
+Expected: PASS after compiling the integration package without executing its tests. Task 13 runs rebuild, split, restore, and injected failures.
 
 - [ ] **Step 11: Commit the task.**
 

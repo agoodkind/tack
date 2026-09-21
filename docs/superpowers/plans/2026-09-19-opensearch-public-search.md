@@ -35,8 +35,8 @@ Test corrupt indexed access fields, revoked membership, moved scopes, byte-limit
 
 **Interfaces:**
 
-- Consumes: Task 2 `AccessPolicy`, `ContentReader.Summary`, Task 6 `Ranker`, existing resolver and response byte helpers.
-- Produces: durable sessions and the ranked `tack_search` registration that Task 8 activates while deleting the old implementation.
+- Consumes: Task 3 `AccessPolicy`, `ContentReader.Summary`, Task 6 `Ranker`, existing resolver and response byte helpers.
+- Produces: durable sessions and the ranked `tack_search` registration that Task 9 activates while deleting the old implementation.
 
 ```go
 type Session struct {
@@ -76,11 +76,9 @@ func TestSearchAuthorizationRejectsCorruptIndex(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the authorization and cursor tests and record the failure.**
+- [ ] **Step 2: Record the deferred failure contract.**
 
-Run: `go test ./internal/test/integration -run '^TestSearch(Auth|Authorization|Cursor)' -count=1`
-
-Expected: FAIL because durable sessions and the new public search path do not exist.
+Task 13 runs `^TestSearch(Auth|Authorization|Cursor)$` against the completed branch. The tests must fail when durable sessions, replay, current authorization, or bounded continuation is broken. Do not start live dependencies during this coding task.
 
 - [ ] **Step 3: Store bounded session state.**
 
@@ -120,17 +118,17 @@ Reauthorize saved result IDs without advancing or renewing the session. Reject a
 
 Reuse Task 6's raw-ranker test to prove selective pre-ranking filtering. In this task, corrupt indexed organization and scope values so a forbidden document passes OpenSearch. Require the current FoundationDB check to reject it. Count summary reads and require them to stay within four batches. A future permission model must pass both tests before release.
 
-- [ ] **Step 9: Prove horizontal Tack continuation.**
+- [ ] **Step 9: Add horizontal Tack continuation coverage.**
 
-Open a session on one Tack process. Alternate every continuation between two processes backed by the same FoundationDB and OpenSearch. Require exact replay, no duplicate node ID, complete exhaustion, and cleanup. Increase process count under fixed load and require throughput to increase without a stored-format change.
+Add a test that opens a session on one Tack process and alternates every continuation between two processes backed by the same FoundationDB and OpenSearch. Require exact replay, no duplicate node ID, complete exhaustion, and cleanup. Increase process count under fixed load and require throughput to increase without a stored-format change. Task 13 executes this test.
 
-- [ ] **Step 10: Run the complete task checks.**
+- [ ] **Step 10: Run the serial coding checks.**
 
-Run: `go test ./internal/test/integration -run '^TestSearch(Auth|Authorization|Cursor|DistinctNodes|PermissionFilter)' -count=1`
+Run: `go test ./internal/test/integration -run '^$' -count=1`
 
 Run: `make check`
 
-Expected: PASS with no skipped search test.
+Expected: PASS after compiling the integration package without executing its tests. Task 13 runs authenticated public search and replay.
 
 - [ ] **Step 11: Commit the task.**
 

@@ -34,7 +34,7 @@ Test delayed writes, partial bulk failures, shortened nodes, deleted nodes, fina
 
 **Interfaces:**
 
-- Consumes: Task 1 `Adapter`, Task 2 `ContentReader`, Task 4 `WorkStore`.
+- Consumes: Task 1 `Adapter`, Task 3 `ContentReader`, Task 4 `WorkStore`.
 - Produces: `PageWriter` and `Worker` for runtime and rebuild tasks.
 
 ```go
@@ -67,11 +67,9 @@ if err != nil { t.Fatal(err) }
 if !document.Retired || document.PageText != "" { t.Fatalf("stale text restored: %#v", document) }
 ```
 
-- [ ] **Step 2: Run the tests and record the missing-worker failure.**
+- [ ] **Step 2: Record the deferred failure contract.**
 
-Run: `go test ./internal/test/integration -run '^TestSearch(DelayedWriter|RevisionCleanup|WorkerFairness)$' -count=1`
-
-Expected: FAIL because `PageWriter` and `Worker.RunOne` do not exist.
+Task 13 runs `^TestSearch(DelayedWriter|RevisionCleanup|WorkerFairness)$` against the completed branch. The tests must fail when stale writes, retirement, checkpoints, or bounded fairness is broken. Do not start OpenSearch or FoundationDB during this coding task.
 
 - [ ] **Step 3: Define deterministic page documents and IDs.**
 
@@ -125,17 +123,17 @@ Write active pages with external version 1 and `external_gte`. Replace issued ID
 
 Make replacement conflict with registration in FoundationDB. Enumerate acknowledged and unacknowledged issued IDs. Checkpoint only the contiguous successful bulk prefix. Disable automatic index recreation and revoke writes before physical-index deletion.
 
-- [ ] **Step 8: Measure fairness and bounded resources.**
+- [ ] **Step 8: Add fairness and bounded-resource coverage.**
 
-Run live mutation, cleanup, rescan, and rebuild work together. Record page reads, writes, encoded bytes, slice duration, oldest work age, and peak memory. Require every class to progress within its configured age and memory to remain constant at fixed concurrency.
+Add a test that runs live mutation, cleanup, rescan, and rebuild work together. Record page reads, writes, encoded bytes, slice duration, oldest work age, and peak memory. Require every class to progress within its configured age and memory to remain constant at fixed concurrency. Task 13 executes this test.
 
-- [ ] **Step 9: Run the complete task checks.**
+- [ ] **Step 9: Run the serial coding checks.**
 
-Run: `go test ./internal/test/integration -run '^TestSearch(DelayedWriter|RevisionCleanup|WorkerFairness|Recovery)$' -count=1`
+Run: `go test ./internal/test/integration -run '^$' -count=1`
 
 Run: `make check`
 
-Expected: PASS with the delayed request rejected by OpenSearch versioning.
+Expected: PASS after compiling the integration package without executing its tests. Task 13 runs delayed requests and real recovery.
 
 - [ ] **Step 10: Commit the task.**
 

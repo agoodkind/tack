@@ -4,7 +4,7 @@
 
 **Goal:** Rank every eligible page match with one query embedding and complete point-in-time continuation.
 
-**Architecture:** OpenSearch infers sparse query weights once. Later reads reuse the saved opaque weights against `rank_features`. The query receives a structured access filter from Task 2 and applies it before ranking.
+**Architecture:** OpenSearch infers sparse query weights once. Later reads reuse the saved opaque weights against `rank_features`. The query receives a structured access filter from Task 3 and applies it before ranking.
 
 **Tech Stack:** Go, OpenSearch 3.8.0, official OpenSearch Go client v4.7.3, ML Commons.
 
@@ -32,7 +32,7 @@ Test duplicate-heavy nodes, equal sort values, invalid model output, deleted poi
 
 **Interfaces:**
 
-- Consumes: Task 1 `Adapter`, Task 2 `AccessPolicy.Query` and `AccessFilter`, and the active physical index.
+- Consumes: Task 1 `Adapter`, Task 3 `AccessPolicy.Query` and `AccessFilter`, and the active physical index.
 - Produces: `Ranker`, `Snapshot`, and exact sort tokens for Task 7 sessions.
 
 ```go
@@ -62,11 +62,9 @@ func TestSearchDistinctNodes(t *testing.T) {
 
 Add the six accepted semantic pairs with at least 150 distractors. Require each target within the first 25 distinct nodes across three repeats and a reindex. Require one lexical-only control to miss.
 
-- [ ] **Step 2: Run the ranking tests and record the missing-interface failure.**
+- [ ] **Step 2: Record the deferred failure contract.**
 
-Run: `go test ./internal/test/integration -run '^TestSearch(SemanticRelevance|DistinctNodes)$' -count=1`
-
-Expected: FAIL because `Ranker` and `Query` do not exist.
+Task 13 runs `^TestSearch(SemanticRelevance|DistinctNodes)$` against the completed branch. The tests must fail when relevance, complete traversal, exact sort values, or one prediction per session is broken. Do not start OpenSearch during this coding task.
 
 - [ ] **Step 3: Implement one concrete ML Commons prediction request.**
 
@@ -128,17 +126,17 @@ for _, hit := range batch.Hits {
 }
 ```
 
-- [ ] **Step 9: Run profiling and regression checks.**
+- [ ] **Step 9: Define profiling and regression checks.**
 
 Require Lucene `FeatureQuery` operations over `rank_features` and no dense script. Prove one prediction per snapshot, later-write exclusion, repeated relevance, complete traversal, and a stopped read that returns the same next hit after retry.
 
-- [ ] **Step 10: Run the complete task checks.**
+- [ ] **Step 10: Run the serial coding checks.**
 
-Run: `go test ./internal/test/integration -run '^TestSearch(SemanticRelevance|DistinctNodes|PermissionFilter)' -count=1`
+Run: `go test ./internal/test/integration -run '^$' -count=1`
 
 Run: `make check`
 
-Expected: PASS with no skipped search test.
+Expected: PASS after compiling the integration package without executing its tests. Task 13 runs relevance, traversal, filtering, and profiling.
 
 - [ ] **Step 11: Commit the task.**
 
