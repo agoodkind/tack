@@ -32,7 +32,8 @@ internal/test/integration/search_ranking_test.go  relevance and full pagination
 Produce:
 
 ```go
-type Query struct { Text, NodeType, Index string; OrgID, ScopeID uuid.UUID }
+type QueryFilter struct { NodeType string; OrgID, ScopeID uuid.UUID }
+type Query struct { Text, Index string; Filter QueryFilter }
 type Snapshot struct { PITID, Index string; QueryTokens json.RawMessage }
 type RankHit struct { NodeID uuid.UUID; Sort json.RawMessage }
 type RankBatch struct { Hits []RankHit; PITID string }
@@ -88,6 +89,8 @@ type Ranker interface {
 ```
 
 Substitute validated fields and the stored token map through typed structures and `json.Marshal`. Add the optional metadata-defined type filter. Send the generated request through `opensearch.Do`. Decode a narrow response that preserves replacement PIT IDs and exact sort JSON because `SearchResp` omits the PIT ID and converts sort values to `[]any`. Use `opensearch.ParseError` for failed responses. Do not reimplement paths, query parameters, routing, retries, error decoding, or insert query text into JSON manually.
+
+Build `QueryFilter` through one permission function before `Ranker.Open`. The current function returns organization, scope, and optional type values. The ranker serializes the filter but does not derive permission rules. A future permission model may extend `QueryFilter`, the versioned mapping, and this serializer without changing inference, point-in-time traversal, sessions, continuation, or result grouping.
 
 - [ ] Require exactly three sort values. `_shard_doc` prevents equal score and node
   ID values from skipping page documents. Preserve exact sort JSON in `search_after`.
@@ -171,8 +174,7 @@ only the PIT ID. It preserves sort position, page number, and both deadlines.
 - [ ] Build authenticated fixtures through real user, token, membership, metadata,
   FoundationDB, and MCP operations. Load no product seed.
 - [ ] Reuse membership middleware, `Resolver.Workspace`, `ResolveScope`, `ResolveTypedNodeID`, and `requireMembership`. Reuse `maxSuccessTextBytes`, `capText`, `successText`, and existing cursor-byte reservation. Do not add another authorization cache, response limit, or truncation path.
-- [ ] Resolve membership, entry point, scope, type, and query byte bounds before
-  `Open`. Undefined types and foreign scopes fail before any engine request.
+- [ ] Resolve membership, entry point, scope, type, and query byte bounds before `Open`, then build `QueryFilter`. Undefined types and foreign scopes fail before any engine request.
 - [ ] Check committed replay before advancing. Reauthorize saved result IDs. Replay
   never advances or renews a deadline.
 - [ ] For each raw hit, check persisted and request-local visited records, then read
@@ -189,6 +191,7 @@ only the PIT ID. It preserves sort position, page number, and both deadlines.
 - [ ] Corrupt indexed authorization fields, revoke membership, move scopes, lose a
   response, restart the process, and force four visited-only batches. Require current
   authorization, exact replay, and eventual continuation.
+- [ ] Add `TestSearchPermissionFilter` with a corpus dominated by matching text outside the current organization and scope. Require the permission function to supply the selective structured filter before ranking. Require bounded authoritative summary reads, complete eligible results, and no permission logic inside session or continuation code.
 - [ ] Open a session on one Tack runtime and alternate every continuation between two
   runtimes against the same FoundationDB and OpenSearch. Require identical replay and
   cleanup. Increase runtime count under a fixed workload and require higher throughput.

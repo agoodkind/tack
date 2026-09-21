@@ -53,15 +53,16 @@ type TextField struct { Key string `json:"key"`; Rule TextRule `json:"rule"` }
 type SearchProjection struct { Include bool `json:"include"`; Order int `json:"order"`; Rule TextRule `json:"rule"` }
 type ContentRequest struct { NodeID uuid.UUID; Cursor, ProjectionConfig string; MaxBytes int }
 var ErrContentChanged = errors.New("node content changed during pagination")
+type SearchAccess struct { OrgID uuid.UUID; ScopeIDs []uuid.UUID }
 type ContentPage struct {
-    NodeID, OrgID uuid.UUID
+    NodeID uuid.UUID
     NodeType, Revision, ProjectionVersion, Name, Text, NextCursor string
-    ScopeIDs []uuid.UUID
+    Access SearchAccess
     Ordinal uint64
     OverlapBytes int
     Done bool
 }
-type Summary struct { NodeID, OrgID uuid.UUID; NodeType, Name, Text string; ScopeIDs []uuid.UUID }
+type Summary struct { NodeID uuid.UUID; NodeType, Name, Text string; Access SearchAccess }
 type SearchScan struct { NodeIDs []uuid.UUID; NextCursor string; Done bool }
 type ContentReader interface {
     Content(ctx context.Context, request ContentRequest) (ContentPage, error)
@@ -161,6 +162,7 @@ written; do not silently reinterpret invalid stored declarations during a read.
 - [ ] Implement an `io.Writer` that records only the requested page and bounded adjacent context while advancing a UTF-8 byte offset. Split at valid rune boundaries; reserve at most one quarter of the page for repeated preceding context. Return its length in OverlapBytes and record the unique-text offset separately. An empty final page may set Done; an empty nonfinal page must still advance. Never append all emitted text to a slice. Reject MaxBytes below 16. The initial adapter may replay its bounded record to reach the offset; the later storage adapter must seek without decoding earlier pages.
 - [ ] Store node revision counters and an organization projection epoch in separate FDB keys. Increment the node revision with every node write or deletion; increment the epoch with metadata or relationship changes. Encode node ID, revision, epoch, ProjectionConfig, pagination algorithm version, byte bound, next unique-text offset, and ordinal in the reader cursor. Read and validate them in one transaction before each page. Return ErrContentChanged on mismatch, ErrNotFound on deletion, and an explicit corruption error for missing expected records. ProjectionConfig is an opaque hash of the approved mapping/model configuration; the reader does not inspect its model settings.
 - [ ] Implement `ScanSearch` over the FDB global node resolution keys with bounded range reads. Its cursor advances by raw key; it does not list organizations from SQL or decode whole nodes. Implement Summary from current node identity, current ancestry, and bounded name/text prefixes. Initial decoding may read the existing bounded value; later storage must supply those prefixes without assembling all pages.
+- [ ] Build `SearchAccess` through one permission projection function. The current function returns organization and ancestor scope IDs. Page mapping reads only `SearchAccess` and does not derive permission rules. A future permission model may extend this projection and the versioned OpenSearch mapping without changing `ContentReader`, worker pagination, or document identity.
 - [ ] Add assertions for complete decoded coverage after removing recorded overlap, deterministic text across reordered maps, invalid declarations, excluded/inapplicable values, a long name, and a cursor resumed after `Nodes.Set`. Assert `errors.Is(err, node.ErrContentChanged)` for the edit. Vary part counts across reads and after edits. Require completion only after Done. Repeat with the production byte budget without asserting a particular part count. The worker task verifies indexing before the final read.
 - [ ] Run `^TestSearchReader`, run `make check`, and commit with subject `Add metadata-driven paginated node content reads`.
 

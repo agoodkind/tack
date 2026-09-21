@@ -27,6 +27,8 @@ The native sparse indexing and ranking configuration passed local engine validat
 - Tack neither loads a tokenizer nor counts model tokens. OpenSearch remains unmodified.
 - Custom plugins, forks, and external inference are excluded.
 - Node types, property types, and property names are opaque identifiers.
+- Keep indexed access fields and OpenSearch candidate filters behind one permission boundary. The current implementation uses organization and scope. A future permission model must add a selective pre-ranking filter instead of relying on FoundationDB post-filtering.
+- A future permission model may add versioned mapping fields and rebuild the index. It must not change page reads, durable work, session formats, ranked continuation, or result grouping. FoundationDB still authorizes every returned node.
 - Every applicable property definition explicitly includes or excludes search.
   Do not infer that decision from identifiers, types, or the FDB `Indexed` flag.
 - The container image is `opensearchproject/opensearch:3.8.0`.
@@ -76,6 +78,7 @@ The native sparse indexing and ranking configuration passed local engine validat
 6. A large node, cleanup, or rebuild must yield before it starves live mutation work. Worker and capacity tasks measure every work class.
 7. Session and rebuild cleanup must bound the number and lifetime of retained physical indexes.
 8. Each initial environment must recover durable work after its only search node restarts. Production must pass cluster join, proxy distribution, replica placement, and one-member failure checks before it claims multi-node availability.
+9. A future permission model must exclude most forbidden matches in OpenSearch before ranking. The final FoundationDB check preserves correctness but cannot establish search latency by itself.
 
 ---
 

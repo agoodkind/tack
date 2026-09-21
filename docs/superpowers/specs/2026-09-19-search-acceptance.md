@@ -1,7 +1,6 @@
 # OpenSearch search acceptance criteria
 
-These criteria verify the [search architecture](2026-09-19-search-design.md).
-The first release must pass real single-page and multi-page behavior with current
+These criteria verify the [search architecture](2026-09-19-search-design.md). The first release must pass real single-page and multi-page behavior with current
 storage. Storage expansion must rerun the same suite at larger node sizes.
 
 ## Evidence and environment
@@ -107,6 +106,11 @@ A lexical-only control must miss at least one non-overlapping pair that the comb
 - Empty and oversized queries must fail before inference. Every accepted query must
   be processed completely. Missing models, invalid mappings, unavailable engines,
   deleted points in time, and failed authoritative reads must return explicit errors.
+
+## Permission expansion
+
+- Keep indexed access fields and caller filter construction behind one permission boundary. Before a new permission model ships, prove that OpenSearch applies its selective filter before ranking against a corpus dominated by forbidden text matches. Post-search filtering alone fails acceptance.
+- A new permission model may add versioned mapping fields and require a FoundationDB rebuild. It must not change page reads, worker or session formats, ranked continuation, or result grouping. Corrupt its indexed fields and require the final FoundationDB check to prevent disclosure.
 
 ## Distinct results and continuation
 

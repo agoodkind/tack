@@ -21,6 +21,8 @@ A request supplies query text and a metadata-defined entry point. Tack resolves 
 Each response contains at most 25 distinct node IDs with bounded current summaries. The node reader supplies those summaries and current authorization.
 Search never returns indexed page text as the node body. A continuation can reach every matching node. Engine, inference, source, and session failures return explicit errors.
 
+The permission boundary supplies the indexed access fields and the structured OpenSearch filter. The current implementation supplies organization and scope values. A future permission model must reject most forbidden candidates in OpenSearch before ranking and retain the current FoundationDB check before returning a node. Adding that model may add versioned mapping fields and rebuild the index, but it must not change page reads, durable work, sessions, ranked continuation, or result grouping. Post-search filtering alone does not satisfy the performance contract.
+
 ## Searchable content
 
 Node types, property types, and property names are opaque identifiers. Metadata defines applicability, inclusion, text representation, and order.
@@ -105,7 +107,7 @@ executes conventional sparse search over its inverted index. The query uses no
 dense script, nearest-neighbor `k`, hybrid result window, field collapse, or fixed
 total-result limit.
 
-Organization, scope, optional type, and retirement filters use structured JSON.
+The permission boundary supplies organization and scope filters. Optional type and retirement filters also use structured JSON.
 OpenSearch sorts page matches by descending score, ascending node ID, then
 `_shard_doc`. A point in time freezes index contents and makes `_shard_doc` a stable
 page-level tie breaker. The first page match for a node establishes that node's
@@ -165,9 +167,7 @@ retiring index. Restore operations always create a new search generation and ind
 
 ## Deployment and capacity
 
-Tack request handlers keep no process-local search state. Every instance opens or
-continues sessions through FoundationDB. Stable hash buckets distribute session and
-work keys without sticky routing or a global claim range.
+Tack request handlers keep no process-local search state. Every instance opens or continues sessions through FoundationDB. Stable hash buckets distribute session and work keys without sticky routing or a global claim range.
 
 QA starts with one combined-role LXC guest on `suburban`. Production starts with one
 on `vault`. Each guest uses OpenSearch 3.8.0 with at least 8 GiB memory, 2 CPU cores,
