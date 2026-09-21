@@ -13,24 +13,16 @@ and measurements. QA must pass before production.
 - Pin `github.com/opensearch-project/opensearch-go/v4` v4.7.3. Run the production adapter against `opensearchproject/opensearch:3.8.0`. Exercise typed index creation, settings, split, bulk, refresh, point-in-time creation and deletion, search request construction, alias changes, index and document reads, index deletion, metrics, routing, and close. Verify that the narrow search decoder preserves replacement PIT IDs and exact sort JSON.
 - Exercise concrete ML Commons `opensearch.Request` types through `opensearch.Do` and `opensearch.ParseError`. Reject another HTTP client, generic method-and-path API, temporary v5 preview dependency, custom route selection, retry loop, connection pool, or error decoder.
 
-## Meilisearch removal
+## Meilisearch removal and temporary search outage
 
-- Build and start Tack without a Meilisearch service, image, volume, endpoint,
-  key, client library, or runtime dependency.
-- Commit node creates, edits, and deletes through real FoundationDB. Require the
-  OpenSearch workers to index each change through public operations.
-- Stop OpenSearch. Source writes must still commit, and search must return an
-  explicit unavailable error instead of reporting success through a no-op client.
-- Provision an empty OpenSearch index and rebuild it only from FoundationDB. The
-  provisioning and rebuild operations must not read or transfer Meilisearch data.
-- Do not export, translate, import, attach, or inspect a Meilisearch index, snapshot,
-  dump, volume, document, schema, synonym, ranking setting, or result as an input to
-  OpenSearch provisioning, fixtures, relevance checks, or rebuilds.
-- Inspect rendered QA and production configuration and the live deployments.
-  Neither environment may contain a Meilisearch process, container, secret,
-  endpoint, volume, or dependency.
-- Run the current recovery and operator procedures. Every search operation must
-  use OpenSearch, and recovery must treat FoundationDB as the only source.
+- Ship removal before any OpenSearch application path. Delete the Meilisearch client, adapters, dependency, configuration, startup setup, indexing hooks, batch reindex operation, Meilisearch test environment, deployed service, credentials, and operational documentation.
+- Keep `tack_search` registered. Call it with an exact node reference, an exact title, ordinary words, and filters. Every call must return exactly `Search is temporarily unavailable.` The response must not mention either search engine, replacement work, or future availability.
+- Create, read, edit, and delete nodes through public operations with real FoundationDB. Exercise every other MCP tool. These operations must work while every `tack_search` call returns the temporary unavailable response.
+- Remove successful-search assertions from QA data generation and soak checks for this release. Preserve non-search coverage and assert the exact unavailable response. Build and start Tack without a Meilisearch endpoint, key, client library, service, image, or runtime dependency.
+- Inspect rendered QA and production configuration and the live deployments. Neither environment may contain a Meilisearch process, container, service, secret, endpoint, or dependency. Treat deletion of the old volume as a separate authorized operation. Its presence must not start or configure Meilisearch.
+- Commit creates, edits, and deletes during the outage. A later release must provision an empty OpenSearch index, rebuild only from FoundationDB, and make those mutations searchable before replacing the temporary response.
+- Do not export, translate, import, attach, read, or inspect a Meilisearch index, snapshot, dump, volume, document, schema, synonym, ranking setting, or result as an input to OpenSearch provisioning, fixtures, relevance checks, or rebuilds.
+- After OpenSearch activation, run the remaining public search acceptance criteria and recovery procedures. FoundationDB must remain the only rebuild source.
 
 ## Opaque metadata
 

@@ -4,13 +4,15 @@ TACK-517 specifies search. TACK-518 through TACK-520 retain cross-cutting accept
 
 ## Problem
 
-The current search path uses one Meilisearch 1.12 container with a 2 GiB memory limit. The search endpoint receives little use today. Search stops when that container or its guest stops, and the deployed index has no copy on another guest. Every organization also shares one master-key connection, and the adapter formats filters as strings. Meilisearch therefore cannot enforce the tenant boundary; the MCP tool must read each result from FoundationDB and apply current organization and scope checks. Meilisearch matches words rather than meaning, so queries such as `db` require maintained synonyms to find `Database failover`. FoundationDB already stores the authoritative nodes and can rebuild the index, so migrating or preserving Meilisearch state would add work without protecting source data.
+The current search path uses one Meilisearch 1.12 container with a 2 GiB memory limit. Production returned no results for ordinary and exact-title queries on September 18, 2026. The endpoint has no accepted result behavior that the replacement must preserve. Search stops when the container or its guest stops, and the deployed index has no copy on another guest. Every organization also shares one master-key connection, and the adapter formats filters as strings. Meilisearch therefore cannot enforce the tenant boundary; the MCP tool must read each result from FoundationDB and apply current organization and scope checks. Meilisearch matches words rather than meaning, so queries such as `db` require maintained synonyms to find `Database failover`. FoundationDB already stores the authoritative nodes and can rebuild the index, so migrating or preserving Meilisearch state would add work without protecting source data.
 
 ## Decision
 
 Tack replaces Meilisearch with OpenSearch 3.8. QA and production each start with one node and no replica. QA uses OpenSearch's single-node discovery mode. Production forms a normal cluster with one initial member so later nodes can join without changing Tack or rebuilding embeddings. OpenSearch generates local sparse semantic embeddings through its native `semantic` field and ranks any number of bounded reader pages. FoundationDB remains authoritative for nodes, metadata, relationships, authorization, durable indexing work, search sessions, and rebuild coordination. Tack does not select shard nodes, count model tokens, or implement a tokenizer.
 
-The only application cutover enables OpenSearch and deletes the Meilisearch client, configuration, adapters, test environment, container, volume, credentials, and operational documentation. It does not migrate the Meilisearch index, write to both engines, preserve a fallback, or retain a compatibility layer. No Meilisearch document, schema, setting, synonym, ranking rule, result, or code becomes an OpenSearch input. Provisioning creates an empty OpenSearch index and rebuilds it only from FoundationDB.
+Removal and replacement ship as separate releases. The first release deletes the Meilisearch client, adapters, dependency, configuration, startup setup, indexing hooks, batch reindex operation, Meilisearch test environment, deployed service, credentials, and operational documentation. The `tack_search` tool remains registered, but every call returns exactly `Search is temporarily unavailable.` This response also applies to exact node references. Every other MCP tool and every FoundationDB or SQL source write continues to operate. The old Meilisearch volume remains untouched until its deletion receives separate authorization.
+
+A later release provisions an empty OpenSearch index, rebuilds it only from FoundationDB, and replaces the temporary unavailable response after acceptance passes. The rebuild includes source mutations committed during the temporary outage. It does not migrate the Meilisearch index, write to both engines, preserve a fallback, or retain a compatibility layer. No Meilisearch document, schema, setting, synonym, ranking rule, result, volume, or code becomes an OpenSearch input.
 
 ## Search behavior
 
@@ -18,15 +20,13 @@ Search finds declared text throughout each node. FoundationDB remains authoritat
 
 A request supplies query text and a metadata-defined entry point. Tack resolves the organization and verifies membership. Optional scope and node type filters use opaque metadata identifiers. The caller cannot select an arbitrary organization.
 
-Each response contains at most 25 distinct node IDs with bounded current summaries. The node reader supplies those summaries and current authorization.
-Search never returns indexed page text as the node body. A continuation can reach every matching node. Engine, inference, source, and session failures return explicit errors.
+Each response contains at most 25 distinct node IDs with bounded current summaries. The node reader supplies those summaries and current authorization. Search never returns indexed page text as the node body. A continuation can return every matching node. Engine, inference, source, and session failures return explicit errors.
 
 The permission boundary compiles current FoundationDB state into opaque access keys for indexed nodes and callers. The current policy derives them from organization and scope; a future policy can derive the same shape from permission nodes and relationships without changing search storage or queries. OpenSearch rejects most forbidden candidates before ranking. FoundationDB still checks current authorization before Tack returns a node.
 
 ## Searchable content
 
-Node types, property types, and property names are opaque identifiers. Metadata defines applicability, inclusion, text representation, and order.
-Tack uses one generic interpreter. Application code contains no product type allowlist and no property-specific extraction switch.
+Node types, property types, and property names are opaque identifiers. Metadata defines applicability, inclusion, text representation, and order. Tack uses one generic interpreter. Application code contains no product type allowlist and no property-specific extraction switch.
 
 Every applicable property definition explicitly includes or excludes search. A missing declaration is invalid. The FoundationDB `Indexed` flag cannot supply a default because it controls secondary lookup keys rather than searchable text.
 Seeds for new organizations and QA data declare search behavior for convenience, but runtime behavior depends only on stored metadata.
