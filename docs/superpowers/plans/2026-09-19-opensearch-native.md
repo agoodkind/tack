@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Index every bounded reader page with complete native sparse semantic coverage and a stable opaque access mapping.
+**Goal:** Add one production-connected official client that provisions and verifies complete native sparse semantic indexing.
 
-**Architecture:** The official client owns transport behavior. A native `semantic` field stores the original page, creates overlapping character chunks, and runs the pinned sparse model. One strict generic access object supports partial permission updates without changing the semantic field. Tack validates bytes and document identity but never loads the model tokenizer.
+**Architecture:** The official client owns transport behavior. Registered operator commands use the same adapter to provision and verify the cluster. A native `semantic` field stores the original page, creates overlapping character chunks, and runs the pinned sparse model. One strict generic access object supports partial permission updates without changing the semantic field. Tack validates bytes and document identity but never loads the model tokenizer.
 
 **Tech Stack:** OpenSearch 3.8.0, `opensearch-go/v4` v4.7.3, ML Commons, Docker SDK, Go.
 
@@ -22,7 +22,7 @@ selection, model mismatch, and the 4 GiB memory failure.
 
 ---
 
-### Task 1: Implement native sparse indexing
+### Task 1: Implement and register native sparse indexing control
 
 **Files:**
 
@@ -31,14 +31,20 @@ selection, model mismatch, and the 4 GiB memory failure.
 - Create: `internal/adapters/search/opensearch_mapping.go`
 - Create: `internal/testenv/opensearch.go`
 - Create: `internal/testenv/opensearch_tls.go`
+- Create: `internal/ops/cli_search.go`
+- Create: `internal/ops/search_provision.go`
+- Create: `internal/ops/search_verify.go`
+- Create: `internal/config/search.go`
+- Modify: `internal/config/config.go`
 - Test: `internal/test/integration/search_native_test.go`
+- Test: `internal/test/integration/search_control_test.go`
 - Modify: `go.mod`
 - Modify: `go.sum`
 
 **Interfaces:**
 
 - Consumes: one validated stable endpoint, TLS CA bytes, credentials, and caller-selected shard counts.
-- Produces: `Adapter`, `ModelInfo`, index creation, replica settings, and typed core operations for later tasks.
+- Produces: the production `Adapter`, pinned `ModelInfo`, index creation, replica settings, and registered provision and verify operations.
 
 ```go
 type Adapter struct { client *opensearchapi.Client }
@@ -60,19 +66,19 @@ func (a *Adapter) SetReplicas(context.Context, string, int) error
 
 ```go
 func TestSearchNativeSparse(t *testing.T) {
-    adapter := newOpenSearchAdapter(t, "opensearchproject/opensearch:3.8.0", 8<<30)
+    adapter, client := newOpenSearchClients(t, "opensearchproject/opensearch:3.8.0", 8<<30)
     model, err := adapter.Provision(t.Context())
     if err != nil { t.Fatal(err) }
     index := createNativeSearchIndex(t, adapter, model, "search-v1", 1, 8, 0)
-    putNativePage(t, adapter, index, unicodePage4096())
-    stored := getNativePage(t, adapter, index)
+    putNativePage(t, client, index, unicodePage4096())
+    stored := getNativePage(t, client, index)
     requireCompleteNativeChunks(t, stored, unicodePage4096())
 }
 ```
 
 - [ ] **Step 2: Record the deferred failure contract.**
 
-Task 13 runs `^TestSearchNativeSparse$` against the completed branch. The test must fail when the adapter, pinned model checks, native semantic mapping, or complete chunk coverage is absent. Do not start OpenSearch during this coding task.
+The final validation plan runs `^TestSearchNativeSparse$` against the completed branch. The test must fail when the adapter, pinned model checks, native semantic mapping, or complete chunk coverage is absent. Do not start OpenSearch during this coding task.
 
 - [ ] **Step 3: Add the official client and real TLS fixture.**
 
@@ -80,13 +86,7 @@ Pin v4.7.3. Launch the exact image through the existing Docker SDK test environm
 
 - [ ] **Step 4: Prove every required client operation.**
 
-Through the production adapter, execute typed index create, settings, split,
-bulk index, bulk partial update, point-in-time create and delete, alias, document
-get, health, block, statistics, refresh, and delete calls. Prove that bulk update
-accepts `version` with `version_type:external_gte` against OpenSearch 3.8.0.
-Build search requests with `SearchReq.GetRequest`. Use narrow
-`opensearch.Request` types plus `opensearch.Do` and `opensearch.ParseError` only
-for ML Commons and response fields absent from stable typed APIs.
+In the real-engine compatibility test, construct the official client from the same production `opensearch.Config`. Execute typed index create, settings, split, bulk index, bulk partial update, point-in-time create and delete, alias, document get, health, block, statistics, refresh, and delete calls. Prove that bulk update accepts `version` with `version_type:external_gte` against OpenSearch 3.8.0. Build search requests with `SearchReq.GetRequest`. Use narrow `opensearch.Request` types plus `opensearch.Do` and `opensearch.ParseError` only for ML Commons and response fields absent from stable typed APIs. Add production adapter methods only for provision and verify operations in this task. Later slices add each operation when their production entry point uses it.
 
 - [ ] **Step 5: Provision and verify the pinned model.**
 
@@ -135,17 +135,25 @@ Replace a same-ID document with `{"retired":true}` at the retirement version. Re
 
 Require `ConnectionObserver` to record only the configured stable endpoint. Record bundle size, reported inference memory, process memory, peak ingest memory, and latency in an 8 GiB container. Preserve the 4 GiB circuit-breaker failure as a regression. Do not infer concurrent capacity from this test.
 
-- [ ] **Step 11: Run the serial coding checks.**
+- [ ] **Step 11: Register audited provision and verification commands.**
+
+Add `ops search provision` and `ops search verify` through the existing `clispec` execute gate, result sink, and audit path. Both commands construct the production adapter from validated endpoint, CA, and credential configuration. `provision` registers and deploys the pinned model and creates the empty physical index and alias. `verify` checks the exact image-compatible model identity, mapping version, shard and routing-shard counts, replicas, alias target, health, and eligible inference placement. Neither command indexes Tack nodes or activates public search.
+
+- [ ] **Step 12: Prove the production entry point.**
+
+Add integration coverage that invokes both registered commands against the real TLS fixture during final validation. Require provisioning to be idempotent. Change each expected model, mapping, alias, and topology value independently and require verification to fail with one concrete mismatch. This command registration makes every new adapter and configuration declaration reachable in this task.
+
+- [ ] **Step 13: Run the serial coding checks.**
 
 Run: `go test ./internal/test/integration -run '^$' -count=1`
 
-Run: `make check`
+Run: `make build`
 
-Expected: PASS after compiling the integration package without executing its tests. Task 13 runs the real OpenSearch checks.
+Expected: PASS after compiling the integration package without executing its tests. The final validation plan runs the real OpenSearch checks.
 
-- [ ] **Step 12: Commit the task.**
+- [ ] **Step 14: Commit the task.**
 
 ```sh
-git add go.mod go.sum internal/adapters/search/opensearch.go internal/adapters/search/opensearch_model.go internal/adapters/search/opensearch_mapping.go internal/testenv/opensearch.go internal/testenv/opensearch_tls.go internal/test/integration/search_native_test.go
-git commit -S -m "Add native OpenSearch sparse indexing validation" -m "Co-authored-by: Codex <noreply@openai.com>"
+git add go.mod go.sum internal/adapters/search internal/testenv/opensearch.go internal/testenv/opensearch_tls.go internal/ops/cli_search.go internal/ops/search_provision.go internal/ops/search_verify.go internal/config/search.go internal/config/config.go internal/test/integration/search_native_test.go internal/test/integration/search_control_test.go
+git commit -S -m "Add native OpenSearch control operations" -m "Co-authored-by: Codex <noreply@openai.com>"
 ```

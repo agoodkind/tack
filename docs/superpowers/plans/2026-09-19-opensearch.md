@@ -2,183 +2,104 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-The native sparse indexing and ranking configuration passed local engine validation. The implementation tasks must repeat that behavior through Tack's public boundaries.
+**Goal:** Remove the unused Meilisearch path first, then build and activate durable semantic search from FoundationDB without an intermediate search stack.
 
-**Goal:** Search every accepted node through a paginated reader and return authorized, distinct nodes ranked by OpenSearch.
-
-**Architecture:** The reader returns one bounded part per call. Bounded worker slices index and retire parts. OpenSearch performs text splitting, local sparse encoding, and inverted-index ranking. Durable sessions continue across every ranked page match.
+**Architecture:** The first release keeps `tack_search` registered and returns one fixed unavailable response while every other operation continues. Later vertical slices add the official OpenSearch client, explicit metadata, durable page indexing, ranked public search, refresh, replacement, QA coverage, and deployment configuration. FoundationDB remains authoritative throughout.
 
 **Tech Stack:** Go, FoundationDB, OpenSearch 3.8.0, `github.com/opensearch-project/opensearch-go/v4` v4.7.3, ML Commons, Docker SDK, MCP, Ansible, OpenTofu.
 
-**Spec:** [Search architecture](../specs/2026-09-19-search-design.md). The [acceptance criteria](../specs/2026-09-19-search-acceptance.md) define release evidence.
+**Spec:** [Search architecture](../specs/2026-09-19-search-design.md) and [acceptance criteria](../specs/2026-09-19-search-acceptance.md).
 
 **Validation record:** [OpenSearch prototypes and experiments](2026-09-19-opensearch-validation.md).
 
 ## Global Constraints
 
-- Multi-page behavior must pass acceptance before the first search release.
-- Delete the complete Meilisearch stack, including its client, adapter, runtime
-  configuration, test environment, container, volume, credentials, and runbook.
-- Do not migrate the Meilisearch index, write to both engines, preserve a fallback,
-  retain a compatibility layer, or keep Meilisearch deployment resources.
-- Do not use Meilisearch documents, schema, settings, synonyms, ranking rules,
-  results, or code as inputs to OpenSearch provisioning, fixtures, or validation.
-- Create the first OpenSearch index empty and rebuild it only from FoundationDB.
-- Tack neither loads a tokenizer nor counts model tokens. OpenSearch remains unmodified.
-- Custom plugins, forks, and external inference are excluded.
-- Node types, property types, and property names are opaque identifiers.
-- Keep indexed access keys and caller key construction behind one permission
-  boundary. The current policy compiles organization and scope into opaque keys.
-  Future policies compile permission nodes and relationships into the same keys.
-- The strict mapping always contains `access.versions`, `access.keys`, and
-  `access.generation`. A permission-policy change must use access-only partial
-  updates and must not rebuild the index or regenerate embeddings.
-- Principal membership changes affect query keys only. Resource grant changes
-  schedule bounded access work for affected nodes or a bounded FoundationDB scan.
-  FoundationDB still authorizes every returned node.
-- Every applicable property definition explicitly includes or excludes search.
-  Do not infer that decision from identifiers, types, or the FDB `Indexed` flag.
-- The container image is `opensearchproject/opensearch:3.8.0`.
-- Use `amazon/neural-sparse/opensearch-neural-sparse-encoding-doc-v3-gte` version 1.0.0 and nested `rank_features`.
-- Reader parts contain at most 4,096 UTF-8 bytes; queries contain at most 126 UTF-8 bytes.
-- Map page text as a native `semantic` field. OpenSearch performs fixed-character chunking, sparse encoding, pruning, and point-in-time pagination.
-- Pin the latest stable Go client, v4.7.3. Task 1 must keep its core API compatibility test against the exact OpenSearch 3.8.0 image because the client documents later 3.x releases as best effort.
-- Use typed client APIs for core index creation, settings, split, bulk, point-in-time, alias, document, health, block, and statistics operations. Build searches with the typed request API and decode the few response fields the typed response omits with `opensearch.Do`. Define narrow request types for ML Commons operations that stable v4 does not include, then use `opensearch.Do` and `opensearch.ParseError`. Do not add a generic method-and-path JSON API or import the temporary v5 preview package.
-- Bulk requests contain at most 500 page documents and 5 MiB of encoded data, including action lines.
-- A result page has at most 25 nodes within Tack's response-byte budget.
-- Continuation can reach every matching node. Engine batches contain at most 100 matches; responses scan at most four batches.
-- Configure one environment search endpoint in the official client. Its connection
-  pool owns retries, TLS, and transport metrics. The hypervisor proxy owns backend
-  health and selection. OpenSearch owns shard and ML worker selection.
-- QA and production each start with one LXC guest and zero replicas. Production forms a normal one-member cluster and must not use `discovery.type: single-node`. Every combined-role guest has at least 8 GiB memory, 2 CPU cores, 40 GiB storage, and a 2 GiB JVM heap.
-- Keep at least 6.26 GiB of suburban host memory available throughout the complete QA workload. The one-node CPU and fast-storage projections pass. QA does not claim OpenSearch node failover or horizontal scale.
-- Adding Tack processes, FoundationDB capacity, OpenSearch ML nodes, data nodes, replicas, or coordinating endpoints must not require application code or stored-format changes. A higher primary-shard count uses native splitting along its reserved routing path and a full replacement otherwise.
-- Persist all search sessions and work in FoundationDB. Distribute their keys across stable hash buckets. Do not require sticky requests, a process-local cache, a global sequence, or one claim range.
-- Worker claims, cleanup, sessions, rebuilds, and physical indexes have explicit work and lifetime bounds.
-- Each physical index stores primary and reserved routing-shard counts. Every shard increase creates and validates a replacement through native splitting or a full FoundationDB rebuild. Permission-policy versions never trigger replacement.
-- All product state and search progress use FoundationDB. SQL remains authentication and audit only.
-- Reads use `NodeReader`. Configuration uses environment variables through `caarlos0/env`.
-- Tests use real dependencies and public boundaries. No mocks, product seeds, or production tokenizer dependency establish acceptance.
-- Keep each new or edited file within 200 lines. Use focused files instead of adding to an oversized file.
-- Execute Tasks 1 through 12 once, in number order. Tasks 1 through 11 use one linear Tack branch. Task 12 commits its Tack change, then its configs change on one linear configs branch. Do not parallelize, skip ahead, or rewrite an earlier task's interface in a later task.
-- Each coding task authors its real-dependency tests, compiles the integration package with an empty test selection, runs `make check`, and commits. It does not start OpenSearch, FoundationDB, Traefik, or Proxmox.
-- Task 13 runs the real dependencies, corrects failures, repeats affected tests, and runs the full search suite. Task 14 performs authorized QA and production operations.
+- Execute the plans below in order. Each plan consumes committed interfaces from earlier plans.
+- Ship the Meilisearch removal as an independent first release. Keep `tack_search` registered and return exactly `Search is temporarily unavailable.` for every call, including exact references.
+- Keep every other MCP tool and every FoundationDB or SQL source write operational during the temporary outage.
+- Do not read, inspect, migrate, translate, export, import, or reuse Meilisearch data, schema, settings, synonyms, rankings, results, snapshots, dumps, or volumes.
+- Treat deletion of an old Meilisearch volume as a separately authorized operation.
+- Create the first OpenSearch index empty and rebuild it only from FoundationDB, including mutations committed during the outage.
+- Do not activate the OpenSearch public handler until the empty rebuild and required acceptance checks pass.
+- Use the official stable Go client for all transport. Use typed APIs for core operations and narrow concrete request types through `opensearch.Do` only where v4.7.3 lacks an API or response field.
+- Do not add another HTTP client, generic method-and-path transport, retry loop, connection pool, error decoder, OpenSearch plugin, fork, ingest pipeline, tokenizer, or external inference service.
+- Use `opensearchproject/opensearch:3.8.0` and `amazon/neural-sparse/opensearch-neural-sparse-encoding-doc-v3-gte` version 1.0.0.
+- Tack enforces a 4,096-byte UTF-8 reader-page bound. OpenSearch owns character chunking and model tokenization.
+- Node types, property types, property names, permission types, roles, groups, organizations, and scopes remain opaque to search code.
+- Every applicable property definition explicitly includes or excludes search. Never derive search behavior from identifiers, types, seeds, or the FoundationDB `Indexed` flag.
+- Store only `access.versions`, `access.keys`, and `access.generation` for permission filtering. FoundationDB performs the final current authorization check.
+- Principal membership changes alter query keys only. Resource visibility changes schedule bounded access-only updates that preserve text and embeddings.
+- Persist work, sessions, rebuild state, cursors, generations, visited node IDs, and query tokens in FoundationDB. Keep request handlers stateless.
+- Process at most 32 reader pages or 5 MiB per worker slice. Process at most 100 cleanup or access IDs per slice.
+- Return at most 25 distinct nodes per public response. Read at most four OpenSearch batches of 100 page matches per response. Continuation must still return every eligible node.
+- QA and production start with one combined-role OpenSearch guest and zero replicas. Production uses normal cluster discovery from its first start.
+- Each model guest has at least 8 GiB memory, 2 CPU cores, 40 GiB fast storage, and a 2 GiB JVM heap.
+- Keep at least 6.26 GiB available on `suburban` throughout the complete QA workload.
+- Keep every new or edited file within 200 lines and split files by responsibility.
+- Use real dependencies and public boundaries. Do not use mocks, stubs, recorded responses, private helpers, or product seeds as acceptance evidence.
+- Before the first code edit, run `make build` on the exact base. Run `make build` after every coding task and before its signed commit. Fix every failure in that task.
+- Keep every new production declaration reachable from a real production entry point in the task that adds it. Do not add future-only interfaces, adapters, constructors, helpers, or exports.
+- Do not edit lint baselines or run an `accept-new` baseline target. New lint, complexity, strict-analyzer, and dead-code findings must remain zero.
+- Use concrete types, injected clocks, contextual logging, returned errors, and recovered goroutines. Do not introduce `any`, empty interfaces, `panic`, direct `time.Now`, `context.TODO`, unprotected goroutines, or `//nolint`.
 - Include `Co-authored-by: Codex <noreply@openai.com>` in every signed commit.
-- This plan does not authorize a push, merge, deployment, ruleset change, or storage-limit removal.
-
-## Reuse boundaries
-
-- Extend the existing FoundationDB key catalog, transaction loops, tuple encoding, retry conventions, telemetry, logger, cancellation, wait groups, and bounded shutdown. Do not create search copies.
-- Add search fields to `config.Config`. Convert those fields to `opensearch.Config` in focused validation code. Do not add another environment parser, root configuration object, or default path.
-- Refactor `Driver.Call` and `Driver.CallRaw` through one internal call path. Do not duplicate context checks, request IDs, dry-run behavior, JSON-RPC framing, sending, or decoding.
-- Register provision and verification operations through the existing `clispec.Operation` and `RegisterCommands` path. Do not add legacy command registration.
-- Reuse the existing membership middleware, scope resolver, typed node resolver, and membership checks. Search must not introduce another authorization query, cache, context value, or marker.
-- Reuse MCP response byte limits and rendering, FoundationDB telemetry, and OpenSearch client metrics. Do not create search-specific truncation or metric registries.
-- Register the one-time metadata migration through the existing `clispec` lifetime,
-  dry-run, audit, and build expiration machinery. Do not add another migration CLI.
-- Keep search claims, sessions, content cursors, HMAC cursors, rebuild coordination, visited node IDs, and one query embedding per session. OpenSearch does not provide those application guarantees.
-
-## Permission filtering contract
-
-The current policy returns version `org-scope-v1` and opaque keys derived from
-the organization and each permitted scope. Task 1 creates one permanent strict
-mapping for `access.versions`, `access.keys`, and `access.generation`. Task 5
-stores complete access values on new pages and partially updates only `search_generation` and that object
-after resource permission changes. Task 6 requires the active version and one
-matching caller key before lexical or sparse scoring. Task 7 reads current
-FoundationDB state and authorizes each node again before rendering.
-
-Task 3 implements the access-policy boundary as `PolicySet` from the first release. It dispatches each opaque version to a registered compiler. The current compiler reads organization and scope data. A future compiler reads its permission-definition node and related nodes through `NodeReader`; search code never inspects permission types. Task 4 stores the fixed policy versions and one monotonic generation with each content or access job. Task 5 uses them for full page writes, access-only updates, and retirement, so retries are deterministic and delayed operations cannot overwrite newer access state.
-
-Task 10 owns one permission-policy transition per authoritative permission root. It keeps one active version and an optional candidate in FoundationDB. Independent roots can transition concurrently. New writes contain both versions during a transition. A resumable access scan updates existing page documents without submitting `page_text`. The coordinator verifies every current issued document and confirms that no permission event occurred during verification. It switches new queries to the candidate, waits for sessions bound to that root and old version, then removes old keys through another access-only scan.
-
-A future data-driven permission system registers another compiler beside the active compiler. Its opaque version derives from its permission-definition node revision. It does not add mapping fields or change content pages, document identity, durable work formats, sessions, continuation, result grouping, or the final FoundationDB authorization check. Its release tests must prove selective raw filtering, corrupt-index rejection, membership-only query changes, access-only resource updates, and a restartable version transition without index replacement or model inference.
+- No plan authorizes a push, merge, deployment, ruleset change, shared-history rewrite, or volume deletion.
 
 ## Review Focus
 
-1. An edit between content reads must produce an explicit revision error, never a mixed document. Reader and worker tasks test it.
-2. A paused old writer must not restore deleted text after another worker completes cleanup. Worker tasks test actual delayed requests.
-3. A long uninterrupted Unicode string must not disappear inside model truncation. Native coverage tests inspect the semantic field's generated chunks and embeddings.
-4. A byte-limited response must retain the first result it cannot render. Query tasks test continuation with large names.
-5. A metadata or ancestry change during an index replacement must appear after the alias switch. Recovery tasks test concurrent public changes.
-6. A large node, cleanup, or rebuild must yield before it starves live mutation work. Worker and capacity tasks measure every work class.
-7. Session and rebuild cleanup must bound the number and lifetime of retained physical indexes.
-8. Each initial environment must recover durable work after its only search node restarts. Production must pass cluster join, proxy distribution, replica placement, and one-member failure checks before it claims multi-node availability.
-9. A future permission policy must exclude most forbidden matches in OpenSearch before ranking. Its version transition must update access keys without rebuilding or invoking the model. The final FoundationDB check preserves correctness but cannot establish search latency by itself.
+1. Every temporary-outage search call returns the exact public message while non-search operations continue.
+2. A node edit between page reads returns an explicit revision error and never mixes revisions.
+3. Delayed content, access, and retirement writes cannot replace a newer generation.
+4. OpenSearch filters forbidden candidates before ranking, and FoundationDB still rejects stale or corrupt indexed access.
+5. Duplicate-heavy nodes cannot prevent continuation from returning other eligible nodes.
+6. A rebuild or native split includes every concurrent mutation before alias activation.
+7. Single-node QA and production outages preserve source writes and durable search work.
+8. Permission-policy transitions update opaque access values without reading text, invoking the model, or replacing the index.
 
 ---
 
-## Execution order
+## Serial execution order
 
-Assign Tasks 1 through 12 to one Luna run with `superpowers:executing-plans`. Each task consumes only committed outputs from earlier numbered tasks. Run one task at a time. Keep one linear branch in each repository. The [fixture code](2026-09-19-opensearch-fixtures.md) supplies real-store setup and authenticated calls, but Tasks 1 through 12 only compile those tests. Assign Task 13 to Sol for live execution and corrective commits. Task 14 owns authorized deployment.
+The first plan produces a separately reviewable and deployable outage release. Later Tack branches may be prepared in one Luna run, but each branch starts from the preceding committed branch and remains independently reviewable. Do not squash unrelated tickets into the removal release. Sol performs the final live validation and corrections after the coding and configuration plans finish.
 
-1. Complete the [native coverage task](2026-09-19-opensearch-native.md). Implement the validated sparse engine configuration and its regression tests.
-2. Complete the [projection rollout task](2026-09-19-opensearch-metadata.md). Add declaration types, new-definition values, and the expiring manifest backfill.
-3. Complete the [paginated reader task](2026-09-19-opensearch-reader.md), including the opaque access-key policy.
-4. Complete the [durable work task](2026-09-19-opensearch-worker.md), including content and access generations.
-5. Complete the [bounded indexing task](2026-09-19-opensearch-indexing.md), including access-only partial updates.
-6. Complete the [ranked query task](2026-09-19-opensearch-query.md). It proves that OpenSearch applies the access filter before ranking.
-7. Complete the [authorized public search task](2026-09-19-opensearch-public-search.md) behind an inactive registration.
-8. Complete the [index replacement task](2026-09-19-opensearch-rebuild.md) against Tasks 3 through 7.
-9. Complete the [runtime cutover task](2026-09-19-opensearch-recovery.md). It activates the replacement and deletes the application Meilisearch path.
-10. Complete the [metadata and access refresh task](2026-09-19-opensearch-refresh.md) against the replacement runtime.
-11. Complete the [public QA data task](2026-09-19-opensearch-datagen.md).
-12. Complete the [cluster configuration task](2026-09-19-opensearch-deployment.md) without applying it.
-13. Give the completed branch to Sol and execute the [live validation and correction plan](2026-09-19-opensearch-final-validation.md).
-14. Apply the [QA and production release plan](2026-09-19-opensearch-release.md) only after deployment authorization.
+1. [Remove Meilisearch and preserve the public outage contract](2026-09-20-meilisearch-removal.md). Ticket: TACK-541.
+2. Merge and deploy that removal release through the first phase of the [release plan](2026-09-19-opensearch-release.md). Search remains temporarily unavailable.
+3. [Add the official client, native semantic mapping, and audited control operations](2026-09-19-opensearch-native.md). Tickets: TACK-530 and TACK-539.
+4. [Add explicit projection metadata and the expiring backfill](2026-09-19-opensearch-metadata.md). Ticket: TACK-542.
+5. [Build the complete durable indexing pipeline](2026-09-20-opensearch-index-pipeline.md). Tickets: TACK-531, TACK-533, and TACK-534.
+6. [Build ranked, authorized public search](2026-09-20-opensearch-query-pipeline.md). Tickets: TACK-535 and TACK-536.
+7. [Add metadata and permission refresh](2026-09-19-opensearch-refresh.md). Ticket: TACK-532.
+8. [Add rebuild, native split, restore, and alias recovery](2026-09-19-opensearch-rebuild.md). Ticket: TACK-537.
+9. [Add guarded public QA coverage](2026-09-19-opensearch-datagen.md). Ticket: TACK-538.
+10. [Prepare the initial guests, stable endpoints, and scalable configuration](2026-09-19-opensearch-deployment.md). Tickets: TACK-539 and TACK-540.
+11. Give the completed branches to Sol for the [live validation and correction plan](2026-09-19-opensearch-final-validation.md). Tickets: TACK-518, TACK-519, and TACK-520.
+12. Activate OpenSearch in QA and production through the second phase of the [release plan](2026-09-19-opensearch-release.md). Tickets: TACK-536 and TACK-541.
 
-## Delivery tickets
+The [fixture reference](2026-09-19-opensearch-fixtures.md) supplies shared real-dependency setup. It does not define another execution step. TACK-524 and TACK-525 remain separate storage work behind the reader interface. Their implementation reruns the same search suite at 128 KiB, 1 MiB, 8 MiB, over 100 MB, and larger than worker memory.
 
-| Plan scope | Ticket |
-| --- | --- |
-| [Task 1: Native sparse indexing](2026-09-19-opensearch-native.md) | TACK-530 |
-| [Task 2: Explicit projection rollout and backfill](2026-09-19-opensearch-metadata.md) | TACK-542 |
-| [Task 3: Paginated node content reads](2026-09-19-opensearch-reader.md) | TACK-531 |
-| [Task 4: Durable search work](2026-09-19-opensearch-worker.md) | TACK-533 |
-| [Task 5: Bounded indexing and retirement](2026-09-19-opensearch-indexing.md) | TACK-534 |
-| [Task 6: Ranked continuation](2026-09-19-opensearch-query.md) | TACK-535 |
-| [Task 7: Authorized public search](2026-09-19-opensearch-public-search.md) | TACK-536 |
-| [Task 8: Rebuild and restore](2026-09-19-opensearch-rebuild.md) | TACK-537 |
-| [Task 9: Runtime and Meilisearch removal](2026-09-19-opensearch-recovery.md) | TACK-536 |
-| [Task 10: Metadata and access refresh](2026-09-19-opensearch-refresh.md) | TACK-532 |
-| [Task 11: QA datagen coverage](2026-09-19-opensearch-datagen.md) | TACK-538 |
-| [Task 12, Tack: Containers and provisioning operations](2026-09-19-opensearch-deployment.md) | TACK-539 |
-| [Task 12, configs: One initial guest per environment and scalable rendered configuration](2026-09-19-opensearch-deployment.md) | TACK-540 |
-| [Task 13: Live validation and correction](2026-09-19-opensearch-final-validation.md) | TACK-518, TACK-519, TACK-520 |
-| [Task 14: QA, production, and Meilisearch deployment removal](2026-09-19-opensearch-release.md) | TACK-541 |
+## Durable interface boundaries
 
-TACK-518, TACK-519, and TACK-520 retain cross-cutting scalability, isolation, and semantic acceptance. TACK-524 and TACK-525 remain separate storage work.
+| Slice | Production entry point | Durable output |
+| --- | --- | --- |
+| Removal | MCP registration and normal graph startup | Exact unavailable response with no Meilisearch dependency |
+| Native control | Registered `ops search provision` and `ops search verify` | Pinned client, model, mapping, alias, and topology checks |
+| Metadata | Property-definition writes and registered expiring backfill | Complete explicit projection declarations |
+| Indexing | Node mutations and runtime worker loops | Bounded page documents and resumable work in FoundationDB |
+| Query | Registered `tack_search` handler | Ranked nodes and durable continuation sessions |
+| Refresh | Metadata and permission writes | Projection epochs and access-only transitions |
+| Replacement | Registered search reindex operation | Validated alias replacement and retired-index state |
+| QA verification | Guarded QA datagen operation | Public behavior evidence |
 
-The native task repeats the successful engine tests through the production adapter. Preserve reproductions of any regression. Do not substitute truncation, a Tack tokenizer, an OpenSearch modification, or an external service.
+Each slice owns all files needed by its production entry point. Later slices extend these interfaces without replacing them.
 
-## File responsibilities
+## Repository boundaries
 
-| Responsibility | Change location |
-| --- | --- |
-| Reader contracts and access representation | Extend [NodeReader](../../../internal/domain/node/reader.go); create the content and opaque access-key files specified in the reader task. |
-| Search projection declarations | Add the property definition fields and validation specified in the metadata task. |
-| Transactional scheduling and revision identity | Extend the node, relationship, and metadata stores; add dedicated content, access, and rollout storage files. |
-| Page indexing and native model setup | Add a focused official-client adapter, native semantic mapping, typed bulk and search operations, and concrete ML Commons requests; delete all Meilisearch adapter code and its module dependency. |
-| Worker ownership and recovery | Add search worker, cleanup, and rebuild files under the existing service and FDB adapter packages. |
-| Authentication and rendered results | Replace [MCP search](../../../internal/adapters/mcp/tools/search.go); reuse response-byte enforcement. |
-| Runtime and operator entry points | Update [graph assembly](../../../internal/runtime/graph.go) and [search reindexing](../../../internal/ops/search_reindex.go). |
-| Local proof and QA coverage | Replace the Meilisearch test environment and checks with real OpenSearch integration and datagen coverage. |
-| Containers and environment configuration | Delete Meilisearch services, volumes, variables, and secrets from [Compose](../../../docker-compose.yml) and configs; prepare LXC, TLS, inventory, and Ansible changes for OpenSearch. |
+- Tack owns application code, OpenSearch client behavior, public tools, workers, operator commands, tests, the pinned container, and application configuration.
+- Configs owns guests, TLS, credentials, inventory, the hypervisor proxy, deployed environment values, and OpenTofu resources.
+- The removal release edits both repositories but does not delete the existing data volume.
+- The deployment plan prepares configurations without applying them. The release plan owns every authorized apply and deployment.
 
-## Commands and commit procedure
+## Commit and validation procedure
 
-Tasks 1 through 12 run only their stated compile, offline render, static, and build checks. Task 13 runs every real-dependency command and owns corrections. Stage only the files changed by each task. The native task's commit command is:
+Run the exact test named by a task when that task changes behavior. Run `make build` once after the task is complete. Commit only after both pass. Before any push, fetch the remote, inspect `origin/main..HEAD`, verify every commit with `git verify-commit`, and confirm every raw commit object contains a `gpgsig` header.
 
-```sh
-git commit -S -m "Add native OpenSearch sparse indexing validation" -m "Co-authored-by: Codex <noreply@openai.com>"
-```
-
-Use each subsequent task's specified subject with that trailer. Before any later push, fetch and verify every signature and raw `gpgsig` header in `origin/main..HEAD`.
-
-## Storage expansion boundary
-
-The current node storage model remains unchanged. Tests use smaller byte bounds
-on the real reader to exercise successive parts within current storage limits.
-Search depends only on the reader contract, including explicit completion.
-
-TACK-524 and TACK-525 implement storage changes separately. Their acceptance must rerun this search suite with 128 KiB, 1 MiB, 8 MiB, over 100 MB, and nodes larger than worker memory. They replace the reader's storage implementation. They must not alter the worker loop, mapping, page IDs, stable search endpoint, or result grouping.
+The final validation plan starts the real dependencies, corrects failures in the owning slice, reruns the affected tail, runs the complete search suite, and finishes with one clean `make build`. The release plan records provisioning, deployment, activation, live acceptance, capacity, and cleanup as separate facts.

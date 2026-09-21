@@ -22,7 +22,7 @@ failure, insufficient disk, restored data, and active old-index sessions.
 
 ---
 
-### Task 8: Build and switch replacement indexes
+### Task 1: Build and switch replacement indexes
 
 **Files:**
 
@@ -31,15 +31,16 @@ failure, insufficient disk, restored data, and active old-index sessions.
 - Create: `internal/service/search_rebuild.go`
 - Create: `internal/adapters/search/opensearch_alias.go`
 - Create: `internal/adapters/search/opensearch_split.go`
-- Replace: body of `internal/ops/search_reindex.go`
+- Create: `internal/ops/search_reindex.go`
+- Modify: `internal/ops/cli_search.go`
 - Test: `internal/test/integration/search_rebuild_test.go`
 - Test: `internal/test/integration/search_split_test.go`
 - Test: `internal/test/integration/search_restore_test.go`
 
 **Interfaces:**
 
-- Consumes: `ContentReader.ScanSearch`, Task 5 worker and writer, mutation journal, current generation and replica settings.
-- Produces: `Rebuilder`, typed split, and atomic alias switching for Tasks 9 and 12.
+- Consumes: `ContentReader.ScanSearch`, the index worker and writer, mutation journal, current generation, and replica settings.
+- Produces: a registered reindex operation, typed split, and atomic alias switching for release.
 
 ```go
 type ReplacementMode uint8
@@ -78,7 +79,7 @@ not start another replacement.
 
 - [ ] **Step 2: Record the deferred failure contract.**
 
-Task 13 runs `^TestSearch(Rebuild|Split)DuringChanges$` against the completed branch. The tests must fail when replacement state, journal catch-up, validation, or atomic alias switching is broken. Do not start live dependencies during this coding task.
+The final validation plan runs `^TestSearch(Rebuild|Split)DuringChanges$` against the completed branch. The tests must fail when replacement state, journal catch-up, validation, or atomic alias switching is broken. Do not start live dependencies during this coding task.
 
 - [ ] **Step 3: Persist one replacement state machine.**
 
@@ -125,23 +126,27 @@ third target is a coordination error.
 
 - [ ] **Step 8: Retire old indexes after sessions finish.**
 
-Bind sessions to physical indexes. Reject new sessions on retiring indexes. Keep old workers and sessions on the old target. After the two-hour absolute deadline and bounded session cleanup prove zero active sessions, block writes, revoke write permissions, disable automatic recreation, and delete the index through typed APIs.
+Bind sessions to physical indexes. Reject new sessions on retiring indexes. Direct new workers and new sessions to the new target while existing sessions keep reading their old point in time. After the two-hour absolute deadline and bounded session cleanup prove zero active sessions, block writes, revoke write permissions, disable automatic recreation, and delete the old index through typed APIs.
 
 - [ ] **Step 9: Add restore and repeated-split coverage.**
 
 Restore a real FDB backup into a disposable environment, change the search generation, reject restored cursors, and rebuild an empty index. Split one to two, four, then eight primaries with the model undeployed. Require identical stored source and sparse weights, then redeploy and rerun relevance and continuation.
 
-- [ ] **Step 10: Run the serial coding checks.**
+- [ ] **Step 10: Register the production reindex operation.**
+
+Register `ops search reindex` through the existing execute gate, result sink, and audit path. Accept an explicit full or permitted split mode and target shard count. Construct `Rebuilder` from the production adapter, stores, worker, clock, and configuration. Return persisted operation identity and current state so an interrupted command can resume the same replacement.
+
+- [ ] **Step 11: Run the serial coding checks.**
 
 Run: `go test ./internal/test/integration -run '^$' -count=1`
 
-Run: `make check`
+Run: `make build`
 
-Expected: PASS after compiling the integration package without executing its tests. Task 13 runs rebuild, split, restore, and injected failures.
+Expected: PASS after compiling the integration package without executing its tests. The final validation plan runs rebuild, split, restore, and injected failures.
 
-- [ ] **Step 11: Commit the task.**
+- [ ] **Step 12: Commit the task.**
 
 ```sh
-git add internal/domain/search/rebuild.go internal/adapters/foundationdb/search_rebuild.go internal/service/search_rebuild.go internal/adapters/search/opensearch_alias.go internal/adapters/search/opensearch_split.go internal/ops/search_reindex.go internal/test/integration/search_rebuild_test.go internal/test/integration/search_split_test.go internal/test/integration/search_restore_test.go
+git add internal/domain/search/rebuild.go internal/adapters/foundationdb/search_rebuild.go internal/service/search_rebuild.go internal/adapters/search/opensearch_alias.go internal/adapters/search/opensearch_split.go internal/ops/search_reindex.go internal/ops/cli_search.go internal/test/integration/search_rebuild_test.go internal/test/integration/search_split_test.go internal/test/integration/search_restore_test.go
 git commit -S -m "Replace OpenSearch indexes with durable catch-up and alias recovery" -m "Co-authored-by: Codex <noreply@openai.com>"
 ```

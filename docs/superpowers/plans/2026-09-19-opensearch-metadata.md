@@ -20,7 +20,7 @@ Test incomplete manifests, duplicate identities, cross-organization entries, con
 
 ---
 
-### Task 2: Roll out explicit search projections
+### Task 1: Roll out explicit search projections
 
 **Files:**
 
@@ -30,6 +30,8 @@ Test incomplete manifests, duplicate identities, cross-organization entries, con
 - Modify: `internal/datagen/property_defs.go`
 - Create: `internal/ops/cli_search_projection_backfill.go`
 - Create: `internal/ops/search_projection_backfill.go`
+- Modify: `internal/ops/search_provision.go`
+- Modify: `internal/ops/search_verify.go`
 - Modify: `internal/audit/verbs.go`
 - Create: `internal/service/seed_search_test.go`
 - Create: `internal/datagen/property_defs_search_test.go`
@@ -74,7 +76,7 @@ func TestSearchProjectionBackfill(t *testing.T) {
 
 - [ ] **Step 2: Record the deferred failure contract.**
 
-Task 13 runs `^TestSearchProjectionBackfill$` against the completed branch. The test must fail when the manifest command, retry rules, or permanent declaration validation is absent. Do not start FoundationDB during this coding task.
+The final validation plan runs `^TestSearchProjectionBackfill$` against the completed branch. The test must fail when the manifest command, retry rules, or permanent declaration validation is absent. Do not start FoundationDB during this coding task.
 
 - [ ] **Step 3: Add declaration types and explicit values to new metadata.**
 
@@ -106,7 +108,7 @@ Set a projection only when stored `Search` is nil. Accept an already equal value
 
 - [ ] **Step 8: Add the permanent readiness gate.**
 
-`RequireSearchProjections` scans definitions in bounded order, reports bounded missing identities, and refuses success until every definition has a declaration. Provisioning, verification, and the first rebuild call it.
+`RequireSearchProjections` scans definitions in bounded order, reports bounded missing identities, and refuses success until every definition has a declaration. Wire it into the registered provision and verify operations in this task. The later rebuild operation also calls it before target creation.
 
 - [ ] **Step 9: Add failure coverage.**
 
@@ -116,14 +118,14 @@ Test incomplete, duplicate, unknown, cross-organization, malformed, and conflict
 
 Run: `go test ./internal/test/integration -run '^$' -count=1`
 
-Run: `make check`
+Run: `make build`
 
-Expected: PASS after compiling the integration package without executing its tests. Task 13 runs the backfill and readiness checks.
+Expected: PASS after compiling the integration package without executing its tests. The final validation plan runs the backfill and readiness checks.
 
 - [ ] **Step 11: Commit the task.**
 
 ```sh
-git add internal/domain/node/types.go internal/domain/node/search_projection.go internal/service/seed.go internal/service/seed_search_test.go internal/datagen/property_defs.go internal/datagen/property_defs_search_test.go internal/ops/cli_search_projection_backfill.go internal/ops/search_projection_backfill.go internal/audit/verbs.go internal/test/integration/search_projection_backfill_test.go
+git add internal/domain/node/types.go internal/domain/node/search_projection.go internal/service/seed.go internal/service/seed_search_test.go internal/datagen/property_defs.go internal/datagen/property_defs_search_test.go internal/ops/cli_search_projection_backfill.go internal/ops/search_projection_backfill.go internal/ops/search_provision.go internal/ops/search_verify.go internal/audit/verbs.go internal/test/integration/search_projection_backfill_test.go
 git commit -S -m "Backfill explicit search projection metadata" -m "Co-authored-by: Codex <noreply@openai.com>"
 ```
 

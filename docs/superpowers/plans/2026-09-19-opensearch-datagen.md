@@ -20,19 +20,19 @@ Test final-page text, semantic-only relevance, shorter edits, deletion, excluded
 
 ---
 
-### Task 11: Add public QA search coverage
+### Task 1: Add public QA search coverage
 
 **Files:**
 
 - Create: `internal/datagen/search_fixture.go`
 - Create: `internal/datagen/search_pages.go`
 - Create: `internal/datagen/search_results.go`
-- Modify: `internal/datagen/generate_search_checks.go`
+- Create: `internal/datagen/generate_search_checks.go`
 - Test: `internal/test/integration/search_datagen_test.go`
 
 **Interfaces:**
 
-- Consumes: Task 7 public `tack_search`, Task 9 runtime assembly, `Driver.CallRaw`, and the existing guarded `ops qa datagen` entry point.
+- Consumes: the ranked public `tack_search` handler, search runtime, `Driver.CallRaw`, and the existing guarded `ops qa datagen` entry point.
 - Produces: `datagen.VerifySearch(context.Context, *config.Config) error` for deployment acceptance.
 
 ```go
@@ -53,7 +53,7 @@ func TestSearchDatagen(t *testing.T) {
 
 - [ ] **Step 2: Record the deferred failure contract.**
 
-Task 13 runs `^TestSearchDatagen$` against the completed branch. The test must fail when public verification, opaque fixtures, continuation, or the production target guard is absent. Do not start live dependencies during this coding task.
+The final validation plan runs `^TestSearchDatagen$` against the completed branch. The test must fail when public verification, opaque fixtures, continuation, or the production target guard is absent. Do not start live dependencies during this coding task.
 
 - [ ] **Step 3: Create opaque included and excluded metadata.**
 
@@ -95,19 +95,19 @@ Replace a long searchable value with a shorter value. Require the old term to di
 
 - [ ] **Step 7: Add explicit outage coverage.**
 
-Add a test that stops the disposable engine, commits a new node through MCP, and requires search to return an unavailable error rather than an empty result. Restart the engine and require the node within a ten-second deadline. Task 13 executes this test.
+Add a test that stops the disposable engine, commits a new node through MCP, and requires search to return an unavailable error rather than an empty result. Restart the engine and require the node within a ten-second deadline. The final validation plan executes this test.
 
 - [ ] **Step 8: Preserve the production target guard.**
 
-Add a test that uses a production target and requires rejection before metadata or node writes. Assert the fixture organization does not exist afterward. Task 13 executes this test.
+Add a test that uses a production target and requires rejection before metadata or node writes. Assert the fixture organization does not exist afterward. The final validation plan executes this test.
 
 - [ ] **Step 9: Run the serial coding checks.**
 
 Run: `go test ./internal/test/integration -run '^$' -count=1`
 
-Run: `make check`
+Run: `make build`
 
-Expected: PASS after compiling the integration package without executing its tests. Task 13 runs real JSON and SSE public verification.
+Expected: PASS after compiling the integration package without executing its tests. The final validation plan runs real JSON and SSE public verification.
 
 - [ ] **Step 10: Commit the task.**
 

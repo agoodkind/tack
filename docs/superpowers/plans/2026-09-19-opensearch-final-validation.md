@@ -4,7 +4,7 @@
 
 **Goal:** Validate the completed OpenSearch implementation against real dependencies, correct every failure, and leave one reviewed branch ready for authorized QA deployment.
 
-**Architecture:** Tasks 1 through 12 author code and tests without starting live dependencies. This task starts the pinned OpenSearch and FoundationDB environment, validates each dependency layer in order, corrects failures at the owning layer, then repeats the affected tail and complete suite. Task 14 separately validates deployed QA and production.
+**Architecture:** Luna completes the serial coding and configuration plans without running the live suite. Sol starts the pinned OpenSearch and FoundationDB environment, validates each dependency layer in order, corrects failures at the owning layer, then repeats the affected tail and complete suite. The release plan separately validates deployed QA and production.
 
 **Tech Stack:** Go, Docker Compose test runner, FoundationDB 7.4.6, OpenSearch 3.8.0, official OpenSearch Go client v4.7.3, RSpec, OpenTofu.
 
@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-Start only after Tasks 1 through 12 are committed on the linear Tack and configs branches and both worktrees are clean. Require `CONFIGS_ROOT` to identify the reviewed configs checkout. Use real dependencies and public boundaries. Do not use mocks, skip tests, weaken assertions, raise accepted limits, or replace the selected design to make a test pass. Correct implementation defects directly. Stop with evidence when a failure requires a design or acceptance change. Do not apply OpenTofu, deploy QA or production, delete volumes, or change branch rules. Record both starting commits, exact commands, image digests, failures, corrections, measurements, and final commits for the pull request.
+Start only after every preceding serial plan is committed on the linear Tack and configs branches and both worktrees are clean. Require `CONFIGS_ROOT` to identify the reviewed configs checkout. Use real dependencies and public boundaries. Do not use mocks, skip tests, weaken assertions, raise accepted limits, or replace the selected design to make a test pass. Correct implementation defects directly. Stop with evidence when a failure requires a design or acceptance change. Do not apply OpenTofu, deploy QA or production, delete volumes, or change branch rules. Record both starting commits, exact commands, image digests, failures, corrections, measurements, and final commits for the pull request.
 
 ## Review Focus
 
@@ -24,11 +24,11 @@ metadata refresh, and single-node restart.
 
 ---
 
-### Task 13: Run live validation and correct the completed implementation
+### Task 1: Run live validation and correct the completed implementation
 
 **Files:**
 
-- Modify: only the Tack or configs files owned by Tasks 1 through 12 when a reproduced failure requires a correction.
+- Modify: only the Tack or configs files owned by the preceding serial plans when a reproduced failure requires a correction.
 - Test: `internal/test/integration/search_native_test.go`
 - Test: `internal/test/integration/search_projection_backfill_test.go`
 - Test: `internal/test/integration/search_reader_test.go`
@@ -47,8 +47,8 @@ metadata refresh, and single-node restart.
 
 **Interfaces:**
 
-- Consumes: the committed outputs and authored tests from Tasks 1 through 12.
-- Produces: a corrected signed branch, complete real-dependency results, resource measurements, and the evidence Task 14 requires.
+- Consumes: the committed outputs and authored tests from every preceding serial plan.
+- Produces: a corrected signed branch, complete real-dependency results, resource measurements, and the evidence the release plan requires.
 
 - [ ] **Step 1: Record the exact starting state and clear stale test services.**
 
@@ -139,18 +139,17 @@ Require one stable client endpoint, one-member restart recovery, later member jo
 
 - [ ] **Step 8: Correct each reproduced failure at its owning layer.**
 
-For each failure, rerun the smallest exact test until it fails consistently. Trace the production path. Correct the owning Task 1 through 12 files. Add a regression only when the existing test does not identify the failure. Run the exact test, the current step's group, every later affected group, and then Step 9. Commit each coherent correction with `git commit -S` and the Codex trailer. Do not edit an assertion or threshold unless the specification changed first.
+For each failure, rerun the smallest exact test until it fails consistently. Trace the production path. Correct the files owned by the responsible serial plan. Add a regression only when the existing test does not identify the failure. Run the exact test, the current step's group, every later affected group, and then Step 9. Commit each coherent correction with `git commit -S` and the Codex trailer. Do not edit an assertion or threshold unless the specification changed first.
 
 - [ ] **Step 9: Run the complete search suite from a clean test environment.**
 
 ```sh
 make test-env-down
 TACK_TEST_ROOT="$PWD" docker compose -f docker-compose.test.yml --profile runner run --rm tests test -count=1 -timeout 45m -run '^TestSearch' ./internal/test/integration
-make check
 make build
 ```
 
-Expected: every search test passes without a skip, `make check` passes, and the current server builds from fresh sources.
+Expected: every search test passes without a skip, and `make build` passes every repository gate from fresh sources.
 
 - [ ] **Step 10: Repeat the concurrency and replacement tail.**
 
@@ -171,8 +170,8 @@ git log --show-signature --oneline origin/main..HEAD
 git -C "$CONFIGS_ROOT" log --show-signature --oneline origin/main..HEAD
 ```
 
-Require no live Meilisearch code, dependency, configuration, test environment, container, credential, volume, fallback, or operator path. Require clean worktrees. Run `git verify-commit` and inspect `git cat-file commit` for a raw `gpgsig` header on every commit in both `origin/main..HEAD` ranges.
+Require no live Meilisearch code, dependency, configuration, test environment, container, credential injection, mounted volume, fallback, or operator path. An unmounted preserved old volume may exist and must remain unread. Require clean worktrees. Run `git verify-commit` and inspect `git cat-file commit` for a raw `gpgsig` header on every commit in both `origin/main..HEAD` ranges.
 
 - [ ] **Step 12: Report evidence for release review.**
 
-Report the starting and final commits, every command and exit code, image digests, corrected failures and commits, relevance ranks, traversal counts, retry counts, peak memory, disk use, latency, throughput, oldest work age, and remaining Task 14 deployment checks. Do not claim QA capacity, production capacity, or deployed failover before Task 14 records it.
+Report the starting and final commits, every command and exit code, image digests, corrected failures and commits, relevance ranks, traversal counts, retry counts, peak memory, disk use, latency, throughput, oldest work age, and remaining release checks. Do not claim QA capacity, production capacity, or deployed failover before the release plan records it.

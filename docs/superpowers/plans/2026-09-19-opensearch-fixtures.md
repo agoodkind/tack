@@ -12,7 +12,7 @@ The implementation plans use these shared real-dependency fixtures. Each owning 
 
 ## Global Constraints
 
-Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). No fixtures replace production dependencies. These steps are part of the reader and MCP tasks, not a separate deployment.
+Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). No fixtures replace production dependencies. These steps are part of the index and query pipeline tasks, not a separate deployment.
 
 ## Review Focus
 
@@ -20,9 +20,9 @@ Exercise unfamiliar property types, unrelated names, no product seed, real beare
 
 ---
 
-## Reader fixture for Task 3
+## Reader fixture for the index pipeline
 
-Create the fixture file listed in the reader task. It consumes `clearPrefix`, testenv FoundationDB, and the new declaration types. It produces the two functions used by the reader and work-store tests.
+Create the fixture file listed in the index pipeline. It consumes `clearPrefix`, testenv FoundationDB, and the new declaration types. It produces the two functions used by the reader and work-store tests.
 
 - [ ] Implement the fixture before running the reader's failing test:
 
@@ -65,9 +65,9 @@ func putSearchText(t *testing.T, stores *foundationdb.Stores, text string) uuid.
 }
 ```
 
-- [ ] Keep the reader and work-store tests ready for Task 13. Assert that renaming the generated type and property keys cannot change projected text. Do not use `t.Parallel` with the process-global prefix.
+- [ ] Keep the reader and work-store tests ready for final validation. Assert that renaming the generated type and property keys cannot change projected text. Do not use `t.Parallel` with the process-global prefix.
 
-## Authenticated calls for Tasks 7 and 11
+## Authenticated calls for the query pipeline and QA datagen
 
 Create `internal/datagen/driver_raw.go`. Refactor the existing private `Driver.call` into one internal path that accepts typed or raw arguments. Make `Driver.Call` and `Driver.CallRaw` delegate to it. Preserve authentication, context checks, request IDs, call counts, dry-run behavior, JSON-RPC framing, session headers, response bounds, sending, and JSON/SSE decoding in that single path.
 
@@ -79,7 +79,7 @@ func (d *Driver) CallRaw(ctx context.Context, token, tool string, arguments map[
 }
 ```
 
-- [ ] Build `newSearchMCP(t *testing.T, pageBytes int) (*runtime.Graph, *datagen.Driver, string, uuid.UUID, string)` in the MCP fixture file. Return graph, driver, raw token, entry node ID, and the metadata-derived entry parameter. Load test engine configuration, use production auth, initialize opaque metadata and a metadata-defined entry node, then build the production Graph. Provision real audit dependencies using the existing audit integration setup. Register Graph.Close, SQL identity removal, and FDB prefix cleanup. Do not disable audit to make the fixture start.
+- [ ] Build `newSearchMCP(t *testing.T, pageBytes int) (*runtime.Graph, *datagen.Driver, string, uuid.UUID, string)` in the MCP fixture file. Return graph, driver, raw token, entry node ID, and the metadata-derived entry parameter. Load test engine configuration with `OPENSEARCH_PUBLIC_ENABLED=true`, use production auth, initialize opaque metadata and a metadata-defined entry node, then build the production Graph. Provision real audit dependencies using the existing audit integration setup. Register Graph.Close, SQL identity removal, and FDB prefix cleanup. Do not disable audit to make the fixture start.
 - [ ] Create a UUIDv7 user with UserRepo.Create, then add membership with OrgMemberRepo.AddMember using the entry node's organization. Generate a random token and store its hash through TokenRepo.Create. Keep the raw token only in fixture memory. Construct the driver with NewDriver(graph, false, a unique seed).
 - [ ] Use the returned entry parameter and ID for public calls. This test pins empty-query validation through the actual HTTP handler:
 
@@ -96,26 +96,25 @@ func TestSearchEmptyQuery(t *testing.T) {
 }
 ```
 
-- [ ] Include these fixture files in their owning reader or MCP commit. Task 13 runs `^TestSearchEmptyQuery$` and the complete search suite.
+- [ ] Include these fixture files in their owning index or query pipeline commit. The final validation plan runs `^TestSearchEmptyQuery$` and the complete search suite.
 
-## Delayed-write test for Task 5
+## Delayed-write test for the index pipeline
 
-This test consumes the real stores, native client, and page worker. It delays a registered request until deletion completes, then sends that request to OpenSearch. Add it to the worker recovery test.
+This test consumes the real stores, native client, and page worker. It delays a registered request until deletion completes, then sends that request to OpenSearch. Add it to the index pipeline recovery test.
 
-- [ ] Add this test before implementing retirement. Task 13 requires it to fail when an old request can restore text.
+- [ ] Add this test before implementing retirement. The final validation plan requires it to fail when an old request can restore text.
 
 ```go
 func TestSearchDelayedWriter(t *testing.T) {
     ctx := t.Context()
     stores := newSearchStore(t)
-    client, err := searchadapter.New(testenv.OpenSearch(t))
-    if err != nil { t.Fatal(err) }
-    model, err := client.Provision(ctx)
+    writer, client := newOpenSearchClients(t, "opensearchproject/opensearch:3.8.0", 8<<30)
+    model, err := writer.Provision(ctx)
     if err != nil { t.Fatal(err) }
     index := "delayed-" + uuid.Must(uuid.NewV7()).String()
     spec := searchadapter.IndexSpec{Model:model, MappingVersion:"search-v1", Primaries:1, RoutingShards:8}
-    if err := client.CreateIndex(ctx, index, spec); err != nil { t.Fatal(err) }
-    t.Cleanup(func() { if err := client.DeleteIndex(context.Background(), index); err != nil { t.Error(err) } })
+    if err := writer.CreateIndex(ctx, index, spec); err != nil { t.Fatal(err) }
+    t.Cleanup(func() { deleteIndex(t, client, index) })
     if err := stores.SearchWork.InitializeIndex(ctx, index); err != nil { t.Fatal(err) }
     id := putSearchText(t, stores, "obsolete text")
     oldWork, err := stores.SearchWork.Claim(ctx, search.WorkLive, "old-worker", time.Minute)
@@ -129,28 +128,28 @@ func TestSearchDelayedWriter(t *testing.T) {
     deletion, err := stores.SearchWork.Claim(ctx, search.WorkCleanup, "new-worker", time.Minute)
     if err != nil { t.Fatal(err) }
     if !deletion.Deleted { t.Fatal("deletion not scheduled") }
-    worker := service.Worker{Reader:stores.Views, Work:stores.SearchWork, Writer:client, PageBytes:128}
+    worker := service.Worker{Reader:stores.Views, Work:stores.SearchWork, Writer:writer, PageBytes:128}
     if err := worker.RunOne(ctx, deletion); err != nil { t.Fatal(err) }
-    if err := client.Put(ctx, oldRequest); err == nil { t.Fatal("obsolete write accepted") }
-    result, err := client.GetDocument(ctx, index, oldRequest.DocumentID)
+    if err := writer.Put(ctx, oldRequest); err == nil { t.Fatal("obsolete write accepted") }
+    result, err := getDocument(ctx, client, index, oldRequest.DocumentID)
     if err != nil { t.Fatal(err) }
     if string(result.Source["retired"]) != "true" || len(result.Source["page_text"]) != 0 { t.Fatal("deleted text restored") }
 }
 ```
 
-`DeleteIndex` and `GetDocument` must call the official typed `Indices.Delete` and `Document.Get` APIs. The fixture and production adapter use the same client and transport.
+`deleteIndex` and `getDocument` are test helpers that call the official typed `Indices.Delete` and `Document.Get` APIs. They do not add production adapter methods.
 
-- [ ] Task 13 runs `^TestSearchDelayedWriter$`. Require the retained higher-generation record and rejected delayed request, not merely an empty MCP response.
+- [ ] The final validation plan runs `^TestSearchDelayedWriter$`. Require the retained higher-generation record and rejected delayed request, not merely an empty MCP response.
 
 ## Helper contracts used by task plans
 Each helper below is test code in the named owning file. It calls real dependencies and production boundaries. No helper replaces a production dependency.
 ```go
 // search_native_test.go
 type nativePage struct { Source string; Chunks []string; Weights []map[string]float64; Access node.SearchAccess }
-func newOpenSearchAdapter(t *testing.T, image string, memoryBytes int64) *searchadapter.Adapter
+func newOpenSearchClients(t *testing.T, image string, memoryBytes int64) (*searchadapter.Adapter, *opensearchapi.Client)
 func createNativeSearchIndex(t *testing.T, adapter *searchadapter.Adapter, model searchadapter.ModelInfo, mappingVersion string, primaries, routing, replicas int) string
-func putNativePage(t *testing.T, adapter *searchadapter.Adapter, index, text string)
-func getNativePage(t *testing.T, adapter *searchadapter.Adapter, index string) nativePage
+func putNativePage(t *testing.T, client *opensearchapi.Client, index, text string)
+func getNativePage(t *testing.T, client *opensearchapi.Client, index string) nativePage
 func requireCompleteNativeChunks(t *testing.T, page nativePage, original string)
 func unicodePage4096() string
 

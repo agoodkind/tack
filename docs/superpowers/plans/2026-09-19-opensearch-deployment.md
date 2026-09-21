@@ -4,7 +4,7 @@
 
 **Goal:** Define one initial OpenSearch guest and one stable search endpoint in each environment while preserving later production scale-out.
 
-**Architecture:** Configs provisions LXC guests, TLS, credentials, inventory, and one health-checking Traefik service on each hypervisor. Tack defines the pinned container and audited provisioning commands. Production starts as a normal one-member cluster so later members can join without changing Tack.
+**Architecture:** Configs provisions LXC guests, TLS, credentials, inventory, and one health-checking Traefik service on each hypervisor. Tack defines the pinned container. The existing audited provision and verify commands use the stable endpoint. Production starts as a normal one-member cluster so later members can join without changing Tack.
 
 **Tech Stack:** OpenTofu, Proxmox LXC, Ansible, Traefik 3.0, Docker Compose, OpenSearch 3.8.0.
 
@@ -20,14 +20,11 @@ Test stable endpoints, verified TLS, IPv6-only connections, single-node restart,
 
 ---
 
-### Task 12: Define containers and initial guests
+### Task 1: Define containers and initial guests
 
 **Files:**
 
 - Modify: Tack `docker-compose.yml`
-- Create: Tack `internal/ops/cli_search.go`
-- Create: Tack `internal/ops/search_provision.go`
-- Create: Tack `internal/ops/search_verify.go`
 - Test: Tack `internal/test/integration/search_cluster_test.go`
 - Modify: configs `ansible/inventory/group_vars/all/service_mapping.yml`
 - Create: configs `ansible/inventory/group_vars/tack_search.yml`
@@ -48,8 +45,8 @@ Test stable endpoints, verified TLS, IPv6-only connections, single-node restart,
 
 **Interfaces:**
 
-- Consumes: Task 1 image, model identity, mapping, and client configuration.
-- Produces: one HTTPS endpoint per environment, one backend initially, reusable member lists, and audited `ops search provision` and `ops search verify` commands for Tasks 13 and 14.
+- Consumes: the pinned image, model identity, mapping, official client, and registered `ops search provision` and `ops search verify` commands.
+- Produces: one HTTPS endpoint per environment, one backend initially, and reusable member lists for final validation and release.
 
 ```ruby
 def production_inventory(member_count)
@@ -110,24 +107,24 @@ Install pinned Traefik through `deploy-proxmox.yml`. Listen on `service_mapping.
 
 Set `plugins.ml_commons.only_run_on_ml_node: true`, least-load dispatch, and automatic redeployment. Deploy the pinned model without `node_ids`. Require `DEPLOYED` on each eligible ML node. Start both environments with zero replicas. Require distinct guests before setting one replica.
 
-- [ ] **Step 8: Add audited provisioning commands.**
+- [ ] **Step 8: Connect the audited provisioning commands.**
 
-Register `ops search provision` and `ops search verify` through `clispec.Operation` and `RegisterCommands`. Provision applies the validated replica count through the typed client, waits for green, records it with the physical generation, and reconciles identical retries. Verify checks image, model, mapping, shards, routing shards, replicas, TLS, and alias.
+Render the stable endpoint, CA path, credentials, shard counts, routing-shard count, and replica count consumed by the registered `ops search provision` and `ops search verify` commands. Render `OPENSEARCH_PUBLIC_ENABLED=false` for the initial QA and production configuration. Provision applies the validated replica count through the typed client, waits for green, records it with the physical generation, and reconciles identical retries. Verify checks image, model, mapping, shards, routing shards, replicas, TLS, and alias.
 
 - [ ] **Step 9: Author real single-node and scale-out tests.**
 
-The tests send every client request through real Traefik and require `ConnectionObserver` to record only the stable endpoint. They stop the node while FDB writes commit, then restart it and require backlog recovery. The production scale-out case joins two members, adds proxy backends, deploys the model, sets one replica, stops each member, and requires search and indexing to continue. The initial OpenTofu plan still creates one production guest. Task 13 executes the disposable cases.
+The tests send every client request through real Traefik and require `ConnectionObserver` to record only the stable endpoint. They stop the node while FDB writes commit, then restart it and require backlog recovery. The production scale-out case joins two members, adds proxy backends, deploys the model, sets one replica, stops each member, and requires search and indexing to continue. The initial OpenTofu plan still creates one production guest. The final validation plan executes the disposable cases.
 
 - [ ] **Step 10: Encode the QA capacity gate.**
 
-Add the 6.26 GiB minimum available-memory threshold, 40 GiB fast-pool allocation, two-vCPU allocation, and single-node QA restriction to the verification command and rendered configuration tests. Task 14 measures the live suburban host during the complete workload.
+Add the 6.26 GiB minimum available-memory threshold, 40 GiB fast-pool allocation, two-vCPU allocation, and single-node QA restriction to the rendered configuration tests. The final validation plan measures the live suburban host during the complete workload.
 
 - [ ] **Step 11: Run offline configuration checks.**
 
 Run in Tack:
 
 ```sh
-make check
+make build
 ```
 
 Run in configs:
@@ -137,13 +134,13 @@ bundle exec rspec spec/ansible/tack_search_spec.rb spec/ansible/tack_search_prox
 ./configsctl tofu validate
 ```
 
-Do not connect to Proxmox, start OpenSearch, or save an apply plan. Task 13 runs disposable cluster tests. Task 14 saves and reviews the live OpenTofu plans.
+Do not connect to Proxmox, start OpenSearch, or save an apply plan. The final validation plan runs disposable cluster tests. The release plan saves and reviews live OpenTofu plans.
 
 - [ ] **Step 12: Commit each repository.**
 
 ```sh
-git add docker-compose.yml internal/ops/cli_search.go internal/ops/search_provision.go internal/ops/search_verify.go internal/test/integration/search_cluster_test.go
-git commit -S -m "Provision and verify the OpenSearch container cluster" -m "Co-authored-by: Codex <noreply@openai.com>"
+git add docker-compose.yml internal/test/integration/search_cluster_test.go
+git commit -S -m "Define the pinned OpenSearch container" -m "Co-authored-by: Codex <noreply@openai.com>"
 ```
 
 ```sh
