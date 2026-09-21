@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Return complete searchable node text as stable bounded pages with indexed access fields.
+**Goal:** Return complete searchable node text as stable bounded pages with opaque versioned access keys.
 
-**Architecture:** Metadata defines how each opaque property becomes text. The reader emits one UTF-8 page per call and binds every continuation to the node revision and projection version. One access policy computes both indexed access fields and query filters, so future permission work changes that policy and the versioned mapping instead of pagination or worker code.
+**Architecture:** Metadata defines how each opaque property becomes text. The reader emits one UTF-8 page per call and binds every continuation to the node revision and text projection version. One access policy reads authoritative nodes and relationships and compiles both resource and caller keys. Future permission work replaces that policy without changing the mapping, page identity, pagination, or worker formats.
 
 **Tech Stack:** Go, FoundationDB, JSON, existing `NodeReader`.
 
@@ -16,9 +16,7 @@ Apply the [implementation constraints](2026-09-19-opensearch.md#global-constrain
 
 ## Review Focus
 
-Test edited revisions, reordered maps, unfamiliar property types, names spanning pages, UTF-8 boundaries, and access fields after an ancestry change.
-
----
+Test edited revisions, reordered maps, unfamiliar property types, names spanning pages, UTF-8 boundaries, renamed permission identifiers, and access keys after an ancestry change.
 
 ### Task 3: Add metadata-driven paginated node reads
 
@@ -32,6 +30,7 @@ Test edited revisions, reordered maps, unfamiliar property types, names spanning
 - Create: `internal/adapters/foundationdb/node_content_cursor.go`
 - Create: `internal/adapters/foundationdb/node_summary.go`
 - Create: `internal/adapters/foundationdb/search_revision.go`
+- Create: `internal/adapters/foundationdb/search_access_state.go`
 - Modify: `internal/domain/node/types.go`
 - Modify: `internal/domain/node/reader.go`
 - Modify: `internal/adapters/foundationdb/keys.go`
@@ -41,12 +40,11 @@ Test edited revisions, reordered maps, unfamiliar property types, names spanning
 **Interfaces:**
 
 - Consumes: Task 2 `SearchProjection`, `NodeView`, current ancestry reads, central FDB tuple helpers.
-- Produces: `ContentReader`, `AccessPolicy`, `AccessFilter`, `ContentPage`, `Summary`, and `SearchScan` for Tasks 4 through 11.
+- Produces: `ContentReader`, `AccessPolicy`, `AccessStateReader`, `AccessFilter`, `ContentPage`, `Summary`, and `SearchScan` for Tasks 4 through 11.
 
 ```go
-type AccessField struct { Name string; Values []string }
-type SearchAccess struct { Version string; Fields []AccessField }
-type ContentRequest struct { NodeID uuid.UUID; Cursor, ProjectionConfig string; MaxBytes int }
+type SearchAccess struct { Versions, Keys []string; Generation int64 }
+type ContentRequest struct { NodeID uuid.UUID; Cursor, ProjectionConfig string; AccessVersions []string; MaxBytes int; SearchGeneration int64 }
 type ContentPage struct {
     NodeID uuid.UUID
     NodeType, Revision, ProjectionVersion, Name, Text, NextCursor string
@@ -62,13 +60,27 @@ type ContentReader interface {
     Summary(context.Context, uuid.UUID, int) (Summary, error)
     ScanSearch(context.Context, string, int) (SearchScan, error)
 }
-type AccessFilter struct { Version string; Clauses json.RawMessage }
-type IndexAccessRequest struct { NodeID, OrgID uuid.UUID; ScopeIDs []uuid.UUID }
-type AccessRequest struct { PrincipalID, OrgID, ScopeID uuid.UUID }
+type AccessState struct { AuthorityID uuid.UUID; ActiveVersion string; WriteVersions []string; Generation int64 }
+type AccessStateReader interface { State(context.Context, uuid.UUID) (AccessState, error) }
+type AccessFilter struct { AuthorityID uuid.UUID; Version string; Keys []string }
+type IndexAccessRequest struct { NodeID uuid.UUID; Versions []string; Generation int64 }
+type AccessRequest struct { PrincipalID, EntryPointID, ScopeID, AuthorityID uuid.UUID; Version string }
+type OrgScopeSource interface {
+    Resource(context.Context, uuid.UUID) (uuid.UUID, []uuid.UUID, error)
+    Entry(context.Context, uuid.UUID) (uuid.UUID, error)
+}
 type AccessPolicy interface {
+    Supports(string) bool
+    ResourceAuthority(context.Context, uuid.UUID) (uuid.UUID, error)
+    EntryAuthority(context.Context, uuid.UUID) (uuid.UUID, error)
     Index(context.Context, IndexAccessRequest) (node.SearchAccess, error)
     Query(context.Context, AccessRequest) (search.AccessFilter, error)
 }
+type AccessCompiler interface {
+    Index(context.Context, IndexAccessRequest) (node.SearchAccess, error)
+    Query(context.Context, AccessRequest) (search.AccessFilter, error)
+}
+type PolicySet struct { Source OrgScopeSource; Compilers map[string]AccessCompiler }
 ```
 
 - [ ] **Step 1: Add the failing multi-page and access test.**
@@ -77,13 +89,17 @@ type AccessPolicy interface {
 func TestSearchReaderPages(t *testing.T) {
     stores := newSearchStore(t)
     id := putSearchText(t, stores, strings.Repeat("é水🙂 ", 300)+"tail-Z")
-    request := node.ContentRequest{NodeID: id, MaxBytes: 128}
+    authorityID, err := stores.Access.ResourceAuthority(t.Context(), id)
+    if err != nil { t.Fatal(err) }
+    accessState, err := stores.AccessStates.State(t.Context(), authorityID)
+    if err != nil { t.Fatal(err) }
+    request := node.ContentRequest{NodeID:id, MaxBytes:128, AccessVersions:accessState.WriteVersions, SearchGeneration:1}
     var unique strings.Builder
     for ordinal := uint64(0); ; ordinal++ {
         page, err := stores.Views.Content(t.Context(), request)
         if err != nil { t.Fatal(err) }
         if !utf8.ValidString(page.Text) || len(page.Text) > 128 { t.Fatalf("invalid page %d", ordinal) }
-        if page.Ordinal != ordinal || page.Access.Version != "org-scope-v1" { t.Fatalf("bad identity: %#v", page) }
+        if page.Ordinal != ordinal || !slices.Contains(page.Access.Versions, "org-scope-v1") || page.Access.Generation < 1 { t.Fatalf("bad identity: %#v", page) }
         unique.WriteString(page.Text[page.OverlapBytes:])
         if page.Done { break }
         if page.NextCursor == "" || page.NextCursor == request.Cursor { t.Fatal("cursor did not advance") }
@@ -129,28 +145,31 @@ case "values":
 - [ ] **Step 5: Implement the current access policy once.**
 
 ```go
-const accessVersion = "org-scope-v1"
-type OrgScopeAccess struct{}
-func (OrgScopeAccess) Index(_ context.Context, request IndexAccessRequest) (node.SearchAccess, error) {
-    if request.OrgID == uuid.Nil { return node.SearchAccess{}, errors.New("organization is required") }
-    scopes := make([]string, len(request.ScopeIDs))
-    for i, id := range request.ScopeIDs { scopes[i] = id.String() }
-    return node.SearchAccess{Version:accessVersion, Fields:[]node.AccessField{
-        {Name:"org_id", Values:[]string{request.OrgID.String()}},
-        {Name:"scope_ids", Values:scopes},
-    }}, nil
+type OrgScopeCompiler struct { Source OrgScopeSource }
+func (p OrgScopeCompiler) Index(ctx context.Context, request IndexAccessRequest) (node.SearchAccess, error) {
+    orgID, scopeIDs, err := p.Source.Resource(ctx, request.NodeID)
+    if err != nil { return node.SearchAccess{}, err }
+    keys := make([]string, 0, len(scopeIDs))
+    for _, version := range request.Versions {
+        for _, scopeID := range scopeIDs { keys = append(keys, EncodeKey(version, orgID[:], scopeID[:])) }
+    }
+    slices.Sort(keys)
+    keys = slices.Compact(keys)
+    return node.SearchAccess{Versions:slices.Clone(request.Versions), Keys:keys, Generation:request.Generation}, nil
 }
-func (OrgScopeAccess) Query(_ context.Context, request AccessRequest) (search.AccessFilter, error) {
-    if request.OrgID == uuid.Nil { return search.AccessFilter{}, errors.New("organization is required") }
-    clauses := []map[string]map[string]string{{"term":{"access.org_id":request.OrgID.String()}}}
-    if request.ScopeID != uuid.Nil { clauses = append(clauses, map[string]map[string]string{"term":{"access.scope_ids":request.ScopeID.String()}}) }
-    raw, err := json.Marshal(clauses)
+func (p OrgScopeCompiler) Query(ctx context.Context, request AccessRequest) (search.AccessFilter, error) {
+    orgID, err := p.Source.Entry(ctx, request.EntryPointID)
     if err != nil { return search.AccessFilter{}, err }
-    return search.AccessFilter{Version:accessVersion, Clauses:raw}, nil
+    if orgID != request.AuthorityID { return search.AccessFilter{}, search.ErrAccessState }
+    return search.AccessFilter{AuthorityID:orgID, Version:request.Version, Keys:[]string{EncodeKey(request.Version, orgID[:], request.ScopeID[:])}}, nil
 }
 ```
 
-`Content` reads current ancestry, then calls `AccessPolicy.Index` with node ID, organization, and scope IDs. Sort fields by name and values by bytes before returning. Reject duplicate field names. Page mapping only copies `ContentPage.Access`. A future permission model changes these two methods, adds strict `access` mapping fields, increments `Version`, and rebuilds the index. The `SearchAccess`, `AccessFilter`, page, worker, query, and session formats remain unchanged.
+Implement `AccessPolicy` with `PolicySet` from the first release. `Supports` checks the compiler map. `ResourceAuthority` and `EntryAuthority` return the organization from `Source`. `Index` rejects an unregistered version, calls each requested compiler with one version, and merges its keys. `Query` dispatches one version. `EncodeKey` length-prefixes the version and every byte part, hashes the result with SHA-256, and returns `version + ":" + base64.RawURLEncoding.EncodeToString(digest[:])`. Search never decodes the result. Production registers `org-scope-v1` with `OrgScopeCompiler`; a transition registers the candidate compiler beside it before `Begin` can succeed.
+
+Store one stable `AccessState` for each organization during initialization. The scheduler copies its write versions and generation into durable work. `Content` calls `AccessPolicy.Index` with those fixed values. Sort and deduplicate versions and keys. Reject empty values, duplicates, unsupported versions, and nonpositive generations. Page mapping only copies `ContentPage.Access`.
+
+A future policy reads its permission-definition node and related nodes through `NodeReader`. Its opaque version identifies the immutable definition revision. It implements this key contract without changing the mapping, document identity, or search interfaces.
 
 - [ ] **Step 6: Implement bounded UTF-8 pages and revision-bound cursors.**
 
@@ -162,7 +181,7 @@ Embed `ContentReader` in `NodeReader`; the concrete `ViewStore` implements both.
 
 - [ ] **Step 8: Add failure and stability coverage.**
 
-Test complete text after removing overlap, reordered maps, excluded fields, unfamiliar property types, long names, malformed declarations, edits between pages, ancestry changes, deletion, and empty nonfinal pages. Require every nonfinal cursor to advance and every page after an edit to return `errors.Is(err, node.ErrContentChanged)`.
+Test complete text after removing overlap, reordered maps, exclusions, unfamiliar types, long names, malformed declarations, edits, ancestry, deletion, and empty nonfinal pages. Replace every permission identifier and require the same decisions. Every nonfinal cursor must advance; pages after an edit must return `node.ErrContentChanged`.
 
 - [ ] **Step 9: Run the serial coding checks.**
 

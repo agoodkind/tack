@@ -16,7 +16,11 @@ Start only after Tasks 1 through 12 are committed on the linear Tack and configs
 
 ## Review Focus
 
-Test complete Unicode page coverage, stale writers after deletion, forbidden matches before ranking, corrupt indexed access with final authorization, duplicate-heavy traversal, lost responses, replacement during mutations, engine outage recovery, metadata refresh, and single-node restart.
+Test complete Unicode page coverage, stale content and access writers, forbidden
+matches before ranking, corrupt indexed access with final authorization,
+permission-version transition without inference or replacement, duplicate-heavy
+traversal, lost responses, replacement during mutations, engine outage recovery,
+metadata refresh, and single-node restart.
 
 ---
 
@@ -37,6 +41,7 @@ Test complete Unicode page coverage, stale writers after deletion, forbidden mat
 - Test: `internal/test/integration/search_rebuild_test.go`
 - Test: `internal/test/integration/search_runtime_test.go`
 - Test: `internal/test/integration/search_metadata_refresh_test.go`
+- Test: `internal/test/integration/search_access_refresh_test.go`
 - Test: `internal/test/integration/search_datagen_test.go`
 - Test: `internal/test/integration/search_cluster_test.go`
 
@@ -68,7 +73,11 @@ Require an empty status before testing. Record the test-runner image digest and 
 TACK_TEST_ROOT="$PWD" docker compose -f docker-compose.test.yml --profile runner run --rm tests test -count=1 -timeout 30m -run '^TestSearchNative' ./internal/test/integration
 ```
 
-Require the pinned hashes, typed client operations, strict mapping, full 4,096-byte Unicode source, generated final chunk, finite sparse weights, explicit engine failures, 8 GiB success, and preserved 4 GiB circuit-breaker regression.
+Require the pinned hashes, typed client operations, strict generic access mapping,
+bulk partial update with external versioning, full 4,096-byte Unicode source,
+generated final chunk, finite sparse weights, access-only success with the model
+undeployed, explicit engine failures, 8 GiB success, and preserved 4 GiB
+circuit-breaker regression.
 
 - [ ] **Step 3: Validate metadata, pagination, and durable work.**
 
@@ -76,7 +85,10 @@ Require the pinned hashes, typed client operations, strict mapping, full 4,096-b
 TACK_TEST_ROOT="$PWD" docker compose -f docker-compose.test.yml --profile runner run --rm tests test -count=1 -timeout 30m -run '^TestSearch(Projection|Reader|Work)' ./internal/test/integration
 ```
 
-Require explicit declarations, retry-safe backfill, complete paginated text, revision-bound cursors, opaque identifiers, access projection, bounded scans, durable claims, restart recovery, and bounded key cleanup.
+Require explicit declarations, retry-safe backfill, complete paginated text,
+revision-bound cursors, opaque identifiers, generic versioned access keys,
+content and access work kinds, one monotonic generation, bounded scans, durable
+claims, restart recovery, and bounded key cleanup.
 
 - [ ] **Step 4: Validate indexing, retirement, and stale-write rejection.**
 
@@ -84,7 +96,9 @@ Require explicit declarations, retry-safe backfill, complete paginated text, rev
 TACK_TEST_ROOT="$PWD" docker compose -f docker-compose.test.yml --profile runner run --rm tests test -count=1 -timeout 30m -run '^TestSearch(DelayedWriter|RevisionCleanup|WorkerFairness|Recovery)' ./internal/test/integration
 ```
 
-Require the delayed version-1 request to fail after version-2 retirement, every partial bulk failure to retain pending work, and large nodes to yield to live work.
+Require older content, access, and retirement writes to fail after a newer
+generation, every partial bulk failure to retain pending work, access-only work
+to read no page text, and large nodes to yield to live work.
 
 - [ ] **Step 5: Validate ranking, access filtering, authorization, and continuation.**
 
@@ -92,15 +106,25 @@ Require the delayed version-1 request to fail after version-2 retirement, every 
 TACK_TEST_ROOT="$PWD" docker compose -f docker-compose.test.yml --profile runner run --rm tests test -count=1 -timeout 30m -run '^TestSearch(SemanticRelevance|DistinctNodes|PermissionFilter|Auth|Authorization|Cursor|EmptyQuery)' ./internal/test/integration
 ```
 
-Require one query prediction, every accepted relevance target within its bound, all 1,501 nodes exactly once with 36,000 duplicate pages, selective OpenSearch filtering before ranking, final FoundationDB authorization after corrupt indexed access, exact replay, and complete continuation.
+Require one query prediction, every accepted relevance target within its bound,
+all 1,501 nodes exactly once with 36,000 duplicate pages, active-version and
+opaque-key filtering before ranking, final FoundationDB authorization after a
+corrupt indexed key or revoked membership, exact replay, and complete
+continuation.
 
 - [ ] **Step 6: Validate replacement, runtime recovery, metadata refresh, and public QA checks.**
 
 ```sh
-TACK_TEST_ROOT="$PWD" docker compose -f docker-compose.test.yml --profile runner run --rm tests test -count=1 -timeout 30m -run '^TestSearch(Rebuild|Split|Restore|Runtime|Metadata|Datagen)' ./internal/test/integration
+TACK_TEST_ROOT="$PWD" docker compose -f docker-compose.test.yml --profile runner run --rm tests test -count=1 -timeout 30m -run '^TestSearch(Rebuild|Split|Restore|Runtime|Metadata|Access|Datagen)' ./internal/test/integration
 ```
 
-Require mutation catch-up before alias switch, crash recovery in every replacement phase, unchanged sparse weights after native split, explicit outage errors, automatic backlog drain, metadata changes without restart, real JSON and SSE decoding, and production guard rejection.
+Require mutation catch-up before alias switch, crash recovery in every replacement
+phase, unchanged sparse weights after native split, explicit outage errors,
+automatic backlog drain, metadata changes without restart, membership-only
+changes with zero document writes, resource access updates with zero content
+reads, a restartable dual-version transition on one physical index, byte-identical
+semantic fields with the model undeployed, real JSON and SSE decoding, and
+production guard rejection.
 
 - [ ] **Step 7: Validate disposable cluster configuration and scale-out behavior.**
 
@@ -131,7 +155,7 @@ Expected: every search test passes without a skip, `make check` passes, and the 
 - [ ] **Step 10: Repeat the concurrency and replacement tail.**
 
 ```sh
-TACK_TEST_ROOT="$PWD" docker compose -f docker-compose.test.yml --profile runner run --rm tests test -count=3 -timeout 45m -run '^TestSearch(DistinctNodes|PermissionFilter|Cursor|DelayedWriter|RuntimeUnavailable|Rebuild|Split|Restore)' ./internal/test/integration
+TACK_TEST_ROOT="$PWD" docker compose -f docker-compose.test.yml --profile runner run --rm tests test -count=3 -timeout 45m -run '^TestSearch(DistinctNodes|PermissionFilter|Access|Cursor|DelayedWriter|RuntimeUnavailable|Rebuild|Split|Restore)' ./internal/test/integration
 make test-env-down
 ```
 

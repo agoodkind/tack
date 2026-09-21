@@ -1,31 +1,35 @@
-# Search Metadata Refresh Implementation Plan
+# Search Metadata and Access Refresh Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Apply metadata changes to search without restarting Tack.
+**Goal:** Apply metadata and permission-policy changes without restarting Tack, rebuilding the index, or regenerating embeddings.
 
-**Architecture:** FoundationDB stores one projection epoch per organization. Metadata writes increment that epoch. MCP server assembly keys its generated type and tool state by the epoch and rebuilds that state after a mismatch.
+**Architecture:** FoundationDB stores one projection epoch per organization and one durable access-policy rollout per authoritative permission root. Metadata writes refresh MCP registration. Permission changes update query keys or schedule access-only document work. A candidate policy writes beside the active version until every current page is verified, then FoundationDB activates it atomically.
 
-**Tech Stack:** Go, FoundationDB, MCP, existing metadata stores.
+**Tech Stack:** Go, FoundationDB, MCP, existing metadata stores, Task 5 OpenSearch bulk partial updates.
 
-**Spec:** [Opaque metadata](../specs/2026-09-19-search-acceptance.md#opaque-metadata).
+**Spec:** [Opaque metadata](../specs/2026-09-19-search-acceptance.md#opaque-metadata) and [permission expansion](../specs/2026-09-19-search-acceptance.md#permission-expansion).
 
 ## Global Constraints
 
-Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Use exported metadata operations. Do not add a search-specific property registry or infer behavior from seeded identifiers.
+Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Use exported metadata operations. Do not add a search-specific property registry or inspect permission node and relationship types in search code. Keep the physical index, document IDs, text projection, semantic source, chunks, and sparse weights unchanged throughout an access-policy transition.
 
 ## Review Focus
 
-Test new opaque types, changed projections, concurrent requests, a failed metadata read, and a deleted type.
+Test new opaque types, changed projections, membership-only changes, resource grants, restart during every rollout phase, stale content and access writes, active old-version sessions, failed metadata reads, and deleted types.
 
 ---
 
-### Task 10: Refresh search metadata after writes
+### Task 10: Refresh metadata and access policy after writes
 
 **Files:**
 
+- Create: `internal/domain/search/access_rollout.go`
+- Create: `internal/adapters/foundationdb/search_access_rollout.go`
+- Create: `internal/service/search_access_rollout.go`
+- Create: `internal/test/integration/search_access_refresh_test.go`
 - Create: `internal/adapters/foundationdb/search_projection_epoch.go`
-- Create: `internal/test/integration/search_metadata_refresh_test.go`
+- Test: `internal/test/integration/search_metadata_refresh_test.go`
 - Modify: `internal/domain/node/reader.go`
 - Modify: `internal/adapters/foundationdb/property.go`
 - Modify: `internal/adapters/foundationdb/node_type.go`
@@ -33,32 +37,65 @@ Test new opaque types, changed projections, concurrent requests, a failed metada
 
 **Interfaces:**
 
-- Consumes: Task 2 projection declarations, Task 7 public search, `PropertyDefStore.Set`, and `NodeTypeStore.Set`.
-- Produces: `ProjectionVersion(context.Context, uuid.UUID) (string, error)` and epoch-aware MCP registration.
-
-- [ ] **Step 1: Add the failing authenticated refresh test.**
+- Consumes: Task 2 projection declarations, Task 3 `AccessPolicy` and `AccessStateReader`, Task 4 access work, Task 5 access-only writer, Task 7 session counts, `PropertyDefStore.Set`, and `NodeTypeStore.Set`.
+- Produces: `ProjectionVersion`, durable access-policy activation, and restartable access-key cleanup for Tasks 11 through 14.
 
 ```go
-func TestSearchMetadataAfterStartup(t *testing.T) {
-    graph, driver, token, entryID, parameter := newSearchMCP(t, 128)
-    t.Cleanup(graph.Close)
-    firstType, firstProperty := putOpaqueSearchDefinition(t, graph, true)
-    firstNode := createOpaqueNode(t, driver, token, entryID, parameter, firstType, firstProperty, "amber telescope")
-    requireSearchResult(t, driver, token, entryID, parameter, "amber telescope", firstNode)
-
-    secondType, secondProperty := putOpaqueSearchDefinition(t, graph, true)
-    secondNode := createOpaqueNode(t, driver, token, entryID, parameter, secondType, secondProperty, "violet turbine")
-    requireSearchResult(t, driver, token, entryID, parameter, "violet turbine", secondNode)
+type AccessPhase string
+const (
+    AccessStable AccessPhase = "stable"
+    AccessBackfill AccessPhase = "backfill"
+    AccessVerifying AccessPhase = "verifying"
+    AccessRetiring AccessPhase = "retiring"
+)
+type AccessRollout struct {
+    AuthorityID uuid.UUID
+    ActiveVersion, CandidateVersion, PreviousVersion string
+    WriteVersions []string
+    Phase AccessPhase
+    ScanCursor, VerifyCursor, RetireCursor string
+    Generation, PermissionEventVersion int64
+}
+type BeginAccessRollout struct { AuthorityID uuid.UUID; CandidateVersion string; ExpectedGeneration, PermissionEventVersion int64 }
+type AccessRolloutStore interface {
+    searchaccess.AccessStateReader
+    Current(context.Context, uuid.UUID) (AccessRollout, error)
+    Begin(context.Context, BeginAccessRollout) (AccessRollout, error)
+    Checkpoint(context.Context, AccessRollout) error
+    Activate(context.Context, AccessRollout) (AccessRollout, error)
+    BeginRetire(context.Context, AccessRollout) (AccessRollout, error)
+    Complete(context.Context, AccessRollout) (AccessRollout, error)
+}
+type AccessVersionSessions interface {
+    HasActiveAccessVersion(context.Context, uuid.UUID, string) (bool, error)
 }
 ```
 
+- [ ] **Step 1: Add failing metadata and access refresh tests.**
+
+```go
+func TestSearchAccessVersionWithoutRebuild(t *testing.T) {
+    fixture := newSearchMCPFixture(t, 128)
+    nodes := putPermissionCorpus(t, fixture, "needle")
+    index := activePhysicalIndex(t, fixture)
+    before := readSemanticFields(t, fixture.Adapter, index, nodes)
+    undeploySearchModel(t, fixture.Adapter)
+    runAccessRollout(t, fixture, "permission-v2")
+    if got := activePhysicalIndex(t, fixture); got != index { t.Fatalf("index = %q, want %q", got, index) }
+    requireSemanticFieldsEqual(t, before, readSemanticFields(t, fixture.Adapter, index, nodes))
+    requireSearchUsesAccessVersion(t, fixture, "permission-v2")
+}
+```
+
+Keep the authenticated metadata test. It must create a property definition after startup and find a node through that new definition without restarting Tack.
+
 - [ ] **Step 2: Record the deferred failure contract.**
 
-Task 13 runs `^TestSearchMetadataAfterStartup$` against the completed branch. The test must fail when a running MCP server retains stale metadata, publishes partial metadata, or requires restart. Do not start live dependencies during this coding task.
+Task 13 runs `^TestSearch(MetadataAfterStartup|AccessVersionWithoutRebuild|AccessMembershipQueryOnly|AccessResourceRefresh|AccessRolloutRecovery)$` against the completed branch. The tests must fail when runtime metadata refresh, access-only updates, exact verification, version activation, or restart recovery is absent. Do not start live dependencies during this coding task.
 
 - [ ] **Step 3: Store and increment the organization projection epoch.**
 
-Add the epoch key to the central FoundationDB key catalog. Increment it in the same transaction as every property definition, node type, or relationship change that alters projected text or indexed access fields. Return the version as a stable decimal string.
+Add the epoch key to the central FoundationDB key catalog. Increment it in the same transaction as every property definition or node type change that alters projected text. Return the version as a stable decimal string. A permission node change does not increment the text projection epoch.
 
 ```go
 func (s *ViewStore) ProjectionVersion(ctx context.Context, nodeID uuid.UUID) (string, error) {
@@ -72,37 +109,41 @@ func (s *ViewStore) ProjectionVersion(ctx context.Context, nodeID uuid.UUID) (st
 
 - [ ] **Step 4: Rebuild MCP metadata after an epoch change.**
 
-Cache the generated tool server with its organization epoch. Before dispatch, read the current epoch. Reuse the server only when the epochs match. Build the replacement from a complete metadata read, then atomically replace the cached entry. Preserve membership checks on every request.
+Cache the generated tool server with its organization epoch. Before dispatch, read the current epoch. Reuse the server only when the epochs match. Build the replacement from one complete metadata read, then atomically replace the cached entry. A failed read returns an explicit error and cannot publish empty metadata.
 
-```go
-if cached != nil && cached.ProjectionVersion == currentVersion {
-    return cached.Server, nil
-}
-replacement, err := s.buildOrgServer(ctx, orgID, currentVersion)
-if err != nil { return nil, fmt.Errorf("reload metadata: %w", err) }
-s.servers.Store(orgID, replacement)
-return replacement.Server, nil
-```
+- [ ] **Step 5: Persist one access rollout state machine.**
 
-- [ ] **Step 5: Prove failures do not become empty metadata.**
+Extend Task 3's stable access state into this rollout state. Initialize each current organization authority with active and write version `org-scope-v1`. `Begin` requires an authority ID and a distinct nonempty candidate for which `AccessPolicy.Supports` returns true. In one transaction, set `CandidateVersion`, preserve `PreviousVersion`, set sorted `WriteVersions` to active plus candidate, increment `Generation`, record the authority's current permission-event boundary, enter `backfill`, and schedule a bounded access scan for that authority. Reject another candidate for that authority until it returns to `stable`; unrelated authorities can transition concurrently.
 
-Inject a real FDB read failure by stopping the disposable FDB dependency after the epoch changes. Require the request to return an explicit error. Restart FDB and require the new type to appear. Do not retain or publish an empty successful server.
+- [ ] **Step 6: Keep permission mutation effects explicit.**
 
-- [ ] **Step 6: Add concurrent and deletion coverage.**
+The permission service classifies its own node and relationship mutations. A principal membership mutation changes query evaluation only and schedules no OpenSearch work. A direct or inherited resource grant increments the authority's permission-event version and calls Task 4's transaction-bound access scheduler for the affected node or bounded scan root in the same transaction. Search storage never switches on permission type identifiers.
 
-Add a test that searches while updating one projection from excluded to included and deleting another opaque type. Each completed request may use one complete epoch. No request may mix old type registration with new projection rules. Task 13 executes this test.
+- [ ] **Step 7: Backfill and verify every current page.**
 
-- [ ] **Step 7: Run the serial coding checks.**
+New content and access writes use every `WriteVersions` entry. Resume the Task 4 access scan from `ScanCursor`. Each scheduled node receives a new per-node search generation; rollout `Generation` only guards rollout checkpoints. Task 5 partially updates only `search_generation` and `access`. After the scan finishes, enter `verifying`. Read current issued document IDs from FoundationDB in bounded batches and fetch those exact documents through the official client. Require each source to contain the candidate version and current per-node generation. Missing, retired, or stale IDs schedule current content work and keep verification pending. Compare the permission-event boundary when verification completes. Repeat the affected scan and verification when a concurrent resource permission mutation advanced it.
+
+- [ ] **Step 8: Activate the candidate and retire old keys.**
+
+After exact verification, one FoundationDB transaction compares the verified permission-event boundary, makes the candidate active, and records the previous version. New sessions use the candidate; established sessions retain their stored authority, version, and point in time. Before removal, require `HasActiveAccessVersion(authorityID, previous) == false`. Enter `retiring`, set `WriteVersions` to the active version, record a new permission-event boundary, and run another bounded access scan for that authority. Exact verification and a matching boundary must prove that every current page contains only the active version before `Complete` clears rollback state and returns to `stable`.
+
+Before retirement begins, rollback atomically restores `PreviousVersion` as active because every current page still contains both versions. After retirement begins, rollback requires another ordinary candidate transition; it never requires index replacement.
+
+- [ ] **Step 9: Add restart, race, and failure coverage.**
+
+Stop FoundationDB after a projection epoch changes and require an explicit metadata error; restart it and require the new definition to appear. Search while changing one projection and deleting another type; each completed request must use one complete epoch. Stop and reopen FoundationDB and Tack during `backfill`, `verifying`, activation, and `retiring`. Fail one partial bulk item and one exact document read. Pause older content and access requests across activation. Mutate a resource grant during verification and require the changed event boundary to repeat the affected scan before activation. Run different candidate versions for two authorities concurrently and require independent state and session counts. Require one active version per authority, resumable cursors, no stale overwrite, no alias change, no physical-index creation, and no semantic-field change. Change a principal membership and require zero document writes. Change a resource grant and require access updates for every current page but zero content reads.
+
+- [ ] **Step 10: Run the serial coding checks.**
 
 Run: `go test ./internal/test/integration -run '^$' -count=1`
 
 Run: `make check`
 
-Expected: PASS after compiling the integration package without executing its tests. Task 13 runs metadata refresh and failure recovery.
+Expected: PASS after compiling the integration package without executing its tests. Task 13 runs metadata refresh and the complete access transition with real dependencies.
 
-- [ ] **Step 8: Commit the task.**
+- [ ] **Step 11: Commit the task.**
 
 ```sh
-git add internal/domain/node/reader.go internal/adapters/foundationdb internal/adapters/mcp/server.go internal/test/integration/search_metadata_refresh_test.go
-git commit -S -m "Refresh search metadata after declaration changes" -m "Co-authored-by: Codex <noreply@openai.com>"
+git add internal/domain/search/access_rollout.go internal/domain/node/reader.go internal/adapters/foundationdb/search_access_rollout.go internal/adapters/foundationdb/search_projection_epoch.go internal/adapters/foundationdb/property.go internal/adapters/foundationdb/node_type.go internal/adapters/mcp/server.go internal/service/search_access_rollout.go internal/test/integration/search_access_refresh_test.go internal/test/integration/search_metadata_refresh_test.go
+git commit -S -m "Refresh search metadata and access keys without rebuilding" -m "Co-authored-by: Codex <noreply@openai.com>"
 ```

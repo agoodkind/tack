@@ -4,7 +4,7 @@
 
 **Goal:** Return every matching, currently authorized node through durable ranked continuation.
 
-**Architecture:** FoundationDB stores the query snapshot, exact rank position, visited nodes, replay records, and deadlines. OpenSearch excludes most forbidden candidates before ranking. The node reader performs the final current authorization check before each result is returned.
+**Architecture:** FoundationDB stores the query snapshot, bound permission-policy version, exact rank position, visited nodes, replay records, and deadlines. OpenSearch excludes most forbidden candidates before ranking with opaque caller keys. The node reader performs the final current authorization check before each result is returned.
 
 **Tech Stack:** Go, FoundationDB, MCP Streamable HTTP, Task 6 `Ranker`.
 
@@ -16,7 +16,10 @@ Apply the [implementation constraints](2026-09-19-opensearch.md#global-constrain
 
 ## Review Focus
 
-Test corrupt indexed access fields, revoked membership, moved scopes, byte-limited responses, lost responses, concurrent continuation, process changes, and four batches with no returnable result.
+Test corrupt indexed access keys, revoked membership nodes, changed resource
+grants, permission-version transitions, byte-limited responses, lost responses,
+concurrent continuation, process changes, and four batches with no returnable
+result.
 
 ---
 
@@ -40,7 +43,7 @@ Test corrupt indexed access fields, revoked membership, moved scopes, byte-limit
 
 ```go
 type Session struct {
-    ID, Principal, Generation uuid.UUID
+    ID, Principal, Generation, AuthorityID uuid.UUID
     Binding [32]byte
     Secret [32]byte
     Query Query
@@ -58,6 +61,7 @@ type SessionStore interface {
     HasVisited(context.Context, uuid.UUID, []uuid.UUID) (map[uuid.UUID]bool, error)
     UpdatePIT(context.Context, uuid.UUID, uint64, string) (Session, error)
     CommitPage(context.Context, uuid.UUID, uint64, PageCommit) (Session, error)
+    HasActiveAccessVersion(context.Context, uuid.UUID, string) (bool, error)
     BeginCleanup(context.Context, uuid.UUID) error
     CleanupSlice(context.Context, uuid.UUID, int) (bool, error)
 }
@@ -82,15 +86,30 @@ Task 13 runs `^TestSearch(Auth|Authorization|Cursor)$` against the completed bra
 
 - [ ] **Step 3: Store bounded session state.**
 
-Bind principal, query, filters, physical index, and search generation with deterministic serialization and SHA-256. Authenticate cursors with HMAC-SHA256. Store one bounded header, bounded token chunks, one key per visited node, and one replay record per response. Prefix each session key family with the first SHA-256 byte of the complete session ID. Store expiry entries inside that bucket.
+Bind principal, permission authority, query, active access version, opaque caller keys, physical index,
+and search generation with deterministic serialization and SHA-256. Authenticate
+cursors with HMAC-SHA256. Store one bounded header, bounded token chunks, one key
+per visited node, and one replay record per response. Prefix each session key
+family with the first SHA-256 byte of the complete session ID. Store expiry
+entries inside that bucket. Write one presence key per session under its authority, access version, and stable session bucket. `HasActiveAccessVersion` reads at most one key from each bucket and uses no shared counter. Task 10 cannot remove old keys while any presence key remains.
 
 - [ ] **Step 4: Resolve and filter before opening a snapshot.**
 
-Resolve membership, entry point, scope, optional type, and query byte bounds. Call `AccessPolicy.Query` to build `Query.Access`. Reject undefined types and foreign scopes before `Ranker.Open`. The MCP handler must not construct permission clauses itself.
+Authenticate the principal and resolve the entry point, optional scope, optional
+type, and query byte bounds. Resolve the entry point's permission authority through
+`AccessPolicy.EntryAuthority`, then read Task 3's current access state for that authority. Call `AccessPolicy.Query` to
+build `Query.Access` from authoritative permission state. Reject undefined types
+and unauthorized entry points before `Ranker.Open`. The MCP handler must not
+construct or decode permission keys itself.
 
 ```go
+authorityID, err := deps.Access.EntryAuthority(ctx, entryPointID)
+if err != nil { return classifyError(ctx, err), nil }
+accessState, err := deps.AccessStates.State(ctx, authorityID)
+if err != nil { return classifyError(ctx, err), nil }
 accessFilter, err := deps.Access.Query(ctx, searchaccess.AccessRequest{
-    PrincipalID: principal.ID, OrgID: workspace.OrgID, ScopeID: scopeID,
+    PrincipalID: principal.ID, EntryPointID: entryPointID, ScopeID: scopeID,
+    AuthorityID: accessState.AuthorityID, Version: accessState.ActiveVersion,
 })
 if err != nil { return classifyError(ctx, err), nil }
 snapshot, err := deps.Ranker.Open(ctx, search.Query{Text: queryText, Index: activeIndex, NodeType: nodeType, Access: accessFilter})
@@ -112,11 +131,23 @@ committed, err := sessions.CommitPage(ctx, session.ID, session.Version, search.P
 
 - [ ] **Step 7: Reauthorize replay and reject stale cursors.**
 
-Reauthorize saved result IDs without advancing or renewing the session. Reject a changed principal, query binding, restored search generation, idle deadline, or absolute deadline. Close the PIT after committed completion. Mark the session closing before bounded cleanup. Delete the header last.
+Reauthorize saved result IDs from current FoundationDB permission nodes and
+relationships without advancing or renewing the session. Reject a changed
+principal, query binding, restored search generation, idle deadline, or absolute
+deadline. A policy-version activation does not invalidate an established
+session; its point in time and stored keys remain bound to the old version.
+Close the PIT after committed completion. Mark the session closing before
+bounded cleanup. Delete the header last.
 
 - [ ] **Step 8: Prove the permission boundary and final check separately.**
 
-Reuse Task 6's raw-ranker test to prove selective pre-ranking filtering. In this task, corrupt indexed organization and scope values so a forbidden document passes OpenSearch. Require the current FoundationDB check to reject it. Count summary reads and require them to stay within four batches. A future permission model must pass both tests before release.
+Reuse Task 6's raw-ranker test to prove selective pre-ranking filtering. In this
+task, corrupt one indexed opaque key so a forbidden document passes OpenSearch.
+Require the current FoundationDB permission check to reject it. Revoke a
+principal's membership after the session opens and require later results and
+replay to reject newly forbidden nodes. Count summary reads and require them to
+stay within four batches. Every future permission policy must pass both tests
+before release.
 
 - [ ] **Step 9: Add horizontal Tack continuation coverage.**
 

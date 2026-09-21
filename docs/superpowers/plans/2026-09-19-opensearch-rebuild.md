@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace an index after mapping, model, cleanup, restore, or shard changes without losing concurrent source mutations.
+**Goal:** Replace an index after physical mapping, model, text projection, cleanup, restore, or shard changes without losing concurrent source mutations.
 
 **Architecture:** One persisted coordinator owns one source and one target. Full replacement reads FoundationDB pages. A permitted primary-shard increase uses native split and reuses existing embeddings. Both paths replay the mutation journal and switch one alias atomically.
 
@@ -12,11 +12,13 @@
 
 ## Global Constraints
 
-Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Keep at most one serving, one replacement, and one retiring index. Restored source data always requires a full replacement. Native split never replaces journal replay, alias coordination, or session retirement.
+Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Keep at most one serving, one replacement, and one retiring index. Restored source data always requires a full replacement. Native split never replaces journal replay, alias coordination, or session retirement. A permission-policy version change uses access-only work on the serving index and never starts replacement.
 
 ## Review Focus
 
-Test concurrent metadata and ancestry edits, failure before and after alias switching, split failure, insufficient disk, restored data, and active old-index sessions.
+Test concurrent metadata, ancestry, and access edits, a permission-version
+transition during replacement, failure before and after alias switching, split
+failure, insufficient disk, restored data, and active old-index sessions.
 
 ---
 
@@ -68,7 +70,11 @@ func TestSearchRebuildDuringChanges(t *testing.T) {
 }
 ```
 
-Add the same test for native split. Create, edit, delete, change metadata, and move a subtree while replacement is paused. Require current nodes only and no foreign-scope result.
+Add the same test for native split. Create, edit, delete, change metadata, move a
+subtree, update one resource grant, and start a candidate permission version
+while replacement is paused. Require current nodes only, no forbidden result,
+and both active and candidate keys on the target. The permission transition must
+not start another replacement.
 
 - [ ] **Step 2: Record the deferred failure contract.**
 
@@ -80,7 +86,13 @@ Acquire one environment lease before target creation. Persist mode, source, targ
 
 - [ ] **Step 4: Implement full replacement.**
 
-Choose full replacement for first construction, restore, mapping or model changes, cleanup thresholds, lower shard counts, and targets outside the reserved routing path. Create an empty target. Scan bounded node IDs through `ScanSearch`. Schedule the same page worker against the target. Persist scan and journal replay checkpoints independently.
+Choose full replacement for first construction, restore, physical mapping,
+semantic model, text projection, page identity, cleanup thresholds, lower shard
+counts, and targets outside the reserved routing path. Do not choose it for a
+permission-policy version. Create an empty target. Scan bounded node IDs through
+`ScanSearch`. Schedule the same page worker against the target. Each page uses
+the current active and candidate write versions from FoundationDB. Persist scan
+and journal replay checkpoints independently.
 
 - [ ] **Step 5: Implement native primary-shard splitting.**
 
@@ -99,7 +111,13 @@ Keep the alias on the source. Clear its write block. Resume claims. Record the f
 
 - [ ] **Step 7: Catch up and switch one alias atomically.**
 
-Pause new claims in durable `switching`, record a final journal boundary, and finish the target through that boundary. Refresh and require green health. Submit one typed alias request that removes the old target and adds the new target. If the HTTP result is uncertain, read the alias. Old means retry; new means finish FDB handoff; any third target is a coordination error.
+Pause new claims in durable `switching`, record a final journal boundary, and
+finish the target through that boundary. Replay content and access generations
+in order. Verify that every current page contains the write versions recorded in
+the final boundary. Refresh and require green health. Submit one typed alias
+request that removes the old target and adds the new target. If the HTTP result
+is uncertain, read the alias. Old means retry; new means finish FDB handoff; any
+third target is a coordination error.
 
 ```json
 {"actions":[{"remove":{"index":"old-physical-index","alias":"node-pages"}},{"add":{"index":"new-physical-index","alias":"node-pages","is_write_index":true}}]}

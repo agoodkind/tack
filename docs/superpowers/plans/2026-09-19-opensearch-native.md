@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Index every bounded reader page with complete native sparse semantic coverage.
+**Goal:** Index every bounded reader page with complete native sparse semantic coverage and a stable opaque access mapping.
 
-**Architecture:** The official client owns transport behavior. A native `semantic` field stores the original page, creates overlapping character chunks, and runs the pinned sparse model. Tack validates bytes and document identity but never loads the model tokenizer.
+**Architecture:** The official client owns transport behavior. A native `semantic` field stores the original page, creates overlapping character chunks, and runs the pinned sparse model. One strict generic access object supports partial permission updates without changing the semantic field. Tack validates bytes and document identity but never loads the model tokenizer.
 
 **Tech Stack:** OpenSearch 3.8.0, `opensearch-go/v4` v4.7.3, ML Commons, Docker SDK, Go.
 
@@ -16,7 +16,9 @@ Apply the [implementation constraints](2026-09-19-opensearch.md#global-constrain
 
 ## Review Focus
 
-Test 4,096-byte Unicode, newlines, empty text, missing text, strict mappings, retired pages, endpoint selection, model mismatch, and the 4 GiB memory failure.
+Test 4,096-byte Unicode, newlines, empty text, missing text, strict mappings,
+access-only partial updates with the model unavailable, retired pages, endpoint
+selection, model mismatch, and the 4 GiB memory failure.
 
 ---
 
@@ -44,8 +46,8 @@ type ModelInfo struct {
     ID, BundleSHA256, TokenizerSHA256, Algorithm string
     BundleBytes, RuntimeBytes int64
 }
-type IndexSpec struct { Model ModelInfo; AccessVersion string; Primaries, RoutingShards, Replicas int }
-type IndexInfo struct { AccessVersion string }
+type IndexSpec struct { Model ModelInfo; MappingVersion string; Primaries, RoutingShards, Replicas int }
+type IndexInfo struct { MappingVersion, ModelID string }
 func New(opensearch.Config) (*Adapter, error)
 func (a *Adapter) Close() error
 func (a *Adapter) Provision(context.Context) (ModelInfo, error)
@@ -61,7 +63,7 @@ func TestSearchNativeSparse(t *testing.T) {
     adapter := newOpenSearchAdapter(t, "opensearchproject/opensearch:3.8.0", 8<<30)
     model, err := adapter.Provision(t.Context())
     if err != nil { t.Fatal(err) }
-    index := createNativeSearchIndex(t, adapter, model, "org-scope-v1", 1, 8, 0)
+    index := createNativeSearchIndex(t, adapter, model, "search-v1", 1, 8, 0)
     putNativePage(t, adapter, index, unicodePage4096())
     stored := getNativePage(t, adapter, index)
     requireCompleteNativeChunks(t, stored, unicodePage4096())
@@ -78,7 +80,13 @@ Pin v4.7.3. Launch the exact image through the existing Docker SDK test environm
 
 - [ ] **Step 4: Prove every required client operation.**
 
-Through the production adapter, execute typed index create, settings, split, bulk, point-in-time create and delete, alias, document get, health, block, statistics, refresh, and delete calls. Build search requests with `SearchReq.GetRequest`. Use narrow `opensearch.Request` types plus `opensearch.Do` and `opensearch.ParseError` only for ML Commons and response fields absent from stable typed APIs.
+Through the production adapter, execute typed index create, settings, split,
+bulk index, bulk partial update, point-in-time create and delete, alias, document
+get, health, block, statistics, refresh, and delete calls. Prove that bulk update
+accepts `version` with `version_type:external_gte` against OpenSearch 3.8.0.
+Build search requests with `SearchReq.GetRequest`. Use narrow
+`opensearch.Request` types plus `opensearch.Do` and `opensearch.ParseError` only
+for ML Commons and response fields absent from stable typed APIs.
 
 - [ ] **Step 5: Provision and verify the pinned model.**
 
@@ -86,7 +94,14 @@ Require model name `amazon/neural-sparse/opensearch-neural-sparse-encoding-doc-v
 
 - [ ] **Step 6: Create the strict native mapping.**
 
-Require a nonempty access version, positive primary and routing-shard counts, a nonnegative replica count, and a routing count divisible by every approved split target. Store the access version in mapping `_meta`. Map identity, revision, node type, and projection fields as keywords, `name` as text, and `retired` as Boolean. Add a strict `access` object with keyword fields `org_id` and `scope_ids`. Use `dynamic:strict` and this field:
+Require a nonempty mapping version, positive primary and routing-shard counts, a
+nonnegative replica count, and a routing count divisible by every approved split
+target. Store the mapping version and model ID in mapping `_meta`. Map identity,
+revision, node type, and text projection fields as keywords, `name` as text,
+`retired` as Boolean, and `search_generation` as a long. Add a strict `access`
+object with keyword arrays `versions` and `keys` plus long `generation`. Search
+code cannot add a field for a new permission type. Use `dynamic:strict` and this
+field:
 
 ```json
 {"page_text":{"type":"semantic","raw_field_type":"text","model_id":"registered-document-model-id","semantic_info_field_name":"page_text_semantic_info","chunking":[{"algorithm":"fixed_char_length","parameters":{"char_limit":160,"overlap_rate":0.5,"max_chunk_limit":-1}}],"sparse_encoding_config":{"prune_type":"max_ratio","prune_ratio":0.1},"skip_existing_embedding":true}}
@@ -96,15 +111,31 @@ Require a nonempty access version, positive primary and routing-shard counts, a 
 
 Index ordinary, Unicode, newline-only, empty, missing, retired, and unknown-field documents through typed bulk. Require the complete 4,096-byte source and final character, valid generated chunk text, forward progress, and finite sparse weights. Require strict mapping errors for unknown fields. Reject a missing required `page_text`. Accept active empty text without inference.
 
-- [ ] **Step 8: Add retirement and byte-bound coverage.**
+- [ ] **Step 8: Prove access-only updates preserve embeddings.**
+
+Index one semantic page with `access.versions:["org-scope-v1"]`, one opaque
+`access.keys` value, and generation 1. Capture its complete source, generated
+chunks, and sparse weights. Undeploy the model. Submit a bulk partial update with
+generation 2 and `version_type:external_gte` that replaces only `search_generation` and `access`.
+Require success, changed access values, and byte-identical text, chunks, and
+weights. Submit generation 1 again and require a version conflict. Submit
+generation 2 again and require an idempotent result. This test must fail if the
+update invokes model inference.
+
+```json
+{"update":{"_index":"node-pages-test","_id":"page-id","version":2,"version_type":"external_gte"}}
+{"doc":{"search_generation":2,"access":{"versions":["permission-v2"],"keys":["permission-v2:opaque"],"generation":2}},"detect_noop":true}
+```
+
+- [ ] **Step 9: Add retirement and byte-bound coverage.**
 
 Replace a same-ID document with `{"retired":true}` at the retirement version. Require no text or semantic fields and no active match. Reject page text above 4,096 UTF-8 bytes before an engine request.
 
-- [ ] **Step 9: Add endpoint and resource coverage.**
+- [ ] **Step 10: Add endpoint and resource coverage.**
 
 Require `ConnectionObserver` to record only the configured stable endpoint. Record bundle size, reported inference memory, process memory, peak ingest memory, and latency in an 8 GiB container. Preserve the 4 GiB circuit-breaker failure as a regression. Do not infer concurrent capacity from this test.
 
-- [ ] **Step 10: Run the serial coding checks.**
+- [ ] **Step 11: Run the serial coding checks.**
 
 Run: `go test ./internal/test/integration -run '^$' -count=1`
 
@@ -112,7 +143,7 @@ Run: `make check`
 
 Expected: PASS after compiling the integration package without executing its tests. Task 13 runs the real OpenSearch checks.
 
-- [ ] **Step 11: Commit the task.**
+- [ ] **Step 12: Commit the task.**
 
 ```sh
 git add go.mod go.sum internal/adapters/search/opensearch.go internal/adapters/search/opensearch_model.go internal/adapters/search/opensearch_mapping.go internal/testenv/opensearch.go internal/testenv/opensearch_tls.go internal/test/integration/search_native_test.go

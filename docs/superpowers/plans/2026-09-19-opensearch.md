@@ -27,8 +27,15 @@ The native sparse indexing and ranking configuration passed local engine validat
 - Tack neither loads a tokenizer nor counts model tokens. OpenSearch remains unmodified.
 - Custom plugins, forks, and external inference are excluded.
 - Node types, property types, and property names are opaque identifiers.
-- Keep indexed access fields and OpenSearch candidate filters behind one permission boundary. The current implementation uses organization and scope. A future permission model must add a selective pre-ranking filter instead of relying on FoundationDB post-filtering.
-- A future permission model may add versioned mapping fields and rebuild the index. It must not change page reads, durable work, session formats, ranked continuation, or result grouping. FoundationDB still authorizes every returned node.
+- Keep indexed access keys and caller key construction behind one permission
+  boundary. The current policy compiles organization and scope into opaque keys.
+  Future policies compile permission nodes and relationships into the same keys.
+- The strict mapping always contains `access.versions`, `access.keys`, and
+  `access.generation`. A permission-policy change must use access-only partial
+  updates and must not rebuild the index or regenerate embeddings.
+- Principal membership changes affect query keys only. Resource grant changes
+  schedule bounded access work for affected nodes or a bounded FoundationDB scan.
+  FoundationDB still authorizes every returned node.
 - Every applicable property definition explicitly includes or excludes search.
   Do not infer that decision from identifiers, types, or the FDB `Indexed` flag.
 - The container image is `opensearchproject/opensearch:3.8.0`.
@@ -48,7 +55,7 @@ The native sparse indexing and ranking configuration passed local engine validat
 - Adding Tack processes, FoundationDB capacity, OpenSearch ML nodes, data nodes, replicas, or coordinating endpoints must not require application code or stored-format changes. A higher primary-shard count uses native splitting along its reserved routing path and a full replacement otherwise.
 - Persist all search sessions and work in FoundationDB. Distribute their keys across stable hash buckets. Do not require sticky requests, a process-local cache, a global sequence, or one claim range.
 - Worker claims, cleanup, sessions, rebuilds, and physical indexes have explicit work and lifetime bounds.
-- Each physical index stores primary and reserved routing-shard counts. Every shard increase creates and validates a replacement through native splitting or a full FoundationDB rebuild.
+- Each physical index stores primary and reserved routing-shard counts. Every shard increase creates and validates a replacement through native splitting or a full FoundationDB rebuild. Permission-policy versions never trigger replacement.
 - All product state and search progress use FoundationDB. SQL remains authentication and audit only.
 - Reads use `NodeReader`. Configuration uses environment variables through `caarlos0/env`.
 - Tests use real dependencies and public boundaries. No mocks, product seeds, or production tokenizer dependency establish acceptance.
@@ -73,17 +80,19 @@ The native sparse indexing and ranking configuration passed local engine validat
 
 ## Permission filtering contract
 
-The current policy returns version `org-scope-v1` and fields `org_id:A` and `scope_ids:[B, ancestor IDs]`. Task 5 stores them inside the strict `access` object. A scoped query returns the exact `access.org_id:A` and `access.scope_ids:B` clauses. Task 6 inserts those opaque clauses into the OpenSearch Boolean filter before lexical or sparse scoring. Task 7 reads the current node from FoundationDB and authorizes it again before rendering.
+The current policy returns version `org-scope-v1` and opaque keys derived from
+the organization and each permitted scope. Task 1 creates one permanent strict
+mapping for `access.versions`, `access.keys`, and `access.generation`. Task 5
+stores complete access values on new pages and partially updates only `search_generation` and that object
+after resource permission changes. Task 6 requires the active version and one
+matching caller key before lexical or sparse scoring. Task 7 reads current
+FoundationDB state and authorizes each node again before rendering.
 
-A future permission model changes only these owned surfaces:
+Task 3 implements the access-policy boundary as `PolicySet` from the first release. It dispatches each opaque version to a registered compiler. The current compiler reads organization and scope data. A future compiler reads its permission-definition node and related nodes through `NodeReader`; search code never inspects permission types. Task 4 stores the fixed policy versions and one monotonic generation with each content or access job. Task 5 uses them for full page writes, access-only updates, and retirement, so retries are deterministic and delayed operations cannot overwrite newer access state.
 
-1. Extend the Task 3 access policy so indexed fields and caller clauses use the same rules.
-2. Add the new strict `access` mapping fields and increment the access version.
-3. Keep the Task 5 field copier and Task 6 clause inserter unchanged.
-4. Bump the projection and mapping version, then use Task 8 to rebuild from FoundationDB.
-5. Add one raw-ranker test dominated by forbidden matches and one corrupt-index public test.
+Task 10 owns one permission-policy transition per authoritative permission root. It keeps one active version and an optional candidate in FoundationDB. Independent roots can transition concurrently. New writes contain both versions during a transition. A resumable access scan updates existing page documents without submitting `page_text`. The coordinator verifies every current issued document and confirms that no permission event occurred during verification. It switches new queries to the candidate, waits for sessions bound to that root and old version, then removes old keys through another access-only scan.
 
-The extension cannot change content pages, document identity, durable work, sessions, continuation, result grouping, or the final FoundationDB authorization check.
+A future data-driven permission system registers another compiler beside the active compiler. Its opaque version derives from its permission-definition node revision. It does not add mapping fields or change content pages, document identity, durable work formats, sessions, continuation, result grouping, or the final FoundationDB authorization check. Its release tests must prove selective raw filtering, corrupt-index rejection, membership-only query changes, access-only resource updates, and a restartable version transition without index replacement or model inference.
 
 ## Review Focus
 
@@ -95,7 +104,7 @@ The extension cannot change content pages, document identity, durable work, sess
 6. A large node, cleanup, or rebuild must yield before it starves live mutation work. Worker and capacity tasks measure every work class.
 7. Session and rebuild cleanup must bound the number and lifetime of retained physical indexes.
 8. Each initial environment must recover durable work after its only search node restarts. Production must pass cluster join, proxy distribution, replica placement, and one-member failure checks before it claims multi-node availability.
-9. A future permission model must exclude most forbidden matches in OpenSearch before ranking. The final FoundationDB check preserves correctness but cannot establish search latency by itself.
+9. A future permission policy must exclude most forbidden matches in OpenSearch before ranking. Its version transition must update access keys without rebuilding or invoking the model. The final FoundationDB check preserves correctness but cannot establish search latency by itself.
 
 ---
 
@@ -105,14 +114,14 @@ Assign Tasks 1 through 12 to one Luna run with `superpowers:executing-plans`. Ea
 
 1. Complete the [native coverage task](2026-09-19-opensearch-native.md). Implement the validated sparse engine configuration and its regression tests.
 2. Complete the [projection rollout task](2026-09-19-opensearch-metadata.md). Add declaration types, new-definition values, and the expiring manifest backfill.
-3. Complete the [paginated reader task](2026-09-19-opensearch-reader.md), including the shared organization and scope access policy.
-4. Complete the [durable work task](2026-09-19-opensearch-worker.md).
-5. Complete the [bounded indexing task](2026-09-19-opensearch-indexing.md).
+3. Complete the [paginated reader task](2026-09-19-opensearch-reader.md), including the opaque access-key policy.
+4. Complete the [durable work task](2026-09-19-opensearch-worker.md), including content and access generations.
+5. Complete the [bounded indexing task](2026-09-19-opensearch-indexing.md), including access-only partial updates.
 6. Complete the [ranked query task](2026-09-19-opensearch-query.md). It proves that OpenSearch applies the access filter before ranking.
 7. Complete the [authorized public search task](2026-09-19-opensearch-public-search.md) behind an inactive registration.
 8. Complete the [index replacement task](2026-09-19-opensearch-rebuild.md) against Tasks 3 through 7.
 9. Complete the [runtime cutover task](2026-09-19-opensearch-recovery.md). It activates the replacement and deletes the application Meilisearch path.
-10. Complete the [metadata refresh task](2026-09-19-opensearch-refresh.md) against the replacement runtime.
+10. Complete the [metadata and access refresh task](2026-09-19-opensearch-refresh.md) against the replacement runtime.
 11. Complete the [public QA data task](2026-09-19-opensearch-datagen.md).
 12. Complete the [cluster configuration task](2026-09-19-opensearch-deployment.md) without applying it.
 13. Give the completed branch to Sol and execute the [live validation and correction plan](2026-09-19-opensearch-final-validation.md).
@@ -131,16 +140,14 @@ Assign Tasks 1 through 12 to one Luna run with `superpowers:executing-plans`. Ea
 | [Task 7: Authorized public search](2026-09-19-opensearch-public-search.md) | TACK-536 |
 | [Task 8: Rebuild and restore](2026-09-19-opensearch-rebuild.md) | TACK-537 |
 | [Task 9: Runtime and Meilisearch removal](2026-09-19-opensearch-recovery.md) | TACK-536 |
-| [Task 10: Metadata refresh](2026-09-19-opensearch-refresh.md) | TACK-532 |
+| [Task 10: Metadata and access refresh](2026-09-19-opensearch-refresh.md) | TACK-532 |
 | [Task 11: QA datagen coverage](2026-09-19-opensearch-datagen.md) | TACK-538 |
 | [Task 12, Tack: Containers and provisioning operations](2026-09-19-opensearch-deployment.md) | TACK-539 |
 | [Task 12, configs: One initial guest per environment and scalable rendered configuration](2026-09-19-opensearch-deployment.md) | TACK-540 |
 | [Task 13: Live validation and correction](2026-09-19-opensearch-final-validation.md) | TACK-518, TACK-519, TACK-520 |
 | [Task 14: QA, production, and Meilisearch deployment removal](2026-09-19-opensearch-release.md) | TACK-541 |
 
-TACK-518, TACK-519, and TACK-520 retain the cross-cutting scalability,
-isolation, and semantic acceptance. TACK-524 and TACK-525 remain separate
-storage work.
+TACK-518, TACK-519, and TACK-520 retain cross-cutting scalability, isolation, and semantic acceptance. TACK-524 and TACK-525 remain separate storage work.
 
 The native task repeats the successful engine tests through the production adapter. Preserve reproductions of any regression. Do not substitute truncation, a Tack tokenizer, an OpenSearch modification, or an external service.
 
@@ -148,9 +155,9 @@ The native task repeats the successful engine tests through the production adapt
 
 | Responsibility | Change location |
 | --- | --- |
-| Reader contracts and access representation | Extend [NodeReader](../../../internal/domain/node/reader.go); create the content and access files specified in the reader task. |
+| Reader contracts and access representation | Extend [NodeReader](../../../internal/domain/node/reader.go); create the content and opaque access-key files specified in the reader task. |
 | Search projection declarations | Add the property definition fields and validation specified in the metadata task. |
-| Transactional scheduling and revision identity | Extend the node, relationship, and metadata stores; add dedicated search storage files. |
+| Transactional scheduling and revision identity | Extend the node, relationship, and metadata stores; add dedicated content, access, and rollout storage files. |
 | Page indexing and native model setup | Add a focused official-client adapter, native semantic mapping, typed bulk and search operations, and concrete ML Commons requests; delete all Meilisearch adapter code and its module dependency. |
 | Worker ownership and recovery | Add search worker, cleanup, and rebuild files under the existing service and FDB adapter packages. |
 | Authentication and rendered results | Replace [MCP search](../../../internal/adapters/mcp/tools/search.go); reuse response-byte enforcement. |
@@ -166,9 +173,7 @@ Tasks 1 through 12 run only their stated compile, offline render, static, and bu
 git commit -S -m "Add native OpenSearch sparse indexing validation" -m "Co-authored-by: Codex <noreply@openai.com>"
 ```
 
-Use each subsequent task's specified subject with that same trailer. Before any
-later push, fetch and verify every signature
-and raw `gpgsig` header in `origin/main..HEAD`.
+Use each subsequent task's specified subject with that trailer. Before any later push, fetch and verify every signature and raw `gpgsig` header in `origin/main..HEAD`.
 
 ## Storage expansion boundary
 

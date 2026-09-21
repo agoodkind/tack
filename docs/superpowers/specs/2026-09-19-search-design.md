@@ -21,7 +21,7 @@ A request supplies query text and a metadata-defined entry point. Tack resolves 
 Each response contains at most 25 distinct node IDs with bounded current summaries. The node reader supplies those summaries and current authorization.
 Search never returns indexed page text as the node body. A continuation can reach every matching node. Engine, inference, source, and session failures return explicit errors.
 
-The permission boundary supplies the indexed access fields and the structured OpenSearch filter. The current implementation supplies organization and scope values. A future permission model must reject most forbidden candidates in OpenSearch before ranking and retain the current FoundationDB check before returning a node. Adding that model may add versioned mapping fields and rebuild the index, but it must not change page reads, durable work, sessions, ranked continuation, or result grouping. Post-search filtering alone does not satisfy the performance contract.
+The permission boundary compiles current FoundationDB state into opaque access keys for indexed nodes and callers. The current policy derives them from organization and scope; a future policy can derive the same shape from permission nodes and relationships without changing search storage or queries. OpenSearch rejects most forbidden candidates before ranking. FoundationDB still checks current authorization before Tack returns a node.
 
 ## Searchable content
 
@@ -36,28 +36,29 @@ Invalid declarations or values fail with node and property identifiers. Equivale
 
 Projection, display text, type metadata, and ancestry changes schedule affected nodes for indexing. Structured property filtering, property sorting, and category totals are outside this contract.
 
-Before the first OpenSearch rebuild, an audited one-time command applies a
-complete manifest reviewed by an operator to existing definitions. It never
-infers behavior from an identifier or type and never overwrites an existing
-declaration. Public search remains unavailable until no definition lacks an
-explicit decision.
+Before the first OpenSearch rebuild, an audited one-time command applies a complete operator-reviewed manifest to existing definitions. It never infers behavior or overwrites a declaration. Public search remains unavailable until every definition has an explicit decision.
+
+## Permission projection
+
+OpenSearch stores a strict `access` object with only `versions`, `keys`, and `generation`. Each key combines an opaque policy version with an opaque grant value. Search code does not inspect permission types, roles, groups, organizations, or scopes. The policy reads authoritative nodes and relationships through the node reader and returns sorted, unique, bounded keys.
+
+A future permission definition is itself a node. For example, a definition can interpret one relationship between a principal group node and a resource root node as a read grant. The policy reads that definition and its related nodes, then emits the same opaque key for the permitted resource pages and caller. Search compares keys and never interprets the node or relationship types.
+
+The current policy compiles each permitted organization and scope pair into one opaque key. A future policy can combine several permission facts into one key before returning it. The query policy compiles the caller and selected entry point with the same version. OpenSearch requires the active version and at least one matching key before scoring.
+
+A principal membership change changes caller keys and schedules no document work. A resource grant, ancestry, or other visibility change schedules access-only work for the affected node or a bounded FoundationDB scan. Native bulk updates replace `search_generation` and `access` on every current page without submitting `page_text`. `skip_existing_embedding` must preserve chunks and sparse weights without invoking the model.
+
+FoundationDB assigns one increasing search generation to every content or access change and stores that generation's policy versions with the durable work. Full page writes, access-only updates, and retirement use the generation as the external OpenSearch version. OpenSearch rejects older content and access operations. Retrying the current generation reuses the same policy versions and is idempotent.
+
+A policy change creates a candidate for one authoritative permission root while its active version serves queries. Independent roots can transition concurrently. New writes include both versions. A bounded access scan adds candidate keys to existing pages. Exact verification precedes activation. Existing sessions retain their version; another access scan removes old keys after those sessions finish. Failure before activation preserves the active version. The transition creates no index, switches no alias, reads no page text, and regenerates no embedding.
 
 ## Paginated node reads
 
-The reader returns one bounded Unicode text page per call. Each response includes
-the committed node revision, projection version, stable ordinal, next cursor, and
-an explicit completion value. The worker never infers completion from page size,
-current storage limits, or prior reads.
+The reader returns one bounded Unicode text page per call. Each response includes the committed node revision, projection version, stable ordinal, next cursor, and an explicit completion value. The worker never infers completion from page size, storage limits, or prior reads.
 
-Each read uses bounded memory. The storage adapter owns FoundationDB keys and record
-layout. The current adapter can return one page for ordinary nodes. Another adapter
-can start returning successive pages at any time without changing worker, index,
-query, retry, or grouping behavior.
+Each read uses bounded memory. The storage adapter owns FoundationDB keys and record layout. The current adapter can return one page for ordinary nodes. Another adapter can return successive pages without changing worker, index, query, retry, or grouping behavior.
 
-Every continuation reads the same source revision and projection. A changed,
-missing, or corrupt revision returns an error. Search starts indexing before the
-reader reaches the final page. Tack does not combine all pages, count model tokens,
-or split text for the model.
+Every continuation reads the same source revision and projection. A changed, missing, or corrupt revision returns an error. Search indexes before the final page. Tack does not combine all pages, count model tokens, or split text for the model.
 
 ## Native sparse semantic indexing
 
@@ -80,34 +81,27 @@ The mapping contains only these fixed fields:
 | Field | Representation |
 | --- | --- |
 | `node_id` | Canonical node UUID as a keyword. |
-| `access.org_id` | Authoritative organization UUID as a keyword inside the strict access object. |
-| `access.scope_ids` | The node and authorized ancestor IDs as keywords inside the strict access object. |
+| `access.versions` | Opaque permission-policy versions as keywords inside the strict access object. |
+| `access.keys` | Opaque versioned grant values as keywords inside the strict access object. |
+| `access.generation` | The monotonic FoundationDB search generation used for stale-write rejection. |
 | `node_type` | The metadata-defined type key as a keyword. |
 | `node_revision` | The committed source revision. |
-| `projection_version` | The metadata, pagination, semantic mapping, and model version. |
+| `projection_version` | The text metadata, pagination, semantic mapping, and model version. It excludes permission-policy versions. |
 | `page_ordinal` | The stable page position. |
 | `name` | A bounded Unicode prefix for lexical boosting. |
 | `page_text` | Native `semantic` field with original text for lexical search. |
 | `page_text_semantic_info` | OpenSearch-generated nested chunks and sparse `rank_features` embeddings. |
 | `retired` | A Boolean that excludes obsolete records. |
 
-Document IDs combine organization, node, revision, projection version, and page
-ordinal. Retrying one page overwrites the same document.
+Document IDs combine organization, node, revision, text projection version, and page ordinal. Permission changes preserve document IDs. Retrying one generation updates the same document.
 
 ## Ranking and continuation
 
-OpenSearch generates sparse query weights once with the pinned model. Tack stores
-the returned token-weight JSON as opaque bounded session data. Tack does not load
-the tokenizer or interpret token keys. Later engine requests reuse `query_tokens`
-and do not repeat inference.
+OpenSearch generates sparse query weights once with the pinned model. Tack stores the returned token-weight JSON as opaque bounded session data. Tack does not load the tokenizer or interpret token keys. Later requests reuse `query_tokens` without repeating inference.
 
-The query adds lexical scores from `name` with boost 3 and `page_text` to the
-nested sparse semantic score. Each page uses its greatest nested score. OpenSearch
-executes conventional sparse search over its inverted index. The query uses no
-dense script, nearest-neighbor `k`, hybrid result window, field collapse, or fixed
-total-result limit.
+The query adds lexical scores from `name` with boost 3 and `page_text` to the nested sparse semantic score. Each page uses its greatest nested score. OpenSearch uses its sparse inverted index. The query uses no dense script, nearest-neighbor `k`, hybrid result window, field collapse, or fixed total-result limit.
 
-The permission boundary supplies versioned opaque filter clauses. The current policy emits organization and scope terms. Optional type and retirement filters also use structured JSON.
+The permission boundary supplies one active version and bounded opaque keys. The query requires that version and at least one caller key. Optional type and retirement filters use structured JSON.
 OpenSearch sorts page matches by descending score, ascending node ID, then
 `_shard_doc`. A point in time freezes index contents and makes `_shard_doc` a stable
 page-level tie breaker. The first page match for a node establishes that node's
@@ -130,17 +124,21 @@ Expired or mismatched cursors require a new search.
 
 ## Durable indexing and bounded work
 
-Every source mutation atomically records desired search work in FoundationDB.
-Workers persist revision, projection, phase, and reader cursor. A worker invocation
+Every content or resource-access mutation atomically records desired search work
+in FoundationDB. Principal membership changes affect query keys and record no
+document work. Workers persist generation, work kind, revision, projection,
+phase, and reader cursor. A worker invocation
 processes at most 32 pages or 5 MiB of encoded requests. It starts no new remote
 operation after its two-second slice deadline. One remote operation can remain in
 flight until its ten-second timeout, then the worker saves progress and yields.
 Cleanup processes at most 100 document IDs before yielding. A crash repeats only
 the uncommitted slice.
 
-Live mutations, cleanup, metadata rescans, and rebuild work use separate bounded
-queues or worker limits. A large node, rebuild, or cleanup cannot monopolize all
-workers. Backpressure leaves durable work pending.
+Content mutations, access updates, cleanup, metadata rescans, and rebuild work
+use separate bounded queues or worker limits. Access-only work reads bounded
+issued document IDs and updates only `search_generation` and the strict `access` object. A large node,
+access backfill, rebuild, or cleanup cannot monopolize all workers. Backpressure
+leaves durable work pending.
 
 After new pages are refreshed, workers retire every older page through bounded
 resumable operations. A delayed writer cannot restore retired text. Converged FDB
@@ -164,6 +162,8 @@ new index work pending instead of consuming it, while source writes remain durab
 New sessions cannot use a retiring index. Existing sessions end at their inactivity
 or absolute deadline. Bounded cleanup deletes session state and then deletes the
 retiring index. Restore operations always create a new search generation and index.
+
+Permission-policy versions do not start index replacement. Their access-only transition preserves page text and sparse weights. Physical mapping, semantic model, text projection, page identity, restore state, cleanup state, and unsupported shard changes still require replacement.
 
 ## Deployment and capacity
 

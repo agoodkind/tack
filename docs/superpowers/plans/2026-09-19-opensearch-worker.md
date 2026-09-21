@@ -4,7 +4,7 @@
 
 **Goal:** Record every search update transactionally and claim it after failures or restarts.
 
-**Architecture:** Source mutations write desired search state in the same FoundationDB transaction. Workers claim one node generation from one stable hash bucket. Metadata and ancestry changes create bounded scan work instead of one organization-sized job.
+**Architecture:** Source mutations write desired search state in the same FoundationDB transaction. Workers claim one node generation from one stable hash bucket. Content and resource-access changes use distinct work kinds under one monotonic generation. Metadata, ancestry, and permission-policy transitions create bounded scan work instead of one organization-sized job.
 
 **Tech Stack:** Go, FoundationDB, existing transaction and tuple helpers.
 
@@ -12,11 +12,13 @@
 
 ## Global Constraints
 
-Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Use the central key catalog. Keep live mutations, cleanup, rescans, and rebuilds in separate claim classes. Never store a full text page in work state.
+Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Use the central key catalog. Keep live mutations, access updates, cleanup, rescans, and rebuilds in separate claim classes. Never store a full text page or complete node access set in work state.
 
 ## Review Focus
 
-Test failed source transactions, claim expiry, stale owners, metadata scan overlap, repeated edits, deletion, and restart.
+Test failed source transactions, claim expiry, stale owners, content and access
+write races, membership-only changes, metadata scan overlap, repeated edits,
+deletion, and restart.
 
 ---
 
@@ -39,24 +41,29 @@ Test failed source transactions, claim expiry, stale owners, metadata scan overl
 **Interfaces:**
 
 - Consumes: Task 3 content revisions and projection epochs.
-- Produces: `WorkStore`, `Work`, and `WriteIntent` for Task 5 and Task 9.
+- Produces: `WorkStore`, `Work`, `WriteIntent`, and bounded issued-page reads for Task 5 and Task 9.
 
 ```go
 type Work struct {
     ID, Owner, Index, Revision, ProjectionVersion, Cursor, Phase string
     NodeID uuid.UUID
-    Generation int64
+    AccessVersions []string
+    Generation, AccessStateGeneration int64
     Class WorkClass
+    Kind WorkKind
     Deleted bool
 }
 type WorkClass string
 const ( WorkLive WorkClass = "live"; WorkCleanup WorkClass = "cleanup"; WorkRescan WorkClass = "rescan"; WorkRebuild WorkClass = "rebuild" )
+type WorkKind string
+const ( WorkContent WorkKind = "content"; WorkAccess WorkKind = "access" )
 type SliceLimit struct { Pages int; EncodedBytes int; Duration time.Duration }
 type WriteIntent struct {
     WorkID, Owner, Index, DocumentID string
     Generation int64
     Page node.ContentPage
 }
+type IssuedPage struct { DocumentID string; Generation int64 }
 type WorkStore interface {
     InitializeIndex(context.Context, string) error
     Claim(context.Context, WorkClass, string, time.Duration) (Work, error)
@@ -68,6 +75,8 @@ type WorkStore interface {
     Release(context.Context, Work, string) error
     Retired(context.Context, Work, string, int) ([]WriteIntent, string, bool, error)
     CompleteCleanup(context.Context, Work, string, bool) error
+    AccessBatch(context.Context, Work, string, int) ([]IssuedPage, string, bool, error)
+    CompleteAccess(context.Context, Work, string, bool) error
 }
 ```
 
@@ -106,11 +115,29 @@ func searchBucket(orgID, nodeID uuid.UUID) byte {
 
 - [ ] **Step 4: Schedule desired state inside source transactions.**
 
-Call an internal `scheduleSearchMutation(tr, nodeID, revision, projectionVersion, deleted)` from node create, set, update, and delete. Relationship and metadata writes schedule bounded organization scans. The scheduler accepts the existing transaction. It must not call `db.Transact` or open another transaction.
+Call an internal `scheduleSearchContent(tr, nodeID, revision,
+projectionVersion, deleted)` from node create, set, update, and delete. Each scheduler reads the authority's access state in the same transaction and records its sorted write versions and state generation. Expose
+`scheduleSearchAccess(tr, nodeID)` and `scheduleSearchAccessScan(tr, rootID)` to
+the permission service. Each helper increments the same per-node search
+generation inside the caller's transaction.
+
+The current ancestry writer schedules content work because ancestry changes text
+and current access. A future data-driven permission service calls the access
+helpers when a resource grant changes. A principal membership change calls no
+document scheduler because the query policy reads current permission nodes.
+Generic relationship storage must not classify permission node or relationship
+types. The scheduler accepts the existing transaction. It must not call
+`db.Transact` or open another transaction.
 
 - [ ] **Step 5: Implement lease-safe claims and registrations.**
 
-Use the established FoundationDB transaction retry pattern. `Claim` reads one work class and one bucket. `Register` verifies desired generation, owner, lease, revision, projection version, and target index in the same transaction that records the issued document ID. A stale owner returns `ErrWorkChanged`.
+Use the established FoundationDB transaction retry pattern. `Claim` reads one
+work class, kind, and bucket. `Register` verifies desired generation, owner,
+lease, revision, text projection version, access-state generation, write versions, and target index in the same
+transaction that records the issued document ID. Access work reads current
+issued IDs through `AccessBatch` and checkpoints through `CompleteAccess`.
+It does not register a new document ID. A stale
+owner returns `ErrWorkChanged`.
 
 ```go
 if desired.Generation != work.Generation || claim.Owner != work.Owner || claim.ExpiresAt.Before(now) {
@@ -120,7 +147,10 @@ if desired.Generation != work.Generation || claim.Owner != work.Owner || claim.E
 
 - [ ] **Step 6: Add bounded organization scans.**
 
-Each scan transaction reads a bounded raw-key range and creates or refreshes node jobs. Persist the next raw key. A completion transaction compares the scan event version before clearing it, so a newer metadata or ancestry event remains pending.
+Each scan transaction reads a bounded raw-key range and creates or refreshes
+content or access jobs. Persist the next raw key and work kind. A completion
+transaction compares the scan event version before clearing it, so a newer
+metadata, ancestry, resource-permission, or policy-version event remains pending.
 
 - [ ] **Step 7: Remove obsolete history after convergence.**
 
@@ -128,7 +158,13 @@ After current generation indexing and retirement finish, delete its claim, curso
 
 - [ ] **Step 8: Add lifecycle and scale coverage.**
 
-Test node writes, relationships, metadata, deletion, failed source transactions, scan overlap, claim expiry, restart, and hundreds of edits. Compare key-family counts before and after convergence. Increase worker count under a fixed workload and require higher throughput without a key-format change.
+Test node writes, relationships, metadata, deletion, failed source transactions,
+scan overlap, claim expiry, restart, and hundreds of edits. Change only a
+principal membership and require zero content or access jobs. Change a resource
+grant and require access jobs without content jobs. Race older content and access
+claims against newer generations. Compare key-family counts before and after
+convergence. Increase worker count under a fixed workload and require higher
+throughput without a key-format change.
 
 - [ ] **Step 9: Run the serial coding checks.**
 

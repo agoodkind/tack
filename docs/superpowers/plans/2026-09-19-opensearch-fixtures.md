@@ -16,17 +16,13 @@ Apply the [implementation constraints](2026-09-19-opensearch.md#global-constrain
 
 ## Review Focus
 
-Exercise unfamiliar property types, unrelated names, no product seed, real bearer validation, and both JSON/SSE tool responses. Every fixture property definition explicitly includes or excludes search. Add one
-excluded value beside each included fixture and prove that the excluded value never
-appears in search results.
+Exercise unfamiliar property types, unrelated names, no product seed, real bearer validation, and both JSON/SSE tool responses. Every fixture property definition explicitly includes or excludes search. Add one excluded value beside each included fixture and prove that search omits it.
 
 ---
 
 ## Reader fixture for Task 3
 
-Create the fixture file listed in the reader task. It consumes the existing
-`clearPrefix`, testenv FoundationDB, and the new declaration types. It produces
-the two functions used by the reader and work-store tests.
+Create the fixture file listed in the reader task. It consumes `clearPrefix`, testenv FoundationDB, and the new declaration types. It produces the two functions used by the reader and work-store tests.
 
 - [ ] Implement the fixture before running the reader's failing test:
 
@@ -104,9 +100,7 @@ func TestSearchEmptyQuery(t *testing.T) {
 
 ## Delayed-write test for Task 5
 
-This test consumes the real stores, native client, and page worker. It delays an
-already registered request until deletion has completed, then sends that request
-to OpenSearch. Add it to the worker's recovery test file.
+This test consumes the real stores, native client, and page worker. It delays a registered request until deletion completes, then sends that request to OpenSearch. Add it to the worker recovery test.
 
 - [ ] Add this test before implementing retirement. Task 13 requires it to fail when an old request can restore text.
 
@@ -119,7 +113,7 @@ func TestSearchDelayedWriter(t *testing.T) {
     model, err := client.Provision(ctx)
     if err != nil { t.Fatal(err) }
     index := "delayed-" + uuid.Must(uuid.NewV7()).String()
-    spec := searchadapter.IndexSpec{Model:model, AccessVersion:"org-scope-v1", Primaries:1, RoutingShards:8}
+    spec := searchadapter.IndexSpec{Model:model, MappingVersion:"search-v1", Primaries:1, RoutingShards:8}
     if err := client.CreateIndex(ctx, index, spec); err != nil { t.Fatal(err) }
     t.Cleanup(func() { if err := client.DeleteIndex(context.Background(), index); err != nil { t.Error(err) } })
     if err := stores.SearchWork.InitializeIndex(ctx, index); err != nil { t.Fatal(err) }
@@ -146,15 +140,15 @@ func TestSearchDelayedWriter(t *testing.T) {
 
 `DeleteIndex` and `GetDocument` must call the official typed `Indices.Delete` and `Document.Get` APIs. The fixture and production adapter use the same client and transport.
 
-- [ ] Task 13 runs `^TestSearchDelayedWriter$`. Require the retained version-2 record and rejected delayed request, not merely an empty MCP response.
+- [ ] Task 13 runs `^TestSearchDelayedWriter$`. Require the retained higher-generation record and rejected delayed request, not merely an empty MCP response.
 
 ## Helper contracts used by task plans
 Each helper below is test code in the named owning file. It calls real dependencies and production boundaries. No helper replaces a production dependency.
 ```go
 // search_native_test.go
-type nativePage struct { Source string; Chunks []string; Weights []map[string]float64 }
+type nativePage struct { Source string; Chunks []string; Weights []map[string]float64; Access node.SearchAccess }
 func newOpenSearchAdapter(t *testing.T, image string, memoryBytes int64) *searchadapter.Adapter
-func createNativeSearchIndex(t *testing.T, adapter *searchadapter.Adapter, model searchadapter.ModelInfo, accessVersion string, primaries, routing, replicas int) string
+func createNativeSearchIndex(t *testing.T, adapter *searchadapter.Adapter, model searchadapter.ModelInfo, mappingVersion string, primaries, routing, replicas int) string
 func putNativePage(t *testing.T, adapter *searchadapter.Adapter, index, text string)
 func getNativePage(t *testing.T, adapter *searchadapter.Adapter, index string) nativePage
 func requireCompleteNativeChunks(t *testing.T, page nativePage, original string)
@@ -182,7 +176,13 @@ type searchPages struct { IDs []uuid.UUID; Cursors []string }
 func putPermissionCorpus(t *testing.T, fixture searchMCPFixture, query string) (permissionNode, permissionNode)
 func corruptIndexedAccess(t *testing.T, adapter *searchadapter.Adapter, node permissionNode, access node.SearchAccess)
 func callEverySearchPage(t *testing.T, fixture searchMCPFixture, query string) searchPages
-
+// search_access_refresh_test.go
+func activePhysicalIndex(t *testing.T, fixture searchMCPFixture) string
+func readSemanticFields(t *testing.T, adapter *searchadapter.Adapter, index string, nodes []permissionNode) map[string]nativePage
+func requireSemanticFieldsEqual(t *testing.T, want, got map[string]nativePage)
+func undeploySearchModel(t *testing.T, adapter *searchadapter.Adapter)
+func runAccessRollout(t *testing.T, fixture searchMCPFixture, candidateVersion string)
+func requireSearchUsesAccessVersion(t *testing.T, fixture searchMCPFixture, version string)
 // search_runtime_test.go and search_rebuild_test.go
 type searchMCPFixture struct { Graph *runtime.Graph; Driver *datagen.Driver; Adapter *searchadapter.Adapter; Token, EntryParameter string; EntryID uuid.UUID; StartOpenSearch func(*testing.T) }
 func newSearchMCPFixture(t *testing.T, pageBytes int) searchMCPFixture
@@ -197,4 +197,4 @@ func mutateSearchCorpusWhilePaused(t *testing.T, fixture searchMCPFixture, rebui
 func requireSearchCorpus(t *testing.T, fixture searchMCPFixture, expected searchCorpus)
 ```
 
-`newSearchMCP` remains a small unpacking wrapper around `newSearchMCPFixture` for tests that use the existing five return values. The fixture creates real SQL identity, membership, token, FDB metadata, audit dependencies, OpenSearch, and the production Graph. `newStoppedSearchRuntime` creates the same graph while the configured engine endpoint is stopped and exposes `StartOpenSearch` through the fixture's real testenv lifecycle.
+`newSearchMCP` remains a small unpacking wrapper around `newSearchMCPFixture` for tests that use the existing five return values. The fixture creates real SQL identity, membership, token, FDB metadata, audit dependencies, OpenSearch, and the production Graph. Access rollout tests register the production organization-scope compiler under `org-scope-v1` and `permission-v2`; all reads and writes still use production `PolicySet` dispatch. `newStoppedSearchRuntime` creates the same graph while the configured engine endpoint is stopped and exposes `StartOpenSearch` through the fixture's real testenv lifecycle.

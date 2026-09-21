@@ -1,13 +1,10 @@
 # OpenSearch search acceptance criteria
 
-These criteria verify the [search architecture](2026-09-19-search-design.md). The first release must pass real single-page and multi-page behavior with current
-storage. Storage expansion must rerun the same suite at larger node sizes.
+These criteria verify the [search architecture](2026-09-19-search-design.md). The first release must pass real single-page and multi-page behavior with current storage. Storage expansion must rerun the same suite at larger node sizes.
 
 ## Evidence and environment
 
-Tests use public operations with real FoundationDB, OpenSearch, the deployed model,
-and authentication. Mocks, recorded responses, private helpers, and source inspection
-do not establish acceptance. Engine traces and profiles provide supporting evidence.
+Tests use public operations with real FoundationDB, OpenSearch, the deployed model, and authentication. Mocks, recorded responses, private helpers, and source inspection do not establish acceptance. Engine traces and profiles provide supporting evidence.
 
 Record Tack and configs revisions, image digests, model and tokenizer checksums,
 index settings, shard counts, byte and work bounds, fixture identities, workload,
@@ -97,20 +94,21 @@ A lexical-only control must miss at least one non-overlapping pair that the comb
 
 ## Authorization and input validation
 
-- Create matching nodes in two organizations and sibling scopes. Search must return
-  only nodes allowed by resolved membership, entry point, scope, and optional type.
-- Capture the query. It must apply organization, scope, type, and retirement filters
-  as structured JSON. Quotes and JSON-like input cannot change filter meaning.
-- Corrupt indexed organization or scope values. Current authoritative checks must
-  still withhold the node, including UUID-like queries and stale cursors.
-- Empty and oversized queries must fail before inference. Every accepted query must
-  be processed completely. Missing models, invalid mappings, unavailable engines,
-  deleted points in time, and failed authoritative reads must return explicit errors.
+- Create matching nodes in two organizations and sibling scopes. Search must return only nodes allowed by resolved membership, entry point, scope, and optional type.
+- Capture the query. It must apply access, type, and retirement filters as structured JSON. Quotes and JSON-like input cannot change filter meaning.
+- Corrupt indexed access keys. Current authoritative checks must still withhold the node, including UUID-like queries and stale cursors.
+- Empty and oversized queries must fail before inference. Every accepted query must be processed completely. Missing models, invalid mappings, unavailable engines, deleted points in time, and failed authoritative reads must return explicit errors.
 
 ## Permission expansion
 
-- Keep indexed access fields and caller filter construction behind one permission boundary. Before a new permission model ships, prove that OpenSearch applies its selective filter before ranking against a corpus dominated by forbidden text matches. Post-search filtering alone fails acceptance.
-- A new permission model may add versioned mapping fields and require a FoundationDB rebuild. It must not change page reads, worker or session formats, ranked continuation, or result grouping. Corrupt its indexed fields and require the final FoundationDB check to prevent disclosure.
+- Keep indexed access keys and caller key construction behind one permission boundary. Store only `access.versions`, `access.keys`, and `access.generation`. Reject a policy that requires another OpenSearch field.
+- Replace every permission node and relationship identifier in the fixture. Search results must remain identical. Search code must not inspect permission types, roles, groups, organizations, or scopes.
+- Change one principal membership relationship. A new search must use the new caller keys without writing an OpenSearch document. An established session may keep its point in time, but the final FoundationDB check must use current permission state.
+- Change one resource grant and one inherited grant. Update only `search_generation` and `access` on every current page. Preserve document IDs, `page_text`, generated chunks, and sparse weights byte for byte. Undeploy the model and require the update to succeed.
+- Pause an older content write, finish a newer access update, then resume the content write. Repeat with an older access update and newer content. OpenSearch must reject both stale operations. Retrying the current generation must be idempotent.
+- Start a candidate policy version for one authority while the active version serves queries. New writes must include both versions. Interrupt and resume the access scan. Change a resource grant during verification and require the affected scan and exact verification to repeat before activation. Transition another authority concurrently without sharing rollout state. Keep old sessions usable, then remove old keys after those authority-specific sessions finish.
+- The version transition must not create an index, switch an alias, read text pages, or change sparse weights. Failure before activation must preserve the active version. A rollback before old-key cleanup must reactivate the previous version without document recovery.
+- Before a new policy ships, prove that OpenSearch filters a corpus dominated by forbidden matches before ranking. Post-search filtering alone fails acceptance. Corrupt indexed access keys and require the final FoundationDB check to prevent disclosure.
 
 ## Distinct results and continuation
 
@@ -156,6 +154,7 @@ A lexical-only control must miss at least one non-overlapping pair that the comb
 ## Index replacement lifecycle
 
 - Run a full FoundationDB replacement while creates, edits, deletes, metadata changes, and subtree moves continue. Fail scan, inference, replay, validation, and alias switching separately. The serving alias must remain correct and recovery must resume.
+- Change the permission-policy version during replacement. Its access-only transition must complete on the serving index without starting another replacement. The journal must copy active and candidate keys into the target before alias switching.
 - Create the initial index with a reserved routing-shard count divisible by every approved split target. Reject a lower or nonmultiplicative primary count before blocking engine writes.
 - Increase only the primary count through the typed Split Index API. Keep the alias on the readable source while it is write-blocked. FoundationDB mutations must commit and remain queued.
 - Undeploy the document model before splitting. Require identical mappings, documents, generated chunks, sparse weights, and saved raw-sparse query results. Combined lexical scores may change with shard-local term statistics, so rerun relevance and continuation acceptance instead of requiring equal numeric scores.

@@ -4,7 +4,7 @@
 
 **Goal:** Rank every eligible page match with one query embedding and complete point-in-time continuation.
 
-**Architecture:** OpenSearch infers sparse query weights once. Later reads reuse the saved opaque weights against `rank_features`. The query receives a structured access filter from Task 3 and applies it before ranking.
+**Architecture:** OpenSearch infers sparse query weights once. Later reads reuse the saved opaque weights against `rank_features`. The query receives one active permission-policy version and bounded opaque caller keys from Task 3, then applies them before ranking.
 
 **Tech Stack:** Go, OpenSearch 3.8.0, official OpenSearch Go client v4.7.3, ML Commons.
 
@@ -16,7 +16,9 @@ Apply the [implementation constraints](2026-09-19-opensearch.md#global-constrain
 
 ## Review Focus
 
-Test duplicate-heavy nodes, equal sort values, invalid model output, deleted points in time, foreign organizations, sibling scopes, and later index writes.
+Test duplicate-heavy nodes, equal sort values, invalid model output, deleted
+points in time, empty and duplicate access keys, foreign organizations, sibling
+scopes, permission-version transitions, and later index writes.
 
 ---
 
@@ -83,18 +85,33 @@ func (r predictRequest) GetRequest(method string) (*http.Request, error) {
 
 - [ ] **Step 4: Open and close the point in time with typed APIs.**
 
-Resolve the alias to one physical index before prediction. Read its access version through `Adapter.IndexInfo`. Use typed point-in-time create and delete calls. Save replacement PIT IDs returned by reads. A deleted PIT returns an explicit restart error.
+Resolve the alias to one physical index before prediction. Read and verify its
+mapping and model identity through `Adapter.IndexInfo`. The caller resolves the
+active access version from FoundationDB before building `Query.Access`. Use typed
+point-in-time create and delete calls. Save replacement PIT IDs returned by
+reads. A deleted PIT returns an explicit restart error.
 
 - [ ] **Step 5: Serialize the current permission filter before ranking.**
 
-Call `AccessPolicy.Query` after membership, organization, and scope resolution. Reject an access version that differs from the physical index. Decode `Query.Access.Clauses` as a nonempty JSON array. Append optional `node_type` and required `retired:false` clauses. The ranker never names or derives permission rules.
+Call `AccessPolicy.Query` after authentication and entry-point resolution. Pass
+the active authority and policy version from FoundationDB. Reject an empty authority, empty version, empty key,
+duplicate key, unsorted key list, or more keys than the configured request byte
+bound permits. Build one exact `term` clause for `access.versions` and one
+`terms` clause for `access.keys`. Append optional `node_type` and required
+`retired:false` clauses. A policy can encode a satisfied compound rule as one key. The ranker compares keys and never decodes or names permission rules.
 
 ```go
-type queryClause struct { Term map[string]json.RawMessage `json:"term,omitempty"` }
-var filters []json.RawMessage
-if err := json.Unmarshal(query.Access.Clauses, &filters); err != nil { return nil, err }
-if len(filters) == 0 { return nil, errors.New("access filter is empty") }
-filters = append(filters, json.RawMessage(`{"term":{"retired":false}}`))
+type queryClause struct {
+    Term map[string]json.RawMessage `json:"term,omitempty"`
+    Terms map[string][]string `json:"terms,omitempty"`
+}
+versionValue, err := json.Marshal(query.Access.Version)
+if err != nil { return nil, err }
+versionClause, err := json.Marshal(queryClause{Term:map[string]json.RawMessage{"access.versions":versionValue}})
+if err != nil { return nil, err }
+keyClause, err := json.Marshal(queryClause{Terms:map[string][]string{"access.keys":query.Access.Keys}})
+if err != nil { return nil, err }
+filters := []json.RawMessage{versionClause, keyClause, json.RawMessage(`{"term":{"retired":false}}`)}
 if query.NodeType != "" {
     nodeTypeValue, err := json.Marshal(query.NodeType)
     if err != nil { return nil, err }
@@ -109,7 +126,7 @@ if query.NodeType != "" {
 Use `opensearchapi.SearchReq.GetRequest` for the request path and parameters. Marshal a typed body with `size:100`, saved PIT, `_source:["node_id"]`, the filters above, lexical `multi_match`, nested `neural_sparse`, and sort by descending `_score`, ascending `node_id`, then ascending `_shard_doc`. Insert query text and saved token JSON through `json.Marshal`. Decode a narrow response through `opensearch.Do` because `SearchResp` omits replacement PIT IDs and changes sort value types.
 
 ```json
-{"query":{"bool":{"filter":[{"term":{"access.org_id":"resolved-org"}},{"term":{"access.scope_ids":"resolved-scope"}},{"term":{"retired":false}}],"minimum_should_match":1,"should":[{"multi_match":{"query":"query text","fields":["name^3","page_text"]}},{"nested":{"path":"page_text_semantic_info.chunks","score_mode":"max","query":{"neural_sparse":{"page_text_semantic_info.chunks.embedding":{"query_tokens":{}}}}}}]}}}
+{"query":{"bool":{"filter":[{"term":{"access.versions":"permission-v2"}},{"terms":{"access.keys":["permission-v2:opaque"]}},{"term":{"retired":false}}],"minimum_should_match":1,"should":[{"multi_match":{"query":"query text","fields":["name^3","page_text"]}},{"nested":{"path":"page_text_semantic_info.chunks","score_mode":"max","query":{"neural_sparse":{"page_text_semantic_info.chunks.embedding":{"query_tokens":{}}}}}}]}}}
 ```
 
 - [ ] **Step 7: Preserve exact continuation.**
@@ -118,7 +135,11 @@ Require exactly three sort values. Store the original sort JSON without converti
 
 - [ ] **Step 8: Prove OpenSearch filters before ranking.**
 
-Create 400 foreign-organization pages and 400 sibling-scope pages with stronger lexical matches than two eligible pages. Build the filter through `AccessPolicy.Query`, call `Ranker.Open` and `Ranker.Read`, and require every raw hit to belong to the eligible organization and scope. This test examines raw ranker output, so FoundationDB post-filtering cannot make it pass.
+Create 400 pages with nonmatching opaque keys and 400 pages from another policy
+version. Give them stronger lexical matches than two eligible pages. Build the
+filter through `AccessPolicy.Query`, call `Ranker.Open` and `Ranker.Read`, and
+require every raw hit to contain the active version and one caller key. This test
+examines raw ranker output, so FoundationDB post-filtering cannot make it pass.
 
 ```go
 for _, hit := range batch.Hits {
