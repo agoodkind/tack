@@ -13,6 +13,15 @@ and measurements. QA must pass before production.
 - Pin `github.com/opensearch-project/opensearch-go/v4` v4.7.3. Run the production adapter against `opensearchproject/opensearch:3.8.0`. Exercise typed index creation, settings, split, bulk, refresh, point-in-time creation and deletion, search request construction, alias changes, index and document reads, index deletion, metrics, routing, and close. Verify that the narrow search decoder preserves replacement PIT IDs and exact sort JSON.
 - Exercise concrete ML Commons `opensearch.Request` types through `opensearch.Do` and `opensearch.ParseError`. Reject another HTTP client, generic method-and-path API, temporary v5 preview dependency, custom route selection, retry loop, connection pool, or error decoder.
 
+## Build and lint gates
+
+- Run `make check` on the exact implementation base before the first code edit. Stop if the untouched base fails under the current fetched go-makefile and shared `golangci-lint` configuration.
+- Keep every new production declaration reachable from a real production entry point within the task that adds it. Do not commit interfaces, adapters, constructors, helpers, or exports for a later task to connect.
+- After each coding task, run `make lint-files LINT_FILES='<changed Go files>'`, `make lint-deadcode`, and `make staticcheck-extra` before committing. Fix each new finding in that task.
+- End every code plan with `make check` and `make build`. The final validation plan reruns both from a clean checkout before live tests.
+- Do not edit lint baseline files or run an `accept-new` baseline target. New lint, complexity, strict-analyzer, and dead-code findings must remain zero.
+- Design production code around the enforced rules from its first task: use concrete types, injected clocks, contextual logging, returned errors, and recovered goroutines. Do not introduce `any`, empty interfaces, `panic`, direct `time.Now`, `context.TODO`, unprotected goroutines, or `//nolint` suppressions.
+
 ## Meilisearch removal and temporary search outage
 
 - Ship removal before any OpenSearch application path. Delete the Meilisearch client, adapters, dependency, configuration, startup setup, indexing hooks, batch reindex operation, Meilisearch test environment, deployed service, credentials, and operational documentation.
