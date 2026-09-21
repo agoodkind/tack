@@ -111,8 +111,6 @@ services:
     depends_on:
       meilisearch:
         condition: service_healthy
-      temporal:
-        condition: service_healthy
 
   yugabyte:
     # Pinned to 2024.2.8.0-b85 to match the running production engine. The audit
@@ -320,63 +318,6 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
-
-  temporal-db:
-    # Pinned to postgres:16-alpine to match the existing data directory layout
-    # on prod. Postgres 18 images refuse the pre-18 /var/lib/postgresql/data
-    # layout, so bumping this requires a pg_upgrade or a workflow-state reset.
-    # Major upgrade is tracked separately (TACK-332).
-    image: postgres:16-alpine
-    restart: unless-stopped
-    mem_limit: 1g
-    environment:
-      POSTGRES_USER: temporal
-      POSTGRES_PASSWORD: temporal
-      POSTGRES_DB: temporal
-    volumes:
-      - temporal-db-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U temporal"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
-  temporal:
-    image: temporalio/auto-setup:1.29.3
-    restart: unless-stopped
-    mem_limit: 1g
-    environment:
-      DB: postgres12
-      DB_PORT: 5432
-      POSTGRES_USER: temporal
-      POSTGRES_PWD: temporal
-      POSTGRES_SEEDS: temporal-db
-    ports:
-      - "7233:7233"
-    depends_on:
-      temporal-db:
-        condition: service_healthy
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "tctl --address temporal:7233 cluster health 2>&1 | grep -q SERVING",
-        ]
-      interval: 10s
-      timeout: 10s
-      retries: 15
-      start_period: 30s
-
-  temporal-ui:
-    image: temporalio/ui:2.51.0
-    restart: unless-stopped
-    mem_limit: 512m
-    environment:
-      TEMPORAL_ADDRESS: temporal:7233
-    ports:
-      - "8080:8080"
-    depends_on:
-      - temporal
 
   # Apache Kafka 4.x in KRaft combined broker+controller role. The audit
   # cutover uses this as the broker for the audit.events.v1 topic that the
@@ -654,7 +595,6 @@ volumes:
   yugabyte-data:
   fdb-data:
   meili-data:
-  temporal-db-data:
   tack-logs:
   kafka-data:
   clickhouse-data:
