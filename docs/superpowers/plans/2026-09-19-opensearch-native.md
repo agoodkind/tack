@@ -43,8 +43,8 @@ selection, model mismatch, and the 4 GiB memory failure.
 
 **Interfaces:**
 
-- Consumes: one validated stable endpoint, TLS CA bytes, credentials, and caller-selected shard counts.
-- Produces: the production `Adapter`, pinned `ModelInfo`, index creation, replica settings, and registered provision and verify operations.
+- This plan requires one validated stable endpoint, TLS CA bytes, credentials, and caller-selected shard counts.
+- This plan implements the production `Adapter`, pinned `ModelInfo`, index creation, replica settings, and registered provision and verify operations.
 
 ```go
 type Adapter struct { client *opensearchapi.Client }
@@ -145,11 +145,9 @@ Add integration coverage that invokes both registered commands against the real 
 
 - [ ] **Step 13: Run the serial coding checks.**
 
-Run: `go test ./internal/test/integration -run '^$' -count=1`
-
 Run: `make build`
 
-Expected: PASS after compiling the integration package without executing its tests. The final validation plan runs the real OpenSearch checks.
+Expected: PASS. The final validation plan runs the real OpenSearch checks.
 
 - [ ] **Step 14: Create the bottom Graphite slice.**
 
@@ -157,4 +155,12 @@ Expected: PASS after compiling the integration package without executing its tes
 git add go.mod go.sum internal/adapters/search internal/testenv/opensearch.go internal/testenv/opensearch_tls.go internal/ops/cli_search.go internal/ops/search_provision.go internal/ops/search_verify.go internal/config/search.go internal/config/config.go internal/test/integration/search_native_test.go internal/test/integration/search_control_test.go
 ```
 
-Run Graphite MCP with `create --message "Add native OpenSearch control operations"`. This branch is stack position 1 and starts from the released Meilisearch-removal `main`.
+Run Graphite MCP `create` with this exact message:
+
+```text
+Add native OpenSearch control operations
+
+Co-authored-by: Codex <noreply@openai.com>
+```
+
+This branch is stack position 1 and starts from the released Meilisearch-removal `main`.

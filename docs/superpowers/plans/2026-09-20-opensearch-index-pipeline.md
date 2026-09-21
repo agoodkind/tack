@@ -4,7 +4,7 @@
 
 **Goal:** Convert every source mutation into complete, bounded, retry-safe OpenSearch page documents through one production-connected slice.
 
-**Architecture:** FoundationDB records desired search work in each source transaction. Runtime workers read one revision-bound page at a time, write it with external versioning, checkpoint progress, and yield after bounded work. The content reader uses explicit projection metadata. The permission policy produces opaque access keys. Tack never tokenizes text or interprets permission types.
+**Architecture:** FoundationDB records desired search work in each source transaction. Runtime workers read one revision-bound page at a time, write it with external versioning, checkpoint progress, and yield after bounded work. The content reader uses explicit projection metadata. The permission policy returns opaque access keys. Tack never tokenizes text or interprets permission types.
 
 **Tech Stack:** Go, FoundationDB, official OpenSearch Go client v4.7.3.
 
@@ -95,6 +95,14 @@ type PageWriter interface { Put(context.Context, WriteIntent) error; UpdateAcces
 
 - [ ] **Prove scale behavior.** Run live, access, cleanup, rescan, and rebuild work together. Require every class to progress. Record page reads, encoded bytes, slice duration, oldest work age, and peak memory. Increase workers under fixed load and require throughput to increase without a stored-format change.
 
-- [ ] **Run checks and create the next Graphite slice.** Run the focused integration tests. Run `make build` once and fix every failure. Review `git diff --check` and the complete diff. Stage only the files listed by this plan. Run Graphite MCP with `create --message "Add the durable OpenSearch index pipeline"` from stack position 2. This branch is stack position 3. Keep the complete production entry point together because strict dead-code checks reject smaller intermediate branches.
+- [ ] **Run checks and create the next Graphite slice.** Run `make build` once and fix every failure. Review `git diff --check` and the complete diff. Stage only the files listed by this plan. Run Graphite MCP `create` from stack position 2 with this exact message:
+
+```text
+Add the durable OpenSearch index pipeline
+
+Co-authored-by: Codex <noreply@openai.com>
+```
+
+This branch is stack position 3. Keep the complete production entry point together because strict dead-code checks reject smaller intermediate branches.
 
 The final validation plan repeats these tests with 128 KiB, 1 MiB, 8 MiB, over 100 MB, and larger-than-worker-memory source nodes after TACK-524 and TACK-525 implement multipart FoundationDB reads.

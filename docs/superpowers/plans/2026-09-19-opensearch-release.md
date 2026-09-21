@@ -27,7 +27,7 @@ Phase A proves the outage contract and complete active-service removal. Phase B 
 - [ ] **Apply the approved configuration removal.** Remove active Meilisearch service, proxy, credential injection, monitoring, and inventory entries from QA and production. Preserve the existing data volume or disk.
 - [ ] **Deploy the approved Tack removal release.** Record each environment's deployed revision and image digest.
 - [ ] **Verify the public outage contract.** Call `tack_search` with an ordinary query, an exact reference, filters, invalid input, and omitted input. Require exactly `Search is temporarily unavailable.` every time.
-- [ ] **Verify the rest of Tack.** Create, edit, read, and delete nodes through MCP. Exercise every representative non-search tool. Require FoundationDB and SQL writes to succeed.
+- [ ] **Verify the rest of Tack.** Run one real scenario for every registered non-search MCP tool. Assert that the scenario list exactly matches the non-search tool registry so a newly registered tool cannot escape this check. Require every FoundationDB and SQL write to succeed. Use disposable integration data and QA data. Limit production to safe read and write smoke checks.
 - [ ] **Verify active Meilisearch removal.** Inspect running containers, processes, application environment, proxy routes, credentials, startup logs, and outbound requests. Require no active service or application dependency. Record the preserved old volume separately without reading it.
 
 Search remains unavailable after Phase A. Update `origin/main` to these merged commits before creating the Tack Graphite stack. OpenSearch implementation and configuration start only from this released state.

@@ -45,8 +45,8 @@ Test stable endpoints, verified TLS, IPv6-only connections, single-node restart,
 
 **Interfaces:**
 
-- Consumes: the pinned image, model identity, mapping, official client, and registered `ops search provision` and `ops search verify` commands.
-- Produces: one HTTPS endpoint per environment, one backend initially, and reusable member lists for final validation and release.
+- This plan requires the pinned image, model identity, mapping, official client, and registered `ops search provision` and `ops search verify` commands.
+- This plan implements one HTTPS endpoint per environment, one backend initially, and reusable member lists for final validation and release.
 
 ```ruby
 def production_inventory(member_count)
@@ -142,7 +142,15 @@ Do not connect to Proxmox, start OpenSearch, or save an apply plan. The final va
 git add docker-compose.yml internal/test/integration/search_cluster_test.go
 ```
 
-Run Graphite MCP with `create --message "Define the pinned OpenSearch container"` from stack position 7. This branch is stack position 8.
+Run Graphite MCP `create` from stack position 7 with this exact message:
+
+```text
+Define the pinned OpenSearch container
+
+Co-authored-by: Codex <noreply@openai.com>
+```
+
+This branch is stack position 8.
 
 ```sh
 git add ansible/inventory/group_vars/all/service_mapping.yml ansible/inventory/group_vars/tack_search.yml ansible/inventory/group_vars/tack_prod_all.yml ansible/inventory/group_vars/tack_qa_all.yml ansible/inventory/group_vars/proxmox_servers.yml ansible/inventory/group_vars/vault_servers.yml ansible/inventory/group_vars/suburban_servers.yml ansible/playbooks/deploy-tack.yml ansible/playbooks/deploy-proxmox.yml ansible/playbooks/tasks/tack-search-proxy.yml opentofu/vault/tack_search.tf opentofu/suburban/tack_search_qa.tf proxmox/config/tack-search-proxy.yml.j2 proxmox/services/tack-search-proxy.service.j2 tack/tack.env.j2 tack/docker-compose.override.yml.j2 spec/ansible/tack_search_spec.rb spec/ansible/tack_search_proxy_spec.rb

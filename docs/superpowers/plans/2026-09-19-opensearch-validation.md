@@ -66,7 +66,7 @@ combined into a production throughput claim.
 | QA host CPU projection | The Xeon E3-1230 V2 provides four cores and eight threads. One-week p95 CPU use was 29.33 percent, or 2.35 thread equivalents. One two-vCPU search guest requires 5.43 total threads with 20 percent reserve. | The single-node QA topology passes the CPU projection. |
 | QA fast-storage projection | The fast pool has 457.41 GiB total and 215.92 GiB available. One 40 GiB guest leaves 175.92 GiB, or 38.46 percent. | The single-node QA topology passes the fast-pool reserve. Do not place latency-sensitive search data on the slow pool. |
 
-## Investigated approaches that did not reach a prototype
+## Investigated approaches without a prototype
 
 - Raising the 100 MB HTTP request limit, the nested-object limit, or the native
   chunk-count limit would still process one large OpenSearch document. It would not

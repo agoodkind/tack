@@ -53,7 +53,7 @@ type Snapshot struct { PITID, Index string; QueryTokens json.RawMessage }
 type RankHit struct { NodeID uuid.UUID; Sort json.RawMessage }
 type RankBatch struct { Hits []RankHit; PITID string }
 type Ranker interface { Open(context.Context, Query) (Snapshot, error); Read(context.Context, Query, Snapshot, json.RawMessage) (RankBatch, error); Close(context.Context, Snapshot) error }
-type SummaryReader interface { Summary(context.Context, uuid.UUID, int) (node.Summary, error) }
+type SummaryReader interface { Summaries(context.Context, []uuid.UUID, int) ([]node.SummaryResult, error) }
 type QueryAccessPolicy interface { EntryAuthority(context.Context, uuid.UUID) (uuid.UUID, error); Query(context.Context, searchaccess.AccessRequest) (AccessFilter, error) }
 type SessionStore interface { Create(context.Context, Session) (Session, error); Load(context.Context, uuid.UUID) (Session, error); Replay(context.Context, uuid.UUID, uint64) (PageCommit, bool, error); HasVisited(context.Context, uuid.UUID, []uuid.UUID) (map[uuid.UUID]bool, error); CommitPage(context.Context, uuid.UUID, uint64, PageCommit) (Session, error); BeginCleanup(context.Context, uuid.UUID) error; CleanupSlice(context.Context, uuid.UUID, int) (bool, error) }
 ```
@@ -74,7 +74,7 @@ type SessionStore interface { Create(context.Context, Session) (Session, error);
 
 - [ ] **Store bounded durable sessions.** Bind the principal, permission authority, query, access version and keys, physical index, and search generation through deterministic serialization and SHA-256. Authenticate cursors with HMAC-SHA256. Store a bounded header, chunked query-token bytes, one key per visited node, one replay record per response, and bucketed expiry and presence keys. Use a 15-minute idle deadline and a two-hour absolute deadline.
 
-- [ ] **Authorize every result from current source data.** Implement the bounded `SummaryReader` against current FoundationDB identity, ancestry, membership, and relationship data. For each new node ID, reject deleted or currently forbidden nodes even if OpenSearch returned them. Stop before the first result that would exceed the response byte budget. Return at most 25 distinct nodes.
+- [ ] **Authorize every result from current source data.** Implement the bounded `SummaryReader` against current FoundationDB identity, ancestry, membership, and relationship data. Load each OpenSearch batch through one bounded FoundationDB operation. Preserve input order and return one typed result for every requested node ID, including deleted and forbidden results. Reject deleted or currently forbidden nodes even if OpenSearch returned them. Stop before the first accepted result that would exceed the response byte budget. Return at most 25 distinct nodes. Four engine batches require at most four summary operations. Replay uses the same batch method.
 
 - [ ] **Commit before responding.** Commit the exact consumed sort position, replacement point-in-time ID, at most 400 visited IDs, at most 25 result IDs, completion state, and replay bytes in one FoundationDB transaction. Concurrent calls for one session version conflict and then return the committed replay. Renew only the idle deadline.
 
@@ -86,4 +86,12 @@ type SessionStore interface { Create(context.Context, Session) (Session, error);
 
 - [ ] **Prove horizontal Tack scaling.** Open a session on one Tack process and alternate every continuation between two processes backed by the same FoundationDB and OpenSearch. Require exact replay, no duplicate node, complete exhaustion, and cleanup. Increase Tack processes under fixed query load and require higher throughput without changing stored formats.
 
-- [ ] **Run checks and create the next Graphite slice.** Run the focused real-dependency integration tests. Run `make build` once and fix every failure. Review `git diff --check` and the complete diff. Stage only the files listed by this plan. Run Graphite MCP with `create --message "Add ranked authorized OpenSearch queries"` from stack position 3. This branch is stack position 4. Keep the complete public handler together because strict dead-code checks reject smaller intermediate branches.
+- [ ] **Run checks and create the next Graphite slice.** Run `make build` once and fix every failure. Review `git diff --check` and the complete diff. Stage only the files listed by this plan. Run Graphite MCP `create` from stack position 3 with this exact message:
+
+```text
+Add ranked authorized OpenSearch queries
+
+Co-authored-by: Codex <noreply@openai.com>
+```
+
+This branch is stack position 4. Keep the complete public handler together because strict dead-code checks reject smaller intermediate branches.

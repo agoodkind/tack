@@ -47,8 +47,8 @@ metadata refresh, and single-node restart.
 
 **Interfaces:**
 
-- Consumes: the committed outputs and authored tests from every preceding serial plan.
-- Produces: a corrected signed Tack stack, a corrected Configs pull request, complete real-dependency results, resource measurements, and the evidence the release plan requires.
+- This plan requires the committed code and authored tests from every preceding serial plan.
+- This plan leaves a corrected signed Tack stack, a corrected Configs pull request, complete real-dependency results, resource measurements, and the evidence the release plan requires.
 
 - [ ] **Step 1: Record the exact starting state and clear stale test services.**
 
@@ -158,7 +158,7 @@ TACK_TEST_ROOT="$PWD" docker compose -f docker-compose.test.yml --profile runner
 make test-env-down
 ```
 
-Require identical result sets, no duplicate node, no leaked forbidden node, no lost committed work, and no retained test service.
+Require identical result sets, no duplicate node, no leaked forbidden node, no lost committed work, and no test service left running.
 
 - [ ] **Step 11: Verify Meilisearch removal and branch integrity.**
 

@@ -32,8 +32,8 @@ Test final-page text, semantic-only relevance, shorter edits, deletion, excluded
 
 **Interfaces:**
 
-- Consumes: the ranked public `tack_search` handler, search runtime, `Driver.CallRaw`, and the existing guarded `ops qa datagen` entry point.
-- Produces: `datagen.VerifySearch(context.Context, *config.Config) error` for deployment acceptance.
+- This plan requires the ranked public `tack_search` handler, search runtime, `Driver.CallRaw`, and the existing guarded `ops qa datagen` entry point.
+- This plan implements `datagen.VerifySearch(context.Context, *config.Config) error` for deployment acceptance.
 
 ```go
 type searchPage struct { IDs []uuid.UUID; Cursor string; ResponseBytes int }
@@ -103,11 +103,9 @@ Add a test that uses a production target and requires rejection before metadata 
 
 - [ ] **Step 9: Run the serial coding checks.**
 
-Run: `go test ./internal/test/integration -run '^$' -count=1`
-
 Run: `make build`
 
-Expected: PASS after compiling the integration package without executing its tests. The final validation plan runs real JSON and SSE public verification.
+Expected: PASS. The final validation plan runs real JSON and SSE public verification.
 
 - [ ] **Step 10: Create the next Graphite slice.**
 
@@ -115,4 +113,12 @@ Expected: PASS after compiling the integration package without executing its tes
 git add internal/datagen/search_fixture.go internal/datagen/search_pages.go internal/datagen/search_results.go internal/datagen/generate_search_checks.go internal/test/integration/search_datagen_test.go
 ```
 
-Run Graphite MCP with `create --message "Exercise paginated semantic search in QA datagen"` from stack position 6. This branch is stack position 7.
+Run Graphite MCP `create` from stack position 6 with this exact message:
+
+```text
+Exercise paginated semantic search in QA datagen
+
+Co-authored-by: Codex <noreply@openai.com>
+```
+
+This branch is stack position 7.

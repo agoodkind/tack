@@ -1,6 +1,6 @@
 # OpenSearch search acceptance criteria
 
-These criteria verify the [search architecture](2026-09-19-search-design.md). The first release must pass real single-page and multi-page behavior with current storage. Storage expansion must rerun the same suite at larger node sizes.
+These criteria verify the [search architecture](2026-09-19-search-design.md). The OpenSearch release must pass real single-page and multi-page behavior with current storage. Storage expansion must rerun the same suite at larger node sizes.
 
 ## Evidence and environment
 
@@ -25,7 +25,7 @@ and measurements. QA must pass before production.
 
 - Ship removal before any OpenSearch application path. Delete the Meilisearch client, adapters, dependency, configuration, startup setup, indexing hooks, batch reindex operation, Meilisearch test environment, deployed service, credentials, and operational documentation.
 - Keep `tack_search` registered. Call it with an exact node reference, an exact title, ordinary words, and filters. Every call must return exactly `Search is temporarily unavailable.` The response must not mention either search engine, replacement work, or future availability.
-- Create, read, edit, and delete nodes through public operations with real FoundationDB. Exercise every other MCP tool. These operations must work while every `tack_search` call returns the temporary unavailable response.
+- Run one real scenario for every registered non-search MCP tool with real FoundationDB. Assert that the scenario list exactly matches the non-search tool registry. Every scenario must work while every `tack_search` call returns the temporary unavailable response.
 - Remove successful-search assertions from QA data generation and soak checks for this release. Preserve non-search coverage and assert the exact unavailable response. Build and start Tack without a Meilisearch endpoint, key, client library, service, image, or runtime dependency.
 - Inspect rendered QA and production configuration and the live deployments. Neither environment may contain a Meilisearch process, container, service, secret, endpoint, or dependency. Treat deletion of the old volume as a separate authorized operation. Its presence must not start or configure Meilisearch.
 - Commit creates, edits, and deletes during the outage. A later release must provision an empty OpenSearch index, rebuild only from FoundationDB, and make those mutations searchable before replacing the temporary response.
@@ -51,8 +51,8 @@ and measurements. QA must pass before production.
   hierarchy definitions through public operations.
 - Define included, excluded, absent, scalar, structured, and labeled values. Search
   must index only declared text. Name-only nodes must remain searchable.
-- Replace every type and property identifier while keeping the declared behavior.
-  Coverage, relative ranks, and type filtering must remain equivalent.
+- Replace every type and property identifier. Preserve the declared behavior,
+  coverage, relative ranks, and type filtering.
 - Add a type after startup. Search it without changing or restarting application
   code. Change a projection and verify automatic reindexing.
 - Omit or corrupt a required declaration. Tack must report the node and property.
@@ -101,7 +101,7 @@ A lexical-only control must miss at least one non-overlapping pair that the comb
 
 ## Permission expansion
 
-- Keep indexed access keys and caller key construction behind one permission boundary. Store only `access.versions`, `access.keys`, and `access.generation`. Reject a policy that requires another OpenSearch field.
+- Use one permission boundary for indexed access keys and caller key construction. Store only `access.versions`, `access.keys`, and `access.generation`. Reject a policy that requires another OpenSearch field.
 - Replace every permission node and relationship identifier in the fixture. Search results must remain identical. Search code must not inspect permission types, roles, groups, organizations, or scopes.
 - Change one principal membership relationship. A new search must use the new caller keys without writing an OpenSearch document. An established session may keep its point in time, but the final FoundationDB check must use current permission state.
 - Change one resource grant and one inherited grant. Update only `search_generation` and `access` on every current page. Preserve document IDs, `page_text`, generated chunks, and sparse weights byte for byte. Undeploy the model and require the update to succeed.
@@ -123,10 +123,9 @@ A lexical-only control must miss at least one non-overlapping pair that the comb
   must remain unchanged. A new session must observe the changes.
 - Place deleted and unauthorized candidates before valid nodes. Search must omit
   them and continue within the four-batch response budget.
-- Trigger response bytes before 25 nodes. Preserve the first unconsumed candidate.
-  Rendering and authorization may read only bounded current summaries.
+- Trigger response bytes before 25 nodes. Preserve the first unconsumed candidate. Load each OpenSearch batch through one bounded FoundationDB summary operation. Four engine batches may use at most four summary operations. Replay must use the same batch path.
 - Force four batches containing only visited pages. Return an empty public page with
-  a continuation, then reach the remaining nodes.
+  a continuation, then return the remaining nodes.
 - Retry a lost response, concurrent cursor calls, and process restart. Committed
   pages must replay once. Session writes and memory must remain bounded.
 - Verify the 15-minute inactivity deadline and two-hour absolute deadline. Neither
@@ -157,7 +156,7 @@ A lexical-only control must miss at least one non-overlapping pair that the comb
 - Change the permission-policy version during replacement. Its access-only transition must complete on the serving index without starting another replacement. The journal must copy active and candidate keys into the target before alias switching.
 - Create the initial index with a reserved routing-shard count divisible by every approved split target. Reject a lower or nonmultiplicative primary count before blocking engine writes.
 - Increase only the primary count through the typed Split Index API. Keep the alias on the readable source while it is write-blocked. FoundationDB mutations must commit and remain queued.
-- Undeploy the document model before splitting. Require identical mappings, documents, generated chunks, sparse weights, and saved raw-sparse query results. Combined lexical scores may change with shard-local term statistics, so rerun relevance and continuation acceptance instead of requiring equal numeric scores.
+- Undeploy the document model before splitting. Require identical mappings, documents, generated chunks, sparse weights, and saved raw-sparse query results. Rerun relevance and continuation acceptance without requiring equal numeric scores. Shard-local term statistics can change combined lexical scores.
 - Exercise the complete reserved path from one primary shard through two, four, and eight. Require green targets and no FoundationDB node scan.
 - Fail write blocking, split creation, replay, validation, and alias switching separately. Recovery must restore source writes, preserve the old alias, clean failed targets, and resume from durable state.
 - Attempt two replacements. Exactly one may run. Require no more than one serving, one replacement, and one retiring index at every checkpoint.

@@ -22,7 +22,7 @@ Exercise unfamiliar property types, unrelated names, no product seed, real beare
 
 ## Reader fixture for the index pipeline
 
-Create the fixture file listed in the index pipeline. It consumes `clearPrefix`, testenv FoundationDB, and the new declaration types. It produces the two functions used by the reader and work-store tests.
+Create the fixture file listed in the index pipeline. It uses `clearPrefix`, testenv FoundationDB, and the new declaration types. The reader and work-store tests call its two functions.
 
 - [ ] Implement the fixture before running the reader's failing test:
 
@@ -100,7 +100,7 @@ func TestSearchEmptyQuery(t *testing.T) {
 
 ## Delayed-write test for the index pipeline
 
-This test consumes the real stores, native client, and page worker. It delays a registered request until deletion completes, then sends that request to OpenSearch. Add it to the index pipeline recovery test.
+This test uses the real stores, native client, and page worker. It delays a registered request until deletion completes, then sends that request to OpenSearch. Add it to the index pipeline recovery test.
 
 - [ ] Add this test before implementing retirement. The final validation plan requires it to fail when an old request can restore text.
 

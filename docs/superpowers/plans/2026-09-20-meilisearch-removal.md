@@ -78,7 +78,7 @@ Require the exact unavailable response for every search request. Require all oth
 
 - [ ] Remove the old reindex operation. Remove search adapters from the repair console and act-as factories while preserving their source-data behavior.
 - [ ] Remove the Meilisearch test environment, CLI subcommand, harness fields, search-only generated checks, and assertions that require successful search.
-- [ ] Add representative integration coverage for every registered non-search MCP tool. Reuse the normal MCP harness with no search container or search credentials.
+- [ ] Add one real integration scenario for every registered non-search MCP tool. Assert that the scenario list exactly matches the non-search tool registry so a newly registered tool cannot escape coverage. Reuse the normal MCP harness with no search container or search credentials.
 - [ ] Update backup and recovery comments so they state only current source-system behavior.
 
 ### Task 4: Remove local service configuration and documentation
@@ -102,7 +102,7 @@ Require the exact unavailable response for every search request. Require all oth
 
 - [ ] Run the focused behavior tests from Tasks 1 through 4.
 - [ ] Run `make build` once. Fix every failure without editing a lint baseline or accepting new findings.
-- [ ] Run the MCP integration test with no search service. Require every search request to return the exact unavailable message. Require node writes and every representative non-search tool to succeed.
+- [ ] Run the MCP integration test with no search service. Require every search request to return the exact unavailable message. Require node writes and every registered non-search tool to succeed.
 - [ ] Review `git diff --check` and the complete Tack diff.
 - [ ] Create one signed Tack commit:
 

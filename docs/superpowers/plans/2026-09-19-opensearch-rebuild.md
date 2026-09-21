@@ -39,8 +39,8 @@ failure, insufficient disk, restored data, and active old-index sessions.
 
 **Interfaces:**
 
-- Consumes: `ContentReader.ScanSearch`, the index worker and writer, mutation journal, current generation, and replica settings.
-- Produces: a registered reindex operation, typed split, and atomic alias switching for release.
+- This plan requires `ContentReader.ScanSearch`, the index worker and writer, mutation journal, current generation, and replica settings.
+- This plan implements a registered reindex operation, typed split, and atomic alias switching for release.
 
 ```go
 type ReplacementMode uint8
@@ -138,11 +138,9 @@ Register `ops search reindex` through the existing execute gate, result sink, an
 
 - [ ] **Step 11: Run the serial coding checks.**
 
-Run: `go test ./internal/test/integration -run '^$' -count=1`
-
 Run: `make build`
 
-Expected: PASS after compiling the integration package without executing its tests. The final validation plan runs rebuild, split, restore, and injected failures.
+Expected: PASS. The final validation plan runs rebuild, split, restore, and injected failures.
 
 - [ ] **Step 12: Create the next Graphite slice.**
 
@@ -150,4 +148,12 @@ Expected: PASS after compiling the integration package without executing its tes
 git add internal/domain/search/rebuild.go internal/adapters/foundationdb/search_rebuild.go internal/service/search_rebuild.go internal/adapters/search/opensearch_alias.go internal/adapters/search/opensearch_split.go internal/ops/search_reindex.go internal/ops/cli_search.go internal/test/integration/search_rebuild_test.go internal/test/integration/search_split_test.go internal/test/integration/search_restore_test.go
 ```
 
-Run Graphite MCP with `create --message "Replace OpenSearch indexes with durable catch-up and alias recovery"` from stack position 5. This branch is stack position 6.
+Run Graphite MCP `create` from stack position 5 with this exact message:
+
+```text
+Replace OpenSearch indexes with durable catch-up and alias recovery
+
+Co-authored-by: Codex <noreply@openai.com>
+```
+
+This branch is stack position 6.
