@@ -7,7 +7,8 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 )
 
-// RegisterSearch registers tack_search.
+// RegisterSearch bypasses argument binding so every request receives the fixed
+// outage response.
 func RegisterSearch(s *mcpserver.MCPServer, resolver *Resolver) {
 	tool := mcpmcp.Tool{
 		Name:        "tack_search",

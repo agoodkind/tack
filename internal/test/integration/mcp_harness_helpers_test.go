@@ -29,8 +29,8 @@ type MCPHarness struct {
 	Project   string
 }
 
-// harnessConfig loads the server configuration against this process's test
-// engines started through testenv.
+// harnessConfig loads the server configuration for the test engines that
+// testenv starts for this process.
 func harnessConfig(t *testing.T) *config.Config {
 	t.Helper()
 	t.Setenv("DATABASE_URL", testenv.Ledger(t))

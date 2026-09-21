@@ -1,11 +1,10 @@
 // Package testenv gives tests a real YugabyteDB ledger, a real FoundationDB
-// cluster, and a real SeaweedFS object store. Each
-// process starts its own engines as containers through the Docker SDK, so test
-// binaries running in parallel share no engine state, and removes them when
-// [Release] runs at the end of the binary's TestMain. The engine images are
-// the ones docker-compose.yml runs for the live stores; the object store,
-// which the configs repo runs outside that stack, pins the release that repo
-// deploys.
+// cluster, and a real SeaweedFS object store. Each process starts its own
+// engines as containers through the Docker SDK. Test binaries running in
+// parallel share no engine state. [Release] removes the containers at the end
+// of the binary's TestMain. The engine images match the live stores in
+// docker-compose.yml. The object store uses the release pinned by the configs
+// repository.
 //
 // A test that needs a store calls [Ledger], [FoundationDB], or [ObjectStore].
 // When the Docker daemon cannot be reached the test fails with

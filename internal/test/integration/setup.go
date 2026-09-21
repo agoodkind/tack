@@ -162,7 +162,6 @@ func SetupTestEnv(t *testing.T) *TestEnv {
 		fdbadapter.SetTestPrefix(nil)
 	})
 
-	// Build NodeService against the prefixed stores.
 	svc := service.NewNodeService(
 		stores.Nodes,
 		stores.Views,
