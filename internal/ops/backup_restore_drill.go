@@ -87,13 +87,15 @@ type RestoreDrillOptions struct {
 // RunBackupRestoreDrill restores FoundationDB (from the continuous backup) and
 // YugabyteDB (from the distributed-snapshot export) into throwaway containers
 // and verifies data in each restored store. The YugabyteDB leg also verifies
-// the restored audit ledger's hash chain. Each leg runs even if another fails.
-// The drill returns an error when any attempted leg fails. RestoreDrillOptions
-// can pin the YugabyteDB leg to one export run and the FoundationDB leg to one
+// the restored audit ledger's hash chain. RunBackupRestoreDrill returns an
+// error when any attempted leg fails. Each leg runs even after another leg
+// fails, so the final result reports every failing leg. RestoreDrillOptions can
+// pin the YugabyteDB leg to one export run and the FoundationDB leg to one
 // moment. A fully passing drill records a rehearsal marker in the object store.
-// `ops backup staleness-check` reads that marker's date. The marker write has
-// its own retry policy. A failed marker write fails the drill without rerunning
-// either restore leg. The drill first removes resources left by killed runs.
+// A failed marker write fails the drill without rerunning either restore leg.
+// The marker write uses its own retry policy. `ops backup staleness-check`
+// reads the marker's date. The drill first removes resources left by killed
+// runs.
 func RunBackupRestoreDrill(ctx context.Context, cfg *config.Config, opts RestoreDrillOptions) error {
 	logger := telemetry.L(ctx)
 	if cfg.BackupS3Endpoint == "" || cfg.BackupS3AccessKey == "" || cfg.BackupS3SecretKey == "" {
