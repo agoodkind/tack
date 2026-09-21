@@ -1,48 +1,56 @@
-# Durable page indexing implementation plan
+# Durable Search Work Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Finish indexing committed changes after failures, edits, restarts, and arbitrarily large nodes without starving other work.
+**Goal:** Record every search update transactionally and claim it after failures or restarts.
 
-**Architecture:** Every source mutation records durable desired state in the same FoundationDB transaction. Workers execute bounded page or cleanup slices, persist progress, then yield. Retirement records reject delayed writes.
+**Architecture:** Source mutations write desired search state in the same FoundationDB transaction. Workers claim one node generation from one stable hash bucket. Metadata and ancestry changes create bounded scan work instead of one organization-sized job.
 
-**Tech Stack:** Go, FoundationDB, official OpenSearch Go client v4.7.3, typed bulk API, and external versioning.
+**Tech Stack:** Go, FoundationDB, existing transaction and tuple helpers.
 
-**Spec:** [Durable indexing and bounded work](../specs/2026-09-19-search-design.md#durable-indexing-and-bounded-work).
+**Spec:** [Durable indexing](../specs/2026-09-19-search-design.md#durable-indexing-and-bounded-work).
 
-## Global constraints
+## Global Constraints
 
-Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints).
-No page count cap or whole-node collection is permitted. One claim processes at
-most 32 pages or 5 MiB of encoded requests. It starts no new remote operation after
-its two-second slice deadline. One request can remain in flight until its ten-second
-timeout. Cleanup processes at most 100 IDs. Every unfinished slice persists progress
-and yields.
+Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Use the central key catalog. Keep live mutations, cleanup, rescans, and rebuilds in separate claim classes. Never store a full text page in work state.
 
-## Task 4: Record and claim durable work
+## Review Focus
 
-Create:
+Test failed source transactions, claim expiry, stale owners, metadata scan overlap, repeated edits, deletion, and restart.
 
-```text
-internal/domain/search/work.go                    work and checkpoint contracts
-internal/adapters/foundationdb/keys.go             extend the central key catalog
-internal/adapters/foundationdb/search_work.go      claims and checkpoints
-internal/adapters/foundationdb/search_schedule.go  transactional scheduling
-internal/adapters/foundationdb/search_scan.go      bounded metadata rescans
-internal/test/integration/search_work_test.go      real recovery and lifecycle
-```
+---
 
-Modify node create, set, update, and delete operations; standalone relationship
-mutations; and metadata set and delete operations. Use a search outbox independent
-of audit delivery.
+### Task 4: Record and claim durable search work
+
+**Files:**
+
+- Create: `internal/domain/search/work.go`
+- Create: `internal/adapters/foundationdb/search_work.go`
+- Create: `internal/adapters/foundationdb/search_schedule.go`
+- Create: `internal/adapters/foundationdb/search_scan.go`
+- Modify: `internal/adapters/foundationdb/keys.go`
+- Modify: `internal/adapters/foundationdb/node.go`
+- Modify: `internal/adapters/foundationdb/node_delete.go`
+- Modify: `internal/adapters/foundationdb/relationship.go`
+- Modify: `internal/adapters/foundationdb/property.go`
+- Modify: `internal/adapters/foundationdb/node_type.go`
+- Test: `internal/test/integration/search_work_test.go`
+
+**Interfaces:**
+
+- Consumes: Task 2 content revisions and projection epochs.
+- Produces: `WorkStore`, `Work`, and `WriteIntent` for Task 5 and Task 9.
 
 ```go
 type Work struct {
     ID, Owner, Index, Revision, ProjectionVersion, Cursor, Phase string
     NodeID uuid.UUID
     Generation int64
+    Class WorkClass
     Deleted bool
 }
+type WorkClass string
+const ( WorkLive WorkClass = "live"; WorkCleanup WorkClass = "cleanup"; WorkRescan WorkClass = "rescan"; WorkRebuild WorkClass = "rebuild" )
 type SliceLimit struct { Pages int; EncodedBytes int; Duration time.Duration }
 type WriteIntent struct {
     WorkID, Owner, Index, DocumentID string
@@ -51,7 +59,7 @@ type WriteIntent struct {
 }
 type WorkStore interface {
     InitializeIndex(context.Context, string) error
-    Claim(context.Context, string, time.Duration) (Work, error)
+    Claim(context.Context, WorkClass, string, time.Duration) (Work, error)
     Register(context.Context, Work, node.ContentPage) (WriteIntent, error)
     CompletePage(context.Context, WriteIntent, string, bool) error
     Refreshed(context.Context, Work) error
@@ -63,107 +71,78 @@ type WorkStore interface {
 }
 ```
 
-`Claim` returns one node job. It never returns a whole organization scan. A bounded
-scan step creates or refreshes node jobs before claim selection. Claims use separate
-limits for live mutations, cleanup, rescans, and rebuild work so one class cannot
-consume every worker.
-
-- [ ] Add `TestSearchWorkSurvivesRestart` with real FoundationDB. Commit a node while
-  OpenSearch is unavailable, reopen stores, claim it, then delete it. The stale claim
-  must fail registration with `ErrWorkChanged`.
-- [ ] Run `^TestSearchWorkSurvivesRestart$` and record the missing API failure.
-- [ ] Add search key constants and tuple packers to the central `keys.go` catalog. Preserve its `withPrefix` and `stripPrefix` rules. Do not create an independent search key registry.
-- [ ] Schedule search work inside the source mutation's existing FoundationDB transaction. Store one current desired generation per node and a versionstamped event. Metadata and ancestry changes create bounded organization scan jobs without filtering on seeded types. Do not open a nested transaction.
-- [ ] Use the established `db.Transact` or bounded `CreateTransaction` and `OnError` pattern for claims, registrations, checkpoints, and yields. A scan completion cannot clear a newer event. Lease expiry cannot permit the old owner to register another page. Do not add a generic search retry package.
-- [ ] Keep job headers, cursors, errors, and issued IDs in separate bounded keys.
-  Replace obsolete desired generations instead of appending history.
-- [ ] Prefix claimable work with the first SHA-256 byte of the organization and node
-  identity, creating 256 stable buckets. Workers claim buckets independently. Do not
-  use a global queue, sequence, lease, or scan position.
-- [ ] When a generation completes and retirement finishes, delete its claim, cursor,
-  error, completed events, obsolete generations, and acknowledged issued-ID records.
-  Preserve only current desired state and IDs needed to reject delayed writes.
-- [ ] Repeat hundreds of edits and compare FDB key-family counts before and after
-  convergence. Counts must depend on current pages and pending work, not edit history.
-- [ ] Test node, relationship, metadata, deletion, failed source transaction, scan
-  overlap, claim expiry, and restart paths independently. Increase worker count under
-  a fixed workload and require higher throughput without changing stored work.
-- [ ] Run work tests and `make check`. Commit with subject
-  `Record durable search work in FoundationDB mutations`.
-
-## Task 5: Index and retire bounded slices
-
-Create:
-
-```text
-internal/adapters/search/opensearch_pages.go        page mapping and IDs
-internal/adapters/search/opensearch_bulk.go         byte bounds and item results
-internal/service/search_worker.go                  bounded page slices
-internal/service/search_cleanup.go                 bounded retirement slices
-internal/test/integration/search_recovery_test.go  crashes and delayed writes
-internal/test/integration/search_fairness_test.go  work-class progress
-```
-
-Produce:
+- [ ] **Step 1: Add the failing restart and stale-owner test.**
 
 ```go
-type PageWriter interface {
-    Put(context.Context, WriteIntent) error
-    Refresh(context.Context, string) error
-    Retire(context.Context, []WriteIntent) error
+func TestSearchWorkSurvivesRestart(t *testing.T) {
+    stores := newSearchStore(t)
+    id := putSearchText(t, stores, "durable search text")
+    first, err := stores.SearchWork.Claim(t.Context(), search.WorkLive, "worker-a", time.Minute)
+    if err != nil { t.Fatal(err) }
+    page, err := stores.Views.Content(t.Context(), node.ContentRequest{NodeID: id, MaxBytes: 128})
+    if err != nil { t.Fatal(err) }
+    reopened := reopenSearchStore(t, stores)
+    if err := reopened.Nodes.Delete(t.Context(), id, id); err != nil { t.Fatal(err) }
+    if _, err := reopened.SearchWork.Register(t.Context(), first, page); !errors.Is(err, search.ErrWorkChanged) {
+        t.Fatalf("Register error = %v, want ErrWorkChanged", err)
+    }
 }
-type Worker struct {
-    Reader node.ContentReader
-    Work search.WorkStore
-    Writer search.PageWriter
-    PageBytes int
-    ProjectionConfig string
-    Slice SliceLimit
-}
-func (w *Worker) RunOne(context.Context, search.Work) error
 ```
 
-`RunOne` performs exactly one bounded slice. Reading stops before the next page when
-any slice limit would be exceeded. The worker checkpoints the last successful page,
-calls `Yield`, and returns. It never loops through an entire large node in one claim.
+- [ ] **Step 2: Run the test and record the missing-store failure.**
 
-Refreshing is its own resumable phase. Cleanup requests at most 100 issued IDs,
-retires and checkpoints that batch, then yields unless completion is true. Deletion
-jobs start in cleanup. A failed refresh or retirement never marks work complete.
+Run: `go test ./internal/test/integration -run '^TestSearchWorkSurvivesRestart$' -count=1`
 
-- [ ] Add a real integration test that indexes more than 1,000 reader pages, shortens
-  the node, then deletes it. Call `RunOne` repeatedly through actual claims. Require
-  other live nodes to complete between slices of the large node.
-- [ ] Run `^TestSearch(RevisionCleanup|WorkerFairness)$` and record the failure.
-- [ ] Construct unambiguous document IDs from organization, node, revision,
-  projection, and ordinal. Normal writes use external version 1 with `external_gte`.
-  Identical retries must contain identical source.
-- [ ] Retire an issued ID by replacing it with `{"retired":true}` at external version
-  2. Keep that small record until the physical index is deleted. It contains no text
-  or sparse fields. A delayed version-1 request must receive a version conflict.
-- [ ] Count retired pages, measure the oldest retirement, and read physical index
-  bytes. Crossing any configured threshold must schedule a replacement rebuild.
-  Require validated disk reserves for serving, replacement, and retiring indexes.
-  When the reserve is unavailable, leave new index work pending without rejecting
-  the authoritative source mutation.
-- [ ] Make generation replacement conflict with registration in FoundationDB.
-  Cleanup must enumerate every issued ID, including unacknowledged writes. Revoke
-  writes and disable automatic index recreation before deleting a physical index.
-- [ ] Reject `page_text` above 4,096 UTF-8 bytes. Encode action and source lines before
-  bulk admission. Flush before 500 documents or 5 MiB. Inspect every item and
-  checkpoint only a contiguous successful prefix.
-- [ ] Submit deterministic NDJSON with `opensearchapi.Client.Bulk`. Configure typed partial-error reporting and inspect every `BulkRespItem` against its work intent. Do not use `opensearchutil.BulkIndexer`; its asynchronous queues and callbacks cannot preserve one known durable slice and exact FoundationDB checkpoints.
-- [ ] Pause a real worker after registration. Complete a newer edit or deletion with
-  another worker, then resume the old HTTP request. Old text must not reappear.
-  Repeat across process restart, partial bulk failure, refresh, and cleanup.
-- [ ] Run live mutation, cleanup, rescan, and rebuild work together at fixed worker
-  counts. Record start and completion times by class. Every class must make progress
-  within its declared age threshold.
-- [ ] Record page reads, writes, encoded bytes, slice duration, and peak memory.
-  Require a write before the final read and constant memory at fixed concurrency.
-- [ ] Record FoundationDB work with `telemetry.FDBOp`. Record OpenSearch operations with `telemetry.Op`, existing spans, the context logger, and selected official client metrics. Do not add a search metric registry or direct service-level `expvar` metrics.
-- [ ] Run recovery and fairness tests plus `make check`. Commit with subject
-  `Index node pages with bounded durable work slices`.
+Expected: FAIL because `SearchWork` and its key families do not exist.
 
-`WriteIntent.Page` exists only in memory. Persistent work stores identity, cursor,
-phase, and status. No work record stores a full text page.
+- [ ] **Step 3: Add bounded key families to the central catalog.**
+
+Add desired generation, event, claim, cursor, error, issued ID, scan, and class-age keys to `keys.go`. Prefix claimable work with the first SHA-256 byte of organization and node identity. Keep job headers, large cursors, errors, and issued IDs in separate bounded values. Use `withPrefix`, `stripPrefix`, and tuple encoding.
+
+```go
+func searchBucket(orgID, nodeID uuid.UUID) byte {
+    digest := sha256.Sum256(append(orgID[:], nodeID[:]...))
+    return digest[0]
+}
+```
+
+- [ ] **Step 4: Schedule desired state inside source transactions.**
+
+Call an internal `scheduleSearchMutation(tr, nodeID, revision, projectionVersion, deleted)` from node create, set, update, and delete. Relationship and metadata writes schedule bounded organization scans. The scheduler accepts the existing transaction. It must not call `db.Transact` or open another transaction.
+
+- [ ] **Step 5: Implement lease-safe claims and registrations.**
+
+Use the established FoundationDB transaction retry pattern. `Claim` reads one work class and one bucket. `Register` verifies desired generation, owner, lease, revision, projection version, and target index in the same transaction that records the issued document ID. A stale owner returns `ErrWorkChanged`.
+
+```go
+if desired.Generation != work.Generation || claim.Owner != work.Owner || claim.ExpiresAt.Before(now) {
+    return search.WriteIntent{}, search.ErrWorkChanged
+}
+```
+
+- [ ] **Step 6: Add bounded organization scans.**
+
+Each scan transaction reads a bounded raw-key range and creates or refreshes node jobs. Persist the next raw key. A completion transaction compares the scan event version before clearing it, so a newer metadata or ancestry event remains pending.
+
+- [ ] **Step 7: Remove obsolete history after convergence.**
+
+After current generation indexing and retirement finish, delete its claim, cursor, error, completed event, obsolete desired generation, and acknowledged issued-ID records. Preserve current desired state and issued IDs still needed to reject delayed writes.
+
+- [ ] **Step 8: Add lifecycle and scale coverage.**
+
+Test node writes, relationships, metadata, deletion, failed source transactions, scan overlap, claim expiry, restart, and hundreds of edits. Compare key-family counts before and after convergence. Increase worker count under a fixed workload and require higher throughput without a key-format change.
+
+- [ ] **Step 9: Run the complete task checks.**
+
+Run: `go test ./internal/test/integration -run '^TestSearchWork' -count=1`
+
+Run: `make check`
+
+Expected: PASS with bounded keys after convergence.
+
+- [ ] **Step 10: Commit the task.**
+
+```sh
+git add internal/domain/search/work.go internal/adapters/foundationdb/keys.go internal/adapters/foundationdb/search_work.go internal/adapters/foundationdb/search_schedule.go internal/adapters/foundationdb/search_scan.go internal/adapters/foundationdb/node.go internal/adapters/foundationdb/node_delete.go internal/adapters/foundationdb/relationship.go internal/adapters/foundationdb/property.go internal/adapters/foundationdb/node_type.go internal/test/integration/search_work_test.go
+git commit -S -m "Record durable search work in FoundationDB mutations" -m "Co-authored-by: Codex <noreply@openai.com>"
+```

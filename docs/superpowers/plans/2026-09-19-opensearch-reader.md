@@ -2,58 +2,51 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Return complete searchable text as stable pages through the node reader.
+**Goal:** Return complete searchable node text as stable bounded pages with indexed access fields.
 
-**Architecture:** Metadata declares how JSON values become text. The initial adapter reads today's bounded record, emits bounded UTF-8 pages, and checks revision identity on every continuation. Its storage implementation can later change without changing callers.
+**Architecture:** Metadata defines how each opaque property becomes text. The reader emits one UTF-8 page per call and binds every continuation to the node revision and projection version. One access policy computes both indexed access fields and query filters, so future permission work changes that policy and the versioned mapping instead of pagination or worker code.
 
-**Tech Stack:** Go, FoundationDB, JSON, existing NodeReader.
+**Tech Stack:** Go, FoundationDB, JSON, existing `NodeReader`.
 
-**Spec:** [Paginated reads and searchable content](../specs/2026-09-19-search-design.md#searchable-content).
+**Spec:** [Searchable content](../specs/2026-09-19-search-design.md#searchable-content) and [permission expansion](../specs/2026-09-19-search-acceptance.md#permission-expansion).
 
 ## Global Constraints
 
-Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Preserve the current node storage model. Test successive parts using smaller byte bounds on the real reader.
-
-Add revision, projection, and cursor key families to the existing FoundationDB `keys.go` catalog. Reuse its tuple encoding, prefixes, `withPrefix`, and `stripPrefix`. Do not create a search-specific key registry.
+Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Preserve the current bounded node record. Use the central FoundationDB key catalog. Do not inspect property names or property types when projecting text. Do not place permission rules in the page writer.
 
 ## Review Focus
 
-Test edited revisions, reordered maps, structured values under unfamiliar types, names spanning pages, and UTF-8 characters at page boundaries.
+Test edited revisions, reordered maps, unfamiliar property types, names spanning pages, UTF-8 boundaries, and access fields after an ancestry change.
 
 ---
 
-## Task 2: Declare generic projection and reader interfaces
+### Task 2: Add metadata-driven paginated node reads
 
-Create these focused files:
+**Files:**
 
-```text
-internal/domain/node/content.go                    page and summary contracts
-internal/domain/node/search_projection.go          declarative JSON representation
-internal/adapters/foundationdb/node_content.go      bounded current-record adapter
-internal/adapters/foundationdb/node_content_cursor.go revision-bound continuation
-internal/adapters/foundationdb/node_summary.go      bounded current result content
-internal/adapters/foundationdb/search_revision.go   transaction revision counters
-internal/domain/node/search_projection_emit.go     generic text interpreter
-internal/test/integration/search_reader_test.go    real store tests
-internal/test/integration/search_store_fixture_test.go opaque fixture construction
-```
+- Create: `internal/domain/node/content.go`
+- Create: `internal/domain/node/search_projection_emit.go`
+- Create: `internal/domain/search/filter.go`
+- Create: `internal/searchaccess/access.go`
+- Create: `internal/adapters/foundationdb/node_content.go`
+- Create: `internal/adapters/foundationdb/node_content_cursor.go`
+- Create: `internal/adapters/foundationdb/node_summary.go`
+- Create: `internal/adapters/foundationdb/search_revision.go`
+- Modify: `internal/domain/node/types.go`
+- Modify: `internal/domain/node/reader.go`
+- Modify: `internal/adapters/foundationdb/keys.go`
+- Test: `internal/test/integration/search_reader_test.go`
+- Test: `internal/test/integration/search_store_fixture_test.go`
 
-Modify [PropertyDef](../../../internal/domain/node/types.go), [NodeReader](../../../internal/domain/node/reader.go), and the FDB mutation entry points identified in the worker tasks. The reader consumes metadata from the same transaction as the node. Do not add search-specific fields to the universal Node struct.
+**Interfaces:**
 
-Interfaces produced in `domain/node`:
+- Consumes: Task 1B `SearchProjection`, `NodeView`, current ancestry reads, central FDB tuple helpers.
+- Produces: `ContentReader`, `AccessPolicy`, `AccessFilter`, `ContentPage`, `Summary`, and `SearchScan` for Tasks 4 through 10.
 
 ```go
-type TextRule struct {
-    Mode string `json:"mode"`
-    Fields []TextField `json:"fields,omitempty"`
-    Items *TextRule `json:"items,omitempty"`
-    Labels map[string]string `json:"labels,omitempty"`
-}
-type TextField struct { Key string `json:"key"`; Rule TextRule `json:"rule"` }
-type SearchProjection struct { Include bool `json:"include"`; Order int `json:"order"`; Rule TextRule `json:"rule"` }
+type AccessField struct { Name string; Values []string }
+type SearchAccess struct { Version string; Fields []AccessField }
 type ContentRequest struct { NodeID uuid.UUID; Cursor, ProjectionConfig string; MaxBytes int }
-var ErrContentChanged = errors.New("node content changed during pagination")
-type SearchAccess struct { OrgID uuid.UUID; ScopeIDs []uuid.UUID }
 type ContentPage struct {
     NodeID uuid.UUID
     NodeType, Revision, ProjectionVersion, Name, Text, NextCursor string
@@ -65,118 +58,125 @@ type ContentPage struct {
 type Summary struct { NodeID uuid.UUID; NodeType, Name, Text string; Access SearchAccess }
 type SearchScan struct { NodeIDs []uuid.UUID; NextCursor string; Done bool }
 type ContentReader interface {
-    Content(ctx context.Context, request ContentRequest) (ContentPage, error)
-    Summary(ctx context.Context, nodeID uuid.UUID, maxBytes int) (Summary, error)
-    ScanSearch(ctx context.Context, cursor string, limit int) (SearchScan, error)
+    Content(context.Context, ContentRequest) (ContentPage, error)
+    Summary(context.Context, uuid.UUID, int) (Summary, error)
+    ScanSearch(context.Context, string, int) (SearchScan, error)
+}
+type AccessFilter struct { Version string; Clauses json.RawMessage }
+type IndexAccessRequest struct { NodeID, OrgID uuid.UUID; ScopeIDs []uuid.UUID }
+type AccessRequest struct { PrincipalID, OrgID, ScopeID uuid.UUID }
+type AccessPolicy interface {
+    Index(context.Context, IndexAccessRequest) (node.SearchAccess, error)
+    Query(context.Context, AccessRequest) (search.AccessFilter, error)
 }
 ```
 
-Add `Search *SearchProjection` to PropertyDef. The [projection rollout task](2026-09-19-opensearch-metadata.md)
-owns seeds, generated metadata, existing-definition backfill, and write validation.
-The reader rejects a nil declaration for an applicable definition, including an
-unfamiliar PropertyType. `Include:false` explicitly excludes it. Existing `Indexed`
-continues to mean FDB secondary indexing.
-
-- [ ] Add newSearchStore and putSearchText from the [real-store fixture code](2026-09-19-opensearch-fixtures.md#reader-fixture-for-task-2).
-- [ ] Add the failing public reader test:
+- [ ] **Step 1: Add the failing multi-page and access test.**
 
 ```go
 func TestSearchReaderPages(t *testing.T) {
     stores := newSearchStore(t)
-    text := strings.Repeat("é水🙂 ", 300) + "final-character-Z"
-    id := putSearchText(t, stores, text)
+    id := putSearchText(t, stores, strings.Repeat("é水🙂 ", 300)+"tail-Z")
     request := node.ContentRequest{NodeID: id, MaxBytes: 128}
-    var previous node.ContentPage
-    pages := 0
-    tailSeen := false
-    for {
+    var unique strings.Builder
+    for ordinal := uint64(0); ; ordinal++ {
         page, err := stores.Views.Content(t.Context(), request)
         if err != nil { t.Fatal(err) }
-        if !utf8.ValidString(page.Text) || len(page.Text) > 128 { t.Fatal("invalid bounded text") }
-        if pages > 0 && (page.Revision != previous.Revision || page.ProjectionVersion != previous.ProjectionVersion || page.Ordinal != previous.Ordinal+1) { t.Fatal("unstable read") }
-        tailSeen = tailSeen || strings.Contains(page.Text, "final-character-Z")
-        pages++
+        if !utf8.ValidString(page.Text) || len(page.Text) > 128 { t.Fatalf("invalid page %d", ordinal) }
+        if page.Ordinal != ordinal || page.Access.Version != "org-scope-v1" { t.Fatalf("bad identity: %#v", page) }
+        unique.WriteString(page.Text[page.OverlapBytes:])
         if page.Done { break }
-        if page.NextCursor == "" || page.NextCursor == request.Cursor { t.Fatal("no progress") }
-        previous, request.Cursor = page, page.NextCursor
+        if page.NextCursor == "" || page.NextCursor == request.Cursor { t.Fatal("cursor did not advance") }
+        request.Cursor = page.NextCursor
     }
-    if pages < 2 || !tailSeen { t.Fatal("incomplete multi-page read") }
+    if !strings.Contains(unique.String(), "tail-Z") { t.Fatal("final text missing") }
 }
 ```
 
-- [ ] Run `^TestSearchReaderPages$`. Expect missing reader methods before implementation.
-- [ ] Implement `node.EmitSearchText(ctx context.Context, view *NodeView, defs []*PropertyDef, out io.Writer) error`. Sort applicable declarations by Order, then definition UUID. Emit the full name first. Check context between values, then call this recursive writer for each included value. Wrap its errors with node and property IDs. Never dispatch on PropertyType, NodeType, or property spelling.
+- [ ] **Step 2: Run the reader test and record the expected failure.**
+
+Run: `go test ./internal/test/integration -run '^TestSearchReaderPages$' -count=1`
+
+Expected: FAIL because `Content`, `ContentRequest`, and `SearchAccess` do not exist.
+
+- [ ] **Step 3: Use the projection declarations from Task 1B.**
 
 ```go
-func emitSearchValue(raw json.RawMessage, rule TextRule, out io.Writer) error {
-    raw = bytes.TrimSpace(raw)
-    if len(raw) == 0 || bytes.Equal(raw, []byte("null")) { return nil }
-    if !json.Valid(raw) { return errors.New("malformed JSON") }
-    switch rule.Mode {
-    case "scalar":
-        text := string(raw)
-        if raw[0] == '"' {
-            if err := json.Unmarshal(raw, &text); err != nil { return err }
-        } else if raw[0] == '{' || raw[0] == '[' { return errors.New("expected scalar") }
-        if len(rule.Labels) != 0 {
-            label, exists := rule.Labels[text]
-            if !exists { return fmt.Errorf("undeclared display value %q", text) }
-            text = label
-        }
-        _, err := io.WriteString(out, text+"\n")
-        return err
-    case "array":
-        if rule.Items == nil { return errors.New("array has no item rule") }
-        var values []json.RawMessage
-        if err := json.Unmarshal(raw, &values); err != nil { return err }
-        for _, value := range values {
-            if err := emitSearchValue(value, *rule.Items, out); err != nil { return err }
-        }
-        return nil
-    case "object", "values":
-        var values map[string]json.RawMessage
-        if err := json.Unmarshal(raw, &values); err != nil { return err }
-        if rule.Mode == "object" {
-            for _, field := range rule.Fields {
-                if err := emitSearchValue(values[field.Key], field.Rule, out); err != nil { return err }
-            }
-        } else {
-            if rule.Items == nil { return errors.New("object values have no item rule") }
-            for _, key := range slices.Sorted(maps.Keys(values)) {
-                if err := emitSearchValue(values[key], *rule.Items, out); err != nil { return err }
-            }
-        }
-        return nil
-    default:
-        return fmt.Errorf("invalid text representation %q", rule.Mode)
+type TextRule struct {
+    Mode string `json:"mode"`
+    Fields []TextField `json:"fields,omitempty"`
+    Items *TextRule `json:"items,omitempty"`
+    Labels map[string]string `json:"labels,omitempty"`
+}
+type TextField struct { Key string `json:"key"`; Rule TextRule `json:"rule"` }
+type SearchProjection struct { Include bool `json:"include"`; Order int `json:"order"`; Rule TextRule `json:"rule"` }
+```
+
+Read `PropertyDef.Search` without inferring missing declarations. `Include:false` is a complete exclusion. `Include:true` selects the validated rule. Do not use the FDB `Indexed` flag.
+
+- [ ] **Step 4: Implement deterministic text emission.**
+
+Add `EmitSearchText(ctx context.Context, view *NodeView, defs []*PropertyDef, out io.Writer) error`. Emit the node name first. Sort applicable included declarations by `Order`, then definition UUID. Decode scalar, array, declared object fields, and sorted object values recursively. Emit one newline after each leaf. Return an error with node and property IDs for malformed JSON, wrong shapes, or undeclared labels.
+
+```go
+case "values":
+    var values map[string]json.RawMessage
+    if err := json.Unmarshal(raw, &values); err != nil { return err }
+    if rule.Items == nil { return errors.New("object values have no item rule") }
+    for _, key := range slices.Sorted(maps.Keys(values)) {
+        if err := emitSearchValue(values[key], *rule.Items, out); err != nil { return err }
     }
+```
+
+- [ ] **Step 5: Implement the current access policy once.**
+
+```go
+const accessVersion = "org-scope-v1"
+type OrgScopeAccess struct{}
+func (OrgScopeAccess) Index(_ context.Context, request IndexAccessRequest) (node.SearchAccess, error) {
+    if request.OrgID == uuid.Nil { return node.SearchAccess{}, errors.New("organization is required") }
+    scopes := make([]string, len(request.ScopeIDs))
+    for i, id := range request.ScopeIDs { scopes[i] = id.String() }
+    return node.SearchAccess{Version:accessVersion, Fields:[]node.AccessField{
+        {Name:"org_id", Values:[]string{request.OrgID.String()}},
+        {Name:"scope_ids", Values:scopes},
+    }}, nil
+}
+func (OrgScopeAccess) Query(_ context.Context, request AccessRequest) (search.AccessFilter, error) {
+    if request.OrgID == uuid.Nil { return search.AccessFilter{}, errors.New("organization is required") }
+    clauses := []map[string]map[string]string{{"term":{"access.org_id":request.OrgID.String()}}}
+    if request.ScopeID != uuid.Nil { clauses = append(clauses, map[string]map[string]string{"term":{"access.scope_ids":request.ScopeID.String()}}) }
+    raw, err := json.Marshal(clauses)
+    if err != nil { return search.AccessFilter{}, err }
+    return search.AccessFilter{Version:accessVersion, Clauses:raw}, nil
 }
 ```
 
-Each decoded leaf emits one separating newline. JSON null and absent values emit
-nothing. Wrong JSON shapes, unknown labels, duplicate declared object keys,
-recursive-rule depth beyond 64 levels, and malformed JSON
-return errors with node and property IDs. Validate declarations when metadata is
-written; do not silently reinterpret invalid stored declarations during a read.
+`Content` reads current ancestry, then calls `AccessPolicy.Index` with node ID, organization, and scope IDs. Sort fields by name and values by bytes before returning. Reject duplicate field names. Page mapping only copies `ContentPage.Access`. A future permission model changes these two methods, adds strict `access` mapping fields, increments `Version`, and rebuilds the index. The `SearchAccess`, `AccessFilter`, page, worker, query, and session formats remain unchanged.
 
-- [ ] Implement an `io.Writer` that records only the requested page and bounded adjacent context while advancing a UTF-8 byte offset. Split at valid rune boundaries; reserve at most one quarter of the page for repeated preceding context. Return its length in OverlapBytes and record the unique-text offset separately. An empty final page may set Done; an empty nonfinal page must still advance. Never append all emitted text to a slice. Reject MaxBytes below 16. The initial adapter may replay its bounded record to reach the offset; the later storage adapter must seek without decoding earlier pages.
-- [ ] Store node revision counters and an organization projection epoch in separate FDB keys. Increment the node revision with every node write or deletion; increment the epoch with metadata or relationship changes. Encode node ID, revision, epoch, ProjectionConfig, pagination algorithm version, byte bound, next unique-text offset, and ordinal in the reader cursor. Read and validate them in one transaction before each page. Return ErrContentChanged on mismatch, ErrNotFound on deletion, and an explicit corruption error for missing expected records. ProjectionConfig is an opaque hash of the approved mapping/model configuration; the reader does not inspect its model settings.
-- [ ] Implement `ScanSearch` over the FDB global node resolution keys with bounded range reads. Its cursor advances by raw key; it does not list organizations from SQL or decode whole nodes. Implement Summary from current node identity, current ancestry, and bounded name/text prefixes. Initial decoding may read the existing bounded value; later storage must supply those prefixes without assembling all pages.
-- [ ] Build `SearchAccess` through one permission projection function. The current function returns organization and ancestor scope IDs. Page mapping reads only `SearchAccess` and does not derive permission rules. A future permission model may extend this projection and the versioned OpenSearch mapping without changing `ContentReader`, worker pagination, or document identity.
-- [ ] Add assertions for complete decoded coverage after removing recorded overlap, deterministic text across reordered maps, invalid declarations, excluded/inapplicable values, a long name, and a cursor resumed after `Nodes.Set`. Assert `errors.Is(err, node.ErrContentChanged)` for the edit. Vary part counts across reads and after edits. Require completion only after Done. Repeat with the production byte budget without asserting a particular part count. The worker task verifies indexing before the final read.
-- [ ] Run `^TestSearchReader`, run `make check`, and commit with subject `Add metadata-driven paginated node content reads`.
+- [ ] **Step 6: Implement bounded UTF-8 pages and revision-bound cursors.**
 
-Embed ContentReader into NodeReader when assembling the new runtime. Until that
-assembly commit, the concrete ViewStore implements both interfaces. This avoids
-changing unrelated reader implementations before their callers are replaced.
+The writer records at most `MaxBytes`, reserves at most one quarter for prior context, splits at rune boundaries, and records the unique-text offset separately. Encode node ID, revision, organization projection epoch, projection config hash, pagination version, byte bound, next unique offset, and ordinal in the cursor. Validate all values in one FDB transaction. Return `ErrContentChanged` after an edit and `ErrNotFound` after deletion. Reject `MaxBytes < 16`.
 
-## Task 3: Accept metadata changes after startup
+- [ ] **Step 7: Implement bounded scans and summaries.**
 
-Modify the metadata collection and registration logic in [MCP server assembly](../../../internal/adapters/mcp/server.go). Expose projection declarations through the existing metadata administration boundary rather than introducing a search-specific property list.
+Embed `ContentReader` in `NodeReader`; the concrete `ViewStore` implements both. Scan global node-resolution keys in raw-key order with a caller limit. Build summaries from current identity, ancestry, and bounded name and text prefixes. Do not list organizations through SQL or assemble every page.
 
-Interfaces consumed: `PropertyDefStore.Set`, `NodeTypeStore.Set`, and the reader methods above. Produce `ViewStore.ProjectionVersion(ctx context.Context, nodeID uuid.UUID) (string, error)` and add it to NodeReader; this returns the current organization epoch and reader configuration version.
+- [ ] **Step 8: Add failure and stability coverage.**
 
-- [ ] Add an authenticated MCP test that searches an opaque type, writes a new type and projection through the exported metadata store operations, then searches the new type with the same authenticated session. Repeat with every identifier changed. Require identical coverage and relative ranks.
-- [ ] Run `^TestSearchMetadataAfterStartup$`; expect the stale registration or absent projection path to fail.
-- [ ] Key cached metadata by the current organization epoch. Reload declarations and rebuild the per-user tool server when that epoch changes. Preserve caller membership checks during reload. A failed metadata read must return an error, not retain a successful empty type list.
-- [ ] Run the metadata test and `make check`; commit with subject `Refresh search metadata after declaration changes`.
+Test complete text after removing overlap, reordered maps, excluded fields, unfamiliar property types, long names, malformed declarations, edits between pages, ancestry changes, deletion, and empty nonfinal pages. Require every nonfinal cursor to advance and every page after an edit to return `errors.Is(err, node.ErrContentChanged)`.
+
+- [ ] **Step 9: Run the complete task checks.**
+
+Run: `go test ./internal/test/integration -run '^TestSearchReader' -count=1`
+
+Run: `make check`
+
+Expected: PASS with no skipped search test.
+
+- [ ] **Step 10: Commit the task.**
+
+```sh
+git add internal/domain/node internal/domain/search/filter.go internal/searchaccess/access.go internal/adapters/foundationdb internal/test/integration/search_reader_test.go internal/test/integration/search_store_fixture_test.go
+git commit -S -m "Add metadata-driven paginated node content reads" -m "Co-authored-by: Codex <noreply@openai.com>"
+```

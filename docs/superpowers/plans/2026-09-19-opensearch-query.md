@@ -1,39 +1,42 @@
-# Ranked node search implementation plan
+# Ranked Node Query Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Return every matching, currently authorized node through stable ranked continuation without a total-result cap.
+**Goal:** Rank every eligible page match with one query embedding and complete point-in-time continuation.
 
-**Architecture:** OpenSearch infers sparse query weights once. Every ranked page request reuses those opaque weights against `rank_features`. A point in time freezes index contents. FoundationDB stores position, visited nodes, replay records, and deadlines.
+**Architecture:** OpenSearch infers sparse query weights once. Later reads reuse the saved opaque weights against `rank_features`. The query receives a structured access filter from Task 2 and applies it before ranking.
 
-**Tech Stack:** Go, OpenSearch conventional neural sparse search, official OpenSearch Go client v4.7.3, FoundationDB, MCP Streamable HTTP.
+**Tech Stack:** Go, OpenSearch 3.8.0, official OpenSearch Go client v4.7.3, ML Commons.
 
-**Spec:** [Ranking and continuation](../specs/2026-09-19-search-design.md#ranking-and-continuation).
+**Spec:** [Ranking and continuation](../specs/2026-09-19-search-design.md#ranking-and-continuation) and [permission expansion](../specs/2026-09-19-search-acceptance.md#permission-expansion).
 
-## Global constraints
+## Global Constraints
 
-Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints).
-Each public response returns at most 25 nodes and reads at most four engine batches
-of at most 100 page matches. These bounds never limit total continuation results.
-The official client owns connection reuse and retries against the stable environment
-endpoint. The hypervisor proxy owns backend health and selection.
+Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Infer query weights once. Read at most 100 raw page matches per engine batch. Do not use collapse, `knn`, dense scripts, hybrid candidate windows, or application-side permission filtering as the primary filter.
 
-## Task 6: Rank and paginate native sparse matches
+## Review Focus
 
-Create:
+Test duplicate-heavy nodes, equal sort values, invalid model output, deleted points in time, foreign organizations, sibling scopes, and later index writes.
 
-```text
-internal/domain/search/query.go                    typed query and result contracts
-internal/adapters/search/opensearch_query.go       structured sparse requests
-internal/adapters/search/opensearch_snapshot.go    query inference and point in time
-internal/test/integration/search_ranking_test.go  relevance and full pagination
-```
+---
 
-Produce:
+### Task 6: Rank and paginate native sparse matches
+
+**Files:**
+
+- Create: `internal/domain/search/query.go`
+- Create: `internal/adapters/search/opensearch_query.go`
+- Create: `internal/adapters/search/opensearch_snapshot.go`
+- Test: `internal/test/integration/search_ranking_test.go`
+- Test: `internal/test/integration/search_permission_filter_test.go`
+
+**Interfaces:**
+
+- Consumes: Task 1 `Adapter`, Task 2 `AccessPolicy.Query` and `AccessFilter`, and the active physical index.
+- Produces: `Ranker`, `Snapshot`, and exact sort tokens for Task 7 sessions.
 
 ```go
-type QueryFilter struct { NodeType string; OrgID, ScopeID uuid.UUID }
-type Query struct { Text, Index string; Filter QueryFilter }
+type Query struct { Text, Index, NodeType string; Access AccessFilter }
 type Snapshot struct { PITID, Index string; QueryTokens json.RawMessage }
 type RankHit struct { NodeID uuid.UUID; Sort json.RawMessage }
 type RankBatch struct { Hits []RankHit; PITID string }
@@ -44,156 +47,102 @@ type Ranker interface {
 }
 ```
 
-`Open` resolves the physical index, calls ML Commons once through a concrete `opensearch.Request` and `opensearch.Do`, validates a nonempty finite token-weight map, and opens a point in time through the typed client. Store the encoded map without interpreting token keys. Split persisted bytes across bounded FDB values if needed and reject output above the configured total session bound. `Read` reuses the map and persists replacement PIT IDs before authorization or rendering.
-
-- [ ] Add `TestSearchSemanticRelevance` with the six acceptance pairs and at least
-  150 distractors. Require every target within the first 25 distinct nodes across
-  three repeats and a reindex. A lexical-only control must miss one pair.
-- [ ] Add `TestSearchDistinctNodes` with 1,501 nodes and 36,000 page documents for
-  one node across three primary shards. Traverse every raw batch and compare first
-  node occurrences with a bounded test-only collapse reference. Require every node.
-- [ ] Run `^TestSearch(SemanticRelevance|DistinctNodes)$` and record the existing
-  interface failure.
-- [ ] Infer query weights once with a concrete ML Commons predict request, `{"text_docs":[query.Text]}`, `opensearch.Do`, and `opensearch.ParseError`. Require one response map with finite nonnegative numbers. Persist its exact encoded representation for continuation. Do not use the high-level `semantic` query because it reruns model inference for every continuation request. Its analyzer also failed the required `signin` relevance case.
-- [ ] Open and delete point-in-time snapshots with the typed client. Build ranked requests with `opensearchapi.SearchReq.GetRequest`:
-
-```json
-{
-  "size": 100,
-  "pit": {"id": "saved-pit-id", "keep_alive": "15m"},
-  "_source": ["node_id"],
-  "sort": [
-    {"_score": "desc"},
-    {"node_id": "asc"},
-    {"_shard_doc": "asc"}
-  ],
-  "query": {"bool": {
-    "filter": [
-      {"term": {"org_id": "resolved-org"}},
-      {"term": {"scope_ids": "resolved-scope"}},
-      {"term": {"retired": false}}
-    ],
-    "minimum_should_match": 1,
-    "should": [
-      {"multi_match": {"query": "query-text", "fields": ["name^3", "page_text"]}},
-      {"nested": {
-        "path": "page_text_semantic_info.chunks",
-        "score_mode": "max",
-        "query": {"neural_sparse": {
-          "page_text_semantic_info.chunks.embedding": {"query_tokens": {}}
-        }}
-      }}
-    ]
-  }}
-}
-```
-
-Substitute validated fields and the stored token map through typed structures and `json.Marshal`. Add the optional metadata-defined type filter. Send the generated request through `opensearch.Do`. Decode a narrow response that preserves replacement PIT IDs and exact sort JSON because `SearchResp` omits the PIT ID and converts sort values to `[]any`. Use `opensearch.ParseError` for failed responses. Do not reimplement paths, query parameters, routing, retries, error decoding, or insert query text into JSON manually.
-
-Build `QueryFilter` through one permission function before `Ranker.Open`. The current function returns organization, scope, and optional type values. The ranker serializes the filter but does not derive permission rules. A future permission model may extend `QueryFilter`, the versioned mapping, and this serializer without changing inference, point-in-time traversal, sessions, continuation, or result grouping.
-
-- [ ] Require exactly three sort values. `_shard_doc` prevents equal score and node
-  ID values from skipping page documents. Preserve exact sort JSON in `search_after`.
-- [ ] Omit collapse. Persist one visited record per node and retain each node's first
-  page match. Lower page matches remain raw continuation work.
-- [ ] Preserve regressions for approximate hybrid starvation and dense exact scans.
-  Reject `script_score`, `knn`, hybrid normalization, fixed candidate windows, and
-  result-size requests above the raw batch bound.
-- [ ] Profile the production query. Require Lucene `FeatureQuery` operations over
-  `rank_features` and no dense script. Record query inference separately from page
-  search latency.
-- [ ] Prove the point in time excludes later writes. Require only an empty raw batch
-  to set exhaustion. A short batch and an empty deduplicated batch remain nonterminal.
-- [ ] Stop before consuming a hit and require the same hit after retry. Delete the
-  point in time and require a restart error.
-- [ ] Run ranking tests and `make check`. Commit with subject
-  `Paginate node page matches with OpenSearch sparse ranking`.
-
-## Task 7: Authorize results and commit continuation
-
-Create:
-
-```text
-internal/domain/search/session.go                  bounded session state
-internal/adapters/foundationdb/search_session.go   headers and visited records
-internal/adapters/foundationdb/search_replay.go    replay and expiry cleanup
-internal/adapters/mcp/tools/search_cursor.go       cursor binding and progress
-internal/adapters/mcp/tools/search_results.go      current summaries and rendering
-internal/test/integration/search_auth_test.go      authenticated isolation
-internal/test/integration/search_cursor_test.go    replay, bytes, and deadlines
-```
-
-Replace [MCP search](../../../internal/adapters/mcp/tools/search.go). Remove facet
-counts and the full-view fetch loop. Consume Ranker and `NodeReader.Summary`.
+- [ ] **Step 1: Add failing relevance and distinct-node tests.**
 
 ```go
-type Session struct {
-    ID, Principal, Generation uuid.UUID
-    Binding [32]byte
-    Secret [32]byte
-    Query Query
-    Snapshot Snapshot
-    After json.RawMessage
-    Version, NextPage uint64
-    IdleExpiresAt, AbsoluteExpiresAt time.Time
-    Closing bool
-}
-type PageCommit struct {
-    After json.RawMessage
-    PITID string
-    Visited, Results []uuid.UUID
-    Done bool
-}
-type SessionStore interface {
-    Create(context.Context, Session) (Session, error)
-    Load(context.Context, uuid.UUID) (Session, error)
-    Replay(context.Context, uuid.UUID, uint64) (PageCommit, bool, error)
-    HasVisited(context.Context, uuid.UUID, []uuid.UUID) (map[uuid.UUID]bool, error)
-    UpdatePIT(context.Context, uuid.UUID, uint64, string) (Session, error)
-    CommitPage(context.Context, uuid.UUID, uint64, PageCommit) (Session, error)
-    BeginCleanup(context.Context, uuid.UUID) error
-    CleanupSlice(context.Context, uuid.UUID, int) (bool, error)
+func TestSearchDistinctNodes(t *testing.T) {
+    ranker, query := newRankedCorpus(t, rankedCorpus{Nodes: 1501, DuplicatePages: 36000, PrimaryShards: 3})
+    snapshot, err := ranker.Open(t.Context(), query)
+    if err != nil { t.Fatal(err) }
+    defer ranker.Close(context.Background(), snapshot)
+    got := collectDistinctNodes(t, ranker, query, snapshot)
+    if len(got) != 1501 { t.Fatalf("distinct nodes = %d, want 1501", len(got)) }
 }
 ```
 
-Bind principal, query, filters, physical index, and search generation with
-deterministic serialization and SHA-256. Authenticate cursors with HMAC-SHA256.
-Store one bounded header, bounded query-token chunks, one key per visited node, and
-one bounded replay record per response. Never read all visited IDs in one transaction.
-Prefix every session key family with the first SHA-256 byte of the complete session
-ID, creating 256 stable buckets. Put expiry entries in that bucket before their
-ordered deadline. Cleanup claims buckets independently. Do not add a global session
-counter, expiry range, owner process, or correctness cache.
+Add the six accepted semantic pairs with at least 150 distractors. Require each target within the first 25 distinct nodes across three repeats and a reindex. Require one lexical-only control to miss.
 
-`CommitPage` writes at most 400 visited IDs, 25 result IDs, consumed sort values,
-latest PIT ID, replay data, and the next page atomically. It renews only the
-15-minute inactivity deadline. The absolute two-hour deadline never changes.
-`HasVisited` accepts only the current bounded engine batch. `UpdatePIT` replaces
-only the PIT ID. It preserves sort position, page number, and both deadlines.
+- [ ] **Step 2: Run the ranking tests and record the missing-interface failure.**
 
-- [ ] Build authenticated fixtures through real user, token, membership, metadata,
-  FoundationDB, and MCP operations. Load no product seed.
-- [ ] Reuse membership middleware, `Resolver.Workspace`, `ResolveScope`, `ResolveTypedNodeID`, and `requireMembership`. Reuse `maxSuccessTextBytes`, `capText`, `successText`, and existing cursor-byte reservation. Do not add another authorization cache, response limit, or truncation path.
-- [ ] Resolve membership, entry point, scope, type, and query byte bounds before `Open`, then build `QueryFilter`. Undefined types and foreign scopes fail before any engine request.
-- [ ] Check committed replay before advancing. Reauthorize saved result IDs. Replay
-  never advances or renews a deadline.
-- [ ] For each raw hit, check persisted and request-local visited records, then read
-  one bounded current summary. Mark deleted or unauthorized nodes visited. Treat
-  storage and metadata failures as errors.
-- [ ] Consume a hit only after confirming it fits the response. Stop at 25 results,
-  the byte budget, or four engine batches. Return continuation after any nonterminal
-  stop, including a response with zero nodes.
-- [ ] Commit the consumed prefix before responding. Resolve uncertain commits from
-  replay records. Concurrent callers must conflict and return the same committed page.
-- [ ] Reject mismatched, idle-expired, absolute-expired, and restored-generation
-  cursors. Close a point in time after committed completion. Bounded cleanup deletes
-  token chunks, visited records, replay records, and the header last.
-- [ ] Corrupt indexed authorization fields, revoke membership, move scopes, lose a
-  response, restart the process, and force four visited-only batches. Require current
-  authorization, exact replay, and eventual continuation.
-- [ ] Add `TestSearchPermissionFilter` with a corpus dominated by matching text outside the current organization and scope. Require the permission function to supply the selective structured filter before ranking. Require bounded authoritative summary reads, complete eligible results, and no permission logic inside session or continuation code.
-- [ ] Open a session on one Tack runtime and alternate every continuation between two
-  runtimes against the same FoundationDB and OpenSearch. Require identical replay and
-  cleanup. Increase runtime count under a fixed workload and require higher throughput.
-- [ ] Run `^TestSearch(Auth|Cursor|DistinctNodes)` and `make check`. Commit with
-  subject `Return authorized search results with durable continuation`.
+Run: `go test ./internal/test/integration -run '^TestSearch(SemanticRelevance|DistinctNodes)$' -count=1`
+
+Expected: FAIL because `Ranker` and `Query` do not exist.
+
+- [ ] **Step 3: Implement one concrete ML Commons prediction request.**
+
+Send `{"text_docs":[query.Text]}` through a narrow type that satisfies `opensearch.Request`. Call `opensearch.Do` and `opensearch.ParseError`. Require exactly one nonempty map of finite, nonnegative weights. Store its exact JSON bytes in `Snapshot.QueryTokens`. Reject output above the configured session byte bound.
+
+```go
+type predictRequest struct { ModelID string; Body io.Reader }
+func (r predictRequest) GetRequest(method string) (*http.Request, error) {
+    path := "/_plugins/_ml/models/" + url.PathEscape(r.ModelID) + "/_predict"
+    request, err := http.NewRequest(method, path, r.Body)
+    if err != nil { return nil, err }
+    request.Header.Set("Content-Type", "application/json")
+    return request, nil
+}
+```
+
+- [ ] **Step 4: Open and close the point in time with typed APIs.**
+
+Resolve the alias to one physical index before prediction. Read its access version through `Adapter.IndexInfo`. Use typed point-in-time create and delete calls. Save replacement PIT IDs returned by reads. A deleted PIT returns an explicit restart error.
+
+- [ ] **Step 5: Serialize the current permission filter before ranking.**
+
+Call `AccessPolicy.Query` after membership, organization, and scope resolution. Reject an access version that differs from the physical index. Decode `Query.Access.Clauses` as a nonempty JSON array. Append optional `node_type` and required `retired:false` clauses. The ranker never names or derives permission rules.
+
+```go
+type queryClause struct { Term map[string]json.RawMessage `json:"term,omitempty"` }
+var filters []json.RawMessage
+if err := json.Unmarshal(query.Access.Clauses, &filters); err != nil { return nil, err }
+if len(filters) == 0 { return nil, errors.New("access filter is empty") }
+filters = append(filters, json.RawMessage(`{"term":{"retired":false}}`))
+if query.NodeType != "" {
+    nodeTypeValue, err := json.Marshal(query.NodeType)
+    if err != nil { return nil, err }
+    clause, err := json.Marshal(queryClause{Term:map[string]json.RawMessage{"node_type":nodeTypeValue}})
+    if err != nil { return nil, err }
+    filters = append(filters, clause)
+}
+```
+
+- [ ] **Step 6: Build the exact ranked request.**
+
+Use `opensearchapi.SearchReq.GetRequest` for the request path and parameters. Marshal a typed body with `size:100`, saved PIT, `_source:["node_id"]`, the filters above, lexical `multi_match`, nested `neural_sparse`, and sort by descending `_score`, ascending `node_id`, then ascending `_shard_doc`. Insert query text and saved token JSON through `json.Marshal`. Decode a narrow response through `opensearch.Do` because `SearchResp` omits replacement PIT IDs and changes sort value types.
+
+```json
+{"query":{"bool":{"filter":[{"term":{"access.org_id":"resolved-org"}},{"term":{"access.scope_ids":"resolved-scope"}},{"term":{"retired":false}}],"minimum_should_match":1,"should":[{"multi_match":{"query":"query text","fields":["name^3","page_text"]}},{"nested":{"path":"page_text_semantic_info.chunks","score_mode":"max","query":{"neural_sparse":{"page_text_semantic_info.chunks.embedding":{"query_tokens":{}}}}}}]}}}
+```
+
+- [ ] **Step 7: Preserve exact continuation.**
+
+Require exactly three sort values. Store the original sort JSON without converting numbers. Pass it back as `search_after`. Treat only an empty raw batch as exhaustion. A short batch and a batch containing only already visited nodes remain nonterminal.
+
+- [ ] **Step 8: Prove OpenSearch filters before ranking.**
+
+Create 400 foreign-organization pages and 400 sibling-scope pages with stronger lexical matches than two eligible pages. Build the filter through `AccessPolicy.Query`, call `Ranker.Open` and `Ranker.Read`, and require every raw hit to belong to the eligible organization and scope. This test examines raw ranker output, so FoundationDB post-filtering cannot make it pass.
+
+```go
+for _, hit := range batch.Hits {
+    if !eligible[hit.NodeID] { t.Fatalf("forbidden raw hit %s", hit.NodeID) }
+}
+```
+
+- [ ] **Step 9: Run profiling and regression checks.**
+
+Require Lucene `FeatureQuery` operations over `rank_features` and no dense script. Prove one prediction per snapshot, later-write exclusion, repeated relevance, complete traversal, and a stopped read that returns the same next hit after retry.
+
+- [ ] **Step 10: Run the complete task checks.**
+
+Run: `go test ./internal/test/integration -run '^TestSearch(SemanticRelevance|DistinctNodes|PermissionFilter)' -count=1`
+
+Run: `make check`
+
+Expected: PASS with no skipped search test.
+
+- [ ] **Step 11: Commit the task.**
+
+```sh
+git add internal/domain/search/query.go internal/adapters/search/opensearch_query.go internal/adapters/search/opensearch_snapshot.go internal/test/integration/search_ranking_test.go internal/test/integration/search_permission_filter_test.go
+git commit -S -m "Paginate node page matches with OpenSearch sparse ranking" -m "Co-authored-by: Codex <noreply@openai.com>"
+```

@@ -1,8 +1,8 @@
-# OpenSearch implementation plan
-
-The native sparse indexing and ranking configuration passed local engine validation. The implementation tasks must repeat that behavior through Tack's public boundaries.
+# OpenSearch Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+The native sparse indexing and ranking configuration passed local engine validation. The implementation tasks must repeat that behavior through Tack's public boundaries.
 
 **Goal:** Search every accepted node through a paginated reader and return authorized, distinct nodes ranked by OpenSearch.
 
@@ -68,6 +68,20 @@ The native sparse indexing and ranking configuration passed local engine validat
   dry-run, audit, and build expiration machinery. Do not add another migration CLI.
 - Keep search claims, sessions, content cursors, HMAC cursors, rebuild coordination, visited node IDs, and one query embedding per session. OpenSearch does not provide those application guarantees.
 
+## Permission filtering contract
+
+The current policy returns version `org-scope-v1` and fields `org_id:A` and `scope_ids:[B, ancestor IDs]`. Task 5 stores them inside the strict `access` object. A scoped query returns the exact `access.org_id:A` and `access.scope_ids:B` clauses. Task 6 inserts those opaque clauses into the OpenSearch Boolean filter before lexical or sparse scoring. Task 7 reads the current node from FoundationDB and authorizes it again before rendering.
+
+A future permission model changes only these owned surfaces:
+
+1. Extend the Task 2 access policy so indexed fields and caller clauses use the same rules.
+2. Add the new strict `access` mapping fields and increment the access version.
+3. Keep the Task 5 field copier and Task 6 clause inserter unchanged.
+4. Bump the projection and mapping version, then use Task 9 to rebuild from FoundationDB.
+5. Add one raw-ranker test dominated by forbidden matches and one corrupt-index public test.
+
+The extension cannot change content pages, document identity, durable work, sessions, continuation, result grouping, or the final FoundationDB authorization check.
+
 ## Review Focus
 
 1. An edit between content reads must produce an explicit revision error, never a mixed document. Reader and worker tasks test it.
@@ -84,42 +98,44 @@ The native sparse indexing and ranking configuration passed local engine validat
 
 ## Execution order
 
-Each linked task document specifies its files, interfaces, tests, and commit boundary.
+Each linked task document specifies exact files, interfaces, failing tests, implementation examples, verification commands, and commit boundaries.
 These are parts of one implementation. None introduces a temporary search design.
 Tasks 11 in Tack and configs add inactive OpenSearch components. They do not change
-the active application search path. Tasks 7 and 8 perform the only application
-cutover. That review enables OpenSearch and deletes Meilisearch together. No task
+the active application search path. Task 8 performs the only application cutover.
+That review enables OpenSearch and deletes Meilisearch together. No task
 implements dual writes, a compatibility layer, or an interim search engine.
 The [fixture code](2026-09-19-opensearch-fixtures.md) supplies real-store setup and
 authenticated calls for the owning tasks.
 
 1. Complete the [native coverage task](2026-09-19-opensearch-native.md). Implement the validated sparse engine configuration and its regression tests.
-2. Complete the [projection rollout task](2026-09-19-opensearch-metadata.md). Add explicit declarations for new metadata and the expiring manifest backfill for existing definitions.
-3. Implement Task 2 in the [reader tasks](2026-09-19-opensearch-reader.md), including revision identity, bounded pages, and summaries.
-4. Implement the [durable indexing tasks](2026-09-19-opensearch-worker.md), including transaction scheduling, retries, and deletion.
-5. Complete Task 6 in the [query tasks](2026-09-19-opensearch-query.md). It adds ranking and continuation behind internal boundaries.
-6. Complete the [recovery tasks](2026-09-19-opensearch-recovery.md), including full rebuild, native split, restore, and QA generator coverage.
-7. Complete Task 11 in the [deployment tasks](2026-09-19-opensearch-deployment.md). It prepares role-specific services and configuration without deploying or changing application search.
-8. Complete Tasks 7 and 8 in the query plan as one review and commit. This is the sole application cutover. Complete Task 3's metadata refresh test against this runtime.
-9. Complete Task 10's public QA checks, then apply Task 12 only after deployment authorization.
+2. Complete the [projection rollout task](2026-09-19-opensearch-metadata.md). Add declaration types, new-definition values, and the expiring manifest backfill.
+3. Complete the [paginated reader task](2026-09-19-opensearch-reader.md), including the shared organization and scope access policy.
+4. Complete the [durable work task](2026-09-19-opensearch-worker.md), then the [bounded indexing task](2026-09-19-opensearch-indexing.md).
+5. Complete the [ranked query task](2026-09-19-opensearch-query.md). It proves that OpenSearch applies the access filter before ranking.
+6. Complete the [authorized public search task](2026-09-19-opensearch-public-search.md) behind an inactive registration. It defines sessions and the final authorization check without changing the active MCP tool.
+7. Complete the [index replacement task](2026-09-19-opensearch-rebuild.md) against those session interfaces.
+8. Complete the [cluster configuration task](2026-09-19-opensearch-deployment.md). It prepares services and configuration without deploying or changing application search.
+9. Complete the [runtime cutover task](2026-09-19-opensearch-recovery.md). It activates ranked search, starts workers and rebuild recovery, and deletes Meilisearch in the only application cutover.
+10. Complete the [metadata refresh task](2026-09-19-opensearch-refresh.md) and [public QA data task](2026-09-19-opensearch-datagen.md) against the replacement runtime.
+11. Apply the [QA and production release plan](2026-09-19-opensearch-release.md) only after deployment authorization.
 
 ## Delivery tickets
 
 | Plan scope | Ticket |
 | --- | --- |
-| Task 1: Native sparse indexing | TACK-530 |
-| Explicit projection rollout and backfill | TACK-542 |
-| Task 2: Paginated node content reads | TACK-531 |
-| Task 3: Metadata refresh | TACK-532 |
-| Task 4: Durable search work | TACK-533 |
-| Task 5: Bounded indexing and retirement | TACK-534 |
-| Task 6: Ranked continuation | TACK-535 |
-| Tasks 7 and 8: Authorized public search, runtime, and Meilisearch removal | TACK-536 |
-| Task 9: Rebuild and restore | TACK-537 |
-| Task 10: QA datagen coverage | TACK-538 |
-| Task 11, Tack: Containers and provisioning operations | TACK-539 |
-| Task 11, configs: One initial guest per environment and scalable rendered configuration | TACK-540 |
-| Task 12: QA, production, and Meilisearch deployment removal | TACK-541 |
+| [Task 1: Native sparse indexing](2026-09-19-opensearch-native.md) | TACK-530 |
+| [Explicit projection rollout and backfill](2026-09-19-opensearch-metadata.md) | TACK-542 |
+| [Task 2: Paginated node content reads](2026-09-19-opensearch-reader.md) | TACK-531 |
+| [Task 3: Metadata refresh](2026-09-19-opensearch-refresh.md) | TACK-532 |
+| [Task 4: Durable search work](2026-09-19-opensearch-worker.md) | TACK-533 |
+| [Task 5: Bounded indexing and retirement](2026-09-19-opensearch-indexing.md) | TACK-534 |
+| [Task 6: Ranked continuation](2026-09-19-opensearch-query.md) | TACK-535 |
+| [Task 7: Authorized public search](2026-09-19-opensearch-public-search.md) and [Task 8: runtime and Meilisearch removal](2026-09-19-opensearch-recovery.md) | TACK-536 |
+| [Task 9: Rebuild and restore](2026-09-19-opensearch-rebuild.md) | TACK-537 |
+| [Task 10: QA datagen coverage](2026-09-19-opensearch-datagen.md) | TACK-538 |
+| [Task 11, Tack: Containers and provisioning operations](2026-09-19-opensearch-deployment.md) | TACK-539 |
+| [Task 11, configs: One initial guest per environment and scalable rendered configuration](2026-09-19-opensearch-deployment.md) | TACK-540 |
+| [Task 12: QA, production, and Meilisearch deployment removal](2026-09-19-opensearch-release.md) | TACK-541 |
 
 TACK-518, TACK-519, and TACK-520 retain the cross-cutting scalability,
 isolation, and semantic acceptance. TACK-524 and TACK-525 remain separate
@@ -131,7 +147,8 @@ The native task repeats the successful engine tests through the production adapt
 
 | Responsibility | Change location |
 | --- | --- |
-| Reader contracts and metadata representation | Extend [NodeReader](../../../internal/domain/node/reader.go); create the domain content and projection files specified in the reader tasks. |
+| Reader contracts and access representation | Extend [NodeReader](../../../internal/domain/node/reader.go); create the content and access files specified in the reader task. |
+| Search projection declarations | Add the property definition fields and validation specified in the metadata task. |
 | Transactional scheduling and revision identity | Extend the node, relationship, and metadata stores; add dedicated search storage files. |
 | Page indexing and native model setup | Add a focused official-client adapter, native semantic mapping, typed bulk and search operations, and concrete ML Commons requests; delete all Meilisearch adapter code and its module dependency. |
 | Worker ownership and recovery | Add search worker, cleanup, and rebuild files under the existing service and FDB adapter packages. |
@@ -159,7 +176,7 @@ After implementation, require the matching test to pass without skips.
 Stage only the files changed by that task. The native task's commit command is:
 
 ```sh
-git commit -S -m "Add native OpenSearch embedding coverage validation" -m "Co-authored-by: Codex <noreply@openai.com>"
+git commit -S -m "Add native OpenSearch sparse indexing validation" -m "Co-authored-by: Codex <noreply@openai.com>"
 ```
 
 Use each subsequent task's specified subject with that same trailer. Before any

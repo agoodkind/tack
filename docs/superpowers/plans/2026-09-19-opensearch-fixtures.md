@@ -1,6 +1,6 @@
-# Search Test Fixture Implementation Plan
+# Search Test Fixture Reference
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+The implementation plans use these shared real-dependency fixtures. Each owning task creates and commits the listed helper with its production change.
 
 **Goal:** Test search with real storage and arbitrary metadata without loading product seeds.
 
@@ -16,8 +16,7 @@ Apply the [implementation constraints](2026-09-19-opensearch.md#global-constrain
 
 ## Review Focus
 
-Exercise unfamiliar property types, unrelated names, no product seed, real bearer validation, and both JSON/SSE tool responses.
-Every fixture property definition explicitly includes or excludes search. Add one
+Exercise unfamiliar property types, unrelated names, no product seed, real bearer validation, and both JSON/SSE tool responses. Every fixture property definition explicitly includes or excludes search. Add one
 excluded value beside each included fixture and prove that the excluded value never
 appears in search results.
 
@@ -120,11 +119,12 @@ func TestSearchDelayedWriter(t *testing.T) {
     model, err := client.Provision(ctx)
     if err != nil { t.Fatal(err) }
     index := "delayed-" + uuid.Must(uuid.NewV7()).String()
-    if err := client.CreateIndex(ctx, index, model, 1, 8, 0); err != nil { t.Fatal(err) }
+    spec := searchadapter.IndexSpec{Model:model, AccessVersion:"org-scope-v1", Primaries:1, RoutingShards:8}
+    if err := client.CreateIndex(ctx, index, spec); err != nil { t.Fatal(err) }
     t.Cleanup(func() { if err := client.DeleteIndex(context.Background(), index); err != nil { t.Error(err) } })
     if err := stores.SearchWork.InitializeIndex(ctx, index); err != nil { t.Fatal(err) }
     id := putSearchText(t, stores, "obsolete text")
-    oldWork, err := stores.SearchWork.Claim(ctx, "old-worker", time.Minute)
+    oldWork, err := stores.SearchWork.Claim(ctx, search.WorkLive, "old-worker", time.Minute)
     if err != nil { t.Fatal(err) }
     page, err := stores.Views.Content(ctx, node.ContentRequest{NodeID:id, MaxBytes:128})
     if err != nil { t.Fatal(err) }
@@ -132,7 +132,7 @@ func TestSearchDelayedWriter(t *testing.T) {
     if err != nil { t.Fatal(err) }
     if err := stores.Nodes.Delete(ctx, id, id); err != nil { t.Fatal(err) }
     if err := stores.SearchWork.Release(ctx, oldWork, "request delayed"); err != nil && !errors.Is(err, search.ErrWorkChanged) { t.Fatal(err) }
-    deletion, err := stores.SearchWork.Claim(ctx, "new-worker", time.Minute)
+    deletion, err := stores.SearchWork.Claim(ctx, search.WorkCleanup, "new-worker", time.Minute)
     if err != nil { t.Fatal(err) }
     if !deletion.Deleted { t.Fatal("deletion not scheduled") }
     worker := service.Worker{Reader:stores.Views, Work:stores.SearchWork, Writer:client, PageBytes:128}
@@ -147,3 +147,54 @@ func TestSearchDelayedWriter(t *testing.T) {
 `DeleteIndex` and `GetDocument` must call the official typed `Indices.Delete` and `Document.Get` APIs. The fixture and production adapter use the same client and transport.
 
 - [ ] Run `^TestSearchDelayedWriter$` after retirement implementation. Require the retained version-2 record and rejected delayed request, not merely an empty MCP response.
+
+## Helper contracts used by task plans
+Each helper below is test code in the named owning file. It calls real dependencies and production boundaries. No helper replaces a production dependency.
+```go
+// search_native_test.go
+type nativePage struct { Source string; Chunks []string; Weights []map[string]float64 }
+func newOpenSearchAdapter(t *testing.T, image string, memoryBytes int64) *searchadapter.Adapter
+func createNativeSearchIndex(t *testing.T, adapter *searchadapter.Adapter, model searchadapter.ModelInfo, accessVersion string, primaries, routing, replicas int) string
+func putNativePage(t *testing.T, adapter *searchadapter.Adapter, index, text string)
+func getNativePage(t *testing.T, adapter *searchadapter.Adapter, index string) nativePage
+func requireCompleteNativeChunks(t *testing.T, page nativePage, original string)
+func unicodePage4096() string
+
+// search_projection_backfill_test.go
+type projectionBackfillFixture struct { Stores *foundationdb.Stores; Run func(context.Context, []byte, bool) (ops.ProjectionBackfillResult, error) }
+func newProjectionBackfillFixture(t *testing.T) projectionBackfillFixture
+func (f projectionBackfillFixture) ManifestForEveryMissingDefinition() []byte
+
+// search_store_fixture_test.go
+func reopenSearchStore(t *testing.T, current *foundationdb.Stores) *foundationdb.Stores
+func putOpaqueSearchDefinition(t *testing.T, graph *runtime.Graph, include bool) (nodeType, propertyName string)
+func createOpaqueNode(t *testing.T, driver *datagen.Driver, token string, entryID uuid.UUID, parameter, nodeType, propertyName, text string) uuid.UUID
+func requireSearchResult(t *testing.T, driver *datagen.Driver, token string, entryID uuid.UUID, parameter, query string, nodeID uuid.UUID)
+
+// search_ranking_test.go
+type rankedCorpus struct { Nodes, DuplicatePages, PrimaryShards int }
+func newRankedCorpus(t *testing.T, corpus rankedCorpus) (search.Ranker, search.Query)
+func collectDistinctNodes(t *testing.T, ranker search.Ranker, query search.Query, snapshot search.Snapshot) []uuid.UUID
+
+// search_auth_test.go
+type permissionNode struct { ID uuid.UUID; Access node.SearchAccess }
+type searchPages struct { IDs []uuid.UUID; Cursors []string }
+func putPermissionCorpus(t *testing.T, fixture searchMCPFixture, query string) (permissionNode, permissionNode)
+func corruptIndexedAccess(t *testing.T, adapter *searchadapter.Adapter, node permissionNode, access node.SearchAccess)
+func callEverySearchPage(t *testing.T, fixture searchMCPFixture, query string) searchPages
+
+// search_runtime_test.go and search_rebuild_test.go
+type searchMCPFixture struct { Graph *runtime.Graph; Driver *datagen.Driver; Adapter *searchadapter.Adapter; Token, EntryParameter string; EntryID uuid.UUID; StartOpenSearch func(*testing.T) }
+func newSearchMCPFixture(t *testing.T, pageBytes int) searchMCPFixture
+func newStoppedSearchRuntime(t *testing.T) searchMCPFixture
+func createNodeThroughMCP(t *testing.T, fixture searchMCPFixture, text string) uuid.UUID
+func requireSearchUnavailable(t *testing.T, fixture searchMCPFixture, query string)
+func requireEventuallySearchResult(t *testing.T, fixture searchMCPFixture, query string, nodeID uuid.UUID)
+type pausedRebuild struct { Resume func(); RequireSuccess func(*testing.T) }
+type searchCorpus struct { Present, Deleted, Foreign []uuid.UUID }
+func runAuditedReindex(t *testing.T, fixture searchMCPFixture) pausedRebuild
+func mutateSearchCorpusWhilePaused(t *testing.T, fixture searchMCPFixture, rebuild pausedRebuild) searchCorpus
+func requireSearchCorpus(t *testing.T, fixture searchMCPFixture, expected searchCorpus)
+```
+
+`newSearchMCP` remains a small unpacking wrapper around `newSearchMCPFixture` for tests that use the existing five return values. The fixture creates real SQL identity, membership, token, FDB metadata, audit dependencies, OpenSearch, and the production Graph. `newStoppedSearchRuntime` creates the same graph while the configured engine endpoint is stopped and exposes `StartOpenSearch` through the fixture's real testenv lifecycle.

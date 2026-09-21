@@ -1,62 +1,132 @@
-# Search projection metadata rollout plan
+# Search Projection Metadata Rollout Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Give every property definition an explicit search decision before the first OpenSearch rebuild.
 
-**Architecture:** Stored metadata remains the only runtime authority. Seeds and QA data write complete declarations for new definitions. An audited, expiring command applies a complete manifest reviewed by an operator to existing definitions without inference or overwrite.
+**Architecture:** Stored metadata remains the runtime authority. New seeds and QA data write complete declarations. An audited expiring command applies one reviewed manifest to existing definitions without inference or overwrite.
 
-**Tech Stack:** Go, FoundationDB, existing metadata repositories, `clispec`, audit outbox, and QA data generation.
+**Tech Stack:** Go, FoundationDB, existing metadata repositories, `clispec`, audit outbox.
 
 **Spec:** [Searchable content](../specs/2026-09-19-search-design.md#searchable-content).
 
-## Global constraints
+## Global Constraints
 
-Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). A property definition must explicitly include or exclude search. Do not derive search behavior from its identifier, property type, options, applicability, or FDB `Indexed` flag. Do not use product seeds as runtime configuration.
+Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Every property definition explicitly includes or excludes search. Do not derive the decision from identifier, property type, options, applicability, or the FDB `Indexed` flag.
 
-## Task: Roll out explicit search projections
+## Review Focus
 
-Ticket: TACK-542.
+Test incomplete manifests, duplicate identities, cross-organization entries, concurrent explicit updates, partial failure, exact rerun, and zero-missing readiness.
 
-Modify:
+---
 
-```text
-internal/domain/node/types.go                              declaration types
-internal/service/seed.go                                  new-org convenience
-internal/datagen/property_defs.go                         generated declarations
-internal/ops/cli.go                                       command registration
-internal/audit                                             audited mutation verb
-```
+### Task 1B: Roll out explicit search projections
 
-Create:
+**Files:**
 
-```text
-internal/ops/cli_search_projection_backfill.go            expiring operation
-internal/ops/search_projection_backfill.go                bounded manifest apply
-internal/test/integration/search_projection_backfill_test.go real FDB proof
-```
+- Modify: `internal/domain/node/types.go`
+- Create: `internal/domain/node/search_projection.go`
+- Modify: `internal/service/seed.go`
+- Modify: `internal/datagen/property_defs.go`
+- Create: `internal/ops/cli_search_projection_backfill.go`
+- Create: `internal/ops/search_projection_backfill.go`
+- Modify: `internal/audit/verbs.go`
+- Create: `internal/service/seed_search_test.go`
+- Create: `internal/datagen/property_defs_search_test.go`
+- Test: `internal/test/integration/search_projection_backfill_test.go`
 
-Add `Search *SearchProjection` to `PropertyDef`. Metadata writes reject nil after the rollout code is active. `Include:false` records an intentional exclusion. `Include:true` requires a valid order and text rule.
+**Interfaces:**
 
-- [ ] Add explicit declarations to every built-in seed definition. Update existing seed tests to prove every definition has one. Treat this as new-org convenience only.
-- [ ] Add explicit included and excluded declarations to every QA data definition. Search for included text and prove excluded text is absent through the public QA checks.
-- [ ] Add a sorted JSON manifest containing organization ID, property-definition ID, and the complete desired projection. Decode it incrementally. Reject duplicate, unknown, cross-organization, malformed, and conflicting entries.
-- [ ] Register `search-projections` on `opsGroup` with this literal lifetime:
+- Consumes: existing property definition and audited operation machinery.
+- Produces: complete stored declarations and `RequireSearchProjections(context.Context) error` for provisioning and rebuild.
 
 ```go
-clispec.Lifetime{
-    Ticket: "TACK-542",
-    RemoveBy: time.Date(2026, time.December, 31, 0, 0, 0, 0, time.UTC),
+type TextRule struct {
+    Mode string `json:"mode"`
+    Fields []TextField `json:"fields,omitempty"`
+    Items *TextRule `json:"items,omitempty"`
+    Labels map[string]string `json:"labels,omitempty"`
+}
+type TextField struct { Key string `json:"key"`; Rule TextRule `json:"rule"` }
+type SearchProjection struct { Include bool `json:"include"`; Order int `json:"order"`; Rule TextRule `json:"rule"` }
+type ProjectionManifestEntry struct {
+    OrgID uuid.UUID `json:"org_id"`
+    PropertyDefID uuid.UUID `json:"property_def_id"`
+    Search node.SearchProjection `json:"search"`
+}
+type ProjectionBackfillResult struct { Scanned, Changed, Unchanged, Missing int }
+```
+
+- [ ] **Step 1: Add the failing completeness and rerun test.**
+
+```go
+func TestSearchProjectionBackfill(t *testing.T) {
+    fixture := newProjectionBackfillFixture(t)
+    manifest := fixture.ManifestForEveryMissingDefinition()
+    first, err := fixture.Run(t.Context(), manifest, false)
+    if err != nil { t.Fatal(err) }
+    if first.Changed == 0 || first.Missing != 0 { t.Fatalf("first result: %#v", first) }
+    second, err := fixture.Run(t.Context(), manifest, false)
+    if err != nil { t.Fatal(err) }
+    if second.Changed != 0 || second.Missing != 0 { t.Fatalf("rerun result: %#v", second) }
 }
 ```
 
-The rendered command is `ops backfill once-search-projections`. Reuse the global execute gate, audit choke point, result sink, and build expiration check. Do not add a separate confirmation or runtime expiration system.
+- [ ] **Step 2: Run the test and record the missing-command failure.**
 
-- [ ] Make dry run read definitions in bounded order and require one manifest entry for every definition that lacked a declaration when the manifest was prepared. Report each planned identity and bounded totals. Make no metadata, epoch, scan, or audit writes.
-- [ ] Apply bounded batches through FoundationDB transactions. Set a projection only when it is nil. Accept an already equal value during retry. Return a conflict for an already different value. Bump the organization projection epoch and coalesce one search rescan event for every changed organization.
-- [ ] Make a partial failure safe to rerun with the same manifest. Never load all organizations, definitions, or report entries into memory. Record applied identities through the existing audit outbox, including partial completion before returning an error.
-- [ ] Add a readiness check used by search provisioning, verification, and the first rebuild. It reports bounded missing identities and refuses success until every definition has an explicit declaration.
-- [ ] Test an incomplete manifest, duplicate entry, unknown definition, concurrent explicit update, partial failure, exact rerun, dry run, included and excluded seeds, generated metadata, and the zero-missing readiness gate with real FoundationDB.
-- [ ] Run the focused integration test and `make check`. Commit with subject `Backfill explicit search projection metadata` through the signed procedure.
+Run: `go test ./internal/test/integration -run '^TestSearchProjectionBackfill$' -count=1`
 
-Run the command in QA and production before each environment's first OpenSearch rebuild. After both environments pass the zero-missing gate and the release evidence is recorded, delete the command, its integration test, and its audit verb before the literal removal date. Keep the permanent declaration validation, seed data, QA data, and readiness check.
+Expected: FAIL because the manifest command and permanent declaration validation do not exist.
+
+- [ ] **Step 3: Add declaration types and explicit values to new metadata.**
+
+Add `Search *SearchProjection` to `PropertyDef`. Validate known modes, item rules, unique object fields, label maps, and maximum recursion depth. Add included and excluded projections to every built-in seed and QA definition. Seed tests require one declaration per definition. QA checks search included text and reject excluded text. These values provide new-organization convenience only. Runtime code reads stored metadata.
+
+- [ ] **Step 4: Decode and validate the manifest incrementally.**
+
+Read a sorted JSON array through `json.Decoder`. Reject malformed entries, duplicate property-definition IDs, unknown IDs, organization mismatches, invalid rules, and omitted definitions that were nil when the manifest was prepared. Do not load all organizations or definitions into memory.
+
+```json
+[{"org_id":"018f...","property_def_id":"0190...","search":{"include":true,"order":10,"rule":{"mode":"scalar"}}}]
+```
+
+- [ ] **Step 5: Register the exact expiring audited command.**
+
+```go
+clispec.Lifetime{Ticket: "TACK-542", RemoveBy: time.Date(2026, time.December, 31, 0, 0, 0, 0, time.UTC)}
+```
+
+Register `ops backfill once-search-projections` through the existing execute gate, result sink, audit path, and build expiration check. Do not add another confirmation or expiration system.
+
+- [ ] **Step 6: Implement a nonmutating dry run.**
+
+Read definitions in bounded ID order. Require one manifest entry for each nil declaration. Report planned identities and bounded totals. Write no projection, epoch, scan event, or audit record.
+
+- [ ] **Step 7: Apply retry-safe bounded batches.**
+
+Set a projection only when stored `Search` is nil. Accept an already equal value. Return a conflict for an already different value. Bump the organization projection epoch and coalesce one search rescan event for every changed organization in the same FDB transaction. Record applied identities through the audit outbox, including completed batches before a later error.
+
+- [ ] **Step 8: Add the permanent readiness gate.**
+
+`RequireSearchProjections` scans definitions in bounded order, reports bounded missing identities, and refuses success until every definition has a declaration. Provisioning, verification, and the first rebuild call it.
+
+- [ ] **Step 9: Add failure coverage.**
+
+Test incomplete, duplicate, unknown, cross-organization, malformed, and conflicting entries. Inject a partial failure and rerun the exact manifest. Test included and excluded seed and QA definitions. Require dry run to leave all key families unchanged.
+
+- [ ] **Step 10: Run the complete task checks.**
+
+Run: `go test ./internal/test/integration -run '^TestSearchProjection' -count=1`
+
+Run: `make check`
+
+Expected: PASS with zero missing declarations after apply.
+
+- [ ] **Step 11: Commit the task.**
+
+```sh
+git add internal/domain/node/types.go internal/domain/node/search_projection.go internal/service/seed.go internal/service/seed_search_test.go internal/datagen/property_defs.go internal/datagen/property_defs_search_test.go internal/ops/cli_search_projection_backfill.go internal/ops/search_projection_backfill.go internal/audit/verbs.go internal/test/integration/search_projection_backfill_test.go
+git commit -S -m "Backfill explicit search projection metadata" -m "Co-authored-by: Codex <noreply@openai.com>"
+```
+
+After QA and production both record zero missing declarations, delete the command, its integration test, and its audit verb before the removal date. Keep permanent validation, seeds, QA data, and the readiness gate.

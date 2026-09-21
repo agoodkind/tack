@@ -80,8 +80,8 @@ The mapping contains only these fixed fields:
 | Field | Representation |
 | --- | --- |
 | `node_id` | Canonical node UUID as a keyword. |
-| `org_id` | Authoritative organization UUID as a keyword. |
-| `scope_ids` | The node and authorized ancestor IDs as keywords. |
+| `access.org_id` | Authoritative organization UUID as a keyword inside the strict access object. |
+| `access.scope_ids` | The node and authorized ancestor IDs as keywords inside the strict access object. |
 | `node_type` | The metadata-defined type key as a keyword. |
 | `node_revision` | The committed source revision. |
 | `projection_version` | The metadata, pagination, semantic mapping, and model version. |
@@ -107,7 +107,7 @@ executes conventional sparse search over its inverted index. The query uses no
 dense script, nearest-neighbor `k`, hybrid result window, field collapse, or fixed
 total-result limit.
 
-The permission boundary supplies organization and scope filters. Optional type and retirement filters also use structured JSON.
+The permission boundary supplies versioned opaque filter clauses. The current policy emits organization and scope terms. Optional type and retirement filters also use structured JSON.
 OpenSearch sorts page matches by descending score, ascending node ID, then
 `_shard_doc`. A point in time freezes index contents and makes `_shard_doc` a stable
 page-level tie breaker. The first page match for a node establishes that node's
