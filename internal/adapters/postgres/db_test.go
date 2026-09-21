@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -242,6 +243,81 @@ func TestNewPoolReachesASurvivingHostWhenTheFirstBlackHoles(t *testing.T) {
 	}
 	if err := pool.Ping(ctx); err != nil {
 		t.Fatalf("ping the surviving host: %v", err)
+	}
+}
+
+// healthProbeDeadline is the deadline GET /healthz runs its probes under
+// (healthCheckTimeout in cmd/server/health.go), restated here because that
+// constant is private to its package.
+const healthProbeDeadline = 2 * time.Second
+
+// openPoolAcrossBlackHole opens a pool over a black-holed first host and a
+// live second host, then closes every pooled connection. The next Ping must
+// dial. The driver dials the hosts one at a time in list order and applies
+// the connect bound to each host. The dial spends the whole bound on the
+// black-holed host and then dials the live host. A /healthz probe makes this
+// same dial once the pool has retired its connections to a stopped ledger
+// guest.
+func openPoolAcrossBlackHole(t *testing.T, connectTimeoutSeconds int) (*pgxpool.Pool, *blackHoleListener) {
+	t.Helper()
+	blackHole := newBlackHoleListener(t)
+	live := newFakeLedger(t)
+
+	openCtx, cancelOpen := context.WithTimeout(context.Background(), 30*time.Second)
+	t.Cleanup(cancelOpen)
+	pool, err := NewPool(openCtx, fakeLedgerDSN(connectTimeoutSeconds, blackHole.addr(), live.addr()), nil)
+	if err != nil {
+		t.Fatalf("open pool across a black-holed first host: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	pool.Reset()
+	return pool, blackHole
+}
+
+// With the connect bound at one second the dial past the black-holed host
+// fits inside the health deadline: the probe answers 200 while a ledger guest
+// is stopped.
+func TestPoolPingReachesASurvivingHostInsideTheHealthDeadline(t *testing.T) {
+	pool, blackHole := openPoolAcrossBlackHole(t, 1)
+	dialsBefore := blackHole.acceptedCount()
+
+	pingCtx, cancelPing := context.WithTimeout(context.Background(), healthProbeDeadline)
+	defer cancelPing()
+
+	startedAt := time.Now()
+	err := pool.Ping(pingCtx)
+	elapsed := time.Since(startedAt)
+
+	t.Logf("ping across a black-holed first host at connect_timeout=1 answered in %s", elapsed)
+	if err != nil {
+		t.Fatalf("ping across a black-holed first host after %s: %v", elapsed, err)
+	}
+	if elapsed >= healthProbeDeadline {
+		t.Fatalf("ping answered after %s, want inside the %s health deadline", elapsed, healthProbeDeadline)
+	}
+	if blackHole.acceptedCount() == dialsBefore {
+		t.Fatal("the black-holed host was never dialled; this did not exercise the health probe's dial")
+	}
+}
+
+// The defect as measured on QA on 2026-09-20 (TACK-464): with the connect
+// bound at two seconds, equal to the health deadline, the dial spends the
+// whole deadline on the black-holed host and the probe answers 503 "yugabyte
+// unhealthy" with "context deadline exceeded". This pins that failure: a
+// driver change that dials past the dead host sooner turns this test red.
+func TestPoolPingMissesTheHealthDeadlineWhenTheConnectBoundEqualsIt(t *testing.T) {
+	pool, _ := openPoolAcrossBlackHole(t, 2)
+
+	pingCtx, cancelPing := context.WithTimeout(context.Background(), healthProbeDeadline)
+	defer cancelPing()
+
+	startedAt := time.Now()
+	err := pool.Ping(pingCtx)
+	elapsed := time.Since(startedAt)
+
+	t.Logf("ping across a black-holed first host at connect_timeout=2 returned after %s: %v", elapsed, err)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("ping after %s = %v, want the %s health deadline to expire", elapsed, err, healthProbeDeadline)
 	}
 }
 
