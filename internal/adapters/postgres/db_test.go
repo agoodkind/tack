@@ -367,6 +367,72 @@ func TestPoolSurfacesASilentHeldConnectionWithoutSpendingTheCallerDeadline(t *te
 	}
 }
 
+// The defect as measured on QA on 2026-09-20 (TACK-464), in the shape the QA
+// owner guest produced: the first host answered the four pooled connections
+// and then stopped; the second host stays live. The next pool Ping pings each
+// idle connection under the pool's bound and destroys it, and the driver's
+// close runs a cancel request against the dead host under a fifteen-second
+// deadline while the slot stays held. With all four slots held, the Ping
+// blocks on the pool's semaphore past the health deadline. A fresh dial from
+// the same connection configuration spends the connect bound on the stopped
+// host and answers from the live one inside the deadline.
+func TestPoolPingBlocksOnHeldSlotsAfterAGuestStopsWhileAFreshDialAnswers(t *testing.T) {
+	stopped := newFakeLedger(t)
+	live := newFakeLedger(t)
+
+	openCtx, cancelOpen := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancelOpen()
+	dsn := fakeLedgerDSN(1, stopped.addr(), live.addr()) + "&pool_max_conns=4"
+	pool, err := NewPool(openCtx, dsn, nil)
+	if err != nil {
+		t.Fatalf("open pool: %v", err)
+	}
+	// The silent fake must drop its sockets before the pool closes; see shutdown.
+	defer pool.Close()
+	defer stopped.shutdown()
+
+	held := make([]*pgxpool.Conn, 0, 4)
+	for i := range 4 {
+		conn, err := pool.Acquire(openCtx)
+		if err != nil {
+			t.Fatalf("acquire %d: %v", i, err)
+		}
+		held = append(held, conn)
+	}
+	for _, conn := range held {
+		conn.Release()
+	}
+	if idle := pool.Stat().IdleConns(); idle != 4 {
+		t.Fatalf("idle connections = %d, want 4 held to the first host", idle)
+	}
+	// The pool only pings a connection idle for longer than a second.
+	time.Sleep(1500 * time.Millisecond)
+	stopped.goSilent()
+
+	pooledCtx, cancelPooled := context.WithTimeout(context.Background(), healthProbeDeadline)
+	defer cancelPooled()
+	startedAt := time.Now()
+	err = pool.Ping(pooledCtx)
+	pooledElapsed := time.Since(startedAt)
+	t.Logf("pool Ping with four held slots to a stopped host returned after %s: %v", pooledElapsed, err)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("pool Ping after %s = %v, want the %s health deadline to expire", pooledElapsed, err, healthProbeDeadline)
+	}
+
+	freshCtx, cancelFresh := context.WithTimeout(context.Background(), healthProbeDeadline)
+	defer cancelFresh()
+	startedAt = time.Now()
+	err = PingFreshConnection(freshCtx, pool)
+	freshElapsed := time.Since(startedAt)
+	t.Logf("fresh dial past the stopped host answered in %s", freshElapsed)
+	if err != nil {
+		t.Fatalf("fresh dial past the stopped host after %s: %v", freshElapsed, err)
+	}
+	if freshElapsed >= healthProbeDeadline {
+		t.Fatalf("fresh dial answered after %s, want inside the %s health deadline", freshElapsed, healthProbeDeadline)
+	}
+}
+
 // The connect bound is the one lever the deploy can carry, and it is safe only
 // because the driver consumes it. Every connection-string key the driver does
 // not recognise is forwarded to the server as a startup parameter, and the
@@ -412,10 +478,13 @@ func TestPoolConfigConsumesConnectTimeoutWithoutForwardingItToTheServer(t *testi
 	}
 }
 
-// The pool's ping bound has to leave room for a caller to walk the ENTIRE
-// pool dead and still dial a live host inside a two-second health deadline,
-// whatever size the pool resolved to: the pool sizes itself to the CPU count,
-// so a constant bound breaches the deadline on larger hosts.
+// The pool's ping bound guarantees one thing: a single caller retires every
+// dead connection in the pool inside the walk budget, whatever size the pool
+// resolved to. The pool sizes itself to the CPU count, and a constant bound
+// would scale the walk with the machine. The budget does not bound a health
+// probe: a destroyed connection's slot stays held while the driver cleans it
+// up, and the probe dials outside the pool for that reason (see
+// TestPoolPingBlocksOnHeldSlotsAfterAGuestStopsWhileAFreshDialAnswers).
 func TestPoolConfigBoundsTheFullPoolWalkUnderTheHealthDeadline(t *testing.T) {
 	cfg := configuredPool(t, deployDSN(2, "yb1:5433"))
 	if cfg.PingTimeout <= 0 {
@@ -426,7 +495,7 @@ func TestPoolConfigBoundsTheFullPoolWalkUnderTheHealthDeadline(t *testing.T) {
 			cfg.PingTimeout, acquirePingTimeoutFor(cfg.MaxConns), cfg.MaxConns)
 	}
 	if walk := time.Duration(cfg.MaxConns) * cfg.PingTimeout; walk > acquireWalkBudget {
-		t.Fatalf("walking all %d dead connections costs %s, past the %s budget inside the two-second health deadline",
+		t.Fatalf("walking all %d dead connections costs %s, past the %s walk budget",
 			cfg.MaxConns, walk, acquireWalkBudget)
 	}
 

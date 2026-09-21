@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -21,19 +22,21 @@ import (
 // bound the deadline is the caller's, so one caller retires one dead
 // connection and pays its whole budget doing it; a /healthz probe on a
 // two-second deadline therefore served 503 for as many probes as the pool held
-// connections (TACK-464). Bounding the ping lets a single caller walk past
-// every dead connection and reach a live one inside its own deadline.
+// connections (TACK-464). Bounding the ping lets a single caller retire every
+// dead connection inside the walk budget instead of one per caller deadline.
 //
-// The worst case is one caller walking the entire pool dead, which costs
-// MaxConns pings, so the per-ping bound is the walk budget divided by the pool
-// size rather than a constant: the pool sizes itself to the CPU count with a
-// floor of four, and a constant would scale the walk with the machine and
-// breach the health deadline on larger hosts. The budget leaves room inside
-// the two-second health deadline for the bounded dial that replaces the last
-// destroyed connection; the ceiling keeps small pools from growing the ping,
-// and the floor stays an order of magnitude above a healthy same-network round
-// trip. Exceeding a ping bound costs a reconnect, never a failed request,
-// because the pool destroys the connection and retries the acquire.
+// The bound does not put a health probe inside its deadline. A destroyed
+// connection's slot stays held while the driver runs its cancel request
+// against the dead host under a fifteen-second deadline, and
+// PingFreshConnection dials outside the pool for that reason. The worst case
+// for a caller is walking the entire pool dead, which costs MaxConns pings.
+// The per-ping bound is therefore the walk budget divided by the pool size
+// rather than a constant: the pool sizes itself to the CPU count with a floor
+// of four, and a constant would scale the walk with the machine. The ceiling
+// keeps small pools from growing the ping, and the floor stays an order of
+// magnitude above a healthy same-network round trip. Exceeding a ping bound
+// costs a reconnect, never a failed request, because the pool destroys the
+// connection and retries the acquire.
 //
 // This cannot move into the connection string. The pool parses exactly seven
 // pool_* keys out of a DSN and passes every other unrecognized key to the
@@ -88,6 +91,33 @@ func NewPool(ctx context.Context, dsn string, tracer pgx.QueryTracer) (*pgxpool.
 		return nil, fmt.Errorf("postgres ping: %w", err)
 	}
 	return pool, nil
+}
+
+// PingFreshConnection opens one standalone connection from the pool's
+// connection configuration, pings it, and closes it, all under ctx. It never
+// waits on a pool slot.
+//
+// The pool's own Ping acquires a slot first. After a ledger guest stops, every
+// pooled connection to it is dead: the next acquire pings each one under the
+// bound above and destroys it, and the driver's close then runs a cancel
+// request against the dead host under its own fifteen-second deadline while
+// the slot stays held. With every slot held that way, an acquire blocks on the
+// pool's semaphore for the whole cleanup, and a /healthz probe on a two-second
+// deadline answered 503 four probes in a row (TACK-464). A fresh dial answers
+// the question the probe asks, whether this instance can open a ledger
+// connection now, and costs one bounded dial per probe.
+func PingFreshConnection(ctx context.Context, pool *pgxpool.Pool) error {
+	conn, err := pgx.ConnectConfig(ctx, pool.Config().ConnConfig)
+	if err != nil {
+		slog.ErrorContext(ctx, "postgres.fresh_connect_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("postgres connect: %w", err)
+	}
+	defer func() { _ = conn.Close(ctx) }()
+	if err := conn.Ping(ctx); err != nil {
+		slog.ErrorContext(ctx, "postgres.fresh_ping_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("postgres ping: %w", err)
+	}
+	return nil
 }
 
 // Migrate runs pending goose migrations. Called by the `migrate` subcommand only,

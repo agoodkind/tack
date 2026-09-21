@@ -104,9 +104,11 @@ func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
 	}, nil
 }
 
-// PingYugabyte verifies that the Yugabyte connection pool can serve a request.
+// PingYugabyte verifies that this instance can open a Yugabyte connection now.
+// It dials outside the pool, because a pool slot can stay held for the
+// driver's cleanup of a dead connection (see postgres.PingFreshConnection).
 func (g *Graph) PingYugabyte(ctx context.Context) error {
-	if err := g.pool.Ping(ctx); err != nil {
+	if err := postgres.PingFreshConnection(ctx, g.pool); err != nil {
 		slog.ErrorContext(ctx, "runtime.yugabyte_ping_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("ping yugabyte: %w", err)
 	}
