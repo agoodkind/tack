@@ -15,10 +15,9 @@ and measurements. QA must pass before production.
 
 ## Build and lint gates
 
-- Run `make check` on the exact implementation base before the first code edit. Stop if the untouched base fails under the current fetched go-makefile and shared `golangci-lint` configuration.
+- Run `make build` on the exact implementation base before the first code edit. Stop if the untouched base fails under the current fetched go-makefile and shared `golangci-lint` configuration.
 - Keep every new production declaration reachable from a real production entry point within the task that adds it. Do not commit interfaces, adapters, constructors, helpers, or exports for a later task to connect.
-- After each coding task, run `make lint-files LINT_FILES='<changed Go files>'`, `make lint-deadcode`, and `make staticcheck-extra` before committing. Fix each new finding in that task.
-- End every code plan with `make check` and `make build`. The final validation plan reruns both from a clean checkout before live tests.
+- Run `make build` after each coding task and before committing. It runs every repository gate and compiles the server. Fix each new finding in that task. The final validation plan reruns `make build` from a clean checkout before live tests.
 - Do not edit lint baseline files or run an `accept-new` baseline target. New lint, complexity, strict-analyzer, and dead-code findings must remain zero.
 - Design production code around the enforced rules from its first task: use concrete types, injected clocks, contextual logging, returned errors, and recovered goroutines. Do not introduce `any`, empty interfaces, `panic`, direct `time.Now`, `context.TODO`, unprotected goroutines, or `//nolint` suppressions.
 
