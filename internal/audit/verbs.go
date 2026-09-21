@@ -180,6 +180,21 @@ const (
 	// VerbOpsStoreExclude records an operator taking product-store processes
 	// out of service, which moves their data first (TACK-408).
 	VerbOpsStoreExclude Verb = "ops.store_exclude"
+	// VerbOpsQueueStatus records an operator reading the audit queue's brokers,
+	// controller quorum, and topic copy counts (TACK-409).
+	VerbOpsQueueStatus Verb = "ops.queue_status"
+	// VerbOpsQueueSetReplication records a change to how many copies of an
+	// audit queue topic the brokers keep (TACK-409).
+	VerbOpsQueueSetReplication Verb = "ops.queue_set_replication"
+	// VerbOpsQueueReplicationProgress records an operator reading how far a
+	// partition reassignment has got (TACK-409).
+	VerbOpsQueueReplicationProgress Verb = "ops.queue_replication_progress"
+	// VerbOpsQueueSetMinInsync records a change to how many in-sync copies an
+	// acknowledged audit write requires (TACK-409).
+	VerbOpsQueueSetMinInsync Verb = "ops.queue_set_min_insync"
+	// VerbOpsQueueClearThrottle records an operator removing the replication
+	// rate caps a reassignment set (TACK-409).
+	VerbOpsQueueClearThrottle Verb = "ops.queue_clear_throttle"
 )
 
 // stateChangeVerbs is the set of application events that must be persisted

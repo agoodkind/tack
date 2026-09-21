@@ -330,7 +330,13 @@ services:
   #
   # Persist the result into KAFKA_CLUSTER_ID in .env so a recreate does
   # not stamp a fresh metadata directory and orphan the existing logs.
-  # No external port is exposed: traffic stays inside the IPv6 bridge.
+  # No external port is exposed: traffic stays inside the IPv6 bridge. The
+  # deploy's rendered override adds the network mode for a multi-guest cluster.
+  #
+  # Every TACK_QUEUE_* default below renders the single broker this file has
+  # always described (TACK-409). Each variable states a whole setting, because
+  # a guest's pinned address is an IPv6 literal that a listener string
+  # brackets.
   kafka:
     image: apache/kafka:4.2.0
     profiles: [audit]
@@ -338,31 +344,36 @@ services:
     mem_limit: 2g
     environment:
       KAFKA_PROCESS_ROLES: broker,controller
-      KAFKA_NODE_ID: "1"
-      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_NODE_ID: ${TACK_QUEUE_NODE_ID:-1}
+      KAFKA_CONTROLLER_QUORUM_VOTERS: ${TACK_QUEUE_CONTROLLER_VOTERS:-1@kafka:9093}
       KAFKA_LISTENERS: PLAINTEXT://[::]:9092,CONTROLLER://[::]:9093
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_ADVERTISED_LISTENERS: ${TACK_QUEUE_ADVERTISED_LISTENERS:-PLAINTEXT://kafka:9092}
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_LOG_DIRS: /var/lib/kafka/data
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      # The broker applies these counts at topic creation only. `ops queue
+      # set-replication` changes an existing topic (TACK-409).
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: ${TACK_QUEUE_REPLICATION_FACTOR:-1}
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: ${TACK_QUEUE_REPLICATION_FACTOR:-1}
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: ${TACK_QUEUE_MIN_INSYNC_REPLICAS:-1}
       KAFKA_NUM_PARTITIONS: "256"
-      KAFKA_DEFAULT_REPLICATION_FACTOR: "1"
-      KAFKA_MIN_INSYNC_REPLICAS: "1"
+      KAFKA_DEFAULT_REPLICATION_FACTOR: ${TACK_QUEUE_REPLICATION_FACTOR:-1}
+      KAFKA_MIN_INSYNC_REPLICAS: ${TACK_QUEUE_MIN_INSYNC_REPLICAS:-1}
       KAFKA_UNCLEAN_LEADER_ELECTION_ENABLE: "false"
-      # Empty default so the core stack parses while kafka is profile-gated off.
-      # The audit-profile deploy must set KAFKA_CLUSTER_ID (a kafka-storage.sh
-      # random-uuid) in .env before enabling the audit profile.
+      # The empty default lets the core stack parse while kafka is
+      # profile-gated off. An audit-profile deploy must set KAFKA_CLUSTER_ID to
+      # a kafka-storage.sh random-uuid in .env first.
       CLUSTER_ID: ${KAFKA_CLUSTER_ID:-}
     volumes:
       - kafka-data:/var/lib/kafka/data
     healthcheck:
+      # The default probe connects to every node in the cluster, which would
+      # mark surviving brokers unhealthy after a guest loss. A multi-broker
+      # deploy renders TACK_QUEUE_PROBE with a per-broker command.
       test:
         - CMD-SHELL
-        - /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server kafka:9092 >/dev/null 2>&1
+        - ${TACK_QUEUE_PROBE:-/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server kafka:9092} >/dev/null 2>&1
       interval: 10s
       timeout: 10s
       retries: 10
@@ -410,6 +421,13 @@ services:
       AUDIT_CONSUMER_KAFKA_TOPIC: ${AUDIT_CONSUMER_KAFKA_TOPIC:-audit.events.v1}
       AUDIT_CONSUMER_GROUP_ID: ${AUDIT_CONSUMER_GROUP_ID:-tack-audit-projector}
       AUDIT_CONSUMER_BATCH_SIZE: ${AUDIT_CONSUMER_BATCH_SIZE:-256}
+      # Zero leaves both counts to the broker (TACK-409).
+      # TACK_QUEUE_AUDIT_TOPIC_MIN_INSYNC applies to the audit topic on every
+      # start, existing topic included. A value above that topic's copy count
+      # fails every write with NOT_ENOUGH_REPLICAS, so raise it only after
+      # `ops queue set-replication` finishes.
+      AUDIT_CONSUMER_TOPIC_REPLICATION_FACTOR: ${TACK_QUEUE_REPLICATION_FACTOR:-0}
+      AUDIT_CONSUMER_TOPIC_MIN_INSYNC_REPLICAS: ${TACK_QUEUE_AUDIT_TOPIC_MIN_INSYNC:-0}
       AUDIT_CONSUMER_POLL_INTERVAL: ${AUDIT_CONSUMER_POLL_INTERVAL:-250ms}
       AUDIT_CONSUMER_YUGABYTE_DSN: ${AUDIT_WRITER_DSN}
       AUDIT_CONSUMER_CLICKHOUSE_DSN: ${AUDIT_CONSUMER_CLICKHOUSE_DSN:-clickhouse://default:@clickhouse:9000/audit}

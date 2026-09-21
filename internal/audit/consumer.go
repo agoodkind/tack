@@ -62,6 +62,12 @@ type ConsumerConfig struct {
 	// and the broker default of seven days lost fifteen days of events
 	// (TACK-336).
 	TopicRetention time.Duration
+
+	// Zero leaves both counts to the broker. On an existing topic only
+	// `ops queue set-replication` changes the copy count; the minimum is
+	// written on every start (TACK-409).
+	TopicReplicationFactor int
+	TopicMinInSyncReplicas int
 }
 
 // defaultTopicRetention is one year, well past any outage the operator would
@@ -149,7 +155,12 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 		return nil, fmt.Errorf("audit consumer kafka client: %w", err)
 	}
 
-	if err := ensureAuditTopic(ctx, kclient, cfg.Topic, cfg.TopicRetention); err != nil {
+	auditTopic := auditTopicShape{
+		Retention:         cfg.TopicRetention,
+		ReplicationFactor: cfg.TopicReplicationFactor,
+		MinInSyncReplicas: cfg.TopicMinInSyncReplicas,
+	}
+	if err := ensureAuditTopic(ctx, kclient, cfg.Topic, auditTopic); err != nil {
 		kclient.Close()
 		ybpool.Close()
 		if ch != nil {

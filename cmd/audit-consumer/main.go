@@ -44,7 +44,10 @@ type consumerEnv struct {
 	SummaryEvery    int           `env:"TACK_AUDIT_CONSUMER_SUMMARY_EVERY" envDefault:"100"`
 	PartitionPeriod time.Duration `env:"AUDIT_CONSUMER_PARTITION_PERIOD" envDefault:"24h"`
 	TopicRetention  time.Duration `env:"AUDIT_CONSUMER_TOPIC_RETENTION"  envDefault:"8760h"`
-	MetricsAddr     string        `env:"AUDIT_CONSUMER_METRICS_ADDR" envDefault:"127.0.0.1:9109"`
+	// Zero leaves both counts to the broker (TACK-409).
+	TopicReplicationFactor int    `env:"AUDIT_CONSUMER_TOPIC_REPLICATION_FACTOR"`
+	TopicMinInSyncReplicas int    `env:"AUDIT_CONSUMER_TOPIC_MIN_INSYNC_REPLICAS"`
+	MetricsAddr            string `env:"AUDIT_CONSUMER_METRICS_ADDR" envDefault:"127.0.0.1:9109"`
 	// FDBClusterFile enables the FoundationDB relay when set.
 	FDBClusterFile string `env:"FDB_CLUSTER_FILE"`
 	// FDBTransactionTimeout bounds each relay transaction against the product
@@ -177,6 +180,9 @@ func newAuditConsumer(ctx context.Context, cfg consumerEnv) (*audit.Consumer, er
 		SummaryEvery:    cfg.SummaryEvery,
 		PartitionPeriod: cfg.PartitionPeriod,
 		TopicRetention:  cfg.TopicRetention,
+
+		TopicReplicationFactor: cfg.TopicReplicationFactor,
+		TopicMinInSyncReplicas: cfg.TopicMinInSyncReplicas,
 	})
 	if err != nil {
 		slog.ErrorContext(ctx, "audit_consumer.consumer_failed", slog.String("err", err.Error()))

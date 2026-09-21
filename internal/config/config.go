@@ -322,6 +322,11 @@ type Config struct {
 	AuditConsumerClickHouseDSN  string        `env:"AUDIT_CONSUMER_CLICKHOUSE_DSN"`
 	AuditConsumerSigningKeyPath string        `env:"AUDIT_CONSUMER_SIGNING_KEY_PATH"`
 
+	// Zero leaves both counts to the broker. `ops queue set-replication`
+	// changes an existing topic's copy count (TACK-409).
+	AuditConsumerTopicReplicationFactor int `env:"AUDIT_CONSUMER_TOPIC_REPLICATION_FACTOR"`
+	AuditConsumerTopicMinInSyncReplicas int `env:"AUDIT_CONSUMER_TOPIC_MIN_INSYNC_REPLICAS"`
+
 	// AuditConsumerLagWarnMessages is the per-partition lag threshold
 	// above which the consumer logs `consumer.lag.high` on every poll.
 	// Default 1000 messages.

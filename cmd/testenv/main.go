@@ -8,6 +8,9 @@
 //	                      print its endpoint, bucket, keys, and container
 //	testenv objectstore-stop CONTAINER   stop that object store, as its guest stops
 //	testenv objectstore-start CONTAINER  start it again and print its endpoint
+//	testenv queue         start a three-broker Apache Kafka cluster, print its bootstrap list
+//	testenv queue-stop INDEX   stop the broker at that index, as its guest stops
+//	testenv queue-start INDEX  start it again and wait for the whole cluster
 //	testenv shared-dir    create a directory the Docker daemon sees at the same path, print it
 //	testenv down          remove every engine the tool or any test started
 //
@@ -37,11 +40,28 @@ const (
 	subcommandStopStore    subcommand = "objectstore-stop"
 	subcommandStartStore   subcommand = "objectstore-start"
 	subcommandSharedDir    subcommand = "shared-dir"
+	subcommandQueue        subcommand = "queue"
+	subcommandStopBroker   subcommand = "queue-stop"
+	subcommandStartBroker  subcommand = "queue-start"
 	subcommandDown         subcommand = "down"
 )
 
 const usage = "usage: testenv ledger | foundationdb | meilisearch | objectstore | " +
-	"objectstore-stop CONTAINER | objectstore-start CONTAINER | shared-dir | down"
+	"objectstore-stop CONTAINER | objectstore-start CONTAINER | queue | " +
+	"queue-stop INDEX | queue-start INDEX | shared-dir | down"
+
+// takesArgument reports whether a subcommand reads the second word.
+func takesArgument(command subcommand) bool {
+	switch command {
+	case subcommandStopStore, subcommandStartStore, subcommandStopBroker, subcommandStartBroker:
+		return true
+	case subcommandLedger, subcommandFoundationDB, subcommandMeilisearch, subcommandObjectStore,
+		subcommandSharedDir, subcommandQueue, subcommandDown:
+		return false
+	default:
+		return false
+	}
+}
 
 func main() {
 	code := run(os.Args[1:])
@@ -49,6 +69,17 @@ func main() {
 		slog.Error("testenv.exited", slog.String("err", "exit status "+strconv.Itoa(code)))
 		os.Exit(code)
 	}
+}
+
+// runBrokerStep reads the broker index the operator typed and hands it to act.
+// A word that is not a number is a usage error rather than a broker.
+func runBrokerStep(index string, act func(testenv.T, int)) int {
+	position, err := strconv.Atoi(index)
+	if err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, usage)
+		return 2
+	}
+	return runStep(func(step *cliStep) { act(step, position) })
 }
 
 // run dispatches one subcommand and returns the process exit code.
@@ -62,7 +93,7 @@ func run(args []string) int {
 	if len(args) == 2 {
 		containerName = args[1]
 	}
-	if (containerName != "") != (command == subcommandStopStore || command == subcommandStartStore) {
+	if (containerName != "") != takesArgument(command) {
 		_, _ = fmt.Fprintln(os.Stderr, usage)
 		return 2
 	}
@@ -89,6 +120,12 @@ func run(args []string) int {
 		return runStep(func(step *cliStep) { _, _ = fmt.Println(testenv.StartObjectStore(step, containerName)) })
 	case subcommandSharedDir:
 		return runStep(func(step *cliStep) { _, _ = fmt.Println(testenv.SharedDir(step)) })
+	case subcommandQueue:
+		return runStep(func(step *cliStep) { _, _ = fmt.Println(testenv.Queue(step)) })
+	case subcommandStopBroker:
+		return runBrokerStep(containerName, testenv.StopQueueBroker)
+	case subcommandStartBroker:
+		return runBrokerStep(containerName, testenv.StartQueueBroker)
 	case subcommandDown:
 		return runStep(func(step *cliStep) {
 			testenv.RequireDocker(step)

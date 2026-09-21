@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"strconv"
 	"time"
 
@@ -65,25 +66,81 @@ func pingYugabyteUntilReady(ctx context.Context, pool *pgxpool.Pool) error {
 // keeps a record nobody has consumed.
 const retentionConfigKey = "retention.ms"
 
+// brokerChoosesReplicationFactor is the create-topics sentinel minus one.
+const brokerChoosesReplicationFactor = -1
+
+// topicSetting is one topic configuration key and the value written to it.
+type topicSetting struct {
+	Name  string
+	Value string
+}
+
+// auditTopicShape is what the consumer requires of the audit topic.
+// ReplicationFactor and MinInSyncReplicas apply only above zero; zero leaves
+// both to the broker. A topic with one copy and a two-copy minimum rejects
+// every acks=all produce with NOT_ENOUGH_REPLICAS, so an operator runs
+// `ops queue set-replication` before raising the minimum (TACK-409).
+type auditTopicShape struct {
+	Retention         time.Duration
+	ReplicationFactor int
+	MinInSyncReplicas int
+}
+
+// settings returns the configuration keys this shape declares.
+func (shape auditTopicShape) settings() []topicSetting {
+	out := []topicSetting{{
+		Name:  retentionConfigKey,
+		Value: strconv.FormatInt(shape.Retention.Milliseconds(), 10),
+	}}
+	if shape.MinInSyncReplicas > 0 {
+		out = append(out, topicSetting{
+			Name:  minInSyncReplicasConfig,
+			Value: strconv.Itoa(shape.MinInSyncReplicas),
+		})
+	}
+	return out
+}
+
+// createReplicationFactor returns the copy count for a topic this call
+// creates. The create-topics field is a signed 16-bit integer, and a value
+// outside that range is refused.
+func (shape auditTopicShape) createReplicationFactor() (int16, error) {
+	if shape.ReplicationFactor <= 0 {
+		return brokerChoosesReplicationFactor, nil
+	}
+	if shape.ReplicationFactor > math.MaxInt16 {
+		return 0, fmt.Errorf("audit topic replication factor %d is outside the range the request encodes",
+			shape.ReplicationFactor)
+	}
+	return int16(shape.ReplicationFactor), nil
+}
+
 // ensureAuditTopic creates the audit topic with auditTopicPartitions partitions
 // when it does not already exist, so a fresh broker does not leave the consumer
-// fetching a topic that nothing has created (TACK-305). The replication factor
-// is left to the broker default (-1) so the same call works at one broker or
-// many. An existing topic keeps its partitions and has its retention brought
-// to the configured value, because the topic is the buffer that holds every
-// event the consumer has not yet committed: the broker default of seven days
-// discarded the 2026-07-06 to 07-21 events during a consumer outage (TACK-336).
-func ensureAuditTopic(ctx context.Context, client *kgo.Client, topic string, retention time.Duration) error {
-	retentionMs := strconv.FormatInt(retention.Milliseconds(), 10)
+// fetching a topic that nothing has created (TACK-305). An existing topic keeps
+// its partitions and its copy count, and takes the settings above. The topic is
+// the buffer for every event the consumer has not yet committed, and the broker
+// default of seven days discarded the 2026-07-06 to 07-21 events during a
+// consumer outage (TACK-336).
+func ensureAuditTopic(ctx context.Context, client *kgo.Client, topic string, shape auditTopicShape) error {
+	settings := shape.settings()
+	replicationFactor, err := shape.createReplicationFactor()
+	if err != nil {
+		slog.ErrorContext(ctx, "audit.consumer.topic_shape_rejected",
+			slog.String("topic", topic), slog.String("err", err.Error()))
+		return err
+	}
 	req := kmsg.NewPtrCreateTopicsRequest()
 	reqTopic := kmsg.NewCreateTopicsRequestTopic()
 	reqTopic.Topic = topic
 	reqTopic.NumPartitions = auditTopicPartitions
-	reqTopic.ReplicationFactor = -1
-	reqConfig := kmsg.NewCreateTopicsRequestTopicConfig()
-	reqConfig.Name = retentionConfigKey
-	reqConfig.Value = &retentionMs
-	reqTopic.Configs = append(reqTopic.Configs, reqConfig)
+	reqTopic.ReplicationFactor = replicationFactor
+	for index := range settings {
+		reqConfig := kmsg.NewCreateTopicsRequestTopicConfig()
+		reqConfig.Name = settings[index].Name
+		reqConfig.Value = &settings[index].Value
+		reqTopic.Configs = append(reqTopic.Configs, reqConfig)
+	}
 	req.Topics = append(req.Topics, reqTopic)
 
 	resp, err := req.RequestWith(ctx, client)
@@ -101,11 +158,11 @@ func ensureAuditTopic(ctx context.Context, client *kgo.Client, topic string, ret
 		codeErr := kerr.ErrorForCode(respTopic.ErrorCode)
 		if errors.Is(codeErr, kerr.TopicAlreadyExists) {
 			// A broker that refuses the alter (an ACL, an older version)
-			// leaves the topic at its current retention; that is a
-			// shorter buffer, not a stopped consumer, so it is logged and
+			// leaves the topic as it stands. That is a shorter buffer
+			// rather than a stopped consumer. The refusal is logged and
 			// the consumer keeps projecting.
-			if err := setTopicRetention(ctx, client, topic, retentionMs); err != nil {
-				slog.ErrorContext(ctx, "audit.consumer.topic_retention_unchanged",
+			if err := setTopicConfigs(ctx, client, topic, settings); err != nil {
+				slog.ErrorContext(ctx, "audit.consumer.topic_settings_unchanged",
 					slog.String("topic", topic), slog.String("err", err.Error()))
 			}
 			continue
@@ -119,41 +176,45 @@ func ensureAuditTopic(ctx context.Context, client *kgo.Client, topic string, ret
 	slog.InfoContext(ctx, "audit.consumer.topic_ensured",
 		slog.String("topic", topic),
 		slog.Int("partitions", auditTopicPartitions),
-		slog.String("retention", retention.String()),
+		slog.String("retention", shape.Retention.String()),
+		slog.Int("replication_factor", shape.ReplicationFactor),
+		slog.Int("min_insync_replicas", shape.MinInSyncReplicas),
 	)
 	return nil
 }
 
-// setTopicRetention sets retention.ms on an existing topic. It is one
-// incremental alter of one key, so every other topic setting is untouched.
-func setTopicRetention(ctx context.Context, client *kgo.Client, topic string, retentionMs string) error {
+// setTopicConfigs is one incremental alter of the named keys against an
+// existing topic; every other topic setting is untouched.
+func setTopicConfigs(ctx context.Context, client *kgo.Client, topic string, settings []topicSetting) error {
 	req := kmsg.NewPtrIncrementalAlterConfigsRequest()
 	resource := kmsg.NewIncrementalAlterConfigsRequestResource()
 	resource.ResourceType = kmsg.ConfigResourceTypeTopic
 	resource.ResourceName = topic
-	config := kmsg.NewIncrementalAlterConfigsRequestResourceConfig()
-	config.Name = retentionConfigKey
-	config.Op = kmsg.IncrementalAlterConfigOpSet
-	config.Value = &retentionMs
-	resource.Configs = append(resource.Configs, config)
+	for index := range settings {
+		config := kmsg.NewIncrementalAlterConfigsRequestResourceConfig()
+		config.Name = settings[index].Name
+		config.Op = kmsg.IncrementalAlterConfigOpSet
+		config.Value = &settings[index].Value
+		resource.Configs = append(resource.Configs, config)
+	}
 	req.Resources = append(req.Resources, resource)
 
 	resp, err := req.RequestWith(ctx, client)
 	if err != nil {
-		slog.ErrorContext(ctx, "audit.consumer.topic_retention_request_failed",
+		slog.ErrorContext(ctx, "audit.consumer.topic_settings_request_failed",
 			slog.String("topic", topic), slog.String("err", err.Error()))
-		return fmt.Errorf("audit consumer set retention on %s: %w", topic, err)
+		return fmt.Errorf("audit consumer set configs on %s: %w", topic, err)
 	}
 	for _, respResource := range resp.Resources {
 		if respResource.ErrorCode == 0 {
 			continue
 		}
 		codeErr := kerr.ErrorForCode(respResource.ErrorCode)
-		slog.ErrorContext(ctx, "audit.consumer.topic_retention_failed",
+		slog.ErrorContext(ctx, "audit.consumer.topic_settings_failed",
 			slog.String("topic", topic), slog.String("err", codeErr.Error()))
-		return fmt.Errorf("audit consumer set retention on %s: %w", topic, codeErr)
+		return fmt.Errorf("audit consumer set configs on %s: %w", topic, codeErr)
 	}
-	slog.InfoContext(ctx, "audit.consumer.topic_retention_set",
-		slog.String("topic", topic), slog.String("retention_ms", retentionMs))
+	slog.InfoContext(ctx, "audit.consumer.topic_settings_set",
+		slog.String("topic", topic), slog.Int("count", len(settings)))
 	return nil
 }
