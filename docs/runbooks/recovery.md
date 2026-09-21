@@ -19,9 +19,6 @@ when a store must be rebuilt from off-host artifacts.
   ledger (`audit.events`, `audit.chain_heads`, `audit.notarizations`,
   `audit.pii`). Its backup is an engine-native distributed snapshot exported
   off-host to the object store.
-- Meilisearch holds the search index and is rebuilt from FoundationDB, not
-  restored. See [Meilisearch recovery](meilisearch.md).
-- Temporal holds no Tack data and has no backup.
 
 ## What each tier costs you
 

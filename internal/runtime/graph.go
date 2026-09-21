@@ -11,10 +11,8 @@ import (
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	mcpadapter "goodkind.io/tack/internal/adapters/mcp"
 	"goodkind.io/tack/internal/adapters/postgres"
-	searchadapter "goodkind.io/tack/internal/adapters/search"
 	"goodkind.io/tack/internal/auth"
 	"goodkind.io/tack/internal/config"
-	domainsearch "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/service"
 	"goodkind.io/tack/internal/telemetry"
 
@@ -48,7 +46,6 @@ func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
 		return nil, fmt.Errorf("runtime: foundationdb: %w", err)
 	}
 
-	searcher := buildSearcher(cfg)
 	auditRuntimeDeps, err := buildAuditRuntime(ctx, cfg, fdbStores.OpsOutbox)
 	if err != nil {
 		pool.Close()
@@ -78,7 +75,6 @@ func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
 		fdbStores.PropertyDefs,
 		fdbStores.Relationships,
 		fdbStores.NodeDeleter,
-		searcher,
 	)
 
 	mcpHandler := mcpadapter.NewHandler(mcpadapter.Deps{
@@ -90,7 +86,6 @@ func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
 		Relationships: fdbStores.Relationships,
 		Members:       orgMembers,
 		Users:         userRepo,
-		Searcher:      searcher,
 	})
 
 	authMiddleware := buildAuthMiddleware(cfg, tokenRepo, orgMembers)
@@ -138,21 +133,4 @@ func buildAuthMiddleware(cfg *config.Config, tokenRepo auth.TokenValidator, orgM
 		return auth.DevBearer(orgMembers)
 	}
 	return auth.Bearer(tokenRepo, orgMembers)
-}
-
-// buildSearcher creates a Meilisearch client and ensures the nodes index is
-// configured through searchadapter.EnsureNodesIndex. Falls back to a no-op
-// Searcher on setup failure.
-func buildSearcher(cfg *config.Config) domainsearch.Searcher {
-	meiliClient := searchadapter.New(cfg.MeiliURL, cfg.MeiliMasterKey)
-	err := searchadapter.EnsureNodesIndex(meiliClient)
-	if err != nil {
-		slog.Error("meilisearch.setup_failed",
-			slog.String("url", cfg.MeiliURL),
-			slog.String("err", err.Error()),
-		)
-		return searchadapter.Noop{}
-	}
-	slog.Info("meilisearch.connected", slog.String("url", cfg.MeiliURL))
-	return meiliClient
 }

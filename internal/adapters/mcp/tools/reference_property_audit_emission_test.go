@@ -106,7 +106,6 @@ func TestReferencePropertySetterRecordsMutatedNode(t *testing.T) {
 		propertyDefs,
 		nil,
 		nil,
-		createAuditSearcher{},
 	)
 	binding := NodeTypeBinding{
 		NodeSvc:      nodeService,

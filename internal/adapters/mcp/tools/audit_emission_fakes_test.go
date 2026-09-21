@@ -7,7 +7,6 @@ import (
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/auditintent"
 	"goodkind.io/tack/internal/domain/node"
-	domainsearch "goodkind.io/tack/internal/domain/search"
 )
 
 type createAuditNodeRepo struct {
@@ -90,22 +89,4 @@ func (r *createAuditTypes) List(context.Context, uuid.UUID) ([]*node.NodeType, e
 
 func (r *createAuditTypes) Delete(context.Context, uuid.UUID, uuid.UUID) error {
 	panic("createAuditTypes.Delete called")
-}
-
-type createAuditSearcher struct{}
-
-func (createAuditSearcher) Index(context.Context, string, string, *domainsearch.NodeDoc) error {
-	return nil
-}
-
-func (createAuditSearcher) IndexBatch(context.Context, string, []*domainsearch.NodeDoc) error {
-	panic("createAuditSearcher.IndexBatch called")
-}
-
-func (createAuditSearcher) Delete(context.Context, string, string) error {
-	return nil
-}
-
-func (createAuditSearcher) Search(context.Context, string, string, map[string]string) ([]domainsearch.NodeDoc, map[string]map[string]int64, error) {
-	panic("createAuditSearcher.Search called")
 }

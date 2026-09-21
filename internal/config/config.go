@@ -150,14 +150,6 @@ type Config struct {
 	AuditReadBatchSize      int           `env:"AUDIT_READ_BATCH_SIZE"      envDefault:"256"`
 	AuditReadFlushInterval  time.Duration `env:"AUDIT_READ_FLUSH_INTERVAL"  envDefault:"200ms"`
 
-	// Meilisearch. Both values are required and may not be empty: a
-	// compiled-in address or key would let a process start against the
-	// wrong search engine, or with a key everyone knows, without saying so,
-	// and an empty rendered value is the same silence (TACK-268).
-	// docker-compose.yml sets the address per service and the key from .env.
-	MeiliURL       string `env:"MEILI_URL,required,notEmpty"`
-	MeiliMasterKey string `env:"MEILI_MASTER_KEY,required,notEmpty"`
-
 	// Optional: if unset, OTEL tracing is a no-op.
 	OTELEndpoint string `env:"OTEL_EXPORTER_OTLP_ENDPOINT"`
 

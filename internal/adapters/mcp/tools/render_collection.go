@@ -77,22 +77,6 @@ func renderRelationships(rc *renderCtx, direction string, rels []*node.Relations
 	return executeMarkdownTemplate("collection.md.tmpl", data)
 }
 
-func renderSearchViews(rc *renderCtx, views []*node.NodeView) string {
-	items := make([]markdownItem, 0, len(views))
-	for _, view := range views {
-		fields := []markdownField{
-			markdownFieldValue("Name", view.Name),
-			markdownCodeFieldValue("Type", view.NodeType),
-		}
-		if state := rc.nodeIdentifier(uuidProp(view, "state_id")); state != "" {
-			fields = append(fields, markdownCodeFieldValue("State", state))
-		}
-		items = append(items, markdownItem{Title: markdownCodeValue(identifierFor(view, rc)), Fields: fields})
-	}
-	data := collectionTemplateData{Heading: "Search results", Count: len(views), Noun: "results", Items: items}
-	return executeMarkdownTemplate("collection.md.tmpl", data)
-}
-
 func nodeListItem(rc *renderCtx, view *node.NodeView) markdownItem {
 	ident := identifierFor(view, rc)
 	fields := []markdownField{markdownCodeFieldValue("Type", view.NodeType)}

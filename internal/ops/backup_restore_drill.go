@@ -87,11 +87,9 @@ type RestoreDrillOptions struct {
 // RunBackupRestoreDrill restores FoundationDB (from the continuous backup) and
 // YugabyteDB (from the distributed-snapshot export) into throwaway containers
 // and asserts each holds data. The YugabyteDB leg goes further and verifies the
-// restored audit ledger's hash chain. Meilisearch is excluded because it
-// rebuilds from FoundationDB, and Temporal is excluded because it holds no Tack
-// data. Each leg
-// runs even if another fails so the drill reports a complete picture; the drill
-// errors if any attempted leg fails. opts optionally pins the yugabyte leg to
+// restored audit ledger's hash chain. Each leg runs even if another fails, so
+// the drill reports a complete picture. The drill errors if any attempted leg
+// fails. opts optionally pins the yugabyte leg to
 // one export run and the FoundationDB leg to one moment. A drill where every
 // attempted leg passed records a rehearsal marker in the object store, which is
 // what `ops backup staleness-check` dates the rehearsal from. The marker put

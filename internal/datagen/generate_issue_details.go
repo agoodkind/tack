@@ -85,15 +85,6 @@ func (g *Generator) exerciseIssueReads(
 			args: ToolArguments{NodeID: issueReference},
 		},
 		{
-			name: "tack_search",
-			args: ToolArguments{
-				WorkspaceReference: workspace.Slug,
-				ProjectReference:   projectIdentifier,
-				Query:              issueReference,
-				NodeType:           "issue",
-			},
-		},
-		{
 			name: "tack_list_relationships",
 			args: ToolArguments{NodeID: issueReference, Direction: "out"},
 		},

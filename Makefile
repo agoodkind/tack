@@ -61,7 +61,7 @@ seed:
 # Tests run inside the test runner image (docker-compose.test.yml), which
 # bind-mounts the Docker socket and the source tree at the tree's host path,
 # so a path a test names in a bind mount means the same file to the daemon.
-# A test that needs FoundationDB, the ledger, Meilisearch, or the object store
+# A test that needs FoundationDB, the ledger, or the object store
 # starts it through internal/testenv, which gives each test binary its own
 # engine containers and removes them when the binary exits; `make
 # test-env-down` removes any a killed binary left. Only `go test -short` skips

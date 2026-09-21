@@ -25,7 +25,7 @@ func TestPreviewReferencePropertyChoosesHighestRank(t *testing.T) {
 			phaseView(t, highPhaseID, orgID, containerID, "Done", 3),
 		},
 	}
-	console := NewRepairConsole(&repairNodeRepo{reader: reader}, reader, &repairTypeRepo{types: repairTypes()}, &repairPropRepo{defs: repairDefs()}, &repairSearcher{})
+	console := NewRepairConsole(&repairNodeRepo{reader: reader}, reader, &repairTypeRepo{types: repairTypes()}, &repairPropRepo{defs: repairDefs()})
 
 	preview, err := console.Preview(context.Background(), RepairPreviewInput{Class: RepairClassReferenceProperty, NodeID: ticketID, Profile: phaseProfile()})
 	if err != nil {

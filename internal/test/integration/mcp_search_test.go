@@ -1,37 +1,52 @@
 package integration
 
-import (
-	"strings"
-	"testing"
-	"time"
-)
+import "testing"
 
-func TestSearchFindsIssueByTitleWord(t *testing.T) {
+const unavailableSearchMessage = "Search is temporarily unavailable."
+
+func TestSearchAlwaysReportsTemporaryOutage(t *testing.T) {
 	harness := NewMCPHarness(t)
-	reference := harness.CreateIssue(t, "Temporal WAL archive rollout")
-	arguments := harness.projectArgs()
-	arguments.ProjectReference = ""
-	arguments.Query = "archive"
+	issueReference := harness.CreateIssue(t, "Temporal WAL archive rollout")
 
-	found := waitFor(t, 10*time.Second, func() bool {
-		text := harness.Call(t, "tack_search", arguments).Text()
-		return strings.Contains(text, reference)
-	})
-
-	if !found {
-		t.Fatalf("search for %q never returned %s", "archive", reference)
+	cases := []struct {
+		name      string
+		arguments map[string]any
+	}{
+		{name: "ordinary query", arguments: map[string]any{
+			"workspace_reference": harness.Workspace, "query": "archive",
+		}},
+		{name: "exact title", arguments: map[string]any{
+			"workspace_reference": harness.Workspace, "query": "Temporal WAL archive rollout",
+		}},
+		{name: "exact node reference", arguments: map[string]any{
+			"workspace_reference": harness.Workspace, "query": issueReference,
+		}},
+		{name: "filters", arguments: map[string]any{
+			"workspace_reference": harness.Workspace, "query": "archive", "node_type": "issue",
+		}},
+		{name: "invalid reference", arguments: map[string]any{
+			"workspace_reference": "missing-workspace", "query": "archive",
+		}},
+		{name: "omitted arguments", arguments: map[string]any{}},
+		{name: "unknown argument", arguments: map[string]any{"unexpected": "value"}},
+		{name: "wrong value type", arguments: map[string]any{"query": 42}},
 	}
-}
-
-func TestSearchReportsUnavailableBackend(t *testing.T) {
-	harness := newMCPHarnessWithSearch(t, unreachableMeiliURL)
-	arguments := harness.projectArgs()
-	arguments.ProjectReference = ""
-	arguments.Query = "anything"
-
-	text := harness.CallExpectError(t, "tack_search", arguments)
-
-	if !strings.Contains(text, "Search is unavailable") {
-		t.Fatalf("unexpected error text:\n%s", text)
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			result := callToolRaw(t, harness, "tack_search", testCase.arguments)
+			if !result.IsError {
+				t.Fatal("tack_search returned a successful result")
+			}
+			if len(result.Content) != 1 {
+				t.Fatalf("content length = %d, want 1", len(result.Content))
+			}
+			content := result.Content[0]
+			if content.Type != "text" {
+				t.Fatalf("content type = %q, want text", content.Type)
+			}
+			if content.Text != unavailableSearchMessage {
+				t.Fatalf("text = %q, want %q", content.Text, unavailableSearchMessage)
+			}
+		})
 	}
 }

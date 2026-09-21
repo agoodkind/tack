@@ -53,7 +53,7 @@ This plan codifies the fail-loud-and-early pattern across the binary, compose, a
    - **`,required` tag in config.go**: vars EVERY container needs (the shared baseline). Today only DATABASE_URL. Expand to YUGABYTE_PASSWORD, AUDIT_*_DSN, AUDIT_SIGNING_KEY_PATH (every container records audit and connects to YB).
    - **Per-subcommand `RequiredEnv() []string` validation**: vars only some subcommands need within a container. Failure consolidated into one error listing all missing vars at subcommand entry, before any work runs.
 
-   Concrete tier 2 expansion: AUDIT_WRITER_DSN, AUDIT_READER_DSN, AUDIT_REDACTOR_DSN, AUDIT_SIGNING_KEY_PATH, YUGABYTE_PASSWORD. Remove the dev default on MEILI_MASTER_KEY (`tack-dev-meili-key-change-in-prod`) so it can't ship to production silently.
+   Concrete tier 2 expansion: AUDIT_WRITER_DSN, AUDIT_READER_DSN, AUDIT_REDACTOR_DSN, AUDIT_SIGNING_KEY_PATH, YUGABYTE_PASSWORD.
 
    Tier 3 examples: TACK_BACKUP_TEMPORAL_DB_PASSWORD, SEED_EMAIL/SEED_NAME.
    - `SEED_EMAIL` and `SEED_NAME`: only seed needs them (already validated at `cmd/server/seed.go:67-71`)
@@ -123,7 +123,6 @@ This plan codifies the fail-loud-and-early pattern across the binary, compose, a
    - All `AUDIT_*_DSN` references in app and audit-consumer become `:?` (currently undecorated)
    - `TACK_OPS_DATABASE_URL` becomes `:?` in tack-ops (currently undecorated)
    - `TACK_BACKUP_TEMPORAL_DB_PASSWORD` should NOT have a `:-temporal` fallback — that masks rotation. Make it `:?` and require it in `.env`.
-   - `MEILI_MASTER_KEY` should NOT default to the dev value in compose. Make it `:?` and require explicit setting.
 
 6. **`AUDIT_*_PASSWORD` are load-bearing, not orphans.**
 

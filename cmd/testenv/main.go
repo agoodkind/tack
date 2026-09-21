@@ -3,7 +3,6 @@
 //
 //	testenv ledger        start a YugabyteDB ledger, migrate it, print its DSN
 //	testenv foundationdb  start a single-node FoundationDB, print its cluster file
-//	testenv meilisearch   start a Meilisearch engine, print its URL and master key
 //	testenv objectstore   start a SeaweedFS object store, create a bucket, and
 //	                      print its endpoint, bucket, keys, and container
 //	testenv objectstore-stop CONTAINER   stop that object store, as its guest stops
@@ -32,7 +31,6 @@ type subcommand string
 const (
 	subcommandLedger       subcommand = "ledger"
 	subcommandFoundationDB subcommand = "foundationdb"
-	subcommandMeilisearch  subcommand = "meilisearch"
 	subcommandObjectStore  subcommand = "objectstore"
 	subcommandStopStore    subcommand = "objectstore-stop"
 	subcommandStartStore   subcommand = "objectstore-start"
@@ -40,7 +38,7 @@ const (
 	subcommandDown         subcommand = "down"
 )
 
-const usage = "usage: testenv ledger | foundationdb | meilisearch | objectstore | " +
+const usage = "usage: testenv ledger | foundationdb | objectstore | " +
 	"objectstore-stop CONTAINER | objectstore-start CONTAINER | shared-dir | down"
 
 func main() {
@@ -72,11 +70,6 @@ func run(args []string) int {
 		return runStep(func(step *cliStep) { _, _ = fmt.Println(testenv.Ledger(step)) })
 	case subcommandFoundationDB:
 		return runStep(func(step *cliStep) { _, _ = fmt.Println(testenv.FoundationDB(step)) })
-	case subcommandMeilisearch:
-		return runStep(func(step *cliStep) {
-			url, masterKey := testenv.Meilisearch(step)
-			_, _ = fmt.Println(url, masterKey)
-		})
 	case subcommandObjectStore:
 		return runStep(func(step *cliStep) {
 			store := testenv.ObjectStore(step)

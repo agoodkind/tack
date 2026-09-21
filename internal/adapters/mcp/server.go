@@ -17,7 +17,6 @@ import (
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/domain/org"
-	domainsearch "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/domain/user"
 	"goodkind.io/tack/internal/service"
 	"goodkind.io/tack/internal/telemetry"
@@ -42,7 +41,6 @@ type Handler struct {
 	relationships node.RelationshipRepository
 	members       org.MemberRepository
 	users         user.Repository
-	searcher      domainsearch.Searcher
 
 	mu    sync.RWMutex
 	cache map[uuid.UUID]*cachedServer
@@ -58,7 +56,6 @@ type Deps struct {
 	Relationships node.RelationshipRepository
 	Members       org.MemberRepository
 	Users         user.Repository
-	Searcher      domainsearch.Searcher
 }
 
 func NewHandler(d Deps) *Handler {
@@ -71,7 +68,6 @@ func NewHandler(d Deps) *Handler {
 		relationships: d.Relationships,
 		members:       d.Members,
 		users:         d.Users,
-		searcher:      d.Searcher,
 		cache:         make(map[uuid.UUID]*cachedServer),
 	}
 }
@@ -197,7 +193,7 @@ func (h *Handler) buildServer(nodeTypes []*node.NodeType, propertyDefs []*node.P
 	tools.RegisterWorkspace(s, h.reader, resolver, nodeTypes)
 	tools.RegisterMembers(s, h.members, h.users, resolver)
 	tools.RegisterProperty(s, h.propertyDefs, resolver)
-	tools.RegisterSearch(s, h.searcher, resolver)
+	tools.RegisterSearch(s, resolver)
 	tools.RegisterRelationship(s, h.nodeSvc, h.relationships, resolver)
 
 	binding := tools.NodeTypeBinding{

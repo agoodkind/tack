@@ -1,5 +1,5 @@
 // Package testenv gives tests a real YugabyteDB ledger, a real FoundationDB
-// cluster, a real Meilisearch engine, and a real SeaweedFS object store. Each
+// cluster, and a real SeaweedFS object store. Each
 // process starts its own engines as containers through the Docker SDK, so test
 // binaries running in parallel share no engine state, and removes them when
 // [Release] runs at the end of the binary's TestMain. The engine images are
@@ -7,8 +7,8 @@
 // which the configs repo runs outside that stack, pins the release that repo
 // deploys.
 //
-// A test that needs a store calls [Ledger], [FoundationDB], [Meilisearch], or
-// [ObjectStore]. When the Docker daemon cannot be reached the test fails with
+// A test that needs a store calls [Ledger], [FoundationDB], or [ObjectStore].
+// When the Docker daemon cannot be reached the test fails with
 // the reason; only a `go test -short` run skips it. cmd/testenv drives the
 // same helpers for an operator, and its `down` subcommand removes every engine
 // by label.

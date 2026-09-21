@@ -14,7 +14,7 @@ import (
 )
 
 func TestPreviewReferencePropertyRejectsMissingNodeID(t *testing.T) {
-	console := NewRepairConsole(&repairNodeRepo{}, &repairReader{}, &repairTypeRepo{types: repairTypes()}, &repairPropRepo{defs: repairDefs()}, &repairSearcher{})
+	console := NewRepairConsole(&repairNodeRepo{}, &repairReader{}, &repairTypeRepo{types: repairTypes()}, &repairPropRepo{defs: repairDefs()})
 	_, err := console.Preview(context.Background(), RepairPreviewInput{Class: RepairClassReferenceProperty, Profile: phaseProfile()})
 	if !errors.Is(err, domain.ErrInvalidArgument) {
 		t.Fatalf("Preview err = %v want ErrInvalidArgument", err)
@@ -26,7 +26,7 @@ func TestPreviewReferencePropertyReturnsNoopWhenSourceMissing(t *testing.T) {
 	reader := &repairReader{views: map[uuid.UUID]*node.NodeView{
 		ticketID: {ID: ticketID, OrgID: uuid.New(), NodeType: "ticket", Name: "Ticket", Props: map[string]json.RawMessage{}, UpdatedAt: time.Date(2026, 5, 3, 12, 0, 0, 0, time.UTC)},
 	}}
-	console := NewRepairConsole(&repairNodeRepo{reader: reader}, reader, &repairTypeRepo{types: repairTypes()}, &repairPropRepo{defs: repairDefs()}, &repairSearcher{})
+	console := NewRepairConsole(&repairNodeRepo{reader: reader}, reader, &repairTypeRepo{types: repairTypes()}, &repairPropRepo{defs: repairDefs()})
 
 	preview, err := console.Preview(context.Background(), RepairPreviewInput{Class: RepairClassReferenceProperty, NodeID: ticketID, Profile: phaseProfile()})
 	if err != nil {
@@ -55,7 +55,7 @@ func TestPreviewReferencePropertyBlocksAmbiguousScopedProperty(t *testing.T) {
 			phaseView(t, secondPhaseID, orgID, containerID, "Ready", 2),
 		},
 	}
-	console := NewRepairConsole(&repairNodeRepo{reader: reader}, reader, &repairTypeRepo{types: repairTypes()}, &repairPropRepo{defs: repairDefs()}, &repairSearcher{})
+	console := NewRepairConsole(&repairNodeRepo{reader: reader}, reader, &repairTypeRepo{types: repairTypes()}, &repairPropRepo{defs: repairDefs()})
 
 	preview, err := console.Preview(context.Background(), RepairPreviewInput{Class: RepairClassReferenceProperty, NodeID: ticketID, Profile: phaseProfile()})
 	if err != nil {

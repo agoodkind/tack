@@ -46,7 +46,7 @@ func TestServeHTTPCarriesRequestMetadataDownstream(t *testing.T) {
 	members := &capturingMembers{seen: nil}
 	handler := NewHandler(Deps{
 		NodeSvc: nil, Nodes: nil, Reader: nil, NodeTypes: nil, PropertyDefs: nil,
-		Relationships: nil, Members: members, Users: nil, Searcher: nil,
+		Relationships: nil, Members: members, Users: nil,
 	})
 	body := `{"jsonrpc":"2.0","id":"datagen-abc","method":"tools/call","params":{"name":"tack_create_issue"}}`
 	request := httptest.NewRequestWithContext(auth.WithUser(context.Background(), uuid.New()), http.MethodPost, "/mcp", strings.NewReader(body))

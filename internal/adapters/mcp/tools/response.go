@@ -8,7 +8,6 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"goodkind.io/tack/internal/domain"
-	domainsearch "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/telemetry"
 )
 
@@ -83,8 +82,6 @@ func classifyError(ctx context.Context, err error) *mcp.CallToolResult {
 		return recoverableError(err.Error() + ". Re-read the current entity before retrying.")
 	case errors.Is(err, domain.ErrFailedPrecondition):
 		return recoverableError(err.Error() + ". Check the current state before retrying.")
-	case errors.Is(err, domainsearch.ErrUnavailable):
-		return recoverableError("Search is unavailable because the search backend is not connected. Use tack_list_<plural> with filters, or yield to the user")
 	default:
 		return unexpectedError(ctx, err)
 	}

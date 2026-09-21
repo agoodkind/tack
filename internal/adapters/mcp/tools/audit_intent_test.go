@@ -50,7 +50,7 @@ func TestCreateToolCommitsItsRowWithTheNodeAndRecordsItOnce(t *testing.T) {
 	resolver := NewResolver(repo, reader, &fakeMembers{orgIDs: []uuid.UUID{orgID}}, nodeTypes)
 	propertyDefs := &fakePropertyDefs{defs: []*node.PropertyDef{{Name: "parent_id"}, {Name: "scope_id"}}}
 	nodeService := service.NewNodeService(
-		repo, reader, &createAuditTypes{types: nodeTypes}, propertyDefs, nil, nil, createAuditSearcher{},
+		repo, reader, &createAuditTypes{types: nodeTypes}, propertyDefs, nil, nil,
 	)
 	binding := NodeTypeBinding{NodeSvc: nodeService, Reader: reader, PropertyDefs: propertyDefs, Resolver: resolver}
 	handler := wrapToolHandler(

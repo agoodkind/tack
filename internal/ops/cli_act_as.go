@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"goodkind.io/tack/internal/adapters/postgres"
-	searchadapter "goodkind.io/tack/internal/adapters/search"
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clispec"
@@ -72,7 +71,7 @@ func actAsCreateOp(f *cli.Factory) clispec.Operation[actAsCreateInput] {
 
 // runActAsCreateWithEnv opens the product stores and the auth tables and runs
 // the command against them. It runs through the app service, which reaches
-// FoundationDB and the search engine the way the product does.
+// FoundationDB the way the product does.
 func runActAsCreateWithEnv(ctx context.Context, f *cli.Factory, input actAsCreateInput, sink clispec.ResultSink, execute bool) error {
 	env, err := NewEnv(ctx, f.Cfg)
 	if err != nil {
@@ -82,7 +81,6 @@ func runActAsCreateWithEnv(ctx context.Context, f *cli.Factory, input actAsCreat
 	nodes := service.NewNodeService(
 		env.Stores.Nodes, env.Stores.Views, env.Stores.NodeTypes, env.Stores.PropertyDefs,
 		env.Stores.Relationships, env.Stores.NodeDeleter,
-		searchadapter.New(f.Cfg.MeiliURL, f.Cfg.MeiliMasterKey),
 	)
 	deps := actAsDeps{
 		outbox:   f.AuditOutbox(),

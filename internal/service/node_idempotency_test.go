@@ -21,7 +21,7 @@ func TestCreateIdempotencyRetryReturnsExistingNode(t *testing.T) {
 		"k": {Key: "k", NodeID: existingID, Fingerprint: "same", Source: "mcp"},
 	}}
 	reader := &idempotencyReader{orgID: orgID, views: map[uuid.UUID]*node.NodeView{existingID: existingView}}
-	service := NewNodeService(repo, reader, &idempotencyTypes{types: types}, &idempotencyProps{defs: defs}, nil, nil, idempotencySearcher{})
+	service := NewNodeService(repo, reader, &idempotencyTypes{types: types}, &idempotencyProps{defs: defs}, nil, nil)
 
 	result, err := service.Create(context.Background(), CreateInput{
 		ParentID:               parentID,
@@ -51,7 +51,7 @@ func TestCreateIdempotencyConflictRejectsDifferentPayload(t *testing.T) {
 		"k": {Key: "k", NodeID: existingID, Fingerprint: "old", Source: "mcp"},
 	}}
 	reader := &idempotencyReader{orgID: orgID, views: map[uuid.UUID]*node.NodeView{}}
-	service := NewNodeService(repo, reader, &idempotencyTypes{types: types}, &idempotencyProps{defs: defs}, nil, nil, idempotencySearcher{})
+	service := NewNodeService(repo, reader, &idempotencyTypes{types: types}, &idempotencyProps{defs: defs}, nil, nil)
 
 	_, err := service.Create(context.Background(), CreateInput{
 		ParentID:               parentID,
@@ -75,7 +75,7 @@ func TestCreateStampsIdempotencyRecordAtomically(t *testing.T) {
 	defs := []*node.PropertyDef{{Name: "parent_id"}, {Name: "scope_id"}}
 	repo := &idempotencyNodeRepo{records: make(map[string]*node.IdempotencyRecord)}
 	reader := &idempotencyReader{orgID: orgID, views: map[uuid.UUID]*node.NodeView{}}
-	service := NewNodeService(repo, reader, &idempotencyTypes{types: types}, &idempotencyProps{defs: defs}, nil, nil, idempotencySearcher{})
+	service := NewNodeService(repo, reader, &idempotencyTypes{types: types}, &idempotencyProps{defs: defs}, nil, nil)
 
 	result, err := service.Create(context.Background(), CreateInput{
 		ParentID:               parentID,
