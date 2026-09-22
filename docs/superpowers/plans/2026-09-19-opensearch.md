@@ -59,9 +59,9 @@
 
 ## Serial execution order
 
-The first plan creates two independent pull requests, one in Tack and one in Configs. Merge and deploy both removal pull requests before creating the OpenSearch stack. Luna then prepares the dependent Tack slices as one Graphite stack. Sol validates the stack tip and applies each correction to the branch that owns the behavior.
+The Tack and Configs removal pull requests are merged. Complete the removal release before creating the OpenSearch stack. Luna creates the dependent Tack slices as one Graphite stack. Sol validates the stack tip and applies each correction to the branch that owns the behavior.
 
-1. [Remove Meilisearch and preserve the public outage contract](2026-09-20-meilisearch-removal.md). Ticket: TACK-541.
+1. [x] [Remove Meilisearch and preserve the public outage contract](2026-09-20-meilisearch-removal.md). Ticket: TACK-541.
 2. Merge and deploy that removal release through the first phase of the [release plan](2026-09-19-opensearch-release.md). Search remains temporarily unavailable.
 3. [Add the official client, native semantic mapping, and audited control operations](2026-09-19-opensearch-native.md). Tickets: TACK-530 and TACK-539.
 4. [Add explicit projection metadata and the expiring backfill](2026-09-19-opensearch-metadata.md). Ticket: TACK-542.
@@ -80,14 +80,14 @@ The [fixture reference](2026-09-19-opensearch-fixtures.md) defines shared real-d
 
 Use the `split-to-prs`, `graphite`, and `pr` skills during implementation. Reuse an open implementation pull request only when it already contains the same slice and preserves all unique work. The current design pull request is documentation and cannot become an implementation branch.
 
-Create these independent removal pull requests from each repository's current remote trunk:
+The independent removal pull requests are complete:
 
-| Repository | Pull request | Dependency |
+| Repository | Pull request | Status |
 | --- | --- | --- |
-| Tack | `[TACK-541] Remove Meilisearch and return temporary search outage` | None |
-| Configs | `[TACK-541] Remove the deployed Meilisearch service` | None |
+| Tack | [#271](https://github.com/agoodkind/tack/pull/271) | Merged |
+| Configs | [#479](https://github.com/agoodkind/configs/pull/479) | Merged |
 
-Merge and deploy both removal pull requests through release Phase A. Start the following Tack stack from the updated `origin/main`:
+Complete the remaining deployment and live verification work in release Phase A. Then start the following Tack stack from the updated `origin/main`:
 
 | Stack position | Pull request | Plan |
 | --- | --- | --- |
