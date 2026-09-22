@@ -3,6 +3,8 @@
 //
 //	testenv ledger        start a YugabyteDB ledger, migrate it, print its DSN
 //	testenv foundationdb  start a single-node FoundationDB, print its cluster file
+//	testenv opensearch    start a TLS OpenSearch engine and print its endpoint,
+//	                      username, password, and CA certificate
 //	testenv objectstore   start a SeaweedFS object store, create a bucket, and
 //	                      print its endpoint, bucket, keys, and container
 //	testenv objectstore-stop CONTAINER   stop that object store, as its guest stops
@@ -31,6 +33,7 @@ type subcommand string
 const (
 	subcommandLedger       subcommand = "ledger"
 	subcommandFoundationDB subcommand = "foundationdb"
+	subcommandOpenSearch   subcommand = "opensearch"
 	subcommandObjectStore  subcommand = "objectstore"
 	subcommandStopStore    subcommand = "objectstore-stop"
 	subcommandStartStore   subcommand = "objectstore-start"
@@ -38,7 +41,7 @@ const (
 	subcommandDown         subcommand = "down"
 )
 
-const usage = "usage: testenv ledger | foundationdb | objectstore | " +
+const usage = "usage: testenv ledger | foundationdb | opensearch | objectstore | " +
 	"objectstore-stop CONTAINER | objectstore-start CONTAINER | shared-dir | down"
 
 func main() {
@@ -70,6 +73,12 @@ func run(args []string) int {
 		return runStep(func(step *cliStep) { _, _ = fmt.Println(testenv.Ledger(step)) })
 	case subcommandFoundationDB:
 		return runStep(func(step *cliStep) { _, _ = fmt.Println(testenv.FoundationDB(step)) })
+	case subcommandOpenSearch:
+		return runStep(func(step *cliStep) {
+			engine := testenv.OpenSearch(step)
+			_, _ = fmt.Println(engine.Endpoint, engine.Username, engine.Password)
+			_, _ = fmt.Print(engine.CA)
+		})
 	case subcommandObjectStore:
 		return runStep(func(step *cliStep) {
 			store := testenv.ObjectStore(step)

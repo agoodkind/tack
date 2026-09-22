@@ -38,6 +38,8 @@ services:
       - /tmp/tack-test
     environment:
       TMPDIR: /tmp/tack-test
+      # "1" runs the OpenSearch-backed search tests. `make test-search` sets it.
+      TACK_SEARCH_INTEGRATION: ${TACK_SEARCH_INTEGRATION:-}
     working_dir: ${TACK_TEST_ROOT:?set TACK_TEST_ROOT to the repository's host path}
     profiles: ["runner"]
 

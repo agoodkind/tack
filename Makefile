@@ -95,6 +95,22 @@ test-integration:
 	$(TEST_RUNNER) run --rm tests \
 	    test $(TEST_STORE_ARGS)
 
+# These targets run the OpenSearch-backed search tests. The default engine
+# takes 8 GiB and downloads the 555 MB model. test-store-host skips these
+# tests. test-search-host runs them on the current host, and the CI search job
+# runs test-search-host. test-search runs them in the runner.
+TEST_SEARCH_ARGS := -count=1 -timeout 90m -v -run '^TestSearch' ./internal/test/integration/...
+
+.PHONY: test-search-host
+test-search-host:
+	TACK_SEARCH_INTEGRATION=1 go test $(TEST_SEARCH_ARGS)
+
+.PHONY: test-search
+test-search:
+	$(TEST_RUNNER) build tests
+	TACK_SEARCH_INTEGRATION=1 $(TEST_RUNNER) run --rm tests \
+	    test $(TEST_SEARCH_ARGS)
+
 # Remove every engine internal/testenv or cmd/testenv started, and their
 # network. A test binary removes its own engines when it exits normally; this
 # clears what a killed binary or `go run ./cmd/testenv ledger` left running.
