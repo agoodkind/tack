@@ -22,6 +22,12 @@ type Config struct {
 	Port                  int           `env:"PORT"                    envDefault:"8000"`
 	Env                   string        `env:"ENV"                     envDefault:"development"`
 	DatagenAllowTarget    string        `env:"TACK_DATAGEN_ALLOW_TARGET"`
+	SearchEndpoint        string        `env:"OPENSEARCH_ENDPOINT"`
+	SearchCA              string        `env:"OPENSEARCH_CA"`
+	SearchUsername        string        `env:"OPENSEARCH_USERNAME"`
+	SearchPassword        string        `env:"OPENSEARCH_PASSWORD"`
+	SearchRequestTimeout  time.Duration `env:"OPENSEARCH_REQUEST_TIMEOUT" envDefault:"10s"`
+	SearchMaxRetries      int           `env:"OPENSEARCH_MAX_RETRIES" envDefault:"2"`
 
 	// Logging. Every field is plain pass-through to telemetry.Setup, which
 	// hands them to gklog. Setup itself never branches on ENV.
