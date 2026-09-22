@@ -34,7 +34,7 @@ Seeds for new organizations and QA data declare search behavior for convenience,
 Pages collectively contain the complete decoded text of every included value and name. One value can span any number of pages.
 Invalid declarations or values fail with node and property identifiers. Equivalent values and metadata produce the same ordered text regardless of map iteration order.
 
-Projection, display text, type metadata, and ancestry changes schedule affected nodes for indexing. Structured property filtering, property sorting, and category totals are outside this contract.
+Projection, display text, type metadata, and ancestry changes schedule affected nodes for indexing against the serving physical index. Workers reread and reembed only affected pages, then retire obsolete document IDs. These changes do not create a physical index or switch an alias. Structured property filtering, property sorting, and category totals are outside this contract.
 
 Before the first OpenSearch rebuild, an audited one-time command applies a complete operator-reviewed manifest to existing definitions. It never infers behavior or overwrites a declaration. Public search remains unavailable until every definition has an explicit decision.
 
@@ -74,7 +74,7 @@ Tack pins `github.com/opensearch-project/opensearch-go/v4` v4.7.3, the latest st
 
 The `node-pages` alias selects one versioned physical index. Each generation records its model, mapping version, primary shards, reserved routing shards, and replicas.
 When only the primary count changes, OpenSearch splits the serving index into a validated replacement along its reserved routing path.
-Model, mapping, restore, cleanup, and unsupported shard changes rebuild from FoundationDB. Adding a node requires no Tack routing change.
+Model, tokenizer, embedding format, mapping, page identity, restore, cleanup, and unsupported shard changes rebuild from FoundationDB. Adding a node requires no Tack routing change.
 
 The mapping contains only these fixed fields:
 
@@ -163,7 +163,7 @@ New sessions cannot use a retiring index. Existing sessions end at their inactiv
 or absolute deadline. Bounded cleanup deletes session state and then deletes the
 retiring index. Restore operations always create a new search generation and index.
 
-Permission-policy versions do not start index replacement. Their access-only transition preserves page text and sparse weights. Physical mapping, semantic model, text projection, page identity, restore state, cleanup state, and unsupported shard changes still require replacement.
+Permission-policy versions do not start index replacement. Their access-only transition preserves page text and sparse weights. Ordinary text projection changes also do not start index replacement. A projection change increments the organization epoch and schedules bounded content work against the serving index. Workers reread and reembed only affected pages and retire their obsolete document IDs. Physical mapping, semantic model, tokenizer, embedding format, page identity, restore state, cleanup state, and unsupported shard changes require replacement.
 
 ## Deployment and capacity
 

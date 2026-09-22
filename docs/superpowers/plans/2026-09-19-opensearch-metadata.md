@@ -4,7 +4,7 @@
 
 **Goal:** Give every property definition an explicit search decision before the first OpenSearch rebuild.
 
-**Architecture:** Stored metadata remains the runtime authority. New seeds and QA data write complete declarations. An audited expiring command applies one reviewed manifest to existing definitions without inference or overwrite.
+**Architecture:** Stored metadata remains the runtime authority. New seeds and QA data write complete declarations. An audited expiring command applies one reviewed manifest to existing definitions without inference or overwrite. This initial rollout runs before the index pipeline exists and schedules no search work.
 
 **Tech Stack:** Go, FoundationDB, existing metadata repositories, `clispec`, audit outbox.
 
@@ -104,7 +104,7 @@ Read definitions in bounded ID order. Require one manifest entry for each nil de
 
 - [ ] **Step 7: Apply retry-safe bounded batches.**
 
-Set a projection only when stored `Search` is nil. Accept an already equal value. Return a conflict for an already different value. Bump the organization projection epoch and coalesce one search rescan event for every changed organization in the same FDB transaction. Record applied identities through the audit outbox, including completed batches before a later error.
+Set a projection only when stored `Search` is nil. Accept an already equal value. Return a conflict for an already different value. Do not create a projection epoch or search rescan event. The index pipeline does not exist during this initial rollout, and the first FoundationDB rebuild reads the completed declarations. Record applied identities through the audit outbox, including completed batches before a later error.
 
 - [ ] **Step 8: Add the permanent readiness gate.**
 
@@ -112,7 +112,7 @@ Set a projection only when stored `Search` is nil. Accept an already equal value
 
 - [ ] **Step 9: Add failure coverage.**
 
-Test incomplete, duplicate, unknown, cross-organization, malformed, and conflicting entries. Inject a partial failure and rerun the exact manifest. Test included and excluded seed and QA definitions. Require dry run to leave all key families unchanged.
+Test incomplete, duplicate, unknown, cross-organization, malformed, and conflicting entries. Inject a partial failure and rerun the exact manifest. Test included and excluded seed and QA definitions. Require dry run to leave all key families unchanged. Require execution to leave projection-epoch and search-work key families unchanged.
 
 - [ ] **Step 10: Run the serial coding checks.**
 
