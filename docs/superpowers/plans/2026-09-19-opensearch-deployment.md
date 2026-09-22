@@ -101,7 +101,7 @@ QA uses `discovery.type: single-node`. Production uses `discovery.seed_hosts` fr
 
 - [ ] **Step 6: Define one verified hypervisor endpoint.**
 
-Configure `deploy-proxmox.yml` to install pinned Traefik during an authorized release. Listen on `service_mapping.vault_hypervisor.ipv6:9200` for production and `service_mapping.vmbrtrunk_suburban.ipv6:9200` for QA. Restrict callers to Tack application guests. Terminate verified client TLS, re-encrypt to each backend, verify the search CA, and use an authenticated cluster-health request for readiness. Keep credentials root-only with `no_log`. Do not run the playbook during this task.
+Do not run `deploy-proxmox.yml` during this task. The playbook installs pinned Traefik during an authorized release. Listen on `service_mapping.vault_hypervisor.ipv6:9200` for production and `service_mapping.vmbrtrunk_suburban.ipv6:9200` for QA. Restrict callers to Tack application guests. Terminate verified client TLS, re-encrypt to each backend, verify the search CA, and use an authenticated cluster-health request for readiness. Keep credentials root-only with `no_log`.
 
 - [ ] **Step 7: Add least-load model placement and replica rules.**
 
