@@ -78,7 +78,7 @@ func defaultPropertyDefs(orgID uuid.UUID) []*node.PropertyDef {
 		return b
 	}
 
-	return []*node.PropertyDef{
+	definitions := []*node.PropertyDef{
 		{
 			ID:                node.SystemPropID(orgID, "priority"),
 			OrgID:             orgID,
@@ -134,87 +134,52 @@ func defaultPropertyDefs(orgID uuid.UUID) []*node.PropertyDef {
 			Indexed:           false,
 			DefaultValue:      jsonRaw(false),
 		},
-		{
-			ID:                node.SystemPropID(orgID, "description"),
-			OrgID:             orgID,
-			Name:              "description",
-			Type:              node.PropertyTypeText,
-			AppliesToFeatures: nil, // applies to every type
-			Indexed:           false,
-		},
-		{
-			ID:                node.SystemPropID(orgID, "slug"),
-			OrgID:             orgID,
-			Name:              "slug",
-			Type:              node.PropertyTypeText,
-			AppliesToFeatures: []string{node.FeatureHasAddress},
-			Indexed:           true,
-		},
-		{
-			ID:                node.SystemPropID(orgID, "identifier"),
-			OrgID:             orgID,
-			Name:              "identifier",
-			Type:              node.PropertyTypeText,
-			AppliesToFeatures: []string{node.FeatureIsScope},
-			Indexed:           true,
-		},
-		{
-			// Stamped automatically by NodeService.Create when the type
-			// declares FeatureHasSequenceID. Indexed so the resolver can
-			// look up "TACK-161" by (orgID, type, sequence) without a
-			// per-project scan.
-			ID:                node.SystemPropID(orgID, "sequence"),
-			OrgID:             orgID,
-			Name:              "sequence",
-			Type:              node.PropertyTypeNumber,
-			AppliesToFeatures: []string{node.FeatureHasSequenceID},
-			Indexed:           true,
-		},
-		{
-			// Stamped on every child create so list scans by parent can
-			// hit the secondary index directly. Without this, listing
-			// issues under a project required a full type-wide view scan
-			// followed by an in-memory PropFilter; now scanByProperty
-			// goes straight to (orgID, type, parent_id, value) keys.
-			ID:                node.SystemPropID(orgID, "parent_id"),
-			OrgID:             orgID,
-			Name:              "parent_id",
-			Type:              node.PropertyTypeText,
-			AppliesToFeatures: nil,
-			Indexed:           true,
-		},
-		{
-			ID:                node.SystemPropID(orgID, "scope_id"),
-			OrgID:             orgID,
-			Name:              "scope_id",
-			Type:              node.PropertyTypeText,
-			AppliesToFeatures: []string{node.FeatureHasSequenceID},
-			Indexed:           true,
-		},
-		{
-			ID:                node.SystemPropID(orgID, "group"),
-			OrgID:             orgID,
-			Name:              "group",
-			Type:              node.PropertyTypeText,
-			AppliesToFeatures: nil,
-			Indexed:           false,
-		},
-		{
-			ID:                node.SystemPropID(orgID, "color"),
-			OrgID:             orgID,
-			Name:              "color",
-			Type:              node.PropertyTypeText,
-			AppliesToFeatures: nil, // any type can have a color
-			Indexed:           false,
-		},
-		{
-			ID:                node.SystemPropID(orgID, "sort_order"),
-			OrgID:             orgID,
-			Name:              "sort_order",
-			Type:              node.PropertyTypeNumber,
-			AppliesToFeatures: nil,
-			Indexed:           false,
-		},
+	}
+	definitions = append(definitions, additionalPropertyDefs(orgID)...)
+	applyDefaultSearchProjections(definitions)
+	return definitions
+}
+
+func additionalPropertyDefs(orgID uuid.UUID) []*node.PropertyDef {
+	return []*node.PropertyDef{
+		{ID: node.SystemPropID(orgID, "description"), OrgID: orgID, Name: "description", Type: node.PropertyTypeText, AppliesToFeatures: nil, Indexed: false},
+		{ID: node.SystemPropID(orgID, "slug"), OrgID: orgID, Name: "slug", Type: node.PropertyTypeText, AppliesToFeatures: []string{node.FeatureHasAddress}, Indexed: true},
+		{ID: node.SystemPropID(orgID, "identifier"), OrgID: orgID, Name: "identifier", Type: node.PropertyTypeText, AppliesToFeatures: []string{node.FeatureIsScope}, Indexed: true},
+		{ID: node.SystemPropID(orgID, "sequence"), OrgID: orgID, Name: "sequence", Type: node.PropertyTypeNumber, AppliesToFeatures: []string{node.FeatureHasSequenceID}, Indexed: true},
+		{ID: node.SystemPropID(orgID, "parent_id"), OrgID: orgID, Name: "parent_id", Type: node.PropertyTypeText, AppliesToFeatures: nil, Indexed: true},
+		{ID: node.SystemPropID(orgID, "scope_id"), OrgID: orgID, Name: "scope_id", Type: node.PropertyTypeText, AppliesToFeatures: []string{node.FeatureHasSequenceID}, Indexed: true},
+		{ID: node.SystemPropID(orgID, "group"), OrgID: orgID, Name: "group", Type: node.PropertyTypeText, AppliesToFeatures: nil, Indexed: false},
+		{ID: node.SystemPropID(orgID, "color"), OrgID: orgID, Name: "color", Type: node.PropertyTypeText, AppliesToFeatures: nil, Indexed: false},
+		{ID: node.SystemPropID(orgID, "sort_order"), OrgID: orgID, Name: "sort_order", Type: node.PropertyTypeNumber, AppliesToFeatures: nil, Indexed: false},
+	}
+}
+
+func applyDefaultSearchProjections(definitions []*node.PropertyDef) {
+	orders := map[string]int{
+		"priority": 0, "due_date": 1, "start_date": 2, "state_id": 3,
+		"is_draft": 4, "description": 10, "slug": 20, "identifier": 30,
+		"sequence": 40, "parent_id": 50, "scope_id": 60, "group": 70,
+		"color": 80, "sort_order": 90,
+	}
+	included := map[string]bool{
+		"description": true, "slug": true, "identifier": true, "sequence": true,
+		"parent_id": true, "group": true,
+	}
+	for _, definition := range definitions {
+		order, ok := orders[definition.Name]
+		if !ok {
+			continue
+		}
+		definition.Search = &node.SearchProjection{
+			Include: included[definition.Name],
+			Order:   order,
+			Rule: node.TextRule{
+				Mode:   node.TextRuleScalar,
+				Fields: nil,
+				Items:  nil,
+				Labels: nil,
+			},
+		}
 	}
 }
 

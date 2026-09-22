@@ -21,6 +21,9 @@ func searchProvisionOp(f *cli.Factory) clispec.Operation[searchProvisionInput] {
 		Audit: audit.Spec{Verb: string(audit.VerbOpsSearchProvision), Mutates: true}, Group: searchGroup,
 		Short: "Create the empty native OpenSearch index", New: func() searchProvisionInput { return searchProvisionInput{InputMarker: clispec.InputMarker{}} },
 		Run: func(ctx context.Context, _ searchProvisionInput, _ clispec.ResultSink) (runErr error) {
+			if err := requireSearchProjections(ctx, f); err != nil {
+				return err
+			}
 			logger := telemetry.L(ctx)
 			topology, err := config.LoadSearchTopology(ctx)
 			if err != nil {
