@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Every property definition explicitly includes or excludes search. Do not derive the decision from identifier, property type, options, applicability, or the FDB `Indexed` flag.
+Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Perform this Luna task only inside the selected Tack worktree. The only permitted external writes are the documented branch and pull-request publication operations. Every property definition explicitly includes or excludes search. Do not derive the decision from identifier, property type, options, applicability, or the FDB `Indexed` flag. Author FoundationDB tests without starting or querying FoundationDB during this coding task.
 
 ## Review Focus
 

@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Complete ranking, sessions, authorization, MCP registration, configuration, and runtime wiring in one task. Keep the default public state unavailable until the release plan completes the empty rebuild and acceptance checks.
+Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Perform this Luna task only inside the selected Tack worktree. The only permitted external writes are the documented branch and pull-request publication operations. Complete ranking, sessions, authorization, MCP registration, configuration, and runtime wiring in one task. Do not start or query FoundationDB, OpenSearch, SQL authentication, MCP, Docker, or another service during this coding task. Keep the default public state unavailable until the release plan completes the empty rebuild and acceptance checks.
 
 ## Review Focus
 
@@ -84,7 +84,7 @@ type SessionStore interface { Create(context.Context, Session) (Session, error);
 
 - [ ] **Register the production handler.** Add `OPENSEARCH_PUBLIC_ENABLED` with a default of false, plus explicit request-byte, response-byte, session-byte, deadline, batch, and result configuration. Construct the ranker, session store, and handler in `internal/runtime/graph.go`. `tack_search` keeps returning exactly `Search is temporarily unavailable.` while the flag is false. When the flag is true, the same registration runs ranked search. The flag changes only public dispatch. Index workers continue while it is false. No second tool or alternate handler exists.
 
-- [ ] **Prove horizontal Tack scaling.** Open a session on one Tack process and alternate every continuation between two processes backed by the same FoundationDB and OpenSearch. Require exact replay, no duplicate node, complete exhaustion, and cleanup. Increase Tack processes under fixed query load and require higher throughput without changing stored formats.
+- [ ] **Horizontal Tack scaling coverage.** Final-validation coverage opens a session on one Tack process and alternates every continuation between two processes backed by the same FoundationDB and OpenSearch. Require exact replay, no duplicate node, complete exhaustion, and cleanup. Increase Tack processes under fixed query load and require higher throughput without changing stored formats. Sol runs this coverage. Luna does not start its dependencies.
 
 - [ ] **Run checks and create the next Graphite slice.** Run `make build` once and fix every failure. Review `git diff --check` and the complete diff. Stage only the files listed by this plan. Run Graphite MCP `create` from stack position 3 with this exact message:
 

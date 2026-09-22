@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Require `CONFIGS_ROOT` to identify a clean isolated configs checkout based on `origin/main`. QA starts on suburban with zero replicas. Production starts on vault with zero replicas. Each guest has at least 8 GiB memory, 2 CPU cores, 40 GiB fast storage, and a 2 GiB JVM heap. This task prepares configuration only. It does not deploy.
+Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Perform this Luna task only inside the selected Tack and Configs worktrees. The only permitted external writes are the documented branch and pull-request publication operations. Require `CONFIGS_ROOT` to identify a clean isolated Configs checkout based on `origin/main`. Run only `make build`, the documented RSpec render tests, and `./configsctl tofu validate`. Do not invoke Docker, Ansible, `configsctl deploy`, an OpenTofu plan or apply, SSH, a service request, a remote API probe, a hypervisor API, or any command that inspects or changes QA, production, another host, a container runtime, or infrastructure. QA starts on suburban with zero replicas. Production starts on vault with zero replicas. Each guest has at least 8 GiB memory, 2 CPU cores, 40 GiB fast storage, and a 2 GiB JVM heap. This task prepares configuration only. It does not deploy.
 
 ## Review Focus
 
@@ -76,11 +76,11 @@ Expected: FAIL because the search inventory and proxy templates do not exist.
 
 - [ ] **Step 3: Reserve the two initial guest identities.**
 
-Inspect the complete mapping and live Proxmox inventory. Add one production `tack_search1` entry and one QA entry with `_suburban`. Use a QA VMID equal to the production VMID plus 100 only when both are free. Allocate distinct IPv6 addresses, pinned MACs, and Docker IPv6 subnets. Keep `tack_data1/2/3` unchanged. Do not reserve later production guests.
+Inspect the complete committed service mapping and Proxmox inventory in the Configs worktree. Add one production `tack_search1` entry and one QA entry with `_suburban`. Use a QA VMID equal to the production VMID plus 100 only when both values are unused in the committed inventory. Allocate distinct IPv6 addresses, pinned MACs, and Docker IPv6 subnets that are unused in the committed inventory. Keep `tack_data1/2/3` unchanged. Do not reserve later production guests. Add live collision verification as a checklist item in the release plan before any OpenTofu plan or apply. Do not query Proxmox or another host during this task.
 
 - [ ] **Step 4: Define guest resources and host prerequisites.**
 
-Use the existing bridge, gateway, DNS, Debian template, unprivileged nesting, discard, and `prevent_destroy` patterns. Set memory to 8192 MiB, cores to 2, and fast-pool disk to 40 GiB. Apply the OpenSearch memory-map prerequisite through configs and verify it inside the LXC before container start.
+Use the existing bridge, gateway, DNS, Debian template, unprivileged nesting, discard, and `prevent_destroy` patterns. Set memory to 8192 MiB, cores to 2, and fast-pool disk to 40 GiB. Define the OpenSearch memory-map prerequisite through Configs. Require the release plan to verify the `vm.max_map_count` setting inside the LXC before container start. Do not execute that verification during this task.
 
 - [ ] **Step 5: Render the pinned role-capable container.**
 
@@ -101,11 +101,11 @@ QA uses `discovery.type: single-node`. Production uses `discovery.seed_hosts` fr
 
 - [ ] **Step 6: Define one verified hypervisor endpoint.**
 
-Install pinned Traefik through `deploy-proxmox.yml`. Listen on `service_mapping.vault_hypervisor.ipv6:9200` for production and `service_mapping.vmbrtrunk_suburban.ipv6:9200` for QA. Restrict callers to Tack application guests. Terminate verified client TLS, re-encrypt to each backend, verify the search CA, and use an authenticated cluster-health request for readiness. Keep credentials root-only with `no_log`.
+Do not run `deploy-proxmox.yml` during this task. The playbook installs pinned Traefik during an authorized release. Listen on `service_mapping.vault_hypervisor.ipv6:9200` for production and `service_mapping.vmbrtrunk_suburban.ipv6:9200` for QA. Restrict callers to Tack application guests. Terminate verified client TLS, re-encrypt to each backend, verify the search CA, and use an authenticated cluster-health request for readiness. Keep credentials root-only with `no_log`.
 
 - [ ] **Step 7: Add least-load model placement and replica rules.**
 
-Set `plugins.ml_commons.only_run_on_ml_node: true`, least-load dispatch, and automatic redeployment. Deploy the pinned model without `node_ids`. Require `DEPLOYED` on each eligible ML node. Start both environments with zero replicas. Require distinct guests before setting one replica.
+Set `plugins.ml_commons.only_run_on_ml_node: true`, least-load dispatch, and automatic redeployment. Configure the audited provisioning operation to deploy the pinned model without `node_ids`. Require `DEPLOYED` on each eligible ML node during release validation. Configure both environments with zero replicas. Require distinct guests before setting one replica. Do not deploy the model during this task.
 
 - [ ] **Step 8: Connect the audited provisioning commands.**
 
