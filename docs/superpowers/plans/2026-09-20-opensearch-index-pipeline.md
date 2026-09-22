@@ -93,7 +93,7 @@ type PageWriter interface { Put(context.Context, WriteIntent) error; UpdateAcces
 
 - [ ] **Register production workers.** Add explicit page-size, lease, timeout, concurrency, and class scheduling configuration. Construct the reader, policy set, work store, writer, cleanup service, and worker loops in `internal/runtime/graph.go`. Recover every worker goroutine, return startup errors, use the injected clock, and stop all loops on context cancellation. Source writes remain available when OpenSearch is unavailable because failed work remains pending.
 
-- [ ] **Author scale coverage.** Add final-validation coverage that runs live, access, cleanup, rescan, and rebuild work together. Require every class to progress. Record page reads, encoded bytes, slice duration, oldest work age, and peak memory. Increase workers under fixed load and require throughput to increase without a stored-format change. Sol runs this coverage. Luna does not start its dependencies.
+- [ ] **Final-validation coverage runs live, access, cleanup, rescan, and rebuild work together.** Require every class to progress. Record page reads, encoded bytes, slice duration, oldest work age, and peak memory. Increase workers under fixed load and require throughput to increase without a stored-format change. Sol runs this coverage. Luna does not start its dependencies.
 
 - [ ] **Run checks and create the next Graphite slice.** Run `make build` once and fix every failure. Review `git diff --check` and the complete diff. Stage only the files listed by this plan. Run Graphite MCP `create` from stack position 2 with this exact message:
 

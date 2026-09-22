@@ -82,7 +82,7 @@ The final validation plan runs `^TestSearchNativeSparse$` against the completed 
 
 - [ ] **Step 3: Add the official client and real TLS fixture.**
 
-Pin v4.7.3. Author the existing Docker SDK test fixture to launch the exact image during Sol validation. Create an ephemeral CA and server certificate. Keep credentials in memory. Configure `opensearch.Config` with one endpoint, CA bytes, request timeout, retry statuses, retry count, timeout retries, metrics, and a connection observer. Do not construct another `http.Client`. Do not invoke the fixture during this coding task.
+Pin v4.7.3. The existing Docker SDK test fixture launches the exact image during Sol validation. Create an ephemeral CA and server certificate. Keep credentials in memory. Configure `opensearch.Config` with one endpoint, CA bytes, request timeout, retry statuses, retry count, timeout retries, metrics, and a connection observer. Do not construct another `http.Client`. Do not invoke the fixture during this coding task.
 
 - [ ] **Step 4: Prove every required client operation.**
 
@@ -133,7 +133,7 @@ Replace a same-ID document with `{"retired":true}` at the retirement version. Re
 
 - [ ] **Step 10: Add endpoint and resource coverage.**
 
-Require `ConnectionObserver` to record only the configured stable endpoint. Author final-validation measurements for bundle size, reported inference memory, process memory, peak ingest memory, and latency in an 8 GiB container. Preserve the 4 GiB circuit-breaker failure as a regression. Sol records those measurements. Do not run either container during this coding task or infer concurrent capacity from this test.
+Require `ConnectionObserver` to record only the configured stable endpoint. Final-validation measurements cover bundle size, reported inference memory, process memory, peak ingest memory, and latency in an 8 GiB container. Preserve the 4 GiB circuit-breaker failure as a regression. Sol records those measurements. Do not run either container during this coding task or infer concurrent capacity from this test.
 
 - [ ] **Step 11: Register audited provision and verification commands.**
 

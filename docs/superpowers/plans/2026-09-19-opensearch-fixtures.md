@@ -12,7 +12,7 @@ The implementation plans use these shared real-dependency fixtures. Each owning 
 
 ## Global Constraints
 
-Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Luna writes these fixtures only inside the selected Tack worktree and does not run them. The only permitted external writes are the documented branch and pull-request publication operations. No fixtures replace production dependencies. These steps are part of the index and query pipeline tasks, not a separate deployment. Sol runs every real-dependency fixture.
+Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Write these fixtures only inside the selected Tack worktree. Do not run them. The only permitted external writes are the documented branch and pull-request publication operations. No fixtures replace production dependencies. These steps are part of the index and query pipeline tasks, not a separate deployment. Sol runs every real-dependency fixture.
 
 ## Review Focus
 

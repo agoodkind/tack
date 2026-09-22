@@ -76,11 +76,11 @@ Expected: FAIL because the search inventory and proxy templates do not exist.
 
 - [ ] **Step 3: Reserve the two initial guest identities.**
 
-Inspect the complete committed service mapping and Proxmox inventory in the Configs worktree. Add one production `tack_search1` entry and one QA entry with `_suburban`. Use a QA VMID equal to the production VMID plus 100 only when both values are unused in the committed inventory. Allocate distinct IPv6 addresses, pinned MACs, and Docker IPv6 subnets that are unused in the committed inventory. Keep `tack_data1/2/3` unchanged. Do not reserve later production guests. Record live collision verification as a required release check before any OpenTofu plan or apply. Do not query Proxmox or another host during this task.
+Inspect the complete committed service mapping and Proxmox inventory in the Configs worktree. Add one production `tack_search1` entry and one QA entry with `_suburban`. Use a QA VMID equal to the production VMID plus 100 only when both values are unused in the committed inventory. Allocate distinct IPv6 addresses, pinned MACs, and Docker IPv6 subnets that are unused in the committed inventory. Keep `tack_data1/2/3` unchanged. Do not reserve later production guests. Add live collision verification as a checklist item in the release plan before any OpenTofu plan or apply. Do not query Proxmox or another host during this task.
 
 - [ ] **Step 4: Define guest resources and host prerequisites.**
 
-Use the existing bridge, gateway, DNS, Debian template, unprivileged nesting, discard, and `prevent_destroy` patterns. Set memory to 8192 MiB, cores to 2, and fast-pool disk to 40 GiB. Define the OpenSearch memory-map prerequisite through Configs. Require the release plan to verify it inside the LXC before container start. Do not execute that verification during this task.
+Use the existing bridge, gateway, DNS, Debian template, unprivileged nesting, discard, and `prevent_destroy` patterns. Set memory to 8192 MiB, cores to 2, and fast-pool disk to 40 GiB. Define the OpenSearch memory-map prerequisite through Configs. Require the release plan to verify the `vm.max_map_count` setting inside the LXC before container start. Do not execute that verification during this task.
 
 - [ ] **Step 5: Render the pinned role-capable container.**
 

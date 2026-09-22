@@ -131,7 +131,7 @@ Bind sessions to physical indexes. Reject new sessions on retiring indexes. Dire
 
 - [ ] **Step 9: Add restore and repeated-split coverage.**
 
-Author final-validation coverage that restores a real FDB backup into a disposable environment, changes the search generation, rejects restored cursors, and rebuilds an empty index. Split one to two, four, then eight primaries with the model undeployed. Require identical stored source and sparse weights, then redeploy and rerun relevance and continuation. Sol runs this coverage. Luna does not restore a backup, start a service, or run a split.
+Final-validation coverage restores a real FDB backup into a disposable environment, changes the search generation, rejects restored cursors, and rebuilds an empty index. Split one to two, four, then eight primaries with the model undeployed. Require identical stored source and sparse weights, then redeploy and rerun relevance and continuation. Sol runs this coverage. Luna does not restore a backup, start a service, or run a split.
 
 - [ ] **Step 10: Register the production reindex operation.**
 

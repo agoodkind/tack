@@ -15,7 +15,7 @@
 ## Global Constraints
 
 - Luna may run commands only from the selected Tack and Configs worktrees. Luna may read and write repository files only inside those worktrees. The only permitted external writes are Git, Graphite, and GitHub operations that publish the specified branches and pull requests. Luna may fetch repository refs and inspect Graphite or GitHub state required for that publication.
-- Luna must not invoke SSH, Docker, Ansible, `configsctl deploy`, an OpenTofu plan or apply, a service request, a remote API probe, a hypervisor API, or any command that inspects or changes QA, production, another host, a container runtime, or infrastructure. Luna authors live-dependency tests without running them. Sol owns local live-dependency validation. The release plan owns every deployment and live infrastructure check.
+- Luna must not invoke SSH, Docker, Ansible, `configsctl deploy`, an OpenTofu plan or apply, a service request, a remote API probe, a hypervisor API, or any command that inspects or changes QA, production, another host, a container runtime, or infrastructure. Author live-dependency tests without running them. Sol owns local live-dependency validation. The release plan owns every deployment and live infrastructure check.
 - Luna verifies implementation prerequisites only from repository history and published GitHub or Graphite state. Luna does not repeat or supplement release evidence by querying a host, service, deployment, or infrastructure API.
 - Execute the plans below in order. Each plan requires committed interfaces from earlier plans.
 - Ship the Meilisearch removal as an independent first release. Keep `tack_search` registered and return exactly `Search is temporarily unavailable.` for every call, including exact references.
