@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace an index after physical mapping, model, text projection, cleanup, restore, or shard changes without losing concurrent source mutations.
+**Goal:** Replace an index after physical mapping, model, tokenizer, embedding format, page identity, cleanup, restore, or unsupported shard changes without losing concurrent source mutations.
 
 **Architecture:** One persisted coordinator owns one source and one target. Full replacement reads FoundationDB pages. A permitted primary-shard increase uses native split and reuses existing embeddings. Both paths replay the mutation journal and switch one alias atomically.
 
@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Keep at most one serving, one replacement, and one retiring index. Restored source data always requires a full replacement. Native split never replaces journal replay, alias coordination, or session retirement. A permission-policy version change uses access-only work on the serving index and never starts replacement.
+Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Keep at most one serving, one replacement, and one retiring index. Restored source data always requires a full replacement. Native split never replaces journal replay, alias coordination, or session retirement. A text projection change uses bounded content work on the serving index and never starts replacement. A permission-policy version change uses access-only work on the serving index and never starts replacement.
 
 ## Review Focus
 
@@ -88,9 +88,10 @@ Acquire one environment lease before target creation. Persist mode, source, targ
 - [ ] **Step 4: Implement full replacement.**
 
 Choose full replacement for first construction, restore, physical mapping,
-semantic model, text projection, page identity, cleanup thresholds, lower shard
-counts, and targets outside the reserved routing path. Do not choose it for a
-permission-policy version. Create an empty target. Scan bounded node IDs through
+semantic model, tokenizer, embedding format, page identity, cleanup thresholds,
+lower shard counts, and targets outside the reserved routing path. Text projection
+changes use bounded content work on the serving index. Permission-policy version
+changes use access-only work. Create an empty target. Scan bounded node IDs through
 `ScanSearch`. Schedule the same page worker against the target. Each page uses
 the current active and candidate write versions from FoundationDB. Persist scan
 and journal replay checkpoints independently.

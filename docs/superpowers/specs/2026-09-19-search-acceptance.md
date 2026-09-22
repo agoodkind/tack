@@ -54,7 +54,10 @@ and measurements. QA must pass before production.
 - Replace every type and property identifier. Preserve the declared behavior,
   coverage, relative ranks, and type filtering.
 - Add a type after startup. Search it without changing or restarting application
-  code. Change a projection and verify automatic reindexing.
+  code. Change a projection and verify automatic reindexing against the same
+  physical index and alias. Require new semantic fields only for affected pages,
+  byte-identical semantic fields for unaffected pages, and retirement of obsolete
+  affected-page document IDs.
 - Omit or corrupt a required declaration. Tack must report the node and property.
   Repairing metadata must permit retry without an application change.
 - Add many opaque properties. OpenSearch must retain the fixed mapping fields.
@@ -153,6 +156,7 @@ A lexical-only control must miss at least one non-overlapping pair that the comb
 ## Index replacement lifecycle
 
 - Run a full FoundationDB replacement while creates, edits, deletes, metadata changes, and subtree moves continue. Fail scan, inference, replay, validation, and alias switching separately. The serving alias must remain correct and recovery must resume.
+- Change a text projection without starting replacement. Require the serving physical index and alias to remain unchanged. Require bounded content work to reread and reembed only affected pages and retire their obsolete document IDs.
 - Change the permission-policy version during replacement. Its access-only transition must complete on the serving index without starting another replacement. The journal must copy active and candidate keys into the target before alias switching.
 - Create the initial index with a reserved routing-shard count divisible by every approved split target. Reject a lower or nonmultiplicative primary count before blocking engine writes.
 - Increase only the primary count through the typed Split Index API. Keep the alias on the readable source while it is write-blocked. FoundationDB mutations must commit and remain queued.

@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Apply metadata and permission-policy changes without restarting Tack, rebuilding the index, or regenerating embeddings.
+**Goal:** Apply metadata and permission-policy changes without restarting Tack or replacing the physical index. Regenerate embeddings only for pages changed by text projection updates. Permission-policy changes regenerate no embeddings.
 
-**Architecture:** FoundationDB stores one projection epoch per organization and one durable access-policy rollout per authoritative permission root. Metadata writes refresh MCP registration. Permission changes update query keys or schedule access-only document work. A candidate policy writes beside the active version until every current page is verified, then FoundationDB activates it atomically.
+**Architecture:** FoundationDB stores one projection epoch per organization and one durable access-policy rollout per authoritative permission root. Metadata writes refresh MCP registration and schedule bounded content work against the serving index. Workers reread and reembed only affected pages, then retire obsolete page documents. Permission changes update query keys or schedule access-only document work. A candidate policy writes beside the active version until every current page is verified, then FoundationDB activates it atomically.
 
 **Tech Stack:** Go, FoundationDB, MCP, existing metadata stores, and the completed OpenSearch index and query pipelines.
 
@@ -16,7 +16,7 @@ Apply the [implementation constraints](2026-09-19-opensearch.md#global-constrain
 
 ## Review Focus
 
-Test new opaque types, changed projections, membership-only changes, resource grants, restart during every rollout phase, stale content and access writes, active old-version sessions, failed metadata reads, and deleted types.
+Test new opaque types, changed projections, bounded content refresh, unchanged pages, membership-only changes, resource grants, restart during every rollout phase, stale content and access writes, active old-version sessions, failed metadata reads, and deleted types.
 
 ---
 
@@ -38,7 +38,7 @@ Test new opaque types, changed projections, membership-only changes, resource gr
 
 **Interfaces:**
 
-- This plan requires projection declarations, `PolicySet`, `AccessStateReader`, durable access work, access-only writes, session presence keys, `PropertyDefStore.Set`, and `NodeTypeStore.Set`.
+- This plan requires projection declarations, `PolicySet`, `AccessStateReader`, durable content scans, durable access work, access-only writes, session presence keys, `PropertyDefStore.Set`, and `NodeTypeStore.Set`.
 - This plan implements `ProjectionVersion`, durable access-policy activation, and restartable access-key cleanup for rebuild and release.
 
 ```go
@@ -88,15 +88,15 @@ func TestSearchAccessVersionWithoutRebuild(t *testing.T) {
 }
 ```
 
-Keep the authenticated metadata test. It must create a property definition after startup and find a node through that new definition without restarting Tack.
+Keep the authenticated metadata test. It must create a property definition after startup and find an affected node through that new definition without restarting Tack or changing the physical index. It must prove that affected pages receive new semantic fields and unaffected pages preserve their semantic fields byte for byte.
 
 - [ ] **Step 2: Record the deferred failure contract.**
 
-The final validation plan runs `^TestSearch(MetadataAfterStartup|AccessVersionWithoutRebuild|AccessMembershipQueryOnly|AccessResourceRefresh|AccessRolloutRecovery)$` against the completed branch. The tests must fail when runtime metadata refresh, access-only updates, exact verification, version activation, or restart recovery is absent. Do not start live dependencies during this coding task.
+The final validation plan runs `^TestSearch(MetadataAfterStartup|AccessVersionWithoutRebuild|AccessMembershipQueryOnly|AccessResourceRefresh|AccessRolloutRecovery)$` against the completed branch. The tests must fail when runtime metadata refresh, serving-index content refresh, access-only updates, exact verification, version activation, or restart recovery is absent. Do not start live dependencies during this coding task.
 
 - [ ] **Step 3: Store and increment the organization projection epoch.**
 
-Add the epoch key to the central FoundationDB key catalog. Increment it in the same transaction as every property definition or node type change that alters projected text. Return the version as a stable decimal string. A permission node change does not increment the text projection epoch.
+Add the epoch key to the central FoundationDB key catalog. Increment it in the same transaction as every property definition or node type change that alters projected text. Schedule a bounded content scan for the affected nodes in that transaction. The existing index workers write the changed pages to the serving physical index, run inference for those pages, and retire obsolete document IDs. Return the version as a stable decimal string. A permission node change does not increment the text projection epoch.
 
 ```go
 func (s *ViewStore) ProjectionVersion(ctx context.Context, nodeID uuid.UUID) (string, error) {
@@ -132,7 +132,7 @@ Before retirement begins, rollback atomically restores `PreviousVersion` as acti
 
 - [ ] **Step 9: Add restart, race, and failure coverage.**
 
-Stop FoundationDB after a projection epoch changes and require an explicit metadata error; restart it and require the new definition to appear. Search while changing one projection and deleting another type; each completed request must use one complete epoch. Stop and reopen FoundationDB and Tack during `backfill`, `verifying`, activation, and `retiring`. Fail one partial bulk item and one exact document read. Pause older content and access requests across activation. Mutate a resource grant during verification and require the changed event boundary to repeat the affected scan before activation. Run different candidate versions for two authorities concurrently and require independent state and session counts. Require one active version per authority, resumable cursors, no stale overwrite, no alias change, no physical-index creation, and no semantic-field change. Change a principal membership and require zero document writes. Change a resource grant and require access updates for every current page but zero content reads.
+Stop FoundationDB after a projection epoch changes and require an explicit metadata error; restart it and require the new definition to appear. Search while changing one projection and deleting another type; each completed request must use one complete epoch. Require the same physical index and alias. Require affected pages to contain new semantic fields. Require unaffected pages to preserve semantic fields byte for byte. Require workers to retire obsolete affected-page document IDs. Stop and reopen FoundationDB and Tack during `backfill`, `verifying`, activation, and `retiring`. Fail one partial bulk item and one exact document read. Pause older content and access requests across activation. Mutate a resource grant during verification and require the changed event boundary to repeat the affected scan before activation. Run different candidate versions for two authorities concurrently and require independent state and session counts. Require one active version per authority, resumable cursors, no stale overwrite, no alias change, no physical-index creation, and no semantic-field change during access transitions. Change a principal membership and require zero document writes. Change a resource grant and require access updates for every current page but zero content reads.
 
 - [ ] **Step 10: Register the refresh services.**
 

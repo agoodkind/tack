@@ -29,6 +29,7 @@
 - Every applicable property definition explicitly includes or excludes search. Never derive search behavior from identifiers, types, seeds, or the FoundationDB `Indexed` flag.
 - Store only `access.versions`, `access.keys`, and `access.generation` for permission filtering. FoundationDB performs the final current authorization check.
 - Principal membership changes alter query keys only. Resource visibility changes schedule bounded access-only updates that preserve text and embeddings.
+- Text projection changes schedule bounded content updates against the serving physical index. Regenerate embeddings only for affected pages. Do not start index replacement.
 - Persist work, sessions, rebuild state, cursors, generations, visited node IDs, and query tokens in FoundationDB. Keep request handlers stateless.
 - Process at most 32 reader pages or 5 MiB per worker slice. Process at most 100 cleanup or access IDs per slice.
 - Return at most 25 distinct nodes per public response. Read at most four OpenSearch batches of 100 page matches per response. Continuation must still return every eligible node.
@@ -54,6 +55,7 @@
 6. A rebuild or native split includes every concurrent mutation before alias activation.
 7. Single-node QA and production outages preserve source writes and durable search work.
 8. Permission-policy transitions update opaque access values without reading text, invoking the model, or replacing the index.
+9. Text projection changes reread and reembed only affected pages without replacing the physical index.
 
 ---
 
@@ -121,7 +123,7 @@ Sol validates the stack tip with the independent Configs pull request. Route a c
 | Metadata | Property-definition writes and registered expiring backfill | Complete explicit projection declarations |
 | Indexing | Node mutations and runtime worker loops | Bounded page documents and resumable work in FoundationDB |
 | Query | Registered `tack_search` handler | Ranked nodes and durable continuation sessions |
-| Refresh | Metadata and permission writes | Projection epochs and access-only transitions |
+| Refresh | Metadata and permission writes | Projection-triggered content refresh and access-only transitions |
 | Replacement | Registered search reindex operation | Validated alias replacement and retired-index state |
 | QA verification | Guarded QA datagen operation | Public behavior evidence |
 
