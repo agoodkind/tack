@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Use the exact image and model. Do not add an ingest pipeline, tokenizer dependency, custom transport, OpenSearch plugin, fork, or external inference service.
+Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Perform this Luna task only inside the selected Tack worktree. The only permitted external writes are the documented branch and pull-request publication operations. Use the exact image and model. Do not start OpenSearch or invoke Docker during this coding task. Do not add an ingest pipeline, tokenizer dependency, custom transport, OpenSearch plugin, fork, or external inference service.
 
 ## Review Focus
 
@@ -82,7 +82,7 @@ The final validation plan runs `^TestSearchNativeSparse$` against the completed 
 
 - [ ] **Step 3: Add the official client and real TLS fixture.**
 
-Pin v4.7.3. Launch the exact image through the existing Docker SDK test environment. Create an ephemeral CA and server certificate. Keep credentials in memory. Configure `opensearch.Config` with one endpoint, CA bytes, request timeout, retry statuses, retry count, timeout retries, metrics, and a connection observer. Do not construct another `http.Client`.
+Pin v4.7.3. Author the existing Docker SDK test fixture to launch the exact image during Sol validation. Create an ephemeral CA and server certificate. Keep credentials in memory. Configure `opensearch.Config` with one endpoint, CA bytes, request timeout, retry statuses, retry count, timeout retries, metrics, and a connection observer. Do not construct another `http.Client`. Do not invoke the fixture during this coding task.
 
 - [ ] **Step 4: Prove every required client operation.**
 
@@ -133,7 +133,7 @@ Replace a same-ID document with `{"retired":true}` at the retirement version. Re
 
 - [ ] **Step 10: Add endpoint and resource coverage.**
 
-Require `ConnectionObserver` to record only the configured stable endpoint. Record bundle size, reported inference memory, process memory, peak ingest memory, and latency in an 8 GiB container. Preserve the 4 GiB circuit-breaker failure as a regression. Do not infer concurrent capacity from this test.
+Require `ConnectionObserver` to record only the configured stable endpoint. Author final-validation measurements for bundle size, reported inference memory, process memory, peak ingest memory, and latency in an 8 GiB container. Preserve the 4 GiB circuit-breaker failure as a regression. Sol records those measurements. Do not run either container during this coding task or infer concurrent capacity from this test.
 
 - [ ] **Step 11: Register audited provision and verification commands.**
 

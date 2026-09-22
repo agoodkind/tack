@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Use opaque generated identifiers. Keep fixture phrases in data. Preserve the production target guard.
+Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Perform this Luna task only inside the selected Tack worktree. The only permitted external writes are the documented branch and pull-request publication operations. Use opaque generated identifiers. Keep fixture phrases in data. Preserve the production target guard. Author the QA, MCP, FoundationDB, OpenSearch, and outage checks without running the data generator or starting, stopping, or querying any service during this coding task.
 
 ## Review Focus
 

@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Keep at most one serving, one replacement, and one retiring index. Restored source data always requires a full replacement. Native split never replaces journal replay, alias coordination, or session retirement. A text projection change uses bounded content work on the serving index and never starts replacement. A permission-policy version change uses access-only work on the serving index and never starts replacement.
+Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Perform this Luna task only inside the selected Tack worktree. The only permitted external writes are the documented branch and pull-request publication operations. Do not run a rebuild, split, restore, OpenSearch request, FoundationDB request, Docker command, or other live-dependency operation during this coding task. Keep at most one serving, one replacement, and one retiring index. Restored source data always requires a full replacement. Native split never replaces journal replay, alias coordination, or session retirement. A text projection change uses bounded content work on the serving index and never starts replacement. A permission-policy version change uses access-only work on the serving index and never starts replacement.
 
 ## Review Focus
 
@@ -131,7 +131,7 @@ Bind sessions to physical indexes. Reject new sessions on retiring indexes. Dire
 
 - [ ] **Step 9: Add restore and repeated-split coverage.**
 
-Restore a real FDB backup into a disposable environment, change the search generation, reject restored cursors, and rebuild an empty index. Split one to two, four, then eight primaries with the model undeployed. Require identical stored source and sparse weights, then redeploy and rerun relevance and continuation.
+Author final-validation coverage that restores a real FDB backup into a disposable environment, changes the search generation, rejects restored cursors, and rebuilds an empty index. Split one to two, four, then eight primaries with the model undeployed. Require identical stored source and sparse weights, then redeploy and rerun relevance and continuation. Sol runs this coverage. Luna does not restore a backup, start a service, or run a split.
 
 - [ ] **Step 10: Register the production reindex operation.**
 

@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Complete the reader, work store, writer, worker, scheduler, configuration, and runtime registration in one task. No declaration may exist only for a later task.
+Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Perform this Luna task only inside the selected Tack worktree. The only permitted external writes are the documented branch and pull-request publication operations. Complete the reader, work store, writer, worker, scheduler, configuration, and runtime registration in one task. No declaration may exist only for a later task. Do not start or query FoundationDB, OpenSearch, Docker, or another service during this coding task.
 
 ## Review Focus
 
@@ -93,7 +93,7 @@ type PageWriter interface { Put(context.Context, WriteIntent) error; UpdateAcces
 
 - [ ] **Register production workers.** Add explicit page-size, lease, timeout, concurrency, and class scheduling configuration. Construct the reader, policy set, work store, writer, cleanup service, and worker loops in `internal/runtime/graph.go`. Recover every worker goroutine, return startup errors, use the injected clock, and stop all loops on context cancellation. Source writes remain available when OpenSearch is unavailable because failed work remains pending.
 
-- [ ] **Prove scale behavior.** Run live, access, cleanup, rescan, and rebuild work together. Require every class to progress. Record page reads, encoded bytes, slice duration, oldest work age, and peak memory. Increase workers under fixed load and require throughput to increase without a stored-format change.
+- [ ] **Author scale coverage.** Add final-validation coverage that runs live, access, cleanup, rescan, and rebuild work together. Require every class to progress. Record page reads, encoded bytes, slice duration, oldest work age, and peak memory. Increase workers under fixed load and require throughput to increase without a stored-format change. Sol runs this coverage. Luna does not start its dependencies.
 
 - [ ] **Run checks and create the next Graphite slice.** Run `make build` once and fix every failure. Review `git diff --check` and the complete diff. Stage only the files listed by this plan. Run Graphite MCP `create` from stack position 2 with this exact message:
 
