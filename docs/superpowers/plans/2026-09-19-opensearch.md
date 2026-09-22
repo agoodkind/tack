@@ -59,7 +59,7 @@
 
 ## Serial execution order
 
-The completed first plan created two independent pull requests, one in Tack and one in Configs. Complete the removal release before creating the OpenSearch stack. Luna then prepares the dependent Tack slices as one Graphite stack. Sol validates the stack tip and applies each correction to the branch that owns the behavior.
+The Tack and Configs removal pull requests are merged. Complete the removal release before creating the OpenSearch stack. Luna creates the dependent Tack slices as one Graphite stack. Sol validates the stack tip and applies each correction to the branch that owns the behavior.
 
 1. [x] [Remove Meilisearch and preserve the public outage contract](2026-09-20-meilisearch-removal.md). Ticket: TACK-541.
 2. Merge and deploy that removal release through the first phase of the [release plan](2026-09-19-opensearch-release.md). Search remains temporarily unavailable.
@@ -87,7 +87,7 @@ The independent removal pull requests are complete:
 | Tack | [#271](https://github.com/agoodkind/tack/pull/271) | Merged |
 | Configs | [#479](https://github.com/agoodkind/configs/pull/479) | Merged |
 
-The removal pull requests are merged. Complete the remaining deployment and live verification work in release Phase A before starting the following Tack stack from the updated `origin/main`:
+Complete the remaining deployment and live verification work in release Phase A. Then start the following Tack stack from the updated `origin/main`:
 
 | Stack position | Pull request | Plan |
 | --- | --- | --- |
