@@ -4,7 +4,7 @@
 
 **Goal:** Give every property definition an explicit search decision before the first OpenSearch rebuild.
 
-**Architecture:** Stored metadata remains the runtime authority. New seeds and QA data write complete declarations. An audited expiring command applies one reviewed manifest to existing definitions without inference or overwrite. This initial rollout runs before the index pipeline exists and schedules no search work.
+**Architecture:** Stored metadata remains the runtime authority. New seeds and QA data write complete declarations. An audited expiring command applies one reviewed manifest to existing definitions without inference or overwrite.
 
 **Tech Stack:** Go, FoundationDB, existing metadata repositories, `clispec`, audit outbox.
 

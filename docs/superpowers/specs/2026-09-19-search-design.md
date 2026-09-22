@@ -163,7 +163,7 @@ New sessions cannot use a retiring index. Existing sessions end at their inactiv
 or absolute deadline. Bounded cleanup deletes session state and then deletes the
 retiring index. Restore operations always create a new search generation and index.
 
-Permission-policy versions do not start index replacement. Their access-only transition preserves page text and sparse weights. Ordinary text projection changes also do not start index replacement. A projection change increments the organization epoch and schedules bounded content work against the serving index. Workers reread and reembed only affected pages and retire their obsolete document IDs. Physical mapping, semantic model, tokenizer, embedding format, page identity, restore state, cleanup state, and unsupported shard changes require replacement.
+Permission-policy versions do not start index replacement. Their access-only transition preserves page text and sparse weights. A projection change increments the organization epoch and schedules bounded content work against the serving index without starting index replacement. Workers reread and reembed only affected pages and retire their obsolete document IDs. Physical mapping, semantic model, tokenizer, embedding format, page identity, restore state, cleanup state, and unsupported shard changes require replacement.
 
 ## Deployment and capacity
 
