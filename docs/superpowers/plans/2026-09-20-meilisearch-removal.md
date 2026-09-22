@@ -4,7 +4,7 @@
 
 **Goal:** Remove the unused Meilisearch stack while preserving the `tack_search` tool as a clear temporary outage.
 
-**Status:** Complete. [Tack PR #271](https://github.com/agoodkind/tack/pull/271) and [Configs PR #479](https://github.com/agoodkind/configs/pull/479) are merged. TACK-541 is Done.
+**Status:** Complete. [Tack PR #271](https://github.com/agoodkind/tack/pull/271) and [Configs PR #479](https://github.com/agoodkind/configs/pull/479) are merged.
 
 **Architecture:** The MCP server keeps the existing tool name and input schema. Its handler returns one fixed recoverable error before resolving any argument. Node writes stop calling a search adapter. Runtime startup, repair tools, datagen, test infrastructure, and deployment configuration stop constructing or requiring Meilisearch. The existing data volume remains untouched until a separate operation is authorized.
 
