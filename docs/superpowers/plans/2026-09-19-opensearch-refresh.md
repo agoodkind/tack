@@ -96,7 +96,7 @@ The final validation plan runs `^TestSearch(MetadataAfterStartup|AccessVersionWi
 
 - [ ] **Step 3: Store and increment the organization projection epoch.**
 
-Add the epoch key to the central FoundationDB key catalog. Increment it in the same transaction as every property definition or node type change that alters projected text. Schedule a bounded content scan for the affected nodes in that transaction. The existing index workers write the changed pages to the serving physical index, run inference for those pages, and retire obsolete document IDs. They do not create a physical index or switch an alias. Return the version as a stable decimal string. A permission node change does not increment the text projection epoch.
+Add the epoch key to the central FoundationDB key catalog. Increment it in the same transaction as every property definition or node type change that alters projected text. Schedule a bounded content scan for the affected nodes in that transaction. The existing index workers write the changed pages to the serving physical index, run inference for those pages, and retire obsolete document IDs. Return the version as a stable decimal string. A permission node change does not increment the text projection epoch.
 
 ```go
 func (s *ViewStore) ProjectionVersion(ctx context.Context, nodeID uuid.UUID) (string, error) {

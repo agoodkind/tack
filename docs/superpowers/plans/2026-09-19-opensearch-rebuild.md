@@ -89,8 +89,9 @@ Acquire one environment lease before target creation. Persist mode, source, targ
 
 Choose full replacement for first construction, restore, physical mapping,
 semantic model, tokenizer, embedding format, page identity, cleanup thresholds,
-lower shard counts, and targets outside the reserved routing path. Do not choose
-it for a text projection or permission-policy version. Create an empty target. Scan bounded node IDs through
+lower shard counts, and targets outside the reserved routing path. Text projection
+changes use bounded content work on the serving index. Permission-policy version
+changes use access-only work. Create an empty target. Scan bounded node IDs through
 `ScanSearch`. Schedule the same page worker against the target. Each page uses
 the current active and candidate write versions from FoundationDB. Persist scan
 and journal replay checkpoints independently.
