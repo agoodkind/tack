@@ -5,21 +5,29 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/telemetry"
 )
 
 // RelationshipStore implements node.RelationshipRepository using FoundationDB.
+// When searchWork is true, each relationship write schedules search access
+// work stamped by the clock.
 type RelationshipStore struct {
-	db fdb.Database
+	db         fdb.Database
+	clock      clock.Clock
+	searchWork bool
 }
 
-func NewRelationshipStore(db fdb.Database) *RelationshipStore {
-	return &RelationshipStore{db: db}
+// NewRelationshipStore creates the relationship store. It schedules no
+// search work until [Stores.EnableSearchWork] runs.
+func NewRelationshipStore(db fdb.Database, source clock.Clock) *RelationshipStore {
+	return &RelationshipStore{db: db, clock: source, searchWork: false}
 }
 
 func (s *RelationshipStore) Add(ctx context.Context, rel *node.Relationship) (err error) {
@@ -31,11 +39,21 @@ func (s *RelationshipStore) Add(ctx context.Context, rel *node.Relationship) (er
 	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
 		tr.Set(fdb.Key(relationshipKey(rel.OrgID, rel.SourceID, rel.RelationType, rel.TargetID)), metadata)
 		tr.Set(fdb.Key(relationshipReverseKey(rel.OrgID, rel.TargetID, rel.RelationType, rel.SourceID)), []byte{})
+		if s.searchWork {
+			if err := scheduleRelatedSearchWork(ctx, tr, s.clock.Now(), []node.RelationshipChanges{
+				{Add: []*node.Relationship{rel}, Remove: []*node.Relationship{}},
+			}); err != nil {
+				return nil, err
+			}
+		}
 		return nil, writeStagedIntent(ctx, tr)
 	})
 	if err != nil {
-		slog.ErrorContext(ctx, "relationship.add_failed", slog.String("err", err.Error()))
-		return fmt.Errorf("add relationship %s: %w", rel.RelationType, err)
+		wrapped := fmt.Errorf("add relationship %s: %w", rel.RelationType, err)
+		if !searchFailureWasLogged(err) {
+			telemetry.L(ctx).ErrorContext(ctx, "search.work.schedule_failed", slog.String("err", wrapped.Error()), slog.String("source_id", rel.SourceID.String()), slog.String("target_id", rel.TargetID.String()))
+		}
+		return wrapped
 	}
 	commitStagedIntent(ctx)
 	return nil
@@ -46,11 +64,25 @@ func (s *RelationshipStore) Remove(ctx context.Context, orgID, sourceID uuid.UUI
 	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
 		tr.Clear(fdb.Key(relationshipKey(orgID, sourceID, relationType, targetID)))
 		tr.Clear(fdb.Key(relationshipReverseKey(orgID, targetID, relationType, sourceID)))
+		changed := &node.Relationship{
+			OrgID: orgID, SourceID: sourceID, RelationType: relationType, TargetID: targetID,
+			CreatedBy: uuid.Nil, CreatedAt: time.Time{}, Props: map[string]json.RawMessage{},
+		}
+		if s.searchWork {
+			if err := scheduleRelatedSearchWork(ctx, tr, s.clock.Now(), []node.RelationshipChanges{
+				{Add: []*node.Relationship{}, Remove: []*node.Relationship{changed}},
+			}); err != nil {
+				return nil, err
+			}
+		}
 		return nil, writeStagedIntent(ctx, tr)
 	})
 	if err != nil {
-		slog.ErrorContext(ctx, "relationship.remove_failed", slog.String("err", err.Error()))
-		return fmt.Errorf("remove relationship %s: %w", relationType, err)
+		wrapped := fmt.Errorf("remove relationship %s: %w", relationType, err)
+		if !searchFailureWasLogged(err) {
+			telemetry.L(ctx).ErrorContext(ctx, "search.work.schedule_failed", slog.String("err", wrapped.Error()), slog.String("source_id", sourceID.String()), slog.String("target_id", targetID.String()))
+		}
+		return wrapped
 	}
 	commitStagedIntent(ctx)
 	return nil

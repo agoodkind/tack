@@ -63,6 +63,14 @@ func seedOp(f *cli.Factory) clispec.Operation[seedInput] {
 	}
 }
 
+// enableSeedSearchWork turns on search work scheduling in the seed stores
+// when OPENSEARCH_ENDPOINT is set.
+func enableSeedSearchWork(cfg *config.Config, stores *fdbadapter.Stores) {
+	if cfg.SearchEndpoint != "" {
+		stores.EnableSearchWork()
+	}
+}
+
 // execSeed creates the initial user, org, and workspace using the generic Node
 // primitives. This is the one place in the system that references specific
 // NodeType names (via service.Seeder constants). It returns any fatal error to
@@ -90,6 +98,7 @@ func execSeed(ctx context.Context, cfg *config.Config, recorder audit.Recorder) 
 		slog.ErrorContext(ctx, "seed.foundationdb_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("seed: foundationdb: %w", err)
 	}
+	enableSeedSearchWork(cfg, fdbStores)
 
 	userRepo := postgres.NewUserRepo(pool)
 	tokenRepo := postgres.NewTokenRepo(pool)

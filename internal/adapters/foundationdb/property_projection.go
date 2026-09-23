@@ -135,6 +135,11 @@ func (s *PropertyDefStore) SetProjectionIfNil(ctx context.Context, definition *n
 	}
 }
 
+// setProjectionInTransaction stores projection on one definition without a
+// declaration. It writes the definition record, its property-name index
+// entry, and the audit intent. It changes no projection digest and schedules
+// no search work: the initial rollout runs before the first FoundationDB
+// rebuild, and that rebuild reads the completed declarations.
 func setProjectionInTransaction(ctx context.Context, tr fdb.Transaction, definition *node.PropertyDef, projection node.SearchProjection) (changed bool, err error) {
 	logger := telemetry.L(ctx)
 	reported := false
@@ -183,6 +188,7 @@ func setProjectionInTransaction(ctx context.Context, tr fdb.Transaction, definit
 	if marshalErr != nil {
 		return false, fmt.Errorf("encode property definition %s: %w", definition.ID, marshalErr)
 	}
+	indexPropertyName(tr, definition.OrgID, definition.ID, nil, &current)
 	tr.Set(key, encoded)
 	if intentErr := writeStagedIntent(ctx, tr); intentErr != nil {
 		return false, fmt.Errorf("record projection audit for property definition %s: %w", definition.ID, intentErr)

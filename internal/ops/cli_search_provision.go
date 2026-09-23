@@ -74,7 +74,7 @@ func searchProvisionOp(f *cli.Factory) clispec.Operation[searchProvisionInput] {
 				logger.ErrorContext(ctx, "search.provision.alias_failed", slog.String("err", wrapped.Error()), slog.String("index", index))
 				return wrapped
 			}
-			return nil
+			return recordServingSearchIndex(ctx, f, index)
 		},
 	}
 }

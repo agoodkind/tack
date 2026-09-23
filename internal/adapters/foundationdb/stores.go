@@ -14,6 +14,8 @@ import (
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"goodkind.io/tack/internal/clock"
+	"goodkind.io/tack/internal/domain/node"
+	"goodkind.io/tack/internal/searchaccess"
 	"goodkind.io/tack/internal/telemetry"
 )
 
@@ -43,18 +45,73 @@ func NewStores(clusterFile string, transactionTimeout time.Duration, sqlPool *pg
 }
 
 func newStores(db fdb.Database, _ *pgxpool.Pool) *Stores {
+	source := processClock{}
+	nodes := NewNodeStore(db, source)
 	return &Stores{
 		db:            db,
-		NodeTypes:     NewNodeTypeStore(db),
-		PropertyDefs:  NewPropertyDefStore(db),
-		Nodes:         NewNodeStore(db),
+		NodeTypes:     NewNodeTypeStore(db, source),
+		PropertyDefs:  NewPropertyDefStore(db, source),
+		Nodes:         nodes,
 		Views:         NewViewStore(db),
-		Relationships: NewRelationshipStore(db),
+		Relationships: NewRelationshipStore(db, source),
 		Inspect:       NewInspectStore(db),
-		NodeDeleter:   NewNodeDeleteStore(db),
+		NodeDeleter:   NewNodeDeleteStore(nodes),
 		OpsOutbox:     NewOpsOutboxStore(db),
 	}
 }
+
+// processClock reads the process-wide clock through the clock package
+// helpers. Stores use it until UseClock installs an injected clock.
+type processClock struct{}
+
+func (processClock) Now() time.Time { return clock.Now() }
+
+func (processClock) Since(start time.Time) time.Duration { return clock.Since(start) }
+
+// UseClock installs the injected clock that stamps the search work every
+// source write schedules. The runtime graph installs its clock once, before
+// the stores serve any request.
+func (s *Stores) UseClock(source clock.Clock) {
+	s.NodeTypes.clock = source
+	s.PropertyDefs.clock = source
+	s.Nodes.clock = source
+	s.Relationships.clock = source
+}
+
+// EnableSearchWork turns on search work scheduling in node, relationship,
+// property definition, and node type writes. Callers turn it on only when
+// OPENSEARCH_ENDPOINT is set. Without it, those writes store no search work,
+// search access, fanout, or permission event key.
+func (s *Stores) EnableSearchWork() {
+	s.NodeTypes.searchWork = true
+	s.PropertyDefs.searchWork = true
+	s.Nodes.searchWork = true
+	s.Relationships.searchWork = true
+}
+
+// SearchContent constructs a content reader on the shared FoundationDB connection.
+func (s *Stores) SearchContent(policies *searchaccess.PolicySet) *NodeContentStore {
+	return NewNodeContentStore(s.db, policies)
+}
+
+// SearchWork constructs a durable search work store on the shared connection.
+func (s *Stores) SearchWork(source clock.Clock) *SearchWorkStore {
+	return NewSearchWorkStore(s.db, source)
+}
+
+// SearchAccess constructs an access-state store on the shared connection.
+func (s *Stores) SearchAccess(policies *searchaccess.PolicySet) *SearchAccessStateStore {
+	return NewSearchAccessStateStore(s.db, policies)
+}
+
+// SearchPolicySet constructs the registered production access policy. It
+// reads node types through the type-key index and relationships in bounded
+// pages.
+func (s *Stores) SearchPolicySet() *searchaccess.PolicySet {
+	return searchaccess.NewPolicySet(s.Views, s.NodeTypes, s.Relationships)
+}
+
+var _ node.NodeReader = (*ViewStore)(nil)
 
 // Ping fetches a read version to verify the FoundationDB client can serve a
 // read. A context deadline bounds each FDB retry.

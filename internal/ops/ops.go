@@ -77,6 +77,9 @@ func NewEnv(ctx context.Context, cfg *config.Config) (*Env, error) {
 		pool.Close()
 		return nil, fmt.Errorf("foundationdb: %w", err)
 	}
+	if cfg.SearchEndpoint != "" {
+		stores.EnableSearchWork()
+	}
 	return &Env{
 		Cfg:    cfg,
 		Pool:   pool,

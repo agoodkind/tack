@@ -44,6 +44,9 @@ func BootstrapIdentities(
 	if err != nil {
 		return Identities{}, loggedError(ctx, "qa datagen: open foundationdb", err)
 	}
+	if cfg.SearchEndpoint != "" {
+		stores.EnableSearchWork()
+	}
 	users := postgres.NewUserRepo(pool)
 	tokens := postgres.NewTokenRepo(pool)
 	members := postgres.NewOrgMemberRepo(pool)
