@@ -134,6 +134,8 @@ const (
 	VerbOpsActAsGrant Verb = "ops.act_as_grant"
 	// VerbOpsBackfillDefaultChildren records default child backfills.
 	VerbOpsBackfillDefaultChildren Verb = "ops.backfill_default_children"
+	// VerbOpsBackfillSearchProjections records the one-time explicit metadata rollout.
+	VerbOpsBackfillSearchProjections Verb = "ops.backfill_search_projections"
 	// VerbOpsReindex records property index backfills.
 	VerbOpsReindex Verb = "ops.reindex"
 	// VerbOpsReferenceDuplicates records duplicate reference reports.

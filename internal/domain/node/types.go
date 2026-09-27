@@ -283,6 +283,9 @@ type PropertyDef struct {
 	// ReferenceTargetTypeKey names the NodeType whose human reference should be
 	// accepted for UUID-valued properties. Empty means the UUID is opaque.
 	ReferenceTargetTypeKey string `json:"reference_target_type_key,omitempty"`
+	// Search declares the explicit text projection for this property. A nil
+	// value is incomplete metadata and blocks the initial search rebuild.
+	Search *SearchProjection `json:"search"`
 }
 
 // Deterministic-ID namespaces for workspace and system-property IDs.

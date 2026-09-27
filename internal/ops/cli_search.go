@@ -25,6 +25,9 @@ func searchVerifyOp(f *cli.Factory) clispec.Operation[searchVerifyInput] {
 		Short:    "Verify the configured native OpenSearch endpoint",
 		New:      func() searchVerifyInput { return searchVerifyInput{InputMarker: clispec.InputMarker{}} },
 		Run: func(ctx context.Context, _ searchVerifyInput, _ clispec.ResultSink) error {
+			if err := requireSearchProjections(ctx, f); err != nil {
+				return err
+			}
 			return runSearchVerify(ctx, f)
 		},
 	}

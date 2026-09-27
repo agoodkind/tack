@@ -12,6 +12,9 @@ import (
 
 // searchControlConfig returns the production configuration the audited search
 // commands read. It uses the fixture endpoint and CA and one primary shard.
+// The commands connect to the ledger through DatabaseURL and to FoundationDB
+// through FDBClusterFile. The readiness check reads property definitions from
+// FoundationDB.
 func searchControlConfig(t *testing.T, fixture testenv.OpenSearchFixture) *config.Config {
 	t.Helper()
 	caPath := filepath.Join(t.TempDir(), "search-ca.pem")
@@ -26,5 +29,7 @@ func searchControlConfig(t *testing.T, fixture testenv.OpenSearchFixture) *confi
 		SearchEndpoint: fixture.Endpoint, SearchCA: caPath,
 		SearchUsername: fixture.Username, SearchPassword: pass,
 		SearchRequestTimeout: 2 * time.Minute, SearchMaxRetries: 1,
+		DatabaseURL: testenv.Ledger(t), FDBClusterFile: testenv.FoundationDB(t),
+		FDBTransactionTimeout: testTransactionTimeout,
 	}
 }
