@@ -12,8 +12,8 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// errNoHierarchyParent reports a non-entry-point node without exactly one
-// hierarchy parent.
+// errNoHierarchyParent reports a node with several hierarchy parents, or a
+// node without a hierarchy parent when its type lists CanLiveUnder types.
 var errNoHierarchyParent = errors.New("node requires exactly one hierarchy parent")
 
 // livesUnder reports whether NodeType metadata places child under parent.
@@ -29,7 +29,9 @@ func livesUnder(child, parent *node.NodeType) bool {
 // parent returns the one hierarchy parent of nodeID. A hierarchy parent is
 // the target node of an edge from nodeID, and livesUnder accepts the pair of
 // node types. parent reads every edge from nodeID in bounded pages. Several
-// edges to the same parent count once.
+// edges to the same parent count once. A node without a hierarchy parent is
+// a hierarchy root when its type lists no CanLiveUnder type, and parent
+// returns uuid.Nil for it.
 func (c *OrgScopeCompiler) parent(ctx context.Context, orgID, nodeID uuid.UUID, kind *node.NodeType) (uuid.UUID, error) {
 	found := uuid.Nil
 	cursor := ""
@@ -60,7 +62,7 @@ func (c *OrgScopeCompiler) parent(ctx context.Context, orgID, nodeID uuid.UUID, 
 		}
 		cursor = page.NextCursor
 	}
-	if found == uuid.Nil {
+	if found == uuid.Nil && len(kind.CanLiveUnder) > 0 {
 		return uuid.Nil, hierarchyFailure(ctx, nodeID, "resolve hierarchy parent", errNoHierarchyParent)
 	}
 	return found, nil

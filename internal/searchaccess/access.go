@@ -26,13 +26,25 @@ type IndexAccessRequest struct {
 	Generation                 int64
 }
 
+// AccessRequest identifies the caller, the organizations the caller belongs
+// to, and the entry point one query searches under.
+type AccessRequest struct {
+	Version                                string
+	PrincipalID, AuthorityID, EntryPointID uuid.UUID
+	MemberOrganizations                    []uuid.UUID
+}
+
 // Compiler compiles one opaque policy version. Its Dependents method reads
 // one bounded page of the resources that derive their access from a resource
-// under this policy. The page starts after an opaque cursor.
+// under this policy. The page starts after an opaque cursor. EntryAuthority
+// returns the permission authority of an entry point, and Query returns the
+// opaque caller keys of one query.
 type Compiler interface {
 	Version() string
 	Index(context.Context, IndexAccessRequest) (node.SearchAccess, error)
 	Dependents(ctx context.Context, orgID, resourceID uuid.UUID, cursor string, limit int) (node.IDPage, error)
+	EntryAuthority(context.Context, uuid.UUID) (uuid.UUID, error)
+	Query(context.Context, AccessRequest) ([]string, error)
 }
 
 // PolicySet dispatches policy compilation by its explicit version.

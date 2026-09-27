@@ -3,6 +3,7 @@ package integration
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -98,18 +99,58 @@ func drainClass(t *testing.T, store *fdbadapter.SearchWorkStore, worker *service
 	t.Fatalf("%s work did not drain within 1000 slices", class)
 }
 
-// runSearchWorkerWithin runs slices until no class has claimable work or
-// the slice limit is spent.
+const (
+	// engineRejectionText is the worker error text of a bulk item that
+	// OpenSearch rejected with HTTP 429. The ML Commons memory circuit
+	// breaker returns that status while the JVM heap is near its limit.
+	engineRejectionText = "returned status 429 "
+	// rejectedWorkWait covers the retry delay of released work and one claim.
+	rejectedWorkWait = 10 * time.Second
+	// rejectionWindow bounds consecutive rejections without a successful slice.
+	rejectionWindow = 3 * time.Minute
+)
+
+// runSearchWorkerWithin runs slices until no class has claimable work. limit
+// bounds the slices that end without an error. A slice that OpenSearch
+// rejects with HTTP 429 releases its work for the store's retry delay. The
+// loop keeps claiming until that work is claimable again. The production loop
+// retries the same way after its idle interval. Any other slice error fails
+// the test. Rejections that continue past rejectionWindow also fail it.
 func runSearchWorkerWithin(t *testing.T, worker *service.SearchWorker, limit int) {
 	t.Helper()
-	for range limit {
+	var rejectedSince, retryUntil time.Time
+	for completed := 0; completed < limit; {
 		claimed, err := worker.RunSlice(t.Context())
-		if err != nil {
-			t.Fatalf("run search worker slice: %v", err)
-		}
-		if !claimed {
+		switch {
+		case err != nil:
+			rejectedSince = requireEngineRejection(t, err, rejectedSince)
+			retryUntil = clock.Now().Add(rejectedWorkWait)
+		case claimed:
+			completed++
+			rejectedSince = time.Time{}
+		case clock.Now().Before(retryUntil):
+			waitUntil(t, clock.Now().Add(waitForInterval))
+		default:
 			return
 		}
 	}
 	t.Fatalf("search work did not converge within %d slices", limit)
+}
+
+// requireEngineRejection fails the test unless err is an OpenSearch HTTP 429
+// rejection within rejectionWindow of rejectedSince. It returns the start of
+// the current run of rejections.
+func requireEngineRejection(t *testing.T, err error, rejectedSince time.Time) time.Time {
+	t.Helper()
+	if !strings.Contains(err.Error(), engineRejectionText) {
+		t.Fatalf("run search worker slice: %v", err)
+	}
+	now := clock.Now()
+	if rejectedSince.IsZero() {
+		return now
+	}
+	if now.Sub(rejectedSince) > rejectionWindow {
+		t.Fatalf("OpenSearch rejected search work for %s: %v", rejectionWindow, err)
+	}
+	return rejectedSince
 }

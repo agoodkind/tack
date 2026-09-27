@@ -72,16 +72,7 @@ func newSearchWorker(t *testing.T, stores *fdbadapter.Stores, adapter *search.Ad
 // runSearchWorkerUntilIdle runs slices until no class has claimable work.
 func runSearchWorkerUntilIdle(t *testing.T, worker *service.SearchWorker) {
 	t.Helper()
-	for range 500 {
-		claimed, err := worker.RunSlice(t.Context())
-		if err != nil {
-			t.Fatalf("run search worker slice: %v", err)
-		}
-		if !claimed {
-			return
-		}
-	}
-	t.Fatal("search work did not converge within 500 slices")
+	runSearchWorkerWithin(t, worker, 500)
 }
 
 // newSearchIndex provisions the model and one native index, and records it
