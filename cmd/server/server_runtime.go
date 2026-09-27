@@ -26,7 +26,8 @@ func runServer(ctx context.Context, cfg *config.Config) error {
 	if err != nil {
 		return fmt.Errorf("server: build runtime: %w", err)
 	}
-	defer graph.Close()
+	graph.StartSearchWorkers(ctx)
+	defer graph.CloseContext(context.WithoutCancel(ctx))
 
 	mux := buildServeMux(
 		graph.MCPHandler,

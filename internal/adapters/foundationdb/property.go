@@ -7,19 +7,28 @@ import (
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/telemetry"
 )
 
 // PropertyDefStore implements node.PropertyDefRepository using FoundationDB.
+// When searchWork is true, a definition write requests a search rescan
+// stamped by the clock.
 type PropertyDefStore struct {
-	db fdb.Database
+	db         fdb.Database
+	clock      clock.Clock
+	searchWork bool
 }
 
-func NewPropertyDefStore(db fdb.Database) *PropertyDefStore {
-	return &PropertyDefStore{db: db}
+// NewPropertyDefStore creates the property definition store. It requests no
+// search rescan until [Stores.EnableSearchWork] runs.
+func NewPropertyDefStore(db fdb.Database, source clock.Clock) *PropertyDefStore {
+	return &PropertyDefStore{db: db, clock: source, searchWork: false}
 }
 
+// Set stores def, its name index entry, and the projection digest, and
+// requests a content rescan when the declaration changed.
 func (s *PropertyDefStore) Set(ctx context.Context, def *node.PropertyDef) (err error) {
 	defer telemetry.FDBOp(ctx, "store.property_def.set")(&err)
 	b, err := json.Marshal(def)
@@ -27,7 +36,15 @@ func (s *PropertyDefStore) Set(ctx context.Context, def *node.PropertyDef) (err 
 		return fmt.Errorf("marshal property def: %w", err)
 	}
 	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
-		tr.Set(fdb.Key(propertyDefKey(def.OrgID, def.ID)), b)
+		key := propertyDefKey(def.OrgID, def.ID)
+		previous, readErr := tr.Get(fdb.Key(key)).Get()
+		if readErr != nil {
+			return nil, searchReadFailure(ctx, "read property definition "+def.ID.String(), readErr)
+		}
+		if err := updatePropertyDefinition(ctx, tr, s.clock.Now(), s.searchWork, def.OrgID, def.ID, previous, def); err != nil {
+			return nil, err
+		}
+		tr.Set(fdb.Key(key), b)
 		return nil, nil
 	})
 	return
@@ -79,7 +96,15 @@ func (s *PropertyDefStore) List(ctx context.Context, orgID uuid.UUID) (defs []*n
 func (s *PropertyDefStore) Delete(ctx context.Context, orgID, defID uuid.UUID) (err error) {
 	defer telemetry.FDBOp(ctx, "store.property_def.delete")(&err)
 	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
-		tr.Clear(fdb.Key(propertyDefKey(orgID, defID)))
+		key := propertyDefKey(orgID, defID)
+		previous, readErr := tr.Get(fdb.Key(key)).Get()
+		if readErr != nil {
+			return nil, searchReadFailure(ctx, "read property definition "+defID.String(), readErr)
+		}
+		if err := updatePropertyDefinition(ctx, tr, s.clock.Now(), s.searchWork, orgID, defID, previous, nil); err != nil {
+			return nil, err
+		}
+		tr.Clear(fdb.Key(key))
 		return nil, nil
 	})
 	return

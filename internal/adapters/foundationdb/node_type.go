@@ -7,19 +7,28 @@ import (
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// NodeTypeStore implements node.TypeRepository using FoundationDB.
+// NodeTypeStore implements node.TypeRepository using FoundationDB. When
+// searchWork is true, a node type write requests a search rescan stamped by
+// the clock.
 type NodeTypeStore struct {
-	db fdb.Database
+	db         fdb.Database
+	clock      clock.Clock
+	searchWork bool
 }
 
-func NewNodeTypeStore(db fdb.Database) *NodeTypeStore {
-	return &NodeTypeStore{db: db}
+// NewNodeTypeStore creates the node type store. It requests no search
+// rescan until [Stores.EnableSearchWork] runs.
+func NewNodeTypeStore(db fdb.Database, source clock.Clock) *NodeTypeStore {
+	return &NodeTypeStore{db: db, clock: source, searchWork: false}
 }
 
+// Set stores nt and its type-key index entry, and requests an access rescan
+// when the type key, features, or hierarchy declaration changed.
 func (s *NodeTypeStore) Set(ctx context.Context, nt *node.NodeType) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node_type.set")(&err)
 	b, err := json.Marshal(nt)
@@ -27,7 +36,15 @@ func (s *NodeTypeStore) Set(ctx context.Context, nt *node.NodeType) (err error) 
 		return fmt.Errorf("marshal node type: %w", err)
 	}
 	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
-		tr.Set(fdb.Key(nodeTypeDefKey(nt.OrgID, nt.ID)), b)
+		key := nodeTypeDefKey(nt.OrgID, nt.ID)
+		previous, readErr := tr.Get(fdb.Key(key)).Get()
+		if readErr != nil {
+			return nil, searchReadFailure(ctx, "read node type "+nt.ID.String(), readErr)
+		}
+		if err := updateNodeTypeIndex(ctx, tr, s.clock.Now(), s.searchWork, nt.OrgID, nt.ID, previous, nt); err != nil {
+			return nil, err
+		}
+		tr.Set(fdb.Key(key), b)
 		return nil, nil
 	})
 	return
@@ -79,7 +96,15 @@ func (s *NodeTypeStore) List(ctx context.Context, orgID uuid.UUID) (types []*nod
 func (s *NodeTypeStore) Delete(ctx context.Context, orgID, typeID uuid.UUID) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node_type.delete")(&err)
 	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
-		tr.Clear(fdb.Key(nodeTypeDefKey(orgID, typeID)))
+		key := nodeTypeDefKey(orgID, typeID)
+		previous, readErr := tr.Get(fdb.Key(key)).Get()
+		if readErr != nil {
+			return nil, searchReadFailure(ctx, "read node type "+typeID.String(), readErr)
+		}
+		if err := updateNodeTypeIndex(ctx, tr, s.clock.Now(), s.searchWork, orgID, typeID, previous, nil); err != nil {
+			return nil, err
+		}
+		tr.Clear(fdb.Key(key))
 		return nil, nil
 	})
 	return

@@ -1,0 +1,84 @@
+package integration
+
+import (
+	"os"
+	"path/filepath"
+	"strconv"
+	"testing"
+	"time"
+
+	"goodkind.io/tack/internal/domain/node"
+	appruntime "goodkind.io/tack/internal/runtime"
+	"goodkind.io/tack/internal/testenv"
+)
+
+const runtimePageBytes = 128
+
+// configureSearchRuntime sets the production search environment for the
+// shared test engine.
+func configureSearchRuntime(t *testing.T) {
+	t.Helper()
+	engine := testenv.OpenSearchWithMemory(t, nativeSearchMemoryBytes)
+	caPath := filepath.Join(t.TempDir(), "opensearch-ca.pem")
+	if err := os.WriteFile(caPath, []byte(engine.CA), 0o600); err != nil {
+		t.Fatalf("write OpenSearch CA: %v", err)
+	}
+	secret := engine.Password
+	t.Setenv("OPENSEARCH_ENDPOINT", engine.Endpoint)
+	t.Setenv("OPENSEARCH_CA", caPath)
+	t.Setenv("OPENSEARCH_USERNAME", engine.Username)
+	t.Setenv("OPENSEARCH_PASSWORD", secret)
+	t.Setenv("OPENSEARCH_PAGE_BYTES", strconv.Itoa(runtimePageBytes))
+	t.Setenv("OPENSEARCH_WORKER_IDLE_INTERVAL", "50ms")
+}
+
+// currentRevisionIndexed reports whether the document count equals the
+// reader page count and each document revision equals the reader revision.
+func currentRevisionIndexed(documents []searchPageSource, pages []node.ContentPage) bool {
+	if len(documents) != len(pages) {
+		return false
+	}
+	for _, document := range documents {
+		if document.NodeRevision != pages[0].Revision {
+			return false
+		}
+	}
+	return true
+}
+
+// TestSearchRuntimeIndexesThroughGraph builds the production graph, starts
+// its worker loops, and requires a stored node to become indexed pages.
+func TestSearchRuntimeIndexesThroughGraph(t *testing.T) {
+	stores := newSearchStore(t)
+	_, client, _, index := newSearchIndex(t, stores)
+	configureSearchRuntime(t)
+	cfg := harnessConfig(t)
+	cfg.AuditKafkaBrokers = ""
+	cfg.AuditWriterDSN = ""
+	cfg.AuditAllowUnrecorded = true
+	graph, err := appruntime.BuildGraph(t.Context(), cfg)
+	if err != nil {
+		t.Fatalf("build graph: %v", err)
+	}
+	t.Cleanup(graph.Close)
+	graph.StartSearchWorkers(t.Context())
+
+	fixture := putSearchText(t, stores, readerIncludedValue(), readerExcludedValue)
+	deadline := time.NewTimer(2 * time.Minute)
+	defer deadline.Stop()
+	for {
+		pages := readSearchPages(t, stores, fixture.NodeID, runtimePageBytes)
+		documents := searchNodePages(t, client, index, fixture.NodeID, false)
+		if currentRevisionIndexed(documents, pages) {
+			requireIndexedPages(t, documents, pages, 1)
+			return
+		}
+		poll := time.NewTimer(500 * time.Millisecond)
+		select {
+		case <-deadline.C:
+			poll.Stop()
+			t.Fatalf("the runtime workers indexed %d of %d pages", len(documents), len(pages))
+		case <-poll.C:
+		}
+	}
+}

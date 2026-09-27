@@ -28,3 +28,12 @@ func waitFor(t *testing.T, timeout time.Duration, check func() bool) bool {
 		}
 	}
 }
+
+// waitUntil waits in real time until the wall clock passes instant.
+func waitUntil(t *testing.T, instant time.Time) {
+	t.Helper()
+	timeout := instant.Sub(clock.Now()) + 2*waitForInterval
+	if !waitFor(t, timeout, func() bool { return clock.Now().After(instant) }) {
+		t.Fatalf("the test ended before %s", instant.UTC().Format(time.RFC3339Nano))
+	}
+}

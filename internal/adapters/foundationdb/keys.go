@@ -1,11 +1,6 @@
 package foundationdb
 
-import (
-	"bytes"
-
-	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
-	"github.com/google/uuid"
-)
+import "bytes"
 
 // FDB key space. Everything is expressed through one of a small set of generic
 // patterns; nothing in the key space privileges a specific concept (no
@@ -61,6 +56,12 @@ const (
 	// (property_def, orgID, defID) -> PropertyDef JSON
 	keyPropertyDef = "property_def"
 
+	// Metadata lookup indexes, written in the same transaction as the record.
+	// (node_type_by_key, orgID, typeKey, typeID) -> nil
+	// (property_def_by_name, orgID, name, defID) -> nil
+	keyNodeTypeByKey     = "node_type_by_key"
+	keyPropertyDefByName = "property_def_by_name"
+
 	// Idempotency key index. The value is an IdempotencyRecord JSON payload.
 	// Older records may contain only the raw nodeID bytes.
 	// (idempotency_key, orgID, key) -> IdempotencyRecord JSON
@@ -70,6 +71,38 @@ const (
 	// relay can drain every org in commit order.
 	// (ops_outbox, versionstamp) -> audit event JSON
 	keyOpsOutbox = "ops_outbox"
+
+	// Durable search work. Work, age, and claim keys include a bucket number
+	// that searchBucket computes from (orgID, nodeID). A claim reads the age
+	// keys of one bucket at a time.
+	// (search_generation, orgID, nodeID) -> external version counter
+	// (search_revision, orgID, nodeID) -> generation of the last content change
+	// (search_work, class, bucket, orgID, nodeID) -> pending work record JSON
+	// (search_age, class, bucket, enqueuedUnixNano, orgID, nodeID) -> nil,
+	//   one entry per pending work record in enqueue order (class age)
+	// (search_claim, class, bucket, orgID, nodeID) -> lease record JSON
+	// (search_cursor, class, orgID, nodeID) -> progress record JSON; the
+	//   rescan class stores its scan state here under the nil node ID
+	// (search_issued, orgID, nodeID, revision, ordinal, projection) -> document ID
+	// (search_access, orgID, nodeID) -> recorded access state JSON
+	// (search_fanout, orgID, deletedNodeID, counterpartID) -> nil
+	// (search_error, class, orgID, nodeID) -> last failure message
+	// (search_scan, orgID) -> rescan generation counter
+	// (search_projection, orgID) -> 32-byte sum of definition projection hashes
+	// (search_index) -> serving physical index name
+	keySearchGeneration = "search_generation"
+	keySearchRevision   = "search_revision"
+	keySearchWork       = "search_work"
+	keySearchAge        = "search_age"
+	keySearchClaim      = "search_claim"
+	keySearchCursor     = "search_cursor"
+	keySearchIssued     = "search_issued"
+	keySearchAccess     = "search_access"
+	keySearchFanout     = "search_fanout"
+	keySearchError      = "search_error"
+	keySearchScan       = "search_scan"
+	keySearchProjection = "search_projection"
+	keySearchIndex      = "search_index"
 )
 
 // testPrefix is prepended to every packed FDB key when non-nil. Production
@@ -112,121 +145,6 @@ func stripPrefix(key []byte) []byte {
 		return key[len(testPrefix):]
 	}
 	return key
-}
-
-// nodeInstanceKey packs a primary node key.
-func nodeInstanceKey(orgID uuid.UUID, nodeType string, nodeID uuid.UUID) []byte {
-	return withPrefix(tuple.Tuple{keyNodeInstance, orgID.String(), nodeType, nodeID.String()}.Pack())
-}
-
-// nodeViewKey packs a materialized view key.
-func nodeViewKey(orgID uuid.UUID, nodeType string, nodeID uuid.UUID) []byte {
-	return withPrefix(tuple.Tuple{keyNodeView, orgID.String(), nodeType, nodeID.String()}.Pack())
-}
-
-// nodeResolveKey packs a global resolve key.
-func nodeResolveKey(nodeID uuid.UUID) []byte {
-	return withPrefix(tuple.Tuple{keyNodeResolve, nodeID.String()}.Pack())
-}
-
-// nodeByPropertyKey packs a secondary property index key.
-func nodeByPropertyKey(orgID uuid.UUID, nodeType, propName string, encodedValue []byte, nodeID uuid.UUID) []byte {
-	return withPrefix(tuple.Tuple{keyNodeByProperty, orgID.String(), nodeType, propName, encodedValue, nodeID.String()}.Pack())
-}
-
-// nodeReferenceKey packs a forward reference ownership key.
-func nodeReferenceKey(orgID uuid.UUID, templateName, encoded string) []byte {
-	return withPrefix(tuple.Tuple{keyNodeReference, orgID.String(), templateName, encoded}.Pack())
-}
-
-// nodeReferenceOwnedKey packs a reverse reference ownership key.
-func nodeReferenceOwnedKey(orgID, nodeID uuid.UUID, templateName string) []byte {
-	return withPrefix(tuple.Tuple{keyNodeReferenceOwned, orgID.String(), nodeID.String(), templateName}.Pack())
-}
-
-// nodeReferenceOwnedPrefix packs a node's reverse reference ownership prefix.
-func nodeReferenceOwnedPrefix(orgID, nodeID uuid.UUID) []byte {
-	return withPrefix(tuple.Tuple{keyNodeReferenceOwned, orgID.String(), nodeID.String()}.Pack())
-}
-
-// relationshipKey packs a forward relationship key.
-func relationshipKey(orgID, sourceID uuid.UUID, relationType string, targetID uuid.UUID) []byte {
-	return withPrefix(tuple.Tuple{keyRelationship, orgID.String(), sourceID.String(), relationType, targetID.String()}.Pack())
-}
-
-// relationshipReverseKey packs a reverse relationship key.
-func relationshipReverseKey(orgID, targetID uuid.UUID, relationType string, sourceID uuid.UUID) []byte {
-	return withPrefix(tuple.Tuple{keyRelationshipReverse, orgID.String(), targetID.String(), relationType, sourceID.String()}.Pack())
-}
-
-// sequenceKey packs an atomic sequence counter key.
-func sequenceKey(orgID, scopeNodeID uuid.UUID, nodeType string) []byte {
-	return withPrefix(tuple.Tuple{keySequence, orgID.String(), scopeNodeID.String(), nodeType}.Pack())
-}
-
-// sequenceByKeyKey packs a counter key derived from a reference template.
-func sequenceByKeyKey(orgID uuid.UUID, counterKey string) []byte {
-	return withPrefix(tuple.Tuple{keySequence, orgID.String(), counterKey}.Pack())
-}
-
-// nodeTypeDefKey packs a NodeType config key.
-func nodeTypeDefKey(orgID, typeID uuid.UUID) []byte {
-	return withPrefix(tuple.Tuple{keyNodeTypeDef, orgID.String(), typeID.String()}.Pack())
-}
-
-// propertyDefKey packs a PropertyDef key.
-func propertyDefKey(orgID, defID uuid.UUID) []byte {
-	return withPrefix(tuple.Tuple{keyPropertyDef, orgID.String(), defID.String()}.Pack())
-}
-
-// idempotencyKey packs the per-org idempotency-key sentinel.
-func idempotencyKey(orgID uuid.UUID, key string) []byte {
-	return withPrefix(tuple.Tuple{keyIdempotency, orgID.String(), key}.Pack())
-}
-
-// nodeViewPrefix packs the prefix for scanning views of (orgID, nodeType).
-func nodeViewPrefix(orgID uuid.UUID, nodeType string) []byte {
-	return withPrefix(tuple.Tuple{keyNodeView, orgID.String(), nodeType}.Pack())
-}
-
-// nodeByPropertyValuePrefix packs the prefix for scanning the property index
-// narrowed to a specific encoded value.
-func nodeByPropertyValuePrefix(orgID uuid.UUID, nodeType, propName string, encodedValue []byte) []byte {
-	return withPrefix(tuple.Tuple{keyNodeByProperty, orgID.String(), nodeType, propName, encodedValue}.Pack())
-}
-
-// relationshipPrefixBySource packs the prefix for listing all relationships
-// from sourceID, optionally narrowed to a specific relationType.
-func relationshipPrefixBySource(orgID, sourceID uuid.UUID, relationType string) []byte {
-	if relationType == "" {
-		return withPrefix(tuple.Tuple{keyRelationship, orgID.String(), sourceID.String()}.Pack())
-	}
-	return withPrefix(tuple.Tuple{keyRelationship, orgID.String(), sourceID.String(), relationType}.Pack())
-}
-
-// relationshipReversePrefixByTarget packs the prefix for listing all relationships
-// pointing to targetID, optionally narrowed to a specific relationType.
-func relationshipReversePrefixByTarget(orgID, targetID uuid.UUID, relationType string) []byte {
-	if relationType == "" {
-		return withPrefix(tuple.Tuple{keyRelationshipReverse, orgID.String(), targetID.String()}.Pack())
-	}
-	return withPrefix(tuple.Tuple{keyRelationshipReverse, orgID.String(), targetID.String(), relationType}.Pack())
-}
-
-// nodeTypeDefPrefix packs the prefix for scanning all NodeType records in an org.
-func nodeTypeDefPrefix(orgID uuid.UUID) []byte {
-	return withPrefix(tuple.Tuple{keyNodeTypeDef, orgID.String()}.Pack())
-}
-
-// propertyDefPrefix packs the prefix for scanning all PropertyDef records in an org.
-func propertyDefPrefix(orgID uuid.UUID) []byte {
-	return withPrefix(tuple.Tuple{keyPropertyDef, orgID.String()}.Pack())
-}
-
-// opsOutboxPrefix packs the prefix for scanning every operator-command audit
-// event, across all orgs.
-func opsOutboxPrefix() []byte {
-	return withPrefix(tuple.Tuple{keyOpsOutbox}.Pack())
 }
 
 // TestPrefixRange returns a range covering every key under the active test

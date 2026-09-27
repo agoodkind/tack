@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sync"
 
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	mcpadapter "goodkind.io/tack/internal/adapters/mcp"
 	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/auth"
+	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/service"
 	"goodkind.io/tack/internal/telemetry"
@@ -27,6 +29,10 @@ type Graph struct {
 	pool           *pgxpool.Pool
 	fdbStores      *fdbadapter.Stores
 	audit          auditRuntime
+	search         searchRuntime
+	searchCancel   context.CancelFunc
+	searchWorkers  sync.WaitGroup
+	searchStarted  bool
 }
 
 // BuildGraph opens the configured datastores and assembles the node service,
@@ -46,8 +52,26 @@ func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
 		return nil, fmt.Errorf("runtime: foundationdb: %w", err)
 	}
 
+	// The graph owns the one production clock. Source writes stamp search
+	// work with it, and the search workers read leases and slice budgets
+	// from it.
+	source := clock.Wall{}
+	fdbStores.UseClock(source)
+	// Source writes schedule search work only when OPENSEARCH_ENDPOINT is
+	// set.
+	if cfg.SearchEndpoint != "" {
+		fdbStores.EnableSearchWork()
+	}
+
 	auditRuntimeDeps, err := buildAuditRuntime(ctx, cfg, fdbStores.OpsOutbox)
 	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	search, err := buildSearchRuntime(ctx, cfg, fdbStores, source)
+	if err != nil {
+		slog.ErrorContext(ctx, "server.search_failed", slog.String("err", err.Error()))
+		auditRuntimeDeps.Close()
 		pool.Close()
 		return nil, err
 	}
@@ -96,35 +120,11 @@ func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
 		pool:           pool,
 		fdbStores:      fdbStores,
 		audit:          auditRuntimeDeps,
+		search:         search,
+		searchCancel:   nil,
+		searchWorkers:  sync.WaitGroup{},
+		searchStarted:  false,
 	}, nil
-}
-
-// PingYugabyte verifies that this instance can open a Yugabyte connection now.
-// It dials outside the pool, because a pool slot can stay held for the
-// driver's cleanup of a dead connection (see postgres.PingFreshConnection).
-func (g *Graph) PingYugabyte(ctx context.Context) error {
-	if err := postgres.PingFreshConnection(ctx, g.pool); err != nil {
-		slog.ErrorContext(ctx, "runtime.yugabyte_ping_failed", slog.String("err", err.Error()))
-		return fmt.Errorf("ping yugabyte: %w", err)
-	}
-	return nil
-}
-
-// PingFoundationDB verifies that the FoundationDB stores can serve a request.
-func (g *Graph) PingFoundationDB(ctx context.Context) error {
-	if err := g.fdbStores.Ping(ctx); err != nil {
-		slog.ErrorContext(ctx, "runtime.foundationdb_ping_failed", slog.String("err", err.Error()))
-		return fmt.Errorf("ping foundationdb: %w", err)
-	}
-	return nil
-}
-
-// Close releases the audit runtime and the Postgres pool, in that order.
-func (g *Graph) Close() {
-	g.audit.Close()
-	if g.pool != nil {
-		g.pool.Close()
-	}
 }
 
 func buildAuthMiddleware(cfg *config.Config, tokenRepo auth.TokenValidator, orgMembers auth.OrgLister) func(http.Handler) http.Handler {

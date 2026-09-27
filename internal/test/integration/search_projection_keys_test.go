@@ -49,10 +49,13 @@ func snapshotProjectionKeys(t *testing.T) map[string]projectionKeyValue {
 	return snapshot
 }
 
+// withoutProjectionMetadata removes the definition records, their
+// property-name index entries, and the audit outbox. Every search work,
+// projection digest, and scan key must remain unchanged.
 func withoutProjectionMetadata(snapshot map[string]projectionKeyValue) map[string]projectionKeyValue {
 	other := make(map[string]projectionKeyValue)
 	for key, value := range snapshot {
-		if value.family == "property_def" || value.family == "ops_outbox" {
+		if value.family == "property_def" || value.family == "property_def_by_name" || value.family == "ops_outbox" {
 			continue
 		}
 		other[key] = value
