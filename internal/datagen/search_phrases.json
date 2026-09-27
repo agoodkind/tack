@@ -1,0 +1,33 @@
+{
+  "semantic": [
+    {"query": "db", "text": "Database failover"},
+    {"query": "signin", "text": "Authentication failure"}
+  ],
+  "distractors": [
+    "Quarterly garden planting schedule",
+    "Office coffee machine descaling",
+    "Holiday card envelope sizes",
+    "Parking lot repainting estimate",
+    "Team lunch venue shortlist",
+    "Conference badge printing order",
+    "Lobby plant watering rota",
+    "Printer toner reorder notes",
+    "Bicycle rack installation quote",
+    "Kitchen shelf labeling ideas",
+    "Window cleaning vendor comparison",
+    "Welcome mat color options",
+    "Break room chair replacement",
+    "Recycling bin placement map",
+    "Umbrella stand relocation",
+    "Notebook supplier price list"
+  ],
+  "final_page": "crimson lighthouse inventory",
+  "filler": "steady neutral filler words describe nothing in particular ",
+  "excluded": "zeppelin quartz marmalade",
+  "excluded_visible": "amethyst meadow signal",
+  "edit_before": "saffron observatory telescope maintenance backlog and calibration record",
+  "edit_after": "teal compass",
+  "deleted": "obsidian harbor clocktower",
+  "continuation": "velvet harbor lantern",
+  "created_through_mcp": "ultramarine orchard ledger"
+}

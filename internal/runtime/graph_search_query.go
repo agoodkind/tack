@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 
+	"github.com/google/uuid"
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/adapters/mcp/tools"
 	searchadapter "goodkind.io/tack/internal/adapters/search"
@@ -48,4 +49,22 @@ func buildSearchQuery(ctx context.Context, cfg *config.Config, stores *fdbadapte
 	telemetry.L(ctx).InfoContext(ctx, "search.public.enabled", slog.Int("max_results", settings.MaxResults),
 		slog.Int("max_batches", settings.MaxBatches), slog.Duration("idle_timeout", settings.IdleTimeout))
 	return tools.SearchBinding{Runner: runner, Cursors: tools.NewSearchCursorCodec(cursorKey)}, nil
+}
+
+// SearchPageText returns the stored page_text of every active page of nodeID
+// in the serving index that FoundationDB records. Public search reads the
+// same index.
+func (g *Graph) SearchPageText(ctx context.Context, nodeID uuid.UUID) ([]string, error) {
+	if g.search.adapter == nil {
+		return nil, searchRuntimeFailure(ctx, "read search page text", errors.New("OPENSEARCH_ENDPOINT is not set"))
+	}
+	index, err := g.fdbStores.ServingSearchIndex(ctx)
+	if err != nil {
+		return nil, searchRuntimeFailure(ctx, "read serving search index", err)
+	}
+	texts, err := g.search.adapter.NodePageText(ctx, index, nodeID)
+	if err != nil {
+		return nil, searchRuntimeFailure(ctx, "read search page text of node "+nodeID.String(), err)
+	}
+	return texts, nil
 }
