@@ -28,6 +28,9 @@ type Config struct {
 	SearchPassword        string        `env:"OPENSEARCH_PASSWORD"`
 	SearchRequestTimeout  time.Duration `env:"OPENSEARCH_REQUEST_TIMEOUT" envDefault:"10s"`
 	SearchMaxRetries      int           `env:"OPENSEARCH_MAX_RETRIES" envDefault:"2"`
+	// SearchPublicEnabled switches tack_search from the fixed unavailable
+	// response to ranked search. Index workers run in either state.
+	SearchPublicEnabled bool `env:"OPENSEARCH_PUBLIC_ENABLED" envDefault:"false"`
 
 	// Logging. Every field is plain pass-through to telemetry.Setup, which
 	// hands them to gklog. Setup itself never branches on ENV.

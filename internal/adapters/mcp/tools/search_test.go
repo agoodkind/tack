@@ -1,8 +1,14 @@
 package tools
 
 import (
+	"context"
 	"encoding/json"
+	"maps"
+	"slices"
 	"testing"
+
+	mcpserver "github.com/mark3labs/mcp-go/server"
+	"goodkind.io/tack/internal/domain/node"
 )
 
 const temporarySearchOutage = "Search is temporarily unavailable."
@@ -46,6 +52,51 @@ func TestSearchReturnsTemporaryOutageBeforeReadingArguments(t *testing.T) {
 				t.Fatalf("text = %q, want %q", content.Text, temporarySearchOutage)
 			}
 		})
+	}
+}
+
+// TestSearchSchemaAdvertisesOnlyAcceptedArguments lists tack_search through
+// tools/list under a metadata scope chain. The input properties must equal the
+// arguments that ranked search accepts.
+func TestSearchSchemaAdvertisesOnlyAcceptedArguments(t *testing.T) {
+	workspaceType := &node.NodeType{
+		TypeKey: "workspace", Slug: "workspace", Features: node.Features{node.FeatureIsEntryPoint},
+		Reference: node.ReferenceConfig{Strategy: node.ReferenceDirectProperty, Property: "slug"},
+	}
+	projectType := &node.NodeType{TypeKey: "project", Slug: "project", CanLiveUnder: []string{"workspace"}}
+	issueType := &node.NodeType{TypeKey: "issue", Slug: "issue", CanLiveUnder: []string{"project"}}
+	resolver := NewResolver(nil, nil, nil, []*node.NodeType{workspaceType, projectType, issueType})
+	server := mcpserver.NewMCPServer("tack", "0.2.0")
+	RegisterSearch(server, resolver, SearchBinding{Runner: nil, Cursors: nil})
+	body, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	encoded, err := json.Marshal(server.HandleMessage(context.Background(), body))
+	if err != nil {
+		t.Fatalf("marshal response: %v", err)
+	}
+	var response struct {
+		Result struct {
+			Tools []struct {
+				Name        string `json:"name"`
+				InputSchema struct {
+					Properties map[string]json.RawMessage `json:"properties"`
+				} `json:"inputSchema"`
+			} `json:"tools"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(encoded, &response); err != nil {
+		t.Fatalf("decode response: %v\n%s", err, encoded)
+	}
+	if len(response.Result.Tools) != 1 || response.Result.Tools[0].Name != "tack_search" {
+		t.Fatalf("tools/list returned %s, want only tack_search", encoded)
+	}
+	advertised := slices.Sorted(maps.Keys(response.Result.Tools[0].InputSchema.Properties))
+	accepted := []string{searchCursorParam, "node_type", "query", resolver.EntryPointParamName()}
+	slices.Sort(accepted)
+	if !slices.Equal(advertised, accepted) {
+		t.Fatalf("tack_search advertises %v, want the accepted arguments %v", advertised, accepted)
 	}
 }
 

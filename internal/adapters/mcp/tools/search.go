@@ -5,37 +5,60 @@ import (
 
 	mcpmcp "github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
+	"goodkind.io/tack/internal/service"
 )
 
-// RegisterSearch bypasses argument binding so every request receives the fixed
-// outage response.
-func RegisterSearch(s *mcpserver.MCPServer, resolver *Resolver) {
+// searchUnavailableText is the exact response of every call while public
+// search is disabled.
+const searchUnavailableText = "Search is temporarily unavailable."
+
+// SearchRunner runs one authenticated ranked search call.
+type SearchRunner interface {
+	Search(context.Context, service.SearchRequest) (service.SearchPage, error)
+}
+
+// SearchBinding connects tack_search to ranked search. While Runner or
+// Cursors is nil, every call returns the fixed unavailable response.
+type SearchBinding struct {
+	Runner  SearchRunner
+	Cursors *SearchCursorCodec
+}
+
+// RegisterSearch registers the one tack_search tool. While the binding has
+// no runner or no cursor codec, the handler returns the fixed unavailable
+// response before it reads any argument. Otherwise the same registration
+// runs ranked search. The schema offers no scope arguments because ranked
+// search covers the whole entry point.
+func RegisterSearch(s *mcpserver.MCPServer, resolver *Resolver, binding SearchBinding) {
 	tool := mcpmcp.Tool{
-		Name:        "tack_search",
-		Description: "Full-text search across all nodes in a workspace's org. Filters are raw (field=value) equality.",
+		Name: "tack_search",
+		Description: "Ranked search across the nodes under one workspace. Each call returns at most 25 nodes. " +
+			"Pass the returned cursor with the same workspace, query, and node_type to continue.",
 		InputSchema: schema{
-			Fields: append(append(entryPointSchemaFields(resolver),
-				schemaField{Name: "query", Type: schemaString},
-				schemaField{Name: "node_type", Type: schemaString},
-			), searchScopeFields(resolver)...),
+			Fields: append(entryPointSchemaFields(resolver),
+				schemaField{Name: "query", Type: schemaString, Desc: "Search text.", Enum: nil},
+				schemaField{Name: "node_type", Type: schemaString, Desc: "Optional node type key or slug.", Enum: nil},
+				schemaField{Name: searchCursorParam, Type: schemaString, Desc: "Continuation cursor from the previous page.", Enum: nil},
+			),
 			Required: []string{resolver.EntryPointParamName(), "query"},
 		}.toMCP(),
 	}
-	handler := func(_ context.Context, _ mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
-		return &mcpmcp.CallToolResult{
-			IsError: true,
-			Content: []mcpmcp.Content{
-				mcpmcp.TextContent{Type: "text", Text: "Search is temporarily unavailable."},
-			},
-		}, nil
+	allowed := allowedArgNames(tool.InputSchema)
+	handler := func(ctx context.Context, request mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
+		if binding.Runner == nil || binding.Cursors == nil {
+			return searchUnavailable(), nil
+		}
+		if err := rejectUnknownArgs(request, tool.Name, allowed); err != nil {
+			return recoverableError(err.Error()), nil
+		}
+		return runSearch(ctx, request, resolver, binding), nil
 	}
 	s.AddTool(tool, wrapToolHandler(tool.Name, handler))
 }
 
-func searchScopeFields(resolver *Resolver) []schemaField {
-	fields := make([]schemaField, 0, len(resolver.scopeChain))
-	for _, level := range resolver.scopeChain {
-		fields = append(fields, scopeReferenceFields(level, resolver)...)
+func searchUnavailable() *mcpmcp.CallToolResult {
+	return &mcpmcp.CallToolResult{
+		IsError: true,
+		Content: []mcpmcp.Content{mcpmcp.TextContent{Type: "text", Text: searchUnavailableText}},
 	}
-	return fields
 }

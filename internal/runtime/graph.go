@@ -4,6 +4,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -75,6 +76,16 @@ func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
 		pool.Close()
 		return nil, err
 	}
+	searchBinding, err := buildSearchQuery(ctx, cfg, fdbStores, search)
+	if err != nil {
+		if search.adapter != nil {
+			err = errors.Join(err, search.adapter.Close(ctx))
+		}
+		slog.ErrorContext(ctx, "server.search_failed", slog.String("err", err.Error()))
+		auditRuntimeDeps.Close()
+		pool.Close()
+		return nil, err
+	}
 
 	// The token and membership caches take the two remaining ledger reads
 	// off most requests (TACK-504, TACK-505); the lifetimes bound how long a
@@ -110,6 +121,7 @@ func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
 		Relationships: fdbStores.Relationships,
 		Members:       orgMembers,
 		Users:         userRepo,
+		Search:        searchBinding,
 	})
 
 	authMiddleware := buildAuthMiddleware(cfg, tokenRepo, orgMembers)
