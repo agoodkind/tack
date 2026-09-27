@@ -50,7 +50,7 @@ func searchWorkerSettings(pageBytes int) config.SearchWorkerSettings {
 	return config.SearchWorkerSettings{
 		PageBytes: pageBytes, MaxPages: 32, MaxBytes: 5 << 20, SliceBudget: 2 * time.Second,
 		OperationTimeout: 10 * time.Second, Lease: 30 * time.Second, IdleInterval: 50 * time.Millisecond,
-		Concurrency: 1, ClassWeights: map[string]int{"live": 1, "access": 1, "cleanup": 1, "rescan": 1},
+		Concurrency: 1, ClassWeights: map[string]int{"live": 1, "access": 1, "cleanup": 1, "rescan": 1, "rollout": 1},
 	}
 }
 
@@ -59,9 +59,11 @@ func searchWorkerSettings(pageBytes int) config.SearchWorkerSettings {
 func newSearchWorker(t *testing.T, stores *fdbadapter.Stores, adapter *search.Adapter, source clock.Clock, settings config.SearchWorkerSettings) *service.SearchWorker {
 	t.Helper()
 	policies := stores.SearchPolicySet()
+	rollouts := stores.SearchRollouts(source, policies)
 	worker, err := service.NewSearchWorker(service.SearchWorkerPorts{
 		Store: stores.SearchWork(source), Reader: stores.SearchContent(policies),
 		Access: stores.SearchAccess(policies), Writer: adapter,
+		Rollouts: rollouts, Sessions: rollouts, Documents: adapter,
 	}, source, settings, 0)
 	if err != nil {
 		t.Fatalf("create search worker: %v", err)

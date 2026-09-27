@@ -27,6 +27,7 @@ func scheduleDeletedFanout(ctx context.Context, tr fdb.Transaction, deletion sea
 	if recorded == 0 {
 		return nil
 	}
+	addPermissionEvent(tr, deletion.OrgID)
 	class := searchdomain.WorkClassAccess
 	if err := writeSearchWork(ctx, tr, class, deletion, nil); err != nil {
 		return err

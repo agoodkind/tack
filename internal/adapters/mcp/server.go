@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"sync"
@@ -23,10 +24,20 @@ import (
 
 const serverCacheTTL = 60 * time.Second
 
+// MetadataEpochReader returns the metadata epoch values for the specified
+// organizations as one string. Two reads for the same organizations return
+// equal strings only when no organization's epoch changed between them.
+type MetadataEpochReader interface {
+	MetadataEpoch(ctx context.Context, orgIDs []uuid.UUID) (string, error)
+}
+
+// cachedServer is one user's generated tool server and the metadata epoch
+// it was built from.
 type cachedServer struct {
 	mcpSvr  *mcpserver.MCPServer
 	httpSvr *mcpserver.StreamableHTTPServer
 	builtAt time.Time
+	epoch   string
 }
 
 // Handler is the MCP HTTP entry point. It caches a per-user MCP server that
@@ -41,6 +52,7 @@ type Handler struct {
 	members       org.MemberRepository
 	users         user.Repository
 	search        tools.SearchBinding
+	epochs        MetadataEpochReader
 
 	mu    sync.RWMutex
 	cache map[uuid.UUID]*cachedServer
@@ -59,6 +71,10 @@ type Deps struct {
 	// Search runs ranked search for tack_search. A binding without a runner
 	// keeps the fixed unavailable response.
 	Search tools.SearchBinding
+	// Epochs reads the metadata epochs that decide whether a cached tool
+	// server still matches stored metadata. With a nil reader, the cache
+	// checks only the server lifetime.
+	Epochs MetadataEpochReader
 }
 
 func NewHandler(d Deps) *Handler {
@@ -72,6 +88,7 @@ func NewHandler(d Deps) *Handler {
 		members:       d.Members,
 		users:         d.Users,
 		search:        d.Search,
+		epochs:        d.Epochs,
 		cache:         make(map[uuid.UUID]*cachedServer),
 	}
 }
@@ -130,23 +147,39 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	r = r.WithContext(ctx)
 
+	// With an epoch reader, the epoch read runs before dispatch on every
+	// request, and a cached server serves only while it matches the current
+	// epochs of every organization. Without one, the cache checks only its
+	// lifetime.
+	epoch := ""
+	if h.epochs != nil {
+		epoch, err = h.epochs.MetadataEpoch(ctx, orgIDs)
+		if err != nil {
+			metadataUnavailable(w, span, metadataReadFailure(ctx, "read metadata epoch", err))
+			return
+		}
+	}
 	h.mu.RLock()
 	c, ok := h.cache[userID]
 	h.mu.RUnlock()
-	if ok && clock.Since(c.builtAt) < serverCacheTTL {
+	if ok && c.epoch == epoch && clock.Since(c.builtAt) < serverCacheTTL {
 		span.SetAttributes(attribute.Bool("mcp.server_cache_hit", true))
 		c.httpSvr.ServeHTTP(w, r)
 		return
 	}
 	span.SetAttributes(attribute.Bool("mcp.server_cache_hit", false))
 
-	nodeTypes, propertyDefs := h.collectMetadata(ctx, span, orgIDs)
+	nodeTypes, propertyDefs, err := h.collectMetadata(ctx, orgIDs)
+	if err != nil {
+		metadataUnavailable(w, span, err)
+		return
+	}
 	mcpSvr := h.buildServer(nodeTypes, propertyDefs)
 	httpSvr := mcpserver.NewStreamableHTTPServer(mcpSvr, mcpserver.WithStateLess(true))
 	span.SetAttributes(attribute.Int("mcp.node_type_count", len(nodeTypes)))
 
 	h.mu.Lock()
-	h.cache[userID] = &cachedServer{mcpSvr: mcpSvr, httpSvr: httpSvr, builtAt: clock.Now()}
+	h.cache[userID] = &cachedServer{mcpSvr: mcpSvr, httpSvr: httpSvr, builtAt: clock.Now(), epoch: epoch}
 	h.mu.Unlock()
 	httpSvr.ServeHTTP(w, r)
 }

@@ -43,7 +43,7 @@ func queryService(t *testing.T, fixture queryFixture, responseBytes int, idle, a
 	return service.NewSearchQueryService(service.SearchQueryPorts{
 		Ranker: ranker, Sessions: sessions, Expired: sessions,
 		Summaries: fixture.Stores.NodeSummaries(policies), Access: policies,
-		Index: fixture.Stores,
+		Versions: fixture.Stores.SearchRollouts(clock.Wall{}, policies), Index: fixture.Stores,
 	}, clock.Wall{}, settings)
 }
 

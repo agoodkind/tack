@@ -38,7 +38,7 @@ func (c *OrgScopeCompiler) EntryAuthority(ctx context.Context, entryPointID uuid
 // Query returns the one opaque key that grants the caller the entry point.
 // The caller must currently belong to the entry point's organization.
 func (c *OrgScopeCompiler) Query(ctx context.Context, request AccessRequest) ([]string, error) {
-	if request.Version != StableVersion || request.PrincipalID == uuid.Nil || request.EntryPointID == uuid.Nil {
+	if request.Version != c.version || request.PrincipalID == uuid.Nil || request.EntryPointID == uuid.Nil {
 		return nil, entryAuthorityFailure(ctx, request.EntryPointID, "compile caller access", errors.New("invalid version or identity"))
 	}
 	authority, err := c.EntryAuthority(ctx, request.EntryPointID)

@@ -22,16 +22,22 @@ func NewSearchAccessStateStore(db fdb.Database, policies *searchaccess.PolicySet
 	return &SearchAccessStateStore{db: db, policies: policies}
 }
 
-// Compile compiles the node's access at the work generation with the
-// recorded write versions. The work store compares it with the recorded
-// access.
+// Compile compiles the node's access at the work generation with the write
+// versions of the node's authority rollout. The work store compares it with
+// the recorded access. A rollout that adds or removes a write version
+// changes the compiled access. Access work then updates every page.
 func (s *SearchAccessStateStore) Compile(ctx context.Context, work searchdomain.Work) (access node.SearchAccess, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_access.compile")(&err)
-	recorded, err := s.recordedAccess(ctx, work)
+	var rollout searchRolloutRecord
+	err = transactSearch(ctx, s.db, func(tr fdb.Transaction) error {
+		var readErr error
+		rollout, readErr = readRollout(ctx, tr, work.OrgID)
+		return readErr
+	})
 	if err != nil {
-		return access, err
+		return access, searchStorageError(ctx, "search.access_state.rollout_failed", "read access write versions", work.NodeID, err)
 	}
-	access, err = compileSearchAccess(ctx, s.policies, recorded.Versions, work.OrgID, work.NodeID, work.Generation)
+	access, err = compileSearchAccess(ctx, s.policies, rollout.WriteVersions, work.OrgID, work.NodeID, work.Generation)
 	if err != nil {
 		return access, nodeContentContextError{operation: "compile current search access for node " + work.NodeID.String(), err: err}
 	}

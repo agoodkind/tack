@@ -2,20 +2,24 @@ package mcp
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
+	"net/http"
 
 	"github.com/google/uuid"
 	mcpserver "github.com/mark3labs/mcp-go/server"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 	"goodkind.io/tack/internal/adapters/mcp/tools"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// collectMetadata gathers the node types and property definitions of every
+// collectMetadata reads the node types and property definitions of every
 // org the user belongs to, deduplicated by slug and name, for the per-user
-// server build.
-func (h *Handler) collectMetadata(ctx context.Context, span trace.Span, orgIDs []uuid.UUID) ([]*node.NodeType, []*node.PropertyDef) {
-	log := telemetry.L(ctx)
+// server build. Any failed read returns an error. The handler then answers
+// with an explicit error and publishes no server from partial metadata.
+func (h *Handler) collectMetadata(ctx context.Context, orgIDs []uuid.UUID) ([]*node.NodeType, []*node.PropertyDef, error) {
 	var nodeTypes []*node.NodeType
 	seen := make(map[string]struct{})
 	var propertyDefs []*node.PropertyDef
@@ -23,9 +27,7 @@ func (h *Handler) collectMetadata(ctx context.Context, span trace.Span, orgIDs [
 	for _, orgID := range orgIDs {
 		nts, err := h.nodeTypes.List(ctx, orgID)
 		if err != nil {
-			span.RecordError(err)
-			log.ErrorContext(ctx, "mcp: node type list", "org_id", orgID, "err", err)
-			continue
+			return nil, nil, metadataReadFailure(ctx, "list node types of organization "+orgID.String(), err)
 		}
 		for _, nt := range nts {
 			if _, dup := seen[nt.Slug]; !dup {
@@ -35,9 +37,7 @@ func (h *Handler) collectMetadata(ctx context.Context, span trace.Span, orgIDs [
 		}
 		defs, err := h.propertyDefs.List(ctx, orgID)
 		if err != nil {
-			span.RecordError(err)
-			log.ErrorContext(ctx, "mcp: property def list", "org_id", orgID, "err", err)
-			continue
+			return nil, nil, metadataReadFailure(ctx, "list property definitions of organization "+orgID.String(), err)
 		}
 		for _, def := range defs {
 			if _, dup := seenPropertyDefs[def.Name]; !dup {
@@ -46,7 +46,22 @@ func (h *Handler) collectMetadata(ctx context.Context, span trace.Span, orgIDs [
 			}
 		}
 	}
-	return nodeTypes, propertyDefs
+	return nodeTypes, propertyDefs, nil
+}
+
+// metadataReadFailure logs one failed metadata read and returns it wrapped.
+func metadataReadFailure(ctx context.Context, operation string, err error) error {
+	wrapped := fmt.Errorf("mcp: %s: %w", operation, err)
+	telemetry.L(ctx).ErrorContext(ctx, "mcp.metadata_read_failed", slog.String("err", wrapped.Error()))
+	return wrapped
+}
+
+// metadataUnavailable answers a request with an explicit error instead of a
+// tool server built from empty metadata. err was already logged.
+func metadataUnavailable(w http.ResponseWriter, span trace.Span, err error) {
+	span.RecordError(err)
+	span.SetStatus(codes.Error, "metadata_unavailable")
+	http.Error(w, `{"error":"metadata unavailable"}`, http.StatusServiceUnavailable)
 }
 
 func (h *Handler) buildServer(nodeTypes []*node.NodeType, propertyDefs []*node.PropertyDef) *mcpserver.MCPServer {

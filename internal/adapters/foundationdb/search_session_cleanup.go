@@ -29,6 +29,7 @@ func (s *SearchSessionStore) BeginCleanup(ctx context.Context, sessionID uuid.UU
 		if readErr != nil || !found || record.Closing {
 			return readErr
 		}
+		clearSessionVersion(tr, record)
 		record.Closing = true
 		return writeSessionValue(tr, searchSessionKey(sessionID), record, maxSessionHeaderBytes)
 	})
@@ -72,6 +73,7 @@ func (s *SearchSessionStore) CleanupSlice(ctx context.Context, sessionID uuid.UU
 		}
 		tr.Clear(fdb.Key(searchSessionExpiryKey(sessionID, record.IdleDeadline)))
 		tr.Clear(fdb.Key(searchSessionPresenceKey(record.Index, sessionID)))
+		clearSessionVersion(tr, record)
 		tr.Clear(fdb.Key(searchSessionKey(sessionID)))
 		done = true
 		return nil

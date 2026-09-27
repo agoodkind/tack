@@ -62,18 +62,21 @@ type searchAccessRecord struct {
 // which the latest request arrived during the node pass. When the pass has
 // read the last node, a nonempty Stop restarts the node pass at the first
 // node, and that wrapped pass ends at Stop. Content and Access select the
-// work each scanned node receives.
+// work each scanned node receives. The Names field limits content work to
+// nodes with a value under one of the names. When Content is true and Names
+// is empty, every scanned node receives content work.
 type searchScanRecord struct {
-	Phase   string `json:"phase"`
-	Cursor  string `json:"cursor"`
-	Stop    string `json:"stop"`
-	Wrapped bool   `json:"wrapped"`
-	Content bool   `json:"content"`
-	Access  bool   `json:"access"`
+	Phase   string   `json:"phase"`
+	Cursor  string   `json:"cursor"`
+	Stop    string   `json:"stop"`
+	Wrapped bool     `json:"wrapped"`
+	Content bool     `json:"content"`
+	Names   []string `json:"names,omitempty"`
+	Access  bool     `json:"access"`
 }
 
 type searchRecordValue interface {
-	searchWorkRecord | searchClaimRecord | searchProgressRecord | searchAccessRecord | searchScanRecord
+	searchWorkRecord | searchClaimRecord | searchProgressRecord | searchAccessRecord | searchScanRecord | searchRolloutRecord
 }
 
 // readSearchRecord decodes the JSON record at key. It reports false when the
@@ -115,6 +118,11 @@ func readSearchCounter(ctx context.Context, tr fdb.Transaction, key []byte) (int
 	if len(encoded) == 0 {
 		return 0, nil
 	}
+	return unpackCounter(ctx, encoded)
+}
+
+// unpackCounter decodes one nonempty tuple-encoded counter value.
+func unpackCounter(ctx context.Context, encoded []byte) (int64, error) {
 	values, err := tuple.Unpack(encoded)
 	if err != nil {
 		return 0, searchReadFailure(ctx, "decode search counter", err)

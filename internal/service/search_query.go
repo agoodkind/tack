@@ -29,12 +29,14 @@ type ExpiredSessionLister interface {
 }
 
 // SearchQueryPorts are the production boundaries of public ranked search.
+// Versions reads the access version that serves new sessions.
 type SearchQueryPorts struct {
 	Ranker    searchdomain.Ranker
 	Sessions  searchdomain.SessionStore
 	Expired   ExpiredSessionLister
 	Summaries searchdomain.SummaryReader
 	Access    QueryAccessPolicy
+	Versions  searchdomain.AccessStateReader
 	Index     searchdomain.ServingIndexReader
 }
 
@@ -84,19 +86,41 @@ func (s *SearchQueryService) Search(ctx context.Context, request SearchRequest) 
 	if err != nil {
 		return SearchPage{}, queryFailure(ctx, "resolve entry point authority", request.SessionID, err)
 	}
-	filter, err := s.ports.Access.Query(ctx, searchaccess.AccessRequest{
-		Version: "", PrincipalID: request.PrincipalID, AuthorityID: authority,
-		EntryPointID: request.EntryPointID, MemberOrganizations: request.MemberOrganizations,
-	})
-	if err != nil {
-		return SearchPage{}, queryFailure(ctx, "compile caller access", request.SessionID, err)
-	}
 	if request.SessionID == uuid.Nil {
+		version, versionErr := s.ports.Versions.ActiveAccessVersion(ctx, authority)
+		if versionErr != nil {
+			return SearchPage{}, queryFailure(ctx, "read active access version", uuid.Nil, versionErr)
+		}
+		filter, compileErr := s.callerAccess(ctx, request, authority, version)
+		if compileErr != nil {
+			return SearchPage{}, compileErr
+		}
 		page, openErr := s.open(ctx, request, authority, text, filter)
 		s.sweepExpired(ctx)
 		return page, openErr
 	}
-	return s.continueSession(ctx, request, authority, text, filter)
+	session, err := s.ports.Sessions.Load(ctx, request.SessionID)
+	if err != nil {
+		return SearchPage{}, queryFailure(ctx, "load search session", request.SessionID, err)
+	}
+	filter, err := s.callerAccess(ctx, request, authority, session.Query.Access.Version)
+	if err != nil {
+		return SearchPage{}, err
+	}
+	return s.continueSession(ctx, request, session, authority, text, filter)
+}
+
+// callerAccess compiles the caller's current opaque keys under version from
+// current membership.
+func (s *SearchQueryService) callerAccess(ctx context.Context, request SearchRequest, authority uuid.UUID, version string) (searchdomain.AccessFilter, error) {
+	filter, err := s.ports.Access.Query(ctx, searchaccess.AccessRequest{
+		Version: version, PrincipalID: request.PrincipalID, AuthorityID: authority,
+		EntryPointID: request.EntryPointID, MemberOrganizations: request.MemberOrganizations,
+	})
+	if err != nil {
+		return searchdomain.AccessFilter{}, queryFailure(ctx, "compile caller access", request.SessionID, err)
+	}
+	return filter, nil
 }
 
 func (s *SearchQueryService) open(ctx context.Context, request SearchRequest, authority uuid.UUID, text string, filter searchdomain.AccessFilter) (SearchPage, error) {
@@ -125,11 +149,7 @@ func (s *SearchQueryService) open(ctx context.Context, request SearchRequest, au
 	return s.advance(ctx, created, filter)
 }
 
-func (s *SearchQueryService) continueSession(ctx context.Context, request SearchRequest, authority uuid.UUID, text string, filter searchdomain.AccessFilter) (SearchPage, error) {
-	session, err := s.ports.Sessions.Load(ctx, request.SessionID)
-	if err != nil {
-		return SearchPage{}, queryFailure(ctx, "load search session", request.SessionID, err)
-	}
+func (s *SearchQueryService) continueSession(ctx context.Context, request SearchRequest, session searchdomain.Session, authority uuid.UUID, text string, filter searchdomain.AccessFilter) (SearchPage, error) {
 	current := searchdomain.Query{Text: text, Index: session.Query.Index, NodeType: request.NodeType, Access: filter}
 	binding := searchdomain.SessionBinding(request.PrincipalID, authority, request.EntryPointID, current)
 	if binding != session.Binding || request.Version > session.Version {

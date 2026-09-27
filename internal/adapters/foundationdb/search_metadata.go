@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"slices"
 	"time"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
@@ -11,11 +12,12 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// updatePropertyDefinition updates the property-name index and the
-// projection digest in tr for one definition write. previous is the stored
-// definition JSON, and next is nil for a delete. When rescan is true, a
-// changed identity, name, or declaration requests a content rescan of the
-// organization.
+// updatePropertyDefinition updates the property-name index, the metadata
+// epoch, and the projection digest in tr for one definition write. previous
+// is the stored definition JSON, and next is nil for a delete. Any stored
+// change increments the epoch. When rescan is true, a changed identity,
+// name, or declaration requests a content rescan of the nodes with a value
+// under the old or new property name.
 func updatePropertyDefinition(ctx context.Context, tr fdb.Transaction, now time.Time, rescan bool, orgID, definitionID uuid.UUID, previous []byte, next *node.PropertyDef) error {
 	var old *node.PropertyDef
 	if len(previous) > 0 {
@@ -26,6 +28,9 @@ func updatePropertyDefinition(ctx context.Context, tr fdb.Transaction, now time.
 		old = &decoded
 	}
 	indexPropertyName(tr, orgID, definitionID, old, next)
+	if err := bumpMetadataEpoch(ctx, tr, orgID, previous, next); err != nil {
+		return err
+	}
 	oldHash, err := declarationHash(ctx, old)
 	if err != nil {
 		return err
@@ -43,7 +48,37 @@ func updatePropertyDefinition(ctx context.Context, tr fdb.Transaction, now time.
 	if !rescan {
 		return nil
 	}
-	return requestSearchRescan(ctx, tr, now, orgID, true, false)
+	return requestSearchRescan(ctx, tr, now, orgID, affectedPropertyNames(old, next), false)
+}
+
+// affectedPropertyNames returns the distinct old and new names of one
+// definition write. A node with a value under either name emits changed text.
+func affectedPropertyNames(old, next *node.PropertyDef) []string {
+	names := make([]string, 0, 2)
+	for _, definition := range []*node.PropertyDef{old, next} {
+		if definition != nil && !slices.Contains(names, definition.Name) {
+			names = append(names, definition.Name)
+		}
+	}
+	return names
+}
+
+// bumpMetadataEpoch increments the organization's metadata epoch when the
+// stored JSON of one definition or node type changes.
+func bumpMetadataEpoch[Record node.PropertyDef | node.NodeType](ctx context.Context, tr fdb.Transaction, orgID uuid.UUID, previous []byte, next *Record) error {
+	var encoded []byte
+	if next != nil {
+		var err error
+		encoded, err = json.Marshal(next)
+		if err != nil {
+			return searchReadFailure(ctx, "encode metadata record", err)
+		}
+	}
+	if bytes.Equal(previous, encoded) {
+		return nil
+	}
+	_, err := incrementSearchCounter(ctx, tr, searchEpochKey(orgID))
+	return err
 }
 
 // indexPropertyName updates the property-name index in tr for one definition
@@ -88,6 +123,9 @@ func updateNodeTypeIndex(ctx context.Context, tr fdb.Transaction, now time.Time,
 	if next != nil && next.TypeKey != "" {
 		tr.Set(fdb.Key(nodeTypeByKeyKey(orgID, next.TypeKey, typeID)), []byte{})
 	}
+	if err := bumpMetadataEpoch(ctx, tr, orgID, previous, next); err != nil {
+		return err
+	}
 	oldDeclaration, err := encodeAccessType(ctx, old)
 	if err != nil {
 		return err
@@ -99,7 +137,7 @@ func updateNodeTypeIndex(ctx context.Context, tr fdb.Transaction, now time.Time,
 	if !rescan || bytes.Equal(oldDeclaration, newDeclaration) {
 		return nil
 	}
-	return requestSearchRescan(ctx, tr, now, orgID, false, true)
+	return requestSearchRescan(ctx, tr, now, orgID, nil, true)
 }
 
 func encodeAccessType(ctx context.Context, kind *node.NodeType) ([]byte, error) {

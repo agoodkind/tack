@@ -168,6 +168,9 @@ const (
 	// VerbOpsSearchVerify records a check of the search model, mapping,
 	// topology, alias, and health.
 	VerbOpsSearchVerify Verb = "ops.search_verify"
+	// VerbOpsSearchAccessRollout records the start of an access policy
+	// rollout for one permission authority.
+	VerbOpsSearchAccessRollout Verb = "ops.search_access_rollout"
 	// VerbOpsLedgerNodePrepare records a deploy aligning a ledger node's saved
 	// master list with the environment before the node restarts (TACK-489).
 	VerbOpsLedgerNodePrepare Verb = "ops.ledger_node_prepare"

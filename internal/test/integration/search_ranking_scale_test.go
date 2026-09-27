@@ -8,7 +8,6 @@ import (
 
 	"github.com/google/uuid"
 	searchdomain "goodkind.io/tack/internal/domain/search"
-	"goodkind.io/tack/internal/searchaccess"
 )
 
 const (
@@ -61,13 +60,7 @@ func TestSearchContinuationTraversesDuplicateHeavyCorpus(t *testing.T) {
 	duplicate := putOpaqueNode(t, fixture, kind, entryID, "Orbital duplicate", scaleQuery, "excluded")
 	drainSearchWork(t, fixture.Worker, 100)
 	expected = append(expected, duplicate)
-	filter, err := fixture.Stores.SearchPolicySet().Query(t.Context(), searchaccess.AccessRequest{
-		Version: "", PrincipalID: workspace.Actors[0].UserID, AuthorityID: workspace.OrgID,
-		EntryPointID: entryID, MemberOrganizations: []uuid.UUID{workspace.OrgID},
-	})
-	if err != nil {
-		t.Fatalf("compile caller access: %v", err)
-	}
+	filter := callerAccess(t, fixture, workspace, entryID)
 	putDuplicatePages(t, fixture, kind, duplicate, filter, scaleDuplicatePages)
 	pages := callEverySearchPage(t, scaleQuery, fixture.Harness)
 	requireCorpusOnce(t, pages.IDs, expected, entryID)

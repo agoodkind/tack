@@ -19,6 +19,11 @@ import (
 // with before a policy rollout records another write version.
 const StableVersion = "org-scope-v1"
 
+// RotatedVersion is the organization-scope policy under a rotated key
+// namespace. An access rollout to it replaces every indexed and caller key
+// without changing the access decision.
+const RotatedVersion = "org-scope-v2"
+
 // IndexAccessRequest identifies the policy version and source resource being indexed.
 type IndexAccessRequest struct {
 	Version                    string
@@ -52,10 +57,20 @@ type PolicySet struct {
 	compilers map[string]Compiler
 }
 
-// NewPolicySet registers the production organization-scope policy.
+// NewPolicySet registers the production organization-scope policy under
+// both of its key namespaces.
 func NewPolicySet(reader node.NodeReader, types TypeReader, relationships RelationshipReader) *PolicySet {
-	compiler := NewOrgScopeCompiler(reader, types, relationships)
-	return &PolicySet{compilers: map[string]Compiler{compiler.Version(): compiler}}
+	compilers := make(map[string]Compiler, 2)
+	for _, version := range []string{StableVersion, RotatedVersion} {
+		compilers[version] = NewOrgScopeCompiler(version, reader, types, relationships)
+	}
+	return &PolicySet{compilers: compilers}
+}
+
+// Supports reports whether a compiler is registered for version.
+func (s *PolicySet) Supports(version string) bool {
+	_, registered := s.compilers[version]
+	return registered
 }
 
 // Index returns sorted opaque versions and keys for one resource.

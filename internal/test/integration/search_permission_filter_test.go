@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/adapters/search"
+	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/datagen"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/searchaccess"
@@ -51,15 +52,28 @@ func putPermissionCorpus(t *testing.T, fixture queryFixture) permissionCorpus {
 			fmt.Sprintf("Saffron pipeline %d", number), strong, "excluded"))
 	}
 	drainSearchWork(t, fixture.Worker, 2000)
-	filter, err := fixture.Stores.SearchPolicySet().Query(t.Context(), searchaccess.AccessRequest{
-		Version: "", PrincipalID: caller.Actors[0].UserID, AuthorityID: caller.OrgID,
-		EntryPointID: callerEntry, MemberOrganizations: []uuid.UUID{caller.OrgID},
+	corpus.Filter = callerAccess(t, fixture, caller, callerEntry)
+	return corpus
+}
+
+// callerAccess compiles the caller's opaque keys under the authority's
+// active access version, which the production rollout store returns for a
+// new search session.
+func callerAccess(t *testing.T, fixture queryFixture, workspace datagen.WorkspaceIdentity, entryID uuid.UUID) searchdomain.AccessFilter {
+	t.Helper()
+	policies := fixture.Stores.SearchPolicySet()
+	version, err := fixture.Stores.SearchRollouts(clock.Wall{}, policies).ActiveAccessVersion(t.Context(), workspace.OrgID)
+	if err != nil {
+		t.Fatalf("read active access version: %v", err)
+	}
+	filter, err := policies.Query(t.Context(), searchaccess.AccessRequest{
+		Version: version, PrincipalID: workspace.Actors[0].UserID, AuthorityID: workspace.OrgID,
+		EntryPointID: entryID, MemberOrganizations: []uuid.UUID{workspace.OrgID},
 	})
 	if err != nil {
 		t.Fatalf("compile caller access: %v", err)
 	}
-	corpus.Filter = filter
-	return corpus
+	return filter
 }
 
 // rawRankedNodes reads every raw ranker batch of one snapshot in order.

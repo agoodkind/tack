@@ -98,6 +98,9 @@ func (s *SearchSessionStore) CommitPage(ctx context.Context, sessionID uuid.UUID
 			record.IdleDeadline = record.AbsoluteDeadline
 		}
 		tr.Set(fdb.Key(searchSessionExpiryKey(sessionID, record.IdleDeadline)), nil)
+		if commit.Complete {
+			clearSessionVersion(tr, record)
+		}
 		record.Sort, record.PITID, record.Complete, record.Version = commit.Sort, commit.PITID, commit.Complete, version+1
 		return writeSessionValue(tr, searchSessionKey(sessionID), record, maxSessionHeaderBytes)
 	})

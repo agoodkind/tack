@@ -14,11 +14,17 @@ import (
 )
 
 // SearchWorkerPorts are the production boundaries one search worker uses.
+// Rollouts records access policy rollout state. Sessions reports whether a
+// session still reads the previous access version. Documents reads the
+// stored access of page documents for verification.
 type SearchWorkerPorts struct {
-	Store  searchdomain.WorkStore
-	Reader searchdomain.ContentReader
-	Access searchdomain.AccessReader
-	Writer searchdomain.PageWriter
+	Store     searchdomain.WorkStore
+	Reader    searchdomain.ContentReader
+	Access    searchdomain.AccessReader
+	Writer    searchdomain.PageWriter
+	Rollouts  searchdomain.AccessRolloutStore
+	Sessions  searchdomain.AccessVersionSessions
+	Documents searchdomain.DocumentAccessReader
 }
 
 // SearchWorker processes bounded durable search work of every class.
@@ -78,6 +84,8 @@ func (w *SearchWorker) processClass(ctx context.Context, work searchdomain.Work,
 		return w.cleanupSlice(ctx, work, budget)
 	case searchdomain.WorkClassRescan:
 		return w.rescanSlice(ctx, work)
+	case searchdomain.WorkClassRollout:
+		return w.rolloutSlice(ctx, work)
 	default:
 		return w.settle(ctx, work, "process search work", fmt.Errorf("unknown work class %q", work.Class))
 	}

@@ -28,8 +28,12 @@ func (s *SearchWorkStore) CompleteRescan(ctx context.Context, work searchdomain.
 			return claimMismatch(err)
 		}
 		now := s.clock.Now()
+		affected, err := nodesWithNames(ctx, tr, scan.Nodes, state)
+		if err != nil {
+			return err
+		}
 		for _, nodeID := range scan.Nodes {
-			if err := scheduleRescannedNode(ctx, tr, now, work.OrgID, nodeID, state); err != nil {
+			if err := scheduleRescannedNode(ctx, tr, now, work.OrgID, nodeID, state, affected[nodeID]); err != nil {
 				return err
 			}
 		}
@@ -50,9 +54,10 @@ func (s *SearchWorkStore) CompleteRescan(ctx context.Context, work searchdomain.
 }
 
 // scheduleRescannedNode schedules the content or access work the scan
-// requested for one node.
-func scheduleRescannedNode(ctx context.Context, tr fdb.Transaction, now time.Time, orgID, nodeID uuid.UUID, state searchScanRecord) error {
-	if state.Content {
+// requested for one node. affected reports whether the node has a value
+// under one of the scan's names.
+func scheduleRescannedNode(ctx context.Context, tr fdb.Transaction, now time.Time, orgID, nodeID uuid.UUID, state searchScanRecord, affected bool) error {
+	if state.Content && (len(state.Names) == 0 || affected) {
 		if err := scheduleExistingSearchChange(ctx, tr, now, orgID, nodeID, searchChangeContent); err != nil {
 			return err
 		}
