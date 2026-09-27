@@ -75,16 +75,34 @@ func readContainerFile(ctx context.Context, cli *client.Client, containerName, p
 	return contents, nil
 }
 
+// fileOwner is the numeric owner of a file and its directory written into a
+// container.
+type fileOwner struct {
+	uid, gid int
+}
+
+// openSearchOwner is the opensearch user of the OpenSearch image. The engine
+// runs as this user and writes its keystore into the config directory.
+var openSearchOwner = fileOwner{uid: 1000, gid: 1000}
+
 // writeContainerFile writes contents to an absolute path in a container,
-// creating the file's directory. The file is readable by every user, because
-// an engine's entrypoint may drop to an unprivileged user before reading it.
+// creating the file's directory, with root as the owner. The file is readable
+// by every user, because an engine's entrypoint may drop to an unprivileged
+// user before reading it.
 func writeContainerFile(ctx context.Context, cli *client.Client, containerName, filePath string, contents []byte) error {
+	return writeContainerFileAs(ctx, cli, containerName, filePath, contents, fileOwner{uid: 0, gid: 0})
+}
+
+// writeContainerFileAs writes contents like writeContainerFile and sets owner
+// on the file and on its directory. The copy replaces the ownership of an
+// existing directory at that path.
+func writeContainerFileAs(ctx context.Context, cli *client.Client, containerName, filePath string, contents []byte, owner fileOwner) error {
 	var archive bytes.Buffer
 	writer := tar.NewWriter(&archive)
 	relative := strings.TrimPrefix(filePath, "/")
 	headers := []*tar.Header{
-		{Typeflag: tar.TypeDir, Name: path.Dir(relative) + "/", Mode: 0o755},
-		{Typeflag: tar.TypeReg, Name: relative, Mode: 0o644, Size: int64(len(contents))},
+		{Typeflag: tar.TypeDir, Name: path.Dir(relative) + "/", Mode: 0o755, Uid: owner.uid, Gid: owner.gid},
+		{Typeflag: tar.TypeReg, Name: relative, Mode: 0o644, Size: int64(len(contents)), Uid: owner.uid, Gid: owner.gid},
 	}
 	for _, header := range headers {
 		if err := writer.WriteHeader(header); err != nil {
@@ -104,7 +122,7 @@ func writeContainerFile(ctx context.Context, cli *client.Client, containerName, 
 		DestinationPath:           "/",
 		Content:                   &archive,
 		AllowOverwriteDirWithFile: false,
-		CopyUIDGID:                false,
+		CopyUIDGID:                true,
 	})
 	if err != nil {
 		slog.ErrorContext(ctx, "testenv.copy.write_failed", slog.String("err", err.Error()))

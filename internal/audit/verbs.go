@@ -160,6 +160,12 @@ const (
 	// VerbOpsDeployVerify records a check that the rolled containers run the
 	// deployed images.
 	VerbOpsDeployVerify Verb = "ops.deploy_verify"
+	// VerbOpsSearchProvision records creation of the pinned search model, the
+	// empty physical index, and its alias.
+	VerbOpsSearchProvision Verb = "ops.search_provision"
+	// VerbOpsSearchVerify records a check of the search model, mapping,
+	// topology, alias, and health.
+	VerbOpsSearchVerify Verb = "ops.search_verify"
 	// VerbOpsLedgerNodePrepare records a deploy aligning a ledger node's saved
 	// master list with the environment before the node restarts (TACK-489).
 	VerbOpsLedgerNodePrepare Verb = "ops.ledger_node_prepare"
