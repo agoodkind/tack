@@ -10,6 +10,7 @@ import (
 
 	opensearch "github.com/opensearch-project/opensearch-go/v4"
 	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/telemetry"
 )
 
@@ -52,21 +53,30 @@ func (a *Adapter) EnsureIndex(ctx context.Context, index string, spec IndexSpec)
 	return a.VerifyIndex(ctx, index, spec)
 }
 
-// WaitGreen requires every configured index shard to become assigned.
-func (a *Adapter) WaitGreen(ctx context.Context, index string) error {
+// DefaultGreenWait is the health wait of index provisioning and verification.
+const DefaultGreenWait = time.Minute
+
+// WaitGreen waits at most timeout for every configured index shard to become
+// assigned. It returns [searchdomain.ErrIndexNotReady] when the index health
+// is not green after that wait. OpenSearch returns HTTP 408 when the health
+// wait times out, and WaitGreen maps that response to
+// [searchdomain.ErrIndexNotReady].
+func (a *Adapter) WaitGreen(ctx context.Context, index string, timeout time.Duration) error {
 	response, err := a.api.Cluster.Health(ctx, &opensearchapi.ClusterHealthReq{
 		Indices: []string{index},
-		Params:  opensearchapi.ClusterHealthParams{WaitForStatus: "green", Timeout: time.Minute},
+		Params:  opensearchapi.ClusterHealthParams{WaitForStatus: "green", Timeout: timeout},
 	})
-	if err != nil {
+	timedOut := response != nil && response.Inspect().Response != nil &&
+		response.Inspect().Response.StatusCode == http.StatusRequestTimeout
+	if err != nil && !timedOut {
 		wrapped := fmt.Errorf("wait for OpenSearch index %s green health: %w", index, err)
 		telemetry.L(ctx).ErrorContext(ctx, "search.index.health_failed", slog.String("err", wrapped.Error()), slog.String("index", index))
 		return wrapped
 	}
-	if response.TimedOut || response.Status != "green" {
-		wrapped := fmt.Errorf("OpenSearch index %s health is %s, timed out %t", index, response.Status, response.TimedOut)
-		telemetry.L(ctx).ErrorContext(ctx, "search.index.health_invalid", slog.String("err", wrapped.Error()), slog.String("index", index))
-		return wrapped
+	if timedOut || response.TimedOut || response.Status != "green" {
+		telemetry.L(ctx).InfoContext(ctx, "search.index.health_pending", slog.String("index", index),
+			slog.Duration("timeout", timeout))
+		return searchdomain.ErrIndexNotReady
 	}
 	return nil
 }

@@ -95,6 +95,17 @@ const (
 	// (search_rollout, authorityID) -> access policy rollout record JSON
 	// (search_rollout_generation, authorityID) -> rollout work generation
 	// (search_permission_event, authorityID) -> resource permission event counter
+	// (search_rebuild) -> the one index replacement record JSON; its presence
+	//   is the environment's replacement lease
+	// (search_rebuild_generation) -> rebuild work generation
+	// (search_restore_epoch) -> restore epoch that a restored replacement
+	//   increments; every session binds it
+	// (search_retired_since, index) -> Unix nanoseconds of the first page
+	//   retirement in that physical index
+	keySearchRebuild           = "search_rebuild"
+	keySearchRebuildGeneration = "search_rebuild_generation"
+	keySearchRestoreEpoch      = "search_restore_epoch"
+	keySearchRetiredSince      = "search_retired_since"
 	keySearchEpoch             = "search_epoch"
 	keySearchRollout           = "search_rollout"
 	keySearchRolloutGeneration = "search_rollout_generation"

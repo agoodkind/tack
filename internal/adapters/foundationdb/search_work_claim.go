@@ -27,12 +27,12 @@ func (s *SearchWorkStore) claimBucket(
 	// A bucket without claimable work returns nil from the closure. The
 	// transaction then commits the clears of stale age keys.
 	err := transactSearch(ctx, s.db, func(tr fdb.Transaction) error {
-		target, err := tr.Get(fdb.Key(searchIndexKey())).Get()
+		scope, err := readClaimScope(ctx, tr)
 		if err != nil {
-			return searchReadFailure(ctx, "read serving search index", err)
+			return err
 		}
-		if len(target) == 0 {
-			return searchdomain.ErrNoServingIndex
+		if scope.rebuilding && scope.rebuild.Paused && class != searchdomain.WorkClassRebuild {
+			return nil
 		}
 		keyRange, err := fdb.PrefixRange(searchAgePrefix(string(class), bucket))
 		if err != nil {
@@ -42,7 +42,7 @@ func (s *SearchWorkStore) claimBucket(
 		if err != nil {
 			return searchReadFailure(ctx, "read search age bucket "+strconv.Itoa(bucket), err)
 		}
-		selected, claimed, err = s.claimFirstItem(ctx, tr, class, bucket, owner, lease, string(target), items)
+		selected, claimed, err = s.claimFirstItem(ctx, tr, class, bucket, owner, lease, scope, items)
 		return err
 	})
 	var none searchdomain.Work
@@ -64,12 +64,18 @@ func (s *SearchWorkStore) claimWorkItem(
 	class searchdomain.WorkClass,
 	owner string,
 	lease time.Duration,
-	target string,
+	scope claimScope,
 	record searchWorkRecord,
 ) (searchdomain.Work, bool, error) {
 	var none searchdomain.Work
 	bucket := searchBucket(record.OrgID, record.NodeID)
 	claimKey := searchClaimKey(string(class), bucket, record.OrgID, record.NodeID)
+	target, mirror, claimable := scope.targets(class)
+	if !claimable {
+		removeSearchWork(tr, class, record)
+		tr.Clear(fdb.Key(claimKey))
+		return none, false, nil
+	}
 	desired, err := readSearchCounter(ctx, tr, desiredGenerationKey(class, record.OrgID, record.NodeID))
 	if err != nil {
 		return none, false, err
@@ -85,10 +91,10 @@ func (s *SearchWorkStore) claimWorkItem(
 		return none, false, err
 	}
 	now := s.clock.Now()
-	if found && claim.Generation == record.Generation && claim.Target == target && claim.LeaseUntil.After(now) {
+	if found && claim.Generation == record.Generation && claim.Target == target && claim.Mirror == mirror && claim.LeaseUntil.After(now) {
 		return none, false, nil
 	}
-	claim = searchClaimRecord{Owner: owner, Generation: record.Generation, LeaseUntil: now.Add(lease), Target: target}
+	claim = searchClaimRecord{Owner: owner, Generation: record.Generation, LeaseUntil: now.Add(lease), Target: target, Mirror: mirror}
 	if err := writeSearchRecord(ctx, tr, claimKey, claim); err != nil {
 		return none, false, err
 	}
@@ -101,7 +107,7 @@ func (s *SearchWorkStore) claimWorkItem(
 		Revision: strconv.FormatInt(record.Revision, 10), Projection: progress.Projection,
 		Cursor: progress.Cursor, Ordinal: progress.Ordinal, Phase: searchdomain.WorkPhase(progress.Phase),
 		Deleted: record.Deleted, EnqueuedAt: record.EnqueuedAt, Owner: owner,
-		LeaseUntil: claim.LeaseUntil, Class: class, Target: target,
+		LeaseUntil: claim.LeaseUntil, Class: class, Target: target, Mirror: mirror,
 	}, true, nil
 }
 
@@ -148,15 +154,18 @@ func (s *SearchWorkStore) verifyClaim(ctx context.Context, tr fdb.Transaction, w
 	if err != nil || !found {
 		return record, claimMismatch(err)
 	}
-	if claim.Owner != work.Owner || claim.Generation != work.Generation || claim.Target != work.Target || !claim.LeaseUntil.After(s.clock.Now()) {
+	if claim.Owner != work.Owner || claim.Generation != work.Generation || claim.Target != work.Target ||
+		claim.Mirror != work.Mirror || !claim.LeaseUntil.After(s.clock.Now()) {
 		return record, searchdomain.ErrWorkChanged
 	}
-	serving, err := tr.Get(fdb.Key(searchIndexKey())).Get()
+	scope, err := readClaimScope(ctx, tr)
 	if err != nil {
-		return record, searchReadFailure(ctx, "read serving search index", err)
+		return record, err
 	}
-	if string(serving) != work.Target {
-		telemetry.L(ctx).InfoContext(ctx, "search.work.target_changed", slog.String("index", work.Target), slog.String("node_id", work.NodeID.String()))
+	target, mirror, claimable := scope.targets(work.Class)
+	if !claimable || target != work.Target || mirror != work.Mirror {
+		telemetry.L(ctx).InfoContext(ctx, "search.work.target_changed", slog.String("index", work.Target),
+			slog.String("mirror", work.Mirror), slog.String("node_id", work.NodeID.String()))
 		return record, searchdomain.ErrWorkChanged
 	}
 	return record, nil
@@ -175,7 +184,9 @@ func desiredGenerationKey(class searchdomain.WorkClass, orgID, nodeID uuid.UUID)
 		return searchScanKey(orgID)
 	case searchdomain.WorkClassRollout:
 		return searchRolloutGenerationKey(orgID)
-	case searchdomain.WorkClassLive, searchdomain.WorkClassAccess, searchdomain.WorkClassCleanup:
+	case searchdomain.WorkClassRebuild:
+		return searchRebuildGenerationKey()
+	case searchdomain.WorkClassLive, searchdomain.WorkClassAccess, searchdomain.WorkClassCleanup, searchdomain.WorkClassCopy:
 	}
 	return searchGenerationKey(orgID, nodeID)
 }

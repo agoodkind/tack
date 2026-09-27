@@ -22,6 +22,14 @@ const (
 	searchClassWeightMax    = 16
 )
 
+// SearchReplacementPauseLimit is how long an index replacement waits for a
+// green target. The wait starts when the replacement pauses claims, or when
+// it begins for a full replacement that creates its target. A create, split,
+// or switch step that finds the target not green after this limit records
+// the replacement as failed. The failure path then restores source writes,
+// deletes the target, and resumes claims.
+const SearchReplacementPauseLimit = 10 * time.Minute
+
 // SearchWorkerSettings contains bounded environment-backed indexing settings.
 type SearchWorkerSettings struct {
 	PageBytes        int           `env:"OPENSEARCH_PAGE_BYTES"               envDefault:"4096"`
@@ -35,7 +43,11 @@ type SearchWorkerSettings struct {
 	// ClassWeights sets how many turns each work class receives in one
 	// scheduling rotation. It requires a weight of at least one for every
 	// scheduled class and no other class.
-	ClassWeights map[string]int `env:"OPENSEARCH_WORK_CLASS_WEIGHTS" envDefault:"live:4,access:2,cleanup:2,rescan:1,rollout:1" envKeyValSeparator:":"`
+	ClassWeights map[string]int `env:"OPENSEARCH_WORK_CLASS_WEIGHTS" envDefault:"live:4,access:2,cleanup:2,rescan:1,rollout:1,rebuild:1,copy:2" envKeyValSeparator:":"`
+	// ReplacementPauseLimit is the longest wait for a green replacement
+	// target. It has no environment variable. LoadSearchWorkerSettings sets
+	// it to SearchReplacementPauseLimit, and tests set a shorter limit.
+	ReplacementPauseLimit time.Duration
 }
 
 // LoadSearchWorkerSettings parses and validates the indexing worker environment.
@@ -46,6 +58,7 @@ func LoadSearchWorkerSettings(ctx context.Context) (SearchWorkerSettings, error)
 		telemetry.L(ctx).ErrorContext(ctx, "search.worker.config_failed", slog.String("err", wrapped.Error()))
 		return SearchWorkerSettings{}, wrapped
 	}
+	settings.ReplacementPauseLimit = SearchReplacementPauseLimit
 	if err := settings.Validate(); err != nil {
 		wrapped := fmt.Errorf("validate search worker settings: %w", err)
 		telemetry.L(ctx).ErrorContext(ctx, "search.worker.config_failed", slog.String("err", wrapped.Error()))
@@ -73,6 +86,9 @@ func (s SearchWorkerSettings) Validate() error {
 	}
 	if s.Lease <= s.SliceBudget+s.OperationTimeout {
 		return errors.New("search worker lease must exceed the slice budget plus the operation timeout")
+	}
+	if s.ReplacementPauseLimit <= s.Lease {
+		return errors.New("search replacement pause limit must exceed the worker lease")
 	}
 	if s.IdleInterval <= 0 || s.Concurrency <= 0 || s.Concurrency > searchWorkerMaximum {
 		return fmt.Errorf("search worker idle interval must be positive and concurrency between 1 and %d", searchWorkerMaximum)

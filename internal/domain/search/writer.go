@@ -49,8 +49,11 @@ func ValidatePageText(text string) error {
 }
 
 // ValidatePage checks document invariants before a write intent is registered.
+// Live work and replacement copy work write pages. Every other class returns
+// ErrWorkChanged.
 func ValidatePage(work Work, page node.ContentPage) error {
-	if work.Class != WorkClassLive || work.Target == "" || work.Generation <= 0 {
+	writesPages := work.Class == WorkClassLive || work.Class == WorkClassCopy
+	if !writesPages || work.Target == "" || work.Generation <= 0 {
 		return ErrWorkChanged
 	}
 	if page.NodeID != work.NodeID || page.Revision == "" || page.ProjectionVersion == "" {

@@ -19,22 +19,31 @@ import (
 // searchRuntime is the adapter, workers, and idle interval of the durable
 // indexing loops.
 type searchRuntime struct {
-	adapter  *searchadapter.Adapter
-	workers  []*service.SearchWorker
-	idleTime time.Duration
+	adapter   *searchadapter.Adapter
+	workers   []*service.SearchWorker
+	idleTime  time.Duration
+	retention *service.SearchRetention
 }
 
 // buildSearchRuntime constructs the content reader, policy set, work store,
 // access store, adapter, and workers on the graph's clock. It returns an
 // empty runtime when no search endpoint is configured.
 func buildSearchRuntime(ctx context.Context, cfg *config.Config, stores *fdbadapter.Stores, source clock.Clock) (searchRuntime, error) {
-	empty := searchRuntime{adapter: nil, workers: nil, idleTime: 0}
+	empty := searchRuntime{adapter: nil, workers: nil, idleTime: 0, retention: nil}
 	if cfg.SearchEndpoint == "" {
 		return empty, nil
 	}
 	settings, err := config.LoadSearchWorkerSettings(ctx)
 	if err != nil {
 		return empty, searchRuntimeFailure(ctx, "load search worker settings", err)
+	}
+	retentionSettings, err := config.LoadSearchRetentionSettings(ctx)
+	if err != nil {
+		return empty, searchRuntimeFailure(ctx, "load search retention settings", err)
+	}
+	topology, err := config.LoadSearchTopology(ctx)
+	if err != nil {
+		return empty, searchRuntimeFailure(ctx, "load search topology", err)
 	}
 	certificate, err := config.LoadSearchCA(ctx, cfg.SearchCA)
 	if err != nil {
@@ -50,11 +59,14 @@ func buildSearchRuntime(ctx context.Context, cfg *config.Config, stores *fdbadap
 	}
 	policies := stores.SearchPolicySet()
 	rollouts := stores.SearchRollouts(source, policies)
+	rebuilds := stores.SearchRebuilds(source)
 	ports := service.SearchWorkerPorts{
 		Store: stores.SearchWork(source), Reader: stores.SearchContent(policies),
 		Access: stores.SearchAccess(policies), Writer: adapter,
 		Rollouts: rollouts, Sessions: rollouts, Documents: adapter,
+		Rebuilds: rebuilds, Replacer: adapter,
 	}
+	retention := service.NewSearchRetention(rebuilds, adapter, stores, source, retentionSettings, topology)
 	workers := make([]*service.SearchWorker, 0, settings.Concurrency)
 	for position := range settings.Concurrency {
 		worker, err := service.NewSearchWorker(ports, source, settings, position)
@@ -63,7 +75,7 @@ func buildSearchRuntime(ctx context.Context, cfg *config.Config, stores *fdbadap
 		}
 		workers = append(workers, worker)
 	}
-	return searchRuntime{adapter: adapter, workers: workers, idleTime: settings.IdleInterval}, nil
+	return searchRuntime{adapter: adapter, workers: workers, idleTime: settings.IdleInterval, retention: retention}, nil
 }
 
 func searchRuntimeFailure(ctx context.Context, operation string, err error) error {
@@ -88,6 +100,10 @@ func (g *Graph) StartSearchWorkers(ctx context.Context) {
 			runSearchLoop(workerContext, current, g.search.idleTime)
 		})
 	}
+	g.searchWorkers.Go(func() {
+		defer recoverSearchWorker(workerContext, "search.retention.loop_panicked")
+		runRetentionLoop(workerContext, g.search.retention)
+	})
 	telemetry.L(ctx).InfoContext(ctx, "search.worker.started", slog.Int("workers", len(g.search.workers)))
 }
 
@@ -118,6 +134,28 @@ func runSearchIteration(ctx context.Context, worker *service.SearchWorker) (work
 	}()
 	claimed, err := worker.RunSlice(ctx)
 	return claimed && err == nil
+}
+
+// runRetentionLoop checks the retention thresholds once per interval until
+// ctx ends. A failed check logs and waits for the next interval.
+func runRetentionLoop(ctx context.Context, retention *service.SearchRetention) {
+	ticker := time.NewTicker(retention.Interval())
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			checkRetention(ctx, retention)
+		}
+	}
+}
+
+// checkRetention runs one check and recovers a panic in that check. It
+// drops the returned error. Check already logs each failure at Error.
+func checkRetention(ctx context.Context, retention *service.SearchRetention) {
+	defer recoverSearchWorker(ctx, "search.retention.check_panicked")
+	_ = retention.Check(ctx)
 }
 
 func recoverSearchWorker(ctx context.Context, event string) {

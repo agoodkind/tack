@@ -40,6 +40,7 @@ type searchSessionRecord struct {
 	NodeType         string          `json:"node_type"`
 	AccessVersion    string          `json:"access_version"`
 	AccessKeys       []string        `json:"access_keys"`
+	Generation       int64           `json:"generation"`
 	PITID            string          `json:"pit_id"`
 	Sort             json.RawMessage `json:"sort,omitempty"`
 	Version          uint64          `json:"version"`
@@ -66,7 +67,7 @@ func sessionRecordFor(session searchdomain.Session) searchSessionRecord {
 		EntryPointID: session.EntryPointID, Binding: hex.EncodeToString(session.Binding[:]),
 		Text: session.Query.Text, Index: session.Query.Index, NodeType: session.Query.NodeType,
 		AccessVersion: session.Query.Access.Version, AccessKeys: session.Query.Access.Keys,
-		PITID: session.Snapshot.PITID, Sort: session.Sort, Version: session.Version,
+		Generation: session.Query.Generation, PITID: session.Snapshot.PITID, Sort: session.Sort, Version: session.Version,
 		TokenBytes: len(session.Snapshot.QueryTokens), TokenChunks: chunks,
 		CreatedAt: session.CreatedAt, IdleDeadline: session.IdleDeadline, AbsoluteDeadline: session.AbsoluteDeadline,
 		Complete: session.Complete, Closing: session.Closing,
@@ -82,7 +83,8 @@ func (r searchSessionRecord) session(tokens json.RawMessage) (searchdomain.Sessi
 	copy(binding[:], decoded)
 	query := searchdomain.Query{
 		Text: r.Text, Index: r.Index, NodeType: r.NodeType,
-		Access: searchdomain.AccessFilter{Version: r.AccessVersion, Keys: r.AccessKeys},
+		Access:     searchdomain.AccessFilter{Version: r.AccessVersion, Keys: r.AccessKeys},
+		Generation: r.Generation,
 	}
 	return searchdomain.Session{
 		ID: r.ID, PrincipalID: r.PrincipalID, AuthorityID: r.AuthorityID, EntryPointID: r.EntryPointID,

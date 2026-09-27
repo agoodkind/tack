@@ -135,7 +135,7 @@ func (s *SearchAccessRolloutStore) Wait(ctx context.Context, work searchdomain.W
 			return verifyErr
 		}
 		return writeSearchRecord(ctx, tr, searchClaimKey(string(work.Class), searchBucket(work.OrgID, work.NodeID), work.OrgID, work.NodeID), searchClaimRecord{
-			Owner: "", Generation: work.Generation, LeaseUntil: s.work.clock.Now().Add(searchRetryDelay), Target: work.Target,
+			Owner: "", Generation: work.Generation, LeaseUntil: s.work.clock.Now().Add(searchRetryDelay), Target: work.Target, Mirror: work.Mirror,
 		})
 	})
 	if err != nil {

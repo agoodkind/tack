@@ -13,7 +13,9 @@ import (
 
 // Put writes one complete page at its FoundationDB generation with
 // version_type external_gte. It validates page_text before any engine
-// request and returns the encoded request length in bytes.
+// request and returns the encoded request length in bytes. When the work
+// item has a mirror index, Put writes the same page to the mirror index
+// after the target accepts it.
 func (a *Adapter) Put(ctx context.Context, intent searchdomain.WriteIntent) (int, error) {
 	if intent.Work.Target == "" {
 		return 0, pageWriteFailure(ctx, "search.page.target_missing", intent.Work, errors.New("page write requires a serving index"))
@@ -21,6 +23,17 @@ func (a *Adapter) Put(ctx context.Context, intent searchdomain.WriteIntent) (int
 	if err := searchdomain.ValidatePageText(intent.Page.Text); err != nil {
 		return 0, pageWriteFailure(ctx, "search.page.text_invalid", intent.Work, err)
 	}
+	written, err := a.putPage(ctx, intent)
+	if err != nil || intent.Work.Mirror == "" {
+		return written, err
+	}
+	mirrored := intent
+	mirrored.Work = mirrorWork(intent.Work)
+	extra, err := a.putPage(ctx, mirrored)
+	return written + extra, err
+}
+
+func (a *Adapter) putPage(ctx context.Context, intent searchdomain.WriteIntent) (int, error) {
 	encoded, err := encodePageDocument(ctx, intent)
 	if err != nil {
 		return 0, pageWriteFailure(ctx, "search.page.encode_failed", intent.Work, err)
@@ -33,40 +46,66 @@ func (a *Adapter) Put(ctx context.Context, intent searchdomain.WriteIntent) (int
 }
 
 // UpdateAccess changes only search_generation and access on the current
-// pages. It sends no page_text and needs no deployed model. It returns the
-// length of the accepted contiguous prefix.
+// pages of the target and the mirror index. It sends no page_text and needs
+// no deployed model. It returns the length of the prefix both accepted.
 func (a *Adapter) UpdateAccess(ctx context.Context, intent searchdomain.AccessIntent) (int, error) {
+	accepted, err := a.updateAccessIn(ctx, intent.Work, intent)
+	if err != nil || intent.Work.Mirror == "" {
+		return accepted, err
+	}
+	mirrored, err := a.updateAccessIn(ctx, mirrorWork(intent.Work), intent)
+	return min(accepted, mirrored), err
+}
+
+func (a *Adapter) updateAccessIn(ctx context.Context, work searchdomain.Work, intent searchdomain.AccessIntent) (int, error) {
 	operations := make([]bulkOperation, 0, len(intent.Documents))
 	for _, document := range intent.Documents {
-		encoded, err := encodeAccessUpdate(ctx, intent.Work, document.DocumentID, intent.Access)
+		encoded, err := encodeAccessUpdate(ctx, work, document.DocumentID, intent.Access)
 		if err != nil {
-			return 0, pageWriteFailure(ctx, "search.access.encode_failed", intent.Work, err)
+			return 0, pageWriteFailure(ctx, "search.access.encode_failed", work, err)
 		}
 		operations = append(operations, bulkOperation{documentID: document.DocumentID, encoded: encoded})
 	}
-	accepted, err := a.submitBulk(ctx, intent.Work.Target, operations, bulkAccess)
+	accepted, err := a.submitBulk(ctx, work.Target, operations, bulkAccess)
 	if err != nil {
-		return accepted, pageWriteFailure(ctx, "search.access.write_failed", intent.Work, err)
+		return accepted, pageWriteFailure(ctx, "search.access.write_failed", work, err)
 	}
 	return accepted, nil
 }
 
 // Retire replaces each obsolete page with a text-free retired record at the
-// work generation. It returns the length of the accepted contiguous prefix.
+// work generation in the target and the mirror index. It returns the length
+// of the prefix both accepted.
 func (a *Adapter) Retire(ctx context.Context, intent searchdomain.RetirementIntent) (int, error) {
-	operations := make([]bulkOperation, 0, len(intent.Documents))
-	for _, document := range intent.Documents {
-		encoded, err := encodeRetirement(ctx, intent.Work, document)
+	accepted, err := a.retireIn(ctx, intent.Work, intent.Documents)
+	if err != nil || intent.Work.Mirror == "" {
+		return accepted, err
+	}
+	mirrored, err := a.retireIn(ctx, mirrorWork(intent.Work), intent.Documents)
+	return min(accepted, mirrored), err
+}
+
+func (a *Adapter) retireIn(ctx context.Context, work searchdomain.Work, documents []searchdomain.IssuedDocument) (int, error) {
+	operations := make([]bulkOperation, 0, len(documents))
+	for _, document := range documents {
+		encoded, err := encodeRetirement(ctx, work, document)
 		if err != nil {
-			return 0, pageWriteFailure(ctx, "search.retirement.encode_failed", intent.Work, err)
+			return 0, pageWriteFailure(ctx, "search.retirement.encode_failed", work, err)
 		}
 		operations = append(operations, bulkOperation{documentID: document.DocumentID, encoded: encoded})
 	}
-	accepted, err := a.submitBulk(ctx, intent.Work.Target, operations, bulkRetirement)
+	accepted, err := a.submitBulk(ctx, work.Target, operations, bulkRetirement)
 	if err != nil {
-		return accepted, pageWriteFailure(ctx, "search.retirement.write_failed", intent.Work, err)
+		return accepted, pageWriteFailure(ctx, "search.retirement.write_failed", work, err)
 	}
 	return accepted, nil
+}
+
+// mirrorWork returns a copy of work with Target set to the mirror index and
+// Mirror cleared.
+func mirrorWork(work searchdomain.Work) searchdomain.Work {
+	work.Target, work.Mirror = work.Mirror, ""
+	return work
 }
 
 // Refresh makes the completed pages of one node searchable in index.

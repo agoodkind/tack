@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -42,6 +43,14 @@ func (s Session) Expired(now time.Time) bool {
 	return !now.Before(s.IdleDeadline) || !now.Before(s.AbsoluteDeadline)
 }
 
+// Continuable reports whether the session can serve another page at now.
+// A closing session and an expired session serve no page. The session
+// binding includes the restore epoch. A session opened under an earlier
+// restore epoch fails every continuation with ErrSessionMismatch.
+func (s Session) Continuable(now time.Time, restoreEpoch int64) bool {
+	return !s.Closing && s.Query.Generation == restoreEpoch && !s.Expired(now)
+}
+
 // PageCommit is the exact consumed position and bounded response of one
 // public page. The replay record stores ResultIDs and Complete.
 type PageCommit struct {
@@ -64,10 +73,11 @@ type SessionStore interface {
 }
 
 // SessionBinding hashes the principal, permission authority, entry point,
-// query text, node type, access version and keys, and physical index through
-// length-prefixed serialization.
+// query text, node type, access version and keys, physical index, and restore
+// epoch through length-prefixed serialization.
 func SessionBinding(principalID, authorityID, entryPointID uuid.UUID, query Query) [sha256.Size]byte {
 	var identity bytes.Buffer
+	writeIdentityPart(&identity, []byte(strconv.FormatInt(query.Generation, 10)))
 	writeIdentityPart(&identity, principalID[:])
 	writeIdentityPart(&identity, authorityID[:])
 	writeIdentityPart(&identity, entryPointID[:])

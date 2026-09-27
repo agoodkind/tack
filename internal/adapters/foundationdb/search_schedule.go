@@ -41,7 +41,7 @@ const (
 )
 
 var searchNodeClasses = []searchdomain.WorkClass{
-	searchdomain.WorkClassLive, searchdomain.WorkClassAccess, searchdomain.WorkClassCleanup,
+	searchdomain.WorkClassLive, searchdomain.WorkClassAccess, searchdomain.WorkClassCleanup, searchdomain.WorkClassCopy,
 }
 
 // scheduleSearchChange records desired search work for one node inside the
@@ -79,22 +79,28 @@ func scheduleSearchChange(ctx context.Context, tr fdb.Transaction, now time.Time
 	return current, initializeSearchAccess(ctx, tr, orgID, nodeID)
 }
 
-// searchRecordPlans maps each change and node work class to its effect.
+// searchRecordPlans maps each change and node work class to its effect. A
+// content change removes a pending replacement copy. The worker that claims
+// the new live work also writes its pages to the replacement index. An access
+// change rewrites the copy at the new generation.
 var searchRecordPlans = map[searchChange]map[searchdomain.WorkClass]searchRecordPlan{
 	searchChangeContent: {
 		searchdomain.WorkClassLive:    searchRecordPut,
 		searchdomain.WorkClassAccess:  searchRecordRestart,
 		searchdomain.WorkClassCleanup: searchRecordRewrite,
+		searchdomain.WorkClassCopy:    searchRecordRemove,
 	},
 	searchChangeAccess: {
 		searchdomain.WorkClassLive:    searchRecordRewrite,
 		searchdomain.WorkClassAccess:  searchRecordPut,
 		searchdomain.WorkClassCleanup: searchRecordRewrite,
+		searchdomain.WorkClassCopy:    searchRecordRewrite,
 	},
 	searchChangeDeletion: {
 		searchdomain.WorkClassLive:    searchRecordRemove,
 		searchdomain.WorkClassAccess:  searchRecordRemove,
 		searchdomain.WorkClassCleanup: searchRecordPut,
+		searchdomain.WorkClassCopy:    searchRecordRemove,
 	},
 }
 

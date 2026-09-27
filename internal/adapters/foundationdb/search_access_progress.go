@@ -3,6 +3,7 @@ package foundationdb
 import (
 	"context"
 	"slices"
+	"time"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/google/uuid"
@@ -125,6 +126,25 @@ func accessRecordFor(ctx context.Context, tr fdb.Transaction, orgID, nodeID uuid
 		Access:       node.SearchAccess{Versions: []string{searchaccess.StableVersion}, Keys: []string{}, Generation: 0},
 		PagesPending: false, DependentsPending: false,
 	}, nil
+}
+
+// scheduleAccessRepair marks the node's existing access record as having
+// pending pages and schedules access work at a new generation. That access
+// work rewrites every page of the node. A plain access schedule updates no
+// page when the recorded access already equals the compiled access.
+func scheduleAccessRepair(ctx context.Context, tr fdb.Transaction, now time.Time, orgID, nodeID uuid.UUID) error {
+	var state searchAccessRecord
+	found, err := readSearchRecord(ctx, tr, searchAccessKey(orgID, nodeID), &state)
+	if err != nil {
+		return err
+	}
+	if found {
+		state.PagesPending = true
+		if err := writeSearchRecord(ctx, tr, searchAccessKey(orgID, nodeID), state); err != nil {
+			return err
+		}
+	}
+	return scheduleExistingSearchChange(ctx, tr, now, orgID, nodeID, searchChangeAccess)
 }
 
 // accessStateFor returns the recorded write versions and keys of one node.

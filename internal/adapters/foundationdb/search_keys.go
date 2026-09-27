@@ -89,6 +89,40 @@ func searchIndexKey() []byte {
 	return withPrefix(tuple.Tuple{keySearchIndex}.Pack())
 }
 
+func searchRebuildKey() []byte {
+	return withPrefix(tuple.Tuple{keySearchRebuild}.Pack())
+}
+
+func searchRebuildGenerationKey() []byte {
+	return withPrefix(tuple.Tuple{keySearchRebuildGeneration}.Pack())
+}
+
+func searchRestoreEpochKey() []byte {
+	return withPrefix(tuple.Tuple{keySearchRestoreEpoch}.Pack())
+}
+
+func searchRetiredSinceKey(index string) []byte {
+	return withPrefix(tuple.Tuple{keySearchRetiredSince, index}.Pack())
+}
+
+// nodeInstancePrefix returns the key prefix of the primary node records of
+// every organization.
+func nodeInstancePrefix() []byte {
+	return withPrefix(tuple.Tuple{keyNodeInstance}.Pack())
+}
+
+// searchIssuedFamilyPrefix returns the key prefix of every issued document
+// of every organization.
+func searchIssuedFamilyPrefix() []byte {
+	return withPrefix(tuple.Tuple{keySearchIssued}.Pack())
+}
+
+// searchSessionPresencePrefix returns the key prefix of the presence entries
+// of every session that reads the specified physical index.
+func searchSessionPresencePrefix(index string) []byte {
+	return withPrefix(tuple.Tuple{keySearchSessionPresent, index}.Pack())
+}
+
 func searchEpochKey(orgID uuid.UUID) []byte {
 	return withPrefix(tuple.Tuple{keySearchEpoch, orgID.String()}.Pack())
 }

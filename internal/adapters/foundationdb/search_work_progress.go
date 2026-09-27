@@ -41,8 +41,10 @@ func (s *SearchWorkStore) CompletePage(ctx context.Context, intent searchdomain.
 	return nil
 }
 
-// CompleteRefresh finishes content work after the serving index refresh and
-// schedules retirement of every older revision.
+// CompleteRefresh finishes content work after the worker refreshes the
+// claimed index, and schedules retirement of every older revision. A
+// replacement copy finishes without scheduling retirement. Live work
+// schedules cleanup for older revisions.
 func (s *SearchWorkStore) CompleteRefresh(ctx context.Context, work searchdomain.Work) (err error) {
 	defer telemetry.FDBOp(ctx, "store.search_work.complete_refresh")(&err)
 	err = transactSearch(ctx, s.db, func(tr fdb.Transaction) error {
@@ -58,6 +60,9 @@ func (s *SearchWorkStore) CompleteRefresh(ctx context.Context, work searchdomain
 			return searchdomain.ErrWorkChanged
 		}
 		clearSearchWork(tr, work, record)
+		if work.Class == searchdomain.WorkClassCopy {
+			return nil
+		}
 		cleanup := record
 		cleanup.Deleted = false
 		cleanup.EnqueuedAt = s.clock.Now().UTC()
@@ -120,7 +125,7 @@ func (s *SearchWorkStore) Release(ctx context.Context, work searchdomain.Work, m
 		}
 		tr.Set(fdb.Key(searchErrorKey(string(work.Class), work.OrgID, work.NodeID)), []byte(message))
 		return writeSearchRecord(ctx, tr, searchClaimKey(string(work.Class), searchBucket(work.OrgID, work.NodeID), work.OrgID, work.NodeID), searchClaimRecord{
-			Owner: "", Generation: work.Generation, LeaseUntil: s.clock.Now().Add(searchRetryDelay), Target: work.Target,
+			Owner: "", Generation: work.Generation, LeaseUntil: s.clock.Now().Add(searchRetryDelay), Target: work.Target, Mirror: work.Mirror,
 		})
 	})
 	if err != nil {
