@@ -49,8 +49,8 @@ func currentRevisionIndexed(documents []searchPageSource, pages []node.ContentPa
 	return true
 }
 
-// TestSearchRuntimeIndexesThroughGraph builds the production graph, starts
-// its worker loops, and requires a stored node to become indexed pages.
+// TestSearchRuntimeIndexesThroughGraph requires the worker loops of the
+// production graph to index every page of a stored node within two minutes.
 func TestSearchRuntimeIndexesThroughGraph(t *testing.T) {
 	stores := newSearchStore(t)
 	_, client, _, index := newSearchIndex(t, stores)

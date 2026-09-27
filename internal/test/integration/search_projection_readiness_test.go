@@ -8,12 +8,10 @@ import (
 	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
 )
 
-// TestSearchProjectionReadiness runs the audited search commands while one
-// stored property definition lacks a search declaration.
-//
-// Each command must return an error before it sends a request to OpenSearch.
-//
-// Provisioning must succeed after the declaration is restored.
+// TestSearchProjectionReadiness requires each audited search command to
+// return an error before it sends a request to OpenSearch while one stored
+// property definition lacks a search declaration. Provisioning must succeed
+// after the declaration is restored.
 func TestSearchProjectionReadiness(t *testing.T) {
 	env := SetupTestEnv(t)
 	control := newSearchControl(t)

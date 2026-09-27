@@ -18,7 +18,7 @@ var errNoHierarchyParent = errors.New("node requires exactly one hierarchy paren
 
 // livesUnder reports whether NodeType metadata places child under parent.
 // The child's CanLiveUnder list or the parent's CanContain list declares
-// the pair, the same rule the MCP parent resolution applies.
+// the pair. MCP parent resolution applies the same rule.
 func livesUnder(child, parent *node.NodeType) bool {
 	if child == nil || parent == nil {
 		return false

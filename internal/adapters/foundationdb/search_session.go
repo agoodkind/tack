@@ -34,8 +34,9 @@ func NewSearchSessionStore(db fdb.Database, source clock.Clock, idleTimeout time
 	return &SearchSessionStore{db: db, clock: source, idleTimeout: idleTimeout}
 }
 
-// Create stores the session header, chunked query tokens, and its expiry and
-// presence keys in one transaction.
+// Create stores the session header, the chunked query tokens, and the expiry,
+// presence, and version presence keys in one transaction. It refuses a
+// session under an access version that the authority no longer writes.
 func (s *SearchSessionStore) Create(ctx context.Context, session searchdomain.Session) (created searchdomain.Session, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_session.create")(&err)
 	if session.ID == uuid.Nil || session.Version != 0 || len(session.Snapshot.QueryTokens) == 0 || session.Snapshot.PITID == "" {

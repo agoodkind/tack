@@ -1,14 +1,12 @@
 # Search Projection Metadata Rollout Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> Agentic workers must implement this plan task by task with the superpowers:subagent-driven-development skill (recommended) or the superpowers:executing-plans skill. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Give every property definition an explicit search decision before the first OpenSearch rebuild.
+This plan gives every property definition an explicit search decision before the first OpenSearch rebuild. It implements the [searchable content design](../specs/2026-09-19-search-design.md#searchable-content).
 
-**Architecture:** Stored metadata remains the runtime authority. New seeds and QA data write complete declarations. An audited expiring command applies one reviewed manifest to existing definitions without inference or overwrite.
+Stored metadata remains the runtime authority. New seeds and QA data write complete declarations. An audited expiring command applies one reviewed manifest to existing definitions without inference or overwrite.
 
-**Tech Stack:** Go, FoundationDB, existing metadata repositories, `clispec`, audit outbox.
-
-**Spec:** [Searchable content](../specs/2026-09-19-search-design.md#searchable-content).
+The work uses Go, FoundationDB, the existing metadata repositories, `clispec`, and the audit outbox.
 
 ## Global Constraints
 
@@ -22,22 +20,22 @@ Test incomplete manifests, duplicate identities, cross-organization entries, con
 
 ### Task 1: Roll out explicit search projections
 
-**Files:**
+This task changes these files:
 
-- Modify: `internal/domain/node/types.go`
-- Create: `internal/domain/node/search_projection.go`
-- Modify: `internal/service/seed.go`
-- Modify: `internal/datagen/property_defs.go`
-- Create: `internal/ops/cli_search_projection_backfill.go`
-- Create: `internal/ops/search_projection_backfill.go`
-- Modify: `internal/ops/search_provision.go`
-- Modify: `internal/ops/search_verify.go`
-- Modify: `internal/audit/verbs.go`
-- Create: `internal/service/seed_search_test.go`
-- Create: `internal/datagen/property_defs_search_test.go`
-- Test: `internal/test/integration/search_projection_backfill_test.go`
+- Modify `internal/domain/node/types.go`.
+- Create `internal/domain/node/search_projection.go`.
+- Modify `internal/service/seed.go`.
+- Modify `internal/datagen/property_defs.go`.
+- Create `internal/ops/cli_search_projection_backfill.go`.
+- Create `internal/ops/search_projection_backfill.go`.
+- Modify `internal/ops/search_provision.go`.
+- Modify `internal/ops/search_verify.go`.
+- Modify `internal/audit/verbs.go`.
+- Create `internal/service/seed_search_test.go`.
+- Create `internal/datagen/property_defs_search_test.go`.
+- Add the test `internal/test/integration/search_projection_backfill_test.go`.
 
-**Interfaces:**
+This task uses and adds these interfaces:
 
 - This plan uses the existing property definition and audited operation machinery.
 - This plan implements complete stored declarations and `RequireSearchProjections(context.Context) error` for provisioning and rebuild.
@@ -80,7 +78,7 @@ The final validation plan runs `^TestSearchProjectionBackfill$` against the comp
 
 - [ ] **Step 3: Add declaration types and explicit values to new metadata.**
 
-Add `Search *SearchProjection` to `PropertyDef`. Validate known modes, item rules, unique object fields, label maps, and maximum recursion depth. Add included and excluded projections to every built-in seed and QA definition. Seed tests require one declaration per definition. QA checks search included text and reject excluded text. These values provide new-organization convenience only. Runtime code reads stored metadata.
+Add `Search *SearchProjection` to `PropertyDef`. Validate known modes, item rules, unique object fields, label maps, and maximum recursion depth. Add included and excluded projections to every built-in seed and QA definition. Seed tests require one declaration per definition. QA checks find included text and do not find excluded text. These values provide new-organization convenience only. Runtime code reads stored metadata.
 
 - [ ] **Step 4: Decode and validate the manifest incrementally.**
 
@@ -108,7 +106,7 @@ Set a projection only when stored `Search` is nil. Accept an already equal value
 
 - [ ] **Step 8: Add the permanent readiness gate.**
 
-`RequireSearchProjections` scans definitions in bounded order, reports bounded missing identities, and refuses success until every definition has a declaration. Wire it into the registered provision and verify operations in this task. The later rebuild operation also calls it before target creation.
+`RequireSearchProjections` scans definitions in bounded order, reports bounded missing identities, and refuses success until every definition has a declaration. Call it from the registered provision and verify operations in this task. The later rebuild operation also calls it before target creation.
 
 - [ ] **Step 9: Add failure coverage.**
 
@@ -116,9 +114,7 @@ Test incomplete, duplicate, unknown, cross-organization, malformed, and conflict
 
 - [ ] **Step 10: Run the serial coding checks.**
 
-Run: `make build`
-
-Expected: PASS. The final validation plan runs the backfill and readiness checks.
+Run `make build` and require it to pass. The final validation plan runs the backfill and readiness checks.
 
 - [ ] **Step 11: Create the next Graphite slice.**
 

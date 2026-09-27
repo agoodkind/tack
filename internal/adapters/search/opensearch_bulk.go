@@ -25,11 +25,11 @@ type bulkItemPolicy uint8
 const (
 	// bulkContent accepts only successful writes. A version conflict is obsolete.
 	bulkContent bulkItemPolicy = iota + 1
-	// bulkRetirement also accepts a version conflict. The document already has
-	// a retirement at a higher generation.
+	// bulkRetirement also accepts a version conflict. The stored document
+	// already has a higher generation.
 	bulkRetirement
-	// bulkAccess also accepts a missing document. Its content write compiles
-	// current access.
+	// bulkAccess also accepts a missing document. The later content write of
+	// that document compiles current access.
 	bulkAccess
 )
 
@@ -39,9 +39,9 @@ type bulkOperation struct {
 	encoded    []byte
 }
 
-// submitBulk sends operations through the typed bulk API in requests below
-// 500 documents and 5 MiB. It returns the length of the accepted contiguous
-// prefix and stops at the first rejected item.
+// submitBulk sends operations with the typed bulk API in requests below 500
+// documents and 5 MiB. It stops at the first rejected item and returns the
+// length of the accepted contiguous prefix.
 func (a *Adapter) submitBulk(ctx context.Context, index string, operations []bulkOperation, policy bulkItemPolicy) (int, error) {
 	accepted := 0
 	for start := 0; start < len(operations); {
@@ -57,7 +57,8 @@ func (a *Adapter) submitBulk(ctx context.Context, index string, operations []bul
 }
 
 // nextBulkRequest concatenates encoded operations from start. It stops
-// before the request would contain 500 documents or 5 MiB.
+// before the request would contain 500 documents or 5 MiB. One operation of
+// 5 MiB or more forms a request by itself.
 func nextBulkRequest(operations []bulkOperation, start int) (int, []byte) {
 	var body bytes.Buffer
 	end := start

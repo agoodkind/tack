@@ -10,9 +10,10 @@ import (
 	"goodkind.io/tack/internal/adapters/search"
 )
 
-// TestSearchControlCommandRejectsMappingAndModelMismatches changes one mapping
-// or model value on a freshly provisioned index and requires the audited
-// verify command to name that value.
+// TestSearchControlCommandRejectsMappingAndModelMismatches requires the
+// audited verify command to fail with an error that includes each mapping or
+// model value that differs on a freshly provisioned index. The test changes
+// one value at a time.
 func TestSearchControlCommandRejectsMappingAndModelMismatches(t *testing.T) {
 	control := newSearchControl(t)
 	model, err := control.adapter.Provision(t.Context())

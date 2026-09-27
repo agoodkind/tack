@@ -15,8 +15,9 @@ import (
 // searchCursorParam is the optional continuation argument.
 const searchCursorParam = "cursor"
 
-// runSearch resolves the entry point through the caller's membership, runs
-// one ranked page, and renders the bounded result list.
+// runSearch resolves the workspace entry point, reads the caller's
+// organization memberships, runs one ranked page, and renders the bounded
+// result list.
 func runSearch(ctx context.Context, request mcpmcp.CallToolRequest, resolver *Resolver, binding SearchBinding) *mcpmcp.CallToolResult {
 	args, err := bindArgs(request)
 	if err != nil {

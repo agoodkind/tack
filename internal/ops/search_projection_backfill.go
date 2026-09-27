@@ -12,13 +12,15 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// ProjectionBackfillRepository provides bounded reads and conditional writes.
+// ProjectionBackfillRepository scans property definitions in bounded pages
+// and sets a search projection only on a definition that has none.
 type ProjectionBackfillRepository interface {
 	ScanProjections(ctx context.Context, cursor string) ([]*node.PropertyDef, string, error)
 	SetProjectionIfNil(ctx context.Context, definition *node.PropertyDef, projection node.SearchProjection) (bool, error)
 }
 
-// RunSearchProjectionBackfill applies a sorted manifest without loading it or all stored definitions into memory.
+// RunSearchProjectionBackfill applies a sorted manifest. It never loads the
+// whole manifest or every stored definition into memory.
 func RunSearchProjectionBackfill(ctx context.Context, repository ProjectionBackfillRepository, manifest io.Reader, dryRun bool) (node.ProjectionBackfillResult, error) {
 	reader, err := newProjectionManifestReader(ctx, manifest)
 	if err != nil {

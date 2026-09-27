@@ -1,14 +1,12 @@
 # OpenSearch Live Validation and Correction Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> Agentic workers must implement this plan task by task with the superpowers:subagent-driven-development skill (recommended) or the superpowers:executing-plans skill. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Validate the completed OpenSearch implementation against real dependencies, correct every failure on its owning branch, and leave one reviewed Tack stack plus one Configs pull request ready for authorized QA deployment.
+This plan validates the completed OpenSearch implementation against real dependencies and corrects every failure on its owning branch. It leaves one reviewed Tack stack and one Configs pull request ready for authorized QA deployment. It implements the [search acceptance criteria](../specs/2026-09-19-search-acceptance.md).
 
-**Architecture:** Luna completes and submits the Tack Graphite stack plus the independent Configs pull request without running the live suite. Sol starts the pinned OpenSearch and FoundationDB environment from the stack tip, validates each dependency layer in order, corrects failures on the owning Graphite branch, restacks its descendants, then repeats the affected tail and complete suite. The release plan separately validates deployed QA and production.
+Luna completes and submits the Tack Graphite stack plus the independent Configs pull request without running the live suite. Sol starts the pinned OpenSearch and FoundationDB environment from the stack tip, validates each dependency layer in order, corrects failures on the owning Graphite branch, restacks its descendants, then repeats the affected tail and complete suite. The release plan separately validates deployed QA and production.
 
-**Tech Stack:** Go, Docker Compose test runner, FoundationDB 7.4.6, OpenSearch 3.8.0, official OpenSearch Go client v4.7.3, RSpec, OpenTofu.
-
-**Spec:** [Search acceptance](../specs/2026-09-19-search-acceptance.md).
+The work uses Go, the Docker Compose test runner, FoundationDB 7.4.6, OpenSearch 3.8.0, the official OpenSearch Go client v4.7.3, RSpec, and OpenTofu.
 
 ## Global Constraints
 
@@ -26,26 +24,25 @@ metadata refresh, and single-node restart.
 
 ### Task 1: Run live validation and correct the completed implementation
 
-**Files:**
+Modify a Tack or Configs file only when a reproduced failure requires a correction, and only in a file that a preceding serial plan owns. This task runs the tests in these files:
 
-- Modify: only the Tack or configs files owned by the preceding serial plans when a reproduced failure requires a correction.
-- Test: `internal/test/integration/search_native_test.go`
-- Test: `internal/test/integration/search_projection_backfill_test.go`
-- Test: `internal/test/integration/search_reader_test.go`
-- Test: `internal/test/integration/search_work_test.go`
-- Test: `internal/test/integration/search_recovery_test.go`
-- Test: `internal/test/integration/search_ranking_test.go`
-- Test: `internal/test/integration/search_permission_filter_test.go`
-- Test: `internal/test/integration/search_auth_test.go`
-- Test: `internal/test/integration/search_cursor_test.go`
-- Test: `internal/test/integration/search_rebuild_test.go`
-- Test: `internal/test/integration/search_runtime_test.go`
-- Test: `internal/test/integration/search_metadata_refresh_test.go`
-- Test: `internal/test/integration/search_access_refresh_test.go`
-- Test: `internal/test/integration/search_datagen_test.go`
-- Test: `internal/test/integration/search_cluster_test.go`
+- `internal/test/integration/search_native_test.go`
+- `internal/test/integration/search_projection_backfill_test.go`
+- `internal/test/integration/search_reader_test.go`
+- `internal/test/integration/search_work_test.go`
+- `internal/test/integration/search_recovery_test.go`
+- `internal/test/integration/search_ranking_test.go`
+- `internal/test/integration/search_permission_filter_test.go`
+- `internal/test/integration/search_auth_test.go`
+- `internal/test/integration/search_cursor_test.go`
+- `internal/test/integration/search_rebuild_test.go`
+- `internal/test/integration/search_runtime_test.go`
+- `internal/test/integration/search_metadata_refresh_test.go`
+- `internal/test/integration/search_access_refresh_test.go`
+- `internal/test/integration/search_datagen_test.go`
+- `internal/test/integration/search_cluster_test.go`
 
-**Interfaces:**
+This task uses and produces these interfaces:
 
 - This plan requires the committed code and authored tests from every preceding serial plan.
 - This plan leaves a corrected signed Tack stack, a corrected Configs pull request, complete real-dependency results, resource measurements, and the evidence the release plan requires.
@@ -149,7 +146,7 @@ TACK_TEST_ROOT="$PWD" docker compose -f docker-compose.test.yml --profile runner
 make build
 ```
 
-Expected: every search test passes without a skip, and `make build` passes every repository gate from fresh sources.
+Require every search test to pass without a skip. Require `make build` to pass every repository gate from fresh sources.
 
 - [ ] **Step 10: Repeat the concurrency and replacement tail.**
 

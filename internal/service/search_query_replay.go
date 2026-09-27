@@ -21,10 +21,10 @@ const (
 )
 
 // replay rebuilds the page of the cursor at version from its committed
-// result IDs. It rereads current summaries and permission data through the
-// same batch method. It omits each committed node that is deleted, is
-// currently forbidden, or no longer fits the response budget. It neither
-// advances nor renews the session.
+// result IDs. It rereads current summaries and access keys with the same
+// summary reader that page reads use. It omits each committed node that is
+// deleted, is currently forbidden, or no longer fits the response budget. It
+// neither advances nor renews the session.
 func (s *SearchQueryService) replay(ctx context.Context, session searchdomain.Session, version uint64, filter searchdomain.AccessFilter) (SearchPage, error) {
 	commit, found, err := s.ports.Sessions.Replay(ctx, session.ID, version)
 	if err != nil {
@@ -66,8 +66,9 @@ func (s *SearchQueryService) closeSession(ctx context.Context, session searchdom
 	}
 }
 
-// sweepExpired closes and deletes a bounded number of expired sessions. The
-// public response does not depend on the sweep, and each failure is logged.
+// sweepExpired closes and deletes a bounded number of expired sessions. It
+// logs each failure and returns nothing, and the public response does not
+// depend on the sweep.
 func (s *SearchQueryService) sweepExpired(ctx context.Context) {
 	expired, err := s.ports.Expired.ExpiredSessions(ctx, sweepSessionLimit)
 	if err != nil {

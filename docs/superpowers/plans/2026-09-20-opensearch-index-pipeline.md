@@ -1,14 +1,14 @@
 # Durable OpenSearch Index Pipeline Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> Agentic workers must use superpowers:executing-plans to implement this plan task by task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Convert every source mutation into complete, bounded, retry-safe OpenSearch page documents through one production-connected slice.
+This plan converts every source mutation into complete, bounded, retry-safe OpenSearch page documents in one slice connected to production entry points.
 
-**Architecture:** FoundationDB records desired search work in each source transaction. Runtime workers read one revision-bound page at a time, write it with external versioning, checkpoint progress, and yield after bounded work. The content reader uses explicit projection metadata. The permission policy returns opaque access keys. Tack never tokenizes text or interprets permission types.
+FoundationDB records desired search work in each source transaction. Runtime workers read one revision-bound page at a time, write it with external versioning, checkpoint progress, and yield after bounded work. The content reader uses explicit projection metadata. The permission policy returns opaque access keys. Tack never tokenizes text or interprets permission types.
 
-**Tech Stack:** Go, FoundationDB, official OpenSearch Go client v4.7.3.
+The implementation uses Go, FoundationDB, and the official OpenSearch Go client v4.7.3.
 
-**Spec:** [Searchable content](../specs/2026-09-19-search-design.md#searchable-content), [durable indexing](../specs/2026-09-19-search-design.md#durable-indexing-and-bounded-work), and [permission expansion](../specs/2026-09-19-search-acceptance.md#permission-expansion).
+The [searchable content](../specs/2026-09-19-search-design.md#searchable-content), [durable indexing](../specs/2026-09-19-search-design.md#durable-indexing-and-bounded-work), and [permission expansion](../specs/2026-09-19-search-acceptance.md#permission-expansion) sections define the required behavior.
 
 ## Global Constraints
 
@@ -22,41 +22,41 @@ Test complete text, UTF-8 boundaries, edits between page reads, failed source tr
 
 ### Task 1: Build and connect the complete index pipeline
 
-**Files:**
+Change these files:
 
-- Create: `internal/domain/node/content.go`
-- Create: `internal/domain/node/search_projection_emit.go`
-- Create: `internal/domain/search/work.go`
-- Create: `internal/domain/search/writer.go`
-- Create: `internal/searchaccess/access.go`
-- Create: `internal/adapters/foundationdb/node_content.go`
-- Create: `internal/adapters/foundationdb/node_content_cursor.go`
-- Create: `internal/adapters/foundationdb/search_revision.go`
-- Create: `internal/adapters/foundationdb/search_access_state.go`
-- Create: `internal/adapters/foundationdb/search_work.go`
-- Create: `internal/adapters/foundationdb/search_schedule.go`
-- Create: `internal/adapters/foundationdb/search_scan.go`
-- Create: `internal/adapters/search/opensearch_pages.go`
-- Create: `internal/adapters/search/opensearch_bulk.go`
-- Create: `internal/service/search_worker.go`
-- Create: `internal/service/search_cleanup.go`
-- Modify: `internal/domain/node/types.go`
-- Modify: `internal/domain/node/reader.go`
-- Modify: `internal/adapters/foundationdb/keys.go`
-- Modify: `internal/adapters/foundationdb/node.go`
-- Modify: `internal/adapters/foundationdb/node_delete.go`
-- Modify: `internal/adapters/foundationdb/relationship.go`
-- Modify: `internal/adapters/foundationdb/property.go`
-- Modify: `internal/adapters/foundationdb/node_type.go`
-- Modify: `internal/config/config.go`
-- Modify: `internal/runtime/graph.go`
-- Test: `internal/test/integration/search_reader_test.go`
-- Test: `internal/test/integration/search_work_test.go`
-- Test: `internal/test/integration/search_recovery_test.go`
-- Test: `internal/test/integration/search_fairness_test.go`
-- Test: `internal/test/integration/search_runtime_test.go`
+- Create `internal/domain/node/content.go`.
+- Create `internal/domain/node/search_projection_emit.go`.
+- Create `internal/domain/search/work.go`.
+- Create `internal/domain/search/writer.go`.
+- Create `internal/searchaccess/access.go`.
+- Create `internal/adapters/foundationdb/node_content.go`.
+- Create `internal/adapters/foundationdb/node_content_cursor.go`.
+- Create `internal/adapters/foundationdb/search_revision.go`.
+- Create `internal/adapters/foundationdb/search_access_state.go`.
+- Create `internal/adapters/foundationdb/search_work.go`.
+- Create `internal/adapters/foundationdb/search_schedule.go`.
+- Create `internal/adapters/foundationdb/search_scan.go`.
+- Create `internal/adapters/search/opensearch_pages.go`.
+- Create `internal/adapters/search/opensearch_bulk.go`.
+- Create `internal/service/search_worker.go`.
+- Create `internal/service/search_cleanup.go`.
+- Modify `internal/domain/node/types.go`.
+- Modify `internal/domain/node/reader.go`.
+- Modify `internal/adapters/foundationdb/keys.go`.
+- Modify `internal/adapters/foundationdb/node.go`.
+- Modify `internal/adapters/foundationdb/node_delete.go`.
+- Modify `internal/adapters/foundationdb/relationship.go`.
+- Modify `internal/adapters/foundationdb/property.go`.
+- Modify `internal/adapters/foundationdb/node_type.go`.
+- Modify `internal/config/config.go`.
+- Modify `internal/runtime/graph.go`.
+- Test with `internal/test/integration/search_reader_test.go`.
+- Test with `internal/test/integration/search_work_test.go`.
+- Test with `internal/test/integration/search_recovery_test.go`.
+- Test with `internal/test/integration/search_fairness_test.go`.
+- Test with `internal/test/integration/search_runtime_test.go`.
 
-**Core interfaces:**
+Implement these core interfaces:
 
 ```go
 type ContentRequest struct { NodeID uuid.UUID; Cursor, ProjectionConfig string; AccessVersions []string; MaxBytes int; SearchGeneration int64 }
@@ -73,7 +73,7 @@ type PageWriter interface { Put(context.Context, WriteIntent) error; UpdateAcces
 
 - [ ] **Return one stable UTF-8 page per read.** Enforce at most 4,096 bytes and reserve at most one quarter for overlap. Encode node ID, revision, projection epoch, projection configuration hash, pagination version, byte bound, next unique offset, and ordinal in every cursor. Validate the cursor and current revision in one FoundationDB transaction. Return `ErrContentChanged` after an edit and `ErrNotFound` after deletion. Every nonfinal cursor advances.
 
-- [ ] **Keep the storage interface ready for multipart nodes.** The worker calls `Content` repeatedly until `Done`. Production may return one page today or several pages at any time. No caller assumes one page, a total byte count, or that the complete node fits in one FoundationDB value or in worker memory.
+- [ ] **Keep the storage interface ready for multipart nodes.** The worker calls `Content` repeatedly until `Done`. Production can return one page or several pages. No caller assumes one page, a total byte count, or that the complete node fits in one FoundationDB value or in worker memory.
 
 - [ ] **Compile indexed access as opaque values.** Register `org-scope-v1` through `PolicySet`. `Index` returns sorted versions and keys for a resource. `EncodeKey` length-prefixes the version and byte parts, hashes them with SHA-256, and returns `version + ":" + base64url(hash)`. Search code never decodes a key. A later policy registers another compiler without changing documents, mapping fields, or work records.
 
@@ -91,7 +91,7 @@ type PageWriter interface { Put(context.Context, WriteIntent) error; UpdateAcces
 
 - [ ] **Retire replaced and deleted pages.** Replace each issued document with a text-free `retired:true` record at the current generation. Process at most 100 IDs per cleanup slice. Keep retirement records until the physical index is deleted. Require every delayed older write to conflict.
 
-- [ ] **Register production workers.** Add explicit page-size, lease, timeout, concurrency, and class scheduling configuration. Construct the reader, policy set, work store, writer, cleanup service, and worker loops in `internal/runtime/graph.go`. Recover every worker goroutine, return startup errors, use the injected clock, and stop all loops on context cancellation. Source writes remain available when OpenSearch is unavailable because failed work remains pending.
+- [ ] **Register production workers.** Add explicit page-size, lease, timeout, concurrency, and class scheduling configuration. Construct the reader, policy set, work store, writer, cleanup service, and worker loops in `internal/runtime/graph.go`. Recover every worker goroutine, return startup errors, use the injected clock, and stop all loops on context cancellation. Failed work remains pending. Source writes succeed while OpenSearch is unavailable.
 
 - [ ] **Final-validation coverage runs live, access, cleanup, rescan, and rebuild work together.** Require every class to progress. Record page reads, encoded bytes, slice duration, oldest work age, and peak memory. Increase workers under fixed load and require throughput to increase without a stored-format change. Sol runs this coverage. Luna does not start its dependencies.
 

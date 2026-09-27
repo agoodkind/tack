@@ -20,7 +20,7 @@ const (
 
 // putDuplicatePages writes count page documents for one node through the
 // typed bulk API in bounded batches. Each page stores the node's current
-// access, and OpenSearch admits it for the caller.
+// access, and the caller's access filter matches it.
 func putDuplicatePages(t *testing.T, fixture queryFixture, kind opaqueKind, nodeID uuid.UUID, filter searchdomain.AccessFilter, count int) {
 	t.Helper()
 	for start := 0; start < count; start += scaleBulkBatch {
@@ -39,10 +39,10 @@ func putDuplicatePages(t *testing.T, fixture queryFixture, kind opaqueKind, node
 	}
 }
 
-// TestSearchContinuationTraversesDuplicateHeavyCorpus indexes 1,501
-// distinct matching nodes plus 36,000 duplicate pages for one node across
-// three primary shards. Continuation must return every node exactly once and
-// stop only after an empty raw batch.
+// TestSearchContinuationTraversesDuplicateHeavyCorpus requires continuation
+// to return every node exactly once from 1,501 distinct matching nodes plus
+// 36,000 duplicate pages of one node on three primary shards. The traversal
+// must use at least one continuation for every 400 indexed pages.
 func TestSearchContinuationTraversesDuplicateHeavyCorpus(t *testing.T) {
 	options := defaultQueryOptions()
 	options.Primaries = 3

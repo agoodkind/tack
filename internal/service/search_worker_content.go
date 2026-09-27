@@ -10,10 +10,11 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// contentSlice writes pages of one revision. Each page is read, registered,
-// written, and checkpointed before the next read. The slice stops before
-// another remote write after the page, byte, or time budget. After the final
-// page it refreshes the serving index in a separate resumable phase.
+// contentSlice writes pages of one revision. It reads, registers, writes,
+// and checkpoints each page before it reads the next page. Once the slice
+// spends its page, byte, or time budget, it yields before another remote
+// write. After the final page it refreshes the serving index in a separate
+// resumable phase.
 func (w *SearchWorker) contentSlice(ctx context.Context, work searchdomain.Work, budget *sliceBudget) error {
 	for work.Phase != searchdomain.PhaseRefresh {
 		if budget.spent() {

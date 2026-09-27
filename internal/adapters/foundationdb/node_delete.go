@@ -13,10 +13,10 @@ import (
 
 // Delete removes a node and its indexes and relationships in one
 // transaction. When search work is enabled, the same transaction also
-// schedules retirement of the node's pages. It then records every node at
-// the other end of a removed relationship with one blind write and no search
-// read, under one access work item of the deleted node. That work schedules
-// access work for at most 100 counterparts per slice.
+// schedules retirement of the node's pages. It records each node at the
+// other end of a removed relationship with one blind write and no search
+// read, and it schedules one access work item for the deleted node. That
+// work item schedules access work for the recorded nodes in bounded slices.
 func (s *NodeStore) Delete(ctx context.Context, orgID, nodeID uuid.UUID) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node.delete")(&err)
 	current, err := s.Get(ctx, orgID, nodeID)

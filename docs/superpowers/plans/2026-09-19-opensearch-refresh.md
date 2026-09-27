@@ -1,14 +1,12 @@
 # Search Metadata and Access Refresh Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> Agentic workers must implement this plan task by task with the superpowers:subagent-driven-development skill (recommended) or the superpowers:executing-plans skill. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Apply metadata and permission-policy changes without restarting Tack or replacing the physical index. Regenerate embeddings only for pages changed by text projection updates. Permission-policy changes regenerate no embeddings.
+This plan applies metadata and permission-policy changes without restarting Tack or replacing the physical index. Text projection updates regenerate embeddings only for the pages they change. Permission-policy changes regenerate no embeddings. The plan implements the [opaque metadata](../specs/2026-09-19-search-acceptance.md#opaque-metadata) and [permission expansion](../specs/2026-09-19-search-acceptance.md#permission-expansion) requirements.
 
-**Architecture:** FoundationDB stores one projection epoch per organization and one durable access-policy rollout per authoritative permission root. Metadata writes refresh MCP registration and schedule bounded content work against the serving index. Workers reread and reembed only affected pages, then retire obsolete page documents. Permission changes update query keys or schedule access-only document work. A candidate policy writes beside the active version until every current page is verified, then FoundationDB activates it atomically.
+FoundationDB stores one projection epoch per organization and one durable access-policy rollout per authoritative permission root. Metadata writes refresh MCP registration and schedule bounded content work against the serving index. Workers reread and reembed only affected pages, then retire obsolete page documents. Permission changes update query keys or schedule access-only document work. Workers write a candidate policy beside the active version until verification covers every current page. FoundationDB then activates the candidate atomically.
 
-**Tech Stack:** Go, FoundationDB, MCP, existing metadata stores, and the completed OpenSearch index and query pipelines.
-
-**Spec:** [Opaque metadata](../specs/2026-09-19-search-acceptance.md#opaque-metadata) and [permission expansion](../specs/2026-09-19-search-acceptance.md#permission-expansion).
+The work uses Go, FoundationDB, MCP, the existing metadata stores, and the completed OpenSearch index and query pipelines.
 
 ## Global Constraints
 
@@ -22,21 +20,21 @@ Test new opaque types, changed projections, bounded content refresh, unchanged p
 
 ### Task 1: Refresh metadata and access policy after writes
 
-**Files:**
+This task changes these files:
 
-- Create: `internal/domain/search/access_rollout.go`
-- Create: `internal/adapters/foundationdb/search_access_rollout.go`
-- Create: `internal/service/search_access_rollout.go`
-- Create: `internal/test/integration/search_access_refresh_test.go`
-- Create: `internal/adapters/foundationdb/search_projection_epoch.go`
-- Test: `internal/test/integration/search_metadata_refresh_test.go`
-- Modify: `internal/domain/node/reader.go`
-- Modify: `internal/adapters/foundationdb/property.go`
-- Modify: `internal/adapters/foundationdb/node_type.go`
-- Modify: `internal/adapters/mcp/server.go`
-- Modify: `internal/runtime/graph.go`
+- Create `internal/domain/search/access_rollout.go`.
+- Create `internal/adapters/foundationdb/search_access_rollout.go`.
+- Create `internal/service/search_access_rollout.go`.
+- Create `internal/test/integration/search_access_refresh_test.go`.
+- Create `internal/adapters/foundationdb/search_projection_epoch.go`.
+- Add the test `internal/test/integration/search_metadata_refresh_test.go`.
+- Modify `internal/domain/node/reader.go`.
+- Modify `internal/adapters/foundationdb/property.go`.
+- Modify `internal/adapters/foundationdb/node_type.go`.
+- Modify `internal/adapters/mcp/server.go`.
+- Modify `internal/runtime/graph.go`.
 
-**Interfaces:**
+This task uses and adds these interfaces:
 
 - This plan requires projection declarations, `PolicySet`, `AccessStateReader`, durable content scans, durable access work, access-only writes, session presence keys, `PropertyDefStore.Set`, and `NodeTypeStore.Set`.
 - This plan implements `ProjectionVersion`, durable access-policy activation, and restartable access-key cleanup for rebuild and release.
@@ -140,9 +138,7 @@ Construct the metadata refresh and access-rollout services in `internal/runtime/
 
 - [ ] **Step 11: Run the serial coding checks.**
 
-Run: `make build`
-
-Expected: PASS. The final validation plan runs metadata refresh and the complete access transition with real dependencies.
+Run `make build` and require it to pass. The final validation plan runs metadata refresh and the complete access transition with real dependencies.
 
 - [ ] **Step 12: Create the next Graphite slice.**
 

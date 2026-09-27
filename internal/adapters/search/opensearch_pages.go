@@ -108,7 +108,7 @@ func mirrorWork(work searchdomain.Work) searchdomain.Work {
 	return work
 }
 
-// Refresh makes the completed pages of one node searchable in index.
+// Refresh makes every completed write in index searchable.
 func (a *Adapter) Refresh(ctx context.Context, index string) error {
 	response, err := a.api.Indices.Refresh(ctx, &opensearchapi.IndicesRefreshReq{Index: []string{index}})
 	if err != nil {

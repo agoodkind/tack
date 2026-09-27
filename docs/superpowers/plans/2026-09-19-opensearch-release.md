@@ -1,14 +1,12 @@
 # Search Removal and OpenSearch Release Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> Agentic workers must implement this plan task by task with the superpowers:executing-plans skill. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Release Meilisearch removal first, then provision and activate OpenSearch only after the replacement passes real validation.
+This plan releases the Meilisearch removal first. It provisions and activates OpenSearch only after the replacement passes real validation. It implements the [evidence and environment requirements](../specs/2026-09-19-search-acceptance.md#evidence-and-environment).
 
-**Architecture:** Phase A removes the unused search stack and leaves `tack_search` explicitly unavailable while every other operation continues. Phase B later creates an empty OpenSearch index, rebuilds only from FoundationDB, validates QA, repeats the procedure in production, then enables ranked search. The phases share no search data or compatibility path.
+Phase A removes the unused search stack and leaves `tack_search` explicitly unavailable while every other operation continues. Phase B later creates an empty OpenSearch index, rebuilds only from FoundationDB, validates QA, repeats the procedure in production, then enables ranked search. The phases share no search data or compatibility path.
 
-**Tech Stack:** Existing configs deployment entry points, OpenSearch operator commands, public MCP checks, and host telemetry.
-
-**Spec:** [Evidence and environment](../specs/2026-09-19-search-acceptance.md#evidence-and-environment).
+The release uses the existing Configs deployment entry points, OpenSearch operator commands, public MCP checks, and host telemetry.
 
 ## Global Constraints
 
@@ -27,7 +25,7 @@ Phase A proves the outage contract and complete active-service removal. Phase B 
 - [ ] **Apply the approved configuration removal.** Remove active Meilisearch service, proxy, credential injection, monitoring, and inventory entries from QA and production. Preserve the existing data volume or disk.
 - [ ] **Deploy the approved Tack removal release.** Record each environment's deployed revision and image digest.
 - [ ] **Verify the public outage contract.** Call `tack_search` with an ordinary query, an exact reference, filters, invalid input, and omitted input. Require exactly `Search is temporarily unavailable.` every time.
-- [ ] **Verify the rest of Tack.** Run one real scenario for every registered non-search MCP tool. Assert that the scenario list exactly matches the non-search tool registry so a newly registered tool cannot escape this check. Require every FoundationDB and SQL write to succeed. Use disposable integration data and QA data. Limit production to safe read and write smoke checks.
+- [ ] **Verify the rest of Tack.** Run one real scenario for every registered non-search MCP tool. Assert that the scenario list exactly matches the non-search tool registry. A newly registered tool without a scenario then fails this check. Require every FoundationDB and SQL write to succeed. Use disposable integration data and QA data. Limit production to safe read and write smoke checks.
 - [ ] **Verify active Meilisearch removal.** Inspect running containers, processes, application environment, proxy routes, credentials, startup logs, and outbound requests. Require no active service or application dependency. Record the preserved old volume separately without reading it.
 
 Search remains unavailable after Phase A. Update `origin/main` to these merged commits before creating the Tack Graphite stack. OpenSearch implementation and configuration start only from this released state.

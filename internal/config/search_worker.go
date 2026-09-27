@@ -91,7 +91,7 @@ func (s SearchWorkerSettings) Validate() error {
 		return errors.New("search replacement pause limit must exceed the worker lease")
 	}
 	if s.IdleInterval <= 0 || s.Concurrency <= 0 || s.Concurrency > searchWorkerMaximum {
-		return fmt.Errorf("search worker idle interval must be positive and concurrency between 1 and %d", searchWorkerMaximum)
+		return fmt.Errorf("search worker idle interval must be positive, and concurrency must be between 1 and %d", searchWorkerMaximum)
 	}
 	return validateClassWeights(s.ClassWeights)
 }

@@ -8,8 +8,8 @@ import (
 )
 
 // accessSlice processes one bounded access-only step. The pages phase
-// compiles current access, and FoundationDB records it before any page
-// update is sent. The phase then updates at most 100 issued pages of every
+// compiles current access and records it in FoundationDB before it sends
+// any page update. The phase then updates at most 100 issued pages of every
 // unretired revision with only search_generation and access. It never reads
 // text and never invokes the model. When the recorded access changed, the
 // dependents phase schedules access work for at most 100 dependents per

@@ -1,18 +1,16 @@
 # Search Cluster Configuration Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> Agentic workers must implement this plan task by task with the superpowers:subagent-driven-development skill (recommended) or the superpowers:executing-plans skill. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Define one initial OpenSearch guest and one stable search endpoint in each environment while preserving later production scale-out.
+This plan defines one initial OpenSearch guest and one stable search endpoint in each environment and preserves later production scale-out. It implements the [deployment and capacity design](../specs/2026-09-19-search-design.md#deployment-and-capacity).
 
-**Architecture:** Configs provisions LXC guests, TLS, credentials, inventory, and one health-checking Traefik service on each hypervisor. Tack defines the pinned container. The existing audited provision and verify commands use the stable endpoint. Production starts as a normal one-member cluster so later members can join without changing Tack.
+Configs provisions LXC guests, TLS, credentials, inventory, and one health-checking Traefik service on each hypervisor. Tack defines the pinned container. The existing audited provision and verify commands use the stable endpoint. Production starts as a normal one-member cluster. Later members join that cluster without a Tack change.
 
-**Tech Stack:** OpenTofu, Proxmox LXC, Ansible, Traefik 3.0, Docker Compose, OpenSearch 3.8.0.
-
-**Spec:** [Deployment and capacity](../specs/2026-09-19-search-design.md#deployment-and-capacity).
+The work uses OpenTofu, Proxmox LXC, Ansible, Traefik 3.0, Docker Compose, and OpenSearch 3.8.0.
 
 ## Global Constraints
 
-Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Perform this Luna task only inside the selected Tack and Configs worktrees. The only permitted external writes are the documented branch and pull-request publication operations. Require `CONFIGS_ROOT` to identify a clean isolated Configs checkout based on `origin/main`. Run only `make build`, the documented RSpec render tests, and `./configsctl tofu validate`. Do not invoke Docker, Ansible, `configsctl deploy`, an OpenTofu plan or apply, SSH, a service request, a remote API probe, a hypervisor API, or any command that inspects or changes QA, production, another host, a container runtime, or infrastructure. QA starts on suburban with zero replicas. Production starts on vault with zero replicas. Each guest has at least 8 GiB memory, 2 CPU cores, 40 GiB fast storage, and a 2 GiB JVM heap. This task prepares configuration only. It does not deploy.
+Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Perform this Luna task only inside the selected Tack and Configs worktrees. The only permitted external writes are the documented branch and pull-request publication operations. Require `CONFIGS_ROOT` to identify a clean isolated Configs checkout based on `origin/main`. Run only `make build`, the documented RSpec render tests, and `./configsctl tofu validate`. Do not invoke Docker, Ansible, `configsctl deploy`, an OpenTofu plan or apply, SSH, a service request, a remote API probe, a hypervisor API, or any command that inspects or changes QA, production, another host, a container runtime, or infrastructure. QA starts on suburban with zero replicas. Production starts on vault with zero replicas. Each guest has at least 8 GiB memory, 2 CPU cores, 40 GiB fast storage, and a 2 GiB JVM heap. This task prepares configuration only.
 
 ## Review Focus
 
@@ -22,28 +20,28 @@ Test stable endpoints, verified TLS, IPv6-only connections, single-node restart,
 
 ### Task 1: Define containers and initial guests
 
-**Files:**
+This task changes these files:
 
-- Modify: Tack `docker-compose.yml`
-- Test: Tack `internal/test/integration/search_cluster_test.go`
-- Modify: configs `ansible/inventory/group_vars/all/service_mapping.yml`
-- Create: configs `ansible/inventory/group_vars/tack_search.yml`
-- Modify: configs `ansible/inventory/group_vars/tack_prod_all.yml`
-- Modify: configs `ansible/inventory/group_vars/tack_qa_all.yml`
-- Modify: configs `ansible/inventory/group_vars/proxmox_servers.yml`
-- Modify: configs `ansible/inventory/group_vars/vault_servers.yml`
-- Modify: configs `ansible/inventory/group_vars/suburban_servers.yml`
-- Modify: configs `ansible/playbooks/deploy-tack.yml`
-- Modify: configs `ansible/playbooks/deploy-proxmox.yml`
-- Create: configs `ansible/playbooks/tasks/tack-search-proxy.yml`
-- Create: configs `proxmox/config/tack-search-proxy.yml.j2`
-- Create: configs `proxmox/services/tack-search-proxy.service.j2`
-- Create: configs `opentofu/vault/tack_search.tf`
-- Create: configs `opentofu/suburban/tack_search_qa.tf`
-- Test: configs `spec/ansible/tack_search_spec.rb`
-- Test: configs `spec/ansible/tack_search_proxy_spec.rb`
+- Modify Tack `docker-compose.yml`.
+- Add the Tack test `internal/test/integration/search_cluster_test.go`.
+- Modify Configs `ansible/inventory/group_vars/all/service_mapping.yml`.
+- Create Configs `ansible/inventory/group_vars/tack_search.yml`.
+- Modify Configs `ansible/inventory/group_vars/tack_prod_all.yml`.
+- Modify Configs `ansible/inventory/group_vars/tack_qa_all.yml`.
+- Modify Configs `ansible/inventory/group_vars/proxmox_servers.yml`.
+- Modify Configs `ansible/inventory/group_vars/vault_servers.yml`.
+- Modify Configs `ansible/inventory/group_vars/suburban_servers.yml`.
+- Modify Configs `ansible/playbooks/deploy-tack.yml`.
+- Modify Configs `ansible/playbooks/deploy-proxmox.yml`.
+- Create Configs `ansible/playbooks/tasks/tack-search-proxy.yml`.
+- Create Configs `proxmox/config/tack-search-proxy.yml.j2`.
+- Create Configs `proxmox/services/tack-search-proxy.service.j2`.
+- Create Configs `opentofu/vault/tack_search.tf`.
+- Create Configs `opentofu/suburban/tack_search_qa.tf`.
+- Add the Configs test `spec/ansible/tack_search_spec.rb`.
+- Add the Configs test `spec/ansible/tack_search_proxy_spec.rb`.
 
-**Interfaces:**
+This task uses and adds these interfaces:
 
 - This plan requires the pinned image, model identity, mapping, official client, and registered `ops search provision` and `ops search verify` commands.
 - This plan implements one HTTPS endpoint per environment, one backend initially, and reusable member lists for final validation and release.
@@ -70,9 +68,7 @@ end
 
 - [ ] **Step 2: Run the render tests and record the missing-template failure.**
 
-Run: `bundle exec rspec spec/ansible/tack_search_spec.rb spec/ansible/tack_search_proxy_spec.rb`
-
-Expected: FAIL because the search inventory and proxy templates do not exist.
+Run `bundle exec rspec spec/ansible/tack_search_spec.rb spec/ansible/tack_search_proxy_spec.rb`. Require a failure that reports the missing search inventory and proxy templates.
 
 - [ ] **Step 3: Reserve the two initial guest identities.**
 
@@ -121,13 +117,13 @@ Add the 6.26 GiB minimum available-memory threshold, 40 GiB fast-pool allocation
 
 - [ ] **Step 11: Run offline configuration checks.**
 
-Run in Tack:
+Run this command in the Tack worktree:
 
 ```sh
 make build
 ```
 
-Run in configs:
+Run these commands in the Configs worktree:
 
 ```sh
 bundle exec rspec spec/ansible/tack_search_spec.rb spec/ansible/tack_search_proxy_spec.rb

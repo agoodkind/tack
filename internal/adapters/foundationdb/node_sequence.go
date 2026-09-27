@@ -107,7 +107,8 @@ func (s *NodeStore) PeekSequenceByKey(ctx context.Context, orgID uuid.UUID, coun
 	return decoded, nil
 }
 
-// RaiseSequenceByKey raises counterKey to value without lowering it.
+// RaiseSequenceByKey raises counterKey to value without lowering it and
+// reports whether the counter changed.
 func (s *NodeStore) RaiseSequenceByKey(ctx context.Context, orgID uuid.UUID, counterKey string, value int64) (raised bool, err error) {
 	defer telemetry.FDBOp(ctx, "store.node.raise_sequence_by_key")(&err)
 	err = runNodeMutation(ctx, s.db, "node.raise_sequence_by_key", func(tr fdb.Transaction) error {

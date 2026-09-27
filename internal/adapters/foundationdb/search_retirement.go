@@ -134,9 +134,10 @@ func decodeIssuedDocument(ctx context.Context, item fdb.KeyValue) (search.Issued
 	return search.IssuedDocument{DocumentID: string(item.Value), Revision: revision, Ordinal: uint64(ordinal), Projection: projection}, nil
 }
 
-// CompleteRetirement clears each issued ID in accepted. OpenSearch accepted
-// the retirement of those IDs. The final batch finishes the cleanup. For a
-// deleted node it also clears every remaining search key of the node.
+// CompleteRetirement clears the issued ID of each document that OpenSearch
+// retired. The final batch finishes the cleanup. For a deleted node without
+// pending access work, the final batch also clears every remaining search
+// key of the node.
 func (s *SearchWorkStore) CompleteRetirement(ctx context.Context, work search.Work, accepted []search.IssuedDocument, done bool) (err error) {
 	defer telemetry.FDBOp(ctx, "store.search_work.complete_retirement")(&err)
 	err = transactSearch(ctx, s.db, func(tr fdb.Transaction) error {

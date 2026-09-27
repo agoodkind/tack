@@ -1,14 +1,14 @@
 # Ranked Authorized Search Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> Agentic workers must use superpowers:executing-plans to implement this plan task by task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Return ranked, currently authorized node IDs with complete durable continuation and one query embedding per search session.
+This plan returns ranked, currently authorized node IDs with complete durable continuation and one query embedding per search session.
 
-**Architecture:** OpenSearch computes sparse query tokens once and ranks page documents after applying opaque access filters. FoundationDB stores the physical index, point in time, exact sort position, tokens, visited nodes, replay records, and deadlines. The MCP handler rereads current FoundationDB permission data before returning each node. Runtime configuration keeps the public handler unavailable until the release plan activates it.
+OpenSearch computes sparse query tokens once and ranks page documents after applying opaque access filters. FoundationDB stores the physical index, point in time, exact sort position, tokens, visited nodes, replay records, and deadlines. The MCP handler rereads current FoundationDB permission data before returning each node. Runtime configuration keeps the public handler unavailable until the release plan activates it.
 
-**Tech Stack:** Go, FoundationDB, MCP, official OpenSearch Go client v4.7.3, ML Commons.
+The implementation uses Go, FoundationDB, MCP, the official OpenSearch Go client v4.7.3, and ML Commons.
 
-**Spec:** [Ranking and continuation](../specs/2026-09-19-search-design.md#ranking-and-continuation), [authorization](../specs/2026-09-19-search-acceptance.md#authorization-and-input-validation), and [permission expansion](../specs/2026-09-19-search-acceptance.md#permission-expansion).
+The [ranking and continuation](../specs/2026-09-19-search-design.md#ranking-and-continuation), [authorization](../specs/2026-09-19-search-acceptance.md#authorization-and-input-validation), and [permission expansion](../specs/2026-09-19-search-acceptance.md#permission-expansion) sections define the required behavior.
 
 ## Global Constraints
 
@@ -22,30 +22,30 @@ Test duplicate-heavy nodes, exact sort values, one prediction per session, forbi
 
 ### Task 1: Build and connect ranked authorized search
 
-**Files:**
+Change these files:
 
-- Create: `internal/domain/search/query.go`
-- Create: `internal/domain/search/session.go`
-- Create: `internal/domain/search/filter.go`
-- Create: `internal/domain/node/summary.go`
-- Create: `internal/adapters/search/opensearch_query.go`
-- Create: `internal/adapters/search/opensearch_snapshot.go`
-- Create: `internal/adapters/foundationdb/node_summary.go`
-- Create: `internal/adapters/foundationdb/search_session.go`
-- Create: `internal/adapters/foundationdb/search_replay.go`
-- Modify: `internal/searchaccess/access.go`
-- Create: `internal/adapters/mcp/tools/search_cursor.go`
-- Create: `internal/adapters/mcp/tools/search_results.go`
-- Modify: `internal/adapters/mcp/tools/search.go`
-- Modify: `internal/adapters/mcp/server.go`
-- Modify: `internal/config/config.go`
-- Modify: `internal/runtime/graph.go`
-- Test: `internal/test/integration/search_ranking_test.go`
-- Test: `internal/test/integration/search_permission_filter_test.go`
-- Test: `internal/test/integration/search_auth_test.go`
-- Test: `internal/test/integration/search_cursor_test.go`
+- Create `internal/domain/search/query.go`.
+- Create `internal/domain/search/session.go`.
+- Create `internal/domain/search/filter.go`.
+- Create `internal/domain/node/summary.go`.
+- Create `internal/adapters/search/opensearch_query.go`.
+- Create `internal/adapters/search/opensearch_snapshot.go`.
+- Create `internal/adapters/foundationdb/node_summary.go`.
+- Create `internal/adapters/foundationdb/search_session.go`.
+- Create `internal/adapters/foundationdb/search_replay.go`.
+- Modify `internal/searchaccess/access.go`.
+- Create `internal/adapters/mcp/tools/search_cursor.go`.
+- Create `internal/adapters/mcp/tools/search_results.go`.
+- Modify `internal/adapters/mcp/tools/search.go`.
+- Modify `internal/adapters/mcp/server.go`.
+- Modify `internal/config/config.go`.
+- Modify `internal/runtime/graph.go`.
+- Test with `internal/test/integration/search_ranking_test.go`.
+- Test with `internal/test/integration/search_permission_filter_test.go`.
+- Test with `internal/test/integration/search_auth_test.go`.
+- Test with `internal/test/integration/search_cursor_test.go`.
 
-**Core interfaces:**
+Implement these core interfaces:
 
 ```go
 type Query struct { Text, Index, NodeType string; Access AccessFilter }
@@ -80,11 +80,11 @@ type SessionStore interface { Create(context.Context, Session) (Session, error);
 
 - [ ] **Reauthorize replay and clean up safely.** Reread current permission data for replayed result IDs without advancing or renewing the session. Reject a changed principal, query binding, restored search generation, or expired deadline. Close the point in time after committed completion. Mark the session as closing, delete bounded child records, and delete the header last.
 
-- [ ] **Prove both permission layers.** Give forbidden pages stronger lexical matches and require raw ranker output to exclude them. Then corrupt one indexed access key so a forbidden page passes OpenSearch and require the final FoundationDB check to reject it. Revoke membership after opening a session and require later results and replay to reject newly forbidden nodes.
+- [ ] **Prove both permission layers.** Give forbidden pages stronger lexical matches and require raw ranker output to exclude them. Then corrupt one indexed access key to admit a forbidden page through OpenSearch. Require the final FoundationDB check to reject that page. Revoke membership after opening a session and require later results and replay to reject newly forbidden nodes.
 
 - [ ] **Register the production handler.** Add `OPENSEARCH_PUBLIC_ENABLED` with a default of false, plus explicit request-byte, response-byte, session-byte, deadline, batch, and result configuration. Construct the ranker, session store, and handler in `internal/runtime/graph.go`. `tack_search` keeps returning exactly `Search is temporarily unavailable.` while the flag is false. When the flag is true, the same registration runs ranked search. The flag changes only public dispatch. Index workers continue while it is false. No second tool or alternate handler exists.
 
-- [ ] **Horizontal Tack scaling coverage.** Final-validation coverage opens a session on one Tack process and alternates every continuation between two processes backed by the same FoundationDB and OpenSearch. Require exact replay, no duplicate node, complete exhaustion, and cleanup. Increase Tack processes under fixed query load and require higher throughput without changing stored formats. Sol runs this coverage. Luna does not start its dependencies.
+- [ ] **Cover horizontal Tack scaling.** Final-validation coverage opens a session on one Tack process and alternates every continuation between two processes backed by the same FoundationDB and OpenSearch. Require exact replay, no duplicate node, complete exhaustion, and cleanup. Increase Tack processes under fixed query load and require higher throughput without changing stored formats. Sol runs this coverage. Luna does not start its dependencies.
 
 - [ ] **Run checks and create the next Graphite slice.** Run `make build` once and fix every failure. Review `git diff --check` and the complete diff. Stage only the files listed by this plan. Run Graphite MCP `create` from stack position 3 with this exact message:
 

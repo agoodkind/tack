@@ -86,9 +86,10 @@ func (s *SearchQueryService) advance(ctx context.Context, session searchdomain.S
 	return SearchPage{SessionID: session.ID, NextVersion: committed.Version, Results: page.results, Complete: complete}, nil
 }
 
-// consumeBatch loads one raw batch through one visited read and one summary
-// operation. The first accepted node that admit cannot place stays
-// unconsumed, and the page stops before it.
+// consumeBatch adds the accepted nodes of one raw batch to the page. It
+// reads the visited records and the summaries of the batch with one call
+// each. The page stops before the first accepted node that admit cannot
+// place, and that node stays unconsumed.
 func (s *SearchQueryService) consumeBatch(ctx context.Context, session searchdomain.Session, filter searchdomain.AccessFilter, hits []searchdomain.RankHit, page *pageState) error {
 	candidates := make([]uuid.UUID, 0, len(hits))
 	for _, hit := range hits {
@@ -137,9 +138,9 @@ func (s *SearchQueryService) consumeBatch(ctx context.Context, session searchdom
 
 // admit adds one accepted summary to the page and reports whether the node
 // is consumed. It returns false when the result count or the remaining byte
-// budget cannot take the summary; the next page starts with that node. A
-// summary larger than the budget of an empty page fits on no page, so admit
-// withholds it and returns true.
+// budget cannot take the summary. The next page starts with that node. A
+// summary larger than the budget of an empty page fits on no page. admit
+// withholds that summary and returns true.
 func (s *SearchQueryService) admit(ctx context.Context, sessionID uuid.UUID, page *pageState, summary node.Summary) bool {
 	size := ResultBytes(summary)
 	if responseReserveBytes+size > s.settings.MaxResponseBytes {

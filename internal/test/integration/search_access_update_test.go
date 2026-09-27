@@ -64,10 +64,10 @@ func moveChild(t *testing.T, stores *fdbadapter.Stores, moved movableChild) {
 	}
 }
 
-// TestSearchAccessOnlyUpdateWithoutModel moves a child to another entry
-// point with the model undeployed. Every current page must receive new
-// access keys. The text, chunks, and sparse weights of each page must remain
-// byte-for-byte unchanged.
+// TestSearchAccessOnlyUpdateWithoutModel requires every current page of a
+// child that moves to another entry point to receive new access keys at a
+// higher generation while the model is undeployed. The text, chunks, and
+// sparse weights of each page must stay byte-for-byte unchanged.
 func TestSearchAccessOnlyUpdateWithoutModel(t *testing.T) {
 	stores := newSearchStore(t)
 	adapter, client, model, index := newSearchIndex(t, stores)

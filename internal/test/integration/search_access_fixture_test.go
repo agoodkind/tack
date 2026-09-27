@@ -104,7 +104,8 @@ const (
 	// OpenSearch rejected with HTTP 429. The ML Commons memory circuit
 	// breaker returns that status while the JVM heap is near its limit.
 	engineRejectionText = "returned status 429 "
-	// rejectedWorkWait covers the retry delay of released work and one claim.
+	// rejectedWorkWait is how long the loop keeps claiming after a rejection.
+	// It includes the retry delay of released work and the time of one claim.
 	rejectedWorkWait = 10 * time.Second
 	// rejectionWindow bounds consecutive rejections without a successful slice.
 	rejectionWindow = 3 * time.Minute

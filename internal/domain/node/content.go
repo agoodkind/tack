@@ -118,7 +118,8 @@ func itemLeaves(ctx context.Context, raw json.RawMessage, rule TextRule) ([]stri
 	return leaves, nil
 }
 
-// IsLoggedProjectionError reports whether projection decoding emitted telemetry.
+// IsLoggedProjectionError reports whether err wraps a
+// [LoggedProjectionError], which projection decoding already logged.
 func IsLoggedProjectionError(err error) bool {
 	var logged LoggedProjectionError
 	return errors.As(err, &logged)

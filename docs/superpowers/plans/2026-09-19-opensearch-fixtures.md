@@ -2,21 +2,19 @@
 
 The implementation plans use these shared real-dependency fixtures. Each owning task creates and commits the listed helper with its production change.
 
-**Goal:** Test search with real storage and arbitrary metadata without loading product seeds.
+The fixtures test search with real storage and arbitrary metadata without loading product seeds. They implement the [evidence and opaque metadata requirements](../specs/2026-09-19-search-acceptance.md#opaque-metadata).
 
-**Architecture:** Store tests construct only the records they need. Public acceptance tests create real credentials and use the production authenticated MCP handler through the existing datagen driver.
+Store tests construct only the records they need. Public acceptance tests create real credentials and use the production authenticated MCP handler through the existing datagen driver.
 
-**Tech Stack:** Go, FoundationDB, SQL authentication, MCP, and official OpenSearch Go client v4.7.3.
-
-**Spec:** [Evidence and opaque metadata](../specs/2026-09-19-search-acceptance.md#opaque-metadata).
+The fixtures use Go, FoundationDB, SQL authentication, MCP, and the official OpenSearch Go client v4.7.3.
 
 ## Global Constraints
 
-Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Write these fixtures only inside the selected Tack worktree. Do not run them. The only permitted external writes are the documented branch and pull-request publication operations. No fixtures replace production dependencies. These steps are part of the index and query pipeline tasks, not a separate deployment. Sol runs every real-dependency fixture.
+Apply the [implementation constraints](2026-09-19-opensearch.md#global-constraints). Write these fixtures only inside the selected Tack worktree. Do not run them. The only permitted external writes are the documented branch and pull-request publication operations. No fixture replaces a production dependency. These steps belong to the index and query pipeline tasks, not a separate deployment. Sol runs every real-dependency fixture.
 
 ## Review Focus
 
-Exercise unfamiliar property types, unrelated names, no product seed, real bearer validation, and both JSON/SSE tool responses. Every fixture property definition explicitly includes or excludes search. Add one excluded value beside each included fixture and prove that search omits it.
+Exercise unfamiliar property types, unrelated names, real bearer validation, and both JSON and SSE tool responses without a product seed. Every fixture property definition explicitly includes or excludes search. Add one excluded value beside each included fixture and prove that search omits it.
 
 ---
 
@@ -81,7 +79,7 @@ func (d *Driver) CallRaw(ctx context.Context, token, tool string, arguments map[
 
 - [ ] Build `newSearchMCP(t *testing.T, pageBytes int) (*runtime.Graph, *datagen.Driver, string, uuid.UUID, string)` in the MCP fixture file. Return graph, driver, raw token, entry node ID, and the metadata-derived entry parameter. Load test engine configuration with `OPENSEARCH_PUBLIC_ENABLED=true`, use production auth, initialize opaque metadata and a metadata-defined entry node, then build the production Graph. Provision real audit dependencies using the existing audit integration setup. Register Graph.Close, SQL identity removal, and FDB prefix cleanup. Do not disable audit to make the fixture start.
 - [ ] Create a UUIDv7 user with UserRepo.Create, then add membership with OrgMemberRepo.AddMember using the entry node's organization. Generate a random token and store its hash through TokenRepo.Create. Keep the raw token only in fixture memory. Construct the driver with NewDriver(graph, false, a unique seed).
-- [ ] Use the returned entry parameter and ID for public calls. This test pins empty-query validation through the actual HTTP handler:
+- [ ] Use the returned entry parameter and ID for public calls. This test checks empty-query validation through the real HTTP handler:
 
 ```go
 func TestSearchEmptyQuery(t *testing.T) {
@@ -142,7 +140,9 @@ func TestSearchDelayedWriter(t *testing.T) {
 - [ ] The final validation plan runs `^TestSearchDelayedWriter$`. Require the retained higher-generation record and rejected delayed request, not merely an empty MCP response.
 
 ## Helper contracts used by task plans
+
 Each helper below is test code in the named owning file. It calls real dependencies and production boundaries. No helper replaces a production dependency.
+
 ```go
 // search_native_test.go
 type nativePage struct { Source string; Chunks []string; Weights []map[string]float64; Access node.SearchAccess }
@@ -196,4 +196,4 @@ func mutateSearchCorpusWhilePaused(t *testing.T, fixture searchMCPFixture, rebui
 func requireSearchCorpus(t *testing.T, fixture searchMCPFixture, expected searchCorpus)
 ```
 
-`newSearchMCP` remains a small unpacking wrapper around `newSearchMCPFixture` for tests that use the existing five return values. The fixture creates real SQL identity, membership, token, FDB metadata, audit dependencies, OpenSearch, and the production Graph. Access rollout tests register the production organization-scope compiler under `org-scope-v1` and `permission-v2`; all reads and writes still use production `PolicySet` dispatch. `newStoppedSearchRuntime` creates the same graph while the configured engine endpoint is stopped and exposes `StartOpenSearch` through the fixture's real testenv lifecycle.
+`newSearchMCP` is a small wrapper that unpacks `newSearchMCPFixture` for tests that use the existing five return values. The fixture creates real SQL identity, membership, token, FDB metadata, audit dependencies, OpenSearch, and the production Graph. Access rollout tests register the production organization-scope compiler under `org-scope-v1` and `permission-v2`. All reads and writes use production `PolicySet` dispatch. `newStoppedSearchRuntime` creates the same graph while the configured engine endpoint is stopped. It exposes `StartOpenSearch` through the real testenv lifecycle of the fixture.

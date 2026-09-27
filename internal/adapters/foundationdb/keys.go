@@ -56,7 +56,8 @@ const (
 	// (property_def, orgID, defID) -> PropertyDef JSON
 	keyPropertyDef = "property_def"
 
-	// Metadata lookup indexes, written in the same transaction as the record.
+	// The metadata lookup indexes map a type key or property name to record
+	// IDs. The transaction that writes a record also writes its index entry.
 	// (node_type_by_key, orgID, typeKey, typeID) -> nil
 	// (property_def_by_name, orgID, name, defID) -> nil
 	keyNodeTypeByKey     = "node_type_by_key"
@@ -72,14 +73,14 @@ const (
 	// (ops_outbox, versionstamp) -> audit event JSON
 	keyOpsOutbox = "ops_outbox"
 
-	// Durable search work. Work, age, and claim keys include a bucket number
-	// that searchBucket computes from (orgID, nodeID). A claim reads the age
-	// keys of one bucket at a time.
+	// The search keys store durable search work and search state. Work, age,
+	// and claim keys include a bucket number that searchBucket computes from
+	// (orgID, nodeID). A claim reads the age keys of one bucket at a time.
 	// (search_generation, orgID, nodeID) -> external version counter
 	// (search_revision, orgID, nodeID) -> generation of the last content change
 	// (search_work, class, bucket, orgID, nodeID) -> pending work record JSON
-	// (search_age, class, bucket, enqueuedUnixNano, orgID, nodeID) -> nil,
-	//   one entry per pending work record in enqueue order (class age)
+	// (search_age, class, bucket, enqueuedUnixNano, orgID, nodeID) -> nil;
+	//   each pending work record has one entry, sorted by enqueue time
 	// (search_claim, class, bucket, orgID, nodeID) -> lease record JSON
 	// (search_cursor, class, orgID, nodeID) -> progress record JSON; the
 	//   rescan class stores its scan state here under the nil node ID

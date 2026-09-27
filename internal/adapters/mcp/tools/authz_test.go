@@ -70,8 +70,9 @@ func newAuthzFixture(t *testing.T) *authzFixture {
 	repo := &fakeNodeRepo{scopeChildren: map[string][]*node.Node{
 		"workspace:slug:\"main\"": {{ID: f.workspaceID, OrgID: f.orgA, NodeType: "workspace", Props: map[string]json.RawMessage{"slug": mustRaw(t, "main")}}},
 	}}
-	// The fake relationships hold a cross-org edge a dual-org member could
-	// have created. The relationship must not leak the foreign node's identity.
+	// The fake relationships store a cross-org edge that a dual-org member
+	// could have created. No tool response may reveal the foreign node's
+	// identity.
 	f.relationships.edges = []*node.Relationship{{
 		OrgID: f.orgA, SourceID: f.projectA, RelationType: "watches", TargetID: f.projectB,
 		CreatedBy: uuid.New(), CreatedAt: time.Time{},

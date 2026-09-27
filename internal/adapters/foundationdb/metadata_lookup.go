@@ -18,8 +18,8 @@ import (
 // key or property name.
 const maxIndexedMatches = 2
 
-// TypeByKey reads the node type of orgID that uses typeKey through the
-// type-key index: one bounded range read and one point read. It returns nil
+// TypeByKey reads the node type of orgID that uses typeKey. It performs one
+// bounded range read of the type-key index and one point read. It returns nil
 // when no node type uses the key and an error when several do.
 func (s *NodeTypeStore) TypeByKey(ctx context.Context, orgID uuid.UUID, typeKey string) (out *node.NodeType, err error) {
 	defer telemetry.FDBOp(ctx, "store.node_type.by_key")(&err)
@@ -52,11 +52,11 @@ func (s *NodeTypeStore) TypeByKey(ctx context.Context, orgID uuid.UUID, typeKey 
 }
 
 // readDefinitionsByName reads the property definitions that use each name
-// through the property-name index. Each name costs one range read of at
-// most two entries and one point read per entry. The read count grows with
-// the node's properties and stays independent of the organization's
-// definition count. A missing name returns no definition, and a duplicated
-// name returns both. The text projection rejects either case.
+// through the property-name index. Each name requires one range read of at
+// most two entries and one point read per entry. The read count depends on
+// the number of names and not on the organization's definition count. A
+// missing name returns no definition, and a duplicated name returns both.
+// The text projection rejects either case.
 func readDefinitionsByName(ctx context.Context, tr fdb.Transaction, orgID uuid.UUID, names []string) ([]*node.PropertyDef, error) {
 	definitions := make([]*node.PropertyDef, 0, len(names))
 	for _, name := range names {

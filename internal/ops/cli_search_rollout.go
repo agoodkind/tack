@@ -43,8 +43,8 @@ func searchRolloutOp(f *cli.Factory) clispec.Operation[searchRolloutInput] {
 		Audit: audit.Spec{Verb: string(audit.VerbOpsSearchAccessRollout), Mutates: true}, Group: searchGroup,
 		Short: "Begin an access policy rollout for one permission authority",
 		Params: []clispec.Param[searchRolloutInput]{
-			clispec.StringParam("authority", "permission authority (organization) ID", "", true, func(in *searchRolloutInput, value string) { in.Authority = value }),
-			clispec.StringParam("candidate", "registered policy version to roll out", "", true, func(in *searchRolloutInput, value string) { in.Candidate = value }),
+			clispec.StringParam("authority", "This parameter accepts the permission authority (organization) ID.", "", true, func(in *searchRolloutInput, value string) { in.Authority = value }),
+			clispec.StringParam("candidate", "This parameter accepts the registered policy version to roll out.", "", true, func(in *searchRolloutInput, value string) { in.Candidate = value }),
 		},
 		New: func() searchRolloutInput {
 			return searchRolloutInput{InputMarker: clispec.InputMarker{}, Authority: "", Candidate: ""}

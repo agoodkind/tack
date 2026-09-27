@@ -19,8 +19,9 @@ const maxSessionCleanupKeys = 100
 // expiry key: (family, minute, bucket, session).
 const expirySessionIDPosition = 3
 
-// BeginCleanup marks the session as closing. A closing session accepts no
-// page commit. An absent session is already cleaned up.
+// BeginCleanup marks the session as closing and clears its version presence
+// entry. A closing session accepts no page commit. BeginCleanup returns nil
+// for an absent or already closing session.
 func (s *SearchSessionStore) BeginCleanup(ctx context.Context, sessionID uuid.UUID) (err error) {
 	defer telemetry.FDBOp(ctx, "store.search_session.begin_cleanup")(&err)
 	return transactSession(ctx, s.db, s.clock, "mark search session closing", sessionID, func(tr fdb.Transaction) error {
@@ -35,9 +36,10 @@ func (s *SearchSessionStore) BeginCleanup(ctx context.Context, sessionID uuid.UU
 	})
 }
 
-// CleanupSlice deletes at most limit child records of a closing session. The
-// slice that finds no child record left deletes the header, expiry, and
-// presence keys last. It reports whether the session is gone.
+// CleanupSlice deletes at most limit child records of a closing session. A
+// slice that reads fewer than limit child records also deletes the header and
+// the expiry, presence, and version presence keys. It reports whether the
+// session is gone.
 func (s *SearchSessionStore) CleanupSlice(ctx context.Context, sessionID uuid.UUID, limit int) (done bool, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_session.cleanup")(&err)
 	if limit < 1 || limit > maxSessionCleanupKeys {
