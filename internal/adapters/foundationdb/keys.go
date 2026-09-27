@@ -90,19 +90,28 @@ const (
 	// (search_scan, orgID) -> rescan generation counter
 	// (search_projection, orgID) -> 32-byte sum of definition projection hashes
 	// (search_index) -> serving physical index name
-	keySearchGeneration = "search_generation"
-	keySearchRevision   = "search_revision"
-	keySearchWork       = "search_work"
-	keySearchAge        = "search_age"
-	keySearchClaim      = "search_claim"
-	keySearchCursor     = "search_cursor"
-	keySearchIssued     = "search_issued"
-	keySearchAccess     = "search_access"
-	keySearchFanout     = "search_fanout"
-	keySearchError      = "search_error"
-	keySearchScan       = "search_scan"
-	keySearchProjection = "search_projection"
-	keySearchIndex      = "search_index"
+	// (search_epoch, orgID) -> metadata epoch counter; every property
+	//   definition or node type change increments it
+	// (search_rollout, authorityID) -> access policy rollout record JSON
+	// (search_rollout_generation, authorityID) -> rollout work generation
+	// (search_permission_event, authorityID) -> resource permission event counter
+	keySearchEpoch             = "search_epoch"
+	keySearchRollout           = "search_rollout"
+	keySearchRolloutGeneration = "search_rollout_generation"
+	keySearchPermissionEvent   = "search_permission_event"
+	keySearchGeneration        = "search_generation"
+	keySearchRevision          = "search_revision"
+	keySearchWork              = "search_work"
+	keySearchAge               = "search_age"
+	keySearchClaim             = "search_claim"
+	keySearchCursor            = "search_cursor"
+	keySearchIssued            = "search_issued"
+	keySearchAccess            = "search_access"
+	keySearchFanout            = "search_fanout"
+	keySearchError             = "search_error"
+	keySearchScan              = "search_scan"
+	keySearchProjection        = "search_projection"
+	keySearchIndex             = "search_index"
 )
 
 // testPrefix is prepended to every packed FDB key when non-nil. Production

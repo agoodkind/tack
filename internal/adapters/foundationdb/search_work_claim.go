@@ -170,8 +170,12 @@ func claimMismatch(err error) error {
 }
 
 func desiredGenerationKey(class searchdomain.WorkClass, orgID, nodeID uuid.UUID) []byte {
-	if class == searchdomain.WorkClassRescan {
+	switch class {
+	case searchdomain.WorkClassRescan:
 		return searchScanKey(orgID)
+	case searchdomain.WorkClassRollout:
+		return searchRolloutGenerationKey(orgID)
+	case searchdomain.WorkClassLive, searchdomain.WorkClassAccess, searchdomain.WorkClassCleanup:
 	}
 	return searchGenerationKey(orgID, nodeID)
 }

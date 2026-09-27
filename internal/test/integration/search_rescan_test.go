@@ -32,6 +32,28 @@ func putUnusedDefinition(t *testing.T, stores *fdbadapter.Stores, orgID uuid.UUI
 	}
 }
 
+// includeStoredDefinition changes the stored definition of name to include
+// its values in search text. Every fixture node stores a value under name,
+// so the change alters the emitted text of every node.
+func includeStoredDefinition(t *testing.T, stores *fdbadapter.Stores, orgID uuid.UUID, name string) {
+	t.Helper()
+	definitions, err := stores.PropertyDefs.List(t.Context(), orgID)
+	if err != nil {
+		t.Fatalf("list property definitions: %v", err)
+	}
+	for _, definition := range definitions {
+		if definition.Name != name {
+			continue
+		}
+		definition.Search.Include = true
+		if err := stores.PropertyDefs.Set(t.Context(), definition); err != nil {
+			t.Fatalf("include property definition %s: %v", name, err)
+		}
+		return
+	}
+	t.Fatalf("organization %s has no property definition %s", orgID, name)
+}
+
 // indexedRevisions returns the revision of the first active page of each node.
 func indexedRevisions(t *testing.T, client *opensearchapi.Client, index string, nodes []uuid.UUID) map[uuid.UUID]int64 {
 	t.Helper()
@@ -51,9 +73,11 @@ func indexedRevisions(t *testing.T, client *opensearchapi.Client, index string, 
 }
 
 // TestSearchRescanKeepsCursorAndSeparatesTypeChanges requires a node type
-// change to schedule no content work, a new definition during a node pass
-// to leave the scan cursor unchanged, and the finished scan to reindex every
-// node.
+// change to schedule no content work. A new definition that no node uses
+// starts a scan. A projection change of a property that every node stores
+// arrives during the node pass. It must leave the scan cursor unchanged, and
+// the finished scan must reindex every node, including the nodes the pass
+// read before the change.
 func TestSearchRescanKeepsCursorAndSeparatesTypeChanges(t *testing.T) {
 	stores := newSearchStore(t)
 	adapter, client, _, index := newSearchIndex(t, stores)
@@ -107,7 +131,7 @@ func TestSearchRescanKeepsCursorAndSeparatesTypeChanges(t *testing.T) {
 	if position == "" {
 		t.Fatal("the rescan never checkpointed a node cursor")
 	}
-	putUnusedDefinition(t, stores, first.OrgID)
+	includeStoredDefinition(t, stores, first.OrgID, first.ExcludedKey)
 	resumed, err := store.Claim(t.Context(), searchdomain.WorkClassRescan, "rescan-driver", time.Minute)
 	if err != nil || resumed.Cursor != position {
 		t.Fatalf("rescan after a second request = %+v err %v, want the kept cursor %q", resumed, err, position)

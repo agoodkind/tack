@@ -51,6 +51,9 @@ func (s *SearchSessionStore) Create(ctx context.Context, session searchdomain.Se
 		if found {
 			return fmt.Errorf("session %s already exists", session.ID)
 		}
+		if versionErr := requireWrittenVersion(ctx, tr, session.AuthorityID, session.Query.Access.Version); versionErr != nil {
+			return versionErr
+		}
 		if writeErr := writeSessionValue(tr, searchSessionKey(session.ID), record, maxSessionHeaderBytes); writeErr != nil {
 			return writeErr
 		}
@@ -61,6 +64,7 @@ func (s *SearchSessionStore) Create(ctx context.Context, session searchdomain.Se
 		}
 		tr.Set(fdb.Key(searchSessionExpiryKey(session.ID, session.IdleDeadline)), nil)
 		tr.Set(fdb.Key(searchSessionPresenceKey(session.Query.Index, session.ID)), nil)
+		tr.Set(fdb.Key(searchSessionVersionKey(session.AuthorityID, session.Query.Access.Version, session.AbsoluteDeadline, session.ID)), nil)
 		return nil
 	})
 	if err != nil {

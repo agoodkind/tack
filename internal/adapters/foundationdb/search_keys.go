@@ -37,6 +37,11 @@ func searchCursorKey(class string, orgID, nodeID uuid.UUID) []byte {
 	return withPrefix(tuple.Tuple{keySearchCursor, class, orgID.String(), nodeID.String()}.Pack())
 }
 
+// searchIssuedOrgPrefix covers every issued document of one organization.
+func searchIssuedOrgPrefix(orgID uuid.UUID) []byte {
+	return withPrefix(tuple.Tuple{keySearchIssued, orgID.String()}.Pack())
+}
+
 func searchIssuedPrefix(orgID, nodeID uuid.UUID) []byte {
 	return withPrefix(tuple.Tuple{keySearchIssued, orgID.String(), nodeID.String()}.Pack())
 }
@@ -82,4 +87,20 @@ func searchProjectionKey(orgID uuid.UUID) []byte {
 
 func searchIndexKey() []byte {
 	return withPrefix(tuple.Tuple{keySearchIndex}.Pack())
+}
+
+func searchEpochKey(orgID uuid.UUID) []byte {
+	return withPrefix(tuple.Tuple{keySearchEpoch, orgID.String()}.Pack())
+}
+
+func searchRolloutKey(authorityID uuid.UUID) []byte {
+	return withPrefix(tuple.Tuple{keySearchRollout, authorityID.String()}.Pack())
+}
+
+func searchRolloutGenerationKey(authorityID uuid.UUID) []byte {
+	return withPrefix(tuple.Tuple{keySearchRolloutGeneration, authorityID.String()}.Pack())
+}
+
+func searchPermissionEventKey(authorityID uuid.UUID) []byte {
+	return withPrefix(tuple.Tuple{keySearchPermissionEvent, authorityID.String()}.Pack())
 }

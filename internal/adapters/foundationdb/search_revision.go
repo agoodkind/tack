@@ -81,7 +81,7 @@ func searchReadFailure(ctx context.Context, operation string, err error) error {
 // through unchanged.
 func transactionFailure(ctx context.Context, operation string, err error) error {
 	if errors.Is(err, search.ErrNoWork) || errors.Is(err, search.ErrWorkChanged) || errors.Is(err, search.ErrNoServingIndex) ||
-		errors.Is(err, node.ErrContentChanged) {
+		errors.Is(err, node.ErrContentChanged) || errors.Is(err, search.ErrRolloutInProgress) {
 		return err
 	}
 	if searchFailureWasLogged(err) {

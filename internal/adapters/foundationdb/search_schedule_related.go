@@ -2,39 +2,50 @@ package foundationdb
 
 import (
 	"context"
+	"slices"
 	"time"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain/node"
-	"goodkind.io/tack/internal/searchaccess"
 )
 
-// initializeSearchAccess records the stable policy version for a node that
-// has no access state yet. Its keys stay empty until the first access work
-// compiles and records them.
+// initializeSearchAccess records the authority's current write versions for
+// a node that has no access state yet. Its keys stay empty until the first
+// access work compiles and records them. Content pages compile keys for
+// these versions when they are read.
 func initializeSearchAccess(ctx context.Context, tr fdb.Transaction, orgID, nodeID uuid.UUID) error {
 	var existing searchAccessRecord
 	found, err := readSearchRecord(ctx, tr, searchAccessKey(orgID, nodeID), &existing)
 	if err != nil || found {
 		return err
 	}
+	rollout, err := readRollout(ctx, tr, orgID)
+	if err != nil {
+		return err
+	}
 	return writeSearchRecord(ctx, tr, searchAccessKey(orgID, nodeID), searchAccessRecord{
-		Access:       node.SearchAccess{Versions: []string{searchaccess.StableVersion}, Keys: []string{}, Generation: 0},
+		Access:       node.SearchAccess{Versions: slices.Clone(rollout.WriteVersions), Keys: []string{}, Generation: 0},
 		PagesPending: false, DependentsPending: false,
 	})
 }
 
 // scheduleRelatedSearchWork schedules access work for both endpoints of every
-// changed relationship. The access worker compiles each endpoint through the
-// registered policy. This code never interprets a relationship type.
+// changed relationship and records one permission event for each changed
+// authority. The access worker uses the registered policy to compile each
+// endpoint. This code never interprets a relationship type.
 func scheduleRelatedSearchWork(ctx context.Context, tr fdb.Transaction, now time.Time, changes []node.RelationshipChanges) error {
 	scheduled := make(map[[2]uuid.UUID]struct{})
+	authorities := make(map[uuid.UUID]struct{})
 	for _, change := range changes {
 		relationships := append(append([]*node.Relationship{}, change.Add...), change.Remove...)
 		for _, relationship := range relationships {
 			if relationship == nil {
 				continue
+			}
+			if _, recorded := authorities[relationship.OrgID]; !recorded {
+				authorities[relationship.OrgID] = struct{}{}
+				addPermissionEvent(tr, relationship.OrgID)
 			}
 			for _, nodeID := range []uuid.UUID{relationship.SourceID, relationship.TargetID} {
 				identity := [2]uuid.UUID{relationship.OrgID, nodeID}

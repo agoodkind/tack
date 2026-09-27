@@ -16,15 +16,10 @@ import (
 // ErrAccessDenied means the caller may not search under the entry point.
 var ErrAccessDenied = errors.New("search access is denied")
 
-// activeVersion returns the policy version that serves queries for an
-// authority. The organization-scope policy is the only registered version
-// until a policy rollout records a candidate.
-func (s *PolicySet) activeVersion() string { return StableVersion }
-
 // EntryAuthority returns the permission authority of one entry point from
-// FoundationDB.
+// FoundationDB. Every registered version shares the organization authority.
 func (s *PolicySet) EntryAuthority(ctx context.Context, entryPointID uuid.UUID) (uuid.UUID, error) {
-	compiler, err := s.compiler(ctx, s.activeVersion(), entryPointID)
+	compiler, err := s.compiler(ctx, StableVersion, entryPointID)
 	if err != nil {
 		return uuid.Nil, err
 	}
@@ -35,10 +30,11 @@ func (s *PolicySet) EntryAuthority(ctx context.Context, entryPointID uuid.UUID) 
 	return authority, nil
 }
 
-// Query returns the active version and sorted opaque caller keys for one
-// query. The keys use the same [EncodeKey] contract as indexed pages.
+// Query returns the requested version and sorted opaque caller keys for one
+// query. A new session requests the authority's active version, and a
+// continuation requests the version its session stored. The keys use the
+// same [EncodeKey] contract as indexed pages.
 func (s *PolicySet) Query(ctx context.Context, request AccessRequest) (search.AccessFilter, error) {
-	request.Version = s.activeVersion()
 	compiler, err := s.compiler(ctx, request.Version, request.EntryPointID)
 	if err != nil {
 		return search.AccessFilter{}, err

@@ -17,6 +17,12 @@ func (s *Stores) SearchSessions(source clock.Clock, idleTimeout time.Duration) *
 	return NewSearchSessionStore(s.db, source, idleTimeout)
 }
 
+// SearchRollouts constructs the access policy rollout store on the shared
+// connection with the injected clock.
+func (s *Stores) SearchRollouts(source clock.Clock, policies *searchaccess.PolicySet) *SearchAccessRolloutStore {
+	return NewSearchAccessRolloutStore(s.db, NewSearchWorkStore(s.db, source), policies)
+}
+
 // NodeSummaries constructs the bounded summary reader on the shared connection.
 func (s *Stores) NodeSummaries(policies *searchaccess.PolicySet) *NodeSummaryStore {
 	return NewNodeSummaryStore(s.db, policies)

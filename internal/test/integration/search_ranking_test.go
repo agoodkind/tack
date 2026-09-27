@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"goodkind.io/tack/internal/searchaccess"
 )
 
 // TestSearchSemanticPairs indexes six accepted targets beside 165
@@ -37,13 +36,7 @@ func TestSearchSemanticPairs(t *testing.T) {
 			}
 		}
 	}
-	filter, err := fixture.Stores.SearchPolicySet().Query(t.Context(), searchaccess.AccessRequest{
-		Version: "", PrincipalID: workspace.Actors[0].UserID, AuthorityID: workspace.OrgID,
-		EntryPointID: entryID, MemberOrganizations: []uuid.UUID{workspace.OrgID},
-	})
-	if err != nil {
-		t.Fatalf("compile caller access: %v", err)
-	}
+	filter := callerAccess(t, fixture, workspace, entryID)
 	lexicalMisses := 0
 	for _, pair := range semanticPairs() {
 		if !slices.Contains(lexicalTopNodes(t, fixture, filter, pair.Query), targets[pair.Query]) {

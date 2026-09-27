@@ -32,12 +32,14 @@ const (
 	WorkClassCleanup WorkClass = "cleanup"
 	// WorkClassRescan schedules content work for every node of one organization.
 	WorkClassRescan WorkClass = "rescan"
+	// WorkClassRollout advances one authority's access policy rollout.
+	WorkClassRollout WorkClass = "rollout"
 )
 
 // ScheduledWorkClasses returns every class a search worker rotates through,
 // in the order that breaks weight ties.
 func ScheduledWorkClasses() []WorkClass {
-	return []WorkClass{WorkClassLive, WorkClassAccess, WorkClassCleanup, WorkClassRescan}
+	return []WorkClass{WorkClassLive, WorkClassAccess, WorkClassCleanup, WorkClassRescan, WorkClassRollout}
 }
 
 // WorkPhase is the durable step of one claimed work item.

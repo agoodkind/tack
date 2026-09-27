@@ -26,20 +26,24 @@ type TypeReader interface {
 	TypeByKey(ctx context.Context, orgID uuid.UUID, typeKey string) (*node.NodeType, error)
 }
 
-// OrgScopeCompiler compiles an organization and entry-point grant into one opaque key.
+// OrgScopeCompiler compiles an organization and entry-point grant into one
+// opaque key. Each registered version encodes the same decision under its
+// own key namespace. A rollout to another version replaces every key.
 type OrgScopeCompiler struct {
+	version       string
 	reader        node.NodeReader
 	types         TypeReader
 	relationships RelationshipReader
 }
 
-// NewOrgScopeCompiler builds the production organization-scope compiler.
-func NewOrgScopeCompiler(reader node.NodeReader, types TypeReader, relationships RelationshipReader) *OrgScopeCompiler {
-	return &OrgScopeCompiler{reader: reader, types: types, relationships: relationships}
+// NewOrgScopeCompiler builds the production organization-scope compiler of
+// one policy version.
+func NewOrgScopeCompiler(version string, reader node.NodeReader, types TypeReader, relationships RelationshipReader) *OrgScopeCompiler {
+	return &OrgScopeCompiler{version: version, reader: reader, types: types, relationships: relationships}
 }
 
-// Version returns this compiler's stable policy version.
-func (c *OrgScopeCompiler) Version() string { return StableVersion }
+// Version returns this compiler's policy version.
+func (c *OrgScopeCompiler) Version() string { return c.version }
 
 // Dependents reads one bounded page of the hierarchy children of resourceID
 // and returns their node IDs. A child is the source node of an edge to
@@ -82,7 +86,7 @@ func (c *OrgScopeCompiler) ResourceAuthority(ctx context.Context, resourceID uui
 
 // Index compiles one organization and entry-point pair without interpreting its key.
 func (c *OrgScopeCompiler) Index(ctx context.Context, request IndexAccessRequest) (node.SearchAccess, error) {
-	if request.Version != StableVersion || request.OrganizationID == uuid.Nil ||
+	if request.Version != c.version || request.OrganizationID == uuid.Nil ||
 		request.ResourceID == uuid.Nil || request.Generation < 0 {
 		wrapped := fmt.Errorf("index search access: invalid version, identity, or generation")
 		telemetry.L(ctx).ErrorContext(ctx, "search.access.index_invalid",

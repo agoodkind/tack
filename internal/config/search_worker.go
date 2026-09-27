@@ -35,7 +35,7 @@ type SearchWorkerSettings struct {
 	// ClassWeights sets how many turns each work class receives in one
 	// scheduling rotation. It requires a weight of at least one for every
 	// scheduled class and no other class.
-	ClassWeights map[string]int `env:"OPENSEARCH_WORK_CLASS_WEIGHTS" envDefault:"live:4,access:2,cleanup:2,rescan:1" envKeyValSeparator:":"`
+	ClassWeights map[string]int `env:"OPENSEARCH_WORK_CLASS_WEIGHTS" envDefault:"live:4,access:2,cleanup:2,rescan:1,rollout:1" envKeyValSeparator:":"`
 }
 
 // LoadSearchWorkerSettings parses and validates the indexing worker environment.

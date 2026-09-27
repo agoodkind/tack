@@ -2,6 +2,7 @@ package foundationdb
 
 import (
 	"context"
+	"slices"
 	"time"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
@@ -17,13 +18,18 @@ const (
 	scanNodes       = "nodes"
 )
 
+// maxRescanNames bounds the property names one content rescan records. A
+// larger set schedules content work for every node.
+const maxRescanNames = 64
+
 // requestSearchRescan records one bounded rescan of every node in orgID
-// inside the caller's metadata transaction. content schedules content work
-// for each node, and access schedules access work. A request during a scan
-// leaves the scan cursor unchanged. During the node pass it records the
-// cursor as Stop. The pass then restarts at the first node after the last
-// node and ends at Stop. The pass reads every node after the latest request.
-func requestSearchRescan(ctx context.Context, tr fdb.Transaction, now time.Time, orgID uuid.UUID, content, access bool) error {
+// inside the caller's metadata transaction. names schedules content work
+// for each node that has a value under one of the names, and access
+// schedules access work for every node. A request during a scan leaves the
+// scan cursor unchanged. During the node pass it records the cursor as
+// Stop. The pass then restarts at the first node after the last node and
+// ends at Stop. The pass reads every node after the latest request.
+func requestSearchRescan(ctx context.Context, tr fdb.Transaction, now time.Time, orgID uuid.UUID, names []string, access bool) error {
 	generation, err := incrementSearchCounter(ctx, tr, searchScanKey(orgID))
 	if err != nil {
 		return err
@@ -33,7 +39,7 @@ func requestSearchRescan(ctx context.Context, tr fdb.Transaction, now time.Time,
 	if err != nil {
 		return err
 	}
-	state := searchScanRecord{Phase: scanDefinitions, Cursor: "", Stop: "", Wrapped: false, Content: content, Access: access}
+	state := searchScanRecord{Phase: scanDefinitions, Cursor: "", Stop: "", Wrapped: false, Content: false, Names: nil, Access: false}
 	var previous *searchWorkRecord
 	if found {
 		previous = &existing
@@ -42,9 +48,14 @@ func requestSearchRescan(ctx context.Context, tr fdb.Transaction, now time.Time,
 			return readErr
 		}
 		if stateFound {
-			state = mergeScanRequest(stored, content, access)
+			state = stored
+			if state.Phase == scanNodes {
+				state.Stop = state.Cursor
+				state.Wrapped = false
+			}
 		}
 	}
+	state = mergeScanRequest(state, names, access)
 	if err := writeSearchRecord(ctx, tr, searchCursorKey(string(class), orgID, uuid.Nil), state); err != nil {
 		return err
 	}
@@ -55,14 +66,33 @@ func requestSearchRescan(ctx context.Context, tr fdb.Transaction, now time.Time,
 	return writeSearchWork(ctx, tr, class, record, previous)
 }
 
-// mergeScanRequest adds one request to a scan in progress.
-func mergeScanRequest(state searchScanRecord, content, access bool) searchScanRecord {
-	state.Content = state.Content || content
+// mergeScanRequest adds one request's content names and access flag to the
+// scan state. Content with no names selects every node. When the merged
+// names exceed maxRescanNames, the state stores no names and the scan
+// schedules content work for every node. That scan performs a superset of
+// the requested work, and the stored state stays within its bound.
+func mergeScanRequest(state searchScanRecord, names []string, access bool) searchScanRecord {
 	state.Access = state.Access || access
-	if state.Phase == scanNodes {
-		state.Stop = state.Cursor
-		state.Wrapped = false
+	if len(names) == 0 {
+		return state
 	}
+	switch {
+	case state.Content && len(state.Names) == 0:
+		return state
+	case !state.Content:
+		state.Content = true
+		state.Names = slices.Clone(names)
+	default:
+		for _, name := range names {
+			if !slices.Contains(state.Names, name) {
+				state.Names = append(state.Names, name)
+			}
+		}
+	}
+	if len(state.Names) > maxRescanNames {
+		state.Names = nil
+	}
+	slices.Sort(state.Names)
 	return state
 }
 

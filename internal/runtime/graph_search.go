@@ -49,9 +49,11 @@ func buildSearchRuntime(ctx context.Context, cfg *config.Config, stores *fdbadap
 		return empty, searchRuntimeFailure(ctx, "create OpenSearch adapter", err)
 	}
 	policies := stores.SearchPolicySet()
+	rollouts := stores.SearchRollouts(source, policies)
 	ports := service.SearchWorkerPorts{
 		Store: stores.SearchWork(source), Reader: stores.SearchContent(policies),
 		Access: stores.SearchAccess(policies), Writer: adapter,
+		Rollouts: rollouts, Sessions: rollouts, Documents: adapter,
 	}
 	workers := make([]*service.SearchWorker, 0, settings.Concurrency)
 	for position := range settings.Concurrency {

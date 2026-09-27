@@ -58,10 +58,12 @@ func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
 	// from it.
 	source := clock.Wall{}
 	fdbStores.UseClock(source)
-	// Source writes schedule search work only when OPENSEARCH_ENDPOINT is
-	// set.
+	// Source writes schedule search work, and the MCP handler reads the
+	// metadata epoch, only when OPENSEARCH_ENDPOINT is set.
+	var epochs mcpadapter.MetadataEpochReader
 	if cfg.SearchEndpoint != "" {
 		fdbStores.EnableSearchWork()
+		epochs = fdbStores.Views
 	}
 
 	auditRuntimeDeps, err := buildAuditRuntime(ctx, cfg, fdbStores.OpsOutbox)
@@ -76,7 +78,7 @@ func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
 		pool.Close()
 		return nil, err
 	}
-	searchBinding, err := buildSearchQuery(ctx, cfg, fdbStores, search)
+	searchBinding, err := buildSearchQuery(ctx, cfg, fdbStores, search, source)
 	if err != nil {
 		if search.adapter != nil {
 			err = errors.Join(err, search.adapter.Close(ctx))
@@ -122,6 +124,7 @@ func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
 		Members:       orgMembers,
 		Users:         userRepo,
 		Search:        searchBinding,
+		Epochs:        epochs,
 	})
 
 	authMiddleware := buildAuthMiddleware(cfg, tokenRepo, orgMembers)

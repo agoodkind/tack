@@ -18,7 +18,7 @@ import (
 // and search service behind tack_search. While OPENSEARCH_PUBLIC_ENABLED is
 // false it returns a binding without a runner, and tack_search keeps the
 // fixed unavailable response. Index workers run in either state.
-func buildSearchQuery(ctx context.Context, cfg *config.Config, stores *fdbadapter.Stores, search searchRuntime) (tools.SearchBinding, error) {
+func buildSearchQuery(ctx context.Context, cfg *config.Config, stores *fdbadapter.Stores, search searchRuntime, source clock.Clock) (tools.SearchBinding, error) {
 	disabled := tools.SearchBinding{Runner: nil, Cursors: nil}
 	if !cfg.SearchPublicEnabled {
 		telemetry.L(ctx).InfoContext(ctx, "search.public.disabled")
@@ -35,7 +35,6 @@ func buildSearchQuery(ctx context.Context, cfg *config.Config, stores *fdbadapte
 	if err != nil {
 		return disabled, searchRuntimeFailure(ctx, "decode search cursor key", err)
 	}
-	source := clock.Wall{}
 	policies := stores.SearchPolicySet()
 	sessions := stores.SearchSessions(source, settings.IdleTimeout)
 	ranker := search.adapter.Ranker(searchadapter.RankerSettings{
@@ -43,7 +42,8 @@ func buildSearchQuery(ctx context.Context, cfg *config.Config, stores *fdbadapte
 	})
 	runner := service.NewSearchQueryService(service.SearchQueryPorts{
 		Ranker: ranker, Sessions: sessions, Expired: sessions,
-		Summaries: stores.NodeSummaries(policies), Access: policies, Index: stores,
+		Summaries: stores.NodeSummaries(policies), Access: policies,
+		Versions: stores.SearchRollouts(source, policies), Index: stores,
 	}, source, settings)
 	telemetry.L(ctx).InfoContext(ctx, "search.public.enabled", slog.Int("max_results", settings.MaxResults),
 		slog.Int("max_batches", settings.MaxBatches), slog.Duration("idle_timeout", settings.IdleTimeout))
