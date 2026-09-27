@@ -4,6 +4,50 @@
 # the pin comment on the yugabyte service before changing the tag.
 x-yugabyte-image: &yugabyte_image yugabytedb/yugabyte:2024.2.8.0-b85
 
+# The search client environment of the app service. Compose interpolates
+# every variable below except OPENSEARCH_CA from the shell environment or
+# from the .env file that the configs deploy renders. A shell variable takes
+# precedence over the .env file. A variable that neither source sets is
+# empty. An empty value selects the compiled default where one exists. An
+# empty OPENSEARCH_ENDPOINT builds no search runtime and schedules no search
+# work. OPENSEARCH_CA is a fixed path. The app reads that CA file from its
+# /etc/tack mount. The app service runs the search operator commands, and
+# those commands read FoundationDB.
+x-opensearch-environment: &opensearch_environment
+  OPENSEARCH_ENDPOINT: ${OPENSEARCH_ENDPOINT:-}
+  OPENSEARCH_CA: /etc/tack/search-ca.crt
+  OPENSEARCH_USERNAME: ${OPENSEARCH_USERNAME:-}
+  OPENSEARCH_PASSWORD: ${OPENSEARCH_PASSWORD:-}
+  OPENSEARCH_REQUEST_TIMEOUT: ${OPENSEARCH_REQUEST_TIMEOUT:-}
+  OPENSEARCH_MAX_RETRIES: ${OPENSEARCH_MAX_RETRIES:-}
+  OPENSEARCH_PUBLIC_ENABLED: ${OPENSEARCH_PUBLIC_ENABLED:-}
+  OPENSEARCH_CURSOR_KEY: ${OPENSEARCH_CURSOR_KEY:-}
+  OPENSEARCH_SHARDS: ${OPENSEARCH_SHARDS:-}
+  OPENSEARCH_ROUTING_SHARDS: ${OPENSEARCH_ROUTING_SHARDS:-}
+  OPENSEARCH_REPLICAS: ${OPENSEARCH_REPLICAS:-}
+  OPENSEARCH_QUERY_MAX_BYTES: ${OPENSEARCH_QUERY_MAX_BYTES:-}
+  OPENSEARCH_RESPONSE_MAX_BYTES: ${OPENSEARCH_RESPONSE_MAX_BYTES:-}
+  OPENSEARCH_SESSION_TOKEN_MAX_BYTES: ${OPENSEARCH_SESSION_TOKEN_MAX_BYTES:-}
+  OPENSEARCH_QUERY_BATCH_SIZE: ${OPENSEARCH_QUERY_BATCH_SIZE:-}
+  OPENSEARCH_QUERY_MAX_BATCHES: ${OPENSEARCH_QUERY_MAX_BATCHES:-}
+  OPENSEARCH_QUERY_MAX_RESULTS: ${OPENSEARCH_QUERY_MAX_RESULTS:-}
+  OPENSEARCH_SESSION_IDLE_TIMEOUT: ${OPENSEARCH_SESSION_IDLE_TIMEOUT:-}
+  OPENSEARCH_SESSION_ABSOLUTE_TIMEOUT: ${OPENSEARCH_SESSION_ABSOLUTE_TIMEOUT:-}
+  OPENSEARCH_QUERY_DEADLINE: ${OPENSEARCH_QUERY_DEADLINE:-}
+  OPENSEARCH_PAGE_BYTES: ${OPENSEARCH_PAGE_BYTES:-}
+  OPENSEARCH_WORKER_MAX_PAGES: ${OPENSEARCH_WORKER_MAX_PAGES:-}
+  OPENSEARCH_WORKER_MAX_BYTES: ${OPENSEARCH_WORKER_MAX_BYTES:-}
+  OPENSEARCH_WORKER_SLICE_BUDGET: ${OPENSEARCH_WORKER_SLICE_BUDGET:-}
+  OPENSEARCH_WORKER_OPERATION_TIMEOUT: ${OPENSEARCH_WORKER_OPERATION_TIMEOUT:-}
+  OPENSEARCH_WORKER_LEASE: ${OPENSEARCH_WORKER_LEASE:-}
+  OPENSEARCH_WORKER_IDLE_INTERVAL: ${OPENSEARCH_WORKER_IDLE_INTERVAL:-}
+  OPENSEARCH_WORKER_CONCURRENCY: ${OPENSEARCH_WORKER_CONCURRENCY:-}
+  OPENSEARCH_WORK_CLASS_WEIGHTS: ${OPENSEARCH_WORK_CLASS_WEIGHTS:-}
+  OPENSEARCH_MAX_RETIRED_PAGES: ${OPENSEARCH_MAX_RETIRED_PAGES:-}
+  OPENSEARCH_MAX_RETIREMENT_AGE: ${OPENSEARCH_MAX_RETIREMENT_AGE:-}
+  OPENSEARCH_MAX_INDEX_BYTES: ${OPENSEARCH_MAX_INDEX_BYTES:-}
+  OPENSEARCH_RETENTION_CHECK_INTERVAL: ${OPENSEARCH_RETENTION_CHECK_INTERVAL:-}
+
 services:
   app:
     image: ghcr.io/agoodkind/tack-server:${TACK_IMAGE_TAG:-latest}
@@ -24,6 +68,7 @@ services:
     ports:
       - "${PORT:-8000}:8000"
     environment:
+      <<: *opensearch_environment
       # The application's own non-superuser login (TACK-180). tack_app is
       # created by `ops audit seed-roles` from TACK_APP_PASSWORD and holds the
       # three auth tables and nothing else; the yugabyte superuser stays with
@@ -278,6 +323,41 @@ services:
       # FoundationDB client, and its client library records a coordinator
       # change in this file.
       - /etc/foundationdb:/etc/foundationdb
+
+  # OpenSearch, one member per search guest. Every member takes the
+  # cluster_manager, data, ingest, and ml roles, and a later member joins the
+  # running cluster with no Tack change. Compose starts this service only
+  # when the search profile is enabled. The deploy enables the search profile
+  # on the search guests and on no other guest.
+  #
+  # Compose interpolates node.name and the three discovery settings from the
+  # TACK_SEARCH_* values in the shell environment or the rendered .env file.
+  # A shell variable takes precedence over the .env file. The other values in this
+  # service are literals, and the rendered override on a search guest can
+  # replace them. QA sets TACK_SEARCH_DISCOVERY_TYPE to single-node.
+  # Production sets TACK_SEARCH_SEED_HOSTS from the member list, and sets
+  # TACK_SEARCH_INITIAL_CLUSTER_MANAGER_NODES only for the first formation of
+  # tack-search1. The image entrypoint passes each non-empty dotted variable as
+  # a setting, and an empty one leaves that setting unset. The rendered
+  # override also configures TLS, credentials, and the address a member
+  # announces to its peers.
+  opensearch:
+    image: opensearchproject/opensearch:3.8.0
+    profiles: [search]
+    restart: unless-stopped
+    environment:
+      OPENSEARCH_JAVA_OPTS: -Xms2g -Xmx2g
+      node.roles: cluster_manager,data,ingest,ml
+      node.name: ${TACK_SEARCH_NODE_NAME:-}
+      discovery.type: ${TACK_SEARCH_DISCOVERY_TYPE:-}
+      discovery.seed_hosts: ${TACK_SEARCH_SEED_HOSTS:-}
+      cluster.initial_cluster_manager_nodes: ${TACK_SEARCH_INITIAL_CLUSTER_MANAGER_NODES:-}
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
 
   # Apache Kafka 4.x in KRaft combined broker+controller role. The audit
   # cutover uses this as the broker for the audit.events.v1 topic that the
@@ -555,6 +635,7 @@ volumes:
   tack-logs:
   kafka-data:
   clickhouse-data:
+  opensearch-data:
 
 # IPv6-only bridge. The per-host /96 is carved from the host's on-link /64 and
 # NDP-proxied back onto eth0 by ndppd, so containers source out as real GUAs

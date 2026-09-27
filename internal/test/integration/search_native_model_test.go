@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"slices"
@@ -12,6 +13,16 @@ import (
 
 	opensearch "github.com/opensearch-project/opensearch-go/v4"
 	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"goodkind.io/tack/internal/adapters/search"
+)
+
+const (
+	// nativePredictionWait bounds the wait for the first prediction after a
+	// redeploy.
+	nativePredictionWait = 5 * time.Minute
+	// nativeRedeployTimeout bounds one redeploy: the deploy and the wait for
+	// its first prediction.
+	nativeRedeployTimeout = 10 * time.Minute
 )
 
 // nativeMLRequest is one concrete ML Commons request for the native tests.
@@ -71,13 +82,13 @@ func nativeModelState(t *testing.T, client *opensearchapi.Client, modelID string
 var undeployedModelStates = []string{"UNDEPLOYED", "DEPLOY_FAILED"}
 
 // undeployNativeModel undeploys modelID, waits until ML Commons reports that
-// no node serves it, and calls redeploy when the test ends.
-func undeployNativeModel(t *testing.T, client *opensearchapi.Client, modelID string, redeploy func(context.Context) error) {
+// no node serves it, and calls [redeployNativeModel] when the test ends.
+func undeployNativeModel(t *testing.T, adapter *search.Adapter, client *opensearchapi.Client, modelID string) {
 	t.Helper()
 	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 5*time.Minute)
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), nativeRedeployTimeout)
 		defer cancel()
-		if err := redeploy(ctx); err != nil {
+		if err := redeployNativeModel(ctx, adapter, client); err != nil {
 			t.Errorf("redeploy native model: %v", err)
 		}
 	})
@@ -95,6 +106,48 @@ func undeployNativeModel(t *testing.T, client *opensearchapi.Client, modelID str
 			poll.Stop()
 			t.Fatalf("native model %s state is %s after undeploy", modelID, state)
 		case <-poll.C:
+		}
+	}
+}
+
+// redeployNativeModel deploys the pinned model and returns after the model
+// serves one prediction. The ML Commons memory circuit breaker rejects a
+// prediction with status 429 while JVM heap use is above its threshold, 85
+// percent of the heap by default. Heap use includes unreachable objects that
+// the next young collection frees. A deploy allocates the model bundle on the
+// heap, and the next young collection runs only after the engine fills the
+// young generation. A rejection with status 429 continues the wait. Every
+// other failure returns at once.
+func redeployNativeModel(ctx context.Context, adapter *search.Adapter, client *opensearchapi.Client) error {
+	model, err := adapter.Provision(ctx)
+	if err != nil {
+		return err
+	}
+	deadline, cancel := context.WithTimeout(ctx, nativePredictionWait)
+	defer cancel()
+	request := nativeMLRequest{
+		path: "/_plugins/_ml/_predict/sparse_encoding/" + url.PathEscape(model.ID),
+		body: []byte(`{"text_docs":["redeployed model"]}`),
+	}
+	for {
+		var body json.RawMessage
+		response, err := opensearch.Do(deadline, client.Client, http.MethodPost, request, &body)
+		if err != nil {
+			return fmt.Errorf("predict with redeployed model %s: %w", model.ID, err)
+		}
+		if !response.IsError() {
+			return nil
+		}
+		rejection := opensearch.ParseError(response)
+		if response.StatusCode != http.StatusTooManyRequests {
+			return fmt.Errorf("predict with redeployed model %s: %w", model.ID, rejection)
+		}
+		wait := time.NewTimer(time.Second)
+		select {
+		case <-deadline.Done():
+			wait.Stop()
+			return fmt.Errorf("redeployed model %s rejected every prediction for %s: %w", model.ID, nativePredictionWait, rejection)
+		case <-wait.C:
 		}
 	}
 }
