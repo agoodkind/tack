@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"slices"
 	"testing"
 	"time"
 
@@ -62,8 +63,15 @@ func nativeModelState(t *testing.T, client *opensearchapi.Client, modelID string
 	return model.State
 }
 
-// undeployNativeModel undeploys modelID, waits until ML Commons reports it
-// undeployed, and calls redeploy when the test ends.
+// undeployedModelStates are the ML Commons model states that mean no node
+// serves the model. The undeploy action writes UNDEPLOYED. The ML Commons
+// sync-up job writes DEPLOY_FAILED when it read the model as DEPLOYED before
+// the undeploy and then found no node that serves it. That write can replace
+// UNDEPLOYED, and the job never changes DEPLOY_FAILED afterward.
+var undeployedModelStates = []string{"UNDEPLOYED", "DEPLOY_FAILED"}
+
+// undeployNativeModel undeploys modelID, waits until ML Commons reports that
+// no node serves it, and calls redeploy when the test ends.
 func undeployNativeModel(t *testing.T, client *opensearchapi.Client, modelID string, redeploy func(context.Context) error) {
 	t.Helper()
 	t.Cleanup(func() {
@@ -78,7 +86,7 @@ func undeployNativeModel(t *testing.T, client *opensearchapi.Client, modelID str
 	defer deadline.Stop()
 	for {
 		state := nativeModelState(t, client, modelID)
-		if state == "UNDEPLOYED" {
+		if slices.Contains(undeployedModelStates, state) {
 			return
 		}
 		poll := time.NewTimer(time.Second)

@@ -104,6 +104,8 @@ const (
 	VerbOpsDatagenSeed Verb = "ops.datagen_seed"
 	// VerbOpsDatagenSoak records QA traffic generation.
 	VerbOpsDatagenSoak Verb = "ops.datagen_soak"
+	// VerbOpsDatagenSearch records QA verification of public search.
+	VerbOpsDatagenSearch Verb = "ops.datagen_search"
 	// VerbOpsDatagenLegacyLedgerRow records QA generation of a ledger row in
 	// the shape the writer produced before the ledger stored outcomes.
 	VerbOpsDatagenLegacyLedgerRow Verb = "ops.datagen_legacy_ledger_row"
