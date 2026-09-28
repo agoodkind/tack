@@ -18,7 +18,7 @@ import (
 // relationship.
 func (s *NodeStore) UpdateAtomic(ctx context.Context, current *node.Node, view *node.NodeView, oldProps map[string]json.RawMessage, indexedProps []string, referenceKeys []node.ReferenceKey, relationshipChanges ...node.RelationshipChanges) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node.update_atomic")(&err)
-	err = runNodeMutation(ctx, s.db, "node.update_atomic", func(tr fdb.Transaction) error {
+	err = runNodeMutation(ctx, s.db, "update node "+current.ID.String()+" atomically", func(tr fdb.Transaction) error {
 		if err := writeNodeRecords(ctx, tr, current, view); err != nil {
 			return err
 		}
@@ -43,14 +43,7 @@ func (s *NodeStore) UpdateAtomic(ctx context.Context, current *node.Node, view *
 		return writeStagedIntent(ctx, tr)
 	})
 	if err != nil {
-		if searchFailureWasLogged(err) {
-			return err
-		}
-		wrapped := fmt.Errorf("update node %s atomically: %w", current.ID, err)
-		if !searchFailureWasLogged(err) {
-			telemetry.L(ctx).ErrorContext(ctx, "node.update_atomic_failed", slog.String("err", wrapped.Error()), slog.String("node_id", current.ID.String()))
-		}
-		return wrapped
+		return err
 	}
 	commitStagedIntent(ctx)
 	return nil

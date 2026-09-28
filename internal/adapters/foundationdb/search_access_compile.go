@@ -10,7 +10,7 @@ import (
 	"goodkind.io/tack/internal/searchaccess"
 )
 
-// compileSearchAccess compiles every write version through the registered
+// compileSearchAccess compiles every write version with the registered
 // policies and merges the opaque keys. Search code never decodes a key.
 func compileSearchAccess(
 	ctx context.Context,

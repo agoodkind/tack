@@ -111,8 +111,9 @@ func (s *SearchWorkStore) claimWorkItem(
 	}, true, nil
 }
 
-// readProgress returns the checkpoint that belongs to record. A checkpoint
-// from another revision or generation reads as the first page. A rescan
+// readProgress returns the stored checkpoint of record. It returns the
+// first-page checkpoint when live work has a checkpoint from another
+// revision or other work has a checkpoint from another generation. A rescan
 // reads its scan state, which survives newer rescan requests.
 func (s *SearchWorkStore) readProgress(ctx context.Context, tr fdb.Transaction, class searchdomain.WorkClass, record searchWorkRecord) (searchProgressRecord, error) {
 	initial := searchProgressRecord{

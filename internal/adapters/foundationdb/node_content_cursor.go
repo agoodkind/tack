@@ -15,9 +15,9 @@ import (
 
 const (
 	searchCursorVersion = 1
-	// minSearchPageBytes is the smallest accepted page bound. At this bound,
-	// three quarters of a page exceed the longest UTF-8 sequence. Every
-	// nonfinal page ends after the end of the previous page.
+	// minSearchPageBytes is the smallest accepted page bound. Every nonfinal
+	// page ends after the previous page ends because three quarters of a
+	// page at this bound exceed the longest UTF-8 sequence.
 	minSearchPageBytes = 16
 )
 
@@ -89,9 +89,9 @@ func contentPage(ctx context.Context, text string, identity contentIdentity, acc
 	if position.NextOffset > len(text) || position.NextOffset == len(text) && position.Ordinal > 0 {
 		return node.ContentPage{}, node.ErrContentChanged
 	}
-	// A continuation cursor written by this function starts at least one
-	// overlap past the text start. Any smaller offset is not a cursor this
-	// reader issued.
+	// The check rejects a continuation offset below one overlap because this
+	// function writes every continuation cursor at least one overlap past the
+	// text start.
 	if position.NextOffset < 0 || position.Ordinal > 0 && position.NextOffset < position.MaxBytes/4 {
 		return node.ContentPage{}, node.ErrContentChanged
 	}

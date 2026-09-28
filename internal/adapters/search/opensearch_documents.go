@@ -73,27 +73,29 @@ type accessScriptParams struct {
 	Access     pageAccess `json:"access"`
 }
 
-// accessUpdateScript orders access-only updates by search_generation.
+// accessUpdateScript orders access-only updates by search_generation. It
+// writes search_generation and access only when the stored search_generation
+// is lower than the update generation and the page is not retired. Otherwise
+// it makes no change.
 //
-// OpenSearch 3.8.0 rejects an update action with version or version_type.
-// An access-only update cannot use external versioning. This
-// script runs on the primary shard under the document lock. It writes only
-// search_generation and access. It writes them only when the stored
-// search_generation is lower than the update generation and the page is not
-// retired, and otherwise makes no change. An accepted update raises the
-// internal _version by one. Each accepted update has a strictly higher
-// generation than the stored one. The internal _version stays at or below
-// search_generation. Content writes and retirements are index
-// actions with version_type external_gte at the FoundationDB generation. A
-// retirement at the current generation passes the version check. A delayed
-// content write below a retirement or content write generation fails the
-// version check. A delayed content write below an access update generation
-// can pass when the internal _version is lower. The access change rewrote
-// that content work to the access generation in FoundationDB. The stale
-// claim cannot checkpoint, and the next claim rewrites the page at the
-// current generation. The update omits page_text. skip_existing_embedding then
-// leaves the stored chunks and sparse weights unchanged, and ML Commons runs
-// no inference.
+// An access-only update uses this script instead of external versioning
+// because OpenSearch 3.8.0 rejects an update action with version or
+// version_type. The script runs on the primary shard under the document lock.
+// Each accepted update raises the internal _version by one and sets a
+// strictly higher search_generation. The internal _version stays at or below
+// search_generation.
+//
+// Content writes and retirements are index actions with version_type
+// external_gte at the FoundationDB generation. A retirement at the current
+// generation passes the version check. A delayed content write below a
+// retirement or content write generation fails the version check. A delayed
+// content write below an access update generation can pass when the internal
+// _version is lower. The stale claim cannot checkpoint because the access
+// change rewrote that content work to the access generation in FoundationDB.
+// The next claim rewrites the page at the current generation.
+//
+// The update omits page_text. skip_existing_embedding leaves the stored
+// chunks and sparse weights unchanged, and ML Commons runs no inference.
 //
 //go:embed access_update.painless
 var accessUpdateScript string

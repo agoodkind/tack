@@ -36,13 +36,16 @@ func (s *RelationshipStore) Add(ctx context.Context, rel *node.Relationship) (er
 	if err != nil {
 		return fmt.Errorf("marshal relationship: %w", err)
 	}
+	searchScheduleFailed := false
 	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
+		searchScheduleFailed = false
 		tr.Set(fdb.Key(relationshipKey(rel.OrgID, rel.SourceID, rel.RelationType, rel.TargetID)), metadata)
 		tr.Set(fdb.Key(relationshipReverseKey(rel.OrgID, rel.TargetID, rel.RelationType, rel.SourceID)), []byte{})
 		if s.searchWork {
 			if err := scheduleRelatedSearchWork(ctx, tr, s.clock.Now(), []node.RelationshipChanges{
 				{Add: []*node.Relationship{rel}, Remove: []*node.Relationship{}},
 			}); err != nil {
+				searchScheduleFailed = true
 				return nil, err
 			}
 		}
@@ -50,8 +53,10 @@ func (s *RelationshipStore) Add(ctx context.Context, rel *node.Relationship) (er
 	})
 	if err != nil {
 		wrapped := fmt.Errorf("add relationship %s: %w", rel.RelationType, err)
-		if !searchFailureWasLogged(err) {
-			telemetry.L(ctx).ErrorContext(ctx, "search.work.schedule_failed", slog.String("err", wrapped.Error()), slog.String("source_id", rel.SourceID.String()), slog.String("target_id", rel.TargetID.String()))
+		if searchScheduleFailed {
+			logSearchScheduleFailure(ctx, wrapped, rel.SourceID, rel.TargetID)
+		} else {
+			logRelationshipFailure(ctx, "relationship.add_failed", wrapped, rel.SourceID, rel.TargetID)
 		}
 		return wrapped
 	}
@@ -61,7 +66,9 @@ func (s *RelationshipStore) Add(ctx context.Context, rel *node.Relationship) (er
 
 func (s *RelationshipStore) Remove(ctx context.Context, orgID, sourceID uuid.UUID, relationType string, targetID uuid.UUID) (err error) {
 	defer telemetry.FDBOp(ctx, "store.relationship.remove")(&err)
+	searchScheduleFailed := false
 	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
+		searchScheduleFailed = false
 		tr.Clear(fdb.Key(relationshipKey(orgID, sourceID, relationType, targetID)))
 		tr.Clear(fdb.Key(relationshipReverseKey(orgID, targetID, relationType, sourceID)))
 		changed := &node.Relationship{
@@ -72,6 +79,7 @@ func (s *RelationshipStore) Remove(ctx context.Context, orgID, sourceID uuid.UUI
 			if err := scheduleRelatedSearchWork(ctx, tr, s.clock.Now(), []node.RelationshipChanges{
 				{Add: []*node.Relationship{}, Remove: []*node.Relationship{changed}},
 			}); err != nil {
+				searchScheduleFailed = true
 				return nil, err
 			}
 		}
@@ -79,13 +87,30 @@ func (s *RelationshipStore) Remove(ctx context.Context, orgID, sourceID uuid.UUI
 	})
 	if err != nil {
 		wrapped := fmt.Errorf("remove relationship %s: %w", relationType, err)
-		if !searchFailureWasLogged(err) {
-			telemetry.L(ctx).ErrorContext(ctx, "search.work.schedule_failed", slog.String("err", wrapped.Error()), slog.String("source_id", sourceID.String()), slog.String("target_id", targetID.String()))
+		if searchScheduleFailed {
+			logSearchScheduleFailure(ctx, wrapped, sourceID, targetID)
+		} else {
+			logRelationshipFailure(ctx, "relationship.remove_failed", wrapped, sourceID, targetID)
 		}
 		return wrapped
 	}
 	commitStagedIntent(ctx)
 	return nil
+}
+
+// logRelationshipFailure logs one failed relationship write as event.
+func logRelationshipFailure(ctx context.Context, event string, err error, sourceID, targetID uuid.UUID) {
+	telemetry.L(ctx).ErrorContext(ctx, event, slog.String("err", err.Error()), slog.String("source_id", sourceID.String()), slog.String("target_id", targetID.String()))
+}
+
+// logSearchScheduleFailure logs search.work.schedule_failed for a relationship
+// write that failed to schedule search work. It logs nothing when the search
+// code already logged the failure.
+func logSearchScheduleFailure(ctx context.Context, err error, sourceID, targetID uuid.UUID) {
+	if searchFailureWasLogged(err) {
+		return
+	}
+	logRelationshipFailure(ctx, "search.work.schedule_failed", err, sourceID, targetID)
 }
 
 func (s *RelationshipStore) ListBySource(ctx context.Context, orgID, sourceID uuid.UUID, relationType string) (rels []*node.Relationship, err error) {

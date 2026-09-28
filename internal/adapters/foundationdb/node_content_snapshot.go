@@ -12,10 +12,10 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// nodeContentSnapshot is every value one page read uses, read in one
-// FoundationDB transaction with point reads and bounded index reads. The
-// definitions field contains only the definitions that the node's property
-// names select.
+// nodeContentSnapshot stores every value one page read uses. One
+// FoundationDB transaction reads the values with point reads and bounded
+// index reads. The definitions field contains only the definitions that
+// match the node's property names.
 type nodeContentSnapshot struct {
 	node         node.Node
 	definitions  []*node.PropertyDef

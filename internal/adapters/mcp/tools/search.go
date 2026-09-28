@@ -32,13 +32,13 @@ type SearchBinding struct {
 func RegisterSearch(s *mcpserver.MCPServer, resolver *Resolver, binding SearchBinding) {
 	tool := mcpmcp.Tool{
 		Name: "tack_search",
-		Description: "Ranked search across the nodes under one workspace. Each call returns at most 25 nodes. " +
+		Description: "tack_search runs a ranked search over the nodes under one workspace. Each call returns at most 25 nodes. " +
 			"Pass the returned cursor with the same workspace, query, and node_type to continue.",
 		InputSchema: schema{
 			Fields: append(entryPointSchemaFields(resolver),
-				schemaField{Name: "query", Type: schemaString, Desc: "Search text.", Enum: nil},
-				schemaField{Name: "node_type", Type: schemaString, Desc: "Optional node type key or slug.", Enum: nil},
-				schemaField{Name: searchCursorParam, Type: schemaString, Desc: "Continuation cursor from the previous page.", Enum: nil},
+				schemaField{Name: "query", Type: schemaString, Desc: "This argument is the search text.", Enum: nil},
+				schemaField{Name: "node_type", Type: schemaString, Desc: "This optional argument limits results to one node type key or slug.", Enum: nil},
+				schemaField{Name: searchCursorParam, Type: schemaString, Desc: "This optional argument accepts the cursor that the previous page returned.", Enum: nil},
 			),
 			Required: []string{resolver.EntryPointParamName(), "query"},
 		}.toMCP(),

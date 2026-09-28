@@ -76,9 +76,9 @@ func (s *SearchAccessRolloutStore) BeginRetire(ctx context.Context, work searchd
 	return nil
 }
 
-// rolloutStep verifies the rollout claim and the rollout step the worker
-// read, applies step to the stored record, and writes it, all in one
-// transaction. step receives the verified rollout work record.
+// rolloutStep runs one transaction. It verifies the rollout claim and the
+// rollout step the worker read, applies step to the stored record, and
+// writes the record. step receives the verified rollout work record.
 func (s *SearchAccessRolloutStore) rolloutStep(ctx context.Context, work searchdomain.Work, read searchdomain.AccessRollout, step func(fdb.Transaction, *searchRolloutRecord, searchWorkRecord) error) error {
 	return transactSearch(ctx, s.db, func(tr fdb.Transaction) error {
 		workRecord, err := s.work.verifyClaim(ctx, tr, work)

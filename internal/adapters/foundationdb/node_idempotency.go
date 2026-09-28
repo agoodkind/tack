@@ -11,7 +11,7 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// LookupIdempotencyKey returns the record for a key, or nil when it is unseen.
+// LookupIdempotencyKey returns the record stored under key, or nil when no record exists.
 func (s *NodeStore) LookupIdempotencyKey(ctx context.Context, orgID uuid.UUID, key string) (record *node.IdempotencyRecord, err error) {
 	defer telemetry.FDBOp(ctx, "store.node.lookup_idempotency")(&err)
 	var encoded []byte

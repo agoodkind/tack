@@ -14,8 +14,9 @@ import (
 // MetadataEpoch returns the metadata epoch values for the organizations in
 // orgIDs as one string. The string lists each organization ID with its
 // decimal epoch in organization ID order. It issues every epoch read in one
-// transaction before it waits for any read. Any property definition or node
-// type change in one of the organizations changes the result.
+// transaction before it waits for any read. A stored property definition or
+// node type change from the metadata stores changes the result. The one-time
+// projection backfill leaves the epoch unchanged.
 func (s *ViewStore) MetadataEpoch(ctx context.Context, orgIDs []uuid.UUID) (epoch string, err error) {
 	defer telemetry.FDBOp(ctx, "store.view.metadata_epoch")(&err)
 	sorted := slices.Clone(orgIDs)

@@ -21,20 +21,21 @@ import (
 // maxSearchNameBytes bounds the name prefix stored for lexical boosting.
 const maxSearchNameBytes = 512
 
-// NodeContentStore reads one bounded projection-derived page from FoundationDB.
+// NodeContentStore reads bounded pages of node search text from FoundationDB.
 type NodeContentStore struct {
 	db       fdb.Database
 	policies *searchaccess.PolicySet
 }
 
-// NewNodeContentStore creates the revision-bound content reader.
+// NewNodeContentStore creates the node content reader.
 func NewNodeContentStore(db fdb.Database, policies *searchaccess.PolicySet) *NodeContentStore {
 	return &NodeContentStore{db: db, policies: policies}
 }
 
 // Content returns one bounded UTF-8 page of the node's current revision. It
-// returns ErrContentChanged when the cursor belongs to another revision or
-// projection, ErrWorkChanged when the search generation moved, and
+// returns ErrContentChanged when the request or cursor belongs to another
+// revision or projection. It returns ErrWorkChanged when the requested search
+// generation or access versions differ from the stored ones. It returns
 // ErrNotFound after deletion.
 func (s *NodeContentStore) Content(ctx context.Context, request searchdomain.ContentRequest) (page node.ContentPage, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_content.read")(&err)
@@ -81,8 +82,8 @@ func (s *NodeContentStore) Content(ctx context.Context, request searchdomain.Con
 	return page, nil
 }
 
-// contentIdentity is the node, revision, and projection of every page one
-// read returns.
+// contentIdentity stores the node, type, revision, projection, and name that
+// every page of one read shares.
 type contentIdentity struct {
 	nodeID     uuid.UUID
 	nodeType   string

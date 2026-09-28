@@ -27,8 +27,11 @@ func NewPropertyDefStore(db fdb.Database, source clock.Clock) *PropertyDefStore 
 	return &PropertyDefStore{db: db, clock: source, searchWork: false}
 }
 
-// Set stores def, its name index entry, and the projection digest, and
-// requests a content rescan when the declaration changed.
+// Set stores def and its name index entry. It increments the organization's
+// metadata epoch when the stored record changes, and it updates the
+// projection digest when the definition's identity, name, or declaration
+// changes. When search work is enabled, that declaration change also
+// requests a content rescan.
 func (s *PropertyDefStore) Set(ctx context.Context, def *node.PropertyDef) (err error) {
 	defer telemetry.FDBOp(ctx, "store.property_def.set")(&err)
 	b, err := json.Marshal(def)

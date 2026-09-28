@@ -37,7 +37,8 @@ func searchCursorKey(class string, orgID, nodeID uuid.UUID) []byte {
 	return withPrefix(tuple.Tuple{keySearchCursor, class, orgID.String(), nodeID.String()}.Pack())
 }
 
-// searchIssuedOrgPrefix covers every issued document of one organization.
+// searchIssuedOrgPrefix returns the key prefix of every issued document of
+// one organization.
 func searchIssuedOrgPrefix(orgID uuid.UUID) []byte {
 	return withPrefix(tuple.Tuple{keySearchIssued, orgID.String()}.Pack())
 }

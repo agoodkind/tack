@@ -18,7 +18,7 @@ import (
 // schedules search work for the node.
 func (s *NodeStore) CreateAtomic(ctx context.Context, current *node.Node, view *node.NodeView, relationships []*node.Relationship, indexedProps []string, referenceKeys []node.ReferenceKey, idempotency *node.IdempotencyRecord) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node.create_atomic")(&err)
-	transactionErr := runNodeMutation(ctx, s.db, "node.create_atomic", func(tr fdb.Transaction) error {
+	err = runNodeMutation(ctx, s.db, "create node "+current.ID.String()+" atomically", func(tr fdb.Transaction) error {
 		if err := writeCreateIdempotency(ctx, tr, current.OrgID, idempotency); err != nil {
 			return err
 		}
@@ -39,14 +39,7 @@ func (s *NodeStore) CreateAtomic(ctx context.Context, current *node.Node, view *
 		}
 		return writeStagedIntent(ctx, tr)
 	})
-	if transactionErr != nil {
-		if searchFailureWasLogged(transactionErr) {
-			return transactionErr
-		}
-		err = fmt.Errorf("create node atomically: %w", transactionErr)
-		if !searchFailureWasLogged(transactionErr) {
-			telemetry.L(ctx).ErrorContext(ctx, "node.create_atomic_failed", slog.String("err", err.Error()), slog.String("node_id", current.ID.String()))
-		}
+	if err != nil {
 		return err
 	}
 	commitStagedIntent(ctx)

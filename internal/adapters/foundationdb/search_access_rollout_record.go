@@ -29,7 +29,7 @@ type searchRolloutRecord struct {
 	PermissionEventVersion int64     `json:"permission_event_version"`
 }
 
-// stableRollout is the state of an authority that never ran a rollout.
+// stableRollout returns the state of an authority that never ran a rollout.
 func stableRollout(authorityID uuid.UUID) searchRolloutRecord {
 	return searchRolloutRecord{
 		AuthorityID: authorityID, ActiveVersion: searchaccess.StableVersion, CandidateVersion: "",
@@ -39,8 +39,8 @@ func stableRollout(authorityID uuid.UUID) searchRolloutRecord {
 	}
 }
 
-// readRollout reads the rollout of authorityID. An authority without a
-// record is stable on the stable policy version.
+// readRollout reads the rollout of authorityID. For an authority without a
+// record, it returns stableRollout.
 func readRollout(ctx context.Context, tr fdb.Transaction, authorityID uuid.UUID) (searchRolloutRecord, error) {
 	var record searchRolloutRecord
 	found, err := readSearchRecord(ctx, tr, searchRolloutKey(authorityID), &record)

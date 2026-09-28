@@ -71,7 +71,7 @@ func (s *NodeStore) Get(ctx context.Context, orgID, nodeID uuid.UUID) (n *node.N
 // transaction also schedules search work for the node.
 func (s *NodeStore) Set(ctx context.Context, current *node.Node, view *node.NodeView) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node.set")(&err)
-	transactionErr := runNodeMutation(ctx, s.db, "node.set", func(tr fdb.Transaction) error {
+	return runNodeMutation(ctx, s.db, "set node "+current.ID.String(), func(tr fdb.Transaction) error {
 		if err := writeNodeRecords(ctx, tr, current, view); err != nil {
 			return err
 		}
@@ -81,14 +81,4 @@ func (s *NodeStore) Set(ctx context.Context, current *node.Node, view *node.Node
 		_, scheduleErr := scheduleSearchChange(ctx, tr, s.clock.Now(), current.OrgID, current.ID, searchChangeContent)
 		return scheduleErr
 	})
-	if transactionErr != nil {
-		if searchFailureWasLogged(transactionErr) {
-			return transactionErr
-		}
-		err = fmt.Errorf("set node %s: %w", current.ID, transactionErr)
-		if !searchFailureWasLogged(transactionErr) {
-			telemetry.L(ctx).ErrorContext(ctx, "node.set_failed", slog.String("err", err.Error()), slog.String("node_id", current.ID.String()))
-		}
-	}
-	return err
 }

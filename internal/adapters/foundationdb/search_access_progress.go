@@ -14,12 +14,12 @@ import (
 )
 
 // BeginAccess records the compiled access of one access work item before
-// any page update is sent. Access that differs from the recorded access is
-// recorded at once, marks every current page and every dependent pending,
-// and restarts the pages phase at the first issued document. Recorded
-// access with pending pages continues the pages phase at the checkpoint.
-// Otherwise pending dependents start the dependents phase, and the work
-// finishes when nothing is pending.
+// any page update is sent. When the compiled access differs from the
+// recorded access, BeginAccess records it, marks every current page and
+// every dependent pending, and restarts the pages phase at the first issued
+// document. When pages are pending, the pages phase continues at the
+// checkpoint. When only dependents are pending, the dependents phase starts.
+// When nothing is pending, the work finishes.
 func (s *SearchWorkStore) BeginAccess(ctx context.Context, work searchdomain.Work, compiled node.SearchAccess) (plan searchdomain.AccessPlan, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_work.begin_access")(&err)
 	plan = searchdomain.AccessPlan{Work: work, Finished: false}
@@ -114,8 +114,8 @@ func sameAccess(recorded, compiled node.SearchAccess) bool {
 	return slices.Equal(recorded.Versions, compiled.Versions) && slices.Equal(recorded.Keys, compiled.Keys)
 }
 
-// accessRecordFor returns the recorded access state of one node. A node
-// without a record reads the stable policy version with no keys.
+// accessRecordFor returns the recorded access state of one node. For a node
+// without a record, it returns the stable policy version with no keys.
 func accessRecordFor(ctx context.Context, tr fdb.Transaction, orgID, nodeID uuid.UUID) (searchAccessRecord, error) {
 	var record searchAccessRecord
 	found, err := readSearchRecord(ctx, tr, searchAccessKey(orgID, nodeID), &record)

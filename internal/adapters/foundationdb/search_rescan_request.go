@@ -68,9 +68,8 @@ func requestSearchRescan(ctx context.Context, tr fdb.Transaction, now time.Time,
 
 // mergeScanRequest adds one request's content names and access flag to the
 // scan state. Content with no names selects every node. When the merged
-// names exceed maxRescanNames, the state stores no names and the scan
-// schedules content work for every node. That scan performs a superset of
-// the requested work, and the stored state stays within its bound.
+// names exceed maxRescanNames, the state stores no names, and the scan
+// schedules content work for every node.
 func mergeScanRequest(state searchScanRecord, names []string, access bool) searchScanRecord {
 	state.Access = state.Access || access
 	if len(names) == 0 {
