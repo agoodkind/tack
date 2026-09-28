@@ -11,10 +11,12 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// partitionHeadroomAlertFloor is the number of future weekly partitions below
-// which the manager logs an alert. Twelve are premade; four weeks of warning is
-// ample lead time to react before audit.events runs out.
-const partitionHeadroomAlertFloor = 4
+// partitionHeadroomAlertFloor is the pg_partman premake count that migration
+// 014 sets for audit.events. A successful maintenance run partitions the
+// current week and the two weeks after it. HeadroomWeeks counts only the
+// partitions that start after now and returns 2 after that run. The manager
+// logs an alert when the count falls below this floor.
+const partitionHeadroomAlertFloor = 2
 
 // partitionStore is the data-access seam for the partition-manager, so the loop
 // is unit-testable without a database.
