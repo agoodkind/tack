@@ -1,10 +1,10 @@
 # OpenSearch prototype and validation record
 
-This record accounts for the experiments that selected the OpenSearch design. Each
+This record lists the experiments that selected the OpenSearch design. Each
 experiment used a disposable local OpenSearch 3.8.0 environment. The results prove
-the stated engine behavior only. Tack integration, FoundationDB recovery, single-node
-QA and production operation, later production scale-out, authorization, and production
-capacity remain acceptance work.
+the stated engine behavior only. They do not prove Tack integration, FoundationDB
+recovery, single-node QA and production operation, later production scale-out,
+authorization, or production capacity.
 
 ## Text coverage prototypes
 
@@ -37,8 +37,8 @@ Results from the dense model do not set the GTE model's limits.
 
 The pagination fixture copied one small sparse value into the 37,500 documents to
 isolate traversal from document inference. The relevance and page-coverage tests used
-the real GTE model. These two tests answer different questions and must not be
-combined into a production throughput claim.
+the real GTE model. These two tests answer different questions. Do not combine them
+into a production throughput claim.
 
 ## Boundary and failure experiments
 
@@ -58,7 +58,7 @@ combined into a production throughput claim.
 | --- | --- | --- |
 | GTE memory at 4 GiB and 8 GiB | The 4 GiB container opened the ML memory circuit breaker during the duplicate-heavy traversal. The equivalent 8 GiB run completed and used about 3.4 GiB afterward. | Require at least 8 GiB for every guest that runs the model. Measure peak host memory during the complete workload. |
 | Official Go client v4.7.3 against OpenSearch 3.8.0 | The client completed index creation, bulk indexing, refresh, point-in-time creation and deletion, search request execution, alias changes, index and document reads, index deletion, metrics, and close. Stable v4 lacks typed ML Commons APIs and its typed search response does not preserve replacement point-in-time IDs and exact sort JSON. | Use typed core APIs. Use narrow `opensearch.Request` and response types through `opensearch.Do` and `opensearch.ParseError` for the missing fields and ML Commons. |
-| Native split with the GTE model undeployed | One source shard with eight reserved routing shards split to two green primaries. Five documents, seven generated chunks, every sparse weight, and the saved raw-sparse query matched exactly. The serving alias remained on the source until one atomic switch. | Use native split for a pure primary-shard increase. Existing embeddings are reused. |
+| Native split with the GTE model undeployed | One source shard with eight reserved routing shards split to two green primaries. Five documents, seven generated chunks, every sparse weight, and the saved raw-sparse query matched exactly. The serving alias remained on the source until one atomic switch. | Use native split for a pure primary-shard increase. Split reuses existing embeddings. |
 | Repeated native split | The same index split from one to two, four, and eight primaries while the model remained undeployed. The typed v4.7.3 `Indices.Split` request succeeded. After model redeployment, the target accepted and embedded a new document. | Reserve the routing path at index creation and keep split inside the existing replacement coordinator. |
 | Combined lexical and sparse ranking after split | Result order remained the same, but numeric scores changed because lexical scoring uses shard-local term statistics. | Rerun relevance and continuation after a split. Do not require identical combined scores. |
 | Existing infrastructure endpoint feasibility | Both Tack application guests in production connected to `3d06:bad:b01::254`; both QA guests connected to `3d06:bad:b01:210::5`. Port 9200 was unused on both hypervisors. Configs already deploys systemd services to both. The existing production Traefik 3.0 process was active with zero restarts and about 54 MiB resident memory, but it is one production-only LXC. | Run a separate Traefik service on each hypervisor. Tack receives one endpoint. Each proxy starts with one backend and accepts later backends without changing Tack. Do not route QA through the production proxy LXC. |
@@ -80,10 +80,10 @@ combined into a production throughput claim.
 
 ## Evidence archives
 
-The raw programs, requests, responses, profiles, rules, and failure outputs remain
-in local evidence archives rather than this documentation change. The hashes identify
-the exact archives used here. Implementation acceptance must reproduce the required
-behavior through Tack's public boundaries.
+Local evidence archives store the raw programs, requests, responses, profiles, rules,
+and failure outputs. This documentation does not include them. The hashes identify the
+exact archives. Implementation acceptance must reproduce the required behavior through
+the public boundaries of Tack.
 
 | Archive | SHA-256 | Contents |
 | --- | --- | --- |
@@ -93,9 +93,9 @@ behavior through Tack's public boundaries.
 | `sparse.tar.gz` | `2c6c996795ef0cd12c55a5c299e3f640c5cc230ef1672c8b069671f0715ba31c` | Mini sparse failure, GTE sparse success, memory, and error cases |
 | `native-semantic-client-audit.tar.gz` | `17fcea34be605e9268664c35a6bf563a75129e82d5d3b22fa14e13b9aa2f0182` | Native semantic field, query reuse, pagination, and Go client audit |
 | `native-opensearch-split-audit-2026-09-20.tar.gz` | `5fa7d0edae571f067b800b4da3a8da6d493bede488465dca228bcf81e914a810` | One-to-two split, repeated split path, alias switch, and typed client call |
-| `search-endpoint-feasibility-2026-09-20.tar.gz` | `66068ae4a7a7aea4a49d56bd04b6509c22c85d1cbcf82918c5a1cb828509dbe0` | Current configs revision, DNS, live host memory, app-to-hypervisor reachability, free listeners, guest resources, and the existing Traefik process |
+| `search-endpoint-feasibility-2026-09-20.tar.gz` | `66068ae4a7a7aea4a49d56bd04b6509c22c85d1cbcf82918c5a1cb828509dbe0` | Current configs revision, DNS, live host memory, app-to-hypervisor connectivity, free listeners, guest resources, and the existing Traefik process |
 | `qa-capacity-projection-2026-09-20.tar.gz` | `1daedefe0fb5172be60a83ba2554789fb733a24749293cdf927c94b8c244c935` | One-week memory and CPU bounds, physical hardware limits, active guest allocations, fast-pool capacity, and initial and scale-out calculations |
 | `qa-single-node-capacity-2026-09-20.tar.gz` | `0abc8060f8ad4bb8eca9b423e33e816b3776fea6d8166de9d593af26ab2fbde2` | Selected single-node QA topology, live memory gate, CPU and storage projections, and rejected multi-node claims |
 
-Future experiments must add their question, setup, observed result, plan consequence,
-raw artifact name, and SHA-256 here before the plan or PR claims the result.
+Before a plan or pull request claims a new experiment result, add the experiment's
+question, setup, observed result, plan consequence, raw artifact name, and SHA-256 here.

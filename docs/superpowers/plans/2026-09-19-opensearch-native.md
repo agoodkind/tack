@@ -1,14 +1,12 @@
 # Native OpenSearch Sparse Indexing Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> Agentic workers must implement this plan task by task with the `superpowers:subagent-driven-development` skill (recommended) or the `superpowers:executing-plans` skill. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add one production-connected official client that provisions and verifies complete native sparse semantic indexing.
+This plan adds one production-connected official client that provisions and verifies complete native sparse semantic indexing. It implements the [native sparse semantic indexing design](../specs/2026-09-19-search-design.md#native-sparse-semantic-indexing).
 
-**Architecture:** The official client owns transport behavior. Registered operator commands use the same adapter to provision and verify the cluster. A native `semantic` field stores the original page, creates overlapping character chunks, and runs the pinned sparse model. One strict generic access object supports partial permission updates without changing the semantic field. Tack validates bytes and document identity but never loads the model tokenizer.
+The official client owns transport behavior. Registered operator commands use the same adapter to provision and verify the cluster. A native `semantic` field stores the original page, creates overlapping character chunks, and runs the pinned sparse model. One strict generic access object supports partial permission updates without changing the semantic field. Tack validates bytes and document identity but never loads the model tokenizer.
 
-**Tech Stack:** OpenSearch 3.8.0, `opensearch-go/v4` v4.7.3, ML Commons, Docker SDK, Go.
-
-**Spec:** [Native sparse semantic indexing](../specs/2026-09-19-search-design.md#native-sparse-semantic-indexing).
+The work uses OpenSearch 3.8.0, `opensearch-go/v4` v4.7.3, ML Commons, the Docker SDK, and Go.
 
 ## Global Constraints
 
@@ -24,24 +22,24 @@ selection, model mismatch, and the 4 GiB memory failure.
 
 ### Task 1: Implement and register native sparse indexing control
 
-**Files:**
+This task changes these files:
 
-- Create: `internal/adapters/search/opensearch.go`
-- Create: `internal/adapters/search/opensearch_model.go`
-- Create: `internal/adapters/search/opensearch_mapping.go`
-- Create: `internal/testenv/opensearch.go`
-- Create: `internal/testenv/opensearch_tls.go`
-- Create: `internal/ops/cli_search.go`
-- Create: `internal/ops/search_provision.go`
-- Create: `internal/ops/search_verify.go`
-- Create: `internal/config/search.go`
-- Modify: `internal/config/config.go`
-- Test: `internal/test/integration/search_native_test.go`
-- Test: `internal/test/integration/search_control_test.go`
-- Modify: `go.mod`
-- Modify: `go.sum`
+- Create `internal/adapters/search/opensearch.go`.
+- Create `internal/adapters/search/opensearch_model.go`.
+- Create `internal/adapters/search/opensearch_mapping.go`.
+- Create `internal/testenv/opensearch.go`.
+- Create `internal/testenv/opensearch_tls.go`.
+- Create `internal/ops/cli_search.go`.
+- Create `internal/ops/search_provision.go`.
+- Create `internal/ops/search_verify.go`.
+- Create `internal/config/search.go`.
+- Modify `internal/config/config.go`.
+- Add the test `internal/test/integration/search_native_test.go`.
+- Add the test `internal/test/integration/search_control_test.go`.
+- Modify `go.mod`.
+- Modify `go.sum`.
 
-**Interfaces:**
+This task uses and adds these APIs:
 
 - This plan requires one validated stable endpoint, TLS CA bytes, credentials, and caller-selected shard counts.
 - This plan implements the production `Adapter`, pinned `ModelInfo`, index creation, replica settings, and registered provision and verify operations.
@@ -145,9 +143,7 @@ Add integration coverage that invokes both registered commands against the real 
 
 - [ ] **Step 13: Run the serial coding checks.**
 
-Run: `make build`
-
-Expected: PASS. The final validation plan runs the real OpenSearch checks.
+Run `make build` and require it to pass. The final validation plan runs the real OpenSearch checks.
 
 - [ ] **Step 14: Create the bottom Graphite slice.**
 

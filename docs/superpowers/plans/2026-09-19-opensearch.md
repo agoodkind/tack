@@ -1,16 +1,14 @@
 # OpenSearch Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> Agentic workers must implement this plan task by task with the `superpowers:subagent-driven-development` skill (recommended) or the `superpowers:executing-plans` skill.
 
-**Goal:** Remove the unused Meilisearch path first, then build and activate durable semantic search from FoundationDB without an intermediate search stack.
+This plan removes the unused Meilisearch path first. It then builds and activates durable semantic search from FoundationDB without an intermediate search stack.
 
-**Architecture:** The first release keeps `tack_search` registered and returns one fixed unavailable response while every other operation continues. Later vertical slices add the official OpenSearch client, explicit metadata, durable page indexing, ranked public search, refresh, replacement, QA coverage, and deployment configuration. FoundationDB remains authoritative throughout.
+The first release keeps `tack_search` registered and returns one fixed unavailable response while every other operation continues. Later vertical slices add the official OpenSearch client, explicit metadata, durable page indexing, ranked public search, refresh, replacement, QA coverage, and deployment configuration. FoundationDB remains authoritative throughout.
 
-**Tech Stack:** Go, FoundationDB, OpenSearch 3.8.0, `github.com/opensearch-project/opensearch-go/v4` v4.7.3, ML Commons, Docker SDK, MCP, Ansible, OpenTofu.
+The implementation uses Go, FoundationDB, OpenSearch 3.8.0, `github.com/opensearch-project/opensearch-go/v4` v4.7.3, ML Commons, the Docker SDK, MCP, Ansible, and OpenTofu.
 
-**Spec:** [Search architecture](../specs/2026-09-19-search-design.md) and [acceptance criteria](../specs/2026-09-19-search-acceptance.md).
-
-**Validation record:** [OpenSearch prototypes and experiments](2026-09-19-opensearch-validation.md).
+The [search architecture](../specs/2026-09-19-search-design.md) and [acceptance criteria](../specs/2026-09-19-search-acceptance.md) define the required behavior. The [OpenSearch prototypes and experiments](2026-09-19-opensearch-validation.md) record the validation evidence.
 
 ## Global Constraints
 
@@ -64,9 +62,9 @@
 
 ## Serial execution order
 
-The Tack and Configs removal pull requests are merged. Complete the removal release before creating the OpenSearch stack. Luna creates the dependent Tack slices as one Graphite stack. Sol validates the stack tip and applies each correction to the branch that owns the behavior.
+Complete the removal release before creating the OpenSearch stack. Luna creates the dependent Tack slices as one Graphite stack. Sol validates the stack tip and applies each correction to the branch that owns the behavior.
 
-1. [x] [Remove Meilisearch and preserve the public outage contract](2026-09-20-meilisearch-removal.md). Ticket: TACK-541.
+1. [Remove Meilisearch and preserve the public outage contract](2026-09-20-meilisearch-removal.md). Ticket: TACK-541.
 2. Merge and deploy that removal release through the first phase of the [release plan](2026-09-19-opensearch-release.md). Search remains temporarily unavailable.
 3. [Add the official client, native semantic mapping, and audited control operations](2026-09-19-opensearch-native.md). Tickets: TACK-530 and TACK-539.
 4. [Add explicit projection metadata and the expiring backfill](2026-09-19-opensearch-metadata.md). Ticket: TACK-542.
@@ -83,14 +81,14 @@ The [fixture reference](2026-09-19-opensearch-fixtures.md) defines shared real-d
 
 ## Pull request split and Graphite execution
 
-Use the `split-to-prs`, `graphite`, and `pr` skills during implementation. Reuse an open implementation pull request only when it already contains the same slice and preserves all unique work. The current design pull request is documentation and cannot become an implementation branch.
+Use the `split-to-prs`, `graphite`, and `pr` skills during implementation. Reuse an open implementation pull request only when it already contains the same slice and preserves all unique work. The design pull request is documentation and cannot become an implementation branch.
 
-The independent removal pull requests are complete:
+The removal release uses these independent pull requests:
 
-| Repository | Pull request | Status |
-| --- | --- | --- |
-| Tack | [#271](https://github.com/agoodkind/tack/pull/271) | Merged |
-| Configs | [#479](https://github.com/agoodkind/configs/pull/479) | Merged |
+| Repository | Pull request |
+| --- | --- |
+| Tack | [#271](https://github.com/agoodkind/tack/pull/271) |
+| Configs | [#479](https://github.com/agoodkind/configs/pull/479) |
 
 Complete the remaining deployment and live verification work in release Phase A. Then start the following Tack stack from the updated `origin/main`:
 
@@ -105,7 +103,7 @@ Complete the remaining deployment and live verification work in release Phase A.
 | 7 | `[TACK-538] Add guarded OpenSearch QA verification` | QA datagen |
 | 8 | `[TACK-539] Add the scalable OpenSearch container and provisioning contract` | Tack deployment files |
 
-These dependencies are real. Each higher slice calls interfaces or production paths created by the slice below it. Each branch must pass `make build` at its stack position. Keep every test in the branch that adds the behavior.
+Each higher slice calls interfaces or production paths created by the slice below it. Each branch must pass `make build` at its stack position. Keep every test in the branch that adds the behavior.
 
 Create `[TACK-540] Provision one initial OpenSearch guest per environment` as one independent Configs pull request after the Tack container contract is committed. A branch in another repository cannot join the Tack Graphite stack.
 
@@ -115,7 +113,7 @@ Create the slices from bottom to top with Graphite MCP `create`. Pass the exact 
 
 Use the `pr` skill to write every title and body after Graphite assigns pull request numbers. Add `(PR x/N)` only when the numbers are not consecutive in bottom-to-top order. Mark the pull requests ready after their bodies are complete.
 
-Sol validates the stack tip with the independent Configs pull request. Route a correction to its owning branch with Graphite MCP `modify` or a reviewed `absorb --dry-run` followed by `absorb --force`. Restack from the corrected branch through its upstack, verify every rewritten signature, preview the stack submission, and submit it again. Do not merge the stack until the final validation plan passes. Merge it bottom to top through Graphite after separate authorization.
+Sol validates the stack tip with the independent Configs pull request. Apply each correction to its owning branch with Graphite MCP `modify` or a reviewed `absorb --dry-run` followed by `absorb --force`. Restack from the corrected branch through its upstack, verify every rewritten signature, preview the stack submission, and submit it again. Do not merge the stack until the final validation plan passes. Merge it bottom to top through Graphite after separate authorization.
 
 ## Durable interface boundaries
 
