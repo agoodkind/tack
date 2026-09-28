@@ -9,6 +9,12 @@
 //	                      print its endpoint, bucket, keys, and container
 //	testenv objectstore-stop CONTAINER   stop that object store, as its guest stops
 //	testenv objectstore-start CONTAINER  start it again and print its endpoint
+//	testenv search-cluster MEMBERS  start MEMBERS OpenSearch members behind a
+//	                      Traefik proxy and print the proxy endpoint, login,
+//	                      each member's proxy status, and the CA certificate
+//	testenv search-cluster-drill MEMBERS  start that cluster, then stop and
+//	                      restart each member in turn and print the proxy
+//	                      status while each member is down
 //	testenv shared-dir    create a directory the Docker daemon sees at the same path, print it
 //	testenv down          remove every engine the tool or any test started
 //
@@ -37,12 +43,15 @@ const (
 	subcommandObjectStore  subcommand = "objectstore"
 	subcommandStopStore    subcommand = "objectstore-stop"
 	subcommandStartStore   subcommand = "objectstore-start"
+	subcommandSearch       subcommand = "search-cluster"
+	subcommandSearchDrill  subcommand = "search-cluster-drill"
 	subcommandSharedDir    subcommand = "shared-dir"
 	subcommandDown         subcommand = "down"
 )
 
 const usage = "usage: testenv ledger | foundationdb | opensearch | objectstore | " +
-	"objectstore-stop CONTAINER | objectstore-start CONTAINER | shared-dir | down"
+	"objectstore-stop CONTAINER | objectstore-start CONTAINER | search-cluster MEMBERS | " +
+	"search-cluster-drill MEMBERS | shared-dir | down"
 
 func main() {
 	code := run(os.Args[1:])
@@ -59,15 +68,17 @@ func run(args []string) int {
 		return 2
 	}
 	command := subcommand(args[0])
-	containerName := ""
+	argument := ""
 	if len(args) == 2 {
-		containerName = args[1]
+		argument = args[1]
 	}
-	if (containerName != "") != (command == subcommandStopStore || command == subcommandStartStore) {
+	takesArgument := command == subcommandStopStore || command == subcommandStartStore ||
+		command == subcommandSearch || command == subcommandSearchDrill
+	if (argument != "") != takesArgument {
 		_, _ = fmt.Fprintln(os.Stderr, usage)
 		return 2
 	}
-	slog.Info("testenv.start", slog.String("command", args[0]), slog.String("container", containerName))
+	slog.Info("testenv.start", slog.String("command", args[0]), slog.String("argument", argument))
 	switch command {
 	case subcommandLedger:
 		return runStep(func(step *cliStep) { _, _ = fmt.Println(testenv.Ledger(step)) })
@@ -86,9 +97,21 @@ func run(args []string) int {
 				store.ReadOnlyAccessKey, store.ReadOnlySecretKey, store.Container)
 		})
 	case subcommandStopStore:
-		return runStep(func(step *cliStep) { testenv.StopObjectStore(step, containerName) })
+		return runStep(func(step *cliStep) { testenv.StopObjectStore(step, argument) })
 	case subcommandStartStore:
-		return runStep(func(step *cliStep) { _, _ = fmt.Println(testenv.StartObjectStore(step, containerName)) })
+		return runStep(func(step *cliStep) { _, _ = fmt.Println(testenv.StartObjectStore(step, argument)) })
+	case subcommandSearch, subcommandSearchDrill:
+		members, err := strconv.Atoi(argument)
+		if err != nil || members < 1 {
+			_, _ = fmt.Fprintln(os.Stderr, usage)
+			return 2
+		}
+		return runStep(func(step *cliStep) {
+			cluster := startSearchCluster(step, members)
+			if command == subcommandSearchDrill {
+				drillSearchCluster(step, cluster)
+			}
+		})
 	case subcommandSharedDir:
 		return runStep(func(step *cliStep) { _, _ = fmt.Println(testenv.SharedDir(step)) })
 	case subcommandDown:

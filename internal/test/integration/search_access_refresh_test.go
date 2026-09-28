@@ -1,7 +1,6 @@
 package integration
 
 import (
-	"context"
 	"errors"
 	"slices"
 	"strings"
@@ -36,11 +35,7 @@ func TestSearchAccessVersionWithoutRebuild(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read pinned model: %v", err)
 	}
-	redeploy := func(ctx context.Context) error {
-		_, provisionErr := fixture.Adapter.Provision(ctx)
-		return provisionErr
-	}
-	undeployNativeModel(t, fixture.Client, model.ID, redeploy)
+	undeployNativeModel(t, fixture.Adapter, fixture.Client, model.ID)
 
 	beginRollout(t, fixture, workspace.OrgID, searchaccess.RotatedVersion)
 	final := runRolloutUntilStable(t, fixture, fixture.Worker, workspace.OrgID, func(searchdomain.AccessPhase) {})
@@ -52,7 +47,7 @@ func TestSearchAccessVersionWithoutRebuild(t *testing.T) {
 	requireSemanticPreserved(t, before, after)
 	requireAccessVersions(t, after, []string{searchaccess.RotatedVersion})
 
-	if err := redeploy(t.Context()); err != nil {
+	if err := redeployNativeModel(t.Context(), fixture.Adapter, fixture.Client); err != nil {
 		t.Fatalf("redeploy pinned model: %v", err)
 	}
 	results := callEverySearchPage(t, "rotated key orchard", fixture.Harness)

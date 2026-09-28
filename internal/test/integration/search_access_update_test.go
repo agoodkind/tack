@@ -2,7 +2,6 @@ package integration
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"slices"
 	"strings"
@@ -79,10 +78,7 @@ func TestSearchAccessOnlyUpdateWithoutModel(t *testing.T) {
 	if len(before) < 2 {
 		t.Fatalf("child has %d pages, want several", len(before))
 	}
-	undeployNativeModel(t, client, model.ID, func(ctx context.Context) error {
-		_, err := adapter.Provision(ctx)
-		return err
-	})
+	undeployNativeModel(t, adapter, client, model.ID)
 	moveChild(t, stores, moved)
 	runSearchWorkerUntilIdle(t, worker)
 	after := searchNodePages(t, client, index, moved.Fixture.NodeID, false)

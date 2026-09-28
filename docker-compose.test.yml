@@ -40,6 +40,8 @@ services:
       TMPDIR: /tmp/tack-test
       # "1" runs the OpenSearch-backed search tests. `make test-search` sets it.
       TACK_SEARCH_INTEGRATION: ${TACK_SEARCH_INTEGRATION:-}
+      # "1" also runs the multi-member cluster tests, which need 24 GiB.
+      TACK_SEARCH_CLUSTER: ${TACK_SEARCH_CLUSTER:-}
     working_dir: ${TACK_TEST_ROOT:?set TACK_TEST_ROOT to the repository's host path}
     profiles: ["runner"]
 

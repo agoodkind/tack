@@ -120,13 +120,22 @@ func (a *Adapter) deployOnce(ctx context.Context, modelID string) error {
 	return nil
 }
 
+// waitModelTask polls taskID once a second until the task ends or five
+// minutes pass. JVM heap use can exceed the parent circuit breaker limit
+// while a model deploy runs, and the engine then rejects every request with
+// status 429. A poll that receives status 429 does not end the wait, because
+// the task continues to run on the engine.
 func (a *Adapter) waitModelTask(ctx context.Context, taskID string) (string, error) {
 	deadline, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	for {
 		var task modelTask
 		response, err := opensearch.Do(deadline, a.client, http.MethodGet, modelTaskRequest{taskID: taskID}, &task)
-		if err := checkMLResponse(ctx, response, err); err != nil {
+		if err == nil && response != nil && response.StatusCode == http.StatusTooManyRequests {
+			telemetry.L(ctx).InfoContext(ctx, "search.model.task_poll_rejected", slog.String("task_id", taskID),
+				slog.String("reason", opensearch.ParseError(response).Error()))
+			task.State = string(modelTaskRunning)
+		} else if err := checkMLResponse(ctx, response, err); err != nil {
 			wrapped := fmt.Errorf("read OpenSearch ML task %s: %w", taskID, err)
 			if !isLoggedModelError(err) {
 				telemetry.L(ctx).ErrorContext(ctx, "search.model.task_failed", slog.String("err", wrapped.Error()), slog.String("task_id", taskID))
