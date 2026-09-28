@@ -11,9 +11,10 @@ import (
 const openSearchImage = "opensearchproject/opensearch:3.8.0"
 
 // SearchIntegrationVariable must equal "1" for a test binary to start an
-// OpenSearch engine. The default engine takes 8 GiB, a memory-failure test
-// sets a smaller limit, and every engine downloads the 555 MB model.
-// The general test jobs leave it unset and skip every OpenSearch-backed test.
+// OpenSearch engine. The default engine uses 8 GiB of memory. A
+// memory-failure test sets a smaller limit. Every engine downloads the 555 MB
+// model. The general test jobs leave it unset and skip every OpenSearch-backed
+// test.
 // The search integration job and the validation runner set it.
 const SearchIntegrationVariable = "TACK_SEARCH_INTEGRATION"
 

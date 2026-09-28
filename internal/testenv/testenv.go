@@ -1,16 +1,16 @@
 // Package testenv gives tests a real YugabyteDB ledger, a real FoundationDB
-// cluster, and a real SeaweedFS object store. Each process starts its own
-// engines as containers through the Docker SDK. Test binaries running in
-// parallel share no engine state. [Release] removes the containers at the end
-// of the binary's TestMain. The engine images match the live stores in
-// docker-compose.yml. The object store uses the release pinned by the configs
-// repository.
+// cluster, a real OpenSearch engine, and a real SeaweedFS object store. Each
+// process starts its own engines as containers with the Docker SDK. Test
+// binaries running in parallel share no engine state. [Release] removes the
+// containers at the end of the binary's TestMain. The ledger and FoundationDB
+// images match the live stores in docker-compose.yml. The object store uses
+// the release pinned by the configs repository.
 //
-// A test that needs a store calls [Ledger], [FoundationDB], or [ObjectStore].
-// When the Docker daemon cannot be reached the test fails with
-// the reason; only a `go test -short` run skips it. cmd/testenv drives the
-// same helpers for an operator, and its `down` subcommand removes every engine
-// by label.
+// A test that needs a store calls [Ledger], [FoundationDB], [OpenSearch], or
+// [ObjectStore]. When the Docker daemon does not answer, the test fails with
+// the reason. A `go test -short` run skips it. An OpenSearch test also skips
+// unless [SearchIntegrationVariable] is "1". cmd/testenv runs the same helpers
+// for an operator, and its `down` subcommand removes every engine by label.
 package testenv
 
 import (

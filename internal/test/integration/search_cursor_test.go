@@ -141,8 +141,9 @@ func TestSearchCursorOnePredictionPerSession(t *testing.T) {
 	}
 }
 
-// TestSearchCursorReplayAndConcurrency retries a lost response and runs
-// concurrent calls for one cursor. Each committed page must replay exactly.
+// TestSearchCursorReplayAndConcurrency requires a retry after a lost response
+// to replay the committed page exactly. Concurrent calls with one cursor must
+// all receive the same page.
 func TestSearchCursorReplayAndConcurrency(t *testing.T) {
 	fixture := newQueryFixture(t, defaultQueryOptions())
 	putCursorCorpus(t, fixture, "granite orchard", 120)

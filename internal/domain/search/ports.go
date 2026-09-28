@@ -39,7 +39,8 @@ type ContentCheckpoints interface {
 }
 
 // BatchCheckpoints reads issued documents and checkpoints bounded batches.
-// BeginAccess records compiled access before any page update is sent.
+// BeginAccess records compiled access before the worker sends any page
+// update.
 type BatchCheckpoints interface {
 	Documents(context.Context, Work, int) (DocumentBatch, error)
 	CompleteRetirement(context.Context, Work, []IssuedDocument, bool) error
@@ -57,7 +58,7 @@ type WorkStore interface {
 	BatchCheckpoints
 }
 
-// PageWriter writes, updates, or retires page documents through OpenSearch.
+// PageWriter writes, updates, or retires page documents in OpenSearch.
 // Batch writes return the length of the accepted contiguous prefix.
 type PageWriter interface {
 	Put(context.Context, WriteIntent) (int, error)

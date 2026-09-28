@@ -8,8 +8,9 @@ import (
 	"github.com/google/uuid"
 )
 
-// TestSearchUnavailableWhileDisabled indexes a node while the public flag is
-// false. Every call, including exact references, returns the exact message.
+// TestSearchUnavailableWhileDisabled requires every search call, including an
+// exact reference to an indexed node, to return exactly the unavailable
+// message while the public flag is false.
 func TestSearchUnavailableWhileDisabled(t *testing.T) {
 	options := defaultQueryOptions()
 	options.Public = false
@@ -35,8 +36,8 @@ func TestSearchUnavailableWhileDisabled(t *testing.T) {
 	}
 }
 
-// TestSearchEmptyQuery requires empty, blank, and oversized queries to fail
-// through the authenticated handler before inference.
+// TestSearchEmptyQuery requires the authenticated handler to return an error
+// result that mentions the query for an empty, blank, or oversized query.
 func TestSearchEmptyQuery(t *testing.T) {
 	fixture := newQueryFixture(t, defaultQueryOptions())
 	for _, query := range []string{"", "   ", strings.Repeat("q", 1025)} {
@@ -56,7 +57,7 @@ const excludedAuthValue = "zirconium"
 
 // TestSearchAuthenticatedResults requires an authenticated caller to find an
 // indexed node and an anonymous caller to be refused. No stored page text
-// contains the excluded value.
+// may contain the excluded value.
 func TestSearchAuthenticatedResults(t *testing.T) {
 	fixture := newQueryFixture(t, defaultQueryOptions())
 	workspace := fixture.Workspaces[0]

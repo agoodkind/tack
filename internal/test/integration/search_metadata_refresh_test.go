@@ -10,12 +10,12 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// TestSearchMetadataAfterStartup stores a node with a value under an
-// undeclared property name, then declares the property after Tack started.
-// The same process must list the new definition in tack_list_property_defs
-// and return the node for its value without a restart or an index change.
-// The pages of a node without that property must keep their semantic fields
-// byte for byte.
+// TestSearchMetadataAfterStartup requires a running Tack process to list a
+// property definition declared after startup in tack_list_property_defs. The
+// process must then return a node for its value under that property without
+// a restart or an index change. The node stores the value before the
+// declaration exists. The pages of a node without that property must keep
+// their semantic fields byte for byte.
 func TestSearchMetadataAfterStartup(t *testing.T) {
 	fixture := newQueryFixture(t, defaultQueryOptions())
 	workspace := fixture.Workspaces[0]

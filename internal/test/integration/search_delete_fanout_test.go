@@ -16,10 +16,11 @@ const (
 	deleteFanoutSlices       = 3000
 )
 
-// TestSearchDeleteSchedulesBoundedFanout deletes a node with more than 100
-// relationships. The delete must record one access work item for the
-// deleted node, the first slice of that work must schedule exactly 100
-// counterparts, and the remaining counterparts must follow in later slices.
+// TestSearchDeleteSchedulesBoundedFanout requires the delete of a node with
+// more than 100 relationships to record one access work item for the deleted
+// node. The first slice of that work must schedule exactly 100 counterparts
+// and keep the deleted node's work pending. Later slices must finish the
+// fanout and leave no access or cleanup work.
 func TestSearchDeleteSchedulesBoundedFanout(t *testing.T) {
 	stores := newSearchStore(t)
 	adapter, _, _, _ := newSearchIndex(t, stores)

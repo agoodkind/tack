@@ -89,7 +89,7 @@ type RestoreDrillOptions struct {
 // and verifies data in each restored store. The YugabyteDB leg also verifies
 // the restored audit ledger's hash chain. RunBackupRestoreDrill returns an
 // error when any attempted leg fails. Each leg runs even after another leg
-// fails, so the final result reports every failing leg. RestoreDrillOptions can
+// fails. The final result reports every failing leg. RestoreDrillOptions can
 // pin the YugabyteDB leg to one export run and the FoundationDB leg to one
 // moment. A fully passing drill records a rehearsal marker in the object store.
 // A failed marker write fails the drill without rerunning either restore leg.

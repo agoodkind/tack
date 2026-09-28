@@ -49,9 +49,10 @@ func snapshotProjectionKeys(t *testing.T) map[string]projectionKeyValue {
 	return snapshot
 }
 
-// withoutProjectionMetadata removes the definition records, their
-// property-name index entries, and the audit outbox. Every search work,
-// projection digest, and scan key must remain unchanged.
+// withoutProjectionMetadata returns a copy of snapshot without the property
+// definition records, their property-name index entries, and the audit
+// outbox entries. A backfill must leave every remaining key unchanged,
+// including the search work, projection digest, and scan keys.
 func withoutProjectionMetadata(snapshot map[string]projectionKeyValue) map[string]projectionKeyValue {
 	other := make(map[string]projectionKeyValue)
 	for key, value := range snapshot {

@@ -136,8 +136,8 @@ func processHarness(harness *MCPHarness, graph *appruntime.Graph) *MCPHarness {
 	}
 }
 
-// entryPoint returns the entry node of one bootstrapped workspace, found
-// through the organization's entry-point type metadata.
+// entryPoint returns the entry node of one bootstrapped workspace. It finds
+// the node through the entry-point type metadata of the organization.
 func entryPoint(t *testing.T, fixture queryFixture, workspace datagen.WorkspaceIdentity) uuid.UUID {
 	t.Helper()
 	types, err := fixture.Stores.NodeTypes.List(t.Context(), workspace.OrgID)

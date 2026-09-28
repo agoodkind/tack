@@ -11,9 +11,9 @@ import (
 // strictMappingError is the OpenSearch error type for an undeclared property.
 const strictMappingError = "strict_dynamic_mapping_exception"
 
-// TestSearchNativeDocumentForms stores each page text form that Tack writes
-// and requires OpenSearch to return it unchanged. Tack rejects an empty page
-// before any write. The forms exclude an empty page.
+// TestSearchNativeDocumentForms requires OpenSearch to return each page text
+// form that Tack writes unchanged. The forms exclude an empty page because
+// Tack rejects an empty page before any write.
 func TestSearchNativeDocumentForms(t *testing.T) {
 	adapter, client := nativeSearchClients(t)
 	model, err := adapter.Provision(t.Context())

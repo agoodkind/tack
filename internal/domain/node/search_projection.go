@@ -10,7 +10,7 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// TextRule controls how a property value contributes to the searchable text.
+// TextRule selects the searchable text that one property value produces.
 // The content reader applies the rule to every property value of any node
 // type.
 type TextRule struct {
@@ -40,7 +40,8 @@ type ProjectionManifestEntry struct {
 	Search        SearchProjection `json:"search"`
 }
 
-// ProjectionBackfillResult reports bounded manifest application progress.
+// ProjectionBackfillResult reports the definition counts of one manifest
+// backfill and the identities it planned, applied, or found missing.
 type ProjectionBackfillResult struct {
 	Scanned    int                  `json:"scanned"`
 	Changed    int                  `json:"changed"`
@@ -58,13 +59,13 @@ type ProjectionIdentity struct {
 	PropertyDefID uuid.UUID `json:"property_def_id"`
 }
 
-// LoggedProjectionError marks an error already emitted through request telemetry.
+// LoggedProjectionError marks an error that request telemetry already logged.
 type LoggedProjectionError struct{ Cause error }
 
 // Error returns the original failure text.
 func (e LoggedProjectionError) Error() string { return e.Cause.Error() }
 
-// Unwrap preserves the original failure for callers.
+// Unwrap returns the original failure.
 func (e LoggedProjectionError) Unwrap() error { return e.Cause }
 
 const (

@@ -75,8 +75,8 @@ func (control searchControl) provisionFromEmpty(t *testing.T) {
 	}
 }
 
-// indexUUID returns the engine's identity of one physical index, which
-// changes when the index is recreated.
+// indexUUID returns the OpenSearch UUID of one physical index. Recreating the
+// index changes its UUID.
 func (control searchControl) indexUUID(t *testing.T, index string) string {
 	t.Helper()
 	response, err := control.client.Indices.Settings.Get(t.Context(), &opensearchapi.SettingsGetReq{Indices: []string{index}})

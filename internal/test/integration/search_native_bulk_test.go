@@ -95,7 +95,7 @@ const (
 	// nativeBulkRetryWindow bounds the resends of a bulk request that the ML
 	// Commons memory circuit breaker rejects with status 429.
 	nativeBulkRetryWindow = 2 * time.Minute
-	// nativeBulkRetryInterval spaces those resends.
+	// nativeBulkRetryInterval is the delay between those resends.
 	nativeBulkRetryInterval = 2 * time.Second
 )
 

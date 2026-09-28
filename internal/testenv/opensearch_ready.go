@@ -18,7 +18,7 @@ import (
 const openSearchProbeTimeout = 10 * time.Second
 
 // waitForOpenSearchHealth polls cluster health with the fixture's credentials
-// through the production client settings until the engine returns HTTP 200.
+// and the production client settings until the engine returns HTTP 200.
 // The security plugin rejects requests until its index exists. An HTTP 200
 // requires completed TLS, authentication, and security initialization.
 func waitForOpenSearchHealth(ctx context.Context, fixture OpenSearchFixture) error {

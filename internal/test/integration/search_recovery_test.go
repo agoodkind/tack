@@ -14,9 +14,10 @@ import (
 
 const recoveryPageBytes = 128
 
-// TestSearchRecoveryAfterLeaseExpiry stops an owner after it registered a
-// page, lets its lease expire, restarts the stores, and requires the
-// production worker to finish the node while the old owner cannot checkpoint.
+// TestSearchRecoveryAfterLeaseExpiry requires the production worker to finish
+// indexing a node after the lease of the previous owner expires. The old
+// owner must fail to checkpoint. The old owner stops after it registers a
+// page, and the worker runs on reopened stores.
 func TestSearchRecoveryAfterLeaseExpiry(t *testing.T) {
 	stores := newSearchStore(t)
 	adapter, client, _, index := newSearchIndex(t, stores)
@@ -56,11 +57,11 @@ func TestSearchRecoveryAfterLeaseExpiry(t *testing.T) {
 	requireIndexedPages(t, searchNodePages(t, client, index, fixture.NodeID, false), pages, oldWork.Generation)
 }
 
-// TestSearchRecoveryProjectionChangeBetweenOwners writes the first page
-// under one projection, stops that owner before its checkpoint, changes the
-// projection, and lets a second owner read and register the same first
-// page. The second registration must not replace the first document ID, and
-// the first document must be retired.
+// TestSearchRecoveryProjectionChangeBetweenOwners requires a second owner to
+// fail with changed content when it registers the first page again after a
+// projection change. The worker must then retire the document that the first
+// owner wrote. The first owner writes that page and stops before its
+// checkpoint.
 func TestSearchRecoveryProjectionChangeBetweenOwners(t *testing.T) {
 	stores := newSearchStore(t)
 	adapter, client, _, index := newSearchIndex(t, stores)
@@ -120,9 +121,10 @@ func TestSearchRecoveryProjectionChangeBetweenOwners(t *testing.T) {
 	requireIndexedPages(t, searchNodePages(t, client, index, fixture.NodeID, false), pages, oldWork.Generation)
 }
 
-// TestSearchDelayedWriter registers a page write and sends it only after the
-// node is deleted and its pages are retired. OpenSearch must reject it and
-// leave the text-free retirement unchanged at the higher generation.
+// TestSearchDelayedWriter requires OpenSearch to reject a registered page
+// write that the old worker sends after the node is deleted and its pages
+// are retired.
+// The retired document must stay free of text at the higher generation.
 func TestSearchDelayedWriter(t *testing.T) {
 	stores := newSearchStore(t)
 	adapter, client, _, index := newSearchIndex(t, stores)

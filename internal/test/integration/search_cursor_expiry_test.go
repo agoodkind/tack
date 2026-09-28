@@ -71,10 +71,10 @@ func continued(request service.SearchRequest, page service.SearchPage) service.S
 	return request
 }
 
-// TestSearchSessionDeadlines verifies the idle deadline and the absolute
-// deadline in real time. Neither replay nor activity extends the absolute
-// deadline. The last continuation renews the idle deadline to the absolute
-// deadline, which caps it.
+// TestSearchSessionDeadlines requires an idle session to expire at its idle
+// deadline and an active session to expire at its absolute deadline, in real
+// time. Neither replay nor activity extends the absolute deadline. The
+// absolute deadline caps the idle deadline that each continuation renews.
 func TestSearchSessionDeadlines(t *testing.T) {
 	fixture := newQueryFixture(t, defaultQueryOptions())
 	putCursorCorpus(t, fixture, "linen compass", 300)
@@ -119,9 +119,9 @@ func TestSearchSessionDeadlines(t *testing.T) {
 	}
 }
 
-// TestSearchExpiredSessionCleanup requires a new search to delete an expired
-// session's records. The sweep lists a session after the minute of its idle
-// deadline ends. The test waits for the end of that minute.
+// TestSearchExpiredSessionCleanup requires a new search to delete the records
+// of an expired session. The sweep lists a session only after the minute of
+// its idle deadline ends, and the test waits for the end of that minute.
 func TestSearchExpiredSessionCleanup(t *testing.T) {
 	fixture := newQueryFixture(t, defaultQueryOptions())
 	putCursorCorpus(t, fixture, "saddle beacon", 60)
@@ -142,8 +142,9 @@ func TestSearchExpiredSessionCleanup(t *testing.T) {
 	}
 }
 
-// TestSearchByteLimitedResponse stops each page before the first result
-// that would exceed the response budget and still returns every node.
+// TestSearchByteLimitedResponse requires search to end each page before the
+// first result that would exceed the response budget. The traversal must
+// still return every node exactly once.
 func TestSearchByteLimitedResponse(t *testing.T) {
 	fixture := newQueryFixture(t, defaultQueryOptions())
 	workspace := fixture.Workspaces[0]

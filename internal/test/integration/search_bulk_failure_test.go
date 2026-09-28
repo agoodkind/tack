@@ -37,9 +37,9 @@ func rewriteSearchGeneration(t *testing.T, client *opensearchapi.Client, index s
 	requireBulkSucceeded(t, nativeBulk(t, client, nativeIndexAction(t, index, page.ID, int(value), encodeNativeJSON(t, document))))
 }
 
-// TestSearchPartialAccessFailureResumes fails one item in the middle of an
-// access-only batch. The store must checkpoint only the accepted prefix, and
-// the retried work must resume after it.
+// TestSearchPartialAccessFailureResumes requires the store to checkpoint only
+// the accepted prefix when one item in the middle of an access-only batch
+// fails. The retried work must resume after that prefix.
 func TestSearchPartialAccessFailureResumes(t *testing.T) {
 	stores := newSearchStore(t)
 	adapter, client, _, index := newSearchIndex(t, stores)
@@ -68,10 +68,10 @@ func TestSearchPartialAccessFailureResumes(t *testing.T) {
 	if !failed {
 		t.Fatal("the access batch with a failing item succeeded")
 	}
-	// OpenSearch applies each bulk item on its own. The pages after the
-	// failed item can receive the update in the same request. The worker
-	// checkpoints only the accepted prefix, and the retry leaves those later
-	// pages unchanged because their generation already matches.
+	// The check skips the pages after the failed item. OpenSearch applies
+	// each bulk item separately, and those pages can receive the update in
+	// the same request. The retry leaves them unchanged because their
+	// generation already matches.
 	partial := searchNodePages(t, client, index, moved.Fixture.NodeID, false)
 	for position, page := range partial[:3] {
 		updated := !slices.Equal(page.Access.Keys, before[position].Access.Keys)

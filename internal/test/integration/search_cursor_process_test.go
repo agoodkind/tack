@@ -5,10 +5,11 @@ import (
 	"testing"
 )
 
-// TestSearchCursorAcrossProcesses opens a session on one Tack process and
-// alternates every continuation between two processes over the same
-// FoundationDB and OpenSearch. A newly built third process then replays a
-// committed continuation from durable state alone.
+// TestSearchCursorAcrossProcesses requires a traversal that alternates every
+// continuation between two Tack processes to return each corpus node once. A
+// newly built third process must replay a committed continuation from
+// durable state alone. All three processes use the same FoundationDB and
+// OpenSearch.
 func TestSearchCursorAcrossProcesses(t *testing.T) {
 	fixture := newQueryFixture(t, defaultQueryOptions())
 	nodes := putCursorCorpus(t, fixture, "copper meadow", 140)

@@ -7,10 +7,10 @@ import (
 	"github.com/google/uuid"
 )
 
-// TestSearchSemanticPairs indexes six accepted targets beside 165
-// distractors. Each query must return its target within the first 25
-// distinct nodes three times, and the lexical-only control must miss at
-// least one pair that the combined query retrieves.
+// TestSearchSemanticPairs requires each of six accepted queries to return its
+// target on the first page in three attempts, with 165 distractors indexed.
+// The lexical-only control must miss at least one target that the combined
+// query returns.
 func TestSearchSemanticPairs(t *testing.T) {
 	fixture := newQueryFixture(t, defaultQueryOptions())
 	workspace := fixture.Workspaces[0]
