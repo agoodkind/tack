@@ -19,7 +19,10 @@ type PhysicalSettings struct {
 	Replicas      int
 }
 
-// IndexSettings reads physical shard topology from the typed settings API.
+// IndexSettings reads the primary and replica counts from the typed settings
+// API and the routing shard count from the index metadata in the cluster
+// state. A split target has no index.number_of_routing_shards setting. Its
+// metadata still records the routing shard count.
 func (a *Adapter) IndexSettings(ctx context.Context, index string) (PhysicalSettings, error) {
 	response, err := a.api.Indices.Settings.Get(ctx, &opensearchapi.SettingsGetReq{Indices: []string{index}})
 	if err != nil {
@@ -35,9 +38,8 @@ func (a *Adapter) IndexSettings(ctx context.Context, index string) (PhysicalSett
 	}
 	var decoded struct {
 		Index struct {
-			Primaries     json.Number `json:"number_of_shards"`
-			RoutingShards json.Number `json:"number_of_routing_shards"`
-			Replicas      json.Number `json:"number_of_replicas"`
+			Primaries json.Number `json:"number_of_shards"`
+			Replicas  json.Number `json:"number_of_replicas"`
 		} `json:"index"`
 	}
 	if err := json.Unmarshal(entry.Settings, &decoded); err != nil {
@@ -51,19 +53,39 @@ func (a *Adapter) IndexSettings(ctx context.Context, index string) (PhysicalSett
 		telemetry.L(ctx).ErrorContext(ctx, "search.index.settings_invalid", slog.String("err", wrapped.Error()), slog.String("index", index))
 		return PhysicalSettings{}, wrapped
 	}
-	routing, err := decoded.Index.RoutingShards.Int64()
-	if err != nil {
-		wrapped := fmt.Errorf("parse OpenSearch index %s routing shards: %w", index, err)
-		telemetry.L(ctx).ErrorContext(ctx, "search.index.settings_invalid", slog.String("err", wrapped.Error()), slog.String("index", index))
-		return PhysicalSettings{}, wrapped
-	}
 	replicas, err := decoded.Index.Replicas.Int64()
 	if err != nil {
 		wrapped := fmt.Errorf("parse OpenSearch index %s replicas: %w", index, err)
 		telemetry.L(ctx).ErrorContext(ctx, "search.index.settings_invalid", slog.String("err", wrapped.Error()), slog.String("index", index))
 		return PhysicalSettings{}, wrapped
 	}
-	return PhysicalSettings{Primaries: int(primary), RoutingShards: int(routing), Replicas: int(replicas)}, nil
+	routing, err := a.routingShards(ctx, index)
+	if err != nil {
+		return PhysicalSettings{}, err
+	}
+	return PhysicalSettings{Primaries: int(primary), RoutingShards: routing, Replicas: int(replicas)}, nil
+}
+
+// routingShards reads routing_num_shards from the cluster state metadata of
+// index. OpenSearch records that value for every index. The filter path
+// limits the response to that one value.
+func (a *Adapter) routingShards(ctx context.Context, index string) (int, error) {
+	response, err := a.api.Cluster.State(ctx, &opensearchapi.ClusterStateReq{
+		Metrics: []string{"metadata"}, Indices: []string{index},
+		Params: opensearchapi.ClusterStateParams{FilterPath: []string{"metadata.indices.*.routing_num_shards"}},
+	})
+	if err != nil {
+		wrapped := fmt.Errorf("read OpenSearch index %s metadata: %w", index, err)
+		telemetry.L(ctx).ErrorContext(ctx, "search.index.metadata_failed", slog.String("err", wrapped.Error()), slog.String("index", index))
+		return 0, wrapped
+	}
+	entry, exists := response.Metadata.Indices[index]
+	if !exists || entry.RoutingNumShards < 1 {
+		wrapped := fmt.Errorf("OpenSearch index %s metadata has no routing shard count", index)
+		telemetry.L(ctx).ErrorContext(ctx, "search.index.metadata_invalid", slog.String("err", wrapped.Error()), slog.String("index", index))
+		return 0, wrapped
+	}
+	return entry.RoutingNumShards, nil
 }
 
 // AliasTarget requires the public alias to select exactly one physical index.

@@ -12,8 +12,12 @@ import (
 // openSearchConfig enables REST and transport TLS with the fixture's own CA.
 // The security plugin initializes its index from the bundled configuration
 // files, including the generated internal users file, on first start. ML
-// Commons runs the model on this single data node.
+// Commons runs the model on this single data node. action.auto_create_index
+// refuses automatic creation of every node-pages-* index, as each production
+// node configuration does. A delayed bulk write to a deleted physical index
+// then fails.
 const openSearchConfig = `cluster.name: tack-testenv
+action.auto_create_index: "-node-pages-*,+*"
 node.name: opensearch
 network.host: 0.0.0.0
 plugins.security.ssl.http.enabled: true

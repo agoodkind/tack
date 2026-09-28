@@ -10,8 +10,8 @@ import (
 )
 
 var (
-	// ErrSnapshotLost means OpenSearch no longer recognizes the point in time,
-	// so the caller must start a new search.
+	// ErrSnapshotLost means OpenSearch no longer recognizes the point in time.
+	// The caller must start a new search.
 	ErrSnapshotLost = errors.New("search snapshot is no longer available")
 	// ErrInvalidQuery means Tack rejected the query text or filters before
 	// inference, rejected the token weights that inference returned, or
@@ -19,10 +19,19 @@ var (
 	ErrInvalidQuery = errors.New("search query is invalid")
 )
 
-// Query is one normalized search bound to a physical index and caller access.
+// Query is one normalized search bound to a physical index, caller access,
+// and the restore epoch in Generation. A restored index replacement
+// increments the restore epoch. Every earlier session then fails its binding
+// check.
 type Query struct {
 	Text, Index, NodeType string
 	Access                AccessFilter
+	Generation            int64
+}
+
+// GenerationReader reads the current restore epoch.
+type GenerationReader interface {
+	SearchRestoreEpoch(context.Context) (int64, error)
 }
 
 // Snapshot is one stable OpenSearch view. QueryTokens is the exact opaque

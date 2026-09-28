@@ -50,7 +50,8 @@ func searchWorkerSettings(pageBytes int) config.SearchWorkerSettings {
 	return config.SearchWorkerSettings{
 		PageBytes: pageBytes, MaxPages: 32, MaxBytes: 5 << 20, SliceBudget: 2 * time.Second,
 		OperationTimeout: 10 * time.Second, Lease: 30 * time.Second, IdleInterval: 50 * time.Millisecond,
-		Concurrency: 1, ClassWeights: map[string]int{"live": 1, "access": 1, "cleanup": 1, "rescan": 1, "rollout": 1},
+		Concurrency: 1, ClassWeights: map[string]int{"live": 1, "access": 1, "cleanup": 1, "rescan": 1, "rollout": 1, "rebuild": 1, "copy": 1},
+		ReplacementPauseLimit: config.SearchReplacementPauseLimit,
 	}
 }
 
@@ -64,6 +65,7 @@ func newSearchWorker(t *testing.T, stores *fdbadapter.Stores, adapter *search.Ad
 		Store: stores.SearchWork(source), Reader: stores.SearchContent(policies),
 		Access: stores.SearchAccess(policies), Writer: adapter,
 		Rollouts: rollouts, Sessions: rollouts, Documents: adapter,
+		Rebuilds: stores.SearchRebuilds(source), Replacer: adapter,
 	}, source, settings, 0)
 	if err != nil {
 		t.Fatalf("create search worker: %v", err)
@@ -86,7 +88,8 @@ func newSearchIndex(t *testing.T, stores *fdbadapter.Stores) (*search.Adapter, *
 	if err != nil {
 		t.Fatalf("provision search model: %v", err)
 	}
-	index := "pages-" + uuid.Must(uuid.NewV7()).String()
+	// The engine refuses to auto-create node-pages-* indexes, as production does.
+	index := "node-pages-" + uuid.Must(uuid.NewV7()).String()
 	createNativeSearchIndex(t, adapter, client, model, index)
 	if err := stores.InitializeSearchIndex(t.Context(), index); err != nil {
 		t.Fatalf("record serving search index: %v", err)

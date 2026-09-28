@@ -149,10 +149,24 @@ func runRolloutUntilStable(t *testing.T, fixture queryFixture, worker *service.S
 			seen[current.Phase] = true
 			onPhase(current.Phase)
 		}
-		if claimed, err := worker.RunSlice(t.Context()); err == nil && !claimed {
-			time.Sleep(250 * time.Millisecond)
-		}
+		runSliceOrPause(t, worker)
 	}
 	t.Fatalf("access rollout of %s did not finish within %s", authorityID, rolloutDeadline)
 	return searchdomain.AccessRollout{}
+}
+
+// idleSlicePause is the delay after a worker slice that claimed no work.
+const idleSlicePause = 250 * time.Millisecond
+
+// runSliceOrPause runs one worker slice and fails the test when the slice
+// returns an error. It waits idleSlicePause when the worker claimed no work.
+func runSliceOrPause(t *testing.T, worker *service.SearchWorker) {
+	t.Helper()
+	claimed, err := worker.RunSlice(t.Context())
+	if err != nil {
+		t.Fatalf("run search worker slice: %v", err)
+	}
+	if !claimed {
+		time.Sleep(idleSlicePause)
+	}
 }

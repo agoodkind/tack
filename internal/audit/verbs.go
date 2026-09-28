@@ -171,6 +171,9 @@ const (
 	// VerbOpsSearchAccessRollout records the start of an access policy
 	// rollout for one permission authority.
 	VerbOpsSearchAccessRollout Verb = "ops.search_access_rollout"
+	// VerbOpsSearchReindex records the start or resumption of a search index
+	// replacement.
+	VerbOpsSearchReindex Verb = "ops.search_reindex"
 	// VerbOpsLedgerNodePrepare records a deploy aligning a ledger node's saved
 	// master list with the environment before the node restarts (TACK-489).
 	VerbOpsLedgerNodePrepare Verb = "ops.ledger_node_prepare"

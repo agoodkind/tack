@@ -101,7 +101,7 @@ func (s *SearchWorkStore) claimFirstItem(
 	bucket int,
 	owner string,
 	lease time.Duration,
-	target string,
+	scope claimScope,
 	items []fdb.KeyValue,
 ) (searchdomain.Work, bool, error) {
 	var none searchdomain.Work
@@ -114,7 +114,7 @@ func (s *SearchWorkStore) claimFirstItem(
 			tr.Clear(item.Key)
 			continue
 		}
-		candidate, claimed, err := s.claimWorkItem(ctx, tr, class, owner, lease, target, record)
+		candidate, claimed, err := s.claimWorkItem(ctx, tr, class, owner, lease, scope, record)
 		if err != nil || claimed {
 			return candidate, claimed, err
 		}

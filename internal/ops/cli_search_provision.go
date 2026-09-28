@@ -64,7 +64,7 @@ func searchProvisionOp(f *cli.Factory) clispec.Operation[searchProvisionInput] {
 				logger.ErrorContext(ctx, "search.provision.index_failed", slog.String("err", wrapped.Error()), slog.String("index", index))
 				return wrapped
 			}
-			if err := adapter.WaitGreen(ctx, index); err != nil {
+			if err := adapter.WaitGreen(ctx, index, search.DefaultGreenWait); err != nil {
 				wrapped := fmt.Errorf("wait for green search index %s: %w", index, err)
 				logger.ErrorContext(ctx, "search.provision.health_failed", slog.String("err", wrapped.Error()), slog.String("index", index))
 				return wrapped

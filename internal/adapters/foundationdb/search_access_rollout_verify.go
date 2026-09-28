@@ -142,8 +142,9 @@ func mismatchedNodes(documents []searchdomain.RolloutDocument, states map[string
 }
 
 // scheduleRolloutRepairs schedules content work for a node without an active
-// page document and access work for any other mismatched node. A node with
-// pending live, access, or cleanup work waits for that work instead.
+// page document. For any other mismatched node, it schedules access work
+// that updates every page of the node. A node with pending live, access, or
+// cleanup work waits for that work instead.
 func scheduleRolloutRepairs(ctx context.Context, tr fdb.Transaction, now time.Time, orgID uuid.UUID, mismatched map[uuid.UUID]bool) error {
 	for nodeID, missing := range mismatched {
 		pending := false
@@ -157,11 +158,13 @@ func scheduleRolloutRepairs(ctx context.Context, tr fdb.Transaction, now time.Ti
 		if pending {
 			continue
 		}
-		change := searchChangeAccess
 		if missing {
-			change = searchChangeContent
+			if err := scheduleExistingSearchChange(ctx, tr, now, orgID, nodeID, searchChangeContent); err != nil {
+				return err
+			}
+			continue
 		}
-		if err := scheduleExistingSearchChange(ctx, tr, now, orgID, nodeID, change); err != nil {
+		if err := scheduleAccessRepair(ctx, tr, now, orgID, nodeID); err != nil {
 			return err
 		}
 	}

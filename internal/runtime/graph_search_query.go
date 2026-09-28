@@ -43,7 +43,7 @@ func buildSearchQuery(ctx context.Context, cfg *config.Config, stores *fdbadapte
 	runner := service.NewSearchQueryService(service.SearchQueryPorts{
 		Ranker: ranker, Sessions: sessions, Expired: sessions,
 		Summaries: stores.NodeSummaries(policies), Access: policies,
-		Versions: stores.SearchRollouts(source, policies), Index: stores,
+		Versions: stores.SearchRollouts(source, policies), Index: stores, Generations: stores,
 	}, source, settings)
 	telemetry.L(ctx).InfoContext(ctx, "search.public.enabled", slog.Int("max_results", settings.MaxResults),
 		slog.Int("max_batches", settings.MaxBatches), slog.Duration("idle_timeout", settings.IdleTimeout))

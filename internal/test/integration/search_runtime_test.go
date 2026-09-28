@@ -30,6 +30,9 @@ func configureSearchRuntime(t *testing.T) {
 	t.Setenv("OPENSEARCH_PASSWORD", secret)
 	t.Setenv("OPENSEARCH_PAGE_BYTES", strconv.Itoa(runtimePageBytes))
 	t.Setenv("OPENSEARCH_WORKER_IDLE_INTERVAL", "50ms")
+	t.Setenv("OPENSEARCH_SHARDS", "1")
+	t.Setenv("OPENSEARCH_ROUTING_SHARDS", "24")
+	t.Setenv("OPENSEARCH_REPLICAS", "0")
 }
 
 // currentRevisionIndexed reports whether the document count equals the

@@ -144,7 +144,7 @@ func verifySearchPhysical(ctx context.Context, adapter *search.Adapter, topology
 		logger.ErrorContext(ctx, "search.verify.alias_mismatch", slog.String("err", wrapped.Error()))
 		return wrapped
 	}
-	if err := adapter.WaitGreen(ctx, index); err != nil {
+	if err := adapter.WaitGreen(ctx, index, search.DefaultGreenWait); err != nil {
 		wrapped := fmt.Errorf("verify green search index %s: %w", index, err)
 		logger.ErrorContext(ctx, "search.verify.health_failed", slog.String("err", wrapped.Error()), slog.String("index", index))
 		return wrapped

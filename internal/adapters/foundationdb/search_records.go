@@ -27,12 +27,15 @@ type searchWorkRecord struct {
 }
 
 // searchClaimRecord leases one work item. An empty owner marks a released
-// item. Its retry waits until LeaseUntil.
+// item. Its retry waits until LeaseUntil. Mirror stores the replacement
+// index or an empty string. When Mirror is not empty, the worker that owns
+// the claim writes the claimed work to Target and to Mirror.
 type searchClaimRecord struct {
 	Owner      string    `json:"owner"`
 	Generation int64     `json:"generation"`
 	LeaseUntil time.Time `json:"lease_until"`
 	Target     string    `json:"target"`
+	Mirror     string    `json:"mirror,omitempty"`
 }
 
 // searchProgressRecord is the durable checkpoint of one class for one node.
@@ -76,7 +79,8 @@ type searchScanRecord struct {
 }
 
 type searchRecordValue interface {
-	searchWorkRecord | searchClaimRecord | searchProgressRecord | searchAccessRecord | searchScanRecord | searchRolloutRecord
+	searchWorkRecord | searchClaimRecord | searchProgressRecord | searchAccessRecord | searchScanRecord | searchRolloutRecord |
+		searchRebuildRecord
 }
 
 // readSearchRecord decodes the JSON record at key. It reports false when the

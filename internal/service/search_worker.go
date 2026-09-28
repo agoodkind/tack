@@ -16,7 +16,9 @@ import (
 // SearchWorkerPorts are the production boundaries one search worker uses.
 // Rollouts records access policy rollout state. Sessions reports whether a
 // session still reads the previous access version. Documents reads the
-// stored access of page documents for verification.
+// stored access of page documents for verification. Rebuilds records the
+// index replacement state. Replacer performs the OpenSearch operations of
+// the index replacement.
 type SearchWorkerPorts struct {
 	Store     searchdomain.WorkStore
 	Reader    searchdomain.ContentReader
@@ -25,6 +27,8 @@ type SearchWorkerPorts struct {
 	Rollouts  searchdomain.AccessRolloutStore
 	Sessions  searchdomain.AccessVersionSessions
 	Documents searchdomain.DocumentAccessReader
+	Rebuilds  searchdomain.RebuildStore
+	Replacer  searchdomain.IndexReplacer
 }
 
 // SearchWorker processes bounded durable search work of every class.
@@ -76,7 +80,7 @@ func (w *SearchWorker) Process(ctx context.Context, work searchdomain.Work) erro
 
 func (w *SearchWorker) processClass(ctx context.Context, work searchdomain.Work, budget *sliceBudget) error {
 	switch work.Class {
-	case searchdomain.WorkClassLive:
+	case searchdomain.WorkClassLive, searchdomain.WorkClassCopy:
 		return w.contentSlice(ctx, work, budget)
 	case searchdomain.WorkClassAccess:
 		return w.accessSlice(ctx, work, budget)
@@ -86,6 +90,8 @@ func (w *SearchWorker) processClass(ctx context.Context, work searchdomain.Work,
 		return w.rescanSlice(ctx, work)
 	case searchdomain.WorkClassRollout:
 		return w.rolloutSlice(ctx, work)
+	case searchdomain.WorkClassRebuild:
+		return w.rebuildSlice(ctx, work)
 	default:
 		return w.settle(ctx, work, "process search work", fmt.Errorf("unknown work class %q", work.Class))
 	}

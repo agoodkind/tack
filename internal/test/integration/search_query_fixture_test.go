@@ -54,7 +54,8 @@ func newQueryFixture(t *testing.T, options queryOptions) queryFixture {
 	if err != nil {
 		t.Fatalf("provision search model: %v", err)
 	}
-	index := "query-" + uuid.Must(uuid.NewV7()).String()
+	// The engine refuses to auto-create node-pages-* indexes, as production does.
+	index := "node-pages-" + uuid.Must(uuid.NewV7()).String()
 	deleteNativeIndex(t, client, index)
 	t.Cleanup(func() { deleteNativeIndex(t, client, index) })
 	spec := search.IndexSpec{Model: model, MappingVersion: "1", Primaries: options.Primaries, RoutingShards: 24, Replicas: 0}

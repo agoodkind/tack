@@ -31,13 +31,14 @@ type ExpiredSessionLister interface {
 // SearchQueryPorts are the production boundaries of public ranked search.
 // Versions reads the access version that serves new sessions.
 type SearchQueryPorts struct {
-	Ranker    searchdomain.Ranker
-	Sessions  searchdomain.SessionStore
-	Expired   ExpiredSessionLister
-	Summaries searchdomain.SummaryReader
-	Access    QueryAccessPolicy
-	Versions  searchdomain.AccessStateReader
-	Index     searchdomain.ServingIndexReader
+	Ranker      searchdomain.Ranker
+	Sessions    searchdomain.SessionStore
+	Expired     ExpiredSessionLister
+	Summaries   searchdomain.SummaryReader
+	Access      QueryAccessPolicy
+	Versions    searchdomain.AccessStateReader
+	Index       searchdomain.ServingIndexReader
+	Generations searchdomain.GenerationReader
 }
 
 // SearchRequest is one authenticated search call. A zero SessionID opens a
@@ -86,6 +87,10 @@ func (s *SearchQueryService) Search(ctx context.Context, request SearchRequest) 
 	if err != nil {
 		return SearchPage{}, queryFailure(ctx, "resolve entry point authority", request.SessionID, err)
 	}
+	restoreEpoch, err := s.ports.Generations.SearchRestoreEpoch(ctx)
+	if err != nil {
+		return SearchPage{}, queryFailure(ctx, "read search restore epoch", request.SessionID, err)
+	}
 	if request.SessionID == uuid.Nil {
 		version, versionErr := s.ports.Versions.ActiveAccessVersion(ctx, authority)
 		if versionErr != nil {
@@ -95,7 +100,7 @@ func (s *SearchQueryService) Search(ctx context.Context, request SearchRequest) 
 		if compileErr != nil {
 			return SearchPage{}, compileErr
 		}
-		page, openErr := s.open(ctx, request, authority, text, filter)
+		page, openErr := s.open(ctx, request, authority, searchdomain.Query{Text: text, Index: "", NodeType: request.NodeType, Access: filter, Generation: restoreEpoch})
 		s.sweepExpired(ctx)
 		return page, openErr
 	}
@@ -107,7 +112,8 @@ func (s *SearchQueryService) Search(ctx context.Context, request SearchRequest) 
 	if err != nil {
 		return SearchPage{}, err
 	}
-	return s.continueSession(ctx, request, session, authority, text, filter)
+	current := searchdomain.Query{Text: text, Index: session.Query.Index, NodeType: request.NodeType, Access: filter, Generation: restoreEpoch}
+	return s.continueSession(ctx, request, session, authority, current)
 }
 
 // callerAccess compiles the caller's current opaque keys under version from
@@ -123,12 +129,13 @@ func (s *SearchQueryService) callerAccess(ctx context.Context, request SearchReq
 	return filter, nil
 }
 
-func (s *SearchQueryService) open(ctx context.Context, request SearchRequest, authority uuid.UUID, text string, filter searchdomain.AccessFilter) (SearchPage, error) {
+func (s *SearchQueryService) open(ctx context.Context, request SearchRequest, authority uuid.UUID, query searchdomain.Query) (SearchPage, error) {
 	index, err := s.ports.Index.ServingSearchIndex(ctx)
 	if err != nil {
 		return SearchPage{}, queryFailure(ctx, "read serving search index", uuid.Nil, err)
 	}
-	query := searchdomain.Query{Text: text, Index: index, NodeType: request.NodeType, Access: filter}
+	query.Index = index
+	filter := query.Access
 	snapshot, err := s.ports.Ranker.Open(ctx, query)
 	if err != nil {
 		return SearchPage{}, queryFailure(ctx, "open search snapshot", uuid.Nil, err)
@@ -149,8 +156,8 @@ func (s *SearchQueryService) open(ctx context.Context, request SearchRequest, au
 	return s.advance(ctx, created, filter)
 }
 
-func (s *SearchQueryService) continueSession(ctx context.Context, request SearchRequest, session searchdomain.Session, authority uuid.UUID, text string, filter searchdomain.AccessFilter) (SearchPage, error) {
-	current := searchdomain.Query{Text: text, Index: session.Query.Index, NodeType: request.NodeType, Access: filter}
+func (s *SearchQueryService) continueSession(ctx context.Context, request SearchRequest, session searchdomain.Session, authority uuid.UUID, current searchdomain.Query) (SearchPage, error) {
+	filter := current.Access
 	binding := searchdomain.SessionBinding(request.PrincipalID, authority, request.EntryPointID, current)
 	if binding != session.Binding || request.Version > session.Version {
 		return SearchPage{}, queryFailure(ctx, "verify search session", session.ID, searchdomain.ErrSessionMismatch)

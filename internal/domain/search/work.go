@@ -34,12 +34,19 @@ const (
 	WorkClassRescan WorkClass = "rescan"
 	// WorkClassRollout advances one authority's access policy rollout.
 	WorkClassRollout WorkClass = "rollout"
+	// WorkClassRebuild advances the one index replacement.
+	WorkClassRebuild WorkClass = "rebuild"
+	// WorkClassCopy writes one node's current pages to the replacement index.
+	WorkClassCopy WorkClass = "copy"
 )
 
 // ScheduledWorkClasses returns every class a search worker rotates through,
 // in the order that breaks weight ties.
 func ScheduledWorkClasses() []WorkClass {
-	return []WorkClass{WorkClassLive, WorkClassAccess, WorkClassCleanup, WorkClassRescan, WorkClassRollout}
+	return []WorkClass{
+		WorkClassLive, WorkClassAccess, WorkClassCleanup, WorkClassRescan,
+		WorkClassRollout, WorkClassRebuild, WorkClassCopy,
+	}
 }
 
 // WorkPhase is the durable step of one claimed work item.
@@ -74,8 +81,13 @@ type Work struct {
 	Owner      string
 	LeaseUntil time.Time
 	Class      WorkClass
-	// Target is the serving physical index recorded in FoundationDB.
+	// Target is the physical index this work writes: the serving index, or
+	// the replacement index for copy work.
 	Target string
+	// Mirror is the replacement index that the worker also writes while a
+	// replacement copies, verifies, or switches. Mirror is empty in every
+	// other state.
+	Mirror string
 }
 
 // WriteIntent binds one page write to its claimed generation and target.

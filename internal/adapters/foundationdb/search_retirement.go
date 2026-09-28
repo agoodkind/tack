@@ -147,6 +147,14 @@ func (s *SearchWorkStore) CompleteRetirement(ctx context.Context, work search.Wo
 		for _, document := range accepted {
 			tr.Clear(fdb.Key(searchIssuedKey(work.OrgID, work.NodeID, document.Revision, document.Ordinal, document.Projection)))
 		}
+		if len(accepted) > 0 {
+			now := s.clock.Now()
+			for _, index := range []string{work.Target, work.Mirror} {
+				if err := recordRetiredSince(ctx, tr, index, now); err != nil {
+					return err
+				}
+			}
+		}
 		if !done {
 			return nil
 		}
