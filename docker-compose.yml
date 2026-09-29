@@ -341,12 +341,16 @@ services:
   # a setting, and an empty one leaves that setting unset. The rendered
   # override also configures TLS, credentials, and the address a member
   # announces to its peers.
+  #
+  # The search guests have no IPv4 route. java.net.preferIPv6Addresses makes
+  # the JVM connect to the IPv6 address of a dual-stack host, such as the
+  # model artifact host that ML Commons downloads the pinned model from.
   opensearch:
     image: opensearchproject/opensearch:3.8.0
     profiles: [search]
     restart: unless-stopped
     environment:
-      OPENSEARCH_JAVA_OPTS: -Xms2g -Xmx2g
+      OPENSEARCH_JAVA_OPTS: -Xms2g -Xmx2g -Djava.net.preferIPv6Addresses=true
       node.roles: cluster_manager,data,ingest,ml
       node.name: ${TACK_SEARCH_NODE_NAME:-}
       discovery.type: ${TACK_SEARCH_DISCOVERY_TYPE:-}
