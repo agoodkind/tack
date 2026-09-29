@@ -125,22 +125,33 @@ func searchNodePages(t *testing.T, client *opensearchapi.Client, index string, n
 // the production reader.
 func readSearchPages(t *testing.T, stores *fdbadapter.Stores, nodeID uuid.UUID, pageBytes int) []node.ContentPage {
 	t.Helper()
+	pages, err := readSearchPageSequence(t, stores, nodeID, pageBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pages
+}
+
+// readSearchPageSequence reads every page of the node's current revision
+// through the production reader. It returns the error of the first page
+// read that fails.
+func readSearchPageSequence(t *testing.T, stores *fdbadapter.Stores, nodeID uuid.UUID, pageBytes int) ([]node.ContentPage, error) {
+	t.Helper()
 	reader := stores.SearchContent(stores.SearchPolicySet())
 	request := searchdomain.ContentRequest{NodeID: nodeID, Cursor: "", ProjectionConfig: "", AccessVersions: nil, MaxBytes: pageBytes, SearchGeneration: 0}
 	pages := make([]node.ContentPage, 0, 8)
 	for range 10_000 {
 		page, err := reader.Content(t.Context(), request)
 		if err != nil {
-			t.Fatalf("read page %d of node %s: %v", len(pages), nodeID, err)
+			return nil, fmt.Errorf("read page %d of node %s: %w", len(pages), nodeID, err)
 		}
 		pages = append(pages, page)
 		if page.Done {
-			return pages
+			return pages, nil
 		}
 		request.Cursor = page.NextCursor
 	}
-	t.Fatalf("node %s did not finish within 10000 pages", nodeID)
-	return nil
+	return nil, fmt.Errorf("node %s did not finish within 10000 pages", nodeID)
 }
 
 // uniqueSearchText joins pages after removing each page's overlap.

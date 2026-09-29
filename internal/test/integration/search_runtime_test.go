@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -12,7 +13,12 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-const runtimePageBytes = 128
+const (
+	runtimePageBytes = 128
+	// maxStaleCursorRetries bounds the polls of
+	// TestSearchRuntimeIndexesThroughGraph that end with ErrContentChanged.
+	maxStaleCursorRetries = 10
+)
 
 // configureSearchRuntime sets the production search environment for the
 // shared test engine.
@@ -67,12 +73,28 @@ func TestSearchRuntimeIndexesThroughGraph(t *testing.T) {
 	graph.StartSearchWorkers(t.Context())
 
 	fixture := putSearchText(t, stores, readerIncludedValue(), readerExcludedValue)
+	started := time.Now()
 	deadline := time.NewTimer(2 * time.Minute)
 	defer deadline.Stop()
+	staleReads := 0
 	for {
-		pages := readSearchPages(t, stores, fixture.NodeID, runtimePageBytes)
+		// The fixture's property definition and node type writes request a
+		// rescan. A worker that runs the rescan after the node write schedules
+		// a new revision of the node. The reader rejects a continuation cursor
+		// of the earlier revision with ErrContentChanged, and the next poll
+		// reads the new revision from its first page.
+		pages, err := readSearchPageSequence(t, stores, fixture.NodeID, runtimePageBytes)
+		switch {
+		case errors.Is(err, node.ErrContentChanged):
+			staleReads++
+			if staleReads > maxStaleCursorRetries {
+				t.Fatalf("page reads returned ErrContentChanged %d times in %s: %v", staleReads, time.Since(started), err)
+			}
+		case err != nil:
+			t.Fatal(err)
+		}
 		documents := searchNodePages(t, client, index, fixture.NodeID, false)
-		if currentRevisionIndexed(documents, pages) {
+		if err == nil && currentRevisionIndexed(documents, pages) {
 			requireIndexedPages(t, documents, pages, 1)
 			return
 		}
