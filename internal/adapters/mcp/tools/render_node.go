@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain/node"
+	"goodkind.io/tack/internal/service"
 )
 
 func renderNode(rc *renderCtx, view *node.NodeView) string {
@@ -23,9 +24,10 @@ func renderNode(rc *renderCtx, view *node.NodeView) string {
 	return executeMarkdownTemplate("node.md.tmpl", nodeTemplateData{Heading: heading, Fields: fields})
 }
 
-// renderDeletedNode renders the delete confirmation. deleted counts the node
-// and its deleted hierarchy descendants.
-func renderDeletedNode(rc *renderCtx, view *node.NodeView, deletedAt time.Time, deleted int) string {
+// renderDeletedNode renders the delete confirmation. result counts the
+// deleted nodes, the root included once it is gone, and states whether the
+// delete job finished within the request.
+func renderDeletedNode(rc *renderCtx, view *node.NodeView, deletedAt time.Time, result service.DeleteResult) string {
 	ident := identifierFor(view, rc)
 	nodeType := strings.ToLower(view.NodeType)
 	if ident == "" {
@@ -35,10 +37,15 @@ func renderDeletedNode(rc *renderCtx, view *node.NodeView, deletedAt time.Time, 
 		markdownCodeFieldValue("Reference", ident),
 		markdownCodeFieldValue("Type", view.NodeType),
 		markdownFieldValue("Deleted at", formatDisplayTime(deletedAt)),
-		markdownFieldValue("Deleted nodes", strconv.Itoa(deleted)),
+		markdownFieldValue("Deleted nodes", strconv.Itoa(result.Deleted)),
+		markdownCodeFieldValue("Delete job", result.JobID.String()),
+		markdownFieldValue("Delete state", string(result.State)),
 	}
-	data := nodeTemplateData{Heading: fmt.Sprintf("Deleted %s `%s`", nodeType, ident), Fields: fields}
-	return executeMarkdownTemplate("node.md.tmpl", data)
+	heading := fmt.Sprintf("Deleted %s `%s`", nodeType, ident)
+	if result.State != node.SubtreeDeleteFinished {
+		heading = fmt.Sprintf("Deleting %s `%s` and its descendants in the background", nodeType, ident)
+	}
+	return executeMarkdownTemplate("node.md.tmpl", nodeTemplateData{Heading: heading, Fields: fields})
 }
 
 func nodeFields(rc *renderCtx, view *node.NodeView) []markdownField {

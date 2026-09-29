@@ -22,9 +22,10 @@ func TestDeleteProjectToolReportsDeletedNodes(t *testing.T) {
 	arguments.ProjectReference = ""
 	arguments.NodeID = harness.Project
 	text := harness.Call(t, "tack_delete_project", arguments).Text()
-	want := fmt.Sprintf("- Deleted nodes: %d", 1+defaultProjectStates+1)
-	if !strings.Contains(text, want) {
-		t.Fatalf("delete output does not contain %q:\n%s", want, text)
+	for _, want := range []string{fmt.Sprintf("- Deleted nodes: %d", 1+defaultProjectStates+1), "- Delete state: finished"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("delete output does not contain %q:\n%s", want, text)
+		}
 	}
 
 	lookup := harness.projectArgs()

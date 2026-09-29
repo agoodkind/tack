@@ -182,10 +182,10 @@ func deleteHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFu
 		if !isAuthorized(ctx) {
 			return permissionDenied(), nil
 		}
-		deleted, err := b.NodeSvc.Delete(ctx, id, userID)
+		result, err := b.NodeSvc.Delete(ctx, id, userID)
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
-		return successText(renderDeletedNode(rc, existing, clock.Now().UTC(), deleted), ""), nil
+		return successText(renderDeletedNode(rc, existing, clock.Now().UTC(), result), ""), nil
 	}
 }

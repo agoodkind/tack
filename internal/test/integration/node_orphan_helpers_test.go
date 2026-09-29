@@ -45,6 +45,22 @@ func storedNodes(t *testing.T) []node.Node {
 	return nodes
 }
 
+// directChildren returns the nodes with parent_id equal to parentID.
+func directChildren(t *testing.T, parentID uuid.UUID) []uuid.UUID {
+	t.Helper()
+	children := []uuid.UUID{}
+	for _, current := range storedNodes(t) {
+		var parentText string
+		if err := json.Unmarshal(current.Props["parent_id"], &parentText); err == nil && parentText == parentID.String() {
+			children = append(children, current.ID)
+		}
+	}
+	if len(children) == 0 {
+		t.Fatalf("node %s has no direct children", parentID)
+	}
+	return children
+}
+
 // resolveNode returns the resolution record of nodeID, or nil when the node
 // does not exist.
 func resolveNode(t *testing.T, env *TestEnv, nodeID uuid.UUID) *node.NodeResolve {

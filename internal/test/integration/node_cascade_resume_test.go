@@ -37,8 +37,8 @@ func TestDeleteSplitsHighFanOutAcrossSteps(t *testing.T) {
 	}
 
 	labelDeleted, err := env.NodeSvc.Delete(env.Ctx, label.ID, actor)
-	if err != nil || labelDeleted != 1 {
-		t.Fatalf("delete label = %d, %v; want 1 deleted node", labelDeleted, err)
+	if err != nil || labelDeleted.Deleted != 1 {
+		t.Fatalf("delete label = %+v, %v; want 1 deleted node", labelDeleted, err)
 	}
 	requireNodesPresent(t, env, issues)
 	for _, issueID := range issues {
@@ -59,8 +59,8 @@ func TestDeleteSplitsHighFanOutAcrossSteps(t *testing.T) {
 	if err != nil {
 		t.Fatalf("delete project %s: %v", project.ID, err)
 	}
-	if want := 1 + len(states) + cascadeFanOut; projectDeleted != want {
-		t.Fatalf("delete project reported %d deleted nodes, want %d", projectDeleted, want)
+	if want := 1 + len(states) + cascadeFanOut; projectDeleted.Deleted != want || projectDeleted.State != node.SubtreeDeleteFinished {
+		t.Fatalf("delete project result = %+v, want %d deleted nodes and a finished job", projectDeleted, want)
 	}
 	requireNodesGone(t, env, append([]uuid.UUID{project.ID}, issues...))
 	requireNodesPresent(t, env, []uuid.UUID{workspace.ID})
@@ -99,8 +99,8 @@ func TestResumeFinishesAnInterruptedDelete(t *testing.T) {
 	requireNodesGone(t, env, append([]uuid.UUID{fixture.Project}, fixture.Descendants...))
 	requireNodesPresent(t, env, fixture.Kept)
 	requireNoDanglingParents(t, env)
-	jobs, err := env.Stores.NodeDeleter.SubtreeDeletes(env.Ctx, uuid.Nil, 10)
-	if err != nil || len(jobs) != 0 {
-		t.Fatalf("job records after the resume = %d, %v; want none", len(jobs), err)
+	status, err := env.NodeSvc.DeleteStatus(env.Ctx, job.ID)
+	if want := 1 + len(fixture.Descendants); err != nil || status.State != node.SubtreeDeleteFinished || status.Deleted != want {
+		t.Fatalf("status after the resume = %+v, %v; want finished with %d deleted nodes", status, err, want)
 	}
 }

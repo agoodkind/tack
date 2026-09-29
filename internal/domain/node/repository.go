@@ -19,15 +19,20 @@ type NodeCleanupScheduler interface {
 // source of each edge under its target.
 type NodeDeleter interface {
 	// StartSubtreeDelete stores a new job record with job.RootID as the only
-	// stack entry.
+	// stack entry. A committed record with an audit template owns the root's
+	// ledger event, and the start marks the caller's staged event written.
 	StartSubtreeDelete(ctx context.Context, job *SubtreeDeleteJob) error
 	// DeleteSubtreeStep runs one bounded step of the job. The step deletes
 	// one node, adds one hierarchy child to the stack, or clears one page of
 	// edges of a node with more edges than one step reads.
 	DeleteSubtreeStep(ctx context.Context, jobID uuid.UUID, events DeletionEventBuilder) (SubtreeDeleteProgress, error)
+	// SubtreeDelete reads one job record. A missing record returns nil.
+	SubtreeDelete(ctx context.Context, jobID uuid.UUID) (*SubtreeDeleteJob, error)
 	// SubtreeDeletes reads at most limit job records after the job ID after,
 	// in job ID order. uuid.Nil reads from the first job.
 	SubtreeDeletes(ctx context.Context, after uuid.UUID, limit int) ([]*SubtreeDeleteJob, error)
+	// ClearSubtreeDelete removes the record of one finished job.
+	ClearSubtreeDelete(ctx context.Context, jobID uuid.UUID) error
 }
 
 // TypeRepository manages NodeType definitions.

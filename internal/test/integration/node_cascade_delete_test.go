@@ -11,6 +11,7 @@ import (
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/auditintent"
+	"goodkind.io/tack/internal/domain/node"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/testenv"
 )
@@ -30,14 +31,14 @@ func TestDeleteProjectDeletesDescendants(t *testing.T) {
 	actor := uuid.New()
 	ctx := auditintent.WithSlot(audit.WithScopeBuilder(env.Ctx), "tack_delete_project", actor)
 
-	deleted, err := env.NodeSvc.Delete(ctx, fixture.Project, actor)
+	result, err := env.NodeSvc.Delete(ctx, fixture.Project, actor)
 	if err != nil {
 		t.Fatalf("delete project %s: %v", fixture.Project, err)
 	}
 
 	removed := append([]uuid.UUID{fixture.Project}, fixture.Descendants...)
-	if deleted != len(removed) {
-		t.Fatalf("delete reported %d deleted nodes, want %d", deleted, len(removed))
+	if result.Deleted != len(removed) || result.State != node.SubtreeDeleteFinished {
+		t.Fatalf("delete result = %+v, want %d deleted nodes and a finished job", result, len(removed))
 	}
 	if !auditintent.Committed(ctx) {
 		t.Fatal("the store must report the staged row of the project committed with its delete")
@@ -107,31 +108,49 @@ func drainOutbox(t *testing.T, env *TestEnv) {
 // for each node in removed, and no other row.
 func requireDeleteEvents(t *testing.T, env *TestEnv, removed []uuid.UUID, actor uuid.UUID) {
 	t.Helper()
-	entries, err := env.Stores.OpsOutbox.ReadOutboxFrom(env.Ctx, nil, len(removed)+10)
-	if err != nil {
-		t.Fatalf("read the outbox: %v", err)
-	}
-	recorded := make([]uuid.UUID, 0, len(entries))
-	eventIDs := make(map[uuid.UUID]struct{}, len(entries))
-	for _, entry := range entries {
-		var event audit.Event
-		if err := json.Unmarshal(entry.Event, &event); err != nil {
-			t.Fatalf("decode an outbox row: %v", err)
-		}
+	events := outboxEvents(t, env)
+	recorded := make([]uuid.UUID, 0, len(events))
+	eventIDs := make(map[uuid.UUID]struct{}, len(events))
+	for _, event := range events {
 		if event.Verb != string(audit.VerbNodeDelete) || event.Actor.ID != actor || event.Context.Tool != "tack_delete_project" {
 			t.Fatalf("outbox row = %+v, want node.delete by %s through tack_delete_project", event, actor)
 		}
 		eventIDs[event.EventID] = struct{}{}
 		recorded = append(recorded, event.Entity.ID)
 	}
-	if len(eventIDs) != len(entries) {
-		t.Fatalf("outbox rows share event IDs: %d rows, %d distinct IDs", len(entries), len(eventIDs))
+	if len(eventIDs) != len(events) {
+		t.Fatalf("outbox rows share event IDs: %d rows, %d distinct IDs", len(events), len(eventIDs))
 	}
 	slices.SortFunc(recorded, compareUUID)
 	want := slices.Clone(removed)
 	slices.SortFunc(want, compareUUID)
 	if !slices.Equal(recorded, want) {
 		t.Fatalf("outbox rows describe nodes %v, want %v", recorded, want)
+	}
+}
+
+// outboxEvents reads and decodes every outbox row under the test prefix, in
+// commit order.
+func outboxEvents(t *testing.T, env *TestEnv) []audit.Event {
+	t.Helper()
+	events := []audit.Event{}
+	var mark []byte
+	for {
+		entries, err := env.Stores.OpsOutbox.ReadOutboxFrom(env.Ctx, mark, 500)
+		if err != nil {
+			t.Fatalf("read the outbox: %v", err)
+		}
+		if len(entries) == 0 {
+			return events
+		}
+		for _, entry := range entries {
+			var event audit.Event
+			if err := json.Unmarshal(entry.Event, &event); err != nil {
+				t.Fatalf("decode an outbox row: %v", err)
+			}
+			events = append(events, event)
+		}
+		mark = entries[len(entries)-1].Mark
 	}
 }
 

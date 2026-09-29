@@ -17,13 +17,53 @@ import (
 const maxSubtreeDeleteJobPage = 100
 
 // StartSubtreeDelete stores the record of a new subtree delete job with the
-// root as the only stack entry and zero deleted nodes.
+// root as the only stack entry and zero deleted nodes. The step that deletes
+// the root writes the job's audit template, so after the record commits the
+// start marks the staged event on ctx written. The MCP wrapper then records
+// no second event for the delete, even when the request returns before the
+// root is gone.
 func (s *NodeDeleteStore) StartSubtreeDelete(ctx context.Context, job *node.SubtreeDeleteJob) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node.subtree_delete_start")(&err)
 	job.Stack = []uuid.UUID{job.RootID}
 	job.Deleted = 0
-	return runNodeMutation(ctx, s.nodes.db, "start subtree delete of node "+job.RootID.String(), func(tr fdb.Transaction) error {
+	job.FinishedAt = time.Time{}
+	err = runNodeMutation(ctx, s.nodes.db, "start subtree delete of node "+job.RootID.String(), func(tr fdb.Transaction) error {
 		return writeDeleteJob(ctx, tr, job, s.nodes.clock.Now())
+	})
+	if err != nil {
+		return err
+	}
+	if len(job.AuditTemplate) > 0 {
+		commitStagedIntent(ctx)
+	}
+	return nil
+}
+
+// SubtreeDelete reads one job record. A missing record returns nil.
+func (s *NodeDeleteStore) SubtreeDelete(ctx context.Context, jobID uuid.UUID) (job *node.SubtreeDeleteJob, err error) {
+	defer telemetry.FDBOp(ctx, "store.node.subtree_delete_read")(&err)
+	err = runNodeReadTransaction(ctx, s.nodes.db, "read subtree delete job "+jobID.String(), func(tr fdb.Transaction) error {
+		var readErr error
+		job, readErr = readDeleteJob(ctx, tr, jobID)
+		return readErr
+	})
+	if err != nil {
+		return nil, err
+	}
+	return job, nil
+}
+
+// ClearSubtreeDelete removes the record of one finished job. A running job
+// keeps its record.
+func (s *NodeDeleteStore) ClearSubtreeDelete(ctx context.Context, jobID uuid.UUID) (err error) {
+	defer telemetry.FDBOp(ctx, "store.node.subtree_delete_clear")(&err)
+	return runNodeMutation(ctx, s.nodes.db, "clear subtree delete job "+jobID.String(), func(tr fdb.Transaction) error {
+		job, readErr := readDeleteJob(ctx, tr, jobID)
+		if readErr != nil || job == nil || !job.Finished() {
+			return readErr
+		}
+		tr.Clear(fdb.Key(nodeDeleteJobKey(jobID)))
+		return nil
 	})
 }
 

@@ -17,8 +17,9 @@ import (
 // hierarchy child of that node exists, the step adds the child to the stack.
 // When the node has more edges than one step reads, the step clears one page
 // of them. Otherwise the step deletes the node, writes its ledger event, and
-// removes it from the stack. The step that empties the stack clears the job
-// record. A job record that no longer exists reports Done.
+// removes it from the stack. The step that empties the stack writes the
+// finish time into the job record, and status reads return that record. A
+// finished job and a job record that no longer exists report Done.
 func (s *NodeDeleteStore) DeleteSubtreeStep(ctx context.Context, jobID uuid.UUID, events node.DeletionEventBuilder) (progress node.SubtreeDeleteProgress, err error) {
 	defer telemetry.FDBOp(ctx, "store.node.subtree_delete_step")(&err)
 	rootDeleted := false
@@ -36,11 +37,14 @@ func (s *NodeDeleteStore) DeleteSubtreeStep(ctx context.Context, jobID uuid.UUID
 			}
 		}
 		progress = node.SubtreeDeleteProgress{Deleted: job.Deleted, Done: len(job.Stack) == 0}
-		if progress.Done {
-			tr.Clear(fdb.Key(nodeDeleteJobKey(jobID)))
+		if job.Finished() {
 			return nil
 		}
-		return writeDeleteJob(ctx, tr, job, s.nodes.clock.Now())
+		now := s.nodes.clock.Now()
+		if progress.Done {
+			job.FinishedAt = now.UTC()
+		}
+		return writeDeleteJob(ctx, tr, job, now)
 	})
 	if err != nil {
 		return node.SubtreeDeleteProgress{Deleted: 0, Done: false}, err

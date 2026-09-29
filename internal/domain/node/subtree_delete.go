@@ -30,8 +30,17 @@ type SubtreeDeleteJob struct {
 	// Deleted counts the nodes the job deleted.
 	Deleted int `json:"deleted"`
 	// UpdatedAt is the commit time of the last step, read from the store
-	// clock. A job without a recent step has no live runner.
+	// clock. A running job without a recent step has no live runner.
 	UpdatedAt time.Time `json:"updated_at"`
+	// FinishedAt is the commit time of the step that deleted the root. It is
+	// zero while the job runs. A finished record stays readable until the
+	// resume loop clears it.
+	FinishedAt time.Time `json:"finished_at,omitzero" exhaustruct:"optional"`
+}
+
+// Finished reports whether the job deleted its root.
+func (j *SubtreeDeleteJob) Finished() bool {
+	return !j.FinishedAt.IsZero()
 }
 
 // DeletedNode identifies one node that a subtree delete step deleted.
@@ -52,4 +61,23 @@ type SubtreeDeleteProgress struct {
 	// Done is true after the step that deleted the root, and for a job that
 	// no longer exists.
 	Done bool
+}
+
+// SubtreeDeleteState is the state of one subtree delete job.
+type SubtreeDeleteState string
+
+const (
+	// SubtreeDeleteRunning means the job has not deleted its root yet.
+	SubtreeDeleteRunning SubtreeDeleteState = "running"
+	// SubtreeDeleteFinished means the job deleted its root and every
+	// descendant.
+	SubtreeDeleteFinished SubtreeDeleteState = "finished"
+)
+
+// State returns the job's state.
+func (j *SubtreeDeleteJob) State() SubtreeDeleteState {
+	if j.Finished() {
+		return SubtreeDeleteFinished
+	}
+	return SubtreeDeleteRunning
 }
