@@ -42,10 +42,10 @@ func breakerOpen(err error) bool {
 }
 
 // deployModel deploys modelID unless ML Commons already reports it deployed.
-// Registration loads the model bundle through the JVM heap, and the heap
-// breaker can reject the first deploy task for a short time afterward. A
-// deploy that the breaker rejects runs again every deployBreakerInterval
-// until deployBreakerWindow ends. Every other failure returns at once.
+// It retries a deploy that the memory circuit breaker rejects every
+// deployBreakerInterval until deployBreakerWindow ends. It returns every
+// other failure at once. The breaker can reject the first deploy task for a
+// short time after registration loads the model bundle into the JVM heap.
 func (a *Adapter) deployModel(ctx context.Context, modelID string) error {
 	model, err := a.getModel(ctx, modelID)
 	if err != nil {

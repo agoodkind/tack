@@ -96,7 +96,7 @@ func advanceScan(ctx context.Context, state *searchScanRecord, scan searchdomain
 }
 
 // scanPassedStop reports whether the last node key of a page sorts at or
-// after stop. An empty next cursor belongs to a final page.
+// after stop. An empty next cursor marks a final page and reports true.
 func scanPassedStop(ctx context.Context, next, stop string) (bool, error) {
 	if next == "" {
 		return true, nil

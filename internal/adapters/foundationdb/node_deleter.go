@@ -6,17 +6,17 @@ import (
 	"github.com/google/uuid"
 )
 
-// NodeDeleteStore exposes node deletion to services that depend on a delete-only boundary.
+// NodeDeleteStore exposes only node deletion from a [NodeStore].
 type NodeDeleteStore struct {
 	nodes *NodeStore
 }
 
-// NewNodeDeleteStore creates the delete-only node boundary over nodes.
+// NewNodeDeleteStore creates a NodeDeleteStore that deletes through nodes.
 func NewNodeDeleteStore(nodes *NodeStore) *NodeDeleteStore {
 	return &NodeDeleteStore{nodes: nodes}
 }
 
-// DeleteNode clears the requested node through the shared node store.
+// DeleteNode deletes the node with [NodeStore.Delete].
 func (s *NodeDeleteStore) DeleteNode(ctx context.Context, orgID, nodeID uuid.UUID) error {
 	return s.nodes.Delete(ctx, orgID, nodeID)
 }

@@ -13,8 +13,8 @@ var _ searchdomain.AccessVersionSessions = (*SearchAccessRolloutStore)(nil)
 
 // HasActiveAccessVersion reports whether any session of authorityID can
 // still read OpenSearch under version. A session counts until it completes,
-// closes, or passes its absolute deadline. One range read of at most one key
-// answers the question.
+// closes, or passes its absolute deadline. The check reads a key range with a
+// limit of one key.
 func (s *SearchAccessRolloutStore) HasActiveAccessVersion(ctx context.Context, authorityID uuid.UUID, version string) (active bool, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_rollout.version_active")(&err)
 	now := s.work.clock.Now()

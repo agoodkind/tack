@@ -55,9 +55,10 @@ func TestSearchReturnsTemporaryOutageBeforeReadingArguments(t *testing.T) {
 	}
 }
 
-// TestSearchSchemaAdvertisesOnlyAcceptedArguments lists tack_search through
-// tools/list under a metadata scope chain. The input properties must equal the
-// arguments that ranked search accepts.
+// TestSearchSchemaAdvertisesOnlyAcceptedArguments asserts that the
+// tack_search input properties from tools/list equal the arguments that
+// ranked search accepts. The test registers tack_search under a metadata
+// scope chain.
 func TestSearchSchemaAdvertisesOnlyAcceptedArguments(t *testing.T) {
 	workspaceType := &node.NodeType{
 		TypeKey: "workspace", Slug: "workspace", Features: node.Features{node.FeatureIsEntryPoint},

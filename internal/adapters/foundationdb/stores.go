@@ -68,9 +68,9 @@ func (processClock) Now() time.Time { return clock.Now() }
 
 func (processClock) Since(start time.Time) time.Duration { return clock.Since(start) }
 
-// UseClock installs the injected clock that stamps the search work every
-// source write schedules. The runtime graph installs its clock once, before
-// the stores serve any request.
+// UseClock sets the clock that timestamps the search work that node,
+// relationship, property definition, and node type writes schedule. The
+// runtime graph sets its clock once, before the stores serve any request.
 func (s *Stores) UseClock(source clock.Clock) {
 	s.NodeTypes.clock = source
 	s.PropertyDefs.clock = source
@@ -104,7 +104,7 @@ func (s *Stores) SearchAccess(policies *searchaccess.PolicySet) *SearchAccessSta
 	return NewSearchAccessStateStore(s.db, policies)
 }
 
-// SearchPolicySet constructs the registered production access policy. It
+// SearchPolicySet constructs the production access policy set. It
 // reads node types through the type-key index and relationships in bounded
 // pages.
 func (s *Stores) SearchPolicySet() *searchaccess.PolicySet {

@@ -13,7 +13,8 @@ import (
 const (
 	// searchCursorFormat versions the cursor payload layout.
 	searchCursorFormat = 1
-	// searchCursorPayloadBytes is the format byte, session ID, and version.
+	// searchCursorPayloadBytes is the byte length of the format byte, the
+	// session ID, and the version.
 	searchCursorPayloadBytes = 1 + 16 + 8
 )
 

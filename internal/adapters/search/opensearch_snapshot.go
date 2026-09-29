@@ -25,7 +25,7 @@ type RankerSettings struct {
 }
 
 // QueryRanker opens point-in-time snapshots and reads ranked page batches
-// through the adapter's official client.
+// with the adapter's official client.
 type QueryRanker struct {
 	adapter  *Adapter
 	settings RankerSettings

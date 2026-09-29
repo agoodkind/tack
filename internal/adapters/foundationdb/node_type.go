@@ -27,8 +27,10 @@ func NewNodeTypeStore(db fdb.Database, source clock.Clock) *NodeTypeStore {
 	return &NodeTypeStore{db: db, clock: source, searchWork: false}
 }
 
-// Set stores nt and its type-key index entry, and requests an access rescan
-// when the type key, features, or hierarchy declaration changed.
+// Set stores nt and its type-key index entry. It increments the
+// organization's metadata epoch when the stored record changes. When search
+// work is enabled and the type key, features, or hierarchy declaration
+// changed, Set also requests an access rescan.
 func (s *NodeTypeStore) Set(ctx context.Context, nt *node.NodeType) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node_type.set")(&err)
 	b, err := json.Marshal(nt)

@@ -19,7 +19,7 @@ const projectionDigestBytes = sha256.Size
 var projectionModulus = new(big.Int).Lsh(big.NewInt(1), projectionDigestBytes*8)
 
 // projectionVersion reads the organization's projection digest with one
-// point read and combines it with the cursor pagination version. A change to
+// point read and hashes it with the cursor pagination version. A change to
 // any definition identity, name, or declaration changes the version.
 func projectionVersion(ctx context.Context, tr fdb.Transaction, orgID uuid.UUID) (string, error) {
 	digest, err := tr.Get(fdb.Key(searchProjectionKey(orgID))).Get()

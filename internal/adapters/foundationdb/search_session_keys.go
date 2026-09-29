@@ -8,18 +8,20 @@ import (
 	"github.com/google/uuid"
 )
 
-// Durable query session key families. Session keys use a stable hash
-// bucket of the session ID, and concurrent sessions use separate ranges.
-// (search_session, bucket, sessionID) -> bounded session header JSON
-// (search_session_child, bucket, sessionID, "token", chunk) -> token bytes
-// (search_session_child, bucket, sessionID, "visited", nodeID) -> marker
-// (search_session_child, bucket, sessionID, "replay", version) -> replay JSON
-// (search_session_expiry, minute, bucket, sessionID) -> nil
-// (search_session_present, index, bucket, sessionID) -> nil
-// (search_session_version, authorityID, accessVersion, absoluteMinute,
+// These constants define the durable query session key families. Session
+// keys include a stable hash bucket of the session ID. Concurrent sessions
+// write separate key ranges.
 //
-//	bucket, sessionID) -> nil, one entry per session that can still read
-//	OpenSearch under that access version
+//	(search_session, bucket, sessionID) -> bounded session header JSON
+//	(search_session_child, bucket, sessionID, "token", chunk) -> token bytes
+//	(search_session_child, bucket, sessionID, "visited", nodeID) -> marker
+//	(search_session_child, bucket, sessionID, "replay", version) -> replay JSON
+//	(search_session_expiry, minute, bucket, sessionID) -> nil
+//	(search_session_present, index, bucket, sessionID) -> nil
+//	(search_session_version, authorityID, accessVersion, absoluteMinute, bucket, sessionID) -> nil
+//
+// The search_session_version family stores one entry for each session that
+// can still read OpenSearch under that access version.
 const (
 	keySearchSession        = "search_session"
 	keySearchSessionChild   = "search_session_child"
@@ -65,7 +67,7 @@ func searchSessionReplayKey(sessionID uuid.UUID, version uint64) []byte {
 	return withPrefix(tuple.Tuple{keySearchSessionChild, searchSessionBucket(sessionID), sessionID.String(), sessionReplayPart, version}.Pack())
 }
 
-// searchSessionMinute is the expiry bucket of one deadline.
+// searchSessionMinute returns the expiry minute bucket of one deadline.
 func searchSessionMinute(deadline time.Time) int64 {
 	return deadline.UTC().Unix() / int64(time.Minute/time.Second)
 }
@@ -74,7 +76,8 @@ func searchSessionExpiryKey(sessionID uuid.UUID, deadline time.Time) []byte {
 	return withPrefix(tuple.Tuple{keySearchSessionExpiry, searchSessionMinute(deadline), searchSessionBucket(sessionID), sessionID.String()}.Pack())
 }
 
-// searchSessionExpiryRange covers every expiry key with a minute before end.
+// searchSessionExpiryRange returns the key range of every expiry key with a
+// minute bucket earlier than the minute that contains end.
 func searchSessionExpiryRange(end time.Time) (begin, until []byte) {
 	begin = withPrefix(tuple.Tuple{keySearchSessionExpiry}.Pack())
 	until = withPrefix(tuple.Tuple{keySearchSessionExpiry, searchSessionMinute(end)}.Pack())
@@ -94,14 +97,14 @@ func searchSessionVersionKey(authorityID uuid.UUID, version string, absolute tim
 	}.Pack())
 }
 
-// searchSessionVersionPrefix covers every version presence entry of one
-// authority and access version.
+// searchSessionVersionPrefix returns the key prefix of every version presence
+// entry of one authority and access version.
 func searchSessionVersionPrefix(authorityID uuid.UUID, version string) []byte {
 	return withPrefix(tuple.Tuple{keySearchSessionVersion, authorityID.String(), version}.Pack())
 }
 
-// searchSessionVersionStart is the first version presence key with an
-// absolute deadline in the current minute or later.
+// searchSessionVersionStart returns the lower-bound key of the version
+// presence entries with an absolute deadline in the current minute or later.
 func searchSessionVersionStart(authorityID uuid.UUID, version string, now time.Time) []byte {
 	return withPrefix(tuple.Tuple{keySearchSessionVersion, authorityID.String(), version, searchSessionMinute(now)}.Pack())
 }

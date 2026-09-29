@@ -14,13 +14,13 @@ import (
 
 // Register verifies one page against the claim and the stored checkpoint and
 // records its document ID before the OpenSearch write. The verification
-// covers the desired generation, owner, lease, serving index, revision,
-// projection version, access-state generation, write versions, and ordinal.
-// The issued key includes the projection version. A registration writes a
-// new issued key and never replaces an issued ID. When an earlier owner registered the same ordinal
-// of this revision under another projection, Register returns
-// ErrContentChanged. The worker then schedules a new revision, and cleanup
-// retires every issued ID of the older revision.
+// checks the desired generation, owner, lease, serving index, revision,
+// projection version, access generation, write versions, and ordinal. A
+// registration writes a new issued key that includes the projection version
+// and never replaces an issued ID. Register returns ErrContentChanged when an
+// earlier owner registered the same ordinal of this revision under another
+// projection. The worker then schedules a new revision, and cleanup retires
+// every issued ID of the older revision.
 func (s *SearchWorkStore) Register(ctx context.Context, work searchdomain.Work, page node.ContentPage) (intent searchdomain.WriteIntent, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_work.register")(&err)
 	if pageErr := searchdomain.ValidatePage(work, page); pageErr != nil {

@@ -18,8 +18,8 @@ import (
 )
 
 // modelPredictRequest asks ML Commons for the sparse token weights of one
-// query text. Stable v4.7.3 has no ML Commons API. This narrow request type
-// runs through [opensearch.Do].
+// query text. [opensearch.Do] sends it because the opensearch-go v4.7.3
+// client has no ML Commons API.
 type modelPredictRequest struct {
 	modelID string
 	body    []byte

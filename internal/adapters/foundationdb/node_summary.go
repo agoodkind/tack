@@ -26,14 +26,15 @@ type NodeSummaryStore struct {
 
 var _ searchdomain.SummaryReader = (*NodeSummaryStore)(nil)
 
-// NewNodeSummaryStore creates the bounded summary reader.
+// NewNodeSummaryStore creates the node summary reader.
 func NewNodeSummaryStore(db fdb.Database, policies *searchaccess.PolicySet) *NodeSummaryStore {
 	return &NodeSummaryStore{db: db, policies: policies}
 }
 
-// Summaries returns one result per requested ID in input order. A missing
-// resolve record or view is a deleted result. Found results list the keys
-// the current policies compile from current ancestry.
+// Summaries returns one result per requested ID in input order. It returns a
+// deleted result for a node without a resolve record or view. A found result
+// includes the access keys that the current policies compile from the node's
+// current ancestry.
 func (s *NodeSummaryStore) Summaries(ctx context.Context, nodeIDs []uuid.UUID, maxNameBytes int) (results []node.SummaryResult, err error) {
 	defer telemetry.FDBOp(ctx, "store.node_summary.read")(&err)
 	if len(nodeIDs) > maxSummaryBatch || maxNameBytes < 1 {

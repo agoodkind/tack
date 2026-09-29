@@ -13,7 +13,7 @@ import (
 )
 
 // endpointObserver records every connection URL the official client reports
-// through its connection lifecycle and routing events.
+// in its connection lifecycle and routing events.
 type endpointObserver struct {
 	mutex     sync.Mutex
 	endpoints map[string]struct{}
