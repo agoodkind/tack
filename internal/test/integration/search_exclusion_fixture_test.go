@@ -26,7 +26,8 @@ const exclusionDeadline = 2 * time.Minute
 // exclusionPollInterval spaces the verify runs while released work waits.
 const exclusionPollInterval = time.Second
 
-// searchVerifyReport is the exclusion listing that ops search verify writes.
+// searchVerifyReport is the exclusion and stuck work listing that ops search
+// verify writes.
 type searchVerifyReport struct {
 	ExcludedNodes int `json:"excluded_nodes"`
 	Exclusions    []struct {
@@ -35,6 +36,13 @@ type searchVerifyReport struct {
 		Index  string `json:"index"`
 		Reason string `json:"reason"`
 	} `json:"exclusions"`
+	StuckWorkItems int `json:"stuck_work_items"`
+	StuckWork      []struct {
+		Kind      string `json:"kind"`
+		ItemID    string `json:"item_id"`
+		Attempts  int64  `json:"attempts"`
+		LastError string `json:"last_error"`
+	} `json:"stuck_work"`
 }
 
 // reason returns the listed reason of nodeID and whether the listing has it.

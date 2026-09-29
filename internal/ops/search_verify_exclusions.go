@@ -11,11 +11,14 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// searchVerifyOutput lists every node that search does not index.
+// searchVerifyOutput lists every node that search does not index and every
+// work item that keeps retrying after it crossed the attempt limit.
 type searchVerifyOutput struct {
 	clispec.ResultMarker
-	ExcludedNodes int                     `json:"excluded_nodes"`
-	Exclusions    []searchExclusionOutput `json:"exclusions"`
+	ExcludedNodes  int                     `json:"excluded_nodes"`
+	Exclusions     []searchExclusionOutput `json:"exclusions"`
+	StuckWorkItems int                     `json:"stuck_work_items"`
+	StuckWork      []searchStuckWorkOutput `json:"stuck_work"`
 }
 
 // searchExclusionOutput is one excluded node. Class and Index are the work
@@ -29,15 +32,36 @@ type searchExclusionOutput struct {
 	ExcludedAt string `json:"excluded_at"`
 }
 
-// reportSearchExclusions writes the count and every exclusion that
-// FoundationDB records. An excluded node does not fail verification.
-func reportSearchExclusions(ctx context.Context, factory *cli.Factory, sink clispec.ResultSink) error {
+// reportSearchWorkState writes every exclusion and every work item at or past
+// the attempt limit that FoundationDB records. An excluded node does not fail
+// verification. The returned stuck error lists each work item at or past the
+// limit, and err reports a failed read or write.
+func reportSearchWorkState(ctx context.Context, factory *cli.Factory, sink clispec.ResultSink) (stuck, err error) {
 	env, err := NewEnv(ctx, factory.Cfg)
 	if err != nil {
-		return searchVerifyFailure(ctx, "open search exclusion environment", err)
+		return nil, searchVerifyFailure(ctx, "open search exclusion environment", err)
 	}
 	defer env.Close()
-	output := searchVerifyOutput{ResultMarker: clispec.ResultMarker{}, ExcludedNodes: 0, Exclusions: []searchExclusionOutput{}}
+	output := searchVerifyOutput{
+		ResultMarker: clispec.ResultMarker{}, ExcludedNodes: 0, Exclusions: []searchExclusionOutput{},
+		StuckWorkItems: 0, StuckWork: []searchStuckWorkOutput{},
+	}
+	if err := listSearchExclusions(ctx, env, &output); err != nil {
+		return nil, err
+	}
+	if err := listStuckSearchWork(ctx, env, &output); err != nil {
+		return nil, err
+	}
+	telemetry.L(ctx).InfoContext(ctx, "search.verify.work_state_listed", slog.Int("excluded_nodes", output.ExcludedNodes),
+		slog.Int("stuck_work_items", output.StuckWorkItems))
+	if err := clispec.WriteJSONValue(ctx, sink, output); err != nil {
+		return nil, searchVerifyFailure(ctx, "write search work state", err)
+	}
+	return stuckWorkError(ctx, output.StuckWork), nil
+}
+
+// listSearchExclusions adds every recorded exclusion to output.
+func listSearchExclusions(ctx context.Context, env *Env, output *searchVerifyOutput) error {
 	cursor := ""
 	for {
 		page, err := env.Stores.SearchExclusions(ctx, cursor)
@@ -56,10 +80,6 @@ func reportSearchExclusions(ctx context.Context, factory *cli.Factory, sink clis
 		cursor = page.NextCursor
 	}
 	output.ExcludedNodes = len(output.Exclusions)
-	telemetry.L(ctx).InfoContext(ctx, "search.verify.exclusions_listed", slog.Int("excluded_nodes", output.ExcludedNodes))
-	if err := clispec.WriteJSONValue(ctx, sink, output); err != nil {
-		return searchVerifyFailure(ctx, "write search exclusions", err)
-	}
 	return nil
 }
 
