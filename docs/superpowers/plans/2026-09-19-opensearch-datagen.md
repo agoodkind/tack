@@ -1,14 +1,12 @@
 # Search QA Data Generation Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> Agentic workers must implement this plan task by task with the `superpowers:subagent-driven-development` skill (recommended) or the `superpowers:executing-plans` skill. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Verify public search behavior in QA with opaque metadata and real authenticated MCP calls.
+This plan verifies public search behavior in QA with opaque metadata and real authenticated MCP calls. It implements the [evidence and environment requirements](../specs/2026-09-19-search-acceptance.md#evidence-and-environment).
 
-**Architecture:** The guarded QA operation creates its own minimal metadata, credentials, nodes, and expected results. It invokes public MCP tools through the existing datagen driver and deletes or isolates its fixture through existing lifecycle rules.
+The guarded QA operation creates its own minimal metadata, credentials, nodes, and expected results. It invokes public MCP tools through the existing datagen driver and deletes or isolates its fixture through existing lifecycle rules.
 
-**Tech Stack:** Go, existing datagen driver, MCP Streamable HTTP, real FoundationDB and OpenSearch.
-
-**Spec:** [Evidence and environment](../specs/2026-09-19-search-acceptance.md#evidence-and-environment).
+The work uses Go, the existing datagen driver, MCP Streamable HTTP, real FoundationDB, and real OpenSearch.
 
 ## Global Constraints
 
@@ -22,15 +20,15 @@ Test final-page text, semantic-only relevance, shorter edits, deletion, excluded
 
 ### Task 1: Add public QA search coverage
 
-**Files:**
+Create these files:
 
-- Create: `internal/datagen/search_fixture.go`
-- Create: `internal/datagen/search_pages.go`
-- Create: `internal/datagen/search_results.go`
-- Create: `internal/datagen/generate_search_checks.go`
-- Test: `internal/test/integration/search_datagen_test.go`
+- `internal/datagen/search_fixture.go`
+- `internal/datagen/search_pages.go`
+- `internal/datagen/search_results.go`
+- `internal/datagen/generate_search_checks.go`
+- `internal/test/integration/search_datagen_test.go` for the tests
 
-**Interfaces:**
+This task uses and adds these APIs:
 
 - This plan requires the ranked public `tack_search` handler, search runtime, `Driver.CallRaw`, and the existing guarded `ops qa datagen` entry point.
 - This plan implements `datagen.VerifySearch(context.Context, *config.Config) error` for deployment acceptance.
@@ -103,9 +101,7 @@ Add a test that uses a production target and requires rejection before metadata 
 
 - [ ] **Step 9: Run the serial coding checks.**
 
-Run: `make build`
-
-Expected: PASS. The final validation plan runs real JSON and SSE public verification.
+Run `make build` and require it to pass. The final validation plan runs real JSON and SSE public verification.
 
 - [ ] **Step 10: Create the next Graphite slice.**
 

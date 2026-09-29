@@ -1,14 +1,12 @@
 # OpenSearch Index Replacement Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> Agentic workers must implement this plan task by task with the `superpowers:subagent-driven-development` skill (recommended) or the `superpowers:executing-plans` skill. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace an index after physical mapping, model, tokenizer, embedding format, page identity, cleanup, restore, or unsupported shard changes without losing concurrent source mutations.
+This plan replaces an index after physical mapping, model, tokenizer, embedding format, page identity, cleanup, restore, or unsupported shard changes without losing concurrent source mutations. It implements the [index replacement lifecycle requirements](../specs/2026-09-19-search-acceptance.md#index-replacement-lifecycle).
 
-**Architecture:** One persisted coordinator owns one source and one target. Full replacement reads FoundationDB pages. A permitted primary-shard increase uses native split and reuses existing embeddings. Both paths replay the mutation journal and switch one alias atomically.
+One persisted coordinator owns one source and one target. Full replacement reads FoundationDB pages. A permitted primary-shard increase uses native split and reuses existing embeddings. Both paths replay the mutation journal and switch one alias atomically.
 
-**Tech Stack:** Go, FoundationDB, OpenSearch Go client v4.7.3 typed split and alias APIs.
-
-**Spec:** [Index replacement lifecycle](../specs/2026-09-19-search-acceptance.md#index-replacement-lifecycle).
+The work uses Go, FoundationDB, and the typed split and alias APIs of OpenSearch Go client v4.7.3.
 
 ## Global Constraints
 
@@ -24,20 +22,20 @@ failure, insufficient disk, restored data, and active old-index sessions.
 
 ### Task 1: Build and switch replacement indexes
 
-**Files:**
+This task changes these files:
 
-- Create: `internal/domain/search/rebuild.go`
-- Create: `internal/adapters/foundationdb/search_rebuild.go`
-- Create: `internal/service/search_rebuild.go`
-- Create: `internal/adapters/search/opensearch_alias.go`
-- Create: `internal/adapters/search/opensearch_split.go`
-- Create: `internal/ops/search_reindex.go`
-- Modify: `internal/ops/cli_search.go`
-- Test: `internal/test/integration/search_rebuild_test.go`
-- Test: `internal/test/integration/search_split_test.go`
-- Test: `internal/test/integration/search_restore_test.go`
+- Create `internal/domain/search/rebuild.go`.
+- Create `internal/adapters/foundationdb/search_rebuild.go`.
+- Create `internal/service/search_rebuild.go`.
+- Create `internal/adapters/search/opensearch_alias.go`.
+- Create `internal/adapters/search/opensearch_split.go`.
+- Create `internal/ops/search_reindex.go`.
+- Modify `internal/ops/cli_search.go`.
+- Add the test `internal/test/integration/search_rebuild_test.go`.
+- Add the test `internal/test/integration/search_split_test.go`.
+- Add the test `internal/test/integration/search_restore_test.go`.
 
-**Interfaces:**
+This task uses and adds these APIs:
 
 - This plan requires `ContentReader.ScanSearch`, the index worker and writer, mutation journal, current generation, and replica settings.
 - This plan implements a registered reindex operation, typed split, and atomic alias switching for release.
@@ -118,8 +116,9 @@ finish the target through that boundary. Replay content and access generations
 in order. Verify that every current page contains the write versions recorded in
 the final boundary. Refresh and require green health. Submit one typed alias
 request that removes the old target and adds the new target. If the HTTP result
-is uncertain, read the alias. Old means retry; new means finish FDB handoff; any
-third target is a coordination error.
+is uncertain, read the alias. Retry the request when the alias contains the old
+target. Finish the FDB handoff when the alias contains the new target. Treat any
+third target as a coordination error.
 
 ```json
 {"actions":[{"remove":{"index":"old-physical-index","alias":"node-pages"}},{"add":{"index":"new-physical-index","alias":"node-pages","is_write_index":true}}]}
@@ -135,13 +134,11 @@ Final-validation coverage restores a real FDB backup into a disposable environme
 
 - [ ] **Step 10: Register the production reindex operation.**
 
-Register `ops search reindex` through the existing execute gate, result sink, and audit path. Accept an explicit full or permitted split mode and target shard count. Construct `Rebuilder` from the production adapter, stores, worker, clock, and configuration. Return persisted operation identity and current state so an interrupted command can resume the same replacement.
+Register `ops search reindex` through the existing execute gate, result sink, and audit path. Accept an explicit full or permitted split mode and target shard count. Construct `Rebuilder` from the production adapter, stores, worker, clock, and configuration. Return the persisted operation identity and current state. An interrupted command resumes the same replacement from that state.
 
 - [ ] **Step 11: Run the serial coding checks.**
 
-Run: `make build`
-
-Expected: PASS. The final validation plan runs rebuild, split, restore, and injected failures.
+Run `make build` and require it to pass. The final validation plan runs rebuild, split, restore, and injected failures.
 
 - [ ] **Step 12: Create the next Graphite slice.**
 

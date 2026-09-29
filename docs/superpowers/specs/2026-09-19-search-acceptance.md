@@ -1,6 +1,6 @@
 # OpenSearch search acceptance criteria
 
-These criteria verify the [search architecture](2026-09-19-search-design.md). The OpenSearch release must pass real single-page and multi-page behavior with current storage. Storage expansion must rerun the same suite at larger node sizes.
+These criteria verify the [search architecture](2026-09-19-search-design.md). The OpenSearch release must pass real single-page and multi-page tests against current storage. Storage expansion must rerun the same suite at larger node sizes.
 
 ## Evidence and environment
 
@@ -15,7 +15,7 @@ and measurements. QA must pass before production.
 
 ## Build and lint gates
 
-- Run `make build` on the exact implementation base before the first code edit. Stop if the untouched base fails under the current fetched go-makefile and shared `golangci-lint` configuration.
+- Run `make build` on the exact implementation base before the first code edit. Stop if the unedited base fails under the current fetched go-makefile and shared `golangci-lint` configuration.
 - Keep every new production declaration reachable from a real production entry point within the task that adds it. Do not commit interfaces, adapters, constructors, helpers, or exports for a later task to connect.
 - Run `make build` after each coding task and before committing. It runs every repository gate and compiles the server. Fix each new finding in that task. The final validation plan reruns `make build` from a clean checkout before live tests.
 - Do not edit lint baseline files or run an `accept-new` baseline target. New lint, complexity, strict-analyzer, and dead-code findings must remain zero.
@@ -192,9 +192,9 @@ A lexical-only control must miss at least one non-overlapping pair that the comb
 - Predeclare corpus size, page distribution, query mix, concurrency, indexing rate,
   rebuild activity, and pass thresholds for p50, p95, error rate, throughput, oldest
   work age, peak memory, and disk. Run the complete workload on the single QA node.
-- Suburban provides 31.31 GiB usable memory, eight logical CPUs, and 215.92 GiB available fast storage. The one-week minimum available memory was 10.22 GiB. Keep at least 6.26 GiB available during the QA workload. The earlier 3.4 GiB post-workload reading plus the 0.125 GiB proxy budget would leave about 6.69 GiB, but it did not establish peak use. Do not leave the QA guest enabled unless the complete workload passes this live memory gate.
+- Suburban provides 31.31 GiB usable memory, eight logical CPUs, and 215.92 GiB available fast storage. The one-week minimum available memory was 10.22 GiB. Keep at least 6.26 GiB available during the QA workload. The earlier 3.4 GiB post-workload reading plus the 0.125 GiB proxy budget would leave about 6.69 GiB. That reading did not measure peak use. Do not leave the QA guest enabled unless the complete workload passes this live memory gate.
 - One QA guest requires two logical CPUs and one 40 GiB fast disk. The measured CPU projection requires 5.43 total logical CPUs with reserve, and the host provides eight. The disk leaves 175.92 GiB, or 38.46 percent of the fast pool, available.
-- Neither initial environment claims OpenSearch node failover or horizontal scale. Do not create temporary ML-only or data-only QA nodes. Measure production capacity on `vault`; do not reuse suburban measurements. Require the scale-out checks above before claiming production failover or increased OpenSearch capacity.
+- Neither initial environment claims OpenSearch node failover or horizontal scale. Do not create temporary ML-only or data-only QA nodes. Measure production capacity on `vault`. Do not reuse suburban measurements. Require the scale-out checks above before claiming production failover or increased OpenSearch capacity.
 - Before removing storage limits, test 128 KiB, 1 MiB, 8 MiB, over 100 MB, and nodes
   larger than worker memory. Keep page and work bounds fixed.
 - Add a Tack process and FoundationDB capacity independently in QA. Require the fixed
