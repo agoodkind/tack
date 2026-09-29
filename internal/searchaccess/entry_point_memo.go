@@ -26,8 +26,8 @@ type entryPointMemo struct {
 }
 
 // WithEntryPointMemo returns a context in which entry-point resolution
-// records each resolved ancestor. A summary batch uses one memo, and result
-// nodes under shared ancestors read each ancestor once.
+// records each resolved ancestor. A summary batch uses one memo and reads
+// each shared ancestor once.
 func WithEntryPointMemo(ctx context.Context) context.Context {
 	return context.WithValue(ctx, entryPointMemoKey{}, &entryPointMemo{mutex: sync.Mutex{}, entries: map[memoNode]uuid.UUID{}})
 }

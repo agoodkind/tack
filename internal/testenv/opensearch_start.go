@@ -28,9 +28,9 @@ const (
 )
 
 // provisionOpenSearch starts one engine and returns the fixture after
-// authenticated health succeeds. The engine shares the network stack of a
-// container that only sleeps. The node certificate lists that container's
-// address, and the endpoint dials the address. A process on the Docker host
+// authenticated health succeeds. The engine shares the network stack of an
+// address holder container that only sleeps. The node certificate and the
+// fixture endpoint both use the holder's address. A process on the Docker host
 // and a process on the tack-testenv network both connect to that address. The
 // address stays assigned while the engine is stopped.
 func provisionOpenSearch(ctx context.Context, memoryBytes int64) (OpenSearchFixture, error) {

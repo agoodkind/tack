@@ -23,8 +23,9 @@ func linkSearchNodes(t *testing.T, stores *fdbadapter.Stores, orgID, sourceID, t
 	}
 }
 
-// TestSearchAccessChangeKeepsPendingContent fails when an access change
-// discards pending content work of the same node.
+// TestSearchAccessChangeKeepsPendingContent requires an access change to keep
+// the pending content work of each affected node. The worker must then index
+// every page of both nodes at generation 2 or later.
 func TestSearchAccessChangeKeepsPendingContent(t *testing.T) {
 	stores := newSearchStore(t)
 	adapter, client, _, index := newSearchIndex(t, stores)
@@ -52,7 +53,7 @@ func TestSearchAccessChangeKeepsPendingContent(t *testing.T) {
 
 // TestSearchClassRotationAdmitsLiveWork requires a live item to run within
 // two slices while an access backlog is pending. Strict access priority
-// would drain every access item first.
+// fails this test because it drains every access item first.
 func TestSearchClassRotationAdmitsLiveWork(t *testing.T) {
 	stores := newSearchStore(t)
 	adapter, client, _, index := newSearchIndex(t, stores)

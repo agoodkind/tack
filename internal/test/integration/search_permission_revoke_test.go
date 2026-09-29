@@ -36,9 +36,10 @@ func corruptIndexedAccess(t *testing.T, fixture queryFixture, nodeID uuid.UUID, 
 	}
 }
 
-// TestSearchRevokedAccessRejectsLaterResultsAndReplay opens a session, then
-// moves nodes to a sibling entry point and revokes membership. Later results
-// and replays must reject every newly forbidden node.
+// TestSearchRevokedAccessRejectsLaterResultsAndReplay requires later pages
+// and replays of an open session to omit each node that moves to a sibling
+// entry point. After the caller's membership is revoked, every cursor of the
+// session must fail.
 func TestSearchRevokedAccessRejectsLaterResultsAndReplay(t *testing.T) {
 	fixture := newQueryFixture(t, defaultQueryOptions())
 	caller, sibling := fixture.Workspaces[0], fixture.Workspaces[1]

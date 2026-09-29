@@ -51,8 +51,8 @@ func ValidateAccessFilter(filter AccessFilter) error {
 }
 
 // Permits reports whether any current resource key equals a caller key. It
-// binary-searches f.Keys, which Validate requires to be sorted.
-// resourceKeys can be in any order.
+// binary-searches f.Keys. [ValidateAccessFilter] requires f.Keys to be
+// sorted. resourceKeys can be in any order.
 func (f AccessFilter) Permits(resourceKeys []string) bool {
 	for _, key := range resourceKeys {
 		if _, found := slices.BinarySearch(f.Keys, key); found {

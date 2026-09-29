@@ -23,10 +23,9 @@ const (
 	oversizedCorpusNodes = 10
 )
 
-// TestSearchWithholdsOversizedResult stores ordinary matching nodes and one
-// matching node with a summary above the budget of an empty response. The
-// traversal must complete, return every ordinary node exactly once, and never
-// return the oversized node.
+// TestSearchWithholdsOversizedResult requires a traversal to complete, return
+// every ordinary matching node exactly once, and never return a matching node
+// with a summary above the budget of an empty response.
 func TestSearchWithholdsOversizedResult(t *testing.T) {
 	fixture := newQueryFixture(t, defaultQueryOptions())
 	workspace := fixture.Workspaces[0]

@@ -17,14 +17,16 @@ import (
 )
 
 // The mismatch model is a real pretrained ML Commons model that differs from
-// the pin. Its small tokenizer bundle keeps registration fast.
+// the pinned model. The test uses this model because its tokenizer bundle is
+// small and the model registers quickly.
 const (
 	mismatchModelName    = "amazon/neural-sparse/opensearch-neural-sparse-tokenizer-v1"
 	mismatchModelVersion = "1.0.1"
-	// mismatchRegistrationWindow bounds every registration attempt together.
+	// mismatchRegistrationWindow bounds the total time of all registration
+	// attempts.
 	mismatchRegistrationWindow = 5 * time.Minute
-	// mismatchBreakerInterval spaces registrations that the ML Commons memory
-	// circuit breaker rejected.
+	// mismatchBreakerInterval is the delay before the test repeats a
+	// registration that the ML Commons memory circuit breaker rejected.
 	mismatchBreakerInterval = 5 * time.Second
 	// mlBreakerOpenText is the ML Commons task error of a rejection by an
 	// open memory circuit breaker.

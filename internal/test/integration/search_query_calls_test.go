@@ -46,8 +46,8 @@ func callSearch(t *testing.T, harness *MCPHarness, query, cursor string) searchP
 	return page
 }
 
-// trySearch performs one authenticated call without the testing helpers,
-// so concurrent goroutines can use it.
+// trySearch performs one authenticated call and returns an error instead of
+// failing the test. Concurrent goroutines use it.
 func trySearch(harness *MCPHarness, query, cursor string) (searchPage, error) {
 	text, isError, err := rawSearchCall(harness, searchArguments(harness, query, cursor))
 	if err != nil {
@@ -174,8 +174,8 @@ func requireExactlyOnce(t *testing.T, got, expected []uuid.UUID) {
 }
 
 // requireCorpusOnce requires every expected ID once and no other ID except
-// the caller's entry-point node. The entry-point node is a searchable node.
-// Semantic ranking can return it for any query, at most once.
+// the caller's entry-point node. It accepts the entry-point node at most once
+// because semantic ranking can return that searchable node for any query.
 func requireCorpusOnce(t *testing.T, got, expected []uuid.UUID, entryID uuid.UUID) {
 	t.Helper()
 	corpus := make([]uuid.UUID, 0, len(got))

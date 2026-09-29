@@ -9,10 +9,10 @@ import (
 	searchdomain "goodkind.io/tack/internal/domain/search"
 )
 
-// TestSearchAccessDependentsSurviveEdit moves a child with a grandchild,
-// stops the child's access work in its dependents phase, and edits the
-// child. The rewritten access work must still schedule the grandchild, and
-// every grandchild page must store the child's new access keys.
+// TestSearchAccessDependentsSurviveEdit requires every grandchild page to
+// store the child's new access keys after an edit rewrites the child's access
+// work. The test moves the child, stops its access work in the dependents
+// phase, and then edits the child.
 func TestSearchAccessDependentsSurviveEdit(t *testing.T) {
 	stores := newSearchStore(t)
 	adapter, client, _, index := newSearchIndex(t, stores)
@@ -53,10 +53,10 @@ func TestSearchAccessDependentsSurviveEdit(t *testing.T) {
 	}
 }
 
-// TestSearchAccessUpdatesOlderActiveRevision edits a child and leaves the
-// new revision pending, then moves the child and runs only access work.
-// Every visible page of the older revision must store the new access keys
-// at a higher search generation.
+// TestSearchAccessUpdatesOlderActiveRevision requires access work to write
+// the new access keys at a higher search generation to every visible page of
+// the older revision. The test edits the child, leaves the new revision
+// pending, moves the child, and runs only access work.
 func TestSearchAccessUpdatesOlderActiveRevision(t *testing.T) {
 	stores := newSearchStore(t)
 	adapter, client, _, index := newSearchIndex(t, stores)

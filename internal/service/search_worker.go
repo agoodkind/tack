@@ -41,8 +41,9 @@ type SearchWorker struct {
 	position int
 }
 
-// NewSearchWorker constructs one worker identity. offset staggers the first
-// class each worker tries so concurrent workers start on different classes.
+// NewSearchWorker constructs one worker identity. offset sets the first
+// position the worker reads in the weighted class schedule. Concurrent
+// workers with different offsets start at different positions.
 func NewSearchWorker(ports SearchWorkerPorts, source clock.Clock, settings config.SearchWorkerSettings, offset int) (*SearchWorker, error) {
 	schedule, err := weightedSchedule(settings.ClassWeights)
 	if err != nil {

@@ -58,8 +58,8 @@ func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
 	// from it.
 	source := clock.Wall{}
 	fdbStores.UseClock(source)
-	// Source writes schedule search work, and the MCP handler reads the
-	// metadata epoch, only when OPENSEARCH_ENDPOINT is set.
+	// When OPENSEARCH_ENDPOINT is set, source writes schedule search work and
+	// the MCP handler reads the metadata epoch.
 	var epochs mcpadapter.MetadataEpochReader
 	if cfg.SearchEndpoint != "" {
 		fdbStores.EnableSearchWork()

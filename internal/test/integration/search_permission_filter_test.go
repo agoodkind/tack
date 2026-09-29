@@ -18,8 +18,9 @@ import (
 
 const permissionQuery = "saffron pipeline"
 
-// permissionCorpus is allowed nodes under the caller's entry point and
-// forbidden nodes with stronger lexical matches in another organization.
+// permissionCorpus lists the allowed nodes under the caller's entry point and
+// the forbidden nodes in another organization. The forbidden nodes have
+// stronger lexical matches.
 type permissionCorpus struct {
 	Allowed, Forbidden []uuid.UUID
 	Filter             searchdomain.AccessFilter
@@ -106,8 +107,9 @@ func rawRankedNodes(t *testing.T, fixture queryFixture, filter searchdomain.Acce
 	return nil
 }
 
-// TestSearchFiltersForbiddenPagesBeforeRanking gives forbidden pages
-// stronger lexical matches and requires raw ranker output to exclude them.
+// TestSearchFiltersForbiddenPagesBeforeRanking requires raw ranker output to
+// exclude forbidden pages that have stronger lexical matches and to include
+// every allowed node. Public search must return each allowed node once.
 func TestSearchFiltersForbiddenPagesBeforeRanking(t *testing.T) {
 	fixture := newQueryFixture(t, defaultQueryOptions())
 	corpus := putPermissionCorpus(t, fixture)
@@ -126,9 +128,10 @@ func TestSearchFiltersForbiddenPagesBeforeRanking(t *testing.T) {
 	requireCorpusOnce(t, callEverySearchPage(t, permissionQuery, fixture.Harness).IDs, corpus.Allowed, callerEntry)
 }
 
-// TestSearchFinalCheckRejectsCorruptIndexedAccess corrupts one indexed
-// access key so a forbidden page passes OpenSearch, then requires the final
-// FoundationDB check to withhold the node, including UUID-like queries.
+// TestSearchFinalCheckRejectsCorruptIndexedAccess requires the final
+// FoundationDB check to withhold a forbidden node from the lexical query and
+// from a query for the node's UUID. The test corrupts the indexed access of that
+// node, and its page passes the OpenSearch filter.
 func TestSearchFinalCheckRejectsCorruptIndexedAccess(t *testing.T) {
 	fixture := newQueryFixture(t, defaultQueryOptions())
 	corpus := putPermissionCorpus(t, fixture)

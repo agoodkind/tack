@@ -58,9 +58,9 @@ func putOpaqueKindWithTypeKey(t *testing.T, fixture queryFixture, orgID uuid.UUI
 	return kind
 }
 
-// entryTypeKeys returns the type keys of orgID's entry-point node types. An
-// opaque type declares them as its parents. The access hierarchy then comes
-// from NodeType metadata.
+// entryTypeKeys returns the type keys of the entry-point node types in orgID.
+// An opaque type declares these keys as its parents, and the access
+// hierarchy then depends only on NodeType metadata.
 func entryTypeKeys(t *testing.T, fixture queryFixture, orgID uuid.UUID) []string {
 	t.Helper()
 	types, err := fixture.Stores.NodeTypes.List(t.Context(), orgID)

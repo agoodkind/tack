@@ -64,8 +64,8 @@ func NewMCPHarness(t *testing.T) *MCPHarness {
 	return newMCPHarness(t, false)
 }
 
-// NewAuditedMCPHarness builds the same public MCP boundary with the real
-// Yugabyte audit writer enabled.
+// NewAuditedMCPHarness builds an MCPHarness with the real Yugabyte audit
+// writer enabled.
 func NewAuditedMCPHarness(t *testing.T) *MCPHarness {
 	return newMCPHarness(t, true)
 }

@@ -19,8 +19,8 @@ import (
 // rolloutDeadline bounds one complete access rollout in a test.
 const rolloutDeadline = 5 * time.Minute
 
-// rolloutAbandonLease is the lease of a rollout claim a stopped process
-// leaves behind. The next worker claims the step after it expires.
+// rolloutAbandonLease is the lease of a rollout claim that a stopped process
+// leaves behind. A worker claims the step again after the lease expires.
 const rolloutAbandonLease = 500 * time.Millisecond
 
 // putUndeclaredNode creates a node of kind under parentID with one value
@@ -51,7 +51,7 @@ func runSlicesIgnoringFailures(t *testing.T, worker *service.SearchWorker, limit
 	}
 }
 
-// requireAliasTarget requires the public alias to still name the fixture's
+// requireAliasTarget requires the public alias target to equal the fixture's
 // physical index.
 func requireAliasTarget(t *testing.T, fixture queryFixture) {
 	t.Helper()
@@ -74,8 +74,8 @@ func pagesOf(t *testing.T, fixture queryFixture, nodes []uuid.UUID) []searchPage
 	return pages
 }
 
-// requireSemanticPreserved requires the same documents with byte-identical
-// text and semantic fields.
+// requireSemanticPreserved requires every page to keep its document ID, node
+// revision, text, and semantic fields byte for byte.
 func requireSemanticPreserved(t *testing.T, before, after []searchPageSource) {
 	t.Helper()
 	if len(before) != len(after) {

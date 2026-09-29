@@ -24,8 +24,9 @@ var (
 	ErrSessionMismatch = errors.New("search request does not match its session")
 )
 
-// Session is the durable continuation state every Tack process shares
-// through FoundationDB. Version counts committed responses.
+// Session is the durable continuation state of one search. FoundationDB
+// stores it, and every Tack process reads it. Version counts committed
+// responses.
 type Session struct {
 	ID, PrincipalID, AuthorityID, EntryPointID uuid.UUID
 	Binding                                    [sha256.Size]byte
@@ -74,7 +75,7 @@ type SessionStore interface {
 
 // SessionBinding hashes the principal, permission authority, entry point,
 // query text, node type, access version and keys, physical index, and restore
-// epoch through length-prefixed serialization.
+// epoch with length-prefixed serialization.
 func SessionBinding(principalID, authorityID, entryPointID uuid.UUID, query Query) [sha256.Size]byte {
 	var identity bytes.Buffer
 	writeIdentityPart(&identity, []byte(strconv.FormatInt(query.Generation, 10)))

@@ -34,7 +34,7 @@ func putUnusedDefinition(t *testing.T, stores *fdbadapter.Stores, orgID uuid.UUI
 
 // includeStoredDefinition changes the stored definition of name to include
 // its values in search text. Every fixture node stores a value under name,
-// so the change alters the emitted text of every node.
+// and the change alters the emitted text of every node.
 func includeStoredDefinition(t *testing.T, stores *fdbadapter.Stores, orgID uuid.UUID, name string) {
 	t.Helper()
 	definitions, err := stores.PropertyDefs.List(t.Context(), orgID)
@@ -73,11 +73,11 @@ func indexedRevisions(t *testing.T, client *opensearchapi.Client, index string, 
 }
 
 // TestSearchRescanKeepsCursorAndSeparatesTypeChanges requires a node type
-// change to schedule no content work. A new definition that no node uses
-// starts a scan. A projection change of a property that every node stores
-// arrives during the node pass. It must leave the scan cursor unchanged, and
-// the finished scan must reindex every node, including the nodes the pass
-// read before the change.
+// change to leave every indexed revision unchanged. A projection change
+// during a rescan must keep the scan cursor, and the finished scan must
+// reindex every node, including the nodes it read before the change. A new
+// definition that no node uses starts the scan. The projection change
+// includes a property that every node stores.
 func TestSearchRescanKeepsCursorAndSeparatesTypeChanges(t *testing.T) {
 	stores := newSearchStore(t)
 	adapter, client, _, index := newSearchIndex(t, stores)

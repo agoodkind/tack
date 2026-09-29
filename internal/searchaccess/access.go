@@ -180,7 +180,7 @@ type accessContextError struct {
 func (e accessContextError) Error() string { return e.operation + ": " + e.err.Error() }
 func (e accessContextError) Unwrap() error { return e.err }
 
-// WithContext adds access-operation context without emitting another event.
+// WithContext prefixes err with operation and logs no event.
 func WithContext(operation string, err error) error {
 	return accessContextError{operation: operation, err: err}
 }

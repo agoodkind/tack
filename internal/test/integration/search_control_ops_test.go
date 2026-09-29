@@ -13,10 +13,11 @@ import (
 	"goodkind.io/tack/internal/ops"
 )
 
-// TestSearchControlCommandsUsesTheAuditedProductionPath invokes both native
-// control commands through the rendered Cobra tree. The fixture, adapter, TLS
-// certificate, SQL outbox, and operator identity are real dependencies used by
-// the production path. The test runs only when TACK_SEARCH_INTEGRATION is 1.
+// TestSearchControlCommandsUsesTheAuditedProductionPath requires the audited
+// verify command to pass after the audited provision command. Both commands
+// run through the rendered Cobra tree. The fixture, adapter, TLS certificate,
+// SQL outbox, and operator identity are real production dependencies. The
+// test runs only when TACK_SEARCH_INTEGRATION is 1.
 func TestSearchControlCommandsUsesTheAuditedProductionPath(t *testing.T) {
 	control := newSearchControl(t)
 	control.provisionFromEmpty(t)
@@ -25,9 +26,9 @@ func TestSearchControlCommandsUsesTheAuditedProductionPath(t *testing.T) {
 	}
 }
 
-// TestSearchControlProvisionIsIdempotentFromEmpty provisions an engine with
-// no control index, runs provision again, and requires the second run to keep
-// the same physical index.
+// TestSearchControlProvisionIsIdempotentFromEmpty requires a second provision
+// run to keep the physical index that the first run created on an engine
+// without a control index. Verify must pass after the second run.
 func TestSearchControlProvisionIsIdempotentFromEmpty(t *testing.T) {
 	control := newSearchControl(t)
 	control.provisionFromEmpty(t)
@@ -44,8 +45,9 @@ func TestSearchControlProvisionIsIdempotentFromEmpty(t *testing.T) {
 }
 
 // TestSearchControlCommandsRejectIndependentTopologyAndAliasMismatches
-// changes one topology setting or the alias target at a time and requires the audited verify
-// command to reject each mismatch before the next value is restored.
+// requires the audited verify command to reject each topology setting
+// mismatch and an alias target mismatch. The test changes one value at a
+// time and restores it before the next change.
 func TestSearchControlCommandsRejectIndependentTopologyAndAliasMismatches(t *testing.T) {
 	control := newSearchControl(t)
 	control.provisionFromEmpty(t)

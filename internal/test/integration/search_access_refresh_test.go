@@ -15,11 +15,11 @@ import (
 	"goodkind.io/tack/internal/searchaccess"
 )
 
-// TestSearchAccessVersionWithoutRebuild rolls the rotated policy version out
-// with the model undeployed. The physical index, alias, page text, and
-// semantic fields must not change. Every page must store only the new
-// version, and search must use the new version once the model is deployed
-// again.
+// TestSearchAccessVersionWithoutRebuild requires an access rollout to the
+// rotated policy version to keep the physical index, alias, page text, and
+// semantic fields unchanged. The rollout runs with the model undeployed.
+// Every page must store only the new version. After the model is deployed
+// again, search must return the nodes under the new version.
 func TestSearchAccessVersionWithoutRebuild(t *testing.T) {
 	fixture := newQueryFixture(t, defaultQueryOptions())
 	workspace := fixture.Workspaces[0]
@@ -58,8 +58,9 @@ func TestSearchAccessVersionWithoutRebuild(t *testing.T) {
 	}
 }
 
-// TestSearchAccessMembershipQueryOnly removes the caller's membership. Search
-// must refuse the caller, and no page document or search work may change.
+// TestSearchAccessMembershipQueryOnly requires search to refuse a caller
+// after the caller's membership is removed. The membership change must leave
+// every page document unchanged and schedule no search work.
 func TestSearchAccessMembershipQueryOnly(t *testing.T) {
 	fixture := newQueryFixture(t, defaultQueryOptions())
 	workspace := fixture.Workspaces[0]
@@ -99,9 +100,10 @@ func TestSearchAccessMembershipQueryOnly(t *testing.T) {
 	}
 }
 
-// TestSearchAccessResourceRefresh moves a node to another entry point of the
-// same organization. Every page must receive new access keys at a higher
-// generation while its text, revision, and semantic fields stay unchanged.
+// TestSearchAccessResourceRefresh requires every page of a node that moves to
+// another entry point in the same organization to receive new access keys at
+// a higher generation. The text, revision, and semantic fields of each page
+// must stay unchanged.
 func TestSearchAccessResourceRefresh(t *testing.T) {
 	fixture := newQueryFixture(t, defaultQueryOptions())
 	first, second := sameOrgWorkspaces(t, fixture)
@@ -122,9 +124,10 @@ func TestSearchAccessResourceRefresh(t *testing.T) {
 	}
 }
 
-// TestSearchAccessRolloutRecovery abandons a claimed rollout step in every
-// phase, as a stopped process would, and continues with a new worker. The
-// rollout must finish with only the candidate version on every page.
+// TestSearchAccessRolloutRecovery requires an access rollout to finish with
+// only the candidate version on every page after a stopped process abandons
+// a claimed step in each phase. The fixture worker claims each abandoned step
+// after its lease expires.
 func TestSearchAccessRolloutRecovery(t *testing.T) {
 	fixture := newQueryFixture(t, defaultQueryOptions())
 	workspace := fixture.Workspaces[0]

@@ -29,14 +29,14 @@ func newWorkStore(t *testing.T, stores *fdbadapter.Stores) *fdbadapter.SearchWor
 }
 
 // claimAll claims every claimable item of class for one minute and returns
-// it by node.
+// the items by node.
 func claimAll(t *testing.T, store *fdbadapter.SearchWorkStore, class searchdomain.WorkClass) map[uuid.UUID]searchdomain.Work {
 	t.Helper()
 	return claimAllFor(t, store, class, time.Minute)
 }
 
 // claimAllFor claims every claimable item of class under lease and returns
-// it by node.
+// the items by node.
 func claimAllFor(t *testing.T, store *fdbadapter.SearchWorkStore, class searchdomain.WorkClass, lease time.Duration) map[uuid.UUID]searchdomain.Work {
 	t.Helper()
 	claimed := map[uuid.UUID]searchdomain.Work{}
@@ -111,8 +111,8 @@ func TestSearchWorkScheduledInRelationshipTransaction(t *testing.T) {
 	}
 }
 
-// TestSearchRescanRequestedByContainmentChange adds a type key to the
-// CanContain list of a node type. The write must request a rescan of the
+// TestSearchRescanRequestedByContainmentChange requires a write that adds a
+// type key to the CanContain list of a node type to request a rescan of the
 // organization.
 func TestSearchRescanRequestedByContainmentChange(t *testing.T) {
 	stores := newSearchStore(t)
@@ -132,9 +132,9 @@ func TestSearchRescanRequestedByContainmentChange(t *testing.T) {
 	}
 }
 
-// TestSearchWorkOffWithoutEndpoint creates a project through MCP on a graph
-// with no OPENSEARCH_ENDPOINT. FoundationDB must store no search generation
-// or search access record for the project.
+// TestSearchWorkOffWithoutEndpoint requires FoundationDB to store no search
+// generation or search access record for a project that MCP creates on a
+// graph without OPENSEARCH_ENDPOINT.
 func TestSearchWorkOffWithoutEndpoint(t *testing.T) {
 	t.Setenv("OPENSEARCH_ENDPOINT", "")
 	harness := NewMCPHarness(t)
