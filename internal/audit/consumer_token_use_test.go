@@ -78,8 +78,10 @@ func TestConsumerProjectsTokenLastUseFromTheAuthEvent(t *testing.T) {
 		t.Fatal("a fresh token has no last use")
 	}
 
-	newer := clock.Now().UTC().Truncate(time.Microsecond)
-	older := newer.Add(-time.Hour)
+	// A fresh ledger has no partition before the Monday of its migration week.
+	// Both events are dated at or after now.
+	older := clock.Now().UTC().Truncate(time.Microsecond)
+	newer := older.Add(time.Hour)
 	produceEvents(t, brokers, topic, []Event{
 		makeTokenUsedEvent(orgID, tokenID, newer),
 		makeTokenUsedEvent(orgID, tokenID, older),

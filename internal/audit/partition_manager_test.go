@@ -6,6 +6,10 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+	"goodkind.io/tack/internal/clock"
+	"goodkind.io/tack/internal/testenv"
 )
 
 type fakeStore struct {
@@ -64,6 +68,29 @@ func TestPartitionManagerCloseIdempotent(t *testing.T) {
 	}
 	if err := pm.Close(); err != nil {
 		t.Fatalf("second Close: %v", err)
+	}
+}
+
+// TestPartitionMaintenanceMeetsTheAlertFloor runs maintenance on a migrated
+// ledger and checks that the headroom it leaves does not trip the alert.
+func TestPartitionMaintenanceMeetsTheAlertFloor(t *testing.T) {
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, testenv.Ledger(t))
+	if err != nil {
+		t.Fatalf("pgxpool: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	store := NewPGPartitionStore(pool)
+	if err := store.RunMaintenance(ctx); err != nil {
+		t.Fatalf("run maintenance: %v", err)
+	}
+	headroom, err := store.HeadroomWeeks(ctx, clock.Now().UTC())
+	if err != nil {
+		t.Fatalf("headroom: %v", err)
+	}
+	if headroom < partitionHeadroomAlertFloor {
+		t.Fatalf("headroom after maintenance = %d weeks, below the alert floor of %d",
+			headroom, partitionHeadroomAlertFloor)
 	}
 }
 
