@@ -79,7 +79,7 @@ func (w *SearchWorker) rolloutVerify(ctx context.Context, work searchdomain.Work
 	states, err := w.ports.Documents.DocumentAccess(operationContext, work.Target, ids)
 	cancel()
 	if err != nil {
-		return w.settle(ctx, work, "read access rollout page documents", err)
+		return w.settleEngine(ctx, work, "read access rollout page documents", err)
 	}
 	step, err := w.ports.Rollouts.CompleteVerify(ctx, work, rollout, documents, states, done)
 	if err != nil {

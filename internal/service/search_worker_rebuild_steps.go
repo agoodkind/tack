@@ -15,13 +15,13 @@ func (w *SearchWorker) rebuildCreate(ctx context.Context, work searchdomain.Work
 		if err := w.engineStep(ctx, func(operation context.Context) error {
 			return w.ports.Replacer.CreateReplacement(operation, rebuild.TargetIndex, rebuild.PrimaryShards, rebuild.RoutingShards, rebuild.Replicas)
 		}); err != nil {
-			return w.settle(ctx, work, "create replacement index "+rebuild.TargetIndex, err)
+			return w.settleEngine(ctx, work, "create replacement index "+rebuild.TargetIndex, err)
 		}
 		switch err := w.waitGreen(ctx, work, rebuild.TargetIndex); {
 		case errors.Is(err, searchdomain.ErrIndexNotReady):
 			return w.targetNotGreen(ctx, work, rebuild, err)
 		case err != nil:
-			return w.settle(ctx, work, "wait for green replacement index "+rebuild.TargetIndex, err)
+			return w.settleEngine(ctx, work, "wait for green replacement index "+rebuild.TargetIndex, err)
 		}
 		next := rebuild
 		next.State, next.ScanCursor, next.ScanComplete = searchdomain.RebuildCopying, "", false
@@ -83,16 +83,16 @@ func (w *SearchWorker) rebuildSwitch(ctx context.Context, work searchdomain.Work
 	if err := w.engineStep(ctx, func(operation context.Context) error {
 		return w.ports.Writer.Refresh(operation, rebuild.TargetIndex)
 	}); err != nil {
-		return w.settle(ctx, work, "refresh replacement index "+rebuild.TargetIndex, err)
+		return w.settleEngine(ctx, work, "refresh replacement index "+rebuild.TargetIndex, err)
 	}
 	switch err := w.waitGreen(ctx, work, rebuild.TargetIndex); {
 	case errors.Is(err, searchdomain.ErrIndexNotReady):
 		return w.targetNotGreen(ctx, work, rebuild, err)
 	case err != nil:
-		return w.settle(ctx, work, "wait for green replacement index "+rebuild.TargetIndex, err)
+		return w.settleEngine(ctx, work, "wait for green replacement index "+rebuild.TargetIndex, err)
 	}
 	if err := w.moveAlias(ctx, rebuild); err != nil {
-		return w.settle(ctx, work, "switch public alias to "+rebuild.TargetIndex, err)
+		return w.settleEngine(ctx, work, "switch public alias to "+rebuild.TargetIndex, err)
 	}
 	if err := w.ports.Rebuilds.CompleteSwitch(ctx, work, rebuild); err != nil {
 		return w.settle(ctx, work, "record switched index "+rebuild.TargetIndex, err)

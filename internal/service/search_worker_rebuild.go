@@ -83,7 +83,7 @@ func (w *SearchWorker) rebuildVerify(ctx context.Context, work searchdomain.Work
 	states, err := w.ports.Documents.DocumentAccess(operationContext, rebuild.TargetIndex, ids)
 	cancel()
 	if err != nil {
-		return w.settle(ctx, work, "read replacement page documents", err)
+		return w.settleEngine(ctx, work, "read replacement page documents", err)
 	}
 	waiting, err := w.ports.Rebuilds.CompleteRebuildVerify(ctx, work, rebuild, batch, states)
 	if err != nil {
@@ -110,12 +110,12 @@ func (w *SearchWorker) rebuildRetire(ctx context.Context, work searchdomain.Work
 	if err := w.engineStep(ctx, func(operation context.Context) error {
 		return w.ports.Replacer.SetWriteBlock(operation, rebuild.SourceIndex, true)
 	}); err != nil && !errors.Is(err, searchdomain.ErrIndexNotFound) {
-		return w.settle(ctx, work, "block writes to retiring index "+rebuild.SourceIndex, err)
+		return w.settleEngine(ctx, work, "block writes to retiring index "+rebuild.SourceIndex, err)
 	}
 	if err := w.engineStep(ctx, func(operation context.Context) error {
 		return w.ports.Replacer.DeleteIndex(operation, rebuild.SourceIndex)
 	}); err != nil {
-		return w.settle(ctx, work, "delete retiring index "+rebuild.SourceIndex, err)
+		return w.settleEngine(ctx, work, "delete retiring index "+rebuild.SourceIndex, err)
 	}
 	if err := w.ports.Rebuilds.FinishRebuild(ctx, work, rebuild); err != nil {
 		return w.settle(ctx, work, "finish index replacement", err)
@@ -129,12 +129,12 @@ func (w *SearchWorker) rebuildRecover(ctx context.Context, work searchdomain.Wor
 	if err := w.engineStep(ctx, func(operation context.Context) error {
 		return w.ports.Replacer.SetWriteBlock(operation, rebuild.SourceIndex, false)
 	}); err != nil {
-		return w.settle(ctx, work, "restore writes to index "+rebuild.SourceIndex, err)
+		return w.settleEngine(ctx, work, "restore writes to index "+rebuild.SourceIndex, err)
 	}
 	if err := w.engineStep(ctx, func(operation context.Context) error {
 		return w.ports.Replacer.DeleteIndex(operation, rebuild.TargetIndex)
 	}); err != nil {
-		return w.settle(ctx, work, "delete failed target "+rebuild.TargetIndex, err)
+		return w.settleEngine(ctx, work, "delete failed target "+rebuild.TargetIndex, err)
 	}
 	if err := w.ports.Rebuilds.FinishRebuild(ctx, work, rebuild); err != nil {
 		return w.settle(ctx, work, "finish failed index replacement", err)
