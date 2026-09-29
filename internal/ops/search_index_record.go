@@ -27,3 +27,23 @@ func recordServingSearchIndex(ctx context.Context, factory *cli.Factory, index s
 	}
 	return nil
 }
+
+// readServingSearchIndex reads the serving physical index from FoundationDB.
+// Search work claims read the same record, and an index replacement rewrites
+// it when it switches the public alias.
+func readServingSearchIndex(ctx context.Context, factory *cli.Factory) (string, error) {
+	env, err := NewEnv(ctx, factory.Cfg)
+	if err != nil {
+		wrapped := fmt.Errorf("open environment to read serving search index: %w", err)
+		telemetry.L(ctx).ErrorContext(ctx, "search.verify.environment_failed", slog.String("err", wrapped.Error()))
+		return "", wrapped
+	}
+	defer env.Close()
+	index, err := env.Stores.ServingSearchIndex(ctx)
+	if err != nil {
+		wrapped := fmt.Errorf("read serving search index: %w", err)
+		telemetry.L(ctx).ErrorContext(ctx, "search.verify.index_record_failed", slog.String("err", wrapped.Error()))
+		return "", wrapped
+	}
+	return index, nil
+}
