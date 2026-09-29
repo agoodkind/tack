@@ -45,7 +45,11 @@ func runSearchVerify(ctx context.Context, factory *cli.Factory) (runErr error) {
 	if err := verifySearchServer(ctx, adapter); err != nil {
 		return err
 	}
-	if err := verifySearchPhysical(ctx, adapter, topology); err != nil {
+	index, err := readServingSearchIndex(ctx, factory)
+	if err != nil {
+		return err
+	}
+	if err := verifySearchPhysical(ctx, adapter, topology, index); err != nil {
 		return err
 	}
 	return verifySearchEndpoints(ctx, adapter, factory.Cfg.SearchEndpoint)
@@ -91,9 +95,10 @@ func verifySearchServer(ctx context.Context, adapter *search.Adapter) error {
 	return nil
 }
 
-func verifySearchPhysical(ctx context.Context, adapter *search.Adapter, topology config.SearchTopology) error {
+// verifySearchPhysical checks the mapping, model, topology, alias target, and
+// health of index, the serving index that FoundationDB records.
+func verifySearchPhysical(ctx context.Context, adapter *search.Adapter, topology config.SearchTopology, index string) error {
 	logger := telemetry.L(ctx)
-	const index = "node-pages-1"
 	info, err := adapter.IndexInfo(ctx, index)
 	if err != nil {
 		wrapped := fmt.Errorf("read search mapping %s: %w", index, err)
@@ -140,7 +145,7 @@ func verifySearchPhysical(ctx context.Context, adapter *search.Adapter, topology
 		return wrapped
 	}
 	if aliasTarget != index {
-		wrapped := fmt.Errorf("search alias node-pages points to %q, want %q", aliasTarget, index)
+		wrapped := fmt.Errorf("search alias node-pages points to %q, want the serving index %q that FoundationDB records", aliasTarget, index)
 		logger.ErrorContext(ctx, "search.verify.alias_mismatch", slog.String("err", wrapped.Error()))
 		return wrapped
 	}
