@@ -145,7 +145,12 @@ A lexical-only control must miss at least one non-overlapping pair that the comb
   replacement must finish. Search must exclude the node, and `ops search verify`
   must list it with its reason and still pass. A new parent edge must index the
   node again and remove its exclusion without an application change. A failed
-  OpenSearch operation must never exclude a node.
+  OpenSearch operation must never exclude a node or count toward the attempt limit.
+- Fail a rebuild item on a FoundationDB read on every retry. The item must keep
+  retrying. Once its failures cross the attempt limit, `ops search verify` must
+  fail and list the item kind, its ID, the attempt count, and the last error. The
+  worker must log the same record once. The count must clear when the item
+  completes. Cleanup, deleted-node, rescan, and rollout items follow the same rule.
 - Pause an old writer, finish a newer edit or deletion, then resume the old request.
   Old text must not reappear.
 - Give one node enough pages to exceed a work slice. Each claim must stop admitting
