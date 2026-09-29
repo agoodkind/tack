@@ -25,16 +25,15 @@ const finishedDeleteRetention = time.Hour
 // returns [domain.ErrNotFound].
 func (s *NodeService) DeleteStatus(ctx context.Context, jobID uuid.UUID) (DeleteResult, error) {
 	job, err := s.deleter.SubtreeDelete(ctx, jobID)
+	none := DeleteResult{JobID: jobID, Deleted: 0, Moved: 0, State: node.SubtreeDeleteRunning}
 	if err != nil {
 		slog.ErrorContext(ctx, "node.subtree_delete.status_failed", slog.String("err", err.Error()), slog.String("job_id", jobID.String()))
-		return DeleteResult{JobID: jobID, Deleted: 0, State: node.SubtreeDeleteRunning},
-			fmt.Errorf("read delete job %s: %w", jobID, err)
+		return none, fmt.Errorf("read delete job %s: %w", jobID, err)
 	}
 	if job == nil {
-		return DeleteResult{JobID: jobID, Deleted: 0, State: node.SubtreeDeleteRunning},
-			fmt.Errorf("delete job %s: %w", jobID, domain.ErrNotFound)
+		return none, fmt.Errorf("delete job %s: %w", jobID, domain.ErrNotFound)
 	}
-	return DeleteResult{JobID: jobID, Deleted: job.Deleted, State: job.State()}, nil
+	return DeleteResult{JobID: jobID, Deleted: job.Deleted, Moved: job.Moved, State: job.State()}, nil
 }
 
 // ResumeSubtreeDeletes finishes every running subtree delete job without a

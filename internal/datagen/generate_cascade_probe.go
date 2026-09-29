@@ -12,6 +12,10 @@ import (
 // reports how many nodes the delete removed.
 const cascadeCountText = "Deleted nodes: "
 
+// movedCountText is the field of the tack_delete_cycle output that reports
+// one issue moved to the project.
+const movedCountText = "Moved nodes: 1"
+
 // notFoundText is part of the error that a get tool returns for a missing
 // node.
 const notFoundText = "not found"
@@ -20,9 +24,10 @@ const notFoundText = "not found"
 var errCascadeChildKept = errors.New("a child of the deleted project still exists")
 
 // probeCascadeDelete creates a project with an issue and a comment under the
-// issue in the first workspace, then deletes the project through
-// tack_delete_project. The delete output must report the deleted node count,
-// and tack_get_issue and tack_get_comment must report both children missing.
+// issue in the first workspace, runs probeCycleMove in the project, then
+// deletes the project through tack_delete_project. The delete output must
+// report the deleted node count, and tack_get_issue and tack_get_comment must
+// report both issues and the comment missing.
 // A project that an interrupted earlier run left behind is deleted first. A
 // dry run plans the calls and skips the checks.
 func (g *Generator) probeCascadeDelete(ctx context.Context) error {
@@ -59,6 +64,10 @@ func (g *Generator) probeCascadeDelete(ctx context.Context) error {
 	if err != nil {
 		return loggedError(ctx, "qa datagen: create cascade probe comment", err)
 	}
+	moved, err := g.probeCycleMove(ctx, token, workspace.Slug, identifier)
+	if err != nil {
+		return err
+	}
 	deleted, err := g.driver.Call(ctx, token, "tack_delete_project", ToolArguments{
 		WorkspaceReference: workspace.Slug, NodeID: project.RawID(),
 	})
@@ -71,7 +80,49 @@ func (g *Generator) probeCascadeDelete(ctx context.Context) error {
 	if !strings.Contains(deleted.Text(), cascadeCountText) {
 		return loggedError(ctx, "qa datagen: delete output of project "+identifier, fmt.Errorf("output has no %q field:\n%s", cascadeCountText, deleted.Text()))
 	}
-	return g.requireCascadeChildrenGone(ctx, token, workspace.Slug, identifier, issue.RawID(), comment.RawID())
+	if err := g.requireCascadeChildrenGone(ctx, token, workspace.Slug, identifier, issue.RawID(), comment.RawID()); err != nil {
+		return err
+	}
+	return g.requireCascadeChildrenGone(ctx, token, workspace.Slug, identifier, moved, comment.RawID())
+}
+
+// probeCycleMove creates a cycle in the probe project and an issue with the
+// cycle as its parent, then deletes the cycle through tack_delete_cycle. The
+// delete must move the issue to the project: the output must report one
+// moved node, and tack_get_issue must still return the issue. It returns
+// the issue's raw id. A dry run plans the calls and skips the checks.
+func (g *Generator) probeCycleMove(ctx context.Context, token, workspaceReference, identifier string) (string, error) {
+	cycle, err := g.driver.Call(ctx, token, "tack_create_cycle", ToolArguments{
+		WorkspaceReference: workspaceReference, ProjectReference: identifier, Name: "QA cascade delete cycle",
+	})
+	if err != nil {
+		return "", loggedError(ctx, "qa datagen: create cascade probe cycle", err)
+	}
+	properties := newProperties()
+	properties.setString("parent_id", cycle.RawID())
+	issue, err := g.driver.Call(ctx, token, "tack_create_issue", ToolArguments{
+		WorkspaceReference: workspaceReference, ProjectReference: identifier, Name: "QA cascade delete moved issue",
+		Properties: properties,
+	})
+	if err != nil {
+		return "", loggedError(ctx, "qa datagen: create cascade probe issue in the cycle", err)
+	}
+	deleted, err := g.driver.Call(ctx, token, "tack_delete_cycle", ToolArguments{
+		WorkspaceReference: workspaceReference, NodeID: cycle.RawID(),
+	})
+	if err != nil {
+		return "", loggedError(ctx, "qa datagen: delete cascade probe cycle", err)
+	}
+	if g.dryRun {
+		return issue.RawID(), nil
+	}
+	if !strings.Contains(deleted.Text(), movedCountText) {
+		return "", loggedError(ctx, "qa datagen: delete output of cascade probe cycle", fmt.Errorf("output has no %q field:\n%s", movedCountText, deleted.Text()))
+	}
+	if _, err := g.driver.Call(ctx, token, "tack_get_issue", ToolArguments{WorkspaceReference: workspaceReference, NodeID: issue.RawID()}); err != nil {
+		return "", loggedError(ctx, "qa datagen: get the issue the cycle delete moved", err)
+	}
+	return issue.RawID(), nil
 }
 
 // deleteResidualCascadeProject deletes the probe project named name when an

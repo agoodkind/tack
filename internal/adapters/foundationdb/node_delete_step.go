@@ -25,7 +25,7 @@ func (s *NodeDeleteStore) DeleteSubtreeStep(ctx context.Context, jobID uuid.UUID
 	rootDeleted := false
 	err = runNodeMutation(ctx, s.nodes.db, "subtree delete step of job "+jobID.String(), func(tr fdb.Transaction) error {
 		rootDeleted = false
-		progress = node.SubtreeDeleteProgress{Deleted: 0, Done: true}
+		progress = node.SubtreeDeleteProgress{Deleted: 0, Moved: 0, Done: true}
 		job, err := readDeleteJob(ctx, tr, jobID)
 		if err != nil || job == nil {
 			return err
@@ -36,7 +36,7 @@ func (s *NodeDeleteStore) DeleteSubtreeStep(ctx context.Context, jobID uuid.UUID
 				return err
 			}
 		}
-		progress = node.SubtreeDeleteProgress{Deleted: job.Deleted, Done: len(job.Stack) == 0}
+		progress = node.SubtreeDeleteProgress{Deleted: job.Deleted, Moved: job.Moved, Done: len(job.Stack) == 0}
 		if job.Finished() {
 			return nil
 		}
@@ -47,7 +47,7 @@ func (s *NodeDeleteStore) DeleteSubtreeStep(ctx context.Context, jobID uuid.UUID
 		return writeDeleteJob(ctx, tr, job, now)
 	})
 	if err != nil {
-		return node.SubtreeDeleteProgress{Deleted: 0, Done: false}, err
+		return node.SubtreeDeleteProgress{Deleted: 0, Moved: 0, Done: false}, err
 	}
 	if rootDeleted {
 		commitStagedIntent(ctx)
@@ -69,21 +69,23 @@ func (s *NodeDeleteStore) advance(ctx context.Context, tr fdb.Transaction, job *
 		job.Stack = job.Stack[:len(job.Stack)-1]
 		return false, nil
 	}
-	incoming, err := readDeleteEdges(ctx, tr, job.OrgID, topID, true, maxDeleteEdgePage+1)
+	incoming, err := readDeleteEdges(ctx, tr, job.OrgID, topID, "", true)
 	if err != nil {
 		return false, err
 	}
-	outgoing, err := readDeleteEdges(ctx, tr, job.OrgID, topID, false, maxDeleteEdgePage+1)
+	outgoing, err := readDeleteEdges(ctx, tr, job.OrgID, topID, "", false)
 	if err != nil {
 		return false, err
 	}
 	examined := incoming[:min(len(incoming), maxDeleteEdgePage)]
-	childID, others, err := findHierarchyChild(ctx, tr, job, top, examined, kinds)
+	child, others, err := findHierarchyChild(ctx, tr, job, top, examined, kinds)
 	if err != nil {
 		return false, err
 	}
-	if childID != uuid.Nil {
-		job.Stack = append(job.Stack, childID)
+	if child.Found {
+		if err := s.takeChild(ctx, tr, job, child, kinds, events); err != nil {
+			return false, err
+		}
 		return false, s.clearDeleteEdges(ctx, tr, job.OrgID, others)
 	}
 	if len(incoming) > maxDeleteEdgePage || len(outgoing) > maxDeleteEdgePage {
@@ -95,34 +97,60 @@ func (s *NodeDeleteStore) advance(ctx context.Context, tr fdb.Transaction, job *
 	return s.deleteTop(ctx, tr, job, top, events)
 }
 
+// takeChild moves a direct child of the root to the root's parent when
+// moveChild accepts it. Every other child joins the stack and is deleted with
+// its descendants.
+func (s *NodeDeleteStore) takeChild(
+	ctx context.Context, tr fdb.Transaction, job *node.SubtreeDeleteJob, child hierarchyNode,
+	kinds map[string]*node.NodeType, events node.DeletionEventBuilder,
+) error {
+	moved := false
+	if len(job.Stack) == 1 {
+		var err error
+		moved, err = s.moveChild(ctx, tr, job, child, kinds, events)
+		if err != nil {
+			return err
+		}
+	}
+	if moved {
+		job.Moved++
+		return nil
+	}
+	job.Stack = append(job.Stack, child.ID)
+	return nil
+}
+
 // findHierarchyChild returns the source of the first edge in edges that is a
-// hierarchy child of top. It also returns every edge with a source that is
-// not a hierarchy child. A node already on the stack is never a child, and
-// the stack never contains one node twice. It returns uuid.Nil when edges
-// contain no child.
+// hierarchy child of top: a child_of edge from a node that node.LivesUnder
+// places under top. It also returns every edge with a source that is not a
+// hierarchy child. A node already on the stack is never a child, and the
+// stack never contains one node twice. The returned child has Found false
+// when edges contain no child.
 func findHierarchyChild(
 	ctx context.Context, tr fdb.Transaction, job *node.SubtreeDeleteJob, top hierarchyNode, edges []deleteEdge, kinds map[string]*node.NodeType,
-) (uuid.UUID, []deleteEdge, error) {
+) (hierarchyNode, []deleteEdge, error) {
+	none := hierarchyNode{ID: uuid.Nil, TypeKey: "", Kind: nil, Found: false}
 	sourceIDs := make([]uuid.UUID, 0, len(edges))
 	for _, edge := range edges {
 		sourceIDs = append(sourceIDs, edge.SourceID)
 	}
 	sources, err := readHierarchyNodes(ctx, tr, job.OrgID, sourceIDs, kinds)
 	if err != nil {
-		return uuid.Nil, nil, err
+		return none, nil, err
 	}
-	childID := uuid.Nil
+	child := none
 	others := make([]deleteEdge, 0, len(edges))
 	for position, source := range sources {
-		isChild := source.Found && !slices.Contains(job.Stack, source.ID) && node.LivesUnder(source.Kind, top.Kind)
-		if isChild && childID == uuid.Nil {
-			childID = source.ID
+		isChild := edges[position].RelationType == node.RelChildOf && source.Found &&
+			!slices.Contains(job.Stack, source.ID) && node.LivesUnder(source.Kind, top.Kind)
+		if isChild && !child.Found {
+			child = source
 		}
 		if !isChild {
 			others = append(others, edges[position])
 		}
 	}
-	return childID, others, nil
+	return child, others, nil
 }
 
 // deleteTop deletes the last node on the stack of job, writes its ledger
@@ -147,7 +175,8 @@ func (s *NodeDeleteStore) deleteTop(ctx context.Context, tr fdb.Transaction, job
 		return false, err
 	}
 	isRoot := top.ID == job.RootID
-	if err := writeDeleteEvent(ctx, tr, job, &current, isRoot, events); err != nil {
+	change := node.SubtreeChange{ID: current.ID, NodeType: current.NodeType, Name: current.Name, MovedFrom: uuid.Nil, MovedTo: uuid.Nil}
+	if err := writeChangeEvent(ctx, tr, job, change, isRoot, events); err != nil {
 		return false, err
 	}
 	job.Stack = job.Stack[:len(job.Stack)-1]
@@ -155,28 +184,28 @@ func (s *NodeDeleteStore) deleteTop(ctx context.Context, tr fdb.Transaction, job
 	return isRoot, nil
 }
 
-// writeDeleteEvent writes the ledger event of one deleted node to the
-// operator outbox inside tr. The root writes the job's template unchanged. A
-// descendant writes the event that events builds from the template. A job
-// without a template writes no event.
-func writeDeleteEvent(ctx context.Context, tr fdb.Transaction, job *node.SubtreeDeleteJob, deleted *node.Node, isRoot bool, events node.DeletionEventBuilder) error {
+// writeChangeEvent writes the ledger event of one deleted or moved node to
+// the operator outbox inside tr. The root writes the job's template
+// unchanged. Every other node writes the event that events builds from the
+// template. A job without a template writes no event.
+func writeChangeEvent(ctx context.Context, tr fdb.Transaction, job *node.SubtreeDeleteJob, change node.SubtreeChange, isRoot bool, events node.DeletionEventBuilder) error {
 	if len(job.AuditTemplate) == 0 {
 		return nil
 	}
 	payload := job.AuditTemplate
 	if !isRoot {
 		if events == nil {
-			return nodeOperationFailure(ctx, "build the ledger event of node "+deleted.ID.String(), errors.New("no ledger event builder"))
+			return nodeOperationFailure(ctx, "build the ledger event of node "+change.ID.String(), errors.New("no ledger event builder"))
 		}
-		built, err := events(job.AuditTemplate, node.DeletedNode{ID: deleted.ID, NodeType: deleted.NodeType, Name: deleted.Name})
+		built, err := events(job.AuditTemplate, change)
 		if err != nil {
-			return nodeOperationFailure(ctx, "build the ledger event of node "+deleted.ID.String(), err)
+			return nodeOperationFailure(ctx, "build the ledger event of node "+change.ID.String(), err)
 		}
 		payload = built
 	}
 	key, err := marshalOpsOutboxVersionstampedKey()
 	if err != nil {
-		return nodeOperationFailure(ctx, "pack the ledger event key of node "+deleted.ID.String(), err)
+		return nodeOperationFailure(ctx, "pack the ledger event key of node "+change.ID.String(), err)
 	}
 	tr.SetVersionstampedKey(key, payload)
 	return nil

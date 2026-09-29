@@ -23,13 +23,16 @@ type deleteEdge struct {
 	TargetID     uuid.UUID
 }
 
-// readDeleteEdges reads at most limit edges of nodeID inside tr. With
-// incoming true it reads the edges to nodeID, and otherwise the edges from
-// nodeID.
-func readDeleteEdges(ctx context.Context, tr fdb.Transaction, orgID, nodeID uuid.UUID, incoming bool, limit int) ([]deleteEdge, error) {
-	prefix := relationshipPrefixBySource(orgID, nodeID, "")
+// readDeleteEdges reads at most maxDeleteEdgePage+1 edges of relationType of
+// nodeID inside tr. A result longer than maxDeleteEdgePage means more edges
+// exist than one step handles. An empty relationType reads edges of every
+// type. With incoming true it reads the edges to nodeID, and otherwise the
+// edges from nodeID.
+func readDeleteEdges(ctx context.Context, tr fdb.Transaction, orgID, nodeID uuid.UUID, relationType string, incoming bool) ([]deleteEdge, error) {
+	limit := maxDeleteEdgePage + 1
+	prefix := relationshipPrefixBySource(orgID, nodeID, relationType)
 	if incoming {
-		prefix = relationshipReversePrefixByTarget(orgID, nodeID, "")
+		prefix = relationshipReversePrefixByTarget(orgID, nodeID, relationType)
 	}
 	keyRange, err := fdb.PrefixRange(prefix)
 	if err != nil {

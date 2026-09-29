@@ -111,6 +111,8 @@ func (f *rerunMCP) ServeHTTP(writer http.ResponseWriter, request *http.Request) 
 	case payload.Params.Name == "tack_delete_project":
 		deleted := f.deleteProject(payload.Params.Arguments.NodeID)
 		writeRerunResult(writer, fmt.Sprintf("- Deleted nodes: %d", deleted), false)
+	case payload.Params.Name == "tack_delete_cycle":
+		writeRerunResult(writer, "- Deleted nodes: 1\n- "+movedCountText, false)
 	case strings.HasPrefix(payload.Params.Name, "tack_get_") &&
 		payload.Params.Arguments.NodeID != "":
 		f.get(writer, payload)

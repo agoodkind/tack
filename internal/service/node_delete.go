@@ -30,16 +30,21 @@ type DeleteResult struct {
 	// Deleted counts the nodes the job deleted so far, the root included
 	// once the root is gone.
 	Deleted int
+	// Moved counts the direct children of the root that the job moved to
+	// the root's parent so far.
+	Moved int
 	// State is running until the job deletes the root, then finished.
 	State node.SubtreeDeleteState
 }
 
-// Delete removes the node and every hierarchy descendant of the node.
-// NodeType metadata decides which nodes are descendants. The delete stores a
-// job record in FoundationDB and runs bounded steps of the job for at most
-// deleteRequestBudget. Each deleted node writes one node.delete ledger event
-// in the transaction that deletes it. A job that is still running when the
-// budget ends, or when the caller stops, is finished by
+// Delete removes the node. Each direct child of the node moves to the node's
+// own parent when node.LivesUnder places the child's type under that
+// parent's type. Every other child is deleted with its descendants. The
+// delete stores a job record in FoundationDB and runs bounded steps of the
+// job for at most deleteRequestBudget. Each deleted node writes one
+// node.delete ledger event and each moved node one node.update ledger event,
+// in the transaction that deletes or moves it. A job that is still running
+// when the budget ends, or when the caller stops, is finished by
 // ResumeSubtreeDeletes.
 func (s *NodeService) Delete(ctx context.Context, nodeID, actorID uuid.UUID) (DeleteResult, error) {
 	ctx, span := telemetry.StartSpan(ctx, "service.node.delete",
@@ -48,7 +53,7 @@ func (s *NodeService) Delete(ctx context.Context, nodeID, actorID uuid.UUID) (De
 	)
 	defer span.End()
 	ctx = telemetry.WithTraceLogger(ctx, slog.String("node_id", nodeID.String()), slog.String("actor_id", actorID.String()))
-	none := DeleteResult{JobID: uuid.Nil, Deleted: 0, State: node.SubtreeDeleteRunning}
+	none := DeleteResult{JobID: uuid.Nil, Deleted: 0, Moved: 0, State: node.SubtreeDeleteRunning}
 
 	existing, err := s.reader.Get(ctx, nodeID)
 	if err != nil {
@@ -71,7 +76,7 @@ func (s *NodeService) Delete(ctx context.Context, nodeID, actorID uuid.UUID) (De
 		return none, fmt.Errorf("create the delete job id for node %s: %w", nodeID, err)
 	}
 	job := &node.SubtreeDeleteJob{
-		ID: jobID, OrgID: existing.OrgID, RootID: nodeID, AuditTemplate: template,
+		ID: jobID, OrgID: existing.OrgID, RootID: nodeID, ActorID: actorID, AuditTemplate: template,
 		Stack: nil, Deleted: 0, UpdatedAt: time.Time{},
 	}
 	if err := s.deleter.StartSubtreeDelete(ctx, job); err != nil {
@@ -82,7 +87,7 @@ func (s *NodeService) Delete(ctx context.Context, nodeID, actorID uuid.UUID) (De
 	if err != nil {
 		return none, err
 	}
-	telemetry.L(ctx).InfoContext(ctx, "node.deleted", slog.Int("deleted", result.Deleted),
+	telemetry.L(ctx).InfoContext(ctx, "node.deleted", slog.Int("deleted", result.Deleted), slog.Int("moved", result.Moved),
 		slog.String("job_id", jobID.String()), slog.String("state", string(result.State)))
 	return result, nil
 }
@@ -92,30 +97,38 @@ func (s *NodeService) Delete(ctx context.Context, nodeID, actorID uuid.UUID) (De
 func (s *NodeService) runSubtreeDelete(ctx context.Context, jobID uuid.UUID, budget time.Duration) (DeleteResult, error) {
 	started := clock.Now()
 	for {
-		progress, err := s.deleter.DeleteSubtreeStep(ctx, jobID, descendantDeleteEvent)
+		progress, err := s.deleter.DeleteSubtreeStep(ctx, jobID, subtreeChangeEvent)
 		if err != nil {
 			slog.ErrorContext(ctx, "node.subtree_delete.step_failed", slog.String("err", err.Error()), slog.String("job_id", jobID.String()))
-			return DeleteResult{JobID: jobID, Deleted: 0, State: node.SubtreeDeleteRunning},
+			return DeleteResult{JobID: jobID, Deleted: 0, Moved: 0, State: node.SubtreeDeleteRunning},
 				fmt.Errorf("run a step of delete job %s: %w", jobID, err)
 		}
+		state := node.SubtreeDeleteRunning
 		if progress.Done {
-			return DeleteResult{JobID: jobID, Deleted: progress.Deleted, State: node.SubtreeDeleteFinished}, nil
+			state = node.SubtreeDeleteFinished
 		}
-		if budget > 0 && clock.Since(started) >= budget {
-			return DeleteResult{JobID: jobID, Deleted: progress.Deleted, State: node.SubtreeDeleteRunning}, nil
+		result := DeleteResult{JobID: jobID, Deleted: progress.Deleted, Moved: progress.Moved, State: state}
+		if progress.Done || (budget > 0 && clock.Since(started) >= budget) {
+			return result, nil
 		}
 	}
 }
 
-// descendantDeleteEvent builds the node.delete ledger event of one deleted
-// descendant from the staged event of the deleted root.
-func descendantDeleteEvent(template json.RawMessage, deleted node.DeletedNode) (json.RawMessage, error) {
-	payload, err := audit.DescendantDeleteEvent(template, audit.Entity{
-		Type: "node", NodeType: deleted.NodeType, ID: deleted.ID, Identifier: "", Name: deleted.Name,
-	})
+// subtreeChangeEvent builds the ledger event of one deleted or moved node
+// from the staged event of the deleted root: node.delete for a deleted node,
+// and node.update with the parent_id change for a moved node.
+func subtreeChangeEvent(template json.RawMessage, change node.SubtreeChange) (json.RawMessage, error) {
+	entity := audit.Entity{Type: "node", NodeType: change.NodeType, ID: change.ID, Identifier: "", Name: change.Name}
+	var payload json.RawMessage
+	var err error
+	if change.Moved() {
+		payload, err = audit.DescendantMoveEvent(template, entity, change.MovedFrom, change.MovedTo)
+	} else {
+		payload, err = audit.DescendantDeleteEvent(template, entity)
+	}
 	if err != nil {
-		slog.Error("node.subtree_delete.event_failed", slog.String("err", err.Error()), slog.String("node_id", deleted.ID.String()))
-		return nil, fmt.Errorf("build the delete event of node %s: %w", deleted.ID, err)
+		slog.Error("node.subtree_delete.event_failed", slog.String("err", err.Error()), slog.String("node_id", change.ID.String()))
+		return nil, fmt.Errorf("build the ledger event of node %s: %w", change.ID, err)
 	}
 	return payload, nil
 }

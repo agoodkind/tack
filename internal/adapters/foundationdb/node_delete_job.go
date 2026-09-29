@@ -17,7 +17,8 @@ import (
 const maxSubtreeDeleteJobPage = 100
 
 // StartSubtreeDelete stores the record of a new subtree delete job with the
-// root as the only stack entry and zero deleted nodes. The step that deletes
+// root as the only stack entry, zero deleted and moved nodes, and the root's
+// hierarchy parent as the destination of moved children. The step that deletes
 // the root writes the job's audit template, so after the record commits the
 // start marks the staged event on ctx written. The MCP wrapper then records
 // no second event for the delete, even when the request returns before the
@@ -25,9 +26,14 @@ const maxSubtreeDeleteJobPage = 100
 func (s *NodeDeleteStore) StartSubtreeDelete(ctx context.Context, job *node.SubtreeDeleteJob) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node.subtree_delete_start")(&err)
 	job.Stack = []uuid.UUID{job.RootID}
-	job.Deleted = 0
+	job.Deleted, job.Moved = 0, 0
 	job.FinishedAt = time.Time{}
 	err = runNodeMutation(ctx, s.nodes.db, "start subtree delete of node "+job.RootID.String(), func(tr fdb.Transaction) error {
+		parentID, readErr := readRootParent(ctx, tr, job.OrgID, job.RootID)
+		if readErr != nil {
+			return readErr
+		}
+		job.RootParentID = parentID
 		return writeDeleteJob(ctx, tr, job, s.nodes.clock.Now())
 	})
 	if err != nil {

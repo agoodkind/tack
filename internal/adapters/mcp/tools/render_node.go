@@ -25,8 +25,9 @@ func renderNode(rc *renderCtx, view *node.NodeView) string {
 }
 
 // renderDeletedNode renders the delete confirmation. result counts the
-// deleted nodes, the root included once it is gone, and states whether the
-// delete job finished within the request.
+// deleted nodes, the root included once it is gone, and the children moved
+// to the root's parent, and states whether the delete job finished within the
+// request.
 func renderDeletedNode(rc *renderCtx, view *node.NodeView, deletedAt time.Time, result service.DeleteResult) string {
 	ident := identifierFor(view, rc)
 	nodeType := strings.ToLower(view.NodeType)
@@ -38,6 +39,7 @@ func renderDeletedNode(rc *renderCtx, view *node.NodeView, deletedAt time.Time, 
 		markdownCodeFieldValue("Type", view.NodeType),
 		markdownFieldValue("Deleted at", formatDisplayTime(deletedAt)),
 		markdownFieldValue("Deleted nodes", strconv.Itoa(result.Deleted)),
+		markdownFieldValue("Moved nodes", strconv.Itoa(result.Moved)),
 		markdownCodeFieldValue("Delete job", result.JobID.String()),
 		markdownFieldValue("Delete state", string(result.State)),
 	}
