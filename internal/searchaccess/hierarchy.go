@@ -12,9 +12,9 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// errNoHierarchyParent reports a node with several hierarchy parents, or a
+// ErrNoHierarchyParent reports a node with several hierarchy parents, or a
 // node without a hierarchy parent when its type lists CanLiveUnder types.
-var errNoHierarchyParent = errors.New("node requires exactly one hierarchy parent")
+var ErrNoHierarchyParent = errors.New("node requires exactly one hierarchy parent")
 
 // livesUnder reports whether NodeType metadata places child under parent.
 // The child's CanLiveUnder list or the parent's CanContain list declares
@@ -53,7 +53,7 @@ func (c *OrgScopeCompiler) parent(ctx context.Context, orgID, nodeID uuid.UUID, 
 				continue
 			}
 			if found != uuid.Nil {
-				return uuid.Nil, hierarchyFailure(ctx, nodeID, "resolve hierarchy parent", errNoHierarchyParent)
+				return uuid.Nil, hierarchyFailure(ctx, nodeID, "resolve hierarchy parent", ErrNoHierarchyParent)
 			}
 			found = targetID
 		}
@@ -63,7 +63,7 @@ func (c *OrgScopeCompiler) parent(ctx context.Context, orgID, nodeID uuid.UUID, 
 		cursor = page.NextCursor
 	}
 	if found == uuid.Nil && len(kind.CanLiveUnder) > 0 {
-		return uuid.Nil, hierarchyFailure(ctx, nodeID, "resolve hierarchy parent", errNoHierarchyParent)
+		return uuid.Nil, hierarchyFailure(ctx, nodeID, "resolve hierarchy parent", ErrNoHierarchyParent)
 	}
 	return found, nil
 }

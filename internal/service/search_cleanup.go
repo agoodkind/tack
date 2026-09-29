@@ -27,7 +27,7 @@ func (w *SearchWorker) cleanupSlice(ctx context.Context, work searchdomain.Work,
 		return w.settle(ctx, work, "checkpoint retired search documents", err)
 	}
 	if writeErr != nil {
-		return w.settle(ctx, work, "retire obsolete search documents", writeErr)
+		return w.settleEngine(ctx, work, "retire obsolete search documents", writeErr)
 	}
 	if !done {
 		return w.yield(ctx, work)

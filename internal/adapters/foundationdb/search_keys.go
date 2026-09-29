@@ -78,6 +78,20 @@ func searchErrorKey(class string, orgID, nodeID uuid.UUID) []byte {
 	return withPrefix(tuple.Tuple{keySearchError, class, orgID.String(), nodeID.String()}.Pack())
 }
 
+func searchAttemptKey(class string, orgID, nodeID uuid.UUID) []byte {
+	return withPrefix(tuple.Tuple{keySearchAttempt, class, orgID.String(), nodeID.String()}.Pack())
+}
+
+func searchExclusionKey(orgID, nodeID uuid.UUID) []byte {
+	return withPrefix(tuple.Tuple{keySearchExclusion, orgID.String(), nodeID.String()}.Pack())
+}
+
+// searchExclusionFamilyPrefix returns the key prefix of every exclusion of
+// every organization.
+func searchExclusionFamilyPrefix() []byte {
+	return withPrefix(tuple.Tuple{keySearchExclusion}.Pack())
+}
+
 func searchScanKey(orgID uuid.UUID) []byte {
 	return withPrefix(tuple.Tuple{keySearchScan, orgID.String()}.Pack())
 }

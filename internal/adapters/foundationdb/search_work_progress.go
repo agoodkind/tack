@@ -42,9 +42,9 @@ func (s *SearchWorkStore) CompletePage(ctx context.Context, intent searchdomain.
 }
 
 // CompleteRefresh finishes content work after the worker refreshes the
-// claimed index, and schedules retirement of every older revision. A
-// replacement copy finishes without scheduling retirement. Live work
-// schedules cleanup for older revisions.
+// claimed index, and schedules retirement of every older revision. It clears
+// the node's exclusion. A replacement copy finishes without scheduling
+// retirement. Live work schedules cleanup for older revisions.
 func (s *SearchWorkStore) CompleteRefresh(ctx context.Context, work searchdomain.Work) (err error) {
 	defer telemetry.FDBOp(ctx, "store.search_work.complete_refresh")(&err)
 	err = transactSearch(ctx, s.db, func(tr fdb.Transaction) error {
@@ -60,6 +60,7 @@ func (s *SearchWorkStore) CompleteRefresh(ctx context.Context, work searchdomain
 			return searchdomain.ErrWorkChanged
 		}
 		clearSearchWork(tr, work, record)
+		tr.Clear(fdb.Key(searchExclusionKey(work.OrgID, work.NodeID)))
 		if work.Class == searchdomain.WorkClassCopy {
 			return nil
 		}
@@ -117,26 +118,31 @@ func (s *SearchWorkStore) Yield(ctx context.Context, work searchdomain.Work) (er
 }
 
 // Release records one failure and delays the next claim of the same work.
-func (s *SearchWorkStore) Release(ctx context.Context, work searchdomain.Work, message string) (err error) {
+// The counted failure that brings the attempt count of live, access, or copy
+// work to searchFailureLimit excludes the node instead.
+func (s *SearchWorkStore) Release(ctx context.Context, work searchdomain.Work, failure searchdomain.Failure) (err error) {
 	defer telemetry.FDBOp(ctx, "store.search_work.release")(&err)
+	excluded := false
 	err = transactSearch(ctx, s.db, func(tr fdb.Transaction) error {
-		if _, err := s.verifyClaim(ctx, tr, work); err != nil {
+		record, err := s.verifyClaim(ctx, tr, work)
+		if err != nil {
 			return err
 		}
-		tr.Set(fdb.Key(searchErrorKey(string(work.Class), work.OrgID, work.NodeID)), []byte(message))
-		return writeSearchRecord(ctx, tr, searchClaimKey(string(work.Class), searchBucket(work.OrgID, work.NodeID), work.OrgID, work.NodeID), searchClaimRecord{
-			Owner: "", Generation: work.Generation, LeaseUntil: s.clock.Now().Add(searchRetryDelay), Target: work.Target, Mirror: work.Mirror,
-		})
+		excluded, err = s.recordFailure(ctx, tr, work, record, failure)
+		return err
 	})
 	if err != nil {
 		return searchStorageError(ctx, "search.work.release_failed", "release failed search work", work.NodeID, err)
+	}
+	if excluded {
+		logSearchExclusion(ctx, work, failure.Message)
 	}
 	return nil
 }
 
 // clearSearchWork removes the finished record, its class-age entry, claim,
-// checkpoint, and error of work's class. record is the pending record the
-// claim verification read.
+// checkpoint, error, and attempt count of work's class. record is the
+// pending record the claim verification read.
 func clearSearchWork(tr fdb.Transaction, work searchdomain.Work, record searchWorkRecord) {
 	class := string(work.Class)
 	bucket := searchBucket(work.OrgID, work.NodeID)
@@ -144,4 +150,5 @@ func clearSearchWork(tr fdb.Transaction, work searchdomain.Work, record searchWo
 	tr.Clear(fdb.Key(searchClaimKey(class, bucket, work.OrgID, work.NodeID)))
 	tr.Clear(fdb.Key(searchCursorKey(class, work.OrgID, work.NodeID)))
 	tr.Clear(fdb.Key(searchErrorKey(class, work.OrgID, work.NodeID)))
+	tr.Clear(fdb.Key(searchAttemptKey(class, work.OrgID, work.NodeID)))
 }

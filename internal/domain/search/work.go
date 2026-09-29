@@ -90,6 +90,42 @@ type Work struct {
 	Mirror string
 }
 
+// Excludable reports whether a failure of work can exclude its node from
+// search. Live, access, and copy work of an existing node can. Cleanup work,
+// work of a deleted node, and organization or index work cannot.
+func (w Work) Excludable() bool {
+	if w.Deleted {
+		return false
+	}
+	return w.Class == WorkClassLive || w.Class == WorkClassAccess || w.Class == WorkClassCopy
+}
+
+// Failure is one failed slice of a claimed work item. Counted is false for
+// a failed OpenSearch operation, and such a failure never counts toward the
+// attempt limit of the work.
+type Failure struct {
+	Message string
+	Counted bool
+}
+
+// Exclusion is one node that search does not index. Class and Index are the
+// work class and physical index of the failure that excluded the node.
+type Exclusion struct {
+	OrgID      uuid.UUID
+	NodeID     uuid.UUID
+	Class      WorkClass
+	Index      string
+	Reason     string
+	ExcludedAt time.Time
+}
+
+// ExclusionPage is one bounded read of exclusions in key order.
+type ExclusionPage struct {
+	Exclusions []Exclusion
+	NextCursor string
+	Done       bool
+}
+
 // WriteIntent binds one page write to its claimed generation and target.
 type WriteIntent struct {
 	Work       Work

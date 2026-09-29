@@ -17,10 +17,15 @@ const searchWorkBuckets = 256
 // searchChange classifies one source mutation for search scheduling.
 type searchChange uint8
 
+// searchChangeExclusion starts an empty content revision for a node that
+// search cannot index. searchChangeRepair replaces an access change of an
+// excluded node and schedules content and access work for it.
 const (
 	searchChangeContent searchChange = iota + 1
 	searchChangeAccess
 	searchChangeDeletion
+	searchChangeExclusion
+	searchChangeRepair
 )
 
 // searchRecordPlan is the effect of one change on one pending work class.
@@ -48,10 +53,16 @@ var searchNodeClasses = []searchdomain.WorkClass{
 // caller's source transaction. It increments the node generation once and
 // rewrites every pending record of the node to that generation. An access
 // change preserves the revision of pending content and cleanup work and
-// leaves the content checkpoint unchanged.
+// leaves the content checkpoint unchanged. A content, exclusion, or repair
+// change starts a new revision. An access change of an excluded node
+// becomes a repair, and a deletion clears the node's exclusion.
 // now is the enqueue time read from the caller's injected clock. It returns
 // the record of the new generation.
 func scheduleSearchChange(ctx context.Context, tr fdb.Transaction, now time.Time, orgID, nodeID uuid.UUID, change searchChange) (searchWorkRecord, error) {
+	change, err := exclusionAdjustedChange(ctx, tr, orgID, nodeID, change)
+	if err != nil {
+		return searchWorkRecord{}, err
+	}
 	generation, err := incrementSearchCounter(ctx, tr, searchGenerationKey(orgID, nodeID))
 	if err != nil {
 		return searchWorkRecord{}, err
@@ -60,7 +71,7 @@ func scheduleSearchChange(ctx context.Context, tr fdb.Transaction, now time.Time
 	if err != nil {
 		return searchWorkRecord{}, err
 	}
-	if change == searchChangeContent {
+	if change == searchChangeContent || change == searchChangeExclusion || change == searchChangeRepair {
 		revision = generation
 		writeSearchCounter(tr, searchRevisionKey(orgID, nodeID), revision)
 	}
@@ -82,7 +93,9 @@ func scheduleSearchChange(ctx context.Context, tr fdb.Transaction, now time.Time
 // searchRecordPlans maps each change and node work class to its effect. A
 // content change removes a pending replacement copy. The worker that claims
 // the new live work also writes its pages to the replacement index. An access
-// change rewrites the copy at the new generation.
+// change rewrites the copy at the new generation. An exclusion removes every
+// other work item, and its cleanup retires every page of the node. A repair
+// writes the node's pages and recompiles its access.
 var searchRecordPlans = map[searchChange]map[searchdomain.WorkClass]searchRecordPlan{
 	searchChangeContent: {
 		searchdomain.WorkClassLive:    searchRecordPut,
@@ -100,6 +113,18 @@ var searchRecordPlans = map[searchChange]map[searchdomain.WorkClass]searchRecord
 		searchdomain.WorkClassLive:    searchRecordRemove,
 		searchdomain.WorkClassAccess:  searchRecordRemove,
 		searchdomain.WorkClassCleanup: searchRecordPut,
+		searchdomain.WorkClassCopy:    searchRecordRemove,
+	},
+	searchChangeExclusion: {
+		searchdomain.WorkClassLive:    searchRecordRemove,
+		searchdomain.WorkClassAccess:  searchRecordRemove,
+		searchdomain.WorkClassCleanup: searchRecordPut,
+		searchdomain.WorkClassCopy:    searchRecordRemove,
+	},
+	searchChangeRepair: {
+		searchdomain.WorkClassLive:    searchRecordPut,
+		searchdomain.WorkClassAccess:  searchRecordPut,
+		searchdomain.WorkClassCleanup: searchRecordRewrite,
 		searchdomain.WorkClassCopy:    searchRecordRemove,
 	},
 }

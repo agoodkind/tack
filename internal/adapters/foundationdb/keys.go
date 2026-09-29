@@ -88,6 +88,10 @@ const (
 	// (search_access, orgID, nodeID) -> recorded access state JSON
 	// (search_fanout, orgID, deletedNodeID, counterpartID) -> nil
 	// (search_error, class, orgID, nodeID) -> last failure message
+	// (search_attempt, class, orgID, nodeID) -> counted failures of the class
+	//   since its last finished item
+	// (search_exclusion, orgID, nodeID) -> exclusion record JSON of a node
+	//   that search does not index
 	// (search_scan, orgID) -> rescan generation counter
 	// (search_projection, orgID) -> 32-byte sum of definition projection hashes
 	// (search_index) -> serving physical index name
@@ -121,6 +125,8 @@ const (
 	keySearchAccess            = "search_access"
 	keySearchFanout            = "search_fanout"
 	keySearchError             = "search_error"
+	keySearchAttempt           = "search_attempt"
+	keySearchExclusion         = "search_exclusion"
 	keySearchScan              = "search_scan"
 	keySearchProjection        = "search_projection"
 	keySearchIndex             = "search_index"
