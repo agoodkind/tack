@@ -51,16 +51,18 @@ func newMovableChild(t *testing.T, stores *fdbadapter.Stores, text string) movab
 	return movableChild{Fixture: child, First: first.NodeID, Second: second.NodeID}
 }
 
-// moveChild removes the child's parent edge and adds one to the second entry point.
+// moveChild adds a parent edge to the second entry point, then removes the
+// edge to the first. The relationship store refuses to remove a node's only
+// parent edge.
 func moveChild(t *testing.T, stores *fdbadapter.Stores, moved movableChild) {
 	t.Helper()
 	orgID := moved.Fixture.OrgID
-	if err := stores.Relationships.Remove(t.Context(), orgID, moved.Fixture.NodeID, node.RelChildOf, moved.First); err != nil {
-		t.Fatalf("remove parent edge: %v", err)
-	}
 	parent := &node.Relationship{OrgID: orgID, SourceID: moved.Fixture.NodeID, RelationType: node.RelChildOf, TargetID: moved.Second, CreatedBy: uuid.Nil, CreatedAt: clock.Now().UTC(), Props: nil}
 	if err := stores.Relationships.Add(t.Context(), parent); err != nil {
 		t.Fatalf("add parent edge: %v", err)
+	}
+	if err := stores.Relationships.Remove(t.Context(), orgID, moved.Fixture.NodeID, node.RelChildOf, moved.First); err != nil {
+		t.Fatalf("remove parent edge: %v", err)
 	}
 }
 

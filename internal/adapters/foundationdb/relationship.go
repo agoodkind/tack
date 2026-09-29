@@ -64,11 +64,19 @@ func (s *RelationshipStore) Add(ctx context.Context, rel *node.Relationship) (er
 	return nil
 }
 
+// Remove clears one edge. It refuses to clear the source node's only
+// hierarchy parent edge and returns an error that wraps domain.ErrFailedPrecondition.
 func (s *RelationshipStore) Remove(ctx context.Context, orgID, sourceID uuid.UUID, relationType string, targetID uuid.UUID) (err error) {
 	defer telemetry.FDBOp(ctx, "store.relationship.remove")(&err)
 	searchScheduleFailed := false
+	guardFailed := false
 	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
 		searchScheduleFailed = false
+		guardFailed = false
+		if err := refuseOnlyParentRemoval(ctx, tr, orgID, sourceID, relationType, targetID); err != nil {
+			guardFailed = true
+			return nil, err
+		}
 		tr.Clear(fdb.Key(relationshipKey(orgID, sourceID, relationType, targetID)))
 		tr.Clear(fdb.Key(relationshipReverseKey(orgID, targetID, relationType, sourceID)))
 		changed := &node.Relationship{
@@ -89,7 +97,7 @@ func (s *RelationshipStore) Remove(ctx context.Context, orgID, sourceID uuid.UUI
 		wrapped := fmt.Errorf("remove relationship %s: %w", relationType, err)
 		if searchScheduleFailed {
 			logSearchScheduleFailure(ctx, wrapped, sourceID, targetID)
-		} else {
+		} else if !guardFailed || !searchFailureWasLogged(err) {
 			logRelationshipFailure(ctx, "relationship.remove_failed", wrapped, sourceID, targetID)
 		}
 		return wrapped

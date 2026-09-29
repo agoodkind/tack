@@ -57,6 +57,9 @@ func (g *Generator) generateRelationships(
 		); err != nil {
 			return err
 		}
+		if err := g.probeParentRemovalRefused(ctx, actor.Token, issueReference, parentReference); err != nil {
+			return err
+		}
 	}
 	return nil
 }

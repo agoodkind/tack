@@ -16,18 +16,8 @@ import (
 // node without a hierarchy parent when its type lists CanLiveUnder types.
 var errNoHierarchyParent = errors.New("node requires exactly one hierarchy parent")
 
-// livesUnder reports whether NodeType metadata places child under parent.
-// The child's CanLiveUnder list or the parent's CanContain list declares
-// the pair. MCP parent resolution applies the same rule.
-func livesUnder(child, parent *node.NodeType) bool {
-	if child == nil || parent == nil {
-		return false
-	}
-	return slices.Contains(child.CanLiveUnder, parent.TypeKey) || slices.Contains(parent.CanContain, child.TypeKey)
-}
-
 // parent returns the one hierarchy parent of nodeID. A hierarchy parent is
-// the target node of an edge from nodeID, and livesUnder accepts the pair of
+// the target node of an edge from nodeID, and node.LivesUnder accepts the pair of
 // node types. parent reads every edge from nodeID in bounded pages. Several
 // edges to the same parent count once. A node without a hierarchy parent is
 // a hierarchy root when its type lists no CanLiveUnder type, and parent
@@ -49,7 +39,7 @@ func (c *OrgScopeCompiler) parent(ctx context.Context, orgID, nodeID uuid.UUID, 
 			if err != nil {
 				return uuid.Nil, err
 			}
-			if !livesUnder(kind, target) {
+			if !node.LivesUnder(kind, target) {
 				continue
 			}
 			if found != uuid.Nil {
@@ -69,7 +59,7 @@ func (c *OrgScopeCompiler) parent(ctx context.Context, orgID, nodeID uuid.UUID, 
 }
 
 // children reads one bounded page of the edges to resourceID and returns
-// each source node that livesUnder places under resourceID.
+// each source node that node.LivesUnder places under resourceID.
 func (c *OrgScopeCompiler) children(ctx context.Context, orgID, resourceID uuid.UUID, cursor string, limit int) (node.IDPage, error) {
 	kinds := make(map[string]*node.NodeType)
 	resource, err := c.typeOf(ctx, orgID, resourceID, kinds)
@@ -92,7 +82,7 @@ func (c *OrgScopeCompiler) children(ctx context.Context, orgID, resourceID uuid.
 		if err != nil {
 			return node.IDPage{}, err
 		}
-		if livesUnder(source, resource) {
+		if node.LivesUnder(source, resource) {
 			children = append(children, sourceID)
 		}
 	}
