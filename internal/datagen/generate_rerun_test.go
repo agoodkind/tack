@@ -108,6 +108,12 @@ func (f *rerunMCP) ServeHTTP(writer http.ResponseWriter, request *http.Request) 
 	case strings.HasPrefix(payload.Params.Name, "tack_get_") &&
 		payload.Params.Arguments.NodeID != "":
 		f.get(writer, payload)
+	case payload.Params.Name == "tack_remove_relationship" &&
+		payload.Params.Arguments.RelationType == "child_of":
+		writeRerunResult(writer, "the target is the node's "+parentRefusalText, true)
+	case payload.Params.Name == "tack_add_relationship" &&
+		payload.Params.Arguments.RelationType == "child_of":
+		writeRerunResult(writer, "the child_of relation type "+parentAddRefusalText, true)
 	default:
 		writeRerunResult(writer, "ok", false)
 	}

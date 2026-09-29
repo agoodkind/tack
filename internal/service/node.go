@@ -195,7 +195,8 @@ func (s *NodeService) Delete(ctx context.Context, nodeID, actorID uuid.UUID) err
 	return nil
 }
 
-// AddRelationship attaches a directed edge between two nodes.
+// AddRelationship attaches a directed edge between two nodes. A child_of
+// edge returns [node.ErrReservedParentRelation]; parent_id sets the parent.
 func (s *NodeService) AddRelationship(ctx context.Context, rel *node.Relationship) error {
 	ctx, span := telemetry.StartSpan(ctx, "service.node.relationship.add",
 		trace.WithSpanKind(trace.SpanKindInternal),
@@ -211,6 +212,11 @@ func (s *NodeService) AddRelationship(ctx context.Context, rel *node.Relationshi
 		slog.String("source_id", rel.SourceID.String()),
 		slog.String("target_id", rel.TargetID.String()),
 	)
+	if rel.RelationType == node.RelChildOf {
+		err := fmt.Errorf("add relationship from %s to %s: %w", rel.SourceID, rel.TargetID, node.ErrReservedParentRelation)
+		slog.ErrorContext(ctx, "node.relationship.add_refused", slog.String("err", err.Error()))
+		return err
+	}
 	if rel.CreatedAt.IsZero() {
 		rel.CreatedAt = clock.Now().UTC()
 	}

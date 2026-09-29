@@ -95,15 +95,17 @@ func putOpaqueNode(t *testing.T, fixture queryFixture, kind opaqueKind, parentID
 	return nodeID
 }
 
-// moveOpaqueNode replaces the node's parent relationship.
+// moveOpaqueNode replaces the node's parent relationship. It adds the new
+// parent edge before it removes the old one because the relationship store
+// refuses to remove a node's only parent edge.
 func moveOpaqueNode(t *testing.T, fixture queryFixture, kind opaqueKind, nodeID, from, to uuid.UUID) {
 	t.Helper()
-	if err := fixture.Stores.Relationships.Remove(t.Context(), kind.OrgID, nodeID, node.RelChildOf, from); err != nil {
-		t.Fatalf("remove parent of node %s: %v", nodeID, err)
-	}
 	moved := &node.Relationship{OrgID: kind.OrgID, SourceID: nodeID, TargetID: to, RelationType: node.RelChildOf}
 	if err := fixture.Stores.Relationships.Add(t.Context(), moved); err != nil {
 		t.Fatalf("add parent of node %s: %v", nodeID, err)
+	}
+	if err := fixture.Stores.Relationships.Remove(t.Context(), kind.OrgID, nodeID, node.RelChildOf, from); err != nil {
+		t.Fatalf("remove parent of node %s: %v", nodeID, err)
 	}
 }
 
