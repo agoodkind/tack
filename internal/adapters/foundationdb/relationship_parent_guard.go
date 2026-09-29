@@ -14,16 +14,21 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// refuseOnlyParentRemoval refuses the removal of the edge from sourceID to
-// targetID when that edge is the source node's only hierarchy parent. Search
-// access compilation fails for a node without a hierarchy parent when the
-// node type lists CanLiveUnder types. The guard applies the same rule: the
-// source type lists CanLiveUnder types, node.LivesUnder places the source
-// under the target, and no other edge from the source has a hierarchy parent
-// as its target. The guard reads the source's edges in the removal
-// transaction. FoundationDB aborts one of two concurrent transactions that
-// each remove a different parent edge of the same node.
+// refuseOnlyParentRemoval refuses the removal of the child_of edge from
+// sourceID to targetID when that edge is the source node's only hierarchy
+// parent. Search access compilation fails for a node without a hierarchy
+// parent when the node type lists CanLiveUnder types. The guard applies the
+// same rule: only child_of edges define a parent, the source type lists
+// CanLiveUnder types, node.LivesUnder places the source under the target,
+// and no other child_of edge from the source has a hierarchy parent as its
+// target. The removal of an edge of any other relation type passes. The
+// guard reads the source's child_of edges in the removal transaction.
+// FoundationDB aborts one of two concurrent transactions that each remove a
+// different parent edge of the same node.
 func refuseOnlyParentRemoval(ctx context.Context, tr fdb.Transaction, orgID, sourceID uuid.UUID, relationType string, targetID uuid.UUID) error {
+	if relationType != node.RelChildOf {
+		return nil
+	}
 	removedKey := fdb.Key(relationshipKey(orgID, sourceID, relationType, targetID))
 	existing, err := tr.Get(removedKey).Get()
 	if err != nil {
@@ -52,14 +57,14 @@ func refuseOnlyParentRemoval(ctx context.Context, tr fdb.Transaction, orgID, sou
 	return loggedSearchError{err: wrapped}
 }
 
-// hasOtherHierarchyParent reads the edges from sourceID in bounded pages and
-// reports whether an edge other than removedKey has a hierarchy parent of
-// source as its target. Another edge to parentID keeps that parent.
+// hasOtherHierarchyParent reads the child_of edges from sourceID in bounded
+// pages and reports whether a child_of edge other than removedKey has a
+// hierarchy parent of source as its target.
 func hasOtherHierarchyParent(
 	ctx context.Context, tr fdb.Transaction, orgID, sourceID uuid.UUID, removedKey fdb.Key, parentID uuid.UUID,
 	source *node.NodeType, kinds map[string]*node.NodeType,
 ) (bool, error) {
-	keyRange, err := fdb.PrefixRange(relationshipPrefixBySource(orgID, sourceID, ""))
+	keyRange, err := fdb.PrefixRange(relationshipPrefixBySource(orgID, sourceID, node.RelChildOf))
 	if err != nil {
 		return false, nodeOperationFailure(ctx, "create relationship range for node "+sourceID.String(), err)
 	}

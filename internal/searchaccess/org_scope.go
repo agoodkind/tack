@@ -14,11 +14,11 @@ import (
 const maxDependentPage = 100
 
 // RelationshipReader reads bounded pages of the nodes at the other end of a
-// node's relationships of every type. The policy never reads a relationship
-// type. NodeType metadata decides which edges form the hierarchy.
+// node's relationships of one type. The policy reads only child_of edges.
+// NodeType metadata then decides which child_of edges form the hierarchy.
 type RelationshipReader interface {
-	EdgesFrom(ctx context.Context, orgID, sourceID uuid.UUID, cursor string, limit int) (node.IDPage, error)
-	EdgesTo(ctx context.Context, orgID, targetID uuid.UUID, cursor string, limit int) (node.IDPage, error)
+	EdgesFrom(ctx context.Context, orgID, sourceID uuid.UUID, relationType, cursor string, limit int) (node.IDPage, error)
+	EdgesTo(ctx context.Context, orgID, targetID uuid.UUID, relationType, cursor string, limit int) (node.IDPage, error)
 }
 
 // TypeReader reads one node type by its type key with bounded reads.
@@ -46,10 +46,8 @@ func NewOrgScopeCompiler(version string, reader node.NodeReader, types TypeReade
 func (c *OrgScopeCompiler) Version() string { return c.version }
 
 // Dependents reads one bounded page of the hierarchy children of resourceID
-// and returns their node IDs. A child is the source node of an edge to
-// resourceID. Either the CanLiveUnder list of the child's node type contains
-// the type key of resourceID, or the CanContain list of the node type of
-// resourceID contains the child's type key.
+// and returns their node IDs. A child is the source node of a child_of edge
+// to resourceID, and node.LivesUnder accepts the pair of node types.
 func (c *OrgScopeCompiler) Dependents(ctx context.Context, orgID, resourceID uuid.UUID, cursor string, limit int) (node.IDPage, error) {
 	if c.reader == nil || c.types == nil || c.relationships == nil || limit < 1 || limit > maxDependentPage {
 		wrapped := fmt.Errorf("list hierarchy children of resource %s: policy dependencies and a limit between 1 and %d are required", resourceID, maxDependentPage)

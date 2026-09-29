@@ -21,8 +21,10 @@ func (g *Generator) generateRelationships(
 	}{
 		{relationType: "assigned_to", target: actor.UserID.String()},
 		{relationType: "labeled_with", target: labels[index%len(labels)]},
-		{relationType: "child_of", target: parentReference},
 		{relationType: "watches", target: otherActor.UserID.String()},
+	}
+	if err := g.probeParentAddRefused(ctx, actor.Token, issueReference, parentReference); err != nil {
+		return err
 	}
 	for _, relationship := range relationships {
 		if err := g.callRelationship(

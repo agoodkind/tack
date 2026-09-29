@@ -31,7 +31,7 @@ func waitPastLeases(t *testing.T, works ...searchdomain.Work) {
 }
 
 // newGrandchild stores a node of a new type that lists the moved child's
-// type in CanLiveUnder, with one parent edge to the moved child.
+// type in CanLiveUnder, with one child_of edge to the moved child.
 func newGrandchild(t *testing.T, stores *fdbadapter.Stores, moved movableChild, text string) searchFixture {
 	t.Helper()
 	grandchild := moved.Fixture
@@ -48,7 +48,7 @@ func newGrandchild(t *testing.T, stores *fdbadapter.Stores, moved movableChild, 
 	now := clock.Now().UTC()
 	value := &node.Node{ID: grandchild.NodeID, OrgID: grandchild.OrgID, NodeType: grandchild.TypeKey, Name: searchFixtureName, Props: props, CreatedAt: now, UpdatedAt: now}
 	view := &node.NodeView{ID: grandchild.NodeID, OrgID: grandchild.OrgID, NodeType: grandchild.TypeKey, Name: searchFixtureName, Props: props, CreatedAt: now, UpdatedAt: now}
-	parent := &node.Relationship{OrgID: grandchild.OrgID, SourceID: grandchild.NodeID, RelationType: opaqueSearchKey("r"), TargetID: moved.Fixture.NodeID, CreatedBy: uuid.Nil, CreatedAt: now, Props: nil}
+	parent := &node.Relationship{OrgID: grandchild.OrgID, SourceID: grandchild.NodeID, RelationType: node.RelChildOf, TargetID: moved.Fixture.NodeID, CreatedBy: uuid.Nil, CreatedAt: now, Props: nil}
 	if err := stores.Nodes.CreateAtomic(t.Context(), value, view, []*node.Relationship{parent}, nil, nil, nil); err != nil {
 		t.Fatalf("create grandchild node: %v", err)
 	}
