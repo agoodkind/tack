@@ -23,9 +23,9 @@ func TestSearchRebuildExcludesOrphanNodes(t *testing.T) {
 	entry := entryPoint(t, fixture, workspace)
 	kind := putOpaqueKind(t, fixture, workspace.OrgID)
 	steady := putOpaqueNode(t, fixture, kind, entry, "steady node", "amber orphan steady", readerExcludedValue)
+	drainSearchWork(t, fixture.Worker, 2000)
 	orphan := putOrphanNode(t, kind, "orphan node", "amber orphan repaired")
 	deleted := putOrphanNode(t, kind, "deleted orphan", "amber orphan deleted")
-	drainSearchWork(t, fixture.Worker, 2000)
 
 	request := searchdomain.BeginRebuild{Mode: searchdomain.ReplacementFull, PrimaryShards: 1, RoutingShards: 24, Replicas: 0, Restored: false, Reason: "test"}
 	rebuild := beginRebuild(t, fixture, request)
@@ -42,6 +42,11 @@ func TestSearchRebuildExcludesOrphanNodes(t *testing.T) {
 			t.Fatalf("ops search verify listed %+v, want node %s with its hierarchy failure", report, nodeID)
 		}
 		requireDeletedAbsent(t, fixture, rebuild.TargetIndex, nodeID)
+	}
+	for _, exclusion := range report.Exclusions {
+		if exclusion.Class != string(searchdomain.WorkClassCopy) || exclusion.Index != rebuild.TargetIndex {
+			t.Fatalf("exclusion of node %s names %s work on %s, want copy work on %s", exclusion.NodeID, exclusion.Class, exclusion.Index, rebuild.TargetIndex)
+		}
 	}
 	if report.ExcludedNodes != len(report.Exclusions) || report.ExcludedNodes != 2 {
 		t.Fatalf("ops search verify counted %d exclusions and listed %d, want 2", report.ExcludedNodes, len(report.Exclusions))
