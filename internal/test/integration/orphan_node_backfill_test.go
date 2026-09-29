@@ -28,7 +28,7 @@ func TestOrphanNodeBackfill(t *testing.T) {
 	ctx := audit.WithOperatorPrincipal(env.Ctx, principal)
 	service := env.NodeSvc
 
-	planned, err := ops.RunOrphanNodeBackfill(ctx, env.Stores.NodeDeleter, service, true)
+	planned, err := ops.RunOrphanNodeBackfill(ctx, env.Stores.NodeDeleter, env.Stores.Relationships, service, true)
 	if err != nil {
 		t.Fatalf("dry-run orphan backfill: %v", err)
 	}
@@ -37,7 +37,7 @@ func TestOrphanNodeBackfill(t *testing.T) {
 	}
 	requireNodesPresent(t, env, fixture.Descendants)
 
-	applied, err := ops.RunOrphanNodeBackfill(ctx, env.Stores.NodeDeleter, service, false)
+	applied, err := ops.RunOrphanNodeBackfill(ctx, env.Stores.NodeDeleter, env.Stores.Relationships, service, false)
 	if err != nil {
 		t.Fatalf("run orphan backfill: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestOrphanNodeBackfill(t *testing.T) {
 	requireNoDanglingParents(t, env)
 	requireOperatorDeleteEvents(t, env, fixture.Descendants, principal.ID)
 
-	rerun, err := ops.RunOrphanNodeBackfill(ctx, env.Stores.NodeDeleter, service, false)
+	rerun, err := ops.RunOrphanNodeBackfill(ctx, env.Stores.NodeDeleter, env.Stores.Relationships, service, false)
 	if err != nil {
 		t.Fatalf("rerun orphan backfill: %v", err)
 	}

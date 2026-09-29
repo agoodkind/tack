@@ -25,11 +25,12 @@ func orphanNodeBackfillOp(f *cli.Factory) clispec.Operation[noInput] {
 		Lifetime: clispec.Lifetime{Ticket: "TACK-546", RemoveBy: time.Date(2026, time.November, 28, 0, 0, 0, 0, time.UTC)},
 		Audit:    audit.Spec{Verb: string(audit.VerbOpsBackfillOrphanNodes), Mutates: true},
 		Group:    opsGroup,
-		Short:    "Delete the nodes without a hierarchy parent and their descendants",
+		Short:    "Delete the nodes without a hierarchy parent and remove extra child_of edges",
 		Long: "The command scans the nodes of every organization for nodes of a type that lists CanLiveUnder types " +
-			"and has no edge to an existing parent. A dry run reports the count and the node IDs. " +
-			"With --execute, the command deletes each of those nodes and its hierarchy descendants. " +
-			"A second run reports zero orphans.",
+			"and has no child_of edge to an existing parent, and for child_of edges that do not target their node's parent_id. " +
+			"A dry run reports the counts, the node IDs, and the edges. " +
+			"With --execute, the command removes each of those edges and deletes each of those nodes with its hierarchy descendants. " +
+			"A second run reports zero orphans and zero extra edges.",
 		New: func() noInput { return noInput{InputMarker: clispec.InputMarker{}} },
 		DryRun: func(ctx context.Context, _ noInput, sink clispec.ResultSink) error {
 			return runOrphanNodeBackfillCommand(ctx, f, sink, true)
@@ -52,7 +53,7 @@ func runOrphanNodeBackfillCommand(ctx context.Context, f *cli.Factory, sink clis
 		env.Stores.Nodes, env.Stores.Views, env.Stores.NodeTypes, env.Stores.PropertyDefs,
 		env.Stores.Relationships, env.Stores.NodeDeleter,
 	)
-	result, err := RunOrphanNodeBackfill(ctx, env.Stores.NodeDeleter, nodes, dryRun)
+	result, err := RunOrphanNodeBackfill(ctx, env.Stores.NodeDeleter, env.Stores.Relationships, nodes, dryRun)
 	if err != nil {
 		return err
 	}
