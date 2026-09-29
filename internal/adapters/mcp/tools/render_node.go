@@ -2,6 +2,7 @@ package tools
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,7 +23,9 @@ func renderNode(rc *renderCtx, view *node.NodeView) string {
 	return executeMarkdownTemplate("node.md.tmpl", nodeTemplateData{Heading: heading, Fields: fields})
 }
 
-func renderDeletedNode(rc *renderCtx, view *node.NodeView, deletedAt time.Time) string {
+// renderDeletedNode renders the delete confirmation. deleted counts the node
+// and its deleted hierarchy descendants.
+func renderDeletedNode(rc *renderCtx, view *node.NodeView, deletedAt time.Time, deleted int) string {
 	ident := identifierFor(view, rc)
 	nodeType := strings.ToLower(view.NodeType)
 	if ident == "" {
@@ -32,6 +35,7 @@ func renderDeletedNode(rc *renderCtx, view *node.NodeView, deletedAt time.Time) 
 		markdownCodeFieldValue("Reference", ident),
 		markdownCodeFieldValue("Type", view.NodeType),
 		markdownFieldValue("Deleted at", formatDisplayTime(deletedAt)),
+		markdownFieldValue("Deleted nodes", strconv.Itoa(deleted)),
 	}
 	data := nodeTemplateData{Heading: fmt.Sprintf("Deleted %s `%s`", nodeType, ident), Fields: fields}
 	return executeMarkdownTemplate("node.md.tmpl", data)

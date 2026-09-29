@@ -70,6 +70,16 @@ func propertyDefByNameKey(orgID uuid.UUID, name string, defID uuid.UUID) []byte 
 	return withPrefix(tuple.Tuple{keyPropertyDefByName, orgID.String(), name, defID.String()}.Pack())
 }
 
+// nodeDeleteJobKey packs the record key of one subtree delete job.
+func nodeDeleteJobKey(jobID uuid.UUID) []byte {
+	return withPrefix(tuple.Tuple{keyNodeDeleteJob, jobID.String()}.Pack())
+}
+
+// nodeDeleteJobPrefix packs the prefix of every subtree delete job record.
+func nodeDeleteJobPrefix() []byte {
+	return withPrefix(tuple.Tuple{keyNodeDeleteJob}.Pack())
+}
+
 // idempotencyKey packs the per-org idempotency-key sentinel.
 func idempotencyKey(orgID uuid.UUID, key string) []byte {
 	return withPrefix(tuple.Tuple{keyIdempotency, orgID.String(), key}.Pack())

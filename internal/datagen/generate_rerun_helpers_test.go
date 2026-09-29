@@ -17,6 +17,38 @@ func writeRerunResult(writer http.ResponseWriter, text string, isError bool) {
 	})
 }
 
+// deleteProject removes the project with rawID and every node created with
+// the project's identifier as its project reference, the way the server's
+// cascading delete removes a project's descendants. It returns the count of
+// removed nodes.
+func (f *rerunMCP) deleteProject(rawID string) int {
+	identifier := ""
+	for key, stored := range f.nodes["tack_create_project"] {
+		if stored.rawID == rawID {
+			identifier = stored.identifier
+			delete(f.nodes["tack_create_project"], key)
+		}
+	}
+	if identifier == "" {
+		return 0
+	}
+	if f.deletedRawIDs == nil {
+		f.deletedRawIDs = map[string]bool{}
+	}
+	f.deletedRawIDs[rawID] = true
+	deleted := 1
+	for _, nodes := range f.nodes {
+		for key, stored := range nodes {
+			if stored.project == identifier {
+				f.deletedRawIDs[stored.rawID] = true
+				delete(nodes, key)
+				deleted++
+			}
+		}
+	}
+	return deleted
+}
+
 func isCorpusListTool(toolName string) bool {
 	return corpusCreateTool(toolName) != ""
 }

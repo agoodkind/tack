@@ -107,6 +107,9 @@ func (g *Generator) Run(ctx context.Context) (Summary, error) {
 	if err := g.probeCrossOrgIsolation(ctx); err != nil {
 		return Summary{}, err
 	}
+	if err := g.probeCascadeDelete(ctx); err != nil {
+		return Summary{}, err
+	}
 	if err := g.redactOneActor(ctx); err != nil {
 		return Summary{}, err
 	}

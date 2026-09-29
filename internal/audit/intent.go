@@ -2,6 +2,7 @@ package audit
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 
@@ -66,4 +67,25 @@ func StageStateChange(ctx context.Context, verb Verb, entity Entity) error {
 	}
 	auditintent.Stage(ctx, payload)
 	return nil
+}
+
+// DescendantDeleteEvent returns the ledger event for one descendant that a
+// cascading delete removed. The event copies the actor, context, and extra
+// fields of the staged root event in template. It sets a new event ID, the
+// descendant as its entity, and the current time.
+func DescendantDeleteEvent(template json.RawMessage, entity Entity) (json.RawMessage, error) {
+	var event Event
+	if err := json.Unmarshal(template, &event); err != nil {
+		slog.Error("audit.descendant_event_failed", slog.String("err", err.Error()), slog.String("node_id", entity.ID.String()))
+		return nil, fmt.Errorf("decode the staged delete event for descendant %s: %w", entity.ID, err)
+	}
+	eventID, err := uuid.NewV7()
+	if err != nil {
+		slog.Error("audit.descendant_event_failed", slog.String("err", err.Error()), slog.String("node_id", entity.ID.String()))
+		return nil, fmt.Errorf("create the delete event id for descendant %s: %w", entity.ID, err)
+	}
+	event.EventID = eventID
+	event.Entity = entity
+	event.OccurredAt = clock.Now().UTC()
+	return MarshalEvent(event)
 }

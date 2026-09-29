@@ -287,7 +287,7 @@ func TestDeleteClearsRelationships(t *testing.T) {
 		t.Fatalf("AddRelationship: %v", err)
 	}
 
-	if err := env.NodeSvc.Delete(env.Ctx, issue.ID, actor); err != nil {
+	if _, err := env.NodeSvc.Delete(env.Ctx, issue.ID, actor); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
 

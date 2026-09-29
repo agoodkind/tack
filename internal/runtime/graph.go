@@ -34,6 +34,8 @@ type Graph struct {
 	searchCancel   context.CancelFunc
 	searchWorkers  sync.WaitGroup
 	searchStarted  bool
+	nodes          *service.NodeService
+	deletes        deleteResumer
 }
 
 // BuildGraph opens the configured datastores and assembles the node service,
@@ -139,6 +141,8 @@ func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
 		searchCancel:   nil,
 		searchWorkers:  sync.WaitGroup{},
 		searchStarted:  false,
+		nodes:          nodeSvc,
+		deletes:        deleteResumer{cancel: nil, loop: sync.WaitGroup{}, started: false},
 	}, nil
 }
 
