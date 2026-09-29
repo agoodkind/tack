@@ -70,25 +70,43 @@ func (s *NodeService) Delete(ctx context.Context, nodeID, actorID uuid.UUID) (De
 		return none, fmt.Errorf("stage the audit row for deleting %s: %w", nodeID, err)
 	}
 	template, _ := auditintent.Pending(ctx)
+	return s.startSubtreeDelete(ctx, existing.OrgID, nodeID, actorID, template, deleteRequestBudget)
+}
+
+// DeleteSubtree removes the node the way Delete does and runs the job until
+// it finishes. template is the ledger event of the root delete. The step that
+// deletes the root writes it unchanged, and every other deleted or moved node
+// writes a copy with its own entity. An empty template writes no ledger
+// event.
+func (s *NodeService) DeleteSubtree(ctx context.Context, orgID, nodeID, actorID uuid.UUID, template json.RawMessage) (DeleteResult, error) {
+	return s.startSubtreeDelete(ctx, orgID, nodeID, actorID, template, 0)
+}
+
+// startSubtreeDelete stores a new job record for nodeID and runs its steps
+// within budget. A zero budget runs until the job finishes.
+func (s *NodeService) startSubtreeDelete(
+	ctx context.Context, orgID, nodeID, actorID uuid.UUID, template json.RawMessage, budget time.Duration,
+) (DeleteResult, error) {
+	none := DeleteResult{JobID: uuid.Nil, Deleted: 0, Moved: 0, State: node.SubtreeDeleteRunning}
 	jobID, err := uuid.NewV7()
 	if err != nil {
 		slog.ErrorContext(ctx, "node.delete_failed", slog.String("err", err.Error()))
 		return none, fmt.Errorf("create the delete job id for node %s: %w", nodeID, err)
 	}
 	job := &node.SubtreeDeleteJob{
-		ID: jobID, OrgID: existing.OrgID, RootID: nodeID, ActorID: actorID, AuditTemplate: template,
+		ID: jobID, OrgID: orgID, RootID: nodeID, ActorID: actorID, AuditTemplate: template,
 		Stack: nil, Deleted: 0, UpdatedAt: time.Time{},
 	}
 	if err := s.deleter.StartSubtreeDelete(ctx, job); err != nil {
 		slog.ErrorContext(ctx, "node.delete_failed", slog.String("err", err.Error()))
 		return none, fmt.Errorf("start the delete of node %s: %w", nodeID, err)
 	}
-	result, err := s.runSubtreeDelete(ctx, jobID, deleteRequestBudget)
+	result, err := s.runSubtreeDelete(ctx, jobID, budget)
 	if err != nil {
 		return none, err
 	}
-	telemetry.L(ctx).InfoContext(ctx, "node.deleted", slog.Int("deleted", result.Deleted), slog.Int("moved", result.Moved),
-		slog.String("job_id", jobID.String()), slog.String("state", string(result.State)))
+	telemetry.L(ctx).InfoContext(ctx, "node.deleted", slog.String("node_id", nodeID.String()), slog.Int("deleted", result.Deleted),
+		slog.Int("moved", result.Moved), slog.String("job_id", jobID.String()), slog.String("state", string(result.State)))
 	return result, nil
 }
 
