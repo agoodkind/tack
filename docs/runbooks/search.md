@@ -50,6 +50,22 @@ does not establish that a particular image build passed.
        -run '^TestSearchCursorActualOSProcesses$' ./internal/test/integration
    ```
 
+   On macOS, use an existing local runner image and save each invocation in a
+   new evidence directory. The command runs the current checkout and checks
+   fixture cleanup before it exits.
+
+   ```sh
+   uv run --with pydantic --python 3.14 python scripts/test-search-mac.py \
+       --root "$PWD" --image "sha256:<local-runner-image-id>" \
+       --run '^TestSearchCursorActualOSProcesses$' --count 1 --timeout 30m \
+       --evidence-dir "/private/tmp/tack-search-$(date +%Y%m%d-%H%M%S)"
+   ```
+
+   Get the immutable image ID with
+   `docker image inspect tack-tests:latest --format '{{.Id}}'` and replace the
+   placeholder. The command does not build or pull an image. Keep the evidence
+   directory outside the checkout.
+
 3. Save the complete output and terminal exit code. Record the compiled source,
    image digests and architecture, server PIDs, fixture identities, and cleanup
    result. Preserve the original public error when a test fails. Resource and
