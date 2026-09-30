@@ -41,3 +41,26 @@ func recordActualServerFailure(t *testing.T, path string, environment []string) 
 		}
 	}
 }
+
+func sanitizeActualProtocolMessage(message string, environment []string, token string) string {
+	text := message
+	if token != "" {
+		text = strings.ReplaceAll(text, token, "[redacted]")
+	}
+	for _, variable := range environment {
+		key, value, _ := strings.Cut(variable, "=")
+		key = strings.ToUpper(key)
+		if value != "" && (strings.Contains(key, "PASSWORD") || strings.Contains(key, "TOKEN") || strings.Contains(key, "SECRET") || strings.Contains(key, "KEY") || strings.Contains(key, "DSN") || key == "DATABASE_URL") {
+			text = strings.ReplaceAll(text, value, "[redacted]")
+		}
+	}
+	credentials := regexp.MustCompile(`(?i)(postgres(?:ql)?|https?)://[^@\s]+@`)
+	text = credentials.ReplaceAllString(text, "${1}://[redacted]@")
+	if strings.Contains(strings.ToLower(text), "bearer ") || strings.Contains(strings.ToLower(text), "authorization") {
+		return "[redacted protocol message]"
+	}
+	if len(text) > 1024 {
+		return text[:1024]
+	}
+	return text
+}

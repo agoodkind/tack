@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -34,19 +35,48 @@ func actualProcessSearch(t *testing.T, server *actualSearchServer, harness *MCPH
 }
 
 type actualToolCall struct {
-	Result  datagen.Result
-	ID      string
-	Latency time.Duration
+	Result    datagen.Result
+	RawResult json.RawMessage
+	ID        string
+	Latency   time.Duration
 }
 
 func actualProcessTool(t *testing.T, server *actualSearchServer, harness *MCPHarness, sessionID, name string, arguments map[string]any) (actualToolCall, error) {
+	call, err := actualProcessRPC(t, server, harness, sessionID, "tools/call", map[string]any{"name": name, "arguments": arguments})
+	if err != nil {
+		return call, err
+	}
+	if err := json.Unmarshal(call.RawResult, &call.Result); err != nil {
+		return call, fmt.Errorf("actual process tool result failed to decode")
+	}
+	if call.Result.IsError {
+		message := sanitizeActualProtocolMessage(call.Result.Text(), server.command.Env, harness.token)
+		t.Logf("actual process tool refusal request_id=%s tool=%s message=%s", call.ID, name, message)
+		return call, actualSearchToolRefusal{}
+	}
+	if err := requireActualProcessAudit(t.Context(), harness, call.ID, name); err != nil {
+		return call, err
+	}
+	return call, nil
+}
+
+type actualProtocolError struct {
+	Code    int
+	Message string
+}
+
+func (failure actualProtocolError) Error() string {
+	return fmt.Sprintf("actual process JSON-RPC code=%d message=%s", failure.Code, failure.Message)
+}
+
+func actualProcessRPC(t *testing.T, server *actualSearchServer, harness *MCPHarness, sessionID, method string, parameters map[string]any) (actualToolCall, error) {
 	t.Helper()
 	var call actualToolCall
 	requestID := uuid.NewString()
 	call.ID = requestID
 	body, err := json.Marshal(map[string]any{
-		"jsonrpc": "2.0", "id": requestID, "method": "tools/call",
-		"params": map[string]any{"name": name, "arguments": arguments},
+		"jsonrpc": "2.0", "id": requestID, "method": method,
+		"params": parameters,
 	})
 	if err != nil {
 		return call, err
@@ -87,18 +117,34 @@ func actualProcessTool(t *testing.T, server *actualSearchServer, harness *MCPHar
 	var envelope struct {
 		JSONRPC string          `json:"jsonrpc"`
 		ID      string          `json:"id"`
-		Result  datagen.Result  `json:"result"`
+		Result  json.RawMessage `json:"result"`
 		Error   json.RawMessage `json:"error"`
 	}
-	if err := json.Unmarshal(payload, &envelope); err != nil || envelope.JSONRPC != "2.0" || envelope.ID != requestID || len(envelope.Error) != 0 {
-		return call, fmt.Errorf("actual process JSON-RPC response failed")
+	if err := json.Unmarshal(payload, &envelope); err != nil {
+		return call, fmt.Errorf("actual process JSON-RPC decoding failed request_id=%s status=%d bytes=%d", requestID, response.StatusCode, len(payload))
 	}
-	if envelope.Result.IsError {
-		return call, actualSearchToolRefusal{}
+	if envelope.JSONRPC != "2.0" || envelope.ID != requestID {
+		return call, fmt.Errorf("actual process JSON-RPC identity failed request_id=%s status=%d", requestID, response.StatusCode)
 	}
-	if err := requireSearchAuditInvocation(t.Context(), harness, requestID); err != nil {
-		return call, err
+	if len(envelope.Error) != 0 && string(envelope.Error) != "null" {
+		var failure struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		}
+		if err := json.Unmarshal(envelope.Error, &failure); err != nil {
+			return call, fmt.Errorf("actual process JSON-RPC error failed to decode request_id=%s", requestID)
+		}
+		message := sanitizeActualProtocolMessage(failure.Message, server.command.Env, harness.token)
+		keys := make([]string, 0)
+		if arguments, ok := parameters["arguments"].(map[string]any); ok {
+			for key := range arguments {
+				keys = append(keys, key)
+			}
+		}
+		slices.Sort(keys)
+		t.Logf("actual process protocol error status=%d request_id=%s method=%s tool=%v argument_keys=%v code=%d message=%s", response.StatusCode, requestID, method, parameters["name"], keys, failure.Code, message)
+		return call, actualProtocolError{Code: failure.Code, Message: message}
 	}
-	call.Result = envelope.Result
+	call.RawResult = envelope.Result
 	return call, nil
 }
