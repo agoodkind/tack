@@ -103,12 +103,12 @@ TEST_SEARCH_ARGS := -count=1 -timeout 90m -v -run '^TestSearch' ./internal/test/
 
 .PHONY: test-search-host
 test-search-host:
-	TACK_SEARCH_INTEGRATION=1 go test $(TEST_SEARCH_ARGS)
+	TACK_TEST_SOURCE_REVISION="$(shell git rev-parse HEAD)" TACK_SEARCH_INTEGRATION=1 go test $(TEST_SEARCH_ARGS)
 
 .PHONY: test-search
 test-search:
 	$(TEST_RUNNER) build tests
-	TACK_SEARCH_INTEGRATION=1 $(TEST_RUNNER) run --rm tests \
+	TACK_TEST_SOURCE_REVISION="$(shell git rev-parse HEAD)" TACK_SEARCH_INTEGRATION=1 $(TEST_RUNNER) run --rm tests \
 	    test $(TEST_SEARCH_ARGS)
 
 # Remove every engine internal/testenv or cmd/testenv started, and their
