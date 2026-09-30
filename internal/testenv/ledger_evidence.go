@@ -27,6 +27,7 @@ type ledgerReleaseEvidence struct {
 	RestartCount int                     `json:"RestartCount"`
 	OOMKilled    bool                    `json:"OOMKilled"`
 	SQLReady     bool                    `json:"SQLReady"`
+	SQLAddress   string                  `json:"SQLAddress"`
 	Commands     []ledgerEvidenceCommand `json:"Commands"`
 	Failures     []string                `json:"Failures"`
 }
@@ -91,7 +92,7 @@ func captureOwnedLedger(ctx context.Context, cli *client.Client, name, directory
 	defer func() { _ = root.Close() }()
 	evidence := ledgerReleaseEvidence{
 		Container: name, CapturedAt: clock.Now().UTC(), Image: "", Running: false,
-		RestartCount: 0, OOMKilled: false, SQLReady: false,
+		RestartCount: 0, OOMKilled: false, SQLReady: false, SQLAddress: "",
 		Commands: nil, Failures: nil,
 	}
 	inspected, err := cli.ContainerInspect(ctx, name, client.ContainerInspectOptions{})
@@ -105,11 +106,12 @@ func captureOwnedLedger(ctx context.Context, cli *client.Client, name, directory
 		if !evidence.Running || evidence.RestartCount != 0 || evidence.OOMKilled {
 			evidence.Failures = append(evidence.Failures, "SQL container is not healthy")
 		}
-	}
-	if err := probeLedger(ctx, ledgerState.result); err != nil {
-		evidence.Failures = append(evidence.Failures, "SQL query: "+err.Error())
-	} else {
-		evidence.SQLReady = true
+		address, err := probeCapturedLedger(ctx, inspected.Container)
+		if err != nil {
+			evidence.Failures = append(evidence.Failures, "SQL query: "+err.Error())
+		} else {
+			evidence.SQLReady, evidence.SQLAddress = true, address
+		}
 	}
 	commands := []struct {
 		name string
