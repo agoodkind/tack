@@ -31,11 +31,12 @@ func TestSearchRestoreRejectsCursors(t *testing.T) {
 	longNode := putOpaqueNode(t, fixture, kind, entry, "restore final page", strings.Repeat("jasper restore marker ", 24)+"final restored unicode 汉字", readerExcludedValue)
 	nodes = append(nodes, longNode)
 	targets := make(map[string]uuid.UUID)
+	relevanceKind := putOpaqueKind(t, fixture, workspace.OrgID)
 	for _, item := range semanticCorpus(t) {
-		targets[item.Identifier] = putOpaqueNode(t, fixture, kind, entry, item.Text, item.Text, readerExcludedValue)
+		targets[item.Identifier] = putOpaqueNode(t, fixture, relevanceKind, entry, item.Text, item.Text, readerExcludedValue)
 	}
 	drainSearchWork(t, fixture.Worker, 4000)
-	first := callSearch(t, fixture.Harness, "jasper restore marker", "")
+	first := callTypedSearch(t, fixture.Harness, "jasper restore marker", kind.TypeKey, "")
 	if first.Cursor == "" {
 		t.Fatal("the first page returned no continuation cursor")
 	}
@@ -59,7 +60,7 @@ func TestSearchRestoreRejectsCursors(t *testing.T) {
 		return found && current.State == searchdomain.RebuildRetiring
 	})
 	requireServing(t, fixture, rebuild.TargetIndex, "")
-	if _, err := trySearch(fixture.Harness, "jasper restore marker", first.Cursor); err == nil {
+	if _, err := tryTypedSearch(fixture.Harness, "jasper restore marker", kind.TypeKey, first.Cursor); err == nil {
 		t.Fatal("a cursor from before the restored replacement continued")
 	}
 	runRebuildUntil(t, fixture, rebuildFinished)
@@ -67,9 +68,9 @@ func TestSearchRestoreRejectsCursors(t *testing.T) {
 	drainSearchWork(t, fixture.Worker, 4000)
 	requireDeletedAbsent(t, fixture, rebuild.TargetIndex, deleted)
 	requireCurrentPages(t, fixture, rebuild.TargetIndex, nodes)
-	results := callEverySearchPage(t, "jasper restore marker", fixture.Harness)
-	requireExactlyOnce(t, results.IDs, nodes)
-	if slices.Contains(results.IDs, deleted) {
+	results := everyTypedSearchPage(t, fixture, "jasper restore marker", kind.TypeKey)
+	requireExactlyOnce(t, results, nodes)
+	if slices.Contains(results, deleted) {
 		t.Fatalf("search after the restored replacement returned deleted node %s", deleted)
 	}
 	finalPage := callSearch(t, fixture.Harness, "final restored unicode 汉字", "")
