@@ -80,6 +80,36 @@ first public-error failure during a member stop even if a later request succeeds
    complete search sessions, zero errors, and a two-process gain above
    unchanged-control variation before claiming a speedup.
 
+## Prepare the required QA cohorts
+
+1. Select a QA or local application environment with an existing datagen seed
+   workspace and the published fixture creator. Set `TACK_DATAGEN_ALLOW_TARGET`
+   to `qa` or `local` in that environment. The command rejects configured
+   production endpoints before loading the corpus or creating fixture nodes.
+2. Set `TACK_DATAGEN_SEED` to that workspace's seed and set `OPERATOR_ID`,
+   `OPERATOR_EMAIL`, and `OPERATOR_NAME` to the audited operator identity.
+   Use the approved [semantic corpus](../../internal/test/integration/testdata/search_semantic_corpus.json)
+   from the checked-out source.
+3. Export the stored fixture identities. Public search may remain disabled;
+   preparation does not start workers or send search requests.
+
+   ```sh
+   docker compose run --rm \
+       -v "$PWD/internal/test/integration/testdata/search_semantic_corpus.json:/manifests/search_semantic_corpus.json:ro" \
+       app --execute --output json \
+       --operator-id "$OPERATOR_ID" --operator-email "$OPERATOR_EMAIL" \
+       --operator-name "$OPERATOR_NAME" ops qa datagen search \
+       --prepare-only --commit --seed "$TACK_DATAGEN_SEED" \
+       --corpus /manifests/search_semantic_corpus.json > search-manifest.json
+   ```
+
+4. Read `result.manifest` in the saved response. Use its stored node IDs,
+   opaque types, projection definitions, and expected case IDs for the isolated
+   semantic, continuation, and final-page checks. Require 162, 31, and one node
+   in the respective cohorts. A prepared manifest does not establish public
+   relevance, continuation, or capacity acceptance. Preserve any partial
+   manifest when the command exits with an error.
+
 ## Remove abandoned fixtures
 
 1. Check that every active test binary has exited. Normal test teardown removes
