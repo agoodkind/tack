@@ -54,11 +54,11 @@ func TestSearchActualOSProcessThroughput(t *testing.T) {
 	if os.Getenv("TACK_SEARCH_INTEGRATION") != "1" {
 		t.Skip("OpenSearch integration requires TACK_SEARCH_INTEGRATION=1")
 	}
-	actualServerRevision(t)
+	revision := actualServerRevision(t)
 	t.Setenv("LOG_LEVEL", "debug")
 	t.Setenv("OPENSEARCH_WORKER_CONCURRENCY", "1")
 	corpus := newProcessThroughputCorpus(t)
-	binary := buildActualSearchServer(t)
+	binary := buildActualSearchServer(t, revision)
 	first := startActualSearchServer(t, binary, corpus.fixture.Config)
 	recordThroughputResources(t, corpus)
 	verifyThroughputFixtureContract(t, corpus, first)

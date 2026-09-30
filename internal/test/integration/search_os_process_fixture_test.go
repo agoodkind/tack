@@ -25,15 +25,16 @@ type actualSearchServer struct {
 	done     chan error
 }
 
-func buildActualSearchServer(t *testing.T) string {
+type actualSourceRevision string
+
+func buildActualSearchServer(t *testing.T, revision actualSourceRevision) string {
 	t.Helper()
-	revision := actualServerRevision(t)
 	root, err := filepath.Abs("../../..")
 	if err != nil {
 		t.Fatal(err)
 	}
 	binary := filepath.Join(t.TempDir(), "tack-server")
-	build := exec.CommandContext(t.Context(), "go", "build", "-buildvcs=false", "-tags=fdb", "-ldflags", "-X goodkind.io/tack/internal/version.commit="+revision+" -X goodkind.io/tack/internal/version.dirty=true", "-o", binary, "./cmd/server")
+	build := exec.CommandContext(t.Context(), "go", "build", "-buildvcs=false", "-tags=fdb", "-ldflags", "-X goodkind.io/tack/internal/version.commit="+string(revision)+" -X goodkind.io/tack/internal/version.dirty=true", "-o", binary, "./cmd/server")
 	build.Dir = root
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build actual server: %v: %s", err, output)
@@ -51,7 +52,7 @@ func buildActualSearchServer(t *testing.T) string {
 	return binary
 }
 
-func actualServerRevision(t *testing.T) string {
+func actualServerRevision(t *testing.T) actualSourceRevision {
 	t.Helper()
 	revision := strings.TrimSpace(os.Getenv("TACK_TEST_SOURCE_REVISION"))
 	if len(revision) != 40 {
@@ -60,7 +61,7 @@ func actualServerRevision(t *testing.T) string {
 	if _, err := hex.DecodeString(revision); err != nil {
 		t.Fatal("TACK_TEST_SOURCE_REVISION must contain a hexadecimal commit")
 	}
-	return revision
+	return actualSourceRevision(revision)
 }
 
 func startActualSearchServer(t *testing.T, binary string, cfg *config.Config) *actualSearchServer {

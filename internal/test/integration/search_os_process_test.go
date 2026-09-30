@@ -20,7 +20,7 @@ func TestSearchCursorActualOSProcesses(t *testing.T) {
 	if os.Getenv("TACK_SEARCH_INTEGRATION") != "1" {
 		t.Skip("OpenSearch integration requires TACK_SEARCH_INTEGRATION=1")
 	}
-	actualServerRevision(t)
+	revision := actualServerRevision(t)
 	prefix := slices.Clone(fdbadapter.TestPrefixRange())
 	fdbadapter.SetTestPrefix(nil)
 	t.Cleanup(func() { fdbadapter.SetTestPrefix(prefix) })
@@ -71,7 +71,7 @@ func TestSearchCursorActualOSProcesses(t *testing.T) {
 	}
 	const query = "copper meadow"
 	nodes := putCursorCorpus(t, fixture, query, 140)
-	binary := buildActualSearchServer(t)
+	binary := buildActualSearchServer(t, revision)
 	first := startActualSearchServer(t, binary, cfg)
 	second := startActualSearchServer(t, binary, cfg)
 	if first.command.Process.Pid == second.command.Process.Pid {
