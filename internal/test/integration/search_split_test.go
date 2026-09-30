@@ -68,3 +68,41 @@ func TestSearchSplitDuringChanges(t *testing.T) {
 		}
 	}
 }
+
+// TestSearchSplitWithoutModel requires native splitting to preserve semantic
+// fields while inference is unavailable throughout the reserved split path.
+func TestSearchSplitWithoutModel(t *testing.T) {
+	fixture := newQueryFixture(t, defaultQueryOptions())
+	workspace := fixture.Workspaces[0]
+	entry := entryPoint(t, fixture, workspace)
+	kind := putOpaqueKind(t, fixture, workspace.OrgID)
+	nodeID := putOpaqueNode(t, fixture, kind, entry, "Model-independent split", "cobalt split preserved", readerExcludedValue)
+	drainSearchWork(t, fixture.Worker, 2000)
+	before := pagesOf(t, fixture, []uuid.UUID{nodeID})
+	model, err := fixture.Adapter.Provision(t.Context())
+	if err != nil {
+		t.Fatalf("read split model: %v", err)
+	}
+	undeployNativeModel(t, fixture.Adapter, fixture.Client, model.ID)
+	source := fixture.Index
+	for _, primaries := range []int{2, 4, 8} {
+		rebuild := beginRebuild(t, fixture, searchdomain.BeginRebuild{
+			Mode: searchdomain.ReplacementSplit, PrimaryShards: primaries,
+			RoutingShards: 24, Replicas: 0, Restored: false, Reason: "model unavailable",
+		})
+		runRebuildUntil(t, fixture, rebuildFinished)
+		if state := nativeModelState(t, fixture.Client, model.ID); !slices.Contains(undeployedModelStates, state) {
+			t.Fatalf("split to %d primaries deployed the model: %s", primaries, state)
+		}
+		requireServing(t, fixture, rebuild.TargetIndex, source)
+		requireSemanticPreserved(t, before, pagesIn(t, fixture, rebuild.TargetIndex, []uuid.UUID{nodeID}))
+		source = rebuild.TargetIndex
+	}
+	if err := redeployNativeModel(t.Context(), fixture.Adapter, fixture.Client); err != nil {
+		t.Fatalf("redeploy after native splits: %v", err)
+	}
+	results := callEverySearchPage(t, "cobalt split preserved", fixture.Harness)
+	if !slices.Contains(results.IDs, nodeID) {
+		t.Fatalf("search after model redeploy returned %v, want %s", results.IDs, nodeID)
+	}
+}

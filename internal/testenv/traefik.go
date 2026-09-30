@@ -102,6 +102,7 @@ func (c *OpenSearchCluster) startProxy(ctx context.Context, cli *client.Client) 
 		"--entryPoints.search.address=:9200", "--entryPoints.traefik.address=:8080",
 		"--api.insecure=true", "--providers.file.directory=/etc/traefik/dynamic",
 		"--providers.file.watch=true", "--log.level=INFO",
+		"--accesslog=true", "--accesslog.format=json", "--accesslog.filepath=" + traefikAccessPath,
 	}
 	return startClusterContainer(ctx, cli, clusterContainer{name: c.proxy, image: traefikImage, cmd: command, env: nil, files: files, owner: fileOwner{uid: 0, gid: 0}, resources: container.Resources{}})
 }

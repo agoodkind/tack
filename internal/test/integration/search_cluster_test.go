@@ -13,14 +13,13 @@ import (
 	"goodkind.io/tack/internal/adapters/search"
 	"goodkind.io/tack/internal/clock"
 	searchdomain "goodkind.io/tack/internal/domain/search"
-	"goodkind.io/tack/internal/testenv"
 )
 
 // TestSearchClusterProxyEndpoint indexes and searches one node through the
 // production adapter and graph behind Traefik. The adapter's connection
 // observer must report the proxy as its only endpoint.
 func TestSearchClusterProxyEndpoint(t *testing.T) {
-	cluster := testenv.StartOpenSearchCluster(t, 1)
+	cluster := startSearchTestCluster(t, 1)
 	fixture, _ := newClusterQueryFixture(t, cluster)
 	requireSearchable(t, fixture, []uuid.UUID{clusterNodeWriter(t, fixture)()})
 	proxy, err := url.Parse(cluster.Fixture.Endpoint)
@@ -42,7 +41,7 @@ func TestSearchClusterProxyEndpoint(t *testing.T) {
 // and its live work stays pending. After the restart, the worker completes
 // the pending work and the node becomes searchable.
 func TestSearchClusterEngineOutage(t *testing.T) {
-	cluster := testenv.StartOpenSearchCluster(t, 1)
+	cluster := startSearchTestCluster(t, 1)
 	fixture, _ := newClusterQueryFixture(t, cluster)
 	write := clusterNodeWriter(t, fixture)
 	drainSearchWork(t, fixture.Worker, 500)
@@ -81,7 +80,7 @@ func TestSearchClusterEngineOutage(t *testing.T) {
 // become searchable, and every earlier node must stay searchable. After each
 // restart, the whole cluster must report green health before the next stop.
 func TestSearchClusterScaleOut(t *testing.T) {
-	cluster := testenv.StartOpenSearchCluster(t, 3)
+	cluster := startSearchTestCluster(t, 3)
 	cluster.AddMember(t)
 	cluster.AddMember(t)
 	members := cluster.Members()
@@ -102,6 +101,10 @@ func TestSearchClusterScaleOut(t *testing.T) {
 		})
 	}
 	awaitGreen()
+	write := clusterNodeWriter(t, fixture)
+	initial := write()
+	requireSearchable(t, fixture, []uuid.UUID{initial})
+	before := pagesOf(t, fixture, []uuid.UUID{initial})
 	spec.Replicas = 1
 	clusterRequire(t, "raise the replica count", fixture.Adapter.EnsureIndex(t.Context(), fixture.Index, spec))
 	awaitGreen()
@@ -109,8 +112,10 @@ func TestSearchClusterScaleOut(t *testing.T) {
 	if err != nil || settings.Replicas != 1 {
 		t.Fatalf("index settings %+v err %v, want one replica", settings, err)
 	}
-	write := clusterNodeWriter(t, fixture)
-	written := []uuid.UUID{}
+	requireSemanticPreserved(t, before, pagesOf(t, fixture, []uuid.UUID{initial}))
+	t.Logf("replica change preserved %d pages with byte-identical semantic fields", len(before))
+	requireClusterDistribution(t, cluster, fixture)
+	written := []uuid.UUID{initial}
 	for _, member := range members {
 		cluster.StopMember(t, member)
 		written = append(written, write())

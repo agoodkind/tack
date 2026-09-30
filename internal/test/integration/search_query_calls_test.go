@@ -2,6 +2,7 @@ package integration
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/telemetry"
 )
 
 // searchPage is one parsed public tack_search response.
@@ -60,14 +62,17 @@ func trySearch(harness *MCPHarness, query, cursor string) (searchPage, error) {
 }
 
 func rawSearchCall(harness *MCPHarness, arguments map[string]any) (string, bool, error) {
+	requestID := uuid.NewString()
 	body, err := json.Marshal(map[string]any{
-		"jsonrpc": "2.0", "id": uuid.NewString(), "method": "tools/call",
+		"jsonrpc": "2.0", "id": requestID, "method": "tools/call",
 		"params": map[string]any{"name": "tack_search", "arguments": arguments},
 	})
 	if err != nil {
 		return "", false, fmt.Errorf("encode search request: %w", err)
 	}
-	request := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(body))
+	requestContext := telemetry.WithRequestMetadata(context.Background(), requestID)
+	request := httptest.NewRequestWithContext(requestContext, http.MethodPost, "/mcp", bytes.NewReader(body))
+	request.Header.Set(telemetry.RequestIDHeader, requestID)
 	request.Header.Set("Authorization", "Bearer "+harness.token)
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "application/json, text/event-stream")
@@ -92,10 +97,14 @@ func rawSearchCall(harness *MCPHarness, arguments map[string]any) (string, bool,
 	if err := json.Unmarshal(payload, &decoded); err != nil {
 		return "", false, fmt.Errorf("decode search response: %w", err)
 	}
+	if !decoded.Result.IsError {
+		if err := requireSearchAuditInvocation(requestContext, harness, requestID); err != nil {
+			return "", false, err
+		}
+	}
 	return toolResultText(decoded.Result), decoded.Result.IsError, nil
 }
 
-// rawCallStatus returns the HTTP status of one tool call.
 func rawCallStatus(t *testing.T, harness *MCPHarness, tool string, arguments map[string]any) int {
 	t.Helper()
 	body, err := json.Marshal(map[string]any{
