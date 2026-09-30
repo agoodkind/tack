@@ -65,6 +65,7 @@ func RegisterCommands(reg *clispec.Registry, f *cli.Factory) {
 	clispec.Register(reg, searchReindexOp(f))
 	clispec.Register(reg, searchProjectionBackfillOp(f))
 	clispec.Register(reg, metadataNameBackfillOp(f))
+	clispec.Register(reg, orphanNodeBackfillOp(f))
 	registerBatchOps(reg, f)
 	reg.AddHandwritten(clispec.HandwrittenCommand{Group: opsGroup, Build: backupCommand})
 }

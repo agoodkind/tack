@@ -141,6 +141,9 @@ const (
 	// VerbOpsBackfillMetadataNameIndex records the one-time backfill of the
 	// node type-key and property-name index entries.
 	VerbOpsBackfillMetadataNameIndex Verb = "ops.backfill_metadata_name_index"
+	// VerbOpsBackfillOrphanNodes records the one-time delete of the nodes
+	// without a hierarchy parent and their descendants.
+	VerbOpsBackfillOrphanNodes Verb = "ops.backfill_orphan_nodes"
 	// VerbOpsReindex records property index backfills.
 	VerbOpsReindex Verb = "ops.reindex"
 	// VerbOpsReferenceDuplicates records duplicate reference reports.
