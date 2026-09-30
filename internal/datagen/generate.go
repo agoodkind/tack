@@ -107,9 +107,11 @@ func (g *Generator) Run(ctx context.Context) (Summary, error) {
 	if err := g.probeCrossOrgIsolation(ctx); err != nil {
 		return Summary{}, err
 	}
-	if err := g.probeCascadeDelete(ctx); err != nil {
+	cascade, err := g.VerifyCascadeDelete(ctx)
+	if err != nil {
 		return Summary{}, err
 	}
+	slog.InfoContext(ctx, "qa.datagen.cascade_completed", slog.Any("deletes", cascade.Deletes))
 	if err := g.redactOneActor(ctx); err != nil {
 		return Summary{}, err
 	}
