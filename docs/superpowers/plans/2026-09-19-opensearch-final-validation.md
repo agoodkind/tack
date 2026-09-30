@@ -41,6 +41,7 @@ Modify a Tack or Configs file only when a reproduced failure requires a correcti
 - `internal/test/integration/search_access_refresh_test.go`
 - `internal/test/integration/search_datagen_test.go`
 - `internal/test/integration/search_cluster_test.go`
+- `internal/test/integration/search_os_process_test.go`
 
 This task has these prerequisites and outputs:
 
@@ -58,11 +59,19 @@ git log --oneline --decorate origin/main..HEAD
 git -C "$CONFIGS_ROOT" fetch origin
 git -C "$CONFIGS_ROOT" status --short
 git -C "$CONFIGS_ROOT" rev-parse HEAD
+export TACK_TEST_SOURCE_REVISION="$(git rev-parse HEAD)"
+export TACK_SEARCH_INTEGRATION=1
+export TACK_SEARCH_CLUSTER=1
 make test-env-down
 TACK_TEST_ROOT="$PWD" docker compose -f docker-compose.test.yml --profile runner build tests
 ```
 
 Require an empty status before testing. Record the test-runner image digest and the OpenSearch 3.8.0 image digest after the build.
+
+Confirm that no other test binary owns an active fixture before each
+`make test-env-down`. Run heavy groups serially. Preserve the exported source
+revision and opt-ins for every runner command below. The actual server process
+tests require the revision and use a fresh, unprefixed FoundationDB fixture.
 
 - [ ] **Step 2: Validate the official client, model, mapping, and complete page embedding.**
 
@@ -123,6 +132,18 @@ reads, a restartable dual-version transition on one physical index, byte-identic
 semantic fields with the model undeployed, real JSON and SSE decoding, and
 production guard rejection.
 
+Run the actual server process checks against fresh disposable fixtures. Require
+distinct PIDs, alternating cursor continuation, process replacement, and revoked
+membership rejection. Measure throughput separately with fixed clients and
+unchanged controls; require zero errors and a gain above control variation.
+
+```sh
+TACK_TEST_ROOT="$PWD" docker compose -f docker-compose.test.yml --profile runner run --rm tests test -count=1 -timeout 30m -run '^TestSearchCursorActualOSProcesses$' ./internal/test/integration
+```
+
+Do not overlap throughput measurements with another engine fixture, build, or
+database probe. Preserve the complete output and terminal exit code.
+
 - [ ] **Step 7: Validate disposable cluster configuration and scale-out behavior.**
 
 ```sh
@@ -133,6 +154,11 @@ TACK_TEST_ROOT="$PWD" docker compose -f docker-compose.test.yml --profile runner
 ```
 
 Require one stable client endpoint, one-member restart recovery, later member joining without a new bootstrap cluster, proxy distribution, model placement, replica allocation, and one-member failure behavior. Do not connect to live Proxmox or apply a plan.
+
+Verify every eligible predictor is deployed and cached worker and target
+identities match before the first independent member stop and after each
+restart. Preserve the first public-error failure during each member stop even
+if subsequent requests recover.
 
 - [ ] **Step 8: Correct each reproduced failure at its owning layer.**
 

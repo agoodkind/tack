@@ -62,6 +62,8 @@ feature is designed as if there were a single tenant.
 - [docs/plans/](docs/plans/): forward design, including the audit subsystem
   horizontal design and the Kafka cutover.
 - [docs/runbooks/](docs/runbooks/): recovery and operational procedures.
+- [Run search acceptance tests](docs/runbooks/search.md) provides native runner
+  setup, process and cluster checks, and fixture cleanup instructions.
 - The code is the source of truth for concrete values: FDB keys in
   `internal/adapters/foundationdb/keys.go`, SQL schema in `migrations/`, config
   in `internal/config/config.go`, and the stack in `docker-compose.yml`.
