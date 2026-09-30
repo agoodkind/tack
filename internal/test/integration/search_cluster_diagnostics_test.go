@@ -138,6 +138,14 @@ func captureClusterTestFailure(t *testing.T, cluster *testenv.OpenSearchCluster,
 		return
 	}
 	t.Logf("cluster test failure capture at=%s model=%s members=%v", time.Now().UTC().Format(time.RFC3339Nano), modelID, cluster.Members())
+	for _, member := range cluster.Members() {
+		requestedAt := time.Now().UTC().Format(time.RFC3339Nano)
+		logs, err := cluster.MemberLogTail(t.Context(), member)
+		if logs == "" {
+			logs = "[no log lines available]"
+		}
+		t.Logf("cluster member logs member=%s requested_at=%s error=%v\n%s", member, requestedAt, err, logs)
+	}
 	captureSearchFailure(t, fixture, modelID, cluster.Members()...)
 	responses := cluster.PredictionResponses(t, modelID)
 	observedAt := time.Now()

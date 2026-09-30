@@ -34,14 +34,14 @@ def created_fixtures() -> list[str]:
             actor = event.actor
             attributes = actor.attributes
             match = re.fullmatch(
-                r"tack-testenv-[a-z0-9-]+-(\d+)-[0-9a-f]{8}",
+                r"(tack-testenv-[a-z0-9-]+-(\d+)-[0-9a-f]{8})(?:-(?:[1-9]\d*|proxy))?",
                 attributes.get("name", ""),
             )
             if attributes.get(state.MANAGED) == "true":
-                if match is None or attributes.get("name", "") not in logged_names:
+                if match is None or match.group(1) not in logged_names:
                     unattributed.append(actor.identity)
                     continue
-                process_ids.add(match.group(1))
+                process_ids.add(match.group(2))
                 identities.append(actor.identity)
     require(
         len(process_ids) <= 1,

@@ -7,9 +7,45 @@ import (
 	"os"
 	"slices"
 	"strconv"
+	"time"
 
+	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/moby/moby/client"
 )
+
+const (
+	clusterLogLines    = "40"
+	clusterLogMaxBytes = 16 * 1024
+	clusterLogTimeout  = 10 * time.Second
+)
+
+type clusterLogWriter struct {
+	data      []byte
+	truncated bool
+}
+
+func (w *clusterLogWriter) Write(chunk []byte) (int, error) {
+	length := len(chunk)
+	if length >= clusterLogMaxBytes {
+		w.data = append(w.data[:0], chunk[length-clusterLogMaxBytes:]...)
+		w.truncated = true
+		return length, nil
+	}
+	if len(w.data)+length > clusterLogMaxBytes {
+		drop := len(w.data) + length - clusterLogMaxBytes
+		w.data = append(w.data[:0], w.data[drop:]...)
+		w.truncated = true
+	}
+	w.data = append(w.data, chunk...)
+	return length, nil
+}
+
+func (w *clusterLogWriter) String() string {
+	if w.truncated {
+		return "[older log bytes omitted]\n" + string(w.data)
+	}
+	return string(w.data)
+}
 
 // OpenSearchCluster is one disposable OpenSearch cluster behind a real
 // Traefik proxy. Clients use the proxy as their only endpoint, as the
@@ -106,6 +142,39 @@ func (c *OpenSearchCluster) StartMember(t T, member string) {
 // The result includes a member that StopMember stopped.
 func (c *OpenSearchCluster) Members() []string {
 	return slices.Clone(c.members)
+}
+
+// MemberLogTail reads a bounded, timestamped log excerpt for a joined member.
+// It uses a fresh deadline because the test context may already be canceled.
+func (c *OpenSearchCluster) MemberLogTail(ctx context.Context, member string) (string, error) {
+	if !slices.Contains(c.members, member) {
+		return "", fmt.Errorf("member %s is not joined to cluster %s", member, c.name)
+	}
+	readContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), clusterLogTimeout)
+	defer cancel()
+	cli, err := dockerClient(readContext)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = cli.Close() }()
+	stream, err := cli.ContainerLogs(readContext, member, client.ContainerLogsOptions{
+		ShowStdout: true, ShowStderr: true, Timestamps: true,
+		Follow: false, Tail: clusterLogLines,
+	})
+	if err != nil {
+		slog.WarnContext(readContext, "testenv.cluster.logs_unavailable", slog.String("member", member), slog.String("reason", err.Error()))
+		return "", fmt.Errorf("read logs for member %s: %w", member, err)
+	}
+	defer func() { _ = stream.Close() }()
+	stopClose := context.AfterFunc(readContext, func() { _ = stream.Close() })
+	defer stopClose()
+	var output clusterLogWriter
+	_, err = stdcopy.StdCopy(&output, &output, stream)
+	if err != nil {
+		slog.WarnContext(readContext, "testenv.cluster.logs_unreadable", slog.String("member", member), slog.String("reason", err.Error()))
+		return output.String(), fmt.Errorf("read bounded logs for member %s: %w", member, err)
+	}
+	return output.String(), nil
 }
 
 // MemberEndpoint returns the HTTPS endpoint the proxy uses for member.
