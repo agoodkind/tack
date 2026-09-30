@@ -8,6 +8,7 @@ import (
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/telemetry"
 )
 
@@ -24,33 +25,7 @@ func (s *NodeStore) Delete(ctx context.Context, orgID, nodeID uuid.UUID) (err er
 		return err
 	}
 	transactionErr := runNodeMutation(ctx, s.db, "node.delete", func(tr fdb.Transaction) error {
-		var deletion searchWorkRecord
-		if s.searchWork {
-			deletion, err = scheduleSearchChange(ctx, tr, s.clock.Now(), orgID, nodeID, searchChangeDeletion)
-			if err != nil {
-				return err
-			}
-		}
-		tr.Clear(fdb.Key(nodeInstanceKey(orgID, current.NodeType, nodeID)))
-		tr.Clear(fdb.Key(nodeViewKey(orgID, current.NodeType, nodeID)))
-		tr.Clear(fdb.Key(nodeResolveKey(nodeID)))
-		sources, err := clearSourceRelationships(ctx, tr, orgID, nodeID)
-		if err != nil {
-			return err
-		}
-		targets, err := clearTargetRelationships(ctx, tr, orgID, nodeID)
-		if err != nil {
-			return err
-		}
-		if s.searchWork {
-			if err := scheduleDeletedFanout(ctx, tr, deletion, append(sources, targets...)); err != nil {
-				return err
-			}
-		}
-		for propName, value := range current.Props {
-			tr.Clear(fdb.Key(nodeByPropertyKey(orgID, current.NodeType, propName, encodePropertyValue(value), nodeID)))
-		}
-		if err := clearReferenceKeys(tr, orgID, nodeID); err != nil {
+		if err := s.clearNode(ctx, tr, current); err != nil {
 			return err
 		}
 		return writeStagedIntent(ctx, tr)
@@ -65,6 +40,42 @@ func (s *NodeStore) Delete(ctx context.Context, orgID, nodeID uuid.UUID) (err er
 	}
 	commitStagedIntent(ctx)
 	return nil
+}
+
+// clearNode clears the records, indexes, references, and relationships of
+// current inside tr. When search work is enabled, it also schedules the
+// retirement of the node's pages and access work for each node at the other
+// end of a cleared relationship.
+func (s *NodeStore) clearNode(ctx context.Context, tr fdb.Transaction, current *node.Node) error {
+	orgID, nodeID := current.OrgID, current.ID
+	var deletion searchWorkRecord
+	if s.searchWork {
+		var err error
+		deletion, err = scheduleSearchChange(ctx, tr, s.clock.Now(), orgID, nodeID, searchChangeDeletion)
+		if err != nil {
+			return err
+		}
+	}
+	tr.Clear(fdb.Key(nodeInstanceKey(orgID, current.NodeType, nodeID)))
+	tr.Clear(fdb.Key(nodeViewKey(orgID, current.NodeType, nodeID)))
+	tr.Clear(fdb.Key(nodeResolveKey(nodeID)))
+	sources, err := clearSourceRelationships(ctx, tr, orgID, nodeID)
+	if err != nil {
+		return err
+	}
+	targets, err := clearTargetRelationships(ctx, tr, orgID, nodeID)
+	if err != nil {
+		return err
+	}
+	if s.searchWork {
+		if err := scheduleDeletedFanout(ctx, tr, deletion, append(sources, targets...)); err != nil {
+			return err
+		}
+	}
+	for propName, value := range current.Props {
+		tr.Clear(fdb.Key(nodeByPropertyKey(orgID, current.NodeType, propName, encodePropertyValue(value), nodeID)))
+	}
+	return clearReferenceKeys(tr, orgID, nodeID)
 }
 
 // clearSourceRelationships clears every relationship from nodeID and returns

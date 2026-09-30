@@ -73,6 +73,11 @@ const (
 	// (ops_outbox, versionstamp) -> audit event JSON
 	keyOpsOutbox = "ops_outbox"
 
+	// Subtree delete jobs. The family is not org-scoped. A runner in any
+	// process lists every unfinished job of every organization.
+	// (node_delete_job, jobID) -> SubtreeDeleteJob JSON
+	keyNodeDeleteJob = "node_delete_job"
+
 	// The search keys store durable search work and search state. Work, age,
 	// and claim keys include a bucket number that searchBucket computes from
 	// (orgID, nodeID). A claim reads the age keys of one bucket at a time.

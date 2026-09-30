@@ -31,7 +31,7 @@ func (g *Graph) PingFoundationDB(ctx context.Context) error {
 	return nil
 }
 
-// Close stops the search workers, then releases the search adapter, the
+// Close stops the delete resume loop and the search workers, then releases the search adapter, the
 // audit runtime, and the Postgres pool, in that order.
 func (g *Graph) Close() {
 	if err := g.CloseContext(context.Background()); err != nil {
@@ -39,9 +39,11 @@ func (g *Graph) Close() {
 	}
 }
 
-// CloseContext stops every search worker loop and waits for it before it
-// closes the search adapter and the remaining dependencies.
+// CloseContext stops the subtree delete resume loop and every search worker
+// loop and waits for them before it closes the search adapter and the
+// remaining dependencies.
 func (g *Graph) CloseContext(ctx context.Context) error {
+	g.stopDeleteResumer()
 	if g.searchCancel != nil {
 		g.searchCancel()
 	}

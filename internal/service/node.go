@@ -163,38 +163,6 @@ func stampRelationshipChanges(changes node.RelationshipChanges, actorID uuid.UUI
 	return changes
 }
 
-// Delete removes a node and every FDB record keyed by its ID.
-func (s *NodeService) Delete(ctx context.Context, nodeID, actorID uuid.UUID) error {
-	ctx, span := telemetry.StartSpan(ctx, "service.node.delete",
-		trace.WithSpanKind(trace.SpanKindInternal),
-		trace.WithAttributes(attribute.String("node.id", nodeID.String())),
-	)
-	defer span.End()
-	ctx = telemetry.WithTraceLogger(ctx, slog.String("node_id", nodeID.String()))
-	log := telemetry.L(ctx)
-
-	existing, err := s.reader.Get(ctx, nodeID)
-	if err != nil {
-		return err
-	}
-	if existing == nil {
-		return domain.ErrNotFound
-	}
-
-	if err := audit.StageStateChange(ctx, audit.VerbNodeDelete, audit.Entity{
-		Type: "node", NodeType: existing.NodeType, ID: nodeID, Identifier: "", Name: existing.Name,
-	}); err != nil {
-		log.ErrorContext(ctx, "node.Delete: stage audit row", slog.String("err", err.Error()))
-		return fmt.Errorf("stage the audit row for deleting %s: %w", nodeID, err)
-	}
-	if err := s.deleter.DeleteNode(ctx, existing.OrgID, nodeID); err != nil {
-		log.Error("node.Delete", slog.String("node_id", nodeID.String()), slog.String("err", err.Error()))
-		return fmt.Errorf("delete node: %w", err)
-	}
-
-	return nil
-}
-
 // AddRelationship attaches a directed edge between two nodes. A child_of
 // edge returns [node.ErrReservedParentRelation]; parent_id sets the parent.
 func (s *NodeService) AddRelationship(ctx context.Context, rel *node.Relationship) error {

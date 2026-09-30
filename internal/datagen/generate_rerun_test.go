@@ -80,15 +80,18 @@ func runGeneratorPass(t *testing.T, handler http.Handler) Summary {
 }
 
 type rerunNode struct {
-	name     string
-	rawID    string
-	rendered string
+	name       string
+	rawID      string
+	rendered   string
+	project    string
+	identifier string
 }
 
 type rerunMCP struct {
 	nodes                map[string]map[string]rerunNode
 	invalidGetReferences []string
 	newProbeCreates      int
+	deletedRawIDs        map[string]bool
 }
 
 func (f *rerunMCP) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
@@ -105,6 +108,11 @@ func (f *rerunMCP) ServeHTTP(writer http.ResponseWriter, request *http.Request) 
 	case payload.Params.Name == "tack_delete_issue":
 		f.delete(payload.Params.Arguments.NodeID)
 		writeRerunResult(writer, "ok", false)
+	case payload.Params.Name == "tack_delete_project":
+		deleted := f.deleteProject(payload.Params.Arguments.NodeID)
+		writeRerunResult(writer, fmt.Sprintf("- Deleted nodes: %d", deleted), false)
+	case payload.Params.Name == "tack_delete_cycle":
+		writeRerunResult(writer, "- Deleted nodes: 1\n- "+movedCountText, false)
 	case strings.HasPrefix(payload.Params.Name, "tack_get_") &&
 		payload.Params.Arguments.NodeID != "":
 		f.get(writer, payload)
@@ -138,14 +146,19 @@ func (f *rerunMCP) create(writer http.ResponseWriter, payload rpcRequest) {
 			f.newProbeCreates++
 		}
 		rawID := deterministicUUID(toolName + ":" + key).String()
+		delete(f.deletedRawIDs, rawID)
 		rendered := rawID
 		if toolName == "tack_create_label" {
 			rendered = args.WorkspaceReference + "::" + args.Name
 		}
+		var identifier string
+		_ = json.Unmarshal(args.Properties["identifier"], &identifier)
 		stored = rerunNode{
-			name:     args.Name,
-			rawID:    rawID,
-			rendered: rendered,
+			name:       args.Name,
+			rawID:      rawID,
+			rendered:   rendered,
+			project:    args.ProjectReference,
+			identifier: identifier,
 		}
 		f.nodes[toolName][key] = stored
 	}
@@ -186,6 +199,10 @@ func (f *rerunMCP) list(writer http.ResponseWriter, toolName string, args ToolAr
 }
 
 func (f *rerunMCP) get(writer http.ResponseWriter, payload rpcRequest) {
+	if f.deletedRawIDs[payload.Params.Arguments.NodeID] {
+		writeRerunResult(writer, "not found", true)
+		return
+	}
 	if _, err := uuid.Parse(payload.Params.Arguments.NodeID); err != nil {
 		f.invalidGetReferences = append(
 			f.invalidGetReferences,

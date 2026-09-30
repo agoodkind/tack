@@ -17,7 +17,8 @@ var ErrReservedParentRelation = fmt.Errorf("the %s relation type is reserved for
 // LivesUnder reports whether NodeType metadata places child under parent.
 // The child's CanLiveUnder list or the parent's CanContain list declares
 // the pair. Search access compilation and relationship removal apply this
-// rule to the child_of edges of a node to find its hierarchy parent.
+// rule to the child_of edges of a node to find its hierarchy parent. The
+// subtree delete applies it to find a node's hierarchy children.
 func LivesUnder(child, parent *NodeType) bool {
 	if child == nil || parent == nil {
 		return false

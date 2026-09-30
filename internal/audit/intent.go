@@ -2,6 +2,7 @@ package audit
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 
@@ -66,4 +67,49 @@ func StageStateChange(ctx context.Context, verb Verb, entity Entity) error {
 	}
 	auditintent.Stage(ctx, payload)
 	return nil
+}
+
+// DescendantDeleteEvent returns the ledger event for one descendant that a
+// cascading delete removed. The event copies the actor, context, and extra
+// fields of the staged root event in template. It sets a new event ID, the
+// descendant as its entity, and the current time.
+func DescendantDeleteEvent(template json.RawMessage, entity Entity) (json.RawMessage, error) {
+	return descendantEvent(template, VerbNodeDelete, entity, nil)
+}
+
+// DescendantMoveEvent returns the node.update ledger event for one child
+// that a delete moved from its deleted parent to that parent's parent. The
+// event copies the actor, context, and extra fields of the staged root event
+// in template, and its delta records the parent_id change.
+func DescendantMoveEvent(template json.RawMessage, entity Entity, from, to uuid.UUID) (json.RawMessage, error) {
+	before, err := json.Marshal(map[string]string{"parent_id": from.String()})
+	if err != nil {
+		slog.Error("audit.descendant_event_failed", slog.String("err", err.Error()), slog.String("node_id", entity.ID.String()))
+		return nil, fmt.Errorf("encode the previous parent of moved node %s: %w", entity.ID, err)
+	}
+	after, err := json.Marshal(map[string]string{"parent_id": to.String()})
+	if err != nil {
+		slog.Error("audit.descendant_event_failed", slog.String("err", err.Error()), slog.String("node_id", entity.ID.String()))
+		return nil, fmt.Errorf("encode the new parent of moved node %s: %w", entity.ID, err)
+	}
+	return descendantEvent(template, VerbNodeUpdate, entity, &Delta{Before: before, After: after, Changed: []string{"parent_id"}})
+}
+
+func descendantEvent(template json.RawMessage, verb Verb, entity Entity, delta *Delta) (json.RawMessage, error) {
+	var event Event
+	if err := json.Unmarshal(template, &event); err != nil {
+		slog.Error("audit.descendant_event_failed", slog.String("err", err.Error()), slog.String("node_id", entity.ID.String()))
+		return nil, fmt.Errorf("decode the staged delete event for node %s: %w", entity.ID, err)
+	}
+	eventID, err := uuid.NewV7()
+	if err != nil {
+		slog.Error("audit.descendant_event_failed", slog.String("err", err.Error()), slog.String("node_id", entity.ID.String()))
+		return nil, fmt.Errorf("create the %s event id for node %s: %w", verb, entity.ID, err)
+	}
+	event.Verb = string(verb)
+	event.EventID = eventID
+	event.Entity = entity
+	event.Delta = delta
+	event.OccurredAt = clock.Now().UTC()
+	return MarshalEvent(event)
 }
