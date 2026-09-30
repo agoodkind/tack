@@ -30,6 +30,7 @@ type clusterReadyProfile struct {
 // independent member outages. Shard health does not verify model deployment.
 func requireClusterPredictors(t *testing.T, cluster *testenv.OpenSearchCluster, fixture queryFixture, modelID string) {
 	t.Helper()
+	capturedPartialDeployment := false
 	clusterEventually(t, "restore every pinned predictor before a member outage", func() error {
 		members := cluster.Members()
 		backends := cluster.Backends(t)
@@ -69,16 +70,19 @@ func requireClusterPredictors(t *testing.T, cluster *testenv.OpenSearchCluster, 
 			return clusterFailure("decode predictor profile", err)
 		}
 		if len(profile.Nodes) != len(ids) {
+			captureClusterPartialDeployment(t, cluster, fixture, modelID, &capturedPartialDeployment)
 			return fmt.Errorf("predictor profile has %d nodes, want IDs %v: %s", len(profile.Nodes), ids, raw)
 		}
 		for _, id := range ids {
 			placement, exists := profile.Nodes[id].Models[modelID]
 			if !exists || placement.State != "DEPLOYED" || placement.Predictor == "" {
+				captureClusterPartialDeployment(t, cluster, fixture, modelID, &capturedPartialDeployment)
 				return fmt.Errorf("predictor id=%s has placement %+v, exists=%t", id, placement, exists)
 			}
 			slices.Sort(placement.Workers)
 			slices.Sort(placement.Targets)
 			if !slices.Equal(placement.Workers, ids) || !slices.Equal(placement.Targets, ids) {
+				captureClusterPartialDeployment(t, cluster, fixture, modelID, &capturedPartialDeployment)
 				return fmt.Errorf("predictor id=%s workers=%v targets=%v, want actual IDs %v", id, placement.Workers, placement.Targets, ids)
 			}
 		}
