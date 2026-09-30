@@ -129,3 +129,31 @@ func clusterMLResponse(t *testing.T, fixture queryFixture, method string, reques
 	t.Logf("ML diagnostic at=%s request=%T status=%d response=%s", time.Now().UTC().Format(time.RFC3339Nano), request, response.StatusCode, raw)
 	return raw, response.StatusCode
 }
+
+// captureClusterTestFailure records initialized fixture evidence before
+// cleanup even when a failure precedes the member outage callbacks.
+func captureClusterTestFailure(t *testing.T, cluster *testenv.OpenSearchCluster, fixture queryFixture, modelID string) {
+	t.Helper()
+	if !t.Failed() {
+		return
+	}
+	t.Logf("cluster test failure capture at=%s model=%s members=%v", time.Now().UTC().Format(time.RFC3339Nano), modelID, cluster.Members())
+	captureSearchFailure(t, fixture, modelID, cluster.Members()...)
+	responses := cluster.PredictionResponses(t, modelID)
+	observedAt := time.Now()
+	failed := 0
+	for _, response := range responses {
+		if response.Status != http.StatusTooManyRequests {
+			continue
+		}
+		failed++
+		startedAt, err := time.Parse(time.RFC3339Nano, response.StartedAt)
+		if err != nil {
+			t.Errorf("cluster failed prediction backend=%s status=%d has invalid request timestamp %q: %v", response.Backend, response.Status, response.StartedAt, err)
+			continue
+		}
+		completedAt := startedAt.Add(time.Duration(response.Duration))
+		t.Logf("cluster failed prediction backend=%s status=%d origin_status=%d request_at=%s completed_at=%s observed_at=%s collection_delay=%s", response.Backend, response.Status, response.OriginStatus, startedAt.UTC().Format(time.RFC3339Nano), completedAt.UTC().Format(time.RFC3339Nano), observedAt.UTC().Format(time.RFC3339Nano), observedAt.Sub(completedAt))
+	}
+	t.Logf("cluster failure prediction snapshot records=%d status_429_records=%d; pending buffered records are unavailable in this snapshot", len(responses), failed)
+}

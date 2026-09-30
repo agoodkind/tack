@@ -20,7 +20,8 @@ import (
 // observer must report the proxy as its only endpoint.
 func TestSearchClusterProxyEndpoint(t *testing.T) {
 	cluster := startSearchTestCluster(t, 1)
-	fixture, _ := newClusterQueryFixture(t, cluster)
+	fixture, spec := newClusterQueryFixture(t, cluster)
+	defer captureClusterTestFailure(t, cluster, fixture, spec.Model.ID)
 	requireSearchable(t, fixture, []uuid.UUID{clusterNodeWriter(t, fixture)()})
 	proxy, err := url.Parse(cluster.Fixture.Endpoint)
 	clusterRequire(t, "parse proxy endpoint", err)
@@ -42,7 +43,8 @@ func TestSearchClusterProxyEndpoint(t *testing.T) {
 // the pending work and the node becomes searchable.
 func TestSearchClusterEngineOutage(t *testing.T) {
 	cluster := startSearchTestCluster(t, 1)
-	fixture, _ := newClusterQueryFixture(t, cluster)
+	fixture, spec := newClusterQueryFixture(t, cluster)
+	defer captureClusterTestFailure(t, cluster, fixture, spec.Model.ID)
 	write := clusterNodeWriter(t, fixture)
 	drainSearchWork(t, fixture.Worker, 500)
 	member := cluster.Members()[0]
@@ -78,7 +80,7 @@ func TestSearchClusterEngineOutage(t *testing.T) {
 // model without node IDs, raises the replica count to one after green
 // health, and stops each member in turn. After each stop a new node must
 // become searchable, and every earlier node must stay searchable. After each
-// restart, the whole cluster must report green health before the next stop.
+// restart, shard health and every predictor must recover before the next stop.
 func TestSearchClusterScaleOut(t *testing.T) {
 	cluster := startSearchTestCluster(t, 3)
 	cluster.AddMember(t)
@@ -94,6 +96,7 @@ func TestSearchClusterScaleOut(t *testing.T) {
 		t.Fatalf("proxy backends %v, want exactly the %d members", backends, len(members))
 	}
 	fixture, spec := newClusterQueryFixture(t, cluster)
+	defer captureClusterTestFailure(t, cluster, fixture, spec.Model.ID)
 	requireModelOnEveryMember(t, fixture, spec.Model.ID, len(members))
 	awaitGreen := func() {
 		clusterEventually(t, "wait for green index health", func() error {
@@ -116,6 +119,7 @@ func TestSearchClusterScaleOut(t *testing.T) {
 	t.Logf("replica change preserved %d pages with byte-identical semantic fields", len(before))
 	requireClusterDistribution(t, cluster, fixture)
 	written := []uuid.UUID{initial}
+	requireClusterPredictors(t, cluster, fixture, spec.Model.ID)
 	for _, member := range members {
 		stoppedAt := time.Now()
 		cluster.StopMember(t, member)
@@ -127,6 +131,7 @@ func TestSearchClusterScaleOut(t *testing.T) {
 		awaitClusterGreen(t, fixture)
 		logClusterRestartPlacement(t, cluster, fixture, spec.Model.ID, member)
 		diagnostics.Finish()
+		requireClusterPredictors(t, cluster, fixture, spec.Model.ID)
 	}
 }
 

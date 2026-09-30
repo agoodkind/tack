@@ -36,3 +36,25 @@ func (request clusterModelPredictRequest) GetRequest(method string) (*http.Reque
 	httpRequest.Header.Set("Content-Type", "application/json")
 	return httpRequest, nil
 }
+
+type clusterMLBreakerSettingsRequest struct{}
+
+func (clusterMLBreakerSettingsRequest) GetRequest(method string) (*http.Request, error) {
+	const threshold = "plugins.ml_commons.jvm_heap_memory_threshold"
+	query := url.Values{
+		"include_defaults": {"true"},
+		"flat_settings":    {"true"},
+		"filter_path":      {"defaults." + threshold + ",persistent." + threshold + ",transient." + threshold},
+	}
+	return http.NewRequestWithContext(context.Background(), method, "/_cluster/settings?"+query.Encode(), nil)
+}
+
+type clusterMLBreakerNodeSettingsRequest struct{}
+
+func (clusterMLBreakerNodeSettingsRequest) GetRequest(method string) (*http.Request, error) {
+	query := url.Values{
+		"flat_settings": {"true"},
+		"filter_path":   {"nodes.*.name,nodes.*.settings.plugins.ml_commons.jvm_heap_memory_threshold"},
+	}
+	return http.NewRequestWithContext(context.Background(), method, "/_nodes/settings?"+query.Encode(), nil)
+}

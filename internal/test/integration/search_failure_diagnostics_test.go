@@ -23,6 +23,8 @@ func captureSearchFailure(t *testing.T, fixture queryFixture, modelID string, co
 	// The typed statistics response omits cgroup fields required for this diagnosis.
 	requests := []opensearch.Request{
 		opensearchapi.NodesStatsReq{Metric: []string{"jvm", "breaker", "os", "process"}},
+		clusterMLBreakerSettingsRequest{},
+		clusterMLBreakerNodeSettingsRequest{},
 		clusterModelRecordRequest{modelID: modelID},
 		clusterModelProfileRequest{modelID: modelID},
 	}
