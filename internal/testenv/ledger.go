@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	_ "github.com/jackc/pgx/v5/stdlib" // registers the pgx database/sql driver goose migrates through
+	"github.com/moby/moby/client"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pressly/goose/v3"
 
@@ -43,12 +44,32 @@ var ledgerCommand = []string{
 	"--tserver_flags=ysql_num_shards_per_tserver=1,yb_num_shards_per_tserver=1",
 }
 
-// ledgerPlatform pins the ledger to the amd64 build. The arm64 build of the
-// pinned release corrupts itself under the chain-append concurrency test
-// (TACK-459), so an arm64 host runs the amd64 build under emulation; on an
-// amd64 host the pin changes nothing.
-func ledgerPlatform() *ocispec.Platform {
-	return &ocispec.Platform{Architecture: "amd64", OS: "linux", OSVersion: "", OSFeatures: nil, Variant: ""}
+type dockerArchitecture string
+
+const (
+	dockerARM64   dockerArchitecture = "arm64"
+	dockerAArch64 dockerArchitecture = "aarch64"
+	dockerAMD64   dockerArchitecture = "amd64"
+	dockerX86     dockerArchitecture = "x86_64"
+)
+
+// ledgerPlatform selects the image architecture from the Docker daemon.
+func ledgerPlatform(ctx context.Context, cli *client.Client) (*ocispec.Platform, error) {
+	information, err := cli.Info(ctx, client.InfoOptions{})
+	if err != nil {
+		slog.ErrorContext(ctx, "testenv.daemon.info_failed", slog.String("err", err.Error()))
+		return nil, fmt.Errorf("read Docker daemon architecture: %w", err)
+	}
+	platform := &ocispec.Platform{Architecture: "", OS: "linux", OSVersion: "", OSFeatures: nil, Variant: ""}
+	switch dockerArchitecture(information.Info.Architecture) {
+	case dockerARM64, dockerAArch64:
+		platform.Architecture, platform.Variant = "arm64", "v8"
+	case dockerAMD64, dockerX86:
+		platform.Architecture = "amd64"
+	default:
+		return nil, fmt.Errorf("unsupported Docker daemon architecture %q", information.Info.Architecture)
+	}
+	return platform, nil
 }
 
 // provisionLedger starts this process's ledger engine, migrates it, and
@@ -68,10 +89,14 @@ func provisionLedger(ctx context.Context) (string, error) {
 		return "", err
 	}
 	defer func() { _ = cli.Close() }()
+	platform, err := ledgerPlatform(ctx, cli)
+	if err != nil {
+		return "", err
+	}
 	started, err := startEngine(ctx, cli, engineSpec{
 		kind:     "yugabyte",
 		image:    image,
-		platform: ledgerPlatform(),
+		platform: platform,
 		cmd:      ledgerCommand,
 		env: []string{
 			"YSQL_USER=" + ledgerAdminUser,

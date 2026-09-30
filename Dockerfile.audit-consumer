@@ -12,8 +12,14 @@ FROM golang:1.27-bookworm AS builder
 ARG FDB_VERSION
 
 # The FDB C client is required by the CGO bindings at link time.
-RUN curl -fsSL \
-    https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-clients_${FDB_VERSION}-1_amd64.deb \
+RUN set -eux \
+    && case "$(dpkg --print-architecture)" in \
+         amd64) fdb_arch=amd64 ;; \
+         arm64) fdb_arch=aarch64 ;; \
+         *) echo "unsupported arch: $(dpkg --print-architecture)" >&2; exit 1 ;; \
+       esac \
+    && curl -fsSL \
+    https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-clients_${FDB_VERSION}-1_${fdb_arch}.deb \
     -o /tmp/fdb-clients.deb \
     && dpkg -i /tmp/fdb-clients.deb \
     && rm /tmp/fdb-clients.deb
@@ -42,9 +48,15 @@ RUN CGO_ENABLED=1 go build -tags fdb -trimpath \
 FROM debian:bookworm-slim AS runtime
 ARG FDB_VERSION
 
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
+RUN set -eux \
+    && apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
+    && case "$(dpkg --print-architecture)" in \
+         amd64) fdb_arch=amd64 ;; \
+         arm64) fdb_arch=aarch64 ;; \
+         *) echo "unsupported arch: $(dpkg --print-architecture)" >&2; exit 1 ;; \
+       esac \
     && curl -fsSL \
-       https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-clients_${FDB_VERSION}-1_amd64.deb \
+       https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-clients_${FDB_VERSION}-1_${fdb_arch}.deb \
        -o /tmp/fdb-clients.deb \
     && dpkg -i /tmp/fdb-clients.deb \
     && rm /tmp/fdb-clients.deb \

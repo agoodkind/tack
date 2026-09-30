@@ -94,7 +94,7 @@ func startEngine(ctx context.Context, cli *client.Client, spec engineSpec) (engi
 	}
 	address, err := containerAddress(ctx, cli, name)
 	if err != nil {
-		return engine{}, err
+		return engine{}, engineStartFailure(ctx, cli, name, err)
 	}
 	slog.InfoContext(ctx, "testenv.engine.started", slog.String("container", name), slog.String("image", spec.image))
 	return engine{name: name, address: address}, nil
