@@ -117,11 +117,16 @@ func TestSearchClusterScaleOut(t *testing.T) {
 	requireClusterDistribution(t, cluster, fixture)
 	written := []uuid.UUID{initial}
 	for _, member := range members {
+		stoppedAt := time.Now()
 		cluster.StopMember(t, member)
 		written = append(written, write())
-		requireSearchable(t, fixture, written)
+		diagnostics := clusterModelDiagnostics(t, cluster, fixture, spec.Model.ID, member, stoppedAt)
+		defer diagnostics.Finish()
+		requireSearchable(t, fixture, written, diagnostics)
 		cluster.StartMember(t, member)
 		awaitClusterGreen(t, fixture)
+		logClusterRestartPlacement(t, cluster, fixture, spec.Model.ID, member)
+		diagnostics.Finish()
 	}
 }
 

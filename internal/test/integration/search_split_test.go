@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/adapters/search"
 	searchdomain "goodkind.io/tack/internal/domain/search"
+	"goodkind.io/tack/internal/testenv"
 )
 
 // TestSearchSplitDuringChanges requires each split to finish creation with
@@ -111,6 +112,11 @@ func TestSearchSplitWithoutModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read split model: %v", err)
 	}
+	defer func() {
+		if t.Failed() {
+			captureSearchFailure(t, fixture, model.ID, testenv.OpenSearch(t).Container)
+		}
+	}()
 	undeployNativeModel(t, fixture.Adapter, fixture.Client, model.ID)
 	source := fixture.Index
 	for _, primaries := range []int{2, 4, 8} {
