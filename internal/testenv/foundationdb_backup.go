@@ -38,7 +38,7 @@ func BackupFoundationDB(t T) FoundationDBBackup {
 	}
 	command := []string{
 		"fdbbackup", "start", "-C", containerClusterFile,
-		"-d", "file://" + directory, "--wait",
+		"-d", "file://" + directory, "-w",
 	}
 	output, err := runFDBBackupCommand(ctx, cli, name, command)
 	if err != nil {
