@@ -21,6 +21,7 @@ import (
 type actualSearchServer struct {
 	command  *exec.Cmd
 	endpoint string
+	logPath  string
 	done     chan error
 }
 
@@ -89,7 +90,7 @@ func startActualSearchServer(t *testing.T, binary string, cfg *config.Config) *a
 		t.Fatalf("start actual server: %v", err)
 	}
 	t.Logf("actual server started pid=%d endpoint=http://127.0.0.1:%d", command.Process.Pid, port)
-	server := &actualSearchServer{command: command, endpoint: "http://127.0.0.1:" + strconv.Itoa(port), done: make(chan error, 1)}
+	server := &actualSearchServer{command: command, endpoint: "http://127.0.0.1:" + strconv.Itoa(port), logPath: logFile.Name(), done: make(chan error, 1)}
 	go func() { server.done <- command.Wait(); logFile.Close() }()
 	t.Cleanup(func() { server.stop(t) })
 	deadline := time.NewTimer(2 * time.Minute)
