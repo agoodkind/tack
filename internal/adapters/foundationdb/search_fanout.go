@@ -112,6 +112,7 @@ func clearDeletedSearchState(ctx context.Context, tr fdb.Transaction, work searc
 		tr.Clear(fdb.Key(searchClaimKey(string(class), bucket, work.OrgID, work.NodeID)))
 		tr.Clear(fdb.Key(searchCursorKey(string(class), work.OrgID, work.NodeID)))
 		tr.Clear(fdb.Key(searchErrorKey(string(class), work.OrgID, work.NodeID)))
+		tr.Clear(fdb.Key(searchAttemptKey(string(class), work.OrgID, work.NodeID)))
 	}
 	return nil
 }

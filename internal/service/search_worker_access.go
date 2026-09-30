@@ -70,7 +70,7 @@ func (w *SearchWorker) accessPages(ctx context.Context, work searchdomain.Work, 
 		return w.settle(ctx, work, "checkpoint search access documents", err)
 	}
 	if writeErr != nil {
-		return w.settle(ctx, work, "update search access documents", writeErr)
+		return w.settleEngine(ctx, work, "update search access documents", writeErr)
 	}
 	return w.yield(ctx, work)
 }

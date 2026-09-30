@@ -22,13 +22,17 @@ func searchVerifyOp(f *cli.Factory) clispec.Operation[searchVerifyInput] {
 		Lifetime: clispec.Permanent,
 		Audit:    audit.Spec{Verb: string(audit.VerbOpsSearchVerify), Reads: true},
 		Group:    searchGroup,
-		Short:    "Verify the configured native OpenSearch endpoint",
+		Short:    "Verify the configured native OpenSearch endpoint and list excluded nodes and stuck work",
 		New:      func() searchVerifyInput { return searchVerifyInput{InputMarker: clispec.InputMarker{}} },
-		Run: func(ctx context.Context, _ searchVerifyInput, _ clispec.ResultSink) error {
+		Run: func(ctx context.Context, _ searchVerifyInput, sink clispec.ResultSink) error {
 			if err := requireSearchProjections(ctx, f); err != nil {
 				return err
 			}
-			return runSearchVerify(ctx, f)
+			stuck, err := reportSearchWorkState(ctx, f, sink)
+			if err != nil {
+				return err
+			}
+			return joinVerifyFailures(ctx, stuck, runSearchVerify(ctx, f))
 		},
 	}
 }

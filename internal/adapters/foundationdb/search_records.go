@@ -80,7 +80,7 @@ type searchScanRecord struct {
 
 type searchRecordValue interface {
 	searchWorkRecord | searchClaimRecord | searchProgressRecord | searchAccessRecord | searchScanRecord | searchRolloutRecord |
-		searchRebuildRecord
+		searchRebuildRecord | searchExclusionRecord
 }
 
 // readSearchRecord decodes the JSON record at key. It reports false when the

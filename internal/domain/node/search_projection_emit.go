@@ -61,7 +61,9 @@ func emitSearchText(ctx context.Context, name string, properties map[string]json
 	}
 	for propertyName := range properties {
 		if _, exists := knownNames[propertyName]; !exists {
-			return "", ErrInvalidSearchProjection
+			wrapped := fmt.Errorf("emit projected search text: property %q has no search declaration: %w", propertyName, ErrInvalidSearchProjection)
+			telemetry.L(ctx).ErrorContext(ctx, "search.content.projection_failed", slog.String("err", wrapped.Error()), slog.String("property", propertyName))
+			return "", LoggedProjectionError{Cause: wrapped}
 		}
 	}
 	var text strings.Builder

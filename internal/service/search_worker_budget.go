@@ -11,6 +11,7 @@ import (
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
 	searchdomain "goodkind.io/tack/internal/domain/search"
+	"goodkind.io/tack/internal/searchaccess"
 	"goodkind.io/tack/internal/telemetry"
 )
 
@@ -76,25 +77,57 @@ func weightedSchedule(weights map[string]int) ([]searchdomain.WorkClass, error) 
 	return slices.Clip(schedule), nil
 }
 
-// settle ends a slice after err. A changed or obsolete claim yields without
-// recording a failure. Any other error records the failure and delays retry.
+// settle ends a slice after err. The failure counts toward the attempt limit
+// of the work. Engine operations settle through settleEngine instead.
 func (w *SearchWorker) settle(ctx context.Context, work searchdomain.Work, operation string, err error) error {
+	return w.fail(ctx, work, operation, err, true)
+}
+
+// settleEngine ends a slice after a failed OpenSearch operation. The failure
+// never counts toward the attempt limit.
+func (w *SearchWorker) settleEngine(ctx context.Context, work searchdomain.Work, operation string, err error) error {
+	return w.fail(ctx, work, operation, err, false)
+}
+
+// fail ends a slice after err. A changed or obsolete claim yields without
+// recording a failure. A node without exactly one hierarchy parent is
+// excluded from search, and the slice succeeds. Any other error records the
+// failure and delays retry.
+func (w *SearchWorker) fail(ctx context.Context, work searchdomain.Work, operation string, err error, counted bool) error {
 	if errors.Is(err, searchdomain.ErrWorkChanged) || errors.Is(err, searchdomain.ErrObsoleteWrite) {
 		telemetry.L(ctx).InfoContext(ctx, "search.worker.work_changed", slog.String("node_id", work.NodeID.String()),
 			slog.String("class", string(work.Class)), slog.Int64("generation", work.Generation), slog.String("operation", operation))
 		return w.yield(ctx, work)
 	}
 	wrapped := fmt.Errorf("%s for node %s: %w", operation, work.NodeID, err)
+	if work.Excludable() && errors.Is(err, searchaccess.ErrNoHierarchyParent) && ctx.Err() == nil {
+		return w.exclude(ctx, work, wrapped)
+	}
 	telemetry.L(ctx).ErrorContext(ctx, "search.worker.slice_failed", slog.String("err", wrapped.Error()),
 		slog.String("node_id", work.NodeID.String()), slog.String("class", string(work.Class)),
 		slog.Int64("generation", work.Generation), slog.String("index", work.Target))
 	if ctx.Err() != nil {
 		return loggedWorkerError{err: wrapped}
 	}
-	if releaseErr := w.ports.Store.Release(ctx, work, wrapped.Error()); releaseErr != nil && !errors.Is(releaseErr, searchdomain.ErrWorkChanged) {
+	failure := searchdomain.Failure{Message: wrapped.Error(), Counted: counted}
+	if releaseErr := w.ports.Store.Release(ctx, work, failure); releaseErr != nil && !errors.Is(releaseErr, searchdomain.ErrWorkChanged) {
 		telemetry.L(ctx).ErrorContext(ctx, "search.worker.release_failed", slog.String("err", releaseErr.Error()),
 			slog.String("node_id", work.NodeID.String()), slog.String("class", string(work.Class)))
 	}
+	return loggedWorkerError{err: wrapped}
+}
+
+// exclude excludes the node of work from search with cause as the reason.
+// The store logs the exclusion. A changed claim ends the slice without an
+// exclusion.
+func (w *SearchWorker) exclude(ctx context.Context, work searchdomain.Work, cause error) error {
+	err := w.ports.Store.Exclude(ctx, work, cause.Error())
+	if err == nil || errors.Is(err, searchdomain.ErrWorkChanged) {
+		return nil
+	}
+	wrapped := fmt.Errorf("exclude node %s from search after %s: %w", work.NodeID, cause.Error(), err)
+	telemetry.L(ctx).ErrorContext(ctx, "search.worker.exclude_failed", slog.String("err", wrapped.Error()),
+		slog.String("node_id", work.NodeID.String()), slog.String("class", string(work.Class)))
 	return loggedWorkerError{err: wrapped}
 }
 

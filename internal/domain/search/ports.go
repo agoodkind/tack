@@ -23,11 +23,15 @@ type AccessReader interface {
 	Dependents(context.Context, Work, int) (node.IDPage, error)
 }
 
-// WorkLeases claims, yields, and releases durable work.
+// WorkLeases claims, yields, and releases durable work. Release records a
+// failure and delays the next claim. It excludes the node instead when the
+// counted failures of the work equal the attempt limit. Exclude retires the
+// node's pages, records the exclusion, and clears the work.
 type WorkLeases interface {
 	Claim(context.Context, WorkClass, string, time.Duration) (Work, error)
 	Yield(context.Context, Work) error
-	Release(context.Context, Work, string) error
+	Release(context.Context, Work, Failure) error
+	Exclude(context.Context, Work, string) error
 }
 
 // ContentCheckpoints registers and checkpoints content pages.

@@ -58,8 +58,9 @@ and measurements. QA must pass before production.
   physical index and alias. Require new semantic fields only for affected pages,
   byte-identical semantic fields for unaffected pages, and retirement of obsolete
   affected-page document IDs.
-- Omit or corrupt a required declaration. Tack must report the node and property.
-  Repairing metadata must permit retry without an application change.
+- Omit or corrupt a required declaration. Search must exclude the node, and
+  `ops search verify` must report the node and property. A metadata repair must
+  index the node again without an application change.
 - Add many opaque properties. OpenSearch must retain the fixed mapping fields.
 
 ## Semantic relevance
@@ -140,6 +141,16 @@ A lexical-only control must miss at least one non-overlapping pair that the comb
   moves, then restart. Durable work must converge without another edit or rebuild.
 - Interrupt before and after page checkpoints, refresh, retirement, and partial bulk
   failure. Resume from the saved cursor. Failed pages must remain pending.
+- Store a node without a hierarchy parent, then run a full replacement. The
+  replacement must finish. Search must exclude the node, and `ops search verify`
+  must list it with its reason and still pass. A new parent edge must index the
+  node again and remove its exclusion without an application change. A failed
+  OpenSearch operation must never exclude a node or count toward the attempt limit.
+- Fail a rebuild item on a FoundationDB read on every retry. The item must keep
+  retrying. Once its failures cross the attempt limit, `ops search verify` must
+  fail and list the item kind, its ID, the attempt count, and the last error. The
+  worker must log the same record once. The count must clear when the item
+  completes. Cleanup, deleted-node, rescan, and rollout items follow the same rule.
 - Pause an old writer, finish a newer edit or deletion, then resume the old request.
   Old text must not reappear.
 - Give one node enough pages to exceed a work slice. Each claim must stop admitting

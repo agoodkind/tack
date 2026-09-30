@@ -42,7 +42,7 @@ func (w *SearchWorker) contentSlice(ctx context.Context, work searchdomain.Work,
 		cancel()
 		budget.record(1, written)
 		if err != nil {
-			return w.settle(ctx, work, "write search page", err)
+			return w.settleEngine(ctx, work, "write search page", err)
 		}
 		if err := w.ports.Store.CompletePage(ctx, intent, page.NextCursor, page.Done); err != nil {
 			return w.settle(ctx, work, "checkpoint search page", err)
@@ -61,7 +61,7 @@ func (w *SearchWorker) contentSlice(ctx context.Context, work searchdomain.Work,
 	err := w.ports.Writer.Refresh(operationContext, work.Target)
 	cancel()
 	if err != nil {
-		return w.settle(ctx, work, "refresh search index", err)
+		return w.settleEngine(ctx, work, "refresh search index", err)
 	}
 	if err := w.ports.Store.CompleteRefresh(ctx, work); err != nil {
 		return w.settle(ctx, work, "complete refreshed search work", err)

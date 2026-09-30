@@ -148,7 +148,8 @@ func TestSearchDelayedWriter(t *testing.T) {
 	if err := stores.Nodes.Delete(t.Context(), fixture.OrgID, fixture.NodeID); err != nil {
 		t.Fatalf("delete node: %v", err)
 	}
-	if err := workStore.Release(t.Context(), oldWork, "request delayed"); err != nil && !errors.Is(err, searchdomain.ErrWorkChanged) {
+	delayed := searchdomain.Failure{Message: "request delayed", Counted: false}
+	if err := workStore.Release(t.Context(), oldWork, delayed); err != nil && !errors.Is(err, searchdomain.ErrWorkChanged) {
 		t.Fatalf("release delayed work: %v", err)
 	}
 	deletion, err := workStore.Claim(t.Context(), searchdomain.WorkClassCleanup, "new-worker", time.Minute)
