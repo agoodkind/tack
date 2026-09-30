@@ -27,7 +27,6 @@ def prepare() -> Prepared:
     environment.pop("DOCKER_CONTEXT", None)
     environment["TACK_TEST_ROOT"] = str(state.ROOT)
     environment["TACK_SEARCH_INTEGRATION"] = "1"
-    environment["TACK_SEARCH_CLUSTER"] = ""
     configuration = ComposeConfiguration.model_validate_json(
         capture(
             "compose-configuration",
