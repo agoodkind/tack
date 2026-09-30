@@ -42,6 +42,7 @@ Modify a Tack or Configs file only when a reproduced failure requires a correcti
 - `internal/test/integration/search_datagen_test.go`
 - `internal/test/integration/search_cluster_test.go`
 - `internal/test/integration/search_os_process_test.go`
+- `internal/test/integration/search_os_process_throughput_test.go`
 
 This task has these prerequisites and outputs:
 
@@ -139,6 +140,7 @@ unchanged controls; require zero errors and a gain above control variation.
 
 ```sh
 TACK_TEST_ROOT="$PWD" docker compose -f docker-compose.test.yml --profile runner run --rm tests test -count=1 -timeout 30m -run '^TestSearchCursorActualOSProcesses$' ./internal/test/integration
+TACK_TEST_ROOT="$PWD" docker compose -f docker-compose.test.yml --profile runner run --rm tests test -count=1 -timeout 45m -run '^TestSearchActualOSProcessThroughput$' ./internal/test/integration
 ```
 
 Do not overlap throughput measurements with another engine fixture, build, or

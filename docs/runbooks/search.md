@@ -38,6 +38,7 @@ does not establish that a particular image build passed.
    | Test expression | Required evidence |
    | --- | --- |
    | `^TestSearchCursorActualOSProcesses$` | Two distinct server processes alternate cursor pages, resume after a process replacement, and reject revoked membership. |
+   | `^TestSearchActualOSProcessThroughput$` | Fixed clients complete indexed mutations and search sessions with zero errors; the measured two-process gain exceeds unchanged-control variation. |
    | `^TestSearchCluster` | Real proxy distribution, unchanged semantic fields after replica changes, engine recovery, and strict public search availability during each independent member stop. |
 
 2. Run the selected expression with the environment from the preparation step.
