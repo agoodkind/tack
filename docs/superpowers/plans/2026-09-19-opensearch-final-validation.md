@@ -110,7 +110,7 @@ to read no page text, and large nodes to yield to live work.
 - [ ] **Step 5: Validate ranking, access filtering, authorization, and continuation.**
 
 ```sh
-TACK_TEST_ROOT="$PWD" docker compose -f docker-compose.test.yml --profile runner run --rm tests test -count=1 -timeout 30m -run '^TestSearch(SemanticRelevance|DistinctNodes|PermissionFilter|Auth|Authorization|Cursor|EmptyQuery)' ./internal/test/integration
+TACK_TEST_ROOT="$PWD" docker compose -f docker-compose.test.yml --profile runner run --rm tests test -count=1 -timeout 30m -run '^TestSearch(SemanticPairs|ContinuationTraversesDuplicateHeavyCorpus|FiltersForbiddenPagesBeforeRanking|FinalCheckRejectsCorruptIndexedAccess|RevokedAccessRejectsLaterResultsAndReplay|AuthenticatedResults|UnavailableWhileDisabled|Cursor|EmptyQuery)' ./internal/test/integration
 ```
 
 Require one query prediction, every accepted relevance target within its bound,
@@ -179,10 +179,11 @@ Require every search test to pass without a skip. Require `make build` to pass e
 - [ ] **Step 10: Repeat the concurrency and replacement tail.**
 
 ```sh
-TACK_TEST_ROOT="$PWD" docker compose -f docker-compose.test.yml --profile runner run --rm tests test -count=3 -timeout 45m -run '^TestSearch(DistinctNodes|PermissionFilter|Access|Cursor|DelayedWriter|RuntimeUnavailable|Rebuild|Split|Restore)' ./internal/test/integration
+TACK_TEST_ROOT="$PWD" docker compose -f docker-compose.test.yml --profile runner run --rm tests test -count=3 -timeout 45m -run '^(TestSearchAccessDependentsSurviveEdit|TestSearchAccessUpdatesOlderActiveRevision|TestSearchAccessVersionWithoutRebuild|TestSearchAccessMembershipQueryOnly|TestSearchAccessResourceRefresh|TestSearchAccessRolloutRecovery|TestSearchAccessOnlyUpdateWithoutModel|TestSearchCursorAcrossProcesses|TestSearchCursorExactSortValues|TestSearchCursorOnePredictionPerSession|TestSearchCursorReplayAndConcurrency|TestSearchRebuildExcludesOrphanNodes|TestSearchAccessChangeKeepsPendingContent|TestSearchCursorActualOSProcesses|TestSearchFiltersForbiddenPagesBeforeRanking|TestSearchFinalCheckRejectsCorruptIndexedAccess|TestSearchRevokedAccessRejectsLaterResultsAndReplay|TestSearchContinuationTraversesDuplicateHeavyCorpus|TestSearchRebuildStepFitsLease|TestSearchRebuildFailsAfterPauseLimit|TestSearchRebuildDuringChanges|TestSearchDelayedWriter|TestSearchRestoreRejectsCursors|TestSearchRuntimeIndexesThroughGraph|TestSearchSplitDuringChanges|TestSearchSplitWithoutModel)$' ./internal/test/integration
 make test-env-down
 ```
 
+Require all 26 selected tests to complete three times, for 78 executions.
 Require identical result sets, no duplicate node, no leaked forbidden node, no lost committed work, and no test service left running.
 
 - [ ] **Step 11: Verify Meilisearch removal and branch integrity.**
