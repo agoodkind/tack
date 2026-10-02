@@ -82,11 +82,11 @@ func rawSearchBody(t *testing.T, harness *MCPHarness, arguments map[string]any) 
 }
 
 // TestSearchResponseOmitsForeignOrganization stores caller nodes and stronger
-// matching nodes in another organization. The other organization's caller
-// finds its own nodes. Every response body the caller receives over the full
-// traversal must contain no foreign node ID, no foreign organization or entry
-// ID, no foreign text, no count key, and only the page lines tack_search
-// renders.
+// matching nodes in another organization. Every response body the caller
+// receives over the full traversal must contain no foreign node ID, no
+// foreign organization or entry ID, no foreign text, no count key, and only
+// the page lines tack_search renders. The other organization's caller then
+// finds its own nodes.
 func TestSearchResponseOmitsForeignOrganization(t *testing.T) {
 	fixture := newQueryFixture(t, defaultQueryOptions())
 	caller, foreign := fixture.Workspaces[0], otherOrganization(t, fixture)
@@ -104,18 +104,29 @@ func TestSearchResponseOmitsForeignOrganization(t *testing.T) {
 			fmt.Sprintf("Zephyrine harbor lantern %d", number), strong, "excluded"))
 	}
 	drainSearchWork(t, fixture.Worker, 2000)
-	foreignCaller := actorHarness(fixture, foreign, 0)
-	requireCorpusOnce(t, callEverySearchPage(t, responseIsolationQuery, foreignCaller).IDs, foreignIDs, foreignEntry)
 
 	forbidden := []string{foreignMarker, foreign.OrgID.String(), foreignEntry.String()}
 	for _, id := range foreignIDs {
 		forbidden = append(forbidden, id.String())
 	}
 	forbidden = append(forbidden, searchResponseCountKeys...)
+	requireCorpusOnce(t, callerTraversalWithoutForeign(t, fixture.Harness, forbidden), own, callerEntry)
+
+	// The foreign caller runs after the caller traversal: it proves the
+	// foreign nodes are indexed, and the body checks above run first.
+	foreignCaller := actorHarness(fixture, foreign, 0)
+	requireCorpusOnce(t, callEverySearchPage(t, responseIsolationQuery, foreignCaller).IDs, foreignIDs, foreignEntry)
+}
+
+// callerTraversalWithoutForeign follows every page of the caller's search and
+// requires each whole response body to contain none of forbidden and each
+// tool text line to match the page grammar. It returns the result IDs.
+func callerTraversalWithoutForeign(t *testing.T, harness *MCPHarness, forbidden []string) []uuid.UUID {
+	t.Helper()
 	var seen []uuid.UUID
 	cursor := ""
 	for pageNumber := range 100 {
-		whole, text := rawSearchBody(t, fixture.Harness, searchArguments(fixture.Harness, responseIsolationQuery, cursor))
+		whole, text := rawSearchBody(t, harness, searchArguments(harness, responseIsolationQuery, cursor))
 		lowered := strings.ToLower(string(whole))
 		for _, value := range forbidden {
 			if strings.Contains(lowered, strings.ToLower(value)) {
@@ -133,10 +144,10 @@ func TestSearchResponseOmitsForeignOrganization(t *testing.T) {
 		}
 		seen = append(seen, page.IDs...)
 		if page.Complete {
-			requireCorpusOnce(t, seen, own, callerEntry)
-			return
+			return seen
 		}
 		cursor = page.Cursor
 	}
 	t.Fatal("the caller's search did not complete within 100 pages")
+	return nil
 }
