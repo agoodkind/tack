@@ -22,7 +22,7 @@ import (
 func awaitDBPlanOutboxDrain(waitCtx context.Context, reader *audit.Reader, planID uuid.UUID, wait time.Duration) error {
 	eventIDs, err := reader.OperatorOutboxEventIDs(waitCtx)
 	if err != nil {
-		return dbPlanOutboxReadFailed(waitCtx, errors.New("public.ops_outbox was not read within "+wait.String()),
+		return dbPlanWaitReadFailed(waitCtx, errors.New("public.ops_outbox was not read within "+wait.String()),
 			"read the event IDs in public.ops_outbox to close plan "+planID.String(), err)
 	}
 	ticker := time.NewTicker(dbPlanProjectionPoll)
@@ -36,7 +36,7 @@ func awaitDBPlanOutboxDrain(waitCtx context.Context, reader *audit.Reader, planI
 		}
 		waiting, readErr := reader.OperatorOutboxWaiting(waitCtx, eventIDs)
 		if readErr != nil {
-			return dbPlanOutboxReadFailed(waitCtx, dbPlanOutboxTimeout(wait, remaining, len(eventIDs)),
+			return dbPlanWaitReadFailed(waitCtx, dbPlanOutboxTimeout(wait, remaining, len(eventIDs)),
 				"count the waiting events in public.ops_outbox to close plan "+planID.String(), readErr)
 		}
 		remaining = waiting
@@ -44,15 +44,6 @@ func awaitDBPlanOutboxDrain(waitCtx context.Context, reader *audit.Reader, planI
 	telemetry.L(waitCtx).InfoContext(waitCtx, "db.plan.outbox_drained",
 		slog.String("plan_id", planID.String()), slog.Int("events", len(eventIDs)))
 	return nil
-}
-
-// dbPlanOutboxReadFailed returns timeout when waitCtx ended during the failed
-// read, and otherwise a *dbPlanReadError for action with cause.
-func dbPlanOutboxReadFailed(waitCtx context.Context, timeout error, action string, cause error) error {
-	if waitCtx.Err() != nil {
-		return timeout
-	}
-	return &dbPlanReadError{action: action, err: cause}
 }
 
 // dbPlanOutboxTimeout returns the error of an outbox wait that passed its

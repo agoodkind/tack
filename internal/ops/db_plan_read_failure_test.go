@@ -19,24 +19,31 @@ import (
 )
 
 const (
-	// planReadFailureWait is the close wait of the read failure test. A close
+	// planReadFailureWait is the close wait of the read failure tests. A close
 	// that polls past a failed read ends at this bound.
-	planReadFailureWait = "10s"
+	planReadFailureWait = 10 * time.Second
+	// planReadFailureLimit is a third of planReadFailureWait. A close that
+	// stops at a failed ledger read returns within it.
+	planReadFailureLimit = planReadFailureWait / 3
+	// planStatementFailureLimit is a third of dbPlanOpenRowWait. A planned
+	// statement that stops at a failed plan row read returns within it.
+	planStatementFailureLimit = dbPlanOpenRowWait / 3
 	// planSessionPoll is how often the test reads pg_stat_activity. It is
-	// shorter than dbPlanProjectionPoll, the interval between outbox reads.
+	// shorter than dbPlanProjectionPoll, the interval between ledger reads.
 	planSessionPoll = 20 * time.Millisecond
-	// outboxEventIDReadQuery counts the sessions of login $1 with the event ID
-	// read of awaitDBPlanOutboxDrain as the latest statement.
-	outboxEventIDReadQuery = `SELECT count(*) FROM pg_stat_activity
- WHERE usename = $1 AND query = 'SELECT event_id FROM public.ops_outbox'`
+	// readerQueryCount counts the sessions of login $1 with a latest
+	// statement that matches the LIKE pattern $2.
+	readerQueryCount = `SELECT count(*) FROM pg_stat_activity WHERE usename = $1 AND query LIKE $2`
+	// outboxEventIDRead matches the event ID read of awaitDBPlanOutboxDrain.
+	outboxEventIDRead = "SELECT event_id FROM public.ops_outbox"
 )
 
 // TestDBPlanCloseStopsAtALedgerReadFailure opens a plan with no relay
 // running. The open row stays in the operator outbox. Plan close waits for
 // that row through the production ledger reader on the test ledger, and the
 // test closes the reader pool after the first outbox read. Close returns the
-// read failure at the next outbox read. It writes no close row and sends no
-// mail after the open mail.
+// read failure at the next outbox read, within planReadFailureLimit of the
+// reader close. It writes no close row and sends no mail after the open mail.
 func TestDBPlanCloseStopsAtALedgerReadFailure(t *testing.T) {
 	ledgerDSN := testenv.Ledger(t)
 	mail := mailpitFor(t)
@@ -59,12 +66,14 @@ func TestDBPlanCloseStopsAtALedgerReadFailure(t *testing.T) {
 	closed := make(chan error, 1)
 	go func() {
 		var sink bytes.Buffer
-		input := dbPlanCloseInput{PlanID: opened.PlanID, Postcheck: "postcheck n", Wait: planReadFailureWait}
+		input := dbPlanCloseInput{PlanID: opened.PlanID, Postcheck: "postcheck n", Wait: planReadFailureWait.String()}
 		closed <- runDBPlanClose(t.Context(), deps, input, &bufferSink{buf: &sink}, true)
 	}()
-	waitForOutboxEventIDRead(t, pool, pipeline.readerDSN)
+	waitForReaderQuery(t, pool, pipeline.readerDSN, outboxEventIDRead)
 	reader.Close()
+	readerClosed := clock.Now()
 	err = <-closed
+	requireReturnedWithin(t, "plan close", readerClosed, planReadFailureLimit)
 	var readErr *dbPlanReadError
 	if !errors.As(err, &readErr) {
 		t.Fatalf("plan close = %v, want the failed outbox read", err)
@@ -78,9 +87,9 @@ func TestDBPlanCloseStopsAtALedgerReadFailure(t *testing.T) {
 // TestDBPlanStatementStopsAtALedgerReadFailure opens a plan that lists an
 // insert into a marker table, then runs that statement with --plan-id while
 // the plan rows are read through a production plan pool on the test ledger
-// that the test has closed. The command returns the read failure. It writes
-// no refused row and no pending row, sends no mail after the open mail, and
-// inserts no marker row.
+// that the test has closed. The command returns the read failure within
+// planStatementFailureLimit. It writes no refused row and no pending row,
+// sends no mail after the open mail, and inserts no marker row.
 func TestDBPlanStatementStopsAtALedgerReadFailure(t *testing.T) {
 	ledgerDSN := testenv.Ledger(t)
 	mail := mailpitFor(t)
@@ -108,7 +117,9 @@ func TestDBPlanStatementStopsAtALedgerReadFailure(t *testing.T) {
 	closedPool.Close()
 	deps.planRowsPool = closedPool
 
+	started := clock.Now()
 	_, err = runPlanned(t, deps, opened.PlanID, planned, reason)
+	requireReturnedWithin(t, "planned statement", started, planStatementFailureLimit)
 	var readErr *dbPlanReadError
 	if !errors.As(err, &readErr) {
 		t.Fatalf("planned statement = %v, want the failed plan row read", err)
@@ -123,10 +134,10 @@ func TestDBPlanStatementStopsAtALedgerReadFailure(t *testing.T) {
 	}
 }
 
-// waitForOutboxEventIDRead polls pg_stat_activity through pool until a
-// session of the login in readerDSN has sent the event ID read of
-// public.ops_outbox.
-func waitForOutboxEventIDRead(t *testing.T, pool *pgxpool.Pool, readerDSN string) {
+// waitForReaderQuery polls pg_stat_activity through pool until a session of
+// the login in readerDSN has a latest statement that matches the LIKE
+// pattern.
+func waitForReaderQuery(t *testing.T, pool *pgxpool.Pool, readerDSN, pattern string) {
 	t.Helper()
 	config, err := pgx.ParseConfig(readerDSN)
 	if err != nil {
@@ -135,15 +146,24 @@ func waitForOutboxEventIDRead(t *testing.T, pool *pgxpool.Pool, readerDSN string
 	deadline := clock.Now().Add(planPipelineDeadline)
 	for {
 		var sessions int
-		if err := pool.QueryRow(t.Context(), outboxEventIDReadQuery, config.User).Scan(&sessions); err != nil {
+		if err := pool.QueryRow(t.Context(), readerQueryCount, config.User, pattern).Scan(&sessions); err != nil {
 			t.Fatalf("read pg_stat_activity: %v", err)
 		}
 		if sessions > 0 {
 			return
 		}
 		if clock.Now().After(deadline) {
-			t.Fatalf("login %s sent no event ID read of public.ops_outbox within %s", config.User, planPipelineDeadline)
+			t.Fatalf("login %s sent no statement like %q within %s", config.User, pattern, planPipelineDeadline)
 		}
 		time.Sleep(planSessionPoll)
+	}
+}
+
+// requireReturnedWithin fails the test when more than limit has passed since
+// start, the moment the ledger read began to fail.
+func requireReturnedWithin(t *testing.T, command string, start time.Time, limit time.Duration) {
+	t.Helper()
+	if elapsed := clock.Since(start); elapsed > limit {
+		t.Fatalf("%s returned %s after the ledger read began to fail, want within %s", command, elapsed, limit)
 	}
 }

@@ -9,8 +9,9 @@ import (
 	"github.com/google/uuid"
 )
 
-// dbPlanReadError is a failed read of the operator outbox or of the plan rows
-// while a plan command waits or decides. The command stops at the first one:
+// dbPlanReadError is a failed read of the operator outbox, of the consumer
+// offsets, or of the plan rows while a plan command waits or decides. The
+// command stops at the first one:
 // it is not a refusal, it writes no refused row, and it sends no refusal or
 // incomplete-summary mail. The function that returns it does not log it.
 type dbPlanReadError struct {
@@ -32,6 +33,15 @@ func (e *dbPlanReadError) Unwrap() error {
 func isDBPlanReadError(err error) bool {
 	var readErr *dbPlanReadError
 	return errors.As(err, &readErr)
+}
+
+// dbPlanWaitReadFailed returns timeout when waitCtx ended during the failed
+// read, and otherwise a *dbPlanReadError for action with cause.
+func dbPlanWaitReadFailed(waitCtx context.Context, timeout error, action string, cause error) error {
+	if waitCtx.Err() != nil {
+		return timeout
+	}
+	return &dbPlanReadError{action: action, err: cause}
 }
 
 // dbPlanReadFailed logs err, a failed read under planID, and returns it

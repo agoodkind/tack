@@ -14,8 +14,13 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
-// dbPlanRefusedCode is the error code of a refused plan row.
-const dbPlanRefusedCode = "plan_refused"
+const (
+	// dbPlanRefusedCode is the error code of a refused plan row.
+	dbPlanRefusedCode = "plan_refused"
+	// dbPlanUnverifiedRefusal starts the refusal of a statement under a plan
+	// with a row that does not decode. The decode error follows it.
+	dbPlanUnverifiedRefusal = "the stored plan cannot be verified: "
+)
 
 // parseDBPlanID parses the --plan-id value. An empty value returns the nil
 // UUID, which selects the one-mail-per-statement path.
@@ -70,7 +75,8 @@ func mailPlannedStatementFailure(
 // authorizePlannedStatement reads the plan rows, waiting up to
 // dbPlanOpenRowWait for the open row, and returns nil when plan planID
 // permits principal to run statement. A failed read of the plan rows returns
-// that error, logged here, with no row and no mail. A refusal writes a
+// that error, logged here, with no row and no mail. A plan row that does not
+// decode is a refusal: the stored plan cannot be verified. A refusal writes a
 // refused break-glass row with the plan ID, then mails the refusal to the
 // alarm address, and returns an error. The caller runs the statement only on
 // nil. A failed row write or refusal mail is part of the returned error.
@@ -85,10 +91,12 @@ func authorizePlannedStatement(
 	if isDBPlanReadError(err) {
 		return dbPlanReadFailed(ctx, "ops db sql", planID, err)
 	}
+	var refusal string
 	if err != nil {
-		return err
+		refusal = dbPlanUnverifiedRefusal + err.Error()
+	} else {
+		refusal = state.refusal(principal, statement, clock.Now().UTC())
 	}
-	refusal := state.refusal(principal, statement, clock.Now().UTC())
 	if refusal == "" {
 		return nil
 	}

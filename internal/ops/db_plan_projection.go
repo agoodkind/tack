@@ -81,8 +81,8 @@ func parseDBPlanWait(ctx context.Context, text string) (time.Duration, error) {
 // dbPlanProjectionPoll until the consumer group has a committed offset at or
 // past each nonzero mark. It returns an error when wait passes first. Every
 // record below a committed offset is in audit.events or audit.events_dlq. A
-// failed open of the ledger reader or a failed outbox read returns a
-// *dbPlanReadError at once.
+// failed open of the ledger reader, a failed outbox read, or a failed consumer
+// offset read returns a *dbPlanReadError at once, without a retry.
 func awaitDBPlanProjection(ctx context.Context, deps dbSQLDeps, planID uuid.UUID, wait time.Duration) error {
 	reader, release, err := dbPlanLedgerReader(ctx, deps, planID)
 	if err != nil {
@@ -103,22 +103,22 @@ func awaitDBPlanProjection(ctx context.Context, deps dbSQLDeps, planID uuid.UUID
 	}
 	ticker := time.NewTicker(dbPlanProjectionPoll)
 	defer ticker.Stop()
-	behind, lastRead := slices.Sorted(maps.Keys(marks)), "none"
+	behind := slices.Sorted(maps.Keys(marks))
 	for {
 		offsets, readErr := reader.ConsumerOffsets(waitCtx)
-		if readErr == nil {
-			behind = dbPlanPartitionsBehind(group, topic, offsets, marks)
-		} else {
-			lastRead = readErr.Error()
+		if readErr != nil {
+			return dbPlanWaitReadFailed(waitCtx, dbPlanProjectionTimeout(group, topic, wait, behind),
+				"read audit.consumer_offsets to close plan "+planID.String(), readErr)
 		}
-		if readErr == nil && len(behind) == 0 {
+		behind = dbPlanPartitionsBehind(group, topic, offsets, marks)
+		if len(behind) == 0 {
 			telemetry.L(ctx).InfoContext(ctx, "db.plan.projection_passed",
 				slog.String("plan_id", planID.String()), slog.String("group", group), slog.String("topic", topic))
 			return nil
 		}
 		select {
 		case <-waitCtx.Done():
-			return dbPlanProjectionTimeout(group, topic, wait, behind, lastRead)
+			return dbPlanProjectionTimeout(group, topic, wait, behind)
 		case <-ticker.C:
 		}
 	}
@@ -143,14 +143,13 @@ func dbPlanPartitionsBehind(group, topic string, offsets []audit.ConsumerOffset,
 }
 
 // dbPlanProjectionTimeout returns the error of a wait that passed its bound.
-func dbPlanProjectionTimeout(group, topic string, wait time.Duration, behind []int32, lastRead string) error {
+func dbPlanProjectionTimeout(group, topic string, wait time.Duration, behind []int32) error {
 	partitions := make([]string, 0, len(behind))
 	for _, partition := range behind {
 		partitions = append(partitions, strconv.Itoa(int(partition)))
 	}
 	return errors.New("consumer group " + group + " did not commit past the high-water marks of " + topic +
-		" within " + wait.String() + "; partitions behind: " + strings.Join(partitions, ", ") +
-		"; last consumer offset read error: " + lastRead)
+		" within " + wait.String() + "; partitions behind: " + strings.Join(partitions, ", "))
 }
 
 // dbPlanLedgerReader returns deps.ledgerReader when it is set, and otherwise

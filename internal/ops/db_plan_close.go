@@ -104,10 +104,12 @@ func runDBPlanClose(ctx context.Context, deps dbSQLDeps, input dbPlanCloseInput,
 
 // closeDBPlanRows returns the plan state that the summary reports. It waits
 // for the relay and the audit consumer, then reads the plan rows from
-// audit.events and audit.events_dlq through the ledger reader. A failed
-// ledger read, during the wait or after it, returns that error at once,
-// logged here, with no mail. A wait past its bound or a plan row in
-// audit.events_dlq mails that the summary is incomplete and returns an error.
+// audit.events and audit.events_dlq through the ledger reader. Every ledger
+// read in close stops at the first failure: a failed read of
+// public.ops_outbox, audit.consumer_offsets, or the plan rows returns that
+// error at once, logged here, with no close row and no mail. A wait past its
+// bound or a plan row in audit.events_dlq mails that the summary is
+// incomplete and returns an error.
 // It then checks the open row, the close row, and the closer principal.
 func closeDBPlanRows(
 	ctx context.Context,
