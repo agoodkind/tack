@@ -63,12 +63,12 @@ does not establish that a particular image build passed.
 
    Get the immutable image ID with
    `docker image inspect tack-tests:latest --format '{{.Id}}'` and replace the
-   placeholder. The command does not build or pull an image. Keep the evidence
+   placeholder. The command does not build or pull an image. Create the evidence
    directory outside the checkout.
 
 3. Save the complete output and terminal exit code. Record the compiled source,
    image digests and architecture, server PIDs, fixture identities, and cleanup
-   result. Preserve the original public error when a test fails. Resource and
+   result. Save the original public error when a test fails. Resource and
    model diagnostics collected after an error do not establish its cause.
 
 The process tests require a 40-character source revision and build the actual
@@ -77,14 +77,14 @@ replace a second server process with a second in-process handler.
 
 Verify deployed predictors on every eligible cluster member and matching cached
 worker and target identities before the first member stop and after each restart.
-Shard health alone does not satisfy this validation requirement. Preserve the
-first public-error failure during a member stop even if a later request succeeds.
+Shard health alone does not satisfy this validation requirement. Save the first
+public error during a member stop, even if a later request succeeds.
 
 ## Run the complete acceptance gates
 
 1. Follow the ordered groups, complete suite, and repeated tail in the
    [final validation plan](../superpowers/plans/2026-09-19-opensearch-final-validation.md).
-   Preserve its timeouts, count requirements, and prohibition on skipped tests.
+   Use its timeouts and count requirements unchanged, and allow no skipped test.
 2. Use `TACK_SEARCH_CLUSTER=1 make test-search` for the standard container search
    target. This target supplies the source revision and search integration
    opt-in, but its 90-minute timeout does not replace the plan's 45-minute gate.
@@ -123,8 +123,8 @@ first public-error failure during a member stop even if a later request succeeds
    opaque types, projection definitions, and expected case IDs for the isolated
    semantic, continuation, and final-page checks. Require 162, 31, and one node
    in the respective cohorts. A prepared manifest does not establish public
-   relevance, continuation, or capacity acceptance. Preserve any partial
-   manifest when the command exits with an error.
+   relevance, continuation, or capacity acceptance. Save any partial manifest
+   when the command exits with an error.
 
 ## Remove abandoned fixtures
 
@@ -133,5 +133,5 @@ first public-error failure during a member stop even if a later request succeeds
 2. Run `make test-env-down` only after confirming that no other test binary owns
    an active fixture. This command removes all test environment engines and their
    network, including resources from other interrupted test runs.
-3. Verify that the recorded fixture containers and processes are absent. Keep
-   production and QA services outside this cleanup procedure.
+3. Verify that the recorded fixture containers and processes are absent. Do not
+   run this procedure against production or QA services.

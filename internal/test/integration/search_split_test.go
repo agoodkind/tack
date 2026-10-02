@@ -74,8 +74,9 @@ func TestSearchSplitDuringChanges(t *testing.T) {
 	}
 }
 
-// TestSearchSplitWithoutModel requires native splitting to preserve semantic
-// fields while inference is unavailable throughout the reserved split path.
+// TestSearchSplitWithoutModel splits the index from 1 to 2, 4, and 8 primaries
+// with the model undeployed and requires the semantic fields after each split
+// to equal the fields before it.
 func TestSearchSplitWithoutModel(t *testing.T) {
 	fixture := newQueryFixture(t, defaultQueryOptions())
 	workspace := fixture.Workspaces[0]

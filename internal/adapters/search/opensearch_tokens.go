@@ -49,8 +49,8 @@ type predictResponse struct {
 
 // predictQueryTokens runs the pinned model once and returns the exact
 // token-weight JSON. It requires exactly one nonempty map of finite,
-// nonnegative weights within maxBytes. A memory circuit breaker rejection
-// that remains after the client retries wraps
+// nonnegative weights within maxBytes. When the memory circuit breaker still
+// rejects the predict after the client retries, the returned error wraps
 // [searchdomain.ErrEngineUnavailable].
 func (a *Adapter) predictQueryTokens(ctx context.Context, modelID, text string, maxBytes int) (json.RawMessage, error) {
 	body, err := json.Marshal(predictBody{TextDocs: []string{text}})

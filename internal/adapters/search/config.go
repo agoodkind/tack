@@ -51,9 +51,9 @@ func (c Config) Validate(ctx context.Context) error {
 	return nil
 }
 
-// retryStatuses are the response statuses the official client retries. 429
-// covers the ML Commons memory circuit breaker, which rejects a request while
-// JVM heap use exceeds its threshold.
+// retryStatuses are the response statuses the official client retries.
+// OpenSearch returns 429 when the ML Commons memory circuit breaker rejects a
+// request because JVM heap use exceeds its threshold.
 var retryStatuses = []int{
 	http.StatusTooManyRequests, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout,
 }

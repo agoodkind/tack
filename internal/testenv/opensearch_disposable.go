@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// DisposableOpenSearch starts an uncached engine for one resource regression.
+// DisposableOpenSearch starts a new engine that no other test shares.
 func DisposableOpenSearch(t T, memoryBytes int64) OpenSearchFixture {
 	t.Helper()
 	skipWhenShort(t)

@@ -26,8 +26,8 @@ type clusterReadyProfile struct {
 	} `json:"nodes"`
 }
 
-// requireClusterPredictors restores the deployment prerequisite between
-// independent member outages. Shard health does not verify model deployment.
+// requireClusterPredictors requires a deployed predictor on every eligible
+// member before each independent member stop. Shard health does not verify model deployment.
 func requireClusterPredictors(t *testing.T, cluster *testenv.OpenSearchCluster, fixture queryFixture, modelID string) {
 	t.Helper()
 	capturedPartialDeployment := false

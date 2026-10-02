@@ -203,8 +203,9 @@ func recordCascadeDelete(ctx context.Context, proof *CascadeProbeResult, deleted
 	return nil
 }
 
-// requireCascadeGone waits for public reads after a running deletion. A
-// finished deletion must already exclude the root and every probe child.
+// requireCascadeGone polls public reads until a running deletion has removed
+// the root and every probe child. After a finished deletion, the first public
+// read must already return them as absent.
 func (g *Generator) requireCascadeGone(ctx context.Context, token, workspaceReference, identifier string, deleted Result, projectID string, issueIDs []string, commentID string) error {
 	background := strings.Contains(deleted.Text(), "- Delete state: running")
 	if !background && !strings.Contains(deleted.Text(), "- Delete state: finished") {

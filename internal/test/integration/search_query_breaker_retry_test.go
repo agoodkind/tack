@@ -39,8 +39,8 @@ func (request clusterSettingsRequest) GetRequest(method string) (*http.Request, 
 // text. A second search, with the default threshold restored 500 ms into its
 // first wait, succeeds on its retry. The node stat
 // ml_circuit_breaker_trigger_count counts each rejection; the model profile
-// count covers only the last plugins.ml_commons.monitoring_request_count
-// predicts and stops rising once that window is full.
+// counts only the last plugins.ml_commons.monitoring_request_count predicts
+// and does not increase after that window is full.
 func TestSearchQueryBreakerRetry(t *testing.T) {
 	fixture := newQueryFixture(t, defaultQueryOptions())
 	info, err := fixture.Adapter.IndexInfo(t.Context(), fixture.Index)
@@ -150,7 +150,7 @@ func setBreakerThreshold(ctx context.Context, fixture queryFixture, value string
 }
 
 // predictRequests returns the model profile predict count of modelID. The
-// count covers at most the last monitoring_request_count predicts; the test
+// count includes at most the last monitoring_request_count predicts; the test
 // logs it and asserts on breakerTriggers.
 func predictRequests(t *testing.T, fixture queryFixture, modelID string) int {
 	t.Helper()

@@ -70,7 +70,7 @@ TACK_TEST_ROOT="$PWD" docker compose -f docker-compose.test.yml --profile runner
 Require an empty status before testing. Record the test-runner image digest and the OpenSearch 3.8.0 image digest after the build.
 
 Confirm that no other test binary owns an active fixture before each
-`make test-env-down`. Run heavy groups serially. Preserve the exported source
+`make test-env-down`. Run heavy groups serially. Export the same source
 revision and opt-ins for every runner command below. The actual server process
 tests require the revision and use a fresh, unprefixed FoundationDB fixture.
 
@@ -149,7 +149,7 @@ TACK_TEST_ROOT="$PWD" docker compose -f docker-compose.test.yml --profile runner
 ```
 
 Do not overlap throughput measurements with another engine fixture, build, or
-database probe. Preserve the complete output and terminal exit code.
+database probe. Save the complete output and terminal exit code.
 
 Run the throughput test on the Mac runner, not in CI. A hosted CI VM runs both
 Tack processes, FoundationDB, and OpenSearch on one machine. On that VM the
@@ -176,8 +176,8 @@ Require one stable client endpoint, one-member restart recovery, later member jo
 
 Verify that every eligible predictor is deployed. Verify that cached worker and
 target identities match before the first independent member stop and after
-each restart. Preserve the first public-error failure during each member stop even
-if subsequent requests recover.
+each restart. Save the first public error during each member stop, even if later
+requests succeed.
 
 - [ ] **Step 8: Correct each reproduced failure at its owning layer.**
 
@@ -215,7 +215,7 @@ TACK_SEARCH_CLUSTER=1 uv run --with pydantic --python 3.14 python scripts/test-s
 make build
 ```
 
-Before the first group run, confirm the group membership against the compiled package. `go test -list` ignores `-skip`, so derive G5 from the full list with the G5 skip expression.
+Before the first group run, confirm the group membership against the compiled package. `go test -list` ignores `-skip`. Derive G5 from the full list with the G5 skip expression.
 
 ```sh
 go test -tags=fdb ./internal/test/integration -list '^TestSearch' | grep '^TestSearch' | sort > all.txt
@@ -239,7 +239,7 @@ Run the same 26 tests as three groups, each with count 3. These limits are deriv
 | T2 | The seven `TestSearchRebuild`, `TestSearchRestore`, and `TestSearchSplit` tail tests | 1122.4 s (110765693590) | 85m |
 | T3 | The 18 remaining tail tests | 632.7 s (110765693590) | 50m |
 
-The Makefile variables `SEARCH_T2_TESTS` and `SEARCH_T3_TESTS` name the exact T2 and T3 tests.
+The Makefile variables `SEARCH_T2_TESTS` and `SEARCH_T3_TESTS` list the exact T2 and T3 tests.
 
 ```sh
 make test-search-group GROUP=T1

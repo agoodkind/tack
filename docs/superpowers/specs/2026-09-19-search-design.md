@@ -158,8 +158,9 @@ QA starts with one combined-role LXC guest on `suburban`. Production starts with
 on `vault`. Each guest uses OpenSearch 3.8.0 with at least 8 GiB memory, 2 CPU cores,
 40 GiB storage, and a 2 GiB JVM heap. Later scale-out members use a 3 GiB JVM heap.
 With a 2 GiB heap, surviving members exceed the 85 percent ML Commons heap threshold
-during a member outage. The initial QA and production guests keep the 2 GiB heap. One
-more GiB on the QA guest breaks the 6.26 GiB `suburban` workload gate. Both
+during a member outage. The initial QA and production guests use a 2 GiB heap. A 3 GiB
+heap on the QA guest would drop `suburban` available memory below the 6.26 GiB
+workload gate. Both
 environments use zero replicas and become
 unavailable when their search guest stops. Production claims node failover only after
 at least three members and one replica pass the production failure test.

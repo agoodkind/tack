@@ -18,7 +18,7 @@ type FoundationDBBackup struct {
 	directory     string
 }
 
-// BackupFoundationDB waits for a real snapshot with the pinned engine tools.
+// BackupFoundationDB runs fdbbackup from the pinned engine image and returns after the snapshot completes.
 func BackupFoundationDB(t T) FoundationDBBackup {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), provisionTimeout)

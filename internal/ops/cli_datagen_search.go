@@ -53,7 +53,7 @@ func datagenSearchOp(f *cli.Factory) clispec.Operation[datagenSearchInput] {
 	}
 }
 
-// runDatagenSearch preserves fixture identities even when preparation fails.
+// runDatagenSearch writes the created fixture identities to its result when preparation fails.
 func runDatagenSearch(ctx context.Context, factory *cli.Factory, input datagenSearchInput, sink clispec.ResultSink) error {
 	if input.PrepareOnly && (input.Seed <= 0 || input.Corpus == "") {
 		return fmt.Errorf("qa datagen search: prepare-only requires a positive seed and corpus path")

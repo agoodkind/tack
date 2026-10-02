@@ -47,7 +47,7 @@ func (trial processThroughputTrial) rate() float64 {
 	return float64(trial.sessionsCompleted+trial.mutationsIndexed) / trial.seconds
 }
 
-// TestSearchActualOSProcessThroughput compares server count with fixed clients and unchanged read nodes.
+// TestSearchActualOSProcessThroughput measures completed work per second with one and with two server processes, under fixed clients and unchanged read nodes.
 func TestSearchActualOSProcessThroughput(t *testing.T) {
 	if os.Getenv("TACK_SEARCH_INTEGRATION") != "1" {
 		t.Skip("OpenSearch integration requires TACK_SEARCH_INTEGRATION=1")
