@@ -87,13 +87,18 @@ func (m *PartitionManager) loop(ctx context.Context) {
 }
 
 func (m *PartitionManager) runOnce(ctx context.Context) {
+	maintained := true
 	if err := m.store.RunMaintenance(ctx); err != nil {
+		maintained = false
 		telemetry.IncAuditPartitionMaintenance("error")
 		telemetry.L(ctx).Error("audit.partition.maintenance_failed", slog.String("err", err.Error()))
-		return
+	} else {
+		telemetry.IncAuditPartitionMaintenance("ok")
 	}
-	telemetry.IncAuditPartitionMaintenance("ok")
 
+	/* Headroom is read after a failed run too. A run that keeps failing
+	   creates no partition, and the gauge and the low-headroom alert are the
+	   only signals that the ledger is running out of weeks. */
 	headroom, err := m.store.HeadroomWeeks(ctx, clock.Now().UTC())
 	if err != nil {
 		telemetry.L(ctx).Error("audit.partition.headroom_query_failed", slog.String("err", err.Error()))
@@ -107,7 +112,9 @@ func (m *PartitionManager) runOnce(ctx context.Context) {
 		)
 		return
 	}
-	telemetry.L(ctx).Debug("audit.partition.maintained", slog.Int("headroom_weeks", headroom))
+	if maintained {
+		telemetry.L(ctx).Debug("audit.partition.maintained", slog.Int("headroom_weeks", headroom))
+	}
 }
 
 // Close stops the loop. Idempotent. Does not close the shared pool.
