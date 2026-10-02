@@ -8,6 +8,9 @@ from typing import final
 
 from scripts.mac_test_runner import fixtures, state
 
+# Container create events and testenv log lines captured from real runs.
+CAPTURED = pathlib.Path(__file__).parent / "fixtures"
+
 
 @final
 class CreatedFixturesTest(unittest.TestCase):
@@ -72,6 +75,54 @@ class CreatedFixturesTest(unittest.TestCase):
             ["zero", "unknown-suffix", "unlogged"],
         )
         self.assertEqual((state.OUTPUT / "fixture-attribution.exit").read_text(), "1\n")
+
+    def copy_captured_run(self, run: str) -> None:
+        source = CAPTURED / run
+        for name in ["events.jsonl", "runtime.log"]:
+            (state.OUTPUT / name).write_text((source / name).read_text())
+
+    def test_run_780024ed_leaves_the_unlabeled_and_unlogged_containers(self) -> None:
+        self.copy_captured_run("l6-780024ed")
+
+        self.assertEqual(
+            fixtures.created_fixtures(),
+            [
+                "157c0e63195646334d49f30dab15b9cbfc1d3583b98b35ca8a3b9540144e9a2c",
+                "8c9b764718a16f76457b2ed0cf3dd6331c3f3e2ffc7332b68597af26e7af746b",
+                "abba59993e742c30cb6b02efad7bde77c340721ff7b38c932b2a266840fdd3c9",
+            ],
+        )
+        self.assertEqual(
+            json.loads((state.OUTPUT / "unattributed-preserved-ids.json").read_text()),
+            [
+                "c298ba5ae2beab4e89f46b7ad3889ae8fdeac8db6f4f5645ecef380b3bd51a39",
+                "0202ed9bc74cc9b5871044e923595924f4a41e0c78853cc4b844576f622c6bc9",
+            ],
+        )
+        self.assertEqual(
+            (state.OUTPUT / "inner-process-ids.json").read_text(), '["521"]\n'
+        )
+
+    def test_run_056b21ea_attributes_the_labeled_ledger_and_logged_probe(self) -> None:
+        self.copy_captured_run("l6-056b21ea")
+
+        self.assertEqual(
+            fixtures.created_fixtures(),
+            [
+                "92d7ac4b9eb91b1d50fe4dfbd17c7d84bd2f1fa22db403e4f6cb3943bf55c632",
+                "975de085e7a6396fc1d02d790fdeb1555d48819586a563bdd161799f0f2b11a6",
+                "c3b93380d0d577fd9b6d91a5d8528cf81d7b71a1791f027823fac2a29b20605f",
+                "c4dde9e7a5ff958af0a05075a7f33177de289e10606d9b7a6064d83258c89868",
+                "e8cc081bfba3e070c369d83fa306bff59bce733d73370482dafca72ce83532fb",
+            ],
+        )
+        self.assertEqual(
+            (state.OUTPUT / "unattributed-preserved-ids.json").read_text(), "[]\n"
+        )
+        self.assertEqual(
+            (state.OUTPUT / "inner-process-ids.json").read_text(), '["452"]\n'
+        )
+        self.assertEqual((state.OUTPUT / "fixture-attribution.exit").read_text(), "0\n")
 
     def test_multiple_process_ids_fail(self) -> None:
         first = "tack-testenv-search-103-6002bcf3"

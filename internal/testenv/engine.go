@@ -14,6 +14,11 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
+// processLabel records the test process that created an engine container.
+// The Mac runner attributes a fixed-name engine to its test process by this
+// label and the engine's testenv.engine.started log line.
+const processLabel = managedLabel + ".process"
+
 // engineSpec describes one engine container.
 type engineSpec struct {
 	// kind names the engine in the container name.
@@ -32,6 +37,12 @@ type engineSpec struct {
 	// the engine's address outlives the engine when it stops. Empty joins the
 	// engines' network directly.
 	networkOf string `exhaustruct:"optional"`
+	// name replaces the generated container name, for an engine that the
+	// code under test finds by a fixed name. Empty generates a name unique to
+	// this process.
+	name string `exhaustruct:"optional"`
+	// healthcheck is the container's health check; nil keeps the image's.
+	healthcheck *container.HealthConfig `exhaustruct:"optional"`
 }
 
 // engine is a started engine container.
@@ -52,11 +63,10 @@ func startEngine(ctx context.Context, cli *client.Client, spec engineSpec) (engi
 	if err := ensureImage(ctx, cli, spec); err != nil {
 		return engine{}, err
 	}
-	suffix, err := randomHex(ctx, 4)
+	name, err := engineName(ctx, spec)
 	if err != nil {
 		return engine{}, err
 	}
-	name := "tack-testenv-" + spec.kind + "-" + strconv.Itoa(os.Getpid()) + "-" + suffix
 	hostConfig := &container.HostConfig{}
 	networking := &network.NetworkingConfig{
 		EndpointsConfig: map[string]*network.EndpointSettings{networkName: {}},
@@ -67,11 +77,12 @@ func startEngine(ctx context.Context, cli *client.Client, spec engineSpec) (engi
 	}
 	_, err = cli.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Config: &container.Config{
-			Image:      spec.image,
-			Entrypoint: spec.entrypoint,
-			Cmd:        spec.cmd,
-			Env:        spec.env,
-			Labels:     map[string]string{managedLabel: "true"},
+			Image:       spec.image,
+			Entrypoint:  spec.entrypoint,
+			Cmd:         spec.cmd,
+			Env:         spec.env,
+			Healthcheck: spec.healthcheck,
+			Labels:      map[string]string{managedLabel: "true", processLabel: strconv.Itoa(os.Getpid())},
 		},
 		HostConfig:       hostConfig,
 		NetworkingConfig: networking,
@@ -98,6 +109,19 @@ func startEngine(ctx context.Context, cli *client.Client, spec engineSpec) (engi
 	}
 	slog.InfoContext(ctx, "testenv.engine.started", slog.String("container", name), slog.String("image", spec.image))
 	return engine{name: name, address: address}, nil
+}
+
+// engineName returns spec's fixed name when it sets one, and otherwise a name
+// that belongs to this process alone.
+func engineName(ctx context.Context, spec engineSpec) (string, error) {
+	if spec.name != "" {
+		return spec.name, nil
+	}
+	suffix, err := randomHex(ctx, 4)
+	if err != nil {
+		return "", err
+	}
+	return "tack-testenv-" + spec.kind + "-" + strconv.Itoa(os.Getpid()) + "-" + suffix, nil
 }
 
 // ensureImage pulls spec's image unless the daemon already holds it for the
