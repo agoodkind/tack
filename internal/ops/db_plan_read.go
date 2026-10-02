@@ -2,8 +2,6 @@ package ops
 
 import (
 	"context"
-	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -52,14 +50,28 @@ type dbPlanRow struct {
 	OccurredAt time.Time
 }
 
-// openDBPlanPool opens a pool on dsn to read the rows of planID.
+// openDBPlanPool opens a pool on dsn to read the rows of planID. A failure
+// returns a *dbPlanReadError.
 func openDBPlanPool(ctx context.Context, dsn string, planID uuid.UUID) (*pgxpool.Pool, error) {
 	pool, err := postgres.NewPool(ctx, dsn, &telemetry.QueryTracer{})
 	if err != nil {
-		slog.ErrorContext(ctx, "db.plan.pool_failed", slog.String("err", err.Error()))
-		return nil, fmt.Errorf("open the database to read plan %s: %w", planID, err)
+		return nil, &dbPlanReadError{action: "open the database to read plan " + planID.String(), err: err}
 	}
 	return pool, nil
+}
+
+// dbPlanRowsPool returns deps.planRowsPool when it is set, and otherwise
+// opens a pool on deps.cfg.DatabaseURL. The returned function closes only a
+// pool that this call opened.
+func dbPlanRowsPool(ctx context.Context, deps dbSQLDeps, planID uuid.UUID) (*pgxpool.Pool, func(), error) {
+	if deps.planRowsPool != nil {
+		return deps.planRowsPool, func() {}, nil
+	}
+	pool, err := openDBPlanPool(ctx, deps.cfg.DatabaseURL, planID)
+	if err != nil {
+		return nil, nil, err
+	}
+	return pool, pool.Close, nil
 }
 
 // dbPlanSince returns the earliest time a row of planID can carry: the time
@@ -71,7 +83,8 @@ func dbPlanSince(planID uuid.UUID) time.Time {
 
 // queryDBPlanRows runs query, dbPlanRowsQuery or dbPlanLedgerRowsQuery, on
 // pool and returns the rows of planID in time order, one per event ID. Plan
-// open issues only version 7 UUIDs. Any other plan ID returns no rows.
+// open issues only version 7 UUIDs. Any other plan ID returns no rows. A
+// failed read returns a *dbPlanReadError.
 func queryDBPlanRows(ctx context.Context, pool *pgxpool.Pool, query string, planID uuid.UUID) ([]dbPlanRow, error) {
 	if planID.Version() != 7 {
 		return nil, nil
@@ -79,32 +92,31 @@ func queryDBPlanRows(ctx context.Context, pool *pgxpool.Pool, query string, plan
 	verbs := []string{string(audit.VerbOpsDBPlanOpen), string(audit.VerbOpsDBBreakGlass), string(audit.VerbOpsDBPlanClose)}
 	rows, err := pool.Query(ctx, query, audit.SystemOrgID(), verbs, dbPlanSince(planID), planID.String())
 	if err != nil {
-		slog.ErrorContext(ctx, "db.plan.read_failed", slog.String("err", err.Error()))
-		return nil, fmt.Errorf("read the rows of plan %s: %w", planID, err)
+		return nil, &dbPlanReadError{action: "read the rows of plan " + planID.String(), err: err}
 	}
 	collected, err := pgx.CollectRows(rows, pgx.RowToStructByPos[dbPlanRow])
 	if err != nil {
-		slog.ErrorContext(ctx, "db.plan.read_failed", slog.String("err", err.Error()))
-		return nil, fmt.Errorf("read the rows of plan %s: %w", planID, err)
+		return nil, &dbPlanReadError{action: "read the rows of plan " + planID.String(), err: err}
 	}
 	return uniqueDBPlanRows(collected), nil
 }
 
 // awaitDBPlanOpenRow reads the rows of planID from audit.events and
-// public.ops_outbox on dsn every dbPlanProjectionPoll until they contain the
-// open row, and returns the decoded plan. After dbPlanOpenRowWait it returns
-// the plan without an open row. A read failure or a plan ID that plan open
-// does not issue returns at once.
-func awaitDBPlanOpenRow(ctx context.Context, dsn string, planID uuid.UUID) (dbPlanState, error) {
+// public.ops_outbox through dbPlanRowsPool every dbPlanProjectionPoll until
+// they contain the open row, and returns the decoded plan. After
+// dbPlanOpenRowWait it returns the plan without an open row. A plan ID that
+// plan open does not issue returns at once. The first failed read returns
+// its *dbPlanReadError at once, without a retry.
+func awaitDBPlanOpenRow(ctx context.Context, deps dbSQLDeps, planID uuid.UUID) (dbPlanState, error) {
 	empty := dbPlanState{open: nil, closed: false, attempts: nil}
 	if planID.Version() != 7 {
 		return empty, nil
 	}
-	pool, err := openDBPlanPool(ctx, dsn, planID)
+	pool, release, err := dbPlanRowsPool(ctx, deps, planID)
 	if err != nil {
 		return empty, err
 	}
-	defer pool.Close()
+	defer release()
 	waitCtx, cancel := context.WithTimeout(ctx, dbPlanOpenRowWait)
 	defer cancel()
 	ticker := time.NewTicker(dbPlanProjectionPoll)

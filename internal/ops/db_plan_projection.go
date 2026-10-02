@@ -80,19 +80,21 @@ func parseDBPlanWait(ctx context.Context, text string) (time.Duration, error) {
 // partition of the audit topic and reads audit.consumer_offsets every
 // dbPlanProjectionPoll until the consumer group has a committed offset at or
 // past each nonzero mark. It returns an error when wait passes first. Every
-// record below a committed offset is in audit.events or audit.events_dlq.
-func awaitDBPlanProjection(ctx context.Context, cfg *config.Config, planID uuid.UUID, wait time.Duration) error {
-	reader, err := audit.NewReader(ctx, cfg.AuditReaderDSN)
+// record below a committed offset is in audit.events or audit.events_dlq. A
+// failed open of the ledger reader or a failed outbox read returns a
+// *dbPlanReadError at once.
+func awaitDBPlanProjection(ctx context.Context, deps dbSQLDeps, planID uuid.UUID, wait time.Duration) error {
+	reader, release, err := dbPlanLedgerReader(ctx, deps, planID)
 	if err != nil {
-		slog.ErrorContext(ctx, "db.plan.offsets_reader_failed", slog.String("plan_id", planID.String()), slog.String("err", err.Error()))
-		return fmt.Errorf("open the ledger reader to close plan %s: %w", planID, err)
+		return err
 	}
-	defer reader.Close()
+	defer release()
 	waitCtx, cancel := context.WithTimeout(ctx, wait)
 	defer cancel()
 	if err := awaitDBPlanOutboxDrain(waitCtx, reader, planID, wait); err != nil {
 		return err
 	}
+	cfg := deps.cfg
 	topic, group := cfg.AuditKafkaTopic, cfg.AuditConsumerGroupID
 	marks, err := audit.TopicHighWaterMarks(waitCtx, audit.SplitBrokers(cfg.AuditKafkaBrokers), topic)
 	if err != nil {
@@ -116,7 +118,7 @@ func awaitDBPlanProjection(ctx context.Context, cfg *config.Config, planID uuid.
 		}
 		select {
 		case <-waitCtx.Done():
-			return dbPlanProjectionTimeout(ctx, planID, group, topic, wait, behind, lastRead)
+			return dbPlanProjectionTimeout(group, topic, wait, behind, lastRead)
 		case <-ticker.C:
 		}
 	}
@@ -140,23 +142,27 @@ func dbPlanPartitionsBehind(group, topic string, offsets []audit.ConsumerOffset,
 	return behind
 }
 
-// dbPlanProjectionTimeout logs and returns the error of a wait that passed
-// its bound.
-func dbPlanProjectionTimeout(
-	ctx context.Context,
-	planID uuid.UUID,
-	group, topic string,
-	wait time.Duration,
-	behind []int32,
-	lastRead string,
-) error {
+// dbPlanProjectionTimeout returns the error of a wait that passed its bound.
+func dbPlanProjectionTimeout(group, topic string, wait time.Duration, behind []int32, lastRead string) error {
 	partitions := make([]string, 0, len(behind))
 	for _, partition := range behind {
 		partitions = append(partitions, strconv.Itoa(int(partition)))
 	}
-	err := errors.New("consumer group " + group + " did not commit past the high-water marks of " + topic +
+	return errors.New("consumer group " + group + " did not commit past the high-water marks of " + topic +
 		" within " + wait.String() + "; partitions behind: " + strings.Join(partitions, ", ") +
 		"; last consumer offset read error: " + lastRead)
-	slog.ErrorContext(ctx, "db.plan.projection_timeout", slog.String("plan_id", planID.String()), slog.String("err", err.Error()))
-	return err
+}
+
+// dbPlanLedgerReader returns deps.ledgerReader when it is set, and otherwise
+// opens a reader on deps.cfg.AuditReaderDSN. The returned function closes
+// only a reader that this call opened.
+func dbPlanLedgerReader(ctx context.Context, deps dbSQLDeps, planID uuid.UUID) (*audit.Reader, func(), error) {
+	if deps.ledgerReader != nil {
+		return deps.ledgerReader, func() {}, nil
+	}
+	reader, err := audit.NewReader(ctx, deps.cfg.AuditReaderDSN)
+	if err != nil {
+		return nil, nil, &dbPlanReadError{action: "open the ledger reader to close plan " + planID.String(), err: err}
+	}
+	return reader, reader.Close, nil
 }

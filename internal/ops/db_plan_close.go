@@ -45,10 +45,11 @@ type dbPlanCloseResult struct {
 // committed past the audit topic high-water marks, then reads the plan rows
 // through the ledger reader. It then refuses a closer that is not the opener
 // principal, writes the close row to the operator outbox, and mails the
-// summary. A wait past the bound, a plan row in audit.events_dlq, or a
-// refusal returns an error before the close row exists, and the plan stays
-// open. A summary mail failure after the close row returns an error that
-// states the mail failure; the plan is closed.
+// summary. A failed ledger read, a wait past the bound, a plan row in
+// audit.events_dlq, or a refusal returns an error before the close row
+// exists, and the plan stays open; a failed ledger read sends no mail. A
+// summary mail failure after the close row returns an error that states the
+// mail failure; the plan is closed.
 func runDBPlanClose(ctx context.Context, deps dbSQLDeps, input dbPlanCloseInput, sink clispec.ResultSink, execute bool) error {
 	planID, err := parseDBPlanID(ctx, input.PlanID)
 	if err != nil {
@@ -103,10 +104,11 @@ func runDBPlanClose(ctx context.Context, deps dbSQLDeps, input dbPlanCloseInput,
 
 // closeDBPlanRows returns the plan state that the summary reports. It waits
 // for the relay and the audit consumer, then reads the plan rows from
-// audit.events and audit.events_dlq through the ledger reader. A wait past
-// its bound or a plan row in audit.events_dlq mails that the summary is
-// incomplete and returns an error. It then checks the open row, the close
-// row, and the closer principal.
+// audit.events and audit.events_dlq through the ledger reader. A failed
+// ledger read, during the wait or after it, returns that error at once,
+// logged here, with no mail. A wait past its bound or a plan row in
+// audit.events_dlq mails that the summary is incomplete and returns an error.
+// It then checks the open row, the close row, and the closer principal.
 func closeDBPlanRows(
 	ctx context.Context,
 	deps dbSQLDeps,
@@ -116,10 +118,16 @@ func closeDBPlanRows(
 	wait time.Duration,
 ) (dbPlanState, error) {
 	empty := dbPlanState{open: nil, closed: false, attempts: nil}
-	if err := awaitDBPlanProjection(ctx, deps.cfg, planID, wait); err != nil {
+	if err := awaitDBPlanProjection(ctx, deps, planID, wait); err != nil {
+		if isDBPlanReadError(err) {
+			return empty, dbPlanReadFailed(ctx, "plan close", planID, err)
+		}
 		return empty, dbPlanSummaryIncomplete(ctx, deps.cfg, principal, planID, err)
 	}
 	state, deadLetters, err := readDBPlanLedger(ctx, deps.cfg.AuditReaderDSN, planID)
+	if isDBPlanReadError(err) {
+		return state, dbPlanReadFailed(ctx, "plan close", planID, err)
+	}
 	if err != nil {
 		return state, err
 	}

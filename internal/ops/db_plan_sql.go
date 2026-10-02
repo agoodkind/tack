@@ -67,11 +67,13 @@ func mailPlannedStatementFailure(
 	return failed
 }
 
-// authorizePlannedStatement returns nil when plan planID permits principal to
-// run statement. In every other case it writes a refused break-glass row with
-// the plan ID, then mails the refusal to the alarm address, and returns an
-// error; the caller does not run the statement. A failed row write or refusal
-// mail is part of the returned error.
+// authorizePlannedStatement reads the plan rows, waiting up to
+// dbPlanOpenRowWait for the open row, and returns nil when plan planID
+// permits principal to run statement. A failed read of the plan rows returns
+// that error, logged here, with no row and no mail. A refusal writes a
+// refused break-glass row with the plan ID, then mails the refusal to the
+// alarm address, and returns an error. The caller runs the statement only on
+// nil. A failed row write or refusal mail is part of the returned error.
 func authorizePlannedStatement(
 	ctx context.Context,
 	deps dbSQLDeps,
@@ -79,7 +81,14 @@ func authorizePlannedStatement(
 	planID uuid.UUID,
 	statement, reason string,
 ) error {
-	refusal := dbPlanRefusal(ctx, deps.cfg.DatabaseURL, principal, planID, statement)
+	state, err := awaitDBPlanOpenRow(ctx, deps, planID)
+	if isDBPlanReadError(err) {
+		return dbPlanReadFailed(ctx, "ops db sql", planID, err)
+	}
+	if err != nil {
+		return err
+	}
+	refusal := state.refusal(principal, statement, clock.Now().UTC())
 	if refusal == "" {
 		return nil
 	}
@@ -94,15 +103,4 @@ func authorizePlannedStatement(
 	recordErr := recordDBBreakGlass(ctx, deps.outbox, principal, extra, audit.OutcomeRefused, refused)
 	mailErr := mailDBPlanRefusal(ctx, deps.cfg, principal, planID, statement, refusal)
 	return errors.Join(refused, recordErr, mailErr)
-}
-
-// dbPlanRefusal reads the plan rows, waiting up to dbPlanOpenRowWait for the
-// open row, and returns the refusal reason, or an empty string when the plan
-// permits the statement. A read failure is a refusal.
-func dbPlanRefusal(ctx context.Context, dsn string, principal audit.OperatorPrincipal, planID uuid.UUID, statement string) string {
-	state, err := awaitDBPlanOpenRow(ctx, dsn, planID)
-	if err != nil {
-		return "the plan rows could not be read: " + err.Error()
-	}
-	return state.refusal(principal, statement, clock.Now().UTC())
 }

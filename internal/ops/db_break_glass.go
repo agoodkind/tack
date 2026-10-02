@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"goodkind.io/send-email/mailer"
 
 	"goodkind.io/tack/internal/audit"
@@ -44,6 +45,12 @@ type dbSQLDeps struct {
 	cfg      *config.Config
 	outbox   audit.OutboxWriter
 	identity audit.OperatorIdentitySource
+	// ledgerReader is the ledger reader that plan close waits through. Nil
+	// opens one on cfg.AuditReaderDSN for the wait.
+	ledgerReader *audit.Reader `exhaustruct:"optional"`
+	// planRowsPool is the pool that ops db sql --plan-id reads the plan rows
+	// through. Nil opens one on cfg.DatabaseURL for the read.
+	planRowsPool *pgxpool.Pool `exhaustruct:"optional"`
 }
 
 // dbSQLResult reports the statement's outcome. Cells are positional under

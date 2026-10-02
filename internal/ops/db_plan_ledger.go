@@ -2,8 +2,6 @@ package ops
 
 import (
 	"context"
-	"fmt"
-	"log/slog"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -36,7 +34,8 @@ SELECT topic || '/' || partition::text || '/' || "offset"::text || ': ' || error
 
 // readDBPlanLedger reads the rows of planID from audit.events and the
 // dead-letter rows of planID from audit.events_dlq on dsn, the ledger reader.
-// It returns the decoded plan and one line per dead-letter row.
+// It returns the decoded plan and one line per dead-letter row. A failed
+// read returns a *dbPlanReadError.
 func readDBPlanLedger(ctx context.Context, dsn string, planID uuid.UUID) (dbPlanState, []string, error) {
 	empty := dbPlanState{open: nil, closed: false, attempts: nil}
 	pool, err := openDBPlanPool(ctx, dsn, planID)
@@ -50,13 +49,11 @@ func readDBPlanLedger(ctx context.Context, dsn string, planID uuid.UUID) (dbPlan
 	}
 	letters, err := pool.Query(ctx, dbPlanDeadLettersQuery, dbPlanSince(planID), planID.String())
 	if err != nil {
-		slog.ErrorContext(ctx, "db.plan.dead_letters_failed", slog.String("err", err.Error()))
-		return empty, nil, fmt.Errorf("read the dead letters of plan %s: %w", planID, err)
+		return empty, nil, &dbPlanReadError{action: "read the dead letters of plan " + planID.String(), err: err}
 	}
 	deadLetters, err := pgx.CollectRows(letters, pgx.RowTo[string])
 	if err != nil {
-		slog.ErrorContext(ctx, "db.plan.dead_letters_failed", slog.String("err", err.Error()))
-		return empty, nil, fmt.Errorf("read the dead letters of plan %s: %w", planID, err)
+		return empty, nil, &dbPlanReadError{action: "read the dead letters of plan " + planID.String(), err: err}
 	}
 	state, err := newDBPlanState(ctx, rows)
 	return state, deadLetters, err

@@ -3,7 +3,6 @@ package ops
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"strconv"
 	"time"
@@ -17,26 +16,28 @@ import (
 // awaitDBPlanOutboxDrain reads the event IDs in public.ops_outbox through
 // reader. It then counts every dbPlanProjectionPoll how many of those events
 // remain, and returns nil when none remains. The relay removes an event after
-// the broker accepts it. It returns an error when waitCtx ends first.
+// the broker accepts it. The first failed read returns a *dbPlanReadError,
+// and the end of waitCtx returns the timeout error. It logs neither error;
+// the caller logs the error it returns to the command.
 func awaitDBPlanOutboxDrain(waitCtx context.Context, reader *audit.Reader, planID uuid.UUID, wait time.Duration) error {
 	eventIDs, err := reader.OperatorOutboxEventIDs(waitCtx)
 	if err != nil {
-		slog.ErrorContext(waitCtx, "db.plan.outbox_read_failed", slog.String("plan_id", planID.String()), slog.String("err", err.Error()))
-		return fmt.Errorf("read the event IDs in public.ops_outbox to close plan %s: %w", planID, err)
+		return dbPlanOutboxReadFailed(waitCtx, errors.New("public.ops_outbox was not read within "+wait.String()),
+			"read the event IDs in public.ops_outbox to close plan "+planID.String(), err)
 	}
 	ticker := time.NewTicker(dbPlanProjectionPoll)
 	defer ticker.Stop()
-	remaining, lastRead := int64(len(eventIDs)), "none"
+	remaining := int64(len(eventIDs))
 	for remaining > 0 {
 		select {
 		case <-waitCtx.Done():
-			return dbPlanOutboxTimeout(waitCtx, planID, wait, remaining, len(eventIDs), lastRead)
+			return dbPlanOutboxTimeout(wait, remaining, len(eventIDs))
 		case <-ticker.C:
 		}
 		waiting, readErr := reader.OperatorOutboxWaiting(waitCtx, eventIDs)
 		if readErr != nil {
-			lastRead = readErr.Error()
-			continue
+			return dbPlanOutboxReadFailed(waitCtx, dbPlanOutboxTimeout(wait, remaining, len(eventIDs)),
+				"count the waiting events in public.ops_outbox to close plan "+planID.String(), readErr)
 		}
 		remaining = waiting
 	}
@@ -45,19 +46,18 @@ func awaitDBPlanOutboxDrain(waitCtx context.Context, reader *audit.Reader, planI
 	return nil
 }
 
-// dbPlanOutboxTimeout logs and returns the error of an outbox wait that
-// passed its bound.
-func dbPlanOutboxTimeout(
-	ctx context.Context,
-	planID uuid.UUID,
-	wait time.Duration,
-	remaining int64,
-	total int,
-	lastRead string,
-) error {
-	err := errors.New("the relay did not send " + strconv.FormatInt(remaining, 10) + " of the " +
-		strconv.Itoa(total) + " events in public.ops_outbox within " + wait.String() +
-		"; last operator outbox read error: " + lastRead)
-	slog.ErrorContext(ctx, "db.plan.outbox_timeout", slog.String("plan_id", planID.String()), slog.String("err", err.Error()))
-	return err
+// dbPlanOutboxReadFailed returns timeout when waitCtx ended during the failed
+// read, and otherwise a *dbPlanReadError for action with cause.
+func dbPlanOutboxReadFailed(waitCtx context.Context, timeout error, action string, cause error) error {
+	if waitCtx.Err() != nil {
+		return timeout
+	}
+	return &dbPlanReadError{action: action, err: cause}
+}
+
+// dbPlanOutboxTimeout returns the error of an outbox wait that passed its
+// bound.
+func dbPlanOutboxTimeout(wait time.Duration, remaining int64, total int) error {
+	return errors.New("the relay did not send " + strconv.FormatInt(remaining, 10) + " of the " +
+		strconv.Itoa(total) + " events in public.ops_outbox within " + wait.String())
 }
