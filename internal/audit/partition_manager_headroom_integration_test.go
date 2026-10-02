@@ -47,7 +47,8 @@ func TestPartitionManagerReportsHeadroomWhenMaintenanceFails(t *testing.T) {
 	// The only partition that starts after now is the 2031 child.
 	const wantHeadroom = 1
 	telemetry.SetAuditPartitionHeadroomWeeks(staleHeadroomWeeks)
-	logs := &lockedBuffer{mu: sync.Mutex{}, buf: bytes.Buffer{}}
+	failuresBefore := maintenanceErrors(t)
+	logs :=&lockedBuffer{mu: sync.Mutex{}, buf: bytes.Buffer{}}
 	handler := slog.NewJSONHandler(logs, &slog.HandlerOptions{AddSource: false, Level: slog.LevelDebug, ReplaceAttr: nil})
 	managerCtx := telemetry.WithLogger(ctx, slog.New(handler))
 	manager := NewPartitionManager(NewPGPartitionStore(pool), time.Hour)
@@ -65,11 +66,9 @@ func TestPartitionManagerReportsHeadroomWhenMaintenanceFails(t *testing.T) {
 	for {
 		output := logs.String()
 		if headroomGauge(t) == wantHeadroom && strings.Contains(output, `"msg":"audit.partition.headroom_low"`) {
-			if !strings.Contains(output, `"msg":"audit.partition.maintenance_failed"`) {
-				t.Fatalf("headroom_low logged without the maintenance failure; logs:\n%s", output)
-			}
-			if strings.Contains(output, `"msg":"audit.partition.maintained"`) {
-				t.Fatalf("failed run logged audit.partition.maintained; logs:\n%s", output)
+			if failures := maintenanceErrors(t); failures <= failuresBefore {
+				t.Fatalf("maintenance error count = %d, want more than %d: the gauge must come from a failed run",
+					failures, failuresBefore)
 			}
 			return
 		}
@@ -89,6 +88,21 @@ func headroomGauge(t *testing.T) int64 {
 		t.Fatalf("expvar tack_audit_partition_headroom_weeks is not registered as an int")
 	}
 	return gauge.Value()
+}
+
+// maintenanceErrors reads the error entry of the exported maintenance counter;
+// an absent entry is zero.
+func maintenanceErrors(t *testing.T) int64 {
+	t.Helper()
+	counter, ok := expvar.Get("tack_audit_partition_maintenance_total").(*expvar.Map)
+	if !ok {
+		t.Fatalf("expvar tack_audit_partition_maintenance_total is not registered as a map")
+	}
+	failures, ok := counter.Get("error").(*expvar.Int)
+	if !ok {
+		return 0
+	}
+	return failures.Value()
 }
 
 // lockedBuffer lets the manager goroutine write logs while the test reads them.
