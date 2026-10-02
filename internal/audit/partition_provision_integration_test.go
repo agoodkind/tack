@@ -19,12 +19,9 @@ import (
 	"goodkind.io/tack/migrations"
 )
 
-// latestMigrationVersion is the highest goose version in migrations/.
-const latestMigrationVersion = 16
-
 // offBoundaryHeadroomWeeks is the headroom one maintenance pass leaves when it
 // runs after the start of a week. Measured on 2026-10-02: migrations 001 to
-// 016 left the current week and the two after it, and the pass added a third
+// 017 left the current week and the two after it, and the pass added a third
 // future week.
 const offBoundaryHeadroomWeeks = 3
 
@@ -54,8 +51,8 @@ func TestFreshProvisionMaintainsWeeklyPartitions(t *testing.T) {
 	if err := fixture.pool.QueryRow(ctx, `SELECT max(version_id) FROM goose_db_version WHERE is_applied`).Scan(&version); err != nil {
 		t.Fatalf("read applied migration version: %v", err)
 	}
-	if version != latestMigrationVersion {
-		t.Fatalf("applied migration version = %d, want %d", version, latestMigrationVersion)
+	if latest := latestMigrationVersion(t); version != latest {
+		t.Fatalf("applied migration version = %d, want %d", version, latest)
 	}
 
 	t.Log("audit.events children after migrations, before the partition-manager pass:")
