@@ -19,15 +19,9 @@ import (
 const (
 	// clusterAdminLogin is the engine superuser every node starts with.
 	clusterAdminLogin = "yugabyte"
-	// clusterNodeHosts is TACK_LEDGER_NODE_HOSTS for the three nodes. The
-	// addresses are the node names: yb2 and yb3 have no address before they
-	// start, and the bootstrap wait reads only the names.
-	clusterNodeHosts = "yb1=yb1,yb2=yb2,yb3=yb3"
 	// clusterBackupMasters is the rendered three-node master list, which the
 	// bootstrap wait must not use while yb3 is absent.
 	clusterBackupMasters = "yb1:7100,yb2:7100,yb3:7100"
-	// clusterClosedDatabaseURL connects to yb1 on a port with no listener.
-	clusterClosedDatabaseURL = "host=yb1 port=1 user=yugabyte dbname=tack sslmode=disable connect_timeout=5"
 	// clusterEmptyQuery reads whether the migration table and the outbox
 	// table are both absent.
 	clusterEmptyQuery = "SELECT to_regclass('goose_db_version') IS NULL AND to_regclass('public.ops_outbox') IS NULL"
@@ -48,7 +42,9 @@ const (
 )
 
 // clusterConfig loads the server configuration with DATABASE_URL and the
-// operator DSN in the QA keyword form over yb1, yb2, and yb3.
+// operator DSN in the QA keyword form over the fixed addresses of yb1, yb2,
+// and yb3. TACK_LEDGER_NODE_HOSTS pairs each node name with its fixed
+// address, and the yb-admin one-shot joins the cluster network.
 func clusterConfig(t *testing.T, cluster *testenv.LedgerCluster) *config.Config {
 	t.Helper()
 	t.Setenv("DATABASE_URL", cluster.KeywordDSN(clusterAdminLogin, cluster.AdminSecret()))
@@ -67,7 +63,7 @@ func clusterConfig(t *testing.T, cluster *testenv.LedgerCluster) *config.Config 
 	cfg.BackupFDBNetwork = cluster.Network
 	cfg.BackupYBImage = cluster.Image
 	cfg.BackupYBMasterAddresses = clusterBackupMasters
-	cfg.LedgerNodeHosts = clusterNodeHosts
+	cfg.LedgerNodeHosts = clusterNodeHosts(cluster)
 	cfg.LedgerTLSEnabled = false
 	return cfg
 }

@@ -25,12 +25,15 @@ func clusterStep(t *testing.T, name string, body func(t *testing.T)) {
 // outbox. yb1 starts alone; ops ledger audit-bootstrap creates the outbox on
 // it; yb2 and yb3 join yb1 one at a time behind ops ledger bootstrap-wait;
 // the real relay, Kafka, and consumer then project every recorded row into
-// audit.events. DATABASE_URL and the operator DSN list yb1, yb2, and yb3 in
-// the QA keyword form, and TACK_BACKUP_YB_MASTER_ADDRESSES lists all three.
+// audit.events. The nodes run on a network of their own at fixed addresses,
+// and only the nodes' hosts entries map the node names to those addresses.
+// DATABASE_URL and the operator DSN list the three addresses in the QA
+// keyword form, TACK_LEDGER_NODE_HOSTS pairs each node name with its
+// address, and TACK_BACKUP_YB_MASTER_ADDRESSES lists all three node names.
 func TestLedgerBootstrapCluster(t *testing.T) {
-	cluster := testenv.NewLedgerCluster(t, "yb1", "yb2", "yb3")
+	cluster := testenv.NewLedgerCluster(t, clusterNodeNames...)
 	cfg := clusterConfig(t, cluster)
-	yb1 := cluster.Start(t, "yb1", "")
+	cluster.Start(t, "yb1", "")
 	admin := openBootstrapPool(t, cfg.DatabaseURL)
 	operator := openBootstrapPool(t, cfg.AuditOperatorDSN)
 	run := bootstrapCommandRunner(t, cfg, operator)
@@ -40,13 +43,17 @@ func TestLedgerBootstrapCluster(t *testing.T) {
 	var version int64
 	var secretHash string
 
+	clusterStep(t, "0 the test process resolves no node name", func(t *testing.T) {
+		// The bootstrap wait must work with no node name in DNS, as on QA.
+		requireNoNodeNameDNS(t)
+	})
 	clusterStep(t, "1 bootstrap-wait before the outbox exists fails to record", func(t *testing.T) {
 		output, err := wait("--masters", "1", "--tablet-servers", "1")
 		requireCommandError(t, "bootstrap-wait on an empty ledger", err, output, "record read access")
 	})
 	clusterStep(t, "2 audit-bootstrap fails closed when DATABASE_URL cannot connect", func(t *testing.T) {
 		closed := *cfg
-		closed.DatabaseURL = clusterClosedDatabaseURL
+		closed.DatabaseURL = clusterClosedDatabaseURL(cluster)
 		output, err := bootstrapCommandRunner(t, &closed, operator)("ops", "ledger", "audit-bootstrap")
 		requireCommandError(t, "audit-bootstrap with a closed DATABASE_URL", err, output, "record command intent")
 		if !ledgerIsEmpty(t, admin) {
@@ -54,7 +61,7 @@ func TestLedgerBootstrapCluster(t *testing.T) {
 		}
 	})
 	clusterStep(t, "3 the keyword DSN is served by yb1", func(t *testing.T) {
-		requireServedByYB1(t, admin, yb1.Address)
+		requireServedByYB1(t, admin, cluster.NodeAddresses()["yb1"])
 	})
 	clusterStep(t, "4 audit-bootstrap migrates and records its intent and outcome", func(t *testing.T) {
 		started := clock.Now()

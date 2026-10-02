@@ -5,12 +5,11 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
-	"time"
 
 	"github.com/moby/moby/client"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -24,15 +23,22 @@ const (
 	ledgerClusterYugabyted = "/home/yugabyte/bin/yugabyted"
 	// ledgerClusterAdmin is the engine's administration tool in the image.
 	ledgerClusterAdmin = "/home/yugabyte/bin/yb-admin"
+	// ledgerClusterNodeKind prefixes a node name to form the node's kind in
+	// its generated container name.
+	ledgerClusterNodeKind = "ledger-"
 )
 
-// LedgerCluster is a set of YugabyteDB nodes that one test starts under
-// fixed container names, the way each environment starts yb1, yb2, and yb3.
-// Every node runs the stack file's image with the overlay yugabyted and the
-// same superuser login. The first node bootstraps the universe and each later
-// node joins a named node.
+// LedgerCluster is a set of YugabyteDB nodes that one test starts on a
+// Docker network of its own, the way each environment runs yb1, yb2, and yb3
+// on separate guests. Each node runs under a generated container name with a
+// fixed IPv4 address, no network alias, and one hosts entry per node name.
+// The node names resolve inside the nodes through /etc/hosts and through no
+// DNS. Every node runs the stack file's image with the overlay yugabyted and
+// the same superuser login. The first node bootstraps the universe and each
+// later node joins a named node.
 type LedgerCluster struct {
-	// Network is the Docker network every node and every test engine joins.
+	// Network is the cluster's own Docker network. The nodes and the test
+	// process join it.
 	Network string
 	// Image is the stack file's yugabyte image the nodes run.
 	Image string
@@ -41,13 +47,18 @@ type LedgerCluster struct {
 	platform     *ocispec.Platform
 	overlay      []byte
 	superuserKey string
+	selfID       string
 	names        []string
+	addresses    map[string]netip.Addr
+	containers   map[string]string
+	extraHosts   []string
 	started      []string
 }
 
-// NewLedgerCluster prepares nodes under names without starting any. The test
-// fails when a container with any of the names exists, and every node it
-// starts is removed when the test ends.
+// NewLedgerCluster creates the cluster network, joins the test process to it
+// when the process runs in a container, and plans one node per name without
+// starting any. Every node it starts and the network are removed when the
+// test ends.
 func NewLedgerCluster(t *testing.T, names ...string) *LedgerCluster {
 	t.Helper()
 	skipWhenShort(t)
@@ -57,11 +68,6 @@ func NewLedgerCluster(t *testing.T, names ...string) *LedgerCluster {
 		t.Fatalf("ledger cluster: %v", err)
 	}
 	t.Cleanup(func() { _ = cli.Close() })
-	for _, name := range names {
-		if err := refuseExistingContainer(ctx, cli, name); err != nil {
-			t.Fatalf("ledger cluster: %v", err)
-		}
-	}
 	image, err := serviceImage(ctx, ledgerService)
 	if err != nil {
 		t.Fatalf("ledger cluster: %v", err)
@@ -82,25 +88,73 @@ func NewLedgerCluster(t *testing.T, names ...string) *LedgerCluster {
 	if err != nil {
 		t.Fatalf("ledger cluster: %v", err)
 	}
-	cluster := &LedgerCluster{
-		Network: networkName, Image: image, cli: cli, platform: platform, overlay: overlay,
-		superuserKey: superuserKey, names: names, started: nil,
+	clusterNetwork, subnet, err := createLedgerClusterNetwork(ctx, cli)
+	if err != nil {
+		t.Fatalf("ledger cluster: %v", err)
 	}
-	t.Cleanup(func() {
-		cleanup, cancel := context.WithTimeout(context.Background(), provisionTimeout)
-		defer cancel()
-		if err := removeContainers(cleanup, cluster.started); err != nil {
-			t.Errorf("remove ledger cluster nodes: %v", err)
-		}
-	})
+	cluster := &LedgerCluster{
+		Network: clusterNetwork, Image: image, cli: cli, platform: platform, overlay: overlay,
+		superuserKey: superuserKey, selfID: "", names: names, addresses: map[string]netip.Addr{},
+		containers: map[string]string{}, extraHosts: nil, started: nil,
+	}
+	t.Cleanup(func() { cluster.remove(t) })
+	if cluster.selfID, err = joinWhenContainerized(ctx, cli, clusterNetwork); err != nil {
+		t.Fatalf("ledger cluster: %v", err)
+	}
+	if err := cluster.plan(ctx, subnet); err != nil {
+		t.Fatalf("ledger cluster: %v", err)
+	}
 	return cluster
 }
 
-// Start starts the node named name. An empty joinTarget bootstraps the
-// universe, and Start then waits until the node answers SQL. A node that
-// joins is returned as soon as its container runs; the caller waits for it.
+// plan gives each node a generated container name and a fixed address in
+// the lower half of subnet, from host number ledgerClusterFirstNodeHost up.
+func (c *LedgerCluster) plan(ctx context.Context, subnet netip.Prefix) error {
+	if len(c.names) > ledgerClusterDynamicHost-ledgerClusterFirstNodeHost {
+		return fmt.Errorf("%d ledger nodes do not fit below the dynamic range of %s", len(c.names), subnet)
+	}
+	var host uint32 = ledgerClusterFirstNodeHost
+	for _, name := range c.names {
+		containerName, err := generatedEngineName(ctx, ledgerClusterNodeKind+name)
+		if err != nil {
+			return err
+		}
+		address := ledgerClusterHost(subnet, host)
+		c.containers[name], c.addresses[name] = containerName, address
+		c.extraHosts = append(c.extraHosts, name+":"+address.String())
+		host++
+	}
+	return nil
+}
+
+// remove removes every started node, then detaches the test process from
+// the cluster network and removes the network.
+func (c *LedgerCluster) remove(t *testing.T) {
+	t.Helper()
+	cleanup, cancel := context.WithTimeout(context.Background(), provisionTimeout)
+	defer cancel()
+	containers := make([]string, 0, len(c.started))
+	for _, name := range c.started {
+		containers = append(containers, c.containers[name])
+	}
+	if err := removeContainers(cleanup, containers); err != nil {
+		t.Errorf("remove ledger cluster nodes: %v", err)
+	}
+	if err := removeLedgerClusterNetwork(cleanup, c.cli, c.Network, c.selfID); err != nil {
+		t.Errorf("remove ledger cluster network: %v", err)
+	}
+}
+
+// Start starts the node named name at its fixed address. An empty joinTarget
+// bootstraps the universe, and Start then waits until the node answers SQL.
+// A node that joins is returned as soon as its container runs; the caller
+// waits for it.
 func (c *LedgerCluster) Start(t *testing.T, name, joinTarget string) EmptyLedgerNode {
 	t.Helper()
+	containerName, planned := c.containers[name]
+	if !planned {
+		t.Fatalf("start ledger node %s: the cluster plans only %v", name, c.names)
+	}
 	ctx, cancel := context.WithTimeout(t.Context(), provisionTimeout)
 	defer cancel()
 	command := []string{
@@ -112,12 +166,12 @@ func (c *LedgerCluster) Start(t *testing.T, name, joinTarget string) EmptyLedger
 		command = append(command, "--join="+joinTarget)
 	}
 	started, err := startEngine(ctx, c.cli, engineSpec{
-		kind: ledgerService, image: c.Image, platform: c.platform, cmd: command,
+		kind: ledgerClusterNodeKind + name, image: c.Image, platform: c.platform, cmd: command,
 		env: []string{
 			"YSQL_USER=" + ledgerAdminUser, "YSQL_PASSWORD=" + c.superuserKey, "YSQL_DB=" + ledgerDatabase,
 		},
 		files: map[string][]byte{ledgerClusterYugabyted: c.overlay},
-		name:  name,
+		name:  containerName, attachNetwork: c.Network, ipv4Address: c.addresses[name], extraHosts: c.extraHosts,
 	})
 	c.started = append(c.started, name)
 	if err != nil {
@@ -133,42 +187,21 @@ func (c *LedgerCluster) Start(t *testing.T, name, joinTarget string) EmptyLedger
 			t.Fatalf("start ledger node %s: %v", name, err)
 		}
 	}
-	slog.InfoContext(ctx, "testenv.ledger_cluster.node_started",
-		slog.String("container", name), slog.String("join", joinTarget))
+	slog.InfoContext(ctx, "testenv.ledger_cluster.node_started", slog.String("node", name),
+		slog.String("container", containerName), slog.String("address", started.address),
+		slog.String("join", joinTarget))
 	return EmptyLedgerNode{
 		DSN: dsn.String(), Address: started.address,
-		MasterAddress: net.JoinHostPort(started.address, ledgerMasterPort), Network: networkName,
+		MasterAddress: net.JoinHostPort(started.address, ledgerMasterPort), Network: c.Network,
 	}
 }
 
-// KeywordDSN returns a keyword connection string with host= listing every
-// node name of the cluster in order, for login with secret.
-func (c *LedgerCluster) KeywordDSN(login, secret string) string {
-	return fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable connect_timeout=5",
-		strings.Join(c.names, ","), ledgerPort, login, secret, ledgerDatabase)
-}
-
-// AdminSecret returns the superuser key every node was started with.
-func (c *LedgerCluster) AdminSecret() string {
-	return c.superuserKey
-}
-
-// Admin runs one yb-admin subcommand in the first node against the masters
-// of the started nodes and returns its output. A non-zero exit is an error.
-func (c *LedgerCluster) Admin(ctx context.Context, subcommand string) (string, error) {
-	addresses := make([]string, 0, len(c.started))
-	for _, name := range c.started {
-		addresses = append(addresses, name+":"+ledgerMasterPort)
+// NodeAddresses returns the fixed IPv4 address of every planned node, keyed
+// by node name. Every address is known before any node starts.
+func (c *LedgerCluster) NodeAddresses() map[string]string {
+	addresses := make(map[string]string, len(c.addresses))
+	for name, address := range c.addresses {
+		addresses[name] = address.String()
 	}
-	readCtx, cancel := context.WithTimeout(ctx, time.Minute)
-	defer cancel()
-	command := []string{ledgerClusterAdmin, "--master_addresses", strings.Join(addresses, ","), subcommand}
-	output, code, err := execInContainer(readCtx, c.cli, c.names[0], command)
-	if err != nil {
-		return "", err
-	}
-	if code != 0 {
-		return output, fmt.Errorf("yb-admin %s exited %d: %s", subcommand, code, output)
-	}
-	return output, nil
+	return addresses
 }
