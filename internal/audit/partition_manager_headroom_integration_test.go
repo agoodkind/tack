@@ -48,7 +48,7 @@ func TestPartitionManagerReportsHeadroomWhenMaintenanceFails(t *testing.T) {
 	const wantHeadroom = 1
 	telemetry.SetAuditPartitionHeadroomWeeks(staleHeadroomWeeks)
 	failuresBefore := maintenanceErrors(t)
-	logs :=&lockedBuffer{mu: sync.Mutex{}, buf: bytes.Buffer{}}
+	logs := &lockedBuffer{mu: sync.Mutex{}, buf: bytes.Buffer{}}
 	handler := slog.NewJSONHandler(logs, &slog.HandlerOptions{AddSource: false, Level: slog.LevelDebug, ReplaceAttr: nil})
 	managerCtx := telemetry.WithLogger(ctx, slog.New(handler))
 	manager := NewPartitionManager(NewPGPartitionStore(pool), time.Hour)
