@@ -61,8 +61,8 @@ jobs:
         run: make test-store-host
 
   # Each job runs one final-validation search group; the job limit is the
-  # group's go test limit plus 15 minutes of setup. The cluster group G4 runs
-  # only on the Mac runner.
+  # group's go test limit plus 15 minutes of setup. The throughput group G2 and
+  # the cluster group G4 run only on the Mac runner.
   search:
     name: search integration tests (OpenSearch ${{ matrix.group }})
     runs-on: ubuntu-latest
@@ -73,8 +73,6 @@ jobs:
         include:
           - group: G1
             timeout_minutes: 75
-          - group: G2
-            timeout_minutes: 45
           - group: G3
             timeout_minutes: 45
           - group: G5

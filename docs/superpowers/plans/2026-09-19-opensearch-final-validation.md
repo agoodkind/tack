@@ -151,6 +151,18 @@ TACK_TEST_ROOT="$PWD" docker compose -f docker-compose.test.yml --profile runner
 Do not overlap throughput measurements with another engine fixture, build, or
 database probe. Preserve the complete output and terminal exit code.
 
+Run the throughput test on the Mac runner, not in CI. A hosted CI VM runs both
+Tack processes, FoundationDB, and OpenSearch on one machine. On that VM the
+second process cut the time to indexed completion from about 15 s to 3.5 s and
+raised request p95 from about 640 ms to 840 ms, and the total rate stayed flat
+(CI jobs 110765693590 and 110795755897). CI job 110795755897 records that hosted-runner
+limitation and is not a pass. Moving the test off CI does not close throughput
+acceptance. Acceptance requires two results: the unchanged throughput test on
+the Mac runner and the QA two-process measurement. Each must show that the added
+Tack process improves both indexing and public search, and each must record the
+baseline spread, request p95, search work backlog, and the machine CPU count,
+memory, and cgroup limits.
+
 - [ ] **Step 7: Validate disposable cluster configuration and scale-out behavior.**
 
 ```sh
@@ -185,14 +197,17 @@ Run the suite as five fixed groups. Each group limit is the slowest complete CI 
 
 G5 selects every search test that G1 to G4 do not select. A new search test runs in G5 unless a change assigns it to another group.
 
-CI runs G1, G2, G3, and G5 as parallel jobs and skips the cluster tests. Acceptance requires the G4 run on the Mac runner with `TACK_SEARCH_CLUSTER=1`.
+CI runs G1, G3, and G5 as parallel jobs and skips the cluster tests. G2 and G4 run only on the Mac runner. Acceptance requires the G2 run and the G4 run with `TACK_SEARCH_CLUSTER=1` on the Mac runner, on the head that merges.
 
 ```sh
 make test-env-down
 make test-search-group GROUP=G1
-make test-search-group GROUP=G2
 make test-search-group GROUP=G3
 make test-search-group GROUP=G5
+uv run --with pydantic --python 3.14 python scripts/test-search-mac.py \
+    --root "$PWD" --image "sha256:<local-runner-image-id>" \
+    --run '^TestSearchActualOSProcessThroughput$' --count 1 --timeout 30m \
+    --evidence-dir "/private/tmp/tack-search-g2-$(date +%Y%m%d-%H%M%S)"
 TACK_SEARCH_CLUSTER=1 uv run --with pydantic --python 3.14 python scripts/test-search-mac.py \
     --root "$PWD" --image "sha256:<local-runner-image-id>" \
     --run '^TestSearchCluster' --count 1 --timeout 25m \
