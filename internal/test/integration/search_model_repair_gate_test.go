@@ -17,14 +17,14 @@ const (
 	repairGateQuietPeriod = 6 * repairGateInterval
 )
 
-// TestSearchModelRepairGates turns native automatic redeploy off and
+// TestSearchClusterModelRepairGates turns native automatic redeploy off and
 // restarts the only member. The pinned model is then stuck, and only Tack can
 // create a later deploy task. A Tack process with the repair disabled and a
 // process with public search disabled each create no deploy task over six
 // check intervals, read from the real task index. A process with both
 // enabled creates one. The test covers the two stop boundaries only; it does
 // not wait for the model to return to DEPLOYED.
-func TestSearchModelRepairGates(t *testing.T) {
+func TestSearchClusterModelRepairGates(t *testing.T) {
 	t.Setenv(repairEnabledVariable, "false")
 	t.Setenv("OPENSEARCH_MODEL_REPAIR_INTERVAL", repairGateInterval.String())
 	t.Setenv("OPENSEARCH_MODEL_REPAIR_STUCK_AFTER", "1s")

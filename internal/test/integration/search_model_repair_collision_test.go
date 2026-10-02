@@ -23,7 +23,7 @@ const (
 	collisionNativeWait = time.Minute
 )
 
-// TestSearchModelRepairCollision produces cause C on a 3-member cluster with
+// TestSearchClusterModelRepairCollision produces cause C on a 3-member cluster with
 // native automatic redeploy enabled. Each attempt restarts the current
 // cluster manager, which starts two native redeploy tasks: the new manager's
 // arrangement and the node join. The test sends two concurrent deploys when
@@ -32,7 +32,7 @@ const (
 // DEPLOY_FAILED, and a stuck model record. After the collision, the
 // production repair loop must restore DEPLOYED on 3 of 3 members with 1 to 3
 // repair tasks. Every later task must be a repair task.
-func TestSearchModelRepairCollision(t *testing.T) {
+func TestSearchClusterModelRepairCollision(t *testing.T) {
 	repairTasks := recordRepairTasks(t)
 	cluster := startSearchTestCluster(t, 3)
 	cluster.AddMember(t)
