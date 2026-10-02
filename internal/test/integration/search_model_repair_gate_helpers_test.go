@@ -27,18 +27,6 @@ func buildRepairingQueryGraph(t *testing.T, cfg *config.Config) *appruntime.Grap
 	return graph
 }
 
-// clusterSettingsRequest writes persistent cluster settings.
-type clusterSettingsRequest struct{ body []byte }
-
-func (request clusterSettingsRequest) GetRequest(method string) (*http.Request, error) {
-	httpRequest, err := http.NewRequestWithContext(context.Background(), method, "/_cluster/settings", bytes.NewReader(request.body))
-	if err != nil {
-		return nil, fmt.Errorf("build cluster settings request: %w", err)
-	}
-	httpRequest.Header.Set("Content-Type", "application/json")
-	return httpRequest, nil
-}
-
 // deployTasksSinceRequest counts the DEPLOY_MODEL tasks of one model created
 // at or after a time, in every state.
 type deployTasksSinceRequest struct{ body []byte }
