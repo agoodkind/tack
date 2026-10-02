@@ -109,7 +109,8 @@ func runDBPlanClose(ctx context.Context, deps dbSQLDeps, input dbPlanCloseInput,
 // public.ops_outbox, audit.consumer_offsets, or the plan rows returns that
 // error at once, logged here, with no close row and no mail. A wait past its
 // bound or a plan row in audit.events_dlq mails that the summary is
-// incomplete and returns an error.
+// incomplete and returns an error. A plan row that does not decode refuses
+// the close: the stored plan cannot be verified.
 // It then checks the open row, the close row, and the closer principal.
 func closeDBPlanRows(
 	ctx context.Context,
@@ -131,7 +132,7 @@ func closeDBPlanRows(
 		return state, dbPlanReadFailed(ctx, "plan close", planID, err)
 	}
 	if err != nil {
-		return state, err
+		return empty, refuseUnverifiableDBPlanClose(ctx, deps, principal, planID, postcheck, err)
 	}
 	if len(deadLetters) > 0 {
 		cause := errors.New("audit.events_dlq has " + strconv.Itoa(len(deadLetters)) + " rows of plan " +
