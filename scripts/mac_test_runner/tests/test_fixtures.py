@@ -103,6 +103,27 @@ class CreatedFixturesTest(unittest.TestCase):
             (state.OUTPUT / "inner-process-ids.json").read_text(), '["521"]\n'
         )
 
+    def test_run_056b21ea_attributes_the_labeled_ledger_and_logged_probe(self) -> None:
+        self.copy_captured_run("l6-056b21ea")
+
+        self.assertEqual(
+            fixtures.created_fixtures(),
+            [
+                "92d7ac4b9eb91b1d50fe4dfbd17c7d84bd2f1fa22db403e4f6cb3943bf55c632",
+                "975de085e7a6396fc1d02d790fdeb1555d48819586a563bdd161799f0f2b11a6",
+                "c3b93380d0d577fd9b6d91a5d8528cf81d7b71a1791f027823fac2a29b20605f",
+                "c4dde9e7a5ff958af0a05075a7f33177de289e10606d9b7a6064d83258c89868",
+                "e8cc081bfba3e070c369d83fa306bff59bce733d73370482dafca72ce83532fb",
+            ],
+        )
+        self.assertEqual(
+            (state.OUTPUT / "unattributed-preserved-ids.json").read_text(), "[]\n"
+        )
+        self.assertEqual(
+            (state.OUTPUT / "inner-process-ids.json").read_text(), '["452"]\n'
+        )
+        self.assertEqual((state.OUTPUT / "fixture-attribution.exit").read_text(), "0\n")
+
     def test_multiple_process_ids_fail(self) -> None:
         first = "tack-testenv-search-103-6002bcf3"
         second = "tack-testenv-search-104-deadbeef"
