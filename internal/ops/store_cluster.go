@@ -19,12 +19,12 @@ import (
 // process once the store is on the data guests (TACK-408).
 
 const (
-	// storeClusterFileBind gives the one-shot the same cluster file every
-	// client on this guest reads. It is writable, because fdbcli records a
-	// coordinator change in it.
-	storeClusterFileBind = "/etc/foundationdb:/etc/foundationdb"
+	// storeClusterMountPath is where the one-shot mounts the host directory
+	// that contains the cluster file every client on this guest reads. The
+	// mount is writable, because fdbcli records a coordinator change in it.
+	storeClusterMountPath = "/etc/foundationdb"
 	// storeClusterFile is the path inside the one-shot.
-	storeClusterFile = "/etc/foundationdb/fdb.cluster"
+	storeClusterFile = storeClusterMountPath + "/fdb.cluster"
 	// storeCLITimeoutSeconds bounds one fdbcli invocation. An unreachable
 	// cluster otherwise leaves the one-shot waiting with nothing to report.
 	storeCLITimeoutSeconds = 30
@@ -141,7 +141,30 @@ func readStoreCLI(
 	cfg *config.Config,
 	command string,
 ) (output string, exitCode int, err error) {
-	res, err := runOneShot(ctx, cli, slog.Default(), runOneShotOptions{
+	options, err := storeCLIOptions(ctx, cfg, command)
+	if err != nil {
+		return "", 0, err
+	}
+	res, err := runOneShot(ctx, cli, slog.Default(), options)
+	if err != nil {
+		slog.ErrorContext(ctx, "ops.store.cli_failed",
+			slog.String("command", command), slog.String("err", err.Error()))
+		return "", 0, fmt.Errorf("store %q: %w", command, err)
+	}
+	return strings.TrimSpace(res.Stdout + res.Stderr), res.ExitCode, nil
+}
+
+// storeCLIOptions builds the one-shot that runs one fdbcli command against the
+// cluster file in the configured host directory.
+func storeCLIOptions(ctx context.Context, cfg *config.Config, command string) (runOneShotOptions, error) {
+	settings, err := config.LoadStoreClusterSettings(ctx)
+	if err != nil {
+		wrapped := fmt.Errorf("store %q: %w", command, err)
+		slog.ErrorContext(ctx, "ops.store.cluster_settings_failed",
+			slog.String("command", command), slog.String("err", wrapped.Error()))
+		return runOneShotOptions{}, wrapped
+	}
+	return runOneShotOptions{
 		Image:      cfg.BackupFDBImage,
 		Network:    cfg.BackupFDBNetwork,
 		Name:       "",
@@ -152,13 +175,7 @@ func readStoreCLI(
 			"--exec", command,
 		},
 		Env:        []string{"FDB_CLUSTER_FILE=" + storeClusterFile},
-		Binds:      []string{storeClusterFileBind},
+		Binds:      []string{settings.ClusterFileDirectory + ":" + storeClusterMountPath},
 		ExtraHosts: nil,
-	})
-	if err != nil {
-		slog.ErrorContext(ctx, "ops.store.cli_failed",
-			slog.String("command", command), slog.String("err", err.Error()))
-		return "", 0, fmt.Errorf("store %q: %w", command, err)
-	}
-	return strings.TrimSpace(res.Stdout + res.Stderr), res.ExitCode, nil
+	}, nil
 }
