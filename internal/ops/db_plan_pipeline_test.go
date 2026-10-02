@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/twmb/franz-go/pkg/kgo"
 
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/clock"
@@ -22,6 +23,9 @@ const (
 	// planPipelinePoll is how often the relay, the consumer, and the test
 	// poll.
 	planPipelinePoll = 100 * time.Millisecond
+	// planTopicRetention is the retention of a test topic, longer than any
+	// test.
+	planTopicRetention = time.Hour
 )
 
 // planKindsQuery reads the event ID, verb, and outcome of every row of one
@@ -42,11 +46,23 @@ type planPipeline struct {
 }
 
 // newPlanPipeline returns the shared test broker with a topic and a consumer
-// group of this test.
+// group of this test. It creates the topic through the production function
+// that the audit consumer runs at startup, before any relay or consumer
+// starts. The relay producer does not ask the broker to create a missing
+// topic.
 func newPlanPipeline(t *testing.T) planPipeline {
 	t.Helper()
 	suffix := uuid.NewString()[:8]
-	return planPipeline{brokers: testenv.Kafka(t), topic: "audit.plan-test-" + suffix, group: "tack-plan-test-" + suffix}
+	pipeline := planPipeline{brokers: testenv.Kafka(t), topic: "audit.plan-test-" + suffix, group: "tack-plan-test-" + suffix}
+	client, err := kgo.NewClient(kgo.SeedBrokers(audit.SplitBrokers(pipeline.brokers)...))
+	if err != nil {
+		t.Fatalf("open a kafka client to create topic %s: %v", pipeline.topic, err)
+	}
+	defer client.Close()
+	if err := audit.EnsureAuditTopic(t.Context(), client, pipeline.topic, planTopicRetention); err != nil {
+		t.Fatalf("create topic %s: %v", pipeline.topic, err)
+	}
+	return pipeline
 }
 
 // configure returns deps with a copy of its configuration that points plan
