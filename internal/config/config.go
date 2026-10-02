@@ -3,6 +3,8 @@
 package config
 
 import (
+	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
@@ -354,11 +356,20 @@ type Config struct {
 	// accepted, because the value reaches fdbcli as a word in a command.
 	OpsFDBRedundancyMode string `env:"TACK_OPS_FDB_REDUNDANCY_MODE" envDefault:"single"`
 	OpsAppContainer      string `env:"TACK_OPS_APP_CONTAINER" envDefault:"tack-app-1"`
+	// OpsFDBClusterDir is the host directory that contains fdb.cluster, which
+	// the ops fdbcli one-shots mount read-write at /etc/foundationdb. Load
+	// rejects a relative path, which Docker would read as a named volume.
+	OpsFDBClusterDir string `env:"TACK_OPS_FDB_CLUSTER_DIR" envDefault:"/etc/foundationdb"`
 }
 
 func Load() (*Config, error) {
 	var cfg Config
 	if err := env.Parse(&cfg); err != nil {
+		return nil, err
+	}
+	if !filepath.IsAbs(cfg.OpsFDBClusterDir) {
+		err := fmt.Errorf("TACK_OPS_FDB_CLUSTER_DIR %q is not an absolute path", cfg.OpsFDBClusterDir)
+		slog.Error("config.load_failed", slog.String("err", err.Error()))
 		return nil, err
 	}
 	logsDir := xdgStatePath("tack", "logs")

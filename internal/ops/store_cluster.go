@@ -141,11 +141,7 @@ func readStoreCLI(
 	cfg *config.Config,
 	command string,
 ) (output string, exitCode int, err error) {
-	options, err := storeCLIOptions(ctx, cfg, command)
-	if err != nil {
-		return "", 0, err
-	}
-	res, err := runOneShot(ctx, cli, slog.Default(), options)
+	res, err := runOneShot(ctx, cli, slog.Default(), storeCLIOptions(cfg, command))
 	if err != nil {
 		slog.ErrorContext(ctx, "ops.store.cli_failed",
 			slog.String("command", command), slog.String("err", err.Error()))
@@ -155,15 +151,8 @@ func readStoreCLI(
 }
 
 // storeCLIOptions builds the one-shot that runs one fdbcli command against the
-// cluster file in the configured host directory.
-func storeCLIOptions(ctx context.Context, cfg *config.Config, command string) (runOneShotOptions, error) {
-	settings, err := config.LoadStoreClusterSettings(ctx)
-	if err != nil {
-		wrapped := fmt.Errorf("store %q: %w", command, err)
-		slog.ErrorContext(ctx, "ops.store.cluster_settings_failed",
-			slog.String("command", command), slog.String("err", wrapped.Error()))
-		return runOneShotOptions{}, wrapped
-	}
+// cluster file in TACK_OPS_FDB_CLUSTER_DIR.
+func storeCLIOptions(cfg *config.Config, command string) runOneShotOptions {
 	return runOneShotOptions{
 		Image:      cfg.BackupFDBImage,
 		Network:    cfg.BackupFDBNetwork,
@@ -175,7 +164,7 @@ func storeCLIOptions(ctx context.Context, cfg *config.Config, command string) (r
 			"--exec", command,
 		},
 		Env:        []string{"FDB_CLUSTER_FILE=" + storeClusterFile},
-		Binds:      []string{settings.ClusterFileDirectory + ":" + storeClusterMountPath},
+		Binds:      []string{cfg.OpsFDBClusterDir + ":" + storeClusterMountPath},
 		ExtraHosts: nil,
-	}, nil
+	}
 }

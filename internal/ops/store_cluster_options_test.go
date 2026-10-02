@@ -1,6 +1,7 @@
 package ops
 
 import (
+	"os"
 	"slices"
 	"testing"
 
@@ -10,12 +11,27 @@ import (
 // storeClusterDirectoryVariable is the setting the one-shot's bind follows.
 const storeClusterDirectoryVariable = "TACK_OPS_FDB_CLUSTER_DIR"
 
+// loadStoreTestConfig loads the server configuration with the cluster file
+// directory set to directory, or left unset when directory is empty.
+func loadStoreTestConfig(t *testing.T, directory string) (*config.Config, error) {
+	t.Helper()
+	t.Setenv("DATABASE_URL", "postgres://store-cluster-test@localhost/tack")
+	// t.Setenv restores the variable at cleanup; Unsetenv then removes it so
+	// the default applies.
+	t.Setenv(storeClusterDirectoryVariable, directory)
+	if directory == "" {
+		if err := os.Unsetenv(storeClusterDirectoryVariable); err != nil {
+			t.Fatalf("unset %s: %v", storeClusterDirectoryVariable, err)
+		}
+	}
+	return config.Load()
+}
+
 // TestStoreCLIOptionsMountTheConfiguredClusterDirectory requires the fdbcli
 // one-shot to mount /etc/foundationdb and read /etc/foundationdb/fdb.cluster
 // when the setting is unset, and to mount a configured directory at the same
 // path inside the one-shot.
 func TestStoreCLIOptionsMountTheConfiguredClusterDirectory(t *testing.T) {
-	cfg := &config.Config{BackupFDBImage: "foundationdb/foundationdb:7.4.6", BackupFDBNetwork: "tack_default"}
 	cases := []struct {
 		name      string
 		directory string
@@ -26,11 +42,11 @@ func TestStoreCLIOptionsMountTheConfiguredClusterDirectory(t *testing.T) {
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
-			t.Setenv(storeClusterDirectoryVariable, testCase.directory)
-			options, err := storeCLIOptions(t.Context(), cfg, "status minimal")
+			cfg, err := loadStoreTestConfig(t, testCase.directory)
 			if err != nil {
-				t.Fatalf("storeCLIOptions: %v", err)
+				t.Fatalf("load config: %v", err)
 			}
+			options := storeCLIOptions(cfg, "status minimal")
 			if !slices.Equal(options.Binds, []string{testCase.wantBind}) {
 				t.Fatalf("binds = %v, want [%s]", options.Binds, testCase.wantBind)
 			}
@@ -45,11 +61,10 @@ func TestStoreCLIOptionsMountTheConfiguredClusterDirectory(t *testing.T) {
 	}
 }
 
-// TestStoreCLIOptionsRefuseARelativeClusterDirectory requires a relative
-// directory to fail before any one-shot is built.
-func TestStoreCLIOptionsRefuseARelativeClusterDirectory(t *testing.T) {
-	t.Setenv(storeClusterDirectoryVariable, "fdb")
-	if _, err := storeCLIOptions(t.Context(), &config.Config{}, "status minimal"); err == nil {
-		t.Fatal("storeCLIOptions accepted a relative cluster file directory")
+// TestConfigLoadRefusesARelativeClusterDirectory requires config.Load to
+// reject a relative directory, which Docker would read as a named volume.
+func TestConfigLoadRefusesARelativeClusterDirectory(t *testing.T) {
+	if _, err := loadStoreTestConfig(t, "fdb"); err == nil {
+		t.Fatal("config.Load accepted a relative cluster file directory")
 	}
 }
