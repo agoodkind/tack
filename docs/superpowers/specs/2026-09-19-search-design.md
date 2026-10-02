@@ -180,7 +180,10 @@ and replica shards. Model deployment specifies no node IDs and includes new ML
 nodes. ML-only nodes increase inference capacity. Data nodes and replicas increase
 ranking capacity. Native index splitting increases primary shards without regenerating
 existing embeddings when the reserved routing path permits it. Tack selects neither
-ML workers nor shard nodes.
+ML workers nor shard nodes. After a node restart, when ML Commons leaves the model
+`PARTIALLY_DEPLOYED` or `DEPLOY_FAILED` with no deploy task running for 30 seconds,
+one Tack process sends a native deploy with no node IDs, at most three times per
+stuck episode, and automatic redeploy stays enabled.
 
 The final GTE sparse workload opened the ML memory circuit breaker at 4 GiB. It completed at 8 GiB and used about 3.4 GiB afterward. Eight GiB is the per-guest floor, not a capacity result. Suburban can provision one capped 8 GiB QA guest, but the permanent workload must keep at least 6.26 GiB of host memory available. QA activation requires a complete indexing, query, and rebuild workload before the guest remains enabled. The earlier 3.4 GiB post-workload reading plus the proxy would leave about 6.69 GiB, but that reading did not measure peak use. One guest passes the host CPU and fast-storage projections.
 

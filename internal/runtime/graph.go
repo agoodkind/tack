@@ -36,6 +36,7 @@ type Graph struct {
 	searchStarted  bool
 	nodes          *service.NodeService
 	deletes        deleteResumer
+	modelRepair    modelRepairLoop
 }
 
 // BuildGraph opens the configured datastores and assembles the node service,
@@ -143,6 +144,7 @@ func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
 		searchStarted:  false,
 		nodes:          nodeSvc,
 		deletes:        deleteResumer{cancel: nil, loop: sync.WaitGroup{}, started: false},
+		modelRepair:    modelRepairLoop{cancel: nil, loop: sync.WaitGroup{}, started: false},
 	}, nil
 }
 

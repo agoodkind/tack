@@ -31,6 +31,10 @@ type Config struct {
 	// SearchPublicEnabled switches tack_search from the fixed unavailable
 	// response to ranked search. Index workers run in either state.
 	SearchPublicEnabled bool `env:"OPENSEARCH_PUBLIC_ENABLED" envDefault:"false"`
+	// SearchModelRepairEnabled starts the loop that deploys a stuck search
+	// model again. It defaults to false, and an environment enables it only
+	// through its Configs entry.
+	SearchModelRepairEnabled bool `env:"OPENSEARCH_MODEL_REPAIR_ENABLED" envDefault:"false"`
 
 	// Logging. Every field is plain pass-through to telemetry.Setup, which
 	// hands them to gklog. Setup itself never branches on ENV.
