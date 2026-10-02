@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"testing"
 	"time"
 
@@ -19,13 +18,10 @@ import (
 const repairEnabledVariable = "OPENSEARCH_MODEL_REPAIR_ENABLED"
 
 // buildRepairingQueryGraph builds the cluster test graph and starts its
-// production model repair loop. It enables the repair in this test process
-// through t.Setenv unless the test already set the variable.
+// production model repair loop. The loop deploys only when the test set
+// OPENSEARCH_MODEL_REPAIR_ENABLED to true; the production default is false.
 func buildRepairingQueryGraph(t *testing.T, cfg *config.Config) *appruntime.Graph {
 	t.Helper()
-	if _, set := os.LookupEnv(repairEnabledVariable); !set {
-		t.Setenv(repairEnabledVariable, "true")
-	}
 	graph := buildQueryGraph(t, cfg)
 	graph.StartSearchModelRepair(t.Context())
 	return graph

@@ -15,6 +15,9 @@ import (
 	opensearch "github.com/opensearch-project/opensearch-go/v4"
 )
 
+// deployTaskPage is the task index page size. A full page fails the read.
+const deployTaskPage = 100
+
 // deployTask is one DEPLOY_MODEL record from the ML Commons task index.
 type deployTask struct {
 	ID      string
@@ -46,9 +49,9 @@ func (request mlJSONRequest) GetRequest(method string) (*http.Request, error) {
 // after since, oldest first.
 func deployTasksFrom(t *testing.T, fixture queryFixture, modelID string, since time.Time) []deployTask {
 	t.Helper()
-	body := fmt.Appendf(nil, `{"size":100,"sort":[{"create_time":{"order":"asc"}}],"query":{"bool":{"filter":[`+
+	body := fmt.Appendf(nil, `{"size":%d,"sort":[{"create_time":{"order":"asc"}}],"query":{"bool":{"filter":[`+
 		`{"term":{"model_id":%q}},{"term":{"task_type":"DEPLOY_MODEL"}},{"range":{"create_time":{"gte":%d}}}]}}}`,
-		modelID, since.UnixMilli())
+		deployTaskPage, modelID, since.UnixMilli())
 	var result struct {
 		Hits struct {
 			Hits []struct {
@@ -65,6 +68,9 @@ func deployTasksFrom(t *testing.T, fixture queryFixture, modelID string, since t
 	response, err := opensearch.Do(t.Context(), fixture.Client.Client, http.MethodPost, request, &result)
 	if err != nil || response == nil || response.IsError() {
 		t.Fatalf("read deploy tasks of model %s: response %v err %v", modelID, response, err)
+	}
+	if len(result.Hits.Hits) == deployTaskPage {
+		t.Fatalf("model %s has at least %d deploy tasks since %s; the read would drop tasks", modelID, deployTaskPage, since)
 	}
 	tasks := make([]deployTask, 0, len(result.Hits.Hits))
 	for _, hit := range result.Hits.Hits {

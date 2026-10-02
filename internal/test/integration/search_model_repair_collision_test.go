@@ -33,6 +33,7 @@ const (
 // production repair loop must restore DEPLOYED on 3 of 3 members with 1 to 3
 // repair tasks. Every later task must be a repair task.
 func TestSearchClusterModelRepairCollision(t *testing.T) {
+	t.Setenv(repairEnabledVariable, "true")
 	repairTasks := recordRepairTasks(t)
 	cluster := startSearchTestCluster(t, 3)
 	cluster.AddMember(t)
@@ -46,12 +47,13 @@ func TestSearchClusterModelRepairCollision(t *testing.T) {
 
 	for attempt := range collisionAttempts {
 		member := clusterManagerMember(t, fixture)
+		repairsBefore := len(repairTasks())
 		restarted := clock.Now().UTC()
 		cluster.StopMember(t, member)
 		cluster.StartMember(t, member)
 		awaitDeployTask(t, fixture, modelID, restarted)
 		fault := injectDeployPair(t, fixture, modelID)
-		tasks := awaitTasksEnded(t, fixture, modelID, restarted)
+		tasks := withoutTasks(awaitTasksEnded(t, fixture, modelID, restarted), repairTasks()[repairsBefore:])
 		record := modelRecord(t, fixture, modelID)
 		for _, task := range tasks {
 			t.Logf("attempt=%d member=%s task id=%s created=%s state=%s fault=%t error=%q", attempt+1, member,
@@ -62,7 +64,7 @@ func TestSearchClusterModelRepairCollision(t *testing.T) {
 			requireClusterPredictors(t, cluster, fixture, modelID)
 			continue
 		}
-		requireRepairedCollision(t, cluster, fixture, modelID, restarted, tasks, fault, len(repairTasks()), repairTasks)
+		requireRepairedCollision(t, cluster, fixture, modelID, restarted, tasks, fault, repairsBefore, repairTasks)
 		return
 	}
 	t.Fatalf("collision not produced in %d attempts", collisionAttempts)
@@ -111,6 +113,12 @@ func requireRepairedCollision(t *testing.T, cluster *testenv.OpenSearchCluster, 
 	if _, err := trySearch(fixture.Harness, "collision repaired", ""); err != nil {
 		t.Fatalf("public search after the repair: %v", err)
 	}
+}
+
+// withoutTasks returns tasks without the tasks named in ids. A repair task
+// created during the collision window is a repair, not a native task.
+func withoutTasks(tasks []deployTask, ids []string) []deployTask {
+	return slices.DeleteFunc(tasks, func(task deployTask) bool { return slices.Contains(ids, task.ID) })
 }
 
 // collided reports a FAILED version conflict task, a sibling that read
