@@ -116,6 +116,9 @@ const (
 	// VerbOpsAuditDLQReplay records an operator re-publishing dead-letter
 	// rows to the audit topic.
 	VerbOpsAuditDLQReplay Verb = "ops.audit_dlq_replay"
+	// VerbOpsAuditConsumerOffsets records an operator reading the audit
+	// consumer's committed lag and the operator outbox remainders.
+	VerbOpsAuditConsumerOffsets Verb = "ops.audit_consumer_offsets"
 	// VerbOpsDBBreakGlass records an operator running one SQL statement
 	// against the production database through the audited command, the only
 	// sanctioned path once the raw one is closed (TACK-327).

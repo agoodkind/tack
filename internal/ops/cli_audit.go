@@ -33,3 +33,35 @@ func auditSeedRolesOp(f *cli.Factory) clispec.Operation[noInput] {
 		},
 	}
 }
+
+// auditConsumerOffsetsOp declares `ops audit consumer-offsets`. It reports
+// the audit events that are produced and not yet in the ledger: the committed
+// lag of every topic partition and the events waiting in both operator
+// outboxes.
+func auditConsumerOffsetsOp(f *cli.Factory) clispec.Operation[noInput] {
+	return clispec.Operation[noInput]{
+		Name:     clispec.Name{Canonical: "consumer-offsets", CLIOverride: ""},
+		Lifetime: clispec.Permanent,
+		Audit:    audit.Spec{Verb: string(audit.VerbOpsAuditConsumerOffsets), Reads: true},
+		Group:    auditOpsGroup,
+		Aliases:  nil,
+		Hidden:   false,
+		Short:    "Report the audit consumer's committed lag and the operator outbox remainders",
+		Long: "Reads audit.consumer_offsets through the ledger reader and the latest offset of " +
+			"every audit topic partition from the brokers, and reports the committed lag per " +
+			"partition. Also reports the row count and oldest row of public.ops_outbox and the " +
+			"entry count of the FoundationDB operator outbox. Run it through the app service, " +
+			"which has the reader DSN, the brokers, and FoundationDB.",
+		Examples: nil,
+		Args:     nil,
+		Params:   nil,
+		New:      func() noInput { return noInput{InputMarker: clispec.InputMarker{}} },
+		Run: func(ctx context.Context, _ noInput, sink clispec.ResultSink) error {
+			report, err := readAuditConsumerOffsets(ctx, f)
+			if err != nil {
+				return err
+			}
+			return clispec.WriteJSONValue(ctx, sink, report)
+		},
+	}
+}
