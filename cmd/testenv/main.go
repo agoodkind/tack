@@ -41,6 +41,7 @@ const (
 	subcommandFoundationDB subcommand = "foundationdb"
 	subcommandOpenSearch   subcommand = "opensearch"
 	subcommandObjectStore  subcommand = "objectstore"
+	subcommandKafka        subcommand = "kafka"
 	subcommandStopStore    subcommand = "objectstore-stop"
 	subcommandStartStore   subcommand = "objectstore-start"
 	subcommandSearch       subcommand = "search-cluster"
@@ -49,7 +50,7 @@ const (
 	subcommandDown         subcommand = "down"
 )
 
-const usage = "usage: testenv ledger | foundationdb | opensearch | objectstore | " +
+const usage = "usage: testenv ledger | foundationdb | opensearch | objectstore | kafka | " +
 	"objectstore-stop CONTAINER | objectstore-start CONTAINER | search-cluster MEMBERS | " +
 	"search-cluster-drill MEMBERS | shared-dir | down"
 
@@ -96,6 +97,8 @@ func run(args []string) int {
 			_, _ = fmt.Println(store.Endpoint, store.Bucket, store.AccessKey, store.SecretKey,
 				store.ReadOnlyAccessKey, store.ReadOnlySecretKey, store.Container)
 		})
+	case subcommandKafka:
+		return runStep(func(step *cliStep) { _, _ = fmt.Println(testenv.Kafka(step)) })
 	case subcommandStopStore:
 		return runStep(func(step *cliStep) { testenv.StopObjectStore(step, argument) })
 	case subcommandStartStore:
