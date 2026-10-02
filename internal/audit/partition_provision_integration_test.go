@@ -21,7 +21,7 @@ import (
 
 // offBoundaryHeadroomWeeks is the headroom one maintenance pass leaves when it
 // runs after the start of a week. Measured on 2026-10-02: migrations 001 to
-// 016 left the current week and the two after it, and the pass added a third
+// 017 left the current week and the two after it, and the pass added a third
 // future week.
 const offBoundaryHeadroomWeeks = 3
 
