@@ -49,7 +49,11 @@ func NewSeeder(propertyDefs node.PropertyDefRepository, nodeTypes node.TypeRepos
 func (s *Seeder) SeedOrg(ctx context.Context, orgID uuid.UUID) error {
 	log := telemetry.L(ctx)
 
-	nodeTypes, propertyDefs := defaultOrgDefinitions(orgID)
+	nodeTypes, propertyDefs, err := defaultOrgDefinitions(ctx, orgID)
+	if err != nil {
+		log.ErrorContext(ctx, "seed.property_def_undeclared", slog.String("err", err.Error()))
+		return fmt.Errorf("seed org %s: %w", orgID, err)
+	}
 	for _, def := range propertyDefs {
 		if err := s.propertyDefs.Set(ctx, def); err != nil {
 			log.ErrorContext(ctx, "seed.property_def_failed", slog.String("name", def.Name), slog.String("err", err.Error()))
@@ -68,11 +72,15 @@ func (s *Seeder) SeedOrg(ctx context.Context, orgID uuid.UUID) error {
 // defaultOrgDefinitions returns the sample records Seeder writes for an org.
 // It is unexported because the sample data changes freely, and no other
 // package may pin its contents (TACK-512).
-func defaultOrgDefinitions(orgID uuid.UUID) ([]*node.NodeType, []*node.PropertyDef) {
-	return defaultNodeTypes(orgID), defaultPropertyDefs(orgID)
+func defaultOrgDefinitions(ctx context.Context, orgID uuid.UUID) ([]*node.NodeType, []*node.PropertyDef, error) {
+	propertyDefs, err := defaultPropertyDefs(ctx, orgID)
+	if err != nil {
+		return nil, nil, err
+	}
+	return defaultNodeTypes(orgID), propertyDefs, nil
 }
 
-func defaultPropertyDefs(orgID uuid.UUID) []*node.PropertyDef {
+func defaultPropertyDefs(ctx context.Context, orgID uuid.UUID) ([]*node.PropertyDef, error) {
 	jsonRaw := func(v any) json.RawMessage {
 		b, _ := json.Marshal(v)
 		return b
@@ -136,8 +144,10 @@ func defaultPropertyDefs(orgID uuid.UUID) []*node.PropertyDef {
 		},
 	}
 	definitions = append(definitions, additionalPropertyDefs(orgID)...)
-	applyDefaultSearchProjections(definitions)
-	return definitions
+	if err := applyDefaultSearchProjections(ctx, definitions); err != nil {
+		return nil, err
+	}
+	return definitions, nil
 }
 
 func additionalPropertyDefs(orgID uuid.UUID) []*node.PropertyDef {
@@ -154,7 +164,10 @@ func additionalPropertyDefs(orgID uuid.UUID) []*node.PropertyDef {
 	}
 }
 
-func applyDefaultSearchProjections(definitions []*node.PropertyDef) {
+// applyDefaultSearchProjections gives every seeded definition its explicit
+// search decision. A seeded name without an order has no decision, and the
+// seed refuses it instead of storing an undeclared definition.
+func applyDefaultSearchProjections(ctx context.Context, definitions []*node.PropertyDef) error {
 	orders := map[string]int{
 		"priority": 0, "due_date": 1, "start_date": 2, "state_id": 3,
 		"is_draft": 4, "description": 10, "slug": 20, "identifier": 30,
@@ -168,7 +181,9 @@ func applyDefaultSearchProjections(definitions []*node.PropertyDef) {
 	for _, definition := range definitions {
 		order, ok := orders[definition.Name]
 		if !ok {
-			continue
+			err := fmt.Errorf("seeded property definition %q has no search decision: %w", definition.Name, node.ErrInvalidSearchProjection)
+			telemetry.L(ctx).ErrorContext(ctx, "seed.search_decision_missing", slog.String("name", definition.Name), slog.String("err", err.Error()))
+			return err
 		}
 		definition.Search = &node.SearchProjection{
 			Include: included[definition.Name],
@@ -181,6 +196,7 @@ func applyDefaultSearchProjections(definitions []*node.PropertyDef) {
 			},
 		}
 	}
+	return nil
 }
 
 // scopedSequenceTemplate is the reference template the seed writes for
