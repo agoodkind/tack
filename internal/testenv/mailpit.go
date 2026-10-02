@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"sync"
 )
@@ -64,11 +65,12 @@ account default : testenv
 // MailpitFixture is this process's real SMTP server. The production mailer
 // connects to SMTPHost, runs STARTTLS, verifies the server certificate for
 // SMTPHost against the system root pool, and then logs in. A test package
-// that uses the fixture sets SSL_CERT_FILE to CA in TestMain before any TLS
-// use, because Go reads the system root pool once per process. SMTPHost is
-// the container's name on the engines' network. The test process resolves
-// that name only when it runs on the same network, as the integration runner
-// does.
+// that uses the fixture calls [TrustMailpit] in TestMain before any TLS use,
+// because Go reads the system root pool once per process. SMTPHost is the
+// holder container's address on the engines' network, the address the Kafka
+// fixture also uses, and the certificate lists that address. A test process on
+// the Docker host or on the engines' network connects to it without a name
+// lookup.
 type MailpitFixture struct {
 	SMTPHost string
 	SMTPPort int
@@ -78,6 +80,8 @@ type MailpitFixture struct {
 	// CA is the path of the PEM certificate authority that signed the SMTP
 	// certificate.
 	CA string
+	// TrustBundle is the path of a PEM bundle of the system roots and CA.
+	TrustBundle string
 	// APIBaseURL is the HTTP API root, without a trailing slash.
 	APIBaseURL string
 }
@@ -86,21 +90,23 @@ var mailpitState struct {
 	once    sync.Once
 	fixture MailpitFixture
 	err     error
+	// trusted is true once SSL_CERT_FILE points at a bundle with the CA.
+	trusted bool
 }
 
-// Mailpit starts this process's Mailpit server once and returns it. Every
-// test in the process shares the server. A test that counts delivered mail
-// calls [MailpitFixture.DeleteAll] before it sends.
+// Mailpit returns the Mailpit server that [TrustMailpit] started for this
+// process. Every test in the process shares the server. A test that counts
+// delivered mail calls [MailpitFixture.DeleteAll] before it sends. The test
+// fails when TestMain did not start the server for it.
 func Mailpit(t T) MailpitFixture {
 	t.Helper()
 	skipWhenShort(t)
-	mailpitState.once.Do(func() {
-		ctx, cancel := context.WithTimeout(t.Context(), provisionTimeout)
-		defer cancel()
-		mailpitState.fixture, mailpitState.err = provisionMailpit(ctx)
-	})
 	if mailpitState.err != nil {
 		_, _ = fmt.Fprintf(t.Output(), "testenv: %v\n", mailpitState.err)
+		t.FailNow()
+	}
+	if !mailpitState.trusted {
+		_, _ = fmt.Fprintln(t.Output(), "testenv: no Mailpit server is trusted; TestMain must call testenv.TrustMailpit with this test's name")
 		t.FailNow()
 	}
 	return mailpitState.fixture
@@ -127,7 +133,7 @@ func provisionMailpit(ctx context.Context) (MailpitFixture, error) {
 	if err != nil {
 		return MailpitFixture{}, err
 	}
-	certificate, err := authority.issue(ctx, holder.name, []string{holder.name})
+	certificate, err := authority.issue(ctx, holder.name, []string{holder.name, holder.address})
 	if err != nil {
 		return MailpitFixture{}, err
 	}
@@ -143,26 +149,27 @@ func provisionMailpit(ctx context.Context) (MailpitFixture, error) {
 	if err != nil {
 		return MailpitFixture{}, err
 	}
-	msmtprc := fmt.Appendf(nil, mailpitMsmtprcFormat, holder.name, mailpitSMTPPort, mailpitSender, mailpitUser, password)
+	msmtprc := fmt.Appendf(nil, mailpitMsmtprcFormat, holder.address, mailpitSMTPPort, mailpitSender, mailpitUser, password)
 	directory, err := writeMailpitClientFiles(ctx, holder.name, msmtprc, authority.pem)
 	if err != nil {
 		return MailpitFixture{}, err
 	}
 	fixture := MailpitFixture{
-		SMTPHost: holder.name, SMTPPort: mailpitSMTPPort,
+		SMTPHost: holder.address, SMTPPort: mailpitSMTPPort,
 		Msmtprc: filepath.Join(directory, "msmtprc"), CA: filepath.Join(directory, "ca.pem"),
-		APIBaseURL: "http://" + net.JoinHostPort(holder.name, mailpitAPIPort),
+		TrustBundle: filepath.Join(directory, "trust-bundle.pem"),
+		APIBaseURL:  "http://" + net.JoinHostPort(holder.address, mailpitAPIPort),
 	}
 	if err := waitForMailpit(ctx, fixture); err != nil {
 		return MailpitFixture{}, engineStartFailure(ctx, cli, started.name, err)
 	}
-	slog.InfoContext(ctx, "testenv.mailpit.ready", slog.String("container", started.name), slog.String("smtp_host", holder.name))
+	slog.InfoContext(ctx, "testenv.mailpit.ready", slog.String("container", started.name), slog.String("smtp_host", holder.address))
 	return fixture, nil
 }
 
-// writeMailpitClientFiles writes the msmtp account file and the CA
-// certificate, each mode 0600, to a directory of their own under the user
-// cache directory, and records the directory for [Release].
+// writeMailpitClientFiles writes the msmtp account file, the CA certificate,
+// and the trust bundle, each mode 0600, to a directory of their own under the
+// user cache directory, and records the directory for [Release].
 func writeMailpitClientFiles(ctx context.Context, containerName string, msmtprc, caPEM []byte) (string, error) {
 	cacheRoot, err := os.UserCacheDir()
 	if err != nil {
@@ -174,7 +181,8 @@ func writeMailpitClientFiles(ctx context.Context, containerName string, msmtprc,
 		return "", fmt.Errorf("create %s: %w", directory, err)
 	}
 	ownDirectory(directory)
-	for name, contents := range map[string][]byte{"msmtprc": msmtprc, "ca.pem": caPEM} {
+	trustBundle := slices.Concat(systemRoots(), caPEM)
+	for name, contents := range map[string][]byte{"msmtprc": msmtprc, "ca.pem": caPEM, "trust-bundle.pem": trustBundle} {
 		path := filepath.Join(directory, name)
 		if err := os.WriteFile(path, contents, 0o600); err != nil {
 			slog.ErrorContext(ctx, "testenv.mailpit.client_files_failed", slog.String("err", err.Error()))

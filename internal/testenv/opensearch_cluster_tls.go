@@ -9,6 +9,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"math/big"
+	"net"
 	"time"
 
 	"goodkind.io/tack/internal/clock"
@@ -57,13 +58,13 @@ func newClusterAuthority(ctx context.Context) (clusterAuthority, error) {
 }
 
 // issue signs a server and client certificate for commonName that is valid
-// for every name in dnsNames.
-func (a clusterAuthority) issue(ctx context.Context, commonName string, dnsNames []string) (issuedCertificate, error) {
+// for every DNS name and IP address in names.
+func (a clusterAuthority) issue(ctx context.Context, commonName string, names []string) (issuedCertificate, error) {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		return issuedCertificate{}, certificateError(ctx, fmt.Errorf("generate key for %s: %w", commonName, err))
 	}
-	template, err := certificateTemplate(ctx, commonName, dnsNames)
+	template, err := certificateTemplate(ctx, commonName, names)
 	if err != nil {
 		return issuedCertificate{}, err
 	}
@@ -84,15 +85,25 @@ func (a clusterAuthority) issue(ctx context.Context, commonName string, dnsNames
 }
 
 // certificateTemplate returns a one-day certificate template with a random
-// 128-bit serial number.
-func certificateTemplate(ctx context.Context, commonName string, dnsNames []string) (*x509.Certificate, error) {
+// 128-bit serial number. Each IP literal in names becomes an IP address
+// subject alternative name, and each other entry becomes a DNS name.
+func certificateTemplate(ctx context.Context, commonName string, names []string) (*x509.Certificate, error) {
 	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
 	if err != nil {
 		return nil, certificateError(ctx, fmt.Errorf("generate serial for %s: %w", commonName, err))
 	}
+	var dnsNames []string
+	var addresses []net.IP
+	for _, name := range names {
+		if address := net.ParseIP(name); address != nil {
+			addresses = append(addresses, address)
+			continue
+		}
+		dnsNames = append(dnsNames, name)
+	}
 	now := clock.Now()
 	return &x509.Certificate{
-		SerialNumber: serial, Subject: pkix.Name{CommonName: commonName}, DNSNames: dnsNames,
+		SerialNumber: serial, Subject: pkix.Name{CommonName: commonName}, DNSNames: dnsNames, IPAddresses: addresses,
 		NotBefore: now.Add(-time.Minute), NotAfter: now.Add(24 * time.Hour),
 	}, nil
 }
