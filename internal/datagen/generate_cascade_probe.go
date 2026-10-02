@@ -31,7 +31,7 @@ const (
 // errCascadeChildKept reports that a child of a deleted project still exists.
 var errCascadeChildKept = errors.New("a child of the deleted project still exists")
 
-// CascadeDeleteEvidence reports the initial response of one completed probe deletion.
+// CascadeDeleteEvidence reports the initial response of one probe deletion.
 type CascadeDeleteEvidence struct {
 	RootReference string
 	JobID         string

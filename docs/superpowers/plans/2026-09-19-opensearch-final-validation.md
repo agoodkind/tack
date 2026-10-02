@@ -162,9 +162,9 @@ TACK_TEST_ROOT="$PWD" docker compose -f docker-compose.test.yml --profile runner
 
 Require one stable client endpoint, one-member restart recovery, later member joining without a new bootstrap cluster, proxy distribution, model placement, replica allocation, and one-member failure behavior. Do not connect to live Proxmox or apply a plan.
 
-Verify every eligible predictor is deployed and cached worker and target
-identities match before the first independent member stop and after each
-restart. Preserve the first public-error failure during each member stop even
+Verify that every eligible predictor is deployed. Verify that cached worker and
+target identities match before the first independent member stop and after
+each restart. Preserve the first public-error failure during each member stop even
 if subsequent requests recover.
 
 - [ ] **Step 8: Correct each reproduced failure at its owning layer.**

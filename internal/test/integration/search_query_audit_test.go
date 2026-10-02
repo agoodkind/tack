@@ -13,8 +13,8 @@ import (
 //go:embed search_query_audit.sql
 var searchAuditInvocationQuery string
 
-// requireSearchAuditInvocation verifies the actual successful public request
-// against its persisted SQL invocation, including retries with different IDs.
+// requireSearchAuditInvocation verifies one successful public request against
+// its persisted SQL invocation.
 func requireSearchAuditInvocation(parent context.Context, harness *MCPHarness, requestID string) error {
 	ctx, cancel := context.WithTimeout(parent, 10*time.Second)
 	defer cancel()

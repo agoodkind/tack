@@ -68,7 +68,8 @@ type searchManifestSource struct {
 }
 
 // PrepareSearchManifest writes a bounded fixture under an existing seed workspace.
-// It permits disabled public search and does not start additional workers.
+// It permits disabled public search, records search work for the prepared
+// nodes, and starts no worker.
 func PrepareSearchManifest(ctx context.Context, cfg *config.Config, seed int64, corpusPath string) (SearchManifest, error) {
 	if err := ValidateTarget(cfg); err != nil {
 		return SearchManifest{}, err

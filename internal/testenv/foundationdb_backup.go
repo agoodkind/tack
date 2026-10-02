@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"strings"
+	"testing"
 
 	"github.com/moby/moby/client"
 )
@@ -66,7 +67,8 @@ func BackupFoundationDB(t T) FoundationDBBackup {
 }
 
 // Restore restores the snapshot into a fresh test cluster and returns its file.
-func (backup FoundationDBBackup) Restore(t T) string {
+// The test removes the restored cluster when it ends.
+func (backup FoundationDBBackup) Restore(t *testing.T) string {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), provisionTimeout)
 	defer cancel()
@@ -74,6 +76,7 @@ func (backup FoundationDBBackup) Restore(t T) string {
 	if err != nil {
 		failFDBBackup(t, err)
 	}
+	removeFoundationDBAfterTest(t, cluster)
 	target := filepath.Base(filepath.Dir(cluster))
 	cli, err := dockerClient(ctx)
 	if err != nil {
