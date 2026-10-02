@@ -11,7 +11,6 @@ import (
 
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
-	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/testenv"
 )
@@ -20,11 +19,11 @@ import (
 // recorded ledger verb events.
 const ledgerVerbsDeadline = 90 * time.Second
 
-// recordedLedgerVerbs are the host-only ledger verbs this test records once
-// each. The test records no ops.ledger_audit_bootstrap event; the report
-// must list that verb with zero rows.
+// recordedLedgerVerbs are the four host-only ledger verbs. The test records
+// one row of each.
 var recordedLedgerVerbs = []audit.Verb{
-	audit.VerbOpsLedgerNodePrepare, audit.VerbOpsLedgerNodeWait, audit.VerbOpsLedgerBootstrapWait,
+	audit.VerbOpsLedgerNodePrepare, audit.VerbOpsLedgerNodeWait,
+	audit.VerbOpsLedgerBootstrapWait, audit.VerbOpsLedgerAuditBootstrap,
 }
 
 type datagenSeedLedgerVerbsOutput struct {
@@ -39,12 +38,12 @@ type datagenSeedLedgerVerbsOutput struct {
 	} `json:"result"`
 }
 
-// TestDatagenSeedReportsHostOnlyLedgerVerbs records one system-organization
-// event for three host-only ledger verbs through the production Kafka
-// recorder and the real audit consumer, then runs `ops qa datagen seed
-// --commit` through the audited command tree. The seed result lists all four
-// host-only ledger verbs: each recorded verb with at least one row and a
-// latest event time, and ops.ledger_audit_bootstrap with zero rows.
+// TestDatagenSeedReportsHostOnlyLedgerVerbs runs `ops qa datagen seed
+// --commit` through the audited command tree before any ledger verb row
+// exists and requires all four host-only ledger verbs listed with zero rows.
+// It then records one system-organization event per verb through the
+// production Kafka recorder and the real audit consumer, seeds again, and
+// requires each verb with at least one row and a latest event time.
 func TestDatagenSeedReportsHostOnlyLedgerVerbs(t *testing.T) {
 	ctx := t.Context()
 	adminDSN := testenv.Ledger(t)
@@ -73,10 +72,25 @@ func TestDatagenSeedReportsHostOnlyLedgerVerbs(t *testing.T) {
 	}
 	consumer.Start(ctx)
 	t.Cleanup(func() { _ = consumer.Close() })
+	for verb, rows := range ledgerVerbRows(t, runDatagenSeedCommit(t, cfg, admin)) {
+		if rows != 0 {
+			t.Fatalf("verb %s rows = %d before any row was recorded, want 0", verb, rows)
+		}
+	}
 	recordLedgerVerbEvents(t, cfg)
 	waitForLedgerVerbRows(t, cfg)
+	for verb, rows := range ledgerVerbRows(t, runDatagenSeedCommit(t, cfg, admin)) {
+		if rows < 1 {
+			t.Fatalf("verb %s rows = %d after one row was recorded, want at least 1", verb, rows)
+		}
+	}
+}
 
-	output := runDatagenSeedCommit(t, cfg, admin)
+// ledgerVerbRows requires the seed result to list the four host-only ledger
+// verbs, each with a latest event time when it has rows, and returns the row
+// count of each.
+func ledgerVerbRows(t *testing.T, output datagenSeedLedgerVerbsOutput) map[string]int64 {
+	t.Helper()
 	rows := map[string]int64{}
 	for _, verb := range output.Result.LedgerVerbs.Verbs {
 		rows[verb.Verb] = verb.Rows
@@ -84,87 +98,12 @@ func TestDatagenSeedReportsHostOnlyLedgerVerbs(t *testing.T) {
 			t.Fatalf("verb %s has %d rows and no latest event time", verb.Verb, verb.Rows)
 		}
 	}
-	if len(output.Result.LedgerVerbs.Verbs) != 4 {
-		t.Fatalf("ledger verbs = %+v, want the four host-only ledger verbs", output.Result.LedgerVerbs.Verbs)
-	}
 	for _, verb := range recordedLedgerVerbs {
-		if rows[string(verb)] < 1 {
-			t.Fatalf("verb %s rows = %d, want at least 1", verb, rows[string(verb)])
+		if _, listed := rows[string(verb)]; !listed || len(rows) != len(recordedLedgerVerbs) {
+			t.Fatalf("ledger verbs = %+v, want the four host-only ledger verbs", output.Result.LedgerVerbs.Verbs)
 		}
 	}
-	if count, listed := rows[string(audit.VerbOpsLedgerAuditBootstrap)]; !listed || count != 0 {
-		t.Fatalf("verb %s rows = %d (listed %t), want listed with 0", audit.VerbOpsLedgerAuditBootstrap, count, listed)
-	}
-}
-
-// recordLedgerVerbEvents records one system-organization operator event per
-// recorded ledger verb through the production Kafka recorder.
-func recordLedgerVerbEvents(t *testing.T, cfg *config.Config) {
-	t.Helper()
-	recorder, err := audit.NewKafkaRecorder(audit.KafkaConfig{
-		Brokers: audit.SplitBrokers(cfg.AuditKafkaBrokers), Topic: cfg.AuditKafkaTopic,
-		ClientID: "tack-ledger-verbs-test", ProduceTimeout: 30 * time.Second,
-	})
-	if err != nil {
-		t.Fatalf("open the audit producer: %v", err)
-	}
-	for _, verb := range recordedLedgerVerbs {
-		event := audit.Event{
-			Verb: string(verb), EventID: uuid.Must(uuid.NewV7()),
-			Actor: audit.Actor{
-				Type: audit.ActorOperator, ID: uuid.Must(uuid.NewV7()), Email: "", Name: "Ledger Verbs Test",
-				SessionID: "", IP: "", UserAgent: "", RequestID: "", APITokenLabel: "",
-			},
-			Entity: audit.Entity{Type: "system", NodeType: "", ID: audit.SystemOrgID(), Identifier: "", Name: ""},
-			Context: audit.EventContext{
-				OrgID: audit.SystemOrgID(), WorkspaceID: uuid.Nil, ScopeID: uuid.Nil, ParentID: uuid.Nil,
-				RequestID: "", TraceID: "", Source: audit.SourceSystem, Tool: "", RPC: "", Reason: "",
-			},
-			Delta: nil, Outcome: audit.OutcomeOK, Error: nil, IdempotencyKey: "",
-			OccurredAt: clock.Now().UTC(), Extra: nil,
-		}
-		if err := recorder.Record(t.Context(), event); err != nil {
-			t.Fatalf("record a %s event: %v", verb, err)
-		}
-	}
-	if err := recorder.CloseContext(t.Context()); err != nil {
-		t.Fatalf("flush the audit producer: %v", err)
-	}
-}
-
-// waitForLedgerVerbRows reads the ledger through the reader login until each
-// recorded verb has a row on the system organization.
-func waitForLedgerVerbRows(t *testing.T, cfg *config.Config) {
-	t.Helper()
-	reader, err := audit.NewReader(t.Context(), cfg.AuditReaderDSN)
-	if err != nil {
-		t.Fatalf("open the ledger reader: %v", err)
-	}
-	defer reader.Close()
-	verbs := make([]string, 0, len(recordedLedgerVerbs))
-	for _, verb := range recordedLedgerVerbs {
-		verbs = append(verbs, string(verb))
-	}
-	deadline := clock.Now().Add(ledgerVerbsDeadline)
-	for {
-		presence, err := reader.VerbPresence(t.Context(), audit.SystemOrgID(), verbs)
-		if err != nil {
-			t.Fatalf("read the ledger verb presence: %v", err)
-		}
-		projected := 0
-		for _, verb := range presence {
-			if verb.Rows > 0 {
-				projected++
-			}
-		}
-		if projected == len(verbs) {
-			return
-		}
-		if clock.Now().After(deadline) {
-			t.Fatalf("ledger verb presence after %s = %+v, want a row for each of %v", ledgerVerbsDeadline, presence, verbs)
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
+	return rows
 }
 
 // runDatagenSeedCommit runs `ops qa datagen seed --commit` once through the
