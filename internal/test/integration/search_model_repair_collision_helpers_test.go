@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
 	"slices"
 	"sync"
 	"testing"
@@ -114,8 +115,9 @@ func injectDeployPair(t *testing.T, fixture queryFixture, modelID string) []stri
 }
 
 // repairTaskLog records the task_id of every search.model_repair.deploy_started
-// record and passes every record to the previous default handler. The repair
-// loop context stores no logger, and telemetry.L returns slog.Default.
+// record and writes every record to a text handler on stderr. The repair loop
+// context stores no logger, and telemetry.L returns slog.Default. Wrapping the
+// standard library default handler instead blocks the first log call.
 type repairTaskLog struct {
 	inner slog.Handler
 	mu    *sync.Mutex
@@ -127,7 +129,7 @@ type repairTaskLog struct {
 func recordRepairTasks(t *testing.T) func() []string {
 	t.Helper()
 	previous := slog.Default()
-	recorder := repairTaskLog{inner: previous.Handler(), mu: &sync.Mutex{}, ids: &[]string{}}
+	recorder := repairTaskLog{inner: slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}), mu: &sync.Mutex{}, ids: &[]string{}}
 	slog.SetDefault(slog.New(recorder))
 	t.Cleanup(func() { slog.SetDefault(previous) })
 	return func() []string {
