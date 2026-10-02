@@ -6,10 +6,11 @@ on:
   push:
     branches: [main]
 
-# Cancel an in-flight run when the same PR pushes a new commit.
+# A new commit on a pull request cancels the run for its previous commit. A
+# push to main runs in a group keyed by its commit and cancels no other run.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read

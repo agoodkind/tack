@@ -83,7 +83,8 @@ test-unit:
 # the CI integration job runs it. test-integration runs them in the runner.
 TEST_STORE_PACKAGES := ./internal/test/integration/... ./internal/adapters/foundationdb/... \
 	./internal/audit/... ./internal/ops/... ./internal/datagen/... ./cmd/server/...
-TEST_STORE_ARGS := -count=1 -timeout 30m -v $(TEST_STORE_PACKAGES)
+# The integration tag selects the audit partition tests, which need the ledger.
+TEST_STORE_ARGS := -tags integration -count=1 -timeout 30m -v $(TEST_STORE_PACKAGES)
 
 .PHONY: test-store-host
 test-store-host:
