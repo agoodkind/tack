@@ -34,6 +34,9 @@ type datagenSeedResult struct {
 	// AuditConsumerOffsets is the `ops audit consumer-offsets` report read
 	// after a committed seed. It is nil after a dry run.
 	AuditConsumerOffsets *auditConsumerOffsetsReport `json:"audit_consumer_offsets,omitempty"`
+	// LedgerVerbs is the row count of each host-only ledger verb, read after
+	// a committed seed. It is nil after a dry run.
+	LedgerVerbs *datagenLedgerVerbsReport `json:"ledger_verbs,omitempty"`
 }
 
 func datagenSeedOp(f *cli.Factory) clispec.Operation[datagenSeedInput] {
@@ -86,12 +89,18 @@ func runDatagenSeed(
 		return fmt.Errorf("qa datagen seed: %w", err)
 	}
 	var remainders *auditConsumerOffsetsReport
+	var ledgerVerbs *datagenLedgerVerbsReport
 	if input.Commit {
 		report, readErr := readAuditConsumerOffsets(ctx, factory)
 		if readErr != nil {
 			return fmt.Errorf("qa datagen seed: %w", readErr)
 		}
 		remainders = &report
+		verbs, verbsErr := readDatagenLedgerVerbs(ctx, factory)
+		if verbsErr != nil {
+			return fmt.Errorf("qa datagen seed: %w", verbsErr)
+		}
+		ledgerVerbs = &verbs
 	}
 	return clispec.WriteJSONValue(ctx, sink, datagenSeedResult{
 		ResultMarker: clispec.ResultMarker{},
@@ -107,5 +116,6 @@ func runDatagenSeed(
 		Issues:       summary.Issues,
 
 		AuditConsumerOffsets: remainders,
+		LedgerVerbs:          ledgerVerbs,
 	})
 }
