@@ -48,6 +48,12 @@ func RegisterSearch(s *mcpserver.MCPServer, resolver *Resolver, binding SearchBi
 		if binding.Runner == nil || binding.Cursors == nil {
 			return searchUnavailable(), nil
 		}
+		// A caller with no organization has no entry point type. Its schema
+		// lists the entry argument as "_reference", and argument validation
+		// rejects any other entry argument as unknown.
+		if !resolver.HasEntryPoint() {
+			return permissionDenied(), nil
+		}
 		if err := rejectUnknownArgs(request, tool.Name, allowed); err != nil {
 			return recoverableError(err.Error()), nil
 		}
@@ -61,4 +67,10 @@ func searchUnavailable() *mcpmcp.CallToolResult {
 		IsError: true,
 		Content: []mcpmcp.Content{mcpmcp.TextContent{Type: "text", Text: searchUnavailableText}},
 	}
+}
+
+// HasEntryPoint reports whether the caller's organizations define an entry
+// point node type. A caller with no organization has none.
+func (r *Resolver) HasEntryPoint() bool {
+	return r.entryPointSlug != ""
 }
