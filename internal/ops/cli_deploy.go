@@ -16,10 +16,13 @@ var deployGroup = &clispec.Group{
 	Long: "", Parent: opsGroup,
 }
 
-// deployVerifyInput carries the optional explicit image tag.
+// deployVerifyInput is the optional explicit image tag and the optional
+// expected index digests of the two images.
 type deployVerifyInput struct {
 	clispec.InputMarker
-	Tag string
+	Tag            string
+	ServerDigest   string
+	ConsumerDigest string
 }
 
 // deployVerifyOp declares `ops deploy verify`.
@@ -35,18 +38,29 @@ func deployVerifyOp(f *cli.Factory) clispec.Operation[deployVerifyInput] {
 		Long: "Reads the registry digest of each expected image from the daemon and " +
 			"compares it with the digest the matching container runs. The expected " +
 			"images are tack-server and tack-audit-consumer under TACK_DEPLOY_REGISTRY " +
-			"at TACK_IMAGE_TAG, unless --tag names another tag.",
+			"at TACK_IMAGE_TAG, unless --tag names another tag. With --tack-server-digest " +
+			"and --tack-audit-consumer-digest, both required together, it instead requires " +
+			"the containerd image store and compares each given multi-platform index digest " +
+			"with the index descriptor digest of the image the container runs.",
 		Examples: nil,
 		Args:     nil,
 		Params: []clispec.Param[deployVerifyInput]{
 			clispec.StringParam("tag", "image tag the containers must run", "", false,
 				func(in *deployVerifyInput, v string) { in.Tag = v }),
+			clispec.StringParam("tack-server-digest", "index digest tack-app-1 must run (sha256:<64 hex>)", "", false,
+				func(in *deployVerifyInput, v string) { in.ServerDigest = v }),
+			clispec.StringParam("tack-audit-consumer-digest", "index digest tack-audit-consumer-1 must run (sha256:<64 hex>)", "", false,
+				func(in *deployVerifyInput, v string) { in.ConsumerDigest = v }),
 		},
 		New: func() deployVerifyInput {
-			return deployVerifyInput{InputMarker: clispec.InputMarker{}, Tag: ""}
+			return deployVerifyInput{InputMarker: clispec.InputMarker{}, Tag: "", ServerDigest: "", ConsumerDigest: ""}
 		},
 		Run: func(ctx context.Context, in deployVerifyInput, sink clispec.ResultSink) error {
-			return runDeployVerify(ctx, f.Cfg, sink, in.Tag)
+			digests, err := parseDeployIndexDigests(ctx, in.ServerDigest, in.ConsumerDigest)
+			if err != nil {
+				return err
+			}
+			return runDeployVerify(ctx, f.Cfg, sink, in.Tag, digests)
 		},
 	}
 }
