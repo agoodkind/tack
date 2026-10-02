@@ -2,13 +2,10 @@ package datagen
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"slices"
 	"strconv"
-	"strings"
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/config"
@@ -28,9 +25,6 @@ const (
 	// revokedActorIndex selects the actor that the revocation check removes
 	// from the organization. Actor 0 runs every other check.
 	revokedActorIndex = 2
-	// searchUnavailableResponse is the fixed tack_search outage text. An
-	// outage must not pass as an authorization refusal.
-	searchUnavailableResponse = "Search is temporarily unavailable."
 )
 
 // verifyAccess requires tack_search to return only nodes that the caller's
@@ -108,7 +102,10 @@ func putAccessNodes(ctx context.Context, fixture searchFixture, namePrefix strin
 }
 
 // isolated requires the complete traversal for accessPhrase to contain every
-// allowed node and no forbidden node.
+// allowed node and no forbidden node. It also reads the resolve record of
+// every returned node and requires the organization of the run's fixture.
+// The traversal can return other caller-organization nodes, such as nodes
+// from an earlier run with the same seed.
 func (r searchRun) isolated(ctx context.Context, allowed, forbidden []uuid.UUID) error {
 	results, err := traverseSearch(ctx, r.driver, r.token, r.entry, accessPhrase, r.limits)
 	if err != nil {
@@ -124,26 +121,28 @@ func (r searchRun) isolated(ctx context.Context, allowed, forbidden []uuid.UUID)
 			return fmt.Errorf("search %q under %s returned node %s of another organization", accessPhrase, r.entry, nodeID)
 		}
 	}
+	for _, nodeID := range results {
+		resolved, err := r.fixture.stores.Views.Resolve(ctx, nodeID)
+		if err != nil {
+			return loggedError(ctx, "qa datagen: resolve search result "+nodeID.String()+" under "+r.entry, err)
+		}
+		if resolved.OrgID != r.fixture.orgID {
+			return fmt.Errorf("search %q under %s returned node %s of org %s, want org %s",
+				accessPhrase, r.entry, nodeID, resolved.OrgID, r.fixture.orgID)
+		}
+	}
 	return nil
 }
 
 // refused requires one tack_search call to fail with an authorization
-// error. A result page, the outage response, or a transport failure fails
-// the check.
+// refusal that isAuthorizationRefusal accepts. A result page, any other tool
+// error, or a transport failure fails the check.
 func (r searchRun) refused(ctx context.Context, token, entry, cursor string) error {
 	page, err := callSearch(ctx, r.driver, token, entry, accessPhrase, cursor)
 	if err == nil {
 		return fmt.Errorf("search under %s returned %d nodes to a caller without access", entry, len(page.IDs))
 	}
-	if strings.Contains(err.Error(), searchUnavailableResponse) {
-		return loggedError(ctx, "qa datagen: search under "+entry+" returned the outage response instead of a refusal", err)
-	}
-	var toolError *toolCallError
-	if errors.As(err, &toolError) {
-		return nil
-	}
-	var statusError *httpStatusError
-	if errors.As(err, &statusError) && (statusError.statusCode == http.StatusUnauthorized || statusError.statusCode == http.StatusForbidden) {
+	if isAuthorizationRefusal(err, entry) {
 		return nil
 	}
 	return loggedError(ctx, "qa datagen: search under "+entry+" failed without an authorization refusal", err)
