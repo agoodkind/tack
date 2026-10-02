@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/google/uuid"
@@ -48,7 +47,7 @@ func (s *PropertyDefStore) Set(ctx context.Context, def *node.PropertyDef) (err 
 			return nil, searchReadFailure(ctx, "read property definition "+def.ID.String(), readErr)
 		}
 		if len(previous) == 0 && def.Search == nil {
-			return nil, undeclaredDefinitionError(ctx, def)
+			return nil, undeclaredDefinitionError{definition: def}
 		}
 		if err := updatePropertyDefinition(ctx, tr, s.clock.Now(), s.searchWork, def.OrgID, def.ID, previous, def); err != nil {
 			return nil, err
@@ -59,15 +58,19 @@ func (s *PropertyDefStore) Set(ctx context.Context, def *node.PropertyDef) (err 
 	return
 }
 
-// undeclaredDefinitionError logs and returns the refusal of a new definition
-// without a search declaration.
-func undeclaredDefinitionError(ctx context.Context, def *node.PropertyDef) error {
-	refusal := fmt.Errorf("store property definition %q (%s) in org %s: a new definition must declare search inclusion or exclusion: %w",
-		def.Name, def.ID, def.OrgID, node.ErrInvalidSearchProjection)
-	telemetry.L(ctx).ErrorContext(ctx, "store.property_def.search_undeclared",
-		slog.String("err", refusal.Error()), slog.String("property_definition_id", def.ID.String()))
-	return refusal
+// undeclaredDefinitionError is the refusal of a new definition without a
+// search declaration. The deferred telemetry.FDBOp in Set logs it once.
+type undeclaredDefinitionError struct {
+	definition *node.PropertyDef
 }
+
+func (e undeclaredDefinitionError) Error() string {
+	return fmt.Sprintf("store property definition %q (%s) in org %s: a new definition must declare search inclusion or exclusion: %v",
+		e.definition.Name, e.definition.ID, e.definition.OrgID, node.ErrInvalidSearchProjection)
+}
+
+// Unwrap lets callers match node.ErrInvalidSearchProjection.
+func (e undeclaredDefinitionError) Unwrap() error { return node.ErrInvalidSearchProjection }
 
 func (s *PropertyDefStore) Get(ctx context.Context, orgID, defID uuid.UUID) (def *node.PropertyDef, err error) {
 	defer telemetry.FDBOp(ctx, "store.property_def.get")(&err)
