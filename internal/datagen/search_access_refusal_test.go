@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/runtime"
@@ -35,13 +36,16 @@ const (
 	// uncontactedSearchEndpoint configures public search. No engine listens
 	// here. The malformed cursor fails before any engine request.
 	uncontactedSearchEndpoint = "https://[::1]:9"
+	// memberEntryArgument is the tack_search entry argument that the seeded
+	// workspace metadata advertises to a member.
+	memberEntryArgument = "workspace_reference"
 )
 
 // TestRefusedRejectsNonAuthorizationToolError runs refused against the real
 // MCP handler with public search enabled. A member's malformed cursor returns
 // the tool error "cursor is invalid". The earlier refused accepted every tool
-// error as a refusal; refused must now fail on it. An HTTP 401 for an unknown
-// bearer token must still pass.
+// error as a refusal; refused must now fail on it. An unknown bearer token
+// and a caller with no organization have their own cases below.
 func TestRefusedRejectsNonAuthorizationToolError(t *testing.T) {
 	ctx := t.Context()
 	t.Setenv("DATABASE_URL", testenv.Ledger(t))
@@ -79,8 +83,54 @@ func TestRefusedRejectsNonAuthorizationToolError(t *testing.T) {
 	if err := run.refused(ctx, member, workspace.Slug, malformedSearchCursor); err == nil {
 		t.Fatalf("refused accepted the tool error %q as an authorization refusal", invalidCursorProblem)
 	}
-	if err := run.refused(ctx, identities.BogusToken, workspace.Slug, ""); err != nil {
-		t.Fatalf("refused with an unknown bearer token = %v, want nil for HTTP 401", err)
+	requireUnknownBearerRejected(t, run, identities.BogusToken, workspace.Slug)
+	requireNoOrganizationRefusal(t, cfg, run, workspace)
+}
+
+// requireUnknownBearerRejected requires HTTP 401 from tools/list and from
+// tack_search for an unknown bearer token. isAuthorizationRefusal accepts the
+// tack_search 401. refused fails for this token because it requires a
+// successful tools/list read before the tack_search call.
+func requireUnknownBearerRejected(t *testing.T, run searchRun, token, entry string) {
+	t.Helper()
+	ctx := t.Context()
+	_, listErr := run.driver.searchEntryArgument(ctx, token)
+	if !isAuthenticationRejection(listErr) {
+		t.Fatalf("tools/list with an unknown bearer token = %v, want HTTP 401", listErr)
+	}
+	_, searchErr := callSearch(ctx, run.driver, token, entry, accessPhrase, "")
+	if !isAuthenticationRejection(searchErr) || !isAuthorizationRefusal(searchErr, entry) {
+		t.Fatalf("tack_search with an unknown bearer token = %v, want an accepted HTTP 401", searchErr)
+	}
+	if err := run.refused(ctx, token, entry, ""); err == nil {
+		t.Fatal("refused passed for an unknown bearer token without a successful tools/list read")
+	}
+}
+
+// requireNoOrganizationRefusal removes actor 1 from its only organization.
+// The member schema requires workspace_reference; the schema of a caller with
+// no organization requires _reference. refused must read each name from
+// tools/list, and the caller with no organization must be refused.
+func requireNoOrganizationRefusal(t *testing.T, cfg *config.Config, run searchRun, workspace WorkspaceIdentity) {
+	t.Helper()
+	ctx := t.Context()
+	actor := workspace.Actors[1]
+	if argument, err := run.driver.searchEntryArgument(ctx, actor.Token); err != nil || argument != memberEntryArgument {
+		t.Fatalf("member tack_search entry argument = %q, %v, want %q", argument, err, memberEntryArgument)
+	}
+	pool, err := postgres.NewPool(ctx, cfg.DatabaseURL, nil)
+	if err != nil {
+		t.Fatalf("open ledger pool: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	if err := postgres.NewOrgMemberRepo(pool).RemoveMember(ctx, workspace.OrgID, actor.UserID); err != nil {
+		t.Fatalf("remove member %s: %v", actor.UserID, err)
+	}
+	if argument, err := run.driver.searchEntryArgument(ctx, actor.Token); err != nil || argument != entryArgumentSuffix {
+		t.Fatalf("no-organization tack_search entry argument = %q, %v, want %q", argument, err, entryArgumentSuffix)
+	}
+	if err := run.refused(ctx, actor.Token, workspace.Slug, ""); err != nil {
+		t.Fatalf("refused for a caller with no organization = %v, want nil", err)
 	}
 }
 

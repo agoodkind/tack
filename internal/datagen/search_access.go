@@ -135,12 +135,22 @@ func (r searchRun) isolated(ctx context.Context, allowed, forbidden []uuid.UUID)
 }
 
 // refused requires one tack_search call to fail with an authorization
-// refusal that isAuthorizationRefusal accepts. A result page, any other tool
-// error, or a transport failure fails the check.
+// refusal that isAuthorizationRefusal accepts. The call reads the entry
+// argument name from the caller's tools/list schema first, and any failure of
+// that read fails the check. A result page, any other tool error, or a
+// transport failure also fails the check.
 func (r searchRun) refused(ctx context.Context, token, entry, cursor string) error {
-	page, err := callSearch(ctx, r.driver, token, entry, accessPhrase, cursor)
+	argument, err := r.driver.searchEntryArgument(ctx, token)
+	if err != nil {
+		return loggedError(ctx, "qa datagen: read the tack_search schema of a caller under "+entry, err)
+	}
+	arguments := map[string]string{argument: entry, "query": accessPhrase}
+	if cursor != "" {
+		arguments["cursor"] = cursor
+	}
+	_, err = r.driver.callSearchArguments(ctx, token, arguments)
 	if err == nil {
-		return fmt.Errorf("search under %s returned %d nodes to a caller without access", entry, len(page.IDs))
+		return fmt.Errorf("search under %s with argument %s returned a page to a caller without access", entry, argument)
 	}
 	if isAuthorizationRefusal(err, entry) {
 		return nil
