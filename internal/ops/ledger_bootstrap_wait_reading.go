@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"regexp"
 	"strconv"
 	"strings"
@@ -35,23 +36,51 @@ type ledgerBootstrapReading struct {
 	lastError           string
 }
 
-// ledgerBootstrapMasterAddresses returns the first count names of the
-// ordered ledger node list as name:7100 entries, comma joined. It never uses
+// ledgerBootstrapMasters lists the first nodes of TACK_LEDGER_NODE_HOSTS in
+// the two forms the wait dials. yb-admin dials node names, the identity
+// ledger TLS verifies, and resolves each name through an extra hosts entry:
+// site DNS answers a bare node name with the proxy. The master health check
+// runs in the host-networked ops process, which resolves no node name, and
+// dials the pinned addresses.
+type ledgerBootstrapMasters struct {
+	// names is the yb-admin master list, name:7100 entries comma joined.
+	names string
+	// extraHosts is one name:address entry per node for the one-shot.
+	extraHosts []string
+	// health is the health check list, [address]:7100 entries comma joined.
+	health string
+}
+
+// ledgerBootstrapMasterList reads the first count nodes of
+// TACK_LEDGER_NODE_HOSTS in node name order. It never uses
 // TACK_BACKUP_YB_MASTER_ADDRESSES: on a bootstrap run that list contains
 // nodes that have not started yet.
-func ledgerBootstrapMasterAddresses(cfg *config.Config, count int) (string, error) {
+func ledgerBootstrapMasterList(cfg *config.Config, count int) (ledgerBootstrapMasters, error) {
 	names, err := deployedLedgerNodeNames(cfg)
 	if err != nil {
-		return "", err
+		return ledgerBootstrapMasters{}, err
 	}
 	if count > len(names) {
-		return "", fmt.Errorf("--masters %d exceeds the %d ledger nodes in TACK_LEDGER_NODE_HOSTS", count, len(names))
+		return ledgerBootstrapMasters{}, fmt.Errorf("--masters %d exceeds the %d ledger nodes in TACK_LEDGER_NODE_HOSTS", count, len(names))
 	}
-	addresses := make([]string, 0, count)
+	addressOf := map[string]string{}
+	for address, name := range ledgerNodeNames(cfg) {
+		if earlier, seen := addressOf[name]; seen {
+			return ledgerBootstrapMasters{}, fmt.Errorf("TACK_LEDGER_NODE_HOSTS gives node %s two addresses, %s and %s", name, earlier, address)
+		}
+		addressOf[name] = address
+	}
+	masterNames := make([]string, 0, count)
+	extraHosts := make([]string, 0, count)
+	health := make([]string, 0, count)
 	for _, name := range names[:count] {
-		addresses = append(addresses, name+":"+ledgerMasterRPCPort)
+		masterNames = append(masterNames, name+":"+ledgerMasterRPCPort)
+		extraHosts = append(extraHosts, name+":"+addressOf[name])
+		health = append(health, net.JoinHostPort(addressOf[name], ledgerMasterRPCPort))
 	}
-	return strings.Join(addresses, ","), nil
+	return ledgerBootstrapMasters{
+		names: strings.Join(masterNames, ","), extraHosts: extraHosts, health: strings.Join(health, ","),
+	}, nil
 }
 
 // countAliveRows counts the output lines of list_all_masters or

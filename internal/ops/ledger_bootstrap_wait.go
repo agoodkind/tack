@@ -21,13 +21,17 @@ import (
 
 const (
 	// ledgerBootstrapWaitDefaultDeadline bounds a wait that checks only the
-	// master and tablet server counts.
-	ledgerBootstrapWaitDefaultDeadline = 5 * time.Minute
-	// ledgerBootstrapReplicationDeadline bounds a wait with --replicas.
-	// PROVISIONAL: a 4-tablet table took 122 to 130 s after the third tablet
-	// server joined until it had 0 under-replicated tablets (Mira M7). The
-	// final value comes from the lead's measured run.
-	ledgerBootstrapReplicationDeadline = 10 * time.Minute
+	// master and tablet server counts. TestLedgerBootstrapCluster on 347dab0b
+	// (Mac runner, 2026-10-02) measured 3.1 s from the yb2 start to 2 and 2
+	// and 5.8 s from the yb3 start to 3 and 3; Mira M5 measured 10.6 s for a
+	// yb2 join. One minute is about 5.7 times the slowest of the three.
+	ledgerBootstrapWaitDefaultDeadline = time.Minute
+	// ledgerBootstrapReplicationDeadline bounds a wait with --replicas. The
+	// same run measured 204.3 s from the yb3 start to 0 under-replicated
+	// tablets on the migrated ledger (44 tablets). Eleven minutes is three
+	// times that, rounded up to a whole minute, for QA guests that replicate
+	// across hosts under ledger TLS.
+	ledgerBootstrapReplicationDeadline = 11 * time.Minute
 	// ledgerBootstrapWaitDefaultPoll is how often the wait reads the cluster.
 	ledgerBootstrapWaitDefaultPoll = 2 * time.Second
 )
@@ -76,7 +80,7 @@ func ledgerBootstrapWaitOp(f *cli.Factory) clispec.Operation[ledgerBootstrapWait
 				func(in *ledgerBootstrapWaitInput, v int) { in.TabletServers = v }),
 			clispec.IntParam("replicas", "live replica count to wait for, with 0 under-replicated tablets; 0 skips both", 0,
 				func(in *ledgerBootstrapWaitInput, v int) { in.Replicas = v }),
-			clispec.StringParam("deadline", "total time before the wait fails (default 5m, or 10m with --replicas)", "", false,
+			clispec.StringParam("deadline", "total time before the wait fails (default 1m, or 11m with --replicas)", "", false,
 				func(in *ledgerBootstrapWaitInput, v string) { in.Deadline = v }),
 			clispec.StringParam("poll", "how often to read the cluster", ledgerBootstrapWaitDefaultPoll.String(), false,
 				func(in *ledgerBootstrapWaitInput, v string) { in.Poll = v }),
