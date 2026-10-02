@@ -66,4 +66,27 @@ func TestActAsCreateRecordsTheAgentSessionAndAccountableOperator(t *testing.T) {
 		t.Fatalf("grant extra session = %q on behalf of %+v, want session %s on behalf of %+v",
 			grant.SessionID, grant.OnBehalfOf, actAsAgentSession, want)
 	}
+	requireAgentUserRow(t, f, grant.GrantID, reason)
+}
+
+// requireAgentUserRow requires the row written as the user to record the
+// accountable operator and the agent service, its ID, and its session.
+func requireAgentUserRow(t *testing.T, f actAsFixture, grantID uuid.UUID, reason string) {
+	t.Helper()
+	if len(f.creator.staged) != 1 {
+		t.Fatalf("staged user rows = %d, want one", len(f.creator.staged))
+	}
+	var staged struct {
+		ActAs audit.ActProvenance `json:"act_as"`
+	}
+	if err := json.Unmarshal(f.creator.staged[0].Extra, &staged); err != nil {
+		t.Fatalf("decode the user row provenance: %v", err)
+	}
+	want := audit.ActProvenance{
+		OperatorID: uuid.MustParse(testOperatorID), OperatorEmail: testOperatorEmail, GrantID: grantID, Reason: reason,
+		AgentName: actAsAgentService, AgentID: cli.ServiceActorID(actAsAgentService), AgentSessionID: actAsAgentSession,
+	}
+	if staged.ActAs != want {
+		t.Fatalf("user row provenance = %+v, want %+v", staged.ActAs, want)
+	}
 }

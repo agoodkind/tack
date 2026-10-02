@@ -138,9 +138,7 @@ func runActAsCreate(ctx context.Context, deps actAsDeps, input actAsCreateInput,
 		return err
 	}
 	result.GrantID = grant.GrantID.String()
-	created, err := createAsUser(ctx, deps.nodes, target, input, audit.ActProvenance{
-		OperatorID: principal.ID, OperatorEmail: principal.Email, GrantID: grant.GrantID, Reason: reason,
-	})
+	created, err := createAsUser(ctx, deps.nodes, target, input, userRowProvenance(principal, grant.GrantID, reason))
 	if err != nil {
 		return err
 	}

@@ -12,12 +12,17 @@ import (
 // ActProvenance names the operator behind a write recorded as a product user.
 // It rides on the user's own ledger row, under the row hash, so the row keeps
 // the user as its actor and still says which operator made the change, under
-// which grant, and why (TACK-424).
+// which grant, and why (TACK-424). OperatorID and OperatorEmail identify the
+// accountable person. When an agent made the change for that person, the
+// Agent fields identify the agent service and its session.
 type ActProvenance struct {
-	OperatorID    uuid.UUID `json:"operator_id"`
-	OperatorEmail string    `json:"operator_email,omitempty"`
-	GrantID       uuid.UUID `json:"grant_id"`
-	Reason        string    `json:"reason"`
+	OperatorID     uuid.UUID `json:"operator_id"`
+	OperatorEmail  string    `json:"operator_email,omitempty"`
+	GrantID        uuid.UUID `json:"grant_id"`
+	Reason         string    `json:"reason"`
+	AgentName      string    `exhaustruct:"optional" json:"agent_name,omitempty"`
+	AgentID        uuid.UUID `exhaustruct:"optional" json:"agent_id,omitzero"`
+	AgentSessionID string    `exhaustruct:"optional" json:"agent_session_id,omitempty"`
 }
 
 type provenanceKey struct{}
