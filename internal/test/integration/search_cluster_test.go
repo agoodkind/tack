@@ -20,7 +20,7 @@ import (
 // observer must report the proxy as its only endpoint.
 func TestSearchClusterProxyEndpoint(t *testing.T) {
 	cluster := startSearchTestCluster(t, 1)
-	fixture, spec := newClusterQueryFixture(t, cluster)
+	fixture, spec := newClusterQueryFixture(t, cluster.Fixture)
 	defer captureClusterTestFailure(t, cluster, fixture, spec.Model.ID)
 	requireSearchable(t, fixture, []uuid.UUID{clusterNodeWriter(t, fixture)()})
 	proxy, err := url.Parse(cluster.Fixture.Endpoint)
@@ -43,7 +43,7 @@ func TestSearchClusterProxyEndpoint(t *testing.T) {
 // the pending work and the node becomes searchable.
 func TestSearchClusterEngineOutage(t *testing.T) {
 	cluster := startSearchTestCluster(t, 1)
-	fixture, spec := newClusterQueryFixture(t, cluster)
+	fixture, spec := newClusterQueryFixture(t, cluster.Fixture)
 	defer captureClusterTestFailure(t, cluster, fixture, spec.Model.ID)
 	write := clusterNodeWriter(t, fixture)
 	drainSearchWork(t, fixture.Worker, 500)
@@ -95,7 +95,7 @@ func TestSearchClusterScaleOut(t *testing.T) {
 	if len(backends) != len(members) {
 		t.Fatalf("proxy backends %v, want exactly the %d members", backends, len(members))
 	}
-	fixture, spec := newClusterQueryFixture(t, cluster)
+	fixture, spec := newClusterQueryFixture(t, cluster.Fixture)
 	defer captureClusterTestFailure(t, cluster, fixture, spec.Model.ID)
 	requireModelOnEveryMember(t, fixture, spec.Model.ID, len(members))
 	awaitGreen := func() {
