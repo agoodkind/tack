@@ -20,8 +20,8 @@ import (
 // mapped to the first build's node IDs.
 func TestSearchPermissionIdentifierReplacement(t *testing.T) {
 	keys := identifierTypeKeys{Container: opaqueSearchKey("n"), Nested: opaqueSearchKey("n")}
-	first := runIdentifierBuild(t, keys)
-	second := runIdentifierBuild(t, keys)
+	first := runIdentifierBuild(t, 1, keys)
+	second := runIdentifierBuild(t, 2, keys)
 	requireDisjointPermissionIDs(t, first.PermissionIDs, second.PermissionIDs)
 
 	replacements := make([]string, 0, 2*len(first.Allowed))
@@ -59,8 +59,9 @@ type identifierBuild struct {
 }
 
 // runIdentifierBuild creates one fixture and corpus, then records every
-// identifier query through public tack_search.
-func runIdentifierBuild(t *testing.T, keys identifierTypeKeys) identifierBuild {
+// identifier query through public tack_search. It logs the build number
+// before each query's checks, and a failed check then names its build.
+func runIdentifierBuild(t *testing.T, buildNumber int, keys identifierTypeKeys) identifierBuild {
 	t.Helper()
 	fixture := newQueryFixture(t, defaultQueryOptions())
 	corpus := putIdentifierCorpus(t, fixture, keys)
@@ -71,6 +72,7 @@ func runIdentifierBuild(t *testing.T, keys identifierTypeKeys) identifierBuild {
 	caller := fixture.Workspaces[0]
 	filter := callerAccess(t, fixture, caller, corpus.Entry)
 	for _, query := range identifierQueries() {
+		t.Logf("identifier build %d: checking raw ranking and tack_search results for %q", buildNumber, query)
 		requireSeparatedScores(t, fixture, filter, query, corpus.Allowed)
 		lines := identifierSearchLines(t, fixture.Harness, query)
 		ids := make([]uuid.UUID, 0, len(lines))
@@ -87,6 +89,9 @@ func runIdentifierBuild(t *testing.T, keys identifierTypeKeys) identifierBuild {
 		requireCorpusOnce(t, ids, corpus.Allowed, corpus.Entry)
 		build.Lines[query] = kept
 	}
+	// The next fixture sets the public alias, which the adapter refuses while
+	// the alias selects another index. Deleting this index removes the alias.
+	deleteNativeIndex(t, fixture.Client, fixture.Index)
 	return build
 }
 
