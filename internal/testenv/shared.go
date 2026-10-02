@@ -119,6 +119,7 @@ func daemonSeesSentinel(ctx context.Context, directory string) (bool, error) {
 		slog.ErrorContext(ctx, "testenv.shared.probe_failed", slog.String("err", err.Error()))
 		return false, fmt.Errorf("create probe container %s: %w", name, err)
 	}
+	slog.InfoContext(ctx, "testenv.shared.probe_started", slog.String("container", name))
 	defer func() { _ = removeContainersWith(context.WithoutCancel(ctx), cli, []string{name}) }()
 	if _, err := cli.ContainerStart(ctx, name, client.ContainerStartOptions{}); err != nil {
 		slog.ErrorContext(ctx, "testenv.shared.probe_failed", slog.String("err", err.Error()))

@@ -14,6 +14,11 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
+// processLabel records the test process that created an engine container.
+// The Mac runner attributes a fixed-name engine to its test process by this
+// label and the engine's testenv.engine.started log line.
+const processLabel = managedLabel + ".process"
+
 // engineSpec describes one engine container.
 type engineSpec struct {
 	// kind names the engine in the container name.
@@ -77,7 +82,7 @@ func startEngine(ctx context.Context, cli *client.Client, spec engineSpec) (engi
 			Cmd:         spec.cmd,
 			Env:         spec.env,
 			Healthcheck: spec.healthcheck,
-			Labels:      map[string]string{managedLabel: "true"},
+			Labels:      map[string]string{managedLabel: "true", processLabel: strconv.Itoa(os.Getpid())},
 		},
 		HostConfig:       hostConfig,
 		NetworkingConfig: networking,

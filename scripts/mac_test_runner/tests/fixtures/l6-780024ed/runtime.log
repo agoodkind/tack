@@ -1,0 +1,6 @@
+2026/10/02 18:41:51 INFO testenv.engine.started container=tack-yugabyte-1 image=yugabytedb/yugabyte:2024.2.8.0-b85
+2026/10/02 18:41:59 INFO testenv.ledger.empty_ready container=tack-yugabyte-1
+2026/10/02 18:41:59 INFO testenv.engine.started container=tack-testenv-foundationdb-521-5b8fb630 image=foundationdb/foundationdb:7.4.6
+2026/10/02 18:42:44 INFO testenv.engine.started container=tack-testenv-kafka-address-521-2be2bf1f image=apache/kafka:4.2.0
+2026/10/02 18:42:44 INFO testenv.engine.started container=tack-testenv-kafka-521-e6ea527d image=apache/kafka:4.2.0
+2026/10/02 18:42:46 INFO testenv.kafka.ready bootstrap=172.19.0.5:9092
