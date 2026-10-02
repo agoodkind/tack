@@ -55,7 +55,7 @@ func newClusterQueryFixture(t *testing.T, cluster *testenv.OpenSearchCluster) (q
 	t.Setenv("OPENSEARCH_REPLICAS", strconv.Itoa(spec.Replicas))
 	configureQueryEnvironment(t, defaultQueryOptions())
 	cfg := queryConfig(t)
-	graph := buildQueryGraph(t, cfg)
+	graph := buildRepairingQueryGraph(t, cfg)
 	scale, err := datagen.ParseScale("medium")
 	clusterRequire(t, "parse scale", err)
 	seed := nextHarnessSeed()

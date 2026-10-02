@@ -12,10 +12,11 @@ import (
 )
 
 // partitionHeadroomAlertFloor is the pg_partman premake count that migration
-// 014 sets for audit.events. A successful maintenance run partitions the
-// current week and the two weeks after it. HeadroomWeeks counts only the
-// partitions that start after now and returns 2 after that run. The manager
-// logs an alert when the count falls below this floor.
+// 014 sets for audit.events. A successful maintenance run creates weeks until
+// the newest partition starts at least two weeks after now. HeadroomWeeks
+// counts only the partitions that start after now. It returned 3 after a run
+// in the middle of a week on a freshly provisioned ledger. The manager logs
+// an alert when the count falls below this floor.
 const partitionHeadroomAlertFloor = 2
 
 // partitionStore is the data-access seam for the partition-manager, so the loop

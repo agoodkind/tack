@@ -39,11 +39,12 @@ func (g *Graph) Close() {
 	}
 }
 
-// CloseContext stops the subtree delete resume loop and every search worker
-// loop and waits for them before it closes the search adapter and the
-// remaining dependencies.
+// CloseContext stops the subtree delete resume loop, the model repair loop,
+// and every search worker loop and waits for them before it closes the
+// search adapter and the remaining dependencies.
 func (g *Graph) CloseContext(ctx context.Context) error {
 	g.stopDeleteResumer()
+	g.stopSearchModelRepair()
 	if g.searchCancel != nil {
 		g.searchCancel()
 	}

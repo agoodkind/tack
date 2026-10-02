@@ -98,6 +98,16 @@ func (a *Adapter) registerPinnedModel(ctx context.Context) (string, error) {
 
 // deployOnce starts one deploy task for modelID and waits for it.
 func (a *Adapter) deployOnce(ctx context.Context, modelID string) error {
+	taskID, err := a.startDeploy(ctx, modelID)
+	if err != nil {
+		return err
+	}
+	return a.waitDeploy(ctx, modelID, taskID)
+}
+
+// startDeploy starts one deploy task for modelID with no node IDs and
+// returns its task ID.
+func (a *Adapter) startDeploy(ctx context.Context, modelID string) (string, error) {
 	var started modelTaskStart
 	response, err := opensearch.Do(ctx, a.client, http.MethodPost, modelDeployRequest{modelID: modelID}, &started)
 	if err := checkMLResponse(ctx, response, err); err != nil {
@@ -105,17 +115,22 @@ func (a *Adapter) deployOnce(ctx context.Context, modelID string) error {
 		if !isLoggedModelError(err) {
 			telemetry.L(ctx).ErrorContext(ctx, "search.model.deploy_failed", slog.String("err", wrapped.Error()), slog.String("model_id", modelID))
 		}
-		return loggedModelError{err: wrapped}
+		return "", loggedModelError{err: wrapped}
 	}
 	if started.TaskID == "" {
-		return fmt.Errorf("deploy OpenSearch model %s: task ID is empty", modelID)
+		return "", fmt.Errorf("deploy OpenSearch model %s: task ID is empty", modelID)
 	}
-	deployedID, err := a.waitModelTask(ctx, started.TaskID)
+	return started.TaskID, nil
+}
+
+// waitDeploy waits for the deploy task taskID of modelID to end.
+func (a *Adapter) waitDeploy(ctx context.Context, modelID, taskID string) error {
+	deployedID, err := a.waitModelTask(ctx, taskID)
 	if err != nil {
 		return err
 	}
 	if deployedID != modelID {
-		return fmt.Errorf("deploy OpenSearch model %s: task returned model %s", modelID, deployedID)
+		return fmt.Errorf("deploy OpenSearch model %s: task %s returned model %s", modelID, taskID, deployedID)
 	}
 	return nil
 }
