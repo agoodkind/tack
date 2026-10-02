@@ -40,22 +40,19 @@ func TestSearchPermissionIdentifierReplacement(t *testing.T) {
 				t.Fatalf("query %q result %d after identifier replacement is %q, want %q", query, number, mapped, want[number])
 			}
 		}
-		if first.EntryReturned[query] != second.EntryReturned[query] {
-			t.Fatalf("query %q returned the caller's entry-point node %t in the first build and %t in the second",
-				query, first.EntryReturned[query], second.EntryReturned[query])
-		}
 	}
 }
 
 // identifierBuild is the observed public behavior of one corpus build. Lines
 // stores each query's result lines without the caller's entry-point node. The
-// identity bootstrap derives the entry-point name from its seed. The
-// entry-point line differs between builds for that reason.
+// identity bootstrap derives the entry-point name from its seed, and semantic
+// ranking matches that name text. Between builds, the entry-point line differs,
+// and a query can return the entry-point node in one build and not the other.
+// The comparison leaves the entry-point node out.
 type identifierBuild struct {
 	Allowed       []uuid.UUID
 	PermissionIDs []uuid.UUID
 	Lines         map[string][]string
-	EntryReturned map[string]bool
 }
 
 // runIdentifierBuild creates one fixture and corpus, then records every
@@ -67,7 +64,7 @@ func runIdentifierBuild(t *testing.T, buildNumber int, keys identifierTypeKeys) 
 	corpus := putIdentifierCorpus(t, fixture, keys)
 	build := identifierBuild{
 		Allowed: corpus.Allowed, PermissionIDs: corpus.PermissionIDs,
-		Lines: map[string][]string{}, EntryReturned: map[string]bool{},
+		Lines: map[string][]string{},
 	}
 	caller := fixture.Workspaces[0]
 	filter := callerAccess(t, fixture, caller, corpus.Entry)
@@ -81,7 +78,6 @@ func runIdentifierBuild(t *testing.T, buildNumber int, keys identifierTypeKeys) 
 			id := resultLineID(t, line)
 			ids = append(ids, id)
 			if id == corpus.Entry {
-				build.EntryReturned[query] = true
 				continue
 			}
 			kept = append(kept, line)
