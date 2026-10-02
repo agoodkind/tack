@@ -14,9 +14,7 @@ func TestActAsCreateDryRunRecordsNothing(t *testing.T) {
 	if err := runActAsCreate(t.Context(), f.deps, actAsInput(f, f.user.Email, "why"), sink, false); err != nil {
 		t.Fatalf("runActAsCreate: %v", err)
 	}
-	if rows := actAsGrantRows(t, f); len(rows) != 0 || len(f.creator.calls) != 0 {
-		t.Fatalf("the dry run recorded %d grant rows and made %d writes, want none", len(rows), len(f.creator.calls))
-	}
+	requireNoActAsWrite(t, f)
 	if !strings.Contains(sink.buf.String(), f.orgID.String()) || !strings.Contains(sink.buf.String(), `"dry_run":true`) {
 		t.Fatalf("report = %s, want the org and dry_run true", sink.buf.String())
 	}
