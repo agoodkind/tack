@@ -45,8 +45,12 @@ func (h compilerHierarchy) Ancestors(ctx context.Context, nodes []OrgNode) (map[
 		if err != nil {
 			return nil, hierarchyFailure(ctx, key.NodeID, "get search ancestor "+key.NodeID.String(), err)
 		}
-		if view == nil || view.OrgID != key.OrgID {
-			states[key] = AncestorState{Exists: view != nil, OrgID: orgOf(view), TypeKey: "", Type: nil, ChildOfs: nil}
+		if view == nil {
+			states[key] = AncestorState{Exists: false, OrgID: uuid.Nil, TypeKey: "", Type: nil, ChildOfs: nil}
+			continue
+		}
+		if view.OrgID != key.OrgID {
+			states[key] = AncestorState{Exists: true, OrgID: view.OrgID, TypeKey: "", Type: nil, ChildOfs: nil}
 			continue
 		}
 		kind, err := h.compiler.typeByKey(ctx, key.OrgID, view.NodeType, kinds)
@@ -75,8 +79,12 @@ func (h compilerHierarchy) Targets(ctx context.Context, nodes []OrgNode) (map[Or
 		if err != nil {
 			return nil, hierarchyFailure(ctx, key.NodeID, "resolve hierarchy node "+key.NodeID.String(), err)
 		}
-		if resolved == nil || resolved.OrgID != key.OrgID {
-			states[key] = TargetState{Exists: resolved != nil, OrgID: resolvedOrg(resolved), Type: nil}
+		if resolved == nil {
+			states[key] = TargetState{Exists: false, OrgID: uuid.Nil, Type: nil}
+			continue
+		}
+		if resolved.OrgID != key.OrgID {
+			states[key] = TargetState{Exists: true, OrgID: resolved.OrgID, Type: nil}
 			continue
 		}
 		kind, err := h.compiler.typeByKey(ctx, key.OrgID, resolved.NodeType, kinds)
@@ -103,20 +111,6 @@ func (c *OrgScopeCompiler) childOfs(ctx context.Context, key OrgNode) ([]uuid.UU
 		}
 		cursor = page.NextCursor
 	}
-}
-
-func orgOf(view *node.NodeView) uuid.UUID {
-	if view == nil {
-		return uuid.Nil
-	}
-	return view.OrgID
-}
-
-func resolvedOrg(resolved *node.NodeResolve) uuid.UUID {
-	if resolved == nil {
-		return uuid.Nil
-	}
-	return resolved.OrgID
 }
 
 func entryPointFailure(ctx context.Context, resourceID uuid.UUID, operation string, err error) error {

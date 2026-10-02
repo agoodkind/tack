@@ -45,8 +45,12 @@ func (h *summaryHierarchy) Ancestors(ctx context.Context, nodes []searchaccess.O
 	edges := make([]fdb.RangeResult, len(nodes))
 	for position, key := range nodes {
 		view := views[position]
-		if view == nil || view.OrgID != key.OrgID {
-			states[key] = searchaccess.AncestorState{Exists: view != nil, OrgID: viewOrg(view), TypeKey: "", Type: nil, ChildOfs: nil}
+		if view == nil {
+			states[key] = searchaccess.AncestorState{Exists: false, OrgID: uuid.Nil, TypeKey: "", Type: nil, ChildOfs: nil}
+			continue
+		}
+		if view.OrgID != key.OrgID {
+			states[key] = searchaccess.AncestorState{Exists: true, OrgID: view.OrgID, TypeKey: "", Type: nil, ChildOfs: nil}
 			continue
 		}
 		kind, err := h.nodeType(ctx, key.OrgID, view.NodeType)
@@ -160,11 +164,4 @@ func (h *summaryHierarchy) decodeNodeType(ctx context.Context, orgID, typeID uui
 		return nil, nil
 	}
 	return &kind, nil
-}
-
-func viewOrg(view *node.NodeView) uuid.UUID {
-	if view == nil {
-		return uuid.Nil
-	}
-	return view.OrgID
 }
