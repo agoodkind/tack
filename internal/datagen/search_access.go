@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	// accessPhrase is stored by both organizations. Only authorization
-	// separates their results.
+	// Both organizations store accessPhrase. Authorization is the only
+	// difference between their results.
 	accessPhrase = "umber lantern access ledger"
 	// accessCallerNodes exceeds one public page of 25 nodes. The first page
 	// of the caller organization returns a continuation cursor.

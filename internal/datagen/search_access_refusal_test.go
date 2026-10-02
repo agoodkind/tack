@@ -43,9 +43,9 @@ const (
 
 // TestRefusedRejectsNonAuthorizationToolError runs refused against the real
 // MCP handler with public search enabled. A member's malformed cursor returns
-// the tool error "cursor is invalid". The earlier refused accepted every tool
-// error as a refusal; refused must now fail on it. An unknown bearer token
-// and a caller with no organization have their own cases below.
+// the tool error "cursor is invalid", and refused must fail on this tool
+// error. An unknown bearer token and a caller with no organization have
+// their own cases below.
 func TestRefusedRejectsNonAuthorizationToolError(t *testing.T) {
 	ctx := t.Context()
 	t.Setenv("DATABASE_URL", testenv.Ledger(t))
