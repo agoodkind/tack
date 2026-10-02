@@ -24,13 +24,19 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// bulkMeter forwards every request to the engine and records the body
-// length of each bulk request. A page write sends one bulk request with one
-// encoded page. Each record equals the byte count the slice budget adds.
+// bulkRecord is the target index and body length of one bulk request.
+type bulkRecord struct {
+	index string
+	bytes int
+}
+
+// bulkMeter forwards every request to the engine and records each bulk
+// request. A page write sends one bulk request with one encoded page to the
+// target index, and one more to the mirror index during a replacement.
 type bulkMeter struct {
-	engine *httputil.ReverseProxy
-	mutex  sync.Mutex
-	bodies []int
+	engine  *httputil.ReverseProxy
+	mutex   sync.Mutex
+	records []bulkRecord
 }
 
 func (meter *bulkMeter) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
@@ -41,7 +47,8 @@ func (meter *bulkMeter) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 			return
 		}
 		meter.mutex.Lock()
-		meter.bodies = append(meter.bodies, len(body))
+		index := strings.TrimSuffix(strings.TrimPrefix(request.URL.Path, "/"), "/_bulk")
+		meter.records = append(meter.records, bulkRecord{index: index, bytes: len(body)})
 		meter.mutex.Unlock()
 		request.Body = io.NopCloser(bytes.NewReader(body))
 		request.ContentLength = int64(len(body))
@@ -49,13 +56,13 @@ func (meter *bulkMeter) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 	meter.engine.ServeHTTP(writer, request)
 }
 
-// take returns the bulk body lengths recorded since the last call.
-func (meter *bulkMeter) take() []int {
+// take returns the bulk requests recorded since the last call.
+func (meter *bulkMeter) take() []bulkRecord {
 	meter.mutex.Lock()
 	defer meter.mutex.Unlock()
-	bodies := meter.bodies
-	meter.bodies = nil
-	return bodies
+	records := meter.records
+	meter.records = nil
+	return records
 }
 
 // newMeteredSearchIndex provisions the model and one native index through a

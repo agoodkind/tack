@@ -89,7 +89,7 @@ func TestSearchWorkerSliceStopsAtByteBound(t *testing.T) {
 		if total >= settings.MaxBytes {
 			t.Fatalf("slice sent bulk request %d after %d bytes, at or above the bound %d", number, total, settings.MaxBytes)
 		}
-		total += body
+		total += body.bytes
 	}
 	if total < settings.MaxBytes || len(bodies) >= len(pages) || len(bodies) >= boundSlicePages {
 		t.Fatalf("slice sent %d requests with %d bytes for %d pages, want a stop at the byte bound %d before the last page", len(bodies), total, len(pages), settings.MaxBytes)
