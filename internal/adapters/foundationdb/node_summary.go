@@ -31,36 +31,52 @@ func NewNodeSummaryStore(db fdb.Database, policies *searchaccess.PolicySet) *Nod
 	return &NodeSummaryStore{db: db, policies: policies}
 }
 
-// Summaries returns one result per requested ID in input order. It returns a
-// deleted result for a node without a resolve record or view. A found result
-// includes the access keys that the current policies compile from the node's
-// current ancestry.
+// Summaries returns one result per requested ID in input order. One read
+// transaction reads every view and compiles every node's current access keys
+// from its current ancestry. It returns a deleted result for a node without a
+// resolve record or view. A node with a hierarchy defect is found with no
+// access keys, and no caller key permits it. A failed read returns an error.
 func (s *NodeSummaryStore) Summaries(ctx context.Context, nodeIDs []uuid.UUID, maxNameBytes int) (results []node.SummaryResult, err error) {
 	defer telemetry.FDBOp(ctx, "store.node_summary.read")(&err)
 	if len(nodeIDs) > maxSummaryBatch || maxNameBytes < 1 {
 		return nil, summaryFailure(ctx, fmt.Errorf("%d node IDs or name bound %d are outside the summary bounds", len(nodeIDs), maxNameBytes))
 	}
 	views := make([]*node.NodeView, len(nodeIDs))
+	var accesses map[searchaccess.OrgNode]searchaccess.ResourceAccess
 	err = runNodeReadTransaction(ctx, s.db, "read node summaries", func(tr fdb.Transaction) error {
-		return readSummaryViews(tr, nodeIDs, views)
+		if readErr := readSummaryViews(tr, nodeIDs, views); readErr != nil {
+			return readErr
+		}
+		resources := make([]searchaccess.OrgNode, 0, len(nodeIDs))
+		for position, nodeID := range nodeIDs {
+			if views[position] != nil {
+				resources = append(resources, searchaccess.OrgNode{OrgID: views[position].OrgID, NodeID: nodeID})
+			}
+		}
+		var accessErr error
+		accesses, accessErr = s.policies.BatchResourceKeys(ctx, newSummaryHierarchy(tr), resources)
+		if accessErr != nil {
+			return searchReadFailure(ctx, "compile current access of the summary batch", accessErr)
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, summaryFailure(ctx, err)
 	}
 	results = make([]node.SummaryResult, 0, len(nodeIDs))
-	batchContext := searchaccess.WithEntryPointMemo(ctx)
 	for position, nodeID := range nodeIDs {
 		view := views[position]
 		if view == nil {
 			results = append(results, node.SummaryResult{NodeID: nodeID, Status: node.SummaryDeleted, Summary: node.Summary{ID: nodeID, NodeType: "", Name: ""}, AccessKeys: nil})
 			continue
 		}
-		keys, keyErr := s.policies.ResourceKeys(batchContext, view.OrgID, nodeID)
-		if keyErr != nil {
-			return nil, summaryFailure(ctx, fmt.Errorf("compile current access for node %s: %w", nodeID, keyErr))
+		access := accesses[searchaccess.OrgNode{OrgID: view.OrgID, NodeID: nodeID}]
+		if access.Defect != nil {
+			telemetry.L(ctx).ErrorContext(ctx, "search.summary.withheld",
+				slog.String("node_id", nodeID.String()), slog.String("reason", access.Defect.Error()))
 		}
 		summary := node.Summary{ID: nodeID, NodeType: view.NodeType, Name: node.TruncateUTF8(view.Name, maxNameBytes)}
-		results = append(results, node.SummaryResult{NodeID: nodeID, Status: node.SummaryFound, Summary: summary, AccessKeys: keys})
+		results = append(results, node.SummaryResult{NodeID: nodeID, Status: node.SummaryFound, Summary: summary, AccessKeys: access.Keys})
 	}
 	return results, nil
 }

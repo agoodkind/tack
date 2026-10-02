@@ -16,48 +16,6 @@ import (
 // node without a hierarchy parent when its type lists CanLiveUnder types.
 var ErrNoHierarchyParent = errors.New("node requires exactly one hierarchy parent")
 
-// parent returns the one hierarchy parent of nodeID. A hierarchy parent is
-// the target node of a child_of edge from nodeID, and node.LivesUnder
-// accepts the pair of node types. Edges of every other relation type never
-// define a parent. parent reads the child_of edges from nodeID in bounded
-// pages. A node without a hierarchy parent is a hierarchy root when its type
-// lists no CanLiveUnder type, and parent returns uuid.Nil for it.
-func (c *OrgScopeCompiler) parent(ctx context.Context, orgID, nodeID uuid.UUID, kind *node.NodeType) (uuid.UUID, error) {
-	found := uuid.Nil
-	cursor := ""
-	kinds := map[string]*node.NodeType{kind.TypeKey: kind}
-	for {
-		page, err := c.relationships.EdgesFrom(ctx, orgID, nodeID, node.RelChildOf, cursor, maxDependentPage)
-		if err != nil {
-			return uuid.Nil, hierarchyFailure(ctx, nodeID, "list edges from node "+nodeID.String(), err)
-		}
-		for _, targetID := range page.IDs {
-			if targetID == found {
-				continue
-			}
-			target, err := c.typeOf(ctx, orgID, targetID, kinds)
-			if err != nil {
-				return uuid.Nil, err
-			}
-			if !node.LivesUnder(kind, target) {
-				continue
-			}
-			if found != uuid.Nil {
-				return uuid.Nil, hierarchyFailure(ctx, nodeID, "resolve hierarchy parent", ErrNoHierarchyParent)
-			}
-			found = targetID
-		}
-		if page.Done {
-			break
-		}
-		cursor = page.NextCursor
-	}
-	if found == uuid.Nil && len(kind.CanLiveUnder) > 0 {
-		return uuid.Nil, hierarchyFailure(ctx, nodeID, "resolve hierarchy parent", ErrNoHierarchyParent)
-	}
-	return found, nil
-}
-
 // children reads one bounded page of the child_of edges to resourceID and
 // returns each source node that node.LivesUnder places under resourceID.
 func (c *OrgScopeCompiler) children(ctx context.Context, orgID, resourceID uuid.UUID, cursor string, limit int) (node.IDPage, error) {
@@ -100,17 +58,23 @@ func (c *OrgScopeCompiler) typeOf(ctx context.Context, orgID, nodeID uuid.UUID, 
 	if resolved == nil || resolved.OrgID != orgID {
 		return nil, nil
 	}
-	if kind, exists := kinds[resolved.NodeType]; exists {
+	return c.typeByKey(ctx, orgID, resolved.NodeType, kinds)
+}
+
+// typeByKey returns the node type of orgID that uses typeKey, or nil when
+// none does. kinds caches one read per type key.
+func (c *OrgScopeCompiler) typeByKey(ctx context.Context, orgID uuid.UUID, typeKey string, kinds map[string]*node.NodeType) (*node.NodeType, error) {
+	if kind, exists := kinds[typeKey]; exists {
 		return kind, nil
 	}
-	kind, err := c.types.TypeByKey(ctx, orgID, resolved.NodeType)
+	kind, err := c.types.TypeByKey(ctx, orgID, typeKey)
 	if err != nil {
-		wrapped := fmt.Errorf("read node type %q in organization %s: %w", resolved.NodeType, orgID, err)
+		wrapped := fmt.Errorf("read node type %q in organization %s: %w", typeKey, orgID, err)
 		telemetry.L(ctx).ErrorContext(ctx, "search.access.type_read_failed",
-			slog.String("err", wrapped.Error()), slog.String("type_key", resolved.NodeType))
+			slog.String("err", wrapped.Error()), slog.String("type_key", typeKey))
 		return nil, loggedAccessError{err: wrapped}
 	}
-	kinds[resolved.NodeType] = kind
+	kinds[typeKey] = kind
 	return kind, nil
 }
 

@@ -45,6 +45,12 @@ func NewOrgScopeCompiler(version string, reader node.NodeReader, types TypeReade
 // Version returns this compiler's policy version.
 func (c *OrgScopeCompiler) Version() string { return c.version }
 
+// GrantKey encodes the opaque key that an organization and entry-point grant
+// receives under this compiler's version.
+func (c *OrgScopeCompiler) GrantKey(orgID, entryPointID uuid.UUID) (string, error) {
+	return EncodeKey(c.version, orgID[:], entryPointID[:])
+}
+
 // Dependents reads one bounded page of the hierarchy children of resourceID
 // and returns their node IDs. A child is the source node of a child_of edge
 // to resourceID, and node.LivesUnder accepts the pair of node types.
@@ -105,7 +111,7 @@ func (c *OrgScopeCompiler) Index(ctx context.Context, request IndexAccessRequest
 	if err != nil {
 		return node.SearchAccess{}, WithContext("resolve search resource "+request.ResourceID.String()+" entry point", err)
 	}
-	key, err := EncodeKey(request.Version, request.OrganizationID[:], entryPointID[:])
+	key, err := c.GrantKey(request.OrganizationID, entryPointID)
 	if err != nil {
 		wrapped := fmt.Errorf("encode search access for resource %s: %w", request.ResourceID, err)
 		telemetry.L(ctx).ErrorContext(ctx, "search.access.key_encode_failed",

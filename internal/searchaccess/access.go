@@ -43,10 +43,12 @@ type AccessRequest struct {
 // one bounded page of the resources that derive their access from a resource
 // under this policy. The page starts after an opaque cursor. EntryAuthority
 // returns the permission authority of an entry point, and Query returns the
-// opaque caller keys of one query.
+// opaque caller keys of one query. GrantKey encodes the key of one resolved
+// organization and entry-point grant.
 type Compiler interface {
 	Version() string
 	Index(context.Context, IndexAccessRequest) (node.SearchAccess, error)
+	GrantKey(orgID, entryPointID uuid.UUID) (string, error)
 	Dependents(ctx context.Context, orgID, resourceID uuid.UUID, cursor string, limit int) (node.IDPage, error)
 	EntryAuthority(context.Context, uuid.UUID) (uuid.UUID, error)
 	Query(context.Context, AccessRequest) ([]string, error)

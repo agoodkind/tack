@@ -54,17 +54,40 @@ func (s *PolicySet) Query(ctx context.Context, request AccessRequest) (search.Ac
 	return filter, nil
 }
 
-// ResourceKeys compiles the current opaque keys of one resource under every
-// registered policy version from current FoundationDB data.
-func (s *PolicySet) ResourceKeys(ctx context.Context, orgID, resourceID uuid.UUID) ([]string, error) {
-	keys := make([]string, 0, len(s.compilers))
-	for _, version := range slices.Sorted(maps.Keys(s.compilers)) {
-		access, err := s.Index(ctx, IndexAccessRequest{Version: version, OrganizationID: orgID, ResourceID: resourceID, Generation: 0})
-		if err != nil {
-			return nil, err
-		}
-		keys = append(keys, access.Keys...)
+// ResourceAccess is the current access of one resource. Keys lists its
+// sorted opaque keys under every registered policy version. A resource with
+// a hierarchy defect has no keys, and Defect wraps [ErrHierarchyDefect].
+type ResourceAccess struct {
+	Keys   []string
+	Defect error
+}
+
+// BatchResourceKeys compiles the current opaque keys of every resource under
+// every registered policy version. It resolves every entry point once through
+// reader with the [EntryPoints] rule that indexing uses. A failed read
+// returns an error for the whole batch.
+func (s *PolicySet) BatchResourceKeys(ctx context.Context, reader HierarchyReader, resources []OrgNode) (map[OrgNode]ResourceAccess, error) {
+	entries, defects, err := EntryPoints(ctx, reader, resources)
+	if err != nil {
+		return nil, WithContext("resolve search entry points", err)
 	}
-	slices.Sort(keys)
-	return slices.Compact(keys), nil
+	versions := slices.Sorted(maps.Keys(s.compilers))
+	accesses := make(map[OrgNode]ResourceAccess, len(resources))
+	for _, resource := range resources {
+		if defect := defects[resource]; defect != nil {
+			accesses[resource] = ResourceAccess{Keys: nil, Defect: defect}
+			continue
+		}
+		keys := make([]string, 0, len(versions))
+		for _, version := range versions {
+			key, err := s.compilers[version].GrantKey(resource.OrgID, entries[resource])
+			if err != nil {
+				return nil, entryPointFailure(ctx, resource.NodeID, "encode search access under "+version, err)
+			}
+			keys = append(keys, key)
+		}
+		slices.Sort(keys)
+		accesses[resource] = ResourceAccess{Keys: slices.Compact(keys), Defect: nil}
+	}
+	return accesses, nil
 }
