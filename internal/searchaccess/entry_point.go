@@ -12,8 +12,8 @@ import (
 
 // entryPoint returns the entry point of resourceID under the shared
 // [EntryPoints] rule. Query compiles caller keys only for entry-point types,
-// and no caller key matches the key of a root. Each read runs through the
-// compiler's own node, type, and relationship readers.
+// and no caller key matches the key of a root. Each read uses the compiler's
+// node, type, and relationship readers.
 func (c *OrgScopeCompiler) entryPoint(ctx context.Context, orgID, resourceID uuid.UUID) (uuid.UUID, error) {
 	if c.reader == nil || c.types == nil || c.relationships == nil {
 		return uuid.Nil, entryPointFailure(ctx, resourceID, "resolve entry point", fmt.Errorf("search policy dependencies are unavailable"))

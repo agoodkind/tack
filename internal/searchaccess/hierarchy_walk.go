@@ -8,7 +8,8 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// hierarchyWalk is the progress of one resource toward its entry point.
+// hierarchyWalk records, for one resource, the ancestors read so far, the
+// next node to read, and the entry point or hierarchy defect at the end.
 type hierarchyWalk struct {
 	resource OrgNode
 	current  uuid.UUID
