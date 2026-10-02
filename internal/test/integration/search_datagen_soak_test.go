@@ -13,8 +13,12 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
-// soakTestOperations is three passes of the 15-kind soak operation mix.
-const soakTestOperations = 45
+const (
+	// soakTestKinds is the number of operation kinds in the soak mix.
+	soakTestKinds = 15
+	// soakTestOperations is three passes of the soak operation mix.
+	soakTestOperations = 3 * soakTestKinds
+)
 
 type datagenSoakOutput struct {
 	Result struct {
@@ -37,7 +41,9 @@ type datagenSoakOutput struct {
 // operation. The max_ops stop reason after all 45 operations requires zero
 // errors. The result must report answered searches, no search refused as
 // unavailable, and for every operation kind a positive call count with p50
-// at or below p95.
+// at or below p95. A second run with public search off must stop at max_ops,
+// count every search as unavailable, and record its latency under
+// search_unavailable.
 func TestSearchDatagenSoakReportsSearchLatency(t *testing.T) {
 	fixture := newQueryFixture(t, defaultQueryOptions())
 	cfg := *fixture.Config
@@ -65,6 +71,28 @@ func TestSearchDatagenSoakReportsSearchLatency(t *testing.T) {
 			calls, searchCalls, result.Operations, result.Searches, result.Latency)
 	}
 	t.Logf("soak searches=%d latency=%+v", result.Searches, result.Latency)
+
+	disabled := cfg
+	disabled.SearchPublicEnabled = false
+	refused := runDatagenSoakCommit(t, &disabled).Result
+	wantUnavailable := soakTestOperations / soakTestKinds
+	if refused.StopReason != "max_ops" || refused.Operations != soakTestOperations ||
+		refused.Searches != 0 || refused.SearchesUnavailable != wantUnavailable {
+		t.Fatalf("soak with public search off = %q after %d operations with %d answered and %d unavailable searches, want max_ops after %d with 0 and %d",
+			refused.StopReason, refused.Operations, refused.Searches, refused.SearchesUnavailable, soakTestOperations, wantUnavailable)
+	}
+	unavailableCalls := 0
+	for _, latency := range refused.Latency {
+		if latency.Kind == "search" {
+			t.Fatalf("soak with public search off reported answered search latency %+v", latency)
+		}
+		if latency.Kind == "search_unavailable" {
+			unavailableCalls = latency.Calls
+		}
+	}
+	if unavailableCalls != wantUnavailable {
+		t.Fatalf("search_unavailable latency calls = %d, want %d: %+v", unavailableCalls, wantUnavailable, refused.Latency)
+	}
 }
 
 // runDatagenSoakCommit runs `ops qa datagen soak --commit` once through the
