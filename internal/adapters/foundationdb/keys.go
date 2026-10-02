@@ -112,10 +112,13 @@ const (
 	//   increments; every session binds it
 	// (search_retired_since, index) -> Unix nanoseconds of the first page
 	//   retirement in that physical index
+	// (search_model_repair) -> the one model repair record JSON: model ID,
+	//   episode start, attempt count, and last attempt time
 	keySearchRebuild           = "search_rebuild"
 	keySearchRebuildGeneration = "search_rebuild_generation"
 	keySearchRestoreEpoch      = "search_restore_epoch"
 	keySearchRetiredSince      = "search_retired_since"
+	keySearchModelRepair       = "search_model_repair"
 	keySearchEpoch             = "search_epoch"
 	keySearchRollout           = "search_rollout"
 	keySearchRolloutGeneration = "search_rollout_generation"
