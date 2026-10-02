@@ -68,7 +68,7 @@ func TestSearchWorkerSliceStopsAtPageBound(t *testing.T) {
 		}
 	}
 	runSearchWorkerUntilIdle(t, worker)
-	requireIndexedPages(t, searchNodePages(t, client, index, fixture.NodeID, false), pages, 0)
+	requireIndexedPages(t, searchNodePages(t, client, index, fixture.NodeID, false), readSearchPages(t, stores, fixture.NodeID, boundPageBytes), 0)
 }
 
 // TestSearchWorkerSliceStopsAtByteBound requires a slice to stop after the
@@ -98,5 +98,5 @@ func TestSearchWorkerSliceStopsAtByteBound(t *testing.T) {
 		t.Fatalf("first slice indexed %d pages, want %d", len(written), len(bodies))
 	}
 	runSearchWorkerUntilIdle(t, worker)
-	requireIndexedPages(t, searchNodePages(t, client, index, fixture.NodeID, false), pages, 0)
+	requireIndexedPages(t, searchNodePages(t, client, index, fixture.NodeID, false), readSearchPages(t, stores, fixture.NodeID, boundPageBytes), 0)
 }
