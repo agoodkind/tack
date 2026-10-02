@@ -53,6 +53,7 @@ func RegisterCommands(reg *clispec.Registry, f *cli.Factory) {
 	clispec.Register(reg, datagenSearchOp(f))
 	clispec.Register(reg, datagenLegacyLedgerRowOp(f))
 	clispec.Register(reg, provisionOp(f))
+	clispec.Register(reg, ledgerAuditBootstrapOp(f))
 	clispec.Register(reg, ledgerNodePrepareOp(f))
 	clispec.Register(reg, ledgerNodeWaitOp(f))
 	clispec.Register(reg, storeStatusOp(f))
