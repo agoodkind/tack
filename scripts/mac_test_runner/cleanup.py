@@ -5,6 +5,7 @@ import json
 from pydantic import TypeAdapter
 
 from . import state
+from .create import read_refusals
 from .evidence import capture, require
 from .fixtures import created_fixtures
 from .schemas import ContainerOwnership, DockerNetwork
@@ -110,6 +111,7 @@ def cleanup(
         )
         eligible.add(volume_name)
     remove_volumes(eligible, baseline_volumes, environment)
+    require_refused_absent(environment)
     for volume in state.CACHE_NAMES.values():
         capture(
             volume + "-preserved", ["docker", "volume", "inspect", volume], environment
@@ -119,3 +121,30 @@ def cleanup(
         "Unattributed create events prevent a complete invocation cleanup claim",
     )
     (state.OUTPUT / "cleanup.exit").write_text("0\n")
+
+
+def require_refused_absent(environment: dict[str, str]) -> None:
+    refused = read_refusals()
+    if not refused:
+        return
+    containers = set(
+        capture(
+            "refused-final-containers",
+            ["docker", "ps", "-aq", "--no-trunc"],
+            environment,
+        ).splitlines()
+    )
+    volumes = set(
+        capture(
+            "refused-final-volumes",
+            ["docker", "volume", "ls", "--format", "{{.Name}}"],
+            environment,
+        ).splitlines()
+    )
+    for record in refused:
+        require(
+            bool(record.volume),
+            "A refused runner has no verified anonymous volume identity",
+        )
+        require(record.container not in containers, "A refused runner remains")
+        require(record.volume not in volumes, "A refused runner volume remains")

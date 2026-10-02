@@ -23,4 +23,8 @@ INTERRUPTED = False
 EVIDENCE_CREATED = False
 OBSERVATION_SECONDS = 30
 STARTUP_SECONDS = 30
+# Docker Desktop sometimes rewrites the requested /var/run/docker.sock.raw bind
+# to /var/run/docker.sock after create. The runner retries only that refusal,
+# with a fixed limit of five creates per invocation.
+CREATE_ATTEMPTS = 5
 OPERATOR_SECONDS: float

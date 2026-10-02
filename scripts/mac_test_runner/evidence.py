@@ -6,6 +6,10 @@ from . import state
 from .schemas import DockerInspect
 
 
+class SocketMountRefusedError(RuntimeError):
+    """The created runner mounts a socket source other than the approved one."""
+
+
 def capture(name: str, arguments: list[str], environment: dict[str, str]) -> str:
     try:
         result = subprocess.run(
@@ -80,12 +84,14 @@ def verify_outer(inspected: DockerInspect) -> None:
         "The source mount differs from the original writable path",
     )
     socket = mounts["/var/run/docker.sock"]
-    require(
+    if not (
         socket.kind == "bind"
         and socket.source == "/var/run/docker.sock.raw"
-        and socket.writable,
-        "The guest socket mount differs from the approved mount",
-    )
+        and socket.writable
+    ):
+        raise SocketMountRefusedError(
+            "The guest socket mount differs from the approved mount"
+        )
     for target, expected in state.CACHE_NAMES.items():
         mount = mounts[target]
         require(

@@ -7,54 +7,13 @@ import time
 from pydantic import TypeAdapter
 
 from . import state
-from .evidence import capture, require, verify_outer
-from .schemas import DockerInspect, DockerNetwork
+from .create import create_verified_runner
+from .evidence import capture, require
+from .schemas import DockerInspect
 
 
 def run_selected(environment: dict[str, str]) -> int:
-    require(not state.INTERRUPTED, "The invocation was interrupted before creation")
-    create = [
-        "docker",
-        "compose",
-        "-f",
-        str(state.EFFECTIVE),
-        "--profile",
-        "runner",
-        "create",
-        "--no-build",
-        "--pull",
-        "never",
-        "tests",
-    ]
-    (state.OUTPUT / "create.command.json").write_text(json.dumps(create) + "\n")
-    capture("create", create, environment)
-    outer = capture(
-        "outer-id",
-        ["docker", "inspect", state.NAME, "--format", "{{.Id}}"],
-        environment,
-    ).strip()
-    (state.OUTPUT / "outer-id.txt").write_text(outer + "\n")
-    compose_network = TypeAdapter(list[DockerNetwork]).validate_json(
-        capture(
-            "compose-network-created",
-            ["docker", "network", "inspect", state.PROJECT + "_default"],
-            environment,
-        )
-    )[0]
-    if compose_network.identity not in set(
-        (state.OUTPUT / "baseline-networks.stdout").read_text().splitlines()
-    ):
-        require(
-            compose_network.labels.get("com.docker.compose.project") == state.PROJECT,
-            "The new network has unexpected ownership",
-        )
-        owned_network = compose_network.identity
-        (state.OUTPUT / "owned-network.id").write_text(owned_network + "\n")
-    inspected = TypeAdapter(list[DockerInspect]).validate_json(
-        capture("outer-created", ["docker", "inspect", outer], environment)
-    )[0]
-    require(inspected.identity == outer, "Runner inspection resolved another identity")
-    verify_outer(inspected)
+    outer = create_verified_runner(environment)
     require(not state.INTERRUPTED, "The invocation was interrupted before startup")
     start = ["docker", "--host", state.RAW, "start", "--attach", outer]
     (state.OUTPUT / "start.command.json").write_text(json.dumps(start) + "\n")
@@ -80,7 +39,8 @@ def run_selected(environment: dict[str, str]) -> int:
             if inspected_state.state.status == "created":
                 require(
                     elapsed < state.STARTUP_SECONDS,
-                    "The runner remained Created beyond the thirty-second startup bound",
+                    "The runner remained Created beyond the thirty-second "
+                    "startup bound",
                 )
             with (state.OUTPUT / "states.jsonl").open("a") as states:
                 states.write(
