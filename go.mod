@@ -30,7 +30,7 @@ require (
 	go.opentelemetry.io/otel v1.44.0
 	go.opentelemetry.io/otel/trace v1.44.0
 	go.yaml.in/yaml/v3 v3.0.4
-	golang.org/x/crypto v0.51.0
+	golang.org/x/crypto v0.52.0
 	golang.org/x/sys v0.45.0
 	goodkind.io/gklog v0.4.4
 	goodkind.io/send-email v0.0.0-20260805215029-28988072a5b0
