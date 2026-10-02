@@ -5,17 +5,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"strings"
 
 	opensearch "github.com/opensearch-project/opensearch-go/v4"
-	"goodkind.io/tack/internal/telemetry"
 )
 
-// connectorListLimit bounds the connectors that one check lists by ID. The
+// connectorSearchBody requests the name and protocol of at most 100
+// connectors. The source filter excludes connector credentials, and the
 // reported total counts every connector.
-const connectorListLimit = 100
+const connectorSearchBody = `{"query":{"match_all":{}},"_source":["name","protocol"],"size":100,"track_total_hits":true}`
 
 // LocalModel is the ML Commons record of one deployed model and of every
 // registered connector. A connector lets ML Commons send text to a service
@@ -36,6 +35,16 @@ type Connector struct {
 	Name     string
 	Protocol string
 }
+
+// localModelError is a LocalModel failure. LocalModel logs nothing; the caller
+// that owns the check logs the failure once.
+type localModelError struct {
+	operation string
+	err       error
+}
+
+func (e localModelError) Error() string { return e.operation + ": " + e.err.Error() }
+func (e localModelError) Unwrap() error { return e.err }
 
 type localModelDocument struct {
 	Algorithm   string          `json:"algorithm"`
@@ -78,9 +87,7 @@ func (a *Adapter) LocalModel(ctx context.Context, modelID string) (LocalModel, e
 		return model, err
 	}
 	if violations := localModelViolations(model); len(violations) > 0 {
-		wrapped := fmt.Errorf("OpenSearch model %s is not local: %w", modelID, errors.Join(violations...))
-		telemetry.L(ctx).ErrorContext(ctx, "search.model.not_local", slog.String("err", wrapped.Error()), slog.String("model_id", modelID))
-		return model, wrapped
+		return model, localModelError{operation: "OpenSearch model " + modelID + " is not local", err: errors.Join(violations...)}
 	}
 	return model, nil
 }
@@ -88,10 +95,8 @@ func (a *Adapter) LocalModel(ctx context.Context, modelID string) (LocalModel, e
 func (a *Adapter) readLocalModel(ctx context.Context, modelID string) (LocalModel, error) {
 	var document localModelDocument
 	response, err := opensearch.Do(ctx, a.client, http.MethodGet, modelGetRequest{modelID: modelID}, &document)
-	if err := checkMLResponse(ctx, response, err); err != nil {
-		wrapped := fmt.Errorf("read OpenSearch model %s: %w", modelID, err)
-		telemetry.L(ctx).ErrorContext(ctx, "search.model.local_read_failed", slog.String("err", wrapped.Error()), slog.String("model_id", modelID))
-		return LocalModel{}, wrapped
+	if err := localModelResponseError(response, err); err != nil {
+		return LocalModel{}, localModelError{operation: "read OpenSearch model " + modelID, err: err}
 	}
 	inline := len(document.Connector) > 0 && string(document.Connector) != "null"
 	return LocalModel{
@@ -103,16 +108,10 @@ func (a *Adapter) readLocalModel(ctx context.Context, modelID string) (LocalMode
 // readConnectors adds every registered connector to model. ML Commons
 // returns an empty result before the first connector creates its index.
 func (a *Adapter) readConnectors(ctx context.Context, model *LocalModel) error {
-	body, err := connectorSearchBody(ctx)
-	if err != nil {
-		return err
-	}
 	var found connectorSearchResult
-	response, err := opensearch.Do(ctx, a.client, http.MethodPost, connectorSearchRequest{body: body}, &found)
-	if err := checkMLResponse(ctx, response, err); err != nil {
-		wrapped := fmt.Errorf("search OpenSearch ML connectors: %w", err)
-		telemetry.L(ctx).ErrorContext(ctx, "search.model.connector_search_failed", slog.String("err", wrapped.Error()))
-		return wrapped
+	response, err := opensearch.Do(ctx, a.client, http.MethodPost, connectorSearchRequest{body: []byte(connectorSearchBody)}, &found)
+	if err := localModelResponseError(response, err); err != nil {
+		return localModelError{operation: "search OpenSearch ML connectors", err: err}
 	}
 	model.ConnectorTotal = found.Hits.Total.Value
 	for _, hit := range found.Hits.Hits {
@@ -121,24 +120,18 @@ func (a *Adapter) readConnectors(ctx context.Context, model *LocalModel) error {
 	return nil
 }
 
-// connectorSearchBody requests the name and protocol of each connector. The
-// source filter excludes connector credentials.
-func connectorSearchBody(ctx context.Context) ([]byte, error) {
-	type matchAllQuery struct {
-		MatchAll struct{} `json:"match_all"`
-	}
-	body, err := json.Marshal(struct {
-		Query          matchAllQuery `json:"query"`
-		Source         []string      `json:"_source"`
-		Size           int           `json:"size"`
-		TrackTotalHits bool          `json:"track_total_hits"`
-	}{Query: matchAllQuery{MatchAll: struct{}{}}, Source: []string{"name", "protocol"}, Size: connectorListLimit, TrackTotalHits: true})
+// localModelResponseError is checkMLResponse without its log line.
+func localModelResponseError(response *opensearch.Response, err error) error {
 	if err != nil {
-		wrapped := fmt.Errorf("marshal OpenSearch connector search: %w", err)
-		telemetry.L(ctx).ErrorContext(ctx, "search.model.connector_encode_failed", slog.String("err", wrapped.Error()))
-		return nil, wrapped
+		return err
 	}
-	return body, nil
+	if response == nil {
+		return errors.New("OpenSearch returned no ML response")
+	}
+	if response.IsError() {
+		return localModelError{operation: "OpenSearch ML request failed", err: opensearch.ParseError(response)}
+	}
+	return nil
 }
 
 func localModelViolations(model LocalModel) []error {
