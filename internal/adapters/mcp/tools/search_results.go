@@ -111,6 +111,8 @@ func searchFailureResult(ctx context.Context, err error) *mcpmcp.CallToolResult 
 		return recoverableError("the search snapshot ended; start a new search without cursor")
 	case errors.Is(err, searchdomain.ErrNoServingIndex):
 		return recoverableError("no search index is provisioned")
+	case errors.Is(err, searchdomain.ErrEngineUnavailable):
+		return searchUnavailable()
 	default:
 		return unexpectedError(ctx, err)
 	}

@@ -17,6 +17,9 @@ var (
 	// inference, rejected the token weights that inference returned, or
 	// rejected a session record above its byte bound.
 	ErrInvalidQuery = errors.New("search query is invalid")
+	// ErrEngineUnavailable means OpenSearch kept rejecting query inference
+	// with its memory circuit breaker after every bounded retry.
+	ErrEngineUnavailable = errors.New("search engine is temporarily unavailable")
 )
 
 // Query is one normalized search bound to a physical index, caller access,

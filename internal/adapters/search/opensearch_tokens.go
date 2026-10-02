@@ -49,7 +49,9 @@ type predictResponse struct {
 
 // predictQueryTokens runs the pinned model once and returns the exact
 // token-weight JSON. It requires exactly one nonempty map of finite,
-// nonnegative weights within maxBytes.
+// nonnegative weights within maxBytes. A memory circuit breaker rejection
+// that remains after the client retries wraps
+// [searchdomain.ErrEngineUnavailable].
 func (a *Adapter) predictQueryTokens(ctx context.Context, modelID, text string, maxBytes int) (json.RawMessage, error) {
 	body, err := json.Marshal(predictBody{TextDocs: []string{text}})
 	if err != nil {
@@ -64,7 +66,11 @@ func (a *Adapter) predictQueryTokens(ctx context.Context, modelID, text string, 
 		return nil, tokenFailure(ctx, modelID, errors.New("predict query tokens: OpenSearch returned no response"))
 	}
 	if response.IsError() {
-		return nil, tokenFailure(ctx, modelID, fmt.Errorf("predict query tokens: %w", opensearch.ParseError(response)))
+		parsed := opensearch.ParseError(response)
+		if breakerRejected(response.StatusCode, parsed) {
+			parsed = errors.Join(searchdomain.ErrEngineUnavailable, parsed)
+		}
+		return nil, tokenFailure(ctx, modelID, fmt.Errorf("predict query tokens: %w", parsed))
 	}
 	if len(decoded.InferenceResults) != 1 || len(decoded.InferenceResults[0].Output) != 1 ||
 		len(decoded.InferenceResults[0].Output[0].DataAsMap.Response) != 1 {
@@ -105,4 +111,15 @@ func tokenFailure(ctx context.Context, modelID string, err error) error {
 	wrapped := fmt.Errorf("compute query tokens with model %s: %w", modelID, err)
 	telemetry.L(ctx).ErrorContext(ctx, "search.query.tokens_failed", slog.String("err", wrapped.Error()), slog.String("model_id", modelID))
 	return wrapped
+}
+
+// breakerExceptionType is the OpenSearch error type of a circuit breaker
+// rejection.
+const breakerExceptionType = "circuit_breaking_exception"
+
+// breakerRejected reports whether a predict failed with HTTP status 429 and
+// the circuit breaker exception type.
+func breakerRejected(status int, parsed error) bool {
+	var structured *opensearch.StructError
+	return status == http.StatusTooManyRequests && errors.As(parsed, &structured) && structured.Err.Type == breakerExceptionType
 }
