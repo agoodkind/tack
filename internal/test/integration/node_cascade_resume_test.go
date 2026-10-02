@@ -59,8 +59,16 @@ func TestDeleteSplitsHighFanOutAcrossSteps(t *testing.T) {
 	if err != nil {
 		t.Fatalf("delete project %s: %v", project.ID, err)
 	}
-	if want := 1 + len(states) + cascadeFanOut; projectDeleted.Deleted != want || projectDeleted.State != node.SubtreeDeleteFinished {
-		t.Fatalf("delete project result = %+v, want %d deleted nodes and a finished job", projectDeleted, want)
+	/* Delete returns a running job once deleteRequestBudget ends. A slow
+	   runner ends the budget before the project's 111 nodes are gone; the
+	   resume pass then finishes the same job. */
+	if _, err := env.NodeSvc.ResumeSubtreeDeletes(env.Ctx, 0); err != nil {
+		t.Fatalf("resume the delete of project %s: %v", project.ID, err)
+	}
+	status, err := env.NodeSvc.DeleteStatus(env.Ctx, projectDeleted.JobID)
+	if want := 1 + len(states) + cascadeFanOut; err != nil || status.Deleted != want || status.State != node.SubtreeDeleteFinished {
+		t.Fatalf("delete project status = %+v, %v; first call %+v; want %d deleted nodes and a finished job",
+			status, err, projectDeleted, want)
 	}
 	requireNodesGone(t, env, append([]uuid.UUID{project.ID}, issues...))
 	requireNodesPresent(t, env, []uuid.UUID{workspace.ID})
