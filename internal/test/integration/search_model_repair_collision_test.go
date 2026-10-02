@@ -17,18 +17,14 @@ import (
 const (
 	// collisionAttempts is two rounds of restarts over the three members.
 	collisionAttempts = 6
-	// collisionPoll is the task index poll interval after a restart.
-	collisionPoll = 25 * time.Millisecond
-	// collisionNativeWait bounds the wait for the native task after a restart.
-	collisionNativeWait = time.Minute
 )
 
 // TestSearchClusterModelRepairCollision produces cause C on a 3-member cluster with
 // native automatic redeploy enabled. Each attempt restarts the current
 // cluster manager, which starts two native redeploy tasks: the new manager's
-// arrangement and the node join. The test sends two concurrent deploys when
-// the first native task appears. A collision
-// is a FAILED task with a version conflict, a sibling task that read
+// arrangement and the node join. The test sends two concurrent deploys as
+// soon as the restarted member answers health, while the native tasks run. A
+// collision is a FAILED task with a version conflict, a sibling task that read
 // DEPLOY_FAILED, and a stuck model record. After the collision, the
 // production repair loop must restore DEPLOYED on 3 of 3 members with 1 to 3
 // repair tasks. Every later task must be a repair task.
@@ -51,7 +47,6 @@ func TestSearchClusterModelRepairCollision(t *testing.T) {
 		restarted := clock.Now().UTC()
 		cluster.StopMember(t, member)
 		cluster.StartMember(t, member)
-		awaitDeployTask(t, fixture, modelID, restarted)
 		fault := injectDeployPair(t, fixture, modelID)
 		tasks := withoutTasks(awaitTasksEnded(t, fixture, modelID, restarted), repairTasks()[repairsBefore:])
 		record := modelRecord(t, fixture, modelID)
@@ -59,7 +54,11 @@ func TestSearchClusterModelRepairCollision(t *testing.T) {
 			t.Logf("attempt=%d member=%s task id=%s created=%s state=%s fault=%t error=%q", attempt+1, member,
 				task.ID, task.Created.Format(time.RFC3339Nano), task.State, slices.Contains(fault, task.ID), task.Error)
 		}
-		t.Logf("attempt=%d model state=%s workers=%d of %d", attempt+1, record.State, record.Current, record.Planned)
+		t.Logf("attempt=%d model state=%s workers=%d of %d native-to-injected gap=%s", attempt+1, record.State, record.Current,
+			record.Planned, injectionGap(tasks, fault))
+		if conflicted(tasks) && !stuck(record) {
+			t.Logf("attempt=%d collision healed by an injected deploy", attempt+1)
+		}
 		if !collided(tasks, record) {
 			requireClusterPredictors(t, cluster, fixture, modelID)
 			continue
@@ -124,24 +123,34 @@ func withoutTasks(tasks []deployTask, ids []string) []deployTask {
 // collided reports a FAILED version conflict task, a sibling that read
 // DEPLOY_FAILED, and a stuck model record.
 func collided(tasks []deployTask, record modelRecordState) bool {
+	return conflicted(tasks) && stuck(record)
+}
+
+// conflicted reports a FAILED version conflict task and a sibling task that
+// read DEPLOY_FAILED.
+func conflicted(tasks []deployTask) bool {
 	conflict := slices.ContainsFunc(tasks, func(task deployTask) bool {
 		return task.State == "FAILED" && strings.Contains(task.Error, "version conflict, required seqNo")
 	})
 	sibling := slices.ContainsFunc(tasks, func(task deployTask) bool {
 		return task.State == "COMPLETED_WITH_ERROR" && strings.Contains(task.Error, "but the model is in state: DEPLOY_FAILED")
 	})
-	stuck := record.State == "PARTIALLY_DEPLOYED" || record.State == "DEPLOY_FAILED"
-	return conflict && sibling && stuck
+	return conflict && sibling
 }
 
-// awaitDeployTask polls until the task index records a DEPLOY_MODEL task
-// created at or after since, or until collisionNativeWait passes.
-func awaitDeployTask(t *testing.T, fixture queryFixture, modelID string, since time.Time) {
-	t.Helper()
-	deadline := clock.Now().Add(collisionNativeWait)
-	for len(deployTasksFrom(t, fixture, modelID, since)) == 0 && clock.Now().Before(deadline) {
-		time.Sleep(collisionPoll)
+func stuck(record modelRecordState) bool {
+	return record.State == "PARTIALLY_DEPLOYED" || record.State == "DEPLOY_FAILED"
+}
+
+// injectionGap returns the time from the first native task to the first
+// injected task, or "none" when either is missing. Tasks are oldest first.
+func injectionGap(tasks []deployTask, fault []string) string {
+	native := slices.IndexFunc(tasks, func(task deployTask) bool { return !slices.Contains(fault, task.ID) })
+	injected := slices.IndexFunc(tasks, func(task deployTask) bool { return slices.Contains(fault, task.ID) })
+	if native < 0 || injected < 0 {
+		return "none"
 	}
+	return tasks[injected].Created.Sub(tasks[native].Created).String()
 }
 
 // awaitTasksEnded returns the tasks created at or after since once every
