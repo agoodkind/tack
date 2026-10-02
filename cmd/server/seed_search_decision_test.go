@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
@@ -53,8 +55,9 @@ func TestSeedCommandStoresSearchDecisionOnEverySeededDefinition(t *testing.T) {
 		"--execute", "--operator-id", "019dd226-440e-729a-a442-281aaf73ca30",
 		"--operator-email", "operator@example.com", "seed", "--allow-reseed",
 	})
-	if err := root.Execute(); err != nil {
-		t.Fatalf("seed: %v\n%s", err, output.String())
+	printed, err := executeWithoutPrintedTokens(t, root.Execute)
+	if err != nil {
+		t.Fatalf("seed: %v\n%s\n%s", err, output.String(), printed)
 	}
 
 	orgIDs, err := postgres.NewOrgMemberRepo(pool).ListOrgIDsForUser(t.Context(), userIDForEmail(email))
@@ -75,6 +78,41 @@ func TestSeedCommandStoresSearchDecisionOnEverySeededDefinition(t *testing.T) {
 		}
 	}
 	t.Logf("the seed stored %d definitions, each with a search decision", len(definitions))
+}
+
+// seedTokenHeaders start the lines the seed prints before each bearer value.
+var seedTokenHeaders = []string{"Production-mode API token", "Dev-mode bearer"}
+
+// executeWithoutPrintedTokens runs execute with the process standard output
+// sent to a temporary file, because the seed prints its bearer values there.
+// It returns the printed text with the line after each token header replaced,
+// so no test output contains a bearer value.
+func executeWithoutPrintedTokens(t *testing.T, execute func() error) (string, error) {
+	t.Helper()
+	capture, err := os.CreateTemp(t.TempDir(), "seed-stdout")
+	if err != nil {
+		t.Fatalf("create the seed output file: %v", err)
+	}
+	original := os.Stdout
+	os.Stdout = capture
+	runErr := execute()
+	os.Stdout = original
+	if err := capture.Close(); err != nil {
+		t.Fatalf("close the seed output file: %v", err)
+	}
+	printed, err := os.ReadFile(capture.Name())
+	if err != nil {
+		t.Fatalf("read the seed output file: %v", err)
+	}
+	lines := strings.Split(string(printed), "\n")
+	for i := 1; i < len(lines); i++ {
+		for _, header := range seedTokenHeaders {
+			if strings.HasPrefix(lines[i-1], header) {
+				lines[i] = "  [redacted test token]"
+			}
+		}
+	}
+	return strings.Join(lines, "\n"), runErr
 }
 
 // isolateSeedKeys points every store of this process at prefix and clears
