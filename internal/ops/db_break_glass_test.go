@@ -2,138 +2,70 @@ package ops
 
 import (
 	"bytes"
-	"context"
-	"encoding/json"
-	"errors"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 
 	"goodkind.io/tack/internal/audit"
-	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/testenv"
 )
 
-// capturedOutbox keeps every event a command records, so a test reads the
-// ledger row the way an auditor would rather than trusting the report.
-type capturedOutbox struct {
-	events []audit.Event
-}
-
-func (o *capturedOutbox) WriteOutbox(_ context.Context, event audit.Event) error {
-	o.events = append(o.events, event)
-	return nil
-}
-
-// bufferSink collects what a command reports, JSON and text alike.
-type bufferSink struct {
-	buf *bytes.Buffer
-}
-
-func (s *bufferSink) WriteJSON(_ context.Context, payload json.RawMessage) error {
-	_, err := s.buf.Write(payload)
-	return err
-}
-
-func (s *bufferSink) WriteText(_ context.Context, body string) error {
-	_, err := s.buf.WriteString(body)
-	return err
-}
-
-type fixedOperator struct {
-	principal audit.OperatorPrincipal
-}
-
-func (f fixedOperator) Resolve(context.Context) (audit.OperatorPrincipal, error) {
-	return f.principal, nil
-}
-
-func breakGlassDeps(dsn, recipient string, outbox *capturedOutbox) dbSQLDeps {
-	return dbSQLDeps{
-		cfg:    &config.Config{DatabaseURL: dsn, BackupAlarmEmail: recipient},
-		outbox: outbox,
-		identity: fixedOperator{principal: audit.OperatorPrincipal{
-			ID: uuid.MustParse("019ff315-bc5d-7a56-b12a-1a35f280c4dd"), Email: "operator@example.test",
-			Name: "Operator", Source: "test",
-		}},
-	}
-}
-
 // TestDBBreakGlassRefusesToRunUnobserved pins the control: no reason, no
-// recipient, or a mail the relay refused each stop the statement before the
-// database is touched. The database here refuses connections, so a statement
-// that ran would fail on the dial and name it; none of these errors do.
+// recipient, or a mail the SMTP server cannot accept each stop the statement
+// before the command dials the database. The database address here refuses
+// connections. A statement that ran would fail on that dial and name the
+// address; none of these errors name it. The mail account points at a closed
+// local port, and the real SQL outbox records no row for the statement that
+// never ran.
 func TestDBBreakGlassRefusesToRunUnobserved(t *testing.T) {
-	captured := captureBackupAlarmSends(t, nil)
-	outbox := &capturedOutbox{}
+	pool := testenv.LedgerPool(t, testenv.Ledger(t))
+	unreachable := unreachableMsmtprc(t)
+	reason := "incident 42 " + uuid.NewString()[:8]
 	var sink bytes.Buffer
-	deps := breakGlassDeps("postgres://tack@127.0.0.1:1/tack", "alarm@example.test", outbox)
+	deps := breakGlassDeps(t, pool, "postgres://tack@[::1]:2/tack", "alarm@example.test", unreachable)
 
-	err := runDBSQL(context.Background(), deps, dbSQLInput{Statement: "select 1", Reason: "  "}, &bufferSink{buf: &sink}, true)
+	err := runDBSQL(t.Context(), deps, dbSQLInput{Statement: "select 1", Reason: "  "}, &bufferSink{buf: &sink}, true)
 	if err == nil || !strings.Contains(err.Error(), "reason is required") {
 		t.Fatalf("err = %v, want the missing reason refused", err)
 	}
 
-	noRecipient := breakGlassDeps("postgres://tack@127.0.0.1:1/tack", "", outbox)
-	err = runDBSQL(context.Background(), noRecipient, dbSQLInput{Statement: "select 1", Reason: "incident 42"}, &bufferSink{buf: &sink}, true)
+	noRecipient := breakGlassDeps(t, pool, "postgres://tack@[::1]:2/tack", "", unreachable)
+	err = runDBSQL(t.Context(), noRecipient, dbSQLInput{Statement: "select 1", Reason: reason}, &bufferSink{buf: &sink}, true)
 	if err == nil || !strings.Contains(err.Error(), "TACK_BACKUP_ALARM_EMAIL is empty") {
 		t.Fatalf("err = %v, want the missing recipient refused", err)
 	}
 
-	captured.sendErr = errors.New("smtp dial mail.example.test:587: connection refused")
-	err = runDBSQL(context.Background(), deps, dbSQLInput{Statement: "select 1", Reason: "incident 42"}, &bufferSink{buf: &sink}, true)
-	if err == nil || !strings.Contains(err.Error(), "was not delivered, so the statement did not run") {
+	err = runDBSQL(t.Context(), deps, dbSQLInput{Statement: "select 1", Reason: reason}, &bufferSink{buf: &sink}, true)
+	if err == nil || !strings.Contains(err.Error(), "was not delivered") || !strings.Contains(err.Error(), "the statement did not run") {
 		t.Fatalf("err = %v, want the undelivered mail to stop the statement", err)
 	}
-	if strings.Contains(err.Error(), "127.0.0.1:1") {
+	if !strings.Contains(err.Error(), "smtp dial localhost:1") {
+		t.Fatalf("err = %v, want the attempted SMTP dial to the closed port named", err)
+	}
+	if strings.Contains(err.Error(), "[::1]:2") {
 		t.Fatalf("the database was dialed before the mail was confirmed: %v", err)
 	}
-	if len(captured.messages) != 1 || len(outbox.events) != 0 {
-		t.Fatalf("mails = %d, ledger rows = %d; want one attempted mail and no row for a statement that never ran",
-			len(captured.messages), len(outbox.events))
+	if rows := breakGlassRows(t, pool, reason); len(rows) != 0 {
+		t.Fatalf("ledger rows = %+v, want no row for a statement that never ran", rows)
 	}
-	if !strings.Contains(captured.messages[0].Body, "incident 42") || !strings.Contains(captured.messages[0].Body, "select 1") {
-		t.Fatalf("the mail must carry the reason and the statement, got %q", captured.messages[0].Body)
-	}
-}
-
-// runBreakGlass runs one statement through the command and returns the
-// decoded report, resetting the sink between calls.
-func runBreakGlass(t *testing.T, deps dbSQLDeps, statement string) (dbSQLResult, error) {
-	t.Helper()
-	var sink bytes.Buffer
-	err := runDBSQL(context.Background(), deps, dbSQLInput{Statement: statement, Reason: "TACK-327 proof"}, &bufferSink{buf: &sink}, true)
-	var result dbSQLResult
-	if err == nil {
-		if decodeErr := json.Unmarshal(sink.Bytes(), &result); decodeErr != nil {
-			t.Fatalf("decode the report: %v\n%s", decodeErr, sink.String())
-		}
-	}
-	return result, err
-}
-
-func breakGlassExtra(t *testing.T, row audit.Event) dbBreakGlassExtra {
-	t.Helper()
-	var extra dbBreakGlassExtra
-	if err := json.Unmarshal(row.Extra, &extra); err != nil {
-		t.Fatalf("decode the row's extra: %v", err)
-	}
-	return extra
 }
 
 // TestDBBreakGlassRunsTheStatementAndRecordsIt is the engine-backed half: a
 // statement that runs returns its cells positionally with a SQL null kept as
-// null, the alarm address is mailed first, and the ledger holds a pending row
-// written before the statement and an ok row after, paired by attempt, each
-// naming the operator, the reason, and the statement.
+// null, and the alarm address receives the mail first. The ledger outbox
+// contains a pending row written before the statement and an ok row after,
+// paired by attempt, each naming the operator, the reason, and the statement.
 func TestDBBreakGlassRunsTheStatementAndRecordsIt(t *testing.T) {
-	dsn := testenv.Ledger(t)
-	captured := captureBackupAlarmSends(t, nil)
-	outbox := &capturedOutbox{}
-	deps := breakGlassDeps(dsn, "alarm@example.test", outbox)
+	ledgerDSN := testenv.Ledger(t)
+	mail := mailpitFor(t)
+	pool := testenv.LedgerPool(t, ledgerDSN)
+	reason := "TACK-327 proof " + uuid.NewString()[:8]
+	statement := "select 42 as answer, 'glass' as answer, null as gone"
+	deps := breakGlassDeps(t, pool, ledgerDSN, "alarm@example.test", mail.Msmtprc)
 
-	result, err := runBreakGlass(t, deps, "select 42 as answer, 'glass' as answer, null as gone")
+	result, err := runBreakGlass(t, deps, statement, reason)
 	if err != nil {
 		t.Fatalf("runDBSQL: %v", err)
 	}
@@ -143,13 +75,21 @@ func TestDBBreakGlassRunsTheStatementAndRecordsIt(t *testing.T) {
 	if *result.Rows[0][0] != "42" || *result.Rows[0][1] != "glass" || result.Rows[0][2] != nil {
 		t.Fatalf("cells = %v, want both same-named columns kept in order and the null kept null", result.Rows[0])
 	}
-	if len(captured.messages) != 1 || captured.messages[0].To != "alarm@example.test" {
-		t.Fatalf("mails = %+v, want one to the alarm address", captured.messages)
+	messages, err := mail.Messages(t.Context())
+	if err != nil {
+		t.Fatalf("read the Mailpit mailbox: %v", err)
 	}
-	if len(outbox.events) != 2 {
-		t.Fatalf("ledger rows = %d, want the pending row and the ok row", len(outbox.events))
+	if len(messages) != 1 || !slices.Equal(messages[0].To, []string{"alarm@example.test"}) {
+		t.Fatalf("mails = %+v, want one to the alarm address", messages)
 	}
-	pending, done := outbox.events[0], outbox.events[1]
+	if !strings.Contains(messages[0].Text, reason) || !strings.Contains(messages[0].Text, statement) {
+		t.Fatalf("the mail must carry the reason and the statement, got %q", messages[0].Text)
+	}
+	rows := breakGlassRows(t, pool, reason)
+	if len(rows) != 2 {
+		t.Fatalf("ledger rows = %d, want the pending row and the ok row", len(rows))
+	}
+	pending, done := rows[0], rows[1]
 	if pending.Outcome != audit.OutcomePending || done.Outcome != audit.OutcomeOK {
 		t.Fatalf("outcomes = %s then %s, want pending then ok", pending.Outcome, done.Outcome)
 	}
@@ -160,32 +100,37 @@ func TestDBBreakGlassRunsTheStatementAndRecordsIt(t *testing.T) {
 	if done.Verb != string(audit.VerbOpsDBBreakGlass) || done.Actor.Email != "operator@example.test" {
 		t.Fatalf("row = %+v, want the break-glass verb by the operator", done)
 	}
-	if doneExtra.Statement != "select 42 as answer, 'glass' as answer, null as gone" || doneExtra.Reason != "TACK-327 proof" || doneExtra.RowsReturned != 1 {
+	if doneExtra.Statement != statement || doneExtra.Reason != reason || doneExtra.RowsReturned != 1 {
 		t.Fatalf("extra = %+v, want the statement, the reason, and the row count", doneExtra)
 	}
-	if pendingExtra.Statement != doneExtra.Statement || pending.Context.Reason != "TACK-327 proof" {
+	if pendingExtra.Statement != doneExtra.Statement || pending.Context.Reason != reason {
 		t.Fatalf("the pending row must carry the same statement and reason: %+v", pendingExtra)
 	}
 
 	// The one-statement contract is the server's: a batch is refused, and the
 	// refusal is recorded as the attempt's error outcome.
-	_, err = runBreakGlass(t, deps, "select 1; select 2")
+	_, err = runBreakGlass(t, deps, "select 1; select 2", reason)
 	if err == nil || !strings.Contains(err.Error(), "multiple commands") {
 		t.Fatalf("err = %v, want the batch refused by the server", err)
 	}
-	if len(outbox.events) != 4 || outbox.events[3].Outcome != audit.OutcomeError || outbox.events[3].Error == nil {
-		t.Fatalf("ledger rows = %+v, want a pending row and an error row for the refused batch", outbox.events)
+	rows = breakGlassRows(t, pool, reason)
+	if len(rows) != 4 || rows[3].Outcome != audit.OutcomeError || rows[3].Error == nil {
+		t.Fatalf("ledger rows = %+v, want a pending row and an error row for the refused batch", rows)
 	}
 
 	// A large result is cut at the row limit and says so.
-	result, err = runBreakGlass(t, deps, "select generate_series(1, 2000)")
+	result, err = runBreakGlass(t, deps, "select generate_series(1, 2000)", reason)
 	if err != nil {
 		t.Fatalf("runDBSQL: %v", err)
 	}
 	if result.RowsReturned != dbBreakGlassRowLimit || !result.Truncated {
 		t.Fatalf("rows = %d truncated = %v, want %d rows marked truncated", result.RowsReturned, result.Truncated, dbBreakGlassRowLimit)
 	}
-	if extra := breakGlassExtra(t, outbox.events[5]); !extra.Truncated || extra.RowsReturned != dbBreakGlassRowLimit {
+	rows = breakGlassRows(t, pool, reason)
+	if len(rows) != 6 {
+		t.Fatalf("ledger rows = %d, want three pending and outcome pairs", len(rows))
+	}
+	if extra := breakGlassExtra(t, rows[5]); !extra.Truncated || extra.RowsReturned != dbBreakGlassRowLimit {
 		t.Fatalf("the ok row must say the result was cut: %+v", extra)
 	}
 }

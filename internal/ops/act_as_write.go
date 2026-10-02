@@ -37,7 +37,7 @@ func recordActAsGrant(ctx context.Context, outbox audit.OutboxWriter, principal 
 		Verb: string(audit.VerbOpsActAsGrant), EventID: eventID,
 		Actor: audit.Actor{
 			Type: principal.ActorType(), ID: principal.ID, Email: principal.Email, Name: principal.Name,
-			SessionID: "", IP: "", UserAgent: "", RequestID: "", APITokenLabel: "",
+			SessionID: principal.SessionID, IP: "", UserAgent: "", RequestID: "", APITokenLabel: "",
 		},
 		Entity: audit.Entity{Type: "user", NodeType: "", ID: grant.TargetUserID, Identifier: grant.TargetEmail, Name: ""},
 		Context: audit.EventContext{

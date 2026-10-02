@@ -35,6 +35,7 @@ type Factory struct {
 	operatorEmail            *string                      `exhaustruct:"optional"`
 	operatorName             *string                      `exhaustruct:"optional"`
 	operatorService          *string                      `exhaustruct:"optional"`
+	operatorSession          *string                      `exhaustruct:"optional"`
 	deployCommit             *string                      `exhaustruct:"optional"`
 	execute                  *bool                        `exhaustruct:"optional"`
 	operatorSource           audit.OperatorIdentitySource `exhaustruct:"optional"`
@@ -69,6 +70,12 @@ func (f *Factory) Operator() (string, string, string) {
 // flag, empty when the command runs as a human operator.
 func (f *Factory) OperatorService() string {
 	return stringValue(f.operatorService)
+}
+
+// OperatorSession returns the agent session identifier selected by the
+// session flag, empty when no session was supplied.
+func (f *Factory) OperatorSession() string {
+	return stringValue(f.operatorSession)
 }
 
 // DeployCommit reports the deployment commit after trimming whitespace.
@@ -139,7 +146,9 @@ func (f *Factory) RegisterGlobalFlags(root *cobra.Command) {
 		"operator-name", "", "operator name")
 	f.operatorService = root.PersistentFlags().String(
 		"operator-service", "",
-		"service name for a non-human operator identity; mutually exclusive with --operator-id")
+		"service name for a non-human operator identity; with --operator-id, the service acts for that operator")
+	f.operatorSession = root.PersistentFlags().String(
+		"operator-session", "", "agent session identifier; valid only with --operator-service")
 	f.deployCommit = root.PersistentFlags().String(
 		"deploy-commit", "", "commit or branch being deployed, supplied by the deploy playbook")
 	f.execute = root.PersistentFlags().Bool(

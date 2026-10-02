@@ -47,10 +47,12 @@ func (s ServiceOperatorSource) Resolve(ctx context.Context) (audit.OperatorPrinc
 		return audit.OperatorPrincipal{}, err
 	}
 	return audit.OperatorPrincipal{
-		ID:     ServiceActorID(serviceName),
-		Email:  "",
-		Name:   serviceName,
-		Source: "service",
-		Kind:   audit.ActorService,
+		ID:         ServiceActorID(serviceName),
+		Email:      "",
+		Name:       serviceName,
+		Source:     "service",
+		Kind:       audit.ActorService,
+		SessionID:  strings.TrimSpace(s.Factory.OperatorSession()),
+		OnBehalfOf: nil,
 	}, nil
 }

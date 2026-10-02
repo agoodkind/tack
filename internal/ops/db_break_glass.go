@@ -11,7 +11,6 @@ package ops
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -19,10 +18,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"goodkind.io/send-email/mailer"
 
-	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/clispec"
 	"goodkind.io/tack/internal/clock"
@@ -66,28 +63,6 @@ type dbSQLResult struct {
 	Rows         [][]*string `json:"rows,omitempty"`
 }
 
-// dbBreakGlassExtra is what the ledger rows carry beyond the choke-point's
-// pair: the statement and the reason, so the record says what was done and
-// why rather than only that the command ran. The attempt id pairs the intent
-// row with its outcome row.
-type dbBreakGlassExtra struct {
-	AttemptID    uuid.UUID `json:"attempt_id"`
-	Statement    string    `json:"statement"`
-	Reason       string    `json:"reason"`
-	MailedTo     string    `json:"mailed_to"`
-	CommandTag   string    `json:"command_tag,omitempty"`
-	RowsReturned int       `json:"rows_returned"`
-	Truncated    bool      `json:"truncated,omitempty"`
-}
-
-// dbStatementResult is what one statement produced.
-type dbStatementResult struct {
-	Tag       string
-	Columns   []string
-	Rows      [][]*string
-	Truncated bool
-}
-
 func runDBSQL(ctx context.Context, deps dbSQLDeps, input dbSQLInput, sink clispec.ResultSink, execute bool) error {
 	statement := strings.TrimSpace(input.Statement)
 	reason := strings.TrimSpace(input.Reason)
@@ -119,6 +94,7 @@ func runDBSQL(ctx context.Context, deps dbSQLDeps, input dbSQLInput, sink clispe
 	extra := dbBreakGlassExtra{
 		AttemptID: uuid.Must(uuid.NewV7()), Statement: statement, Reason: reason,
 		MailedTo: deps.cfg.BackupAlarmEmail, CommandTag: "", RowsReturned: 0, Truncated: false,
+		SessionID: principal.SessionID, OnBehalfOf: onBehalfOfWithReason(principal, reason),
 	}
 	if err := recordDBBreakGlass(ctx, deps.outbox, principal, extra, audit.OutcomePending, nil); err != nil {
 		return err
@@ -145,10 +121,11 @@ func runDBSQL(ctx context.Context, deps dbSQLDeps, input dbSQLInput, sink clispe
 // failure: the mail is what makes the access observed.
 func mailDBBreakGlass(ctx context.Context, cfg *config.Config, principal audit.OperatorPrincipal, statement, reason string) error {
 	host := backupAlarmHost()
+	identityLine, subjectEmail := dbBreakGlassMailIdentity(principal)
 	message := mailer.Message{
 		To:      cfg.BackupAlarmEmail,
-		Subject: "Break-glass database statement on " + host + " by " + principal.Email,
-		Body: "Operator: " + principal.Name + " <" + principal.Email + "> (" + principal.Source + ")\n" +
+		Subject: "Break-glass database statement on " + host + " by " + subjectEmail,
+		Body: identityLine + "\n" +
 			"Host: " + host + "\n" +
 			"Time: " + clock.Now().UTC().Format(backupAlarmTimeLayout) + "\n" +
 			"Reason: " + reason + "\n" +
@@ -164,102 +141,18 @@ func mailDBBreakGlass(ctx context.Context, cfg *config.Config, principal audit.O
 	return nil
 }
 
-// runDBStatement runs the statement through the extended protocol as one
-// unnamed prepared statement, which the server refuses for more than one
-// command, so the one-statement contract is enforced by the database rather
-// than by parsing here. Results are requested in text so every cell is
-// reported as the server renders it.
-func runDBStatement(ctx context.Context, dsn, statement string) (dbStatementResult, error) {
-	none := dbStatementResult{Tag: "", Columns: nil, Rows: nil, Truncated: false}
-	pool, err := postgres.NewPool(ctx, dsn, &telemetry.QueryTracer{})
-	if err != nil {
-		slog.ErrorContext(ctx, "db.break_glass.pool_failed", slog.String("err", err.Error()))
-		return none, fmt.Errorf("open the database for the break-glass statement: %w", err)
+// dbBreakGlassMailIdentity returns the first body line of the alarm mail and
+// the email address at the end of the subject. A service principal with an
+// accountable operator reports the agent, its session, and the operator
+// email. Every other principal reports the operator line and its own email.
+func dbBreakGlassMailIdentity(principal audit.OperatorPrincipal) (string, string) {
+	if principal.ActorType() == audit.ActorService && principal.OnBehalfOf != nil {
+		accountable := principal.OnBehalfOf.OperatorEmail
+		line := "Agent: " + principal.Name + " (session " + principal.SessionID + ") for " + accountable
+		return line, accountable
 	}
-	defer pool.Close()
-	rows, err := pool.Query(ctx, statement, pgx.QueryExecModeExec, pgx.QueryResultFormats{pgx.TextFormatCode})
-	if err != nil {
-		slog.ErrorContext(ctx, "db.break_glass.query_failed", slog.String("err", err.Error()))
-		return none, fmt.Errorf("run the break-glass statement: %w", err)
-	}
-	defer rows.Close()
-	outcome := dbStatementResult{Tag: "", Columns: nil, Rows: nil, Truncated: false}
-	for _, field := range rows.FieldDescriptions() {
-		outcome.Columns = append(outcome.Columns, field.Name)
-	}
-	for rows.Next() {
-		if len(outcome.Rows) == dbBreakGlassRowLimit {
-			outcome.Truncated = true
-			break
-		}
-		outcome.Rows = append(outcome.Rows, textCells(rows.RawValues()))
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		slog.ErrorContext(ctx, "db.break_glass.rows_failed", slog.String("err", err.Error()))
-		return none, fmt.Errorf("run the break-glass statement: %w", err)
-	}
-	outcome.Tag = rows.CommandTag().String()
-	return outcome, nil
-}
-
-// textCells copies one row out of the connection's buffers, keeping a SQL
-// null as a nil cell.
-func textCells(raw [][]byte) []*string {
-	cells := make([]*string, 0, len(raw))
-	for _, value := range raw {
-		if value == nil {
-			cells = append(cells, nil)
-			continue
-		}
-		text := string(value)
-		cells = append(cells, &text)
-	}
-	return cells
-}
-
-// recordDBBreakGlass writes one detail row. The pending row goes in before
-// the statement and the ok or error row after, paired by attempt id, so a
-// process lost mid-statement leaves a pending row naming exactly what was
-// attempted. Both carry the statement and the reason.
-func recordDBBreakGlass(
-	ctx context.Context,
-	outbox audit.OutboxWriter,
-	principal audit.OperatorPrincipal,
-	extra dbBreakGlassExtra,
-	outcome audit.Outcome,
-	runErr error,
-) error {
-	encoded, err := json.Marshal(extra)
-	if err != nil {
-		slog.ErrorContext(ctx, "db.break_glass.extra_encode_failed", slog.String("err", err.Error()))
-		return fmt.Errorf("encode the break-glass record: %w", err)
-	}
-	event := audit.Event{
-		Verb: string(audit.VerbOpsDBBreakGlass), EventID: uuid.Must(uuid.NewV7()),
-		Actor: audit.Actor{
-			Type: principal.ActorType(), ID: principal.ID, Email: principal.Email, Name: principal.Name,
-			SessionID: "", IP: "", UserAgent: "", RequestID: "", APITokenLabel: "",
-		},
-		Entity: audit.Entity{Type: "database", NodeType: "", ID: extra.AttemptID, Identifier: "", Name: extra.CommandTag},
-		Context: audit.EventContext{
-			OrgID: audit.SystemOrgID(), WorkspaceID: uuid.Nil, ScopeID: uuid.Nil, ParentID: uuid.Nil,
-			RequestID: "", TraceID: "", Source: audit.SourceSystem, Tool: "", RPC: "", Reason: extra.Reason,
-		},
-		Delta: nil, Outcome: outcome, Error: nil, IdempotencyKey: "",
-		OccurredAt: clock.Now().UTC(), Extra: encoded,
-	}
-	if runErr != nil {
-		event.Error = &audit.EventError{Code: "statement_failed", Message: runErr.Error()}
-	}
-	recordCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), dbBreakGlassRecordTimeout)
-	defer cancel()
-	if err := outbox.WriteOutbox(recordCtx, event); err != nil {
-		slog.ErrorContext(ctx, "db.break_glass.record_failed",
-			slog.String("outcome", string(outcome)), slog.String("err", err.Error()))
-		return fmt.Errorf("record the break-glass statement (%s): %w", outcome, err)
-	}
-	return nil
+	line := "Operator: " + principal.Name + " <" + principal.Email + "> (" + principal.Source + ")"
+	return line, principal.Email
 }
 
 func writeDBSQLResult(ctx context.Context, sink clispec.ResultSink, result dbSQLResult) error {

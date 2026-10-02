@@ -81,6 +81,14 @@ type OperatorPrincipal struct {
 	// which keeps the existing human sources unchanged; the service identity
 	// source sets ActorService so a daemon is never recorded as a human.
 	Kind ActorType `exhaustruct:"optional"`
+	// SessionID identifies the agent session that ran the command. The
+	// service identity source sets it from the session flag; a human principal
+	// leaves it empty.
+	SessionID string `exhaustruct:"optional"`
+	// OnBehalfOf identifies the accountable human operator when a service
+	// principal runs a command for that operator. It is nil when the principal
+	// acts on its own account.
+	OnBehalfOf *ActProvenance `exhaustruct:"optional"`
 }
 
 // ActorType returns the ledger actor kind this principal records as. The zero
