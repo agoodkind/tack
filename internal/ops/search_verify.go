@@ -120,6 +120,9 @@ func verifySearchPhysical(ctx context.Context, adapter *search.Adapter, topology
 		logger.ErrorContext(ctx, "search.verify.model_failed", slog.String("err", wrapped.Error()), slog.String("model_id", info.ModelID))
 		return wrapped
 	}
+	if err := verifySearchModelLocal(ctx, adapter, info.ModelID); err != nil {
+		return err
+	}
 	settings, err := adapter.IndexSettings(ctx, index)
 	if err != nil {
 		wrapped := fmt.Errorf("read search index settings %s: %w", index, err)
