@@ -1,7 +1,6 @@
 package integration
 
 import (
-	"errors"
 	"os"
 	"slices"
 	"testing"
@@ -128,11 +127,17 @@ func TestSearchCursorActualOSProcesses(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, server := range []*actualSearchServer{second, restarted} {
-		_, err := actualProcessSearch(t, server, harness, replaySession, query, opened.Cursor)
-		var refusal actualSearchToolRefusal
-		if !errors.As(err, &refusal) {
-			t.Fatalf("actual process did not return a valid MCP refusal after membership revocation: %v", err)
+		pid := server.command.Process.Pid
+		entry, err := actualSearchEntryArgument(t, server, harness, uuid.NewString())
+		if err != nil {
+			t.Fatalf("read revoked caller entry argument pid=%d: %v", pid, err)
 		}
+		arguments := map[string]any{entry: harness.Workspace, "query": query, "cursor": opened.Cursor}
+		_, err = actualProcessTool(t, server, harness, replaySession, "tack_search", arguments)
+		if err == nil || !actualSearchRefusal(err, harness.Workspace) {
+			t.Fatalf("actual process did not refuse the revoked caller pid=%d entry_argument=%s: %v", pid, entry, err)
+		}
+		t.Logf("actual process refused the revoked caller pid=%d entry_argument=%s refusal=%v", pid, entry, err)
 	}
 	if len(workspace.Actors) < 2 {
 		t.Fatal("revocation control requires a second current member")

@@ -17,9 +17,25 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-type actualSearchToolRefusal struct{}
+// actualToolError is an MCP tool result with isError set. Text is the raw tool
+// text for refusal classification; Message is the sanitized text for output.
+type actualToolError struct {
+	Text    string
+	Message string
+}
 
-func (actualSearchToolRefusal) Error() string { return "actual process search tool rejected request" }
+func (failure actualToolError) Error() string {
+	return fmt.Sprintf("actual process tool error text=%s", failure.Message)
+}
+
+// actualHTTPStatusError is an MCP request that returned a non-200 HTTP status.
+type actualHTTPStatusError struct {
+	StatusCode int
+}
+
+func (failure actualHTTPStatusError) Error() string {
+	return fmt.Sprintf("actual process HTTP status %d", failure.StatusCode)
+}
 
 func actualProcessSearch(t *testing.T, server *actualSearchServer, harness *MCPHarness, sessionID, query, cursor string) (searchPage, error) {
 	t.Helper()
@@ -51,8 +67,8 @@ func actualProcessTool(t *testing.T, server *actualSearchServer, harness *MCPHar
 	}
 	if call.Result.IsError {
 		message := sanitizeActualProtocolMessage(call.Result.Text(), server.command.Env, harness.token)
-		t.Logf("actual process tool refusal request_id=%s tool=%s message=%s", call.ID, name, message)
-		return call, actualSearchToolRefusal{}
+		t.Logf("actual process tool error request_id=%s tool=%s message=%s", call.ID, name, message)
+		return call, actualToolError{Text: call.Result.Text(), Message: message}
 	}
 	if err := requireActualProcessAudit(t.Context(), harness, call.ID, name); err != nil {
 		return call, err
@@ -105,7 +121,7 @@ func actualProcessRPC(t *testing.T, server *actualSearchServer, harness *MCPHarn
 		return call, fmt.Errorf("actual process response body failed")
 	}
 	if response.StatusCode != http.StatusOK {
-		return call, fmt.Errorf("actual process HTTP status %d", response.StatusCode)
+		return call, actualHTTPStatusError{StatusCode: response.StatusCode}
 	}
 	if strings.Contains(response.Header.Get("Content-Type"), "text/event-stream") {
 		for _, line := range bytes.Split(payload, []byte("\n")) {
