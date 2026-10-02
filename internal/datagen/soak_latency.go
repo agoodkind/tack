@@ -8,12 +8,15 @@ import (
 
 // SoakOperationLatency is the completed call count and latency of one soak
 // operation kind. P50 and P95 are nearest-rank percentiles of the wall time
-// of each completed operation, which includes all of its MCP calls.
+// of each completed operation, which includes all of its MCP calls. Min and
+// Max are the shortest and longest of those wall times.
 type SoakOperationLatency struct {
 	Kind  string
 	Calls int
+	Min   time.Duration
 	P50   time.Duration
 	P95   time.Duration
+	Max   time.Duration
 }
 
 // soakLatencies stores the wall time of every completed operation by kind.
@@ -37,8 +40,9 @@ func (l *soakLatencies) summary() []SoakOperationLatency {
 		sorted := slices.Clone(l.samples[kind])
 		slices.Sort(sorted)
 		latencies = append(latencies, SoakOperationLatency{
-			Kind: kind, Calls: len(sorted),
+			Kind: kind, Calls: len(sorted), Min: sorted[0],
 			P50: nearestRank(sorted, 50), P95: nearestRank(sorted, 95),
+			Max: sorted[len(sorted)-1],
 		})
 	}
 	return latencies

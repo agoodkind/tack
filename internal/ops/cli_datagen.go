@@ -64,12 +64,15 @@ type datagenSoakResult struct {
 }
 
 // datagenSoakOperationLatency is the completed operation count and the
-// nearest-rank p50 and p95 wall time of one soak operation kind.
+// minimum, nearest-rank p50 and p95, and maximum wall time of one soak
+// operation kind.
 type datagenSoakOperationLatency struct {
 	Kind  string  `json:"kind"`
 	Calls int     `json:"calls"`
+	MinMs float64 `json:"min_ms"`
 	P50Ms float64 `json:"p50_ms"`
 	P95Ms float64 `json:"p95_ms"`
+	MaxMs float64 `json:"max_ms"`
 }
 
 func soakLatencyResult(latencies []datagen.SoakOperationLatency) []datagenSoakOperationLatency {
@@ -77,8 +80,10 @@ func soakLatencyResult(latencies []datagen.SoakOperationLatency) []datagenSoakOp
 	for _, latency := range latencies {
 		result = append(result, datagenSoakOperationLatency{
 			Kind: latency.Kind, Calls: latency.Calls,
+			MinMs: float64(latency.Min) / float64(time.Millisecond),
 			P50Ms: float64(latency.P50) / float64(time.Millisecond),
 			P95Ms: float64(latency.P95) / float64(time.Millisecond),
+			MaxMs: float64(latency.Max) / float64(time.Millisecond),
 		})
 	}
 	return result
