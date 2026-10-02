@@ -173,18 +173,63 @@ For each failure, rerun the smallest exact test until it fails consistently. Tra
 
 - [ ] **Step 9: Run the complete search suite from a clean test environment.**
 
+Run the suite as five fixed groups. Each group limit is the slowest complete CI measurement of that group times 1.5, rounded up to 5 minutes. The measurements come from the OpenSearch CI jobs 110765693590, 109857411134, and the completed groups of 110045603547.
+
+| Group | Selection | Tests | Slowest measurement | Limit |
+| --- | --- | --- | --- | --- |
+| G1 | `^TestSearchContinuationTraversesDuplicateHeavyCorpus$` | 1 | 2388.1 s (110045603547) | 60m |
+| G2 | `^TestSearchActualOSProcessThroughput$` | 1 | 1062.7 s (110045603547) | 30m |
+| G3 | `^TestSearch(Split|Restore|Rebuild)` | 7 | 1122.4 s (110765693590) | 30m |
+| G4 | `^TestSearchCluster` | 3 | 955.4 s on the Mac runner | 25m |
+| G5 | `^TestSearch`, skipping the G1 to G4 tests | 67 | 1604.1 s (110765693590) | 45m |
+
+G5 selects every search test that G1 to G4 do not select. A new search test runs in G5 unless a change assigns it to another group.
+
+CI runs G1, G2, G3, and G5 as parallel jobs and skips the cluster tests. Acceptance requires the G4 run on the Mac runner with `TACK_SEARCH_CLUSTER=1`.
+
 ```sh
 make test-env-down
-TACK_TEST_ROOT="$PWD" docker compose -f docker-compose.test.yml --profile runner run --rm tests test -count=1 -timeout 45m -run '^TestSearch' ./internal/test/integration
+make test-search-group GROUP=G1
+make test-search-group GROUP=G2
+make test-search-group GROUP=G3
+make test-search-group GROUP=G5
+TACK_SEARCH_CLUSTER=1 uv run --with pydantic --python 3.14 python scripts/test-search-mac.py \
+    --root "$PWD" --image "sha256:<local-runner-image-id>" \
+    --run '^TestSearchCluster' --count 1 --timeout 25m \
+    --evidence-dir "/private/tmp/tack-search-g4-$(date +%Y%m%d-%H%M%S)"
 make build
 ```
+
+Before the first group run, confirm the group membership against the compiled package. `go test -list` ignores `-skip`, so derive G5 from the full list with the G5 skip expression.
+
+```sh
+go test -tags=fdb ./internal/test/integration -list '^TestSearch' | grep '^TestSearch' | sort > all.txt
+go test -tags=fdb ./internal/test/integration -list '^TestSearch(ContinuationTraversesDuplicateHeavyCorpus|ActualOSProcessThroughput)$|^TestSearch(Split|Restore|Rebuild|Cluster)' | grep '^TestSearch' | sort > g1-g4.txt
+grep -v -E '^(TestSearchContinuationTraversesDuplicateHeavyCorpus|TestSearchActualOSProcessThroughput|TestSearchSplit.*|TestSearchRestore.*|TestSearchRebuild.*|TestSearchCluster.*)$' all.txt > g5.txt
+sort g1-g4.txt g5.txt | uniq -d
+sort g1-g4.txt g5.txt | diff - all.txt
+```
+
+Require an empty duplicate list and an empty difference: every search test runs in exactly one group.
 
 Require every search test to pass without a skip. Require `make build` to pass every repository gate from fresh sources.
 
 - [ ] **Step 10: Repeat the concurrency and replacement tail.**
 
+Run the same 26 tests as three groups, each with count 3. These limits are derived, not measured: each is three times the slowest single CI run of the group's tests, times 1.5. Record the actual duration of each group in the first local tail run against its limit.
+
+| Group | Tests | Slowest single CI run | Limit |
+| --- | --- | --- | --- |
+| T1 | `TestSearchContinuationTraversesDuplicateHeavyCorpus` | 2388.1 s (110045603547) | 180m |
+| T2 | The seven `TestSearchRebuild`, `TestSearchRestore`, and `TestSearchSplit` tail tests | 1122.4 s (110765693590) | 85m |
+| T3 | The 18 remaining tail tests | 632.7 s (110765693590) | 50m |
+
+The Makefile variables `SEARCH_T2_TESTS` and `SEARCH_T3_TESTS` name the exact T2 and T3 tests.
+
 ```sh
-TACK_TEST_ROOT="$PWD" docker compose -f docker-compose.test.yml --profile runner run --rm tests test -count=3 -timeout 45m -run '^(TestSearchAccessDependentsSurviveEdit|TestSearchAccessUpdatesOlderActiveRevision|TestSearchAccessVersionWithoutRebuild|TestSearchAccessMembershipQueryOnly|TestSearchAccessResourceRefresh|TestSearchAccessRolloutRecovery|TestSearchAccessOnlyUpdateWithoutModel|TestSearchCursorAcrossProcesses|TestSearchCursorExactSortValues|TestSearchCursorOnePredictionPerSession|TestSearchCursorReplayAndConcurrency|TestSearchRebuildExcludesOrphanNodes|TestSearchAccessChangeKeepsPendingContent|TestSearchCursorActualOSProcesses|TestSearchFiltersForbiddenPagesBeforeRanking|TestSearchFinalCheckRejectsCorruptIndexedAccess|TestSearchRevokedAccessRejectsLaterResultsAndReplay|TestSearchContinuationTraversesDuplicateHeavyCorpus|TestSearchRebuildStepFitsLease|TestSearchRebuildFailsAfterPauseLimit|TestSearchRebuildDuringChanges|TestSearchDelayedWriter|TestSearchRestoreRejectsCursors|TestSearchRuntimeIndexesThroughGraph|TestSearchSplitDuringChanges|TestSearchSplitWithoutModel)$' ./internal/test/integration
+make test-search-group GROUP=T1
+make test-search-group GROUP=T2
+make test-search-group GROUP=T3
 make test-env-down
 ```
 
