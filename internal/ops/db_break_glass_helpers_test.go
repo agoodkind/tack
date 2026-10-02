@@ -30,6 +30,8 @@ var breakGlassMailTests = []string{
 	"TestDBPlanRefusesAnExpiredPlan",
 	"TestDBPlanCloseFailsWhileTheConsumerIsBehind",
 	"TestDBPlanRefusesACloseByAnotherPrincipal",
+	"TestDBPlanStatementWaitsForTheOpenRow",
+	"TestDBPlanCloseFailsOnADeadLetteredPlanRow",
 }
 
 // unreachableMsmtprcFormat is an msmtp account on the closed local port 1.

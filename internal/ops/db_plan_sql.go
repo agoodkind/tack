@@ -96,11 +96,11 @@ func authorizePlannedStatement(
 	return errors.Join(refused, recordErr, mailErr)
 }
 
-// dbPlanRefusal reads the plan rows and returns the refusal reason, or an
-// empty string when the plan permits the statement. A read failure is a
-// refusal.
+// dbPlanRefusal reads the plan rows, waiting up to dbPlanOpenRowWait for the
+// open row, and returns the refusal reason, or an empty string when the plan
+// permits the statement. A read failure is a refusal.
 func dbPlanRefusal(ctx context.Context, dsn string, principal audit.OperatorPrincipal, planID uuid.UUID, statement string) string {
-	state, err := readDBPlanState(ctx, dsn, planID)
+	state, err := awaitDBPlanOpenRow(ctx, dsn, planID)
 	if err != nil {
 		return "the plan rows could not be read: " + err.Error()
 	}

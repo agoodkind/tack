@@ -40,7 +40,9 @@ func dbSQLOp(f *cli.Factory) clispec.Operation[dbSQLInput] {
 			"and the alarm address is mailed before the statement runs; a mail " +
 			"that cannot be delivered refuses the statement. Nothing runs " +
 			"without --execute; without it the command reports what it would run. " +
-			"With --plan-id the statement runs without its own mail when the open " +
+			"With --plan-id the command waits up to " + dbPlanOpenRowWait.String() + " for the " +
+			"open row of the plan in the operator outbox or the ledger. The statement " +
+			"runs without its own mail when the open " +
 			"plan lists it and the same principal opened the plan; otherwise the " +
 			"command writes a refused row, mails the refusal, and returns an error " +
 			"before the statement runs.",

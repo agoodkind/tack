@@ -60,9 +60,11 @@ func dbPlanCloseOp(f *cli.Factory) clispec.Operation[dbPlanCloseInput] {
 		Aliases:  nil,
 		Hidden:   false,
 		Short:    "Mail the summary of a plan and close it",
-		Long: "With --execute the command reads the audit topic high-water marks and waits " +
-			"up to --wait for the audit consumer to commit past them; past --wait it mails " +
-			"that the summary is incomplete and fails. It then refuses a closer other than " +
+		Long: "With --execute the command waits up to --wait for the relay to send the " +
+			"events in the operator outbox and for the audit consumer to commit past the " +
+			"audit topic high-water marks, then reads the plan rows through the ledger " +
+			"reader. Past --wait, or with a plan row in the audit dead-letter table, it " +
+			"mails that the summary is incomplete and fails. It then refuses a closer other than " +
 			"the principal that opened the plan, with a refused row and a mail. It then " +
 			"mails the alarm address each statement run or refused under the plan with its " +
 			"outcome and the --postcheck text, and writes the close row. A plan closed after " +

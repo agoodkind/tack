@@ -23,10 +23,10 @@ func TestDBPlanSendsOneMailAtOpenAndOneAtClose(t *testing.T) {
 	ledgerDSN := testenv.Ledger(t)
 	mail := mailpitFor(t)
 	pool := testenv.LedgerPool(t, ledgerDSN)
-	pipeline := newPlanPipeline(t)
+	pipeline := newPlanPipeline(t, pool, ledgerDSN)
 	pipeline.startConsumer(t, ledgerDSN)
 	pipeline.startRelay(t, pool)
-	deps := pipeline.configure(planDeps(t, pool, ledgerDSN, mail.Msmtprc, planAgentFlags("session-plan-a")), ledgerDSN)
+	deps := pipeline.configure(planDeps(t, pool, ledgerDSN, mail.Msmtprc, planAgentFlags("session-plan-a")))
 	statements := []string{
 		"select 'plan-a' as step, 1 as n", "select 'plan-a' as step, 2 as n", "select 'plan-a' as step, 3 as n",
 	}
@@ -41,7 +41,6 @@ func TestDBPlanSendsOneMailAtOpenAndOneAtClose(t *testing.T) {
 	if len(opened.Statements) != 3 || opened.PlanID == "" || len(opened.SHA256) != 64 {
 		t.Fatalf("plan open report = %+v, want three statements, a plan ID, and a SHA-256", opened)
 	}
-	waitForLedgerOpenRow(t, pool, opened.PlanID)
 	for _, statement := range statements {
 		result, err := runPlanned(t, deps, opened.PlanID, "  "+statement+"  ", reason)
 		if err != nil || result.RowsReturned != 1 || result.PlanID != opened.PlanID {
@@ -82,10 +81,10 @@ func TestDBPlanRefusesAStatementOutsideThePlan(t *testing.T) {
 	ledgerDSN := testenv.Ledger(t)
 	mail := mailpitFor(t)
 	pool := testenv.LedgerPool(t, ledgerDSN)
-	pipeline := newPlanPipeline(t)
+	pipeline := newPlanPipeline(t, pool, ledgerDSN)
 	pipeline.startConsumer(t, ledgerDSN)
 	pipeline.startRelay(t, pool)
-	deps := pipeline.configure(planDeps(t, pool, ledgerDSN, mail.Msmtprc, planAgentFlags("session-plan-b")), ledgerDSN)
+	deps := pipeline.configure(planDeps(t, pool, ledgerDSN, mail.Msmtprc, planAgentFlags("session-plan-b")))
 	table := "public.plan_marker_" + uuid.NewString()[:8]
 	if _, err := pool.Exec(t.Context(), "CREATE TABLE "+table+" (marker text)"); err != nil {
 		t.Fatalf("create the marker table: %v", err)
@@ -97,7 +96,6 @@ func TestDBPlanRefusesAStatementOutsideThePlan(t *testing.T) {
 		t.Fatalf("plan open: %v", err)
 	}
 	deleteOutboxRowsAfterTest(t, pool, planRowsFilter(opened.PlanID))
-	waitForLedgerOpenRow(t, pool, opened.PlanID)
 
 	unplanned := "insert into " + table + " values ('unplanned')"
 	_, err = runPlanned(t, deps, opened.PlanID, unplanned, reason)

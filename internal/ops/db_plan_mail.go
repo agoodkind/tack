@@ -44,8 +44,9 @@ func mailDBPlanCloseRefused(ctx context.Context, cfg *config.Config, principal a
 }
 
 // mailDBPlanSummaryIncomplete sends the immediate mail for a close that
-// stopped before the summary because the audit consumer had not recorded
-// every plan row.
+// stopped before the summary. Either the relay and the audit consumer had
+// not recorded every plan row within the wait, or a plan row was in
+// audit.events_dlq.
 func mailDBPlanSummaryIncomplete(ctx context.Context, cfg *config.Config, principal audit.OperatorPrincipal, planID uuid.UUID, cause error) error {
 	return sendDBPlanMail(ctx, cfg, principal, "summary of plan "+planID.String()+" is incomplete", planID,
 		"Status: the summary is incomplete, no close row was written, and the plan is still open",

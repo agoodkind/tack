@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -13,14 +14,16 @@ import (
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/clispec"
 	"goodkind.io/tack/internal/clock"
+	"goodkind.io/tack/internal/config"
 )
 
 type dbPlanCloseInput struct {
 	clispec.InputMarker
 	PlanID    string
 	Postcheck string
-	// Wait is the Go duration that close waits for the audit consumer to
-	// record the plan rows. An empty value waits dbPlanProjectionWait.
+	// Wait is the Go duration that close waits for the relay and the audit
+	// consumer to record the plan rows. An empty value waits
+	// dbPlanProjectionWait.
 	Wait string `exhaustruct:"optional"`
 }
 
@@ -37,11 +40,13 @@ type dbPlanCloseResult struct {
 	MailedTo   string          `json:"mailed_to"`
 }
 
-// runDBPlanClose closes plan input.PlanID. With execute it reads the audit
-// topic high-water marks and waits until the audit consumer has committed
-// past them. It then refuses a closer that is not the opener principal, mails
-// the summary, and writes the close row. A wait past the bound, a refusal, or
-// a summary mail failure returns an error before the close row exists, and
+// runDBPlanClose closes plan input.PlanID. With execute it waits until the
+// relay has sent the events in the operator outbox and the audit consumer has
+// committed past the audit topic high-water marks, then reads the plan rows
+// through the ledger reader. It then refuses a closer that is not the opener
+// principal, mails the summary, and writes the close row to the operator
+// outbox. A wait past the bound, a plan row in audit.events_dlq, a refusal,
+// or a summary mail failure returns an error before the close row exists, and
 // the plan stays open.
 func runDBPlanClose(ctx context.Context, deps dbSQLDeps, input dbPlanCloseInput, sink clispec.ResultSink, execute bool) error {
 	planID, err := parseDBPlanID(ctx, input.PlanID)
@@ -94,12 +99,12 @@ func runDBPlanClose(ctx context.Context, deps dbSQLDeps, input dbPlanCloseInput,
 	return writeDBPlanResult(ctx, sink, result)
 }
 
-// closeDBPlanRows returns the plan state that the summary reports. It reads
-// the plan rows, waits for the audit consumer, reads the plan rows again,
-// and merges both reads. The first read contains a row that the relay sends
-// from the operator outbox to the topic after the high-water mark read. The
-// second read contains a row that was on the topic below the mark. It then
-// checks the open row, the close row, and the closer principal.
+// closeDBPlanRows returns the plan state that the summary reports. It waits
+// for the relay and the audit consumer, then reads the plan rows from
+// audit.events and audit.events_dlq through the ledger reader. A wait past
+// its bound or a plan row in audit.events_dlq mails that the summary is
+// incomplete and returns an error. It then checks the open row, the close
+// row, and the closer principal.
 func closeDBPlanRows(
 	ctx context.Context,
 	deps dbSQLDeps,
@@ -109,23 +114,17 @@ func closeDBPlanRows(
 	wait time.Duration,
 ) (dbPlanState, error) {
 	empty := dbPlanState{open: nil, closed: false, attempts: nil}
-	before, err := readDBPlanRows(ctx, deps.cfg.DatabaseURL, planID)
-	if err != nil {
-		return empty, err
-	}
 	if err := awaitDBPlanProjection(ctx, deps.cfg, planID, wait); err != nil {
-		incomplete := errors.Join(err, mailDBPlanSummaryIncomplete(ctx, deps.cfg, principal, planID, err))
-		slog.ErrorContext(ctx, "db.plan.summary_incomplete",
-			slog.String("plan_id", planID.String()), slog.String("err", incomplete.Error()))
-		return empty, incomplete
+		return empty, dbPlanSummaryIncomplete(ctx, deps.cfg, principal, planID, err)
 	}
-	after, err := readDBPlanRows(ctx, deps.cfg.DatabaseURL, planID)
-	if err != nil {
-		return empty, err
-	}
-	state, err := newDBPlanState(ctx, mergeDBPlanRows(before, after))
+	state, deadLetters, err := readDBPlanLedger(ctx, deps.cfg.AuditReaderDSN, planID)
 	if err != nil {
 		return state, err
+	}
+	if len(deadLetters) > 0 {
+		cause := errors.New("audit.events_dlq has " + strconv.Itoa(len(deadLetters)) + " rows of plan " +
+			planID.String() + ": " + strings.Join(deadLetters, "; "))
+		return empty, dbPlanSummaryIncomplete(ctx, deps.cfg, principal, planID, cause)
 	}
 	if state.open == nil {
 		return state, errors.New("plan " + planID.String() + " has no open row in the ledger")
@@ -137,6 +136,15 @@ func closeDBPlanRows(
 		return state, refuseDBPlanClose(ctx, deps, principal, state, postcheck)
 	}
 	return state, nil
+}
+
+// dbPlanSummaryIncomplete mails that the summary of planID is incomplete
+// with cause, and returns cause joined with any mail failure.
+func dbPlanSummaryIncomplete(ctx context.Context, cfg *config.Config, principal audit.OperatorPrincipal, planID uuid.UUID, cause error) error {
+	incomplete := errors.Join(cause, mailDBPlanSummaryIncomplete(ctx, cfg, principal, planID, cause))
+	slog.ErrorContext(ctx, "db.plan.summary_incomplete",
+		slog.String("plan_id", planID.String()), slog.String("err", incomplete.Error()))
+	return incomplete
 }
 
 // refuseDBPlanClose writes a refused close row, then mails the refusal to

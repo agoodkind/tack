@@ -1,6 +1,7 @@
 package ops
 
 import (
+	"context"
 	"maps"
 	"sync"
 	"testing"
@@ -38,22 +39,26 @@ SELECT event_id::text, event->>'verb', coalesce(event->>'outcome', '') FROM publ
  WHERE event->'extra'->>'plan_id' = $1`
 
 // planPipeline is the Kafka broker, the audit topic, and the consumer group
-// of one test.
+// of one test, and a ledger login that inherits only audit_reader.
 type planPipeline struct {
-	brokers string
-	topic   string
-	group   string
+	brokers   string
+	topic     string
+	group     string
+	readerDSN string
 }
 
 // newPlanPipeline returns the shared test broker with a topic and a consumer
-// group of this test. It creates the topic through the production function
-// that the audit consumer runs at startup, before any relay or consumer
-// starts. The relay producer does not ask the broker to create a missing
-// topic.
-func newPlanPipeline(t *testing.T) planPipeline {
+// group of this test, and a new audit_reader login on the ledger at
+// ledgerDSN. It creates the topic through the production function that the
+// audit consumer runs at startup, before any relay or consumer starts. The
+// relay producer does not ask the broker to create a missing topic.
+func newPlanPipeline(t *testing.T, pool *pgxpool.Pool, ledgerDSN string) planPipeline {
 	t.Helper()
 	suffix := uuid.NewString()[:8]
-	pipeline := planPipeline{brokers: testenv.Kafka(t), topic: "audit.plan-test-" + suffix, group: "tack-plan-test-" + suffix}
+	pipeline := planPipeline{
+		brokers: testenv.Kafka(t), topic: "audit.plan-test-" + suffix, group: "tack-plan-test-" + suffix,
+		readerDSN: roleLoginDSN(context.WithoutCancel(t.Context()), t, pool, ledgerDSN, "audit_reader"),
+	}
 	client, err := kgo.NewClient(kgo.SeedBrokers(audit.SplitBrokers(pipeline.brokers)...))
 	if err != nil {
 		t.Fatalf("open a kafka client to create topic %s: %v", pipeline.topic, err)
@@ -66,12 +71,12 @@ func newPlanPipeline(t *testing.T) planPipeline {
 }
 
 // configure returns deps with a copy of its configuration that points plan
-// close at the pipeline topic, the pipeline consumer group, and the ledger
-// at ledgerDSN.
-func (p planPipeline) configure(deps dbSQLDeps, ledgerDSN string) dbSQLDeps {
+// close at the pipeline topic, the pipeline consumer group, and the
+// audit_reader login.
+func (p planPipeline) configure(deps dbSQLDeps) dbSQLDeps {
 	cfg := *deps.cfg
 	cfg.AuditKafkaBrokers, cfg.AuditKafkaTopic, cfg.AuditConsumerGroupID = p.brokers, p.topic, p.group
-	cfg.AuditReaderDSN = ledgerDSN
+	cfg.AuditReaderDSN = p.readerDSN
 	deps.cfg = &cfg
 	return deps
 }
@@ -138,28 +143,6 @@ func planKinds(t *testing.T, pool *pgxpool.Pool, planID string) map[string]int {
 		kinds[row.Verb+" "+row.Outcome]++
 	}
 	return kinds
-}
-
-// waitForLedgerOpenRow polls audit.events until it contains the open row of
-// planID. While the relay runs, the open row is in neither public.ops_outbox
-// nor audit.events between the broker acknowledgment and the consumer write,
-// and a planned statement in that interval is refused for a missing open row.
-func waitForLedgerOpenRow(t *testing.T, pool *pgxpool.Pool, planID string) {
-	t.Helper()
-	deadline := clock.Now().Add(planPipelineDeadline)
-	for {
-		var count int
-		err := pool.QueryRow(t.Context(),
-			`SELECT count(*) FROM audit.events WHERE action = $1 AND extra->>'plan_id' = $2`,
-			string(audit.VerbOpsDBPlanOpen), planID).Scan(&count)
-		if err == nil && count == 1 {
-			return
-		}
-		if clock.Now().After(deadline) {
-			t.Fatalf("audit.events open rows of plan %s = %d (%v) after %s, want 1", planID, count, err, planPipelineDeadline)
-		}
-		time.Sleep(planPipelinePoll)
-	}
 }
 
 // waitForPlanKinds polls planKinds until it equals want, and fails with the

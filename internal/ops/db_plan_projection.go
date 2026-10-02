@@ -20,16 +20,18 @@ import (
 
 const (
 	// dbPlanProjectionWait is the default bound on the wait of plan close for
-	// the audit consumer to commit past the audit topic high-water marks.
+	// the relay to empty the operator outbox of its events at the start and
+	// for the audit consumer to commit past the audit topic high-water marks.
 	dbPlanProjectionWait = 2 * time.Minute
-	// dbPlanProjectionPoll is the interval between reads of
-	// audit.consumer_offsets during that wait.
+	// dbPlanProjectionPoll is the interval between reads of public.ops_outbox
+	// or audit.consumer_offsets during that wait, and between reads of the
+	// plan rows while a planned statement waits for the open row.
 	dbPlanProjectionPoll = 500 * time.Millisecond
 )
 
 // requireDBPlanProjectionConfig returns an error that lists every setting
-// plan close needs to read the audit topic and the consumer offsets and that
-// cfg leaves empty.
+// plan close needs to read the operator outbox, the audit topic, the consumer
+// offsets, and the ledger and that cfg leaves empty.
 func requireDBPlanProjectionConfig(cfg *config.Config) error {
 	settings := []struct {
 		name  string
@@ -49,7 +51,8 @@ func requireDBPlanProjectionConfig(cfg *config.Config) error {
 	if len(missing) == 0 {
 		return nil
 	}
-	return errors.New("ops db plan close reads the audit topic and the consumer offsets; set " + strings.Join(missing, ", "))
+	return errors.New("ops db plan close reads the operator outbox, the audit topic, the consumer offsets, " +
+		"and the ledger; set " + strings.Join(missing, ", "))
 }
 
 // parseDBPlanWait parses --wait as a positive Go duration. An empty value
@@ -70,19 +73,15 @@ func parseDBPlanWait(ctx context.Context, text string) (time.Duration, error) {
 	return wait, nil
 }
 
-// awaitDBPlanProjection reads the high-water mark of every partition of the
-// audit topic. It then reads audit.consumer_offsets every
+// awaitDBPlanProjection waits, within one bound of wait, until every plan row
+// written before the call is in audit.events or audit.events_dlq. It first
+// waits until the relay has removed each event that public.ops_outbox
+// contained at the start. It then reads the high-water mark of every
+// partition of the audit topic and reads audit.consumer_offsets every
 // dbPlanProjectionPoll until the consumer group has a committed offset at or
-// past each nonzero mark, and returns an error when wait passes first. Every
-// record below a committed offset is in audit.events or in the dead-letter
-// table.
+// past each nonzero mark. It returns an error when wait passes first. Every
+// record below a committed offset is in audit.events or audit.events_dlq.
 func awaitDBPlanProjection(ctx context.Context, cfg *config.Config, planID uuid.UUID, wait time.Duration) error {
-	topic, group := cfg.AuditKafkaTopic, cfg.AuditConsumerGroupID
-	marks, err := audit.TopicHighWaterMarks(ctx, audit.SplitBrokers(cfg.AuditKafkaBrokers), topic)
-	if err != nil {
-		slog.ErrorContext(ctx, "db.plan.high_water_failed", slog.String("plan_id", planID.String()), slog.String("err", err.Error()))
-		return fmt.Errorf("read the high-water marks of %s to close plan %s: %w", topic, planID, err)
-	}
 	reader, err := audit.NewReader(ctx, cfg.AuditReaderDSN)
 	if err != nil {
 		slog.ErrorContext(ctx, "db.plan.offsets_reader_failed", slog.String("plan_id", planID.String()), slog.String("err", err.Error()))
@@ -91,6 +90,15 @@ func awaitDBPlanProjection(ctx context.Context, cfg *config.Config, planID uuid.
 	defer reader.Close()
 	waitCtx, cancel := context.WithTimeout(ctx, wait)
 	defer cancel()
+	if err := awaitDBPlanOutboxDrain(waitCtx, reader, planID, wait); err != nil {
+		return err
+	}
+	topic, group := cfg.AuditKafkaTopic, cfg.AuditConsumerGroupID
+	marks, err := audit.TopicHighWaterMarks(waitCtx, audit.SplitBrokers(cfg.AuditKafkaBrokers), topic)
+	if err != nil {
+		slog.ErrorContext(ctx, "db.plan.high_water_failed", slog.String("plan_id", planID.String()), slog.String("err", err.Error()))
+		return fmt.Errorf("read the high-water marks of %s to close plan %s: %w", topic, planID, err)
+	}
 	ticker := time.NewTicker(dbPlanProjectionPoll)
 	defer ticker.Stop()
 	behind, lastRead := slices.Sorted(maps.Keys(marks)), "none"

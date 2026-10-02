@@ -130,6 +130,7 @@ services:
       TACK_BACKUP_S3_SECRET_ACCESS_KEY: ${TACK_BACKUP_S3_SECRET_ACCESS_KEY:-}
       TACK_BACKUP_S3_REGION: ${TACK_BACKUP_S3_REGION:-us-east-1}
       TACK_BACKUP_S3_BUCKET_MAIN: ${TACK_BACKUP_S3_BUCKET_MAIN:-tack-backups}
+      TACK_BACKUP_ALARM_EMAIL: ${TACK_BACKUP_ALARM_EMAIL:-}
     volumes:
       # Writable, because the FoundationDB client writes the new coordinator
       # list into this file when the cluster changes coordinators. Mounted
@@ -141,6 +142,7 @@ services:
       #   openssl genpkey -algorithm ed25519 -out /etc/tack/audit-signing.pem
       # The notarizer reuses it at every 60s tick; rotation is a follow-up.
       - /etc/tack:/etc/tack:ro
+      - /etc/msmtprc:/etc/msmtprc:ro
     # No yugabyte dependency: deployed guests reach the ledger on the data
     # guests through the rendered override's multi-host URL, and the deploy
     # starts the app only after provision. This base file alone still dials

@@ -32,9 +32,9 @@ func TestDBPlanCloseFailsWhileTheConsumerIsBehind(t *testing.T) {
 	ledgerDSN := testenv.Ledger(t)
 	mail := mailpitFor(t)
 	pool := testenv.LedgerPool(t, ledgerDSN)
-	pipeline := newPlanPipeline(t)
+	pipeline := newPlanPipeline(t, pool, ledgerDSN)
 	stopRelay := pipeline.startRelay(t, pool)
-	deps := pipeline.configure(planDeps(t, pool, ledgerDSN, mail.Msmtprc, planAgentFlags("session-plan-g")), ledgerDSN)
+	deps := pipeline.configure(planDeps(t, pool, ledgerDSN, mail.Msmtprc, planAgentFlags("session-plan-g")))
 	opened, err := openPlan(t, deps, writePlanFile(t, "select 1"), "plan test g "+uuid.NewString()[:8], "1h")
 	if err != nil {
 		t.Fatalf("plan open: %v", err)
@@ -68,11 +68,11 @@ func TestDBPlanRefusesACloseByAnotherPrincipal(t *testing.T) {
 	ledgerDSN := testenv.Ledger(t)
 	mail := mailpitFor(t)
 	pool := testenv.LedgerPool(t, ledgerDSN)
-	pipeline := newPlanPipeline(t)
+	pipeline := newPlanPipeline(t, pool, ledgerDSN)
 	pipeline.startConsumer(t, ledgerDSN)
 	pipeline.startRelay(t, pool)
 	depsFor := func(flags []string) dbSQLDeps {
-		return pipeline.configure(planDeps(t, pool, ledgerDSN, mail.Msmtprc, flags), ledgerDSN)
+		return pipeline.configure(planDeps(t, pool, ledgerDSN, mail.Msmtprc, flags))
 	}
 	opener := depsFor(planAgentFlags("session-plan-h"))
 	opened, err := openPlan(t, opener, writePlanFile(t, "select 1"), "plan test h "+uuid.NewString()[:8], "1h")

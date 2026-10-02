@@ -90,17 +90,16 @@ func TestDBPlanRefusesAnExpiredPlan(t *testing.T) {
 	ledgerDSN := testenv.Ledger(t)
 	mail := mailpitFor(t)
 	pool := testenv.LedgerPool(t, ledgerDSN)
-	pipeline := newPlanPipeline(t)
+	pipeline := newPlanPipeline(t, pool, ledgerDSN)
 	pipeline.startConsumer(t, ledgerDSN)
 	pipeline.startRelay(t, pool)
 	reason := "plan test f " + uuid.NewString()[:8]
-	deps := pipeline.configure(planDeps(t, pool, ledgerDSN, mail.Msmtprc, planAgentFlags("session-plan-f")), ledgerDSN)
+	deps := pipeline.configure(planDeps(t, pool, ledgerDSN, mail.Msmtprc, planAgentFlags("session-plan-f")))
 	opened, err := openPlan(t, deps, writePlanFile(t, "select 1"), reason, "1s")
 	if err != nil {
 		t.Fatalf("plan open: %v", err)
 	}
 	deleteOutboxRowsAfterTest(t, pool, planRowsFilter(opened.PlanID))
-	waitForLedgerOpenRow(t, pool, opened.PlanID)
 	time.Sleep(opened.ExpiresAt.Sub(clock.Now()) + 200*time.Millisecond)
 
 	_, err = runPlanned(t, deps, opened.PlanID, "select 1", reason)
