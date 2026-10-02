@@ -18,17 +18,15 @@ import (
 // repairEnabledVariable turns the model repair loop on in a Tack process.
 const repairEnabledVariable = "OPENSEARCH_MODEL_REPAIR_ENABLED"
 
-// buildRepairingQueryGraph builds the cluster test graph from a copy of the
-// parsed cfg and starts its production model repair loop. The copy enables
-// the repair unless the test set the variable, and then the copy keeps the
-// parsed value.
+// buildRepairingQueryGraph builds the cluster test graph and starts its
+// production model repair loop. It enables the repair in this test process
+// through t.Setenv unless the test already set the variable.
 func buildRepairingQueryGraph(t *testing.T, cfg *config.Config) *appruntime.Graph {
 	t.Helper()
-	repairing := *cfg
 	if _, set := os.LookupEnv(repairEnabledVariable); !set {
-		repairing.SearchModelRepairEnabled = true
+		t.Setenv(repairEnabledVariable, "true")
 	}
-	graph := buildQueryGraph(t, &repairing)
+	graph := buildQueryGraph(t, cfg)
 	graph.StartSearchModelRepair(t.Context())
 	return graph
 }

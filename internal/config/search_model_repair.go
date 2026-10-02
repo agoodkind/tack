@@ -12,10 +12,12 @@ import (
 )
 
 // SearchModelRepairSettings bound the repair of a model that ML Commons
-// leaves PARTIALLY_DEPLOYED or DEPLOY_FAILED. [Config.SearchModelRepairEnabled]
-// turns the repair on. The loader reads each bound from the environment or
-// its default and rejects a zero or negative value.
+// leaves PARTIALLY_DEPLOYED or DEPLOY_FAILED. Enabled defaults to false, and
+// an environment enables the repair only through its Configs entry. The loader
+// reads each value from the environment or its default and rejects a zero or
+// negative bound.
 type SearchModelRepairSettings struct {
+	Enabled        bool          `env:"OPENSEARCH_MODEL_REPAIR_ENABLED"         envDefault:"false"`
 	CheckInterval  time.Duration `env:"OPENSEARCH_MODEL_REPAIR_INTERVAL"        envDefault:"15s"`
 	StuckAfter     time.Duration `env:"OPENSEARCH_MODEL_REPAIR_STUCK_AFTER"     envDefault:"30s"`
 	AttemptSpacing time.Duration `env:"OPENSEARCH_MODEL_REPAIR_ATTEMPT_SPACING" envDefault:"45s"`

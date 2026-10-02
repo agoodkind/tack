@@ -48,14 +48,13 @@ func TestSearchModelRepairGates(t *testing.T) {
 	})
 
 	requireNoRepairDeploy(t, fixture, spec.Model.ID, "repair disabled", fixture.Config)
-	enabled := *fixture.Config
-	enabled.SearchModelRepairEnabled = true
-	withoutPublicSearch := enabled
+	t.Setenv(repairEnabledVariable, "true")
+	withoutPublicSearch := *fixture.Config
 	withoutPublicSearch.SearchPublicEnabled = false
 	requireNoRepairDeploy(t, fixture, spec.Model.ID, "public search disabled", &withoutPublicSearch)
 
 	since := clock.Now().UTC()
-	buildRepairingQueryGraph(t, &enabled)
+	buildRepairingQueryGraph(t, fixture.Config)
 	clusterEventually(t, "create a repair deploy task with the repair and public search enabled", func() error {
 		if deployTasksSince(t, fixture, spec.Model.ID, since) == 0 {
 			return errors.New("the task index has no deploy task from the repair")

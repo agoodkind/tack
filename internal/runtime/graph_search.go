@@ -82,7 +82,7 @@ func buildSearchRuntime(ctx context.Context, cfg *config.Config, stores *fdbadap
 	}
 	repair := service.NewSearchModelRepair(service.SearchModelRepairPorts{
 		Engine: adapter, Records: stores.SearchModelRepairs(), Index: stores,
-	}, source, repairSettings, service.SearchModelRepairGates{Enabled: cfg.SearchModelRepairEnabled, PublicSearch: cfg.SearchPublicEnabled})
+	}, source, repairSettings, service.SearchModelRepairGates{Enabled: repairSettings.Enabled, PublicSearch: cfg.SearchPublicEnabled})
 	return searchRuntime{adapter: adapter, workers: workers, idleTime: settings.IdleInterval, retention: retention, repair: repair}, nil
 }
 
