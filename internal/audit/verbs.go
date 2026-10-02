@@ -191,6 +191,14 @@ const (
 	// VerbOpsLedgerNodeWait records a deploy waiting for a restarted ledger
 	// node, keyed on its replication progress (TACK-471).
 	VerbOpsLedgerNodeWait Verb = "ops.ledger_node_wait"
+	// VerbOpsLedgerAuditBootstrap records the migrations and audit role seed
+	// that create the operator outbox on an empty ledger before any other
+	// operator command can record.
+	VerbOpsLedgerAuditBootstrap Verb = "ops.ledger_audit_bootstrap"
+	// VerbOpsLedgerBootstrapWait records a deploy waiting until a ledger that
+	// is being bootstrapped lists the expected masters, tablet servers, and
+	// replicas.
+	VerbOpsLedgerBootstrapWait Verb = "ops.ledger_bootstrap_wait"
 	// VerbOpsStoreStatus records an operator reading the product store's own
 	// cluster status (TACK-408).
 	VerbOpsStoreStatus Verb = "ops.store_status"

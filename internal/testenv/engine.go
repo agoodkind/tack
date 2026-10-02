@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"os"
 	"strconv"
 	"time"
 
 	"github.com/moby/moby/api/types/container"
-	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
@@ -43,6 +43,15 @@ type engineSpec struct {
 	name string `exhaustruct:"optional"`
 	// healthcheck is the container's health check; nil keeps the image's.
 	healthcheck *container.HealthConfig `exhaustruct:"optional"`
+	// attachNetwork replaces the engines' network as the one network the
+	// engine joins. Empty joins the engines' network.
+	attachNetwork string `exhaustruct:"optional"`
+	// ipv4Address fixes the engine's address on its network. The zero value
+	// takes an address the daemon allocates.
+	ipv4Address netip.Addr `exhaustruct:"optional"`
+	// extraHosts are name:address entries the daemon adds to the engine's
+	// /etc/hosts.
+	extraHosts []string `exhaustruct:"optional"`
 }
 
 // engine is a started engine container.
@@ -67,14 +76,7 @@ func startEngine(ctx context.Context, cli *client.Client, spec engineSpec) (engi
 	if err != nil {
 		return engine{}, err
 	}
-	hostConfig := &container.HostConfig{}
-	networking := &network.NetworkingConfig{
-		EndpointsConfig: map[string]*network.EndpointSettings{networkName: {}},
-	}
-	if spec.networkOf != "" {
-		hostConfig.NetworkMode = container.NetworkMode("container:" + spec.networkOf)
-		networking = &network.NetworkingConfig{EndpointsConfig: nil}
-	}
+	hostConfig, networking := engineNetworking(spec)
 	_, err = cli.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Config: &container.Config{
 			Image:       spec.image,
@@ -103,7 +105,7 @@ func startEngine(ctx context.Context, cli *client.Client, spec engineSpec) (engi
 		slog.ErrorContext(ctx, "testenv.engine.start_failed", slog.String("err", err.Error()))
 		return engine{}, fmt.Errorf("start container %s: %w", name, err)
 	}
-	address, err := containerAddress(ctx, cli, name)
+	address, err := containerAddressOn(ctx, cli, name, engineNetwork(spec))
 	if err != nil {
 		return engine{}, engineStartFailure(ctx, cli, name, err)
 	}
@@ -117,11 +119,17 @@ func engineName(ctx context.Context, spec engineSpec) (string, error) {
 	if spec.name != "" {
 		return spec.name, nil
 	}
+	return generatedEngineName(ctx, spec.kind)
+}
+
+// generatedEngineName returns a container name for kind that belongs to this
+// process alone, in the tack-testenv-<kind>-<pid>-<8 hex> form.
+func generatedEngineName(ctx context.Context, kind string) (string, error) {
 	suffix, err := randomHex(ctx, 4)
 	if err != nil {
 		return "", err
 	}
-	return "tack-testenv-" + spec.kind + "-" + strconv.Itoa(os.Getpid()) + "-" + suffix, nil
+	return "tack-testenv-" + kind + "-" + strconv.Itoa(os.Getpid()) + "-" + suffix, nil
 }
 
 // ensureImage pulls spec's image unless the daemon already holds it for the

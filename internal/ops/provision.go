@@ -9,12 +9,10 @@ import (
 	"strings"
 
 	"github.com/moby/moby/client"
-	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clispec"
 	"goodkind.io/tack/internal/config"
-	"goodkind.io/tack/migrations"
 )
 
 // provision is the idempotent first-boot entrypoint (TACK-303). One ordered
@@ -71,7 +69,9 @@ func provisionOp(f *cli.Factory) clispec.Operation[provisionInput] {
 func provisionRun(ctx context.Context, cfg *config.Config, allowFDBInit bool) error {
 	cli, err := newDockerClient(ctx)
 	if err != nil {
-		return fmt.Errorf("provision docker client: %w", err)
+		wrapped := fmt.Errorf("provision docker client: %w", err)
+		slog.ErrorContext(ctx, "provision.docker_client.failed", slog.String("err", wrapped.Error()))
+		return wrapped
 	}
 	defer func() { _ = cli.Close() }()
 
@@ -79,15 +79,8 @@ func provisionRun(ctx context.Context, cfg *config.Config, allowFDBInit bool) er
 		return err
 	}
 
-	slog.InfoContext(ctx, "provision.migrate.start")
-	if err := postgres.Migrate(ctx, cfg.DatabaseURL, migrations.FS); err != nil {
-		slog.ErrorContext(ctx, "provision.migrate.failed", slog.String("err", err.Error()))
-		return fmt.Errorf("provision migrate: %w", err)
-	}
-
-	slog.InfoContext(ctx, "provision.seed_roles.start")
-	if err := RunAuditSeedRoles(ctx, cfg); err != nil {
-		return fmt.Errorf("provision seed roles: %w", err)
+	if err := migrateAndSeedAuditRoles(ctx, cfg); err != nil {
+		return err
 	}
 
 	if err := provisionFDBContinuous(ctx, cfg, RunBackupFDBContinuousInit); err != nil {

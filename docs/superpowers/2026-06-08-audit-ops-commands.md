@@ -93,11 +93,18 @@ carries the action's idempotent identifier (the image digest for a deploy, the
 backup destination, the migration range), so an intent with no outcome is
 resolvable by checking that identifier against reality.
 
-Bootstrap is the one narrow exception: on a fresh environment the outboxes do not
+Bootstrap is the one narrow exception, and two commands use it: `ops provision`
+and `ops ledger audit-bootstrap`. On a fresh environment the outboxes do not
 exist until provision creates them (fdb configure, then migrate). Provision
 therefore proceeds before the outboxes exist and records one terminal
-`ops.provision` event as soon as migrate has created them. Identity is still
-required; only the ledger write is deferred. After first boot, nothing is exempt.
+`ops.provision` event as soon as migrate has created them. `ops ledger
+audit-bootstrap` runs only migrate and the audit role seed, on the first ledger
+node of a ledger bootstrap, and records its intent and outcome after its run;
+it exists because the ledger waits on the joining nodes are audited reads that
+need the outbox before provision runs, and it refuses a ledger that already
+contains the migration table, the outbox, or the operator login. Identity is
+still required; only the ledger write is deferred. After first boot, nothing is
+exempt.
 
 ## Verified facts
 
