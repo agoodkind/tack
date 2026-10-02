@@ -1,7 +1,6 @@
 package integration
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"slices"
@@ -13,7 +12,6 @@ import (
 	"goodkind.io/tack/internal/adapters/search"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/datagen"
-	"goodkind.io/tack/internal/service"
 	"goodkind.io/tack/internal/testenv"
 )
 
@@ -61,6 +59,7 @@ func TestSearchActualOSProcessThroughput(t *testing.T) {
 	binary := buildActualSearchServer(t, revision)
 	first := startActualSearchServer(t, binary, corpus.fixture.Config)
 	recordThroughputResources(t, corpus)
+	containers := recordThroughputLimits(t, corpus)
 	verifyThroughputFixtureContract(t, corpus, first)
 	calibrateProcessThroughput(t, corpus, first)
 	controls := make([]float64, 0, 3)
@@ -76,7 +75,7 @@ func TestSearchActualOSProcessThroughput(t *testing.T) {
 			servers = append(servers, second)
 		}
 		warmupProcessThroughput(t, corpus, servers)
-		trial := runProcessThroughputTrial(t, corpus, servers, ordinal)
+		trial := runMeasuredThroughputTrial(t, corpus, servers, ordinal, containers)
 		latencies := slices.Clone(trial.latencies)
 		slices.Sort(latencies)
 		t.Logf("throughput trial=%d complete_sessions_per_second=%.6f indexed_mutations_per_second=%.6f request_error_rate=%.6f", ordinal, float64(trial.sessionsCompleted)/trial.seconds, float64(trial.mutationsIndexed)/trial.seconds, float64(trial.errors)/float64(max(1, trial.requests)))
@@ -183,28 +182,4 @@ func newProcessThroughputCorpus(t *testing.T) processThroughputCorpus {
 	}
 	t.Logf("throughput fixed corpus read_nodes=%d worker_nodes=%d index=%s model=%s mapping=1 primaries=1 routing_shards=24 replicas=0", len(corpus.readIDs), len(corpus.workerIDs), index, model.ID)
 	return corpus
-}
-
-func createThroughputWorkerNode(t *testing.T, fixture queryFixture, kind opaqueKind, parent, actor uuid.UUID, name, content string) uuid.UUID {
-	t.Helper()
-	stores := fixture.Stores
-	svc := service.NewNodeService(stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs, stores.Relationships, stores.NodeDeleter)
-	result, err := svc.Create(t.Context(), service.CreateInput{
-		ParentID: parent, ScopeID: parent, NodeTypeKey: kind.TypeKey, Name: name, ActorID: actor,
-		Props: map[string]json.RawMessage{kind.IncludedKey: mustJSON(content), kind.ExcludedKey: mustJSON("excluded")},
-	})
-	if err != nil || result == nil || result.View == nil {
-		t.Fatalf("create production worker fixture: %v", err)
-	}
-	stored, err := stores.Views.Get(t.Context(), result.View.ID)
-	if err != nil || stored == nil {
-		t.Fatalf("read production worker fixture: %v", err)
-	}
-	for _, key := range []string{"parent_id", "scope_id"} {
-		var id string
-		if err := json.Unmarshal(stored.Props[key], &id); err != nil || id != parent.String() {
-			t.Fatalf("production worker fixture %s does not match its entry point: %v", key, err)
-		}
-	}
-	return stored.ID
 }
