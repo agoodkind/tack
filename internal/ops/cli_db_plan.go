@@ -66,8 +66,9 @@ func dbPlanCloseOp(f *cli.Factory) clispec.Operation[dbPlanCloseInput] {
 			"reader. Past --wait, or with a plan row in the audit dead-letter table, it " +
 			"mails that the summary is incomplete and fails. It then refuses a closer other than " +
 			"the principal that opened the plan, with a refused row and a mail. It then " +
-			"mails the alarm address each statement run or refused under the plan with its " +
-			"outcome and the --postcheck text, and writes the close row. A plan closed after " +
+			"writes the close row and mails the alarm address each statement run or refused " +
+			"under the plan with its outcome and the --postcheck text. A summary mail that " +
+			"cannot be delivered fails the command after the close row exists. A plan closed after " +
 			"its expiry has \"expired\" in the summary subject and body. Without --execute " +
 			"the command reports the plan it would close.",
 		Examples: nil,

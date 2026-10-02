@@ -44,10 +44,11 @@ type dbPlanCloseResult struct {
 // relay has sent the events in the operator outbox and the audit consumer has
 // committed past the audit topic high-water marks, then reads the plan rows
 // through the ledger reader. It then refuses a closer that is not the opener
-// principal, mails the summary, and writes the close row to the operator
-// outbox. A wait past the bound, a plan row in audit.events_dlq, a refusal,
-// or a summary mail failure returns an error before the close row exists, and
-// the plan stays open.
+// principal, writes the close row to the operator outbox, and mails the
+// summary. A wait past the bound, a plan row in audit.events_dlq, or a
+// refusal returns an error before the close row exists, and the plan stays
+// open. A summary mail failure after the close row returns an error that
+// states the mail failure; the plan is closed.
 func runDBPlanClose(ctx context.Context, deps dbSQLDeps, input dbPlanCloseInput, sink clispec.ResultSink, execute bool) error {
 	planID, err := parseDBPlanID(ctx, input.PlanID)
 	if err != nil {
@@ -88,13 +89,14 @@ func runDBPlanClose(ctx context.Context, deps dbSQLDeps, input dbPlanCloseInput,
 		return err
 	}
 	result.Expired, result.Statements = state.expired(clock.Now().UTC()), state.attempts
-	if err := mailDBPlanSummary(ctx, deps.cfg, principal, state, postcheck, result.Expired); err != nil {
-		return err
-	}
 	extra := newDBPlanCloseExtra(deps, principal, state, postcheck)
 	extra.Expired = result.Expired
 	if err := recordDBPlan(ctx, deps.outbox, audit.VerbOpsDBPlanClose, principal, extra, audit.OutcomeOK, nil); err != nil {
 		return err
+	}
+	if err := mailDBPlanSummary(ctx, deps.cfg, principal, state, postcheck, result.Expired); err != nil {
+		slog.ErrorContext(ctx, "db.plan.summary_undelivered", slog.String("plan_id", planID.String()), slog.String("err", err.Error()))
+		return fmt.Errorf("plan %s is closed and its close row is written, but the summary mail failed: %w", planID, err)
 	}
 	return writeDBPlanResult(ctx, sink, result)
 }

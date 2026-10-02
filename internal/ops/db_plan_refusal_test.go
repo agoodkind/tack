@@ -53,9 +53,10 @@ func TestDBPlanUndeliveredOpenMailBlocksThePlan(t *testing.T) {
 	}
 }
 
-// TestDBPlanRefusesAnotherPrincipal runs a listed statement from another
-// agent session than the one that opened the plan. The command writes one
-// refused row, mails the refusal, and runs no statement.
+// TestDBPlanRefusesAnotherPrincipal runs a listed statement in the session
+// that opened the plan, once as another agent service and once as the same
+// agent service for another accountable operator. Each run writes one refused
+// row, mails the refusal, and runs no statement.
 func TestDBPlanRefusesAnotherPrincipal(t *testing.T) {
 	ledgerDSN := testenv.Ledger(t)
 	mail := mailpitFor(t)
@@ -67,18 +68,20 @@ func TestDBPlanRefusesAnotherPrincipal(t *testing.T) {
 		t.Fatalf("plan open: %v", err)
 	}
 
-	other := planDeps(t, pool, ledgerDSN, mail.Msmtprc, planAgentFlags("session-plan-other"))
-	_, err = runPlanned(t, other, opened.PlanID, "select 1", reason)
-	if err == nil || !strings.Contains(err.Error(), dbPlanPrincipalRefusal) {
-		t.Fatalf("err = %v, want the other session refused", err)
+	for name, flags := range planOtherPrincipalFlags("session-plan-e") {
+		other := planDeps(t, pool, ledgerDSN, mail.Msmtprc, flags)
+		if _, err := runPlanned(t, other, opened.PlanID, "select 1", reason); err == nil ||
+			!strings.Contains(err.Error(), dbPlanPrincipalRefusal) {
+			t.Fatalf("statement by %s = %v, want it refused", name, err)
+		}
 	}
-	refusal := mailWithSubject(t, requireMailCount(t, mail, 2), "statement refused under plan "+opened.PlanID)
-	if !strings.Contains(refusal.Text, "(session session-plan-other)") {
-		t.Fatalf("refusal mail text = %q, want the refused session", refusal.Text)
+	refusals := mailsWithSubject(requireMailCount(t, mail, 3), "statement refused under plan "+opened.PlanID)
+	if len(refusals) != 2 {
+		t.Fatalf("statement refusal mails = %+v, want one per refused caller", refusals)
 	}
 	kinds := planRowKinds(planRows(t, pool, opened.PlanID))
-	if len(kinds) != 2 || kinds["ops.db_plan_open ok"] != 1 || kinds["ops.db_break_glass refused"] != 1 {
-		t.Fatalf("plan rows = %v, want the open row and one refused row", kinds)
+	if len(kinds) != 2 || kinds["ops.db_plan_open ok"] != 1 || kinds["ops.db_break_glass refused"] != 2 {
+		t.Fatalf("plan rows = %v, want the open row and two refused rows", kinds)
 	}
 }
 

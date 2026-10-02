@@ -29,14 +29,14 @@ const (
 // planAgentFlags returns the operator flags of the test agent in session for
 // the test accountable operator.
 func planAgentFlags(session string) []string {
-	return planAgentFlagsFor(session, testOperatorID, planAccountable)
+	return planAgentFlagsFor(planService, session, testOperatorID, planAccountable)
 }
 
-// planAgentFlagsFor returns the operator flags of the test agent in session
-// for the accountable operator with operatorID and email.
-func planAgentFlagsFor(session, operatorID, email string) []string {
+// planAgentFlagsFor returns the operator flags of the agent service in
+// session for the accountable operator with operatorID and email.
+func planAgentFlagsFor(service, session, operatorID, email string) []string {
 	return []string{
-		"--operator-service", planService, "--operator-session", session,
+		"--operator-service", service, "--operator-session", session,
 		"--operator-id", operatorID, "--operator-email", email,
 	}
 }

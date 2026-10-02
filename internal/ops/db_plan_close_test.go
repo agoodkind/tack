@@ -19,9 +19,22 @@ const (
 	// accountable operator, never a person.
 	planOtherOperatorID  = "019ff315-bc5d-7a56-b12a-1a35f280c4de"
 	planOtherAccountable = "other-accountable@example.test"
+	// planOtherService is a second test agent service.
+	planOtherService = "claude-plan-other-test"
 	// planShortWait is the close wait of the test with no consumer running.
 	planShortWait = "3s"
 )
+
+// planOtherPrincipalFlags returns, by name, the operator flags of two callers
+// in session that a plan opened by planAgentFlags(session) refuses: another
+// agent service for the same accountable operator, and the same agent
+// service for another accountable operator.
+func planOtherPrincipalFlags(session string) map[string][]string {
+	return map[string][]string{
+		"another agent service":        planAgentFlagsFor(planOtherService, session, testOperatorID, planAccountable),
+		"another accountable operator": planAgentFlagsFor(planService, session, planOtherOperatorID, planOtherAccountable),
+	}
+}
 
 // TestDBPlanCloseFailsWhileTheConsumerIsBehind relays the open row of a plan
 // to a topic that no consumer reads, stops the relay, and closes the plan
@@ -60,10 +73,10 @@ func TestDBPlanCloseFailsWhileTheConsumerIsBehind(t *testing.T) {
 }
 
 // TestDBPlanRefusesACloseByAnotherPrincipal opens a plan as one agent
-// session, then closes it from another session and from the same session for
-// another accountable operator. Each close writes one refused close row,
-// mails the refusal, and fails. The plan stays open, and a close by the
-// opener then succeeds.
+// session, then closes it in the same session as another agent service and
+// as the same agent service for another accountable operator. Each close
+// writes one refused close row, mails the refusal, and fails. The plan stays
+// open, and a close by the opener then succeeds.
 func TestDBPlanRefusesACloseByAnotherPrincipal(t *testing.T) {
 	ledgerDSN := testenv.Ledger(t)
 	mail := mailpitFor(t)
@@ -81,12 +94,8 @@ func TestDBPlanRefusesACloseByAnotherPrincipal(t *testing.T) {
 	}
 	deleteOutboxRowsAfterTest(t, pool, planRowsFilter(opened.PlanID))
 
-	closers := map[string]dbSQLDeps{
-		"another session":              depsFor(planAgentFlags("session-plan-other")),
-		"another accountable operator": depsFor(planAgentFlagsFor("session-plan-h", planOtherOperatorID, planOtherAccountable)),
-	}
-	for name, closer := range closers {
-		if _, err := closePlan(t, closer, opened.PlanID, "postcheck h"); err == nil ||
+	for name, flags := range planOtherPrincipalFlags("session-plan-h") {
+		if _, err := closePlan(t, depsFor(flags), opened.PlanID, "postcheck h"); err == nil ||
 			!strings.Contains(err.Error(), "refused the close: "+dbPlanPrincipalRefusal) {
 			t.Fatalf("close by %s = %v, want the close refused", name, err)
 		}
@@ -103,6 +112,34 @@ func TestDBPlanRefusesACloseByAnotherPrincipal(t *testing.T) {
 	waitForPlanKinds(t, pool, opened.PlanID, map[string]int{
 		"ops.db_plan_open ok": 1, "ops.db_plan_close refused": 2, "ops.db_plan_close ok": 1,
 	})
+}
+
+// TestDBPlanCloseWritesTheCloseRowBeforeTheSummaryMail opens a plan and
+// closes it with the mail account on a closed local port. The close writes
+// the ok close row and returns an error that states the undelivered summary
+// mail. The mailbox has the open mail only.
+func TestDBPlanCloseWritesTheCloseRowBeforeTheSummaryMail(t *testing.T) {
+	ledgerDSN := testenv.Ledger(t)
+	mail := mailpitFor(t)
+	pool := testenv.LedgerPool(t, ledgerDSN)
+	pipeline := newPlanPipeline(t, pool, ledgerDSN)
+	pipeline.startConsumer(t, ledgerDSN)
+	pipeline.startRelay(t, pool)
+	deps := pipeline.configure(planDeps(t, pool, ledgerDSN, mail.Msmtprc, planAgentFlags("session-plan-l")))
+	opened, err := openPlan(t, deps, writePlanFile(t, "select 1"), "plan test l "+uuid.NewString()[:8], "1h")
+	if err != nil {
+		t.Fatalf("plan open: %v", err)
+	}
+	deleteOutboxRowsAfterTest(t, pool, planRowsFilter(opened.PlanID))
+
+	undelivered := pipeline.configure(planDeps(t, pool, ledgerDSN, unreachableMsmtprc(t), planAgentFlags("session-plan-l")))
+	_, err = closePlan(t, undelivered, opened.PlanID, "postcheck l")
+	if err == nil || !strings.Contains(err.Error(), "close row is written, but the summary mail failed") ||
+		!strings.Contains(err.Error(), "was not delivered") {
+		t.Fatalf("plan close = %v, want the undelivered summary mail after the close row", err)
+	}
+	waitForPlanKinds(t, pool, opened.PlanID, map[string]int{"ops.db_plan_open ok": 1, "ops.db_plan_close ok": 1})
+	mailWithSubject(t, requireMailCount(t, mail, 1), "plan "+opened.PlanID+" opened")
 }
 
 // waitForOutboxDrain polls public.ops_outbox until the relay has removed

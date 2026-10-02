@@ -14,8 +14,8 @@ import (
 )
 
 // dbPlanPrincipal is the identity stored on a plan row. A planned statement
-// runs only for a caller with the same actor ID, actor type, session ID, and
-// accountable operator ID.
+// runs only for a caller with the same actor ID, actor type, and accountable
+// operator ID. The actor ID of an agent is derived from its service name.
 type dbPlanPrincipal struct {
 	ActorID    uuid.UUID            `json:"actor_id"`
 	ActorType  audit.ActorType      `json:"actor_type"`
@@ -47,10 +47,11 @@ func newDBPlanPrincipal(principal audit.OperatorPrincipal, reason string) dbPlan
 	}
 }
 
-// matches reports whether principal has the actor ID, actor type, session
-// ID, and accountable operator ID of the principal that opened the plan.
+// matches reports whether principal has the actor ID, actor type, and
+// accountable operator ID of the principal that opened the plan. Another
+// session of the same agent for the same accountable operator matches.
 func (p dbPlanPrincipal) matches(principal audit.OperatorPrincipal) bool {
-	if p.ActorID != principal.ID || p.ActorType != principal.ActorType() || p.SessionID != principal.SessionID {
+	if p.ActorID != principal.ID || p.ActorType != principal.ActorType() {
 		return false
 	}
 	if p.OnBehalfOf == nil || principal.OnBehalfOf == nil {

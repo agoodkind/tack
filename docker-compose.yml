@@ -114,6 +114,9 @@ services:
       AUDIT_KAFKA_BROKERS: ${AUDIT_KAFKA_BROKERS:-}
       AUDIT_KAFKA_TOPIC: ${AUDIT_KAFKA_TOPIC:-audit.events.v1}
       AUDIT_KAFKA_CLIENT_ID: ${AUDIT_KAFKA_CLIENT_ID:-tack-audit-producer}
+      # ops db plan close compares audit.consumer_offsets for this group; it
+      # matches the audit-consumer service.
+      AUDIT_CONSUMER_GROUP_ID: ${AUDIT_CONSUMER_GROUP_ID:-tack-audit-projector}
       # Matches the application default. A hard broker loss costs up to 9s of
       # broker lease expiry plus up to 5s of client metadata refresh, so a
       # smaller budget expires while delivery would still have succeeded.
