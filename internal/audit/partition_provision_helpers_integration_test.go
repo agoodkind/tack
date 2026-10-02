@@ -7,12 +7,43 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"expvar"
+	"io/fs"
 	"net/url"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"goodkind.io/tack/migrations"
 )
+
+// latestMigrationVersion returns the highest goose version among the SQL files
+// in migrations.FS, read from each file name's numeric prefix.
+func latestMigrationVersion(t *testing.T) int64 {
+	t.Helper()
+	entries, err := fs.ReadDir(migrations.FS, ".")
+	if err != nil {
+		t.Fatalf("list migrations: %v", err)
+	}
+	var latest int64
+	for _, entry := range entries {
+		prefix, _, found := strings.Cut(entry.Name(), "_")
+		if !found || !strings.HasSuffix(entry.Name(), ".sql") {
+			continue
+		}
+		version, err := strconv.ParseInt(prefix, 10, 64)
+		if err != nil {
+			t.Fatalf("parse migration version from %s: %v", entry.Name(), err)
+		}
+		latest = max(latest, version)
+	}
+	if latest == 0 {
+		t.Fatal("migrations.FS has no versioned SQL file")
+	}
+	return latest
+}
 
 // auditWriterPool opens a pool on the fixture database as a throwaway LOGIN
 // role that inherits only audit_writer.
