@@ -74,6 +74,9 @@ func VerifySearchWithSeed(ctx context.Context, cfg *config.Config, seed int64) e
 	if err := run.verify(ctx, workspace); err != nil {
 		return err
 	}
+	if err := run.verifyAccess(ctx, cfg, seed, workspace); err != nil {
+		return err
+	}
 	slog.InfoContext(ctx, "qa.datagen.search_verified", slog.String("workspace", workspace.Slug),
 		slog.String("org_id", workspace.OrgID.String()), slog.Int64("seed", seed))
 	return nil
