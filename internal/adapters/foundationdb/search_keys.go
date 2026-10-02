@@ -116,6 +116,10 @@ func searchRestoreEpochKey() []byte {
 	return withPrefix(tuple.Tuple{keySearchRestoreEpoch}.Pack())
 }
 
+func searchModelRepairKey() []byte {
+	return withPrefix(tuple.Tuple{keySearchModelRepair}.Pack())
+}
+
 func searchRetiredSinceKey(index string) []byte {
 	return withPrefix(tuple.Tuple{keySearchRetiredSince, index}.Pack())
 }

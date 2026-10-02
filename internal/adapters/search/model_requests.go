@@ -119,6 +119,7 @@ type registeredModel struct {
 	State       string `json:"model_state"`
 	ContentSize int64  `json:"model_content_size_in_bytes"`
 	ContentHash string `json:"model_content_hash_value"`
+	LastUpdated int64  `json:"last_updated_time"`
 }
 
 type modelSearchResult struct {

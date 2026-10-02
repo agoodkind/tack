@@ -27,7 +27,10 @@ DECLARE
     keep_through DATE;
     row_count BIGINT;
 BEGIN
-    /* premake 2 keeps the current week and the two after it. */
+    /* Keep the current week and the two after it. With premake 2, the next
+       maintenance run adds weeks until the newest partition starts at least
+       two weeks after now, which is a third future week on any day after the
+       start of a week. */
     keep_through := date_trunc('week', now())::date + 14;
     FOR child IN
         SELECT c.relname
