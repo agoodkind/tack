@@ -2,7 +2,6 @@ package integration
 
 import (
 	"bytes"
-	"context"
 	"net"
 	"net/http"
 	"strings"
@@ -22,8 +21,9 @@ import (
 )
 
 const (
-	// deployRegistryImage serves the registry HTTP API for the test.
-	deployRegistryImage = "registry:3"
+	// deployRegistryImage serves the registry HTTP API for the test. The
+	// digest is the Docker Hub index of registry:3 read on 2026-10-02.
+	deployRegistryImage = "registry:3@sha256:ddf754342cfc8acc51a56d5d0ab6af06826461864460636d8bd5c546dab2a7b8"
 	// deployTestenvNetwork is the network testenv attaches the test process to.
 	deployTestenvNetwork = "tack-testenv"
 	// deployTestenvLabel marks containers testenv removes on release.
@@ -159,47 +159,4 @@ func waitForRegistry(t *testing.T, registry localRegistry) {
 		time.Sleep(500 * time.Millisecond)
 	}
 	t.Fatalf("the %s did not answer /v2/ within a minute", registry.base)
-}
-
-func pullImage(t *testing.T, cli *client.Client, ref string) {
-	t.Helper()
-	response, err := cli.ImagePull(t.Context(), ref, client.ImagePullOptions{})
-	if err != nil {
-		t.Fatalf("pull %s: %v", ref, err)
-	}
-	defer func() { _ = response.Close() }()
-	if err := response.Wait(t.Context()); err != nil {
-		t.Fatalf("pull %s: %v", ref, err)
-	}
-}
-
-// createFromIndex pulls ref and creates, without starting, a container named
-// name from it. The image and the container are removed when the test ends.
-func createFromIndex(t *testing.T, cli *client.Client, name, ref string) {
-	t.Helper()
-	pullImage(t, cli, ref)
-	t.Cleanup(func() {
-		cleanup, cancel := context.WithTimeout(context.Background(), time.Minute)
-		defer cancel()
-		if _, err := cli.ImageRemove(cleanup, ref, client.ImageRemoveOptions{Force: true}); err != nil {
-			t.Errorf("remove image %s: %v", ref, err)
-		}
-	})
-	_, err := cli.ContainerCreate(t.Context(), client.ContainerCreateOptions{
-		Config: &container.Config{Image: ref, Cmd: []string{"/marker"}, Labels: map[string]string{deployTestenvLabel: "true"}},
-		Name:   name,
-	})
-	if err != nil {
-		t.Fatalf("create %s from %s: %v", name, ref, err)
-	}
-	t.Cleanup(func() { removeDeployContainer(t, cli, name) })
-}
-
-func removeDeployContainer(t *testing.T, cli *client.Client, name string) {
-	t.Helper()
-	cleanup, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
-	if _, err := cli.ContainerRemove(cleanup, name, client.ContainerRemoveOptions{Force: true}); err != nil {
-		t.Errorf("remove container %s: %v", name, err)
-	}
 }
