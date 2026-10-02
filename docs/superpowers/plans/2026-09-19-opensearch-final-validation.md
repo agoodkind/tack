@@ -83,8 +83,13 @@ TACK_TEST_ROOT="$PWD" docker compose -f docker-compose.test.yml --profile runner
 Require the pinned hashes, typed client operations, strict generic access mapping,
 bulk partial update with external versioning, full 4,096-byte Unicode source,
 generated final chunk, finite sparse weights, access-only success with the model
-undeployed, explicit engine failures, 8 GiB success, and preserved 4 GiB
-circuit-breaker regression.
+undeployed, explicit engine failures, and 8 GiB success. Require the 8 GiB
+model-guest minimum in the
+[Configs search guest settings](https://github.com/agoodkind/configs/blob/main/ansible/inventory/group_vars/all/search_cluster.yml)
+for the QA and production guests. The original validation recorded a memory
+circuit breaker at 4 GiB. That failure is historical evidence for the 8 GiB
+minimum. Current 4 GiB workloads complete without a breaker response, and no
+test covers the 4 GiB case.
 
 - [ ] **Step 3: Validate metadata, pagination, and durable work.**
 
