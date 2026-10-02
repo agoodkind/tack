@@ -20,7 +20,17 @@ import (
 
 // breakGlassMailTests lists the tests in this package that deliver to the
 // Mailpit server.
-var breakGlassMailTests = []string{"TestDBBreakGlassRunsTheStatementAndRecordsIt"}
+var breakGlassMailTests = []string{
+	"TestDBBreakGlassRunsTheStatementAndRecordsIt",
+	"TestDBPlanSendsOneMailAtOpenAndOneAtClose",
+	"TestDBPlanRefusesAStatementOutsideThePlan",
+	"TestDBPlanMailsAFailedStatement",
+	"TestDBPlanUndeliveredOpenMailBlocksThePlan",
+	"TestDBPlanRefusesAnotherPrincipal",
+	"TestDBPlanRefusesAnExpiredPlan",
+	"TestDBPlanCloseFailsWhileTheConsumerIsBehind",
+	"TestDBPlanRefusesACloseByAnotherPrincipal",
+}
 
 // unreachableMsmtprcFormat is an msmtp account on the closed local port 1.
 // The production mailer fails at the SMTP dial to it.

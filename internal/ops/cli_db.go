@@ -21,6 +21,9 @@ type dbSQLInput struct {
 	clispec.InputMarker
 	Statement string
 	Reason    string
+	// PlanID is the ID of an open plan that lists the statement. An empty
+	// value mails the alarm address before the statement runs.
+	PlanID string `exhaustruct:"optional"`
 }
 
 func dbSQLOp(f *cli.Factory) clispec.Operation[dbSQLInput] {
@@ -36,7 +39,11 @@ func dbSQLOp(f *cli.Factory) clispec.Operation[dbSQLInput] {
 			"operator, the reason, and the statement are recorded in the ledger, " +
 			"and the alarm address is mailed before the statement runs; a mail " +
 			"that cannot be delivered refuses the statement. Nothing runs " +
-			"without --execute; without it the command reports what it would run.",
+			"without --execute; without it the command reports what it would run. " +
+			"With --plan-id the statement runs without its own mail when the open " +
+			"plan lists it and the same principal opened the plan; otherwise the " +
+			"command writes a refused row, mails the refusal, and returns an error " +
+			"before the statement runs.",
 		Examples: nil,
 		Args:     nil,
 		Params: []clispec.Param[dbSQLInput]{
@@ -44,9 +51,11 @@ func dbSQLOp(f *cli.Factory) clispec.Operation[dbSQLInput] {
 				func(input *dbSQLInput, value string) { input.Statement = value }),
 			clispec.StringParam("reason", "why the database is being reached outside the product; recorded and mailed", "", true,
 				func(input *dbSQLInput, value string) { input.Reason = value }),
+			clispec.StringParam("plan-id", "ID of the open plan that lists this statement (ops db plan open)", "", false,
+				func(input *dbSQLInput, value string) { input.PlanID = value }),
 		},
 		New: func() dbSQLInput {
-			return dbSQLInput{InputMarker: clispec.InputMarker{}, Statement: "", Reason: ""}
+			return dbSQLInput{InputMarker: clispec.InputMarker{}, Statement: "", Reason: "", PlanID: ""}
 		},
 		DryRun: func(ctx context.Context, input dbSQLInput, sink clispec.ResultSink) error {
 			return runDBSQL(ctx, dbSQLDeps{cfg: f.Cfg, outbox: f.AuditOutbox(), identity: f.OperatorIdentitySource()}, input, sink, false)

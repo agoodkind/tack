@@ -27,12 +27,16 @@ type dbBreakGlassExtra struct {
 	Truncated    bool                 `json:"truncated,omitempty"`
 	SessionID    string               `json:"session_id,omitempty"`
 	OnBehalfOf   *audit.ActProvenance `json:"on_behalf_of,omitempty"`
+	// PlanID is the open plan that permitted the statement, or the nil UUID
+	// for a statement mailed on its own.
+	PlanID uuid.UUID `json:"plan_id,omitzero"`
 }
 
 // recordDBBreakGlass writes one detail row. The pending row is written before
 // the statement and the ok or error row after, paired by attempt id. A process
 // lost mid-statement leaves a pending row with the attempted statement. Both
-// rows store the statement and the reason.
+// rows store the statement and the reason. A statement that its plan refuses
+// gets one refused row and no pending row.
 func recordDBBreakGlass(
 	ctx context.Context,
 	outbox audit.OutboxWriter,
@@ -61,7 +65,11 @@ func recordDBBreakGlass(
 		OccurredAt: clock.Now().UTC(), Extra: encoded,
 	}
 	if runErr != nil {
-		event.Error = &audit.EventError{Code: "statement_failed", Message: runErr.Error()}
+		code := "statement_failed"
+		if outcome == audit.OutcomeRefused {
+			code = dbPlanRefusedCode
+		}
+		event.Error = &audit.EventError{Code: code, Message: runErr.Error()}
 	}
 	recordCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), dbBreakGlassRecordTimeout)
 	defer cancel()
