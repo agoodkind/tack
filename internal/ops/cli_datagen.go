@@ -53,9 +53,35 @@ type datagenSoakResult struct {
 	Relationships int    `json:"relationships"`
 	Comments      int    `json:"comments"`
 	Reads         int    `json:"reads"`
-	QuietOps      int    `json:"quiet_ops"`
-	SpikeOps      int    `json:"spike_ops"`
-	Elapsed       string `json:"elapsed"`
+	// Searches counts answered tack_search calls; SearchesUnavailable counts
+	// calls refused because public search is disabled.
+	Searches            int                          `json:"searches"`
+	SearchesUnavailable int                          `json:"searches_unavailable"`
+	QuietOps            int                          `json:"quiet_ops"`
+	SpikeOps            int                          `json:"spike_ops"`
+	Elapsed             string                       `json:"elapsed"`
+	Latency             []datagenSoakOperationLatency `json:"latency"`
+}
+
+// datagenSoakOperationLatency is the completed operation count and the
+// nearest-rank p50 and p95 wall time of one soak operation kind.
+type datagenSoakOperationLatency struct {
+	Kind  string  `json:"kind"`
+	Calls int     `json:"calls"`
+	P50Ms float64 `json:"p50_ms"`
+	P95Ms float64 `json:"p95_ms"`
+}
+
+func soakLatencyResult(latencies []datagen.SoakOperationLatency) []datagenSoakOperationLatency {
+	result := make([]datagenSoakOperationLatency, 0, len(latencies))
+	for _, latency := range latencies {
+		result = append(result, datagenSoakOperationLatency{
+			Kind: latency.Kind, Calls: latency.Calls,
+			P50Ms: float64(latency.P50) / float64(time.Millisecond),
+			P95Ms: float64(latency.P95) / float64(time.Millisecond),
+		})
+	}
+	return result
 }
 
 func datagenSoakOp(f *cli.Factory) clispec.Operation[datagenSoakInput] {
@@ -112,6 +138,8 @@ func runDatagenSoak(ctx context.Context, factory *cli.Factory, input datagenSoak
 		Seed: summary.Seed, DryRun: summary.DryRun, StopReason: summary.StopReason,
 		Operations: summary.Operations, Created: summary.Created, Updated: summary.Updated,
 		Relationships: summary.Relationships, Comments: summary.Comments, Reads: summary.Reads,
+		Searches: summary.Searches, SearchesUnavailable: summary.SearchesUnavailable,
 		QuietOps: summary.QuietOps, SpikeOps: summary.SpikeOps, Elapsed: summary.Elapsed.String(),
+		Latency: soakLatencyResult(summary.Latency),
 	})
 }

@@ -53,6 +53,7 @@ func (s *Soak) finish(
 ) SoakSummary {
 	s.summary.StopReason = reason
 	s.summary.Elapsed = s.clock.Since(startedAt)
+	s.summary.Latency = s.latencies.summary()
 	slog.InfoContext(
 		ctx,
 		"qa.datagen.soak_stopped",

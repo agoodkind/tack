@@ -30,19 +30,27 @@ type SoakSummary struct {
 	Relationships int
 	Comments      int
 	Reads         int
-	QuietOps      int
-	SpikeOps      int
-	Elapsed       time.Duration
+	// Searches counts answered tack_search calls. SearchesUnavailable counts
+	// calls refused because public search is disabled.
+	Searches            int
+	SearchesUnavailable int
+	QuietOps            int
+	SpikeOps            int
+	Elapsed             time.Duration
+	// Latency lists, per operation kind, the completed operations and their
+	// p50 and p95 wall time.
+	Latency []SoakOperationLatency
 }
 
 // Soak schedules sustained MCP traffic against a prepared corpus.
 type Soak struct {
-	driver   *Driver
-	content  *Content
-	projects []*soakProject
-	options  SoakOptions
-	summary  SoakSummary
-	clock    clock.Clock
+	driver    *Driver
+	content   *Content
+	projects  []*soakProject
+	options   SoakOptions
+	summary   SoakSummary
+	clock     clock.Clock
+	latencies soakLatencies
 }
 
 // RunSoak prepares a corpus and runs until a configured stop condition.

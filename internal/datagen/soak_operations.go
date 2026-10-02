@@ -6,7 +6,16 @@ import (
 	"time"
 )
 
-const soakOperationKinds = 14
+// soakOperationNames labels the latency of each operation kind, in mix
+// order. The project read stays last.
+var soakOperationNames = [...]string{
+	"workflow", "issue_churn", "comment_create", "activity_create",
+	"epic_churn", "cycle_churn", "module_churn", "label_churn",
+	"state_churn", "project_churn", "relationship_churn", "issue_update",
+	"cycle_update", soakKindSearch, "project_read",
+}
+
+const soakOperationKinds = len(soakOperationNames)
 
 type soakNodeType string
 
@@ -16,55 +25,58 @@ const (
 	soakNodeModule soakNodeType = "module"
 )
 
+// executeOperation runs one operation and records its wall time under its
+// kind when it completes.
 func (s *Soak) executeOperation(ctx context.Context, operationIndex int) error {
+	startedAt := s.clock.Now()
+	kind, err := s.dispatchOperation(ctx, operationIndex)
+	if err != nil {
+		return err
+	}
+	s.latencies.add(kind, s.clock.Since(startedAt))
+	return nil
+}
+
+func (s *Soak) dispatchOperation(ctx context.Context, operationIndex int) (string, error) {
 	operationKind := operationIndex % soakOperationKinds
 	operationCycle := operationIndex / soakOperationKinds
 	project := s.projects[(operationCycle+operationKind)%len(s.projects)]
 	actor := project.Workspace.Actors[operationIndex%len(project.Workspace.Actors)]
 	create := operationCycle%2 == 0
+	name := soakOperationNames[operationKind]
 	switch operationKind {
 	case 0:
-		return s.advanceWorkflow(ctx, project, actor, operationIndex)
+		return name, s.advanceWorkflow(ctx, project, actor, operationIndex)
 	case 1:
-		return s.churnIssue(ctx, project, actor, operationIndex, create)
+		return name, s.churnIssue(ctx, project, actor, operationIndex, create)
 	case 2:
-		return s.createIssueChildForProject(
-			ctx, project, actor, "comment", operationIndex,
-		)
+		return name, s.createIssueChildForProject(ctx, project, actor, "comment", operationIndex)
 	case 3:
-		return s.createIssueChildForProject(
-			ctx, project, actor, "activity", operationIndex,
-		)
+		return name, s.createIssueChildForProject(ctx, project, actor, "activity", operationIndex)
 	case 4:
-		return s.churnContainer(
-			ctx, project, actor, soakNodeEpic, &project.Epics, operationIndex, create,
-		)
+		return name, s.churnContainer(ctx, project, actor, soakNodeEpic, &project.Epics, operationIndex, create)
 	case 5:
-		return s.churnContainer(
-			ctx, project, actor, soakNodeCycle, &project.Cycles, operationIndex, create,
-		)
+		return name, s.churnContainer(ctx, project, actor, soakNodeCycle, &project.Cycles, operationIndex, create)
 	case 6:
-		return s.churnContainer(
-			ctx, project, actor, soakNodeModule, &project.Modules, operationIndex, create,
-		)
+		return name, s.churnContainer(ctx, project, actor, soakNodeModule, &project.Modules, operationIndex, create)
 	case 7:
-		return s.churnLabel(ctx, project, actor, operationIndex, create)
+		return name, s.churnLabel(ctx, project, actor, operationIndex, create)
 	case 8:
-		return s.churnState(ctx, project, actor, operationIndex, create)
+		return name, s.churnState(ctx, project, actor, operationIndex, create)
 	case 9:
-		return s.churnProject(ctx, project, actor, operationIndex, create)
+		return name, s.churnProject(ctx, project, actor, operationIndex, create)
 	case 10:
-		return s.churnRelationship(ctx, project, actor, operationIndex)
+		return name, s.churnRelationship(ctx, project, actor, operationIndex)
 	case 11:
-		return s.updateIssue(ctx, project, actor, operationIndex)
+		return name, s.updateIssue(ctx, project, actor, operationIndex)
 	case 12:
-		return s.updateContainer(
-			ctx, project, actor, soakNodeCycle, project.Cycles, operationIndex,
-		)
+		return name, s.updateContainer(ctx, project, actor, soakNodeCycle, project.Cycles, operationIndex)
 	case 13:
-		return s.readProject(ctx, project, actor, operationIndex)
+		return s.searchProject(ctx, project, actor, operationIndex)
+	case 14:
+		return name, s.readProject(ctx, project, actor, operationIndex)
 	default:
-		return fmt.Errorf("qa datagen soak: invalid operation index %d", operationIndex)
+		return "", fmt.Errorf("qa datagen soak: invalid operation index %d", operationIndex)
 	}
 }
 
