@@ -37,7 +37,10 @@ func (request clusterSettingsRequest) GetRequest(method string) (*http.Request, 
 // the disposable engine by setting its heap threshold to 1 percent. A public
 // search then receives three breaker rejections and returns the unavailable
 // text. A second search, with the default threshold restored 500 ms into its
-// first wait, succeeds on its retry.
+// first wait, succeeds on its retry. The node stat
+// ml_circuit_breaker_trigger_count counts each rejection; the model profile
+// count covers only the last plugins.ml_commons.monitoring_request_count
+// predicts and stops rising once that window is full.
 func TestSearchQueryBreakerRetry(t *testing.T) {
 	fixture := newQueryFixture(t, defaultQueryOptions())
 	info, err := fixture.Adapter.IndexInfo(t.Context(), fixture.Index)
@@ -51,18 +54,20 @@ func TestSearchQueryBreakerRetry(t *testing.T) {
 	})
 
 	requireBreakerThreshold(t, fixture, "1")
-	before := predictRequests(t, fixture, info.ModelID)
+	before, profileBefore := breakerTriggers(t, fixture), predictRequests(t, fixture, info.ModelID)
 	started := clock.Now()
 	_, err = trySearch(fixture.Harness, "breaker exhausted", "")
 	elapsed := clock.Since(started)
 	if err == nil || err.Error() != searchUnavailableResponse {
 		t.Fatalf("search with the breaker open returned %v, want %q", err, searchUnavailableResponse)
 	}
-	if count := predictRequests(t, fixture, info.ModelID) - before; count != 3 || elapsed < 3*time.Second {
-		t.Fatalf("search with the breaker open sent %d predict requests in %s, want 3 in at least 3s", count, elapsed)
+	after, profileAfter := breakerTriggers(t, fixture), predictRequests(t, fixture, info.ModelID)
+	t.Logf("exhausted case: breaker triggers %d to %d, profile predicts %d to %d, elapsed %s", before, after, profileBefore, profileAfter, elapsed)
+	if after-before != 3 || elapsed < 3*time.Second {
+		t.Fatalf("search with the breaker open had %d breaker rejections in %s, want 3 in at least 3s", after-before, elapsed)
 	}
 
-	before = predictRequests(t, fixture, info.ModelID)
+	before, profileBefore = breakerTriggers(t, fixture), predictRequests(t, fixture, info.ModelID)
 	reset := make(chan error, 1)
 	started = clock.Now()
 	go func() {
@@ -80,9 +85,46 @@ func TestSearchQueryBreakerRetry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("search after the breaker closed: %v", err)
 	}
-	if count := predictRequests(t, fixture, info.ModelID) - before; count != 2 || elapsed < time.Second {
-		t.Fatalf("recovered search sent %d predict requests in %s, want 2 in at least 1s", count, elapsed)
+	after, profileAfter = breakerTriggers(t, fixture), predictRequests(t, fixture, info.ModelID)
+	t.Logf("recovery case: breaker triggers %d to %d, profile predicts %d to %d", before, after, profileBefore, profileAfter)
+	if after-before != 1 || elapsed < time.Second {
+		t.Fatalf("recovered search had %d breaker rejections in %s, want 1 in at least 1s", after-before, elapsed)
 	}
+}
+
+// breakerTriggers returns the ML Commons node stat
+// ml_circuit_breaker_trigger_count summed over every node. ML Commons
+// increments it once for each rejected request.
+func breakerTriggers(t *testing.T, fixture queryFixture) int64 {
+	t.Helper()
+	var stats struct {
+		Nodes map[string]struct {
+			Triggers *int64 `json:"ml_circuit_breaker_trigger_count"`
+		} `json:"nodes"`
+	}
+	var raw json.RawMessage
+	response, err := opensearch.Do(t.Context(), fixture.Client.Client, http.MethodGet, mlStatsRequest{}, &raw)
+	if err != nil || response == nil || response.IsError() {
+		t.Fatalf("read ML Commons stats: response %v err %v", response, err)
+	}
+	if err := json.Unmarshal(raw, &stats); err != nil || len(stats.Nodes) == 0 {
+		t.Fatalf("decode ML Commons stats %s: %v", raw, err)
+	}
+	var total int64
+	for node, values := range stats.Nodes {
+		if values.Triggers == nil {
+			t.Fatalf("ML Commons stats for node %s have no ml_circuit_breaker_trigger_count: %s", node, raw)
+		}
+		total += *values.Triggers
+	}
+	return total
+}
+
+// mlStatsRequest reads the ML Commons node and cluster stats.
+type mlStatsRequest struct{}
+
+func (mlStatsRequest) GetRequest(method string) (*http.Request, error) {
+	return http.NewRequestWithContext(context.Background(), method, "/_plugins/_ml/stats", nil)
 }
 
 func requireBreakerThreshold(t *testing.T, fixture queryFixture, value string) {
@@ -107,8 +149,9 @@ func setBreakerThreshold(ctx context.Context, fixture queryFixture, value string
 	return nil
 }
 
-// predictRequests returns the predict request count of modelID, rejected
-// requests included, from the model profile.
+// predictRequests returns the model profile predict count of modelID. The
+// count covers at most the last monitoring_request_count predicts; the test
+// logs it and asserts on breakerTriggers.
 func predictRequests(t *testing.T, fixture queryFixture, modelID string) int {
 	t.Helper()
 	var profile struct {
