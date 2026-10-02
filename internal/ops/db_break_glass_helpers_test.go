@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/spf13/cobra"
 
@@ -16,6 +15,7 @@ import (
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/testenv"
+	"goodkind.io/tack/internal/testenv/opsoutbox"
 )
 
 // breakGlassMailTests lists the tests in this package that deliver to the
@@ -50,17 +50,6 @@ func (s *bufferSink) WriteJSON(_ context.Context, payload json.RawMessage) error
 func (s *bufferSink) WriteText(_ context.Context, body string) error {
 	_, err := s.buf.WriteString(body)
 	return err
-}
-
-// breakGlassLedgerPool opens a superuser pool on the test ledger.
-func breakGlassLedgerPool(t *testing.T, ledgerDSN string) *pgxpool.Pool {
-	t.Helper()
-	pool, err := pgxpool.New(t.Context(), ledgerDSN)
-	if err != nil {
-		t.Fatalf("open the ledger pool: %v", err)
-	}
-	t.Cleanup(pool.Close)
-	return pool
 }
 
 // unreachableMsmtprc writes the closed-port account file and returns its path.
@@ -111,38 +100,19 @@ func breakGlassDeps(t *testing.T, pool *pgxpool.Pool, dsn, recipient, msmtprc st
 // breakGlassRows reads the break-glass rows recorded with reason.
 func breakGlassRows(t *testing.T, pool *pgxpool.Pool, reason string) []audit.Event {
 	t.Helper()
-	return outboxRows(t, pool, string(audit.VerbOpsDBBreakGlass), []string{"context", "reason"}, reason)
+	filter := opsoutbox.Filter{Verb: audit.VerbOpsDBBreakGlass, Path: []string{"context", "reason"}, Value: reason}
+	deleteOutboxRowsAfterTest(t, pool, filter)
+	return opsoutbox.Events(t, pool, filter)
 }
 
-// outboxRows reads the rows of verb from public.ops_outbox where the event
-// value at path equals value, oldest first. After the test it deletes every
-// outbox row with that value at path.
-func outboxRows(t *testing.T, pool *pgxpool.Pool, verb string, path []string, value string) []audit.Event {
+// deleteOutboxRowsAfterTest deletes every public.ops_outbox row with the
+// filter's value at the filter's path when the test ends.
+func deleteOutboxRowsAfterTest(t *testing.T, pool *pgxpool.Pool, filter opsoutbox.Filter) {
 	t.Helper()
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.WithoutCancel(t.Context()),
-			`DELETE FROM public.ops_outbox WHERE event #>> $1 = $2`, path, value)
+			`DELETE FROM public.ops_outbox WHERE event #>> $1 = $2`, filter.Path, filter.Value)
 	})
-	rows, err := pool.Query(t.Context(), `
-		SELECT event FROM public.ops_outbox
-		 WHERE event->>'verb' = $1 AND event #>> $2 = $3
-		 ORDER BY created_at, event_id`, verb, path, value)
-	if err != nil {
-		t.Fatalf("read the operator outbox: %v", err)
-	}
-	encoded, err := pgx.CollectRows(rows, pgx.RowTo[[]byte])
-	if err != nil {
-		t.Fatalf("read the operator outbox rows: %v", err)
-	}
-	events := make([]audit.Event, 0, len(encoded))
-	for _, body := range encoded {
-		var event audit.Event
-		if err := json.Unmarshal(body, &event); err != nil {
-			t.Fatalf("decode the operator outbox event %s: %v", body, err)
-		}
-		events = append(events, event)
-	}
-	return events
 }
 
 // runBreakGlass runs one statement through the command and returns the

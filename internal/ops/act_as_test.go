@@ -18,6 +18,7 @@ import (
 	"goodkind.io/tack/internal/domain/user"
 	"goodkind.io/tack/internal/service"
 	"goodkind.io/tack/internal/testenv"
+	"goodkind.io/tack/internal/testenv/opsoutbox"
 )
 
 type fixedUsers struct {
@@ -91,7 +92,7 @@ type actAsFixture struct {
 
 func newActAsFixture(t *testing.T, operatorFlags []string) actAsFixture {
 	t.Helper()
-	pool := breakGlassLedgerPool(t, testenv.Ledger(t))
+	pool := testenv.LedgerPool(t, testenv.Ledger(t))
 	target := &user.User{ID: uuid.New(), Email: "member@example.test", DisplayName: "Member"}
 	orgID := uuid.New()
 	parentID := uuid.New()
@@ -116,7 +117,9 @@ func actAsInput(f actAsFixture, email, reason string) actAsCreateInput {
 // operator outbox.
 func actAsGrantRows(t *testing.T, f actAsFixture) []audit.Event {
 	t.Helper()
-	return outboxRows(t, f.pool, string(audit.VerbOpsActAsGrant), []string{"entity", "id"}, f.user.ID.String())
+	filter := opsoutbox.Filter{Verb: audit.VerbOpsActAsGrant, Path: []string{"entity", "id"}, Value: f.user.ID.String()}
+	deleteOutboxRowsAfterTest(t, f.pool, filter)
+	return opsoutbox.Events(t, f.pool, filter)
 }
 
 // TestActAsCreateWritesAsTheUserWithTheOperatorOnTheRow requires the write to

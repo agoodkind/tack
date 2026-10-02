@@ -49,17 +49,6 @@ type ledgerEvent struct {
 	Extra     string
 }
 
-// openAttributionPool opens a superuser pool on the test ledger.
-func openAttributionPool(t *testing.T, ledgerDSN string) *pgxpool.Pool {
-	t.Helper()
-	pool, err := pgxpool.New(t.Context(), ledgerDSN)
-	if err != nil {
-		t.Fatalf("open the ledger pool: %v", err)
-	}
-	t.Cleanup(pool.Close)
-	return pool
-}
-
 // accountableOperatorID derives the operator ID of email through the git
 // config identity source, the derivation an operator's own commands record.
 func accountableOperatorID(t *testing.T, email string) uuid.UUID {
@@ -99,30 +88,6 @@ func ledgerNow(t *testing.T, pool *pgxpool.Pool) time.Time {
 		t.Fatalf("read the ledger clock: %v", err)
 	}
 	return now
-}
-
-// outboxEventsSince reads every public.ops_outbox event written at or after
-// since, oldest first.
-func outboxEventsSince(t *testing.T, pool *pgxpool.Pool, since time.Time) []audit.Event {
-	t.Helper()
-	rows, err := pool.Query(t.Context(),
-		`SELECT event FROM public.ops_outbox WHERE created_at >= $1 ORDER BY created_at, event_id`, since)
-	if err != nil {
-		t.Fatalf("read the operator outbox: %v", err)
-	}
-	encoded, err := pgx.CollectRows(rows, pgx.RowTo[[]byte])
-	if err != nil {
-		t.Fatalf("read the operator outbox rows: %v", err)
-	}
-	events := make([]audit.Event, 0, len(encoded))
-	for _, body := range encoded {
-		var event audit.Event
-		if err := json.Unmarshal(body, &event); err != nil {
-			t.Fatalf("decode the operator outbox event %s: %v", body, err)
-		}
-		events = append(events, event)
-	}
-	return events
 }
 
 // decodeAttributionExtra decodes an event's extra payload.

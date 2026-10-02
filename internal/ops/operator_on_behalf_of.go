@@ -1,10 +1,26 @@
 package ops
 
 import (
+	"context"
+	"errors"
+	"log/slog"
+
 	"github.com/google/uuid"
 
 	"goodkind.io/tack/internal/audit"
 )
+
+// requireAccountableOperator refuses a service principal with no accountable
+// operator. A write recorded as a product user records the person accountable
+// for it, and a service alone is not a person.
+func requireAccountableOperator(ctx context.Context, principal audit.OperatorPrincipal) error {
+	if principal.ActorType() != audit.ActorService || principal.OnBehalfOf != nil {
+		return nil
+	}
+	err := errors.New("act-as by --operator-service requires --operator-id and --operator-email for the accountable operator")
+	slog.ErrorContext(ctx, "act_as.accountable_operator_missing", slog.String("service", principal.Name), slog.String("err", err.Error()))
+	return err
+}
 
 // userRowProvenance returns the provenance staged on a row written as a
 // product user under grantID. A human principal records its own ID and email.

@@ -124,6 +124,9 @@ func runActAsCreate(ctx context.Context, deps actAsDeps, input actAsCreateInput,
 		slog.ErrorContext(ctx, "act_as.principal_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("resolve the operator for the act-as grant: %w", err)
 	}
+	if err := requireAccountableOperator(ctx, principal); err != nil {
+		return err
+	}
 	grantID, err := uuid.NewV7()
 	if err != nil {
 		slog.ErrorContext(ctx, "act_as.grant_id_failed", slog.String("err", err.Error()))

@@ -10,6 +10,7 @@ import (
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/testenv"
+	"goodkind.io/tack/internal/testenv/opsoutbox"
 )
 
 const (
@@ -37,7 +38,7 @@ func TestOpsDBSQLRecordsAgentAttribution(t *testing.T) {
 	ledgerDSN := testenv.Ledger(t)
 	mail := testenv.Mailpit(t)
 	brokers := testenv.Kafka(t)
-	pool := openAttributionPool(t, ledgerDSN)
+	pool := testenv.LedgerPool(t, ledgerDSN)
 	operatorID := accountableOperatorID(t, attributionEmail)
 	if err := mail.DeleteAll(t.Context()); err != nil {
 		t.Fatalf("clear the Mailpit mailbox: %v", err)
@@ -62,7 +63,7 @@ func TestOpsDBSQLRecordsAgentAttribution(t *testing.T) {
 			messages, "by "+attributionEmail, agentLine)
 	}
 
-	events := outboxEventsSince(t, pool, since)
+	events := opsoutbox.Events(t, pool, opsoutbox.Filter{Since: since})
 	eventIDs := requireOutboxAttribution(t, events, operatorID)
 	startAuditPipeline(t, brokers, ledgerDSN, pool)
 	for _, row := range waitForLedgerEvents(t, pool, eventIDs) {
@@ -82,7 +83,7 @@ func TestOpsDBSQLRecordsAgentAttribution(t *testing.T) {
 func TestOpsDBSQLRefusesSessionWithoutService(t *testing.T) {
 	ledgerDSN := testenv.Ledger(t)
 	mail := testenv.Mailpit(t)
-	pool := openAttributionPool(t, ledgerDSN)
+	pool := testenv.LedgerPool(t, ledgerDSN)
 	operatorID := accountableOperatorID(t, attributionEmail)
 	if err := mail.DeleteAll(t.Context()); err != nil {
 		t.Fatalf("clear the Mailpit mailbox: %v", err)
@@ -102,7 +103,7 @@ func TestOpsDBSQLRefusesSessionWithoutService(t *testing.T) {
 	if len(messages) != 0 {
 		t.Fatalf("delivered mail = %+v, want none for a refused identity", messages)
 	}
-	if events := outboxEventsSince(t, pool, since); len(events) != 0 {
+	if events := opsoutbox.Events(t, pool, opsoutbox.Filter{Since: since}); len(events) != 0 {
 		t.Fatalf("operator outbox rows = %+v, want none for a refused identity", events)
 	}
 }

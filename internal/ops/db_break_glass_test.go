@@ -20,7 +20,7 @@ import (
 // local port, and the real SQL outbox records no row for the statement that
 // never ran.
 func TestDBBreakGlassRefusesToRunUnobserved(t *testing.T) {
-	pool := breakGlassLedgerPool(t, testenv.Ledger(t))
+	pool := testenv.LedgerPool(t, testenv.Ledger(t))
 	unreachable := unreachableMsmtprc(t)
 	reason := "incident 42 " + uuid.NewString()[:8]
 	var sink bytes.Buffer
@@ -60,7 +60,7 @@ func TestDBBreakGlassRefusesToRunUnobserved(t *testing.T) {
 func TestDBBreakGlassRunsTheStatementAndRecordsIt(t *testing.T) {
 	ledgerDSN := testenv.Ledger(t)
 	mail := mailpitFor(t)
-	pool := breakGlassLedgerPool(t, ledgerDSN)
+	pool := testenv.LedgerPool(t, ledgerDSN)
 	reason := "TACK-327 proof " + uuid.NewString()[:8]
 	statement := "select 42 as answer, 'glass' as answer, null as gone"
 	deps := breakGlassDeps(t, pool, ledgerDSN, "alarm@example.test", mail.Msmtprc)

@@ -33,13 +33,14 @@ var systemRootFiles = []string{
 // it before m.Run, because Go reads the system root pool once per process.
 // The bundle contains the system roots. Other TLS clients in the process
 // verify against them as before. A selection without those tests starts
-// nothing and leaves SSL_CERT_FILE unchanged. [Mailpit] reports a failure to
-// the test that asks for the server.
+// nothing and leaves SSL_CERT_FILE unchanged. A binary without a -run flag,
+// or with a -run pattern that does not compile, starts the server and logs a
+// warning. [Mailpit] reports a failure to the test that asks for the server.
 func TrustMailpit(ctx context.Context, tests []string) {
 	if !flag.Parsed() {
 		flag.Parse()
 	}
-	if testing.Short() || !mailpitSelected(tests) {
+	if testing.Short() || !mailpitSelected(ctx, tests) {
 		return
 	}
 	mailpitState.once.Do(func() {
@@ -54,11 +55,13 @@ func TrustMailpit(ctx context.Context, tests []string) {
 }
 
 // mailpitSelected reports whether the top level of the -run selection
-// matches one of tests. An empty selection runs every test.
-func mailpitSelected(tests []string) bool {
+// matches one of tests. An empty selection runs every test. A missing -run
+// flag or a pattern that does not compile also reports true, with a warning.
+func mailpitSelected(ctx context.Context, tests []string) bool {
 	selection := flag.Lookup("test.run")
 	if selection == nil {
-		return false
+		slog.WarnContext(ctx, "testenv.mailpit.selection_unknown", slog.String("reason", "no test.run flag"))
+		return true
 	}
 	pattern, _, _ := strings.Cut(selection.Value.String(), "/")
 	if pattern == "" {
@@ -66,7 +69,9 @@ func mailpitSelected(tests []string) bool {
 	}
 	expression, err := regexp.Compile(pattern)
 	if err != nil {
-		return false
+		slog.WarnContext(ctx, "testenv.mailpit.selection_unknown",
+			slog.String("pattern", pattern), slog.String("err", err.Error()))
+		return true
 	}
 	return slices.ContainsFunc(tests, expression.MatchString)
 }
