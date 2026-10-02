@@ -31,6 +31,9 @@ type datagenSeedResult struct {
 	Workspaces int    `json:"workspaces"`
 	Projects   int    `json:"projects"`
 	Issues     int    `json:"issues"`
+	// AuditConsumerOffsets is the `ops audit consumer-offsets` report read
+	// after a committed seed. A dry run leaves it nil.
+	AuditConsumerOffsets *auditConsumerOffsetsReport `json:"audit_consumer_offsets,omitempty"`
 }
 
 func datagenSeedOp(f *cli.Factory) clispec.Operation[datagenSeedInput] {
@@ -82,6 +85,14 @@ func runDatagenSeed(
 		slog.ErrorContext(ctx, "qa.datagen.seed_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("qa datagen seed: %w", err)
 	}
+	var remainders *auditConsumerOffsetsReport
+	if input.Commit {
+		report, readErr := readAuditConsumerOffsets(ctx, factory)
+		if readErr != nil {
+			return fmt.Errorf("qa datagen seed: %w", readErr)
+		}
+		remainders = &report
+	}
 	return clispec.WriteJSONValue(ctx, sink, datagenSeedResult{
 		ResultMarker: clispec.ResultMarker{},
 		Command:      "ops.qa.datagen.seed",
@@ -94,5 +105,7 @@ func runDatagenSeed(
 		Workspaces:   summary.Workspaces,
 		Projects:     summary.Projects,
 		Issues:       summary.Issues,
+
+		AuditConsumerOffsets: remainders,
 	})
 }
