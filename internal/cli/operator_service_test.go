@@ -111,3 +111,25 @@ func TestNewOperatorSourceRecordsServiceOnBehalfOfOperator(t *testing.T) {
 		t.Fatalf("on behalf of = %+v, want %+v", principal.OnBehalfOf, want)
 	}
 }
+
+// TestNewOperatorSourceRefusesOnBehalfOfWithoutSession requires a service
+// acting for a flag operator to name its session.
+func TestNewOperatorSourceRefusesOnBehalfOfWithoutSession(t *testing.T) {
+	factory := &Factory{Cfg: nil, In: nil, Out: nil, Err: nil}
+	root := &cobra.Command{Use: "tack"}
+	factory.RegisterGlobalFlags(root)
+	if err := root.ParseFlags([]string{
+		"--operator-service", "tack-app",
+		"--operator-session", "   ",
+		"--operator-id", "019dd222-440e-729a-a442-281aaf73ca30",
+		"--operator-email", "ops@goodkind.io",
+	}); err != nil {
+		t.Fatalf("parse flags: %v", err)
+	}
+
+	_, err := NewOperatorSource(factory).Resolve(t.Context())
+	want := "--operator-service with --operator-id requires --operator-session"
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("Resolve error = %v, want it to contain %q", err, want)
+	}
+}

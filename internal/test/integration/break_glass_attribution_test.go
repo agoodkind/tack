@@ -31,7 +31,8 @@ const (
 // The choke-point intent and outcome rows and the break-glass pending and ok
 // rows record the agent as the actor and the operator in on_behalf_of. The
 // real relay and consumer then project the same four events into audit.events
-// with actor kind 2 and the same extra payload.
+// with actor kind 2 and the same extra payload. A signed export of those rows
+// passes audit.VerifyBundle.
 func TestOpsDBSQLRecordsAgentAttribution(t *testing.T) {
 	ledgerDSN := testenv.Ledger(t)
 	mail := testenv.Mailpit(t)
@@ -72,6 +73,7 @@ func TestOpsDBSQLRecordsAgentAttribution(t *testing.T) {
 		extra := decodeAttributionExtra(t, []byte(row.Extra))
 		requireAccountable(t, "audit.events row "+row.EventID, extra, operatorID, extra.AttemptID != uuid.Nil)
 	}
+	requireVerifiedBundle(t, ledgerDSN, pool, since, len(eventIDs))
 }
 
 // TestOpsDBSQLRefusesSessionWithoutService requires `ops db sql --execute`

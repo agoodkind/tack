@@ -94,7 +94,7 @@ func runDBSQL(ctx context.Context, deps dbSQLDeps, input dbSQLInput, sink clispe
 	extra := dbBreakGlassExtra{
 		AttemptID: uuid.Must(uuid.NewV7()), Statement: statement, Reason: reason,
 		MailedTo: deps.cfg.BackupAlarmEmail, CommandTag: "", RowsReturned: 0, Truncated: false,
-		SessionID: principal.SessionID, OnBehalfOf: dbBreakGlassOnBehalfOf(principal, reason),
+		SessionID: principal.SessionID, OnBehalfOf: onBehalfOfWithReason(principal, reason),
 	}
 	if err := recordDBBreakGlass(ctx, deps.outbox, principal, extra, audit.OutcomePending, nil); err != nil {
 		return err

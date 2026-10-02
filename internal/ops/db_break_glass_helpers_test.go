@@ -73,38 +73,60 @@ func unreachableMsmtprc(t *testing.T) string {
 	return path
 }
 
-// breakGlassDeps wires the command to the real SQL outbox over pool and to
-// the identity source the command line resolves from the operator flags.
-func breakGlassDeps(t *testing.T, pool *pgxpool.Pool, dsn, recipient, msmtprc string) dbSQLDeps {
+const (
+	// testOperatorID and testOperatorEmail identify the test operator.
+	testOperatorID    = "019ff315-bc5d-7a56-b12a-1a35f280c4dd"
+	testOperatorEmail = "operator@example.test"
+)
+
+// humanOperatorFlags are the global flags of a human operator.
+func humanOperatorFlags() []string {
+	return []string{"--operator-id", testOperatorID, "--operator-email", testOperatorEmail, "--operator-name", "Operator"}
+}
+
+// flagOperatorSource parses flags as global command-line flags and returns the
+// identity source the command line resolves from them.
+func flagOperatorSource(t *testing.T, flags []string) audit.OperatorIdentitySource {
 	t.Helper()
 	factory := &cli.Factory{Cfg: nil, In: nil, Out: nil, Err: nil}
 	root := &cobra.Command{Use: "tack"}
 	factory.RegisterGlobalFlags(root)
-	if err := root.ParseFlags([]string{
-		"--operator-id", "019ff315-bc5d-7a56-b12a-1a35f280c4dd",
-		"--operator-email", "operator@example.test", "--operator-name", "Operator",
-	}); err != nil {
+	if err := root.ParseFlags(flags); err != nil {
 		t.Fatalf("parse the operator flags: %v", err)
 	}
+	return cli.NewOperatorSource(factory)
+}
+
+// breakGlassDeps wires the command to the real SQL outbox over pool and to
+// the identity source the command line resolves from the operator flags.
+func breakGlassDeps(t *testing.T, pool *pgxpool.Pool, dsn, recipient, msmtprc string) dbSQLDeps {
+	t.Helper()
 	return dbSQLDeps{
 		cfg:      &config.Config{DatabaseURL: dsn, BackupAlarmEmail: recipient, BackupAlarmMsmtprcPath: msmtprc},
 		outbox:   audit.NewPoolOutbox(pool),
-		identity: cli.NewOperatorSource(factory),
+		identity: flagOperatorSource(t, humanOperatorFlags()),
 	}
 }
 
-// breakGlassRows reads the break-glass rows recorded with reason from
-// public.ops_outbox, oldest first, and deletes them after the test.
+// breakGlassRows reads the break-glass rows recorded with reason.
 func breakGlassRows(t *testing.T, pool *pgxpool.Pool, reason string) []audit.Event {
+	t.Helper()
+	return outboxRows(t, pool, string(audit.VerbOpsDBBreakGlass), []string{"context", "reason"}, reason)
+}
+
+// outboxRows reads the rows of verb from public.ops_outbox where the event
+// value at path equals value, oldest first. After the test it deletes every
+// outbox row with that value at path.
+func outboxRows(t *testing.T, pool *pgxpool.Pool, verb string, path []string, value string) []audit.Event {
 	t.Helper()
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.WithoutCancel(t.Context()),
-			`DELETE FROM public.ops_outbox WHERE event->'context'->>'reason' = $1`, reason)
+			`DELETE FROM public.ops_outbox WHERE event #>> $1 = $2`, path, value)
 	})
 	rows, err := pool.Query(t.Context(), `
 		SELECT event FROM public.ops_outbox
-		 WHERE event->>'verb' = $1 AND event->'context'->>'reason' = $2
-		 ORDER BY created_at, event_id`, string(audit.VerbOpsDBBreakGlass), reason)
+		 WHERE event->>'verb' = $1 AND event #>> $2 = $3
+		 ORDER BY created_at, event_id`, verb, path, value)
 	if err != nil {
 		t.Fatalf("read the operator outbox: %v", err)
 	}

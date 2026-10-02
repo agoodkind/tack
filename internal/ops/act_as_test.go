@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/auditintent"
@@ -16,6 +17,7 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/domain/user"
 	"goodkind.io/tack/internal/service"
+	"goodkind.io/tack/internal/testenv"
 )
 
 type fixedUsers struct {
@@ -50,9 +52,8 @@ func (f fixedResolver) Resolve(_ context.Context, nodeID uuid.UUID) (*node.NodeR
 	return found, nil
 }
 
-// stagingCreator stands in for the node service: it stages the row the way
-// the service does and commits it the way the store does, and keeps what it
-// was asked to create and under which context.
+// stagingCreator stages the row the way the node service does, commits it the
+// way the store does, and keeps each create input, staged row, and actor.
 type stagingCreator struct {
 	calls  []service.CreateInput
 	staged []audit.Event
@@ -77,32 +78,33 @@ func (c *stagingCreator) Create(ctx context.Context, in service.CreateInput) (*s
 	return &service.CreateResult{View: &node.NodeView{ID: id, OrgID: uuid.Nil, NodeType: in.NodeTypeKey, Name: in.Name}, Existed: false}, nil
 }
 
+// actAsFixture wires the command to the real SQL outbox on the test ledger
+// and to the identity source the command line resolves from operator flags.
 type actAsFixture struct {
 	deps     actAsDeps
-	outbox   *capturedOutbox
+	pool     *pgxpool.Pool
 	creator  *stagingCreator
 	user     *user.User
 	orgID    uuid.UUID
 	parentID uuid.UUID
-	operator audit.OperatorPrincipal
 }
 
-func newActAsFixture() actAsFixture {
+func newActAsFixture(t *testing.T, operatorFlags []string) actAsFixture {
+	t.Helper()
+	pool := breakGlassLedgerPool(t, testenv.Ledger(t))
 	target := &user.User{ID: uuid.New(), Email: "member@example.test", DisplayName: "Member"}
 	orgID := uuid.New()
 	parentID := uuid.New()
-	outbox := &capturedOutbox{}
 	creator := &stagingCreator{}
-	operator := audit.OperatorPrincipal{ID: uuid.New(), Email: "operator@example.test", Name: "Operator", Source: "test"}
 	return actAsFixture{
 		deps: actAsDeps{
-			outbox: outbox, identity: fixedOperator{principal: operator},
+			outbox: audit.NewPoolOutbox(pool), identity: flagOperatorSource(t, operatorFlags),
 			users:   fixedUsers{byEmail: map[string]*user.User{target.Email: target}},
 			members: fixedMembers{orgs: map[uuid.UUID][]uuid.UUID{target.ID: {orgID}}},
 			reader:  fixedResolver{records: map[uuid.UUID]*node.NodeResolve{parentID: {OrgID: orgID, NodeType: "project"}}},
 			nodes:   creator,
 		},
-		outbox: outbox, creator: creator, user: target, orgID: orgID, parentID: parentID, operator: operator,
+		pool: pool, creator: creator, user: target, orgID: orgID, parentID: parentID,
 	}
 }
 
@@ -110,19 +112,28 @@ func actAsInput(f actAsFixture, email, reason string) actAsCreateInput {
 	return actAsCreateInput{Email: email, Reason: reason, ParentID: f.parentID.String(), NodeType: "issue", Name: "Fix the board"}
 }
 
-// The write lands as the user, and the user's row carries the operator and
-// the grant the grant row names.
+// actAsGrantRows reads the grant rows naming the fixture's user from the
+// operator outbox.
+func actAsGrantRows(t *testing.T, f actAsFixture) []audit.Event {
+	t.Helper()
+	return outboxRows(t, f.pool, string(audit.VerbOpsActAsGrant), []string{"entity", "id"}, f.user.ID.String())
+}
+
+// TestActAsCreateWritesAsTheUserWithTheOperatorOnTheRow requires the write to
+// run as the user, and the user's row to store the operator and the grant id
+// of the grant row.
 func TestActAsCreateWritesAsTheUserWithTheOperatorOnTheRow(t *testing.T) {
-	f := newActAsFixture()
+	f := newActAsFixture(t, humanOperatorFlags())
 	sink := &bufferSink{buf: &bytes.Buffer{}}
-	if err := runActAsCreate(context.Background(), f.deps, actAsInput(f, f.user.Email, "board stuck after a rename"), sink, true); err != nil {
+	if err := runActAsCreate(t.Context(), f.deps, actAsInput(f, f.user.Email, "board stuck after a rename"), sink, true); err != nil {
 		t.Fatalf("runActAsCreate: %v", err)
 	}
-	if len(f.outbox.events) != 1 || f.outbox.events[0].Verb != string(audit.VerbOpsActAsGrant) {
-		t.Fatalf("outbox = %+v, want one grant row", f.outbox.events)
+	rows := actAsGrantRows(t, f)
+	if len(rows) != 1 {
+		t.Fatalf("outbox grant rows = %+v, want one", rows)
 	}
-	grantRow := f.outbox.events[0]
-	if grantRow.Actor.ID != f.operator.ID || grantRow.Context.OrgID != f.orgID || grantRow.Entity.ID != f.user.ID {
+	grantRow, operatorID := rows[0], uuid.MustParse(testOperatorID)
+	if grantRow.Actor.ID != operatorID || grantRow.Context.OrgID != f.orgID || grantRow.Entity.ID != f.user.ID {
 		t.Fatalf("grant row = %+v, want the operator on the user's org naming the user", grantRow)
 	}
 	var grant actAsGrantExtra
@@ -142,7 +153,7 @@ func TestActAsCreateWritesAsTheUserWithTheOperatorOnTheRow(t *testing.T) {
 	if err := json.Unmarshal(staged.Extra, &extra); err != nil {
 		t.Fatalf("decode the row's extra: %v", err)
 	}
-	if extra.ActAs.OperatorID != f.operator.ID || extra.ActAs.GrantID != grant.GrantID || extra.ActAs.Reason != "board stuck after a rename" {
+	if extra.ActAs.OperatorID != operatorID || extra.ActAs.GrantID != grant.GrantID || extra.ActAs.Reason != "board stuck after a rename" {
 		t.Fatalf("row extra = %+v, want the operator, grant %s, and the reason", extra.ActAs, grant.GrantID)
 	}
 	if !strings.Contains(sink.buf.String(), `"row_committed":true`) {
@@ -150,51 +161,35 @@ func TestActAsCreateWritesAsTheUserWithTheOperatorOnTheRow(t *testing.T) {
 	}
 }
 
-// A missing reason, an unknown user, and a user outside the parent's org each
-// refuse before any grant is recorded or any write attempted.
+// TestActAsCreateRefusesBeforeRecordingAnything requires a missing reason, an
+// unknown user, and a user outside the parent's org each to refuse before the
+// command records a grant row or attempts a write.
 func TestActAsCreateRefusesBeforeRecordingAnything(t *testing.T) {
 	stranger := uuid.New()
 	cases := []struct {
-		name  string
-		input func(actAsFixture) actAsCreateInput
-		want  string
+		name    string
+		email   func(actAsFixture) string
+		reason  string
+		outside bool
+		want    string
 	}{
-		{name: "no reason", input: func(f actAsFixture) actAsCreateInput { return actAsInput(f, f.user.Email, "   ") }, want: "reason is required"},
-		{name: "unknown user", input: func(f actAsFixture) actAsCreateInput { return actAsInput(f, "nobody@example.test", "why") }, want: `no active user "nobody@example.test"`},
-		{name: "outside the org", input: func(f actAsFixture) actAsCreateInput {
-			f.deps.members = fixedMembers{orgs: map[uuid.UUID][]uuid.UUID{f.user.ID: {stranger}}}
-			return actAsInput(f, f.user.Email, "why")
-		}, want: "is not a member of org"},
+		{name: "no reason", email: func(f actAsFixture) string { return f.user.Email }, reason: "   ", outside: false, want: "reason is required"},
+		{name: "unknown user", email: func(actAsFixture) string { return "nobody@example.test" }, reason: "why", outside: false, want: `no active user "nobody@example.test"`},
+		{name: "outside the org", email: func(f actAsFixture) string { return f.user.Email }, reason: "why", outside: true, want: "is not a member of org"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f := newActAsFixture()
-			input := tc.input(f)
-			if tc.name == "outside the org" {
+			f := newActAsFixture(t, humanOperatorFlags())
+			if tc.outside {
 				f.deps.members = fixedMembers{orgs: map[uuid.UUID][]uuid.UUID{f.user.ID: {stranger}}}
 			}
-			err := runActAsCreate(context.Background(), f.deps, input, &bufferSink{buf: &bytes.Buffer{}}, true)
+			err := runActAsCreate(t.Context(), f.deps, actAsInput(f, tc.email(f), tc.reason), &bufferSink{buf: &bytes.Buffer{}}, true)
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("err = %v, want it to contain %q", err, tc.want)
 			}
-			if len(f.outbox.events) != 0 || len(f.creator.calls) != 0 {
-				t.Fatalf("refusal recorded %d rows and made %d writes, want none", len(f.outbox.events), len(f.creator.calls))
+			if rows := actAsGrantRows(t, f); len(rows) != 0 || len(f.creator.calls) != 0 {
+				t.Fatalf("refusal recorded %d grant rows and made %d writes, want none", len(rows), len(f.creator.calls))
 			}
 		})
-	}
-}
-
-// The dry run names the user and the org and records nothing.
-func TestActAsCreateDryRunRecordsNothing(t *testing.T) {
-	f := newActAsFixture()
-	sink := &bufferSink{buf: &bytes.Buffer{}}
-	if err := runActAsCreate(context.Background(), f.deps, actAsInput(f, f.user.Email, "why"), sink, false); err != nil {
-		t.Fatalf("runActAsCreate: %v", err)
-	}
-	if len(f.outbox.events) != 0 || len(f.creator.calls) != 0 {
-		t.Fatal("the dry run must record nothing and write nothing")
-	}
-	if !strings.Contains(sink.buf.String(), f.orgID.String()) || !strings.Contains(sink.buf.String(), `"dry_run":true`) {
-		t.Fatalf("report = %s, want the org and dry_run true", sink.buf.String())
 	}
 }

@@ -51,7 +51,7 @@ type actAsNodeResolver interface {
 }
 
 // actAsDeps is what the command needs, split from the factory so a test can
-// hand it fakes and a captured outbox.
+// wire each dependency directly.
 type actAsDeps struct {
 	outbox   audit.OutboxWriter
 	identity audit.OperatorIdentitySource
@@ -62,15 +62,19 @@ type actAsDeps struct {
 }
 
 // actAsGrantExtra is what the grant row carries beyond the operator: whom the
-// operator acted as, where, and why. The user's row names the same grant id.
+// operator acted as, where, and why. The user's row stores the same grant id.
+// SessionID and OnBehalfOf record the agent session and the accountable
+// operator when a service principal records the grant.
 type actAsGrantExtra struct {
-	GrantID      uuid.UUID `json:"grant_id"`
-	TargetUserID uuid.UUID `json:"target_user_id"`
-	TargetEmail  string    `json:"target_email"`
-	OrgID        uuid.UUID `json:"org_id"`
-	Reason       string    `json:"reason"`
-	NodeType     string    `json:"node_type"`
-	ParentID     uuid.UUID `json:"parent_id"`
+	GrantID      uuid.UUID            `json:"grant_id"`
+	TargetUserID uuid.UUID            `json:"target_user_id"`
+	TargetEmail  string               `json:"target_email"`
+	OrgID        uuid.UUID            `json:"org_id"`
+	Reason       string               `json:"reason"`
+	NodeType     string               `json:"node_type"`
+	ParentID     uuid.UUID            `json:"parent_id"`
+	SessionID    string               `json:"session_id,omitempty"`
+	OnBehalfOf   *audit.ActProvenance `json:"on_behalf_of,omitempty"`
 }
 
 // actAsCreateResult reports what the command did or would do.
@@ -128,6 +132,7 @@ func runActAsCreate(ctx context.Context, deps actAsDeps, input actAsCreateInput,
 	grant := actAsGrantExtra{
 		GrantID: grantID, TargetUserID: target.user.ID, TargetEmail: target.user.Email,
 		OrgID: target.orgID, Reason: reason, NodeType: input.NodeType, ParentID: target.parentID,
+		SessionID: principal.SessionID, OnBehalfOf: onBehalfOfWithReason(principal, reason),
 	}
 	if err := recordActAsGrant(ctx, deps.outbox, principal, grant); err != nil {
 		return err

@@ -1,0 +1,69 @@
+package ops
+
+import (
+	"bytes"
+	"encoding/json"
+	"strings"
+	"testing"
+
+	"github.com/google/uuid"
+
+	"goodkind.io/tack/internal/audit"
+	"goodkind.io/tack/internal/cli"
+)
+
+const (
+	// actAsAgentService and actAsAgentSession identify the test agent.
+	actAsAgentService = "claude-test-agent"
+	actAsAgentSession = "session-act-as-1"
+)
+
+// TestActAsCreateDryRunRecordsNothing requires the dry run to report the user
+// and the org without recording a grant row or making a write.
+func TestActAsCreateDryRunRecordsNothing(t *testing.T) {
+	f := newActAsFixture(t, humanOperatorFlags())
+	sink := &bufferSink{buf: &bytes.Buffer{}}
+	if err := runActAsCreate(t.Context(), f.deps, actAsInput(f, f.user.Email, "why"), sink, false); err != nil {
+		t.Fatalf("runActAsCreate: %v", err)
+	}
+	if rows := actAsGrantRows(t, f); len(rows) != 0 || len(f.creator.calls) != 0 {
+		t.Fatalf("the dry run recorded %d grant rows and made %d writes, want none", len(rows), len(f.creator.calls))
+	}
+	if !strings.Contains(sink.buf.String(), f.orgID.String()) || !strings.Contains(sink.buf.String(), `"dry_run":true`) {
+		t.Fatalf("report = %s, want the org and dry_run true", sink.buf.String())
+	}
+}
+
+// TestActAsCreateRecordsTheAgentSessionAndAccountableOperator runs act-as as
+// a service agent acting for a flag operator. The grant row records the
+// service as the actor with its session, and its extra stores the session and
+// the accountable operator with the grant reason.
+func TestActAsCreateRecordsTheAgentSessionAndAccountableOperator(t *testing.T) {
+	f := newActAsFixture(t, []string{
+		"--operator-service", actAsAgentService, "--operator-session", actAsAgentSession,
+		"--operator-id", testOperatorID, "--operator-email", testOperatorEmail,
+	})
+	reason := "agent fixes the board " + uuid.NewString()[:8]
+	if err := runActAsCreate(t.Context(), f.deps, actAsInput(f, f.user.Email, reason), &bufferSink{buf: &bytes.Buffer{}}, true); err != nil {
+		t.Fatalf("runActAsCreate: %v", err)
+	}
+	rows := actAsGrantRows(t, f)
+	if len(rows) != 1 {
+		t.Fatalf("outbox grant rows = %+v, want one", rows)
+	}
+	actor := rows[0].Actor
+	if actor.Type != audit.ActorService || actor.ID != cli.ServiceActorID(actAsAgentService) || actor.SessionID != actAsAgentSession {
+		t.Fatalf("grant row actor = %+v, want service %s in session %s", actor, actAsAgentService, actAsAgentSession)
+	}
+	var grant actAsGrantExtra
+	if err := json.Unmarshal(rows[0].Extra, &grant); err != nil {
+		t.Fatalf("decode the grant: %v", err)
+	}
+	want := audit.ActProvenance{
+		OperatorID: uuid.MustParse(testOperatorID), OperatorEmail: testOperatorEmail, GrantID: uuid.Nil, Reason: reason,
+	}
+	if grant.SessionID != actAsAgentSession || grant.OnBehalfOf == nil || *grant.OnBehalfOf != want {
+		t.Fatalf("grant extra session = %q on behalf of %+v, want session %s on behalf of %+v",
+			grant.SessionID, grant.OnBehalfOf, actAsAgentSession, want)
+	}
+}

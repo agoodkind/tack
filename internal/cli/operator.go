@@ -73,9 +73,10 @@ func NewOperatorSource(f *Factory) audit.OperatorIdentitySource {
 // supplied, the flag source when the operator supplied an id, and the git
 // config source otherwise. A command given both a service name and an operator
 // id records the service as the actor and the flag operator as the accountable
-// operator in OnBehalfOf; the flag operator still needs a non-nil id and an
-// email. A session id without a service name refuses, because only an agent
-// running as a service has a session to record.
+// operator in OnBehalfOf; that pairing also needs a session id, and the flag
+// operator still needs a non-nil id and an email. A session id without a
+// service name refuses, because only an agent running as a service has a
+// session to record.
 type selectingOperatorSource struct {
 	factory *Factory
 }
@@ -108,8 +109,13 @@ func (s selectingOperatorSource) Resolve(ctx context.Context) (audit.OperatorPri
 // resolveServiceOnBehalfOf returns the service principal with the flag
 // operator recorded as the accountable operator. No act-as grant exists for
 // this pairing, so GrantID is the nil UUID, and the command fills Reason where
-// it takes one.
+// it takes one. An empty session refuses: the agent action records its session.
 func (s selectingOperatorSource) resolveServiceOnBehalfOf(ctx context.Context) (audit.OperatorPrincipal, error) {
+	if strings.TrimSpace(s.factory.OperatorSession()) == "" {
+		err := errors.New("--operator-service with --operator-id requires --operator-session; an agent action records its session")
+		slog.ErrorContext(ctx, "operator.select.on_behalf_of_without_session", slog.String("err", err.Error()))
+		return audit.OperatorPrincipal{}, err
+	}
 	principal, err := ServiceOperatorSource{Factory: s.factory}.Resolve(ctx)
 	if err != nil {
 		return audit.OperatorPrincipal{}, err

@@ -29,18 +29,6 @@ type dbBreakGlassExtra struct {
 	OnBehalfOf   *audit.ActProvenance `json:"on_behalf_of,omitempty"`
 }
 
-// dbBreakGlassOnBehalfOf returns a copy of the principal's provenance with
-// Reason set to the command's reason, or nil when the principal acts on its
-// own account. The principal's own provenance value stays unchanged.
-func dbBreakGlassOnBehalfOf(principal audit.OperatorPrincipal, reason string) *audit.ActProvenance {
-	if principal.OnBehalfOf == nil {
-		return nil
-	}
-	provenance := *principal.OnBehalfOf
-	provenance.Reason = reason
-	return &provenance
-}
-
 // recordDBBreakGlass writes one detail row. The pending row is written before
 // the statement and the ok or error row after, paired by attempt id. A process
 // lost mid-statement leaves a pending row with the attempted statement. Both
