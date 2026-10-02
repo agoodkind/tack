@@ -6,21 +6,35 @@ import (
 	"goodkind.io/tack/internal/datagen"
 )
 
-// searchGuardSeed is the fixed seed of the production guard test. Its
-// planned organization must never exist.
-const searchGuardSeed = 538_000_001
+const (
+	// searchGuardSeed is the fixed seed of the production guard test. Its
+	// planned organization must never exist.
+	searchGuardSeed = 538_000_001
+	// searchDatagenSeed is the fixed seed of TestSearchDatagen. The
+	// verification also bootstraps the foreign organization at
+	// searchDatagenSeed+1. Harness seeds start at the current Unix time in
+	// nanoseconds, far above both values.
+	searchDatagenSeed = 538_000_002
+)
 
 // TestSearchDatagen runs the QA search verification against a local target
 // with public search enabled. The verification creates an isolated opaque
 // organization, calls tack_search through authenticated MCP requests, and
 // checks relevance, final-page text, excluded text, edits, deletion, and
-// complete continuation.
+// complete continuation. It then bootstraps a second organization with
+// matching text and checks result isolation between the organizations,
+// refusal under the other organization's entry node, cursor replay, and
+// refusal of a removed member's open cursor and new search. The second run
+// reuses the seed and requires the restored membership of the removed
+// member.
 func TestSearchDatagen(t *testing.T) {
 	fixture := newQueryFixture(t, defaultQueryOptions())
 	cfg := *fixture.Config
 	cfg.DatagenAllowTarget = "local"
-	if err := datagen.VerifySearch(t.Context(), &cfg); err != nil {
-		t.Fatalf("verify search: %v", err)
+	for run := 1; run <= 2; run++ {
+		if err := datagen.VerifySearchWithSeed(t.Context(), &cfg, searchDatagenSeed); err != nil {
+			t.Fatalf("verify search run %d with seed %d: %v", run, searchDatagenSeed, err)
+		}
 	}
 }
 
