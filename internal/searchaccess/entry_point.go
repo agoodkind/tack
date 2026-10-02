@@ -10,59 +10,106 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// entryPoint returns the nearest hierarchy ancestor of resourceID, or
-// resourceID itself, with an entry-point type. When no such node exists, it
-// returns the hierarchy root. Query compiles caller keys only for
-// entry-point types, and no caller key matches the key of a root. NodeType
-// metadata defines the hierarchy. Each level reads one node, one node type
-// by key, and bounded pages of the node's edges. entryPoint has no depth
-// limit and rejects a cycle. Inside a batch memo, it stops at the first
-// ancestor the batch already resolved and records every node it read.
+// entryPoint returns the entry point of resourceID under the shared
+// [EntryPoints] rule. Query compiles caller keys only for entry-point types,
+// and no caller key matches the key of a root. Each read uses the compiler's
+// node, type, and relationship readers.
 func (c *OrgScopeCompiler) entryPoint(ctx context.Context, orgID, resourceID uuid.UUID) (uuid.UUID, error) {
 	if c.reader == nil || c.types == nil || c.relationships == nil {
 		return uuid.Nil, entryPointFailure(ctx, resourceID, "resolve entry point", fmt.Errorf("search policy dependencies are unavailable"))
 	}
-	memo := memoFrom(ctx)
-	visited := make(map[uuid.UUID]struct{})
-	path := make([]uuid.UUID, 0, maxMemoPath)
-	currentID := resourceID
+	resource := OrgNode{OrgID: orgID, NodeID: resourceID}
+	entries, defects, err := EntryPoints(ctx, compilerHierarchy{compiler: c}, []OrgNode{resource})
+	if err != nil {
+		return uuid.Nil, WithContext("resolve entry point for resource "+resourceID.String(), err)
+	}
+	if defect := defects[resource]; defect != nil {
+		return uuid.Nil, entryPointFailure(ctx, resourceID, "resolve entry point", defect)
+	}
+	return entries[resource], nil
+}
+
+// compilerHierarchy reads hierarchy state through the compiler's readers.
+// Each read is a separate FoundationDB transaction.
+type compilerHierarchy struct {
+	compiler *OrgScopeCompiler
+}
+
+// Ancestors reads each node's view, its node type, and, below an entry
+// point, its child_of targets in bounded pages.
+func (h compilerHierarchy) Ancestors(ctx context.Context, nodes []OrgNode) (map[OrgNode]AncestorState, error) {
+	states := make(map[OrgNode]AncestorState, len(nodes))
+	kinds := map[string]*node.NodeType{}
+	for _, key := range nodes {
+		view, err := h.compiler.reader.Get(ctx, key.NodeID)
+		if err != nil {
+			return nil, hierarchyFailure(ctx, key.NodeID, "get search ancestor "+key.NodeID.String(), err)
+		}
+		if view == nil {
+			states[key] = AncestorState{Exists: false, OrgID: uuid.Nil, TypeKey: "", Type: nil, ChildOfs: nil}
+			continue
+		}
+		if view.OrgID != key.OrgID {
+			states[key] = AncestorState{Exists: true, OrgID: view.OrgID, TypeKey: "", Type: nil, ChildOfs: nil}
+			continue
+		}
+		kind, err := h.compiler.typeByKey(ctx, key.OrgID, view.NodeType, kinds)
+		if err != nil {
+			return nil, err
+		}
+		state := AncestorState{Exists: true, OrgID: view.OrgID, TypeKey: view.NodeType, Type: kind, ChildOfs: nil}
+		if kind != nil && !kind.Features.Has(node.FeatureIsEntryPoint) {
+			state.ChildOfs, err = h.compiler.childOfs(ctx, key)
+			if err != nil {
+				return nil, err
+			}
+		}
+		states[key] = state
+	}
+	return states, nil
+}
+
+// Targets reads each node's resolve record and, inside the requested
+// organization, its node type.
+func (h compilerHierarchy) Targets(ctx context.Context, nodes []OrgNode) (map[OrgNode]TargetState, error) {
+	states := make(map[OrgNode]TargetState, len(nodes))
+	kinds := map[string]*node.NodeType{}
+	for _, key := range nodes {
+		resolved, err := h.compiler.reader.Resolve(ctx, key.NodeID)
+		if err != nil {
+			return nil, hierarchyFailure(ctx, key.NodeID, "resolve hierarchy node "+key.NodeID.String(), err)
+		}
+		if resolved == nil {
+			states[key] = TargetState{Exists: false, OrgID: uuid.Nil, Type: nil}
+			continue
+		}
+		if resolved.OrgID != key.OrgID {
+			states[key] = TargetState{Exists: true, OrgID: resolved.OrgID, Type: nil}
+			continue
+		}
+		kind, err := h.compiler.typeByKey(ctx, key.OrgID, resolved.NodeType, kinds)
+		if err != nil {
+			return nil, err
+		}
+		states[key] = TargetState{Exists: true, OrgID: resolved.OrgID, Type: kind}
+	}
+	return states, nil
+}
+
+// childOfs reads every child_of target of one node in bounded pages.
+func (c *OrgScopeCompiler) childOfs(ctx context.Context, key OrgNode) ([]uuid.UUID, error) {
+	targets := []uuid.UUID{}
+	cursor := ""
 	for {
-		if entryPointID, found := memo.lookup(orgID, currentID); found {
-			memo.store(orgID, path, entryPointID)
-			return entryPointID, nil
-		}
-		if _, seen := visited[currentID]; seen {
-			return uuid.Nil, entryPointFailure(ctx, resourceID, "resolve entry point", fmt.Errorf("hierarchy cycle at %s", currentID))
-		}
-		visited[currentID] = struct{}{}
-		path = append(path, currentID)
-		view, err := c.reader.Get(ctx, currentID)
+		page, err := c.relationships.EdgesFrom(ctx, key.OrgID, key.NodeID, node.RelChildOf, cursor, maxDependentPage)
 		if err != nil {
-			return uuid.Nil, entryPointFailure(ctx, resourceID, "get search ancestor "+currentID.String(), err)
+			return nil, hierarchyFailure(ctx, key.NodeID, "list edges from node "+key.NodeID.String(), err)
 		}
-		if view == nil || view.OrgID != orgID {
-			return uuid.Nil, entryPointFailure(ctx, resourceID, "resolve entry point", fmt.Errorf("ancestor %s is missing or belongs to another organization", currentID))
+		targets = append(targets, page.IDs...)
+		if page.Done {
+			return targets, nil
 		}
-		kind, err := c.types.TypeByKey(ctx, orgID, view.NodeType)
-		if err != nil {
-			return uuid.Nil, entryPointFailure(ctx, resourceID, "read node type "+view.NodeType, err)
-		}
-		if kind == nil {
-			return uuid.Nil, entryPointFailure(ctx, resourceID, "resolve entry point", fmt.Errorf("node type %q is missing", view.NodeType))
-		}
-		if kind.Features.Has(node.FeatureIsEntryPoint) {
-			memo.store(orgID, path, currentID)
-			return currentID, nil
-		}
-		parentID, err := c.parent(ctx, orgID, currentID, kind)
-		if err != nil {
-			return uuid.Nil, WithContext("resolve hierarchy parent of ancestor "+currentID.String(), err)
-		}
-		if parentID == uuid.Nil {
-			memo.store(orgID, path, currentID)
-			return currentID, nil
-		}
-		currentID = parentID
+		cursor = page.NextCursor
 	}
 }
 
