@@ -102,6 +102,7 @@ func unicodePage4096() string {
 
 func TestSearchNativeSparse(t *testing.T) {
 	adapter, client := nativeSearchClients(t)
+	requireNativeJVMHeap(t, client)
 	model, err := adapter.Provision(t.Context())
 	if err != nil {
 		t.Fatal(err)
@@ -111,18 +112,28 @@ func TestSearchNativeSparse(t *testing.T) {
 	}
 	const index = "native-sparse-compatibility"
 	createNativeSearchIndex(t, adapter, client, model, index)
-	text := unicodePage4096()
-	if len(text) != 4096 {
-		t.Fatalf("test page contains %d bytes, want 4096", len(text))
+	for _, workload := range nativeCompletePageCases() {
+		t.Run(workload.name, func(t *testing.T) {
+			text := workload.text
+			if len(text) != 4096 {
+				t.Fatalf("test page contains %d bytes, want 4096", len(text))
+			}
+			requireBulkSucceeded(t, nativeBulk(t, client, nativeIndexAction(t, index, workload.name, 1, nativePageDocument(t, workload.name, text))))
+			source := nativeSource(t, client, index, workload.name)
+			encodedSource, err := json.Marshal(source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Logf("native source case=%s document=%s", workload.name, encodedSource)
+			var pageText string
+			if err := json.Unmarshal(source["page_text"], &pageText); err != nil {
+				t.Fatal(err)
+			}
+			if pageText != text || len(source["page_text_semantic_info"]) == 0 {
+				t.Fatalf("source or native chunks missing: source bytes=%d semantic bytes=%d", len(pageText), len(source["page_text_semantic_info"]))
+			}
+			requireNativeChunks(t, source["page_text_semantic_info"], text)
+			t.Logf("8 GiB native case=%s bytes=%d semantic_bytes=%d", workload.name, len(text), len(source["page_text_semantic_info"]))
+		})
 	}
-	requireBulkSucceeded(t, nativeBulk(t, client, nativeIndexAction(t, index, "page-1", 1, nativePageDocument(t, "page-1", text))))
-	source := nativeSource(t, client, index, "page-1")
-	var pageText string
-	if err := json.Unmarshal(source["page_text"], &pageText); err != nil {
-		t.Fatal(err)
-	}
-	if pageText != text || len(source["page_text_semantic_info"]) == 0 {
-		t.Fatalf("source or native chunks missing: source bytes=%d semantic bytes=%d", len(pageText), len(source["page_text_semantic_info"]))
-	}
-	requireNativeChunks(t, source["page_text_semantic_info"], text)
 }

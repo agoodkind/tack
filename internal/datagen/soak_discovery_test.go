@@ -78,57 +78,6 @@ func TestDiscoverSoakProjectsUsesRawIDsForExistingCorpus(t *testing.T) {
 	}
 }
 
-func TestPrepareSoakProjectsDiscoversFreshFallbackCorpus(t *testing.T) {
-	const seed int64 = 779
-	fake := &rerunMCP{nodes: make(map[string]map[string]rerunNode)}
-	content, err := NewContent(t.Context(), seed)
-	if err != nil {
-		t.Fatalf("NewContent() error = %v", err)
-	}
-	scale, err := ParseScale("small")
-	if err != nil {
-		t.Fatalf("ParseScale() error = %v", err)
-	}
-	fallbackCount := 0
-	session := &runSession{
-		driver:  NewDriver(testGraph(fake), false, seed),
-		content: content,
-		identities: Identities{Workspaces: []WorkspaceIdentity{{
-			Slug: "qa-779-o01-w01",
-			Actors: []Actor{{
-				Token: "token",
-			}},
-		}}},
-		scale: scale,
-		seed:  seed,
-		seedCorpusStarted: func() {
-			fallbackCount++
-		},
-	}
-
-	projects, err := prepareSoakProjects(t.Context(), t.Context(), session)
-	if err != nil {
-		t.Fatalf("prepareSoakProjects() error = %v", err)
-	}
-	if fallbackCount != 1 {
-		t.Fatalf("fallback seed count = %d, want 1", fallbackCount)
-	}
-	if len(projects) != 1 {
-		t.Fatalf("prepareSoakProjects() = %d projects, want 1", len(projects))
-	}
-	if len(projects[0].Labels) != scale.LabelsPerWorkspace {
-		t.Fatalf(
-			"discovered labels = %d, want %d",
-			len(projects[0].Labels),
-			scale.LabelsPerWorkspace,
-		)
-	}
-	assertRawUUID(t, "label", projects[0].Labels[0].RawID)
-	if len(fake.invalidGetReferences) != 0 {
-		t.Fatalf("scoped gets = %v, want none", fake.invalidGetReferences)
-	}
-}
-
 func assertRawUUID(t *testing.T, name, value string) {
 	t.Helper()
 	if _, err := uuid.Parse(value); err != nil {

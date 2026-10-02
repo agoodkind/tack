@@ -1,11 +1,16 @@
 package integration
 
 import (
+	"bytes"
 	"slices"
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/adapters/search"
 	searchdomain "goodkind.io/tack/internal/domain/search"
+	"goodkind.io/tack/internal/testenv"
 )
 
 // TestSearchSplitDuringChanges requires each split to finish creation with
@@ -67,4 +72,79 @@ func TestSearchSplitDuringChanges(t *testing.T) {
 			t.Fatalf("search after the splits returned %v, want node %s", results.IDs, nodeID)
 		}
 	}
+}
+
+// TestSearchSplitWithoutModel splits the index from 1 to 2, 4, and 8 primaries
+// with the model undeployed and requires the semantic fields after each split
+// to equal the fields before it.
+func TestSearchSplitWithoutModel(t *testing.T) {
+	fixture := newQueryFixture(t, defaultQueryOptions())
+	workspace := fixture.Workspaces[0]
+	entry := entryPoint(t, fixture, workspace)
+	kind := putOpaqueKind(t, fixture, workspace.OrgID)
+	nodes := make([]uuid.UUID, 0, 30)
+	for number := range 30 {
+		nodes = append(nodes, putOpaqueNode(t, fixture, kind, entry, "Split node "+strconv.Itoa(number), "cobalt split preserved", readerExcludedValue))
+	}
+	relevanceKind := putOpaqueKind(t, fixture, workspace.OrgID)
+	targets := make(map[string]uuid.UUID)
+	allNodes := slices.Clone(nodes)
+	for _, item := range semanticCorpus(t) {
+		id := putOpaqueNode(t, fixture, relevanceKind, entry, item.Text, item.Text, readerExcludedValue)
+		targets[item.Identifier] = id
+		allNodes = append(allNodes, id)
+	}
+	drainSearchWork(t, fixture.Worker, 5000)
+	before := pagesOf(t, fixture, allNodes)
+	mapping := splitMapping(t, fixture, fixture.Index)
+	query := searchdomain.Query{Text: "cobalt split preserved", Index: fixture.Index, NodeType: kind.TypeKey, Access: callerAccess(t, fixture, workspace, entry)}
+	ranker := fixture.Adapter.Ranker(search.RankerSettings{KeepAlive: time.Minute, TokenBytes: 65536, BatchSize: 100})
+	snapshot, err := ranker.Open(t.Context(), query)
+	if err != nil {
+		t.Fatalf("predict split control: %v", err)
+	}
+	tokens := bytes.Clone(snapshot.QueryTokens)
+	if err := ranker.Close(t.Context(), snapshot); err != nil {
+		t.Fatalf("close split control: %v", err)
+	}
+	rawNodes := savedSparseNodes(t, fixture, query, tokens)
+	requireExactlyOnce(t, rawNodes, nodes)
+	model, err := fixture.Adapter.Provision(t.Context())
+	if err != nil {
+		t.Fatalf("read split model: %v", err)
+	}
+	defer func() {
+		if t.Failed() {
+			captureSearchFailure(t, fixture, model.ID, testenv.OpenSearch(t).Container)
+		}
+	}()
+	undeployNativeModel(t, fixture.Adapter, fixture.Client, model.ID)
+	source := fixture.Index
+	for _, primaries := range []int{2, 4, 8} {
+		rebuild := beginRebuild(t, fixture, searchdomain.BeginRebuild{
+			Mode: searchdomain.ReplacementSplit, PrimaryShards: primaries,
+			RoutingShards: 24, Replicas: 0, Restored: false, Reason: "model unavailable",
+		})
+		runRebuildUntil(t, fixture, rebuildFinished)
+		if state := nativeModelState(t, fixture.Client, model.ID); !slices.Contains(undeployedModelStates, state) {
+			t.Fatalf("split to %d primaries deployed the model: %s", primaries, state)
+		}
+		requireServing(t, fixture, rebuild.TargetIndex, source)
+		requireSemanticPreserved(t, before, pagesIn(t, fixture, rebuild.TargetIndex, allNodes))
+		if actual := splitMapping(t, fixture, rebuild.TargetIndex); actual != mapping {
+			t.Fatalf("split to %d changed its mapping", primaries)
+		}
+		query.Index = rebuild.TargetIndex
+		if actual := savedSparseNodes(t, fixture, query, tokens); !slices.Equal(actual, rawNodes) {
+			t.Fatalf("split to %d changed saved sparse results: %v", primaries, actual)
+		}
+		t.Logf("model-free split primaries=%d nodes=%d sparse_nodes=%d token_bytes=%d", primaries, len(allNodes), len(rawNodes), len(tokens))
+		source = rebuild.TargetIndex
+	}
+	if err := redeployNativeModel(t.Context(), fixture.Adapter, fixture.Client); err != nil {
+		t.Fatalf("redeploy after native splits: %v", err)
+	}
+	fixture.Index = source
+	requireExactlyOnce(t, everyTypedSearchPage(t, fixture, "cobalt split preserved", kind.TypeKey), nodes)
+	requireSemanticTargets(t, fixture, semanticPairs(t), targets, "split-redeployed")
 }

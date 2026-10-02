@@ -107,7 +107,7 @@ func (c *OpenSearchCluster) startMember(ctx context.Context, cli *client.Client,
 		return err
 	}
 	env := []string{
-		"OPENSEARCH_JAVA_OPTS=-Xms2g -Xmx2g", "DISABLE_INSTALL_DEMO_CONFIG=true",
+		"OPENSEARCH_JAVA_OPTS=-Xms3g -Xmx3g", "DISABLE_INSTALL_DEMO_CONFIG=true",
 		"node.roles=cluster_manager,data,ingest,ml", "cluster.name=" + c.name, "node.name=" + member,
 		"discovery.seed_hosts=" + strings.Join(c.planned, ","),
 	}

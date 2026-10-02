@@ -5,8 +5,10 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/clock"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 )
 
@@ -24,6 +26,10 @@ const (
 func putDuplicatePages(t *testing.T, fixture queryFixture, kind opaqueKind, nodeID uuid.UUID, filter searchdomain.AccessFilter, count int) {
 	t.Helper()
 	for start := 0; start < count; start += scaleBulkBatch {
+		started := clock.Now()
+		batch := start/scaleBulkBatch + 1
+		documents := min(count, start+scaleBulkBatch) - start
+		t.Logf("duplicate.batch.start ordinal=%d documents=%d timestamp=%s", batch, documents, started.UTC().Format(time.RFC3339Nano))
 		var body strings.Builder
 		for ordinal := start; ordinal < min(count, start+scaleBulkBatch); ordinal++ {
 			text := scaleQuery + " duplicate page " + strconv.Itoa(ordinal)
@@ -36,6 +42,7 @@ func putDuplicatePages(t *testing.T, fixture queryFixture, kind opaqueKind, node
 			body.WriteString(nativeIndexAction(t, fixture.Index, id, 1, encodeNativeJSON(t, document)))
 		}
 		requireBulkSucceeded(t, nativeBulk(t, fixture.Client, body.String()))
+		t.Logf("duplicate.batch.complete ordinal=%d documents=%d wall_ms=%d", batch, documents, clock.Since(started).Milliseconds())
 	}
 }
 
@@ -44,9 +51,14 @@ func putDuplicatePages(t *testing.T, fixture queryFixture, kind opaqueKind, node
 // 36,000 duplicate pages of one node on three primary shards. The traversal
 // must use at least one continuation for every 400 indexed pages.
 func TestSearchContinuationTraversesDuplicateHeavyCorpus(t *testing.T) {
+	started := clock.Now()
+	t.Logf("duplicate.phase.start phase=fixture timestamp=%s", started.UTC().Format(time.RFC3339Nano))
 	options := defaultQueryOptions()
 	options.Primaries = 3
 	fixture := newQueryFixture(t, options)
+	t.Logf("duplicate.phase.complete phase=fixture wall_ms=%d", clock.Since(started).Milliseconds())
+	started = clock.Now()
+	t.Logf("duplicate.phase.start phase=nodes timestamp=%s", started.UTC().Format(time.RFC3339Nano))
 	workspace := fixture.Workspaces[0]
 	entryID := entryPoint(t, fixture, workspace)
 	kind := putOpaqueKind(t, fixture, workspace.OrgID)
@@ -61,8 +73,15 @@ func TestSearchContinuationTraversesDuplicateHeavyCorpus(t *testing.T) {
 	drainSearchWork(t, fixture.Worker, 100)
 	expected = append(expected, duplicate)
 	filter := callerAccess(t, fixture, workspace, entryID)
+	t.Logf("duplicate.phase.complete phase=nodes nodes=%d wall_ms=%d", len(expected), clock.Since(started).Milliseconds())
+	started = clock.Now()
+	t.Logf("duplicate.phase.start phase=pages documents=%d timestamp=%s", scaleDuplicatePages, started.UTC().Format(time.RFC3339Nano))
 	putDuplicatePages(t, fixture, kind, duplicate, filter, scaleDuplicatePages)
+	t.Logf("duplicate.phase.complete phase=pages documents=%d wall_ms=%d", scaleDuplicatePages, clock.Since(started).Milliseconds())
+	started = clock.Now()
+	t.Logf("duplicate.phase.start phase=public timestamp=%s", started.UTC().Format(time.RFC3339Nano))
 	pages := callEverySearchPage(t, scaleQuery, fixture.Harness)
+	t.Logf("duplicate.phase.complete phase=public results=%d cursors=%d wall_ms=%d", len(pages.IDs), len(pages.Cursors), clock.Since(started).Milliseconds())
 	requireCorpusOnce(t, pages.IDs, expected, entryID)
 	minimumContinuations := (scaleDistinctNodes + scaleDuplicatePages) / 400
 	if len(pages.Cursors) < minimumContinuations {

@@ -16,10 +16,7 @@ env:
   REGISTRY: ghcr.io
 
 jobs:
-  # Block the build when a vendored container overlay has drifted from the file
-  # it replaces in its pinned upstream image. The image build depends on this, so
-  # drift fails the whole run and no image ships. See scripts/check-overlay-drift.sh
-  # and TACK-302.
+  # Overlay drift blocks every native image build.
   overlay-drift:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -29,9 +26,87 @@ jobs:
       - name: check overlay drift
         run: bash scripts/check-overlay-drift.sh
 
-  build:
+  build-native:
     needs: overlay-drift
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [tack-server, tack-audit-consumer]
+        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+          - image: tack-server
+            dockerfile: Dockerfile
+            extra_build_args: "FDB_VERSION=7.4.6"
+          - image: tack-audit-consumer
+            dockerfile: Dockerfile.audit-consumer
+            extra_build_args: ""
+    steps:
+      - name: checkout
+        uses: actions/checkout@v7
+
+      - name: verify native runner
+        env:
+          IMAGE_ARCH: ${{ matrix.arch }}
+        run: bash scripts/verify-native-image-runner.sh
+
+      - name: derive build metadata
+        id: meta
+        env:
+          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+        run: bash scripts/image-build-metadata.sh
+
+      - name: login to ghcr
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: set up buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: build native image
+        id: image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/${{ matrix.arch }}
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image }},push-by-digest=true,name-canonical=true,push=true
+          build-args: |
+            ${{ matrix.extra_build_args }}
+            COMMIT=${{ steps.meta.outputs.commit }}
+            BUILD_TIME=${{ steps.meta.outputs.build_time }}
+            TAG=${{ steps.meta.outputs.tag }}
+            DIRTY=false
+          cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}-${{ matrix.arch }}
+
+      - name: export immutable digest
+        env:
+          IMAGE_ARCH: ${{ matrix.arch }}
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+          DIGEST_DIRECTORY: ${{ runner.temp }}/digests
+        run: bash scripts/image-digest.sh
+
+      - name: upload immutable digest
+        uses: actions/upload-artifact@v7
+        with:
+          name: image-digests-${{ matrix.image }}-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/${{ matrix.arch }}.digest
+          if-no-files-found: error
+          retention-days: 1
+
+  # The matrix job names equal the required status check names in the main ruleset.
+  build:
+    needs: [overlay-drift, build-native]
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -49,53 +124,25 @@ jobs:
 
       - name: derive build metadata
         id: meta
-        # BRANCH_NAME resolves to the source branch on pull_request events, where
-        # GITHUB_REF_NAME is the synthetic "<number>/merge" ref and HEAD is detached.
         env:
           BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
-        run: |
-          set -eu
-          commit_sha=$(git rev-parse HEAD)
-          short_sha=$(git rev-parse --short HEAD)
-          build_time=$(date -u +%FT%TZ)
-          if git describe --tags --exact-match HEAD >/dev/null 2>&1; then
-              tag=$(git describe --tags --exact-match HEAD)
-          else
-              tag="${BRANCH_NAME}"
-          fi
-          {
-              echo "commit=${commit_sha}"
-              echo "short=${short_sha}"
-              echo "build_time=${build_time}"
-              echo "tag=${tag}"
-          } >> "$GITHUB_OUTPUT"
+        run: bash scripts/image-build-metadata.sh
 
       - name: docker tags
-        id: tags
         env:
           BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
-        run: |
-          set -eu
-          base="${REGISTRY}/${{ github.repository_owner }}/${{ matrix.image }}"
-          short=${{ steps.meta.outputs.short }}
-          ref_kind=${GITHUB_REF_TYPE}
-          tags="${base}:${short}"$'\n'"${base}:${{ github.sha }}"
-          if [ "${ref_kind}" = "tag" ]; then
-              release="${GITHUB_REF_NAME}"
-              tags="${tags}"$'\n'"${base}:${release}"
-              tags="${tags}"$'\n'"${base}:latest"
-          else
-              branch_tag=$(printf '%s' "${BRANCH_NAME}" | tr '/' '-')
-              tags="${tags}"$'\n'"${base}:${branch_tag}"
-              if [ "${BRANCH_NAME}" = "main" ]; then
-                  tags="${tags}"$'\n'"${base}:latest"
-              fi
-          fi
-          {
-              echo "list<<__EOF__"
-              echo "${tags}"
-              echo "__EOF__"
-          } >> "$GITHUB_OUTPUT"
+          IMAGE_OWNER: ${{ github.repository_owner }}
+          IMAGE_NAME: ${{ matrix.image }}
+          COMMIT_SHORT: ${{ steps.meta.outputs.short }}
+          IMAGE_TAG_FILE: ${{ runner.temp }}/image-tags
+        run: bash scripts/image-tags.sh
+
+      - name: download immutable digests
+        uses: actions/download-artifact@v8
+        with:
+          pattern: image-digests-${{ matrix.image }}-*
+          path: ${{ runner.temp }}/digests
+          merge-multiple: true
 
       - name: login to ghcr
         uses: docker/login-action@v4
@@ -107,19 +154,10 @@ jobs:
       - name: set up buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: build and push
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: ${{ matrix.dockerfile }}
-          platforms: linux/amd64
-          push: true
-          tags: ${{ steps.tags.outputs.list }}
-          build-args: |
-            ${{ matrix.extra_build_args }}
-            COMMIT=${{ steps.meta.outputs.commit }}
-            BUILD_TIME=${{ steps.meta.outputs.build_time }}
-            TAG=${{ steps.meta.outputs.tag }}
-            DIRTY=false
-          cache-from: type=gha,scope=${{ matrix.image }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+      - name: publish native platform manifests
+        env:
+          IMAGE_OWNER: ${{ github.repository_owner }}
+          IMAGE_NAME: ${{ matrix.image }}
+          IMAGE_TAG_FILE: ${{ runner.temp }}/image-tags
+          DIGEST_DIRECTORY: ${{ runner.temp }}/digests
+        run: bash scripts/image-manifest.sh

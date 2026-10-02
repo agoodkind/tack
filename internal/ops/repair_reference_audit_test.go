@@ -3,7 +3,6 @@ package ops
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"testing"
 	"time"
 
@@ -11,11 +10,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"goodkind.io/tack/internal/audit"
+	"goodkind.io/tack/internal/testenv"
 )
-
-// repairAuditDSNEnv names the migrated ledger database whose outbox these
-// tests write to.
-const repairAuditDSNEnv = "AUDIT_CHAIN_TEST_DSN"
 
 // repairAuditReadLimit is above the row count the gated test packages leave
 // in the outbox, because the org filter runs after the read.
@@ -25,10 +21,7 @@ const repairAuditReadLimit = 10000
 // Cleanup deletes that org's outbox rows.
 func repairAuditOutbox(t *testing.T) (*audit.PoolOutbox, uuid.UUID) {
 	t.Helper()
-	dsn := os.Getenv(repairAuditDSNEnv)
-	if dsn == "" {
-		t.Skipf("set %s to a migrated ledger DSN to run", repairAuditDSNEnv)
-	}
+	dsn := testenv.Ledger(t)
 	pool, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {
 		t.Fatalf("open the ledger pool: %v", err)

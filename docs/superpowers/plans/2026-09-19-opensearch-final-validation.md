@@ -41,6 +41,8 @@ Modify a Tack or Configs file only when a reproduced failure requires a correcti
 - `internal/test/integration/search_access_refresh_test.go`
 - `internal/test/integration/search_datagen_test.go`
 - `internal/test/integration/search_cluster_test.go`
+- `internal/test/integration/search_os_process_test.go`
+- `internal/test/integration/search_os_process_throughput_test.go`
 
 This task has these prerequisites and outputs:
 
@@ -58,11 +60,19 @@ git log --oneline --decorate origin/main..HEAD
 git -C "$CONFIGS_ROOT" fetch origin
 git -C "$CONFIGS_ROOT" status --short
 git -C "$CONFIGS_ROOT" rev-parse HEAD
+export TACK_TEST_SOURCE_REVISION="$(git rev-parse HEAD)"
+export TACK_SEARCH_INTEGRATION=1
+export TACK_SEARCH_CLUSTER=1
 make test-env-down
 TACK_TEST_ROOT="$PWD" docker compose -f docker-compose.test.yml --profile runner build tests
 ```
 
 Require an empty status before testing. Record the test-runner image digest and the OpenSearch 3.8.0 image digest after the build.
+
+Confirm that no other test binary owns an active fixture before each
+`make test-env-down`. Run heavy groups serially. Export the same source
+revision and opt-ins for every runner command below. The actual server process
+tests require the revision and use a fresh, unprefixed FoundationDB fixture.
 
 - [ ] **Step 2: Validate the official client, model, mapping, and complete page embedding.**
 
@@ -73,8 +83,13 @@ TACK_TEST_ROOT="$PWD" docker compose -f docker-compose.test.yml --profile runner
 Require the pinned hashes, typed client operations, strict generic access mapping,
 bulk partial update with external versioning, full 4,096-byte Unicode source,
 generated final chunk, finite sparse weights, access-only success with the model
-undeployed, explicit engine failures, 8 GiB success, and preserved 4 GiB
-circuit-breaker regression.
+undeployed, explicit engine failures, and 8 GiB success. Require the 8 GiB
+model-guest minimum in the
+[Configs search guest settings](https://github.com/agoodkind/configs/blob/main/ansible/inventory/group_vars/all/search_cluster.yml)
+for the QA and production guests. The original validation recorded a memory
+circuit breaker at 4 GiB. That failure is historical evidence for the 8 GiB
+minimum. Current 4 GiB workloads complete without a breaker response, and no
+test covers the 4 GiB case.
 
 - [ ] **Step 3: Validate metadata, pagination, and durable work.**
 
@@ -100,7 +115,7 @@ to read no page text, and large nodes to yield to live work.
 - [ ] **Step 5: Validate ranking, access filtering, authorization, and continuation.**
 
 ```sh
-TACK_TEST_ROOT="$PWD" docker compose -f docker-compose.test.yml --profile runner run --rm tests test -count=1 -timeout 30m -run '^TestSearch(SemanticRelevance|DistinctNodes|PermissionFilter|Auth|Authorization|Cursor|EmptyQuery)' ./internal/test/integration
+TACK_TEST_ROOT="$PWD" docker compose -f docker-compose.test.yml --profile runner run --rm tests test -count=1 -timeout 30m -run '^TestSearch(SemanticPairs|ContinuationTraversesDuplicateHeavyCorpus|FiltersForbiddenPagesBeforeRanking|FinalCheckRejectsCorruptIndexedAccess|RevokedAccessRejectsLaterResultsAndReplay|AuthenticatedResults|UnavailableWhileDisabled|Cursor|EmptyQuery)' ./internal/test/integration
 ```
 
 Require one query prediction, every accepted relevance target within its bound,
@@ -123,6 +138,31 @@ reads, a restartable dual-version transition on one physical index, byte-identic
 semantic fields with the model undeployed, real JSON and SSE decoding, and
 production guard rejection.
 
+Run the actual server process checks against fresh disposable fixtures. Require
+distinct PIDs, alternating cursor continuation, process replacement, and revoked
+membership rejection. Measure throughput separately with fixed clients and
+unchanged controls; require zero errors and a gain above control variation.
+
+```sh
+TACK_TEST_ROOT="$PWD" docker compose -f docker-compose.test.yml --profile runner run --rm tests test -count=1 -timeout 30m -run '^TestSearchCursorActualOSProcesses$' ./internal/test/integration
+TACK_TEST_ROOT="$PWD" docker compose -f docker-compose.test.yml --profile runner run --rm tests test -count=1 -timeout 45m -run '^TestSearchActualOSProcessThroughput$' ./internal/test/integration
+```
+
+Do not overlap throughput measurements with another engine fixture, build, or
+database probe. Save the complete output and terminal exit code.
+
+Run the throughput test on the Mac runner, not in CI. A hosted CI VM runs both
+Tack processes, FoundationDB, and OpenSearch on one machine. On that VM the
+second process cut the time to indexed completion from about 15 s to 3.5 s and
+raised request p95 from about 640 ms to 840 ms, and the total rate stayed flat
+(CI jobs 110765693590 and 110795755897). CI job 110795755897 records that hosted-runner
+limitation and is not a pass. Moving the test off CI does not close throughput
+acceptance. Acceptance requires two results: the unchanged throughput test on
+the Mac runner and the QA two-process measurement. Each must show that the added
+Tack process improves both indexing and public search, and each must record the
+baseline spread, request p95, search work backlog, and the machine CPU count,
+memory, and cgroup limits.
+
 - [ ] **Step 7: Validate disposable cluster configuration and scale-out behavior.**
 
 ```sh
@@ -134,27 +174,81 @@ TACK_TEST_ROOT="$PWD" docker compose -f docker-compose.test.yml --profile runner
 
 Require one stable client endpoint, one-member restart recovery, later member joining without a new bootstrap cluster, proxy distribution, model placement, replica allocation, and one-member failure behavior. Do not connect to live Proxmox or apply a plan.
 
+Verify that every eligible predictor is deployed. Verify that cached worker and
+target identities match before the first independent member stop and after
+each restart. Save the first public error during each member stop, even if later
+requests succeed.
+
 - [ ] **Step 8: Correct each reproduced failure at its owning layer.**
 
 For each failure, rerun the smallest exact test until it fails consistently. Trace the production path. Check out the Graphite branch that owns the behavior. Correct only that slice and add a regression only when the existing test does not identify the failure. Stage the named files. Use Graphite MCP `modify` for a direct correction. Use `absorb --dry-run` and review the destination before `absorb --force` when one change spans existing slices. Restack from the corrected branch through its upstack. Verify every rewritten signature. Preview and submit the complete stack again. Run the exact test, the current step's group, every later affected group, and then Step 9. Correct Configs failures in its independent pull request through the normal signed-commit workflow. Do not edit an assertion or threshold unless the specification changed first.
 
 - [ ] **Step 9: Run the complete search suite from a clean test environment.**
 
+Run the suite as five fixed groups. Each group limit is the slowest complete CI measurement of that group times 1.5, rounded up to 5 minutes. The measurements come from the OpenSearch CI jobs 110765693590, 109857411134, and the completed groups of 110045603547.
+
+| Group | Selection | Tests | Slowest measurement | Limit |
+| --- | --- | --- | --- | --- |
+| G1 | `^TestSearchContinuationTraversesDuplicateHeavyCorpus$` | 1 | 2388.1 s (110045603547) | 60m |
+| G2 | `^TestSearchActualOSProcessThroughput$` | 1 | 1062.7 s (110045603547) | 30m |
+| G3 | `^TestSearch(Split|Restore|Rebuild)` | 7 | 1122.4 s (110765693590) | 30m |
+| G4 | `^TestSearchCluster` | 3 | 955.4 s on the Mac runner | 25m |
+| G5 | `^TestSearch`, skipping the G1 to G4 tests | 67 | 1604.1 s (110765693590) | 45m |
+
+G5 selects every search test that G1 to G4 do not select. A new search test runs in G5 unless a change assigns it to another group.
+
+CI runs G1, G3, and G5 as parallel jobs and skips the cluster tests. G2 and G4 run only on the Mac runner. Acceptance requires the G2 run and the G4 run with `TACK_SEARCH_CLUSTER=1` on the Mac runner, on the head that merges.
+
 ```sh
 make test-env-down
-TACK_TEST_ROOT="$PWD" docker compose -f docker-compose.test.yml --profile runner run --rm tests test -count=1 -timeout 45m -run '^TestSearch' ./internal/test/integration
+make test-search-group GROUP=G1
+make test-search-group GROUP=G3
+make test-search-group GROUP=G5
+uv run --with pydantic --python 3.14 python scripts/test-search-mac.py \
+    --root "$PWD" --image "sha256:<local-runner-image-id>" \
+    --run '^TestSearchActualOSProcessThroughput$' --count 1 --timeout 30m \
+    --evidence-dir "/private/tmp/tack-search-g2-$(date +%Y%m%d-%H%M%S)"
+TACK_SEARCH_CLUSTER=1 uv run --with pydantic --python 3.14 python scripts/test-search-mac.py \
+    --root "$PWD" --image "sha256:<local-runner-image-id>" \
+    --run '^TestSearchCluster' --count 1 --timeout 25m \
+    --evidence-dir "/private/tmp/tack-search-g4-$(date +%Y%m%d-%H%M%S)"
 make build
 ```
+
+Before the first group run, confirm the group membership against the compiled package. `go test -list` ignores `-skip`. Derive G5 from the full list with the G5 skip expression.
+
+```sh
+go test -tags=fdb ./internal/test/integration -list '^TestSearch' | grep '^TestSearch' | sort > all.txt
+go test -tags=fdb ./internal/test/integration -list '^TestSearch(ContinuationTraversesDuplicateHeavyCorpus|ActualOSProcessThroughput)$|^TestSearch(Split|Restore|Rebuild|Cluster)' | grep '^TestSearch' | sort > g1-g4.txt
+grep -v -E '^(TestSearchContinuationTraversesDuplicateHeavyCorpus|TestSearchActualOSProcessThroughput|TestSearchSplit.*|TestSearchRestore.*|TestSearchRebuild.*|TestSearchCluster.*)$' all.txt > g5.txt
+sort g1-g4.txt g5.txt | uniq -d
+sort g1-g4.txt g5.txt | diff - all.txt
+```
+
+Require an empty duplicate list and an empty difference: every search test runs in exactly one group.
 
 Require every search test to pass without a skip. Require `make build` to pass every repository gate from fresh sources.
 
 - [ ] **Step 10: Repeat the concurrency and replacement tail.**
 
+Run the same 26 tests as three groups, each with count 3. These limits are derived, not measured: each is three times the slowest single CI run of the group's tests, times 1.5. Record the actual duration of each group in the first local tail run against its limit.
+
+| Group | Tests | Slowest single CI run | Limit |
+| --- | --- | --- | --- |
+| T1 | `TestSearchContinuationTraversesDuplicateHeavyCorpus` | 2388.1 s (110045603547) | 180m |
+| T2 | The seven `TestSearchRebuild`, `TestSearchRestore`, and `TestSearchSplit` tail tests | 1122.4 s (110765693590) | 85m |
+| T3 | The 18 remaining tail tests | 632.7 s (110765693590) | 50m |
+
+The Makefile variables `SEARCH_T2_TESTS` and `SEARCH_T3_TESTS` list the exact T2 and T3 tests.
+
 ```sh
-TACK_TEST_ROOT="$PWD" docker compose -f docker-compose.test.yml --profile runner run --rm tests test -count=3 -timeout 45m -run '^TestSearch(DistinctNodes|PermissionFilter|Access|Cursor|DelayedWriter|RuntimeUnavailable|Rebuild|Split|Restore)' ./internal/test/integration
+make test-search-group GROUP=T1
+make test-search-group GROUP=T2
+make test-search-group GROUP=T3
 make test-env-down
 ```
 
+Require all 26 selected tests to complete three times, for 78 executions.
 Require identical result sets, no duplicate node, no leaked forbidden node, no lost committed work, and no test service left running.
 
 - [ ] **Step 11: Verify Meilisearch removal and branch integrity.**

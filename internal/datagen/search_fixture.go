@@ -67,6 +67,10 @@ func opaqueKey(label string) string {
 // newSearchFixture stores one included and one excluded definition and one
 // node type that lives under the workspace entry node type.
 func newSearchFixture(ctx context.Context, stores *fdbadapter.Stores, workspace WorkspaceIdentity) (searchFixture, error) {
+	return newSearchFixtureWithManifest(ctx, stores, workspace, nil)
+}
+
+func newSearchFixtureWithManifest(ctx context.Context, stores *fdbadapter.Stores, workspace WorkspaceIdentity, manifest *SearchManifest) (searchFixture, error) {
 	entryID := node.WorkspaceID(workspace.OrgID, workspace.Slug)
 	entry, err := stores.Views.Get(ctx, entryID)
 	if err != nil || entry == nil {
@@ -82,6 +86,11 @@ func newSearchFixture(ctx context.Context, stores *fdbadapter.Stores, workspace 
 		if err := stores.PropertyDefs.Set(ctx, definition); err != nil {
 			return searchFixture{}, loggedError(ctx, "qa datagen: store search property "+definition.Name, err)
 		}
+		if manifest != nil {
+			manifest.Properties = append(manifest.Properties, SearchManifestProperty{
+				ID: definition.ID, Key: definition.Name, Included: definition.Search.Include,
+			})
+		}
 	}
 	var reference node.ReferenceConfig
 	kind := &node.NodeType{
@@ -93,6 +102,9 @@ func newSearchFixture(ctx context.Context, stores *fdbadapter.Stores, workspace 
 	}
 	if err := stores.NodeTypes.Set(ctx, kind); err != nil {
 		return searchFixture{}, loggedError(ctx, "qa datagen: store search node type "+fixture.typeKey, err)
+	}
+	if manifest != nil {
+		manifest.Types = append(manifest.Types, SearchManifestType{ID: kind.ID, Key: kind.TypeKey})
 	}
 	return fixture, nil
 }

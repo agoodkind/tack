@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
@@ -112,8 +113,9 @@ func queryConfig(t *testing.T) *config.Config {
 	t.Helper()
 	cfg := harnessConfig(t)
 	cfg.AuditKafkaBrokers = ""
-	cfg.AuditWriterDSN = ""
-	cfg.AuditAllowUnrecorded = true
+	cfg.AuditWriterDSN = cfg.DatabaseURL
+	cfg.AuditAllowUnrecorded = false
+	cfg.AuditReadFlushInterval = 10 * time.Millisecond
 	return cfg
 }
 

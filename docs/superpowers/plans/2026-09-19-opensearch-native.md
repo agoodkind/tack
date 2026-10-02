@@ -16,7 +16,7 @@ Apply the [implementation constraints](2026-09-19-opensearch.md#global-constrain
 
 Test 4,096-byte Unicode, newlines, empty text, missing text, strict mappings,
 access-only partial updates with the model unavailable, retired pages, endpoint
-selection, model mismatch, and the 4 GiB memory failure.
+selection, and model mismatch.
 
 ---
 
@@ -131,7 +131,7 @@ Replace a same-ID document with `{"retired":true}` at the retirement version. Re
 
 - [ ] **Step 10: Add endpoint and resource coverage.**
 
-Require `ConnectionObserver` to record only the configured stable endpoint. Final-validation measurements cover bundle size, reported inference memory, process memory, peak ingest memory, and latency in an 8 GiB container. Preserve the 4 GiB circuit-breaker failure as a regression. Sol records those measurements. Do not run either container during this coding task or infer concurrent capacity from this test.
+Require `ConnectionObserver` to record only the configured stable endpoint. Final-validation measurements cover bundle size, reported inference memory, process memory, peak ingest memory, and latency in an 8 GiB container. Require at least 8 GiB for every guest that runs the model. The original validation recorded a memory circuit breaker at 4 GiB. That failure is historical evidence for the 8 GiB minimum, and no test covers the 4 GiB case. Sol records those measurements. Do not run either container during this coding task or infer concurrent capacity from this test.
 
 - [ ] **Step 11: Register audited provision and verification commands.**
 

@@ -35,8 +35,6 @@ type T interface {
 }
 
 // provisionTimeout bounds one engine's start, readiness, and preparation.
-// The ledger image runs under emulation on an arm64 host (see
-// ledgerPlatform), where a cold start and a migration each take minutes.
 const provisionTimeout = 20 * time.Minute
 
 // provisioned holds the outcome of one process-wide provisioning step, so

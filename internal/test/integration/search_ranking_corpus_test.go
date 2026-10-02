@@ -1,6 +1,7 @@
 package integration
 
 import (
+	_ "embed"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -12,38 +13,41 @@ import (
 
 // semanticPair is one accepted query and the node text it must retrieve.
 type semanticPair struct {
-	Query, Target string
+	Query, Target, Identifier string
 }
 
-func semanticPairs() []semanticPair {
-	return []semanticPair{
-		{Query: "db", Target: "Database failover"},
-		{Query: "signin", Target: "Authentication failure"},
-		{Query: "lag", Target: "Slow request processing"},
-		{Query: "invoice", Target: "Billing reconciliation"},
-		{Query: "crash", Target: "Application terminated unexpectedly"},
-		{Query: "remove user", Target: "Delete account"},
-	}
+//go:embed testdata/search_semantic_corpus.json
+var semanticCorpusJSON []byte
+
+type semanticCorpusNode struct {
+	Identifier string `json:"identifier"`
+	Text       string `json:"text"`
 }
 
-// distractorTexts returns 165 plausible node texts that share no word with
-// any semantic pair.
-func distractorTexts() []string {
-	subjects := []string{
-		"Kitchen", "Garden", "Library", "Parking", "Travel", "Office", "Recipe", "Weather",
-		"Music", "Holiday", "Printer", "Coffee", "Bicycle", "Painting", "Conference",
+func semanticCorpus(t *testing.T) []semanticCorpusNode {
+	t.Helper()
+	var corpus []semanticCorpusNode
+	if err := json.Unmarshal(semanticCorpusJSON, &corpus); err != nil {
+		t.Fatalf("decode approved semantic corpus: %v", err)
 	}
-	topics := []string{
-		"schedule update", "supply order", "layout change", "cleaning rota", "photo archive",
-		"seating chart", "color palette", "inventory count", "meeting notes", "rental booking", "tour planning",
-	}
-	texts := make([]string, 0, len(subjects)*len(topics))
-	for _, subject := range subjects {
-		for _, topic := range topics {
-			texts = append(texts, subject+" "+topic)
+	return corpus
+}
+
+func semanticPairs(t *testing.T) []semanticPair {
+	t.Helper()
+	queries := []string{"db", "signin", "lag", "invoice", "crash", "remove user"}
+	pairs := make([]semanticPair, 0, 12)
+	for _, item := range semanticCorpus(t) {
+		if !strings.HasPrefix(item.Identifier, "t-") {
+			continue
 		}
+		position := int(item.Identifier[2] - '0')
+		if position >= len(queries) {
+			t.Fatalf("unknown target %q", item.Identifier)
+		}
+		pairs = append(pairs, semanticPair{Query: queries[position], Target: item.Text, Identifier: item.Identifier})
 	}
-	return texts
+	return pairs
 }
 
 type lexicalTerm struct {

@@ -88,6 +88,9 @@ func newMCPHarness(t *testing.T, audited bool) *MCPHarness {
 		t.Fatalf("build graph: %v", err)
 	}
 	t.Cleanup(graph.Close)
+	if audited {
+		graph.StartDeleteResumer(ctx)
+	}
 	scale, err := datagen.ParseScale("small")
 	if err != nil {
 		t.Fatalf("parse scale: %v", err)

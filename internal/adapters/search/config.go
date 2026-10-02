@@ -51,6 +51,20 @@ func (c Config) Validate(ctx context.Context) error {
 	return nil
 }
 
+// retryStatuses are the response statuses the official client retries.
+// OpenSearch returns 429 when the ML Commons memory circuit breaker rejects a
+// request because JVM heap use exceeds its threshold.
+var retryStatuses = []int{
+	http.StatusTooManyRequests, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout,
+}
+
+// retryBackoff waits one second per attempt before each client retry.
+// OpenSearch refreshes the cached JVM statistics that the memory circuit
+// breaker reads once per second.
+func retryBackoff(attempt int) time.Duration {
+	return time.Duration(attempt) * time.Second
+}
+
 // ClientConfig returns the official client settings for this configuration.
 // The client sends every request to the one configured endpoint and never
 // discovers other cluster members, because the environment's proxy selects
@@ -64,8 +78,9 @@ func (c Config) ClientConfig(observer opensearchtransport.ConnectionObserver) op
 		Password:             pass,
 		CACert:               []byte(c.CA),
 		RequestTimeout:       c.RequestTimeout,
-		RetryOnStatus:        []int{http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout},
+		RetryOnStatus:        retryStatuses,
 		MaxRetries:           c.MaxRetries,
+		RetryBackoff:         retryBackoff,
 		EnableRetryOnTimeout: true,
 		EnableMetrics:        true,
 		Observer:             observer,

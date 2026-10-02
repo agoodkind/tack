@@ -60,10 +60,23 @@ jobs:
       - name: run the store-backed tests
         run: make test-store-host
 
+  # Each job runs one final-validation search group; the job limit is the
+  # group's go test limit plus 15 minutes of setup. The throughput group G2 and
+  # the cluster group G4 run only on the Mac runner.
   search:
-    name: search integration tests (OpenSearch)
+    name: search integration tests (OpenSearch ${{ matrix.group }})
     runs-on: ubuntu-latest
-    timeout-minutes: 100
+    timeout-minutes: ${{ matrix.timeout_minutes }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: G1
+            timeout_minutes: 75
+          - group: G3
+            timeout_minutes: 45
+          - group: G5
+            timeout_minutes: 60
     steps:
       - uses: actions/checkout@v7
 
@@ -83,4 +96,4 @@ jobs:
       # The tests start OpenSearch, FoundationDB, and the ledger through
       # internal/testenv and dial them at their bridge addresses from the host.
       - name: run the OpenSearch-backed tests
-        run: make test-search-host
+        run: make test-search-host-group GROUP=${{ matrix.group }}

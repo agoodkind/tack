@@ -101,26 +101,11 @@ OpenSearch generates sparse query weights once with the pinned model. Tack store
 
 The query adds lexical scores from `name` with boost 3 and `page_text` to the nested sparse semantic score. Each page uses its greatest nested score. OpenSearch uses its sparse inverted index. The query uses no dense script, nearest-neighbor `k`, hybrid result window, field collapse, or fixed total-result limit.
 
-The permission boundary returns one active version and bounded opaque keys. The query requires that version and at least one caller key. Optional type and retirement filters use structured JSON.
-OpenSearch sorts page matches by descending score, ascending node ID, then
-`_shard_doc`. A point in time freezes index contents and makes `_shard_doc` a stable
-page-level tie breaker. The first page match for a node establishes that node's
-rank. Tack skips later matches for visited nodes.
+The permission boundary returns one active version and bounded opaque keys. The query requires that version and at least one caller key. Optional type and retirement filters use structured JSON. OpenSearch sorts page matches by descending score, ascending node ID, then `_shard_doc`. A point in time freezes index contents and makes `_shard_doc` a stable page-level tie breaker. The first page match for a node establishes that node's rank. Tack skips later matches for visited nodes.
 
-The official client receives one environment endpoint and owns TLS, connection
-pooling, retries, and transport metrics. A health-checking proxy on that
-environment's hypervisor selects an OpenSearch node. Each environment starts with
-one backend. The selected node coordinates shard work. Each engine response returns at most 100
-page matches through `search_after`. Each public response reads at most four
-engine batches. An empty deduplicated response can still include a continuation.
-Only an empty raw engine batch ends traversal. No request assembles all matches
-or visited IDs.
+The official client receives one environment endpoint and owns TLS, connection pooling, retries, and transport metrics. A health-checking proxy on that environment's hypervisor selects an OpenSearch node. Each environment starts with one backend. The selected node coordinates shard work. Each engine response returns at most 100 page matches through `search_after`. Each public response reads at most four engine batches. An empty deduplicated response can still include a continuation. Only an empty raw engine batch ends traversal. No request assembles all matches or visited IDs.
 
-The session binds the normalized query, filters, principal, physical index, and
-search generation. Current authorization applies before each node is returned.
-Committed progress renews a 15-minute inactivity deadline. A two-hour absolute
-deadline limits how long a session can keep an old physical index.
-Expired or mismatched cursors require a new search.
+The session binds the normalized query, filters, principal, physical index, and search generation. Current authorization applies before each node is returned. Committed progress renews a 15-minute inactivity deadline. A two-hour absolute deadline limits how long a session can keep an old physical index. Expired or mismatched cursors require a new search.
 
 ## Durable indexing and bounded work
 
@@ -171,7 +156,12 @@ Tack request handlers keep no process-local search state. Every instance opens o
 
 QA starts with one combined-role LXC guest on `suburban`. Production starts with one
 on `vault`. Each guest uses OpenSearch 3.8.0 with at least 8 GiB memory, 2 CPU cores,
-40 GiB storage, and a 2 GiB JVM heap. Both environments use zero replicas and become
+40 GiB storage, and a 2 GiB JVM heap. Later scale-out members use a 3 GiB JVM heap.
+With a 2 GiB heap, surviving members exceed the 85 percent ML Commons heap threshold
+during a member outage. The initial QA and production guests use a 2 GiB heap. A 3 GiB
+heap on the QA guest would drop `suburban` available memory below the 6.26 GiB
+workload gate. Both
+environments use zero replicas and become
 unavailable when their search guest stops. Production claims node failover only after
 at least three members and one replica pass the production failure test.
 

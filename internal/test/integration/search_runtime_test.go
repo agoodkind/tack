@@ -61,10 +61,7 @@ func TestSearchRuntimeIndexesThroughGraph(t *testing.T) {
 	stores := newSearchStore(t)
 	_, client, _, index := newSearchIndex(t, stores)
 	configureSearchRuntime(t)
-	cfg := harnessConfig(t)
-	cfg.AuditKafkaBrokers = ""
-	cfg.AuditWriterDSN = ""
-	cfg.AuditAllowUnrecorded = true
+	cfg := queryConfig(t)
 	graph, err := appruntime.BuildGraph(t.Context(), cfg)
 	if err != nil {
 		t.Fatalf("build graph: %v", err)

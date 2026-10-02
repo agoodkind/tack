@@ -129,15 +129,15 @@ func clusterNodeWriter(t *testing.T, fixture queryFixture) func() uuid.UUID {
 	}
 }
 
-// requireSearchable runs the production worker and reads tack_search pages
-// until each expected node appears in the results. An attempt fails on a
-// worker error or when the results continue past clusterSearchPages pages.
-func requireSearchable(t *testing.T, fixture queryFixture, expected []uuid.UUID) {
+func requireSearchable(t *testing.T, fixture queryFixture, expected []uuid.UUID, onFailure ...clusterFailureCallbacks) {
 	t.Helper()
 	clusterEventually(t, "search every written node", func() error {
 		for range 100 {
 			claimed, err := fixture.Worker.RunSlice(t.Context())
 			if err != nil {
+				for _, diagnose := range onFailure {
+					diagnose.Worker(err)
+				}
 				return clusterFailure("run search worker slice", err)
 			}
 			if !claimed {
@@ -148,6 +148,9 @@ func requireSearchable(t *testing.T, fixture queryFixture, expected []uuid.UUID)
 		for range clusterSearchPages {
 			page, err := trySearch(fixture.Harness, clusterPhrase, cursor)
 			if err != nil {
+				for _, diagnose := range onFailure {
+					diagnose.Public(err)
+				}
 				return err
 			}
 			found = append(found, page.IDs...)

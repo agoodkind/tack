@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"goodkind.io/tack/internal/clock"
 )
 
 // nativeAccess is the strict access object stored on every page.
@@ -107,10 +108,12 @@ const (
 func nativeBulk(t *testing.T, client *opensearchapi.Client, body string) []opensearchapi.BulkRespItem {
 	t.Helper()
 	deadline := time.Now().Add(nativeBulkRetryWindow)
-	for {
+	for attempt := 1; ; attempt++ {
+		t.Logf("native.bulk.attempt.start attempt=%d retry_count=%d timestamp=%s request_bytes=%d", attempt, attempt-1, clock.Now().UTC().Format(time.RFC3339Nano), len(body))
 		items := sendNativeBulk(t, client, body)
 		if !slices.ContainsFunc(items, func(item opensearchapi.BulkRespItem) bool { return item.Status == http.StatusTooManyRequests }) ||
 			time.Now().After(deadline) {
+			t.Logf("native.bulk.complete attempts=%d retry_count=%d", attempt, attempt-1)
 			return items
 		}
 		time.Sleep(nativeBulkRetryInterval)
@@ -119,9 +122,11 @@ func nativeBulk(t *testing.T, client *opensearchapi.Client, body string) []opens
 
 func sendNativeBulk(t *testing.T, client *opensearchapi.Client, body string) []opensearchapi.BulkRespItem {
 	t.Helper()
+	started := clock.Now()
 	response, err := client.Bulk(t.Context(), opensearchapi.BulkReq{
 		Body: strings.NewReader(body), Params: opensearchapi.BulkParams{Refresh: "true"},
 	})
+	t.Logf("native.bulk.response wall_ms=%d response_present=%t transport_error=%t", clock.Since(started).Milliseconds(), response != nil, err != nil)
 	if response == nil || len(response.Items) == 0 {
 		t.Fatalf("typed bulk returned no item results: %v", err)
 	}
@@ -131,7 +136,39 @@ func sendNativeBulk(t *testing.T, client *opensearchapi.Client, body string) []o
 			items = append(items, result)
 		}
 	}
+	logNativeBulkSummary(t, response.Took, items)
 	return items
+}
+
+func logNativeBulkSummary(t *testing.T, took int, items []opensearchapi.BulkRespItem) {
+	t.Helper()
+	var statusClasses [6]int
+	errorTypes := make(map[string]int)
+	rejected := 0
+	for _, item := range items {
+		class := item.Status / 100
+		if class < 1 || class >= len(statusClasses) {
+			class = 0
+		}
+		statusClasses[class]++
+		if item.Status == http.StatusTooManyRequests {
+			rejected++
+		}
+		if item.Error != nil {
+			errorTypes[nativeBulkErrorCategory(item.Error.Type)]++
+		}
+	}
+	t.Logf("native.bulk.summary took_ms=%d items=%d status_classes=%v rejected_429=%d error_types=%v", took, len(items), statusClasses, rejected, errorTypes)
+}
+
+func nativeBulkErrorCategory(errorType string) string {
+	switch errorType {
+	case "circuit_breaking_exception", "version_conflict_engine_exception", "mapper_parsing_exception",
+		"illegal_argument_exception", "security_exception", "es_rejected_execution_exception", "resource_not_found_exception":
+		return errorType
+	default:
+		return "other"
+	}
 }
 
 func requireBulkSucceeded(t *testing.T, items []opensearchapi.BulkRespItem) {
