@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
 	"io"
 	"net"
@@ -24,10 +25,32 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// bulkRecord is the target index and body length of one bulk request.
+// bulkRecord is the target index and body length of one bulk request, with
+// the page ordinal and page text length of a page write. content is false
+// for a retirement or an access-only update.
 type bulkRecord struct {
-	index string
-	bytes int
+	index     string
+	bytes     int
+	content   bool
+	ordinal   uint64
+	textBytes int
+}
+
+// bulkSource is the part of a bulk action body the meter reads.
+type bulkSource struct {
+	PageOrdinal uint64  `json:"page_ordinal"`
+	PageText    *string `json:"page_text"`
+}
+
+// newBulkRecord reads the first action body of one bulk request.
+func newBulkRecord(index string, body []byte) bulkRecord {
+	record := bulkRecord{index: index, bytes: len(body), content: false, ordinal: 0, textBytes: 0}
+	lines := bytes.Split(body, []byte("\n"))
+	var source bulkSource
+	if len(lines) > 1 && json.Unmarshal(lines[1], &source) == nil && source.PageText != nil {
+		record.content, record.ordinal, record.textBytes = true, source.PageOrdinal, len(*source.PageText)
+	}
+	return record
 }
 
 // bulkMeter forwards every request to the engine and records each bulk
@@ -48,7 +71,7 @@ func (meter *bulkMeter) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		}
 		meter.mutex.Lock()
 		index := strings.TrimSuffix(strings.TrimPrefix(request.URL.Path, "/"), "/_bulk")
-		meter.records = append(meter.records, bulkRecord{index: index, bytes: len(body)})
+		meter.records = append(meter.records, newBulkRecord(index, body))
 		meter.mutex.Unlock()
 		request.Body = io.NopCloser(bytes.NewReader(body))
 		request.ContentLength = int64(len(body))

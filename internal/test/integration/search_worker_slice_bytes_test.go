@@ -87,27 +87,22 @@ func TestSearchWorkerLargestSliceStaysWithinByteMaximum(t *testing.T) {
 
 	writeLargestSearchNode(t, stores, plain, "plain", "a")
 	writeLargestSearchNode(t, stores, escaped, strings.Repeat(worstEscapedText, escapedNameBytes), worstEscapedText)
-	if pages := len(readSearchPages(t, stores, plain.NodeID, production.PageBytes)); pages < production.MaxPages {
-		t.Fatalf("the largest plain node has %d pages, want at least %d", pages, production.MaxPages)
+	plainPages := len(readSearchPages(t, stores, plain.NodeID, production.PageBytes))
+	if plainPages < production.MaxPages {
+		t.Fatalf("the largest plain node has %d pages, want at least %d", plainPages, production.MaxPages)
 	}
 	measured := boundSettings(production)
-	slices := map[uuid.UUID][]bulkRecord{}
-	for range 2 {
-		item, err := work.Claim(t.Context(), searchdomain.WorkClassLive, "measured", measured.Lease)
-		if err != nil || item.Target != serving || item.Mirror != rebuild.TargetIndex {
-			t.Fatalf("claim live work = target %q mirror %q err %v, want %q and %q", item.Target, item.Mirror, err, serving, rebuild.TargetIndex)
-		}
-		meter.take()
-		if err := newSearchWorker(t, stores, adapter, source, measured).Process(t.Context(), item); err != nil {
-			t.Fatalf("process the measured live slice of %s: %v", item.NodeID, err)
-		}
-		slices[item.NodeID] = meter.take()
-	}
+	slices := measureLiveSlices(t, work, newSearchWorker(t, stores, adapter, source, measured), meter, measured.Lease, serving, rebuild.TargetIndex)
 
 	writes, total, largest := sliceBytes(slices[plain.NodeID])
 	t.Logf("plain node slice: %d serving and %d mirror page writes, %d encoded bytes, largest request %d bytes", writes[serving], writes[rebuild.TargetIndex], total, largest)
 	if writes[serving] != production.MaxPages || writes[rebuild.TargetIndex] != production.MaxPages || len(writes) != 2 {
 		t.Fatalf("plain node slice wrote %v, want %d pages to each of %s and %s", writes, production.MaxPages, serving, rebuild.TargetIndex)
+	}
+	for _, record := range slices[plain.NodeID] {
+		if record.ordinal < uint64(plainPages-1) && record.textBytes != production.PageBytes {
+			t.Fatalf("plain node page %d in %s has %d text bytes, want the full page %d", record.ordinal, record.index, record.textBytes, production.PageBytes)
+		}
 	}
 	if total >= production.MaxBytes {
 		t.Fatalf("plain node slice sent %d encoded bytes, want less than %d", total, production.MaxBytes)
