@@ -43,8 +43,8 @@ type datagenSoakOutput struct {
 // operation. The max_ops stop reason after all 45 operations requires zero
 // errors. The result must report answered searches, no search refused as
 // unavailable, and for every operation kind a positive call count with
-// min <= p50 <= p95 <= max, p95 equal to max, and p50 strictly between min
-// and max. A second run with public search off must stop at max_ops,
+// min <= p50 <= p95 <= max and, for 3 to 20 calls, p95 equal to max. A
+// second run with public search off must stop at max_ops,
 // count every search as unavailable, and record its latency under
 // search_unavailable.
 func TestSearchDatagenSoakReportsSearchLatency(t *testing.T) {
@@ -65,12 +65,10 @@ func TestSearchDatagenSoakReportsSearchLatency(t *testing.T) {
 			latency.P50Ms > latency.P95Ms || latency.P95Ms > latency.MaxMs {
 			t.Fatalf("latency of %s = %+v, want calls above zero and 0 <= min <= p50 <= p95 <= max", latency.Kind, latency)
 		}
-		// With 3 to 20 calls the nearest-rank p95 is the largest value and
-		// the nearest-rank p50 is a middle value. The wall times are
-		// nanosecond durations; three of them are distinct in practice.
-		if latency.Calls >= 3 && latency.Calls <= 20 &&
-			(latency.P95Ms != latency.MaxMs || latency.P50Ms <= latency.MinMs || latency.P50Ms >= latency.MaxMs) {
-			t.Fatalf("latency of %s = %+v, want p95 equal to max and min < p50 < max", latency.Kind, latency)
+		// With 3 to 20 calls the nearest-rank p95 is the largest value, also
+		// when values tie.
+		if latency.Calls >= 3 && latency.Calls <= 20 && latency.P95Ms != latency.MaxMs {
+			t.Fatalf("latency of %s = %+v, want p95 equal to max", latency.Kind, latency)
 		}
 		calls += latency.Calls
 		if latency.Kind == "search" {
