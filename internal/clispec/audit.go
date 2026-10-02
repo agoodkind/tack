@@ -2,12 +2,9 @@ package clispec
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"strings"
-	"time"
 
 	"github.com/google/uuid"
 
@@ -122,79 +119,4 @@ func validateAuditSpec(spec audit.Spec) error {
 		return fmt.Errorf("audit spec %q cannot create audit infrastructure for a read", spec.Verb)
 	}
 	return nil
-}
-
-// newOperatorEvent builds the event a command records. The op id travels in
-// Extra, which the ledger stores and the row hash covers, so the intent row
-// and its outcome row can be tied together by a reader and neither can be
-// altered without breaking the chain.
-func newOperatorEvent(
-	ctx context.Context,
-	spec audit.Spec,
-	principal audit.OperatorPrincipal,
-	opID uuid.UUID,
-	deployCommit string,
-) (audit.Event, error) {
-	extra, err := json.Marshal(operatorEventExtra{
-		OpID:           opID,
-		StartedAt:      nil,
-		OperatorSource: principal.Source,
-		DeployCommit:   strings.TrimSpace(deployCommit),
-	})
-	if err != nil {
-		return audit.Event{}, loggedAuditError(ctx, "encode operator event extra", err)
-	}
-	return audit.Event{
-		Verb:    spec.Verb,
-		EventID: uuid.Must(uuid.NewV7()),
-		Actor: audit.Actor{
-			Type:          principal.ActorType(),
-			ID:            principal.ID,
-			Email:         principal.Email,
-			Name:          principal.Name,
-			SessionID:     "",
-			IP:            "",
-			UserAgent:     "",
-			RequestID:     "",
-			APITokenLabel: "",
-		},
-		Entity: audit.Entity{
-			Type:       "system",
-			NodeType:   "",
-			ID:         audit.SystemOrgID(),
-			Identifier: "",
-			Name:       "",
-		},
-		Context: audit.EventContext{
-			OrgID:       audit.SystemOrgID(),
-			WorkspaceID: uuid.Nil,
-			ScopeID:     uuid.Nil,
-			ParentID:    uuid.Nil,
-			RequestID:   "",
-			TraceID:     "",
-			Source:      audit.SourceSystem,
-			Tool:        "",
-			RPC:         "",
-			Reason:      "",
-		},
-		Delta:          nil,
-		Outcome:        audit.OutcomeOK,
-		Error:          nil,
-		IdempotencyKey: "",
-		OccurredAt:     clock.Now().UTC(),
-		Extra:          extra,
-	}, nil
-}
-
-// operatorEventExtra is the correlation payload every operator event carries.
-type operatorEventExtra struct {
-	// OpID is shared by an intent row and its outcome row.
-	OpID uuid.UUID `json:"op_id"`
-	// StartedAt records when a deferred infrastructure command entered the gate.
-	StartedAt *time.Time `json:"started_at,omitempty"`
-	// OperatorSource names the mechanism that established the identity, so a
-	// reader can tell a git-config identity from an asserted flag.
-	OperatorSource string `json:"operator_source"`
-	// DeployCommit identifies the opaque commit or branch supplied by the deploy playbook.
-	DeployCommit string `json:"deploy_commit,omitempty"`
 }

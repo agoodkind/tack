@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
 	"goodkind.io/tack/internal/audit"
@@ -73,26 +74,40 @@ func TestNewOperatorSourcePrefersServiceFlag(t *testing.T) {
 	}
 }
 
-// TestNewOperatorSourceRefusesServiceAndOperatorID pins the conflict rule: the
-// two flags name different actors, and picking one silently would attribute
-// the action to the wrong identity.
-func TestNewOperatorSourceRefusesServiceAndOperatorID(t *testing.T) {
+// TestNewOperatorSourceRecordsServiceOnBehalfOfOperator pins the pairing rule:
+// the service is the actor, and the flag operator is the accountable operator
+// recorded in OnBehalfOf with no act-as grant.
+func TestNewOperatorSourceRecordsServiceOnBehalfOfOperator(t *testing.T) {
 	factory := &Factory{Cfg: nil, In: nil, Out: nil, Err: nil}
 	root := &cobra.Command{Use: "tack"}
 	factory.RegisterGlobalFlags(root)
+	operatorID := "019dd222-440e-729a-a442-281aaf73ca30"
 	if err := root.ParseFlags([]string{
 		"--operator-service", "tack-app",
-		"--operator-id", "019dd222-440e-729a-a442-281aaf73ca30",
+		"--operator-session", " session-1 ",
+		"--operator-id", operatorID,
 		"--operator-email", "ops@goodkind.io",
 	}); err != nil {
 		t.Fatalf("parse flags: %v", err)
 	}
 
-	_, err := NewOperatorSource(factory).Resolve(t.Context())
-	if err == nil {
-		t.Fatal("ambiguous identity accepted, want it refused")
+	principal, err := NewOperatorSource(factory).Resolve(t.Context())
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
 	}
-	if !strings.Contains(err.Error(), "--operator-service") || !strings.Contains(err.Error(), "--operator-id") {
-		t.Fatalf("error = %v, want it to name both flags", err)
+	if principal.Kind != audit.ActorService || principal.ID != ServiceActorID("tack-app") {
+		t.Fatalf("principal = %+v, want the tack-app service principal", principal)
+	}
+	if principal.SessionID != "session-1" {
+		t.Fatalf("session = %q, want session-1", principal.SessionID)
+	}
+	want := audit.ActProvenance{
+		OperatorID:    uuid.MustParse(operatorID),
+		OperatorEmail: "ops@goodkind.io",
+		GrantID:       uuid.Nil,
+		Reason:        "",
+	}
+	if principal.OnBehalfOf == nil || *principal.OnBehalfOf != want {
+		t.Fatalf("on behalf of = %+v, want %+v", principal.OnBehalfOf, want)
 	}
 }
