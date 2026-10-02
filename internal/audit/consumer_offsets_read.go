@@ -27,8 +27,8 @@ type ConsumerOffset struct {
 
 // ConsumerOffsets reads every committed consumer offset through the ledger
 // reader. The consumer writes each row in the transaction that appends the
-// batch. A row therefore names only records that are in the ledger or in the
-// dead-letter table.
+// batch. Every record before a row's committed offset is in the ledger or in
+// the dead-letter table.
 func (r *Reader) ConsumerOffsets(ctx context.Context) ([]ConsumerOffset, error) {
 	if r == nil || r.pool == nil {
 		return nil, fmt.Errorf("audit reader not configured")

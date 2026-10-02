@@ -32,7 +32,7 @@ type datagenSeedResult struct {
 	Projects   int    `json:"projects"`
 	Issues     int    `json:"issues"`
 	// AuditConsumerOffsets is the `ops audit consumer-offsets` report read
-	// after a committed seed. A dry run leaves it nil.
+	// after a committed seed. It is nil after a dry run.
 	AuditConsumerOffsets *auditConsumerOffsetsReport `json:"audit_consumer_offsets,omitempty"`
 }
 

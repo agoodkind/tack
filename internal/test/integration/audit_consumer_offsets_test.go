@@ -19,9 +19,10 @@ import (
 )
 
 const (
-	// consumedEvents are projected by the running consumer.
+	// consumedEvents is the number of events the running consumer projects.
 	consumedEvents = 20
-	// waitingEvents are produced after the consumer stops.
+	// waitingEvents is the number of events the test produces after the
+	// consumer stops.
 	waitingEvents = 7
 	// offsetsDeadline bounds the wait for the consumer to commit.
 	offsetsDeadline = 90 * time.Second

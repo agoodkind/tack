@@ -17,7 +17,8 @@ const (
 	kafkaImage = "apache/kafka:4.2.0"
 	// kafkaPort is the broker listener port.
 	kafkaPort = "9092"
-	// kafkaHolderSeconds keeps the address holder running for the process.
+	// kafkaHolderSeconds is the sleep length of the address holder container,
+	// longer than any test process.
 	kafkaHolderSeconds = "2147483647"
 	// kafkaClusterIDBytes is the size of the KRaft cluster ID before its
 	// base64url encoding to 22 characters.
