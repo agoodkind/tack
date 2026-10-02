@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 )
 
@@ -65,9 +66,10 @@ func (d *Driver) searchEntryArgument(ctx context.Context, token string) (string,
 			return "", err
 		}
 		for _, tool := range page.Tools {
-			if tool.Name == searchToolName {
-				return requiredEntryArgument(ctx, tool.InputSchema.Required)
+			if tool.Name != searchToolName {
+				continue
 			}
+			return SearchEntryArgument(tool.InputSchema.Required)
 		}
 		if page.NextCursor == "" {
 			return "", loggedError(ctx, "qa datagen: read the tack_search schema", errors.New("tools/list returned no tack_search tool"))
@@ -78,9 +80,11 @@ func (d *Driver) searchEntryArgument(ctx context.Context, token string) (string,
 		fmt.Errorf("tools/list did not finish within %d pages", maxToolListPages))
 }
 
-// requiredEntryArgument returns the one required argument that ends with
-// entryArgumentSuffix.
-func requiredEntryArgument(ctx context.Context, required []string) (string, error) {
+// SearchEntryArgument returns the one required tack_search argument that
+// ends with "_reference". required is the required list of the tack_search
+// input schema that tools/list returned for the caller. It returns an error
+// when no required argument or more than one matches.
+func SearchEntryArgument(required []string) (string, error) {
 	found := make([]string, 0, 1)
 	for _, name := range required {
 		if strings.HasSuffix(name, entryArgumentSuffix) {
@@ -88,8 +92,9 @@ func requiredEntryArgument(ctx context.Context, required []string) (string, erro
 		}
 	}
 	if len(found) != 1 {
-		return "", loggedError(ctx, "qa datagen: read the tack_search entry argument",
-			fmt.Errorf("required arguments %v contain %d entry arguments, want 1", required, len(found)))
+		err := fmt.Errorf("tack_search required arguments %v contain %d entry arguments, want 1", required, len(found))
+		slog.Error("qa.datagen.search_entry_argument_invalid", slog.String("err", err.Error()))
+		return "", err
 	}
 	return found[0], nil
 }
