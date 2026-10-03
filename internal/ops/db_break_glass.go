@@ -87,9 +87,13 @@ func runDBSQL(ctx context.Context, deps dbSQLDeps, input dbSQLInput, sink clispe
 	if err != nil {
 		return err
 	}
+	reportedPlanID := ""
+	if planID != uuid.Nil {
+		reportedPlanID = planID.String()
+	}
 	result := dbSQLResult{
 		ResultMarker: clispec.ResultMarker{}, Command: "ops.db.sql", DryRun: !execute,
-		Statement: statement, Reason: reason, PlanID: strings.TrimSpace(input.PlanID), MailedTo: deps.cfg.BackupAlarmEmail,
+		Statement: statement, Reason: reason, PlanID: reportedPlanID, MailedTo: deps.cfg.BackupAlarmEmail,
 		CommandTag: "", RowsReturned: 0, Truncated: false, Columns: nil, Rows: nil,
 	}
 	if !execute {

@@ -152,3 +152,28 @@ func TestDBPlanMailsAFailedStatement(t *testing.T) {
 		t.Fatalf("error row = %+v, want the server error", last)
 	}
 }
+
+// TestDBPlanReportsTheCanonicalPlanID runs a listed statement with a
+// --plan-id value in upper case with surrounding spaces. The report contains
+// the plan ID in the lower-case form that plan open reports.
+func TestDBPlanReportsTheCanonicalPlanID(t *testing.T) {
+	ledgerDSN := testenv.Ledger(t)
+	mail := mailpitFor(t)
+	pool := testenv.LedgerPool(t, ledgerDSN)
+	deps := planDeps(t, pool, ledgerDSN, mail.Msmtprc, planAgentFlags("session-plan-canonical"))
+	reason := "plan test canonical " + uuid.NewString()[:8]
+	opened, err := openPlan(t, deps, writePlanFile(t, "select 1"), reason, "1h")
+	if err != nil {
+		t.Fatalf("plan open: %v", err)
+	}
+	deleteOutboxRowsAfterTest(t, pool, planRowsFilter(opened.PlanID))
+
+	given := "  " + strings.ToUpper(opened.PlanID) + "  "
+	result, err := runPlanned(t, deps, given, "select 1", reason)
+	if err != nil {
+		t.Fatalf("planned statement with --plan-id %q: %v", given, err)
+	}
+	if result.PlanID != opened.PlanID {
+		t.Fatalf("report plan ID = %q, want the canonical plan ID %q", result.PlanID, opened.PlanID)
+	}
+}

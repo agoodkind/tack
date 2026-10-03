@@ -13,9 +13,10 @@ import (
 	"goodkind.io/tack/internal/audit"
 )
 
-// dbPlanPrincipalRefusal is the refusal of a statement or a close by a
-// principal other than the plan opener.
-const dbPlanPrincipalRefusal = "the caller is not the principal that opened the plan"
+// dbPlanPrincipalRefusal is the refusal of a statement or a close by a caller
+// that dbPlanPrincipal.matches rejects.
+const dbPlanPrincipalRefusal = "the caller is a different agent or operator than the plan opener, " +
+	"or acts for a different accountable operator; any session of the opener is permitted"
 
 // dbPlanAttempt is one statement run under a plan: its pending row and, when
 // the statement finished, its outcome row.

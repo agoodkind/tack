@@ -45,11 +45,12 @@ type dbPlanCloseResult struct {
 // committed past the audit topic high-water marks, then reads the plan rows
 // through the ledger reader. It then refuses a closer that is not the opener
 // principal, writes the close row to the operator outbox, and mails the
-// summary. A failed ledger read, a wait past the bound, a plan row in
-// audit.events_dlq, or a refusal returns an error before the close row
-// exists, and the plan stays open; a failed ledger read sends no mail. A
-// summary mail failure after the close row returns an error that states the
-// mail failure; the plan is closed.
+// summary. A failed ledger read, a wait past the bound, or a plan row in
+// audit.events_dlq returns an error and writes no close row; a failed ledger
+// read sends no mail. A refusal writes an ops.db_plan_close row with outcome
+// refused, writes no close row with outcome ok, and returns an error. In each
+// of these cases the plan stays open. A summary mail failure after the close
+// row returns an error that states the mail failure; the plan is closed.
 func runDBPlanClose(ctx context.Context, deps dbSQLDeps, input dbPlanCloseInput, sink clispec.ResultSink, execute bool) error {
 	planID, err := parseDBPlanID(ctx, input.PlanID)
 	if err != nil {

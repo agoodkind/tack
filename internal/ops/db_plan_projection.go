@@ -79,18 +79,19 @@ func parseDBPlanWait(ctx context.Context, text string) (time.Duration, error) {
 // contained at the start. It then reads the high-water mark of every
 // partition of the audit topic and reads audit.consumer_offsets every
 // dbPlanProjectionPoll until the consumer group has a committed offset at or
-// past each nonzero mark. It returns an error when wait passes first. Every
+// past each nonzero mark. The ledger reader open runs under the same bound.
+// It returns an error when wait passes first. Every
 // record below a committed offset is in audit.events or audit.events_dlq. A
 // failed open of the ledger reader, a failed outbox read, or a failed consumer
 // offset read returns a *dbPlanReadError at once, without a retry.
 func awaitDBPlanProjection(ctx context.Context, deps dbSQLDeps, planID uuid.UUID, wait time.Duration) error {
-	reader, release, err := dbPlanLedgerReader(ctx, deps, planID)
+	waitCtx, cancel := context.WithTimeout(ctx, wait)
+	defer cancel()
+	reader, release, err := dbPlanLedgerReader(waitCtx, deps, planID)
 	if err != nil {
 		return err
 	}
 	defer release()
-	waitCtx, cancel := context.WithTimeout(ctx, wait)
-	defer cancel()
 	if err := awaitDBPlanOutboxDrain(waitCtx, reader, planID, wait); err != nil {
 		return err
 	}
