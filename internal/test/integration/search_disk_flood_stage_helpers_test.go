@@ -57,7 +57,10 @@ func waitForBlock(t *testing.T, fixture queryFixture, blocked bool) {
 // refresh interval that the engine environment sets.
 func requireInfoInterval(t *testing.T, fixture queryFixture) {
 	t.Helper()
-	body, err := readEngine(t, fixture, "/_nodes/settings?flat_settings=true&filter_path=nodes.*.settings."+infoIntervalSetting)
+	// flat_settings=true returns each setting under its dotted key, and a
+	// dotted filter_path matches nested objects only. The read keeps every
+	// node setting.
+	body, err := readEngine(t, fixture, "/_nodes/settings?flat_settings=true&filter_path=nodes.*.settings")
 	clusterRequire(t, "read node settings", err)
 	var settings struct {
 		Nodes map[string]flatSettings `json:"nodes"`
