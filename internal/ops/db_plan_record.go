@@ -3,7 +3,7 @@ package ops
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -61,7 +61,8 @@ func (p dbPlanPrincipal) matches(principal audit.OperatorPrincipal) bool {
 }
 
 // recordDBPlan writes one plan row with verb and outcome to the operator
-// outbox. A refused row stores refusal as its error.
+// outbox. A refused row stores refusal as its error. A failure returns a
+// *dbPlanRecordError.
 func recordDBPlan(
 	ctx context.Context,
 	outbox audit.OutboxWriter,
@@ -73,8 +74,7 @@ func recordDBPlan(
 ) error {
 	encoded, err := json.Marshal(extra)
 	if err != nil {
-		slog.ErrorContext(ctx, "db.plan.extra_encode_failed", slog.String("err", err.Error()))
-		return fmt.Errorf("encode the plan record for plan %s: %w", extra.PlanID, err)
+		return &dbPlanRecordError{action: "encode the plan record", planID: extra.PlanID, err: err}
 	}
 	event := audit.Event{
 		Verb: string(verb), EventID: uuid.Must(uuid.NewV7()),
@@ -96,9 +96,38 @@ func recordDBPlan(
 	recordCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), dbBreakGlassRecordTimeout)
 	defer cancel()
 	if err := outbox.WriteOutbox(recordCtx, event); err != nil {
-		slog.ErrorContext(ctx, "db.plan.record_failed",
-			slog.String("verb", string(verb)), slog.String("plan_id", extra.PlanID.String()), slog.String("err", err.Error()))
-		return fmt.Errorf("record %s for plan %s: %w", verb, extra.PlanID, err)
+		return &dbPlanRecordError{action: "record " + string(verb), planID: extra.PlanID, err: err}
 	}
 	return nil
+}
+
+// dbPlanRecordError is a failed encode of the extra payload of a plan row or a
+// failed write of the row to the operator outbox. The function that returns
+// it does not log it; logDBPlanRecordFailure logs it once at the command.
+type dbPlanRecordError struct {
+	action string
+	planID uuid.UUID
+	err    error
+}
+
+// Error returns the action that failed, the plan, and the cause.
+func (e *dbPlanRecordError) Error() string {
+	return e.action + " for plan " + e.planID.String() + ": " + e.err.Error()
+}
+
+// Unwrap returns the cause.
+func (e *dbPlanRecordError) Unwrap() error {
+	return e.err
+}
+
+// logDBPlanRecordFailure logs the *dbPlanRecordError in err, if any, and
+// returns err. Command functions use it on each error that can contain a
+// record error; no other function logs one.
+func logDBPlanRecordFailure(ctx context.Context, err error) error {
+	var recordErr *dbPlanRecordError
+	if errors.As(err, &recordErr) {
+		slog.ErrorContext(ctx, "db.plan.record_failed",
+			slog.String("plan_id", recordErr.planID.String()), slog.String("err", recordErr.Error()))
+	}
+	return err
 }

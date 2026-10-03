@@ -73,20 +73,19 @@ func parseDBPlanWait(ctx context.Context, text string) (time.Duration, error) {
 	return wait, nil
 }
 
-// awaitDBPlanProjection waits, within one bound of wait, until every plan row
-// written before the call is in audit.events or audit.events_dlq. It first
-// waits until the relay has removed each event that public.ops_outbox
+// awaitDBPlanProjection waits, under waitCtx, until every plan row written
+// before the call is in audit.events or audit.events_dlq. The caller creates
+// waitCtx with the timeout wait, which the timeout error reports. The function
+// first waits until the relay has removed each event that public.ops_outbox
 // contained at the start. It then reads the high-water mark of every
 // partition of the audit topic and reads audit.consumer_offsets every
 // dbPlanProjectionPoll until the consumer group has a committed offset at or
-// past each nonzero mark. The ledger reader open runs under the same bound.
-// It returns an error when wait passes first. Every
-// record below a committed offset is in audit.events or audit.events_dlq. A
-// failed open of the ledger reader, a failed outbox read, or a failed consumer
-// offset read returns a *dbPlanReadError at once, without a retry.
-func awaitDBPlanProjection(ctx context.Context, deps dbSQLDeps, planID uuid.UUID, wait time.Duration) error {
-	waitCtx, cancel := context.WithTimeout(ctx, wait)
-	defer cancel()
+// past each nonzero mark. The ledger reader open runs under waitCtx. It
+// returns an error when waitCtx ends first. Every record below a committed
+// offset is in audit.events or audit.events_dlq. A failed open of the ledger
+// reader, a failed outbox read, or a failed consumer offset read returns a
+// *dbPlanReadError at once, without a retry.
+func awaitDBPlanProjection(waitCtx context.Context, deps dbSQLDeps, planID uuid.UUID, wait time.Duration) error {
 	reader, release, err := dbPlanLedgerReader(waitCtx, deps, planID)
 	if err != nil {
 		return err
@@ -99,7 +98,7 @@ func awaitDBPlanProjection(ctx context.Context, deps dbSQLDeps, planID uuid.UUID
 	topic, group := cfg.AuditKafkaTopic, cfg.AuditConsumerGroupID
 	marks, err := audit.TopicHighWaterMarks(waitCtx, audit.SplitBrokers(cfg.AuditKafkaBrokers), topic)
 	if err != nil {
-		slog.ErrorContext(ctx, "db.plan.high_water_failed", slog.String("plan_id", planID.String()), slog.String("err", err.Error()))
+		slog.ErrorContext(waitCtx, "db.plan.high_water_failed", slog.String("plan_id", planID.String()), slog.String("err", err.Error()))
 		return fmt.Errorf("read the high-water marks of %s to close plan %s: %w", topic, planID, err)
 	}
 	ticker := time.NewTicker(dbPlanProjectionPoll)
@@ -113,7 +112,7 @@ func awaitDBPlanProjection(ctx context.Context, deps dbSQLDeps, planID uuid.UUID
 		}
 		behind = dbPlanPartitionsBehind(group, topic, offsets, marks)
 		if len(behind) == 0 {
-			telemetry.L(ctx).InfoContext(ctx, "db.plan.projection_passed",
+			telemetry.L(waitCtx).InfoContext(waitCtx, "db.plan.projection_passed",
 				slog.String("plan_id", planID.String()), slog.String("group", group), slog.String("topic", topic))
 			return nil
 		}

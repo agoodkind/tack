@@ -43,13 +43,15 @@ type dbPlanCloseResult struct {
 // runDBPlanClose closes plan input.PlanID. With execute it waits until the
 // relay has sent the events in the operator outbox and the audit consumer has
 // committed past the audit topic high-water marks, then reads the plan rows
-// through the ledger reader. It then refuses a closer that is not the opener
-// principal, writes the close row to the operator outbox, and mails the
-// summary. A failed ledger read, a wait past the bound, or a plan row in
-// audit.events_dlq returns an error and writes no close row; a failed ledger
-// read sends no mail. A refusal writes an ops.db_plan_close row with outcome
-// refused, writes no close row with outcome ok, and returns an error. In each
-// of these cases the plan stays open. A summary mail failure after the close
+// through the ledger reader. The wait and that read share one --wait bound.
+// It then refuses a closer that is not the opener principal, writes the close
+// row to the operator outbox, and mails the summary. A failed ledger read, a
+// wait past the bound, or a plan row in audit.events_dlq returns an error and
+// writes no close row; a failed ledger read sends no mail. A failed write of
+// a refused or close row logs db.plan.record_failed here, once. A refusal
+// writes an ops.db_plan_close row with outcome refused, writes no close row
+// with outcome ok, and returns an error. In each of these cases the plan
+// stays open. A summary mail failure after the close
 // row returns an error that states the mail failure; the plan is closed.
 func runDBPlanClose(ctx context.Context, deps dbSQLDeps, input dbPlanCloseInput, sink clispec.ResultSink, execute bool) error {
 	planID, err := parseDBPlanID(ctx, input.PlanID)
@@ -88,13 +90,13 @@ func runDBPlanClose(ctx context.Context, deps dbSQLDeps, input dbPlanCloseInput,
 	}
 	state, err := closeDBPlanRows(ctx, deps, principal, planID, postcheck, wait)
 	if err != nil {
-		return err
+		return logDBPlanRecordFailure(ctx, err)
 	}
 	result.Expired, result.Statements = state.expired(clock.Now().UTC()), state.attempts
 	extra := newDBPlanCloseExtra(deps, principal, state, postcheck)
 	extra.Expired = result.Expired
 	if err := recordDBPlan(ctx, deps.outbox, audit.VerbOpsDBPlanClose, principal, extra, audit.OutcomeOK, nil); err != nil {
-		return err
+		return logDBPlanRecordFailure(ctx, err)
 	}
 	if err := mailDBPlanSummary(ctx, deps.cfg, principal, state, postcheck, result.Expired); err != nil {
 		slog.ErrorContext(ctx, "db.plan.summary_undelivered", slog.String("plan_id", planID.String()), slog.String("err", err.Error()))
@@ -103,16 +105,18 @@ func runDBPlanClose(ctx context.Context, deps dbSQLDeps, input dbPlanCloseInput,
 	return writeDBPlanResult(ctx, sink, result)
 }
 
-// closeDBPlanRows returns the plan state that the summary reports. It waits
-// for the relay and the audit consumer, then reads the plan rows from
-// audit.events and audit.events_dlq through the ledger reader. Every ledger
-// read in close stops at the first failure: a failed read of
-// public.ops_outbox, audit.consumer_offsets, or the plan rows returns that
-// error at once, logged here, with no close row and no mail. A wait past its
-// bound or a plan row in audit.events_dlq mails that the summary is
-// incomplete and returns an error. A plan row that does not decode refuses
-// the close: the stored plan cannot be verified.
-// It then checks the open row, the close row, and the closer principal.
+// closeDBPlanRows returns the plan state that the summary reports. It creates
+// one context that ends after wait. The wait for the relay and the audit
+// consumer and the read of the plan rows from audit.events and
+// audit.events_dlq both run under it, and the read phase ends within one
+// --wait. Every ledger read stops at the first failure: a failed or cut-off
+// read of public.ops_outbox, audit.consumer_offsets, or the plan rows returns
+// a *dbPlanReadError at once, logged here, with no close row and no mail. A
+// wait past its bound or a plan row in audit.events_dlq mails that the summary
+// is incomplete and returns an error. A plan row that does not decode refuses
+// the close: the stored plan cannot be verified. The mail, the refusals, and
+// the refused row run under ctx, which the bound does not end. It then checks
+// the open row, the close row, and the closer principal.
 func closeDBPlanRows(
 	ctx context.Context,
 	deps dbSQLDeps,
@@ -122,13 +126,15 @@ func closeDBPlanRows(
 	wait time.Duration,
 ) (dbPlanState, error) {
 	empty := dbPlanState{open: nil, closed: false, attempts: nil}
-	if err := awaitDBPlanProjection(ctx, deps, planID, wait); err != nil {
+	waitCtx, cancel := context.WithTimeout(ctx, wait)
+	defer cancel()
+	if err := awaitDBPlanProjection(waitCtx, deps, planID, wait); err != nil {
 		if isDBPlanReadError(err) {
 			return empty, dbPlanReadFailed(ctx, "plan close", planID, err)
 		}
 		return empty, dbPlanSummaryIncomplete(ctx, deps.cfg, principal, planID, err)
 	}
-	state, deadLetters, err := readDBPlanLedger(ctx, deps.cfg.AuditReaderDSN, planID)
+	state, deadLetters, err := readDBPlanLedger(waitCtx, deps.cfg.AuditReaderDSN, planID)
 	if isDBPlanReadError(err) {
 		return state, dbPlanReadFailed(ctx, "plan close", planID, err)
 	}

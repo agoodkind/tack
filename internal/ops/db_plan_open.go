@@ -89,7 +89,7 @@ func runDBPlanOpen(ctx context.Context, deps dbSQLDeps, input dbPlanOpenInput, s
 		return err
 	}
 	if err := recordDBPlan(ctx, deps.outbox, audit.VerbOpsDBPlanOpen, principal, extra, audit.OutcomeOK, nil); err != nil {
-		return err
+		return logDBPlanRecordFailure(ctx, err)
 	}
 	result.PlanID = extra.PlanID.String()
 	return writeDBPlanResult(ctx, sink, result)
