@@ -3,7 +3,9 @@ package audit
 const (
 	// VerbOpsDBPlanOpen records an operator opening a break-glass plan: the
 	// statements a later `ops db sql --plan-id` may run. A planned statement
-	// sends no mail; the plan sends one mail at open and one at close.
+	// that runs and succeeds sends no mail; the plan sends one mail at open and
+	// one at close. A refused statement, a refused close, and a planned
+	// statement that fails each send their own mail at once.
 	VerbOpsDBPlanOpen Verb = "ops.db_plan_open"
 	// VerbOpsDBPlanClose records an operator closing a break-glass plan and
 	// the summary mail of its statements. A close by another principal is
