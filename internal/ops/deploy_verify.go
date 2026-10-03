@@ -19,6 +19,13 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
+const (
+	// appContainer is the compose container name of the Tack server.
+	appContainer = "tack-app-1"
+	// auditConsumerContainer is the compose container name of the audit consumer.
+	auditConsumerContainer = "tack-audit-consumer-1"
+)
+
 // deployVerifyTarget pairs a rolled container with the image it must run.
 type deployVerifyTarget struct {
 	Container string
@@ -36,8 +43,8 @@ func deployVerifyTargets(cfg *config.Config, explicitTag string) []deployVerifyT
 	}
 	registry := strings.TrimSuffix(strings.TrimSpace(cfg.DeployRegistry), "/")
 	return []deployVerifyTarget{
-		{Container: "tack-app-1", Image: registry + "/tack-server:" + tag},
-		{Container: "tack-audit-consumer-1", Image: registry + "/tack-audit-consumer:" + tag},
+		{Container: appContainer, Image: registry + "/tack-server:" + tag},
+		{Container: auditConsumerContainer, Image: registry + "/tack-audit-consumer:" + tag},
 	}
 }
 

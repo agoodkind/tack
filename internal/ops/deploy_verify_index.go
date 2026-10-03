@@ -57,7 +57,7 @@ func parseDeployIndexDigests(ctx context.Context, server, consumer string) (depl
 		slog.ErrorContext(ctx, "ops.deploy.verify.digest_flags_invalid", slog.String("err", err.Error()))
 		return nil, err
 	}
-	return deployIndexDigests{"tack-app-1": server, "tack-audit-consumer-1": consumer}, nil
+	return deployIndexDigests{appContainer: server, auditConsumerContainer: consumer}, nil
 }
 
 // imageStoreDriverType returns the DriverStatus driver-type entry, or an empty

@@ -18,7 +18,7 @@ func TestParseDeployIndexDigestsRequiresBothInIndexForm(t *testing.T) {
 		t.Fatalf("no flags = %v, %v, want the local tag comparison", digests, err)
 	}
 	digests, err := parseDeployIndexDigests(t.Context(), givenIndexDigest, otherIndexDigest)
-	if err != nil || digests["tack-app-1"] != givenIndexDigest || digests["tack-audit-consumer-1"] != otherIndexDigest {
+	if err != nil || digests[appContainer] != givenIndexDigest || digests[auditConsumerContainer] != otherIndexDigest {
 		t.Fatalf("both flags = %v, %v", digests, err)
 	}
 	refused := [][2]string{
