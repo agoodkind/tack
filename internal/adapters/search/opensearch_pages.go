@@ -11,11 +11,14 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// Put writes one complete page at its FoundationDB generation with
-// version_type external_gte. It validates page_text before any engine
-// request and returns the encoded request length in bytes. When the work
-// item has a mirror index, Put writes the same page to the mirror index
-// after the target accepts it.
+// Put writes one complete page at its FoundationDB generation. It validates
+// page_text before any engine request. In each index it reads the stored
+// page, refuses a write below the stored generation or to a retired page
+// with ErrObsoleteWrite, sends nothing for a page at the write generation,
+// and otherwise indexes with if_seq_no and if_primary_term from the read. It
+// returns the encoded request length in bytes. When the work item has a
+// mirror index, Put writes the same page to the mirror index after the
+// target accepts it.
 func (a *Adapter) Put(ctx context.Context, intent searchdomain.WriteIntent) (int, error) {
 	if intent.Work.Target == "" {
 		return 0, pageWriteFailure(ctx, "search.page.target_missing", intent.Work, errors.New("page write requires a serving index"))
@@ -34,15 +37,17 @@ func (a *Adapter) Put(ctx context.Context, intent searchdomain.WriteIntent) (int
 }
 
 func (a *Adapter) putPage(ctx context.Context, intent searchdomain.WriteIntent) (int, error) {
-	encoded, err := encodePageDocument(ctx, intent)
+	page := guardedPage{
+		documentID: intent.DocumentID, generation: intent.Work.Generation,
+		encode: func(precondition pagePrecondition) ([]byte, error) {
+			return encodePageDocument(ctx, intent, precondition)
+		},
+	}
+	_, written, err := a.writeGuarded(ctx, intent.Work.Target, []guardedPage{page}, staleRefused)
 	if err != nil {
-		return 0, pageWriteFailure(ctx, "search.page.encode_failed", intent.Work, err)
+		return written, pageWriteFailure(ctx, "search.page.write_failed", intent.Work, err)
 	}
-	operations := []bulkOperation{{documentID: intent.DocumentID, encoded: encoded}}
-	if _, err := a.submitBulk(ctx, intent.Work.Target, operations, bulkContent); err != nil {
-		return len(encoded), pageWriteFailure(ctx, "search.page.write_failed", intent.Work, err)
-	}
-	return len(encoded), nil
+	return written, nil
 }
 
 // UpdateAccess changes only search_generation and access on the current
@@ -74,8 +79,9 @@ func (a *Adapter) updateAccessIn(ctx context.Context, work searchdomain.Work, in
 }
 
 // Retire replaces each obsolete page with a text-free retired record at the
-// work generation in the target and the mirror index. It returns the length
-// of the prefix both accepted.
+// work generation in the target and the mirror index. A page stored at a
+// higher generation stays unchanged and counts as accepted. It returns the
+// length of the prefix both accepted.
 func (a *Adapter) Retire(ctx context.Context, intent searchdomain.RetirementIntent) (int, error) {
 	accepted, err := a.retireIn(ctx, intent.Work, intent.Documents)
 	if err != nil || intent.Work.Mirror == "" {
@@ -86,15 +92,16 @@ func (a *Adapter) Retire(ctx context.Context, intent searchdomain.RetirementInte
 }
 
 func (a *Adapter) retireIn(ctx context.Context, work searchdomain.Work, documents []searchdomain.IssuedDocument) (int, error) {
-	operations := make([]bulkOperation, 0, len(documents))
+	pages := make([]guardedPage, 0, len(documents))
 	for _, document := range documents {
-		encoded, err := encodeRetirement(ctx, work, document)
-		if err != nil {
-			return 0, pageWriteFailure(ctx, "search.retirement.encode_failed", work, err)
-		}
-		operations = append(operations, bulkOperation{documentID: document.DocumentID, encoded: encoded})
+		pages = append(pages, guardedPage{
+			documentID: document.DocumentID, generation: work.Generation,
+			encode: func(precondition pagePrecondition) ([]byte, error) {
+				return encodeRetirement(ctx, work, document, precondition)
+			},
+		})
 	}
-	accepted, err := a.submitBulk(ctx, work.Target, operations, bulkRetirement)
+	accepted, _, err := a.writeGuarded(ctx, work.Target, pages, staleSuperseded)
 	if err != nil {
 		return accepted, pageWriteFailure(ctx, "search.retirement.write_failed", work, err)
 	}
