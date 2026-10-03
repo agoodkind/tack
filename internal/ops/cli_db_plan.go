@@ -64,8 +64,9 @@ func dbPlanCloseOp(f *cli.Factory) clispec.Operation[dbPlanCloseInput] {
 			"events in the operator outbox and for the audit consumer to commit past the " +
 			"audit topic high-water marks, then reads the plan rows through the ledger " +
 			"reader. Past --wait, or with a plan row in the audit dead-letter table, it " +
-			"mails that the summary is incomplete and fails. It then refuses a closer other than " +
-			"the principal that opened the plan, with a refused row and a mail. It then " +
+			"mails that the summary is incomplete and fails. It then refuses a closer with a " +
+			"different agent or operator than the opener, or acting for a different accountable " +
+			"operator, with a refused row and a mail; any session of the opener may close. It then " +
 			"writes the close row and mails the alarm address each statement run or refused " +
 			"under the plan with its outcome and the --postcheck text. A summary mail that " +
 			"cannot be delivered fails the command after the close row exists. A plan closed after " +
