@@ -16,9 +16,9 @@ const (
 	// timingPageBytes keeps each page small. A node with a few hundred bytes
 	// of text has several pages.
 	timingPageBytes = 128
-	// cleanupBatchDocuments is the most old page documents that one cleanup
-	// slice retires. The slice leaves any remaining documents for a later
-	// slice.
+	// cleanupBatchDocuments is the maximum number of old page documents that
+	// one cleanup slice retires. The slice leaves any remaining documents for
+	// a later slice.
 	cleanupBatchDocuments = 100
 	// claimWait bounds the wait for released work to become claimable again
 	// after its retry delay.
