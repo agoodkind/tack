@@ -15,7 +15,7 @@ import (
 
 // requireStoredName reads the active page documents of nodeID under the point
 // in time pitID with a term filter on node_id and requires each stored name
-// and page text to contain want and not unwanted.
+// to start with want, and each page text to contain want and not unwanted.
 func requireStoredName(t *testing.T, fixture queryFixture, pitID string, nodeID uuid.UUID, want, unwanted string) {
 	t.Helper()
 	body := fmt.Sprintf(`{"size":100,"pit":{"id":%q,"keep_alive":"1m"},"query":{"bool":{"filter":[{"term":{"node_id":%q}},{"term":{"retired":false}}]}}}`, pitID, nodeID.String())
@@ -31,7 +31,7 @@ func requireStoredName(t *testing.T, fixture queryFixture, pitID string, nodeID 
 		if err := json.Unmarshal(hit.Source, &page); err != nil || page.PageText == nil {
 			t.Fatalf("decode page %s of %s: %v", hit.ID, nodeID, err)
 		}
-		if page.Name != want || !strings.Contains(*page.PageText, want) || strings.Contains(*page.PageText, unwanted) {
+		if !strings.HasPrefix(page.Name, want) || !strings.Contains(*page.PageText, want) || strings.Contains(*page.PageText, unwanted) {
 			t.Fatalf("page %s of %s stores name %q and text %q, want %q without %q", hit.ID, nodeID, page.Name, *page.PageText, want, unwanted)
 		}
 	}

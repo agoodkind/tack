@@ -3,6 +3,7 @@ package integration
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"slices"
 	"strconv"
 	"testing"
@@ -50,8 +51,8 @@ func TestSearchCursorPointInTimeIgnoresLaterChanges(t *testing.T) {
 		Properties: datagen.NodeProperties{"identifier": json.RawMessage(strconv.Quote(identifier))},
 	})
 	harness.Project = identifier
-	for range pitOriginalNodes {
-		createPITIssue(t, harness)
+	for number := range pitOriginalNodes {
+		createPITIssue(t, harness, number)
 	}
 	drainSearchWork(t, fixture.Worker, 4000)
 
@@ -69,8 +70,8 @@ func TestSearchCursorPointInTimeIgnoresLaterChanges(t *testing.T) {
 	edited, deleted := remaining[0], remaining[1]
 
 	created := make([]uuid.UUID, 0, pitCreatedNodes)
-	for range pitCreatedNodes {
-		created = append(created, createPITIssue(t, harness))
+	for number := range pitCreatedNodes {
+		created = append(created, createPITIssue(t, harness, pitOriginalNodes+number))
 	}
 	harness.Call(t, "tack_update_issue", datagen.ToolArguments{WorkspaceReference: harness.Workspace, NodeID: edited.String(), Name: pitEditedName})
 	harness.Call(t, "tack_delete_issue", datagen.ToolArguments{WorkspaceReference: harness.Workspace, NodeID: deleted.String()})
@@ -113,11 +114,13 @@ func TestSearchCursorPointInTimeIgnoresLaterChanges(t *testing.T) {
 	}
 }
 
-// createPITIssue creates one corpus issue through tack_create_issue.
-func createPITIssue(t *testing.T, harness *MCPHarness) uuid.UUID {
+// createPITIssue creates one corpus issue through tack_create_issue. A
+// repeated name in one project creates no new issue. Each name ends with a
+// three-digit number after the shared corpus name.
+func createPITIssue(t *testing.T, harness *MCPHarness, number int) uuid.UUID {
 	t.Helper()
 	arguments := harness.projectArgs()
-	arguments.Name = pitMutationName
+	arguments.Name = fmt.Sprintf("%s %03d", pitMutationName, number)
 	created := harness.Call(t, "tack_create_issue", arguments)
 	id, err := uuid.Parse(created.RawID())
 	if err != nil {
