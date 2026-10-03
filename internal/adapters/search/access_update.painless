@@ -1,6 +1,8 @@
-if (ctx._source.retired == true ||
-    (ctx._source.search_generation != null && ctx._source.search_generation >= params.generation)) {
+def stored = ctx._source.search_generation;
+if (ctx._source.retired == true || (stored != null && stored == params.generation)) {
   ctx.op = 'none';
+} else if (stored != null && stored > params.generation) {
+  throw new IllegalArgumentException(params.stale_marker);
 } else {
   ctx._source.search_generation = params.generation;
   ctx._source.access = params.access;

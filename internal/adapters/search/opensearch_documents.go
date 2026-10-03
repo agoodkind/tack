@@ -43,15 +43,24 @@ type pageAccess struct {
 	Generation int64    `json:"generation"`
 }
 
+// accessRetryOnConflict is the retry_on_conflict count of an access update.
+// A 409 after these retries is a rejection.
+const accessRetryOnConflict = 3
+
 type bulkTarget struct {
-	Index       string `json:"_index"`
-	ID          string `json:"_id"`
-	Version     int64  `json:"version,omitempty"`
-	VersionType string `json:"version_type,omitempty"`
+	Index           string `json:"_index"`
+	ID              string `json:"_id"`
+	IfSeqNo         *int64 `json:"if_seq_no,omitempty"`
+	IfPrimaryTerm   *int64 `json:"if_primary_term,omitempty"`
+	RetryOnConflict int    `json:"retry_on_conflict,omitempty"`
 }
 
 type bulkIndexHeader struct {
 	Index bulkTarget `json:"index"`
+}
+
+type bulkCreateHeader struct {
+	Create bulkTarget `json:"create"`
 }
 
 type bulkUpdateHeader struct {
@@ -69,30 +78,28 @@ type accessScript struct {
 }
 
 type accessScriptParams struct {
-	Generation int64      `json:"generation"`
-	Access     pageAccess `json:"access"`
+	Generation  int64      `json:"generation"`
+	Access      pageAccess `json:"access"`
+	StaleMarker string     `json:"stale_marker"`
 }
 
+// staleGenerationMarker is the message the access update script throws for
+// an update below the stored search_generation. The bulk parser maps an
+// item error with this message to ErrObsoleteWrite.
+const staleGenerationMarker = "tack stale search generation"
+
 // accessUpdateScript orders access-only updates by search_generation. It
-// writes search_generation and access only when the stored search_generation
-// is lower than the update generation and the page is not retired. Otherwise
-// it makes no change.
+// writes search_generation and access when the stored search_generation is
+// lower than the update generation and the page is not retired. It throws
+// params.stale_marker when the stored search_generation is higher. It makes
+// no change at the same generation or on a retired page.
 //
-// An access-only update uses this script instead of external versioning
-// because OpenSearch 3.8.0 rejects an update action with version or
-// version_type. The script runs on the primary shard under the document lock.
-// Each accepted update raises the internal _version by one and sets a
-// strictly higher search_generation. The internal _version stays at or below
-// search_generation.
+// An access-only update uses a script because OpenSearch 3.8.0 rejects an
+// update action with version or version_type. The script runs on the primary
+// shard under the document lock.
 //
-// Content writes and retirements are index actions with version_type
-// external_gte at the FoundationDB generation. A retirement at the current
-// generation passes the version check. A delayed content write below a
-// retirement or content write generation fails the version check. A delayed
-// content write below an access update generation can pass when the internal
-// _version is lower. The stale claim cannot checkpoint because the access
-// change rewrote that content work to the access generation in FoundationDB.
-// The next claim rewrites the page at the current generation.
+// Content writes and retirements read the stored page first (writeGuarded)
+// and send index actions with if_seq_no and if_primary_term from that read.
 //
 // The update omits page_text. skip_existing_embedding leaves the stored
 // chunks and sparse weights unchanged, and ML Commons runs no inference.
@@ -100,37 +107,43 @@ type accessScriptParams struct {
 //go:embed access_update.painless
 var accessUpdateScript string
 
-func encodePageDocument(ctx context.Context, intent searchdomain.WriteIntent) ([]byte, error) {
-	header := bulkIndexHeader{Index: externalTarget(intent.Work.Target, intent.DocumentID, intent.Work.Generation)}
+func encodePageDocument(ctx context.Context, intent searchdomain.WriteIntent, precondition pagePrecondition) ([]byte, error) {
 	document := pageDocument{
 		NodeID: intent.Work.NodeID.String(), NodeType: intent.Page.NodeType,
 		NodeRevision: intent.Page.Revision, ProjectionVersion: intent.Page.ProjectionVersion,
 		PageOrdinal: intent.Page.Ordinal, Name: intent.Page.Name, PageText: intent.Page.Text,
 		Retired: false, SearchGeneration: intent.Work.Generation, Access: toPageAccess(intent.Page.Access),
 	}
-	return encodeBulkLines(ctx, header, document)
+	return encodeGuarded(ctx, intent.Work.Target, intent.DocumentID, precondition, document)
 }
 
-func encodeRetirement(ctx context.Context, work searchdomain.Work, document searchdomain.IssuedDocument) ([]byte, error) {
-	header := bulkIndexHeader{Index: externalTarget(work.Target, document.DocumentID, work.Generation)}
+func encodeRetirement(ctx context.Context, work searchdomain.Work, document searchdomain.IssuedDocument, precondition pagePrecondition) ([]byte, error) {
 	retired := retiredDocument{
 		NodeID: work.NodeID.String(), NodeRevision: strconv.FormatInt(document.Revision, 10),
 		PageOrdinal: document.Ordinal, Retired: true, SearchGeneration: work.Generation,
 	}
-	return encodeBulkLines(ctx, header, retired)
+	return encodeGuarded(ctx, work.Target, document.DocumentID, precondition, retired)
+}
+
+// encodeGuarded encodes a create action for an absent page, or an index
+// action that requires the read sequence number and primary term.
+func encodeGuarded[Body pageDocument | retiredDocument](ctx context.Context, index, documentID string, precondition pagePrecondition, body Body) ([]byte, error) {
+	if precondition.Create {
+		target := bulkTarget{Index: index, ID: documentID, IfSeqNo: nil, IfPrimaryTerm: nil, RetryOnConflict: 0}
+		return encodeBulkLines(ctx, bulkCreateHeader{Create: target}, body)
+	}
+	seqNo, primaryTerm := precondition.SeqNo, precondition.PrimaryTerm
+	target := bulkTarget{Index: index, ID: documentID, IfSeqNo: &seqNo, IfPrimaryTerm: &primaryTerm, RetryOnConflict: 0}
+	return encodeBulkLines(ctx, bulkIndexHeader{Index: target}, body)
 }
 
 func encodeAccessUpdate(ctx context.Context, work searchdomain.Work, documentID string, access node.SearchAccess) ([]byte, error) {
-	header := bulkUpdateHeader{Update: bulkTarget{Index: work.Target, ID: documentID, Version: 0, VersionType: ""}}
+	target := bulkTarget{Index: work.Target, ID: documentID, IfSeqNo: nil, IfPrimaryTerm: nil, RetryOnConflict: accessRetryOnConflict}
 	body := accessScriptBody{Script: accessScript{
 		Source: accessUpdateScript, Lang: "painless",
-		Params: accessScriptParams{Generation: work.Generation, Access: toPageAccess(access)},
+		Params: accessScriptParams{Generation: work.Generation, Access: toPageAccess(access), StaleMarker: staleGenerationMarker},
 	}}
-	return encodeBulkLines(ctx, header, body)
-}
-
-func externalTarget(index, documentID string, generation int64) bulkTarget {
-	return bulkTarget{Index: index, ID: documentID, Version: generation, VersionType: "external_gte"}
+	return encodeBulkLines(ctx, bulkUpdateHeader{Update: target}, body)
 }
 
 func toPageAccess(access node.SearchAccess) pageAccess {
@@ -138,7 +151,7 @@ func toPageAccess(access node.SearchAccess) pageAccess {
 }
 
 type bulkLine interface {
-	bulkIndexHeader | bulkUpdateHeader
+	bulkIndexHeader | bulkCreateHeader | bulkUpdateHeader
 }
 
 type bulkBody interface {

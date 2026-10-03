@@ -12,8 +12,14 @@ import (
 var (
 	// ErrWorkChanged means the claimed generation no longer matches source state.
 	ErrWorkChanged = errors.New("search work changed")
-	// ErrObsoleteWrite means OpenSearch rejected an older external version.
+	// ErrObsoleteWrite means a page write or access update is below the stored
+	// search_generation, or a content write targets a retired page. The search
+	// adapter returns it after its own read of the stored page, before sending
+	// the write, or after the access update script refuses the generation.
 	ErrObsoleteWrite = errors.New("search write is obsolete")
+	// ErrConcurrentWrite means another write changed a page after the search
+	// adapter read it, on every one of its bounded write attempts.
+	ErrConcurrentWrite = errors.New("another write changed the search page after it was read")
 	// ErrNoWork means no item of the requested class is currently claimable.
 	ErrNoWork = errors.New("no search work is claimable")
 	// ErrNoServingIndex means FoundationDB records no serving physical index yet.

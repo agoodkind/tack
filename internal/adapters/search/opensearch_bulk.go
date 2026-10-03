@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
 	searchdomain "goodkind.io/tack/internal/domain/search"
@@ -23,13 +24,13 @@ const (
 type bulkItemPolicy uint8
 
 const (
-	// bulkContent accepts only successful writes. A version conflict is obsolete.
-	bulkContent bulkItemPolicy = iota + 1
-	// bulkRetirement also accepts a version conflict. The stored document
-	// already has a higher generation.
-	bulkRetirement
+	// bulkGuarded accepts only successful writes. A 409 means another write
+	// changed the page after the read that set the request precondition.
+	bulkGuarded bulkItemPolicy = iota + 1
 	// bulkAccess also accepts a missing document. The later content write of
-	// that document compiles current access.
+	// that document compiles current access. An item error with
+	// staleGenerationMarker is obsolete; a 409 after retry_on_conflict is a
+	// rejection.
 	bulkAccess
 )
 
@@ -105,6 +106,11 @@ func (a *Adapter) sendBulk(ctx context.Context, index string, body []byte, opera
 			telemetry.L(ctx).InfoContext(ctx, "search.bulk.item_obsolete", slog.String("err", obsolete.Error()),
 				slog.String("document_id", item.ID), slog.String("index", index))
 			return position, obsolete
+		case bulkItemConflict:
+			conflict := fmt.Errorf("document %s in %s: %w", item.ID, index, searchdomain.ErrConcurrentWrite)
+			telemetry.L(ctx).InfoContext(ctx, "search.bulk.item_conflict", slog.String("err", conflict.Error()),
+				slog.String("document_id", item.ID), slog.String("index", index))
+			return position, conflict
 		case bulkItemRejected:
 			reason := ""
 			if item.Error != nil {
@@ -125,6 +131,7 @@ type bulkItemOutcome uint8
 const (
 	bulkItemAccepted bulkItemOutcome = iota + 1
 	bulkItemObsolete
+	bulkItemConflict
 	bulkItemRejected
 )
 
@@ -134,13 +141,32 @@ func bulkItemOutcomeFor(item opensearchapi.BulkRespItem, documentID string, poli
 		return bulkItemRejected
 	case item.Error == nil && item.Status >= http.StatusOK && item.Status < http.StatusMultipleChoices:
 		return bulkItemAccepted
-	case item.Status == http.StatusConflict && policy == bulkRetirement:
+	case policy == bulkAccess && item.Status == http.StatusNotFound:
 		return bulkItemAccepted
-	case item.Status == http.StatusNotFound && policy == bulkAccess:
-		return bulkItemAccepted
-	case item.Status == http.StatusConflict:
+	case policy == bulkAccess && hasStaleGenerationMarker(item):
 		return bulkItemObsolete
+	case policy == bulkGuarded && item.Status == http.StatusConflict:
+		return bulkItemConflict
 	default:
 		return bulkItemRejected
 	}
+}
+
+// hasStaleGenerationMarker reports whether the item error reason, or the
+// reason of one of its two nested causes, contains staleGenerationMarker.
+// OpenSearch wraps a Painless exception in a script exception.
+func hasStaleGenerationMarker(item opensearchapi.BulkRespItem) bool {
+	if item.Error == nil {
+		return false
+	}
+	reasons := []string{item.Error.Reason, item.Error.Cause.Reason}
+	if nested := item.Error.Cause.Cause; nested != nil && nested.Reason != nil {
+		reasons = append(reasons, *nested.Reason)
+	}
+	for _, reason := range reasons {
+		if strings.Contains(reason, staleGenerationMarker) {
+			return true
+		}
+	}
+	return false
 }
