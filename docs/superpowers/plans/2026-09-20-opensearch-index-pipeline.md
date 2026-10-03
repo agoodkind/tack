@@ -4,7 +4,7 @@
 
 This plan converts every source mutation into complete, bounded, retry-safe OpenSearch page documents in one slice connected to production entry points.
 
-FoundationDB records desired search work in each source transaction. Runtime workers read one revision-bound page at a time, write it with external versioning, checkpoint progress, and yield after bounded work. The content reader uses explicit projection metadata. The permission policy returns opaque access keys. Tack never tokenizes text or interprets permission types.
+FoundationDB records desired search work in each source transaction. Runtime workers read one revision-bound page at a time, write it after comparing the stored `search_generation`, checkpoint progress, and yield after bounded work. The content reader uses explicit projection metadata. The permission policy returns opaque access keys. Tack never tokenizes text or interprets permission types.
 
 The implementation uses Go, FoundationDB, and the official OpenSearch Go client v4.7.3.
 
@@ -83,7 +83,7 @@ type PageWriter interface { Put(context.Context, WriteIntent) error; UpdateAcces
 
 - [ ] **Write deterministic page documents.** Derive the document ID from organization, node, revision, projection version, and page ordinal with length-prefixed bytes and base64url encoding. Copy opaque access values without interpretation. Reject invalid ordering, duplicates, empty access values, generation mismatches, and text above 4,096 bytes.
 
-- [ ] **Use bounded typed bulk requests.** Encode NDJSON before admission. Flush before 500 documents or 5 MiB. Use the official typed bulk API. Set every index, update, and retirement action to the FoundationDB generation with `version_type:external_gte`. Inspect every item. Checkpoint only the contiguous successful prefix. Convert lower-generation conflicts to `ErrObsoleteWrite`. Never enable automatic index creation.
+- [ ] **Use bounded typed bulk requests.** Encode NDJSON before admission. Flush before 500 documents or 5 MiB. Use the official typed bulk API. Before a content or retirement index action, read the stored `search_generation`, sequence number, and primary term with a realtime multi-get; refuse a content write below the stored generation or to a retired page with `ErrObsoleteWrite`, and send the action with `if_seq_no` and `if_primary_term` from that read (a 409 rereads the page). Run access updates through the script that refuses a generation below the stored one; map that refusal to `ErrObsoleteWrite`. Inspect every item. Checkpoint only the contiguous successful prefix. Never enable automatic index creation.
 
 - [ ] **Process bounded worker slices.** Stop before another remote call after 32 pages, 5 MiB, or two seconds. Allow one admitted request to use its ten-second timeout. Require a successful write and checkpoint before reading the next page. Yield unfinished work. Refresh in a resumable phase after the final page.
 

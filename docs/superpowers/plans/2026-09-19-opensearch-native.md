@@ -84,7 +84,7 @@ Pin v4.7.3. The existing Docker SDK test fixture launches the exact image during
 
 - [ ] **Step 4: Prove every required client operation.**
 
-In the real-engine compatibility test, construct the official client from the same production `opensearch.Config`. Execute typed index create, settings, split, bulk index, bulk partial update, point-in-time create and delete, alias, document get, health, block, statistics, refresh, and delete calls. Prove that bulk update accepts `version` with `version_type:external_gte` against OpenSearch 3.8.0. Build search requests with `SearchReq.GetRequest`. Use narrow `opensearch.Request` types plus `opensearch.Do` and `opensearch.ParseError` only for ML Commons and response fields absent from stable typed APIs. Add production adapter methods only for provision and verify operations in this task. Later slices add each operation when their production entry point uses it.
+In the real-engine compatibility test, construct the official client from the same production `opensearch.Config`. Execute typed index create, settings, split, bulk index, bulk partial update, point-in-time create and delete, alias, document get, health, block, statistics, refresh, and delete calls. Prove that OpenSearch 3.8.0 rejects `version` and `version_type` on a bulk update action. Build search requests with `SearchReq.GetRequest`. Use narrow `opensearch.Request` types plus `opensearch.Do` and `opensearch.ParseError` only for ML Commons and response fields absent from stable typed APIs. Add production adapter methods only for provision and verify operations in this task. Later slices add each operation when their production entry point uses it.
 
 - [ ] **Step 5: Provision and verify the pinned model.**
 
@@ -114,20 +114,20 @@ Index ordinary, Unicode, newline-only, empty, missing, retired, and unknown-fiel
 Index one semantic page with `access.versions:["org-scope-v1"]`, one opaque
 `access.keys` value, and generation 1. Capture its complete source, generated
 chunks, and sparse weights. Undeploy the model. Submit a bulk partial update with
-generation 2 and `version_type:external_gte` that replaces only `search_generation` and `access`.
+generation 2 that runs the access update script and replaces only `search_generation` and `access`.
 Require success, changed access values, and byte-identical text, chunks, and
-weights. Submit generation 1 again and require a version conflict. Submit
-generation 2 again and require an idempotent result. This test must fail if the
-update invokes model inference.
+weights. Submit generation 1 again and require the script refusal that the bulk
+parser maps to `ErrObsoleteWrite`. Submit generation 2 again and require no
+change. This test must fail if the update invokes model inference.
 
 ```json
-{"update":{"_index":"node-pages-test","_id":"page-id","version":2,"version_type":"external_gte"}}
-{"doc":{"search_generation":2,"access":{"versions":["permission-v2"],"keys":["permission-v2:opaque"],"generation":2}},"detect_noop":true}
+{"update":{"_index":"node-pages-test","_id":"page-id","retry_on_conflict":3}}
+{"script":{"source":"<access_update.painless>","lang":"painless","params":{"generation":2,"access":{"versions":["permission-v2"],"keys":["permission-v2:opaque"],"generation":2},"stale_marker":"tack stale search generation"}}}
 ```
 
 - [ ] **Step 9: Add retirement and byte-bound coverage.**
 
-Replace a same-ID document with `{"retired":true}` at the retirement version. Require no text or semantic fields and no active match. Reject page text above 4,096 UTF-8 bytes before an engine request.
+Read the stored generation, sequence number, and primary term of a same-ID document, then replace it with `{"retired":true}` at the retirement generation with `if_seq_no` and `if_primary_term` from that read. Require no text or semantic fields and no active match. Reject page text above 4,096 UTF-8 bytes before an engine request.
 
 - [ ] **Step 10: Add endpoint and resource coverage.**
 

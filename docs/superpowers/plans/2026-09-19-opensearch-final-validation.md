@@ -81,7 +81,7 @@ TACK_TEST_ROOT="$PWD" docker compose -f docker-compose.test.yml --profile runner
 ```
 
 Require the pinned hashes, typed client operations, strict generic access mapping,
-bulk partial update with external versioning, full 4,096-byte Unicode source,
+access-only scripted bulk update ordered by `search_generation`, full 4,096-byte Unicode source,
 generated final chunk, finite sparse weights, access-only success with the model
 undeployed, explicit engine failures, and 8 GiB success. Require the 8 GiB
 model-guest minimum in the
