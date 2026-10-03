@@ -66,7 +66,7 @@ func OpenSearchWithMemory(t T, memoryBytes int64) OpenSearchFixture {
 		ctx, cancel := context.WithTimeout(t.Context(), provisionTimeout)
 		defer cancel()
 		engine.fixture, _, engine.err = provisionOpenSearch(ctx, openSearchEngineSettings{
-			memoryBytes: memoryBytes, dataTmpfsBytes: 0, nodeSettings: nil,
+			memoryBytes: memoryBytes, dataVolume: "", nodeSettings: nil,
 		})
 	})
 	if engine.err != nil {
