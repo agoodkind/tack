@@ -73,7 +73,7 @@ func provisionOpenSearch(ctx context.Context, memoryBytes int64) (OpenSearchFixt
 			Image: openSearchImage,
 			Env: []string{
 				"discovery.type=single-node",
-				"OPENSEARCH_JAVA_OPTS=-Xms2g -Xmx2g",
+				"OPENSEARCH_JAVA_OPTS=-Xms3g -Xmx3g",
 				"DISABLE_INSTALL_DEMO_CONFIG=true",
 			},
 			Labels: map[string]string{managedLabel: "true"},
