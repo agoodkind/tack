@@ -44,10 +44,11 @@ func requireStoredName(t *testing.T, fixture queryFixture, pitID string, nodeID 
 	}
 }
 
-// logLiveWorkAndPages logs, after a drain, whether live search work of nodeID
-// becomes claimable within diagnosticWait (a released item waits out its
-// retry delay first) and every page of nodeID in the serving index after an
-// explicit refresh. A claimed item is yielded unchanged.
+// logLiveWorkAndPages runs after a failed test. It logs whether live search
+// work for nodeID becomes claimable within diagnosticWait, and every page of
+// nodeID in the serving index after an explicit refresh. Released work waits
+// out its retry delay before it can be claimed. A claimed item is yielded
+// unchanged.
 func logLiveWorkAndPages(t *testing.T, fixture queryFixture, nodeID uuid.UUID) {
 	t.Helper()
 	store := fixture.Stores.SearchWork(clock.Wall{})

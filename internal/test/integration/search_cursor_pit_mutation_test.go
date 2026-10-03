@@ -72,6 +72,13 @@ func TestSearchCursorPointInTimeIgnoresLaterChanges(t *testing.T) {
 		t.Fatalf("raw matches after the first page name %d nodes, want at least two", len(remaining))
 	}
 	edited, deleted := remaining[0], remaining[1]
+	// A deferred call runs after t.Fatalf while t.Context is still open.
+	// Cleanup functions run after t.Context is canceled.
+	defer func() {
+		if t.Failed() {
+			logLiveWorkAndPages(t, fixture, edited)
+		}
+	}()
 
 	created := make([]uuid.UUID, 0, pitCreatedNodes)
 	for number := range pitCreatedNodes {
@@ -80,6 +87,7 @@ func TestSearchCursorPointInTimeIgnoresLaterChanges(t *testing.T) {
 	harness.Call(t, "tack_update_issue", datagen.ToolArguments{WorkspaceReference: harness.Workspace, NodeID: edited.String(), Name: pitEditedName})
 	harness.Call(t, "tack_delete_issue", datagen.ToolArguments{WorkspaceReference: harness.Workspace, NodeID: deleted.String()})
 	previous := slog.Default()
+	t.Cleanup(func() { slog.SetDefault(previous) })
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	drainSearchWork(t, fixture.Worker, 4000)
 	slog.SetDefault(previous)
@@ -100,7 +108,6 @@ func TestSearchCursorPointInTimeIgnoresLaterChanges(t *testing.T) {
 		}
 	})
 	requireStoredName(t, fixture, opened.PITID, edited, pitEditedName, pitMutationName)
-	logLiveWorkAndPages(t, fixture, edited)
 	continued := continueSearch(t, harness, first)
 	wanted := make([]uuid.UUID, 0, len(remaining))
 	for _, id := range remaining {
