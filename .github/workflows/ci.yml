@@ -33,7 +33,11 @@ jobs:
           -o /tmp/fdb-clients.deb
         sudo dpkg -i /tmp/fdb-clients.deb
         rm /tmp/fdb-clients.deb
-      timeout_minutes: 15
+      # The Test job takes 13 to 15 minutes. Its go test limit is 20 minutes
+      # for each package (GO_TEST_TARGETS in the Makefile). The last package
+      # starts about 5 minutes into the job, and a hung test prints its
+      # timeout report before this limit ends the job.
+      timeout_minutes: 30
 
   integration:
     name: integration tests (FDB)
