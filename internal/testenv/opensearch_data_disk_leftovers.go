@@ -16,24 +16,26 @@ import (
 
 // removeLeftoverDataDisks removes the data disks that an earlier run of a
 // disposable engine left behind when the test binary was killed before its
-// cleanup ran. Each volume it removes starts with dataDiskPrefix. It removes
-// every container that uses one of those volumes, then the data volumes,
-// then the loop devices attached to the image files, then the image
-// volumes. It returns one line for each removed item.
+// cleanup ran. Each volume it removes starts with dataDiskPrefix and has the
+// testenv label. It removes every container with the testenv label that
+// uses one of those volumes, then the data volumes, then the loop devices
+// attached to the image files, then the image volumes. It returns one line
+// for each removed item.
 //
 // It removes every matching volume without checking which process created
 // it. This is safe because only one engine test runs at a time on the shared
 // test slot. A test with a data disk that runs at the same time in another
 // process would lose that disk.
 func removeLeftoverDataDisks(ctx context.Context, cli *client.Client) ([]string, error) {
-	listed, err := cli.VolumeList(ctx, client.VolumeListOptions{Filters: client.Filters{}.Add("name", dataDiskPrefix)})
+	filters := client.Filters{}.Add("name", dataDiskPrefix).Add("label", managedLabel+"=true")
+	listed, err := cli.VolumeList(ctx, client.VolumeListOptions{Filters: filters})
 	if err != nil {
 		return nil, dataDiskFailure(ctx, "list leftover data disk volumes", err)
 	}
 	var dataVolumes, imageVolumes []string
 	for _, item := range listed.Items {
 		switch {
-		case !strings.HasPrefix(item.Name, dataDiskPrefix):
+		case !strings.HasPrefix(item.Name, dataDiskPrefix), item.Labels[managedLabel] != "true":
 		case strings.HasSuffix(item.Name, "-data"):
 			dataVolumes = append(dataVolumes, item.Name)
 		case strings.HasSuffix(item.Name, "-image"):
@@ -78,11 +80,13 @@ func removeLeftoverDataDisks(ctx context.Context, cli *client.Client) ([]string,
 }
 
 // leftoverDataDiskContainers returns every container, running or stopped,
-// that uses one of volumes.
+// with the testenv label that uses one of volumes. A container without the
+// label stays, and the volume removal then reports the volume as in use.
 func leftoverDataDiskContainers(ctx context.Context, cli *client.Client, volumes []string) ([]string, error) {
 	var containers []string
 	for _, volume := range volumes {
-		listed, err := cli.ContainerList(ctx, client.ContainerListOptions{All: true, Filters: client.Filters{}.Add("volume", volume)})
+		filters := client.Filters{}.Add("volume", volume).Add("label", managedLabel+"=true")
+		listed, err := cli.ContainerList(ctx, client.ContainerListOptions{All: true, Filters: filters})
 		if err != nil {
 			return nil, dataDiskFailure(ctx, "list the containers that use volume "+volume, err)
 		}
