@@ -96,7 +96,14 @@ func TestSearchWorkerLargestSliceStaysWithinByteMaximum(t *testing.T) {
 		t.Fatalf("the largest plain node has %d pages, want at least %d", plainPages, production.MaxPages)
 	}
 	measured := boundSettings(production)
-	slices := measureLiveSlices(t, work, newSearchWorker(t, stores, adapter, source, measured), meter, measured.Lease, serving, rebuild.TargetIndex)
+	slices := measureLiveSlices(t, work, rollouts, plain.OrgID, newSearchWorker(t, stores, adapter, source, measured), meter, measured.Lease, serving, rebuild.TargetIndex)
+	for _, nodeID := range []uuid.UUID{plain.NodeID, escaped.NodeID} {
+		for _, record := range slices[nodeID] {
+			if record.content && (len(record.access.Versions) != largestAccessEntries || len(record.access.Keys) != largestAccessEntries) {
+				t.Fatalf("measured page %d of %s to %s has access %v, want %d versions and %d keys", record.ordinal, nodeID, record.index, record.access, largestAccessEntries, largestAccessEntries)
+			}
+		}
+	}
 
 	writes, total, largest := sliceBytes(slices[plain.NodeID])
 	t.Logf("plain node slice: %d serving and %d mirror page writes, %d encoded bytes, largest request %d bytes", writes[serving], writes[rebuild.TargetIndex], total, largest)

@@ -90,7 +90,7 @@ func driveClasses(t *testing.T, worker *service.SearchWorker, work *fdbadapter.S
 // measureLiveSlices claims and processes live work until no live work stays
 // claimable, logs each claim and its bulk requests, and returns for each node
 // the requests of the slice with the most page writes.
-func measureLiveSlices(t *testing.T, work *fdbadapter.SearchWorkStore, worker *service.SearchWorker, meter *bulkMeter, lease time.Duration, serving, mirror string) map[uuid.UUID][]bulkRecord {
+func measureLiveSlices(t *testing.T, work *fdbadapter.SearchWorkStore, rollouts *fdbadapter.SearchAccessRolloutStore, orgID uuid.UUID, worker *service.SearchWorker, meter *bulkMeter, lease time.Duration, serving, mirror string) map[uuid.UUID][]bulkRecord {
 	t.Helper()
 	measured := map[uuid.UUID][]bulkRecord{}
 	idle := 0
@@ -105,6 +105,12 @@ func measureLiveSlices(t *testing.T, work *fdbadapter.SearchWorkStore, worker *s
 			t.Fatalf("claim live work = target %q mirror %q err %v, want %q and %q", item.Target, item.Mirror, err, serving, mirror)
 		}
 		idle = 0
+		rollout, err := rollouts.Current(t.Context(), orgID)
+		if err != nil {
+			t.Fatalf("read access rollout at claim: %v", err)
+		}
+		t.Logf("claim of %s: generation %d cursor %q; rollout phase %s generation %d write versions %v",
+			item.NodeID, item.Generation, item.Cursor, rollout.Phase, rollout.Generation, rollout.WriteVersions)
 		meter.take()
 		if err := worker.Process(t.Context(), item); err != nil {
 			t.Fatalf("process the live slice of %s: %v", item.NodeID, err)
@@ -112,6 +118,8 @@ func measureLiveSlices(t *testing.T, work *fdbadapter.SearchWorkStore, worker *s
 		records := meter.take()
 		pagesWritten, first, last, smallest := 0, uint64(0), uint64(0), 0
 		for _, record := range records {
+			t.Logf("request of %s to %s: %d bytes, page ordinal %d, page text %d bytes, access versions %v, %d keys, access generation %d",
+				item.NodeID, record.index, record.bytes, record.ordinal, record.textBytes, record.access.Versions, len(record.access.Keys), record.access.Generation)
 			if record.content && record.index == serving {
 				if pagesWritten == 0 || record.ordinal < first {
 					first = record.ordinal

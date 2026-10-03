@@ -34,21 +34,23 @@ type bulkRecord struct {
 	content   bool
 	ordinal   uint64
 	textBytes int
+	access    nativeAccess
 }
 
 // bulkSource is the part of a bulk action body the meter reads.
 type bulkSource struct {
-	PageOrdinal uint64  `json:"page_ordinal"`
-	PageText    *string `json:"page_text"`
+	PageOrdinal uint64       `json:"page_ordinal"`
+	PageText    *string      `json:"page_text"`
+	Access      nativeAccess `json:"access"`
 }
 
 // newBulkRecord reads the first action body of one bulk request.
 func newBulkRecord(index string, body []byte) bulkRecord {
-	record := bulkRecord{index: index, bytes: len(body), content: false, ordinal: 0, textBytes: 0}
+	record := bulkRecord{index: index, bytes: len(body), content: false, ordinal: 0, textBytes: 0, access: nativeAccess{Versions: nil, Keys: nil, Generation: 0}}
 	lines := bytes.Split(body, []byte("\n"))
 	var source bulkSource
 	if len(lines) > 1 && json.Unmarshal(lines[1], &source) == nil && source.PageText != nil {
-		record.content, record.ordinal, record.textBytes = true, source.PageOrdinal, len(*source.PageText)
+		record.content, record.ordinal, record.textBytes, record.access = true, source.PageOrdinal, len(*source.PageText), source.Access
 	}
 	return record
 }
