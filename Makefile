@@ -24,6 +24,11 @@ GO_BUILD_TAGS     := fdb
 # from CI, not GoReleaser).
 GO_MK_MODULES := go-build.mk
 
+# `make test` passes these words to `go test`. Without a -timeout flag each
+# package stops after the go default of 10 minutes, and the integration
+# package takes up to 585 seconds in CI.
+GO_TEST_TARGETS := -timeout 20m ./...
+
 # `make deploy` is retired. The tack rsync-to-host deploy is gone; app-image
 # updates use `./server ops deploy` and full-stack deploys use Ansible
 # deploy-tack.yml. Abort at parse time when deploy is a goal, before the
