@@ -81,7 +81,7 @@ const (
 	// The search keys store durable search work and search state. Work, age,
 	// and claim keys include a bucket number that searchBucket computes from
 	// (orgID, nodeID). A claim reads the age keys of one bucket at a time.
-	// (search_generation, orgID, nodeID) -> external version counter
+	// (search_generation, orgID, nodeID) -> search generation counter
 	// (search_revision, orgID, nodeID) -> generation of the last content change
 	// (search_work, class, bucket, orgID, nodeID) -> pending work record JSON
 	// (search_age, class, bucket, enqueuedUnixNano, orgID, nodeID) -> nil;
