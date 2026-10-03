@@ -82,8 +82,10 @@ func TestSearchCleanupYieldsAfter100Documents(t *testing.T) {
 	}
 	drainClass(t, work, worker, searchdomain.WorkClassCleanup)
 
-	if retired := searchNodePages(t, client, index, fixture.NodeID, true); len(retired) != len(original) {
-		t.Fatalf("cleanup retired %d documents, want the %d documents of the old revision", len(retired), len(original))
+	// The count of retired pages before the first cleanup slice, before,
+	// includes pages that indexing retired before the node was shortened.
+	if retired := len(searchNodePages(t, client, index, fixture.NodeID, true)) - before; retired != len(original) {
+		t.Fatalf("cleanup retired %d documents, want the %d documents of the old revision", retired, len(original))
 	}
 	requireIndexedPages(t, searchNodePages(t, client, index, fixture.NodeID, false), readSearchPages(t, stores, fixture.NodeID, timingPageBytes), 0)
 }
