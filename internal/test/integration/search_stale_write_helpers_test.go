@@ -136,9 +136,9 @@ func (proxy *staleProxy) counts() (int, int) {
 
 // newStaleProxyAdapter returns a production adapter that sends every request
 // to a local TLS proxy. The proxy forwards each request to the engine. Before
-// it forwards the first bulk request it runs inject, which writes to the
-// engine directly.
-func newStaleProxyAdapter(t *testing.T, fixture testenv.OpenSearchFixture, inject func() error) (*search.Adapter, *staleProxy) {
+// it forwards bulk request number n (from 1) it runs inject(n), which can
+// write to the engine directly.
+func newStaleProxyAdapter(t *testing.T, fixture testenv.OpenSearchFixture, inject func(bulkNumber int) error) (*search.Adapter, *staleProxy) {
 	t.Helper()
 	target, err := url.Parse(fixture.Endpoint)
 	if err != nil {
@@ -152,16 +152,16 @@ func newStaleProxyAdapter(t *testing.T, fixture testenv.OpenSearchFixture, injec
 	handler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		proxy.mutex.Lock()
 		isBulk := strings.HasSuffix(request.URL.Path, "/_bulk")
-		firstBulk := isBulk && proxy.bulkRequests == 0
 		if isBulk {
 			proxy.bulkRequests++
 		}
+		bulkNumber := proxy.bulkRequests
 		if strings.HasSuffix(request.URL.Path, "/_mget") {
 			proxy.mgetRequests++
 		}
 		proxy.mutex.Unlock()
-		if firstBulk {
-			if err := inject(); err != nil {
+		if isBulk {
+			if err := inject(bulkNumber); err != nil {
 				t.Errorf("inject the concurrent write: %v", err)
 				http.Error(writer, err.Error(), http.StatusInternalServerError)
 				return

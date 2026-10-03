@@ -107,7 +107,7 @@ func (a *Adapter) sendBulk(ctx context.Context, index string, body []byte, opera
 				slog.String("document_id", item.ID), slog.String("index", index))
 			return position, obsolete
 		case bulkItemConflict:
-			conflict := fmt.Errorf("document %s in %s: %w", item.ID, index, errConcurrentWrite)
+			conflict := fmt.Errorf("document %s in %s: %w", item.ID, index, searchdomain.ErrConcurrentWrite)
 			telemetry.L(ctx).InfoContext(ctx, "search.bulk.item_conflict", slog.String("err", conflict.Error()),
 				slog.String("document_id", item.ID), slog.String("index", index))
 			return position, conflict

@@ -119,7 +119,10 @@ func TestSearchReadToIndexRace(t *testing.T) {
 			if _, err := engine.adapter.Put(t.Context(), staleContent(staleWork(nodeID, 10, index, ""), textGenerationTen, "key-ten")); err != nil {
 				t.Fatalf("put generation 10: %v", err)
 			}
-			inject := func() error {
+			inject := func(bulkNumber int) error {
+				if bulkNumber != 1 {
+					return nil
+				}
 				_, err := engine.adapter.UpdateAccess(t.Context(), staleAccess(staleWork(nodeID, 12, index, ""), "key-twelve"))
 				return err
 			}

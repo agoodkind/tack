@@ -15,10 +15,6 @@ import (
 // its read and its index request.
 const maxGuardedAttempts = 3
 
-// errConcurrentWrite reports a 409 on an index request with if_seq_no or a
-// create request: another write changed the page after the read.
-var errConcurrentWrite = errors.New("another write changed the page after it was read")
-
 // pagePrecondition is the stored state an index request requires. Create
 // requires an absent document; otherwise the request requires the sequence
 // number and primary term of the read.
@@ -113,7 +109,7 @@ func (a *Adapter) writeGuarded(ctx context.Context, index string, pages []guarde
 		count, err := a.submitBulk(ctx, index, plan.operations, bulkGuarded)
 		if err != nil {
 			accepted += plan.positions[count]
-			if errors.Is(err, errConcurrentWrite) && attempt < maxGuardedAttempts {
+			if errors.Is(err, searchdomain.ErrConcurrentWrite) && attempt < maxGuardedAttempts {
 				continue
 			}
 			return accepted, written, err
