@@ -98,8 +98,8 @@ func logDeployImageReads(t *testing.T, cli *client.Client, name string) {
 	if err != nil {
 		t.Fatalf("inspect image %s: %v", imageID, err)
 	}
-	t.Logf("H1 docker read: server=%s driver=%s driverStatus=%v container.Image=%s container.Config.Image=%s image.Id=%s repoDigests=%v descriptor=%s",
-		info.Info.ServerVersion, info.Info.Driver, info.Info.DriverStatus, imageID, inspected.Container.Config.Image,
+	t.Logf("Docker image fields read for %s: server=%s driver=%s driverStatus=%v container.Image=%s container.Config.Image=%s image.Id=%s repoDigests=%v descriptor=%s",
+		name, info.Info.ServerVersion, info.Info.Driver, info.Info.DriverStatus, imageID, inspected.Container.Config.Image,
 		image.ID, image.RepoDigests, mustMarshal(t, image.Descriptor))
 }
 
