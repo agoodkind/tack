@@ -63,11 +63,14 @@ func TestSearchClusterDiskFloodStage(t *testing.T) {
 	requireStoredName(t, fixture, nodeA, floodStageNewText)
 	requireStoredName(t, fixture, nodeB, floodStageNewText+" beacon")
 	requireBlockedFailures(t, fixture, nodeB)
-	requireLiveWorkPending(t, fixture, nodeB)
+	// Verify runs before the pending-work check. A counted failure at the
+	// attempt limit excludes node B and removes its live work, and verify
+	// then reports the exclusion.
 	report, err := runSearchVerifyCommand(t, fixture.Config)
 	if err != nil || report.ExcludedNodes != 0 || report.StuckWorkItems != 0 {
 		t.Fatalf("ops search verify during the block = %+v (error %v), want no error, no excluded node, and no stuck work", report, err)
 	}
+	requireLiveWorkPending(t, fixture, nodeB)
 	requireQueryResults(t, fixture, floodStageOldText, []uuid.UUID{nodeA}, nil)
 	requireQueryResults(t, fixture, floodStageNewText, nil, []uuid.UUID{nodeA, nodeB})
 
