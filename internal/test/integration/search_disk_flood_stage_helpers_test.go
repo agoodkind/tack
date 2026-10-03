@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -62,16 +63,21 @@ func requireInfoInterval(t *testing.T, fixture queryFixture) {
 	// node setting.
 	body, err := readEngine(t, fixture, "/_nodes/settings?flat_settings=true&filter_path=nodes.*.settings")
 	clusterRequire(t, "read node settings", err)
+	// Each value decodes as raw JSON. Under flat_settings a list setting,
+	// such as plugins.security.nodes_dn, is a JSON array.
 	var settings struct {
-		Nodes map[string]flatSettings `json:"nodes"`
+		Nodes map[string]struct {
+			Settings map[string]json.RawMessage `json:"settings"`
+		} `json:"nodes"`
 	}
 	clusterRequire(t, "decode node settings", json.Unmarshal(body, &settings))
 	if len(settings.Nodes) == 0 {
 		t.Fatalf("node settings list no node: %s", body)
 	}
+	want := mustJSON(infoIntervalValue)
 	for nodeID, node := range settings.Nodes {
-		if value := node.Settings[infoIntervalSetting]; value != infoIntervalValue {
-			t.Fatalf("node %s %s = %q, want %q", nodeID, infoIntervalSetting, value, infoIntervalValue)
+		if value := node.Settings[infoIntervalSetting]; !bytes.Equal(value, want) {
+			t.Fatalf("node %s %s = %s, want %s", nodeID, infoIntervalSetting, value, want)
 		}
 	}
 }
