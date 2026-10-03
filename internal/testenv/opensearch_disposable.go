@@ -88,9 +88,15 @@ func DisposableOpenSearch(t *testing.T, options DisposableOpenSearchOptions) *Di
 	t.Cleanup(func() {
 		cleanup, stop := context.WithTimeout(context.WithoutCancel(t.Context()), provisionTimeout)
 		defer stop()
+		if fixture.Container != "" {
+			evidence, err := OpenSearchResourceEvidence(cleanup, fixture.Container)
+			t.Logf("disposable OpenSearch state before removal (read error %v):\n%s", err, evidence)
+		}
 		if err := removeContainers(cleanup, created); err != nil {
 			t.Errorf("remove disposable OpenSearch %v: %v", created, err)
+			return
 		}
+		t.Logf("removed disposable OpenSearch containers %v", created)
 	})
 	if err != nil {
 		t.Fatalf("start disposable OpenSearch: %v", err)
@@ -141,6 +147,13 @@ func (e *DisposableEngine) FreeData(t *testing.T) (int64, int64) {
 	t.Helper()
 	e.run(t, "rm", "-f", openSearchFillerPath)
 	return e.DataUsage(t)
+}
+
+// MemoryCurrent returns the cgroup memory.current of the engine container,
+// which includes the tmpfs pages of the data path.
+func (e *DisposableEngine) MemoryCurrent(t *testing.T) string {
+	t.Helper()
+	return strings.TrimSpace(e.run(t, "cat", "/sys/fs/cgroup/memory.current"))
 }
 
 // run runs command inside the engine and fails the test on a nonzero exit.
