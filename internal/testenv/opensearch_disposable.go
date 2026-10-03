@@ -16,87 +16,81 @@ import (
 const (
 	// openSearchDataPath is the engine's data path in the image.
 	openSearchDataPath = "/usr/share/opensearch/data"
-	// openSearchFillerPath is the file that fills the data path.
-	openSearchFillerPath = openSearchDataPath + "/tack-disk-filler"
-	// openSearchDataMode lets the image's own user write the tmpfs root.
-	openSearchDataMode = 0o1777
+	// openSearchMLDiskThreshold is the ML Commons free-space floor that
+	// Configs sets on every Tack search member. ML Commons refuses a local
+	// model deploy or prediction below it.
+	openSearchMLDiskThreshold = "plugins.ml_commons.disk_free_space_threshold=1gb"
 	// openSearchInfoInterval is the minimum cluster.info.update.interval of
 	// OpenSearch 3.8.0. The disk threshold monitor reads disk use at that
 	// interval.
 	openSearchInfoInterval = "cluster.info.update.interval=10s"
-	// fillChunkBytes is the dd block size of the filler.
-	fillChunkBytes = 1 << 20
 )
 
-// openSearchEngineSettings are the container settings of one engine. With a
-// zero dataTmpfsBytes the data path stays on the container's own
-// filesystem. The image entrypoint passes each nodeSettings entry to
-// OpenSearch as an -E setting.
+// openSearchEngineSettings are the container settings of one engine. With an
+// empty dataVolume the data path stays on the container's own filesystem.
+// The image entrypoint passes each nodeSettings entry to OpenSearch as an -E
+// setting.
 type openSearchEngineSettings struct {
-	memoryBytes    int64
-	dataTmpfsBytes int64
-	nodeSettings   []string
+	memoryBytes  int64
+	dataVolume   string
+	nodeSettings []string
 }
 
 // openSearchHostConfig shares holder's network stack and applies the memory
-// limit and the optional tmpfs data path.
+// limit and the optional data volume.
 func openSearchHostConfig(holder string, settings openSearchEngineSettings) *container.HostConfig {
 	hostConfig := &container.HostConfig{
 		NetworkMode: container.NetworkMode("container:" + holder),
 		Resources:   container.Resources{Memory: settings.memoryBytes},
 	}
-	if settings.dataTmpfsBytes > 0 {
-		hostConfig.Mounts = []mount.Mount{{
-			Type: mount.TypeTmpfs, Target: openSearchDataPath,
-			TmpfsOptions: &mount.TmpfsOptions{SizeBytes: settings.dataTmpfsBytes, Mode: openSearchDataMode},
-		}}
+	if settings.dataVolume != "" {
+		hostConfig.Mounts = []mount.Mount{{Type: mount.TypeVolume, Source: settings.dataVolume, Target: openSearchDataPath}}
 	}
 	return hostConfig
 }
 
 // DisposableOpenSearchOptions sizes one disposable engine. DataBytes is the
-// size of the tmpfs mounted at the data path. The tmpfs counts toward
-// MemoryBytes.
+// size of the ext4 filesystem mounted at the data path.
 type DisposableOpenSearchOptions struct {
 	MemoryBytes int64
 	DataBytes   int64
 }
 
 // DisposableEngine is one engine that belongs to one test. Its data path is
-// a size-bounded tmpfs, and the disk threshold monitor reads that tmpfs. A
-// test fills it to cross the flood-stage watermark without writing to the
-// host disk or a shared engine.
+// a size-bounded filesystem on the Docker host disk, and the disk threshold
+// monitor reads that filesystem. A test fills it to cross the flood-stage
+// watermark without filling the host disk or a shared engine.
 type DisposableEngine struct {
 	Fixture OpenSearchFixture
 }
 
-// DisposableOpenSearch starts an engine that no other test shares and
-// requires the container's cgroup memory limit to equal MemoryBytes. The
-// test's cleanup removes the engine with its tmpfs and the address holder,
-// also when the test or the start fails. Like a cluster, the engine starts
-// only when [SearchClusterVariable] is "1".
+// DisposableOpenSearch starts an engine that no other test shares on a data
+// disk of DataBytes, and requires the container's cgroup memory limit to
+// equal MemoryBytes. The test's cleanup removes the engine, the address
+// holder, and the data disk, also when the test or the start fails. Like a
+// cluster, the engine starts only when [SearchClusterVariable] is "1".
 func DisposableOpenSearch(t *testing.T, options DisposableOpenSearchOptions) *DisposableEngine {
 	t.Helper()
 	skipWhenShort(t)
 	skipWithoutSearchCluster(t)
 	ctx, cancel := context.WithTimeout(t.Context(), provisionTimeout)
 	defer cancel()
-	fixture, created, err := provisionOpenSearch(ctx, openSearchEngineSettings{
-		memoryBytes: options.MemoryBytes, dataTmpfsBytes: options.DataBytes,
-		nodeSettings: []string{openSearchInfoInterval},
-	})
-	t.Cleanup(func() {
-		cleanup, stop := context.WithTimeout(context.WithoutCancel(t.Context()), provisionTimeout)
-		defer stop()
-		if fixture.Container != "" {
-			evidence, err := OpenSearchResourceEvidence(cleanup, fixture.Container)
-			t.Logf("disposable OpenSearch state before removal (read error %v):\n%s", err, evidence)
-		}
-		if err := removeContainers(cleanup, created); err != nil {
-			t.Errorf("remove disposable OpenSearch %v: %v", created, err)
-			return
-		}
-		t.Logf("removed disposable OpenSearch containers %v", created)
+	var fixture OpenSearchFixture
+	var created []string
+	var disk openSearchDataDisk
+	t.Cleanup(func() { removeDisposableOpenSearch(t, fixture.Container, created, disk) })
+	cli, err := dockerClient(ctx)
+	if err != nil {
+		t.Fatalf("open docker client: %v", err)
+	}
+	defer func() { _ = cli.Close() }()
+	disk, err = createOpenSearchDataDisk(ctx, cli, options.DataBytes)
+	if err != nil {
+		t.Fatalf("create the disposable OpenSearch data disk: %v", err)
+	}
+	fixture, created, err = provisionOpenSearch(ctx, openSearchEngineSettings{
+		memoryBytes: options.MemoryBytes, dataVolume: disk.dataVolume,
+		nodeSettings: []string{openSearchInfoInterval, openSearchMLDiskThreshold},
 	})
 	if err != nil {
 		t.Fatalf("start disposable OpenSearch: %v", err)
@@ -109,48 +103,36 @@ func DisposableOpenSearch(t *testing.T, options DisposableOpenSearchOptions) *Di
 	return engine
 }
 
-// DataUsage returns the size and the used bytes of the data path, read with
-// df inside the engine.
-func (e *DisposableEngine) DataUsage(t *testing.T) (int64, int64) {
+// removeDisposableOpenSearch logs the engine state, removes the engine and
+// the address holder, then removes the data disk that the engine mounted.
+func removeDisposableOpenSearch(t *testing.T, engineName string, created []string, disk openSearchDataDisk) {
 	t.Helper()
-	output := e.run(t, "df", "-B1", "--output=size,used", openSearchDataPath)
-	lines := strings.Split(strings.TrimSpace(output), "\n")
-	fields := strings.Fields(lines[len(lines)-1])
-	if len(fields) != 2 {
-		t.Fatalf("read data path usage from %q", output)
+	cleanup, stop := context.WithTimeout(context.WithoutCancel(t.Context()), provisionTimeout)
+	defer stop()
+	if engineName != "" {
+		evidence, err := OpenSearchResourceEvidence(cleanup, engineName)
+		t.Logf("disposable OpenSearch state before removal (read error %v):\n%s", err, evidence)
 	}
-	size, sizeErr := strconv.ParseInt(fields[0], 10, 64)
-	used, usedErr := strconv.ParseInt(fields[1], 10, 64)
-	if sizeErr != nil || usedErr != nil {
-		t.Fatalf("parse data path usage %q: %v %v", output, sizeErr, usedErr)
+	if err := removeContainers(cleanup, created); err != nil {
+		t.Errorf("remove disposable OpenSearch %v: %v", created, err)
+		return
 	}
-	return size, used
+	t.Logf("removed disposable OpenSearch containers %v", created)
+	cli, err := dockerClient(cleanup)
+	if err != nil {
+		t.Errorf("open docker client to remove the data disk %s: %v", disk.helper, err)
+		return
+	}
+	defer func() { _ = cli.Close() }()
+	if err := removeOpenSearchDataDisk(cleanup, cli, disk); err != nil {
+		t.Errorf("remove the disposable OpenSearch data disk %s: %v", disk.helper, err)
+		return
+	}
+	t.Logf("removed data disk helper %s, volumes %s and %s, and loop device %s",
+		disk.helper, disk.dataVolume, disk.imageVolume, disk.device)
 }
 
-// FillData writes a filler file until the data path is at least percent
-// used, and returns the size and used bytes after the write.
-func (e *DisposableEngine) FillData(t *testing.T, percent int64) (int64, int64) {
-	t.Helper()
-	size, used := e.DataUsage(t)
-	missing := size*percent/100 - used
-	if missing > 0 {
-		chunks := (missing + fillChunkBytes - 1) / fillChunkBytes
-		e.run(t, "dd", "if=/dev/zero", "of="+openSearchFillerPath,
-			"bs="+strconv.Itoa(fillChunkBytes), "count="+strconv.FormatInt(chunks, 10))
-	}
-	return e.DataUsage(t)
-}
-
-// FreeData removes the filler file and returns the size and used bytes
-// after the removal.
-func (e *DisposableEngine) FreeData(t *testing.T) (int64, int64) {
-	t.Helper()
-	e.run(t, "rm", "-f", openSearchFillerPath)
-	return e.DataUsage(t)
-}
-
-// MemoryCurrent returns the cgroup memory.current of the engine container,
-// which includes the tmpfs pages of the data path.
+// MemoryCurrent returns the cgroup memory.current of the engine container.
 func (e *DisposableEngine) MemoryCurrent(t *testing.T) string {
 	t.Helper()
 	return strings.TrimSpace(e.run(t, "cat", "/sys/fs/cgroup/memory.current"))

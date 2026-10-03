@@ -24,6 +24,11 @@ const (
 	// DisposableOpenSearch sets to its 10 s minimum.
 	infoIntervalSetting = "cluster.info.update.interval"
 	infoIntervalValue   = "10s"
+	// mlDiskThresholdSetting is the ML Commons free-space floor that Configs
+	// sets to 1gb on every Tack search member and DisposableOpenSearch sets
+	// to the same value.
+	mlDiskThresholdSetting = "plugins.ml_commons.disk_free_space_threshold"
+	mlDiskThresholdValue   = "1gb"
 )
 
 // flatSettings is the settings object of one index or node with
@@ -54,9 +59,10 @@ func waitForBlock(t *testing.T, fixture queryFixture, blocked bool) {
 	})
 }
 
-// requireInfoInterval requires every node to report the 10 s disk-usage
-// refresh interval that the engine environment sets.
-func requireInfoInterval(t *testing.T, fixture queryFixture) {
+// requireDiskSettings requires every node to report the 10 s disk-usage
+// refresh interval and the 1gb ML Commons disk threshold that the engine
+// environment sets.
+func requireDiskSettings(t *testing.T, fixture queryFixture) {
 	t.Helper()
 	// flat_settings=true returns each setting under its dotted key, and a
 	// dotted filter_path matches nested objects only. The read keeps every
@@ -74,10 +80,15 @@ func requireInfoInterval(t *testing.T, fixture queryFixture) {
 	if len(settings.Nodes) == 0 {
 		t.Fatalf("node settings list no node: %s", body)
 	}
-	want := mustJSON(infoIntervalValue)
+	wanted := map[string]json.RawMessage{
+		infoIntervalSetting:    mustJSON(infoIntervalValue),
+		mlDiskThresholdSetting: mustJSON(mlDiskThresholdValue),
+	}
 	for nodeID, node := range settings.Nodes {
-		if value := node.Settings[infoIntervalSetting]; !bytes.Equal(value, want) {
-			t.Fatalf("node %s %s = %s, want %s", nodeID, infoIntervalSetting, value, want)
+		for setting, want := range wanted {
+			if value := node.Settings[setting]; !bytes.Equal(value, want) {
+				t.Fatalf("node %s %s = %s, want %s", nodeID, setting, value, want)
+			}
 		}
 	}
 }

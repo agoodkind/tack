@@ -14,15 +14,18 @@ import (
 )
 
 const (
-	// floodStageMemoryBytes is the 8 GiB model floor plus the data tmpfs,
-	// which the container's memory cgroup is charged for.
-	floodStageMemoryBytes int64 = 11 << 30
+	// floodStageMemoryBytes is the 8 GiB model floor. The data path is on
+	// the Docker host disk.
+	floodStageMemoryBytes int64 = 8 << 30
 	// floodStageDataBytes bounds the data path. ML Commons writes the model
-	// files there, beside the index and the filler.
-	floodStageDataBytes int64 = 3 << 30
+	// files there, beside the index and the filler. At floodStageFillPercent
+	// it leaves 1.28 GiB free, above the 1 GiB ML Commons disk threshold, and
+	// model writes and queries still run during the block.
+	floodStageDataBytes int64 = 32 << 30
 	// floodStageFillPercent is above the 95 percent flood-stage default of
-	// OpenSearch 3.8.0 and below a full disk.
-	floodStageFillPercent = 97
+	// OpenSearch 3.8.0 and leaves more free space than the ML Commons disk
+	// threshold.
+	floodStageFillPercent = 96
 	// floodStageReleasePercent is the 90 percent high watermark. The disk
 	// threshold monitor keeps the block on an index above it.
 	floodStageReleasePercent = 90
@@ -49,7 +52,7 @@ func TestSearchClusterDiskFloodStage(t *testing.T) {
 		MemoryBytes: floodStageMemoryBytes, DataBytes: floodStageDataBytes,
 	})
 	fixture, _ := newClusterQueryFixture(t, engine.Fixture)
-	requireInfoInterval(t, fixture)
+	requireDiskSettings(t, fixture)
 	nodeA := createFloodProject(t, fixture, "FLDA", floodStageOldText)
 	drainSearchWork(t, fixture.Worker, 500)
 	requireQueryResults(t, fixture, floodStageOldText, []uuid.UUID{nodeA}, nil)

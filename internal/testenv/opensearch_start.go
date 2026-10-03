@@ -126,6 +126,6 @@ func provisionOpenSearch(ctx context.Context, settings openSearchEngineSettings)
 		return OpenSearchFixture{}, created, engineStartFailure(ctx, cli, name, errors.Join(err, context.Cause(healthContext)))
 	}
 	telemetry.L(ctx).InfoContext(ctx, "search.fixture_started", slog.String("container", name),
-		slog.Int64("memory_bytes", settings.memoryBytes), slog.Int64("data_tmpfs_bytes", settings.dataTmpfsBytes))
+		slog.Int64("memory_bytes", settings.memoryBytes), slog.String("data_volume", settings.dataVolume))
 	return fixture, created, nil
 }
