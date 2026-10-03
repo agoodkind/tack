@@ -73,8 +73,8 @@ func mailPlannedStatementFailure(
 }
 
 // authorizePlannedStatement reads the plan rows, waiting up to
-// dbPlanOpenRowWait for the open row, and returns nil when plan planID
-// permits principal to run statement. A failed read of the plan rows returns
+// dbPlanOpenRowWait for the open row, and returns nil when the plan with ID
+// planID permits principal to run statement. A failed read of the plan rows returns
 // that error, logged here, with no row and no mail. A plan row that does not
 // decode is a refusal: the stored plan cannot be verified. A refusal writes a
 // refused break-glass row with the plan ID, then mails the refusal to the
