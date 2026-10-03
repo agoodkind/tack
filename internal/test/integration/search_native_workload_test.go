@@ -26,6 +26,8 @@ func nativeCompletePageCases() []struct{ name, text string } {
 	}
 }
 
+const nativeJVMHeapBytes = 3221225472
+
 func requireNativeJVMHeap(t *testing.T, client *opensearchapi.Client) {
 	t.Helper()
 	var stats opensearchapi.NodesStatsResp
@@ -41,8 +43,8 @@ func requireNativeJVMHeap(t *testing.T, client *opensearchapi.Client) {
 		t.Fatalf("native JVM stats returned unexpected nodes: %+v", stats.NodesInfo)
 	}
 	for nodeID, value := range stats.Nodes {
-		if value.JVM.Mem.HeapMaxInBytes != 2147483648 || value.JVM.Mem.HeapCommittedInBytes != 2147483648 {
-			t.Fatalf("native JVM heap=%+v, want 2 GiB committed and maximum", value.JVM.Mem)
+		if value.JVM.Mem.HeapMaxInBytes != nativeJVMHeapBytes || value.JVM.Mem.HeapCommittedInBytes != nativeJVMHeapBytes {
+			t.Fatalf("native JVM heap=%+v, want 3 GiB committed and maximum", value.JVM.Mem)
 		}
 		t.Logf("native JVM node=%s heap_max=%d heap_committed=%d", nodeID, value.JVM.Mem.HeapMaxInBytes, value.JVM.Mem.HeapCommittedInBytes)
 	}

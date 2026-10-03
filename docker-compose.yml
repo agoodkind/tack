@@ -350,7 +350,7 @@ services:
     profiles: [search]
     restart: unless-stopped
     environment:
-      OPENSEARCH_JAVA_OPTS: -Xms2g -Xmx2g -Djava.net.preferIPv6Addresses=true
+      OPENSEARCH_JAVA_OPTS: -Xms3g -Xmx3g -Djava.net.preferIPv6Addresses=true
       node.roles: cluster_manager,data,ingest,ml
       node.name: ${TACK_SEARCH_NODE_NAME:-}
       discovery.type: ${TACK_SEARCH_DISCOVERY_TYPE:-}
