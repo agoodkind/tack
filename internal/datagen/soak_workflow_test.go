@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"testing"
+
+	"goodkind.io/tack/internal/clock"
 )
 
 func TestWorkflowResolvesStateWithinIssueProject(t *testing.T) {
@@ -93,7 +95,7 @@ func TestWorkflowVisitsEveryIssueInEveryProject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewContent() error = %v", err)
 	}
-	soak := &Soak{driver: NewDriver(nil, true, 245), content: content}
+	soak := &Soak{driver: NewDriver(nil, true, 245), content: content, clock: clock.Wall{}}
 	for projectIndex := range projectCount {
 		project := &soakProject{
 			Workspace: WorkspaceIdentity{Actors: []Actor{{Token: "token"}}},
