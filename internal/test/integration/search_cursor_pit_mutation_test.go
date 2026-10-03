@@ -83,7 +83,6 @@ func TestSearchCursorPointInTimeIgnoresLaterChanges(t *testing.T) {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	drainSearchWork(t, fixture.Worker, 4000)
 	slog.SetDefault(previous)
-	logLiveWorkAndPages(t, fixture, edited)
 
 	if after := rawMatchesFrom(t, ranker, session); !slices.Equal(after, before) {
 		t.Fatalf("raw matches under the session point in time changed: before %v, after %v", before, after)
@@ -101,6 +100,7 @@ func TestSearchCursorPointInTimeIgnoresLaterChanges(t *testing.T) {
 		}
 	})
 	requireStoredName(t, fixture, opened.PITID, edited, pitEditedName, pitMutationName)
+	logLiveWorkAndPages(t, fixture, edited)
 	continued := continueSearch(t, harness, first)
 	wanted := make([]uuid.UUID, 0, len(remaining))
 	for _, id := range remaining {
