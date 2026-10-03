@@ -31,6 +31,8 @@ const (
 // The planned statement returns [context.DeadlineExceeded] within
 // planBlockedReadLimit, before the session releases the connection. It writes
 // no refused row and no pending row and sends no mail after the open mail.
+// A table or row lock cannot block the read: YugabyteDB 2024.2 supports only
+// ACCESS SHARE in LOCK, and its reads do not wait on row locks.
 func TestDBPlanStatementStopsAtTheOpenRowWait(t *testing.T) {
 	ledgerDSN := testenv.Ledger(t)
 	mail := mailpitFor(t)
