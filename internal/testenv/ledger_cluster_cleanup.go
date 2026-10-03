@@ -9,9 +9,14 @@ import (
 	"github.com/moby/moby/client"
 )
 
-// ledgerClusterLogDirectory is the yugabyted log directory under the
-// --base_dir that Start passes.
-const ledgerClusterLogDirectory = "/home/yugabyte/var/logs"
+const (
+	// ledgerClusterLogDirectory is the yugabyted log directory under the
+	// --base_dir that Start passes.
+	ledgerClusterLogDirectory = "/home/yugabyte/var/logs"
+	// ledgerClusterLogLines is the number of process log lines the
+	// diagnostics include for each node.
+	ledgerClusterLogLines = 80
+)
 
 // ledgerClusterProcessLogs are the yb-master and yb-tserver logs that
 // yugabyted writes under ledgerClusterLogDirectory.
@@ -46,23 +51,25 @@ func (c *LedgerCluster) remove(t *testing.T) {
 // before the cleanup removes the nodes: the container state, the last
 // engineLogLines lines of the container log, the tails of the yb-master and
 // yb-tserver logs, and the masters and tablet servers that the first node
-// lists. A read that fails writes its error in place of its output.
+// lists. The process logs are read from a stopped node as well. A read that
+// fails writes its error in place of its output. A cluster with no started
+// node writes only that fact.
 func (c *LedgerCluster) logDiagnostics(ctx context.Context, t *testing.T) {
 	t.Helper()
+	if len(c.started) == 0 {
+		t.Logf("ledger cluster diagnostics after the failure: no ledger node started")
+		return
+	}
 	var report strings.Builder
 	for _, name := range c.started {
 		containerName := c.containers[name]
 		fmt.Fprintf(&report, "== ledger node %s (container %s, address %s)\n", name, containerName, c.addresses[name])
-		running := c.writeNodeState(ctx, &report, containerName)
+		c.writeNodeState(ctx, &report, containerName)
 		logs, err := engineLogTail(ctx, c.cli, containerName)
 		fmt.Fprintf(&report, "-- container log, last %s lines (read error %v):\n%s\n", engineLogLines, err, logs)
-		if !running {
-			report.WriteString("-- process logs: the container is not running\n")
-			continue
-		}
 		for _, path := range ledgerClusterProcessLogs {
-			output, code, err := execInContainer(ctx, c.cli, containerName, []string{"tail", "-n", engineLogLines, path})
-			fmt.Fprintf(&report, "-- %s, last %s lines (exit %d, error %v):\n%s\n", path, engineLogLines, code, err, output)
+			output, err := containerFileTail(ctx, c.cli, containerName, path, ledgerClusterLogLines)
+			fmt.Fprintf(&report, "-- %s, last %d lines (read error %v):\n%s\n", path, ledgerClusterLogLines, err, output)
 		}
 	}
 	for _, subcommand := range []string{"list_all_masters", "list_all_tablet_servers"} {
@@ -72,20 +79,18 @@ func (c *LedgerCluster) logDiagnostics(ctx context.Context, t *testing.T) {
 	t.Logf("ledger cluster diagnostics after the failure:\n%s", report.String())
 }
 
-// writeNodeState writes the container state of containerName to report and
-// returns whether the container runs.
-func (c *LedgerCluster) writeNodeState(ctx context.Context, report *strings.Builder, containerName string) bool {
+// writeNodeState writes the container state of containerName to report.
+func (c *LedgerCluster) writeNodeState(ctx context.Context, report *strings.Builder, containerName string) {
 	inspected, err := c.cli.ContainerInspect(ctx, containerName, client.ContainerInspectOptions{Size: false})
 	if err != nil {
 		fmt.Fprintf(report, "-- state unavailable: %v\n", err)
-		return false
+		return
 	}
 	state := inspected.Container.State
 	if state == nil {
 		report.WriteString("-- state unavailable: the inspect result has no state\n")
-		return false
+		return
 	}
 	fmt.Fprintf(report, "-- state: status=%s running=%t oom_killed=%t exit_code=%d error=%q started_at=%s finished_at=%s\n",
 		state.Status, state.Running, state.OOMKilled, state.ExitCode, state.Error, state.StartedAt, state.FinishedAt)
-	return state.Running
 }
