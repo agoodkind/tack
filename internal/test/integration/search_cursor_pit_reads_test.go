@@ -31,6 +31,7 @@ func requireStoredName(t *testing.T, fixture queryFixture, pitID string, nodeID 
 		if err := json.Unmarshal(hit.Source, &page); err != nil || page.PageText == nil {
 			t.Fatalf("decode page %s of %s: %v", hit.ID, nodeID, err)
 		}
+		t.Logf("page %s of %s: revision %s, name %q", hit.ID, nodeID, page.NodeRevision, page.Name)
 		if !strings.HasPrefix(page.Name, want) || !strings.Contains(*page.PageText, want) || strings.Contains(*page.PageText, unwanted) {
 			t.Fatalf("page %s of %s stores name %q and text %q, want %q without %q", hit.ID, nodeID, page.Name, *page.PageText, want, unwanted)
 		}

@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
 	"goodkind.io/tack/internal/adapters/search"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/datagen"
@@ -41,7 +40,10 @@ const (
 // new session returns the created issues and the edited name and omits the
 // deleted issue. A term read on node_id (a keyword field,
 // mapping_properties.go:31) returns the old stored name of the edited issue
-// under the session point in time and the new name under a new one.
+// under the session point in time. Under a point in time that the production
+// session open (QueryRanker.Open) creates after the changes, the same read
+// finds no active page with the old name, and a new public session for the
+// new name returns the issue.
 func TestSearchCursorPointInTimeIgnoresLaterChanges(t *testing.T) {
 	fixture := newQueryFixture(t, defaultQueryOptions())
 	harness := fixture.Harness
@@ -81,16 +83,18 @@ func TestSearchCursorPointInTimeIgnoresLaterChanges(t *testing.T) {
 		t.Fatalf("raw matches under the session point in time changed: before %v, after %v", before, after)
 	}
 	requireStoredName(t, fixture, session.Snapshot.PITID, edited, pitMutationName, pitEditedName)
-	opened, err := fixture.Client.PointInTime.Create(t.Context(), opensearchapi.PointInTimeCreateReq{
-		Indices: []string{fixture.Index}, Header: nil, Params: opensearchapi.PointInTimeCreateParams{KeepAlive: time.Minute},
-	})
+	current := readSearchPages(t, fixture.Stores, edited, runtimePageBytes)
+	t.Logf("renamed issue %s current revision %s", edited, current[0].Revision)
+	opened, err := ranker.Open(t.Context(), session.Query)
 	if err != nil {
-		t.Fatalf("open a new point in time: %v", err)
+		t.Fatalf("open a new session snapshot: %v", err)
 	}
 	t.Cleanup(func() {
-		_, _ = fixture.Client.PointInTime.Delete(context.WithoutCancel(t.Context()), opensearchapi.PointInTimeDeleteReq{PitID: []string{opened.PitID}})
+		if err := ranker.Close(context.WithoutCancel(t.Context()), opened); err != nil {
+			t.Errorf("close the new session snapshot: %v", err)
+		}
 	})
-	requireStoredName(t, fixture, opened.PitID, edited, pitEditedName, pitMutationName)
+	requireStoredName(t, fixture, opened.PITID, edited, pitEditedName, pitMutationName)
 	continued := continueSearch(t, harness, first)
 	wanted := make([]uuid.UUID, 0, len(remaining))
 	for _, id := range remaining {
