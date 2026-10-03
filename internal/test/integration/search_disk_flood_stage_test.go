@@ -1,7 +1,6 @@
 package integration
 
 import (
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -24,54 +23,59 @@ const (
 	// floodStageFillPercent is above the 95 percent flood-stage default of
 	// OpenSearch 3.8.0 and below a full disk.
 	floodStageFillPercent = 97
-	// floodStageBlockError is the bulk item error of a write to an index with
-	// the read_only_allow_delete block.
-	floodStageBlockError = "cluster_block_exception"
-	// floodStageFailures is one more than the attempt limit of live work. A
-	// counted failure excludes the node at the limit.
-	floodStageFailures = 6
-	floodStageOldText  = "amber flood marker"
-	floodStageNewText  = "violet flood marker"
+	// floodStageReleasePercent is the 90 percent high watermark. The disk
+	// threshold monitor keeps the block on an index above it.
+	floodStageReleasePercent = 90
+	// floodStageBlockError and floodStageBlockStatus identify the bulk item
+	// result of a write to an index with the read_only_allow_delete block.
+	floodStageBlockError  = "cluster_block_exception"
+	floodStageBlockStatus = "status 429"
+	// floodStageFailures equals the attempt limit of live work. A counted
+	// failure excludes the node at the limit, and an uncounted one does not.
+	floodStageFailures = 5
+	floodStageOldText  = "amber lantern quarry"
+	floodStageNewText  = "violet harbor orchid"
 )
 
 // TestSearchClusterDiskFloodStage fills the data path of a disposable engine
 // past the flood-stage watermark. OpenSearch marks the serving index
-// read_only_allow_delete on its own. Source writes still commit, search
-// still answers from the index, and the blocked search work stays pending
-// without counting toward exclusion. After the filler is removed, OpenSearch
-// releases the block on its own, and the pending work makes the edits
-// searchable. No step changes a watermark or a block setting.
+// read_only_allow_delete on its own. MCP writes still commit, search still
+// answers from the index, and the blocked search work stays pending without
+// counting toward exclusion. After the filler is removed, OpenSearch releases
+// the block on its own, and the pending work makes the edits searchable. No
+// step changes a watermark or a block setting.
 func TestSearchClusterDiskFloodStage(t *testing.T) {
 	engine := testenv.DisposableOpenSearch(t, testenv.DisposableOpenSearchOptions{
 		MemoryBytes: floodStageMemoryBytes, DataBytes: floodStageDataBytes,
 	})
 	fixture, _ := newClusterQueryFixture(t, engine.Fixture)
-	workspace := fixture.Workspaces[0]
-	kind := putOpaqueKind(t, fixture, workspace.OrgID)
-	parent := entryPoint(t, fixture, workspace)
-	nodeA := putOpaqueNode(t, fixture, kind, parent, "flood node A", floodStageOldText, readerExcludedValue)
+	requireInfoInterval(t, fixture)
+	nodeA := createFloodProject(t, fixture, "FLDA", floodStageOldText)
 	drainSearchWork(t, fixture.Worker, 500)
 	requireQueryResults(t, fixture, floodStageOldText, []uuid.UUID{nodeA}, nil)
 
 	size, used := engine.FillData(t, floodStageFillPercent)
-	t.Logf("data path after the fill: %d of %d bytes used", used, size)
+	t.Logf("data path after the fill: %d of %d bytes used; cgroup memory.current %s", used, size, engine.MemoryCurrent(t))
 	waitForBlock(t, fixture, true)
 
-	editOpaqueNode(t, fixture, kind, nodeA, floodStageNewText)
-	nodeB := putOpaqueNode(t, fixture, kind, parent, "flood node B", floodStageNewText, readerExcludedValue)
-	requireIncludedText(t, fixture, kind, nodeA, floodStageNewText)
-	requireIncludedText(t, fixture, kind, nodeB, floodStageNewText)
+	renameFloodProject(t, fixture, nodeA, floodStageNewText)
+	nodeB := createFloodProject(t, fixture, "FLDB", floodStageNewText+" beacon")
+	requireStoredName(t, fixture, nodeA, floodStageNewText)
+	requireStoredName(t, fixture, nodeB, floodStageNewText+" beacon")
 	requireBlockedFailures(t, fixture, nodeB)
 	requireLiveWorkPending(t, fixture, nodeB)
 	report, err := runSearchVerifyCommand(t, fixture.Config)
-	if report.ExcludedNodes != 0 || report.StuckWorkItems != 0 {
-		t.Fatalf("ops search verify during the block = %+v (error %v), want no excluded node and no stuck work", report, err)
+	if err != nil || report.ExcludedNodes != 0 || report.StuckWorkItems != 0 {
+		t.Fatalf("ops search verify during the block = %+v (error %v), want no error, no excluded node, and no stuck work", report, err)
 	}
 	requireQueryResults(t, fixture, floodStageOldText, []uuid.UUID{nodeA}, nil)
 	requireQueryResults(t, fixture, floodStageNewText, nil, []uuid.UUID{nodeA, nodeB})
 
 	size, used = engine.FreeData(t)
-	t.Logf("data path after the release: %d of %d bytes used", used, size)
+	t.Logf("data path after the free: %d of %d bytes used", used, size)
+	if used*100 >= size*floodStageReleasePercent {
+		t.Fatalf("data path still %d of %d bytes used after the free, at or above the %d percent high watermark", used, size, floodStageReleasePercent)
+	}
 	waitForBlock(t, fixture, false)
 	clusterEventually(t, "index the pending edits", func() error {
 		drainSearchWork(t, fixture.Worker, 500)
@@ -81,7 +85,7 @@ func TestSearchClusterDiskFloodStage(t *testing.T) {
 }
 
 // requireBlockedFailures runs worker slices until floodStageFailures slices
-// have failed for nodeID with the block error. Each failure waits out the
+// have failed for nodeID with the 429 block error. Each failure waits out the
 // retry delay of released work.
 func requireBlockedFailures(t *testing.T, fixture queryFixture, nodeID uuid.UUID) {
 	t.Helper()
@@ -89,8 +93,8 @@ func requireBlockedFailures(t *testing.T, fixture queryFixture, nodeID uuid.UUID
 	clusterEventually(t, "fail the node's blocked search work repeatedly", func() error {
 		_, err := fixture.Worker.RunSlice(t.Context())
 		if err != nil && strings.Contains(err.Error(), nodeID.String()) {
-			if !strings.Contains(err.Error(), floodStageBlockError) {
-				t.Fatalf("worker slice for node %s failed without %s: %v", nodeID, floodStageBlockError, err)
+			if !strings.Contains(err.Error(), floodStageBlockError) || !strings.Contains(err.Error(), floodStageBlockStatus) {
+				t.Fatalf("worker slice for node %s failed without %s and %s: %v", nodeID, floodStageBlockStatus, floodStageBlockError, err)
 			}
 			failures++
 		}
@@ -101,19 +105,19 @@ func requireBlockedFailures(t *testing.T, fixture queryFixture, nodeID uuid.UUID
 	})
 }
 
-// requireLiveWorkPending claims nodeID's live work and yields it.
+// requireLiveWorkPending claims every claimable live item and keeps each
+// claim until nodeID's item is among them, then yields each claimed item.
+// An older item in the same bucket then cannot hide nodeID's item.
 func requireLiveWorkPending(t *testing.T, fixture queryFixture, nodeID uuid.UUID) {
 	t.Helper()
 	store := fixture.Stores.SearchWork(clock.Wall{})
 	clusterEventually(t, "claim the node's pending live work", func() error {
-		work, err := store.Claim(t.Context(), searchdomain.WorkClassLive, "flood-inspector", time.Minute)
-		if errors.Is(err, searchdomain.ErrNoWork) {
-			return clusterFailure("claim live work", err)
+		claimed := claimAllFor(t, store, searchdomain.WorkClassLive, time.Minute)
+		for _, work := range claimed {
+			clusterRequire(t, "yield inspected work", store.Yield(t.Context(), work))
 		}
-		clusterRequire(t, "claim live work", err)
-		clusterRequire(t, "yield inspected work", store.Yield(t.Context(), work))
-		if work.NodeID != nodeID {
-			return fmt.Errorf("claimed live work of node %s", work.NodeID)
+		if _, found := claimed[nodeID]; !found {
+			return fmt.Errorf("claimed %d live items, none of node %s", len(claimed), nodeID)
 		}
 		return nil
 	})
