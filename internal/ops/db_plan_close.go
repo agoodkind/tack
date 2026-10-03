@@ -115,10 +115,10 @@ func runDBPlanClose(ctx context.Context, deps dbSQLDeps, input dbPlanCloseInput,
 // logged here, with no close row and no mail. A read of public.ops_outbox or
 // audit.consumer_offsets that the bound cuts off is a wait past the bound. A
 // wait past the bound or a plan row in audit.events_dlq mails that the
-// summary is incomplete and returns an error. A plan row that does not decode refuses
-// the close: the stored plan cannot be verified. The mail, the refusals, and
-// the refused row run under ctx, which the bound does not end. It then checks
-// the open row, the close row, and the closer principal.
+// summary is incomplete and returns an error. A plan row that does not decode
+// refuses the close: the stored plan cannot be verified. The mail, the
+// refusals, and the refused row run under ctx, which the bound does not end.
+// It then checks the open row, the close row, and the closer principal.
 func closeDBPlanRows(
 	ctx context.Context,
 	deps dbSQLDeps,
