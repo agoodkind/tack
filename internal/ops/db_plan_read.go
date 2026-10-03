@@ -89,8 +89,7 @@ func queryDBPlanRows(ctx context.Context, pool *pgxpool.Pool, query string, plan
 	if planID.Version() != 7 {
 		return nil, nil
 	}
-	verbs := []string{string(audit.VerbOpsDBPlanOpen), string(audit.VerbOpsDBBreakGlass), string(audit.VerbOpsDBPlanClose)}
-	rows, err := pool.Query(ctx, query, audit.SystemOrgID(), verbs, dbPlanSince(planID), planID.String())
+	rows, err := pool.Query(ctx, query, audit.SystemOrgID(), dbPlanVerbs(), dbPlanSince(planID), planID.String())
 	if err != nil {
 		return nil, &dbPlanReadError{action: "read the rows of plan " + planID.String(), err: err}
 	}
@@ -103,26 +102,28 @@ func queryDBPlanRows(ctx context.Context, pool *pgxpool.Pool, query string, plan
 
 // awaitDBPlanOpenRow reads the rows of planID from audit.events and
 // public.ops_outbox through dbPlanRowsPool every dbPlanProjectionPoll until
-// they contain the open row, and returns the decoded plan. After
-// dbPlanOpenRowWait it returns the plan without an open row. A plan ID that
-// plan open does not issue returns at once. The first failed read returns
-// its *dbPlanReadError at once, without a retry.
+// they contain the open row, and returns the decoded plan. The pool open and
+// every read run under one dbPlanOpenRowWait bound. When the bound passes
+// between reads, it returns the plan without an open row. A plan ID that plan
+// open does not issue returns at once. The first failed read returns its
+// *dbPlanReadError at once, without a retry. A read that the bound cuts off
+// returns a *dbPlanReadError that wraps [context.DeadlineExceeded].
 func awaitDBPlanOpenRow(ctx context.Context, deps dbSQLDeps, planID uuid.UUID) (dbPlanState, error) {
 	empty := dbPlanState{open: nil, closed: false, attempts: nil}
 	if planID.Version() != 7 {
 		return empty, nil
 	}
-	pool, release, err := dbPlanRowsPool(ctx, deps, planID)
+	waitCtx, cancel := context.WithTimeout(ctx, dbPlanOpenRowWait)
+	defer cancel()
+	pool, release, err := dbPlanRowsPool(waitCtx, deps, planID)
 	if err != nil {
 		return empty, err
 	}
 	defer release()
-	waitCtx, cancel := context.WithTimeout(ctx, dbPlanOpenRowWait)
-	defer cancel()
 	ticker := time.NewTicker(dbPlanProjectionPoll)
 	defer ticker.Stop()
 	for {
-		rows, err := queryDBPlanRows(ctx, pool, dbPlanRowsQuery, planID)
+		rows, err := queryDBPlanRows(waitCtx, pool, dbPlanRowsQuery, planID)
 		if err != nil {
 			return empty, err
 		}
@@ -136,6 +137,12 @@ func awaitDBPlanOpenRow(ctx context.Context, deps dbSQLDeps, planID uuid.UUID) (
 		case <-ticker.C:
 		}
 	}
+}
+
+// dbPlanVerbs returns the verbs of the plan rows: the open row, the statement
+// rows, and the close row.
+func dbPlanVerbs() []string {
+	return []string{string(audit.VerbOpsDBPlanOpen), string(audit.VerbOpsDBBreakGlass), string(audit.VerbOpsDBPlanClose)}
 }
 
 // uniqueDBPlanRows keeps the first row of each event ID in rows.

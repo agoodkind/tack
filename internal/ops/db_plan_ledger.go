@@ -2,9 +2,13 @@ package ops
 
 import (
 	"context"
+	"encoding/json"
+	"slices"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+
+	"goodkind.io/tack/internal/audit"
 )
 
 // dbPlanEventsSelect reads the open row, the statement rows, and the close
@@ -22,20 +26,27 @@ SELECT event_id::text, action, coalesce(outcome, ''), coalesce(extra, '{}'::json
 const dbPlanLedgerRowsQuery = dbPlanEventsSelect + `
  ORDER BY 6, 1`
 
-// dbPlanDeadLettersQuery reads the key and the failure of each row of
-// audit.events_dlq that the consumer received after $1 and with a payload
-// that contains the plan ID $2. The query searches the payload bytes for the
-// plan ID text. A dead-letter payload can be bytes that are not JSON.
+// dbPlanDeadLettersQuery reads the key, the failure, and the payload of each
+// row of audit.events_dlq that the consumer received after $1 and with a
+// payload that contains the plan ID text $2. The byte search only narrows the
+// rows; readDBPlanLedger decodes each payload to decide whether it is a plan
+// row. A dead-letter payload can be bytes that are not JSON.
 const dbPlanDeadLettersQuery = `
-SELECT topic || '/' || partition::text || '/' || "offset"::text || ': ' || error
+SELECT topic || '/' || partition::text || '/' || "offset"::text || ': ' || error, payload
   FROM audit.events_dlq
  WHERE received_at >= $1 AND position(convert_to($2, 'UTF8') IN payload) > 0
  ORDER BY received_at, topic, partition, "offset"`
 
+// dbPlanDeadLetter is one candidate row of dbPlanDeadLettersQuery.
+type dbPlanDeadLetter struct {
+	Line    string
+	Payload []byte
+}
+
 // readDBPlanLedger reads the rows of planID from audit.events and the
 // dead-letter rows of planID from audit.events_dlq on dsn, the ledger reader.
-// It returns the decoded plan and one line per dead-letter row. A failed
-// read returns a *dbPlanReadError.
+// It returns the decoded plan and one line per dead-letter row of planID. A
+// failed read returns a *dbPlanReadError.
 func readDBPlanLedger(ctx context.Context, dsn string, planID uuid.UUID) (dbPlanState, []string, error) {
 	empty := dbPlanState{open: nil, closed: false, attempts: nil}
 	pool, err := openDBPlanPool(ctx, dsn, planID)
@@ -51,10 +62,41 @@ func readDBPlanLedger(ctx context.Context, dsn string, planID uuid.UUID) (dbPlan
 	if err != nil {
 		return empty, nil, &dbPlanReadError{action: "read the dead letters of plan " + planID.String(), err: err}
 	}
-	deadLetters, err := pgx.CollectRows(letters, pgx.RowTo[string])
+	candidates, err := pgx.CollectRows(letters, pgx.RowToStructByPos[dbPlanDeadLetter])
 	if err != nil {
 		return empty, nil, &dbPlanReadError{action: "read the dead letters of plan " + planID.String(), err: err}
 	}
+	var deadLetters []string
+	for _, candidate := range candidates {
+		if isDBPlanDeadLetter(candidate.Payload, planID) {
+			deadLetters = append(deadLetters, candidate.Line)
+		}
+	}
 	state, err := newDBPlanState(ctx, rows)
 	return state, deadLetters, err
+}
+
+// isDBPlanDeadLetter reports whether payload, a dead-letter payload that
+// contains the text of planID, is a row of planID. The relay sends each event
+// to the audit topic as the JSON of an [audit.Event], and the consumer and
+// the dead-letter replay decode it with [json.Unmarshal]. A payload that
+// decodes is a plan row when its verb is a plan verb and its extra.plan_id is
+// planID. A payload that does not decode counts as a plan row. A plan verb
+// with an extra that does not decode also counts as a plan row. Close then
+// fails closed on a row that it cannot rule out.
+func isDBPlanDeadLetter(payload []byte, planID uuid.UUID) bool {
+	var event audit.Event
+	if err := json.Unmarshal(payload, &event); err != nil {
+		return true
+	}
+	if !slices.Contains(dbPlanVerbs(), event.Verb) {
+		return false
+	}
+	var extra struct {
+		PlanID string `json:"plan_id"`
+	}
+	if err := json.Unmarshal(event.Extra, &extra); err != nil {
+		return true
+	}
+	return extra.PlanID == planID.String()
 }

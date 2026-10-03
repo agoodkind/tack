@@ -35,8 +35,8 @@ type dbBreakGlassExtra struct {
 // recordDBBreakGlass writes one detail row. The pending row is written before
 // the statement and the ok or error row after, paired by attempt id. A process
 // lost mid-statement leaves a pending row with the attempted statement. Both
-// rows store the statement and the reason. A statement that its plan refuses
-// gets one refused row and no pending row.
+// rows store the statement and the reason. A statement that the plan refuses
+// produces one refused row and no pending row.
 func recordDBBreakGlass(
 	ctx context.Context,
 	outbox audit.OutboxWriter,

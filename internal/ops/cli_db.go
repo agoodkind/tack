@@ -42,8 +42,9 @@ func dbSQLOp(f *cli.Factory) clispec.Operation[dbSQLInput] {
 			"without --execute; without it the command reports what it would run. " +
 			"With --plan-id the command waits up to " + dbPlanOpenRowWait.String() + " for the " +
 			"open row of the plan in the operator outbox or the ledger. The statement " +
-			"runs without its own mail when the open " +
-			"plan lists it and the same principal opened the plan; otherwise the " +
+			"runs without its own mail when the open plan lists it and the command " +
+			"runs with the actor ID and actor type that opened the plan and, for an " +
+			"agent, for the same accountable operator, in any session; otherwise the " +
 			"command writes a refused row, mails the refusal, and returns an error " +
 			"before the statement runs.",
 		Examples: nil,

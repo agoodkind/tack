@@ -92,6 +92,10 @@ func (p planPipeline) planTopicEvents(t *testing.T, planID string, want int) []a
 	var events []audit.Event
 	for len(events) < want {
 		fetches := client.PollFetches(readCtx)
+		if readCtx.Err() != nil {
+			t.Fatalf("read topic %s for %s: %d of %d events of plan %s: %+v",
+				p.topic, planPipelineDeadline, len(events), want, planID, events)
+		}
 		if errs := fetches.Errors(); len(errs) > 0 {
 			t.Fatalf("read topic %s: %v; events of plan %s so far: %+v", p.topic, errs, planID, events)
 		}
