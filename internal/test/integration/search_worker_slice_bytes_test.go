@@ -68,6 +68,10 @@ func TestSearchWorkerLargestSliceStaysWithinByteMaximum(t *testing.T) {
 		}
 		return rollout.Phase == searchdomain.AccessVerifying
 	})
+	// The final scan page schedules access work in the transaction that
+	// enters the verifying phase (search_access_rollout_steps.go:21-35). That
+	// work records both write versions on each node before the measurement.
+	drainClass(t, work, setup, searchdomain.WorkClassAccess)
 
 	rebuilds := stores.SearchRebuilds(source)
 	rebuild, err := rebuilds.BeginRebuild(t.Context(), searchdomain.BeginRebuild{
@@ -116,8 +120,16 @@ func TestSearchWorkerLargestSliceStaysWithinByteMaximum(t *testing.T) {
 	if bound >= production.MaxBytes {
 		t.Fatalf("32 pages of the largest escaped request on two indexes = %d bytes, want less than %d", bound, production.MaxBytes)
 	}
+	measuredRollout, err := rollouts.Current(t.Context(), plain.OrgID)
+	if err != nil {
+		t.Fatalf("read access rollout: %v", err)
+	}
+	t.Logf("rollout at measurement: phase %s generation %d write versions %v", measuredRollout.Phase, measuredRollout.Generation, measuredRollout.WriteVersions)
 	for _, nodeID := range []uuid.UUID{plain.NodeID, escaped.NodeID} {
 		for _, index := range []string{serving, rebuild.TargetIndex} {
+			for _, stored := range searchNodePages(t, client, index, nodeID, false) {
+				t.Logf("page %s ordinal %d in %s: generation %s access versions %v, %d keys, access generation %d", nodeID, stored.PageOrdinal, index, stored.SearchGeneration, stored.Access.Versions, len(stored.Access.Keys), stored.Access.Generation)
+			}
 			page := searchNodePages(t, client, index, nodeID, false)[0]
 			if len(page.Access.Versions) != largestAccessEntries || len(page.Access.Keys) != largestAccessEntries {
 				t.Fatalf("page of %s in %s has access %v, want %d versions and %d keys", nodeID, index, page.Access, largestAccessEntries, largestAccessEntries)
