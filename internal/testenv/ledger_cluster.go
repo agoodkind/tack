@@ -127,24 +127,6 @@ func (c *LedgerCluster) plan(ctx context.Context, subnet netip.Prefix) error {
 	return nil
 }
 
-// remove removes every started node, then detaches the test process from
-// the cluster network and removes the network.
-func (c *LedgerCluster) remove(t *testing.T) {
-	t.Helper()
-	cleanup, cancel := context.WithTimeout(context.Background(), provisionTimeout)
-	defer cancel()
-	containers := make([]string, 0, len(c.started))
-	for _, name := range c.started {
-		containers = append(containers, c.containers[name])
-	}
-	if err := removeContainers(cleanup, containers); err != nil {
-		t.Errorf("remove ledger cluster nodes: %v", err)
-	}
-	if err := removeLedgerClusterNetwork(cleanup, c.cli, c.Network, c.selfID); err != nil {
-		t.Errorf("remove ledger cluster network: %v", err)
-	}
-}
-
 // Start starts the node named name at its fixed address. An empty joinTarget
 // bootstraps the universe, and Start then waits until the node answers SQL.
 // A node that joins is returned as soon as its container runs; the caller
