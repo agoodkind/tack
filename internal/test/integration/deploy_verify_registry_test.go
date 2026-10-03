@@ -171,24 +171,3 @@ func (r localRegistry) pushSingleManifestImage(t *testing.T, repository, tag, ma
 	t.Logf("pushed %s:%s as single manifest %s", repository, tag, pushed.Digest)
 	return pushed.Digest
 }
-
-// pushMultiPlatformIndex pushes one linux/amd64 and one linux/arm64 image with
-// the same layer, then an OCI index of both under tag, and returns the index
-// digest.
-func (r localRegistry) pushMultiPlatformIndex(t *testing.T, repository, tag, marker string) string {
-	t.Helper()
-	layer, diffID := singleFileLayer(t, marker)
-	layerDescriptor := r.pushBlob(t, repository, ocispec.MediaTypeImageLayerGzip, layer)
-	manifests := make([]registryDescriptor, 0, 2)
-	for _, architecture := range []string{"amd64", "arm64"} {
-		descriptor := r.pushImageManifest(t, repository, architecture, layerDescriptor, diffID, "")
-		descriptor.Platform = &ocispec.Platform{Architecture: architecture, OS: "linux"}
-		manifests = append(manifests, descriptor)
-	}
-	index := mustMarshal(t, map[string]any{
-		"schemaVersion": 2, "mediaType": ocispec.MediaTypeImageIndex, "manifests": manifests,
-	})
-	pushed := r.pushManifest(t, repository, tag, ocispec.MediaTypeImageIndex, index)
-	t.Logf("pushed %s:%s as index %s", repository, tag, pushed.Digest)
-	return pushed.Digest
-}
