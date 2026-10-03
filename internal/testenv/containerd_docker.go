@@ -15,8 +15,11 @@ const (
 	dindPort = "2375"
 	// dindConfigPath is the daemon configuration file the dockerd reads.
 	dindConfigPath = "/etc/docker/daemon.json"
-	// dindConfig turns on the containerd image store.
-	dindConfig = `{"features":{"containerd-snapshotter":true}}`
+	// dindContainerdConfig turns on the containerd image store.
+	dindContainerdConfig = `{"features":{"containerd-snapshotter":true}}`
+	// dindClassicConfig turns off the containerd image store, which selects the
+	// classic overlay2 store.
+	dindClassicConfig = `{"features":{"containerd-snapshotter":false}}`
 	// dindReadyTimeout bounds the wait for the nested daemon to answer.
 	dindReadyTimeout = 2 * time.Minute
 	// dindRemoveTimeout bounds the removal of the nested daemon's container.
@@ -28,6 +31,22 @@ const (
 // returns its TCP endpoint with a client for it. The container and its
 // volumes are removed when the test ends, whether it passes or fails.
 func ContainerdDocker(t *testing.T) (string, *client.Client) {
+	t.Helper()
+	return startDind(t, dindContainerdConfig)
+}
+
+// ClassicDocker starts a disposable privileged docker:dind container with the
+// containerd image store disabled. The daemon uses the classic overlay2 store.
+// It waits until the daemon answers and returns its TCP endpoint with a client
+// for it. The container and its volumes are removed when the test ends.
+func ClassicDocker(t *testing.T) (string, *client.Client) {
+	t.Helper()
+	return startDind(t, dindClassicConfig)
+}
+
+// startDind starts the pinned privileged docker:dind container with daemonConfig
+// as its daemon.json and waits until the daemon answers.
+func startDind(t *testing.T, daemonConfig string) (string, *client.Client) {
 	t.Helper()
 	ctx := t.Context()
 	host, err := dockerClient(ctx)
@@ -41,7 +60,7 @@ func ContainerdDocker(t *testing.T) (string, *client.Client) {
 		platform:   nil,
 		cmd:        nil,
 		env:        []string{"DOCKER_TLS_CERTDIR="},
-		files:      map[string][]byte{dindConfigPath: []byte(dindConfig)},
+		files:      map[string][]byte{dindConfigPath: []byte(daemonConfig)},
 		privileged: true,
 	})
 	if err != nil {

@@ -9,6 +9,8 @@ import (
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
+
+	"goodkind.io/tack/internal/ops"
 )
 
 const (
@@ -17,15 +19,11 @@ const (
 	deployRegistryImage = "registry:3@sha256:ddf754342cfc8acc51a56d5d0ab6af06826461864460636d8bd5c546dab2a7b8"
 	// deployTestenvLabel marks containers testenv removes on release.
 	deployTestenvLabel = "io.goodkind.tack.testenv"
-	// containerdDriverType is the driver-type value of the containerd image store.
-	containerdDriverType = "io.containerd.snapshotter.v1"
-	// driverTypeKey is the DriverStatus key for the image store driver type.
-	driverTypeKey = "driver-type"
 )
 
-// requireContainerdImageStore fails the test unless the daemon reports the
-// containerd image store driver-type in docker info.
-func requireContainerdImageStore(t *testing.T, cli *client.Client) {
+// hasContainerdImageStore logs the daemon driver and DriverStatus and reports
+// whether DriverStatus has the containerd image store driver-type entry.
+func hasContainerdImageStore(t *testing.T, cli *client.Client) bool {
 	t.Helper()
 	info, err := cli.Info(t.Context(), client.InfoOptions{})
 	if err != nil {
@@ -33,11 +31,29 @@ func requireContainerdImageStore(t *testing.T, cli *client.Client) {
 	}
 	t.Logf("daemon driver=%s driverStatus=%v", info.Info.Driver, info.Info.DriverStatus)
 	for _, entry := range info.Info.DriverStatus {
-		if entry[0] == driverTypeKey && entry[1] == containerdDriverType {
-			return
+		if entry[0] == ops.ImageStoreDriverTypeKey && entry[1] == ops.ContainerdSnapshotterDriverType {
+			return true
 		}
 	}
-	t.Fatalf("daemon driverStatus = %v, want %s = %s", info.Info.DriverStatus, driverTypeKey, containerdDriverType)
+	return false
+}
+
+// requireContainerdImageStore fails the test unless the daemon reports the
+// containerd image store driver-type in docker info.
+func requireContainerdImageStore(t *testing.T, cli *client.Client) {
+	t.Helper()
+	if !hasContainerdImageStore(t, cli) {
+		t.Fatalf("daemon has no %s = %s entry", ops.ImageStoreDriverTypeKey, ops.ContainerdSnapshotterDriverType)
+	}
+}
+
+// requireClassicImageStore fails the test when the daemon reports the
+// containerd image store driver-type in docker info.
+func requireClassicImageStore(t *testing.T, cli *client.Client) {
+	t.Helper()
+	if hasContainerdImageStore(t, cli) {
+		t.Fatalf("daemon has a %s = %s entry, want the classic image store", ops.ImageStoreDriverTypeKey, ops.ContainerdSnapshotterDriverType)
+	}
 }
 
 // startDeployRegistry starts a registry inside the daemon behind cli with its

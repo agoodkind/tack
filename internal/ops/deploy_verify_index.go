@@ -19,10 +19,12 @@ import (
 )
 
 const (
-	// containerdSnapshotterDriverType is the DriverStatus driver-type of the
+	// ContainerdSnapshotterDriverType is the DriverStatus driver-type value of the
 	// containerd image store, the only store that records the index digest
 	// in the image descriptor.
-	containerdSnapshotterDriverType = "io.containerd.snapshotter.v1"
+	ContainerdSnapshotterDriverType = "io.containerd.snapshotter.v1"
+	// ImageStoreDriverTypeKey is the DriverStatus key of the image store driver type.
+	ImageStoreDriverTypeKey = "driver-type"
 	// dockerManifestListMediaType is the Docker multi-platform manifest list.
 	dockerManifestListMediaType = "application/vnd.docker.distribution.manifest.list.v2+json"
 )
@@ -62,7 +64,7 @@ func parseDeployIndexDigests(ctx context.Context, server, consumer string) (depl
 // string when the daemon reports none.
 func imageStoreDriverType(status [][2]string) string {
 	for _, entry := range status {
-		if entry[0] == "driver-type" {
+		if entry[0] == ImageStoreDriverTypeKey {
 			return entry[1]
 		}
 	}
@@ -73,10 +75,10 @@ func imageStoreDriverType(status [][2]string) string {
 // containerd snapshotter store.
 func requireContainerdImageStore(ctx context.Context, status [][2]string) error {
 	driverType := imageStoreDriverType(status)
-	if driverType == containerdSnapshotterDriverType {
+	if driverType == ContainerdSnapshotterDriverType {
 		return nil
 	}
-	err := fmt.Errorf("unsupported image store: driver-type %q, want %q", driverType, containerdSnapshotterDriverType)
+	err := fmt.Errorf("unsupported image store: driver-type %q, want %q", driverType, ContainerdSnapshotterDriverType)
 	slog.ErrorContext(ctx, "ops.deploy.verify.image_store_unsupported", slog.String("err", err.Error()))
 	return err
 }

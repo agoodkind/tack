@@ -2,13 +2,10 @@ package integration
 
 import (
 	"bytes"
-	"net/url"
 	"strings"
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/moby/moby/client"
 
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
@@ -24,37 +21,19 @@ import (
 // pushed index digests and fails when the tack-server digest is the other
 // image's index digest.
 func TestDeployVerifyComparesTheGivenIndexDigest(t *testing.T) {
-	ledgerDSN := testenv.Ledger(t)
-	testenv.RequireDocker(t)
-	endpoint, cli := testenv.ContainerdDocker(t)
-	t.Setenv("DOCKER_HOST", endpoint)
-	requireContainerdImageStore(t, cli)
-	for _, name := range []string{"tack-app-1", "tack-audit-consumer-1"} {
-		if _, err := cli.ContainerInspect(t.Context(), name, client.ContainerInspectOptions{}); err == nil {
-			t.Fatalf("container %s exists on this daemon; the test refuses to replace it", name)
-		}
-	}
-	daemonURL, err := url.Parse(endpoint)
-	if err != nil {
-		t.Fatalf("parse the daemon endpoint %s: %v", endpoint, err)
-	}
-	registry, hostPort := startDeployRegistry(t, cli, daemonURL.Hostname())
-	tag := "m13-" + uuid.NewString()[:8]
-	serverDigest := registry.pushMultiPlatformIndex(t, "tack-server", tag, "server "+tag)
-	consumerDigest := registry.pushMultiPlatformIndex(t, "tack-audit-consumer", tag, "consumer "+tag)
-	registryHost := "localhost:" + hostPort
-	createFromIndex(t, cli, "tack-app-1", registryHost+"/tack-server:"+tag)
-	createFromIndex(t, cli, "tack-audit-consumer-1", registryHost+"/tack-audit-consumer:"+tag)
+	fixture := startDeployFixture(t, testenv.ContainerdDocker)
+	requireContainerdImageStore(t, fixture.cli)
+	serverDigest, consumerDigest := fixture.pushIndexes(t)
+	fixture.createContainers(t)
 
-	logDeployImageReads(t, cli, "tack-app-1")
+	logDeployImageReads(t, fixture.cli, "tack-app-1")
 
-	cfg := &config.Config{DeployRegistry: registryHost, DeployImageTag: tag}
-	output, err := runOpsDeployVerify(t, cfg, ledgerDSN, serverDigest, consumerDigest)
+	output, err := fixture.verify(t, serverDigest, consumerDigest)
 	if err != nil {
 		t.Fatalf("deploy verify with the pushed index digests: %v\n%s", err, output)
 	}
 	t.Logf("matching digests: %s", strings.TrimSpace(output))
-	output, err = runOpsDeployVerify(t, cfg, ledgerDSN, consumerDigest, consumerDigest)
+	output, err = fixture.verify(t, consumerDigest, consumerDigest)
 	if err == nil || !strings.Contains(err.Error(), "descriptor digest differs") || !strings.Contains(err.Error(), "tack-app-1") {
 		t.Fatalf("deploy verify with the other index digest for tack-server = %v, want a refusal for tack-app-1\n%s", err, output)
 	}

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -139,6 +140,38 @@ func mustMarshal(t *testing.T, value any) []byte {
 	return encoded
 }
 
+// pushImageManifest pushes the image config and an image manifest for one
+// architecture and returns the manifest descriptor. A non-empty reference
+// stores the manifest under that tag; an empty one stores it under its digest.
+func (r localRegistry) pushImageManifest(t *testing.T, repository, architecture string, layer registryDescriptor, diffID, reference string) registryDescriptor {
+	t.Helper()
+	config := mustMarshal(t, map[string]any{
+		"architecture": architecture, "os": "linux",
+		"config": map[string]any{"Cmd": []string{"/marker"}},
+		"rootfs": map[string]any{"type": "layers", "diff_ids": []string{diffID}},
+	})
+	configDescriptor := r.pushBlob(t, repository, ocispec.MediaTypeImageConfig, config)
+	manifest := mustMarshal(t, map[string]any{
+		"schemaVersion": 2, "mediaType": ocispec.MediaTypeImageManifest,
+		"config": configDescriptor, "layers": []registryDescriptor{layer},
+	})
+	if reference == "" {
+		reference = sha256Digest(manifest)
+	}
+	return r.pushManifest(t, repository, reference, ocispec.MediaTypeImageManifest, manifest)
+}
+
+// pushSingleManifestImage pushes one image manifest for the host architecture,
+// with no index, under tag and returns the manifest digest.
+func (r localRegistry) pushSingleManifestImage(t *testing.T, repository, tag, marker string) string {
+	t.Helper()
+	layer, diffID := singleFileLayer(t, marker)
+	layerDescriptor := r.pushBlob(t, repository, ocispec.MediaTypeImageLayerGzip, layer)
+	pushed := r.pushImageManifest(t, repository, runtime.GOARCH, layerDescriptor, diffID, tag)
+	t.Logf("pushed %s:%s as single manifest %s", repository, tag, pushed.Digest)
+	return pushed.Digest
+}
+
 // pushMultiPlatformIndex pushes one linux/amd64 and one linux/arm64 image with
 // the same layer, then an OCI index of both under tag, and returns the index
 // digest.
@@ -148,17 +181,7 @@ func (r localRegistry) pushMultiPlatformIndex(t *testing.T, repository, tag, mar
 	layerDescriptor := r.pushBlob(t, repository, ocispec.MediaTypeImageLayerGzip, layer)
 	manifests := make([]registryDescriptor, 0, 2)
 	for _, architecture := range []string{"amd64", "arm64"} {
-		config := mustMarshal(t, map[string]any{
-			"architecture": architecture, "os": "linux",
-			"config": map[string]any{"Cmd": []string{"/marker"}},
-			"rootfs": map[string]any{"type": "layers", "diff_ids": []string{diffID}},
-		})
-		configDescriptor := r.pushBlob(t, repository, ocispec.MediaTypeImageConfig, config)
-		manifest := mustMarshal(t, map[string]any{
-			"schemaVersion": 2, "mediaType": ocispec.MediaTypeImageManifest,
-			"config": configDescriptor, "layers": []registryDescriptor{layerDescriptor},
-		})
-		descriptor := r.pushManifest(t, repository, sha256Digest(manifest), ocispec.MediaTypeImageManifest, manifest)
+		descriptor := r.pushImageManifest(t, repository, architecture, layerDescriptor, diffID, "")
 		descriptor.Platform = &ocispec.Platform{Architecture: architecture, OS: "linux"}
 		manifests = append(manifests, descriptor)
 	}
