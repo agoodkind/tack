@@ -17,9 +17,9 @@ const (
 	// dataDiskImage pins the debian:bookworm-slim image by digest. The image
 	// includes df, truncate, mkfs.ext4, and losetup.
 	dataDiskImage = "debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251"
-	// The helper container and both volumes of a data disk have names that
-	// start with dataDiskPrefix.
-	dataDiskKind   = "opensearch-disk"
+	dataDiskKind  = "opensearch-disk"
+	// dataDiskPrefix starts the name of the helper container and of both
+	// volumes.
 	dataDiskPrefix = "tack-testenv-" + dataDiskKind + "-"
 	// dataDiskMount is where the helper mounts the volume that stores the
 	// image file.

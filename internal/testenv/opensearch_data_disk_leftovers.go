@@ -3,6 +3,7 @@ package testenv
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"slices"
 	"strconv"
@@ -19,6 +20,11 @@ import (
 // every container that uses one of those volumes, then the data volumes,
 // then the loop devices attached to the image files, then the image
 // volumes. It returns one line for each removed item.
+//
+// It removes every matching volume without checking which process created
+// it. This is safe because only one engine test runs at a time on the shared
+// test slot. A test with a data disk that runs at the same time in another
+// process would lose that disk.
 func removeLeftoverDataDisks(ctx context.Context, cli *client.Client) ([]string, error) {
 	listed, err := cli.VolumeList(ctx, client.VolumeListOptions{Filters: client.Filters{}.Add("name", dataDiskPrefix)})
 	if err != nil {
@@ -113,8 +119,13 @@ func detachLeftoverDataDiskDevices(ctx context.Context, cli *client.Client, imag
 	var failures []error
 	if startErr == nil {
 		for _, file := range files {
-			// A run killed before truncate left no image file.
-			if _, code, err := execInContainer(ctx, cli, helper, []string{"test", "-f", file}); err != nil || code != 0 {
+			_, code, err := execInContainer(ctx, cli, helper, []string{"test", "-f", file})
+			if err != nil {
+				failures = append(failures, fmt.Errorf("check for image file %s in %s: %w", file, helper, err))
+				continue
+			}
+			if code != 0 {
+				// A run killed before truncate left no image file.
 				continue
 			}
 			devices, err := detachDataDiskDevices(ctx, cli, helper, file)
