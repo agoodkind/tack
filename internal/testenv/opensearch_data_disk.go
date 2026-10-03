@@ -29,9 +29,9 @@ const (
 // openSearchDataDisk is a size-bounded ext4 filesystem in a sparse image
 // file on the Docker host disk. A privileged helper container attaches the
 // file to a loop device for the life of the test, and a local volume mounts
-// that device at the engine data path. The filesystem reserves no blocks
-// and its root belongs to the opensearch user, so df and the disk threshold
-// monitor both read the whole filesystem.
+// that device at the engine data path. The filesystem keeps no space back
+// for root, and the opensearch user owns its top directory. df and
+// OpenSearch then report the same free space.
 type openSearchDataDisk struct {
 	helper      string
 	imageVolume string

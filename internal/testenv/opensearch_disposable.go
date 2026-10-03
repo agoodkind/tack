@@ -16,9 +16,9 @@ import (
 const (
 	// openSearchDataPath is the engine's data path in the image.
 	openSearchDataPath = "/usr/share/opensearch/data"
-	// openSearchMLDiskThreshold is the ML Commons free-space floor that
-	// Configs sets on every Tack search member. ML Commons refuses a local
-	// model deploy or prediction below it.
+	// openSearchMLDiskThreshold is the least free disk space at which ML
+	// Commons still loads and runs the search model. Configs sets the same
+	// value on every Tack search member.
 	openSearchMLDiskThreshold = "plugins.ml_commons.disk_free_space_threshold=1gb"
 	// openSearchInfoInterval is the minimum cluster.info.update.interval of
 	// OpenSearch 3.8.0. The disk threshold monitor reads disk use at that

@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	// floodStageMemoryBytes is the 8 GiB model floor. The data path is on
-	// the Docker host disk.
+	// floodStageMemoryBytes is the 8 GiB of memory that the search model
+	// needs. The data path is on the Docker host disk.
 	floodStageMemoryBytes int64 = 8 << 30
 	// floodStageDataBytes bounds the data path. ML Commons writes the model
 	// files there, beside the index and the filler. At floodStageFillPercent
