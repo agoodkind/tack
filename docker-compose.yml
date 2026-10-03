@@ -346,7 +346,7 @@ services:
   # the JVM connect to the IPv6 address of a dual-stack host, such as the
   # model artifact host that ML Commons downloads the pinned model from.
   opensearch:
-    image: opensearchproject/opensearch:3.8.0
+    image: opensearchproject/opensearch:3.9.0
     profiles: [search]
     restart: unless-stopped
     environment:
