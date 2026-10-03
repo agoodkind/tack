@@ -44,8 +44,10 @@ type dbPlanCloseResult struct {
 // relay has sent the events in the operator outbox and the audit consumer has
 // committed past the audit topic high-water marks, then reads the plan rows
 // through the ledger reader. The wait and that read share one --wait bound.
-// It then refuses a closer that is not the opener principal, writes the close
-// row to the operator outbox, and mails the summary. A failed ledger read, a
+// It then refuses a closer with a different agent or operator than the
+// opener, or acting for a different accountable operator; any session of the
+// opener may close. It then writes the close row to the operator outbox and
+// mails the summary. A failed ledger read, a
 // wait past the bound, or a plan row in audit.events_dlq returns an error and
 // writes no close row; a failed ledger read sends no mail. A failed write of
 // a refused or close row logs db.plan.record_failed here, once. A refusal
