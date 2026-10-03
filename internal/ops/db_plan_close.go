@@ -51,8 +51,8 @@ type dbPlanCloseResult struct {
 // a refused or close row logs db.plan.record_failed here, once. A refusal
 // writes an ops.db_plan_close row with outcome refused, writes no close row
 // with outcome ok, and returns an error. In each of these cases the plan
-// stays open. A summary mail failure after the close
-// row returns an error that states the mail failure; the plan is closed.
+// stays open. A summary mail failure after the close row returns an error
+// that states the mail failure; the plan is closed.
 func runDBPlanClose(ctx context.Context, deps dbSQLDeps, input dbPlanCloseInput, sink clispec.ResultSink, execute bool) error {
 	planID, err := parseDBPlanID(ctx, input.PlanID)
 	if err != nil {
@@ -109,11 +109,13 @@ func runDBPlanClose(ctx context.Context, deps dbSQLDeps, input dbPlanCloseInput,
 // one context that ends after wait. The wait for the relay and the audit
 // consumer and the read of the plan rows from audit.events and
 // audit.events_dlq both run under it, and the read phase ends within one
-// --wait. Every ledger read stops at the first failure: a failed or cut-off
-// read of public.ops_outbox, audit.consumer_offsets, or the plan rows returns
-// a *dbPlanReadError at once, logged here, with no close row and no mail. A
-// wait past its bound or a plan row in audit.events_dlq mails that the summary
-// is incomplete and returns an error. A plan row that does not decode refuses
+// --wait. Every ledger read stops at the first failure. A failed read of
+// public.ops_outbox, audit.consumer_offsets, or the plan rows, and a read of
+// the plan rows that the bound cuts off, return a *dbPlanReadError at once,
+// logged here, with no close row and no mail. A read of public.ops_outbox or
+// audit.consumer_offsets that the bound cuts off is a wait past the bound. A
+// wait past the bound or a plan row in audit.events_dlq mails that the
+// summary is incomplete and returns an error. A plan row that does not decode refuses
 // the close: the stored plan cannot be verified. The mail, the refusals, and
 // the refused row run under ctx, which the bound does not end. It then checks
 // the open row, the close row, and the closer principal.
