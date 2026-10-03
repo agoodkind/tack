@@ -52,6 +52,9 @@ type engineSpec struct {
 	// extraHosts are name:address entries the daemon adds to the engine's
 	// /etc/hosts.
 	extraHosts []string `exhaustruct:"optional"`
+	// privileged runs the engine with every device and capability, for an
+	// engine that runs its own container daemon.
+	privileged bool `exhaustruct:"optional"`
 }
 
 // engine is a started engine container.
