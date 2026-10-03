@@ -127,7 +127,9 @@ func createFloodProject(t *testing.T, fixture queryFixture, prefix, name string)
 // tool.
 func renameFloodProject(t *testing.T, fixture queryFixture, nodeID uuid.UUID, name string) {
 	t.Helper()
-	fixture.Harness.Call(t, "tack_update_project", datagen.ToolArguments{NodeID: nodeID.String(), Name: name})
+	fixture.Harness.Call(t, "tack_update_project", datagen.ToolArguments{
+		WorkspaceReference: fixture.Harness.Workspace, NodeID: nodeID.String(), Name: name,
+	})
 }
 
 // requireStoredName requires the FoundationDB view of nodeID to have name.
