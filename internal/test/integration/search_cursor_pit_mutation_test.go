@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"os"
 	"slices"
 	"strconv"
 	"testing"
@@ -77,7 +79,11 @@ func TestSearchCursorPointInTimeIgnoresLaterChanges(t *testing.T) {
 	}
 	harness.Call(t, "tack_update_issue", datagen.ToolArguments{WorkspaceReference: harness.Workspace, NodeID: edited.String(), Name: pitEditedName})
 	harness.Call(t, "tack_delete_issue", datagen.ToolArguments{WorkspaceReference: harness.Workspace, NodeID: deleted.String()})
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	drainSearchWork(t, fixture.Worker, 4000)
+	slog.SetDefault(previous)
+	logLiveWorkAndPages(t, fixture, edited)
 
 	if after := rawMatchesFrom(t, ranker, session); !slices.Equal(after, before) {
 		t.Fatalf("raw matches under the session point in time changed: before %v, after %v", before, after)

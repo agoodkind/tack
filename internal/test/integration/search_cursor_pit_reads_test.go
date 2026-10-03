@@ -2,16 +2,22 @@ package integration
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
 	"goodkind.io/tack/internal/adapters/search"
+	"goodkind.io/tack/internal/clock"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 )
+
+// diagnosticWait exceeds the five-second retry delay of released search work.
+const diagnosticWait = 12 * time.Second
 
 // requireStoredName reads the active page documents of nodeID under the point
 // in time pitID with a term filter on node_id and requires each stored name
@@ -34,6 +40,43 @@ func requireStoredName(t *testing.T, fixture queryFixture, pitID string, nodeID 
 		t.Logf("page %s of %s: revision %s, name %q", hit.ID, nodeID, page.NodeRevision, page.Name)
 		if !strings.HasPrefix(page.Name, want) || !strings.Contains(*page.PageText, want) || strings.Contains(*page.PageText, unwanted) {
 			t.Fatalf("page %s of %s stores name %q and text %q, want %q without %q", hit.ID, nodeID, page.Name, *page.PageText, want, unwanted)
+		}
+	}
+}
+
+// logLiveWorkAndPages logs, after a drain, whether live search work of nodeID
+// becomes claimable within diagnosticWait (a released item waits out its
+// retry delay first) and every page of nodeID in the serving index after an
+// explicit refresh. A claimed item is yielded unchanged.
+func logLiveWorkAndPages(t *testing.T, fixture queryFixture, nodeID uuid.UUID) {
+	t.Helper()
+	store := fixture.Stores.SearchWork(clock.Wall{})
+	drained := time.Now()
+	found := false
+	for time.Now().Before(drained.Add(diagnosticWait)) && !found {
+		work, err := store.Claim(t.Context(), searchdomain.WorkClassLive, "diagnostic", time.Minute)
+		if errors.Is(err, searchdomain.ErrNoWork) {
+			time.Sleep(250 * time.Millisecond)
+			continue
+		}
+		if err != nil {
+			t.Fatalf("claim live work for diagnostics: %v", err)
+		}
+		if work.NodeID == nodeID {
+			found = true
+			t.Logf("diagnostic: live work of %s claimable %s after the drain: generation %d revision %q phase %q ordinal %d cursor set %t",
+				nodeID, time.Since(drained), work.Generation, work.Revision, work.Phase, work.Ordinal, work.Cursor != "")
+		}
+		if err := store.Yield(t.Context(), work); err != nil {
+			t.Fatalf("yield diagnostic claim of %s: %v", work.NodeID, err)
+		}
+	}
+	if !found {
+		t.Logf("diagnostic: no live work of %s became claimable within %s after the drain", nodeID, diagnosticWait)
+	}
+	for _, retired := range []bool{false, true} {
+		for _, page := range searchNodePages(t, fixture.Client, fixture.Index, nodeID, retired) {
+			t.Logf("diagnostic: refreshed index page %s of %s: retired %t revision %s name %q generation %s", page.ID, nodeID, retired, page.NodeRevision, page.Name, page.SearchGeneration)
 		}
 	}
 }
