@@ -56,6 +56,7 @@ func TestSearchClusterDiskFloodStage(t *testing.T) {
 	nodeA := createFloodProject(t, fixture, "FLDA", floodStageOldText)
 	drainSearchWork(t, fixture.Worker, 500)
 	requireQueryResults(t, fixture, floodStageOldText, []uuid.UUID{nodeA}, nil)
+	logStoredPages(t, fixture, nodeA, "before the fill")
 
 	size, used := engine.FillData(t, floodStageFillPercent)
 	t.Logf("data path after the fill: %d of %d bytes used; cgroup memory.current %s", used, size, engine.MemoryCurrent(t))
@@ -74,8 +75,12 @@ func TestSearchClusterDiskFloodStage(t *testing.T) {
 		t.Fatalf("ops search verify during the block = %+v (error %v), want no error, no excluded node, and no stuck work", report, err)
 	}
 	requireLiveWorkPending(t, fixture, nodeB)
-	requireQueryResults(t, fixture, floodStageOldText, []uuid.UUID{nodeA}, nil)
-	requireQueryResults(t, fixture, floodStageNewText, nil, []uuid.UUID{nodeA, nodeB})
+	// The sparse model relates the two texts to each other. A search result
+	// does not show which text the index stores, and these checks read the
+	// stored page text.
+	logStoredPages(t, fixture, nodeA, "during the block")
+	requireStoredText(t, fixture, nodeA, floodStageOldText, floodStageNewText)
+	requireNoStoredPages(t, fixture, nodeB)
 
 	size, used = engine.FreeData(t)
 	t.Logf("data path after the free: %d of %d bytes used", used, size)
@@ -85,9 +90,14 @@ func TestSearchClusterDiskFloodStage(t *testing.T) {
 	waitForBlock(t, fixture, false)
 	clusterEventually(t, "index the pending edits", func() error {
 		drainSearchWork(t, fixture.Worker, 500)
+		if err := storedTextError(t, fixture, nodeA, floodStageNewText, floodStageOldText); err != nil {
+			return err
+		}
+		if err := storedTextError(t, fixture, nodeB, floodStageNewText+" beacon", floodStageOldText); err != nil {
+			return err
+		}
 		return queryResultsMatch(t, fixture, floodStageNewText, []uuid.UUID{nodeA, nodeB}, nil)
 	})
-	requireQueryResults(t, fixture, floodStageOldText, nil, []uuid.UUID{nodeA})
 }
 
 // requireBlockedFailures runs worker slices until floodStageFailures slices
