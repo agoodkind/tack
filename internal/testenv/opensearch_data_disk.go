@@ -8,29 +8,34 @@ import (
 	"strconv"
 	"strings"
 
-	cerrdefs "github.com/containerd/errdefs"
-	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/client"
 	"goodkind.io/tack/internal/telemetry"
 )
 
 const (
-	// dataDiskImage includes truncate, mkfs.ext4, and losetup. The digest is
-	// the debian:bookworm-slim index digest read on 2026-10-02.
+	// dataDiskImage pins the debian:bookworm-slim image by digest. The image
+	// includes df, truncate, mkfs.ext4, and losetup.
 	dataDiskImage = "debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251"
+	// The helper container and both volumes of a data disk have names that
+	// start with dataDiskPrefix.
+	dataDiskKind   = "opensearch-disk"
+	dataDiskPrefix = "tack-testenv-" + dataDiskKind + "-"
 	// dataDiskMount is where the helper mounts the volume that stores the
-	// filesystem image file.
+	// image file.
 	dataDiskMount = "/disk"
-	// dataDiskFile is the sparse filesystem image file.
-	dataDiskFile = dataDiskMount + "/data.img"
+	// dataDiskFileName is the name of the image file in that volume.
+	dataDiskFileName = "data.img"
+	// dataDiskMarginBytes is the free space the Docker VM disk must keep
+	// beyond the full size of the data disk.
+	dataDiskMarginBytes int64 = 8 << 30
 )
 
 // openSearchDataDisk is a size-bounded ext4 filesystem in a sparse image
-// file on the Docker host disk. A privileged helper container attaches the
-// file to a loop device for the life of the test, and a local volume mounts
-// that device at the engine data path. The filesystem keeps no space back
-// for root, and the opensearch user owns its top directory. df and
+// file on the disk of the Docker VM. A privileged helper container attaches
+// the file to a loop device for the life of the test, and a local volume
+// mounts that device at the engine data path. The filesystem keeps no space
+// back for root, and the opensearch user owns its top directory. df and
 // OpenSearch then report the same free space.
 type openSearchDataDisk struct {
 	helper      string
@@ -39,12 +44,12 @@ type openSearchDataDisk struct {
 	device      string
 }
 
-// createOpenSearchDataDisk creates a filesystem of sizeBytes and the volume
-// that mounts it. It returns every name it created, also on failure, and
-// removeOpenSearchDataDisk removes them.
+// createOpenSearchDataDisk creates a filesystem of sizeBytes and a volume
+// that mounts it. After an error it still returns the names of everything it
+// created, and the caller removes them with removeOpenSearchDataDisk.
 func createOpenSearchDataDisk(ctx context.Context, cli *client.Client, sizeBytes int64) (openSearchDataDisk, error) {
 	var disk openSearchDataDisk
-	base, err := generatedEngineName(ctx, "opensearch-disk")
+	base, err := generatedEngineName(ctx, dataDiskKind)
 	if err != nil {
 		return disk, err
 	}
@@ -53,44 +58,29 @@ func createOpenSearchDataDisk(ctx context.Context, cli *client.Client, sizeBytes
 		return disk, dataDiskFailure(ctx, "create the image volume "+base+"-image", err)
 	}
 	disk.imageVolume = base + "-image"
-	if err := ensureImage(ctx, cli, engineSpec{kind: "opensearch-disk", image: dataDiskImage, platform: nil, cmd: nil, env: nil}); err != nil {
+	mounts := []mount.Mount{{Type: mount.TypeVolume, Source: disk.imageVolume, Target: dataDiskMount}}
+	disk.helper = base
+	if err := startDataDiskHelper(ctx, cli, base, mounts); err != nil {
 		return disk, err
 	}
-	_, err = cli.ContainerCreate(ctx, client.ContainerCreateOptions{
-		Config: &container.Config{
-			Image: dataDiskImage, Entrypoint: []string{"sleep"}, Cmd: []string{openSearchHolderSeconds}, Labels: labels,
-		},
-		HostConfig: &container.HostConfig{
-			// The loop device that losetup allocates appears in the host
-			// /dev, which a privileged container sees only through a bind.
-			Privileged: true, NetworkMode: "none",
-			Mounts: []mount.Mount{
-				{Type: mount.TypeVolume, Source: disk.imageVolume, Target: dataDiskMount},
-				{Type: mount.TypeBind, Source: "/dev", Target: "/dev"},
-			},
-		},
-		Name: base,
-	})
-	if err != nil {
-		return disk, dataDiskFailure(ctx, "create the disk helper "+base, err)
+	if err := requireDataDiskSpace(ctx, cli, base, sizeBytes); err != nil {
+		return disk, err
 	}
-	own(base)
-	disk.helper = base
-	if _, err := cli.ContainerStart(ctx, base, client.ContainerStartOptions{}); err != nil {
-		return disk, dataDiskFailure(ctx, "start the disk helper "+base, err)
-	}
+	file := dataDiskMount + "/" + dataDiskFileName
 	owner := strconv.Itoa(openSearchOwner.uid) + ":" + strconv.Itoa(openSearchOwner.gid)
 	for _, command := range [][]string{
-		{"truncate", "-s", strconv.FormatInt(sizeBytes, 10), dataDiskFile},
-		{"mkfs.ext4", "-F", "-q", "-m", "0", "-E", "root_owner=" + owner, dataDiskFile},
+		{"truncate", "-s", strconv.FormatInt(sizeBytes, 10), file},
+		{"mkfs.ext4", "-F", "-q", "-m", "0", "-E", "root_owner=" + owner, file},
 	} {
 		if _, err := runInDataDiskHelper(ctx, cli, base, command); err != nil {
 			return disk, err
 		}
 	}
-	device, err := runInDataDiskHelper(ctx, cli, base, []string{"losetup", "--find", "--show", dataDiskFile})
+	device, err := runInDataDiskHelper(ctx, cli, base, []string{"losetup", "--find", "--show", file})
 	if err != nil {
-		return disk, err
+		// losetup may have attached a device before the output read failed.
+		_, detachErr := detachDataDiskDevices(ctx, cli, base, file)
+		return disk, dataDiskFailure(ctx, "attach "+file+" to a loop device", errors.Join(err, detachErr))
 	}
 	disk.device = strings.TrimSpace(device)
 	_, err = cli.VolumeCreate(ctx, client.VolumeCreateOptions{
@@ -125,31 +115,6 @@ func removeOpenSearchDataDisk(ctx context.Context, cli *client.Client, disk open
 		return dataDiskFailure(ctx, "remove the data disk "+disk.helper, err)
 	}
 	return nil
-}
-
-// removeDataDiskVolume removes one volume of the data disk.
-func removeDataDiskVolume(ctx context.Context, cli *client.Client, name string) error {
-	if name == "" {
-		return nil
-	}
-	if _, err := cli.VolumeRemove(ctx, name, client.VolumeRemoveOptions{Force: false}); err != nil && !cerrdefs.IsNotFound(err) {
-		return dataDiskFailure(ctx, "remove volume "+name, err)
-	}
-	return nil
-}
-
-// runInDataDiskHelper runs command in the helper and returns its output. A
-// nonzero exit is an error.
-func runInDataDiskHelper(ctx context.Context, cli *client.Client, helper string, command []string) (string, error) {
-	output, code, err := execInContainer(ctx, cli, helper, command)
-	if err != nil {
-		return "", err
-	}
-	if code != 0 {
-		return "", dataDiskFailure(ctx, fmt.Sprintf("run %v in %s", command, helper),
-			fmt.Errorf("exit %d: %s", code, strings.TrimSpace(output)))
-	}
-	return output, nil
 }
 
 // dataDiskFailure logs and wraps one failed data disk step.

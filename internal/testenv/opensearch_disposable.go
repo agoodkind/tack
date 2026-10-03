@@ -2,6 +2,7 @@ package testenv
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -66,9 +67,11 @@ type DisposableEngine struct {
 
 // DisposableOpenSearch starts an engine that no other test shares on a data
 // disk of DataBytes, and requires the container's cgroup memory limit to
-// equal MemoryBytes. The test's cleanup removes the engine, the address
-// holder, and the data disk, also when the test or the start fails. Like a
-// cluster, the engine starts only when [SearchClusterVariable] is "1".
+// equal MemoryBytes. It first removes any data disk that an earlier killed
+// run left behind. The test's cleanup removes the engine, the address
+// holder, and the data disk when the test passes, fails, or stops during the
+// start. Like a cluster, the engine starts only when [SearchClusterVariable]
+// is "1".
 func DisposableOpenSearch(t *testing.T, options DisposableOpenSearchOptions) *DisposableEngine {
 	t.Helper()
 	skipWhenShort(t)
@@ -84,6 +87,13 @@ func DisposableOpenSearch(t *testing.T, options DisposableOpenSearchOptions) *Di
 		t.Fatalf("open docker client: %v", err)
 	}
 	defer func() { _ = cli.Close() }()
+	removed, err := removeLeftoverDataDisks(ctx, cli)
+	if len(removed) > 0 {
+		t.Logf("removed data disks left by an earlier killed run: %s", strings.Join(removed, ", "))
+	}
+	if err != nil {
+		t.Fatalf("remove data disks left by an earlier killed run: %v", err)
+	}
 	disk, err = createOpenSearchDataDisk(ctx, cli, options.DataBytes)
 	if err != nil {
 		t.Fatalf("create the disposable OpenSearch data disk: %v", err)
@@ -113,23 +123,26 @@ func removeDisposableOpenSearch(t *testing.T, engineName string, created []strin
 		evidence, err := OpenSearchResourceEvidence(cleanup, engineName)
 		t.Logf("disposable OpenSearch state before removal (read error %v):\n%s", err, evidence)
 	}
-	if err := removeContainers(cleanup, created); err != nil {
-		t.Errorf("remove disposable OpenSearch %v: %v", created, err)
+	// The data disk removal runs even when the container removal fails, and
+	// the test reports both errors.
+	containerErr := removeContainers(cleanup, created)
+	diskErr := removeDisposableDataDisk(cleanup, disk)
+	if err := errors.Join(containerErr, diskErr); err != nil {
+		t.Errorf("remove disposable OpenSearch containers %v and data disk %s: %v", created, disk.helper, err)
 		return
 	}
-	t.Logf("removed disposable OpenSearch containers %v", created)
-	cli, err := dockerClient(cleanup)
+	t.Logf("removed disposable OpenSearch containers %v, data disk helper %s, volumes %s and %s, and loop device %s",
+		created, disk.helper, disk.dataVolume, disk.imageVolume, disk.device)
+}
+
+// removeDisposableDataDisk opens a Docker client and removes disk.
+func removeDisposableDataDisk(ctx context.Context, disk openSearchDataDisk) error {
+	cli, err := dockerClient(ctx)
 	if err != nil {
-		t.Errorf("open docker client to remove the data disk %s: %v", disk.helper, err)
-		return
+		return err
 	}
 	defer func() { _ = cli.Close() }()
-	if err := removeOpenSearchDataDisk(cleanup, cli, disk); err != nil {
-		t.Errorf("remove the disposable OpenSearch data disk %s: %v", disk.helper, err)
-		return
-	}
-	t.Logf("removed data disk helper %s, volumes %s and %s, and loop device %s",
-		disk.helper, disk.dataVolume, disk.imageVolume, disk.device)
+	return removeOpenSearchDataDisk(ctx, cli, disk)
 }
 
 // MemoryCurrent returns the cgroup memory.current of the engine container.

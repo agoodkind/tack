@@ -15,12 +15,12 @@ import (
 
 const (
 	// floodStageMemoryBytes is the 8 GiB of memory that the search model
-	// needs. The data path is on the Docker host disk.
+	// needs. The data path is on the disk of the Docker VM.
 	floodStageMemoryBytes int64 = 8 << 30
-	// floodStageDataBytes bounds the data path. ML Commons writes the model
-	// files there, beside the index and the filler. At floodStageFillPercent
-	// it leaves 1.28 GiB free, above the 1 GiB ML Commons disk threshold, and
-	// model writes and queries still run during the block.
+	// floodStageDataBytes is the size of the data path. ML Commons writes the
+	// model files there. At the fill percent, about 1.25 GiB stays free. That
+	// is more than the 1 GiB ML Commons threshold. Model writes and queries
+	// still run during the block.
 	floodStageDataBytes int64 = 32 << 30
 	// floodStageFillPercent is above the 95 percent flood-stage default of
 	// OpenSearch 3.8.0 and leaves more free space than the ML Commons disk
