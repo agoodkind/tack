@@ -82,8 +82,9 @@ func TestSearchCleanupYieldsAfter100Documents(t *testing.T) {
 	}
 	drainClass(t, work, worker, searchdomain.WorkClassCleanup)
 
-	// The count of retired pages before the first cleanup slice, before,
-	// includes pages that indexing retired before the node was shortened.
+	// before counts the pages retired before the first cleanup slice.
+	// Indexing retired those pages before the node was shortened, and the
+	// check excludes them.
 	if retired := len(searchNodePages(t, client, index, fixture.NodeID, true)) - before; retired != len(original) {
 		t.Fatalf("cleanup retired %d documents, want the %d documents of the old revision", retired, len(original))
 	}
