@@ -13,16 +13,19 @@ import (
 	"goodkind.io/tack/internal/clock"
 )
 
-// datagenLedgerVerbs are the audit verbs that only the host-run ledger
-// commands record. `ops qa datagen` cannot run those commands: the app
-// service mounts no Docker socket for the yb-admin one-shots, and
-// audit-bootstrap refuses a populated ledger. The seed therefore reports the
-// rows the real commands wrote (AGENTS.md rule 4).
+// datagenLedgerVerbs are the audit verbs that only host-run operator commands
+// record. `ops qa datagen` cannot run those commands: the app service mounts
+// no Docker socket for the yb-admin one-shots, audit-bootstrap refuses a
+// populated ledger, and a break-glass plan mails the alarm address and runs
+// its statements as the engine superuser in tack-ops. The seed therefore
+// reports the rows the real commands wrote (AGENTS.md rule 4).
 var datagenLedgerVerbs = []string{
 	string(audit.VerbOpsLedgerNodePrepare),
 	string(audit.VerbOpsLedgerNodeWait),
 	string(audit.VerbOpsLedgerBootstrapWait),
 	string(audit.VerbOpsLedgerAuditBootstrap),
+	string(audit.VerbOpsDBPlanOpen),
+	string(audit.VerbOpsDBPlanClose),
 }
 
 // datagenLedgerVerb is the row count and newest event time of one verb on the

@@ -79,7 +79,7 @@ func TestUnemittedVerbsAreAllDeclared(t *testing.T) {
 	}
 	for verb, reason := range unemittedVerbs {
 		if !values[verb] {
-			t.Errorf("unemittedVerbs lists %q (%q) which verbs.go no longer declares", verb, reason)
+			t.Errorf("unemittedVerbs lists %q (%q), and no verbs file declares it", verb, reason)
 		}
 		if reason == "" {
 			t.Errorf("unemittedVerbs entry %q has no reason", verb)
@@ -87,45 +87,12 @@ func TestUnemittedVerbsAreAllDeclared(t *testing.T) {
 	}
 }
 
-// declaredVerbs parses verbs.go and returns constant name to verb value for
-// every declared Verb. Parsing rather than scanning text means a renamed or
-// reformatted constant is still found.
-func declaredVerbs(t *testing.T) map[string]Verb {
-	t.Helper()
-	fileSet := token.NewFileSet()
-	parsed, err := parser.ParseFile(fileSet, "verbs.go", nil, 0)
-	if err != nil {
-		t.Fatalf("parse verbs.go: %v", err)
-	}
-	declared := map[string]Verb{}
-	for _, decl := range parsed.Decls {
-		general, ok := decl.(*ast.GenDecl)
-		if !ok || general.Tok != token.CONST {
-			continue
-		}
-		for _, spec := range general.Specs {
-			value, ok := spec.(*ast.ValueSpec)
-			if !ok || len(value.Names) != len(value.Values) {
-				continue
-			}
-			for index, name := range value.Names {
-				literal, ok := value.Values[index].(*ast.BasicLit)
-				if !ok || literal.Kind != token.STRING {
-					continue
-				}
-				declared[name.Name] = Verb(strings.Trim(literal.Value, `"`))
-			}
-		}
-	}
-	return declared
-}
-
 // verbNamesReferencedOutsideDeclarations returns every verb constant name used
 // anywhere that is not its own declaration.
 //
 // Two sources count as recording the verb. A reference in non-test code
-// outside this package's verbs.go is an emitter or a path to one. A reference
-// inside verbs.go that is not a declaration is a map entry, which is how the
+// outside this package's verbs files is an emitter or a path to one. A
+// reference inside a verbs file that is not a declaration is a map entry, which is how the
 // MCP tool verbs reach the wrapper that records them; that wrapper is the
 // emitter for all of them, so the map entry is the honest evidence.
 //
@@ -137,6 +104,7 @@ func verbNamesReferencedOutsideDeclarations(t *testing.T) map[string]bool {
 	collectVerbMapEntries(t, referenced)
 
 	root := filepath.Join("..", "..")
+	auditDirectory := filepath.Join(root, "internal", "audit")
 	walkErr := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -153,7 +121,7 @@ func verbNamesReferencedOutsideDeclarations(t *testing.T) map[string]bool {
 		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 			return nil
 		}
-		if filepath.Base(path) == "verbs.go" && strings.Contains(path, filepath.Join("internal", "audit")) {
+		if filepath.Dir(path) == auditDirectory && isVerbsFile(filepath.Base(path)) {
 			return nil
 		}
 		for _, name := range verbIdentifiers(t, path) {
@@ -179,42 +147,6 @@ func verbNamesReferencedOutsideDeclarations(t *testing.T) map[string]bool {
 var toolRoutingMaps = map[string]bool{
 	"staticToolVerb":    true,
 	"perTypePrefixVerb": true,
-}
-
-// collectVerbMapEntries records verb names that verbs.go routes to the MCP
-// wrapper, which is their emitter.
-func collectVerbMapEntries(t *testing.T, referenced map[string]bool) {
-	t.Helper()
-	fileSet := token.NewFileSet()
-	parsed, err := parser.ParseFile(fileSet, "verbs.go", nil, 0)
-	if err != nil {
-		t.Fatalf("parse verbs.go: %v", err)
-	}
-	found := false
-	for _, decl := range parsed.Decls {
-		general, ok := decl.(*ast.GenDecl)
-		if !ok || general.Tok != token.VAR {
-			continue
-		}
-		for _, spec := range general.Specs {
-			value, ok := spec.(*ast.ValueSpec)
-			if !ok || len(value.Names) != 1 || !toolRoutingMaps[value.Names[0].Name] {
-				continue
-			}
-			found = true
-			ast.Inspect(value, func(n ast.Node) bool {
-				ident, ok := n.(*ast.Ident)
-				if ok && strings.HasPrefix(ident.Name, "Verb") {
-					referenced[ident.Name] = true
-				}
-				return true
-			})
-		}
-	}
-	if !found {
-		t.Fatalf("found none of the tool routing maps %v in verbs.go: they were renamed and this test now proves nothing",
-			toolRoutingMaps)
-	}
 }
 
 // verbIdentifiers returns the Verb-prefixed identifiers a file actually uses.

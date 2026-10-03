@@ -48,6 +48,8 @@ func RegisterCommands(reg *clispec.Registry, f *cli.Factory) {
 	clispec.Register(reg, authTokenRevokeOp(f))
 	clispec.Register(reg, actAsCreateOp(f))
 	clispec.Register(reg, dbSQLOp(f))
+	clispec.Register(reg, dbPlanOpenOp(f))
+	clispec.Register(reg, dbPlanCloseOp(f))
 	clispec.Register(reg, datagenSeedOp(f))
 	clispec.Register(reg, datagenSoakOp(f))
 	clispec.Register(reg, datagenSearchOp(f))

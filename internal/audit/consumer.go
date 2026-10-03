@@ -149,7 +149,7 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 		return nil, fmt.Errorf("audit consumer kafka client: %w", err)
 	}
 
-	if err := ensureAuditTopic(ctx, kclient, cfg.Topic, cfg.TopicRetention); err != nil {
+	if err := EnsureAuditTopic(ctx, kclient, cfg.Topic, cfg.TopicRetention); err != nil {
 		kclient.Close()
 		ybpool.Close()
 		if ch != nil {

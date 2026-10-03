@@ -131,6 +131,10 @@ const (
 	OutcomeError Outcome = "error"
 	// OutcomePending is carried by intent rows until the outcome row lands.
 	OutcomePending Outcome = "pending"
+	// OutcomeRefused is carried by a row for an action the command refused
+	// before it ran, such as a statement that its break-glass plan does not
+	// permit.
+	OutcomeRefused Outcome = "refused"
 	// OutcomeUnrecorded is what a read returns for a row written before the
 	// ledger stored outcomes at all. It is never written, and it is distinct
 	// from OutcomeOK on purpose: nobody observed those events succeeding.

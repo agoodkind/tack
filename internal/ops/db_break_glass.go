@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"goodkind.io/send-email/mailer"
 
 	"goodkind.io/tack/internal/audit"
@@ -44,6 +45,12 @@ type dbSQLDeps struct {
 	cfg      *config.Config
 	outbox   audit.OutboxWriter
 	identity audit.OperatorIdentitySource
+	// ledgerReader is the ledger reader that plan close waits through. Nil
+	// opens one on cfg.AuditReaderDSN for the wait.
+	ledgerReader *audit.Reader `exhaustruct:"optional"`
+	// planRowsPool is the pool that ops db sql --plan-id reads the plan rows
+	// through. Nil opens one on cfg.DatabaseURL for the read.
+	planRowsPool *pgxpool.Pool `exhaustruct:"optional"`
 }
 
 // dbSQLResult reports the statement's outcome. Cells are positional under
@@ -55,6 +62,7 @@ type dbSQLResult struct {
 	DryRun       bool        `json:"dry_run"`
 	Statement    string      `json:"statement"`
 	Reason       string      `json:"reason"`
+	PlanID       string      `json:"plan_id,omitempty"`
 	MailedTo     string      `json:"mailed_to,omitempty"`
 	CommandTag   string      `json:"command_tag,omitempty"`
 	RowsReturned int         `json:"rows_returned"`
@@ -75,9 +83,17 @@ func runDBSQL(ctx context.Context, deps dbSQLDeps, input dbSQLInput, sink clispe
 	if deps.cfg.BackupAlarmEmail == "" {
 		return errors.New("TACK_BACKUP_ALARM_EMAIL is empty; a break-glass statement must be mailed before it runs")
 	}
+	planID, err := parseDBPlanID(ctx, input.PlanID)
+	if err != nil {
+		return err
+	}
+	reportedPlanID := ""
+	if planID != uuid.Nil {
+		reportedPlanID = planID.String()
+	}
 	result := dbSQLResult{
 		ResultMarker: clispec.ResultMarker{}, Command: "ops.db.sql", DryRun: !execute,
-		Statement: statement, Reason: reason, MailedTo: deps.cfg.BackupAlarmEmail,
+		Statement: statement, Reason: reason, PlanID: reportedPlanID, MailedTo: deps.cfg.BackupAlarmEmail,
 		CommandTag: "", RowsReturned: 0, Truncated: false, Columns: nil, Rows: nil,
 	}
 	if !execute {
@@ -88,13 +104,13 @@ func runDBSQL(ctx context.Context, deps dbSQLDeps, input dbSQLInput, sink clispe
 		slog.ErrorContext(ctx, "db.break_glass.principal_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("resolve the operator for the break-glass statement: %w", err)
 	}
-	if err := mailDBBreakGlass(ctx, deps.cfg, principal, statement, reason); err != nil {
+	if err := observeDBStatement(ctx, deps, principal, planID, statement, reason); err != nil {
 		return err
 	}
 	extra := dbBreakGlassExtra{
 		AttemptID: uuid.Must(uuid.NewV7()), Statement: statement, Reason: reason,
 		MailedTo: deps.cfg.BackupAlarmEmail, CommandTag: "", RowsReturned: 0, Truncated: false,
-		SessionID: principal.SessionID, OnBehalfOf: onBehalfOfWithReason(principal, reason),
+		SessionID: principal.SessionID, OnBehalfOf: onBehalfOfWithReason(principal, reason), PlanID: planID,
 	}
 	if err := recordDBBreakGlass(ctx, deps.outbox, principal, extra, audit.OutcomePending, nil); err != nil {
 		return err
@@ -105,8 +121,10 @@ func runDBSQL(ctx context.Context, deps dbSQLDeps, input dbSQLInput, sink clispe
 	if runErr != nil {
 		recorded = audit.OutcomeError
 	}
-	if err := recordDBBreakGlass(ctx, deps.outbox, principal, extra, recorded, runErr); err != nil {
-		return errors.Join(runErr, err)
+	recordErr := recordDBBreakGlass(ctx, deps.outbox, principal, extra, recorded, runErr)
+	runErr = mailPlannedStatementFailure(ctx, deps.cfg, principal, planID, statement, runErr)
+	if recordErr != nil {
+		return errors.Join(runErr, recordErr)
 	}
 	if runErr != nil {
 		return runErr
