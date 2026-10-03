@@ -56,6 +56,7 @@ func TestSearchClusterDiskFloodStage(t *testing.T) {
 	nodeA := createFloodProject(t, fixture, "FLDA", floodStageOldText)
 	drainSearchWork(t, fixture.Worker, 500)
 	requireQueryResults(t, fixture, floodStageOldText, []uuid.UUID{nodeA}, nil)
+	clusterRequire(t, "refresh before the fill", refreshServingIndex(t, fixture))
 	logStoredPages(t, fixture, nodeA, "before the fill")
 
 	size, used := engine.FillData(t, floodStageFillPercent)
@@ -90,6 +91,9 @@ func TestSearchClusterDiskFloodStage(t *testing.T) {
 	waitForBlock(t, fixture, false)
 	clusterEventually(t, "index the pending edits", func() error {
 		drainSearchWork(t, fixture.Worker, 500)
+		if err := refreshServingIndex(t, fixture); err != nil {
+			return err
+		}
 		if err := storedTextError(t, fixture, nodeA, floodStageNewText, floodStageOldText); err != nil {
 			return err
 		}

@@ -17,18 +17,28 @@ type storedPage struct {
 	PageText   string          `json:"page_text"`
 }
 
-// readStoredPages refreshes the serving index and returns the active pages of
-// nodeID in page order. The sparse model relates different texts to each
-// other, so only this exact read shows which text the index stores.
+// refreshServingIndex makes every accepted write of the serving index
+// readable. The test runs no refresh while the index has the flood-stage
+// block. The engine refuses every write during the block, and no new
+// document exists to refresh.
+func refreshServingIndex(t *testing.T, fixture queryFixture) error {
+	t.Helper()
+	_, err := fixture.Client.Indices.Refresh(t.Context(), &opensearchapi.IndicesRefreshReq{Index: []string{fixture.Index}})
+	return clusterFailure("refresh "+fixture.Index, err)
+}
+
+// readStoredPages returns the active pages of nodeID in page order, as of the
+// last refresh of the serving index. The sparse model relates different texts
+// to each other. Only this exact read shows which text the index stores.
 func readStoredPages(t *testing.T, fixture queryFixture, nodeID uuid.UUID) ([]storedPage, error) {
 	t.Helper()
-	if _, err := fixture.Client.Indices.Refresh(t.Context(), &opensearchapi.IndicesRefreshReq{Index: []string{fixture.Index}}); err != nil {
-		return nil, clusterFailure("refresh "+fixture.Index, err)
-	}
 	query := fmt.Sprintf(`{"size":1000,"_source":["search_generation","page_text"],"query":{"bool":{"filter":[{"term":{"node_id":%q}},{"term":{"retired":false}}]}},"sort":[{"page_ordinal":"asc"}]}`, nodeID.String())
 	response, err := fixture.Client.Search(t.Context(), &opensearchapi.SearchReq{Indices: []string{fixture.Index}, Body: strings.NewReader(query)})
 	if err != nil {
 		return nil, clusterFailure("read the stored pages of node "+nodeID.String(), err)
+	}
+	if response.Timeout || response.Shards.Failed > 0 {
+		return nil, fmt.Errorf("read the stored pages of node %s: search timed out %t with %d failed shards", nodeID, response.Timeout, response.Shards.Failed)
 	}
 	pages := make([]storedPage, 0, len(response.Hits.Hits))
 	for _, hit := range response.Hits.Hits {
