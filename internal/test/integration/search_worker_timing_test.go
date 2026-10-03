@@ -13,14 +13,16 @@ const (
 	// startDeadlineDelay delays one page write past the two-second slice
 	// start deadline and below the ten-second operation timeout.
 	startDeadlineDelay = 2500 * time.Millisecond
-	// operationStopEarliest and operationStopLatest bound when the worker
-	// abandons a delayed write. The ten-second timeout starts just before the
-	// proxy receives the write.
+	// operationStopEarliest and operationStopLatest bound how long the
+	// delayed write stays open before the worker abandons it. The worker
+	// starts its ten-second timer just before the proxy receives the write,
+	// and the proxy notices the cancel a little after it happens. Fifteen
+	// seconds still separates the ten-second stop from the two-minute client
+	// timeout.
 	operationStopEarliest = 9500 * time.Millisecond
-	operationStopLatest   = 11 * time.Second
-	// otherNodeWait bounds the time a second worker takes to index another
-	// node while the delayed write is open.
-	otherNodeWait = 8 * time.Second
+	operationStopLatest   = 15 * time.Second
+	// resultWait bounds the wait for the first worker loop to return.
+	resultWait = 2 * time.Minute
 	// timingText projects to several pages at timingPageBytes.
 	timingText = "worker timing text "
 )
@@ -65,8 +67,8 @@ func TestSearchWorkerSliceStopsAtStartDeadline(t *testing.T) {
 // TestSearchWorkerStopsDelayedRequestAtOperationTimeout delays page 1 of node
 // X until the client abandons the write. The worker must abandon it at ten
 // seconds, start no other write of X before the slice returns, and resume
-// the next claim of X at ordinal 1. A second worker must index node Y while
-// the write is open.
+// the next claim of X at ordinal 1. A second worker must write a page of
+// node Y while the write is open, and Y must be fully indexed afterward.
 func TestSearchWorkerStopsDelayedRequestAtOperationTimeout(t *testing.T) {
 	stores := newSearchStore(t)
 	adapter, client, proxy, index := newDelayedSearchIndex(t, stores, 0)
@@ -93,20 +95,31 @@ func TestSearchWorkerStopsDelayedRequestAtOperationTimeout(t *testing.T) {
 
 	other := putSearchText(t, stores, shortTimingText, readerExcludedValue)
 	second := newSearchWorker(t, stores, adapter, clock.Wall{}, settings)
-	for deadline := time.Now().Add(otherNodeWait); len(searchNodePages(t, client, index, other.NodeID, false)) == 0; {
-		if time.Now().After(deadline) {
-			t.Fatalf("another node was not indexed within %s while the write was open", otherNodeWait)
+	for len(proxy.writesOf(other.NodeID)) == 0 {
+		if _, until, _ := proxy.held(); !until.IsZero() {
+			break
 		}
 		if _, err := second.RunSlice(t.Context()); err != nil {
 			t.Fatalf("run a slice of the second worker: %v", err)
 		}
 	}
-	if _, until, _ := proxy.held(); !until.IsZero() {
-		t.Fatal("the delayed write ended before the second worker indexed the other node")
-	}
 
-	result := <-results
+	var result delayedSlice
+	select {
+	case result = <-results:
+	case <-time.After(resultWait):
+		t.Fatalf("the first worker loop did not return within %s", resultWait)
+	}
 	from, until, abandoned := proxy.held()
+	otherWritten := false
+	for _, write := range proxy.writesOf(other.NodeID) {
+		if write.received.After(from) && write.received.Before(until) {
+			otherWritten = true
+		}
+	}
+	if !otherWritten {
+		t.Fatalf("the second worker wrote no page of another node while the delayed write was open from %s to %s", from, until)
+	}
 	if !result.ended || !abandoned {
 		t.Fatalf("delayed write ended %t abandoned %t, slice error %v; want the client to abandon it", result.ended, abandoned, result.err)
 	}
@@ -128,4 +141,5 @@ func TestSearchWorkerStopsDelayedRequestAtOperationTimeout(t *testing.T) {
 	}
 	runSearchWorkerUntilIdle(t, first)
 	requireIndexedPages(t, searchNodePages(t, client, index, delayed.NodeID, false), readSearchPages(t, stores, delayed.NodeID, timingPageBytes), 0)
+	requireIndexedPages(t, searchNodePages(t, client, index, other.NodeID, false), readSearchPages(t, stores, other.NodeID, timingPageBytes), 0)
 }

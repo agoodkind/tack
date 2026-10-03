@@ -13,15 +13,17 @@ import (
 )
 
 const (
-	// timingPageBytes keeps each page small; a node of a few hundred bytes
-	// spans several pages.
+	// timingPageBytes keeps each page small. A node with a few hundred bytes
+	// of text has several pages.
 	timingPageBytes = 128
-	// cleanupBatchDocuments is the issued document count one cleanup slice
-	// retires before it yields.
+	// cleanupBatchDocuments is the most old page documents that one cleanup
+	// slice retires. The slice leaves any remaining documents for a later
+	// slice.
 	cleanupBatchDocuments = 100
-	// claimWait bounds the wait for work released with the retry delay.
+	// claimWait bounds the wait for released work to become claimable again
+	// after its retry delay.
 	claimWait = 30 * time.Second
-	// shortTimingText projects to one page at timingPageBytes.
+	// shortTimingText fits on one page at timingPageBytes.
 	shortTimingText = "short timing text"
 )
 
