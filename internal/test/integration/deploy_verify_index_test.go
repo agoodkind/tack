@@ -2,16 +2,12 @@ package integration
 
 import (
 	"bytes"
-	"net"
-	"net/http"
+	"net/url"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/moby/moby/api/types/container"
-	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
 
 	"goodkind.io/tack/internal/audit"
@@ -20,31 +16,29 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-const (
-	// deployRegistryImage serves the registry HTTP API for the test. The
-	// digest is the Docker Hub index of registry:3 read on 2026-10-02.
-	deployRegistryImage = "registry:3@sha256:ddf754342cfc8acc51a56d5d0ab6af06826461864460636d8bd5c546dab2a7b8"
-	// deployTestenvNetwork is the network testenv attaches the test process to.
-	deployTestenvNetwork = "tack-testenv"
-	// deployTestenvLabel marks containers testenv removes on release.
-	deployTestenvLabel = "io.goodkind.tack.testenv"
-)
-
-// TestDeployVerifyComparesTheGivenIndexDigest pushes a multi-platform index
-// image for tack-server and tack-audit-consumer to a local registry, pulls
-// each by tag, and creates (without starting) the two containers ops deploy
-// verify reads. The audited command passes with the pushed index digests and
-// fails when the tack-server digest is the other image's index digest.
+// TestDeployVerifyComparesTheGivenIndexDigest starts a disposable docker:dind
+// daemon with the containerd image store. Inside that daemon it pushes a
+// multi-platform index image for tack-server and tack-audit-consumer to a
+// local registry, pulls each by tag, and creates (without starting) the two
+// containers ops deploy verify reads. The audited command passes with the
+// pushed index digests and fails when the tack-server digest is the other
+// image's index digest.
 func TestDeployVerifyComparesTheGivenIndexDigest(t *testing.T) {
 	ledgerDSN := testenv.Ledger(t)
 	testenv.RequireDocker(t)
-	cli := deployTestClient(t)
+	endpoint, cli := testenv.ContainerdDocker(t)
+	t.Setenv("DOCKER_HOST", endpoint)
+	requireContainerdImageStore(t, cli)
 	for _, name := range []string{"tack-app-1", "tack-audit-consumer-1"} {
 		if _, err := cli.ContainerInspect(t.Context(), name, client.ContainerInspectOptions{}); err == nil {
 			t.Fatalf("container %s exists on this daemon; the test refuses to replace it", name)
 		}
 	}
-	registry, hostPort := startDeployRegistry(t, cli)
+	daemonURL, err := url.Parse(endpoint)
+	if err != nil {
+		t.Fatalf("parse the daemon endpoint %s: %v", endpoint, err)
+	}
+	registry, hostPort := startDeployRegistry(t, cli, daemonURL.Hostname())
 	tag := "m13-" + uuid.NewString()[:8]
 	serverDigest := registry.pushMultiPlatformIndex(t, "tack-server", tag, "server "+tag)
 	consumerDigest := registry.pushMultiPlatformIndex(t, "tack-audit-consumer", tag, "consumer "+tag)
@@ -90,73 +84,4 @@ func runOpsDeployVerify(t *testing.T, cfg *config.Config, ledgerDSN, serverDiges
 	})
 	runErr := root.Execute()
 	return output.String(), runErr
-}
-
-func deployTestClient(t *testing.T) *client.Client {
-	t.Helper()
-	cli, err := client.New(client.WithHost(client.DefaultDockerHost))
-	if err != nil {
-		t.Fatalf("docker client: %v", err)
-	}
-	t.Cleanup(func() { _ = cli.Close() })
-	return cli
-}
-
-// startDeployRegistry starts a registry on the testenv network with its API
-// port published on the daemon host loopback. It returns a registry client
-// for the test process and the published host port the daemon pulls from.
-func startDeployRegistry(t *testing.T, cli *client.Client) (localRegistry, string) {
-	t.Helper()
-	pullImage(t, cli, deployRegistryImage)
-	name := "tack-testenv-registry-" + uuid.NewString()[:8]
-	apiPort := network.MustParsePort("5000/tcp")
-	_, err := cli.ContainerCreate(t.Context(), client.ContainerCreateOptions{
-		Config: &container.Config{
-			Image: deployRegistryImage, ExposedPorts: network.PortSet{apiPort: {}},
-			Labels: map[string]string{deployTestenvLabel: "true"},
-		},
-		HostConfig: &container.HostConfig{PortBindings: network.PortMap{apiPort: {{HostPort: ""}}}},
-		NetworkingConfig: &network.NetworkingConfig{
-			EndpointsConfig: map[string]*network.EndpointSettings{deployTestenvNetwork: {}},
-		},
-		Name: name,
-	})
-	if err != nil {
-		t.Fatalf("create the registry: %v", err)
-	}
-	t.Cleanup(func() { removeDeployContainer(t, cli, name) })
-	if _, err := cli.ContainerStart(t.Context(), name, client.ContainerStartOptions{}); err != nil {
-		t.Fatalf("start the registry: %v", err)
-	}
-	inspected, err := cli.ContainerInspect(t.Context(), name, client.ContainerInspectOptions{})
-	if err != nil || inspected.Container.NetworkSettings == nil || len(inspected.Container.NetworkSettings.Ports[apiPort]) == 0 {
-		t.Fatalf("read the registry port: %v", err)
-	}
-	hostPort := inspected.Container.NetworkSettings.Ports[apiPort][0].HostPort
-	base := "http://" + name + ":5000"
-	if _, err := net.DefaultResolver.LookupHost(t.Context(), name); err != nil {
-		base = "http://localhost:" + hostPort
-	}
-	registry := localRegistry{base: base, http: &http.Client{Timeout: 30 * time.Second}}
-	waitForRegistry(t, registry)
-	return registry, hostPort
-}
-
-func waitForRegistry(t *testing.T, registry localRegistry) {
-	t.Helper()
-	deadline := time.Now().Add(time.Minute)
-	for time.Now().Before(deadline) {
-		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, registry.base+"/v2/", nil)
-		if err != nil {
-			t.Fatalf("build the registry probe: %v", err)
-		}
-		if response, err := registry.http.Do(request); err == nil {
-			_ = response.Body.Close()
-			if response.StatusCode == http.StatusOK {
-				return
-			}
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-	t.Fatalf("the %s did not answer /v2/ within a minute", registry.base)
 }
