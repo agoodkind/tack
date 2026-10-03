@@ -1,0 +1,156 @@
+package integration
+
+import (
+	"encoding/json"
+	"errors"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
+	"goodkind.io/tack/internal/clock"
+	"goodkind.io/tack/internal/domain/node"
+	searchdomain "goodkind.io/tack/internal/domain/search"
+	"goodkind.io/tack/internal/service"
+)
+
+const (
+	// escapedNameBytes is the name prefix each page document stores.
+	escapedNameBytes = 512
+	// worstEscapedText is one byte that JSON encoding writes as six bytes.
+	worstEscapedText = "<"
+	// foundationDBValueLimit is the largest value FoundationDB stores. The node
+	// record is one JSON value and bounds the text of one node.
+	foundationDBValueLimit = 100_000
+	// largestAccessEntries is the version and key count of a page during an
+	// access rollout: one key from each of the two registered policies.
+	largestAccessEntries = 2
+	// setupDeadline bounds the rollout and replacement setup steps.
+	setupDeadline = 10 * time.Minute
+)
+
+// writeLargestSearchNode rewrites the fixture node with name and one included
+// value of repeated unit, as long as the node and view records fit within the
+// FoundationDB value limit.
+func writeLargestSearchNode(t *testing.T, stores *fdbadapter.Stores, fixture searchFixture, name, unit string) {
+	t.Helper()
+	now := clock.Now().UTC()
+	records := func(included string) (*node.Node, *node.NodeView, int) {
+		props := map[string]json.RawMessage{fixture.IncludedKey: mustJSON(included), fixture.ExcludedKey: mustJSON(readerExcludedValue)}
+		value := &node.Node{ID: fixture.NodeID, OrgID: fixture.OrgID, NodeType: fixture.TypeKey, Name: name, Props: props, CreatedAt: now, UpdatedAt: now}
+		view := &node.NodeView{ID: fixture.NodeID, OrgID: fixture.OrgID, NodeType: fixture.TypeKey, Name: name, Props: props, CreatedAt: now, UpdatedAt: now}
+		encodedValue, valueErr := json.Marshal(value)
+		encodedView, viewErr := json.Marshal(view)
+		if valueErr != nil || viewErr != nil {
+			t.Fatalf("encode node records: %v %v", valueErr, viewErr)
+		}
+		return value, view, max(len(encodedValue), len(encodedView))
+	}
+	_, _, base := records("")
+	_, _, one := records(unit)
+	value, view, size := records(strings.Repeat(unit, (foundationDBValueLimit-base)/(one-base)))
+	if size > foundationDBValueLimit || size+(one-base) <= foundationDBValueLimit {
+		t.Fatalf("largest node record is %d bytes, want the largest size within %d", size, foundationDBValueLimit)
+	}
+	if err := stores.Nodes.Set(t.Context(), value, view); err != nil {
+		t.Fatalf("store the largest search node: %v", err)
+	}
+}
+
+// driveClasses claims and processes work of the listed classes only, until
+// done reports true. Other classes stay pending.
+func driveClasses(t *testing.T, worker *service.SearchWorker, work *fdbadapter.SearchWorkStore, classes []searchdomain.WorkClass, done func() bool) {
+	t.Helper()
+	for deadline := time.Now().Add(setupDeadline); time.Now().Before(deadline); {
+		if done() {
+			return
+		}
+		claimed := false
+		for _, class := range classes {
+			item, err := work.Claim(t.Context(), class, "setup", 30*time.Second)
+			if errors.Is(err, searchdomain.ErrNoWork) {
+				continue
+			}
+			if err != nil {
+				t.Fatalf("claim %s work: %v", class, err)
+			}
+			claimed = true
+			if err := worker.Process(t.Context(), item); err != nil {
+				t.Fatalf("process %s work: %v", class, err)
+			}
+		}
+		if !claimed {
+			time.Sleep(250 * time.Millisecond)
+		}
+	}
+	t.Fatalf("setup classes %v did not finish within %s", classes, setupDeadline)
+}
+
+// measureLiveSlices claims and processes live work until no live work stays
+// claimable, logs each claim and its bulk requests, and returns for each node
+// the requests of the slice with the most page writes.
+func measureLiveSlices(t *testing.T, work *fdbadapter.SearchWorkStore, rollouts *fdbadapter.SearchAccessRolloutStore, orgID uuid.UUID, worker *service.SearchWorker, meter *bulkMeter, lease time.Duration, serving, mirror string) map[uuid.UUID][]bulkRecord {
+	t.Helper()
+	measured := map[uuid.UUID][]bulkRecord{}
+	idle := 0
+	for deadline := time.Now().Add(setupDeadline); time.Now().Before(deadline) && idle < 8; {
+		item, err := work.Claim(t.Context(), searchdomain.WorkClassLive, "measured", lease)
+		if errors.Is(err, searchdomain.ErrNoWork) {
+			idle++
+			time.Sleep(250 * time.Millisecond)
+			continue
+		}
+		if err != nil || item.Target != serving || item.Mirror != mirror {
+			t.Fatalf("claim live work = target %q mirror %q err %v, want %q and %q", item.Target, item.Mirror, err, serving, mirror)
+		}
+		idle = 0
+		rollout, err := rollouts.Current(t.Context(), orgID)
+		if err != nil {
+			t.Fatalf("read access rollout at claim: %v", err)
+		}
+		t.Logf("claim of %s: generation %d cursor %q; rollout phase %s generation %d write versions %v",
+			item.NodeID, item.Generation, item.Cursor, rollout.Phase, rollout.Generation, rollout.WriteVersions)
+		meter.take()
+		if err := worker.Process(t.Context(), item); err != nil {
+			t.Fatalf("process the live slice of %s: %v", item.NodeID, err)
+		}
+		records := meter.take()
+		pagesWritten, first, last, smallest := 0, uint64(0), uint64(0), 0
+		for _, record := range records {
+			t.Logf("request of %s to %s: %d bytes, page ordinal %d, page text %d bytes, access versions %v, %d keys, access generation %d",
+				item.NodeID, record.index, record.bytes, record.ordinal, record.textBytes, record.access.Versions, len(record.access.Keys), record.access.Generation)
+			if record.content && record.index == serving {
+				if pagesWritten == 0 || record.ordinal < first {
+					first = record.ordinal
+				}
+				last = max(last, record.ordinal)
+				if pagesWritten == 0 || record.textBytes < smallest {
+					smallest = record.textBytes
+				}
+				pagesWritten++
+			}
+		}
+		t.Logf("live slice of %s: generation %d revision %q phase %q start ordinal %d resumed %t; %d requests, %d serving page writes, ordinals %d to %d, smallest page text %d bytes",
+			item.NodeID, item.Generation, item.Revision, item.Phase, item.Ordinal, item.Cursor != "", len(records), pagesWritten, first, last, smallest)
+		if previous, _, _ := sliceBytes(measured[item.NodeID]); pagesWritten > previous[serving] {
+			measured[item.NodeID] = records
+		}
+	}
+	if idle < 8 {
+		t.Fatalf("live work stayed claimable for %s", setupDeadline)
+	}
+	return measured
+}
+
+// sliceBytes counts the bulk writes per index and returns the total and the
+// largest request body of one slice.
+func sliceBytes(records []bulkRecord) (writes map[string]int, total, largest int) {
+	writes = map[string]int{}
+	for _, record := range records {
+		writes[record.index]++
+		total += record.bytes
+		largest = max(largest, record.bytes)
+	}
+	return writes, total, largest
+}

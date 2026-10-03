@@ -66,6 +66,39 @@ func TestSearchReaderPagesDeclaredUnicodeText(t *testing.T) {
 	}
 }
 
+// TestSearchReaderCompletesOnAFullFinalPage requires the reader to report
+// completion on a final page that fills the byte bound exactly, with no
+// continuation cursor. The projected text is the fixture name line and the
+// included value line. Each continuation repeats a quarter of the bound, so
+// a text of one bound plus two advances ends on the third full page.
+func TestSearchReaderCompletesOnAFullFinalPage(t *testing.T) {
+	stores := newSearchStore(t)
+	advance := readerPageBytes - readerPageBytes/4
+	projectedLength := readerPageBytes + 2*advance
+	nameLine := len(searchFixtureName) + len("\n")
+	included := strings.Repeat("b", projectedLength-nameLine-len("\n"))
+	fixture := putSearchText(t, stores, included, readerExcludedValue)
+	reader := stores.SearchContent(stores.SearchPolicySet())
+	request := searchdomain.ContentRequest{
+		NodeID: fixture.NodeID, Cursor: "", ProjectionConfig: "", AccessVersions: nil, MaxBytes: readerPageBytes, SearchGeneration: 0,
+	}
+	const finalOrdinal = 2
+	for ordinal := range finalOrdinal + 1 {
+		page, err := reader.Content(t.Context(), request)
+		if err != nil {
+			t.Fatalf("read page %d: %v", ordinal, err)
+		}
+		if len(page.Text) != readerPageBytes {
+			t.Fatalf("page %d has %d bytes, want the full bound of %d", ordinal, len(page.Text), readerPageBytes)
+		}
+		final := ordinal == finalOrdinal
+		if page.Done != final || (page.NextCursor == "") != final {
+			t.Fatalf("page %d reports done %t with cursor %q, want completion only on the full final page %d", ordinal, page.Done, page.NextCursor, finalOrdinal)
+		}
+		request.Cursor = page.NextCursor
+	}
+}
+
 func TestSearchReaderRejectsEditBetweenPages(t *testing.T) {
 	stores := newSearchStore(t)
 	fixture := putSearchText(t, stores, readerIncludedValue(), readerExcludedValue)
