@@ -58,9 +58,10 @@ type DisposableOpenSearchOptions struct {
 }
 
 // DisposableEngine is one engine that belongs to one test. Its data path is
-// a size-bounded filesystem on the Docker host disk, and the disk threshold
-// monitor reads that filesystem. A test fills it to cross the flood-stage
-// watermark without filling the host disk or a shared engine.
+// a filesystem of fixed size on the disk of the Docker VM, and the disk
+// threshold monitor reads that filesystem. A test fills it to cross the
+// flood-stage watermark without filling the Docker VM disk or a shared
+// engine.
 type DisposableEngine struct {
 	Fixture OpenSearchFixture
 }
