@@ -65,8 +65,8 @@ func TestSearchClusterDiskFloodStage(t *testing.T) {
 
 	renameFloodProject(t, fixture, nodeA, floodStageNewText)
 	nodeB := createFloodProject(t, fixture, "FLDB", floodStageNewText+" beacon")
-	requireStoredName(t, fixture, nodeA, floodStageNewText)
-	requireStoredName(t, fixture, nodeB, floodStageNewText+" beacon")
+	requireFoundationDBName(t, fixture, nodeA, floodStageNewText)
+	requireFoundationDBName(t, fixture, nodeB, floodStageNewText+" beacon")
 	requireBlockedFailures(t, fixture, nodeB)
 	// Verify runs before the pending-work check. A counted failure at the
 	// attempt limit excludes node B and removes its live work, and verify

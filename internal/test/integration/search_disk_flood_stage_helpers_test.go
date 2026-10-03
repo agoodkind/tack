@@ -132,8 +132,9 @@ func renameFloodProject(t *testing.T, fixture queryFixture, nodeID uuid.UUID, na
 	})
 }
 
-// requireStoredName requires the FoundationDB view of nodeID to have name.
-func requireStoredName(t *testing.T, fixture queryFixture, nodeID uuid.UUID, name string) {
+// requireFoundationDBName requires the FoundationDB view of nodeID to have
+// name.
+func requireFoundationDBName(t *testing.T, fixture queryFixture, nodeID uuid.UUID, name string) {
 	t.Helper()
 	view, err := fixture.Stores.Views.Get(t.Context(), nodeID)
 	if err != nil || view == nil {
