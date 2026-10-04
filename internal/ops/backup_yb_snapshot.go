@@ -59,8 +59,8 @@ func RunBackupYBSnapshotExport(ctx context.Context, cfg *config.Config) error {
 		logger.ErrorContext(ctx, "backup.yb_snapshot.failed", slog.String("err", err.Error()))
 		return err
 	}
-	if cfg.YugabytePassword == "" {
-		err := fmt.Errorf("yb-snapshot-export: YUGABYTE_PASSWORD is required")
+	if cfg.MigratorPassword == "" {
+		err := fmt.Errorf("yb-snapshot-export: TACK_MIGRATOR_PASSWORD is required")
 		logger.ErrorContext(ctx, "backup.yb_snapshot.failed", slog.String("err", err.Error()))
 		return err
 	}
