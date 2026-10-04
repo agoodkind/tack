@@ -4,11 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"os"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pressly/goose/v3"
 
@@ -20,9 +22,9 @@ import (
 const auditGuardMigration = 17
 
 func TestAuditPartitionNamesBackfillUnblocksMaintenance(t *testing.T) {
-	node := testenv.StartEmptyLedger(t, fmt.Sprintf("tack-testenv-yugabyte-partition-names-%d", os.Getpid()))
-	migrateLedgerTo(t, node.DSN, auditGuardMigration-1)
-	pool, err := pgxpool.New(t.Context(), node.DSN)
+	dsn := emptyLedgerDatabase(t)
+	migrateLedgerTo(t, dsn, auditGuardMigration-1)
+	pool, err := pgxpool.New(t.Context(), dsn)
 	if err != nil {
 		t.Fatalf("open ledger pool: %v", err)
 	}
@@ -42,7 +44,7 @@ func TestAuditPartitionNamesBackfillUnblocksMaintenance(t *testing.T) {
 	if _, err := pool.Exec(t.Context(), `SELECT audit.run_partition_maintenance()`); err == nil || !strings.Contains(err.Error(), "roof") {
 		t.Fatalf("maintenance with the misnamed child = %v, want the pg_partman date error", err)
 	}
-	if err := migrateLedgerUpTo(t.Context(), node.DSN, auditGuardMigration); err == nil || !strings.Contains(err.Error(), "events_tack336_proof") {
+	if err := migrateLedgerUpTo(t.Context(), dsn, auditGuardMigration); err == nil || !strings.Contains(err.Error(), "events_tack336_proof") {
 		t.Fatalf("migration 017 with the misnamed child = %v, want a refusal that lists the child", err)
 	}
 
@@ -69,7 +71,7 @@ func TestAuditPartitionNamesBackfillUnblocksMaintenance(t *testing.T) {
 		}
 	}
 
-	migrateLedgerTo(t, node.DSN, auditGuardMigration)
+	migrateLedgerTo(t, dsn, auditGuardMigration)
 	if _, err := pool.Exec(t.Context(), `SELECT audit.run_partition_maintenance()`); err != nil {
 		t.Fatalf("maintenance after the rename: %v", err)
 	}
@@ -87,6 +89,34 @@ func TestAuditPartitionNamesBackfillUnblocksMaintenance(t *testing.T) {
 	if err != nil || len(rerun.Renames) != 0 {
 		t.Fatalf("second run = %+v, %v; want no rename", rerun, err)
 	}
+}
+
+// emptyLedgerDatabase creates an unmigrated database on the process ledger
+// and drops it after the test.
+func emptyLedgerDatabase(t *testing.T) string {
+	t.Helper()
+	baseDSN := testenv.Ledger(t)
+	admin, err := pgxpool.New(t.Context(), baseDSN)
+	if err != nil {
+		t.Fatalf("open the ledger admin pool: %v", err)
+	}
+	name := "tack_partition_names_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	if _, err := admin.Exec(t.Context(), fmt.Sprintf("CREATE DATABASE %s TEMPLATE template0", pgx.Identifier{name}.Sanitize())); err != nil {
+		admin.Close()
+		t.Fatalf("create database %s: %v", name, err)
+	}
+	t.Cleanup(func() {
+		if _, err := admin.Exec(context.Background(), fmt.Sprintf("DROP DATABASE %s", pgx.Identifier{name}.Sanitize())); err != nil {
+			t.Errorf("drop database %s: %v", name, err)
+		}
+		admin.Close()
+	})
+	parsed, err := url.Parse(baseDSN)
+	if err != nil {
+		t.Fatalf("parse the ledger DSN: %v", err)
+	}
+	parsed.Path = "/" + name
+	return parsed.String()
 }
 
 func migrateLedgerTo(t *testing.T, dsn string, version int64) {
