@@ -74,6 +74,20 @@ BEGIN
     LOOP
         EXECUTE 'ALTER ROUTINE ' || owned.signature || ' OWNER TO tack_migrator';
     END LOOP;
+
+    /* The schema dump of the backup locks every table, and the lock needs
+       SELECT. */
+    FOR owned IN
+        SELECT n.nspname, c.relname
+          FROM pg_class c
+          JOIN pg_namespace n ON n.oid = c.relnamespace
+         WHERE n.nspname IN ('audit', 'partman', 'public')
+           AND c.relkind IN ('r', 'p', 'v')
+           AND pg_get_userbyid(c.relowner) <> 'tack_migrator'
+    LOOP
+        EXECUTE 'GRANT SELECT ON ' || quote_ident(owned.nspname) || '.' || quote_ident(owned.relname)
+            || ' TO tack_migrator';
+    END LOOP;
 END$$;
 -- +goose StatementEnd
 
@@ -100,7 +114,8 @@ BEGIN
     END IF;
     /* The session role takes every object that tack_migrator owns. */
     EXECUTE 'REASSIGN OWNED BY tack_migrator TO ' || quote_ident(session_user);
-    EXECUTE 'REVOKE CREATE ON DATABASE ' || quote_ident(current_database()) || ' FROM tack_migrator';
+    /* After the reassignment, DROP OWNED removes only the grants. */
+    DROP OWNED BY tack_migrator;
     DROP ROLE tack_migrator;
 END$$;
 -- +goose StatementEnd
