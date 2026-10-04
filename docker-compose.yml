@@ -210,8 +210,13 @@ services:
       - --tserver_flags=flagfile=/home/yugabyte/tserver.flags
     environment:
       YSQL_DB: ${YUGABYTE_DB:?YUGABYTE_DB is required, set it in .env}
-      YSQL_USER: ${YUGABYTE_USER:?YUGABYTE_USER is required, set it in .env}
-      YSQL_PASSWORD: ${YUGABYTE_PASSWORD:?YUGABYTE_PASSWORD is required, set it in .env}
+      # yugabyted reads the superuser name and password only on the first
+      # start of an empty data directory. The deploy passes them for that
+      # start from the vault and renders neither into .env (TACK-554). A
+      # first start with an empty password creates the superuser with the
+      # engine's default password.
+      YSQL_USER: ${YUGABYTE_USER:-}
+      YSQL_PASSWORD: ${YUGABYTE_PASSWORD:-}
     ports:
       - "5433:5433" # YSQL (Postgres-compatible)
       - "7000:7000" # YugabyteDB master UI
@@ -229,9 +234,7 @@ services:
       test:
         - CMD-SHELL
         - |
-          ADDR="$$(hostname)"
-          PGPASSWORD=${YUGABYTE_PASSWORD:?} ysqlsh -h "$$ADDR" -p 5433 \
-            -U ${YUGABYTE_USER:?} -d ${YUGABYTE_DB:?} -c 'SELECT 1' -t
+          /home/yugabyte/postgres/bin/pg_isready -h "$$(hostname)" -p 5433
       interval: 10s
       timeout: 10s
       retries: 10

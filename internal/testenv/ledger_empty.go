@@ -24,11 +24,9 @@ const (
 	ledgerHealthTimeout     = 10 * time.Second
 	ledgerHealthStartPeriod = 180 * time.Second
 	ledgerHealthRetries     = 10
-	// ledgerHealthTest is the yugabyte service's health check. It reads the
-	// login from the container's own environment. The generated superuser key
-	// never appears in the container's health check configuration.
-	ledgerHealthTest = `ADDR="$(hostname)"; PGPASSWORD="$YSQL_PASSWORD" ysqlsh -h "$ADDR" -p 5433 ` +
-		`-U "$YSQL_USER" -d "$YSQL_DB" -c 'SELECT 1' -t`
+	// ledgerHealthTest is the yugabyte service's health check. It uses no
+	// login.
+	ledgerHealthTest = `/home/yugabyte/postgres/bin/pg_isready -h "$(hostname)" -p 5433`
 )
 
 // EmptyLedgerNode is a YugabyteDB node that one test started. The node has
