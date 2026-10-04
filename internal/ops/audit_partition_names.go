@@ -14,16 +14,15 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// auditWeekNamePattern is the child name pg_partman parses as the start of a
-// week. Migration 017 refuses every other name.
+// pg_partman reads the YYYY_MM_DD suffix of each audit.events child name as
+// the Monday that starts the week of the child.
 var auditWeekNamePattern = regexp.MustCompile(`^events_p[0-9]{4}_[0-9]{2}_[0-9]{2}$`)
 
-// auditPartitionBoundPattern matches the range bound of an audit.events child
-// in a UTC session.
 var auditPartitionBoundPattern = regexp.MustCompile(`^FOR VALUES FROM \('([^']+)'\) TO \('([^']+)'\)$`)
 
 const (
-	// auditPartitionBoundLayout is the timestamp form of a bound in a UTC session.
+	// pg_get_expr prints each bound in the session time zone.
+	// RunAuditPartitionNamesBackfill sets the session to UTC before the read.
 	auditPartitionBoundLayout = "2006-01-02 15:04:05-07"
 	auditWeek                 = 7 * 24 * time.Hour
 )
@@ -144,8 +143,8 @@ func weekRename(ctx context.Context, name, bound string) (AuditPartitionRename, 
 	return AuditPartitionRename{From: name, To: "events_p" + lower.Format("2006_01_02"), LowerBound: lower, UpperBound: upper}, nil
 }
 
-// renameAuditPartition renames the key first; a rerun after a partial failure
-// finds the key already renamed.
+// The primary key rename runs before the table rename. A rerun after a failed
+// table rename finds no key named From_pkey and renames only the table.
 func renameAuditPartition(ctx context.Context, conn *pgx.Conn, rename AuditPartitionRename) error {
 	table := pgx.Identifier{"audit", rename.From}.Sanitize()
 	var keyCount int

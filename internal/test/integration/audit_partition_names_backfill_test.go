@@ -19,8 +19,6 @@ import (
 
 const auditGuardMigration = 17
 
-// TestAuditPartitionNamesBackfillUnblocksMaintenance reproduces the QA ledger
-// with its misnamed 2031 partition.
 func TestAuditPartitionNamesBackfillUnblocksMaintenance(t *testing.T) {
 	node := testenv.StartEmptyLedger(t, fmt.Sprintf("tack-testenv-yugabyte-partition-names-%d", os.Getpid()))
 	migrateLedgerTo(t, node.DSN, auditGuardMigration-1)
@@ -79,8 +77,6 @@ func TestAuditPartitionNamesBackfillUnblocksMaintenance(t *testing.T) {
 	}
 }
 
-// migrateLedgerTo applies the embedded migrations up to version and fails the
-// test on an error.
 func migrateLedgerTo(t *testing.T, dsn string, version int64) {
 	t.Helper()
 	if err := migrateLedgerUpTo(t.Context(), dsn, version); err != nil {
@@ -88,7 +84,6 @@ func migrateLedgerTo(t *testing.T, dsn string, version int64) {
 	}
 }
 
-// migrateLedgerUpTo applies the embedded migrations up to version.
 func migrateLedgerUpTo(ctx context.Context, dsn string, version int64) error {
 	database, err := sql.Open("pgx", dsn)
 	if err != nil {
@@ -105,7 +100,6 @@ func migrateLedgerUpTo(ctx context.Context, dsn string, version int64) error {
 	return nil
 }
 
-// childExists reports whether audit.events has a child named name.
 func childExists(t *testing.T, pool *pgxpool.Pool, name string) bool {
 	t.Helper()
 	var count int
