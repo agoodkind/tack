@@ -69,19 +69,31 @@ func TestDBBreakGlassRefusesWrites(t *testing.T) {
 		}
 	}
 
-	// A block that turns the setting off before its write fails too.
-	block := "DO $$ BEGIN SET LOCAL transaction_read_only = off; " +
-		"CREATE TABLE public.tack554_refused (id int); END $$"
-	if _, err := runBreakGlass(t, deps, block, reason); err == nil {
-		t.Fatal("a block that turns transaction_read_only off ran its write")
+	// A block that turns the setting off before its write fails too. The two
+	// strings after it end the transaction, turn the setting off, and write
+	// in a new transaction. The simple query protocol would run each of their
+	// statements; the command sends one unnamed prepared statement, and the
+	// server refuses a string of several commands.
+	turnsReadOnlyOff := []string{
+		"DO $$ BEGIN SET LOCAL transaction_read_only = off; " +
+			"CREATE TABLE public.tack554_refused (id int); END $$",
+		"COMMIT; SET default_transaction_read_only = off; BEGIN; " +
+			"CREATE TABLE public.tack554_refused (id int); COMMIT",
+		"COMMIT; SET SESSION CHARACTERISTICS AS TRANSACTION READ WRITE; BEGIN; " +
+			"CREATE TABLE public.tack554_refused (id int); COMMIT",
 	}
-	var absent bool
-	if err := pool.QueryRow(t.Context(), refused[0].absent).Scan(&absent); err != nil || !absent {
-		t.Fatalf("the block created its table: absent = %v, err = %v", absent, err)
+	for _, statement := range turnsReadOnlyOff {
+		if _, err := runBreakGlass(t, deps, statement, reason); err == nil {
+			t.Fatalf("%q ran its write", statement)
+		}
+		var absent bool
+		if err := pool.QueryRow(t.Context(), refused[0].absent).Scan(&absent); err != nil || !absent {
+			t.Fatalf("%q created its table: absent = %v, err = %v", statement, absent, err)
+		}
 	}
 
 	rows := breakGlassRows(t, pool, reason)
-	wantRows := 2 * (len(refused) + 1)
+	wantRows := 2 * (len(refused) + len(turnsReadOnlyOff))
 	if len(rows) != wantRows {
 		t.Fatalf("ledger rows = %d, want a pending row and an error row per attempt (%d)", len(rows), wantRows)
 	}
