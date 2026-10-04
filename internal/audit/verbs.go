@@ -147,6 +147,9 @@ const (
 	// VerbOpsBackfillOrphanNodes records the one-time delete of the nodes
 	// without a hierarchy parent and their descendants.
 	VerbOpsBackfillOrphanNodes Verb = "ops.backfill_orphan_nodes"
+	// VerbOpsBackfillAuditPartitionNames records the one-time rename of each
+	// audit.events child with a name outside events_pYYYY_MM_DD.
+	VerbOpsBackfillAuditPartitionNames Verb = "ops.backfill_audit_partition_names"
 	// VerbOpsReindex records property index backfills.
 	VerbOpsReindex Verb = "ops.reindex"
 	// VerbOpsReferenceDuplicates records duplicate reference reports.

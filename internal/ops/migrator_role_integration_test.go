@@ -107,6 +107,10 @@ func TestMigratorLoginDoesTheSuperuserWork(t *testing.T) {
 	if projectedOwner != "audit_writer" || outboxOwner != "ops_outbox_owner" {
 		t.Fatalf("owners = %s and %s, want audit_writer and ops_outbox_owner", projectedOwner, outboxOwner)
 	}
+	// The schema dump of the backup needs SELECT on every table.
+	if _, err := migrator.Exec(ctx, `SELECT count(*) FROM public.ops_outbox`); err != nil {
+		t.Fatalf("read public.ops_outbox as tack_migrator: %v", err)
+	}
 	claimed := uuid.Must(uuid.NewV7())
 	if _, err := writer.Exec(ctx, `INSERT INTO audit.projected_events (event_id) VALUES ($1)`, claimed); err != nil {
 		t.Fatalf("claim an event identity as the audit writer: %v", err)
