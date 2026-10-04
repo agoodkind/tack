@@ -25,6 +25,11 @@ const (
 	openSearchHolderSeconds = "2147483647"
 	// openSearchPort is the engine's HTTPS port.
 	openSearchPort = "9200"
+	// openSearchJavaOptions matches the JVM options of the deployed members.
+	// G1PeriodicGCInterval starts a collection after 5 s without one. Queries
+	// allocate too little to start a collection on their own, and uncollected
+	// garbage keeps used heap above the 85 percent ML Commons memory breaker.
+	openSearchJavaOptions = "-Xms3g -Xmx3g -XX:G1PeriodicGCInterval=5000"
 )
 
 // provisionOpenSearch starts one engine and returns the fixture after
@@ -76,7 +81,7 @@ func provisionOpenSearch(ctx context.Context, settings openSearchEngineSettings)
 			Image: openSearchImage,
 			Env: append([]string{
 				"discovery.type=single-node",
-				"OPENSEARCH_JAVA_OPTS=-Xms3g -Xmx3g",
+				"OPENSEARCH_JAVA_OPTS=" + openSearchJavaOptions,
 				"DISABLE_INSTALL_DEMO_CONFIG=true",
 			}, settings.nodeSettings...),
 			Labels: map[string]string{managedLabel: "true"},

@@ -345,12 +345,16 @@ services:
   # The search guests have no IPv4 route. java.net.preferIPv6Addresses makes
   # the JVM connect to the IPv6 address of a dual-stack host, such as the
   # model artifact host that ML Commons downloads the pinned model from.
+  # G1PeriodicGCInterval starts a collection after 5 s without one. Queries
+  # allocate too little to start a collection on their own, and uncollected
+  # garbage keeps used heap above the 85 percent ML Commons memory breaker,
+  # which then refuses query predictions.
   opensearch:
     image: opensearchproject/opensearch:3.8.0
     profiles: [search]
     restart: unless-stopped
     environment:
-      OPENSEARCH_JAVA_OPTS: -Xms3g -Xmx3g -Djava.net.preferIPv6Addresses=true
+      OPENSEARCH_JAVA_OPTS: -Xms3g -Xmx3g -XX:G1PeriodicGCInterval=5000 -Djava.net.preferIPv6Addresses=true
       node.roles: cluster_manager,data,ingest,ml
       node.name: ${TACK_SEARCH_NODE_NAME:-}
       discovery.type: ${TACK_SEARCH_DISCOVERY_TYPE:-}
