@@ -135,11 +135,6 @@ func attachedTo(inspected container.InspectResponse, target string) bool {
 	return attached
 }
 
-// engineAddress returns a container's IP address on the engines' network.
-func engineAddress(inspected container.InspectResponse) (string, error) {
-	return addressOn(inspected, networkName)
-}
-
 // addressOn returns a container's IP address on target.
 func addressOn(inspected container.InspectResponse, target string) (string, error) {
 	if !attachedTo(inspected, target) {
