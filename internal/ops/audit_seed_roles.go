@@ -39,9 +39,10 @@ func newAuditLoginRole(login, base, secret string) auditLoginRole {
 // RunAuditSeedRoles creates or rotates the five LOGIN roles the deployment
 // connects as: the four audit roles (tack_audit_writer, tack_audit_reader,
 // tack_audit_redactor, tack_audit_operator) and the application's own
-// tack_app (TACK-180), each granting exactly the matching base role. It
-// connects as DATABASE_URL, which holds role-creation privilege because the
-// migrate path creates the base roles through the same DSN. Idempotent.
+// tack_app (TACK-180), each granting exactly the matching base role. It then
+// sets LOGIN and the password on tack_migrator (TACK-554). It connects as
+// DATABASE_URL: the engine superuser on a first boot, and tack_migrator, which
+// has CREATEROLE, after that. Idempotent.
 func RunAuditSeedRoles(ctx context.Context, cfg *config.Config) error {
 	roles := []auditLoginRole{
 		newAuditLoginRole("tack_audit_writer", "audit_writer", cfg.AuditWriterPassword),
