@@ -12,11 +12,6 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// TestUpdateIssueStateByNameUsesTheIssueProject creates a second project in
-// the harness workspace; both projects get a default "Done" state. It sets
-// the state of an issue in the first project by the name "Done" through
-// tack_update_issue, the call the QA data generator soak makes. The issue
-// must store the "Done" state of its own project.
 func TestUpdateIssueStateByNameUsesTheIssueProject(t *testing.T) {
 	harness := NewMCPHarness(t)
 	stores, err := fdbadapter.NewStores(testenv.FoundationDB(t), testTransactionTimeout, nil)
@@ -34,6 +29,8 @@ func TestUpdateIssueStateByNameUsesTheIssueProject(t *testing.T) {
 	issueArguments.Name = "Issue with a state set by name"
 	issueID := harness.Call(t, "tack_create_issue", issueArguments).RawID()
 
+	// The seed creates a "Done" state in each project. The name "Done" matches
+	// a state in both projects.
 	updateArguments := harness.projectArgs()
 	updateArguments.ProjectReference = ""
 	updateArguments.NodeID = issueID
@@ -51,7 +48,6 @@ func TestUpdateIssueStateByNameUsesTheIssueProject(t *testing.T) {
 	}
 }
 
-// projectStateID returns the ID of the state named name under projectID.
 func projectStateID(t *testing.T, stores *fdbadapter.Stores, harness *MCPHarness, projectID, name string) string {
 	t.Helper()
 	states, err := stores.Nodes.ListByProperty(t.Context(), harness.orgID, "state", "parent_id", jsonStr(projectID))
