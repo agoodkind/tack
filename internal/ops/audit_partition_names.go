@@ -106,7 +106,7 @@ func plannedAuditPartitionRenames(ctx context.Context, conn *pgx.Conn) ([]AuditP
 		if auditWeekNamePattern.MatchString(name) {
 			continue
 		}
-		rename, err := weekRename(ctx, name, bound)
+		rename, err := weekRename(name, bound)
 		if err == nil && names[rename.To] {
 			err = fmt.Errorf("child %s: the target name %s exists", name, rename.To)
 		}
@@ -124,16 +124,15 @@ func plannedAuditPartitionRenames(ctx context.Context, conn *pgx.Conn) ([]AuditP
 	return renames, nil
 }
 
-func weekRename(ctx context.Context, name, bound string) (AuditPartitionRename, error) {
+func weekRename(name, bound string) (AuditPartitionRename, error) {
 	match := auditPartitionBoundPattern.FindStringSubmatch(bound)
 	if match == nil {
 		return AuditPartitionRename{}, fmt.Errorf("child %s: bound %q is not a time range", name, bound)
 	}
 	lower, lowerErr := time.Parse(auditPartitionBoundLayout, match[1])
 	upper, upperErr := time.Parse(auditPartitionBoundLayout, match[2])
-	if err := errors.Join(lowerErr, upperErr); err != nil {
-		slog.ErrorContext(ctx, "audit_partition_names.bound_parse_failed", slog.String("err", err.Error()), slog.String("child", name))
-		return AuditPartitionRename{}, fmt.Errorf("child %s: parse bound %q: %w", name, bound, err)
+	if lowerErr != nil || upperErr != nil {
+		return AuditPartitionRename{}, fmt.Errorf("child %s: bound %q has a timestamp outside the form %s", name, bound, auditPartitionBoundLayout)
 	}
 	lower, upper = lower.UTC(), upper.UTC()
 	weekStart := lower.Weekday() == time.Monday && lower.Equal(lower.Truncate(24*time.Hour))
@@ -144,20 +143,20 @@ func weekRename(ctx context.Context, name, bound string) (AuditPartitionRename, 
 }
 
 // The primary key rename runs before the table rename. A rerun after a failed
-// table rename finds no key named From_pkey and renames only the table.
+// table rename finds the key named To_pkey and renames only the table.
 func renameAuditPartition(ctx context.Context, conn *pgx.Conn, rename AuditPartitionRename) error {
 	table := pgx.Identifier{"audit", rename.From}.Sanitize()
-	var keyCount int
+	var key string
 	if err := conn.QueryRow(ctx, `
-		SELECT count(*) FROM pg_constraint
-		 WHERE conrelid = $1::regclass AND conname = $2`, table, rename.From+"_pkey").Scan(&keyCount); err != nil {
+		SELECT conname FROM pg_constraint
+		 WHERE conrelid = $1::regclass AND contype = 'p'`, table).Scan(&key); err != nil {
 		slog.ErrorContext(ctx, "audit_partition_names.key_read_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("read the primary key of %s: %w", rename.From, err)
 	}
 	statements := []string{}
-	if keyCount == 1 {
+	if key != rename.To+"_pkey" {
 		statements = append(statements, fmt.Sprintf("ALTER TABLE %s RENAME CONSTRAINT %s TO %s", table,
-			pgx.Identifier{rename.From + "_pkey"}.Sanitize(), pgx.Identifier{rename.To + "_pkey"}.Sanitize()))
+			pgx.Identifier{key}.Sanitize(), pgx.Identifier{rename.To + "_pkey"}.Sanitize()))
 	}
 	statements = append(statements, fmt.Sprintf("ALTER TABLE %s RENAME TO %s", table, pgx.Identifier{rename.To}.Sanitize()))
 	for _, statement := range statements {

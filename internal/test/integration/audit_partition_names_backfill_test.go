@@ -27,10 +27,18 @@ func TestAuditPartitionNamesBackfillUnblocksMaintenance(t *testing.T) {
 		t.Fatalf("open ledger pool: %v", err)
 	}
 	t.Cleanup(pool.Close)
-	if _, err := pool.Exec(t.Context(), `CREATE TABLE audit.events_tack336_proof PARTITION OF audit.events
-		FOR VALUES FROM ('2031-03-03 00:00:00+00') TO ('2031-03-10 00:00:00+00')`); err != nil {
-		t.Fatalf("create the misnamed child: %v", err)
+	for _, statement := range []string{
+		`CREATE TABLE audit.events_tack336_proof PARTITION OF audit.events
+			FOR VALUES FROM ('2031-03-03 00:00:00+00') TO ('2031-03-10 00:00:00+00')`,
+		`CREATE TABLE audit.events_hand_week PARTITION OF audit.events
+			FOR VALUES FROM ('2031-03-10 00:00:00+00') TO ('2031-03-17 00:00:00+00')`,
+		`ALTER TABLE audit.events_hand_week RENAME CONSTRAINT events_hand_week_pkey TO hand_week_key`,
+	} {
+		if _, err := pool.Exec(t.Context(), statement); err != nil {
+			t.Fatalf("create the misnamed children: %v", err)
+		}
 	}
+	renamed := map[string]string{"events_tack336_proof": "events_p2031_03_03", "events_hand_week": "events_p2031_03_10"}
 	if _, err := pool.Exec(t.Context(), `SELECT audit.run_partition_maintenance()`); err == nil || !strings.Contains(err.Error(), "roof") {
 		t.Fatalf("maintenance with the misnamed child = %v, want the pg_partman date error", err)
 	}
@@ -39,22 +47,26 @@ func TestAuditPartitionNamesBackfillUnblocksMaintenance(t *testing.T) {
 	}
 
 	planned, err := ops.RunAuditPartitionNamesBackfill(t.Context(), pool, true)
-	if err != nil || len(planned.Renames) != 1 || planned.Renames[0].To != "events_p2031_03_03" {
-		t.Fatalf("dry run = %+v, %v; want one rename to events_p2031_03_03", planned, err)
+	if err != nil || len(planned.Renames) != len(renamed) {
+		t.Fatalf("dry run = %+v, %v; want %d renames", planned, err, len(renamed))
 	}
-	if !childExists(t, pool, "events_tack336_proof") {
-		t.Fatal("the dry run renamed the child")
+	for _, rename := range planned.Renames {
+		if renamed[rename.From] != rename.To || !childExists(t, pool, rename.From) {
+			t.Fatalf("dry run rename %+v; want %s left in place and planned as %s", rename, rename.From, renamed[rename.From])
+		}
 	}
 	if _, err := ops.RunAuditPartitionNamesBackfill(t.Context(), pool, false); err != nil {
 		t.Fatalf("execute the backfill: %v", err)
 	}
-	if childExists(t, pool, "events_tack336_proof") || !childExists(t, pool, "events_p2031_03_03") {
-		t.Fatal("the child was not renamed to events_p2031_03_03")
-	}
-	var key string
-	if err := pool.QueryRow(t.Context(), `SELECT conname FROM pg_constraint
-		WHERE conrelid = 'audit.events_p2031_03_03'::regclass AND contype = 'p'`).Scan(&key); err != nil || key != "events_p2031_03_03_pkey" {
-		t.Fatalf("primary key of the renamed child = %q, %v; want events_p2031_03_03_pkey", key, err)
+	for from, to := range renamed {
+		if childExists(t, pool, from) || !childExists(t, pool, to) {
+			t.Fatalf("child %s was not renamed to %s", from, to)
+		}
+		var key string
+		if err := pool.QueryRow(t.Context(), `SELECT conname FROM pg_constraint
+			WHERE conrelid = ('audit.' || $1)::regclass AND contype = 'p'`, to).Scan(&key); err != nil || key != to+"_pkey" {
+			t.Fatalf("primary key of %s = %q, %v; want %s_pkey", to, key, err, to)
+		}
 	}
 
 	migrateLedgerTo(t, node.DSN, auditGuardMigration)
