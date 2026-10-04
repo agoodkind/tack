@@ -16,9 +16,6 @@ import (
 	"goodkind.io/tack/migrations"
 )
 
-// notOwnedByMigratorQuery counts the tables, views, sequences, functions, and
-// procedures of the audit, partman, and public schemas that tack_migrator does
-// not own.
 const notOwnedByMigratorQuery = `
 	SELECT (SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
 	         WHERE n.nspname IN ('audit', 'partman', 'public') AND c.relkind IN ('r', 'p', 'v', 'S')
@@ -30,19 +27,14 @@ const notOwnedByMigratorQuery = `
 	         WHERE nspname IN ('audit', 'partman', 'public')
 	           AND pg_get_userbyid(nspowner) <> 'tack_migrator')`
 
-// eventPartitionCountQuery counts the partitions of audit.events.
 const eventPartitionCountQuery = `
 	SELECT count(*) FROM pg_inherits i JOIN pg_class p ON p.oid = i.inhparent
 	  JOIN pg_namespace n ON n.oid = p.relnamespace
 	 WHERE n.nspname = 'audit' AND p.relname = 'events'`
 
-// TestMigratorLoginDoesTheSuperuserWork is TACK-554 against a real YugabyteDB.
-// The engine superuser runs the migrations and seed-roles once, as on a first
-// boot. The tack_migrator login, which is not a superuser, then runs the
-// migrator, changes the audit schema, runs seed-roles, and changes the
-// pg_partman settings. Partition maintenance called by the audit writer
-// creates a partition that tack_migrator owns. tack_migrator reads the ledger
-// and cannot write a ledger row.
+// TestMigratorLoginDoesTheSuperuserWork runs seed-roles once as the engine
+// superuser, as a first boot does, and every later step as tack_migrator
+// (TACK-554).
 func TestMigratorLoginDoesTheSuperuserWork(t *testing.T) {
 	adminDSN := testenv.Ledger(t)
 	ctx := t.Context()
@@ -115,7 +107,6 @@ func TestMigratorLoginDoesTheSuperuserWork(t *testing.T) {
 	}
 }
 
-// loginDSN returns adminDSN rewritten to connect as login with secret.
 func loginDSN(t *testing.T, adminDSN, login, secret string) string {
 	t.Helper()
 	parsed, err := url.Parse(adminDSN)
@@ -126,7 +117,6 @@ func loginDSN(t *testing.T, adminDSN, login, secret string) string {
 	return parsed.String()
 }
 
-// countRows runs a query that returns one count.
 func countRows(ctx context.Context, t *testing.T, pool *pgxpool.Pool, query string) int {
 	t.Helper()
 	var count int

@@ -41,8 +41,7 @@ func newAuditLoginRole(login, base, secret string) auditLoginRole {
 // tack_audit_redactor, tack_audit_operator) and the application's own
 // tack_app (TACK-180), each granting exactly the matching base role. It then
 // sets LOGIN and the password on tack_migrator (TACK-554). It connects as
-// DATABASE_URL: the engine superuser on a first boot, and tack_migrator, which
-// has CREATEROLE, after that. Idempotent.
+// DATABASE_URL, which needs CREATEROLE. Idempotent.
 func RunAuditSeedRoles(ctx context.Context, cfg *config.Config) error {
 	roles := []auditLoginRole{
 		newAuditLoginRole("tack_audit_writer", "audit_writer", cfg.AuditWriterPassword),
@@ -96,9 +95,7 @@ func upsertAuditLoginRole(ctx context.Context, pool *pgxpool.Pool, role auditLog
 		return err
 	}
 
-	// The ALTER names no superuser attribute: the engine lets only a superuser
-	// name it, and seed-roles runs as tack_migrator. loginRoleExists refuses a
-	// login that is a superuser.
+	// The engine lets only a superuser write NOSUPERUSER in ALTER ROLE.
 	passwordLiteral := quoteSQLStringLiteral(role.password)
 	var roleStmt string
 	if exists {

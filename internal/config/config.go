@@ -107,9 +107,8 @@ type Config struct {
 	// (TACK-180). The deploy generates it per host; the running server never
 	// reads it.
 	AppPassword string `env:"TACK_APP_PASSWORD"`
-	// MigratorPassword is the password seed-roles sets on tack_migrator, the
-	// non-superuser login that owns the schema and that `./server migrate`
-	// and the operator commands connect as (TACK-554).
+	// MigratorPassword is the password seed-roles sets on tack_migrator
+	// (TACK-554).
 	MigratorPassword string `env:"TACK_MIGRATOR_PASSWORD"`
 
 	// AuditAllowUnrecorded lets a deployment run with no ledger at all. It
