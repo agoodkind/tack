@@ -235,10 +235,16 @@ not even healthy until the first of them runs. Until the provisioning layer land
    commands (`ops audit dlq inspect`, `ops audit dlq replay`) run through the
    `app` service, which carries both the reader DSN and the Kafka brokers a
    replay needs; tack-ops is host-networked and cannot reach the broker.
-   The recorded break-glass path to the database (`ops db sql`) runs through
-   `tack-ops`, whose database login is the engine superuser and whose
-   environment carries the alarm mail settings the command needs; the `app`
-   service connects as `tack_app`, which cannot read the ledger (TACK-327).
+   Run the recorded break-glass command (`ops db sql`) in `tack-ops`. The
+   `tack-ops` environment has the alarm mail settings the command needs; the
+   `app` service connects as `tack_app`, which cannot read the ledger
+   (TACK-327). The command runs one statement in a read-only session.
+   `tack-ops` connects as `tack_migrator`, which owns the schema and is not a
+   superuser. Only a from-empty rebuild uses the engine superuser. The deploy
+   passes that credential for that run and does not render it into `.env`.
+   Write to the database only with a migration or a reviewed ops command. The
+   schema guard of migration 019 refuses a hand-written schema change on the
+   `audit` and `partman` schemas (TACK-552).
    Migration 011 must be applied before an audit-consumer image that carries
    it: the full deploy runs `ops provision --execute`, whose ordered steps
    include the pending migrations, before the app and consumer start
