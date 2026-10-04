@@ -1,4 +1,4 @@
-package ops
+package ops_test
 
 import (
 	"context"
@@ -12,8 +12,14 @@ import (
 
 	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/config"
+	"goodkind.io/tack/internal/ops"
 	"goodkind.io/tack/internal/testenv"
 	"goodkind.io/tack/migrations"
+)
+
+const (
+	migratorLogin                 = "tack_migrator"
+	insufficientPrivilegeSQLState = "42501"
 )
 
 const ownedBySuperuserQuery = `
@@ -51,7 +57,7 @@ func TestMigratorLoginDoesTheSuperuserWork(t *testing.T) {
 	} {
 		*generated = uuid.NewString()
 	}
-	if err := RunAuditSeedRoles(ctx, cfg); err != nil {
+	if err := ops.RunAuditSeedRoles(ctx, cfg); err != nil {
 		t.Fatalf("seed-roles as the engine superuser: %v", err)
 	}
 
@@ -77,7 +83,7 @@ func TestMigratorLoginDoesTheSuperuserWork(t *testing.T) {
 
 	asMigrator := *cfg
 	asMigrator.DatabaseURL = migratorDSN
-	if err := RunAuditSeedRoles(ctx, &asMigrator); err != nil {
+	if err := ops.RunAuditSeedRoles(ctx, &asMigrator); err != nil {
 		t.Fatalf("seed-roles as tack_migrator: %v", err)
 	}
 
@@ -125,7 +131,7 @@ func TestMigratorLoginDoesTheSuperuserWork(t *testing.T) {
 	_, err := migrator.Exec(ctx, `INSERT INTO audit.chain_heads (org_id, shard, last_seq, last_hash, updated_at)
 		VALUES ('019ff315-bc5d-7a56-b12a-1a35f280c4dd', 0, 1, '\x00', now())`)
 	var refused *pgconn.PgError
-	if !errors.As(err, &refused) || refused.Code != permissionDeniedSQLState {
+	if !errors.As(err, &refused) || refused.Code != insufficientPrivilegeSQLState {
 		t.Fatalf("ledger insert as tack_migrator: err = %v, want the row-level security refusal", err)
 	}
 }
