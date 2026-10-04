@@ -537,13 +537,8 @@ services:
       # whose .env said development would still run this container as
       # production (TACK-261).
       ENV: ${ENV:?ENV is required, set it in .env}
-      # Yugabyte connection details for the backup ysql_dump step. The
-      # backup binary reads these directly from its config struct (not
-      # from the parsed DATABASE_URL DSN), so they must be passed through
-      # to the tack-ops container even though the app service already has
-      # them embedded in DATABASE_URL.
-      YUGABYTE_USER: ${YUGABYTE_USER:?YUGABYTE_USER is required, set it in .env}
-      YUGABYTE_PASSWORD: ${YUGABYTE_PASSWORD:?YUGABYTE_PASSWORD is required, set it in .env}
+      # The database that the backup dumps read. The dumps connect as
+      # tack_migrator with TACK_MIGRATOR_PASSWORD below.
       YUGABYTE_DB: ${YUGABYTE_DB:?YUGABYTE_DB is required, set it in .env}
       # Audit role passwords for `ops audit seed-roles`, which creates or rotates
       # the LOGIN audit roles. Empty default so other ops (backup) run without
