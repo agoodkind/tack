@@ -31,8 +31,10 @@ func dbSQLOp(f *cli.Factory) clispec.Operation[dbSQLInput] {
 		Group:    dbOpsGroup,
 		Aliases:  nil,
 		Hidden:   false,
-		Short:    "Run one SQL statement against the database, recorded and mailed",
-		Long: "Runs one statement as the deployment's database administrator. The " +
+		Short:    "Run one read-only SQL statement against the database, recorded and mailed",
+		Long: "Runs one statement in a read-only session. The server refuses a " +
+			"statement that changes data or schema; a database write needs a " +
+			"migration or a reviewed ops command. The " +
 			"operator, the reason, and the statement are recorded in the ledger, " +
 			"and the alarm address is mailed before the statement runs; a mail " +
 			"that cannot be delivered refuses the statement. Nothing runs " +
