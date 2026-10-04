@@ -17,17 +17,10 @@ import (
 	"goodkind.io/tack/migrations"
 )
 
-// auditGuardMigration is the migration that refuses an audit.events child
-// named outside events_pYYYY_MM_DD.
 const auditGuardMigration = 17
 
-// TestAuditPartitionNamesBackfillUnblocksMaintenance builds the QA ledger
-// state on an empty YugabyteDB node: every migration before 017, then a
-// hand-made child events_tack336_proof for the week of 2031-03-03. Partition
-// maintenance fails on that name and migration 017 refuses it. The backfill
-// must rename the child to events_p2031_03_03 with its primary key. Migration
-// 017 then applies, maintenance creates the current week and the premake
-// weeks, and a second backfill run lists no rename.
+// TestAuditPartitionNamesBackfillUnblocksMaintenance reproduces the QA ledger
+// with its misnamed 2031 partition.
 func TestAuditPartitionNamesBackfillUnblocksMaintenance(t *testing.T) {
 	node := testenv.StartEmptyLedger(t, fmt.Sprintf("tack-testenv-yugabyte-partition-names-%d", os.Getpid()))
 	migrateLedgerTo(t, node.DSN, auditGuardMigration-1)

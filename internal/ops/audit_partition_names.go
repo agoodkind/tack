@@ -41,11 +41,8 @@ type AuditPartitionNamesResult struct {
 	Renames []AuditPartitionRename `json:"renames"`
 }
 
-// RunAuditPartitionNamesBackfill finds each child of audit.events with a name
-// outside events_pYYYY_MM_DD. A child that covers exactly one week starting
-// Monday 00:00 UTC is renamed to the name of that Monday, with its primary
-// key. Any other such child, or a target name that exists, fails the run
-// before any rename. A dry run lists the renames and changes nothing.
+// RunAuditPartitionNamesBackfill renames each audit.events child outside
+// events_pYYYY_MM_DD to the Monday its one-week range starts on.
 func RunAuditPartitionNamesBackfill(ctx context.Context, pool *pgxpool.Pool, dryRun bool) (AuditPartitionNamesResult, error) {
 	result := AuditPartitionNamesResult{Renames: []AuditPartitionRename{}}
 	conn, err := pool.Acquire(ctx)
@@ -75,8 +72,6 @@ func RunAuditPartitionNamesBackfill(ctx context.Context, pool *pgxpool.Pool, dry
 	return result, nil
 }
 
-// plannedAuditPartitionRenames reads every child of audit.events and returns
-// the renames for the children outside the week form.
 func plannedAuditPartitionRenames(ctx context.Context, conn *pgx.Conn) ([]AuditPartitionRename, error) {
 	rows, err := conn.Query(ctx, `
 		SELECT c.relname, pg_get_expr(c.relpartbound, c.oid)
@@ -130,8 +125,6 @@ func plannedAuditPartitionRenames(ctx context.Context, conn *pgx.Conn) ([]AuditP
 	return renames, nil
 }
 
-// weekRename returns the rename of one child from its range bound, or an
-// error when the range is not one week starting Monday 00:00 UTC.
 func weekRename(ctx context.Context, name, bound string) (AuditPartitionRename, error) {
 	match := auditPartitionBoundPattern.FindStringSubmatch(bound)
 	if match == nil {
@@ -151,8 +144,8 @@ func weekRename(ctx context.Context, name, bound string) (AuditPartitionRename, 
 	return AuditPartitionRename{From: name, To: "events_p" + lower.Format("2006_01_02"), LowerBound: lower, UpperBound: upper}, nil
 }
 
-// renameAuditPartition renames the primary key and then the table. A rerun
-// after a failure between the two statements finds the key renamed.
+// renameAuditPartition renames the key first; a rerun after a partial failure
+// finds the key already renamed.
 func renameAuditPartition(ctx context.Context, conn *pgx.Conn, rename AuditPartitionRename) error {
 	table := pgx.Identifier{"audit", rename.From}.Sanitize()
 	var keyCount int
