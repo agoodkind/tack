@@ -214,7 +214,9 @@ services:
       # start of an empty data directory. The deploy passes them for that
       # start from the vault and renders neither into .env (TACK-554). A
       # first start with an empty password creates the superuser with the
-      # engine's default password.
+      # engine's default password. On that first start the health check
+      # below logs in with the password, which yugabyted sets after the
+      # database accepts connections.
       YSQL_USER: ${YUGABYTE_USER:-}
       YSQL_PASSWORD: ${YUGABYTE_PASSWORD:-}
     ports:
@@ -234,7 +236,12 @@ services:
       test:
         - CMD-SHELL
         - |
-          /home/yugabyte/postgres/bin/pg_isready -h "$$(hostname)" -p 5433
+          if [ -n "$$YSQL_PASSWORD" ]; then
+            PGPASSWORD="$$YSQL_PASSWORD" ysqlsh -h "$$(hostname)" -p 5433 \
+              -U "$$YSQL_USER" -d "$$YSQL_DB" -c 'SELECT 1' -t
+          else
+            /home/yugabyte/postgres/bin/pg_isready -h "$$(hostname)" -p 5433
+          fi
       interval: 10s
       timeout: 10s
       retries: 10
