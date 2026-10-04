@@ -45,6 +45,8 @@ type EmptyLedgerNode struct {
 	// Network is the Docker network that the node and every other test engine
 	// join.
 	Network string
+	// Image is the engine image of the node.
+	Image string
 }
 
 // StartEmptyLedger starts an unmigrated YugabyteDB node under containerName,
@@ -85,8 +87,13 @@ func StartEmptyLedger(t *testing.T, containerName string) EmptyLedgerNode {
 	if err := waitForLedger(ctx, dsn.String()); err != nil {
 		t.Fatalf("start empty ledger %s: %v", containerName, err)
 	}
+	image, err := serviceImage(ctx, ledgerService)
+	if err != nil {
+		t.Fatalf("start empty ledger %s: %v", containerName, err)
+	}
 	slog.InfoContext(ctx, "testenv.ledger.empty_ready", slog.String("container", started.name))
 	return EmptyLedgerNode{
+		Image:         image,
 		DSN:           dsn.String(),
 		Address:       started.address,
 		MasterAddress: net.JoinHostPort(started.address, ledgerMasterPort),
