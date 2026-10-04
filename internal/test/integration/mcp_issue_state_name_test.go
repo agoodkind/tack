@@ -29,8 +29,7 @@ func TestUpdateIssueStateByNameUsesTheIssueProject(t *testing.T) {
 	issueArguments.Name = "Issue with a state set by name"
 	issueID := harness.Call(t, "tack_create_issue", issueArguments).RawID()
 
-	// The seed creates a "Done" state in each project. The name "Done" matches
-	// a state in both projects.
+	// Both projects have a Done state.
 	updateArguments := harness.projectArgs()
 	updateArguments.ProjectReference = ""
 	updateArguments.NodeID = issueID
