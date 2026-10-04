@@ -65,7 +65,7 @@ func pingYugabyteUntilReady(ctx context.Context, pool *pgxpool.Pool) error {
 // keeps a record nobody has consumed.
 const retentionConfigKey = "retention.ms"
 
-// ensureAuditTopic creates the audit topic with auditTopicPartitions partitions
+// EnsureAuditTopic creates the audit topic with auditTopicPartitions partitions
 // when it does not already exist, so a fresh broker does not leave the consumer
 // fetching a topic that nothing has created (TACK-305). The replication factor
 // is left to the broker default (-1) so the same call works at one broker or
@@ -73,7 +73,7 @@ const retentionConfigKey = "retention.ms"
 // to the configured value, because the topic is the buffer that holds every
 // event the consumer has not yet committed: the broker default of seven days
 // discarded the 2026-07-06 to 07-21 events during a consumer outage (TACK-336).
-func ensureAuditTopic(ctx context.Context, client *kgo.Client, topic string, retention time.Duration) error {
+func EnsureAuditTopic(ctx context.Context, client *kgo.Client, topic string, retention time.Duration) error {
 	retentionMs := strconv.FormatInt(retention.Milliseconds(), 10)
 	req := kmsg.NewPtrCreateTopicsRequest()
 	reqTopic := kmsg.NewCreateTopicsRequestTopic()

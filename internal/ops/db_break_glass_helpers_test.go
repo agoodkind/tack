@@ -20,7 +20,34 @@ import (
 
 // breakGlassMailTests lists the tests in this package that deliver to the
 // Mailpit server.
-var breakGlassMailTests = []string{"TestDBBreakGlassRunsTheStatementAndRecordsIt"}
+var breakGlassMailTests = []string{
+	"TestDBBreakGlassRunsTheStatementAndRecordsIt",
+	"TestDBPlanSendsOneMailAtOpenAndOneAtClose",
+	"TestDBPlanRefusesAStatementOutsideThePlan",
+	"TestDBPlanMailsAFailedStatement",
+	"TestDBPlanUndeliveredOpenMailBlocksThePlan",
+	"TestDBPlanRefusesAnotherPrincipal",
+	"TestDBPlanRefusesAnExpiredPlan",
+	"TestDBPlanCloseFailsWhileTheConsumerIsBehind",
+	"TestDBPlanRefusesACloseByAnotherPrincipal",
+	"TestDBPlanStatementWaitsForTheOpenRow",
+	"TestDBPlanCloseFailsOnADeadLetteredPlanRow",
+	"TestDBPlanAcceptsAnotherSessionOfTheOpener",
+	"TestDBPlanCloseWritesTheCloseRowBeforeTheSummaryMail",
+	"TestDBPlanRefusalMailsWhenItsRowWriteFails",
+	"TestDBPlanCloseStopsAtALedgerReadFailure",
+	"TestDBPlanStatementStopsAtALedgerReadFailure",
+	"TestDBPlanCloseStopsAtAClosedLedgerReader",
+	"TestDBPlanCloseStopsAtAConsumerOffsetReadFailure",
+	"TestDBPlanRefusesAStatementUnderAnUnverifiablePlan",
+	"TestDBPlanRefusesACloseOfAnUnverifiablePlan",
+	"TestDBPlanCloseIgnoresAnUnrelatedDeadLetter",
+	"TestDBPlanStatementStopsAtTheOpenRowWait",
+	"TestDBPlanCloseFailsOnAnUndecodableDeadLetter",
+	"TestDBPlanReportsTheCanonicalPlanID",
+	"TestDBPlanCloseBoundsTheLedgerReaderOpen",
+	"TestDBPlanCloseBoundsThePostWaitLedgerRead",
+}
 
 // unreachableMsmtprcFormat is an msmtp account on the closed local port 1.
 // The production mailer fails at the SMTP dial to it.

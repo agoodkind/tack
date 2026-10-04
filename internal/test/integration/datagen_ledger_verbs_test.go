@@ -19,11 +19,12 @@ import (
 // recorded ledger verb events.
 const ledgerVerbsDeadline = 90 * time.Second
 
-// recordedLedgerVerbs are the four host-only ledger verbs. The test records
+// recordedLedgerVerbs are the six host-only operator verbs. The test records
 // one row of each.
 var recordedLedgerVerbs = []audit.Verb{
 	audit.VerbOpsLedgerNodePrepare, audit.VerbOpsLedgerNodeWait,
 	audit.VerbOpsLedgerBootstrapWait, audit.VerbOpsLedgerAuditBootstrap,
+	audit.VerbOpsDBPlanOpen, audit.VerbOpsDBPlanClose,
 }
 
 type datagenSeedLedgerVerbsOutput struct {
@@ -40,7 +41,7 @@ type datagenSeedLedgerVerbsOutput struct {
 
 // TestDatagenSeedReportsHostOnlyLedgerVerbs runs `ops qa datagen seed
 // --commit` through the audited command tree before any ledger verb row
-// exists and requires all four host-only ledger verbs listed with zero rows.
+// exists and requires all six host-only operator verbs listed with zero rows.
 // It then records one system-organization event per verb through the
 // production Kafka recorder and the real audit consumer, seeds again, and
 // requires each verb with at least one row and a latest event time.
@@ -86,7 +87,7 @@ func TestDatagenSeedReportsHostOnlyLedgerVerbs(t *testing.T) {
 	}
 }
 
-// ledgerVerbRows requires the seed result to list the four host-only ledger
+// ledgerVerbRows requires the seed result to list the six host-only operator
 // verbs, each with a latest event time when it has rows, and returns the row
 // count of each.
 func ledgerVerbRows(t *testing.T, output datagenSeedLedgerVerbsOutput) map[string]int64 {
@@ -100,7 +101,7 @@ func ledgerVerbRows(t *testing.T, output datagenSeedLedgerVerbsOutput) map[strin
 	}
 	for _, verb := range recordedLedgerVerbs {
 		if _, listed := rows[string(verb)]; !listed || len(rows) != len(recordedLedgerVerbs) {
-			t.Fatalf("ledger verbs = %+v, want the four host-only ledger verbs", output.Result.LedgerVerbs.Verbs)
+			t.Fatalf("ledger verbs = %+v, want the six host-only operator verbs", output.Result.LedgerVerbs.Verbs)
 		}
 	}
 	return rows
