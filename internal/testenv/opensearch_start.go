@@ -25,12 +25,11 @@ const (
 	openSearchHolderSeconds = "2147483647"
 	// openSearchPort is the engine's HTTPS port.
 	openSearchPort = "9200"
-	// openSearchJavaOptions matches the JVM options of the deployed members.
-	// With G1PeriodicGCInterval, the JVM checks every 5 s and starts a
-	// collection when none ran in that time and no concurrent cycle is
-	// running. Queries allocate too little to start a collection on their own,
-	// and uncollected garbage keeps used heap above the 85 percent ML Commons
-	// memory breaker.
+	// Search queries allocate too little memory to start a G1 collection.
+	// Without a collection, used heap stays above the 85 percent ML Commons
+	// memory breaker, and the breaker refuses query predictions.
+	// G1PeriodicGCInterval=5000 starts a collection when no collection ran in
+	// 5 s and no concurrent cycle is running.
 	openSearchJavaOptions = "-Xms3g -Xmx3g -XX:G1PeriodicGCInterval=5000"
 )
 
