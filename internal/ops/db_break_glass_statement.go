@@ -2,12 +2,13 @@ package ops
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
-	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/telemetry"
 )
 
@@ -19,23 +20,46 @@ type dbStatementResult struct {
 	Truncated bool
 }
 
-// runDBStatement runs the statement through the extended protocol as one
-// unnamed prepared statement. The server refuses more than one command in an
-// unnamed prepared statement, and that refusal enforces the one-statement
-// contract without parsing here. The query requests text results, and every
-// cell is the server's text rendering.
+const (
+	// dbReadOnlySetting is the session setting that starts every transaction
+	// of the break-glass session read-only.
+	dbReadOnlySetting = "default_transaction_read_only"
+	// dbReadOnlySQLState is the server's refusal of a write in a read-only
+	// transaction.
+	dbReadOnlySQLState = "25006"
+)
+
+// errDBStatementWrites is the refusal of a statement that changes data or
+// schema (TACK-554).
+var errDBStatementWrites = errors.New(
+	"ops db sql is read-only and the statement changes data or schema; " +
+		"a database write needs a migration or a reviewed ops command")
+
+// runDBStatement opens one connection with default_transaction_read_only on,
+// runs the statement, and closes the connection. The server refuses a
+// statement that changes data or schema in that session. The statement runs
+// through the extended protocol as one unnamed prepared statement. The server
+// refuses more than one command in an unnamed prepared statement, and that
+// refusal enforces the one-statement contract without parsing here. The query
+// requests text results, and every cell is the server's text rendering.
 func runDBStatement(ctx context.Context, dsn, statement string) (dbStatementResult, error) {
 	none := dbStatementResult{Tag: "", Columns: nil, Rows: nil, Truncated: false}
-	pool, err := postgres.NewPool(ctx, dsn, &telemetry.QueryTracer{})
+	connConfig, err := pgx.ParseConfig(dsn)
 	if err != nil {
-		slog.ErrorContext(ctx, "db.break_glass.pool_failed", slog.String("err", err.Error()))
+		slog.ErrorContext(ctx, "db.break_glass.dsn_failed", slog.String("err", err.Error()))
+		return none, fmt.Errorf("parse the database address for the break-glass statement: %w", err)
+	}
+	connConfig.RuntimeParams[dbReadOnlySetting] = "on"
+	connConfig.Tracer = &telemetry.QueryTracer{}
+	conn, err := pgx.ConnectConfig(ctx, connConfig)
+	if err != nil {
+		slog.ErrorContext(ctx, "db.break_glass.connect_failed", slog.String("err", err.Error()))
 		return none, fmt.Errorf("open the database for the break-glass statement: %w", err)
 	}
-	defer pool.Close()
-	rows, err := pool.Query(ctx, statement, pgx.QueryExecModeExec, pgx.QueryResultFormats{pgx.TextFormatCode})
+	defer func() { _ = conn.Close(context.WithoutCancel(ctx)) }()
+	rows, err := conn.Query(ctx, statement, pgx.QueryExecModeExec, pgx.QueryResultFormats{pgx.TextFormatCode})
 	if err != nil {
-		slog.ErrorContext(ctx, "db.break_glass.query_failed", slog.String("err", err.Error()))
-		return none, fmt.Errorf("run the break-glass statement: %w", err)
+		return none, dbStatementError(ctx, err)
 	}
 	defer rows.Close()
 	outcome := dbStatementResult{Tag: "", Columns: nil, Rows: nil, Truncated: false}
@@ -51,11 +75,21 @@ func runDBStatement(ctx context.Context, dsn, statement string) (dbStatementResu
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
-		slog.ErrorContext(ctx, "db.break_glass.rows_failed", slog.String("err", err.Error()))
-		return none, fmt.Errorf("run the break-glass statement: %w", err)
+		return none, dbStatementError(ctx, err)
 	}
 	outcome.Tag = rows.CommandTag().String()
 	return outcome, nil
+}
+
+// dbStatementError wraps a failed statement. The server's read-only refusal
+// becomes errDBStatementWrites with the server's message attached.
+func dbStatementError(ctx context.Context, err error) error {
+	slog.ErrorContext(ctx, "db.break_glass.query_failed", slog.String("err", err.Error()))
+	var serverErr *pgconn.PgError
+	if errors.As(err, &serverErr) && serverErr.Code == dbReadOnlySQLState {
+		return fmt.Errorf("%w: %w", errDBStatementWrites, err)
+	}
+	return fmt.Errorf("run the break-glass statement: %w", err)
 }
 
 // textCells copies one row out of the connection's buffers, keeping a SQL

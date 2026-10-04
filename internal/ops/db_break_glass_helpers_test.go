@@ -20,7 +20,21 @@ import (
 
 // breakGlassMailTests lists the tests in this package that deliver to the
 // Mailpit server.
-var breakGlassMailTests = []string{"TestDBBreakGlassRunsTheStatementAndRecordsIt"}
+var breakGlassMailTests = []string{
+	"TestDBBreakGlassRunsTheStatementAndRecordsIt",
+	"TestDBBreakGlassRefusesWrites",
+}
+
+// dropBreakGlassTestTables drops the tables and the column that
+// TestDBBreakGlassRefusesWrites names, including each object a statement would
+// have created if the server had not refused it.
+func dropBreakGlassTestTables(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	ctx := context.WithoutCancel(t.Context())
+	_, _ = pool.Exec(ctx,
+		`DROP TABLE IF EXISTS public.tack554_rows, public.tack554_refused, audit.events_tack554_proof`)
+	_, _ = pool.Exec(ctx, `ALTER TABLE public.users DROP COLUMN IF EXISTS tack554_refused`)
+}
 
 // unreachableMsmtprcFormat is an msmtp account on the closed local port 1.
 // The production mailer fails at the SMTP dial to it.
