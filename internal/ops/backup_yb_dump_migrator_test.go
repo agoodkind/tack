@@ -1,84 +1,102 @@
-package ops
+package ops_test
 
 import (
-	"os"
+	"context"
+	"io"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/google/uuid"
 
 	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/config"
+	"goodkind.io/tack/internal/ops"
 	"goodkind.io/tack/internal/testenv"
 	"goodkind.io/tack/migrations"
 )
 
-// TestYBDumpsRunAsMigrator migrates an empty ledger as the engine superuser,
-// as a first boot does, and runs both dump one-shots as tack_migrator
-// (TACK-554).
-func TestYBDumpsRunAsMigrator(t *testing.T) {
-	ctx, cli := scratchDrillDocker(t)
+func TestYBSnapshotExportDumpsAsMigrator(t *testing.T) {
+	ctx := t.Context()
 	node := testenv.StartEmptyLedger(t, "tack-test-dump-"+uuid.NewString()[:8])
 	if err := postgres.Migrate(ctx, node.DSN, migrations.FS); err != nil {
 		t.Fatalf("migrate the empty ledger: %v", err)
 	}
+	bucket := testenv.ObjectStore(t)
 	cfg := &config.Config{
 		DatabaseURL: node.DSN, YugabyteDB: "tack",
-		BackupYBImage:           composeServiceImage(t, "yugabyte"),
+		BackupRoot:              filepath.Join(testenv.SharedDir(t), "backups"),
+		BackupYBImage:           node.Image,
 		BackupFDBNetwork:        node.Network,
 		BackupYBMasterAddresses: node.MasterAddress,
+		BackupS3Endpoint:        bucket.Endpoint,
+		BackupS3Region:          bucket.Region,
+		BackupS3BucketMain:      bucket.Bucket,
 	}
+	cfg.BackupS3AccessKey, cfg.BackupS3SecretKey = signerOf(bucket)
 	for _, generated := range []*string{
 		&cfg.AuditWriterPassword, &cfg.AuditReaderPassword, &cfg.AuditRedactorPassword,
 		&cfg.AuditOperatorPassword, &cfg.AppPassword, &cfg.MigratorPassword,
 	} {
 		*generated = uuid.NewString()
 	}
-	if err := RunAuditSeedRoles(ctx, cfg); err != nil {
+	if err := ops.RunAuditSeedRoles(ctx, cfg); err != nil {
 		t.Fatalf("seed-roles: %v", err)
 	}
 
-	stageDir := filepath.Join(testenv.SharedDir(t), "dump")
-	if err := os.MkdirAll(stageDir, 0o777); err != nil {
-		t.Fatalf("mkdir stage: %v", err)
-	}
-	// The dumper's user in the engine image differs from this process's user.
-	if err := os.Chmod(stageDir, 0o777); err != nil {
-		t.Fatalf("chmod stage: %v", err)
-	}
-	schemaPath := filepath.Join(stageDir, ybSnapshotSchemaObject)
-	rolesPath := filepath.Join(stageDir, ybSnapshotRolesObject)
-	if err := dumpYBSchemaOneShot(ctx, cli, cfg, stageDir, schemaPath); err != nil {
-		t.Fatalf("schema dump as tack_migrator: %v", err)
-	}
-	if err := dumpYBRolesOneShot(ctx, cli, cfg, stageDir, rolesPath); err != nil {
-		t.Fatalf("roles dump as tack_migrator: %v", err)
+	if err := ops.RunBackupYBSnapshotExport(ctx, cfg); err != nil {
+		t.Fatalf("export snapshot as tack_migrator: %v", err)
 	}
 
-	schema := readDump(t, schemaPath)
+	exported := exportedText(ctx, t, bucket)
 	for _, statement := range []string{
 		"CREATE TABLE audit.events", "CREATE EVENT TRIGGER tack_audit_schema_guard",
-		"CREATE POLICY events_migrator_select",
+		"CREATE POLICY events_migrator_select", "CREATE ROLE tack_migrator", "CREATE ROLE tack_audit_writer",
 	} {
-		if !strings.Contains(schema, statement) {
-			t.Fatalf("the schema dump lacks %q", statement)
+		if !strings.Contains(exported, statement) {
+			t.Fatalf("exported dumps do not contain %q", statement)
 		}
 	}
-	roles := readDump(t, rolesPath)
-	if !strings.Contains(roles, "tack_migrator") || !strings.Contains(roles, "tack_audit_writer") {
-		t.Fatal("the roles dump lacks tack_migrator or tack_audit_writer")
-	}
-	if strings.Contains(roles, "PASSWORD") {
-		t.Fatal("the roles dump includes a role password")
+	if strings.Contains(exported, "PASSWORD") {
+		t.Fatal("an exported dump contains a role password")
 	}
 }
 
-func readDump(t *testing.T, path string) string {
+func signerOf(bucket testenv.ObjectStoreBucket) (string, string) {
+	return bucket.AccessKey, bucket.SecretKey
+}
+
+func exportedText(ctx context.Context, t *testing.T, bucket testenv.ObjectStoreBucket) string {
 	t.Helper()
-	body, err := os.ReadFile(path)
+	signerID, signerValue := signerOf(bucket)
+	signer := credentials.NewStaticCredentialsProvider(signerID, signerValue, "")
+	client := s3.NewFromConfig(aws.Config{
+		Region:      bucket.Region,
+		Credentials: signer,
+	}, func(options *s3.Options) {
+		options.BaseEndpoint = aws.String(bucket.Endpoint)
+		options.UsePathStyle = true
+	})
+	listed, err := client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{Bucket: aws.String(bucket.Bucket)})
 	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
+		t.Fatalf("list the export bucket: %v", err)
 	}
-	return string(body)
+	var text strings.Builder
+	for _, object := range listed.Contents {
+		fetched, err := client.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(bucket.Bucket), Key: object.Key})
+		if err != nil {
+			t.Fatalf("get %s: %v", aws.ToString(object.Key), err)
+		}
+		body, err := io.ReadAll(fetched.Body)
+		_ = fetched.Body.Close()
+		if err != nil {
+			t.Fatalf("read %s: %v", aws.ToString(object.Key), err)
+		}
+		text.Write(body)
+		text.WriteString("\n")
+	}
+	return text.String()
 }
