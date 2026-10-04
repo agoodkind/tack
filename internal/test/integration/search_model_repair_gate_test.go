@@ -30,7 +30,7 @@ func TestSearchClusterModelRepairGates(t *testing.T) {
 	t.Setenv("OPENSEARCH_MODEL_REPAIR_STUCK_AFTER", "1s")
 	t.Setenv("OPENSEARCH_MODEL_REPAIR_ATTEMPT_SPACING", "2s")
 	cluster := startSearchTestCluster(t, 1)
-	fixture, spec := newClusterQueryFixture(t, cluster)
+	fixture, spec := newClusterQueryFixture(t, cluster.Fixture)
 	defer captureClusterTestFailure(t, cluster, fixture, spec.Model.ID)
 	disableNativeRedeploy(t, fixture)
 	member := cluster.Members()[0]

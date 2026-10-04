@@ -31,23 +31,23 @@ const (
 	clusterSearchPages = 100
 )
 
-// newClusterQueryFixture builds the newQueryFixture graph over cluster. The
-// adapter, the worker, and the graph use the proxy as their only endpoint.
-func newClusterQueryFixture(t *testing.T, cluster *testenv.OpenSearchCluster) (queryFixture, search.IndexSpec) {
+// newClusterQueryFixture builds the newQueryFixture graph over engine. The
+// adapter, the worker, and the graph use engine.Endpoint as their only endpoint.
+func newClusterQueryFixture(t *testing.T, engine testenv.OpenSearchFixture) (queryFixture, search.IndexSpec) {
 	t.Helper()
 	stores := newSearchStore(t)
-	adapter, client := openSearchClientsFor(t, cluster.Fixture)
+	adapter, client := openSearchClientsFor(t, engine)
 	index := "cluster-" + uuid.Must(uuid.NewV7()).String()
 	spec := search.IndexSpec{Model: clusterProvision(t, adapter), MappingVersion: "1", Primaries: 1, RoutingShards: 24, Replicas: 0}
 	clusterRequire(t, "create search index", adapter.EnsureIndex(t.Context(), index, spec))
 	clusterRequire(t, "set public alias", adapter.SetAlias(t.Context(), search.PublicAlias, index))
 	clusterRequire(t, "record serving index", stores.InitializeSearchIndex(t.Context(), index))
 	caPath := filepath.Join(t.TempDir(), "search-ca.crt")
-	clusterRequire(t, "write search CA", os.WriteFile(caPath, []byte(cluster.Fixture.CA), 0o600))
-	secret := cluster.Fixture.Password
-	t.Setenv("OPENSEARCH_ENDPOINT", cluster.Fixture.Endpoint)
+	clusterRequire(t, "write search CA", os.WriteFile(caPath, []byte(engine.CA), 0o600))
+	secret := engine.Password
+	t.Setenv("OPENSEARCH_ENDPOINT", engine.Endpoint)
 	t.Setenv("OPENSEARCH_CA", caPath)
-	t.Setenv("OPENSEARCH_USERNAME", cluster.Fixture.Username)
+	t.Setenv("OPENSEARCH_USERNAME", engine.Username)
 	t.Setenv("OPENSEARCH_PASSWORD", secret)
 	t.Setenv("OPENSEARCH_PAGE_BYTES", strconv.Itoa(runtimePageBytes))
 	t.Setenv("OPENSEARCH_SHARDS", strconv.Itoa(spec.Primaries))
