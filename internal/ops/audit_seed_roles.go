@@ -50,6 +50,12 @@ func RunAuditSeedRoles(ctx context.Context, cfg *config.Config) error {
 		newAuditLoginRole("tack_audit_operator", "audit_operator", cfg.AuditOperatorPassword),
 		newAuditLoginRole("tack_app", "app_auth", cfg.AppPassword),
 	}
+	if cfg.MigratorPassword == "" {
+		err := fmt.Errorf("audit seed-roles: password for %s is empty; set TACK_MIGRATOR_PASSWORD", migratorLogin)
+		slog.ErrorContext(ctx, "audit.seed_roles.password_missing",
+			slog.String("login_role", migratorLogin), slog.String("err", err.Error()))
+		return err
+	}
 	for _, role := range roles {
 		if role.password == "" {
 			err := fmt.Errorf("audit seed-roles: password for %s is empty; set its AUDIT_*_PASSWORD or TACK_APP_PASSWORD env", role.login)
@@ -71,7 +77,10 @@ func RunAuditSeedRoles(ctx context.Context, cfg *config.Config) error {
 			return err
 		}
 	}
-	slog.InfoContext(ctx, "audit.seed_roles.completed", slog.Int("role_count", len(roles)))
+	if err := setMigratorLogin(ctx, pool, cfg.MigratorPassword); err != nil {
+		return err
+	}
+	slog.InfoContext(ctx, "audit.seed_roles.completed", slog.Int("role_count", len(roles)+1))
 	return nil
 }
 
@@ -81,20 +90,19 @@ func RunAuditSeedRoles(ctx context.Context, cfg *config.Config) error {
 // the password is escaped as a SQL string literal because CREATE/ALTER ROLE
 // does not accept bind parameters for the password.
 func upsertAuditLoginRole(ctx context.Context, pool *pgxpool.Pool, role auditLoginRole) error {
-	var exists bool
-	if err := pool.QueryRow(ctx,
-		`SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1)`, role.login,
-	).Scan(&exists); err != nil {
-		slog.ErrorContext(ctx, "audit.seed_roles.check_failed",
-			slog.String("login_role", role.login), slog.String("err", err.Error()))
-		return fmt.Errorf("audit seed-roles: check %s: %w", role.login, err)
+	exists, err := loginRoleExists(ctx, pool, role.login)
+	if err != nil {
+		return err
 	}
 
+	// The ALTER names no superuser attribute: the engine lets only a superuser
+	// name it, and seed-roles runs as tack_migrator. loginRoleExists refuses a
+	// login that is a superuser.
 	passwordLiteral := quoteSQLStringLiteral(role.password)
 	var roleStmt string
 	if exists {
 		roleStmt = fmt.Sprintf(
-			"ALTER ROLE %s WITH LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD %s",
+			"ALTER ROLE %s WITH LOGIN INHERIT NOCREATEDB NOCREATEROLE PASSWORD %s",
 			role.login, passwordLiteral,
 		)
 	} else {
