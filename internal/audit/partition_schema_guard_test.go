@@ -1,4 +1,4 @@
-package audit
+package audit_test
 
 import (
 	"context"
@@ -10,10 +10,12 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/testenv"
 )
 
 const (
+	guardMigratorRole    = "tack_migrator"
 	guardRefusalSQLState = "42501"
 	// A statement of this form broke QA partition maintenance (TACK-551).
 	strayChildStatement = `CREATE TABLE audit.events_tack556_proof PARTITION OF audit.events
@@ -31,10 +33,12 @@ func TestSchemaGuardRefusesHandWrittenAuditDDL(t *testing.T) {
 		t.Fatalf("pgxpool: %v", err)
 	}
 	t.Cleanup(pool.Close)
-	store := NewPGPartitionStore(pool)
+	store := audit.NewPGPartitionStore(pool)
 
-	asMigrator(ctx, t, pool, "CREATE TABLE audit.tack556_drop_probe (id int)")
-	t.Cleanup(func() { asMigrator(ctx, t, pool, "DROP TABLE IF EXISTS audit.tack556_drop_probe") })
+	testenv.ExecAsRole(t, pool, guardMigratorRole, "CREATE TABLE audit.tack556_drop_probe (id int)")
+	t.Cleanup(func() {
+		testenv.ExecAsRole(t, pool, guardMigratorRole, "DROP TABLE IF EXISTS audit.tack556_drop_probe")
+	})
 	for _, statement := range []string{
 		strayChildStatement,
 		"ALTER TABLE audit.chain_heads ADD COLUMN tack556_refused int",
@@ -88,22 +92,6 @@ func TestSchemaGuardRefusesHandWrittenAuditDDL(t *testing.T) {
 	strays, err := store.StrayChildren(ctx)
 	if err != nil || !slices.Equal(strays, []string{"events_tack556_proof"}) {
 		t.Fatalf("stray children = %v, err = %v; want events_tack556_proof", strays, err)
-	}
-}
-
-func asMigrator(ctx context.Context, t *testing.T, pool *pgxpool.Pool, statement string) {
-	t.Helper()
-	connection, err := pool.Acquire(ctx)
-	if err != nil {
-		t.Fatalf("acquire a connection: %v", err)
-	}
-	defer connection.Release()
-	if _, err := connection.Exec(ctx, "SET ROLE tack_migrator"); err != nil {
-		t.Fatalf("set role tack_migrator: %v", err)
-	}
-	defer func() { _, _ = connection.Exec(ctx, "RESET ROLE") }()
-	if _, err := connection.Exec(ctx, statement); err != nil {
-		t.Fatalf("%q as tack_migrator: %v", statement, err)
 	}
 }
 
