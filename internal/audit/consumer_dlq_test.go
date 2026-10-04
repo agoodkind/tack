@@ -26,9 +26,9 @@ func TestConsumerDeadLettersARefusedInsertAndReplaysIt(t *testing.T) {
 	t.Cleanup(func() {
 		purgeOrg(t, pool, orgID)
 		_, _ = pool.Exec(ctx, `DELETE FROM audit.events_dlq WHERE topic = $1`, topic)
-		_, _ = pool.Exec(ctx, `DROP TABLE IF EXISTS `+deadLetterTestPartition)
+		asMigrator(ctx, t, pool, `DROP TABLE IF EXISTS `+deadLetterTestPartition)
 	})
-	_, _ = pool.Exec(ctx, `DROP TABLE IF EXISTS `+deadLetterTestPartition)
+	asMigrator(ctx, t, pool, `DROP TABLE IF EXISTS `+deadLetterTestPartition)
 
 	refused := makeReadEvent(orgID, "refused")
 	refused.OccurredAt = occurredAt
@@ -63,9 +63,9 @@ func TestConsumerDeadLettersARefusedInsertAndReplaysIt(t *testing.T) {
 	// DDL takes no bind parameters; the bounds are dates this test computed.
 	partitionDDL := `CREATE TABLE ` + deadLetterTestPartition + ` PARTITION OF audit.events FOR VALUES FROM ('` +
 		weekStart.Format("2006-01-02") + `') TO ('` + weekStart.AddDate(0, 0, 7).Format("2006-01-02") + `')`
-	if _, err := pool.Exec(ctx, partitionDDL); err != nil {
-		t.Fatalf("create the missing partition: %v", err)
-	}
+	// The schema guard of migration 019 refuses this statement from any role
+	// except tack_migrator.
+	asMigrator(ctx, t, pool, partitionDDL)
 	reader := &Reader{pool: pool}
 	letters, err := reader.ListDeadLetters(ctx, 10)
 	if err != nil {

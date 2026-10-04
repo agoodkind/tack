@@ -1,4 +1,8 @@
--- tack_migrator owns the audit, partman, and public schemas (TACK-554).
+-- tack_migrator takes every object in the audit, partman, and public schemas
+-- that a superuser owns (TACK-554). audit.projected_events and
+-- public.ops_outbox keep their owners: an owner change moves the old owner's
+-- table privileges to the new owner.
+--
 -- CREATEROLE is for `ops audit seed-roles`, which also sets LOGIN and the
 -- password. The audit tables force row-level security on their owner: the
 -- policies below grant SELECT only.
@@ -23,7 +27,10 @@ DECLARE
     owned RECORD;
 BEGIN
     FOR owned IN
-        SELECT nspname FROM pg_namespace WHERE nspname IN ('audit', 'partman', 'public')
+        SELECT n.nspname
+          FROM pg_namespace n
+          JOIN pg_roles owner ON owner.oid = n.nspowner AND owner.rolsuper
+         WHERE n.nspname IN ('audit', 'partman', 'public')
     LOOP
         EXECUTE 'ALTER SCHEMA ' || quote_ident(owned.nspname) || ' OWNER TO tack_migrator';
     END LOOP;
@@ -32,6 +39,7 @@ BEGIN
         SELECT n.nspname, c.relname
           FROM pg_class c
           JOIN pg_namespace n ON n.oid = c.relnamespace
+          JOIN pg_roles owner ON owner.oid = c.relowner AND owner.rolsuper
          WHERE n.nspname IN ('audit', 'partman', 'public')
            AND c.relkind IN ('r', 'p', 'v')
     LOOP
@@ -44,6 +52,7 @@ BEGIN
         SELECT n.nspname, c.relname
           FROM pg_class c
           JOIN pg_namespace n ON n.oid = c.relnamespace
+          JOIN pg_roles owner ON owner.oid = c.relowner AND owner.rolsuper
          WHERE n.nspname IN ('audit', 'partman', 'public')
            AND c.relkind = 'S'
            AND NOT EXISTS (
@@ -59,6 +68,7 @@ BEGIN
         SELECT p.oid::regprocedure::text AS signature
           FROM pg_proc p
           JOIN pg_namespace n ON n.oid = p.pronamespace
+          JOIN pg_roles owner ON owner.oid = p.proowner AND owner.rolsuper
          WHERE n.nspname IN ('audit', 'partman', 'public')
            AND p.prokind IN ('f', 'p')
     LOOP
