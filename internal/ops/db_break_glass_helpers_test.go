@@ -25,9 +25,6 @@ var breakGlassMailTests = []string{
 	"TestDBBreakGlassRefusesWrites",
 }
 
-// dropBreakGlassTestTables drops the tables and the column that
-// TestDBBreakGlassRefusesWrites names, including each object a statement would
-// have created if the server had not refused it.
 func dropBreakGlassTestTables(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
 	ctx := context.WithoutCancel(t.Context())

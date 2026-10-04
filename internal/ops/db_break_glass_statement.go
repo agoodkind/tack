@@ -21,27 +21,19 @@ type dbStatementResult struct {
 }
 
 const (
-	// dbReadOnlySetting is the session setting that starts every transaction
-	// of the break-glass session read-only.
 	dbReadOnlySetting = "default_transaction_read_only"
-	// dbReadOnlySQLState is the server's refusal of a write in a read-only
-	// transaction.
+	// dbReadOnlySQLState is read_only_sql_transaction.
 	dbReadOnlySQLState = "25006"
 )
 
-// errDBStatementWrites is the refusal of a statement that changes data or
-// schema (TACK-554).
 var errDBStatementWrites = errors.New(
 	"ops db sql is read-only and the statement changes data or schema; " +
 		"a database write needs a migration or a reviewed ops command")
 
-// runDBStatement opens one connection with default_transaction_read_only on,
-// runs the statement, and closes the connection. The server refuses a
-// statement that changes data or schema in that session. The statement runs
-// through the extended protocol as one unnamed prepared statement. The server
-// refuses more than one command in an unnamed prepared statement, and that
-// refusal enforces the one-statement contract without parsing here. The query
-// requests text results, and every cell is the server's text rendering.
+// runDBStatement sends the statement with the extended protocol as one
+// unnamed prepared statement. The server refuses more than one command in an
+// unnamed prepared statement, and that refusal enforces the one-statement
+// contract without parsing here. Every cell is the server's text rendering.
 func runDBStatement(ctx context.Context, dsn, statement string) (dbStatementResult, error) {
 	none := dbStatementResult{Tag: "", Columns: nil, Rows: nil, Truncated: false}
 	connConfig, err := pgx.ParseConfig(dsn)
@@ -81,8 +73,6 @@ func runDBStatement(ctx context.Context, dsn, statement string) (dbStatementResu
 	return outcome, nil
 }
 
-// dbStatementError wraps a failed statement. The server's read-only refusal
-// becomes errDBStatementWrites with the server's message attached.
 func dbStatementError(ctx context.Context, err error) error {
 	slog.ErrorContext(ctx, "db.break_glass.query_failed", slog.String("err", err.Error()))
 	var serverErr *pgconn.PgError

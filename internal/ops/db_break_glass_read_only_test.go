@@ -5,16 +5,13 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/testenv"
 )
 
-// TestDBBreakGlassRefusesWrites runs schema and data statements through the
-// command against a real YugabyteDB as the engine superuser (TACK-554). Each
-// statement fails, the named table or column does not exist afterward, and the
-// ledger outbox records the attempt with an error outcome. A SELECT in the
-// same session reports transaction_read_only on.
+// TestDBBreakGlassRefusesWrites connects as the engine superuser (TACK-554).
 func TestDBBreakGlassRefusesWrites(t *testing.T) {
 	ledgerDSN := testenv.Ledger(t)
 	mail := mailpitFor(t)
@@ -69,26 +66,29 @@ func TestDBBreakGlassRefusesWrites(t *testing.T) {
 		}
 	}
 
-	// A block that turns the setting off before its write fails too. The two
-	// strings after it end the transaction, turn the setting off, and write
-	// in a new transaction. The simple query protocol would run each of their
-	// statements; the command sends one unnamed prepared statement, and the
-	// server refuses a string of several commands.
-	turnsReadOnlyOff := []string{
-		"DO $$ BEGIN SET LOCAL transaction_read_only = off; " +
-			"CREATE TABLE public.tack554_refused (id int); END $$",
-		"COMMIT; SET default_transaction_read_only = off; BEGIN; " +
-			"CREATE TABLE public.tack554_refused (id int); COMMIT",
-		"COMMIT; SET SESSION CHARACTERISTICS AS TRANSACTION READ WRITE; BEGIN; " +
-			"CREATE TABLE public.tack554_refused (id int); COMMIT",
+	// Each string turns read-only off before its write. 25001 is the server's
+	// refusal to change the transaction mode after a query, and 42601 is its
+	// refusal of several commands in one prepared statement.
+	turnsReadOnlyOff := []struct {
+		statement string
+		sqlState  string
+	}{
+		{"DO $$ BEGIN SET LOCAL transaction_read_only = off; " +
+			"CREATE TABLE public.tack554_refused (id int); END $$", "25001"},
+		{"COMMIT; SET default_transaction_read_only = off; BEGIN; " +
+			"CREATE TABLE public.tack554_refused (id int); COMMIT", "42601"},
+		{"COMMIT; SET SESSION CHARACTERISTICS AS TRANSACTION READ WRITE; BEGIN; " +
+			"CREATE TABLE public.tack554_refused (id int); COMMIT", "42601"},
 	}
-	for _, statement := range turnsReadOnlyOff {
-		if _, err := runBreakGlass(t, deps, statement, reason); err == nil {
-			t.Fatalf("%q ran its write", statement)
+	for _, attempt := range turnsReadOnlyOff {
+		_, err := runBreakGlass(t, deps, attempt.statement, reason)
+		var refusal *pgconn.PgError
+		if !errors.As(err, &refusal) || refusal.Code != attempt.sqlState {
+			t.Fatalf("%q: err = %v, want SQLSTATE %s", attempt.statement, err, attempt.sqlState)
 		}
 		var absent bool
 		if err := pool.QueryRow(t.Context(), refused[0].absent).Scan(&absent); err != nil || !absent {
-			t.Fatalf("%q created its table: absent = %v, err = %v", statement, absent, err)
+			t.Fatalf("%q created its table: absent = %v, err = %v", attempt.statement, absent, err)
 		}
 	}
 
