@@ -1,23 +1,10 @@
--- Migrations and operator commands connect as tack_migrator, not as the
--- engine superuser (TACK-554).
---
--- tack_migrator owns the audit, partman, and public schemas and every table,
--- view, sequence, function, and procedure in them. It has CREATEROLE, which
--- `ops audit seed-roles` needs to create and rotate the login roles, and
--- CREATE on the database, which a later migration needs to add a schema. It
--- is not a superuser. This migration creates it without a login;
--- `ops audit seed-roles` sets LOGIN and the password.
---
--- The four audit tables force row-level security on their owner. The SELECT
--- policies below let tack_migrator read them, and no policy lets it insert,
--- update, or delete a ledger row.
---
--- audit.run_partition_maintenance is SECURITY DEFINER. After the ownership
--- change it creates partitions as tack_migrator.
+-- tack_migrator owns the audit, partman, and public schemas (TACK-554).
+-- CREATEROLE is for `ops audit seed-roles`, which also sets LOGIN and the
+-- password. The audit tables force row-level security on their owner: the
+-- policies below grant SELECT only.
 --
 -- Every statement is idempotent. YugabyteDB keeps completed DDL when a
--- migration transaction rolls back, and a retry applies the same ownership
--- again.
+-- migration transaction rolls back.
 
 -- +goose Up
 -- +goose StatementBegin

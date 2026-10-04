@@ -10,15 +10,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// migratorLogin is the role that migration 018 creates. It owns the audit,
-// partman, and public objects, and `./server migrate` and the operator
-// commands connect as it (TACK-554).
 const migratorLogin = "tack_migrator"
 
-// setMigratorLogin sets LOGIN and the password on tack_migrator. Migration 018
-// creates the role without a login and with CREATEROLE. The statement names
-// no other attribute, and the role runs it on itself after the deployment
-// stops connecting as the engine superuser.
+// tack_migrator runs this ALTER ROLE on itself. The statement must not remove
+// CREATEROLE.
 func setMigratorLogin(ctx context.Context, pool *pgxpool.Pool, secret string) error {
 	exists, err := loginRoleExists(ctx, pool, migratorLogin)
 	if err != nil {
@@ -38,9 +33,7 @@ func setMigratorLogin(ctx context.Context, pool *pgxpool.Pool, secret string) er
 	return nil
 }
 
-// loginRoleExists reports whether the role exists, and refuses a role that is
-// a superuser: seed-roles gives no login the superuser attribute and rotates
-// no password of one.
+// loginRoleExists refuses a role that is a superuser.
 func loginRoleExists(ctx context.Context, pool *pgxpool.Pool, login string) (bool, error) {
 	var superuser bool
 	err := pool.QueryRow(ctx, `SELECT rolsuper FROM pg_roles WHERE rolname = $1`, login).Scan(&superuser)
