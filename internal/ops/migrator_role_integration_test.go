@@ -16,16 +16,21 @@ import (
 	"goodkind.io/tack/migrations"
 )
 
-const notOwnedByMigratorQuery = `
+const ownedBySuperuserQuery = `
 	SELECT (SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-	         WHERE n.nspname IN ('audit', 'partman', 'public') AND c.relkind IN ('r', 'p', 'v', 'S')
-	           AND pg_get_userbyid(c.relowner) <> 'tack_migrator')
+	          JOIN pg_roles owner ON owner.oid = c.relowner AND owner.rolsuper
+	         WHERE n.nspname IN ('audit', 'partman', 'public') AND c.relkind IN ('r', 'p', 'v', 'S'))
 	     + (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-	         WHERE n.nspname IN ('audit', 'partman', 'public') AND p.prokind IN ('f', 'p')
-	           AND pg_get_userbyid(p.proowner) <> 'tack_migrator')
-	     + (SELECT count(*) FROM pg_namespace
-	         WHERE nspname IN ('audit', 'partman', 'public')
-	           AND pg_get_userbyid(nspowner) <> 'tack_migrator')`
+	          JOIN pg_roles owner ON owner.oid = p.proowner AND owner.rolsuper
+	         WHERE n.nspname IN ('audit', 'partman', 'public') AND p.prokind IN ('f', 'p'))
+	     + (SELECT count(*) FROM pg_namespace n
+	          JOIN pg_roles owner ON owner.oid = n.nspowner AND owner.rolsuper
+	         WHERE n.nspname IN ('audit', 'partman', 'public'))`
+
+// Migrations 008 and 009 set these two owners.
+const tableOwnersQuery = `
+	SELECT (SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid = 'audit.projected_events'::regclass),
+	       (SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid = 'public.ops_outbox'::regclass)`
 
 const eventPartitionCountQuery = `
 	SELECT count(*) FROM pg_inherits i JOIN pg_class p ON p.oid = i.inhparent
@@ -92,9 +97,23 @@ func TestMigratorLoginDoesTheSuperuserWork(t *testing.T) {
 	if after := countRows(ctx, t, admin, eventPartitionCountQuery); after <= before {
 		t.Fatalf("partitions of audit.events = %d after maintenance, want more than %d", after, before)
 	}
-	if stray := countRows(ctx, t, admin, notOwnedByMigratorQuery); stray != 0 {
-		t.Fatalf("%d objects in audit, partman, and public are not owned by tack_migrator", stray)
+	if stray := countRows(ctx, t, admin, ownedBySuperuserQuery); stray != 0 {
+		t.Fatalf("a superuser still owns %d objects in audit, partman, and public", stray)
 	}
+	var projectedOwner, outboxOwner string
+	if err := admin.QueryRow(ctx, tableOwnersQuery).Scan(&projectedOwner, &outboxOwner); err != nil {
+		t.Fatalf("read the table owners: %v", err)
+	}
+	if projectedOwner != "audit_writer" || outboxOwner != "ops_outbox_owner" {
+		t.Fatalf("owners = %s and %s, want audit_writer and ops_outbox_owner", projectedOwner, outboxOwner)
+	}
+	claimed := uuid.Must(uuid.NewV7())
+	if _, err := writer.Exec(ctx, `INSERT INTO audit.projected_events (event_id) VALUES ($1)`, claimed); err != nil {
+		t.Fatalf("claim an event identity as the audit writer: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = admin.Exec(context.WithoutCancel(ctx), `DELETE FROM audit.projected_events WHERE event_id = $1`, claimed)
+	})
 
 	if _, err := migrator.Exec(ctx, `SELECT count(*) FROM audit.events`); err != nil {
 		t.Fatalf("read the ledger as tack_migrator: %v", err)
