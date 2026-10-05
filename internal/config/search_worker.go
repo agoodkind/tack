@@ -20,6 +20,9 @@ const (
 	searchWorkerByteMaximum = 5 * 1024 * 1024
 	searchWorkerMaximum     = 32
 	searchClassWeightMax    = 16
+	// One page write runs one model prediction per chunk of the page. On the
+	// 2-core QA search guest one 4,775-byte page took longer than 10 s.
+	searchWorkerTimeoutMaximum = 2 * time.Minute
 )
 
 // SearchReplacementPauseLimit is how long an index replacement waits for a
@@ -81,8 +84,8 @@ func (s SearchWorkerSettings) Validate() error {
 	if s.SliceBudget <= 0 || s.SliceBudget > 2*time.Second {
 		return errors.New("search worker slice budget must be positive and must not exceed two seconds")
 	}
-	if s.OperationTimeout <= 0 || s.OperationTimeout > 10*time.Second {
-		return errors.New("search worker operation timeout must be positive and must not exceed ten seconds")
+	if s.OperationTimeout <= 0 || s.OperationTimeout > searchWorkerTimeoutMaximum {
+		return errors.New("search worker operation timeout must be positive and must not exceed two minutes")
 	}
 	if s.Lease <= s.SliceBudget+s.OperationTimeout {
 		return errors.New("search worker lease must exceed the slice budget plus the operation timeout")
