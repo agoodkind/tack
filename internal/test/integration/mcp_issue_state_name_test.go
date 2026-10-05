@@ -22,13 +22,11 @@ func TestUpdateIssueStateByNameUsesTheIssueProject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open stores: %v", err)
 	}
-	projectID := harness.Call(t, "tack_get_project", stateNameArguments(harness, harness.Project)).RawID()
-	otherArguments := stateNameArguments(harness, "")
-	otherArguments.Name = harness.Project + "-other"
-	otherArguments.Properties = datagen.NodeProperties{"identifier": json.RawMessage(strconv.Quote(harness.Project + "-other"))}
-	otherProjectID := harness.Call(t, "tack_create_project", otherArguments).RawID()
+	issueProject := harness.Project + "-issue"
+	projectID := createStateNameProject(t, harness, issueProject)
+	otherProjectID := createStateNameProject(t, harness, harness.Project+"-other")
 
-	issueArguments := stateNameArguments(harness, harness.Project)
+	issueArguments := stateNameArguments(harness, issueProject)
 	issueArguments.Name = "Issue with a state set by name"
 	issueID := harness.Call(t, "tack_create_issue", issueArguments).RawID()
 
@@ -49,6 +47,14 @@ func TestUpdateIssueStateByNameUsesTheIssueProject(t *testing.T) {
 		t.Fatalf("state_id = %q, %v; want the Done state %s of the issue project (the other project's Done state is %s)",
 			got, err, wantStateID, otherStateID)
 	}
+}
+
+func createStateNameProject(t *testing.T, harness *integration.MCPHarness, identifier string) string {
+	t.Helper()
+	arguments := stateNameArguments(harness, "")
+	arguments.Name = identifier
+	arguments.Properties = datagen.NodeProperties{"identifier": json.RawMessage(strconv.Quote(identifier))}
+	return harness.Call(t, "tack_create_project", arguments).RawID()
 }
 
 func stateNameArguments(harness *integration.MCPHarness, project string) datagen.ToolArguments {
