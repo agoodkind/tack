@@ -59,8 +59,8 @@ func RunBackupYBSnapshotExport(ctx context.Context, cfg *config.Config) error {
 		logger.ErrorContext(ctx, "backup.yb_snapshot.failed", slog.String("err", err.Error()))
 		return err
 	}
-	if cfg.YugabytePassword == "" {
-		err := fmt.Errorf("yb-snapshot-export: YUGABYTE_PASSWORD is required")
+	if cfg.MigratorPassword == "" {
+		err := fmt.Errorf("yb-snapshot-export: TACK_MIGRATOR_PASSWORD is required")
 		logger.ErrorContext(ctx, "backup.yb_snapshot.failed", slog.String("err", err.Error()))
 		return err
 	}
@@ -594,6 +594,10 @@ func ybAdminOneShot(
 	mounts := make([]string, 0, len(accessBinds)+len(binds))
 	mounts = append(mounts, accessBinds...)
 	mounts = append(mounts, binds...)
+	user := ""
+	if len(binds) > 0 {
+		user = stageWriterUser()
+	}
 	res, err := runOneShot(ctx, cli, logger, runOneShotOptions{
 		Image:      cfg.BackupYBImage,
 		Network:    cfg.BackupFDBNetwork,
@@ -603,6 +607,7 @@ func ybAdminOneShot(
 		Binds:      mounts,
 		ExtraHosts: nil,
 		Name:       "",
+		User:       user,
 	})
 	if err != nil {
 		wrapped := fmt.Errorf("yb-admin %s: %w", args[0], err)

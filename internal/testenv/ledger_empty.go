@@ -24,11 +24,12 @@ const (
 	ledgerHealthTimeout     = 10 * time.Second
 	ledgerHealthStartPeriod = 180 * time.Second
 	ledgerHealthRetries     = 10
-	// ledgerHealthTest is the yugabyte service's health check. It reads the
-	// login from the container's own environment. The generated superuser key
-	// never appears in the container's health check configuration.
-	ledgerHealthTest = `ADDR="$(hostname)"; PGPASSWORD="$YSQL_PASSWORD" ysqlsh -h "$ADDR" -p 5433 ` +
-		`-U "$YSQL_USER" -d "$YSQL_DB" -c 'SELECT 1' -t`
+	// ledgerHealthTest is the yugabyte service's health check. It logs in
+	// with the container's own environment on a first start and uses no login
+	// when the container has no password.
+	ledgerHealthTest = `if [ -n "$YSQL_PASSWORD" ]; then PGPASSWORD="$YSQL_PASSWORD" ysqlsh -h "$(hostname)" ` +
+		`-p 5433 -U "$YSQL_USER" -d "$YSQL_DB" -c 'SELECT 1' -t; ` +
+		`else /home/yugabyte/postgres/bin/pg_isready -h "$(hostname)" -p 5433; fi`
 )
 
 // EmptyLedgerNode is a YugabyteDB node that one test started. The node has
@@ -44,6 +45,8 @@ type EmptyLedgerNode struct {
 	// Network is the Docker network that the node and every other test engine
 	// join.
 	Network string
+	// Image is the engine image of the node.
+	Image string
 }
 
 // StartEmptyLedger starts an unmigrated YugabyteDB node under containerName,
@@ -84,8 +87,13 @@ func StartEmptyLedger(t *testing.T, containerName string) EmptyLedgerNode {
 	if err := waitForLedger(ctx, dsn.String()); err != nil {
 		t.Fatalf("start empty ledger %s: %v", containerName, err)
 	}
+	image, err := serviceImage(ctx, ledgerService)
+	if err != nil {
+		t.Fatalf("start empty ledger %s: %v", containerName, err)
+	}
 	slog.InfoContext(ctx, "testenv.ledger.empty_ready", slog.String("container", started.name))
 	return EmptyLedgerNode{
+		Image:         image,
 		DSN:           dsn.String(),
 		Address:       started.address,
 		MasterAddress: net.JoinHostPort(started.address, ledgerMasterPort),

@@ -21,6 +21,7 @@ import (
 
 	"github.com/moby/moby/client"
 
+	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/telemetry"
 )
@@ -159,11 +160,11 @@ func dumpYBFromEndpoint(
 	logger := telemetry.L(ctx)
 	dialHost, extraHosts := ybDumpDial(cfg, host)
 	cmd := make([]string, 0, 6+len(spec.args))
-	cmd = append(cmd, "-h", dialHost, "-p", ybDumpPort, "-U", cfg.YugabyteUser)
+	cmd = append(cmd, "-h", dialHost, "-p", ybDumpPort, "-U", postgres.MigratorRole)
 	cmd = append(cmd, spec.args...)
 	tlsEnv, tlsBinds := ybDumpTransport(cfg)
 	env := make([]string, 0, 1+len(tlsEnv))
-	env = append(env, ybDumpPasswordVar+"="+cfg.YugabytePassword)
+	env = append(env, ybDumpPasswordVar+"="+cfg.MigratorPassword)
 	env = append(env, tlsEnv...)
 	mounts := make([]string, 0, 1+len(tlsBinds))
 	mounts = append(mounts, stageDir+":"+ybDumpOutDir)
@@ -177,6 +178,7 @@ func dumpYBFromEndpoint(
 		Binds:      mounts,
 		ExtraHosts: extraHosts,
 		Name:       "",
+		User:       stageWriterUser(),
 	})
 	return ybDumpAttemptOutcome(res, err, spec.outPath)
 }

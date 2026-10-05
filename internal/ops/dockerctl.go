@@ -93,6 +93,7 @@ type runOneShotOptions struct {
 	Binds      []string // host:container[:ro]
 	ExtraHosts []string // optional /etc/hosts entries, "hostname:ip" form
 	Name       string   // optional explicit container name
+	User       string   `exhaustruct:"optional"` // optional "uid:gid"; empty uses the image user
 }
 
 // runOneShot creates a container with the given options, starts it, waits for
@@ -119,6 +120,7 @@ func runOneShot(
 		Entrypoint:   opts.Entrypoint,
 		Cmd:          opts.Cmd,
 		Env:          opts.Env,
+		User:         opts.User,
 		AttachStdout: true,
 		AttachStderr: true,
 	}

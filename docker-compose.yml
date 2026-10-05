@@ -210,8 +210,15 @@ services:
       - --tserver_flags=flagfile=/home/yugabyte/tserver.flags
     environment:
       YSQL_DB: ${YUGABYTE_DB:?YUGABYTE_DB is required, set it in .env}
-      YSQL_USER: ${YUGABYTE_USER:?YUGABYTE_USER is required, set it in .env}
-      YSQL_PASSWORD: ${YUGABYTE_PASSWORD:?YUGABYTE_PASSWORD is required, set it in .env}
+      # yugabyted reads the superuser name and password only on the first
+      # start of an empty data directory. The deploy passes them for that
+      # start from the vault and renders neither into .env (TACK-554). A
+      # first start with an empty password creates the superuser with the
+      # engine's default password. On that first start the health check
+      # below logs in with the password, which yugabyted sets after the
+      # database accepts connections.
+      YSQL_USER: ${YUGABYTE_USER:-}
+      YSQL_PASSWORD: ${YUGABYTE_PASSWORD:-}
     ports:
       - "5433:5433" # YSQL (Postgres-compatible)
       - "7000:7000" # YugabyteDB master UI
@@ -229,9 +236,12 @@ services:
       test:
         - CMD-SHELL
         - |
-          ADDR="$$(hostname)"
-          PGPASSWORD=${YUGABYTE_PASSWORD:?} ysqlsh -h "$$ADDR" -p 5433 \
-            -U ${YUGABYTE_USER:?} -d ${YUGABYTE_DB:?} -c 'SELECT 1' -t
+          if [ -n "$$YSQL_PASSWORD" ]; then
+            PGPASSWORD="$$YSQL_PASSWORD" ysqlsh -h "$$(hostname)" -p 5433 \
+              -U "$$YSQL_USER" -d "$$YSQL_DB" -c 'SELECT 1' -t
+          else
+            /home/yugabyte/postgres/bin/pg_isready -h "$$(hostname)" -p 5433
+          fi
       interval: 10s
       timeout: 10s
       retries: 10
@@ -536,13 +546,8 @@ services:
       # whose .env said development would still run this container as
       # production (TACK-261).
       ENV: ${ENV:?ENV is required, set it in .env}
-      # Yugabyte connection details for the backup ysql_dump step. The
-      # backup binary reads these directly from its config struct (not
-      # from the parsed DATABASE_URL DSN), so they must be passed through
-      # to the tack-ops container even though the app service already has
-      # them embedded in DATABASE_URL.
-      YUGABYTE_USER: ${YUGABYTE_USER:?YUGABYTE_USER is required, set it in .env}
-      YUGABYTE_PASSWORD: ${YUGABYTE_PASSWORD:?YUGABYTE_PASSWORD is required, set it in .env}
+      # The database that the backup dumps read. The dumps connect as
+      # tack_migrator with TACK_MIGRATOR_PASSWORD below.
       YUGABYTE_DB: ${YUGABYTE_DB:?YUGABYTE_DB is required, set it in .env}
       # Audit role passwords for `ops audit seed-roles`, which creates or rotates
       # the LOGIN audit roles. Empty default so other ops (backup) run without

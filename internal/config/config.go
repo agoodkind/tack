@@ -309,12 +309,8 @@ type Config struct {
 	BackupAlarmPrimaryWindowSeconds int    `env:"TACK_BACKUP_ALARM_PRIMARY_WINDOW_SECONDS" envDefault:"1500"`
 	BackupAlarmPrimaryGraceSeconds  int    `env:"TACK_BACKUP_ALARM_PRIMARY_GRACE_SECONDS"  envDefault:"90"`
 
-	// Yugabyte credentials. Read by the backup family for the ysql_dump call;
-	// the live tack server reads YUGABYTE_PASSWORD via the DATABASE_URL DSN
-	// instead, so these are only consulted by ops backup.
-	YugabyteUser     string `env:"YUGABYTE_USER"     envDefault:"yugabyte"`
-	YugabytePassword string `env:"YUGABYTE_PASSWORD"`
-	YugabyteDB       string `env:"YUGABYTE_DB"       envDefault:"tack"`
+	// YugabyteDB is the database the backup dumps read.
+	YugabyteDB string `env:"YUGABYTE_DB" envDefault:"tack"`
 
 	// Audit consumer (Wave 1, Phase 2). The audit-consumer binary reads
 	// these. The tack-app server does not consume them today. They live
