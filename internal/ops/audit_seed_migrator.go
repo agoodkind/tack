@@ -16,7 +16,7 @@ const MigratorLogin = "tack_migrator"
 // The engine superuser runs this ALTER ROLE on a first boot, and tack_migrator
 // runs it on itself afterward. The statement must not remove CREATEROLE.
 func setMigratorLogin(ctx context.Context, pool *pgxpool.Pool, secret string) error {
-	exists, err := loginRoleExists(ctx, pool, MigratorLogin)
+	exists, err := nonSuperuserRoleExists(ctx, pool, MigratorLogin)
 	if err != nil {
 		return err
 	}
@@ -34,8 +34,8 @@ func setMigratorLogin(ctx context.Context, pool *pgxpool.Pool, secret string) er
 	return nil
 }
 
-// loginRoleExists refuses a role that is a superuser.
-func loginRoleExists(ctx context.Context, pool *pgxpool.Pool, login string) (bool, error) {
+// nonSuperuserRoleExists returns an error for a role that is a superuser.
+func nonSuperuserRoleExists(ctx context.Context, pool *pgxpool.Pool, login string) (bool, error) {
 	var superuser bool
 	err := pool.QueryRow(ctx, `SELECT rolsuper FROM pg_roles WHERE rolname = $1`, login).Scan(&superuser)
 	if errors.Is(err, pgx.ErrNoRows) {

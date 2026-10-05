@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -16,7 +17,6 @@ const (
 	// creates (TACK-556).
 	lastSuperuserMigration = 19
 	migratorRole           = "tack_migrator"
-	allMigrations          = 0
 )
 
 // Migrate runs pending goose migrations. Called by the `migrate` subcommand only,
@@ -31,7 +31,7 @@ func Migrate(ctx context.Context, dsn string, migrationsFS fs.FS) error {
 		slog.ErrorContext(ctx, "postgres.migrate.dsn_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("parse the migration database address: %w", err)
 	}
-	if err := migrateThrough(ctx, connConfig, migrationsFS, lastSuperuserMigration); err != nil {
+	if err := migrateTo(ctx, connConfig, migrationsFS, lastSuperuserMigration); err != nil {
 		return err
 	}
 	superuser, err := loginIsSuperuser(ctx, connConfig)
@@ -41,28 +41,45 @@ func Migrate(ctx context.Context, dsn string, migrationsFS fs.FS) error {
 	if superuser {
 		connConfig.RuntimeParams["role"] = migratorRole
 	}
-	return migrateThrough(ctx, connConfig, migrationsFS, allMigrations)
+	return migrateAll(ctx, connConfig, migrationsFS)
 }
 
-func migrateThrough(ctx context.Context, connConfig *pgx.ConnConfig, migrationsFS fs.FS, version int64) error {
+func migrateTo(ctx context.Context, connConfig *pgx.ConnConfig, migrationsFS fs.FS, version int64) error {
 	database := stdlib.OpenDB(*connConfig)
 	defer func() { _ = database.Close() }()
-	provider, err := goose.NewProvider(goose.DialectPostgres, database, migrationsFS)
+	provider, err := migrationProvider(ctx, database, migrationsFS)
 	if err != nil {
-		slog.ErrorContext(ctx, "postgres.migrate.load_failed", slog.String("err", err.Error()))
-		return fmt.Errorf("load migrations: %w", err)
+		return err
 	}
-	if version == allMigrations {
-		_, err = provider.Up(ctx)
-	} else {
-		_, err = provider.UpTo(ctx, version)
-	}
-	if err != nil {
+	if _, err := provider.UpTo(ctx, version); err != nil {
 		slog.ErrorContext(ctx, "postgres.migrate.apply_failed",
 			slog.Int64("through_version", version), slog.String("err", err.Error()))
+		return fmt.Errorf("apply migrations through %d: %w", version, err)
+	}
+	return nil
+}
+
+func migrateAll(ctx context.Context, connConfig *pgx.ConnConfig, migrationsFS fs.FS) error {
+	database := stdlib.OpenDB(*connConfig)
+	defer func() { _ = database.Close() }()
+	provider, err := migrationProvider(ctx, database, migrationsFS)
+	if err != nil {
+		return err
+	}
+	if _, err := provider.Up(ctx); err != nil {
+		slog.ErrorContext(ctx, "postgres.migrate.apply_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("apply migrations: %w", err)
 	}
 	return nil
+}
+
+func migrationProvider(ctx context.Context, database *sql.DB, migrationsFS fs.FS) (*goose.Provider, error) {
+	provider, err := goose.NewProvider(goose.DialectPostgres, database, migrationsFS)
+	if err != nil {
+		slog.ErrorContext(ctx, "postgres.migrate.load_failed", slog.String("err", err.Error()))
+		return nil, fmt.Errorf("load migrations: %w", err)
+	}
+	return provider, nil
 }
 
 func loginIsSuperuser(ctx context.Context, connConfig *pgx.ConnConfig) (bool, error) {

@@ -90,7 +90,7 @@ func RunAuditSeedRoles(ctx context.Context, cfg *config.Config) error {
 // the password is escaped as a SQL string literal because CREATE/ALTER ROLE
 // does not accept bind parameters for the password.
 func upsertAuditLoginRole(ctx context.Context, pool *pgxpool.Pool, role auditLoginRole) error {
-	exists, err := loginRoleExists(ctx, pool, role.login)
+	exists, err := nonSuperuserRoleExists(ctx, pool, role.login)
 	if err != nil {
 		return err
 	}
