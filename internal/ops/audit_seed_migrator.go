@@ -10,25 +10,26 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-const migratorLogin = "tack_migrator"
+// MigratorLogin is the role that migration 018 creates.
+const MigratorLogin = "tack_migrator"
 
-// tack_migrator runs this ALTER ROLE on itself. The statement must not remove
-// CREATEROLE.
+// The engine superuser runs this ALTER ROLE on a first boot, and tack_migrator
+// runs it on itself afterward. The statement must not remove CREATEROLE.
 func setMigratorLogin(ctx context.Context, pool *pgxpool.Pool, secret string) error {
-	exists, err := loginRoleExists(ctx, pool, migratorLogin)
+	exists, err := loginRoleExists(ctx, pool, MigratorLogin)
 	if err != nil {
 		return err
 	}
 	if !exists {
-		missing := fmt.Errorf("audit seed-roles: role %s does not exist; run the migrations first", migratorLogin)
+		missing := fmt.Errorf("audit seed-roles: role %s does not exist; run the migrations first", MigratorLogin)
 		slog.ErrorContext(ctx, "audit.seed_roles.migrator_missing", slog.String("err", missing.Error()))
 		return missing
 	}
-	statement := fmt.Sprintf("ALTER ROLE %s WITH LOGIN PASSWORD %s", migratorLogin, quoteSQLStringLiteral(secret))
+	statement := fmt.Sprintf("ALTER ROLE %s WITH LOGIN PASSWORD %s", MigratorLogin, quoteSQLStringLiteral(secret))
 	if _, err := pool.Exec(ctx, statement); err != nil {
 		slog.ErrorContext(ctx, "audit.seed_roles.upsert_failed",
-			slog.String("login_role", migratorLogin), slog.String("err", err.Error()))
-		return fmt.Errorf("audit seed-roles: set the login of %s: %w", migratorLogin, err)
+			slog.String("login_role", MigratorLogin), slog.String("err", err.Error()))
+		return fmt.Errorf("audit seed-roles: set the login of %s: %w", MigratorLogin, err)
 	}
 	return nil
 }
