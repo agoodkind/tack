@@ -26,8 +26,7 @@ const (
 	// openSearchPort is the engine's HTTPS port.
 	openSearchPort = "9200"
 	// The ML Commons memory breaker rejects predictions when used heap is at
-	// or above 85 percent. G1PeriodicGCInterval=5000 enables periodic garbage
-	// collection.
+	// or above 85 percent.
 	openSearchJavaOptions = "-Xms3g -Xmx3g -XX:G1PeriodicGCInterval=5000"
 )
 
