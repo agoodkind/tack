@@ -80,20 +80,21 @@ func weightedSchedule(weights map[string]int) ([]searchdomain.WorkClass, error) 
 // settle ends a slice after err. The failure counts toward the attempt limit
 // of the work. Engine operations settle through settleEngine instead.
 func (w *SearchWorker) settle(ctx context.Context, work searchdomain.Work, operation string, err error) error {
-	return w.fail(ctx, work, operation, err, true)
+	return w.fail(ctx, work, searchdomain.Failure{Message: "", Counted: true, RetryAfter: 0}, operation, err)
 }
 
 // settleEngine ends a slice after a failed OpenSearch operation. The failure
-// never counts toward the attempt limit.
+// never counts toward the attempt limit. OpenSearch continues a request after
+// the worker stops waiting, and the next claim waits the operation timeout.
 func (w *SearchWorker) settleEngine(ctx context.Context, work searchdomain.Work, operation string, err error) error {
-	return w.fail(ctx, work, operation, err, false)
+	return w.fail(ctx, work, searchdomain.Failure{Message: "", Counted: false, RetryAfter: w.settings.OperationTimeout}, operation, err)
 }
 
 // fail ends a slice after err. A changed or obsolete claim yields without
 // recording a failure. A node without exactly one hierarchy parent is
 // excluded from search, and the slice succeeds. Any other error records the
-// failure and delays retry.
-func (w *SearchWorker) fail(ctx context.Context, work searchdomain.Work, operation string, err error, counted bool) error {
+// failure with the message of err and delays retry.
+func (w *SearchWorker) fail(ctx context.Context, work searchdomain.Work, failure searchdomain.Failure, operation string, err error) error {
 	if errors.Is(err, searchdomain.ErrWorkChanged) || errors.Is(err, searchdomain.ErrObsoleteWrite) {
 		telemetry.L(ctx).InfoContext(ctx, "search.worker.work_changed", slog.String("node_id", work.NodeID.String()),
 			slog.String("class", string(work.Class)), slog.Int64("generation", work.Generation), slog.String("operation", operation))
@@ -109,12 +110,7 @@ func (w *SearchWorker) fail(ctx context.Context, work searchdomain.Work, operati
 	if ctx.Err() != nil {
 		return loggedWorkerError{err: wrapped}
 	}
-	failure := searchdomain.Failure{Message: wrapped.Error(), Counted: counted, RetryAfter: 0}
-	if !counted {
-		// OpenSearch continues a request after the worker stops waiting. The
-		// store delays the next claim by the operation timeout.
-		failure.RetryAfter = w.settings.OperationTimeout
-	}
+	failure.Message = wrapped.Error()
 	if releaseErr := w.ports.Store.Release(ctx, work, failure); releaseErr != nil && !errors.Is(releaseErr, searchdomain.ErrWorkChanged) {
 		telemetry.L(ctx).ErrorContext(ctx, "search.worker.release_failed", slog.String("err", releaseErr.Error()),
 			slog.String("node_id", work.NodeID.String()), slog.String("class", string(work.Class)))
