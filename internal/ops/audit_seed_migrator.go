@@ -8,34 +8,33 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-)
 
-// MigratorLogin is the role that migration 018 creates.
-const MigratorLogin = "tack_migrator"
+	"goodkind.io/tack/internal/adapters/postgres"
+)
 
 // The engine superuser runs this ALTER ROLE on a first boot, and tack_migrator
 // runs it on itself afterward. The statement must not remove CREATEROLE.
 func setMigratorLogin(ctx context.Context, pool *pgxpool.Pool, secret string) error {
-	exists, err := loginRoleExists(ctx, pool, MigratorLogin)
+	exists, err := nonSuperuserRoleExists(ctx, pool, postgres.MigratorRole)
 	if err != nil {
 		return err
 	}
 	if !exists {
-		missing := fmt.Errorf("audit seed-roles: role %s does not exist; run the migrations first", MigratorLogin)
+		missing := fmt.Errorf("audit seed-roles: role %s does not exist; run the migrations first", postgres.MigratorRole)
 		slog.ErrorContext(ctx, "audit.seed_roles.migrator_missing", slog.String("err", missing.Error()))
 		return missing
 	}
-	statement := fmt.Sprintf("ALTER ROLE %s WITH LOGIN PASSWORD %s", MigratorLogin, quoteSQLStringLiteral(secret))
+	statement := fmt.Sprintf("ALTER ROLE %s WITH LOGIN PASSWORD %s", postgres.MigratorRole, quoteSQLStringLiteral(secret))
 	if _, err := pool.Exec(ctx, statement); err != nil {
 		slog.ErrorContext(ctx, "audit.seed_roles.upsert_failed",
-			slog.String("login_role", MigratorLogin), slog.String("err", err.Error()))
-		return fmt.Errorf("audit seed-roles: set the login of %s: %w", MigratorLogin, err)
+			slog.String("login_role", postgres.MigratorRole), slog.String("err", err.Error()))
+		return fmt.Errorf("audit seed-roles: set the login of %s: %w", postgres.MigratorRole, err)
 	}
 	return nil
 }
 
-// loginRoleExists refuses a role that is a superuser.
-func loginRoleExists(ctx context.Context, pool *pgxpool.Pool, login string) (bool, error) {
+// nonSuperuserRoleExists returns an error for a role that is a superuser.
+func nonSuperuserRoleExists(ctx context.Context, pool *pgxpool.Pool, login string) (bool, error) {
 	var superuser bool
 	err := pool.QueryRow(ctx, `SELECT rolsuper FROM pg_roles WHERE rolname = $1`, login).Scan(&superuser)
 	if errors.Is(err, pgx.ErrNoRows) {
