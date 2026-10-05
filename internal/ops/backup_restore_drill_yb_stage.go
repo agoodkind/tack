@@ -16,6 +16,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 
+	"goodkind.io/tack/internal/ops/objectstage"
 	"goodkind.io/tack/internal/telemetry"
 )
 
@@ -80,17 +81,17 @@ func stageYBDrillArtifacts(
 	stageDir string,
 ) ([]ybArchiveInventory, error) {
 	for _, name := range manifest.Artifacts {
-		if err := getObjectToFile(ctx, s3Client, r.Cfg.BackupS3BucketMain,
+		if err := objectstage.GetObjectToFile(ctx, s3Client, r.Cfg.BackupS3BucketMain,
 			ybRunArtifactKey(manifest.RunID, name), filepath.Join(stageDir, name)); err != nil {
-			return nil, err
+			return nil, ybStagingError(ctx, err)
 		}
 	}
 	inventories := make([]ybArchiveInventory, 0, len(manifest.Nodes))
 	for _, node := range manifest.Nodes {
 		archive := filepath.Join(stageDir, ybDrillArchiveName(node.Name))
-		if err := getObjectToFile(ctx, s3Client, r.Cfg.BackupS3BucketMain,
+		if err := objectstage.GetObjectToFile(ctx, s3Client, r.Cfg.BackupS3BucketMain,
 			ybNodeArchiveKey(manifest.RunID, node), archive); err != nil {
-			return nil, err
+			return nil, ybStagingError(ctx, err)
 		}
 		inventory, err := stageYBNodeInventory(ctx, r, s3Client, manifest, node, stageDir)
 		if err != nil {
@@ -99,6 +100,12 @@ func stageYBDrillArtifacts(
 		inventories = append(inventories, inventory)
 	}
 	return inventories, nil
+}
+
+func ybStagingError(ctx context.Context, err error) error {
+	wrapped := fmt.Errorf("stage a drill artifact: %w", err)
+	telemetry.L(ctx).ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", wrapped.Error()))
+	return wrapped
 }
 
 // stageYBNodeInventory downloads one node's inventory and reads it back. The
@@ -116,9 +123,9 @@ func stageYBNodeInventory(
 	logger := telemetry.L(ctx)
 	empty := ybArchiveInventory{RunID: "", Node: "", Files: nil}
 	path := filepath.Join(stageDir, ybDrillInventoryName(node.Name))
-	if err := getObjectToFile(ctx, s3Client, r.Cfg.BackupS3BucketMain,
+	if err := objectstage.GetObjectToFile(ctx, s3Client, r.Cfg.BackupS3BucketMain,
 		ybNodeInventoryKey(manifest.RunID, node), path); err != nil {
-		return empty, err
+		return empty, ybStagingError(ctx, err)
 	}
 	body, err := os.ReadFile(path)
 	if err != nil {

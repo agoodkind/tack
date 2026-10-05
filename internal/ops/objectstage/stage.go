@@ -1,11 +1,10 @@
-// backup_s3_staging.go writes a downloaded backup artifact to disk without
+// Package objectstage writes a downloaded backup artifact to disk without
 // letting the download pile up in the page cache. The kernel charges a file's
 // cached pages, dirty ones included, to the memory limit of the container that
 // wrote them. An artifact staged in one unbroken copy fills the restore
 // drill's limit with its own pages, and dirty pages cannot be reclaimed until
 // the disk has written them (TACK-516).
-
-package ops
+package objectstage
 
 import (
 	"context"
@@ -21,12 +20,12 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// stagingSyncBytes is how much of a download copyToStagedFile writes between
+// SyncBytes is how much of a download copyToStagedFile writes between
 // syncs of the staged file. It bounds the staged data that sits dirty or
 // under writeback at once, and on Linux the data that stays cached at all.
-const stagingSyncBytes = 8 << 20
+const SyncBytes = 8 << 20
 
-// copyToStagedFile copies body into file one stagingSyncBytes chunk at a time,
+// copyToStagedFile copies body into file one SyncBytes chunk at a time,
 // syncing the file after every chunk and then releasing the chunk's cached
 // pages, and returns the bytes written. The sync makes the chunk's pages clean
 // before the next chunk dirties more, and the release returns them to the
@@ -34,7 +33,7 @@ const stagingSyncBytes = 8 << 20
 func copyToStagedFile(ctx context.Context, file *os.File, body io.Reader) (int64, error) {
 	var written int64
 	for {
-		copied, copyErr := io.CopyN(file, body, stagingSyncBytes)
+		copied, copyErr := io.CopyN(file, body, SyncBytes)
 		if copied > 0 {
 			if err := file.Sync(); err != nil {
 				wrapped := fmt.Errorf("sync %s after %d bytes: %w", file.Name(), written+copied, err)
@@ -55,12 +54,12 @@ func copyToStagedFile(ctx context.Context, file *os.File, body io.Reader) (int64
 	}
 }
 
-// getObjectToFile downloads bucket/key to a local file at path, streaming the
+// GetObjectToFile downloads bucket/key to a local file at path, streaming the
 // body to disk through [copyToStagedFile], which keeps what the download
 // leaves in the page cache bounded whatever the object's size. Used by the
 // restore drill to stage backup artifacts before loading them into a scratch
 // engine.
-func getObjectToFile(ctx context.Context, client *s3.Client, bucket, key, path string) error {
+func GetObjectToFile(ctx context.Context, client *s3.Client, bucket, key, path string) error {
 	logger := telemetry.L(ctx)
 	out, err := client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(bucket),
