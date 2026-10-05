@@ -17,11 +17,20 @@ package ops
 
 import (
 	"context"
+	"os"
+	"strconv"
 
 	"github.com/moby/moby/client"
 
 	"goodkind.io/tack/internal/config"
 )
+
+// stageWriterUser returns the uid and gid of this process. The one-shot
+// containers that write into the stage directory run as this user. The
+// export then reads and uploads the files they wrote.
+func stageWriterUser() string {
+	return strconv.Itoa(os.Getuid()) + ":" + strconv.Itoa(os.Getgid())
+}
 
 const (
 	// ysqlDumpBinary is the single-database dumper inside the engine image.

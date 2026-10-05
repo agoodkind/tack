@@ -178,6 +178,7 @@ func dumpYBFromEndpoint(
 		Binds:      mounts,
 		ExtraHosts: extraHosts,
 		Name:       "",
+		User:       stageWriterUser(),
 	})
 	return ybDumpAttemptOutcome(res, err, spec.outPath)
 }
