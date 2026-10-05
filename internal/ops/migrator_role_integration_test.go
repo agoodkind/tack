@@ -17,10 +17,7 @@ import (
 	"goodkind.io/tack/migrations"
 )
 
-const (
-	migratorLogin                 = "tack_migrator"
-	insufficientPrivilegeSQLState = "42501"
-)
+const insufficientPrivilegeSQLState = "42501"
 
 const ownedBySuperuserQuery = `
 	SELECT (SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -61,7 +58,7 @@ func TestMigratorLoginDoesTheSuperuserWork(t *testing.T) {
 		t.Fatalf("seed-roles as the engine superuser: %v", err)
 	}
 
-	migratorDSN := loginDSN(t, adminDSN, migratorLogin, cfg.MigratorPassword)
+	migratorDSN := loginDSN(t, adminDSN, ops.MigratorLogin, cfg.MigratorPassword)
 	migrator := testenv.LedgerPool(t, migratorDSN)
 	var superuser bool
 	if err := migrator.QueryRow(ctx, `SELECT rolsuper FROM pg_roles WHERE rolname = current_user`).Scan(&superuser); err != nil || superuser {

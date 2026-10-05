@@ -51,9 +51,9 @@ func RunAuditSeedRoles(ctx context.Context, cfg *config.Config) error {
 		newAuditLoginRole("tack_app", "app_auth", cfg.AppPassword),
 	}
 	if cfg.MigratorPassword == "" {
-		err := fmt.Errorf("audit seed-roles: password for %s is empty; set TACK_MIGRATOR_PASSWORD", migratorLogin)
+		err := fmt.Errorf("audit seed-roles: password for %s is empty; set TACK_MIGRATOR_PASSWORD", MigratorLogin)
 		slog.ErrorContext(ctx, "audit.seed_roles.password_missing",
-			slog.String("login_role", migratorLogin), slog.String("err", err.Error()))
+			slog.String("login_role", MigratorLogin), slog.String("err", err.Error()))
 		return err
 	}
 	for _, role := range roles {
@@ -90,7 +90,7 @@ func RunAuditSeedRoles(ctx context.Context, cfg *config.Config) error {
 // the password is escaped as a SQL string literal because CREATE/ALTER ROLE
 // does not accept bind parameters for the password.
 func upsertAuditLoginRole(ctx context.Context, pool *pgxpool.Pool, role auditLoginRole) error {
-	exists, err := loginRoleExists(ctx, pool, role.login)
+	exists, err := nonSuperuserRoleExists(ctx, pool, role.login)
 	if err != nil {
 		return err
 	}
