@@ -14,14 +14,12 @@ import (
 )
 
 const (
-	searchPageByteMinimum   = 16
-	searchPageByteMaximum   = 4096
-	searchWorkerPageMaximum = 32
-	searchWorkerByteMaximum = 5 * 1024 * 1024
-	searchWorkerMaximum     = 32
-	searchClassWeightMax    = 16
-	// One page write runs one model prediction per chunk of the page. On the
-	// 2-core QA search guest one 4,775-byte page took longer than 10 s.
+	searchPageByteMinimum      = 16
+	searchPageByteMaximum      = 4096
+	searchWorkerPageMaximum    = 32
+	searchWorkerByteMaximum    = 5 * 1024 * 1024
+	searchWorkerMaximum        = 32
+	searchClassWeightMax       = 16
 	searchWorkerTimeoutMaximum = 2 * time.Minute
 )
 
