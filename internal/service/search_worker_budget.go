@@ -111,6 +111,8 @@ func (w *SearchWorker) fail(ctx context.Context, work searchdomain.Work, operati
 	}
 	failure := searchdomain.Failure{Message: wrapped.Error(), Counted: counted, RetryAfter: 0}
 	if !counted {
+		// OpenSearch continues a request after the worker stops waiting. The
+		// work waits the operation timeout before the worker sends it again.
 		failure.RetryAfter = w.settings.OperationTimeout
 	}
 	if releaseErr := w.ports.Store.Release(ctx, work, failure); releaseErr != nil && !errors.Is(releaseErr, searchdomain.ErrWorkChanged) {
