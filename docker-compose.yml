@@ -554,6 +554,7 @@ services:
       # The application login's password, set by the same seed-roles run
       # (TACK-180); the app service reads it inside its DATABASE_URL.
       TACK_APP_PASSWORD: ${TACK_APP_PASSWORD:-}
+      TACK_MIGRATOR_PASSWORD: ${TACK_MIGRATOR_PASSWORD:-}
       # Object store for engine-native continuous backup. Read by the FDB
       # continuous backup path to build the blobstore destination URL.
       TACK_BACKUP_S3_ENDPOINT: ${TACK_BACKUP_S3_ENDPOINT:-}
