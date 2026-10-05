@@ -25,11 +25,9 @@ const (
 	openSearchHolderSeconds = "2147483647"
 	// openSearchPort is the engine's HTTPS port.
 	openSearchPort = "9200"
-	// Search queries allocate too little memory to start a G1 collection.
-	// Without a collection, used heap stays above the 85 percent ML Commons
-	// memory breaker, and the breaker refuses query predictions.
-	// G1PeriodicGCInterval=5000 starts a collection when no collection ran in
-	// 5 s and no concurrent cycle is running.
+	// The ML Commons memory breaker rejects predictions when used heap is at
+	// or above 85 percent. G1PeriodicGCInterval=5000 enables periodic garbage
+	// collection.
 	openSearchJavaOptions = "-Xms3g -Xmx3g -XX:G1PeriodicGCInterval=5000"
 )
 
