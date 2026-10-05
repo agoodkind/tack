@@ -63,8 +63,8 @@ func (s *SearchWorkStore) Exclude(ctx context.Context, work searchdomain.Work, r
 
 // recordFailure increments the attempt count of a counted failure. When the
 // count of excludable work equals searchFailureLimit, it excludes the node.
-// Otherwise it stores the failure message and delays the next claim by
-// searchRetryDelay. The outcome reports the failure that sets the count of
+// Otherwise it stores the failure message and delays the next claim by the
+// longer of searchRetryDelay and failure.RetryAfter. The outcome reports the failure that sets the count of
 // other work to the limit.
 func (s *SearchWorkStore) recordFailure(ctx context.Context, tr fdb.Transaction, work searchdomain.Work, record searchWorkRecord, failure searchdomain.Failure) (failureOutcome, error) {
 	outcome := failureOutcome{Excluded: false, LimitCrossed: false, Attempts: 0, ItemID: ""}
@@ -80,7 +80,7 @@ func (s *SearchWorkStore) recordFailure(ctx context.Context, tr fdb.Transaction,
 	}
 	tr.Set(fdb.Key(searchErrorKey(string(work.Class), work.OrgID, work.NodeID)), []byte(failure.Message))
 	return outcome, writeSearchRecord(ctx, tr, searchClaimKey(string(work.Class), searchBucket(work.OrgID, work.NodeID), work.OrgID, work.NodeID), searchClaimRecord{
-		Owner: "", Generation: work.Generation, LeaseUntil: s.clock.Now().Add(searchRetryDelay), Target: work.Target, Mirror: work.Mirror,
+		Owner: "", Generation: work.Generation, LeaseUntil: s.clock.Now().Add(max(searchRetryDelay, failure.RetryAfter)), Target: work.Target, Mirror: work.Mirror,
 	})
 }
 
