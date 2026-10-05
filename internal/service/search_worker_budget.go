@@ -109,7 +109,10 @@ func (w *SearchWorker) fail(ctx context.Context, work searchdomain.Work, operati
 	if ctx.Err() != nil {
 		return loggedWorkerError{err: wrapped}
 	}
-	failure := searchdomain.Failure{Message: wrapped.Error(), Counted: counted}
+	failure := searchdomain.Failure{Message: wrapped.Error(), Counted: counted, RetryAfter: 0}
+	if !counted {
+		failure.RetryAfter = w.settings.OperationTimeout
+	}
 	if releaseErr := w.ports.Store.Release(ctx, work, failure); releaseErr != nil && !errors.Is(releaseErr, searchdomain.ErrWorkChanged) {
 		telemetry.L(ctx).ErrorContext(ctx, "search.worker.release_failed", slog.String("err", releaseErr.Error()),
 			slog.String("node_id", work.NodeID.String()), slog.String("class", string(work.Class)))

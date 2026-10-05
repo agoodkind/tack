@@ -112,6 +112,11 @@ func (w Work) Excludable() bool {
 type Failure struct {
 	Message string
 	Counted bool
+	// RetryAfter is the shortest wait before the next claim of the work.
+	// OpenSearch continues a request after the client stops waiting, and a
+	// failed OpenSearch operation waits at least the operation timeout before
+	// the worker sends the same page again.
+	RetryAfter time.Duration
 }
 
 // Exclusion is one node that search does not index. Class and Index are the
