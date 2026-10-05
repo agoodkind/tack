@@ -58,7 +58,7 @@ func TestMigratorLoginDoesTheSuperuserWork(t *testing.T) {
 		t.Fatalf("seed-roles as the engine superuser: %v", err)
 	}
 
-	migratorDSN := loginDSN(t, adminDSN, ops.MigratorLogin, cfg.MigratorPassword)
+	migratorDSN := loginDSN(t, adminDSN, postgres.MigratorRole, cfg.MigratorPassword)
 	migrator := testenv.LedgerPool(t, migratorDSN)
 	var superuser bool
 	if err := migrator.QueryRow(ctx, `SELECT rolsuper FROM pg_roles WHERE rolname = current_user`).Scan(&superuser); err != nil || superuser {

@@ -12,12 +12,13 @@ import (
 	"github.com/pressly/goose/v3"
 )
 
-const (
-	// lastSuperuserMigration creates event triggers, which only a superuser
-	// creates (TACK-556).
-	lastSuperuserMigration = 19
-	migratorRole           = "tack_migrator"
-)
+// MigratorRole is the role that migration 018 creates. It owns the audit,
+// partman, and public schemas and is not a superuser.
+const MigratorRole = "tack_migrator"
+
+// lastSuperuserMigration creates event triggers, which only a superuser
+// creates (TACK-556).
+const lastSuperuserMigration = 19
 
 // Migrate runs pending goose migrations. Called by the `migrate` subcommand only,
 // never on HTTP server startup (required for safe horizontal scaling).
@@ -39,7 +40,7 @@ func Migrate(ctx context.Context, dsn string, migrationsFS fs.FS) error {
 		return err
 	}
 	if superuser {
-		connConfig.RuntimeParams["role"] = migratorRole
+		connConfig.RuntimeParams["role"] = MigratorRole
 	}
 	return migrateAll(ctx, connConfig, migrationsFS)
 }

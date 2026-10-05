@@ -20,9 +20,7 @@ import (
 )
 
 const (
-	// appContainer is the compose container name of the Tack server.
-	appContainer = "tack-app-1"
-	// auditConsumerContainer is the compose container name of the audit consumer.
+	appContainer           = "tack-app-1"
 	auditConsumerContainer = "tack-audit-consumer-1"
 )
 

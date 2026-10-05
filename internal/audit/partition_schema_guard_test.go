@@ -10,12 +10,12 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/testenv"
 )
 
 const (
-	guardMigratorRole    = "tack_migrator"
 	guardRefusalSQLState = "42501"
 	// A statement of this form broke QA partition maintenance (TACK-551).
 	strayChildStatement = `CREATE TABLE audit.events_tack556_proof PARTITION OF audit.events
@@ -35,9 +35,9 @@ func TestSchemaGuardRefusesHandWrittenAuditDDL(t *testing.T) {
 	t.Cleanup(pool.Close)
 	store := audit.NewPGPartitionStore(pool)
 
-	testenv.ExecAsRole(t, pool, guardMigratorRole, "CREATE TABLE audit.tack556_drop_probe (id int)")
+	testenv.ExecAsRole(t, pool, postgres.MigratorRole, "CREATE TABLE audit.tack556_drop_probe (id int)")
 	t.Cleanup(func() {
-		testenv.ExecAsRole(t, pool, guardMigratorRole, "DROP TABLE IF EXISTS audit.tack556_drop_probe")
+		testenv.ExecAsRole(t, pool, postgres.MigratorRole, "DROP TABLE IF EXISTS audit.tack556_drop_probe")
 	})
 	for _, statement := range []string{
 		strayChildStatement,

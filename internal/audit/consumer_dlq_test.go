@@ -9,10 +9,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/twmb/franz-go/pkg/kgo"
 
+	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/testenv"
 )
-
-const deadLetterMigratorRole = "tack_migrator"
 
 // TestConsumerDeadLettersARefusedInsertAndReplaysIt is TACK-336's consumer
 // half end to end. An event the ledger refuses (dated into a week with no
@@ -30,9 +29,9 @@ func TestConsumerDeadLettersARefusedInsertAndReplaysIt(t *testing.T) {
 	t.Cleanup(func() {
 		purgeOrg(t, pool, orgID)
 		_, _ = pool.Exec(ctx, `DELETE FROM audit.events_dlq WHERE topic = $1`, topic)
-		testenv.ExecAsRole(t, pool, deadLetterMigratorRole, `DROP TABLE IF EXISTS `+deadLetterTestPartition)
+		testenv.ExecAsRole(t, pool, postgres.MigratorRole, `DROP TABLE IF EXISTS `+deadLetterTestPartition)
 	})
-	testenv.ExecAsRole(t, pool, deadLetterMigratorRole, `DROP TABLE IF EXISTS `+deadLetterTestPartition)
+	testenv.ExecAsRole(t, pool, postgres.MigratorRole, `DROP TABLE IF EXISTS `+deadLetterTestPartition)
 
 	refused := makeReadEvent(orgID, "refused")
 	refused.OccurredAt = occurredAt
@@ -69,7 +68,7 @@ func TestConsumerDeadLettersARefusedInsertAndReplaysIt(t *testing.T) {
 		weekStart.Format("2006-01-02") + `') TO ('` + weekStart.AddDate(0, 0, 7).Format("2006-01-02") + `')`
 	// The schema guard of migration 019 refuses this statement from any role
 	// except tack_migrator.
-	testenv.ExecAsRole(t, pool, deadLetterMigratorRole, partitionDDL)
+	testenv.ExecAsRole(t, pool, postgres.MigratorRole, partitionDDL)
 	reader := &Reader{pool: pool}
 	letters, err := reader.ListDeadLetters(ctx, 10)
 	if err != nil {
