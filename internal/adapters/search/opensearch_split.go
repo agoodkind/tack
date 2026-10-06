@@ -46,7 +46,7 @@ func (a *Adapter) ValidateSplit(ctx context.Context, source string, primaries in
 	}
 	if info.MappingVersion != MappingVersion || info.TokenizerSHA256 != PinnedModel.TokenizerDigest {
 		return PhysicalSettings{}, engineFailure(ctx, "search.split.mapping_changed", "validate split of "+source, source,
-			fmt.Errorf("mapping version %q or tokenizer differs from the pinned contract; a full replacement is required", info.MappingVersion))
+			fmt.Errorf("mapping version is %q, want %q; tokenizer digest is %q, want %q", info.MappingVersion, MappingVersion, info.TokenizerSHA256, PinnedModel.TokenizerDigest))
 	}
 	settings, err := a.IndexSettings(ctx, source)
 	if err != nil {

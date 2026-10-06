@@ -28,8 +28,7 @@ type IndexInfo struct {
 	TokenizerSHA256 string
 }
 
-// MappingVersion defines the required search index mapping version.
-// Verification and native splits reject indexes with a different version.
+// MappingVersion mismatches require a full index replacement through ops search reindex.
 const MappingVersion = "2"
 
 // approvedSplitTargets lists the primary shard counts a native split may
