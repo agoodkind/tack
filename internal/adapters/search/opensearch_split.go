@@ -26,7 +26,7 @@ func (a *Adapter) CreateReplacement(ctx context.Context, index string, primaries
 	if err != nil {
 		return engineFailure(ctx, "search.replacement.model_failed", "provision model for replacement "+index, index, err)
 	}
-	spec := IndexSpec{Model: model, MappingVersion: "1", Primaries: primaries, RoutingShards: routing, Replicas: replicas}
+	spec := IndexSpec{Model: model, MappingVersion: MappingVersion, Primaries: primaries, RoutingShards: routing, Replicas: replicas}
 	if err := a.EnsureIndex(ctx, index, spec); err != nil {
 		return engineFailure(ctx, "search.replacement.create_failed", "create replacement index "+index, index, err)
 	}
@@ -44,7 +44,7 @@ func (a *Adapter) ValidateSplit(ctx context.Context, source string, primaries in
 	if err != nil {
 		return PhysicalSettings{}, engineFailure(ctx, "search.split.info_failed", "read mapping of "+source, source, err)
 	}
-	if info.MappingVersion != "1" || info.TokenizerSHA256 != PinnedModel.TokenizerDigest {
+	if info.MappingVersion != MappingVersion || info.TokenizerSHA256 != PinnedModel.TokenizerDigest {
 		return PhysicalSettings{}, engineFailure(ctx, "search.split.mapping_changed", "validate split of "+source, source,
 			fmt.Errorf("mapping version %q or tokenizer differs from the pinned contract; a full replacement is required", info.MappingVersion))
 	}

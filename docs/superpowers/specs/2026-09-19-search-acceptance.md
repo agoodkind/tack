@@ -94,7 +94,7 @@ A lexical-only control must miss at least one non-overlapping pair that the comb
   uninterrupted strings, punctuation, and whitespace. Exercise a valid 4,096-byte
   page and a newline-only page. Require valid Unicode, forward progress, one sparse
   result per generated input, and complete final-character coverage.
-- Pin the native 160-character limit, 0.5 overlap, and unlimited chunk count. Repeat the proof after any model, semantic mapping, or bound change.
+- Pin the native 160-character limit, 0 overlap, and unlimited chunk count. Repeat the proof after any model, semantic mapping, or bound change.
 
 ## Authorization and input validation
 

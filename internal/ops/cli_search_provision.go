@@ -59,7 +59,7 @@ func searchProvisionOp(f *cli.Factory) clispec.Operation[searchProvisionInput] {
 				return wrapped
 			}
 			const index = "node-pages-1"
-			if err := adapter.EnsureIndex(ctx, index, search.IndexSpec{Model: model, MappingVersion: "1", Primaries: topology.Primaries, RoutingShards: topology.RoutingShards, Replicas: topology.Replicas}); err != nil {
+			if err := adapter.EnsureIndex(ctx, index, search.IndexSpec{Model: model, MappingVersion: search.MappingVersion, Primaries: topology.Primaries, RoutingShards: topology.RoutingShards, Replicas: topology.Replicas}); err != nil {
 				wrapped := fmt.Errorf("ensure search index %s: %w", index, err)
 				logger.ErrorContext(ctx, "search.provision.index_failed", slog.String("err", wrapped.Error()), slog.String("index", index))
 				return wrapped
