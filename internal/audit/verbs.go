@@ -119,6 +119,8 @@ const (
 	// VerbOpsAuditConsumerOffsets records an operator reading the audit
 	// consumer's committed lag and the operator outbox remainders.
 	VerbOpsAuditConsumerOffsets Verb = "ops.audit_consumer_offsets"
+	// VerbOpsAuditSchemaGuardProof records an operator testing the schema guard.
+	VerbOpsAuditSchemaGuardProof Verb = "ops.audit_schema_guard_proof"
 	// VerbOpsDBBreakGlass records an operator running one SQL statement
 	// against the production database through the audited command, the only
 	// sanctioned path once the raw one is closed (TACK-327).

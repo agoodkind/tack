@@ -43,6 +43,7 @@ func RegisterCommands(reg *clispec.Registry, f *cli.Factory) {
 	clispec.Register(reg, auditDLQInspectOp(f))
 	clispec.Register(reg, auditDLQReplayOp(f))
 	clispec.Register(reg, auditConsumerOffsetsOp(f))
+	clispec.Register(reg, auditSchemaGuardProofOp(f))
 	clispec.Register(reg, authTokenCreateOp(f))
 	clispec.Register(reg, authTokenListOp(f))
 	clispec.Register(reg, authTokenRevokeOp(f))
