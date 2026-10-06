@@ -84,6 +84,7 @@ func runProveSchemaGuard(t *testing.T, dsn string, pool *pgxpool.Pool) (string, 
 	var output bytes.Buffer
 	factory.Out = &output
 	factory.SetAuditOutbox(audit.NewPoolOutbox(pool))
+	factory.SetOperatorIdentitySource(cli.NewOperatorSource(factory))
 	registry := clispec.NewRegistry()
 	ops.RegisterCommands(registry, factory)
 	root := &cobra.Command{Use: "tack", SilenceErrors: true, SilenceUsage: true}
