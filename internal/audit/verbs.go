@@ -182,6 +182,9 @@ const (
 	// VerbOpsSearchVerify records a check of the search model, mapping,
 	// topology, alias, and health.
 	VerbOpsSearchVerify Verb = "ops.search_verify"
+	// VerbOpsSearchModelReplace records deletion of the registered search model
+	// and registration and deployment of a new copy.
+	VerbOpsSearchModelReplace Verb = "ops.search_model_replace"
 	// VerbOpsSearchAccessRollout records the start of an access policy
 	// rollout for one permission authority.
 	VerbOpsSearchAccessRollout Verb = "ops.search_access_rollout"

@@ -64,6 +64,7 @@ func RegisterCommands(reg *clispec.Registry, f *cli.Factory) {
 	clispec.Register(reg, deployVerifyOp(f))
 	clispec.Register(reg, searchVerifyOp(f))
 	clispec.Register(reg, searchProvisionOp(f))
+	clispec.Register(reg, searchModelReplaceOp(f))
 	clispec.Register(reg, searchRolloutOp(f))
 	clispec.Register(reg, searchReindexOp(f))
 	clispec.Register(reg, searchProjectionBackfillOp(f))
