@@ -31,12 +31,12 @@ func TestSearchControlCommandRejectsMappingAndModelMismatches(t *testing.T) {
 			mutate: func(t *testing.T) {
 				putSearchControlMapping(t, control, metaMapping("unexpected", model.ID, tokenizer))
 			},
-			want: `mapping version "unexpected" does not match "1"`,
+			want: `mapping version "unexpected" does not match "` + search.MappingVersion + `"`,
 		},
 		{
 			name: "tokenizer",
 			mutate: func(t *testing.T) {
-				putSearchControlMapping(t, control, metaMapping("1", model.ID, "unexpected-tokenizer"))
+				putSearchControlMapping(t, control, metaMapping(search.MappingVersion, model.ID, "unexpected-tokenizer"))
 			},
 			want: `tokenizer SHA-256 "unexpected-tokenizer" does not match`,
 		},
@@ -51,7 +51,7 @@ func TestSearchControlCommandRejectsMappingAndModelMismatches(t *testing.T) {
 			name: "registered model",
 			mutate: func(t *testing.T) {
 				otherModel := registerMismatchModel(t, control.client)
-				putSearchControlMapping(t, control, metaMapping("1", otherModel, tokenizer))
+				putSearchControlMapping(t, control, metaMapping(search.MappingVersion, otherModel, tokenizer))
 			},
 			want: fmt.Sprintf("model name is %q, want %q", mismatchModelName, search.PinnedModel.Name),
 		},

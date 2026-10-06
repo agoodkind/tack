@@ -38,7 +38,7 @@ func newClusterQueryFixture(t *testing.T, engine testenv.OpenSearchFixture) (que
 	stores := newSearchStore(t)
 	adapter, client := openSearchClientsFor(t, engine)
 	index := "cluster-" + uuid.Must(uuid.NewV7()).String()
-	spec := search.IndexSpec{Model: clusterProvision(t, adapter), MappingVersion: "1", Primaries: 1, RoutingShards: 24, Replicas: 0}
+	spec := search.IndexSpec{Model: clusterProvision(t, adapter), MappingVersion: search.MappingVersion, Primaries: 1, RoutingShards: 24, Replicas: 0}
 	clusterRequire(t, "create search index", adapter.EnsureIndex(t.Context(), index, spec))
 	clusterRequire(t, "set public alias", adapter.SetAlias(t.Context(), search.PublicAlias, index))
 	clusterRequire(t, "record serving index", stores.InitializeSearchIndex(t.Context(), index))
