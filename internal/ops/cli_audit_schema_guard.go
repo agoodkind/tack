@@ -17,13 +17,13 @@ func auditSchemaGuardProofOp(f *cli.Factory) clispec.Operation[noInput] {
 		Aliases:  nil,
 		Hidden:   false,
 		Short:    "Verify that the schema guard refuses a CREATE TABLE statement",
-		Long: "Attempt CREATE TABLE audit.tack_schema_guard_probe (id int) using " +
-			"the required engine superuser login in DATABASE_URL. Success requires " +
+		Long: "The command attempts CREATE TABLE audit.tack_schema_guard_probe (id int) using " +
+			"the required engine superuser login in DATABASE_URL. The command requires " +
 			"SQLSTATE 42501 (insufficient_privilege), a message containing " +
 			"\"schema change refused\", and no probe table after the refusal. " +
 			"The command drops an existing probe table as tack_migrator. " +
-			"Success reports the session role, statement, SQLSTATE, and message " +
-			"as JSON. With --execute, the audit choke-point records pending and " +
+			"The command reports the session role, statement, SQLSTATE, and message " +
+			"as JSON on success. With --execute, the audit choke-point records pending and " +
 			"then ok or error under ops.audit_schema_guard_proof. Without --execute, " +
 			"the command prints the operator and " +
 			"\"would run: ops.audit_schema_guard_proof\".",
