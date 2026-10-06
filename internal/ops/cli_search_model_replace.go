@@ -26,9 +26,10 @@ func searchModelReplaceOp(f *cli.Factory) clispec.Operation[searchModelReplaceIn
 	return clispec.Operation[searchModelReplaceInput]{
 		Name: clispec.Name{Canonical: "replace-model", CLIOverride: ""}, Lifetime: clispec.Permanent,
 		Audit: audit.Spec{Verb: string(audit.VerbOpsSearchModelReplace), Mutates: true}, Group: searchGroup,
-		Short: "Delete the registered search model and deploy a new copy",
-		Long: "Undeploys and deletes the registered pinned model, then registers, deploys, and verifies a new copy. " +
-			"The new copy has a new model ID. Run ops search reindex afterwards to build an index that maps it.",
+		Short: "Replace the registered search model",
+		Long: "The command undeploys and deletes the registered pinned model, then registers, deploys, and verifies a new copy. " +
+			"Run ops search reindex --execute afterward to rebuild indexes that reference the previous model ID. " +
+			"Without --execute, this command reports a dry run.",
 		New: func() searchModelReplaceInput { return searchModelReplaceInput{InputMarker: clispec.InputMarker{}} },
 		Run: func(ctx context.Context, _ searchModelReplaceInput, sink clispec.ResultSink) (runErr error) {
 			logger := telemetry.L(ctx)

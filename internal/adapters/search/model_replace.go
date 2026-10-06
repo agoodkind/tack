@@ -35,10 +35,9 @@ func modelPathRequest(method, modelID, suffix, operation string) (*http.Request,
 	return result, nil
 }
 
-// ReplacePinnedModel undeploys and deletes the registered pinned model, then
-// registers, deploys, and verifies a new copy. It returns the deleted model
-// ID, empty when no copy was registered, and the new model. The new model
-// has a new ID. An index that maps the deleted ID needs a full replacement.
+// ReplacePinnedModel replaces the registered pinned model with a verified copy.
+// The returned previous model ID is empty when a model was not registered.
+// Rebuild indexes that reference the previous model ID.
 func (a *Adapter) ReplacePinnedModel(ctx context.Context) (string, ModelInfo, error) {
 	previous, err := a.findPinnedModel(ctx)
 	if err == nil && previous != "" {
