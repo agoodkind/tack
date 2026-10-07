@@ -30,6 +30,7 @@ const (
 )
 
 type strayChildLogRecord struct {
+	Level   string   `json:"level"`
 	Message string   `json:"msg"`
 	Names   []string `json:"names"`
 }
@@ -114,7 +115,7 @@ func strayChildLogNames(t *testing.T, output string) []string {
 		if err := json.Unmarshal(scanner.Bytes(), &record); err != nil {
 			t.Fatalf("decode log line %q: %v", scanner.Text(), err)
 		}
-		if record.Message == "audit.partition.stray_child" {
+		if record.Message == "audit.partition.stray_child" && record.Level == slog.LevelError.String() {
 			return record.Names
 		}
 	}
