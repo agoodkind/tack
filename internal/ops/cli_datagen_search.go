@@ -5,7 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
+	"strings"
+	"time"
 
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
@@ -20,7 +23,13 @@ type datagenSearchInput struct {
 	VerifyCohort bool
 	Seed         int
 	Corpus       string
+	Endpoints    string
 }
+
+const (
+	datagenSearchEndpointCount     = 2
+	datagenSearchTwoProcessTimeout = 60 * time.Second
+)
 
 type datagenSearchResult struct {
 	clispec.ResultMarker
@@ -52,9 +61,10 @@ func datagenSearchOp(f *cli.Factory) clispec.Operation[datagenSearchInput] {
 			clispec.BoolParam("verify-cohort", "Prepare a cohort from the embedded corpus with --commit and a positive --seed. Check every manifest case with public tack_search.", false, func(input *datagenSearchInput, value bool) { input.VerifyCohort = value }),
 			clispec.IntParam("seed", "existing QA workspace seed for fixture preparation", 0, func(input *datagenSearchInput, value int) { input.Seed = value }),
 			clispec.StringParam("corpus", "approved semantic corpus JSON file for fixture preparation", "", false, func(input *datagenSearchInput, value string) { input.Corpus = value }),
+			clispec.StringParam("endpoints", "comma-separated MCP base URLs of two Tack processes; alternates one search session between them after verification", "", false, func(input *datagenSearchInput, value string) { input.Endpoints = value }),
 		},
 		New: func() datagenSearchInput {
-			return datagenSearchInput{InputMarker: clispec.InputMarker{}, Commit: false}
+			return datagenSearchInput{InputMarker: clispec.InputMarker{}, Commit: false, Endpoints: ""}
 		},
 		Run: func(ctx context.Context, input datagenSearchInput, sink clispec.ResultSink) error {
 			return runDatagenSearch(ctx, f, input, sink)
@@ -86,6 +96,15 @@ func runDatagenSearch(ctx context.Context, factory *cli.Factory, input datagenSe
 	if err := validateDatagenSearchInput(input); err != nil {
 		slog.ErrorContext(ctx, "qa.datagen.search_input_refused", slog.String("err", err.Error()))
 		return err
+	}
+	// Endpoint option checks precede verification because both verifiers create fixture data.
+	var endpoints []string
+	if input.Endpoints != "" {
+		parsed, err := parseDatagenSearchEndpoints(input)
+		if err != nil {
+			return err
+		}
+		endpoints = parsed
 	}
 	if !input.Commit {
 		if err := datagen.ValidateTarget(factory.Cfg); err != nil {
@@ -119,6 +138,13 @@ func runDatagenSearch(ctx context.Context, factory *cli.Factory, input datagenSe
 			slog.ErrorContext(ctx, "qa.datagen.search_failed", slog.String("err", err.Error()))
 			return fmt.Errorf("qa datagen search: %w", err)
 		}
+		if endpoints != nil {
+			client := &http.Client{Timeout: datagenSearchTwoProcessTimeout}
+			if err := datagen.VerifySearchTwoProcess(ctx, factory.Cfg, endpoints, client); err != nil {
+				slog.ErrorContext(ctx, "qa.datagen.search_two_process_failed", slog.String("err", err.Error()))
+				return fmt.Errorf("qa datagen search: %w", err)
+			}
+		}
 		result.Verified = true
 	}
 	if err := clispec.WriteJSONValue(ctx, sink, result); err != nil {
@@ -130,4 +156,24 @@ func runDatagenSearch(ctx context.Context, factory *cli.Factory, input datagenSe
 		return fmt.Errorf("qa datagen search: %w", runError)
 	}
 	return nil
+}
+
+func parseDatagenSearchEndpoints(input datagenSearchInput) ([]string, error) {
+	if !input.Commit || input.PrepareOnly {
+		return nil, fmt.Errorf("qa datagen search: endpoints require --commit without --prepare-only")
+	}
+	values := strings.Split(input.Endpoints, ",")
+	endpoints := make([]string, 0, len(values))
+	for _, value := range values {
+		endpoints = append(endpoints, strings.TrimSpace(value))
+	}
+	if len(endpoints) != datagenSearchEndpointCount {
+		return nil, fmt.Errorf("qa datagen search: endpoints require exactly %d values, got %d", datagenSearchEndpointCount, len(endpoints))
+	}
+	for _, endpoint := range endpoints {
+		if endpoint == "" {
+			return nil, fmt.Errorf("qa datagen search: endpoints require %d nonempty values", datagenSearchEndpointCount)
+		}
+	}
+	return endpoints, nil
 }
