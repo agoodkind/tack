@@ -358,8 +358,7 @@ services:
   # model artifact host that ML Commons downloads the pinned model from.
   #
   # The ML Commons memory breaker rejects predictions when used heap is at or
-  # above 85 percent. G1PeriodicGCInterval=5000 enables periodic garbage
-  # collection.
+  # above 85 percent.
   opensearch:
     image: opensearchproject/opensearch:3.8.0
     profiles: [search]
