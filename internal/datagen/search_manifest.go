@@ -3,6 +3,7 @@ package datagen
 import (
 	"context"
 	"crypto/sha256"
+	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -15,7 +16,13 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
-const approvedSearchCorpusSHA256 = "f8d11433cdda164be34425e155184330bb5e56c95d9d0d341e8bfc6f80f6188f"
+const (
+	approvedSearchCorpusSHA256 = "f8d11433cdda164be34425e155184330bb5e56c95d9d0d341e8bfc6f80f6188f"
+	embeddedCorpusSource       = "embedded"
+)
+
+//go:embed search_semantic_corpus.json
+var approvedSearchCorpusJSON []byte
 
 // SearchManifest exports stored QA fixture identities without credentials.
 type SearchManifest struct {
@@ -70,6 +77,8 @@ type searchManifestSource struct {
 // PrepareSearchManifest writes a bounded fixture under an existing seed workspace.
 // It permits disabled public search, records search work for the prepared
 // nodes, and starts no worker.
+// PrepareSearchManifest uses the embedded approved corpus
+// when corpusPath is empty.
 func PrepareSearchManifest(ctx context.Context, cfg *config.Config, seed int64, corpusPath string) (SearchManifest, error) {
 	if err := ValidateTarget(cfg); err != nil {
 		return SearchManifest{}, err
@@ -106,18 +115,22 @@ func PrepareSearchManifest(ctx context.Context, cfg *config.Config, seed int64, 
 }
 
 func loadApprovedSearchCorpus(path string) ([]searchManifestSource, error) {
-	contents, err := os.ReadFile(path)
-	if err != nil {
-		slog.Error("qa.datagen.corpus_read_failed", slog.String("err", err.Error()))
-		return nil, fmt.Errorf("qa datagen: read semantic corpus %q: %w", path, err)
+	contents, source := approvedSearchCorpusJSON, embeddedCorpusSource
+	if path != "" {
+		read, err := os.ReadFile(path)
+		if err != nil {
+			slog.Error("qa.datagen.corpus_read_failed", slog.String("err", err.Error()), slog.String("path", path))
+			return nil, fmt.Errorf("qa datagen: read semantic corpus %q: %w", path, err)
+		}
+		contents, source = read, path
 	}
 	digest := sha256.Sum256(contents)
 	if hex.EncodeToString(digest[:]) != approvedSearchCorpusSHA256 {
-		return nil, fmt.Errorf("qa datagen: semantic corpus %q does not match approved SHA256", path)
+		return nil, fmt.Errorf("qa datagen: semantic corpus %q does not match approved SHA256", source)
 	}
 	var rows []searchManifestSource
 	if err := json.Unmarshal(contents, &rows); err != nil {
-		return nil, fmt.Errorf("qa datagen: decode semantic corpus %q: %w", path, err)
+		return nil, fmt.Errorf("qa datagen: decode semantic corpus %q: %w", source, err)
 	}
 	return rows, nil
 }

@@ -149,8 +149,8 @@ func TestDatagenSearchPreparationExportsStoredIsolatedSets(t *testing.T) {
 		name, marker, message string
 		arguments             []string
 	}{
-		{"missing-seed", "local", "positive seed", []string{"--prepare-only", "--commit", "--corpus", "testdata/search_semantic_corpus.json"}},
-		{"seed-without-preparation", "local", "require prepare-only", []string{"--commit", "--seed", seedText}},
+		{"missing-seed", "local", "--seed greater than 0",[]string{"--prepare-only", "--commit", "--corpus", "testdata/search_semantic_corpus.json"}},
+		{"seed-without-preparation", "local", "require --prepare-only",[]string{"--commit", "--seed", seedText}},
 		{"unmarked-target", "", "ALLOW_TARGET", []string{"--prepare-only", "--commit", "--seed", seedText, "--corpus", invalidCorpus}},
 		{"production-target", "qa", "identifies production", []string{"--prepare-only", "--commit", "--seed", seedText, "--corpus", invalidCorpus}},
 		{"invalid-corpus", "local", "approved SHA256", []string{"--prepare-only", "--commit", "--seed", seedText, "--corpus", invalidCorpus}},
