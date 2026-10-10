@@ -70,6 +70,9 @@ func validateDatagenSearchInput(input datagenSearchInput) error {
 	if input.VerifyCohort && input.Seed <= 0 {
 		return errors.New("qa datagen search: --verify-cohort requires --seed greater than 0")
 	}
+	if input.VerifyCohort && !input.Commit {
+		return errors.New("qa datagen search: --verify-cohort requires --commit")
+	}
 	if input.PrepareOnly && (input.Seed <= 0 || input.Corpus == "") {
 		return errors.New("qa datagen search: --prepare-only requires --seed greater than 0 and a nonempty --corpus")
 	}

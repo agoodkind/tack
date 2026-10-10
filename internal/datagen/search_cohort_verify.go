@@ -98,7 +98,7 @@ func VerifySearchCohort(ctx context.Context, cfg *config.Config, seed int64) (Se
 func (s cohortSession) verify(ctx context.Context, cases []SearchManifestCase) (SearchCohortVerification, error) {
 	waited, completed, err := s.waitForTargets(ctx, cases)
 	if err != nil {
-		return SearchCohortVerification{Verified: false, WaitCompleted: false, WaitDuration: waited.String(), Cases: nil}, err
+		return SearchCohortVerification{}, err
 	}
 	results := make([]SearchCohortCase, 0, len(cases))
 	verified := len(cases) > 0

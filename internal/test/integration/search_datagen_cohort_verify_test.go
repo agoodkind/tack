@@ -8,7 +8,9 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -48,7 +50,13 @@ func TestDatagenSearchVerifyCohort(t *testing.T) {
 	}
 	t.Cleanup(workers.Close)
 	workers.StartSearchWorkers(t.Context())
-	output := runCohortCommand(t, cfg, clock.Now().UnixNano())
+	if _, err := runCohortCommand(t, cfg, 1); err == nil || !strings.Contains(err.Error(), "--verify-cohort requires --commit") {
+		t.Fatalf("verify cohort without --commit: got %v", err)
+	}
+	output, err := runCohortCommand(t, cfg, clock.Now().UnixNano(), "--commit")
+	if err != nil {
+		t.Fatalf("verify cohort: %v; output=%s", err, output)
+	}
 	var envelope struct {
 		Result struct {
 			Verified bool                             `json:"verified"`
@@ -63,9 +71,15 @@ func TestDatagenSearchVerifyCohort(t *testing.T) {
 	if !envelope.Result.Verified || !cohort.Verified || !cohort.WaitCompleted || len(cohort.Cases) != len(envelope.Result.Manifest.Cases) {
 		t.Fatalf("cohort verification differs: %+v", cohort)
 	}
-	for _, result := range cohort.Cases {
-		if !result.Passed {
-			t.Fatalf("cohort case %q failed: %+v", result.Query, result)
+	for i, result := range cohort.Cases {
+		declared := envelope.Result.Manifest.Cases[i]
+		unexpected := result.Match == "exact" && result.Unexpected != 0
+		if !result.Passed || result.Query != declared.Query || result.Returned <= 0 || unexpected {
+			t.Fatalf("cohort case %q failed: %+v", declared.Query, result)
+		}
+		overLimit := declared.RankLimit > 0 && len(result.Ranks) > 0 && slices.Max(result.Ranks) > declared.RankLimit
+		if result.Match == "ranked_targets" && (len(result.Ranks) == 0 || slices.Min(result.Ranks) < 1 || overLimit) {
+			t.Fatalf("cohort case %q ranks differ from limit %d: %+v", declared.Query, declared.RankLimit, result)
 		}
 		t.Logf("cohort case query=%q match=%s ranks=%v returned=%d wait=%s", result.Query, result.Match, result.Ranks, result.Returned, cohort.WaitDuration)
 	}
@@ -140,8 +154,7 @@ func newCohortEngines(t *testing.T) *config.Config {
 	return cfg
 }
 
-// runCohortCommand runs the audited command and returns its JSON output.
-func runCohortCommand(t *testing.T, cfg *config.Config, seed int64) []byte {
+func runCohortCommand(t *testing.T, cfg *config.Config, seed int64, flags ...string) ([]byte, error) {
 	t.Helper()
 	var output bytes.Buffer
 	factory := cli.System(cfg)
@@ -161,18 +174,15 @@ func runCohortCommand(t *testing.T, cfg *config.Config, seed int64) []byte {
 		root.AddCommand(command)
 	}
 	factory.SetOperatorIdentitySource(cli.NewOperatorSource(factory))
-	root.SetArgs([]string{
+	root.SetArgs(append([]string{
 		"--execute", "--output", "json", "--operator-id", "019dd226-440e-729a-a442-281aaf73ca30",
 		"--operator-email", "operator@example.com", "--operator-name", "Search Test",
-		"ops", "qa", "datagen", "search", "--verify-cohort", "--commit", "--seed", strconv.FormatInt(seed, 10),
-	})
-	if err := root.ExecuteContext(t.Context()); err != nil {
-		t.Fatalf("verify cohort: %v; output=%s", err, output.String())
-	}
-	return output.Bytes()
+		"ops", "qa", "datagen", "search", "--verify-cohort", "--seed", strconv.FormatInt(seed, 10),
+	}, flags...))
+	err = root.ExecuteContext(t.Context())
+	return output.Bytes(), err
 }
 
-// clearCohortPrefix range-clears the test key space and removes the prefix.
 func clearCohortPrefix(t *testing.T, cluster string, prefix []byte) {
 	defer fdbadapter.SetTestPrefix(nil)
 	database, err := fdbadapter.Open(cluster, cohortTransactionTimeout)
