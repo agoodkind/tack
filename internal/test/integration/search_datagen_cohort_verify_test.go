@@ -38,10 +38,10 @@ const (
 	cohortTransactionTimeout      = 5 * time.Second
 )
 
-// TestDatagenSearchVerifyCohort runs --verify-cohort through the audited
+// TestSearchDatagenVerifyCohort runs --verify-cohort through the audited
 // command while the production search worker loops of a second graph index
 // the cohort.
-func TestDatagenSearchVerifyCohort(t *testing.T) {
+func TestSearchDatagenVerifyCohort(t *testing.T) {
 	cfg := newCohortEngines(t)
 	workers, err := appruntime.BuildGraph(t.Context(), cfg)
 	if err != nil {
