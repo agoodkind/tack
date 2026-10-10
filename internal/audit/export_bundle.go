@@ -124,7 +124,7 @@ func stagedForExport(stagedName, base string) bool {
 // isExportIDText reports whether text is an export id as this exporter renders
 // one.
 //
-// The rendering matters, not just the value. uuid.Parse also accepts the urn
+// The rendering matters, not just the value. [uuid.Parse] also accepts the urn
 // form, the braced form, the undashed form, and uppercase hex, and this exporter
 // writes none of them, so a name carrying one of those is not a name it wrote
 // and is not its to remove.

@@ -12,7 +12,7 @@ import (
 // readCandidateParentIDs reads the node record of each candidate inside tr
 // and sets the candidate's parentID from its parent_id property. It issues
 // every read before it waits on any of them. A missing or unparsable
-// parent_id leaves uuid.Nil.
+// parent_id leaves candidate.parentID at [uuid.Nil].
 func readCandidateParentIDs(ctx context.Context, tr fdb.Transaction, candidates []orphanCandidate) error {
 	futures := make([]fdb.FutureByteSlice, 0, len(candidates))
 	for _, candidate := range candidates {

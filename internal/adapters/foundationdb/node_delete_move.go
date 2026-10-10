@@ -19,7 +19,7 @@ const parentIDProperty = "parent_id"
 // readRootParent returns the hierarchy parent of rootID inside tr: the one
 // target of a child_of edge from rootID that node.LivesUnder accepts. A root
 // without such a target, with several, or with more child_of edges than one
-// page reads returns uuid.Nil.
+// page reads returns [uuid.Nil].
 func readRootParent(ctx context.Context, tr fdb.Transaction, orgID, rootID uuid.UUID) (uuid.UUID, error) {
 	edges, err := readDeleteEdges(ctx, tr, orgID, rootID, node.RelChildOf, false)
 	if err != nil || len(edges) == 0 || len(edges) > maxDeleteEdgePage {

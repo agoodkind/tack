@@ -907,7 +907,7 @@ type rowHashPayloadV3 struct {
 }
 
 // piiRefArg returns the value to bind for audit.events.pii_ref. The pgx
-// adapter treats a typed nil interface as NULL; uuid.Nil written literally
+// adapter treats a typed nil interface as NULL; [uuid.Nil] written literally
 // would produce a non-NULL all-zeros UUID, so we route through pgtype.
 func piiRefArg(ref uuid.UUID) pgtype.UUID {
 	if ref == uuid.Nil {
