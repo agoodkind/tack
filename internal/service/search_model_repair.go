@@ -69,7 +69,7 @@ func (r *SearchModelRepair) Check(ctx context.Context) error {
 	if err != nil {
 		return modelRepairFailure(ctx, "read serving search index", err)
 	}
-	deployment, err := r.ports.Engine.ModelDeployment(ctx, index)
+	deployment, err := r.ports.Engine.ModelDeployment(ctx, index, r.clock.Now())
 	if err != nil {
 		return modelRepairFailure(ctx, "read model deployment of index "+index, err)
 	}
@@ -104,7 +104,7 @@ func (r *SearchModelRepair) Check(ctx context.Context) error {
 // still stuck. Otherwise it releases the claim without counting it.
 func (r *SearchModelRepair) attempt(ctx context.Context, index string, claim searchdomain.ModelRepairClaim, stuckFor time.Duration) error {
 	modelID := claim.Record.ModelID
-	again, err := r.ports.Engine.ModelDeployment(ctx, index)
+	again, err := r.ports.Engine.ModelDeployment(ctx, index, r.clock.Now())
 	if err != nil {
 		failure := modelRepairFailure(ctx, "read model deployment of index "+index+" again", err)
 		if releaseErr := r.release(ctx, claim); releaseErr != nil {

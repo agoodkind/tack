@@ -72,3 +72,61 @@ func deployTasksSince(t *testing.T, fixture queryFixture, modelID string, since 
 	}
 	return result.Hits.Total.Value
 }
+
+const (
+	// The regression must exercise ML Commons task search against a stored task record.
+	deployTaskPath = "/.plugins-ml-task/_doc/"
+	// The stale task must exceed the deploy-task wait bound.
+	staleDeployTaskAge = time.Hour
+	// Later tests require the cluster default for native model redeployment.
+	nativeRedeployDefault = `{"persistent":{"plugins.ml_commons.model_auto_redeploy.enable":null}}`
+)
+
+// Task creation and update times must vary independently to isolate the activity bound.
+type staleDeployTask struct {
+	id      string
+	modelID string
+	created time.Time
+	updated time.Time
+}
+
+// The repair query must observe the task immediately after insertion.
+func writeDeployTask(t *testing.T, fixture queryFixture, task staleDeployTask) {
+	t.Helper()
+	body := fmt.Appendf(nil, `{"model_id":%q,"task_type":"DEPLOY_MODEL","function_name":"SPARSE_ENCODING","state":"RUNNING",`+
+		`"worker_node":["tack-stale-node"],"create_time":%d,"last_update_time":%d,"is_async":true}`,
+		task.modelID, task.created.UnixMilli(), task.updated.UnixMilli())
+	request := nativeMLRequest{path: deployTaskPath + task.id + "?refresh=true", body: body}
+	var result json.RawMessage
+	response, err := opensearch.Do(t.Context(), fixture.Client.Client, http.MethodPut, request, &result)
+	if err != nil || response == nil || response.IsError() {
+		t.Fatalf("The repair query must observe the task immediately after insertion.  -rejected: task %s response %v err %v body %s", task.id, response, err, result)
+	}
+}
+
+// The injected task must not affect later tests after cancellation.
+func deleteDeployTask(t *testing.T, fixture queryFixture, taskID string) {
+	t.Helper()
+	var result json.RawMessage
+	request := nativeMLRequest{path: deployTaskPath + taskID, body: nil}
+	response, err := opensearch.Do(context.WithoutCancel(t.Context()), fixture.Client.Client, http.MethodDelete, request, &result)
+	if err != nil || response == nil || response.IsError() {
+		t.Logf("The injected task must not affect later tests after cancellation.  -failed: task %s response %v err %v body %s", taskID, response, err, result)
+	}
+}
+
+// Later tests require native redeployment and a deployed model after cancellation.
+func restoreNativeModel(t *testing.T, fixture queryFixture) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), nativeRedeployTimeout)
+	defer cancel()
+	var result json.RawMessage
+	request := clusterSettingsRequest{body: []byte(nativeRedeployDefault)}
+	response, err := opensearch.Do(ctx, fixture.Client.Client, http.MethodPut, request, &result)
+	if err != nil || response == nil || response.IsError() {
+		t.Errorf("restore native redeployment setting failed: response %v err %v body %s", response, err, result)
+	}
+	if err := redeployNativeModel(ctx, fixture.Adapter, fixture.Client); err != nil {
+		t.Errorf("restore native model deployment failed: %v", err)
+	}
+}

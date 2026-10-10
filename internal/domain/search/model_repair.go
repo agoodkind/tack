@@ -16,6 +16,7 @@ const (
 // ModelDeployment is the deployment state of the model that the serving
 // index maps. ActiveTasks counts the DEPLOY_MODEL tasks of the model in
 // CREATED or RUNNING.
+// A task counts as active only within the deploy-task wait bound after its latest update.
 type ModelDeployment struct {
 	ModelID     string
 	State       string
@@ -66,7 +67,7 @@ type ModelRepairClaim struct {
 // ModelRepairEngine reads the serving model deployment and deploys the model
 // with no node IDs.
 type ModelRepairEngine interface {
-	ModelDeployment(ctx context.Context, index string) (ModelDeployment, error)
+	ModelDeployment(ctx context.Context, index string, now time.Time) (ModelDeployment, error)
 	StartModelDeploy(ctx context.Context, modelID string) (string, error)
 	WaitModelDeploy(ctx context.Context, modelID, taskID string) error
 }
