@@ -363,6 +363,8 @@ services:
     image: opensearchproject/opensearch:3.8.0
     profiles: [search]
     restart: unless-stopped
+    # No measurement establishes the stop duration under indexing load.
+    stop_grace_period: 2m
     environment:
       OPENSEARCH_JAVA_OPTS: -Xms3g -Xmx3g -XX:G1PeriodicGCInterval=5000 -Djava.net.preferIPv6Addresses=true
       node.roles: cluster_manager,data,ingest,ml
