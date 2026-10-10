@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 
 	"goodkind.io/tack/internal/audit"
@@ -20,6 +21,7 @@ type datagenSearchInput struct {
 	VerifyCohort bool
 	Seed         int
 	Corpus       string
+	Endpoints    string
 }
 
 type datagenSearchResult struct {
@@ -52,9 +54,10 @@ func datagenSearchOp(f *cli.Factory) clispec.Operation[datagenSearchInput] {
 			clispec.BoolParam("verify-cohort", "Prepare a cohort from the embedded corpus with --commit and a positive --seed. Check every manifest case with public tack_search.", false, func(input *datagenSearchInput, value bool) { input.VerifyCohort = value }),
 			clispec.IntParam("seed", "existing QA workspace seed for fixture preparation", 0, func(input *datagenSearchInput, value int) { input.Seed = value }),
 			clispec.StringParam("corpus", "approved semantic corpus JSON file for fixture preparation", "", false, func(input *datagenSearchInput, value string) { input.Corpus = value }),
+			clispec.StringParam("endpoints", "comma-separated MCP base URLs of two Tack processes; alternates one search session between them after verification", "", false, func(input *datagenSearchInput, value string) { input.Endpoints = value }),
 		},
 		New: func() datagenSearchInput {
-			return datagenSearchInput{InputMarker: clispec.InputMarker{}, Commit: false}
+			return datagenSearchInput{InputMarker: clispec.InputMarker{}, Commit: false, Endpoints: ""}
 		},
 		Run: func(ctx context.Context, input datagenSearchInput, sink clispec.ResultSink) error {
 			return runDatagenSearch(ctx, f, input, sink)
@@ -78,6 +81,12 @@ func validateDatagenSearchInput(input datagenSearchInput) error {
 	if !input.PrepareOnly && !input.VerifyCohort && (input.Seed != 0 || input.Corpus != "") {
 		return errors.New("qa datagen search: --corpus and --seed without --verify-cohort require --prepare-only")
 	}
+	if input.Endpoints != "" && input.VerifyCohort {
+		return errors.New("qa datagen search: endpoints conflict with --verify-cohort")
+	}
+	if input.Endpoints != "" && (!input.Commit || input.PrepareOnly) {
+		return errors.New("qa datagen search: endpoints require --commit without --prepare-only")
+	}
 	return nil
 }
 
@@ -86,6 +95,15 @@ func runDatagenSearch(ctx context.Context, factory *cli.Factory, input datagenSe
 	if err := validateDatagenSearchInput(input); err != nil {
 		slog.ErrorContext(ctx, "qa.datagen.search_input_refused", slog.String("err", err.Error()))
 		return err
+	}
+	// Endpoint option checks precede verification because both verifiers create fixture data.
+	var endpoints []string
+	if input.Endpoints != "" {
+		parsed, err := parseDatagenSearchEndpoints(input)
+		if err != nil {
+			return err
+		}
+		endpoints = parsed
 	}
 	if !input.Commit {
 		if err := datagen.ValidateTarget(factory.Cfg); err != nil {
@@ -118,6 +136,13 @@ func runDatagenSearch(ctx context.Context, factory *cli.Factory, input datagenSe
 		if err := datagen.VerifySearch(ctx, factory.Cfg); err != nil {
 			slog.ErrorContext(ctx, "qa.datagen.search_failed", slog.String("err", err.Error()))
 			return fmt.Errorf("qa datagen search: %w", err)
+		}
+		if endpoints != nil {
+			client := &http.Client{Timeout: datagenSearchTwoProcessTimeout}
+			if err := datagen.VerifySearchTwoProcess(ctx, factory.Cfg, endpoints, client); err != nil {
+				slog.ErrorContext(ctx, "qa.datagen.search_two_process_failed", slog.String("err", err.Error()))
+				return fmt.Errorf("qa datagen search: %w", err)
+			}
 		}
 		result.Verified = true
 	}
