@@ -1,7 +1,6 @@
 package ops
 
 import (
-	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -14,12 +13,6 @@ const (
 )
 
 func parseDatagenSearchEndpoints(input datagenSearchInput) ([]string, error) {
-	if input.VerifyCohort {
-		return nil, errors.New("qa datagen search: endpoints conflict with --verify-cohort")
-	}
-	if !input.Commit || input.PrepareOnly {
-		return nil, errors.New("qa datagen search: endpoints require --commit without --prepare-only")
-	}
 	values := strings.Split(input.Endpoints, ",")
 	endpoints := make([]string, 0, len(values))
 	for _, value := range values {

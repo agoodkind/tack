@@ -81,6 +81,12 @@ func validateDatagenSearchInput(input datagenSearchInput) error {
 	if !input.PrepareOnly && !input.VerifyCohort && (input.Seed != 0 || input.Corpus != "") {
 		return errors.New("qa datagen search: --corpus and --seed without --verify-cohort require --prepare-only")
 	}
+	if input.Endpoints != "" && input.VerifyCohort {
+		return errors.New("qa datagen search: endpoints conflict with --verify-cohort")
+	}
+	if input.Endpoints != "" && (!input.Commit || input.PrepareOnly) {
+		return errors.New("qa datagen search: endpoints require --commit without --prepare-only")
+	}
 	return nil
 }
 

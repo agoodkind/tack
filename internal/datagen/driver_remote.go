@@ -15,6 +15,7 @@ var forwardedRequestHeaders = []string{
 	"Content-Type",
 	"Accept",
 	"Mcp-Session-Id",
+	"Mcp-Protocol-Version",
 }
 
 type remoteForwarder struct {
@@ -55,7 +56,7 @@ func (f *remoteForwarder) ServeHTTP(writer http.ResponseWriter, request *http.Re
 	ctx := request.Context()
 	outbound, err := http.NewRequestWithContext(ctx, request.Method, f.target, request.Body)
 	if err != nil {
-		slog.ErrorContext(ctx, "qa datagen: build remote request", "err", err)
+		slog.ErrorContext(ctx, "remote_request.build_failed", slog.String("err", err.Error()))
 		writer.WriteHeader(http.StatusBadGateway)
 		return
 	}
@@ -66,7 +67,7 @@ func (f *remoteForwarder) ServeHTTP(writer http.ResponseWriter, request *http.Re
 	}
 	response, err := f.client.Do(outbound)
 	if err != nil {
-		slog.ErrorContext(ctx, "qa datagen: send remote request", "err", err)
+		slog.ErrorContext(ctx, "remote_request.send_failed", slog.String("err", err.Error()))
 		writer.WriteHeader(http.StatusBadGateway)
 		return
 	}
@@ -76,6 +77,6 @@ func (f *remoteForwarder) ServeHTTP(writer http.ResponseWriter, request *http.Re
 	}
 	writer.WriteHeader(response.StatusCode)
 	if _, err := io.Copy(writer, response.Body); err != nil {
-		slog.ErrorContext(ctx, "qa datagen: copy remote response", "err", err)
+		slog.ErrorContext(ctx, "remote_response.copy_failed", slog.String("err", err.Error()))
 	}
 }
