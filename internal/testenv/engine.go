@@ -83,7 +83,7 @@ func startEngine(ctx context.Context, cli *client.Client, spec engineSpec) (engi
 	_, err = cli.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Config: &container.Config{
 			Image:       spec.image,
-			Hostname:    name,
+			Hostname:    spec.name,
 			Entrypoint:  spec.entrypoint,
 			Cmd:         spec.cmd,
 			Env:         spec.env,
