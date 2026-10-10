@@ -32,8 +32,6 @@ The server serves application requests. The operator CLI runs migrations, seedin
 
 Pure deployment model, normalization, validation, and protocol types must be shared by the provider and audited Go operations. Keep command entry points thin. Components must import shared packages rather than importing another executable or copying its implementation.
 
-The move to a Tack organization must include splitting these components into separate repositories. Publish the shared Go code as a versioned module during that transition. Each extracted component must pin the shared module version and verify compatibility through integration tests. Repository names and the shared module path remain decisions for that transition. Do not create those repositories during the initial implementation.
-
 Pure model and protocol packages should avoid FoundationDB native bindings. Releases that require native libraries must publish and verify the complete runtime dependencies. Validation must not be weakened to produce a static executable.
 
 ## Initial resource contracts
