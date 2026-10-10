@@ -13,6 +13,9 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
+// Deploy-task activity must use the same time bound as `waitModelTask`.
+const modelTaskWait = 5 * time.Minute
+
 type loggedModelError struct{ err error }
 
 func (e loggedModelError) Error() string { return e.err.Error() }
@@ -142,7 +145,7 @@ func (a *Adapter) waitDeploy(ctx context.Context, modelID, taskID string) error 
 // per-request timeout. Neither poll failure ends the wait, because the task
 // continues to run on the engine. Cancellation of ctx ends the wait at once.
 func (a *Adapter) waitModelTask(ctx context.Context, taskID string) (string, error) {
-	deadline, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	deadline, cancel := context.WithTimeout(ctx, modelTaskWait)
 	defer cancel()
 	for attempt := 1; ; attempt++ {
 		var task modelTask

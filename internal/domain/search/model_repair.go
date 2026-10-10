@@ -16,6 +16,7 @@ const (
 // ModelDeployment is the deployment state of the model that the serving
 // index maps. ActiveTasks counts the DEPLOY_MODEL tasks of the model in
 // CREATED or RUNNING.
+// A task counts as active only within the deploy-task wait bound after its latest update.
 type ModelDeployment struct {
 	ModelID     string
 	State       string

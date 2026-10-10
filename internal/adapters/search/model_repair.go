@@ -9,12 +9,16 @@ import (
 	"time"
 
 	opensearch "github.com/opensearch-project/opensearch-go/v4"
+	"goodkind.io/tack/internal/clock"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/telemetry"
 )
 
 // deployTaskType is the ML Commons task type of a model deploy.
 const deployTaskType = "DEPLOY_MODEL"
+
+// Task activity must depend on updates because creation time does not indicate ongoing work.
+const taskUpdateField = "last_update_time"
 
 var _ searchdomain.ModelRepairEngine = (*Adapter)(nil)
 
@@ -73,7 +77,7 @@ func (a *Adapter) WaitModelDeploy(ctx context.Context, modelID, taskID string) e
 }
 
 func (a *Adapter) activeDeployTasks(ctx context.Context, modelID string) (int, error) {
-	body, err := json.Marshal(activeDeployTasksQuery(modelID))
+	body, err := json.Marshal(activeDeployTasksQuery(modelID, clock.Now().Add(-modelTaskWait)))
 	if err != nil {
 		wrapped := fmt.Errorf("encode active deploy task search of model %s: %w", modelID, err)
 		telemetry.L(ctx).ErrorContext(ctx, "search.model.task_search_encode_failed", slog.String("err", wrapped.Error()), slog.String("model_id", modelID))
@@ -91,9 +95,15 @@ func (a *Adapter) activeDeployTasks(ctx context.Context, modelID string) (int, e
 	return result.Hits.Total.Value, nil
 }
 
+// Timestamp comparisons must use the Unix milliseconds stored in `last_update_time`.
+type taskUpdateRange struct {
+	After int64 `json:"gt"`
+}
+
 type taskFilterClause struct {
-	Term  map[string]string   `json:"term,omitempty"`
-	Terms map[string][]string `json:"terms,omitempty"`
+	Term  map[string]string          `json:"term,omitempty"`
+	Terms map[string][]string        `json:"terms,omitempty"`
+	Range map[string]taskUpdateRange `json:"range,omitempty"`
 }
 
 type taskBoolQuery struct {
@@ -113,11 +123,15 @@ type taskCountBody struct {
 // activeDeployTasksQuery counts the DEPLOY_MODEL tasks of modelID in CREATED
 // or RUNNING. ML Commons maps model_id, task_type, and state as keyword
 // fields.
-func activeDeployTasksQuery(modelID string) taskCountBody {
+// Stale `CREATED` or `RUNNING` records must not block model repair.
+func activeDeployTasksQuery(modelID string, updatedAfter time.Time) taskCountBody {
+	states := []string{string(modelTaskCreated), string(modelTaskRunning)}
+	updated := taskUpdateRange{After: updatedAfter.UnixMilli()}
 	filters := []taskFilterClause{
-		{Term: map[string]string{"model_id": modelID}, Terms: nil},
-		{Term: map[string]string{"task_type": deployTaskType}, Terms: nil},
-		{Term: nil, Terms: map[string][]string{"state": {string(modelTaskCreated), string(modelTaskRunning)}}},
+		{Term: map[string]string{"model_id": modelID}, Terms: nil, Range: nil},
+		{Term: map[string]string{"task_type": deployTaskType}, Terms: nil, Range: nil},
+		{Term: nil, Terms: map[string][]string{"state": states}, Range: nil},
+		{Term: nil, Terms: nil, Range: map[string]taskUpdateRange{taskUpdateField: updated}},
 	}
 	return taskCountBody{Size: 0, TrackTotalHits: true, Query: taskSearchQuery{Bool: taskBoolQuery{Filter: filters}}}
 }

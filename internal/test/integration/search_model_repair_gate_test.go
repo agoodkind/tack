@@ -79,3 +79,58 @@ func requireNoRepairDeploy(t *testing.T, fixture queryFixture, modelID, phase st
 		t.Fatalf("%s: model deployment %+v err %v after the quiet period, want it still stuck", phase, deployment, err)
 	}
 }
+
+// `TestSearchModelRepairStaleDeployTask` requires repair to depend on a `RUNNING` task's update age.
+func TestSearchModelRepairStaleDeployTask(t *testing.T) {
+	t.Setenv(repairEnabledVariable, "true")
+	t.Setenv("OPENSEARCH_MODEL_REPAIR_INTERVAL", repairGateInterval.String())
+	t.Setenv("OPENSEARCH_MODEL_REPAIR_STUCK_AFTER", "1s")
+	t.Setenv("OPENSEARCH_MODEL_REPAIR_ATTEMPT_SPACING", "2s")
+	fixture := newQueryFixture(t, defaultQueryOptions())
+	served, err := fixture.Adapter.ModelDeployment(t.Context(), fixture.Index)
+	if err != nil {
+		t.Fatalf("read serving model failed  : %v", err)
+	}
+	modelID := served.ModelID
+	t.Cleanup(func() { restoreNativeModel(t, fixture) })
+	disableNativeRedeploy(t, fixture)
+	setEngineRunning(t, false)
+	setEngineRunning(t, true)
+	clusterEventually(t, "failed model with no active deploy tasks  ", func() error {
+		deployment, err := fixture.Adapter.ModelDeployment(t.Context(), fixture.Index)
+		if err != nil {
+			return clusterFailure("read model deployment failed  ", err)
+		}
+		if deployment.State != "DEPLOY_FAILED" || deployment.ActiveTasks != 0 {
+			return fmt.Errorf("expected failed model with no active deploy tasks  : state %s, %d active deploy tasks", deployment.State, deployment.ActiveTasks)
+		}
+		return nil
+	})
+
+	taskID := opaqueSearchKey("tack-stale-deploy-")
+	t.Cleanup(func() { deleteDeployTask(t, fixture, taskID) })
+	created := clock.Now().Add(-2 * staleDeployTaskAge)
+	writeDeployTask(t, fixture, staleDeployTask{id: taskID, modelID: modelID, created: created, updated: clock.Now()})
+	young, err := fixture.Adapter.ModelDeployment(t.Context(), fixture.Index)
+	if err != nil || young.ActiveTasks != 1 {
+		t.Fatalf("expected one active deploy task after a current update  : deployment %+v err %v, want 1 active deploy task", young, err)
+	}
+	since := clock.Now().UTC()
+	buildRepairingQueryGraph(t, fixture.Config)
+	time.Sleep(repairGateQuietPeriod)
+	if count := deployTasksSince(t, fixture, modelID, since); count != 0 {
+		t.Fatalf("repair deployed the model while a deploy task had a current update  : %d deploy tasks of model %s since %s, want none", count, modelID, since)
+	}
+
+	stale := clock.Now().Add(-staleDeployTaskAge)
+	writeDeployTask(t, fixture, staleDeployTask{id: taskID, modelID: modelID, created: created, updated: stale})
+	clusterEventually(t, "repaired model deployment  ", func() error {
+		if state := nativeModelState(t, fixture.Client, modelID); state != "DEPLOYED" {
+			return fmt.Errorf("model is not deployed  : state %s", state)
+		}
+		return nil
+	})
+	if count := deployTasksSince(t, fixture, modelID, since); count != 1 {
+		t.Fatalf("expected one repair deploy after the task became stale  : %d deploy tasks of model %s since %s, want 1", count, modelID, since)
+	}
+}
