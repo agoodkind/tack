@@ -9,9 +9,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/spf13/cobra"
 
+	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clispec"
@@ -21,8 +23,9 @@ import (
 )
 
 const (
-	schemaGuardProbe = "audit.tack_schema_guard_probe"
-	schemaGuardVerb  = string(audit.VerbOpsAuditSchemaGuardProof)
+	schemaGuardProbe     = "audit.tack_schema_guard_probe"
+	schemaGuardProbeRole = "tack_schema_guard_probe"
+	schemaGuardVerb      = string(audit.VerbOpsAuditSchemaGuardProof)
 )
 
 func TestProveSchemaGuardReportsTheRefusalAndRecordsTheRun(t *testing.T) {
@@ -34,17 +37,33 @@ func TestProveSchemaGuardReportsTheRefusalAndRecordsTheRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ops audit prove-schema-guard: %v\n%s", err, output)
 	}
-	var report struct {
-		SessionRole string `json:"session_role"`
-		SQLState    string `json:"sqlstate"`
-		Message     string `json:"message"`
+	requireRefusalReport(t, output, "yugabyte")
+	requireProbeAbsent(t, pool)
+	if outcomes := schemaGuardOutcomes(t, pool, started); !slices.Equal(outcomes, []string{"pending", "ok"}) {
+		t.Fatalf("outbox outcomes = %v, want pending then ok", outcomes)
 	}
-	if err := json.Unmarshal([]byte(output), &report); err != nil {
-		t.Fatalf("decode the report %q: %v", output, err)
+}
+
+func TestProveSchemaGuardReportsTheRefusalWithTheMigratorLogin(t *testing.T) {
+	adminDSN := testenv.Ledger(t)
+	pool := schemaGuardPool(t, adminDSN)
+	cfg := &config.Config{DatabaseURL: adminDSN}
+	for _, generated := range []*string{
+		&cfg.AuditWriterPassword, &cfg.AuditReaderPassword, &cfg.AuditRedactorPassword,
+		&cfg.AuditOperatorPassword, &cfg.AppPassword, &cfg.MigratorPassword,
+	} {
+		*generated = uuid.NewString()
 	}
-	if report.SQLState != "42501" || !strings.Contains(report.Message, "schema change refused") || report.SessionRole != "yugabyte" {
-		t.Fatalf("report = %+v, want the guard refusal for the yugabyte login", report)
+	if err := ops.RunAuditSeedRoles(t.Context(), cfg); err != nil {
+		t.Fatalf("seed-roles as the engine superuser: %v", err)
 	}
+	started := time.Now().UTC()
+
+	output, err := runProveSchemaGuard(t, loginDSN(t, adminDSN, postgres.MigratorRole, cfg.MigratorPassword), pool)
+	if err != nil {
+		t.Fatalf("ops audit prove-schema-guard as tack_migrator: %v\n%s", err, output)
+	}
+	requireRefusalReport(t, output, postgres.MigratorRole)
 	requireProbeAbsent(t, pool)
 	if outcomes := schemaGuardOutcomes(t, pool, started); !slices.Equal(outcomes, []string{"pending", "ok"}) {
 		t.Fatalf("outbox outcomes = %v, want pending then ok", outcomes)
@@ -101,14 +120,34 @@ func runProveSchemaGuard(t *testing.T, dsn string, pool *pgxpool.Pool) (string, 
 	return output.String(), err
 }
 
+func requireRefusalReport(t *testing.T, output, sessionRole string) {
+	t.Helper()
+	var report struct {
+		SessionRole string `json:"session_role"`
+		ProbeRole   string `json:"probe_role"`
+		SQLState    string `json:"sqlstate"`
+		Message     string `json:"message"`
+	}
+	if err := json.Unmarshal([]byte(output), &report); err != nil {
+		t.Fatalf("decode the report %q: %v", output, err)
+	}
+	if report.SQLState != "42501" || !strings.Contains(report.Message, "schema change refused") ||
+		report.SessionRole != sessionRole || report.ProbeRole != schemaGuardProbeRole {
+		t.Fatalf("report = %+v, want the guard refusal of %s for the %s login", report, schemaGuardProbeRole, sessionRole)
+	}
+}
+
 func requireProbeAbsent(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
-	var present bool
-	if err := pool.QueryRow(t.Context(), `SELECT to_regclass($1) IS NOT NULL`, schemaGuardProbe).Scan(&present); err != nil {
-		t.Fatalf("check for %s: %v", schemaGuardProbe, err)
+	var tablePresent, rolePresent bool
+	if err := pool.QueryRow(t.Context(),
+		`SELECT to_regclass($1) IS NOT NULL, EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $2)`,
+		schemaGuardProbe, schemaGuardProbeRole).Scan(&tablePresent, &rolePresent); err != nil {
+		t.Fatalf("check for %s and role %s: %v", schemaGuardProbe, schemaGuardProbeRole, err)
 	}
-	if present {
-		t.Fatalf("%s remains after the command", schemaGuardProbe)
+	if tablePresent || rolePresent {
+		t.Fatalf("after the command, table %s present = %v and role %s present = %v, want both absent",
+			schemaGuardProbe, tablePresent, schemaGuardProbeRole, rolePresent)
 	}
 }
 
