@@ -17,16 +17,15 @@ func auditSchemaGuardProofOp(f *cli.Factory) clispec.Operation[noInput] {
 		Aliases:  nil,
 		Hidden:   false,
 		Short:    "Verify that the schema guard refuses a CREATE TABLE statement",
-		Long: "The command attempts CREATE TABLE audit.tack_schema_guard_probe (id int) using " +
-			"the required engine superuser login in DATABASE_URL. The command requires " +
-			"SQLSTATE 42501 (insufficient_privilege), a message containing " +
-			"\"schema change refused\", and no probe table after the refusal. " +
-			"The command drops an existing probe table as tack_migrator. " +
-			"The command reports the session role, statement, SQLSTATE, and message " +
-			"as JSON on success. With --execute, the audit choke-point records pending and " +
-			"then ok or error under ops.audit_schema_guard_proof. Without --execute, " +
-			"the command prints the operator and " +
-			"\"would run: ops.audit_schema_guard_proof\".",
+		Long: "The command uses DATABASE_URL with a login in tack_migrator. The command runs " +
+			"CREATE TABLE audit.tack_schema_guard_probe (id int) using the temporary role tack_schema_guard_probe. " +
+			"The command requires SQLSTATE 42501 (insufficient_privilege), a message containing " +
+			"\"schema change refused\", and no probe table. The command creates the temporary " +
+			"role and grants as tack_migrator. The command removes the probe table, grants, and " +
+			"temporary role before and after the probe, including failures. The command returns " +
+			"successful proof as JSON. The audit choke-point records pending and then ok or " +
+			"error under ops.audit_schema_guard_proof with --execute. The command prints the " +
+			"operator and \"would run: ops.audit_schema_guard_proof\" without --execute.",
 		Examples: nil,
 		Args:     nil,
 		Params:   nil,
