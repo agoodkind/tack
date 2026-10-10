@@ -153,6 +153,9 @@ const (
 	// VerbOpsBackfillAuditPartitionNames records the one-time rename of each
 	// audit.events child with a name outside events_pYYYY_MM_DD.
 	VerbOpsBackfillAuditPartitionNames Verb = "ops.backfill_audit_partition_names"
+	// VerbOpsBackfillDropKilltestSchema records the one-time killtest schema drop
+	// from the ledger database in the ops audit ledger.
+	VerbOpsBackfillDropKilltestSchema Verb = "ops.backfill_drop_killtest_schema"
 	// VerbOpsReindex records property index backfills.
 	VerbOpsReindex Verb = "ops.reindex"
 	// VerbOpsReferenceDuplicates records duplicate reference reports.
