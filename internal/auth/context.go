@@ -17,7 +17,7 @@ func WithUser(ctx context.Context, userID uuid.UUID) context.Context {
 }
 
 // UserID returns the authenticated user's ID from the context.
-// Returns uuid.Nil and false if no user is present (unauthenticated request).
+// Returns [uuid.Nil] and false if no user is present (unauthenticated request).
 func UserID(ctx context.Context) (uuid.UUID, bool) {
 	id, ok := ctx.Value(userKey{}).(uuid.UUID)
 	return id, ok && id != uuid.Nil

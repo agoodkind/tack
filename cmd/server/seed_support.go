@@ -35,10 +35,10 @@ func userIDForEmail(email string) uuid.UUID {
 // ensureNode creates (or re-verifies) a generic node. When a node with
 // (typeKey, slug) already exists it is detected via the org-scoped
 // node_by_property index and its ID is returned with no further writes.
-// parentID may be uuid.Nil for org-level nodes. lookupOrgID is the orgID used
+// parentID may be [uuid.Nil] for org-level nodes. lookupOrgID is the orgID used
 // to query the property index for an existing node: for non-org nodes this is
 // the parentID; for org nodes (where orgID == the node's own ID) the caller
-// supplies the orgID from the user's existing org membership, or uuid.Nil when
+// supplies the orgID from the user's existing org membership, or [uuid.Nil] when
 // no prior membership exists.
 func ensureNode(ctx context.Context, s *fdbadapter.Stores, typeKey, slug, name string, parentID, lookupOrgID uuid.UUID) (uuid.UUID, bool, error) {
 	log := telemetry.L(ctx)

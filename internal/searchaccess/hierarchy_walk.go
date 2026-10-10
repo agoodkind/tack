@@ -64,7 +64,7 @@ func (w *hierarchyWalk) finish(entryPointID uuid.UUID) {
 // hierarchyParent returns the one hierarchy parent of nodeID: the target of
 // a child_of edge that node.LivesUnder accepts. A node without a hierarchy
 // parent is a hierarchy root when its type lists no CanLiveUnder type, and
-// hierarchyParent returns uuid.Nil for it.
+// hierarchyParent returns [uuid.Nil] for it.
 func hierarchyParent(orgID, nodeID uuid.UUID, state AncestorState, targets map[OrgNode]TargetState) (uuid.UUID, error) {
 	found := uuid.Nil
 	for _, targetID := range state.ChildOfs {

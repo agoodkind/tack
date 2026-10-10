@@ -55,7 +55,7 @@ func (j *SubtreeDeleteJob) Finished() bool {
 }
 
 // SubtreeChange identifies one node that a subtree delete step deleted or
-// moved. MovedTo is uuid.Nil for a deleted node. For a moved node, MovedFrom
+// moved. MovedTo is [uuid.Nil] for a deleted node. For a moved node, MovedFrom
 // is the deleted parent and MovedTo is the new parent.
 type SubtreeChange struct {
 	ID        uuid.UUID
