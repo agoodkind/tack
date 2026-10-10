@@ -65,7 +65,6 @@ func (s cohortSession) checkCase(ctx context.Context, testCase SearchManifestCas
 	return result
 }
 
-// allRanked reports whether every rank is between 1 and limit.
 func allRanked(ranks []int, limit int) bool {
 	for _, rank := range ranks {
 		if rank < 1 || rank > limit {
@@ -75,7 +74,6 @@ func allRanked(ranks []int, limit int) bool {
 	return true
 }
 
-// countUnexpected returns the number of results outside expected.
 func countUnexpected(results, expected []uuid.UUID) int {
 	unexpected := 0
 	for _, nodeID := range results {

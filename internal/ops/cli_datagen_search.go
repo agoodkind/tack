@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
@@ -30,7 +31,6 @@ type datagenSearchResult struct {
 	Cohort   *datagen.SearchCohortVerification `json:"cohort,omitempty"`
 }
 
-// errCohortNotVerified reports a cohort verification with a failed case.
 var errCohortNotVerified = errors.New("at least one manifest case did not pass")
 
 func datagenSearchOp(f *cli.Factory) clispec.Operation[datagenSearchInput] {
@@ -62,7 +62,6 @@ func datagenSearchOp(f *cli.Factory) clispec.Operation[datagenSearchInput] {
 	}
 }
 
-// validateDatagenSearchInput rejects flag combinations before any write.
 func validateDatagenSearchInput(input datagenSearchInput) error {
 	if input.VerifyCohort && (input.PrepareOnly || input.Corpus != "") {
 		return errors.New("qa datagen search: --verify-cohort conflicts with --prepare-only or a nonempty --corpus")
@@ -102,7 +101,12 @@ func runDatagenSearch(ctx context.Context, factory *cli.Factory, input datagenSe
 	switch {
 	case !input.Commit:
 	case input.PrepareOnly:
-		prepared, err := datagen.PrepareSearchManifest(ctx, factory.Cfg, int64(input.Seed), input.Corpus)
+		corpus, err := os.ReadFile(input.Corpus)
+		if err != nil {
+			slog.ErrorContext(ctx, "qa.datagen.corpus_read_failed", slog.String("err", err.Error()), slog.String("path", input.Corpus))
+			return fmt.Errorf("qa datagen search: read corpus %q: %w", input.Corpus, err)
+		}
+		prepared, err := datagen.PrepareSearchManifest(ctx, factory.Cfg, int64(input.Seed), corpus)
 		result.Manifest, runError = &prepared, err
 	case input.VerifyCohort:
 		prepared, cohort, err := datagen.VerifySearchCohort(ctx, factory.Cfg, int64(input.Seed))

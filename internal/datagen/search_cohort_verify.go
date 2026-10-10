@@ -78,7 +78,7 @@ func VerifySearchCohort(ctx context.Context, cfg *config.Config, seed int64) (Se
 	if err != nil {
 		return SearchManifest{}, verification, err
 	}
-	manifest, err := PrepareSearchManifest(ctx, cfg, seed, "")
+	manifest, err := PrepareSearchManifest(ctx, cfg, seed, nil)
 	if err != nil {
 		return manifest, verification, err
 	}
@@ -94,7 +94,6 @@ func VerifySearchCohort(ctx context.Context, cfg *config.Config, seed int64) (Se
 	return manifest, verification, err
 }
 
-// verify waits for every expected node and then checks every case once.
 func (s cohortSession) verify(ctx context.Context, cases []SearchManifestCase) (SearchCohortVerification, error) {
 	waited, completed, err := s.waitForTargets(ctx, cases)
 	if err != nil {

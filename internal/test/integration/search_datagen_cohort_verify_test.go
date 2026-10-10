@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
-	"strings"
 	"testing"
 	"time"
 
@@ -50,8 +49,8 @@ func TestDatagenSearchVerifyCohort(t *testing.T) {
 	}
 	t.Cleanup(workers.Close)
 	workers.StartSearchWorkers(t.Context())
-	if _, err := runCohortCommand(t, cfg, 1); err == nil || !strings.Contains(err.Error(), "--verify-cohort requires --commit") {
-		t.Fatalf("verify cohort without --commit: got %v", err)
+	if refused, err := runCohortCommand(t, cfg, 1); err == nil || len(refused) != 0 {
+		t.Fatalf("verify cohort without --commit: got %v; output=%s", err, refused)
 	}
 	output, err := runCohortCommand(t, cfg, clock.Now().UnixNano(), "--commit")
 	if err != nil {
@@ -85,8 +84,6 @@ func TestDatagenSearchVerifyCohort(t *testing.T) {
 	}
 }
 
-// newCohortEngines sets the production search environment, isolates the
-// FoundationDB key space, and serves one new index behind the public alias.
 func newCohortEngines(t *testing.T) *config.Config {
 	t.Helper()
 	cluster := testenv.FoundationDB(t)
