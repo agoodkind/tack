@@ -120,8 +120,8 @@ func findDrillRuns(ctx context.Context, r *restoreDrillCtx) map[string]*drillOrp
 
 // drillEngineUnderBackupRoot reports whether this drill owns an engine.
 // The function returns true for a bind mount source under the backup root or
-// an existing run scratch directory under that root. Another backup root's
-// drill on the same Docker daemon owns every other engine (TACK-563).
+// an existing run scratch directory under that root.
+// This check excludes engines it cannot associate with this backup root (TACK-563).
 func drillEngineUnderBackupRoot(r *restoreDrillCtx, mounts []container.MountPoint, run string) bool {
 	backupRoot := filepath.Clean(r.Cfg.BackupRoot) + string(filepath.Separator)
 	for _, point := range mounts {
