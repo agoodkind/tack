@@ -16,7 +16,7 @@ This task has no implementation dependency.
 
 Verification must establish a passing unedited build, supported authenticated transport, usable lock integration, and exact adoption targets. Missing database decomposition must delay database implementation without blocking application work.
 
-## 2. Connect the pure model and provider executable for TACK-568
+## 2. Separate executable entry points and connect the shared model for TACK-568
 
 This task depends on task 1.
 
@@ -24,7 +24,9 @@ This task depends on task 1.
 2. Define versioned identity encoding, typed request/result envelopes, stable collection normalization, credential references, observed generations, and sanitized errors. Keep FoundationDB bindings outside the pure package dependency graph.
 3. Create [cmd/terraform-provider-tack/main.go](../../../cmd/terraform-provider-tack/main.go) and [internal/tfprovider/provider.go](../../../internal/tfprovider/provider.go). These files are new. Add new `main`, `Provider`, and `New` symbols for protocol 6 startup and configuration validation.
 4. Connect the executable to the model within this task. Register only resources with working production operations. Do not commit unused constructors or placeholder resources for later connection.
-5. Preserve existing server and Tack command entry points. Record further executable extraction as a recommendation without making extraction a dependency.
+5. Create [cmd/tack-ops/main.go](../../../cmd/tack-ops/main.go) and [internal/operator/root.go](../../../internal/operator/root.go). These files are new. Add the new `NewRoot` operator command constructor. Extract operator command registration from [cmd/server/commands.go](../../../cmd/server/commands.go) into the shared operator package. Keep migrations, seeding, audit commands, and maintenance operations executable through the operator CLI. Preserve authentication, mutation audit records, flags, exit statuses, and shutdown behavior.
+6. Restrict the server entry point to application serving after callers migrate. Provide compatibility dispatch for existing `/server` and `tack` operator commands during the transition. Preserve the existing audit-consumer entry point. Build and publish each executable separately within the existing Go module.
+7. Add a public command integration test through the existing real runner. Compare the legacy and new operator invocations against the same disposable dependencies. Verify command outcomes, errors, authorization, and audit records. Verify that the server still serves application requests.
 
 Verification must exercise provider startup, configuration diagnostics, cancellation, and shutdown through the installed executable. Run `make build` before committing.
 
@@ -56,7 +58,7 @@ Verification must inspect real database logins and grants after apply, import, d
 
 This task depends on tasks 3 and 4.
 
-1. Update [Makefile](../../../Makefile) to build the provider executable through the existing build gates. Inspect [Dockerfile](../../../Dockerfile), [Dockerfile.audit-consumer](../../../Dockerfile.audit-consumer), and [.github/workflows/build-push.yml](../../../.github/workflows/build-push.yml) for shared release inputs. Preserve application image behavior.
+1. Update [Makefile](../../../Makefile) to build the provider executable through the existing build gates. Inspect [Dockerfile](../../../Dockerfile), [Dockerfile.audit-consumer](../../../Dockerfile.audit-consumer), and [.github/workflows/build-push.yml](../../../.github/workflows/build-push.yml) for shared release inputs. Update application and operator image contents for the approved executable split. Preserve existing deployment invocations through compatibility dispatch until callers migrate.
 2. Create [.github/workflows/provider-release.yml](../../../.github/workflows/provider-release.yml). This file is new. Publish versioned installation artifacts, checksums, installation metadata, and complete required native runtime dependencies.
 3. Create [internal/test/integration/tack_provider_release_test.go](../../../internal/test/integration/tack_provider_release_test.go). This file is new. Add new `TestTackProviderInstalledRelease` through the existing real container/native runner.
 4. Install the published artifact through the migration owner's selected installation mechanism. Run actual `tofu init`, `tofu validate`, `tofu plan`, `tofu import`, and `tofu apply` in the disposable test configuration. Use recorded resource addresses and import identities.

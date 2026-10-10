@@ -26,12 +26,13 @@ The current Configs playbook renders configuration, starts containers, provision
 
 ## Executables and shared implementation
 
-A separate `terraform-provider-tack` executable must use Terraform Plugin Framework protocol 6. The initial implementation must remain in the existing repository and Go module.
+The approved initial structure uses the existing Tack repository and one Go module. The server, operator CLI, OpenTofu provider, and audit consumer must have separate executable entry points, build outputs, and release artifacts.
 
-Keeping operator commands in the server preserves current callers during initial adoption. Further separation of server and operator executables is a recommended proposal that requires command, container-image, and deployment compatibility changes. The user has not selected that proposal. Preserve `/server` and `tack` command compatibility under either approach.
+The server serves application requests. The operator CLI runs migrations, seeding, audit commands, and maintenance operations. The OpenTofu provider implements protocol 6 resource management. The audit consumer retains its existing executable. Preserve `/server` and `tack` command compatibility during the transition.
 
-Pure deployment model, normalization, validation, and protocol types must be shared by the provider and audited Go operations. Existing command registration and operation implementations must be reused through narrow changes.
+Pure deployment model, normalization, validation, and protocol types must be shared by the provider and audited Go operations. Keep command entry points thin. Components must import shared packages rather than importing another executable or copying its implementation.
 
+The move to a Tack organization must include splitting these components into separate repositories. Publish the shared Go code as a versioned module during that transition. Each extracted component must pin the shared module version and verify compatibility through integration tests. Repository names and the shared module path remain decisions for that transition. Do not create those repositories during the initial implementation.
 
 Pure model and protocol packages should avoid FoundationDB native bindings. Releases that require native libraries must publish and verify the complete runtime dependencies. Validation must not be weakened to produce a static executable.
 
