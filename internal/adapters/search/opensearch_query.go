@@ -54,7 +54,7 @@ func (r *QueryRanker) Read(ctx context.Context, query searchdomain.Query, snapsh
 	var decoded rankResponse
 	response, err := opensearch.Do(ctx, r.adapter.client, http.MethodPost, request, &decoded)
 	if err != nil {
-		return none, rankFailure(ctx, snapshot.Index, fmt.Errorf("send search request: %w", err))
+		return none, rankFailure(ctx, snapshot.Index, fmt.Errorf("send search request: %w", engineCause(response, err)))
 	}
 	if response == nil {
 		return none, rankFailure(ctx, snapshot.Index, errors.New("OpenSearch returned no search response"))
@@ -96,7 +96,7 @@ func (r *QueryRanker) searchError(ctx context.Context, snapshot searchdomain.Sna
 		telemetry.L(ctx).InfoContext(ctx, "search.snapshot.lost", slog.String("index", snapshot.Index), slog.String("reason", parsed.Error()))
 		return queryStepError{operation: "read search snapshot on " + snapshot.Index, err: searchdomain.ErrSnapshotLost}
 	}
-	return rankFailure(ctx, snapshot.Index, fmt.Errorf("search request rejected: %w", parsed))
+	return rankFailure(ctx, snapshot.Index, fmt.Errorf("search request rejected: %w", engineCause(response, parsed)))
 }
 
 func rankFailure(ctx context.Context, index string, err error) error {

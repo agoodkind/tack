@@ -69,17 +69,7 @@ func TestSearchDatagenOutage(t *testing.T) {
 		t.Fatalf("search during the outage returned a page with %d results instead of an error", len(page.IDs))
 	}
 
-	setEngineRunning(t, true)
-	recovery := time.Now().Add(outageRecoveryDeadline)
-	for {
-		if _, err := fixture.Adapter.Provision(t.Context()); err == nil {
-			break
-		}
-		if time.Now().After(recovery) {
-			t.Fatalf("the engine and model were not ready within %s", outageRecoveryDeadline)
-		}
-		time.Sleep(time.Second)
-	}
+	startEngine(t, fixture)
 	deadline := time.Now().Add(outageSearchDeadline)
 	for time.Now().Before(deadline) {
 		_, _ = fixture.Worker.RunSlice(t.Context())
@@ -88,4 +78,48 @@ func TestSearchDatagenOutage(t *testing.T) {
 		}
 	}
 	t.Fatalf("node %s committed during the outage was not searchable within %s of recovery", nodeID, outageSearchDeadline)
+}
+
+func startEngine(t *testing.T, fixture queryFixture) {
+	t.Helper()
+	setEngineRunning(t, true)
+	recovery := time.Now().Add(outageRecoveryDeadline)
+	for {
+		if _, err := fixture.Adapter.Provision(t.Context()); err == nil {
+			return
+		}
+		if time.Now().After(recovery) {
+			t.Fatalf("the engine and model were not ready within %s", outageRecoveryDeadline)
+		}
+		time.Sleep(time.Second)
+	}
+}
+
+// TestSearchUnavailableWhileEngineStopped verifies tack_search returns the unavailable response while the engine is stopped and a result after the engine starts.
+func TestSearchUnavailableWhileEngineStopped(t *testing.T) {
+	fixture := newQueryFixture(t, defaultQueryOptions())
+	arguments := searchArguments(fixture.Harness, outagePhrase, "")
+	setEngineRunning(t, false)
+	t.Cleanup(func() { setEngineRunning(t, true) })
+
+	text, isError, err := rawSearchCall(fixture.Harness, arguments)
+	if err != nil {
+		t.Fatalf("call tack_search during the outage: %v", err)
+	}
+	if !isError || text != unavailableSearchMessage {
+		t.Fatalf("tack_search did not return the unavailable response during the outage: isError=%t text %q, want %q", isError, text, unavailableSearchMessage)
+	}
+
+	startEngine(t, fixture)
+	deadline := time.Now().Add(outageSearchDeadline)
+	for {
+		text, isError, err = rawSearchCall(fixture.Harness, arguments)
+		if err == nil && !isError {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("tack_search did not succeed after the engine started: isError=%t text %q err %v within %s", isError, text, err, outageSearchDeadline)
+		}
+		time.Sleep(time.Second)
+	}
 }
