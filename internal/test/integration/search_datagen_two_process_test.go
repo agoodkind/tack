@@ -59,7 +59,6 @@ func TestSearchDatagenTwoProcess(t *testing.T) {
 	}
 }
 
-// twoProcessHandler serves the authenticated MCP handler of graph for POST requests on /mcp and /mcp/.
 func twoProcessHandler(graph *appruntime.Graph) http.Handler {
 	handler := graph.AuthMiddleware(graph.MCPHandler)
 	mux := http.NewServeMux()
