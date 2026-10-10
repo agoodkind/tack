@@ -18,7 +18,7 @@ func auditSchemaGuardProofOp(f *cli.Factory) clispec.Operation[noInput] {
 		Hidden:   false,
 		Short:    "Verify that the schema guard refuses a CREATE TABLE statement",
 		Long: "The command uses DATABASE_URL with a login in tack_migrator. The command runs " +
-			"CREATE TABLE audit.tack_schema_guard_probe (id int) as tack_schema_guard_probe. " +
+			"CREATE TABLE audit.tack_schema_guard_probe (id int) using the temporary role tack_schema_guard_probe. " +
 			"The command requires SQLSTATE 42501 (insufficient_privilege), a message containing " +
 			"\"schema change refused\", and no probe table. The command creates the temporary " +
 			"role and grants as tack_migrator. The command removes the probe table, grants, and " +
