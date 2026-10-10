@@ -66,19 +66,8 @@ func restoreDrillYugabyte(ctx context.Context, r *restoreDrillCtx) error {
 	}
 	logger.InfoContext(ctx, "backup.restore_drill.yb.scratch_ready", slog.Duration("took", took))
 
-	// Roles first: the schema carries the ledger's grants, and a GRANT naming a
-	// role the database does not have fails the schema apply.
-	if err := applyYBDrillRoles(ctx, r, name, manifest.Database); err != nil {
+	if err := applyYBDrillSchema(ctx, r, name, manifest.Database); err != nil {
 		return err
-	}
-	if err := ybRunSQL(ctx, r, name, manifest.Database, "-c", "CREATE EXTENSION IF NOT EXISTS pgcrypto"); err != nil {
-		return err
-	}
-	if err := ybRunSQL(ctx, r, name, manifest.Database,
-		"-v", "ON_ERROR_STOP=1", "-q", "-f", ybDrillArtifactPath(ybSnapshotSchemaObject)); err != nil {
-		wrapped := fmt.Errorf("apply schema: %w", err)
-		logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", wrapped.Error()))
-		return wrapped
 	}
 
 	if err := importAndRestoreYBSnapshot(ctx, r, name, manifest.Database, manifest.SnapshotID, inventories); err != nil {
@@ -324,24 +313,4 @@ func startScratchYugabyte(ctx context.Context, r *restoreDrillCtx, name, databas
 // set to it). Use [ysqlshRoleArgs] to connect as any other role.
 func ysqlshArgs(host, database, sql string) []string {
 	return ysqlshRoleArgs(host, database, database, sql)
-}
-
-// ybRunSQL runs ysqlsh with the given trailing args inside the scratch
-// container, passing the throwaway password, and errors on a non-zero exit.
-func ybRunSQL(ctx context.Context, r *restoreDrillCtx, container, database string, args ...string) error {
-	logger := telemetry.L(ctx)
-	cmd := append([]string{"ysqlsh", "-h", ybScratchHost(container), "-p", "5433", "-U", database, "-d", database}, args...)
-	exitCode, stderr, err := containerExecStreaming(ctx, r.Cli, container, cmd,
-		[]string{"PGPASSWORD=" + r.YBPass}, devNull{})
-	if err != nil {
-		wrapped := fmt.Errorf("ysqlsh exec: %w", err)
-		logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", wrapped.Error()))
-		return wrapped
-	}
-	if exitCode != 0 {
-		wrapped := fmt.Errorf("ysqlsh exited %d: %s", exitCode, strings.TrimSpace(stderr))
-		logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", wrapped.Error()))
-		return wrapped
-	}
-	return nil
 }
