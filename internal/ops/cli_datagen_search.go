@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -175,5 +176,24 @@ func parseDatagenSearchEndpoints(input datagenSearchInput) ([]string, error) {
 			return nil, fmt.Errorf("qa datagen search: endpoints require %d nonempty values", datagenSearchEndpointCount)
 		}
 	}
+	for _, endpoint := range endpoints {
+		if err := validateDatagenSearchEndpoint(endpoint); err != nil {
+			return nil, err
+		}
+	}
 	return endpoints, nil
+}
+
+func validateDatagenSearchEndpoint(endpoint string) error {
+	parsed, err := url.Parse(endpoint)
+	if err != nil {
+		return fmt.Errorf("qa datagen search: endpoint %q is not a valid URL", endpoint)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return fmt.Errorf("qa datagen search: endpoint %q does not use scheme http or https", endpoint)
+	}
+	if parsed.Host == "" {
+		return fmt.Errorf("qa datagen search: endpoint %q has no host", endpoint)
+	}
+	return nil
 }

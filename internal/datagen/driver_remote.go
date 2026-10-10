@@ -26,8 +26,7 @@ type remoteForwarder struct {
 func NewRemoteDriver(endpoint string, client *http.Client, seed int64) (*Driver, error) {
 	parsed, err := url.Parse(endpoint)
 	if err != nil {
-		slog.Error("qa datagen: parse remote endpoint", "err", err)
-		return nil, fmt.Errorf("qa datagen: parse remote endpoint: %w", err)
+		return nil, fmt.Errorf("qa datagen: remote endpoint %q is not a valid URL", endpoint)
 	}
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
 		return nil, fmt.Errorf("qa datagen: remote endpoint scheme %q is not http or https", parsed.Scheme)
