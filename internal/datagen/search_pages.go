@@ -29,14 +29,20 @@ type searchLimits struct {
 // callSearch calls tack_search through the authenticated MCP boundary under
 // one entry node and parses the node IDs and continuation cursor.
 func callSearch(ctx context.Context, driver *Driver, token, entryReference, query, cursor string) (searchPage, error) {
+	return callTypedSearch(ctx, driver, token, entryReference, query, "", cursor)
+}
+
+// callTypedSearch is callSearch limited to nodeType. An empty nodeType
+// searches every type.
+func callTypedSearch(ctx context.Context, driver *Driver, token, entryReference, query, nodeType, cursor string) (searchPage, error) {
 	arguments := ToolArguments{
 		WorkspaceReference: entryReference, ProjectReference: "", IssueReference: "", Name: "",
-		Properties: nil, NodeID: "", Query: query, NodeType: "", Direction: "", SourceID: "",
+		Properties: nil, NodeID: "", Query: query, NodeType: nodeType, Direction: "", SourceID: "",
 		RelationType: "", TargetID: "", Cursor: cursor,
 	}
 	result, err := driver.Call(ctx, token, "tack_search", arguments)
 	if err != nil {
-		return searchPage{}, loggedError(ctx, "qa datagen: search "+query, err)
+		return searchPage{}, loggedError(ctx, fmt.Sprintf("qa datagen: search %q of type %q", query, nodeType), err)
 	}
 	text := result.Text()
 	page := searchPage{IDs: make([]uuid.UUID, 0), Cursor: nextCursor(text), ResponseBytes: len(text)}
