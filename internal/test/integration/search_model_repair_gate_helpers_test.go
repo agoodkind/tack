@@ -124,9 +124,9 @@ func restoreNativeModel(t *testing.T, fixture queryFixture) {
 	request := clusterSettingsRequest{body: []byte(nativeRedeployDefault)}
 	response, err := opensearch.Do(ctx, fixture.Client.Client, http.MethodPut, request, &result)
 	if err != nil || response == nil || response.IsError() {
-		t.Errorf("restore native redeployment setting failed  : response %v err %v body %s", response, err, result)
+		t.Errorf("restore native redeployment setting failed: response %v err %v body %s", response, err, result)
 	}
 	if err := redeployNativeModel(ctx, fixture.Adapter, fixture.Client); err != nil {
-		t.Errorf("restore native model deployment failed  : %v", err)
+		t.Errorf("restore native model deployment failed: %v", err)
 	}
 }

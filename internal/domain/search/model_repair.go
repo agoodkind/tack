@@ -67,7 +67,7 @@ type ModelRepairClaim struct {
 // ModelRepairEngine reads the serving model deployment and deploys the model
 // with no node IDs.
 type ModelRepairEngine interface {
-	ModelDeployment(ctx context.Context, index string) (ModelDeployment, error)
+	ModelDeployment(ctx context.Context, index string, now time.Time) (ModelDeployment, error)
 	StartModelDeploy(ctx context.Context, modelID string) (string, error)
 	WaitModelDeploy(ctx context.Context, modelID, taskID string) error
 }

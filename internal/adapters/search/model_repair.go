@@ -9,7 +9,6 @@ import (
 	"time"
 
 	opensearch "github.com/opensearch-project/opensearch-go/v4"
-	"goodkind.io/tack/internal/clock"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/telemetry"
 )
@@ -40,7 +39,7 @@ type taskCountResult struct {
 
 // ModelDeployment reads the model that index maps, the model record, and the
 // number of its deploy tasks in CREATED or RUNNING.
-func (a *Adapter) ModelDeployment(ctx context.Context, index string) (searchdomain.ModelDeployment, error) {
+func (a *Adapter) ModelDeployment(ctx context.Context, index string, now time.Time) (searchdomain.ModelDeployment, error) {
 	var none searchdomain.ModelDeployment
 	info, err := a.IndexInfo(ctx, index)
 	if err != nil {
@@ -55,7 +54,7 @@ func (a *Adapter) ModelDeployment(ctx context.Context, index string) (searchdoma
 	if err != nil {
 		return none, err
 	}
-	active, err := a.activeDeployTasks(ctx, info.ModelID)
+	active, err := a.activeDeployTasks(ctx, info.ModelID, now)
 	if err != nil {
 		return none, err
 	}
@@ -76,8 +75,8 @@ func (a *Adapter) WaitModelDeploy(ctx context.Context, modelID, taskID string) e
 	return a.waitDeploy(ctx, modelID, taskID)
 }
 
-func (a *Adapter) activeDeployTasks(ctx context.Context, modelID string) (int, error) {
-	body, err := json.Marshal(activeDeployTasksQuery(modelID, clock.Now().Add(-modelTaskWait)))
+func (a *Adapter) activeDeployTasks(ctx context.Context, modelID string, now time.Time) (int, error) {
+	body, err := json.Marshal(activeDeployTasksQuery(modelID, now.Add(-modelTaskWait)))
 	if err != nil {
 		wrapped := fmt.Errorf("encode active deploy task search of model %s: %w", modelID, err)
 		telemetry.L(ctx).ErrorContext(ctx, "search.model.task_search_encode_failed", slog.String("err", wrapped.Error()), slog.String("model_id", modelID))
