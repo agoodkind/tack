@@ -2,6 +2,7 @@ package ops
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -47,6 +48,8 @@ func runSchemaGuardProof(ctx context.Context, cfg *config.Config, sink clispec.R
 	refused, probeErr := attemptSchemaGuardProbe(ctx, pool)
 	remained, err := removeSchemaGuardProbe(ctx, pool)
 	switch {
+	case probeErr != nil && err != nil:
+		return errors.Join(probeErr, err)
 	case probeErr != nil:
 		return probeErr
 	case err != nil:
