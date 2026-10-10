@@ -152,6 +152,11 @@ func newCohortEngines(t *testing.T) *config.Config {
 
 func runCohortCommand(t *testing.T, cfg *config.Config, seed int64, flags ...string) ([]byte, error) {
 	t.Helper()
+	return runDatagenSearchCommand(t, cfg, append([]string{"--verify-cohort", "--seed", strconv.FormatInt(seed, 10)}, flags...)...)
+}
+
+func runDatagenSearchCommand(t *testing.T, cfg *config.Config, flags ...string) ([]byte, error) {
+	t.Helper()
 	var output bytes.Buffer
 	factory := cli.System(cfg)
 	factory.Out = &output
@@ -171,9 +176,7 @@ func runCohortCommand(t *testing.T, cfg *config.Config, seed int64, flags ...str
 	}
 	factory.SetOperatorIdentitySource(cli.NewOperatorSource(factory))
 	root.SetArgs(append([]string{
-		"--execute", "--output", "json", "--operator-id", "019dd226-440e-729a-a442-281aaf73ca30",
-		"--operator-email", "operator@example.com", "--operator-name", "Search Test",
-		"ops", "qa", "datagen", "search", "--verify-cohort", "--seed", strconv.FormatInt(seed, 10),
+		"--execute", "--output", "json", "--operator-id", "019dd226-440e-729a-a442-281aaf73ca30", "--operator-email", "operator@example.com", "--operator-name", "Search Test", "ops", "qa", "datagen", "search",
 	}, flags...))
 	err = root.ExecuteContext(t.Context())
 	return output.Bytes(), err

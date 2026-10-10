@@ -6,10 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"os"
-	"strings"
-	"time"
 
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
@@ -26,11 +23,6 @@ type datagenSearchInput struct {
 	Corpus       string
 	Endpoints    string
 }
-
-const (
-	datagenSearchEndpointCount     = 2
-	datagenSearchTwoProcessTimeout = 60 * time.Second
-)
 
 type datagenSearchResult struct {
 	clispec.ResultMarker
@@ -155,45 +147,6 @@ func runDatagenSearch(ctx context.Context, factory *cli.Factory, input datagenSe
 	if runError != nil {
 		slog.ErrorContext(ctx, "qa.datagen.search_preparation_failed", slog.String("err", runError.Error()))
 		return fmt.Errorf("qa datagen search: %w", runError)
-	}
-	return nil
-}
-
-func parseDatagenSearchEndpoints(input datagenSearchInput) ([]string, error) {
-	if !input.Commit || input.PrepareOnly {
-		return nil, fmt.Errorf("qa datagen search: endpoints require --commit without --prepare-only")
-	}
-	values := strings.Split(input.Endpoints, ",")
-	endpoints := make([]string, 0, len(values))
-	for _, value := range values {
-		endpoints = append(endpoints, strings.TrimSpace(value))
-	}
-	if len(endpoints) != datagenSearchEndpointCount {
-		return nil, fmt.Errorf("qa datagen search: endpoints require exactly %d values, got %d", datagenSearchEndpointCount, len(endpoints))
-	}
-	for _, endpoint := range endpoints {
-		if endpoint == "" {
-			return nil, fmt.Errorf("qa datagen search: endpoints require %d nonempty values", datagenSearchEndpointCount)
-		}
-	}
-	for _, endpoint := range endpoints {
-		if err := validateDatagenSearchEndpoint(endpoint); err != nil {
-			return nil, err
-		}
-	}
-	return endpoints, nil
-}
-
-func validateDatagenSearchEndpoint(endpoint string) error {
-	parsed, err := url.Parse(endpoint)
-	if err != nil {
-		return fmt.Errorf("qa datagen search: endpoint %q is not a valid URL", endpoint)
-	}
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return fmt.Errorf("qa datagen search: endpoint %q does not use scheme http or https", endpoint)
-	}
-	if parsed.Host == "" {
-		return fmt.Errorf("qa datagen search: endpoint %q has no host", endpoint)
 	}
 	return nil
 }

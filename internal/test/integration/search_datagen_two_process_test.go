@@ -46,6 +46,11 @@ func TestSearchDatagenTwoProcess(t *testing.T) {
 	t.Cleanup(first.Close)
 	second := httptest.NewServer(twoProcessHandler(secondGraph))
 	t.Cleanup(second.Close)
+	for _, endpoints := range []string{"ftp://a.example,http://b.example", "http://a.example", "http://,http://b.example"} {
+		if output, err := runDatagenSearchCommand(t, cfg, "--commit", "--endpoints", endpoints); err == nil || len(output) != 0 {
+			t.Fatalf("search with endpoints %q: got %v; output=%s", endpoints, err, output)
+		}
+	}
 	if err := datagen.VerifySearchTwoProcess(t.Context(), cfg, []string{first.URL, second.URL}, first.Client()); err != nil {
 		t.Fatalf("two-process search: %v", err)
 	}
