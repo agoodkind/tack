@@ -35,7 +35,6 @@ func applyYBDrillSchema(ctx context.Context, r *restoreDrillCtx, container, data
 
 // ybRunSQL runs ysqlsh with the given trailing args inside the scratch
 // container, passing the throwaway password, and errors on a non-zero exit.
-// The caller logs the returned error.
 func ybRunSQL(ctx context.Context, r *restoreDrillCtx, container, database string, args ...string) error {
 	return ybRunSQLWithEnv(ctx, r, container, database, nil, args...)
 }
