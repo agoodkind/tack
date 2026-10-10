@@ -19,6 +19,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
 
 	"goodkind.io/tack/internal/telemetry"
@@ -73,8 +74,9 @@ func sweepDrillOrphans(ctx context.Context, r *restoreDrillCtx) {
 	}
 }
 
-// findDrillRuns returns every run id named by a scratch engine, a scratch
-// directory, or a staging directory, with that run's engines.
+// findDrillRuns returns the run id of every scratch engine, scratch directory,
+// and staging directory that belongs to this drill's backup root, with each
+// run's engines.
 func findDrillRuns(ctx context.Context, r *restoreDrillCtx) map[string]*drillOrphan {
 	logger := telemetry.L(ctx)
 	runs := map[string]*drillOrphan{}
@@ -94,11 +96,13 @@ func findDrillRuns(ctx context.Context, r *restoreDrillCtx) map[string]*drillOrp
 	for _, item := range listed.Items {
 		for _, name := range item.Names {
 			name = strings.TrimPrefix(name, "/")
-			if run, ok := drillRunFromName(name, drillContainerPrefixes); ok {
-				orphan := add(run)
-				orphan.containers = append(orphan.containers, name)
-				orphan.image = item.Image
+			run, ok := drillRunFromName(name, drillContainerPrefixes)
+			if !ok || !drillEngineUnderBackupRoot(r, item.Mounts, run) {
+				continue
 			}
+			orphan := add(run)
+			orphan.containers = append(orphan.containers, name)
+			orphan.image = item.Image
 		}
 	}
 	for _, entry := range readDirEntries(ctx, drillScratchRoot(r)) {
@@ -112,6 +116,21 @@ func findDrillRuns(ctx context.Context, r *restoreDrillCtx) map[string]*drillOrp
 		}
 	}
 	return runs
+}
+
+// drillEngineUnderBackupRoot reports whether this drill owns an engine.
+// The function returns true for a bind mount source under the backup root or
+// an existing run scratch directory under that root.
+// This check excludes engines it cannot associate with this backup root (TACK-563).
+func drillEngineUnderBackupRoot(r *restoreDrillCtx, mounts []container.MountPoint, run string) bool {
+	backupRoot := filepath.Clean(r.Cfg.BackupRoot) + string(filepath.Separator)
+	for _, point := range mounts {
+		if strings.HasPrefix(filepath.Clean(point.Source)+string(filepath.Separator), backupRoot) {
+			return true
+		}
+	}
+	_, err := os.Stat(filepath.Join(drillScratchRoot(r), run))
+	return err == nil
 }
 
 // drillRunFromName returns the run id that follows one of prefixes in name.

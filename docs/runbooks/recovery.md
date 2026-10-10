@@ -279,9 +279,19 @@ YugabyteDB:
    front of it: a code outside classes `00`, `01`, and `02` is a failed
    statement whatever language it is written in. Any other error means a role the
    database did not get, so stop and fix it before applying the schema, rather
-   than restoring a ledger nobody can read. Apply `schema.sql` with
-   `ON_ERROR_STOP=1`, so a grant naming a missing role fails the restore instead
-   of passing silently.
+   than restoring a ledger nobody can read.
+
+   Apply the schema dump with `ON_ERROR_STOP=1` to fail the restore when a grant
+   targets a missing role. Set `session_replication_role=replica` through
+   `PGOPTIONS` to prevent the engine from firing the schema guard during schema
+   apply. Use a superuser connection because the replica setting requires
+   superuser privileges.
+
+   ```sh
+   PGOPTIONS="-c session_replication_role=replica" \
+   ysqlsh -h <host> -p 5433 -U <bootstrap-user> -d <database> \
+     -v ON_ERROR_STOP=1 -q -f schema.sql
+   ```
 
    Restored login roles carry no password, because the export deliberately
    excludes them. Run `ops audit seed-roles` against the recovered database
