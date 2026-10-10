@@ -15,7 +15,13 @@ var unavailableStatuses = []int{http.StatusBadGateway, http.StatusServiceUnavail
 
 type unavailableError struct{ err error }
 
-func (e unavailableError) Error() string { return e.err.Error() }
+func (e unavailableError) Error() string {
+	if e.err == nil {
+		return "engine unavailable"
+	}
+	return e.err.Error()
+}
+
 func (e unavailableError) Unwrap() []error {
 	return []error{searchdomain.ErrEngineUnavailable, e.err}
 }
