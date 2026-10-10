@@ -39,8 +39,7 @@ const (
 )
 
 // TestSearchDatagenVerifyCohort runs --verify-cohort through the audited
-// command while the production search worker loops of a second graph index
-// the cohort.
+// command while production search workers index the cohort.
 func TestSearchDatagenVerifyCohort(t *testing.T) {
 	cfg := newCohortEngines(t)
 	workers, err := appruntime.BuildGraph(t.Context(), cfg)

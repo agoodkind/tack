@@ -9,8 +9,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// missingTargets returns the number of expected nodes that the complete
-// traversal of their case does not return.
 func (s cohortSession) missingTargets(ctx context.Context, cases []SearchManifestCase) int {
 	missing := 0
 	for _, testCase := range cases {
