@@ -60,7 +60,7 @@ func (a *Adapter) predictQueryTokens(ctx context.Context, modelID, text string, 
 	var decoded predictResponse
 	response, err := opensearch.Do(ctx, a.client, http.MethodPost, modelPredictRequest{modelID: modelID, body: body}, &decoded)
 	if err != nil {
-		return nil, tokenFailure(ctx, modelID, fmt.Errorf("predict query tokens: %w", err))
+		return nil, tokenFailure(ctx, modelID, fmt.Errorf("predict query tokens: %w", engineCause(response, err)))
 	}
 	if response == nil {
 		return nil, tokenFailure(ctx, modelID, errors.New("predict query tokens: OpenSearch returned no response"))
@@ -70,7 +70,7 @@ func (a *Adapter) predictQueryTokens(ctx context.Context, modelID, text string, 
 		if breakerRejected(response.StatusCode, parsed) {
 			parsed = errors.Join(searchdomain.ErrEngineUnavailable, parsed)
 		}
-		return nil, tokenFailure(ctx, modelID, fmt.Errorf("predict query tokens: %w", parsed))
+		return nil, tokenFailure(ctx, modelID, fmt.Errorf("predict query tokens: %w", engineCause(response, parsed)))
 	}
 	if len(decoded.InferenceResults) != 1 || len(decoded.InferenceResults[0].Output) != 1 ||
 		len(decoded.InferenceResults[0].Output[0].DataAsMap.Response) != 1 {
