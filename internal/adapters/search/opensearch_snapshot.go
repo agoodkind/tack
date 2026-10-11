@@ -63,8 +63,8 @@ func (r *QueryRanker) Open(ctx context.Context, query searchdomain.Query) (searc
 	if err != nil {
 		return none, snapshotFailure(ctx, target, "read the pinned model", err)
 	}
-	if mismatches := modelMismatches(model); len(mismatches) > 0 {
-		return none, snapshotFailure(ctx, target, "verify the pinned model", errors.Join(mismatches...))
+	if cause := pinnedModelCause(model); cause != nil {
+		return none, snapshotFailure(ctx, target, "verify the pinned model", cause)
 	}
 	tokens, err := r.adapter.predictQueryTokens(ctx, info.ModelID, query.Text, r.settings.TokenBytes)
 	if err != nil {

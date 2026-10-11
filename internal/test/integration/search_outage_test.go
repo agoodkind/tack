@@ -123,3 +123,50 @@ func TestSearchUnavailableWhileEngineStopped(t *testing.T) {
 		time.Sleep(time.Second)
 	}
 }
+
+// `requireSearchReturnsNode` allows asynchronous indexing to finish before reporting a missing search result.
+func requireSearchReturnsNode(t *testing.T, fixture queryFixture, nodeID uuid.UUID) {
+	t.Helper()
+	deadline := time.Now().Add(outageSearchDeadline)
+	for time.Now().Before(deadline) {
+		_, _ = fixture.Worker.RunSlice(t.Context())
+		if page, err := trySearch(fixture.Harness, outagePhrase, ""); err == nil && slices.Contains(page.IDs, nodeID) {
+			return
+		}
+	}
+	t.Fatalf("search did not return the node before the deadline: node %s within %s", nodeID, outageSearchDeadline)
+}
+
+// `TestSearchUnavailableWhileModelUndeployed` requires an unavailable response while the pinned model is undeployed and a search result containing the node after redeployment.
+func TestSearchUnavailableWhileModelUndeployed(t *testing.T) {
+	fixture := newQueryFixture(t, defaultQueryOptions())
+	arguments := searchArguments(fixture.Harness, outagePhrase, "")
+	identifier := "MODEL" + strconv.FormatInt(time.Now().UnixNano()%1_000_000, 10)
+	created := fixture.Harness.Call(t, "tack_create_project", datagen.ToolArguments{
+		WorkspaceReference: fixture.Harness.Workspace, Name: outagePhrase,
+		Properties: datagen.NodeProperties{"identifier": json.RawMessage(strconv.Quote(identifier))},
+	})
+	nodeID, err := uuid.Parse(created.RawID())
+	if err != nil {
+		t.Fatalf("failed to parse created node identifier: %q: %v", created.RawID(), err)
+	}
+	requireSearchReturnsNode(t, fixture, nodeID)
+	model, err := fixture.Adapter.Provision(t.Context())
+	if err != nil {
+		t.Fatalf("failed to read pinned model: %v", err)
+	}
+	undeployNativeModel(t, fixture.Adapter, fixture.Client, model.ID)
+
+	text, isError, err := rawSearchCall(fixture.Harness, arguments)
+	if err != nil {
+		t.Fatalf("search call failed while pinned model was undeployed: %v", err)
+	}
+	if !isError || text != unavailableSearchMessage {
+		t.Fatalf("search did not return the unavailable response while pinned model was undeployed: isError=%t text %q, want %q", isError, text, unavailableSearchMessage)
+	}
+
+	if err := redeployNativeModel(t.Context(), fixture.Adapter, fixture.Client); err != nil {
+		t.Fatalf("failed to redeploy pinned model: %v", err)
+	}
+	requireSearchReturnsNode(t, fixture, nodeID)
+}
