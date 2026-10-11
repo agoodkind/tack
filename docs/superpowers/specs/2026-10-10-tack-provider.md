@@ -8,10 +8,15 @@ design for TACK-567.
 
 ## Provider responsibilities
 
-Use the existing Proxmox and `pveguest` providers wherever they support the required
-state. Add missing general capabilities to those providers, and add Tack resources
-only for behavior specific to Tack. A single deployment can use several providers
-without reducing the scope of its plan.
+Use the existing [Proxmox container
+resources](https://github.com/bpg/terraform-provider-proxmox/blob/main/docs/resources/virtual_environment_container.md)
+and [pveguest resources](https://github.com/agoodkind/terraform-provider-pveguest/blob/2a4d0e51aab5f43111949bc0609c729013535be2/README.md)
+wherever they support the required state. The existing [Configs guest
+configuration](https://github.com/agoodkind/configs/blob/1c40b0858ee5c18f44654e416feb90efe794118e/opentofu/guest/base/main.tf)
+already uses guest resources for files, packages, and services. Add missing general
+capabilities to those providers, and add Tack resources only for behavior specific
+to Tack. A single deployment can use several providers without reducing the scope
+of its plan.
 
 | Layer | Provider responsibility | State covered |
 | --- | --- | --- |
@@ -40,10 +45,12 @@ permissions. Secret values must remain absent from plans, logs, and diagnostics.
 
 ## Declared state and live reads
 
-A resource must represent an observable object or policy rather than an instruction
-to run a command. For example, a schema resource declares a required schema version,
-and an index resource declares a required index configuration. Apply performs the
-migration or replacement needed to satisfy that declaration.
+A resource must represent an observable object or policy under OpenTofu's
+[resource lifecycle](https://opentofu.org/docs/language/resources/behavior/) rather
+than an instruction to run a command. For example, a schema resource declares a
+required schema version, and an index resource declares a required index
+configuration. Apply performs the migration or replacement needed to satisfy that
+declaration.
 
 Refresh reads the current state of every managed object through authenticated
 interfaces. The provider must distinguish an object that is absent from an object
@@ -51,29 +58,36 @@ that it cannot read because a service is unavailable or access failed. An
 unavailable object produces an error without removing the recorded resource.
 Refresh and planning must not change the deployed system.
 
-Import must read existing resources without resetting cluster identity, replacing
-data volumes, or repeating first-time initialization. Differences between declared
-and observed state must appear in the next plan, including changes made outside
-OpenTofu.
+[Import](https://opentofu.org/docs/cli/commands/import/) must read existing resources
+without resetting cluster identity, replacing data volumes, or repeating first-time
+initialization. Differences between declared and observed state must appear in the
+next plan, including changes made outside OpenTofu.
 
 ## Complete plans
 
-Plans must show changed values and the restarts, migrations, replacements, and
-deletions needed to apply them. Plans must identify the required order and any
-quorum condition, which is the minimum number of available members needed for a
-cluster to operate. A configuration change must not hide these effects inside an
-arbitrary command or a provisioner.
+OpenTofu's [plan model](https://opentofu.org/docs/cli/commands/plan/) compares live
+objects with configuration before proposing changes. Tack deployment plans must
+show changed values and required restarts, migrations, replacements, and deletions.
+Plans must identify the required order and any quorum condition, which is the
+minimum number of available members needed for a cluster to operate. A configuration
+change must not hide these effects inside an arbitrary command. OpenTofu cannot
+model the object changed by a
+[provisioner](https://opentofu.org/docs/language/resources/provisioners/syntax/).
 
-Generated values may remain unknown before creation, but the plan must display
-that uncertainty. Planning must fail when an unknown value prevents checking a
-required condition. An ignored mount change or a command trigger does not satisfy
-complete planning for the object that the command changes.
+Generated values may remain [unknown before
+creation](https://opentofu.org/docs/language/expressions/references/#values-not-yet-known),
+but the plan must display that uncertainty. Planning must fail when an unknown
+value prevents checking a required condition. An ignored mount change or a command
+trigger does not satisfy complete planning for the object that the command changes.
 
 ## Apply and recovery
 
 Apply must reject changed conditions that invalidate a saved plan before performing
-an incompatible change. Operations must obey existing deployment locks, and Tack
-changes must use the existing [operator identity and audit
+an incompatible change. Use OpenTofu's [state
+locking](https://opentofu.org/docs/language/state/locking/) to prevent concurrent
+writes to deployment state.
+Operations must also obey existing deployment locks, and Tack changes must use the
+existing [operator identity and audit
 contract](../../operator-identity-and-audit.md).
 
 Apply must verify the resulting state before reporting completion. After an
