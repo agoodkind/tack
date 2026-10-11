@@ -163,16 +163,17 @@ environments use zero replicas and become
 unavailable when their search guest stops. Production claims node failover only after
 at least three members and one replica pass the production failure test.
 
-Each hypervisor exposes one stable HTTPS search endpoint on its guest-segment
-address. Its proxy verifies backend certificates, checks readiness, and selects
-the configured backends. Application request handlers do not store cluster
-membership because OpenSearch manages live membership. Production uses
-normal discovery from its first start. New members discover the existing cluster,
-then the proxy adds their addresses. Adding ML-only or data-only nodes changes only
-OpenSearch membership and proxy configuration. Dedicated coordinating nodes can
-later replace the proxy's backend pool without changing Tack. The endpoint adds no
-new host failure domain because every search guest in an environment already
-depends on that hypervisor.
+Each hypervisor exposes a stable HTTPS search endpoint on its guest network.
+The proxy selects configured backends after verifying their certificates and
+readiness. Tack request handlers use the stable endpoint without storing cluster
+membership because OpenSearch manages the cluster's live members.
+
+Production uses normal discovery from its first start. New members discover the
+existing cluster before the proxy adds their addresses. Nodes dedicated to machine
+learning or data change only cluster membership and proxy configuration, and
+dedicated coordinating nodes can later replace those backends without changing
+Tack. The endpoint and every search guest in an environment depend on the same
+hypervisor.
 
 OpenSearch dispatches ML work across eligible ML nodes and routes search across primary
 and replica shards. Model deployment specifies no node IDs and includes new ML
