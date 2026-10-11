@@ -112,3 +112,18 @@ func snapshotFailure(ctx context.Context, index, operation string, err error) er
 	telemetry.L(ctx).ErrorContext(ctx, "search.snapshot.failed", slog.String("err", wrapped.Error()), slog.String("index", index))
 	return wrapped
 }
+
+// `pinnedModelCause` classifies a mismatch only in model state as `ErrEngineUnavailable` because public queries require a `DEPLOYED` model.
+func pinnedModelCause(model registeredModel) error {
+	mismatches := modelMismatches(model)
+	if len(mismatches) == 0 {
+		return nil
+	}
+	joined := errors.Join(mismatches...)
+	deployed := model
+	deployed.State = deployedModelState
+	if len(modelMismatches(deployed)) > 0 {
+		return joined
+	}
+	return unavailableError{err: joined}
+}
