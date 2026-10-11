@@ -165,7 +165,8 @@ at least three members and one replica pass the production failure test.
 
 Each hypervisor exposes one stable HTTPS search endpoint on its guest-segment
 address. Its proxy verifies backend certificates, checks readiness, and selects
-the configured backends. Tack never stores cluster membership. Production uses
+the configured backends. Application request handlers do not store cluster
+membership because OpenSearch manages live membership. Production uses
 normal discovery from its first start. New members discover the existing cluster,
 then the proxy adds their addresses. Adding ML-only or data-only nodes changes only
 OpenSearch membership and proxy configuration. Dedicated coordinating nodes can

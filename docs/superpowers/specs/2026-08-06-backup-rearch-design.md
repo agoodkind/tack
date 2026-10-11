@@ -208,7 +208,7 @@ ledger read, and zero synchronous broker round trips:
 
 ## Derived stores
 
-The search index (Meilisearch) and the analytics projection (ClickHouse)
+The search index and the analytics projection (ClickHouse)
 rebuild from their sources of record and are never backed up. Temporal
 workflow state has no backup, matching the recovery runbook.
 
@@ -247,8 +247,8 @@ alarms.
 
 ## Provisioning (configs repo)
 
-The configs repo provisions one guest per hand-written resource; this work
-adds the multi-guest pattern:
+The Configs deployment uses the following multi-guest pattern. Ansible writes its
+assigned deployment fields until a provider takes over those fields.
 
 - One `service_mapping.yml` entry per new guest, plus testbed counterparts
   at id plus 100, plus a parent group for the cluster axis.
