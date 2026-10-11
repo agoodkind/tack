@@ -8,22 +8,42 @@ design for TACK-567.
 
 ## Provider responsibilities
 
-Use the existing [Proxmox container
+Use existing providers wherever they support the required state, including the
+[Proxmox container
 resources](https://github.com/bpg/terraform-provider-proxmox/blob/main/docs/resources/virtual_environment_container.md)
-and [pveguest resources](https://github.com/agoodkind/terraform-provider-pveguest/blob/2a4d0e51aab5f43111949bc0609c729013535be2/README.md)
-wherever they support the required state. The existing [Configs guest
+and [pveguest resources](https://github.com/agoodkind/terraform-provider-pveguest/blob/2a4d0e51aab5f43111949bc0609c729013535be2/README.md).
+The existing [Configs guest
 configuration](https://github.com/agoodkind/configs/blob/1c40b0858ee5c18f44654e416feb90efe794118e/opentofu/guest/base/main.tf)
 already uses guest resources for files, packages, and services. Add missing general
 capabilities to those providers, and add Tack resources only for behavior specific
-to Tack. A single deployment can use several providers without reducing the scope
-of its plan.
+to Tack. Apply this rule to every deployment layer, including containers,
+databases, Kafka, search, object storage, proxies, certificates, and schedules.
+A complete deployment plan must include changes from every provider.
 
 | Layer | Provider responsibility | State covered |
 | --- | --- | --- |
 | Infrastructure | Existing infrastructure providers manage infrastructure. | Guests, disks, mounts, addresses, networks, resource limits, startup state, host overlays, and host permissions. |
-| Guest setup | Existing guest resources manage guest setup. | Files, downloads, artifact installation, packages, versions, automatic upgrade restrictions, Docker setup, forwarding, neighbor discovery proxy settings, services, and timers. |
-| Application | Tack resources manage application behavior and its dependencies. | Release image digests, engine versions, Tack runtime overlays, artifact checksums, workload placement, replicas, environment values, mounts, ports, and readiness. |
-| Data and operations | Tack resources manage service configuration and operating policies. | Database and search state, audit configuration, backups, verification schedules, restore rehearsals, and alarms. |
+| Guest setup | Existing guest resources manage guest setup. | Files, downloads, artifact checksums and installation, packages, versions, automatic upgrade restrictions, Docker setup, forwarding, neighbor discovery proxy settings, services, and timers. |
+| Workloads | Reuse general runtime resources that satisfy the planning contract. | Image digests, engine versions, runtime overlays, placement, replicas, environment values, mounts, ports, and readiness. |
+| Service configuration | Reuse general service resources wherever they support the required state. | Database topology and settings, roles and grants, Kafka topics, search engine objects, object storage, proxies, and certificates. |
+| Operating policies | Reuse general policy and scheduling resources wherever they support the required state. | Backup destinations, retention, recovery schedules, verification schedules, restore rehearsals, and alarms. |
+| Tack behavior | Tack resources manage behavior specific to Tack. | Release-specific schema evolution, audit policy, application compatibility checks, and coordinated search replacement. |
+
+A Docker package declaration uses the existing guest resource. This excerpt omits
+the guest creation and other Docker configuration declarations.
+
+```hcl
+resource "pveguest_apt_packages" "docker" {
+  node     = var.node
+  vmid     = var.vmid
+  kind     = "lxc"
+  packages = var.docker_packages
+}
+```
+
+Do not add a Tack package resource for this declaration. Reuse the existing
+resource interface and extend its general capabilities when the contract requires
+it. Apply the same rule to guest, file, service, and other supported resources.
 
 Configs declares the environment and its deployment composition. Tack implements
 the resources and application behavior specific to Tack. Existing guest execution
@@ -41,7 +61,24 @@ Audit state includes signing identities, trusted signers, Kafka topics, retentio
 and consumer configuration. Operating policies include backup destinations,
 retention, scheduled verification, and restore rehearsals. Access configuration
 includes certificates, credential references, rotation versions, and deployment
-permissions. Secret values must remain absent from plans, logs, and diagnostics.
+permissions. Secret values must remain absent from state, plans, logs, and
+diagnostics. Plans show credential references and rotation versions.
+
+## General provider gaps
+
+The existing providers must satisfy the complete planning contract before adoption.
+Their current resource definitions establish the following gaps.
+
+| Required capability | General provider change |
+| --- | --- |
+| Package state | Add declared apt versions and automatic upgrade restrictions. Define package removal. Current apt and local Debian-package destruction only removes their OpenTofu records. |
+| Service removal | Define shutdown and disablement when the declared lifecycle requires them. Current systemd resource destruction only removes its OpenTofu record. |
+| Readable file drift | Read changed nonsecret content for a field or text diff. Preserve hash-based drift detection for write-only content. |
+| Backup mounts | Manage mounts independently and compare their live state. Replace ignored mount changes and imperative hot-plug steps with planned resource changes. |
+| Host overlays and permissions | Read installed overlay versions, roles, and access rules. Replace command-triggered installation and permission grants with observable resources. |
+
+Extend general providers for these capabilities. Deployment acceptance must verify
+engine compatibility and Tack's audit requirements.
 
 ## Declared state and live reads
 
@@ -56,7 +93,8 @@ Refresh reads the current state of every managed object through authenticated
 interfaces. The provider must distinguish an object that is absent from an object
 that it cannot read because a service is unavailable or access failed. An
 unavailable object produces an error without removing the recorded resource.
-Refresh and planning must not change the deployed system.
+Refresh and planning must not initialize, repair, rotate credentials, restart
+services, or otherwise change managed deployment state.
 
 [Import](https://opentofu.org/docs/cli/commands/import/) must read existing resources
 without resetting cluster identity, replacing data volumes, or repeating first-time
@@ -68,6 +106,10 @@ next plan, including changes made outside OpenTofu.
 OpenTofu's [plan model](https://opentofu.org/docs/cli/commands/plan/) compares live
 objects with configuration before proposing changes. Tack deployment plans must
 show changed values and required restarts, migrations, replacements, and deletions.
+Represent structured settings with typed attributes and stable member keys. Show
+the changed fields of nonsecret configuration. An opaque payload or checksum diff
+does not explain those changes. Plans must include immutable release digests,
+pending migrations, and any required search copying, alias switch, or retirement.
 Plans must identify the required order and any quorum condition, which is the
 minimum number of available members needed for a cluster to operate. A configuration
 change must not hide these effects inside an arbitrary command. OpenTofu cannot
@@ -115,11 +157,19 @@ evidence and does not block adoption of unrelated application resources.
 
 ## Adoption and acceptance
 
-Each resource must be imported and compared with the declared configuration before
-the provider becomes its writer. Transfer the affected fields from the previous
-deployment tool before allowing provider changes, so Ansible cannot recreate or
-overwrite a provider-managed object. Replace imperative deployment steps with
-resources as their responsibilities transfer.
+Import each existing managed object and compare it with the declared configuration
+before transferring its fields to a provider. Fresh deployments create absent
+objects through their resource lifecycles. Transfer the affected fields from the
+previous deployment tool before allowing provider changes, so Ansible cannot
+recreate or overwrite a provider-managed object. Replace imperative deployment
+steps with resources as their responsibilities transfer. Service startup must verify
+provider-managed configuration instead of changing that configuration outside an
+apply.
+
+Account for every deployment field and imperative setup step in the acceptance
+inventory. For each managed object, record its owning provider, live reader,
+planned changes, apply and removal behavior, and acceptance evidence. Reused,
+extended, and new resources must satisfy the same planning requirements.
 
 Acceptance must use disposable systems with the deployed engines and provider
 interfaces. Evidence must cover a fresh deployment, import of an existing
