@@ -108,8 +108,8 @@ so a failing guest cannot destroy its own evidence.
   data tier. The cutover is therefore a named step of this workstream, in
   order: prepare the four guests, join the three ledger nodes to the
   existing cluster (never bootstrap a second universe), wait for full
-  replication, repoint the consumers, retire the legacy node. Each step is
-  confirmed with the operator before it runs.
+  replication, repoint the consumers, retire the legacy node. The operator must
+  confirm each step before execution during this original data-tier migration.
 - Every state above (alarms armed, timers armed, exports flowing, full
   replication, prune armed) is read from the running production system,
   not inferred from the repo.
