@@ -63,8 +63,8 @@ func (r *QueryRanker) Open(ctx context.Context, query searchdomain.Query) (searc
 	if err != nil {
 		return none, snapshotFailure(ctx, target, "read the pinned model", err)
 	}
-	if mismatches := modelMismatches(model); len(mismatches) > 0 {
-		return none, snapshotFailure(ctx, target, "verify the pinned model", errors.Join(mismatches...))
+	if cause := pinnedModelCause(model); cause != nil {
+		return none, snapshotFailure(ctx, target, "verify the pinned model", cause)
 	}
 	tokens, err := r.adapter.predictQueryTokens(ctx, info.ModelID, query.Text, r.settings.TokenBytes)
 	if err != nil {
@@ -111,4 +111,19 @@ func snapshotFailure(ctx context.Context, index, operation string, err error) er
 	wrapped := fmt.Errorf("search snapshot on %s: %s: %w", index, operation, err)
 	telemetry.L(ctx).ErrorContext(ctx, "search.snapshot.failed", slog.String("err", wrapped.Error()), slog.String("index", index))
 	return wrapped
+}
+
+// `pinnedModelCause` classifies a mismatch only in model state as `ErrEngineUnavailable` because public queries require a `DEPLOYED` model.
+func pinnedModelCause(model registeredModel) error {
+	mismatches := modelMismatches(model)
+	if len(mismatches) == 0 {
+		return nil
+	}
+	joined := errors.Join(mismatches...)
+	deployed := model
+	deployed.State = deployedModelState
+	if len(modelMismatches(deployed)) > 0 {
+		return joined
+	}
+	return unavailableError{err: joined}
 }
