@@ -2,6 +2,8 @@
 
 Implement N3, N5, and N8 through N10 from the [node integrity specification](../specs/2026-10-16-node-integrity.md). Coordinate the shared interfaces with the [node and audit plan](2026-10-16-node-integrity.md). Execute production source-data repairs only under the existing concrete-manifest review and execution requirements.
 
+Use the [parallel implementation plan](2026-10-17-parallel-implementation.md) for source ownership, projection contracts, warning persistence, and concurrent execution.
+
 ## 1. Correct generic access and inclusion policy
 
 TACK-579 and TACK-580 own the correction. Modify [search access traversal](../../../internal/searchaccess/hierarchy_walk.go), [hierarchy rules](../../../internal/searchaccess/hierarchy_rule.go), [property text conversion](../../../internal/domain/node/search_projection_emit.go), [projection metadata](../../../internal/domain/node/search_projection.go), and [readiness checking](../../../internal/ops/search_projection_gate.go).
