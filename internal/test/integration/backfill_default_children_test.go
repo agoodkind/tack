@@ -79,3 +79,7 @@ func TestDefaultChildrenBackfillRefusesUndeclaredProperties(t *testing.T) {
 		t.Fatalf("node %s has %d children after the refused backfill, want 0", parent.ID, len(children))
 	}
 }
+
+func opaqueName(prefix string) string {
+	return prefix + strings.ReplaceAll(uuid.Must(uuid.NewV7()).String(), "-", "")
+}

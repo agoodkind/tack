@@ -110,8 +110,8 @@ func emitSearchText(
 // ErrInvalidSearchProjection reports an invalid text declaration or value.
 var ErrInvalidSearchProjection = errors.New("invalid search projection")
 
-// undeclaredPropertyNames returns the sorted, quoted names of properties that
-// do not have a definition.
+// undeclaredPropertyNames returns the sorted, quoted names of keys in
+// properties that do not appear in knownNames.
 func undeclaredPropertyNames(properties map[string]json.RawMessage, knownNames map[string]struct{}) []string {
 	names := make([]string, 0)
 	for propertyName := range properties {
