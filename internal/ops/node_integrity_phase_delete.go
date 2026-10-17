@@ -1,6 +1,7 @@
 package ops
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -103,40 +104,69 @@ func readVerifiedExport(ctx context.Context, run repairPhaseRun) (repairExportDo
 	return document, nil
 }
 
-// exportedEdgeExpectations requires the current edges in both directions to
-// equal the exported relationships and returns their stored digests.
+// exportedEdgeExpectations requires the node's current outgoing and incoming
+// relationships to match the export in both identity and payload digest.
+// It returns the exported digests as outgoing and incoming expectations for
+// DeleteNode. It returns an error wrapping domain.ErrConflict if either
+// side lacks an edge or a payload digest differs. It returns an error
+// wrapping domain.ErrFailedPrecondition if the snapshot has more incoming
+// edges than one snapshot reads.
 func exportedEdgeExpectations(ctx context.Context, entry NodeIntegrityEntry, exported repairExportDocument, snapshot node.MutationSnapshot) ([]node.RelationshipExpectation, []node.IncomingRelationshipExpectation, error) {
 	if snapshot.IncomingOverflow {
 		return nil, nil, repairExportRefused(ctx, entry, "the node has more incoming edges than one snapshot reads", domain.ErrFailedPrecondition)
 	}
-	remaining := make(map[RepairStoredEdge]bool, len(exported.Relationships))
+	remaining := make(map[RepairStoredEdge]json.RawMessage, len(exported.Relationships))
 	for _, edge := range exported.Relationships {
-		remaining[RepairStoredEdge{SourceID: edge.SourceID, RelationType: edge.RelationType, TargetID: edge.TargetID}] = true
+		remaining[RepairStoredEdge{SourceID: edge.SourceID, RelationType: edge.RelationType, TargetID: edge.TargetID}] = edge.Value
 	}
 	outgoing := make([]node.RelationshipExpectation, 0, len(snapshot.Outgoing))
 	for _, stored := range snapshot.Outgoing {
 		edge := RepairStoredEdge{SourceID: entry.NodeID, RelationType: stored.Relationship.RelationType, TargetID: stored.Relationship.TargetID}
-		if !remaining[edge] {
-			return nil, nil, exportEdgeChanged(ctx, entry, edge)
+		digest, err := takeExportedDigest(ctx, entry, remaining, edge, stored)
+		if err != nil {
+			return nil, nil, err
 		}
-		delete(remaining, edge)
-		outgoing = append(outgoing, node.RelationshipExpectation{RelationType: edge.RelationType, TargetID: edge.TargetID, Digest: stored.Digest})
+		outgoing = append(outgoing, node.RelationshipExpectation{RelationType: edge.RelationType, TargetID: edge.TargetID, Digest: digest})
 	}
 	incoming := make([]node.IncomingRelationshipExpectation, 0, len(snapshot.Incoming))
 	for _, stored := range snapshot.Incoming {
 		edge := RepairStoredEdge{SourceID: stored.Relationship.SourceID, RelationType: stored.Relationship.RelationType, TargetID: entry.NodeID}
-		if !remaining[edge] {
-			return nil, nil, exportEdgeChanged(ctx, entry, edge)
+		digest, err := takeExportedDigest(ctx, entry, remaining, edge, stored)
+		if err != nil {
+			return nil, nil, err
 		}
-		delete(remaining, edge)
-		incoming = append(incoming, node.IncomingRelationshipExpectation{SourceID: edge.SourceID, RelationType: edge.RelationType, Digest: stored.Digest})
+		incoming = append(incoming, node.IncomingRelationshipExpectation{SourceID: edge.SourceID, RelationType: edge.RelationType, Digest: digest})
 	}
-	for _, edge := range exported.Relationships {
-		if remaining[RepairStoredEdge{SourceID: edge.SourceID, RelationType: edge.RelationType, TargetID: edge.TargetID}] {
-			return nil, nil, exportEdgeChanged(ctx, entry, RepairStoredEdge{SourceID: edge.SourceID, RelationType: edge.RelationType, TargetID: edge.TargetID})
+	for _, exportedEdge := range exported.Relationships {
+		edge := RepairStoredEdge{SourceID: exportedEdge.SourceID, RelationType: exportedEdge.RelationType, TargetID: exportedEdge.TargetID}
+		if _, left := remaining[edge]; left {
+			return nil, nil, exportEdgeChanged(ctx, entry, edge)
 		}
 	}
 	return outgoing, incoming, nil
+}
+
+// takeExportedDigest removes edge from remaining, compacts its exported
+// value, and returns node.RelationshipDigest of the compact bytes.
+// It compacts the indented exported value to match the store's compact JSON.
+// It returns an error wrapping domain.ErrConflict if the export lacks edge,
+// the value is empty or invalid JSON, or the digest differs from the digest
+// of the relationship in stored.
+func takeExportedDigest(ctx context.Context, entry NodeIntegrityEntry, remaining map[RepairStoredEdge]json.RawMessage, edge RepairStoredEdge, stored node.RelationshipSnapshot) (node.Digest, error) {
+	value, found := remaining[edge]
+	if !found {
+		return node.Digest{}, exportEdgeChanged(ctx, entry, edge)
+	}
+	delete(remaining, edge)
+	var compact bytes.Buffer
+	if len(value) == 0 || json.Compact(&compact, value) != nil {
+		return node.Digest{}, exportEdgeChanged(ctx, entry, edge)
+	}
+	digest := node.RelationshipDigest(compact.Bytes())
+	if digest != stored.Digest {
+		return node.Digest{}, exportEdgeChanged(ctx, entry, edge)
+	}
+	return digest, nil
 }
 
 func exportEdgeChanged(ctx context.Context, entry NodeIntegrityEntry, edge RepairStoredEdge) error {
