@@ -17,8 +17,7 @@ const (
 	// rankingWaitDeadline limits how long indexing and index-replacement
 	// waits may run.
 	rankingWaitDeadline = 15 * time.Minute
-	// rankingPoll is the interval between two checks during a wait.
-	rankingPoll = time.Second
+	rankingPoll         = time.Second
 )
 
 func (r *rankingRun) servingIndex(t *testing.T) string {
