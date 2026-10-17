@@ -1,88 +1,88 @@
 package integration_test
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
-	"strings"
-	"sync"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain"
+	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/test/integration"
 )
 
-// boundCreateDeadline limits the wait for NodeService.Create to return in
-// TestNodeIntegrityMutationRetryBoundRefusesCreate.
-const boundCreateDeadline = 30 * time.Second
+const (
+	// retryBoundLimit is the maximum duration of the refused subtree delete step
+	// in TestNodeIntegrityMutationRetryBoundRefusesStep. It exceeds the test
+	// stores' 5 second transaction timeout by 2 seconds.
+	retryBoundLimit = 7 * time.Second
+	// retryBoundDeadline is the context deadline for the steps in
+	// TestNodeIntegrityMutationRetryBoundRefusesStep.
+	retryBoundDeadline = 30 * time.Second
+	// retryBoundStepLimit limits the number of subtree delete steps that the test
+	// runs before the refused step.
+	retryBoundStepLimit = 10
+)
 
-// boundCreateOperation specifies the operation text that
-// TestNodeIntegrityMutationRetryBoundRefusesCreate requires in the create
-// error.
-const boundCreateOperation = "create node: apply mutation to node "
-
-// TestNodeIntegrityMutationRetryBoundRefusesCreate calls NodeService.Create
-// for an issue under a project while another goroutine repeatedly rewrites
-// the unchanged project record through NodeStore.Set without a pause.
-//
-// The test requires the create to return within boundCreateDeadline with an
-// error that wraps domain.ErrConflict and contains boundCreateOperation.
-// It also requires that the project does not contain an issue after the
-// create returns.
-func TestNodeIntegrityMutationRetryBoundRefusesCreate(t *testing.T) {
+// TestNodeIntegrityMutationRetryBoundRefusesStep starts a subtree delete of an
+// issue with one comment and runs NodeDeleteStore.DeleteSubtreeStep with a
+// DeletionEventBuilder. Each transaction attempt reads the comment, then calls
+// the builder. The builder commits NodeStore.Set of the comment in a separate
+// transaction and makes every attempt conflict. The test covers the retry
+// bound of runNodeMutation that every node mutation shares. The test requires
+// the step to return an error that wraps domain.ErrConflict within
+// retryBoundLimit after more than one attempt. It also requires the comment
+// to still exist.
+func TestNodeIntegrityMutationRetryBoundRefusesStep(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	projectID := createSchemaProject(t, env)
-	project, err := env.Stores.Nodes.Get(env.Ctx, env.OrgID, projectID)
-	if err != nil || project == nil {
-		t.Fatalf("get project %s: %v, %v", projectID, project, err)
+	issue := createSchemaNode(t, env, projectID, projectID, "issue", nil)
+	createSchemaNode(t, env, issue.ID, projectID, "comment", schemaProps("description", quoted("A comment")))
+	job := &node.SubtreeDeleteJob{
+		ID: uuid.Must(uuid.NewV7()), OrgID: env.OrgID, RootID: issue.ID, ActorID: uuid.New(),
+		AuditTemplate: json.RawMessage(`{}`), Stack: nil, Deleted: 0, UpdatedAt: time.Time{},
 	}
-	projectView := storedStoreView(t, env.Stores, projectID)
-	stop := make(chan struct{})
-	rewrites := 0
-	var rewriteErr error
-	var rewriter sync.WaitGroup
-	rewriter.Go(func() {
-		for {
-			select {
-			case <-stop:
-				return
-			default:
-			}
-			if err := env.Stores.Nodes.Set(env.Ctx, project, projectView); err != nil {
-				rewriteErr = err
-				return
-			}
-			rewrites++
+	ctx, cancel := context.WithTimeout(env.Ctx, retryBoundDeadline)
+	defer cancel()
+	if err := env.Stores.NodeDeleter.StartSubtreeDelete(ctx, job); err != nil {
+		t.Fatalf("start the subtree delete of issue %s: %v", issue.ID, err)
+	}
+
+	rewritten := []uuid.UUID{}
+	rewrite := func(template json.RawMessage, change node.SubtreeChange) (json.RawMessage, error) {
+		rewritten = append(rewritten, change.ID)
+		current, err := env.Stores.Nodes.Get(ctx, env.OrgID, change.ID)
+		if err != nil || current == nil {
+			return nil, errors.Join(errors.New("read node "+change.ID.String()), err)
 		}
-	})
-	input := schemaCreateInput(projectID, projectID, "issue", nil)
-	result := make(chan error, 1)
-	go func() {
-		_, createErr := env.NodeSvc.Create(auditSlot(env, input.ActorID), input)
-		result <- createErr
-	}()
-	started := time.Now()
-	var createErr error
-	returned := true
-	select {
-	case createErr = <-result:
-	case <-time.After(boundCreateDeadline):
-		returned = false
+		if err := env.Stores.Nodes.Set(ctx, current, storedStoreView(t, env.Stores, change.ID)); err != nil {
+			return nil, err
+		}
+		return template, nil
 	}
-	elapsed := time.Since(started)
-	close(stop)
-	rewriter.Wait()
-	if !returned {
-		createErr = <-result
-		t.Fatalf("create did not return during %s of project rewrites, and after the rewrites stopped it returned %v", boundCreateDeadline, createErr)
+	var stepErr error
+	var elapsed time.Duration
+	for range retryBoundStepLimit {
+		started := time.Now()
+		progress, err := env.Stores.NodeDeleter.DeleteSubtreeStep(ctx, job.ID, rewrite)
+		elapsed = time.Since(started)
+		if err != nil || progress.Done {
+			stepErr = err
+			break
+		}
 	}
-	if rewriteErr != nil {
-		t.Fatalf("rewrite project %s after %d rewrites: %v", projectID, rewrites, rewriteErr)
+
+	if !errors.Is(stepErr, domain.ErrConflict) || elapsed > retryBoundLimit {
+		t.Fatalf("subtree delete step after %s and %d builder calls returned %v, want an error that wraps domain.ErrConflict within %s",
+			elapsed, len(rewritten), stepErr, retryBoundLimit)
 	}
-	if !errors.Is(createErr, domain.ErrConflict) || !strings.Contains(createErr.Error(), boundCreateOperation) {
-		t.Fatalf("create error = %v, want a conflict that contains %q", createErr, boundCreateOperation)
+	if len(rewritten) < 2 {
+		t.Fatalf("the builder ran %d times, want at least 2 attempts", len(rewritten))
 	}
-	if issues := listByScope(t, env, "issue", projectID); len(issues) != 0 {
-		t.Fatalf("project %s has %d issues after the refused create, want 0", projectID, len(issues))
+	if current, err := env.Stores.Nodes.Get(env.Ctx, env.OrgID, rewritten[0]); err != nil || current == nil {
+		t.Fatalf("node %s after the refused step = %v, %v, want the stored node", rewritten[0], current, err)
 	}
-	t.Logf("the create returned after %s and %d project rewrites", elapsed, rewrites)
+	t.Logf("the step returned after %s and %d builder calls", elapsed, len(rewritten))
 }

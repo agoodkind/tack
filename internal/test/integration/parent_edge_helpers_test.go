@@ -37,12 +37,13 @@ func (f parentEdgeFixture) createLeaf(t *testing.T, parentID uuid.UUID, text str
 	return created.View.ID
 }
 
-// moveLeaf sets the parent_id of nodeID to parentID through
-// NodeService.Update.
+// moveLeaf calls NodeService.Update to set the parent_id and scope_id of
+// nodeID to parentID.
 func (f parentEdgeFixture) moveLeaf(t *testing.T, nodeID, parentID uuid.UUID) error {
 	t.Helper()
+	target := parentEdgeJSON(t, parentID.String())
 	_, err := f.nodes.Update(t.Context(), service.UpdateInput{
-		NodeID: nodeID, Props: map[string]json.RawMessage{"parent_id": parentEdgeJSON(t, parentID.String())},
+		NodeID: nodeID, Props: map[string]json.RawMessage{"parent_id": target, "scope_id": target},
 		ActorID: f.first.Actors[0].UserID,
 	})
 	return err
