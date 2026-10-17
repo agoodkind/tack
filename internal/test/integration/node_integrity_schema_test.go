@@ -76,21 +76,33 @@ func TestNodeIntegritySchemaAppliesDefaultsAndPartialUpdates(t *testing.T) {
 }
 
 // TestNodeIntegritySchemaIndexesScopeOfEveryType creates a project with its
-// default states and a comment under an issue. The scope_id index must list
-// the states and the comment under the project. The service accepts scope_id
-// for every node type.
+// five default states, an issue, and a comment and an activity under the issue.
+// It verifies that the scope_id index lists the states, comment, and activity
+// under the project and the project under its workspace.
 func TestNodeIntegritySchemaIndexesScopeOfEveryType(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	projectID := createSchemaProject(t, env)
 	issue := createSchemaNode(t, env, projectID, projectID, "issue", nil)
 	comment := createSchemaNode(t, env, issue.ID, projectID, "comment", schemaProps("description", quoted("A comment")))
+	activity := createSchemaNode(t, env, issue.ID, projectID, "activity", nil)
+	workspaceID := uuid.MustParse(strings.Trim(string(storedSchemaView(t, env, projectID).Props["scope_id"]), `"`))
 
 	if states := listByScope(t, env, "state", projectID); len(states) != 5 {
 		t.Fatalf("scope_id index lists %d states of project %s, want the 5 default states", len(states), projectID)
 	}
-	comments := listByScope(t, env, "comment", projectID)
-	if len(comments) != 1 || comments[0].ID != comment.ID {
-		t.Fatalf("scope_id index lists comments %v of project %s, want comment %s", comments, projectID, comment.ID)
+	for _, expected := range []struct {
+		typeKey string
+		scopeID uuid.UUID
+		nodeID  uuid.UUID
+	}{
+		{"comment", projectID, comment.ID},
+		{"activity", projectID, activity.ID},
+		{"project", workspaceID, projectID},
+	} {
+		listed := listByScope(t, env, expected.typeKey, expected.scopeID)
+		if len(listed) != 1 || listed[0].ID != expected.nodeID {
+			t.Fatalf("scope_id index lists %s nodes %v of scope %s, want node %s", expected.typeKey, listed, expected.scopeID, expected.nodeID)
+		}
 	}
 }
 
