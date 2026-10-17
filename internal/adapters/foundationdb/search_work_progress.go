@@ -126,11 +126,11 @@ func (s *SearchWorkStore) Release(ctx context.Context, work searchdomain.Work, f
 	defer telemetry.FDBOp(ctx, "store.search_work.release")(&err)
 	var outcome failureOutcome
 	err = transactSearch(ctx, s.db, func(tr fdb.Transaction) error {
-		record, err := s.verifyClaim(ctx, tr, work)
+		_, err := s.verifyClaim(ctx, tr, work)
 		if err != nil {
 			return err
 		}
-		outcome, err = s.recordFailure(ctx, tr, work, record, failure)
+		outcome, err = s.recordFailure(ctx, tr, work, failure)
 		return err
 	})
 	if err != nil {
