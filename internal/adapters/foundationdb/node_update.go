@@ -23,7 +23,7 @@ func (s *NodeStore) UpdateAtomic(ctx context.Context, current *node.Node, view *
 		if err != nil {
 			return searchReadFailure(ctx, "read node "+current.ID.String(), err)
 		}
-		if _, err := s.fenceAttempt(ctx, tr, current.OrgID, current.ID); err != nil {
+		if err := s.fenceRecordWrite(ctx, tr, current); err != nil {
 			return err
 		}
 		if err := writeNodeRecords(ctx, tr, current, view); err != nil {
