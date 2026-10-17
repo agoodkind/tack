@@ -120,7 +120,7 @@ func compilePropertyCommand(
 		return nil, err
 	}
 	for _, def := range defs {
-		if !propertyDefAppliesToCommand(def, nt) || def.ReferenceTargetTypeKey == "" || def.Type != node.PropertyTypeUUID {
+		if !node.PropertyAppliesTo(def, nt) || def.ReferenceTargetTypeKey == "" || def.Type != node.PropertyTypeUUID {
 			continue
 		}
 		raw, ok := compiled[def.Name]
@@ -173,7 +173,7 @@ func allowedPropertyCommandKeys(
 	canonicalNames := make(map[string]struct{}, len(defs)+1)
 	aliasMap := make(map[string]string)
 	for _, def := range defs {
-		if !propertyDefAppliesToCommand(def, nt) {
+		if !node.PropertyAppliesTo(def, nt) {
 			continue
 		}
 		canonicalNames[def.Name] = struct{}{}
@@ -202,17 +202,6 @@ func canonicalPropertyCommandKey(
 		return canonicalName, nil
 	}
 	return "", fmt.Errorf("properties.%s is not declared for this node type: %w", name, domain.ErrInvalidArgument)
-}
-
-func propertyDefAppliesToCommand(def *node.PropertyDef, nt *node.NodeType) bool {
-	if len(def.AppliesToFeatures) == 0 {
-		return true
-	}
-	return nt.Features.HasAny(def.AppliesToFeatures...)
-}
-
-func PropertyDefAppliesToCommand(def *node.PropertyDef, nt *node.NodeType) bool {
-	return propertyDefAppliesToCommand(def, nt)
 }
 
 func rawString(raw json.RawMessage) (string, bool) {

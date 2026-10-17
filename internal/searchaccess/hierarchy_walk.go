@@ -20,7 +20,7 @@ type hierarchyWalk struct {
 }
 
 // step advances the walk by one ancestor.
-func (w *hierarchyWalk) step(ancestors map[OrgNode]AncestorState, targets map[OrgNode]TargetState) {
+func (w *hierarchyWalk) step(ancestors map[OrgNode]AncestorState) {
 	orgID := w.resource.OrgID
 	if w.visited[w.current] {
 		w.fail(newHierarchyDefect(fmt.Sprintf("hierarchy cycle at %s", w.current)))
@@ -39,7 +39,7 @@ func (w *hierarchyWalk) step(ancestors map[OrgNode]AncestorState, targets map[Or
 		w.finish(w.current)
 		return
 	}
-	parentID, err := hierarchyParent(orgID, w.current, state, targets)
+	parentID, err := hierarchyParent(w.current, state)
 	if err != nil {
 		w.fail(err)
 		return
@@ -61,29 +61,16 @@ func (w *hierarchyWalk) finish(entryPointID uuid.UUID) {
 	w.done = true
 }
 
-// hierarchyParent returns the one hierarchy parent of nodeID: the target of
-// a child_of edge that node.LivesUnder accepts. A node without a hierarchy
-// parent is a hierarchy root when its type lists no CanLiveUnder type, and
-// hierarchyParent returns [uuid.Nil] for it.
-func hierarchyParent(orgID, nodeID uuid.UUID, state AncestorState, targets map[OrgNode]TargetState) (uuid.UUID, error) {
-	found := uuid.Nil
-	for _, targetID := range state.ChildOfs {
-		if targetID == found {
-			continue
-		}
-		target := targets[OrgNode{OrgID: orgID, NodeID: targetID}]
-		if !target.Exists || target.OrgID != orgID || !node.LivesUnder(state.Type, target.Type) {
-			continue
-		}
-		if found != uuid.Nil {
-			return uuid.Nil, newHierarchyDefect("resolve hierarchy parent of node "+nodeID.String(), ErrNoHierarchyParent)
-		}
-		found = targetID
+// hierarchyParent returns the hierarchy parent of nodeID according to
+// [node.HierarchyParent], or [uuid.Nil] for a hierarchy root. It returns a
+// hierarchy defect error when the node's stored child_of edges do not produce
+// one parent.
+func hierarchyParent(nodeID uuid.UUID, state AncestorState) (uuid.UUID, error) {
+	parentID, err := node.HierarchyParent(nodeID, state.Type, state.ChildOfs)
+	if err != nil {
+		return uuid.Nil, newHierarchyDefect("resolve hierarchy parent of node "+nodeID.String(), err)
 	}
-	if found == uuid.Nil && len(state.Type.CanLiveUnder) > 0 {
-		return uuid.Nil, newHierarchyDefect("resolve hierarchy parent of node "+nodeID.String(), ErrNoHierarchyParent)
-	}
-	return found, nil
+	return parentID, nil
 }
 
 func unfinished(walks []*hierarchyWalk) []*hierarchyWalk {
