@@ -62,7 +62,7 @@ func normalizeFilterAliases(
 		normalized[name] = raw
 	}
 	for _, def := range defs {
-		if !propertyDefAppliesTo(def, nt) {
+		if !node.PropertyAppliesTo(def, nt) {
 			continue
 		}
 		alias := referencePropertyAlias(def.Name)

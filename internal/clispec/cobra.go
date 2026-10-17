@@ -94,14 +94,14 @@ func (op Operation[I]) cobraCommand(f *cli.Factory) *cobra.Command {
 			apply(&in)
 		}
 		if !f.Execute() && op.DryRun != nil {
-			err := RunAudited(cmd.Context(), f.Out, op.auditSpec(), f.OperatorIdentitySource(), f.DeployCommit(), false, f.AuditOutbox(), f.AuditInfrastructureProbe(),
+			err := RunAudited(cmd.Context(), dryRunDestination(f, f.Out), op.auditSpec(), f.OperatorIdentitySource(), f.DeployCommit(), false, f.AuditOutbox(), f.AuditInfrastructureProbe(),
 				func(context.Context) error { return nil })
 			if err != nil {
 				return err
 			}
 			return op.DryRun(cmd.Context(), in, NewCLISink(f))
 		}
-		return RunAudited(cmd.Context(), f.Out, op.auditSpec(), f.OperatorIdentitySource(), f.DeployCommit(), f.Execute(), f.AuditOutbox(), f.AuditInfrastructureProbe(),
+		return RunAudited(cmd.Context(), dryRunDestination(f, f.Out), op.auditSpec(), f.OperatorIdentitySource(), f.DeployCommit(), f.Execute(), f.AuditOutbox(), f.AuditInfrastructureProbe(),
 			func(ctx context.Context) error {
 				return op.Run(ctx, in, NewCLISink(f))
 			})
@@ -121,7 +121,7 @@ func AttachAudit(
 	}
 	cmd.Annotations[AuditVerbAnnotation] = spec.Verb
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
-		return RunAudited(cmd.Context(), cmd.OutOrStdout(), spec, f.OperatorIdentitySource(), f.DeployCommit(), f.Execute(), f.AuditOutbox(), f.AuditInfrastructureProbe(), run)
+		return RunAudited(cmd.Context(), dryRunDestination(f, cmd.OutOrStdout()), spec, f.OperatorIdentitySource(), f.DeployCommit(), f.Execute(), f.AuditOutbox(), f.AuditInfrastructureProbe(), run)
 	}
 }
 
