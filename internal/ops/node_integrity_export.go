@@ -6,7 +6,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -106,6 +108,10 @@ func verifyRepairExport(ctx context.Context, entry NodeIntegrityEntry, manifestD
 	var document repairExportDocument
 	if err := decoder.Decode(&document); err != nil {
 		return "", repairExportFailure(ctx, entry, err)
+	}
+	var trailing json.RawMessage
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return "", repairExportRefused(ctx, entry, fmt.Sprintf("export file %q does not end after the export document", entry.Delete.ExportFile), domain.ErrConflict)
 	}
 	if document.NodeID != entry.NodeID || document.RepairID != entry.RepairID || document.ManifestDigest != manifestDigest ||
 		document.PrimaryDigest != entry.Source.PrimaryDigest || primaryDigest(document.Primary) != entry.Source.PrimaryDigest {
