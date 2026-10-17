@@ -50,9 +50,10 @@ func (c StrictEvidenceChange) Empty() bool {
 	return len(c.Buckets) == 0 && len(c.Organizations) == 0
 }
 
-// Compare compares the receiver e, captured before the scan, with later, a
-// later StrictEvidence capture. It returns a StrictEvidenceChange with each
-// bucket and each organization that has a different epoch in the two captures.
+// Compare compares the evidence in e, captured before the scan, with the
+// subsequent StrictEvidence capture in later. It returns a StrictEvidenceChange
+// with each bucket and each organization that has a different epoch in the two
+// captures.
 func (e StrictEvidence) Compare(later StrictEvidence) StrictEvidenceChange {
 	change := StrictEvidenceChange{Buckets: nil, Organizations: nil}
 	for bucket := range max(len(e.Buckets), len(later.Buckets)) {
