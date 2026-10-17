@@ -29,7 +29,9 @@ func strictValidationOp(f *cli.Factory) clispec.Operation[noInput] {
 		Short:    "Validate every node record and activate strict validation of ordinary writes",
 		Long: "A dry run captures the write fence evidence, validates every node record against its organization schema, " +
 			"and reports the invalid records. With --execute and zero invalid records, the command activates strict " +
-			"validation in one transaction that compares the evidence again.",
+			"validation in one transaction that compares the evidence again. Before a run with --execute, " +
+			"./server ops deploy verify --execute must pass on every guest that runs the app service. Activation " +
+			"covers every organization in the FoundationDB cluster, and commands cannot remove the activation record.",
 		Examples: nil,
 		Args:     nil,
 		Params:   nil,
