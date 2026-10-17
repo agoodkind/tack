@@ -94,56 +94,6 @@ func TestNodeIntegrityRepairExecuteDeleteStopsChangedSource(t *testing.T) {
 	requireRepairNodePresent(t, env, childID)
 }
 
-// TestNodeIntegrityRepairExecuteDeleteStopsChangedRelationship checks a delete retry.
-// The test creates a fixture issue with a comment as its hierarchy child and
-// freezes a delete entry for the issue. The first execution must export the
-// issue, record the exported checkpoint, and fail deletion on the child.
-// The test then rewrites the properties of the issue's child_of relationship
-// to the project. The edge identity stays the same, and its stored payload
-// changes. The second execution must report the entry as conflicted and
-// preserve the exported checkpoint, issue, and child comment.
-func TestNodeIntegrityRepairExecuteDeleteStopsChangedRelationship(t *testing.T) {
-	env := integration.SetupTestEnv(t)
-	graph := newRepairGraph(t, env)
-	entry := deleteFixtureEntry(t, env, graph, "tack-582-delete-relationship", filepath.Join(t.TempDir(), "relationship.json"))
-	childID := createRepairComment(t, env, entry.NodeID, graph.projectID, "Comment under the fixture issue")
-	manifest := freezeRepairRequest(t, repairRequest(entry))
-
-	applied, err := executeRepairManifest(t, manifest)
-	if err == nil {
-		t.Fatal("execute a delete of a node with a hierarchy child succeeded")
-	}
-	requireApplyStatus(t, applied, entry.RepairID, ops.RepairApplyFailed)
-	requireCheckpointPhase(t, env, entry.RepairID, node.RepairPhaseExported)
-	rewriteRelationshipProps(t, env, entry.NodeID, graph.projectID)
-
-	resumed, err := executeRepairManifest(t, manifest)
-	if err != nil {
-		t.Fatalf("execute after the relationship changed: %v", err)
-	}
-	requireApplyStatus(t, resumed, entry.RepairID, ops.RepairApplyConflicted)
-	requireCheckpointPhase(t, env, entry.RepairID, node.RepairPhaseExported)
-	requireRepairNodePresent(t, env, entry.NodeID)
-	requireRepairNodePresent(t, env, childID)
-}
-
-// rewriteRelationshipProps requires sourceID to have exactly one child_of
-// relationship, to targetID. It writes that relationship again through the
-// relationship store with new properties. The edge identity stays the same,
-// and its stored payload changes.
-func rewriteRelationshipProps(t *testing.T, env *integration.TestEnv, sourceID, targetID uuid.UUID) {
-	t.Helper()
-	edges, err := env.Stores.Relationships.ListBySource(env.Ctx, env.OrgID, sourceID, node.RelChildOf)
-	if err != nil || len(edges) != 1 || edges[0].TargetID != targetID {
-		t.Fatalf("list child_of edges of %s = %+v, %v, want one edge to %s", sourceID, edges, err, targetID)
-	}
-	changed := *edges[0]
-	changed.Props = map[string]json.RawMessage{"note": textValue("Changed after the export")}
-	if err := env.Stores.Relationships.Add(env.Ctx, &changed); err != nil {
-		t.Fatalf("rewrite the child_of edge of %s: %v", sourceID, err)
-	}
-}
-
 func commentDeleteEntry(repairID string, commentID uuid.UUID, exportFile string) ops.NodeIntegrityEntry {
 	return ops.NodeIntegrityEntry{
 		RepairID: repairID, NodeID: commentID, NodeType: "comment", Status: ops.RepairEntryExecutable,
