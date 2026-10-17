@@ -1,7 +1,6 @@
 package tackprovider_test
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -14,89 +13,17 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
 
-	"goodkind.io/tack/internal/response"
-	"goodkind.io/tack/internal/schemastatus"
-	"goodkind.io/tack/internal/tackprovider"
-	"goodkind.io/tack/migrations"
+	"goodkind.io/tack/provider/internal/tackprovider"
 )
 
 // guardedVersion is the minimum applied version required for a target at or
 // below this version.
 const guardedVersion = 19
 
-type migrationValue struct {
-	Version types.Int64  `tfsdk:"version"`
-	Name    types.String `tfsdk:"name"`
-	SHA256  types.String `tfsdk:"sha256"`
-}
-
-var migrationObjectType = types.ObjectType{AttrTypes: map[string]attr.Type{
-	"version": types.Int64Type,
-	"name":    types.StringType,
-	"sha256":  types.StringType,
-}}
-
-// statusDocument builds status for a database at applied with the embedded
-// migrations, encodes it in the migrate --output json envelope, and decodes
-// the result.
-func statusDocument(t *testing.T, applied int64) schemastatus.Status {
-	t.Helper()
-	available, err := schemastatus.Available(t.Context(), migrations.FS)
-	if err != nil {
-		t.Fatalf("list the embedded migrations: %v", err)
-	}
-	pending := make([]schemastatus.Migration, 0, len(available))
-	for _, embedded := range available {
-		if embedded.Version > applied {
-			pending = append(pending, embedded)
-		}
-	}
-	payload, err := json.Marshal(schemastatus.Status{
-		MigrationTablePresent: true,
-		AppliedVersion:        applied,
-		Available:             available,
-		Pending:               pending,
-		ImageCommit:           "plan-test",
-	})
-	if err != nil {
-		t.Fatalf("encode the status: %v", err)
-	}
-	body, err := response.Marshal(t.Context(), payload)
-	if err != nil {
-		t.Fatalf("wrap the status in the output envelope: %v", err)
-	}
-	var document response.JSONDocument
-	if err := json.Unmarshal(body, &document); err != nil {
-		t.Fatalf("decode the output envelope: %v", err)
-	}
-	var status schemastatus.Status
-	if err := json.Unmarshal(document.Result, &status); err != nil {
-		t.Fatalf("decode the status document: %v", err)
-	}
-	return status
-}
-
-func migrationList(t *testing.T, embedded []schemastatus.Migration) types.List {
-	t.Helper()
-	values := make([]migrationValue, 0, len(embedded))
-	for _, item := range embedded {
-		values = append(values, migrationValue{
-			Version: types.Int64Value(item.Version),
-			Name:    types.StringValue(item.Name),
-			SHA256:  types.StringValue(item.SHA256),
-		})
-	}
-	list, diags := types.ListValueFrom(t.Context(), migrationObjectType, values)
-	if diags.HasError() {
-		t.Fatalf("build the migration list: %s", diagnosticsText(diags))
-	}
-	return list
-}
-
 // planVersion plans tack_schema at target for an installation that state
 // records at the applied version in status. It returns the planned
 // applied_version, the planned pending list, and the diagnostics.
-func planVersion(t *testing.T, status schemastatus.Status, target int64) (types.Int64, types.List, diag.Diagnostics) {
+func planVersion(t *testing.T, status migrationStatus, target int64) (types.Int64, types.List, diag.Diagnostics) {
 	t.Helper()
 	ctx := t.Context()
 	schemaResource := tackprovider.New("test")().Resources(ctx)[0]()
@@ -152,7 +79,7 @@ func diagnosticsText(diags diag.Diagnostics) string {
 }
 
 func TestPlanRejectsInvalidVersions(t *testing.T) {
-	highest := statusDocument(t, 0).Highest()
+	highest := statusDocument(t, 0).highest()
 	if highest < guardedVersion {
 		t.Fatalf("the image embeds migrations through %d, want at least %d", highest, guardedVersion)
 	}
@@ -190,7 +117,7 @@ func TestPlanRejectsInvalidVersions(t *testing.T) {
 }
 
 func TestPlanAtTheAppliedVersionChangesNothing(t *testing.T) {
-	status := statusDocument(t, statusDocument(t, 0).Highest())
+	status := statusDocument(t, statusDocument(t, 0).highest())
 	applied, pending, diags := planVersion(t, status, status.AppliedVersion)
 	if len(diags) != 0 {
 		t.Fatalf("plan diagnostics = %q, want none", diagnosticsText(diags))

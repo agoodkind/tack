@@ -91,9 +91,11 @@ func (w *SearchWorker) settleEngine(ctx context.Context, work searchdomain.Work,
 }
 
 // fail ends a slice after err. A changed or obsolete claim yields without
-// recording a failure. A node without exactly one hierarchy parent is
-// excluded from search, and the slice succeeds. Any other error records the
-// failure and delays the next claim by at least retryAfter.
+// recording a failure. A node without exactly one hierarchy parent has an
+// unresolved permission boundary. When live, access, or copy work fails for
+// this reason, fail excludes the node from search, and the slice succeeds.
+// For any other error, fail records the failure, keeps the work pending, and
+// delays the next claim by at least retryAfter.
 func (w *SearchWorker) fail(ctx context.Context, work searchdomain.Work, operation string, err error, counted bool, retryAfter time.Duration) error {
 	if errors.Is(err, searchdomain.ErrWorkChanged) || errors.Is(err, searchdomain.ErrObsoleteWrite) {
 		telemetry.L(ctx).InfoContext(ctx, "search.worker.work_changed", slog.String("node_id", work.NodeID.String()),

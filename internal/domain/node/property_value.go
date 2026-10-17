@@ -10,9 +10,9 @@ import (
 	"github.com/google/uuid"
 )
 
-// propertyValueIssue checks raw against the shape and format of the type
-// that definition declares. A type without a rule accepts any valid JSON
-// value.
+// propertyValueIssue checks raw against the shape and format of the type that
+// definition declares. A type without a rule accepts any valid JSON value
+// except null.
 func propertyValueIssue(definition *PropertyDef, raw json.RawMessage) *PropertyIssue {
 	if !json.Valid(raw) {
 		return valueIssue(definition, PropertyIssueValue, "the value is not valid JSON")
