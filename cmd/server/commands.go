@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"time"
@@ -10,11 +11,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/spf13/cobra"
 
-	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clispec"
 	"goodkind.io/tack/internal/ops"
+	"goodkind.io/tack/internal/schemastatus"
 	"goodkind.io/tack/internal/telemetry"
 	"goodkind.io/tack/internal/version"
 	"goodkind.io/tack/migrations"
@@ -127,19 +128,50 @@ func serveOp(f *cli.Factory) clispec.Operation[emptyInput] {
 	}
 }
 
-func migrateOp(f *cli.Factory) clispec.Operation[emptyInput] {
-	return clispec.Operation[emptyInput]{
+// migrateInput is the input of a migrate run. A zero flag value is unset.
+type migrateInput struct {
+	clispec.InputMarker `exhaustruct:"optional"`
+	To                  int
+	ExpectFrom          int
+}
+
+func migrateOp(f *cli.Factory) clispec.Operation[migrateInput] {
+	return clispec.Operation[migrateInput]{
 		Name:     clispec.Name{Canonical: "migrate"},
 		Lifetime: clispec.Permanent,
 		Audit:    audit.Spec{Verb: string(audit.VerbDatabaseMigrate), Mutates: true},
-		Short:    "Run database migrations against DATABASE_URL",
-		New:      func() emptyInput { return emptyInput{} },
-		Run: func(ctx context.Context, _ emptyInput, sink clispec.ResultSink) error {
-			if err := postgres.Migrate(ctx, f.Cfg.DatabaseURL, migrations.FS); err != nil {
+		Short:    "Run database migrations against DATABASE_URL; without --execute, print the migration state",
+		Params: []clispec.Param[migrateInput]{
+			clispec.IntParam("to", "apply migrations through this version only", 0,
+				func(in *migrateInput, value int) { in.To = value }),
+			clispec.IntParam("expect-from", "refuse the run unless the database is at this migration version", 0,
+				func(in *migrateInput, value int) { in.ExpectFrom = value }),
+		},
+		New: func() migrateInput { return migrateInput{To: 0, ExpectFrom: 0} },
+		DryRun: func(ctx context.Context, _ migrateInput, sink clispec.ResultSink) error {
+			status, err := schemastatus.Read(ctx, f.Cfg.DatabaseURL, migrations.FS)
+			if err != nil {
+				slog.ErrorContext(ctx, "migrate.status_failed", slog.String("err", err.Error()))
+				return fmt.Errorf("migrate: read the migration state: %w", err)
+			}
+			if f.OutputFormat() != cli.FormatJSON {
+				return sink.WriteText(ctx, status.Summary())
+			}
+			body, err := json.Marshal(status)
+			if err != nil {
+				slog.ErrorContext(ctx, "migrate.status_encode_failed", slog.String("err", err.Error()))
+				return fmt.Errorf("migrate: encode the migration state at version %d: %w", status.AppliedVersion, err)
+			}
+			return sink.WriteJSON(ctx, body)
+		},
+		Run: func(ctx context.Context, in migrateInput, sink clispec.ResultSink) error {
+			guard := schemastatus.Guard{ExpectFrom: int64(in.ExpectFrom), To: int64(in.To)}
+			applied, err := schemastatus.Apply(ctx, f.Cfg.DatabaseURL, migrations.FS, guard)
+			if err != nil {
 				slog.ErrorContext(ctx, "migrate.failed", slog.String("err", err.Error()))
 				return fmt.Errorf("migrate: %w", err)
 			}
-			return sink.WriteText(ctx, "migrations complete")
+			return sink.WriteText(ctx, fmt.Sprintf("migrations complete through version %d", applied))
 		},
 	}
 }
