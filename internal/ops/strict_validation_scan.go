@@ -43,8 +43,6 @@ func (s *strictScan) pass(ctx context.Context, change node.StrictEvidenceChange,
 	}
 }
 
-// validate checks one record against its organization's schema and records a
-// violation if the schema rejects it.
 func (s *strictScan) validate(ctx context.Context, record *node.Node) error {
 	schema, cached := s.cache[record.OrgID]
 	if !cached {

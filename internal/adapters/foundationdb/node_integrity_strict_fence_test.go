@@ -15,8 +15,6 @@ import (
 )
 
 const (
-	// strictTestTransactionTimeout sets the transaction timeout for strict
-	// validation tests.
 	strictTestTransactionTimeout = 5 * time.Second
 	// fdbErrorNotCommitted is the FoundationDB error code for a transaction
 	// conflict with a write that another transaction commits to a key the
