@@ -35,22 +35,29 @@ func checkDefaultChildProps(ctx context.Context, env *Env, orgTypes map[uuid.UUI
 	return refused
 }
 
-// listOrgNodeTypes reads each organization's node types once and returns
-// them by organization ID. It logs and returns an error on the first failed
-// read.
+// listOrgNodeTypes attempts to read node types for every organization in orgIDs,
+// even when a read fails. It returns the node types by organization ID if every
+// read succeeds. If any read fails, it logs one
+// backfill.default_children_check_failed event, returns one error that joins
+// every failed read, and does not return node types.
 func listOrgNodeTypes(ctx context.Context, env *Env, orgIDs map[uuid.UUID]struct{}) (map[uuid.UUID][]*node.NodeType, error) {
 	orgTypes := make(map[uuid.UUID][]*node.NodeType, len(orgIDs))
+	var failures []error
 	for orgID := range orgIDs {
 		nodeTypes, err := env.Stores.NodeTypes.List(ctx, orgID)
 		if err != nil {
-			wrapped := fmt.Errorf("list node types of organization %s for the default children backfill: %w", orgID, err)
-			env.Log.ErrorContext(ctx, "backfill.default_children_check_failed",
-				slog.String("org_id", orgID.String()), slog.String("err", wrapped.Error()))
-			return nil, wrapped
+			failures = append(failures, fmt.Errorf("list node types of organization %s: %w", orgID, err))
+			continue
 		}
 		orgTypes[orgID] = nodeTypes
 	}
-	return orgTypes, nil
+	if len(failures) == 0 {
+		return orgTypes, nil
+	}
+	failed := fmt.Errorf("refuse the default children backfill after %d failed node type reads: %w", len(failures), errors.Join(failures...))
+	env.Log.ErrorContext(ctx, "backfill.default_children_check_failed",
+		slog.Int("failed_reads", len(failures)), slog.String("err", failed.Error()))
+	return nil, failed
 }
 
 func checkOrgDefaultChildProps(ctx context.Context, env *Env, orgID uuid.UUID, nodeTypes []*node.NodeType) ([]error, error) {
