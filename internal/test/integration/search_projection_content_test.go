@@ -26,12 +26,29 @@ func TestSearchProjectionIndexesValidContent(t *testing.T) {
 	orgID := uuid.Must(uuid.NewV7())
 	included, excluded, labeled := opaqueName("p"), opaqueName("p"), opaqueName("c")
 	laterName, earlierName := opaqueName("b"), opaqueName("a")
+	optioned, restricted := opaqueName("o"), opaqueName("r")
+	scalar := node.SearchProjection{Include: true, Order: 0, Rule: node.TextRule{Mode: node.TextRuleScalar}}
 	definitions := []*node.PropertyDef{
-		projectionDefinition(orgID, included, node.SearchProjection{Include: true, Order: 0, Rule: node.TextRule{Mode: node.TextRuleScalar}}),
+		projectionDefinition(orgID, included, scalar),
 		projectionDefinition(orgID, excluded, node.SearchProjection{Include: false, Order: 1, Rule: node.TextRule{Mode: node.TextRuleScalar}}),
 		projectionDefinition(orgID, labeled, node.SearchProjection{
 			Include: true, Order: 2, Rule: node.TextRule{Mode: node.TextRuleLabels, Labels: map[string]string{"declared": "Declared label"}},
 		}),
+		{
+			ID: uuid.Must(uuid.NewV7()), OrgID: orgID, Name: optioned, Type: node.PropertyTypeSelect,
+			Options: []node.EnumOption{{Key: "planned", Label: "Planned"}},
+		},
+		{
+			ID: uuid.Must(uuid.NewV7()), OrgID: orgID, Name: restricted, Type: node.PropertyTypeText,
+			AppliesToFeatures: []string{node.FeatureHasDueDates}, Search: &scalar,
+		},
+	}
+	want := map[string]expectedDiagnostic{
+		earlierName: {reason: node.DiagnosticUndeclared, definitionID: uuid.Nil},
+		laterName:   {reason: node.DiagnosticUndeclared, definitionID: uuid.Nil},
+		labeled:     {reason: node.DiagnosticInvalidValue, definitionID: definitions[2].ID},
+		optioned:    {reason: node.DiagnosticInvalidValue, definitionID: definitions[3].ID},
+		restricted:  {reason: node.DiagnosticInapplicable, definitionID: definitions[4].ID},
 	}
 	typeKey := opaqueName("n")
 	kind := &node.NodeType{
@@ -53,6 +70,8 @@ func TestSearchProjectionIndexesValidContent(t *testing.T) {
 		labeled:     json.RawMessage(`"undeclared-label"`),
 		laterName:   json.RawMessage(`"amber undeclared later"`),
 		earlierName: json.RawMessage(`"amber undeclared earlier"`),
+		optioned:    json.RawMessage(`"amber-missing-option"`),
+		restricted:  json.RawMessage(`"amber inapplicable value"`),
 	}
 	nodeID := uuid.Must(uuid.NewV7())
 	now := clock.Now().UTC()
@@ -75,12 +94,15 @@ func TestSearchProjectionIndexesValidContent(t *testing.T) {
 	if want := "Projection node\namber included value\n"; first.Text != want || !first.Done {
 		t.Fatalf("search text = %q, done %t, want %q on one page", first.Text, first.Done, want)
 	}
-	wantNames := []string{earlierName, laterName, labeled}
+	wantNames := make([]string, 0, len(want))
+	for name := range want {
+		wantNames = append(wantNames, name)
+	}
 	slices.Sort(wantNames)
 	names := make([]string, 0, len(first.Diagnostics))
 	for _, diagnostic := range first.Diagnostics {
 		names = append(names, diagnostic.PropertyName)
-		requireDiagnostic(t, diagnostic, nodeID, labeled, definitions[2].ID)
+		requireDiagnostic(t, diagnostic, nodeID, want[diagnostic.PropertyName])
 	}
 	if !slices.Equal(names, wantNames) {
 		t.Fatalf("diagnostics name %v, want %v", names, wantNames)
@@ -140,18 +162,21 @@ func TestSearchProjectionOmitsParentReference(t *testing.T) {
 	}
 }
 
+// expectedDiagnostic stores the expected reason and definition ID of one
+// diagnostic.
+type expectedDiagnostic struct {
+	reason       node.DiagnosticReason
+	definitionID uuid.UUID
+}
+
 // requireDiagnostic checks that diagnostic identifies nodeID and the
 // revision, reports the expected reason, and omits the source value.
-func requireDiagnostic(t *testing.T, diagnostic node.PropertyDiagnostic, nodeID uuid.UUID, labeled string, labeledID uuid.UUID) {
+func requireDiagnostic(t *testing.T, diagnostic node.PropertyDiagnostic, nodeID uuid.UUID, want expectedDiagnostic) {
 	t.Helper()
-	wantReason, wantDefinition := node.DiagnosticUndeclared, uuid.Nil
-	if diagnostic.PropertyName == labeled {
-		wantReason, wantDefinition = node.DiagnosticInvalidValue, labeledID
-	}
 	if diagnostic.NodeID != nodeID || diagnostic.Revision == "" || diagnostic.ProjectionVersion == "" ||
-		diagnostic.Reason != wantReason || diagnostic.PropertyDefID != wantDefinition || strings.Contains(diagnostic.Message, "amber") ||
+		diagnostic.Reason != want.reason || diagnostic.PropertyDefID != want.definitionID || strings.Contains(diagnostic.Message, "amber") ||
 		strings.Contains(diagnostic.Message, "undeclared-label") {
-		t.Fatalf("diagnostic %+v, want node %s, reason %s, and definition %s without the source value", diagnostic, nodeID, wantReason, wantDefinition)
+		t.Fatalf("diagnostic %+v, want node %s, reason %s, and definition %s without the source value", diagnostic, nodeID, want.reason, want.definitionID)
 	}
 }
 

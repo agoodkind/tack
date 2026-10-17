@@ -34,6 +34,23 @@ type PropertyDiagnostic struct {
 	Message           string           `json:"message"`
 }
 
+// issueDiagnosticReason maps a schema issue code to a diagnostic reason and
+// a fixed message. The message does not quote the source value.
+func issueDiagnosticReason(code PropertyIssueCode) (DiagnosticReason, string) {
+	switch code {
+	case PropertyIssueUndeclared:
+		return DiagnosticUndeclared, "the schema does not declare the property"
+	case PropertyIssueNotApplicable:
+		return DiagnosticInapplicable, "the definition does not apply to this node type"
+	case PropertyIssueOption:
+		return DiagnosticInvalidValue, "the value does not match a declared option"
+	case PropertyIssueValue:
+		return DiagnosticInvalidValue, "the value does not satisfy the property definition"
+	default:
+		return DiagnosticInvalidValue, "the schema rejects the property"
+	}
+}
+
 // SearchSource contains the committed node state for rendering search text.
 type SearchSource struct {
 	OrgID      uuid.UUID

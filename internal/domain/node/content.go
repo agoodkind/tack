@@ -110,13 +110,6 @@ func itemLeaves(raw json.RawMessage, rule TextRule) ([]string, error) {
 	return leaves, nil
 }
 
-// IsLoggedProjectionError reports whether err wraps a
-// [LoggedProjectionError], which request telemetry already logged.
-func IsLoggedProjectionError(err error) bool {
-	var logged LoggedProjectionError
-	return errors.As(err, &logged)
-}
-
 func objectLeaves(raw json.RawMessage, rule TextRule) ([]string, error) {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {

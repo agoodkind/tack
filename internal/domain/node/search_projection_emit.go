@@ -49,20 +49,30 @@ func renderSearchText(source SearchSource) (SearchRender, error) {
 	if err != nil {
 		return SearchRender{}, err
 	}
-	names := make([]string, 0, len(source.Properties))
-	for name := range source.Properties {
+	schema := Schema{
+		OrgID: source.OrgID, Types: map[string]*NodeType{source.NodeType.TypeKey: source.NodeType}, Definitions: source.Definitions,
+	}
+	result := schema.Interpret(source.NodeType.TypeKey, source.Properties)
+	if len(result.Failures) > 0 {
+		return SearchRender{}, result.Err()
+	}
+	render := SearchRender{Text: "", Diagnostics: make([]PropertyDiagnostic, 0, len(result.Invalid))}
+	for _, issue := range result.Invalid {
+		definitionID := uuid.Nil
+		if definition, declared := definitions[issue.Property]; declared {
+			definitionID = definition.ID
+		}
+		reason, message := issueDiagnosticReason(issue.Code)
+		render.Diagnostics = append(render.Diagnostics, propertyDiagnostic(source, issue.Property, definitionID, reason, message))
+	}
+	names := make([]string, 0, len(result.Valid))
+	for name := range result.Valid {
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	render := SearchRender{Text: "", Diagnostics: []PropertyDiagnostic{}}
 	rendered := make([]renderedProperty, 0, len(names))
 	for _, name := range names {
-		definition, declared := definitions[name]
-		if !declared {
-			render.Diagnostics = append(render.Diagnostics, propertyDiagnostic(source, name, uuid.Nil,
-				DiagnosticUndeclared, "the organization does not define this property"))
-			continue
-		}
+		definition := definitions[name]
 		projection, err := EffectiveSearchProjection(definition)
 		if err != nil {
 			return SearchRender{}, err
@@ -82,6 +92,9 @@ func renderSearchText(source SearchSource) (SearchRender, error) {
 		}
 		rendered = append(rendered, renderedProperty{order: projection.Order, id: definition.ID, leaves: leaves})
 	}
+	sort.Slice(render.Diagnostics, func(i, j int) bool {
+		return render.Diagnostics[i].PropertyName < render.Diagnostics[j].PropertyName
+	})
 	render.Text = joinRenderedText(source.Name, rendered)
 	return render, nil
 }
