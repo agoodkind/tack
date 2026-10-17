@@ -58,15 +58,18 @@ type StrictValidationReport struct {
 	FirstViolations  []StrictViolation `json:"first_violations"`
 }
 
-// strictScan stores the evidence for the current pass, violations indexed by
-// node, and each organization's schema.
+// strictScan stores evidence for the current pass in evidence.
+// violations indexes violations by node ID.
+// cache stores each organization's schema.
+// validated maps each validated node record's ID to its organization ID.
+// Each node ID appears in validated once.
 type strictScan struct {
 	store      StrictValidationStore
 	schemas    StrictSchemaSource
 	evidence   node.StrictEvidence
 	violations map[uuid.UUID]StrictViolation
 	cache      map[uuid.UUID]node.Schema
-	scanned    int
+	validated  map[uuid.UUID]uuid.UUID
 }
 
 // RunStrictValidation captures evidence and validates every stored node
@@ -94,7 +97,7 @@ func RunStrictValidation(ctx context.Context, store StrictValidationStore, schem
 	}
 	scan := &strictScan{
 		store: store, schemas: schemas, evidence: evidence,
-		violations: map[uuid.UUID]StrictViolation{}, cache: map[uuid.UUID]node.Schema{}, scanned: 0,
+		violations: map[uuid.UUID]StrictViolation{}, cache: map[uuid.UUID]node.Schema{}, validated: map[uuid.UUID]uuid.UUID{},
 	}
 	change := node.StrictEvidenceChange{Buckets: nil, Organizations: nil}
 	for report.Passes = 1; report.Passes <= maxStrictPasses; report.Passes++ {
@@ -108,7 +111,7 @@ func RunStrictValidation(ctx context.Context, store StrictValidationStore, schem
 		if !change.Empty() {
 			continue
 		}
-		report.RecordsValidated = scan.scanned
+		report.RecordsValidated = len(scan.validated)
 		scan.fill(&report)
 		if report.ViolationCount > 0 {
 			return report, strictFailure(ctx, "refuse strict validation activation", fmt.Errorf("%d invalid records: %w", report.ViolationCount, errStrictViolations))
@@ -116,7 +119,7 @@ func RunStrictValidation(ctx context.Context, store StrictValidationStore, schem
 		if !execute {
 			return report, nil
 		}
-		activation := node.StrictActivation{Active: true, ActivatedAt: clock.Now().UTC(), ScanID: report.ScanID, RecordsValidated: scan.scanned}
+		activation := node.StrictActivation{Active: true, ActivatedAt: clock.Now().UTC(), ScanID: report.ScanID, RecordsValidated: report.RecordsValidated}
 		_, err = store.ActivateStrict(ctx, scan.evidence, activation)
 		if errors.Is(err, node.ErrStrictEvidenceChanged) {
 			change, err = scan.recapture(ctx)

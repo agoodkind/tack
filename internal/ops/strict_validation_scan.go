@@ -11,13 +11,16 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// pass validates every node record on the first pass. On later passes, it
-// first removes earlier violations for records in changed buckets or
-// organizations, then validates only those records.
+// pass validates every node record on the first pass. On later passes, pass
+// first removes validated entries and violations for records in changed
+// buckets or organizations. It then validates only records in those buckets
+// or organizations that the scan still reads. A record that a later pass
+// does not read, such as a deleted record, no longer counts as validated.
 func (s *strictScan) pass(ctx context.Context, change node.StrictEvidenceChange, full bool) error {
 	if !full {
-		for nodeID, violation := range s.violations {
-			if strictRecordAffected(change, violation.OrgID, nodeID) {
+		for nodeID, orgID := range s.validated {
+			if strictRecordAffected(change, orgID, nodeID) {
+				delete(s.validated, nodeID)
 				delete(s.violations, nodeID)
 			}
 		}
@@ -53,7 +56,7 @@ func (s *strictScan) validate(ctx context.Context, record *node.Node) error {
 		}
 		s.cache[record.OrgID] = schema
 	}
-	s.scanned++
+	s.validated[record.ID] = record.OrgID
 	resultErr := schema.Interpret(record.NodeType, record.Props).Err()
 	if resultErr == nil {
 		delete(s.violations, record.ID)
