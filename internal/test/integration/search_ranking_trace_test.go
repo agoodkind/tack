@@ -57,8 +57,8 @@ func (r *rankingRun) trace(t *testing.T, probe rankingProbe, page rankingPage) {
 }
 
 // rankingLexicalClause builds the lexical multi_match clause that
-// encodeRankRequest sends, using fields name^3 and page_text with operator
-// and.
+// encodeRankRequest sends. The clause uses fields name^3 and page_text
+// with the and operator.
 func rankingLexicalClause(t *testing.T, query string) json.RawMessage {
 	t.Helper()
 	return encodeTrace(t, traceMatch{MultiMatch: traceMultiMatch{Query: query, Fields: []string{"name^3", "page_text"}, Operator: "and"}})
