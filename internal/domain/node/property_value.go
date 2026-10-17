@@ -132,3 +132,21 @@ func multiSelectIssue(definition *PropertyDef, raw json.RawMessage) *PropertyIss
 	}
 	return nil
 }
+
+// propertyReference returns a reference for a valid UUID value when
+// definition specifies a target type.
+func propertyReference(definition *PropertyDef, raw json.RawMessage) (PropertyReference, bool) {
+	none := PropertyReference{Property: "", TargetID: uuid.Nil, TargetType: ""}
+	if definition.Type != PropertyTypeUUID || definition.ReferenceTargetTypeKey == "" {
+		return none, false
+	}
+	var value string
+	if json.Unmarshal(raw, &value) != nil {
+		return none, false
+	}
+	targetID, err := uuid.Parse(value)
+	if err != nil {
+		return none, false
+	}
+	return PropertyReference{Property: definition.Name, TargetID: targetID, TargetType: definition.ReferenceTargetTypeKey}, true
+}
