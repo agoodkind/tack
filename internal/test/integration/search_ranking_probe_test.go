@@ -103,13 +103,16 @@ func (r *rankingRun) call(t *testing.T, tool string, arguments datagen.ToolArgum
 
 func (r *rankingRun) createIssue(t *testing.T, name, description string) uuid.UUID {
 	t.Helper()
-	encoded, err := json.Marshal(description)
-	if err != nil {
-		t.Fatalf("encode description of %q: %v", name, err)
+	properties := datagen.NodeProperties{}
+	if description != "" {
+		encoded, err := json.Marshal(description)
+		if err != nil {
+			t.Fatalf("encode description of %q: %v", name, err)
+		}
+		properties["description"] = encoded
 	}
 	result := r.call(t, "tack_create_issue", datagen.ToolArguments{
-		WorkspaceReference: r.workspace, ProjectReference: rankingProject, Name: name,
-		Properties: datagen.NodeProperties{"description": encoded},
+		WorkspaceReference: r.workspace, ProjectReference: rankingProject, Name: name, Properties: properties,
 	})
 	nodeID, err := uuid.Parse(result.RawID())
 	if err != nil {

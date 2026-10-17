@@ -22,6 +22,9 @@ var rankingRegressionJSON []byte
 //go:embed testdata/search_semantic_corpus.json
 var rankingApprovedJSON []byte
 
+//go:embed testdata/search_ranking_common_word_names.json
+var rankingCommonWordNamesJSON []byte
+
 type rankingRecord struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
@@ -60,12 +63,19 @@ func TestSearchRankingProductionRegression(t *testing.T) {
 	if err := json.Unmarshal(rankingApprovedJSON, &approved); err != nil {
 		t.Fatalf("decode approved semantic corpus: %v", err)
 	}
-	created := make([]uuid.UUID, 0, len(approved)+len(regression.Distractors)+1)
+	var commonWordNames []string
+	if err := json.Unmarshal(rankingCommonWordNamesJSON, &commonWordNames); err != nil {
+		t.Fatalf("decode common word names: %v", err)
+	}
+	created := make([]uuid.UUID, 0, len(approved)+len(regression.Distractors)+len(commonWordNames)+1)
 	for _, node := range approved {
 		created = append(created, run.createIssue(t, node.Text, node.Text))
 	}
 	for _, record := range regression.Distractors {
 		created = append(created, run.createIssue(t, record.Name, record.Description))
+	}
+	for _, name := range commonWordNames {
+		created = append(created, run.createIssue(t, name, ""))
 	}
 	run.query = regression.Query
 	run.target = run.createIssue(t, regression.Target.Name, regression.Target.Description)
