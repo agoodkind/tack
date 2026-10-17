@@ -3,6 +3,7 @@ package ops
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -20,86 +21,124 @@ func init() {
 		Audit:       audit.Spec{Verb: string(audit.VerbOpsBackfillDefaultChildren), Mutates: true},
 		Description: "For every NodeType with DefaultChildren set, walk every existing node of that type and create any missing default child by name. Idempotent.",
 		Run:         runBackfillDefaultChildren,
+		DryRun:      dryRunBackfillDefaultChildren,
 	})
 }
 
+// runBackfillDefaultChildren calls checkedDefaultChildTypes and returns its
+// error before any write. It calls backfillOrgDefaultChildren to create every
+// missing default child in every organization. After processing every
+// organization, it returns one error that joins all failed parent listings,
+// child listings, and child creations. It returns nil when all operations
+// succeed.
 func runBackfillDefaultChildren(ctx context.Context, env *Env) error {
-	orgIDs, err := listOrgIDs(ctx, env)
+	orgTypes, err := checkedDefaultChildTypes(ctx, env)
 	if err != nil {
 		return err
 	}
+	var failures []error
+	for orgID, types := range orgTypes {
+		failures = append(failures, backfillOrgDefaultChildren(ctx, env, orgID, types)...)
+	}
+	if len(failures) == 0 {
+		return nil
+	}
+	failed := fmt.Errorf("default children backfill failed %d operations: %w", len(failures), errors.Join(failures...))
+	env.Log.ErrorContext(ctx, "backfill.default_children_failed",
+		slog.Int("failures", len(failures)), slog.String("err", failed.Error()))
+	return failed
+}
 
-	for orgID := range orgIDs {
-		types, err := env.Stores.NodeTypes.List(ctx, orgID)
-		if err != nil {
-			env.Log.ErrorContext(ctx, "backfill: list node types",
-				slog.String("org_id", orgID.String()),
-				slog.String("err", err.Error()))
+// dryRunBackfillDefaultChildren stops after checkedDefaultChildTypes validates.
+func dryRunBackfillDefaultChildren(ctx context.Context, env *Env) error {
+	_, err := checkedDefaultChildTypes(ctx, env)
+	return err
+}
+
+// checkedDefaultChildTypes reads organization IDs with listOrgIDs and returns
+// its error immediately. It reads every organization's node types with
+// listOrgNodeTypes and joins all failed reads before validation or writes.
+// It calls checkDefaultChildProps to validate every default child's complete
+// property map in every organization. Any undeclared property stops the run
+// with one error before any write. On success, it returns the node types by
+// organization ID.
+func checkedDefaultChildTypes(ctx context.Context, env *Env) (map[uuid.UUID][]*node.NodeType, error) {
+	orgIDs, err := listOrgIDs(ctx, env)
+	if err != nil {
+		return nil, err
+	}
+	orgTypes, err := listOrgNodeTypes(ctx, env, orgIDs)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkDefaultChildProps(ctx, env, orgTypes); err != nil {
+		return nil, err
+	}
+	return orgTypes, nil
+}
+
+// backfillOrgDefaultChildren creates missing default children for every node
+// of the given node types in orgID.
+//
+// createDefaultChild logs each failed child creation.
+//
+// backfillOrgDefaultChildren continues with the remaining nodes after each
+// failure and returns a slice with one error per failed listing or creation.
+func backfillOrgDefaultChildren(ctx context.Context, env *Env, orgID uuid.UUID, types []*node.NodeType) []error {
+	typeIndex := node.BuildTypeIndex(types)
+	var failures []error
+
+	for _, nt := range types {
+		if len(nt.DefaultChildren) == 0 {
 			continue
 		}
-		typeIndex := node.BuildTypeIndex(types)
 
-		for _, nt := range types {
-			if len(nt.DefaultChildren) == 0 {
-				continue
-			}
-
-			parents, err := env.Stores.Views.List(ctx, node.NodeListQuery{
-				OrgID:    orgID,
-				NodeType: nt.TypeKey,
-			})
-			if err != nil {
-				env.Log.ErrorContext(ctx, "backfill: list parents",
-					slog.String("org_id", orgID.String()),
-					slog.String("type", nt.TypeKey),
-					slog.String("err", err.Error()))
-				continue
-			}
-
-			created := 0
-			skipped := 0
-			for _, parent := range parents {
-				parentIDRaw, _ := json.Marshal(parent.ID.String())
-				for _, dc := range nt.DefaultChildren {
-					childType := typeIndex[dc.TypeKey]
-					if childType == nil {
-						env.Log.WarnContext(ctx, "backfill: unknown child type",
-							slog.String("parent_type", nt.TypeKey),
-							slog.String("child_type", dc.TypeKey))
-						continue
-					}
-					existing, err := env.Stores.Nodes.ListByProperty(ctx, orgID, dc.TypeKey, "parent_id", parentIDRaw)
-					if err != nil {
-						env.Log.WarnContext(ctx, "backfill: list children",
-							slog.String("parent_id", parent.ID.String()),
-							slog.String("err", err.Error()))
-						continue
-					}
-					if hasNamed(existing, dc.Name) {
-						skipped++
-						continue
-					}
-					if err := createDefaultChild(ctx, env, orgID, parent.ID, dc); err != nil {
-						env.Log.WarnContext(ctx, "backfill: create child",
-							slog.String("parent_id", parent.ID.String()),
-							slog.String("child_type", dc.TypeKey),
-							slog.String("child_name", dc.Name),
-							slog.String("err", err.Error()))
-						continue
-					}
-					created++
-				}
-			}
-
-			env.Log.DebugContext(ctx, "backfill.type",
-				slog.String("org_id", orgID.String()),
-				slog.String("type", nt.TypeKey),
-				slog.Int("parents", len(parents)),
-				slog.Int("children_created", created),
-				slog.Int("children_skipped_existing", skipped))
+		parents, err := env.Stores.Views.List(ctx, node.NodeListQuery{
+			OrgID:    orgID,
+			NodeType: nt.TypeKey,
+		})
+		if err != nil {
+			failures = append(failures, fmt.Errorf("list nodes of type %q in organization %s: %w", nt.TypeKey, orgID, err))
+			continue
 		}
+
+		created := 0
+		skipped := 0
+		for _, parent := range parents {
+			parentIDRaw, _ := json.Marshal(parent.ID.String())
+			for _, dc := range nt.DefaultChildren {
+				childType := typeIndex[dc.TypeKey]
+				if childType == nil {
+					env.Log.WarnContext(ctx, "backfill: unknown child type",
+						slog.String("parent_type", nt.TypeKey),
+						slog.String("child_type", dc.TypeKey))
+					continue
+				}
+				existing, err := env.Stores.Nodes.ListByProperty(ctx, orgID, dc.TypeKey, "parent_id", parentIDRaw)
+				if err != nil {
+					failures = append(failures, fmt.Errorf("list %s children of node %s: %w", dc.TypeKey, parent.ID, err))
+					continue
+				}
+				if hasNamed(existing, dc.Name) {
+					skipped++
+					continue
+				}
+				if err := createDefaultChild(ctx, env, orgID, parent.ID, dc); err != nil {
+					failures = append(failures, fmt.Errorf("create default child %q under node %s: %w", dc.Name, parent.ID, err))
+					continue
+				}
+				created++
+			}
+		}
+
+		env.Log.DebugContext(ctx, "backfill.type",
+			slog.String("org_id", orgID.String()),
+			slog.String("type", nt.TypeKey),
+			slog.Int("parents", len(parents)),
+			slog.Int("children_created", created),
+			slog.Int("children_skipped_existing", skipped))
 	}
-	return nil
+	return failures
 }
 
 // hasNamed returns true when any candidate has the given Name. Names are
@@ -120,13 +159,8 @@ func createDefaultChild(ctx context.Context, env *Env, orgID, parentID uuid.UUID
 	id := uuid.Must(uuid.NewV7())
 	now := clock.Now().UTC()
 
-	props := make(map[string]json.RawMessage, len(dc.Props)+2)
-	for k, v := range dc.Props {
-		props[k] = v
-	}
 	parentRaw, _ := json.Marshal(parentID.String())
-	props["parent_id"] = parentRaw
-	props["scope_id"] = parentRaw
+	props := defaultChildProps(dc, parentRaw)
 
 	n := &node.Node{
 		ID:        id,

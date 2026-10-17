@@ -22,7 +22,7 @@ func TestNodeIntegritySchemaSearchOmitsReferenceIDs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list property definitions: %v", err)
 	}
-	text, err := node.EmitSearchText(env.Ctx, issue.Name, issue.Props, definitions)
+	text, err := node.EmitSearchText(env.Ctx, issue.ID, issue.Name, issue.Props, definitions)
 	if err != nil {
 		t.Fatalf("emit search text for issue %s: %v", issue.ID, err)
 	}

@@ -55,7 +55,7 @@ func (s *NodeContentStore) Content(ctx context.Context, request searchdomain.Con
 	if len(request.AccessVersions) > 0 && !slices.Equal(request.AccessVersions, snapshot.access.Versions) {
 		return page, searchdomain.ErrWorkChanged
 	}
-	text, err := node.EmitSearchText(ctx, snapshot.node.Name, snapshot.node.Props, snapshot.definitions)
+	text, err := node.EmitSearchText(ctx, request.NodeID, snapshot.node.Name, snapshot.node.Props, snapshot.definitions)
 	if err != nil {
 		return page, nodeContentContextError{operation: "emit search text for node " + request.NodeID.String(), err: err}
 	}
