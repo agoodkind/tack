@@ -189,7 +189,7 @@ func applyDefaultSearchProjections(definitions []*node.PropertyDef) error {
 	}
 	included := map[string]bool{
 		"description": true, "slug": true, "identifier": true, "sequence": true,
-		"parent_id": true, "group": true,
+		"group": true, "parent_id": false, "scope_id": false, "state_id": false,
 	}
 	for _, definition := range definitions {
 		order, ok := orders[definition.Name]
