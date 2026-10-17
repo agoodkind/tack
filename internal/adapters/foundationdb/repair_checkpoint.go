@@ -82,7 +82,7 @@ func advanceRepairCheckpoint(ctx context.Context, tr fdb.Transaction, previous n
 	return nil
 }
 
-// It returns nil if the record does not exist.
+// readRepairCheckpoint returns nil if the record does not exist.
 func readRepairCheckpoint(ctx context.Context, tr fdb.Transaction, repairID string) (*node.RepairCheckpoint, error) {
 	encoded, err := tr.Get(fdb.Key(repairCheckpointKey(repairID))).Get()
 	if err != nil {

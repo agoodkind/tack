@@ -15,7 +15,6 @@ import (
 
 // RepairEvidenceRequest specifies which node records a repair reads.
 type RepairEvidenceRequest struct {
-	// NodeID is the ID of the node under repair.
 	NodeID uuid.UUID
 	// ParentID selects the first node in the ancestor chain.
 	// [uuid.Nil] uses the repaired node's current parent_id.
