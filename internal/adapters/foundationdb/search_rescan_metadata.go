@@ -12,10 +12,13 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// IndexMetadata writes the lookup index entries of one bounded page of the
-// organization's property definitions or node types and checkpoints the
-// metadata pass. Each definition and type write updates these entries. This
-// pass writes the entries of records written before the indexes existed.
+// IndexMetadata writes lookup index entries for one bounded page of the
+// organization's property definitions or node types. It checkpoints the
+// metadata pass. Each definition and type write updates these entries.
+// This pass also indexes records that predate the indexes. A pass with a
+// projection target adds each record's contribution to the target's sum.
+// At the end of the pass, it activates the target if the metadata epoch
+// has not changed. Otherwise, it restarts the metadata pass.
 func (s *SearchWorkStore) IndexMetadata(ctx context.Context, work searchdomain.Work) (err error) {
 	defer telemetry.FDBOp(ctx, "store.search_work.index_metadata")(&err)
 	err = transactSearch(ctx, s.db, func(tr fdb.Transaction) error {
@@ -40,7 +43,11 @@ func (s *SearchWorkStore) IndexMetadata(ctx context.Context, work searchdomain.W
 			return err
 		}
 		for _, item := range items {
-			if err := indexMetadataRecord(ctx, tr, work.OrgID, state.Phase, item.Value); err != nil {
+			contribution, err := indexMetadataRecord(ctx, tr, work.OrgID, state.Phase, item.Value)
+			if err != nil {
+				return err
+			}
+			if err := addTargetContribution(ctx, state.Projection, contribution); err != nil {
 				return err
 			}
 		}
@@ -51,7 +58,9 @@ func (s *SearchWorkStore) IndexMetadata(ctx context.Context, work searchdomain.W
 		case state.Phase == scanDefinitions:
 			state.Phase = scanTypes
 		default:
-			state.Phase = scanNodes
+			if err := finishMetadataPass(ctx, tr, work.OrgID, &state); err != nil {
+				return err
+			}
 		}
 		return writeSearchRecord(ctx, tr, searchCursorKey(string(work.Class), work.OrgID, uuid.Nil), state)
 	})
@@ -85,21 +94,23 @@ func readMetadataPage(ctx context.Context, tr fdb.Transaction, prefix []byte, cu
 	return items, true, nil
 }
 
-func indexMetadataRecord(ctx context.Context, tr fdb.Transaction, orgID uuid.UUID, phase string, encoded []byte) error {
+// indexMetadataRecord writes the lookup index entry of one stored record
+// and returns the record's projection contribution.
+func indexMetadataRecord(ctx context.Context, tr fdb.Transaction, orgID uuid.UUID, phase string, encoded []byte) ([]byte, error) {
 	if phase == scanDefinitions {
 		var definition node.PropertyDef
 		if err := json.Unmarshal(encoded, &definition); err != nil {
-			return searchReadFailure(ctx, "decode property definition", err)
+			return nil, searchReadFailure(ctx, "decode property definition", err)
 		}
 		tr.Set(fdb.Key(propertyDefByNameKey(orgID, definition.Name, definition.ID)), []byte{})
-		return nil
+		return definitionContribution(ctx, &definition)
 	}
 	var kind node.NodeType
 	if err := json.Unmarshal(encoded, &kind); err != nil {
-		return searchReadFailure(ctx, "decode node type", err)
+		return nil, searchReadFailure(ctx, "decode node type", err)
 	}
 	if kind.TypeKey != "" {
 		tr.Set(fdb.Key(nodeTypeByKeyKey(orgID, kind.TypeKey, kind.ID)), []byte{})
 	}
-	return nil
+	return typeContribution(ctx, &kind)
 }
