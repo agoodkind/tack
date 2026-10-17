@@ -94,7 +94,7 @@ func newMigrationEnv(t *testing.T, pageBytes int) *migrationEnv {
 		t.Fatalf("create index %s: %v", index, err)
 	}
 	t.Cleanup(func() {
-		if _, err := client.Indices.Delete(t.Context(), opensearchapi.IndicesDeleteReq{Indices: []string{index}}); err != nil {
+		if _, err := client.Indices.Delete(context.WithoutCancel(t.Context()), opensearchapi.IndicesDeleteReq{Indices: []string{index}}); err != nil {
 			t.Errorf("delete index %s: %v", index, err)
 		}
 	})
