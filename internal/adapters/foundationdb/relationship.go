@@ -29,7 +29,7 @@ type RelationshipStore struct {
 // NewRelationshipStore creates the relationship store. It schedules no
 // search work until [Stores.EnableSearchWork] runs.
 func NewRelationshipStore(db fdb.Database, source clock.Clock) *RelationshipStore {
-	return &RelationshipStore{db: db, clock: source, searchWork: false, writeFence: nil}
+	return &RelationshipStore{db: db, clock: source, searchWork: false, writeFence: fenceNodeMutation}
 }
 
 func (s *RelationshipStore) Add(ctx context.Context, rel *node.Relationship) (err error) {

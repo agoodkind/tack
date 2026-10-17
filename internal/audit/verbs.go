@@ -158,6 +158,9 @@ const (
 	VerbOpsBackfillDropKilltestSchema Verb = "ops.backfill_drop_killtest_schema"
 	// VerbOpsReindex records property index backfills.
 	VerbOpsReindex Verb = "ops.reindex"
+	// VerbOpsStrictValidation is the audit verb for strict validation scans
+	// and activation.
+	VerbOpsStrictValidation Verb = "ops.strict_validation"
 	// VerbOpsReferenceDuplicates records duplicate reference reports.
 	VerbOpsReferenceDuplicates Verb = "ops.reference_duplicates"
 	// VerbOpsBackup records a backup command without a subcommand.
