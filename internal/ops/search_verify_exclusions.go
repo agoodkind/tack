@@ -12,9 +12,9 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// searchVerifyOutput lists nodes that search does not index, properties that
-// indexed text omits, and work items that keep retrying after exceeding the
-// attempt limit.
+// searchVerifyOutput lists excluded nodes and property warnings for properties
+// that indexed text omits. It also lists stuck work items with attempt counts
+// at or past the attempt limit.
 type searchVerifyOutput struct {
 	clispec.ResultMarker
 	ExcludedNodes    int                     `json:"excluded_nodes"`

@@ -125,8 +125,6 @@ func opaqueName(prefix string) string {
 	return prefix + strings.ReplaceAll(uuid.Must(uuid.NewV7()).String(), "-", "")
 }
 
-// expectedDiagnostic stores the expected reason and definition ID of one
-// diagnostic.
 type expectedDiagnostic struct {
 	reason       node.DiagnosticReason
 	definitionID uuid.UUID
@@ -143,8 +141,9 @@ func requireDiagnostic(t *testing.T, diagnostic node.PropertyDiagnostic, nodeID 
 	}
 }
 
-// projectionDefinition returns a definition with an unfamiliar property type
-// and the explicit search declaration search.
+// projectionDefinition returns a property definition in organization orgID
+// with the given name and search as its explicit search declaration. The
+// definition uses a randomly generated property type that Tack does not define.
 func projectionDefinition(orgID uuid.UUID, name string, search node.SearchProjection) *node.PropertyDef {
 	return &node.PropertyDef{
 		ID: uuid.Must(uuid.NewV7()), OrgID: orgID, Name: name, Type: node.PropertyType(opaqueName("t")), Search: &search,

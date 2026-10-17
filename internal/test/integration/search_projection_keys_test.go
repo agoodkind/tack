@@ -84,8 +84,6 @@ type verifyWarningReport struct {
 	Warnings   []verifyWarning `json:"warnings"`
 }
 
-// warning returns the listed warning for the named property of nodeID and
-// whether it exists.
 func (report verifyWarningReport) warning(nodeID uuid.UUID, propertyName string) (verifyWarning, bool) {
 	for _, warning := range report.Warnings {
 		if warning.NodeID == nodeID.String() && warning.PropertyName == propertyName {

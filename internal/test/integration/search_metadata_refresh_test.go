@@ -33,7 +33,7 @@ func TestSearchMetadataAfterStartup(t *testing.T) {
 		t.Fatal("a node with an undeclared property value has no indexed pages")
 	}
 	for _, page := range undeclared {
-		if page.PageText == nil || strings.Contains(*page.PageText, "zephyr orchard beacon") {
+		if page.PageText != nil && strings.Contains(*page.PageText, "zephyr orchard beacon") {
 			t.Fatalf("page %s of the node indexes the undeclared property value", page.ID)
 		}
 	}

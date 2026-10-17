@@ -70,7 +70,6 @@ func stagePropertyWarnings(ctx context.Context, tr fdb.Transaction, work searchd
 	})
 }
 
-// writeWarningValue stores value as JSON at key.
 func writeWarningValue[V node.PropertyDiagnostic | stagedWarningVersion](ctx context.Context, tr fdb.Transaction, key []byte, value V) error {
 	encoded, err := json.Marshal(value)
 	if err != nil {
