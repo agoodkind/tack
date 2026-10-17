@@ -94,9 +94,10 @@ func (report verifyWarningReport) warning(nodeID uuid.UUID, propertyName string)
 }
 
 // runSearchVerifyWarnings runs the audited ops search verify command through
-// the rendered Cobra tree using the test ledger's audit outbox. It decodes the
-// JSON output into a verifyWarningReport and fails the test if decoding
-// fails. It ignores the command error.
+// the rendered Cobra tree using the test ledger's audit outbox.
+// runSearchVerifyWarnings decodes the JSON output into a verifyWarningReport.
+// runSearchVerifyWarnings fails the test if decoding fails or root.Execute()
+// returns an error.
 func runSearchVerifyWarnings(t *testing.T, cfg *config.Config) verifyWarningReport {
 	t.Helper()
 	factory := cli.System(cfg)
@@ -118,6 +119,9 @@ func runSearchVerifyWarnings(t *testing.T, cfg *config.Config) verifyWarningRepo
 	var report verifyWarningReport
 	if err := json.NewDecoder(&output).Decode(&report); err != nil {
 		t.Fatalf("decode ops search verify output (command error %v): %v", runErr, err)
+	}
+	if runErr != nil {
+		t.Fatalf("execute ops search verify: %v", runErr)
 	}
 	return report
 }
