@@ -42,7 +42,9 @@ func nodeIntegrityBackfillOp(f *cli.Factory) clispec.Operation[nodeIntegrityBack
 		Long: "The command requires exactly one of --request or --manifest. " +
 			"A dry run with --request reads current records for each reviewed entry and prints a frozen manifest with its digest. " +
 			"A dry run with --manifest validates the manifest and prints each entry's state against current records and checkpoints. " +
-			"With --execute and --manifest, the command applies each executable entry phase by phase. " +
+			"With --execute and --manifest, the command runs the export phase of each executable delete entry and records its exported checkpoint. " +
+			"The command does not run the comment, delete, or result phases. " +
+			"The command reports those entries as unchanged and includes their next phase. " +
 			"The command skips an entry when a current record differs from the frozen manifest. " +
 			"The command rejects --request with --execute.",
 		Params: []clispec.Param[nodeIntegrityBackfillInput]{

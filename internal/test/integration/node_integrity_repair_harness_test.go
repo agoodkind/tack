@@ -2,6 +2,8 @@ package integration_test
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -104,6 +106,17 @@ func writeRepairDocument[Document ops.NodeIntegrityRequest | ops.NodeIntegrityMa
 		t.Fatalf("write %s: %v", name, err)
 	}
 	return path
+}
+
+func manifestDigest(t *testing.T, manifest ops.NodeIntegrityManifest) string {
+	t.Helper()
+	manifest.Digest = ""
+	encoded, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatalf("encode manifest: %v", err)
+	}
+	sum := sha256.Sum256(encoded)
+	return hex.EncodeToString(sum[:])
 }
 
 // freezeRepairRequest runs the command's request dry run and returns its

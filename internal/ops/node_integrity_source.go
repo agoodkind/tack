@@ -24,9 +24,11 @@ type RepairEvidenceReader interface {
 	RepairEvidence(ctx context.Context, request fdbadapter.RepairEvidenceRequest) (fdbadapter.RepairEvidence, error)
 }
 
-// primaryDigest returns the SHA-256 digest of primary after JSON compaction.
-// Compact records retain their exact byte digest. If compaction fails, it
-// hashes the original bytes.
+// primaryDigest compacts valid JSON in primary and returns the SHA-256 digest
+// of the compacted bytes.
+// The store writes compact JSON.
+// For a stored record, the digest equals the SHA-256 digest of the stored bytes.
+// If compaction fails, primaryDigest hashes the original bytes.
 func primaryDigest(primary []byte) string {
 	var compact bytes.Buffer
 	if err := json.Compact(&compact, primary); err != nil {

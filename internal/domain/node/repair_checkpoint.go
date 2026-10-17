@@ -25,10 +25,10 @@ const (
 // repairPhaseRank assigns each phase a rank for checkpoint advancement.
 // A checkpoint can advance only to a phase with a higher rank.
 var repairPhaseRank = map[RepairPhase]int{
-	RepairPhaseCommentCreated:  1,
-	RepairPhaseCommentVerified: 2,
 	RepairPhaseExported:        1,
-	RepairPhaseCompleted:       3,
+	RepairPhaseCommentCreated:  2,
+	RepairPhaseCommentVerified: 3,
+	RepairPhaseCompleted:       4,
 }
 
 // Valid reports whether phase appears in [repairPhaseRank].

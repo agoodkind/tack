@@ -109,10 +109,25 @@ func TestNodeIntegrityRepairPreviewReadsCheckpoints(t *testing.T) {
 // TestNodeIntegrityRepairRejectsUnreviewedChanges checks that the command
 // rejects an edited frozen manifest and a request that removes a child_of
 // edge to an existing node outside the ancestors above the resulting parent.
+// The test also forges a related record digest in the frozen source and
+// recomputes the manifest digest. The command must reject that manifest
+// because the graph digest no longer matches the frozen edges, related
+// records, and chain.
 func TestNodeIntegrityRepairRejectsUnreviewedChanges(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	graph := newRepairGraph(t, env)
 	manifest := freezeRepairRequest(t, repairRequest(graph.selectEpicEntry("tack-582-edited")))
+	forged := manifest
+	forged.Entries = []ops.NodeIntegrityEntry{manifest.Entries[0]}
+	source := *manifest.Entries[0].Source
+	source.Related = append([]ops.RepairRelated{}, source.Related...)
+	source.Related[0].PrimaryDigest = strings.Repeat("0", 64)
+	forged.Entries[0].Source = &source
+	forged.Digest = manifestDigest(t, forged)
+	if _, err := runRepairCommand(t, "--manifest", writeRepairDocument(t, "forged.json", forged)); err == nil ||
+		!strings.Contains(err.Error(), "graph digest") {
+		t.Fatalf("preview of forged graph evidence = %v, want a graph digest mismatch", err)
+	}
 	manifest.Entries[0].Result.Props["priority"] = json.RawMessage(`"high"`)
 	if _, err := runRepairCommand(t, "--manifest", writeRepairDocument(t, "edited.json", manifest)); err == nil ||
 		!strings.Contains(err.Error(), "manifest digest") {

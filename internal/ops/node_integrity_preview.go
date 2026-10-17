@@ -58,14 +58,11 @@ type NodeIntegrityPreview struct {
 	Entries        []NodeIntegrityEntryPreview `json:"entries"`
 }
 
-// repairStateReader combines evidence and checkpoint reads for repair previews.
 type repairStateReader interface {
 	RepairEvidenceReader
 	RepairCheckpointReader
 }
 
-// previewNodeIntegrityManifest compares validated manifest entries with
-// current records and checkpoints without changing stored records.
 func previewNodeIntegrityManifest(ctx context.Context, reader repairStateReader, manifest NodeIntegrityManifest) (NodeIntegrityPreview, error) {
 	preview := NodeIntegrityPreview{
 		ManifestDigest: manifest.Digest, Counts: map[RepairPreviewStatus]int{},
@@ -138,8 +135,6 @@ func previewRepairEntry(ctx context.Context, reader repairStateReader, entry Nod
 	return preview, nil
 }
 
-// staleEvidence returns the first conflict between current evidence and
-// entry's frozen expectations, or an empty string if the checks pass.
 func staleEvidence(ctx context.Context, entry NodeIntegrityEntry, evidence fdbadapter.RepairEvidence) (string, error) {
 	if !evidence.Node.Found {
 		return "stale primary record: the node does not exist", nil

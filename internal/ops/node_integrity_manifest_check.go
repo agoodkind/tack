@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"strings"
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain/node"
@@ -62,7 +63,7 @@ func checkNodeIntegrityManifest(ctx context.Context, manifest NodeIntegrityManif
 		return fmt.Errorf("manifest digest %q does not match its content digest %q", manifest.Digest, digest)
 	}
 	for index := range manifest.Entries {
-		if err := checkFrozenSource(manifest.Entries[index]); err != nil {
+		if err := checkFrozenSource(ctx, manifest.Entries[index]); err != nil {
 			return err
 		}
 	}
@@ -108,7 +109,7 @@ func checkEntries(entries []NodeIntegrityEntry) error {
 	return nil
 }
 
-func checkFrozenSource(entry NodeIntegrityEntry) error {
+func checkFrozenSource(ctx context.Context, entry NodeIntegrityEntry) error {
 	source := entry.Source
 	if source == nil {
 		return fmt.Errorf("repair %s has no frozen source", entry.RepairID)
@@ -124,8 +125,15 @@ func checkFrozenSource(entry NodeIntegrityEntry) error {
 		return fmt.Errorf("repair %s frozen primary record is node %s of type %q, not node %s of type %q",
 			entry.RepairID, primary.ID, primary.NodeType, entry.NodeID, entry.NodeType)
 	}
-	if source.GraphDigest == "" || source.MetadataEpoch == "" {
-		return fmt.Errorf("repair %s has no graph digest or metadata epoch", entry.RepairID)
+	if !strings.HasPrefix(source.MetadataEpoch, primary.OrgID.String()+"=") {
+		return fmt.Errorf("repair %s metadata epoch %q does not belong to organization %s", entry.RepairID, source.MetadataEpoch, primary.OrgID)
+	}
+	digest, err := graphDigest(ctx, *source, false)
+	if err != nil {
+		return err
+	}
+	if source.GraphDigest != digest {
+		return fmt.Errorf("repair %s graph digest does not match its frozen edges, related records, and chain", entry.RepairID)
 	}
 	return nil
 }

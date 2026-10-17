@@ -16,20 +16,15 @@ type RepairCheckpointWriter interface {
 	AdvanceRepairCheckpoint(ctx context.Context, previous node.RepairPhase, next node.RepairCheckpoint) error
 }
 
-// repairPhaseRunner executes one repair phase and records its checkpoint.
 type repairPhaseRunner struct {
 	checkpoints RepairCheckpointWriter
 	exports     RepairExportReader
 }
 
-// runs reports whether the runner executes phase. The runner executes the
-// export phase, which changes no node record.
 func (runner repairPhaseRunner) runs(phase node.RepairPhase) bool {
 	return phase == node.RepairPhaseExported
 }
 
-// runPhase executes phase for entry and advances the checkpoint of entry
-// from its stored phase to phase.
 func (runner repairPhaseRunner) runPhase(ctx context.Context, manifestDigest string, operator audit.OperatorPrincipal, entry NodeIntegrityEntry, phase node.RepairPhase) error {
 	stored, err := runner.checkpoints.RepairCheckpoint(ctx, entry.RepairID)
 	if err != nil {

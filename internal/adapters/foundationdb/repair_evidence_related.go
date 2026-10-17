@@ -29,7 +29,6 @@ func (set *repairRelatedSet) add(nodeID uuid.UUID) {
 	}
 }
 
-// store saves a record that the caller has already read.
 func (set *repairRelatedSet) store(record RepairNodeRecord) {
 	set.records[record.NodeID] = &record
 }

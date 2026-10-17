@@ -6,9 +6,12 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// repairPhases returns entry's phases in execution order. Deletes export
-// before deletion. Reports create and verify a comment before removing the
-// source property. Other entries complete in one phase.
+// repairPhases returns an entry's phases in execution order.
+// A delete entry exports its source before deleting it. Its phases are
+// exported then completed.
+// A report entry creates and verifies a comment before removing the source
+// property. Its phases are comment_created, comment_verified, then completed.
+// Every other entry has only completed.
 func repairPhases(entry NodeIntegrityEntry) []node.RepairPhase {
 	if entry.Delete != nil {
 		return []node.RepairPhase{node.RepairPhaseExported, node.RepairPhaseCompleted}

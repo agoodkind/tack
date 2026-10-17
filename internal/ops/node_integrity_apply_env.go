@@ -8,10 +8,6 @@ import (
 	"goodkind.io/tack/internal/audit"
 )
 
-// applyNodeIntegrityManifest reads the operator principal from ctx.
-// It returns an error if ctx does not contain an operator principal.
-// It builds the repair applier from the FoundationDB repair store in env,
-// then applies every entry in manifest.
 func applyNodeIntegrityManifest(ctx context.Context, env *Env, manifest NodeIntegrityManifest) (NodeIntegrityApply, error) {
 	empty := NodeIntegrityApply{ManifestDigest: manifest.Digest, Counts: map[RepairApplyStatus]int{}, Entries: []NodeIntegrityEntryApply{}}
 	principal, ok := audit.OperatorPrincipalFromContext(ctx)
