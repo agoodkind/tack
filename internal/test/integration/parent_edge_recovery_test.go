@@ -60,14 +60,15 @@ func TestSearchParentEdgeReindexReadmits(t *testing.T) {
 	}
 }
 
-// excluded returns the node IDs that ops search verify lists as excluded.
-// The physical checks that follow the listing compare the serving index of
-// the fixture with the provisioned index, and their error does not change
-// the listing.
+// excluded runs ops search verify and returns the node IDs that the command
+// lists as excluded. The excluded helper fails the test when the command
+// returns an error.
 func (f parentEdgeFixture) excluded(t *testing.T) []uuid.UUID {
 	t.Helper()
 	result, verifyErr := f.runOps(t, "ops", "search", "verify")
-	t.Logf("ops search verify physical checks: %v", verifyErr)
+	if verifyErr != nil {
+		t.Fatalf("ops search verify: %v", verifyErr)
+	}
 	var listing struct {
 		Exclusions []struct {
 			NodeID uuid.UUID `json:"node_id"`

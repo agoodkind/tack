@@ -38,3 +38,36 @@ func TestNodeIntegrityMutationUpdateStagesAuditEntity(t *testing.T) {
 			event.Entity, event.Actor.ID, reference, issue.UpdatedBy)
 	}
 }
+
+// TestNodeIntegrityMutationSetterStagesAuditEntity checks the stored node,
+// its read row, and the node.update outbox event after an issue state change.
+// It uses real FoundationDB.
+func TestNodeIntegrityMutationSetterStagesAuditEntity(t *testing.T) {
+	harness := integration.NewAuditedMCPHarness(t)
+	stores, err := fdbadapter.NewStores(testenv.FoundationDB(t), schemaTransactionTimeout, nil)
+	if err != nil {
+		t.Fatalf("open stores: %v", err)
+	}
+	issueID, reference := createSchemaIssue(t, harness, "Setter carrier")
+	harness.SetIssueState(t, reference, "Done")
+
+	view := storedStoreView(t, stores, issueID)
+	stored, err := stores.Nodes.Get(t.Context(), view.OrgID, issueID)
+	if err != nil || stored == nil {
+		t.Fatalf("get issue %s: %v, %v", issueID, stored, err)
+	}
+	doneState := string(quoted(schemaStateID(t, stores, view, "Done").String()))
+	if string(stored.Props["state_id"]) != doneState || string(view.Props["state_id"]) != doneState {
+		t.Fatalf("issue %s state_id = %s in the node and %s in the read row, want %s",
+			issueID, stored.Props["state_id"], view.Props["state_id"], doneState)
+	}
+	var event audit.Event
+	if err := json.Unmarshal(outboxEvent(t, stores, issueID, audit.VerbNodeUpdate), &event); err != nil {
+		t.Fatalf("decode the node.update event of %s: %v", issueID, err)
+	}
+	entity := event.Entity
+	if entity.Identifier != reference || entity.NodeType != "issue" || entity.Name != stored.Name || event.Actor.ID != stored.UpdatedBy {
+		t.Fatalf("node.update entity %+v and actor %s, want reference %s, type issue, name %q, and actor %s",
+			entity, event.Actor.ID, reference, stored.Name, stored.UpdatedBy)
+	}
+}
