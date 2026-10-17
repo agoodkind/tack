@@ -57,8 +57,33 @@ type traceTokens struct {
 	QueryTokens json.RawMessage `json:"query_tokens"`
 }
 
+type traceTextSparse struct {
+	Nested traceTextNested `json:"nested"`
+}
+
+type traceTextNested struct {
+	Path      string          `json:"path"`
+	ScoreMode string          `json:"score_mode"`
+	Query     traceTextNeural `json:"query"`
+}
+
+type traceTextNeural struct {
+	NeuralSparse map[string]traceText `json:"neural_sparse"`
+}
+
+type traceText struct {
+	QueryText string `json:"query_text"`
+	Analyzer  string `json:"analyzer"`
+}
+
+type traceAnalyze struct {
+	Analyzer string `json:"analyzer"`
+	Text     string `json:"text"`
+	Explain  bool   `json:"explain"`
+}
+
 type traceValue interface {
-	traceSearch | traceTerm | traceTerms | traceMatch | traceSparse
+	traceSearch | traceTerm | traceTerms | traceMatch | traceSparse | traceTextSparse | traceAnalyze
 }
 
 func encodeTrace[Value traceValue](t *testing.T, value Value) json.RawMessage {
