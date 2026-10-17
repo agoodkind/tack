@@ -2,16 +2,12 @@ package node
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"log/slog"
 	"sort"
 	"strconv"
 
 	"github.com/google/uuid"
-	"goodkind.io/tack/internal/telemetry"
 )
 
 // ErrContentChanged reports that a continuation no longer matches its source revision.
@@ -37,79 +33,75 @@ type ContentPage struct {
 	OverlapBytes      int
 	NextCursor        string
 	Done              bool
+	// Diagnostics contains the complete diagnostic set for the revision.
+	// Every page of the revision repeats this set.
+	Diagnostics []PropertyDiagnostic `exhaustruct:"optional"`
 }
 
-func extractProjectedLeaves(ctx context.Context, raw json.RawMessage, rule TextRule) ([]string, error) {
+// invalidValueError reports a value that its text rule cannot render. The
+// message does not contain the value.
+type invalidValueError struct{ message string }
+
+func (e invalidValueError) Error() string { return e.message }
+
+func extractProjectedLeaves(raw json.RawMessage, rule TextRule) ([]string, error) {
 	var value json.RawMessage
 	if err := json.Unmarshal(raw, &value); err != nil {
-		wrapped := fmt.Errorf("decode projected value: %w", err)
-		telemetry.L(ctx).ErrorContext(ctx, "search.projection.value_decode_failed", slog.String("err", wrapped.Error()))
-		return nil, LoggedProjectionError{Cause: wrapped}
+		return nil, invalidValueError{message: "the value is not valid JSON"}
 	}
-	return extractRuleLeaves(ctx, value, rule)
+	return extractRuleLeaves(value, rule)
 }
 
-func extractRuleLeaves(ctx context.Context, raw json.RawMessage, rule TextRule) ([]string, error) {
+func extractRuleLeaves(raw json.RawMessage, rule TextRule) ([]string, error) {
 	switch rule.Mode {
 	case TextRuleScalar:
-		return scalarLeaf(ctx, raw)
+		return scalarLeaf(raw)
 	case TextRuleItems:
-		return itemLeaves(ctx, raw, rule)
+		return itemLeaves(raw, rule)
 	case TextRuleObject:
-		return objectLeaves(ctx, raw, rule)
+		return objectLeaves(raw, rule)
 	case TextRuleLabels:
 		return labelLeaf(raw, rule)
 	default:
-		return nil, ErrInvalidSearchProjection
+		return nil, invalidValueError{message: "the text rule uses an unknown mode"}
 	}
 }
 
-func scalarLeaf(ctx context.Context, raw json.RawMessage) ([]string, error) {
+func scalarLeaf(raw json.RawMessage) ([]string, error) {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 {
-		return nil, ErrInvalidSearchProjection
+		return nil, invalidValueError{message: "the scalar value is empty"}
 	}
 	switch trimmed[0] {
 	case '"':
 		var scalar string
 		if err := json.Unmarshal(trimmed, &scalar); err != nil {
-			return projectionValueDecodeFailure(ctx, "decode string scalar", err)
+			return nil, invalidValueError{message: "the value is not a string"}
 		}
 		return []string{scalar}, nil
 	case 't', 'f':
 		var scalar bool
 		if err := json.Unmarshal(trimmed, &scalar); err != nil {
-			return projectionValueDecodeFailure(ctx, "decode boolean scalar", err)
+			return nil, invalidValueError{message: "the value is not a boolean"}
 		}
 		return []string{strconv.FormatBool(scalar)}, nil
 	default:
 		var scalar json.Number
 		if err := json.Unmarshal(trimmed, &scalar); err != nil {
-			return projectionValueDecodeFailure(ctx, "decode numeric scalar", err)
+			return nil, invalidValueError{message: "the value is not a scalar"}
 		}
 		return []string{scalar.String()}, nil
 	}
 }
 
-func projectionValueDecodeFailure(ctx context.Context, operation string, err error) ([]string, error) {
-	wrapped := fmt.Errorf("%s: %w", operation, err)
-	telemetry.L(ctx).ErrorContext(ctx, "search.projection.scalar_decode_failed", slog.String("err", wrapped.Error()))
-	return nil, LoggedProjectionError{Cause: wrapped}
-}
-
-func itemLeaves(ctx context.Context, raw json.RawMessage, rule TextRule) ([]string, error) {
+func itemLeaves(raw json.RawMessage, rule TextRule) ([]string, error) {
 	var items []json.RawMessage
-	if err := json.Unmarshal(raw, &items); err != nil {
-		wrapped := fmt.Errorf("decode projected items: %w", err)
-		telemetry.L(ctx).ErrorContext(ctx, "search.projection.items_decode_failed", slog.String("err", wrapped.Error()))
-		return nil, LoggedProjectionError{Cause: wrapped}
-	}
-	if items == nil {
-		return nil, ErrInvalidSearchProjection
+	if err := json.Unmarshal(raw, &items); err != nil || items == nil {
+		return nil, invalidValueError{message: "the value is not a list"}
 	}
 	var leaves []string
 	for _, item := range items {
-		itemLeaves, err := extractRuleLeaves(ctx, item, *rule.Items)
+		itemLeaves, err := extractRuleLeaves(item, *rule.Items)
 		if err != nil {
 			return nil, err
 		}
@@ -125,15 +117,10 @@ func IsLoggedProjectionError(err error) bool {
 	return errors.As(err, &logged)
 }
 
-func objectLeaves(ctx context.Context, raw json.RawMessage, rule TextRule) ([]string, error) {
+func objectLeaves(raw json.RawMessage, rule TextRule) ([]string, error) {
 	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &fields); err != nil {
-		wrapped := fmt.Errorf("decode projected object: %w", err)
-		telemetry.L(ctx).ErrorContext(ctx, "search.projection.object_decode_failed", slog.String("err", wrapped.Error()))
-		return nil, LoggedProjectionError{Cause: wrapped}
-	}
-	if fields == nil {
-		return nil, ErrInvalidSearchProjection
+	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
+		return nil, invalidValueError{message: "the value is not an object"}
 	}
 	declared := make(map[string]TextRule, len(rule.Fields))
 	for _, field := range rule.Fields {
@@ -141,7 +128,7 @@ func objectLeaves(ctx context.Context, raw json.RawMessage, rule TextRule) ([]st
 	}
 	for key := range fields {
 		if _, exists := declared[key]; !exists {
-			return nil, ErrInvalidSearchProjection
+			return nil, invalidValueError{message: "the object contains a field outside the text rule's declaration"}
 		}
 	}
 	orderedKeys := make([]string, 0, len(fields))
@@ -151,7 +138,7 @@ func objectLeaves(ctx context.Context, raw json.RawMessage, rule TextRule) ([]st
 	sort.Strings(orderedKeys)
 	var leaves []string
 	for _, key := range orderedKeys {
-		fieldLeaves, err := extractRuleLeaves(ctx, fields[key], declared[key])
+		fieldLeaves, err := extractRuleLeaves(fields[key], declared[key])
 		if err != nil {
 			return nil, err
 		}
@@ -163,11 +150,11 @@ func objectLeaves(ctx context.Context, raw json.RawMessage, rule TextRule) ([]st
 func labelLeaf(raw json.RawMessage, rule TextRule) ([]string, error) {
 	var label string
 	if err := json.Unmarshal(raw, &label); err != nil {
-		return nil, ErrInvalidSearchProjection
+		return nil, invalidValueError{message: "the label value is not a string"}
 	}
 	value, exists := rule.Labels[label]
 	if !exists {
-		return nil, ErrInvalidSearchProjection
+		return nil, invalidValueError{message: "the text rule does not declare a label for the value"}
 	}
 	return []string{value}, nil
 }

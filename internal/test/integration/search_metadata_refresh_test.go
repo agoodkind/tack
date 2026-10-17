@@ -10,12 +10,12 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// TestSearchMetadataAfterStartup requires a running Tack process to list a
-// property definition declared after startup in tack_list_property_defs. The
-// process must then return a node for its value under that property without
-// a restart or an index change. The node stores the value before the
-// declaration exists. The pages of a node without that property must keep
-// their semantic fields byte for byte.
+// TestSearchMetadataAfterStartup verifies that tack_list_property_defs lists
+// a definition declared after process startup. The node stores the property
+// value before the declaration, and indexed pages initially omit it. The
+// running process must then find the node by that value without a restart or
+// index change. Pages for a node without the property must retain identical
+// semantic field bytes.
 func TestSearchMetadataAfterStartup(t *testing.T) {
 	fixture := newQueryFixture(t, defaultQueryOptions())
 	workspace := fixture.Workspaces[0]
@@ -27,9 +27,15 @@ func TestSearchMetadataAfterStartup(t *testing.T) {
 
 	name := opaqueSearchKey("p")
 	affected := putUndeclaredNode(t, fixture, kind, entry, name, "zephyr orchard beacon")
-	runSlicesIgnoringFailures(t, fixture.Worker, 200)
-	if pages := searchNodePages(t, fixture.Client, fixture.Index, affected, false); len(pages) != 0 {
-		t.Fatalf("a node with an undeclared property value has %d indexed pages", len(pages))
+	drainSearchWork(t, fixture.Worker, 2000)
+	undeclared := searchNodePages(t, fixture.Client, fixture.Index, affected, false)
+	if len(undeclared) == 0 {
+		t.Fatal("a node with an undeclared property value has no indexed pages")
+	}
+	for _, page := range undeclared {
+		if page.PageText == nil || strings.Contains(*page.PageText, "zephyr orchard beacon") {
+			t.Fatalf("page %s of the node indexes the undeclared property value", page.ID)
+		}
 	}
 
 	definition := &node.PropertyDef{
