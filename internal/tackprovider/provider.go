@@ -1,5 +1,5 @@
 // Package tackprovider implements the Tack OpenTofu provider. Its resources
-// run reviewed Tack commands in the Tack guest. The provider runs each command
+// run Tack commands in the Tack guest. The provider runs each command
 // by calling the Proxmox VE API with the pveguest transport.
 package tackprovider
 

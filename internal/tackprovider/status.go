@@ -63,8 +63,9 @@ func (status schemaStatus) highest() int64 {
 	return highest
 }
 
-// pendingThrough returns migrations above the applied version through target,
-// in version order.
+// pendingThrough returns the available migrations above the applied version up
+// to and including target, appending them in the order of status.Available
+// without sorting them.
 func (status schemaStatus) pendingThrough(target int64) []migration {
 	pending := make([]migration, 0, len(status.Available))
 	for _, available := range status.Available {
