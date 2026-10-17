@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/audit"
+	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/telemetry"
 )
@@ -19,8 +20,8 @@ const (
 	// RepairApplyApplied indicates that this execution committed at least one
 	// phase of the entry.
 	RepairApplyApplied RepairApplyStatus = "applied"
-	// RepairApplyUnchanged indicates that this execution did not commit a phase.
-	// The entry is complete, or the runner does not execute its next phase.
+	// RepairApplyUnchanged indicates that this execution did not commit a phase
+	// because the entry was already complete.
 	RepairApplyUnchanged RepairApplyStatus = "unchanged"
 	// RepairApplyConflicted indicates that a record or checkpoint conflict
 	// prevented further execution of the entry.
@@ -107,7 +108,7 @@ func (applier repairApplier) applyEntry(ctx context.Context, entry NodeIntegrity
 		case RepairPreviewCompleted, RepairPreviewPlanned, RepairPreviewInProgress:
 		}
 		outcome.NextPhase = preview.NextPhase
-		if preview.Status == RepairPreviewCompleted || !applier.phases.runs(preview.NextPhase) {
+		if preview.Status == RepairPreviewCompleted {
 			outcome.Status = RepairApplyUnchanged
 			if len(outcome.Committed) > 0 {
 				outcome.Status = RepairApplyApplied
@@ -116,6 +117,9 @@ func (applier repairApplier) applyEntry(ctx context.Context, entry NodeIntegrity
 		}
 		if err := applier.phases.runPhase(ctx, applier.manifest.Digest, applier.principal, entry, preview.NextPhase); err != nil {
 			outcome.Status, outcome.Reason = RepairApplyFailed, err.Error()
+			if errors.Is(err, domain.ErrConflict) {
+				outcome.Status = RepairApplyConflicted
+			}
 			return outcome
 		}
 		outcome.Committed = append(outcome.Committed, preview.NextPhase)
