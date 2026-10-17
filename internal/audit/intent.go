@@ -65,49 +65,52 @@ func StageStateChange(ctx context.Context, verb Verb, entity Entity) error {
 			slog.String("verb", string(verb)), slog.String("err", err.Error()))
 		return fmt.Errorf("stage audit event %s: %w", verb, err)
 	}
-	auditintent.Stage(ctx, payload)
+	auditintent.StageMutation(ctx, payload, FinalizeMutationEvent)
 	return nil
 }
 
-// DescendantDeleteEvent returns the ledger event for one descendant that a
-// cascading delete removed. The event copies the actor, context, and extra
-// fields of the staged root event in template. It sets a new event ID, the
-// descendant as its entity, and the current time.
+// DescendantDeleteEvent returns the ledger event for a descendant that a
+// subtree delete removed. It copies the actor, context, and extra fields from
+// the staged root event in template. It sets the descendant event ID, uses
+// the descendant as the entity, and sets the occurrence time to the current
+// time.
 func DescendantDeleteEvent(template json.RawMessage, entity Entity) (json.RawMessage, error) {
 	return descendantEvent(template, VerbNodeDelete, entity, nil)
 }
 
-// DescendantMoveEvent returns the node.update ledger event for one child
-// that a delete moved from its deleted parent to that parent's parent. The
-// event copies the actor, context, and extra fields of the staged root event
-// in template, and its delta records the parent_id change.
+// DescendantMoveEvent returns a node.update ledger event for a child that a
+// delete moved to its deleted parent's parent. It copies the actor, context,
+// and extra fields from the staged root event in template. Its delta records
+// the parent_id change in the same form as other node updates.
 func DescendantMoveEvent(template json.RawMessage, entity Entity, from, to uuid.UUID) (json.RawMessage, error) {
-	before, err := json.Marshal(map[string]string{"parent_id": from.String()})
+	source, err := json.Marshal(map[string]map[string]string{recordPropertiesField: {"parent_id": from.String()}})
 	if err != nil {
 		slog.Error("audit.descendant_event_failed", slog.String("err", err.Error()), slog.String("node_id", entity.ID.String()))
 		return nil, fmt.Errorf("encode the previous parent of moved node %s: %w", entity.ID, err)
 	}
-	after, err := json.Marshal(map[string]string{"parent_id": to.String()})
+	result, err := json.Marshal(map[string]map[string]string{recordPropertiesField: {"parent_id": to.String()}})
 	if err != nil {
 		slog.Error("audit.descendant_event_failed", slog.String("err", err.Error()), slog.String("node_id", entity.ID.String()))
 		return nil, fmt.Errorf("encode the new parent of moved node %s: %w", entity.ID, err)
 	}
-	return descendantEvent(template, VerbNodeUpdate, entity, &Delta{Before: before, After: after, Changed: []string{"parent_id"}})
+	delta, err := recordDelta(source, result)
+	if err != nil {
+		return nil, err
+	}
+	return descendantEvent(template, VerbNodeUpdate, entity, delta)
 }
 
+// descendantEvent derives a name-based UUID from the root event ID, verb, and
+// descendant ID. Each retry of the delete step writes the same event ID. The
+// consumer keeps one ledger row per event ID.
 func descendantEvent(template json.RawMessage, verb Verb, entity Entity, delta *Delta) (json.RawMessage, error) {
 	var event Event
 	if err := json.Unmarshal(template, &event); err != nil {
 		slog.Error("audit.descendant_event_failed", slog.String("err", err.Error()), slog.String("node_id", entity.ID.String()))
 		return nil, fmt.Errorf("decode the staged delete event for node %s: %w", entity.ID, err)
 	}
-	eventID, err := uuid.NewV7()
-	if err != nil {
-		slog.Error("audit.descendant_event_failed", slog.String("err", err.Error()), slog.String("node_id", entity.ID.String()))
-		return nil, fmt.Errorf("create the %s event id for node %s: %w", verb, entity.ID, err)
-	}
 	event.Verb = string(verb)
-	event.EventID = eventID
+	event.EventID = uuid.NewSHA1(event.EventID, []byte(string(verb)+":"+entity.ID.String()))
 	event.Entity = entity
 	event.Delta = delta
 	event.OccurredAt = clock.Now().UTC()
