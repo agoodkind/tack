@@ -53,12 +53,42 @@ func (s *NodeService) parentChangeForUpdate(
 	if currentParentID == parentID {
 		return none, nil
 	}
+	if err := s.refuseParentCycle(ctx, existing.ID, parentID); err != nil {
+		return none, err
+	}
 	changes := node.RelationshipChanges{Add: nil, Remove: nil}
 	if currentParentID != uuid.Nil {
 		changes.Remove = append(changes.Remove, childOfEdge(existing, currentParentID, actorID, now))
 	}
 	changes.Add = append(changes.Add, childOfEdge(existing, parentID, actorID, now))
 	return changes, nil
+}
+
+// refuseParentCycle refuses parentID as the new parent of nodeID when the
+// parent_id chain from parentID contains nodeID. The walk has no depth limit.
+// It ends at a node without parent_id, at a missing node, or at a node it
+// read before.
+func (s *NodeService) refuseParentCycle(ctx context.Context, nodeID, parentID uuid.UUID) error {
+	visited := map[uuid.UUID]bool{}
+	for currentID := parentID; currentID != uuid.Nil && !visited[currentID]; {
+		if currentID == nodeID {
+			slog.WarnContext(ctx, "node.update.parent_cycle_refused",
+				slog.String("node_id", nodeID.String()), slog.String("parent_id", parentID.String()))
+			return fmt.Errorf("update node %s: parent %s is node %s or one of its descendants: %w",
+				nodeID, parentID, nodeID, domain.ErrInvalidArgument)
+		}
+		visited[currentID] = true
+		ancestor, err := s.reader.Get(ctx, currentID)
+		if err != nil {
+			slog.ErrorContext(ctx, "node.update.parent_ancestry_failed", slog.String("err", err.Error()))
+			return fmt.Errorf("update node %s: read ancestor %s of parent %s: %w", nodeID, currentID, parentID, err)
+		}
+		if ancestor == nil {
+			return nil
+		}
+		currentID = rawUUIDReferenceProperty(ancestor.Props, "parent_id")
+	}
+	return nil
 }
 
 func childOfEdge(existing *node.NodeView, targetID uuid.UUID, actorID uuid.UUID, now time.Time) *node.Relationship {
