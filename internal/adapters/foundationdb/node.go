@@ -14,18 +14,20 @@ import (
 )
 
 // NodeStore implements node.NodeRepository using FoundationDB. When
-// searchWork is true, each node write schedules search work stamped by the
-// clock in the same transaction.
+// searchWork is true, each node write schedules search work in the same
+// transaction and stamps it with a time from s.clock. ApplyMutation and
+// DeleteNode call writeFence when it is set.
 type NodeStore struct {
 	db         fdb.Database
 	clock      clock.Clock
 	searchWork bool
+	writeFence mutationFence
 }
 
 // NewNodeStore creates the node store. It schedules no search work until
 // [Stores.EnableSearchWork] runs.
 func NewNodeStore(db fdb.Database, source clock.Clock) *NodeStore {
-	return &NodeStore{db: db, clock: source, searchWork: false}
+	return &NodeStore{db: db, clock: source, searchWork: false, writeFence: nil}
 }
 
 // Get resolves the node by ID through its global resolution record.
