@@ -17,6 +17,9 @@ import (
 func (s *NodeStore) SetReferenceKeys(ctx context.Context, orgID, nodeID uuid.UUID, keys []node.ReferenceKey) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node.set_reference_keys")(&err)
 	err = runNodeMutation(ctx, s.db, "node.set_reference_keys", func(tr fdb.Transaction) error {
+		if _, err := s.fenceAttempt(ctx, tr, orgID, nodeID); err != nil {
+			return err
+		}
 		return writeReferenceKeys(tr, orgID, nodeID, keys)
 	})
 	if err != nil {
@@ -34,6 +37,9 @@ func (s *NodeStore) SetReferenceKeys(ctx context.Context, orgID, nodeID uuid.UUI
 func (s *NodeStore) EnsurePropertyIndex(ctx context.Context, current *node.Node, indexedProps []string) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node.ensure_property_index")(&err)
 	err = runNodeMutation(ctx, s.db, "node.ensure_property_index", func(tr fdb.Transaction) error {
+		if _, err := s.fenceAttempt(ctx, tr, current.OrgID, current.ID); err != nil {
+			return err
+		}
 		writeCreatePropertyIndexes(tr, current, indexedProps)
 		return nil
 	})
