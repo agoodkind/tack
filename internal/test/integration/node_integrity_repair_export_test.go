@@ -53,15 +53,16 @@ func TestNodeIntegrityRepairExportsBeforeDelete(t *testing.T) {
 		t.Fatal("the second execution returned no apply result")
 	}
 	requireApplyEntry(t, *rerun.Applied, exported.RepairID, ops.RepairApplyUnchanged, node.RepairPhaseCompleted)
+	requireApplyEntry(t, *rerun.Applied, missing.RepairID, ops.RepairApplyFailed, node.RepairPhaseExported)
+	requireApplyEntry(t, *rerun.Applied, stale.RepairID, ops.RepairApplyConflicted, "")
 	requireCheckpointPhase(t, env, exported.RepairID, node.RepairPhaseExported)
 	requireCheckpointPhase(t, env, missing.RepairID, "")
+	requireCheckpointPhase(t, env, stale.RepairID, "")
 	if len(storedKeyValues(t)) != len(before) {
 		t.Fatal("the second execution changed the number of stored keys")
 	}
 }
 
-// deleteFixtureEntry creates one issue under the project and returns a
-// delete entry for it that exports to exportFile.
 func deleteFixtureEntry(t *testing.T, env *integration.TestEnv, graph repairGraph, repairID, exportFile string) ops.NodeIntegrityEntry {
 	t.Helper()
 	return ops.NodeIntegrityEntry{
@@ -72,8 +73,6 @@ func deleteFixtureEntry(t *testing.T, env *integration.TestEnv, graph repairGrap
 	}
 }
 
-// requireApplyEntry checks that the result includes repairID with the expected
-// status and next phase.
 func requireApplyEntry(t *testing.T, applied ops.NodeIntegrityApply, repairID string, status ops.RepairApplyStatus, next node.RepairPhase) {
 	t.Helper()
 	for _, entry := range applied.Entries {
@@ -88,8 +87,6 @@ func requireApplyEntry(t *testing.T, applied ops.NodeIntegrityApply, repairID st
 	t.Fatalf("apply result has no entry %s: %+v", repairID, applied.Entries)
 }
 
-// requireCheckpointPhase checks that the stored phase for repairID matches phase.
-// It treats a missing checkpoint as an empty phase.
 func requireCheckpointPhase(t *testing.T, env *integration.TestEnv, repairID string, phase node.RepairPhase) {
 	t.Helper()
 	checkpoint, err := env.Stores.Repairs().RepairCheckpoint(env.Ctx, repairID)
@@ -105,8 +102,6 @@ func requireCheckpointPhase(t *testing.T, env *integration.TestEnv, repairID str
 	}
 }
 
-// requireExportFile requires a 0600 export file that records the frozen
-// primary digest of entry and the child_of edge to parentID.
 func requireExportFile(t *testing.T, path string, entry ops.NodeIntegrityEntry, parentID uuid.UUID) {
 	t.Helper()
 	info, err := os.Stat(path)
