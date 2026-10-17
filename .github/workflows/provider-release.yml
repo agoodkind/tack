@@ -1,0 +1,28 @@
+name: Provider release
+
+# This workflow runs on manual dispatch and pushes to main that change
+# provider/** or .github/workflows/provider-release.yml. It publishes
+# terraform-provider-tack_<os>_<arch>.tar.gz assets for darwin and linux on
+# amd64 and arm64. The Configs script opentofu/guest/install-providers.sh
+# downloads these assets. The filename avoids release.yml because shared
+# go-makefile _ci.yml runs a release dry run for the root module when
+# .github/workflows/release.yml exists. The root module does not release.
+on:
+  push:
+    branches: [main]
+    paths:
+      - provider/**
+      - .github/workflows/provider-release.yml
+  workflow_dispatch:
+
+jobs:
+  release:
+    uses: agoodkind/go-makefile/.github/workflows/_release.yml@main
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    with:
+      binary: terraform-provider-tack
+      working_directory: provider
+    secrets: inherit
