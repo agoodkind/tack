@@ -3,7 +3,6 @@ package foundationdb
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"maps"
 	"strconv"
 	"time"
@@ -17,10 +16,14 @@ import (
 // parent.
 const parentIDProperty = "parent_id"
 
-// readRootParent returns the hierarchy parent of rootID inside tr under
-// [node.HierarchyParent] when that parent is a node of orgID. A root without
-// one parent, with a parent outside orgID, or with more child_of edges than
-// one page reads returns [uuid.Nil].
+// readRootParent reads the child_of edges of rootID inside tr and returns the
+// hierarchy parent that node.HierarchyParent derives from those edges.
+// readRootParent returns [uuid.Nil] when rootID does not have a child_of edge,
+// when rootID has more child_of edges than one page reads, or when the parent
+// is not a node of orgID. readRootParent returns an error that matches
+// node.ErrNoHierarchyParent when the edges target more than one distinct
+// node. The subtree delete does not start when readRootParent returns that
+// error.
 func readRootParent(ctx context.Context, tr fdb.Transaction, orgID, rootID uuid.UUID) (uuid.UUID, error) {
 	edges, err := readDeleteEdges(ctx, tr, orgID, rootID, node.RelChildOf, false)
 	if err != nil || len(edges) == 0 || len(edges) > maxDeleteEdgePage {
@@ -31,8 +34,8 @@ func readRootParent(ctx context.Context, tr fdb.Transaction, orgID, rootID uuid.
 		targets = append(targets, edge.TargetID)
 	}
 	parentID, parentErr := node.HierarchyParent(rootID, nil, targets)
-	if errors.Is(parentErr, node.ErrNoHierarchyParent) {
-		return uuid.Nil, nil
+	if parentErr != nil {
+		return uuid.Nil, nodeOperationFailure(ctx, "read the hierarchy parent of deleted node "+rootID.String(), parentErr)
 	}
 	parents, err := readHierarchyNodes(ctx, tr, orgID, []uuid.UUID{parentID}, make(map[string]*node.NodeType))
 	if err != nil || !parents[0].Found {

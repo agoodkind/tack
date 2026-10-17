@@ -3,6 +3,7 @@ package integration_test
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -21,10 +22,7 @@ import (
 func TestParentEdgeDeleteMovesChildIssue(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	actor := uuid.Must(uuid.NewV7())
-	workspace := createDeleteFixtureNode(t, env, actor, env.OrgID, env.OrgID, "workspace", "Delete workspace",
-		map[string]json.RawMessage{"slug": parentEdgeJSON(t, "delete-workspace")})
-	project := createDeleteFixtureNode(t, env, actor, workspace, workspace, "project", "Delete project",
-		map[string]json.RawMessage{"identifier": parentEdgeJSON(t, "DELMOVE")})
+	project := createDeleteFixtureProject(t, env, actor, "DELMOVE")
 	issue := createDeleteFixtureNode(t, env, actor, project, project, "issue", "Deleted issue", nil)
 	child := createDeleteFixtureNode(t, env, actor, issue, project, "issue", "Child issue", nil)
 	comment := createDeleteFixtureNode(t, env, actor, issue, project, "comment", "Comment on the deleted issue", nil)
@@ -52,8 +50,48 @@ func TestParentEdgeDeleteMovesChildIssue(t *testing.T) {
 	}
 }
 
-// createDeleteFixtureNode creates one node of typeKey under parentID through
-// NodeService.Create and returns its ID.
+// TestParentEdgeDeleteRefusesTwoParents creates a project with four issues
+// through the node service: a second parent issue, a root issue, a parent
+// issue, and a child issue under the parent issue. The relationship store
+// adds a second child_of edge from the root issue to the second parent issue
+// and another from the child issue to the second parent issue. The test
+// requires both subtree deletes, one for the root issue and one for the
+// parent issue, to return errors that match node.ErrNoHierarchyParent. The
+// test requires all four issues to remain.
+func TestParentEdgeDeleteRefusesTwoParents(t *testing.T) {
+	env := integration.SetupTestEnv(t)
+	actor := uuid.Must(uuid.NewV7())
+	project := createDeleteFixtureProject(t, env, actor, "DELTWO")
+	second := createDeleteFixtureNode(t, env, actor, project, project, "issue", "Second parent", nil)
+	root := createDeleteFixtureNode(t, env, actor, project, project, "issue", "Issue with two parents", nil)
+	parent := createDeleteFixtureNode(t, env, actor, project, project, "issue", "Parent issue", nil)
+	child := createDeleteFixtureNode(t, env, actor, parent, project, "issue", "Child with two parents", nil)
+	for _, source := range []uuid.UUID{root, child} {
+		edge := &node.Relationship{OrgID: env.OrgID, SourceID: source, RelationType: node.RelChildOf, TargetID: second}
+		if err := env.Stores.Relationships.Add(env.Ctx, edge); err != nil {
+			t.Fatalf("add second parent edge of issue %s: %v", source, err)
+		}
+	}
+	for _, deleted := range []uuid.UUID{root, parent} {
+		if _, err := env.NodeSvc.DeleteSubtree(env.Ctx, env.OrgID, deleted, actor, nil); !errors.Is(err, node.ErrNoHierarchyParent) {
+			t.Fatalf("delete of issue %s returned %v, want an error that matches node.ErrNoHierarchyParent", deleted, err)
+		}
+	}
+	for _, kept := range []uuid.UUID{second, root, parent, child} {
+		if view, err := env.Stores.Views.Get(env.Ctx, kept); err != nil || view == nil {
+			t.Fatalf("issue %s after the refused deletes = %+v, err %v, want it present", kept, view, err)
+		}
+	}
+}
+
+func createDeleteFixtureProject(t *testing.T, env *integration.TestEnv, actor uuid.UUID, identifier string) uuid.UUID {
+	t.Helper()
+	workspace := createDeleteFixtureNode(t, env, actor, env.OrgID, env.OrgID, "workspace", "Workspace "+identifier,
+		map[string]json.RawMessage{"slug": parentEdgeJSON(t, "workspace-"+strings.ToLower(identifier))})
+	return createDeleteFixtureNode(t, env, actor, workspace, workspace, "project", "Project "+identifier,
+		map[string]json.RawMessage{"identifier": parentEdgeJSON(t, identifier)})
+}
+
 func createDeleteFixtureNode(
 	t *testing.T, env *integration.TestEnv, actor, parentID, scopeID uuid.UUID, typeKey, name string, props map[string]json.RawMessage,
 ) uuid.UUID {
