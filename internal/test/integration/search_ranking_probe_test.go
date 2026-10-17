@@ -194,7 +194,6 @@ func (r *rankingRun) completeCursor(t *testing.T, cursor string) {
 	t.Fatalf("continuation did not complete within %d pages", rankingMaxPages)
 }
 
-// session decodes cursor and loads its durable session.
 func (r *rankingRun) session(t *testing.T, cursor string) searchdomain.Session {
 	t.Helper()
 	sessionID, _, err := r.cursors.Decode(cursor)

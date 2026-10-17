@@ -15,7 +15,6 @@ import (
 // in trace output.
 const traceDescriptionBytes = 120
 
-// rankedNode is one node and the score of its best page match.
 type rankedNode struct {
 	ID    uuid.UUID
 	Score float32
@@ -50,7 +49,6 @@ func topTraceWeights(weights map[string]float64, count int) string {
 	return "[" + strings.Join(parts, " ") + "]"
 }
 
-// traceDot returns the sparse dot product of the query and chunk weights.
 func traceDot(query, chunk map[string]float64) float64 {
 	total := 0.0
 	for token, weight := range query {

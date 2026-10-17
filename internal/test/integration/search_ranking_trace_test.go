@@ -14,13 +14,9 @@ import (
 )
 
 const (
-	// traceHits limits the number of page matches in one trace search.
-	traceHits = 1000
-	// traceTopNodes is the number of best nodes that one trace line lists.
-	traceTopNodes = 5
-	// traceQueryTokens is the number of query tokens that the trace lists.
+	traceHits        = 1000
+	traceTopNodes    = 5
 	traceQueryTokens = 40
-	// traceChunkTokens is the number of tokens that the trace lists for one chunk.
 	traceChunkTokens = 8
 )
 
@@ -134,7 +130,6 @@ func (r *rankingRun) traceSearch(t *testing.T, index string, body traceSearch) [
 	return response.Hits.Hits
 }
 
-// traceFilters returns the access and retirement filters of the public query.
 func traceFilters(t *testing.T, filter searchdomain.AccessFilter) []json.RawMessage {
 	t.Helper()
 	return []json.RawMessage{
