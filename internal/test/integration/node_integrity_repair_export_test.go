@@ -1,9 +1,11 @@
 package integration_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/google/uuid"
@@ -128,14 +130,50 @@ func requireExportFile(t *testing.T, path string, entry ops.NodeIntegrityEntry, 
 	if err := json.Unmarshal(encoded, &document); err != nil {
 		t.Fatalf("decode export %s: %v", path, err)
 	}
-	if document.NodeID != entry.NodeID || document.PrimaryDigest != entry.Source.PrimaryDigest || len(document.Primary) == 0 {
+	if document.NodeID != entry.NodeID || document.PrimaryDigest != entry.Source.PrimaryDigest {
 		t.Fatalf("export records node %s with digest %s, want node %s with digest %s",
 			document.NodeID, document.PrimaryDigest, entry.NodeID, entry.Source.PrimaryDigest)
 	}
-	for _, relationship := range document.Relationships {
-		if relationship.SourceID == entry.NodeID && relationship.RelationType == node.RelChildOf && relationship.TargetID == parentID {
-			return
-		}
+	if exportedPrimary, frozenPrimary := compactJSON(t, document.Primary), compactJSON(t, entry.Source.Primary); exportedPrimary != frozenPrimary {
+		t.Fatalf("export primary record = %s, want the frozen primary record %s", exportedPrimary, frozenPrimary)
 	}
-	t.Fatalf("export relationships = %+v, want the child_of edge to %s", document.Relationships, parentID)
+	exported := make([]ops.RepairStoredEdge, 0, len(document.Relationships))
+	for _, relationship := range document.Relationships {
+		exported = append(exported, ops.RepairStoredEdge{
+			SourceID: relationship.SourceID, RelationType: relationship.RelationType, TargetID: relationship.TargetID,
+		})
+	}
+	if !slices.ContainsFunc(exported, func(edge ops.RepairStoredEdge) bool {
+		return edge.SourceID == entry.NodeID && edge.RelationType == node.RelChildOf && edge.TargetID == parentID
+	}) {
+		t.Fatalf("export relationships = %+v, want the child_of edge to %s", exported, parentID)
+	}
+	if !sameEdgeSet(exported, entry.Source.Edges) {
+		t.Fatalf("export relationships = %+v, want the frozen edges %+v", exported, entry.Source.Edges)
+	}
+}
+
+func compactJSON(t *testing.T, encoded json.RawMessage) string {
+	t.Helper()
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, encoded); err != nil {
+		t.Fatalf("compact JSON %s: %v", encoded, err)
+	}
+	return compact.String()
+}
+
+func sameEdgeSet(left, right []ops.RepairStoredEdge) bool {
+	key := func(edge ops.RepairStoredEdge) string {
+		return edge.SourceID.String() + " " + edge.RelationType + " " + edge.TargetID.String()
+	}
+	leftKeys, rightKeys := make([]string, 0, len(left)), make([]string, 0, len(right))
+	for _, edge := range left {
+		leftKeys = append(leftKeys, key(edge))
+	}
+	for _, edge := range right {
+		rightKeys = append(rightKeys, key(edge))
+	}
+	slices.Sort(leftKeys)
+	slices.Sort(rightKeys)
+	return slices.Equal(leftKeys, rightKeys)
 }
