@@ -101,15 +101,16 @@ func (f parentEdgeFixture) index(t *testing.T, nodeID uuid.UUID) (node.SearchAcc
 	return access, nil
 }
 
-// drain runs search worker slices until no work is claimable. A failed
-// slice releases its work, and drain continues.
+// drain runs search worker slices until the worker cannot claim more work.
+// drain fails the test when a slice returns an error or work remains
+// claimable for parentEdgeDeadline.
 func (f parentEdgeFixture) drain(t *testing.T) {
 	t.Helper()
 	deadline := clock.Now().Add(parentEdgeDeadline)
 	for clock.Now().Before(deadline) {
 		claimed, err := f.worker.RunSlice(t.Context())
 		if err != nil {
-			t.Logf("search slice failed: %v", err)
+			t.Fatalf("search slice failed: %v", err)
 		}
 		if !claimed {
 			return
@@ -121,9 +122,6 @@ func (f parentEdgeFixture) drain(t *testing.T) {
 // eventually calls drain, then check, until check returns an empty string or
 // parentEdgeDeadline (10 minutes) expires. It returns when check returns an
 // empty string. Otherwise, it waits one second before repeating.
-// drain runs search worker slices until workers cannot claim more work.
-// Released work may still await its retry delay when drain returns.
-// A single drain does not prove that all search work finished.
 // After the deadline, eventually fails the test with the last message from
 // check.
 func (f parentEdgeFixture) eventually(t *testing.T, check func() string) {
@@ -216,7 +214,8 @@ func parentEdgeJSON(t *testing.T, value string) json.RawMessage {
 	return encoded
 }
 
-// intersect returns each element of values that wanted also contains.
+// intersect returns the elements in values that also occur in wanted, in the
+// order of values.
 func intersect[T comparable](values, wanted []T) []T {
 	found := []T{}
 	for _, value := range values {

@@ -13,9 +13,9 @@ import (
 )
 
 // children reads one bounded page of child_of edges that target resourceID
-// and returns the source nodes in orgID. A source remains a dependent even
-// when its edges target multiple parents. Its next access compilation treats
-// those parents as a defect and withdraws its keys.
+// and returns their source nodes in orgID. A source remains a dependent when
+// it has multiple child_of targets. The next access compilation of that
+// source reports the source as defective and withdraws its keys.
 func (c *OrgScopeCompiler) children(ctx context.Context, orgID, resourceID uuid.UUID, cursor string, limit int) (node.IDPage, error) {
 	exists, err := c.inOrg(ctx, orgID, resourceID)
 	if err != nil {

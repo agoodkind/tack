@@ -147,7 +147,6 @@ func parentEdgeEntryTypes(t *testing.T, stores *fdbadapter.Stores, orgID uuid.UU
 	return keys
 }
 
-// entry returns the entry node of workspace.
 func (f parentEdgeFixture) entry(t *testing.T, workspace datagen.WorkspaceIdentity) uuid.UUID {
 	t.Helper()
 	for _, typeKey := range parentEdgeEntryTypes(t, f.stores, workspace.OrgID) {
@@ -191,7 +190,6 @@ func (f parentEdgeFixture) putKind(t *testing.T, orgID uuid.UUID, canLiveUnder [
 	return kind
 }
 
-// parentEdgeKey returns an opaque lowercase key with label as its prefix.
 func parentEdgeKey(label string) string {
 	return label + strings.ReplaceAll(uuid.Must(uuid.NewV7()).String(), "-", "")[20:]
 }

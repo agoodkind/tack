@@ -85,11 +85,11 @@ func (s *NodeDeleteStore) readParentEdges(ctx context.Context, candidate orphanC
 	}
 }
 
-// pageParentTargets returns the target of each child_of edge in items and
-// reports whether one target is an existing node other than the candidate.
-// Under [node.HierarchyParent], that target is a parent whatever its type
-// is. A candidate with several such targets keeps them, and
-// [extraParentEdges] reports the edges that do not target its parent_id.
+// pageParentTargets returns every child_of target in items, including
+// additional parent targets. pageParentTargets reports whether any target is
+// an existing node other than the candidate. The caller passes every target
+// to extraParentEdges, which reports edges that do not target the candidate's
+// parent_id.
 func pageParentTargets(ctx context.Context, tr fdb.Transaction, candidate orphanCandidate, items []fdb.KeyValue) ([]uuid.UUID, bool, error) {
 	targetIDs := make([]uuid.UUID, 0, len(items))
 	for _, item := range items {

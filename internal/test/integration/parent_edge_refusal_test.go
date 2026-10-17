@@ -77,9 +77,6 @@ func TestSearchParentEdgeOnlyParentRemoval(t *testing.T) {
 	}
 }
 
-// requireParentEdgeDefect requires the index access compilation of nodeID to
-// fail with an error that matches want, and the summary of nodeID to have no
-// keys.
 func requireParentEdgeDefect(t *testing.T, fixture parentEdgeFixture, nodeID uuid.UUID, want error) {
 	t.Helper()
 	if _, err := fixture.index(t, nodeID); !errors.Is(err, want) {
