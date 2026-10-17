@@ -173,6 +173,9 @@ func (s *NodeDeleteStore) deleteTop(ctx context.Context, tr fdb.Transaction, job
 			return false, nodeOperationFailure(ctx, "decode node "+top.ID.String(), err)
 		}
 	}
+	if _, err := s.nodes.fenceAttempt(ctx, tr, job.OrgID, top.ID); err != nil {
+		return false, err
+	}
 	if err := s.nodes.clearNode(ctx, tr, &current); err != nil {
 		return false, err
 	}
