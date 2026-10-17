@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 
@@ -28,7 +29,7 @@ func (s *NodeService) validateCreateProps(
 	if err != nil {
 		return fmt.Errorf("list property defs for %s create validation: %w", nt.TypeKey, err)
 	}
-	return validateNodeProps(nt, defs, props)
+	return ValidateNodeProps(ctx, nt, defs, props)
 }
 
 func (s *NodeService) validateUpdateProps(
@@ -41,7 +42,7 @@ func (s *NodeService) validateUpdateProps(
 	if err != nil {
 		return fmt.Errorf("list property defs for %s update validation: %w", nt.TypeKey, err)
 	}
-	return validateNodeProps(nt, defs, setUpdateProps(props))
+	return ValidateNodeProps(ctx, nt, defs, setUpdateProps(props))
 }
 
 func setUpdateProps(props map[string]json.RawMessage) map[string]json.RawMessage {
@@ -59,7 +60,10 @@ func isDeletedPropValue(raw json.RawMessage) bool {
 	return len(raw) == 0 || string(raw) == "null"
 }
 
-func validateNodeProps(
+// ValidateNodeProps returns an error when defs do not declare a key of props
+// for nt. The error lists every undeclared key in sorted order.
+func ValidateNodeProps(
+	ctx context.Context,
 	nt *node.NodeType,
 	defs []*node.PropertyDef,
 	props map[string]json.RawMessage,
@@ -72,12 +76,15 @@ func validateNodeProps(
 	if len(unknown) == 0 {
 		return nil
 	}
-	return fmt.Errorf(
+	err := fmt.Errorf(
 		"node type %q props contain undeclared keys %s: %w",
 		nt.TypeKey,
 		strings.Join(unknown, ", "),
 		domain.ErrInvalidArgument,
 	)
+	slog.ErrorContext(ctx, "node.props_undeclared",
+		slog.String("node_type", nt.TypeKey), slog.String("err", err.Error()))
+	return err
 }
 
 func allowedPropNames(nt *node.NodeType, defs []*node.PropertyDef) map[string]struct{} {

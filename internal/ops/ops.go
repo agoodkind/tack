@@ -44,6 +44,9 @@ type Operation struct {
 	Audit       audit.Spec
 	Description string
 	Run         func(ctx context.Context, env *Env) error
+	// DryRun reports the work of Run without writing state. The batch command
+	// runs it when the operator omits --execute.
+	DryRun func(ctx context.Context, env *Env) error `exhaustruct:"optional"`
 }
 
 // Env is the shared dependency bundle every op receives. Stores and Pool are
@@ -128,6 +131,23 @@ func Run(ctx context.Context, cfg *config.Config, name string) error {
 	if !ok {
 		return fmt.Errorf("unknown op: %s", name)
 	}
+	return runOperation(ctx, cfg, op, op.Run)
+}
+
+// RunDryRun looks up name and runs the op's DryRun the same way Run runs the
+// op. Returns an error if the op is unknown, declares no DryRun, or fails.
+func RunDryRun(ctx context.Context, cfg *config.Config, name string) error {
+	op, ok := Get(name)
+	if !ok {
+		return fmt.Errorf("unknown op: %s", name)
+	}
+	if op.DryRun == nil {
+		return fmt.Errorf("op %s declares no dry run", name)
+	}
+	return runOperation(ctx, cfg, op, op.DryRun)
+}
+
+func runOperation(ctx context.Context, cfg *config.Config, op Operation, work func(ctx context.Context, env *Env) error) error {
 	ctx, span := telemetry.StartSpan(ctx, "ops.run",
 		trace.WithSpanKind(trace.SpanKindInternal),
 		trace.WithAttributes(attribute.String("ops.name", op.Name)),
@@ -142,7 +162,7 @@ func Run(ctx context.Context, cfg *config.Config, name string) error {
 	env.Log = telemetry.L(ctx)
 
 	env.Log.InfoContext(ctx, "ops.start", slog.String("op", op.Name))
-	if err := op.Run(ctx, env); err != nil {
+	if err := work(ctx, env); err != nil {
 		env.Log.ErrorContext(ctx, "ops.failed", slog.String("op", op.Name), slog.String("err", err.Error()))
 		return err
 	}
