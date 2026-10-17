@@ -19,6 +19,9 @@ import (
 func (s *NodeStore) CreateAtomic(ctx context.Context, current *node.Node, view *node.NodeView, relationships []*node.Relationship, indexedProps []string, referenceKeys []node.ReferenceKey, idempotency *node.IdempotencyRecord) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node.create_atomic")(&err)
 	err = runNodeMutation(ctx, s.db, "create node "+current.ID.String()+" atomically", func(tr fdb.Transaction) error {
+		if _, err := s.fenceAttempt(ctx, tr, current.OrgID, current.ID); err != nil {
+			return err
+		}
 		if err := writeCreateIdempotency(ctx, tr, current.OrgID, idempotency); err != nil {
 			return err
 		}

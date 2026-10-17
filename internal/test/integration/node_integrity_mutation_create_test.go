@@ -4,7 +4,8 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"goodkind.io/tack/internal/clock"
+	"goodkind.io/tack/internal/audit"
+	"goodkind.io/tack/internal/auditintent"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/service"
@@ -34,20 +35,8 @@ func TestNodeIntegrityMutationCreateRetry(t *testing.T) {
 	_, err = env.NodeSvc.Create(env.Ctx, different)
 	requireError(t, err, domain.ErrConflict, "Create with a reused key and a different fingerprint")
 
-	_, schema := mutationSnapshot(t, env, projectID)
-	name := "Store retry"
 	newID := uuid.Must(uuid.NewV7())
-	receipt, err := env.Stores.Nodes.ApplyMutation(env.Ctx, node.MutationPlan{
-		OrgID: env.OrgID, NodeID: newID, NodeType: "issue", ActorID: uuid.New(),
-		Source: node.SourceExpectation{Absent: true, PrimaryDigest: node.Digest{}}, MetadataEpoch: schema.MetadataEpoch,
-		Graph: node.GraphExpectation{Records: parentChain(t, env, projectID), Relationships: nil, Incoming: nil},
-		Name:  &name, Props: schemaProps("scope_id", quoted(projectID.String())), Parent: &node.ParentChange{TargetID: projectID},
-		ReferenceKeys: nil, Relationships: node.RelationshipChanges{Add: nil, Remove: nil},
-		Idempotency: &node.IdempotencyRecord{
-			Key: input.IdempotencyKey, NodeID: newID, Fingerprint: input.IdempotencyFingerprint,
-			Source: input.IdempotencySource, CreatedAt: clock.Now().UTC(),
-		},
-	})
+	receipt, err := env.Stores.Nodes.ApplyMutation(env.Ctx, retryCreatePlan(t, env, projectID, input, newID))
 	if err != nil || receipt.NodeID != first.View.ID {
 		t.Fatalf("store retry receipt = %+v, %v, want issue %s", receipt, err, first.View.ID)
 	}
@@ -60,6 +49,43 @@ func TestNodeIntegrityMutationCreateRetry(t *testing.T) {
 	}
 	if issues := listByScope(t, env, "issue", projectID); len(issues) != 1 {
 		t.Fatalf("project %s has %d issues, want 1", projectID, len(issues))
+	}
+}
+
+// TestNodeIntegrityMutationCreateRetryRecordsOneEvent creates an issue with
+// an idempotency key under an audit slot. It repeats the create through the
+// service, then calls ApplyMutation with a new node ID and a staged create
+// event. It checks that the outbox records exactly one node.create event for
+// the issue and does not record an event for the new node ID. It also checks
+// that the store retry does not commit its staged event.
+func TestNodeIntegrityMutationCreateRetryRecordsOneEvent(t *testing.T) {
+	env := integration.SetupTestEnv(t)
+	projectID := createSchemaProject(t, env)
+	input := schemaCreateInput(projectID, projectID, "issue", nil)
+	input.IdempotencyKey, input.IdempotencyFingerprint, input.IdempotencySource = "event-key", "same-request", "mcp"
+	first, err := env.NodeSvc.Create(auditSlot(env, input.ActorID), input)
+	if err != nil || first.Existed {
+		t.Fatalf("first create = %+v, %v, want a new issue", first, err)
+	}
+	if retry, err := env.NodeSvc.Create(auditSlot(env, input.ActorID), input); err != nil || retry.View.ID != first.View.ID {
+		t.Fatalf("service retry = %+v, %v, want existing issue %s", retry, err, first.View.ID)
+	}
+
+	newID := uuid.Must(uuid.NewV7())
+	retryContext := auditSlot(env, input.ActorID)
+	if err := audit.StageStateChange(retryContext, audit.VerbNodeCreate, audit.Entity{
+		Type: "node", NodeType: "issue", ID: newID, Identifier: "", Name: input.Name,
+	}); err != nil {
+		t.Fatalf("stage the retry event: %v", err)
+	}
+	receipt, err := env.Stores.Nodes.ApplyMutation(retryContext, retryCreatePlan(t, env, projectID, input, newID))
+	if err != nil || receipt.NodeID != first.View.ID || auditintent.Committed(retryContext) {
+		t.Fatalf("store retry = %+v, %v, committed %t, want issue %s without a committed event",
+			receipt, err, auditintent.Committed(retryContext), first.View.ID)
+	}
+	outboxEvent(t, env.Stores, first.View.ID, audit.VerbNodeCreate)
+	if count := outboxEventCount(t, env, newID); count != 0 {
+		t.Fatalf("the outbox records %d events for node %s, want none", count, newID)
 	}
 }
 
