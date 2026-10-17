@@ -1,6 +1,7 @@
 package integration_test
 
 import (
+	"context"
 	"encoding/json"
 	"strconv"
 	"strings"
@@ -57,15 +58,26 @@ func TestDefaultChildrenBackfillRefusesUndeclaredProperties(t *testing.T) {
 		t.Fatalf("store parent node %s: %v", parent.ID, err)
 	}
 
+	backfill, ok := ops.Get("backfill.default_children")
+	if !ok {
+		t.Fatal("ops.Get did not find backfill.default_children")
+	}
+	runs := []struct {
+		mode string
+		work func(context.Context, *ops.Env) error
+	}{
+		{mode: "dry run", work: backfill.DryRun},
+		{mode: "execute", work: backfill.Run},
+	}
 	wantNames := strconv.Quote(earlierName) + ", " + strconv.Quote(laterName)
-	for _, dryRun := range []bool{true, false} {
-		err := ops.RunDefaultChildrenBackfill(env.Ctx, env.Ops, dryRun)
+	for _, run := range runs {
+		err := run.work(env.Ctx, env.Ops)
 		if err == nil {
-			t.Fatalf("default children backfill with dry run %t succeeded, want a refusal", dryRun)
+			t.Fatalf("default children backfill %s: got nil, want an undeclared property error", run.mode)
 		}
 		for _, want := range []string{typeKey, childName, wantNames} {
 			if !strings.Contains(err.Error(), want) {
-				t.Fatalf("default children backfill with dry run %t: error = %q, want %q", dryRun, err, want)
+				t.Fatalf("default children backfill %s: got error %q, want an error containing %q", run.mode, err, want)
 			}
 		}
 	}

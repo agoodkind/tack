@@ -25,45 +25,16 @@ func init() {
 	})
 }
 
+// runBackfillDefaultChildren calls checkedDefaultChildTypes and returns its
+// error before any write. It calls backfillOrgDefaultChildren to create every
+// missing default child in every organization. After processing every
+// organization, it returns one error that joins all failed parent listings,
+// child listings, and child creations. It returns nil when all operations
+// succeed.
 func runBackfillDefaultChildren(ctx context.Context, env *Env) error {
-	return RunDefaultChildrenBackfill(ctx, env, false)
-}
-
-func dryRunBackfillDefaultChildren(ctx context.Context, env *Env) error {
-	return RunDefaultChildrenBackfill(ctx, env, true)
-}
-
-// RunDefaultChildrenBackfill reads the organization IDs and returns the error
-// if that read fails.
-//
-// It reads every organization's node types through listOrgNodeTypes. If any
-// node type read fails, it returns one error that joins every failed read
-// before validation or writes.
-//
-// It validates the complete property map of every default child in every
-// organization. If any default child sets an undeclared property, it refuses
-// the entire run with one error before any write.
-//
-// If dryRun is true, it stops after validation.
-//
-// Otherwise, it creates every missing default child in every organization.
-// After processing every organization, it returns one error that joins every
-// failed parent listing, child listing, or child creation. It returns nil if
-// every operation succeeds.
-func RunDefaultChildrenBackfill(ctx context.Context, env *Env, dryRun bool) error {
-	orgIDs, err := listOrgIDs(ctx, env)
+	orgTypes, err := checkedDefaultChildTypes(ctx, env)
 	if err != nil {
 		return err
-	}
-	orgTypes, err := listOrgNodeTypes(ctx, env, orgIDs)
-	if err != nil {
-		return err
-	}
-	if err := checkDefaultChildProps(ctx, env, orgTypes); err != nil {
-		return err
-	}
-	if dryRun {
-		return nil
 	}
 	var failures []error
 	for orgID, types := range orgTypes {
@@ -76,6 +47,34 @@ func RunDefaultChildrenBackfill(ctx context.Context, env *Env, dryRun bool) erro
 	env.Log.ErrorContext(ctx, "backfill.default_children_failed",
 		slog.Int("failures", len(failures)), slog.String("err", failed.Error()))
 	return failed
+}
+
+// dryRunBackfillDefaultChildren stops after checkedDefaultChildTypes validates.
+func dryRunBackfillDefaultChildren(ctx context.Context, env *Env) error {
+	_, err := checkedDefaultChildTypes(ctx, env)
+	return err
+}
+
+// checkedDefaultChildTypes reads organization IDs with listOrgIDs and returns
+// its error immediately. It reads every organization's node types with
+// listOrgNodeTypes and joins all failed reads before validation or writes.
+// It calls checkDefaultChildProps to validate every default child's complete
+// property map in every organization. Any undeclared property stops the run
+// with one error before any write. On success, it returns the node types by
+// organization ID.
+func checkedDefaultChildTypes(ctx context.Context, env *Env) (map[uuid.UUID][]*node.NodeType, error) {
+	orgIDs, err := listOrgIDs(ctx, env)
+	if err != nil {
+		return nil, err
+	}
+	orgTypes, err := listOrgNodeTypes(ctx, env, orgIDs)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkDefaultChildProps(ctx, env, orgTypes); err != nil {
+		return nil, err
+	}
+	return orgTypes, nil
 }
 
 // backfillOrgDefaultChildren creates missing default children for every node
