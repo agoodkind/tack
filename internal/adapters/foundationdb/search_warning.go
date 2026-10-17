@@ -11,16 +11,6 @@ import (
 	searchdomain "goodkind.io/tack/internal/domain/search"
 )
 
-// Property warning keys use separate families. A verified warning key uses
-// (family, orgID, nodeID, property name). Its revision key uses (family,
-// orgID, nodeID). A staged warning key places the work class before orgID.
-const (
-	keySearchWarning              = "search_warning"
-	keySearchWarningRevision      = "search_warning_revision"
-	keySearchWarningStaged        = "search_warning_staged"
-	keySearchWarningStagedVersion = "search_warning_staged_version"
-)
-
 // stagedWarningVersion identifies the revision, generation, and projection
 // of one staged warning set.
 type stagedWarningVersion struct {
