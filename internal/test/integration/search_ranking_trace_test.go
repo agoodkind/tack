@@ -48,8 +48,9 @@ func (r *rankingRun) trace(t *testing.T, probe rankingProbe, page rankingPage) {
 	if len(page.IDs) > 0 && !slices.Contains(chunked, page.IDs[0]) {
 		chunked = append(chunked, page.IDs[0])
 	}
+	modelID := r.indexModel(t, index)
 	for _, nodeID := range chunked {
-		r.traceChunks(t, index, probe.Query, nodeID, weights)
+		r.traceChunks(t, index, modelID, probe.Query, nodeID, weights)
 	}
 	explained := append(append([]uuid.UUID(nil), probe.Targets...), page.IDs[:min(3, len(page.IDs))]...)
 	r.traceExplain(t, index, probe.Query, filters, []json.RawMessage{lexical, sparse}, explained)
@@ -103,7 +104,7 @@ func (r *rankingRun) traceExplain(t *testing.T, index, query string, filters, cl
 	}
 }
 
-func (r *rankingRun) traceChunks(t *testing.T, index, query string, nodeID uuid.UUID, weights map[string]float64) {
+func (r *rankingRun) traceChunks(t *testing.T, index, modelID, query string, nodeID uuid.UUID, weights map[string]float64) {
 	t.Helper()
 	filters := []json.RawMessage{
 		encodeTrace(t, traceTerms{Terms: map[string][]string{"node_id": {nodeID.String()}}}),
@@ -128,6 +129,7 @@ func (r *rankingRun) traceChunks(t *testing.T, index, query string, nodeID uuid.
 		for number, chunk := range page.Semantic.Chunks {
 			t.Logf("trace query=%q chunk name=%q page=%d chunk=%d dot=%.4f text=%q top=%s", query, r.names[nodeID], page.PageOrdinal, number,
 				traceDot(weights, chunk.Embedding), chunk.Text, topTraceWeights(chunk.Embedding, traceChunkTokens))
+			r.traceRawChunk(t, modelID, query, r.names[nodeID], page.PageOrdinal, number, chunk.Text, chunk.Embedding, weights)
 		}
 	}
 }
