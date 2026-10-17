@@ -11,10 +11,9 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
-// ModifyPlan sets the computed values from the migration status and rejects a
-// version that the status does not allow. A plan for the installation in state
-// uses the refreshed state. A plan for a new installation reads the live
-// status with the read-only command.
+// ModifyPlan sets computed values from migration status and rejects invalid
+// versions. It uses refreshed state for an installation already in state and
+// reads live status without --execute for a new installation.
 func (r *schemaResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
 	if req.Plan.Raw.IsNull() {
 		return
@@ -53,8 +52,8 @@ func (r *schemaResource) ModifyPlan(ctx context.Context, req resource.ModifyPlan
 	resp.Diagnostics.Append(resp.Plan.Set(ctx, &planned)...)
 }
 
-// plannedStatus returns the migration status that the plan compares with. It
-// returns false when the status cannot be known during this plan.
+// plannedStatus returns the migration status for the plan comparison, or false
+// if the plan cannot determine status.
 func (r *schemaResource) plannedStatus(
 	ctx context.Context,
 	req resource.ModifyPlanRequest,

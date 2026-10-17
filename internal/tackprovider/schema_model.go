@@ -52,29 +52,30 @@ func (model schemaModel) sameTarget(other schemaModel) bool {
 	return model.Node.Equal(other.Node) && model.VMID.Equal(other.VMID) && model.InstallDir.Equal(other.InstallDir)
 }
 
-// schemaID formats the resource ID and import ID <node>/<vmid>:<install_dir>.
+// schemaID formats the resource ID and import ID as `<node>/<vmid>:<install_dir>`.
 func schemaID(node string, vmid int64, installDir string) string {
 	return fmt.Sprintf("%s/%d:%s", node, vmid, installDir)
 }
 
-// parseSchemaID splits an import ID of the form <node>/<vmid>:<install_dir>.
+// parseSchemaID splits an import ID in the form `<node>/<vmid>:<install_dir>`.
 func parseSchemaID(id string) (string, int64, string, error) {
 	guestPart, installDir, found := strings.Cut(id, ":")
 	if !found || installDir == "" {
-		return "", 0, "", fmt.Errorf("import ID %q does not have the form <node>/<vmid>:<install_dir>", id)
+		return "", 0, "", fmt.Errorf("import ID %q does not match the form `<node>/<vmid>:<install_dir>`", id)
 	}
 	slash := strings.LastIndex(guestPart, "/")
 	if slash <= 0 {
-		return "", 0, "", fmt.Errorf("import ID %q does not have the form <node>/<vmid>:<install_dir>", id)
+		return "", 0, "", fmt.Errorf("import ID %q does not match the form `<node>/<vmid>:<install_dir>`", id)
 	}
 	vmid, err := strconv.ParseInt(guestPart[slash+1:], 10, 64)
 	if err != nil || vmid <= 0 {
-		return "", 0, "", fmt.Errorf("import ID %q has the VMID %q, which is not a positive integer", id, guestPart[slash+1:])
+		return "", 0, "", fmt.Errorf("import ID %q contains VMID %q, which is not a positive integer", id, guestPart[slash+1:])
 	}
 	return guestPart[:slash], vmid, installDir, nil
 }
 
-// migrationList converts migrations to a list value of migration objects.
+// migrationList converts migrations to a list value containing migration
+// objects.
 func migrationList(ctx context.Context, migrations []migration) (types.List, diag.Diagnostics) {
 	models := make([]migrationModel, 0, len(migrations))
 	for _, item := range migrations {
@@ -87,7 +88,7 @@ func migrationList(ctx context.Context, migrations []migration) (types.List, dia
 	return types.ListValueFrom(ctx, migrationObjectType, models)
 }
 
-// statusFromModel rebuilds the migration status that the model recorded.
+// statusFromModel rebuilds migration status from the values in state.
 func statusFromModel(ctx context.Context, model schemaModel) (schemaStatus, diag.Diagnostics) {
 	var models []migrationModel
 	diags := model.Available.ElementsAs(ctx, &models, false)
@@ -107,9 +108,9 @@ func statusFromModel(ctx context.Context, model schemaModel) (schemaStatus, diag
 	}, diags
 }
 
-// modelFromStatus returns the state of the installation in identity with the
-// live status and the given version. Pending lists the migrations above the
-// applied version through version.
+// modelFromStatus builds the installation state from identity, live status,
+// and version. The pending list contains migrations above the applied version
+// through version.
 func modelFromStatus(
 	ctx context.Context,
 	identity schemaModel,

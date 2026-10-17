@@ -18,7 +18,7 @@ const (
 	protocolVersion6 = 6
 )
 
-// The provider-tack Makefile target sets this value at link time.
+// version receives its value at link time from the provider-tack Makefile target.
 var version = "dev"
 
 func main() {

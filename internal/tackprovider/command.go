@@ -13,22 +13,23 @@ import (
 )
 
 const (
-	// applyTimeoutSeconds is the limit of the container exec API.
+	// applyTimeoutSeconds is the time limit in seconds for the container exec API.
 	applyTimeoutSeconds = 3600
 
-	// stderrTailBytes bounds the stderr text in a diagnostic.
+	// stderrTailBytes limits the number of stderr bytes in a diagnostic.
 	stderrTailBytes = 4096
 )
 
-// schemaTarget is the Tack installation that one tack_schema resource manages.
+// schemaTarget identifies the guest and install directory that one tack_schema
+// resource manages.
 type schemaTarget struct {
 	guest      transport.Guest
 	installDir string
 }
 
-// statusArgv returns the read-only `migrate` command. The command has no
-// --execute flag, and compose does not pull the image. With
-// LOG_DISABLE_STDOUT, the command writes only the status document to stdout.
+// statusArgv returns migrate --output json for the tack-ops compose service
+// without --execute. The command uses --pull never to prevent image downloads
+// and LOG_DISABLE_STDOUT to keep log lines out of stdout.
 func statusArgv(target schemaTarget, operatorFlags []string) []string {
 	argv := []string{
 		"env", "-C", target.installDir,
@@ -39,8 +40,9 @@ func statusArgv(target schemaTarget, operatorFlags []string) []string {
 	return append(argv, operatorFlags...)
 }
 
-// applyArgv returns the `migrate --execute` command that applies migrations
-// through version and refuses to run unless the database is at expectFrom.
+// applyArgv returns migrate --execute with --to version and --expect-from
+// expectFrom. The command applies migrations through version and refuses to
+// run unless the database is at expectFrom.
 func applyArgv(target schemaTarget, operatorFlags []string, version int64, expectFrom int64) []string {
 	return append(statusArgv(target, operatorFlags),
 		"--execute",
@@ -49,8 +51,8 @@ func applyArgv(target schemaTarget, operatorFlags []string, version int64, expec
 	)
 }
 
-// runCommand runs argv in the guest and returns its stdout. A transport
-// failure or a nonzero exit status returns an error diagnostic.
+// runCommand runs argv in the guest and returns stdout. It adds an error
+// diagnostic if the transport fails or the command exits with a nonzero status.
 func (data *providerData) runCommand(
 	ctx context.Context,
 	target schemaTarget,
@@ -69,7 +71,7 @@ func (data *providerData) runCommand(
 			slog.String("err", err.Error()))
 		var unreachable *transport.UnreachableError
 		if errors.As(err, &unreachable) {
-			diags.AddError("Tack guest is unreachable",
+			diags.AddError("Cannot contact the Tack guest",
 				fmt.Sprintf("The provider cannot run %s: %s", quoted, err.Error()))
 			return nil, diags
 		}
@@ -89,7 +91,7 @@ func (data *providerData) runCommand(
 	return result.Stdout, diags
 }
 
-// readStatus runs the read-only `migrate` command and decodes its stdout.
+// readStatus runs migrate --output json without --execute and decodes stdout.
 func (data *providerData) readStatus(ctx context.Context, target schemaTarget) (schemaStatus, diag.Diagnostics) {
 	var unread schemaStatus
 	argv := statusArgv(target, data.operatorFlags)
@@ -99,8 +101,8 @@ func (data *providerData) readStatus(ctx context.Context, target schemaTarget) (
 	}
 	status, err := decodeStatus(ctx, stdout)
 	if err != nil {
-		diags.AddError("Tack migration status is unreadable",
-			fmt.Sprintf("The output of %s in %s is not a status document: %s",
+		diags.AddError("Cannot read Tack migration status",
+			fmt.Sprintf("The provider cannot decode the output of %s in %s as a status document: %s",
 				transport.QuoteCommand(argv), target.guest, err.Error()))
 		return unread, diags
 	}
@@ -114,14 +116,14 @@ func (data *providerData) readStatus(ctx context.Context, target schemaTarget) (
 // stderrText returns at most the last stderrTailBytes bytes of stderr.
 func stderrText(stderr []byte) string {
 	if len(stderr) == 0 {
-		return "The command wrote nothing to stderr."
+		return "The command did not write to stderr."
 	}
 	tail := stderr
 	if len(tail) > stderrTailBytes {
 		tail = tail[len(tail)-stderrTailBytes:]
 	}
 	text := strings.ToValidUTF8(string(tail), "")
-	return fmt.Sprintf("The last %d bytes of stderr:\n%s", len(tail), text)
+	return fmt.Sprintf("The last %d bytes of stderr are:\n%s", len(tail), text)
 }
 
 func diagnosticsText(diags diag.Diagnostics) string {

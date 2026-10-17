@@ -21,8 +21,8 @@ func (r *schemaResource) Create(ctx context.Context, req resource.CreateRequest,
 		return
 	}
 	if !plan.ImageCommit.IsUnknown() && plan.ImageCommit.ValueString() != before.ImageCommit {
-		resp.Diagnostics.AddError("Tack image changed after the plan",
-			fmt.Sprintf("The plan read image commit %s, and %s now runs image commit %s. Run the plan again.",
+		resp.Diagnostics.AddError("Tack image changed after planning",
+			fmt.Sprintf("The plan read image commit %s. The installation %s now runs image commit %s. Run the plan again.",
 				plan.ImageCommit.ValueString(), plan.target().guest, before.ImageCommit))
 		return
 	}
@@ -51,9 +51,10 @@ func (r *schemaResource) Update(ctx context.Context, req resource.UpdateRequest,
 	}
 }
 
-// apply migrates from the applied version of before to the planned version
-// and reads the status again. It returns the new state and true when the
-// database is at the planned version with no migration pending through it.
+// apply migrates from the applied version in before to the planned version,
+// then reads status again. It returns the new state and true only if the
+// database matches the planned version and does not have pending migrations
+// through that version.
 func (r *schemaResource) apply(
 	ctx context.Context,
 	plan schemaModel,
@@ -83,11 +84,11 @@ func (r *schemaResource) apply(
 	}
 	pending := after.pendingThrough(version)
 	if after.AppliedVersion != version || len(pending) != 0 {
-		problem := fmt.Sprintf("After the apply, %s is at migration version %d, not version %d, "+
-			"with %d migrations pending.", target.guest, after.AppliedVersion, version, len(pending))
+		problem := fmt.Sprintf("After apply, the installation %s has migration version %d instead of version %d "+
+			"and has %d pending migrations.", target.guest, after.AppliedVersion, version, len(pending))
 		slog.ErrorContext(ctx, "schema.apply_failed", slog.String("guest", target.guest.String()),
 			slog.String("err", problem))
-		diags.AddError("Tack schema is not at the planned version", problem)
+		diags.AddError("Tack schema does not match the planned version", problem)
 		return plan, false
 	}
 	model, modelDiags := modelFromStatus(ctx, plan, after, version)
@@ -100,8 +101,9 @@ func (r *schemaResource) apply(
 	return model, true
 }
 
-// Read sets version to the live applied version. An unreadable status keeps
-// the resource in state. An absent migration table removes it from state.
+// Read sets version to the live applied version. It keeps the resource in
+// state if status is unreadable and removes it if the goose migration table
+// does not exist.
 func (r *schemaResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	var state schemaModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
@@ -126,7 +128,7 @@ func (r *schemaResource) Read(ctx context.Context, req resource.ReadRequest, res
 	resp.Diagnostics.Append(resp.State.Set(ctx, &model)...)
 }
 
-// Delete removes the resource from state only.
+// Delete removes the resource from state and does not revert migrations.
 func (r *schemaResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 	var state schemaModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
@@ -135,7 +137,7 @@ func (r *schemaResource) Delete(ctx context.Context, req resource.DeleteRequest,
 	}
 	slog.InfoContext(ctx, "schema.forgotten", slog.String("guest", state.target().guest.String()),
 		slog.Int64("applied_version", state.AppliedVersion.ValueInt64()))
-	resp.Diagnostics.AddWarning("No migration is reverted",
-		fmt.Sprintf("tack_schema removed %s from state only. The database stays at migration version %d.",
+	resp.Diagnostics.AddWarning("Delete does not revert migrations",
+		fmt.Sprintf("tack_schema removed %s from state only. The database remains at migration version %d.",
 			state.ID.ValueString(), state.AppliedVersion.ValueInt64()))
 }

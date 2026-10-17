@@ -20,8 +20,8 @@ import (
 	"goodkind.io/tack/migrations"
 )
 
-// guardedVersion is the version that a target at or below requires as the
-// applied version.
+// guardedVersion is the minimum applied version required for a target at or
+// below this version.
 const guardedVersion = 19
 
 type migrationValue struct {
@@ -36,8 +36,9 @@ var migrationObjectType = types.ObjectType{AttrTypes: map[string]attr.Type{
 	"sha256":  types.StringType,
 }}
 
-// statusDocument encodes the status of a database at applied with the embedded
-// migrations in the `migrate --output json` envelope and decodes the result.
+// statusDocument builds status for a database at applied with the embedded
+// migrations, encodes it in the migrate --output json envelope, and decodes
+// the result.
 func statusDocument(t *testing.T, applied int64) schemastatus.Status {
 	t.Helper()
 	available, err := schemastatus.Available(t.Context(), migrations.FS)
@@ -92,8 +93,8 @@ func migrationList(t *testing.T, embedded []schemastatus.Migration) types.List {
 	return list
 }
 
-// planVersion runs the tack_schema plan of version target for an installation
-// that state records at the applied version of status. It returns the planned
+// planVersion plans tack_schema at target for an installation that state
+// records at the applied version in status. It returns the planned
 // applied_version, the planned pending list, and the diagnostics.
 func planVersion(t *testing.T, status schemastatus.Status, target int64) (types.Int64, types.List, diag.Diagnostics) {
 	t.Helper()
@@ -167,11 +168,11 @@ func TestPlanRejectsInvalidVersions(t *testing.T) {
 		},
 		{
 			name: "above the highest available version", applied: highest, target: highest + 1,
-			want: fmt.Sprintf("version %d is above the highest available migration version %d", highest+1, highest),
+			want: fmt.Sprintf("version %d exceeds the highest available migration version %d", highest+1, highest),
 		},
 		{
 			name: "at the guarded version while the applied version is below it", applied: 17, target: guardedVersion,
-			want: fmt.Sprintf("version %d is at or below version %d, and the applied migration version is 17",
+			want: fmt.Sprintf("version %d is at or below version %d. The applied migration version is 17",
 				guardedVersion, guardedVersion),
 		},
 	}

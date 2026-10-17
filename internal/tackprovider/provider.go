@@ -36,15 +36,15 @@ type nodeModel struct {
 	NodeName types.String `tfsdk:"node_name"`
 }
 
-// providerData is what every resource receives from Configure. operatorFlags
-// are the identity flags that every Tack command receives.
+// providerData contains the values that Configure passes to every resource.
+// Its operatorFlags field contains the identity flags for every Tack command.
 type providerData struct {
 	client        *transport.Client
 	operatorFlags []string
 }
 
-// New returns the factory of the Tack provider. OpenTofu receives version as
-// the provider version.
+// New returns the Tack provider factory and supplies version to OpenTofu as the
+// provider version.
 func New(version string) func() provider.Provider {
 	return func() provider.Provider {
 		return &tackProvider{version: version}
@@ -58,31 +58,33 @@ func (p *tackProvider) Metadata(_ context.Context, _ provider.MetadataRequest, r
 
 func (p *tackProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "Declares Tack application state. Commands run inside the Tack guest through the Proxmox VE API.",
+		Description: "The provider manages the migration version of a Tack installation's ledger database " +
+			"through tack_schema. It runs commands inside the Tack guest through the Proxmox VE API " +
+			"with the pveguest transport.",
 		Attributes: map[string]schema.Attribute{
 			"nodes": schema.MapNestedAttribute{
 				Required: true,
-				Description: "Hypervisors by name, in the shape of the pveguest provider nodes map. " +
-					"A resource selects one with its node argument.",
+				Description: "This map configures hypervisors by name using the pveguest provider nodes map " +
+					"format. Each resource selects a hypervisor with its node argument.",
 				NestedObject: schema.NestedAttributeObject{
 					Attributes: map[string]schema.Attribute{
 						"endpoint": schema.StringAttribute{
 							Required:    true,
-							Description: "URL of the Proxmox VE API, for example https://[2001:db8::1]:8006.",
+							Description: "This URL identifies the Proxmox VE API endpoint, for example https://[2001:db8::1]:8006.",
 						},
 						"api_token": schema.StringAttribute{
 							Required:    true,
 							Sensitive:   true,
-							Description: "API token in the form user@realm!tokenid=secret.",
+							Description: "This API token uses the form user@realm!tokenid=secret.",
 						},
 						"node_name": schema.StringAttribute{
 							Optional:    true,
-							Description: "Proxmox node name in the API path. The default is the map key.",
+							Description: "This Proxmox node name appears in the API path and defaults to the map key.",
 							Validators:  []validator.String{stringvalidator.LengthAtLeast(1)},
 						},
 						"insecure": schema.BoolAttribute{
 							Optional:    true,
-							Description: "Skips TLS certificate verification. The default is false.",
+							Description: "This option skips TLS certificate verification and defaults to false.",
 						},
 					},
 				},
@@ -102,7 +104,7 @@ func (p *tackProvider) Configure(ctx context.Context, req provider.ConfigureRequ
 	}
 	if config.Nodes.IsUnknown() {
 		resp.Diagnostics.AddError("Unknown provider configuration",
-			"The nodes argument must be known when the provider is configured.")
+			"The nodes argument must be known when the provider runs Configure.")
 		return
 	}
 	flags, err := operatorFlags(config.Operator)
@@ -138,7 +140,7 @@ func nodeConfigs(ctx context.Context, nodesValue types.Map) (map[string]transpor
 			model.NodeName.IsUnknown() {
 			return nil, fmt.Errorf(
 				"the endpoint, api_token, insecure, and node_name arguments of node %q must be known "+
-					"when the provider is configured", name)
+					"when the provider runs Configure", name)
 		}
 		nodes[name] = transport.NodeConfig{
 			Endpoint: model.Endpoint.ValueString(),

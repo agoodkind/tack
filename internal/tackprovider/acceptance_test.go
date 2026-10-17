@@ -30,8 +30,8 @@ const (
 	schemaAddress = "tack_schema.qa"
 )
 
-// acceptanceConfig reads every input from variables. The configuration text
-// contains no token.
+// acceptanceConfig reads every input from variables and does not contain a
+// token.
 const acceptanceConfig = `
 variable "node" { type = string }
 variable "endpoint" { type = string }
@@ -69,8 +69,9 @@ resource "tack_schema" "qa" {
 `
 
 // TestSchemaImportPlanAndRefresh imports the schema of a running Tack
-// environment, plans the applied version with no change, and refreshes. The
-// test runs no apply step, and destroy removes the resource from state only.
+// environment, plans the applied version without changes, and refreshes
+// state. It does not run apply, and destroy only removes the resource from
+// state.
 func TestSchemaImportPlanAndRefresh(t *testing.T) {
 	if os.Getenv(acceptanceVariable) == "" {
 		t.Skipf("%s is not set", acceptanceVariable)

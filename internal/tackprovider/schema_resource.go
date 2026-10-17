@@ -19,8 +19,8 @@ import (
 
 var absolutePathPattern = regexp.MustCompile(`^/`)
 
-// schemaResource is tack_schema: the migration version of the Tack ledger
-// database of one installation.
+// schemaResource implements tack_schema, which manages the migration version of
+// one Tack installation's ledger database.
 type schemaResource struct {
 	data *providerData
 }
@@ -41,33 +41,36 @@ func (r *schemaResource) Metadata(_ context.Context, req resource.MetadataReques
 
 func (r *schemaResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	migrationObject := schema.NestedAttributeObject{Attributes: map[string]schema.Attribute{
-		"version": schema.Int64Attribute{Computed: true, Description: "Migration version."},
-		"name":    schema.StringAttribute{Computed: true, Description: "Migration file name."},
-		"sha256":  schema.StringAttribute{Computed: true, Description: "SHA-256 of the migration file."},
+		"version": schema.Int64Attribute{Computed: true, Description: "This value identifies the migration version."},
+		"name":    schema.StringAttribute{Computed: true, Description: "This value specifies the migration file name."},
+		"sha256": schema.StringAttribute{
+			Computed: true, Description: "This value contains the SHA-256 hash of the migration file.",
+		},
 	}}
 	resp.Schema = schema.Schema{
-		Description: "The migration version of the Tack ledger database. Apply runs `migrate --execute` " +
-			"in the tack-ops service. Delete removes the resource from state and reverts no migration.",
+		Description: "tack_schema manages the migration version of one Tack installation's ledger database, " +
+			"YugabyteDB. Apply runs migrate --execute in the tack-ops service. Delete removes the resource " +
+			"from state and does not revert migrations.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:      true,
-				Description:   "The installation in the form <node>/<vmid>:<install_dir>.",
+				Description:   "This ID identifies the installation in the form `<node>/<vmid>:<install_dir>`.",
 				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"node": schema.StringAttribute{
 				Required:      true,
-				Description:   "Key of the provider nodes map for the hypervisor that runs the guest.",
+				Description:   "This key selects the hypervisor that runs the guest from the provider nodes map.",
 				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()},
 			},
 			"vmid": schema.Int64Attribute{
 				Required:      true,
-				Description:   "Proxmox ID of the Tack container.",
+				Description:   "This Proxmox ID identifies the Tack container.",
 				Validators:    []validator.Int64{int64validator.AtLeast(1)},
 				PlanModifiers: []planmodifier.Int64{int64planmodifier.RequiresReplace()},
 			},
 			"install_dir": schema.StringAttribute{
 				Required:    true,
-				Description: "Absolute path of the Tack compose project in the guest.",
+				Description: "This absolute path identifies the Tack compose project directory in the guest.",
 				Validators: []validator.String{
 					stringvalidator.RegexMatches(absolutePathPattern, "must be an absolute path"),
 				},
@@ -75,26 +78,26 @@ func (r *schemaResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 			},
 			"version": schema.Int64Attribute{
 				Required:    true,
-				Description: "Target migration version. Refresh sets it to the applied version.",
+				Description: "This value sets the target migration version. Refresh sets version to the applied version.",
 				Validators:  []validator.Int64{int64validator.AtLeast(1)},
 			},
 			"applied_version": schema.Int64Attribute{
 				Computed:    true,
-				Description: "Highest applied migration version in the database.",
+				Description: "This value reports the highest applied migration version in the database.",
 			},
 			"image_commit": schema.StringAttribute{
 				Computed:    true,
-				Description: "Commit of the tack-ops image that embeds the available migrations.",
+				Description: "This value identifies the commit of the tack-ops image that embeds the available migrations.",
 			},
 			"available": schema.ListNestedAttribute{
 				Computed:     true,
-				Description:  "Migrations that the tack-ops image embeds, in version order.",
+				Description:  "This list contains the migrations that the tack-ops image embeds, in version order.",
 				NestedObject: migrationObject,
 			},
 			"pending": schema.ListNestedAttribute{
 				Computed: true,
-				Description: "Migrations above the applied version through version. A plan that changes " +
-					"version shows this list as known after apply and lists the migrations in a warning.",
+				Description: "This list contains migrations above the applied version through version. When a plan " +
+					"changes version, it shows pending as known after apply and lists each migration in a warning.",
 				NestedObject: migrationObject,
 			},
 		},
@@ -126,12 +129,12 @@ func (r *schemaResource) ImportState(ctx context.Context, req resource.ImportSta
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("install_dir"), installDir)...)
 }
 
-// configured reports whether the provider configured this resource, and adds
-// an error diagnostic when it did not.
+// configured reports whether the provider configured this resource. It adds an
+// error diagnostic if the provider did not configure it.
 func (r *schemaResource) configured(diags *diag.Diagnostics) bool {
 	if r.data != nil {
 		return true
 	}
-	diags.AddError("Unconfigured provider", "The tack provider was not configured before tack_schema ran.")
+	diags.AddError("Unconfigured provider", "The tack provider did not configure tack_schema before the resource ran.")
 	return false
 }

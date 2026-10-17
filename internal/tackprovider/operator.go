@@ -22,41 +22,42 @@ type operatorModel struct {
 
 func operatorBlock() schema.SingleNestedBlock {
 	return schema.SingleNestedBlock{
-		Description: "The operator identity that every Tack command records in the audit ledger.",
+		Description: "Every Tack command records this operator identity in the audit ledger.",
 		Attributes: map[string]schema.Attribute{
 			"email": schema.StringAttribute{
 				Optional: true,
-				Description: "Email of the accountable person. The provider refuses an empty email. " +
-					"The operator ID is the version 5 UUID of the lowercased email.",
+				Description: "This email identifies the accountable person. The provider rejects an empty email " +
+					"and derives the operator ID as the version 5 UUID of the lowercased email in the " +
+					"namespace that deploy_operator_id uses.",
 			},
 			"name": schema.StringAttribute{
 				Optional:    true,
-				Description: "Name of the accountable person. Commands receive it when service is empty.",
+				Description: "This name identifies the accountable person. Commands receive it when service is empty.",
 			},
 			"service": schema.StringAttribute{
 				Optional:    true,
-				Description: "Agent service name, such as claude-rowan. A service requires a session.",
+				Description: "This agent service name, such as claude-rowan, requires a session.",
 			},
 			"session": schema.StringAttribute{
 				Optional:    true,
-				Description: "Agent session identifier. A session requires a service.",
+				Description: "This agent session identifier requires a service.",
 			},
 		},
 	}
 }
 
-// operatorFlags returns the operator identity flags in the form that the
-// configs variable tack_ops_identity_flags renders.
+// operatorFlags returns operator identity flags in the format that the configs
+// variable tack_ops_identity_flags renders.
 func operatorFlags(model *operatorModel) ([]string, error) {
 	if model == nil {
-		return nil, errors.New("the operator block is required")
+		return nil, errors.New("the provider configuration requires the operator block")
 	}
 	if model.Email.IsUnknown() || model.Name.IsUnknown() || model.Service.IsUnknown() || model.Session.IsUnknown() {
-		return nil, errors.New("the operator arguments must be known when the provider is configured")
+		return nil, errors.New("the operator arguments must be known when the provider runs Configure")
 	}
 	email := strings.ToLower(model.Email.ValueString())
 	if strings.TrimSpace(email) == "" {
-		return nil, errors.New("operator.email is empty; set the email of the accountable person")
+		return nil, errors.New("operator.email is empty. The operator configuration requires the accountable person's email")
 	}
 	service := model.Service.ValueString()
 	session := model.Session.ValueString()

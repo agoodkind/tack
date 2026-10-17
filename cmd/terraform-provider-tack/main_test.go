@@ -9,18 +9,19 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
-// foundationDBPackages are import path prefixes of the FoundationDB bindings
-// and of the Tack adapter that uses them.
+// foundationDBPackages lists import path prefixes for the FoundationDB bindings
+// and the Tack adapter that uses them.
 var foundationDBPackages = []string{
 	"github.com/apple/foundationdb/",
 	"goodkind.io/tack/internal/adapters/foundationdb",
 }
 
 // TestProviderDependsOnNeitherFoundationDBNorCgo loads the provider and its
-// dependencies with cgo and the fdb build tag on, the settings of the server
-// build. No package may be a FoundationDB package. No package outside the
-// standard library may have cgo files: cgo processing places the compiled Go
-// files of such a package in the build cache, outside the package directory.
+// dependencies with golang.org/x/tools/go/packages using the server build
+// settings: cgo enabled and the fdb build tag. It fails if a dependency is a
+// FoundationDB package or a package outside the standard library uses cgo. It
+// detects cgo through compiled Go files that cgo processing writes to the
+// build cache outside the package directory.
 func TestProviderDependsOnNeitherFoundationDBNorCgo(t *testing.T) {
 	loaded, err := packages.Load(&packages.Config{
 		Context:    t.Context(),
