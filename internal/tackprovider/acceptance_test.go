@@ -30,8 +30,9 @@ const (
 	schemaAddress = "tack_schema.qa"
 )
 
-// acceptanceConfig reads every input from variables and does not contain a
-// token.
+// acceptanceConfig reads every input from OpenTofu variables. It references the
+// sensitive api_token variable. The configuration text does not contain the
+// token value.
 const acceptanceConfig = `
 variable "node" { type = string }
 variable "endpoint" { type = string }

@@ -58,8 +58,8 @@ func (p *tackProvider) Metadata(_ context.Context, _ provider.MetadataRequest, r
 
 func (p *tackProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "The provider manages the migration version of a Tack installation's ledger database " +
-			"through tack_schema. It runs commands inside the Tack guest through the Proxmox VE API " +
+		Description: "The provider manages the migration version of the ledger database of a Tack installation " +
+			"with the tack_schema resource. It runs commands in the Tack guest by calling the Proxmox VE API " +
 			"with the pveguest transport.",
 		Attributes: map[string]schema.Attribute{
 			"nodes": schema.MapNestedAttribute{

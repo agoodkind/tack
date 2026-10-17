@@ -55,8 +55,8 @@ func operatorFlags(model *operatorModel) ([]string, error) {
 	if model.Email.IsUnknown() || model.Name.IsUnknown() || model.Service.IsUnknown() || model.Session.IsUnknown() {
 		return nil, errors.New("the operator arguments must be known when the provider runs Configure")
 	}
-	email := strings.ToLower(model.Email.ValueString())
-	if strings.TrimSpace(email) == "" {
+	email := strings.ToLower(strings.TrimSpace(model.Email.ValueString()))
+	if email == "" {
 		return nil, errors.New("operator.email is empty. The operator configuration requires the accountable person's email")
 	}
 	service := model.Service.ValueString()
