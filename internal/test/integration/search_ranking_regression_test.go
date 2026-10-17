@@ -22,14 +22,14 @@ var rankingRegressionJSON []byte
 //go:embed testdata/search_semantic_corpus.json
 var rankingApprovedJSON []byte
 
-//go:embed testdata/search_ranking_production_names.json
-var rankingProductionNamesJSON []byte
+//go:embed testdata/search_ranking_common_word_names.json
+var rankingCommonWordNamesJSON []byte
 
-func (r *rankingRun) createProductionNames(t *testing.T) []uuid.UUID {
+func (r *rankingRun) createCommonWordNames(t *testing.T) []uuid.UUID {
 	t.Helper()
 	var names []string
-	if err := json.Unmarshal(rankingProductionNamesJSON, &names); err != nil {
-		t.Fatalf("decode production names: %v", err)
+	if err := json.Unmarshal(rankingCommonWordNamesJSON, &names); err != nil {
+		t.Fatalf("decode common word names: %v", err)
 	}
 	created := make([]uuid.UUID, 0, len(names))
 	for _, name := range names {
@@ -86,7 +86,7 @@ func TestSearchRankingProductionRegression(t *testing.T) {
 	for _, record := range regression.Distractors {
 		created = append(created, run.createIssue(t, record.Name, record.Description))
 	}
-	created = append(created, run.createProductionNames(t)...)
+	created = append(created, run.createCommonWordNames(t)...)
 	run.query = regression.Query
 	run.target = run.createIssue(t, regression.Target.Name, regression.Target.Description)
 	run.waitIndexed(t, append(created, run.target))
