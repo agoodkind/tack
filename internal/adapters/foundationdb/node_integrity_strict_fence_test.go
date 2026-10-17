@@ -45,7 +45,7 @@ func TestNodeIntegrityStrictActivationConflictsWithInFlightMutation(t *testing.T
 	store := fdbadapter.NewNodeStore(database, clock.Wall{})
 	ctx := t.Context()
 	orgID, nodeID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-	bucket := fdbadapter.WriteFenceBucket(orgID, nodeID)
+	bucket := node.WriteFenceBucket(orgID, nodeID)
 	evidence, err := store.CaptureStrictEvidence(ctx)
 	if err != nil {
 		t.Fatalf("capture the evidence: %v", err)

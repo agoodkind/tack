@@ -8,7 +8,6 @@ import (
 
 	"github.com/google/uuid"
 
-	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
@@ -36,7 +35,7 @@ func TestNodeIntegrityStrictMutationInvalidatesEvidence(t *testing.T) {
 	updateStrictPriority(t, env, issue.ID, "high")
 	activation := node.StrictActivation{Active: true, ActivatedAt: clock.Now().UTC(), ScanID: uuid.Must(uuid.NewV7()), RecordsValidated: 0}
 	change, err := env.Stores.Nodes.ActivateStrict(env.Ctx, evidence, activation)
-	bucket := fdbadapter.WriteFenceBucket(env.OrgID, issue.ID)
+	bucket := node.WriteFenceBucket(env.OrgID, issue.ID)
 	if !errors.Is(err, node.ErrStrictEvidenceChanged) || !slices.Contains(change.Buckets, bucket) {
 		t.Fatalf("activation on stale evidence = %+v, %v; want ErrStrictEvidenceChanged for bucket %d", change, err, bucket)
 	}

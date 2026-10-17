@@ -6,7 +6,6 @@ import (
 
 	"github.com/google/uuid"
 
-	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/service"
 	"goodkind.io/tack/internal/test/integration"
@@ -100,7 +99,7 @@ func requireFenceAdvances(t *testing.T, env *integration.TestEnv, operation stri
 	}
 	expected := make(map[int]int64, len(written))
 	for _, nodeID := range written {
-		expected[fdbadapter.WriteFenceBucket(env.OrgID, nodeID)]++
+		expected[node.WriteFenceBucket(env.OrgID, nodeID)]++
 	}
 	for bucket := range node.WriteFenceBuckets {
 		advance := after.Buckets[bucket] - before.Buckets[bucket]

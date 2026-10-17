@@ -8,7 +8,6 @@ import (
 	"log/slog"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
-	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/telemetry"
@@ -114,10 +113,4 @@ func (s *NodeStore) StrictScanPage(ctx context.Context, cursor string, limit int
 		records = append(records, &record)
 	}
 	return records, next, nil
-}
-
-// WriteFenceBucket returns a node's write fence bucket from a hash of its
-// organization ID and node ID.
-func WriteFenceBucket(orgID, nodeID uuid.UUID) int {
-	return writeFenceBucket(orgID, nodeID)
 }

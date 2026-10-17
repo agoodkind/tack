@@ -3,6 +3,7 @@ package node
 import (
 	"bytes"
 	"errors"
+	"hash/fnv"
 	"slices"
 	"time"
 
@@ -13,6 +14,15 @@ import (
 // mutation atomically increments its node's bucket epoch inside the mutation
 // transaction.
 const WriteFenceBuckets = 64
+
+// WriteFenceBucket returns a node's write fence bucket from a hash of its
+// organization ID and node ID.
+func WriteFenceBucket(orgID, nodeID uuid.UUID) int {
+	hash := fnv.New32a()
+	_, _ = hash.Write(orgID[:])
+	_, _ = hash.Write(nodeID[:])
+	return int(hash.Sum32() % WriteFenceBuckets)
+}
 
 // ErrStrictEvidenceChanged reports that a bucket epoch or metadata epoch
 // changed after the strict validation scan captured it.

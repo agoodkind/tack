@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"hash/fnv"
 	"math"
 	"time"
 
@@ -15,15 +14,6 @@ import (
 )
 
 var fenceIncrement = []byte{1, 0, 0, 0, 0, 0, 0, 0}
-
-// writeFenceBucket returns a node's write fence bucket from a hash of its
-// organization ID and node ID.
-func writeFenceBucket(orgID, nodeID uuid.UUID) int {
-	hash := fnv.New32a()
-	_, _ = hash.Write(orgID[:])
-	_, _ = hash.Write(nodeID[:])
-	return int(hash.Sum32() % node.WriteFenceBuckets)
-}
 
 // fenceNodeMutation reads the activation record in tr with an ordinary read
 // and atomically increments the node's write fence bucket epoch. If
@@ -35,7 +25,7 @@ func fenceNodeMutation(ctx context.Context, tr fdb.Transaction, orgID, nodeID uu
 	if err != nil {
 		return false, err
 	}
-	tr.Add(fdb.Key(writeFenceBucketKey(writeFenceBucket(orgID, nodeID))), fenceIncrement)
+	tr.Add(fdb.Key(writeFenceBucketKey(node.WriteFenceBucket(orgID, nodeID))), fenceIncrement)
 	return activation.Active, nil
 }
 

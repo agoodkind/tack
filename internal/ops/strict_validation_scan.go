@@ -8,7 +8,6 @@ import (
 	"slices"
 
 	"github.com/google/uuid"
-	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/domain/node"
 )
 
@@ -67,7 +66,7 @@ func (s *strictScan) validate(ctx context.Context, record *node.Node) error {
 }
 
 func strictRecordAffected(change node.StrictEvidenceChange, orgID, nodeID uuid.UUID) bool {
-	return slices.Contains(change.Organizations, orgID) || slices.Contains(change.Buckets, fdbadapter.WriteFenceBucket(orgID, nodeID))
+	return slices.Contains(change.Organizations, orgID) || slices.Contains(change.Buckets, node.WriteFenceBucket(orgID, nodeID))
 }
 
 func compareStrictViolation(left, right StrictViolation) int {
