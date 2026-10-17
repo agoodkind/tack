@@ -14,8 +14,6 @@ import (
 )
 
 const (
-	// rankingWaitDeadline limits how long indexing and index-replacement
-	// waits may run.
 	rankingWaitDeadline = 15 * time.Minute
 	rankingPoll         = time.Second
 )
