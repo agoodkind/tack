@@ -62,31 +62,38 @@ func TestNodeIntegrityRepairExecuteDeletesAfterVerifiedExport(t *testing.T) {
 	requireUnchangedRerun(t, manifest)
 }
 
-// TestNodeIntegrityRepairExecuteDeleteStopsChangedSource changes a test
-// comment after its export. The deletion must stop with a conflict and must
-// keep the comment.
+// TestNodeIntegrityRepairExecuteDeleteStopsChangedSource checks a delete retry.
+// The test creates a fixture issue with a comment as its hierarchy child and
+// freezes a delete entry for the issue. The first execution must export the
+// issue, record the exported checkpoint, and fail deletion on the child.
+// The test then renames the issue. The second execution must report the entry
+// as conflicted and preserve the exported checkpoint, issue, and child comment.
 func TestNodeIntegrityRepairExecuteDeleteStopsChangedSource(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	graph := newRepairGraph(t, env)
-	issueID := createRepairIssue(t, env, graph.projectID, "Issue with a changed smoke comment")
-	entry := commentDeleteEntry("tack-582-delete-changed", createRepairComment(t, env, issueID, graph.projectID, "Smoke comment"), filepath.Join(t.TempDir(), "changed.json"))
+	entry := deleteFixtureEntry(t, env, graph, "tack-582-delete-changed", filepath.Join(t.TempDir(), "changed.json"))
+	childID := createRepairComment(t, env, entry.NodeID, graph.projectID, "Comment under the fixture issue")
 	manifest := freezeRepairRequest(t, repairRequest(entry))
-	renameNode(t, env, entry.NodeID)
 
 	applied, err := executeRepairManifest(t, manifest)
+	if err == nil {
+		t.Fatal("execute a delete of a node with a hierarchy child succeeded")
+	}
+	requireApplyStatus(t, applied, entry.RepairID, ops.RepairApplyFailed)
+	requireCheckpointPhase(t, env, entry.RepairID, node.RepairPhaseExported)
+	requireExportFile(t, entry.Delete.ExportFile, manifest.Entries[0], graph.projectID)
+	renameNode(t, env, entry.NodeID)
+
+	resumed, err := executeRepairManifest(t, manifest)
 	if err != nil {
-		t.Fatalf("execute a changed delete source: %v", err)
+		t.Fatalf("execute after the source changed: %v", err)
 	}
-	requireApplyStatus(t, applied, entry.RepairID, ops.RepairApplyConflicted)
+	requireApplyStatus(t, resumed, entry.RepairID, ops.RepairApplyConflicted)
+	requireCheckpointPhase(t, env, entry.RepairID, node.RepairPhaseExported)
 	requireRepairNodePresent(t, env, entry.NodeID)
-	requireCheckpointPhase(t, env, entry.RepairID, "")
-	if _, statErr := os.Stat(entry.Delete.ExportFile); !os.IsNotExist(statErr) {
-		t.Fatalf("stat export of a changed source = %v, want no file", statErr)
-	}
+	requireRepairNodePresent(t, env, childID)
 }
 
-// commentDeleteEntry returns an executable entry that exports commentID to
-// exportFile and deletes it.
 func commentDeleteEntry(repairID string, commentID uuid.UUID, exportFile string) ops.NodeIntegrityEntry {
 	return ops.NodeIntegrityEntry{
 		RepairID: repairID, NodeID: commentID, NodeType: "comment", Status: ops.RepairEntryExecutable,
@@ -108,8 +115,6 @@ func createRepairComment(t *testing.T, env *integration.TestEnv, parentID, proje
 	})
 }
 
-// requireRepairNodeAbsent requires that neither the primary record nor the
-// view of nodeID exists.
 func requireRepairNodeAbsent(t *testing.T, env *integration.TestEnv, nodeID uuid.UUID) {
 	t.Helper()
 	primary, err := env.Stores.Nodes.Get(env.Ctx, env.OrgID, nodeID)

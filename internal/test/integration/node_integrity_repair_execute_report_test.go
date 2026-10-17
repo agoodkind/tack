@@ -34,7 +34,7 @@ func TestNodeIntegrityRepairExecuteReportComment(t *testing.T) {
 	if strings.Join(phaseNames(outcome.Committed), ",") != strings.Join(phaseNames(want), ",") {
 		t.Fatalf("committed phases = %v, want %v", outcome.Committed, want)
 	}
-	comment := requireReportComment(t, env, issueID, report)
+	comment := requireReportComment(t, env, entry, report)
 	checkpoint, err := env.Stores.Repairs().RepairCheckpoint(env.Ctx, entry.RepairID)
 	if err != nil || checkpoint == nil || checkpoint.Phase != node.RepairPhaseCompleted || checkpoint.CommentID != comment.ID {
 		t.Fatalf("checkpoint = %+v, %v, want completed with comment %s", checkpoint, err, comment.ID)
@@ -49,7 +49,7 @@ func TestNodeIntegrityRepairExecuteReportComment(t *testing.T) {
 		}
 	}
 	requireUnchangedRerun(t, manifest)
-	requireReportComment(t, env, issueID, report)
+	requireReportComment(t, env, entry, report)
 }
 
 // TestNodeIntegrityRepairExecuteReportRetry executes a report entry with a
@@ -76,7 +76,7 @@ func TestNodeIntegrityRepairExecuteReportRetry(t *testing.T) {
 			t.Fatalf("attempt %d: next phase = %q, want completed", attempt, outcome.NextPhase)
 		}
 		requireCheckpointPhase(t, env, entry.RepairID, node.RepairPhaseCommentVerified)
-		requireReportComment(t, env, issueID, report)
+		requireReportComment(t, env, entry, report)
 		view, err := env.Stores.Views.Get(env.Ctx, issueID)
 		if err != nil || view == nil || propText(t, view.Props, "progress") != report {
 			t.Fatalf("attempt %d: issue %s = %+v, %v, want the progress property", attempt, issueID, view, err)
@@ -101,21 +101,30 @@ func reportEntry(repairID string, issueID uuid.UUID, report string, props map[st
 	}
 }
 
-// requireReportComment requires exactly one comment under nodeID and requires
-// its description to contain the complete report.
-func requireReportComment(t *testing.T, env *integration.TestEnv, nodeID uuid.UUID, report string) *node.NodeView {
+// requireReportComment requires exactly one comment under entry.NodeID and
+// returns its view. The comment must use entry.NodeID as its parent_id and its
+// only child_of target. The comment must match the node type and name in
+// entry.Report and store every property in entry.Report.Props with its manifest
+// value. The comment description must contain the complete report text.
+func requireReportComment(t *testing.T, env *integration.TestEnv, entry ops.NodeIntegrityEntry, report string) *node.NodeView {
 	t.Helper()
-	comments := commentsUnder(t, env, nodeID)
+	comments := commentsUnder(t, env, entry.NodeID)
 	if len(comments) != 1 {
-		t.Fatalf("node %s has %d comments, want one report comment", nodeID, len(comments))
+		t.Fatalf("node %s has %d comments, want one report comment", entry.NodeID, len(comments))
 	}
-	if description := propText(t, comments[0].Props, "description"); !strings.Contains(description, report) {
+	comment := requireParent(t, env, comments[0].ID, entry.NodeID)
+	if comment.NodeType != entry.Report.NodeType || comment.Name != entry.Report.Name {
+		t.Fatalf("report comment = %s %q, want %s %q", comment.NodeType, comment.Name, entry.Report.NodeType, entry.Report.Name)
+	}
+	for name := range entry.Report.Props {
+		if got, want := propText(t, comment.Props, name), propText(t, entry.Report.Props, name); got != want {
+			t.Fatalf("report comment %s = %q, want %q", name, got, want)
+		}
+	}
+	if description := propText(t, comment.Props, "description"); !strings.Contains(description, report) {
 		t.Fatalf("report comment description = %q, want the complete report", description)
 	}
-	if propText(t, comments[0].Props, "parent_id") != nodeID.String() {
-		t.Fatalf("report comment parent_id = %s, want %s", comments[0].Props["parent_id"], nodeID)
-	}
-	return comments[0]
+	return comment
 }
 
 func phaseNames(phases []node.RepairPhase) []string {

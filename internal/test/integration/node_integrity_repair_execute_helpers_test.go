@@ -41,9 +41,9 @@ func requireApplyStatus(t *testing.T, applied ops.NodeIntegrityApply, repairID s
 	return ops.NodeIntegrityEntryApply{}
 }
 
-// requireUnchangedRerun executes manifest again. The execution must report
-// every entry as unchanged. The preview must report every entry as
-// completed. The number of stored keys must remain unchanged.
+// requireUnchangedRerun executes manifest again and requires the execution to
+// report every entry as unchanged. The preview must report every entry as
+// completed, and every stored FoundationDB key and value must remain unchanged.
 func requireUnchangedRerun(t *testing.T, manifest ops.NodeIntegrityManifest) {
 	t.Helper()
 	before := storedKeyValues(t)
@@ -55,8 +55,8 @@ func requireUnchangedRerun(t *testing.T, manifest ops.NodeIntegrityManifest) {
 	if preview.Counts[ops.RepairPreviewCompleted] != len(manifest.Entries) {
 		t.Fatalf("preview after completion counts = %v, want every entry completed", preview.Counts)
 	}
-	if len(storedKeyValues(t)) != len(before) {
-		t.Fatal("the second execution changed the number of stored keys")
+	if !maps.Equal(before, storedKeyValues(t)) {
+		t.Fatal("the second execution changed stored keys or values")
 	}
 }
 
@@ -134,8 +134,8 @@ func propText(t *testing.T, props map[string]json.RawMessage, name string) strin
 	return text
 }
 
-// projectState returns the ID of the default state in projectID with the
-// name name.
+// projectState returns the ID of the default state in projectID with the given
+// name.
 func projectState(t *testing.T, env *integration.TestEnv, projectID uuid.UUID, name string) uuid.UUID {
 	t.Helper()
 	edges, err := env.Stores.Relationships.ListByTarget(env.Ctx, env.OrgID, projectID, node.RelChildOf)

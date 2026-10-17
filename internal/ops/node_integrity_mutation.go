@@ -102,7 +102,6 @@ func readRepairSnapshot(ctx context.Context, mutator node.Mutator, entry NodeInt
 	return snapshot, schema, nil
 }
 
-// readNodeSnapshot reads the mutation snapshot of nodeID in orgID.
 func readNodeSnapshot(ctx context.Context, mutator node.Mutator, entry NodeIntegrityEntry, orgID, nodeID uuid.UUID) (node.MutationSnapshot, node.SchemaSnapshot, error) {
 	snapshot, schema, err := mutator.ReadMutationSnapshot(ctx, orgID, nodeID)
 	if err != nil {
@@ -139,7 +138,6 @@ func frozenGraphRecords(ctx context.Context, entry NodeIntegrityEntry) ([]node.G
 	return records, nil
 }
 
-// sortGraphRecords sorts records by node ID.
 func sortGraphRecords(records []node.GraphRecord) {
 	slices.SortFunc(records, func(left, right node.GraphRecord) int {
 		return strings.Compare(left.NodeID.String(), right.NodeID.String())
