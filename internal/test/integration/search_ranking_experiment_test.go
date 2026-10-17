@@ -68,6 +68,7 @@ func TestSearchRankingQueryTokenExperiment(t *testing.T) {
 	for _, record := range regression.Distractors {
 		created = append(created, run.createIssue(t, record.Name, record.Description))
 	}
+	created = append(created, run.createProductionNames(t)...)
 	target := run.createIssue(t, regression.Target.Name, regression.Target.Description)
 	targets[regression.Query] = []uuid.UUID{target}
 	run.waitIndexed(t, append(created, target))

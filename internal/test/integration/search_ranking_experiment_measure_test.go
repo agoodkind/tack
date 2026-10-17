@@ -51,7 +51,6 @@ func (r *rankingRun) experiment(t *testing.T, index string, repeat int, targets 
 		t.Fatalf("encode IDF query tokens: %v", err)
 	}
 	t.Logf("experiment query=%q repeat=%d analyzer_tokens=%q idf_tokens=%s", r.query, repeat, analyzed, topTraceWeights(weights, traceQueryTokens))
-	lexical := encodeTrace(t, traceMatch{MultiMatch: traceMultiMatch{Query: r.query, Fields: []string{"name^3", "page_text"}}})
 	variants := []rankingVariant{
 		{label: "current", sparse: rankingTokenClause(t, session.Snapshot.QueryTokens)},
 		{label: "analyzer", sparse: encodeTrace(t, traceTextSparse{Nested: traceTextNested{
@@ -62,23 +61,32 @@ func (r *rankingRun) experiment(t *testing.T, index string, repeat int, targets 
 		}})},
 		{label: "idf", sparse: rankingTokenClause(t, idfTokens)},
 	}
-	lexicalRanks := r.clauseRanks(t, index, filters, []json.RawMessage{lexical})
-	for _, variant := range variants {
-		sparseRanks := r.clauseRanks(t, index, filters, []json.RawMessage{variant.sparse})
-		combinedRanks := r.clauseRanks(t, index, filters, []json.RawMessage{lexical, variant.sparse})
-		for _, target := range targets {
-			combinedRank, combinedScore := rankOf(combinedRanks, target)
-			lexicalRank, lexicalScore := rankOf(lexicalRanks, target)
-			sparseRank, sparseScore := rankOf(sparseRanks, target)
-			t.Logf("experiment query=%q repeat=%d variant=%s target=%q combined_rank=%d combined=%.4f lexical_rank=%d lexical=%.4f sparse_rank=%d sparse=%.4f",
-				r.query, repeat, variant.label, r.names[target], combinedRank, combinedScore, lexicalRank, lexicalScore, sparseRank, sparseScore)
+	for _, operator := range []string{"or", "and"} {
+		lexical := encodeTrace(t, traceMatch{MultiMatch: traceMultiMatch{Query: r.query, Fields: []string{"name^3", "page_text"}, Operator: operator}})
+		lexicalRanks := r.clauseRanks(t, index, filters, []json.RawMessage{lexical})
+		for _, variant := range variants {
+			label := variant.label + "/lexical_" + operator
+			sparseRanks := r.clauseRanks(t, index, filters, []json.RawMessage{variant.sparse})
+			combinedRanks := r.clauseRanks(t, index, filters, []json.RawMessage{lexical, variant.sparse})
+			for _, target := range targets {
+				combinedRank, combinedScore := rankOf(combinedRanks, target)
+				lexicalRank, lexicalScore := rankOf(lexicalRanks, target)
+				sparseRank, sparseScore := rankOf(sparseRanks, target)
+				t.Logf("experiment query=%q repeat=%d variant=%s target=%q combined_rank=%d combined=%.4f lexical_rank=%d lexical=%.4f sparse_rank=%d sparse=%.4f",
+					r.query, repeat, label, r.names[target], combinedRank, combinedScore, lexicalRank, lexicalScore, sparseRank, sparseScore)
+			}
+			top := make([]string, 0, traceTopNodes)
+			for _, ranking := range combinedRanks[:min(traceTopNodes, len(combinedRanks))] {
+				top = append(top, fmt.Sprintf("%q=%.4f", truncateName(r.names[ranking.ID]), ranking.Score))
+			}
+			t.Logf("experiment query=%q repeat=%d variant=%s combined_top=[%s]", r.query, repeat, label, strings.Join(top, ", "))
 		}
-		top := make([]string, 0, traceTopNodes)
-		for _, ranking := range combinedRanks[:min(traceTopNodes, len(combinedRanks))] {
-			top = append(top, fmt.Sprintf("%q=%.4f", r.names[ranking.ID], ranking.Score))
-		}
-		t.Logf("experiment query=%q repeat=%d variant=%s combined_top=[%s]", r.query, repeat, variant.label, strings.Join(top, ", "))
 	}
+}
+
+func truncateName(name string) string {
+	runes := []rune(name)
+	return string(runes[:min(80, len(runes))])
 }
 
 func rankingTokenClause(t *testing.T, tokens json.RawMessage) json.RawMessage {
