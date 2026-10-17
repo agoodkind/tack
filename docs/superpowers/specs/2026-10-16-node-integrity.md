@@ -113,7 +113,6 @@ Source inspection identifies possible concurrent parent inconsistencies, but the
 
 | Decision | Current position | Work that can continue |
 | --- | --- | --- |
-| Five conflicting legacy status values lack property-level edit order. | The user selected latest-property wins. Dated comments support the current sanctioned values, but using those comments as the fallback still needs a decision. | Validation, audit recording, search corrections, and repair preview development can continue. |
 | Several parent and orphan mappings infer intent. | The backfill specification marks each proposal for review. | Graph validation and nonmutating previews can continue. |
 | One synthetic Smoke comment has an absent parent. | Export and retirement remain proposed; deletion lacks approval. | Other reviewed repairs do not depend on that decision. |
 | One content property is invalid but access remains provable. | Partial indexing of valid declared content remains proposed. | Generic conversion, inclusion defaults, access corrections, and relevance diagnosis can continue. |

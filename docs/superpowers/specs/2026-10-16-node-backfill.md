@@ -48,9 +48,9 @@ Use a stable repair identity and durable checkpoint to prevent duplicate comment
 
 ## Reconcile legacy states without inventing history
 
-The user selected the most recently changed property value as the winner. Normalize that value into `state_id`, write only when it differs, verify the result, then remove `status`.
+Use the most recently changed property value when property-level history establishes the order. When property timestamps are unavailable, use the latest explicit dated decision for that record. The user approved this fallback. Record the supporting decision, source, and date in the repair preview. Normalize the selected value into `state_id`, write only when it differs, verify the result, then remove `status`.
 
-CLYDE-174 and CLYDE-188 already agree on Done. Their proposal removes only the duplicate legacy status after checking the current values. Five conflicts remain:
+CLYDE-174 and CLYDE-188 already agree on Done. Their proposal removes only the duplicate legacy status after checking the current values. The approved fallback resolves these five conflicts from the recorded decisions:
 
 | Node | Legacy value | Current sanctioned state | Supporting evidence for the current state |
 | --- | --- | --- | --- |
@@ -60,9 +60,9 @@ CLYDE-174 and CLYDE-188 already agree on Done. Their proposal removes only the d
 | MWAN-79 | `open` | Cancelled. | The July 12 decision records supersession by the documentation rewrite. |
 | CLYDE-184 | `Todo` | Done. | A May 2 completion comment precedes a node update by one second. |
 
-The proposal retains those current sanctioned states and removes the old properties. That proposal requires approval of an evidence fallback because the available audit rows lack property values and edit order. Node-wide `UpdatedAt` cannot establish which property changed last. MWAN does not currently define an Open state; a decision that selects `open` also requires an explicit sanctioned-state mapping.
+The backfill must retain those current sanctioned states and remove the obsolete status properties after verifying the evidence and current source records. The available audit rows lack property values and edit order. The dated decisions establish the selected repair values; they do not reconstruct historical property timestamps. Node-wide `UpdatedAt` cannot establish which property changed last.
 
-Until the fallback is chosen, leave these conflicting fields unchanged and report them as unresolved. Implementing future audit deltas does not resolve these historical cases.
+Leave a record unchanged when neither property history nor an explicit dated decision establishes a value, when the latest decisions conflict without a clear order, or when the value cannot map unambiguously to the current schema. MWAN does not currently define an Open state. Do not invent an Open mapping or use node update time as property history.
 
 ## Normalize the identified select values
 
