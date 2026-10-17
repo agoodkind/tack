@@ -29,6 +29,8 @@ Verify through public create/read/update operations with unfamiliar type and pro
 
 TACK-580 implements N1 and N2 after task 1 defines applicability. Modify [create defaults](../../../internal/service/node_defaults.go), [create preparation](../../../internal/service/node_create_prepare.go), and [node update](../../../internal/service/node.go). Reuse the property compilation and validation files from task 1.
 
+Separate the shared validator's use by repairs from its activation for ordinary writes. Deploy the repair prerequisites while existing public write checks remain active. Enable strict validation for ordinary writes only after task 5 repairs and verifies the old data. Use release sequencing rather than temporary exceptions for invalid records.
+
 1. Apply supplied fields and removals to the committed node, then validate the resulting record. Create applies declared defaults before the same validation. Preserve unspecified fields during updates.
 2. Check declared names, applicability, primitive JSON shapes, select and multiselect option keys, reference constraints, required fields, and permitted removal. Resolve labels through generic metadata only when the existing input contract permits labels; otherwise reject them clearly.
 3. Apply this contract to ordinary tools, workflow-reference updates, operator mutations, imports, and repairs. Audit storage entry points for bypasses and enforce the invariant at the shared mutation boundary.
@@ -67,7 +69,7 @@ Run `make test-integration`. Expect each successful mutation's delta to match th
 
 ## 5. Implement the reviewed existing-data backfill
 
-TACK-582 implements N6 using the [backfill mappings and open choices](../specs/2026-10-16-node-backfill.md). Tasks 1 through 4 establish its target contract. Preview and manifest development can proceed while individual mappings remain unresolved.
+TACK-582 implements N6 using the [backfill mappings and open choices](../specs/2026-10-16-node-backfill.md). The shared validator and the metadata, parent, and audit corrections establish its target contract. Strict validation for ordinary writes activates after verified cleanup, not before this backfill. Preview and manifest development can proceed while individual mappings remain unresolved.
 
 Reuse [manifest preview and apply](../../../internal/ops/command_repair_manifest.go), [repair profiles](../../../internal/ops/repair_profile_types.go), [repair transforms](../../../internal/ops/repair_props_transform.go), and [repair execution](../../../internal/ops/repair_console.go). Add the temporary command in `internal/ops/cli_node_integrity_backfill.go` and its bounded implementation in `internal/ops/node_integrity_backfill.go`. Split by concern before exceeding the repository file limit.
 
@@ -76,7 +78,7 @@ Reuse [manifest preview and apply](../../../internal/ops/command_repair_manifest
 3. Register the proposed `ops backfill once-node-integrity` command through the existing `clispec` mechanism. Declare TACK-582 and a literal removal date of December 31, 2026. Confirm its generated command and parameters through help before use. Keep the existing operator identity, audit, preview confirmation, and execution gates.
 4. Implement bounded progress and transaction checks. A source mismatch invalidates the old preview. Use durable checkpoints for a report-comment create, readback verification, and obsolete-property removal. A retry must reuse the same comment.
 5. Combine overlapping approved patches per node and validate the complete result. Defer a node when an unresolved field prevents that validation. Update nodes, views, resolution records, indexes, matching edges, audit intent, and desired search work through the shared atomic contract. Preserve unrelated data and available provenance.
-6. Report planned, applied, unchanged, conflicted, unresolved, and failed entries separately. Reread changed records and verify the resulting graph. Require an unchanged second preview for completed entries.
+6. Report planned, applied, unchanged, conflicted, unresolved, and failed entries separately. Reread changed records and verify the resulting graph. Require an unchanged second preview for completed entries. Complete a broad validation scan before enabling strict ordinary-write checks. Prove that an intervening invalid write invalidates the scan-to-activation check; do not treat an earlier clean scan as proof of a later state.
 
 Create `internal/test/integration/node_integrity_backfill_test.go`. Enter through the actual command boundary against real FoundationDB and audit dependencies. Cover every repair class, nonmutating dry run, a changed source, partial failure, interrupted report migration, property-history precedence, the approved latest-explicit-dated-decision fallback, absent or conflicting decision evidence, graph ambiguity, and a repeated execution. Seed synthetic test records through the existing QA fixture facilities; do not copy private production exports into the repository.
 

@@ -43,7 +43,9 @@ Search access must use the authoritative relationship and permission boundary. I
 
 Normal public creates and updates already reject undeclared property names. That protection does not prove full schema enforcement. The inspected release lacks general primitive and enum validation, and its update validation omits removed values before checking required fields.
 
-An invalid request must return the node and property identifiers with a clear reason. The transaction must not change the node, read views, indexes, relationships, audit success events, or desired search work. A permitted partial update must preserve unspecified fields. Full-result validation would also reject unrelated edits to an already-invalid record until its repair completes; the rollout must resolve this transition explicitly.
+An invalid request must return the node and property identifiers with a clear reason. The transaction must not change the node, read views, indexes, relationships, audit success events, or desired search work. A permitted partial update must preserve unspecified fields.
+
+Repair and verify existing invalid data before activating strict full-record validation. The user selected this rollout order. Existing write checks remain active during cleanup. Repair operations must validate each resulting record through the shared validator. Do not add temporary exceptions that allow an invalid result after strict validation becomes active. Independent audit and search corrections can proceed while cleanup remains pending.
 
 The validator must interpret the data-defined property type and options. For example, a select option with key `high` and display label `High` must use the canonical key. Runtime code must not special-case the property `priority`. Required values must remain valid after a `null` removal request.
 
@@ -117,6 +119,5 @@ Source inspection identifies possible concurrent parent inconsistencies, but the
 | --- | --- | --- |
 | Several parent and orphan mappings infer intent. | The backfill specification marks each proposal for review. | Graph validation and nonmutating previews can continue. |
 | One synthetic Smoke comment has an absent parent. | Export and retirement remain proposed; deletion lacks approval. | Other reviewed repairs do not depend on that decision. |
-| Full-result validation encounters an old invalid record. | Decide whether ordinary edits wait for a complete repair or require an explicitly bounded transition policy. Do not add a silent validation bypass. | Validation code, previews, and QA tests can continue before strict production activation. |
 
 QA must prove the reviewed behavior before production. Record source commits, merged PRs, installed image digests, applied configuration, repair results, and public runtime acceptance separately. Close superseded tickets only after the replacement covers their entire scope and preserves their evidence.
