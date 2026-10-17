@@ -124,9 +124,9 @@ func replaceRawValue(t *testing.T, key fdb.Key, value []byte) []byte {
 	return previous
 }
 
-// runUntilStuck runs worker slices until ops search verify lists the work
-// item itemID in class with at least attempts failures. It ignores slice
-// failures. It fails the test after exclusionDeadline.
+// runUntilStuck runs worker slices until ops search verify lists stuck work
+// matching class and itemID with an attempt count of at least attempts. It
+// ignores slice failures. It fails the test after exclusionDeadline.
 func runUntilStuck(t *testing.T, fixture queryFixture, class searchdomain.WorkClass, itemID string, attempts int64) (searchVerifyReport, error) {
 	t.Helper()
 	deadline := clock.Now().Add(exclusionDeadline)
