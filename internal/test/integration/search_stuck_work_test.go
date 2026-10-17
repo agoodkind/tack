@@ -18,6 +18,10 @@ import (
 // record key with three tuple values.
 const malformedNodeKeyText = "node record key has 3 tuple values"
 
+// stuckAttemptLimit is the attempt count at which ops search verify lists a
+// work item as stuck.
+const stuckAttemptLimit int64 = 5
+
 // TestSearchVerifyReportsStuckRebuildWork stores a primary node record key
 // that the replacement scan cannot decode. Every rebuild slice then fails a
 // counted FoundationDB read. After the attempt limit ops search verify must
@@ -32,7 +36,7 @@ func TestSearchVerifyReportsStuckRebuildWork(t *testing.T) {
 
 	request := searchdomain.BeginRebuild{Mode: searchdomain.ReplacementFull, PrimaryShards: 1, RoutingShards: 24, Replicas: 0, Restored: false, Reason: "test"}
 	rebuild := beginRebuild(t, fixture, request)
-	report, verifyErr := runUntilStuck(t, fixture, rebuild.ID.String())
+	report, verifyErr := runUntilStuck(t, fixture, searchdomain.WorkClassRebuild, rebuild.ID.String(), stuckAttemptLimit)
 	for _, stuck := range report.StuckWork {
 		if stuck.ItemID != rebuild.ID.String() {
 			continue
@@ -92,10 +96,38 @@ func clearRawKey(t *testing.T, key fdb.Key) {
 	}
 }
 
+// nodeResolveRawKey returns the key for the resolution record of nodeID
+// under the test prefix.
+func nodeResolveRawKey(nodeID uuid.UUID) fdb.Key {
+	return fdb.Key(append(append([]byte{}, fdbadapter.TestPrefixRange()...), tuple.Tuple{"node_resolve", nodeID.String()}.Pack()...))
+}
+
+// replaceRawValue stores value under key and returns the previous value.
+func replaceRawValue(t *testing.T, key fdb.Key, value []byte) []byte {
+	t.Helper()
+	database, err := fdbadapter.Open(testenv.FoundationDB(t), testTransactionTimeout)
+	if err != nil {
+		t.Fatalf("open database to replace a value: %v", err)
+	}
+	var previous []byte
+	if _, err := database.Transact(func(tr fdb.Transaction) (any, error) {
+		current, readErr := tr.Get(key).Get()
+		if readErr != nil {
+			return nil, readErr
+		}
+		previous = current
+		tr.Set(key, value)
+		return nil, nil
+	}); err != nil {
+		t.Fatalf("replace value: %v", err)
+	}
+	return previous
+}
+
 // runUntilStuck runs worker slices until ops search verify lists the work
-// item itemID as stuck, and ignores slice failures. It fails the test after
-// exclusionDeadline.
-func runUntilStuck(t *testing.T, fixture queryFixture, itemID string) (searchVerifyReport, error) {
+// item itemID in class with at least attempts failures. It ignores slice
+// failures. It fails the test after exclusionDeadline.
+func runUntilStuck(t *testing.T, fixture queryFixture, class searchdomain.WorkClass, itemID string, attempts int64) (searchVerifyReport, error) {
 	t.Helper()
 	deadline := clock.Now().Add(exclusionDeadline)
 	for clock.Now().Before(deadline) {
@@ -105,12 +137,12 @@ func runUntilStuck(t *testing.T, fixture queryFixture, itemID string) (searchVer
 		}
 		report, verifyErr := runSearchVerifyCommand(t, fixture.Config)
 		for _, stuck := range report.StuckWork {
-			if stuck.ItemID == itemID {
+			if stuck.Kind == string(class) && stuck.ItemID == itemID && stuck.Attempts >= attempts {
 				return report, verifyErr
 			}
 		}
 		waitUntil(t, clock.Now().Add(exclusionPollInterval))
 	}
-	t.Fatalf("ops search verify did not list work item %s within %s", itemID, exclusionDeadline)
+	t.Fatalf("ops search verify did not list %s work %s with %d attempts within %s", class, itemID, attempts, exclusionDeadline)
 	return searchVerifyReport{}, nil
 }
