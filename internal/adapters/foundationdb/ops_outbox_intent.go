@@ -43,13 +43,15 @@ func writeNodeIntent(ctx context.Context, tr fdb.Transaction, source []byte, res
 	return writeMutationIntent(ctx, tr, source, encoded)
 }
 
-// writeMutationIntent writes the audit event staged on ctx into the outbox in
-// tr, atomically with the change (TACK-173). Each attempt builds a new event
-// from the unchanged staged template and source and result, the primary
-// record encodings that the attempt read and wrote. A nil or empty encoding
-// indicates an absent record, and the template remains staged until
-// commitStagedIntent runs. A context without a staged event does not write an
-// outbox entry.
+// writeMutationIntent writes the audit event staged on ctx to the outbox in tr
+// in the same transaction as the change (TACK-173).
+//
+// Each attempt builds a new event from the unchanged staged template, the
+// source encoding it read, and the result encoding it wrote for the primary
+// record. A nil or empty encoding indicates an absent record.
+//
+// The template remains staged until commitStagedIntent runs. A context without
+// a staged event does not write an outbox entry.
 func writeMutationIntent(ctx context.Context, tr fdb.Transaction, source, result []byte) error {
 	payload, ok, err := auditintent.Build(ctx, source, result)
 	if err != nil {

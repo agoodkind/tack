@@ -11,6 +11,7 @@ import (
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/datagen"
+	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/test/integration"
 	"goodkind.io/tack/internal/testenv"
 )
@@ -44,6 +45,10 @@ func TestNodeIntegrityAuditRecordsCommittedDeltaInLedger(t *testing.T) {
 	createArguments.Name = "audited issue before"
 	createArguments.Properties = datagen.NodeProperties{"description": json.RawMessage(auditedDescription)}
 	issueID := uuid.MustParse(harness.Call(t, "tack_create_issue", createArguments).RawID())
+	createdView, err := stores.Views.Get(t.Context(), issueID)
+	if err != nil || createdView == nil {
+		t.Fatalf("issue %s after the create = %v, %v", issueID, createdView, err)
+	}
 	updateArguments := auditedIssueArguments(harness)
 	updateArguments.NodeID = issueID.String()
 	updateArguments.Name = "audited issue after"
@@ -61,7 +66,7 @@ func TestNodeIntegrityAuditRecordsCommittedDeltaInLedger(t *testing.T) {
 	ledger := startNodeAuditLedger(t)
 	created := ledger.entityRows(t, view.OrgID, issueID, audit.VerbNodeCreate, 1)
 	updated := ledger.entityRows(t, view.OrgID, issueID, audit.VerbNodeUpdate, 1)
-	requireCreateDelta(t, created[0])
+	requireCreateDelta(t, created[0], createdView)
 	requireUpdateDelta(t, updated[0])
 	for _, row := range []audit.Row{created[0], updated[0]} {
 		if row.ActorID != view.UpdatedBy || row.ActorKind != 1 || row.Context.Source != audit.SourceMCP {
@@ -86,16 +91,23 @@ func auditedIssueArguments(harness *integration.MCPHarness) datagen.ToolArgument
 	}
 }
 
-// requireCreateDelta checks that the create row lists the name and
-// description as changed, includes their values in After, and leaves Before
-// empty.
-func requireCreateDelta(t *testing.T, row audit.Row) {
+// requireCreateDelta checks that the create row has an empty Before. It
+// requires Changed to equal the sorted list containing /name and one
+// /props/<key> pointer for every property of the created node view. It also
+// requires that list to include /props/description. It checks that After
+// contains the created name and description.
+func requireCreateDelta(t *testing.T, row audit.Row, created *node.NodeView) {
 	t.Helper()
 	if row.Delta == nil || len(row.Delta.Before) != 0 {
 		t.Fatalf("create delta = %+v, want a delta without Before", row.Delta)
 	}
-	if !slices.Contains(row.Delta.Changed, "/name") || !slices.Contains(row.Delta.Changed, "/props/description") {
-		t.Fatalf("create changed = %v, want /name and /props/description", row.Delta.Changed)
+	want := []string{"/name"}
+	for property := range created.Props {
+		want = append(want, "/props/"+property)
+	}
+	slices.Sort(want)
+	if !slices.Equal(row.Delta.Changed, want) || !slices.Contains(want, "/props/description") {
+		t.Fatalf("create changed = %v, want %v with /props/description", row.Delta.Changed, want)
 	}
 	after := decodeAuditedIssueFields(t, row.Delta.After)
 	if after.Name == nil || *after.Name != "audited issue before" || string(after.Props["description"]) != auditedDescription {

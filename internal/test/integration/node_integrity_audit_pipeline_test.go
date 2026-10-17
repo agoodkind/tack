@@ -111,8 +111,9 @@ func nodeAuditReaderDSN(t *testing.T, admin *pgxpool.Pool, adminDSN string) stri
 	return parsed.String()
 }
 
-// entityRows reads ledger rows for entityID through Reader.QueryPage until
-// want rows match verb. The audit query command uses the same read operation.
+// entityRows reads ledger rows for entityID through Reader.QueryPage. It polls
+// until it finds at least want rows with the action verb, then returns those
+// rows. The audit query command uses the same read operation.
 func (l *nodeAuditLedger) entityRows(t *testing.T, orgID, entityID uuid.UUID, verb audit.Verb, want int) []audit.Row {
 	t.Helper()
 	deadline := clock.Now().Add(nodeAuditDeadline)
