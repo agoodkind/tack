@@ -70,6 +70,11 @@ func TestSearchDatagenOutage(t *testing.T) {
 	}
 
 	startEngine(t, fixture)
+	// drainSearchWork runs worker slices until the worker cannot claim any
+	// search work. The fixture's bootstrapped nodes and the project that the
+	// test created during the outage finish indexing before the ten-second
+	// search deadline starts.
+	drainSearchWork(t, fixture.Worker, 2000)
 	deadline := time.Now().Add(outageSearchDeadline)
 	for time.Now().Before(deadline) {
 		_, _ = fixture.Worker.RunSlice(t.Context())
