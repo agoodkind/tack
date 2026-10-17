@@ -2,6 +2,7 @@ package integration_test
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"io/fs"
 	"os"
@@ -9,8 +10,10 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+	"testing/fstest"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/pressly/goose/v3"
 
 	"goodkind.io/tack/internal/schemastatus"
 	"goodkind.io/tack/migrations"
@@ -22,6 +25,8 @@ const (
 	migrateOutboxVersion = 5
 	// migratePartialVersion is the --to target of the partial run.
 	migratePartialVersion = 10
+	// migrateFutureVersion numbers a migration above every embedded one.
+	migrateFutureVersion = 9999
 )
 
 // migrateCommand runs the built server binary against one database.
@@ -79,6 +84,53 @@ func TestMigrateReportsStateAndRefusesGuardedRuns(t *testing.T) {
 	final := command.status(t)
 	if !final.MigrationTablePresent || final.AppliedVersion != empty.Highest() || len(final.Pending) != 0 {
 		t.Fatalf("dry run after the full run = %+v, want version %d and nothing pending", final, empty.Highest())
+	}
+
+	applyFutureMigration(t, command.dsn)
+	if output, err := command.run(t, "--execute"); err == nil {
+		t.Fatalf("migrate --execute above the embedded set succeeded, want a refusal:\n%s", output)
+	}
+	logged, err := os.ReadFile(filepath.Join(command.logDir, "tack.json"))
+	if err != nil || !bytes.Contains(logged, []byte("above the highest embedded version")) {
+		t.Fatalf("the command log does not record the refusal above the embedded set (read error %v)", err)
+	}
+	if applied := command.status(t).AppliedVersion; applied != migrateFutureVersion {
+		t.Fatalf("after the refused run the database is at %d, want %d", applied, migrateFutureVersion)
+	}
+}
+
+// applyFutureMigration applies the embedded migrations and one no-op
+// migration numbered above them through goose.
+func applyFutureMigration(t *testing.T, dsn string) {
+	t.Helper()
+	future := fstest.MapFS{}
+	entries, err := fs.ReadDir(migrations.FS, ".")
+	if err != nil {
+		t.Fatalf("list the embedded migrations: %v", err)
+	}
+	for _, entry := range entries {
+		contents, err := fs.ReadFile(migrations.FS, entry.Name())
+		if err != nil {
+			t.Fatalf("read migration %s: %v", entry.Name(), err)
+		}
+		future[entry.Name()] = &fstest.MapFile{Data: contents}
+	}
+	contents, err := os.ReadFile(filepath.Join("testdata", "migrate_future.sql"))
+	if err != nil {
+		t.Fatalf("read the future migration: %v", err)
+	}
+	future[strconv.Itoa(migrateFutureVersion)+"_future.sql"] = &fstest.MapFile{Data: contents}
+	database, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatalf("open the test database: %v", err)
+	}
+	defer func() { _ = database.Close() }()
+	provider, err := goose.NewProvider(goose.DialectPostgres, database, future)
+	if err != nil {
+		t.Fatalf("load the future migration set: %v", err)
+	}
+	if _, err := provider.Up(t.Context()); err != nil {
+		t.Fatalf("apply migration %d: %v", migrateFutureVersion, err)
 	}
 }
 

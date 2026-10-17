@@ -33,6 +33,11 @@ func Target(ctx context.Context, status Status, guard Guard) (int64, error) {
 			status.AppliedVersion, guard.ExpectFrom))
 	}
 	if guard.To == 0 {
+		if status.AppliedVersion > highest {
+			return 0, refused(ctx, fmt.Errorf(
+				"the database is at migration version %d, above the highest embedded version %d",
+				status.AppliedVersion, highest))
+		}
 		return highest, nil
 	}
 	if guard.To < status.AppliedVersion {

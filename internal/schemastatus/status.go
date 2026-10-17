@@ -20,7 +20,6 @@ import (
 	"goodkind.io/tack/internal/version"
 )
 
-// migrationGlob matches the embedded goose SQL files.
 const migrationGlob = "*.sql"
 
 // Migration represents one embedded goose migration file.
