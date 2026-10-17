@@ -214,3 +214,13 @@ seed-audit-roles:
 audit-consumer:
 	mkdir -p dist
 	go build $(GO_BUILD_FLAGS) -o dist/audit-consumer ./cmd/audit-consumer
+
+# Build the OpenTofu provider at dist/terraform-provider-tack. The provider does
+# not import FoundationDB packages and builds with CGO_ENABLED=0.
+TACK_PROVIDER_VERSION ?= 0.1.0
+
+.PHONY: provider-tack
+provider-tack:
+	mkdir -p dist
+	CGO_ENABLED=0 go build -ldflags "-X main.version=$(TACK_PROVIDER_VERSION)" \
+	    -o dist/terraform-provider-tack ./cmd/terraform-provider-tack
