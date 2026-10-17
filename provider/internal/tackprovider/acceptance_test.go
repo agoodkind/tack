@@ -13,7 +13,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
 
-	"goodkind.io/tack/internal/tackprovider"
+	"goodkind.io/tack/provider/internal/tackprovider"
 )
 
 const (
