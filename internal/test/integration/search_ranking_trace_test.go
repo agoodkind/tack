@@ -20,10 +20,6 @@ const (
 	traceChunkTokens = 8
 )
 
-// trace logs ranking evidence for one public page. It records the first
-// results, saved query token weights, node ranks for each clause alone, and
-// the combined query's score explanation. It records each native chunk of the
-// target and the first result with its sparse dot product.
 func (r *rankingRun) trace(t *testing.T, page rankingPage) {
 	t.Helper()
 	for position, nodeID := range page.IDs[:min(traceTopNodes, len(page.IDs))] {

@@ -26,14 +26,10 @@ import (
 )
 
 const (
-	// rankingProject is the project identifier and the scope of every test issue.
-	rankingProject = "RANK"
-	// rankingMaxPages bounds one continuation traversal.
+	rankingProject  = "RANK"
 	rankingMaxPages = 1000
 )
 
-// rankingRun calls public MCP tools as one bootstrapped workspace member and
-// reads the durable session and the engine for trace output.
 type rankingRun struct {
 	driver    *datagen.Driver
 	token     string
@@ -46,7 +42,6 @@ type rankingRun struct {
 	names     map[uuid.UUID]string
 }
 
-// rankingPage is one parsed tack_search response.
 type rankingPage struct {
 	IDs      []uuid.UUID
 	Cursor   string
@@ -106,8 +101,6 @@ func (r *rankingRun) call(t *testing.T, tool string, arguments datagen.ToolArgum
 	return result
 }
 
-// createIssue creates one issue in the ranking project through
-// tack_create_issue and returns its node ID.
 func (r *rankingRun) createIssue(t *testing.T, name, description string) uuid.UUID {
 	t.Helper()
 	encoded, err := json.Marshal(description)
@@ -148,9 +141,6 @@ func (r *rankingRun) search(t *testing.T, cursor string) rankingPage {
 	return page
 }
 
-// require checks the target's first-page rank in three query attempts.
-// It traces the first attempt and every miss. Each attempt checks cursor
-// continuation and replay through the last page.
 func (r *rankingRun) require(t *testing.T, phase string) {
 	t.Helper()
 	for attempt := range 3 {
@@ -167,9 +157,6 @@ func (r *rankingRun) require(t *testing.T, phase string) {
 	}
 }
 
-// completeCursor follows cursor to the last page. Every continuation must
-// keep the saved query tokens, and a repeated call with the same cursor must
-// return the same page.
 func (r *rankingRun) completeCursor(t *testing.T, cursor string) {
 	t.Helper()
 	if cursor == "" {

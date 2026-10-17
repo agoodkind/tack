@@ -22,14 +22,11 @@ var rankingRegressionJSON []byte
 //go:embed testdata/search_semantic_corpus.json
 var rankingApprovedJSON []byte
 
-// rankingRecord is one issue with a name and a Markdown description.
 type rankingRecord struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 }
 
-// rankingRegression is one production query, the issue that the query must
-// return on the first page, and production-shaped distractor issues.
 type rankingRegression struct {
 	Query       string          `json:"query"`
 	Target      rankingRecord   `json:"target"`
