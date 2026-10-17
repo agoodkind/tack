@@ -78,6 +78,12 @@ const (
 	// (node_delete_job, jobID) -> SubtreeDeleteJob JSON
 	keyNodeDeleteJob = "node_delete_job"
 
+	// keyRepairCheckpoint stores one reviewed repair checkpoint per repair ID.
+	// The family is not org-scoped. A repair that deletes a node also deletes
+	// its resolution record, which stores the organization ID.
+	// (repair_checkpoint, repairID) -> RepairCheckpoint JSON
+	keyRepairCheckpoint = "repair_checkpoint"
+
 	// The search keys store durable search work and search state. Work, age,
 	// and claim keys include a bucket number that searchBucket computes from
 	// (orgID, nodeID). A claim reads the age keys of one bucket at a time.

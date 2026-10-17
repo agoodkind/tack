@@ -13,12 +13,6 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// keyRepairCheckpoint identifies checkpoints by repair ID rather than organization.
-// Node deletion also deletes the resolution record that stores the organization ID.
-// Each key is (repair_checkpoint, repairID).
-// Each value encodes [node.RepairCheckpoint] as JSON.
-const keyRepairCheckpoint = "repair_checkpoint"
-
 // repairCheckpointKey packs the checkpoint key for repairID.
 func repairCheckpointKey(repairID string) []byte {
 	return withPrefix(tuple.Tuple{keyRepairCheckpoint, repairID}.Pack())
