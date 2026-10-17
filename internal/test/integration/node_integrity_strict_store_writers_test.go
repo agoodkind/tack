@@ -91,6 +91,10 @@ func TestNodeIntegrityStrictRejectsInvalidStoreWriteAfterActivation(t *testing.T
 	if !reflect.DeepEqual(after.Props, before.Props) || after.Name != before.Name {
 		t.Fatalf("the rejected writes changed workspace %s: before %+v, after %+v", record.ID, before, after)
 	}
+	stored, err := env.Stores.Nodes.Get(env.Ctx, env.OrgID, created.ID)
+	if err != nil || stored != nil {
+		t.Fatalf("node %s after the rejected create = %+v, %v; want no stored node", created.ID, stored, err)
+	}
 }
 
 func storeWriterWorkspace(env *integration.TestEnv, slug string) *node.Node {
