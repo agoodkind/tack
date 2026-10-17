@@ -62,18 +62,13 @@ func (w *hierarchyWalk) finish(entryPointID uuid.UUID) {
 }
 
 // hierarchyParent returns the hierarchy parent of nodeID under
-// [node.HierarchyParent], or [uuid.Nil] for a hierarchy root. A parent_id
-// that differs from the one child_of target is a defect.
+// [node.HierarchyParent], or [uuid.Nil] for a hierarchy root.
 func hierarchyParent(nodeID uuid.UUID, state AncestorState) (uuid.UUID, error) {
-	operation := "resolve hierarchy parent of node " + nodeID.String()
 	parentID, err := node.HierarchyParent(nodeID, state.Type, state.ChildOfs)
 	if err != nil {
-		return uuid.Nil, newHierarchyDefect(operation, err)
+		return uuid.Nil, newHierarchyDefect("resolve hierarchy parent of node "+nodeID.String(), err)
 	}
-	if parentID == uuid.Nil || state.ParentID == "" || state.ParentID == parentID.String() {
-		return parentID, nil
-	}
-	return uuid.Nil, newHierarchyDefect(fmt.Sprintf("%s: parent_id %q differs from the child_of edge to %s", operation, state.ParentID, parentID))
+	return parentID, nil
 }
 
 func unfinished(walks []*hierarchyWalk) []*hierarchyWalk {

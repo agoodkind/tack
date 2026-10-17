@@ -37,7 +37,7 @@ func TestParentEdgeDeleteMovesChildIssue(t *testing.T) {
 		t.Fatalf("delete of issue %s moved %d and deleted %d nodes, want 1 moved and 2 deleted", issue, result.Moved, result.Deleted)
 	}
 	moved, err := env.Stores.Views.Get(env.Ctx, child)
-	if err != nil || moved == nil || node.ParentIDText(moved.Props) != project.String() {
+	if err != nil || moved == nil || string(moved.Props["parent_id"]) != string(parentEdgeJSON(t, project.String())) {
 		t.Fatalf("child issue %s after the delete = %+v, err %v, want parent_id %s", child, moved, err, project)
 	}
 	edges, err := env.Stores.Relationships.EdgesFrom(env.Ctx, env.OrgID, child, node.RelChildOf, "", 10)

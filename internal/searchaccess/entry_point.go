@@ -46,21 +46,18 @@ func (h compilerHierarchy) Ancestors(ctx context.Context, nodes []OrgNode) (map[
 			return nil, hierarchyFailure(ctx, key.NodeID, "get search ancestor "+key.NodeID.String(), err)
 		}
 		if view == nil {
-			states[key] = AncestorState{Exists: false, OrgID: uuid.Nil, TypeKey: "", Type: nil, ChildOfs: nil, ParentID: ""}
+			states[key] = AncestorState{Exists: false, OrgID: uuid.Nil, TypeKey: "", Type: nil, ChildOfs: nil}
 			continue
 		}
 		if view.OrgID != key.OrgID {
-			states[key] = AncestorState{Exists: true, OrgID: view.OrgID, TypeKey: "", Type: nil, ChildOfs: nil, ParentID: ""}
+			states[key] = AncestorState{Exists: true, OrgID: view.OrgID, TypeKey: "", Type: nil, ChildOfs: nil}
 			continue
 		}
 		kind, err := h.compiler.typeByKey(ctx, key.OrgID, view.NodeType, kinds)
 		if err != nil {
 			return nil, err
 		}
-		state := AncestorState{
-			Exists: true, OrgID: view.OrgID, TypeKey: view.NodeType, Type: kind, ChildOfs: nil,
-			ParentID: node.ParentIDText(view.Props),
-		}
+		state := AncestorState{Exists: true, OrgID: view.OrgID, TypeKey: view.NodeType, Type: kind, ChildOfs: nil}
 		if kind != nil && !kind.Features.Has(node.FeatureIsEntryPoint) {
 			state.ChildOfs, err = h.compiler.childOfs(ctx, key)
 			if err != nil {

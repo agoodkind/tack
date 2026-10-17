@@ -46,21 +46,18 @@ func (h *summaryHierarchy) Ancestors(ctx context.Context, nodes []searchaccess.O
 	for position, key := range nodes {
 		view := views[position]
 		if view == nil {
-			states[key] = searchaccess.AncestorState{Exists: false, OrgID: uuid.Nil, TypeKey: "", Type: nil, ChildOfs: nil, ParentID: ""}
+			states[key] = searchaccess.AncestorState{Exists: false, OrgID: uuid.Nil, TypeKey: "", Type: nil, ChildOfs: nil}
 			continue
 		}
 		if view.OrgID != key.OrgID {
-			states[key] = searchaccess.AncestorState{Exists: true, OrgID: view.OrgID, TypeKey: "", Type: nil, ChildOfs: nil, ParentID: ""}
+			states[key] = searchaccess.AncestorState{Exists: true, OrgID: view.OrgID, TypeKey: "", Type: nil, ChildOfs: nil}
 			continue
 		}
 		kind, err := h.nodeType(ctx, key.OrgID, view.NodeType)
 		if err != nil {
 			return nil, err
 		}
-		states[key] = searchaccess.AncestorState{
-			Exists: true, OrgID: view.OrgID, TypeKey: view.NodeType, Type: kind, ChildOfs: nil,
-			ParentID: node.ParentIDText(view.Props),
-		}
+		states[key] = searchaccess.AncestorState{Exists: true, OrgID: view.OrgID, TypeKey: view.NodeType, Type: kind, ChildOfs: nil}
 		if kind == nil || kind.Features.Has(node.FeatureIsEntryPoint) {
 			continue
 		}

@@ -12,9 +12,8 @@ import (
 
 // ErrHierarchyDefect reports stored hierarchy data from which no entry point
 // follows: a missing ancestor, an ancestor in another organization, a missing
-// node type, a cycle, a node without exactly one hierarchy parent, or a
-// parent_id that differs from the node's child_of edge. A FoundationDB read
-// failure is never a hierarchy defect.
+// node type, a cycle, or a node without exactly one hierarchy parent. A
+// FoundationDB read failure is never a hierarchy defect.
 var ErrHierarchyDefect = errors.New("search hierarchy is defective")
 
 // OrgNode identifies one node inside its organization.
@@ -24,15 +23,13 @@ type OrgNode struct {
 
 // AncestorState is the stored view, node type, and child_of targets of one
 // node on a hierarchy path. Exists is false when the node has no view. Type
-// is nil when no node type uses the view's type key. ParentID is the
-// parent_id text of the view, or empty when the view has none.
+// is nil when no node type uses the view's type key.
 type AncestorState struct {
 	Exists   bool
 	OrgID    uuid.UUID
 	TypeKey  string
 	Type     *node.NodeType
 	ChildOfs []uuid.UUID
-	ParentID string
 }
 
 // HierarchyReader reads the hierarchy state of many nodes. Ancestors returns

@@ -1,7 +1,6 @@
 package node
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -52,16 +51,6 @@ type hierarchyParentError struct {
 func (e hierarchyParentError) Error() string { return e.message + ": " + ErrNoHierarchyParent.Error() }
 
 func (e hierarchyParentError) Unwrap() error { return ErrNoHierarchyParent }
-
-// ParentIDText returns the text of the parent_id property in props. It
-// returns an empty string when props has no parent_id string.
-func ParentIDText(props map[string]json.RawMessage) string {
-	var text string
-	if err := json.Unmarshal(props["parent_id"], &text); err != nil {
-		return ""
-	}
-	return text
-}
 
 // LivesUnder reports whether NodeType metadata places a node of type child
 // under a node of type parent. The child's CanLiveUnder list or the parent's
