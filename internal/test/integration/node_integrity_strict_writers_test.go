@@ -82,10 +82,11 @@ func TestNodeIntegrityStrictEveryWriterAdvancesTheFence(t *testing.T) {
 	})
 }
 
-// requireFenceAdvances calls CaptureStrictEvidence before and after write. For
-// each of the 64 buckets, it requires the epoch advance to be at least the
-// number of nodes that write returns in that bucket. It requires the epoch to
-// remain unchanged in a bucket without a returned node.
+// requireFenceAdvances calls CaptureStrictEvidence before and after it calls
+// the write callback. The callback runs one operation and returns the IDs of
+// the nodes that the operation writes. For each of the 64 buckets, the helper
+// requires the epoch advance to be at least the number of returned node IDs
+// in that bucket. A bucket without a returned node ID must keep the same epoch.
 func requireFenceAdvances(t *testing.T, env *integration.TestEnv, operation string, write func() []uuid.UUID) {
 	t.Helper()
 	before, err := env.Stores.Nodes.CaptureStrictEvidence(env.Ctx)
