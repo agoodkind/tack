@@ -26,7 +26,6 @@ type RepairExportReader interface {
 	RepairExport(ctx context.Context, nodeID uuid.UUID) (fdbadapter.RepairExportRecord, error)
 }
 
-// repairExportDocument contains the records and repair details for one export.
 type repairExportDocument struct {
 	Ticket         string                        `json:"ticket"`
 	RepairID       string                        `json:"repair_id"`

@@ -158,7 +158,6 @@ func previewEntry(t *testing.T, preview ops.NodeIntegrityPreview, repairID strin
 	return ops.NodeIntegrityEntryPreview{}
 }
 
-// storedKeyValues returns all FoundationDB keys and values under the active test prefix.
 func storedKeyValues(t *testing.T) map[string]string {
 	t.Helper()
 	database, err := fdbadapter.Open(testenv.FoundationDB(t), repairTransactionTimeout)

@@ -7,8 +7,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// entryProblem returns the first validation error for entry, or an empty
-// string if entry is valid.
 func entryProblem(entry NodeIntegrityEntry) string {
 	if strings.TrimSpace(entry.NodeType) == "" {
 		return "node_type is required"

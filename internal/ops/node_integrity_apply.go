@@ -49,7 +49,6 @@ type NodeIntegrityApply struct {
 	Entries        []NodeIntegrityEntryApply `json:"entries"`
 }
 
-// errRepairEntriesFailed indicates that execution failed for at least one entry.
 var errRepairEntriesFailed = errors.New("at least one repair entry failed")
 
 // repairApplier executes entries in a frozen manifest phase by phase.

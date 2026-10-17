@@ -65,7 +65,6 @@ func (graph repairGraph) selectEpicEntry(repairID string) ops.NodeIntegrityEntry
 	}
 }
 
-// repairRequest creates a version 1 repair request containing entries.
 func repairRequest(entries ...ops.NodeIntegrityEntry) ops.NodeIntegrityRequest {
 	return ops.NodeIntegrityRequest{Version: 1, Ticket: "TACK-582", Entries: entries}
 }
