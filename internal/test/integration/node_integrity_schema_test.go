@@ -77,8 +77,8 @@ func TestNodeIntegritySchemaAppliesDefaultsAndPartialUpdates(t *testing.T) {
 
 // TestNodeIntegritySchemaIndexesScopeOfEveryType creates a project with its
 // five default states, an issue, and a comment and an activity under the issue.
-// It verifies that the scope_id index lists the states, comment, and activity
-// under the project and the project under its workspace.
+// It verifies that the `scope_id` index lists the states, issue, comment, and
+// activity under the project and lists the project under its workspace.
 func TestNodeIntegritySchemaIndexesScopeOfEveryType(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	projectID := createSchemaProject(t, env)
@@ -95,6 +95,7 @@ func TestNodeIntegritySchemaIndexesScopeOfEveryType(t *testing.T) {
 		scopeID uuid.UUID
 		nodeID  uuid.UUID
 	}{
+		{"issue", projectID, issue.ID},
 		{"comment", projectID, comment.ID},
 		{"activity", projectID, activity.ID},
 		{"project", workspaceID, projectID},
