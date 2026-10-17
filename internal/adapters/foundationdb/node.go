@@ -27,7 +27,7 @@ type NodeStore struct {
 // NewNodeStore creates the node store. It schedules no search work until
 // [Stores.EnableSearchWork] runs.
 func NewNodeStore(db fdb.Database, source clock.Clock) *NodeStore {
-	return &NodeStore{db: db, clock: source, searchWork: false, writeFence: nil}
+	return &NodeStore{db: db, clock: source, searchWork: false, writeFence: fenceNodeMutation}
 }
 
 // Get resolves the node by ID through its global resolution record.
