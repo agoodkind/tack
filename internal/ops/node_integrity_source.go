@@ -16,7 +16,6 @@ import (
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 )
 
-// repairParentProperty identifies the property for the canonical parent ID.
 const repairParentProperty = "parent_id"
 
 // RepairEvidenceReader reads a repair's source state within a single transaction.
@@ -39,8 +38,6 @@ func primaryDigest(primary []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// readRepairEvidence reads entry's node, edges, resulting parent chain,
-// and added edge targets.
 func readRepairEvidence(ctx context.Context, reader RepairEvidenceReader, entry NodeIntegrityEntry) (fdbadapter.RepairEvidence, error) {
 	request := fdbadapter.RepairEvidenceRequest{NodeID: entry.NodeID, ParentID: resultParent(entry.Result), Related: nil}
 	for _, edge := range entry.Result.AddEdges {
@@ -55,8 +52,6 @@ func readRepairEvidence(ctx context.Context, reader RepairEvidenceReader, entry 
 	return evidence, nil
 }
 
-// resultParent parses parent_id from result.Props and returns [uuid.Nil]
-// when the property does not contain a valid UUID string.
 func resultParent(result RepairResult) uuid.UUID {
 	var parentText string
 	if json.Unmarshal(result.Props[repairParentProperty], &parentText) != nil {
@@ -69,7 +64,6 @@ func resultParent(result RepairResult) uuid.UUID {
 	return parentID
 }
 
-// sourceFromEvidence converts current evidence into an entry's frozen source.
 func sourceFromEvidence(ctx context.Context, evidence fdbadapter.RepairEvidence) (RepairSource, error) {
 	source := RepairSource{
 		Primary: json.RawMessage(evidence.Node.Primary), PrimaryDigest: primaryDigest(evidence.Node.Primary),
@@ -109,7 +103,6 @@ func storedEdges(evidence fdbadapter.RepairEvidence) []RepairStoredEdge {
 	return edges
 }
 
-// repairGraph contains the fields used to calculate the graph digest.
 type repairGraph struct {
 	Edges   []RepairStoredEdge `json:"edges"`
 	Related []RepairRelated    `json:"related"`

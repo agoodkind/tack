@@ -80,8 +80,6 @@ func withoutReportComment(evidence fdbadapter.RepairEvidence, commentID uuid.UUI
 	return evidence
 }
 
-// relatedPresence returns a map marking related nodes that exist in the
-// repaired node's organization.
 func relatedPresence(evidence fdbadapter.RepairEvidence) map[uuid.UUID]bool {
 	present := make(map[uuid.UUID]bool, len(evidence.Related))
 	for _, record := range evidence.Related {

@@ -120,8 +120,6 @@ func readRepairEvidence(ctx context.Context, tr fdb.Transaction, request RepairE
 	return evidence, err
 }
 
-// readRepairChain follows parent_id from start until a node lacks a parent,
-// a node does not exist, or the traversal encounters a repeated node or nodeID.
 func readRepairChain(ctx context.Context, tr fdb.Transaction, nodeID, start uuid.UUID, related *repairRelatedSet) ([]uuid.UUID, bool, error) {
 	chain := []uuid.UUID{}
 	visited := map[uuid.UUID]bool{nodeID: true}
@@ -144,8 +142,6 @@ func readRepairChain(ctx context.Context, tr fdb.Transaction, nodeID, start uuid
 	return chain, false, nil
 }
 
-// readRepairNode reads nodeID's resolution, exact primary record, and parent_id
-// within tr.
 func readRepairNode(ctx context.Context, tr fdb.Transaction, nodeID uuid.UUID) (RepairNodeRecord, error) {
 	record := RepairNodeRecord{NodeID: nodeID, Found: false, OrgID: uuid.Nil, NodeType: "", Primary: nil, ParentID: uuid.Nil}
 	resolveBytes, err := tr.Get(fdb.Key(nodeResolveKey(nodeID))).Get()
@@ -180,8 +176,6 @@ func readRepairNode(ctx context.Context, tr fdb.Transaction, nodeID uuid.UUID) (
 	return record, nil
 }
 
-// readRepairEdges reads up to one page of current's edges in one direction
-// within tr. It returns an error if the edges exceed one page.
 func readRepairEdges(ctx context.Context, tr fdb.Transaction, current RepairNodeRecord, incoming bool) ([]RepairEdgeRecord, error) {
 	edges, err := readDeleteEdges(ctx, tr, current.OrgID, current.NodeID, "", incoming)
 	if err != nil {

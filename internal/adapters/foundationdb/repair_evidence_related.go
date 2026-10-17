@@ -9,8 +9,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// repairRelatedSet collects related node IDs and reuses records from the
-// ancestor traversal.
 type repairRelatedSet struct {
 	records map[uuid.UUID]*RepairNodeRecord
 }

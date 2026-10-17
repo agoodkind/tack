@@ -23,14 +23,10 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// repairOperatorID identifies the operator for each repair command in these tests.
 const repairOperatorID = "019dd226-440e-729a-a442-281aaf73ca31"
 
-// repairTransactionTimeout bounds each FoundationDB transaction of the
-// repair command and of the key reads in these tests.
 const repairTransactionTimeout = 5 * time.Second
 
-// repairCommandResult contains a repair command's decoded JSON result.
 type repairCommandResult struct {
 	Command  string                     `json:"command"`
 	DryRun   bool                       `json:"dry_run"`
@@ -39,8 +35,6 @@ type repairCommandResult struct {
 	Applied  *ops.NodeIntegrityApply    `json:"applied"`
 }
 
-// runRepairCommand executes ops backfill once-node-integrity with args
-// using the rendered command tree and decodes the JSON result.
 func runRepairCommand(t *testing.T, args ...string) (repairCommandResult, error) {
 	t.Helper()
 	cfg := &config.Config{
@@ -77,10 +71,6 @@ func runRepairCommand(t *testing.T, args ...string) (repairCommandResult, error)
 	return result, runErr
 }
 
-// repairCommandRoot registers the ops commands in a new clispec registry
-// and renders them as Cobra commands under a root command named tack.
-// It registers the global flags on the root and sets factory's operator
-// identity source.
 func repairCommandRoot(factory *cli.Factory) *cobra.Command {
 	registry := clispec.NewRegistry()
 	ops.RegisterCommands(registry, factory)
@@ -93,8 +83,6 @@ func repairCommandRoot(factory *cli.Factory) *cobra.Command {
 	return root
 }
 
-// writeRepairDocument writes value as JSON in a temporary directory and
-// returns the file path.
 func writeRepairDocument[Document ops.NodeIntegrityRequest | ops.NodeIntegrityManifest](t *testing.T, name string, value Document) string {
 	t.Helper()
 	encoded, err := json.Marshal(value)
@@ -119,8 +107,6 @@ func manifestDigest(t *testing.T, manifest ops.NodeIntegrityManifest) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// freezeRepairRequest runs the command's request dry run and returns its
-// frozen manifest.
 func freezeRepairRequest(t *testing.T, request ops.NodeIntegrityRequest) ops.NodeIntegrityManifest {
 	t.Helper()
 	result, err := runRepairCommand(t, "--request", writeRepairDocument(t, "request.json", request))
@@ -133,7 +119,6 @@ func freezeRepairRequest(t *testing.T, request ops.NodeIntegrityRequest) ops.Nod
 	return *result.Manifest
 }
 
-// previewRepairManifest runs the command's manifest dry run and returns its preview.
 func previewRepairManifest(t *testing.T, manifest ops.NodeIntegrityManifest) ops.NodeIntegrityPreview {
 	t.Helper()
 	result, err := runRepairCommand(t, "--manifest", writeRepairDocument(t, "manifest.json", manifest))
@@ -146,7 +131,6 @@ func previewRepairManifest(t *testing.T, manifest ops.NodeIntegrityManifest) ops
 	return *result.Preview
 }
 
-// previewEntry finds the entry matching repairID or fails the test.
 func previewEntry(t *testing.T, preview ops.NodeIntegrityPreview, repairID string) ops.NodeIntegrityEntryPreview {
 	t.Helper()
 	for _, entry := range preview.Entries {

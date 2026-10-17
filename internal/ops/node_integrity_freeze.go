@@ -8,9 +8,6 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// freezeNodeIntegrityRequest validates request and freezes each entry's
-// current evidence in a manifest with a digest. It returns an error if an
-// entry fails graph validation.
 func freezeNodeIntegrityRequest(ctx context.Context, reader RepairEvidenceReader, request NodeIntegrityRequest) (NodeIntegrityManifest, error) {
 	manifest := NodeIntegrityManifest{
 		Version: request.Version, Ticket: request.Ticket, Digest: "",
@@ -44,7 +41,6 @@ func freezeNodeIntegrityRequest(ctx context.Context, reader RepairEvidenceReader
 	return manifest, nil
 }
 
-// repairManifestRejected wraps and logs an error from request or manifest validation.
 func repairManifestRejected(ctx context.Context, operation string, err error) error {
 	wrapped := fmt.Errorf("%s node integrity manifest: %w", operation, err)
 	slog.ErrorContext(ctx, "repair.manifest.rejected", slog.String("err", wrapped.Error()), slog.String("operation", operation))

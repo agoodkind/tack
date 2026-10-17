@@ -6,10 +6,8 @@ import (
 	"github.com/google/uuid"
 )
 
-// nodeIntegrityManifestVersion is the manifest version the command accepts.
 const nodeIntegrityManifestVersion = 1
 
-// nodeIntegrityTicket identifies the required ticket for manifest repairs.
 const nodeIntegrityTicket = "TACK-582"
 
 // RepairEntryStatus determines whether a manifest entry permits execution.
