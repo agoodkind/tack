@@ -83,6 +83,9 @@ func (s *NodeStore) applyMutationAttempt(ctx context.Context, tr fdb.Transaction
 	if err != nil {
 		return none, false, nodeOperationFailure(ctx, "encode node "+plan.NodeID.String(), err)
 	}
+	if err := advanceMutationCheckpoint(ctx, tr, plan.Checkpoint, encoded); err != nil {
+		return none, false, err
+	}
 	changes := []node.RelationshipChanges{planRelationshipChanges(plan), parentChanges}
 	if err := s.writeMutation(ctx, tr, plan, source, &result, schema, changes); err != nil {
 		return none, false, err
