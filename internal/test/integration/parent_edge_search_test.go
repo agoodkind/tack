@@ -11,12 +11,12 @@ import (
 // parentChainLength is the number of leaves in the moved chain.
 const parentChainLength = 40
 
-// TestParentEdgeLeafUnderLeafIsSearchable creates a leaf under the first
+// TestSearchParentEdgeLeafUnderLeaf creates a leaf under the first
 // entry point and a second leaf under the first leaf through the node
 // service. No metadata declares the pair of the two leaf types. Search
 // under the first entry point must return the second leaf, and its summary
 // keys must equal the summary keys of the entry point.
-func TestParentEdgeLeafUnderLeafIsSearchable(t *testing.T) {
+func TestSearchParentEdgeLeafUnderLeaf(t *testing.T) {
 	fixture := newParentEdgeFixture(t)
 	parent := fixture.createLeaf(t, fixture.firstEntry, "cinder parent leaf")
 	nested := fixture.createLeaf(t, parent, "cinder nested leaf")
@@ -31,13 +31,13 @@ func TestParentEdgeLeafUnderLeafIsSearchable(t *testing.T) {
 	}
 }
 
-// TestParentEdgeMovedChainTakesNewEntryPoint creates a chain of 40 leaves
+// TestSearchParentEdgeMovedChain creates a chain of 40 leaves
 // under the first entry point, each leaf under the one before it, and moves
 // the top leaf to the second entry point through the node service. Every
 // leaf of the chain must then have the summary keys of the second entry
 // point. Search under the first entry point must return none of the leaves,
 // and search under the second entry point must return all of them.
-func TestParentEdgeMovedChainTakesNewEntryPoint(t *testing.T) {
+func TestSearchParentEdgeMovedChain(t *testing.T) {
 	fixture := newParentEdgeFixture(t)
 	chain := make([]uuid.UUID, 0, parentChainLength)
 	parent := fixture.firstEntry
@@ -69,14 +69,14 @@ func TestParentEdgeMovedChainTakesNewEntryPoint(t *testing.T) {
 	}
 }
 
-// TestParentEdgeMembershipEdgeGivesNoAccess stores a node of a type without
+// TestSearchParentEdgeMembershipEdge stores a node of a type without
 // CanLiveUnder under the first entry point and indexes it. The test then
 // replaces the child_of edge with a member_of edge to the same entry point.
 // It runs no search work after the change, and the indexed pages keep the
 // keys of the entry point. Only child_of edges create access. The summary
 // keys of the node must not include a key of the entry point, and the final
 // FoundationDB check of tack_search must withhold the node.
-func TestParentEdgeMembershipEdgeGivesNoAccess(t *testing.T) {
+func TestSearchParentEdgeMembershipEdge(t *testing.T) {
 	fixture := newParentEdgeFixture(t)
 	rootKind := fixture.putKind(t, fixture.kind.orgID, nil)
 	member := fixture.storeNode(t, rootKind, "garnet member node",

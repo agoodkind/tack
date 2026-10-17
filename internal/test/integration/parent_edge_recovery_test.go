@@ -20,13 +20,13 @@ const parentEdgeExclusionReason = "resolve hierarchy parent: node requires exact
 // parentEdgePause spaces the worker slices while the replacement waits.
 const parentEdgePause = 250 * time.Millisecond
 
-// TestParentEdgeReindexReadmitsExcludedLeaf creates a leaf under another
+// TestSearchParentEdgeReindexReadmits creates a leaf under another
 // leaf and excludes the nested leaf through the search work store. The
 // previous parent rule left that state. The audited command
 // "ops search reindex --mode full" must replace the serving index. After the
 // replacement, search must return the nested leaf, and ops search verify
 // must list no exclusion of it.
-func TestParentEdgeReindexReadmitsExcludedLeaf(t *testing.T) {
+func TestSearchParentEdgeReindexReadmits(t *testing.T) {
 	fixture := newParentEdgeFixture(t)
 	parent := fixture.createLeaf(t, fixture.firstEntry, "topaz parent leaf")
 	nested := fixture.createLeaf(t, parent, "topaz nested leaf")
