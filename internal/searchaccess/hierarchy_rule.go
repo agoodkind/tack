@@ -43,8 +43,8 @@ type HierarchyReader interface {
 // EntryPoints returns the nearest node with an entry-point type among each
 // resource and its hierarchy ancestors, or the hierarchy root when such a
 // node does not exist.
-// Each node's single stored child_of edge defines its hierarchy parent under
-// [node.HierarchyParent]. The walk does not impose a depth limit.
+// The [node.HierarchyParent] function determines each node's hierarchy parent
+// from its stored child_of edges. The walk does not impose a depth limit.
 // Each level makes at most one batched Ancestors call. That call requests
 // every current node of the walks still in progress that earlier levels
 // have not read. A level does not call Ancestors if it lacks unread nodes.
