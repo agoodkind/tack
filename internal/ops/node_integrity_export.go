@@ -99,6 +99,8 @@ func writeRepairExport(ctx context.Context, entry NodeIntegrityEntry, encoded []
 	if err := os.Rename(file.Name(), path); err != nil {
 		return repairExportFailure(ctx, entry, err)
 	}
+	slog.InfoContext(ctx, "repair.export.written", slog.String("repair_id", entry.RepairID),
+		slog.String("node_id", entry.NodeID.String()), slog.String("path", path))
 	return nil
 }
 

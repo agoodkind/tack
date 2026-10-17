@@ -1,23 +1,21 @@
-package integration
+package integration_test
 
 import (
 	"encoding/json"
 	"maps"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/ops"
-	"goodkind.io/tack/internal/service"
+	"goodkind.io/tack/internal/test/integration"
 )
 
 // TestNodeIntegrityRepairPreviewWritesNothing checks that command dry runs
 // freeze and preview a repair without changing FoundationDB keys or values.
 // The preview must report the entry as planned.
 func TestNodeIntegrityRepairPreviewWritesNothing(t *testing.T) {
-	env := SetupTestEnv(t)
+	env := integration.SetupTestEnv(t)
 	graph := newRepairGraph(t, env)
 	before := storedKeyValues(t)
 
@@ -44,18 +42,18 @@ func TestNodeIntegrityRepairPreviewWritesNothing(t *testing.T) {
 // the primary record, a related record, or metadata after freezing produce
 // a conflicted preview with a reason identifying the stale evidence.
 func TestNodeIntegrityRepairPreviewReportsStaleEvidence(t *testing.T) {
-	env := SetupTestEnv(t)
 	cases := []struct {
 		name   string
-		change func(t *testing.T, env *TestEnv, graph repairGraph)
+		change func(t *testing.T, env *integration.TestEnv, graph repairGraph)
 		want   string
 	}{
-		{name: "primary", change: func(t *testing.T, env *TestEnv, graph repairGraph) { renameNode(t, env, graph.issueID) }, want: "stale primary record"},
-		{name: "graph", change: func(t *testing.T, env *TestEnv, graph repairGraph) { renameNode(t, env, graph.epicID) }, want: "stale graph"},
-		{name: "metadata", change: func(t *testing.T, env *TestEnv, _ repairGraph) { changePropertyDefinition(t, env) }, want: "stale metadata"},
+		{name: "primary", change: func(t *testing.T, env *integration.TestEnv, graph repairGraph) { renameNode(t, env, graph.issueID) }, want: "stale primary record"},
+		{name: "graph", change: func(t *testing.T, env *integration.TestEnv, graph repairGraph) { renameNode(t, env, graph.epicID) }, want: "stale graph"},
+		{name: "metadata", change: func(t *testing.T, env *integration.TestEnv, _ repairGraph) { changePropertyDefinition(t, env) }, want: "stale metadata"},
 	}
 	for _, scenario := range cases {
 		t.Run(scenario.name, func(t *testing.T) {
+			env := integration.SetupTestEnv(t)
 			graph := newRepairGraph(t, env)
 			manifest := freezeRepairRequest(t, repairRequest(graph.selectEpicEntry("tack-582-stale-"+scenario.name)))
 			scenario.change(t, env, graph)
@@ -71,10 +69,10 @@ func TestNodeIntegrityRepairPreviewReportsStaleEvidence(t *testing.T) {
 // a final checkpoint as completed, reports the next phase for an earlier
 // checkpoint, and preserves unresolved entry status.
 func TestNodeIntegrityRepairPreviewReadsCheckpoints(t *testing.T) {
-	env := SetupTestEnv(t)
+	env := integration.SetupTestEnv(t)
 	graph := newRepairGraph(t, env)
-	fixtureID := createTestIssue(t, env, graph.projectID, "Exported fixture")
-	scopeID := createTestIssue(t, env, graph.projectID, "Scope exception")
+	fixtureID := createRepairIssue(t, env, graph.projectID, "Exported fixture")
+	scopeID := createRepairIssue(t, env, graph.projectID, "Scope exception")
 	deleteEntry := ops.NodeIntegrityEntry{
 		RepairID: "tack-582-delete-fixture", NodeID: fixtureID, NodeType: "issue", Status: ops.RepairEntryExecutable,
 		Classes:  []string{"test_fixture"},
@@ -112,7 +110,7 @@ func TestNodeIntegrityRepairPreviewReadsCheckpoints(t *testing.T) {
 // rejects an edited frozen manifest and a request that removes a child_of
 // edge to an existing node outside the ancestors above the resulting parent.
 func TestNodeIntegrityRepairRejectsUnreviewedChanges(t *testing.T) {
-	env := SetupTestEnv(t)
+	env := integration.SetupTestEnv(t)
 	graph := newRepairGraph(t, env)
 	manifest := freezeRepairRequest(t, repairRequest(graph.selectEpicEntry("tack-582-edited")))
 	manifest.Entries[0].Result.Props["priority"] = json.RawMessage(`"high"`)
@@ -126,40 +124,5 @@ func TestNodeIntegrityRepairRejectsUnreviewedChanges(t *testing.T) {
 	if _, err := runRepairCommand(t, "--request", writeRepairDocument(t, "wrong.json", repairRequest(keepProject))); err == nil ||
 		!strings.Contains(err.Error(), "does not target an ancestor") {
 		t.Fatalf("freeze of a non-ancestor removal = %v, want a refusal", err)
-	}
-}
-
-func renameNode(t *testing.T, env *TestEnv, nodeID uuid.UUID) {
-	t.Helper()
-	name := "Renamed " + nodeID.String()
-	if _, err := env.NodeSvc.Update(env.Ctx, service.UpdateInput{
-		NodeID: nodeID, Name: &name, Props: nil, RelationshipChanges: node.RelationshipChanges{Add: nil, Remove: nil}, ActorID: uuid.New(),
-	}); err != nil {
-		t.Fatalf("rename node %s: %v", nodeID, err)
-	}
-}
-
-func changePropertyDefinition(t *testing.T, env *TestEnv) {
-	t.Helper()
-	definitions, err := env.Stores.PropertyDefs.List(env.Ctx, env.OrgID)
-	if err != nil || len(definitions) == 0 {
-		t.Fatalf("list property definitions: %v", err)
-	}
-	changed := *definitions[0]
-	changed.Required = !changed.Required
-	if err := env.Stores.PropertyDefs.Set(env.Ctx, &changed); err != nil {
-		t.Fatalf("change property definition %s: %v", changed.ID, err)
-	}
-}
-
-func recordCheckpoint(t *testing.T, env *TestEnv, manifest ops.NodeIntegrityManifest, index int, phase node.RepairPhase) {
-	t.Helper()
-	entry := manifest.Entries[index]
-	checkpoint := node.RepairCheckpoint{
-		RepairID: entry.RepairID, ManifestDigest: manifest.Digest, NodeID: entry.NodeID,
-		SourceDigest: entry.Source.PrimaryDigest, Phase: phase, ActorID: uuid.New(), UpdatedAt: time.Now().UTC(),
-	}
-	if err := env.Stores.Repairs().AdvanceRepairCheckpoint(env.Ctx, "", checkpoint); err != nil {
-		t.Fatalf("record checkpoint %s at %s: %v", entry.RepairID, phase, err)
 	}
 }

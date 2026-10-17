@@ -1,30 +1,32 @@
-package integration
+package integration_test
 
 import (
 	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strconv"
 	"testing"
 	"time"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/spf13/cobra"
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
+	"goodkind.io/tack/internal/clispec"
 	"goodkind.io/tack/internal/config"
-	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/ops"
 	"goodkind.io/tack/internal/response"
-	"goodkind.io/tack/internal/service"
 	"goodkind.io/tack/internal/testenv"
 )
 
 // repairOperatorID identifies the operator for each repair command in these tests.
 const repairOperatorID = "019dd226-440e-729a-a442-281aaf73ca31"
+
+// repairTransactionTimeout bounds each FoundationDB transaction of the
+// repair command and of the key reads in these tests.
+const repairTransactionTimeout = 5 * time.Second
 
 // repairCommandResult contains a repair command's decoded JSON result.
 type repairCommandResult struct {
@@ -40,7 +42,7 @@ type repairCommandResult struct {
 func runRepairCommand(t *testing.T, args ...string) (repairCommandResult, error) {
 	t.Helper()
 	cfg := &config.Config{
-		DatabaseURL: testenv.Ledger(t), FDBClusterFile: testenv.FoundationDB(t), FDBTransactionTimeout: testTransactionTimeout,
+		DatabaseURL: testenv.Ledger(t), FDBClusterFile: testenv.FoundationDB(t), FDBTransactionTimeout: repairTransactionTimeout,
 	}
 	factory := cli.System(cfg)
 	var output bytes.Buffer
@@ -51,7 +53,7 @@ func runRepairCommand(t *testing.T, args ...string) (repairCommandResult, error)
 	}
 	defer pool.Close()
 	factory.SetAuditOutbox(audit.NewPoolOutbox(pool))
-	root := searchCommandRoot(factory)
+	root := repairCommandRoot(factory)
 	root.SetArgs(append([]string{
 		"--output", "json", "--operator-id", repairOperatorID,
 		"--operator-email", "repair@example.com", "--operator-name", "Repair Test",
@@ -71,6 +73,22 @@ func runRepairCommand(t *testing.T, args ...string) (repairCommandResult, error)
 		t.Fatalf("decode repair command result %s: %v", document.Result, err)
 	}
 	return result, runErr
+}
+
+// repairCommandRoot registers the ops commands in a new clispec registry
+// and renders them as Cobra commands under a root command named tack.
+// It registers the global flags on the root and sets factory's operator
+// identity source.
+func repairCommandRoot(factory *cli.Factory) *cobra.Command {
+	registry := clispec.NewRegistry()
+	ops.RegisterCommands(registry, factory)
+	root := &cobra.Command{Use: "tack", SilenceErrors: true, SilenceUsage: true}
+	factory.RegisterGlobalFlags(root)
+	for _, command := range clispec.RenderCobra(registry, factory) {
+		root.AddCommand(command)
+	}
+	factory.SetOperatorIdentitySource(cli.NewOperatorSource(factory))
+	return root
 }
 
 // writeRepairDocument writes value as JSON in a temporary directory and
@@ -130,7 +148,7 @@ func previewEntry(t *testing.T, preview ops.NodeIntegrityPreview, repairID strin
 // storedKeyValues returns all FoundationDB keys and values under the active test prefix.
 func storedKeyValues(t *testing.T) map[string]string {
 	t.Helper()
-	database, err := fdbadapter.Open(testenv.FoundationDB(t), testTransactionTimeout)
+	database, err := fdbadapter.Open(testenv.FoundationDB(t), repairTransactionTimeout)
 	if err != nil {
 		t.Fatalf("open database to read keys: %v", err)
 	}
@@ -149,51 +167,4 @@ func storedKeyValues(t *testing.T) map[string]string {
 		stored[string(item.Key)] = string(item.Value)
 	}
 	return stored
-}
-
-// repairGraph records IDs for a project, epic, and issue. The issue's
-// parent_id identifies the project. Its child_of edges target both the
-// project and the epic.
-type repairGraph struct {
-	projectID uuid.UUID
-	epicID    uuid.UUID
-	issueID   uuid.UUID
-}
-
-func newRepairGraph(t *testing.T, env *TestEnv) repairGraph {
-	t.Helper()
-	projectID := createTestProject(t, env)
-	epic := mustCreate(t, env, service.CreateInput{
-		ParentID: projectID, ScopeID: projectID, NodeTypeKey: "epic", Name: "Grouping epic", ActorID: uuid.New(),
-	})
-	issueID := createTestIssue(t, env, projectID, "Issue with two parent edges")
-	if err := env.Stores.Relationships.Add(env.Ctx, &node.Relationship{
-		OrgID: env.OrgID, SourceID: issueID, RelationType: node.RelChildOf, TargetID: epic.ID,
-		CreatedBy: uuid.New(), CreatedAt: time.Now().UTC(), Props: nil,
-	}); err != nil {
-		t.Fatalf("add the legacy child_of edge to the epic: %v", err)
-	}
-	return repairGraph{projectID: projectID, epicID: epic.ID, issueID: issueID}
-}
-
-// selectEpicEntry returns a repair that sets the issue's parent to the epic
-// and removes its redundant child_of edge to the project.
-func (graph repairGraph) selectEpicEntry(repairID string) ops.NodeIntegrityEntry {
-	return ops.NodeIntegrityEntry{
-		RepairID: repairID, NodeID: graph.issueID, NodeType: "issue", Status: ops.RepairEntryExecutable,
-		Classes: []string{"multiple_child_of_edges"},
-		Evidence: []ops.RepairEvidence{{
-			Kind: ops.RepairEvidenceInferred, Reference: "TACK-582 parent mappings",
-			Summary: "The epic is the most specific linked container.",
-		}},
-		Result: ops.RepairResult{
-			Props:       map[string]json.RawMessage{"parent_id": json.RawMessage(strconv.Quote(graph.epicID.String()))},
-			RemoveEdges: []ops.RepairEdge{{RelationType: node.RelChildOf, TargetID: graph.projectID}},
-		},
-	}
-}
-
-// repairRequest creates a version 1 repair request containing entries.
-func repairRequest(entries ...ops.NodeIntegrityEntry) ops.NodeIntegrityRequest {
-	return ops.NodeIntegrityRequest{Version: 1, Ticket: "TACK-582", Entries: entries}
 }

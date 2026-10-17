@@ -1,4 +1,4 @@
-package integration
+package integration_test
 
 import (
 	"encoding/json"
@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/ops"
+	"goodkind.io/tack/internal/test/integration"
 )
 
 // TestNodeIntegrityRepairExportsBeforeDelete executes a manifest with three
@@ -19,7 +20,7 @@ import (
 // node and must not write an export file. A second execution must not commit
 // a phase and must keep the number of stored keys unchanged.
 func TestNodeIntegrityRepairExportsBeforeDelete(t *testing.T) {
-	env := SetupTestEnv(t)
+	env := integration.SetupTestEnv(t)
 	graph := newRepairGraph(t, env)
 	exportDir := t.TempDir()
 	exported := deleteFixtureEntry(t, env, graph, "tack-582-export", filepath.Join(exportDir, "export.json"))
@@ -41,7 +42,7 @@ func TestNodeIntegrityRepairExportsBeforeDelete(t *testing.T) {
 		t.Fatalf("stat stale export = %v, want no file", statErr)
 	}
 	for _, entry := range []ops.NodeIntegrityEntry{exported, missing, stale} {
-		requireNodesPresent(t, env, []uuid.UUID{entry.NodeID})
+		requireRepairNodePresent(t, env, entry.NodeID)
 	}
 	requireCheckpointPhase(t, env, exported.RepairID, node.RepairPhaseExported)
 	requireCheckpointPhase(t, env, missing.RepairID, "")
@@ -61,10 +62,10 @@ func TestNodeIntegrityRepairExportsBeforeDelete(t *testing.T) {
 
 // deleteFixtureEntry creates one issue under the project and returns a
 // delete entry for it that exports to exportFile.
-func deleteFixtureEntry(t *testing.T, env *TestEnv, graph repairGraph, repairID, exportFile string) ops.NodeIntegrityEntry {
+func deleteFixtureEntry(t *testing.T, env *integration.TestEnv, graph repairGraph, repairID, exportFile string) ops.NodeIntegrityEntry {
 	t.Helper()
 	return ops.NodeIntegrityEntry{
-		RepairID: repairID, NodeID: createTestIssue(t, env, graph.projectID, "Fixture "+repairID), NodeType: "issue",
+		RepairID: repairID, NodeID: createRepairIssue(t, env, graph.projectID, "Fixture "+repairID), NodeType: "issue",
 		Status: ops.RepairEntryExecutable, Classes: []string{"test_fixture"},
 		Evidence: []ops.RepairEvidence{{Kind: ops.RepairEvidenceDecision, Reference: "TACK-582", Summary: "Delete the fixture."}},
 		Result:   ops.RepairResult{}, Delete: &ops.RepairDelete{ExportFile: exportFile},
@@ -89,7 +90,7 @@ func requireApplyEntry(t *testing.T, applied ops.NodeIntegrityApply, repairID st
 
 // requireCheckpointPhase checks that the stored phase for repairID matches phase.
 // It treats a missing checkpoint as an empty phase.
-func requireCheckpointPhase(t *testing.T, env *TestEnv, repairID string, phase node.RepairPhase) {
+func requireCheckpointPhase(t *testing.T, env *integration.TestEnv, repairID string, phase node.RepairPhase) {
 	t.Helper()
 	checkpoint, err := env.Stores.Repairs().RepairCheckpoint(env.Ctx, repairID)
 	if err != nil {
