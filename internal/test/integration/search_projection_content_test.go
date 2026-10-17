@@ -13,20 +13,30 @@ import (
 	"goodkind.io/tack/internal/test/integration"
 )
 
-// TestSearchProjectionIndexesValidContent verifies that repeated renders
-// return identical text and diagnostics. The text must include the node name
-// and included value, and omit an explicitly excluded value, an invalid label
-// value, and two undeclared values. Diagnostics must identify the node and
-// list the invalid and undeclared properties in property name order. They
-// must omit the excluded property.
+// TestSearchProjectionIndexesValidContent verifies that repeated renders return
+// identical text and diagnostics. The text includes the node name and the
+// included value. The renderer omits the following values:
+//   - It omits the explicitly excluded value.
+//   - It omits the invalid label value.
+//   - It omits the invalid select option value.
+//   - It omits the whole list ["amber listed value", null] because null is not
+//     a valid scalar item.
+//   - It omits the inapplicable value from a property that requires a feature
+//     the node type lacks.
+//   - It omits the two undeclared values.
+//
+// Diagnostics identify the node and list the invalid, inapplicable, and
+// undeclared properties in property name order. The list property produces one
+// invalid value diagnostic. Diagnostics do not include the excluded property.
 func TestSearchProjectionIndexesValidContent(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	env.Stores.EnableSearchWork()
 	orgID := uuid.Must(uuid.NewV7())
 	included, excluded, labeled := opaqueName("p"), opaqueName("p"), opaqueName("c")
 	laterName, earlierName := opaqueName("b"), opaqueName("a")
-	optioned, restricted := opaqueName("o"), opaqueName("r")
+	optioned, restricted, listed := opaqueName("o"), opaqueName("r"), opaqueName("l")
 	scalar := node.SearchProjection{Include: true, Order: 0, Rule: node.TextRule{Mode: node.TextRuleScalar}}
+	scalarItems := node.TextRule{Mode: node.TextRuleItems, Items: &node.TextRule{Mode: node.TextRuleScalar}}
 	definitions := []*node.PropertyDef{
 		projectionDefinition(orgID, included, scalar),
 		projectionDefinition(orgID, excluded, node.SearchProjection{Include: false, Order: 1, Rule: node.TextRule{Mode: node.TextRuleScalar}}),
@@ -41,6 +51,7 @@ func TestSearchProjectionIndexesValidContent(t *testing.T) {
 			ID: uuid.Must(uuid.NewV7()), OrgID: orgID, Name: restricted, Type: node.PropertyTypeText,
 			AppliesToFeatures: []string{node.FeatureHasDueDates}, Search: &scalar,
 		},
+		projectionDefinition(orgID, listed, node.SearchProjection{Include: true, Order: 3, Rule: scalarItems}),
 	}
 	want := map[string]expectedDiagnostic{
 		earlierName: {reason: node.DiagnosticUndeclared, definitionID: uuid.Nil},
@@ -48,6 +59,7 @@ func TestSearchProjectionIndexesValidContent(t *testing.T) {
 		labeled:     {reason: node.DiagnosticInvalidValue, definitionID: definitions[2].ID},
 		optioned:    {reason: node.DiagnosticInvalidValue, definitionID: definitions[3].ID},
 		restricted:  {reason: node.DiagnosticInapplicable, definitionID: definitions[4].ID},
+		listed:      {reason: node.DiagnosticInvalidValue, definitionID: definitions[5].ID},
 	}
 	typeKey := opaqueName("n")
 	kind := &node.NodeType{
@@ -71,6 +83,7 @@ func TestSearchProjectionIndexesValidContent(t *testing.T) {
 		earlierName: json.RawMessage(`"amber undeclared earlier"`),
 		optioned:    json.RawMessage(`"amber-missing-option"`),
 		restricted:  json.RawMessage(`"amber inapplicable value"`),
+		listed:      json.RawMessage(`["amber listed value", null]`),
 	}
 	nodeID := uuid.Must(uuid.NewV7())
 	now := clock.Now().UTC()

@@ -85,6 +85,8 @@ func scalarLeaf(raw json.RawMessage) ([]string, error) {
 			return nil, invalidValueError{message: "the value is not a boolean"}
 		}
 		return []string{strconv.FormatBool(scalar)}, nil
+	case 'n':
+		return nil, invalidValueError{message: "the value is null"}
 	default:
 		var scalar json.Number
 		if err := json.Unmarshal(trimmed, &scalar); err != nil {
