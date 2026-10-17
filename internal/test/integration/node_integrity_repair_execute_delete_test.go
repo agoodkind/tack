@@ -105,8 +105,6 @@ func commentDeleteEntry(repairID string, commentID uuid.UUID, exportFile string)
 	}
 }
 
-// createRepairComment creates a comment named name under parentID in the
-// project scope.
 func createRepairComment(t *testing.T, env *integration.TestEnv, parentID, projectID uuid.UUID, name string) uuid.UUID {
 	t.Helper()
 	return createRepairNode(t, env, service.CreateInput{

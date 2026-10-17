@@ -17,7 +17,6 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// repairPhaseRun contains the inputs of one phase of one entry.
 type repairPhaseRun struct {
 	manifestDigest string
 	operator       audit.OperatorPrincipal
@@ -52,8 +51,6 @@ type repairFrozen struct {
 	metadataEpoch int64
 }
 
-// frozenRepairSource decodes the organization, primary digest, and metadata
-// epoch of the frozen source of entry.
 func frozenRepairSource(ctx context.Context, entry NodeIntegrityEntry) (repairFrozen, error) {
 	frozen := repairFrozen{orgID: uuid.Nil, primaryDigest: node.Digest{}, metadataEpoch: 0}
 	var primary node.Node
@@ -73,7 +70,6 @@ func frozenRepairSource(ctx context.Context, entry NodeIntegrityEntry) (repairFr
 	return frozen, nil
 }
 
-// decodeRepairDigest decodes a hex SHA-256 digest.
 func decodeRepairDigest(text string) (node.Digest, error) {
 	var digest node.Digest
 	decoded, err := hex.DecodeString(text)
@@ -144,7 +140,6 @@ func sortGraphRecords(records []node.GraphRecord) {
 	})
 }
 
-// repairRefused returns an error that wraps sentinel and logs it.
 func repairRefused(ctx context.Context, entry NodeIntegrityEntry, reason string, sentinel error) error {
 	wrapped := fmt.Errorf("repair %s for node %s: %s: %w", entry.RepairID, entry.NodeID, reason, sentinel)
 	slog.ErrorContext(ctx, "repair.refused", slog.String("err", wrapped.Error()),
@@ -152,7 +147,6 @@ func repairRefused(ctx context.Context, entry NodeIntegrityEntry, reason string,
 	return wrapped
 }
 
-// repairMutationFailure wraps and logs an error that a checked mutation returned.
 func repairMutationFailure(ctx context.Context, entry NodeIntegrityEntry, operation string, err error) error {
 	wrapped := fmt.Errorf("%s for repair %s of node %s: %w", operation, entry.RepairID, entry.NodeID, err)
 	slog.ErrorContext(ctx, "repair.mutation_failed", slog.String("err", wrapped.Error()),

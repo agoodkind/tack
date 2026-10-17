@@ -26,7 +26,6 @@ func executeRepairManifest(t *testing.T, manifest ops.NodeIntegrityManifest) (op
 	return *result.Applied, err
 }
 
-// requireApplyStatus checks the status of repairID in applied.
 func requireApplyStatus(t *testing.T, applied ops.NodeIntegrityApply, repairID string, status ops.RepairApplyStatus) ops.NodeIntegrityEntryApply {
 	t.Helper()
 	for _, entry := range applied.Entries {
@@ -87,7 +86,6 @@ func setLegacyProps(t *testing.T, env *integration.TestEnv, nodeID uuid.UUID, pr
 	}
 }
 
-// childOfTargets returns the sorted targets of the child_of edges of nodeID.
 func childOfTargets(t *testing.T, env *integration.TestEnv, nodeID uuid.UUID) []uuid.UUID {
 	t.Helper()
 	edges, err := env.Stores.Relationships.ListBySource(env.Ctx, env.OrgID, nodeID, node.RelChildOf)
@@ -152,7 +150,6 @@ func projectState(t *testing.T, env *integration.TestEnv, projectID uuid.UUID, n
 	return uuid.Nil
 }
 
-// commentsUnder returns the views of the comments with a child_of edge to nodeID.
 func commentsUnder(t *testing.T, env *integration.TestEnv, nodeID uuid.UUID) []*node.NodeView {
 	t.Helper()
 	edges, err := env.Stores.Relationships.ListByTarget(env.Ctx, env.OrgID, nodeID, node.RelChildOf)
@@ -169,7 +166,6 @@ func commentsUnder(t *testing.T, env *integration.TestEnv, nodeID uuid.UUID) []*
 	return comments
 }
 
-// textValue returns value as a JSON string.
 func textValue(value string) json.RawMessage {
 	return json.RawMessage(strconv.Quote(value))
 }
