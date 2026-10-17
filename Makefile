@@ -56,7 +56,7 @@ run:
 # Run DB migrations against DATABASE_URL.
 .PHONY: migrate
 migrate:
-	go run $(GO_BUILD_FLAGS) $(CMD) migrate
+	go run $(GO_BUILD_FLAGS) $(CMD) migrate --execute
 
 # Seed the database with initial user/org/workspace/token.
 .PHONY: seed
