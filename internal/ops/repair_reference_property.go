@@ -10,7 +10,6 @@ import (
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
-	"goodkind.io/tack/internal/service"
 )
 
 // RepairCleanupPolicy controls whether source fields are removed after repair.
@@ -183,7 +182,7 @@ func (c *RepairConsole) loadReferenceRepairMetadata(
 
 func referenceTargetDef(ctx context.Context, defs []*node.PropertyDef, currentType *node.NodeType, targetProperty string) (*node.PropertyDef, error) {
 	for _, def := range defs {
-		if def.Name != targetProperty || !service.PropertyDefAppliesToCommand(def, currentType) {
+		if def.Name != targetProperty || !node.PropertyAppliesTo(def, currentType) {
 			continue
 		}
 		if def.Type != node.PropertyTypeUUID || strings.TrimSpace(def.ReferenceTargetTypeKey) == "" {

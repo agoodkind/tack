@@ -3,8 +3,9 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"sort"
+	"log/slog"
 	"strings"
 
 	"github.com/google/uuid"
@@ -24,11 +25,7 @@ func (s *NodeService) validateCreateProps(
 	nt *node.NodeType,
 	props map[string]json.RawMessage,
 ) error {
-	defs, err := s.propertyDefs.List(ctx, orgID)
-	if err != nil {
-		return fmt.Errorf("list property defs for %s create validation: %w", nt.TypeKey, err)
-	}
-	return ValidateNodeProps(nt, defs, props)
+	return s.checkDeclaredProps(ctx, orgID, nt, "create", props)
 }
 
 func (s *NodeService) validateUpdateProps(
@@ -37,11 +34,97 @@ func (s *NodeService) validateUpdateProps(
 	nt *node.NodeType,
 	props map[string]json.RawMessage,
 ) error {
-	defs, err := s.propertyDefs.List(ctx, orgID)
-	if err != nil {
-		return fmt.Errorf("list property defs for %s update validation: %w", nt.TypeKey, err)
+	return s.checkDeclaredProps(ctx, orgID, nt, "update", setUpdateProps(props))
+}
+
+// checkDeclaredProps interprets props with the organization schema and
+// checks property name declarations for nt.
+func (s *NodeService) checkDeclaredProps(
+	ctx context.Context,
+	orgID uuid.UUID,
+	nt *node.NodeType,
+	operation string,
+	props map[string]json.RawMessage,
+) error {
+	if len(props) == 0 {
+		return nil
 	}
-	return ValidateNodeProps(nt, defs, setUpdateProps(props))
+	schema, err := s.readSchema(ctx, orgID)
+	if err != nil {
+		return loggedPropertyCheckError(ctx, nt, operation, err)
+	}
+	return ValidateNodeProps(ctx, schema, nt, operation, props)
+}
+
+// ValidateNodeProps interprets props with schema for nt. It logs and returns
+// an error for schema read failures. It logs and refuses property names
+// without definitions and names with definitions that do not apply to nt.
+// For names with definitions, it exempts parent_id, scope_id, and sequence.
+// Refusal errors wrap domain.ErrInvalidArgument and list quoted names in
+// sorted order. Errors and log entries include the operation value.
+// It ignores value and option issues and returns nil otherwise.
+func ValidateNodeProps(
+	ctx context.Context,
+	schema node.Schema,
+	nt *node.NodeType,
+	operation string,
+	props map[string]json.RawMessage,
+) error {
+	result := schema.Interpret(nt.TypeKey, props)
+	if len(result.Failures) > 0 {
+		return loggedPropertyCheckError(ctx, nt, operation, result.Err())
+	}
+	undeclared := undeclaredPropNames(result)
+	if len(undeclared) == 0 {
+		return nil
+	}
+	refused := fmt.Errorf("props contain undeclared keys %s: %w", strings.Join(undeclared, ", "), domain.ErrInvalidArgument)
+	return loggedPropertyCheckError(ctx, nt, operation, refused)
+}
+
+// undeclaredPropNames returns quoted property names that interpretation
+// reports as undeclared or not applicable. It omits property names that the
+// service accepts for every node type.
+func undeclaredPropNames(result node.PropertyResult) []string {
+	names := make([]string, 0, len(result.Invalid))
+	for _, issue := range result.Invalid {
+		switch issue.Code {
+		case node.PropertyIssueUndeclared:
+			names = append(names, fmt.Sprintf("%q", issue.Property))
+		case node.PropertyIssueNotApplicable:
+			if !isServiceManagedProp(issue.Property) {
+				names = append(names, fmt.Sprintf("%q", issue.Property))
+			}
+		case node.PropertyIssueValue, node.PropertyIssueOption:
+		}
+	}
+	return names
+}
+
+func (s *NodeService) readSchema(ctx context.Context, orgID uuid.UUID) (node.Schema, error) {
+	definitions, err := s.propertyDefs.List(ctx, orgID)
+	if err != nil {
+		wrapped := fmt.Errorf("list property definitions of organization %s: %w", orgID, err)
+		slog.ErrorContext(ctx, "node.schema_read_failed", slog.String("org_id", orgID.String()), slog.String("err", wrapped.Error()))
+		return node.Schema{}, wrapped
+	}
+	types, err := s.nodeTypes.List(ctx, orgID)
+	if err != nil {
+		wrapped := fmt.Errorf("list node types of organization %s: %w", orgID, err)
+		slog.ErrorContext(ctx, "node.schema_read_failed", slog.String("org_id", orgID.String()), slog.String("err", wrapped.Error()))
+		return node.Schema{}, wrapped
+	}
+	return node.Schema{OrgID: orgID, Types: node.BuildTypeIndex(types), Definitions: definitions}, nil
+}
+
+func loggedPropertyCheckError(ctx context.Context, nt *node.NodeType, operation string, err error) error {
+	wrapped := fmt.Errorf("node type %q %s: %w", nt.TypeKey, operation, err)
+	if errors.Is(err, domain.ErrInvalidArgument) {
+		slog.WarnContext(ctx, "node.props_refused", slog.String("node_type", nt.TypeKey), slog.String("err", wrapped.Error()))
+		return wrapped
+	}
+	slog.ErrorContext(ctx, "node.props_check_failed", slog.String("node_type", nt.TypeKey), slog.String("err", wrapped.Error()))
+	return wrapped
 }
 
 func setUpdateProps(props map[string]json.RawMessage) map[string]json.RawMessage {
@@ -57,72 +140,6 @@ func setUpdateProps(props map[string]json.RawMessage) map[string]json.RawMessage
 
 func isDeletedPropValue(raw json.RawMessage) bool {
 	return len(raw) == 0 || string(raw) == "null"
-}
-
-// ValidateNodeProps checks each property name in the property map against
-// the property definitions for the node type. Each name must match a property
-// definition that applies to the node type, except for:
-//
-//   - parent_id
-//   - scope_id
-//   - sequence
-//
-// These names require matching property definitions, but the definitions do
-// not have to apply to the node type.
-//
-// ValidateNodeProps returns nil when every property name passes. Otherwise,
-// ValidateNodeProps returns an undeclaredPropsError that lists every property
-// name without a matching definition in sorted order.
-func ValidateNodeProps(
-	nt *node.NodeType,
-	defs []*node.PropertyDef,
-	props map[string]json.RawMessage,
-) error {
-	if len(props) == 0 {
-		return nil
-	}
-	allowed := allowedPropNames(nt, defs)
-	unknown := unknownPropNames(props, allowed)
-	if len(unknown) == 0 {
-		return nil
-	}
-	return undeclaredPropsError{typeKey: nt.TypeKey, keys: unknown}
-}
-
-// undeclaredPropsError stores the node type key and the sorted, quoted names
-// of every undeclared property.
-type undeclaredPropsError struct {
-	typeKey string
-	keys    []string
-}
-
-func (e undeclaredPropsError) Error() string {
-	return fmt.Sprintf("node type %q props contain undeclared keys %s: %s",
-		e.typeKey, strings.Join(e.keys, ", "), domain.ErrInvalidArgument)
-}
-
-func (e undeclaredPropsError) Unwrap() error { return domain.ErrInvalidArgument }
-
-func allowedPropNames(nt *node.NodeType, defs []*node.PropertyDef) map[string]struct{} {
-	allowed := make(map[string]struct{}, len(defs))
-	for _, def := range defs {
-		if appliesTo(def, nt) || isServiceManagedProp(def.Name) {
-			allowed[def.Name] = struct{}{}
-		}
-	}
-	return allowed
-}
-
-func unknownPropNames(props map[string]json.RawMessage, allowed map[string]struct{}) []string {
-	unknown := make([]string, 0)
-	for name := range props {
-		if _, ok := allowed[name]; ok {
-			continue
-		}
-		unknown = append(unknown, fmt.Sprintf("%q", name))
-	}
-	sort.Strings(unknown)
-	return unknown
 }
 
 func isServiceManagedProp(name string) bool {

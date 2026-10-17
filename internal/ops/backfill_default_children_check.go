@@ -69,6 +69,7 @@ func checkOrgDefaultChildProps(ctx context.Context, env *Env, orgID uuid.UUID, n
 		return nil, wrapped
 	}
 	typeIndex := node.BuildTypeIndex(nodeTypes)
+	schema := node.Schema{OrgID: orgID, Types: typeIndex, Definitions: definitions}
 	var refusals []error
 	for _, nodeType := range nodeTypes {
 		for _, defaultChild := range nodeType.DefaultChildren {
@@ -77,7 +78,7 @@ func checkOrgDefaultChildProps(ctx context.Context, env *Env, orgID uuid.UUID, n
 				continue
 			}
 			props := defaultChildProps(defaultChild, checkedParentRaw)
-			if err := service.ValidateNodeProps(childType, definitions, props); err != nil {
+			if err := service.ValidateNodeProps(ctx, schema, childType, "create", props); err != nil {
 				refusals = append(refusals, fmt.Errorf("default child %q of node type %q in organization %s: %w",
 					defaultChild.Name, nodeType.TypeKey, orgID, err))
 			}
