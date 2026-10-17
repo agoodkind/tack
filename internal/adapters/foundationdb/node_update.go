@@ -19,6 +19,13 @@ import (
 func (s *NodeStore) UpdateAtomic(ctx context.Context, current *node.Node, view *node.NodeView, oldProps map[string]json.RawMessage, indexedProps []string, referenceKeys []node.ReferenceKey, relationshipChanges ...node.RelationshipChanges) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node.update_atomic")(&err)
 	err = runNodeMutation(ctx, s.db, "update node "+current.ID.String()+" atomically", func(tr fdb.Transaction) error {
+		source, err := tr.Get(fdb.Key(nodeInstanceKey(current.OrgID, current.NodeType, current.ID))).Get()
+		if err != nil {
+			return searchReadFailure(ctx, "read node "+current.ID.String(), err)
+		}
+		if _, err := s.fenceAttempt(ctx, tr, current.OrgID, current.ID); err != nil {
+			return err
+		}
 		if err := writeNodeRecords(ctx, tr, current, view); err != nil {
 			return err
 		}
@@ -40,7 +47,7 @@ func (s *NodeStore) UpdateAtomic(ctx context.Context, current *node.Node, view *
 				return err
 			}
 		}
-		return writeStagedIntent(ctx, tr)
+		return writeNodeIntent(ctx, tr, source, current)
 	})
 	if err != nil {
 		return err

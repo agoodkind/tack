@@ -223,7 +223,7 @@ not even healthy until the first of them runs. Until the provisioning layer land
    start, so clients survive container IP changes. TACK-290 automates the
    configure step. NEVER run `configure new` against an already-configured
    cluster (prod): it is the one destructive step in this list.
-2. **Migrations.** `docker compose run --rm tack-ops migrate`.
+2. **Migrations.** `docker compose run --rm tack-ops migrate --execute`.
 3. **Audit roles.** `docker compose run --rm tack-ops ops audit seed-roles`. The
    app and the audit-consumer cannot authenticate to YugabyteDB until this runs.
    The audit-consumer waits on its own: it pings Yugabyte until the roles exist,

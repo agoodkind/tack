@@ -49,7 +49,7 @@ func referencePropertyAppliesToTool(def *node.PropertyDef, nt *node.NodeType, ty
 	if typeIndex[def.ReferenceTargetTypeKey] == nil {
 		return false
 	}
-	return propertyDefAppliesTo(def, nt)
+	return node.PropertyAppliesTo(def, nt)
 }
 
 func referencePropertyAlias(name string) string {

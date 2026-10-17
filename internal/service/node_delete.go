@@ -63,11 +63,21 @@ func (s *NodeService) Delete(ctx context.Context, nodeID, actorID uuid.UUID) (De
 	if existing == nil {
 		return none, domain.ErrNotFound
 	}
+	snapshot, _, err := s.readMutationSnapshot(ctx, existing.OrgID, nodeID)
+	if err != nil {
+		return none, err
+	}
+	if !snapshot.Exists {
+		return none, domain.ErrNotFound
+	}
 	if err := audit.StageStateChange(ctx, audit.VerbNodeDelete, audit.Entity{
 		Type: "node", NodeType: existing.NodeType, ID: nodeID, Identifier: "", Name: existing.Name,
 	}); err != nil {
 		slog.ErrorContext(ctx, "node.delete_failed", slog.String("err", err.Error()))
 		return none, fmt.Errorf("stage the audit row for deleting %s: %w", nodeID, err)
+	}
+	if deletesAlone(snapshot) {
+		return s.deleteNode(ctx, snapshot, actorID)
 	}
 	template, _ := auditintent.Pending(ctx)
 	return s.startSubtreeDelete(ctx, existing.OrgID, nodeID, actorID, template, deleteRequestBudget)
