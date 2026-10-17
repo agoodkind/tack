@@ -4,14 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"sort"
 	"strings"
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
-	"goodkind.io/tack/internal/telemetry"
 )
 
 var serviceManagedPropNames = map[string]struct{}{
@@ -30,7 +28,7 @@ func (s *NodeService) validateCreateProps(
 	if err != nil {
 		return fmt.Errorf("list property defs for %s create validation: %w", nt.TypeKey, err)
 	}
-	return ValidateNodeProps(ctx, nt, defs, props)
+	return ValidateNodeProps(nt, defs, props)
 }
 
 func (s *NodeService) validateUpdateProps(
@@ -43,7 +41,7 @@ func (s *NodeService) validateUpdateProps(
 	if err != nil {
 		return fmt.Errorf("list property defs for %s update validation: %w", nt.TypeKey, err)
 	}
-	return ValidateNodeProps(ctx, nt, defs, setUpdateProps(props))
+	return ValidateNodeProps(nt, defs, setUpdateProps(props))
 }
 
 func setUpdateProps(props map[string]json.RawMessage) map[string]json.RawMessage {
@@ -61,10 +59,17 @@ func isDeletedPropValue(raw json.RawMessage) bool {
 	return len(raw) == 0 || string(raw) == "null"
 }
 
-// ValidateNodeProps checks that defs declares every key in props for nt. It
-// returns an error that lists every undeclared key in sorted order.
+// ValidateNodeProps requires a definition in defs for each key in props.
+// Each definition must apply to nt, with these exceptions:
+//
+//   - parent_id does not require its definition to apply to nt.
+//   - scope_id does not require its definition to apply to nt.
+//   - sequence does not require its definition to apply to nt.
+//
+// ValidateNodeProps returns nil when it accepts every key. Otherwise, it
+// returns an undeclaredPropsError that lists every undeclared key in sorted
+// order.
 func ValidateNodeProps(
-	ctx context.Context,
 	nt *node.NodeType,
 	defs []*node.PropertyDef,
 	props map[string]json.RawMessage,
@@ -77,16 +82,23 @@ func ValidateNodeProps(
 	if len(unknown) == 0 {
 		return nil
 	}
-	err := fmt.Errorf(
-		"node type %q props contain undeclared keys %s: %w",
-		nt.TypeKey,
-		strings.Join(unknown, ", "),
-		domain.ErrInvalidArgument,
-	)
-	telemetry.L(ctx).WarnContext(ctx, "node.props_undeclared",
-		slog.String("node_type", nt.TypeKey), slog.String("err", err.Error()))
-	return err
+	return undeclaredPropsError{typeKey: nt.TypeKey, keys: unknown}
 }
+
+// undeclaredPropsError stores the node type key and the sorted, quoted names
+// of every undeclared property.
+type undeclaredPropsError struct {
+	typeKey string
+	keys    []string
+}
+
+func (e undeclaredPropsError) Error() string {
+	return fmt.Sprintf("node type %q props contain undeclared keys %s: %s",
+		e.typeKey, strings.Join(e.keys, ", "), domain.ErrInvalidArgument)
+}
+
+// Unwrap returns domain.ErrInvalidArgument.
+func (e undeclaredPropsError) Unwrap() error { return domain.ErrInvalidArgument }
 
 func allowedPropNames(nt *node.NodeType, defs []*node.PropertyDef) map[string]struct{} {
 	allowed := make(map[string]struct{}, len(defs))

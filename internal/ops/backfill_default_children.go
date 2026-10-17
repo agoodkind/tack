@@ -3,6 +3,7 @@ package ops
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -32,10 +33,12 @@ func dryRunBackfillDefaultChildren(ctx context.Context, env *Env) error {
 	return RunDefaultChildrenBackfill(ctx, env, true)
 }
 
-// RunDefaultChildrenBackfill checks the properties of every default child in
-// every organization before writing. It refuses the whole run if any default
-// child sets an undeclared property. A dry run stops after the check.
-// Otherwise, it creates every missing default child.
+// RunDefaultChildrenBackfill validates the complete property map of every
+// default child in every organization before any write. It refuses the
+// entire run if any default child sets an undeclared property. When dryRun
+// is true, it stops after validation. Otherwise, it creates every missing
+// default child in every organization and returns one error that lists all
+// failed reads and writes, or nil if every operation succeeds.
 func RunDefaultChildrenBackfill(ctx context.Context, env *Env, dryRun bool) error {
 	orgIDs, err := listOrgIDs(ctx, env)
 	if err != nil {
@@ -47,21 +50,33 @@ func RunDefaultChildrenBackfill(ctx context.Context, env *Env, dryRun bool) erro
 	if dryRun {
 		return nil
 	}
+	var failures []error
 	for orgID := range orgIDs {
-		backfillOrgDefaultChildren(ctx, env, orgID)
+		failures = append(failures, backfillOrgDefaultChildren(ctx, env, orgID)...)
 	}
-	return nil
+	if len(failures) == 0 {
+		return nil
+	}
+	failed := fmt.Errorf("default children backfill failed %d operations: %w", len(failures), errors.Join(failures...))
+	env.Log.ErrorContext(ctx, "backfill.default_children_failed",
+		slog.Int("failures", len(failures)), slog.String("err", failed.Error()))
+	return failed
 }
 
-func backfillOrgDefaultChildren(ctx context.Context, env *Env, orgID uuid.UUID) {
+// backfillOrgDefaultChildren creates missing default children for every node
+// in orgID. It logs each failed node type listing, parent listing, child
+// listing, or child creation and returns one error per failure. It continues
+// with the remaining nodes after each failure.
+func backfillOrgDefaultChildren(ctx context.Context, env *Env, orgID uuid.UUID) []error {
 	types, err := env.Stores.NodeTypes.List(ctx, orgID)
 	if err != nil {
 		env.Log.ErrorContext(ctx, "backfill: list node types",
 			slog.String("org_id", orgID.String()),
 			slog.String("err", err.Error()))
-		return
+		return []error{fmt.Errorf("list node types of organization %s: %w", orgID, err)}
 	}
 	typeIndex := node.BuildTypeIndex(types)
+	var failures []error
 
 	for _, nt := range types {
 		if len(nt.DefaultChildren) == 0 {
@@ -77,6 +92,7 @@ func backfillOrgDefaultChildren(ctx context.Context, env *Env, orgID uuid.UUID) 
 				slog.String("org_id", orgID.String()),
 				slog.String("type", nt.TypeKey),
 				slog.String("err", err.Error()))
+			failures = append(failures, fmt.Errorf("list nodes of type %q in organization %s: %w", nt.TypeKey, orgID, err))
 			continue
 		}
 
@@ -97,6 +113,7 @@ func backfillOrgDefaultChildren(ctx context.Context, env *Env, orgID uuid.UUID) 
 					env.Log.WarnContext(ctx, "backfill: list children",
 						slog.String("parent_id", parent.ID.String()),
 						slog.String("err", err.Error()))
+					failures = append(failures, fmt.Errorf("list %s children of node %s: %w", dc.TypeKey, parent.ID, err))
 					continue
 				}
 				if hasNamed(existing, dc.Name) {
@@ -109,6 +126,7 @@ func backfillOrgDefaultChildren(ctx context.Context, env *Env, orgID uuid.UUID) 
 						slog.String("child_type", dc.TypeKey),
 						slog.String("child_name", dc.Name),
 						slog.String("err", err.Error()))
+					failures = append(failures, fmt.Errorf("create default child %q under node %s: %w", dc.Name, parent.ID, err))
 					continue
 				}
 				created++
@@ -122,6 +140,7 @@ func backfillOrgDefaultChildren(ctx context.Context, env *Env, orgID uuid.UUID) 
 			slog.Int("children_created", created),
 			slog.Int("children_skipped_existing", skipped))
 	}
+	return failures
 }
 
 // hasNamed returns true when any candidate has the given Name. Names are
@@ -142,13 +161,8 @@ func createDefaultChild(ctx context.Context, env *Env, orgID, parentID uuid.UUID
 	id := uuid.Must(uuid.NewV7())
 	now := clock.Now().UTC()
 
-	props := make(map[string]json.RawMessage, len(dc.Props)+2)
-	for k, v := range dc.Props {
-		props[k] = v
-	}
 	parentRaw, _ := json.Marshal(parentID.String())
-	props["parent_id"] = parentRaw
-	props["scope_id"] = parentRaw
+	props := defaultChildProps(dc, parentRaw)
 
 	n := &node.Node{
 		ID:        id,

@@ -2,9 +2,12 @@ package ops
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
+	"strconv"
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain/node"
@@ -55,11 +58,26 @@ func checkOrgDefaultChildProps(ctx context.Context, env *Env, orgID uuid.UUID) (
 			if childType == nil {
 				continue
 			}
-			if err := service.ValidateNodeProps(ctx, childType, definitions, defaultChild.Props); err != nil {
+			props := defaultChildProps(defaultChild, checkedParentRaw)
+			if err := service.ValidateNodeProps(childType, definitions, props); err != nil {
 				refusals = append(refusals, fmt.Errorf("default child %q of node type %q in organization %s: %w",
 					defaultChild.Name, nodeType.TypeKey, orgID, err))
 			}
 		}
 	}
 	return refusals, nil
+}
+
+// checkedParentRaw is the JSON encoding of the nil UUID string. The property
+// name check uses it as the parent value for every default child.
+var checkedParentRaw = json.RawMessage(strconv.Quote(uuid.Nil.String()))
+
+// defaultChildProps copies dc.Props, sets parent_id and scope_id to parentRaw
+// in the copy, and returns the copy.
+func defaultChildProps(dc node.DefaultChild, parentRaw json.RawMessage) map[string]json.RawMessage {
+	props := make(map[string]json.RawMessage, len(dc.Props)+2)
+	maps.Copy(props, dc.Props)
+	props["parent_id"] = parentRaw
+	props["scope_id"] = parentRaw
+	return props
 }
