@@ -11,6 +11,7 @@ import (
 
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain/node"
+	"goodkind.io/tack/internal/ops"
 	"goodkind.io/tack/internal/test/integration"
 )
 
@@ -40,7 +41,10 @@ func TestNodeIntegrityStrictRefusesActivationWithInvalidRecord(t *testing.T) {
 		if err == nil {
 			t.Fatalf("strict validation with execute %t succeeded, want a refusal", execute)
 		}
-		if output.Result.Activated || output.Result.ViolationCount == 0 || !reportsViolation(output, nodeID) {
+		reported := slices.ContainsFunc(output.Result.FirstViolations, func(violation ops.StrictViolation) bool {
+			return violation.NodeID == nodeID
+		})
+		if output.Result.Activated || output.Result.ViolationCount == 0 || !reported {
 			t.Fatalf("strict validation with execute %t = %+v, want node %s reported and no activation", execute, output.Result, nodeID)
 		}
 	}
@@ -86,13 +90,4 @@ func TestNodeIntegrityStrictMetadataChangeInvalidatesEvidence(t *testing.T) {
 	if err != nil || !again.Result.AlreadyActive || again.Result.Activated {
 		t.Fatalf("second strict validation = %+v, %v; want the existing activation reported", again.Result, err)
 	}
-}
-
-func reportsViolation(output strictValidationOutput, nodeID uuid.UUID) bool {
-	for _, violation := range output.Result.FirstViolations {
-		if violation.NodeID == nodeID {
-			return true
-		}
-	}
-	return false
 }
