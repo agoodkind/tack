@@ -40,15 +40,18 @@ type HierarchyReader interface {
 	Ancestors(ctx context.Context, nodes []OrgNode) (map[OrgNode]AncestorState, error)
 }
 
-// EntryPoints returns the entry point of every resource: the nearest
-// hierarchy ancestor, or the resource itself, with an entry-point type, or
-// the hierarchy root when no such node exists. The one stored child_of edge
-// of each node defines its hierarchy parent under [node.HierarchyParent],
-// and the walk has no depth limit. Each level issues one Ancestors call for
-// every walk still in progress, and each node is read at most once. A
-// resource with a hierarchy defect receives an error that wraps
-// ErrHierarchyDefect in defects instead of an entry point. A failed read
-// returns an error for the whole call.
+// EntryPoints returns the nearest node with an entry-point type among each
+// resource and its hierarchy ancestors, or the hierarchy root when such a
+// node does not exist.
+// Each node's single stored child_of edge defines its hierarchy parent under
+// [node.HierarchyParent]. The walk does not impose a depth limit.
+// Each level makes at most one batched Ancestors call. That call requests
+// every current node of the walks still in progress that earlier levels
+// have not read. A level does not call Ancestors if it lacks unread nodes.
+// EntryPoints reads each node at most once.
+// Each resource with a hierarchy defect receives an error that wraps
+// ErrHierarchyDefect in defects instead of an entry point.
+// EntryPoints returns an error for the whole call when a read fails.
 func EntryPoints(ctx context.Context, reader HierarchyReader, resources []OrgNode) (entries map[OrgNode]uuid.UUID, defects map[OrgNode]error, err error) {
 	walks := make([]*hierarchyWalk, 0, len(resources))
 	for _, resource := range resources {
