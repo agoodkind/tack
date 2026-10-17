@@ -20,6 +20,19 @@ const (
 	rankingPoll         = time.Second
 )
 
+func (r *rankingRun) session(t *testing.T, cursor string) searchdomain.Session {
+	t.Helper()
+	sessionID, _, err := r.cursors.Decode(cursor)
+	if err != nil {
+		t.Fatalf("decode cursor: %v", err)
+	}
+	session, err := r.stores.SearchSessions(clock.Wall{}, 15*time.Minute).Load(t.Context(), sessionID)
+	if err != nil {
+		t.Fatalf("load session %s: %v", sessionID, err)
+	}
+	return session
+}
+
 func (r *rankingRun) servingIndex(t *testing.T) string {
 	t.Helper()
 	index, err := r.stores.ServingSearchIndex(t.Context())

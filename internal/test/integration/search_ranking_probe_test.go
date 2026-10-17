@@ -21,7 +21,6 @@ import (
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/datagen"
-	searchdomain "goodkind.io/tack/internal/domain/search"
 	appruntime "goodkind.io/tack/internal/runtime"
 )
 
@@ -37,9 +36,13 @@ type rankingRun struct {
 	stores    *fdbadapter.Stores
 	client    *opensearchapi.Client
 	cursors   *tools.SearchCursorCodec
-	query     string
-	target    uuid.UUID
 	names     map[uuid.UUID]string
+}
+
+type rankingProbe struct {
+	Query   string
+	Targets []uuid.UUID
+	First   bool
 }
 
 type rankingPage struct {
@@ -83,7 +86,7 @@ func newRankingRun(t *testing.T, cfg *config.Config, graph *appruntime.Graph) *r
 	run := &rankingRun{
 		driver: datagen.NewDriver(graph, false, seed), token: workspace.Actors[0].Token, workspace: workspace.Slug,
 		stores: stores, client: opensearchapi.NewFromClient(base), cursors: tools.NewSearchCursorCodec(key),
-		query: "", target: uuid.Nil, names: map[uuid.UUID]string{},
+		names: map[uuid.UUID]string{},
 	}
 	identifier := json.RawMessage(strconv.Quote(rankingProject))
 	run.call(t, "tack_create_project", datagen.ToolArguments{
@@ -122,9 +125,9 @@ func (r *rankingRun) createIssue(t *testing.T, name, description string) uuid.UU
 	return nodeID
 }
 
-func (r *rankingRun) search(t *testing.T, cursor string) rankingPage {
+func (r *rankingRun) search(t *testing.T, query, cursor string) rankingPage {
 	t.Helper()
-	text := r.call(t, "tack_search", datagen.ToolArguments{WorkspaceReference: r.workspace, Query: r.query, Cursor: cursor}).Text()
+	text := r.call(t, "tack_search", datagen.ToolArguments{WorkspaceReference: r.workspace, Query: query, Cursor: cursor}).Text()
 	page := rankingPage{IDs: []uuid.UUID{}, Cursor: "", Complete: strings.Contains(text, "The search has no more results.")}
 	for _, line := range strings.Split(text, "\n") {
 		if marker := strings.LastIndex(line, "Raw id: `"); marker >= 0 {
@@ -144,55 +147,48 @@ func (r *rankingRun) search(t *testing.T, cursor string) rankingPage {
 	return page
 }
 
-func (r *rankingRun) require(t *testing.T, phase string) {
+func (r *rankingRun) require(t *testing.T, phase string, probe rankingProbe) {
 	t.Helper()
-	for attempt := range 3 {
-		page := r.search(t, "")
-		rank := slices.Index(page.IDs, r.target) + 1
-		t.Logf("regression phase=%s query=%q attempt=%d rank=%d", phase, r.query, attempt+1, rank)
-		if attempt == 0 || rank == 0 {
-			r.trace(t, page)
+	for attempt := 1; attempt <= 3; attempt++ {
+		page := r.search(t, probe.Query, "")
+		ranks := make([]int, 0, len(probe.Targets))
+		missed := false
+		for _, target := range probe.Targets {
+			rank := slices.Index(page.IDs, target) + 1
+			ranks = append(ranks, rank)
+			missed = missed || rank == 0 || (probe.First && rank != 1)
 		}
-		if rank == 0 {
-			t.Fatalf("attempt %d of %q did not return %q in the first page", attempt+1, r.query, r.names[r.target])
+		t.Logf("ranking phase=%s query=%q attempt=%d ranks=%v", phase, probe.Query, attempt, ranks)
+		if attempt == 1 || missed {
+			r.trace(t, probe, page)
 		}
-		r.completeCursor(t, page.Cursor)
+		if missed {
+			t.Errorf("attempt %d of %q returned target ranks %v", attempt, probe.Query, ranks)
+		}
+		r.completeCursor(t, probe.Query, page.Cursor)
 	}
 }
 
-func (r *rankingRun) completeCursor(t *testing.T, cursor string) {
+func (r *rankingRun) completeCursor(t *testing.T, query, cursor string) {
 	t.Helper()
 	if cursor == "" {
 		return
 	}
 	tokens := bytes.Clone(r.session(t, cursor).Snapshot.QueryTokens)
 	for range rankingMaxPages {
-		page := r.search(t, cursor)
+		page := r.search(t, query, cursor)
 		if !bytes.Equal(tokens, r.session(t, cursor).Snapshot.QueryTokens) {
 			t.Fatal("continuation changed the saved query tokens")
 		}
-		replay := r.search(t, cursor)
+		replay := r.search(t, query, cursor)
 		if !slices.Equal(page.IDs, replay.IDs) || page.Cursor != replay.Cursor || page.Complete != replay.Complete {
 			t.Fatal("replaying a cursor changed its page")
 		}
 		if page.Complete {
-			t.Logf("regression query=%q continuation_complete=true token_bytes=%d", r.query, len(tokens))
+			t.Logf("ranking query=%q continuation_complete=true token_bytes=%d", query, len(tokens))
 			return
 		}
 		cursor = page.Cursor
 	}
 	t.Fatalf("continuation did not complete within %d pages", rankingMaxPages)
-}
-
-func (r *rankingRun) session(t *testing.T, cursor string) searchdomain.Session {
-	t.Helper()
-	sessionID, _, err := r.cursors.Decode(cursor)
-	if err != nil {
-		t.Fatalf("decode cursor: %v", err)
-	}
-	session, err := r.stores.SearchSessions(clock.Wall{}, 15*time.Minute).Load(t.Context(), sessionID)
-	if err != nil {
-		t.Fatalf("load session %s: %v", sessionID, err)
-	}
-	return session
 }
