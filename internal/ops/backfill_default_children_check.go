@@ -79,8 +79,11 @@ func checkOrgDefaultChildProps(ctx context.Context, env *Env, orgID uuid.UUID, n
 	return refusals, nil
 }
 
-// checkedParentRaw is the JSON encoding of the nil UUID string. The property
-// name check uses it as the parent value for every default child.
+// checkedParentRaw is the JSON encoding of the nil UUID string.
+// checkOrgDefaultChildProps passes it to defaultChildProps for each default
+// child's parent_id and scope_id values. checkOrgDefaultChildProps passes
+// the complete property map to ValidateNodeProps, which validates every
+// property name in that map.
 var checkedParentRaw = json.RawMessage(strconv.Quote(uuid.Nil.String()))
 
 // defaultChildProps copies dc.Props, sets parent_id and scope_id to parentRaw
