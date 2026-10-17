@@ -13,10 +13,6 @@ import (
 	"goodkind.io/tack/internal/service"
 )
 
-func propertyDefAppliesTo(def *node.PropertyDef, nt *node.NodeType) bool {
-	return service.PropertyDefAppliesToCommand(def, nt)
-}
-
 func mustRawString(value string) json.RawMessage {
 	return service.MustRawString(value)
 }
