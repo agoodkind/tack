@@ -14,17 +14,33 @@ import (
 	"goodkind.io/tack/internal/service"
 )
 
-// checkDefaultChildProps validates the properties of every default child in
-// every organization with the service create validator. It returns one error
-// that lists every refused default child.
+// checkDefaultChildProps reads property definitions for every organization.
+// After each successful read, checkDefaultChildProps validates every default
+// child property map with the service create validator.
+// checkDefaultChildProps collects read failures and continues checking the
+// remaining organizations. If any read fails, checkDefaultChildProps logs one
+// backfill.default_children_check_failed event and returns one error joining
+// every failed read without reporting validation refusals.
+// If every read succeeds and validation refuses any default child,
+// checkDefaultChildProps logs backfill.default_children_refused and returns
+// one error listing every refused default child.
+// Otherwise, checkDefaultChildProps returns nil.
 func checkDefaultChildProps(ctx context.Context, env *Env, orgTypes map[uuid.UUID][]*node.NodeType) error {
 	var refusals []error
+	var failures []error
 	for orgID, nodeTypes := range orgTypes {
-		orgRefusals, err := checkOrgDefaultChildProps(ctx, env, orgID, nodeTypes)
+		definitions, err := env.Stores.PropertyDefs.List(ctx, orgID)
 		if err != nil {
-			return err
+			failures = append(failures, fmt.Errorf("list property definitions of organization %s for the default children check: %w", orgID, err))
+			continue
 		}
-		refusals = append(refusals, orgRefusals...)
+		refusals = append(refusals, checkOrgDefaultChildProps(ctx, orgID, nodeTypes, definitions)...)
+	}
+	if len(failures) > 0 {
+		failed := fmt.Errorf("refuse the default children backfill after %d failed property definition reads: %w", len(failures), errors.Join(failures...))
+		env.Log.ErrorContext(ctx, "backfill.default_children_check_failed",
+			slog.Int("failed_reads", len(failures)), slog.String("err", failed.Error()))
+		return failed
 	}
 	if len(refusals) == 0 {
 		return nil
@@ -60,14 +76,12 @@ func listOrgNodeTypes(ctx context.Context, env *Env, orgIDs map[uuid.UUID]struct
 	return nil, failed
 }
 
-func checkOrgDefaultChildProps(ctx context.Context, env *Env, orgID uuid.UUID, nodeTypes []*node.NodeType) ([]error, error) {
-	definitions, err := env.Stores.PropertyDefs.List(ctx, orgID)
-	if err != nil {
-		wrapped := fmt.Errorf("list property definitions of organization %s for the default children check: %w", orgID, err)
-		env.Log.ErrorContext(ctx, "backfill.default_children_check_failed",
-			slog.String("org_id", orgID.String()), slog.String("err", wrapped.Error()))
-		return nil, wrapped
-	}
+func checkOrgDefaultChildProps(
+	ctx context.Context,
+	orgID uuid.UUID,
+	nodeTypes []*node.NodeType,
+	definitions []*node.PropertyDef,
+) []error {
 	typeIndex := node.BuildTypeIndex(nodeTypes)
 	schema := node.Schema{OrgID: orgID, Types: typeIndex, Definitions: definitions}
 	var refusals []error
@@ -84,7 +98,7 @@ func checkOrgDefaultChildProps(ctx context.Context, env *Env, orgID uuid.UUID, n
 			}
 		}
 	}
-	return refusals, nil
+	return refusals
 }
 
 // checkedParentRaw is the JSON encoding of the nil UUID string.
