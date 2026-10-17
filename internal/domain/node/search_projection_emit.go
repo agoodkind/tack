@@ -119,7 +119,6 @@ func (e missingDeclarationError) Error() string {
 		e.nodeID, e.definitionID, ErrInvalidSearchProjection)
 }
 
-// Unwrap returns ErrInvalidSearchProjection.
 func (e missingDeclarationError) Unwrap() error { return ErrInvalidSearchProjection }
 
 // undeclaredPropertyNames returns the sorted, quoted names of keys in
