@@ -67,9 +67,6 @@ func validateRepairResult(ctx context.Context, mutator node.Mutator, entry NodeI
 	return records, nil
 }
 
-// mergeGraphRecords appends each record of extra to records unless records
-// already lists the same node ID. It returns the merged records in node ID
-// order.
 func mergeGraphRecords(records, extra []node.GraphRecord) []node.GraphRecord {
 	merged := append([]node.GraphRecord{}, records...)
 	listed := make(map[uuid.UUID]bool, len(records))

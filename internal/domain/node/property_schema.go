@@ -64,10 +64,11 @@ func (s Schema) Interpret(typeKey string, props map[string]json.RawMessage) Prop
 	return result
 }
 
-// ValidateResult checks the complete resulting properties of one node of
-// type typeKey. It applies [Schema.Interpret], requires every applicable
-// required property, and checks each reference value against references. A
-// reference value without an entry in references is a read failure.
+// ValidateResult checks the complete resulting properties of one node.
+// The typeKey parameter is the node type key. ValidateResult applies
+// [Schema.Interpret], requires every applicable required property, and
+// checks each reference value against references. A reference value
+// without an entry in references is a read failure.
 func (s Schema) ValidateResult(typeKey string, props map[string]json.RawMessage, references map[uuid.UUID]ReferenceRecord) PropertyResult {
 	result := s.Interpret(typeKey, props)
 	nodeType := s.Types[typeKey]

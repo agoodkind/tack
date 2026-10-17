@@ -16,11 +16,11 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// resultPhase validates the complete result of an entry, applies it through
-// [node.Mutator.ApplyMutation], and completes its checkpoint in the same
-// transaction. For an entry with a report, resultPhase first verifies the
-// report comment again and requires the comment to remain unchanged during
-// the transaction.
+// resultPhase validates the complete result of an entry and calls
+// [node.Mutator.ApplyMutation] to apply it. It completes the checkpoint in
+// the same transaction. For an entry with a report, resultPhase first
+// verifies the report comment again and requires the comment to remain
+// unchanged during the transaction.
 func (runner repairPhaseRunner) resultPhase(ctx context.Context, run repairPhaseRun) error {
 	frozen, err := frozenRepairSource(ctx, run.entry)
 	if err != nil {
