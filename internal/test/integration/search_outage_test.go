@@ -150,6 +150,10 @@ func TestSearchUnavailableWhileModelUndeployed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to parse created node identifier: %q: %v", created.RawID(), err)
 	}
+	// drainSearchWork runs worker slices until the worker cannot claim any
+	// search work. The fixture's bootstrapped nodes and the new project finish
+	// indexing before the ten-second search deadline starts.
+	drainSearchWork(t, fixture.Worker, 2000)
 	requireSearchReturnsNode(t, fixture, nodeID)
 	model, err := fixture.Adapter.Provision(t.Context())
 	if err != nil {
