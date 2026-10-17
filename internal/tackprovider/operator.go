@@ -32,7 +32,7 @@ func operatorBlock() schema.SingleNestedBlock {
 			},
 			"name": schema.StringAttribute{
 				Optional:    true,
-				Description: "This name identifies the accountable person. Commands receive it when service is empty.",
+				Description: "This value is the name of the accountable person. Tack commands receive the name as --operator-name when service is empty.",
 			},
 			"service": schema.StringAttribute{
 				Optional:    true,

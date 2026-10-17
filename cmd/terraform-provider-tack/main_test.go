@@ -9,8 +9,6 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
-// foundationDBPackages lists import path prefixes for the FoundationDB bindings
-// and the Tack adapter that uses them.
 var foundationDBPackages = []string{
 	"github.com/apple/foundationdb/",
 	"goodkind.io/tack/internal/adapters/foundationdb",
