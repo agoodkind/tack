@@ -16,7 +16,7 @@ The following requirements apply to public tools, services, imports, operator co
 | N2 | Validate the complete resulting node after defaults and partial updates. Check applicability, required fields, value shapes, enum keys, reference targets, and permitted removals before committing. | TACK-580 |
 | N3 | Keep project scope separate from the canonical direct parent. Support valid nested issues and arbitrary-depth containment without adding product type-pair rules to search. | [TACK-579](https://tack.home.goodkind.io/browse/TACK-579) |
 | N4 | Maintain matching canonical parent properties and containment edges during concurrent updates, relationship removal, and deletion. Reject cycles and stale writes. | [TACK-584](https://tack.home.goodkind.io/browse/TACK-584) |
-| N5 | Include readable text from schema-defined properties by default. Honor explicit exclusions and reuse generic text conversion. | TACK-580 |
+| N5 | Include readable text from schema-defined properties by default. Omit invalid properties and report them separately while indexing valid content. Honor explicit exclusions and reuse generic text conversion. | TACK-580 |
 | N6 | Repair existing records only through reviewed, bounded, retry-safe mappings with source checks and recorded results. | [TACK-582](https://tack.home.goodkind.io/browse/TACK-582) |
 | N7 | Record actual committed node, repair, and fixed-metadata changes with before-and-after values and actor information in the existing audit ledger. | [TACK-583](https://tack.home.goodkind.io/browse/TACK-583) |
 | N8 | Correct the demonstrated semantic retrieval failure and prove the complete search acceptance contract. | [TACK-520](https://tack.home.goodkind.io/browse/TACK-520), [TACK-544](https://tack.home.goodkind.io/browse/TACK-544) |
@@ -59,7 +59,9 @@ Reuse the existing generic text interpreter and bounded page reader. Derive read
 
 Missing optional search metadata must not invalidate an otherwise valid property or stop the entire rebuild. Invalid values and unknown source properties remain consistency defects. They must produce actionable diagnostics without inventing definitions or changing source records.
 
-The proposed treatment of a node with one invalid content property is to index its valid declared content and report that property separately. This treatment remains an open decision. Authorization failures must never use this proposed partial-content behavior.
+Index a node's valid declared content even when another property is invalid or undeclared. Omit the invalid property from searchable text and report its node, property, source revision, and reason separately for repair. Preserve the source value. The user selected this behavior. Continue enforcing access permissions and explicit search exclusions; unresolved authorization must still exclude the node.
+
+Keep content warnings distinct from authorization exclusions and operational failures. A source-read or search-engine failure must retain pending work and return its existing explicit error. Do not reinterpret it as an invalid property. A verified property repair must refresh the affected content and clear its warning through the normal durable indexing process.
 
 This direction amends the explicit-declaration requirement in the existing [search design](2026-09-19-search-design.md) and the Opaque metadata section of [search acceptance](2026-09-19-search-acceptance.md). Those documents still govern unrelated behavior. Before implementation, consolidate the chosen policy into those existing sections and update their conflicting tests. Do not maintain contradictory rules in parallel.
 
@@ -115,7 +117,6 @@ Source inspection identifies possible concurrent parent inconsistencies, but the
 | --- | --- | --- |
 | Several parent and orphan mappings infer intent. | The backfill specification marks each proposal for review. | Graph validation and nonmutating previews can continue. |
 | One synthetic Smoke comment has an absent parent. | Export and retirement remain proposed; deletion lacks approval. | Other reviewed repairs do not depend on that decision. |
-| One content property is invalid but access remains provable. | Partial indexing of valid declared content remains proposed. | Generic conversion, inclusion defaults, access corrections, and relevance diagnosis can continue. |
 | Full-result validation encounters an old invalid record. | Decide whether ordinary edits wait for a complete repair or require an explicitly bounded transition policy. Do not add a silent validation bypass. | Validation code, previews, and QA tests can continue before strict production activation. |
 
 QA must prove the reviewed behavior before production. Record source commits, merged PRs, installed image digests, applied configuration, repair results, and public runtime acceptance separately. Close superseded tickets only after the replacement covers their entire scope and preserves their evidence.
