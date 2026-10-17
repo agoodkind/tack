@@ -13,8 +13,6 @@ import (
 	"goodkind.io/tack/internal/clispec"
 )
 
-// nodeIntegrityBackfillTool is the tool name in node integrity backfill
-// ledger events.
 const nodeIntegrityBackfillTool = "ops.backfill.once-node-integrity"
 
 type nodeIntegrityBackfillInput struct {

@@ -78,9 +78,10 @@ const (
 	// (node_delete_job, jobID) -> SubtreeDeleteJob JSON
 	keyNodeDeleteJob = "node_delete_job"
 
-	// keyRepairCheckpoint stores one reviewed repair checkpoint per repair ID.
-	// The family is not org-scoped. A repair that deletes a node also deletes
-	// its resolution record, which stores the organization ID.
+	// The repair checkpoint family stores one checkpoint per repair ID and uses
+	// only the repair ID in its key because later runs cannot read the organization
+	// ID from a node's resolution record after a repair deletes the node and that
+	// record.
 	// (repair_checkpoint, repairID) -> RepairCheckpoint JSON
 	keyRepairCheckpoint = "repair_checkpoint"
 

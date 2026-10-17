@@ -50,10 +50,8 @@ type NodeIntegrityApply struct {
 	Entries        []NodeIntegrityEntryApply `json:"entries"`
 }
 
-// errRepairEntriesFailed indicates that execution failed for at least one entry.
 var errRepairEntriesFailed = errors.New("at least one repair entry failed")
 
-// repairApplier executes entries in a frozen manifest phase by phase.
 type repairApplier struct {
 	manifest  NodeIntegrityManifest
 	state     repairStateReader
@@ -61,10 +59,6 @@ type repairApplier struct {
 	principal audit.OperatorPrincipal
 }
 
-// applyFrozenManifest executes each entry of a validated manifest phase by
-// phase and stops an entry when its evidence conflicts. It records every
-// entry's outcome and returns an error after processing all entries if any
-// entry failed.
 func (applier repairApplier) applyFrozenManifest(ctx context.Context) (NodeIntegrityApply, error) {
 	result := NodeIntegrityApply{
 		ManifestDigest: applier.manifest.Digest, Counts: map[RepairApplyStatus]int{},

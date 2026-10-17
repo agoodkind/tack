@@ -9,8 +9,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// repairRelatedSet collects related node IDs and reuses records from the
-// ancestor traversal.
 type repairRelatedSet struct {
 	records map[uuid.UUID]*RepairNodeRecord
 }
@@ -19,7 +17,6 @@ func newRepairRelatedSet() *repairRelatedSet {
 	return &repairRelatedSet{records: map[uuid.UUID]*RepairNodeRecord{}}
 }
 
-// add requests nodeID only if the set does not already contain it.
 func (set *repairRelatedSet) add(nodeID uuid.UUID) {
 	if nodeID == uuid.Nil {
 		return
@@ -33,8 +30,6 @@ func (set *repairRelatedSet) store(record RepairNodeRecord) {
 	set.records[record.NodeID] = &record
 }
 
-// read uses tr to read requested nodes that do not already have records.
-// It returns all records sorted by node ID.
 func (set *repairRelatedSet) read(ctx context.Context, tr fdb.Transaction) ([]RepairNodeRecord, error) {
 	nodeIDs := make([]uuid.UUID, 0, len(set.records))
 	for nodeID := range set.records {

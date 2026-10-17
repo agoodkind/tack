@@ -46,7 +46,7 @@ func (phase RepairPhase) Follows(previous RepairPhase) bool {
 	if previous == "" {
 		return true
 	}
-	return repairPhaseRank[phase] > repairPhaseRank[previous]
+	return previous.Valid() && repairPhaseRank[phase] > repairPhaseRank[previous]
 }
 
 // RepairCheckpoint records a reviewed repair's last committed phase.

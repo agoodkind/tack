@@ -21,8 +21,6 @@ import (
 // colon, or hyphen.
 var repairIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
 
-// nodeIntegrityManifestDigest returns the SHA-256 digest of manifest's JSON
-// encoding with Digest empty.
 func nodeIntegrityManifestDigest(ctx context.Context, manifest NodeIntegrityManifest) (string, error) {
 	manifest.Digest = ""
 	encoded, err := json.Marshal(manifest)
@@ -35,8 +33,6 @@ func nodeIntegrityManifestDigest(ctx context.Context, manifest NodeIntegrityMani
 	return hex.EncodeToString(sum[:]), nil
 }
 
-// checkNodeIntegrityRequest validates the request header and entries and
-// rejects entries that already include frozen source evidence.
 func checkNodeIntegrityRequest(request NodeIntegrityRequest) error {
 	if err := checkManifestHeader(request.Version, request.Ticket, len(request.Entries)); err != nil {
 		return err
@@ -49,8 +45,6 @@ func checkNodeIntegrityRequest(request NodeIntegrityRequest) error {
 	return checkEntries(request.Entries)
 }
 
-// checkNodeIntegrityManifest validates the manifest header, digest, entries,
-// and frozen source evidence.
 func checkNodeIntegrityManifest(ctx context.Context, manifest NodeIntegrityManifest) error {
 	if err := checkManifestHeader(manifest.Version, manifest.Ticket, len(manifest.Entries)); err != nil {
 		return err

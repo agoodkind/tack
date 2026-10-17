@@ -18,7 +18,6 @@ import (
 	"goodkind.io/tack/internal/domain"
 )
 
-// repairExportMode grants read and write access only to the export file owner.
 const repairExportMode = 0o600
 
 // RepairExportReader reads a node's complete stored state for export.
@@ -26,7 +25,6 @@ type RepairExportReader interface {
 	RepairExport(ctx context.Context, nodeID uuid.UUID) (fdbadapter.RepairExportRecord, error)
 }
 
-// repairExportDocument contains the records and repair details for one export.
 type repairExportDocument struct {
 	Ticket         string                        `json:"ticket"`
 	RepairID       string                        `json:"repair_id"`
@@ -41,10 +39,6 @@ type repairExportDocument struct {
 	Relationships  []fdbadapter.RepairExportEdge `json:"relationships"`
 }
 
-// exportRepairNode exports the node's complete stored state, reads the file
-// back, and returns its SHA-256 digest. It returns an error wrapping
-// [domain.ErrConflict] if the node is missing or its primary digest differs
-// from the frozen source.
 func exportRepairNode(ctx context.Context, reader RepairExportReader, entry NodeIntegrityEntry, manifestDigest string, actorID uuid.UUID) (string, error) {
 	path := entry.Delete.ExportFile
 	if !filepath.IsAbs(path) {
@@ -69,11 +63,9 @@ func exportRepairNode(ctx context.Context, reader RepairExportReader, entry Node
 	if err := writeRepairExport(ctx, entry, encoded); err != nil {
 		return "", err
 	}
-	return verifyRepairExport(ctx, entry)
+	return verifyRepairExport(ctx, entry, manifestDigest)
 }
 
-// writeRepairExport writes encoded to a temporary file with mode 0600 in
-// the target directory, then renames the file to the export path.
 func writeRepairExport(ctx context.Context, entry NodeIntegrityEntry, encoded []byte) error {
 	path := entry.Delete.ExportFile
 	file, err := os.CreateTemp(filepath.Dir(path), ".repair-export-*")
@@ -104,10 +96,7 @@ func writeRepairExport(ctx context.Context, entry NodeIntegrityEntry, encoded []
 	return nil
 }
 
-// verifyRepairExport checks the export's node ID, repair ID, and primary
-// digest against entry and its frozen source. It returns the file's SHA-256
-// digest.
-func verifyRepairExport(ctx context.Context, entry NodeIntegrityEntry) (string, error) {
+func verifyRepairExport(ctx context.Context, entry NodeIntegrityEntry, manifestDigest string) (string, error) {
 	encoded, err := os.ReadFile(entry.Delete.ExportFile)
 	if err != nil {
 		return "", repairExportFailure(ctx, entry, err)
@@ -118,7 +107,7 @@ func verifyRepairExport(ctx context.Context, entry NodeIntegrityEntry) (string, 
 	if err := decoder.Decode(&document); err != nil {
 		return "", repairExportFailure(ctx, entry, err)
 	}
-	if document.NodeID != entry.NodeID || document.RepairID != entry.RepairID ||
+	if document.NodeID != entry.NodeID || document.RepairID != entry.RepairID || document.ManifestDigest != manifestDigest ||
 		document.PrimaryDigest != entry.Source.PrimaryDigest || primaryDigest(document.Primary) != entry.Source.PrimaryDigest {
 		return "", repairExportRefused(ctx, entry, fmt.Sprintf("export file %q does not record the frozen source", entry.Delete.ExportFile), domain.ErrConflict)
 	}

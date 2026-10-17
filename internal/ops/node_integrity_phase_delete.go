@@ -86,7 +86,7 @@ func readVerifiedExport(ctx context.Context, run repairPhaseRun) (repairExportDo
 	if run.stored == nil || run.stored.Phase != node.RepairPhaseExported || run.stored.ExportDigest == "" {
 		return document, repairExportRefused(ctx, run.entry, "the repair does not have a verified export", domain.ErrFailedPrecondition)
 	}
-	if _, err := verifyRepairExport(ctx, run.entry); err != nil {
+	if _, err := verifyRepairExport(ctx, run.entry, run.manifestDigest); err != nil {
 		return document, err
 	}
 	encoded, err := os.ReadFile(run.entry.Delete.ExportFile)

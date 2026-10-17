@@ -13,7 +13,6 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// repairCheckpointKey packs the checkpoint key for repairID.
 func repairCheckpointKey(repairID string) []byte {
 	return withPrefix(tuple.Tuple{keyRepairCheckpoint, repairID}.Pack())
 }
@@ -55,7 +54,6 @@ func (s *RepairStore) AdvanceRepairCheckpoint(ctx context.Context, previous node
 	})
 }
 
-// advanceRepairCheckpoint validates the transition and writes next within tr.
 func advanceRepairCheckpoint(ctx context.Context, tr fdb.Transaction, previous node.RepairPhase, next node.RepairCheckpoint) error {
 	stored, err := readRepairCheckpoint(ctx, tr, next.RepairID)
 	if err != nil {
@@ -84,8 +82,7 @@ func advanceRepairCheckpoint(ctx context.Context, tr fdb.Transaction, previous n
 	return nil
 }
 
-// readRepairCheckpoint reads the checkpoint for repairID within tr.
-// It returns nil if the record does not exist.
+// readRepairCheckpoint returns nil if the record does not exist.
 func readRepairCheckpoint(ctx context.Context, tr fdb.Transaction, repairID string) (*node.RepairCheckpoint, error) {
 	encoded, err := tr.Get(fdb.Key(repairCheckpointKey(repairID))).Get()
 	if err != nil {

@@ -10,13 +10,10 @@ import (
 	"os"
 )
 
-// nodeIntegrityDocument restricts document types to repair requests and frozen manifests.
 type nodeIntegrityDocument interface {
 	NodeIntegrityRequest | NodeIntegrityManifest
 }
 
-// readNodeIntegrityDocument decodes a single JSON document from path.
-// It rejects unknown fields and data after the first JSON value.
 func readNodeIntegrityDocument[Document nodeIntegrityDocument](ctx context.Context, path string, document *Document) error {
 	file, err := os.Open(path)
 	if err != nil {

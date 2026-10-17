@@ -13,9 +13,6 @@ import (
 	"goodkind.io/tack/internal/test/integration"
 )
 
-// repairGraph records IDs for a project, epic, and issue. The issue's
-// parent_id identifies the project. Its child_of edges target both the
-// project and the epic.
 type repairGraph struct {
 	projectID uuid.UUID
 	epicID    uuid.UUID
@@ -48,8 +45,6 @@ func newRepairGraph(t *testing.T, env *integration.TestEnv) repairGraph {
 	return repairGraph{projectID: project, epicID: epic, issueID: issue}
 }
 
-// selectEpicEntry returns a repair that sets the issue's parent to the epic
-// and removes its redundant child_of edge to the project.
 func (graph repairGraph) selectEpicEntry(repairID string) ops.NodeIntegrityEntry {
 	return ops.NodeIntegrityEntry{
 		RepairID: repairID, NodeID: graph.issueID, NodeType: "issue", Status: ops.RepairEntryExecutable,
@@ -65,7 +60,6 @@ func (graph repairGraph) selectEpicEntry(repairID string) ops.NodeIntegrityEntry
 	}
 }
 
-// repairRequest creates a version 1 repair request containing entries.
 func repairRequest(entries ...ops.NodeIntegrityEntry) ops.NodeIntegrityRequest {
 	return ops.NodeIntegrityRequest{Version: 1, Ticket: "TACK-582", Entries: entries}
 }
