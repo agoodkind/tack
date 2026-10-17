@@ -60,3 +60,19 @@ func readHierarchyNodes(ctx context.Context, tr fdb.Transaction, orgID uuid.UUID
 	}
 	return nodes, nil
 }
+
+// hasHierarchyParent reads the child_of edges from source inside tr and
+// reports whether parentID is its hierarchy parent under
+// [node.HierarchyParent].
+func hasHierarchyParent(ctx context.Context, tr fdb.Transaction, orgID uuid.UUID, source hierarchyNode, parentID uuid.UUID) (bool, error) {
+	edges, err := readDeleteEdges(ctx, tr, orgID, source.ID, node.RelChildOf, false)
+	if err != nil {
+		return false, err
+	}
+	targets := make([]uuid.UUID, 0, len(edges))
+	for _, edge := range edges {
+		targets = append(targets, edge.TargetID)
+	}
+	found, parentErr := node.HierarchyParent(source.ID, source.Kind, targets)
+	return parentErr == nil && found == parentID, nil
+}

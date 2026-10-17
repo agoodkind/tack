@@ -45,8 +45,7 @@ func readCandidateParentIDs(ctx context.Context, tr fdb.Transaction, candidates 
 // readParentEdges reads the child_of edges from the candidate in pages of
 // maxDeleteEdgePage edges, one read transaction per page. It returns the
 // target of every child_of edge and reports whether one target is an
-// existing node of the candidate's organization that node.LivesUnder places
-// above the candidate.
+// existing node of the candidate's organization other than the candidate.
 func (s *NodeDeleteStore) readParentEdges(ctx context.Context, candidate orphanCandidate) ([]uuid.UUID, bool, error) {
 	keyRange, err := fdb.PrefixRange(relationshipPrefixBySource(candidate.node.OrgID, candidate.node.ID, node.RelChildOf))
 	if err != nil {
@@ -87,8 +86,10 @@ func (s *NodeDeleteStore) readParentEdges(ctx context.Context, candidate orphanC
 }
 
 // pageParentTargets returns the target of each child_of edge in items and
-// reports whether node.LivesUnder places the candidate under one existing
-// target.
+// reports whether one target is an existing node other than the candidate.
+// Under [node.HierarchyParent], that target is a parent whatever its type
+// is. A candidate with several such targets keeps them, and
+// [extraParentEdges] reports the edges that do not target its parent_id.
 func pageParentTargets(ctx context.Context, tr fdb.Transaction, candidate orphanCandidate, items []fdb.KeyValue) ([]uuid.UUID, bool, error) {
 	targetIDs := make([]uuid.UUID, 0, len(items))
 	for _, item := range items {
@@ -103,7 +104,7 @@ func pageParentTargets(ctx context.Context, tr fdb.Transaction, candidate orphan
 		return nil, false, err
 	}
 	for _, target := range targets {
-		if target.Found && target.ID != candidate.node.ID && node.LivesUnder(candidate.kind, target.Kind) {
+		if target.Found && target.ID != candidate.node.ID {
 			return targetIDs, true, nil
 		}
 	}

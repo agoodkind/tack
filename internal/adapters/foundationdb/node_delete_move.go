@@ -3,6 +3,7 @@ package foundationdb
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"maps"
 	"strconv"
 	"time"
@@ -16,32 +17,26 @@ import (
 // parent.
 const parentIDProperty = "parent_id"
 
-// readRootParent returns the hierarchy parent of rootID inside tr: the one
-// target of a child_of edge from rootID that node.LivesUnder accepts. A root
-// without such a target, with several, or with more child_of edges than one
-// page reads returns [uuid.Nil].
+// readRootParent returns the hierarchy parent of rootID inside tr under
+// [node.HierarchyParent] when that parent is a node of orgID. A root without
+// one parent, with a parent outside orgID, or with more child_of edges than
+// one page reads returns [uuid.Nil].
 func readRootParent(ctx context.Context, tr fdb.Transaction, orgID, rootID uuid.UUID) (uuid.UUID, error) {
 	edges, err := readDeleteEdges(ctx, tr, orgID, rootID, node.RelChildOf, false)
 	if err != nil || len(edges) == 0 || len(edges) > maxDeleteEdgePage {
 		return uuid.Nil, err
 	}
-	nodeIDs := []uuid.UUID{rootID}
+	targets := make([]uuid.UUID, 0, len(edges))
 	for _, edge := range edges {
-		nodeIDs = append(nodeIDs, edge.TargetID)
+		targets = append(targets, edge.TargetID)
 	}
-	resolved, err := readHierarchyNodes(ctx, tr, orgID, nodeIDs, make(map[string]*node.NodeType))
-	if err != nil {
+	parentID, parentErr := node.HierarchyParent(rootID, nil, targets)
+	if errors.Is(parentErr, node.ErrNoHierarchyParent) {
+		return uuid.Nil, nil
+	}
+	parents, err := readHierarchyNodes(ctx, tr, orgID, []uuid.UUID{parentID}, make(map[string]*node.NodeType))
+	if err != nil || !parents[0].Found {
 		return uuid.Nil, err
-	}
-	parentID := uuid.Nil
-	for _, target := range resolved[1:] {
-		if !target.Found || !node.LivesUnder(resolved[0].Kind, target.Kind) {
-			continue
-		}
-		if parentID != uuid.Nil {
-			return uuid.Nil, nil
-		}
-		parentID = target.ID
 	}
 	return parentID, nil
 }

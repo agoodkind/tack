@@ -15,16 +15,13 @@ import (
 )
 
 // refuseOnlyParentRemoval refuses the removal of the child_of edge from
-// sourceID to targetID when that edge is the source node's only hierarchy
-// parent. Search access compilation fails for a node without a hierarchy
-// parent when the node type lists CanLiveUnder types. The guard applies the
-// same rule: only child_of edges define a parent, the source type lists
-// CanLiveUnder types, node.LivesUnder places the source under the target,
-// and no other child_of edge from the source has a hierarchy parent as its
-// target. The removal of an edge of any other relation type passes. The
-// guard reads the source's child_of edges in the removal transaction.
-// FoundationDB aborts one of two concurrent transactions that each remove a
-// different parent edge of the same node.
+// sourceID to targetID when that edge is the source node's only child_of
+// edge and the source type lists CanLiveUnder types. Search access
+// compilation applies the same rule through [node.HierarchyParent], whatever
+// the types of the two nodes are. The removal of an edge of any other
+// relation type passes. The guard reads the source's child_of edges in the
+// removal transaction. FoundationDB aborts one of two concurrent
+// transactions that each remove a different parent edge of the same node.
 func refuseOnlyParentRemoval(ctx context.Context, tr fdb.Transaction, orgID, sourceID uuid.UUID, relationType string, targetID uuid.UUID) error {
 	if relationType != node.RelChildOf {
 		return nil
@@ -37,18 +34,17 @@ func refuseOnlyParentRemoval(ctx context.Context, tr fdb.Transaction, orgID, sou
 	if len(existing) == 0 {
 		return nil
 	}
-	kinds := make(map[string]*node.NodeType)
-	endpoints, err := hierarchyTypesOf(ctx, tr, orgID, []uuid.UUID{sourceID, targetID}, kinds)
+	sources, err := readHierarchyNodes(ctx, tr, orgID, []uuid.UUID{sourceID}, make(map[string]*node.NodeType))
 	if err != nil {
 		return err
 	}
-	source, target := endpoints[0], endpoints[1]
-	if source == nil || len(source.CanLiveUnder) == 0 || !node.LivesUnder(source, target) {
-		return nil
-	}
-	otherParent, err := hasOtherHierarchyParent(ctx, tr, orgID, sourceID, removedKey, targetID, source, kinds)
-	if err != nil || otherParent {
+	remaining, err := otherParentTarget(ctx, tr, orgID, sourceID, removedKey)
+	if err != nil {
 		return err
+	}
+	_, parentErr := node.HierarchyParent(sourceID, sources[0].Kind, remaining)
+	if parentErr == nil {
+		return nil
 	}
 	wrapped := fmt.Errorf("node %s needs a hierarchy parent, and %s is its only hierarchy parent; move the node to another parent instead: %w",
 		sourceID, targetID, domain.ErrFailedPrecondition)
@@ -57,88 +53,33 @@ func refuseOnlyParentRemoval(ctx context.Context, tr fdb.Transaction, orgID, sou
 	return loggedSearchError{err: wrapped}
 }
 
-// hasOtherHierarchyParent reads the child_of edges from sourceID in bounded
-// pages and reports whether a child_of edge other than removedKey has a
-// hierarchy parent of source as its target.
-func hasOtherHierarchyParent(
-	ctx context.Context, tr fdb.Transaction, orgID, sourceID uuid.UUID, removedKey fdb.Key, parentID uuid.UUID,
-	source *node.NodeType, kinds map[string]*node.NodeType,
-) (bool, error) {
+// parentGuardEdgeLimit is the number of child_of edges the guard reads: the
+// removed edge and one other edge.
+const parentGuardEdgeLimit = 2
+
+// otherParentTarget reads at most parentGuardEdgeLimit child_of edges from
+// sourceID and returns the target of the first one other than removedKey, or
+// no target.
+func otherParentTarget(ctx context.Context, tr fdb.Transaction, orgID, sourceID uuid.UUID, removedKey fdb.Key) ([]uuid.UUID, error) {
 	keyRange, err := fdb.PrefixRange(relationshipPrefixBySource(orgID, sourceID, node.RelChildOf))
 	if err != nil {
-		return false, nodeOperationFailure(ctx, "create relationship range for node "+sourceID.String(), err)
+		return nil, nodeOperationFailure(ctx, "create relationship range for node "+sourceID.String(), err)
 	}
-	end := fdb.FirstGreaterOrEqual(keyRange.End)
-	begin := fdb.FirstGreaterOrEqual(keyRange.Begin)
-	for {
-		selection := fdb.SelectorRange{Begin: begin, End: end}
-		items, readErr := tr.GetRange(selection, fdb.RangeOptions{Limit: maxRelationshipPage}).GetSliceWithError()
-		if readErr != nil {
-			return false, searchReadFailure(ctx, "read relationship page of node "+sourceID.String(), readErr)
-		}
-		candidates := make([]uuid.UUID, 0, len(items))
-		for _, item := range items {
-			if bytes.Equal(item.Key, removedKey) {
-				continue
-			}
-			targetID, decodeErr := edgeEnd(ctx, item.Key)
-			if decodeErr != nil {
-				return false, decodeErr
-			}
-			if targetID == parentID {
-				return true, nil
-			}
-			candidates = append(candidates, targetID)
-		}
-		targets, typeErr := hierarchyTypesOf(ctx, tr, orgID, candidates, kinds)
-		if typeErr != nil {
-			return false, typeErr
-		}
-		for _, target := range targets {
-			if node.LivesUnder(source, target) {
-				return true, nil
-			}
-		}
-		if len(items) < maxRelationshipPage {
-			return false, nil
-		}
-		begin = fdb.FirstGreaterThan(items[len(items)-1].Key)
+	items, err := tr.GetRange(keyRange, fdb.RangeOptions{Limit: parentGuardEdgeLimit}).GetSliceWithError()
+	if err != nil {
+		return nil, searchReadFailure(ctx, "read child_of edges of node "+sourceID.String(), err)
 	}
-}
-
-// hierarchyTypesOf returns the node type of each node in nodeIDs, in order.
-// It issues every resolution read before it waits on any of them. A missing
-// node, a node outside orgID, or a missing type yields nil. kinds caches one
-// type read per type key.
-func hierarchyTypesOf(ctx context.Context, tr fdb.Transaction, orgID uuid.UUID, nodeIDs []uuid.UUID, kinds map[string]*node.NodeType) ([]*node.NodeType, error) {
-	resolves := make([]fdb.FutureByteSlice, len(nodeIDs))
-	for position, nodeID := range nodeIDs {
-		resolves[position] = tr.Get(fdb.Key(nodeResolveKey(nodeID)))
-	}
-	types := make([]*node.NodeType, len(nodeIDs))
-	for position, future := range resolves {
-		nodeID := nodeIDs[position]
-		encoded, err := future.Get()
-		if err != nil {
-			return nil, searchReadFailure(ctx, "read node resolution "+nodeID.String(), err)
-		}
-		if len(encoded) == 0 {
+	for _, item := range items {
+		if bytes.Equal(item.Key, removedKey) {
 			continue
 		}
-		var resolved node.NodeResolve
-		if err := json.Unmarshal(encoded, &resolved); err != nil {
-			return nil, searchReadFailure(ctx, "decode node resolution "+nodeID.String(), err)
-		}
-		if resolved.OrgID != orgID {
-			continue
-		}
-		kind, err := cachedNodeTypeByKey(ctx, tr, orgID, resolved.NodeType, kinds)
+		targetID, err := edgeEnd(ctx, item.Key)
 		if err != nil {
 			return nil, err
 		}
-		types[position] = kind
+		return []uuid.UUID{targetID}, nil
 	}
-	return types, nil
+	return nil, nil
 }
 
 // cachedNodeTypeByKey reads the node type of orgID that uses typeKey through
