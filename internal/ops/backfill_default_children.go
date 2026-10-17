@@ -33,9 +33,9 @@ func dryRunBackfillDefaultChildren(ctx context.Context, env *Env) error {
 }
 
 // RunDefaultChildrenBackfill checks the properties of every default child in
-// every organization before any write. It returns an error and writes nothing
-// when a default child sets an undeclared property. A dry run stops after the
-// check. Otherwise it creates every missing default child.
+// every organization before writing. It refuses the whole run if any default
+// child sets an undeclared property. A dry run stops after the check.
+// Otherwise, it creates every missing default child.
 func RunDefaultChildrenBackfill(ctx context.Context, env *Env, dryRun bool) error {
 	orgIDs, err := listOrgIDs(ctx, env)
 	if err != nil {

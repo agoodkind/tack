@@ -12,8 +12,8 @@ import (
 )
 
 // checkDefaultChildProps validates the properties of every default child in
-// every organization with the validator of the service create path. It
-// returns one error for all refused default children.
+// every organization with the service create validator. It returns one error
+// that lists every refused default child.
 func checkDefaultChildProps(ctx context.Context, env *Env, orgIDs map[uuid.UUID]struct{}) error {
 	var refusals []error
 	for orgID := range orgIDs {

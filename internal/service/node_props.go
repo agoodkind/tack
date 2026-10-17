@@ -61,8 +61,8 @@ func isDeletedPropValue(raw json.RawMessage) bool {
 	return len(raw) == 0 || string(raw) == "null"
 }
 
-// ValidateNodeProps returns an error when defs do not declare a key of props
-// for nt. The error lists every undeclared key in sorted order.
+// ValidateNodeProps checks that defs declares every key in props for nt. It
+// returns an error that lists every undeclared key in sorted order.
 func ValidateNodeProps(
 	ctx context.Context,
 	nt *node.NodeType,

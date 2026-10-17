@@ -44,8 +44,8 @@ type Operation struct {
 	Audit       audit.Spec
 	Description string
 	Run         func(ctx context.Context, env *Env) error
-	// DryRun reports the work of Run without writing state. The batch command
-	// runs it when the operator omits --execute.
+	// DryRun reports the work that Run would perform without writing state.
+	// The batch command calls DryRun when the operator omits --execute.
 	DryRun func(ctx context.Context, env *Env) error `exhaustruct:"optional"`
 }
 
@@ -134,8 +134,9 @@ func Run(ctx context.Context, cfg *config.Config, name string) error {
 	return runOperation(ctx, cfg, op, op.Run)
 }
 
-// RunDryRun looks up name and runs the op's DryRun the same way Run runs the
-// op. Returns an error if the op is unknown, declares no DryRun, or fails.
+// RunDryRun looks up the operation by name and calls its DryRun function. It
+// returns an error if the operation does not exist, does not define DryRun,
+// or fails during DryRun.
 func RunDryRun(ctx context.Context, cfg *config.Config, name string) error {
 	op, ok := Get(name)
 	if !ok {
