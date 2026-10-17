@@ -156,7 +156,12 @@ func (env *migrationEnv) putDefinition(t *testing.T, name string, include bool) 
 // putNode stores one node and sets its included property to included.
 func (env *migrationEnv) putNode(t *testing.T, nodeID uuid.UUID, included string) {
 	t.Helper()
-	props := map[string]json.RawMessage{env.IncludedKey: encodeText(t, included), env.ExcludedKey: encodeText(t, migrationExcluded)}
+	env.putNodeProps(t, nodeID, map[string]json.RawMessage{env.IncludedKey: encodeText(t, included), env.ExcludedKey: encodeText(t, migrationExcluded)})
+}
+
+// putNodeProps stores one node with props.
+func (env *migrationEnv) putNodeProps(t *testing.T, nodeID uuid.UUID, props map[string]json.RawMessage) {
+	t.Helper()
 	now := clock.Now().UTC()
 	value := &node.Node{ID: nodeID, OrgID: env.OrgID, NodeType: env.TypeKey, Name: "Migration node", Props: props, CreatedAt: now, UpdatedAt: now}
 	view := &node.NodeView{ID: nodeID, OrgID: env.OrgID, NodeType: env.TypeKey, Name: "Migration node", Props: props, CreatedAt: now, UpdatedAt: now}
