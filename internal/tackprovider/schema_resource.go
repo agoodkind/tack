@@ -96,8 +96,9 @@ func (r *schemaResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 			},
 			"pending": schema.ListNestedAttribute{
 				Computed: true,
-				Description: "This list contains migrations above the applied version through version. When a plan " +
-					"changes version, it shows pending as known after apply and lists each migration in a warning.",
+				Description: "This list contains migrations above the applied version through the configured `version`. " +
+					"When a plan changes `version`, the plan shows `pending` as known after apply and lists each " +
+					"pending migration in a warning.",
 				NestedObject: migrationObject,
 			},
 		},

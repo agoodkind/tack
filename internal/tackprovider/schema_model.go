@@ -47,7 +47,6 @@ func (model schemaModel) target() schemaTarget {
 	}
 }
 
-// sameTarget reports whether both models manage the same installation.
 func (model schemaModel) sameTarget(other schemaModel) bool {
 	return model.Node.Equal(other.Node) && model.VMID.Equal(other.VMID) && model.InstallDir.Equal(other.InstallDir)
 }
@@ -74,8 +73,6 @@ func parseSchemaID(id string) (string, int64, string, error) {
 	return guestPart[:slash], vmid, installDir, nil
 }
 
-// migrationList converts migrations to a list value containing migration
-// objects.
 func migrationList(ctx context.Context, migrations []migration) (types.List, diag.Diagnostics) {
 	models := make([]migrationModel, 0, len(migrations))
 	for _, item := range migrations {
@@ -88,7 +85,6 @@ func migrationList(ctx context.Context, migrations []migration) (types.List, dia
 	return types.ListValueFrom(ctx, migrationObjectType, models)
 }
 
-// statusFromModel rebuilds migration status from the values in state.
 func statusFromModel(ctx context.Context, model schemaModel) (schemaStatus, diag.Diagnostics) {
 	var models []migrationModel
 	diags := model.Available.ElementsAs(ctx, &models, false)

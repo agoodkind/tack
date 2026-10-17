@@ -15,15 +15,8 @@ func (r *schemaResource) Create(ctx context.Context, req resource.CreateRequest,
 	if resp.Diagnostics.HasError() || !r.configured(&resp.Diagnostics) {
 		return
 	}
-	before, diags := r.data.readStatus(ctx, plan.target())
-	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-	if !plan.ImageCommit.IsUnknown() && plan.ImageCommit.ValueString() != before.ImageCommit {
-		resp.Diagnostics.AddError("Tack image changed after planning",
-			fmt.Sprintf("The plan read image commit %s. The installation %s now runs image commit %s. Run the plan again.",
-				plan.ImageCommit.ValueString(), plan.target().guest, before.ImageCommit))
+	before, matches := r.livePlannedImage(ctx, plan, &resp.Diagnostics)
+	if !matches {
 		return
 	}
 	model, applied := r.apply(ctx, plan, before, &resp.Diagnostics)
@@ -40,6 +33,9 @@ func (r *schemaResource) Update(ctx context.Context, req resource.UpdateRequest,
 	if resp.Diagnostics.HasError() || !r.configured(&resp.Diagnostics) {
 		return
 	}
+	if _, matches := r.livePlannedImage(ctx, plan, &resp.Diagnostics); !matches {
+		return
+	}
 	before, diags := statusFromModel(ctx, state)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
@@ -49,6 +45,25 @@ func (r *schemaResource) Update(ctx context.Context, req resource.UpdateRequest,
 	if applied {
 		resp.Diagnostics.Append(resp.State.Set(ctx, &model)...)
 	}
+}
+
+func (r *schemaResource) livePlannedImage(
+	ctx context.Context,
+	plan schemaModel,
+	diags *diag.Diagnostics,
+) (schemaStatus, bool) {
+	live, readDiags := r.data.readStatus(ctx, plan.target())
+	diags.Append(readDiags...)
+	if diags.HasError() {
+		return live, false
+	}
+	if !plan.ImageCommit.IsUnknown() && plan.ImageCommit.ValueString() != live.ImageCommit {
+		diags.AddError("Tack image changed after planning",
+			fmt.Sprintf("The plan read image commit %s. The installation %s now runs image commit %s. Run the plan again.",
+				plan.ImageCommit.ValueString(), plan.target().guest, live.ImageCommit))
+		return live, false
+	}
+	return live, true
 }
 
 // apply migrates from the applied version in before to the planned version,
