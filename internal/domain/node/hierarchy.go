@@ -21,13 +21,11 @@ var ErrReservedParentRelation = fmt.Errorf("the %s relation type is reserved for
 // CanLiveUnder types.
 var ErrNoHierarchyParent = errors.New("node requires exactly one hierarchy parent")
 
-// HierarchyParent returns the hierarchy parent of nodeID, a node of type
-// kind, from the targets of its child_of edges. The one distinct target is
-// the parent, whatever its type. A node without a child_of edge is a
-// hierarchy root when kind lists no CanLiveUnder type, and HierarchyParent
-// returns [uuid.Nil] for it. Every other case returns an error that wraps
-// ErrNoHierarchyParent. Search access, the parent removal guard, the
-// subtree delete, and the orphan scan all apply this rule.
+// HierarchyParent returns the hierarchy parent of nodeID, of type kind, from
+// its child_of edges. One distinct target is the parent, regardless of its
+// type. If the node does not have a child_of edge and kind does not list
+// CanLiveUnder types, HierarchyParent returns [uuid.Nil] for a hierarchy
+// root. Every other case returns an error that wraps ErrNoHierarchyParent.
 func HierarchyParent(nodeID uuid.UUID, kind *NodeType, childOfTargets []uuid.UUID) (uuid.UUID, error) {
 	parentID := uuid.Nil
 	for _, targetID := range childOfTargets {
@@ -42,8 +40,8 @@ func HierarchyParent(nodeID uuid.UUID, kind *NodeType, childOfTargets []uuid.UUI
 	return parentID, nil
 }
 
-// hierarchyParentError is one node without exactly one hierarchy parent. It
-// matches ErrNoHierarchyParent.
+// hierarchyParentError reports a node that does not satisfy the hierarchy
+// parent rule. It matches ErrNoHierarchyParent.
 type hierarchyParentError struct {
 	message string
 }
@@ -52,11 +50,11 @@ func (e hierarchyParentError) Error() string { return e.message + ": " + ErrNoHi
 
 func (e hierarchyParentError) Unwrap() error { return ErrNoHierarchyParent }
 
-// LivesUnder reports whether NodeType metadata places a node of type child
-// under a node of type parent. The child's CanLiveUnder list or the parent's
-// CanContain list declares the pair. The subtree delete applies it to decide
-// whether a direct child of the deleted node moves to the deleted node's
-// parent. It never decides the hierarchy parent of a stored node.
+// LivesUnder reports whether the child's CanLiveUnder list or the parent's
+// CanContain list declares the child and parent type pair. Subtree deletion
+// uses this rule to decide whether a direct child moves to the deleted
+// node's parent or is deleted with the node. LivesUnder does not determine
+// the hierarchy parent of a stored node.
 func LivesUnder(child, parent *NodeType) bool {
 	if child == nil || parent == nil {
 		return false

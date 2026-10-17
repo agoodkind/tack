@@ -65,9 +65,9 @@ func (s *NodeService) parentChangeForUpdate(
 }
 
 // refuseParentCycle refuses parentID as the new parent of nodeID when the
-// parent_id chain from parentID contains nodeID. The walk has no depth limit.
-// It ends at a node without parent_id, at a missing node, or at a node it
-// read before.
+// parent_id chain from parentID contains nodeID. The walk does not limit
+// parent depth. It stops when a node does not have parent_id, a node is
+// missing, or a node repeats.
 func (s *NodeService) refuseParentCycle(ctx context.Context, nodeID, parentID uuid.UUID) error {
 	visited := map[uuid.UUID]bool{}
 	for currentID := parentID; currentID != uuid.Nil && !visited[currentID]; {

@@ -53,13 +53,13 @@ func refuseOnlyParentRemoval(ctx context.Context, tr fdb.Transaction, orgID, sou
 	return loggedSearchError{err: wrapped}
 }
 
-// parentGuardEdgeLimit is the number of child_of edges the guard reads: the
-// removed edge and one other edge.
+// parentGuardEdgeLimit limits the guard to reading two child_of edges: the
+// edge to remove and one other edge.
 const parentGuardEdgeLimit = 2
 
 // otherParentTarget reads at most parentGuardEdgeLimit child_of edges from
-// sourceID and returns the target of the first one other than removedKey, or
-// no target.
+// sourceID and returns the target of the first edge with a key other than
+// removedKey, if one exists.
 func otherParentTarget(ctx context.Context, tr fdb.Transaction, orgID, sourceID uuid.UUID, removedKey fdb.Key) ([]uuid.UUID, error) {
 	keyRange, err := fdb.PrefixRange(relationshipPrefixBySource(orgID, sourceID, node.RelChildOf))
 	if err != nil {

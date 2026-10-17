@@ -61,7 +61,7 @@ func (w *hierarchyWalk) finish(entryPointID uuid.UUID) {
 	w.done = true
 }
 
-// hierarchyParent returns the hierarchy parent of nodeID under
+// hierarchyParent returns the hierarchy parent of nodeID according to
 // [node.HierarchyParent], or [uuid.Nil] for a hierarchy root.
 func hierarchyParent(nodeID uuid.UUID, state AncestorState) (uuid.UUID, error) {
 	parentID, err := node.HierarchyParent(nodeID, state.Type, state.ChildOfs)

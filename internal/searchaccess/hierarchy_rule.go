@@ -32,8 +32,9 @@ type AncestorState struct {
 	ChildOfs []uuid.UUID
 }
 
-// HierarchyReader reads the hierarchy state of many nodes. Ancestors returns
-// one state for every requested node and an error only for a failed read.
+// HierarchyReader reads hierarchy state for multiple nodes. Ancestors returns
+// one state for each requested node and returns an error only when a read
+// fails.
 type HierarchyReader interface {
 	Ancestors(ctx context.Context, nodes []OrgNode) (map[OrgNode]AncestorState, error)
 }
@@ -76,7 +77,7 @@ func EntryPoints(ctx context.Context, reader HierarchyReader, resources []OrgNod
 	return entries, defects, nil
 }
 
-// readLevel reads the unread current nodes of active.
+// readLevel reads the current nodes in active that it has not already read.
 func readLevel(ctx context.Context, reader HierarchyReader, active []*hierarchyWalk, ancestors map[OrgNode]AncestorState) error {
 	unreadAncestors := newNodeSet()
 	for _, walk := range active {

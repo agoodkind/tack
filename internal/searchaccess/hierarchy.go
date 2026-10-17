@@ -12,11 +12,10 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// children reads one bounded page of the child_of edges to resourceID and
-// returns each source node of orgID. Under [node.HierarchyParent], the
-// target of a node's child_of edge is its parent whatever the two types
-// are. A source with child_of edges to several targets is a defect, and it
-// stays a dependent: its next access compilation withdraws its keys.
+// children reads one bounded page of child_of edges that target resourceID
+// and returns the source nodes in orgID. A source remains a dependent even
+// when its edges target multiple parents. Its next access compilation treats
+// those parents as a defect and withdraws its keys.
 func (c *OrgScopeCompiler) children(ctx context.Context, orgID, resourceID uuid.UUID, cursor string, limit int) (node.IDPage, error) {
 	exists, err := c.inOrg(ctx, orgID, resourceID)
 	if err != nil {
@@ -45,7 +44,7 @@ func (c *OrgScopeCompiler) children(ctx context.Context, orgID, resourceID uuid.
 	return node.IDPage{IDs: children, NextCursor: page.NextCursor, Done: page.Done}, nil
 }
 
-// inOrg reports whether nodeID resolves to a node of orgID.
+// inOrg reports whether nodeID resolves to a node in orgID.
 func (c *OrgScopeCompiler) inOrg(ctx context.Context, orgID, nodeID uuid.UUID) (bool, error) {
 	resolved, err := c.reader.Resolve(ctx, nodeID)
 	if err != nil {
