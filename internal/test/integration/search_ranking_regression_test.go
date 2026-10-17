@@ -45,9 +45,10 @@ type rankingApprovedNode struct {
 }
 
 type rankingCorpus struct {
-	created []uuid.UUID
-	probes  []rankingProbe
-	control []rankingProbe
+	created  []uuid.UUID
+	probes   []rankingProbe
+	control  []rankingProbe
+	measured []rankingProbe
 }
 
 // TestSearchRankingApprovedQueries indexes only the approved semantic corpus of
@@ -74,7 +75,9 @@ func TestSearchRankingApprovedQueries(t *testing.T) {
 //   - Each attempt follows its cursor to the last page with the saved query
 //     token and performs replay checks.
 //
-// The test does not check the six approved queries.
+// Before and after the full index replacement, the test logs the ranks of both
+// targets of each of the six approved queries in the full corpus without
+// asserting those ranks.
 func TestSearchRankingProductionRegression(t *testing.T) {
 	run := startRankingRun(t)
 	run.requireAcrossReplacement(t, run.addRegressionCorpus(t, run.createApprovedCorpus(t)))
@@ -126,7 +129,7 @@ func (r *rankingRun) createApprovedCorpus(t *testing.T) rankingCorpus {
 	for position, query := range rankingApprovedQueries {
 		probes[position] = rankingProbe{Query: query, Targets: nil, First: false}
 	}
-	corpus := rankingCorpus{created: nil, probes: probes, control: probes}
+	corpus := rankingCorpus{created: nil, probes: probes, control: probes, measured: nil}
 	for _, node := range approved {
 		nodeID := r.createIssue(t, node.Text, node.Text)
 		corpus.created = append(corpus.created, nodeID)
@@ -141,7 +144,8 @@ func (r *rankingRun) createApprovedCorpus(t *testing.T) rankingCorpus {
 // addRegressionCorpus creates the 34 distractors, 40 common-word titles, and
 // regression target after the approved corpus. It returns all created nodes
 // with the regression query probe and exact title probe, and does not return a
-// lexical control.
+// lexical control. It also returns the six approved query probes as measured
+// probes.
 func (r *rankingRun) addRegressionCorpus(t *testing.T, approved rankingCorpus) rankingCorpus {
 	t.Helper()
 	var regression rankingRegression
@@ -166,7 +170,8 @@ func (r *rankingRun) addRegressionCorpus(t *testing.T, approved rankingCorpus) r
 			{Query: regression.Query, Targets: []uuid.UUID{target}, First: false},
 			{Query: regression.Target.Name, Targets: []uuid.UUID{target}, First: true},
 		},
-		control: nil,
+		control:  nil,
+		measured: approved.probes,
 	}
 }
 
@@ -177,5 +182,8 @@ func (r *rankingRun) requireAll(t *testing.T, phase string, corpus rankingCorpus
 	}
 	if corpus.control != nil {
 		r.requireLexicalControl(t, phase, corpus.control)
+	}
+	for _, probe := range corpus.measured {
+		r.measure(t, phase, probe)
 	}
 }
