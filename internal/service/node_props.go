@@ -101,7 +101,6 @@ func (e undeclaredPropsError) Error() string {
 		e.typeKey, strings.Join(e.keys, ", "), domain.ErrInvalidArgument)
 }
 
-// Unwrap returns domain.ErrInvalidArgument.
 func (e undeclaredPropsError) Unwrap() error { return domain.ErrInvalidArgument }
 
 func allowedPropNames(nt *node.NodeType, defs []*node.PropertyDef) map[string]struct{} {

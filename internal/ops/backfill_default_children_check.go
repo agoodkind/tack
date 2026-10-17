@@ -93,8 +93,6 @@ func checkOrgDefaultChildProps(ctx context.Context, env *Env, orgID uuid.UUID, n
 // property name in that map.
 var checkedParentRaw = json.RawMessage(strconv.Quote(uuid.Nil.String()))
 
-// defaultChildProps copies dc.Props, sets parent_id and scope_id to parentRaw
-// in the copy, and returns the copy.
 func defaultChildProps(dc node.DefaultChild, parentRaw json.RawMessage) map[string]json.RawMessage {
 	props := make(map[string]json.RawMessage, len(dc.Props)+2)
 	maps.Copy(props, dc.Props)

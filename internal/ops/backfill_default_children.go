@@ -33,12 +33,23 @@ func dryRunBackfillDefaultChildren(ctx context.Context, env *Env) error {
 	return RunDefaultChildrenBackfill(ctx, env, true)
 }
 
-// RunDefaultChildrenBackfill validates the complete property map of every
-// default child in every organization before any write. It refuses the
-// entire run if any default child sets an undeclared property. When dryRun
-// is true, it stops after validation. Otherwise, it creates every missing
-// default child in every organization and returns one error that lists all
-// failed reads and writes, or nil if every operation succeeds.
+// RunDefaultChildrenBackfill reads the organization IDs and returns the error
+// if that read fails.
+//
+// It reads every organization's node types through listOrgNodeTypes. If any
+// node type read fails, it returns one error that joins every failed read
+// before validation or writes.
+//
+// It validates the complete property map of every default child in every
+// organization. If any default child sets an undeclared property, it refuses
+// the entire run with one error before any write.
+//
+// If dryRun is true, it stops after validation.
+//
+// Otherwise, it creates every missing default child in every organization.
+// After processing every organization, it returns one error that joins every
+// failed parent listing, child listing, or child creation. It returns nil if
+// every operation succeeds.
 func RunDefaultChildrenBackfill(ctx context.Context, env *Env, dryRun bool) error {
 	orgIDs, err := listOrgIDs(ctx, env)
 	if err != nil {
