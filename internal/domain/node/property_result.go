@@ -67,7 +67,8 @@ type PropertyResultError struct {
 	Result PropertyResult
 }
 
-// Error lists every read failure or every invalid property with its reason.
+// Error lists only read failures when the result contains any.
+// Otherwise, it lists every invalid property with its reason.
 func (e PropertyResultError) Error() string {
 	if len(e.Result.Failures) > 0 {
 		parts := make([]string, 0, len(e.Result.Failures))

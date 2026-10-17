@@ -1,6 +1,7 @@
 package node
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -16,7 +17,7 @@ func propertyValueIssue(definition *PropertyDef, raw json.RawMessage) *PropertyI
 	if !json.Valid(raw) {
 		return valueIssue(definition, PropertyIssueValue, "the value is not valid JSON")
 	}
-	if string(raw) == "null" {
+	if string(bytes.TrimSpace(raw)) == "null" {
 		return valueIssue(definition, PropertyIssueValue, "the value is null")
 	}
 	switch definition.Type {
