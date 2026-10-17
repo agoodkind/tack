@@ -1,6 +1,7 @@
 package integration_test
 
 import (
+	"fmt"
 	"slices"
 	"testing"
 
@@ -61,12 +62,15 @@ func TestSearchParentEdgeMovedChain(t *testing.T) {
 			t.Fatalf("leaf %s has summary keys %v after the move, want the second entry point keys %v", leaf, keys[leaf], keys[fixture.secondEntry])
 		}
 	}
-	if found := intersect(fixture.search(t, fixture.first, "basalt chain leaf"), chain); len(found) != 0 {
-		t.Fatalf("search under the first entry point returned moved leaves %v", found)
-	}
-	if found := intersect(fixture.search(t, fixture.second, "basalt chain leaf"), chain); len(found) != parentChainLength {
-		t.Fatalf("search under the second entry point returned %d moved leaves, want %d", len(found), parentChainLength)
-	}
+	fixture.eventually(t, func() string {
+		if found := intersect(fixture.search(t, fixture.first, "basalt chain leaf"), chain); len(found) != 0 {
+			return fmt.Sprintf("search under the first entry point returned moved leaves %v", found)
+		}
+		if found := intersect(fixture.search(t, fixture.second, "basalt chain leaf"), chain); len(found) != parentChainLength {
+			return fmt.Sprintf("search under the second entry point returned %d moved leaves, want %d", len(found), parentChainLength)
+		}
+		return ""
+	})
 }
 
 // TestSearchParentEdgeMembershipEdge stores a node of a type without

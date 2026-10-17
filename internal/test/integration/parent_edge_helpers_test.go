@@ -118,6 +118,28 @@ func (f parentEdgeFixture) drain(t *testing.T) {
 	t.Fatalf("search work stayed claimable for %s", parentEdgeDeadline)
 }
 
+// eventually calls drain, then check, until check returns an empty string or
+// parentEdgeDeadline (10 minutes) expires. It returns when check returns an
+// empty string. Otherwise, it waits one second before repeating.
+// drain runs search worker slices until workers cannot claim more work.
+// Released work may still await its retry delay when drain returns.
+// A single drain does not prove that all search work finished.
+// After the deadline, eventually fails the test with the last message from
+// check.
+func (f parentEdgeFixture) eventually(t *testing.T, check func() string) {
+	t.Helper()
+	deadline := clock.Now().Add(parentEdgeDeadline)
+	message := ""
+	for clock.Now().Before(deadline) {
+		f.drain(t)
+		if message = check(); message == "" {
+			return
+		}
+		<-time.After(time.Second)
+	}
+	t.Fatalf("%s after %s", message, parentEdgeDeadline)
+}
+
 // search follows every tack_search page for query under the entry point of
 // workspace and returns the result node IDs.
 func (f parentEdgeFixture) search(t *testing.T, workspace datagen.WorkspaceIdentity, query string) []uuid.UUID {

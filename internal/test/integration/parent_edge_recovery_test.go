@@ -85,8 +85,12 @@ func (f parentEdgeFixture) excluded(t *testing.T) []uuid.UUID {
 	return nodes
 }
 
-// reindex runs "ops search reindex --mode full" and runs worker slices until
-// the replacement finishes.
+// reindex runs the audited command ops search reindex --mode full, then runs
+// search worker slices. It stops when the index replacement record does not
+// exist or the replacement is in the retiring state.
+// The replacement switches the serving index before it enters the retiring
+// state. In that state, it waits until open search sessions stop reading the
+// previous index.
 func (f parentEdgeFixture) reindex(t *testing.T) {
 	t.Helper()
 	result, err := f.runOps(t, "ops", "search", "reindex", "--mode", "full")
@@ -103,11 +107,11 @@ func (f parentEdgeFixture) reindex(t *testing.T) {
 	rebuilds := f.stores.SearchRebuilds(clock.Wall{})
 	deadline := clock.Now().Add(parentEdgeDeadline)
 	for clock.Now().Before(deadline) {
-		_, running, err := rebuilds.CurrentRebuild(t.Context())
+		current, running, err := rebuilds.CurrentRebuild(t.Context())
 		if err != nil {
 			t.Fatalf("read index replacement: %v", err)
 		}
-		if !running {
+		if !running || current.State == searchdomain.RebuildRetiring {
 			return
 		}
 		claimed, err := f.worker.RunSlice(t.Context())
@@ -118,5 +122,5 @@ func (f parentEdgeFixture) reindex(t *testing.T) {
 			<-time.After(parentEdgePause)
 		}
 	}
-	t.Fatalf("the index replacement did not finish within %s", parentEdgeDeadline)
+	t.Fatalf("the index replacement did not switch the serving index within %s", parentEdgeDeadline)
 }
