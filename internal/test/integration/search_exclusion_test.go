@@ -6,8 +6,21 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain/node"
 	searchdomain "goodkind.io/tack/internal/domain/search"
+)
+
+const (
+	// recoveryOldText and recoveryNewText are the included values before and
+	// after the edit, respectively.
+	recoveryOldText = "quartz lantern harbor"
+	recoveryNewText = "cobalt meadow signal"
+	// recoveryReadFailure is the content read failure when decoding a
+	// resolution record fails.
+	recoveryReadFailure = "decode node resolution"
+	// recoveryAttempts exceeds the attempt limit.
+	recoveryAttempts int64 = 7
 )
 
 // TestSearchRebuildExcludesOrphanNodes runs a full FoundationDB replacement
@@ -72,45 +85,55 @@ func TestSearchRebuildExcludesOrphanNodes(t *testing.T) {
 	}
 }
 
-// TestSearchExcludesNodeAfterAttemptLimit stores a node with a value under a
-// property that has no definition. Every live slice of the node fails to
-// encode its text. After the attempt limit ops search verify must list the
-// node with that failure in the live class. The test then declares the
-// property. The declaration must index the node and remove its exclusion.
-func TestSearchExcludesNodeAfterAttemptLimit(t *testing.T) {
+// TestSearchRecoveryRetainsWorkAfterFailedSourceReads indexes a node, edits
+// it, and then replaces the node's resolution record with bytes that cannot
+// decode as a resolution record. Every live slice of the node then fails a
+// counted FoundationDB read. After seven failures, which exceeds the attempt
+// limit, ops search verify must fail and list the live item with the failed
+// read. Verify must not list the node as excluded. The live work must stay
+// pending. The test then restores the resolution record without another
+// edit. The pending work must index the edited text. Search must return the
+// node. Verify must not list stuck work or an exclusion.
+func TestSearchRecoveryRetainsWorkAfterFailedSourceReads(t *testing.T) {
 	fixture := newQueryFixture(t, defaultQueryOptions())
 	workspace := fixture.Workspaces[0]
 	entry := entryPoint(t, fixture, workspace)
 	kind := putOpaqueKind(t, fixture, workspace.OrgID)
+	affected := putOpaqueNode(t, fixture, kind, entry, "recovery node", recoveryOldText, readerExcludedValue)
 	drainSearchWork(t, fixture.Worker, 2000)
 
-	name := opaqueSearchKey("p")
-	affected := putUndeclaredNode(t, fixture, kind, entry, name, "quartz lantern harbor")
-	report := runUntilExcluded(t, fixture, fixture.Worker, affected)
-	reason, _ := report.reason(affected)
-	if !strings.Contains(reason, name) {
-		t.Fatalf("exclusion reason %q does not name the undeclared property %s", reason, name)
-	}
-	for _, exclusion := range report.Exclusions {
-		if exclusion.NodeID == affected.String() && exclusion.Class != string(searchdomain.WorkClassLive) {
-			t.Fatalf("exclusion class = %q, want %q", exclusion.Class, searchdomain.WorkClassLive)
+	editOpaqueNode(t, fixture, kind, affected, recoveryNewText)
+	resolveKey := nodeResolveRawKey(affected)
+	resolve := replaceRawValue(t, resolveKey, []byte("{"))
+	report, verifyErr := runUntilStuck(t, fixture, searchdomain.WorkClassLive, affected.String(), recoveryAttempts)
+	for _, stuck := range report.StuckWork {
+		if stuck.Kind == string(searchdomain.WorkClassLive) && stuck.ItemID == affected.String() && !strings.Contains(stuck.LastError, recoveryReadFailure) {
+			t.Fatalf("stuck live work = %+v, want the failed read %q", stuck, recoveryReadFailure)
 		}
 	}
-	drainSearchWork(t, fixture.Worker, 2000)
+	if verifyErr == nil || !strings.Contains(verifyErr.Error(), "live work "+affected.String()) || !strings.Contains(verifyErr.Error(), recoveryReadFailure) {
+		t.Fatalf("ops search verify error = %v, want live work %s and its failed read", verifyErr, affected)
+	}
+	if _, listed := report.reason(affected); listed {
+		t.Fatalf("ops search verify lists node %s as excluded after %d failed reads", affected, recoveryAttempts)
+	}
+	requireLiveWorkPending(t, fixture, affected)
 
-	definition := &node.PropertyDef{
-		ID: uuid.Must(uuid.NewV7()), OrgID: workspace.OrgID, Name: name, Type: node.PropertyType(opaqueSearchKey("t")),
-		Search: &node.SearchProjection{Include: true, Order: 2, Rule: node.TextRule{Mode: node.TextRuleScalar}},
-	}
-	if err := fixture.Stores.PropertyDefs.Set(t.Context(), definition); err != nil {
-		t.Fatalf("declare property %s: %v", name, err)
+	replaceRawValue(t, resolveKey, resolve)
+	deadline := clock.Now().Add(exclusionDeadline)
+	for !indexedText(t, fixture, affected, recoveryNewText) {
+		if clock.Now().After(deadline) {
+			t.Fatalf("node %s did not index %q within %s after the read recovered", affected, recoveryNewText, exclusionDeadline)
+		}
+		runSliceOrPause(t, fixture.Worker)
 	}
 	drainSearchWork(t, fixture.Worker, 2000)
-	if pages := searchNodePages(t, fixture.Client, fixture.Index, affected, false); len(pages) == 0 {
-		t.Fatal("the excluded node has no pages after its property was declared")
+	requireCurrentPages(t, fixture, fixture.Index, []uuid.UUID{affected})
+	if results := callEverySearchPage(t, recoveryNewText, fixture.Harness); !slices.Contains(results.IDs, affected) {
+		t.Fatalf("search after the recovery returned %v, want node %s", results.IDs, affected)
 	}
 	report, _ = runSearchVerifyCommand(t, fixture.Config)
-	if _, listed := report.reason(affected); listed {
-		t.Fatalf("ops search verify still lists node %s after the repair", affected)
+	if report.StuckWorkItems != 0 || report.ExcludedNodes != 0 {
+		t.Fatalf("ops search verify after the recovery lists stuck work %+v and exclusions %+v", report.StuckWork, report.Exclusions)
 	}
 }
