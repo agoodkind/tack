@@ -12,8 +12,8 @@ import (
 
 type dryRunOutputKey struct{}
 
-// dryRunDestination returns the stream for the dry-run preamble. In JSON
-// output mode it returns stderr, so stdout contains only the JSON document.
+// dryRunDestination returns the output stream for the dry-run preamble. JSON
+// output mode uses stderr for the preamble and stdout for the JSON document.
 func dryRunDestination(f *cli.Factory, text io.Writer) io.Writer {
 	if f.OutputFormat() == cli.FormatJSON {
 		return f.Err

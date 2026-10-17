@@ -30,8 +30,9 @@ func Migrate(ctx context.Context, dsn string, migrationsFS fs.FS) error {
 	return MigrateTo(ctx, dsn, migrationsFS, goose.MaxVersion)
 }
 
-// MigrateTo runs the pending goose migrations through version target, with
-// the same login and role split as [Migrate].
+// MigrateTo runs pending goose migrations through target. Migrations through
+// lastSuperuserMigration run as the login. Later migrations run as
+// tack_migrator when the login is a superuser.
 func MigrateTo(ctx context.Context, dsn string, migrationsFS fs.FS, target int64) error {
 	connConfig, err := pgx.ParseConfig(dsn)
 	if err != nil {

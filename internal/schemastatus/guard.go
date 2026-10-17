@@ -10,16 +10,18 @@ import (
 	"goodkind.io/tack/internal/adapters/postgres"
 )
 
-// Guard limits one migrate run. A zero field is unset.
+// Guard sets version requirements for one migration run. A zero field does not
+// set a requirement.
 type Guard struct {
-	// ExpectFrom refuses the run unless the database is at this version.
+	// ExpectFrom requires the database to be at this version before the run.
 	ExpectFrom int64
-	// To applies migrations through this version only.
+	// To limits the run to migrations through this version.
 	To int64
 }
 
-// Target returns the last version that a run under guard applies to the
-// database in status. It returns an error when the run must not start.
+// Target returns the target migration version for guard and status. It
+// returns an error when the database state or target version prevents the
+// run.
 func Target(ctx context.Context, status Status, guard Guard) (int64, error) {
 	highest := status.Highest()
 	if highest == 0 {
@@ -44,9 +46,9 @@ func Target(ctx context.Context, status Status, guard Guard) (int64, error) {
 	return guard.To, nil
 }
 
-// Apply checks guard against the state of the database at dsn, applies the
-// migrations through the target version, and reads the state again. It
-// returns an error when the applied version differs from the target.
+// Apply checks guard against the migration state of the database at dsn,
+// applies migrations through the target version, and reads the state again.
+// It returns an error if the applied version differs from the target.
 func Apply(ctx context.Context, dsn string, migrationsFS fs.FS, guard Guard) (int64, error) {
 	before, err := Read(ctx, dsn, migrationsFS)
 	if err != nil {

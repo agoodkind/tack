@@ -1,6 +1,6 @@
-// Package schemastatus reads the goose migration state of the ledger database
-// in one read-only transaction and applies migrations under guards that the
-// state must satisfy. A read never creates the goose version table.
+// Package schemastatus reads goose migration state in one read-only
+// transaction and applies migrations after checking version requirements.
+// Reads do not create the goose version table.
 package schemastatus
 
 import (
@@ -23,15 +23,15 @@ import (
 // migrationGlob matches the embedded goose SQL files.
 const migrationGlob = "*.sql"
 
-// Migration is one embedded goose migration file.
+// Migration represents one embedded goose migration file.
 type Migration struct {
 	Version int64  `json:"version"`
 	Name    string `json:"name"`
 	SHA256  string `json:"sha256"`
 }
 
-// Status is the migration state of one database against the embedded set.
-// AppliedVersion is 0 when the goose version table does not exist.
+// Status reports the database migration state relative to the embedded
+// migrations. AppliedVersion is 0 when the goose version table does not exist.
 type Status struct {
 	MigrationTablePresent bool        `json:"migration_table_present"`
 	AppliedVersion        int64       `json:"applied_version"`
@@ -48,7 +48,7 @@ func (s Status) Highest() int64 {
 	return s.Available[len(s.Available)-1].Version
 }
 
-// Summary returns the state as short text lines.
+// Summary returns the migration state as short text lines.
 func (s Status) Summary() string {
 	table := "absent"
 	if s.MigrationTablePresent {
@@ -67,8 +67,8 @@ func (s Status) Summary() string {
 		table, s.AppliedVersion, s.Highest(), pending, s.ImageCommit)
 }
 
-// Available lists the embedded migrations sorted by version, each with the
-// SHA-256 of its file contents.
+// Available returns the embedded migrations in version order with the SHA-256
+// hash of each file's contents.
 func Available(ctx context.Context, migrationsFS fs.FS) ([]Migration, error) {
 	names, err := fs.Glob(migrationsFS, migrationGlob)
 	if err != nil {
@@ -100,9 +100,10 @@ func Available(ctx context.Context, migrationsFS fs.FS) ([]Migration, error) {
 	return available, nil
 }
 
-// Read reports the migration state of the database at dsn. It checks the
-// goose version table with to_regclass and reads the highest applied version
-// in one read-only transaction.
+// Read reports the migration state of the database at dsn in one read-only
+// transaction. It uses to_regclass to check whether the goose version table
+// exists and considers only rows with is_applied when reading the highest
+// applied version.
 func Read(ctx context.Context, dsn string, migrationsFS fs.FS) (Status, error) {
 	available, err := Available(ctx, migrationsFS)
 	if err != nil {

@@ -128,7 +128,8 @@ func serveOp(f *cli.Factory) clispec.Operation[emptyInput] {
 	}
 }
 
-// migrateInput is the input of a migrate run. A zero flag value is unset.
+// migrateInput contains the inputs for a migration run. A zero flag value does
+// not set a requirement.
 type migrateInput struct {
 	clispec.InputMarker `exhaustruct:"optional"`
 	To                  int
