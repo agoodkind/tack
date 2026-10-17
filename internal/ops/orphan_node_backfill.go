@@ -48,15 +48,15 @@ type OrphanBackfillResult struct {
 	RemovedEdges     int                     `json:"removed_edges"`
 }
 
-// RunOrphanNodeBackfill scans the nodes of every organization. It finds the
+// RunOrphanNodeBackfill scans the nodes of every organization. The scan finds
 // nodes of a type that lists CanLiveUnder types without a child_of edge to
-// another existing node; a parent deleted before the cascading delete existed
-// left such nodes behind. It also finds the child_of edges that do not
-// target the parent_id of a node with a hierarchy parent. Unless dryRun is
-// true, it removes each such edge and deletes each orphan with its hierarchy
-// descendants. Each removed edge
-// writes one relationship.remove ledger event and each deleted node one
-// node.delete ledger event, by the operator on ctx.
+// another existing node. Such an orphan exists because deletion of its parent
+// occurred before the cascading delete existed. The scan also finds child_of
+// edges that do not target the parent_id of a node with a hierarchy parent.
+// Unless dryRun is true, the backfill removes each such edge and deletes each
+// orphan with its hierarchy descendants. Each removed edge writes one
+// relationship.remove ledger event, and each deleted node writes one
+// node.delete ledger event, with the operator on ctx as the actor.
 func RunOrphanNodeBackfill(ctx context.Context, scanner OrphanScanStore, remover ParentEdgeRemover, deleter SubtreeDeleter, dryRun bool) (OrphanBackfillResult, error) {
 	result := OrphanBackfillResult{
 		Scanned: 0, Orphans: 0, NodeIDs: []uuid.UUID{}, Deleted: 0,
