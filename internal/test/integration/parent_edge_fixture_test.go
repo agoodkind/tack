@@ -16,8 +16,8 @@ import (
 	"goodkind.io/tack/internal/service"
 )
 
-// parentEdgeKind is one opaque node type with one included and one excluded
-// property.
+// parentEdgeKind stores the organization ID, the type key of one opaque node
+// type, and the names of its included and excluded properties.
 type parentEdgeKind struct {
 	orgID              uuid.UUID
 	typeKey            string

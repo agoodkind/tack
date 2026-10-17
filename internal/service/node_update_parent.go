@@ -64,18 +64,26 @@ func (s *NodeService) parentChangeForUpdate(
 	return changes, nil
 }
 
-// refuseParentCycle refuses parentID as the new parent of nodeID when the
-// parent_id chain from parentID contains nodeID. The walk does not limit
-// parent depth. It stops when a node does not have parent_id, a node is
-// missing, or a node repeats.
+// refuseParentCycle walks the parent_id chain from parentID without a depth
+// limit and stops without an error at a node without parent_id or at a
+// missing node. It refuses parentID as the new parent of nodeID with an error
+// that matches domain.ErrInvalidArgument when the chain contains nodeID or
+// repeats a node.
 func (s *NodeService) refuseParentCycle(ctx context.Context, nodeID, parentID uuid.UUID) error {
 	visited := map[uuid.UUID]bool{}
-	for currentID := parentID; currentID != uuid.Nil && !visited[currentID]; {
+	for currentID := parentID; currentID != uuid.Nil; {
 		if currentID == nodeID {
 			slog.WarnContext(ctx, "node.update.parent_cycle_refused",
 				slog.String("node_id", nodeID.String()), slog.String("parent_id", parentID.String()))
 			return fmt.Errorf("update node %s: parent %s is node %s or one of its descendants: %w",
 				nodeID, parentID, nodeID, domain.ErrInvalidArgument)
+		}
+		if visited[currentID] {
+			slog.WarnContext(ctx, "node.update.parent_cycle_refused",
+				slog.String("node_id", nodeID.String()), slog.String("parent_id", parentID.String()),
+				slog.String("repeated_id", currentID.String()))
+			return fmt.Errorf("update node %s: the parent_id chain of parent %s repeats node %s: %w",
+				nodeID, parentID, currentID, domain.ErrInvalidArgument)
 		}
 		visited[currentID] = true
 		ancestor, err := s.reader.Get(ctx, currentID)

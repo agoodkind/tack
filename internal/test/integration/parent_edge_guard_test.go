@@ -12,16 +12,10 @@ import (
 	"goodkind.io/tack/internal/test/integration"
 )
 
-// TestParentEdgeGuardKeepsCanonicalEdge creates a parent issue and a child
-// issue under it through the node service.
-// The child issue stores the parent issue's UUID as parent_id.
-// The relationship store adds a redundant child_of edge from the child issue
-// to its project, an ancestor of the child.
-// The test checks that the relationship store refuses removal of the canonical
-// edge from the child issue to the parent issue with an error that matches
-// domain.ErrFailedPrecondition and retains both edges.
-// The test then checks that the relationship store removes the redundant edge
-// and retains only the canonical edge.
+// TestParentEdgeGuardKeepsCanonicalEdge checks that the guard refuses removal
+// of the child issue's canonical parent edge, which targets parent_id, while
+// a redundant child_of edge to an ancestor exists, and allows removal of the
+// redundant edge.
 func TestParentEdgeGuardKeepsCanonicalEdge(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	actor := uuid.Must(uuid.NewV7())
@@ -40,14 +34,9 @@ func TestParentEdgeGuardKeepsCanonicalEdge(t *testing.T) {
 	requireParentEdges(t, env, child, parent)
 }
 
-// TestParentEdgeGuardRefusesRootTypeCanonicalEdge stores a node type that
-// does not declare CanLiveUnder types.
-// The test creates a node of that type under a project through the node
-// service.
-// The node stores the project's UUID as parent_id.
-// The test checks that the relationship store refuses removal of the node's
-// only child_of edge with an error that matches domain.ErrFailedPrecondition
-// and retains the edge.
+// TestParentEdgeGuardRefusesRootTypeCanonicalEdge checks that the guard
+// refuses removal of the only child_of edge of a node with parent_id when the
+// node type does not declare CanLiveUnder types.
 func TestParentEdgeGuardRefusesRootTypeCanonicalEdge(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	actor := uuid.Must(uuid.NewV7())

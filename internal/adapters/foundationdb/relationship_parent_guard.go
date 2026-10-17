@@ -14,21 +14,17 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// refuseOnlyParentRemoval runs inside the relationship removal transaction.
-// The guard allows removal of edges with a relation type other than child_of.
-// The guard also allows removal of a child_of edge that does not exist.
-// The guard reads the source node's parent_id.
-// When the source node stores parent_id, the guard refuses removal of the
-// child_of edge that targets parent_id for every node type, even when another
-// child_of edge remains.
-// The guard allows removal of child_of edges that do not target parent_id.
-// When the source node does not store parent_id, the guard passes the other
-// remaining child_of target, if any, and the source type to
-// node.HierarchyParent.
-// The guard refuses removal when node.HierarchyParent returns an error.
-// A refusal returns an error that matches domain.ErrFailedPrecondition.
-// FoundationDB aborts one of two concurrent transactions that each remove a
-// different parent edge of the same node.
+// refuseOnlyParentRemoval runs inside the relationship removal transaction
+// and allows removal of edges of other relation types and child_of edges that
+// do not exist. When the source node stores parent_id, the guard refuses
+// removal of the child_of edge targeting parent_id for every node type, even
+// when another child_of edge remains, and allows removal of other child_of
+// edges. When the source node does not store parent_id, the guard refuses
+// removal if node.HierarchyParent returns an error for the source type and
+// the other remaining child_of target, if any. Each refusal returns an error
+// that matches domain.ErrFailedPrecondition. FoundationDB aborts one of two
+// concurrent transactions that each remove a different parent edge of the
+// same node.
 func refuseOnlyParentRemoval(ctx context.Context, tr fdb.Transaction, orgID, sourceID uuid.UUID, relationType string, targetID uuid.UUID) error {
 	if relationType != node.RelChildOf {
 		return nil

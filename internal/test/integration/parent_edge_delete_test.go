@@ -13,12 +13,11 @@ import (
 	"goodkind.io/tack/internal/test/integration"
 )
 
-// TestParentEdgeDeleteMovesChildIssue creates an issue under a project, a
-// child issue under that issue, and a comment under that issue through the
-// node service. No metadata declares an issue under an issue. The subtree
-// delete of the issue must move the child issue to the project, with one
-// child_of edge to the project and a parent_id that matches it, and must
-// delete the comment with the issue.
+// TestParentEdgeDeleteMovesChildIssue checks subtree deletion of a parent
+// issue with a child issue under it, a type pair that NodeType metadata does
+// not declare. Subtree deletion moves the child issue to the project with one
+// child_of edge to the project and a matching parent_id, and deletes the
+// comment with the parent issue.
 func TestParentEdgeDeleteMovesChildIssue(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	actor := uuid.Must(uuid.NewV7())

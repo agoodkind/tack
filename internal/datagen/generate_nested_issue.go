@@ -5,12 +5,12 @@ import (
 	"fmt"
 )
 
-// generateNestedIssue creates an issue with the raw ID of parentIssue as its
-// parent_id. Both issues belong to the same project. NodeType metadata does
-// not declare an issue under an issue. tack_get_issue must return the nested
-// issue, and tack_remove_relationship must refuse removal of its only
-// child_of edge. generateNestedIssue skips projects that do not have a
-// generated issue.
+// generateNestedIssue skips a project without a generated issue and otherwise
+// creates an issue in the same project with parent_id set to the raw ID of
+// parentIssue, although NodeType metadata does not declare an issue under an
+// issue. It requires tack_get_issue to return the nested issue and
+// tack_remove_relationship to refuse removal of the nested issue's only
+// child_of edge.
 func (g *Generator) generateNestedIssue(
 	ctx context.Context,
 	workspace WorkspaceIdentity,

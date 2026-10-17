@@ -119,11 +119,10 @@ func (f parentEdgeFixture) drain(t *testing.T) {
 	t.Fatalf("search work stayed claimable for %s", parentEdgeDeadline)
 }
 
-// eventually calls drain, then check, until check returns an empty string or
-// parentEdgeDeadline (10 minutes) expires. It returns when check returns an
-// empty string. Otherwise, it waits one second before repeating.
-// After the deadline, eventually fails the test with the last message from
-// check.
+// eventually calls drain and then check until check returns an empty string
+// or parentEdgeDeadline (10 minutes) expires, waiting one second between
+// attempts. After the deadline, eventually fails the test with the last
+// message from check.
 func (f parentEdgeFixture) eventually(t *testing.T, check func() string) {
 	t.Helper()
 	deadline := clock.Now().Add(parentEdgeDeadline)
