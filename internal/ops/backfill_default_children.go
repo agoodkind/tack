@@ -80,8 +80,7 @@ func checkedDefaultChildTypes(ctx context.Context, env *Env) (map[uuid.UUID][]*n
 // backfillOrgDefaultChildren creates missing default children for every node
 // of the given node types in orgID.
 //
-// backfillOrgDefaultChildren logs each failed parent listing and each failed
-// child listing. createDefaultChild logs each failed child creation.
+// createDefaultChild logs each failed child creation.
 //
 // backfillOrgDefaultChildren continues with the remaining nodes after each
 // failure and returns a slice with one error per failed listing or creation.
@@ -99,10 +98,6 @@ func backfillOrgDefaultChildren(ctx context.Context, env *Env, orgID uuid.UUID, 
 			NodeType: nt.TypeKey,
 		})
 		if err != nil {
-			env.Log.ErrorContext(ctx, "backfill: list parents",
-				slog.String("org_id", orgID.String()),
-				slog.String("type", nt.TypeKey),
-				slog.String("err", err.Error()))
 			failures = append(failures, fmt.Errorf("list nodes of type %q in organization %s: %w", nt.TypeKey, orgID, err))
 			continue
 		}
@@ -121,9 +116,6 @@ func backfillOrgDefaultChildren(ctx context.Context, env *Env, orgID uuid.UUID, 
 				}
 				existing, err := env.Stores.Nodes.ListByProperty(ctx, orgID, dc.TypeKey, "parent_id", parentIDRaw)
 				if err != nil {
-					env.Log.WarnContext(ctx, "backfill: list children",
-						slog.String("parent_id", parent.ID.String()),
-						slog.String("err", err.Error()))
 					failures = append(failures, fmt.Errorf("list %s children of node %s: %w", dc.TypeKey, parent.ID, err))
 					continue
 				}
