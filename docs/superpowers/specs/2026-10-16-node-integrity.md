@@ -117,6 +117,7 @@ Source inspection identifies possible concurrent parent inconsistencies, but the
 
 | Decision | Current position | Work that can continue |
 | --- | --- | --- |
-| Several parent mappings infer intent. | The backfill specification marks each proposal for review. | Graph validation and nonmutating previews can continue. |
+| The 178 duplicate-parent records require a direct-parent selection. | The recommendation selects the closest existing linked container, preserves project scope, and removes only redundant direct ancestor edges. Approval remains pending. | Graph validation and nonmutating previews can continue. |
+| MWAN-332 has a printed parent that conflicts with its stored edge. | The recommendation selects MWAN-324 from the property and supporting description while retaining project MWAN as scope. Approval remains pending. | Reference normalization and repair preview development can continue. |
 
 QA must prove the reviewed behavior before production. Record source commits, merged PRs, installed image digests, applied configuration, repair results, and public runtime acceptance separately. Close superseded tickets only after the replacement covers their entire scope and preserves their evidence.

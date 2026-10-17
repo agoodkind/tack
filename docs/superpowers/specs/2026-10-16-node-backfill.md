@@ -19,7 +19,7 @@ The complete classification covers 2,909 distinct records after combining the su
 | Narrative `progress` values remain. | Two values on two of those seven issues. | Preserve the complete reports as comments. |
 | Select values use display labels. | Three values. | Normalize only the identified values to existing option keys. |
 | Printed parent text remains in a UUID property. | Two nodes. | Resolve the intended existing parent and reconcile its edge. |
-| A parent UUID is absent, but scope and an edge select the current project. | One node. | Restore the supported parent only after reviewing that evidence. |
+| A parent UUID is absent, but scope and an edge select the current project. | One node. | Restore the TACK-278 parent to the existing TACK project under the selected mapping. |
 | `scope_id` applicability disagrees with current runtime behavior. | 2,638 nodes. | Correct the metadata/runtime contract and preserve legitimate scope values. |
 
 ## Preserve valid nesting and scope
@@ -80,7 +80,7 @@ Check the current options before applying these mappings. Do not infer a general
 | --- | --- | --- |
 | MWAN-237 | The parent property contains `MWAN-308`; the edge already selects that epic. The description records an operator-directed move on August 8. | Resolve the printed parent to its existing UUID and retain the matching edge. |
 | MWAN-332 | The parent property contains `MWAN-324`; its edge still selects project MWAN. The description connects this follow-up to the provider-set epic. | Review that inferred intent, then select MWAN-324 as parent and retain MWAN as scope. |
-| TACK-278 | Its parent UUID is absent; its scope and surviving edge both select current project TACK. | Review a parent-property repair to the existing TACK project and preserve its Done state. |
+| TACK-278 | Its parent UUID is absent; its scope and surviving edge both select current project TACK. | Correct its parent ID to the existing TACK project, preserve the matching edge and project scope, and retain its Done state and other data. The user selected this mapping. |
 | Comment `019e6f65-01f2-7c34-8bc2-a11e09895740` | The text says `Duplicate of TACK-252`; the original parent is absent. | Attach the existing comment to TACK-252 and preserve its ID, text, author, and original creation time. The user selected this mapping. |
 | Comment `01a0bfcb-461c-799d-923f-9148c01f9253` | The text is `Smoke comment`; the description identifies a post-deploy smoke fixture. | Export and verify the complete record, then delete only this test comment. The user selected this mapping. |
 
