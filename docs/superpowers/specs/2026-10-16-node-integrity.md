@@ -2,7 +2,7 @@
 
 Tack must validate node data against its stored definitions, search readable node content without product-specific rules, and record the changes that actually commit. Existing-data repairs must preserve useful content and remain separate from prevention work.
 
-This draft covers the Tack investigation and the remaining delivery dependencies. It does not approve the proposed data repairs. The [implementation plan](../plans/2026-10-16-node-integrity.md) separates independent work from decisions that remain open.
+This specification covers the Tack investigation and the remaining delivery dependencies. The user completed the design choices for the audited scope. The [implementation plan](../plans/2026-10-16-node-integrity.md) defines the work, dependencies, verification, and deployment order. Approval of the design does not execute the production repair manifest.
 
 ## Use the generic node model
 
@@ -87,7 +87,7 @@ Preserve the [operator identity and audit contract](../../operator-identity-and-
 
 ## Repair existing data separately
 
-The [backfill specification](2026-10-16-node-backfill.md) is the single home for the observed classes, proposed mappings, unresolved records, and evidence limits. A search exclusion alone does not establish a source-data violation.
+The [backfill specification](2026-10-16-node-backfill.md) is the single home for the observed classes, selected mappings, evidence limits, and handling of changed or ambiguous source records. A search exclusion alone does not establish a source-data violation.
 
 Every repair must identify the exact record, source values and hash, expected revision, evidence, inferred intent, reviewed decision, resulting properties and relationships, and available provenance. A changed source must invalidate its preview. Retries must recognize completed work without duplicating comments or removing unrelated content.
 
@@ -95,7 +95,7 @@ Repair commands must reuse the current generic repair machinery and audit gate. 
 
 ## Keep the existing delivery work in scope
 
-The accepted [declarative provider specification](2026-10-10-tack-provider.md) governs the remaining provider work. It requires generic provider reuse, read-only planning, visible differences, import without resetting data, one writer per managed field, locks, audit, and interrupted-apply recovery. This draft does not replace it.
+The accepted [declarative provider specification](2026-10-10-tack-provider.md) governs the remaining provider work. It requires generic provider reuse, read-only planning, visible differences, import without resetting data, one writer per managed field, locks, audit, and interrupted-apply recovery. This specification does not replace it.
 
 TACK-568 retains application state contracts and read-only migration status. TACK-569 implements justified Tack resources. TACK-570 covers QA adoption, TACK-571 covers data/search/backup state, TACK-572 transfers ownership, and TACK-573 covers production adoption. A merged specification does not complete these implementation tasks.
 
@@ -113,11 +113,8 @@ The main-organization audit export through October 17 at 05:30:15 UTC contained 
 
 Source inspection identifies possible concurrent parent inconsistencies, but the investigation did not reproduce them with malformed production writes. Tests must establish those paths on real disposable dependencies.
 
-## Resolve the remaining decisions
+## Apply the selected design
 
-| Decision | Current position | Work that can continue |
-| --- | --- | --- |
-| The 178 duplicate-parent records require a direct-parent selection. | The recommendation selects the closest existing linked container, preserves project scope, and removes only redundant direct ancestor edges. Approval remains pending. | Graph validation and nonmutating previews can continue. |
-| MWAN-332 has a printed parent that conflicts with its stored edge. | The recommendation selects MWAN-324 from the property and supporting description while retaining project MWAN as scope. Approval remains pending. | Reference normalization and repair preview development can continue. |
+The user approved the remaining parent mappings. The audited scope does not retain unresolved product choices. Implement the selected rules and stop only an affected repair when changed source records or new ambiguity invalidate its reviewed mapping. Continue independent work under the existing authorization.
 
 QA must prove the reviewed behavior before production. Record source commits, merged PRs, installed image digests, applied configuration, repair results, and public runtime acceptance separately. Close superseded tickets only after the replacement covers their entire scope and preserves their evidence.

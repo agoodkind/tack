@@ -1,6 +1,6 @@
 # Node integrity and audit implementation plan
 
-Implement the [node integrity specification](../specs/2026-10-16-node-integrity.md) through the existing generic node and audit boundaries. This is a draft plan. Proposed record mappings and unresolved product choices retain their separate review requirements.
+Implement the [node integrity specification](../specs/2026-10-16-node-integrity.md) through the existing generic node and audit boundaries. The user completed the product choices for the audited scope. Concrete production repairs retain the existing manifest review and execution requirements.
 
 The plan uses Go, real FoundationDB, YugabyteDB, Kafka, the existing repair console, and the public MCP interface. The [search correction plan](2026-10-16-search-correction.md) covers search implementation, complete acceptance, and coordinated delivery.
 
@@ -8,7 +8,7 @@ The plan uses Go, real FoundationDB, YugabyteDB, Kafka, the existing repair cons
 
 1. Recheck current main, deployed images, ticket states, active worktrees, and the Tack and Proxmox deployment owners. Use an isolated worktree and preserve ongoing implementation branches.
 2. Read the current [repository contract](../../../AGENTS.md), [operator audit rules](../../operator-identity-and-audit.md), and [Makefile](../../../Makefile). Run `git status --short`, `git rev-parse HEAD`, and `make build` as separate commands before code changes. Record baseline failures explicitly; do not accept new baseline findings.
-3. Confirm the open choices in the specification before implementing behavior that depends on them. Continue independent tasks when an unresolved choice does not affect them.
+3. Apply the selected specification and record mappings. Report a new mismatch when current source evidence invalidates a mapping, and continue independent tasks. Do not reopen settled choices as routine implementation questions.
 4. For each coding task, add the smallest necessary regression through a public boundary with real dependencies. Extend QA data generation for changed runtime paths. Run `make build`, the relevant real regression, and `git diff --check` before committing that task.
 
 ## 1. Establish one generic metadata contract
@@ -69,7 +69,7 @@ Run `make test-integration`. Expect each successful mutation's delta to match th
 
 ## 5. Implement the reviewed existing-data backfill
 
-TACK-582 implements N6 using the [backfill mappings and open choices](../specs/2026-10-16-node-backfill.md). The shared validator and the metadata, parent, and audit corrections establish its target contract. Strict validation for ordinary writes activates after verified cleanup, not before this backfill. Preview and manifest development can proceed while individual mappings remain unresolved.
+TACK-582 implements N6 using the [selected backfill mappings](../specs/2026-10-16-node-backfill.md). The shared validator and the metadata, parent, and audit corrections establish its target contract. Strict validation for ordinary writes activates after verified cleanup, not before this backfill. Regenerate the manifest from current records; do not execute the older captured proposals directly.
 
 Reuse [manifest preview and apply](../../../internal/ops/command_repair_manifest.go), [repair profiles](../../../internal/ops/repair_profile_types.go), [repair transforms](../../../internal/ops/repair_props_transform.go), and [repair execution](../../../internal/ops/repair_console.go). Add the temporary command in `internal/ops/cli_node_integrity_backfill.go` and its bounded implementation in `internal/ops/node_integrity_backfill.go`. Split by concern before exceeding the repository file limit.
 
@@ -86,7 +86,7 @@ Run `make test-integration` and the command's help and preview against the test 
 
 ## 6. Complete delivery without losing scope
 
-Use the search correction plan for release order and the full acceptance evidence. Keep prevention, source-data repair, and search recovery as distinct results. Independent audit and validation development can continue while other repair mappings remain unresolved.
+Use the search correction plan for release order and the full acceptance evidence. Keep prevention, source-data repair, and search recovery as distinct results. Independent audit and validation development can continue during repair preparation and verification.
 
 Before closing a ticket, attach the canonical requirement and plan links, responsible implementing session, relevant merged commits, installed revisions, and direct acceptance evidence. Alexander remains the accountable member. Close a superseded ticket only after the replacement covers its full scope.
 
