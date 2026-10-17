@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
+	"goodkind.io/tack/internal/telemetry"
 )
 
 var serviceManagedPropNames = map[string]struct{}{
@@ -82,7 +83,7 @@ func ValidateNodeProps(
 		strings.Join(unknown, ", "),
 		domain.ErrInvalidArgument,
 	)
-	slog.ErrorContext(ctx, "node.props_undeclared",
+	telemetry.L(ctx).WarnContext(ctx, "node.props_undeclared",
 		slog.String("node_type", nt.TypeKey), slog.String("err", err.Error()))
 	return err
 }
