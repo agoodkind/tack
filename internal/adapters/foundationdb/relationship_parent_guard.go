@@ -14,14 +14,21 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// refuseOnlyParentRemoval refuses the removal of the child_of edge from
-// sourceID to targetID when that edge is the source node's only child_of
-// edge and the source type lists CanLiveUnder types. Search access
-// compilation applies the same rule through [node.HierarchyParent], whatever
-// the types of the two nodes are. The removal of an edge of any other
-// relation type passes. The guard reads the source's child_of edges in the
-// removal transaction. FoundationDB aborts one of two concurrent
-// transactions that each remove a different parent edge of the same node.
+// refuseOnlyParentRemoval runs inside the relationship removal transaction.
+// The guard allows removal of edges with a relation type other than child_of.
+// The guard also allows removal of a child_of edge that does not exist.
+// The guard reads the source node's parent_id.
+// When the source node stores parent_id, the guard refuses removal of the
+// child_of edge that targets parent_id for every node type, even when another
+// child_of edge remains.
+// The guard allows removal of child_of edges that do not target parent_id.
+// When the source node does not store parent_id, the guard passes the other
+// remaining child_of target, if any, and the source type to
+// node.HierarchyParent.
+// The guard refuses removal when node.HierarchyParent returns an error.
+// A refusal returns an error that matches domain.ErrFailedPrecondition.
+// FoundationDB aborts one of two concurrent transactions that each remove a
+// different parent edge of the same node.
 func refuseOnlyParentRemoval(ctx context.Context, tr fdb.Transaction, orgID, sourceID uuid.UUID, relationType string, targetID uuid.UUID) error {
 	if relationType != node.RelChildOf {
 		return nil
@@ -38,19 +45,59 @@ func refuseOnlyParentRemoval(ctx context.Context, tr fdb.Transaction, orgID, sou
 	if err != nil {
 		return err
 	}
-	remaining, err := otherParentTarget(ctx, tr, orgID, sourceID, removedKey)
+	canonicalID, err := storedParentID(ctx, tr, orgID, sources[0])
 	if err != nil {
 		return err
 	}
-	_, parentErr := node.HierarchyParent(sourceID, sources[0].Kind, remaining)
-	if parentErr == nil {
+	if canonicalID != uuid.Nil && canonicalID != targetID {
 		return nil
+	}
+	if canonicalID == uuid.Nil {
+		remaining, err := otherParentTarget(ctx, tr, orgID, sourceID, removedKey)
+		if err != nil {
+			return err
+		}
+		if _, parentErr := node.HierarchyParent(sourceID, sources[0].Kind, remaining); parentErr == nil {
+			return nil
+		}
 	}
 	wrapped := fmt.Errorf("node %s needs a hierarchy parent, and %s is its only hierarchy parent; move the node to another parent instead: %w",
 		sourceID, targetID, domain.ErrFailedPrecondition)
 	telemetry.L(ctx).ErrorContext(ctx, "relationship.remove_refused", slog.String("err", wrapped.Error()),
 		slog.String("source_id", sourceID.String()), slog.String("target_id", targetID.String()))
 	return loggedSearchError{err: wrapped}
+}
+
+// storedParentID reads the primary record of source inside tr and returns the
+// parent_id that the record stores.
+// The function returns [uuid.Nil] when source does not identify a node in the
+// organization, the primary record does not exist, or parent_id does not
+// contain a UUID string.
+func storedParentID(ctx context.Context, tr fdb.Transaction, orgID uuid.UUID, source hierarchyNode) (uuid.UUID, error) {
+	if !source.Found {
+		return uuid.Nil, nil
+	}
+	current, _, err := readNodeAndView(ctx, tr, orgID, source)
+	if err != nil || current == nil {
+		return uuid.Nil, err
+	}
+	return parentIDValue(current.Props[parentIDProperty]), nil
+}
+
+// parentIDValue decodes one raw parent_id property value and returns the UUID
+// that the JSON string contains.
+// The function returns [uuid.Nil] when the value does not exist, does not
+// encode a JSON string, or does not contain a UUID.
+func parentIDValue(raw json.RawMessage) uuid.UUID {
+	var text string
+	if json.Unmarshal(raw, &text) != nil {
+		return uuid.Nil
+	}
+	parentID, parseErr := uuid.Parse(text)
+	if parseErr != nil {
+		return uuid.Nil
+	}
+	return parentID
 }
 
 // parentGuardEdgeLimit limits the guard to reading two child_of edges: the
