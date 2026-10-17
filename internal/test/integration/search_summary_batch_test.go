@@ -81,7 +81,7 @@ func TestSearchSummaryBatchReadsOnce(t *testing.T) {
 	_, err = policies.Index(t.Context(), searchaccess.IndexAccessRequest{
 		Version: searchaccess.StableVersion, OrganizationID: kinds.orgID, ResourceID: orphan, Generation: 0,
 	})
-	if !errors.Is(err, searchaccess.ErrNoHierarchyParent) {
+	if !errors.Is(err, node.ErrNoHierarchyParent) {
 		t.Fatalf("indexing access of orphan %s returned %v, want ErrNoHierarchyParent", orphan, err)
 	}
 }

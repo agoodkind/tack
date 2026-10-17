@@ -32,31 +32,26 @@ type AncestorState struct {
 	ChildOfs []uuid.UUID
 }
 
-// TargetState is the stored organization and node type of one child_of
-// target. Exists is false when the target has no resolve record. Type is nil
-// when the target belongs to another organization or its type is missing.
-type TargetState struct {
-	Exists bool
-	OrgID  uuid.UUID
-	Type   *node.NodeType
-}
-
-// HierarchyReader reads the hierarchy state of many nodes. Each method
-// returns one state for every requested node and an error only for a failed
-// read.
+// HierarchyReader reads hierarchy state for multiple nodes.
+// Ancestors returns one state for each requested node and an error when a
+// read fails. readLevel returns an error when the reader omits a requested
+// node from its result.
 type HierarchyReader interface {
 	Ancestors(ctx context.Context, nodes []OrgNode) (map[OrgNode]AncestorState, error)
-	Targets(ctx context.Context, nodes []OrgNode) (map[OrgNode]TargetState, error)
 }
 
-// EntryPoints returns the entry point of every resource: the nearest
-// hierarchy ancestor, or the resource itself, with an entry-point type, or
-// the hierarchy root when no such node exists. NodeType metadata defines the
-// hierarchy, and the walk has no depth limit. Each level issues one Ancestors
-// call and one Targets call for every walk still in progress, and each node
-// is read at most once. A resource with a hierarchy defect receives an error
-// that wraps ErrHierarchyDefect in defects instead of an entry point. A failed
-// read returns an error for the whole call.
+// EntryPoints returns the nearest node with an entry-point type among each
+// resource and its hierarchy ancestors, or the hierarchy root when such a
+// node does not exist.
+// The [node.HierarchyParent] function determines each node's hierarchy parent
+// from its stored child_of edges. The walk does not impose a depth limit.
+// Each level makes at most one batched Ancestors call. That call requests
+// every current node of the walks still in progress that earlier levels
+// have not read. A level does not call Ancestors if it lacks unread nodes.
+// EntryPoints reads each node at most once.
+// Each resource with a hierarchy defect receives an error that wraps
+// ErrHierarchyDefect in defects instead of an entry point.
+// EntryPoints returns an error for the whole call when a read fails.
 func EntryPoints(ctx context.Context, reader HierarchyReader, resources []OrgNode) (entries map[OrgNode]uuid.UUID, defects map[OrgNode]error, err error) {
 	walks := make([]*hierarchyWalk, 0, len(resources))
 	for _, resource := range resources {
@@ -66,13 +61,12 @@ func EntryPoints(ctx context.Context, reader HierarchyReader, resources []OrgNod
 		})
 	}
 	ancestors := map[OrgNode]AncestorState{}
-	targets := map[OrgNode]TargetState{}
 	for active := walks; len(active) > 0; active = unfinished(active) {
-		if err := readLevel(ctx, reader, active, ancestors, targets); err != nil {
+		if err := readLevel(ctx, reader, active, ancestors); err != nil {
 			return nil, nil, err
 		}
 		for _, walk := range active {
-			walk.step(ancestors, targets)
+			walk.step(ancestors)
 		}
 	}
 	entries = make(map[OrgNode]uuid.UUID, len(walks))
@@ -87,9 +81,8 @@ func EntryPoints(ctx context.Context, reader HierarchyReader, resources []OrgNod
 	return entries, defects, nil
 }
 
-// readLevel reads the unread current nodes of active and then the unread
-// child_of targets of those nodes.
-func readLevel(ctx context.Context, reader HierarchyReader, active []*hierarchyWalk, ancestors map[OrgNode]AncestorState, targets map[OrgNode]TargetState) error {
+// readLevel reads the current nodes in active that it has not already read.
+func readLevel(ctx context.Context, reader HierarchyReader, active []*hierarchyWalk, ancestors map[OrgNode]AncestorState) error {
 	unreadAncestors := newNodeSet()
 	for _, walk := range active {
 		key := OrgNode{OrgID: walk.resource.OrgID, NodeID: walk.current}
@@ -97,42 +90,19 @@ func readLevel(ctx context.Context, reader HierarchyReader, active []*hierarchyW
 			unreadAncestors.add(key)
 		}
 	}
-	if len(unreadAncestors.nodes) > 0 {
-		states, err := reader.Ancestors(ctx, unreadAncestors.nodes)
-		if err != nil {
-			return WithContext("read "+strconv.Itoa(len(unreadAncestors.nodes))+" hierarchy ancestors", err)
-		}
-		for _, key := range unreadAncestors.nodes {
-			state, found := states[key]
-			if !found {
-				return fmt.Errorf("read hierarchy ancestor %s: the reader returned no state", key.NodeID)
-			}
-			ancestors[key] = state
-		}
-	}
-	unreadTargets := newNodeSet()
-	for _, walk := range active {
-		state := ancestors[OrgNode{OrgID: walk.resource.OrgID, NodeID: walk.current}]
-		for _, targetID := range state.ChildOfs {
-			key := OrgNode{OrgID: walk.resource.OrgID, NodeID: targetID}
-			if _, read := targets[key]; !read {
-				unreadTargets.add(key)
-			}
-		}
-	}
-	if len(unreadTargets.nodes) == 0 {
+	if len(unreadAncestors.nodes) == 0 {
 		return nil
 	}
-	states, err := reader.Targets(ctx, unreadTargets.nodes)
+	states, err := reader.Ancestors(ctx, unreadAncestors.nodes)
 	if err != nil {
-		return WithContext("read "+strconv.Itoa(len(unreadTargets.nodes))+" hierarchy targets", err)
+		return WithContext("read "+strconv.Itoa(len(unreadAncestors.nodes))+" hierarchy ancestors", err)
 	}
-	for _, key := range unreadTargets.nodes {
+	for _, key := range unreadAncestors.nodes {
 		state, found := states[key]
 		if !found {
-			return fmt.Errorf("read hierarchy target %s: the reader returned no state", key.NodeID)
+			return fmt.Errorf("read hierarchy ancestor %s: the reader returned no state", key.NodeID)
 		}
-		targets[key] = state
+		ancestors[key] = state
 	}
 	return nil
 }

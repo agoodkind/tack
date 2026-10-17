@@ -53,12 +53,50 @@ func (s *NodeService) parentChangeForUpdate(
 	if currentParentID == parentID {
 		return none, nil
 	}
+	if err := s.refuseParentCycle(ctx, existing.ID, parentID); err != nil {
+		return none, err
+	}
 	changes := node.RelationshipChanges{Add: nil, Remove: nil}
 	if currentParentID != uuid.Nil {
 		changes.Remove = append(changes.Remove, childOfEdge(existing, currentParentID, actorID, now))
 	}
 	changes.Add = append(changes.Add, childOfEdge(existing, parentID, actorID, now))
 	return changes, nil
+}
+
+// refuseParentCycle walks the parent_id chain from parentID without a depth
+// limit and stops without an error at a node without parent_id or at a
+// missing node. It refuses parentID as the new parent of nodeID with an error
+// that matches domain.ErrInvalidArgument when the chain contains nodeID or
+// repeats a node.
+func (s *NodeService) refuseParentCycle(ctx context.Context, nodeID, parentID uuid.UUID) error {
+	visited := map[uuid.UUID]bool{}
+	for currentID := parentID; currentID != uuid.Nil; {
+		if currentID == nodeID {
+			slog.WarnContext(ctx, "node.update.parent_cycle_refused",
+				slog.String("node_id", nodeID.String()), slog.String("parent_id", parentID.String()))
+			return fmt.Errorf("update node %s: parent %s is node %s or one of its descendants: %w",
+				nodeID, parentID, nodeID, domain.ErrInvalidArgument)
+		}
+		if visited[currentID] {
+			slog.WarnContext(ctx, "node.update.parent_cycle_refused",
+				slog.String("node_id", nodeID.String()), slog.String("parent_id", parentID.String()),
+				slog.String("repeated_id", currentID.String()))
+			return fmt.Errorf("update node %s: the parent_id chain of parent %s repeats node %s: %w",
+				nodeID, parentID, currentID, domain.ErrInvalidArgument)
+		}
+		visited[currentID] = true
+		ancestor, err := s.reader.Get(ctx, currentID)
+		if err != nil {
+			slog.ErrorContext(ctx, "node.update.parent_ancestry_failed", slog.String("err", err.Error()))
+			return fmt.Errorf("update node %s: read ancestor %s of parent %s: %w", nodeID, currentID, parentID, err)
+		}
+		if ancestor == nil {
+			return nil
+		}
+		currentID = rawUUIDReferenceProperty(ancestor.Props, "parent_id")
+	}
+	return nil
 }
 
 func childOfEdge(existing *node.NodeView, targetID uuid.UUID, actorID uuid.UUID, now time.Time) *node.Relationship {
