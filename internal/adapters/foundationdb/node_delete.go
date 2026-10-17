@@ -25,6 +25,9 @@ func (s *NodeStore) Delete(ctx context.Context, orgID, nodeID uuid.UUID) (err er
 		return err
 	}
 	transactionErr := runNodeMutation(ctx, s.db, "node.delete", func(tr fdb.Transaction) error {
+		if _, err := s.fenceAttempt(ctx, tr, orgID, nodeID); err != nil {
+			return err
+		}
 		if err := s.clearNode(ctx, tr, current); err != nil {
 			return err
 		}
