@@ -42,7 +42,7 @@
      --execute ops deploy verify
    ```
 
-   `ops deploy verify` compares the registry digests of the expected `tack-server` and `tack-audit-consumer` images with the digests that the `app` and `audit-consumer` containers run. Older product writers do not increment the write fence, which tracks writes during validation. The scan cannot detect their writes.
+   `ops deploy verify` compares the registry digests of the expected `tack-server` and `tack-audit-consumer` images with the digests that the `app` and `audit-consumer` containers run. The scan cannot detect a write from a product writer that does not increment the write fence. Do not activate strict validation unless every guest that runs the `app` service passes deployment verification for an image in which every product writer increments the write fence, including the subtree delete steps and moves.
 
 ## Run the dry run
 

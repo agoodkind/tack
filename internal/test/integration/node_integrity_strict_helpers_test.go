@@ -14,7 +14,6 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// strictValidationOutput is the JSON result of `ops verify strict-validation`.
 type strictValidationOutput struct {
 	DryRun bool                       `json:"dry_run"`
 	Result ops.StrictValidationReport `json:"result"`

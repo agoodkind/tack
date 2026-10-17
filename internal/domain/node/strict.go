@@ -19,9 +19,9 @@ const WriteFenceBuckets = 64
 var ErrStrictEvidenceChanged = errors.New("strict validation scan evidence changed")
 
 // StrictEvidence stores the epochs that a strict validation scan captures
-// before reading node records. Buckets stores every write fence bucket epoch.
-// MetadataEpochs maps each organization with a stored metadata epoch to that
-// epoch.
+// before reading node records. The Buckets field stores every write fence
+// bucket epoch. MetadataEpochs maps each organization with a stored metadata
+// epoch to that epoch.
 type StrictEvidence struct {
 	Buckets        []int64
 	MetadataEpochs map[uuid.UUID]int64

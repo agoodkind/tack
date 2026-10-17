@@ -14,8 +14,6 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// fenceIncrement is the little-endian operand for incrementing a bucket epoch
-// by one.
 var fenceIncrement = []byte{1, 0, 0, 0, 0, 0, 0, 0}
 
 // writeFenceBucket returns a node's write fence bucket from a hash of its
