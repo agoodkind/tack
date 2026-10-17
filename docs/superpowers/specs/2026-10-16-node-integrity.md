@@ -2,7 +2,7 @@
 
 Tack must validate node data against its stored definitions, search readable node content without product-specific rules, and record the changes that actually commit. Existing-data repairs must preserve useful content and remain separate from prevention work.
 
-This specification covers the Tack investigation and the remaining delivery dependencies. The user completed the design choices for the audited scope. The [implementation plan](../plans/2026-10-16-node-integrity.md) defines the work, dependencies, verification, and deployment order. Approval of the design does not execute the production repair manifest.
+This specification covers the Tack investigation and the remaining delivery dependencies. The [implementation plan](../plans/2026-10-16-node-integrity.md) defines the work, dependencies, verification, and deployment order. Production repairs require a reviewed execution manifest.
 
 ## Use the generic node model
 
@@ -45,7 +45,7 @@ Normal public creates and updates already reject undeclared property names. That
 
 An invalid request must return the node and property identifiers with a clear reason. The transaction must not change the node, read views, indexes, relationships, audit success events, or desired search work. A permitted partial update must preserve unspecified fields.
 
-Repair and verify existing invalid data before activating strict full-record validation. The user selected this rollout order. Existing write checks remain active during cleanup. Repair operations must validate each resulting record through the shared validator. Do not add temporary exceptions that allow an invalid result after strict validation becomes active. Independent audit and search corrections can proceed while cleanup remains pending.
+Repair and verify existing invalid data before activating strict full-record validation. Existing write checks remain active during cleanup. Repair operations must validate each resulting record through the shared validator. Do not add temporary exceptions that allow an invalid result after strict validation becomes active. Independent audit and search corrections can proceed while cleanup remains pending.
 
 The validator must interpret the data-defined property type and options. For example, a select option with key `high` and display label `High` must use the canonical key. Runtime code must not special-case the property `priority`. Required values must remain valid after a `null` removal request.
 
@@ -61,7 +61,7 @@ Reuse the existing generic text interpreter and bounded page reader. Derive read
 
 Missing optional search metadata must not invalidate an otherwise valid property or stop the entire rebuild. Invalid values and unknown source properties remain consistency defects. They must produce actionable diagnostics without inventing definitions or changing source records.
 
-Index a node's valid declared content even when another property is invalid or undeclared. Omit the invalid property from searchable text and report its node, property, source revision, and reason separately for repair. Preserve the source value. The user selected this behavior. Continue enforcing access permissions and explicit search exclusions; unresolved authorization must still exclude the node.
+Index a node's valid declared content even when another property is invalid or undeclared. Omit the invalid property from searchable text and report its node, property, source revision, and reason separately for repair. Preserve the source value. Continue enforcing access permissions and explicit search exclusions; unresolved authorization must still exclude the node.
 
 Keep content warnings distinct from authorization exclusions and operational failures. A source-read or search-engine failure must retain pending work and return its existing explicit error. Do not reinterpret it as an invalid property. A verified property repair must refresh the affected content and clear its warning through the normal durable indexing process.
 
@@ -101,7 +101,7 @@ TACK-568 retains application state contracts and read-only migration status. TAC
 
 [TACK-581](https://tack.home.goodkind.io/browse/TACK-581) retains deployment handling for confirmed absent, unenrolled guests. It must compare Proxmox node and VMID evidence, exclude confirmed absences from both locks and deployment selection, and fail when inventory is unreadable or an enrolled guest is missing.
 
-The Tack implementing session is `tack-deployment-completion`. Alexander remains the accountable Tack member. The Proxmox migration session owns shared guest work. Coordinate shared QA windows, deployment locks, and provider dependencies directly. Continue independent coding and investigation while those dependencies wait.
+Coordinate shared QA windows, deployment locks, and provider dependencies with the infrastructure owner. Continue independent coding and investigation while those dependencies wait.
 
 ## Distinguish the evidence from completion
 
@@ -115,6 +115,6 @@ Source inspection identifies possible concurrent parent inconsistencies, but the
 
 ## Apply the selected design
 
-The user approved the remaining parent mappings. The audited scope does not retain unresolved product choices. Implement the selected rules and stop only an affected repair when changed source records or new ambiguity invalidate its reviewed mapping. Continue independent work under the existing authorization.
+Implement the specified rules and stop only an affected repair when changed source records or new ambiguity invalidate its reviewed mapping. Continue independent work while resolving that repair.
 
 QA must prove the reviewed behavior before production. Record source commits, merged PRs, installed image digests, applied configuration, repair results, and public runtime acceptance separately. Close superseded tickets only after the replacement covers their entire scope and preserves their evidence.

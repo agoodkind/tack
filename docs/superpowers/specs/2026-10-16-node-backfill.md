@@ -1,6 +1,6 @@
 # Existing node backfill specification
 
-TACK-582 repairs existing records under the [node integrity contract](2026-10-16-node-integrity.md). This specification classifies every observed case and records the selected repair rules. The user completed the design choices for the audited scope. Review of the concrete production manifest remains an execution step.
+TACK-582 repairs existing records under the [node integrity contract](2026-10-16-node-integrity.md). This specification classifies every observed case and defines its repair rule. Review the concrete production manifest before execution.
 
 ## Interpret the inventory correctly
 
@@ -8,7 +8,7 @@ The October 16 pull read all 5,090 materialized nodes in the main organization a
 
 Search verification reported 450 exclusions and zero stuck work items. Hierarchy failures affected 443 excluded nodes. The remaining seven exclusions involved undeclared properties. Failure classes overlap; their counts must not be added as distinct nodes.
 
-The complete classification covers 2,909 distinct records after combining the suspect set with metadata applicability exceptions. Each captured record includes evidence, intended action, source hash, review reasons, and an execution-disabled marker. [TACK-582](https://tack.home.goodkind.io/browse/TACK-582) contains the classified inventory and all 178 parent mappings that the user selected. Regenerate the executable manifest from current records under those rules. Production exports remain outside the repository.
+The complete classification covers 2,909 distinct records after combining the suspect set with metadata applicability exceptions. Each captured record includes evidence, intended action, source hash, review reasons, and an execution-disabled marker. [TACK-582](https://tack.home.goodkind.io/browse/TACK-582) contains the classified inventory and all 178 parent mappings. Regenerate the executable manifest from current records under those rules. Production exports remain outside the repository.
 
 | Observed class | Count | Interpretation |
 | --- | --- | --- |
@@ -26,7 +26,7 @@ The complete classification covers 2,909 distinct records after combining the su
 
 Leave the 82 valid issue-under-issue roots and their descendants intact. Correct the generic reader and access logic rather than reparenting them to satisfy an old product-type rule.
 
-For the 178 multiple-edge cases, select the unique most specific linked container and retain project scope. Remove only redundant direct containment links to its ancestors. The user approved this rule. It infers grouping intent from the observed ancestor graph and does not prove the historical order of writes.
+For the 178 multiple-edge cases, select the unique most specific linked container and retain project scope. Remove only redundant direct containment links to its ancestors. This rule infers grouping intent from the observed ancestor graph and does not prove the historical order of writes.
 
 | Existing pattern | Cases | Selected mapping |
 | --- | --- | --- |
@@ -38,7 +38,7 @@ The selected mapping changes 160 parent properties, leaves 18 unchanged, and rem
 
 ## Preserve narrative reports
 
-CLYDE-174 contains a 980-character `progress` report. CLYDE-188 contains a 1,108-character report. The user selected this mapping:
+CLYDE-174 contains a 980-character `progress` report. CLYDE-188 contains a 1,108-character report. Preserve these reports as comments:
 
 1. Create a comment containing the complete original report on the original node.
 2. Verify the stored comment text and attachment.
@@ -48,7 +48,7 @@ Use a stable repair identity and durable checkpoint to prevent duplicate comment
 
 ## Reconcile legacy states without inventing history
 
-Use the most recently changed property value when property-level history establishes the order. When property timestamps are unavailable, use the latest explicit dated decision for that record. The user approved this fallback. Record the supporting decision, source, and date in the repair preview. Normalize the selected value into `state_id`, write only when it differs, verify the result, then remove `status`.
+Use the most recently changed property value when property-level history establishes the order. When property timestamps are unavailable, use the latest explicit dated decision for that record. Record the supporting decision, source, and date in the repair preview. Normalize the selected value into `state_id`, write only when it differs, verify the result, then remove `status`.
 
 CLYDE-174 and CLYDE-188 already agree on Done. Remove only their duplicate legacy status after checking the current values. The approved fallback resolves these five conflicts from the recorded decisions:
 
@@ -79,10 +79,10 @@ Check the current options before applying these mappings. Do not infer a general
 | Node | Evidence | Selected action |
 | --- | --- | --- |
 | MWAN-237 | The parent property contains `MWAN-308`; the edge already selects that epic. The description records an operator-directed move on August 8. | Resolve the printed parent to its existing UUID and retain the matching edge. |
-| MWAN-332 | The parent property contains `MWAN-324`; its edge still selects project MWAN. The description connects this follow-up to the provider-set epic. | Select MWAN-324 as direct parent and retain project MWAN as scope. The user approved this mapping. |
-| TACK-278 | Its parent UUID is absent; its scope and surviving edge both select current project TACK. | Correct its parent ID to the existing TACK project, preserve the matching edge and project scope, and retain its Done state and other data. The user selected this mapping. |
-| Comment `019e6f65-01f2-7c34-8bc2-a11e09895740` | The text says `Duplicate of TACK-252`; the original parent is absent. | Attach the existing comment to TACK-252 and preserve its ID, text, author, and original creation time. The user selected this mapping. |
-| Comment `01a0bfcb-461c-799d-923f-9148c01f9253` | The text is `Smoke comment`; the description identifies a post-deploy smoke fixture. | Export and verify the complete record, then delete only this test comment. The user selected this mapping. |
+| MWAN-332 | The parent property contains `MWAN-324`; its edge still selects project MWAN. The description connects this follow-up to the provider-set epic. | Select MWAN-324 as direct parent and retain project MWAN as scope. |
+| TACK-278 | Its parent UUID is absent; its scope and surviving edge both select current project TACK. | Correct its parent ID to the existing TACK project, preserve the matching edge and project scope, and retain its Done state and other data. |
+| Comment `019e6f65-01f2-7c34-8bc2-a11e09895740` | The text says `Duplicate of TACK-252`; the original parent is absent. | Attach the existing comment to TACK-252 and preserve its ID, text, author, and original creation time. |
+| Comment `01a0bfcb-461c-799d-923f-9148c01f9253` | The text is `Smoke comment`; the description identifies a post-deploy smoke fixture. | Export and verify the complete record, then delete only this test comment. |
 
 The selected test-comment cleanup must use its exact UUID. Export the complete record, properties, relationships, and available provenance to a protected artifact outside the repository. Verify that the export is readable and matches the current source revision before deletion. A failed export or changed source must prevent deletion. Use the audited backfill path, preserve other records, and verify removal through normal reads and search. A retry must recognize an already completed cleanup.
 
