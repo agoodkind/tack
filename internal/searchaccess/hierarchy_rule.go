@@ -32,10 +32,10 @@ type AncestorState struct {
 	ChildOfs []uuid.UUID
 }
 
-// HierarchyReader reads hierarchy state for multiple nodes. Ancestors returns
-// one state for each requested node. Ancestors returns an error when a read
-// fails. readLevel returns an error when the reader omits a requested node
-// from its result.
+// HierarchyReader reads hierarchy state for multiple nodes.
+// Ancestors returns one state for each requested node and an error when a
+// read fails. readLevel returns an error when the reader omits a requested
+// node from its result.
 type HierarchyReader interface {
 	Ancestors(ctx context.Context, nodes []OrgNode) (map[OrgNode]AncestorState, error)
 }

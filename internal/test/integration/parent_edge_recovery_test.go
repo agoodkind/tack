@@ -114,7 +114,7 @@ func (f parentEdgeFixture) reindex(t *testing.T) {
 		}
 		claimed, err := f.worker.RunSlice(t.Context())
 		if err != nil {
-			t.Logf("search slice failed during the replacement: %v", err)
+			t.Fatalf("search slice failed during the replacement: %v", err)
 		}
 		if !claimed {
 			<-time.After(parentEdgePause)

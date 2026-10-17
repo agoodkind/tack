@@ -168,7 +168,7 @@ func (f parentEdgeFixture) entry(t *testing.T, workspace datagen.WorkspaceIdenti
 // parent types, and its two property definitions.
 func (f parentEdgeFixture) putKind(t *testing.T, orgID uuid.UUID, canLiveUnder []string) parentEdgeKind {
 	t.Helper()
-	kind := parentEdgeKind{orgID: orgID, typeKey: parentEdgeKey("n"), included: parentEdgeKey("p"), excluded: parentEdgeKey("p")}
+	kind := parentEdgeKind{orgID: orgID, typeKey: parentEdgeKey("n"), included: parentEdgeKey("p"), excluded: parentEdgeKey("x")}
 	definitionIDs := []uuid.UUID{}
 	for order, name := range []string{kind.included, kind.excluded} {
 		definition := &node.PropertyDef{
