@@ -44,15 +44,19 @@ func RunDefaultChildrenBackfill(ctx context.Context, env *Env, dryRun bool) erro
 	if err != nil {
 		return err
 	}
-	if err := checkDefaultChildProps(ctx, env, orgIDs); err != nil {
+	orgTypes, err := listOrgNodeTypes(ctx, env, orgIDs)
+	if err != nil {
+		return err
+	}
+	if err := checkDefaultChildProps(ctx, env, orgTypes); err != nil {
 		return err
 	}
 	if dryRun {
 		return nil
 	}
 	var failures []error
-	for orgID := range orgIDs {
-		failures = append(failures, backfillOrgDefaultChildren(ctx, env, orgID)...)
+	for orgID, types := range orgTypes {
+		failures = append(failures, backfillOrgDefaultChildren(ctx, env, orgID, types)...)
 	}
 	if len(failures) == 0 {
 		return nil
@@ -64,17 +68,10 @@ func RunDefaultChildrenBackfill(ctx context.Context, env *Env, dryRun bool) erro
 }
 
 // backfillOrgDefaultChildren creates missing default children for every node
-// in orgID. It logs each failed node type listing, parent listing, child
-// listing, or child creation and returns one error per failure. It continues
-// with the remaining nodes after each failure.
-func backfillOrgDefaultChildren(ctx context.Context, env *Env, orgID uuid.UUID) []error {
-	types, err := env.Stores.NodeTypes.List(ctx, orgID)
-	if err != nil {
-		env.Log.ErrorContext(ctx, "backfill: list node types",
-			slog.String("org_id", orgID.String()),
-			slog.String("err", err.Error()))
-		return []error{fmt.Errorf("list node types of organization %s: %w", orgID, err)}
-	}
+// of the given node types in orgID. It logs each parent listing, child
+// listing, or child creation failure and returns one error per failure.
+// It continues with the remaining nodes after each failure.
+func backfillOrgDefaultChildren(ctx context.Context, env *Env, orgID uuid.UUID, types []*node.NodeType) []error {
 	typeIndex := node.BuildTypeIndex(types)
 	var failures []error
 

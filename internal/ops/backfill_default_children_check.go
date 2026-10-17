@@ -17,10 +17,10 @@ import (
 // checkDefaultChildProps validates the properties of every default child in
 // every organization with the service create validator. It returns one error
 // that lists every refused default child.
-func checkDefaultChildProps(ctx context.Context, env *Env, orgIDs map[uuid.UUID]struct{}) error {
+func checkDefaultChildProps(ctx context.Context, env *Env, orgTypes map[uuid.UUID][]*node.NodeType) error {
 	var refusals []error
-	for orgID := range orgIDs {
-		orgRefusals, err := checkOrgDefaultChildProps(ctx, env, orgID)
+	for orgID, nodeTypes := range orgTypes {
+		orgRefusals, err := checkOrgDefaultChildProps(ctx, env, orgID, nodeTypes)
 		if err != nil {
 			return err
 		}
@@ -35,14 +35,25 @@ func checkDefaultChildProps(ctx context.Context, env *Env, orgIDs map[uuid.UUID]
 	return refused
 }
 
-func checkOrgDefaultChildProps(ctx context.Context, env *Env, orgID uuid.UUID) ([]error, error) {
-	nodeTypes, err := env.Stores.NodeTypes.List(ctx, orgID)
-	if err != nil {
-		wrapped := fmt.Errorf("list node types of organization %s for the default children check: %w", orgID, err)
-		env.Log.ErrorContext(ctx, "backfill.default_children_check_failed",
-			slog.String("org_id", orgID.String()), slog.String("err", wrapped.Error()))
-		return nil, wrapped
+// listOrgNodeTypes reads each organization's node types once and returns
+// them by organization ID. It logs and returns an error on the first failed
+// read.
+func listOrgNodeTypes(ctx context.Context, env *Env, orgIDs map[uuid.UUID]struct{}) (map[uuid.UUID][]*node.NodeType, error) {
+	orgTypes := make(map[uuid.UUID][]*node.NodeType, len(orgIDs))
+	for orgID := range orgIDs {
+		nodeTypes, err := env.Stores.NodeTypes.List(ctx, orgID)
+		if err != nil {
+			wrapped := fmt.Errorf("list node types of organization %s for the default children backfill: %w", orgID, err)
+			env.Log.ErrorContext(ctx, "backfill.default_children_check_failed",
+				slog.String("org_id", orgID.String()), slog.String("err", wrapped.Error()))
+			return nil, wrapped
+		}
+		orgTypes[orgID] = nodeTypes
 	}
+	return orgTypes, nil
+}
+
+func checkOrgDefaultChildProps(ctx context.Context, env *Env, orgID uuid.UUID, nodeTypes []*node.NodeType) ([]error, error) {
 	definitions, err := env.Stores.PropertyDefs.List(ctx, orgID)
 	if err != nil {
 		wrapped := fmt.Errorf("list property definitions of organization %s for the default children check: %w", orgID, err)

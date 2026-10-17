@@ -49,12 +49,7 @@ func emitSearchText(
 			return "", ErrInvalidSearchProjection
 		}
 		if definition.Search == nil {
-			wrapped := fmt.Errorf("emit projected search text for node %s: property definition %s has no search declaration: %w",
-				nodeID, definition.ID, ErrInvalidSearchProjection)
-			telemetry.L(ctx).ErrorContext(ctx, "search.content.projection_failed",
-				slog.String("err", wrapped.Error()), slog.String("node_id", nodeID.String()),
-				slog.String("property_def_id", definition.ID.String()))
-			return "", LoggedProjectionError{Cause: wrapped}
+			return "", missingDeclarationError{nodeID: nodeID, definitionID: definition.ID}
 		}
 		if _, exists := seenIDs[definition.ID]; exists {
 			return "", ErrInvalidSearchProjection
@@ -109,6 +104,23 @@ func emitSearchText(
 
 // ErrInvalidSearchProjection reports an invalid text declaration or value.
 var ErrInvalidSearchProjection = errors.New("invalid search projection")
+
+// missingDeclarationError stores a node ID and a property definition ID for
+// a definition that does not have a search declaration. Its message
+// identifies the node and property definition and ends with the text of
+// ErrInvalidSearchProjection.
+type missingDeclarationError struct {
+	nodeID       uuid.UUID
+	definitionID uuid.UUID
+}
+
+func (e missingDeclarationError) Error() string {
+	return fmt.Sprintf("node %s property definition %s has no search declaration: %s",
+		e.nodeID, e.definitionID, ErrInvalidSearchProjection)
+}
+
+// Unwrap returns ErrInvalidSearchProjection.
+func (e missingDeclarationError) Unwrap() error { return ErrInvalidSearchProjection }
 
 // undeclaredPropertyNames returns the sorted, quoted names of keys in
 // properties that do not appear in knownNames.
