@@ -45,40 +45,58 @@ type rankingApprovedNode struct {
 }
 
 type rankingCorpus struct {
-	created  []uuid.UUID
-	approved []rankingProbe
-	probes   []rankingProbe
+	created []uuid.UUID
+	probes  []rankingProbe
+	control []rankingProbe
 }
 
-// TestSearchRankingProductionRegression verifies search rankings before and
-// after a full index replacement. It indexes the approved semantic corpus
-// of 150 distractors and 12 target variants, 34 production-shaped
-// distractors, 40 synthetic common-word titles, and the regression target
-// as issues with 4096-byte pages.
+// TestSearchRankingApprovedQueries indexes only the approved semantic corpus of
+// 150 distractors and 12 target variants as issues with 4096-byte pages.
+// Before and after a full index replacement, it checks these requirements:
+//   - Each of the six approved queries returns both targets on the first page
+//     of 25 results in each of three attempts.
+//   - Each attempt follows its cursor to the last page with the saved query
+//     token and performs replay checks.
+//   - The lexical-only control misses at least one approved target in each phase.
+func TestSearchRankingApprovedQueries(t *testing.T) {
+	run := startRankingRun(t)
+	run.requireAcrossReplacement(t, run.createApprovedCorpus(t))
+}
+
+// TestSearchRankingProductionRegression indexes the approved semantic corpus,
+// 34 production-shaped distractors, 40 synthetic common-word titles, and the
+// regression target as issues with 4096-byte pages.
+// Before and after a full index replacement, it checks these requirements:
+//   - The query "restart containers one by one" returns the regression target
+//     on the first page in each of three attempts.
+//   - The exact title query returns the regression target at rank 1 in each of
+//     three attempts.
+//   - Each attempt follows its cursor to the last page with the saved query
+//     token and performs replay checks.
 //
-// It requires three times each, before and after replacement:
-//   - Both targets of each of the six approved queries appear on the first
-//     page of 25 results.
-//   - The regression target appears on the first page for
-//     "restart containers one by one".
-//   - The regression target appears at rank 1 for its exact title.
-//
-// Each attempt follows its cursor to the last page with the saved query
-// token and replay checks.
+// The test does not check the six approved queries.
 func TestSearchRankingProductionRegression(t *testing.T) {
 	run := startRankingRun(t)
-	corpus := run.createRankingCorpus(t)
-	run.waitIndexed(t, corpus.created)
-	run.requireAll(t, "initial", corpus)
-	rebuild := run.beginRebuild(t)
-	run.waitRebuild(t, func(current searchdomain.Rebuild, found bool) bool {
+	run.requireAcrossReplacement(t, run.addRegressionCorpus(t, run.createApprovedCorpus(t)))
+}
+
+// requireAcrossReplacement waits until every created node is indexed, checks
+// the corpus probes, and runs a full index replacement. It requires the
+// replacement index to serve, checks the probes again, and waits until the
+// replacement finishes.
+func (r *rankingRun) requireAcrossReplacement(t *testing.T, corpus rankingCorpus) {
+	t.Helper()
+	r.waitIndexed(t, corpus.created)
+	r.requireAll(t, "initial", corpus)
+	rebuild := r.beginRebuild(t)
+	r.waitRebuild(t, func(current searchdomain.Rebuild, found bool) bool {
 		return !found || current.State == searchdomain.RebuildRetiring
 	})
-	if serving := run.servingIndex(t); serving != rebuild.TargetIndex {
+	if serving := r.servingIndex(t); serving != rebuild.TargetIndex {
 		t.Fatalf("serving index after the replacement = %s, want %s", serving, rebuild.TargetIndex)
 	}
-	run.requireAll(t, "rebuilt", corpus)
-	run.waitRebuild(t, func(_ searchdomain.Rebuild, found bool) bool { return !found })
+	r.requireAll(t, "rebuilt", corpus)
+	r.waitRebuild(t, func(_ searchdomain.Rebuild, found bool) bool { return !found })
 }
 
 func startRankingRun(t *testing.T) *rankingRun {
@@ -95,45 +113,61 @@ func startRankingRun(t *testing.T) *rankingRun {
 	return newRankingRun(t, cfg, graph)
 }
 
-func (r *rankingRun) createRankingCorpus(t *testing.T) rankingCorpus {
+// createApprovedCorpus creates one issue per approved corpus node and uses the
+// node text as its name and description. It returns the six approved query
+// probes with two targets each and also uses those probes as the lexical control.
+func (r *rankingRun) createApprovedCorpus(t *testing.T) rankingCorpus {
 	t.Helper()
-	var regression rankingRegression
-	if err := json.Unmarshal(rankingRegressionJSON, &regression); err != nil {
-		t.Fatalf("decode ranking regression corpus: %v", err)
-	}
 	var approved []rankingApprovedNode
 	if err := json.Unmarshal(rankingApprovedJSON, &approved); err != nil {
 		t.Fatalf("decode approved semantic corpus: %v", err)
 	}
-	var commonWordNames []string
-	if err := json.Unmarshal(rankingCommonWordNamesJSON, &commonWordNames); err != nil {
-		t.Fatalf("decode common word names: %v", err)
-	}
-	corpus := rankingCorpus{created: nil, approved: make([]rankingProbe, len(rankingApprovedQueries)), probes: nil}
+	probes := make([]rankingProbe, len(rankingApprovedQueries))
 	for position, query := range rankingApprovedQueries {
-		corpus.approved[position] = rankingProbe{Query: query, Targets: nil, First: false}
+		probes[position] = rankingProbe{Query: query, Targets: nil, First: false}
 	}
+	corpus := rankingCorpus{created: nil, probes: probes, control: probes}
 	for _, node := range approved {
 		nodeID := r.createIssue(t, node.Text, node.Text)
 		corpus.created = append(corpus.created, nodeID)
 		if strings.HasPrefix(node.Identifier, "t-") {
 			position := int(node.Identifier[2] - '0')
-			corpus.approved[position].Targets = append(corpus.approved[position].Targets, nodeID)
+			probes[position].Targets = append(probes[position].Targets, nodeID)
 		}
 	}
+	return corpus
+}
+
+// addRegressionCorpus creates the 34 distractors, 40 common-word titles, and
+// regression target after the approved corpus. It returns all created nodes
+// with the regression query probe and exact title probe, and does not return a
+// lexical control.
+func (r *rankingRun) addRegressionCorpus(t *testing.T, approved rankingCorpus) rankingCorpus {
+	t.Helper()
+	var regression rankingRegression
+	if err := json.Unmarshal(rankingRegressionJSON, &regression); err != nil {
+		t.Fatalf("decode ranking regression corpus: %v", err)
+	}
+	var commonWordNames []string
+	if err := json.Unmarshal(rankingCommonWordNamesJSON, &commonWordNames); err != nil {
+		t.Fatalf("decode common word names: %v", err)
+	}
+	created := append([]uuid.UUID(nil), approved.created...)
 	for _, record := range regression.Distractors {
-		corpus.created = append(corpus.created, r.createIssue(t, record.Name, record.Description))
+		created = append(created, r.createIssue(t, record.Name, record.Description))
 	}
 	for _, name := range commonWordNames {
-		corpus.created = append(corpus.created, r.createIssue(t, name, ""))
+		created = append(created, r.createIssue(t, name, ""))
 	}
 	target := r.createIssue(t, regression.Target.Name, regression.Target.Description)
-	corpus.created = append(corpus.created, target)
-	corpus.probes = append(append([]rankingProbe(nil), corpus.approved...),
-		rankingProbe{Query: regression.Query, Targets: []uuid.UUID{target}, First: false},
-		rankingProbe{Query: regression.Target.Name, Targets: []uuid.UUID{target}, First: true},
-	)
-	return corpus
+	return rankingCorpus{
+		created: append(created, target),
+		probes: []rankingProbe{
+			{Query: regression.Query, Targets: []uuid.UUID{target}, First: false},
+			{Query: regression.Target.Name, Targets: []uuid.UUID{target}, First: true},
+		},
+		control: nil,
+	}
 }
 
 func (r *rankingRun) requireAll(t *testing.T, phase string, corpus rankingCorpus) {
@@ -141,5 +175,7 @@ func (r *rankingRun) requireAll(t *testing.T, phase string, corpus rankingCorpus
 	for _, probe := range corpus.probes {
 		r.require(t, phase, probe)
 	}
-	r.requireLexicalControl(t, phase, corpus.approved)
+	if corpus.control != nil {
+		r.requireLexicalControl(t, phase, corpus.control)
+	}
 }
