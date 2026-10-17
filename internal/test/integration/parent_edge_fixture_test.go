@@ -130,8 +130,6 @@ func parentEdgeWorkspaces(t *testing.T, workspaces []datagen.WorkspaceIdentity) 
 	return first, second, foreign
 }
 
-// parentEdgeEntryTypes returns the type keys of the entry-point node types
-// of orgID.
 func parentEdgeEntryTypes(t *testing.T, stores *fdbadapter.Stores, orgID uuid.UUID) []string {
 	t.Helper()
 	types, err := stores.NodeTypes.List(t.Context(), orgID)
