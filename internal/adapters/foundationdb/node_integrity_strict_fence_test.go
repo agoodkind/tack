@@ -25,7 +25,7 @@ const (
 )
 
 // TestNodeIntegrityStrictActivationConflictsWithInFlightMutation calls
-// fenceNodeMutation in a mutation transaction while strict validation is
+// FenceNodeMutation in a mutation transaction while strict validation is
 // inactive. Activation commits before the mutation transaction attempts to
 // commit. The test checks that the mutation commit fails with a conflict and
 // that the retried transaction reads the activation record. It also checks
