@@ -11,6 +11,7 @@ import (
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/datagen"
 	"goodkind.io/tack/internal/domain/node"
+	"goodkind.io/tack/internal/service"
 	"goodkind.io/tack/internal/test/integration"
 	"goodkind.io/tack/internal/testenv"
 )
@@ -19,10 +20,11 @@ const schemaTransactionTimeout = 10 * time.Second
 
 var schemaReferencePattern = regexp.MustCompile("- Reference: `([^`]+)`")
 
-// TestNodeIntegritySchemaReferenceParity sets the state of one issue by its
-// printed name and the state of another issue by its UUID through MCP. Both
-// issues must store the same state UUID. A comment that MCP creates on the
-// first issue must store a scope_id and appear in the scope_id index.
+// TestNodeIntegritySchemaReferenceParity sets one issue's state by its
+// printed name Done through MCP. It sets another issue's state by the Done
+// state UUID through NodeService.Update. Both issues must store the same
+// state UUID. A comment that MCP creates on the first issue must store a
+// scope_id and appear in the scope_id index.
 func TestNodeIntegritySchemaReferenceParity(t *testing.T) {
 	harness := integration.NewMCPHarness(t)
 	stores, err := fdbadapter.NewStores(testenv.FoundationDB(t), schemaTransactionTimeout, nil)
@@ -35,7 +37,13 @@ func TestNodeIntegritySchemaReferenceParity(t *testing.T) {
 	doneID := schemaStateID(t, stores, printed, "Done")
 
 	updateSchemaState(t, harness, printedID, quoted("Done"))
-	updateSchemaState(t, harness, explicitID, quoted(doneID.String()))
+	nodeService := service.NewNodeService(stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs, stores.Relationships, stores.NodeDeleter)
+	if _, err := nodeService.Update(t.Context(), service.UpdateInput{
+		NodeID: explicitID, Name: nil, Props: schemaProps("state_id", quoted(doneID.String())),
+		RelationshipChanges: node.RelationshipChanges{Add: nil, Remove: nil}, ActorID: uuid.New(),
+	}); err != nil {
+		t.Fatalf("update issue %s state_id to %s: %v", explicitID, doneID, err)
+	}
 	for _, issueID := range []uuid.UUID{printedID, explicitID} {
 		if got := string(storedStoreView(t, stores, issueID).Props["state_id"]); got != strconv.Quote(doneID.String()) {
 			t.Fatalf("issue %s state_id = %s, want the Done state %s", issueID, got, doneID)
