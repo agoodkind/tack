@@ -267,21 +267,12 @@ func (s *NodeService) indexedPropNames(ctx context.Context, orgID uuid.UUID, nt 
 		if !d.Indexed {
 			continue
 		}
-		if !appliesTo(d, nt) {
+		if !node.PropertyAppliesTo(d, nt) {
 			continue
 		}
 		out = append(out, d.Name)
 	}
 	return out, nil
-}
-
-// appliesTo reports whether a PropertyDef applies to a NodeType. Empty
-// AppliesToFeatures means "all types".
-func appliesTo(d *node.PropertyDef, nt *node.NodeType) bool {
-	if len(d.AppliesToFeatures) == 0 {
-		return true
-	}
-	return nt.Features.HasAny(d.AppliesToFeatures...)
 }
 
 // viewFromNode materializes the NodeView snapshot from a Node. Every write path
