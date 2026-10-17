@@ -37,7 +37,7 @@ func (s *NodeStore) CreateAtomic(ctx context.Context, current *node.Node, view *
 				return err
 			}
 		}
-		return writeStagedIntent(ctx, tr)
+		return writeNodeIntent(ctx, tr, nil, current)
 	})
 	if err != nil {
 		return err
