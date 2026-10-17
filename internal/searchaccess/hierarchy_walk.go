@@ -62,9 +62,11 @@ func (w *hierarchyWalk) finish(entryPointID uuid.UUID) {
 }
 
 // hierarchyParent returns the hierarchy parent of nodeID according to
-// [node.HierarchyParent], or [uuid.Nil] for a hierarchy root. It returns a
-// hierarchy defect error when the node's stored child_of edges do not produce
-// one parent.
+// [node.HierarchyParent], or [uuid.Nil] for a hierarchy root. The function
+// returns a hierarchy defect error when [node.HierarchyParent] rejects the
+// node's stored child_of edges. The [node.HierarchyParent] function rejects
+// edges with more than one distinct target. The function also rejects a node
+// without a child_of edge when its type declares CanLiveUnder types.
 func hierarchyParent(nodeID uuid.UUID, state AncestorState) (uuid.UUID, error) {
 	parentID, err := node.HierarchyParent(nodeID, state.Type, state.ChildOfs)
 	if err != nil {
