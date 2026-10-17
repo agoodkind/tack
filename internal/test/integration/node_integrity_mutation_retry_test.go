@@ -1,15 +1,15 @@
 package integration_test
 
 import (
-	"context"
 	"encoding/json"
 	"strconv"
 	"sync"
-	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/audit"
+	"goodkind.io/tack/internal/service"
 	"goodkind.io/tack/internal/test/integration"
 )
 
@@ -17,14 +17,23 @@ import (
 // TestNodeIntegrityMutationRetryRecordsOneEvent creates under a project.
 const retryCreateCount = 20
 
+// retryRewritesPerCreate limits the test to 3 project rewrites per create.
+const retryRewritesPerCreate = 3
+
+// retryRewritePause is the 2 millisecond pause after each project rewrite.
+const retryRewritePause = 2 * time.Millisecond
+
 // TestNodeIntegrityMutationRetryRecordsOneEvent creates 20 issues under a
-// project through NodeService.Create under audit slots. Another goroutine
-// repeatedly rewrites the unchanged project record through NodeStore.Set.
-// A rewrite that commits during a create attempt conflicts with that
-// attempt's read of the project record. FoundationDB then retries the attempt.
+// project. For each issue, the test starts NodeService.Create under an audit
+// slot in a separate goroutine. The test commits 3 rewrites of the unchanged
+// project record through NodeStore.Set and pauses for retryRewritePause
+// after each rewrite. It then waits for the create.
 //
-// The test requires every create to succeed and at least one rewrite to
-// commit. It requires exactly one node.create outbox event for each issue.
+// A rewrite that commits during a create attempt conflicts with that
+// attempt's read of the project record. FoundationDB retries that attempt.
+//
+// The test limits project rewrites to 60 in total. It requires every create
+// to succeed and exactly one node.create outbox event for each issue.
 func TestNodeIntegrityMutationRetryRecordsOneEvent(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	projectID := createSchemaProject(t, env)
@@ -33,34 +42,30 @@ func TestNodeIntegrityMutationRetryRecordsOneEvent(t *testing.T) {
 		t.Fatalf("get project %s: %v, %v", projectID, project, err)
 	}
 	projectView := storedStoreView(t, env.Stores, projectID)
-	rewriteContext, stopRewrites := context.WithCancel(env.Ctx)
-	var rewrites atomic.Int64
-	var rewriter sync.WaitGroup
-	rewriter.Go(func() {
-		for rewriteContext.Err() == nil {
-			if err := env.Stores.Nodes.Set(env.Ctx, project, projectView); err != nil {
-				t.Errorf("rewrite project %s: %v", projectID, err)
-				return
-			}
-			rewrites.Add(1)
-		}
-	})
-
+	rewrites := 0
 	createdIDs := make([]uuid.UUID, 0, retryCreateCount)
 	for position := range retryCreateCount {
 		input := schemaCreateInput(projectID, projectID, "issue", nil)
 		input.Name = "Retried issue " + strconv.Itoa(position)
-		created, err := env.NodeSvc.Create(auditSlot(env, input.ActorID), input)
-		if err != nil {
-			stopRewrites()
-			t.Fatalf("create issue %d during project rewrites: %v", position, err)
+		var created *service.CreateResult
+		var createErr error
+		var creator sync.WaitGroup
+		creator.Go(func() {
+			created, createErr = env.NodeSvc.Create(auditSlot(env, input.ActorID), input)
+		})
+		for range retryRewritesPerCreate {
+			if err := env.Stores.Nodes.Set(env.Ctx, project, projectView); err != nil {
+				creator.Wait()
+				t.Fatalf("rewrite project %s: %v", projectID, err)
+			}
+			rewrites++
+			time.Sleep(retryRewritePause)
+		}
+		creator.Wait()
+		if createErr != nil {
+			t.Fatalf("create issue %d during project rewrites: %v", position, createErr)
 		}
 		createdIDs = append(createdIDs, created.View.ID)
-	}
-	stopRewrites()
-	rewriter.Wait()
-	if rewrites.Load() == 0 {
-		t.Fatalf("the project rewriter committed no rewrite during %d creates", retryCreateCount)
 	}
 	for _, createdID := range createdIDs {
 		var event audit.Event
@@ -71,5 +76,5 @@ func TestNodeIntegrityMutationRetryRecordsOneEvent(t *testing.T) {
 			t.Fatalf("outbox events of issue %s = %+v, want exactly one node.create event", createdID, event)
 		}
 	}
-	t.Logf("the project rewriter committed %d rewrites during %d creates", rewrites.Load(), retryCreateCount)
+	t.Logf("the test committed %d project rewrites during %d creates", rewrites, retryCreateCount)
 }
