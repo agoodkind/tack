@@ -14,7 +14,7 @@ The complete classification covers 2,909 distinct records after combining the su
 | --- | --- | --- |
 | An issue has another issue as its parent. | 82 failure roots. | This is supported nesting, not a data violation. |
 | A node has several direct `child_of` edges. | 178 nodes. | The stored edges disagree with the single canonical-parent contract. |
-| A comment references an absent parent. | Two nodes. | Each needs a separate intent-based decision. |
+| A comment references an absent parent. | Two nodes. | Reattach the useful duplicate notice and export before deleting the identified test fixture under their selected mappings. |
 | Legacy `status` values remain. | Seven values across seven issues. | Two match the sanctioned state; five conflict. |
 | Narrative `progress` values remain. | Two values on two of those seven issues. | Preserve the complete reports as comments. |
 | Select values use display labels. | Three values. | Normalize only the identified values to existing option keys. |
@@ -81,10 +81,12 @@ Check the current options before applying these mappings. Do not infer a general
 | MWAN-237 | The parent property contains `MWAN-308`; the edge already selects that epic. The description records an operator-directed move on August 8. | Resolve the printed parent to its existing UUID and retain the matching edge. |
 | MWAN-332 | The parent property contains `MWAN-324`; its edge still selects project MWAN. The description connects this follow-up to the provider-set epic. | Review that inferred intent, then select MWAN-324 as parent and retain MWAN as scope. |
 | TACK-278 | Its parent UUID is absent; its scope and surviving edge both select current project TACK. | Review a parent-property repair to the existing TACK project and preserve its Done state. |
-| Comment `019e6f65-01f2-7c34-8bc2-a11e09895740` | The text says `Duplicate of TACK-252`; the original parent is absent. | Review reattachment to TACK-252 while preserving the comment ID, text, author, and time. |
+| Comment `019e6f65-01f2-7c34-8bc2-a11e09895740` | The text says `Duplicate of TACK-252`; the original parent is absent. | Attach the existing comment to TACK-252 and preserve its ID, text, author, and original creation time. The user selected this mapping. |
 | Comment `01a0bfcb-461c-799d-923f-9148c01f9253` | The text is `Smoke comment`; the description identifies a post-deploy smoke fixture. | Export and verify the complete record, then delete only this test comment. The user selected this mapping. |
 
 The selected test-comment cleanup must use its exact UUID. Export the complete record, properties, relationships, and available provenance to a protected artifact outside the repository. Verify that the export is readable and matches the current source revision before deletion. A failed export or changed source must prevent deletion. Use the audited backfill path, preserve other records, and verify removal through normal reads and search. A retry must recognize an already completed cleanup.
+
+Reattach the duplicate notice by updating its existing record under the canonical parent and scope contract. Preserve its original identity, content, creator, creation time, and unrelated relationships. Record the actual repair actor and time in the audit event. Verify its attachment to TACK-252 through normal reads and search. A retry must not create a replacement or duplicate comment.
 
 ## Preserve the scope applicability exceptions
 
