@@ -46,18 +46,21 @@ func (h compilerHierarchy) Ancestors(ctx context.Context, nodes []OrgNode) (map[
 			return nil, hierarchyFailure(ctx, key.NodeID, "get search ancestor "+key.NodeID.String(), err)
 		}
 		if view == nil {
-			states[key] = AncestorState{Exists: false, OrgID: uuid.Nil, TypeKey: "", Type: nil, ChildOfs: nil}
+			states[key] = AncestorState{Exists: false, OrgID: uuid.Nil, TypeKey: "", Type: nil, ChildOfs: nil, ParentID: ""}
 			continue
 		}
 		if view.OrgID != key.OrgID {
-			states[key] = AncestorState{Exists: true, OrgID: view.OrgID, TypeKey: "", Type: nil, ChildOfs: nil}
+			states[key] = AncestorState{Exists: true, OrgID: view.OrgID, TypeKey: "", Type: nil, ChildOfs: nil, ParentID: ""}
 			continue
 		}
 		kind, err := h.compiler.typeByKey(ctx, key.OrgID, view.NodeType, kinds)
 		if err != nil {
 			return nil, err
 		}
-		state := AncestorState{Exists: true, OrgID: view.OrgID, TypeKey: view.NodeType, Type: kind, ChildOfs: nil}
+		state := AncestorState{
+			Exists: true, OrgID: view.OrgID, TypeKey: view.NodeType, Type: kind, ChildOfs: nil,
+			ParentID: node.ParentIDText(view.Props),
+		}
 		if kind != nil && !kind.Features.Has(node.FeatureIsEntryPoint) {
 			state.ChildOfs, err = h.compiler.childOfs(ctx, key)
 			if err != nil {
@@ -65,33 +68,6 @@ func (h compilerHierarchy) Ancestors(ctx context.Context, nodes []OrgNode) (map[
 			}
 		}
 		states[key] = state
-	}
-	return states, nil
-}
-
-// Targets reads each node's resolve record and, inside the requested
-// organization, its node type.
-func (h compilerHierarchy) Targets(ctx context.Context, nodes []OrgNode) (map[OrgNode]TargetState, error) {
-	states := make(map[OrgNode]TargetState, len(nodes))
-	kinds := map[string]*node.NodeType{}
-	for _, key := range nodes {
-		resolved, err := h.compiler.reader.Resolve(ctx, key.NodeID)
-		if err != nil {
-			return nil, hierarchyFailure(ctx, key.NodeID, "resolve hierarchy node "+key.NodeID.String(), err)
-		}
-		if resolved == nil {
-			states[key] = TargetState{Exists: false, OrgID: uuid.Nil, Type: nil}
-			continue
-		}
-		if resolved.OrgID != key.OrgID {
-			states[key] = TargetState{Exists: true, OrgID: resolved.OrgID, Type: nil}
-			continue
-		}
-		kind, err := h.compiler.typeByKey(ctx, key.OrgID, resolved.NodeType, kinds)
-		if err != nil {
-			return nil, err
-		}
-		states[key] = TargetState{Exists: true, OrgID: resolved.OrgID, Type: kind}
 	}
 	return states, nil
 }

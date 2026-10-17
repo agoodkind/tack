@@ -46,18 +46,21 @@ func (h *summaryHierarchy) Ancestors(ctx context.Context, nodes []searchaccess.O
 	for position, key := range nodes {
 		view := views[position]
 		if view == nil {
-			states[key] = searchaccess.AncestorState{Exists: false, OrgID: uuid.Nil, TypeKey: "", Type: nil, ChildOfs: nil}
+			states[key] = searchaccess.AncestorState{Exists: false, OrgID: uuid.Nil, TypeKey: "", Type: nil, ChildOfs: nil, ParentID: ""}
 			continue
 		}
 		if view.OrgID != key.OrgID {
-			states[key] = searchaccess.AncestorState{Exists: true, OrgID: view.OrgID, TypeKey: "", Type: nil, ChildOfs: nil}
+			states[key] = searchaccess.AncestorState{Exists: true, OrgID: view.OrgID, TypeKey: "", Type: nil, ChildOfs: nil, ParentID: ""}
 			continue
 		}
 		kind, err := h.nodeType(ctx, key.OrgID, view.NodeType)
 		if err != nil {
 			return nil, err
 		}
-		states[key] = searchaccess.AncestorState{Exists: true, OrgID: view.OrgID, TypeKey: view.NodeType, Type: kind, ChildOfs: nil}
+		states[key] = searchaccess.AncestorState{
+			Exists: true, OrgID: view.OrgID, TypeKey: view.NodeType, Type: kind, ChildOfs: nil,
+			ParentID: node.ParentIDText(view.Props),
+		}
 		if kind == nil || kind.Features.Has(node.FeatureIsEntryPoint) {
 			continue
 		}
@@ -85,40 +88,6 @@ func (h *summaryHierarchy) Ancestors(ctx context.Context, nodes []searchaccess.O
 			state.ChildOfs = append(state.ChildOfs, targetID)
 		}
 		states[key] = state
-	}
-	return states, nil
-}
-
-// Targets reads each node's resolve record and, inside the requested
-// organization, its node type.
-func (h *summaryHierarchy) Targets(ctx context.Context, nodes []searchaccess.OrgNode) (map[searchaccess.OrgNode]searchaccess.TargetState, error) {
-	resolves := make([]fdb.FutureByteSlice, len(nodes))
-	for position, key := range nodes {
-		resolves[position] = h.tr.Get(fdb.Key(nodeResolveKey(key.NodeID)))
-	}
-	states := make(map[searchaccess.OrgNode]searchaccess.TargetState, len(nodes))
-	for position, key := range nodes {
-		encoded, err := resolves[position].Get()
-		if err != nil {
-			return nil, searchReadFailure(ctx, "read resolve record of node "+key.NodeID.String(), err)
-		}
-		if len(encoded) == 0 {
-			states[key] = searchaccess.TargetState{Exists: false, OrgID: uuid.Nil, Type: nil}
-			continue
-		}
-		var resolved node.NodeResolve
-		if err := json.Unmarshal(encoded, &resolved); err != nil {
-			return nil, searchReadFailure(ctx, "decode resolve record of node "+key.NodeID.String(), err)
-		}
-		if resolved.OrgID != key.OrgID {
-			states[key] = searchaccess.TargetState{Exists: true, OrgID: resolved.OrgID, Type: nil}
-			continue
-		}
-		kind, err := h.nodeType(ctx, key.OrgID, resolved.NodeType)
-		if err != nil {
-			return nil, err
-		}
-		states[key] = searchaccess.TargetState{Exists: true, OrgID: resolved.OrgID, Type: kind}
 	}
 	return states, nil
 }

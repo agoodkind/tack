@@ -10,8 +10,8 @@ import (
 
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
+	"goodkind.io/tack/internal/domain/node"
 	searchdomain "goodkind.io/tack/internal/domain/search"
-	"goodkind.io/tack/internal/searchaccess"
 	"goodkind.io/tack/internal/telemetry"
 )
 
@@ -101,7 +101,7 @@ func (w *SearchWorker) fail(ctx context.Context, work searchdomain.Work, operati
 		return w.yield(ctx, work)
 	}
 	wrapped := fmt.Errorf("%s for node %s: %w", operation, work.NodeID, err)
-	if work.Excludable() && errors.Is(err, searchaccess.ErrNoHierarchyParent) && ctx.Err() == nil {
+	if work.Excludable() && errors.Is(err, node.ErrNoHierarchyParent) && ctx.Err() == nil {
 		return w.exclude(ctx, work, wrapped)
 	}
 	telemetry.L(ctx).ErrorContext(ctx, "search.worker.slice_failed", slog.String("err", wrapped.Error()),

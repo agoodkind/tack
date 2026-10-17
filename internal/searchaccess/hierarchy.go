@@ -12,19 +12,17 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// ErrNoHierarchyParent reports a node with several hierarchy parents, or a
-// node without a hierarchy parent when its type lists CanLiveUnder types.
-var ErrNoHierarchyParent = errors.New("node requires exactly one hierarchy parent")
-
 // children reads one bounded page of the child_of edges to resourceID and
-// returns each source node that node.LivesUnder places under resourceID.
+// returns each source node of orgID. Under [node.HierarchyParent], the
+// target of a node's child_of edge is its parent whatever the two types
+// are. A source with child_of edges to several targets is a defect, and it
+// stays a dependent: its next access compilation withdraws its keys.
 func (c *OrgScopeCompiler) children(ctx context.Context, orgID, resourceID uuid.UUID, cursor string, limit int) (node.IDPage, error) {
-	kinds := make(map[string]*node.NodeType)
-	resource, err := c.typeOf(ctx, orgID, resourceID, kinds)
+	exists, err := c.inOrg(ctx, orgID, resourceID)
 	if err != nil {
 		return node.IDPage{}, err
 	}
-	if resource == nil {
+	if !exists {
 		return node.IDPage{IDs: []uuid.UUID{}, NextCursor: "", Done: true}, nil
 	}
 	page, err := c.relationships.EdgesTo(ctx, orgID, resourceID, node.RelChildOf, cursor, limit)
@@ -36,29 +34,24 @@ func (c *OrgScopeCompiler) children(ctx context.Context, orgID, resourceID uuid.
 		if slices.Contains(children, sourceID) {
 			continue
 		}
-		source, err := c.typeOf(ctx, orgID, sourceID, kinds)
+		sourceExists, err := c.inOrg(ctx, orgID, sourceID)
 		if err != nil {
 			return node.IDPage{}, err
 		}
-		if node.LivesUnder(source, resource) {
+		if sourceExists {
 			children = append(children, sourceID)
 		}
 	}
 	return node.IDPage{IDs: children, NextCursor: page.NextCursor, Done: page.Done}, nil
 }
 
-// typeOf returns the node type of nodeID. A node outside orgID, a missing
-// node, or a missing type returns nil. kinds caches one read per type key
-// for one bounded page.
-func (c *OrgScopeCompiler) typeOf(ctx context.Context, orgID, nodeID uuid.UUID, kinds map[string]*node.NodeType) (*node.NodeType, error) {
+// inOrg reports whether nodeID resolves to a node of orgID.
+func (c *OrgScopeCompiler) inOrg(ctx context.Context, orgID, nodeID uuid.UUID) (bool, error) {
 	resolved, err := c.reader.Resolve(ctx, nodeID)
 	if err != nil {
-		return nil, hierarchyFailure(ctx, nodeID, "resolve hierarchy node "+nodeID.String(), err)
+		return false, hierarchyFailure(ctx, nodeID, "resolve hierarchy node "+nodeID.String(), err)
 	}
-	if resolved == nil || resolved.OrgID != orgID {
-		return nil, nil
-	}
-	return c.typeByKey(ctx, orgID, resolved.NodeType, kinds)
+	return resolved != nil && resolved.OrgID == orgID, nil
 }
 
 // typeByKey returns the node type of orgID that uses typeKey, or nil when
