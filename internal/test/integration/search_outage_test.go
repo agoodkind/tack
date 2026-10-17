@@ -53,6 +53,9 @@ func setEngineRunning(t *testing.T, running bool) {
 // searchable within ten seconds.
 func TestSearchDatagenOutage(t *testing.T) {
 	fixture := newQueryFixture(t, defaultQueryOptions())
+	// drainSearchWork indexes the fixture's bootstrapped nodes before the
+	// engine stops to exclude fixture setup from the search wait after restart.
+	drainSearchWork(t, fixture.Worker, 2000)
 	setEngineRunning(t, false)
 	t.Cleanup(func() { setEngineRunning(t, true) })
 
@@ -70,11 +73,6 @@ func TestSearchDatagenOutage(t *testing.T) {
 	}
 
 	startEngine(t, fixture)
-	// drainSearchWork runs worker slices until the worker cannot claim any
-	// search work. The fixture's bootstrapped nodes and the project that the
-	// test created during the outage finish indexing before the ten-second
-	// search deadline starts.
-	drainSearchWork(t, fixture.Worker, 2000)
 	deadline := time.Now().Add(outageSearchDeadline)
 	for time.Now().Before(deadline) {
 		_, _ = fixture.Worker.RunSlice(t.Context())
