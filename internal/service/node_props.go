@@ -59,16 +59,20 @@ func isDeletedPropValue(raw json.RawMessage) bool {
 	return len(raw) == 0 || string(raw) == "null"
 }
 
-// ValidateNodeProps requires a definition in defs for each key in props.
-// Each definition must apply to nt, with these exceptions:
+// ValidateNodeProps checks each property name in the property map against
+// the property definitions for the node type. Each name must match a property
+// definition that applies to the node type, except for:
 //
-//   - parent_id does not require its definition to apply to nt.
-//   - scope_id does not require its definition to apply to nt.
-//   - sequence does not require its definition to apply to nt.
+//   - parent_id
+//   - scope_id
+//   - sequence
 //
-// ValidateNodeProps returns nil when it accepts every key. Otherwise, it
-// returns an undeclaredPropsError that lists every undeclared key in sorted
-// order.
+// These names require matching property definitions, but the definitions do
+// not have to apply to the node type.
+//
+// ValidateNodeProps returns nil when every property name passes. Otherwise,
+// ValidateNodeProps returns an undeclaredPropsError that lists every property
+// name without a matching definition in sorted order.
 func ValidateNodeProps(
 	nt *node.NodeType,
 	defs []*node.PropertyDef,

@@ -68,9 +68,13 @@ func RunDefaultChildrenBackfill(ctx context.Context, env *Env, dryRun bool) erro
 }
 
 // backfillOrgDefaultChildren creates missing default children for every node
-// of the given node types in orgID. It logs each parent listing, child
-// listing, or child creation failure and returns one error per failure.
-// It continues with the remaining nodes after each failure.
+// of the given node types in orgID.
+//
+// backfillOrgDefaultChildren logs each failed parent listing and each failed
+// child listing. createDefaultChild logs each failed child creation.
+//
+// backfillOrgDefaultChildren continues with the remaining nodes after each
+// failure and returns a slice with one error per failed listing or creation.
 func backfillOrgDefaultChildren(ctx context.Context, env *Env, orgID uuid.UUID, types []*node.NodeType) []error {
 	typeIndex := node.BuildTypeIndex(types)
 	var failures []error
@@ -118,11 +122,6 @@ func backfillOrgDefaultChildren(ctx context.Context, env *Env, orgID uuid.UUID, 
 					continue
 				}
 				if err := createDefaultChild(ctx, env, orgID, parent.ID, dc); err != nil {
-					env.Log.WarnContext(ctx, "backfill: create child",
-						slog.String("parent_id", parent.ID.String()),
-						slog.String("child_type", dc.TypeKey),
-						slog.String("child_name", dc.Name),
-						slog.String("err", err.Error()))
 					failures = append(failures, fmt.Errorf("create default child %q under node %s: %w", dc.Name, parent.ID, err))
 					continue
 				}
