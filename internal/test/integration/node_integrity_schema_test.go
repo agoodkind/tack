@@ -29,7 +29,7 @@ func TestNodeIntegritySchemaRejectsUndeclaredNames(t *testing.T) {
 	}
 
 	issue := createSchemaNode(t, env, projectID, projectID, "issue", nil)
-	before := storedSchemaView(t, env, issue.ID)
+	before := storedStoreView(t, env.Stores, issue.ID)
 	for _, name := range []string{"progress", "identifier"} {
 		_, err := env.NodeSvc.Update(env.Ctx, service.UpdateInput{
 			NodeID: issue.ID, Name: nil, Props: schemaProps(name, quoted("value")),
@@ -37,7 +37,7 @@ func TestNodeIntegritySchemaRejectsUndeclaredNames(t *testing.T) {
 		})
 		requireRefusedName(t, err, name)
 	}
-	after := storedSchemaView(t, env, issue.ID)
+	after := storedStoreView(t, env.Stores, issue.ID)
 	if !reflect.DeepEqual(after.Props, before.Props) || !after.UpdatedAt.Equal(before.UpdatedAt) {
 		t.Fatalf("a refused update changed the stored issue: before %+v, after %+v", before, after)
 	}
@@ -64,7 +64,7 @@ func TestNodeIntegritySchemaAppliesDefaultsAndPartialUpdates(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("update priority: %v", err)
 	}
-	updated := storedSchemaView(t, env, issue.ID)
+	updated := storedStoreView(t, env.Stores, issue.ID)
 	if got := string(updated.Props["priority"]); got != `"high"` {
 		t.Fatalf("updated priority = %s, want \"high\"", got)
 	}
@@ -85,7 +85,7 @@ func TestNodeIntegritySchemaIndexesScopeOfEveryType(t *testing.T) {
 	issue := createSchemaNode(t, env, projectID, projectID, "issue", nil)
 	comment := createSchemaNode(t, env, issue.ID, projectID, "comment", schemaProps("description", quoted("A comment")))
 	activity := createSchemaNode(t, env, issue.ID, projectID, "activity", nil)
-	workspaceID := uuid.MustParse(strings.Trim(string(storedSchemaView(t, env, projectID).Props["scope_id"]), `"`))
+	workspaceID := uuid.MustParse(strings.Trim(string(storedStoreView(t, env.Stores, projectID).Props["scope_id"]), `"`))
 
 	if states := listByScope(t, env, "state", projectID); len(states) != 5 {
 		t.Fatalf("scope_id index lists %d states of project %s, want the 5 default states", len(states), projectID)
@@ -137,15 +137,6 @@ func schemaCreateInput(parentID, scopeID uuid.UUID, typeKey string, props map[st
 		Props: props, Relationships: nil, ActorID: uuid.New(),
 		IdempotencyKey: "", IdempotencyFingerprint: "", IdempotencySource: "",
 	}
-}
-
-func storedSchemaView(t *testing.T, env *integration.TestEnv, nodeID uuid.UUID) *node.NodeView {
-	t.Helper()
-	view, err := env.Stores.Views.Get(env.Ctx, nodeID)
-	if err != nil || view == nil {
-		t.Fatalf("get node %s: view %v, err %v", nodeID, view, err)
-	}
-	return view
 }
 
 func listByScope(t *testing.T, env *integration.TestEnv, typeKey string, scopeID uuid.UUID) []*node.Node {
