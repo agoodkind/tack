@@ -69,15 +69,24 @@ func TestNodeIntegrityStrictEveryWriterAdvancesTheFence(t *testing.T) {
 		deleteStrictNode(t, env, epic.ID, actorID)
 		return []uuid.UUID{epic.ID, issue.ID}
 	})
+	states, err := env.Stores.Nodes.ListByProperty(env.Ctx, env.OrgID, "state", "parent_id", quoted(project.ID.String()))
+	if err != nil {
+		t.Fatalf("list the states of project %s: %v", project.ID, err)
+	}
 	requireFenceAdvances(t, env, "subtree delete", func() []uuid.UUID {
 		deleteStrictNode(t, env, project.ID, actorID)
-		return []uuid.UUID{project.ID, issue.ID}
+		deleted := []uuid.UUID{project.ID, issue.ID}
+		for _, state := range states {
+			deleted = append(deleted, state.ID)
+		}
+		return deleted
 	})
 }
 
-// requireFenceAdvances calls CaptureStrictEvidence before and after write. It
-// fails the test unless the bucket epoch for each node that write returns
-// increases.
+// requireFenceAdvances calls CaptureStrictEvidence before and after write. For
+// each of the 64 buckets, it requires the epoch advance to be at least the
+// number of nodes that write returns in that bucket. It requires the epoch to
+// remain unchanged in a bucket without a returned node.
 func requireFenceAdvances(t *testing.T, env *integration.TestEnv, operation string, write func() []uuid.UUID) {
 	t.Helper()
 	before, err := env.Stores.Nodes.CaptureStrictEvidence(env.Ctx)
@@ -89,11 +98,15 @@ func requireFenceAdvances(t *testing.T, env *integration.TestEnv, operation stri
 	if err != nil {
 		t.Fatalf("capture the evidence after the %s: %v", operation, err)
 	}
+	expected := make(map[int]int64, len(written))
 	for _, nodeID := range written {
-		bucket := fdbadapter.WriteFenceBucket(env.OrgID, nodeID)
-		if after.Buckets[bucket] <= before.Buckets[bucket] {
-			t.Fatalf("the %s left bucket %d of node %s at epoch %d, want an epoch above %d",
-				operation, bucket, nodeID, after.Buckets[bucket], before.Buckets[bucket])
+		expected[fdbadapter.WriteFenceBucket(env.OrgID, nodeID)]++
+	}
+	for bucket := range node.WriteFenceBuckets {
+		advance := after.Buckets[bucket] - before.Buckets[bucket]
+		if advance < expected[bucket] || (expected[bucket] == 0 && advance != 0) {
+			t.Fatalf("the %s advanced bucket %d by %d, want at least %d and no advance without a written node %v",
+				operation, bucket, advance, expected[bucket], written)
 		}
 	}
 }

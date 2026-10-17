@@ -88,7 +88,6 @@ func TestNodeIntegrityStrictActivationConflictsWithInFlightMutation(t *testing.T
 	}
 }
 
-// clearStrictTestPrefix clears every key under prefix in one transaction.
 func clearStrictTestPrefix(t *testing.T, database fdb.Database, prefix []byte) {
 	t.Helper()
 	end := append(append([]byte(nil), prefix...), 0xFF)
