@@ -25,7 +25,6 @@ const (
 	parentEdgeSummaryBytes = 256
 )
 
-// createLeaf creates one leaf under parentID through NodeService.Create.
 func (f parentEdgeFixture) createLeaf(t *testing.T, parentID uuid.UUID, text string) uuid.UUID {
 	t.Helper()
 	created, err := f.nodes.Create(t.Context(), service.CreateInput{
@@ -169,8 +168,6 @@ func parentEdgeJSON(t *testing.T, value string) json.RawMessage {
 	return encoded
 }
 
-// intersect returns the elements in values that also occur in wanted, in the
-// order of values.
 func intersect[T comparable](values, wanted []T) []T {
 	found := []T{}
 	for _, value := range values {
