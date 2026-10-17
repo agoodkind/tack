@@ -1,0 +1,41 @@
+package ops
+
+import (
+	"slices"
+
+	"goodkind.io/tack/internal/domain/node"
+)
+
+// repairPhases returns an entry's phases in execution order.
+// A delete entry exports its source before deleting it. Its phases are
+// exported then completed.
+// A report entry creates and verifies a comment before removing the source
+// property. Its phases are comment_created, comment_verified, then completed.
+// Every other entry has only completed.
+func repairPhases(entry NodeIntegrityEntry) []node.RepairPhase {
+	if entry.Delete != nil {
+		return []node.RepairPhase{node.RepairPhaseExported, node.RepairPhaseCompleted}
+	}
+	if entry.Report != nil {
+		return []node.RepairPhase{node.RepairPhaseCommentCreated, node.RepairPhaseCommentVerified, node.RepairPhaseCompleted}
+	}
+	return []node.RepairPhase{node.RepairPhaseCompleted}
+}
+
+// nextRepairPhase returns entry's first phase when current is empty, or the
+// phase after current otherwise. It returns an empty phase after completion
+// and false if current does not match an entry phase.
+func nextRepairPhase(entry NodeIntegrityEntry, current node.RepairPhase) (node.RepairPhase, bool) {
+	phases := repairPhases(entry)
+	if current == "" {
+		return phases[0], true
+	}
+	position := slices.Index(phases, current)
+	if position < 0 {
+		return "", false
+	}
+	if position == len(phases)-1 {
+		return "", true
+	}
+	return phases[position+1], true
+}

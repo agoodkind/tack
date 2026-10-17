@@ -1,0 +1,106 @@
+{
+  "_meta": {},
+  "result": {
+    "migration_table_present": true,
+    "applied_version": 19,
+    "available": [
+      {
+        "version": 1,
+        "name": "001_schema.sql",
+        "sha256": "1dc7e3e9587bcfca46a61a5dd8c1ffb0e8d646040eef431528979ab52705bdda"
+      },
+      {
+        "version": 2,
+        "name": "002_audit.sql",
+        "sha256": "0394bad142536b87512a5aaf305ef538594578f13b3fa60bbf9ac2af5c7aa167"
+      },
+      {
+        "version": 3,
+        "name": "003_audit_kafka_cutover.sql",
+        "sha256": "c368febd1c3b238e39218961330466f02f2742e14036a3672954f3c53b09255a"
+      },
+      {
+        "version": 4,
+        "name": "004_audit_partman.sql",
+        "sha256": "179a794fae4bdbf5f59597e7f34aa9880bff2ff3879529cc9ef3f38f06797456"
+      },
+      {
+        "version": 5,
+        "name": "005_ops_outbox.sql",
+        "sha256": "e6ff5f3a62ae1773cbcd86ecce21aa57e100e63907cebc4b6f00b9884e8cce4a"
+      },
+      {
+        "version": 6,
+        "name": "006_audit_outcomes.sql",
+        "sha256": "c750105150f24279048bd85a71337f28dbda2a4dc249f483d8c317a5abe3c9ce"
+      },
+      {
+        "version": 7,
+        "name": "007_audit_operator_role.sql",
+        "sha256": "e8b18df9c959f0a3e624d914ad196b32337441e036bdd58b51cb1a8a0092b9f2"
+      },
+      {
+        "version": 8,
+        "name": "008_ops_outbox_owner.sql",
+        "sha256": "41498eb8202d26c77e2c88d694bee8619f49e2ca08c826ef73b9b08c09745a24"
+      },
+      {
+        "version": 9,
+        "name": "009_audit_projected_events.sql",
+        "sha256": "cdbf002ca4a49d15e0d2286362d2b36454d524c37f461574cdbafbb7e2270384"
+      },
+      {
+        "version": 10,
+        "name": "010_audit_partition_key_names.sql",
+        "sha256": "44bc0c11be9dc00572edadfc05d0762c40d6065d83ebba0eb52a49d517eaa9fa"
+      },
+      {
+        "version": 11,
+        "name": "011_audit_events_dlq_replay.sql",
+        "sha256": "c0ce9761ca85940d8767a66371b9a9c78daa205c1945c451fae89b60a1271a9e"
+      },
+      {
+        "version": 12,
+        "name": "012_audit_notarizations_signing_host.sql",
+        "sha256": "a8face612099bc6e54a0965c2f2338a454beaf2f5a93cf07ab7cc711b9064a52"
+      },
+      {
+        "version": 13,
+        "name": "013_app_role.sql",
+        "sha256": "32eee5153afa515baa6e528823c6c4da51d8fb92d9edd934e6d30d55105a4e59"
+      },
+      {
+        "version": 14,
+        "name": "014_audit_partition_premake.sql",
+        "sha256": "dfe9a614fd9e021448cd76b58f1faf53e77d009427d59621a9d94fb58b1c1d2b"
+      },
+      {
+        "version": 15,
+        "name": "015_token_last_used_projection.sql",
+        "sha256": "d69d1461130b3d5aea89649ef938570ec9f7977aa6bc17760698c1c6637d2f3d"
+      },
+      {
+        "version": 16,
+        "name": "016_ops_outbox_reader.sql",
+        "sha256": "6556c31f9ee79bfa37507056130c9acf5668257010b6c3cc3770873e7af49150"
+      },
+      {
+        "version": 17,
+        "name": "017_audit_partition_coming_weeks.sql",
+        "sha256": "0dd94ef3a26796b6ee26345f9ed8d76a9df13768b86eb6adc5bab06ceb84bcbf"
+      },
+      {
+        "version": 18,
+        "name": "018_migration_owner.sql",
+        "sha256": "3e419438fbc3639779f1bdd4cc46d30d9a105cc05c3b0cf81b43a435614a5254"
+      },
+      {
+        "version": 19,
+        "name": "019_audit_schema_guard.sql",
+        "sha256": "c89c4d6581c59d84c92ab5dfc99be7555855acf0fd431aa659ea51db6c1a09d3"
+      }
+    ],
+    "pending": [],
+    "image_commit": "986faf12"
+  }
+}

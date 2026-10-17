@@ -2,6 +2,7 @@ package node
 
 import (
 	"encoding/json"
+	"fmt"
 	"sort"
 
 	"github.com/google/uuid"
@@ -31,7 +32,7 @@ func PropertyAppliesTo(definition *PropertyDef, nodeType *NodeType) bool {
 func (s Schema) Interpret(typeKey string, props map[string]json.RawMessage) PropertyResult {
 	result := PropertyResult{
 		NodeType: typeKey, Valid: make(map[string]json.RawMessage, len(props)),
-		Invalid: nil, Failures: nil,
+		Invalid: nil, References: nil, Failures: nil,
 	}
 	nodeType := s.Types[typeKey]
 	if nodeType == nil {
@@ -56,7 +57,47 @@ func (s Schema) Interpret(typeKey string, props map[string]json.RawMessage) Prop
 			continue
 		}
 		result.Valid[name] = raw
+		if reference, ok := propertyReference(definition, raw); ok {
+			result.References = append(result.References, reference)
+		}
 	}
+	return result
+}
+
+// ValidateResult checks the complete resulting properties of one node.
+// The typeKey parameter is the node type key. ValidateResult applies
+// [Schema.Interpret], requires every applicable required property, and
+// checks each reference value against references. A reference value
+// without an entry in references is a read failure.
+func (s Schema) ValidateResult(typeKey string, props map[string]json.RawMessage, references map[uuid.UUID]ReferenceRecord) PropertyResult {
+	result := s.Interpret(typeKey, props)
+	nodeType := s.Types[typeKey]
+	if nodeType == nil {
+		return result
+	}
+	for _, definition := range s.Definitions {
+		if definition == nil || !definition.Required || !PropertyAppliesTo(definition, nodeType) {
+			continue
+		}
+		if _, present := props[definition.Name]; !present {
+			result.Invalid = append(result.Invalid, PropertyIssue{Property: definition.Name, Code: PropertyIssueRequired, Reason: "the property is required"})
+		}
+	}
+	checked := make([]PropertyReference, 0, len(result.References))
+	for _, reference := range result.References {
+		record, read := references[reference.TargetID]
+		if !read {
+			result.Failures = append(result.Failures, ReadFailure{Subject: "properties." + reference.Property, Reason: "reference record " + reference.TargetID.String() + " was not read"})
+			continue
+		}
+		if issue := s.referenceIssue(reference, record); issue != nil {
+			delete(result.Valid, reference.Property)
+			result.Invalid = append(result.Invalid, *issue)
+			continue
+		}
+		checked = append(checked, reference)
+	}
+	result.References = checked
 	return result
 }
 
@@ -74,6 +115,23 @@ func (s Schema) definitionsByName() (map[string]*PropertyDef, []ReadFailure) {
 		definitions[definition.Name] = definition
 	}
 	return definitions, failures
+}
+
+func (s Schema) referenceIssue(reference PropertyReference, record ReferenceRecord) *PropertyIssue {
+	var reason string
+	switch {
+	case s.Types[reference.TargetType] == nil:
+		reason = fmt.Sprintf("target node type %q is not declared", reference.TargetType)
+	case !record.Exists:
+		reason = fmt.Sprintf("node %s does not exist", reference.TargetID)
+	case record.OrgID != s.OrgID:
+		reason = fmt.Sprintf("node %s belongs to another organization", reference.TargetID)
+	case record.NodeType != reference.TargetType:
+		reason = fmt.Sprintf("node %s has type %q, and the property requires type %q", reference.TargetID, record.NodeType, reference.TargetType)
+	default:
+		return nil
+	}
+	return &PropertyIssue{Property: reference.Property, Code: PropertyIssueReference, Reason: reason}
 }
 
 func sortedPropertyNames(props map[string]json.RawMessage) []string {

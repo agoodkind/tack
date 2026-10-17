@@ -78,7 +78,7 @@ func undeclaredPropNames(result node.PropertyResult) []string {
 			if !isServiceManagedProp(issue.Property) {
 				names = append(names, fmt.Sprintf("%q", issue.Property))
 			}
-		case node.PropertyIssueValue, node.PropertyIssueOption:
+		case node.PropertyIssueValue, node.PropertyIssueOption, node.PropertyIssueRequired, node.PropertyIssueReference:
 		}
 	}
 	return names
@@ -100,8 +100,6 @@ func (s *NodeService) readSchema(ctx context.Context, orgID uuid.UUID) (node.Sch
 	return node.Schema{OrgID: orgID, Types: node.BuildTypeIndex(types), Definitions: definitions}, nil
 }
 
-// loggedPropertyCheckError wraps an error from a property check. It logs a
-// refusal at warning level and a failed read at error level.
 func loggedPropertyCheckError(ctx context.Context, nt *node.NodeType, operation string, err error) error {
 	wrapped := fmt.Errorf("node type %q %s: %w", nt.TypeKey, operation, err)
 	if errors.Is(err, domain.ErrInvalidArgument) {
