@@ -1,6 +1,6 @@
 # Existing node backfill specification
 
-TACK-582 repairs existing records after the [node integrity contract](2026-10-16-node-integrity.md) establishes the correct interpretation. This draft classifies every observed case. It does not authorize production execution, inferred reparenting, or deletion.
+TACK-582 repairs existing records after the [node integrity contract](2026-10-16-node-integrity.md) establishes the correct interpretation. This draft classifies every observed case and records the selected repair rules. Production execution of the concrete manifest and the remaining inferred parent mappings still require review.
 
 ## Interpret the inventory correctly
 
@@ -82,7 +82,9 @@ Check the current options before applying these mappings. Do not infer a general
 | MWAN-332 | The parent property contains `MWAN-324`; its edge still selects project MWAN. The description connects this follow-up to the provider-set epic. | Review that inferred intent, then select MWAN-324 as parent and retain MWAN as scope. |
 | TACK-278 | Its parent UUID is absent; its scope and surviving edge both select current project TACK. | Review a parent-property repair to the existing TACK project and preserve its Done state. |
 | Comment `019e6f65-01f2-7c34-8bc2-a11e09895740` | The text says `Duplicate of TACK-252`; the original parent is absent. | Review reattachment to TACK-252 while preserving the comment ID, text, author, and time. |
-| Comment `01a0bfcb-461c-799d-923f-9148c01f9253` | The text is `Smoke comment`; the description identifies a post-deploy smoke fixture. | Export it and propose retirement of exactly this fixture. Deletion requires approval. |
+| Comment `01a0bfcb-461c-799d-923f-9148c01f9253` | The text is `Smoke comment`; the description identifies a post-deploy smoke fixture. | Export and verify the complete record, then delete only this test comment. The user selected this mapping. |
+
+The selected test-comment cleanup must use its exact UUID. Export the complete record, properties, relationships, and available provenance to a protected artifact outside the repository. Verify that the export is readable and matches the current source revision before deletion. A failed export or changed source must prevent deletion. Use the audited backfill path, preserve other records, and verify removal through normal reads and search. A retry must recognize an already completed cleanup.
 
 ## Preserve the scope applicability exceptions
 

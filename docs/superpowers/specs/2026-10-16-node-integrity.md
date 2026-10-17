@@ -118,6 +118,5 @@ Source inspection identifies possible concurrent parent inconsistencies, but the
 | Decision | Current position | Work that can continue |
 | --- | --- | --- |
 | Several parent and orphan mappings infer intent. | The backfill specification marks each proposal for review. | Graph validation and nonmutating previews can continue. |
-| One synthetic Smoke comment has an absent parent. | Export and retirement remain proposed; deletion lacks approval. | Other reviewed repairs do not depend on that decision. |
 
 QA must prove the reviewed behavior before production. Record source commits, merged PRs, installed image digests, applied configuration, repair results, and public runtime acceptance separately. Close superseded tickets only after the replacement covers their entire scope and preserves their evidence.
