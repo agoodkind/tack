@@ -14,6 +14,9 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
+// stageProjectionAudit stages an event for one projection correction with a
+// new UUIDv7 that every transaction attempt reuses. The transaction finalizes
+// the delta from the definition record it read and the record it wrote.
 func stageProjectionAudit(ctx context.Context, definition *node.PropertyDef) (context.Context, error) {
 	principal, ok := audit.OperatorPrincipalFromContext(ctx)
 	if !ok {
@@ -21,9 +24,14 @@ func stageProjectionAudit(ctx context.Context, definition *node.PropertyDef) (co
 		telemetry.L(ctx).ErrorContext(ctx, "search.projection.audit_failed", slog.String("err", wrapped.Error()), slog.String("property_definition_id", definition.ID.String()))
 		return ctx, node.LoggedProjectionError{Cause: wrapped}
 	}
+	eventID, err := uuid.NewV7()
+	if err != nil {
+		slog.ErrorContext(ctx, "search.projection.audit_failed", slog.String("err", err.Error()), slog.String("property_definition_id", definition.ID.String()))
+		return ctx, fmt.Errorf("create the search projection audit event id for %s: %w", definition.ID, err)
+	}
 	event := audit.Event{
 		Verb:    string(audit.VerbOpsBackfillSearchProjections),
-		EventID: uuid.NewSHA1(uuid.NameSpaceOID, []byte("search-projection:"+definition.OrgID.String()+":"+definition.ID.String())),
+		EventID: eventID,
 		Actor: audit.Actor{
 			Type: principal.ActorType(), ID: principal.ID, Email: principal.Email, Name: principal.Name,
 			SessionID: "", IP: "", UserAgent: "", RequestID: "", APITokenLabel: "",
@@ -44,7 +52,7 @@ func stageProjectionAudit(ctx context.Context, definition *node.PropertyDef) (co
 		return ctx, wrapped
 	}
 	staged := auditintent.WithSlot(ctx, "ops.backfill.once-search-projections", principal.ID)
-	if !auditintent.Stage(staged, payload) {
+	if !auditintent.StageMutation(staged, payload, audit.FinalizeMutationEvent) {
 		wrapped := fmt.Errorf("stage search projection audit event for %s", definition.ID)
 		telemetry.L(ctx).ErrorContext(ctx, "search.projection.audit_failed", slog.String("err", wrapped.Error()), slog.String("property_definition_id", definition.ID.String()))
 		return ctx, wrapped

@@ -18,9 +18,8 @@ import (
 	"time"
 
 	"github.com/caarlos0/env/v11"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/audit"
+	"goodkind.io/tack/internal/auditrelay"
 	"goodkind.io/tack/internal/telemetry"
 )
 
@@ -67,87 +66,17 @@ type consumerEnv struct {
 	OTELEndpoint     string `env:"OTEL_EXPORTER_OTLP_ENDPOINT"`
 }
 
-type foundationDBRelayOutbox struct {
-	store *foundationdb.OpsOutboxStore
-}
-
-func (s foundationDBRelayOutbox) ReadOutboxFrom(
-	ctx context.Context,
-	mark []byte,
-	limit int,
-) ([]audit.RelayOutboxEntry, error) {
-	entries, err := s.store.ReadOutboxFrom(ctx, mark, limit)
-	if err != nil {
-		slog.ErrorContext(ctx, "audit_consumer.relay_fdb_read_failed", slog.String("err", err.Error()))
-		return nil, fmt.Errorf("read FoundationDB relay outbox: %w", err)
-	}
-	out := make([]audit.RelayOutboxEntry, 0, len(entries))
-	for _, entry := range entries {
-		out = append(out, audit.RelayOutboxEntry{
-			Mark:  entry.Mark,
-			Event: entry.Event,
-		})
-	}
-	return out, nil
-}
-
-func (s foundationDBRelayOutbox) ClearThrough(ctx context.Context, mark []byte) error {
-	if err := s.store.ClearThrough(ctx, mark); err != nil {
-		slog.ErrorContext(ctx, "audit_consumer.relay_fdb_clear_failed", slog.String("err", err.Error()))
-		return fmt.Errorf("clear FoundationDB relay outbox: %w", err)
-	}
-	return nil
-}
-
-func newAuditRelay(
-	ctx context.Context,
-	cfg consumerEnv,
-) (*audit.Relay, *pgxpool.Pool, *audit.KafkaRecorder, error) {
-	relayPool, err := pgxpool.New(ctx, cfg.YugabyteDSN)
-	if err != nil {
-		slog.ErrorContext(ctx, "audit_consumer.relay_yugabyte_pool_failed", slog.String("err", err.Error()))
-		return nil, nil, nil, fmt.Errorf("new relay Yugabyte pool: %w", err)
-	}
-
-	var relayFoundationDB audit.FoundationDBOutbox
-	if cfg.FDBClusterFile != "" {
-		stores, storesErr := foundationdb.NewStores(cfg.FDBClusterFile, cfg.FDBTransactionTimeout, relayPool)
-		if storesErr != nil {
-			relayPool.Close()
-			slog.ErrorContext(ctx, "audit_consumer.relay_foundationdb_open_failed", slog.String("err", storesErr.Error()))
-			return nil, nil, nil, fmt.Errorf("open relay FoundationDB stores: %w", storesErr)
-		}
-		relayFoundationDB = foundationDBRelayOutbox{store: stores.OpsOutbox}
-	}
-
-	relayRecorder, err := audit.NewKafkaRecorder(audit.KafkaConfig{
-		Brokers:        splitBrokers(cfg.Brokers),
-		Topic:          cfg.Topic,
-		ClientID:       "tack-audit-relay",
-		ProduceTimeout: 0,
+func newAuditRelay(ctx context.Context, cfg consumerEnv) (auditrelay.Opened, error) {
+	opened, err := auditrelay.Open(ctx, auditrelay.Config{
+		Brokers: splitBrokers(cfg.Brokers), Topic: cfg.Topic, YugabyteDSN: cfg.YugabyteDSN,
+		FDBClusterFile: cfg.FDBClusterFile, FDBTransactionTimeout: cfg.FDBTransactionTimeout,
+		PollInterval: cfg.PollInterval, BatchSize: cfg.BatchSize,
 	})
 	if err != nil {
-		relayPool.Close()
-		slog.ErrorContext(ctx, "audit_consumer.relay_recorder_failed", slog.String("err", err.Error()))
-		return nil, nil, nil, fmt.Errorf("new relay recorder: %w", err)
+		slog.ErrorContext(ctx, "audit_consumer.relay_open_failed", slog.String("err", err.Error()))
+		return opened, fmt.Errorf("open the audit relay: %w", err)
 	}
-
-	relay, err := audit.NewRelay(audit.RelayConfig{
-		Recorder:     relayRecorder,
-		Yugabyte:     audit.NewPoolOutbox(relayPool),
-		FoundationDB: relayFoundationDB,
-		PollInterval: cfg.PollInterval,
-		BatchSize:    cfg.BatchSize,
-	})
-	if err != nil {
-		relayPool.Close()
-		if closeErr := relayRecorder.CloseContext(ctx); closeErr != nil {
-			slog.ErrorContext(ctx, "audit_consumer.relay_recorder_close_failed", slog.String("err", closeErr.Error()))
-		}
-		slog.ErrorContext(ctx, "audit_consumer.relay_failed", slog.String("err", err.Error()))
-		return nil, nil, nil, fmt.Errorf("new audit relay: %w", err)
-	}
-	return relay, relayPool, relayRecorder, nil
+	return opened, nil
 }
 
 func newAuditConsumer(ctx context.Context, cfg consumerEnv) (*audit.Consumer, error) {
@@ -223,11 +152,12 @@ func run() error {
 
 	metricsServer := startMetricsServer(ctx, cfg.MetricsAddr)
 
-	relay, relayPool, relayRecorder, err := newAuditRelay(ctx, cfg)
+	opened, err := newAuditRelay(ctx, cfg)
 	if err != nil {
 		return err
 	}
-	defer relayPool.Close()
+	defer opened.Pool.Close()
+	relay, relayRecorder := opened.Relay, opened.Recorder
 
 	slog.InfoContext(ctx, "audit_consumer.starting",
 		slog.String("topic", cfg.Topic),

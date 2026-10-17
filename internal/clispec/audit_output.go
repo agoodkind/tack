@@ -7,9 +7,19 @@ import (
 	"log/slog"
 
 	"goodkind.io/tack/internal/audit"
+	"goodkind.io/tack/internal/cli"
 )
 
 type dryRunOutputKey struct{}
+
+// dryRunDestination returns the output stream for the dry-run preamble. JSON
+// output mode uses stderr for the preamble and stdout for the JSON document.
+func dryRunDestination(f *cli.Factory, text io.Writer) io.Writer {
+	if f.OutputFormat() == cli.FormatJSON {
+		return f.Err
+	}
+	return text
+}
 
 func withDryRunOutput(ctx context.Context, output io.Writer) context.Context {
 	return context.WithValue(ctx, dryRunOutputKey{}, output)

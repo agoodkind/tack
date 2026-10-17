@@ -118,19 +118,18 @@ func (s *SearchWorkStore) Yield(ctx context.Context, work searchdomain.Work) (er
 }
 
 // Release records one failure and delays the next claim of the same work.
-// The counted failure that brings the attempt count of live, access, or copy
-// work to searchFailureLimit excludes the node instead. The counted failure
-// that brings the count of any other work to the limit logs the work item
-// once, and the item keeps retrying.
+// The work stays pending in every class. Release logs the work item once
+// when a counted failure sets its attempt count to searchFailureLimit. The
+// item keeps retrying.
 func (s *SearchWorkStore) Release(ctx context.Context, work searchdomain.Work, failure searchdomain.Failure) (err error) {
 	defer telemetry.FDBOp(ctx, "store.search_work.release")(&err)
 	var outcome failureOutcome
 	err = transactSearch(ctx, s.db, func(tr fdb.Transaction) error {
-		record, err := s.verifyClaim(ctx, tr, work)
+		_, err := s.verifyClaim(ctx, tr, work)
 		if err != nil {
 			return err
 		}
-		outcome, err = s.recordFailure(ctx, tr, work, record, failure)
+		outcome, err = s.recordFailure(ctx, tr, work, failure)
 		return err
 	})
 	if err != nil {
