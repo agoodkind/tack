@@ -104,9 +104,11 @@ func statusFromModel(ctx context.Context, model schemaModel) (schemaStatus, diag
 	}, diags
 }
 
-// modelFromStatus builds the installation state from identity, live status,
-// and version. The pending list contains migrations above the applied version
-// through version.
+// modelFromStatus uses the live status to build state for the installation that
+// identity identifies. It sets the version attribute to version. Callers pass
+// the configured target version during planning and apply, and the live
+// applied version during refresh. The pending list contains available
+// migrations above the applied version up to and including version.
 func modelFromStatus(
 	ctx context.Context,
 	identity schemaModel,
