@@ -32,9 +32,10 @@ const (
 // The image entrypoint passes each nodeSettings entry to OpenSearch as an -E
 // setting.
 type openSearchEngineSettings struct {
-	memoryBytes  int64
-	dataVolume   string
-	nodeSettings []string
+	memoryBytes       int64
+	dataVolume        string
+	nodeSettings      []string
+	securityDirectory string `exhaustruct:"optional"`
 }
 
 // openSearchHostConfig shares holder's network stack and applies the memory

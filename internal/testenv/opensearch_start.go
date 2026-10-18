@@ -2,8 +2,6 @@ package testenv
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -63,14 +61,7 @@ func provisionOpenSearch(ctx context.Context, settings openSearchEngineSettings)
 	if err != nil {
 		return OpenSearchFixture{}, created, err
 	}
-	passwordBytes := make([]byte, 24)
-	if _, err := rand.Read(passwordBytes); err != nil {
-		wrapped := fmt.Errorf("generate OpenSearch admin password: %w", err)
-		telemetry.L(ctx).ErrorContext(ctx, "search.fixture_password_failed", slog.String("err", wrapped.Error()))
-		return OpenSearchFixture{}, created, wrapped
-	}
-	pass := hex.EncodeToString(passwordBytes)
-	internalUsers, err := openSearchInternalUsers(ctx, openSearchAdminUser, pass)
+	securityFiles, username, pass, err := prepareOpenSearchSecurity(ctx, settings.securityDirectory)
 	if err != nil {
 		return OpenSearchFixture{}, created, err
 	}
@@ -96,15 +87,17 @@ func provisionOpenSearch(ctx context.Context, settings openSearchEngineSettings)
 	own(name)
 	created = append(created, name)
 	for path, contents := range map[string][]byte{
-		"/usr/share/opensearch/config/opensearch.yml":                         []byte(openSearchConfig),
-		"/usr/share/opensearch/config/opensearch-security/internal_users.yml": internalUsers,
-		"/usr/share/opensearch/config/certs/ca.pem":                           certificates.ca,
-		"/usr/share/opensearch/config/certs/node.pem":                         certificates.node,
-		"/usr/share/opensearch/config/certs/node-key.pem":                     certificates.key,
+		"/usr/share/opensearch/config/opensearch.yml":     []byte(openSearchConfig),
+		"/usr/share/opensearch/config/certs/ca.pem":       certificates.ca,
+		"/usr/share/opensearch/config/certs/node.pem":     certificates.node,
+		"/usr/share/opensearch/config/certs/node-key.pem": certificates.key,
 	} {
 		if err := writeContainerFileAs(ctx, cli, name, path, contents, openSearchOwner); err != nil {
 			return OpenSearchFixture{}, created, err
 		}
+	}
+	if err := installOpenSearchSecurity(ctx, cli, name, securityFiles); err != nil {
+		return OpenSearchFixture{}, created, err
 	}
 	if _, err := cli.ContainerStart(ctx, name, client.ContainerStartOptions{}); err != nil {
 		wrapped := fmt.Errorf("start OpenSearch fixture %s: %w", name, err)
@@ -113,7 +106,7 @@ func provisionOpenSearch(ctx context.Context, settings openSearchEngineSettings)
 	}
 	fixture := OpenSearchFixture{
 		Endpoint: "https://" + net.JoinHostPort(holder.address, openSearchPort), CA: string(certificates.ca),
-		Username: openSearchAdminUser, Password: pass, Container: name,
+		Username: username, Password: pass, Container: name,
 	}
 	healthContext, stopWaiting := context.WithCancelCause(ctx)
 	defer stopWaiting(nil)

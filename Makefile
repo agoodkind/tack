@@ -101,6 +101,17 @@ test-integration:
 	$(TEST_RUNNER) run --rm tests \
 	    test $(TEST_STORE_ARGS)
 
+# The security files must come from Configs with synthetic credentials.
+.PHONY: test-service-secrets
+test-service-secrets:
+	$(if $(TACK_TEST_SEARCH_SECURITY_DIRECTORY),,$(error TACK_TEST_SEARCH_SECURITY_DIRECTORY must identify rendered synthetic Configs security files))
+	$(TEST_RUNNER) build tests
+	$(TEST_RUNNER) run --rm \
+	    --volume "$(TACK_TEST_SEARCH_SECURITY_DIRECTORY):/search-security-fixture:ro" \
+	    --env TACK_TEST_SEARCH_SECURITY_DIRECTORY=/search-security-fixture \
+	    --env TACK_SEARCH_INTEGRATION=1 tests \
+	    test -tags integration -count=1 -timeout 30m -v -run '^TestServiceSecret' ./internal/test/integration/...
+
 # These targets run the OpenSearch-backed search tests. The default engine
 # takes 8 GiB and downloads the 555 MB model. test-store-host skips these
 # tests. test-search-host runs them on the current host, and test-search runs
