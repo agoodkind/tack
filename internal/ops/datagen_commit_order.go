@@ -11,7 +11,6 @@ import (
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
-	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/datagen"
 )
 
@@ -39,8 +38,7 @@ type datagenCommitOrderReport struct {
 // for each generated organization. It counts node rows, node rows with a
 // commit version, and distinct commit versions that appear in multiple node
 // rows.
-func readDatagenCommitOrder(ctx context.Context, f *cli.Factory, scaleName string, seed int64) (datagenCommitOrderReport, error) {
-	now := clock.Now().UTC()
+func readDatagenCommitOrder(ctx context.Context, f *cli.Factory, scaleName string, seed int64, now time.Time) (datagenCommitOrderReport, error) {
 	report := datagenCommitOrderReport{
 		Command: "ops.qa.datagen.commit_order", ReadAt: now.Format(time.RFC3339Nano), NodeRows: 0, CommitVersions: 0, Duplicates: 0,
 	}

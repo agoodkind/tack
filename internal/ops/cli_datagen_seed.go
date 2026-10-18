@@ -8,6 +8,7 @@ import (
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clispec"
+	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/datagen"
 )
 
@@ -106,7 +107,7 @@ func runDatagenSeed(
 			return fmt.Errorf("qa datagen seed: %w", verbsErr)
 		}
 		ledgerVerbs = &verbs
-		order, orderErr := readDatagenCommitOrder(ctx, factory, input.Scale, int64(input.Seed))
+		order, orderErr := readDatagenCommitOrder(ctx, factory, input.Scale, int64(input.Seed), clock.Now().UTC())
 		if orderErr != nil {
 			return fmt.Errorf("qa datagen seed: %w", orderErr)
 		}
