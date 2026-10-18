@@ -15,7 +15,14 @@ import (
 // TestNodeIntegrityRepairExecuteParentMappings executes one entry for each
 // parent mapping of the backfill specification. Each node must end with the
 // selected parent_id, one child_of edge to that parent, and its project
-// scope. A second execution must not commit a phase.
+// scope.
+//
+// The test records the stored child_of edges for the issue that selects
+// the epic, the issue that keeps the epic, and the deep issue that selects
+// the middle issue. Each recorded edge already targets its node's selected
+// parent and must keep its CreatedBy and CreatedAt values after the repair.
+//
+// A second execution must not commit a phase.
 func TestNodeIntegrityRepairExecuteParentMappings(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	graph := newRepairGraph(t, env)
@@ -33,6 +40,7 @@ func TestNodeIntegrityRepairExecuteParentMappings(t *testing.T) {
 	setLegacyProps(t, env, printedProject, map[string]json.RawMessage{"parent_id": textValue("REPAIR-1")})
 	absent := createRepairIssue(t, env, project, "Absent parent")
 	setLegacyProps(t, env, absent, map[string]json.RawMessage{"parent_id": textValue(uuid.New().String())})
+	kept := []node.Relationship{childOfEdge(t, env, graph.issueID, epic), childOfEdge(t, env, retained, epic), childOfEdge(t, env, deep, middle)}
 
 	childOf := func(targetID uuid.UUID) ops.RepairEdge {
 		return ops.RepairEdge{RelationType: node.RelChildOf, TargetID: targetID}
@@ -63,8 +71,32 @@ func TestNodeIntegrityRepairExecuteParentMappings(t *testing.T) {
 		}
 		requireCheckpointPhase(t, env, entry.RepairID, node.RepairPhaseCompleted)
 	}
+	for _, before := range kept {
+		after := childOfEdge(t, env, before.SourceID, before.TargetID)
+		if after.CreatedBy != before.CreatedBy || !after.CreatedAt.Equal(before.CreatedAt) {
+			t.Fatalf("child_of edge from %s to %s = %+v after the repair, want the stored edge %+v", before.SourceID, before.TargetID, after, before)
+		}
+	}
 	requireParent(t, env, middle, epic)
 	requireUnchangedRerun(t, manifest)
+}
+
+// childOfEdge lists the stored child_of edges of sourceID through the
+// relationship store and returns the edge that targets targetID. It fails
+// the test when the node does not have that edge.
+func childOfEdge(t *testing.T, env *integration.TestEnv, sourceID, targetID uuid.UUID) node.Relationship {
+	t.Helper()
+	edges, err := env.Stores.Relationships.ListBySource(env.Ctx, env.OrgID, sourceID, node.RelChildOf)
+	if err != nil {
+		t.Fatalf("list child_of edges of %s: %v", sourceID, err)
+	}
+	for _, edge := range edges {
+		if edge.TargetID == targetID {
+			return *edge
+		}
+	}
+	t.Fatalf("node %s has no child_of edge to %s", sourceID, targetID)
+	return node.Relationship{}
 }
 
 // TestNodeIntegrityRepairExecuteStopsChangedSource changes a node after the
