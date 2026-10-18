@@ -41,6 +41,30 @@ func TestParentEdgeGuardRefusesRootTypeCanonicalEdge(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	actor := uuid.Must(uuid.NewV7())
 	project := createDeleteFixtureProject(t, env, actor, "GUARDROOT")
+	rooted := createDeleteFixtureNode(t, env, actor, project, project, storeGuardRootType(t, env), "Node of a root type", nil)
+	requireRemovalRefused(t, env, rooted, project)
+	requireParentEdges(t, env, rooted, project)
+}
+
+// TestParentEdgeGuardRefusesInvalidParentID creates a node under a project
+// with a node type that does not list CanLiveUnder types. It stores
+// "not a UUID" as parent_id through storeParentID and requires removal of the
+// node's only child_of edge to the project to fail with an error that matches
+// domain.ErrFailedPrecondition. It requires that edge to remain in FoundationDB.
+func TestParentEdgeGuardRefusesInvalidParentID(t *testing.T) {
+	env := integration.SetupTestEnv(t)
+	actor := uuid.Must(uuid.NewV7())
+	project := createDeleteFixtureProject(t, env, actor, "GUARDINVALID")
+	rooted := createDeleteFixtureNode(t, env, actor, project, project, storeGuardRootType(t, env), "Node with an invalid parent", nil)
+	storeParentID(t, env, rooted, "not a UUID")
+	requireRemovalRefused(t, env, rooted, project)
+	requireParentEdges(t, env, rooted, project)
+}
+
+// storeGuardRootType stores the guardroot node type through NodeTypeStore.Set
+// and returns its type key. The node type does not list CanLiveUnder types.
+func storeGuardRootType(t *testing.T, env *integration.TestEnv) string {
+	t.Helper()
 	kind := &node.NodeType{
 		ID: uuid.Must(uuid.NewV7()), OrgID: env.OrgID, Name: "guardroot", TypeKey: "guardroot",
 		Slug: "guardroot", PluralSlug: "guardroots",
@@ -48,9 +72,7 @@ func TestParentEdgeGuardRefusesRootTypeCanonicalEdge(t *testing.T) {
 	if err := env.Stores.NodeTypes.Set(env.Ctx, kind); err != nil {
 		t.Fatalf("store node type %s: %v", kind.TypeKey, err)
 	}
-	rooted := createDeleteFixtureNode(t, env, actor, project, project, kind.TypeKey, "Node of a root type", nil)
-	requireRemovalRefused(t, env, rooted, project)
-	requireParentEdges(t, env, rooted, project)
+	return kind.TypeKey
 }
 
 func requireRemovalRefused(t *testing.T, env *integration.TestEnv, sourceID, targetID uuid.UUID) {
