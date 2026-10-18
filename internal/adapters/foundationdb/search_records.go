@@ -60,27 +60,35 @@ type searchAccessRecord struct {
 	DependentsPending bool              `json:"dependents_pending"`
 }
 
-// searchScanRecord is the durable state of one organization rescan. Phase
-// is scanDefinitions, scanTypes, or scanNodes. Stop is the node cursor at
-// which the latest request arrived during the node pass. When the pass has
-// read the last node, a nonempty Stop restarts the node pass at the first
-// node, and that wrapped pass ends at Stop. Content and Access select the
-// work each scanned node receives. The Names field limits content work to
-// nodes with a value under one of the names. When Content is true and Names
-// is empty, every scanned node receives content work.
+// searchScanRecord records the durable state of one organization rescan.
+// Phase is scanDefinitions, scanTypes, or scanNodes. Stop records the node
+// cursor when the latest request occurred during the node pass. After a
+// metadata pass, the node pass starts at Stop. After reading the last node,
+// a scan with a nonempty Stop restarts at the first node and ends at Stop.
+// Content and Access select work for each scanned node. Names selects
+// content work for nodes with a value under one of the property names.
+// TypeKeys and Features also select content work for nodes of those types
+// with a value under a definition that applies to one of those features.
+// When Content is true and Names and TypeKeys are empty, the scan selects
+// content work for every node.
 type searchScanRecord struct {
-	Phase   string   `json:"phase"`
-	Cursor  string   `json:"cursor"`
-	Stop    string   `json:"stop"`
-	Wrapped bool     `json:"wrapped"`
-	Content bool     `json:"content"`
-	Names   []string `json:"names,omitempty"`
-	Access  bool     `json:"access"`
+	Phase    string   `json:"phase"`
+	Cursor   string   `json:"cursor"`
+	Stop     string   `json:"stop"`
+	Wrapped  bool     `json:"wrapped"`
+	Content  bool     `json:"content"`
+	Names    []string `json:"names,omitempty"`
+	TypeKeys []string `json:"type_keys,omitempty"`
+	Features []string `json:"features,omitempty"`
+	Access   bool     `json:"access"`
+	// Projection records the metadata pass's projection recomputation.
+	// It is nil when the pass does not recompute the projection.
+	Projection *searchProjectionTarget `json:"projection,omitempty"`
 }
 
 type searchRecordValue interface {
 	searchWorkRecord | searchClaimRecord | searchProgressRecord | searchAccessRecord | searchScanRecord | searchRolloutRecord |
-		searchRebuildRecord | searchExclusionRecord | searchModelRepairRecord
+		searchRebuildRecord | searchExclusionRecord | searchModelRepairRecord | searchProjectionState | searchProjectionSweep
 }
 
 // readSearchRecord decodes the JSON record at key. It reports false when the

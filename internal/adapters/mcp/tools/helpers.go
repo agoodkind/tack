@@ -150,7 +150,7 @@ func mustUser(ctx context.Context) (uuid.UUID, error) {
 // The wrapper enforces strict top-level argument keys before dispatch: any
 // key not declared in tool.InputSchema.Properties causes a recoverableError.
 // Nested keys inside properties are validated separately by the service
-// layer (validateNodeProps).
+// layer (ValidateNodeProps).
 func registerTool(s *mcpserver.MCPServer, tool mcpmcp.Tool, h mcpserver.ToolHandlerFunc) {
 	allowed := allowedArgNames(tool.InputSchema)
 	strict := func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {

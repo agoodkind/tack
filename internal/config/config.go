@@ -362,9 +362,15 @@ type Config struct {
 }
 
 func Load() (*Config, error) {
-	var cfg Config
-	if err := env.Parse(&cfg); err != nil {
+	environment, err := secretEnvironment(serviceSecretNames)
+	if err != nil {
 		return nil, err
+	}
+	var cfg Config
+	if err := env.ParseWithOptions(&cfg, env.Options{Environment: environment}); err != nil {
+		wrapped := fmt.Errorf("parse server environment: %w", err)
+		slog.Error("config.load_failed", slog.String("err", wrapped.Error()))
+		return nil, wrapped
 	}
 	if !filepath.IsAbs(cfg.OpsFDBClusterDir) {
 		err := fmt.Errorf("TACK_OPS_FDB_CLUSTER_DIR %q is not an absolute path", cfg.OpsFDBClusterDir)

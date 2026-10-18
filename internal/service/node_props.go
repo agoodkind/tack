@@ -47,6 +47,23 @@ func (s *NodeService) checkDeclaredProps(
 	if err != nil {
 		return loggedPropertyCheckError(ctx, nt, operation, err)
 	}
+	return ValidateNodeProps(ctx, schema, nt, operation, props)
+}
+
+// ValidateNodeProps interprets props with schema for nt. It logs and returns
+// an error for schema read failures. It logs and refuses property names
+// without definitions and names with definitions that do not apply to nt.
+// For names with definitions, it exempts parent_id, scope_id, and sequence.
+// Refusal errors wrap domain.ErrInvalidArgument and list quoted names in
+// sorted order. Errors and log entries include the operation value.
+// It ignores value and option issues and returns nil otherwise.
+func ValidateNodeProps(
+	ctx context.Context,
+	schema node.Schema,
+	nt *node.NodeType,
+	operation string,
+	props map[string]json.RawMessage,
+) error {
 	result := schema.Interpret(nt.TypeKey, props)
 	if len(result.Failures) > 0 {
 		return loggedPropertyCheckError(ctx, nt, operation, result.Err())
@@ -95,8 +112,6 @@ func (s *NodeService) readSchema(ctx context.Context, orgID uuid.UUID) (node.Sch
 	return node.Schema{OrgID: orgID, Types: node.BuildTypeIndex(types), Definitions: definitions}, nil
 }
 
-// loggedPropertyCheckError wraps an error from a property check. It logs a
-// refusal at warning level and a failed read at error level.
 func loggedPropertyCheckError(ctx context.Context, nt *node.NodeType, operation string, err error) error {
 	wrapped := fmt.Errorf("node type %q %s: %w", nt.TypeKey, operation, err)
 	if errors.Is(err, domain.ErrInvalidArgument) {
