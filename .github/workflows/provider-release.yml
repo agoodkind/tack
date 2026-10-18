@@ -1,19 +1,9 @@
 name: Provider release
 
-# This workflow runs on manual dispatch and pushes to main that change
-# provider/** or .github/workflows/provider-release.yml. It publishes
-# terraform-provider-tack_<os>_<arch>.tar.gz assets for darwin and linux on
-# amd64 and arm64. The Configs script opentofu/guest/install-providers.sh
-# downloads these assets. The filename avoids release.yml because shared
-# go-makefile _ci.yml runs a release dry run for the root module when
-# .github/workflows/release.yml exists. The root module does not release.
+# The image workflow publishes both container images before starting the provider release.
+# Keep this filename because shared Go CI treats release.yml as a root module release.
 on:
-  push:
-    branches: [main]
-    paths:
-      - provider/**
-      - .github/workflows/provider-release.yml
-  workflow_dispatch:
+  workflow_call:
 
 jobs:
   release:
@@ -26,3 +16,30 @@ jobs:
       binary: terraform-provider-tack
       working_directory: provider
     secrets: inherit
+
+  images:
+    needs: release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      packages: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: login to ghcr
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: set up buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: add container image references
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.release.outputs.tag }}
+          RELEASE_IMAGE_DIRECTORY: ${{ runner.temp }}/release-images
+        run: bash scripts/release-images.sh

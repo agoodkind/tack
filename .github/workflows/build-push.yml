@@ -161,3 +161,14 @@ jobs:
           IMAGE_TAG_FILE: ${{ runner.temp }}/image-tags
           DIGEST_DIRECTORY: ${{ runner.temp }}/digests
         run: bash scripts/image-manifest.sh
+
+  release:
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    uses: ./.github/workflows/provider-release.yml
+    permissions:
+      contents: write
+      packages: read
+      id-token: write
+      attestations: write
+    secrets: inherit
