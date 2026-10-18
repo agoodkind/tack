@@ -60,6 +60,9 @@ func (s *NodeStore) deleteNodeAttempt(ctx context.Context, tr fdb.Transaction, p
 	if err := refuseHierarchyChild(ctx, tr, plan, incoming); err != nil {
 		return none, err
 	}
+	if err := refuseReferencedNode(ctx, tr, plan.OrgID, source); err != nil {
+		return none, err
+	}
 	if !outgoingMatches(plan.Graph.Relationships, outgoing) || !incomingMatches(plan.Graph.Incoming, incoming) {
 		return none, mutationRefusal(ctx, plan.NodeID, "the stored relationships differ from the graph expectation", domain.ErrConflict)
 	}
