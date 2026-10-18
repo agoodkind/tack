@@ -53,3 +53,25 @@ func checkStrictRelationship(ctx context.Context, tr fdb.Transaction, strict boo
 	}
 	return nil
 }
+
+// checkStrictRelationshipAdds returns nil when strict is false. When strict
+// is true, it calls checkStrictRelationship with memberTarget false for each
+// relationship in each Add list, except child_of, and returns the first error.
+// This rejects targets that do not resolve to nodes. checkStrictRecord or
+// checkStrictMutation checks child_of relationships.
+func checkStrictRelationshipAdds(ctx context.Context, tr fdb.Transaction, strict bool, changesList []node.RelationshipChanges) error {
+	if !strict {
+		return nil
+	}
+	for _, changes := range changesList {
+		for _, relationship := range changes.Add {
+			if relationship.RelationType == node.RelChildOf {
+				continue
+			}
+			if err := checkStrictRelationship(ctx, tr, strict, relationship, false); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}

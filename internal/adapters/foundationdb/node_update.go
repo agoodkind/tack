@@ -39,6 +39,9 @@ func (s *NodeStore) UpdateAtomic(ctx context.Context, current *node.Node, view *
 		if err := applyRelationshipChanges(ctx, tr, relationshipChanges); err != nil {
 			return err
 		}
+		if err := checkStrictRelationshipAdds(ctx, tr, strict, relationshipChanges); err != nil {
+			return err
+		}
 		if err := checkStrictRecord(ctx, tr, strict, current); err != nil {
 			return err
 		}

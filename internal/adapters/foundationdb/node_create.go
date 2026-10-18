@@ -36,6 +36,9 @@ func (s *NodeStore) CreateAtomic(ctx context.Context, current *node.Node, view *
 		if err := writeCreateRelationships(ctx, tr, current.OrgID, relationships); err != nil {
 			return err
 		}
+		if err := checkStrictRelationshipAdds(ctx, tr, strict, []node.RelationshipChanges{{Add: relationships, Remove: nil}}); err != nil {
+			return err
+		}
 		if err := checkStrictRecord(ctx, tr, strict, current); err != nil {
 			return err
 		}

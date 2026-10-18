@@ -3,6 +3,7 @@ package integration_test
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -68,6 +69,30 @@ func TestNodeIntegrityStrictRejectsUnknownAssignmentAfterActivation(t *testing.T
 	edges, err := env.Stores.Relationships.ListBySource(env.Ctx, env.OrgID, issue.ID, node.RelAssignedTo)
 	if err != nil || len(edges) != 0 {
 		t.Fatalf("assigned_to edges of issue %s after the refused adds = %v, %v, want none", issue.ID, edges, err)
+	}
+}
+
+// TestNodeIntegrityStrictRejectsUnknownAssigneeCreateAfterActivation
+// verifies that NodeService.Create rejects an issue under a project when
+// strict validation is active and CreateInput.Relationships assigns the issue
+// to an existing user who does not belong to the test organization. The test
+// requires an error that wraps domain.ErrInvalidArgument and verifies that
+// the project's scope_id index does not list any issues.
+func TestNodeIntegrityStrictRejectsUnknownAssigneeCreateAfterActivation(t *testing.T) {
+	env := integration.SetupTestEnv(t)
+	projectID := createSchemaProject(t, env)
+	outsiderID := createStrictUser(t, env)
+	activateStrict(t)
+
+	input := schemaCreateInput(projectID, projectID, "issue", nil)
+	input.Relationships = []*node.Relationship{{
+		OrgID: uuid.Nil, SourceID: uuid.Nil, RelationType: node.RelAssignedTo, TargetID: outsiderID,
+		CreatedBy: uuid.Nil, CreatedAt: time.Time{}, Props: nil,
+	}}
+	_, err := env.NodeSvc.Create(env.Ctx, input)
+	requireError(t, err, domain.ErrInvalidArgument, "the create of an issue assigned to a user outside the organization")
+	if issues := listByScope(t, env, "issue", projectID); len(issues) != 0 {
+		t.Fatalf("project %s lists %d issues after the refused create, want none", projectID, len(issues))
 	}
 }
 
