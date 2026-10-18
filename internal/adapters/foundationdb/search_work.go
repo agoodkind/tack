@@ -57,16 +57,22 @@ func (s *Stores) InitializeSearchIndex(ctx context.Context, index string) (err e
 	return nil
 }
 
-// Claim leases one item of the requested class. One read finds the buckets
-// that contain pending work. The clock selects the index of the first
-// pending bucket to try, and Claim tries the remaining pending buckets in
-// order after it. Workers that call Claim at different times can start at
-// different pending buckets.
+// Claim leases one item of the requested class. A rescan claim first runs
+// one bounded step of the projection sweep. One read finds the buckets
+// that contain pending work. The clock selects the first pending bucket
+// to try. Claim then tries the remaining pending buckets in order.
+// Workers that call Claim at different times can start at different
+// pending buckets.
 func (s *SearchWorkStore) Claim(ctx context.Context, class searchdomain.WorkClass, owner string, lease time.Duration) (work searchdomain.Work, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_work.claim")(&err)
 	var none searchdomain.Work
 	if owner == "" || lease <= 0 {
 		return none, searchStorageError(ctx, "search.work.claim_invalid", "validate claim owner and lease", uuid.Nil, errors.New("owner and positive lease are required"))
+	}
+	if class == searchdomain.WorkClassRescan {
+		if err := s.sweepProjections(ctx); err != nil {
+			return none, searchStorageError(ctx, "search.projection.sweep_failed", "sweep organization projections", uuid.Nil, err)
+		}
 	}
 	pending, err := s.pendingBuckets(ctx, class)
 	if err != nil {

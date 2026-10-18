@@ -2,11 +2,13 @@ package foundationdb
 
 import (
 	"context"
+	"encoding/hex"
 	"slices"
 	"time"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/domain/node"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 )
 
@@ -18,18 +20,45 @@ const (
 	scanNodes       = "nodes"
 )
 
-// maxRescanNames bounds the property names one content rescan records. A
-// larger set schedules content work for every node.
+// maxRescanNames limits each set of property names, type keys, and features
+// in one content rescan. If any set exceeds the limit, the scan schedules
+// content work for every node.
 const maxRescanNames = 64
 
-// requestSearchRescan records one bounded rescan of every node in orgID
-// inside the caller's metadata transaction. names schedules content work
-// for each node that has a value under one of the names, and access
-// schedules access work for every node. A request during a scan leaves the
-// scan cursor unchanged. During the node pass it records the cursor as
-// Stop. The pass then restarts at the first node after the last node and
-// ends at Stop. The pass reads every node after the latest request.
-func requestSearchRescan(ctx context.Context, tr fdb.Transaction, now time.Time, orgID uuid.UUID, names []string, access bool) error {
+// searchRescanRequest selects work for one organization rescan.
+// AllContent selects content work for every node. Names selects content
+// work for nodes with a value under one of the property names. TypeKeys and
+// Features select content work for nodes of those types with a value under
+// a definition that applies to one of those features. Access selects access
+// work for every node. Projection requests digest recomputation during the
+// metadata pass and activation of this writer's renderer and format.
+type searchRescanRequest struct {
+	AllContent bool
+	Names      []string
+	TypeKeys   []string
+	Features   []string
+	Access     bool
+	Projection bool
+}
+
+// searchProjectionTarget records the projection recomputation for one
+// metadata pass. Sum stores the hex sum of contributions the pass has read.
+// Epoch records the organization's metadata epoch when the pass started.
+type searchProjectionTarget struct {
+	Renderer int    `json:"renderer"`
+	Format   int    `json:"format"`
+	Sum      string `json:"sum"`
+	Epoch    int64  `json:"epoch"`
+}
+
+// requestSearchRescan records a rescan of every node in orgID inside the
+// caller's transaction. The rescan processes bounded pages. A request
+// without projection recomputation keeps the scan cursor. During the node
+// pass, it records the cursor as Stop. After reading the last node, the
+// pass restarts at the first node and ends at Stop. A projection request
+// restarts the metadata pass. The following node pass starts at Stop.
+// The scan reads every node after the latest request.
+func requestSearchRescan(ctx context.Context, tr fdb.Transaction, now time.Time, orgID uuid.UUID, request searchRescanRequest) error {
 	generation, err := incrementSearchCounter(ctx, tr, searchScanKey(orgID))
 	if err != nil {
 		return err
@@ -39,7 +68,10 @@ func requestSearchRescan(ctx context.Context, tr fdb.Transaction, now time.Time,
 	if err != nil {
 		return err
 	}
-	state := searchScanRecord{Phase: scanDefinitions, Cursor: "", Stop: "", Wrapped: false, Content: false, Names: nil, Access: false}
+	state := searchScanRecord{
+		Phase: scanDefinitions, Cursor: "", Stop: "", Wrapped: false, Content: false,
+		Names: nil, TypeKeys: nil, Features: nil, Access: false, Projection: nil,
+	}
 	var previous *searchWorkRecord
 	if found {
 		previous = &existing
@@ -55,7 +87,14 @@ func requestSearchRescan(ctx context.Context, tr fdb.Transaction, now time.Time,
 			}
 		}
 	}
-	state = mergeScanRequest(state, names, access)
+	state = mergeScanRequest(state, request)
+	if request.Projection {
+		epoch, epochErr := readSearchCounter(ctx, tr, searchEpochKey(orgID))
+		if epochErr != nil {
+			return epochErr
+		}
+		state = restartProjectionPass(state, epoch)
+	}
 	if err := writeSearchRecord(ctx, tr, searchCursorKey(string(class), orgID, uuid.Nil), state); err != nil {
 		return err
 	}
@@ -66,33 +105,63 @@ func requestSearchRescan(ctx context.Context, tr fdb.Transaction, now time.Time,
 	return writeSearchWork(ctx, tr, class, record, previous)
 }
 
-// mergeScanRequest adds one request's content names and access flag to the
-// scan state. Content with no names selects every node. When the merged
-// names exceed maxRescanNames, the state stores no names, and the scan
-// schedules content work for every node.
-func mergeScanRequest(state searchScanRecord, names []string, access bool) searchScanRecord {
-	state.Access = state.Access || access
-	if len(names) == 0 {
+// restartProjectionPass restarts state's metadata pass with a zero sum
+// for this writer's renderer and format.
+func restartProjectionPass(state searchScanRecord, epoch int64) searchScanRecord {
+	state.Phase, state.Cursor = scanDefinitions, ""
+	state.Projection = &searchProjectionTarget{
+		Renderer: node.SearchRendererVersion, Format: searchProjectionFormat,
+		Sum: hex.EncodeToString(sumContributions(nil, nil, nil)), Epoch: epoch,
+	}
+	return state
+}
+
+// allContent reports whether state schedules content work for every node.
+func allContent(state searchScanRecord) bool {
+	return state.Content && len(state.Names) == 0 && len(state.TypeKeys) == 0
+}
+
+// mergeScanRequest adds one request's content selection and access flag to
+// the scan state. A request for all content clears Names, TypeKeys, and
+// Features. If any selection set exceeds maxRescanNames, it selects content
+// work for every node.
+func mergeScanRequest(state searchScanRecord, request searchRescanRequest) searchScanRecord {
+	state.Access = state.Access || request.Access
+	selective := len(request.Names) > 0 || len(request.TypeKeys) > 0 && len(request.Features) > 0
+	switch {
+	case request.AllContent || allContent(state):
+		return selectAllContent(state)
+	case !selective:
 		return state
 	}
-	switch {
-	case state.Content && len(state.Names) == 0:
-		return state
-	case !state.Content:
-		state.Content = true
-		state.Names = slices.Clone(names)
-	default:
-		for _, name := range names {
-			if !slices.Contains(state.Names, name) {
-				state.Names = append(state.Names, name)
-			}
+	state.Content = true
+	state.Names = mergeNames(state.Names, request.Names)
+	if len(request.Features) > 0 {
+		state.TypeKeys = mergeNames(state.TypeKeys, request.TypeKeys)
+		state.Features = mergeNames(state.Features, request.Features)
+	}
+	if len(state.Names) > maxRescanNames || len(state.TypeKeys) > maxRescanNames || len(state.Features) > maxRescanNames {
+		return selectAllContent(state)
+	}
+	return state
+}
+
+func selectAllContent(state searchScanRecord) searchScanRecord {
+	state.Content = true
+	state.Names, state.TypeKeys, state.Features = nil, nil, nil
+	return state
+}
+
+// mergeNames returns the sorted distinct values from current and added.
+func mergeNames(current, added []string) []string {
+	merged := slices.Clone(current)
+	for _, name := range added {
+		if name != "" && !slices.Contains(merged, name) {
+			merged = append(merged, name)
 		}
 	}
-	if len(state.Names) > maxRescanNames {
-		state.Names = nil
-	}
-	slices.Sort(state.Names)
-	return state
+	slices.Sort(merged)
+	return merged
 }
 
 // rescanProgress maps the scan state to the claim's phase and cursor. The

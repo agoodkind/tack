@@ -103,7 +103,14 @@ const (
 	// (search_exclusion, orgID, nodeID) -> exclusion record JSON of a node
 	//   that search does not index
 	// (search_scan, orgID) -> rescan generation counter
-	// (search_projection, orgID) -> 32-byte sum of definition projection hashes
+	// (search_projection, orgID) stores the 32-byte sum of definition
+	//   projection hashes. Releases without a projection state record
+	//   read this legacy digest.
+	// (search_projection_state, orgID) stores the active projection
+	//   state as JSON: renderer, format, digest, and activation.
+	// (search_projection_sweep) stores the newest writer's sweep
+	//   record as JSON: renderer, format, organization cursor, and
+	//   completion state.
 	// (search_index) -> serving physical index name
 	// (search_epoch, orgID) -> metadata epoch counter; every property
 	//   definition or node type change increments it
@@ -142,6 +149,8 @@ const (
 	keySearchExclusion         = "search_exclusion"
 	keySearchScan              = "search_scan"
 	keySearchProjection        = "search_projection"
+	keySearchProjectionState   = "search_projection_state"
+	keySearchProjectionSweep   = "search_projection_sweep"
 	keySearchIndex             = "search_index"
 
 	// (search_warning, orgID, nodeID, propertyName) -> one verified property
