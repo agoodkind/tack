@@ -14,10 +14,12 @@ import (
 
 // nodeContentSnapshot stores every value one page read uses. One
 // FoundationDB transaction reads the values with point reads and bounded
-// index reads. The definitions field contains only the definitions that
-// match the node's property names.
+// index reads. definitions contains only definitions that match the node's
+// property names. nodeType is nil when the organization does not define the
+// node's type key.
 type nodeContentSnapshot struct {
 	node         node.Node
+	nodeType     *node.NodeType
 	definitions  []*node.PropertyDef
 	generation   int64
 	revision     int64
@@ -84,6 +86,10 @@ func readNodeContentSnapshot(ctx context.Context, transaction fdb.Transaction, n
 	if err != nil {
 		return nodeContentSnapshot{}, err
 	}
+	nodeType, err := cachedNodeTypeByKey(ctx, transaction, resolve.OrgID, resolve.NodeType, map[string]*node.NodeType{})
+	if err != nil {
+		return nodeContentSnapshot{}, err
+	}
 	generation, err := readSearchCounter(ctx, transaction, searchGenerationKey(resolve.OrgID, nodeID))
 	if err != nil {
 		return nodeContentSnapshot{}, err
@@ -101,7 +107,7 @@ func readNodeContentSnapshot(ctx context.Context, transaction fdb.Transaction, n
 		return nodeContentSnapshot{}, err
 	}
 	return nodeContentSnapshot{
-		node: current, definitions: definitions, generation: generation,
+		node: current, nodeType: nodeType, definitions: definitions, generation: generation,
 		revision: revision, access: access, projectionID: projectionID,
 	}, nil
 }

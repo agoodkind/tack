@@ -10,16 +10,14 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
 
-	"goodkind.io/tack/internal/tackprovider"
+	"goodkind.io/tack/provider/internal/tackprovider"
+	"goodkind.io/tack/provider/internal/version"
 )
 
 const (
 	providerAddress  = "tofu.home.arpa/agoodkind/tack"
 	protocolVersion6 = 6
 )
-
-// version receives its value at link time from the provider-tack Makefile target.
-var version = "dev"
 
 func main() {
 	var debug bool
@@ -31,9 +29,9 @@ func main() {
 		Debug:           debug,
 		ProtocolVersion: protocolVersion6,
 	}
-	slog.Info("provider.starting", slog.String("address", providerAddress), slog.String("version", version),
+	slog.Info("provider.starting", slog.String("address", providerAddress), slog.String("version", version.Version),
 		slog.Bool("debug", debug))
-	if err := providerserver.Serve(context.Background(), tackprovider.New(version), options); err != nil {
+	if err := providerserver.Serve(context.Background(), tackprovider.New(version.Version), options); err != nil {
 		slog.Error("provider.stopped", slog.String("address", providerAddress), slog.String("err", err.Error()))
 		os.Exit(1)
 	}

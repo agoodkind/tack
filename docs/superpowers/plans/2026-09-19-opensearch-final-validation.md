@@ -185,7 +185,7 @@ For each failure, rerun the smallest exact test until it fails consistently. Tra
 
 - [ ] **Step 9: Run the complete search suite from a clean test environment.**
 
-Run the suite as six fixed groups. Each group limit is the slowest complete CI measurement of that group times 1.5, rounded up to 5 minutes. The measurements come from the OpenSearch CI jobs 110765693590, 109857411134, and the completed groups of 110045603547.
+Run the suite as six fixed groups. Each group limit is the slowest complete CI measurement of that group times 1.5, rounded up to 5 minutes. The measurements come from the OpenSearch CI jobs 110765693590, 109857411134, 117516233280, and the completed groups of 110045603547.
 
 | Group | Selection | Tests | Slowest measurement | Limit |
 | --- | --- | --- | --- | --- |
@@ -193,7 +193,7 @@ Run the suite as six fixed groups. Each group limit is the slowest complete CI m
 | G2 | `^TestSearchActualOSProcessThroughput$` | 1 | 1062.7 s (110045603547) | 30m |
 | G3 | `^TestSearch(Split|Restore|Rebuild)` | 7 | 1122.4 s (110765693590) | 30m |
 | G4 | `^TestSearchCluster`, skipping `^TestSearchClusterModelRepair` | 3 | 955.4 s on the Mac runner | 25m |
-| G5 | `^TestSearch`, skipping the G1 to G4 and G6 tests | 72 | 1604.1 s (110765693590) | 45m |
+| G5 | `^TestSearch`, skipping the G1 to G4 and G6 tests | 72 | 2436.1 s (117516233280) | 65m |
 | G6 | `^TestSearchClusterModelRepair` | 1 | 129.67 s on the Mac runner (2026-10-02, head 650f19ac) | 5m |
 
 G5 selects every search test that G1 to G4 and G6 do not select. A new search test runs in G5 unless a change assigns it to another group.

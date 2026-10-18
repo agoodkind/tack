@@ -55,11 +55,18 @@ func (s *NodeContentStore) Content(ctx context.Context, request searchdomain.Con
 	if len(request.AccessVersions) > 0 && !slices.Equal(request.AccessVersions, snapshot.access.Versions) {
 		return page, searchdomain.ErrWorkChanged
 	}
-	text, err := node.EmitSearchText(ctx, request.NodeID, snapshot.node.Name, snapshot.node.Props, snapshot.definitions)
+	render, err := node.RenderSearchText(ctx, node.SearchSource{
+		OrgID: snapshot.node.OrgID, NodeID: request.NodeID, NodeType: snapshot.nodeType, Name: snapshot.node.Name,
+		Properties: snapshot.node.Props, Definitions: snapshot.definitions,
+	})
 	if err != nil {
-		return page, nodeContentContextError{operation: "emit search text for node " + request.NodeID.String(), err: err}
+		return page, nodeContentContextError{operation: "render search text for node " + request.NodeID.String(), err: err}
 	}
 	revision := strconv.FormatInt(snapshot.revision, 10)
+	for index := range render.Diagnostics {
+		render.Diagnostics[index].Revision = revision
+		render.Diagnostics[index].ProjectionVersion = snapshot.projectionID
+	}
 	position, err := contentPosition(ctx, request, revision, snapshot.projectionID)
 	if errors.Is(err, node.ErrContentChanged) {
 		return page, nodeContentContextError{operation: "validate content cursor for node " + request.NodeID.String(), err: err}
@@ -75,10 +82,11 @@ func (s *NodeContentStore) Content(ctx context.Context, request searchdomain.Con
 		nodeID: request.NodeID, nodeType: snapshot.node.NodeType, revision: revision,
 		projection: snapshot.projectionID, name: boundedSearchName(snapshot.node.Name),
 	}
-	page, err = contentPage(ctx, text, identity, access, position)
+	page, err = contentPage(ctx, render.Text, identity, access, position)
 	if err != nil {
 		return node.ContentPage{}, contentFailure(ctx, "search.content.page_invalid", "encode content page", request.NodeID, err)
 	}
+	page.Diagnostics = render.Diagnostics
 	return page, nil
 }
 

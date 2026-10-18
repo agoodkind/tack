@@ -150,6 +150,9 @@ const (
 	// VerbOpsBackfillOrphanNodes records the one-time delete of the nodes
 	// without a hierarchy parent and their descendants.
 	VerbOpsBackfillOrphanNodes Verb = "ops.backfill_orphan_nodes"
+	// VerbOpsBackfillNodeIntegrity records the one-time node integrity backfill
+	// for TACK-582. The backfill applies a frozen repair manifest.
+	VerbOpsBackfillNodeIntegrity Verb = "ops.backfill_node_integrity"
 	// VerbOpsBackfillAuditPartitionNames records the one-time rename of each
 	// audit.events child with a name outside events_pYYYY_MM_DD.
 	VerbOpsBackfillAuditPartitionNames Verb = "ops.backfill_audit_partition_names"
