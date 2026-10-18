@@ -34,9 +34,14 @@ func OpenSearchWithSecurityFiles(t T, directory string) OpenSearchFixture {
 	return fixture
 }
 
-func prepareOpenSearchSecurity(ctx context.Context, directory string) (map[string][]byte, string, string, error) {
-	if directory != "" {
-		return readOpenSearchSecurity(directory)
+type openSearchSecurityLogin struct {
+	username     string
+	passwordPath string
+}
+
+func prepareOpenSearchSecurity(ctx context.Context, settings openSearchEngineSettings) (map[string][]byte, string, string, error) {
+	if settings.securityDirectory != "" {
+		return readOpenSearchSecurity(settings.securityDirectory, settings.securityLogin)
 	}
 	password, err := randomHex(ctx, 24)
 	if err != nil {
@@ -49,7 +54,7 @@ func prepareOpenSearchSecurity(ctx context.Context, directory string) (map[strin
 	return map[string][]byte{"internal_users.yml": users}, openSearchAdminUser, password, nil
 }
 
-func readOpenSearchSecurity(directory string) (map[string][]byte, string, string, error) {
+func readOpenSearchSecurity(directory string, login *openSearchSecurityLogin) (map[string][]byte, string, string, error) {
 	files := make(map[string][]byte)
 	for _, name := range []string{"roles.yml", "roles_mapping.yml", "internal_users.yml"} {
 		contents, err := os.ReadFile(filepath.Join(directory, name))
@@ -60,16 +65,19 @@ func readOpenSearchSecurity(directory string) (map[string][]byte, string, string
 		}
 		files[name] = contents
 	}
-	password, err := os.ReadFile(filepath.Join(directory, "OPENSEARCH_MAINTENANCE_PASSWORD"))
+	if login == nil {
+		login = &openSearchSecurityLogin{username: "tack_maintenance", passwordPath: filepath.Join(directory, "OPENSEARCH_MAINTENANCE_PASSWORD")}
+	}
+	password, err := os.ReadFile(login.passwordPath)
 	if err != nil {
-		wrapped := fmt.Errorf("read synthetic maintenance password: %w", err)
+		wrapped := fmt.Errorf("read synthetic fixture password: %w", err)
 		slog.Error("testenv.search_security_failed", slog.String("err", wrapped.Error()))
 		return nil, "", "", wrapped
 	}
 	if strings.TrimSpace(string(password)) == "" {
-		return nil, "", "", fmt.Errorf("the synthetic maintenance password is empty")
+		return nil, "", "", fmt.Errorf("the synthetic fixture password is empty")
 	}
-	return files, "tack_maintenance", strings.TrimSpace(string(password)), nil
+	return files, login.username, strings.TrimSpace(string(password)), nil
 }
 
 func installOpenSearchSecurity(ctx context.Context, docker *client.Client, name string, files map[string][]byte) error {

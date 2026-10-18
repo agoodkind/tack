@@ -57,11 +57,11 @@ func provisionOpenSearch(ctx context.Context, settings openSearchEngineSettings)
 		return OpenSearchFixture{}, created, wrapped
 	}
 	name := "tack-testenv-opensearch-" + strconv.Itoa(os.Getpid()) + "-" + suffix
-	certificates, err := makeOpenSearchCertificates(ctx, net.ParseIP(holder.address))
+	certificates, err := openSearchCertificatesForSettings(ctx, net.ParseIP(holder.address), settings.administratorDirectory)
 	if err != nil {
 		return OpenSearchFixture{}, created, err
 	}
-	securityFiles, username, pass, err := prepareOpenSearchSecurity(ctx, settings.securityDirectory)
+	securityFiles, username, pass, err := prepareOpenSearchSecurity(ctx, settings)
 	if err != nil {
 		return OpenSearchFixture{}, created, err
 	}
