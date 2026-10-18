@@ -130,8 +130,6 @@ services:
       # finding the cluster once every one of them is gone (TACK-408).
       - /etc/foundationdb:/etc/foundationdb
       - tack-logs:/var/log/tack
-      - /etc/tack/search-ca.crt:/etc/tack/search-ca.crt:ro
-      - /etc/tack/search-projections.json:/etc/tack/search-projections.json:ro
       - ${TACK_LEDGER_CERTS_DIR:-/etc/tack/ledger-certs}:${TACK_LEDGER_CERTS_DIR:-/etc/tack/ledger-certs}:ro
     # No yugabyte dependency: deployed guests reach the ledger on the data
     # guests through the rendered override's multi-host URL, and the deploy
@@ -644,8 +642,6 @@ services:
       - OPENSEARCH_MAINTENANCE_PASSWORD
     volumes:
       - /root/backups:/root/backups
-      - /etc/tack/search-ca.crt:/etc/tack/search-ca.crt:ro
-      - /etc/tack/search-projections.json:/etc/tack/search-projections.json:ro
       # Writable: the ops commands that open the product store are
       # FoundationDB clients, and the client library records a coordinator
       # change in this file (TACK-408).
