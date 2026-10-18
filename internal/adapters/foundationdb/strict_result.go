@@ -10,8 +10,6 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// checkStrictRecord calls checkStrictMutation for record without a parent
-// change. It returns nil when strict is false.
 func checkStrictRecord(ctx context.Context, tr fdb.Transaction, strict bool, record *node.Node) error {
 	return checkStrictMutation(ctx, tr, strict, record, nil)
 }

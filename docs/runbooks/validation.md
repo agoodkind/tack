@@ -1,6 +1,6 @@
 # Activate strict node validation
 
-`ops verify strict-validation` is an audited `./server ops` command with audit verb `ops.strict_validation`. Without the global `--execute` flag, it validates every stored node record in every organization against its organization schema and prints a JSON report. Activation applies to every organization in the FoundationDB cluster. After activation, every ordinary write validates its complete resulting record and refuses an invalid result. Commands cannot remove the activation record.
+`ops verify strict-validation` is an audited `./server ops` command with audit verb `ops.strict_validation`. Without the global `--execute` flag, it validates every stored node record in every organization against its organization schema and prints a JSON report. Activation applies to every organization in the FoundationDB cluster. After activation, every ordinary write that stores property values validates its complete resulting record, including required properties, reference targets, and the parent, and refuses an invalid result. `RelationshipStore.Add` refuses `child_of` edges and edges with a source or target outside the organization. Commands cannot remove the activation record.
 
 ## Confirm the prerequisites
 
