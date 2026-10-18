@@ -23,9 +23,10 @@ type fixedDefinitionsInput struct {
 
 type fixedDefinitionsOutput struct {
 	clispec.ResultMarker
-	Command string                        `json:"command"`
-	DryRun  bool                          `json:"dry_run"`
-	Result  service.FixedDefinitionResult `json:"result"`
+	Command   string                        `json:"command"`
+	DryRun    bool                          `json:"dry_run"`
+	Result    service.FixedDefinitionResult `json:"result"`
+	NodeTypes service.FixedNodeTypeResult   `json:"node_types"`
 }
 
 func fixedDefinitionsOp(f *cli.Factory) clispec.Operation[fixedDefinitionsInput] {
@@ -34,7 +35,7 @@ func fixedDefinitionsOp(f *cli.Factory) clispec.Operation[fixedDefinitionsInput]
 		Lifetime: clispec.Lifetime{Ticket: "TACK-580", RemoveBy: time.Date(2026, time.December, 31, 0, 0, 0, 0, time.UTC)},
 		Audit:    audit.Spec{Verb: string(audit.VerbOpsBackfillFixedDefinitions), Mutates: true},
 		Group:    opsGroup,
-		Short:    "Write the seeded search exclusions and applicability to stored built-in definitions",
+		Short:    "Apply seeded search exclusions, applicability, and parent types to stored built-in metadata",
 		Params:   nil,
 		New: func() fixedDefinitionsInput {
 			return fixedDefinitionsInput{InputMarker: clispec.InputMarker{}}
@@ -74,7 +75,13 @@ func runFixedDefinitionsCommand(ctx context.Context, f *cli.Factory, sink clispe
 	if err != nil {
 		return err
 	}
-	output := fixedDefinitionsOutput{ResultMarker: clispec.ResultMarker{}, Command: fixedDefinitionsCommand, DryRun: dryRun, Result: result}
+	nodeTypes, err := RunFixedNodeTypeCorrection(ctx, env.Stores.NodeTypes, dryRun)
+	if err != nil {
+		return err
+	}
+	output := fixedDefinitionsOutput{
+		ResultMarker: clispec.ResultMarker{}, Command: fixedDefinitionsCommand, DryRun: dryRun, Result: result, NodeTypes: nodeTypes,
+	}
 	if err := clispec.WriteJSONValue(ctx, sink, output); err != nil {
 		wrapped := fmt.Errorf("write fixed definition correction result: %w", err)
 		telemetry.L(ctx).ErrorContext(ctx, "metadata.fixed_definition.report_failed", slog.String("err", wrapped.Error()))
