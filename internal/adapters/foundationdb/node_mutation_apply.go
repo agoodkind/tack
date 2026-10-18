@@ -68,6 +68,9 @@ func (s *NodeStore) applyMutationAttempt(ctx context.Context, tr fdb.Transaction
 		}
 	}
 	result := mutationResult(plan, source, s.clock.Now().UTC())
+	if err := checkMoveScope(ctx, plan, source, result, records); err != nil {
+		return none, false, err
+	}
 	parentChanges, err := childOfChanges(ctx, tr, plan, source, &result)
 	if err != nil {
 		return none, false, err
