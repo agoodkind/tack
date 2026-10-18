@@ -78,7 +78,8 @@ func undeclaredPropNames(result node.PropertyResult) []string {
 			if !isServiceManagedProp(issue.Property) {
 				names = append(names, fmt.Sprintf("%q", issue.Property))
 			}
-		case node.PropertyIssueValue, node.PropertyIssueOption:
+		case node.PropertyIssueValue, node.PropertyIssueOption,
+			node.PropertyIssueRequired, node.PropertyIssueReference, node.PropertyIssueParent:
 		}
 	}
 	return names
