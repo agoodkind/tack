@@ -26,14 +26,15 @@ func TestNodeIntegrityStrictEveryStoreWriterAdvancesTheFence(t *testing.T) {
 	written := func() []uuid.UUID { return []uuid.UUID{record.ID} }
 
 	requireFenceAdvances(t, env, "NodeStore.CreateAtomic", func() []uuid.UUID {
-		if err := env.Stores.Nodes.CreateAtomic(env.Ctx, record, storeWriterView(record), nil, []string{"slug"}, nil, nil); err != nil {
+		if err := env.Stores.Nodes.CreateAtomic(env.Ctx, record, storeWriterView(record), storeWriterParentEdge(record), []string{"slug"}, nil, nil); err != nil {
 			t.Fatalf("create node %s: %v", record.ID, err)
 		}
 		return written()
 	})
 	requireFenceAdvances(t, env, "NodeStore.UpdateAtomic", func() []uuid.UUID {
 		oldProps := record.Props
-		record.Name, record.Props = "updated store writer workspace", schemaProps("slug", quoted("store-updated"))
+		record.Name, record.Props = "updated store writer workspace", maps.Clone(oldProps)
+		record.Props["slug"] = quoted("store-updated")
 		if err := env.Stores.Nodes.UpdateAtomic(env.Ctx, record, storeWriterView(record), oldProps, []string{"slug"}, nil); err != nil {
 			t.Fatalf("update node %s: %v", record.ID, err)
 		}
@@ -62,7 +63,7 @@ func TestNodeIntegrityStrictEveryStoreWriterAdvancesTheFence(t *testing.T) {
 func TestNodeIntegrityStrictRejectsInvalidStoreWriteAfterActivation(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	record := storeWriterWorkspace(env, "strict-store")
-	if err := env.Stores.Nodes.CreateAtomic(env.Ctx, record, storeWriterView(record), nil, []string{"slug"}, nil, nil); err != nil {
+	if err := env.Stores.Nodes.CreateAtomic(env.Ctx, record, storeWriterView(record), storeWriterParentEdge(record), []string{"slug"}, nil, nil); err != nil {
 		t.Fatalf("create node %s: %v", record.ID, err)
 	}
 	output, err := runStrictValidation(t, true)
@@ -78,7 +79,7 @@ func TestNodeIntegrityStrictRejectsInvalidStoreWriteAfterActivation(t *testing.T
 	created := storeWriterWorkspace(env, "strict-store-created")
 	created.Props = invalidProps
 	writes := map[string]error{
-		"NodeStore.CreateAtomic": env.Stores.Nodes.CreateAtomic(env.Ctx, created, storeWriterView(created), nil, []string{"slug"}, nil, nil),
+		"NodeStore.CreateAtomic": env.Stores.Nodes.CreateAtomic(env.Ctx, created, storeWriterView(created), storeWriterParentEdge(created), []string{"slug"}, nil, nil),
 		"NodeStore.UpdateAtomic": env.Stores.Nodes.UpdateAtomic(env.Ctx, &invalid, storeWriterView(&invalid), record.Props, []string{"slug"}, nil),
 		"NodeStore.Set":          env.Stores.Nodes.Set(env.Ctx, &invalid, storeWriterView(&invalid)),
 	}
@@ -97,12 +98,24 @@ func TestNodeIntegrityStrictRejectsInvalidStoreWriteAfterActivation(t *testing.T
 	}
 }
 
+// storeWriterWorkspace returns a workspace record with parent_id set to
+// env.OrgID.
 func storeWriterWorkspace(env *integration.TestEnv, slug string) *node.Node {
 	now := clock.Now().UTC()
 	return &node.Node{
 		ID: uuid.Must(uuid.NewV7()), OrgID: env.OrgID, NodeType: "workspace", Name: slug + " workspace",
-		Props: schemaProps("slug", quoted(slug)), CreatedBy: uuid.Nil, UpdatedBy: uuid.Nil, CreatedAt: now, UpdatedAt: now,
+		Props:     map[string]json.RawMessage{"slug": quoted(slug), "parent_id": quoted(env.OrgID.String())},
+		CreatedBy: uuid.Nil, UpdatedBy: uuid.Nil, CreatedAt: now, UpdatedAt: now,
 	}
+}
+
+// storeWriterParentEdge returns a slice containing one child_of relationship
+// from record.ID to record.OrgID.
+func storeWriterParentEdge(record *node.Node) []*node.Relationship {
+	return []*node.Relationship{{
+		OrgID: record.OrgID, SourceID: record.ID, RelationType: node.RelChildOf, TargetID: record.OrgID,
+		CreatedBy: uuid.Nil, CreatedAt: record.CreatedAt, Props: nil,
+	}}
 }
 
 func storeWriterView(record *node.Node) *node.NodeView {

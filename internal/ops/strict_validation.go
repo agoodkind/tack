@@ -29,7 +29,7 @@ var errStrictViolations = errors.New("the strict validation scan found invalid n
 type StrictValidationStore interface {
 	StrictActivation(ctx context.Context) (node.StrictActivation, error)
 	CaptureStrictEvidence(ctx context.Context) (node.StrictEvidence, error)
-	StrictScanPage(ctx context.Context, cursor string, limit int) ([]*node.Node, string, error)
+	StrictScanPage(ctx context.Context, cursor string, limit int) ([]node.StrictRecord, string, error)
 	ActivateStrict(ctx context.Context, evidence node.StrictEvidence, activation node.StrictActivation) (node.StrictEvidenceChange, error)
 }
 
@@ -63,13 +63,16 @@ type StrictValidationReport struct {
 // cache stores each organization's schema.
 // validated maps each validated node record's ID to its organization ID.
 // Each node ID appears in validated once.
+// dependencies maps each validated node record's ID to its parent ID and
+// the IDs that its reference properties store.
 type strictScan struct {
-	store      StrictValidationStore
-	schemas    StrictSchemaSource
-	evidence   node.StrictEvidence
-	violations map[uuid.UUID]StrictViolation
-	cache      map[uuid.UUID]node.Schema
-	validated  map[uuid.UUID]uuid.UUID
+	store        StrictValidationStore
+	schemas      StrictSchemaSource
+	evidence     node.StrictEvidence
+	violations   map[uuid.UUID]StrictViolation
+	cache        map[uuid.UUID]node.Schema
+	validated    map[uuid.UUID]uuid.UUID
+	dependencies map[uuid.UUID][]uuid.UUID
 }
 
 // RunStrictValidation captures evidence and validates every stored node
@@ -98,6 +101,7 @@ func RunStrictValidation(ctx context.Context, store StrictValidationStore, schem
 	scan := &strictScan{
 		store: store, schemas: schemas, evidence: evidence,
 		violations: map[uuid.UUID]StrictViolation{}, cache: map[uuid.UUID]node.Schema{}, validated: map[uuid.UUID]uuid.UUID{},
+		dependencies: map[uuid.UUID][]uuid.UUID{},
 	}
 	change := node.StrictEvidenceChange{Buckets: nil, Organizations: nil}
 	for report.Passes = 1; report.Passes <= maxStrictPasses; report.Passes++ {

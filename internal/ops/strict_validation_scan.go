@@ -5,23 +5,26 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
 	"slices"
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// pass validates every node record on the first pass. On later passes, pass
-// first removes validated entries and violations for records in changed
-// buckets or organizations. It then validates only records in those buckets
-// or organizations that the scan still reads. A record that a later pass
-// does not read, such as a deleted record, no longer counts as validated.
+// pass validates every node record on the first pass. On later passes, it
+// removes validated entries, violations, and dependencies for records with a
+// changed organization, a changed write fence bucket, or a dependency in a
+// changed bucket. It then validates affected records that the scan returns.
 func (s *strictScan) pass(ctx context.Context, change node.StrictEvidenceChange, full bool) error {
+	affected := map[uuid.UUID]bool{}
 	if !full {
 		for nodeID, orgID := range s.validated {
-			if strictRecordAffected(change, orgID, nodeID) {
+			if s.affected(change, orgID, nodeID) {
+				affected[nodeID] = true
 				delete(s.validated, nodeID)
 				delete(s.violations, nodeID)
+				delete(s.dependencies, nodeID)
 			}
 		}
 	}
@@ -32,7 +35,7 @@ func (s *strictScan) pass(ctx context.Context, change node.StrictEvidenceChange,
 			return strictFailure(ctx, "read a strict validation scan page", err)
 		}
 		for _, record := range records {
-			if !full && !strictRecordAffected(change, record.OrgID, record.ID) {
+			if !full && !affected[record.Node.ID] && !strictRecordAffected(change, record.Node.OrgID, record.Node.ID) {
 				continue
 			}
 			if err := s.validate(ctx, record); err != nil {
@@ -46,7 +49,8 @@ func (s *strictScan) pass(ctx context.Context, change node.StrictEvidenceChange,
 	}
 }
 
-func (s *strictScan) validate(ctx context.Context, record *node.Node) error {
+func (s *strictScan) validate(ctx context.Context, scanned node.StrictRecord) error {
+	record := scanned.Node
 	schema, cached := s.cache[record.OrgID]
 	if !cached {
 		var err error
@@ -57,13 +61,28 @@ func (s *strictScan) validate(ctx context.Context, record *node.Node) error {
 		s.cache[record.OrgID] = schema
 	}
 	s.validated[record.ID] = record.OrgID
-	resultErr := schema.Interpret(record.NodeType, record.Props).Err()
+	s.dependencies[record.ID] = slices.Collect(maps.Keys(scanned.Graph.Targets))
+	resultErr := schema.ValidateResult(record.NodeType, record.Props, scanned.Graph).Err()
 	if resultErr == nil {
 		delete(s.violations, record.ID)
 		return nil
 	}
 	s.violations[record.ID] = StrictViolation{OrgID: record.OrgID, NodeID: record.ID, NodeType: record.NodeType, Reason: resultErr.Error()}
 	return nil
+}
+
+// affected reports whether change includes orgID or the write fence bucket
+// of nodeID or any of its recorded dependencies.
+func (s *strictScan) affected(change node.StrictEvidenceChange, orgID, nodeID uuid.UUID) bool {
+	if strictRecordAffected(change, orgID, nodeID) {
+		return true
+	}
+	for _, dependencyID := range s.dependencies[nodeID] {
+		if strictRecordAffected(change, orgID, dependencyID) {
+			return true
+		}
+	}
+	return false
 }
 
 func strictRecordAffected(change node.StrictEvidenceChange, orgID, nodeID uuid.UUID) bool {

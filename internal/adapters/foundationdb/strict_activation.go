@@ -8,6 +8,7 @@ import (
 	"log/slog"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
+	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/telemetry"
@@ -67,9 +68,10 @@ func (s *NodeStore) ActivateStrict(ctx context.Context, evidence node.StrictEvid
 }
 
 // StrictScanPage reads at most limit primary node records across all
-// organizations in key order after cursor. The next cursor is empty after the
-// last page.
-func (s *NodeStore) StrictScanPage(ctx context.Context, cursor string, limit int) (records []*node.Node, next string, err error) {
+// organizations in key order after cursor. In the same transaction, it reads
+// the graph of each record with readResultGraph. The next cursor is empty
+// after the last page.
+func (s *NodeStore) StrictScanPage(ctx context.Context, cursor string, limit int) (records []node.StrictRecord, next string, err error) {
 	defer telemetry.FDBOp(ctx, "store.strict.scan_page")(&err)
 	if limit <= 0 || limit > maxStrictScanNodes {
 		slog.ErrorContext(ctx, "strict.scan_page_failed", slog.Int("limit", limit), slog.String("err", domain.ErrInvalidArgument.Error()))
@@ -91,26 +93,48 @@ func (s *NodeStore) StrictScanPage(ctx context.Context, cursor string, limit int
 		}
 		selection := fdb.SelectorRange{Begin: begin, End: fdb.FirstGreaterOrEqual(keyRange.End)}
 		var readErr error
+		next = ""
 		items, readErr = tr.GetRange(selection, fdb.RangeOptions{Limit: limit + 1}).GetSliceWithError()
 		if readErr != nil {
 			return searchReadFailure(ctx, "read the strict scan page", readErr)
 		}
-		return nil
+		if len(items) > limit {
+			items = items[:limit]
+			next = base64.RawURLEncoding.EncodeToString(items[limit-1].Key)
+		}
+		records, readErr = readStrictRecords(ctx, tr, items)
+		return readErr
 	})
 	if err != nil {
 		return nil, "", err
 	}
-	if len(items) > limit {
-		items = items[:limit]
-		next = base64.RawURLEncoding.EncodeToString(items[limit-1].Key)
-	}
-	records = make([]*node.Node, 0, len(items))
+	return records, next, nil
+}
+
+// readStrictRecords decodes each primary record in items and reads its graph
+// inside tr. It reads the property definitions of each organization once.
+func readStrictRecords(ctx context.Context, tr fdb.Transaction, items []fdb.KeyValue) ([]node.StrictRecord, error) {
+	definitions := map[uuid.UUID][]*node.PropertyDef{}
+	records := make([]node.StrictRecord, 0, len(items))
 	for _, item := range items {
 		var record node.Node
 		if err := json.Unmarshal(item.Value, &record); err != nil {
-			return nil, "", searchReadFailure(ctx, "decode a scanned node record", err)
+			return nil, searchReadFailure(ctx, "decode a scanned node record", err)
 		}
-		records = append(records, &record)
+		orgDefinitions, cached := definitions[record.OrgID]
+		if !cached {
+			var err error
+			orgDefinitions, err = readSchemaRecords[node.PropertyDef](ctx, tr, propertyDefPrefix(record.OrgID), "property definitions")
+			if err != nil {
+				return nil, err
+			}
+			definitions[record.OrgID] = orgDefinitions
+		}
+		graph, err := readResultGraph(ctx, tr, orgDefinitions, &record)
+		if err != nil {
+			return nil, err
+		}
+		records = append(records, node.StrictRecord{Node: &record, Graph: graph})
 	}
-	return records, next, nil
+	return records, nil
 }

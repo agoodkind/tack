@@ -41,7 +41,11 @@ func (s *RelationshipStore) Add(ctx context.Context, rel *node.Relationship) (er
 	searchScheduleFailed := false
 	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
 		searchScheduleFailed = false
-		if _, err := s.fenceAttempt(ctx, tr, rel.OrgID, rel.SourceID); err != nil {
+		strict, err := s.fenceAttempt(ctx, tr, rel.OrgID, rel.SourceID)
+		if err != nil {
+			return nil, err
+		}
+		if err := checkStrictRelationship(ctx, tr, strict, rel); err != nil {
 			return nil, err
 		}
 		tr.Set(fdb.Key(relationshipKey(rel.OrgID, rel.SourceID, rel.RelationType, rel.TargetID)), metadata)

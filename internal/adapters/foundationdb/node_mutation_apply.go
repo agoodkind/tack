@@ -79,7 +79,7 @@ func (s *NodeStore) applyMutationAttempt(ctx context.Context, tr fdb.Transaction
 	if err != nil {
 		return none, false, err
 	}
-	if err := validateStrictResult(ctx, plan.NodeID, schema, plan.NodeType, result.Props, strict); err != nil {
+	if err := checkStrictMutation(ctx, tr, strict, &result, plan.Parent); err != nil {
 		return none, false, err
 	}
 	encoded, err := json.Marshal(&result)

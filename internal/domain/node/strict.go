@@ -82,6 +82,13 @@ func evidenceAt(values []int64, position int) int64 {
 	return values[position]
 }
 
+// StrictRecord is one node record that a strict validation scan reads, with
+// the graph that the scan read in the same transaction.
+type StrictRecord struct {
+	Node  *Node
+	Graph ResultGraph
+}
+
 // StrictActivation is the stored strict validation activation record.
 type StrictActivation struct {
 	Active           bool      `json:"active"`
