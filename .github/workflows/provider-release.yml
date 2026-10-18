@@ -41,5 +41,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.release.outputs.tag }}
-          RELEASE_IMAGE_DIRECTORY: ${{ runner.temp }}/release-images
+          TACK_SERVER_IMAGE: ghcr.io/${{ github.repository_owner }}/tack-server
+          TACK_AUDIT_CONSUMER_IMAGE: ghcr.io/${{ github.repository_owner }}/tack-audit-consumer
         run: bash scripts/release-images.sh
