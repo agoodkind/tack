@@ -19,9 +19,6 @@ type strictValidationOutput struct {
 	Result ops.StrictValidationReport `json:"result"`
 }
 
-// runStrictValidation runs `ops verify strict-validation` through the audited
-// command tree against the test engines. When execute is true, it adds
-// --execute. It returns the decoded report and the command error.
 func runStrictValidation(t *testing.T, execute bool) (strictValidationOutput, error) {
 	t.Helper()
 	ledgerDSN := testenv.Ledger(t)

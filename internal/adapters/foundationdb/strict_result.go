@@ -14,11 +14,6 @@ func checkStrictRecord(ctx context.Context, tr fdb.Transaction, strict bool, rec
 	return checkStrictMutation(ctx, tr, strict, record, nil)
 }
 
-// checkStrictMutation returns nil when strict is false. Otherwise, it reads
-// result's schema and graph inside tr and calls schema.ValidateResult on the
-// complete properties. When parent is not nil, it sets graph.ChildOf to
-// parent.TargetID before validation. If result's node type does not exist,
-// it returns an error that wraps domain.ErrInvalidArgument.
 func checkStrictMutation(ctx context.Context, tr fdb.Transaction, strict bool, result *node.Node, parent *node.ParentChange) error {
 	if !strict {
 		return nil

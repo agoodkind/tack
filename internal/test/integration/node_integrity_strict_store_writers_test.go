@@ -98,8 +98,6 @@ func TestNodeIntegrityStrictRejectsInvalidStoreWriteAfterActivation(t *testing.T
 	}
 }
 
-// storeWriterWorkspace returns a workspace record with parent_id set to
-// env.OrgID.
 func storeWriterWorkspace(env *integration.TestEnv, slug string) *node.Node {
 	now := clock.Now().UTC()
 	return &node.Node{

@@ -58,13 +58,6 @@ type StrictValidationReport struct {
 	FirstViolations  []StrictViolation `json:"first_violations"`
 }
 
-// strictScan stores evidence for the current pass in evidence.
-// violations indexes violations by node ID.
-// cache stores each organization's schema.
-// validated maps each validated node record's ID to its organization ID.
-// Each node ID appears in validated once.
-// dependencies maps each validated node record's ID to its parent ID and
-// the IDs that its reference properties store.
 type strictScan struct {
 	store        StrictValidationStore
 	schemas      StrictSchemaSource

@@ -134,7 +134,6 @@ func activateStrict(t *testing.T) {
 	}
 }
 
-// storedParentID returns the parent_id value of the stored record of nodeID.
 func storedParentID(t *testing.T, env *integration.TestEnv, nodeID uuid.UUID) uuid.UUID {
 	t.Helper()
 	snapshot, _ := mutationSnapshot(t, env, nodeID)
