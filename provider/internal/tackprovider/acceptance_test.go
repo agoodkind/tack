@@ -13,7 +13,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
 
-	"goodkind.io/tack/internal/tackprovider"
+	"goodkind.io/tack/provider/internal/tackprovider"
 )
 
 const (
@@ -34,6 +34,12 @@ const (
 // sensitive api_token variable. The configuration text does not contain the
 // token value.
 const acceptanceConfig = `
+terraform {
+  required_providers {
+    tack = { source = "tofu.home.arpa/agoodkind/tack" }
+  }
+}
+
 variable "node" { type = string }
 variable "endpoint" { type = string }
 variable "node_name" { type = string }
@@ -131,7 +137,7 @@ func TestSchemaImportPlanAndRefresh(t *testing.T) {
 				},
 			},
 			{Config: acceptanceConfig, ConfigVariables: variables, PlanOnly: true},
-			{Config: acceptanceConfig, ConfigVariables: variables, RefreshState: true, Check: checks},
+			{RefreshState: true, Check: checks},
 		},
 	})
 }
