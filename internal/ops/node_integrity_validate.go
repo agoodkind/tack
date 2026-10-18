@@ -35,36 +35,92 @@ func repairResultProps(source, patch map[string]json.RawMessage, parent *node.Pa
 }
 
 // validateRepairResult validates the complete resulting properties of one
-// node of type nodeType with [node.Schema.ValidateResult] and the schema
-// from a snapshot read. It reads the target of each reference value through
-// a mutation snapshot. It returns the primary digest of each existing
-// reference target. The mutation requires those records to remain
-// unchanged. If the result is invalid, validateRepairResult returns a
-// [node.PropertyResultError].
-func validateRepairResult(ctx context.Context, mutator node.Mutator, entry NodeIntegrityEntry, schema node.SchemaSnapshot, nodeType string, props map[string]json.RawMessage) ([]node.GraphRecord, error) {
-	interpreted := schema.Interpret(nodeType, props)
-	references := make(map[uuid.UUID]node.ReferenceRecord, len(interpreted.References))
+// node of type nodeType using node.Schema.ValidateResult and the schema from
+// a snapshot read. childOf lists the targets of the child_of edges that the
+// node has after the mutation.
+//
+// It reads the parent_id target and each reference target through a mutation
+// snapshot and passes them to ValidateResult in a node.ResultGraph.
+//
+// It returns the primary digest of each existing target. The mutation
+// requires those records to remain unchanged. If the result is invalid,
+// validateRepairResult returns a node.PropertyResultError.
+func validateRepairResult(ctx context.Context, mutator node.Mutator, entry NodeIntegrityEntry, schema node.SchemaSnapshot, nodeType string, props map[string]json.RawMessage, childOf []uuid.UUID) ([]node.GraphRecord, error) {
+	graph := node.ResultGraph{OrgID: schema.OrgID, ChildOf: childOf, Targets: map[uuid.UUID]node.ResultTarget{}}
 	records := []node.GraphRecord{}
-	for _, reference := range interpreted.References {
-		if _, read := references[reference.TargetID]; read {
+	for _, targetID := range resultTargetIDs(schema, nodeType, props) {
+		if _, read := graph.Targets[targetID]; read {
 			continue
 		}
-		snapshot, _, err := readNodeSnapshot(ctx, mutator, entry, schema.OrgID, reference.TargetID)
+		snapshot, _, err := readNodeSnapshot(ctx, mutator, entry, schema.OrgID, targetID)
 		if err != nil {
 			return nil, err
 		}
-		references[reference.TargetID] = node.ReferenceRecord{Exists: snapshot.Exists, OrgID: snapshot.Node.OrgID, NodeType: snapshot.Node.NodeType}
+		graph.Targets[targetID] = node.ResultTarget{Found: snapshot.Exists, OrgID: snapshot.Node.OrgID, NodeType: snapshot.Node.NodeType}
 		if snapshot.Exists {
-			records = append(records, node.GraphRecord{NodeID: reference.TargetID, PrimaryDigest: snapshot.PrimaryDigest})
+			records = append(records, node.GraphRecord{NodeID: targetID, PrimaryDigest: snapshot.PrimaryDigest})
 		}
 	}
-	result := schema.ValidateResult(nodeType, props, references)
+	result := schema.ValidateResult(nodeType, props, graph)
 	if err := result.Err(); err != nil {
 		wrapped := fmt.Errorf("repair %s for node %s: validate the result: %w", entry.RepairID, entry.NodeID, err)
 		slog.ErrorContext(ctx, "repair.result_invalid", slog.String("err", wrapped.Error()), slog.String("repair_id", entry.RepairID))
 		return nil, wrapped
 	}
 	return records, nil
+}
+
+// resultChildOf returns the child_of targets of the node after a repair.
+// When parent has a value, the mutation leaves one child_of edge to that
+// parent. Otherwise, resultChildOf returns the child_of targets in snapshot.
+func resultChildOf(snapshot node.MutationSnapshot, parent *node.ParentChange) []uuid.UUID {
+	if parent != nil {
+		return []uuid.UUID{parent.TargetID}
+	}
+	targets := []uuid.UUID{}
+	for _, edge := range snapshot.Outgoing {
+		if edge.Relationship.RelationType == node.RelChildOf {
+			targets = append(targets, edge.Relationship.TargetID)
+		}
+	}
+	return targets
+}
+
+// resultTargetIDs returns the node ID in parent_id and the node ID in each
+// applicable UUID property that declares a reference target type. It skips
+// any value that does not represent a node ID.
+func resultTargetIDs(schema node.SchemaSnapshot, nodeType string, props map[string]json.RawMessage) []uuid.UUID {
+	targets := []uuid.UUID{}
+	if parentID := repairNodeID(props[repairParentProperty]); parentID != uuid.Nil {
+		targets = append(targets, parentID)
+	}
+	kind := schema.Types[nodeType]
+	if kind == nil {
+		return targets
+	}
+	for _, definition := range schema.Definitions {
+		if definition == nil || definition.Type != node.PropertyTypeUUID || definition.ReferenceTargetTypeKey == "" || !node.PropertyAppliesTo(definition, kind) {
+			continue
+		}
+		if targetID := repairNodeID(props[definition.Name]); targetID != uuid.Nil {
+			targets = append(targets, targetID)
+		}
+	}
+	return targets
+}
+
+// repairNodeID decodes and returns a node ID from a JSON string. It returns
+// uuid.Nil for any other value.
+func repairNodeID(raw json.RawMessage) uuid.UUID {
+	var text string
+	if json.Unmarshal(raw, &text) != nil {
+		return uuid.Nil
+	}
+	parsed, err := uuid.Parse(text)
+	if err != nil {
+		return uuid.Nil
+	}
+	return parsed
 }
 
 func mergeGraphRecords(records, extra []node.GraphRecord) []node.GraphRecord {

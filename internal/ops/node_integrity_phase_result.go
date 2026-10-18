@@ -35,7 +35,7 @@ func (runner repairPhaseRunner) resultPhase(ctx context.Context, run repairPhase
 		return err
 	}
 	references, err := validateRepairResult(ctx, runner.mutator, run.entry, schema, run.entry.NodeType,
-		repairResultProps(snapshot.Node.Props, plan.Props, plan.Parent))
+		repairResultProps(snapshot.Node.Props, plan.Props, plan.Parent), resultChildOf(snapshot, plan.Parent))
 	if err != nil {
 		return err
 	}

@@ -6,32 +6,13 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain"
 )
 
-// ErrSchemaRead reports a schema condition that prevents interpretation from
-// completing.
+// ErrSchemaRead reports that interpretation lacks a required schema record.
 var ErrSchemaRead = errors.New("schema read incomplete")
 
-// ReferenceRecord records the state of one referenced node that a
-// transaction read. Exists is false when the organization does not contain
-// a primary record for the node.
-type ReferenceRecord struct {
-	Exists   bool
-	OrgID    uuid.UUID
-	NodeType string
-}
-
-// PropertyReference identifies a UUID property value that requires a
-// [ReferenceRecord] for result validation.
-type PropertyReference struct {
-	Property   string
-	TargetID   uuid.UUID
-	TargetType string
-}
-
-// PropertyIssueCode classifies why the schema rejects a property.
+// PropertyIssueCode classifies a rejected property value.
 type PropertyIssueCode string
 
 const (
@@ -44,11 +25,6 @@ const (
 	PropertyIssueValue PropertyIssueCode = "invalid_value"
 	// PropertyIssueOption marks a select value that does not match an option key.
 	PropertyIssueOption PropertyIssueCode = "unknown_option"
-	// PropertyIssueRequired marks an absent required property.
-	PropertyIssueRequired PropertyIssueCode = "required"
-	// PropertyIssueReference marks a reference to a node that the definition
-	// does not accept.
-	PropertyIssueReference PropertyIssueCode = "invalid_reference"
 )
 
 // PropertyIssue records a property that the schema rejects and its reason.
@@ -58,8 +34,8 @@ type PropertyIssue struct {
 	Reason   string
 }
 
-// ReadFailure reports a schema condition that prevents interpretation from
-// completing.
+// ReadFailure reports a required schema record that interpretation did not
+// receive.
 type ReadFailure struct {
 	Subject string
 	Reason  string
@@ -67,14 +43,12 @@ type ReadFailure struct {
 
 // PropertyResult records the interpretation of one node's properties.
 // Valid maps each accepted property name to its value. Invalid lists
-// properties that the schema rejects. References lists the reference values
-// that result validation reads. Failures lists schema read failures.
+// properties that the schema rejects. Failures lists schema read failures.
 type PropertyResult struct {
-	NodeType   string
-	Valid      map[string]json.RawMessage
-	Invalid    []PropertyIssue
-	References []PropertyReference
-	Failures   []ReadFailure
+	NodeType string
+	Valid    map[string]json.RawMessage
+	Invalid  []PropertyIssue
+	Failures []ReadFailure
 }
 
 // Err returns nil for a valid result. Otherwise, it returns a

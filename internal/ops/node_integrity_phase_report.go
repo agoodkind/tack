@@ -50,7 +50,7 @@ func (runner repairPhaseRunner) createReportPhase(ctx context.Context, run repai
 		return err
 	}
 	references, err := validateRepairResult(ctx, runner.mutator, run.entry, schema, report.NodeType,
-		repairResultProps(nil, plan.Props, plan.Parent))
+		repairResultProps(nil, plan.Props, plan.Parent), []uuid.UUID{run.entry.NodeID})
 	if err != nil {
 		return err
 	}
