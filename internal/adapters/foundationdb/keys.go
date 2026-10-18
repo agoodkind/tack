@@ -83,6 +83,13 @@ const (
 	// (node_delete_job, jobID) -> SubtreeDeleteJob JSON
 	keyNodeDeleteJob = "node_delete_job"
 
+	// The repair checkpoint family stores one checkpoint per repair ID and uses
+	// only the repair ID in its key because later runs cannot read the organization
+	// ID from a node's resolution record after a repair deletes the node and that
+	// record.
+	// (repair_checkpoint, repairID) -> RepairCheckpoint JSON
+	keyRepairCheckpoint = "repair_checkpoint"
+
 	// The search keys store durable search work and search state. Work, age,
 	// and claim keys include a bucket number that searchBucket computes from
 	// (orgID, nodeID). A claim reads the age keys of one bucket at a time.
@@ -103,7 +110,14 @@ const (
 	// (search_exclusion, orgID, nodeID) -> exclusion record JSON of a node
 	//   that search does not index
 	// (search_scan, orgID) -> rescan generation counter
-	// (search_projection, orgID) -> 32-byte sum of definition projection hashes
+	// (search_projection, orgID) stores the 32-byte sum of definition
+	//   projection hashes. Releases without a projection state record
+	//   read this legacy digest.
+	// (search_projection_state, orgID) stores the active projection
+	//   state as JSON: renderer, format, digest, and activation.
+	// (search_projection_sweep) stores the newest writer's sweep
+	//   record as JSON: renderer, format, organization cursor, and
+	//   completion state.
 	// (search_index) -> serving physical index name
 	// (search_epoch, orgID) -> metadata epoch counter; every property
 	//   definition or node type change increments it
@@ -142,5 +156,22 @@ const (
 	keySearchExclusion         = "search_exclusion"
 	keySearchScan              = "search_scan"
 	keySearchProjection        = "search_projection"
+	keySearchProjectionState   = "search_projection_state"
+	keySearchProjectionSweep   = "search_projection_sweep"
 	keySearchIndex             = "search_index"
+
+	// (search_warning, orgID, nodeID, propertyName) -> one verified property
+	//   diagnostic JSON of the node
+	// (search_warning_revision, orgID, nodeID) -> content revision counter of
+	//   the node's verified warning set
+	// (search_warning_staged, class, orgID, nodeID, propertyName) -> one staged
+	//   property diagnostic JSON for the claimed work class
+	//   indexing stages the set from page ordinal 0 and promotes it to the
+	//   verified set after the revision finishes indexing
+	// (search_warning_staged_version, class, orgID, nodeID) -> JSON of the
+	//   revision, generation, and projection of the staged set
+	keySearchWarning              = "search_warning"
+	keySearchWarningRevision      = "search_warning_revision"
+	keySearchWarningStaged        = "search_warning_staged"
+	keySearchWarningStagedVersion = "search_warning_staged_version"
 )

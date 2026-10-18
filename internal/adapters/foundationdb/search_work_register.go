@@ -38,6 +38,12 @@ func (s *SearchWorkStore) Register(ctx context.Context, work searchdomain.Work, 
 		if err := requireOneProjection(ctx, tr, work, page, revision); err != nil {
 			return err
 		}
+		if err := requireActiveProjection(ctx, tr, work.OrgID, page.ProjectionVersion); err != nil {
+			return err
+		}
+		if err := stagePropertyWarnings(ctx, tr, work, page, revision); err != nil {
+			return err
+		}
 		tr.Set(fdb.Key(searchIssuedKey(work.OrgID, work.NodeID, revision, page.Ordinal, page.ProjectionVersion)), []byte(documentID))
 		return nil
 	})

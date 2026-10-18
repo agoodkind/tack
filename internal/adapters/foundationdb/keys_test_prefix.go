@@ -2,18 +2,25 @@ package foundationdb
 
 import "bytes"
 
-// testPrefix is prepended to every packed FDB key when non-nil. Production
-// callers leave it nil; integration tests set a per-test UUID via
-// SetTestPrefix so parallel tests on a shared FDB cluster cannot collide.
+// testPrefix is the prefix that withPrefix prepends to every packed FDB key
+// when non-nil. Production code leaves it nil.
 //
-// Set only via SetTestPrefix from the test setup helper.
+// Tests in one test binary share an FDB cluster and run one after another.
+// Each test uses SetTestPrefix to set its own UUID prefix. Its keys stay in
+// a range that other tests in that binary do not write.
+//
+// testPrefix is a package variable without a lock. A test that sets it must
+// not run in parallel with another test in the same binary. Only
+// SetTestPrefix assigns it.
 var testPrefix []byte
 
-// SetTestPrefix configures a per-test key prefix. Pass nil to clear. The
-// prefix is encoded as a single bytes element in the tuple layer so range
-// scans stay tuple-aware.
+// SetTestPrefix sets the per-test key prefix. A nil argument clears it.
 //
-// Tests own this. Do not call from production code.
+// withPrefix prepends the prefix as raw bytes before the packed tuple key.
+// The prefix is not a tuple element. Stores call stripPrefix on each key
+// that a range read returns before calling tuple.Unpack.
+//
+// SetTestPrefix is for test code only. Production code must not invoke it.
 func SetTestPrefix(prefix []byte) {
 	testPrefix = prefix
 }

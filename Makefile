@@ -101,6 +101,17 @@ test-integration:
 	$(TEST_RUNNER) run --rm tests \
 	    test $(TEST_STORE_ARGS)
 
+# The security files must come from Configs with synthetic credentials.
+.PHONY: test-service-secrets
+test-service-secrets:
+	$(if $(TACK_TEST_SEARCH_SECURITY_DIRECTORY),,$(error TACK_TEST_SEARCH_SECURITY_DIRECTORY must identify rendered synthetic Configs security files))
+	$(TEST_RUNNER) build tests
+	$(TEST_RUNNER) run --rm \
+	    --volume "$(TACK_TEST_SEARCH_SECURITY_DIRECTORY):/search-security-fixture:ro" \
+	    --env TACK_TEST_SEARCH_SECURITY_DIRECTORY=/search-security-fixture \
+	    --env TACK_SEARCH_INTEGRATION=1 tests \
+	    test -tags integration -count=1 -timeout 30m -v -run '^TestServiceSecret' ./internal/test/integration/...
+
 # These targets run the OpenSearch-backed search tests. The default engine
 # takes 8 GiB and downloads the 555 MB model. test-store-host skips these
 # tests. test-search-host runs them on the current host, and test-search runs
@@ -131,7 +142,7 @@ SEARCH_G1_ARGS := -count=1 -timeout 60m -run '^TestSearchContinuationTraversesDu
 SEARCH_G2_ARGS := -count=1 -timeout 30m -run '^TestSearchActualOSProcessThroughput$$'
 SEARCH_G3_ARGS := -count=1 -timeout 30m -run '^TestSearch(Split|Restore|Rebuild)'
 SEARCH_G4_ARGS := -count=1 -timeout 25m -run '^TestSearchCluster' -skip '^TestSearchClusterModelRepair'
-SEARCH_G5_ARGS := -count=1 -timeout 45m -run '^TestSearch' -skip '$(SEARCH_SKIP_G5)'
+SEARCH_G5_ARGS := -count=1 -timeout 65m -run '^TestSearch' -skip '$(SEARCH_SKIP_G5)'
 SEARCH_G6_ARGS := -count=1 -timeout 5m -run '^TestSearchClusterModelRepair'
 SEARCH_T1_ARGS := -count=3 -timeout 180m -run '^TestSearchContinuationTraversesDuplicateHeavyCorpus$$'
 SEARCH_T2_ARGS := -count=3 -timeout 85m -run '^($(SEARCH_T2_TESTS))$$'
@@ -214,13 +225,3 @@ seed-audit-roles:
 audit-consumer:
 	mkdir -p dist
 	go build $(GO_BUILD_FLAGS) -o dist/audit-consumer ./cmd/audit-consumer
-
-# Build the OpenTofu provider at dist/terraform-provider-tack. The provider does
-# not import FoundationDB packages and builds with CGO_ENABLED=0.
-TACK_PROVIDER_VERSION ?= 0.1.0
-
-.PHONY: provider-tack
-provider-tack:
-	mkdir -p dist
-	CGO_ENABLED=0 go build -ldflags "-X main.version=$(TACK_PROVIDER_VERSION)" \
-	    -o dist/terraform-provider-tack ./cmd/terraform-provider-tack

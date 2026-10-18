@@ -33,8 +33,9 @@ const (
 	// result of a write to an index with the read_only_allow_delete block.
 	floodStageBlockError  = "cluster_block_exception"
 	floodStageBlockStatus = "status 429"
-	// floodStageFailures equals the attempt limit of live work. A counted
-	// failure excludes the node at the limit, and an uncounted one does not.
+	// floodStageFailures equals the attempt limit of live work. At the limit,
+	// ops search verify lists the node as stuck work after a counted failure.
+	// It does not list the node as stuck work after an uncounted failure.
 	floodStageFailures = 5
 	floodStageOldText  = "amber lantern quarry"
 	floodStageNewText  = "violet harbor orchid"
@@ -42,9 +43,9 @@ const (
 
 // TestSearchClusterDiskFloodStage fills the data path of a disposable engine
 // past the flood-stage watermark. OpenSearch marks the serving index
-// read_only_allow_delete on its own. MCP writes still commit, search still
-// answers from the index, and the blocked search work stays pending without
-// counting toward exclusion. After the filler is removed, OpenSearch releases
+// read_only_allow_delete on its own. MCP writes still commit. Search still
+// answers from the index. The blocked search work stays pending without
+// increasing the attempt count. After the filler is removed, OpenSearch releases
 // the block on its own, and the pending work makes the edits searchable. No
 // step changes a watermark or a block setting.
 func TestSearchClusterDiskFloodStage(t *testing.T) {
@@ -68,9 +69,8 @@ func TestSearchClusterDiskFloodStage(t *testing.T) {
 	requireFoundationDBName(t, fixture, nodeA, floodStageNewText)
 	requireFoundationDBName(t, fixture, nodeB, floodStageNewText+" beacon")
 	requireBlockedFailures(t, fixture, nodeB)
-	// Verify runs before the pending-work check. A counted failure at the
-	// attempt limit excludes node B and removes its live work, and verify
-	// then reports the exclusion.
+	// Verify runs before the check for pending work. Verify would list node B
+	// as stuck work if a counted failure set its attempt count to the limit.
 	report, err := runSearchVerifyCommand(t, fixture.Config)
 	if err != nil || report.ExcludedNodes != 0 || report.StuckWorkItems != 0 {
 		t.Fatalf("ops search verify during the block = %+v (error %v), want no error, no excluded node, and no stuck work", report, err)
