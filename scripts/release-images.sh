@@ -1,4 +1,30 @@
 #!/usr/bin/env bash
+
+# Add container image references to a published Tack release.
+#
+# The image workflow publishes tack-server and tack-audit-consumer before the
+# provider workflow publishes its binaries. This script adds both image
+# references by SHA-256 digest to the provider release notes.
+#
+# GitHub prevents changes to immutable release assets and tags, but permits
+# release note edits. This script preserves existing notes, skips repeated
+# annotations, and verifies the release attestation, a signed record of the
+# provider assets. It rejects a release that targets a different commit.
+#
+# Use Docker with Buildx and authenticate Docker for registry reads. Authenticate
+# the GitHub CLI with permission to read and update the repository's releases.
+# RELEASE_IMAGE_DIRECTORY stores temporary digest and release note files.
+#
+# To annotate an existing release for a specific commit, run:
+# env GITHUB_REPOSITORY=agoodkind/tack \
+#     GITHUB_SHA=419c72366974c022100a917d79b7eb6b06eb90fd \
+#     RELEASE_TAG=202610180456-2-419c723 \
+#     RELEASE_IMAGE_DIRECTORY=/tmp/tack-release-images-419c723 \
+#     bash scripts/release-images.sh
+#
+# To verify the release attestation separately, run:
+# gh release verify 202610180456-2-419c723 --repo agoodkind/tack
+
 set -euo pipefail
 
 : "${GITHUB_REPOSITORY:?Set GITHUB_REPOSITORY to the release repository.}"
