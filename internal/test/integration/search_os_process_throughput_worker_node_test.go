@@ -11,7 +11,7 @@ import (
 func createThroughputWorkerNode(t *testing.T, fixture queryFixture, kind opaqueKind, parent, actor uuid.UUID, name, content string) uuid.UUID {
 	t.Helper()
 	stores := fixture.Stores
-	svc := service.NewNodeService(stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs, stores.Relationships, stores.NodeDeleter)
+	svc := service.NewNodeService(stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs, stores.Relationships, stores.NodeDeleter, nil, nil)
 	result, err := svc.Create(t.Context(), service.CreateInput{
 		ParentID: parent, ScopeID: parent, NodeTypeKey: kind.TypeKey, Name: name, ActorID: actor,
 		Props: map[string]json.RawMessage{kind.IncludedKey: mustJSON(content), kind.ExcludedKey: mustJSON("excluded")},

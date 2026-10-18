@@ -34,9 +34,19 @@ func NewRelationshipStore(db fdb.Database, source clock.Clock) *RelationshipStor
 
 func (s *RelationshipStore) Add(ctx context.Context, rel *node.Relationship) (err error) {
 	defer telemetry.FDBOp(ctx, "store.relationship.add")(&err)
+	return s.add(ctx, rel, false)
+}
+
+// add calls the write fence for rel.SourceID, calls checkStrictRelationship
+// with memberTarget, and writes the forward and reverse relationship keys
+// in one transaction. In that transaction, it also schedules search work
+// when search work is enabled and writes the staged audit intent.
+func (s *RelationshipStore) add(ctx context.Context, rel *node.Relationship, memberTarget bool) error {
 	metadata, err := json.Marshal(rel)
 	if err != nil {
-		return fmt.Errorf("marshal relationship: %w", err)
+		wrapped := fmt.Errorf("marshal relationship: %w", err)
+		logRelationshipFailure(ctx, "relationship.marshal_failed", wrapped, rel.SourceID, rel.TargetID)
+		return wrapped
 	}
 	searchScheduleFailed := false
 	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
@@ -45,7 +55,7 @@ func (s *RelationshipStore) Add(ctx context.Context, rel *node.Relationship) (er
 		if err != nil {
 			return nil, err
 		}
-		if err := checkStrictRelationship(ctx, tr, strict, rel); err != nil {
+		if err := checkStrictRelationship(ctx, tr, strict, rel, memberTarget); err != nil {
 			return nil, err
 		}
 		tr.Set(fdb.Key(relationshipKey(rel.OrgID, rel.SourceID, rel.RelationType, rel.TargetID)), metadata)

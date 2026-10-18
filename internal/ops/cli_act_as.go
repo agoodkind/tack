@@ -77,7 +77,7 @@ func runActAsCreateWithEnv(ctx context.Context, f *cli.Factory, input actAsCreat
 	defer env.Close()
 	nodes := service.NewNodeService(
 		env.Stores.Nodes, env.Stores.Views, env.Stores.NodeTypes, env.Stores.PropertyDefs,
-		env.Stores.Relationships, env.Stores.NodeDeleter,
+		env.Stores.Relationships, env.Stores.NodeDeleter, postgres.NewOrgMemberRepo(env.Pool), env.Stores.Relationships,
 	)
 	deps := actAsDeps{
 		outbox:   f.AuditOutbox(),

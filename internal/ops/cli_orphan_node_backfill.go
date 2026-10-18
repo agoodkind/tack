@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clispec"
@@ -51,7 +52,7 @@ func runOrphanNodeBackfillCommand(ctx context.Context, f *cli.Factory, sink clis
 	defer env.Close()
 	nodes := service.NewNodeService(
 		env.Stores.Nodes, env.Stores.Views, env.Stores.NodeTypes, env.Stores.PropertyDefs,
-		env.Stores.Relationships, env.Stores.NodeDeleter,
+		env.Stores.Relationships, env.Stores.NodeDeleter, postgres.NewOrgMemberRepo(env.Pool), env.Stores.Relationships,
 	)
 	result, err := RunOrphanNodeBackfill(ctx, env.Stores.NodeDeleter, env.Stores.Relationships, nodes, dryRun)
 	if err != nil {

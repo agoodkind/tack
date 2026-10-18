@@ -169,7 +169,8 @@ func SetupTestEnv(t *testing.T) *TestEnv {
 		stores.PropertyDefs,
 		stores.Relationships,
 		stores.NodeDeleter,
-		service.WithMembers(postgres.NewOrgMemberRepo(pool)),
+		postgres.NewOrgMemberRepo(pool),
+		stores.Relationships,
 	)
 
 	return &TestEnv{

@@ -27,6 +27,7 @@ type NodeService struct {
 	relationships node.RelationshipRepository
 	deleter       node.NodeDeleter
 	members       org.MemberRepository
+	memberTargets node.MemberTargetAdder
 }
 
 func NewNodeService(
@@ -36,25 +37,27 @@ func NewNodeService(
 	propertyDefs node.PropertyDefRepository,
 	relationships node.RelationshipRepository,
 	deleter node.NodeDeleter,
-	options ...NodeServiceOption,
+	members org.MemberRepository,
+	memberTargets node.MemberTargetAdder,
 ) *NodeService {
-	nodeService := &NodeService{
+	return &NodeService{
 		nodes:         nodes,
 		reader:        reader,
 		nodeTypes:     nodeTypes,
 		propertyDefs:  propertyDefs,
 		relationships: relationships,
 		deleter:       deleter,
-		members:       nil,
+		members:       members,
+		memberTargets: memberTargets,
 	}
-	for _, option := range options {
-		option(nodeService)
-	}
-	return nodeService
 }
 
-// AddRelationship attaches a directed edge between two nodes. A child_of
-// edge returns [node.ErrReservedParentRelation]; parent_id sets the parent.
+// AddRelationship adds a directed relationship from a node to a node or an
+// organization member. It returns [node.ErrReservedParentRelation] for a
+// child_of relationship. The parent_id field sets the parent.
+// When isMemberTarget reports that the target is a member of rel.OrgID,
+// it calls MemberTargetAdder.AddMemberTarget. Otherwise, it calls
+// RelationshipRepository.Add.
 func (s *NodeService) AddRelationship(ctx context.Context, rel *node.Relationship) error {
 	ctx, span := telemetry.StartSpan(ctx, "service.node.relationship.add",
 		trace.WithSpanKind(trace.SpanKindInternal),
@@ -83,9 +86,17 @@ func (s *NodeService) AddRelationship(ctx context.Context, rel *node.Relationshi
 		slog.ErrorContext(ctx, "node.AddRelationship: stage audit row", slog.String("err", err.Error()))
 		return fmt.Errorf("stage the audit row for adding %s: %w", rel.RelationType, err)
 	}
-	ctx, err := s.markMemberTarget(ctx, rel)
+	memberTarget, err := s.isMemberTarget(ctx, rel)
 	if err != nil {
 		return err
+	}
+	if memberTarget {
+		if err := s.memberTargets.AddMemberTarget(ctx, rel); err != nil {
+			wrapped := fmt.Errorf("add %s relationship from %s to member %s: %w", rel.RelationType, rel.SourceID, rel.TargetID, err)
+			slog.ErrorContext(ctx, "node.relationship.add_member_target_failed", slog.String("err", wrapped.Error()))
+			return wrapped
+		}
+		return nil
 	}
 	return s.relationships.Add(ctx, rel)
 }

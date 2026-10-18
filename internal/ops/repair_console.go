@@ -72,7 +72,7 @@ func NewRepairConsole(
 		nodeTypes:     nodeTypes,
 		propertyDefs:  propertyDefs,
 		reader:        reader,
-		updater:       service.NewNodeService(nodes, reader, nodeTypes, propertyDefs, relationshipRepo, nil),
+		updater:       service.NewNodeService(nodes, reader, nodeTypes, propertyDefs, relationshipRepo, nil, nil, nil),
 		relationships: relationshipRepo,
 	}
 }
