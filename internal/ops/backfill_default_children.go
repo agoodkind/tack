@@ -80,8 +80,6 @@ func checkedDefaultChildTypes(ctx context.Context, env *Env) (map[uuid.UUID][]*n
 // backfillOrgDefaultChildren creates missing default children for every node
 // of the given node types in orgID.
 //
-// createDefaultChild logs each failed child creation.
-//
 // backfillOrgDefaultChildren continues with the remaining nodes after each
 // failure and returns a slice with one error per failed listing or creation.
 func backfillOrgDefaultChildren(ctx context.Context, env *Env, orgID uuid.UUID, types []*node.NodeType) []error {
@@ -123,7 +121,11 @@ func backfillOrgDefaultChildren(ctx context.Context, env *Env, orgID uuid.UUID, 
 					skipped++
 					continue
 				}
-				if err := createDefaultChild(ctx, env, orgID, parent.ID, dc); err != nil {
+				child, view, rels := defaultChildRecords(orgID, parent.ID, dc)
+				// parent_id is the only indexed prop guaranteed to apply to every type;
+				// the resolver-critical ones (slug, identifier, sequence) are not stamped
+				// here because default children do not declare them.
+				if err := env.Stores.Nodes.CreateAtomic(ctx, child, view, rels, []string{"parent_id"}, nil, nil); err != nil {
 					failures = append(failures, fmt.Errorf("create default child %q under node %s: %w", dc.Name, parent.ID, err))
 					continue
 				}
@@ -152,10 +154,11 @@ func hasNamed(candidates []*node.Node, name string) bool {
 	return false
 }
 
-// createDefaultChild writes one DefaultChild under parent. Mirrors the
-// NodeService.Create path closely enough that ops can drive it without
-// importing the service package, which would create a cycle.
-func createDefaultChild(ctx context.Context, env *Env, orgID, parentID uuid.UUID, dc node.DefaultChild) error {
+// defaultChildRecords returns a node, view, and child_of relationship under
+// parentID with a new UUIDv7 ID and the current time. defaultChildProps adds
+// parent_id and scope_id. It does not write. The ops package builds the records
+// because importing the service package would create an import cycle.
+func defaultChildRecords(orgID, parentID uuid.UUID, dc node.DefaultChild) (*node.Node, *node.NodeView, []*node.Relationship) {
 	id := uuid.Must(uuid.NewV7())
 	now := clock.Now().UTC()
 
@@ -187,13 +190,5 @@ func createDefaultChild(ctx context.Context, env *Env, orgID, parentID uuid.UUID
 		TargetID:     parentID,
 		CreatedAt:    now,
 	}}
-	// parent_id is the only indexed prop guaranteed to apply to every type;
-	// the resolver-critical ones (slug, identifier, sequence) are not stamped
-	// here because default children do not declare them.
-	err := env.Stores.Nodes.CreateAtomic(ctx, n, view, rels, []string{"parent_id"}, nil, nil)
-	if err != nil {
-		env.Log.ErrorContext(ctx, "backfill.child_create_failed", slog.String("err", err.Error()))
-		return fmt.Errorf("create default child %s: %w", dc.TypeKey, err)
-	}
-	return nil
+	return n, view, rels
 }

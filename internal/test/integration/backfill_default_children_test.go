@@ -6,13 +6,18 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/clock"
+	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/ops"
 	"goodkind.io/tack/internal/test/integration"
+	"goodkind.io/tack/internal/testenv"
 )
+
+const backfillTransactionTimeout = 5 * time.Second
 
 // TestDefaultChildrenBackfillRefusesUndeclaredProperties stores a node type
 // with one default child. The default child sets two properties that no
@@ -58,20 +63,20 @@ func TestDefaultChildrenBackfillRefusesUndeclaredProperties(t *testing.T) {
 		t.Fatalf("store parent node %s: %v", parent.ID, err)
 	}
 
-	backfill, ok := ops.Get("backfill.default_children")
-	if !ok {
-		t.Fatal("ops.Get did not find backfill.default_children")
+	cfg := &config.Config{
+		DatabaseURL: testenv.Ledger(t), FDBClusterFile: testenv.FoundationDB(t),
+		FDBTransactionTimeout: backfillTransactionTimeout,
 	}
 	runs := []struct {
 		mode string
-		work func(context.Context, *ops.Env) error
+		work func(context.Context, *config.Config, string) error
 	}{
-		{mode: "dry run", work: backfill.DryRun},
-		{mode: "execute", work: backfill.Run},
+		{mode: "dry run", work: ops.RunDryRun},
+		{mode: "execute", work: ops.Run},
 	}
 	wantNames := strconv.Quote(earlierName) + ", " + strconv.Quote(laterName)
 	for _, run := range runs {
-		err := run.work(env.Ctx, env.Ops)
+		err := run.work(env.Ctx, cfg, "backfill.default_children")
 		if err == nil {
 			t.Fatalf("default children backfill %s: got nil, want an undeclared property error", run.mode)
 		}

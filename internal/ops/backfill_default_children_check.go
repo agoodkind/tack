@@ -14,17 +14,6 @@ import (
 	"goodkind.io/tack/internal/service"
 )
 
-// checkDefaultChildProps reads property definitions for every organization.
-// After each successful read, checkDefaultChildProps validates every default
-// child property map with the service create validator.
-// checkDefaultChildProps collects read failures and continues checking the
-// remaining organizations. If any read fails, checkDefaultChildProps logs one
-// backfill.default_children_check_failed event and returns one error joining
-// every failed read without reporting validation refusals.
-// If every read succeeds and validation refuses any default child,
-// checkDefaultChildProps logs backfill.default_children_refused and returns
-// one error listing every refused default child.
-// Otherwise, checkDefaultChildProps returns nil.
 func checkDefaultChildProps(ctx context.Context, env *Env, orgTypes map[uuid.UUID][]*node.NodeType) error {
 	var refusals []error
 	var failures []error
@@ -101,11 +90,11 @@ func checkOrgDefaultChildProps(
 	return refusals
 }
 
-// checkedParentRaw is the JSON encoding of the nil UUID string.
-// checkOrgDefaultChildProps passes it to defaultChildProps for each default
-// child's parent_id and scope_id values. checkOrgDefaultChildProps passes
-// the complete property map to ValidateNodeProps, which validates every
-// property name in that map.
+// checkedParentRaw is the JSON encoding of the nil UUID string. defaultChildProps
+// uses it for parent_id and scope_id. ValidateNodeProps checks the complete map
+// and rejects undeclared names and, subject to its applicability exemptions,
+// names with definitions that do not apply to the child node type. It ignores
+// value and option issues.
 var checkedParentRaw = json.RawMessage(strconv.Quote(uuid.Nil.String()))
 
 func defaultChildProps(dc node.DefaultChild, parentRaw json.RawMessage) map[string]json.RawMessage {
