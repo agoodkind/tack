@@ -159,7 +159,6 @@ func (env *migrationEnv) putNode(t *testing.T, nodeID uuid.UUID, included string
 	env.putNodeProps(t, nodeID, map[string]json.RawMessage{env.IncludedKey: encodeText(t, included), env.ExcludedKey: encodeText(t, migrationExcluded)})
 }
 
-// putNodeProps stores one node with props.
 func (env *migrationEnv) putNodeProps(t *testing.T, nodeID uuid.UUID, props map[string]json.RawMessage) {
 	t.Helper()
 	now := clock.Now().UTC()

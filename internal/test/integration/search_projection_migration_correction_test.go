@@ -28,7 +28,6 @@ func (env *migrationEnv) putStoredBuiltIn(t *testing.T, name string, include boo
 	return definition
 }
 
-// pageText joins the text of the node's active pages.
 func (env *migrationEnv) pageText(t *testing.T, nodeID uuid.UUID) string {
 	t.Helper()
 	var text strings.Builder

@@ -13,7 +13,8 @@ import (
 )
 
 // Replace decodes and re-encodes the stored definition before comparing
-// it with before. It stores after and returns true only when they match.
+// it with before. It stores after and returns true only when the re-encoded
+// stored definition matches before.
 // The same transaction updates the name index, metadata epoch, and
 // projection digests and writes the audit event staged on ctx. When search
 // work is enabled, a rendering input change also requests a content rescan

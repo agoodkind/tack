@@ -125,7 +125,6 @@ func requestProjectionActivation(ctx context.Context, tr fdb.Transaction, now ti
 	})
 }
 
-// writerTarget reports whether target uses this writer's renderer and format.
 func writerTarget(target searchProjectionTarget) bool {
 	return target.Renderer == node.SearchRendererVersion && target.Format == searchProjectionFormat
 }

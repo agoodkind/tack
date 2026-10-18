@@ -45,8 +45,8 @@ type typeContributionInput struct {
 	Features []string  `json:"features"`
 }
 
-// definitionContribution hashes the rendering inputs of definition.
-// It returns nil for a nil definition.
+// definitionContribution hashes the rendering inputs of one property
+// definition. It returns nil for a nil definition.
 func definitionContribution(ctx context.Context, definition *node.PropertyDef) ([]byte, error) {
 	if definition == nil {
 		return nil, nil
