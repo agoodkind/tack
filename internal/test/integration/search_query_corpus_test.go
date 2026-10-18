@@ -105,8 +105,9 @@ func putOpaqueNode(t *testing.T, fixture queryFixture, kind opaqueKind, parentID
 
 // moveOpaqueNode reads nodeID and fails the test unless its type matches
 // kind.TypeKey and its parent_id equals from. It calls NodeService.Update
-// with parent_id set to to. The update replaces the child_of edge in the
-// same transaction.
+// with both parent_id and scope_id set to to. Every caller passes a workspace
+// entry node as to. The update replaces the child_of edge in the same
+// transaction.
 func moveOpaqueNode(t *testing.T, fixture queryFixture, kind opaqueKind, nodeID, from, to uuid.UUID) {
 	t.Helper()
 	current, err := fixture.Stores.Views.Get(t.Context(), nodeID)
@@ -117,7 +118,7 @@ func moveOpaqueNode(t *testing.T, fixture queryFixture, kind opaqueKind, nodeID,
 		t.Fatalf("node %s has type %s and parent_id %s, want type %s under %s", nodeID, current.NodeType, current.Props["parent_id"], kind.TypeKey, from)
 	}
 	if _, err := fixtureNodeService(fixture).Update(t.Context(), service.UpdateInput{
-		NodeID: nodeID, Props: map[string]json.RawMessage{"parent_id": mustJSON(to.String())},
+		NodeID: nodeID, Props: map[string]json.RawMessage{"parent_id": mustJSON(to.String()), "scope_id": mustJSON(to.String())},
 	}); err != nil {
 		t.Fatalf("move node %s from %s to %s: %v", nodeID, from, to, err)
 	}
