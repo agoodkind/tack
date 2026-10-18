@@ -64,15 +64,18 @@ func TestNodeIntegrityStrictRejectsEveryRuleAfterActivation(t *testing.T) {
 // TestNodeIntegrityStrictRejectsInvalidCreateAndEdgeAfterActivation checks
 // that strict validation rejects an issue creation under a label through
 // NodeService.Create and rejects RelationshipStore.Add calls for a child_of
-// edge and an edge to a missing node. It checks that each error wraps
-// domain.ErrInvalidArgument, the project still lists only the existing
-// issue, and the issue retains only its child_of edge to the project.
+// edge and an edge to the organization node of another organization. It
+// checks that each error wraps domain.ErrInvalidArgument and that the project
+// still lists only the existing issue. It also checks that the issue retains
+// exactly one child_of edge to the project and does not have any labeled_with
+// edges.
 func TestNodeIntegrityStrictRejectsInvalidCreateAndEdgeAfterActivation(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	projectID := createSchemaProject(t, env)
 	workspaceID := storedParentID(t, env, projectID)
 	issue := createSchemaNode(t, env, projectID, projectID, "issue", nil)
 	label := createSchemaNode(t, env, workspaceID, workspaceID, "label", nil)
+	otherOrgID := createStrictOtherOrg(t, env)
 	activateStrict(t)
 
 	_, err := env.NodeSvc.Create(env.Ctx, schemaCreateInput(label.ID, projectID, "issue", nil))
@@ -81,8 +84,8 @@ func TestNodeIntegrityStrictRejectsInvalidCreateAndEdgeAfterActivation(t *testin
 		t.Fatalf("project %s lists %d issues after the refused create, want 1", projectID, len(issues))
 	}
 	for name, relationship := range map[string]*node.Relationship{
-		"a child_of edge":           {OrgID: env.OrgID, SourceID: issue.ID, RelationType: node.RelChildOf, TargetID: workspaceID, CreatedBy: uuid.New()},
-		"an edge to a missing node": {OrgID: env.OrgID, SourceID: issue.ID, RelationType: node.RelLabeledWith, TargetID: uuid.New(), CreatedBy: uuid.New()},
+		"a child_of edge":                 {OrgID: env.OrgID, SourceID: issue.ID, RelationType: node.RelChildOf, TargetID: workspaceID, CreatedBy: uuid.New()},
+		"an edge to another organization": {OrgID: env.OrgID, SourceID: issue.ID, RelationType: node.RelLabeledWith, TargetID: otherOrgID, CreatedBy: uuid.New()},
 	} {
 		requireError(t, env.Stores.Relationships.Add(env.Ctx, relationship), domain.ErrInvalidArgument, "the store add of "+name)
 	}
