@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
+	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/datagen"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/service"
@@ -37,7 +38,7 @@ func TestNodeIntegritySchemaReferenceParity(t *testing.T) {
 	doneID := schemaStateID(t, stores, printed, "Done")
 
 	updateSchemaState(t, harness, printedID, quoted("Done"))
-	nodeService := service.NewNodeService(stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs, stores.Relationships, stores.NodeDeleter, nil, nil)
+	nodeService := service.NewNodeService(stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs, stores.Relationships, stores.NodeDeleter, postgres.NewOrgMemberRepo(testenv.LedgerPool(t, testenv.Ledger(t))), stores.Relationships)
 	if _, err := nodeService.Update(t.Context(), service.UpdateInput{
 		NodeID: explicitID, Name: nil, Props: schemaProps("state_id", quoted(doneID.String())),
 		RelationshipChanges: node.RelationshipChanges{Add: nil, Remove: nil}, ActorID: uuid.New(),

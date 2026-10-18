@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
+	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/adapters/search"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
@@ -14,6 +15,7 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 	appruntime "goodkind.io/tack/internal/runtime"
 	"goodkind.io/tack/internal/service"
+	"goodkind.io/tack/internal/testenv"
 )
 
 // parentEdgeKind stores the organization ID, the type key of one opaque node
@@ -66,7 +68,7 @@ func newParentEdgeFixture(t *testing.T) parentEdgeFixture {
 	stores.EnableSearchWork()
 	fixture := parentEdgeFixture{
 		cfg: cfg, stores: stores, driver: datagen.NewDriver(graph, false, seed),
-		nodes: service.NewNodeService(stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs, stores.Relationships, stores.NodeDeleter, nil, nil),
+		nodes: service.NewNodeService(stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs, stores.Relationships, stores.NodeDeleter, postgres.NewOrgMemberRepo(testenv.LedgerPool(t, cfg.DatabaseURL)), stores.Relationships),
 	}
 	fixture.worker, fixture.adapter = newParentEdgeWorker(t, cfg, stores)
 	fixture.first, fixture.second, fixture.foreign = parentEdgeWorkspaces(t, identities.Workspaces)
