@@ -125,6 +125,10 @@ services:
       # carries it because the generator needs FoundationDB reachability and the
       # audit DSNs, which the host-networked tack-ops container does not have.
       TACK_DATAGEN_ALLOW_TARGET: ${TACK_DATAGEN_ALLOW_TARGET:-}
+      # TACK_REPAIR_DIR sets the repair directory that the volume below mounts.
+      # The repair command refuses request, manifest, and export file paths
+      # outside this directory.
+      TACK_REPAIR_DIR: /var/lib/tack/repair
       # Backup object store. Empty unless the host's group_vars set them; read only by ops backup.
       TACK_BACKUP_S3_ENDPOINT: ${TACK_BACKUP_S3_ENDPOINT:-}
       TACK_BACKUP_S3_ACCESS_KEY_ID: ${TACK_BACKUP_S3_ACCESS_KEY_ID:-}
@@ -142,6 +146,12 @@ services:
       #   openssl genpkey -algorithm ed25519 -out /etc/tack/audit-signing.pem
       # The notarizer reuses it at every 60s tick; rotation is a follow-up.
       - /etc/tack:/etc/tack:ro
+      # The repair command reads requests and manifests from this host
+      # directory and writes deletion exports into it. The exports remain on
+      # the host after docker compose run --rm app removes the container.
+      # Docker creates the host directory on the first start if it does not
+      # exist.
+      - /var/lib/tack/repair:/var/lib/tack/repair
     # No yugabyte dependency: deployed guests reach the ledger on the data
     # guests through the rendered override's multi-host URL, and the deploy
     # starts the app only after provision. This base file alone still dials

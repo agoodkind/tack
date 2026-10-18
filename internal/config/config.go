@@ -33,6 +33,10 @@ type Config struct {
 	// SearchPublicEnabled switches tack_search from the fixed unavailable
 	// response to ranked search. Index workers run in either state.
 	SearchPublicEnabled bool `env:"OPENSEARCH_PUBLIC_ENABLED" envDefault:"false"`
+	// RepairDir sets the repair directory for ops backfill once-node-integrity.
+	// The command requires every request, manifest, and export file path to be
+	// inside this directory.
+	RepairDir string `env:"TACK_REPAIR_DIR"`
 
 	// Logging. Every field is plain pass-through to telemetry.Setup, which
 	// hands them to gklog. Setup itself never branches on ENV.

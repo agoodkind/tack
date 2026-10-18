@@ -37,7 +37,7 @@ const changedWatchNote = "Changed after the export"
 func TestNodeIntegrityRepairExecuteDeleteStopsChangedRelationship(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	graph := newRepairGraph(t, env)
-	entry := deleteFixtureEntry(t, env, graph, "tack-582-delete-relationship", filepath.Join(t.TempDir(), "relationship.json"))
+	entry := deleteFixtureEntry(t, env, graph, "tack-582-delete-relationship", filepath.Join(repairDirectory(t), "relationship.json"))
 	watchedID := createRepairIssue(t, env, graph.projectID, "Watched issue")
 	writeWatchesEdge(t, env, entry.NodeID, watchedID, map[string]json.RawMessage{})
 	manifest := freezeRepairRequest(t, repairRequest(entry))

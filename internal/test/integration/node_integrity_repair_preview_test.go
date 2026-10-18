@@ -77,7 +77,7 @@ func TestNodeIntegrityRepairPreviewReadsCheckpoints(t *testing.T) {
 		RepairID: "tack-582-delete-fixture", NodeID: fixtureID, NodeType: "issue", Status: ops.RepairEntryExecutable,
 		Classes:  []string{"test_fixture"},
 		Evidence: []ops.RepairEvidence{{Kind: ops.RepairEvidenceDecision, Reference: "TACK-582", Summary: "Delete the fixture."}},
-		Result:   ops.RepairResult{}, Delete: &ops.RepairDelete{ExportFile: t.TempDir() + "/fixture.json"},
+		Result:   ops.RepairResult{}, Delete: &ops.RepairDelete{ExportFile: repairDirectory(t) + "/fixture.json"},
 	}
 	unresolved := ops.NodeIntegrityEntry{
 		RepairID: "tack-582-scope-exception", NodeID: scopeID, NodeType: "issue", Status: ops.RepairEntryUnresolved,

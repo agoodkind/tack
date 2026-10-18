@@ -25,7 +25,7 @@ func TestNodeIntegrityRepairExecuteDeletesAfterVerifiedExport(t *testing.T) {
 	graph := newRepairGraph(t, env)
 	issueID := createRepairIssue(t, env, graph.projectID, "Issue with smoke comments")
 	kept := createRepairComment(t, env, issueID, graph.projectID, "Useful comment")
-	exportDir := t.TempDir()
+	exportDir := repairDirectory(t)
 	missingDir := filepath.Join(exportDir, "later")
 	first := commentDeleteEntry("tack-582-delete-smoke", createRepairComment(t, env, issueID, graph.projectID, "Smoke comment"), filepath.Join(exportDir, "smoke.json"))
 	second := commentDeleteEntry("tack-582-delete-later", createRepairComment(t, env, issueID, graph.projectID, "Smoke comment"), filepath.Join(missingDir, "later.json"))
@@ -71,7 +71,7 @@ func TestNodeIntegrityRepairExecuteDeletesAfterVerifiedExport(t *testing.T) {
 func TestNodeIntegrityRepairExecuteDeleteStopsChangedSource(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	graph := newRepairGraph(t, env)
-	entry := deleteFixtureEntry(t, env, graph, "tack-582-delete-changed", filepath.Join(t.TempDir(), "changed.json"))
+	entry := deleteFixtureEntry(t, env, graph, "tack-582-delete-changed", filepath.Join(repairDirectory(t), "changed.json"))
 	childID := createRepairComment(t, env, entry.NodeID, graph.projectID, "Comment under the fixture issue")
 	manifest := freezeRepairRequest(t, repairRequest(entry))
 

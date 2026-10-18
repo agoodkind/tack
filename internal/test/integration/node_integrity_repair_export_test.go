@@ -27,7 +27,7 @@ import (
 func TestNodeIntegrityRepairExportsBeforeDelete(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	graph := newRepairGraph(t, env)
-	exportDir := t.TempDir()
+	exportDir := repairDirectory(t)
 	exported := deleteFixtureEntry(t, env, graph, "tack-582-export", filepath.Join(exportDir, "export.json"))
 	missing := deleteFixtureEntry(t, env, graph, "tack-582-missing-dir", filepath.Join(exportDir, "absent", "export.json"))
 	stale := deleteFixtureEntry(t, env, graph, "tack-582-stale-export", filepath.Join(exportDir, "stale.json"))

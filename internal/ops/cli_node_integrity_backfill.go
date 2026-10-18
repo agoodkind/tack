@@ -47,7 +47,8 @@ func nodeIntegrityBackfillOp(f *cli.Factory) clispec.Operation[nodeIntegrityBack
 			"The command applies the validated result for other entries. " +
 			"The command resumes each entry at its next phase on a later execution and reports completed entries as unchanged. " +
 			"The command skips an entry when a current record differs from the frozen manifest. " +
-			"The command rejects --request with --execute.",
+			"The command rejects --request with --execute. " +
+			"Every request, manifest, and export file path must be an absolute path inside the directory that TACK_REPAIR_DIR sets.",
 		Params: []clispec.Param[nodeIntegrityBackfillInput]{
 			clispec.StringParam("request", "This path selects the reviewed repair request for a dry run that freezes a manifest.", "", false,
 				func(in *nodeIntegrityBackfillInput, value string) { in.Request = value }),
@@ -75,6 +76,10 @@ func runNodeIntegrityBackfillCommand(ctx context.Context, f *cli.Factory, in nod
 		return nodeIntegrityCommandFailure(ctx, "read the input",
 			errors.New("--request only freezes a manifest; review the frozen manifest and execute it with --manifest"))
 	}
+	directory, err := openRepairDirectory(ctx, f.Cfg.RepairDir)
+	if err != nil {
+		return nodeIntegrityCommandFailure(ctx, "open the repair directory", err)
+	}
 	env, err := NewEnv(ctx, f.Cfg)
 	if err != nil {
 		return nodeIntegrityCommandFailure(ctx, "open the environment", err)
@@ -88,7 +93,7 @@ func runNodeIntegrityBackfillCommand(ctx context.Context, f *cli.Factory, in nod
 	switch {
 	case request != "":
 		var reviewed NodeIntegrityRequest
-		if err := readNodeIntegrityDocument(ctx, request, &reviewed); err != nil {
+		if err := readNodeIntegrityDocument(ctx, directory, request, &reviewed); err != nil {
 			return err
 		}
 		frozen, err := freezeNodeIntegrityRequest(ctx, repairs, reviewed)
@@ -98,7 +103,7 @@ func runNodeIntegrityBackfillCommand(ctx context.Context, f *cli.Factory, in nod
 		output.Manifest = &frozen
 	default:
 		var manifest NodeIntegrityManifest
-		if err := readNodeIntegrityDocument(ctx, manifestPath, &manifest); err != nil {
+		if err := readNodeIntegrityDocument(ctx, directory, manifestPath, &manifest); err != nil {
 			return err
 		}
 		if err := checkNodeIntegrityManifest(ctx, manifest); err != nil {
