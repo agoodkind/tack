@@ -130,7 +130,6 @@ services:
       # finding the cluster once every one of them is gone (TACK-408).
       - /etc/foundationdb:/etc/foundationdb
       - tack-logs:/var/log/tack
-      - ${TACK_LEDGER_CERTS_DIR:-/etc/tack/ledger-certs}:${TACK_LEDGER_CERTS_DIR:-/etc/tack/ledger-certs}:ro
     # No yugabyte dependency: deployed guests reach the ledger on the data
     # guests through the rendered override's multi-host URL, and the deploy
     # starts the app only after provision. This base file alone still dials
@@ -492,7 +491,6 @@ services:
     volumes:
       - tack-logs:/var/log/tack
       - ${AUDIT_CONSUMER_SIGNING_KEY_PATH:-/etc/tack/audit-signing.pem}:${AUDIT_CONSUMER_SIGNING_KEY_PATH:-/etc/tack/audit-signing.pem}:ro
-      - ${TACK_LEDGER_CERTS_DIR:-/etc/tack/ledger-certs}:${TACK_LEDGER_CERTS_DIR:-/etc/tack/ledger-certs}:ro
       # Writable: this process is a FoundationDB client too, and the client
       # library records a coordinator change in this file (TACK-408).
       - /etc/foundationdb:/etc/foundationdb

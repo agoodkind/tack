@@ -1,0 +1,9 @@
+services:
+  app:
+    volumes:
+      - type: bind
+        source: /etc/tack/search-projections.json
+        target: /etc/tack/search-projections.json
+        read_only: true
+        bind:
+          create_host_path: false
