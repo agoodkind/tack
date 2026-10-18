@@ -12,6 +12,7 @@ import (
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
+	"goodkind.io/tack/internal/domain/org"
 	"goodkind.io/tack/internal/telemetry"
 )
 
@@ -25,6 +26,7 @@ type NodeService struct {
 	propertyDefs  node.PropertyDefRepository
 	relationships node.RelationshipRepository
 	deleter       node.NodeDeleter
+	members       org.MemberRepository
 }
 
 func NewNodeService(
@@ -34,15 +36,21 @@ func NewNodeService(
 	propertyDefs node.PropertyDefRepository,
 	relationships node.RelationshipRepository,
 	deleter node.NodeDeleter,
+	options ...NodeServiceOption,
 ) *NodeService {
-	return &NodeService{
+	nodeService := &NodeService{
 		nodes:         nodes,
 		reader:        reader,
 		nodeTypes:     nodeTypes,
 		propertyDefs:  propertyDefs,
 		relationships: relationships,
 		deleter:       deleter,
+		members:       nil,
 	}
+	for _, option := range options {
+		option(nodeService)
+	}
+	return nodeService
 }
 
 // AddRelationship attaches a directed edge between two nodes. A child_of
@@ -74,6 +82,10 @@ func (s *NodeService) AddRelationship(ctx context.Context, rel *node.Relationshi
 		relationshipAuditEntity(rel.SourceID, rel.RelationType, rel.TargetID)); err != nil {
 		slog.ErrorContext(ctx, "node.AddRelationship: stage audit row", slog.String("err", err.Error()))
 		return fmt.Errorf("stage the audit row for adding %s: %w", rel.RelationType, err)
+	}
+	ctx, err := s.markMemberTarget(ctx, rel)
+	if err != nil {
+		return err
 	}
 	return s.relationships.Add(ctx, rel)
 }

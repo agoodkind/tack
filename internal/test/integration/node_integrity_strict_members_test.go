@@ -8,6 +8,7 @@ import (
 
 	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/clock"
+	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/domain/org"
 	"goodkind.io/tack/internal/domain/user"
@@ -44,21 +45,56 @@ func TestNodeIntegrityStrictAcceptsMemberAssignmentAfterActivation(t *testing.T)
 	}
 }
 
-// createStrictMember creates a user and adds the user to the test
-// organization through the YugabyteDB repositories. It returns the user ID.
+// TestNodeIntegrityStrictRejectsUnknownAssignmentAfterActivation activates
+// strict validation and attempts to add assigned_to edges from an issue
+// through NodeService.AddRelationship. The targets are a user outside the
+// organization and a random UUID. The test checks that each call returns
+// an error that wraps domain.ErrInvalidArgument and that the relationship
+// store does not list an assigned_to edge for the issue.
+func TestNodeIntegrityStrictRejectsUnknownAssignmentAfterActivation(t *testing.T) {
+	env := integration.SetupTestEnv(t)
+	projectID := createSchemaProject(t, env)
+	issue := createSchemaNode(t, env, projectID, projectID, "issue", nil)
+	outsiderID := createStrictUser(t, env)
+	activateStrict(t)
+
+	for name, targetID := range map[string]uuid.UUID{"a user outside the organization": outsiderID, "a random UUID": uuid.New()} {
+		relationship := &node.Relationship{
+			OrgID: env.OrgID, SourceID: issue.ID, RelationType: node.RelAssignedTo, TargetID: targetID,
+			CreatedBy: uuid.New(), CreatedAt: clock.Now().UTC(), Props: nil,
+		}
+		requireError(t, env.NodeSvc.AddRelationship(env.Ctx, relationship), domain.ErrInvalidArgument, "the assignment to "+name)
+	}
+	edges, err := env.Stores.Relationships.ListBySource(env.Ctx, env.OrgID, issue.ID, node.RelAssignedTo)
+	if err != nil || len(edges) != 0 {
+		t.Fatalf("assigned_to edges of issue %s after the refused adds = %v, %v, want none", issue.ID, edges, err)
+	}
+}
+
+// createStrictMember creates a user with createStrictUser and adds the user
+// to the test organization through the YugabyteDB repository. It returns the
+// user ID.
 func createStrictMember(t *testing.T, env *integration.TestEnv) uuid.UUID {
+	t.Helper()
+	userID := createStrictUser(t, env)
+	if err := postgres.NewOrgMemberRepo(env.Ops.Pool).AddMember(env.Ctx, &org.Member{
+		ID: uuid.Nil, OrgID: env.OrgID, UserID: userID, Role: strictMemberRole,
+	}); err != nil {
+		t.Fatalf("add user %s to organization %s: %v", userID, env.OrgID, err)
+	}
+	return userID
+}
+
+// createStrictUser creates a user through the YugabyteDB repository and
+// returns the user ID.
+func createStrictUser(t *testing.T, env *integration.TestEnv) uuid.UUID {
 	t.Helper()
 	userID := uuid.Must(uuid.NewV7())
 	created, err := postgres.NewUserRepo(env.Ops.Pool).Create(env.Ctx, &user.User{
-		ID: userID, Email: "strict-member-" + userID.String() + "@example.invalid", DisplayName: "Strict Member", AvatarURL: nil,
+		ID: userID, Email: "strict-user-" + userID.String() + "@example.invalid", DisplayName: "Strict User", AvatarURL: nil,
 	})
 	if err != nil {
 		t.Fatalf("create user %s: %v", userID, err)
-	}
-	if err := postgres.NewOrgMemberRepo(env.Ops.Pool).AddMember(env.Ctx, &org.Member{
-		ID: uuid.Nil, OrgID: env.OrgID, UserID: created.ID, Role: strictMemberRole,
-	}); err != nil {
-		t.Fatalf("add user %s to organization %s: %v", created.ID, env.OrgID, err)
 	}
 	return created.ID
 }

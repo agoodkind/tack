@@ -10,13 +10,14 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// checkStrictRelationship returns nil when strict is false. Otherwise, it
-// refuses a child_of relationship with node.ErrReservedParentRelation,
-// because parent_id sets the parent. It also refuses a relationship when its
-// source does not exist in the relationship's organization, or when its
-// target resolves to a node in another organization, with an error that
-// wraps domain.ErrInvalidArgument. A target without a resolution record, such
-// as the user ID of an assigned_to edge, passes.
+// checkStrictRelationship returns nil when strict is false. When strict is
+// true, it rejects child_of relationships with an error that wraps
+// node.ErrReservedParentRelation. The parent_id field sets the parent.
+// For other relationships, it returns an error that wraps
+// domain.ErrInvalidArgument when the source does not resolve to a node in
+// rel.OrgID, the target resolves to a node in another organization, or the
+// target does not resolve to a node and ctx does not record it as a member
+// of rel.OrgID.
 func checkStrictRelationship(ctx context.Context, tr fdb.Transaction, strict bool, rel *node.Relationship) error {
 	if !strict {
 		return nil
@@ -39,6 +40,9 @@ func checkStrictRelationship(ctx context.Context, tr fdb.Transaction, strict boo
 	}
 	if target.Found && target.OrgID != rel.OrgID {
 		return mutationRefusal(ctx, rel.SourceID, "the relationship target "+rel.TargetID.String()+" is a node in another organization", domain.ErrInvalidArgument)
+	}
+	if !target.Found && !node.IsMemberTarget(ctx, rel.OrgID, rel.TargetID) {
+		return mutationRefusal(ctx, rel.SourceID, "the relationship target "+rel.TargetID.String()+" is neither a node nor a member of the organization", domain.ErrInvalidArgument)
 	}
 	return nil
 }
