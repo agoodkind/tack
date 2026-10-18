@@ -69,7 +69,7 @@ func (s *NodeStore) ActivateStrict(ctx context.Context, evidence node.StrictEvid
 
 // StrictScanPage reads at most limit primary node records across all
 // organizations in key order after cursor. In the same transaction, it reads
-// the graph of each record with readResultGraph. The next cursor is empty
+// the graph of each record with readStrictGraph. The next cursor is empty
 // after the last page.
 func (s *NodeStore) StrictScanPage(ctx context.Context, cursor string, limit int) (records []node.StrictRecord, next string, err error) {
 	defer telemetry.FDBOp(ctx, "store.strict.scan_page")(&err)
@@ -130,7 +130,7 @@ func readStrictRecords(ctx context.Context, tr fdb.Transaction, items []fdb.KeyV
 			}
 			definitions[record.OrgID] = orgDefinitions
 		}
-		graph, err := readResultGraph(ctx, tr, orgDefinitions, &record)
+		graph, err := readStrictGraph(ctx, tr, orgDefinitions, &record)
 		if err != nil {
 			return nil, err
 		}

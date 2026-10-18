@@ -30,7 +30,7 @@ func readStrictSchema(ctx context.Context, tr fdb.Transaction, record *node.Node
 		return nil, graph, err
 	}
 	schema := &node.Schema{OrgID: record.OrgID, Types: map[string]*node.NodeType{kind.TypeKey: kind}, Definitions: definitions}
-	graph, err = readResultGraph(ctx, tr, definitions, record)
+	graph, err = readStrictGraph(ctx, tr, definitions, record)
 	if err != nil {
 		return nil, graph, err
 	}
@@ -48,10 +48,10 @@ func readStrictSchema(ctx context.Context, tr fdb.Transaction, record *node.Node
 	return schema, graph, nil
 }
 
-// readResultGraph reads record's child_of targets and the resolution records
+// readStrictGraph reads record's child_of targets and the resolution records
 // for IDs in its parent_id and reference properties inside tr. These reads
 // include writes that tr has already made.
-func readResultGraph(ctx context.Context, tr fdb.Transaction, definitions []*node.PropertyDef, record *node.Node) (node.ResultGraph, error) {
+func readStrictGraph(ctx context.Context, tr fdb.Transaction, definitions []*node.PropertyDef, record *node.Node) (node.ResultGraph, error) {
 	graph := node.ResultGraph{OrgID: record.OrgID, ChildOf: nil, Targets: map[uuid.UUID]node.ResultTarget{}}
 	keyRange, err := fdb.PrefixRange(relationshipPrefixBySource(record.OrgID, record.ID, node.RelChildOf))
 	if err != nil {
