@@ -1,0 +1,10 @@
+services:
+  app:
+    environment:
+      AUDIT_READER_DSN_FILE: /run/secrets/AUDIT_READER_DSN
+    secrets:
+      - AUDIT_READER_DSN
+
+secrets:
+  AUDIT_READER_DSN:
+    file: ${TACK_SECRETS_DIR:?}/AUDIT_READER_DSN

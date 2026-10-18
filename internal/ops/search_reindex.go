@@ -142,15 +142,7 @@ func reindexTopology(ctx context.Context, f *cli.Factory, in searchReindexInput,
 }
 
 func validateSplit(ctx context.Context, f *cli.Factory, serving string, primaries int) (settings search.PhysicalSettings, runErr error) {
-	certificate, err := config.LoadSearchCA(ctx, f.Cfg.SearchCA)
-	if err != nil {
-		return settings, searchReindexFailure(ctx, "load search CA", err)
-	}
-	pass := f.Cfg.SearchPassword
-	adapter, err := search.New(ctx, search.Config{
-		Endpoint: f.Cfg.SearchEndpoint, CA: certificate, Username: f.Cfg.SearchUsername,
-		Password: pass, RequestTimeout: f.Cfg.SearchRequestTimeout, MaxRetries: f.Cfg.SearchMaxRetries,
-	})
+	adapter, err := newSearchMaintenanceAdapter(ctx, f.Cfg)
 	if err != nil {
 		return settings, searchReindexFailure(ctx, "create search adapter", err)
 	}
