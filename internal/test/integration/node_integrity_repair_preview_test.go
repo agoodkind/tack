@@ -107,8 +107,8 @@ func TestNodeIntegrityRepairPreviewReadsCheckpoints(t *testing.T) {
 }
 
 // TestNodeIntegrityRepairRejectsUnreviewedChanges checks that the command
-// rejects an edited frozen manifest and a request that removes a child_of
-// edge to an existing node outside the ancestors above the resulting parent.
+// rejects an edited frozen manifest and a request that keeps the current
+// project parent and removes the child_of edge to that project.
 // The test also forges a related record digest in the frozen source and
 // recomputes the manifest digest. The command must reject that manifest
 // because the graph digest no longer matches the frozen edges, related
@@ -135,9 +135,9 @@ func TestNodeIntegrityRepairRejectsUnreviewedChanges(t *testing.T) {
 	}
 	keepProject := graph.selectEpicEntry("tack-582-wrong-edge")
 	keepProject.Result.Props = map[string]json.RawMessage{}
-	keepProject.Result.RemoveEdges = []ops.RepairEdge{{RelationType: node.RelChildOf, TargetID: graph.epicID}}
+	keepProject.Result.RemoveEdges = []ops.RepairEdge{{RelationType: node.RelChildOf, TargetID: graph.projectID}}
 	if _, err := runRepairCommand(t, "--request", writeRepairDocument(t, "wrong.json", repairRequest(keepProject))); err == nil ||
-		!strings.Contains(err.Error(), "does not target an ancestor") {
-		t.Fatalf("freeze of a non-ancestor removal = %v, want a refusal", err)
+		!strings.Contains(err.Error(), "removes the child_of edge to the resulting parent") {
+		t.Fatalf("freeze of a removal of the resulting parent edge = %v, want a refusal", err)
 	}
 }

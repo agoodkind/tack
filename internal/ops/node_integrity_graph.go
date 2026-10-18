@@ -12,8 +12,11 @@ import (
 // graphProblem returns the first graph validation error, or an empty string.
 // It requires the node to exist with the declared type. For executable
 // entries other than deletes, it checks the resulting parent chain and edge
-// changes. A removed child_of edge to an existing node must target an
-// ancestor above the resulting parent.
+// changes. It accepts listed removals of existing outgoing child_of edges,
+// including edges outside the resulting parent's ancestor chain, but refuses
+// a listed removal of the edge to the resulting parent. The resulting parent
+// is the result's parent_id, or the node's current parent_id when the result
+// does not set one.
 func graphProblem(entry NodeIntegrityEntry, evidence fdbadapter.RepairEvidence) string {
 	if !evidence.Node.Found {
 		return "the node does not exist"
@@ -32,6 +35,10 @@ func graphProblem(entry NodeIntegrityEntry, evidence fdbadapter.RepairEvidence) 
 	if parentID != uuid.Nil && !present[parentID] {
 		return fmt.Sprintf("the resulting parent %s does not exist in the organization", parentID)
 	}
+	resultingParent := parentID
+	if resultingParent == uuid.Nil {
+		resultingParent = evidence.Node.ParentID
+	}
 	outgoing := make(map[RepairEdge]bool, len(evidence.Outgoing))
 	for _, record := range evidence.Outgoing {
 		outgoing[RepairEdge{RelationType: record.RelationType, TargetID: record.TargetID}] = true
@@ -40,11 +47,8 @@ func graphProblem(entry NodeIntegrityEntry, evidence fdbadapter.RepairEvidence) 
 		if !outgoing[edge] {
 			return fmt.Sprintf("the node has no %s edge to %s", edge.RelationType, edge.TargetID)
 		}
-		if edge.RelationType != node.RelChildOf || !present[edge.TargetID] {
-			continue
-		}
-		if len(evidence.Chain) < 2 || !slices.Contains(evidence.Chain[1:], edge.TargetID) {
-			return fmt.Sprintf("the removed child_of edge to %s does not target an ancestor above the resulting parent", edge.TargetID)
+		if edge.RelationType == node.RelChildOf && edge.TargetID == resultingParent {
+			return fmt.Sprintf("the result removes the child_of edge to the resulting parent %s", edge.TargetID)
 		}
 	}
 	for _, edge := range entry.Result.AddEdges {
