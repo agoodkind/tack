@@ -70,6 +70,7 @@ func RegisterCommands(reg *clispec.Registry, f *cli.Factory) {
 	clispec.Register(reg, searchRolloutOp(f))
 	clispec.Register(reg, searchReindexOp(f))
 	clispec.Register(reg, searchProjectionBackfillOp(f))
+	clispec.Register(reg, fixedDefinitionsOp(f))
 	clispec.Register(reg, metadataNameBackfillOp(f))
 	clispec.Register(reg, orphanNodeBackfillOp(f))
 	clispec.Register(reg, nodeIntegrityBackfillOp(f))

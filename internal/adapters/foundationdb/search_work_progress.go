@@ -59,6 +59,10 @@ func (s *SearchWorkStore) CompleteRefresh(ctx context.Context, work searchdomain
 		if progress.Phase != string(searchdomain.PhaseRefresh) {
 			return searchdomain.ErrWorkChanged
 		}
+		restarted, err := restartObsoleteProjection(ctx, tr, s.clock.Now(), work, progress.Projection)
+		if err != nil || restarted {
+			return err
+		}
 		if err := promotePropertyWarnings(ctx, tr, work, record.Revision, progress.Projection); err != nil {
 			return err
 		}
