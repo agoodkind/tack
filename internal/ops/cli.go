@@ -89,6 +89,12 @@ func registerBatchOps(reg *clispec.Registry, f *cli.Factory) {
 			continue
 		}
 		name := op.Name
+		var dryRun func(ctx context.Context, in noInput, sink clispec.ResultSink) error
+		if op.DryRun != nil {
+			dryRun = func(ctx context.Context, _ noInput, _ clispec.ResultSink) error {
+				return RunDryRun(ctx, f.Cfg, name)
+			}
+		}
 		clispec.Register(reg, clispec.Operation[noInput]{
 			Name:     clispec.Name{Canonical: name, CLIOverride: name},
 			Lifetime: op.Lifetime,
@@ -102,6 +108,7 @@ func registerBatchOps(reg *clispec.Registry, f *cli.Factory) {
 			Args:     nil,
 			Params:   nil,
 			New:      func() noInput { return noInput{InputMarker: clispec.InputMarker{}} },
+			DryRun:   dryRun,
 			Run: func(ctx context.Context, _ noInput, _ clispec.ResultSink) error {
 				return Run(ctx, f.Cfg, name)
 			},
