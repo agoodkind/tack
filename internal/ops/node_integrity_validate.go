@@ -110,7 +110,7 @@ func resultTargetIDs(schema node.SchemaSnapshot, nodeType string, props map[stri
 }
 
 // repairNodeID decodes and returns a node ID from a JSON string. It returns
-// uuid.Nil for any other value.
+// [uuid.Nil] for any other value.
 func repairNodeID(raw json.RawMessage) uuid.UUID {
 	var text string
 	if json.Unmarshal(raw, &text) != nil {
