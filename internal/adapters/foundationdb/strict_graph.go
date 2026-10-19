@@ -34,7 +34,7 @@ func readStrictSchema(ctx context.Context, tr fdb.Transaction, record *node.Node
 	if err != nil {
 		return nil, graph, err
 	}
-	parent := graph.Targets[parentIDValue(record.Props[parentIDProperty])]
+	parent := graph.Targets[storedUUID(record.Props[parentIDProperty])]
 	if !parent.Found || parent.OrgID != record.OrgID {
 		return schema, graph, nil
 	}
@@ -68,10 +68,10 @@ func readStrictGraph(ctx context.Context, tr fdb.Transaction, definitions []*nod
 		}
 		graph.ChildOf = append(graph.ChildOf, targetID)
 	}
-	targetIDs := []uuid.UUID{parentIDValue(record.Props[parentIDProperty])}
+	targetIDs := []uuid.UUID{storedUUID(record.Props[parentIDProperty])}
 	for _, definition := range definitions {
 		if definition.Type == node.PropertyTypeUUID && definition.ReferenceTargetTypeKey != "" {
-			targetIDs = append(targetIDs, parentIDValue(record.Props[definition.Name]))
+			targetIDs = append(targetIDs, storedUUID(record.Props[definition.Name]))
 		}
 	}
 	for _, targetID := range targetIDs {

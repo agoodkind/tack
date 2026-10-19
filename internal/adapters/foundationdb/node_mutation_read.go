@@ -58,9 +58,24 @@ func readNodeSnapshot(ctx context.Context, tr fdb.Transaction, orgID, nodeID uui
 	}
 	snapshot.Exists, snapshot.Node, snapshot.Encoding = true, source.Node, source.Encoding
 	snapshot.PrimaryDigest = node.PrimaryDigest(source.Encoding)
-	snapshot.ParentID = parentIDValue(source.Node.Props[parentIDProperty])
+	snapshot.ParentID = storedUUID(source.Node.Props[parentIDProperty])
 	snapshot.Outgoing, snapshot.Incoming, snapshot.IncomingOverflow = outgoing, incoming, overflow
 	return snapshot, nil
+}
+
+// storedUUID decodes raw as a JSON string containing a UUID. storedUUID returns
+// [uuid.Nil] when raw is absent, is not a JSON string, or does not contain a
+// UUID.
+func storedUUID(raw json.RawMessage) uuid.UUID {
+	var text string
+	if json.Unmarshal(raw, &text) != nil {
+		return uuid.Nil
+	}
+	parsed, err := uuid.Parse(text)
+	if err != nil {
+		return uuid.Nil
+	}
+	return parsed
 }
 
 // absentNode returns a zero node when the snapshot lacks a primary record.

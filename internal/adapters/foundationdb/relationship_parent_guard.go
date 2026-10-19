@@ -16,10 +16,12 @@ import (
 
 // refuseOnlyParentRemoval runs inside the relationship removal transaction
 // and allows removal of edges of other relation types and child_of edges that
-// do not exist. When the source node stores parent_id, the guard refuses
-// removal of the child_of edge targeting parent_id for every node type, even
-// when another child_of edge remains, and allows removal of other child_of
-// edges. When the source node does not store parent_id, the guard refuses
+// do not exist. When the source node stores parent_id as a UUID string, the
+// guard refuses removal of the child_of edge targeting parent_id for every
+// node type, even when another child_of edge remains, and allows removal of
+// other child_of edges. When the source node stores a parent_id value that is
+// not a UUID string, the guard refuses removal of every existing child_of
+// edge. When the source node does not store parent_id, the guard refuses
 // removal if node.HierarchyParent returns an error for the source type and
 // the other remaining child_of target, if any. Each refusal returns an error
 // that matches domain.ErrFailedPrecondition. FoundationDB aborts one of two
@@ -65,10 +67,10 @@ func refuseOnlyParentRemoval(ctx context.Context, tr fdb.Transaction, orgID, sou
 }
 
 // storedParentID reads the primary record of source inside tr and returns the
-// parent_id that the record stores.
-// The function returns [uuid.Nil] when source does not identify a node in the
-// organization, the primary record does not exist, or parent_id does not
-// contain a UUID string.
+// parent_id that the record stores. It returns [uuid.Nil] without an error when
+// source does not identify a node in the organization, the primary record
+// does not exist, or the record does not store parent_id. It returns an error
+// when the stored parent_id is not a JSON string that contains a UUID.
 func storedParentID(ctx context.Context, tr fdb.Transaction, orgID uuid.UUID, source hierarchyNode) (uuid.UUID, error) {
 	if !source.Found {
 		return uuid.Nil, nil
@@ -77,23 +79,37 @@ func storedParentID(ctx context.Context, tr fdb.Transaction, orgID uuid.UUID, so
 	if err != nil || current == nil {
 		return uuid.Nil, err
 	}
-	return parentIDValue(current.Props[parentIDProperty]), nil
+	return parentIDValue(ctx, source.ID, current.Props[parentIDProperty])
 }
 
-// parentIDValue decodes one raw parent_id property value and returns the UUID
-// that the JSON string contains.
-// The function returns [uuid.Nil] when the value does not exist, does not
-// encode a JSON string, or does not contain a UUID.
-func parentIDValue(raw json.RawMessage) uuid.UUID {
+// parentIDValue decodes raw as a JSON string and parses that string as a UUID.
+// It returns [uuid.Nil] without an error when raw is empty. It returns an error
+// that matches domain.ErrFailedPrecondition when raw does not encode a JSON
+// string or the string does not contain a UUID.
+func parentIDValue(ctx context.Context, nodeID uuid.UUID, raw json.RawMessage) (uuid.UUID, error) {
+	if len(raw) == 0 {
+		return uuid.Nil, nil
+	}
 	var text string
-	if json.Unmarshal(raw, &text) != nil {
-		return uuid.Nil
+	if err := json.Unmarshal(raw, &text); err != nil {
+		return uuid.Nil, invalidStoredParent(ctx, nodeID, raw, err)
 	}
-	parentID, parseErr := uuid.Parse(text)
-	if parseErr != nil {
-		return uuid.Nil
+	parentID, err := uuid.Parse(text)
+	if err != nil {
+		return uuid.Nil, invalidStoredParent(ctx, nodeID, raw, err)
 	}
-	return parentID
+	return parentID, nil
+}
+
+// invalidStoredParent builds an error for the parent_id value raw on nodeID
+// that wraps cause and domain.ErrFailedPrecondition. It logs the error once
+// at Error level with the event relationship.remove_refused and the source_id
+// attribute set to nodeID. It returns the error as an already logged error.
+func invalidStoredParent(ctx context.Context, nodeID uuid.UUID, raw json.RawMessage, cause error) error {
+	wrapped := fmt.Errorf("node %s stores a parent_id value %s that is not a UUID string: %w: %w", nodeID, raw, cause, domain.ErrFailedPrecondition)
+	telemetry.L(ctx).ErrorContext(ctx, "relationship.remove_refused", slog.String("err", wrapped.Error()),
+		slog.String("source_id", nodeID.String()))
+	return loggedSearchError{err: wrapped}
 }
 
 // parentGuardEdgeLimit limits the guard to reading two child_of edges: the

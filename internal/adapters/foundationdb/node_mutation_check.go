@@ -74,7 +74,7 @@ func checkParentChain(ctx context.Context, tr fdb.Transaction, orgID, nodeID, pa
 			}
 			return mutationRefusal(ctx, nodeID, "the graph expectation does not list ancestor "+currentID.String(), domain.ErrConflict)
 		}
-		currentID = parentIDValue(ancestor.Node.Props[parentIDProperty])
+		currentID = storedUUID(ancestor.Node.Props[parentIDProperty])
 	}
 	return nil
 }
@@ -92,8 +92,8 @@ func checkMoveScope(ctx context.Context, plan node.MutationPlan, source mutation
 		return nil
 	}
 	parentID := plan.Parent.TargetID
-	scopeID := parentIDValue(result.Props[scopeIDProperty])
-	if scopeID == uuid.Nil || parentID == parentIDValue(source.Node.Props[parentIDProperty]) {
+	scopeID := storedUUID(result.Props[scopeIDProperty])
+	if scopeID == uuid.Nil || parentID == storedUUID(source.Node.Props[parentIDProperty]) {
 		return nil
 	}
 	for currentID := parentID; currentID != uuid.Nil; {
@@ -104,7 +104,7 @@ func checkMoveScope(ctx context.Context, plan node.MutationPlan, source mutation
 		if !listed {
 			break
 		}
-		currentID = parentIDValue(ancestor.Node.Props[parentIDProperty])
+		currentID = storedUUID(ancestor.Node.Props[parentIDProperty])
 	}
 	return mutationRefusal(ctx, plan.NodeID, "the parent chain of "+parentID.String()+" does not contain scope "+scopeID.String(), domain.ErrInvalidArgument)
 }
