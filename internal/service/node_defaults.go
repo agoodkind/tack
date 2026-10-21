@@ -28,7 +28,7 @@ func (s *NodeService) applyCreatePropertyDefaults(
 	}
 	typeIndex := node.BuildTypeIndex(types)
 	for _, def := range defs {
-		if !appliesTo(def, nt) {
+		if !node.PropertyAppliesTo(def, nt) {
 			continue
 		}
 		if propertyIsPresent(props, def.Name) {
@@ -49,7 +49,7 @@ func (s *NodeService) applyCreatePropertyDefaults(
 		props[def.Name] = raw
 	}
 	for _, def := range defs {
-		if !appliesTo(def, nt) || !def.Required {
+		if !node.PropertyAppliesTo(def, nt) || !def.Required {
 			continue
 		}
 		if propertyHasValue(props, def.Name) {

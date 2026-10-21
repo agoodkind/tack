@@ -14,12 +14,22 @@ import (
 )
 
 const (
-	// rankingWaitDeadline limits how long indexing and index-replacement
-	// waits may run.
 	rankingWaitDeadline = 15 * time.Minute
-	// rankingPoll is the interval between two checks during a wait.
-	rankingPoll = time.Second
+	rankingPoll         = time.Second
 )
+
+func (r *rankingRun) session(t *testing.T, cursor string) searchdomain.Session {
+	t.Helper()
+	sessionID, _, err := r.cursors.Decode(cursor)
+	if err != nil {
+		t.Fatalf("decode cursor: %v", err)
+	}
+	session, err := r.stores.SearchSessions(clock.Wall{}, 15*time.Minute).Load(t.Context(), sessionID)
+	if err != nil {
+		t.Fatalf("load session %s: %v", sessionID, err)
+	}
+	return session
+}
 
 func (r *rankingRun) servingIndex(t *testing.T) string {
 	t.Helper()
@@ -30,8 +40,6 @@ func (r *rankingRun) servingIndex(t *testing.T) string {
 	return index
 }
 
-// waitIndexed waits until the serving index has an active page for every
-// node in nodes.
 func (r *rankingRun) waitIndexed(t *testing.T, nodes []uuid.UUID) {
 	t.Helper()
 	index := r.servingIndex(t)
@@ -61,8 +69,6 @@ func (r *rankingRun) waitIndexed(t *testing.T, nodes []uuid.UUID) {
 	t.Fatalf("the serving index did not have every regression node within %s", rankingWaitDeadline)
 }
 
-// beginRebuild begins one full replacement through the production store and
-// deletes its target index when the test ends.
 func (r *rankingRun) beginRebuild(t *testing.T) searchdomain.Rebuild {
 	t.Helper()
 	request := searchdomain.BeginRebuild{Mode: searchdomain.ReplacementFull, PrimaryShards: 1, RoutingShards: 24, Reason: "relevance regression"}
@@ -77,9 +83,6 @@ func (r *rankingRun) beginRebuild(t *testing.T) searchdomain.Rebuild {
 	return rebuild
 }
 
-// waitRebuild waits until done accepts the replacement state while the
-// production search workers run. It passes found as false when the replacement
-// does not exist.
 func (r *rankingRun) waitRebuild(t *testing.T, done func(searchdomain.Rebuild, bool) bool) {
 	t.Helper()
 	rebuilds := r.stores.SearchRebuilds(clock.Wall{})

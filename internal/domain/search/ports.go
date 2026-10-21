@@ -24,9 +24,8 @@ type AccessReader interface {
 }
 
 // WorkLeases claims, yields, and releases durable work. Release records a
-// failure and delays the next claim. It excludes the node instead when the
-// counted failures of the work equal the attempt limit. Exclude retires the
-// node's pages, records the exclusion, and clears the work.
+// failure, keeps the work pending, and delays the next claim. Exclude
+// retires the node's pages, records the exclusion, and clears the work.
 type WorkLeases interface {
 	Claim(context.Context, WorkClass, string, time.Duration) (Work, error)
 	Yield(context.Context, Work) error

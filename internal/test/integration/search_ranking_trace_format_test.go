@@ -11,8 +11,6 @@ import (
 	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
 )
 
-// traceDescriptionBytes limits the bytes in one explanation description
-// in trace output.
 const traceDescriptionBytes = 120
 
 type rankedNode struct {
@@ -29,8 +27,6 @@ func decodeTraceWeights(t *testing.T, raw json.RawMessage) map[string]float64 {
 	return weights
 }
 
-// topTraceWeights formats the count largest weights in descending order.
-// Equal weights sort by token.
 func topTraceWeights(weights map[string]float64, count int) string {
 	tokens := make([]string, 0, len(weights))
 	for token := range weights {
@@ -72,8 +68,6 @@ func traceHitNode(t *testing.T, hit opensearchapi.SearchHit) uuid.UUID {
 	return nodeID
 }
 
-// rankedTraceNodes returns each node once, at the position of its best page
-// match.
 func rankedTraceNodes(t *testing.T, hits []opensearchapi.SearchHit) []rankedNode {
 	t.Helper()
 	seen := map[uuid.UUID]bool{}
@@ -89,8 +83,6 @@ func rankedTraceNodes(t *testing.T, hits []opensearchapi.SearchHit) []rankedNode
 	return ranked
 }
 
-// explanationParts formats the score contributions of explanation for the
-// given number of levels below the top score.
 func explanationParts(explanation *opensearchapi.DocumentExplainDetails, depth int) string {
 	if explanation == nil || depth == 0 {
 		return ""

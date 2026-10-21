@@ -37,7 +37,7 @@ type traceMatch struct {
 type traceMultiMatch struct {
 	Query    string   `json:"query"`
 	Fields   []string `json:"fields"`
-	Operator string   `json:"operator,omitempty"`
+	Operator string   `json:"operator"`
 }
 
 type traceSparse struct {
