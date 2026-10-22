@@ -69,6 +69,7 @@ func (c *Consumer) completeAssemblyWithRetry(ctx context.Context, eventID uuid.U
 		case err == nil:
 			return projected, landed
 		case attempt < assemblyChainRetries && isRetryableChainErr(err):
+			slog.WarnContext(ctx, "audit.consumer.assembly_chain_retry", slog.String("event_id", eventID.String()), slog.Int("attempt", attempt), slog.String("err", err.Error()))
 			continue
 		case errors.Is(err, errMalformedPayload):
 			if _, markErr := c.ybpool.Exec(ctx, `
