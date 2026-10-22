@@ -14,13 +14,16 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// VerifyDocuments reads at most limit issued documents of the authority
-// after the rollout's verification cursor. It reports whether the batch is
-// the last one.
+// VerifyDocuments reads at most limit issued documents after the
+// verification cursor and reports whether the batch is the last one. During
+// the affected pass, it reads pages of the first node in the affected set.
 func (s *SearchAccessRolloutStore) VerifyDocuments(ctx context.Context, work searchdomain.Work, read searchdomain.AccessRollout, limit int) (documents []searchdomain.RolloutDocument, done bool, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_rollout.verify_documents")(&err)
 	if limit < 1 || limit > maxSearchDocumentBatch {
 		return nil, false, searchStorageError(ctx, "search.rollout.limit_invalid", "validate verification batch", uuid.Nil, fmt.Errorf("limit must be between 1 and %d", maxSearchDocumentBatch))
+	}
+	if read.AffectedPass {
+		return s.affectedDocuments(ctx, work, read, limit)
 	}
 	keyRange, err := fdb.PrefixRange(searchIssuedOrgPrefix(work.OrgID))
 	if err != nil {
@@ -78,18 +81,23 @@ func decodeRolloutDocument(ctx context.Context, item fdb.KeyValue) (searchdomain
 	return searchdomain.RolloutDocument{NodeID: nodeID, Document: document}, nil
 }
 
-// CompleteVerify checks one batch against the exact write versions and
-// each node's recorded access generation. It preserves the verification
-// cursor for a stale page and schedules repair unless the node has
-// pending page work. The last batch compares the permission event
-// boundary. A changed boundary before activation restarts the backfill
-// scan. A changed boundary during retirement repeats verification.
-// Otherwise, the last batch activates the candidate or completes
-// retirement.
+// CompleteVerify checks one batch against the exact write versions and each
+// node's recorded access generation. The step preserves the cursor for a
+// stale page and schedules repair unless page work is pending. Before
+// activation, the last batch of the full pass starts the affected pass.
+// During retirement, the last batch compares the permission event boundary
+// and repeats verification or completes the rollout. In the affected pass,
+// it calls completeAffected.
 func (s *SearchAccessRolloutStore) CompleteVerify(ctx context.Context, work searchdomain.Work, read searchdomain.AccessRollout, documents []searchdomain.RolloutDocument, states map[string]searchdomain.DocumentAccess, done bool) (step searchdomain.RolloutStep, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_rollout.complete_verify")(&err)
 	step = searchdomain.RolloutContinue
+	var overflow int64
 	err = s.rolloutStep(ctx, work, read, func(tr fdb.Transaction, record *searchRolloutRecord, workRecord searchWorkRecord) error {
+		if record.AffectedPass {
+			var affectedErr error
+			step, overflow, affectedErr = completeAffected(ctx, tr, work, record, documents, states, s.work.clock.Now())
+			return affectedErr
+		}
 		stale, staleErr := staleRolloutNodes(ctx, tr, work.OrgID, documents, states, record.WriteVersions)
 		if staleErr != nil {
 			return staleErr
@@ -104,30 +112,29 @@ func (s *SearchAccessRolloutStore) CompleteVerify(ctx context.Context, work sear
 			record.VerifyCursor = base64.RawURLEncoding.EncodeToString(key)
 			return nil
 		}
+		if record.Phase == string(searchdomain.AccessVerifying) {
+			record.AffectedPass, record.VerifyCursor = true, ""
+			return nil
+		}
 		event, eventErr := readPermissionEvent(ctx, tr, work.OrgID)
 		if eventErr != nil {
 			return eventErr
 		}
 		if event != record.PermissionEventVersion {
 			record.PermissionEventVersion, record.VerifyCursor = event, ""
-			// A grant change before activation requires another authority
-			// scan and exact verification before activation.
-			if record.Phase == string(searchdomain.AccessVerifying) {
-				record.Phase, record.ScanCursor = string(searchdomain.AccessBackfill), ""
-			}
 			return nil
 		}
-		if record.Phase == string(searchdomain.AccessRetiring) {
-			*record = completedRollout(*record)
-			clearSearchWork(tr, work, workRecord)
-			step = searchdomain.RolloutComplete
-			return nil
-		}
-		record.PreviousVersion, record.ActiveVersion = record.ActiveVersion, record.CandidateVersion
+		*record = completedRollout(*record)
+		clearSearchWork(tr, work, workRecord)
+		step = searchdomain.RolloutComplete
 		return nil
 	})
 	if err != nil {
 		return step, searchStorageError(ctx, "search.rollout.verify_failed", "checkpoint access verification of authority "+work.OrgID.String(), uuid.Nil, err)
+	}
+	if overflow > 0 {
+		telemetry.L(ctx).InfoContext(ctx, "search.rollout.affected_overflow", slog.String("authority_id", work.OrgID.String()),
+			slog.Int64("generation", read.Generation), slog.Int64("affected_nodes", overflow))
 	}
 	telemetry.L(ctx).DebugContext(ctx, "search.rollout.verified", slog.String("authority_id", work.OrgID.String()),
 		slog.Int("documents", len(documents)), slog.Int("step", int(step)))
@@ -140,5 +147,6 @@ func completedRollout(record searchRolloutRecord) searchRolloutRecord {
 	record.WriteVersions = []string{record.ActiveVersion}
 	record.Phase = string(searchdomain.AccessStable)
 	record.ScanCursor, record.VerifyCursor, record.RetireCursor, record.ScanComplete = "", "", "", false
+	record.AffectedPass = false
 	return record
 }

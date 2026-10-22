@@ -56,6 +56,9 @@ func scheduleRelatedSearchWork(ctx context.Context, tr fdb.Transaction, now time
 				if err := scheduleExistingSearchChange(ctx, tr, now, relationship.OrgID, nodeID, searchChangeAccess); err != nil {
 					return err
 				}
+				if err := recordRolloutAffected(ctx, tr, relationship.OrgID, nodeID); err != nil {
+					return err
+				}
 			}
 		}
 	}

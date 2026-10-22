@@ -51,7 +51,10 @@ func (s *SearchAccessRolloutStore) Rollback(ctx context.Context, request searchd
 		restored.ActiveVersion, restored.CandidateVersion = restoredVersion, restoredVersion
 		restored.PreviousVersion, restored.WriteVersions = record.CandidateVersion, []string{restoredVersion}
 		restored.Phase, restored.ScanCursor, restored.VerifyCursor, restored.RetireCursor = string(searchdomain.AccessVerifying), "", "", ""
-		restored.ScanComplete, restored.Generation = false, generation
+		restored.ScanComplete, restored.AffectedPass, restored.Generation = false, false, generation
+		if clearErr := clearRolloutAffected(ctx, tr, request.AuthorityID, record.Generation); clearErr != nil {
+			return clearErr
+		}
 		if writeErr := writeSearchRecord(ctx, tr, searchRolloutKey(request.AuthorityID), restored); writeErr != nil {
 			return writeErr
 		}

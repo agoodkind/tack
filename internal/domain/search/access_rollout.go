@@ -50,7 +50,10 @@ type AccessRollout struct {
 	Phase                                  AccessPhase
 	ScanCursor, VerifyCursor, RetireCursor string
 	ScanComplete                           bool
-	Generation, PermissionEventVersion     int64
+	// AffectedPass reports that the full verification pass has completed and
+	// the rollout now verifies nodes in the affected set before activation.
+	AffectedPass                       bool
+	Generation, PermissionEventVersion int64
 }
 
 // Activated reports whether the candidate already serves new sessions.
