@@ -64,7 +64,7 @@ func writeChangeEvent(ctx context.Context, tr fdb.Transaction, job *node.Subtree
 		payload = built
 	}
 	if err := NewOutboxWriter(tr).WriteEventJSON(ctx, payload); err != nil {
-		return nodeOperationFailure(ctx, "write the ledger event of node "+change.ID.String(), err)
+		return nodeOperationFailure(ctx, "write ledger event for node "+change.ID.String(), err)
 	}
 	return nil
 }

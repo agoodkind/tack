@@ -22,7 +22,7 @@ func (c *Consumer) appendAssembledEvent(ctx context.Context, tx pgx.Tx, event Ev
 	savepoint, err := tx.Begin(ctx)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.consumer.savepoint_failed", slog.String("err", err.Error()))
-		return projectedEvent{}, false, fmt.Errorf("savepoint for audit event %s: %w", event.EventID, err)
+		return projectedEvent{}, false, fmt.Errorf("create savepoint for audit event %s: %w", event.EventID, err)
 	}
 	piiRef, err := writePIIRow(ctx, savepoint, prepared.Event.Actor)
 	if err != nil {

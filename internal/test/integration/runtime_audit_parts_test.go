@@ -1,6 +1,7 @@
 package integration_test
 
 import (
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"strconv"
@@ -26,16 +27,27 @@ const (
 	// foundationDBValueLimit sets the single-value size that the large delta
 	// test must exceed.
 	foundationDBValueLimit = 100_000
+)
+
+var (
 	// eventRowsQuery counts ledger rows for one event ID.
-	eventRowsQuery = `SELECT count(*) FROM audit.events WHERE event_id = $1`
+	//go:embed testdata/runtime_audit_event_rows.sql
+	eventRowsQuery string
 	// assemblyRowsQuery counts transient assemblies for one event ID.
-	assemblyRowsQuery = `SELECT count(*) FROM audit.event_assemblies WHERE event_id = $1`
+	//go:embed testdata/runtime_audit_assembly_rows.sql
+	assemblyRowsQuery string
 	// assemblyPartRowsQuery counts transient assembly parts for one event ID.
-	assemblyPartRowsQuery = `SELECT count(*) FROM audit.event_assembly_parts WHERE event_id = $1`
+	//go:embed testdata/runtime_audit_assembly_part_rows.sql
+	assemblyPartRowsQuery string
 	// completedRowsQuery counts completed transport records for one event ID.
-	completedRowsQuery = `SELECT count(*) FROM audit.completed_transports WHERE event_id = $1`
+	//go:embed testdata/runtime_audit_completed_rows.sql
+	completedRowsQuery string
 	// outboxRowsQuery counts YugabyteDB outbox rows for one event ID.
-	outboxRowsQuery = `SELECT count(*) FROM public.ops_outbox WHERE event_id = $1`
+	//go:embed testdata/runtime_audit_outbox_rows.sql
+	outboxRowsQuery string
+	// invalidAssemblyRowsQuery counts assemblies with an invalid reason for one event ID.
+	//go:embed testdata/runtime_audit_invalid_assembly_rows.sql
+	invalidAssemblyRowsQuery string
 )
 
 // TestRuntimeAuditLargeDeltaDelivery creates and updates an issue through
@@ -170,7 +182,7 @@ func TestRuntimeAuditPartConflict(t *testing.T) {
 		t.Fatalf("dead letter error = %q, want the conflicting part of event %s", errorTexts[0], event.EventID)
 	}
 	waitFor(t, "rejection of the assembly", func() bool {
-		return pipeline.count(t, `SELECT count(*) FROM audit.event_assemblies WHERE event_id = $1 AND invalid_reason IS NOT NULL`, event.EventID) == 1
+		return pipeline.count(t, invalidAssemblyRowsQuery, event.EventID) == 1
 	})
 	if _, err := pipeline.reader.GetByID(t.Context(), event.EventID); !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("ledger read of event %s with an altered part = %v, want no row", event.EventID, err)

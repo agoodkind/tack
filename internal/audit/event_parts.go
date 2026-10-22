@@ -52,7 +52,7 @@ type eventEnvelope struct {
 // It computes the transport digest from the complete envelope.
 func EncodeEvent(event Event, readTargets []Target) (EncodedEvent, error) {
 	if event.EventID == uuid.Nil {
-		return EncodedEvent{}, errors.New("encode audit event: event ID required")
+		return EncodedEvent{}, errors.New("encode audit event: event ID is missing")
 	}
 	if err := checkReadManifest(event, readTargets); err != nil {
 		return EncodedEvent{}, fmt.Errorf("encode audit event %s: %s", event.EventID, err.Error())
@@ -144,11 +144,11 @@ func partMismatch(manifest transportMessage, part EventPart, expected uint32) st
 	case part.EventID != manifest.EventID:
 		return "event ID differs from the header"
 	case part.Index != expected:
-		return fmt.Sprintf("part is out of order, want index %d", expected)
+		return fmt.Sprintf("part index does not match expected index %d", expected)
 	case part.Count != manifest.PartCount || part.TransportDigest != manifest.TransportDigest:
 		return "part count or transport digest differs from the header"
 	case len(part.Payload) > EventPartMaxBytes:
-		return "payload exceeds the part limit"
+		return "payload exceeds the part size limit"
 	case sha256Hex(part.Payload) != part.Digest:
 		return "payload does not match the part digest"
 	default:
@@ -164,7 +164,7 @@ func checkReadManifest(event Event, targets []Target) error {
 	read := event.Context.Read
 	if read == nil {
 		if len(targets) > 0 {
-			return errors.New("read targets require read evidence")
+			return errors.New("has read targets without read evidence")
 		}
 		return nil
 	}
@@ -176,7 +176,7 @@ func checkReadManifest(event Event, targets []Target) error {
 		return err
 	}
 	if digest != read.ManifestSHA256 || partCount != read.ManifestParts {
-		return errors.New("read evidence manifest does not match the read targets")
+		return errors.New("has read evidence that does not match its read targets")
 	}
 	return nil
 }
