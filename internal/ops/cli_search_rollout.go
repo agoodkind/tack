@@ -2,11 +2,14 @@ package ops
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/spf13/cobra"
+
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clispec"
@@ -14,11 +17,18 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
+const (
+	rolloutTargetPrefix   = "foundationdb/search/access-rollout/"
+	invalidInputCode      = "input_invalid"
+	rolloutInProgressCode = "rollout_in_progress"
+)
+
 type searchRolloutInput struct {
-	clispec.InputMarker
-	Authority string
-	Candidate string
+	Authority string `json:"authority"`
+	Candidate string `json:"candidate"`
 }
+
+func (searchRolloutInput) isCommandInput() {}
 
 type searchRolloutOutput struct {
 	clispec.ResultMarker
@@ -37,28 +47,108 @@ func (opsClockSource) Now() time.Time { return opsNow() }
 
 func (opsClockSource) Since(start time.Time) time.Duration { return opsNow().Sub(start) }
 
-func searchRolloutOp(f *cli.Factory) clispec.Operation[searchRolloutInput] {
-	return clispec.Operation[searchRolloutInput]{
-		Name: clispec.Name{Canonical: "access-rollout", CLIOverride: ""}, Lifetime: clispec.Permanent,
-		Audit: audit.Spec{Verb: string(audit.VerbOpsSearchAccessRollout), Mutates: true}, Group: searchGroup,
-		Short: "Begin an access policy rollout for one permission authority",
-		Params: []clispec.Param[searchRolloutInput]{
-			clispec.StringParam("authority", "permission authority (organization) ID", "", true, func(in *searchRolloutInput, value string) { in.Authority = value }),
-			clispec.StringParam("candidate", "registered policy version to roll out", "", true, func(in *searchRolloutInput, value string) { in.Candidate = value }),
+func searchRolloutCommand(f *cli.Factory) *cobra.Command {
+	in := searchRolloutInput{Authority: "", Candidate: ""}
+	cmd := &cobra.Command{
+		Use: "access-rollout", Short: "Begin an access policy rollout for one permission authority.", Args: cobra.NoArgs,
+	}
+	cmd.Flags().StringVar(&in.Authority, "authority", "", "Specify the permission authority (organization) UUID.")
+	cmd.Flags().StringVar(&in.Candidate, "candidate", "", "Specify the registered policy version to roll out.")
+	_ = cmd.MarkFlagRequired("authority")
+	_ = cmd.MarkFlagRequired("candidate")
+	input := func() (json.RawMessage, error) { return encodeCommandInput(in) }
+	clispec.AttachExternalPreview(cmd, f, searchRolloutSpec(), input,
+		func(ctx context.Context, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
+			return runSearchRolloutRecorded(ctx, f, in, clispec.NewCLISink(f), steps)
 		},
-		New: func() searchRolloutInput {
-			return searchRolloutInput{InputMarker: clispec.InputMarker{}, Authority: "", Candidate: ""}
+		func(ctx context.Context) error {
+			return previewSearchRollout(ctx, f, in, clispec.NewCLISink(f))
+		})
+	return cmd
+}
+
+func searchRolloutSpec() audit.Spec {
+	return audit.Spec{
+		Verb: string(audit.VerbOpsSearchAccessRollout), Mutates: true, Class: audit.OperationExternal,
+		Targets: func(ctx context.Context, input json.RawMessage) ([]audit.Target, error) {
+			var decoded searchRolloutInput
+			if err := json.Unmarshal(input, &decoded); err != nil {
+				return nil, searchRolloutFailure(ctx, "decode access rollout input", err)
+			}
+			return []audit.Target{externalTarget(rolloutTargetPrefix + decoded.Authority)}, nil
 		},
-		DryRun: func(ctx context.Context, in searchRolloutInput, sink clispec.ResultSink) error {
-			return runSearchRollout(ctx, f, in, sink, true)
-		},
-		Run: func(ctx context.Context, in searchRolloutInput, sink clispec.ResultSink) error {
-			return runSearchRollout(ctx, f, in, sink, false)
-		},
+		SafeInput: func(input json.RawMessage) (json.RawMessage, error) { return input, nil },
 	}
 }
 
-func runSearchRollout(ctx context.Context, f *cli.Factory, in searchRolloutInput, sink clispec.ResultSink, dryRun bool) error {
+type accessRolloutEvidence struct {
+	AuthorityID        string   `json:"authority_id"`
+	CandidateVersion   string   `json:"candidate_version"`
+	ExpectedGeneration int64    `json:"expected_generation"`
+	ActiveVersion      string   `json:"active_version"`
+	Phase              string   `json:"phase,omitempty"`
+	WriteVersions      []string `json:"write_versions,omitempty"`
+	Generation         int64    `json:"generation,omitempty"`
+}
+
+func (accessRolloutEvidence) isStepEvidence() {}
+
+func runSearchRolloutRecorded(
+	ctx context.Context,
+	f *cli.Factory,
+	in searchRolloutInput,
+	sink clispec.ResultSink,
+	steps audit.StepRecorder,
+) (audit.OutcomeDetails, error) {
+	authorityID, err := uuid.Parse(in.Authority)
+	if err != nil {
+		wrapped := searchRolloutFailure(ctx, "parse authority "+in.Authority, err)
+		return commandOutcome(audit.OutcomeRefused, invalidInputCode, wrapped), wrapped
+	}
+	env, err := NewEnv(ctx, f.Cfg)
+	if err != nil {
+		wrapped := searchRolloutFailure(ctx, "open search rollout environment", err)
+		return commandOutcome(audit.OutcomeFailed, commandFailedCode, wrapped), wrapped
+	}
+	defer env.Close()
+	rollouts := env.Stores.SearchRollouts(opsClockSource{}, env.Stores.SearchPolicySet())
+	current, err := rollouts.Current(ctx, authorityID)
+	if err != nil {
+		wrapped := searchRolloutFailure(ctx, "read access rollout of authority "+authorityID.String(), err)
+		return commandOutcome(audit.OutcomeFailed, commandFailedCode, wrapped), wrapped
+	}
+	if current.Phase != searchdomain.AccessStable {
+		refused := commandOutcome(audit.OutcomeRefused, rolloutInProgressCode, searchdomain.ErrRolloutInProgress)
+		return refused, writeRolloutResult(ctx, sink, current, false)
+	}
+	planned := accessRolloutEvidence{
+		AuthorityID: authorityID.String(), CandidateVersion: in.Candidate, ExpectedGeneration: current.Generation,
+		ActiveVersion: current.ActiveVersion, Phase: "", WriteVersions: nil, Generation: 0,
+	}
+	var begun searchdomain.AccessRollout
+	details, err := searchStep(ctx, steps, rolloutTargetPrefix+authorityID.String(), planned,
+		func(ctx context.Context) error {
+			rollout, beginErr := rollouts.Begin(ctx, searchdomain.BeginAccessRollout{
+				AuthorityID: authorityID, CandidateVersion: in.Candidate, ExpectedGeneration: current.Generation,
+			})
+			if beginErr != nil {
+				return searchRolloutFailure(ctx, "begin access rollout of authority "+authorityID.String(), beginErr)
+			}
+			begun = rollout
+			return nil
+		},
+		func(ctx context.Context) (json.RawMessage, error) {
+			observed := planned
+			observed.Phase, observed.WriteVersions, observed.Generation = string(begun.Phase), begun.WriteVersions, begun.Generation
+			return encodeEvidence(ctx, observed)
+		})
+	if err != nil {
+		return details, err
+	}
+	return details, writeRolloutResult(ctx, sink, begun, false)
+}
+
+func previewSearchRollout(ctx context.Context, f *cli.Factory, in searchRolloutInput, sink clispec.ResultSink) error {
 	authorityID, err := uuid.Parse(in.Authority)
 	if err != nil {
 		return searchRolloutFailure(ctx, "parse authority "+in.Authority, err)
@@ -68,21 +158,16 @@ func runSearchRollout(ctx context.Context, f *cli.Factory, in searchRolloutInput
 		return searchRolloutFailure(ctx, "open search rollout environment", err)
 	}
 	defer env.Close()
-	rollouts := env.Stores.SearchRollouts(opsClockSource{}, env.Stores.SearchPolicySet())
-	rollout, err := rollouts.Current(ctx, authorityID)
+	current, err := env.Stores.SearchRollouts(opsClockSource{}, env.Stores.SearchPolicySet()).Current(ctx, authorityID)
 	if err != nil {
 		return searchRolloutFailure(ctx, "read access rollout of authority "+authorityID.String(), err)
 	}
-	if !dryRun {
-		rollout, err = rollouts.Begin(ctx, searchdomain.BeginAccessRollout{
-			AuthorityID: authorityID, CandidateVersion: in.Candidate, ExpectedGeneration: rollout.Generation,
-		})
-		if err != nil {
-			return searchRolloutFailure(ctx, "begin access rollout of authority "+authorityID.String(), err)
-		}
-	}
+	return writeRolloutResult(ctx, sink, current, true)
+}
+
+func writeRolloutResult(ctx context.Context, sink clispec.ResultSink, rollout searchdomain.AccessRollout, dryRun bool) error {
 	output := searchRolloutOutput{
-		ResultMarker: clispec.ResultMarker{}, AuthorityID: authorityID.String(), Phase: string(rollout.Phase),
+		ResultMarker: clispec.ResultMarker{}, AuthorityID: rollout.AuthorityID.String(), Phase: string(rollout.Phase),
 		ActiveVersion: rollout.ActiveVersion, CandidateVersion: rollout.CandidateVersion,
 		WriteVersions: rollout.WriteVersions, Generation: rollout.Generation, DryRun: dryRun,
 	}
