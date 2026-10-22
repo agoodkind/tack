@@ -31,10 +31,6 @@ func nodeListQuery(orgID uuid.UUID, nodeType string) node.NodeListQuery {
 	}
 }
 
-// TestRuntimeAuditMultiOrganizationRead checks workspace and tool list responses for a caller in two
-// organizations.
-// It checks that each response has one audit event per organization with the same operation ID.
-// It checks that each event lists only identities from its organization and records the response body digest.
 func TestRuntimeAuditMultiOrganizationRead(t *testing.T) {
 	server := startPublicServer(t, nil)
 	secondOrg := addSecondOrganization(t, server)

@@ -28,8 +28,7 @@ type MCPHarness struct {
 	orgID     uuid.UUID
 	Workspace string
 	Project   string
-	// outbox reads the FoundationDB outbox to check read events for harness requests.
-	outbox *fdbadapter.OpsOutboxStore
+	outbox    *fdbadapter.OpsOutboxStore
 }
 
 // harnessConfig loads the server configuration for the test engines that

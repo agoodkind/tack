@@ -9,7 +9,6 @@ import (
 	"net/http/httptest"
 )
 
-// routeProbe contains an HTTP request and its expected response status.
 type routeProbe struct {
 	label         string
 	method        string

@@ -10,10 +10,6 @@ import (
 	"goodkind.io/tack/internal/clock"
 )
 
-// userServer returns a cached tool server for userID or builds and caches one.
-// It reuses a cached server only while the server's age remains within the cache lifetime.
-// When h.epochs is set, it reads the current metadata epochs on every call
-// and also requires the cached epoch string to match.
 func (h *Handler) userServer(ctx context.Context, span trace.Span, userID uuid.UUID, orgIDs []uuid.UUID) (*cachedServer, error) {
 	epoch := ""
 	if h.epochs != nil {

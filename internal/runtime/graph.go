@@ -28,7 +28,7 @@ import (
 type Graph struct {
 	MCPHandler     *mcpadapter.Handler
 	AuthMiddleware func(http.Handler) http.Handler
-	// ProductReads saves product read admissions and final audit events in FoundationDB.
+	// ProductReads begins, renews, and finalizes product read admissions and recovers expired admissions.
 	ProductReads audit.ReadLifecycle
 	// Requests saves audit events for public HTTP reads in ProductReads.
 	Requests *mcpadapter.RequestRecorder

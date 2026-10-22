@@ -18,7 +18,6 @@ const (
 
 type rejectionKey struct{}
 
-// rejectionNote stores the authentication rejection reason for one request.
 type rejectionNote struct {
 	mu     sync.Mutex
 	reason string
@@ -42,7 +41,6 @@ func RejectionReason(ctx context.Context) (string, bool) {
 	return note.reason, note.reason != ""
 }
 
-// noteRejection stores reason in the rejection note on ctx.
 func noteRejection(ctx context.Context, reason string) {
 	note, _ := ctx.Value(rejectionKey{}).(*rejectionNote)
 	if note == nil {

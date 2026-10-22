@@ -30,8 +30,6 @@ type MetadataEpochReader interface {
 	MetadataEpoch(ctx context.Context, orgIDs []uuid.UUID) (string, error)
 }
 
-// cachedServer stores one user's generated tool server, its resolver, the metadata
-// used to build the server, and the metadata epoch.
 type cachedServer struct {
 	mcpSvr       *mcpserver.MCPServer
 	httpSvr      *mcpserver.StreamableHTTPServer

@@ -10,7 +10,6 @@ import (
 	"goodkind.io/tack/internal/domain/user"
 )
 
-// addNodeTargets adds an audit read target for each non-nil node view.
 func addNodeTargets(ctx context.Context, views ...*node.NodeView) {
 	for _, view := range views {
 		if view == nil {
@@ -23,7 +22,6 @@ func addNodeTargets(ctx context.Context, views ...*node.NodeView) {
 	}
 }
 
-// addRelationshipTargets adds an audit read target for each non-nil relationship.
 func addRelationshipTargets(ctx context.Context, relationships []*node.Relationship) {
 	for _, relationship := range relationships {
 		if relationship == nil {
@@ -37,10 +35,8 @@ func addRelationshipTargets(ctx context.Context, relationships []*node.Relations
 	}
 }
 
-// userTargetPrefix is the URI prefix for user audit read targets.
 const userTargetPrefix = "tack://user/"
 
-// addUserTargets adds an audit read target in orgID for each user in users.
 func addUserTargets(ctx context.Context, orgID uuid.UUID, users []*user.User) {
 	for _, member := range users {
 		audit.AddReadTargets(ctx, orgID, audit.Target{

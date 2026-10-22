@@ -14,8 +14,6 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// finalizeDeniedRole can save a read admission and renew its lease, but it
-// cannot save the final event.
 const finalizeDeniedRole = "tack_test_read_finalize_denied"
 
 // TestRuntimeAuditReadRecordingFailure checks that the server returns 503 instead of a read result
