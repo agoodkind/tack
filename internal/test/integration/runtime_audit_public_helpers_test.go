@@ -22,6 +22,7 @@ import (
 	"goodkind.io/tack/internal/datagen"
 	appruntime "goodkind.io/tack/internal/runtime"
 	"goodkind.io/tack/internal/telemetry"
+	"goodkind.io/tack/internal/test/integration"
 	"goodkind.io/tack/internal/testenv"
 )
 
@@ -50,7 +51,7 @@ type publicResponse struct {
 // When store is nil, the request recorder uses graph.ProductReads.
 func startPublicServer(t *testing.T, store func(*appruntime.Graph) audit.ReadLifecycle) *publicServer {
 	t.Helper()
-	ctx := t.Context()
+	ctx := integration.WithTestOperation(t, t.Context())
 	clusterFile := testenv.FoundationDB(t)
 	identity := uuid.New()
 	prefix := append([]byte("tack-test:"), identity[:]...)

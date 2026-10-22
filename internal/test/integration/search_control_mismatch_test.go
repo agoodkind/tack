@@ -16,7 +16,7 @@ import (
 // one value at a time.
 func TestSearchControlCommandRejectsMappingAndModelMismatches(t *testing.T) {
 	control := newSearchControl(t)
-	model, err := control.adapter.Provision(t.Context())
+	model, err := control.adapter.Provision(WithTestOperation(t, t.Context()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func metaMapping(mappingVersion, modelID, tokenizer string) string {
 
 func putSearchControlMapping(t *testing.T, control searchControl, body string) {
 	t.Helper()
-	response, err := control.client.Indices.Mapping.Put(t.Context(), opensearchapi.MappingPutReq{
+	response, err := control.client.Indices.Mapping.Put(WithTestOperation(t, t.Context()), opensearchapi.MappingPutReq{
 		Indices: []string{searchControlIndex}, Body: strings.NewReader(body),
 	})
 	if err != nil {

@@ -29,17 +29,17 @@ func restoreQueryFixture(t *testing.T, fixture *queryFixture, cluster string) {
 
 func requireRestoredSnapshot(t *testing.T, fixture queryFixture, orgID, edited, deleted, created uuid.UUID) {
 	t.Helper()
-	if current, err := fixture.Stores.Nodes.Get(t.Context(), orgID, deleted); err != nil || current == nil {
+	if current, err := fixture.Stores.Nodes.Get(WithTestOperation(t, t.Context()), orgID, deleted); err != nil || current == nil {
 		t.Fatalf("restore did not recover the node deleted after backup: %v", err)
 	}
-	current, err := fixture.Stores.Nodes.Get(t.Context(), orgID, created)
+	current, err := fixture.Stores.Nodes.Get(WithTestOperation(t, t.Context()), orgID, created)
 	if err != nil {
 		t.Fatalf("read postbackup node: %v", err)
 	}
 	if current != nil {
 		t.Fatalf("restore included postbackup node %s", created)
 	}
-	current, err = fixture.Stores.Nodes.Get(t.Context(), orgID, edited)
+	current, err = fixture.Stores.Nodes.Get(WithTestOperation(t, t.Context()), orgID, edited)
 	if err != nil || current == nil {
 		t.Fatalf("read restored edited node: %v", err)
 	}

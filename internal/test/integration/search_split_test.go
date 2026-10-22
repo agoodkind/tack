@@ -28,7 +28,7 @@ func TestSearchSplitDuringChanges(t *testing.T) {
 	drainSearchWork(t, fixture.Worker, 2000)
 	before := pagesOf(t, fixture, []uuid.UUID{unchanged})
 	for _, rejected := range []int{1, 3, 16} {
-		if _, err := fixture.Adapter.ValidateSplit(t.Context(), fixture.Index, rejected); err == nil {
+		if _, err := fixture.Adapter.ValidateSplit(WithTestOperation(t, t.Context()), fixture.Index, rejected); err == nil {
 			t.Fatalf("split to %d primary shards was accepted", rejected)
 		}
 	}
@@ -36,7 +36,7 @@ func TestSearchSplitDuringChanges(t *testing.T) {
 	source := fixture.Index
 	created := uuid.Nil
 	for round, primaries := range []int{2, 4, 8} {
-		if _, err := fixture.Adapter.ValidateSplit(t.Context(), source, primaries); err != nil {
+		if _, err := fixture.Adapter.ValidateSplit(WithTestOperation(t, t.Context()), source, primaries); err != nil {
 			t.Fatalf("split to %d primary shards was rejected: %v", primaries, err)
 		}
 		rebuild := beginRebuild(t, fixture, searchdomain.BeginRebuild{
@@ -57,7 +57,7 @@ func TestSearchSplitDuringChanges(t *testing.T) {
 		}
 		runRebuildUntil(t, fixture, rebuildFinished)
 		requireServing(t, fixture, rebuild.TargetIndex, source)
-		settings, err := fixture.Adapter.IndexSettings(t.Context(), rebuild.TargetIndex)
+		settings, err := fixture.Adapter.IndexSettings(WithTestOperation(t, t.Context()), rebuild.TargetIndex)
 		if err != nil || settings.Primaries != primaries {
 			t.Fatalf("split target primaries = %d, error = %v, want %d", settings.Primaries, err, primaries)
 		}
@@ -99,17 +99,17 @@ func TestSearchSplitWithoutModel(t *testing.T) {
 	mapping := splitMapping(t, fixture, fixture.Index)
 	query := searchdomain.Query{Text: "cobalt split preserved", Index: fixture.Index, NodeType: kind.TypeKey, Access: callerAccess(t, fixture, workspace, entry)}
 	ranker := fixture.Adapter.Ranker(search.RankerSettings{KeepAlive: time.Minute, TokenBytes: 65536, BatchSize: 100})
-	snapshot, err := ranker.Open(t.Context(), query)
+	snapshot, err := ranker.Open(WithTestOperation(t, t.Context()), query)
 	if err != nil {
 		t.Fatalf("predict split control: %v", err)
 	}
 	tokens := bytes.Clone(snapshot.QueryTokens)
-	if err := ranker.Close(t.Context(), snapshot); err != nil {
+	if err := ranker.Close(WithTestOperation(t, t.Context()), snapshot); err != nil {
 		t.Fatalf("close split control: %v", err)
 	}
 	rawNodes := savedSparseNodes(t, fixture, query, tokens)
 	requireExactlyOnce(t, rawNodes, nodes)
-	model, err := fixture.Adapter.Provision(t.Context())
+	model, err := fixture.Adapter.Provision(WithTestOperation(t, t.Context()))
 	if err != nil {
 		t.Fatalf("read split model: %v", err)
 	}
@@ -141,7 +141,7 @@ func TestSearchSplitWithoutModel(t *testing.T) {
 		t.Logf("model-free split primaries=%d nodes=%d sparse_nodes=%d token_bytes=%d", primaries, len(allNodes), len(rawNodes), len(tokens))
 		source = rebuild.TargetIndex
 	}
-	if err := redeployNativeModel(t.Context(), fixture.Adapter, fixture.Client); err != nil {
+	if err := redeployNativeModel(WithTestOperation(t, t.Context()), fixture.Adapter, fixture.Client); err != nil {
 		t.Fatalf("redeploy after native splits: %v", err)
 	}
 	fixture.Index = source

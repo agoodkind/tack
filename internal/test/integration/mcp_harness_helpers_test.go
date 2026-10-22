@@ -75,7 +75,7 @@ func NewAuditedMCPHarness(t *testing.T) *MCPHarness {
 
 func newMCPHarness(t *testing.T, audited bool) *MCPHarness {
 	t.Helper()
-	ctx := t.Context()
+	ctx := WithTestOperation(t, t.Context())
 	cfg := harnessConfig(t)
 	cfg.AuditKafkaBrokers = ""
 	if audited {

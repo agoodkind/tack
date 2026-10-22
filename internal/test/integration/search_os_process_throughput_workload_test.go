@@ -83,7 +83,7 @@ func verifyThroughputFixtureContract(t *testing.T, corpus processThroughputCorpu
 	if err != nil || len(after) == 0 || after[0].Revision != before[0].Revision {
 		t.Fatalf("missing-operation control changed stored content: %v", err)
 	}
-	types, err := corpus.fixture.Stores.NodeTypes.List(t.Context(), corpus.workerKind.OrgID)
+	types, err := corpus.fixture.Stores.NodeTypes.List(WithTestOperation(t, t.Context()), corpus.workerKind.OrgID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +91,7 @@ func verifyThroughputFixtureContract(t *testing.T, corpus processThroughputCorpu
 	for _, kind := range types {
 		if kind.TypeKey == corpus.workerKind.TypeKey {
 			kind.AllowedOps = []node.Op{node.OpRead, node.OpUpdate}
-			if err := corpus.fixture.Stores.NodeTypes.Set(t.Context(), kind); err != nil {
+			if err := corpus.fixture.Stores.NodeTypes.Set(WithTestOperation(t, t.Context()), kind); err != nil {
 				t.Fatal(err)
 			}
 			found = true
@@ -338,7 +338,7 @@ func waitThroughputRevisions(t *testing.T, corpus processThroughputCorpus, previ
 		case <-ticker.C:
 		case <-deadline.C:
 			t.Fatal("throughput indexed revisions or empty backlog timed out")
-		case <-t.Context().Done():
+		case <-WithTestOperation(t, t.Context()).Done():
 			t.Fatal("throughput revision verification canceled")
 		}
 	}
@@ -346,11 +346,11 @@ func waitThroughputRevisions(t *testing.T, corpus processThroughputCorpus, previ
 
 func throughputIndexedPages(t *testing.T, corpus processThroughputCorpus) map[string][]searchPageSource {
 	t.Helper()
-	if _, err := corpus.fixture.Client.Indices.Refresh(t.Context(), &opensearchapi.IndicesRefreshReq{Index: []string{corpus.fixture.Index}}); err != nil {
+	if _, err := corpus.fixture.Client.Indices.Refresh(WithTestOperation(t, t.Context()), &opensearchapi.IndicesRefreshReq{Index: []string{corpus.fixture.Index}}); err != nil {
 		t.Fatal(err)
 	}
 	query := fmt.Sprintf(`{"size":1000,"query":{"bool":{"filter":[{"term":{"node_type":%q}},{"term":{"retired":false}}]}},"sort":[{"page_ordinal":"asc"}]}`, corpus.workerKind.TypeKey)
-	response, err := corpus.fixture.Client.Search(t.Context(), &opensearchapi.SearchReq{Indices: []string{corpus.fixture.Index}, Body: strings.NewReader(query)})
+	response, err := corpus.fixture.Client.Search(WithTestOperation(t, t.Context()), &opensearchapi.SearchReq{Indices: []string{corpus.fixture.Index}, Body: strings.NewReader(query)})
 	if err != nil || response == nil {
 		t.Fatalf("read measured worker documents: %v", err)
 	}
@@ -460,16 +460,16 @@ func requireThroughputWorkerEvidence(t *testing.T, corpus processThroughputCorpu
 
 func recordThroughputResources(t *testing.T, corpus processThroughputCorpus) {
 	t.Helper()
-	info, err := corpus.fixture.Adapter.IndexInfo(t.Context(), corpus.fixture.Index)
+	info, err := corpus.fixture.Adapter.IndexInfo(WithTestOperation(t, t.Context()), corpus.fixture.Index)
 	if err != nil || info != corpus.indexInfo {
 		t.Fatalf("throughput mapping or model changed: %v", err)
 	}
-	settings, err := corpus.fixture.Adapter.IndexSettings(t.Context(), corpus.fixture.Index)
+	settings, err := corpus.fixture.Adapter.IndexSettings(WithTestOperation(t, t.Context()), corpus.fixture.Index)
 	if err != nil || settings != corpus.settings {
 		t.Fatalf("throughput physical topology changed: %v", err)
 	}
 	engine := testenv.OpenSearchWithMemory(t, nativeSearchMemoryBytes)
-	evidence, err := testenv.OpenSearchResourceEvidence(t.Context(), engine.Container)
+	evidence, err := testenv.OpenSearchResourceEvidence(WithTestOperation(t, t.Context()), engine.Container)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -484,7 +484,7 @@ func recordThroughputResources(t *testing.T, corpus processThroughputCorpus) {
 			} `json:"fs"`
 		} `json:"nodes"`
 	}
-	response, err := opensearch.Do(t.Context(), corpus.fixture.Client.Client, http.MethodGet, opensearchapi.NodesStatsReq{Metric: []string{"fs"}}, &stats)
+	response, err := opensearch.Do(WithTestOperation(t, t.Context()), corpus.fixture.Client.Client, http.MethodGet, opensearchapi.NodesStatsReq{Metric: []string{"fs"}}, &stats)
 	if err != nil || response == nil || response.IsError() || len(stats.Nodes) != 1 {
 		t.Fatalf("read throughput filesystem resources: %v", err)
 	}
@@ -497,7 +497,7 @@ func recordThroughputResources(t *testing.T, corpus processThroughputCorpus) {
 			} `json:"primaries"`
 		} `json:"_all"`
 	}
-	indexResponse, err := opensearch.Do(t.Context(), corpus.fixture.Client.Client, http.MethodGet, opensearchapi.IndicesStatsReq{Indices: []string{corpus.fixture.Index}, Metrics: []string{"store"}}, &indexStats)
+	indexResponse, err := opensearch.Do(WithTestOperation(t, t.Context()), corpus.fixture.Client.Client, http.MethodGet, opensearchapi.IndicesStatsReq{Indices: []string{corpus.fixture.Index}, Metrics: []string{"store"}}, &indexStats)
 	if err != nil || indexResponse == nil || indexResponse.IsError() || indexStats.All.Primaries.Store.Bytes <= 0 {
 		t.Fatalf("read throughput primary index size: %v", err)
 	}

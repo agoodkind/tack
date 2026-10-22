@@ -18,16 +18,16 @@ func TestSearchReadToIndexRaceExhaustsRereads(t *testing.T) {
 	engine := newStaleEngine(t)
 	index := engine.newIndex(t, "stale-race-exhausted")
 	nodeID := uuid.Must(uuid.NewV7())
-	if _, err := engine.adapter.Put(t.Context(), staleContent(staleWork(nodeID, 10, index, ""), textGenerationTen, "key-ten")); err != nil {
+	if _, err := engine.adapter.Put(WithTestOperation(t, t.Context()), staleContent(staleWork(nodeID, 10, index, ""), textGenerationTen, "key-ten")); err != nil {
 		t.Fatalf("put generation 10: %v", err)
 	}
 	inject := func(bulkNumber int) error {
 		generation := int64(10 + bulkNumber)
-		_, err := engine.adapter.UpdateAccess(t.Context(), staleAccess(staleWork(nodeID, generation, index, ""), fmt.Sprintf("key-%d", generation)))
+		_, err := engine.adapter.UpdateAccess(WithTestOperation(t, t.Context()), staleAccess(staleWork(nodeID, generation, index, ""), fmt.Sprintf("key-%d", generation)))
 		return err
 	}
 	proxied, proxy := newStaleProxyAdapter(t, engine.fixture, inject)
-	_, err := proxied.Put(t.Context(), staleContent(staleWork(nodeID, 20, index, ""), textGenerationThirteen, "key-twenty"))
+	_, err := proxied.Put(WithTestOperation(t, t.Context()), staleContent(staleWork(nodeID, 20, index, ""), textGenerationThirteen, "key-twenty"))
 	if !errors.Is(err, searchdomain.ErrConcurrentWrite) || errors.Is(err, searchdomain.ErrObsoleteWrite) {
 		t.Fatalf("put generation 20 = %v, want ErrConcurrentWrite and not ErrObsoleteWrite", err)
 	}

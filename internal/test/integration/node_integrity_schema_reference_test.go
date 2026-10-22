@@ -38,7 +38,7 @@ func TestNodeIntegritySchemaReferenceParity(t *testing.T) {
 
 	updateSchemaState(t, harness, printedID, quoted("Done"))
 	nodeService := service.NewNodeService(stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs, stores.Relationships, stores.NodeDeleter)
-	if _, err := nodeService.Update(t.Context(), service.UpdateInput{
+	if _, err := nodeService.Update(integration.WithTestOperation(t, t.Context()), service.UpdateInput{
 		NodeID: explicitID, Name: nil, Props: schemaProps("state_id", quoted(doneID.String())),
 		RelationshipChanges: node.RelationshipChanges{Add: nil, Remove: nil}, ActorID: uuid.New(),
 	}); err != nil {

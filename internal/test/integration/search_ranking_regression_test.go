@@ -11,6 +11,7 @@ import (
 
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	appruntime "goodkind.io/tack/internal/runtime"
+	"goodkind.io/tack/internal/test/integration"
 )
 
 // rankingPageBytes matches the 4096-byte default that production uses.
@@ -107,12 +108,12 @@ func startRankingRun(t *testing.T) *rankingRun {
 	cfg := newCohortEngines(t)
 	t.Setenv("OPENSEARCH_PAGE_BYTES", strconv.Itoa(rankingPageBytes))
 	t.Setenv("OPENSEARCH_SESSION_IDLE_TIMEOUT", "30s")
-	graph, err := appruntime.BuildGraph(t.Context(), cfg)
+	graph, err := appruntime.BuildGraph(integration.WithTestOperation(t, t.Context()), cfg)
 	if err != nil {
 		t.Fatalf("build search graph: %v", err)
 	}
 	t.Cleanup(graph.Close)
-	graph.StartSearchWorkers(t.Context())
+	graph.StartSearchWorkers(integration.WithTestOperation(t, t.Context()))
 	return newRankingRun(t, cfg, graph)
 }
 

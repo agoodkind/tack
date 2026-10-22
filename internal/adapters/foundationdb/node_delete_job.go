@@ -9,6 +9,8 @@ import (
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/audit"
+	"goodkind.io/tack/internal/auditintent"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/telemetry"
 )
@@ -16,15 +18,24 @@ import (
 // maxSubtreeDeleteJobPage bounds the job records one SubtreeDeletes call reads.
 const maxSubtreeDeleteJobPage = 100
 
-// StartSubtreeDelete stores the record of a new subtree delete job with the
-// root as the only stack entry, zero deleted and moved nodes, and the root's
-// hierarchy parent as the destination of moved children. The step that deletes
-// the root writes the job's audit template, so after the record commits the
-// start marks the staged event on ctx written. The MCP wrapper then records
-// no second event for the delete, even when the request returns before the
-// root is gone.
+// StartSubtreeDelete stores the record of a new subtree delete job with the root as its
+// only stack entry. It sets the deleted and moved counts to zero and stores the root's
+// hierarchy parent as the destination for moved children. It stores the encoded audit
+// operation from ctx for every step to use.
+//
+// After the job record commits, StartSubtreeDelete marks the request slot committed.
+// The MCP wrapper reads this mark and skips its event for the delete request, even when
+// the request returns before the job deletes the root.
 func (s *NodeDeleteStore) StartSubtreeDelete(ctx context.Context, job *node.SubtreeDeleteJob) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node.subtree_delete_start")(&err)
+	operation, err := audit.RequireMutationContext(ctx)
+	if err != nil {
+		return nodeOperationFailure(ctx, "start subtree delete of node "+job.RootID.String(), err)
+	}
+	job.Operation, err = audit.MarshalEvent(operation)
+	if err != nil {
+		return nodeOperationFailure(ctx, "encode the audit operation of subtree delete "+job.ID.String(), err)
+	}
 	job.Stack = []uuid.UUID{job.RootID}
 	job.Deleted, job.Moved = 0, 0
 	job.FinishedAt = time.Time{}
@@ -39,10 +50,32 @@ func (s *NodeDeleteStore) StartSubtreeDelete(ctx context.Context, job *node.Subt
 	if err != nil {
 		return err
 	}
-	if len(job.AuditTemplate) > 0 {
-		commitStagedIntent(ctx)
-	}
+	commitStagedIntent(ctx)
 	return nil
+}
+
+// jobOperation decodes the audit operation in job.Operation. When job.Operation
+// is empty, it builds the operation from job.AuditTemplate and job.ActorID with
+// [audit.LegacyJobOperation]. It returns an error that wraps
+// [audit.ErrMissingMutationContext] when the operation lacks an actor ID, a known
+// actor kind, an operation ID, or a start time.
+func jobOperation(ctx context.Context, job *node.SubtreeDeleteJob) (audit.Event, error) {
+	encoded := job.Operation
+	if len(encoded) == 0 {
+		legacy, err := audit.LegacyJobOperation(ctx, job.ID, job.ActorID, job.AuditTemplate)
+		if err != nil {
+			return audit.Event{}, nodeOperationFailure(ctx, "build the audit operation of legacy subtree delete job "+job.ID.String(), err)
+		}
+		encoded, err = audit.MarshalEvent(legacy)
+		if err != nil {
+			return audit.Event{}, nodeOperationFailure(ctx, "encode the audit operation of legacy subtree delete job "+job.ID.String(), err)
+		}
+	}
+	recovered, err := audit.RequireMutationContext(auditintent.WithOperation(ctx, encoded))
+	if err != nil {
+		return audit.Event{}, nodeOperationFailure(ctx, "read the audit operation of subtree delete "+job.ID.String(), err)
+	}
+	return recovered, nil
 }
 
 // SubtreeDelete reads one job record. A missing record returns nil.

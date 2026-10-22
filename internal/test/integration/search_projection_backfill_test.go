@@ -28,6 +28,7 @@ func TestSearchProjectionBackfill(t *testing.T) {
 		t.Fatalf("clear projection: %v", err)
 	}
 	manifest := projectionManifest(t, env.OrgID, definition.ID, projection)
+	drainOutbox(t, env)
 	beforeKeys := snapshotProjectionKeys(t)
 
 	dryRunResult, err := ops.RunSearchProjectionBackfill(env.Ctx, env.Stores.PropertyDefs, strings.NewReader(manifest), true)
@@ -52,7 +53,7 @@ func TestSearchProjectionBackfill(t *testing.T) {
 		t.Fatalf("dry-run outbox = %d events, error = %v", len(before), err)
 	}
 
-	ctx := audit.WithOperatorPrincipal(env.Ctx, projectionTestPrincipal())
+	ctx := projectionOperatorContext(t)
 	first, err := ops.RunSearchProjectionBackfill(ctx, env.Stores.PropertyDefs, strings.NewReader(manifest), false)
 	if err != nil {
 		t.Fatalf("apply backfill: %v", err)
@@ -68,7 +69,8 @@ func TestSearchProjectionBackfill(t *testing.T) {
 	if err := json.Unmarshal(entries[0].Event, &recorded); err != nil {
 		t.Fatalf("decode projection audit event: %v", err)
 	}
-	if recorded.Entity.ID != definition.ID || recorded.Context.OrgID != env.OrgID || recorded.Verb != string(audit.VerbOpsBackfillSearchProjections) {
+	if recorded.Entity.ID != definition.ID || recorded.Context.OrgID != env.OrgID || recorded.Verb != string(audit.VerbPropertyDefUpdate) ||
+		recorded.Context.Tool != "ops.backfill.once-search-projections" {
 		t.Fatalf("projection audit event = %+v", recorded)
 	}
 	if otherKeys := withoutProjectionMetadata(snapshotProjectionKeys(t)); !reflect.DeepEqual(withoutProjectionMetadata(beforeKeys), otherKeys) {

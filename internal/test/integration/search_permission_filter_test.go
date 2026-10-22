@@ -63,11 +63,11 @@ func putPermissionCorpus(t *testing.T, fixture queryFixture) permissionCorpus {
 func callerAccess(t *testing.T, fixture queryFixture, workspace datagen.WorkspaceIdentity, entryID uuid.UUID) searchdomain.AccessFilter {
 	t.Helper()
 	policies := fixture.Stores.SearchPolicySet()
-	version, err := fixture.Stores.SearchRollouts(clock.Wall{}, policies).ActiveAccessVersion(t.Context(), workspace.OrgID)
+	version, err := fixture.Stores.SearchRollouts(clock.Wall{}, policies).ActiveAccessVersion(WithTestOperation(t, t.Context()), workspace.OrgID)
 	if err != nil {
 		t.Fatalf("read active access version: %v", err)
 	}
-	filter, err := policies.Query(t.Context(), searchaccess.AccessRequest{
+	filter, err := policies.Query(WithTestOperation(t, t.Context()), searchaccess.AccessRequest{
 		Version: version, PrincipalID: workspace.Actors[0].UserID, AuthorityID: workspace.OrgID,
 		EntryPointID: entryID, MemberOrganizations: []uuid.UUID{workspace.OrgID},
 	})
@@ -82,15 +82,15 @@ func rawRankedNodes(t *testing.T, fixture queryFixture, filter searchdomain.Acce
 	t.Helper()
 	ranker := fixture.Adapter.Ranker(search.RankerSettings{KeepAlive: time.Minute, TokenBytes: 64 << 10, BatchSize: 100})
 	query := searchdomain.Query{Text: text, Index: fixture.Index, NodeType: "", Access: filter}
-	snapshot, err := ranker.Open(t.Context(), query)
+	snapshot, err := ranker.Open(WithTestOperation(t, t.Context()), query)
 	if err != nil {
 		t.Fatalf("open snapshot: %v", err)
 	}
-	t.Cleanup(func() { _ = ranker.Close(t.Context(), snapshot) })
+	t.Cleanup(func() { _ = ranker.Close(WithTestOperation(t, t.Context()), snapshot) })
 	var nodes []uuid.UUID
 	var after json.RawMessage
 	for range 10_000 {
-		batch, err := ranker.Read(t.Context(), query, snapshot, after)
+		batch, err := ranker.Read(WithTestOperation(t, t.Context()), query, snapshot, after)
 		if err != nil {
 			t.Fatalf("read ranked batch: %v", err)
 		}

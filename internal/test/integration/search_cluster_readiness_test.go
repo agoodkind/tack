@@ -37,7 +37,7 @@ func requireClusterPredictors(t *testing.T, cluster *testenv.OpenSearchCluster, 
 		if len(backends) != len(members) {
 			return fmt.Errorf("proxy backends %v do not match members %v", backends, members)
 		}
-		nodes, err := fixture.Client.Nodes.Info(t.Context(), &opensearchapi.NodesInfoReq{Metrics: []string{"http"}})
+		nodes, err := fixture.Client.Nodes.Info(WithTestOperation(t, t.Context()), &opensearchapi.NodesInfoReq{Metrics: []string{"http"}})
 		if err != nil {
 			return clusterFailure("read predictor node identities", err)
 		}
@@ -55,7 +55,7 @@ func requireClusterPredictors(t *testing.T, cluster *testenv.OpenSearchCluster, 
 		}
 		slices.Sort(ids)
 		var raw json.RawMessage
-		response, err := opensearch.Do(t.Context(), fixture.Client.Client, http.MethodGet, clusterModelProfileRequest{modelID: modelID}, &raw)
+		response, err := opensearch.Do(WithTestOperation(t, t.Context()), fixture.Client.Client, http.MethodGet, clusterModelProfileRequest{modelID: modelID}, &raw)
 		if err != nil {
 			return clusterFailure("read predictor profile", err)
 		}
@@ -86,7 +86,7 @@ func requireClusterPredictors(t *testing.T, cluster *testenv.OpenSearchCluster, 
 				return fmt.Errorf("predictor id=%s workers=%v targets=%v, want actual IDs %v", id, placement.Workers, placement.Targets, ids)
 			}
 		}
-		if err := fixture.Adapter.VerifyModel(t.Context(), modelID); err != nil {
+		if err := fixture.Adapter.VerifyModel(WithTestOperation(t, t.Context()), modelID); err != nil {
 			return fmt.Errorf("verify pinned deployed model with actual IDs %v and profile %s: %w", ids, raw, err)
 		}
 		t.Logf("independent outage prerequisite at=%s model=%s pinned_state=DEPLOYED actual_ids=%v backends=%v profile=%s", time.Now().UTC().Format(time.RFC3339Nano), modelID, ids, backends, raw)

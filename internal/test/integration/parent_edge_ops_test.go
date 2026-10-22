@@ -11,6 +11,7 @@ import (
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clispec"
 	"goodkind.io/tack/internal/ops"
+	"goodkind.io/tack/internal/test/integration"
 )
 
 // runOps runs one audited ops command through the rendered Cobra tree with
@@ -21,7 +22,7 @@ func (f parentEdgeFixture) runOps(t *testing.T, args ...string) (json.RawMessage
 	var output bytes.Buffer
 	factory := cli.System(f.cfg)
 	factory.Out = &output
-	pool, err := pgxpool.New(t.Context(), f.cfg.DatabaseURL)
+	pool, err := pgxpool.New(integration.WithTestOperation(t, t.Context()), f.cfg.DatabaseURL)
 	if err != nil {
 		t.Fatalf("open audit ledger pool: %v", err)
 	}

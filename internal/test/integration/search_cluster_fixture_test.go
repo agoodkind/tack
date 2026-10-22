@@ -39,9 +39,9 @@ func newClusterQueryFixture(t *testing.T, engine testenv.OpenSearchFixture) (que
 	adapter, client := openSearchClientsFor(t, engine)
 	index := "cluster-" + uuid.Must(uuid.NewV7()).String()
 	spec := search.IndexSpec{Model: clusterProvision(t, adapter), MappingVersion: search.MappingVersion, Primaries: 1, RoutingShards: 24, Replicas: 0}
-	clusterRequire(t, "create search index", adapter.EnsureIndex(t.Context(), index, spec))
-	clusterRequire(t, "set public alias", adapter.SetAlias(t.Context(), search.PublicAlias, index))
-	clusterRequire(t, "record serving index", stores.InitializeSearchIndex(t.Context(), index))
+	clusterRequire(t, "create search index", adapter.EnsureIndex(WithTestOperation(t, t.Context()), index, spec))
+	clusterRequire(t, "set public alias", adapter.SetAlias(WithTestOperation(t, t.Context()), search.PublicAlias, index))
+	clusterRequire(t, "record serving index", stores.InitializeSearchIndex(WithTestOperation(t, t.Context()), index))
 	caPath := filepath.Join(t.TempDir(), "search-ca.crt")
 	clusterRequire(t, "write search CA", os.WriteFile(caPath, []byte(engine.CA), 0o600))
 	secret := engine.Password
@@ -59,7 +59,7 @@ func newClusterQueryFixture(t *testing.T, engine testenv.OpenSearchFixture) (que
 	scale, err := datagen.ParseScale("medium")
 	clusterRequire(t, "parse scale", err)
 	seed := nextHarnessSeed()
-	identities, err := datagen.BootstrapIdentities(t.Context(), cfg, seed, scale)
+	identities, err := datagen.BootstrapIdentities(WithTestOperation(t, t.Context()), cfg, seed, scale)
 	clusterRequire(t, "bootstrap identities", err)
 	workspace := identities.Workspaces[0]
 	harness := &MCPHarness{
@@ -109,7 +109,7 @@ func clusterProvision(t *testing.T, adapter *search.Adapter) search.ModelInfo {
 	t.Helper()
 	var model search.ModelInfo
 	clusterEventually(t, "provision the search model", func() error {
-		provisioned, err := adapter.Provision(t.Context())
+		provisioned, err := adapter.Provision(WithTestOperation(t, t.Context()))
 		model = provisioned
 		return clusterFailure("provision", err)
 	})
@@ -133,7 +133,7 @@ func requireSearchable(t *testing.T, fixture queryFixture, expected []uuid.UUID,
 	t.Helper()
 	clusterEventually(t, "search every written node", func() error {
 		for range 100 {
-			claimed, err := fixture.Worker.RunSlice(t.Context())
+			claimed, err := fixture.Worker.RunSlice(WithTestOperation(t, t.Context()))
 			if err != nil {
 				for _, diagnose := range onFailure {
 					diagnose.Worker(err)
@@ -177,7 +177,7 @@ func requireSearchable(t *testing.T, fixture queryFixture, expected []uuid.UUID,
 func requireModelOnEveryMember(t *testing.T, fixture queryFixture, modelID string, members int) {
 	t.Helper()
 	clusterEventually(t, "deploy the model to every member", func() error {
-		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "/_plugins/_ml/models/"+url.PathEscape(modelID), nil)
+		request, err := http.NewRequestWithContext(WithTestOperation(t, t.Context()), http.MethodGet, "/_plugins/_ml/models/"+url.PathEscape(modelID), nil)
 		clusterRequire(t, "build the model request", err)
 		response, err := fixture.Client.Client.Perform(request)
 		if err != nil {

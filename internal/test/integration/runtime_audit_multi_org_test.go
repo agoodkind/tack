@@ -13,6 +13,7 @@ import (
 	"goodkind.io/tack/internal/datagen"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/domain/org"
+	"goodkind.io/tack/internal/test/integration"
 )
 
 const (
@@ -87,7 +88,7 @@ func addSecondOrganization(t *testing.T, server *publicServer) uuid.UUID {
 	if err != nil {
 		t.Fatalf("datagen.ParseScale failed: %v", err)
 	}
-	identities, err := datagen.BootstrapIdentities(t.Context(), server.config, clock.Now().UnixNano(), scale)
+	identities, err := datagen.BootstrapIdentities(integration.WithTestOperation(t, t.Context()), server.config, clock.Now().UnixNano(), scale)
 	if err != nil {
 		t.Fatalf("datagen.BootstrapIdentities failed for the second organization: %v", err)
 	}

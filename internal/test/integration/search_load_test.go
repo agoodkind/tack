@@ -16,17 +16,18 @@ import (
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/ops"
 	appruntime "goodkind.io/tack/internal/runtime"
+	"goodkind.io/tack/internal/test/integration"
 )
 
 // TestSearchLoadReportsMeasuredRate verifies successful requests with distinct query texts and positive median latency.
 func TestSearchLoadReportsMeasuredRate(t *testing.T) {
 	cfg := newCohortEngines(t)
-	workers, err := appruntime.BuildGraph(t.Context(), cfg)
+	workers, err := appruntime.BuildGraph(integration.WithTestOperation(t, t.Context()), cfg)
 	if err != nil {
 		t.Fatalf("qa datagen search-load: build search workers: %v", err)
 	}
 	t.Cleanup(workers.Close)
-	workers.StartSearchWorkers(t.Context())
+	workers.StartSearchWorkers(integration.WithTestOperation(t, t.Context()))
 	seed := strconv.FormatInt(clock.Now().UnixNano(), 10)
 	if output, err := runDatagenSearchCommand(t, cfg, "--verify-cohort", "--seed", seed, "--commit"); err != nil {
 		t.Fatalf("qa datagen search-load: index search cohort: %v; output=%s", err, output)
@@ -69,7 +70,7 @@ func runSearchLoadCommand(t *testing.T, cfg *config.Config, flags ...string) ([]
 	var output bytes.Buffer
 	factory := cli.System(cfg)
 	factory.Out = &output
-	pool, err := pgxpool.New(t.Context(), cfg.DatabaseURL)
+	pool, err := pgxpool.New(integration.WithTestOperation(t, t.Context()), cfg.DatabaseURL)
 	if err != nil {
 		t.Fatalf("qa datagen search-load: open audit ledger connection: %v", err)
 	}
