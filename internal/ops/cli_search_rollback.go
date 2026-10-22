@@ -59,5 +59,5 @@ func runSearchRollback(ctx context.Context, f *cli.Factory, in searchRollbackInp
 			return searchRolloutFailure(ctx, "roll back access rollout of authority "+authorityID.String(), err)
 		}
 	}
-	return writeSearchRolloutResult(ctx, sink, rollout, dryRun)
+	return writeSearchRolloutResult(ctx, sink, rollouts, rollout, dryRun)
 }

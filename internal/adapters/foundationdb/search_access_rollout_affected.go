@@ -3,7 +3,6 @@ package foundationdb
 import (
 	"context"
 	"encoding/binary"
-	"encoding/json"
 	"fmt"
 	"math"
 
@@ -11,32 +10,28 @@ import (
 	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
 	"github.com/google/uuid"
 	searchdomain "goodkind.io/tack/internal/domain/search"
+	"goodkind.io/tack/internal/telemetry"
 )
 
-// searchRolloutAffectedLimit is the largest set size that the affected pass
-// verifies node by node. The rollout restarts the full authority scan for a
-// larger set.
+// searchRolloutAffectedLimit is the largest affected set the affected pass
+// verifies node by node. A larger set restarts the full verification pass.
 const searchRolloutAffectedLimit = 256
 
 const (
 	// rolloutAffectedMarker is the key element for affected set entries.
 	rolloutAffectedMarker = "affected"
-	// rolloutAffectedCountMarker is the key element for the affected set size
-	// counter.
+	// rolloutAffectedCountMarker is the key element for the recording counter.
 	rolloutAffectedCountMarker = "affected_count"
+	// rolloutAffectedCollectMarker is the key element for the collection key.
+	rolloutAffectedCollectMarker = "affected_collect"
 )
 
-// rolloutAffectedPresent is the nonempty value that each affected set entry
-// stores. A read distinguishes a present entry from an absent entry.
+// rolloutAffectedPresent is the stored value of an affected set entry.
 var rolloutAffectedPresent = []byte{1}
 
 // rolloutAffectedIncrement is the atomic add operand for one in little
 // endian byte order.
 var rolloutAffectedIncrement = []byte{1, 0, 0, 0, 0, 0, 0, 0}
-
-// rolloutAffectedDecrement is the atomic add operand for minus one in little
-// endian byte order.
-var rolloutAffectedDecrement = []byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
 
 func searchRolloutAffectedPrefix(authorityID uuid.UUID, generation int64) []byte {
 	return withPrefix(tuple.Tuple{keySearchRollout, authorityID.String(), rolloutAffectedMarker, generation}.Pack())
@@ -50,92 +45,47 @@ func searchRolloutAffectedCountKey(authorityID uuid.UUID, generation int64) []by
 	return withPrefix(tuple.Tuple{keySearchRollout, authorityID.String(), rolloutAffectedCountMarker, generation}.Pack())
 }
 
-// collectsAffected reports whether the rollout records affected nodes.
-func collectsAffected(record searchRolloutRecord) bool {
-	pending := record.Phase == string(searchdomain.AccessBackfill) || record.Phase == string(searchdomain.AccessVerifying)
-	return pending && len(record.WriteVersions) == 2 && record.ActiveVersion != record.CandidateVersion
+func searchRolloutAffectedCollectKey(authorityID uuid.UUID) []byte {
+	return withPrefix(tuple.Tuple{keySearchRollout, authorityID.String(), rolloutAffectedCollectMarker}.Pack())
 }
 
-// recordRolloutAffected records one grant endpoint in the affected set
-// within the transaction that schedules its access work.
+// startRolloutCollecting writes the collection key with the rollout
+// generation when the rollout enters verifying.
+func startRolloutCollecting(tr fdb.Transaction, authorityID uuid.UUID, generation int64) {
+	tr.Set(fdb.Key(searchRolloutAffectedCollectKey(authorityID)), tuple.Tuple{generation}.Pack())
+}
+
+// stopRolloutCollecting clears the collection key and one generation's
+// affected set and recording counter.
+func stopRolloutCollecting(ctx context.Context, tr fdb.Transaction, authorityID uuid.UUID, generation int64) error {
+	tr.Clear(fdb.Key(searchRolloutAffectedCollectKey(authorityID)))
+	return clearRolloutAffected(ctx, tr, authorityID, generation)
+}
+
+// recordRolloutAffected records one node in the affected set inside the
+// transaction that schedules its access work while the collection key
+// exists. It writes the entry without reading it and adds one to the
+// recording counter with an atomic add without reading the counter.
 func recordRolloutAffected(ctx context.Context, tr fdb.Transaction, orgID, nodeID uuid.UUID) error {
-	record, collecting, err := collectingRollout(ctx, tr, orgID)
-	if err != nil || !collecting {
-		return err
-	}
-	return addRolloutAffected(ctx, tr, record, nodeID)
-}
-
-// recordRolloutDependents records dependents in the affected set when the
-// node that schedules them is in the set.
-func recordRolloutDependents(ctx context.Context, tr fdb.Transaction, orgID, nodeID uuid.UUID, dependents []uuid.UUID) error {
-	record, collecting, err := collectingRollout(ctx, tr, orgID)
-	if err != nil || !collecting || len(dependents) == 0 {
-		return err
-	}
-	present, err := tr.Get(fdb.Key(searchRolloutAffectedKey(orgID, record.Generation, nodeID))).Get()
+	encoded, err := tr.Get(fdb.Key(searchRolloutAffectedCollectKey(orgID))).Get()
 	if err != nil {
-		return searchReadFailure(ctx, "read affected node "+nodeID.String(), err)
-	}
-	if len(present) == 0 {
-		return nil
-	}
-	for _, dependentID := range dependents {
-		if err := addRolloutAffected(ctx, tr, record, dependentID); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// collectingRollout reads the rollout record with a snapshot read and
-// reports whether it records affected nodes. The snapshot read does not add
-// a read conflict to the grant transaction.
-func collectingRollout(ctx context.Context, tr fdb.Transaction, orgID uuid.UUID) (searchRolloutRecord, bool, error) {
-	var record searchRolloutRecord
-	encoded, err := tr.Snapshot().Get(fdb.Key(searchRolloutKey(orgID))).Get()
-	if err != nil {
-		return record, false, searchReadFailure(ctx, "read access rollout of authority "+orgID.String(), err)
+		return searchReadFailure(ctx, "read affected node collection of authority "+orgID.String(), err)
 	}
 	if len(encoded) == 0 {
-		return record, false, nil
+		return nil
 	}
-	if err := json.Unmarshal(encoded, &record); err != nil {
-		return record, false, searchReadFailure(ctx, "decode access rollout of authority "+orgID.String(), err)
-	}
-	return record, collectsAffected(record), nil
-}
-
-// addRolloutAffected adds one resolving node to the affected set and
-// increments the counter. It skips nodes already in the set, nodes that no
-// longer resolve, and every node once the counter exceeds the bound.
-func addRolloutAffected(ctx context.Context, tr fdb.Transaction, record searchRolloutRecord, nodeID uuid.UUID) error {
-	size, err := readRolloutAffectedCount(ctx, tr, record.AuthorityID, record.Generation)
-	if err != nil || size > searchRolloutAffectedLimit {
+	generation, err := unpackCounter(ctx, encoded)
+	if err != nil {
 		return err
 	}
-	key := fdb.Key(searchRolloutAffectedKey(record.AuthorityID, record.Generation, nodeID))
-	present, err := tr.Get(key).Get()
-	if err != nil {
-		return searchReadFailure(ctx, "read affected node "+nodeID.String(), err)
-	}
-	if len(present) > 0 {
-		return nil
-	}
-	resolved, err := tr.Get(fdb.Key(nodeResolveKey(nodeID))).Get()
-	if err != nil {
-		return searchReadFailure(ctx, "read node resolution "+nodeID.String()+" for an access rollout", err)
-	}
-	if len(resolved) == 0 {
-		return nil
-	}
-	tr.Set(key, rolloutAffectedPresent)
-	tr.Add(fdb.Key(searchRolloutAffectedCountKey(record.AuthorityID, record.Generation)), rolloutAffectedIncrement)
+	tr.Set(fdb.Key(searchRolloutAffectedKey(orgID, generation, nodeID)), rolloutAffectedPresent)
+	tr.Add(fdb.Key(searchRolloutAffectedCountKey(orgID, generation)), rolloutAffectedIncrement)
 	return nil
 }
 
-// readRolloutAffectedCount reads the affected set size counter.
-func readRolloutAffectedCount(ctx context.Context, tr fdb.Transaction, authorityID uuid.UUID, generation int64) (int64, error) {
+// readRolloutAffectedCount reads the recording counter of one rollout
+// generation.
+func readRolloutAffectedCount(ctx context.Context, tr fdb.ReadTransaction, authorityID uuid.UUID, generation int64) (int64, error) {
 	encoded, err := tr.Get(fdb.Key(searchRolloutAffectedCountKey(authorityID, generation))).Get()
 	if err != nil {
 		return 0, searchReadFailure(ctx, "read affected node count of authority "+authorityID.String(), err)
@@ -144,55 +94,79 @@ func readRolloutAffectedCount(ctx context.Context, tr fdb.Transaction, authority
 		return 0, nil
 	}
 	if len(encoded) != 8 {
-		return 0, searchReadFailure(ctx, "decode affected node count", fmt.Errorf("counter has %d bytes", len(encoded)))
+		return 0, searchReadFailure(ctx, "decode affected node count of authority "+authorityID.String(), fmt.Errorf("counter has %d bytes", len(encoded)))
 	}
 	value := binary.LittleEndian.Uint64(encoded)
 	if value > math.MaxInt64 {
-		return 0, searchReadFailure(ctx, "decode affected node count", fmt.Errorf("counter %d overflows", value))
+		return 0, searchReadFailure(ctx, "decode affected node count of authority "+authorityID.String(), fmt.Errorf("counter %d overflows", value))
 	}
 	return int64(value), nil
 }
 
-// firstRolloutAffected returns the first node in the affected set.
-func firstRolloutAffected(ctx context.Context, tr fdb.Transaction, authorityID uuid.UUID, generation int64) (uuid.UUID, bool, error) {
+// readRolloutAffected reads at most limit nodes from the affected set of one
+// rollout generation in key order.
+func readRolloutAffected(ctx context.Context, tr fdb.ReadTransaction, authorityID uuid.UUID, generation int64, limit int) ([]uuid.UUID, error) {
 	keyRange, err := fdb.PrefixRange(searchRolloutAffectedPrefix(authorityID, generation))
 	if err != nil {
-		return uuid.Nil, false, searchReadFailure(ctx, "create affected node range", err)
+		return nil, searchReadFailure(ctx, "create affected node range of authority "+authorityID.String(), err)
 	}
-	items, err := tr.GetRange(keyRange, fdb.RangeOptions{Limit: 1}).GetSliceWithError()
+	items, err := tr.GetRange(keyRange, fdb.RangeOptions{Limit: limit}).GetSliceWithError()
 	if err != nil {
-		return uuid.Nil, false, searchReadFailure(ctx, "read affected nodes of authority "+authorityID.String(), err)
+		return nil, searchReadFailure(ctx, "read affected nodes of authority "+authorityID.String(), err)
 	}
-	if len(items) == 0 {
-		return uuid.Nil, false, nil
+	nodes := make([]uuid.UUID, 0, len(items))
+	for _, item := range items {
+		values, unpackErr := tuple.Unpack(stripPrefix(item.Key))
+		if unpackErr != nil {
+			return nil, searchReadFailure(ctx, fmt.Sprintf("unpack affected node key %x of authority %s", item.Key, authorityID), unpackErr)
+		}
+		nodeText, isText := values[len(values)-1].(string)
+		nodeID, parseErr := uuid.Parse(nodeText)
+		if !isText || parseErr != nil {
+			return nil, searchReadFailure(ctx, "decode affected node key of authority "+authorityID.String(),
+				fmt.Errorf("affected key %x has no node identifier", item.Key))
+		}
+		nodes = append(nodes, nodeID)
 	}
-	values, err := tuple.Unpack(stripPrefix(items[0].Key))
-	if err != nil {
-		return uuid.Nil, false, searchReadFailure(ctx, "unpack affected node key", err)
-	}
-	nodeText, isText := values[len(values)-1].(string)
-	nodeID, parseErr := uuid.Parse(nodeText)
-	if !isText || parseErr != nil {
-		return uuid.Nil, false, searchReadFailure(ctx, "decode affected node key", fmt.Errorf("affected key has no node identifier"))
-	}
-	return nodeID, true, nil
+	return nodes, nil
 }
 
-// removeRolloutAffected removes one node from the affected set and
-// decrements the counter.
+// removeRolloutAffected removes one node from the affected set.
 func removeRolloutAffected(tr fdb.Transaction, authorityID uuid.UUID, generation int64, nodeID uuid.UUID) {
 	tr.Clear(fdb.Key(searchRolloutAffectedKey(authorityID, generation, nodeID)))
-	tr.Add(fdb.Key(searchRolloutAffectedCountKey(authorityID, generation)), rolloutAffectedDecrement)
 }
 
-// clearRolloutAffected clears the affected set and its counter for one
+// clearRolloutAffected clears the affected set and recording counter of one
 // rollout generation.
 func clearRolloutAffected(ctx context.Context, tr fdb.Transaction, authorityID uuid.UUID, generation int64) error {
 	keyRange, err := fdb.PrefixRange(searchRolloutAffectedPrefix(authorityID, generation))
 	if err != nil {
-		return searchReadFailure(ctx, "create affected node range", err)
+		return searchReadFailure(ctx, "create affected node range of authority "+authorityID.String(), err)
 	}
 	tr.ClearRange(keyRange)
 	tr.Clear(fdb.Key(searchRolloutAffectedCountKey(authorityID, generation)))
 	return nil
+}
+
+// AffectedNodes reads the recording counter and at most 257 affected set
+// entries for the current rollout generation of authorityID.
+func (s *SearchAccessRolloutStore) AffectedNodes(ctx context.Context, authorityID uuid.UUID) (affected searchdomain.AffectedNodes, err error) {
+	defer telemetry.FDBOp(ctx, "store.search_rollout.affected_nodes")(&err)
+	err = transactSearch(ctx, s.db, func(tr fdb.Transaction) error {
+		record, readErr := readRollout(ctx, tr, authorityID)
+		if readErr != nil {
+			return readErr
+		}
+		recorded, readErr := readRolloutAffectedCount(ctx, tr, authorityID, record.Generation)
+		if readErr != nil {
+			return readErr
+		}
+		nodes, readErr := readRolloutAffected(ctx, tr, authorityID, record.Generation, searchRolloutAffectedLimit+1)
+		affected = searchdomain.AffectedNodes{Recorded: recorded, Nodes: nodes}
+		return readErr
+	})
+	if err != nil {
+		return affected, searchStorageError(ctx, "search.rollout.affected_read_failed", "read affected nodes of authority "+authorityID.String(), uuid.Nil, err)
+	}
+	return affected, nil
 }

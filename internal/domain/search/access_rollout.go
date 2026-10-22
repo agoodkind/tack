@@ -77,6 +77,14 @@ type RollbackAccessRollout struct {
 	ExpectedGeneration int64
 }
 
+// AffectedNodes contains the recording counter and affected set entries for
+// the current rollout generation. Recorded counts recordings rather than
+// distinct nodes.
+type AffectedNodes struct {
+	Recorded int64
+	Nodes    []uuid.UUID
+}
+
 // RolloutDocument is one issued page document a verification step reads.
 type RolloutDocument struct {
 	NodeID   uuid.UUID

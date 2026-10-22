@@ -91,7 +91,7 @@ func decodeRolloutDocument(ctx context.Context, item fdb.KeyValue) (searchdomain
 func (s *SearchAccessRolloutStore) CompleteVerify(ctx context.Context, work searchdomain.Work, read searchdomain.AccessRollout, documents []searchdomain.RolloutDocument, states map[string]searchdomain.DocumentAccess, done bool) (step searchdomain.RolloutStep, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_rollout.complete_verify")(&err)
 	step = searchdomain.RolloutContinue
-	var overflow int64
+	var overflow int
 	err = s.rolloutStep(ctx, work, read, func(tr fdb.Transaction, record *searchRolloutRecord, workRecord searchWorkRecord) error {
 		if record.AffectedPass {
 			var affectedErr error
@@ -134,7 +134,7 @@ func (s *SearchAccessRolloutStore) CompleteVerify(ctx context.Context, work sear
 	}
 	if overflow > 0 {
 		telemetry.L(ctx).InfoContext(ctx, "search.rollout.affected_overflow", slog.String("authority_id", work.OrgID.String()),
-			slog.Int64("generation", read.Generation), slog.Int64("affected_nodes", overflow))
+			slog.Int64("generation", read.Generation), slog.Int("affected_nodes", overflow))
 	}
 	telemetry.L(ctx).DebugContext(ctx, "search.rollout.verified", slog.String("authority_id", work.OrgID.String()),
 		slog.Int("documents", len(documents)), slog.Int("step", int(step)))

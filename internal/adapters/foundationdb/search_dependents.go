@@ -22,9 +22,6 @@ func (s *SearchWorkStore) ScheduleDependents(ctx context.Context, work searchdom
 			return err
 		}
 		now := s.clock.Now()
-		if err := recordRolloutDependents(ctx, tr, work.OrgID, work.NodeID, page.IDs); err != nil {
-			return err
-		}
 		for _, dependentID := range page.IDs {
 			if err := scheduleExistingSearchChange(ctx, tr, now, work.OrgID, dependentID, searchChangeAccess); err != nil {
 				return err

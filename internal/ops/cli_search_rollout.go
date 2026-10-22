@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clispec"
@@ -29,6 +30,8 @@ type searchRolloutOutput struct {
 	PreviousVersion  string   `json:"previous_version,omitempty"`
 	WriteVersions    []string `json:"write_versions"`
 	Generation       int64    `json:"generation"`
+	AffectedRecorded int64    `json:"affected_recorded"`
+	AffectedNodes    []string `json:"affected_nodes"`
 	DryRun           bool     `json:"dry_run"`
 }
 
@@ -82,16 +85,25 @@ func runSearchRollout(ctx context.Context, f *cli.Factory, in searchRolloutInput
 			return searchRolloutFailure(ctx, "begin access rollout of authority "+authorityID.String(), err)
 		}
 	}
-	return writeSearchRolloutResult(ctx, sink, rollout, dryRun)
+	return writeSearchRolloutResult(ctx, sink, rollouts, rollout, dryRun)
 }
 
-// writeSearchRolloutResult writes one authority's rollout state as the
-// command result.
-func writeSearchRolloutResult(ctx context.Context, sink clispec.ResultSink, rollout searchdomain.AccessRollout, dryRun bool) error {
+// writeSearchRolloutResult writes the rollout state and affected nodes of
+// one authority as the command result.
+func writeSearchRolloutResult(ctx context.Context, sink clispec.ResultSink, rollouts *fdbadapter.SearchAccessRolloutStore, rollout searchdomain.AccessRollout, dryRun bool) error {
+	affected, err := rollouts.AffectedNodes(ctx, rollout.AuthorityID)
+	if err != nil {
+		return searchRolloutFailure(ctx, "read affected nodes of authority "+rollout.AuthorityID.String(), err)
+	}
+	nodes := make([]string, 0, len(affected.Nodes))
+	for _, nodeID := range affected.Nodes {
+		nodes = append(nodes, nodeID.String())
+	}
 	output := searchRolloutOutput{
 		ResultMarker: clispec.ResultMarker{}, AuthorityID: rollout.AuthorityID.String(), Phase: string(rollout.Phase),
 		ActiveVersion: rollout.ActiveVersion, CandidateVersion: rollout.CandidateVersion, PreviousVersion: rollout.PreviousVersion,
-		WriteVersions: rollout.WriteVersions, Generation: rollout.Generation, DryRun: dryRun,
+		WriteVersions: rollout.WriteVersions, Generation: rollout.Generation, AffectedRecorded: affected.Recorded,
+		AffectedNodes: nodes, DryRun: dryRun,
 	}
 	if err := clispec.WriteJSONValue(ctx, sink, output); err != nil {
 		return searchRolloutFailure(ctx, "write access rollout result", err)
