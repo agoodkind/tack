@@ -41,7 +41,7 @@ func (r *OrgMemberRepo) AddMember(ctx context.Context, operation audit.Event, m 
 			m.ID, m.CreatedAt = previous.ID, previous.CreatedAt
 			return nil
 		}
-		stored, err := upsertMember(ctx, tx, m)
+		stored, err := saveMember(ctx, tx, previous, m)
 		if err != nil {
 			return err
 		}

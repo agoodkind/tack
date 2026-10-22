@@ -42,17 +42,24 @@ func lockMember(ctx context.Context, tx pgx.Tx, orgID, userID uuid.UUID) (*membe
 	return stored, true, nil
 }
 
-func upsertMember(ctx context.Context, tx pgx.Tx, m *org.Member) (*memberValue, error) {
-	const q = `
+// saveMember inserts a membership when previous is nil. Otherwise, it updates
+// the locked membership's role by previous.ID. It returns the stored membership.
+func saveMember(ctx context.Context, tx pgx.Tx, previous *memberValue, m *org.Member) (*memberValue, error) {
+	const insertQuery = `
 		INSERT INTO org_members (id, org_id, user_id, role)
 		VALUES ($1, $2, $3, $4)
-		ON CONFLICT (org_id, user_id) DO UPDATE SET role = EXCLUDED.role
 		RETURNING id, org_id, user_id, role, created_at`
+	const updateQuery = `
+		UPDATE org_members SET role = $2 WHERE id = $1
+		RETURNING id, org_id, user_id, role, created_at`
+	var row pgx.Row
+	if previous == nil {
+		row = tx.QueryRow(ctx, insertQuery, uuid.Must(uuid.NewV7()), m.OrgID, m.UserID, m.Role)
+	} else {
+		row = tx.QueryRow(ctx, updateQuery, previous.ID, m.Role)
+	}
 	stored := &memberValue{ID: uuid.Nil, OrgID: uuid.Nil, UserID: uuid.Nil, Role: 0, CreatedAt: time.Time{}}
-	err := tx.QueryRow(ctx, q, uuid.Must(uuid.NewV7()), m.OrgID, m.UserID, m.Role).Scan(
-		&stored.ID, &stored.OrgID, &stored.UserID, &stored.Role, &stored.CreatedAt,
-	)
-	if err != nil {
+	if err := row.Scan(&stored.ID, &stored.OrgID, &stored.UserID, &stored.Role, &stored.CreatedAt); err != nil {
 		return nil, pgErr(err)
 	}
 	return stored, nil

@@ -123,13 +123,11 @@ func writeEventPII(ctx context.Context, tx pgx.Tx, event Event) (uuid.UUID, erro
 	return piiRef, nil
 }
 
-// writeProtectedValues validates and inserts nonempty Protected values into
-// audit.pii with subject and org IDs. It marks validation errors as malformed
-// payloads and skips inserts that conflict with existing rows.
+// writeProtectedValues validates the event's protected references and values,
+// even when Protected is empty. It marks validation errors as malformed
+// payloads and inserts valid values into audit.pii with subject and org IDs.
+// It skips inserts that conflict with existing rows.
 func writeProtectedValues(ctx context.Context, tx pgx.Tx, event Event) error {
-	if len(event.Protected) == 0 {
-		return nil
-	}
 	if err := validateProtected(event); err != nil {
 		slog.ErrorContext(ctx, "audit.protected.invalid",
 			slog.String("event_id", event.EventID.String()), slog.String("err", err.Error()))

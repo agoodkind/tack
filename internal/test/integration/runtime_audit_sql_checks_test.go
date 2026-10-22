@@ -118,8 +118,6 @@ func requireTokenRecord(t *testing.T, raw json.RawMessage, want *token.Token) {
 	}
 }
 
-// requireNoSecrets encodes the ledger row as JSON and fails if the encoding
-// contains any value in secrets.
 func requireNoSecrets(t *testing.T, row audit.Row, secrets []string) {
 	t.Helper()
 	encoded, err := json.Marshal(row)
