@@ -69,6 +69,9 @@ func harnessReadEvents(ctx context.Context, harness *MCPHarness, requestID strin
 		EventID string `json:"event_id"`
 		Payload []byte `json:"payload"`
 	}
+	if harness.outbox == nil {
+		return nil, fmt.Errorf("test harness for request %s does not have a FoundationDB outbox reader", requestID)
+	}
 	envelopes := map[string][]byte{}
 	var events []audit.Event
 	var mark []byte
