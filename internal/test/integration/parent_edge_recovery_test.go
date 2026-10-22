@@ -60,9 +60,6 @@ func TestSearchParentEdgeReindexReadmits(t *testing.T) {
 	}
 }
 
-// excluded runs ops search verify and returns the node IDs that the command
-// lists as excluded. The excluded helper fails the test when the command
-// returns an error.
 func (f parentEdgeFixture) excluded(t *testing.T) []uuid.UUID {
 	t.Helper()
 	result, verifyErr := f.runOps(t, "ops", "search", "verify")
