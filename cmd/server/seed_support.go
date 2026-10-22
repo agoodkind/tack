@@ -15,6 +15,7 @@ import (
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/domain/node"
+	"goodkind.io/tack/internal/service"
 	"goodkind.io/tack/internal/telemetry"
 )
 
@@ -40,7 +41,9 @@ func userIDForEmail(email string) uuid.UUID {
 // the parentID; for org nodes (where orgID == the node's own ID) the caller
 // supplies the orgID from the user's existing org membership, or [uuid.Nil] when
 // no prior membership exists.
-func ensureNode(ctx context.Context, s *fdbadapter.Stores, typeKey, slug, name string, parentID, lookupOrgID uuid.UUID) (uuid.UUID, bool, error) {
+// It calls prepare with the node ID before returning an existing ID or writing
+// a new node. A nil prepare does nothing.
+func ensureNode(ctx context.Context, s *fdbadapter.Stores, typeKey, slug, name string, parentID, lookupOrgID uuid.UUID, prepare func(context.Context, uuid.UUID) error) (uuid.UUID, bool, error) {
 	log := telemetry.L(ctx)
 	slugRaw, err := json.Marshal(slug)
 	if err != nil {
@@ -51,6 +54,9 @@ func ensureNode(ctx context.Context, s *fdbadapter.Stores, typeKey, slug, name s
 		existing, listErr := s.Nodes.ListByProperty(ctx, lookupOrgID, typeKey, "slug", slugRaw)
 		if listErr == nil && len(existing) > 0 {
 			log.InfoContext(ctx, "seed.node_exists", "type", typeKey, "slug", slug, "id", existing[0].ID)
+			if err := prepareNode(ctx, prepare, existing[0].ID); err != nil {
+				return uuid.Nil, false, err
+			}
 			return existing[0].ID, false, nil
 		}
 	}
@@ -106,6 +112,9 @@ func ensureNode(ctx context.Context, s *fdbadapter.Stores, typeKey, slug, name s
 		})
 	}
 
+	if err := prepareNode(ctx, prepare, id); err != nil {
+		return uuid.Nil, false, err
+	}
 	// Mark slug as indexed so ListByProperty works for it. The node_by_property
 	// index written here replaces the former address_index write.
 	if err := s.Nodes.CreateAtomic(ctx, n, view, rels, []string{"slug"}, nil, nil); err != nil {
@@ -114,6 +123,25 @@ func ensureNode(ctx context.Context, s *fdbadapter.Stores, typeKey, slug, name s
 	}
 	log.InfoContext(ctx, "seed.node_created", "type", typeKey, "slug", slug, "id", id)
 	return id, true, nil
+}
+
+// prepareNode returns nil when prepare is nil. Otherwise, it calls prepare
+// with ctx and nodeID and returns the result.
+func prepareNode(ctx context.Context, prepare func(context.Context, uuid.UUID) error, nodeID uuid.UUID) error {
+	if prepare == nil {
+		return nil
+	}
+	return prepare(ctx, nodeID)
+}
+
+func seedOrgDefinitions(seeder *service.Seeder) func(context.Context, uuid.UUID) error {
+	return func(ctx context.Context, orgID uuid.UUID) error {
+		if err := seeder.SeedOrg(ctx, orgID); err != nil {
+			slog.ErrorContext(ctx, "seed.org_definitions_failed", slog.String("err", err.Error()))
+			return fmt.Errorf("seed: seed org definitions: %w", err)
+		}
+		return nil
+	}
 }
 
 // generateToken returns a fresh random bearer token in the one shape every
