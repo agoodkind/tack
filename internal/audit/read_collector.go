@@ -30,7 +30,7 @@ type CollectedRead struct {
 // and outcome of one public read.
 func WithReadCollector(ctx context.Context) context.Context {
 	return context.WithValue(ctx, readCollectorKey{}, &readCollector{
-		mu: sync.Mutex{}, targets: nil, byOrg: map[uuid.UUID][]Target{}, seen: map[Target]struct{}{}, outcome: noOutcome(),
+		mu: sync.Mutex{}, targets: nil, byOrg: map[uuid.UUID][]Target{}, seen: map[Target]struct{}{}, outcome: NoOutcome(),
 	})
 }
 
@@ -80,7 +80,7 @@ func NoteReadOutcome(ctx context.Context, outcome Outcome, code, message string)
 func ReadCollected(ctx context.Context) CollectedRead {
 	collector, _ := ctx.Value(readCollectorKey{}).(*readCollector)
 	if collector == nil {
-		return CollectedRead{Targets: nil, OrgTargets: map[uuid.UUID][]Target{}, Outcome: noOutcome()}
+		return CollectedRead{Targets: nil, OrgTargets: map[uuid.UUID][]Target{}, Outcome: NoOutcome()}
 	}
 	collector.mu.Lock()
 	defer collector.mu.Unlock()
@@ -91,7 +91,7 @@ func ReadCollected(ctx context.Context) CollectedRead {
 	return CollectedRead{Targets: append([]Target(nil), collector.targets...), OrgTargets: byOrg, Outcome: collector.outcome}
 }
 
-// noOutcome returns empty outcome details.
-func noOutcome() OutcomeDetails {
+// NoOutcome returns empty outcome details.
+func NoOutcome() OutcomeDetails {
 	return OutcomeDetails{Outcome: "", FailureCode: "", FailureMessage: "", CommittedSteps: nil}
 }

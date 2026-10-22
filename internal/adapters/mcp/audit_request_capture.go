@@ -100,7 +100,7 @@ func (capture *responseCapture) release(writer http.ResponseWriter, payload []by
 func statusOutcome(status int) audit.OutcomeDetails {
 	switch {
 	case status < http.StatusBadRequest:
-		return noOutcome()
+		return audit.NoOutcome()
 	case status == http.StatusBadRequest:
 		return refused("invalid_request", "invalid request")
 	case status == http.StatusUnauthorized:
@@ -124,7 +124,7 @@ func statusOutcome(status int) audit.OutcomeDetails {
 // It returns an empty outcome otherwise.
 func jsonRPCOutcome(contentType string, body []byte) audit.OutcomeDetails {
 	if !strings.HasPrefix(contentType, "application/json") {
-		return noOutcome()
+		return audit.NoOutcome()
 	}
 	var response struct {
 		Error *struct {
@@ -132,7 +132,7 @@ func jsonRPCOutcome(contentType string, body []byte) audit.OutcomeDetails {
 		} `json:"error"`
 	}
 	if json.Unmarshal(body, &response) != nil || response.Error == nil {
-		return noOutcome()
+		return audit.NoOutcome()
 	}
 
 	switch response.Error.Code {
@@ -149,11 +149,6 @@ func jsonRPCOutcome(contentType string, body []byte) audit.OutcomeDetails {
 	default:
 		return refused("jsonrpc_error", "request failed with a JSON-RPC error")
 	}
-}
-
-// noOutcome returns outcome details without an outcome.
-func noOutcome() audit.OutcomeDetails {
-	return audit.OutcomeDetails{Outcome: "", FailureCode: "", FailureMessage: "", CommittedSteps: nil}
 }
 
 // refused returns a refused outcome with code and message.
