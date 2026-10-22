@@ -100,22 +100,25 @@ func (stack runtimeAuditStack) waitForRow(t *testing.T, eventID uuid.UUID) audit
 	}
 }
 
-// waitForDeadLetter waits until the consumer stores one dead-letter row for
-// the topic and returns its error text.
-func (stack runtimeAuditStack) waitForDeadLetter(t *testing.T) string {
+// waitForDeadLetters waits until the consumer stores the requested number
+// of dead-letter rows for the topic. It returns their error texts.
+func (stack runtimeAuditStack) waitForDeadLetters(t *testing.T, want int) []string {
 	t.Helper()
 	deadline := clock.Now().Add(runtimeAuditDeadline)
 	for {
-		var count int
-		var errorText string
-		if err := stack.admin.QueryRow(t.Context(), runtimeAuditDeadLetterQuery, stack.topic).Scan(&count, &errorText); err != nil {
-			t.Fatalf("count dead letters for %s: %v", stack.topic, err)
+		rows, err := stack.admin.Query(t.Context(), runtimeAuditDeadLetterQuery, stack.topic)
+		if err != nil {
+			t.Fatalf("read dead letters for %s: %v", stack.topic, err)
 		}
-		if count == 1 {
-			return errorText
+		errorTexts, err := pgx.CollectRows(rows, pgx.RowTo[string])
+		if err != nil {
+			t.Fatalf("scan dead letters for %s: %v", stack.topic, err)
 		}
-		if count > 1 || clock.Now().After(deadline) {
-			t.Fatalf("dead letters for %s = %d, want 1", stack.topic, count)
+		if len(errorTexts) == want {
+			return errorTexts
+		}
+		if len(errorTexts) > want || clock.Now().After(deadline) {
+			t.Fatalf("dead letters for %s = %d, want %d", stack.topic, len(errorTexts), want)
 		}
 		time.Sleep(200 * time.Millisecond)
 	}

@@ -2,7 +2,7 @@
 
 Tack must record every application operation and committed change in its existing audit ledger. Records establish the actor, action, target, time and outcome. Changes preserve actual old and new values. Reads establish the request and returned result identities.
 
-This draft resolves engineering choices for the audit correction tracked by TACK-583. The source review used `d5b38f8a`. The correction has not deployed.
+This draft resolves engineering choices for the audit correction tracked by TACK-583. The source review used `d5b38f8a`.
 
 ## Scope
 

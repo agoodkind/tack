@@ -15,6 +15,7 @@ import (
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/datagen"
+	"goodkind.io/tack/internal/domain/node"
 )
 
 // TestDatagenSearchPreparationExportsStoredIsolatedSets executes the guarded
@@ -88,13 +89,21 @@ func TestDatagenSearchPreparationExportsStoredIsolatedSets(t *testing.T) {
 		}
 	}
 	byType := make(map[string]map[uuid.UUID]bool)
+	entryID := node.WorkspaceID(manifest.OrgID, identities.Workspaces[0].Slug)
 	for _, exported := range manifest.Nodes {
 		stored, err := stores.Nodes.Get(t.Context(), manifest.OrgID, exported.ID)
 		if err != nil || stored == nil {
 			t.Fatalf("read exported node %s: %v", exported.ID, err)
 		}
-		if stored.Name != exported.Name || stored.NodeType != exported.NodeType || len(stored.Props) != 2 {
+		if stored.Name != exported.Name || stored.NodeType != exported.NodeType {
 			t.Fatalf("exported node %s differs from stored node", exported.ID)
+		}
+		parentID, scopeID := "", ""
+		parentErr, scopeErr := json.Unmarshal(stored.Props["parent_id"], &parentID), json.Unmarshal(stored.Props["scope_id"], &scopeID)
+		_, included := stored.Props[exported.IncludedKey]
+		_, excluded := stored.Props[exported.ExcludedKey]
+		if len(stored.Props) != 4 || !included || !excluded || parentErr != nil || scopeErr != nil || parentID != entryID.String() || scopeID != entryID.String() {
+			t.Fatalf("exported node %s stores properties %v, want %s, %s, and parent_id and scope_id %s", exported.ID, stored.Props, exported.IncludedKey, exported.ExcludedKey, entryID)
 		}
 		var text string
 		if err := json.Unmarshal(stored.Props[exported.IncludedKey], &text); err != nil || len(text) != exported.TextBytes {

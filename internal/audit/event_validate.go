@@ -88,7 +88,7 @@ func validateLegacyEvent(event Event) error {
 	hasCompleteField := eventContext.OperationClass != "" || eventContext.Phase != "" ||
 		eventContext.OperationID != uuid.Nil || eventContext.ParentOperationID != uuid.Nil ||
 		!eventContext.StartedAt.IsZero() || !eventContext.CompletedAt.IsZero() ||
-		eventContext.Target != nil || eventContext.Read != nil
+		eventContext.Target != nil || eventContext.Read != nil || len(eventContext.CommittedSteps) != 0
 	if hasCompleteField {
 		return errors.New("format 0 event cannot set format 2 context fields")
 	}
@@ -150,25 +150,6 @@ func validatePhase(class OperationClass, phase Phase, outcome Outcome) error {
 	}
 	if phase == PhaseChange && outcome != OutcomeCompleted {
 		return errors.New("change phase event requires the completed outcome")
-	}
-	return nil
-}
-
-func validateOutcomeFields(event Event) error {
-	eventContext := event.Context
-	terminal := event.Outcome != OutcomePending
-	if terminal == eventContext.CompletedAt.IsZero() {
-		return errors.New("terminal events require a completion time and pending events cannot set one")
-	}
-	if terminal && eventContext.CompletedAt.Before(eventContext.StartedAt) {
-		return errors.New("completion time cannot precede the start time")
-	}
-	unsuccessful := terminal && event.Outcome != OutcomeCompleted
-	if unsuccessful != (event.Error != nil) {
-		return fmt.Errorf("outcome %q requires an error exactly when it is unsuccessful", event.Outcome)
-	}
-	if unsuccessful && event.Error.Code == "" {
-		return errors.New("unsuccessful event error requires a code")
 	}
 	return nil
 }
