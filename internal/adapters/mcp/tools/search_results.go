@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	mcpmcp "github.com/mark3labs/mcp-go/mcp"
+	"goodkind.io/tack/internal/audit"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/searchaccess"
 	"goodkind.io/tack/internal/service"
@@ -61,6 +62,12 @@ func runSearch(ctx context.Context, request mcpmcp.CallToolRequest, resolver *Re
 	page, err := binding.Runner.Search(ctx, searchRequest)
 	if err != nil {
 		return searchFailureResult(ctx, err)
+	}
+	for _, result := range page.Results {
+		audit.AddReadTargets(ctx, audit.Target{
+			Kind: audit.TargetKindNode, NodeType: result.NodeType, Reference: "", Name: "", URI: "",
+			RelationType: "", ID: result.ID, SourceID: uuid.Nil, TargetID: uuid.Nil,
+		})
 	}
 	return successText(renderSearchPage(page, binding.Cursors), "")
 }

@@ -28,17 +28,19 @@ import (
 type Graph struct {
 	MCPHandler     http.Handler
 	AuthMiddleware func(http.Handler) http.Handler
-	pool           *pgxpool.Pool
-	fdbStores      *fdbadapter.Stores
-	audit          auditRuntime
-	search         searchRuntime
-	searchCancel   context.CancelFunc
-	searchWorkers  sync.WaitGroup
-	searchStarted  bool
-	nodes          *service.NodeService
-	deletes        deleteResumer
-	modelRepair    modelRepairLoop
-	auditReads     *auditReadRecovery
+	// ProductReads saves product read admissions and final audit events in FoundationDB.
+	ProductReads  audit.ReadLifecycle
+	pool          *pgxpool.Pool
+	fdbStores     *fdbadapter.Stores
+	audit         auditRuntime
+	search        searchRuntime
+	searchCancel  context.CancelFunc
+	searchWorkers sync.WaitGroup
+	searchStarted bool
+	nodes         *service.NodeService
+	deletes       deleteResumer
+	modelRepair   modelRepairLoop
+	auditReads    *auditReadRecovery
 }
 
 // BuildGraph opens the configured datastores and assembles the node service,
@@ -134,10 +136,12 @@ func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
 	})
 
 	authMiddleware := buildAuthMiddleware(cfg, tokenRepo, orgMembers)
+	productReads := fdbStores.AuditReads(source)
 
 	return &Graph{
 		MCPHandler:     mcpHandler,
 		AuthMiddleware: authMiddleware,
+		ProductReads:   productReads,
 		pool:           pool,
 		fdbStores:      fdbStores,
 		audit:          auditRuntimeDeps,
@@ -148,7 +152,7 @@ func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
 		nodes:          nodeSvc,
 		deletes:        deleteResumer{cancel: nil, loop: sync.WaitGroup{}, started: false},
 		modelRepair:    modelRepairLoop{cancel: nil, loop: sync.WaitGroup{}, started: false},
-		auditReads:     newAuditReadRecovery(fdbStores.AuditReads(source), audit.NewPoolReadLifecycle(pool)),
+		auditReads:     newAuditReadRecovery(productReads, audit.NewPoolReadLifecycle(pool)),
 	}, nil
 }
 

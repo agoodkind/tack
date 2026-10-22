@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	mcpadapter "goodkind.io/tack/internal/adapters/mcp"
 	"goodkind.io/tack/internal/config"
 	appruntime "goodkind.io/tack/internal/runtime"
 	"goodkind.io/tack/internal/telemetry"
@@ -33,6 +34,7 @@ func runServer(ctx context.Context, cfg *config.Config) error {
 	defer graph.CloseContext(context.WithoutCancel(ctx))
 
 	mux := buildServeMux(
+		mcpadapter.NewRequestRecorder(graph.ProductReads),
 		graph.MCPHandler,
 		graph.AuthMiddleware,
 		newRuntimeHealthHandler(graph),
@@ -97,27 +99,25 @@ func newRuntimeHealthHandler(graph *appruntime.Graph) http.Handler {
 	})
 }
 
+// buildServeMux registers HTTP routes and wraps the MCP, health, diagnostics, and unknown route handlers
+// with recorder. The recorder saves each final read event before writing the buffered response.
+// Authenticated MCP calls that change state do not get read events. Unknown routes return 404.
 func buildServeMux(
+	recorder *mcpadapter.RequestRecorder,
 	mcpHandler http.Handler,
 	authMiddleware func(http.Handler) http.Handler,
 	healthHandler http.Handler,
 ) *http.ServeMux {
 	mux := http.NewServeMux()
-	mcpWithAuth := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet {
-			w.Header().Set("Allow", "POST")
-			http.Error(w, "method not allowed: streamable-http stateless mode requires POST", http.StatusMethodNotAllowed)
-			return
-		}
-		authMiddleware(mcpHandler).ServeHTTP(w, r)
-	})
+	mcpWithAuth := recorder.MCP(authMiddleware, mcpHandler)
 	mux.Handle("/mcp", mcpWithAuth)
 	mux.Handle("/mcp/", mcpWithAuth)
-	mux.Handle("GET /healthz", healthHandler)
+	mux.Handle("GET /healthz", recorder.Health(healthHandler))
 	registerConnectHandlers(mux, authMiddleware)
 
 	// expvar counters at /debug/vars. Not gated on auth so a local watcher can
 	// scrape it directly; bind to localhost only when this matters.
-	mux.Handle("/debug/vars", expvar.Handler())
+	mux.Handle("/debug/vars", recorder.Diagnostics(expvar.Handler()))
+	mux.Handle("/", recorder.UnknownRoute())
 	return mux
 }
