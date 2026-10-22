@@ -6,7 +6,7 @@ This draft resolves engineering choices for the audit correction tracked by TACK
 
 ## Scope
 
-Cover registered HTTP and MCP operations, operator commands, database writers, background jobs, provider hooks and deployment operations that invoke Tack. Include refusals, failures, partial work and interrupted work. Execute the reviewed operation inventory during acceptance; declarations alone do not prove coverage.
+Cover operations after the required services exist: registered HTTP and MCP operations, operator commands, database writers, background jobs, provider hooks and deployment operations that invoke Tack. Include refusals, failures, partial work and interrupted work. Creating services from an empty installation is outside this correction. Execute the reviewed runtime operation inventory during acceptance; declarations alone do not prove coverage.
 
 Complete audit recording first. Implement repository-triggered QA and production deployment second, with validation before merge. Complete production access restrictions third. User-facing history remains separate. Preserve existing ledger rows and hash chains. Do not reconstruct missing historical values or create a second permanent history store. Current installation capacity affects deployment sizing rather than product architecture.
 
@@ -87,17 +87,9 @@ Save the exact migration range and migration-file digests, backup manifest key, 
 
 A scheduled job identifies its service and run. A job initiated by a person or agent also retains that initiating identity. Child steps retain the enclosing operation ID. Audit-delivery bookkeeping does not recursively produce application audit events.
 
-## Bootstrap
+## First-time setup boundary
 
-Retain the narrow first-boot exception in the existing operator audit design. Resolve identity and require the execution flag before setup. Create the audit infrastructure on the first ledger node before any later wait or ordinary command requires it.
-
-Use `ops ledger audit-bootstrap` to apply migrations and create audit roles. This command requires an empty ledger and does not configure FoundationDB, Docker, backups or product data. Save its prepared intent and observed outcome as soon as the outbox and operator login become usable. Only this infrastructure creation uses deferred recording. Every subsequent operation records through the normal gate.
-
-Keep the existing `ops provision` first-boot exception within the same infrastructure boundary. Once its outbox becomes usable, record completed infrastructure setup before continuing ordinary provisioning steps. A populated ledger, failed login or unavailable outbox must not grant an ordinary command permission to run without its required record.
-
-The bootstrap command must refuse an existing migration table, outbox or operator login. If setup stops after partially creating infrastructure, inspect actual state through the existing provisioning recovery path. Record the recovery actor, observed state and actions. Do not reconstruct original outcomes or timestamps that the failed process did not preserve.
-
-The exception does not guarantee a ledger record if the first setup process fails before audit storage exists. Its scope is construction of the audit infrastructure, before normal audited operations. This correction adds neither a temporary audit journal nor an independent object-store prerequisite.
+The existing first-time setup rule remains outside this runtime correction. Ordinary runtime commands must not use that exception when authentication or audit storage fails. This work adds no setup journal, storage prerequisite or service-creation workflow.
 
 ## Retention and scaling
 
@@ -119,7 +111,7 @@ Use the existing Go test harness and real temporary dependencies. Execute each r
 6. Interrupt delivery after Kafka acknowledgement and before queue deletion. Verify permanent deduplication after restart. Verify digest-based recovery after an uncertain finalization commit.
 7. Exercise large old/new values and identity manifests across part boundaries. Interrupt multipart delivery. Verify complete reconstruction, bounded memory and rejection of altered or absent parts.
 8. Export new and historical formats. Alter a target, delta or manifest and require verification failure. Verify protected personal-data handling.
-9. Start with an empty ledger. Verify identity and execution checks, creation of the outbox and roles, deferred bootstrap records, and normal recording for the next command. Reject bootstrap against partially initialized or populated infrastructure. A failed ordinary login must not enable deferred execution. Recovery must record actual observed state without invented history.
+9. Verify that failed authentication or unavailable audit storage cannot enable the first-time setup exception for an ordinary runtime command.
 10. Run the scaling measurements and separately report installation capacity. Mapping-only tests do not satisfy these checks.
 
 ## References
