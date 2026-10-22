@@ -64,9 +64,10 @@ func searchReindexCommand(f *cli.Factory) *cobra.Command {
 }
 
 // runSearchReindex prints the replacement in progress or the planned
-// replacement. If a replacement is not in progress, it requires every
-// projection declaration and validates the request against the serving
-// index. It does not write to the search engine.
+// replacement. If a replacement is not in progress, it requires valid search
+// declarations and a default projection for each property definition without
+// a declaration, and it validates the request against the serving index. It
+// does not write to the search engine.
 func runSearchReindex(ctx context.Context, f *cli.Factory, in searchReindexInput, sink clispec.ResultSink) error {
 	env, err := NewEnv(ctx, f.Cfg)
 	if err != nil {
@@ -99,7 +100,8 @@ type reindexPlan struct {
 }
 
 // planSearchReindex reads the replacement in progress. Without one, it
-// requires every projection declaration, reads the serving index, and
+// requires valid search declarations and a default projection for each
+// property definition without a declaration, reads the serving index, and
 // validates the request before any engine write.
 func planSearchReindex(ctx context.Context, f *cli.Factory, env *Env, in searchReindexInput) (reindexPlan, error) {
 	var plan reindexPlan
