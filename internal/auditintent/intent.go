@@ -13,6 +13,7 @@ package auditintent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -23,11 +24,14 @@ import (
 type slotKey struct{}
 
 // slot stores the state that the wrapper and the writers of one request share.
+// A slot from WithOperation stores an encoded audit operation instead of a
+// tool name and an actor.
 type slot struct {
 	mu          sync.Mutex
 	tool        string
 	actor       uuid.UUID
 	operationID uuid.UUID
+	operation   json.RawMessage
 	committed   bool
 }
 
@@ -35,8 +39,27 @@ type slot struct {
 // making the call.
 func WithSlot(ctx context.Context, tool string, actor uuid.UUID) context.Context {
 	return context.WithValue(ctx, slotKey{}, &slot{
-		mu: sync.Mutex{}, tool: tool, actor: actor, operationID: uuid.Nil, committed: false,
+		mu: sync.Mutex{}, tool: tool, actor: actor, operationID: uuid.Nil, operation: nil, committed: false,
 	})
+}
+
+// WithOperation attaches a slot to ctx that stores the encoded audit
+// operation. Writers under the returned context read the operation from this
+// slot instead of from an earlier slot.
+func WithOperation(ctx context.Context, operation json.RawMessage) context.Context {
+	return context.WithValue(ctx, slotKey{}, &slot{
+		mu: sync.Mutex{}, tool: "", actor: uuid.Nil, operationID: uuid.Nil, operation: operation, committed: false,
+	})
+}
+
+// Operation returns the encoded audit operation of the slot on ctx. It
+// returns nil when ctx does not have a slot or the slot stores a tool call.
+func Operation(ctx context.Context) json.RawMessage {
+	current, _ := ctx.Value(slotKey{}).(*slot)
+	if current == nil {
+		return nil
+	}
+	return current.operation
 }
 
 // Attached reports whether ctx has a slot.

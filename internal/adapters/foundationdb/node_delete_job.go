@@ -10,6 +10,7 @@ import (
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/audit"
+	"goodkind.io/tack/internal/auditintent"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/telemetry"
 )
@@ -28,11 +29,11 @@ func (s *NodeDeleteStore) StartSubtreeDelete(ctx context.Context, job *node.Subt
 	defer telemetry.FDBOp(ctx, "store.node.subtree_delete_start")(&err)
 	operation, err := audit.RequireMutationContext(ctx)
 	if err != nil {
-		return fmt.Errorf("start subtree delete of node %s: %w", job.RootID, err)
+		return nodeOperationFailure(ctx, "start subtree delete of node "+job.RootID.String(), err)
 	}
 	job.Operation, err = audit.MarshalEvent(operation)
 	if err != nil {
-		return fmt.Errorf("encode the audit operation of subtree delete %s: %w", job.ID, err)
+		return nodeOperationFailure(ctx, "encode the audit operation of subtree delete "+job.ID.String(), err)
 	}
 	job.Stack = []uuid.UUID{job.RootID}
 	job.Deleted, job.Moved = 0, 0
@@ -56,11 +57,10 @@ func (s *NodeDeleteStore) StartSubtreeDelete(ctx context.Context, job *node.Subt
 // the record does not contain an operation with an actor, an operation ID,
 // and a start time.
 func jobOperation(ctx context.Context, job *node.SubtreeDeleteJob) (audit.Event, error) {
-	var operation audit.Event
-	if err := json.Unmarshal(job.Operation, &operation); err != nil {
-		return audit.Event{}, nodeOperationFailure(ctx, "decode the audit operation of subtree delete "+job.ID.String(), err)
+	if len(job.Operation) == 0 {
+		return audit.Event{}, nodeOperationFailure(ctx, "read the audit operation of subtree delete "+job.ID.String(), audit.ErrMissingMutationContext)
 	}
-	recovered, err := audit.RequireMutationContext(audit.WithMutationContext(ctx, operation))
+	recovered, err := audit.RequireMutationContext(auditintent.WithOperation(ctx, job.Operation))
 	if err != nil {
 		return audit.Event{}, nodeOperationFailure(ctx, "read the audit operation of subtree delete "+job.ID.String(), err)
 	}

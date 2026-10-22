@@ -2,6 +2,7 @@ package audit
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -20,14 +21,18 @@ var ErrMissingMutationContext = errors.New("the write requires an audit mutation
 // uuidVersionTimeOrdered is the UUID version that encodes its creation time.
 const uuidVersionTimeOrdered = 7
 
-type mutationContextKey struct{}
-
 // WithMutationContext attaches operation to ctx. Writers that call
 // RequireMutationContext with the returned context record their changes
 // under the actor, operation ID, start time, source, and extra fields of
-// operation.
-func WithMutationContext(ctx context.Context, operation Event) context.Context {
-	return context.WithValue(ctx, mutationContextKey{}, operation)
+// operation. An MCP tool slot that a caller attaches to the returned context
+// takes precedence over operation.
+func WithMutationContext(ctx context.Context, operation Event) (context.Context, error) {
+	encoded, err := MarshalEvent(operation)
+	if err != nil {
+		slog.ErrorContext(ctx, "audit.mutation_context.encode_failed", slog.String("err", err.Error()))
+		return ctx, fmt.Errorf("encode the audit operation %s: %w", operation.Context.OperationID, err)
+	}
+	return auditintent.WithOperation(ctx, encoded), nil
 }
 
 // NewMutationOperation returns an operation with a new UUIDv7 operation ID
@@ -76,11 +81,18 @@ func WithMutationTool(ctx context.Context, tool string) (context.Context, error)
 		return ctx, err
 	}
 	operation.Context.Tool = tool
-	return WithMutationContext(ctx, operation), nil
+	return WithMutationContext(ctx, operation)
 }
 
+// findMutationContext reads the operation from the nearest slot on ctx, or
+// from the operator principal and operation ID when ctx does not have a slot.
 func findMutationContext(ctx context.Context) (Event, bool, error) {
-	if operation, ok := ctx.Value(mutationContextKey{}).(Event); ok {
+	if encoded := auditintent.Operation(ctx); encoded != nil {
+		var operation Event
+		if err := json.Unmarshal(encoded, &operation); err != nil {
+			slog.ErrorContext(ctx, "audit.mutation_context.decode_failed", slog.String("err", err.Error()))
+			return operation, false, fmt.Errorf("decode the attached audit operation: %w", err)
+		}
 		return operation, true, nil
 	}
 	if auditintent.Attached(ctx) {
@@ -90,7 +102,8 @@ func findMutationContext(ctx context.Context) (Event, bool, error) {
 	principal, hasPrincipal := OperatorPrincipalFromContext(ctx)
 	opID, hasOpID := ctx.Value(opIDKey{}).(uuid.UUID)
 	if !hasPrincipal || !hasOpID {
-		return Event{}, false, nil
+		var none Event
+		return none, false, nil
 	}
 	if opID.Version() != uuidVersionTimeOrdered {
 		return Event{}, false, missingMutationContext(ctx, "the operator command operation ID is not a UUIDv7")
@@ -108,11 +121,12 @@ func findMutationContext(ctx context.Context) (Event, bool, error) {
 func slotOperation(ctx context.Context) (Event, error) {
 	operationID, err := auditintent.OperationID(ctx)
 	if err != nil {
+		slog.ErrorContext(ctx, "audit.mutation_context.slot_failed", slog.String("err", err.Error()))
 		return Event{}, fmt.Errorf("read the audit slot operation: %w", err)
 	}
 	extra, err := stagedExtra(ctx)
 	if err != nil {
-		return Event{}, fmt.Errorf("read the audit slot operation: %w", err)
+		return Event{}, err
 	}
 	actor := Actor{
 		Type: ActorUser, ID: auditintent.Actor(ctx), Email: "", Name: "", SessionID: "",
