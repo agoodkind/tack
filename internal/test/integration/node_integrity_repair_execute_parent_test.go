@@ -140,8 +140,6 @@ func parentEntry(repairID string, nodeID, parentID uuid.UUID, remove ...ops.Repa
 	}
 }
 
-// addLegacyParentEdge adds a child_of edge from sourceID to targetID without
-// changing parent_id.
 func addLegacyParentEdge(t *testing.T, env *integration.TestEnv, sourceID, targetID uuid.UUID) {
 	t.Helper()
 	if err := env.Stores.Relationships.Add(env.Ctx, &node.Relationship{

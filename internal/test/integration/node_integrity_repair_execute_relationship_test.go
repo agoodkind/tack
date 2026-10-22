@@ -68,9 +68,6 @@ func TestNodeIntegrityRepairExecuteDeleteStopsChangedRelationship(t *testing.T) 
 	}
 }
 
-// writeWatchesEdge writes a watches relationship from sourceID to targetID
-// with props through the relationship store. A second call for the same
-// pair replaces the stored payload and preserves the edge identity.
 func writeWatchesEdge(t *testing.T, env *integration.TestEnv, sourceID, targetID uuid.UUID, props map[string]json.RawMessage) {
 	t.Helper()
 	relationship := &node.Relationship{

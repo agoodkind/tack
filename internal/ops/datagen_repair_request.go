@@ -44,8 +44,6 @@ func datagenRepairRequest(fixture datagen.RepairFixture, directory repairDirecto
 	return NodeIntegrityRequest{Version: nodeIntegrityManifestVersion, Ticket: nodeIntegrityTicket, Entries: entries}
 }
 
-// datagenRepairEntry returns an executable entry for nodeID with one
-// evidence item of kind and the listed classes.
 func datagenRepairEntry(repairID string, nodeID uuid.UUID, nodeType string, kind RepairEvidenceKind, result RepairResult, classes ...string) NodeIntegrityEntry {
 	return NodeIntegrityEntry{
 		RepairID: repairID, NodeID: nodeID, NodeType: nodeType, Status: RepairEntryExecutable, Classes: classes,

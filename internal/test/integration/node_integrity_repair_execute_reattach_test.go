@@ -22,10 +22,10 @@ func TestNodeIntegrityRepairExecuteReattachesComment(t *testing.T) {
 	original := createRepairIssue(t, env, graph.projectID, "Original parent")
 	target := createRepairIssue(t, env, graph.projectID, "Duplicate target")
 	commentID := createRepairComment(t, env, original, graph.projectID, "Duplicate of the target issue")
+	setLegacyProps(t, env, commentID, map[string]json.RawMessage{"parent_id": textValue(uuid.New().String())})
 	if err := env.Stores.Relationships.Remove(env.Ctx, env.OrgID, commentID, node.RelChildOf, original); err != nil {
 		t.Fatalf("remove the child_of edge of comment %s: %v", commentID, err)
 	}
-	setLegacyProps(t, env, commentID, map[string]json.RawMessage{"parent_id": textValue(uuid.New().String())})
 	before, err := env.Stores.Views.Get(env.Ctx, commentID)
 	if err != nil || before == nil {
 		t.Fatalf("read comment %s: %v", commentID, err)

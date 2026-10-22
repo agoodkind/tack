@@ -51,8 +51,8 @@ func (b *repairFixtureBuilder) build(ctx context.Context) RepairFixture {
 	fixture.NoticeTarget = b.create(ctx, project, project, "issue", "Duplicate target", nil)
 	fixture.Notice = b.create(ctx, original, project, "comment", "Duplicate of the target issue",
 		map[string]json.RawMessage{"description": repairFixtureText("Duplicate of the target issue")})
-	b.removeChildOf(ctx, fixture.Notice, original)
 	b.setLegacyProps(ctx, fixture.Notice, map[string]json.RawMessage{"parent_id": repairFixtureText(uuid.New().String())})
+	b.removeChildOf(ctx, fixture.Notice, original)
 	fixture.SmokeComment = b.create(ctx, original, project, "comment", "Smoke comment",
 		map[string]json.RawMessage{"description": repairFixtureText("Smoke comment")})
 	fixture.DoneState = b.state(ctx, project, "Done")
@@ -76,8 +76,6 @@ func (b *repairFixtureBuilder) create(ctx context.Context, parentID, scopeID uui
 	return created.View.ID
 }
 
-// addChildOf adds a child_of edge from sourceID to targetID through the
-// relationship store without changing parent_id.
 func (b *repairFixtureBuilder) addChildOf(ctx context.Context, sourceID, targetID uuid.UUID) {
 	if b.err != nil {
 		return
