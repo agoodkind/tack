@@ -73,6 +73,9 @@ func gettingStartedHandler(
 // their membership admits exactly one, and nil when it admits zero or
 // several, the same honesty rule the auth events follow (TACK-461).
 func recordResourceRead(ctx context.Context, uri string, resolver *Resolver) {
+	if audit.HasReadCollector(ctx) {
+		return
+	}
 	actor := audit.Actor{
 		Type: audit.ActorUser, ID: uuid.Nil, Email: "", Name: "", SessionID: "",
 		IP: "", UserAgent: "", RequestID: telemetry.RequestID(ctx), APITokenLabel: "",

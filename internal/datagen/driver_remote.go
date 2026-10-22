@@ -39,17 +39,9 @@ func NewRemoteDriver(endpoint string, client *http.Client, seed int64) (*Driver,
 		target: parsed.JoinPath("mcp").String(),
 		client: client,
 	}
-	// The forwarding graph uses identity middleware because the remote process
-	// authenticates the bearer token.
-	graph := &runtime.Graph{
-		MCPHandler:     forwarder,
-		AuthMiddleware: identityMiddleware,
-	}
+	// The remote process authenticates the bearer token and records each request.
+	graph := &runtime.Graph{MCPRoute: forwarder}
 	return NewDriver(graph, false, seed), nil
-}
-
-func identityMiddleware(next http.Handler) http.Handler {
-	return next
 }
 
 func (f *remoteForwarder) ServeHTTP(writer http.ResponseWriter, request *http.Request) {

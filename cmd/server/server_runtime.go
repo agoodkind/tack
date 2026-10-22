@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"expvar"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -32,11 +31,8 @@ func runServer(ctx context.Context, cfg *config.Config) error {
 	graph.StartAuditReadRecovery(ctx)
 	defer graph.CloseContext(context.WithoutCancel(ctx))
 
-	mux := buildServeMux(
-		graph.MCPHandler,
-		graph.AuthMiddleware,
-		newRuntimeHealthHandler(graph),
-	)
+	mux := graph.Routes
+	registerConnectHandlers(mux, graph.AuthMiddleware)
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	slog.InfoContext(ctx, "starting server",
@@ -88,36 +84,4 @@ func runServer(ctx context.Context, cfg *config.Config) error {
 		slog.ErrorContext(ctx, "http.shutdown_failed", slog.String("err", err.Error()))
 	}
 	return nil
-}
-
-func newRuntimeHealthHandler(graph *appruntime.Graph) http.Handler {
-	return newHealthHandler(map[string]func(context.Context) error{
-		"yugabyte": graph.PingYugabyte,
-		"fdb":      graph.PingFoundationDB,
-	})
-}
-
-func buildServeMux(
-	mcpHandler http.Handler,
-	authMiddleware func(http.Handler) http.Handler,
-	healthHandler http.Handler,
-) *http.ServeMux {
-	mux := http.NewServeMux()
-	mcpWithAuth := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet {
-			w.Header().Set("Allow", "POST")
-			http.Error(w, "method not allowed: streamable-http stateless mode requires POST", http.StatusMethodNotAllowed)
-			return
-		}
-		authMiddleware(mcpHandler).ServeHTTP(w, r)
-	})
-	mux.Handle("/mcp", mcpWithAuth)
-	mux.Handle("/mcp/", mcpWithAuth)
-	mux.Handle("GET /healthz", healthHandler)
-	registerConnectHandlers(mux, authMiddleware)
-
-	// expvar counters at /debug/vars. Not gated on auth so a local watcher can
-	// scrape it directly; bind to localhost only when this matters.
-	mux.Handle("/debug/vars", expvar.Handler())
-	return mux
 }

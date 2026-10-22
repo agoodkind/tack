@@ -84,9 +84,9 @@ func newQueryFixture(t *testing.T, options queryOptions) queryFixture {
 	}
 	workspace := identities.Workspaces[0]
 	harness := &MCPHarness{
-		driver: datagen.NewDriver(graph, false, seed), handler: graph.AuthMiddleware(graph.MCPHandler),
+		driver: datagen.NewDriver(graph, false, seed), handler: graph.MCPRoute,
 		token: workspace.Actors[0].Token, ledgerDSN: cfg.DatabaseURL, orgID: workspace.OrgID,
-		Workspace: workspace.Slug, Project: "",
+		Workspace: workspace.Slug, Project: "", outbox: stores.OpsOutbox,
 	}
 	worker := newSearchWorker(t, stores, adapter, clock.Wall{}, searchWorkerSettings(runtimePageBytes))
 	return queryFixture{
@@ -133,8 +133,9 @@ func buildQueryGraph(t *testing.T, cfg *config.Config) *appruntime.Graph {
 // processHarness returns a harness for another process with the same token.
 func processHarness(harness *MCPHarness, graph *appruntime.Graph) *MCPHarness {
 	return &MCPHarness{
-		driver: harness.driver, handler: graph.AuthMiddleware(graph.MCPHandler), token: harness.token,
+		driver: harness.driver, handler: graph.MCPRoute, token: harness.token,
 		ledgerDSN: harness.ledgerDSN, orgID: harness.orgID, Workspace: harness.Workspace, Project: "",
+		outbox: harness.outbox,
 	}
 }
 
@@ -170,7 +171,7 @@ func requireUnauthenticatedRefused(t *testing.T, harness *MCPHarness) {
 	t.Helper()
 	anonymous := &MCPHarness{
 		driver: harness.driver, handler: harness.handler, token: "", ledgerDSN: harness.ledgerDSN,
-		orgID: harness.orgID, Workspace: harness.Workspace, Project: "",
+		orgID: harness.orgID, Workspace: harness.Workspace, Project: "", outbox: harness.outbox,
 	}
 	status := rawCallStatus(t, anonymous, "tack_search", map[string]any{"query": "anything"})
 	if status != http.StatusUnauthorized {

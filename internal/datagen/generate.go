@@ -99,6 +99,9 @@ func (g *Generator) Run(ctx context.Context) (Summary, error) {
 	if err := g.exerciseRejectedTokens(ctx); err != nil {
 		return Summary{}, err
 	}
+	if err := g.exerciseHTTPRoutes(ctx); err != nil {
+		return Summary{}, err
+	}
 	for workspaceIndex, workspace := range g.identities.Workspaces {
 		if err := g.generateWorkspace(ctx, workspaceIndex, workspace); err != nil {
 			return Summary{}, err

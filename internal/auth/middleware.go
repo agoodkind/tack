@@ -124,13 +124,7 @@ func Bearer(tokens TokenValidator, orgs OrgLister) func(http.Handler) http.Handl
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			raw := extractBearer(r)
 			if raw == "" {
-				emitAuthAudit(r.Context(), r, audit.Event{
-					EventID: uuid.Nil,
-					Verb:    string(audit.VerbAuthLoginFailed),
-					Actor:   audit.Actor{Type: audit.ActorToken},
-					Entity:  audit.Entity{Type: "auth", Name: "missing_authorization"},
-					Outcome: audit.OutcomeError,
-				})
+				noteRejection(r.Context(), RejectionMissingAuthorization)
 				unauthorized(w, "missing Authorization header")
 				return
 			}
@@ -138,16 +132,11 @@ func Bearer(tokens TokenValidator, orgs OrgLister) func(http.Handler) http.Handl
 			t, err := tokens.Validate(r.Context(), raw)
 			if err != nil {
 				if isUnauthenticated(err) {
-					emitAuthAudit(r.Context(), r, audit.Event{
-						EventID: uuid.Nil,
-						Verb:    string(audit.VerbAuthTokenRejected),
-						Actor:   audit.Actor{Type: audit.ActorToken, APITokenLabel: hashBearer(raw)},
-						Entity:  audit.Entity{Type: "auth", Name: "token_invalid"},
-						Outcome: audit.OutcomeError,
-					})
+					noteRejection(r.Context(), RejectionBearerRefused)
 					unauthorized(w, "invalid or expired token")
 					return
 				}
+				noteRejection(r.Context(), RejectionBearerCheckFailed)
 				telemetry.L(r.Context()).Error("token validate", "err", err)
 				http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
 				return
@@ -178,25 +167,13 @@ func DevBearer(orgs OrgLister) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			raw := extractBearer(r)
 			if raw == "" {
-				emitAuthAudit(r.Context(), r, audit.Event{
-					EventID: uuid.Nil,
-					Verb:    string(audit.VerbAuthLoginFailed),
-					Actor:   audit.Actor{Type: audit.ActorToken},
-					Entity:  audit.Entity{Type: "auth", Name: "dev_missing_authorization"},
-					Outcome: audit.OutcomeError,
-				})
+				noteRejection(r.Context(), RejectionMissingAuthorization)
 				unauthorized(w, "missing Authorization header")
 				return
 			}
 			userID, err := uuid.Parse(raw)
 			if err != nil {
-				emitAuthAudit(r.Context(), r, audit.Event{
-					EventID: uuid.Nil,
-					Verb:    string(audit.VerbAuthTokenRejected),
-					Actor:   audit.Actor{Type: audit.ActorToken},
-					Entity:  audit.Entity{Type: "auth", Name: "dev_bearer_not_uuid"},
-					Outcome: audit.OutcomeError,
-				})
+				noteRejection(r.Context(), RejectionDevIdentityInvalid)
 				unauthorized(w, "dev mode: Authorization header must be a UUID")
 				return
 			}
