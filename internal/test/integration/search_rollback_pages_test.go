@@ -55,7 +55,6 @@ func rolloutPages(t *testing.T, fixture rolloutFixture, nodes []uuid.UUID) []rol
 	return pages
 }
 
-// requirePageVersions requires every page to store exactly versions.
 func requirePageVersions(t *testing.T, pages []rolloutPage, versions []string) {
 	t.Helper()
 	for _, page := range pages {

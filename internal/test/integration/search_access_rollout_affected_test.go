@@ -128,8 +128,6 @@ func moveNodeConcurrently(ctx context.Context, fixture rolloutFixture, nodeID, t
 	return err
 }
 
-// affectedNodes reads the affected nodes of authorityID through the
-// production rollout store.
 func affectedNodes(t *testing.T, fixture rolloutFixture, authorityID uuid.UUID) searchdomain.AffectedNodes {
 	t.Helper()
 	affected, err := fixture.stores.SearchRollouts(clock.Wall{}, fixture.stores.SearchPolicySet()).AffectedNodes(rolloutContext(t), authorityID)

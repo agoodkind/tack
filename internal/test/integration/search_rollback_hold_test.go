@@ -51,8 +51,6 @@ func holdAccessWork(t *testing.T, fixture rolloutFixture, nodeID uuid.UUID) sear
 	return searchdomain.Work{}
 }
 
-// releaseAccessWork yields the claimed access work for the worker to claim
-// again.
 func releaseAccessWork(t *testing.T, fixture rolloutFixture, work searchdomain.Work) {
 	t.Helper()
 	if err := fixture.stores.SearchWork(clock.Wall{}).Yield(rolloutContext(t), work); err != nil {

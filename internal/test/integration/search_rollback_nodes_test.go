@@ -20,7 +20,6 @@ type rolloutKind struct {
 	includedKey string
 }
 
-// rolloutKey returns prefix followed by a new UUID without hyphens.
 func rolloutKey(prefix string) string {
 	return prefix + strings.ReplaceAll(uuid.Must(uuid.NewV7()).String(), "-", "")
 }
@@ -48,7 +47,6 @@ func putRolloutKind(t *testing.T, fixture rolloutFixture, orgID uuid.UUID) rollo
 	return kind
 }
 
-// rolloutEntryTypes returns the organization's entry point type keys.
 func rolloutEntryTypes(t *testing.T, fixture rolloutFixture, orgID uuid.UUID) []string {
 	t.Helper()
 	types, err := fixture.stores.NodeTypes.List(rolloutContext(t), orgID)
@@ -67,7 +65,6 @@ func rolloutEntryTypes(t *testing.T, fixture rolloutFixture, orgID uuid.UUID) []
 	return keys
 }
 
-// rolloutEntryPoint returns the entry node of one bootstrapped workspace.
 func rolloutEntryPoint(t *testing.T, fixture rolloutFixture, workspace datagen.WorkspaceIdentity) uuid.UUID {
 	t.Helper()
 	for _, typeKey := range rolloutEntryTypes(t, fixture, workspace.OrgID) {
@@ -110,7 +107,6 @@ func putRolloutNode(t *testing.T, fixture rolloutFixture, kind rolloutKind, pare
 	return result.View.ID
 }
 
-// putRolloutCorpus creates count nodes with the same text under parentID.
 func putRolloutCorpus(t *testing.T, fixture rolloutFixture, kind rolloutKind, parentID uuid.UUID, text string, count int) []uuid.UUID {
 	t.Helper()
 	nodes := make([]uuid.UUID, 0, count)
