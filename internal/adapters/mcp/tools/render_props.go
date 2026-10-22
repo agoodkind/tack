@@ -42,25 +42,6 @@ func uuidProp(view *node.NodeView, key string) uuid.UUID {
 	return id
 }
 
-func uuidArrayProp(view *node.NodeView, key string) []uuid.UUID {
-	raw, ok := view.Props[key]
-	if !ok {
-		return nil
-	}
-	var values []string
-	if err := json.Unmarshal(raw, &values); err != nil {
-		return nil
-	}
-	out := make([]uuid.UUID, 0, len(values))
-	for _, value := range values {
-		id, err := uuid.Parse(value)
-		if err == nil {
-			out = append(out, id)
-		}
-	}
-	return out
-}
-
 func stringProp(view *node.NodeView, key string) string {
 	raw, ok := view.Props[key]
 	if !ok {
@@ -94,12 +75,11 @@ func propAsString(raw json.RawMessage) string {
 
 func sortedScalarPropKeys(view *node.NodeView) []string {
 	skip := map[string]struct{}{
-		"parent_id":    {},
-		"scope_id":     {},
-		"state_id":     {},
-		"assignee_ids": {},
-		"identifier":   {},
-		"sequence":     {},
+		"parent_id":  {},
+		"scope_id":   {},
+		"state_id":   {},
+		"identifier": {},
+		"sequence":   {},
 	}
 	keys := make([]string, 0, len(view.Props))
 	for key := range view.Props {
