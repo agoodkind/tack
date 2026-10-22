@@ -53,14 +53,24 @@ func (s *NodeDeleteStore) StartSubtreeDelete(ctx context.Context, job *node.Subt
 	return nil
 }
 
-// jobOperation decodes the audit operation stored in job.Operation.
-// It returns an error that wraps audit.ErrMissingMutationContext when the operation
-// is absent or lacks an actor ID, a known actor kind, an operation ID, or a start time.
+// jobOperation decodes the audit operation in job.Operation. When job.Operation
+// is empty, it builds the operation from job.AuditTemplate and job.ActorID with
+// [audit.LegacyJobOperation]. It returns an error that wraps
+// [audit.ErrMissingMutationContext] when the operation lacks an actor ID, a known
+// actor kind, an operation ID, or a start time.
 func jobOperation(ctx context.Context, job *node.SubtreeDeleteJob) (audit.Event, error) {
-	if len(job.Operation) == 0 {
-		return audit.Event{}, nodeOperationFailure(ctx, "read the audit operation of subtree delete "+job.ID.String(), audit.ErrMissingMutationContext)
+	encoded := job.Operation
+	if len(encoded) == 0 {
+		legacy, err := audit.LegacyJobOperation(ctx, job.ID, job.ActorID, job.AuditTemplate)
+		if err != nil {
+			return audit.Event{}, nodeOperationFailure(ctx, "build the audit operation of legacy subtree delete job "+job.ID.String(), err)
+		}
+		encoded, err = audit.MarshalEvent(legacy)
+		if err != nil {
+			return audit.Event{}, nodeOperationFailure(ctx, "encode the audit operation of legacy subtree delete job "+job.ID.String(), err)
+		}
 	}
-	recovered, err := audit.RequireMutationContext(auditintent.WithOperation(ctx, job.Operation))
+	recovered, err := audit.RequireMutationContext(auditintent.WithOperation(ctx, encoded))
 	if err != nil {
 		return audit.Event{}, nodeOperationFailure(ctx, "read the audit operation of subtree delete "+job.ID.String(), err)
 	}

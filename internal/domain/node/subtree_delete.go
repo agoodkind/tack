@@ -31,6 +31,15 @@ type SubtreeDeleteJob struct {
 	// Every step records node and relationship changes with the actor and operation ID
 	// from Operation, including steps that the resume loop runs.
 	Operation json.RawMessage `json:"operation,omitempty" exhaustruct:"optional"`
+	// AuditTemplate stores the root delete audit template instead of Operation in job
+	// records that the current main release wrote. When Operation is empty, each step
+	// builds the job's audit operation from AuditTemplate with
+	// [goodkind.io/tack/internal/audit.LegacyJobOperation]. New jobs leave AuditTemplate
+	// empty.
+	//
+	// Remove AuditTemplate and [goodkind.io/tack/internal/audit.LegacyJobOperation]
+	// after job records with audit_template no longer exist in any environment.
+	AuditTemplate json.RawMessage `json:"audit_template,omitempty" exhaustruct:"optional"`
 	// Stack lists the nodes on the path from the root to the node the next
 	// step examines. The first entry is the root.
 	Stack []uuid.UUID `json:"stack"`
