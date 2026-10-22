@@ -2,6 +2,7 @@ package integration_test
 
 import (
 	"bytes"
+	_ "embed"
 	"encoding/base64"
 	"encoding/json"
 	"io"
@@ -168,28 +169,4 @@ func runAccessRollback(t *testing.T, fixture rolloutFixture, authorityID uuid.UU
 	err = root.Execute()
 	t.Logf("rollback for authority %s returned error %v and output %s", authorityID, err, output.String())
 	return operatorID, err
-}
-
-// requireRollbackAudit requires one pending intent row and one outcome
-// row with outcome for the rollback verb under operatorID.
-func requireRollbackAudit(t *testing.T, fixture rolloutFixture, operatorID uuid.UUID, outcome audit.Outcome) {
-	t.Helper()
-	pool, err := pgxpool.New(t.Context(), fixture.cfg.DatabaseURL)
-	if err != nil {
-		t.Fatalf("cannot open outbox pool: %v", err)
-	}
-	t.Cleanup(pool.Close)
-	rows, err := audit.NewPoolOutbox(pool).ReadBatch(rolloutContext(t), 1000)
-	if err != nil {
-		t.Fatalf("cannot read operator outbox: %v", err)
-	}
-	outcomes := make(map[audit.Outcome]int)
-	for _, row := range rows {
-		if row.Event.Verb == string(audit.VerbOpsSearchAccessRollback) && row.Event.Actor.ID == operatorID {
-			outcomes[row.Event.Outcome]++
-		}
-	}
-	if outcomes[audit.OutcomePending] != 1 || outcomes[outcome] != 1 || len(outcomes) != 2 {
-		t.Fatalf("rollback audit outcome counts %v must include one pending intent and one %s outcome", outcomes, outcome)
-	}
 }
