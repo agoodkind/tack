@@ -79,17 +79,19 @@ func decodeDeleteEdge(ctx context.Context, key fdb.Key) (string, uuid.UUID, erro
 }
 
 // clearDeleteEdges clears the forward and reverse key of every edge inside
-// tr. When search work is enabled, it schedules access work for both ends of
-// every cleared edge, the same work a relationship removal schedules.
-func (s *NodeDeleteStore) clearDeleteEdges(ctx context.Context, tr fdb.Transaction, orgID uuid.UUID, edges []deleteEdge) error {
+// tr and records the stored value of each cleared edge in changes. When
+// search work is enabled, it schedules access work for both ends of every
+// cleared edge, the same work a relationship removal schedules.
+func (s *NodeDeleteStore) clearDeleteEdges(ctx context.Context, tr fdb.Transaction, orgID uuid.UUID, edges []deleteEdge, changes *mutationAudit) error {
 	removed := make([]*node.Relationship, 0, len(edges))
 	for _, edge := range edges {
-		tr.Clear(fdb.Key(relationshipKey(orgID, edge.SourceID, edge.RelationType, edge.TargetID)))
-		tr.Clear(fdb.Key(relationshipReverseKey(orgID, edge.TargetID, edge.RelationType, edge.SourceID)))
 		removed = append(removed, &node.Relationship{
 			OrgID: orgID, SourceID: edge.SourceID, RelationType: edge.RelationType, TargetID: edge.TargetID,
 			CreatedBy: uuid.Nil, CreatedAt: time.Time{}, Props: map[string]json.RawMessage{},
 		})
+	}
+	if err := removeRelationships(ctx, tr, removed, changes); err != nil {
+		return err
 	}
 	if !s.nodes.searchWork || len(removed) == 0 {
 		return nil

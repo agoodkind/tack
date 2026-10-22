@@ -16,12 +16,30 @@ import (
 // SetReferenceKeys replaces the rendered references owned by a node.
 func (s *NodeStore) SetReferenceKeys(ctx context.Context, orgID, nodeID uuid.UUID, keys []node.ReferenceKey) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node.set_reference_keys")(&err)
+	changes, err := beginMutationAudit(ctx, orgID)
+	if err != nil {
+		return err
+	}
 	err = runNodeMutation(ctx, s.db, "node.set_reference_keys", func(tr fdb.Transaction) error {
+		changes.startAttempt()
 		if _, err := s.fenceAttempt(ctx, tr, orgID, nodeID); err != nil {
 			return err
 		}
-		return writeReferenceKeys(tr, orgID, nodeID, keys)
+		before, err := readOwnedReferences(ctx, tr, orgID, nodeID)
+		if err != nil {
+			return err
+		}
+		if err := writeReferenceKeys(tr, orgID, nodeID, keys); err != nil {
+			return err
+		}
+		if err := recordReferenceChange(ctx, tr, changes, orgID, nodeID, before, keys); err != nil {
+			return err
+		}
+		return changes.append(ctx, tr)
 	})
+	if err == nil {
+		changes.finish(ctx)
+	}
 	if err != nil {
 		if searchFailureWasLogged(err) {
 			return err

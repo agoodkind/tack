@@ -67,8 +67,8 @@ func (s *NodeTypeStore) ScanTypes(ctx context.Context, cursor string) (types []*
 // Replace decodes and re-encodes the stored node type before comparing it
 // with before. If the values match, Replace stores after and returns true.
 // The same transaction updates the type-key index and metadata epoch and
-// writes the audit event staged on ctx. If the values do not match, Replace
-// does not write and returns false.
+// writes one change event with the stored and replacement records. If the
+// values do not match, Replace does not write and returns false.
 func (s *NodeTypeStore) Replace(ctx context.Context, before, after *node.NodeType) (replaced bool, err error) {
 	defer telemetry.FDBOp(ctx, "store.node_type.replace")(&err)
 	expected, err := json.Marshal(before)
@@ -79,7 +79,12 @@ func (s *NodeTypeStore) Replace(ctx context.Context, before, after *node.NodeTyp
 	if err != nil {
 		return false, nodeOperationFailure(ctx, "encode replacement node type "+after.ID.String(), err)
 	}
+	changes, err := beginMutationAudit(ctx, after.OrgID)
+	if err != nil {
+		return false, err
+	}
 	err = transactSearch(ctx, s.db, func(tr fdb.Transaction) error {
+		changes.startAttempt()
 		key := nodeTypeDefKey(after.OrgID, after.ID)
 		previous, readErr := tr.Get(fdb.Key(key)).Get()
 		if readErr != nil {
@@ -94,14 +99,12 @@ func (s *NodeTypeStore) Replace(ctx context.Context, before, after *node.NodeTyp
 			return err
 		}
 		tr.Set(fdb.Key(key), encoded)
-		return writeStagedIntent(ctx, tr)
+		return recordMetadataChange(ctx, tr, changes, nodeTypeTarget(after.ID, after.TypeKey), previous, encoded)
 	})
 	if err != nil {
 		return false, err
 	}
-	if replaced {
-		commitStagedIntent(ctx)
-	}
+	changes.finish(ctx)
 	return replaced, nil
 }
 

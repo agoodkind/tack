@@ -45,7 +45,12 @@ func (s *PropertyDefStore) Set(ctx context.Context, def *node.PropertyDef) (err 
 	if err != nil {
 		return fmt.Errorf("marshal property def: %w", err)
 	}
+	changes, err := beginMutationAudit(ctx, def.OrgID)
+	if err != nil {
+		return err
+	}
 	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
+		changes.startAttempt()
 		key := propertyDefKey(def.OrgID, def.ID)
 		previous, readErr := tr.Get(fdb.Key(key)).Get()
 		if readErr != nil {
@@ -60,9 +65,13 @@ func (s *PropertyDefStore) Set(ctx context.Context, def *node.PropertyDef) (err 
 			return nil, err
 		}
 		tr.Set(fdb.Key(key), b)
-		return nil, nil
+		return nil, recordMetadataChange(ctx, tr, changes, propertyDefTarget(def.ID, def.Name), previous, b)
 	})
-	return
+	if err != nil {
+		return err
+	}
+	changes.finish(ctx)
+	return nil
 }
 
 // undeclaredDefinitionError reports Set's refusal to store a new definition
@@ -142,7 +151,12 @@ func (s *PropertyDefStore) List(ctx context.Context, orgID uuid.UUID) (defs []*n
 
 func (s *PropertyDefStore) Delete(ctx context.Context, orgID, defID uuid.UUID) (err error) {
 	defer telemetry.FDBOp(ctx, "store.property_def.delete")(&err)
+	changes, err := beginMutationAudit(ctx, orgID)
+	if err != nil {
+		return err
+	}
 	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
+		changes.startAttempt()
 		key := propertyDefKey(orgID, defID)
 		previous, readErr := tr.Get(fdb.Key(key)).Get()
 		if readErr != nil {
@@ -152,9 +166,17 @@ func (s *PropertyDefStore) Delete(ctx context.Context, orgID, defID uuid.UUID) (
 			return nil, err
 		}
 		tr.Clear(fdb.Key(key))
-		return nil, nil
+		target, err := storedPropertyDefTarget(ctx, defID, previous)
+		if err != nil {
+			return nil, err
+		}
+		return nil, recordMetadataChange(ctx, tr, changes, target, previous, nil)
 	})
-	return
+	if err != nil {
+		return err
+	}
+	changes.finish(ctx)
+	return nil
 }
 
 // encodePropertyValue encodes a raw JSON property value as FDB tuple bytes for

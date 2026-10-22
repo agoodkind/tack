@@ -103,10 +103,7 @@ func execSeed(ctx context.Context, cfg *config.Config, recorder audit.Recorder) 
 	userRepo := postgres.NewUserRepo(pool)
 	tokenRepo := postgres.NewTokenRepo(pool)
 	members := postgres.NewOrgMemberRepo(pool)
-	seeder := service.NewSeeder(
-		seedPropertyDefs{inner: fdbStores.PropertyDefs, recorder: recorder},
-		seedNodeTypes{inner: fdbStores.NodeTypes, recorder: recorder},
-	)
+	seeder := service.NewSeeder(fdbStores.PropertyDefs, fdbStores.NodeTypes)
 
 	u, err := userRepo.GetByEmail(ctx, cfg.SeedEmail)
 	if err != nil && !errors.Is(err, domain.ErrNotFound) {
@@ -143,14 +140,9 @@ func execSeed(ctx context.Context, cfg *config.Config, recorder audit.Recorder) 
 	if len(existingOrgIDs) > 0 {
 		knownOrgID = existingOrgIDs[0]
 	}
-	orgID, orgCreated, err := ensureNode(ctx, fdbStores, "org", cfg.SeedOrgSlug, cfg.SeedOrgName, uuid.Nil, knownOrgID)
+	orgID, err := ensureNode(ctx, fdbStores, "org", cfg.SeedOrgSlug, cfg.SeedOrgName, uuid.Nil, knownOrgID)
 	if err != nil {
 		return err
-	}
-	if orgCreated {
-		if err := recordSeedNode(ctx, recorder, orgID, orgID, uuid.Nil, "org", cfg.SeedOrgSlug, cfg.SeedOrgName); err != nil {
-			return err
-		}
 	}
 	if err := seeder.SeedOrg(ctx, orgID); err != nil {
 		log.ErrorContext(ctx, "seed.org_definitions_failed", slog.String("err", err.Error()))
@@ -162,14 +154,9 @@ func execSeed(ctx context.Context, cfg *config.Config, recorder audit.Recorder) 
 	}
 
 	// orgID is the parent of the workspace, so it doubles as the lookup orgID.
-	wsID, workspaceCreated, err := ensureNode(ctx, fdbStores, "workspace", cfg.SeedWorkspaceSlug, cfg.SeedWorkspaceName, orgID, orgID)
+	wsID, err := ensureNode(ctx, fdbStores, "workspace", cfg.SeedWorkspaceSlug, cfg.SeedWorkspaceName, orgID, orgID)
 	if err != nil {
 		return err
-	}
-	if workspaceCreated {
-		if err := recordSeedNode(ctx, recorder, wsID, orgID, orgID, "workspace", cfg.SeedWorkspaceSlug, cfg.SeedWorkspaceName); err != nil {
-			return err
-		}
 	}
 
 	// Production mode: SHA-256 hash of the bearer is looked up in api_tokens.

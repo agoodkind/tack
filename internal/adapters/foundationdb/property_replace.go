@@ -16,7 +16,8 @@ import (
 // it with before. It stores after and returns true only when the re-encoded
 // stored definition matches before.
 // The same transaction updates the name index, metadata epoch, and
-// projection digests and writes the audit event staged on ctx. When search
+// projection digests and writes one change event with the stored and
+// replacement records. When search
 // work is enabled, a rendering input change also requests a content rescan
 // in that transaction. If the stored definition does not match before,
 // Replace does not write and returns false.
@@ -32,7 +33,12 @@ func (s *PropertyDefStore) Replace(ctx context.Context, before, after *node.Prop
 		slog.ErrorContext(ctx, "store.property_def.replace_failed", slog.String("err", err.Error()), slog.String("property_definition_id", after.ID.String()))
 		return false, fmt.Errorf("marshal replacement property def %s: %w", after.ID, err)
 	}
+	changes, err := beginMutationAudit(ctx, after.OrgID)
+	if err != nil {
+		return false, err
+	}
 	err = transactSearch(ctx, s.db, func(tr fdb.Transaction) error {
+		changes.startAttempt()
 		key := propertyDefKey(after.OrgID, after.ID)
 		previous, readErr := tr.Get(fdb.Key(key)).Get()
 		if readErr != nil {
@@ -47,14 +53,12 @@ func (s *PropertyDefStore) Replace(ctx context.Context, before, after *node.Prop
 			return err
 		}
 		tr.Set(fdb.Key(key), encoded)
-		return writeStagedIntent(ctx, tr)
+		return recordMetadataChange(ctx, tr, changes, propertyDefTarget(after.ID, after.Name), previous, encoded)
 	})
 	if err != nil {
 		return false, err
 	}
-	if replaced {
-		commitStagedIntent(ctx)
-	}
+	changes.finish(ctx)
 	return replaced, nil
 }
 

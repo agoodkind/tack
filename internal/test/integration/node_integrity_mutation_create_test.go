@@ -54,10 +54,10 @@ func TestNodeIntegrityMutationCreateRetry(t *testing.T) {
 
 // TestNodeIntegrityMutationCreateRetryRecordsOneEvent creates an issue with
 // an idempotency key under an audit slot. It repeats the create through the
-// service, then calls ApplyMutation with a new node ID and a staged create
-// event. It checks that the outbox records exactly one node.create event for
-// the issue and does not record an event for the new node ID. It also checks
-// that the store retry does not commit its staged event.
+// service, then calls ApplyMutation with a new node ID under a new audit slot.
+// It checks that the outbox records exactly one node.create event for the
+// issue and does not record an event for the new node ID. It also checks that
+// the store retry does not report a commit.
 func TestNodeIntegrityMutationCreateRetryRecordsOneEvent(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	projectID := createSchemaProject(t, env)
@@ -73,11 +73,6 @@ func TestNodeIntegrityMutationCreateRetryRecordsOneEvent(t *testing.T) {
 
 	newID := uuid.Must(uuid.NewV7())
 	retryContext := auditSlot(env, input.ActorID)
-	if err := audit.StageStateChange(retryContext, audit.VerbNodeCreate, audit.Entity{
-		Type: "node", NodeType: "issue", ID: newID, Identifier: "", Name: input.Name,
-	}); err != nil {
-		t.Fatalf("stage the retry event: %v", err)
-	}
 	receipt, err := env.Stores.Nodes.ApplyMutation(retryContext, retryCreatePlan(t, env, projectID, input, newID))
 	if err != nil || receipt.NodeID != first.View.ID || auditintent.Committed(retryContext) {
 		t.Fatalf("store retry = %+v, %v, committed %t, want issue %s without a committed event",

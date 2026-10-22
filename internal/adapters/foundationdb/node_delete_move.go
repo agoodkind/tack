@@ -49,10 +49,11 @@ func readRootParent(ctx context.Context, tr fdb.Transaction, orgID, rootID uuid.
 // type. The move replaces every child_of edge of the child with one child_of
 // edge to the parent, sets the child's parent_id to the parent, moves the
 // parent_id index entry, schedules the search work of a parent change, and
-// writes one node.update ledger event. It reports whether it moved the child.
+// records the actual old and new node record and each changed child_of edge
+// in changes. It reports whether it moved the child.
 func (s *NodeDeleteStore) moveChild(
 	ctx context.Context, tr fdb.Transaction, job *node.SubtreeDeleteJob, child hierarchyNode,
-	kinds map[string]*node.NodeType, events node.DeletionEventBuilder,
+	kinds map[string]*node.NodeType, changes *mutationAudit,
 ) (bool, error) {
 	if job.RootParentID == uuid.Nil {
 		return false, nil
@@ -65,7 +66,7 @@ func (s *NodeDeleteStore) moveChild(
 	if err != nil || len(edges) > maxDeleteEdgePage {
 		return false, err
 	}
-	current, view, err := readNodeAndView(ctx, tr, job.OrgID, child)
+	current, view, source, err := readNodeAndView(ctx, tr, job.OrgID, child)
 	if err != nil || current == nil {
 		return false, err
 	}
@@ -81,26 +82,29 @@ func (s *NodeDeleteStore) moveChild(
 		view.Props = setProperty(view.Props, parentIDProperty, parentValue)
 		view.UpdatedAt, view.UpdatedBy = now, job.ActorID
 	}
-	if err := writeNodeRecords(ctx, tr, current, view); err != nil {
+	encoded, err := writeNodeRecords(ctx, tr, current, view)
+	if err != nil {
 		return false, err
+	}
+	if err := changes.record(nodeTarget(current), source, encoded); err != nil {
+		return false, nodeOperationFailure(ctx, "record the move of node "+child.ID.String(), err)
 	}
 	if err := moveParentIndexEntry(ctx, tr, current, oldProps[parentIDProperty]); err != nil {
 		return false, err
 	}
-	changes := parentEdgeChanges(job, child.ID, edges, now)
-	if err := applyRelationshipChanges(ctx, tr, changes); err != nil {
+	edgeChanges := parentEdgeChanges(job, child.ID, edges, now)
+	if err := applyRelationshipChanges(ctx, tr, edgeChanges, changes); err != nil {
 		return false, err
 	}
 	if s.nodes.searchWork {
 		if _, err := scheduleSearchChange(ctx, tr, now, job.OrgID, child.ID, searchChangeContent); err != nil {
 			return false, err
 		}
-		if err := scheduleRelatedSearchWork(ctx, tr, now, changes); err != nil {
+		if err := scheduleRelatedSearchWork(ctx, tr, now, edgeChanges); err != nil {
 			return false, err
 		}
 	}
-	change := node.SubtreeChange{ID: child.ID, NodeType: current.NodeType, Name: current.Name, MovedFrom: job.RootID, MovedTo: job.RootParentID}
-	return true, writeChangeEvent(ctx, tr, job, change, false, events)
+	return true, nil
 }
 
 // parentEdgeChanges removes every child_of edge in edges and adds one
@@ -120,34 +124,35 @@ func parentEdgeChanges(job *node.SubtreeDeleteJob, childID uuid.UUID, edges []de
 	return []node.RelationshipChanges{{Add: []*node.Relationship{added}, Remove: removed}}
 }
 
-// readNodeAndView reads the node record and the view record of one node. A
-// missing node record returns nil.
-func readNodeAndView(ctx context.Context, tr fdb.Transaction, orgID uuid.UUID, target hierarchyNode) (*node.Node, *node.NodeView, error) {
+// readNodeAndView reads the node record and the view record of one node. It
+// returns the decoded records and the stored node record bytes. A missing
+// node record returns nil.
+func readNodeAndView(ctx context.Context, tr fdb.Transaction, orgID uuid.UUID, target hierarchyNode) (*node.Node, *node.NodeView, []byte, error) {
 	nodeFuture := tr.Get(fdb.Key(nodeInstanceKey(orgID, target.TypeKey, target.ID)))
 	viewFuture := tr.Get(fdb.Key(nodeViewKey(orgID, target.TypeKey, target.ID)))
 	encodedNode, err := nodeFuture.Get()
 	if err != nil {
-		return nil, nil, searchReadFailure(ctx, "read node "+target.ID.String(), err)
+		return nil, nil, nil, searchReadFailure(ctx, "read node "+target.ID.String(), err)
 	}
 	encodedView, err := viewFuture.Get()
 	if err != nil {
-		return nil, nil, searchReadFailure(ctx, "read node view "+target.ID.String(), err)
+		return nil, nil, nil, searchReadFailure(ctx, "read node view "+target.ID.String(), err)
 	}
 	if len(encodedNode) == 0 {
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 	var current node.Node
 	if err := json.Unmarshal(encodedNode, &current); err != nil {
-		return nil, nil, nodeOperationFailure(ctx, "decode node "+target.ID.String(), err)
+		return nil, nil, nil, nodeOperationFailure(ctx, "decode node "+target.ID.String(), err)
 	}
 	if len(encodedView) == 0 {
-		return &current, nil, nil
+		return &current, nil, encodedNode, nil
 	}
 	var view node.NodeView
 	if err := json.Unmarshal(encodedView, &view); err != nil {
-		return nil, nil, nodeOperationFailure(ctx, "decode node view "+target.ID.String(), err)
+		return nil, nil, nil, nodeOperationFailure(ctx, "decode node view "+target.ID.String(), err)
 	}
-	return &current, &view, nil
+	return &current, &view, encodedNode, nil
 }
 
 // moveParentIndexEntry replaces the parent_id index entry of current when the

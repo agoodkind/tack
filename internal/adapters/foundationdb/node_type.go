@@ -37,7 +37,12 @@ func (s *NodeTypeStore) Set(ctx context.Context, nt *node.NodeType) (err error) 
 	if err != nil {
 		return fmt.Errorf("marshal node type: %w", err)
 	}
+	changes, err := beginMutationAudit(ctx, nt.OrgID)
+	if err != nil {
+		return err
+	}
 	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
+		changes.startAttempt()
 		key := nodeTypeDefKey(nt.OrgID, nt.ID)
 		previous, readErr := tr.Get(fdb.Key(key)).Get()
 		if readErr != nil {
@@ -47,9 +52,13 @@ func (s *NodeTypeStore) Set(ctx context.Context, nt *node.NodeType) (err error) 
 			return nil, err
 		}
 		tr.Set(fdb.Key(key), b)
-		return nil, nil
+		return nil, recordMetadataChange(ctx, tr, changes, nodeTypeTarget(nt.ID, nt.TypeKey), previous, b)
 	})
-	return
+	if err != nil {
+		return err
+	}
+	changes.finish(ctx)
+	return nil
 }
 
 func (s *NodeTypeStore) Get(ctx context.Context, orgID, typeID uuid.UUID) (out *node.NodeType, err error) {
@@ -97,7 +106,12 @@ func (s *NodeTypeStore) List(ctx context.Context, orgID uuid.UUID) (types []*nod
 
 func (s *NodeTypeStore) Delete(ctx context.Context, orgID, typeID uuid.UUID) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node_type.delete")(&err)
+	changes, err := beginMutationAudit(ctx, orgID)
+	if err != nil {
+		return err
+	}
 	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
+		changes.startAttempt()
 		key := nodeTypeDefKey(orgID, typeID)
 		previous, readErr := tr.Get(fdb.Key(key)).Get()
 		if readErr != nil {
@@ -107,7 +121,15 @@ func (s *NodeTypeStore) Delete(ctx context.Context, orgID, typeID uuid.UUID) (er
 			return nil, err
 		}
 		tr.Clear(fdb.Key(key))
-		return nil, nil
+		target, err := storedNodeTypeTarget(ctx, typeID, previous)
+		if err != nil {
+			return nil, err
+		}
+		return nil, recordMetadataChange(ctx, tr, changes, target, previous, nil)
 	})
-	return
+	if err != nil {
+		return err
+	}
+	changes.finish(ctx)
+	return nil
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
@@ -34,18 +33,20 @@ func NewRelationshipStore(db fdb.Database, source clock.Clock) *RelationshipStor
 
 func (s *RelationshipStore) Add(ctx context.Context, rel *node.Relationship) (err error) {
 	defer telemetry.FDBOp(ctx, "store.relationship.add")(&err)
-	metadata, err := json.Marshal(rel)
+	changes, err := beginMutationAudit(ctx, rel.OrgID)
 	if err != nil {
-		return fmt.Errorf("marshal relationship: %w", err)
+		return err
 	}
 	searchScheduleFailed := false
 	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
 		searchScheduleFailed = false
+		changes.startAttempt()
 		if _, err := s.fenceAttempt(ctx, tr, rel.OrgID, rel.SourceID); err != nil {
 			return nil, err
 		}
-		tr.Set(fdb.Key(relationshipKey(rel.OrgID, rel.SourceID, rel.RelationType, rel.TargetID)), metadata)
-		tr.Set(fdb.Key(relationshipReverseKey(rel.OrgID, rel.TargetID, rel.RelationType, rel.SourceID)), []byte{})
+		if err := addRelationships(ctx, tr, []*node.Relationship{rel}, changes); err != nil {
+			return nil, err
+		}
 		if s.searchWork {
 			if err := scheduleRelatedSearchWork(ctx, tr, s.clock.Now(), []node.RelationshipChanges{
 				{Add: []*node.Relationship{rel}, Remove: []*node.Relationship{}},
@@ -54,7 +55,7 @@ func (s *RelationshipStore) Add(ctx context.Context, rel *node.Relationship) (er
 				return nil, err
 			}
 		}
-		return nil, writeStagedIntent(ctx, tr)
+		return nil, changes.append(ctx, tr)
 	})
 	if err != nil {
 		wrapped := fmt.Errorf("add relationship %s: %w", rel.RelationType, err)
@@ -65,7 +66,7 @@ func (s *RelationshipStore) Add(ctx context.Context, rel *node.Relationship) (er
 		}
 		return wrapped
 	}
-	commitStagedIntent(ctx)
+	changes.finish(ctx)
 	return nil
 }
 
@@ -73,11 +74,16 @@ func (s *RelationshipStore) Add(ctx context.Context, rel *node.Relationship) (er
 // hierarchy parent edge and returns an error that wraps domain.ErrFailedPrecondition.
 func (s *RelationshipStore) Remove(ctx context.Context, orgID, sourceID uuid.UUID, relationType string, targetID uuid.UUID) (err error) {
 	defer telemetry.FDBOp(ctx, "store.relationship.remove")(&err)
+	changes, err := beginMutationAudit(ctx, orgID)
+	if err != nil {
+		return err
+	}
 	searchScheduleFailed := false
 	guardFailed := false
 	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
 		searchScheduleFailed = false
 		guardFailed = false
+		changes.startAttempt()
 		if err := refuseOnlyParentRemoval(ctx, tr, orgID, sourceID, relationType, targetID); err != nil {
 			guardFailed = true
 			return nil, err
@@ -85,11 +91,12 @@ func (s *RelationshipStore) Remove(ctx context.Context, orgID, sourceID uuid.UUI
 		if _, err := s.fenceAttempt(ctx, tr, orgID, sourceID); err != nil {
 			return nil, err
 		}
-		tr.Clear(fdb.Key(relationshipKey(orgID, sourceID, relationType, targetID)))
-		tr.Clear(fdb.Key(relationshipReverseKey(orgID, targetID, relationType, sourceID)))
 		changed := &node.Relationship{
 			OrgID: orgID, SourceID: sourceID, RelationType: relationType, TargetID: targetID,
 			CreatedBy: uuid.Nil, CreatedAt: time.Time{}, Props: map[string]json.RawMessage{},
+		}
+		if err := removeRelationships(ctx, tr, []*node.Relationship{changed}, changes); err != nil {
+			return nil, err
 		}
 		if s.searchWork {
 			if err := scheduleRelatedSearchWork(ctx, tr, s.clock.Now(), []node.RelationshipChanges{
@@ -99,7 +106,7 @@ func (s *RelationshipStore) Remove(ctx context.Context, orgID, sourceID uuid.UUI
 				return nil, err
 			}
 		}
-		return nil, writeStagedIntent(ctx, tr)
+		return nil, changes.append(ctx, tr)
 	})
 	if err != nil {
 		wrapped := fmt.Errorf("remove relationship %s: %w", relationType, err)
@@ -110,23 +117,8 @@ func (s *RelationshipStore) Remove(ctx context.Context, orgID, sourceID uuid.UUI
 		}
 		return wrapped
 	}
-	commitStagedIntent(ctx)
+	changes.finish(ctx)
 	return nil
-}
-
-// logRelationshipFailure logs one failed relationship write as event.
-func logRelationshipFailure(ctx context.Context, event string, err error, sourceID, targetID uuid.UUID) {
-	telemetry.L(ctx).ErrorContext(ctx, event, slog.String("err", err.Error()), slog.String("source_id", sourceID.String()), slog.String("target_id", targetID.String()))
-}
-
-// logSearchScheduleFailure logs search.work.schedule_failed for a relationship
-// write that failed to schedule search work. It logs nothing when the search
-// code already logged the failure.
-func logSearchScheduleFailure(ctx context.Context, err error, sourceID, targetID uuid.UUID) {
-	if searchFailureWasLogged(err) {
-		return
-	}
-	logRelationshipFailure(ctx, "search.work.schedule_failed", err, sourceID, targetID)
 }
 
 func (s *RelationshipStore) ListBySource(ctx context.Context, orgID, sourceID uuid.UUID, relationType string) (rels []*node.Relationship, err error) {

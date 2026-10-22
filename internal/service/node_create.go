@@ -9,7 +9,6 @@ import (
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
-	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
@@ -101,15 +100,6 @@ func (s *NodeService) Create(ctx context.Context, in CreateInput) (*CreateResult
 	plan, err := s.createPlan(ctx, log, orgID, id, nt, schema, in)
 	if err != nil {
 		return nil, err
-	}
-	// The ledger row commits with the node or not at all: the store writes
-	// the staged event inside the create transaction (TACK-173).
-	if err := audit.StageStateChange(ctx, audit.VerbNodeCreate, audit.Entity{
-		Type: "node", NodeType: nt.TypeKey, ID: id,
-		Identifier: firstReferenceKey(plan.ReferenceKeys), Name: in.Name,
-	}); err != nil {
-		log.ErrorContext(ctx, "node.Create: stage audit row", slog.String("err", err.Error()))
-		return nil, fmt.Errorf("stage the audit row for creating %s: %w", id, err)
 	}
 	receipt, err := s.nodes.ApplyMutation(ctx, *plan)
 	if err != nil {
