@@ -2,16 +2,15 @@ package datagen
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/adapters/postgres"
+	"goodkind.io/tack/internal/audit"
+	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/org"
@@ -72,7 +71,7 @@ func BootstrapIdentities(
 			return Identities{}, err
 		}
 	}
-	if err := expireToken(ctx, pool, identities.ExpiredToken, identities.Workspaces[0].Actors[0]); err != nil {
+	if err := expireToken(ctx, tokens, identities.ExpiredToken, identities.Workspaces[0]); err != nil {
 		return Identities{}, err
 	}
 	return identities, nil
@@ -128,7 +127,7 @@ func bootstrapActors(
 			return loggedError(ctx, "qa datagen: get user "+actor.Email, err)
 		}
 		if stored == nil {
-			stored, err = users.Create(ctx, &user.User{
+			stored, err = users.Create(ctx, datagenOperation(audit.VerbUserCreate, audit.SystemOrgID()), &user.User{
 				ID: actor.UserID, Email: actor.Email, DisplayName: actor.DisplayName,
 				AvatarURL: nil,
 			})
@@ -137,37 +136,46 @@ func bootstrapActors(
 			}
 		}
 		actor.UserID = stored.ID
-		if err := members.AddMember(ctx, &org.Member{
+		if err := members.AddMember(ctx, datagenOperation(audit.VerbOrgMemberAdd, workspace.OrgID), &org.Member{
 			ID: uuid.Nil, OrgID: workspace.OrgID, UserID: stored.ID,
 			Role: 20,
 		}); err != nil {
 			return loggedError(ctx, "qa datagen: add org member "+actor.Email, err)
 		}
-		if _, err := tokens.Create(ctx, stored.ID, actor.RawToken, "qa-datagen"); err != nil &&
-			!errors.Is(err, domain.ErrAlreadyExists) {
-			return loggedError(ctx, "qa datagen: create token for "+actor.Email, err)
+		if err := bootstrapToken(ctx, tokens, workspace.OrgID, stored.ID, actor); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
-// expireToken stores a token that is already past its expiry. It writes the
-// expiry in the INSERT because the app login holds no UPDATE on api_tokens:
-// migration 015 gave last_used to the audit-consumer alone (TACK-502).
-func expireToken(ctx context.Context, pool *pgxpool.Pool, raw string, actor Actor) error {
-	sum := sha256.Sum256([]byte(raw))
-	tag, err := pool.Exec(
-		ctx,
-		`INSERT INTO api_tokens (user_id, token_hash, label, expires_at)
-		 VALUES ($1, $2, 'qa-datagen-expired', now() - interval '1 hour')`,
-		actor.UserID,
-		hex.EncodeToString(sum[:]),
-	)
-	if err != nil {
-		return loggedError(ctx, "qa datagen: create expired token", err)
+// bootstrapToken skips creation when actor.RawToken validates. It creates the
+// token when validation returns domain.ErrUnauthenticated and returns any other
+// validation error.
+func bootstrapToken(ctx context.Context, tokens *postgres.TokenRepo, orgID, userID uuid.UUID, actor *Actor) error {
+	_, err := tokens.Validate(ctx, actor.RawToken)
+	if err == nil {
+		return nil
 	}
-	if tag.RowsAffected() != 1 {
-		return fmt.Errorf("qa datagen: create expired token inserted %d rows", tag.RowsAffected())
+	if !errors.Is(err, domain.ErrUnauthenticated) {
+		return loggedError(ctx, "qa datagen: find token for "+actor.Email, err)
+	}
+	operation := datagenOperation(audit.VerbAuthTokenCreate, orgID)
+	if _, err := tokens.Create(ctx, operation, userID, actor.RawToken, "qa-datagen"); err != nil {
+		return loggedError(ctx, "qa datagen: create token for "+actor.Email, err)
+	}
+	return nil
+}
+
+// expireToken uses TokenRepo.CreateExpiring to insert an expired token for the
+// workspace's first actor. It sets the expiry during insertion because the
+// application login cannot update api_tokens.
+func expireToken(ctx context.Context, tokens *postgres.TokenRepo, raw string, workspace WorkspaceIdentity) error {
+	operation := datagenOperation(audit.VerbAuthTokenCreate, workspace.OrgID)
+	expiresAt := clock.Now().UTC().Add(-expiredTokenAge)
+	userID := workspace.Actors[0].UserID
+	if _, err := tokens.CreateExpiring(ctx, operation, userID, raw, expiredTokenLabel, expiresAt); err != nil {
+		return loggedError(ctx, "qa datagen: create expired token", err)
 	}
 	return nil
 }

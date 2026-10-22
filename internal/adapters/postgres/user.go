@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"goodkind.io/tack/internal/audit"
 	domain "goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/user"
 )
@@ -21,30 +23,45 @@ func NewUserRepo(db *pgxpool.Pool) *UserRepo {
 	return &UserRepo{db: db}
 }
 
-func (r *UserRepo) Create(ctx context.Context, u *user.User) (*user.User, error) {
-	// When the caller leaves u.ID zero, defer to the SQL DEFAULT (gen_random_uuid).
-	// When the caller pre-sets u.ID, INSERT the explicit value. Used by the seed
-	// path to make the dev-mode bearer (= raw user UUID) stable across wipes.
+// userValue contains user state and timestamps for an audit change. It omits
+// email and display name because they contain personal data.
+type userValue struct {
+	ID        uuid.UUID `json:"id"`
+	IsActive  bool      `json:"is_active"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// Create inserts u and its audit change in one transaction. It preserves a
+// supplied ID or assigns a UUIDv7 when u.ID is [uuid.Nil]. Preserving the seed's
+// fixed ID keeps the development bearer stable across database wipes.
+func (r *UserRepo) Create(ctx context.Context, operation audit.Event, u *user.User) (*user.User, error) {
 	if u.ID == uuid.Nil {
-		const q = `
-			INSERT INTO users (email, display_name)
-			VALUES ($1, $2)
-			RETURNING id, created_at, updated_at`
-		err := r.db.QueryRow(ctx, q, u.Email, u.DisplayName).
-			Scan(&u.ID, &u.CreatedAt, &u.UpdatedAt)
-		if err != nil {
-			return nil, fmt.Errorf("user create: %w", pgErr(err))
-		}
-		return u, nil
+		u.ID = uuid.Must(uuid.NewV7())
 	}
-	const q = `
-		INSERT INTO users (id, email, display_name)
-		VALUES ($1, $2, $3)
-		RETURNING id, created_at, updated_at`
-	err := r.db.QueryRow(ctx, q, u.ID, u.Email, u.DisplayName).
-		Scan(&u.ID, &u.CreatedAt, &u.UpdatedAt)
+	target := UserTarget(u.ID)
+	err := changeTx(ctx, r.db, operation, target, func(tx pgx.Tx) error {
+		const q = `
+			INSERT INTO users (id, email, display_name)
+			VALUES ($1, $2, $3)
+			RETURNING created_at, updated_at, is_active`
+		stored := userValue{ID: u.ID, IsActive: false, CreatedAt: time.Time{}, UpdatedAt: time.Time{}}
+		if err := tx.QueryRow(ctx, q, u.ID, u.Email, u.DisplayName).
+			Scan(&stored.CreatedAt, &stored.UpdatedAt, &stored.IsActive); err != nil {
+			return pgErr(err)
+		}
+		u.CreatedAt, u.UpdatedAt = stored.CreatedAt, stored.UpdatedAt
+		after, err := changeValue(ctx, &stored)
+		if err != nil {
+			return err
+		}
+		return WriteChanges(ctx, tx, operation, []audit.Change{{
+			EventID: uuid.Must(uuid.NewV7()), Target: target, Before: nil, After: after, Changed: nil,
+		}})
+	})
 	if err != nil {
-		return nil, fmt.Errorf("user create: %w", pgErr(err))
+		slog.ErrorContext(ctx, "user.create_failed", slog.String("user_id", u.ID.String()), slog.String("err", err.Error()))
+		return nil, fmt.Errorf("user create %s: %w", u.ID, err)
 	}
 	return u, nil
 }

@@ -68,7 +68,7 @@ func newActAsFixture(t *testing.T, operatorFlags []string) actAsFixture {
 // membership when the test ends.
 func seedActAsMember(t *testing.T, pool *pgxpool.Pool, users *postgres.UserRepo, members *postgres.OrgMemberRepo, orgID uuid.UUID) *user.User {
 	t.Helper()
-	created, err := users.Create(t.Context(), &user.User{
+	created, err := users.Create(t.Context(), fixtureChangeOperation(audit.VerbUserCreate, audit.SystemOrgID()), &user.User{
 		ID: uuid.Must(uuid.NewV7()), Email: "act-as-" + uuid.NewString()[:8] + "@example.test",
 		DisplayName: "Member", AvatarURL: nil,
 	})
@@ -79,10 +79,17 @@ func seedActAsMember(t *testing.T, pool *pgxpool.Pool, users *postgres.UserRepo,
 		_, _ = pool.Exec(context.WithoutCancel(t.Context()), `DELETE FROM users WHERE id = $1`, created.ID)
 	})
 	membership := &org.Member{ID: uuid.Nil, OrgID: orgID, UserID: created.ID, Role: actAsMemberRole}
-	if err := members.AddMember(t.Context(), membership); err != nil {
+	if err := members.AddMember(t.Context(), fixtureChangeOperation(audit.VerbOrgMemberAdd, orgID), membership); err != nil {
 		t.Fatalf("add the member to org %s: %v", orgID, err)
 	}
 	return created
+}
+
+func fixtureChangeOperation(verb audit.Verb, orgID uuid.UUID) audit.Event {
+	principal := audit.OperatorPrincipal{
+		ID: uuid.Must(uuid.NewV7()), Email: "operator@example.test", Name: "Operator", Source: "test",
+	}
+	return postgres.NewChangeOperation(verb, postgres.OperatorActor(principal), orgID, audit.SourceSystem)
 }
 
 func actAsInput(f actAsFixture, email, reason string) actAsCreateInput {

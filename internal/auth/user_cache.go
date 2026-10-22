@@ -11,13 +11,11 @@ import (
 	"goodkind.io/tack/internal/domain/user"
 )
 
-// CachedUsers remembers user records by id for a short lifetime, so a tool
-// call that renders who created or changed a node costs no ledger read when
-// that user was rendered moments ago (criterion 12 of the backup
-// acceptance). Only GetByID is cached: the by-email lookup serves operator
-// commands, and a create forgets nothing because a new id cannot be cached.
-// A display-name change made elsewhere reaches every instance within one
-// lifetime. A failed read caches nothing.
+// CachedUsers caches user records by ID for a short lifetime to avoid ledger
+// reads when rendering a node's creator or editor. It caches only GetByID;
+// GetByEmail serves operator commands. Every instance observes display-name
+// changes within one lifetime. Failed reads do not populate the cache, and
+// CachedUsers does not provide a Create method.
 type CachedUsers struct {
 	inner    user.Repository
 	cache    *entryCache[*user.User]
@@ -62,16 +60,6 @@ func (c *CachedUsers) GetByEmail(ctx context.Context, email string) (*user.User,
 	if err != nil {
 		slog.ErrorContext(ctx, "auth.user_read_by_email_failed", slog.String("err", err.Error()))
 		return nil, fmt.Errorf("get user by email: %w", err)
-	}
-	return record, nil
-}
-
-// Create writes through inner.
-func (c *CachedUsers) Create(ctx context.Context, u *user.User) (*user.User, error) {
-	record, err := c.inner.Create(ctx, u)
-	if err != nil {
-		slog.ErrorContext(ctx, "auth.user_create_failed", slog.String("user_id", u.ID.String()), slog.String("err", err.Error()))
-		return nil, fmt.Errorf("create user %s: %w", u.ID, err)
 	}
 	return record, nil
 }

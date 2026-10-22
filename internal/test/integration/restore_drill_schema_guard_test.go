@@ -110,20 +110,25 @@ func seedDrillAuthRows(t *testing.T, admin *pgxpool.Pool) {
 	t.Helper()
 	ctx := t.Context()
 	now := time.Now().UTC()
-	holder, err := postgres.NewUserRepo(admin).Create(ctx, &user.User{
+	principal := sqlAuditPrincipal()
+	orgID := uuid.Must(uuid.NewV7())
+	userCreate := sqlAuditOperation(audit.VerbUserCreate, principal, audit.SystemOrgID())
+	holder, err := postgres.NewUserRepo(admin).Create(ctx, userCreate, &user.User{
 		ID: uuid.Must(uuid.NewV7()), Email: "drill-" + uuid.NewString() + "@example.invalid",
 		DisplayName: "Drill Holder", AvatarURL: nil, CreatedAt: now, UpdatedAt: now,
 	})
 	if err != nil {
 		t.Fatalf("create the drill user: %v", err)
 	}
-	if _, err := postgres.NewTokenRepo(admin).Create(ctx, holder.ID, uuid.NewString(), "restore drill"); err != nil {
+	tokenCreate := sqlAuditOperation(audit.VerbAuthTokenCreate, principal, orgID)
+	if _, err := postgres.NewTokenRepo(admin).Create(ctx, tokenCreate, holder.ID, uuid.NewString(), "restore drill"); err != nil {
 		t.Fatalf("create the drill token: %v", err)
 	}
 	member := &org.Member{
-		ID: uuid.Nil, OrgID: uuid.Must(uuid.NewV7()), UserID: holder.ID, Role: drillMemberRole, CreatedAt: now,
+		ID: uuid.Nil, OrgID: orgID, UserID: holder.ID, Role: drillMemberRole, CreatedAt: now,
 	}
-	if err := postgres.NewOrgMemberRepo(admin).AddMember(ctx, member); err != nil {
+	memberAdd := sqlAuditOperation(audit.VerbOrgMemberAdd, principal, orgID)
+	if err := postgres.NewOrgMemberRepo(admin).AddMember(ctx, memberAdd, member); err != nil {
 		t.Fatalf("add the drill org member: %v", err)
 	}
 }

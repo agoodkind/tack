@@ -20,7 +20,6 @@ func seedToken(
 	tokenRepo *postgres.TokenRepo,
 	seededUser *user.User,
 	orgID uuid.UUID,
-	recorder audit.Recorder,
 ) error {
 	log := telemetry.L(ctx)
 	raw := cfg.SeedAPIToken
@@ -31,13 +30,13 @@ func seedToken(
 		}
 		raw = generatedToken
 	}
-	seededToken, err := tokenRepo.Create(ctx, seededUser.ID, raw, "seed")
+	operation, err := seedOperation(ctx, audit.VerbAuthTokenCreate, orgID)
 	if err != nil {
+		return err
+	}
+	if _, err := tokenRepo.Create(ctx, operation, seededUser.ID, raw, "seed"); err != nil {
 		log.InfoContext(ctx, "seed.prod_token_exists")
 	} else {
-		if err := recordSeedToken(ctx, recorder, seededToken, orgID); err != nil {
-			return err
-		}
 		_, _ = fmt.Fprintf(os.Stdout, "\nProduction-mode API token (copy now; not shown again):\n  %s\n", raw)
 	}
 	_, _ = fmt.Fprintf(os.Stdout, "\nDev-mode bearer (stable across wipes, derived from %s):\n  %s\n\n", cfg.SeedEmail, seededUser.ID)

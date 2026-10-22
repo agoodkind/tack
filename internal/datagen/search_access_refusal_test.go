@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"goodkind.io/tack/internal/adapters/postgres"
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/runtime"
@@ -123,7 +124,8 @@ func requireNoOrganizationRefusal(t *testing.T, cfg *config.Config, run searchRu
 		t.Fatalf("open ledger pool: %v", err)
 	}
 	t.Cleanup(pool.Close)
-	if err := postgres.NewOrgMemberRepo(pool).RemoveMember(ctx, workspace.OrgID, actor.UserID); err != nil {
+	removal := datagenOperation(audit.VerbOrgMemberRemove, workspace.OrgID)
+	if err := postgres.NewOrgMemberRepo(pool).RemoveMember(ctx, removal, workspace.OrgID, actor.UserID); err != nil {
 		t.Fatalf("remove member %s: %v", actor.UserID, err)
 	}
 	if argument, err := run.driver.searchEntryArgument(ctx, actor.Token); err != nil || argument != entryArgumentSuffix {

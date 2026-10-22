@@ -8,7 +8,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+
 	"goodkind.io/tack/internal/adapters/postgres"
+	"goodkind.io/tack/internal/audit"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 )
 
@@ -82,7 +84,7 @@ func TestSearchRevokedAccessRejectsLaterResultsAndReplay(t *testing.T) {
 		t.Fatalf("open ledger pool: %v", err)
 	}
 	t.Cleanup(pool.Close)
-	if err := postgres.NewOrgMemberRepo(pool).RemoveMember(t.Context(), caller.OrgID, caller.Actors[0].UserID); err != nil {
+	if err := postgres.NewOrgMemberRepo(pool).RemoveMember(t.Context(), testChangeOperation(audit.VerbOrgMemberRemove, caller.OrgID), caller.OrgID, caller.Actors[0].UserID); err != nil {
 		t.Fatalf("remove membership: %v", err)
 	}
 	for _, cursor := range []string{first.Cursor, second.Cursor} {

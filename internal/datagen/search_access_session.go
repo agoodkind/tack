@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/adapters/postgres"
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/domain/org"
 )
@@ -61,12 +62,14 @@ func (r searchRun) verifyRevocation(ctx context.Context, cfg *config.Config, wor
 	if err != nil {
 		return err
 	}
-	if err := members.RemoveMember(ctx, workspace.OrgID, actor.UserID); err != nil {
+	removal := datagenOperation(audit.VerbOrgMemberRemove, workspace.OrgID)
+	if err := members.RemoveMember(ctx, removal, workspace.OrgID, actor.UserID); err != nil {
 		return loggedError(ctx, "qa datagen: remove member "+actor.UserID.String(), err)
 	}
 	refusalErr := r.requireRevoked(ctx, actor.Token, first.Cursor)
 	restored := &org.Member{ID: uuid.Nil, OrgID: member.OrgID, UserID: member.UserID, Role: member.Role, CreatedAt: time.Time{}}
-	if err := members.AddMember(context.WithoutCancel(ctx), restored); err != nil {
+	restore := datagenOperation(audit.VerbOrgMemberAdd, workspace.OrgID)
+	if err := members.AddMember(context.WithoutCancel(ctx), restore, restored); err != nil {
 		joined := errors.Join(refusalErr, fmt.Errorf("qa datagen: restore member %s: %w", actor.UserID, err))
 		slog.ErrorContext(ctx, "qa.datagen.member_restore_failed", slog.String("user_id", actor.UserID.String()),
 			slog.String("err", joined.Error()))

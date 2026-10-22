@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"goodkind.io/tack/internal/adapters/postgres"
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/user"
@@ -37,7 +38,12 @@ func TestExpireTokenRunsAsTheAppLogin(t *testing.T) {
 	}
 	t.Cleanup(app.Close)
 
-	holder, err := postgres.NewUserRepo(app).Create(ctx, &user.User{
+	serviceActor := audit.Actor{
+		Type: audit.ActorService, ID: uuid.Must(uuid.NewV7()), Email: "", Name: "expired token test",
+		SessionID: "", IP: "", UserAgent: "", RequestID: "", APITokenLabel: "",
+	}
+	operation := postgres.NewChangeOperation(audit.VerbUserCreate, serviceActor, audit.SystemOrgID(), audit.SourceSystem)
+	holder, err := postgres.NewUserRepo(app).Create(ctx, operation, &user.User{
 		ID: uuid.Must(uuid.NewV7()), Email: "expired-" + uuid.NewString()[:8] + "@example.test",
 		DisplayName: "expired token holder", AvatarURL: nil,
 	})
@@ -51,7 +57,8 @@ func TestExpireTokenRunsAsTheAppLogin(t *testing.T) {
 		t.Fatalf("generate a token: %v", err)
 	}
 	actor := Actor{UserID: holder.ID, Email: holder.Email, DisplayName: "", Token: "", RawToken: "", RequestToken: ""}
-	if err := expireToken(ctx, app, raw, actor); err != nil {
+	workspace := WorkspaceIdentity{OrgID: uuid.Must(uuid.NewV7()), OrgSlug: "", Slug: "", Name: "", Actors: []Actor{actor}}
+	if err := expireToken(ctx, postgres.NewTokenRepo(app), raw, workspace); err != nil {
 		t.Fatalf("expireToken as the app login: %v", err)
 	}
 

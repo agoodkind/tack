@@ -9,12 +9,10 @@ import (
 
 	"github.com/google/uuid"
 
+	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/audit"
-	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/domain/org"
-	"goodkind.io/tack/internal/domain/token"
-	"goodkind.io/tack/internal/domain/user"
 )
 
 type seedOutboxRecorder struct {
@@ -29,16 +27,16 @@ func (r seedOutboxRecorder) Record(ctx context.Context, event audit.Event) error
 	return nil
 }
 
-func recordSeedUser(ctx context.Context, recorder audit.Recorder, seededUser *user.User) error {
-	return recordSeedEvent(ctx, recorder, audit.VerbUserCreate, audit.Entity{
-		Type: "user", NodeType: "", ID: seededUser.ID, Identifier: seededUser.Email, Name: seededUser.DisplayName,
-	}, audit.SystemOrgID(), uuid.Nil, uuid.Nil)
-}
-
-func recordSeedToken(ctx context.Context, recorder audit.Recorder, seededToken *token.Token, orgID uuid.UUID) error {
-	return recordSeedEvent(ctx, recorder, audit.VerbAuthTokenCreate, audit.Entity{
-		Type: "api_token", NodeType: "", ID: seededToken.ID, Identifier: "", Name: seededToken.Label,
-	}, orgID, uuid.Nil, uuid.Nil)
+// seedOperation builds a seed change operation from the operator principal in
+// ctx. It returns an error when ctx does not contain a principal.
+func seedOperation(ctx context.Context, verb audit.Verb, orgID uuid.UUID) (audit.Event, error) {
+	principal, found := audit.OperatorPrincipalFromContext(ctx)
+	if !found {
+		err := errors.New("seed change has no operator principal")
+		slog.ErrorContext(ctx, "seed.audit_principal_missing", slog.String("err", err.Error()))
+		return audit.Event{}, err
+	}
+	return postgres.NewChangeOperation(verb, postgres.OperatorActor(principal), orgID, audit.SourceSeed), nil
 }
 
 func recordSeedNode(
@@ -155,54 +153,26 @@ func recordSeedOutcome(
 	return nil
 }
 
-// recordSeedMembershipIntent records that the seeded user is about to be
-// granted their org role.
-func recordSeedMembershipIntent(
-	ctx context.Context,
-	recorder audit.Recorder,
-	orgID, userID uuid.UUID,
-) error {
-	return recordSeedOutcome(ctx, recorder, audit.VerbOrgMemberAdd, audit.Entity{
-		Type: "org_member", NodeType: "", ID: userID, Identifier: "", Name: "",
-	}, orgID, uuid.Nil, orgID, audit.OutcomePending)
-}
-
-// recordSeedMembership records that the seeded user holds their org role.
-func recordSeedMembership(
-	ctx context.Context,
-	recorder audit.Recorder,
-	orgID, userID uuid.UUID,
-) error {
-	return recordSeedOutcome(ctx, recorder, audit.VerbOrgMemberAdd, audit.Entity{
-		Type: "org_member", NodeType: "", ID: userID, Identifier: "", Name: "",
-	}, orgID, uuid.Nil, orgID, audit.OutcomeOK)
-}
-
-// seedMembership grants the seeded user their org role, recording the intent
-// before the change and the result after.
-//
-// Membership is a privilege change, so it belongs in the ledger like every
-// other seed write. Its failure used to be logged and swallowed, which left
-// seed reporting success while the user held no membership at all.
+// seedMembership grants the seeded user the owner role through
+// OrgMemberRepo.AddMember, which records any membership change.
 func seedMembership(
 	ctx context.Context,
-	members org.MemberRepository,
-	recorder audit.Recorder,
+	members *postgres.OrgMemberRepo,
 	orgID, userID uuid.UUID,
 ) error {
-	if err := recordSeedMembershipIntent(ctx, recorder, orgID, userID); err != nil {
+	operation, err := seedOperation(ctx, audit.VerbOrgMemberAdd, orgID)
+	if err != nil {
 		return err
 	}
 	member := &org.Member{
 		ID: uuid.Nil, OrgID: orgID, UserID: userID,
 		Role: seedOwnerRole, CreatedAt: time.Time{},
 	}
-	err := members.AddMember(ctx, member)
-	if err != nil && !errors.Is(err, domain.ErrAlreadyExists) {
+	if err := members.AddMember(ctx, operation, member); err != nil {
 		slog.ErrorContext(ctx, "seed.add_member_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("seed: add member: %w", err)
 	}
-	return recordSeedMembership(ctx, recorder, orgID, userID)
+	return nil
 }
 
 // seedOwnerRole is the org role the seeded user receives. It matches the

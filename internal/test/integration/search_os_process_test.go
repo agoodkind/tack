@@ -6,9 +6,11 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/adapters/search"
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/datagen"
 	"goodkind.io/tack/internal/testenv"
@@ -123,7 +125,7 @@ func TestSearchCursorActualOSProcesses(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	if err := postgres.NewOrgMemberRepo(pool).RemoveMember(t.Context(), workspace.OrgID, workspace.Actors[0].UserID); err != nil {
+	if err := postgres.NewOrgMemberRepo(pool).RemoveMember(t.Context(), testChangeOperation(audit.VerbOrgMemberRemove, workspace.OrgID), workspace.OrgID, workspace.Actors[0].UserID); err != nil {
 		t.Fatal(err)
 	}
 	for _, server := range []*actualSearchServer{second, restarted} {

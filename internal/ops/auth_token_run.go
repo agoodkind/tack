@@ -15,7 +15,6 @@ import (
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clispec"
-	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/telemetry"
 )
 
@@ -79,7 +78,7 @@ func runAuthTokenCreate(ctx context.Context, factory *cli.Factory, input authTok
 	if err != nil {
 		return err
 	}
-	issue, err := IssueAuthToken(ctx, pool, factory.AuditOutbox(), principal, input.Email, input.Label, clock.Now().UTC())
+	issue, err := IssueAuthToken(ctx, pool, principal, input.Email, input.Label)
 	if err != nil {
 		return err
 	}
@@ -90,7 +89,7 @@ func runAuthTokenCreate(ctx context.Context, factory *cli.Factory, input authTok
 		// The raw value is shown once and never stored, so a report that
 		// failed to reach the operator leaves a live credential nobody
 		// holds. Withdraw it through a recorded revocation and say so.
-		return withdrawUnconfirmedToken(ctx, pool, factory.AuditOutbox(), principal, issue.Token.ID,
+		return withdrawUnconfirmedToken(ctx, pool, principal, issue.Token.ID,
 			fmt.Errorf("the token value could not be reported: %w", writeErr))
 	}
 	return nil
@@ -152,7 +151,7 @@ func runAuthTokenRevoke(ctx context.Context, factory *cli.Factory, input authTok
 		if err != nil {
 			return err
 		}
-		revocation, err = RevokeAuthToken(ctx, pool, factory.AuditOutbox(), principal, tokenID, clock.Now().UTC())
+		revocation, err = RevokeAuthToken(ctx, pool, principal, tokenID)
 		if err != nil {
 			return err
 		}

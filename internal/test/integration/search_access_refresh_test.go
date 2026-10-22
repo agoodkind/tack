@@ -9,7 +9,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+
 	"goodkind.io/tack/internal/adapters/postgres"
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/clock"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/searchaccess"
@@ -78,7 +80,7 @@ func TestSearchAccessMembershipQueryOnly(t *testing.T) {
 		t.Fatalf("open membership pool: %v", err)
 	}
 	t.Cleanup(pool.Close)
-	if err := postgres.NewOrgMemberRepo(pool).RemoveMember(t.Context(), workspace.OrgID, workspace.Actors[0].UserID); err != nil {
+	if err := postgres.NewOrgMemberRepo(pool).RemoveMember(t.Context(), testChangeOperation(audit.VerbOrgMemberRemove, workspace.OrgID), workspace.OrgID, workspace.Actors[0].UserID); err != nil {
 		t.Fatalf("remove membership: %v", err)
 	}
 	if _, err := trySearch(fixture.Harness, "membership lantern", ""); err == nil {

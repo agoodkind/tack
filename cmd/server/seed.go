@@ -16,8 +16,6 @@ import (
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clispec"
 	"goodkind.io/tack/internal/config"
-	"goodkind.io/tack/internal/domain"
-	"goodkind.io/tack/internal/domain/user"
 	"goodkind.io/tack/internal/service"
 	"goodkind.io/tack/internal/telemetry"
 	"goodkind.io/tack/migrations"
@@ -109,27 +107,9 @@ func execSeed(ctx context.Context, cfg *config.Config, recorder audit.Recorder) 
 		seedNodeTypes{inner: fdbStores.NodeTypes, recorder: recorder},
 	)
 
-	u, err := userRepo.GetByEmail(ctx, cfg.SeedEmail)
-	if err != nil && !errors.Is(err, domain.ErrNotFound) {
-		slog.ErrorContext(ctx, "seed.get_user_failed", slog.String("err", err.Error()))
-		return fmt.Errorf("seed: get user: %w", err)
-	}
-	if u == nil {
-		u, err = userRepo.Create(ctx, &user.User{
-			ID:          userIDForEmail(cfg.SeedEmail),
-			Email:       cfg.SeedEmail,
-			DisplayName: cfg.SeedName,
-		})
-		if err != nil {
-			slog.ErrorContext(ctx, "seed.create_user_failed", slog.String("err", err.Error()))
-			return fmt.Errorf("seed: create user: %w", err)
-		}
-		if err := recordSeedUser(ctx, recorder, u); err != nil {
-			return err
-		}
-		log.InfoContext(ctx, "seed.user_created", "id", u.ID, "email", u.Email)
-	} else {
-		log.InfoContext(ctx, "seed.user_exists", "id", u.ID, "email", u.Email)
+	u, err := ensureSeedUser(ctx, cfg, userRepo)
+	if err != nil {
+		return err
 	}
 
 	// The org case has no parent, so orgID == the node's own ID. To detect an
@@ -158,7 +138,7 @@ func execSeed(ctx context.Context, cfg *config.Config, recorder audit.Recorder) 
 		return fmt.Errorf("seed: seed org definitions: %w", err)
 	}
 
-	if err := seedMembership(ctx, members, recorder, orgID, u.ID); err != nil {
+	if err := seedMembership(ctx, members, orgID, u.ID); err != nil {
 		return err
 	}
 
@@ -176,7 +156,7 @@ func execSeed(ctx context.Context, cfg *config.Config, recorder audit.Recorder) 
 	// Production mode: SHA-256 hash of the bearer is looked up in api_tokens.
 	// Dev mode (ENV=development): the bearer is the raw user UUID directly, no
 	// api_tokens lookup. Print both so the operator picks the right one.
-	if err := seedToken(ctx, cfg, tokenRepo, u, orgID, recorder); err != nil {
+	if err := seedToken(ctx, cfg, tokenRepo, u, orgID); err != nil {
 		return err
 	}
 
