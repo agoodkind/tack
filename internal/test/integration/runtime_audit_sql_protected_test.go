@@ -18,9 +18,10 @@ import (
 // TestRuntimeAuditUserProtectedValues creates a user with UserRepo.Create,
 // relays its change event, and consumes it as audit_writer. It reads the
 // protected email and display name as audit_redactor and requires the ledger
-// row and verified export bundles to omit their raw values. It redacts both
-// values with an audit_reader ledger connection, checks for empty redacted
-// payloads, and verifies the export again.
+// row and verified export bundles to omit their raw values. It uses
+// audit_reader for ledger reads and audit_redactor to redact both values,
+// checks that the redacted rows do not contain payloads, and verifies the
+// export again.
 func TestRuntimeAuditUserProtectedValues(t *testing.T) {
 	stack := startWriterRoleStack(t)
 	oldest := clock.Now().UTC().Add(-time.Minute)
@@ -29,8 +30,8 @@ func TestRuntimeAuditUserProtectedValues(t *testing.T) {
 	startOutboxRelay(t, stack)
 
 	record := requireUserChange(t, stack, userEvent, holder)
-	redactor := openRedactor(t, stack)
-	requireProtectedValues(t, redactor, map[uuid.UUID]string{
+	redactor, redactorPool := openRedactor(t, stack)
+	requireProtectedValues(t, redactorPool, map[uuid.UUID]string{
 		record.Email.PIIRef: holder.Email, record.DisplayName.PIIRef: holder.DisplayName,
 	})
 	latest := clock.Now().UTC().Add(time.Minute)
@@ -42,7 +43,7 @@ func TestRuntimeAuditUserProtectedValues(t *testing.T) {
 	if err != nil || redaction.Redacted != int64(len(refs)) {
 		t.Fatalf("RedactActorInOrg for holder.ID %s: redaction = %+v, err = %v; want redaction.Redacted = %d and err = nil", holder.ID, redaction, err, len(refs))
 	}
-	requireRedacted(t, redactor, refs)
+	requireRedacted(t, redactorPool, refs)
 	requireExportWithout(t, stack, audit.SystemOrgID(), oldest, latest, personal)
 }
 

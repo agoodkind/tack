@@ -1,14 +1,9 @@
 package integration_test
 
 import (
-	"crypto/ed25519"
-	"crypto/rand"
+	_ "embed"
 	"encoding/json"
-	"os"
-	"path/filepath"
-	"strings"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -16,6 +11,12 @@ import (
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/testenv"
 )
+
+// runtimeAuditProtectedValuesQuery embeds the SQL query that reads audit.pii
+// payloads and redaction flags for the requested references.
+//
+//go:embed testdata/runtime_audit_protected_values.sql
+var runtimeAuditProtectedValuesQuery string
 
 // auditWriterRole, auditReaderRole, and auditRedactorRole are the base roles
 // for the integration test logins.
@@ -70,30 +71,68 @@ func startWriterRoleStack(t *testing.T) runtimeAuditStack {
 	return runtimeAuditStack{topic: topic, admin: admin, reader: reader, recorder: recorder}
 }
 
-// openRedactor opens a redactor with an audit_redactor login and registers
-// its connection cleanup.
-func openRedactor(t *testing.T, stack runtimeAuditStack) *audit.Redactor {
+// protectedRow stores one audit.pii payload and its redaction flag.
+type protectedRow struct {
+	Value    []byte
+	Redacted bool
+}
+
+// openRedactor creates a login with the audit_redactor role and opens an
+// audit.Redactor and a pgxpool.Pool with that login. It registers cleanup
+// for both.
+func openRedactor(t *testing.T, stack runtimeAuditStack) (*audit.Redactor, *pgxpool.Pool) {
 	t.Helper()
-	redactor, err := audit.NewRedactor(t.Context(), roleLoginDSN(t, stack.admin, testenv.Ledger(t), auditRedactorRole))
+	redactorDSN := roleLoginDSN(t, stack.admin, testenv.Ledger(t), auditRedactorRole)
+	redactor, err := audit.NewRedactor(t.Context(), redactorDSN)
 	if err != nil {
 		t.Fatalf("audit.NewRedactor as audit_redactor: error = %v, want nil", err)
 	}
 	t.Cleanup(redactor.Close)
-	return redactor
+	pool, err := pgxpool.New(t.Context(), redactorDSN)
+	if err != nil {
+		t.Fatalf("pgxpool.New as audit_redactor: err = %v, want nil", err)
+	}
+	t.Cleanup(pool.Close)
+	return redactor, pool
+}
+
+// protectedValues uses pool to read audit.pii payloads and redaction flags
+// for refs and returns them in a map keyed by reference.
+func protectedValues(t *testing.T, pool *pgxpool.Pool, refs []uuid.UUID) map[uuid.UUID]protectedRow {
+	t.Helper()
+	refTexts := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		refTexts = append(refTexts, ref.String())
+	}
+	rows, err := pool.Query(t.Context(), runtimeAuditProtectedValuesQuery, refTexts)
+	if err != nil {
+		t.Fatalf("pool.Query of audit.pii as audit_redactor: err = %v, want nil", err)
+	}
+	defer rows.Close()
+	values := map[uuid.UUID]protectedRow{}
+	for rows.Next() {
+		var ref uuid.UUID
+		var value protectedRow
+		if err := rows.Scan(&ref, &value.Value, &value.Redacted); err != nil {
+			t.Fatalf("rows.Scan of audit.pii row: err = %v, want nil", err)
+		}
+		values[ref] = value
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("rows.Err() after reading audit.pii = %v, want nil", err)
+	}
+	return values
 }
 
 // requireProtectedValues requires each reference in want to identify an
 // unredacted JSON string equal to its expected value.
-func requireProtectedValues(t *testing.T, redactor *audit.Redactor, want map[uuid.UUID]string) {
+func requireProtectedValues(t *testing.T, pool *pgxpool.Pool, want map[uuid.UUID]string) {
 	t.Helper()
 	refs := make([]uuid.UUID, 0, len(want))
 	for ref := range want {
 		refs = append(refs, ref)
 	}
-	values, err := redactor.ProtectedValues(t.Context(), refs)
-	if err != nil {
-		t.Fatalf("ProtectedValues error = %v, want nil", err)
-	}
+	values := protectedValues(t, pool, refs)
 	for ref, text := range want {
 		var got string
 		value, found := values[ref]
@@ -103,58 +142,15 @@ func requireProtectedValues(t *testing.T, redactor *audit.Redactor, want map[uui
 	}
 }
 
-// requireRedacted requires each reference to identify a redacted audit.pii
-// row that does not contain a payload.
-func requireRedacted(t *testing.T, redactor *audit.Redactor, refs []uuid.UUID) {
+// requireRedacted requires each reference in refs to identify a redacted
+// audit.pii row that does not contain a payload.
+func requireRedacted(t *testing.T, pool *pgxpool.Pool, refs []uuid.UUID) {
 	t.Helper()
-	values, err := redactor.ProtectedValues(t.Context(), refs)
-	if err != nil {
-		t.Fatalf("ProtectedValues error = %v, want nil", err)
-	}
+	values := protectedValues(t, pool, refs)
 	for _, ref := range refs {
 		value, found := values[ref]
 		if !found || !value.Redacted || len(value.Value) != 0 {
 			t.Fatalf("values[%s] after redaction = %+v, found = %t; want found = true, value.Redacted = true, and len(value.Value) = 0", ref, value, found)
-		}
-	}
-}
-
-// requireExportWithout exports orgID between oldest and latest, verifies the
-// bundle, and fails if any bundle file contains a value in personal.
-func requireExportWithout(t *testing.T, stack runtimeAuditStack, orgID uuid.UUID, oldest, latest time.Time, personal []string) {
-	t.Helper()
-	public, private, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatalf("ed25519.GenerateKey error = %v, want nil", err)
-	}
-	dir := t.TempDir()
-	filter := audit.QueryFilter{
-		OrgID: orgID, Oldest: oldest, Latest: latest, Action: "", ActorID: uuid.Nil, EntityID: uuid.Nil,
-		RequestID: "", TraceID: "", Limit: 0,
-	}
-	if _, err := audit.Export(t.Context(), stack.reader, private, audit.KeyIdentifier(public), filter, dir); err != nil {
-		t.Fatalf("Export for orgID %s: error = %v, want nil", orgID, err)
-	}
-	report, err := audit.VerifyBundle(dir, public)
-	if err != nil {
-		t.Fatalf("VerifyBundle for orgID %s: error = %v, want nil", orgID, err)
-	}
-	if report.RowsScanned == 0 || report.Err() != nil {
-		t.Fatalf("VerifyBundle for orgID %s: report.RowsScanned = %d, report.Err() = %v; want report.RowsScanned > 0 and report.Err() = nil", orgID, report.RowsScanned, report.Err())
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatalf("os.ReadDir error = %v, want nil", err)
-	}
-	for _, entry := range entries {
-		content, err := os.ReadFile(filepath.Join(dir, entry.Name()))
-		if err != nil {
-			t.Fatalf("os.ReadFile for entry.Name() %s: error = %v, want nil", entry.Name(), err)
-		}
-		for _, value := range personal {
-			if strings.Contains(string(content), value) {
-				t.Fatalf("export file %s contains a value in personal, want strings.Contains(string(content), value) = false for every value in personal", entry.Name())
-			}
 		}
 	}
 }
