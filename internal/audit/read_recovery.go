@@ -4,8 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"math/rand/v2"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // IncompleteReadEvent returns the event that recovery saves for an expired
@@ -44,11 +45,10 @@ func EncodeIncompleteRead(template Event, completedAt time.Time) (Event, Encoded
 // bucket once, and then waits ReadRenewInterval. Each application instance
 // runs it without a shared lock.
 func RunReadRecovery(ctx context.Context, store ReadLifecycle) {
-	start := rand.IntN(ReadRecoveryBuckets) //nolint:gosec // The start bucket spreads instances and is not a secret.
+	start := ReadBucket(uuid.New())
 	for ctx.Err() == nil {
-		for offset := range ReadRecoveryBuckets {
-			bucket := uint16((start + offset) % ReadRecoveryBuckets)
-			recoverReadBucket(ctx, store, bucket)
+		for offset := range uint16(ReadRecoveryBuckets) {
+			recoverReadBucket(ctx, store, (start+offset)%ReadRecoveryBuckets)
 		}
 		timer := time.NewTimer(ReadRenewInterval)
 		select {
@@ -110,7 +110,9 @@ func renewUntilDone(ctx context.Context, store ReadLifecycle, token ReadToken) e
 			return nil
 		case <-ticker.C:
 			if err := store.RenewRead(ctx, token); err != nil && ctx.Err() == nil {
-				return err
+				slog.ErrorContext(ctx, "audit.read_renewal.failed",
+					slog.String("event_id", token.EventID.String()), slog.String("err", err.Error()))
+				return fmt.Errorf("renew audit read %s: %w", token.EventID, err)
 			}
 		}
 	}

@@ -40,14 +40,16 @@ type versionstampOutboxWriter struct{}
 func (versionstampOutboxWriter) writeEncoded(tr fdb.Transaction, encoded audit.EncodedEvent) error {
 	messages, err := encoded.Messages()
 	if err != nil {
-		return fmt.Errorf("encode outbox messages: %w", err)
+		return auditReadStepFailure("encode outbox messages", err)
 	}
-	for position, message := range messages {
-		key, err := tuple.Tuple{keyOpsOutbox, tuple.IncompleteVersionstamp(uint16(position))}.PackWithVersionstamp(testPrefix)
+	var userVersion uint16
+	for _, message := range messages {
+		key, err := tuple.Tuple{keyOpsOutbox, tuple.IncompleteVersionstamp(userVersion)}.PackWithVersionstamp(testPrefix)
 		if err != nil {
-			return fmt.Errorf("pack outbox message key: %w", err)
+			return auditReadStepFailure("pack outbox message key", err)
 		}
 		tr.SetVersionstampedKey(fdb.Key(key), message)
+		userVersion++
 	}
 	return nil
 }
@@ -80,11 +82,11 @@ func (s *AuditReadStore) FinalizeRead(ctx context.Context, completion audit.Read
 		}
 		var template audit.Event
 		if err := json.Unmarshal(pending.Template, &template); err != nil {
-			return fmt.Errorf("decode the pending template: %w", err)
+			return auditReadStepFailure("decode the pending template", err)
 		}
 		encoded, err := audit.CheckReadCompletion(template, completion)
 		if err != nil {
-			return fmt.Errorf("check the final event: %w", err)
+			return auditReadStepFailure("check the final event", err)
 		}
 		if err := s.outbox.writeEncoded(tr, encoded); err != nil {
 			return err
@@ -157,13 +159,13 @@ func readAuditRecord[Record auditRecord](tr fdb.Transaction, key fdb.Key) (Recor
 	var record Record
 	encoded, err := tr.Get(key).Get()
 	if err != nil {
-		return record, false, fmt.Errorf("read audit read record: %w", err)
+		return record, false, auditReadStepFailure("read audit read record", err)
 	}
 	if len(encoded) == 0 {
 		return record, false, nil
 	}
 	if err := json.Unmarshal(encoded, &record); err != nil {
-		return record, false, fmt.Errorf("decode audit read record: %w", err)
+		return record, false, auditReadStepFailure("decode audit read record", err)
 	}
 	return record, true, nil
 }
@@ -172,7 +174,7 @@ func readAuditRecord[Record auditRecord](tr fdb.Transaction, key fdb.Key) (Recor
 func writeAuditRecord[Record auditRecord](tr fdb.Transaction, key fdb.Key, record Record) error {
 	encoded, err := json.Marshal(record)
 	if err != nil {
-		return fmt.Errorf("encode audit read record: %w", err)
+		return auditReadStepFailure("encode audit read record", err)
 	}
 	tr.Set(key, encoded)
 	return nil

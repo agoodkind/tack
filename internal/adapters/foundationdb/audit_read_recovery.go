@@ -29,8 +29,11 @@ func (s *AuditReadStore) RecoverExpired(ctx context.Context, bucket uint16, limi
 	err := transactAuditRead(ctx, s.db, func(tr fdb.Transaction) error {
 		due := auditReadDueRange(keyAuditReadExpiry, bucket, s.clock.Now())
 		keyValues, err := tr.Snapshot().GetRange(due, fdb.RangeOptions{Limit: limit}).GetSliceWithError()
+		if err != nil {
+			return auditReadStepFailure("read audit read expiry keys", err)
+		}
 		candidates = keyValues
-		return err
+		return nil
 	})
 	if err != nil {
 		return 0, auditReadFailure(ctx, "scan expired audit reads", uuid.Nil, err)
@@ -72,11 +75,11 @@ func (s *AuditReadStore) recoverOne(ctx context.Context, bucket uint16, deadline
 		}
 		var template audit.Event
 		if err := json.Unmarshal(pending.Template, &template); err != nil {
-			return fmt.Errorf("decode the pending template: %w", err)
+			return auditReadStepFailure("decode the pending template", err)
 		}
 		event, encoded, err := audit.EncodeIncompleteRead(template, now)
 		if err != nil {
-			return fmt.Errorf("encode the incomplete event: %w", err)
+			return auditReadStepFailure("encode the incomplete event", err)
 		}
 		if err := s.outbox.writeEncoded(tr, encoded); err != nil {
 			return err
@@ -104,7 +107,7 @@ func (s *AuditReadStore) CleanupPublished(ctx context.Context, bucket uint16, li
 		due := auditReadDueRange(keyAuditReadCleanup, bucket, s.clock.Now().Add(-audit.ReadReceiptRetention))
 		entries, err := tr.GetRange(due, fdb.RangeOptions{Limit: limit}).GetSliceWithError()
 		if err != nil {
-			return fmt.Errorf("read audit read cleanup keys: %w", err)
+			return auditReadStepFailure("read audit read cleanup keys", err)
 		}
 		for _, entry := range entries {
 			published, eventID, err := unpackAuditReadTimeKey(entry.Key)
@@ -134,7 +137,7 @@ func (s *AuditReadStore) CleanupPublished(ctx context.Context, bucket uint16, li
 func unpackAuditReadTimeKey(key fdb.Key) (int64, uuid.UUID, error) {
 	values, err := tuple.Unpack(stripPrefix(key))
 	if err != nil {
-		return 0, uuid.Nil, fmt.Errorf("unpack audit read key: %w", err)
+		return 0, uuid.Nil, auditReadStepFailure("unpack audit read key", err)
 	}
 	if len(values) != 4 {
 		return 0, uuid.Nil, fmt.Errorf("audit read key has %d tuple values, want 4", len(values))
@@ -146,7 +149,7 @@ func unpackAuditReadTimeKey(key fdb.Key) (int64, uuid.UUID, error) {
 	}
 	eventID, err := uuid.Parse(text)
 	if err != nil {
-		return 0, uuid.Nil, fmt.Errorf("parse audit read key event ID: %w", err)
+		return 0, uuid.Nil, auditReadStepFailure("parse audit read key event ID", err)
 	}
 	return instant, eventID, nil
 }
@@ -177,7 +180,9 @@ func transactAuditRead(ctx context.Context, db fdb.Database, apply func(fdb.Tran
 		}
 		err := apply(transaction)
 		if err == nil {
-			err = transaction.Commit().Get()
+			if commitErr := transaction.Commit().Get(); commitErr != nil {
+				err = auditReadStepFailure("commit audit read transaction", commitErr)
+			}
 		}
 		if err == nil {
 			return nil

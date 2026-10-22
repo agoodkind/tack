@@ -168,6 +168,14 @@ func clearPending(tr fdb.Transaction, eventID uuid.UUID, pending auditReadPendin
 	tr.Clear(auditReadExpiryKey(audit.ReadBucket(eventID), pending.LeaseDeadline, eventID))
 }
 
+// auditReadStepFailure logs and wraps one failed step inside a lifecycle
+// transaction.
+func auditReadStepFailure(operation string, err error) error {
+	wrapped := fmt.Errorf("%s: %w", operation, err)
+	slog.Error("audit.read_lifecycle.step_failed", slog.String("operation", operation), slog.String("err", wrapped.Error()))
+	return wrapped
+}
+
 // auditReadFailure logs and wraps one failed lifecycle operation.
 func auditReadFailure(ctx context.Context, operation string, eventID uuid.UUID, err error) error {
 	wrapped := fmt.Errorf("%s %s: %w", operation, eventID, err)

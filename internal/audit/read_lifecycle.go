@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -119,6 +120,8 @@ func ValidateReadAdmission(admission ReadAdmission) error {
 func CheckReadCompletion(template Event, completion ReadCompletion) (EncodedEvent, error) {
 	final := completion.Event
 	if !sameReadIdentity(template, final) {
+		slog.Error("audit.read_lifecycle.identity_changed", slog.String("event_id", final.EventID.String()),
+			slog.String("err", ErrReadIdentityChanged.Error()))
 		return EncodedEvent{}, fmt.Errorf("check audit read %s: %w", final.EventID, ErrReadIdentityChanged)
 	}
 	if final.Outcome == OutcomeIncomplete {
