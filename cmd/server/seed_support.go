@@ -32,15 +32,15 @@ func userIDForEmail(email string) uuid.UUID {
 	return uuid.NewSHA1(userIDNamespace, []byte(strings.ToLower(email)))
 }
 
-// ensureNode creates (or re-verifies) a generic node. When a node with
-// (typeKey, slug) already exists it is detected via the org-scoped
-// node_by_property index and its ID is returned with no further writes.
-// parentID may be [uuid.Nil] for org-level nodes. lookupOrgID is the orgID used
-// to query the property index for an existing node: for non-org nodes this is
-// the parentID; for org nodes (where orgID == the node's own ID) the caller
-// supplies the orgID from the user's existing org membership, or [uuid.Nil] when
-// a prior membership does not exist. CreateAtomic writes change events for the new node and,
-// when parentID is not [uuid.Nil], its parent relationship in the create transaction.
+// ensureNode creates or re-verifies a generic node. It finds an existing node
+// with (typeKey, slug) through the org-scoped node_by_property index and returns
+// its ID without further writes. parentID may be [uuid.Nil] for org-level nodes.
+// ensureNode uses lookupOrgID to query the property index for an existing node.
+// For non-org nodes, lookupOrgID is parentID. For org nodes, orgID equals the
+// node's own ID, and the caller supplies lookupOrgID from the user's existing
+// org membership or [uuid.Nil] when a prior membership does not exist. In
+// the create transaction, CreateAtomic writes a change event for the new node
+// and writes one for its parent relationship when parentID is not [uuid.Nil].
 func ensureNode(ctx context.Context, s *fdbadapter.Stores, typeKey, slug, name string, parentID, lookupOrgID uuid.UUID) (uuid.UUID, error) {
 	log := telemetry.L(ctx)
 	slugRaw, err := json.Marshal(slug)

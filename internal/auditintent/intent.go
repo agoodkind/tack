@@ -1,11 +1,14 @@
-// Package auditintent attaches MCP tool slots and encoded audit operations
-// to request contexts.
+// Package auditintent attaches MCP tool slots and
+// encoded audit operations to request contexts.
 //
-// The MCP tool wrapper attaches a slot with the tool name and actor.
-// Each FoundationDB writer reads the slot through the audit package and writes
-// one change event per changed record in the same transaction as the record change.
-// The writer marks the slot committed. The wrapper skips its change event
-// when the slot has that mark.
+// [WithSlot] attaches an MCP tool slot with the tool name and actor.
+// [WithOperation] attaches a slot that stores an encoded audit operation.
+//
+// Each FoundationDB writer reads the nearest slot through the audit package and
+// writes one change event per changed record in the same transaction as the record
+// change. Writers call [Commit] to mark the nearest slot on their context committed.
+// The MCP wrapper calls [Committed] on its own context to check the MCP tool slot it
+// attached. The wrapper skips its change event when its own MCP tool slot has that mark.
 //
 // Encoded operations use [json.RawMessage].
 package auditintent
