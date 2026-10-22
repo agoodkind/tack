@@ -47,7 +47,7 @@ func TestSearchAccessRolloutTwoAuthorities(t *testing.T) {
 		return firstState.Activated() && otherState.Phase == searchdomain.AccessStable
 	})
 	for range rollbackWaitSlices {
-		runSliceOrWait(t, fixture.worker)
+		runRolloutSlice(t, fixture.worker)
 	}
 	firstWaiting, otherDone := currentAccessRollout(t, fixture, first.OrgID), currentAccessRollout(t, fixture, other.OrgID)
 	requireAccessRollout(t, firstWaiting, searchaccess.RotatedVersion, bothAccessVersions, searchdomain.AccessVerifying)

@@ -49,6 +49,14 @@ func TestSearchAccessRollbackDuringBackfill(t *testing.T) {
 	requireRollbackAudit(t, fixture, operatorID, audit.OutcomeOK)
 	rolledBack := currentAccessRollout(t, fixture, workspace.OrgID)
 	requireAccessRollout(t, rolledBack, searchaccess.StableVersion, []string{searchaccess.StableVersion}, searchdomain.AccessVerifying)
+	repeatedOperatorID, err := runAccessRollback(t, fixture, workspace.OrgID)
+	if err != nil {
+		t.Fatalf("Repeating the rollback failed: %v", err)
+	}
+	requireRollbackAudit(t, fixture, repeatedOperatorID, audit.OutcomeOK)
+	if repeated := currentAccessRollout(t, fixture, workspace.OrgID); repeated.Generation != rolledBack.Generation || !slices.Equal(repeated.WriteVersions, rolledBack.WriteVersions) {
+		t.Fatalf("Repeated rollback state %+v must keep the generation and write versions of the first rollback state %+v", repeated, rolledBack)
+	}
 	if rolledBack.PreviousVersion != searchaccess.RotatedVersion || rolledBack.Generation <= begun.Generation {
 		t.Fatalf("rollback state %+v must record the rotated version as previous and a generation above %d", rolledBack, begun.Generation)
 	}
@@ -106,7 +114,7 @@ func TestSearchAccessRollbackAfterActivation(t *testing.T) {
 	requireNodesFound(t, traverseSearch(t, fixture, workspace, query, restoredPage), nodes)
 
 	for range rollbackWaitSlices {
-		runSliceOrWait(t, fixture.worker)
+		runRolloutSlice(t, fixture.worker)
 	}
 	requireAccessRollout(t, currentAccessRollout(t, fixture, workspace.OrgID), searchaccess.StableVersion, []string{searchaccess.StableVersion}, searchdomain.AccessVerifying)
 	requirePageVersions(t, rolloutPages(t, fixture, nodes), bothAccessVersions)

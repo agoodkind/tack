@@ -70,7 +70,7 @@ func TestSearchAccessRolloutGrantDuringVerification(t *testing.T) {
 
 	restarted := false
 	for range rollbackWaitSlices {
-		runSliceOrWait(t, fixture.worker)
+		runRolloutSlice(t, fixture.worker)
 		current := currentAccessRollout(t, fixture, first.OrgID)
 		restarted = restarted || current.Phase == searchdomain.AccessBackfill
 		if current.Activated() {
@@ -101,10 +101,10 @@ func TestSearchAccessRolloutGrantDuringVerification(t *testing.T) {
 	requirePageVersions(t, rolloutPages(t, fixture, nodes), []string{searchaccess.RotatedVersion})
 }
 
-// TestSearchAccessRolloutAffectedOverflow requires the rollout to restart
-// backfill before activation after the test creates 260 nodes during the
-// affected pass. The restarted rollout must exit the affected pass and clear
-// the scan cursor. The completed rollout must leave only the rotated version
+// TestSearchAccessRolloutAffectedOverflow creates 260 nodes during the
+// affected pass and requires overflow to restart full verification at the
+// first page. The rollout must end the affected pass, remain in verifying,
+// and keep its generation. It must then finish with only the rotated version
 // on every page.
 func TestSearchAccessRolloutAffectedOverflow(t *testing.T) {
 	fixture := newRolloutFixture(t)
@@ -115,19 +115,19 @@ func TestSearchAccessRolloutAffectedOverflow(t *testing.T) {
 	existing := putRolloutCorpus(t, fixture, kind, entryID, query, 1)
 	drainRolloutWork(t, fixture)
 
-	beginAccessRollout(t, fixture, workspace.OrgID)
+	begun := beginAccessRollout(t, fixture, workspace.OrgID)
 	runRolloutUntil(t, fixture, workspace.OrgID, func(rollout searchdomain.AccessRollout) bool {
 		return rollout.AffectedPass
 	})
 	created := putRolloutCorpus(t, fixture, kind, entryID, query, overflowGrantNodes)
 	restarted := runRolloutUntil(t, fixture, workspace.OrgID, func(rollout searchdomain.AccessRollout) bool {
-		if rollout.Activated() {
-			t.Fatalf("The rollout activated before the affected set overflow restarted the authority scan: %+v", rollout)
+		if rollout.Activated() || rollout.Phase != searchdomain.AccessVerifying {
+			t.Fatalf("Rollout %+v activated or left verifying before overflow restarted verification", rollout)
 		}
-		return rollout.Phase == searchdomain.AccessBackfill
+		return !rollout.AffectedPass
 	})
-	if restarted.AffectedPass || restarted.ScanCursor != "" {
-		t.Fatalf("The restarted rollout must exit the affected pass and clear the scan cursor: %+v", restarted)
+	if restarted.VerifyCursor != "" || restarted.Generation != begun.Generation {
+		t.Fatalf("Restarted rollout %+v must begin verification at the first page and keep its generation", restarted)
 	}
 
 	final := runRolloutUntil(t, fixture, workspace.OrgID, rolloutStable)

@@ -67,9 +67,9 @@ func requireAccessRollout(t *testing.T, rollout searchdomain.AccessRollout, acti
 	}
 }
 
-// runSliceOrWait runs one worker slice, waits after an engine rejection,
+// runRolloutSlice runs one worker slice, waits after an engine rejection,
 // and pauses when the slice does not claim work.
-func runSliceOrWait(t *testing.T, worker *service.SearchWorker) {
+func runRolloutSlice(t *testing.T, worker *service.SearchWorker) {
 	t.Helper()
 	claimed, err := worker.RunSlice(t.Context())
 	if err != nil {
@@ -108,7 +108,7 @@ func runWorkerUntil(t *testing.T, fixture rolloutFixture, worker *service.Search
 		if done(current) {
 			return current
 		}
-		runSliceOrWait(t, worker)
+		runRolloutSlice(t, worker)
 	}
 	t.Fatalf("rollout for authority %s did not enter the expected state within %s", authorityID, rolloutStepDeadline)
 	return searchdomain.AccessRollout{}
