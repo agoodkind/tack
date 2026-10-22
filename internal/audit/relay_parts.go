@@ -13,7 +13,7 @@ import (
 )
 
 // errRelayMessageProducer reports that the recorder does not implement messageProducer.
-var errRelayMessageProducer = errors.New("relay recorder cannot produce event part messages")
+var errRelayMessageProducer = errors.New("relay recorder cannot publish audit transport messages")
 
 // messageProducer lets a recorder produce raw records with an explicit Kafka key.
 type messageProducer interface {
@@ -93,7 +93,7 @@ func (r *Relay) produceMessage(ctx context.Context, key, value []byte) error {
 	}
 	if err := producer.produceMessage(ctx, key, value); err != nil {
 		slog.ErrorContext(ctx, "audit.relay.message_produce_failed", slog.String("err", err.Error()))
-		return fmt.Errorf("produce event part message: %w", err)
+		return fmt.Errorf("publish audit transport message: %w", err)
 	}
 	return nil
 }
@@ -122,7 +122,7 @@ func (k *KafkaRecorder) produceMessage(ctx context.Context, key, value []byte) e
 	if err := result.FirstErr(); err != nil {
 		telemetry.IncAuditKafkaProduce("error")
 		slog.ErrorContext(ctx, "audit.kafka.message_produce_failed", slog.String("topic", k.topic), slog.String("err", err.Error()))
-		return fmt.Errorf("audit kafka produce event part message: %w", err)
+		return fmt.Errorf("publish audit transport message to Kafka: %w", err)
 	}
 	telemetry.IncAuditKafkaProduce("ok")
 	return nil

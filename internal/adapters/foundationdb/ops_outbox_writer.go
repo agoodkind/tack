@@ -61,7 +61,7 @@ func (w *OutboxWriter) write(ctx context.Context, values [][]byte) error {
 		key, err := marshalOpsOutboxEntryKey(w.next)
 		if err != nil {
 			slog.ErrorContext(ctx, "ops_outbox.intent_key_failed", slog.String("err", err.Error()))
-			return fmt.Errorf("ops outbox intent key: %w", err)
+			return fmt.Errorf("create ops outbox intent key: %w", err)
 		}
 		w.tr.SetVersionstampedKey(key, value)
 		w.next++
