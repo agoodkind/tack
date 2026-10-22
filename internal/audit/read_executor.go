@@ -124,7 +124,6 @@ func prepareRead[T ReadValue](result ReadResult[T], readErr error) preparedRead 
 	}
 }
 
-// failedEncoding returns a failed outcome for an encoding error.
 func failedEncoding(err error) preparedRead {
 	slog.Error("audit.read_executor.encode_failed", slog.String("err", err.Error()))
 	return preparedRead{
@@ -137,7 +136,6 @@ func failedEncoding(err error) preparedRead {
 	}
 }
 
-// noEncodedRead returns an encoded read without a payload or evidence.
 func noEncodedRead() EncodedRead {
 	return EncodedRead{
 		Payload: nil, ContentType: "",
@@ -145,7 +143,6 @@ func noEncodedRead() EncodedRead {
 	}
 }
 
-// notRecorded logs a recording failure and wraps it with ErrReadNotRecorded.
 func notRecorded(ctx context.Context, token ReadToken, err error) error {
 	slog.ErrorContext(ctx, "audit.read_executor.not_recorded",
 		slog.String("event_id", token.EventID.String()), slog.String("err", err.Error()))
