@@ -50,10 +50,12 @@ func requireBatchesOfNode(t *testing.T, searches []capturedSearch, nodeID uuid.U
 }
 
 // TestSearchVisitedBatchesReturnEmptyPage checks continuation across 901
-// pages of one node. The second public page must return zero results with a
-// cursor after four batches contain only pages of that visited node.
-// Later pages must return each remaining node exactly once and complete
-// within 10 pages.
+// pages of one node. The test records OpenSearch's ranked batches through a
+// proxy. For the second public page, OpenSearch returns four ranked batches
+// of 100 page matches each. Every match is a page of the node that the first
+// public page returned. The second public page must return zero results
+// with a cursor. Later public pages must return each of the three other
+// nodes exactly once and complete within 10 pages.
 func TestSearchVisitedBatchesReturnEmptyPage(t *testing.T) {
 	fixture := integration.NewQueryFixture(t)
 	workspace := fixture.Workspaces[0]
