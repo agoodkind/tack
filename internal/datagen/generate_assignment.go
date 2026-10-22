@@ -5,11 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-)
 
-// unassignedText is the Assignees value tack_get_issue prints for an issue
-// without an assigned_to relationship.
-const unassignedText = "unassigned"
+	"goodkind.io/tack/internal/adapters/mcp/tools"
+)
 
 // errAssignmentStillRendered reports that tack_get_issue still showed an
 // assignee after tack_remove_relationship removed the issue's assigned_to
@@ -39,7 +37,7 @@ func (g *Generator) exerciseAssignmentRemoval(
 	if err != nil {
 		return loggedError(ctx, "qa datagen: tack_get_issue after assignment removal", err)
 	}
-	if !g.dryRun && result.field("Assignees") != unassignedText {
+	if !g.dryRun && result.field("Assignees") != tools.UnassignedText {
 		message := fmt.Sprintf("qa datagen: assignment removal probe for issue %s", issueReference)
 		return loggedError(ctx, message, errAssignmentStillRendered)
 	}

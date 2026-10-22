@@ -9,9 +9,9 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// unassignedText is the assignee field value for a node without an
+// UnassignedText is the assignee field value for a node without an
 // assigned_to relationship.
-const unassignedText = "unassigned"
+const UnassignedText = "unassigned"
 
 // loadAssignees stores target user IDs on rc for views with has_assignees.
 // It groups these views by organization and calls ListBySources once per
@@ -85,7 +85,7 @@ func appendNestedAssigned(fields []markdownField, rc *renderCtx, view *node.Node
 	case !loaded:
 		return fields
 	case len(assignees) == 0:
-		return append(fields, markdownFieldValue("Assigned", unassignedText))
+		return append(fields, markdownFieldValue("Assigned", UnassignedText))
 	case len(assignees) == 1:
 		return append(fields, markdownFieldValue("Assigned", rc.assigneeName(assignees[0])))
 	default:
@@ -104,7 +104,7 @@ func appendAssignees(fields []markdownField, rc *renderCtx, view *node.NodeView)
 		return fields
 	}
 	if len(assignees) == 0 {
-		return append(fields, markdownFieldValue("Assignees", unassignedText))
+		return append(fields, markdownFieldValue("Assignees", UnassignedText))
 	}
 	names := make([]string, 0, len(assignees))
 	for _, userID := range assignees {
