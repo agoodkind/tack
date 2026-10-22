@@ -670,7 +670,7 @@ func (c *Consumer) projectOne(ctx context.Context, tx pgx.Tx, rec *kgo.Record) (
 	if err := checkReadManifest(prepared.Event, nil); err != nil {
 		return projectedEvent{}, false, rejectTransport(ctx, prepared.EventID, err.Error())
 	}
-	piiRef, err := writePIIRow(ctx, tx, prepared.Event.Actor)
+	piiRef, err := writeEventPII(ctx, tx, prepared.Event)
 	if err != nil {
 		return projectedEvent{}, false, err
 	}

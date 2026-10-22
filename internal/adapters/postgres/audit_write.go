@@ -57,6 +57,7 @@ func changeEvent(operation audit.Event, change audit.Change, completedAt time.Ti
 	event.Context.CompletedAt = completedAt
 	event.Context.Target = &target
 	event.Delta = &audit.Delta{Before: change.Before, After: change.After, Changed: change.Changed}
+	event.Protected = change.Protected
 	event.Outcome = audit.OutcomeCompleted
 	event.Error = nil
 	event.OccurredAt = completedAt
@@ -74,6 +75,7 @@ func failureEvent(operation audit.Event, target audit.Target, cause error) audit
 	event.Context.CompletedAt = completedAt
 	event.Context.Target = &target
 	event.Delta = nil
+	event.Protected = nil
 	event.Outcome = audit.OutcomeFailed
 	event.Error = &audit.EventError{Code: failureCode(cause), Message: failureMessageRollback}
 	event.OccurredAt = completedAt

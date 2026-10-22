@@ -23,28 +23,10 @@ func NewUserRepo(db *pgxpool.Pool) *UserRepo {
 	return &UserRepo{db: db}
 }
 
-// userEmailField and userDisplayNameField define the Changed entries for the
-// two personal-data fields. User change events list these entries but do not
-// store the field values.
-const (
-	userEmailField       = "/email"
-	userDisplayNameField = "/display_name"
-)
-
-// userValue contains user state and timestamps for an audit change. It omits
-// email and display name because they contain personal data.
-type userValue struct {
-	ID        uuid.UUID `json:"id"`
-	IsActive  bool      `json:"is_active"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-}
-
-// Create inserts u and one audit change event in one transaction. It keeps a
-// supplied ID or assigns a UUIDv7 when u.ID is [uuid.Nil]. The seed supplies a
-// fixed ID, and the development bearer equals that ID across database wipes.
-// The change event lists /email and /display_name in Changed but does not store
-// either value because both contain personal data.
+// Create inserts u and one audit change event into the outbox in one
+// transaction. It keeps a supplied ID or assigns a UUIDv7 when u.ID is
+// [uuid.Nil]. The event uses protected references for email and display name
+// in After and supplies their JSON values in Protected.
 func (r *UserRepo) Create(ctx context.Context, operation audit.Event, u *user.User) (*user.User, error) {
 	if u.ID == uuid.Nil {
 		u.ID = uuid.Must(uuid.NewV7())
@@ -55,19 +37,23 @@ func (r *UserRepo) Create(ctx context.Context, operation audit.Event, u *user.Us
 			INSERT INTO users (id, email, display_name)
 			VALUES ($1, $2, $3)
 			RETURNING created_at, updated_at, is_active`
-		stored := userValue{ID: u.ID, IsActive: false, CreatedAt: time.Time{}, UpdatedAt: time.Time{}}
-		if err := tx.QueryRow(ctx, q, u.ID, u.Email, u.DisplayName).
-			Scan(&stored.CreatedAt, &stored.UpdatedAt, &stored.IsActive); err != nil {
+		var createdAt, updatedAt time.Time
+		var isActive bool
+		if err := tx.QueryRow(ctx, q, u.ID, u.Email, u.DisplayName).Scan(&createdAt, &updatedAt, &isActive); err != nil {
 			return pgErr(err)
 		}
-		u.CreatedAt, u.UpdatedAt = stored.CreatedAt, stored.UpdatedAt
-		after, err := changeValue(ctx, &stored)
+		u.CreatedAt, u.UpdatedAt = createdAt, updatedAt
+		stored, protected, err := newUserValue(ctx, u, isActive)
+		if err != nil {
+			return err
+		}
+		after, err := changeValue(ctx, stored)
 		if err != nil {
 			return err
 		}
 		return WriteChanges(ctx, tx, operation, []audit.Change{{
 			EventID: uuid.Must(uuid.NewV7()), Target: target, Before: nil, After: after,
-			Changed: []string{userEmailField, userDisplayNameField},
+			Changed: nil, Protected: protected,
 		}})
 	})
 	if err != nil {
