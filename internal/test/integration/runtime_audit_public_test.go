@@ -12,13 +12,16 @@ import (
 	"goodkind.io/tack/internal/auth"
 )
 
-// TestRuntimeAuditPublicRead reads a project through the MCP route and
-// compares the ledger event with the verified user, the project identity, and
-// the digest of the returned body.
+// TestRuntimeAuditPublicRead creates and reads a project through the MCP route.
+// It checks the read event against the verified user, the project identity,
+// and the response body digest. It also checks that the create request's ledger
+// events share a non-nil ParentOperationID that differs from each event's
+// OperationID.
 func TestRuntimeAuditPublicRead(t *testing.T) {
 	server := startPublicServer(t, nil)
 	identifier := "audit-read-" + uuid.NewString()[:8]
-	created := server.rpc(t, newRequestID(t, "create"), "tools/call", map[string]any{
+	createID := newRequestID(t, "create")
+	created := server.rpc(t, createID, "tools/call", map[string]any{
 		"name": "tack_create_project",
 		"arguments": map[string]any{
 			"workspace_reference": server.workspace, "name": identifier,
@@ -48,6 +51,18 @@ func TestRuntimeAuditPublicRead(t *testing.T) {
 	targets := ledger.manifestTargets(t, row)
 	if len(targets) != 1 || targets[0].Kind != audit.TargetKindNode || targets[0].ID != projectID {
 		t.Fatalf("event %s manifest = %+v, want project %s", row.EventID, targets, projectID)
+	}
+	parentID := uuid.Nil
+	for _, change := range ledger.changeRows(t, server.orgID, createID) {
+		eventContext := change.Context
+		if eventContext.ParentOperationID == uuid.Nil || eventContext.ParentOperationID == eventContext.OperationID {
+			t.Fatalf("change event %s ParentOperationID = %s, want a non-nil ID different from OperationID %s",
+				change.EventID, eventContext.ParentOperationID, eventContext.OperationID)
+		}
+		if parentID != uuid.Nil && eventContext.ParentOperationID != parentID {
+			t.Fatalf("change event %s ParentOperationID = %s, want the shared parent ID %s", change.EventID, eventContext.ParentOperationID, parentID)
+		}
+		parentID = eventContext.ParentOperationID
 	}
 }
 

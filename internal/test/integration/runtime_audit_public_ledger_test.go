@@ -66,6 +66,36 @@ func (ledger publicLedger) row(t *testing.T, orgID uuid.UUID, requestID string) 
 	}
 }
 
+// changeRows queries the ledger for requestID in orgID until it finds a row
+// with OperationClass audit.OperationDatabaseChange or publicDeliveryTimeout passes.
+// It returns only rows with that operation class and fails the test on timeout.
+func (ledger publicLedger) changeRows(t *testing.T, orgID uuid.UUID, requestID string) []audit.Row {
+	t.Helper()
+	deadline := clock.Now().Add(publicDeliveryTimeout)
+	for {
+		rows, err := ledger.stack.reader.Query(t.Context(), audit.QueryFilter{
+			OrgID: orgID, Oldest: ledger.since, Latest: clock.Now().Add(time.Hour), Action: "",
+			ActorID: uuid.Nil, EntityID: uuid.Nil, RequestID: requestID, TraceID: "", Limit: 100,
+		})
+		if err != nil {
+			t.Fatalf("ledger query failed while waiting for a change event for request %s: %v", requestID, err)
+		}
+		changes := make([]audit.Row, 0, len(rows))
+		for _, row := range rows {
+			if row.Context.OperationClass == audit.OperationDatabaseChange {
+				changes = append(changes, row)
+			}
+		}
+		if len(changes) > 0 {
+			return changes
+		}
+		if clock.Now().After(deadline) {
+			t.Fatalf("ledger query did not return a database change event for request %s within %s", requestID, publicDeliveryTimeout)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
 // manifestTargets returns the ordered read targets of the event in the ledger.
 func (ledger publicLedger) manifestTargets(t *testing.T, row audit.Row) []audit.Target {
 	t.Helper()
