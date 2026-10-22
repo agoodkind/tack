@@ -120,16 +120,17 @@ func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
 	)
 
 	mcpHandler := mcpadapter.NewHandler(mcpadapter.Deps{
-		NodeSvc:       nodeSvc,
-		Nodes:         fdbStores.Nodes,
-		Reader:        fdbStores.Views,
-		NodeTypes:     fdbStores.NodeTypes,
-		PropertyDefs:  fdbStores.PropertyDefs,
-		Relationships: fdbStores.Relationships,
-		Members:       orgMembers,
-		Users:         userRepo,
-		Search:        searchBinding,
-		Epochs:        epochs,
+		NodeSvc:            nodeSvc,
+		Nodes:              fdbStores.Nodes,
+		Reader:             fdbStores.Views,
+		NodeTypes:          fdbStores.NodeTypes,
+		PropertyDefs:       fdbStores.PropertyDefs,
+		Relationships:      fdbStores.Relationships,
+		RelationshipLister: fdbStores.Relationships,
+		Members:            orgMembers,
+		Users:              userRepo,
+		Search:             searchBinding,
+		Epochs:             epochs,
 	})
 
 	authMiddleware := buildAuthMiddleware(cfg, tokenRepo, orgMembers)
