@@ -40,8 +40,8 @@ func checkRowHash(row Row) (bool, string, error) {
 			"claims hash version %d with a sub-microsecond timestamp the ledger cannot store",
 			row.HashVersion), nil
 	}
-	// Verify stored event rules without requiring protected payloads. Reject
-	// contract violations even when the row hash matches.
+	// Validate the stored event contract without requiring protected payloads.
+	// Reject contract violations even when the row hash matches.
 	if reason := contractViolation(row); reason != "" {
 		return false, reason, nil
 	}
