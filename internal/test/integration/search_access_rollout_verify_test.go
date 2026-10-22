@@ -101,26 +101,32 @@ func TestSearchAccessRolloutGrantDuringVerification(t *testing.T) {
 	requirePageVersions(t, rolloutPages(t, fixture, nodes), []string{searchaccess.RotatedVersion})
 }
 
-// TestSearchAccessRolloutAffectedOverflow creates 260 nodes during the
-// affected pass and requires overflow to restart full verification at the
-// first page. The rollout must end the affected pass, remain in verifying,
-// and keep its generation. It must then finish with only the rotated version
-// on every page.
+// TestSearchAccessRolloutAffectedOverflow creates 260 nodes
+// under one entry point before the rollout. During the affected pass, it
+// moves every node to a second entry point of the same organization. The
+// moves must record more than 256 nodes in the affected set. The next step
+// must end the affected pass and restart verification at the first page
+// without leaving verifying or changing the rollout generation. The restart
+// must clear the affected set. The rollout must then finish with only the
+// rotated version on every page.
 func TestSearchAccessRolloutAffectedOverflow(t *testing.T) {
 	fixture := newRolloutFixture(t)
-	workspace := fixture.workspaces[0]
-	entryID := rolloutEntryPoint(t, fixture, workspace)
-	kind := putRolloutKind(t, fixture, workspace.OrgID)
-	query := "affected overflow lantern"
-	existing := putRolloutCorpus(t, fixture, kind, entryID, query, 1)
+	first, second := sameOrganizationWorkspaces(t, fixture)
+	from, to := rolloutEntryPoint(t, fixture, first), rolloutEntryPoint(t, fixture, second)
+	nodes := putRolloutCorpus(t, fixture, putRolloutKind(t, fixture, first.OrgID), from, "affected overflow lantern", overflowGrantNodes)
 	drainRolloutWork(t, fixture)
 
-	begun := beginAccessRollout(t, fixture, workspace.OrgID)
-	runRolloutUntil(t, fixture, workspace.OrgID, func(rollout searchdomain.AccessRollout) bool {
+	begun := beginAccessRollout(t, fixture, first.OrgID)
+	runRolloutUntil(t, fixture, first.OrgID, func(rollout searchdomain.AccessRollout) bool {
 		return rollout.AffectedPass
 	})
-	created := putRolloutCorpus(t, fixture, kind, entryID, query, overflowGrantNodes)
-	restarted := runRolloutUntil(t, fixture, workspace.OrgID, func(rollout searchdomain.AccessRollout) bool {
+	for _, nodeID := range nodes {
+		moveRolloutNode(t, fixture, nodeID, to)
+	}
+	if affected := affectedNodes(t, fixture, first.OrgID); len(affected.Nodes) <= affectedSetBound {
+		t.Fatalf("Affected set size %d after the moves must exceed the bound of %d", len(affected.Nodes), affectedSetBound)
+	}
+	restarted := runRolloutUntil(t, fixture, first.OrgID, func(rollout searchdomain.AccessRollout) bool {
 		if rollout.Activated() || rollout.Phase != searchdomain.AccessVerifying {
 			t.Fatalf("Rollout %+v activated or left verifying before overflow restarted verification", rollout)
 		}
@@ -129,10 +135,13 @@ func TestSearchAccessRolloutAffectedOverflow(t *testing.T) {
 	if restarted.VerifyCursor != "" || restarted.Generation != begun.Generation {
 		t.Fatalf("Restarted rollout %+v must begin verification at the first page and keep its generation", restarted)
 	}
+	if affected := affectedNodes(t, fixture, first.OrgID); len(affected.Nodes) != 0 {
+		t.Fatalf("Verification must restart with an empty affected set instead of %+v", affected)
+	}
 
-	final := runRolloutUntil(t, fixture, workspace.OrgID, rolloutStable)
+	final := runRolloutUntil(t, fixture, first.OrgID, rolloutStable)
 	requireAccessRollout(t, final, searchaccess.RotatedVersion, []string{searchaccess.RotatedVersion}, searchdomain.AccessStable)
-	requirePageVersions(t, rolloutPages(t, fixture, append(slices.Clone(existing), created...)), []string{searchaccess.RotatedVersion})
+	requirePageVersions(t, rolloutPages(t, fixture, nodes), []string{searchaccess.RotatedVersion})
 }
 
 // sameOrganizationWorkspaces returns two bootstrapped workspaces of one

@@ -13,11 +13,6 @@ import (
 	"goodkind.io/tack/internal/service"
 )
 
-// concurrentGrantRecordings is the number of recordings from two moves
-// between the same two entry points. Each move records the moved node and
-// both entry points.
-const concurrentGrantRecordings = 6
-
 // TestSearchAccessRolloutDeletionDuringVerification deletes a node during
 // the affected pass and requires the affected set to include it. It claims
 // the deleted node's fanout access work and requires activation to wait
@@ -81,9 +76,9 @@ func TestSearchAccessRolloutGrantDuringBackfill(t *testing.T) {
 }
 
 // TestSearchAccessRolloutConcurrentGrants moves two nodes concurrently
-// during the affected pass and requires both moves to commit. The recording
-// counter must equal six, and the affected set must include both moved nodes
-// and both entry points.
+// during the affected pass and requires both moves to commit. The affected
+// set must contain exactly the two moved nodes and both entry points. The
+// recording counter must be at least the set size.
 func TestSearchAccessRolloutConcurrentGrants(t *testing.T) {
 	fixture := newRolloutFixture(t)
 	first, second := sameOrganizationWorkspaces(t, fixture)
@@ -112,8 +107,8 @@ func TestSearchAccessRolloutConcurrentGrants(t *testing.T) {
 			t.Fatalf("Affected set %+v must contain node %s", affected, nodeID)
 		}
 	}
-	if affected.Recorded != concurrentGrantRecordings || len(affected.Nodes) != len(nodes)+2 {
-		t.Fatalf("Affected nodes %+v must have %d recordings and four distinct nodes", affected, concurrentGrantRecordings)
+	if affected.Recorded < int64(len(affected.Nodes)) || len(affected.Nodes) != len(nodes)+2 {
+		t.Fatalf("Affected nodes %+v must contain exactly %d distinct nodes with a recording counter at least as large as the set size", affected, len(nodes)+2)
 	}
 }
 

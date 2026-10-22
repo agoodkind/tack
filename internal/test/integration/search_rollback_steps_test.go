@@ -20,7 +20,7 @@ const (
 	// rolloutIdlePause sets the delay after a slice does not claim work.
 	rolloutIdlePause = 250 * time.Millisecond
 	// rolloutDrainSlices bounds the worker slices in one drain.
-	rolloutDrainSlices = 2000
+	rolloutDrainSlices = 4000
 	// rolloutRejectedWait sets the wait after OpenSearch rejects a slice with
 	// HTTP 429. The wait covers the 10 second retry delay of released work.
 	rolloutRejectedWait = 15 * time.Second
