@@ -16,7 +16,6 @@ const (
 	organizationUnavailableBody = `{"error":"organization unavailable"}`
 )
 
-// methodNotAllowed writes a 405 response with the allowed methods and body.
 func methodNotAllowed(writer http.ResponseWriter, allow, body string) {
 	writer.Header().Set("Allow", allow)
 	writer.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -34,7 +33,6 @@ func organizationUnavailable() *responseCapture {
 	return capture
 }
 
-// rejectionVerb returns the verb of a request that authentication rejected.
 func rejectionVerb(reason string) audit.Verb {
 	if reason == auth.RejectionMissingAuthorization {
 		return audit.VerbAuthLoginFailed
@@ -42,7 +40,6 @@ func rejectionVerb(reason string) audit.Verb {
 	return audit.VerbAuthTokenRejected
 }
 
-// rejectionOutcome returns the outcome of a request that authentication rejected.
 func rejectionOutcome(reason string) audit.OutcomeDetails {
 	switch reason {
 	case auth.RejectionMissingAuthorization:

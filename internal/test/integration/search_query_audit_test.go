@@ -17,7 +17,6 @@ const searchAuditPageSize = 1000
 // harnessOutboxTimeout limits the duration of each FoundationDB transaction for the harness outbox reader.
 const harnessOutboxTimeout = 5 * time.Second
 
-// harnessOutbox uses clusterFile to open the FoundationDB outbox for read event checks.
 func harnessOutbox(t *testing.T, clusterFile string) *fdbadapter.OpsOutboxStore {
 	t.Helper()
 	stores, err := fdbadapter.NewStores(clusterFile, harnessOutboxTimeout, nil)

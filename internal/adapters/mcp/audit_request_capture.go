@@ -33,17 +33,14 @@ type responseCapture struct {
 	body   bytes.Buffer
 }
 
-// newResponseCapture returns an empty capture with status 200.
 func newResponseCapture() *responseCapture {
 	return &responseCapture{
 		ReadValueMarker: audit.ReadValueMarker{}, header: http.Header{}, status: http.StatusOK, body: bytes.Buffer{},
 	}
 }
 
-// Header returns the captured response headers.
 func (capture *responseCapture) Header() http.Header { return capture.header }
 
-// Write appends payload to the captured body.
 func (capture *responseCapture) Write(payload []byte) (int, error) {
 	written, err := capture.body.Write(payload)
 	if err != nil {
@@ -52,7 +49,6 @@ func (capture *responseCapture) Write(payload []byte) (int, error) {
 	return written, nil
 }
 
-// WriteHeader stores the response status.
 func (capture *responseCapture) WriteHeader(status int) { capture.status = status }
 
 // readResult returns the buffered response and the targets that the handler collected.
@@ -151,12 +147,10 @@ func jsonRPCOutcome(contentType string, body []byte) audit.OutcomeDetails {
 	}
 }
 
-// refused returns a refused outcome with code and message.
 func refused(code, message string) audit.OutcomeDetails {
 	return audit.OutcomeDetails{Outcome: audit.OutcomeRefused, FailureCode: code, FailureMessage: message, CommittedSteps: nil}
 }
 
-// failed returns a failed outcome with code and message.
 func failed(code, message string) audit.OutcomeDetails {
 	return audit.OutcomeDetails{Outcome: audit.OutcomeFailed, FailureCode: code, FailureMessage: message, CommittedSteps: nil}
 }

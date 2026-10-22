@@ -23,7 +23,6 @@ const (
 	harnessTransactionTimeout = 5 * time.Second
 )
 
-// nodeListQuery returns the query for every node of nodeType in orgID.
 func nodeListQuery(orgID uuid.UUID, nodeType string) node.NodeListQuery {
 	return node.NodeListQuery{
 		OrgID: orgID, NodeType: nodeType, ByProperty: nil, BySourceRelation: nil, ByTargetRelation: nil,

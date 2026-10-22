@@ -11,7 +11,6 @@ import (
 )
 
 const (
-	// mcpRoute is the route of the MCP endpoint.
 	mcpRoute = "/mcp"
 	// maxOperationNameBytes limits the byte length of tool and prompt names in read events.
 	maxOperationNameBytes = 128
@@ -60,7 +59,6 @@ type requestOperation struct {
 	arguments     json.RawMessage
 }
 
-// routeOperation returns the operation of a route that does not use MCP.
 func routeOperation(verb audit.Verb, route string) requestOperation {
 	return requestOperation{
 		verb: verb, route: route, method: "", tool: "", source: audit.SourceSystem, mutation: false,

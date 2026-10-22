@@ -23,9 +23,6 @@ type protocolCase struct {
 	tenant                     bool
 }
 
-// TestRuntimeAuditProtocolCoverage checks that each request from protocolCases produces
-// exactly one ledger event. It checks each event's verb, outcome, actor, organization,
-// and response body digest.
 func TestRuntimeAuditProtocolCoverage(t *testing.T) {
 	server := startPublicServer(t, nil)
 	cases := protocolCases(t, server)

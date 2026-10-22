@@ -19,7 +19,6 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// newHealthHandler builds the production health handler for probes.
 func newHealthHandler(probes map[string]func(context.Context) error) http.Handler {
 	return runtime.NewHealthHandler(probes)
 }
