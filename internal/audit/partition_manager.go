@@ -37,8 +37,9 @@ type partitionStore interface {
 // boot (catch-up) and then on a fixed period. It reuses the consumer's pool
 // through the store, so Close does not close the pool.
 type PartitionManager struct {
-	store  partitionStore
-	period time.Duration
+	store     partitionStore
+	period    time.Duration
+	recording *partitionRecording
 
 	stop    chan struct{}
 	stopped chan struct{}
@@ -51,10 +52,11 @@ func NewPartitionManager(store partitionStore, period time.Duration) *PartitionM
 		period = 24 * time.Hour
 	}
 	return &PartitionManager{
-		store:   store,
-		period:  period,
-		stop:    make(chan struct{}),
-		stopped: make(chan struct{}),
+		store:     store,
+		period:    period,
+		recording: nil,
+		stop:      make(chan struct{}),
+		stopped:   make(chan struct{}),
 	}
 }
 
@@ -93,7 +95,7 @@ func (m *PartitionManager) loop(ctx context.Context) {
 func (m *PartitionManager) runOnce(ctx context.Context) {
 	m.reportStrayChildren(ctx)
 	maintained := true
-	if err := m.store.RunMaintenance(ctx); err != nil {
+	if err := m.maintain(ctx); err != nil {
 		maintained = false
 		telemetry.IncAuditPartitionMaintenance("error")
 		telemetry.L(ctx).Error("audit.partition.maintenance_failed", slog.String("err", err.Error()))
