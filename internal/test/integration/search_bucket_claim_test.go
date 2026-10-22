@@ -11,7 +11,6 @@ import (
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain/node"
 	searchdomain "goodkind.io/tack/internal/domain/search"
-	"goodkind.io/tack/internal/test/integration"
 )
 
 const (
@@ -88,7 +87,7 @@ func storeLeafWithID(t *testing.T, fixture parentEdgeFixture, nodeID uuid.UUID) 
 	created := &node.Node{ID: nodeID, OrgID: kind.orgID, NodeType: kind.typeKey, Name: crowdedText, Props: props, CreatedAt: now, UpdatedAt: now}
 	view := &node.NodeView{ID: nodeID, OrgID: kind.orgID, NodeType: kind.typeKey, Name: crowdedText, Props: props, CreatedAt: now, UpdatedAt: now}
 	parent := &node.Relationship{OrgID: kind.orgID, SourceID: nodeID, RelationType: node.RelChildOf, TargetID: fixture.firstEntry, CreatedAt: now}
-	if err := fixture.stores.Nodes.CreateAtomic(integration.WithTestOperation(t, t.Context()), created, view, []*node.Relationship{parent}, nil, nil, nil); err != nil {
+	if err := fixture.stores.Nodes.CreateAtomic(t.Context(), created, view, []*node.Relationship{parent}, nil, nil, nil); err != nil {
 		t.Fatalf("store node %s: %v", nodeID, err)
 	}
 }
