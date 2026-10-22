@@ -40,24 +40,31 @@ func AppendChanges(ctx context.Context, tr fdb.Transaction, operation audit.Even
 func encodeChangeEvent(operation audit.Event, change audit.Change, completedAt time.Time) ([][]byte, error) {
 	event, err := audit.ChangeEvent(operation, change, completedAt)
 	if err != nil {
-		return nil, fmt.Errorf("build the event: %w", err)
+		return nil, changeEncodeFailure("build", change, err)
 	}
 	encoded, err := audit.EncodeEvent(event, nil)
 	if err != nil {
-		return nil, fmt.Errorf("encode the event: %w", err)
+		return nil, changeEncodeFailure("encode", change, err)
 	}
 	if encoded.Multipart() {
 		messages, err := encoded.Messages()
 		if err != nil {
-			return nil, fmt.Errorf("encode the event messages: %w", err)
+			return nil, changeEncodeFailure("encode the messages of", change, err)
 		}
 		return messages, nil
 	}
 	payload, err := audit.MarshalEvent(event)
 	if err != nil {
-		return nil, fmt.Errorf("marshal the event: %w", err)
+		return nil, changeEncodeFailure("marshal", change, err)
 	}
 	return [][]byte{payload}, nil
+}
+
+// changeEncodeFailure logs and wraps err with the failed step and the event
+// ID of change.
+func changeEncodeFailure(step string, change audit.Change, err error) error {
+	slog.Error("audit.changes.encode_failed", slog.String("step", step), slog.String("event_id", change.EventID.String()), slog.String("err", err.Error()))
+	return fmt.Errorf("%s the change event %s: %w", step, change.EventID, err)
 }
 
 // mutationAudit records the changes of one write. It reads the operation from
@@ -113,6 +120,7 @@ func (m *mutationAudit) record(target audit.Target, before, after []byte) error 
 	}
 	change, err := audit.NewChange(m.eventID(target, before, after), target, before, after)
 	if err != nil {
+		slog.Error("audit.changes.record_failed", slog.String("target", targetKey(target)), slog.String("err", err.Error()))
 		return fmt.Errorf("record the change of %s: %w", targetKey(target), err)
 	}
 	m.changes = append(m.changes, change)

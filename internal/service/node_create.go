@@ -15,15 +15,6 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// firstReferenceKey is the rendered reference a node's ledger row names, or ""
-// for a type that renders none.
-func firstReferenceKey(keys []node.ReferenceKey) string {
-	if len(keys) == 0 {
-		return ""
-	}
-	return keys[0].Encoded
-}
-
 // CreateInput holds the arguments for Create. Relationships lets callers attach
 // edges (assigned_to, labeled_with, etc.) in the same FDB transaction as the
 // primary write.
