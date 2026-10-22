@@ -26,9 +26,10 @@ const (
 	assemblyChainRetries = 8
 )
 
-// completeAssemblies selects ready assemblies without an invalid reason
-// after each poll. It completes each event in a separate transaction and
-// checks for waiting or invalid assemblies.
+// completeAssemblies selects ready assemblies without an invalid reason after
+// each poll. It completes each event in a separate transaction and collects
+// the projected events for one ClickHouse batch write after the loop.
+// It checks for waiting or invalid assemblies.
 func (c *Consumer) completeAssemblies(ctx context.Context) {
 	if ctx.Err() != nil {
 		return
@@ -48,24 +49,27 @@ func (c *Consumer) completeAssemblies(ctx context.Context) {
 		slog.ErrorContext(ctx, "audit.consumer.assembly_scan_failed", slog.String("err", err.Error()))
 		return
 	}
+	completed := make([]projectedEvent, 0, len(eventIDs))
 	for _, eventID := range eventIDs {
-		c.completeAssemblyWithRetry(ctx, eventID)
+		if projected, landed := c.completeAssemblyWithRetry(ctx, eventID); landed {
+			completed = append(completed, projected)
+		}
 	}
+	c.writeClickHouseBatch(ctx, completed)
 	c.alertWaitingAssemblies(ctx)
 }
 
 // completeAssemblyWithRetry retries chain conflicts within the attempt limit.
-// It records verification and event validation errors as invalid_reason
-// and logs other failures for another poll.
-func (c *Consumer) completeAssemblyWithRetry(ctx context.Context, eventID uuid.UUID) {
+// It returns the projected event and reports whether it produced a ledger row.
+// It records verification and event validation errors as invalid_reason and
+// logs other failures for another poll.
+func (c *Consumer) completeAssemblyWithRetry(ctx context.Context, eventID uuid.UUID) (projectedEvent, bool) {
+	var none projectedEvent
 	for attempt := 1; ; attempt++ {
 		projected, landed, err := c.completeAssembly(ctx, eventID)
 		switch {
 		case err == nil:
-			if landed {
-				c.writeClickHouseBatch(ctx, []projectedEvent{projected})
-			}
-			return
+			return projected, landed
 		case attempt < assemblyChainRetries && isRetryableChainErr(err):
 			continue
 		case errors.Is(err, errMalformedPayload):
@@ -75,10 +79,10 @@ func (c *Consumer) completeAssemblyWithRetry(ctx context.Context, eventID uuid.U
 				slog.ErrorContext(ctx, "audit.consumer.assembly_mark_invalid_failed", slog.String("event_id", eventID.String()), slog.String("err", markErr.Error()))
 			}
 			slog.ErrorContext(ctx, "audit.consumer.assembly_invalid", slog.String("event_id", eventID.String()), slog.String("err", err.Error()))
-			return
+			return none, false
 		default:
 			slog.ErrorContext(ctx, "audit.consumer.assembly_complete_failed", slog.String("event_id", eventID.String()), slog.String("err", err.Error()))
-			return
+			return none, false
 		}
 	}
 }

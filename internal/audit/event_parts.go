@@ -1,7 +1,6 @@
 package audit
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -121,14 +120,9 @@ func VerifyEventParts(header []byte, parts []EventPart) (Event, []Target, error)
 	if sha256Hex(envelope) != manifest.TransportDigest {
 		return Event{}, nil, fmt.Errorf("verify audit event %s: transport digest does not match the parts", manifest.EventID)
 	}
-	var decoded eventEnvelope
-	decoder := json.NewDecoder(bytes.NewReader(envelope))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&decoded); err != nil {
-		return Event{}, nil, fmt.Errorf("verify audit event %s: decode envelope: %s", manifest.EventID, err.Error())
-	}
-	if decoder.More() {
-		return Event{}, nil, fmt.Errorf("verify audit event %s: unexpected data after the event envelope", manifest.EventID)
+	decoded, err := decodeEventEnvelope(envelope)
+	if err != nil {
+		return Event{}, nil, fmt.Errorf("verify audit event %s: %s", manifest.EventID, err.Error())
 	}
 	event := decoded.Event
 	if event.EventID != manifest.EventID || event.Context.OrgID != manifest.OrgID || shardOf(event.Actor.ID, event.EventID) != manifest.Shard {

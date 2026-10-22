@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 
 	"github.com/google/uuid"
@@ -104,14 +105,34 @@ func (e EncodedEvent) HeaderAndParts() ([]byte, [][]byte, error) {
 	if len(e.Parts) != 1 {
 		return nil, nil, fmt.Errorf("audit event %s: a single record requires exactly one part", e.EventID)
 	}
-	var envelope eventEnvelope
-	decoder := json.NewDecoder(bytes.NewReader(e.Parts[0].Payload))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&envelope); err != nil {
-		return nil, nil, fmt.Errorf("audit event %s: decode envelope: %s", e.EventID, err.Error())
+	envelope, err := decodeEventEnvelope(e.Parts[0].Payload)
+	if err != nil {
+		return nil, nil, fmt.Errorf("audit event %s: %s", e.EventID, err.Error())
 	}
 	eventJSON, err := MarshalEvent(envelope.Event)
 	return eventJSON, [][]byte{}, err
+}
+
+// decodeEventEnvelope decodes one event envelope and rejects unknown JSON fields.
+// It requires the payload to end after the envelope, allowing trailing whitespace.
+func decodeEventEnvelope(payload []byte) (eventEnvelope, error) {
+	var envelope eventEnvelope
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&envelope); err != nil {
+		return eventEnvelope{}, fmt.Errorf("decode envelope: %s", err.Error())
+	}
+	if !decoderAtEnd(decoder) {
+		return eventEnvelope{}, errors.New("unexpected data after the event envelope")
+	}
+	return envelope, nil
+}
+
+// decoderAtEnd attempts to decode one more JSON value and returns true only
+// when that decode returns [io.EOF].
+func decoderAtEnd(decoder *json.Decoder) bool {
+	var trailing json.RawMessage
+	return errors.Is(decoder.Decode(&trailing), io.EOF)
 }
 
 // Records returns outbox records in publication order.
