@@ -29,7 +29,6 @@ const (
 // completeAssemblies selects ready assemblies without an invalid reason after
 // each poll. It completes each event in a separate transaction and collects
 // the projected events for one ClickHouse batch write after the loop.
-// It checks for waiting or invalid assemblies.
 func (c *Consumer) completeAssemblies(ctx context.Context) {
 	if ctx.Err() != nil {
 		return
@@ -56,7 +55,6 @@ func (c *Consumer) completeAssemblies(ctx context.Context) {
 		}
 	}
 	c.writeClickHouseBatch(ctx, completed)
-	c.alertWaitingAssemblies(ctx)
 }
 
 // completeAssemblyWithRetry retries chain conflicts within the attempt limit.
