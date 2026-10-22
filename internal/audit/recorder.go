@@ -69,6 +69,9 @@ const (
 	// ActorOperator is a human running an operator command against the
 	// deployment itself, not a product user acting through the API.
 	ActorOperator ActorType = "operator"
+	// ActorUnauthenticated identifies the actor of a request that failed before
+	// authentication. The event uses a nil actor ID and the system org.
+	ActorUnauthenticated ActorType = "unauthenticated"
 )
 
 // Entity is the target of the event. NodeType is the tack-specific kind
@@ -109,6 +112,19 @@ type EventContext struct {
 	// JSON encoding omits an empty value, preserving the context bytes used to
 	// hash events that do not include this field.
 	CommitVersion string `json:"commit_version,omitzero" exhaustruct:"optional"`
+
+	// Format 2 events set these fields. JSON encoding omits each zero value.
+	// Format 0 events keep the same context bytes that their row hashes cover.
+	AuditFormatVersion uint16         `json:"audit_format_version,omitzero" exhaustruct:"optional"`
+	OperationClass     OperationClass `json:"operation_class,omitzero" exhaustruct:"optional"`
+	Phase              Phase          `json:"phase,omitzero" exhaustruct:"optional"`
+	OperationID        uuid.UUID      `json:"operation_id,omitzero" exhaustruct:"optional"`
+	ParentOperationID  uuid.UUID      `json:"parent_operation_id,omitzero" exhaustruct:"optional"`
+	StartedAt          time.Time      `json:"started_at,omitzero" exhaustruct:"optional"`
+	CompletedAt        time.Time      `json:"completed_at,omitzero" exhaustruct:"optional"`
+	Target             *Target        `json:"target,omitempty" exhaustruct:"optional"`
+	Read               *ReadEvidence  `json:"read,omitempty" exhaustruct:"optional"`
+	CommittedSteps     []string       `json:"committed_steps,omitempty" exhaustruct:"optional"`
 }
 
 type Source string
@@ -142,6 +158,23 @@ const (
 	// ledger stored outcomes at all. It is never written, and it is distinct
 	// from OutcomeOK on purpose: nobody observed those events succeeding.
 	OutcomeUnrecorded Outcome = "unrecorded"
+
+	// OutcomeCompleted is a format 2 terminal outcome when an operation
+	// finished. For a read, the read prepared its result.
+	OutcomeCompleted Outcome = "completed"
+	// OutcomeRefused is a format 2 terminal outcome when Tack rejected a request
+	// before the operation ran. Authentication or authorization failure can
+	// cause this rejection.
+	OutcomeRefused Outcome = "refused"
+	// OutcomeFailed is a format 2 terminal outcome when an operation stopped
+	// and did not commit any effects.
+	OutcomeFailed Outcome = "failed"
+	// OutcomePartiallyCompleted is a format 2 terminal outcome when an operation
+	// stopped after some of its steps committed.
+	OutcomePartiallyCompleted Outcome = "partially_completed"
+	// OutcomeIncomplete is a format 2 terminal outcome when the available
+	// evidence cannot establish whether the operation finished.
+	OutcomeIncomplete Outcome = "incomplete"
 )
 
 type EventError struct {

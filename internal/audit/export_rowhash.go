@@ -40,6 +40,11 @@ func checkRowHash(row Row) (bool, string, error) {
 			"claims hash version %d with a sub-microsecond timestamp the ledger cannot store",
 			row.HashVersion), nil
 	}
+	// Format 2 rows must pass ValidateEvent. Verification rejects a row that
+	// breaks the event contract even when its hash matches.
+	if reason := contractViolation(row); reason != "" {
+		return false, reason, nil
+	}
 	if row.HashVersion < auditHashVersion3 {
 		return checkLegacyRowHash(row)
 	}
@@ -51,6 +56,20 @@ func checkRowHash(row Row) (bool, string, error) {
 		return true, "", nil
 	}
 	return checkZeroTokenIDRowHash(row)
+}
+
+// contractViolation returns the reason that a format 2 row fails
+// ValidateEvent. It returns an empty string for a format 0 row or a valid
+// format 2 row.
+func contractViolation(row Row) string {
+	if row.Context.AuditFormatVersion == AuditFormatLegacy {
+		return ""
+	}
+	err := ValidateEvent(exportEvent(row))
+	if err == nil {
+		return ""
+	}
+	return "event contract validation failed: " + err.Error()
 }
 
 // checkLegacyRowHash tries a version 1 or 2 row at every nanosecond remainder
@@ -157,6 +176,8 @@ func actorTypeFromCode(code int16) ActorType {
 		return ActorToken
 	case 5:
 		return ActorOperator
+	case 6:
+		return ActorUnauthenticated
 	default:
 		return ""
 	}

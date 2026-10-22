@@ -2,6 +2,7 @@ package audit
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/google/uuid"
 )
@@ -40,6 +41,14 @@ type Spec struct {
 	// neither object. Only a superuser can manufacture either absence, and an
 	// absent login proves no operator command has ever recorded.
 	CreatesAuditInfrastructure bool `exhaustruct:"optional"`
+	// Class is the operation class of the definition. ValidateSpec rejects a
+	// read class on a definition that mutates.
+	Class OperationClass `exhaustruct:"optional"`
+	// Targets returns the typed targets for one operation input.
+	Targets func(context.Context, json.RawMessage) ([]Target, error) `exhaustruct:"optional"`
+	// SafeInput returns the input fields the ledger may store, without
+	// credentials or raw request bodies.
+	SafeInput func(json.RawMessage) (json.RawMessage, error) `exhaustruct:"optional"`
 }
 
 // InfrastructureState reports the audit infrastructure the operator gate needs.
