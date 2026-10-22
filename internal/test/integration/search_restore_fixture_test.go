@@ -23,6 +23,7 @@ func restoreQueryFixture(t *testing.T, fixture *queryFixture, cluster string) {
 	fixture.Config = &configuration
 	fixture.Graph = graph
 	fixture.Harness = processHarness(fixture.Harness, graph)
+	fixture.Harness.outbox = stores.OpsOutbox
 	fixture.Worker = newSearchWorker(t, stores, fixture.Adapter, clock.Wall{}, searchWorkerSettings(runtimePageBytes))
 }
 
