@@ -28,12 +28,13 @@ type slotKey struct{}
 // service, and the store. A pointer on the context lets each of them see what
 // the others did, the same way the audit scope builder works.
 type slot struct {
-	mu        sync.Mutex
-	tool      string
-	actor     uuid.UUID
-	payload   json.RawMessage
-	finalize  Finalizer
-	committed bool
+	mu          sync.Mutex
+	tool        string
+	actor       uuid.UUID
+	operationID uuid.UUID
+	payload     json.RawMessage
+	finalize    Finalizer
+	committed   bool
 }
 
 // Finalizer builds the event for one transaction attempt from the staged
@@ -48,7 +49,7 @@ type Finalizer func(template, source, result json.RawMessage) (json.RawMessage, 
 // the wrapper's identity for the caller, which the service never sees.
 func WithSlot(ctx context.Context, tool string, actor uuid.UUID) context.Context {
 	return context.WithValue(ctx, slotKey{}, &slot{
-		mu: sync.Mutex{}, tool: tool, actor: actor, payload: nil, finalize: nil, committed: false,
+		mu: sync.Mutex{}, tool: tool, actor: actor, operationID: uuid.Nil, payload: nil, finalize: nil, committed: false,
 	})
 }
 
