@@ -209,8 +209,7 @@ BEGIN
        AND s.digest = p_digest;
     IF NOT FOUND AND EXISTS (
         SELECT 1 FROM public.ops_read_state s
-         WHERE s.event_id = p_event_id AND s.template IS NULL AND s.published_at IS NULL
-           AND s.digest <> p_digest) THEN
+         WHERE s.event_id = p_event_id AND s.template IS NULL AND s.digest <> p_digest) THEN
         RAISE EXCEPTION 'published digest of audit read % differs from its receipt', p_event_id
             USING ERRCODE = 'TK003';
     END IF;

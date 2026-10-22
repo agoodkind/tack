@@ -75,18 +75,24 @@ func TestRuntimeAuditReadStaleOwner(t *testing.T) {
 	}
 }
 
-// TestRuntimeAuditReadReceiptCleanup checks receipt cleanup in a second operating system process.
-// The relay marks the receipt published in the transaction that deletes delivered outbox records.
-// Cleanup must keep unpublished receipts and receipts published less than one hour ago.
+// TestRuntimeAuditReadReceiptCleanup checks repeated acknowledgments and receipt cleanup
+// for each store. Cleanup runs in a second operating system process before and after the
+// real relay delivers a finalized read. The test requires cleanup to retain unpublished
+// receipts and receipts published less than one hour ago.
 //
-// Only YugabyteDB proves deletion after one hour of retention. The test changes stored
-// publication times with administrator UPDATE statements. FoundationDB uses the wall clock,
-// and this test cannot wait one hour.
+// The relay records publication and deletes delivered outbox records in one transaction.
+// Only the YugabyteDB case verifies deletion after the one-hour retention period. The test
+// moves stored publication times back with administrator UPDATE statements. Deletion also
+// proves that the relay marked the receipt published, because the test does not
+// acknowledge that read directly.
+//
+// FoundationDB uses the wall clock, and the test cannot wait one hour to verify deletion.
 //
 // The test also checks the YugabyteDB lifecycle grants.
 func TestRuntimeAuditReadReceiptCleanup(t *testing.T) {
 	for _, backend := range readBackends(t) {
 		t.Run(backend.name, func(t *testing.T) {
+			checkRepeatedAcknowledgment(t, backend)
 			fixture := newReadFixture(t)
 			fixture.begin(t, backend.store)
 			if err := backend.store.FinalizeRead(t.Context(), fixture.completion); err != nil {
@@ -103,15 +109,6 @@ func TestRuntimeAuditReadReceiptCleanup(t *testing.T) {
 			}
 			requireTerminal(t, backend, eventID, audit.OutcomeCompleted)
 			deliverReadThroughRelay(t, backend, eventID)
-			// AcknowledgePublished ignores later acknowledgments for a published receipt.
-			// The different digest succeeds only after the relay marks the receipt published.
-			if err := backend.store.AcknowledgePublished(t.Context(), []audit.PublishedRead{wrong}); err != nil {
-				t.Fatalf("acknowledge a different digest after relay delivery: %v", err)
-			}
-			published := audit.PublishedRead{EventID: eventID, Digest: fixture.completion.Digest}
-			if err := backend.store.AcknowledgePublished(t.Context(), []audit.PublishedRead{published}); err != nil {
-				t.Fatalf("repeat the acknowledgment: %v", err)
-			}
 			cleanupInChild(t, backend)
 			if err := backend.store.FinalizeRead(t.Context(), fixture.completion); err != nil {
 				t.Fatalf("finalize before receipt retention expires: %v", err)
@@ -128,6 +125,29 @@ func TestRuntimeAuditReadReceiptCleanup(t *testing.T) {
 		})
 	}
 	t.Run("grants", checkReadGrants)
+}
+
+// checkRepeatedAcknowledgment requires two acknowledgments with the receipt digest to
+// succeed after finalization. It then requires an acknowledgment with a different digest
+// to fail.
+func checkRepeatedAcknowledgment(t *testing.T, backend *readBackend) {
+	t.Helper()
+	fixture := newReadFixture(t)
+	fixture.begin(t, backend.store)
+	if err := backend.store.FinalizeRead(t.Context(), fixture.completion); err != nil {
+		t.Fatalf("finalize the read before acknowledgment: %v", err)
+	}
+	eventID := fixture.admission.Token.EventID
+	published := audit.PublishedRead{EventID: eventID, Digest: fixture.completion.Digest}
+	for attempt := range 2 {
+		if err := backend.store.AcknowledgePublished(t.Context(), []audit.PublishedRead{published}); err != nil {
+			t.Fatalf("acknowledge the read with the receipt digest on attempt %d: %v", attempt+1, err)
+		}
+	}
+	wrong := audit.PublishedRead{EventID: eventID, Digest: strings.Repeat("0", 64)}
+	if err := backend.store.AcknowledgePublished(t.Context(), []audit.PublishedRead{wrong}); err == nil {
+		t.Fatal("got success for acknowledgment with a different digest after publication, want an error")
+	}
 }
 
 // cleanupInChild runs receipt cleanup in every bucket in a second process.

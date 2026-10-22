@@ -101,9 +101,11 @@ func (s *AuditReadStore) AcknowledgePublished(ctx context.Context, reads []audit
 	return nil
 }
 
-// acknowledgeReads marks each matching receipt as published at now within tr.
-// It skips reads without receipts and receipts that already record publication.
-// It returns an error when a published digest differs from the receipt digest.
+// acknowledgeReads skips reads without receipts. It returns an error when the
+// acknowledgment digest differs from the receipt digest, even after publication.
+// It does not change a published receipt when the digest matches. For an unpublished
+// receipt with a matching digest, it records now as the publication time and schedules
+// cleanup within tr.
 func acknowledgeReads(tr fdb.Transaction, now time.Time, reads []audit.PublishedRead) error {
 	for _, read := range reads {
 		key := auditReadReceiptKey(read.EventID)
@@ -111,11 +113,14 @@ func acknowledgeReads(tr fdb.Transaction, now time.Time, reads []audit.Published
 		if err != nil {
 			return err
 		}
-		if !found || !receipt.PublishedAt.IsZero() {
+		if !found {
 			continue
 		}
 		if receipt.Digest != read.Digest {
-			return fmt.Errorf("published digest of audit read %s differs from its receipt", read.EventID)
+			return fmt.Errorf("acknowledge audit read %s: digest differs from the receipt digest", read.EventID)
+		}
+		if !receipt.PublishedAt.IsZero() {
+			continue
 		}
 		receipt.PublishedAt = now
 		if err := writeAuditRecord(tr, key, receipt); err != nil {
