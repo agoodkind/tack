@@ -30,13 +30,24 @@ import (
 // skipped when continuous backup is disabled, the same way the restore drill
 // skips its FoundationDB leg.
 func RunBackupStalenessCheck(ctx context.Context, cfg *config.Config, out io.Writer) error {
-	logger := telemetry.L(ctx)
-	if cfg.BackupS3Endpoint == "" || cfg.BackupS3AccessKey == "" || cfg.BackupS3SecretKey == "" {
-		err := fmt.Errorf("staleness-check: TACK_BACKUP_S3_ENDPOINT, _ACCESS_KEY_ID, and _SECRET_ACCESS_KEY are required")
-		logger.ErrorContext(ctx, "backup.staleness.failed", slog.String("err", err.Error()))
+	if err := requireBackupStalenessConfig(ctx, cfg); err != nil {
 		return err
 	}
+	metrics, writeErr := measureBackupStaleness(ctx, cfg, out)
+	return backupStalenessVerdict(ctx, metrics, writeErr)
+}
 
+func requireBackupStalenessConfig(ctx context.Context, cfg *config.Config) error {
+	if cfg.BackupS3Endpoint == "" || cfg.BackupS3AccessKey == "" || cfg.BackupS3SecretKey == "" {
+		err := fmt.Errorf("staleness-check: object store configuration is incomplete; set TACK_BACKUP_S3_ENDPOINT, TACK_BACKUP_S3_ACCESS_KEY_ID, and TACK_BACKUP_S3_SECRET_ACCESS_KEY")
+		telemetry.L(ctx).ErrorContext(ctx, "backup.staleness.failed", slog.String("err", err.Error()))
+		return err
+	}
+	return nil
+}
+
+func measureBackupStaleness(ctx context.Context, cfg *config.Config, out io.Writer) ([]backupStalenessMetric, error) {
+	logger := telemetry.L(ctx)
 	s3Client := newBackupS3Client(cfg)
 	logger.InfoContext(ctx, "backup.staleness.start", slog.String("bucket", cfg.BackupS3BucketMain))
 
@@ -78,7 +89,11 @@ func RunBackupStalenessCheck(ctx context.Context, cfg *config.Config, out io.Wri
 	// has come back is what resets its memory. The mail is an attempt, never
 	// a gate: whatever it does, the stale verdict is what this run returns.
 	alarmBackupStalenessTransitions(ctx, cfg, s3Client, metrics)
+	return metrics, writeErr
+}
 
+func backupStalenessVerdict(ctx context.Context, metrics []backupStalenessMetric, writeErr error) error {
+	logger := telemetry.L(ctx)
 	stale := staleBackupStalenessMetrics(metrics)
 	if len(stale) > 0 {
 		err := fmt.Errorf("staleness-check: %d backup mechanism(s) past threshold: %s",

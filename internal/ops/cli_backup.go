@@ -71,8 +71,10 @@ func backupYBArchiveNodeCommand(f *cli.Factory) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&runKey, "run-key", "",
 		"export run key to archive (default: the newest manifest in the object store)")
-	clispec.AttachAudit(cmd, f, audit.Spec{Verb: string(audit.VerbOpsBackupYBArchiveNode), Mutates: true}, func(ctx context.Context) error {
-		return RunBackupYBArchiveNode(ctx, f.Cfg, runKey)
+	input := func() (json.RawMessage, error) { return encodeCommandInput(archiveNodeInput{RunKey: runKey}) }
+	spec := backupSpec(audit.VerbOpsBackupYBArchiveNode, "yb-archive-node")
+	clispec.AttachExternal(cmd, f, spec, input, func(ctx context.Context, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
+		return runBackupYBArchiveNodeRecorded(ctx, f.Cfg, runKey, steps)
 	})
 	return cmd
 }
@@ -122,19 +124,29 @@ func backupRestoreDrillCommand(f *cli.Factory) *cobra.Command {
 	return cmd
 }
 
-// backupStalenessCheckCommand builds the staleness-check leaf. It writes the
-// report to the command's output stream, mails once in plain words when a
-// mechanism becomes stale, and is audited as a mutating command because
-// observing the cluster healthy writes the replication marker.
+// backupStalenessCheckCommand builds a command that returns the stale verdict
+// error after the external command gate records the check outcome.
 func backupStalenessCheckCommand(f *cli.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "staleness-check",
 		Short: "Report how long ago each backup mechanism last succeeded, exiting nonzero past threshold",
 		Args:  cobra.NoArgs,
 	}
-	clispec.AttachAudit(cmd, f, audit.Spec{Verb: string(audit.VerbOpsBackupStalenessCheck), Mutates: true}, func(ctx context.Context) error {
-		return RunBackupStalenessCheck(ctx, f.Cfg, cmd.OutOrStdout())
+	var verdict error
+	spec := backupSpec(audit.VerbOpsBackupStalenessCheck, "staleness-check")
+	clispec.AttachExternal(cmd, f, spec, emptyCommandInput, func(ctx context.Context, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
+		details, stale, err := runBackupStalenessCheckRecorded(ctx, f.Cfg, cmd.OutOrStdout(), steps)
+		verdict = stale
+		return details, err
 	})
+	gated := cmd.RunE
+	cmd.RunE = func(command *cobra.Command, args []string) error {
+		verdict = nil
+		if err := gated(command, args); err != nil {
+			return err
+		}
+		return verdict
+	}
 	return cmd
 }
 

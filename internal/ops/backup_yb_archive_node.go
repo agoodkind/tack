@@ -15,6 +15,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/moby/moby/client"
+
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/telemetry"
 )
@@ -26,18 +28,9 @@ import (
 // manifest does not list this node, or every artifact this node owes the run
 // already exists.
 func RunBackupYBArchiveNode(ctx context.Context, cfg *config.Config, runID string) error {
-	logger := telemetry.L(ctx)
-	if cfg.BackupS3Endpoint == "" || cfg.BackupS3AccessKey == "" || cfg.BackupS3SecretKey == "" {
-		err := fmt.Errorf("yb-archive-node: TACK_BACKUP_S3_ENDPOINT, _ACCESS_KEY_ID, and _SECRET_ACCESS_KEY are required")
-		logger.ErrorContext(ctx, "backup.yb_archive.failed", slog.String("err", err.Error()))
+	if err := requireYBArchiveConfig(ctx, cfg); err != nil {
 		return err
 	}
-	if cfg.BackupYBRocksDBDir == "" {
-		err := fmt.Errorf("yb-archive-node: TACK_BACKUP_YB_ROCKSDB_DIR is required")
-		logger.ErrorContext(ctx, "backup.yb_archive.failed", slog.String("err", err.Error()))
-		return err
-	}
-
 	cli, err := newDockerClient(ctx)
 	if err != nil {
 		return err
@@ -49,12 +42,30 @@ func RunBackupYBArchiveNode(ctx context.Context, cfg *config.Config, runID strin
 		return err
 	}
 
-	s3Client := newBackupS3Client(cfg)
-	target, err := resolveYBArchiveTarget(ctx, cfg, s3Client, nodeName, runID)
+	target, err := resolveYBArchiveTarget(ctx, cfg, newBackupS3Client(cfg), nodeName, runID)
 	if err != nil || target == nil {
 		return err
 	}
+	return uploadYBNodeArchive(ctx, cfg, cli, nodeName, target)
+}
 
+func requireYBArchiveConfig(ctx context.Context, cfg *config.Config) error {
+	logger := telemetry.L(ctx)
+	if cfg.BackupS3Endpoint == "" || cfg.BackupS3AccessKey == "" || cfg.BackupS3SecretKey == "" {
+		err := fmt.Errorf("yb-archive-node: object store configuration is incomplete; set TACK_BACKUP_S3_ENDPOINT, TACK_BACKUP_S3_ACCESS_KEY_ID, and TACK_BACKUP_S3_SECRET_ACCESS_KEY")
+		logger.ErrorContext(ctx, "backup.yb_archive.failed", slog.String("err", err.Error()))
+		return err
+	}
+	if cfg.BackupYBRocksDBDir == "" {
+		err := fmt.Errorf("yb-archive-node: TACK_BACKUP_YB_ROCKSDB_DIR is empty; set it to the RocksDB directory inside the yugabyte container")
+		logger.ErrorContext(ctx, "backup.yb_archive.failed", slog.String("err", err.Error()))
+		return err
+	}
+	return nil
+}
+
+func uploadYBNodeArchive(ctx context.Context, cfg *config.Config, cli *client.Client, nodeName string, target *ybArchiveTarget) error {
+	logger := telemetry.L(ctx)
 	logger.InfoContext(ctx, "backup.yb_archive.start",
 		slog.String("run_id", target.manifest.RunID),
 		slog.String("snapshot_id", target.manifest.SnapshotID),

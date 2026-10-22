@@ -43,6 +43,12 @@ type restoreDrillInput struct {
 
 func (restoreDrillInput) isCommandInput() {}
 
+type archiveNodeInput struct {
+	RunKey string `json:"run_key,omitempty"`
+}
+
+func (archiveNodeInput) isCommandInput() {}
+
 func emptyCommandInput() (json.RawMessage, error) {
 	return encodeCommandInput(emptyInput{})
 }
