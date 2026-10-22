@@ -13,8 +13,8 @@ import (
 
 // CachedUsers caches user records by ID for a short lifetime to avoid ledger
 // reads when rendering a node's creator or editor. It caches only GetByID;
-// GetByEmail serves operator commands. Every instance observes display-name
-// changes within one lifetime. Failed reads do not populate the cache, and
+// GetByEmail serves operator commands. Display-name changes become visible
+// after the cached entry expires. Failed reads do not populate the cache, and
 // CachedUsers does not provide a Create method.
 type CachedUsers struct {
 	inner    user.Repository
