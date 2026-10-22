@@ -12,6 +12,7 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/service"
+	"goodkind.io/tack/internal/test/integration"
 )
 
 const (
@@ -76,7 +77,7 @@ func runSliceOrWait(t *testing.T, fixture parentEdgeFixture) {
 // as the fixture's first actor. It fails the test if the update fails.
 func editLeafText(t *testing.T, fixture parentEdgeFixture, nodeID uuid.UUID, text string) {
 	t.Helper()
-	_, err := fixture.nodes.Update(t.Context(), service.UpdateInput{
+	_, err := fixture.nodes.Update(integration.WithTestOperation(t, t.Context()), service.UpdateInput{
 		NodeID: nodeID, Name: nil, Props: map[string]json.RawMessage{fixture.kind.included: parentEdgeJSON(t, text)},
 		RelationshipChanges: node.RelationshipChanges{Add: nil, Remove: nil}, ActorID: fixture.first.Actors[0].UserID,
 	})
