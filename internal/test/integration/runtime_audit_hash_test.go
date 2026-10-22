@@ -18,11 +18,6 @@ import (
 // writes.
 const historicalHashVersion = 3
 
-// TestRuntimeAuditHistoricalHashCompatibility records two format 0 events
-// through the consumer, one with ok and one without an outcome. It requires
-// ok for both stored outcomes. It recomputes each row hash from the context
-// keys that format 0 rows stored before format 2 existed and verifies the
-// export.
 func TestRuntimeAuditHistoricalHashCompatibility(t *testing.T) {
 	stack := startRuntimeAuditStack(t)
 	oldest := clock.Now().UTC().Add(-time.Minute)
