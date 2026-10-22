@@ -7,7 +7,7 @@ import (
 	"io/fs"
 	"log/slog"
 
-	"goodkind.io/tack/internal/adapters/postgres"
+	"goodkind.io/tack/internal/adapters/postgres/migration"
 )
 
 // Guard sets version requirements for one migration run. A zero field does not
@@ -65,7 +65,7 @@ func Apply(ctx context.Context, dsn string, migrationsFS fs.FS, guard Guard) (in
 	}
 	slog.InfoContext(ctx, "schemastatus.apply_started",
 		slog.Int64("applied_version", before.AppliedVersion), slog.Int64("target_version", target))
-	if err := postgres.MigrateTo(ctx, dsn, migrationsFS, target); err != nil {
+	if err := migration.MigrateTo(ctx, dsn, migrationsFS, target); err != nil {
 		slog.ErrorContext(ctx, "schemastatus.apply_failed",
 			slog.Int64("target_version", target), slog.String("err", err.Error()))
 		return 0, fmt.Errorf("apply migrations through version %d: %w", target, err)

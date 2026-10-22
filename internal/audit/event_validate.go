@@ -9,18 +9,36 @@ import (
 	"github.com/google/uuid"
 )
 
-// ValidateEvent checks an event against its format rules and rejects
-// unsupported format versions. Format 0 events follow their existing rules
-// and cannot set format 2 context fields, format 2 outcomes, or the
-// unauthenticated actor kind. Format 2 events require an outcome and
-// evidence for their operation class.
+// ValidateEvent checks format rules and rejects unsupported versions.
+// Format 0 events cannot set format 2 context fields, terminal outcomes,
+// or Protected, and cannot use the unauthenticated actor kind.
+// Format 2 events require an outcome, evidence for their operation class,
+// and exactly one valid JSON Protected value per delta reference with
+// SubjectID equal to Context.Target.ID.
 func ValidateEvent(event Event) error {
+	return validateEventContract(event, true)
+}
+
+// validateStoredEvent checks format rules without comparing Protected
+// values with delta references. Ledger rows store the references, and
+// audit.pii stores the values.
+func validateStoredEvent(event Event) error {
+	return validateEventContract(event, false)
+}
+
+// validateEventContract checks supported format rules and includes the event
+// ID in each error. For format 2, pairProtected also enables validation of
+// protected values against delta references.
+func validateEventContract(event Event, pairProtected bool) error {
 	var err error
 	switch event.Context.AuditFormatVersion {
 	case AuditFormatLegacy:
 		err = validateLegacyEvent(event)
 	case AuditFormatComplete:
 		err = validateCompleteEvent(event)
+		if err == nil && pairProtected {
+			err = validateProtected(event)
+		}
 	default:
 		err = fmt.Errorf("audit format version %d is unsupported", event.Context.AuditFormatVersion)
 	}
@@ -97,6 +115,9 @@ func validateLegacyEvent(event Event) error {
 	}
 	if event.Actor.Type == ActorUnauthenticated {
 		return errors.New("format 0 event cannot use the unauthenticated actor kind")
+	}
+	if len(event.Protected) != 0 {
+		return errors.New("format 0 event cannot set protected values")
 	}
 	return nil
 }
