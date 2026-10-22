@@ -42,7 +42,7 @@ func putOpaqueKindWithTypeKey(t *testing.T, fixture queryFixture, orgID uuid.UUI
 		},
 	}
 	for _, definition := range definitions {
-		if err := fixture.Stores.PropertyDefs.Set(t.Context(), definition); err != nil {
+		if err := fixture.Stores.PropertyDefs.Set(WithTestOperation(t, t.Context()), definition); err != nil {
 			t.Fatalf("store property definition: %v", err)
 		}
 	}
@@ -52,7 +52,7 @@ func putOpaqueKindWithTypeKey(t *testing.T, fixture queryFixture, orgID uuid.UUI
 		PropertyDefIDs: []uuid.UUID{definitions[0].ID, definitions[1].ID},
 		CanLiveUnder:   entryTypeKeys(t, fixture, orgID),
 	}
-	if err := fixture.Stores.NodeTypes.Set(t.Context(), nodeType); err != nil {
+	if err := fixture.Stores.NodeTypes.Set(WithTestOperation(t, t.Context()), nodeType); err != nil {
 		t.Fatalf("store node type: %v", err)
 	}
 	return kind
@@ -63,7 +63,7 @@ func putOpaqueKindWithTypeKey(t *testing.T, fixture queryFixture, orgID uuid.UUI
 // hierarchy then depends only on NodeType metadata.
 func entryTypeKeys(t *testing.T, fixture queryFixture, orgID uuid.UUID) []string {
 	t.Helper()
-	types, err := fixture.Stores.NodeTypes.List(t.Context(), orgID)
+	types, err := fixture.Stores.NodeTypes.List(WithTestOperation(t, t.Context()), orgID)
 	if err != nil {
 		t.Fatalf("list node types: %v", err)
 	}
@@ -89,7 +89,7 @@ func putOpaqueNode(t *testing.T, fixture queryFixture, kind opaqueKind, parentID
 	created := &node.Node{ID: nodeID, OrgID: kind.OrgID, NodeType: kind.TypeKey, Name: name, Props: props, CreatedAt: now, UpdatedAt: now}
 	view := &node.NodeView{ID: nodeID, OrgID: kind.OrgID, NodeType: kind.TypeKey, Name: name, Props: props, CreatedAt: now, UpdatedAt: now}
 	parent := &node.Relationship{OrgID: kind.OrgID, SourceID: nodeID, TargetID: parentID, RelationType: node.RelChildOf}
-	if err := fixture.Stores.Nodes.CreateAtomic(t.Context(), created, view, []*node.Relationship{parent}, nil, nil, nil); err != nil {
+	if err := fixture.Stores.Nodes.CreateAtomic(WithTestOperation(t, t.Context()), created, view, []*node.Relationship{parent}, nil, nil, nil); err != nil {
 		t.Fatalf("create opaque node: %v", err)
 	}
 	return nodeID
@@ -101,10 +101,10 @@ func putOpaqueNode(t *testing.T, fixture queryFixture, kind opaqueKind, parentID
 func moveOpaqueNode(t *testing.T, fixture queryFixture, kind opaqueKind, nodeID, from, to uuid.UUID) {
 	t.Helper()
 	moved := &node.Relationship{OrgID: kind.OrgID, SourceID: nodeID, TargetID: to, RelationType: node.RelChildOf}
-	if err := fixture.Stores.Relationships.Add(t.Context(), moved); err != nil {
+	if err := fixture.Stores.Relationships.Add(WithTestOperation(t, t.Context()), moved); err != nil {
 		t.Fatalf("add parent of node %s: %v", nodeID, err)
 	}
-	if err := fixture.Stores.Relationships.Remove(t.Context(), kind.OrgID, nodeID, node.RelChildOf, from); err != nil {
+	if err := fixture.Stores.Relationships.Remove(WithTestOperation(t, t.Context()), kind.OrgID, nodeID, node.RelChildOf, from); err != nil {
 		t.Fatalf("remove parent of node %s: %v", nodeID, err)
 	}
 }

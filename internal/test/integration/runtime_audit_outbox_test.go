@@ -1,4 +1,4 @@
-package integration
+package integration_test
 
 import (
 	"encoding/json"
@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 
 	"goodkind.io/tack/internal/audit"
+	"goodkind.io/tack/internal/test/integration"
 )
 
 // outboxPageLimit bounds the entries that one outbox read returns.
@@ -14,7 +15,7 @@ const outboxPageLimit = 500
 
 // outboxTail returns the mark of the last FoundationDB outbox entry, or nil
 // when the outbox is empty.
-func outboxTail(t *testing.T, env *TestEnv) []byte {
+func outboxTail(t *testing.T, env *integration.TestEnv) []byte {
 	t.Helper()
 	var mark []byte
 	for {
@@ -31,7 +32,7 @@ func outboxTail(t *testing.T, env *TestEnv) []byte {
 
 // outboxEventsAfter decodes every FoundationDB outbox entry after mark as one
 // audit event.
-func outboxEventsAfter(t *testing.T, env *TestEnv, mark []byte) []audit.Event {
+func outboxEventsAfter(t *testing.T, env *integration.TestEnv, mark []byte) []audit.Event {
 	t.Helper()
 	events := []audit.Event{}
 	for {
@@ -54,7 +55,7 @@ func outboxEventsAfter(t *testing.T, env *TestEnv, mark []byte) []audit.Event {
 }
 
 // changeEventsFor returns the events in events with the verb and the target
-// node or relationship source ID.
+// node ID or relationship source ID targetID.
 func changeEventsFor(events []audit.Event, verb audit.Verb, targetID uuid.UUID) []audit.Event {
 	matched := []audit.Event{}
 	for _, event := range events {

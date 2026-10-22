@@ -41,7 +41,7 @@ func newGrandchild(t *testing.T, stores *fdbadapter.Stores, moved movableChild, 
 		ID: uuid.Must(uuid.NewV7()), OrgID: grandchild.OrgID, Name: grandchild.TypeKey, TypeKey: grandchild.TypeKey,
 		Slug: grandchild.TypeKey, PluralSlug: grandchild.TypeKey + "s", CanLiveUnder: []string{moved.Fixture.TypeKey},
 	}
-	if err := stores.NodeTypes.Set(t.Context(), kind); err != nil {
+	if err := stores.NodeTypes.Set(WithTestOperation(t, t.Context()), kind); err != nil {
 		t.Fatalf("store grandchild node type: %v", err)
 	}
 	props := map[string]json.RawMessage{grandchild.IncludedKey: mustJSON(text), grandchild.ExcludedKey: mustJSON(readerExcludedValue)}
@@ -49,7 +49,7 @@ func newGrandchild(t *testing.T, stores *fdbadapter.Stores, moved movableChild, 
 	value := &node.Node{ID: grandchild.NodeID, OrgID: grandchild.OrgID, NodeType: grandchild.TypeKey, Name: searchFixtureName, Props: props, CreatedAt: now, UpdatedAt: now}
 	view := &node.NodeView{ID: grandchild.NodeID, OrgID: grandchild.OrgID, NodeType: grandchild.TypeKey, Name: searchFixtureName, Props: props, CreatedAt: now, UpdatedAt: now}
 	parent := &node.Relationship{OrgID: grandchild.OrgID, SourceID: grandchild.NodeID, RelationType: node.RelChildOf, TargetID: moved.Fixture.NodeID, CreatedBy: uuid.Nil, CreatedAt: now, Props: nil}
-	if err := stores.Nodes.CreateAtomic(t.Context(), value, view, []*node.Relationship{parent}, nil, nil, nil); err != nil {
+	if err := stores.Nodes.CreateAtomic(WithTestOperation(t, t.Context()), value, view, []*node.Relationship{parent}, nil, nil, nil); err != nil {
 		t.Fatalf("create grandchild node: %v", err)
 	}
 	return grandchild
@@ -62,13 +62,13 @@ func claimAccessFor(t *testing.T, store *fdbadapter.SearchWorkStore, nodeID uuid
 	held := make([]searchdomain.Work, 0)
 	defer func() {
 		for _, work := range held {
-			if err := store.Yield(t.Context(), work); err != nil {
+			if err := store.Yield(WithTestOperation(t, t.Context()), work); err != nil {
 				t.Errorf("yield inspected access work: %v", err)
 			}
 		}
 	}()
 	for range 100 {
-		work, err := store.Claim(t.Context(), searchdomain.WorkClassAccess, "access-inspector", time.Minute)
+		work, err := store.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassAccess, "access-inspector", time.Minute)
 		if err != nil {
 			t.Fatalf("claim access work of %s: %v", nodeID, err)
 		}
@@ -85,14 +85,14 @@ func claimAccessFor(t *testing.T, store *fdbadapter.SearchWorkStore, nodeID uuid
 func drainClass(t *testing.T, store *fdbadapter.SearchWorkStore, worker *service.SearchWorker, class searchdomain.WorkClass) {
 	t.Helper()
 	for range 1000 {
-		work, err := store.Claim(t.Context(), class, "class-driver", time.Minute)
+		work, err := store.Claim(WithTestOperation(t, t.Context()), class, "class-driver", time.Minute)
 		if errors.Is(err, searchdomain.ErrNoWork) {
 			return
 		}
 		if err != nil {
 			t.Fatalf("claim %s work: %v", class, err)
 		}
-		if err := worker.Process(t.Context(), work); err != nil {
+		if err := worker.Process(WithTestOperation(t, t.Context()), work); err != nil {
 			t.Fatalf("process %s work of %s: %v", class, work.NodeID, err)
 		}
 	}
@@ -122,7 +122,7 @@ func runSearchWorkerWithin(t *testing.T, worker *service.SearchWorker, limit int
 	t.Helper()
 	var rejectedSince, retryUntil time.Time
 	for completed := 0; completed < limit; {
-		claimed, err := worker.RunSlice(t.Context())
+		claimed, err := worker.RunSlice(WithTestOperation(t, t.Context()))
 		switch {
 		case err != nil:
 			rejectedSince = requireEngineRejection(t, err, rejectedSince)

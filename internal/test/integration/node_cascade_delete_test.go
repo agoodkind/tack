@@ -105,17 +105,24 @@ func drainOutbox(t *testing.T, env *TestEnv) {
 }
 
 // requireDeleteEvents requires exactly one node.delete outbox row by actor
-// for each node in removed, and no other row.
+// for each node in removed. Every other row must be a relationship.remove row
+// by actor.
 func requireDeleteEvents(t *testing.T, env *TestEnv, removed []uuid.UUID, actor uuid.UUID) {
 	t.Helper()
 	events := outboxEvents(t, env)
 	recorded := make([]uuid.UUID, 0, len(events))
 	eventIDs := make(map[uuid.UUID]struct{}, len(events))
 	for _, event := range events {
-		if event.Verb != string(audit.VerbNodeDelete) || event.Actor.ID != actor || event.Context.Tool != "tack_delete_project" {
-			t.Fatalf("outbox row = %+v, want node.delete by %s through tack_delete_project", event, actor)
-		}
 		eventIDs[event.EventID] = struct{}{}
+		if event.Actor.ID != actor || event.Context.Tool != "tack_delete_project" {
+			t.Fatalf("outbox row = %+v, want a row by %s through tack_delete_project", event, actor)
+		}
+		if event.Verb == string(audit.VerbRelationshipRemove) {
+			continue
+		}
+		if event.Verb != string(audit.VerbNodeDelete) {
+			t.Fatalf("outbox row = %+v, want node.delete or relationship.remove", event)
+		}
 		recorded = append(recorded, event.Entity.ID)
 	}
 	if len(eventIDs) != len(events) {

@@ -71,7 +71,7 @@ func putOrphanNode(t *testing.T, kind opaqueKind, name, included string) uuid.UU
 	now := clock.Now().UTC()
 	created := &node.Node{ID: nodeID, OrgID: kind.OrgID, NodeType: kind.TypeKey, Name: name, Props: props, CreatedAt: now, UpdatedAt: now}
 	view := &node.NodeView{ID: nodeID, OrgID: kind.OrgID, NodeType: kind.TypeKey, Name: name, Props: props, CreatedAt: now, UpdatedAt: now}
-	if err := stores.Nodes.CreateAtomic(t.Context(), created, view, nil, nil, nil, nil); err != nil {
+	if err := stores.Nodes.CreateAtomic(WithTestOperation(t, t.Context()), created, view, nil, nil, nil, nil); err != nil {
 		t.Fatalf("create orphan node: %v", err)
 	}
 	return nodeID
@@ -87,7 +87,7 @@ func runSearchVerifyCommand(t *testing.T, cfg *config.Config) (searchVerifyRepor
 	factory := cli.System(cfg)
 	var output bytes.Buffer
 	factory.Out = &output
-	pool, err := pgxpool.New(t.Context(), testenv.Ledger(t))
+	pool, err := pgxpool.New(WithTestOperation(t, t.Context()), testenv.Ledger(t))
 	if err != nil {
 		t.Fatalf("open audit ledger pool: %v", err)
 	}

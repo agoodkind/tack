@@ -1,4 +1,4 @@
-package integration
+package integration_test
 
 import (
 	"encoding/json"
@@ -10,6 +10,7 @@ import (
 	"goodkind.io/tack/internal/auditintent"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/service"
+	"goodkind.io/tack/internal/test/integration"
 )
 
 // TestStateChangeCommitsItsLedgerRowInTheSameTransaction creates a node under
@@ -17,13 +18,14 @@ import (
 // event with the caller and the tool, and the slot must report the commit. A
 // refused transaction must not write a change event or report a commit.
 func TestStateChangeCommitsItsLedgerRowInTheSameTransaction(t *testing.T) {
-	env := SetupTestEnv(t)
+	env := integration.SetupTestEnv(t)
 	actor := uuid.New()
 	ctx := auditintent.WithSlot(audit.WithScopeBuilder(env.Ctx), "tack_create_workspace", actor)
 	mark := outboxTail(t, env)
 
 	created, err := env.NodeSvc.Create(ctx, service.CreateInput{
-		ParentID: env.OrgID, ScopeID: env.OrgID, NodeTypeKey: "workspace", Name: "Main", ActorID: actor,
+		ParentID: env.OrgID, ScopeID: env.OrgID, NodeTypeKey: "workspace", Name: "Main", Props: nil,
+		Relationships: nil, ActorID: actor, IdempotencyKey: "", IdempotencyFingerprint: "", IdempotencySource: "",
 	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
@@ -35,14 +37,10 @@ func TestStateChangeCommitsItsLedgerRowInTheSameTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read the slot operation: %v", err)
 	}
-	events := outboxEventsAfter(t, env, mark)
-	creates := changeEventsFor(events, audit.VerbNodeCreate, created.View.ID)
-	if len(creates) != 1 {
-		t.Fatalf("node.create events for %s = %+v, want one", created.View.ID, events)
-	}
-	requireChangeEvent(t, creates[0], operationID, actor)
-	if creates[0].Context.Tool != "tack_create_workspace" {
-		t.Fatalf("event tool = %q, want tack_create_workspace", creates[0].Context.Tool)
+	create := requireOneEvent(t, outboxEventsAfter(t, env, mark), audit.VerbNodeCreate, created.View.ID)
+	requireChangeEvent(t, create, operationID, actor)
+	if create.Context.Tool != "tack_create_workspace" {
+		t.Fatalf("event tool = %q, want tack_create_workspace", create.Context.Tool)
 	}
 
 	// The first node claims the reference. The store refuses the second
@@ -70,7 +68,7 @@ func newIntentTestNode(orgID, parentID uuid.UUID) *node.Node {
 	id := uuid.Must(uuid.NewV7())
 	return &node.Node{
 		ID: id, OrgID: orgID, NodeType: "issue", Name: "Intent " + id.String(),
-		Props:     map[string]json.RawMessage{"parent_id": mustJSON(parentID.String())},
+		Props:     map[string]json.RawMessage{"parent_id": json.RawMessage(`"` + parentID.String() + `"`)},
 		CreatedBy: uuid.Nil, UpdatedBy: uuid.Nil,
 	}
 }
