@@ -2,50 +2,111 @@ package datagen
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"log/slog"
 	"slices"
+	"strings"
 	"time"
 
 	"goodkind.io/tack/internal/clock"
 )
 
-var errSearchMixedDeletedReturned = errors.New("qa datagen search-mixed: search returned a deleted issue after indexing processed the deletion")
+const (
+	searchMixedProbeInterval = time.Second
+	searchMixedProbeBatch    = 8
+)
 
-func (m *searchMixed) awaitMarker(ctx context.Context, node *searchMixedNode, marker string, committed time.Time) {
-	tenant := m.tenants[node.tenant]
-	for attempt := 0; ; attempt++ {
-		page, err := callSearch(ctx, m.driver(node.ordinal+attempt), tenant.token(), tenant.entry(), marker, "")
-		if err == nil && slices.Contains(page.IDs, node.id) {
-			m.stats.markerFound(clock.Now().Sub(committed))
-			m.settle(node, marker)
-			return
+// searchMixedMarker records a written issue marker that the prober has not yet found.
+type searchMixedMarker struct {
+	node      *searchMixedNode
+	marker    string
+	committed time.Time
+}
+
+// searchMixedDeletion records a deleted issue that the prober has not yet verified.
+type searchMixedDeletion struct {
+	node   *searchMixedNode
+	marker string
+}
+
+func (m *searchMixed) trackMarker(node *searchMixedNode, marker string, committed time.Time) {
+	m.probeMutex.Lock()
+	defer m.probeMutex.Unlock()
+	m.markers = append(m.markers, searchMixedMarker{node: node, marker: marker, committed: committed})
+}
+
+func (m *searchMixed) trackDeletion(node *searchMixedNode, marker string) {
+	m.probeMutex.Lock()
+	defer m.probeMutex.Unlock()
+	m.deletions = append(m.deletions, searchMixedDeletion{node: node, marker: marker})
+}
+
+func (m *searchMixed) probesPending() bool {
+	m.probeMutex.Lock()
+	defer m.probeMutex.Unlock()
+	return len(m.markers) > 0 || len(m.deletions) > 0
+}
+
+// probe checks pending markers and deletions once per second until ctx ends.
+// When ctx ends, probe counts each marker it did not find and each deletion it did not verify.
+func (m *searchMixed) probe(ctx context.Context, done chan<- struct{}) {
+	defer close(done)
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			slog.ErrorContext(ctx, "qa.datagen.search_mixed_probe_panicked", slog.String("err", fmt.Sprint(recovered)))
 		}
-		if !waitForSearchMixedPoll(ctx) {
-			m.stats.count(&m.stats.markersNotFound)
+	}()
+	ticker := time.NewTicker(searchMixedProbeInterval)
+	defer ticker.Stop()
+	for tick := 0; ; tick++ {
+		select {
+		case <-ctx.Done():
+			m.probeMutex.Lock()
+			for range m.markers {
+				m.stats.count(&m.stats.markersNotFound)
+			}
+			for range m.deletions {
+				m.stats.count(&m.stats.deletesUnverified)
+			}
+			m.markers, m.deletions = nil, nil
+			m.probeMutex.Unlock()
 			return
+		case <-ticker.C:
 		}
+		m.probeMarkers(ctx, tick)
+		m.probeDeletions(ctx, tick)
 	}
 }
 
-func (m *searchMixed) awaitDeletion(ctx context.Context, node *searchMixedNode, marker string) {
-	tenant := m.tenants[node.tenant]
-	for attempt := 0; ; attempt++ {
-		texts, readErr := m.pages.SearchPageText(ctx, node.id)
-		processed := readErr == nil && len(texts) == 0
-		page, searchErr := callSearch(ctx, m.driver(node.ordinal+attempt), tenant.token(), tenant.entry(), marker, "")
-		if processed && searchErr == nil {
-			if slices.Contains(page.IDs, node.id) {
-				slog.ErrorContext(ctx, "qa.datagen.search_mixed_deleted_node_returned",
-					slog.String("err", errSearchMixedDeletedReturned.Error()),
-					slog.String("node_id", node.id.String()), slog.String("marker", marker))
-				m.stats.count(&m.stats.deletedReturned)
+// probeMarkers searches each tenant's pending markers in batches of up to eight words.
+// Each query joins the marker words with spaces. For each pending issue in the first page,
+// probeMarkers records the time since its marker write committed.
+func (m *searchMixed) probeMarkers(ctx context.Context, tick int) {
+	m.probeMutex.Lock()
+	pending := slices.Clone(m.markers)
+	m.probeMutex.Unlock()
+	found := make(map[*searchMixedNode]string)
+	for tenantIndex, tenant := range m.tenants {
+		owned := slices.DeleteFunc(slices.Clone(pending), func(entry searchMixedMarker) bool { return entry.node.tenant != tenantIndex })
+		for batch := range slices.Chunk(owned, searchMixedProbeBatch) {
+			words := make([]string, 0, len(batch))
+			for _, entry := range batch {
+				words = append(words, entry.marker)
 			}
-			return
-		}
-		if !waitForSearchMixedPoll(ctx) {
-			m.stats.count(&m.stats.deletesUnverified)
-			return
+			page, err := callSearch(ctx, m.driver(tick+tenantIndex), tenant.token(), tenant.entry(), strings.Join(words, " "), "")
+			if err != nil {
+				continue
+			}
+			for _, entry := range batch {
+				if slices.Contains(page.IDs, entry.node.id) {
+					m.stats.markerFound(clock.Now().Sub(entry.committed))
+					m.settle(entry.node, entry.marker)
+					found[entry.node] = entry.marker
+				}
+			}
 		}
 	}
+	m.probeMutex.Lock()
+	defer m.probeMutex.Unlock()
+	m.markers = slices.DeleteFunc(m.markers, func(entry searchMixedMarker) bool { return found[entry.node] == entry.marker })
 }

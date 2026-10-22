@@ -74,7 +74,7 @@ func (m *searchMixed) committedAt(ctx context.Context, nodeID uuid.UUID) (time.T
 	return view.UpdatedAt, nil
 }
 
-func (m *searchMixed) createScheduledIssue(callContext, probeContext context.Context, index int) {
+func (m *searchMixed) createScheduledIssue(callContext context.Context, index int) {
 	ordinal := m.created
 	m.created++
 	tenantIndex := ordinal % len(m.tenants)
@@ -100,10 +100,10 @@ func (m *searchMixed) createScheduledIssue(callContext, probeContext context.Con
 	m.nodes = append(m.nodes, node)
 	m.nodeMutex.Unlock()
 	m.stats.count(&m.stats.creates)
-	m.probe(probeContext, func(ctx context.Context) { m.awaitMarker(ctx, node, marker, committed) })
+	m.trackMarker(node, marker, committed)
 }
 
-func (m *searchMixed) editIssue(callContext, probeContext context.Context, index int, node *searchMixedNode) {
+func (m *searchMixed) editIssue(callContext context.Context, index int, node *searchMixedNode) {
 	revision := node.revision + 1
 	marker := m.marker(node.ordinal, revision)
 	tenant := m.tenants[node.tenant]
@@ -121,10 +121,10 @@ func (m *searchMixed) editIssue(callContext, probeContext context.Context, index
 	node.revision, node.marker, node.settled = revision, marker, false
 	m.nodeMutex.Unlock()
 	m.stats.count(&m.stats.edits)
-	m.probe(probeContext, func(ctx context.Context) { m.awaitMarker(ctx, node, marker, committed) })
+	m.trackMarker(node, marker, committed)
 }
 
-func (m *searchMixed) deleteIssue(callContext, probeContext context.Context, index int, node *searchMixedNode) {
+func (m *searchMixed) deleteIssue(callContext context.Context, index int, node *searchMixedNode) {
 	if err := m.deleteNode(callContext, index, node.tenant, node.id); err != nil {
 		m.writeFailed(callContext, "qa.datagen.search_mixed_delete_failed", err)
 		return
@@ -134,7 +134,7 @@ func (m *searchMixed) deleteIssue(callContext, probeContext context.Context, ind
 	marker := node.marker
 	m.nodeMutex.Unlock()
 	m.stats.count(&m.stats.deletes)
-	m.probe(probeContext, func(ctx context.Context) { m.awaitDeletion(ctx, node, marker) })
+	m.trackDeletion(node, marker)
 }
 
 // deleteNode deletes one issue of one tenant through a public call and records its ID.

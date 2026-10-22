@@ -84,7 +84,9 @@ type searchMixed struct {
 	stats      *searchMixedStats
 	phases     *searchMixedPhaseStats
 	corpus     searchMixedCorpus  `exhaustruct:"optional"`
-	probes     sync.WaitGroup     `exhaustruct:"optional"`
+	probeMutex sync.Mutex            `exhaustruct:"optional"`
+	markers    []searchMixedMarker   `exhaustruct:"optional"`
+	deletions  []searchMixedDeletion `exhaustruct:"optional"`
 	nodeMutex  sync.Mutex         `exhaustruct:"optional"`
 	nodes      []*searchMixedNode `exhaustruct:"optional"`
 	deleted    map[uuid.UUID]time.Time `exhaustruct:"optional"`

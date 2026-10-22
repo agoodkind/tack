@@ -27,7 +27,6 @@ import (
 	"goodkind.io/tack/internal/test/integration"
 )
 
-// searchMixedOutput is the part of the search-mixed result that the test checks.
 type searchMixedOutput struct {
 	Result struct {
 		Completed int `json:"completed"`
@@ -81,12 +80,13 @@ func TestSearchMixedWorkload(t *testing.T) {
 	cfg := newCohortEngines(t)
 	t.Setenv("OPENSEARCH_WORKER_CONCURRENCY", "1")
 	t.Setenv("OPENSEARCH_WORKER_IDLE_INTERVAL", "1s")
+	t.Setenv("OPENSEARCH_SESSION_IDLE_TIMEOUT", "30s")
 	endpoints := startSearchMixedProcesses(t, cfg)
 	if output, err := runSearchMixedCommand(t, cfg, "--commit", "--endpoints", "ftp://a.example"); err == nil || len(output) != 0 {
 		t.Fatalf("qa datagen search-mixed: the command must reject the ftp:// endpoint before writing output (error=%v; output=%s)", err, output)
 	}
 	seed := strconv.FormatInt(clock.Now().UnixNano(), 10)
-	output, err := runSearchMixedCommand(t, cfg, "--seed", seed, "--rate", "120", "--write-rate", "60", "--duration", "40s",
+	output, err := runSearchMixedCommand(t, cfg, "--seed", seed, "--rate", "60", "--write-rate", "60", "--duration", "40s",
 		"--concurrency", "8", "--burst-writes", "60", "--catch-up", "5m", "--rebuild", "--endpoints", strings.Join(endpoints, ","), "--commit")
 	var envelope searchMixedOutput
 	if decodeErr := json.Unmarshal(output, &envelope); decodeErr != nil {
