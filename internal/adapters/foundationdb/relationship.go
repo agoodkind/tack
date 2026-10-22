@@ -30,8 +30,8 @@ func NewRelationshipStore(db fdb.Database, source clock.Clock) *RelationshipStor
 	return &RelationshipStore{db: db, clock: source, searchWork: false, writeFence: nil}
 }
 
-// Add writes one edge. The same transaction writes the change event of the
-// edge with the stored value that the edge replaces.
+// Add writes rel. When its encoded value differs from the stored value, the same
+// transaction writes a change event with the old and new values.
 func (s *RelationshipStore) Add(ctx context.Context, rel *node.Relationship) (err error) {
 	defer telemetry.FDBOp(ctx, "store.relationship.add")(&err)
 	changes, err := beginMutationAudit(ctx, rel.OrgID)
@@ -72,7 +72,7 @@ func (s *RelationshipStore) Add(ctx context.Context, rel *node.Relationship) (er
 
 // Remove clears one edge. It refuses to clear the source node's only
 // hierarchy parent edge and returns an error that wraps domain.ErrFailedPrecondition.
-// The same transaction writes the change event of the removed edge.
+// The same transaction writes a change event when the relationship exists.
 func (s *RelationshipStore) Remove(ctx context.Context, orgID, sourceID uuid.UUID, relationType string, targetID uuid.UUID) (err error) {
 	defer telemetry.FDBOp(ctx, "store.relationship.remove")(&err)
 	changes, err := beginMutationAudit(ctx, orgID)
@@ -161,9 +161,9 @@ func (s *RelationshipStore) ListByTarget(ctx context.Context, orgID, targetID uu
 	return rels, nil
 }
 
-// readRelationshipsByTarget reads the forward value of each reverse key in
-// revPR inside tr. It skips a key that it cannot decode and a forward value
-// that is missing or cannot be decoded.
+// readRelationshipsByTarget reads reverse keys in revPR and their forward values inside tr.
+// It skips a relationship if it cannot decode the key or parse its source ID.
+// It also skips a relationship if the forward value is empty or it cannot read or decode it.
 func readRelationshipsByTarget(ctx context.Context, tr fdb.Transaction, revPR fdb.KeyRange, orgID, targetID uuid.UUID) ([]*node.Relationship, error) {
 	revKVs, err := tr.GetRange(revPR, fdb.RangeOptions{}).GetSliceWithError()
 	if err != nil {

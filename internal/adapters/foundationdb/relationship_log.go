@@ -13,9 +13,9 @@ func logRelationshipFailure(ctx context.Context, event string, err error, source
 	telemetry.L(ctx).ErrorContext(ctx, event, slog.String("err", err.Error()), slog.String("source_id", sourceID.String()), slog.String("target_id", targetID.String()))
 }
 
-// logSearchScheduleFailure logs search.work.schedule_failed for a relationship
-// write that failed to schedule search work. It logs nothing when the search
-// code already logged the failure.
+// logSearchScheduleFailure logs search.work.schedule_failed when a relationship
+// write cannot schedule search work. It does not log a failure that the search
+// code has already logged.
 func logSearchScheduleFailure(ctx context.Context, err error, sourceID, targetID uuid.UUID) {
 	if searchFailureWasLogged(err) {
 		return

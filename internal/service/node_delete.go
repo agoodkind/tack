@@ -38,9 +38,9 @@ type DeleteResult struct {
 // own parent when node.LivesUnder places the child's type under that
 // parent's type. Every other child is deleted with its descendants. The
 // delete stores a job record in FoundationDB and runs bounded steps of the
-// job for at most deleteRequestBudget. Each step writes one change event for
-// each node and relationship that it deletes or moves, in the transaction
-// that changes the record. A job that is still running
+// job for at most deleteRequestBudget. Each step writes one change event per changed node
+// or relationship in the transaction that changes it. The events record the job's actor
+// and operation ID. A job that is still running
 // when the budget ends, or when the caller stops, is finished by
 // ResumeSubtreeDeletes.
 func (s *NodeService) Delete(ctx context.Context, nodeID, actorID uuid.UUID) (DeleteResult, error) {
@@ -74,8 +74,8 @@ func (s *NodeService) Delete(ctx context.Context, nodeID, actorID uuid.UUID) (De
 }
 
 // DeleteSubtree removes the node the way Delete does and runs the job until
-// it finishes. The job records every change under the audit operation that
-// ctx identifies.
+// it finishes. The job stores the encoded audit operation from ctx. Each step
+// records the actor and operation ID from that stored operation.
 func (s *NodeService) DeleteSubtree(ctx context.Context, orgID, nodeID, actorID uuid.UUID) (DeleteResult, error) {
 	return s.startSubtreeDelete(ctx, orgID, nodeID, actorID, 0)
 }

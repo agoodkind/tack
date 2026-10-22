@@ -27,10 +27,9 @@ type SubtreeDeleteJob struct {
 	// ActorID is the user or operator who asked for the delete. A moved node
 	// records it as its last updater.
 	ActorID uuid.UUID `json:"actor_id" exhaustruct:"optional"`
-	// Operation is the encoded audit operation of the request that started
-	// the job. The start stores it from the request context. Every step,
-	// including a step that the resume loop runs, records its changes with
-	// the actor and operation ID of this operation.
+	// Operation is the encoded audit operation from the request that started the job.
+	// Every step records node and relationship changes with the actor and operation ID
+	// from Operation, including steps that the resume loop runs.
 	Operation json.RawMessage `json:"operation,omitempty" exhaustruct:"optional"`
 	// Stack lists the nodes on the path from the root to the node the next
 	// step examines. The first entry is the root.

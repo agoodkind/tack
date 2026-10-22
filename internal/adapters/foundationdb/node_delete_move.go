@@ -49,8 +49,8 @@ func readRootParent(ctx context.Context, tr fdb.Transaction, orgID, rootID uuid.
 // type. The move replaces every child_of edge of the child with one child_of
 // edge to the parent, sets the child's parent_id to the parent, moves the
 // parent_id index entry, schedules the search work of a parent change, and
-// records the actual old and new node record and each changed child_of edge
-// in changes. It reports whether it moved the child.
+// records the old and new values of the node and each changed child_of edge
+// in changes. It returns true when it moves the child.
 func (s *NodeDeleteStore) moveChild(
 	ctx context.Context, tr fdb.Transaction, job *node.SubtreeDeleteJob, child hierarchyNode,
 	kinds map[string]*node.NodeType, changes *mutationAudit,
@@ -124,9 +124,10 @@ func parentEdgeChanges(job *node.SubtreeDeleteJob, childID uuid.UUID, edges []de
 	return []node.RelationshipChanges{{Add: []*node.Relationship{added}, Remove: removed}}
 }
 
-// readNodeAndView reads the node record and the view record of one node. It
-// returns the decoded records and the stored node record bytes. A missing
-// node record returns nil.
+// readNodeAndView reads and decodes the node and view records of target.
+// It also returns the encoded node record. If the node record does not exist,
+// it returns nil for both records and the bytes. If only the view record does
+// not exist, it returns nil for the view.
 func readNodeAndView(ctx context.Context, tr fdb.Transaction, orgID uuid.UUID, target hierarchyNode) (*node.Node, *node.NodeView, []byte, error) {
 	nodeFuture := tr.Get(fdb.Key(nodeInstanceKey(orgID, target.TypeKey, target.ID)))
 	viewFuture := tr.Get(fdb.Key(nodeViewKey(orgID, target.TypeKey, target.ID)))

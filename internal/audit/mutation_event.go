@@ -11,24 +11,22 @@ import (
 	"github.com/google/uuid"
 )
 
-// recordPropertiesField identifies the record member that stores the property
-// map. The changed field list compares each property separately.
+// recordPropertiesField is the key for the property map in a record.
+// changedFields compares each property separately.
 const recordPropertiesField = "props"
 
-// recordBookkeepingFields lists the record members that the changed field
-// list omits. The event actor, context, and occurrence time record these
-// values.
+// recordBookkeepingFields is the set of record members that recordFields skips.
 var recordBookkeepingFields = []string{"id", "org_id", "node_type", "created_at", "created_by", "updated_at", "updated_by"}
 
-// recordField identifies a top-level record member or, when isProperty is
-// true, a property in the property map.
+// recordField stores the record member key and, when isProperty is true,
+// the key of one property in that member's property map.
 type recordField struct {
 	member     string
 	property   string
 	isProperty bool
 }
 
-// pointer returns the field's RFC 6901 JSON pointer within the record.
+// pointer returns the field's path within the record as an RFC 6901 JSON pointer.
 func (f recordField) pointer() string {
 	escape := strings.NewReplacer("~", "~0", "/", "~1")
 	if !f.isProperty {
@@ -37,9 +35,9 @@ func (f recordField) pointer() string {
 	return "/" + escape.Replace(f.member) + "/" + escape.Replace(f.property)
 }
 
-// NewChange returns the change of one record with its complete old and new
-// encodings. A nil or empty encoding identifies an absent record. Changed
-// lists each changed field as an RFC 6901 JSON pointer in sorted order.
+// NewChange builds a change with the complete old and new JSON encodings of one record.
+// A nil or empty encoding means the record does not exist.
+// Changed contains the paths of changed fields as sorted RFC 6901 JSON pointers.
 func NewChange(eventID uuid.UUID, target Target, before, after json.RawMessage) (Change, error) {
 	changed, err := changedFields(before, after)
 	if err != nil {
@@ -53,8 +51,8 @@ func NewChange(eventID uuid.UUID, target Target, before, after json.RawMessage) 
 	return change, nil
 }
 
-// changedFields compares two record encodings and returns the JSON pointer
-// of each field that differs or exists on one side only.
+// changedFields returns the paths of fields that differ between the two JSON records
+// or exist in only one record. It returns each path as an RFC 6901 JSON pointer.
 func changedFields(source, result json.RawMessage) ([]string, error) {
 	before, err := recordFields(source)
 	if err != nil {
@@ -80,8 +78,8 @@ func changedFields(source, result json.RawMessage) ([]string, error) {
 	return changed, nil
 }
 
-// recordFields returns the fields to compare from one record encoding, with
-// each value in compact JSON. A nil or empty encoding returns an empty set.
+// recordFields returns the fields to compare from one record encoding,
+// with each value in compact JSON. It returns an empty set when encoding is nil or empty.
 func recordFields(encoding json.RawMessage) (map[recordField]json.RawMessage, error) {
 	fields := map[recordField]json.RawMessage{}
 	if len(encoding) == 0 {

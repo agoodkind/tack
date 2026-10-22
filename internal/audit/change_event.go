@@ -7,19 +7,18 @@ import (
 )
 
 const (
-	// TargetNodeTypeDefinition is the node type of a node target that
-	// identifies a node type definition record.
+	// TargetNodeTypeDefinition is the Target.NodeType value for a node type definition record.
 	TargetNodeTypeDefinition = "node_type"
-	// TargetNodeTypePropertyDefinition is the node type of a node target that
-	// identifies a property definition record.
+	// TargetNodeTypePropertyDefinition is the Target.NodeType value for a property definition record.
 	TargetNodeTypePropertyDefinition = "property_def"
 )
 
-// ChangeEvent returns the format 2 change event that records change as one
-// step of operation. The event uses the change event ID and target, the actor,
-// context, and extra fields of operation, the completed outcome, and a delta
-// with the complete old and new values. It returns an error when the change
-// or the resulting event fails validation.
+// ChangeEvent builds one format 2 change event for change as part of operation.
+// It copies the actor, context, and extra fields from operation.
+// It uses the event ID and target from change and sets Outcome to OutcomeCompleted.
+// Delta records the complete old and new values.
+//
+// ChangeEvent returns an error if change or the resulting event fails validation.
 func ChangeEvent(operation Event, change Change, completedAt time.Time) (Event, error) {
 	if err := ValidateChange(change); err != nil {
 		return Event{}, changeEventFailure(change, err)
@@ -47,8 +46,8 @@ func ChangeEvent(operation Event, change Change, completedAt time.Time) (Event, 
 	return event, nil
 }
 
-// changeVerb selects the verb from the target and from which of the old and
-// new values exist.
+// changeVerb selects the verb for the target's Kind and NodeType based on
+// whether the old and new record values exist.
 func changeVerb(change Change) Verb {
 	created, deleted := len(change.Before) == 0, len(change.After) == 0
 	if change.Target.Kind == TargetKindRelationship {

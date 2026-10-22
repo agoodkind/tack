@@ -39,8 +39,8 @@ func userIDForEmail(email string) uuid.UUID {
 // to query the property index for an existing node: for non-org nodes this is
 // the parentID; for org nodes (where orgID == the node's own ID) the caller
 // supplies the orgID from the user's existing org membership, or [uuid.Nil] when
-// no prior membership exists. CreateAtomic writes the change events of a new
-// node and its parent relationship in the create transaction.
+// a prior membership does not exist. CreateAtomic writes change events for the new node and,
+// when parentID is not [uuid.Nil], its parent relationship in the create transaction.
 func ensureNode(ctx context.Context, s *fdbadapter.Stores, typeKey, slug, name string, parentID, lookupOrgID uuid.UUID) (uuid.UUID, error) {
 	log := telemetry.L(ctx)
 	slugRaw, err := json.Marshal(slug)
@@ -111,7 +111,7 @@ func ensureNode(ctx context.Context, s *fdbadapter.Stores, typeKey, slug, name s
 	// index written here replaces the former address_index write.
 	if err := s.Nodes.CreateAtomic(ctx, n, view, rels, []string{"slug"}, nil, nil); err != nil {
 		slog.ErrorContext(ctx, "seed.create_node_failed", slog.String("type", typeKey), slog.String("err", err.Error()))
-		return uuid.Nil, fmt.Errorf("seed: create node %s: %w", typeKey, err)
+		return uuid.Nil, fmt.Errorf("seed: create node of type %s: %w", typeKey, err)
 	}
 	log.InfoContext(ctx, "seed.node_created", "type", typeKey, "slug", slug, "id", id)
 	return id, nil

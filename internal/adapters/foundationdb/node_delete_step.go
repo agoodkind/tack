@@ -17,11 +17,12 @@ import (
 // of them. Otherwise the step deletes the node, writes its ledger event, and
 // removes it from the stack. The step that empties the stack writes the
 // finish time into the job record, and status reads return that record. A
-// finished job and a job record that no longer exists report Done. Each step
-// writes one change event for each record that it changes, with the actor
-// and operation ID that the job record stores. Each event ID derives from the
-// operation ID, the job ID, and the record. A retried or resumed step writes
-// the same event IDs.
+// finished job or missing job record makes DeleteSubtreeStep report Done.
+// Each step records node and relationship changes with the actor and operation ID
+// from the job's encoded operation. It derives a base event ID from the operation ID
+// and job ID. Each change event ID is a name-based UUID of that base ID, the change
+// kind (create, update, or delete), and the record identity. A retried or resumed step
+// writes the same event IDs.
 func (s *NodeDeleteStore) DeleteSubtreeStep(ctx context.Context, jobID uuid.UUID) (progress node.SubtreeDeleteProgress, err error) {
 	defer telemetry.FDBOp(ctx, "store.node.subtree_delete_step")(&err)
 	err = runNodeMutation(ctx, s.nodes.db, "subtree delete step of job "+jobID.String(), func(tr fdb.Transaction) error {
@@ -60,8 +61,8 @@ func (s *NodeDeleteStore) DeleteSubtreeStep(ctx context.Context, jobID uuid.UUID
 	return progress, nil
 }
 
-// advance examines the last node on the stack of job, changes job to the
-// state after the step, and records each changed record in changes.
+// advance processes the last node on job.Stack and updates job after the step.
+// It records node and relationship changes in changes.
 func (s *NodeDeleteStore) advance(ctx context.Context, tr fdb.Transaction, job *node.SubtreeDeleteJob, changes *mutationAudit) error {
 	topID := job.Stack[len(job.Stack)-1]
 	kinds := make(map[string]*node.NodeType)

@@ -15,8 +15,8 @@ import (
 // UpdateAtomic stores a node and reconciles its indexes and relationships in
 // one transaction. When search work is enabled, the same transaction also
 // schedules search work for the node and the endpoints of each changed
-// relationship. The same transaction writes one change event for the node
-// and for each changed relationship.
+// relationship. The transaction writes one change event for the node when its
+// stored value changes and one for each changed relationship.
 func (s *NodeStore) UpdateAtomic(ctx context.Context, current *node.Node, view *node.NodeView, oldProps map[string]json.RawMessage, indexedProps []string, referenceKeys []node.ReferenceKey, relationshipChanges ...node.RelationshipChanges) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node.update_atomic")(&err)
 	changes, err := beginMutationAudit(ctx, current.OrgID)
@@ -81,8 +81,8 @@ func reconcilePropertyIndexes(tr fdb.Transaction, current *node.Node, oldProps m
 	}
 }
 
-// writeNodeRecords writes the node, resolution, and view records of current
-// inside tr and returns the node record bytes that it wrote.
+// writeNodeRecords writes the node and resolution records of current inside tr.
+// It writes the view record when view is not nil and returns the encoded node record.
 func writeNodeRecords(ctx context.Context, tr fdb.Transaction, current *node.Node, view *node.NodeView) ([]byte, error) {
 	encodedNode, err := json.Marshal(current)
 	if err != nil {

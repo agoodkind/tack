@@ -12,8 +12,8 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// referenceClaims is the change value of the references that one node owns.
-// It maps each reference template name to the rendered reference.
+// referenceClaims stores the references that one node owns in the reference_keys member.
+// ReferenceKeys maps each reference template name to its rendered reference.
 type referenceClaims struct {
 	ReferenceKeys map[string]string `json:"reference_keys"`
 }

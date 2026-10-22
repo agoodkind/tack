@@ -16,8 +16,8 @@ import (
 // it with before. It stores after and returns true only when the re-encoded
 // stored definition matches before.
 // The same transaction updates the name index, metadata epoch, and
-// projection digests and writes one change event with the stored and
-// replacement records. When search
+// projection digests. If the stored and replacement records differ, it writes one change event
+// with both records. When search
 // work is enabled, a rendering input change also requests a content rescan
 // in that transaction. If the stored definition does not match before,
 // Replace does not write and returns false.

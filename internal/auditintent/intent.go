@@ -1,14 +1,13 @@
-// Package auditintent attaches the identity of one MCP tool call or act-as
-// write to its request context.
+// Package auditintent attaches MCP tool slots and encoded audit operations
+// to request contexts.
 //
-// The MCP tool wrapper attaches a slot with the tool name and the actor. Each
-// FoundationDB writer reads the slot through the audit package, writes one
-// change event for each changed record in its own transaction, and marks the
-// slot committed. The wrapper reads that mark and does not record the change
-// again after the call (TACK-173).
+// The MCP tool wrapper attaches a slot with the tool name and actor.
+// Each FoundationDB writer reads the slot through the audit package and writes
+// one change event per changed record in the same transaction as the record change.
+// The writer marks the slot committed. The wrapper skips its change event
+// when the slot has that mark.
 //
-// This package does not define an event shape. The storage adapter and the
-// audit package both import it.
+// Encoded operations use json.RawMessage.
 package auditintent
 
 import (
@@ -79,7 +78,8 @@ func Tool(ctx context.Context) string {
 	return current.tool
 }
 
-// Actor returns the caller of the slot, or the zero ID without a slot.
+// Actor returns the actor UUID from the nearest slot on ctx.
+// It returns uuid.Nil when ctx does not have a slot or WithOperation created that slot.
 func Actor(ctx context.Context) uuid.UUID {
 	current, _ := ctx.Value(slotKey{}).(*slot)
 	if current == nil {
@@ -90,9 +90,9 @@ func Actor(ctx context.Context) uuid.UUID {
 	return current.actor
 }
 
-// OperationID returns the UUIDv7 operation ID of the slot. The first call
-// creates the ID, and every later call returns the same ID. It returns the
-// zero ID without a slot.
+// OperationID creates and stores a UUIDv7 ID when the nearest slot on ctx does not have one.
+// It returns the stored ID, or uuid.Nil and an error if creation fails.
+// It returns uuid.Nil without an error when ctx does not have a slot.
 func OperationID(ctx context.Context) (uuid.UUID, error) {
 	current, _ := ctx.Value(slotKey{}).(*slot)
 	if current == nil {
@@ -123,7 +123,8 @@ func Commit(ctx context.Context) {
 	current.committed = true
 }
 
-// Committed reports whether a transaction in the request wrote change events.
+// Committed reports whether Commit marked the nearest slot on ctx as committed.
+// It returns false when ctx does not have a slot.
 func Committed(ctx context.Context) bool {
 	current, _ := ctx.Value(slotKey{}).(*slot)
 	if current == nil {

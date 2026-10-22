@@ -14,18 +14,14 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// ErrMissingMutationContext reports a database write without the actor and
-// operation that its change events require.
+// ErrMissingMutationContext reports a missing or invalid audit operation for a database write.
 var ErrMissingMutationContext = errors.New("the write requires an audit mutation context")
 
 // uuidVersionTimeOrdered is the UUID version that encodes its creation time.
 const uuidVersionTimeOrdered = 7
 
-// WithMutationContext attaches operation to ctx. Writers that call
-// RequireMutationContext with the returned context record their changes
-// under the actor, operation ID, start time, source, and extra fields of
-// operation. An MCP tool slot that a caller attaches to the returned context
-// takes precedence over operation.
+// WithMutationContext encodes operation and attaches it to ctx with auditintent.WithOperation.
+// RequireMutationContext reads this operation unless a caller attaches a nearer slot.
 func WithMutationContext(ctx context.Context, operation Event) (context.Context, error) {
 	encoded, err := MarshalEvent(operation)
 	if err != nil {
@@ -49,32 +45,33 @@ func NewMutationOperation(actor Actor, source Source, tool string) (Event, error
 	}, nil), nil
 }
 
-// RequireMutationContext returns the operation that a write records its
-// changes under. It reads, in order, an operation attached with
-// WithMutationContext, the MCP tool slot, and the operator principal and
-// operation ID of an operator command. It returns an error that wraps
-// ErrMissingMutationContext when ctx has none of them or when the operation
-// lacks an actor, operation ID, or start time.
+// RequireMutationContext reads the operation from the nearest slot on ctx.
+// The slot stores an operation from WithMutationContext or auditintent.WithOperation,
+// or an MCP tool call from auditintent.WithSlot. Without a slot, it reads the
+// operator principal and UUIDv7 operation ID that the clispec command gate attaches.
+//
+// RequireMutationContext returns an error that wraps ErrMissingMutationContext
+// when it cannot find an operation or the operation lacks an actor ID, a known
+// actor kind, an operation ID, or a start time.
 func RequireMutationContext(ctx context.Context) (Event, error) {
 	operation, found, err := findMutationContext(ctx)
 	if err != nil {
 		return Event{}, err
 	}
 	if !found {
-		return Event{}, missingMutationContext(ctx, "ctx has no operation, MCP tool slot, or operator principal")
+		return Event{}, missingMutationContext(ctx, "ctx does not contain an audit operation, an MCP tool slot, or an operator principal with an operation ID")
 	}
 	switch {
 	case operation.Actor.ID == uuid.Nil || actorKindCode(operation.Actor.Type) == 0:
-		return Event{}, missingMutationContext(ctx, "the operation has no known actor")
+		return Event{}, missingMutationContext(ctx, "the operation does not have both an actor ID and a known actor kind")
 	case operation.Context.OperationID == uuid.Nil || operation.Context.StartedAt.IsZero():
-		return Event{}, missingMutationContext(ctx, "the operation has no operation ID or start time")
+		return Event{}, missingMutationContext(ctx, "the operation does not have both an operation ID and a start time")
 	}
 	return operation, nil
 }
 
-// WithMutationTool returns ctx with the operation that RequireMutationContext
-// reads from ctx and the tool name tool. Writers that run under the returned
-// context record tool as the tool of each change event.
+// WithMutationTool reads the operation with RequireMutationContext and sets its tool name to tool.
+// It attaches the operation to the returned context with WithMutationContext.
 func WithMutationTool(ctx context.Context, tool string) (context.Context, error) {
 	operation, err := RequireMutationContext(ctx)
 	if err != nil {
@@ -115,14 +112,14 @@ func findMutationContext(ctx context.Context) (Event, bool, error) {
 	return operationEvent(actor, opID, requestContext(ctx, SourceSystem, ""), nil), true, nil
 }
 
-// slotOperation returns the operation of the MCP tool call or act-as write
-// that attached the slot. The operation of an act-as write inside an
-// operator command records the command's operation ID as its parent.
+// slotOperation builds an operation from the nearest MCP tool or act-as slot on ctx.
+// It sets ParentOperationID to the operator command's operation ID when that
+// ID exists and differs from the slot's operation ID.
 func slotOperation(ctx context.Context) (Event, error) {
 	operationID, err := auditintent.OperationID(ctx)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.mutation_context.slot_failed", slog.String("err", err.Error()))
-		return Event{}, fmt.Errorf("read the audit slot operation: %w", err)
+		return Event{}, fmt.Errorf("create the audit slot operation ID: %w", err)
 	}
 	extra, err := stagedExtra(ctx)
 	if err != nil {

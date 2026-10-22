@@ -40,9 +40,8 @@ func encodedRecords(ctx context.Context, encoded audit.EncodedEvent) ([][]byte, 
 	return records, nil
 }
 
-// commitStagedIntent marks the request slot committed after a transaction
-// wrote change events. The MCP wrapper then does not record the change a
-// second time.
+// commitStagedIntent marks the request slot as committed after the transaction
+// commits its change events. The MCP wrapper does not record the change again.
 func commitStagedIntent(ctx context.Context) {
 	auditintent.Commit(ctx)
 }

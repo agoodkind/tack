@@ -29,8 +29,8 @@ func NewNodeTypeStore(db fdb.Database, source clock.Clock) *NodeTypeStore {
 // Set stores nt and its type-key index entry. It increments the
 // organization's metadata epoch when the stored record changes. When search
 // work is enabled and the type key, features, or hierarchy declaration
-// changed, Set also requests an access rescan. The same transaction writes
-// the change event of the record.
+// changed, Set also requests an access rescan. If the stored record changes, the
+// transaction also writes its change event.
 func (s *NodeTypeStore) Set(ctx context.Context, nt *node.NodeType) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node_type.set")(&err)
 	b, err := json.Marshal(nt)
@@ -111,8 +111,8 @@ func (s *NodeTypeStore) List(ctx context.Context, orgID uuid.UUID) (types []*nod
 	return types, nil
 }
 
-// Delete removes one node type record and its type-key index entry. The same
-// transaction writes the change event of the removed record.
+// Delete removes one node type record and its type-key index entry. If the record exists,
+// the same transaction writes a change event for the deletion.
 func (s *NodeTypeStore) Delete(ctx context.Context, orgID, typeID uuid.UUID) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node_type.delete")(&err)
 	changes, err := beginMutationAudit(ctx, orgID)

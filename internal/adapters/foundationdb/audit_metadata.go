@@ -23,8 +23,8 @@ func propertyDefTarget(definitionID uuid.UUID, name string) audit.Target {
 	return nodeIdentityTarget(definitionID, audit.TargetNodeTypePropertyDefinition, name)
 }
 
-// storedNodeTypeTarget returns the audit target of the stored node type
-// record previous. An empty record returns a target with only the ID.
+// storedNodeTypeTarget returns the node audit target for typeID with NodeType "node_type".
+// It sets Name to the TypeKey in previous, or to an empty string when previous is empty.
 func storedNodeTypeTarget(ctx context.Context, typeID uuid.UUID, previous []byte) (audit.Target, error) {
 	if len(previous) == 0 {
 		return nodeTypeTarget(typeID, ""), nil
@@ -36,9 +36,8 @@ func storedNodeTypeTarget(ctx context.Context, typeID uuid.UUID, previous []byte
 	return nodeTypeTarget(typeID, stored.TypeKey), nil
 }
 
-// storedPropertyDefTarget returns the audit target of the stored property
-// definition record previous. An empty record returns a target with only the
-// ID.
+// storedPropertyDefTarget returns the node audit target for defID with NodeType "property_def".
+// It sets Name to the property name in previous, or to an empty string when previous is empty.
 func storedPropertyDefTarget(ctx context.Context, defID uuid.UUID, previous []byte) (audit.Target, error) {
 	if len(previous) == 0 {
 		return propertyDefTarget(defID, ""), nil

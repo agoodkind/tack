@@ -13,7 +13,7 @@ import (
 // rereads the idempotency record, source primary record, metadata epoch,
 // expected graph records, and parent chain before writing. The attempt writes
 // the primary, view, and resolution records, property indexes, reference claims,
-// relationships, search work, and one change event for each changed record.
+// relationships, search work, and one change event for each changed node or relationship.
 func (s *NodeStore) ApplyMutation(ctx context.Context, plan node.MutationPlan) (receipt node.MutationReceipt, err error) {
 	defer telemetry.FDBOp(ctx, "store.node.apply_mutation")(&err)
 	changes, err := beginMutationAudit(ctx, plan.OrgID)
@@ -36,9 +36,9 @@ func (s *NodeStore) ApplyMutation(ctx context.Context, plan node.MutationPlan) (
 	return receipt, nil
 }
 
-// applyMutationAttempt runs one attempt of plan inside tr and records each
-// changed record in changes. It returns the receipt of an existing
-// idempotency record without writing.
+// applyMutationAttempt returns the receipt without writing when the idempotency
+// record exists. Otherwise, it applies plan inside tr, records node and relationship
+// changes in changes, and returns a receipt for the write.
 func (s *NodeStore) applyMutationAttempt(ctx context.Context, tr fdb.Transaction, plan node.MutationPlan, changes *mutationAudit) (node.MutationReceipt, error) {
 	none := node.MutationReceipt{OrgID: plan.OrgID, NodeID: plan.NodeID, SourceDigest: node.Digest{}, ResultDigest: node.Digest{}}
 	existing, err := readCreateIdempotency(ctx, tr, plan)

@@ -19,12 +19,12 @@ import (
 const maxSubtreeDeleteJobPage = 100
 
 // StartSubtreeDelete stores the record of a new subtree delete job with the
-// root as the only stack entry, zero deleted and moved nodes, the root's
-// hierarchy parent as the destination of moved children, and the audit
-// operation that ctx identifies. Every step records its changes under that
-// operation, so after the record commits the start marks the request slot
-// committed. The MCP wrapper then does not record a second event for the
-// delete, even when the request returns before the root is gone.
+// root as its only stack entry. It sets the deleted and moved counts to zero
+// and stores the root's hierarchy parent as the destination for moved children.
+// It stores the encoded audit operation from ctx for every step to use.
+// After the job record commits, StartSubtreeDelete marks the request slot committed.
+// The MCP wrapper skips its event for the delete, including when the request
+// returns before the job deletes the root.
 func (s *NodeDeleteStore) StartSubtreeDelete(ctx context.Context, job *node.SubtreeDeleteJob) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node.subtree_delete_start")(&err)
 	operation, err := audit.RequireMutationContext(ctx)
@@ -53,9 +53,9 @@ func (s *NodeDeleteStore) StartSubtreeDelete(ctx context.Context, job *node.Subt
 	return nil
 }
 
-// jobOperation decodes the audit operation of job. It returns an error when
-// the record does not contain an operation with an actor, an operation ID,
-// and a start time.
+// jobOperation decodes the audit operation stored in job.Operation.
+// It returns an error that wraps audit.ErrMissingMutationContext when the operation
+// is absent or lacks an actor ID, a known actor kind, an operation ID, or a start time.
 func jobOperation(ctx context.Context, job *node.SubtreeDeleteJob) (audit.Event, error) {
 	if len(job.Operation) == 0 {
 		return audit.Event{}, nodeOperationFailure(ctx, "read the audit operation of subtree delete "+job.ID.String(), audit.ErrMissingMutationContext)

@@ -38,8 +38,8 @@ func (s *NodeStore) DeleteNode(ctx context.Context, plan node.DeletionPlan) (rec
 	return receipt, nil
 }
 
-// deleteNodeAttempt runs one attempt of plan inside tr and records each
-// removed record in changes.
+// deleteNodeAttempt runs one attempt of plan inside tr and records node and
+// relationship deletions in changes.
 func (s *NodeStore) deleteNodeAttempt(ctx context.Context, tr fdb.Transaction, plan node.DeletionPlan, changes *mutationAudit) (node.MutationReceipt, error) {
 	none := node.MutationReceipt{OrgID: plan.OrgID, NodeID: plan.NodeID, SourceDigest: node.Digest{}, ResultDigest: node.Digest{}}
 	if plan.Source.Absent {

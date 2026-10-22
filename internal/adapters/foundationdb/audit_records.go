@@ -36,10 +36,10 @@ func relationshipTarget(sourceID uuid.UUID, relationType string, targetID uuid.U
 	}
 }
 
-// applyRelationshipChanges applies each set in changesList in order inside
-// tr. Each set clears its removed relationships before it writes its added
-// relationships. Before each clear or write, it reads the stored value inside
-// tr and records the actual change in changes.
+// applyRelationshipChanges processes each set in changesList in order inside tr.
+// For each set, it removes relationships before adding relationships. It reads the
+// stored values before each group of removals or additions and records each change
+// in changes after clearing or writing the relationship.
 func applyRelationshipChanges(ctx context.Context, tr fdb.Transaction, changesList []node.RelationshipChanges, changes *mutationAudit) error {
 	for _, set := range changesList {
 		if err := removeRelationships(ctx, tr, set.Remove, changes); err != nil {
@@ -52,9 +52,8 @@ func applyRelationshipChanges(ctx context.Context, tr fdb.Transaction, changesLi
 	return nil
 }
 
-// removeRelationships clears each relationship inside tr and records its
-// stored value as removed. A relationship that does not exist records
-// nothing.
+// removeRelationships clears each relationship inside tr and records its stored
+// value as a deletion. It does not record a change when the relationship does not exist.
 func removeRelationships(ctx context.Context, tr fdb.Transaction, removed []*node.Relationship, changes *mutationAudit) error {
 	stored, err := readRelationshipValues(ctx, tr, removed)
 	if err != nil {
@@ -96,8 +95,8 @@ func addRelationships(ctx context.Context, tr fdb.Transaction, added []*node.Rel
 }
 
 // readRelationshipValues reads the stored forward value of each relationship
-// inside tr. It issues every read before it waits on any of them. A missing
-// relationship returns a nil value.
+// inside tr. It starts all reads before waiting for their results and returns
+// a nil entry for each relationship that does not exist.
 func readRelationshipValues(ctx context.Context, tr fdb.Transaction, relationships []*node.Relationship) ([][]byte, error) {
 	futures := make([]fdb.FutureByteSlice, 0, len(relationships))
 	for _, relationship := range relationships {
