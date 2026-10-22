@@ -65,12 +65,12 @@ func newMigrationEnv(t *testing.T, pageBytes int) *migrationEnv {
 		Endpoint: fixture.Endpoint, CA: fixture.CA, Username: fixture.Username,
 		Password: fixture.Password, RequestTimeout: 2 * time.Minute, MaxRetries: 1,
 	}
-	adapter, err := search.New(t.Context(), configuration)
+	adapter, err := search.New(integration.WithTestOperation(t, t.Context()), configuration)
 	if err != nil {
 		t.Fatalf("create search adapter: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := adapter.Close(context.WithoutCancel(t.Context())); err != nil {
+		if err := adapter.Close(context.WithoutCancel(integration.WithTestOperation(t, t.Context()))); err != nil {
 			t.Errorf("close search adapter: %v", err)
 		}
 	})
@@ -84,21 +84,21 @@ func newMigrationEnv(t *testing.T, pageBytes int) *migrationEnv {
 		}
 	})
 	client := opensearchapi.NewFromClient(raw)
-	model, err := adapter.Provision(t.Context())
+	model, err := adapter.Provision(integration.WithTestOperation(t, t.Context()))
 	if err != nil {
 		t.Fatalf("provision search model: %v", err)
 	}
 	index := "node-pages-" + uuid.Must(uuid.NewV7()).String()
 	spec := search.IndexSpec{Model: model, MappingVersion: search.MappingVersion, Primaries: 1, RoutingShards: 8, Replicas: 0}
-	if err := adapter.EnsureIndex(t.Context(), index, spec); err != nil {
+	if err := adapter.EnsureIndex(integration.WithTestOperation(t, t.Context()), index, spec); err != nil {
 		t.Fatalf("create index %s: %v", index, err)
 	}
 	t.Cleanup(func() {
-		if _, err := client.Indices.Delete(context.WithoutCancel(t.Context()), opensearchapi.IndicesDeleteReq{Indices: []string{index}}); err != nil {
+		if _, err := client.Indices.Delete(context.WithoutCancel(integration.WithTestOperation(t, t.Context())), opensearchapi.IndicesDeleteReq{Indices: []string{index}}); err != nil {
 			t.Errorf("delete index %s: %v", index, err)
 		}
 	})
-	if err := stores.InitializeSearchIndex(t.Context(), index); err != nil {
+	if err := stores.InitializeSearchIndex(integration.WithTestOperation(t, t.Context()), index); err != nil {
 		t.Fatalf("record serving index: %v", err)
 	}
 	env := &migrationEnv{
@@ -110,7 +110,7 @@ func newMigrationEnv(t *testing.T, pageBytes int) *migrationEnv {
 		ID: uuid.Must(uuid.NewV7()), OrgID: env.OrgID, Name: env.TypeKey, TypeKey: env.TypeKey, Slug: env.TypeKey,
 		PluralSlug: env.TypeKey + "s", PropertyDefIDs: definitionIDs, Features: node.Features{node.FeatureIsEntryPoint},
 	}
-	if err := stores.NodeTypes.Set(t.Context(), kind); err != nil {
+	if err := stores.NodeTypes.Set(integration.WithTestOperation(t, t.Context()), kind); err != nil {
 		t.Fatalf("store node type: %v", err)
 	}
 	env.Worker = env.newWorker(t, stores)
@@ -147,7 +147,7 @@ func (env *migrationEnv) putDefinition(t *testing.T, name string, include bool) 
 		ID: uuid.Must(uuid.NewV7()), OrgID: env.OrgID, Name: name, Type: node.PropertyType(uniqueKey("t")),
 		Search: &node.SearchProjection{Include: include, Order: 1, Rule: node.TextRule{Mode: node.TextRuleScalar}},
 	}
-	if err := env.Stores.PropertyDefs.Set(t.Context(), definition); err != nil {
+	if err := env.Stores.PropertyDefs.Set(integration.WithTestOperation(t, t.Context()), definition); err != nil {
 		t.Fatalf("store property definition %s: %v", name, err)
 	}
 	return definition.ID
@@ -164,7 +164,7 @@ func (env *migrationEnv) putNodeProps(t *testing.T, nodeID uuid.UUID, props map[
 	now := clock.Now().UTC()
 	value := &node.Node{ID: nodeID, OrgID: env.OrgID, NodeType: env.TypeKey, Name: "Migration node", Props: props, CreatedAt: now, UpdatedAt: now}
 	view := &node.NodeView{ID: nodeID, OrgID: env.OrgID, NodeType: env.TypeKey, Name: "Migration node", Props: props, CreatedAt: now, UpdatedAt: now}
-	if err := env.Stores.Nodes.Set(t.Context(), value, view); err != nil {
+	if err := env.Stores.Nodes.Set(integration.WithTestOperation(t, t.Context()), value, view); err != nil {
 		t.Fatalf("store node %s: %v", nodeID, err)
 	}
 }

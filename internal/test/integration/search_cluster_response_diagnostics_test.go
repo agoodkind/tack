@@ -56,7 +56,7 @@ func clusterPredictionDiagnostics(t *testing.T, cluster *testenv.OpenSearchClust
 
 func captureFirstCluster429(t *testing.T, cluster *testenv.OpenSearchCluster, fixture queryFixture, stoppedMember string) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(WithTestOperation(t, t.Context())), 3*time.Second)
 	defer cancel()
 	var stats struct {
 		Nodes map[string]struct {
@@ -95,7 +95,7 @@ func captureFirstCluster429(t *testing.T, cluster *testenv.OpenSearchCluster, fi
 			continue
 		}
 		requestedAt := time.Now().UTC().Format(time.RFC3339Nano)
-		logs, logErr := cluster.MemberLogTail(t.Context(), member)
+		logs, logErr := cluster.MemberLogTail(WithTestOperation(t, t.Context()), member)
 		if logs == "" {
 			logs = "[no log lines available]"
 		}

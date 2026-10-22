@@ -33,7 +33,7 @@ func newSearchControl(t *testing.T) searchControl {
 	t.Helper()
 	fixture := testenv.OpenSearch(t)
 	factory := cli.System(searchControlConfig(t, fixture))
-	pool, err := pgxpool.New(t.Context(), testenv.Ledger(t))
+	pool, err := pgxpool.New(WithTestOperation(t, t.Context()), testenv.Ledger(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func (control searchControl) provisionFromEmpty(t *testing.T) {
 // index changes its UUID.
 func (control searchControl) indexUUID(t *testing.T, index string) string {
 	t.Helper()
-	response, err := control.client.Indices.Settings.Get(t.Context(), &opensearchapi.SettingsGetReq{Indices: []string{index}})
+	response, err := control.client.Indices.Settings.Get(WithTestOperation(t, t.Context()), &opensearchapi.SettingsGetReq{Indices: []string{index}})
 	if err != nil {
 		t.Fatal(err)
 	}

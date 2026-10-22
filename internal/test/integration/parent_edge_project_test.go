@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/datagen"
+	"goodkind.io/tack/internal/test/integration"
 )
 
 // TestSearchParentEdgeProjectUnderWorkspace creates a project through
@@ -22,7 +23,7 @@ func TestSearchParentEdgeProjectUnderWorkspace(t *testing.T) {
 	fixture := newParentEdgeFixture(t)
 	name := "garnet project under workspace"
 	identifier := "PEP" + strconv.FormatInt(clock.Now().UnixNano()%1_000_000, 10)
-	created, err := fixture.driver.Call(t.Context(), fixture.first.Actors[0].Token, "tack_create_project", datagen.ToolArguments{
+	created, err := fixture.driver.Call(integration.WithTestOperation(t, t.Context()), fixture.first.Actors[0].Token, "tack_create_project", datagen.ToolArguments{
 		WorkspaceReference: fixture.first.Slug, Name: name,
 		Properties: datagen.NodeProperties{"identifier": json.RawMessage(strconv.Quote(identifier))},
 	})

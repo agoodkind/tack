@@ -29,7 +29,7 @@ func TestDatagenSearchPreparationExportsStoredIsolatedSets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	identities, err := datagen.BootstrapIdentities(t.Context(), cfg, seed, scale)
+	identities, err := datagen.BootstrapIdentities(WithTestOperation(t, t.Context()), cfg, seed, scale)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -31,7 +31,7 @@ const nativeJVMHeapBytes = 3221225472
 func requireNativeJVMHeap(t *testing.T, client *opensearchapi.Client) {
 	t.Helper()
 	var stats opensearchapi.NodesStatsResp
-	response, err := opensearch.Do(t.Context(), client.Client, http.MethodGet,
+	response, err := opensearch.Do(WithTestOperation(t, t.Context()), client.Client, http.MethodGet,
 		opensearchapi.NodesStatsReq{Metric: []string{"jvm"}}, &stats)
 	if err != nil || response == nil {
 		t.Fatalf("read native JVM stats: %v", err)

@@ -9,6 +9,7 @@ import (
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/searchaccess"
+	"goodkind.io/tack/internal/test/integration"
 )
 
 // TestSearchParentEdgeCrossOrganization requires the node service to
@@ -53,7 +54,7 @@ func TestSearchParentEdgeTwoParents(t *testing.T) {
 	fixture := newParentEdgeFixture(t)
 	leaf := fixture.createLeaf(t, fixture.firstEntry, "jasper two parent leaf")
 	second := &node.Relationship{OrgID: fixture.kind.orgID, SourceID: leaf, RelationType: node.RelChildOf, TargetID: fixture.secondEntry}
-	if err := fixture.stores.Relationships.Add(t.Context(), second); err != nil {
+	if err := fixture.stores.Relationships.Add(integration.WithTestOperation(t, t.Context()), second); err != nil {
 		t.Fatalf("add second parent edge of leaf %s: %v", leaf, err)
 	}
 	requireParentEdgeDefect(t, fixture, leaf, node.ErrNoHierarchyParent)
@@ -68,7 +69,7 @@ func TestSearchParentEdgeOnlyParentRemoval(t *testing.T) {
 	parent := fixture.createLeaf(t, fixture.firstEntry, "amber parent leaf")
 	nested := fixture.createLeaf(t, parent, "amber nested leaf")
 	relationships := fixture.stores.Relationships
-	err := relationships.Remove(t.Context(), fixture.kind.orgID, nested, node.RelChildOf, parent)
+	err := relationships.Remove(integration.WithTestOperation(t, t.Context()), fixture.kind.orgID, nested, node.RelChildOf, parent)
 	if !errors.Is(err, domain.ErrFailedPrecondition) || !strings.Contains(err.Error(), "only hierarchy parent") {
 		t.Fatalf("removal of the only parent edge of leaf %s returned %v, want a refusal", nested, err)
 	}

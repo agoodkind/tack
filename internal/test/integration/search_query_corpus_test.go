@@ -43,7 +43,7 @@ func putOpaqueKindWithTypeKey(t *testing.T, fixture queryFixture, orgID uuid.UUI
 		},
 	}
 	for _, definition := range definitions {
-		if err := fixture.Stores.PropertyDefs.Set(t.Context(), definition); err != nil {
+		if err := fixture.Stores.PropertyDefs.Set(WithTestOperation(t, t.Context()), definition); err != nil {
 			t.Fatalf("store property definition: %v", err)
 		}
 	}
@@ -53,7 +53,7 @@ func putOpaqueKindWithTypeKey(t *testing.T, fixture queryFixture, orgID uuid.UUI
 		PropertyDefIDs: []uuid.UUID{definitions[0].ID, definitions[1].ID},
 		CanLiveUnder:   entryTypeKeys(t, fixture, orgID),
 	}
-	if err := fixture.Stores.NodeTypes.Set(t.Context(), nodeType); err != nil {
+	if err := fixture.Stores.NodeTypes.Set(WithTestOperation(t, t.Context()), nodeType); err != nil {
 		t.Fatalf("store node type: %v", err)
 	}
 	return kind
@@ -64,7 +64,7 @@ func putOpaqueKindWithTypeKey(t *testing.T, fixture queryFixture, orgID uuid.UUI
 // hierarchy then depends only on NodeType metadata.
 func entryTypeKeys(t *testing.T, fixture queryFixture, orgID uuid.UUID) []string {
 	t.Helper()
-	types, err := fixture.Stores.NodeTypes.List(t.Context(), orgID)
+	types, err := fixture.Stores.NodeTypes.List(WithTestOperation(t, t.Context()), orgID)
 	if err != nil {
 		t.Fatalf("list node types: %v", err)
 	}
@@ -94,7 +94,7 @@ func fixtureNodeService(fixture queryFixture) *service.NodeService {
 func putOpaqueNode(t *testing.T, fixture queryFixture, kind opaqueKind, parentID uuid.UUID, name, included, excluded string) uuid.UUID {
 	t.Helper()
 	props := map[string]json.RawMessage{kind.IncludedKey: mustJSON(included), kind.ExcludedKey: mustJSON(excluded)}
-	result, err := fixtureNodeService(fixture).Create(t.Context(), service.CreateInput{
+	result, err := fixtureNodeService(fixture).Create(WithTestOperation(t, t.Context()), service.CreateInput{
 		ParentID: parentID, NodeTypeKey: kind.TypeKey, Name: name, Props: props,
 	})
 	if err != nil {
@@ -110,14 +110,14 @@ func putOpaqueNode(t *testing.T, fixture queryFixture, kind opaqueKind, parentID
 // transaction.
 func moveOpaqueNode(t *testing.T, fixture queryFixture, kind opaqueKind, nodeID, from, to uuid.UUID) {
 	t.Helper()
-	current, err := fixture.Stores.Views.Get(t.Context(), nodeID)
+	current, err := fixture.Stores.Views.Get(WithTestOperation(t, t.Context()), nodeID)
 	if err != nil || current == nil {
 		t.Fatalf("read node %s before the move: %v", nodeID, err)
 	}
 	if current.NodeType != kind.TypeKey || !bytes.Equal(current.Props["parent_id"], mustJSON(from.String())) {
 		t.Fatalf("node %s has type %s and parent_id %s, want type %s under %s", nodeID, current.NodeType, current.Props["parent_id"], kind.TypeKey, from)
 	}
-	if _, err := fixtureNodeService(fixture).Update(t.Context(), service.UpdateInput{
+	if _, err := fixtureNodeService(fixture).Update(WithTestOperation(t, t.Context()), service.UpdateInput{
 		NodeID: nodeID, Props: map[string]json.RawMessage{"parent_id": mustJSON(to.String()), "scope_id": mustJSON(to.String())},
 	}); err != nil {
 		t.Fatalf("move node %s from %s to %s: %v", nodeID, from, to, err)

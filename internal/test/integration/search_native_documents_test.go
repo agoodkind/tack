@@ -16,7 +16,7 @@ const strictMappingError = "strict_dynamic_mapping_exception"
 // Tack rejects an empty page before any write.
 func TestSearchNativeDocumentForms(t *testing.T) {
 	adapter, client := nativeSearchClients(t)
-	model, err := adapter.Provision(t.Context())
+	model, err := adapter.Provision(WithTestOperation(t, t.Context()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +50,7 @@ func TestSearchNativeDocumentForms(t *testing.T) {
 
 func TestSearchNativeStrictMapping(t *testing.T) {
 	adapter, client := nativeSearchClients(t)
-	model, err := adapter.Provision(t.Context())
+	model, err := adapter.Provision(WithTestOperation(t, t.Context()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestSearchNativeStrictMapping(t *testing.T) {
 
 func nativeSource(t *testing.T, client *opensearchapi.Client, index, id string) map[string]json.RawMessage {
 	t.Helper()
-	response, err := client.Document.Get(t.Context(), opensearchapi.DocumentGetReq{Index: index, DocumentID: id})
+	response, err := client.Document.Get(WithTestOperation(t, t.Context()), opensearchapi.DocumentGetReq{Index: index, DocumentID: id})
 	if err != nil {
 		t.Fatal(err)
 	}

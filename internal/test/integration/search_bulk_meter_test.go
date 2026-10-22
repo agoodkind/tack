@@ -119,7 +119,7 @@ func newMeteredSearchIndex(t *testing.T, stores *fdbadapter.Stores) (*search.Ada
 	t.Cleanup(server.Close)
 	proxyCA := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})
 	pass := fixture.Password
-	adapter, err := search.New(t.Context(), search.Config{
+	adapter, err := search.New(WithTestOperation(t, t.Context()), search.Config{
 		Endpoint: server.URL, CA: string(proxyCA), Username: fixture.Username,
 		Password: pass, RequestTimeout: 2 * time.Minute, MaxRetries: 1,
 	})
@@ -127,18 +127,18 @@ func newMeteredSearchIndex(t *testing.T, stores *fdbadapter.Stores) (*search.Ada
 		t.Fatalf("create metered adapter: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := adapter.Close(context.WithoutCancel(t.Context())); err != nil {
+		if err := adapter.Close(context.WithoutCancel(WithTestOperation(t, t.Context()))); err != nil {
 			t.Error(err)
 		}
 	})
 	_, client := openSearchClientsFor(t, fixture)
-	model, err := adapter.Provision(t.Context())
+	model, err := adapter.Provision(WithTestOperation(t, t.Context()))
 	if err != nil {
 		t.Fatalf("provision search model: %v", err)
 	}
 	index := "node-pages-" + uuid.Must(uuid.NewV7()).String()
 	createNativeSearchIndex(t, adapter, client, model, index)
-	if err := stores.InitializeSearchIndex(t.Context(), index); err != nil {
+	if err := stores.InitializeSearchIndex(WithTestOperation(t, t.Context()), index); err != nil {
 		t.Fatalf("record serving search index: %v", err)
 	}
 	meter.take()

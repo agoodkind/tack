@@ -36,7 +36,7 @@ func setEngineRunning(t *testing.T, running bool) {
 		t.Fatalf("open docker client: %v", err)
 	}
 	defer func() { _ = docker.Close() }()
-	ctx := context.WithoutCancel(t.Context())
+	ctx := context.WithoutCancel(WithTestOperation(t, t.Context()))
 	if running {
 		_, err = docker.ContainerStart(ctx, engine.Container, client.ContainerStartOptions{})
 	} else {
@@ -75,7 +75,7 @@ func TestSearchDatagenOutage(t *testing.T) {
 	startEngine(t, fixture)
 	deadline := time.Now().Add(outageSearchDeadline)
 	for time.Now().Before(deadline) {
-		_, _ = fixture.Worker.RunSlice(t.Context())
+		_, _ = fixture.Worker.RunSlice(WithTestOperation(t, t.Context()))
 		if page, err := trySearch(fixture.Harness, outagePhrase, ""); err == nil && slices.Contains(page.IDs, nodeID) {
 			return
 		}
@@ -88,7 +88,7 @@ func startEngine(t *testing.T, fixture queryFixture) {
 	setEngineRunning(t, true)
 	recovery := time.Now().Add(outageRecoveryDeadline)
 	for {
-		if _, err := fixture.Adapter.Provision(t.Context()); err == nil {
+		if _, err := fixture.Adapter.Provision(WithTestOperation(t, t.Context())); err == nil {
 			return
 		}
 		if time.Now().After(recovery) {
@@ -132,7 +132,7 @@ func requireSearchReturnsNode(t *testing.T, fixture queryFixture, nodeID uuid.UU
 	t.Helper()
 	deadline := time.Now().Add(outageSearchDeadline)
 	for time.Now().Before(deadline) {
-		_, _ = fixture.Worker.RunSlice(t.Context())
+		_, _ = fixture.Worker.RunSlice(WithTestOperation(t, t.Context()))
 		if page, err := trySearch(fixture.Harness, outagePhrase, ""); err == nil && slices.Contains(page.IDs, nodeID) {
 			return
 		}
@@ -158,7 +158,7 @@ func TestSearchUnavailableWhileModelUndeployed(t *testing.T) {
 	// indexing before the ten-second search deadline starts.
 	drainSearchWork(t, fixture.Worker, 2000)
 	requireSearchReturnsNode(t, fixture, nodeID)
-	model, err := fixture.Adapter.Provision(t.Context())
+	model, err := fixture.Adapter.Provision(WithTestOperation(t, t.Context()))
 	if err != nil {
 		t.Fatalf("failed to read pinned model: %v", err)
 	}
@@ -172,7 +172,7 @@ func TestSearchUnavailableWhileModelUndeployed(t *testing.T) {
 		t.Fatalf("search did not return the unavailable response while pinned model was undeployed: isError=%t text %q, want %q", isError, text, unavailableSearchMessage)
 	}
 
-	if err := redeployNativeModel(t.Context(), fixture.Adapter, fixture.Client); err != nil {
+	if err := redeployNativeModel(WithTestOperation(t, t.Context()), fixture.Adapter, fixture.Client); err != nil {
 		t.Fatalf("failed to redeploy pinned model: %v", err)
 	}
 	requireSearchReturnsNode(t, fixture, nodeID)
