@@ -24,7 +24,7 @@ type ExternalRun func(ctx context.Context, steps audit.StepRecorder) (audit.Outc
 // intent before calling run. The intent stores the target and safe input
 // that spec selects from input. The resolved principal identifies the actor,
 // and Extra stores any accountable operator. When execute is false,
-// RunAuditedExternal prints the dry run without calling run.
+// RunAuditedExternal prints the dry-run preamble without calling run.
 func RunAuditedExternal(
 	ctx context.Context,
 	output io.Writer,
@@ -75,10 +75,24 @@ func RunAuditedExternal(
 	return nil
 }
 
-// AttachExternal adds audit metadata to a handwritten Cobra command and sets
-// RunE to record the external command. The input function returns JSON that
-// spec uses to select the target and safe input.
+// AttachExternal sets audit metadata and RunE on a handwritten Cobra command
+// by calling AttachExternalPreview with a nil preview.
 func AttachExternal(cmd *cobra.Command, f *cli.Factory, spec audit.Spec, input func() (json.RawMessage, error), run ExternalRun) {
+	AttachExternalPreview(cmd, f, spec, input, run, nil)
+}
+
+// AttachExternalPreview sets audit metadata and RunE on a handwritten Cobra
+// command. RunE encodes input and calls RunAuditedExternal. When the operator
+// omits --execute and RunAuditedExternal succeeds, RunE calls preview if
+// preview is not nil.
+func AttachExternalPreview(
+	cmd *cobra.Command,
+	f *cli.Factory,
+	spec audit.Spec,
+	input func() (json.RawMessage, error),
+	run ExternalRun,
+	preview func(context.Context) error,
+) {
 	if cmd.Annotations == nil {
 		cmd.Annotations = make(map[string]string)
 	}
@@ -88,7 +102,11 @@ func AttachExternal(cmd *cobra.Command, f *cli.Factory, spec audit.Spec, input f
 		if err != nil {
 			return loggedAuditError(cmd.Context(), "encode command input", err)
 		}
-		return RunAuditedExternal(cmd.Context(), dryRunDestination(f, cmd.OutOrStdout()), spec, encoded,
+		err = RunAuditedExternal(cmd.Context(), dryRunDestination(f, cmd.OutOrStdout()), spec, encoded,
 			f.OperatorIdentitySource(), f.DeployCommit(), f.Execute(), f.AuditOutbox(), run)
+		if err != nil || f.Execute() || preview == nil {
+			return err
+		}
+		return preview(cmd.Context())
 	}
 }

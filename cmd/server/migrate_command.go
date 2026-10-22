@@ -72,28 +72,31 @@ func safeMigrateInput(input json.RawMessage) (json.RawMessage, error) {
 func migrateCommand(f *cli.Factory) *cobra.Command {
 	in := migrateInput{To: 0, ExpectFrom: 0}
 	cmd := &cobra.Command{
-		Use:         "migrate",
-		Short:       "Run database migrations against DATABASE_URL; without --execute, print the migration state",
-		Args:        cobra.NoArgs,
-		Annotations: map[string]string{clispec.AuditVerbAnnotation: string(audit.VerbDatabaseMigrate)},
+		Use:   "migrate",
+		Short: "Run database migrations against DATABASE_URL; without --execute, print the migration state",
+		Args:  cobra.NoArgs,
 	}
 	cmd.Flags().IntVar(&in.To, "to", 0, "apply migrations through this version only")
 	cmd.Flags().IntVar(&in.ExpectFrom, "expect-from", 0, "refuse the run unless the database is at this migration version")
-	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
-		ctx := cmd.Context()
-		input, err := json.Marshal(in)
+	input := func() (json.RawMessage, error) {
+		encoded, err := json.Marshal(in)
 		if err != nil {
-			slog.ErrorContext(ctx, "migrate.input_encode_failed", slog.String("err", err.Error()))
-			return fmt.Errorf("migrate: encode the command input: %w", err)
+			slog.Error("migrate.input_encode_failed", slog.String("err", err.Error()))
+			return nil, fmt.Errorf("migrate: encode the command input: %w", err)
 		}
-		if !f.Execute() {
-			return printMigrationStatus(ctx, f, input)
-		}
-		return clispec.RunAuditedExternal(ctx, f.Err, migrateSpec(), input, f.OperatorIdentitySource(),
-			f.DeployCommit(), true, f.AuditOutbox(), func(ctx context.Context, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
-				return runMigrations(ctx, f, in, steps)
-			})
+		return encoded, nil
 	}
+	clispec.AttachExternalPreview(cmd, f, migrateSpec(), input,
+		func(ctx context.Context, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
+			return runMigrations(ctx, f, in, steps)
+		},
+		func(ctx context.Context) error {
+			encoded, err := input()
+			if err != nil {
+				return err
+			}
+			return printMigrationStatus(ctx, f, encoded)
+		})
 	return cmd
 }
 
@@ -113,13 +116,9 @@ func runMigrations(ctx context.Context, f *cli.Factory, in migrateInput, steps a
 	return details, nil
 }
 
-// printMigrationStatus prints the dry-run preamble, records the migration
-// state read, and writes the state in the selected output format.
+// printMigrationStatus records the migration state read and writes the state
+// in the selected output format.
 func printMigrationStatus(ctx context.Context, f *cli.Factory, input json.RawMessage) error {
-	if err := clispec.PrintCommandDryRun(ctx, f, migrateSpec()); err != nil {
-		slog.ErrorContext(ctx, "migrate.dry_run_failed", slog.String("err", err.Error()))
-		return fmt.Errorf("migrate: %w", err)
-	}
 	jsonOutput := f.OutputFormat() == cli.FormatJSON
 	payload, err := clispec.RunAuditedRead(ctx, f, migrationStatusSpec(), input, func(ctx context.Context) (audit.OperatorReadOutput, error) {
 		return readMigrationStatus(ctx, f, jsonOutput)

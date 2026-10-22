@@ -39,8 +39,9 @@ type searchReindexOutput struct {
 }
 
 // searchReindexCommand builds `ops search reindex`. With --execute, the
-// command records the replacement it begins as an external step on the
-// serving index. Without --execute, it prints the planned replacement.
+// command records any replacement it begins as an external step on the
+// serving index. Without --execute, its preview prints the replacement in
+// progress or the planned replacement.
 func searchReindexCommand(f *cli.Factory) *cobra.Command {
 	in := searchReindexInput{Mode: "full", Primaries: 0, Restored: false}
 	cmd := &cobra.Command{
@@ -52,19 +53,13 @@ func searchReindexCommand(f *cli.Factory) *cobra.Command {
 	cmd.Flags().BoolVar(&in.Restored, "restored", false, "This flag marks a rebuild after a FoundationDB restore. The rebuild rejects every existing search cursor.")
 	spec := externalSpec(audit.VerbOpsSearchReindex, "opensearch/serving-index")
 	input := func() (json.RawMessage, error) { return encodeCommandInput(in) }
-	clispec.AttachExternal(cmd, f, spec, input, func(ctx context.Context, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
-		return runSearchReindexRecorded(ctx, f, in, clispec.NewCLISink(f), steps)
-	})
-	execute := cmd.RunE
-	cmd.RunE = func(cmd *cobra.Command, args []string) error {
-		if f.Execute() {
-			return execute(cmd, args)
-		}
-		if err := clispec.PrintCommandDryRun(cmd.Context(), f, spec); err != nil {
-			return searchReindexFailure(cmd.Context(), "print the dry run", err)
-		}
-		return runSearchReindex(cmd.Context(), f, in, clispec.NewCLISink(f))
-	}
+	clispec.AttachExternalPreview(cmd, f, spec, input,
+		func(ctx context.Context, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
+			return runSearchReindexRecorded(ctx, f, in, clispec.NewCLISink(f), steps)
+		},
+		func(ctx context.Context) error {
+			return runSearchReindex(ctx, f, in, clispec.NewCLISink(f))
+		})
 	return cmd
 }
 

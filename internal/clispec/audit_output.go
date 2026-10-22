@@ -50,13 +50,6 @@ func printDryRun(
 	return nil
 }
 
-// PrintCommandDryRun resolves the operator with f and prints spec's dry-run
-// preamble to f's dry-run output stream. It does not write an audit event.
-func PrintCommandDryRun(ctx context.Context, f *cli.Factory, spec audit.Spec) error {
-	return RunAudited(ctx, dryRunDestination(f, f.Out), spec, f.OperatorIdentitySource(), f.DeployCommit(), false,
-		f.AuditOutbox(), f.AuditInfrastructureProbe(), func(context.Context) error { return nil })
-}
-
 func loggedAuditError(ctx context.Context, action string, err error) error {
 	slog.ErrorContext(ctx, "cli.audit_failed",
 		slog.String("action", action),
