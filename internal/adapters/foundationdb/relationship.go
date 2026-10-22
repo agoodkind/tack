@@ -17,17 +17,19 @@ import (
 
 // RelationshipStore implements node.RelationshipRepository using FoundationDB.
 // When searchWork is true, each relationship write schedules search access
-// work stamped by the clock.
+// work and stamps it with a time from the clock. When writeFence is set,
+// Add and Remove call it for the source node.
 type RelationshipStore struct {
 	db         fdb.Database
 	clock      clock.Clock
 	searchWork bool
+	writeFence mutationFence
 }
 
 // NewRelationshipStore creates the relationship store. It schedules no
 // search work until [Stores.EnableSearchWork] runs.
 func NewRelationshipStore(db fdb.Database, source clock.Clock) *RelationshipStore {
-	return &RelationshipStore{db: db, clock: source, searchWork: false}
+	return &RelationshipStore{db: db, clock: source, searchWork: false, writeFence: nil}
 }
 
 func (s *RelationshipStore) Add(ctx context.Context, rel *node.Relationship) (err error) {
@@ -39,6 +41,9 @@ func (s *RelationshipStore) Add(ctx context.Context, rel *node.Relationship) (er
 	searchScheduleFailed := false
 	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
 		searchScheduleFailed = false
+		if _, err := s.fenceAttempt(ctx, tr, rel.OrgID, rel.SourceID); err != nil {
+			return nil, err
+		}
 		tr.Set(fdb.Key(relationshipKey(rel.OrgID, rel.SourceID, rel.RelationType, rel.TargetID)), metadata)
 		tr.Set(fdb.Key(relationshipReverseKey(rel.OrgID, rel.TargetID, rel.RelationType, rel.SourceID)), []byte{})
 		if s.searchWork {
@@ -75,6 +80,9 @@ func (s *RelationshipStore) Remove(ctx context.Context, orgID, sourceID uuid.UUI
 		guardFailed = false
 		if err := refuseOnlyParentRemoval(ctx, tr, orgID, sourceID, relationType, targetID); err != nil {
 			guardFailed = true
+			return nil, err
+		}
+		if _, err := s.fenceAttempt(ctx, tr, orgID, sourceID); err != nil {
 			return nil, err
 		}
 		tr.Clear(fdb.Key(relationshipKey(orgID, sourceID, relationType, targetID)))

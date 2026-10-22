@@ -133,3 +133,14 @@ func lastSSEPayload(t *testing.T, body []byte) []byte {
 	}
 	return payload
 }
+
+// SetIssueState calls tack_set_issue_state through the production HTTP
+// handler with the harness workspace, the harness project, the issue
+// reference, and the state reference.
+func (h *MCPHarness) SetIssueState(t *testing.T, issueReference, state string) string {
+	t.Helper()
+	return callToolSuccess(t, h, "tack_set_issue_state", map[string]any{
+		"workspace_reference": h.Workspace, "project_reference": h.Project,
+		"issue_reference": issueReference, "state": state,
+	})
+}

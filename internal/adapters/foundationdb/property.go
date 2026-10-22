@@ -8,6 +8,7 @@ import (
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/clock"
+	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/telemetry"
 )
@@ -37,6 +38,9 @@ func NewPropertyDefStore(db fdb.Database, source clock.Clock) *PropertyDefStore 
 // store it. Set also accepts a nil declaration on an existing record.
 func (s *PropertyDefStore) Set(ctx context.Context, def *node.PropertyDef) (err error) {
 	defer telemetry.FDBOp(ctx, "store.property_def.set")(&err)
+	if def.Type == node.PropertyTypeUUID && def.ReferenceTargetTypeKey != "" && !def.Indexed {
+		return unindexedReferenceError{definition: def}
+	}
 	b, err := json.Marshal(def)
 	if err != nil {
 		return fmt.Errorf("marshal property def: %w", err)
@@ -77,6 +81,21 @@ func (e undeclaredDefinitionError) Error() string {
 
 // Unwrap lets callers match node.ErrInvalidSearchProjection.
 func (e undeclaredDefinitionError) Unwrap() error { return node.ErrInvalidSearchProjection }
+
+// unindexedReferenceError reports the rejection of a UUID reference
+// definition that does not set Indexed. The deferred telemetry.FDBOp in Set
+// logs the error once.
+type unindexedReferenceError struct {
+	definition *node.PropertyDef
+}
+
+func (e unindexedReferenceError) Error() string {
+	return fmt.Sprintf("store property definition %q (%s) in org %s: a reference to %s nodes must set Indexed: %v",
+		e.definition.Name, e.definition.ID, e.definition.OrgID, e.definition.ReferenceTargetTypeKey, domain.ErrInvalidArgument)
+}
+
+// Unwrap lets callers match domain.ErrInvalidArgument.
+func (e unindexedReferenceError) Unwrap() error { return domain.ErrInvalidArgument }
 
 func (s *PropertyDefStore) Get(ctx context.Context, orgID, defID uuid.UUID) (def *node.PropertyDef, err error) {
 	defer telemetry.FDBOp(ctx, "store.property_def.get")(&err)

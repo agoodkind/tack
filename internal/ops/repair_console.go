@@ -58,7 +58,7 @@ type RepairConsole struct {
 
 // NewRepairConsole builds the repair core over generic node repositories.
 func NewRepairConsole(
-	nodes node.NodeRepository,
+	nodes node.MutableNodeRepository,
 	reader node.NodeReader,
 	nodeTypes node.TypeRepository,
 	propertyDefs node.PropertyDefRepository,

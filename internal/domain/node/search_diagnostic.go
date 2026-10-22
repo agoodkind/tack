@@ -46,6 +46,12 @@ func issueDiagnosticReason(code PropertyIssueCode) (DiagnosticReason, string) {
 		return DiagnosticInvalidValue, "the value does not match a declared option"
 	case PropertyIssueValue:
 		return DiagnosticInvalidValue, "the value does not satisfy the property definition"
+	case PropertyIssueRequired:
+		return DiagnosticInvalidValue, "the required property needs a value"
+	case PropertyIssueReference:
+		return DiagnosticInvalidValue, "the value does not identify a node of the declared type"
+	case PropertyIssueParent:
+		return DiagnosticInvalidValue, "the parent does not meet the containment rules"
 	default:
 		return DiagnosticInvalidValue, "the schema rejects the property"
 	}

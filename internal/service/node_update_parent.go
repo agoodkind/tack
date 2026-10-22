@@ -5,139 +5,118 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// parentChangeForUpdate checks a parent_id entry in an update and returns the
-// child_of edge changes that move the node under the new parent. The check
-// runs for every caller of Update, not only the MCP tools: a parent_id that
-// is not the id of a node in the same org is refused, because a node whose
-// parent does not resolve is unreachable through every scoped read
-// (TACK-523). An update without parent_id returns no changes.
+// updateParent represents the parent request for one update and the graph
+// expectation that the request requires.
+type updateParent struct {
+	Change        *node.ParentChange
+	Records       []node.GraphRecord
+	Relationships []node.RelationshipExpectation
+}
+
+// parentChangeForUpdate returns the requested parent and the relationship
+// changes without child_of entries. A parent_id property or one added child_of
+// edge requests a parent. Removed child_of edges without another request
+// preserve the stored parent_id and remove the other child_of edges. The
+// checks run for every caller of Update. They return an error that wraps
+// domain.ErrInvalidArgument for a parent that is not a node in the organization,
+// a parent_id chain that includes the node, or conflicting requests (TACK-523).
 func (s *NodeService) parentChangeForUpdate(
 	ctx context.Context,
-	existing *node.NodeView,
+	snapshot node.MutationSnapshot,
 	props map[string]json.RawMessage,
-	actorID uuid.UUID,
-	now time.Time,
-) (node.RelationshipChanges, error) {
-	none := node.RelationshipChanges{Add: nil, Remove: nil}
-	raw, ok := props["parent_id"]
-	if !ok {
-		return none, nil
-	}
-	if isDeletedPropValue(raw) {
-		return none, fmt.Errorf("update node %s: parent_id cannot be cleared: %w", existing.ID, domain.ErrInvalidArgument)
-	}
-	value, ok := rawString(raw)
-	if !ok {
-		return none, fmt.Errorf("update node %s: parent_id must be a node id string: %w", existing.ID, domain.ErrInvalidArgument)
-	}
-	parentID, err := uuid.Parse(value)
+	changes node.RelationshipChanges,
+) (updateParent, node.RelationshipChanges, error) {
+	none := updateParent{Change: nil, Records: nil, Relationships: nil}
+	other, added, removed := splitChildOfChanges(changes)
+	requestedID, err := requestedParentID(ctx, snapshot, props, added, removed)
 	if err != nil {
-		return none, fmt.Errorf("update node %s: parent_id %q is not a node id: %w", existing.ID, value, domain.ErrInvalidArgument)
+		return none, other, err
 	}
-	resolve, err := s.reader.Resolve(ctx, parentID)
+	if requestedID == uuid.Nil {
+		return none, other, nil
+	}
+	records, err := s.parentGraph(ctx, snapshot.Node.OrgID, snapshot.Node.ID, requestedID)
 	if err != nil {
-		slog.ErrorContext(ctx, "node.update.parent_resolve_failed", slog.String("err", err.Error()))
-		return none, fmt.Errorf("update node %s: resolve parent %s: %w", existing.ID, parentID, err)
+		return none, other, err
 	}
-	if resolve == nil || resolve.OrgID != existing.OrgID {
-		return none, fmt.Errorf("update node %s: parent %s is not a node in the org: %w", existing.ID, parentID, domain.ErrInvalidArgument)
-	}
-	currentParentID := rawUUIDReferenceProperty(existing.Props, "parent_id")
-	if currentParentID == parentID {
-		return none, nil
-	}
-	if err := s.refuseParentCycle(ctx, existing.ID, parentID); err != nil {
-		return none, err
-	}
-	changes := node.RelationshipChanges{Add: nil, Remove: nil}
-	if currentParentID != uuid.Nil {
-		changes.Remove = append(changes.Remove, childOfEdge(existing, currentParentID, actorID, now))
-	}
-	changes.Add = append(changes.Add, childOfEdge(existing, parentID, actorID, now))
-	return changes, nil
+	return updateParent{
+		Change:        &node.ParentChange{TargetID: requestedID},
+		Records:       records,
+		Relationships: childOfExpectations(snapshot.Outgoing, requestedID),
+	}, other, nil
 }
 
-// refuseParentCycle walks the parent_id chain from parentID without a depth
-// limit and stops without an error at a node without parent_id or at a
-// missing node. It refuses parentID as the new parent of nodeID with an error
-// that matches domain.ErrInvalidArgument when the chain contains nodeID or
-// repeats a node.
-func (s *NodeService) refuseParentCycle(ctx context.Context, nodeID, parentID uuid.UUID) error {
-	visited := map[uuid.UUID]bool{}
-	for currentID := parentID; currentID != uuid.Nil; {
-		if currentID == nodeID {
-			slog.WarnContext(ctx, "node.update.parent_cycle_refused",
-				slog.String("node_id", nodeID.String()), slog.String("parent_id", parentID.String()))
-			return fmt.Errorf("update node %s: parent %s is node %s or one of its descendants: %w",
-				nodeID, parentID, nodeID, domain.ErrInvalidArgument)
+// requestedParentID returns the parent that props, added, and removed request,
+// or [uuid.Nil] if they do not request a parent.
+func requestedParentID(ctx context.Context, snapshot node.MutationSnapshot, props map[string]json.RawMessage, added, removed []uuid.UUID) (uuid.UUID, error) {
+	nodeID := snapshot.Node.ID
+	requestedID := uuid.Nil
+	if raw, present := props["parent_id"]; present {
+		if isDeletedPropValue(raw) {
+			return uuid.Nil, parentRefusal(ctx, nodeID, "parent_id cannot be cleared")
 		}
-		if visited[currentID] {
-			slog.WarnContext(ctx, "node.update.parent_cycle_refused",
-				slog.String("node_id", nodeID.String()), slog.String("parent_id", parentID.String()),
-				slog.String("repeated_id", currentID.String()))
-			return fmt.Errorf("update node %s: the parent_id chain of parent %s repeats node %s: %w",
-				nodeID, parentID, currentID, domain.ErrInvalidArgument)
+		value, isText := rawString(raw)
+		if !isText {
+			return uuid.Nil, parentRefusal(ctx, nodeID, "parent_id must be a node id string")
 		}
-		visited[currentID] = true
-		ancestor, err := s.reader.Get(ctx, currentID)
+		parsed, err := uuid.Parse(value)
 		if err != nil {
-			slog.ErrorContext(ctx, "node.update.parent_ancestry_failed", slog.String("err", err.Error()))
-			return fmt.Errorf("update node %s: read ancestor %s of parent %s: %w", nodeID, currentID, parentID, err)
+			return uuid.Nil, parentRefusal(ctx, nodeID, fmt.Sprintf("parent_id %q is not a node id", value))
 		}
-		if ancestor == nil {
-			return nil
+		requestedID = parsed
+	}
+	for _, targetID := range added {
+		if requestedID != uuid.Nil && requestedID != targetID {
+			return uuid.Nil, parentRefusal(ctx, nodeID, fmt.Sprintf("the update requests parents %s and %s", requestedID, targetID))
 		}
-		currentID = rawUUIDReferenceProperty(ancestor.Props, "parent_id")
+		requestedID = targetID
 	}
-	return nil
-}
-
-func childOfEdge(existing *node.NodeView, targetID uuid.UUID, actorID uuid.UUID, now time.Time) *node.Relationship {
-	return &node.Relationship{
-		OrgID:        existing.OrgID,
-		SourceID:     existing.ID,
-		RelationType: node.RelChildOf,
-		TargetID:     targetID,
-		CreatedBy:    actorID,
-		CreatedAt:    now,
-		Props:        nil,
-	}
-}
-
-// mergeRelationshipChanges appends the parent move onto the caller's changes,
-// skipping an edge the caller already adds or removes, so a caller that
-// plans the child_of move itself (the repair console) writes it once.
-func mergeRelationshipChanges(base node.RelationshipChanges, extra node.RelationshipChanges) node.RelationshipChanges {
-	return node.RelationshipChanges{
-		Add:    appendMissingRelationships(base.Add, extra.Add),
-		Remove: appendMissingRelationships(base.Remove, extra.Remove),
-	}
-}
-
-func appendMissingRelationships(base []*node.Relationship, extra []*node.Relationship) []*node.Relationship {
-	merged := append([]*node.Relationship(nil), base...)
-	for _, candidate := range extra {
-		if !containsRelationship(merged, candidate) {
-			merged = append(merged, candidate)
+	if requestedID == uuid.Nil && len(removed) > 0 {
+		requestedID = snapshot.ParentID
+		if requestedID == uuid.Nil {
+			return uuid.Nil, parentRefusal(ctx, nodeID, "removing a child_of edge requires a parent_id")
 		}
 	}
-	return merged
-}
-
-func containsRelationship(relationships []*node.Relationship, candidate *node.Relationship) bool {
-	for _, relationship := range relationships {
-		if relationship.SourceID == candidate.SourceID &&
-			relationship.RelationType == candidate.RelationType &&
-			relationship.TargetID == candidate.TargetID {
-			return true
+	for _, targetID := range removed {
+		if targetID == requestedID {
+			return uuid.Nil, parentRefusal(ctx, nodeID, "the update removes the child_of edge to its parent "+targetID.String())
 		}
 	}
-	return false
+	return requestedID, nil
+}
+
+// parentRefusal logs a parent request refusal for nodeID with reason and
+// returns an error that wraps domain.ErrInvalidArgument.
+func parentRefusal(ctx context.Context, nodeID uuid.UUID, reason string) error {
+	err := fmt.Errorf("update node %s: %s: %w", nodeID, reason, domain.ErrInvalidArgument)
+	slog.WarnContext(ctx, "node.update.parent_refused", slog.String("err", err.Error()), slog.String("node_id", nodeID.String()))
+	return err
+}
+
+// splitChildOfChanges returns changes without child_of entries and the
+// targets of the added and removed child_of entries.
+func splitChildOfChanges(changes node.RelationshipChanges) (node.RelationshipChanges, []uuid.UUID, []uuid.UUID) {
+	other := node.RelationshipChanges{Add: nil, Remove: nil}
+	var added, removed []uuid.UUID
+	for _, relationship := range changes.Add {
+		if relationship.RelationType == node.RelChildOf {
+			added = append(added, relationship.TargetID)
+			continue
+		}
+		other.Add = append(other.Add, relationship)
+	}
+	for _, relationship := range changes.Remove {
+		if relationship.RelationType == node.RelChildOf {
+			removed = append(removed, relationship.TargetID)
+			continue
+		}
+		other.Remove = append(other.Remove, relationship)
+	}
+	return other, added, removed
 }

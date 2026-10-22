@@ -69,6 +69,9 @@ func (s *NodeDeleteStore) moveChild(
 	if err != nil || current == nil {
 		return false, err
 	}
+	if _, err := s.nodes.fenceAttempt(ctx, tr, job.OrgID, child.ID); err != nil {
+		return false, err
+	}
 	now := s.nodes.clock.Now().UTC()
 	oldProps := maps.Clone(current.Props)
 	parentValue := json.RawMessage(strconv.Quote(job.RootParentID.String()))
