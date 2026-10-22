@@ -51,7 +51,7 @@ func validateTarget(target Target) error {
 
 func validateOutcomeFields(event Event) error {
 	eventContext := event.Context
-	terminal := event.Outcome != OutcomePending
+	terminal := isTerminalOutcome(event.Outcome)
 	if terminal == eventContext.CompletedAt.IsZero() {
 		return errors.New("terminal events require a completion time and pending events cannot set one")
 	}
