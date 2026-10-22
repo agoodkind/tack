@@ -39,7 +39,6 @@ type publicServer struct {
 	clusterFile string
 }
 
-// publicResponse contains the status, headers, and exact body of one response.
 type publicResponse struct {
 	status int
 	header http.Header
@@ -118,7 +117,6 @@ func (server *publicServer) rpc(t *testing.T, requestID, method string, params m
 	return server.send(t, http.MethodPost, "/mcp", server.token, requestID, rpcBody(t, method, params))
 }
 
-// rpcBody encodes one JSON-RPC request.
 func rpcBody(t *testing.T, method string, params map[string]any) []byte {
 	t.Helper()
 	body, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": uuid.NewString(), "method": method, "params": params})

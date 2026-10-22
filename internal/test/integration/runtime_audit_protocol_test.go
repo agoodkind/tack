@@ -55,7 +55,6 @@ func TestRuntimeAuditProtocolCoverage(t *testing.T) {
 	}
 }
 
-// protocolCases returns the requests that TestRuntimeAuditProtocolCoverage sends.
 func protocolCases(t *testing.T, server *publicServer) []protocolCase {
 	t.Helper()
 	rpc := func(name, method string, params map[string]any, tenant bool, verb audit.Verb, outcome audit.Outcome, code string) protocolCase {
