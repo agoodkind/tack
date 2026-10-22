@@ -137,7 +137,7 @@ func TestNewestTokenUsesFoldsABatchPerToken(t *testing.T) {
 	tokenA := uuid.Must(uuid.NewV7())
 	tokenB := uuid.Must(uuid.NewV7())
 	base := time.Date(2026, 9, 18, 17, 0, 0, 0, time.UTC)
-	projected := []projectedEvent{
+	projected := []committedAuthEvent{
 		{Action: string(VerbAuthTokenUsed), APITokenID: tokenA, EventTime: base},
 		{Action: string(VerbAuthTokenUsed), APITokenID: tokenA, EventTime: base.Add(2 * time.Second)},
 		{Action: string(VerbAuthTokenUsed), APITokenID: tokenA, EventTime: base.Add(time.Second)},

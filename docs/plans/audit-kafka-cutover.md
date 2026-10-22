@@ -27,8 +27,6 @@ and there is no `events_v2`.
   migrates straight to `003`. QA is recreated from empty. Both are clean because
   no live database has applied `003`, `004`, or `005`.
 - **Multiple consumers are supported.** See the multi-consumer section below.
-- ClickHouse is optional. Canonical recording, ledger queries, and deployment
-  operate without it.
 
 ## The single migration: `003_audit_kafka_cutover.sql`
 
@@ -74,19 +72,6 @@ consumer writes it and no chain-head lock is needed. The stable `event_id` also
 makes the `(event_id, event_time)` unique index give real idempotency across
 redelivery.
 
-## Optional ClickHouse projection
-
-YugabyteDB stores the canonical ledger and serves the operator audit commands.
-The application does not query ClickHouse. The consumer can optionally copy
-committed events into `audit.events_olap` and repair that copy after an outage.
-
-The default audit deployment does not start ClickHouse, configure its DSN, or
-mount its consumer secret. Explicit opt-in requires the `clickhouse` profile,
-the [Compose overlay](../../docker-compose.clickhouse.yml), and protected
-`CLICKHOUSE_PASSWORD` and `AUDIT_CONSUMER_CLICKHOUSE_DSN` secret files. Only
-that overlay makes the consumer wait for ClickHouse health. The optional copy
-does not replace the canonical ledger.
-
 ## Pre-cutover work
 
 - Configs renders `KAFKA_CLUSTER_ID`, `AUDIT_KAFKA_BROKERS`, and
@@ -105,8 +90,8 @@ QA is disposable, so prove the whole thing there before prod.
    `./server ops audit seed-roles`, then restart `app` and `audit-consumer`.
 3. Smoke test: a handful of MCP read and write calls each land one row in
    `audit.events`, written by the consumer; `audit.chain_heads` advances by one
-   per write; no rows land in `audit.events_dlq`. Run these checks without
-   ClickHouse or its secret files. Run two `audit-consumer` replicas and confirm
+   per write; no rows land in `audit.events_dlq`. Run two `audit-consumer`
+   replicas and confirm
    each `(org, shard)` chain stays single-writer.
 
 ## Cutover, production
@@ -114,7 +99,7 @@ QA is disposable, so prove the whole thing there before prod.
 1. Take a fresh backup and confirm the restore drill passes
    (`./server ops backup ...`; see `docs/runbooks/recovery.md`).
 2. Bring up `kafka` and `audit-consumer`, and confirm the consumer connects to
-   Kafka and YugabyteDB without ClickHouse.
+   Kafka and YugabyteDB.
 3. Stop `app` (MCP goes unavailable here), run `./server migrate` (002 to 003),
    run `./server ops audit seed-roles`, deploy the new app image with
    `./server ops deploy`, and start `app`.

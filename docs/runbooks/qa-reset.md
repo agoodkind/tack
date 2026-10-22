@@ -2,7 +2,7 @@
 
 This procedure replaces the Tack QA guests, boots empty stores, creates QA data through Tack, and rebuilds an empty OpenSearch index from FoundationDB. It does not restore product data from a backup. Run every command from reviewed Tack and Configs revisions and save the command output with the revision and image digest.
 
-The reset destroys the existing QA FoundationDB, YugabyteDB, Kafka, ClickHouse, and OpenSearch state on the replaced guests. Identify and retain any evidence needed from QA before replacement. The existing SeaweedFS backup guest and its old backup objects are outside the six guest replacements; do not use an old QA backup as the new product data source.
+The reset destroys the existing QA FoundationDB, YugabyteDB, Kafka, and OpenSearch state on the replaced guests. Identify and retain any evidence needed from QA before replacement. The existing SeaweedFS backup guest and its old backup objects are outside the six guest replacements; do not use an old QA backup as the new product data source.
 
 ## Confirm the QA boundary
 

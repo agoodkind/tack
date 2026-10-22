@@ -294,9 +294,11 @@ verification reject anything outside that set. It is not part of this phase.
 - Consumes: `service_mapping.tack.ipv6` / `service_mapping.tack_qa_suburban.ipv6` via the existing per-group variable pattern.
 - Produces: a rendered `.env` with no loopback and no compose-internal DNS names except the Kafka broker list (see Step 3).
 
-- [ ] **Step 1: Point the SQL and ClickHouse strings at the guest address**
+- [ ] **Step 1: Point the SQL strings at the guest address**
 
-Lines 25-27 (`@yugabyte:5433`) and 47-48 (`@clickhouse:9000`) replace the compose DNS name with `[{{ tack_guest_ipv6 }}]`, where `tack_guest_ipv6` is a new per-group variable set to the mapping address in `tack_servers.yml` and `tack_qa_suburban_servers.yml`. Both ports are published on the guest, so the address works from bridge and host-network containers alike. `tack_ops_database_url` in `tack_all.yml` swaps `[::1]` for the same variable (move the declaration into the two per-group files, since `tack_all.yml` cannot reference a per-environment address).
+Replace the SQL Compose hostname with `[{{ tack_guest_ipv6 }}]` in the database
+URLs. Define `tack_guest_ipv6` per environment from the service mapping. Use that
+address in `tack_ops_database_url` for host-network containers.
 
 - [ ] **Step 2: Verify on QA**
 

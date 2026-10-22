@@ -45,18 +45,16 @@ func TestLoadSearchMaintenanceCredentialsRequiresSeparateProductionFile(t *testi
 	}
 }
 
-func TestLoadAuditConsumerSettingsReadsDSNFiles(t *testing.T) {
+func TestLoadAuditConsumerSettingsReadsDSNFile(t *testing.T) {
 	t.Setenv("AUDIT_CONSUMER_KAFKA_BROKERS", "local-fixture:9092")
 	t.Setenv("ENV", "development")
 	t.Setenv("AUDIT_CONSUMER_YUGABYTE_DSN", "")
 	t.Setenv("AUDIT_CONSUMER_YUGABYTE_DSN_FILE", writeSecret(t, "postgres://consumer-fixture"))
-	t.Setenv("AUDIT_CONSUMER_CLICKHOUSE_DSN", "")
-	t.Setenv("AUDIT_CONSUMER_CLICKHOUSE_DSN_FILE", writeSecret(t, "clickhouse://consumer-fixture"))
 	settings, err := config.LoadAuditConsumerSettings()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if settings.YugabyteDSN != "postgres://consumer-fixture" || settings.ClickHouseDSN != "clickhouse://consumer-fixture" {
+	if settings.YugabyteDSN != "postgres://consumer-fixture" {
 		t.Fatal("consumer configuration did not resolve its DSN files")
 	}
 }

@@ -58,17 +58,12 @@ first-boot steps do NOT apply here. Only the audit first-boot items do.
 
 ## Pre-flight checklist (go/no-go)
 
-The original QA cutover validation included a ClickHouse query path that the
-application no longer implements. Current acceptance requires canonical ledger
-recording and operator queries without ClickHouse.
-
 - [x] Green deploy SHA `c81d89e` (build-push overlay-drift gate plus both images).
 - [x] Fresh-boot first-boot sequence needs no manual Kafka topic creation and no
       audit-consumer crash-loop (TACK-301 and TACK-305 shipped in `c81d89e`).
 - [x] Prod `KAFKA_CLUSTER_ID` is distinct from QA (`tack_servers.yml` vs
       `tack_qa_servers.yml`).
-- [x] The audit profile enables Kafka and the audit consumer. ClickHouse is
-      optional and disabled in the default deployment.
+- [x] The audit profile enables Kafka and the audit consumer.
 
 Confirm at run time, not verifiable ahead of the deploy:
 
@@ -126,10 +121,6 @@ passwords from the rendered `.env`.
    `kafka-topics.sh --bootstrap-server localhost:9092 --describe --topic
    audit.events.v1` should report PartitionCount 256.
 
-ClickHouse is optional. Its profile, consumer secret mount, and health
-dependency require the [optional Compose overlay](../../../docker-compose.clickhouse.yml).
-The default deployment does not require its secret files.
-
 ## Verify
 
 - All required audit services healthy: kafka and audit-consumer `Up`; the
@@ -139,7 +130,6 @@ The default deployment does not require its secret files.
   links (prev_hash chains to row_hash), and the notarizer signs a Merkle root.
 - `audit query` (host command, reader role, `--execute`) returns that row from
   YugabyteDB.
-- Run the canonical recording and query checks without ClickHouse.
 
 ## Safety
 
@@ -151,7 +141,7 @@ The default deployment does not require its secret files.
 ## Rollback
 
 The audit profile is additive: migration 003 only adds tables and indexes, and
-the canonical product path never touches kafka, clickhouse, or the
+the canonical product path never touches Kafka or the
 audit-consumer. The two reversals below were exercised on QA on 2026-06-07; the
 observed behavior is noted, not assumed. Run all commands on the prod host from
 `/root/tack`.
