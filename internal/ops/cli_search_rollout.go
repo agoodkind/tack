@@ -26,6 +26,7 @@ type searchRolloutOutput struct {
 	Phase            string   `json:"phase"`
 	ActiveVersion    string   `json:"active_version"`
 	CandidateVersion string   `json:"candidate_version,omitempty"`
+	PreviousVersion  string   `json:"previous_version,omitempty"`
 	WriteVersions    []string `json:"write_versions"`
 	Generation       int64    `json:"generation"`
 	DryRun           bool     `json:"dry_run"`
@@ -81,9 +82,15 @@ func runSearchRollout(ctx context.Context, f *cli.Factory, in searchRolloutInput
 			return searchRolloutFailure(ctx, "begin access rollout of authority "+authorityID.String(), err)
 		}
 	}
+	return writeSearchRolloutResult(ctx, sink, rollout, dryRun)
+}
+
+// writeSearchRolloutResult writes one authority's rollout state as the
+// command result.
+func writeSearchRolloutResult(ctx context.Context, sink clispec.ResultSink, rollout searchdomain.AccessRollout, dryRun bool) error {
 	output := searchRolloutOutput{
-		ResultMarker: clispec.ResultMarker{}, AuthorityID: authorityID.String(), Phase: string(rollout.Phase),
-		ActiveVersion: rollout.ActiveVersion, CandidateVersion: rollout.CandidateVersion,
+		ResultMarker: clispec.ResultMarker{}, AuthorityID: rollout.AuthorityID.String(), Phase: string(rollout.Phase),
+		ActiveVersion: rollout.ActiveVersion, CandidateVersion: rollout.CandidateVersion, PreviousVersion: rollout.PreviousVersion,
 		WriteVersions: rollout.WriteVersions, Generation: rollout.Generation, DryRun: dryRun,
 	}
 	if err := clispec.WriteJSONValue(ctx, sink, output); err != nil {
