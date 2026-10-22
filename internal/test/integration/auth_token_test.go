@@ -24,20 +24,20 @@ func TestAuthTokenIssueAuthenticatesAndIsRecorded(t *testing.T) {
 
 	issue, err := ops.IssueAuthToken(env.Ctx, env.Ops.Pool, principal, holder.Email, "  integration ")
 	if err != nil {
-		t.Fatalf("IssueAuthToken: %v", err)
+		t.Fatalf("IssueAuthToken error = %v, want nil", err)
 	}
 	validated, err := tokens.Validate(env.Ctx, issue.Raw)
 	if err != nil || validated.UserID != holder.ID {
-		t.Fatalf("Validate(issued) = %+v, %v; want user %s", validated, err, holder.ID)
+		t.Fatalf("Validate(issued) = %+v, %v; want UserID %s and nil error", validated, err, holder.ID)
 	}
 	created := requireOneChange(t, outboxRowsFor(t, env, audit.VerbAuthTokenCreate, issue.Token.ID), principal)
 	if created.Entity.Name != "integration" || created.Context.OrgID != audit.SystemOrgID() {
-		t.Fatalf("create row entity name %q, org %s; want integration and the system org", created.Entity.Name, created.Context.OrgID)
+		t.Fatalf("create event Entity.Name = %q, Context.OrgID = %s; want \"integration\" and audit.SystemOrgID()", created.Entity.Name, created.Context.OrgID)
 	}
 
 	revocation, err := ops.RevokeAuthToken(env.Ctx, env.Ops.Pool, principal, issue.Token.ID)
 	if err != nil || revocation.Holder.ID != holder.ID {
-		t.Fatalf("RevokeAuthToken = %+v, %v; want holder %s", revocation.Holder, err, holder.ID)
+		t.Fatalf("RevokeAuthToken Holder = %+v, error = %v; want ID %s and nil error", revocation.Holder, err, holder.ID)
 	}
 	if _, err := tokens.Validate(env.Ctx, issue.Raw); !errors.Is(err, domain.ErrUnauthenticated) {
 		t.Fatalf("Validate(revoked) err = %v, want domain.ErrUnauthenticated", err)
@@ -53,6 +53,6 @@ func TestAuthTokenIssueRefusesAnUnknownUser(t *testing.T) {
 	_, err := ops.IssueAuthToken(env.Ctx, env.Ops.Pool, authTokenTestPrincipal(), "nobody-"+uuid.NewString()+"@example.invalid", "integration")
 
 	if err == nil {
-		t.Fatal("IssueAuthToken returned a nil error for an email without a user")
+		t.Fatal("IssueAuthToken error = nil for an email without a user, want an error")
 	}
 }

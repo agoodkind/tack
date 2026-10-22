@@ -89,7 +89,7 @@ func fixtureChangeOperation(verb audit.Verb, orgID uuid.UUID) audit.Event {
 	principal := audit.OperatorPrincipal{
 		ID: uuid.Must(uuid.NewV7()), Email: "operator@example.test", Name: "Operator", Source: "test",
 	}
-	return postgres.NewChangeOperation(verb, postgres.OperatorActor(principal), orgID, audit.SourceSystem)
+	return postgres.NewChangeOperation(context.Background(), verb, postgres.OperatorActor(principal), orgID, audit.SourceSystem)
 }
 
 func actAsInput(f actAsFixture, email, reason string) actAsCreateInput {

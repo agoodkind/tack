@@ -124,7 +124,7 @@ func requireNoOrganizationRefusal(t *testing.T, cfg *config.Config, run searchRu
 		t.Fatalf("open ledger pool: %v", err)
 	}
 	t.Cleanup(pool.Close)
-	removal := datagenOperation(audit.VerbOrgMemberRemove, workspace.OrgID)
+	removal := datagenOperation(ctx, audit.VerbOrgMemberRemove, workspace.OrgID)
 	if err := postgres.NewOrgMemberRepo(pool).RemoveMember(ctx, removal, workspace.OrgID, actor.UserID); err != nil {
 		t.Fatalf("remove member %s: %v", actor.UserID, err)
 	}

@@ -32,11 +32,11 @@ func (r seedOutboxRecorder) Record(ctx context.Context, event audit.Event) error
 func seedOperation(ctx context.Context, verb audit.Verb, orgID uuid.UUID) (audit.Event, error) {
 	principal, found := audit.OperatorPrincipalFromContext(ctx)
 	if !found {
-		err := errors.New("seed change has no operator principal")
+		err := errors.New("create seed change: context does not contain an operator principal")
 		slog.ErrorContext(ctx, "seed.audit_principal_missing", slog.String("err", err.Error()))
 		return audit.Event{}, err
 	}
-	return postgres.NewChangeOperation(verb, postgres.OperatorActor(principal), orgID, audit.SourceSeed), nil
+	return postgres.NewChangeOperation(ctx, verb, postgres.OperatorActor(principal), orgID, audit.SourceSeed), nil
 }
 
 func recordSeedNode(

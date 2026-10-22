@@ -50,7 +50,7 @@ func sqlAuditPrincipal() audit.OperatorPrincipal {
 }
 
 func sqlAuditOperation(verb audit.Verb, principal audit.OperatorPrincipal, orgID uuid.UUID) audit.Event {
-	return postgres.NewChangeOperation(verb, postgres.OperatorActor(principal), orgID, audit.SourceSystem)
+	return postgres.NewChangeOperation(context.Background(), verb, postgres.OperatorActor(principal), orgID, audit.SourceSystem)
 }
 
 func createSQLAuditUser(t *testing.T, pool *pgxpool.Pool, principal audit.OperatorPrincipal) *user.User {
@@ -61,7 +61,7 @@ func createSQLAuditUser(t *testing.T, pool *pgxpool.Pool, principal audit.Operat
 		DisplayName: "SQL Audit Holder", AvatarURL: nil, CreatedAt: time.Time{}, UpdatedAt: time.Time{},
 	})
 	if err != nil {
-		t.Fatalf("create the synthetic user: %v", err)
+		t.Fatalf("UserRepo.Create error = %v, want nil", err)
 	}
 	return created
 }
@@ -72,23 +72,23 @@ func outboxEvents(t *testing.T, pool *pgxpool.Pool, id uuid.UUID) []audit.Event 
 	t.Helper()
 	rows, err := pool.Query(t.Context(), runtimeAuditOutboxEventsQuery, id.String())
 	if err != nil {
-		t.Fatalf("read outbox events for %s: %v", id, err)
+		t.Fatalf("query outbox events for %s: got error %v, want nil", id, err)
 	}
 	defer rows.Close()
 	events := make([]audit.Event, 0)
 	for rows.Next() {
 		var raw []byte
 		if err := rows.Scan(&raw); err != nil {
-			t.Fatalf("scan an outbox event: %v", err)
+			t.Fatalf("scan outbox event: got error %v, want nil", err)
 		}
 		var event audit.Event
 		if err := json.Unmarshal(raw, &event); err != nil {
-			t.Fatalf("decode an outbox event: %v", err)
+			t.Fatalf("decode outbox event: got error %v, want nil", err)
 		}
 		events = append(events, event)
 	}
 	if err := rows.Err(); err != nil {
-		t.Fatalf("read outbox events for %s: %v", id, err)
+		t.Fatalf("iterate outbox events for %s: got error %v, want nil", id, err)
 	}
 	return events
 }
@@ -102,14 +102,14 @@ func startOutboxRelay(t *testing.T, stack runtimeAuditStack) {
 		ProduceTimeout: sqlAuditProduceWait,
 	})
 	if err != nil {
-		t.Fatalf("open the relay producer: %v", err)
+		t.Fatalf("NewKafkaRecorder error = %v, want nil", err)
 	}
 	relay, err := audit.NewRelay(audit.RelayConfig{
 		Recorder: recorder, Yugabyte: audit.NewPoolOutbox(stack.admin), FoundationDB: nil,
 		PollInterval: sqlAuditRelayInterval, BatchSize: sqlAuditRelayBatch,
 	})
 	if err != nil {
-		t.Fatalf("start the relay: %v", err)
+		t.Fatalf("NewRelay error = %v, want nil", err)
 	}
 	relay.Start(t.Context())
 	t.Cleanup(func() { _ = relay.Close() })
@@ -123,17 +123,17 @@ func changeOnlyPool(t *testing.T, admin *pgxpool.Pool) *pgxpool.Pool {
 	suffix := make([]byte, 4)
 	secret := make([]byte, 16)
 	if _, err := rand.Read(suffix); err != nil {
-		t.Fatalf("login suffix: %v", err)
+		t.Fatalf("generate login suffix: got error %v, want nil", err)
 	}
 	if _, err := rand.Read(secret); err != nil {
-		t.Fatalf("login secret: %v", err)
+		t.Fatalf("generate login password: got error %v, want nil", err)
 	}
 	login := sqlAuditLogin{Login: sqlAuditLoginPrefix + hex.EncodeToString(suffix), Secret: hex.EncodeToString(secret)}
 	execLoginTemplate(t, admin, runtimeAuditChangeLoginTemplate, login)
 	t.Cleanup(func() { execLoginTemplate(t, admin, runtimeAuditDropLoginTemplate, login) })
 	parsed, err := url.Parse(admin.Config().ConnString())
 	if err != nil {
-		t.Fatalf("parse the ledger address: %v", err)
+		t.Fatalf("parse ledger connection string: got error %v, want nil", err)
 	}
 	parsed.User = url.UserPassword(login.Login, login.Secret)
 	return testenv.LedgerPool(t, parsed.String())
@@ -143,14 +143,14 @@ func execLoginTemplate(t *testing.T, admin *pgxpool.Pool, text string, login sql
 	t.Helper()
 	parsed, err := template.New("login").Parse(text)
 	if err != nil {
-		t.Fatalf("parse the login statements: %v", err)
+		t.Fatalf("parse login template: got error %v, want nil", err)
 	}
 	var statements bytes.Buffer
 	if err := parsed.Execute(&statements, login); err != nil {
-		t.Fatalf("render the login statements: %v", err)
+		t.Fatalf("render login statements: got error %v, want nil", err)
 	}
 	if _, err := admin.Exec(context.WithoutCancel(t.Context()), statements.String()); err != nil {
-		t.Fatalf("run the login statements for %s: %v", login.Login, err)
+		t.Fatalf("run login statements for %s: got error %v, want nil", login.Login, err)
 	}
 }
 
@@ -165,10 +165,10 @@ func requireLedgerChange(t *testing.T, stack runtimeAuditStack, sent audit.Event
 	}
 	if row.Outcome != sent.Outcome || row.Context.Phase != sent.Context.Phase ||
 		row.Context.OperationClass != audit.OperationDatabaseChange {
-		t.Fatalf("event %s outcome, phase, class = %s, %s, %s", sent.EventID, row.Outcome, row.Context.Phase, row.Context.OperationClass)
+		t.Fatalf("event %s Outcome, Phase, OperationClass = %s, %s, %s; want sent.Outcome, sent.Context.Phase, audit.OperationDatabaseChange", sent.EventID, row.Outcome, row.Context.Phase, row.Context.OperationClass)
 	}
 	if row.Context.OperationID != sent.Context.OperationID || row.ActorID != sent.Actor.ID || row.Action != sent.Verb {
-		t.Fatalf("event %s operation %s actor %s action %s", sent.EventID, row.Context.OperationID, row.ActorID, row.Action)
+		t.Fatalf("event %s OperationID = %s, ActorID = %s, Action = %s; want sent.Context.OperationID, sent.Actor.ID, sent.Verb", sent.EventID, row.Context.OperationID, row.ActorID, row.Action)
 	}
 	if !reflect.DeepEqual(row.Error, sent.Error) {
 		t.Fatalf("event %s error = %+v, want %+v", sent.EventID, row.Error, sent.Error)

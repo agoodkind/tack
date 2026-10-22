@@ -93,7 +93,7 @@ func (r *TokenRepo) insertToken(
 	})
 	if err != nil {
 		slog.ErrorContext(ctx, "token.create_failed", slog.String("token_id", id.String()), slog.String("err", err.Error()))
-		return nil, fmt.Errorf("token create %s: %w", id, err)
+		return nil, fmt.Errorf("create token %s: %w", id, err)
 	}
 	return t, nil
 }
@@ -127,7 +127,7 @@ func (r *TokenRepo) Delete(ctx context.Context, operation audit.Event, id uuid.U
 	})
 	if err != nil {
 		slog.ErrorContext(ctx, "token.delete_failed", slog.String("token_id", id.String()), slog.String("err", err.Error()))
-		return fmt.Errorf("token delete %s: %w", id, err)
+		return fmt.Errorf("delete token %s: %w", id, err)
 	}
 	return nil
 }

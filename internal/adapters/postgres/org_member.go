@@ -50,7 +50,7 @@ func (r *OrgMemberRepo) AddMember(ctx context.Context, operation audit.Event, m 
 	})
 	if err != nil {
 		slog.ErrorContext(ctx, "org.member_add_failed", slog.String("user_id", m.UserID.String()), slog.String("err", err.Error()))
-		return fmt.Errorf("org add member %s: %w", m.UserID, err)
+		return fmt.Errorf("add org member %s: %w", m.UserID, err)
 	}
 	return nil
 }
@@ -77,7 +77,7 @@ func (r *OrgMemberRepo) RemoveMember(ctx context.Context, operation audit.Event,
 	})
 	if err != nil {
 		slog.ErrorContext(ctx, "org.member_remove_failed", slog.String("user_id", userID.String()), slog.String("err", err.Error()))
-		return fmt.Errorf("org remove member %s: %w", userID, err)
+		return fmt.Errorf("remove org member %s: %w", userID, err)
 	}
 	return nil
 }

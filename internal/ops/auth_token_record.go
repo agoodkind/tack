@@ -35,6 +35,6 @@ func authTokenOrg(ctx context.Context, members org.MemberRepository, userID uuid
 
 // authTokenOperation builds a repository change operation with principal as the
 // audit actor and audit.SourceSystem as the source.
-func authTokenOperation(verb audit.Verb, principal audit.OperatorPrincipal, orgID uuid.UUID) audit.Event {
-	return postgres.NewChangeOperation(verb, postgres.OperatorActor(principal), orgID, audit.SourceSystem)
+func authTokenOperation(ctx context.Context, verb audit.Verb, principal audit.OperatorPrincipal, orgID uuid.UUID) audit.Event {
+	return postgres.NewChangeOperation(ctx, verb, postgres.OperatorActor(principal), orgID, audit.SourceSystem)
 }

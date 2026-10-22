@@ -23,6 +23,14 @@ func NewUserRepo(db *pgxpool.Pool) *UserRepo {
 	return &UserRepo{db: db}
 }
 
+// userEmailField and userDisplayNameField define the Changed entries for the
+// two personal-data fields. User change events list these entries but do not
+// store the field values.
+const (
+	userEmailField       = "/email"
+	userDisplayNameField = "/display_name"
+)
+
 // userValue contains user state and timestamps for an audit change. It omits
 // email and display name because they contain personal data.
 type userValue struct {
@@ -32,9 +40,11 @@ type userValue struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-// Create inserts u and its audit change in one transaction. It preserves a
-// supplied ID or assigns a UUIDv7 when u.ID is [uuid.Nil]. Preserving the seed's
-// fixed ID keeps the development bearer stable across database wipes.
+// Create inserts u and one audit change event in one transaction. It keeps a
+// supplied ID or assigns a UUIDv7 when u.ID is [uuid.Nil]. The seed supplies a
+// fixed ID, and the development bearer equals that ID across database wipes.
+// The change event lists /email and /display_name in Changed but does not store
+// either value because both contain personal data.
 func (r *UserRepo) Create(ctx context.Context, operation audit.Event, u *user.User) (*user.User, error) {
 	if u.ID == uuid.Nil {
 		u.ID = uuid.Must(uuid.NewV7())
@@ -56,12 +66,13 @@ func (r *UserRepo) Create(ctx context.Context, operation audit.Event, u *user.Us
 			return err
 		}
 		return WriteChanges(ctx, tx, operation, []audit.Change{{
-			EventID: uuid.Must(uuid.NewV7()), Target: target, Before: nil, After: after, Changed: nil,
+			EventID: uuid.Must(uuid.NewV7()), Target: target, Before: nil, After: after,
+			Changed: []string{userEmailField, userDisplayNameField},
 		}})
 	})
 	if err != nil {
 		slog.ErrorContext(ctx, "user.create_failed", slog.String("user_id", u.ID.String()), slog.String("err", err.Error()))
-		return nil, fmt.Errorf("user create %s: %w", u.ID, err)
+		return nil, fmt.Errorf("create user %s: %w", u.ID, err)
 	}
 	return u, nil
 }

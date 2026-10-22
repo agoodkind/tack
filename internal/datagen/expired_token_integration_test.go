@@ -42,7 +42,7 @@ func TestExpireTokenRunsAsTheAppLogin(t *testing.T) {
 		Type: audit.ActorService, ID: uuid.Must(uuid.NewV7()), Email: "", Name: "expired token test",
 		SessionID: "", IP: "", UserAgent: "", RequestID: "", APITokenLabel: "",
 	}
-	operation := postgres.NewChangeOperation(audit.VerbUserCreate, serviceActor, audit.SystemOrgID(), audit.SourceSystem)
+	operation := postgres.NewChangeOperation(ctx, audit.VerbUserCreate, serviceActor, audit.SystemOrgID(), audit.SourceSystem)
 	holder, err := postgres.NewUserRepo(app).Create(ctx, operation, &user.User{
 		ID: uuid.Must(uuid.NewV7()), Email: "expired-" + uuid.NewString()[:8] + "@example.test",
 		DisplayName: "expired token holder", AvatarURL: nil,

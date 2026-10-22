@@ -2,6 +2,7 @@ package integration
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"testing"
 	"time"
@@ -13,9 +14,15 @@ import (
 	"goodkind.io/tack/internal/domain/user"
 )
 
+//go:embed testdata/auth_token_outbox_rows.sql
+var authTokenOutboxRowsQuery string
+
+//go:embed testdata/auth_token_outbox_delete.sql
+var authTokenOutboxDeleteStatement string
+
 func testChangeOperation(verb audit.Verb, orgID uuid.UUID) audit.Event {
 	principal := authTokenTestPrincipal()
-	return postgres.NewChangeOperation(verb, postgres.OperatorActor(principal), orgID, audit.SourceSystem)
+	return postgres.NewChangeOperation(context.Background(), verb, postgres.OperatorActor(principal), orgID, audit.SourceSystem)
 }
 
 func authTokenTestUser(t *testing.T, env *TestEnv) *user.User {
@@ -43,10 +50,7 @@ func authTokenTestPrincipal() audit.OperatorPrincipal {
 // hide the ones this test wrote. It removes them after the test.
 func outboxRowsFor(t *testing.T, env *TestEnv, verb audit.Verb, tokenID uuid.UUID) []audit.Event {
 	t.Helper()
-	rows, err := env.Ops.Pool.Query(env.Ctx, `
-		SELECT event_id, event FROM public.ops_outbox
-		 WHERE event->>'verb' = $1 AND event->'entity'->>'id' = $2`,
-		string(verb), tokenID.String())
+	rows, err := env.Ops.Pool.Query(env.Ctx, authTokenOutboxRowsQuery, string(verb), tokenID.String())
 	if err != nil {
 		t.Fatalf("read the outbox for token %s: %v", tokenID, err)
 	}
@@ -64,7 +68,7 @@ func outboxRowsFor(t *testing.T, env *TestEnv, verb audit.Verb, tokenID uuid.UUI
 		}
 		found = append(found, event)
 		t.Cleanup(func() {
-			_, _ = env.Ops.Pool.Exec(context.Background(), `DELETE FROM public.ops_outbox WHERE event_id = $1`, eventID)
+			_, _ = env.Ops.Pool.Exec(context.Background(), authTokenOutboxDeleteStatement, eventID)
 		})
 	}
 	if err := rows.Err(); err != nil {
@@ -80,7 +84,7 @@ func requireOneChange(t *testing.T, rows []audit.Event, principal audit.Operator
 	}
 	row := rows[0]
 	if row.Context.Phase != audit.PhaseChange || row.Outcome != audit.OutcomeCompleted || row.Actor.ID != principal.ID {
-		t.Fatalf("outbox row phase %s, outcome %s, actor %s; want a completed change by %s",
+		t.Fatalf("outbox row phase = %s, outcome = %s, actor = %s; want audit.PhaseChange, audit.OutcomeCompleted, and actor %s",
 			row.Context.Phase, row.Outcome, row.Actor.ID, principal.ID)
 	}
 	return row

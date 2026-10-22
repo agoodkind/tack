@@ -89,7 +89,7 @@ func IssueAuthToken(
 		return AuthTokenIssue{}, fmt.Errorf("issue token for %s: %w", holder.Email, err)
 	}
 	tokenID := uuid.Must(uuid.NewV7())
-	operation := authTokenOperation(audit.VerbAuthTokenCreate, principal, orgID)
+	operation := authTokenOperation(ctx, audit.VerbAuthTokenCreate, principal, orgID)
 	issued, err := postgres.NewTokenRepo(pool).CreateWithID(ctx, operation, tokenID, holder.ID, raw, trimmedLabel)
 	if err != nil {
 		slog.ErrorContext(ctx, "auth.token.create_failed",
@@ -123,13 +123,13 @@ func failIssue(
 	switch {
 	case revokeErr == nil:
 		slog.WarnContext(ctx, "auth.token.create_committed_despite_error", slog.String("token_id", tokenID.String()))
-		return fmt.Errorf("token %s was created despite the reported failure and has been withdrawn: %w", tokenID, cause)
+		return fmt.Errorf("issue token %s: creation returned an error; cleanup revoked the token: %w", tokenID, cause)
 	case errors.Is(revokeErr, domain.ErrNotFound):
 		return cause
 	default:
 		slog.ErrorContext(ctx, "auth.token.create_unverified",
 			slog.String("token_id", tokenID.String()), slog.String("err", revokeErr.Error()))
-		return fmt.Errorf("token %s may or may not exist; check token-list and revoke it by id if it does: %w",
+		return fmt.Errorf("issue token %s: revocation failed; check token-list and revoke it by ID if present: %w",
 			tokenID, errors.Join(cause, revokeErr))
 	}
 }

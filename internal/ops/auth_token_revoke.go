@@ -36,7 +36,7 @@ func RevokeAuthToken(
 	if err != nil {
 		return AuthTokenRevocation{}, err
 	}
-	operation := authTokenOperation(audit.VerbAuthTokenRevoke, principal, revocation.OrgID)
+	operation := authTokenOperation(ctx, audit.VerbAuthTokenRevoke, principal, revocation.OrgID)
 	if err := postgres.NewTokenRepo(pool).Delete(ctx, operation, tokenID); err != nil {
 		slog.ErrorContext(ctx, "auth.token.revoke_failed",
 			slog.String("token_id", tokenID.String()), slog.String("err", err.Error()))

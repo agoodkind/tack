@@ -20,7 +20,7 @@ func ensureSeedUser(ctx context.Context, cfg *config.Config, userRepo *postgres.
 	existing, err := userRepo.GetByEmail(ctx, cfg.SeedEmail)
 	if err != nil && !errors.Is(err, domain.ErrNotFound) {
 		slog.ErrorContext(ctx, "seed.get_user_failed", slog.String("err", err.Error()))
-		return nil, fmt.Errorf("seed: get user: %w", err)
+		return nil, fmt.Errorf("get seed user: %w", err)
 	}
 	if existing != nil {
 		log.InfoContext(ctx, "seed.user_exists", "id", existing.ID, "email", existing.Email)
@@ -40,7 +40,7 @@ func ensureSeedUser(ctx context.Context, cfg *config.Config, userRepo *postgres.
 	})
 	if err != nil {
 		slog.ErrorContext(ctx, "seed.create_user_failed", slog.String("err", err.Error()))
-		return nil, fmt.Errorf("seed: create user: %w", err)
+		return nil, fmt.Errorf("create seed user: %w", err)
 	}
 	log.InfoContext(ctx, "seed.user_created", "id", created.ID, "email", created.Email)
 	return created, nil

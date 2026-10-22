@@ -5,6 +5,8 @@
 package postgres
 
 import (
+	"context"
+
 	"github.com/google/uuid"
 
 	"goodkind.io/tack/internal/audit"
@@ -17,18 +19,28 @@ const (
 	memberRelation     = "org_member"
 )
 
-// NewChangeOperation builds the operation event for a repository change using
-// the supplied verb, actor, orgID, and source. It assigns a new UUIDv7
-// operation ID and the current UTC start time.
-func NewChangeOperation(verb audit.Verb, actor audit.Actor, orgID uuid.UUID, source audit.Source) audit.Event {
+// NewChangeOperation builds the operation event for a repository change from
+// verb, actor, orgID, and source. It assigns a new UUIDv7 operation ID and the
+// current UTC start time. When [audit.OpIDFromContext] returns a command
+// operation ID for ctx, it sets ParentOperationID to that ID. Change events
+// from operator commands, the seed, and the QA data generator identify their
+// enclosing command through ParentOperationID.
+func NewChangeOperation(
+	ctx context.Context,
+	verb audit.Verb,
+	actor audit.Actor,
+	orgID uuid.UUID,
+	source audit.Source,
+) audit.Event {
 	startedAt := clock.Now().UTC()
+	parentOperationID, _ := audit.OpIDFromContext(ctx)
 	return audit.Event{
 		Verb: string(verb), EventID: uuid.Nil, Actor: actor,
 		Entity: audit.Entity{Type: "", NodeType: "", ID: uuid.Nil, Identifier: "", Name: ""},
 		Context: audit.EventContext{
 			OrgID: orgID, WorkspaceID: uuid.Nil, ScopeID: uuid.Nil, ParentID: uuid.Nil,
 			RequestID: "", TraceID: "", Source: source, Tool: "", RPC: "", Reason: "",
-			OperationID: uuid.Must(uuid.NewV7()), StartedAt: startedAt,
+			OperationID: uuid.Must(uuid.NewV7()), ParentOperationID: parentOperationID, StartedAt: startedAt,
 		},
 		Delta: nil, Outcome: "", Error: nil, IdempotencyKey: "", OccurredAt: startedAt, Extra: nil,
 	}

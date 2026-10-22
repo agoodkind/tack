@@ -36,7 +36,7 @@ func WriteChanges(ctx context.Context, tx pgx.Tx, operation audit.Event, changes
 	for _, change := range changes {
 		if err := audit.ValidateChange(change); err != nil {
 			slog.ErrorContext(ctx, "audit.change.invalid", slog.String("err", err.Error()))
-			return fmt.Errorf("write change %s: %w", change.EventID, err)
+			return fmt.Errorf("validate audit change %s: %w", change.EventID, err)
 		}
 		event := changeEvent(operation, change, completedAt)
 		if err := writeEvent(ctx, tx, event); err != nil {
@@ -100,7 +100,7 @@ func failureCode(cause error) string {
 func writeEvent(ctx context.Context, tx pgx.Tx, event audit.Event) error {
 	if err := audit.ValidateEvent(event); err != nil {
 		slog.ErrorContext(ctx, "audit.change.event_invalid", slog.String("err", err.Error()))
-		return fmt.Errorf("write audit event %s: %w", event.EventID, err)
+		return fmt.Errorf("validate audit event %s: %w", event.EventID, err)
 	}
 	encoded, err := audit.EncodeEvent(event, nil)
 	if err != nil {
@@ -130,7 +130,7 @@ func changeTx(
 	}
 	recordErr := recordFailure(ctx, pool, operation, target, err)
 	joined := errors.Join(err, recordErr)
-	slog.ErrorContext(ctx, "audit.change.rolled_back",
+	slog.ErrorContext(ctx, "audit.change.transaction_failed",
 		slog.String("target_id", target.ID.String()), slog.String("err", joined.Error()))
 	return joined
 }
@@ -149,7 +149,7 @@ func recordFailure(ctx context.Context, pool *pgxpool.Pool, operation audit.Even
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.change.failure_record_failed",
 			slog.String("event_id", event.EventID.String()), slog.String("err", err.Error()))
-		return fmt.Errorf("record failed change of %s: %w", target.ID, err)
+		return fmt.Errorf("record failed change for target %s: %w", target.ID, err)
 	}
 	return nil
 }
