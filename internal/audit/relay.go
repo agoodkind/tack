@@ -62,7 +62,7 @@ type RelayConfig struct {
 	// AfterProduce optionally runs with the event ID after each broker acknowledgment.
 	// An error stops the current batch before the relay deletes its current
 	// YugabyteDB row or clears any FoundationDB entry in that batch.
-	// Tests use it to interrupt delivery before outbox removal; production leaves it nil.
+	// Tests use it to interrupt delivery before outbox removal; production does not set it.
 	AfterProduce func(ctx context.Context, eventID uuid.UUID) error `exhaustruct:"optional"`
 }
 

@@ -60,7 +60,7 @@ func (o *PoolOutbox) WriteOutbox(ctx context.Context, event Event) error {
 	if err != nil {
 		return err
 	}
-	if len(eventJSON) > EventPartMaxBytes {
+	if !FitsSingleRecord(eventJSON) {
 		return o.writeLargeOutbox(ctx, event)
 	}
 	if err := o.insertOutboxEvent(ctx, event, eventJSON); err != nil {
@@ -85,7 +85,7 @@ func (o *PoolOutbox) WriteOutboxIfAbsent(ctx context.Context, event Event) (bool
 	if err != nil {
 		return false, err
 	}
-	if len(eventJSON) > EventPartMaxBytes {
+	if !FitsSingleRecord(eventJSON) {
 		err = o.writeLargeOutbox(ctx, event)
 	} else {
 		_, err = o.pool.Exec(ctx, `
@@ -119,7 +119,7 @@ func (o *PoolOutbox) WriteOutboxTx(ctx context.Context, tx pgx.Tx, event Event) 
 	if err != nil {
 		return err
 	}
-	if len(eventJSON) <= EventPartMaxBytes {
+	if FitsSingleRecord(eventJSON) {
 		return insertOutboxRow(ctx, tx, event.EventID, eventJSON)
 	}
 	encoded, err := EncodeEvent(event, nil)

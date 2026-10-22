@@ -24,7 +24,6 @@ func messageKey(t *testing.T, message []byte) []byte {
 	return append(key, byte((identity.Shard>>8)&0xFF), byte(identity.Shard&0xFF))
 }
 
-// alteredPart flips one payload byte and recomputes the part digest.
 func alteredPart(t *testing.T, message []byte) []byte {
 	t.Helper()
 	var fields map[string]json.RawMessage

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 
 	"github.com/google/uuid"
@@ -66,6 +67,15 @@ func encodeTransportMessage(message transportMessage) ([]byte, error) {
 // Messages returns JSON part messages in Parts order, followed by Header.
 // The relay publishes the messages in that order.
 func (e EncodedEvent) Messages() ([][]byte, error) {
+	messages, err := e.partMessages()
+	if err != nil {
+		return nil, err
+	}
+	return append(messages, e.Header), nil
+}
+
+// partMessages encodes each part as a JSON transport message in Parts order.
+func (e EncodedEvent) partMessages() ([][]byte, error) {
 	manifest, err := decodeManifestHeader(e.Header)
 	if err != nil {
 		return nil, err
@@ -81,30 +91,65 @@ func (e EncodedEvent) Messages() ([][]byte, error) {
 		}
 		messages = append(messages, encoded)
 	}
-	return append(messages, e.Header), nil
+	return messages, nil
+}
+
+// HeaderAndParts returns the outbox header record and ordered part records.
+// For a multipart event, it returns the manifest as the header and the part messages.
+// For a single-record event, it returns plain event JSON as the header and an empty part list.
+func (e EncodedEvent) HeaderAndParts() ([]byte, [][]byte, error) {
+	if e.Multipart() {
+		parts, err := e.partMessages()
+		return e.Header, parts, err
+	}
+	if len(e.Parts) != 1 {
+		return nil, nil, fmt.Errorf("audit event %s: a single record requires exactly one part", e.EventID)
+	}
+	envelope, err := decodeEventEnvelope(e.Parts[0].Payload)
+	if err != nil {
+		return nil, nil, fmt.Errorf("audit event %s: %s", e.EventID, err.Error())
+	}
+	eventJSON, err := MarshalEvent(envelope.Event)
+	return eventJSON, [][]byte{}, err
+}
+
+// decodeEventEnvelope decodes one event envelope and rejects unknown JSON fields.
+// It requires the payload to end after the envelope, allowing trailing whitespace.
+func decodeEventEnvelope(payload []byte) (eventEnvelope, error) {
+	var envelope eventEnvelope
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&envelope); err != nil {
+		return eventEnvelope{}, fmt.Errorf("decode envelope: %s", err.Error())
+	}
+	if !decoderAtEnd(decoder) {
+		return eventEnvelope{}, errors.New("unexpected data after the event envelope")
+	}
+	return envelope, nil
+}
+
+// decoderAtEnd attempts to decode one more JSON value and returns true only
+// when that decode returns [io.EOF].
+func decoderAtEnd(decoder *json.Decoder) bool {
+	var trailing json.RawMessage
+	return errors.Is(decoder.Decode(&trailing), io.EOF)
 }
 
 // Records returns outbox records in publication order.
 // When Multipart returns false, it returns plain event JSON as one record.
 // Otherwise, it returns ordered part messages followed by the manifest message.
 func (e EncodedEvent) Records() ([][]byte, error) {
-	if e.Multipart() {
-		return e.Messages()
-	}
-	if len(e.Parts) != 1 {
-		return nil, fmt.Errorf("audit event %s: a single record requires exactly one part", e.EventID)
-	}
-	var envelope eventEnvelope
-	decoder := json.NewDecoder(bytes.NewReader(e.Parts[0].Payload))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&envelope); err != nil {
-		return nil, fmt.Errorf("audit event %s: decode envelope: %s", e.EventID, err.Error())
-	}
-	eventJSON, err := MarshalEvent(envelope.Event)
+	header, parts, err := e.HeaderAndParts()
 	if err != nil {
 		return nil, err
 	}
-	return [][]byte{eventJSON}, nil
+	return append(parts, header), nil
+}
+
+// FitsSingleRecord reports whether eventJSON fits in one plain outbox record
+// at or below the EventPartMaxBytes size limit.
+func FitsSingleRecord(eventJSON []byte) bool {
+	return len(eventJSON) <= EventPartMaxBytes
 }
 
 // decodeTransportMessage detects transport messages and rejects unknown fields
