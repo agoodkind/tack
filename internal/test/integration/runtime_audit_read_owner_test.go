@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	_ "embed"
 	"errors"
 	"strings"
 	"testing"
@@ -12,18 +11,12 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-//go:embed testdata/runtime_audit_read_grants.sql
-var readGrantsStatement string
-
-//go:embed testdata/runtime_audit_read_denied.sql
-var readDeniedStatements string
-
-// insufficientPrivilegeSQLState is the error code of a refused table write.
+// insufficientPrivilegeSQLState is the error code YugabyteDB returns when it denies a table write.
 const insufficientPrivilegeSQLState = "42501"
 
-// TestRuntimeAuditReadStaleOwner recovers an expired read in a second
-// process and requires the first owner to lose renewal, finalization, and
-// admission. It also checks admission retries and renewal by the owner.
+// TestRuntimeAuditReadStaleOwner recovers an expired read in a second operating system
+// process and requires RenewRead, FinalizeRead, and BeginRead to reject the stale owner.
+// It also checks admission retries and renewal by the active owner.
 func TestRuntimeAuditReadStaleOwner(t *testing.T) {
 	for _, backend := range readBackends(t) {
 		t.Run(backend.name, func(t *testing.T) {
@@ -48,7 +41,7 @@ func TestRuntimeAuditReadStaleOwner(t *testing.T) {
 			child := startReadChild(t, readChildActionRecover, backend.childEnv())
 			child.signal(t)
 			if recovered := child.result(t); recovered == "0" {
-				t.Fatal("the child process did not recover the expired reads")
+				t.Fatal("recover expired reads in the child process: recovered 0 reads, want at least 1")
 			}
 			if err := backend.store.FinalizeRead(t.Context(), late.completion); !errors.Is(err, audit.ErrReadOwnerLost) {
 				t.Fatalf("finalization of the late read = %v, want audit.ErrReadOwnerLost", err)
@@ -66,7 +59,7 @@ func TestRuntimeAuditReadStaleOwner(t *testing.T) {
 			}
 			event := requireTerminal(t, backend, token.EventID, audit.OutcomeIncomplete)
 			if event.Error == nil || event.Context.Read != nil || event.Context.CompletedAt.IsZero() {
-				t.Fatalf("recovered event = %+v, want an error, a completion time, and no read evidence", event)
+				t.Fatalf("recovered event = %+v, want an error and a completion time without read evidence", event)
 			}
 
 			renewed := newReadFixture(t)
@@ -82,14 +75,15 @@ func TestRuntimeAuditReadStaleOwner(t *testing.T) {
 	}
 }
 
-// TestRuntimeAuditReadReceiptCleanup delivers a finalized read through the
-// real relay, which marks its receipt published in the transaction that
-// removes the outbox records, and runs receipt cleanup in a second process.
-// Both stores keep an unpublished receipt and a receipt published inside the
-// retention period. Only the YugabyteDB case proves deletion after
-// the retention period: the test moves its publication times back, and the
-// FoundationDB store reads the wall clock, which the test cannot advance by
-// one hour. The test also checks the YugabyteDB lifecycle grants.
+// TestRuntimeAuditReadReceiptCleanup checks receipt cleanup in a second operating system process.
+// The relay marks the receipt published in the transaction that deletes delivered outbox records.
+// Cleanup must keep unpublished receipts and receipts published less than one hour ago.
+//
+// Only YugabyteDB proves deletion after one hour of retention. The test changes stored
+// publication times with administrator UPDATE statements. FoundationDB uses the wall clock,
+// and this test cannot wait one hour.
+//
+// The test also checks the YugabyteDB lifecycle grants.
 func TestRuntimeAuditReadReceiptCleanup(t *testing.T) {
 	for _, backend := range readBackends(t) {
 		t.Run(backend.name, func(t *testing.T) {
@@ -101,19 +95,18 @@ func TestRuntimeAuditReadReceiptCleanup(t *testing.T) {
 			eventID := fixture.admission.Token.EventID
 			wrong := audit.PublishedRead{EventID: eventID, Digest: strings.Repeat("0", 64)}
 			if err := backend.store.AcknowledgePublished(t.Context(), []audit.PublishedRead{wrong}); err == nil {
-				t.Fatal("acknowledging a different digest succeeded")
+				t.Fatal("acknowledge a different digest: got success, want an error")
 			}
 			cleanupInChild(t, backend)
 			if err := backend.store.FinalizeRead(t.Context(), fixture.completion); err != nil {
-				t.Fatalf("cleanup deleted the unpublished receipt: %v", err)
+				t.Fatalf("finalize with the unpublished receipt after cleanup: %v", err)
 			}
 			requireTerminal(t, backend, eventID, audit.OutcomeCompleted)
 			deliverReadThroughRelay(t, backend, eventID)
-			// A published receipt ignores later acknowledgments. The different
-			// digest succeeds here only after the relay marked the receipt
-			// published.
+			// AcknowledgePublished ignores later acknowledgments for a published receipt.
+			// The different digest succeeds only after the relay marks the receipt published.
 			if err := backend.store.AcknowledgePublished(t.Context(), []audit.PublishedRead{wrong}); err != nil {
-				t.Fatalf("the relay did not mark the receipt published: %v", err)
+				t.Fatalf("acknowledge a different digest after relay delivery: %v", err)
 			}
 			published := audit.PublishedRead{EventID: eventID, Digest: fixture.completion.Digest}
 			if err := backend.store.AcknowledgePublished(t.Context(), []audit.PublishedRead{published}); err != nil {
@@ -121,7 +114,7 @@ func TestRuntimeAuditReadReceiptCleanup(t *testing.T) {
 			}
 			cleanupInChild(t, backend)
 			if err := backend.store.FinalizeRead(t.Context(), fixture.completion); err != nil {
-				t.Fatalf("cleanup deleted the receipt before its retention: %v", err)
+				t.Fatalf("finalize before receipt retention expires: %v", err)
 			}
 			if backend.agePublished == nil {
 				t.Logf("%s: this case does not prove deletion after the retention period", backend.name)
@@ -145,28 +138,29 @@ func cleanupInChild(t *testing.T, backend *readBackend) {
 	child.result(t)
 }
 
-// checkReadGrants requires the ownership and privileges that migration 021
-// leaves, and refuses direct table writes by the application role.
+// checkReadGrants checks the ownership and privileges from migration 021.
+// It requires YugabyteDB to reject direct table writes by the application role.
 func checkReadGrants(t *testing.T) {
 	dsn := testenv.Ledger(t)
 	application := applicationRolePool(t, dsn)
 	var ownerHasMembers, ownerCreatesInPublic, tableRights bool
 	var executableFunctions, publicFunctions int
 	var stateOwner string
-	err := application.QueryRow(t.Context(), readGrantsStatement).Scan(&ownerHasMembers, &ownerCreatesInPublic,
+	err := application.QueryRow(t.Context(), readTestSQL(t, "runtime_audit_read_grants.sql")).Scan(&ownerHasMembers, &ownerCreatesInPublic,
 		&executableFunctions, &publicFunctions, &stateOwner, &tableRights)
 	if err != nil {
 		t.Fatalf("read the lifecycle grants: %v", err)
 	}
 	if ownerHasMembers || ownerCreatesInPublic || stateOwner != "ops_outbox_owner" {
-		t.Fatalf("ops_outbox_owner members = %t, CREATE on public = %t, ops_read_state owner = %q",
+		t.Fatalf("ops_outbox_owner members = %t, CREATE on public = %t, ops_read_state owner = %q, want false, false, and ops_outbox_owner",
 			ownerHasMembers, ownerCreatesInPublic, stateOwner)
 	}
 	if executableFunctions != 8 || publicFunctions != 0 || tableRights {
-		t.Fatalf("functions executable by app_auth and tack_migrator = %d, by PUBLIC = %d, table rights = %t",
+		t.Fatalf("functions executable by app_auth and tack_migrator = %d, by PUBLIC = %d, table rights = %t, want 8, 0, and false",
 			executableFunctions, publicFunctions, tableRights)
 	}
-	for _, statement := range strings.Split(strings.TrimSpace(readDeniedStatements), ";\n") {
+	denied := readTestSQL(t, "runtime_audit_read_denied.sql")
+	for _, statement := range strings.Split(strings.TrimSpace(denied), ";\n") {
 		_, err := application.Exec(t.Context(), statement)
 		var postgresError *pgconn.PgError
 		if !errors.As(err, &postgresError) || postgresError.Code != insufficientPrivilegeSQLState {

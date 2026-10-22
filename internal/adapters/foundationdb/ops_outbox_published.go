@@ -11,8 +11,8 @@ import (
 )
 
 // ClearThroughPublished deletes every outbox entry up to and including mark
-// and marks each read receipt in reads published, in one transaction. The
-// relay runs it after the broker acknowledges those entries.
+// and marks matching read receipts as published in the same transaction.
+// The relay calls ClearThroughPublished after the broker acknowledges those entries.
 func (s *OpsOutboxStore) ClearThroughPublished(ctx context.Context, mark []byte, reads []audit.PublishedRead) (err error) {
 	defer telemetry.FDBOp(ctx, "store.ops_outbox.clear_through_published")(&err)
 	if len(mark) == 0 {

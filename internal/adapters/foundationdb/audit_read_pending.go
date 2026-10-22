@@ -21,20 +21,19 @@ const auditReadTransactionTimeout = 5 * time.Second
 
 // AuditReadStore implements [audit.ReadLifecycle] for product reads.
 type AuditReadStore struct {
-	db     fdb.Database
-	clock  clock.Clock
-	outbox encodedOutboxWriter
+	db    fdb.Database
+	clock clock.Clock
 }
 
-// AuditReads returns the read lifecycle store on the shared connection. The
-// clock decides admission, lease, and retention times.
+// AuditReads returns the read lifecycle store on the shared FoundationDB connection.
+// The injected clock supplies admission, lease, and retention times.
 func (s *Stores) AuditReads(source clock.Clock) *AuditReadStore {
-	return &AuditReadStore{db: s.db, clock: source, outbox: versionstampOutboxWriter{}}
+	return &AuditReadStore{db: s.db, clock: source}
 }
 
 var _ audit.ReadLifecycle = (*AuditReadStore)(nil)
 
-// auditReadPending is one admitted read that has not saved a terminal event.
+// auditReadPending stores an admitted read until finalization or recovery saves a terminal event.
 type auditReadPending struct {
 	Owner             uuid.UUID       `json:"owner"`
 	Generation        uint64          `json:"generation"`
@@ -51,17 +50,17 @@ func auditReadExpiryKey(bucket uint16, deadline time.Time, eventID uuid.UUID) fd
 	return fdb.Key(withPrefix(tuple.Tuple{keyAuditReadExpiry, int64(bucket), deadline.UnixNano(), eventID.String()}.Pack()))
 }
 
-// auditReadDueRange covers the expiry or cleanup keys of bucket with a time
-// at or before limit.
+// auditReadDueRange returns the range of expiry or cleanup keys for bucket
+// with times at or before limit.
 func auditReadDueRange(family string, bucket uint16, limit time.Time) fdb.KeyRange {
 	begin := withPrefix(tuple.Tuple{family, int64(bucket)}.Pack())
 	end := withPrefix(tuple.Tuple{family, int64(bucket), limit.UnixNano() + 1}.Pack())
 	return fdb.KeyRange{Begin: fdb.Key(begin), End: fdb.Key(end)}
 }
 
-// BeginRead saves the pending read with generation one, an admission
-// deadline, and a lease. A retry of the same admission by the same owner
-// before its deadline returns the saved token.
+// BeginRead saves pending state with generation one, an admission deadline,
+// and a lease before the caller reads data. A retry by the same owner with
+// the same template at or before the admission deadline returns the saved token.
 func (s *AuditReadStore) BeginRead(ctx context.Context, admission audit.ReadAdmission) (audit.ReadToken, error) {
 	eventID := admission.Token.EventID
 	if err := audit.ValidateReadAdmission(admission); err != nil {
@@ -108,7 +107,7 @@ func (s *AuditReadStore) BeginRead(ctx context.Context, admission audit.ReadAdmi
 }
 
 // retriedAdmission returns the saved token for a retry by the same owner
-// with the same template before the admission deadline.
+// with the same template at or before the admission deadline.
 func retriedAdmission(pending auditReadPending, owner uuid.UUID, template []byte, now time.Time) (audit.ReadToken, error) {
 	if pending.Owner != owner || !bytes.Equal(pending.Template, template) {
 		return audit.ReadToken{}, audit.ErrReadOwnerLost
@@ -122,8 +121,8 @@ func retriedAdmission(pending auditReadPending, owner uuid.UUID, template []byte
 	}, nil
 }
 
-// RenewRead replaces the lease deadline and its expiry key when the token
-// owns the pending read.
+// RenewRead updates the lease deadline and its expiry key only when the token's
+// owner and generation match the pending read.
 func (s *AuditReadStore) RenewRead(ctx context.Context, token audit.ReadToken) error {
 	err := transactAuditRead(ctx, s.db, func(tr fdb.Transaction) error {
 		pending, err := ownedPending(tr, token)
@@ -140,8 +139,7 @@ func (s *AuditReadStore) RenewRead(ctx context.Context, token audit.ReadToken) e
 	return nil
 }
 
-// ownedPending reads the pending read and requires the token's owner and
-// generation.
+// ownedPending requires pending state with the token's owner and generation.
 func ownedPending(tr fdb.Transaction, token audit.ReadToken) (auditReadPending, error) {
 	pending, found, err := readAuditRecord[auditReadPending](tr, auditReadPendingKey(token.EventID))
 	if err != nil {

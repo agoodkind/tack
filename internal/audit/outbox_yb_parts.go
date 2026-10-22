@@ -86,8 +86,8 @@ func (o *PoolOutbox) Delete(ctx context.Context, eventID uuid.UUID) error {
 	return o.DeletePublished(ctx, eventID, nil)
 }
 
-// DeletePublished removes an event's parts and outbox row and marks each read
-// receipt in reads published, in one transaction.
+// DeletePublished deletes an event's parts and outbox row and marks the read
+// receipts in reads as published in the same transaction.
 func (o *PoolOutbox) DeletePublished(ctx context.Context, eventID uuid.UUID, reads []PublishedRead) error {
 	err := pgx.BeginFunc(ctx, o.pool, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `DELETE FROM public.ops_outbox_parts WHERE event_id = $1`, eventID); err != nil {

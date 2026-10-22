@@ -11,8 +11,8 @@ import (
 	"goodkind.io/tack/internal/audit"
 )
 
-// readLeaseWait is the real time after which every lease and admission
-// deadline that a test created before the wait has passed.
+// readLeaseWait is the real duration after which every lease and admission deadline
+// that a test created before the wait has expired.
 const readLeaseWait = audit.ReadLease + time.Second
 
 // waitForReadLeases waits readLeaseWait in real time.
@@ -27,14 +27,13 @@ func waitForReadLeases(t *testing.T) {
 	}
 }
 
-// readFixture is one admitted synthetic read with its final completion.
+// readFixture pairs a synthetic read admission with its final completion.
 type readFixture struct {
 	admission  audit.ReadAdmission
 	completion audit.ReadCompletion
 }
 
-// newReadFixture returns a synthetic read admission and a completion that
-// returns two node targets.
+// newReadFixture returns a synthetic read admission and a completion with two node targets.
 func newReadFixture(t *testing.T) readFixture {
 	t.Helper()
 	target := audit.Target{
@@ -67,7 +66,7 @@ func completeRead(t *testing.T, token audit.ReadToken, template audit.Event, tar
 	t.Helper()
 	manifestDigest, manifestParts, err := audit.ReadManifestDigest(targets)
 	if err != nil {
-		t.Fatalf("read manifest digest: %v", err)
+		t.Fatalf("compute read manifest digest: %v", err)
 	}
 	payloadDigest := sha256.Sum256([]byte(payload))
 	final := template

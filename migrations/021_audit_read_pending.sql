@@ -1,18 +1,21 @@
--- Pending operator reads and their terminal receipts (TACK-583).
+-- This migration adds storage for pending operator reads and terminal receipts (TACK-583).
 --
--- public.ops_read_state stores one row per admitted read. A pending row has a
--- template and a lease deadline. A terminal row keeps the owner, generation,
--- transport digest, outcome, and publication time. The lifecycle functions
--- use database time.
+-- public.ops_read_state stores one row per admitted read. A pending row stores a
+-- template and a lease deadline. A terminal row stores the owner, generation,
+-- transport digest, outcome, and publication time. The lifecycle functions use
+-- database time.
 --
--- ops_outbox_owner owns the table and the functions. Each function writes
--- public.ops_outbox with the rights of that owner. Application roles hold
--- EXECUTE on the functions and no right on either table. tack_migrator joins
--- ops_outbox_owner only for the ownership changes, and the migration revokes
--- that membership before it ends.
+-- ops_outbox_owner owns public.ops_read_state and its eight lifecycle functions.
+-- ops_read_finalize and ops_read_recover write public.ops_outbox with that owner's
+-- privileges. Application roles can execute the functions but cannot access either
+-- table directly. tack_migrator temporarily joins ops_outbox_owner. The migration
+-- changes each object's owner before revoking PUBLIC access and grants EXECUTE on
+-- the functions while tack_migrator remains a member of ops_outbox_owner.
+-- The migration then revokes that membership.
 --
--- Every statement is idempotent. YugabyteDB keeps completed DDL when a
--- migration transaction rolls back.
+-- Each migration statement produces the same database state when it runs again.
+-- YugabyteDB retains completed changes to database objects when a migration
+-- transaction rolls back.
 
 -- +goose Up
 -- +goose StatementBegin
@@ -64,7 +67,7 @@ BEGIN
         RETURN;
     END IF;
     IF existing.template IS NULL OR existing.owner_id <> p_owner OR existing.template <> p_template THEN
-        RAISE EXCEPTION 'audit read % is not owned by this admission', p_event_id USING ERRCODE = 'TK001';
+        RAISE EXCEPTION 'admission does not own audit read %', p_event_id USING ERRCODE = 'TK001';
     END IF;
     IF now() > existing.admission_deadline THEN
         RAISE EXCEPTION 'audit read % admission retry deadline passed', p_event_id USING ERRCODE = 'TK002';
@@ -89,15 +92,15 @@ BEGIN
      WHERE s.event_id = p_event_id AND s.owner_id = p_owner
        AND s.generation = p_generation AND s.template IS NOT NULL;
     IF NOT FOUND THEN
-        RAISE EXCEPTION 'audit read % is not owned by this token', p_event_id USING ERRCODE = 'TK001';
+        RAISE EXCEPTION 'token does not own audit read %', p_event_id USING ERRCODE = 'TK001';
     END IF;
 END;
 $$;
 -- +goose StatementEnd
 
--- ops_read_template returns the template of an owned pending read. It returns
--- NULL when a terminal receipt from the same owner with the same digest and an
--- outcome other than incomplete confirms an earlier finalization.
+-- ops_read_template returns the template when the owner and generation match a pending read.
+-- It returns NULL when a terminal receipt confirms an earlier finalization with the
+-- same owner and digest and an outcome other than incomplete.
 -- +goose StatementBegin
 CREATE OR REPLACE FUNCTION public.ops_read_template(
     p_event_id UUID, p_owner UUID, p_generation BIGINT, p_digest TEXT)
@@ -118,7 +121,7 @@ BEGIN
        AND existing.digest = p_digest AND existing.outcome <> 'incomplete' THEN
         RETURN NULL;
     END IF;
-    RAISE EXCEPTION 'audit read % is not owned by this token', p_event_id USING ERRCODE = 'TK001';
+    RAISE EXCEPTION 'token does not own audit read %', p_event_id USING ERRCODE = 'TK001';
 END;
 $$;
 -- +goose StatementEnd
@@ -142,7 +145,7 @@ BEGIN
     END IF;
     IF NOT FOUND OR existing.template IS NULL
        OR existing.owner_id <> p_owner OR existing.generation <> p_generation THEN
-        RAISE EXCEPTION 'audit read % is not owned by this token', p_event_id USING ERRCODE = 'TK001';
+        RAISE EXCEPTION 'token does not own audit read %', p_event_id USING ERRCODE = 'TK001';
     END IF;
     PERFORM public.ops_outbox_write_encoded(p_event_id, p_header, p_parts);
     UPDATE public.ops_read_state s
@@ -243,6 +246,9 @@ DO $$
 DECLARE
     signature TEXT;
 BEGIN
+    EXECUTE 'GRANT ops_outbox_owner TO ' || quote_ident(current_user);
+    GRANT CREATE ON SCHEMA public TO ops_outbox_owner;
+    ALTER TABLE public.ops_read_state OWNER TO ops_outbox_owner;
     REVOKE ALL ON public.ops_read_state FROM PUBLIC;
     FOREACH signature IN ARRAY ARRAY[
         'public.ops_read_begin(uuid, uuid, smallint, jsonb)',
@@ -254,30 +260,13 @@ BEGIN
         'public.ops_read_acknowledge(uuid, text)',
         'public.ops_read_cleanup(smallint, integer)'
     ] LOOP
+        EXECUTE 'ALTER FUNCTION ' || signature || ' OWNER TO ops_outbox_owner';
         EXECUTE 'REVOKE ALL ON FUNCTION ' || signature || ' FROM PUBLIC';
         EXECUTE 'GRANT EXECUTE ON FUNCTION ' || signature || ' TO app_auth, tack_migrator';
     END LOOP;
-    -- The relay marks a receipt published in the transaction that deletes
-    -- the delivered outbox row.
+    -- The relay records a receipt's publication time and deletes the delivered
+    -- outbox row in one transaction.
     GRANT EXECUTE ON FUNCTION public.ops_read_acknowledge(uuid, text) TO audit_writer;
-    EXECUTE 'GRANT ops_outbox_owner TO ' || quote_ident(current_user);
-    GRANT CREATE ON SCHEMA public TO ops_outbox_owner;
-    ALTER TABLE public.ops_read_state OWNER TO ops_outbox_owner;
-    FOREACH signature IN ARRAY ARRAY[
-        'public.ops_read_begin(uuid, uuid, smallint, jsonb)',
-        'public.ops_read_renew(uuid, uuid, bigint)',
-        'public.ops_read_template(uuid, uuid, bigint, text)',
-        'public.ops_read_finalize(uuid, uuid, bigint, text, text, jsonb, bytea[])',
-        'public.ops_read_expired(smallint, integer)',
-        'public.ops_read_recover(uuid, bigint, timestamptz, text, jsonb, bytea[])',
-        'public.ops_read_acknowledge(uuid, text)',
-        'public.ops_read_cleanup(smallint, integer)'
-    ] LOOP
-        EXECUTE 'ALTER FUNCTION ' || signature || ' OWNER TO ops_outbox_owner';
-    END LOOP;
-    -- ops_read_finalize and ops_read_recover call ops_outbox_write_encoded
-    -- as ops_outbox_owner, and the ACL from migration 020 omits that role.
-    GRANT EXECUTE ON FUNCTION public.ops_outbox_write_encoded(uuid, jsonb, bytea[]) TO ops_outbox_owner;
     REVOKE CREATE ON SCHEMA public FROM ops_outbox_owner;
     EXECUTE 'REVOKE ops_outbox_owner FROM ' || quote_ident(current_user);
 END

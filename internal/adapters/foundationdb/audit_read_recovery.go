@@ -16,11 +16,11 @@ import (
 	"goodkind.io/tack/internal/clock"
 )
 
-// RecoverExpired saves an incomplete event and receipt for each expired
-// pending read in bucket, up to limit reads. Each read uses its own
-// transaction, which compares the generation and indexed deadline and
-// increments the generation before it saves the event. Recovery never reruns
-// the read.
+// RecoverExpired saves an incomplete event and a terminal receipt for up to
+// limit expired pending reads in bucket. Each read uses a separate transaction
+// that rechecks pending state and the indexed lease deadline and saves the receipt
+// with an incremented generation. A stale owner then receives ErrReadOwnerLost
+// from renewal and finalization. Recovery never reruns the read.
 func (s *AuditReadStore) RecoverExpired(ctx context.Context, bucket uint16, limit int) (int, error) {
 	if bucket >= audit.ReadRecoveryBuckets {
 		return 0, auditReadFailure(ctx, "recover audit reads", uuid.Nil, fmt.Errorf("bucket %d is out of range", bucket))
@@ -55,8 +55,9 @@ func (s *AuditReadStore) RecoverExpired(ctx context.Context, bucket uint16, limi
 	return recovered, nil
 }
 
-// recoverOne recovers one candidate. It clears an expiry key that no longer
-// matches its pending read and skips a lease that a renewal extended.
+// recoverOne recovers one expired pending read. It clears an expiry key when
+// pending state does not exist or the lease deadline differs. It skips a read
+// when a renewal has extended its lease beyond the current time.
 func (s *AuditReadStore) recoverOne(ctx context.Context, bucket uint16, deadline int64, eventID uuid.UUID) (bool, error) {
 	saved := false
 	err := transactAuditRead(ctx, s.db, func(tr fdb.Transaction) error {
@@ -81,7 +82,7 @@ func (s *AuditReadStore) recoverOne(ctx context.Context, bucket uint16, deadline
 		if err != nil {
 			return auditReadStepFailure("encode the incomplete event", err)
 		}
-		if err := s.outbox.writeEncoded(tr, encoded); err != nil {
+		if err := NewOutboxWriter(tr).WriteEncodedEvent(ctx, encoded); err != nil {
 			return err
 		}
 		clearPending(tr, eventID, pending)
@@ -94,9 +95,8 @@ func (s *AuditReadStore) recoverOne(ctx context.Context, bucket uint16, deadline
 	return saved, err
 }
 
-// CleanupPublished deletes up to limit receipts in bucket that the relay
-// published at least audit.ReadReceiptRetention ago. It deletes only
-// published receipts.
+// CleanupPublished deletes up to limit published receipts in bucket after
+// audit.ReadReceiptRetention has elapsed since publication.
 func (s *AuditReadStore) CleanupPublished(ctx context.Context, bucket uint16, limit int) (int, error) {
 	if bucket >= audit.ReadRecoveryBuckets {
 		return 0, auditReadFailure(ctx, "clean up audit read receipts", uuid.Nil, fmt.Errorf("bucket %d is out of range", bucket))
@@ -140,7 +140,7 @@ func unpackAuditReadTimeKey(key fdb.Key) (int64, uuid.UUID, error) {
 		return 0, uuid.Nil, auditReadStepFailure("unpack audit read key", err)
 	}
 	if len(values) != 4 {
-		return 0, uuid.Nil, fmt.Errorf("audit read key has %d tuple values, want 4", len(values))
+		return 0, uuid.Nil, fmt.Errorf("audit read key has %d tuple values instead of 4", len(values))
 	}
 	instant, isInstant := values[2].(int64)
 	text, isText := values[3].(string)
@@ -154,10 +154,10 @@ func unpackAuditReadTimeKey(key fdb.Key) (int64, uuid.UUID, error) {
 	return instant, eventID, nil
 }
 
-// transactAuditRead runs apply and commits it, retrying each retryable
-// FoundationDB error. Each attempt limits its timeout to
+// transactAuditRead calls apply and commits the transaction. It retries
+// retryable FoundationDB errors. Each attempt limits its timeout to
 // auditReadTransactionTimeout and the time left before the context deadline.
-// apply errors that are not FoundationDB errors end the loop unchanged.
+// It returns other errors from apply unchanged.
 func transactAuditRead(ctx context.Context, db fdb.Database, apply func(fdb.Transaction) error) error {
 	transaction, err := db.CreateTransaction()
 	if err != nil {

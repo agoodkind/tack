@@ -13,8 +13,8 @@ import (
 	"goodkind.io/tack/internal/audit"
 )
 
-// auditReadReceipt is the terminal record of one read. PublishedAt is zero
-// until the relay delivers the event.
+// auditReadReceipt stores the terminal record of one read. PublishedAt remains
+// zero until the relay acknowledges publication.
 type auditReadReceipt struct {
 	Owner       uuid.UUID     `json:"owner"`
 	Generation  uint64        `json:"generation"`
@@ -23,36 +23,9 @@ type auditReadReceipt struct {
 	PublishedAt time.Time     `json:"published_at,omitzero" exhaustruct:"optional"`
 }
 
-// auditRecord lists the JSON records of the read lifecycle families.
+// auditRecord restricts read lifecycle JSON records to pending reads and terminal receipts.
 type auditRecord interface {
 	auditReadPending | auditReadReceipt
-}
-
-// encodedOutboxWriter writes an encoded event to the outbox inside tr.
-type encodedOutboxWriter interface {
-	writeEncoded(tr fdb.Transaction, encoded audit.EncodedEvent) error
-}
-
-// versionstampOutboxWriter writes each outbox record of an encoded event as
-// one versionstamped outbox entry, parts first and the manifest last. A
-// single-record event writes its plain event JSON.
-type versionstampOutboxWriter struct{}
-
-func (versionstampOutboxWriter) writeEncoded(tr fdb.Transaction, encoded audit.EncodedEvent) error {
-	messages, err := encoded.Records()
-	if err != nil {
-		return auditReadStepFailure("encode outbox messages", err)
-	}
-	var userVersion uint16
-	for _, message := range messages {
-		key, err := tuple.Tuple{keyOpsOutbox, tuple.IncompleteVersionstamp(userVersion)}.PackWithVersionstamp(testPrefix)
-		if err != nil {
-			return auditReadStepFailure("pack outbox message key", err)
-		}
-		tr.SetVersionstampedKey(fdb.Key(key), message)
-		userVersion++
-	}
-	return nil
 }
 
 func auditReadReceiptKey(eventID uuid.UUID) fdb.Key {
@@ -63,11 +36,10 @@ func auditReadCleanupKey(bucket uint16, published time.Time, eventID uuid.UUID) 
 	return fdb.Key(withPrefix(tuple.Tuple{keyAuditReadCleanup, int64(bucket), published.UnixNano(), eventID.String()}.Pack()))
 }
 
-// FinalizeRead saves the final event in the outbox and its digest in a
-// terminal receipt, and removes the pending read, in one transaction. When
-// the pending read is absent, a receipt from the same owner with the same
-// digest confirms an earlier commit. Finalization never recreates pending
-// state.
+// FinalizeRead saves the final event in the outbox, saves its digest in a terminal
+// receipt, and removes pending state in one transaction. If pending state does not
+// exist, a receipt from the same owner with the same digest confirms an earlier
+// commit. Finalization never recreates missing pending state.
 func (s *AuditReadStore) FinalizeRead(ctx context.Context, completion audit.ReadCompletion) error {
 	token := completion.Token
 	err := transactAuditRead(ctx, s.db, func(tr fdb.Transaction) error {
@@ -89,7 +61,7 @@ func (s *AuditReadStore) FinalizeRead(ctx context.Context, completion audit.Read
 		if err != nil {
 			return auditReadStepFailure("check the final event", err)
 		}
-		if err := s.outbox.writeEncoded(tr, encoded); err != nil {
+		if err := NewOutboxWriter(tr).WriteEncodedEvent(ctx, encoded); err != nil {
 			return err
 		}
 		clearPending(tr, token.EventID, pending)
@@ -104,8 +76,8 @@ func (s *AuditReadStore) FinalizeRead(ctx context.Context, completion audit.Read
 	return nil
 }
 
-// confirmFinalized accepts a retry only when the receipt confirms the same
-// owner, digest, and a terminal outcome other than incomplete.
+// confirmFinalized accepts a retry only when the receipt matches the owner and
+// digest and records a terminal outcome other than incomplete.
 func confirmFinalized(tr fdb.Transaction, completion audit.ReadCompletion) error {
 	receipt, found, err := readAuditRecord[auditReadReceipt](tr, auditReadReceiptKey(completion.Token.EventID))
 	if err != nil {
@@ -117,8 +89,8 @@ func confirmFinalized(tr fdb.Transaction, completion audit.ReadCompletion) error
 	return nil
 }
 
-// AcknowledgePublished marks the receipts of delivered reads published and
-// schedules their cleanup in one transaction.
+// AcknowledgePublished marks matching receipts as published and schedules their
+// cleanup in one transaction.
 func (s *AuditReadStore) AcknowledgePublished(ctx context.Context, reads []audit.PublishedRead) error {
 	err := transactAuditRead(ctx, s.db, func(tr fdb.Transaction) error {
 		return acknowledgeReads(tr, s.clock.Now(), reads)
@@ -129,9 +101,9 @@ func (s *AuditReadStore) AcknowledgePublished(ctx context.Context, reads []audit
 	return nil
 }
 
-// acknowledgeReads marks each matching receipt published at now inside tr.
-// It skips a read without a receipt and a receipt already published. A
-// digest that differs from the receipt refuses the transaction.
+// acknowledgeReads marks each matching receipt as published at now within tr.
+// It skips reads without receipts and receipts that already record publication.
+// It returns an error when a published digest differs from the receipt digest.
 func acknowledgeReads(tr fdb.Transaction, now time.Time, reads []audit.PublishedRead) error {
 	for _, read := range reads {
 		key := auditReadReceiptKey(read.EventID)
@@ -154,8 +126,8 @@ func acknowledgeReads(tr fdb.Transaction, now time.Time, reads []audit.Published
 	return nil
 }
 
-// readAuditRecord decodes the JSON record at key and reports false when the
-// key is absent.
+// readAuditRecord decodes the JSON record at key and returns false when the
+// key does not exist.
 func readAuditRecord[Record auditRecord](tr fdb.Transaction, key fdb.Key) (Record, bool, error) {
 	var record Record
 	encoded, err := tr.Get(key).Get()

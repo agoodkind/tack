@@ -16,13 +16,12 @@ import (
 	"goodkind.io/tack/internal/audit"
 )
 
-// raceReadCount is the number of reads that finalization and recovery race on.
+// raceReadCount sets the number of reads that finalization and recovery attempt concurrently.
 const raceReadCount = 64
 
-// TestRuntimeAuditReadFinalizeRecoveryRace finalizes expired reads in this
-// process while a second process recovers them. Each read must save exactly
-// one terminal event, and a finalization that loses must report
-// audit.ErrReadOwnerLost.
+// TestRuntimeAuditReadFinalizeRecoveryRace checks concurrent finalization and recovery
+// in separate operating system processes. Each read must save exactly one terminal event.
+// FinalizeRead must return audit.ErrReadOwnerLost when recovery saves the incomplete event first.
 func TestRuntimeAuditReadFinalizeRecoveryRace(t *testing.T) {
 	for _, backend := range readBackends(t) {
 		t.Run(backend.name, func(t *testing.T) {
@@ -34,8 +33,7 @@ func TestRuntimeAuditReadFinalizeRecoveryRace(t *testing.T) {
 				eventIDs[position] = fixtures[position].admission.Token.EventID
 			}
 			backend.expire(t, eventIDs...)
-			// The child recovers buckets in ascending order. This process
-			// finalizes reads in descending bucket order.
+			// The child process recovers buckets in ascending order.
 			order := make([]int, raceReadCount)
 			for position := range order {
 				order[position] = position
@@ -67,16 +65,17 @@ func TestRuntimeAuditReadFinalizeRecoveryRace(t *testing.T) {
 				}
 			}
 			if recovered != lost {
-				t.Fatalf("recovery saved %d reads, but %d finalizations lost ownership", recovered, lost)
+				t.Fatalf("recovered reads = %d, want %d to match finalizations that lost ownership", recovered, lost)
 			}
-			t.Logf("%s: %d reads finalized, %d reads recovered", backend.name, raceReadCount-lost, lost)
+			t.Logf("%s: finalized %d reads, recovered %d reads", backend.name, raceReadCount-lost, lost)
 		})
 	}
 }
 
-// TestRuntimeAuditReadUnknownCommit retries a committed finalization from
-// this process and from a second process. Identical final data succeeds
-// without a second event, and a different digest fails.
+// TestRuntimeAuditReadUnknownCommit retries finalization in this process and a second
+// operating system process after the first commit succeeds. The terminal receipt must
+// confirm retries with the same owner and digest without saving another event.
+// FinalizeRead must reject a different digest.
 func TestRuntimeAuditReadUnknownCommit(t *testing.T) {
 	for _, backend := range readBackends(t) {
 		t.Run(backend.name, func(t *testing.T) {

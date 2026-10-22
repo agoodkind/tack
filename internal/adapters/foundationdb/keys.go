@@ -71,9 +71,9 @@ const (
 	// (ops_outbox, versionstamp) -> audit event JSON
 	keyOpsOutbox = "ops_outbox"
 
-	// Audit read lifecycle. These families are not org-scoped. bucket is the
-	// first SHA-256 byte of the event ID modulo 64, and deadline and
-	// published are Unix nanoseconds.
+	// keyAuditReadPending stores pending reads by eventID. These key families
+	// do not include orgID. bucket uses the first SHA-256 byte of the event ID
+	// modulo 64. deadline and published use Unix nanoseconds.
 	// (audit_read_pending, eventID) -> pending read record JSON
 	// (audit_read_expiry, bucket, deadline, eventID) -> nil
 	// (audit_read_receipt, eventID) -> terminal receipt JSON

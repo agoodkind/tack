@@ -16,16 +16,17 @@ const (
 	ReadRecoveryBuckets = 64
 	// ReadRecoveryScanLimit is the number of expired candidates in one scan.
 	ReadRecoveryScanLimit = 32
-	// ReadLease is the time a pending read stays owned after admission or renewal.
+	// ReadLease is the lease duration after admission or renewal.
 	ReadLease = 30 * time.Second
 	// ReadRenewInterval is the time between two renewals of an active read.
 	ReadRenewInterval = 10 * time.Second
 	// ReadAdmissionRetryWindow is the time after the first admission during
 	// which a retry of the same admission succeeds.
 	ReadAdmissionRetryWindow = 30 * time.Second
-	// ReadReceiptRetention is the time a published receipt stays after publication.
+	// ReadReceiptRetention is the time a receipt remains after publication
+	// before cleanup may delete it.
 	ReadReceiptRetention = time.Hour
-	// ReadCleanupBatch is the number of published receipts one cleanup deletes.
+	// ReadCleanupBatch limits the number of published receipts each cleanup call deletes.
 	ReadCleanupBatch = 256
 	// ReadFirstGeneration is the generation of a new owner.
 	ReadFirstGeneration uint64 = 1
@@ -38,8 +39,8 @@ var (
 	ErrReadOwnerLost = errors.New("audit read: the token does not own the pending read")
 	// ErrReadAdmissionExpired reports an admission retry after its deadline.
 	ErrReadAdmissionExpired = errors.New("audit read: the admission retry deadline passed")
-	// ErrReadIdentityChanged reports a final event that changes admitted fields.
-	ErrReadIdentityChanged = errors.New("audit read: the final event changes admitted fields")
+	// ErrReadIdentityChanged reports a final event that changes fields that must match the template.
+	ErrReadIdentityChanged = errors.New("audit read: the final event changes fields that must match the admission template")
 )
 
 // ReadToken identifies one owner of one pending read.
@@ -49,14 +50,14 @@ type ReadToken struct {
 	AdmissionDeadline time.Time
 }
 
-// ReadAdmission is the template event that BeginRead saves before the read.
+// ReadAdmission contains the owner token and event template for BeginRead.
 type ReadAdmission struct {
 	Token    ReadToken
 	Template Event
 }
 
-// ReadCompletion is the final event, its ordered targets, and the transport
-// digest that EncodeEvent computes from them.
+// ReadCompletion contains the owner token, final event, ordered targets, and digest.
+// EncodeEvent computes the transport digest from the event and targets.
 type ReadCompletion struct {
 	Token   ReadToken
 	Event   Event
@@ -93,13 +94,13 @@ func NewReadOwner() uuid.UUID {
 }
 
 // ValidateReadAdmission checks that the template is a format 2 read event
-// with the token's event ID, an owner, an org, an operation, and a start time.
+// with the token's event ID, an owner, an organization, an operation, and a start time.
 func ValidateReadAdmission(admission ReadAdmission) error {
 	template := admission.Template
 	eventContext := template.Context
 	switch {
 	case admission.Token.EventID == uuid.Nil || admission.Token.Owner == uuid.Nil:
-		return errors.New("audit read admission: event ID and owner are required")
+		return errors.New("audit read admission: event ID and owner must not be nil")
 	case template.EventID != admission.Token.EventID:
 		return fmt.Errorf("audit read admission %s: template event ID differs from the token", admission.Token.EventID)
 	case eventContext.AuditFormatVersion != AuditFormatComplete:
@@ -107,16 +108,16 @@ func ValidateReadAdmission(admission ReadAdmission) error {
 	case eventContext.OperationClass != OperationRead || eventContext.Phase != PhaseRead:
 		return fmt.Errorf("audit read admission %s: template requires the read class and phase", template.EventID)
 	case eventContext.OrgID == uuid.Nil || eventContext.OperationID == uuid.Nil || eventContext.StartedAt.IsZero():
-		return fmt.Errorf("audit read admission %s: template requires an org, an operation, and a start time", template.EventID)
+		return fmt.Errorf("audit read admission %s: template requires an organization, an operation, and a start time", template.EventID)
 	case eventContext.Target == nil:
 		return fmt.Errorf("audit read admission %s: template requires a target", template.EventID)
 	}
 	return nil
 }
 
-// CheckReadCompletion verifies the final event against the admitted
-// template, encodes it with its targets, and compares the transport digest.
-// It rejects an incomplete outcome because only recovery saves one.
+// CheckReadCompletion checks the final event against the admission template,
+// encodes it with its targets, and checks that the transport digest matches.
+// It rejects an incomplete outcome because only recovery saves that outcome.
 func CheckReadCompletion(template Event, completion ReadCompletion) (EncodedEvent, error) {
 	final := completion.Event
 	if !sameReadIdentity(template, final) {
@@ -140,8 +141,8 @@ func CheckReadCompletion(template Event, completion ReadCompletion) (EncodedEven
 	return encoded, nil
 }
 
-// sameReadIdentity compares the actor, identity, and start fields that
-// finalization must not change.
+// sameReadIdentity checks that finalization preserves the actor, event identity,
+// operation context, and start time.
 func sameReadIdentity(template, final Event) bool {
 	templateContext, finalContext := template.Context, final.Context
 	return template.EventID == final.EventID && template.Verb == final.Verb && template.Actor == final.Actor &&

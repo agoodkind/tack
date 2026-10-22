@@ -9,8 +9,8 @@ import (
 	"github.com/google/uuid"
 )
 
-// IncompleteReadEvent returns the event that recovery saves for an expired
-// read. The completion time is the later of completedAt and the start time.
+// IncompleteReadEvent returns an incomplete event for a read with an expired lease.
+// It uses the later of completedAt and the read start time as the completion time.
 func IncompleteReadEvent(template Event, completedAt time.Time) Event {
 	event := template
 	event.Context.CompletedAt = completedAt.UTC()
@@ -40,10 +40,10 @@ func EncodeIncompleteRead(template Event, completedAt time.Time) (Event, Encoded
 	return event, encoded, nil
 }
 
-// RunReadRecovery recovers expired reads and deletes old published receipts
-// in every bucket until ctx ends. It starts at a random bucket, visits each
-// bucket once, and then waits ReadRenewInterval. Each application instance
-// runs it without a shared lock.
+// RunReadRecovery recovers reads with expired leases and deletes old published
+// receipts in every bucket until ctx signals cancellation. It starts at a random
+// bucket, visits each bucket once, and then waits ReadRenewInterval.
+// Each application instance runs recovery without a shared lock.
 func RunReadRecovery(ctx context.Context, store ReadLifecycle) {
 	start := ReadBucket(uuid.New())
 	for ctx.Err() == nil {
@@ -59,8 +59,8 @@ func RunReadRecovery(ctx context.Context, store ReadLifecycle) {
 	}
 }
 
-// recoverReadBucket runs one recovery and one cleanup pass in bucket and
-// recovers a panic in either pass. The store logs each failure.
+// recoverReadBucket runs recovery and cleanup once for bucket and recovers
+// panics from either call. The store logs each failure.
 func recoverReadBucket(ctx context.Context, store ReadLifecycle, bucket uint16) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
@@ -78,9 +78,9 @@ func recoverReadBucket(ctx context.Context, store ReadLifecycle, bucket uint16) 
 	}
 }
 
-// KeepReadOwned renews token every ReadRenewInterval until ctx ends or the
-// returned stop function runs. Stop returns the first renewal error, such as
-// ErrReadOwnerLost after recovery replaced the owner.
+// KeepReadOwned renews the read lease every ReadRenewInterval until ctx signals
+// cancellation or the returned stop function runs. The stop function returns the
+// first renewal error, including ErrReadOwnerLost after recovery increments the generation.
 func KeepReadOwned(ctx context.Context, store ReadLifecycle, token ReadToken) func() error {
 	renewContext, cancel := context.WithCancel(ctx)
 	result := make(chan error, 1)
@@ -99,8 +99,8 @@ func KeepReadOwned(ctx context.Context, store ReadLifecycle, token ReadToken) fu
 	}
 }
 
-// renewUntilDone renews token on each tick and returns the first error.
-// It returns nil when ctx ends.
+// renewUntilDone renews the read lease on each tick and returns the first error.
+// It returns nil when ctx signals cancellation.
 func renewUntilDone(ctx context.Context, store ReadLifecycle, token ReadToken) error {
 	ticker := time.NewTicker(ReadRenewInterval)
 	defer ticker.Stop()

@@ -9,7 +9,7 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// auditReadRecovery runs one recovery loop per read lifecycle store.
+// auditReadRecovery manages one recovery loop for each read lifecycle store.
 type auditReadRecovery struct {
 	stores  []audit.ReadLifecycle
 	cancel  context.CancelFunc
@@ -17,14 +17,13 @@ type auditReadRecovery struct {
 	started bool
 }
 
-// newAuditReadRecovery returns the recovery loops for the product and
-// operator read stores.
+// newAuditReadRecovery creates recovery state for the product and operator read stores.
 func newAuditReadRecovery(stores ...audit.ReadLifecycle) *auditReadRecovery {
 	return &auditReadRecovery{stores: stores, cancel: nil, loop: sync.WaitGroup{}, started: false}
 }
 
-// StartAuditReadRecovery starts the loops that recover expired pending reads
-// and delete old published receipts. Every application instance runs them
+// StartAuditReadRecovery starts loops that recover expired pending reads and
+// delete old published receipts. Each application instance runs its own loops
 // without a shared lock. The loops stop when ctx ends or CloseContext runs.
 func (g *Graph) StartAuditReadRecovery(ctx context.Context) {
 	recovery := g.auditReads
@@ -44,7 +43,7 @@ func (g *Graph) StartAuditReadRecovery(ctx context.Context) {
 	telemetry.L(ctx).InfoContext(ctx, "audit.read_recovery.started", slog.Int("stores", len(recovery.stores)))
 }
 
-// stopAuditReadRecovery stops the recovery loops and waits for them.
+// stopAuditReadRecovery cancels the recovery loops and waits for them to finish.
 func (g *Graph) stopAuditReadRecovery() {
 	recovery := g.auditReads
 	if recovery.cancel != nil {

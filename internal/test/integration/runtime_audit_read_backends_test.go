@@ -16,22 +16,21 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// readBackend is one read lifecycle store with the test controls that move
-// its time and read its outbox.
+// readBackend provides a read lifecycle store with controls for lease expiry and outbox reads.
 type readBackend struct {
 	name  string
 	store audit.ReadLifecycle
 	// expire makes the lease and admission deadlines of eventIDs pass.
 	expire func(t *testing.T, eventIDs ...uuid.UUID)
-	// agePublished moves every publication time past the receipt retention.
-	// It is nil for a store that cannot move publication times.
+	// agePublished sets publication times before the receipt retention cutoff.
+	// It is nil for a store that cannot change publication times.
 	agePublished func(t *testing.T)
 	// terminal returns the outbox events of eventID.
 	terminal func(t *testing.T, eventID uuid.UUID) []audit.Event
 	// childEnv returns the environment a child process uses to open the store.
 	childEnv func() []string
-	// clusterFile is the FoundationDB cluster file that the relay drains. It
-	// is empty for the YugabyteDB store.
+	// clusterFile is the FoundationDB cluster file the relay uses to open the store.
+	// It is empty for the YugabyteDB store.
 	clusterFile string
 }
 
@@ -41,9 +40,8 @@ func readBackends(t *testing.T) []*readBackend {
 	return []*readBackend{foundationDBReadBackend(t), yugabyteReadBackend(t)}
 }
 
-// foundationDBReadBackend opens the product read store under a new test
-// prefix with the wall clock. Its expire control waits in real time, and it
-// cannot move publication times.
+// foundationDBReadBackend opens the product read store with a new test prefix and the wall clock.
+// Its expire control waits 31 seconds in real time. It cannot change publication times.
 func foundationDBReadBackend(t *testing.T) *readBackend {
 	t.Helper()
 	clusterFile := testenv.FoundationDB(t)
@@ -86,7 +84,7 @@ func foundationDBReadBackend(t *testing.T) *readBackend {
 	}
 }
 
-// clearReadPrefix removes every key under the test prefix and clears it.
+// clearReadPrefix deletes the test keys and resets the FoundationDB test prefix.
 func clearReadPrefix(t *testing.T, clusterFile string, prefix []byte) {
 	t.Helper()
 	defer fdbadapter.SetTestPrefix(nil)
@@ -119,13 +117,13 @@ func yugabyteReadBackend(t *testing.T) *readBackend {
 		store: audit.NewPoolReadLifecycle(application),
 		expire: func(t *testing.T, eventIDs ...uuid.UUID) {
 			t.Helper()
-			if _, err := admin.Exec(t.Context(), readExpireLeaseStatement, eventIDs); err != nil {
+			if _, err := admin.Exec(t.Context(), readTestSQL(t, "runtime_audit_read_expire_lease.sql"), eventIDs); err != nil {
 				t.Fatalf("expire the read leases: %v", err)
 			}
 		},
 		agePublished: func(t *testing.T) {
 			t.Helper()
-			if _, err := admin.Exec(t.Context(), readAgePublishedStatement); err != nil {
+			if _, err := admin.Exec(t.Context(), readTestSQL(t, "runtime_audit_read_age_published.sql")); err != nil {
 				t.Fatalf("age the published receipts: %v", err)
 			}
 		},

@@ -9,20 +9,20 @@ import (
 	"github.com/google/uuid"
 )
 
-// publishedRowDeleter deletes a delivered YugabyteDB outbox row and marks the
-// matching read receipts published in one transaction.
+// publishedRowDeleter deletes a delivered YugabyteDB outbox row and marks
+// matching read receipts as published in one transaction.
 type publishedRowDeleter interface {
 	DeletePublished(ctx context.Context, eventID uuid.UUID, reads []PublishedRead) error
 }
 
 // publishedEntryClearer clears delivered FoundationDB outbox entries and
-// marks the matching read receipts published in one transaction.
+// marks matching read receipts as published in one transaction.
 type publishedEntryClearer interface {
 	ClearThroughPublished(ctx context.Context, mark []byte, reads []PublishedRead) error
 }
 
-// deleteRow deletes a delivered row. It marks the read receipt of the row
-// published in the same transaction when the outbox supports it.
+// deleteRow deletes a delivered row and, when the outbox supports it,
+// marks the matching read receipt as published in the same transaction.
 func (r *Relay) deleteRow(ctx context.Context, row OutboxRow) error {
 	var err error
 	if deleter, ok := r.yugabyte.(publishedRowDeleter); ok {
@@ -37,9 +37,8 @@ func (r *Relay) deleteRow(ctx context.Context, row OutboxRow) error {
 	return nil
 }
 
-// clearThrough clears delivered entries through mark. It marks the read
-// receipts of those entries published in the same transaction when the
-// outbox supports it.
+// clearThrough clears delivered entries through mark and, when the outbox
+// supports it, marks their read receipts as published in the same transaction.
 func (r *Relay) clearThrough(ctx context.Context, mark []byte, reads []PublishedRead) error {
 	var err error
 	if clearer, ok := r.foundationDB.(publishedEntryClearer); ok {
@@ -54,7 +53,7 @@ func (r *Relay) clearThrough(ctx context.Context, mark []byte, reads []Published
 	return nil
 }
 
-// rowPublishedReads returns the published read of a YugabyteDB row.
+// rowPublishedReads returns the event ID and digest for a read in a YugabyteDB row.
 func rowPublishedReads(ctx context.Context, row OutboxRow) []PublishedRead {
 	if len(row.Messages) > 0 {
 		return recordPublishedReads(ctx, row.Messages[len(row.Messages)-1])
@@ -62,11 +61,9 @@ func rowPublishedReads(ctx context.Context, row OutboxRow) []PublishedRead {
 	return eventPublishedReads(ctx, row.Event)
 }
 
-// recordPublishedReads returns the published read of one outbox record. A
-// manifest record returns its event ID and transport digest, a part record
-// returns none, and a plain read event returns the digest of its encoding.
-// A record that does not decode returns none and keeps its receipt
-// unpublished.
+// recordPublishedReads returns an event ID and transport digest from a manifest
+// or computes the digest of a plain read event. It returns nil for part records.
+// If decoding fails, it returns nil and leaves the receipt unpublished.
 func recordPublishedReads(ctx context.Context, raw []byte) []PublishedRead {
 	message, isTransport, err := decodeTransportMessage(raw)
 	if err != nil {
@@ -87,14 +84,14 @@ func recordPublishedReads(ctx context.Context, raw []byte) []PublishedRead {
 	return eventPublishedReads(ctx, event)
 }
 
-// eventPublishedReads returns the published read of a plain read event.
+// eventPublishedReads returns the event ID and digest for a plain read event.
 func eventPublishedReads(ctx context.Context, event Event) []PublishedRead {
 	if event.Context.OperationClass != OperationRead {
 		return nil
 	}
 	encoded, err := EncodeEvent(event, nil)
 	if err != nil {
-		slog.ErrorContext(ctx, "audit.relay.read_receipt_digest_failed",
+		slog.ErrorContext(ctx, "audit.relay.read_event_encode_failed",
 			slog.String("event_id", event.EventID.String()), slog.String("err", err.Error()))
 		return nil
 	}

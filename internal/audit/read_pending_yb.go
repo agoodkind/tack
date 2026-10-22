@@ -19,27 +19,27 @@ import (
 var readStatements embed.FS
 
 const (
-	// readOwnerLostSQLState is the error code of a lifecycle function that
-	// refuses a token.
+	// readOwnerLostSQLState is the error code for a lifecycle function that
+	// rejects a token.
 	readOwnerLostSQLState = "TK001"
 	// readAdmissionExpiredSQLState is the error code of an expired admission retry.
 	readAdmissionExpiredSQLState = "TK002"
 )
 
-// PoolReadLifecycle implements ReadLifecycle for operator reads through the
-// lifecycle functions of migration 021. The functions use database time.
+// PoolReadLifecycle stores pending operator reads and terminal receipts in YugabyteDB.
+// Its lifecycle functions use database time.
 type PoolReadLifecycle struct {
 	pool *pgxpool.Pool
 }
 
-// NewPoolReadLifecycle returns the YugabyteDB read lifecycle over pool.
+// NewPoolReadLifecycle returns a YugabyteDB read lifecycle that uses pool.
 func NewPoolReadLifecycle(pool *pgxpool.Pool) *PoolReadLifecycle {
 	return &PoolReadLifecycle{pool: pool}
 }
 
 var _ ReadLifecycle = (*PoolReadLifecycle)(nil)
 
-// readStatement returns the embedded SQL statement with name.
+// readStatement returns the embedded SQL statement identified by name.
 func readStatement(name string) string {
 	statement, err := readStatements.ReadFile("read_sql/" + name + ".sql")
 	if err != nil {
@@ -49,7 +49,7 @@ func readStatement(name string) string {
 	return string(statement)
 }
 
-// BeginRead saves the pending read through ops_read_begin.
+// BeginRead saves pending state before the caller reads data.
 func (l *PoolReadLifecycle) BeginRead(ctx context.Context, admission ReadAdmission) (ReadToken, error) {
 	token := admission.Token
 	if err := ValidateReadAdmission(admission); err != nil {
@@ -70,7 +70,7 @@ func (l *PoolReadLifecycle) BeginRead(ctx context.Context, admission ReadAdmissi
 	return ReadToken{EventID: token.EventID, Owner: token.Owner, Generation: generation, AdmissionDeadline: deadline}, nil
 }
 
-// RenewRead extends the lease through ops_read_renew.
+// RenewRead extends the lease only when token still owns the pending read.
 func (l *PoolReadLifecycle) RenewRead(ctx context.Context, token ReadToken) error {
 	_, err := l.pool.Exec(ctx, readStatement("renew"), token.EventID, token.Owner, token.Generation)
 	if err != nil {
@@ -79,9 +79,10 @@ func (l *PoolReadLifecycle) RenewRead(ctx context.Context, token ReadToken) erro
 	return nil
 }
 
-// FinalizeRead reads the owned template, checks the final event against it,
-// and saves the event and receipt through ops_read_finalize. A NULL template
-// means that the receipt confirms an earlier finalization.
+// FinalizeRead checks the final event against the pending template and saves
+// the event in the outbox with a terminal receipt before the caller returns data.
+// On retry, a NULL template confirms an earlier commit for the same owner and digest.
+// FinalizeRead never recreates missing pending state.
 func (l *PoolReadLifecycle) FinalizeRead(ctx context.Context, completion ReadCompletion) error {
 	token := completion.Token
 	generation := token.Generation
@@ -113,8 +114,7 @@ func (l *PoolReadLifecycle) FinalizeRead(ctx context.Context, completion ReadCom
 	return nil
 }
 
-// AcknowledgePublished marks each delivered receipt published in one
-// transaction through ops_read_acknowledge.
+// AcknowledgePublished marks the supplied read receipts as published in one transaction.
 func (l *PoolReadLifecycle) AcknowledgePublished(ctx context.Context, reads []PublishedRead) error {
 	err := pgx.BeginFunc(ctx, l.pool, func(tx pgx.Tx) error {
 		for _, read := range reads {
@@ -130,8 +130,8 @@ func (l *PoolReadLifecycle) AcknowledgePublished(ctx context.Context, reads []Pu
 	return nil
 }
 
-// splitOutboxRecords returns the plain event or manifest record of encoded
-// and its ordered part records, the arguments of ops_outbox_write_encoded.
+// splitOutboxRecords separates the plain event or manifest from the ordered parts
+// for ops_outbox_write_encoded.
 func splitOutboxRecords(encoded EncodedEvent) ([]byte, [][]byte, error) {
 	records, err := encoded.Records()
 	if err != nil {
@@ -141,8 +141,8 @@ func splitOutboxRecords(encoded EncodedEvent) ([]byte, [][]byte, error) {
 	return records[last], records[:last], nil
 }
 
-// readLifecycleFailure logs and wraps one failed lifecycle call. It adds
-// ErrReadOwnerLost or ErrReadAdmissionExpired for the matching function error.
+// readLifecycleFailure logs a lifecycle error and adds the operation and event ID.
+// It includes ErrReadOwnerLost or ErrReadAdmissionExpired when the SQL error code matches.
 func readLifecycleFailure(ctx context.Context, operation string, eventID uuid.UUID, err error) error {
 	var postgresError *pgconn.PgError
 	if errors.As(err, &postgresError) {

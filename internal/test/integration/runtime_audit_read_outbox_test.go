@@ -1,9 +1,10 @@
 package integration_test
 
 import (
-	_ "embed"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -17,12 +18,18 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-//go:embed testdata/runtime_audit_read_outbox_parts.sql
-var readOutboxPartsStatement string
+// readTestSQL reads a SQL test fixture.
+func readTestSQL(t *testing.T, name string) string {
+	t.Helper()
+	statement, err := os.ReadFile(filepath.Join("testdata", name))
+	if err != nil {
+		t.Fatalf("read testdata/%s: %v", name, err)
+	}
+	return string(statement)
+}
 
-// outboxEvents decodes the outbox records of eventID in order. A plain event
-// record is one event. Part messages followed by a manifest message are one
-// event.
+// outboxEvents decodes the outbox records for eventID in order. It reads each plain record
+// as one event. Part messages must precede their manifest message to form one event.
 func outboxEvents(t *testing.T, records [][]byte, eventID uuid.UUID) []audit.Event {
 	t.Helper()
 	type outboxRecord struct {
@@ -60,8 +67,8 @@ func outboxEvents(t *testing.T, records [][]byte, eventID uuid.UUID) []audit.Eve
 	return events
 }
 
-// deliverReadThroughRelay runs the real relay against the outbox of backend
-// and waits until the relay removes the records of eventID.
+// deliverReadThroughRelay runs the relay for backend and waits for it to delete the outbox
+// records for eventID.
 func deliverReadThroughRelay(t *testing.T, backend *readBackend, eventID uuid.UUID) {
 	t.Helper()
 	stack := startRuntimeAuditStack(t)
@@ -79,7 +86,7 @@ func deliverReadThroughRelay(t *testing.T, backend *readBackend, eventID uuid.UU
 	deadline := clock.Now().Add(runtimeAuditDeadline)
 	for len(backend.terminal(t, eventID)) > 0 {
 		if clock.Now().After(deadline) {
-			t.Fatalf("the relay did not deliver read %s within %s", eventID, runtimeAuditDeadline)
+			t.Fatalf("wait for the relay to delete read %s outbox records: exceeded %s", eventID, runtimeAuditDeadline)
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
@@ -89,7 +96,7 @@ func deliverReadThroughRelay(t *testing.T, backend *readBackend, eventID uuid.UU
 // of eventID from public.ops_outbox_parts and public.ops_outbox.
 func yugabyteOutboxRecords(t *testing.T, admin *pgxpool.Pool, eventID uuid.UUID) [][]byte {
 	t.Helper()
-	rows, err := admin.Query(t.Context(), readOutboxPartsStatement, eventID)
+	rows, err := admin.Query(t.Context(), readTestSQL(t, "runtime_audit_read_outbox_parts.sql"), eventID)
 	if err != nil {
 		t.Fatalf("read the YugabyteDB outbox parts: %v", err)
 	}
@@ -98,7 +105,7 @@ func yugabyteOutboxRecords(t *testing.T, admin *pgxpool.Pool, eventID uuid.UUID)
 		t.Fatalf("scan the YugabyteDB outbox parts: %v", err)
 	}
 	var record []byte
-	err = admin.QueryRow(t.Context(), readOutboxEventsStatement, eventID).Scan(&record)
+	err = admin.QueryRow(t.Context(), readTestSQL(t, "runtime_audit_read_outbox.sql"), eventID).Scan(&record)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return records
 	}

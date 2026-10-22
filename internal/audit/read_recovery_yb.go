@@ -8,7 +8,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// expiredRead is one candidate that ops_read_expired returns.
+// expiredRead contains a read that ops_read_expired selected after its lease expired.
 type expiredRead struct {
 	eventID       uuid.UUID
 	generation    uint64
@@ -17,9 +17,9 @@ type expiredRead struct {
 	observedAt    time.Time
 }
 
-// RecoverExpired saves an incomplete event for each expired read in bucket
-// through ops_read_recover. The function compares the generation and lease
-// deadline before it saves the event.
+// RecoverExpired uses ops_read_recover to save an incomplete event for each
+// read with an expired lease in bucket. The database function checks the generation
+// and lease deadline, then increments the generation and saves the event in one transaction.
 func (l *PoolReadLifecycle) RecoverExpired(ctx context.Context, bucket uint16, limit int) (int, error) {
 	candidates, err := l.expiredReads(ctx, bucket, limit)
 	if err != nil {
@@ -38,7 +38,7 @@ func (l *PoolReadLifecycle) RecoverExpired(ctx context.Context, bucket uint16, l
 	return recovered, nil
 }
 
-// expiredReads returns up to limit expired candidates in bucket.
+// expiredReads returns up to limit reads with expired leases in bucket.
 func (l *PoolReadLifecycle) expiredReads(ctx context.Context, bucket uint16, limit int) ([]expiredRead, error) {
 	rows, err := l.pool.Query(ctx, readStatement("expired"), int(bucket), limit)
 	if err != nil {
@@ -59,8 +59,8 @@ func (l *PoolReadLifecycle) expiredReads(ctx context.Context, bucket uint16, lim
 	return candidates, nil
 }
 
-// recoverOne builds the incomplete event for one candidate and saves it
-// through ops_read_recover. It returns false when the candidate changed.
+// recoverOne creates and saves an incomplete event through ops_read_recover.
+// It returns false if the candidate changed before recovery.
 func (l *PoolReadLifecycle) recoverOne(ctx context.Context, expired expiredRead) (bool, error) {
 	var template Event
 	if err := json.Unmarshal(expired.template, &template); err != nil {
@@ -83,8 +83,9 @@ func (l *PoolReadLifecycle) recoverOne(ctx context.Context, expired expiredRead)
 	return saved, nil
 }
 
-// CleanupPublished deletes published receipts in bucket through
-// ops_read_cleanup and returns the number it deleted.
+// CleanupPublished uses ops_read_cleanup to delete up to limit receipts in bucket
+// after ReadReceiptRetention has elapsed since publication.
+// It returns the number of receipts it deletes.
 func (l *PoolReadLifecycle) CleanupPublished(ctx context.Context, bucket uint16, limit int) (int, error) {
 	var deleted int
 	if err := l.pool.QueryRow(ctx, readStatement("cleanup"), int(bucket), limit).Scan(&deleted); err != nil {

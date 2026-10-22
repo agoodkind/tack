@@ -2,7 +2,6 @@ package integration_test
 
 import (
 	"bufio"
-	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -19,15 +18,6 @@ import (
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/clock"
 )
-
-//go:embed testdata/runtime_audit_read_expire_lease.sql
-var readExpireLeaseStatement string
-
-//go:embed testdata/runtime_audit_read_age_published.sql
-var readAgePublishedStatement string
-
-//go:embed testdata/runtime_audit_read_outbox.sql
-var readOutboxEventsStatement string
 
 const (
 	readChildActionVariable  = "TACK_READ_CHILD_ACTION"
@@ -47,12 +37,12 @@ const (
 )
 
 // TestReadLifecycleChildProcess runs one read lifecycle action in a separate
-// operating system process for the runtime audit read tests. It skips when
-// a parent test did not start it.
+// operating system process for the runtime audit read tests. It skips unless
+// a parent test starts it.
 func TestReadLifecycleChildProcess(t *testing.T) {
 	action := os.Getenv(readChildActionVariable)
 	if action == "" {
-		t.Skip("a runtime audit read test starts this process")
+		t.Skip("run the child action: parent action is missing")
 	}
 	store := openChildReadStore(t)
 	fmt.Println(readChildReadyLine)
@@ -75,7 +65,7 @@ func TestReadLifecycleChildProcess(t *testing.T) {
 	case readChildActionFinalize:
 		result = childFinalize(t, store)
 	default:
-		t.Fatalf("unknown child action %q", action)
+		t.Fatalf("child action = %q, want recover, cleanup, or finalize", action)
 	}
 	fmt.Println(readChildResultPrefix + result)
 }
@@ -110,7 +100,7 @@ func childFinalize(t *testing.T, store audit.ReadLifecycle) string {
 	}
 }
 
-// openChildReadStore opens the store that the parent named in the environment.
+// openChildReadStore opens the store that the parent selects through environment variables.
 func openChildReadStore(t *testing.T) audit.ReadLifecycle {
 	if os.Getenv(readChildBackendVariable) == "yugabytedb" {
 		return audit.NewPoolReadLifecycle(applicationRolePool(t, os.Getenv(readChildDSNVariable)))
@@ -127,7 +117,7 @@ func openChildReadStore(t *testing.T) audit.ReadLifecycle {
 	return stores.AuditReads(clock.Wall{})
 }
 
-// childProcess is one started child process that waits for its start line.
+// childProcess controls a child process that waits for a start line.
 type childProcess struct {
 	command *exec.Cmd
 	start   io.WriteCloser
@@ -135,19 +125,19 @@ type childProcess struct {
 	log     strings.Builder
 }
 
-// startReadChild starts the child process with action and environment and
-// waits until it reports that its store is open.
+// startReadChild starts TestReadLifecycleChildProcess with action and environment
+// and waits until the child process opens its store.
 func startReadChild(t *testing.T, action string, environment []string) *childProcess {
 	t.Helper()
 	command := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestReadLifecycleChildProcess$", "-test.count=1", "-test.v")
 	command.Env = append(os.Environ(), append(environment, readChildActionVariable+"="+action)...)
 	start, err := command.StdinPipe()
 	if err != nil {
-		t.Fatalf("child stdin: %v", err)
+		t.Fatalf("open child stdin: %v", err)
 	}
 	stdout, err := command.StdoutPipe()
 	if err != nil {
-		t.Fatalf("child stdout: %v", err)
+		t.Fatalf("open child stdout: %v", err)
 	}
 	command.Stderr = command.Stdout
 	if err := command.Start(); err != nil {
@@ -155,7 +145,7 @@ func startReadChild(t *testing.T, action string, environment []string) *childPro
 	}
 	child := &childProcess{command: command, start: start, output: bufio.NewScanner(stdout), log: strings.Builder{}}
 	if _, found := child.lineWithPrefix(readChildReadyLine); !found {
-		t.Fatalf("child process exited before it opened its store:\n%s", child.log.String())
+		t.Fatalf("wait for the child process store: child exited:\n%s", child.log.String())
 	}
 	return child
 }
@@ -168,7 +158,7 @@ func (child *childProcess) signal(t *testing.T) {
 		t.Fatalf("send the start line: %v", err)
 	}
 	if _, found := child.lineWithPrefix(readChildStartedLine); !found {
-		t.Fatalf("child process exited before its action started:\n%s", child.log.String())
+		t.Fatalf("wait for the child action to start: child exited:\n%s", child.log.String())
 	}
 }
 
@@ -177,7 +167,7 @@ func (child *childProcess) result(t *testing.T) string {
 	t.Helper()
 	result, found := child.lineWithPrefix(readChildResultPrefix)
 	if err := child.command.Wait(); err != nil || !found {
-		t.Fatalf("child process failed: %v\n%s", err, child.log.String())
+		t.Fatalf("read the child process result: %v\n%s", err, child.log.String())
 	}
 	return result
 }
