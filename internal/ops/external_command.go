@@ -39,8 +39,8 @@ func commandOutcome(outcome audit.Outcome, code string, cause error) audit.Outco
 	return details
 }
 
-// recordedStep saves step, runs effect, and saves the step result. After a
-// successful effect, the result stores the evidence that observe returns.
+// recordedStep saves the step intent, runs effect, then saves the step result.
+// It calls observe for result evidence only after effect succeeds.
 func recordedStep(
 	ctx context.Context,
 	steps audit.StepRecorder,

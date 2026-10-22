@@ -6,14 +6,14 @@ import (
 	"github.com/google/uuid"
 )
 
-// StepOperationID returns the stable operation ID of the step with target
-// inside the operation parentOperationID.
+// StepOperationID derives a stable step operation ID from parentOperationID
+// and target.
 func StepOperationID(parentOperationID uuid.UUID, target Target) uuid.UUID {
 	return uuid.NewSHA1(parentOperationID, []byte("step\x00"+targetKey(target)))
 }
 
-// StepIntentEventID returns the stable event ID of the intent of the step
-// with target inside the operation parentOperationID.
+// StepIntentEventID derives a stable step intent event ID from
+// parentOperationID and target.
 func StepIntentEventID(parentOperationID uuid.UUID, target Target) uuid.UUID {
 	return uuid.NewSHA1(StepOperationID(parentOperationID, target), []byte("intent"))
 }

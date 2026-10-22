@@ -15,8 +15,7 @@ import (
 )
 
 const (
-	// bucketCreated is the observed state of a bucket that buckets-init
-	// created.
+	// bucketCreated marks a bucket that did not exist before buckets-init.
 	bucketCreated = "created"
 	// bucketPresent is the observed state of a bucket that existed before
 	// buckets-init.
@@ -43,8 +42,7 @@ type bucketEvidence struct {
 func (bucketEvidence) isStepEvidence() {}
 
 // runBackupBucketsInitRecorded runs buckets-init as one step for the backup
-// bucket. It reads whether the bucket exists before the step and records
-// whether the step created it.
+// bucket. It records whether the bucket existed before the step.
 func runBackupBucketsInitRecorded(ctx context.Context, cfg *config.Config, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
 	if cfg.BackupS3Endpoint == "" || cfg.BackupS3AccessKey == "" || cfg.BackupS3SecretKey == "" {
 		err := RunBackupBucketsInit(ctx, cfg)

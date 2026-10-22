@@ -26,9 +26,9 @@ var ErrExternalIntentNotSaved = errors.New("audit external: RunExternal did not 
 // for the attempt with a new event ID. Only partially_completed and incomplete
 // outcomes include committed steps.
 //
-// When outbox implements IdempotentOutboxWriter, a retry with the same intent
-// event ID does not write a second intent. Retries also save each step intent
-// once, using IDs derived from the parent operation ID and step target.
+// When outbox implements IdempotentOutboxWriter, retries with the same intent
+// event ID save the operation intent and each step intent only once. Step
+// intent IDs derive from the parent operation ID and step target.
 // RunExternal returns the run error and joins any error from saving the result.
 func RunExternal(
 	ctx context.Context,

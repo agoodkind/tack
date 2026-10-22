@@ -27,7 +27,7 @@ var seededRoleStateQuery string
 // establish whether the seed rotated the password.
 const roleChangeUnknownCode = "role_change_unknown"
 
-// seededRole pairs each login role with the base role that seed-roles grants.
+// seededRole pairs a login role with its optional base role.
 // seed-roles sets LOGIN and a password for tack_migrator without granting a
 // base role.
 type seededRole struct {

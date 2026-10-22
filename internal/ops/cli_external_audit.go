@@ -53,7 +53,6 @@ func emptyCommandInput() (json.RawMessage, error) {
 	return encodeCommandInput(emptyInput{})
 }
 
-// encodeCommandInput encodes input as JSON.
 func encodeCommandInput[Input commandInput](input Input) (json.RawMessage, error) {
 	encoded, err := json.Marshal(input)
 	if err != nil {
