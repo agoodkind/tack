@@ -85,6 +85,10 @@ func (s *SearchWorkStore) claimWorkItem(
 		tr.Clear(fdb.Key(claimKey))
 		return none, false, nil
 	}
+	waiting, err := projectionGate(ctx, tr, s.clock.Now(), class, record)
+	if err != nil || waiting {
+		return none, false, err
+	}
 	var claim searchClaimRecord
 	found, err := readSearchRecord(ctx, tr, claimKey, &claim)
 	if err != nil {

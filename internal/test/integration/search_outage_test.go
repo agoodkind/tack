@@ -53,6 +53,9 @@ func setEngineRunning(t *testing.T, running bool) {
 // searchable within ten seconds.
 func TestSearchDatagenOutage(t *testing.T) {
 	fixture := newQueryFixture(t, defaultQueryOptions())
+	// drainSearchWork indexes the fixture's bootstrapped nodes before the
+	// engine stops to exclude fixture setup from the search wait after restart.
+	drainSearchWork(t, fixture.Worker, 2000)
 	setEngineRunning(t, false)
 	t.Cleanup(func() { setEngineRunning(t, true) })
 
@@ -150,6 +153,10 @@ func TestSearchUnavailableWhileModelUndeployed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to parse created node identifier: %q: %v", created.RawID(), err)
 	}
+	// drainSearchWork runs worker slices until the worker cannot claim any
+	// search work. The fixture's bootstrapped nodes and the new project finish
+	// indexing before the ten-second search deadline starts.
+	drainSearchWork(t, fixture.Worker, 2000)
 	requireSearchReturnsNode(t, fixture, nodeID)
 	model, err := fixture.Adapter.Provision(t.Context())
 	if err != nil {

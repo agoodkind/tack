@@ -89,40 +89,6 @@ func (h *summaryHierarchy) Ancestors(ctx context.Context, nodes []searchaccess.O
 	return states, nil
 }
 
-// Targets reads each node's resolve record and, inside the requested
-// organization, its node type.
-func (h *summaryHierarchy) Targets(ctx context.Context, nodes []searchaccess.OrgNode) (map[searchaccess.OrgNode]searchaccess.TargetState, error) {
-	resolves := make([]fdb.FutureByteSlice, len(nodes))
-	for position, key := range nodes {
-		resolves[position] = h.tr.Get(fdb.Key(nodeResolveKey(key.NodeID)))
-	}
-	states := make(map[searchaccess.OrgNode]searchaccess.TargetState, len(nodes))
-	for position, key := range nodes {
-		encoded, err := resolves[position].Get()
-		if err != nil {
-			return nil, searchReadFailure(ctx, "read resolve record of node "+key.NodeID.String(), err)
-		}
-		if len(encoded) == 0 {
-			states[key] = searchaccess.TargetState{Exists: false, OrgID: uuid.Nil, Type: nil}
-			continue
-		}
-		var resolved node.NodeResolve
-		if err := json.Unmarshal(encoded, &resolved); err != nil {
-			return nil, searchReadFailure(ctx, "decode resolve record of node "+key.NodeID.String(), err)
-		}
-		if resolved.OrgID != key.OrgID {
-			states[key] = searchaccess.TargetState{Exists: true, OrgID: resolved.OrgID, Type: nil}
-			continue
-		}
-		kind, err := h.nodeType(ctx, key.OrgID, resolved.NodeType)
-		if err != nil {
-			return nil, err
-		}
-		states[key] = searchaccess.TargetState{Exists: true, OrgID: resolved.OrgID, Type: kind}
-	}
-	return states, nil
-}
-
 // nodeType returns the node type of orgID that uses typeKey, or nil when no
 // node type uses it. It returns an error when several node types use it.
 func (h *summaryHierarchy) nodeType(ctx context.Context, orgID uuid.UUID, typeKey string) (*node.NodeType, error) {

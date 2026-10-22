@@ -95,6 +95,9 @@ func clearDeletedSearchState(ctx context.Context, tr fdb.Transaction, work searc
 	tr.Clear(fdb.Key(searchGenerationKey(work.OrgID, work.NodeID)))
 	tr.Clear(fdb.Key(searchRevisionKey(work.OrgID, work.NodeID)))
 	tr.Clear(fdb.Key(searchAccessKey(work.OrgID, work.NodeID)))
+	if err := clearPropertyWarnings(ctx, tr, work.OrgID, work.NodeID); err != nil {
+		return err
+	}
 	fanout, err := fdb.PrefixRange(searchFanoutPrefix(work.OrgID, work.NodeID))
 	if err != nil {
 		return searchReadFailure(ctx, "create deleted fanout range", err)

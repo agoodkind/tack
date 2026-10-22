@@ -16,32 +16,30 @@ import (
 // parent.
 const parentIDProperty = "parent_id"
 
-// readRootParent returns the hierarchy parent of rootID inside tr: the one
-// target of a child_of edge from rootID that node.LivesUnder accepts. A root
-// without such a target, with several, or with more child_of edges than one
-// page reads returns [uuid.Nil].
+// readRootParent reads the child_of edges of rootID inside tr and returns the
+// hierarchy parent that node.HierarchyParent derives from those edges.
+// readRootParent returns [uuid.Nil] when rootID does not have a child_of edge,
+// when rootID has more child_of edges than one page reads, or when the parent
+// is not a node of orgID. readRootParent returns an error that matches
+// node.ErrNoHierarchyParent when the edges target more than one distinct
+// node. The subtree delete does not start when readRootParent returns that
+// error.
 func readRootParent(ctx context.Context, tr fdb.Transaction, orgID, rootID uuid.UUID) (uuid.UUID, error) {
 	edges, err := readDeleteEdges(ctx, tr, orgID, rootID, node.RelChildOf, false)
 	if err != nil || len(edges) == 0 || len(edges) > maxDeleteEdgePage {
 		return uuid.Nil, err
 	}
-	nodeIDs := []uuid.UUID{rootID}
+	targets := make([]uuid.UUID, 0, len(edges))
 	for _, edge := range edges {
-		nodeIDs = append(nodeIDs, edge.TargetID)
+		targets = append(targets, edge.TargetID)
 	}
-	resolved, err := readHierarchyNodes(ctx, tr, orgID, nodeIDs, make(map[string]*node.NodeType))
-	if err != nil {
+	parentID, parentErr := node.HierarchyParent(rootID, nil, targets)
+	if parentErr != nil {
+		return uuid.Nil, nodeOperationFailure(ctx, "read the hierarchy parent of deleted node "+rootID.String(), parentErr)
+	}
+	parents, err := readHierarchyNodes(ctx, tr, orgID, []uuid.UUID{parentID}, make(map[string]*node.NodeType))
+	if err != nil || !parents[0].Found {
 		return uuid.Nil, err
-	}
-	parentID := uuid.Nil
-	for _, target := range resolved[1:] {
-		if !target.Found || !node.LivesUnder(resolved[0].Kind, target.Kind) {
-			continue
-		}
-		if parentID != uuid.Nil {
-			return uuid.Nil, nil
-		}
-		parentID = target.ID
 	}
 	return parentID, nil
 }
@@ -69,6 +67,9 @@ func (s *NodeDeleteStore) moveChild(
 	}
 	current, view, err := readNodeAndView(ctx, tr, job.OrgID, child)
 	if err != nil || current == nil {
+		return false, err
+	}
+	if _, err := s.nodes.fenceAttempt(ctx, tr, job.OrgID, child.ID); err != nil {
 		return false, err
 	}
 	now := s.nodes.clock.Now().UTC()

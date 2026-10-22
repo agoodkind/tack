@@ -20,18 +20,7 @@ func runSearchVerify(ctx context.Context, factory *cli.Factory) (runErr error) {
 		logger.ErrorContext(ctx, "search.verify.topology_failed", slog.String("err", wrapped.Error()))
 		return wrapped
 	}
-	certificate, err := config.LoadSearchCA(ctx, factory.Cfg.SearchCA)
-	if err != nil {
-		wrapped := fmt.Errorf("load search CA: %w", err)
-		logger.ErrorContext(ctx, "search.verify.ca_failed", slog.String("err", wrapped.Error()))
-		return wrapped
-	}
-	pass := factory.Cfg.SearchPassword
-	adapter, err := search.New(ctx, search.Config{
-		Endpoint: factory.Cfg.SearchEndpoint, CA: certificate,
-		Username: factory.Cfg.SearchUsername, Password: pass,
-		RequestTimeout: factory.Cfg.SearchRequestTimeout, MaxRetries: factory.Cfg.SearchMaxRetries,
-	})
+	adapter, err := newSearchMaintenanceAdapter(ctx, factory.Cfg)
 	if err != nil {
 		wrapped := fmt.Errorf("create search adapter: %w", err)
 		logger.ErrorContext(ctx, "search.verify.adapter_failed", slog.String("err", wrapped.Error()))

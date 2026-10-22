@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"maps"
 	"strconv"
-	"time"
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain/node"
@@ -21,11 +20,6 @@ func normalizeCreateInput(in CreateInput) CreateInput {
 		in.ParentID = in.ScopeID
 	}
 	return in
-}
-
-func createTimeFromUUID(id uuid.UUID) time.Time {
-	seconds, nanoseconds := id.Time().UnixTime()
-	return time.Unix(seconds, nanoseconds).UTC()
 }
 
 func (s *NodeService) prepareCreateProps(
@@ -148,61 +142,4 @@ func (s *NodeService) allocateLegacySequence(
 	}
 	props["sequence"] = json.RawMessage(strconv.FormatInt(sequenceID, 10))
 	return nil
-}
-
-func newCreateNode(
-	orgID uuid.UUID,
-	nodeID uuid.UUID,
-	nodeType string,
-	in CreateInput,
-	props map[string]json.RawMessage,
-	now time.Time,
-) *node.Node {
-	return &node.Node{
-		ID:        nodeID,
-		OrgID:     orgID,
-		NodeType:  nodeType,
-		Name:      in.Name,
-		Props:     props,
-		CreatedBy: in.ActorID,
-		UpdatedBy: in.ActorID,
-		CreatedAt: now,
-		UpdatedAt: now,
-	}
-}
-
-func buildCreateRelationships(
-	orgID uuid.UUID,
-	nodeID uuid.UUID,
-	in CreateInput,
-	now time.Time,
-) []*node.Relationship {
-	relationships := make([]*node.Relationship, 0, len(in.Relationships)+1)
-	if in.ParentID != uuid.Nil {
-		relationships = append(relationships, &node.Relationship{
-			OrgID:        orgID,
-			SourceID:     nodeID,
-			RelationType: node.RelChildOf,
-			TargetID:     in.ParentID,
-			CreatedBy:    in.ActorID,
-			CreatedAt:    now,
-			Props:        nil,
-		})
-	}
-	for _, relationship := range in.Relationships {
-		if relationship.OrgID == uuid.Nil {
-			relationship.OrgID = orgID
-		}
-		if relationship.SourceID == uuid.Nil {
-			relationship.SourceID = nodeID
-		}
-		if relationship.CreatedAt.IsZero() {
-			relationship.CreatedAt = now
-		}
-		if relationship.CreatedBy == uuid.Nil {
-			relationship.CreatedBy = in.ActorID
-		}
-		relationships = append(relationships, relationship)
-	}
-	return relationships
 }

@@ -17,12 +17,12 @@ x-opensearch-environment: &opensearch_environment
   OPENSEARCH_ENDPOINT: ${OPENSEARCH_ENDPOINT:-}
   OPENSEARCH_CA: /etc/tack/search-ca.crt
   OPENSEARCH_USERNAME: ${OPENSEARCH_USERNAME:-}
-  OPENSEARCH_PASSWORD: ${OPENSEARCH_PASSWORD:-}
+  OPENSEARCH_PASSWORD_FILE: /run/secrets/OPENSEARCH_PASSWORD
   OPENSEARCH_REQUEST_TIMEOUT: ${OPENSEARCH_REQUEST_TIMEOUT:-}
   OPENSEARCH_MAX_RETRIES: ${OPENSEARCH_MAX_RETRIES:-}
   OPENSEARCH_PUBLIC_ENABLED: ${OPENSEARCH_PUBLIC_ENABLED:-}
   OPENSEARCH_MODEL_REPAIR_ENABLED: ${OPENSEARCH_MODEL_REPAIR_ENABLED:-}
-  OPENSEARCH_CURSOR_KEY: ${OPENSEARCH_CURSOR_KEY:-}
+  OPENSEARCH_CURSOR_KEY_FILE: /run/secrets/OPENSEARCH_CURSOR_KEY
   OPENSEARCH_SHARDS: ${OPENSEARCH_SHARDS:-}
   OPENSEARCH_ROUTING_SHARDS: ${OPENSEARCH_ROUTING_SHARDS:-}
   OPENSEARCH_REPLICAS: ${OPENSEARCH_REPLICAS:-}
@@ -74,14 +74,8 @@ services:
       # created by `ops audit seed-roles` from TACK_APP_PASSWORD and holds the
       # three auth tables and nothing else; the yugabyte superuser stays with
       # the ops sidecar for migrations, seeding, and backups.
-      DATABASE_URL: postgres://tack_app:${TACK_APP_PASSWORD:?TACK_APP_PASSWORD is required, set it in .env}@yugabyte:5433/${YUGABYTE_DB:?YUGABYTE_DB is required, set it in .env}?sslmode=disable
-      # Audit ledger pools. Each DSN is composed entirely from .env values;
-      # if AUDIT_*_PASSWORD is unset the DSN auth fails fast and the audit
-      # subsystem degrades to NoopRecorder until seed-audit-roles is run.
-      AUDIT_WRITER_DSN: ${AUDIT_WRITER_DSN}
-      AUDIT_READER_DSN: ${AUDIT_READER_DSN}
-      AUDIT_REDACTOR_DSN: ${AUDIT_REDACTOR_DSN}
-      AUDIT_OPERATOR_DSN: ${AUDIT_OPERATOR_DSN}
+      DATABASE_URL_FILE: /run/secrets/DATABASE_URL
+      AUDIT_OPERATOR_DSN_FILE: /run/secrets/AUDIT_OPERATOR_DSN
       FDB_CLUSTER_FILE: /etc/foundationdb/fdb.cluster
       # A transaction issued while the store elects a new leader retries
       # without end, bounded only by the caller's context, which not every
@@ -103,7 +97,6 @@ services:
       # binds the host path for cross-restart persistence.
       LOG_JSON_FILE: ${LOG_JSON_FILE:-/var/log/tack/app.jsonl}
       LOG_TEXT_FILE: ${LOG_TEXT_FILE:-/var/log/tack/app.log}
-      AUDIT_SIGNING_KEY_PATH: ${AUDIT_SIGNING_KEY_PATH:-/etc/tack/audit-signing.pem}
       # Valid audit signer set (TACK-437): the key identifiers this environment
       # accepts, rendered per environment by the configs deploy. `audit
       # signers` refuses to run without it; `audit verify` rejects a manifest
@@ -125,12 +118,11 @@ services:
       # carries it because the generator needs FoundationDB reachability and the
       # audit DSNs, which the host-networked tack-ops container does not have.
       TACK_DATAGEN_ALLOW_TARGET: ${TACK_DATAGEN_ALLOW_TARGET:-}
-      # Backup object store. Empty unless the host's group_vars set them; read only by ops backup.
-      TACK_BACKUP_S3_ENDPOINT: ${TACK_BACKUP_S3_ENDPOINT:-}
-      TACK_BACKUP_S3_ACCESS_KEY_ID: ${TACK_BACKUP_S3_ACCESS_KEY_ID:-}
-      TACK_BACKUP_S3_SECRET_ACCESS_KEY: ${TACK_BACKUP_S3_SECRET_ACCESS_KEY:-}
-      TACK_BACKUP_S3_REGION: ${TACK_BACKUP_S3_REGION:-us-east-1}
-      TACK_BACKUP_S3_BUCKET_MAIN: ${TACK_BACKUP_S3_BUCKET_MAIN:-tack-backups}
+    secrets:
+      - DATABASE_URL
+      - AUDIT_OPERATOR_DSN
+      - OPENSEARCH_PASSWORD
+      - OPENSEARCH_CURSOR_KEY
     volumes:
       # Writable, because the FoundationDB client writes the new coordinator
       # list into this file when the cluster changes coordinators. Mounted
@@ -138,10 +130,6 @@ services:
       # finding the cluster once every one of them is gone (TACK-408).
       - /etc/foundationdb:/etc/foundationdb
       - tack-logs:/var/log/tack
-      # Audit ledger signing key. Generated once on the host with
-      #   openssl genpkey -algorithm ed25519 -out /etc/tack/audit-signing.pem
-      # The notarizer reuses it at every 60s tick; rotation is a follow-up.
-      - /etc/tack:/etc/tack:ro
     # No yugabyte dependency: deployed guests reach the ledger on the data
     # guests through the rendered override's multi-host URL, and the deploy
     # starts the app only after provision. This base file alone still dials
@@ -189,6 +177,7 @@ services:
     # and the refresh procedure on image bump. The tag itself is the
     # x-yugabyte-image anchor at the top of this file.
     image: *yugabyte_image
+    entrypoint: ["/sbin/tini", "--", "/usr/bin/env", "bash", "/opt/tack/yugabyte-entrypoint.sh"]
     restart: unless-stopped
     mem_limit: 10g
     # The container answers to the name this node announces, which is what maps
@@ -219,7 +208,9 @@ services:
       # below logs in with the password, which yugabyted sets after the
       # database accepts connections.
       YSQL_USER: ${YUGABYTE_USER:-}
-      YSQL_PASSWORD: ${YUGABYTE_PASSWORD:-}
+      YSQL_PASSWORD_FILE: /run/secrets/YUGABYTE_PASSWORD
+    secrets:
+      - YUGABYTE_PASSWORD
     ports:
       - "5433:5433" # YSQL (Postgres-compatible)
       - "7000:7000" # YugabyteDB master UI
@@ -233,16 +224,12 @@ services:
       - /root/tack/yugabyte-overlay/yugabyted:/home/yugabyte/bin/yugabyted:ro
       # Tserver resource bounds, one flag per line with the incident notes.
       - /root/tack/yugabyte-overlay/tserver.flags:/home/yugabyte/tserver.flags:ro
+      - ./yugabyte-overlay/entrypoint.sh:/opt/tack/yugabyte-entrypoint.sh:ro
+      - ./yugabyte-overlay/healthcheck.sh:/opt/tack/yugabyte-healthcheck.sh:ro
+      - ./yugabyte-overlay/secret.sh:/opt/tack/yugabyte-secret.sh:ro
+      - ./yugabyte-overlay/healthcheck.sql:/opt/tack/yugabyte-healthcheck.sql:ro
     healthcheck:
-      test:
-        - CMD-SHELL
-        - |
-          if [ -n "$$YSQL_PASSWORD" ]; then
-            PGPASSWORD="$$YSQL_PASSWORD" ysqlsh -h "$$(hostname)" -p 5433 \
-              -U "$$YSQL_USER" -d "$$YSQL_DB" -c 'SELECT 1' -t
-          else
-            /home/yugabyte/postgres/bin/pg_isready -h "$$(hostname)" -p 5433
-          fi
+      test: ["CMD", "/usr/bin/env", "bash", "/opt/tack/yugabyte-healthcheck.sh"]
       interval: 10s
       timeout: 10s
       retries: 10
@@ -437,7 +424,12 @@ services:
     restart: unless-stopped
     mem_limit: 2g
     environment:
-      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-tack_audit_consumer}
+      CLICKHOUSE_PASSWORD_FILE: /run/secrets/CLICKHOUSE_PASSWORD
+      CLICKHOUSE_DB: audit
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "0"
+    secrets:
+      - CLICKHOUSE_PASSWORD
     volumes:
       - clickhouse-data:/var/lib/clickhouse
     healthcheck:
@@ -471,8 +463,8 @@ services:
       AUDIT_CONSUMER_GROUP_ID: ${AUDIT_CONSUMER_GROUP_ID:-tack-audit-projector}
       AUDIT_CONSUMER_BATCH_SIZE: ${AUDIT_CONSUMER_BATCH_SIZE:-256}
       AUDIT_CONSUMER_POLL_INTERVAL: ${AUDIT_CONSUMER_POLL_INTERVAL:-250ms}
-      AUDIT_CONSUMER_YUGABYTE_DSN: ${AUDIT_WRITER_DSN}
-      AUDIT_CONSUMER_CLICKHOUSE_DSN: ${AUDIT_CONSUMER_CLICKHOUSE_DSN:-clickhouse://default:@clickhouse:9000/audit}
+      AUDIT_CONSUMER_YUGABYTE_DSN_FILE: /run/secrets/AUDIT_CONSUMER_YUGABYTE_DSN
+      AUDIT_CONSUMER_CLICKHOUSE_DSN_FILE: /run/secrets/AUDIT_CONSUMER_CLICKHOUSE_DSN
       AUDIT_CONSUMER_SIGNING_KEY_PATH: ${AUDIT_CONSUMER_SIGNING_KEY_PATH:-/etc/tack/audit-signing.pem}
       # The guest whose key signs, stamped on every notarization as its
       # claimed origin (TACK-437). The configs deploy renders the guest's
@@ -493,9 +485,12 @@ services:
       LOG_MAX_BACKUPS: ${LOG_MAX_BACKUPS:-0}
       LOG_MAX_AGE_DAYS: ${LOG_MAX_AGE_DAYS:-0}
       LOG_MAX_SIZE_MB: ${LOG_MAX_SIZE_MB:-100}
+    secrets:
+      - AUDIT_CONSUMER_YUGABYTE_DSN
+      - AUDIT_CONSUMER_CLICKHOUSE_DSN
     volumes:
       - tack-logs:/var/log/tack
-      - /etc/tack:/etc/tack:ro
+      - ${AUDIT_CONSUMER_SIGNING_KEY_PATH:-/etc/tack/audit-signing.pem}:${AUDIT_CONSUMER_SIGNING_KEY_PATH:-/etc/tack/audit-signing.pem}:ro
       # Writable: this process is a FoundationDB client too, and the client
       # library records a coordinator change in this file (TACK-408).
       - /etc/foundationdb:/etc/foundationdb
@@ -523,13 +518,16 @@ services:
       # loopback. DATABASE_URL must be set in the host .env as a full DSN
       # pointing at 127.0.0.1:5433; the app service's DSN targets yugabyte
       # and cannot be reused here.
-      DATABASE_URL: ${TACK_OPS_DATABASE_URL}
-      AUDIT_OPERATOR_DSN: ${TACK_OPS_AUDIT_OPERATOR_DSN:-}
+      <<: *opensearch_environment
+      OPENSEARCH_MAINTENANCE_USERNAME: ${OPENSEARCH_MAINTENANCE_USERNAME:-}
+      OPENSEARCH_MAINTENANCE_PASSWORD_FILE: /run/secrets/OPENSEARCH_MAINTENANCE_PASSWORD
+      DATABASE_URL_FILE: /run/secrets/TACK_OPS_DATABASE_URL
+      AUDIT_OPERATOR_DSN_FILE: /run/secrets/TACK_OPS_AUDIT_OPERATOR_DSN
       # Ledger read and redaction for the `audit query`, `audit get`,
       # `audit export`, and `audit redact-actor` host commands. Loopback DSNs
       # like the operator one above; empty until the host .env renders them.
-      AUDIT_READER_DSN: ${TACK_OPS_AUDIT_READER_DSN:-}
-      AUDIT_REDACTOR_DSN: ${TACK_OPS_AUDIT_REDACTOR_DSN:-}
+      AUDIT_READER_DSN_FILE: /run/secrets/TACK_OPS_AUDIT_READER_DSN
+      AUDIT_REDACTOR_DSN_FILE: /run/secrets/TACK_OPS_AUDIT_REDACTOR_DSN
       # The valid signer set (TACK-437), the same value the app carries, so
       # `audit verify` here judges a bundle's signer. `audit signers` still
       # runs through the app service: this container mounts no signing key.
@@ -554,19 +552,19 @@ services:
       # Audit role passwords for `ops audit seed-roles`, which creates or rotates
       # the LOGIN audit roles. Empty default so other ops (backup) run without
       # them; the seed-roles command errors loudly when they are unset.
-      AUDIT_WRITER_PASSWORD: ${AUDIT_WRITER_PASSWORD:-}
-      AUDIT_READER_PASSWORD: ${AUDIT_READER_PASSWORD:-}
-      AUDIT_REDACTOR_PASSWORD: ${AUDIT_REDACTOR_PASSWORD:-}
-      AUDIT_OPERATOR_PASSWORD: ${AUDIT_OPERATOR_PASSWORD:-}
+      AUDIT_WRITER_PASSWORD_FILE: /run/secrets/AUDIT_WRITER_PASSWORD
+      AUDIT_READER_PASSWORD_FILE: /run/secrets/AUDIT_READER_PASSWORD
+      AUDIT_REDACTOR_PASSWORD_FILE: /run/secrets/AUDIT_REDACTOR_PASSWORD
+      AUDIT_OPERATOR_PASSWORD_FILE: /run/secrets/AUDIT_OPERATOR_PASSWORD
       # The application login's password, set by the same seed-roles run
       # (TACK-180); the app service reads it inside its DATABASE_URL.
-      TACK_APP_PASSWORD: ${TACK_APP_PASSWORD:-}
-      TACK_MIGRATOR_PASSWORD: ${TACK_MIGRATOR_PASSWORD:-}
+      TACK_APP_PASSWORD_FILE: /run/secrets/TACK_APP_PASSWORD
+      TACK_MIGRATOR_PASSWORD_FILE: /run/secrets/TACK_MIGRATOR_PASSWORD
       # Object store for engine-native continuous backup. Read by the FDB
       # continuous backup path to build the blobstore destination URL.
       TACK_BACKUP_S3_ENDPOINT: ${TACK_BACKUP_S3_ENDPOINT:-}
-      TACK_BACKUP_S3_ACCESS_KEY_ID: ${TACK_BACKUP_S3_ACCESS_KEY_ID:-}
-      TACK_BACKUP_S3_SECRET_ACCESS_KEY: ${TACK_BACKUP_S3_SECRET_ACCESS_KEY:-}
+      TACK_BACKUP_S3_ACCESS_KEY_ID_FILE: /run/secrets/TACK_BACKUP_S3_ACCESS_KEY_ID
+      TACK_BACKUP_S3_SECRET_ACCESS_KEY_FILE: /run/secrets/TACK_BACKUP_S3_SECRET_ACCESS_KEY
       TACK_BACKUP_S3_REGION: ${TACK_BACKUP_S3_REGION:-us-east-1}
       TACK_BACKUP_S3_BUCKET_MAIN: ${TACK_BACKUP_S3_BUCKET_MAIN:-tack-backups}
       # Master quorum for the backup one-shot containers. The deploy renders
@@ -623,6 +621,23 @@ services:
       # The tag this stack pins the app images at, so `ops deploy verify`
       # checks the running containers against the image the deploy named.
       TACK_IMAGE_TAG: ${TACK_IMAGE_TAG:-latest}
+    secrets:
+      - TACK_OPS_DATABASE_URL
+      - TACK_LEDGER_SUPERUSER_DATABASE_URL
+      - TACK_OPS_AUDIT_OPERATOR_DSN
+      - TACK_OPS_AUDIT_READER_DSN
+      - TACK_OPS_AUDIT_REDACTOR_DSN
+      - AUDIT_WRITER_PASSWORD
+      - AUDIT_READER_PASSWORD
+      - AUDIT_REDACTOR_PASSWORD
+      - AUDIT_OPERATOR_PASSWORD
+      - TACK_APP_PASSWORD
+      - TACK_MIGRATOR_PASSWORD
+      - TACK_BACKUP_S3_ACCESS_KEY_ID
+      - TACK_BACKUP_S3_SECRET_ACCESS_KEY
+      - OPENSEARCH_PASSWORD
+      - OPENSEARCH_CURSOR_KEY
+      - OPENSEARCH_MAINTENANCE_PASSWORD
     volumes:
       - /root/backups:/root/backups
       # Writable: the ops commands that open the product store are
@@ -644,6 +659,54 @@ services:
       # to the long-running app service. See the sibling-container architecture
       # decision in CLAUDE.md under the Deployment section.
       - /var/run/docker.sock:/var/run/docker.sock
+
+secrets:
+  DATABASE_URL:
+    file: ${TACK_SECRETS_DIR:-/var/lib/tack/secrets}/DATABASE_URL
+  AUDIT_WRITER_DSN:
+    file: ${TACK_SECRETS_DIR:-/var/lib/tack/secrets}/AUDIT_WRITER_DSN
+  AUDIT_OPERATOR_DSN:
+    file: ${TACK_SECRETS_DIR:-/var/lib/tack/secrets}/AUDIT_OPERATOR_DSN
+  AUDIT_CONSUMER_YUGABYTE_DSN:
+    file: ${TACK_SECRETS_DIR:-/var/lib/tack/secrets}/AUDIT_CONSUMER_YUGABYTE_DSN
+  AUDIT_CONSUMER_CLICKHOUSE_DSN:
+    file: ${TACK_SECRETS_DIR:-/var/lib/tack/secrets}/AUDIT_CONSUMER_CLICKHOUSE_DSN
+  TACK_OPS_DATABASE_URL:
+    file: ${TACK_SECRETS_DIR:-/var/lib/tack/secrets}/TACK_OPS_DATABASE_URL
+  TACK_LEDGER_SUPERUSER_DATABASE_URL:
+    file: ${TACK_SECRETS_DIR:-/var/lib/tack/secrets}/TACK_LEDGER_SUPERUSER_DATABASE_URL
+  TACK_OPS_AUDIT_OPERATOR_DSN:
+    file: ${TACK_SECRETS_DIR:-/var/lib/tack/secrets}/TACK_OPS_AUDIT_OPERATOR_DSN
+  TACK_OPS_AUDIT_READER_DSN:
+    file: ${TACK_SECRETS_DIR:-/var/lib/tack/secrets}/TACK_OPS_AUDIT_READER_DSN
+  TACK_OPS_AUDIT_REDACTOR_DSN:
+    file: ${TACK_SECRETS_DIR:-/var/lib/tack/secrets}/TACK_OPS_AUDIT_REDACTOR_DSN
+  AUDIT_WRITER_PASSWORD:
+    file: ${TACK_SECRETS_DIR:-/var/lib/tack/secrets}/AUDIT_WRITER_PASSWORD
+  AUDIT_READER_PASSWORD:
+    file: ${TACK_SECRETS_DIR:-/var/lib/tack/secrets}/AUDIT_READER_PASSWORD
+  AUDIT_REDACTOR_PASSWORD:
+    file: ${TACK_SECRETS_DIR:-/var/lib/tack/secrets}/AUDIT_REDACTOR_PASSWORD
+  AUDIT_OPERATOR_PASSWORD:
+    file: ${TACK_SECRETS_DIR:-/var/lib/tack/secrets}/AUDIT_OPERATOR_PASSWORD
+  TACK_APP_PASSWORD:
+    file: ${TACK_SECRETS_DIR:-/var/lib/tack/secrets}/TACK_APP_PASSWORD
+  TACK_MIGRATOR_PASSWORD:
+    file: ${TACK_SECRETS_DIR:-/var/lib/tack/secrets}/TACK_MIGRATOR_PASSWORD
+  YUGABYTE_PASSWORD:
+    file: ${TACK_SECRETS_DIR:-/var/lib/tack/secrets}/YUGABYTE_PASSWORD
+  TACK_BACKUP_S3_ACCESS_KEY_ID:
+    file: ${TACK_SECRETS_DIR:-/var/lib/tack/secrets}/TACK_BACKUP_S3_ACCESS_KEY_ID
+  TACK_BACKUP_S3_SECRET_ACCESS_KEY:
+    file: ${TACK_SECRETS_DIR:-/var/lib/tack/secrets}/TACK_BACKUP_S3_SECRET_ACCESS_KEY
+  OPENSEARCH_PASSWORD:
+    file: ${TACK_SECRETS_DIR:-/var/lib/tack/secrets}/OPENSEARCH_PASSWORD
+  OPENSEARCH_CURSOR_KEY:
+    file: ${TACK_SECRETS_DIR:-/var/lib/tack/secrets}/OPENSEARCH_CURSOR_KEY
+  OPENSEARCH_MAINTENANCE_PASSWORD:
+    file: ${TACK_SECRETS_DIR:-/var/lib/tack/secrets}/OPENSEARCH_MAINTENANCE_PASSWORD
+  CLICKHOUSE_PASSWORD:
+    file: ${TACK_SECRETS_DIR:-/var/lib/tack/secrets}/CLICKHOUSE_PASSWORD
 
 volumes:
   yugabyte-data:

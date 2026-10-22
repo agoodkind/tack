@@ -24,12 +24,6 @@ const (
 	ledgerHealthTimeout     = 10 * time.Second
 	ledgerHealthStartPeriod = 180 * time.Second
 	ledgerHealthRetries     = 10
-	// ledgerHealthTest is the yugabyte service's health check. It logs in
-	// with the container's own environment on a first start and uses no login
-	// when the container has no password.
-	ledgerHealthTest = `if [ -n "$YSQL_PASSWORD" ]; then PGPASSWORD="$YSQL_PASSWORD" ysqlsh -h "$(hostname)" ` +
-		`-p 5433 -U "$YSQL_USER" -d "$YSQL_DB" -c 'SELECT 1' -t; ` +
-		`else /home/yugabyte/postgres/bin/pg_isready -h "$(hostname)" -p 5433; fi`
 )
 
 // EmptyLedgerNode is a YugabyteDB node that one test started. The node has
@@ -127,6 +121,10 @@ func startEmptyLedgerContainer(ctx context.Context, cli *client.Client, containe
 		return engine{}, err
 	}
 	command := append(slices.Clone(ledgerCommand), "--advertise_address="+containerName, "--listen="+containerName)
+	files, err := yugabyteRuntimeFiles(ctx, superuserKey)
+	if err != nil {
+		return engine{}, err
+	}
 	return startEngine(ctx, cli, engineSpec{
 		kind:     ledgerService,
 		image:    image,
@@ -134,12 +132,14 @@ func startEmptyLedgerContainer(ctx context.Context, cli *client.Client, containe
 		cmd:      command,
 		env: []string{
 			"YSQL_USER=" + ledgerAdminUser,
-			"YSQL_PASSWORD=" + superuserKey,
+			"YSQL_PASSWORD_FILE=/run/secrets/YUGABYTE_PASSWORD",
 			"YSQL_DB=" + ledgerDatabase,
 		},
-		name: containerName,
+		files:      files,
+		entrypoint: []string{"/sbin/tini", "--", "/usr/bin/env", "bash", "/opt/tack/yugabyte-entrypoint.sh"},
+		name:       containerName,
 		healthcheck: &container.HealthConfig{
-			Test:          []string{"CMD-SHELL", ledgerHealthTest},
+			Test:          []string{"CMD", "/usr/bin/env", "bash", "/opt/tack/yugabyte-healthcheck.sh"},
 			Interval:      ledgerHealthInterval,
 			Timeout:       ledgerHealthTimeout,
 			StartPeriod:   ledgerHealthStartPeriod,

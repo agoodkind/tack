@@ -13,12 +13,6 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-var serviceManagedPropNames = map[string]struct{}{
-	"parent_id": {},
-	"scope_id":  {},
-	"sequence":  {},
-}
-
 func (s *NodeService) validateCreateProps(
 	ctx context.Context,
 	orgID uuid.UUID,
@@ -53,6 +47,23 @@ func (s *NodeService) checkDeclaredProps(
 	if err != nil {
 		return loggedPropertyCheckError(ctx, nt, operation, err)
 	}
+	return ValidateNodeProps(ctx, schema, nt, operation, props)
+}
+
+// ValidateNodeProps interprets props with schema for nt. It logs and returns
+// an error for schema read failures. It logs and refuses property names
+// without definitions and names with definitions that do not apply to nt.
+// For names with definitions, it exempts parent_id, scope_id, and sequence.
+// Refusal errors wrap domain.ErrInvalidArgument and list quoted names in
+// sorted order. Errors and log entries include the operation value.
+// It ignores value and option issues and returns nil otherwise.
+func ValidateNodeProps(
+	ctx context.Context,
+	schema node.Schema,
+	nt *node.NodeType,
+	operation string,
+	props map[string]json.RawMessage,
+) error {
 	result := schema.Interpret(nt.TypeKey, props)
 	if len(result.Failures) > 0 {
 		return loggedPropertyCheckError(ctx, nt, operation, result.Err())
@@ -75,10 +86,11 @@ func undeclaredPropNames(result node.PropertyResult) []string {
 		case node.PropertyIssueUndeclared:
 			names = append(names, fmt.Sprintf("%q", issue.Property))
 		case node.PropertyIssueNotApplicable:
-			if !isServiceManagedProp(issue.Property) {
+			if !node.IsManagedProperty(issue.Property) {
 				names = append(names, fmt.Sprintf("%q", issue.Property))
 			}
-		case node.PropertyIssueValue, node.PropertyIssueOption:
+		case node.PropertyIssueValue, node.PropertyIssueOption,
+			node.PropertyIssueRequired, node.PropertyIssueReference, node.PropertyIssueParent:
 		}
 	}
 	return names
@@ -123,9 +135,4 @@ func setUpdateProps(props map[string]json.RawMessage) map[string]json.RawMessage
 
 func isDeletedPropValue(raw json.RawMessage) bool {
 	return len(raw) == 0 || string(raw) == "null"
-}
-
-func isServiceManagedProp(name string) bool {
-	_, ok := serviceManagedPropNames[name]
-	return ok
 }

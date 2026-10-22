@@ -102,6 +102,13 @@ type EventContext struct {
 	// omits an array under omitempty, and a zero id written into every other
 	// event's context changed the bytes those rows' hashes covered (TACK-514).
 	APITokenID uuid.UUID `json:"api_token_id,omitzero" exhaustruct:"optional"`
+
+	// CommitVersion is the FoundationDB outbox entry's versionstamp encoded as
+	// 24 lowercase hexadecimal characters. Sorting these strings gives the
+	// outbox commit order. The relay sets this field only when it is empty.
+	// JSON encoding omits an empty value, preserving the context bytes used to
+	// hash events that do not include this field.
+	CommitVersion string `json:"commit_version,omitzero" exhaustruct:"optional"`
 }
 
 type Source string
