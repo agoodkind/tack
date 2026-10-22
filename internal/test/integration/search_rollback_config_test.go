@@ -54,8 +54,6 @@ func rolloutConfig(t *testing.T, engine testenv.OpenSearchFixture) *config.Confi
 	return cfg
 }
 
-// newRolloutWorker builds the production worker over the stores and
-// adapter.
 func newRolloutWorker(t *testing.T, stores *fdbadapter.Stores, adapter *search.Adapter) *service.SearchWorker {
 	t.Helper()
 	policies := stores.SearchPolicySet()
