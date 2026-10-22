@@ -71,6 +71,18 @@ const (
 	// (ops_outbox, versionstamp) -> audit event JSON
 	keyOpsOutbox = "ops_outbox"
 
+	// Audit read lifecycle. These families are not org-scoped. bucket is the
+	// first SHA-256 byte of the event ID modulo 64, and deadline and
+	// published are Unix nanoseconds.
+	// (audit_read_pending, eventID) -> pending read record JSON
+	// (audit_read_expiry, bucket, deadline, eventID) -> nil
+	// (audit_read_receipt, eventID) -> terminal receipt JSON
+	// (audit_read_cleanup, bucket, published, eventID) -> nil
+	keyAuditReadPending = "audit_read_pending"
+	keyAuditReadExpiry  = "audit_read_expiry"
+	keyAuditReadReceipt = "audit_read_receipt"
+	keyAuditReadCleanup = "audit_read_cleanup"
+
 	// Subtree delete jobs. The family is not org-scoped. A runner in any
 	// process lists every unfinished job of every organization.
 	// (node_delete_job, jobID) -> SubtreeDeleteJob JSON
