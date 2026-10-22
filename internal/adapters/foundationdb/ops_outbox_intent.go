@@ -86,7 +86,7 @@ func appendMutationIntent(ctx context.Context, outbox *OutboxWriter, source, res
 // outboxEntryValues keeps payloads within EventPartMaxBytes as one plain entry.
 // It decodes larger payloads as audit events and returns their outbox records.
 func outboxEntryValues(ctx context.Context, payload json.RawMessage) ([][]byte, error) {
-	if len(payload) <= audit.EventPartMaxBytes {
+	if audit.FitsSingleRecord(payload) {
 		return [][]byte{payload}, nil
 	}
 	var event audit.Event

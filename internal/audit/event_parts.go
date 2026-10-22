@@ -127,6 +127,9 @@ func VerifyEventParts(header []byte, parts []EventPart) (Event, []Target, error)
 	if err := decoder.Decode(&decoded); err != nil {
 		return Event{}, nil, fmt.Errorf("verify audit event %s: decode envelope: %s", manifest.EventID, err.Error())
 	}
+	if decoder.More() {
+		return Event{}, nil, fmt.Errorf("verify audit event %s: unexpected data after the event envelope", manifest.EventID)
+	}
 	event := decoded.Event
 	if event.EventID != manifest.EventID || event.Context.OrgID != manifest.OrgID || shardOf(event.Actor.ID, event.EventID) != manifest.Shard {
 		return Event{}, nil, fmt.Errorf("verify audit event %s: envelope identity does not match the header", manifest.EventID)

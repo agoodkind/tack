@@ -107,6 +107,12 @@ func (e EncodedEvent) Records() ([][]byte, error) {
 	return [][]byte{eventJSON}, nil
 }
 
+// FitsSingleRecord reports whether eventJSON fits in one plain outbox record
+// at or below the EventPartMaxBytes size limit.
+func FitsSingleRecord(eventJSON []byte) bool {
+	return len(eventJSON) <= EventPartMaxBytes
+}
+
 // decodeTransportMessage detects transport messages and rejects unknown fields
 // during decoding. It returns false without an error if the probe fails
 // or audit_message is empty. It requires a supported version and kind,
