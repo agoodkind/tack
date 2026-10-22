@@ -47,6 +47,9 @@ type Row struct {
 	RowHash        []byte          `json:"RowHash"`
 	HashVersion    int16           `json:"HashVersion"`
 	IdempotencyKey string          `json:"IdempotencyKey"`
+	// ManifestParts contains the parts of a read event with manifest evidence.
+	// JSON omits an empty slice, preserving bundle bytes for rows without parts.
+	ManifestParts []ManifestPart `json:"ManifestParts,omitempty" exhaustruct:"optional"`
 }
 
 // readAuditRow scans the current audit.events row in the canonical column

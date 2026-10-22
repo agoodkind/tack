@@ -50,6 +50,9 @@ func writeExportRows(ctx context.Context, source RowSource, filter QueryFilter, 
 
 	rowCount := 0
 	streamErr := source.StreamQuery(ctx, filter, func(row Row) error {
+		if partsErr := attachManifestParts(ctx, source, &row); partsErr != nil {
+			return partsErr
+		}
 		if encodeErr := encoder.Encode(row); encodeErr != nil {
 			return fmt.Errorf("encode %s: %w", row.EventID, encodeErr)
 		}
