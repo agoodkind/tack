@@ -415,12 +415,13 @@ services:
       retries: 10
       start_period: 30s
 
-  # ClickHouse single-node OLAP store for the Wave 1 audit consumer.
+  # Optional ClickHouse audit projection. Enable the clickhouse profile and
+  # docker-compose.clickhouse.yml together to configure the consumer.
   # Internal-only: 8123 (HTTP) and 9000 (native) are not exposed to the
   # host. Apache 2.0 image so the open-source-only constraint holds.
   clickhouse:
     image: clickhouse/clickhouse-server:26.5
-    profiles: [audit]
+    profiles: [clickhouse]
     restart: unless-stopped
     mem_limit: 2g
     environment:
@@ -464,7 +465,6 @@ services:
       AUDIT_CONSUMER_BATCH_SIZE: ${AUDIT_CONSUMER_BATCH_SIZE:-256}
       AUDIT_CONSUMER_POLL_INTERVAL: ${AUDIT_CONSUMER_POLL_INTERVAL:-250ms}
       AUDIT_CONSUMER_YUGABYTE_DSN_FILE: /run/secrets/AUDIT_CONSUMER_YUGABYTE_DSN
-      AUDIT_CONSUMER_CLICKHOUSE_DSN_FILE: /run/secrets/AUDIT_CONSUMER_CLICKHOUSE_DSN
       AUDIT_CONSUMER_SIGNING_KEY_PATH: ${AUDIT_CONSUMER_SIGNING_KEY_PATH:-/etc/tack/audit-signing.pem}
       # The guest whose key signs, stamped on every notarization as its
       # claimed origin (TACK-437). The configs deploy renders the guest's
@@ -487,7 +487,6 @@ services:
       LOG_MAX_SIZE_MB: ${LOG_MAX_SIZE_MB:-100}
     secrets:
       - AUDIT_CONSUMER_YUGABYTE_DSN
-      - AUDIT_CONSUMER_CLICKHOUSE_DSN
     volumes:
       - tack-logs:/var/log/tack
       - ${AUDIT_CONSUMER_SIGNING_KEY_PATH:-/etc/tack/audit-signing.pem}:${AUDIT_CONSUMER_SIGNING_KEY_PATH:-/etc/tack/audit-signing.pem}:ro
@@ -500,8 +499,6 @@ services:
     depends_on:
       kafka:
         condition: service_started
-      clickhouse:
-        condition: service_healthy
 
   # Short-lived operator-invoked container for backup, verify, and
   # restore-test operations. The profiles: [ops] tag keeps it out of the

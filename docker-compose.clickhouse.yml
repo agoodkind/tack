@@ -1,0 +1,11 @@
+# Optional audit projection. Combine this file with docker-compose.yml and
+# enable the clickhouse profile. The default audit profile uses YugabyteDB.
+services:
+  audit-consumer:
+    environment:
+      AUDIT_CONSUMER_CLICKHOUSE_DSN_FILE: /run/secrets/AUDIT_CONSUMER_CLICKHOUSE_DSN
+    secrets:
+      - AUDIT_CONSUMER_CLICKHOUSE_DSN
+    depends_on:
+      clickhouse:
+        condition: service_healthy

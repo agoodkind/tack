@@ -21,8 +21,8 @@ DSNs, or partition counts into commands; resolve them from the sources below.
 ## What this changes
 
 Prod currently runs no audit profile (`COMPOSE_PROFILES` has no `audit`, and prod
-is on its pre-cutover migration). This cutover turns on the audit profile (kafka,
-clickhouse, audit-consumer) for the first time. Prod is already provisioned for
+is on its pre-cutover migration). This cutover turns on the audit profile
+(kafka and audit-consumer) for the first time. Prod is already provisioned for
 FoundationDB and product data, so the FDB `configure new` and product `seed`
 first-boot steps do NOT apply here. Only the audit first-boot items do.
 
@@ -58,18 +58,17 @@ first-boot steps do NOT apply here. Only the audit first-boot items do.
 
 ## Pre-flight checklist (go/no-go)
 
-Validated on QA 2026-06-07 at `c81d89e`: the full sequence ran on a freshly
-recreated QA and all eight audit acceptance behaviors reproduced (produce,
-consume, chain link, notarize, recent-to-ClickHouse and old-to-Yugabyte routing,
-ClickHouse-outage chain resilience).
+The original QA cutover validation included a ClickHouse query path that the
+application no longer implements. Current acceptance requires canonical ledger
+recording and operator queries without ClickHouse.
 
 - [x] Green deploy SHA `c81d89e` (build-push overlay-drift gate plus both images).
 - [x] Fresh-boot first-boot sequence needs no manual Kafka topic creation and no
       audit-consumer crash-loop (TACK-301 and TACK-305 shipped in `c81d89e`).
 - [x] Prod `KAFKA_CLUSTER_ID` is distinct from QA (`tack_servers.yml` vs
       `tack_qa_servers.yml`).
-- [x] Audit profile renders unconditionally and `AUDIT_CONSUMER_CLICKHOUSE_DSN`
-      (consumer write) targets the ClickHouse audit database.
+- [x] The audit profile enables Kafka and the audit consumer. ClickHouse is
+      optional and disabled in the default deployment.
 
 Confirm at run time, not verifiable ahead of the deploy:
 
@@ -103,8 +102,7 @@ passwords from the rendered `.env`.
      --extra-var tack_image_tag=<green-SHA>
    ```
 
-   This pulls the audit images and brings up kafka, clickhouse, and
-   audit-consumer.
+   This pulls the audit images and starts Kafka and the audit consumer.
 
    The audit-consumer cannot authenticate to YugabyteDB until the audit roles
    exist (step 3). It waits for them on its own, logging
@@ -128,23 +126,20 @@ passwords from the rendered `.env`.
    `kafka-topics.sh --bootstrap-server localhost:9092 --describe --topic
    audit.events.v1` should report PartitionCount 256.
 
-5. **ClickHouse schema.** No manual step: the audit-consumer creates the audit
-   database and `audit.events_olap` on connect (`ensureClickHouseSchema`). Verify
-   it exists after the consumer is healthy. The consumer is the only process
-   that reads or writes ClickHouse (`AUDIT_CONSUMER_CLICKHOUSE_DSN`); ledger
-   reads go to YugabyteDB through the host commands.
+ClickHouse is optional. Its profile, consumer secret mount, and health
+dependency require the [optional Compose overlay](../../../docker-compose.clickhouse.yml).
+The default deployment does not require its secret files.
 
 ## Verify
 
-- All audit services healthy: kafka, clickhouse, and audit-consumer `Up`; the
+- All required audit services healthy: kafka and audit-consumer `Up`; the
   consumer has joined its group and logs no real fetch errors (the idle-poll
   sentinel is no longer logged as of the consumer fix).
 - One real product action produces exactly one `audit.events` row, the hash chain
   links (prev_hash chains to row_hash), and the notarizer signs a Merkle root.
 - `audit query` (host command, reader role, `--execute`) returns that row from
   YugabyteDB.
-- Kill ClickHouse briefly and confirm the chain keeps advancing (ClickHouse is
-  best-effort, never blocks the canonical write).
+- Run the canonical recording and query checks without ClickHouse.
 
 ## Safety
 
@@ -173,7 +168,7 @@ synchronous producer fails; the app logs `kafka.produce.failed` and
 Stops audit ingestion immediately; product keeps serving.
 
 ```
-docker compose stop audit-consumer kafka clickhouse
+docker compose stop audit-consumer kafka
 ```
 
 Accept that audit events during the stop window are not recorded. Use when the
@@ -191,7 +186,7 @@ pre-cutover behavior) and stops attempting Kafka produces.
    and choose the pre-cutover image SHA for `tack_image_tag`.
 2. Re-run the same `deploy deploy-tack --limit tack_servers` command as the
    cutover step 1 with that SHA. This recreates `app` on the prior image with the
-   audit producer disabled and leaves kafka/clickhouse/audit-consumer stopped.
+   audit producer disabled and leaves Kafka and the audit consumer stopped.
 
 ### Always
 
