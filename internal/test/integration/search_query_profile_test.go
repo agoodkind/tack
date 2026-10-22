@@ -85,7 +85,10 @@ func requireSparseProfile(t *testing.T, search capturedSearch) {
 						t.Fatalf("profile contains the forbidden query type %s: %s", query.Type, query.Description)
 					}
 				}
-				if query.Type != sparseQueryType {
+				// OpenSearch profiles boosted sparse clauses as BoostQuery operations.
+				// The check ignores leading parentheses and counts operations with
+				// descriptions that start with FeatureQuery(.
+				if !strings.HasPrefix(strings.TrimLeft(query.Description, "("), sparseQueryType+"(") {
 					continue
 				}
 				if !strings.Contains(query.Description, sparseEmbeddingField) {
