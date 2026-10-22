@@ -13,11 +13,10 @@ import (
 // WriteEncodedOutboxTx calls public.ops_outbox_write_encoded inside the caller's
 // transaction with the event ID, plain event or manifest, and ordered part messages.
 func WriteEncodedOutboxTx(ctx context.Context, tx pgx.Tx, encoded EncodedEvent) error {
-	records, err := encoded.Records()
+	event, parts, err := encoded.HeaderAndParts()
 	if err != nil {
 		return err
 	}
-	event, parts := records[len(records)-1], records[:len(records)-1]
 	if _, err := tx.Exec(ctx, `SELECT public.ops_outbox_write_encoded($1, $2, $3)`, encoded.EventID, event, parts); err != nil {
 		slog.ErrorContext(ctx, "audit.outbox.encoded_write_failed", slog.String("event_id", encoded.EventID.String()), slog.String("err", err.Error()))
 		return fmt.Errorf("write ops outbox event %s with %d parts: %w", encoded.EventID, len(parts), err)
@@ -83,12 +82,23 @@ func (o *PoolOutbox) outboxPartMessages(ctx context.Context, eventID uuid.UUID, 
 // Delete removes an event's parts and outbox row in one transaction.
 // The relay runs Delete after the broker accepts every record for the row.
 func (o *PoolOutbox) Delete(ctx context.Context, eventID uuid.UUID) error {
+	return o.DeletePublished(ctx, eventID, nil)
+}
+
+// DeletePublished deletes an event's parts and outbox row and marks the read
+// receipts in reads as published in the same transaction.
+func (o *PoolOutbox) DeletePublished(ctx context.Context, eventID uuid.UUID, reads []PublishedRead) error {
 	err := pgx.BeginFunc(ctx, o.pool, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `DELETE FROM public.ops_outbox_parts WHERE event_id = $1`, eventID); err != nil {
 			return fmt.Errorf("delete parts: %w", err)
 		}
 		if _, err := tx.Exec(ctx, `DELETE FROM public.ops_outbox WHERE event_id = $1`, eventID); err != nil {
 			return fmt.Errorf("delete event: %w", err)
+		}
+		for _, read := range reads {
+			if _, err := tx.Exec(ctx, readStatement("acknowledge"), read.EventID, read.Digest); err != nil {
+				return fmt.Errorf("mark read %s published: %w", read.EventID, err)
+			}
 		}
 		return nil
 	})

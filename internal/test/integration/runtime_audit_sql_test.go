@@ -32,7 +32,7 @@ func TestRuntimeAuditSQLAtomicChange(t *testing.T) {
 	if err != nil {
 		t.Fatalf("IssueAuthToken error = %v, want nil", err)
 	}
-	issueEvent := onlyEvent(t, outboxEvents(t, stack.admin, issue.Token.ID), audit.PhaseChange)
+	issueEvent := onlyEvent(t, sqlOutboxEvents(t, stack.admin, issue.Token.ID), audit.PhaseChange)
 
 	restrictedPool := changeOnlyPool(t, stack.admin)
 	if _, err := ops.IssueAuthToken(ctx, restrictedPool, principal, holder.Email, sqlAuditTokenLabel); err == nil {
@@ -49,7 +49,7 @@ func TestRuntimeAuditSQLAtomicChange(t *testing.T) {
 	if !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("RemoveMember of a missing membership: err = %v, want domain.ErrNotFound", err)
 	}
-	failureEvent := onlyEvent(t, outboxEvents(t, stack.admin, removal.Context.OperationID), audit.PhaseResult)
+	failureEvent := onlyEvent(t, sqlOutboxEvents(t, stack.admin, removal.Context.OperationID), audit.PhaseResult)
 
 	startOutboxRelay(t, stack)
 	issueRow := requireLedgerChange(t, stack, issueEvent)
@@ -100,11 +100,11 @@ func TestRuntimeAuditMembershipRoleReplacement(t *testing.T) {
 		t.Fatalf("member count after RemoveMember = %d, error = %v; want 0 and nil error", len(memberRows), err)
 	}
 
-	addEvent := onlyEvent(t, outboxEvents(t, stack.admin, add.Context.OperationID), audit.PhaseChange)
-	replaceEvent := onlyEvent(t, outboxEvents(t, stack.admin, replace.Context.OperationID), audit.PhaseChange)
-	removeEvent := onlyEvent(t, outboxEvents(t, stack.admin, remove.Context.OperationID), audit.PhaseChange)
-	userEvent := onlyEvent(t, outboxEvents(t, stack.admin, holder.ID), audit.PhaseChange)
-	repeatEvents := outboxEvents(t, stack.admin, repeat.Context.OperationID)
+	addEvent := onlyEvent(t, sqlOutboxEvents(t, stack.admin, add.Context.OperationID), audit.PhaseChange)
+	replaceEvent := onlyEvent(t, sqlOutboxEvents(t, stack.admin, replace.Context.OperationID), audit.PhaseChange)
+	removeEvent := onlyEvent(t, sqlOutboxEvents(t, stack.admin, remove.Context.OperationID), audit.PhaseChange)
+	userEvent := onlyEvent(t, sqlOutboxEvents(t, stack.admin, holder.ID), audit.PhaseChange)
+	repeatEvents := sqlOutboxEvents(t, stack.admin, repeat.Context.OperationID)
 	if len(repeatEvents) != 0 {
 		t.Fatalf("events for an unchanged role = %d, want 0", len(repeatEvents))
 	}
@@ -148,7 +148,7 @@ func TestRuntimeAuditTokenMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("IssueAuthToken error = %v, want nil", err)
 	}
-	issueEvent := onlyEvent(t, outboxEvents(t, stack.admin, issue.Token.ID), audit.PhaseChange)
+	issueEvent := onlyEvent(t, sqlOutboxEvents(t, stack.admin, issue.Token.ID), audit.PhaseChange)
 	if _, err := tokens.Validate(ctx, issue.Raw); err != nil {
 		t.Fatalf("Validate error = %v, want nil", err)
 	}
@@ -156,11 +156,11 @@ func TestRuntimeAuditTokenMetadata(t *testing.T) {
 	if err != nil || tokenRow.LastUsed != nil {
 		t.Fatalf("token after Validate = %+v, %v; want nil LastUsed and nil error", tokenRow, err)
 	}
-	onlyEvent(t, outboxEvents(t, stack.admin, issue.Token.ID), audit.PhaseChange)
+	onlyEvent(t, sqlOutboxEvents(t, stack.admin, issue.Token.ID), audit.PhaseChange)
 	if _, err := ops.RevokeAuthToken(ctx, stack.admin, principal, issue.Token.ID); err != nil {
 		t.Fatalf("RevokeAuthToken error = %v, want nil", err)
 	}
-	tokenEvents := outboxEvents(t, stack.admin, issue.Token.ID)
+	tokenEvents := sqlOutboxEvents(t, stack.admin, issue.Token.ID)
 	if len(tokenEvents) != 2 {
 		t.Fatalf("token events = %d, want 2", len(tokenEvents))
 	}

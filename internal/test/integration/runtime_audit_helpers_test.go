@@ -70,7 +70,6 @@ func startRuntimeAuditStack(t *testing.T) runtimeAuditStack {
 	return runtimeAuditStack{topic: topic, admin: admin, reader: reader, recorder: recorder}
 }
 
-// record produces each event through the Kafka recorder.
 func (stack runtimeAuditStack) record(t *testing.T, events ...audit.Event) {
 	t.Helper()
 	for _, event := range events {

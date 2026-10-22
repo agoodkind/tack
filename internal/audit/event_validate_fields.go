@@ -51,7 +51,7 @@ func validateTarget(target Target) error {
 
 func validateOutcomeFields(event Event) error {
 	eventContext := event.Context
-	terminal := event.Outcome != OutcomePending
+	terminal := isTerminalOutcome(event.Outcome)
 	if terminal == eventContext.CompletedAt.IsZero() {
 		return errors.New("terminal events require a completion time and pending events cannot set one")
 	}
@@ -74,16 +74,17 @@ func validateCommittedSteps(outcome Outcome, steps []string) error {
 		if len(steps) == 0 {
 			return errors.New("format 2 outcome partially_completed requires at least one committed step in CommittedSteps")
 		}
+		return nil
 	case OutcomeCompleted, OutcomeRefused, OutcomeFailed:
 		if len(steps) != 0 {
 			return fmt.Errorf("format 2 outcome %q does not allow CommittedSteps", outcome)
 		}
+		return nil
 	case OutcomeIncomplete, OutcomePending, OutcomeOK, OutcomeError, OutcomeUnrecorded:
 		return nil
 	default:
-		return nil
+		return fmt.Errorf("audit does not define outcome %q", outcome)
 	}
-	return nil
 }
 
 func validateReadEvidence(read ReadEvidence) error {

@@ -66,9 +66,9 @@ func createSQLAuditUser(t *testing.T, pool *pgxpool.Pool, principal audit.Operat
 	return created
 }
 
-// outboxEvents reads operator outbox events matching id as an entity ID or
+// sqlOutboxEvents reads operator outbox events matching id as an entity ID or
 // operation ID, in creation order.
-func outboxEvents(t *testing.T, pool *pgxpool.Pool, id uuid.UUID) []audit.Event {
+func sqlOutboxEvents(t *testing.T, pool *pgxpool.Pool, id uuid.UUID) []audit.Event {
 	t.Helper()
 	rows, err := pool.Query(t.Context(), runtimeAuditOutboxEventsQuery, id.String())
 	if err != nil {
