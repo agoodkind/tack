@@ -35,12 +35,10 @@ type commandInput interface {
 	isCommandInput()
 }
 
-// emptyInput is the input of a command without flags.
 type emptyInput struct{}
 
 func (emptyInput) isCommandInput() {}
 
-// restoreDrillInput is the input of restore-drill.
 type restoreDrillInput struct {
 	YBRunKey      string `json:"yb_run_key,omitempty"`
 	FDBTargetTime string `json:"fdb_target_time,omitempty"`
