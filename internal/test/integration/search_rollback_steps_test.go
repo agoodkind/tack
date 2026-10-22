@@ -16,7 +16,7 @@ import (
 
 const (
 	// rolloutStepDeadline bounds one wait for a rollout state.
-	rolloutStepDeadline = 5 * time.Minute
+	rolloutStepDeadline = 10 * time.Minute
 	// rolloutIdlePause sets the delay after a slice does not claim work.
 	rolloutIdlePause = 250 * time.Millisecond
 	// rolloutDrainSlices bounds the worker slices in one drain.

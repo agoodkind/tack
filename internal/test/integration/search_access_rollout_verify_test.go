@@ -41,12 +41,13 @@ func TestSearchAccessRolloutDualVersionWrites(t *testing.T) {
 	requireNodesFound(t, traverseSearch(t, fixture, workspace, query, searchAs(t, fixture, workspace, query, "")), []uuid.UUID{existing[0], written})
 }
 
-// TestSearchAccessRolloutGrantDuringVerification moves a node to another
-// entry point after verification begins. The rollout must return to
-// backfill and record a higher permission event boundary before
-// activation. At activation, the node's pages must store the new entry
-// point keys of both versions at a higher access generation and preserve
-// text and semantic fields.
+// TestSearchAccessRolloutGrantDuringVerification requires the rollout to
+// delay activation while the test keeps a claim on the moved node's access
+// work after a grant change during the affected pass. The rollout must
+// preserve its generation and must not restart the authority scan. After the
+// test yields the claim, the rollout must activate with both versions' new
+// entry point keys at a higher access generation on the moved node's pages.
+// Page text and semantic fields must remain unchanged.
 func TestSearchAccessRolloutGrantDuringVerification(t *testing.T) {
 	fixture := newRolloutFixture(t)
 	first, second := sameOrganizationWorkspaces(t, fixture)
@@ -58,21 +59,31 @@ func TestSearchAccessRolloutGrantDuringVerification(t *testing.T) {
 	before := rolloutPages(t, fixture, []uuid.UUID{moved})
 
 	beginAccessRollout(t, fixture, first.OrgID)
-	verifying := runRolloutUntil(t, fixture, first.OrgID, func(rollout searchdomain.AccessRollout) bool {
-		return rollout.Phase == searchdomain.AccessVerifying
+	affected := runRolloutUntil(t, fixture, first.OrgID, func(rollout searchdomain.AccessRollout) bool {
+		return rollout.AffectedPass
 	})
-	if verifying.Activated() {
-		t.Fatalf("rollout activated before the grant change: %+v", verifying)
+	if affected.Activated() {
+		t.Fatalf("The rollout activated before the grant change: %+v", affected)
 	}
 	moveRolloutNode(t, fixture, moved, to)
+	held := holdAccessWork(t, fixture, moved)
 
-	repeatedScan := false
+	restarted := false
+	for range rollbackWaitSlices {
+		runSliceOrWait(t, fixture.worker)
+		current := currentAccessRollout(t, fixture, first.OrgID)
+		restarted = restarted || current.Phase == searchdomain.AccessBackfill
+		if current.Activated() {
+			t.Fatalf("The rollout activated while the test kept the claim on the moved node's access work: %+v", current)
+		}
+	}
+	releaseAccessWork(t, fixture, held)
 	activated := runRolloutUntil(t, fixture, first.OrgID, func(rollout searchdomain.AccessRollout) bool {
-		repeatedScan = repeatedScan || rollout.Phase == searchdomain.AccessBackfill
+		restarted = restarted || rollout.Phase == searchdomain.AccessBackfill
 		return rollout.Activated()
 	})
-	if !repeatedScan || activated.PermissionEventVersion <= verifying.PermissionEventVersion {
-		t.Fatalf("grant verification must repeat the scan and increase the boundary: repeated scan %t, activation boundary %d, previous boundary %d", repeatedScan, activated.PermissionEventVersion, verifying.PermissionEventVersion)
+	if restarted || activated.Generation != affected.Generation {
+		t.Fatalf("The grant change must not restart the authority scan or change the generation: restarted=%t, activated generation=%d, affected pass generation=%d", restarted, activated.Generation, affected.Generation)
 	}
 	expected := expectedAccessKeys(t, fixture, first.OrgID, moved)
 	after := rolloutPages(t, fixture, []uuid.UUID{moved})
@@ -80,7 +91,7 @@ func TestSearchAccessRolloutGrantDuringVerification(t *testing.T) {
 		previous := before[position]
 		if !slices.Equal(page.Access.Versions, bothAccessVersions) || !slices.Equal(page.Access.Keys, expected) ||
 			slices.Equal(page.Access.Keys, previous.Access.Keys) || page.Access.Generation <= previous.Access.Generation {
-			t.Fatalf("page %s has access %+v after previous access %+v and must use keys %v at a higher generation", page.ID, page.Access, previous.Access, expected)
+			t.Fatalf("Page %s must store both versions with changed keys and a higher access generation: access=%+v, previous access=%+v, expected keys=%v", page.ID, page.Access, previous.Access, expected)
 		}
 	}
 	requirePagesPreserved(t, before, after)
@@ -88,6 +99,40 @@ func TestSearchAccessRolloutGrantDuringVerification(t *testing.T) {
 	final := runRolloutUntil(t, fixture, first.OrgID, rolloutStable)
 	requireAccessRollout(t, final, searchaccess.RotatedVersion, []string{searchaccess.RotatedVersion}, searchdomain.AccessStable)
 	requirePageVersions(t, rolloutPages(t, fixture, nodes), []string{searchaccess.RotatedVersion})
+}
+
+// TestSearchAccessRolloutAffectedOverflow requires the rollout to restart
+// backfill before activation after the test creates 260 nodes during the
+// affected pass. The restarted rollout must exit the affected pass and clear
+// the scan cursor. The completed rollout must leave only the rotated version
+// on every page.
+func TestSearchAccessRolloutAffectedOverflow(t *testing.T) {
+	fixture := newRolloutFixture(t)
+	workspace := fixture.workspaces[0]
+	entryID := rolloutEntryPoint(t, fixture, workspace)
+	kind := putRolloutKind(t, fixture, workspace.OrgID)
+	query := "affected overflow lantern"
+	existing := putRolloutCorpus(t, fixture, kind, entryID, query, 1)
+	drainRolloutWork(t, fixture)
+
+	beginAccessRollout(t, fixture, workspace.OrgID)
+	runRolloutUntil(t, fixture, workspace.OrgID, func(rollout searchdomain.AccessRollout) bool {
+		return rollout.AffectedPass
+	})
+	created := putRolloutCorpus(t, fixture, kind, entryID, query, overflowGrantNodes)
+	restarted := runRolloutUntil(t, fixture, workspace.OrgID, func(rollout searchdomain.AccessRollout) bool {
+		if rollout.Activated() {
+			t.Fatalf("The rollout activated before the affected set overflow restarted the authority scan: %+v", rollout)
+		}
+		return rollout.Phase == searchdomain.AccessBackfill
+	})
+	if restarted.AffectedPass || restarted.ScanCursor != "" {
+		t.Fatalf("The restarted rollout must exit the affected pass and clear the scan cursor: %+v", restarted)
+	}
+
+	final := runRolloutUntil(t, fixture, workspace.OrgID, rolloutStable)
+	requireAccessRollout(t, final, searchaccess.RotatedVersion, []string{searchaccess.RotatedVersion}, searchdomain.AccessStable)
+	requirePageVersions(t, rolloutPages(t, fixture, append(slices.Clone(existing), created...)), []string{searchaccess.RotatedVersion})
 }
 
 // sameOrganizationWorkspaces returns two bootstrapped workspaces of one
