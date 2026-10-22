@@ -7,7 +7,7 @@
 // The writer marks the slot committed. The wrapper skips its change event
 // when the slot has that mark.
 //
-// Encoded operations use json.RawMessage.
+// Encoded operations use [json.RawMessage].
 package auditintent
 
 import (
@@ -79,7 +79,7 @@ func Tool(ctx context.Context) string {
 }
 
 // Actor returns the actor UUID from the nearest slot on ctx.
-// It returns uuid.Nil when ctx does not have a slot or WithOperation created that slot.
+// It returns [uuid.Nil] when ctx does not have a slot or WithOperation created that slot.
 func Actor(ctx context.Context) uuid.UUID {
 	current, _ := ctx.Value(slotKey{}).(*slot)
 	if current == nil {
@@ -91,8 +91,8 @@ func Actor(ctx context.Context) uuid.UUID {
 }
 
 // OperationID creates and stores a UUIDv7 ID when the nearest slot on ctx does not have one.
-// It returns the stored ID, or uuid.Nil and an error if creation fails.
-// It returns uuid.Nil without an error when ctx does not have a slot.
+// It returns the stored ID, or [uuid.Nil] and an error if creation fails.
+// It returns [uuid.Nil] without an error when ctx does not have a slot.
 func OperationID(ctx context.Context) (uuid.UUID, error) {
 	current, _ := ctx.Value(slotKey{}).(*slot)
 	if current == nil {
