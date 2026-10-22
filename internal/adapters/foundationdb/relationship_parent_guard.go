@@ -14,17 +14,19 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// refuseOnlyParentRemoval refuses the removal of the child_of edge from
-// sourceID to targetID when that edge is the source node's only hierarchy
-// parent. Search access compilation fails for a node without a hierarchy
-// parent when the node type lists CanLiveUnder types. The guard applies the
-// same rule: only child_of edges define a parent, the source type lists
-// CanLiveUnder types, node.LivesUnder places the source under the target,
-// and no other child_of edge from the source has a hierarchy parent as its
-// target. The removal of an edge of any other relation type passes. The
-// guard reads the source's child_of edges in the removal transaction.
-// FoundationDB aborts one of two concurrent transactions that each remove a
-// different parent edge of the same node.
+// refuseOnlyParentRemoval runs inside the relationship removal transaction
+// and allows removal of edges of other relation types and child_of edges that
+// do not exist. When the source node stores parent_id as a UUID string, the
+// guard refuses removal of the child_of edge targeting parent_id for every
+// node type, even when another child_of edge remains, and allows removal of
+// other child_of edges. When the source node stores a parent_id value that is
+// not a UUID string, the guard refuses removal of every existing child_of
+// edge. When the source node does not store parent_id, the guard refuses
+// removal if node.HierarchyParent returns an error for the source type and
+// the other remaining child_of target, if any. Each refusal returns an error
+// that matches domain.ErrFailedPrecondition. FoundationDB aborts one of two
+// concurrent transactions that each remove a different parent edge of the
+// same node.
 func refuseOnlyParentRemoval(ctx context.Context, tr fdb.Transaction, orgID, sourceID uuid.UUID, relationType string, targetID uuid.UUID) error {
 	if relationType != node.RelChildOf {
 		return nil
@@ -37,18 +39,29 @@ func refuseOnlyParentRemoval(ctx context.Context, tr fdb.Transaction, orgID, sou
 	if len(existing) == 0 {
 		return nil
 	}
-	kinds := make(map[string]*node.NodeType)
-	endpoints, err := hierarchyTypesOf(ctx, tr, orgID, []uuid.UUID{sourceID, targetID}, kinds)
+	sources, err := readHierarchyNodes(ctx, tr, orgID, []uuid.UUID{sourceID}, make(map[string]*node.NodeType))
 	if err != nil {
 		return err
 	}
-	source, target := endpoints[0], endpoints[1]
-	if source == nil || len(source.CanLiveUnder) == 0 || !node.LivesUnder(source, target) {
+	canonicalID, err := storedParentID(ctx, tr, orgID, sources[0])
+	if err != nil {
+		return err
+	}
+	if canonicalID != uuid.Nil && canonicalID != targetID {
 		return nil
 	}
-	otherParent, err := hasOtherHierarchyParent(ctx, tr, orgID, sourceID, removedKey, targetID, source, kinds)
-	if err != nil || otherParent {
-		return err
+	if canonicalID == uuid.Nil {
+		otherID, found, err := otherParentTarget(ctx, tr, orgID, sourceID, removedKey)
+		if err != nil {
+			return err
+		}
+		var remaining []uuid.UUID
+		if found {
+			remaining = []uuid.UUID{otherID}
+		}
+		if _, parentErr := node.HierarchyParent(sourceID, sources[0].Kind, remaining); parentErr == nil {
+			return nil
+		}
 	}
 	wrapped := fmt.Errorf("node %s needs a hierarchy parent, and %s is its only hierarchy parent; move the node to another parent instead: %w",
 		sourceID, targetID, domain.ErrFailedPrecondition)
@@ -57,88 +70,81 @@ func refuseOnlyParentRemoval(ctx context.Context, tr fdb.Transaction, orgID, sou
 	return loggedSearchError{err: wrapped}
 }
 
-// hasOtherHierarchyParent reads the child_of edges from sourceID in bounded
-// pages and reports whether a child_of edge other than removedKey has a
-// hierarchy parent of source as its target.
-func hasOtherHierarchyParent(
-	ctx context.Context, tr fdb.Transaction, orgID, sourceID uuid.UUID, removedKey fdb.Key, parentID uuid.UUID,
-	source *node.NodeType, kinds map[string]*node.NodeType,
-) (bool, error) {
-	keyRange, err := fdb.PrefixRange(relationshipPrefixBySource(orgID, sourceID, node.RelChildOf))
-	if err != nil {
-		return false, nodeOperationFailure(ctx, "create relationship range for node "+sourceID.String(), err)
+// storedParentID reads the primary record of source inside tr and returns the
+// parent_id that the record stores. It returns [uuid.Nil] without an error when
+// source does not identify a node in the organization, the primary record
+// does not exist, or the record does not store parent_id. It returns an error
+// when the stored parent_id is not a JSON string that contains a UUID.
+func storedParentID(ctx context.Context, tr fdb.Transaction, orgID uuid.UUID, source hierarchyNode) (uuid.UUID, error) {
+	if !source.Found {
+		return uuid.Nil, nil
 	}
-	end := fdb.FirstGreaterOrEqual(keyRange.End)
-	begin := fdb.FirstGreaterOrEqual(keyRange.Begin)
-	for {
-		selection := fdb.SelectorRange{Begin: begin, End: end}
-		items, readErr := tr.GetRange(selection, fdb.RangeOptions{Limit: maxRelationshipPage}).GetSliceWithError()
-		if readErr != nil {
-			return false, searchReadFailure(ctx, "read relationship page of node "+sourceID.String(), readErr)
-		}
-		candidates := make([]uuid.UUID, 0, len(items))
-		for _, item := range items {
-			if bytes.Equal(item.Key, removedKey) {
-				continue
-			}
-			targetID, decodeErr := edgeEnd(ctx, item.Key)
-			if decodeErr != nil {
-				return false, decodeErr
-			}
-			if targetID == parentID {
-				return true, nil
-			}
-			candidates = append(candidates, targetID)
-		}
-		targets, typeErr := hierarchyTypesOf(ctx, tr, orgID, candidates, kinds)
-		if typeErr != nil {
-			return false, typeErr
-		}
-		for _, target := range targets {
-			if node.LivesUnder(source, target) {
-				return true, nil
-			}
-		}
-		if len(items) < maxRelationshipPage {
-			return false, nil
-		}
-		begin = fdb.FirstGreaterThan(items[len(items)-1].Key)
+	current, _, err := readNodeAndView(ctx, tr, orgID, source)
+	if err != nil || current == nil {
+		return uuid.Nil, err
 	}
+	return parentIDValue(ctx, source.ID, current.Props[parentIDProperty])
 }
 
-// hierarchyTypesOf returns the node type of each node in nodeIDs, in order.
-// It issues every resolution read before it waits on any of them. A missing
-// node, a node outside orgID, or a missing type yields nil. kinds caches one
-// type read per type key.
-func hierarchyTypesOf(ctx context.Context, tr fdb.Transaction, orgID uuid.UUID, nodeIDs []uuid.UUID, kinds map[string]*node.NodeType) ([]*node.NodeType, error) {
-	resolves := make([]fdb.FutureByteSlice, len(nodeIDs))
-	for position, nodeID := range nodeIDs {
-		resolves[position] = tr.Get(fdb.Key(nodeResolveKey(nodeID)))
+// parentIDValue decodes raw as a JSON string and parses that string as a UUID.
+// It returns [uuid.Nil] without an error when raw is empty. It returns an error
+// that matches domain.ErrFailedPrecondition when raw does not encode a JSON
+// string or the string does not contain a UUID.
+func parentIDValue(ctx context.Context, nodeID uuid.UUID, raw json.RawMessage) (uuid.UUID, error) {
+	if len(raw) == 0 {
+		return uuid.Nil, nil
 	}
-	types := make([]*node.NodeType, len(nodeIDs))
-	for position, future := range resolves {
-		nodeID := nodeIDs[position]
-		encoded, err := future.Get()
-		if err != nil {
-			return nil, searchReadFailure(ctx, "read node resolution "+nodeID.String(), err)
-		}
-		if len(encoded) == 0 {
+	var text string
+	if err := json.Unmarshal(raw, &text); err != nil {
+		return uuid.Nil, invalidStoredParent(ctx, nodeID, raw, err)
+	}
+	parentID, err := uuid.Parse(text)
+	if err != nil {
+		return uuid.Nil, invalidStoredParent(ctx, nodeID, raw, err)
+	}
+	return parentID, nil
+}
+
+// invalidStoredParent builds an error for the parent_id value raw on nodeID
+// that wraps cause and domain.ErrFailedPrecondition. It logs the error once
+// at Error level with the event relationship.remove_refused and the source_id
+// attribute set to nodeID. It returns the error as an already logged error.
+func invalidStoredParent(ctx context.Context, nodeID uuid.UUID, raw json.RawMessage, cause error) error {
+	wrapped := fmt.Errorf("node %s stores a parent_id value %s that is not a UUID string: %w: %w", nodeID, raw, cause, domain.ErrFailedPrecondition)
+	telemetry.L(ctx).ErrorContext(ctx, "relationship.remove_refused", slog.String("err", wrapped.Error()),
+		slog.String("source_id", nodeID.String()))
+	return loggedSearchError{err: wrapped}
+}
+
+// parentGuardEdgeLimit limits the guard to reading two child_of edges: the
+// edge to remove and one other edge.
+const parentGuardEdgeLimit = 2
+
+// otherParentTarget reads at most parentGuardEdgeLimit child_of edges from
+// sourceID. It returns the target and true for the first edge with a key other
+// than removedKey. It returns [uuid.Nil] and false when it does not find another
+// edge. It returns an error if the range read fails or an edge key does not
+// decode.
+func otherParentTarget(ctx context.Context, tr fdb.Transaction, orgID, sourceID uuid.UUID, removedKey fdb.Key) (uuid.UUID, bool, error) {
+	keyRange, err := fdb.PrefixRange(relationshipPrefixBySource(orgID, sourceID, node.RelChildOf))
+	if err != nil {
+		return uuid.Nil, false, nodeOperationFailure(ctx, "create relationship range for node "+sourceID.String(), err)
+	}
+	items, err := tr.GetRange(keyRange, fdb.RangeOptions{Limit: parentGuardEdgeLimit}).GetSliceWithError()
+	if err != nil {
+		return uuid.Nil, false, searchReadFailure(ctx, "read child_of edges of node "+sourceID.String(), err)
+	}
+	for _, item := range items {
+		if bytes.Equal(item.Key, removedKey) {
 			continue
 		}
-		var resolved node.NodeResolve
-		if err := json.Unmarshal(encoded, &resolved); err != nil {
-			return nil, searchReadFailure(ctx, "decode node resolution "+nodeID.String(), err)
-		}
-		if resolved.OrgID != orgID {
-			continue
-		}
-		kind, err := cachedNodeTypeByKey(ctx, tr, orgID, resolved.NodeType, kinds)
+		targetID, err := edgeEnd(ctx, item.Key)
 		if err != nil {
-			return nil, err
+			return uuid.Nil, false, err
 		}
-		types[position] = kind
+		return targetID, true, nil
 	}
-	return types, nil
+	return uuid.Nil, false, nil
 }
 
 // cachedNodeTypeByKey reads the node type of orgID that uses typeKey through

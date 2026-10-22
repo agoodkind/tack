@@ -121,11 +121,11 @@ func (s *NodeDeleteStore) takeChild(
 }
 
 // findHierarchyChild returns the source of the first edge in edges that is a
-// hierarchy child of top: a child_of edge from a node that node.LivesUnder
-// places under top. It also returns every edge with a source that is not a
-// hierarchy child. A node already on the stack is never a child, and the
-// stack never contains one node twice. The returned child has Found false
-// when edges contain no child.
+// hierarchy child of top: a child_of edge from a node with top as its
+// hierarchy parent under [node.HierarchyParent]. It also returns every edge
+// before that child with a source that is not a hierarchy child. A node
+// already on the stack is never a child, and the stack never contains one
+// node twice. The returned child has Found false when edges contain no child.
 func findHierarchyChild(
 	ctx context.Context, tr fdb.Transaction, job *node.SubtreeDeleteJob, top hierarchyNode, edges []deleteEdge, kinds map[string]*node.NodeType,
 ) (hierarchyNode, []deleteEdge, error) {
@@ -138,19 +138,21 @@ func findHierarchyChild(
 	if err != nil {
 		return none, nil, err
 	}
-	child := none
 	others := make([]deleteEdge, 0, len(edges))
 	for position, source := range sources {
-		isChild := edges[position].RelationType == node.RelChildOf && source.Found &&
-			!slices.Contains(job.Stack, source.ID) && node.LivesUnder(source.Kind, top.Kind)
-		if isChild && !child.Found {
-			child = source
+		isChild := edges[position].RelationType == node.RelChildOf && source.Found && !slices.Contains(job.Stack, source.ID)
+		if isChild {
+			isChild, err = hasHierarchyParent(ctx, tr, job.OrgID, source, top.ID)
+			if err != nil {
+				return none, nil, err
+			}
 		}
-		if !isChild {
-			others = append(others, edges[position])
+		if isChild {
+			return source, others, nil
 		}
+		others = append(others, edges[position])
 	}
-	return child, others, nil
+	return none, others, nil
 }
 
 // deleteTop deletes the last node on the stack of job, writes its ledger

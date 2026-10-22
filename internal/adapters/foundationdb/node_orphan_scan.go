@@ -17,8 +17,7 @@ import (
 const orphanScanPageSize = 100
 
 // OrphanNode identifies one node of a type that lists CanLiveUnder types and
-// has no child_of edge to an existing node that NodeType metadata places
-// above it.
+// has no child_of edge to another existing node of its organization.
 type OrphanNode struct {
 	ID       uuid.UUID `json:"id"`
 	OrgID    uuid.UUID `json:"org_id"`
@@ -47,7 +46,6 @@ type OrphanPage struct {
 // orphanCandidate is one scanned node of a type that requires a parent.
 type orphanCandidate struct {
 	node     OrphanNode
-	kind     *node.NodeType
 	parentID uuid.UUID
 }
 
@@ -129,7 +127,7 @@ func readOrphanCandidates(ctx context.Context, tr fdb.Transaction, cursor string
 func decodeOrphanCandidate(
 	ctx context.Context, tr fdb.Transaction, item fdb.KeyValue, kindsByOrg map[uuid.UUID]map[string]*node.NodeType,
 ) (orphanCandidate, bool, error) {
-	none := orphanCandidate{node: OrphanNode{ID: uuid.Nil, OrgID: uuid.Nil, NodeType: ""}, kind: nil, parentID: uuid.Nil}
+	none := orphanCandidate{node: OrphanNode{ID: uuid.Nil, OrgID: uuid.Nil, NodeType: ""}, parentID: uuid.Nil}
 	nodeID, err := lastTupleID(ctx, item.Key)
 	if err != nil {
 		return none, false, err
@@ -146,6 +144,6 @@ func decodeOrphanCandidate(
 		return none, false, err
 	}
 	return orphanCandidate{
-		node: OrphanNode{ID: nodeID, OrgID: resolved.OrgID, NodeType: resolved.NodeType}, kind: kind, parentID: uuid.Nil,
+		node: OrphanNode{ID: nodeID, OrgID: resolved.OrgID, NodeType: resolved.NodeType}, parentID: uuid.Nil,
 	}, true, nil
 }
