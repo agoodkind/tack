@@ -2,11 +2,13 @@ package ops
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/spf13/cobra"
 	"goodkind.io/tack/internal/adapters/search"
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
@@ -17,11 +19,12 @@ import (
 )
 
 type searchReindexInput struct {
-	clispec.InputMarker
-	Mode      string
-	Primaries int
-	Restored  bool
+	Mode      string `json:"mode"`
+	Primaries int    `json:"primaries"`
+	Restored  bool   `json:"restored"`
 }
+
+func (searchReindexInput) isCommandInput() {}
 
 type searchReindexOutput struct {
 	clispec.ResultMarker
@@ -35,71 +38,97 @@ type searchReindexOutput struct {
 	DryRun      bool   `json:"dry_run"`
 }
 
-func searchReindexOp(f *cli.Factory) clispec.Operation[searchReindexInput] {
-	return clispec.Operation[searchReindexInput]{
-		Name: clispec.Name{Canonical: "reindex", CLIOverride: ""}, Lifetime: clispec.Permanent,
-		Audit: audit.Spec{Verb: string(audit.VerbOpsSearchReindex), Mutates: true}, Group: searchGroup,
-		Short: "Replace the serving search index by a full FoundationDB rebuild or a native split",
-		Params: []clispec.Param[searchReindexInput]{
-			clispec.StringParam("mode", "This parameter selects full for a FoundationDB rebuild or split for a native split.", "full", false, func(in *searchReindexInput, value string) { in.Mode = value }),
-			clispec.IntParam("primaries", "This parameter sets the primary shard count of the split target.", 0, func(in *searchReindexInput, value int) { in.Primaries = value }),
-			clispec.BoolParam("restored", "This flag marks a rebuild after a FoundationDB restore. The rebuild rejects every existing search cursor.", false, func(in *searchReindexInput, value bool) { in.Restored = value }),
-		},
-		New: func() searchReindexInput {
-			return searchReindexInput{InputMarker: clispec.InputMarker{}, Mode: "full", Primaries: 0, Restored: false}
-		},
-		DryRun: func(ctx context.Context, in searchReindexInput, sink clispec.ResultSink) error {
-			return runSearchReindex(ctx, f, in, sink, true)
-		},
-		Run: func(ctx context.Context, in searchReindexInput, sink clispec.ResultSink) error {
-			return runSearchReindex(ctx, f, in, sink, false)
-		},
+// searchReindexCommand builds `ops search reindex`. With --execute, the
+// command records the replacement it begins as an external step on the
+// serving index. Without --execute, it prints the planned replacement.
+func searchReindexCommand(f *cli.Factory) *cobra.Command {
+	in := searchReindexInput{Mode: "full", Primaries: 0, Restored: false}
+	cmd := &cobra.Command{
+		Use: "reindex", Short: "Replace the serving search index by a full FoundationDB rebuild or a native split",
+		Args: cobra.NoArgs,
 	}
+	cmd.Flags().StringVar(&in.Mode, "mode", "full", "This parameter selects full for a FoundationDB rebuild or split for a native split.")
+	cmd.Flags().IntVar(&in.Primaries, "primaries", 0, "This parameter sets the primary shard count of the split target.")
+	cmd.Flags().BoolVar(&in.Restored, "restored", false, "This flag marks a rebuild after a FoundationDB restore. The rebuild rejects every existing search cursor.")
+	spec := externalSpec(audit.VerbOpsSearchReindex, "opensearch/serving-index")
+	input := func() (json.RawMessage, error) { return encodeCommandInput(in) }
+	clispec.AttachExternal(cmd, f, spec, input, func(ctx context.Context, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
+		return runSearchReindexRecorded(ctx, f, in, clispec.NewCLISink(f), steps)
+	})
+	execute := cmd.RunE
+	cmd.RunE = func(cmd *cobra.Command, args []string) error {
+		if f.Execute() {
+			return execute(cmd, args)
+		}
+		if err := clispec.PrintCommandDryRun(cmd.Context(), f, spec); err != nil {
+			return searchReindexFailure(cmd.Context(), "print the dry run", err)
+		}
+		return runSearchReindex(cmd.Context(), f, in, clispec.NewCLISink(f))
+	}
+	return cmd
 }
 
-// runSearchReindex returns the replacement in progress unchanged. A rerun
-// after an interrupted command reports that replacement. Otherwise it requires
-// every projection declaration, validates the request against the serving
-// index before any engine write, and begins the replacement.
-func runSearchReindex(ctx context.Context, f *cli.Factory, in searchReindexInput, sink clispec.ResultSink, dryRun bool) (runErr error) {
+// runSearchReindex prints the replacement in progress or the planned
+// replacement. If a replacement is not in progress, it requires every
+// projection declaration and validates the request against the serving
+// index. It does not write to the search engine.
+func runSearchReindex(ctx context.Context, f *cli.Factory, in searchReindexInput, sink clispec.ResultSink) error {
 	env, err := NewEnv(ctx, f.Cfg)
 	if err != nil {
 		return searchReindexFailure(ctx, "open search reindex environment", err)
 	}
 	defer env.Close()
-	rebuilds := env.Stores.SearchRebuilds(opsClockSource{})
-	current, running, err := rebuilds.CurrentRebuild(ctx)
+	plan, err := planSearchReindex(ctx, f, env, in)
 	if err != nil {
-		return searchReindexFailure(ctx, "read index replacement", err)
+		return err
 	}
+	if plan.running {
+		return writeReindexResult(ctx, sink, plan.current, true, true)
+	}
+	planned := searchdomain.Rebuild{
+		ID: uuid.Nil, Mode: plan.request.Mode, State: "", SourceIndex: plan.serving, TargetIndex: "",
+		ScanCursor: "", VerifyCursor: "", Failure: "", PrimaryShards: plan.request.PrimaryShards,
+		RoutingShards: plan.request.RoutingShards, Replicas: plan.request.Replicas, ScanComplete: false,
+		Paused: false, Restored: plan.request.Restored, PausedAt: time.Time{}, Generation: 0,
+	}
+	return writeReindexResult(ctx, sink, planned, false, true)
+}
+
+// reindexPlan is the replacement in progress, or the serving index and the
+// validated request of a new replacement.
+type reindexPlan struct {
+	current searchdomain.Rebuild
+	running bool
+	serving string
+	request searchdomain.BeginRebuild
+}
+
+// planSearchReindex reads the replacement in progress. Without one, it
+// requires every projection declaration, reads the serving index, and
+// validates the request before any engine write.
+func planSearchReindex(ctx context.Context, f *cli.Factory, env *Env, in searchReindexInput) (reindexPlan, error) {
+	var plan reindexPlan
+	current, running, err := env.Stores.SearchRebuilds(opsClockSource{}).CurrentRebuild(ctx)
+	if err != nil {
+		return plan, searchReindexFailure(ctx, "read index replacement", err)
+	}
+	plan.current, plan.running = current, running
 	if running {
-		return writeReindexResult(ctx, sink, current, true, dryRun)
+		return plan, nil
 	}
 	if err := requireSearchProjections(ctx, f); err != nil {
-		return err
+		return plan, err
 	}
 	serving, err := env.Stores.ServingSearchIndex(ctx)
 	if err != nil {
-		return searchReindexFailure(ctx, "read serving search index", err)
+		return plan, searchReindexFailure(ctx, "read serving search index", err)
 	}
 	request, err := reindexRequest(ctx, f, in, serving)
 	if err != nil {
-		return err
+		return plan, err
 	}
-	if dryRun {
-		planned := searchdomain.Rebuild{
-			ID: uuid.Nil, Mode: request.Mode, State: "", SourceIndex: serving, TargetIndex: "",
-			ScanCursor: "", VerifyCursor: "", Failure: "", PrimaryShards: request.PrimaryShards,
-			RoutingShards: request.RoutingShards, Replicas: request.Replicas, ScanComplete: false,
-			Paused: false, Restored: request.Restored, PausedAt: time.Time{}, Generation: 0,
-		}
-		return writeReindexResult(ctx, sink, planned, false, true)
-	}
-	rebuild, err := rebuilds.BeginRebuild(ctx, request)
-	if err != nil {
-		return searchReindexFailure(ctx, "begin index replacement", err)
-	}
-	return writeReindexResult(ctx, sink, rebuild, false, false)
+	plan.serving, plan.request = serving, request
+	return plan, nil
 }
 
 // reindexRequest builds the replacement request and validates it with
