@@ -50,16 +50,18 @@ func TestRuntimeAuditOutboxWriteFunction(t *testing.T) {
 		t.Fatalf("admin pool: %v", err)
 	}
 	t.Cleanup(admin.Close)
-	var member bool
+	var member, ownerExecutes bool
 	var owner string
 	if err := admin.QueryRow(t.Context(), `
-		SELECT pg_has_role('tack_migrator', 'ops_outbox_owner', 'MEMBER'), pg_get_userbyid(proowner)
+		SELECT pg_has_role('tack_migrator', 'ops_outbox_owner', 'MEMBER'), pg_get_userbyid(proowner),
+		       has_function_privilege('ops_outbox_owner', oid, 'EXECUTE')
 		  FROM pg_proc WHERE proname = 'ops_outbox_write_encoded'
-	`).Scan(&member, &owner); err != nil {
+	`).Scan(&member, &owner, &ownerExecutes); err != nil {
 		t.Fatalf("read the outbox function owner: %v", err)
 	}
-	if member || owner != "ops_outbox_owner" {
-		t.Fatalf("tack_migrator membership in ops_outbox_owner = %t and function owner = %s, want false and ops_outbox_owner", member, owner)
+	if member || owner != "ops_outbox_owner" || !ownerExecutes {
+		t.Fatalf("tack_migrator membership in ops_outbox_owner = %t, function owner = %s, owner execute = %t; want false, ops_outbox_owner, true",
+			member, owner, ownerExecutes)
 	}
 
 	application, err := pgxpool.New(t.Context(), roleLoginDSN(t, admin, ledgerDSN, "app_auth"))
