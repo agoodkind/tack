@@ -48,6 +48,9 @@ func getHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFunc 
 			return classifyError(ctx, err), nil
 		}
 		rc := newRenderCtxWithTypes(ctx, b.Reader, b.Users, b.Resolver.typeIndex)
+		if err := rc.loadAssignees(b.Relationships, view); err != nil {
+			return classifyError(ctx, err), nil
+		}
 		return successText(renderNode(rc, view), ""), nil
 	}
 }

@@ -43,16 +43,17 @@ type cachedServer struct {
 // Handler is the MCP HTTP entry point. It caches a per-user MCP server that
 // knows about the user's accessible NodeTypes.
 type Handler struct {
-	nodeSvc       *service.NodeService
-	nodes         node.NodeRepository
-	reader        node.NodeReader
-	nodeTypes     node.TypeRepository
-	propertyDefs  node.PropertyDefRepository
-	relationships node.RelationshipRepository
-	members       org.MemberRepository
-	users         user.Repository
-	search        tools.SearchBinding
-	epochs        MetadataEpochReader
+	nodeSvc            *service.NodeService
+	nodes              node.NodeRepository
+	reader             node.NodeReader
+	nodeTypes          node.TypeRepository
+	propertyDefs       node.PropertyDefRepository
+	relationships      node.RelationshipRepository
+	relationshipLister node.RelationshipBatchLister
+	members            org.MemberRepository
+	users              user.Repository
+	search             tools.SearchBinding
+	epochs             MetadataEpochReader
 
 	mu    sync.RWMutex
 	cache map[uuid.UUID]*cachedServer
@@ -60,14 +61,15 @@ type Handler struct {
 
 // Deps bundles the dependencies for the MCP handler.
 type Deps struct {
-	NodeSvc       *service.NodeService
-	Nodes         node.NodeRepository
-	Reader        node.NodeReader
-	NodeTypes     node.TypeRepository
-	PropertyDefs  node.PropertyDefRepository
-	Relationships node.RelationshipRepository
-	Members       org.MemberRepository
-	Users         user.Repository
+	NodeSvc            *service.NodeService
+	Nodes              node.NodeRepository
+	Reader             node.NodeReader
+	NodeTypes          node.TypeRepository
+	PropertyDefs       node.PropertyDefRepository
+	Relationships      node.RelationshipRepository
+	RelationshipLister node.RelationshipBatchLister
+	Members            org.MemberRepository
+	Users              user.Repository
 	// Search runs ranked search for tack_search. A binding without a runner
 	// keeps the fixed unavailable response.
 	Search tools.SearchBinding
@@ -79,17 +81,18 @@ type Deps struct {
 
 func NewHandler(d Deps) *Handler {
 	return &Handler{
-		nodeSvc:       d.NodeSvc,
-		nodes:         d.Nodes,
-		reader:        d.Reader,
-		nodeTypes:     d.NodeTypes,
-		propertyDefs:  d.PropertyDefs,
-		relationships: d.Relationships,
-		members:       d.Members,
-		users:         d.Users,
-		search:        d.Search,
-		epochs:        d.Epochs,
-		cache:         make(map[uuid.UUID]*cachedServer),
+		nodeSvc:            d.NodeSvc,
+		nodes:              d.Nodes,
+		reader:             d.Reader,
+		nodeTypes:          d.NodeTypes,
+		propertyDefs:       d.PropertyDefs,
+		relationships:      d.Relationships,
+		relationshipLister: d.RelationshipLister,
+		members:            d.Members,
+		users:              d.Users,
+		search:             d.Search,
+		epochs:             d.Epochs,
+		cache:              make(map[uuid.UUID]*cachedServer),
 	}
 }
 

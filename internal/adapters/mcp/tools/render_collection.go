@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/domain/user"
 )
@@ -93,7 +92,7 @@ func nodeListItem(rc *renderCtx, view *node.NodeView) markdownItem {
 	if priority := stringProp(view, "priority"); priority != "" {
 		fields = append(fields, markdownCodeFieldValue("Priority", priority))
 	}
-	fields = appendNestedAssigned(fields, rc, uuidArrayProp(view, "assignee_ids"))
+	fields = appendNestedAssigned(fields, rc, view)
 	return markdownItem{Title: markdownCodeValue(ident), Fields: fields}
 }
 
@@ -111,14 +110,4 @@ func relationshipListItem(rc *renderCtx, rel *node.Relationship, label string, o
 		fields = append(fields, markdownFieldValue(label+" name", name))
 	}
 	return markdownItem{Title: markdownCodeValue(rel.RelationType), Fields: fields}
-}
-
-func appendNestedAssigned(fields []markdownField, rc *renderCtx, assignees []uuid.UUID) []markdownField {
-	if len(assignees) == 0 || rc == nil || rc.users == nil {
-		return append(fields, markdownFieldValue("Assigned", "unassigned"))
-	}
-	if len(assignees) == 1 {
-		return append(fields, markdownFieldValue("Assigned", rc.userDisplay(assignees[0])))
-	}
-	return append(fields, markdownFieldValue("Assigned", fmt.Sprintf("%d users", len(assignees))))
 }
