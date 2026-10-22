@@ -17,7 +17,7 @@ import (
 // FoundationDB.
 func searchControlConfig(t *testing.T, fixture testenv.OpenSearchFixture) *config.Config {
 	t.Helper()
-	configureSearchMaintenance(t, fixture)
+	ConfigureSearchMaintenance(t, fixture)
 	caPath := filepath.Join(t.TempDir(), "search-ca.pem")
 	if err := os.WriteFile(caPath, []byte(fixture.CA), 0o600); err != nil {
 		t.Fatal(err)
@@ -35,7 +35,10 @@ func searchControlConfig(t *testing.T, fixture testenv.OpenSearchFixture) *confi
 	}
 }
 
-func configureSearchMaintenance(t *testing.T, fixture testenv.OpenSearchFixture) {
+// ConfigureSearchMaintenance gives audited search ops commands the fixture's
+// OpenSearch maintenance credentials through a password file, as production
+// requires.
+func ConfigureSearchMaintenance(t *testing.T, fixture testenv.OpenSearchFixture) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "maintenance-password")
 	if err := os.WriteFile(path, []byte(fixture.Password), 0o600); err != nil {

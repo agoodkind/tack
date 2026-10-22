@@ -35,7 +35,7 @@
 
 ## Work order
 
-One lead owns shared contracts, integration and deployment evidence. Task 1 precedes all writers. Task 2 defines the common encoded-event interface before Tasks 3 through 5 use it; its adapter implementations can proceed in parallel with Task 3 after that interface commit. Tasks 4 and 5 can run in parallel after Task 2. Task 6 depends on Tasks 1 through 3. Task 7 uses Tasks 1 through 5. Task 8 integrates the complete result. Independent implementers use separate worktrees.
+One lead owns shared contracts, integration and deployment evidence. Task 1 precedes all writers. Task 1 defines the shared `audit.Change` type for Tasks 4 and 5. Task 2 defines the common encoded-event interface before Tasks 3 through 5 use it; its adapter implementations can proceed in parallel with Task 3 after that interface commit. Tasks 4 and 5 can run in parallel after Task 2. Task 6 depends on Tasks 1 through 3. Task 7 uses Tasks 1 through 5. Task 8 integrates the complete result. Independent implementers use separate worktrees.
 
 Each task ends with a logical commit and focused passing checks. Install compatible schemas, consumers and readers before enabling new writers. Testbed reservations affect live validation only; they do not stop independent code and review work.
 
@@ -43,7 +43,7 @@ Each task ends with a logical commit and focused passing checks. Install compati
 
 Modify [event types](../../../internal/audit/recorder.go), [operation definitions](../../../internal/audit/ops.go), [stored rows](../../../internal/audit/row.go), [chain insertion](../../../internal/audit/chain_append.go) and [export reconstruction](../../../internal/audit/export_rowhash.go). Add `internal/audit/event_contract.go` and `internal/audit/event_validate.go`.
 
-Define these shared types and functions:
+Define the following shared types and functions, including `Change` for Tasks 4 and 5, in `internal/audit/event_contract.go`:
 
 ```go
 type OperationClass string
@@ -61,6 +61,12 @@ type OutcomeDetails struct {
     FailureCode, FailureMessage string
     CommittedSteps []string
 }
+type Change struct {
+    EventID uuid.UUID
+    Target Target
+    Before, After json.RawMessage
+    Changed []string
+}
 func ValidateEvent(event Event) error
 func ValidateSpec(spec Spec) error
 ```
@@ -71,7 +77,7 @@ Extend `EventContext` with `AuditFormatVersion`, `OperationClass`, `Phase`, oper
 
 - [ ] Implement one serializer and validator for typed targets, searchable columns, context and deltas. Preserve personal-data separation.
 - [ ] Make consumers, readers and exports accept both formats without enabling new writers yet.
-- [ ] Add `TestRuntimeAuditTargetRoundTrip`, `TestRuntimeAuditHistoricalHashCompatibility` and `TestRuntimeAuditMissingOutcomeRejected` through real consumer/reader/export boundaries. Assert complete relationship identities, unchanged historical hashes and retained rejection of malformed new events.
+- [ ] Add `TestRuntimeAuditTargetRoundTrip` and `TestRuntimeAuditHistoricalHashCompatibility` through real consumer/reader/export boundaries. Assert complete relationship identities and unchanged historical hashes. Add `TestRuntimeAuditMissingOutcomeRejected` to write a version-two event without an outcome to the outbox, publish it to Kafka through the real relay and process it with the real audit consumer. Assert that `audit.events` does not contain a row for that event ID and that `audit.Reader.ListDeadLetters` returns one row from `audit.events_dlq` with that event's payload and an error that identifies the missing outcome.
 - [ ] Run focused audit integration checks and commit compatible readers with the contract.
 
 ## Task 2: Deliver complete large events
@@ -147,7 +153,7 @@ Select the recovery bucket from the first SHA-256 byte of the event UUID modulo 
 
 Extend [ApplyMutation](../../../internal/adapters/foundationdb/node_mutation_apply.go), [single-node deletion](../../../internal/adapters/foundationdb/node_mutation_delete.go), [relationship storage](../../../internal/adapters/foundationdb/relationship.go), [subtree steps](../../../internal/adapters/foundationdb/node_delete_step.go) and [audit finalization](../../../internal/audit/mutation_event.go). Include metadata writers and direct seed, repair and backfill paths.
 
-Define `audit.Change` with `EventID uuid.UUID`, `Target audit.Target`, `Before`/`After json.RawMessage` and `Changed []string`. Add `audit.RequireMutationContext(context.Context) (audit.Event, error)`. In the FoundationDB adapter, add `AppendChanges(context.Context, fdb.Transaction, audit.Event, []audit.Change) error`. Keep the shared audit package independent of the adapter.
+Use the `audit.Change` type from Task 1. Add `audit.RequireMutationContext(context.Context) (audit.Event, error)`. In the FoundationDB adapter, add `AppendChanges(context.Context, fdb.Transaction, audit.Event, []audit.Change) error`. Keep the shared audit package independent of the adapter.
 
 - [ ] Require context at every canonical writer and derive actual old/new values inside the committing transaction.
 - [ ] Allocate event IDs before transaction retries. Persistent job steps derive stable IDs from the enclosing operation, persistent step and record identity.

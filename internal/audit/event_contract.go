@@ -1,10 +1,7 @@
 package audit
 
 import (
-	"encoding/hex"
 	"encoding/json"
-	"errors"
-	"fmt"
 
 	"github.com/google/uuid"
 )
@@ -121,10 +118,6 @@ type Change struct {
 	Changed []string        `json:"changed,omitempty"`
 }
 
-// sha256HexLength is the length of a SHA-256 digest in lowercase
-// hexadecimal.
-const sha256HexLength = 64
-
 func isTerminalOutcome(outcome Outcome) bool {
 	switch outcome {
 	case OutcomeCompleted, OutcomeRefused, OutcomeFailed, OutcomePartiallyCompleted, OutcomeIncomplete:
@@ -134,60 +127,4 @@ func isTerminalOutcome(outcome Outcome) bool {
 	default:
 		return false
 	}
-}
-
-func validateActor(event Event) error {
-	if event.Actor.Type == ActorUnauthenticated {
-		if event.Actor.ID != uuid.Nil || event.Context.OrgID != systemOrgID {
-			return errors.New("unauthenticated actor requires a nil actor ID and the system org")
-		}
-		return nil
-	}
-	if actorKindCode(event.Actor.Type) == 0 || event.Actor.ID == uuid.Nil {
-		return errors.New("format 2 event requires a known actor kind and a non-nil actor ID")
-	}
-	return nil
-}
-
-func validateTarget(target Target) error {
-	switch target.Kind {
-	case TargetKindNode:
-		if target.ID == uuid.Nil || target.NodeType == "" {
-			return errors.New("node target requires ID and NodeType")
-		}
-	case TargetKindRelationship:
-		if target.SourceID == uuid.Nil || target.TargetID == uuid.Nil || target.RelationType == "" {
-			return errors.New("relationship target requires SourceID, TargetID, and RelationType")
-		}
-	case TargetKindResource:
-		if target.URI == "" {
-			return errors.New("resource target requires URI")
-		}
-	case TargetKindExternal:
-		if target.Reference == "" {
-			return errors.New("external target requires Reference")
-		}
-	default:
-		return fmt.Errorf("target kind %q is unsupported", target.Kind)
-	}
-	return nil
-}
-
-func validateReadEvidence(read ReadEvidence) error {
-	if !isSHA256Hex(read.PayloadSHA256) || read.PayloadFormat == "" {
-		return errors.New("read evidence requires a valid payload SHA-256 digest and a payload format")
-	}
-	needsManifest := read.Count > 0 || read.ManifestParts > 0 || read.ManifestSHA256 != ""
-	if needsManifest && !isSHA256Hex(read.ManifestSHA256) {
-		return errors.New("read evidence with returned identities requires a valid manifest SHA-256 digest")
-	}
-	return nil
-}
-
-func isSHA256Hex(value string) bool {
-	if len(value) != sha256HexLength {
-		return false
-	}
-	decoded, err := hex.DecodeString(value)
-	return err == nil && hex.EncodeToString(decoded) == value
 }

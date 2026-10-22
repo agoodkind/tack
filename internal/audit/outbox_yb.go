@@ -22,6 +22,9 @@ type OutboxRow struct {
 	EventID uuid.UUID
 	// Event is the audit event awaiting relay delivery.
 	Event Event
+	// Messages contains part messages in part_index order followed by the manifest
+	// message for a multipart row. Event remains zero when Messages contains these records.
+	Messages [][]byte `exhaustruct:"optional"`
 }
 
 // PoolOutbox reads and deletes operator-command events in the YugabyteDB
@@ -57,6 +60,9 @@ func (o *PoolOutbox) WriteOutbox(ctx context.Context, event Event) error {
 	if err != nil {
 		return err
 	}
+	if len(eventJSON) > EventPartMaxBytes {
+		return o.writeLargeOutbox(ctx, event)
+	}
 	if err := o.insertOutboxEvent(ctx, event, eventJSON); err != nil {
 		slog.ErrorContext(ctx, "audit.outbox.write_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("write ops outbox event %s: %w", event.EventID, err)
@@ -79,10 +85,14 @@ func (o *PoolOutbox) WriteOutboxIfAbsent(ctx context.Context, event Event) (bool
 	if err != nil {
 		return false, err
 	}
-	_, err = o.pool.Exec(ctx, `
-		INSERT INTO public.ops_outbox (event_id, event)
-		VALUES ($1, $2)
-	`, event.EventID, eventJSON)
+	if len(eventJSON) > EventPartMaxBytes {
+		err = o.writeLargeOutbox(ctx, event)
+	} else {
+		_, err = o.pool.Exec(ctx, `
+			INSERT INTO public.ops_outbox (event_id, event)
+			VALUES ($1, $2)
+		`, event.EventID, eventJSON)
+	}
 	if isOutboxDuplicate(err) {
 		return false, nil
 	}
@@ -109,15 +119,14 @@ func (o *PoolOutbox) WriteOutboxTx(ctx context.Context, tx pgx.Tx, event Event) 
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `
-		INSERT INTO public.ops_outbox (event_id, event)
-		VALUES ($1, $2)
-	`, event.EventID, eventJSON)
-	if err != nil {
-		slog.ErrorContext(ctx, "audit.outbox.write_tx_failed", slog.String("err", err.Error()))
-		return fmt.Errorf("write ops outbox event %s in transaction: %w", event.EventID, err)
+	if len(eventJSON) <= EventPartMaxBytes {
+		return insertOutboxRow(ctx, tx, event.EventID, eventJSON)
 	}
-	return nil
+	encoded, err := EncodeEvent(event, nil)
+	if err != nil {
+		return err
+	}
+	return WriteEncodedOutboxTx(ctx, tx, encoded)
 }
 
 func marshalOutboxEvent(ctx context.Context, event Event) ([]byte, error) {
@@ -154,7 +163,14 @@ func (o *PoolOutbox) ReadBatch(ctx context.Context, limit int) ([]OutboxRow, err
 			slog.ErrorContext(ctx, "audit.outbox.read_scan_failed", slog.String("err", err.Error()))
 			return nil, fmt.Errorf("scan ops outbox row: %w", err)
 		}
-		if err := json.Unmarshal(eventJSON, &row.Event); err != nil {
+		header, isManifest, err := manifestHeader(eventJSON)
+		if err != nil {
+			slog.ErrorContext(ctx, "audit.outbox.manifest_decode_failed", slog.String("err", err.Error()))
+			return nil, fmt.Errorf("decode ops outbox manifest %s: %w", row.EventID, err)
+		}
+		if isManifest {
+			row.Messages = [][]byte{header}
+		} else if err := json.Unmarshal(eventJSON, &row.Event); err != nil {
 			slog.ErrorContext(ctx, "audit.outbox.event_decode_failed", slog.String("err", err.Error()))
 			return nil, fmt.Errorf("decode ops outbox event: %w", err)
 		}
@@ -164,21 +180,16 @@ func (o *PoolOutbox) ReadBatch(ctx context.Context, limit int) ([]OutboxRow, err
 		slog.ErrorContext(ctx, "audit.outbox.read_rows_failed", slog.String("err", err.Error()))
 		return nil, fmt.Errorf("read ops outbox rows: %w", err)
 	}
-	return out, nil
-}
-
-// Delete removes the outbox event identified by eventID. The relay calls it
-// only after the broker has accepted that event.
-func (o *PoolOutbox) Delete(ctx context.Context, eventID uuid.UUID) error {
-	if _, err := o.pool.Exec(ctx, `
-		DELETE FROM public.ops_outbox
-		 WHERE event_id = $1
-	`, eventID); err != nil {
-		slog.ErrorContext(ctx, "audit.outbox.delete_failed",
-			slog.String("event_id", eventID.String()),
-			slog.String("err", err.Error()),
-		)
-		return fmt.Errorf("delete ops outbox event %s: %w", eventID, err)
+	rows.Close()
+	for position, row := range out {
+		if len(row.Messages) == 0 {
+			continue
+		}
+		messages, err := o.outboxPartMessages(ctx, row.EventID, row.Messages[0])
+		if err != nil {
+			return nil, err
+		}
+		out[position].Messages = messages
 	}
-	return nil
+	return out, nil
 }
