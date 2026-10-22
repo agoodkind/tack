@@ -11,6 +11,7 @@ import (
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/ops"
+	"goodkind.io/tack/internal/response"
 	"goodkind.io/tack/internal/testenv"
 )
 
@@ -50,9 +51,13 @@ func runStrictValidation(t *testing.T, execute bool) (strictValidationOutput, er
 	root.SetContext(t.Context())
 	root.SetArgs(args)
 	runErr := root.Execute()
-	var decoded strictValidationOutput
-	if err := json.Unmarshal(output.Bytes(), &decoded); err != nil {
+	var document response.JSONDocument
+	if err := json.Unmarshal(output.Bytes(), &document); err != nil {
 		t.Fatalf("decode the strict validation output %q (command error %v): %v", output.String(), runErr, err)
+	}
+	var decoded strictValidationOutput
+	if err := json.Unmarshal(document.Result, &decoded); err != nil {
+		t.Fatalf("decode the strict validation result %s (command error %v): %v", document.Result, runErr, err)
 	}
 	return decoded, runErr
 }
