@@ -15,6 +15,7 @@ import (
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/domain/node"
+	appruntime "goodkind.io/tack/internal/runtime"
 	"goodkind.io/tack/internal/service"
 	"goodkind.io/tack/internal/test/integration"
 	"goodkind.io/tack/internal/testenv"
@@ -132,6 +133,7 @@ func (env *migrationEnv) newWorker(t *testing.T, stores *fdbadapter.Stores) *ser
 		Store: stores.SearchWork(clock.Wall{}), Reader: stores.SearchContent(policies),
 		Access: stores.SearchAccess(policies), Writer: env.Adapter, Rollouts: rollouts, Sessions: rollouts,
 		Documents: env.Adapter, Rebuilds: stores.SearchRebuilds(clock.Wall{}), Replacer: env.Adapter,
+		Audit: appruntime.SearchWorkerAudit(stores),
 	}, clock.Wall{}, settings, 0)
 	if err != nil {
 		t.Fatalf("create search worker: %v", err)

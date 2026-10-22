@@ -105,7 +105,7 @@ func newParentEdgeWorker(t *testing.T, cfg *config.Config, stores *fdbadapter.St
 		Store: stores.SearchWork(clock.Wall{}), Reader: stores.SearchContent(policies),
 		Access: stores.SearchAccess(policies), Writer: adapter,
 		Rollouts: rollouts, Sessions: rollouts, Documents: adapter,
-		Rebuilds: stores.SearchRebuilds(clock.Wall{}), Replacer: adapter,
+		Rebuilds: stores.SearchRebuilds(clock.Wall{}), Replacer: adapter, Audit: appruntime.SearchWorkerAudit(stores),
 	}, clock.Wall{}, settings, 0)
 	if err != nil {
 		t.Fatalf("create search worker: %v", err)

@@ -15,6 +15,7 @@ import (
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/domain/node"
 	searchdomain "goodkind.io/tack/internal/domain/search"
+	appruntime "goodkind.io/tack/internal/runtime"
 	"goodkind.io/tack/internal/service"
 )
 
@@ -65,7 +66,7 @@ func newSearchWorker(t *testing.T, stores *fdbadapter.Stores, adapter *search.Ad
 		Store: stores.SearchWork(source), Reader: stores.SearchContent(policies),
 		Access: stores.SearchAccess(policies), Writer: adapter,
 		Rollouts: rollouts, Sessions: rollouts, Documents: adapter,
-		Rebuilds: stores.SearchRebuilds(source), Replacer: adapter,
+		Rebuilds: stores.SearchRebuilds(source), Replacer: adapter, Audit: appruntime.SearchWorkerAudit(stores),
 	}, source, settings, 0)
 	if err != nil {
 		t.Fatalf("create search worker: %v", err)
