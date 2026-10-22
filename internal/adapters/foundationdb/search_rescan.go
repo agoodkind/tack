@@ -54,10 +54,10 @@ func (s *SearchWorkStore) CompleteRescan(ctx context.Context, work searchdomain.
 }
 
 // scheduleRescannedNode schedules the content or access work the scan
-// requested for one node. affected reports whether the node has a value
-// under one of the scan's names.
+// requested for one node. affected reports whether the node matches the
+// scan's content selection.
 func scheduleRescannedNode(ctx context.Context, tr fdb.Transaction, now time.Time, orgID, nodeID uuid.UUID, state searchScanRecord, affected bool) error {
-	if state.Content && (len(state.Names) == 0 || affected) {
+	if allContent(state) || affected {
 		if err := scheduleExistingSearchChange(ctx, tr, now, orgID, nodeID, searchChangeContent); err != nil {
 			return err
 		}

@@ -25,8 +25,8 @@ func TestParentEdgeUpdateRefusesCyclicAncestry(t *testing.T) {
 	first := createDeleteFixtureNode(t, env, actor, project, project, "issue", "First cycle issue", nil)
 	second := createDeleteFixtureNode(t, env, actor, project, project, "issue", "Second cycle issue", nil)
 	moved := createDeleteFixtureNode(t, env, actor, project, project, "issue", "Moved issue", nil)
-	storeParentID(t, env, first, second)
-	storeParentID(t, env, second, first)
+	storeParentID(t, env, first, second.String())
+	storeParentID(t, env, second, first.String())
 
 	_, err := env.NodeSvc.Update(env.Ctx, service.UpdateInput{
 		NodeID: moved, Props: map[string]json.RawMessage{"parent_id": parentEdgeJSON(t, first.String())}, ActorID: actor,
@@ -40,9 +40,10 @@ func TestParentEdgeUpdateRefusesCyclicAncestry(t *testing.T) {
 	}
 }
 
-// storeParentID writes parentID as the parent_id of nodeID in the primary
-// record and the view through NodeStore.Set without changing child_of edges.
-func storeParentID(t *testing.T, env *integration.TestEnv, nodeID, parentID uuid.UUID) {
+// storeParentID encodes parentValue as a JSON string and writes it as the
+// parent_id of nodeID in the primary record and the view through NodeStore.Set.
+// It does not change child_of edges.
+func storeParentID(t *testing.T, env *integration.TestEnv, nodeID uuid.UUID, parentValue string) {
 	t.Helper()
 	current, err := env.Stores.Nodes.Get(env.Ctx, env.OrgID, nodeID)
 	if err != nil || current == nil {
@@ -52,9 +53,9 @@ func storeParentID(t *testing.T, env *integration.TestEnv, nodeID, parentID uuid
 	if err != nil || view == nil {
 		t.Fatalf("read view of node %s: %v", nodeID, err)
 	}
-	value := parentEdgeJSON(t, parentID.String())
+	value := parentEdgeJSON(t, parentValue)
 	current.Props["parent_id"], view.Props["parent_id"] = value, value
 	if err := env.Stores.Nodes.Set(env.Ctx, current, view); err != nil {
-		t.Fatalf("store parent_id %s on node %s: %v", parentID, nodeID, err)
+		t.Fatalf("store parent_id %q on node %s: %v", parentValue, nodeID, err)
 	}
 }

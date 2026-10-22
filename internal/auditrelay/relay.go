@@ -60,7 +60,7 @@ func (s foundationDBOutbox) ReadOutboxFrom(ctx context.Context, mark []byte, lim
 	}
 	out := make([]audit.RelayOutboxEntry, 0, len(entries))
 	for _, entry := range entries {
-		out = append(out, audit.RelayOutboxEntry{Mark: entry.Mark, Event: entry.Event})
+		out = append(out, audit.RelayOutboxEntry{Mark: entry.Mark, Event: entry.Event, CommitVersion: entry.CommitVersion})
 	}
 	return out, nil
 }

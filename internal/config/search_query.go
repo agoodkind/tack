@@ -42,8 +42,12 @@ type SearchQuerySettings struct {
 
 // LoadSearchQuerySettings parses and validates the public search environment.
 func LoadSearchQuerySettings(ctx context.Context) (SearchQuerySettings, error) {
+	environment, err := secretEnvironment([]string{"OPENSEARCH_CURSOR_KEY"})
+	if err != nil {
+		return SearchQuerySettings{}, err
+	}
 	var settings SearchQuerySettings
-	if err := env.Parse(&settings); err != nil {
+	if err := env.ParseWithOptions(&settings, env.Options{Environment: environment}); err != nil {
 		wrapped := fmt.Errorf("parse search query settings: %w", err)
 		telemetry.L(ctx).ErrorContext(ctx, "search.query.config_failed", slog.String("err", wrapped.Error()))
 		return SearchQuerySettings{}, wrapped

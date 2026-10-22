@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"goodkind.io/tack/internal/cli"
+	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/telemetry"
 )
 
@@ -30,8 +31,8 @@ func requireSearchProjections(ctx context.Context, factory *cli.Factory) error {
 	}
 	defer env.Close()
 	var cursor string
-	missing := make([]string, 0, 10)
-	missingCount := 0
+	undecidable := make([]string, 0, 10)
+	undecidableCount := 0
 	for {
 		definitions, next, scanErr := env.Stores.PropertyDefs.ScanProjections(ctx, cursor)
 		if scanErr != nil {
@@ -40,15 +41,17 @@ func requireSearchProjections(ctx context.Context, factory *cli.Factory) error {
 			return wrapped
 		}
 		for _, definition := range definitions {
-			if definition.Search == nil {
-				missingCount++
-				if len(missing) < 10 {
-					missing = append(missing, definition.OrgID.String()+"/"+definition.ID.String())
+			if definition.Search != nil {
+				if err := definition.Search.Validate(ctx, slog.String("property_definition_id", definition.ID.String())); err != nil {
+					return projectionReadinessError{orgID: definition.OrgID.String(), err: err}
 				}
 				continue
 			}
-			if err := definition.Search.Validate(ctx, slog.String("property_definition_id", definition.ID.String())); err != nil {
-				return projectionReadinessError{orgID: definition.OrgID.String(), err: err}
+			if _, err := node.EffectiveSearchProjection(definition); err != nil {
+				undecidableCount++
+				if len(undecidable) < 10 {
+					undecidable = append(undecidable, definition.OrgID.String()+"/"+definition.ID.String())
+				}
 			}
 		}
 		if next == "" {
@@ -56,10 +59,11 @@ func requireSearchProjections(ctx context.Context, factory *cli.Factory) error {
 		}
 		cursor = next
 	}
-	if missingCount == 0 {
+	if undecidableCount == 0 {
 		return nil
 	}
-	wrapped := fmt.Errorf("missing search projections for %d definitions; first identities: %s", missingCount, strings.Join(missing, ", "))
-	telemetry.L(ctx).ErrorContext(ctx, "search.projection.missing", slog.String("err", wrapped.Error()))
+	wrapped := fmt.Errorf("%d definitions without a search declaration lack a default projection, beginning with %s",
+		undecidableCount, strings.Join(undecidable, ", "))
+	telemetry.L(ctx).ErrorContext(ctx, "search.projection.undecidable", slog.String("err", wrapped.Error()))
 	return wrapped
 }

@@ -1,7 +1,5 @@
 package foundationdb
 
-import "bytes"
-
 // FDB key space. Everything is expressed through one of a small set of generic
 // patterns; nothing in the key space privileges a specific concept (no
 // assignment keys, no label keys, no comment keys, etc.).
@@ -105,7 +103,14 @@ const (
 	// (search_exclusion, orgID, nodeID) -> exclusion record JSON of a node
 	//   that search does not index
 	// (search_scan, orgID) -> rescan generation counter
-	// (search_projection, orgID) -> 32-byte sum of definition projection hashes
+	// (search_projection, orgID) stores the 32-byte sum of definition
+	//   projection hashes. Releases without a projection state record
+	//   read this legacy digest.
+	// (search_projection_state, orgID) stores the active projection
+	//   state as JSON: renderer, format, digest, and activation.
+	// (search_projection_sweep) stores the newest writer's sweep
+	//   record as JSON: renderer, format, organization cursor, and
+	//   completion state.
 	// (search_index) -> serving physical index name
 	// (search_epoch, orgID) -> metadata epoch counter; every property
 	//   definition or node type change increments it
@@ -144,57 +149,22 @@ const (
 	keySearchExclusion         = "search_exclusion"
 	keySearchScan              = "search_scan"
 	keySearchProjection        = "search_projection"
+	keySearchProjectionState   = "search_projection_state"
+	keySearchProjectionSweep   = "search_projection_sweep"
 	keySearchIndex             = "search_index"
+
+	// (search_warning, orgID, nodeID, propertyName) -> one verified property
+	//   diagnostic JSON of the node
+	// (search_warning_revision, orgID, nodeID) -> content revision counter of
+	//   the node's verified warning set
+	// (search_warning_staged, class, orgID, nodeID, propertyName) -> one staged
+	//   property diagnostic JSON for the claimed work class
+	//   indexing stages the set from page ordinal 0 and promotes it to the
+	//   verified set after the revision finishes indexing
+	// (search_warning_staged_version, class, orgID, nodeID) -> JSON of the
+	//   revision, generation, and projection of the staged set
+	keySearchWarning              = "search_warning"
+	keySearchWarningRevision      = "search_warning_revision"
+	keySearchWarningStaged        = "search_warning_staged"
+	keySearchWarningStagedVersion = "search_warning_staged_version"
 )
-
-// testPrefix is prepended to every packed FDB key when non-nil. Production
-// callers leave it nil; integration tests set a per-test UUID via
-// SetTestPrefix so parallel tests on a shared FDB cluster cannot collide.
-//
-// Set only via SetTestPrefix from the test setup helper.
-var testPrefix []byte
-
-// SetTestPrefix configures a per-test key prefix. Pass nil to clear. The
-// prefix is encoded as a single bytes element in the tuple layer so range
-// scans stay tuple-aware.
-//
-// Tests own this. Do not call from production code.
-func SetTestPrefix(prefix []byte) {
-	testPrefix = prefix
-}
-
-// withPrefix prepends the active test prefix (if any) to a packed key. The
-// production fast path returns the input unchanged.
-func withPrefix(key []byte) []byte {
-	if testPrefix == nil {
-		return key
-	}
-	out := make([]byte, 0, len(testPrefix)+len(key))
-	out = append(out, testPrefix...)
-	out = append(out, key...)
-	return out
-}
-
-// stripPrefix removes the active test prefix from a key returned by an FDB
-// range read. Production callers leave testPrefix nil and the function is a
-// no-op. Stores must call this before tuple.Unpack on a returned key so the
-// unpack starts at the real tuple bytes rather than the raw test prefix.
-func stripPrefix(key []byte) []byte {
-	if testPrefix == nil {
-		return key
-	}
-	if len(key) >= len(testPrefix) && bytes.Equal(key[:len(testPrefix)], testPrefix) {
-		return key[len(testPrefix):]
-	}
-	return key
-}
-
-// TestPrefixRange returns a range covering every key under the active test
-// prefix. Tests use this to range-clear all data they wrote during a run.
-// Returns nil when no test prefix is set, so production code is safe to call.
-func TestPrefixRange() []byte {
-	if testPrefix == nil {
-		return nil
-	}
-	return testPrefix
-}

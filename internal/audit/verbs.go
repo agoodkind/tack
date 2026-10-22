@@ -147,6 +147,9 @@ const (
 	VerbOpsBackfillDefaultChildren Verb = "ops.backfill_default_children"
 	// VerbOpsBackfillSearchProjections records the one-time explicit metadata rollout.
 	VerbOpsBackfillSearchProjections Verb = "ops.backfill_search_projections"
+	// VerbOpsBackfillFixedDefinitions records each run of the
+	// ops backfill once-fixed-definitions command.
+	VerbOpsBackfillFixedDefinitions Verb = "ops.backfill_fixed_definitions"
 	// VerbOpsBackfillMetadataNameIndex records the one-time backfill of the
 	// node type-key and property-name index entries.
 	VerbOpsBackfillMetadataNameIndex Verb = "ops.backfill_metadata_name_index"

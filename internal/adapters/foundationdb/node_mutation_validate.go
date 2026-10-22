@@ -71,7 +71,7 @@ func readResultGraph(
 		if definition == nil || definition.Type != node.PropertyTypeUUID || definition.ReferenceTargetTypeKey == "" || !checked(definition.Name) {
 			continue
 		}
-		targetID := parentIDValue(result.Props[definition.Name])
+		targetID := storedUUID(result.Props[definition.Name])
 		if _, read := graph.Targets[targetID]; targetID == uuid.Nil || read {
 			continue
 		}
