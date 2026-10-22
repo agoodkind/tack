@@ -124,5 +124,5 @@ func validManifestPayload(payload []byte) bool {
 	if decoder.Decode(&targets) != nil || len(targets) == 0 || len(targets) > ReadManifestMaxEntries {
 		return false
 	}
-	return true
+	return decoderAtEnd(decoder)
 }

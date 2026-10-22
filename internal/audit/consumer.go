@@ -352,13 +352,16 @@ func (c *Consumer) loop(ctx context.Context) {
 
 		c.observeLag(ctx, fetches)
 
-		if fetches.NumRecords() == 0 {
-			c.completeAssemblies(ctx)
+		hasRecords := fetches.NumRecords() > 0
+		failed := false
+		if hasRecords {
+			failed = c.projectFetches(ctx, fetches)
+		}
+		c.completeAssemblies(ctx)
+		c.alertWaitingAssemblies(ctx)
+		if !hasRecords {
 			continue
 		}
-
-		failed := c.projectFetches(ctx, fetches)
-		c.completeAssemblies(ctx)
 		telemetry.ObserveAuditConsumerBatchLatency(sinceMs(pollStart))
 		c.backOffAfterFailures(ctx, failed)
 	}

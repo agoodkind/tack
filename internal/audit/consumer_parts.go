@@ -3,7 +3,6 @@ package audit
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 
@@ -47,22 +46,21 @@ func storeTransportMessage(ctx context.Context, tx pgx.Tx, message transportMess
 // transport. It rejects a conflicting digest or a projected event without
 // a completed transport digest.
 func completedTransport(ctx context.Context, tx pgx.Tx, message transportMessage) (bool, error) {
+	var completed, projected bool
 	var digest string
-	err := tx.QueryRow(ctx, `SELECT transport_digest FROM audit.completed_transports WHERE event_id = $1`, message.EventID).Scan(&digest)
-	if errors.Is(err, pgx.ErrNoRows) {
-		var projected bool
-		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM audit.projected_events WHERE event_id = $1)`, message.EventID).Scan(&projected); err != nil {
-			slog.ErrorContext(ctx, "audit.consumer.projected_read_failed", slog.String("event_id", message.EventID.String()), slog.String("err", err.Error()))
-			return false, fmt.Errorf("read audit event %s identity: %w", message.EventID, err)
-		}
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS (SELECT 1 FROM audit.completed_transports WHERE event_id = $1),
+		       COALESCE((SELECT transport_digest FROM audit.completed_transports WHERE event_id = $1), ''),
+		       EXISTS (SELECT 1 FROM audit.projected_events WHERE event_id = $1)
+	`, message.EventID).Scan(&completed, &digest, &projected); err != nil {
+		slog.ErrorContext(ctx, "audit.consumer.completed_read_failed", slog.String("event_id", message.EventID.String()), slog.String("err", err.Error()))
+		return false, fmt.Errorf("read audit event %s completed transport: %w", message.EventID, err)
+	}
+	if !completed {
 		if projected {
 			return false, rejectTransport(ctx, message.EventID, "exists without a completed transport digest")
 		}
 		return false, nil
-	}
-	if err != nil {
-		slog.ErrorContext(ctx, "audit.consumer.completed_read_failed", slog.String("event_id", message.EventID.String()), slog.String("err", err.Error()))
-		return false, fmt.Errorf("read audit event %s completed transport: %w", message.EventID, err)
 	}
 	if digest != message.TransportDigest {
 		return false, rejectTransport(ctx, message.EventID, "has a transport digest that conflicts with the completed event")

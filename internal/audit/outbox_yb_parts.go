@@ -13,11 +13,10 @@ import (
 // WriteEncodedOutboxTx calls public.ops_outbox_write_encoded inside the caller's
 // transaction with the event ID, plain event or manifest, and ordered part messages.
 func WriteEncodedOutboxTx(ctx context.Context, tx pgx.Tx, encoded EncodedEvent) error {
-	records, err := encoded.Records()
+	event, parts, err := encoded.HeaderAndParts()
 	if err != nil {
 		return err
 	}
-	event, parts := records[len(records)-1], records[:len(records)-1]
 	if _, err := tx.Exec(ctx, `SELECT public.ops_outbox_write_encoded($1, $2, $3)`, encoded.EventID, event, parts); err != nil {
 		slog.ErrorContext(ctx, "audit.outbox.encoded_write_failed", slog.String("event_id", encoded.EventID.String()), slog.String("err", err.Error()))
 		return fmt.Errorf("write ops outbox event %s with %d parts: %w", encoded.EventID, len(parts), err)
