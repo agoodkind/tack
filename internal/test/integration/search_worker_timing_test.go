@@ -1,10 +1,11 @@
-package integration
+package integration_test
 
 import (
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"goodkind.io/tack/internal/clock"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 )
@@ -15,10 +16,11 @@ const (
 	startDeadlineDelay = 2500 * time.Millisecond
 	// operationStopEarliest and operationStopLatest bound how long the
 	// delayed write stays open before the worker abandons it. The worker
-	// starts its ten-second timer just before the proxy receives the write,
-	// and the proxy notices the cancel a little after it happens. Fifteen
-	// seconds still separates the ten-second stop from the two-minute client
-	// timeout.
+	// starts its ten-second timer just before the proxy receives the write.
+	// The proxy observes cancellation shortly after the client cancels.
+	// The 15-second upper bound is below the two-minute client timeout.
+	// A write that the client timeout stopped would stay open for two
+	// minutes and fail the upper bound.
 	operationStopEarliest = 9500 * time.Millisecond
 	operationStopLatest   = 15 * time.Second
 	// resultWait bounds the wait for the first worker loop to return.
@@ -38,30 +40,29 @@ type delayedSlice struct {
 // multi-page node past the two-second slice budget. The slice must send no
 // other page write, and the next claim must resume at ordinal 1.
 func TestSearchWorkerSliceStopsAtStartDeadline(t *testing.T) {
-	stores := newSearchStore(t)
-	adapter, client, proxy, index := newDelayedSearchIndex(t, stores, startDeadlineDelay)
-	fixture := putSearchText(t, stores, strings.Repeat(timingText, 40), readerExcludedValue)
-	if pages := readSearchPages(t, stores, fixture.NodeID, timingPageBytes); len(pages) < 3 {
+	env, proxy := newDelayedMigrationEnv(t, timingPageBytes, startDeadlineDelay)
+	nodeID := uuid.Must(uuid.NewV7())
+	env.putNode(t, nodeID, strings.Repeat(timingText, 40))
+	if pages := env.readerPages(t, nodeID); len(pages) < 3 {
 		t.Fatalf("node has %d pages, want at least 3", len(pages))
 	}
-	proxy.target(fixture.NodeID, 0)
-	worker := newSearchWorker(t, stores, adapter, clock.Wall{}, searchWorkerSettings(timingPageBytes))
-	if claimed, err := worker.RunSlice(t.Context()); err != nil || !claimed {
+	proxy.target(nodeID, 0)
+	if claimed, err := env.Worker.RunSlice(t.Context()); err != nil || !claimed {
 		t.Fatalf("run the first slice: claimed %t err %v", claimed, err)
 	}
-	if writes := proxy.writesOf(fixture.NodeID); len(writes) != 1 || writes[0].ordinal != 0 {
+	if writes := proxy.writesOf(nodeID); len(writes) != 1 || writes[0].ordinal != 0 {
 		t.Fatalf("the delayed slice sent %d page writes %+v, want only page 0", len(writes), writes)
 	}
-	store := stores.SearchWork(clock.Wall{})
-	next := claimClassOf(t, store, searchdomain.WorkClassLive, fixture.NodeID)
+	store := env.Stores.SearchWork(clock.Wall{})
+	next := claimClassOf(t, store, searchdomain.WorkClassLive, nodeID)
 	if next.Ordinal != 1 || next.Cursor == "" {
 		t.Fatalf("next claim resumes at ordinal %d cursor %q, want ordinal 1 with a cursor", next.Ordinal, next.Cursor)
 	}
 	if err := store.Yield(t.Context(), next); err != nil {
 		t.Fatalf("yield the inspected claim: %v", err)
 	}
-	runSearchWorkerUntilIdle(t, worker)
-	requireIndexedPages(t, searchNodePages(t, client, index, fixture.NodeID, false), readSearchPages(t, stores, fixture.NodeID, timingPageBytes), 0)
+	env.runIdle(t)
+	requireIndexedNode(t, env, nodeID)
 }
 
 // TestSearchWorkerStopsDelayedRequestAtOperationTimeout delays page 1 of node
@@ -70,12 +71,11 @@ func TestSearchWorkerSliceStopsAtStartDeadline(t *testing.T) {
 // the next claim of X at ordinal 1. A second worker must write a page of
 // node Y while the write is open, and Y must be fully indexed afterward.
 func TestSearchWorkerStopsDelayedRequestAtOperationTimeout(t *testing.T) {
-	stores := newSearchStore(t)
-	adapter, client, proxy, index := newDelayedSearchIndex(t, stores, 0)
-	delayed := putSearchText(t, stores, strings.Repeat(timingText, 40), readerExcludedValue)
-	proxy.target(delayed.NodeID, 1)
-	settings := searchWorkerSettings(timingPageBytes)
-	first := newSearchWorker(t, stores, adapter, clock.Wall{}, settings)
+	env, proxy := newDelayedMigrationEnv(t, timingPageBytes, 0)
+	delayedID := uuid.Must(uuid.NewV7())
+	env.putNode(t, delayedID, strings.Repeat(timingText, 40))
+	proxy.target(delayedID, 1)
+	first := env.Worker
 	results := make(chan delayedSlice, 1)
 	go func() {
 		for range 20 {
@@ -93,9 +93,10 @@ func TestSearchWorkerStopsDelayedRequestAtOperationTimeout(t *testing.T) {
 		t.Fatal("page 1 of the delayed node was not written within two minutes")
 	}
 
-	other := putSearchText(t, stores, shortTimingText, readerExcludedValue)
-	second := newSearchWorker(t, stores, adapter, clock.Wall{}, settings)
-	for len(proxy.writesOf(other.NodeID)) == 0 {
+	otherID := uuid.Must(uuid.NewV7())
+	env.putNode(t, otherID, shortTimingText)
+	second := env.newWorker(t, env.Stores)
+	for len(proxy.writesOf(otherID)) == 0 {
 		if _, until, _ := proxy.held(); !until.IsZero() {
 			break
 		}
@@ -112,7 +113,7 @@ func TestSearchWorkerStopsDelayedRequestAtOperationTimeout(t *testing.T) {
 	}
 	from, until, abandoned := proxy.held()
 	otherWritten := false
-	for _, write := range proxy.writesOf(other.NodeID) {
+	for _, write := range proxy.writesOf(otherID) {
 		if write.received.After(from) && write.received.Before(until) {
 			otherWritten = true
 		}
@@ -126,20 +127,20 @@ func TestSearchWorkerStopsDelayedRequestAtOperationTimeout(t *testing.T) {
 	if open := until.Sub(from); open < operationStopEarliest || open > operationStopLatest {
 		t.Fatalf("the worker abandoned the delayed write after %s, want about ten seconds", open)
 	}
-	for _, write := range proxy.writesOf(delayed.NodeID) {
+	for _, write := range proxy.writesOf(delayedID) {
 		if write.received.After(from) && write.received.Before(result.returned) {
 			t.Fatalf("the worker sent page %d at %s while the delayed write was open", write.ordinal, write.received)
 		}
 	}
-	store := stores.SearchWork(clock.Wall{})
-	next := claimClassOf(t, store, searchdomain.WorkClassLive, delayed.NodeID)
+	store := env.Stores.SearchWork(clock.Wall{})
+	next := claimClassOf(t, store, searchdomain.WorkClassLive, delayedID)
 	if next.Ordinal != 1 || next.Cursor == "" {
 		t.Fatalf("next claim resumes at ordinal %d cursor %q, want ordinal 1 with a cursor", next.Ordinal, next.Cursor)
 	}
 	if err := store.Yield(t.Context(), next); err != nil {
 		t.Fatalf("yield the inspected claim: %v", err)
 	}
-	runSearchWorkerUntilIdle(t, first)
-	requireIndexedPages(t, searchNodePages(t, client, index, delayed.NodeID, false), readSearchPages(t, stores, delayed.NodeID, timingPageBytes), 0)
-	requireIndexedPages(t, searchNodePages(t, client, index, other.NodeID, false), readSearchPages(t, stores, other.NodeID, timingPageBytes), 0)
+	env.runIdle(t)
+	requireIndexedNode(t, env, delayedID)
+	requireIndexedNode(t, env, otherID)
 }

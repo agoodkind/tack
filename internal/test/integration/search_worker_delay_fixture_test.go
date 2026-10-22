@@ -1,4 +1,4 @@
-package integration
+package integration_test
 
 import (
 	"bytes"
@@ -19,8 +19,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
-	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/adapters/search"
 	"goodkind.io/tack/internal/testenv"
 )
@@ -136,13 +134,17 @@ func (proxy *pageDelayProxy) writesOf(nodeID uuid.UUID) []delayedPageWrite {
 	return writes
 }
 
-// newDelayedSearchIndex provisions the model and one native index through a
-// TLS proxy that delays the first write of page ordinal of nodeID by delay
-// (zero waits for the client to abandon it), and records the index as the
-// serving index. The typed client reads the engine directly.
-func newDelayedSearchIndex(t *testing.T, stores *fdbadapter.Stores, delay time.Duration) (*search.Adapter, *opensearchapi.Client, *pageDelayProxy, string) {
+// newDelayedMigrationEnv creates a migrationEnv with newMigrationEnv, then
+// builds its adapter and production worker to use a TLS proxy for every
+// engine request. env.Client reads the same engine directly. The function
+// returns the environment and proxy. The proxy delays the first bulk write
+// for the node and page ordinal selected by proxy.target. A positive delay
+// forwards the write after that interval. A zero delay keeps the write open
+// until the client abandons it.
+func newDelayedMigrationEnv(t *testing.T, pageBytes int, delay time.Duration) (*migrationEnv, *pageDelayProxy) {
 	t.Helper()
-	fixture := testenv.OpenSearchWithMemory(t, nativeSearchMemoryBytes)
+	env := newMigrationEnv(t, pageBytes)
+	fixture := testenv.OpenSearchWithMemory(t, migrationEngineMemory)
 	target, err := url.Parse(fixture.Endpoint)
 	if err != nil {
 		t.Fatalf("parse engine endpoint: %v", err)
@@ -178,18 +180,10 @@ func newDelayedSearchIndex(t *testing.T, stores *fdbadapter.Stores, delay time.D
 	}
 	t.Cleanup(func() {
 		if err := adapter.Close(context.WithoutCancel(t.Context())); err != nil {
-			t.Error(err)
+			t.Errorf("close delayed adapter: %v", err)
 		}
 	})
-	_, client := openSearchClientsFor(t, fixture)
-	model, err := adapter.Provision(t.Context())
-	if err != nil {
-		t.Fatalf("provision search model: %v", err)
-	}
-	index := "node-pages-" + uuid.Must(uuid.NewV7()).String()
-	createNativeSearchIndex(t, adapter, client, model, index)
-	if err := stores.InitializeSearchIndex(t.Context(), index); err != nil {
-		t.Fatalf("record serving search index: %v", err)
-	}
-	return adapter, client, proxy, index
+	env.Adapter = adapter
+	env.Worker = env.newWorker(t, env.Stores)
+	return env, proxy
 }
