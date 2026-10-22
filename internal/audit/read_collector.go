@@ -11,11 +11,17 @@ type readCollectorKey struct{}
 
 // readCollector stores the returned identities and the first reported outcome of one request.
 type readCollector struct {
-	mu      sync.Mutex
-	targets []Target
-	byOrg   map[uuid.UUID][]Target
-	seen    map[Target]struct{}
-	outcome OutcomeDetails
+	mu        sync.Mutex
+	targets   []Target
+	byOrg     map[uuid.UUID][]Target
+	seen      map[Target]struct{}
+	seenInOrg map[orgTarget]struct{}
+	outcome   OutcomeDetails
+}
+
+type orgTarget struct {
+	orgID  uuid.UUID
+	target Target
 }
 
 // CollectedRead contains the identities that one request returned, in insertion
@@ -30,7 +36,8 @@ type CollectedRead struct {
 // and outcome of one public read.
 func WithReadCollector(ctx context.Context) context.Context {
 	return context.WithValue(ctx, readCollectorKey{}, &readCollector{
-		mu: sync.Mutex{}, targets: nil, byOrg: map[uuid.UUID][]Target{}, seen: map[Target]struct{}{}, outcome: NoOutcome(),
+		mu: sync.Mutex{}, targets: nil, byOrg: map[uuid.UUID][]Target{}, seen: map[Target]struct{}{},
+		seenInOrg: map[orgTarget]struct{}{}, outcome: NoOutcome(),
 	})
 }
 
@@ -51,12 +58,15 @@ func AddReadTargets(ctx context.Context, orgID uuid.UUID, targets ...Target) {
 	collector.mu.Lock()
 	defer collector.mu.Unlock()
 	for _, target := range targets {
-		if _, found := collector.seen[target]; found {
-			continue
+		key := orgTarget{orgID: orgID, target: target}
+		if _, found := collector.seenInOrg[key]; !found {
+			collector.seenInOrg[key] = struct{}{}
+			collector.byOrg[orgID] = append(collector.byOrg[orgID], target)
 		}
-		collector.seen[target] = struct{}{}
-		collector.targets = append(collector.targets, target)
-		collector.byOrg[orgID] = append(collector.byOrg[orgID], target)
+		if _, found := collector.seen[target]; !found {
+			collector.seen[target] = struct{}{}
+			collector.targets = append(collector.targets, target)
+		}
 	}
 }
 

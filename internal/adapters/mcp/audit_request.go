@@ -8,7 +8,6 @@ import (
 	"goodkind.io/tack/internal/auth"
 )
 
-// The request recorder records requests to these routes outside the MCP endpoint.
 const (
 	healthRoute      = "/healthz"
 	diagnosticsRoute = "/debug/vars"

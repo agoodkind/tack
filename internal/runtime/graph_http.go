@@ -23,7 +23,6 @@ func NewRoutes(requests *mcpadapter.RequestRecorder, mcpRoute, health http.Handl
 	return mux
 }
 
-// healthHandler returns the health check of the YugabyteDB and FoundationDB stores of g.
 func (g *Graph) healthHandler() http.Handler {
 	return NewHealthHandler(map[string]func(context.Context) error{
 		"yugabyte": g.PingYugabyte,
