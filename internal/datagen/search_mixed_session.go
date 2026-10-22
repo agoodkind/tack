@@ -28,7 +28,6 @@ type searchMixedTally struct {
 	pages, replays, continuationErrors, replayMismatches, crossTenant, deleted int
 }
 
-// sessionFor returns the session of one tenant actor for query.
 func (m *searchMixed) sessionFor(tenant, actor int, query string, offset int) searchMixedSession {
 	workspace := m.tenants[tenant].workspace
 	return searchMixedSession{tenant: tenant, token: workspace.Actors[actor].Token, entry: workspace.Slug, query: query, offset: offset}

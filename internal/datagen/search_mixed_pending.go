@@ -57,7 +57,6 @@ func (m *searchMixed) checkPendingDeletion(ctx context.Context) error {
 	return nil
 }
 
-// pickVictims returns one victim from the second page and one victim on neither page.
 func (m *searchMixed) pickVictims(first, second searchPage) (uuid.UUID, uuid.UUID) {
 	returned, unreturned := uuid.Nil, uuid.Nil
 	for _, nodeID := range second.IDs {
@@ -75,7 +74,6 @@ func (m *searchMixed) pickVictims(first, second searchPage) (uuid.UUID, uuid.UUI
 	return returned, unreturned
 }
 
-// indexed reports whether the serving index still stores an active page of nodeID.
 func (m *searchMixed) indexed(ctx context.Context, nodeID uuid.UUID) bool {
 	texts, err := m.pages.SearchPageText(ctx, nodeID)
 	return err == nil && len(texts) > 0

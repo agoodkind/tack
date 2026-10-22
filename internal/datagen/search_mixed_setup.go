@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
+	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/runtime"
 )
@@ -38,7 +39,14 @@ func newSearchMixed(ctx context.Context, cfg *config.Config, options SearchMixed
 		graph.Close()
 		return nil, nil, err
 	}
+	pool, err := postgres.NewPool(ctx, cfg.DatabaseURL, nil)
+	if err != nil {
+		resources.close(ctx)
+		graph.Close()
+		return nil, nil, loggedError(ctx, "qa datagen search-mixed: the command could not connect to YugabyteDB for the revocation check", err)
+	}
 	closeAll := func() {
+		pool.Close()
 		resources.close(ctx)
 		graph.Close()
 	}
@@ -51,7 +59,7 @@ func newSearchMixed(ctx context.Context, cfg *config.Config, options SearchMixed
 		cfg: cfg, options: options, drivers: drivers, tenants: nil, loads: nil, loadStats: &searchLoadStats{},
 		runKey: opaqueKey("mix"), readWord: opaqueKey("read"), victimWord: opaqueKey("victim"),
 		limits: searchLimits{MaxResults: limits.MaxResults, MaxResponseBytes: limits.MaxResponseBytes},
-		stores: stores, pages: graph, backlog: backlog, resources: resources,
+		stores: stores, pages: graph, backlog: backlog, resources: resources, members: postgres.NewOrgMemberRepo(pool),
 		stats: &searchMixedStats{}, phases: &searchMixedPhaseStats{},
 	}
 	if err := mixed.prepare(ctx, plannedSearches); err != nil {

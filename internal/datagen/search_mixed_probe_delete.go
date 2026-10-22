@@ -9,9 +9,6 @@ import (
 
 var errSearchMixedDeletedReturned = errors.New("qa datagen search-mixed: search returned a deleted issue after the serving index stopped storing its active pages")
 
-// probeDeletions reads each pending deleted issue's serving index pages without searching.
-// When the index does not store any active pages for an issue, probeDeletions searches its
-// marker once. It counts the issue if the search returns it.
 func (m *searchMixed) probeDeletions(ctx context.Context, tick int) {
 	m.probeMutex.Lock()
 	pending := slices.Clone(m.deletions)

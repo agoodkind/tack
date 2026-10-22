@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain/org"
 )
@@ -34,12 +33,7 @@ func (m *searchMixed) checkRevocation(ctx context.Context) error {
 	if first.Cursor == "" || second.Cursor == "" {
 		return loggedError(ctx, "qa datagen search-mixed: the command could not open the member's search session", errSearchMixedNoContinuation)
 	}
-	pool, err := postgres.NewPool(ctx, m.cfg.DatabaseURL, nil)
-	if err != nil {
-		return loggedError(ctx, "qa datagen search-mixed: the command could not connect to YugabyteDB for the revocation check", err)
-	}
-	defer pool.Close()
-	members := postgres.NewOrgMemberRepo(pool)
+	members := m.members
 	member, err := findOrgMember(ctx, members, workspace.OrgID, actor.UserID)
 	if err != nil {
 		return err

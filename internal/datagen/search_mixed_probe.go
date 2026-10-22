@@ -47,8 +47,6 @@ func (m *searchMixed) probesPending() bool {
 	return len(m.markers) > 0 || len(m.deletions) > 0
 }
 
-// probe checks pending markers and deletions once per second until ctx ends.
-// When ctx ends, probe counts each marker it did not find and each deletion it did not verify.
 func (m *searchMixed) probe(ctx context.Context, done chan<- struct{}) {
 	defer close(done)
 	defer func() {
@@ -78,9 +76,6 @@ func (m *searchMixed) probe(ctx context.Context, done chan<- struct{}) {
 	}
 }
 
-// probeMarkers searches each tenant's pending markers in batches of up to eight words.
-// Each query joins the marker words with spaces. For each pending issue in the first page,
-// probeMarkers records the time since its marker write committed.
 func (m *searchMixed) probeMarkers(ctx context.Context, tick int) {
 	m.probeMutex.Lock()
 	pending := slices.Clone(m.markers)

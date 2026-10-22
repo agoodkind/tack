@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
+	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/config"
 )
 
@@ -55,6 +56,8 @@ type SearchMixedSummary struct {
 	Rebuild           SearchMixedRebuildResult
 	CatchUp           SearchMixedCatchUp
 	Samples           []SearchMixedSample
+	// Measured is true after the measured window ends, including when a workload phase fails.
+	Measured bool
 }
 
 // SearchMixedFreshness reports the time between an issue's update time in FoundationDB and the
@@ -81,6 +84,7 @@ type searchMixed struct {
 	pages      storedPageReader
 	backlog    *searchMixedBacklog
 	resources  *searchMixedResources
+	members    *postgres.OrgMemberRepo
 	stats      *searchMixedStats
 	phases     *searchMixedPhaseStats
 	corpus     searchMixedCorpus  `exhaustruct:"optional"`

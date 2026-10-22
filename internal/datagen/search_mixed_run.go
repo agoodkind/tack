@@ -89,12 +89,11 @@ func (m *searchMixed) run(parentSchedule, callContext context.Context, plannedWr
 	close(stopSampler)
 	<-samplerDone
 	summary := m.stats.summary(searchSummary, plannedWrites, writeElapsed)
-	summary.Endpoints, summary.Tenants = len(m.options.Endpoints), len(m.tenants)
+	summary.Endpoints, summary.Tenants, summary.Measured = len(m.options.Endpoints), len(m.tenants), true
 	m.phases.apply(&summary)
 	return summary, phaseErr
 }
 
-// runLoads runs the search load of every tenant at once and combines their counts.
 func (m *searchMixed) runLoads(scheduleContext, callContext context.Context) SearchLoadSummary {
 	results := make([]SearchLoadSummary, len(m.loads))
 	planned := 0
