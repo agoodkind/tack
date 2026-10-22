@@ -64,7 +64,7 @@ func runSearch(ctx context.Context, request mcpmcp.CallToolRequest, resolver *Re
 		return searchFailureResult(ctx, err)
 	}
 	for _, result := range page.Results {
-		audit.AddReadTargets(ctx, audit.Target{
+		audit.AddReadTargets(ctx, entry.OrgID, audit.Target{
 			Kind: audit.TargetKindNode, NodeType: result.NodeType, Reference: "", Name: "", URI: "",
 			RelationType: "", ID: result.ID, SourceID: uuid.Nil, TargetID: uuid.Nil,
 		})

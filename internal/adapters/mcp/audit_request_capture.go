@@ -23,7 +23,7 @@ const (
 )
 
 // responseCapture buffers the status, headers, and body that a handler writes.
-// RequestRecorder saves the final read event before writing the buffered response.
+// RequestRecorder saves the final read events before writing the buffered response.
 // responseCapture does not implement [http.Flusher].
 type responseCapture struct {
 	audit.ReadValueMarker
@@ -47,7 +47,7 @@ func (capture *responseCapture) Header() http.Header { return capture.header }
 func (capture *responseCapture) Write(payload []byte) (int, error) {
 	written, err := capture.body.Write(payload)
 	if err != nil {
-		return written, fmt.Errorf("the server could not capture the response body: %w", err)
+		return written, fmt.Errorf("capture response body: %w", err)
 	}
 	return written, nil
 }
@@ -59,7 +59,8 @@ func (capture *responseCapture) WriteHeader(status int) { capture.status = statu
 // It first uses the outcome that a tool recorded in ctx. If that outcome is empty, it checks the
 // response body for a JSON-RPC error, then checks the HTTP status if the outcome is still empty.
 func (capture *responseCapture) readResult(ctx context.Context) audit.ReadResult[*responseCapture] {
-	targets, outcome := audit.CollectedRead(ctx)
+	collected := audit.ReadCollected(ctx)
+	outcome := collected.Outcome
 	if outcome.Outcome == "" {
 		outcome = jsonRPCOutcome(capture.header.Get("Content-Type"), capture.body.Bytes())
 	}
@@ -67,14 +68,15 @@ func (capture *responseCapture) readResult(ctx context.Context) audit.ReadResult
 		outcome = statusOutcome(capture.status)
 	}
 	if outcome.Outcome == "" && capture.body.Len() == 0 && ctx.Err() != nil {
-		outcome = failed("request_canceled", "the request ended before the server prepared a response")
+		outcome = failed("request_canceled", "request ended before response preparation")
 	}
 	return audit.ReadResult[*responseCapture]{
-		Value: capture, Targets: targets, Count: uint64(len(targets)),
+		Value: capture, Targets: collected.Targets, OrgTargets: collected.OrgTargets,
+		Count: uint64(len(collected.Targets)),
 		Encode: func(writer io.Writer, captured *responseCapture) error {
 			if _, err := writer.Write(captured.body.Bytes()); err != nil {
 				slog.ErrorContext(ctx, "mcp.audit_request.encode_failed", slog.String("err", err.Error()))
-				return fmt.Errorf("the server could not write the captured response body: %w", err)
+				return fmt.Errorf("write captured response body: %w", err)
 			}
 			return nil
 		},
@@ -100,21 +102,21 @@ func statusOutcome(status int) audit.OutcomeDetails {
 	case status < http.StatusBadRequest:
 		return noOutcome()
 	case status == http.StatusBadRequest:
-		return refused("invalid_request", "the server rejected the request as invalid")
+		return refused("invalid_request", "invalid request")
 	case status == http.StatusUnauthorized:
-		return refused("unauthenticated", "the server did not authenticate the request")
+		return refused("unauthenticated", "could not authenticate the request")
 	case status == http.StatusForbidden:
-		return refused("forbidden", "the caller does not have permission to perform the requested operation")
+		return refused("forbidden", "cannot perform the requested operation without permission")
 	case status == http.StatusNotFound:
-		return refused("not_found", "the server does not register the requested route")
+		return refused("not_found", "cannot find the requested route")
 	case status == http.StatusMethodNotAllowed:
-		return refused("method_not_allowed", "the route does not accept the HTTP method")
+		return refused("method_not_allowed", "unsupported HTTP method for the route")
 	case status < http.StatusInternalServerError:
-		return refused("request_rejected", "the server rejected the request")
+		return refused("request_rejected", "cannot accept the request")
 	case status == http.StatusServiceUnavailable:
-		return failed("service_unavailable", "the server could not serve the request")
+		return failed("service_unavailable", "could not serve the request")
 	default:
-		return failed("server_error", "the server could not complete the request")
+		return failed("server_error", "could not complete the request")
 	}
 }
 
@@ -135,17 +137,17 @@ func jsonRPCOutcome(contentType string, body []byte) audit.OutcomeDetails {
 
 	switch response.Error.Code {
 	case jsonRPCParseError:
-		return refused("parse_error", "the request body is not valid JSON-RPC")
+		return refused("parse_error", "invalid JSON-RPC request body")
 	case jsonRPCInvalidRequest:
-		return refused("invalid_request", "the request is not a valid JSON-RPC request")
+		return refused("invalid_request", "invalid JSON-RPC request")
 	case jsonRPCMethodNotFound:
-		return refused("method_not_found", "the MCP server does not provide the requested method or tool")
+		return refused("method_not_found", "unsupported method or tool")
 	case jsonRPCInvalidParams:
-		return refused("invalid_params", "the request parameters are invalid")
+		return refused("invalid_params", "invalid request parameters")
 	case jsonRPCInternalError:
-		return failed("internal_error", "the MCP server could not complete the request")
+		return failed("internal_error", "could not complete the MCP request")
 	default:
-		return refused("jsonrpc_error", "the MCP server returned a JSON-RPC error")
+		return refused("jsonrpc_error", "request failed with a JSON-RPC error")
 	}
 }
 

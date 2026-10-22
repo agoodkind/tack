@@ -307,7 +307,9 @@ func wrapToolHandler(name string, h mcpserver.ToolHandlerFunc) mcpserver.ToolHan
 			attribute.Bool("mcp.tool.error", err != nil || (res != nil && res.IsError)),
 		)
 		noteToolOutcome(ctx, refused, err, res)
-		recordToolAudit(ctx, name, req, res, err, refused)
+		if !audit.HasReadCollector(ctx) {
+			recordToolAudit(ctx, name, req, res, err, refused)
+		}
 		return res, err
 	}
 }

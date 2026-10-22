@@ -15,8 +15,8 @@ const (
 	unknownRoute     = "/"
 )
 
-// RequestRecorder buffers HTTP read and rejection responses and saves the final event before writing them.
-// FoundationDB writers record changes from authenticated MCP tool calls that change state.
+// RequestRecorder buffers HTTP read and rejection responses and saves final read events before writing responses.
+// FoundationDB writers record changes from authenticated MCP tools that change state.
 type RequestRecorder struct {
 	store audit.ReadLifecycle
 }
@@ -26,9 +26,16 @@ func NewRequestRecorder(store audit.ReadLifecycle) *RequestRecorder {
 	return &RequestRecorder{store: store}
 }
 
-// Health records each request to the health check route.
+// Health records each request to the health check route and returns 405 for methods other than GET or HEAD.
 func (recorder *RequestRecorder) Health(next http.Handler) http.Handler {
-	return recorder.route(routeOperation(audit.VerbHTTPHealthRead, healthRoute), next)
+	return recorder.route(routeOperation(audit.VerbHTTPHealthRead, healthRoute), http.HandlerFunc(
+		func(writer http.ResponseWriter, request *http.Request) {
+			if request.Method != http.MethodGet && request.Method != http.MethodHead {
+				methodNotAllowed(writer, http.MethodGet+", "+http.MethodHead, healthMethodNotAllowedBody)
+				return
+			}
+			next.ServeHTTP(writer, request)
+		}))
 }
 
 // Diagnostics records each request to the diagnostics route.
@@ -52,8 +59,9 @@ func (recorder *RequestRecorder) route(operation requestOperation, next http.Han
 
 // MCP rejects GET requests before authentication and records authentication rejections with their reason.
 // It uses the unauthenticated actor and the system organization for these rejections.
-// It saves a read admission before running next for authenticated requests that do not change state.
-func (recorder *RequestRecorder) MCP(authenticate func(http.Handler) http.Handler, next http.Handler) http.Handler {
+// For an authenticated request that does not change state, it derives the organizations
+// and saves one admission per organization before the handler reads data.
+func (recorder *RequestRecorder) MCP(authenticate func(http.Handler) http.Handler, handler *Handler) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		operation := mcpOperation(request)
 		ctx := auth.WithRejectionNote(request.Context())
@@ -61,13 +69,15 @@ func (recorder *RequestRecorder) MCP(authenticate func(http.Handler) http.Handle
 		ctx = audit.WithOpID(ctx, read.operationID)
 		request = request.WithContext(ctx)
 		if request.Method == http.MethodGet {
-			recorder.rejectBeforeAuthentication(writer, request, read, methodNotAllowed())
+			capture := newResponseCapture()
+			methodNotAllowed(capture, http.MethodPost, mcpMethodNotAllowedBody)
+			recorder.rejectBeforeAuthentication(writer, request, read, capture)
 			return
 		}
 		handled := false
 		authenticated := http.HandlerFunc(func(_ http.ResponseWriter, authenticatedRequest *http.Request) {
 			handled = true
-			recorder.serveAuthenticated(writer, authenticatedRequest, read, next)
+			recorder.serveAuthenticated(writer, authenticatedRequest, read, handler)
 		})
 		capture := newResponseCapture()
 		authenticate(authenticated).ServeHTTP(capture, request)
@@ -78,17 +88,30 @@ func (recorder *RequestRecorder) MCP(authenticate func(http.Handler) http.Handle
 	})
 }
 
-// serveAuthenticated runs next without recording a read event if the authenticated tool call changes state.
-// For other requests, it records the verified user and uses actorOrganization to select the organization.
-func (recorder *RequestRecorder) serveAuthenticated(writer http.ResponseWriter, request *http.Request, read requestRead, next http.Handler) {
+// serveAuthenticated runs handler without recording a read event if the authenticated tool call changes state.
+// For other requests, it records the verified user and the organizations that
+// Handler.requestOrganizations returns. When the server cannot derive the
+// organizations, it records a failed read in the system organization and answers with 503.
+func (recorder *RequestRecorder) serveAuthenticated(writer http.ResponseWriter, request *http.Request, read requestRead, handler *Handler) {
 	if read.operation.mutation {
-		next.ServeHTTP(writer, request)
+		handler.ServeHTTP(writer, request)
 		return
 	}
-	userID, _ := auth.UserID(request.Context())
-	read.actor = userActor(request.Context(), userID)
-	read.orgID = actorOrganization(request.Context())
-	recorder.serveRead(writer, request, read, next)
+	ctx := request.Context()
+	userID, _ := auth.UserID(ctx)
+	read.actor = userActor(ctx, userID)
+	orgIDs, err := handler.requestOrganizations(ctx, read.operation)
+	if err != nil {
+		result := organizationUnavailable().readResult(ctx)
+		result.Outcome = failed("organization_unavailable", "could not read the request organization")
+		recorder.release(writer, request, read, func(*http.Request) audit.ReadResult[*responseCapture] { return result })
+		return
+	}
+	read.orgIDs = orgIDs
+	if read.operation.metadata {
+		request = request.WithContext(withMetadataTargets(ctx))
+	}
+	recorder.serveRead(writer, request, read, handler)
 }
 
 // rejectBeforeAuthentication saves a refused or failed read event before writing a response
@@ -99,19 +122,9 @@ func (recorder *RequestRecorder) rejectBeforeAuthentication(writer http.Response
 		read.operation.verb = rejectionVerb(reason)
 	}
 	result := capture.readResult(request.Context())
-	result.Targets, result.Count = nil, 0
+	result.Targets, result.OrgTargets, result.Count = nil, nil, 0
 	if rejected {
 		result.Outcome = rejectionOutcome(reason)
 	}
 	recorder.release(writer, request, read, func(*http.Request) audit.ReadResult[*responseCapture] { return result })
-}
-
-// methodNotAllowed returns the 405 response for a GET request to the MCP endpoint.
-func methodNotAllowed() *responseCapture {
-	capture := newResponseCapture()
-	capture.Header().Set("Allow", http.MethodPost)
-	capture.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	capture.WriteHeader(http.StatusMethodNotAllowed)
-	_, _ = capture.Write([]byte("method not allowed: streamable-http stateless mode requires POST\n"))
-	return capture
 }

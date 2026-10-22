@@ -42,12 +42,7 @@ func TestDriverCallUsesAuthenticatedToolsCallRequest(t *testing.T) {
 			`{"jsonrpc":"2.0","id":"1","result":{"content":[{"type":"text","text":"ok"}]}}`,
 		))
 	})
-	graph := &runtime.Graph{
-		MCPHandler: handler,
-		AuthMiddleware: func(next http.Handler) http.Handler {
-			return next
-		},
-	}
+	graph := &runtime.Graph{MCPRoute: handler}
 	driver := NewDriver(graph, false, 245)
 	result, err := driver.Call(
 		t.Context(),

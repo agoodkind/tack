@@ -14,7 +14,6 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"goodkind.io/tack/internal/adapters/mcp/tools"
 	"goodkind.io/tack/internal/auth"
-	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/domain/org"
 	"goodkind.io/tack/internal/domain/user"
@@ -31,13 +30,16 @@ type MetadataEpochReader interface {
 	MetadataEpoch(ctx context.Context, orgIDs []uuid.UUID) (string, error)
 }
 
-// cachedServer is one user's generated tool server and the metadata epoch
-// it was built from.
+// cachedServer stores one user's generated tool server, its resolver, the metadata
+// used to build the server, and the metadata epoch.
 type cachedServer struct {
-	mcpSvr  *mcpserver.MCPServer
-	httpSvr *mcpserver.StreamableHTTPServer
-	builtAt time.Time
-	epoch   string
+	mcpSvr       *mcpserver.MCPServer
+	httpSvr      *mcpserver.StreamableHTTPServer
+	resolver     *tools.Resolver
+	nodeTypes    []*node.NodeType
+	propertyDefs []*node.PropertyDef
+	builtAt      time.Time
+	epoch        string
 }
 
 // Handler is the MCP HTTP entry point. It caches a per-user MCP server that
@@ -150,39 +152,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	r = r.WithContext(ctx)
 
-	// With an epoch reader, the epoch read runs before dispatch on every
-	// request, and a cached server serves only while it matches the current
-	// epochs of every organization. Without one, the cache checks only its
-	// lifetime.
-	epoch := ""
-	if h.epochs != nil {
-		epoch, err = h.epochs.MetadataEpoch(ctx, orgIDs)
-		if err != nil {
-			metadataUnavailable(w, span, metadataReadFailure(ctx, "read metadata epoch", err))
-			return
-		}
-	}
-	h.mu.RLock()
-	c, ok := h.cache[userID]
-	h.mu.RUnlock()
-	if ok && c.epoch == epoch && clock.Since(c.builtAt) < serverCacheTTL {
-		span.SetAttributes(attribute.Bool("mcp.server_cache_hit", true))
-		c.httpSvr.ServeHTTP(w, r)
-		return
-	}
-	span.SetAttributes(attribute.Bool("mcp.server_cache_hit", false))
-
-	nodeTypes, propertyDefs, err := h.collectMetadata(ctx, orgIDs)
+	c, err := h.userServer(ctx, span, userID, orgIDs)
 	if err != nil {
 		metadataUnavailable(w, span, err)
 		return
 	}
-	mcpSvr := h.buildServer(nodeTypes, propertyDefs)
-	httpSvr := mcpserver.NewStreamableHTTPServer(mcpSvr, mcpserver.WithStateLess(true))
-	span.SetAttributes(attribute.Int("mcp.node_type_count", len(nodeTypes)))
-
-	h.mu.Lock()
-	h.cache[userID] = &cachedServer{mcpSvr: mcpSvr, httpSvr: httpSvr, builtAt: clock.Now(), epoch: epoch}
-	h.mu.Unlock()
-	httpSvr.ServeHTTP(w, r)
+	addMetadataTargets(ctx, c)
+	c.httpSvr.ServeHTTP(w, r)
 }

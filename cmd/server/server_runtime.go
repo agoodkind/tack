@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"expvar"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -11,7 +10,6 @@ import (
 	"syscall"
 	"time"
 
-	mcpadapter "goodkind.io/tack/internal/adapters/mcp"
 	"goodkind.io/tack/internal/config"
 	appruntime "goodkind.io/tack/internal/runtime"
 	"goodkind.io/tack/internal/telemetry"
@@ -33,12 +31,8 @@ func runServer(ctx context.Context, cfg *config.Config) error {
 	graph.StartAuditReadRecovery(ctx)
 	defer graph.CloseContext(context.WithoutCancel(ctx))
 
-	mux := buildServeMux(
-		mcpadapter.NewRequestRecorder(graph.ProductReads),
-		graph.MCPHandler,
-		graph.AuthMiddleware,
-		newRuntimeHealthHandler(graph),
-	)
+	mux := graph.Routes
+	registerConnectHandlers(mux, graph.AuthMiddleware)
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	slog.InfoContext(ctx, "starting server",
@@ -90,34 +84,4 @@ func runServer(ctx context.Context, cfg *config.Config) error {
 		slog.ErrorContext(ctx, "http.shutdown_failed", slog.String("err", err.Error()))
 	}
 	return nil
-}
-
-func newRuntimeHealthHandler(graph *appruntime.Graph) http.Handler {
-	return newHealthHandler(map[string]func(context.Context) error{
-		"yugabyte": graph.PingYugabyte,
-		"fdb":      graph.PingFoundationDB,
-	})
-}
-
-// buildServeMux registers HTTP routes and wraps the MCP, health, diagnostics, and unknown route handlers
-// with recorder. The recorder saves each final read event before writing the buffered response.
-// Authenticated MCP calls that change state do not get read events. Unknown routes return 404.
-func buildServeMux(
-	recorder *mcpadapter.RequestRecorder,
-	mcpHandler http.Handler,
-	authMiddleware func(http.Handler) http.Handler,
-	healthHandler http.Handler,
-) *http.ServeMux {
-	mux := http.NewServeMux()
-	mcpWithAuth := recorder.MCP(authMiddleware, mcpHandler)
-	mux.Handle("/mcp", mcpWithAuth)
-	mux.Handle("/mcp/", mcpWithAuth)
-	mux.Handle("GET /healthz", recorder.Health(healthHandler))
-	registerConnectHandlers(mux, authMiddleware)
-
-	// expvar counters at /debug/vars. Not gated on auth so a local watcher can
-	// scrape it directly; bind to localhost only when this matters.
-	mux.Handle("/debug/vars", recorder.Diagnostics(expvar.Handler()))
-	mux.Handle("/", recorder.UnknownRoute())
-	return mux
 }

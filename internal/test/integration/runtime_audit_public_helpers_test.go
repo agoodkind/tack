@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"expvar"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -46,10 +45,9 @@ type publicResponse struct {
 	body   []byte
 }
 
-// startPublicServer builds the runtime graph with a new FoundationDB key prefix and
-// bootstraps test identities.
-// It registers the HTTP routes with a recorder that saves read events using the store callback's result.
-// When store is nil, the recorder uses graph.ProductReads.
+// startPublicServer builds the runtime graph with a new FoundationDB key prefix and creates test identities.
+// It uses store(graph) for the request recorder when store is not nil.
+// When store is nil, the request recorder uses graph.ProductReads.
 func startPublicServer(t *testing.T, store func(*appruntime.Graph) audit.ReadLifecycle) *publicServer {
 	t.Helper()
 	ctx := t.Context()
@@ -78,25 +76,14 @@ func startPublicServer(t *testing.T, store func(*appruntime.Graph) audit.ReadLif
 	if err != nil {
 		t.Fatalf("datagen.BootstrapIdentities failed: %v", err)
 	}
-	readStore := graph.ProductReads
+	routes := graph.Routes
 	if store != nil {
-		readStore = store(graph)
+		recorder := mcpadapter.NewRequestRecorder(store(graph))
+		routes = appruntime.NewRoutes(recorder, recorder.MCP(graph.AuthMiddleware, graph.MCPHandler), http.NotFoundHandler())
 	}
-	recorder := mcpadapter.NewRequestRecorder(readStore)
-	mux := http.NewServeMux()
-	mux.Handle("/mcp", recorder.MCP(graph.AuthMiddleware, graph.MCPHandler))
-	mux.Handle("GET /healthz", recorder.Health(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if err := graph.PingFoundationDB(request.Context()); err != nil {
-			http.Error(writer, "fdb unhealthy", http.StatusServiceUnavailable)
-			return
-		}
-		_, _ = writer.Write([]byte("ok"))
-	})))
-	mux.Handle("/debug/vars", recorder.Diagnostics(expvar.Handler()))
-	mux.Handle("/", recorder.UnknownRoute())
 	workspace := identities.Workspaces[0]
 	return &publicServer{
-		handler: telemetry.RequestLogger(mux), config: cfg, graph: graph,
+		handler: telemetry.RequestLogger(routes), config: cfg, graph: graph,
 		token: workspace.Actors[0].Token, userID: workspace.Actors[0].UserID, orgID: workspace.OrgID,
 		workspace: workspace.Slug, clusterFile: clusterFile,
 	}

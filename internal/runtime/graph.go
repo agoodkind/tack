@@ -26,10 +26,16 @@ import (
 // Graph is the assembled runtime object graph. Callers own it for the process
 // lifetime and must call Close when done.
 type Graph struct {
-	MCPHandler     http.Handler
+	MCPHandler     *mcpadapter.Handler
 	AuthMiddleware func(http.Handler) http.Handler
 	// ProductReads saves product read admissions and final audit events in FoundationDB.
-	ProductReads  audit.ReadLifecycle
+	ProductReads audit.ReadLifecycle
+	// Requests saves audit events for public HTTP reads in ProductReads.
+	Requests *mcpadapter.RequestRecorder
+	// MCPRoute serves the MCP endpoint with Requests, AuthMiddleware, and MCPHandler.
+	MCPRoute http.Handler
+	// Routes serves MCPRoute, health checks, diagnostics, and unregistered paths with request recording.
+	Routes        *http.ServeMux
 	pool          *pgxpool.Pool
 	fdbStores     *fdbadapter.Stores
 	audit         auditRuntime
@@ -137,11 +143,15 @@ func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
 
 	authMiddleware := buildAuthMiddleware(cfg, tokenRepo, orgMembers)
 	productReads := fdbStores.AuditReads(source)
+	requests := mcpadapter.NewRequestRecorder(productReads)
 
-	return &Graph{
+	graph := &Graph{
 		MCPHandler:     mcpHandler,
 		AuthMiddleware: authMiddleware,
 		ProductReads:   productReads,
+		Requests:       requests,
+		MCPRoute:       requests.MCP(authMiddleware, mcpHandler),
+		Routes:         nil,
 		pool:           pool,
 		fdbStores:      fdbStores,
 		audit:          auditRuntimeDeps,
@@ -153,7 +163,9 @@ func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
 		deletes:        deleteResumer{cancel: nil, loop: sync.WaitGroup{}, started: false},
 		modelRepair:    modelRepairLoop{cancel: nil, loop: sync.WaitGroup{}, started: false},
 		auditReads:     newAuditReadRecovery(productReads, audit.NewPoolReadLifecycle(pool)),
-	}, nil
+	}
+	graph.Routes = NewRoutes(requests, graph.MCPRoute, graph.healthHandler())
+	return graph, nil
 }
 
 func buildAuthMiddleware(cfg *config.Config, tokenRepo auth.TokenValidator, orgMembers auth.OrgLister) func(http.Handler) http.Handler {

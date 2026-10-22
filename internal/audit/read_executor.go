@@ -10,16 +10,19 @@ import (
 	"io"
 	"log/slog"
 	"time"
+
+	"github.com/google/uuid"
 )
 
-// ReadFinalizeTimeout limits the time that ExecuteRead can spend recording the final event.
+// ReadFinalizeTimeout limits how long ExecuteRead and ExecuteReadGroup can spend saving final events.
 const ReadFinalizeTimeout = 30 * time.Second
 
 // readPayloadFormatDefault is the payload format of a result without a content type.
 const readPayloadFormatDefault = "application/octet-stream"
 
-// ErrReadNotRecorded reports that ExecuteRead could not save a read admission or final event.
-// The caller must discard the result.
+// ErrReadNotRecorded indicates that ExecuteRead or ExecuteReadGroup could not save
+// a read admission or final event. Both functions return an error that wraps
+// ErrReadNotRecorded without a payload.
 var ErrReadNotRecorded = errors.New("audit read: the server could not save the read event")
 
 // ReadValue limits the result types that ExecuteRead encodes.
@@ -35,9 +38,11 @@ func (ReadValueMarker) isAuditReadValue() {}
 
 // ReadResult contains one prepared read result and the identities it returns.
 // Encode writes Value as the response payload. A zero Outcome means the read completed.
+// OrgTargets groups the same identities by organization for ExecuteReadGroup.
 type ReadResult[T ReadValue] struct {
 	Value       T
 	Targets     []Target
+	OrgTargets  map[uuid.UUID][]Target
 	Count       uint64
 	Encode      func(io.Writer, T) error
 	ContentType string
@@ -65,35 +70,10 @@ func ExecuteRead[T ReadValue](
 	admission ReadAdmission,
 	read func(context.Context) (ReadResult[T], error),
 ) (EncodedRead, error) {
-	token, err := admitRead(ctx, store, admission)
-	if err != nil {
-		return EncodedRead{}, err
-	}
-	stopRenewal := KeepReadOwned(ctx, store, token)
-	result, readErr := read(ctx)
-	prepared := prepareRead(result, readErr)
-	if renewErr := stopRenewal(); renewErr != nil {
-		slog.WarnContext(ctx, "audit.read_executor.renewal_failed",
-			slog.String("event_id", token.EventID.String()), slog.String("err", renewErr.Error()))
-	}
-	finalizeContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), ReadFinalizeTimeout)
-	defer cancel()
-	completion, err := readCompletion(token, admission.Template, prepared)
-	if err != nil {
-		return EncodedRead{}, notRecorded(ctx, token, err)
-	}
-	if err := finalizeRead(finalizeContext, store, completion); err != nil {
-		return EncodedRead{}, notRecorded(ctx, token, err)
-	}
-	if readErr != nil {
-		return EncodedRead{}, readErr
-	}
-	if prepared.encodeErr != nil {
-		return EncodedRead{}, prepared.encodeErr
-	}
-	encoded := prepared.encoded
-	encoded.Evidence = *completion.Event.Context.Read
-	return encoded, nil
+	return executeReads(ctx, store, []ReadAdmission{admission}, read,
+		func(result ReadResult[T], _ ReadAdmission) ([]Target, uint64) {
+			return result.Targets, result.Count
+		})
 }
 
 // preparedRead contains the encoded payload, final outcome, and identities that one read returns.

@@ -1,4 +1,4 @@
-package main
+package runtime_test
 
 import (
 	"bytes"
@@ -15,8 +15,14 @@ import (
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	mcpadapter "goodkind.io/tack/internal/adapters/mcp"
 	"goodkind.io/tack/internal/clock"
+	"goodkind.io/tack/internal/runtime"
 	"goodkind.io/tack/internal/testenv"
 )
+
+// newHealthHandler builds the production health handler for probes.
+func newHealthHandler(probes map[string]func(context.Context) error) http.Handler {
+	return runtime.NewHealthHandler(probes)
+}
 
 func TestHealthzAllProbesPass(t *testing.T) {
 	h := newHealthHandler(map[string]func(context.Context) error{
@@ -125,20 +131,23 @@ func TestHealthzRouteUsesHealthHandler(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
-	mux := buildServeMux(productReadRecorder(t), http.NotFoundHandler(), func(next http.Handler) http.Handler {
-		return next
-	}, healthHandler)
+	mux := runtime.NewRoutes(productReadRecorder(t), http.NotFoundHandler(), healthHandler)
 	recorder := httptest.NewRecorder()
 	mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/healthz", nil))
 	if recorder.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusNoContent)
+	}
+	recorder = httptest.NewRecorder()
+	mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/healthz", nil))
+	if recorder.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("POST status = %d, want %d", recorder.Code, http.StatusMethodNotAllowed)
 	}
 }
 
 // recorderTransactionTimeout limits the duration of each FoundationDB transaction for the test recorder.
 const recorderTransactionTimeout = 5 * time.Second
 
-// productReadRecorder returns a request recorder that saves read events in test FoundationDB.
+// productReadRecorder returns a request recorder that saves read events in the test FoundationDB database.
 // Each recorder uses a new key prefix. Test cleanup deletes keys under that prefix.
 func productReadRecorder(t *testing.T) *mcpadapter.RequestRecorder {
 	t.Helper()

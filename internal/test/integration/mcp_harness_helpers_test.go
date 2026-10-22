@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/datagen"
@@ -27,6 +28,8 @@ type MCPHarness struct {
 	orgID     uuid.UUID
 	Workspace string
 	Project   string
+	// outbox reads the FoundationDB outbox to check read events for harness requests.
+	outbox *fdbadapter.OpsOutboxStore
 }
 
 // harnessConfig loads the server configuration for the test engines that
@@ -103,12 +106,13 @@ func newMCPHarness(t *testing.T, audited bool) *MCPHarness {
 	workspace := identities.Workspaces[0]
 	harness := &MCPHarness{
 		driver:    datagen.NewDriver(graph, false, seed),
-		handler:   graph.AuthMiddleware(graph.MCPHandler),
+		handler:   graph.MCPRoute,
 		token:     workspace.Actors[0].Token,
 		ledgerDSN: cfg.DatabaseURL,
 		orgID:     workspace.OrgID,
 		Workspace: workspace.Slug,
 		Project:   "",
+		outbox:    harnessOutbox(t, cfg.FDBClusterFile),
 	}
 	harness.createProject(t)
 	return harness
