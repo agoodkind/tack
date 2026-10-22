@@ -23,7 +23,8 @@ SELECT
     pg_get_userbyid((SELECT relowner FROM pg_class WHERE oid = 'public.ops_read_state'::regclass))
         AS state_owner,
     has_table_privilege('app_auth', 'public.ops_read_state', 'SELECT,INSERT,UPDATE,DELETE')
-        OR has_table_privilege('tack_migrator', 'public.ops_read_state', 'SELECT,INSERT,UPDATE,DELETE')
+        OR has_table_privilege('tack_migrator', 'public.ops_read_state', 'INSERT,UPDATE,DELETE')
         OR has_table_privilege('app_auth', 'public.ops_outbox', 'INSERT,UPDATE,DELETE')
         OR has_table_privilege('tack_migrator', 'public.ops_outbox', 'INSERT,UPDATE,DELETE')
-        AS table_rights
+        AS table_rights,
+    has_table_privilege('tack_migrator', 'public.ops_read_state', 'SELECT') AS migrator_reads_state

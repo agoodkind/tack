@@ -163,13 +163,16 @@ func cleanupInChild(t *testing.T, backend *readBackend) {
 func checkReadGrants(t *testing.T) {
 	dsn := testenv.Ledger(t)
 	application := applicationRolePool(t, dsn)
-	var ownerHasMembers, ownerCreatesInPublic, tableRights bool
+	var ownerHasMembers, ownerCreatesInPublic, tableRights, migratorReadsState bool
 	var executableFunctions, publicFunctions int
 	var stateOwner string
 	err := application.QueryRow(t.Context(), readTestSQL(t, "runtime_audit_read_grants.sql")).Scan(&ownerHasMembers, &ownerCreatesInPublic,
-		&executableFunctions, &publicFunctions, &stateOwner, &tableRights)
+		&executableFunctions, &publicFunctions, &stateOwner, &tableRights, &migratorReadsState)
 	if err != nil {
 		t.Fatalf("read the lifecycle grants: %v", err)
+	}
+	if !migratorReadsState {
+		t.Fatal("got false for tack_migrator select on ops_read_state, want true")
 	}
 	if ownerHasMembers || ownerCreatesInPublic || stateOwner != "ops_outbox_owner" {
 		t.Fatalf("ops_outbox_owner members = %t, CREATE on public = %t, ops_read_state owner = %q, want false, false, and ops_outbox_owner",

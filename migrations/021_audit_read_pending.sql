@@ -249,6 +249,9 @@ BEGIN
     GRANT CREATE ON SCHEMA public TO ops_outbox_owner;
     ALTER TABLE public.ops_read_state OWNER TO ops_outbox_owner;
     REVOKE ALL ON public.ops_read_state FROM PUBLIC;
+    -- ysql_dump runs as tack_migrator and needs SELECT to lock public.ops_read_state
+    -- during the schema dump.
+    GRANT SELECT ON public.ops_read_state TO tack_migrator;
     FOREACH signature IN ARRAY ARRAY[
         'public.ops_read_begin(uuid, uuid, smallint, jsonb)',
         'public.ops_read_renew(uuid, uuid, bigint)',
