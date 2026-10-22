@@ -124,6 +124,7 @@ type EventContext struct {
 	CompletedAt        time.Time      `json:"completed_at,omitzero" exhaustruct:"optional"`
 	Target             *Target        `json:"target,omitempty" exhaustruct:"optional"`
 	Read               *ReadEvidence  `json:"read,omitempty" exhaustruct:"optional"`
+	CommittedSteps     []string       `json:"committed_steps,omitempty" exhaustruct:"optional"`
 }
 
 type Source string

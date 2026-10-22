@@ -61,8 +61,8 @@ func opaqueSearchKey(prefix string) string {
 }
 
 // putSearchText stores an entry-point node type with one included and one
-// excluded property of unfamiliar opaque types, then writes one node with
-// both values in a new organization.
+// excluded text property under UUID-derived names. It then writes a node
+// with both values in a new organization.
 func putSearchText(t *testing.T, stores *fdbadapter.Stores, included, excluded string) searchFixture {
 	t.Helper()
 	return putSearchTextInOrg(t, stores, uuid.Must(uuid.NewV7()), included, excluded)
@@ -76,11 +76,11 @@ func putSearchTextInOrg(t *testing.T, stores *fdbadapter.Stores, orgID uuid.UUID
 	}
 	definitions := []*node.PropertyDef{
 		{
-			ID: uuid.Must(uuid.NewV7()), OrgID: orgID, Name: fixture.IncludedKey, Type: node.PropertyType(opaqueSearchKey("t")),
+			ID: uuid.Must(uuid.NewV7()), OrgID: orgID, Name: fixture.IncludedKey, Type: node.PropertyTypeText,
 			Search: &node.SearchProjection{Include: true, Order: 0, Rule: node.TextRule{Mode: node.TextRuleScalar}},
 		},
 		{
-			ID: uuid.Must(uuid.NewV7()), OrgID: orgID, Name: fixture.ExcludedKey, Type: node.PropertyType(opaqueSearchKey("t")),
+			ID: uuid.Must(uuid.NewV7()), OrgID: orgID, Name: fixture.ExcludedKey, Type: node.PropertyTypeText,
 			Search: &node.SearchProjection{Include: false, Order: 1, Rule: node.TextRule{Mode: node.TextRuleScalar}},
 		},
 	}

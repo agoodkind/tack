@@ -15,49 +15,39 @@ import (
 
 // AppendChanges builds one format 2 change event for each change under
 // operation, encodes each event with audit.EncodeEvent, and writes the
-// encoded events to the outbox in tr. An event that fits in one part is one
-// outbox entry with the event JSON. A larger event is one entry for each
-// part, followed by one entry for its manifest. A transaction runs
-// AppendChanges at most once, after the transaction makes its changes.
+// encoded events to the outbox in tr with one OutboxWriter. A transaction
+// attempt runs AppendChanges once, after it makes its changes, and writes no
+// other outbox entry.
 func AppendChanges(ctx context.Context, tr fdb.Transaction, operation audit.Event, changes []audit.Change) error {
 	if len(changes) == 0 {
 		return nil
 	}
+	outbox := NewOutboxWriter(tr)
 	completedAt := clock.Now().UTC()
-	values := make([][]byte, 0, len(changes))
 	for _, change := range changes {
 		encoded, err := encodeChangeEvent(operation, change, completedAt)
 		if err != nil {
 			slog.ErrorContext(ctx, "audit.changes.append_failed", slog.String("event_id", change.EventID.String()), slog.String("err", err.Error()))
 			return fmt.Errorf("append change event %s: %w", change.EventID, err)
 		}
-		values = append(values, encoded...)
+		if err := outbox.WriteEncodedEvent(ctx, encoded); err != nil {
+			return err
+		}
 	}
-	return writeOutboxEntries(ctx, tr, values)
+	return nil
 }
 
-// encodeChangeEvent returns the outbox values of the change event for change.
-func encodeChangeEvent(operation audit.Event, change audit.Change, completedAt time.Time) ([][]byte, error) {
+// encodeChangeEvent builds and encodes the change event for change.
+func encodeChangeEvent(operation audit.Event, change audit.Change, completedAt time.Time) (audit.EncodedEvent, error) {
 	event, err := audit.ChangeEvent(operation, change, completedAt)
 	if err != nil {
-		return nil, changeEncodeFailure("build", change, err)
+		return audit.EncodedEvent{}, changeEncodeFailure("build", change, err)
 	}
 	encoded, err := audit.EncodeEvent(event, nil)
 	if err != nil {
-		return nil, changeEncodeFailure("encode", change, err)
+		return audit.EncodedEvent{}, changeEncodeFailure("encode", change, err)
 	}
-	if encoded.Multipart() {
-		messages, err := encoded.Messages()
-		if err != nil {
-			return nil, changeEncodeFailure("encode the messages of", change, err)
-		}
-		return messages, nil
-	}
-	payload, err := audit.MarshalEvent(event)
-	if err != nil {
-		return nil, changeEncodeFailure("marshal", change, err)
-	}
-	return [][]byte{payload}, nil
+	return encoded, nil
 }
 
 // changeEncodeFailure logs and wraps err with the failed step and the event
