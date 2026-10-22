@@ -415,30 +415,6 @@ services:
       retries: 10
       start_period: 30s
 
-  # ClickHouse single-node OLAP store for the Wave 1 audit consumer.
-  # Internal-only: 8123 (HTTP) and 9000 (native) are not exposed to the
-  # host. Apache 2.0 image so the open-source-only constraint holds.
-  clickhouse:
-    image: clickhouse/clickhouse-server:26.5
-    profiles: [audit]
-    restart: unless-stopped
-    mem_limit: 2g
-    environment:
-      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-tack_audit_consumer}
-      CLICKHOUSE_PASSWORD_FILE: /run/secrets/CLICKHOUSE_PASSWORD
-      CLICKHOUSE_DB: audit
-      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "0"
-    secrets:
-      - CLICKHOUSE_PASSWORD
-    volumes:
-      - clickhouse-data:/var/lib/clickhouse
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q -O - http://[::1]:8123/ping || exit 1"]
-      interval: 10s
-      timeout: 10s
-      retries: 10
-      start_period: 30s
-
   # Wave 1 audit-consumer. Uses the same image as the app container; the
   # entrypoint is overridden to /usr/local/bin/audit-consumer so the
   # binary built by the Dockerfile is invoked directly. Mounts the
@@ -464,7 +440,6 @@ services:
       AUDIT_CONSUMER_BATCH_SIZE: ${AUDIT_CONSUMER_BATCH_SIZE:-256}
       AUDIT_CONSUMER_POLL_INTERVAL: ${AUDIT_CONSUMER_POLL_INTERVAL:-250ms}
       AUDIT_CONSUMER_YUGABYTE_DSN_FILE: /run/secrets/AUDIT_CONSUMER_YUGABYTE_DSN
-      AUDIT_CONSUMER_CLICKHOUSE_DSN_FILE: /run/secrets/AUDIT_CONSUMER_CLICKHOUSE_DSN
       AUDIT_CONSUMER_SIGNING_KEY_PATH: ${AUDIT_CONSUMER_SIGNING_KEY_PATH:-/etc/tack/audit-signing.pem}
       # The guest whose key signs, stamped on every notarization as its
       # claimed origin (TACK-437). The configs deploy renders the guest's
@@ -487,7 +462,6 @@ services:
       LOG_MAX_SIZE_MB: ${LOG_MAX_SIZE_MB:-100}
     secrets:
       - AUDIT_CONSUMER_YUGABYTE_DSN
-      - AUDIT_CONSUMER_CLICKHOUSE_DSN
     volumes:
       - tack-logs:/var/log/tack
       - ${AUDIT_CONSUMER_SIGNING_KEY_PATH:-/etc/tack/audit-signing.pem}:${AUDIT_CONSUMER_SIGNING_KEY_PATH:-/etc/tack/audit-signing.pem}:ro
@@ -500,8 +474,6 @@ services:
     depends_on:
       kafka:
         condition: service_started
-      clickhouse:
-        condition: service_healthy
 
   # Short-lived operator-invoked container for backup, verify, and
   # restore-test operations. The profiles: [ops] tag keeps it out of the
@@ -669,8 +641,6 @@ secrets:
     file: ${TACK_SECRETS_DIR:-/var/lib/tack/secrets}/AUDIT_OPERATOR_DSN
   AUDIT_CONSUMER_YUGABYTE_DSN:
     file: ${TACK_SECRETS_DIR:-/var/lib/tack/secrets}/AUDIT_CONSUMER_YUGABYTE_DSN
-  AUDIT_CONSUMER_CLICKHOUSE_DSN:
-    file: ${TACK_SECRETS_DIR:-/var/lib/tack/secrets}/AUDIT_CONSUMER_CLICKHOUSE_DSN
   TACK_OPS_DATABASE_URL:
     file: ${TACK_SECRETS_DIR:-/var/lib/tack/secrets}/TACK_OPS_DATABASE_URL
   TACK_LEDGER_SUPERUSER_DATABASE_URL:
@@ -705,15 +675,12 @@ secrets:
     file: ${TACK_SECRETS_DIR:-/var/lib/tack/secrets}/OPENSEARCH_CURSOR_KEY
   OPENSEARCH_MAINTENANCE_PASSWORD:
     file: ${TACK_SECRETS_DIR:-/var/lib/tack/secrets}/OPENSEARCH_MAINTENANCE_PASSWORD
-  CLICKHOUSE_PASSWORD:
-    file: ${TACK_SECRETS_DIR:-/var/lib/tack/secrets}/CLICKHOUSE_PASSWORD
 
 volumes:
   yugabyte-data:
   fdb-data:
   tack-logs:
   kafka-data:
-  clickhouse-data:
   opensearch-data:
 
 # IPv6-only bridge. The per-host /96 is carved from the host's on-link /64 and

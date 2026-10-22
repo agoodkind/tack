@@ -27,8 +27,6 @@ and there is no `events_v2`.
   migrates straight to `003`. QA is recreated from empty. Both are clean because
   no live database has applied `003`, `004`, or `005`.
 - **Multiple consumers are supported.** See the multi-consumer section below.
-- **ClickHouse is a mandatory, first-class read tier.** See the ClickHouse
-  section. On a ClickHouse outage the consumer keeps advancing the chain.
 
 ## The single migration: `003_audit_kafka_cutover.sql`
 
@@ -74,27 +72,11 @@ consumer writes it and no chain-head lock is needed. The stable `event_id` also
 makes the `(event_id, event_time)` unique index give real idempotency across
 redelivery.
 
-## ClickHouse read tier
-
-ClickHouse is a required service and the first-class analytical read tier.
-
-- `docker-compose.yml` keeps `audit-consumer`'s `depends_on: clickhouse` at
-  `service_healthy`.
-- The ClickHouse table is `audit.events_olap`.
-- Add `internal/audit/clickhouse_reader.go` and a router so `tack_audit_query`
-  reads ClickHouse for the recent window and falls back to Yugabyte for older
-  windows and chain-touching filters. Chain-verification stays on Yugabyte.
-- `cmd/server/main.go` builds the ClickHouse reader from `AUDIT_CLICKHOUSE_DSN`,
-  which configs renders for the app service.
-- The consumer's ClickHouse write stays best-effort after the Yugabyte commit, so
-  a ClickHouse outage never stops chain advancement (operator decision
-  2026-06-06).
-
 ## Pre-cutover work
 
-- Configs renders `KAFKA_CLUSTER_ID`, `AUDIT_KAFKA_BROKERS`, `COMPOSE_PROFILES`,
-  and `AUDIT_CLICKHOUSE_DSN` in `tack.env.j2`.
-- The `kafka`, `clickhouse`, and `audit-consumer` compose services carry
+- Configs renders `KAFKA_CLUSTER_ID`, `AUDIT_KAFKA_BROKERS`, and
+  `COMPOSE_PROFILES` in `tack.env.j2`.
+- The `kafka` and `audit-consumer` compose services carry
   `profiles: [audit]` and stay off until the audit profile is enabled.
 
 ## Cutover, QA first
@@ -108,18 +90,16 @@ QA is disposable, so prove the whole thing there before prod.
    `./server ops audit seed-roles`, then restart `app` and `audit-consumer`.
 3. Smoke test: a handful of MCP read and write calls each land one row in
    `audit.events`, written by the consumer; `audit.chain_heads` advances by one
-   per write; no rows land in `audit.events_dlq`. Confirm the same rows reach
-   ClickHouse `audit.events_olap` and that `tack_audit_query` returns them from
-   the ClickHouse path. Run two `audit-consumer` replicas and confirm each
-   `(org, shard)` chain stays single-writer. Stop ClickHouse mid-run and confirm
-   chain advancement continues.
+   per write; no rows land in `audit.events_dlq`. Run two `audit-consumer`
+   replicas and confirm
+   each `(org, shard)` chain stays single-writer.
 
 ## Cutover, production
 
 1. Take a fresh backup and confirm the restore drill passes
    (`./server ops backup ...`; see `docs/runbooks/recovery.md`).
-2. Bring up `kafka`, `clickhouse`, and `audit-consumer`, and confirm the consumer
-   connects to Kafka, Yugabyte, and ClickHouse.
+2. Bring up `kafka` and `audit-consumer`, and confirm the consumer connects to
+   Kafka and YugabyteDB.
 3. Stop `app` (MCP goes unavailable here), run `./server migrate` (002 to 003),
    run `./server ops audit seed-roles`, deploy the new app image with
    `./server ops deploy`, and start `app`.

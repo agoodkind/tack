@@ -166,8 +166,8 @@ func startBootstrapAuditPipeline(t *testing.T, brokers, ledgerDSN string, admin 
 	consumer, err := audit.NewConsumer(t.Context(), audit.ConsumerConfig{
 		Brokers: []string{brokers}, Topic: topic, GroupID: "tack-ledger-bootstrap-test-" + uuid.NewString()[:8],
 		BatchSize: 32, PollInterval: bootstrapPollInterval, YugabyteDSN: ledgerDSN,
-		ClickHouseDSN: "", SigningKeyPath: "", NotarizerPeriod: 0, SigningHost: "",
-		ReconcilePeriod: 0, ReconcileWindow: 0, LagWarnMessages: 0, SummaryEvery: 0,
+		SigningKeyPath: "", NotarizerPeriod: 0, SigningHost: "",
+		LagWarnMessages: 0, SummaryEvery: 0,
 		PartitionPeriod: 0, TopicRetention: 0,
 	})
 	if err != nil {

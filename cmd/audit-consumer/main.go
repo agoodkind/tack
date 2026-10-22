@@ -1,7 +1,6 @@
 // Package main runs the audit consumer. It tails the Kafka topic the producer
-// writes to, projects each event into Yugabyte audit.events and ClickHouse
-// audit.events_olap as the only writer of the chain, and runs the embedded
-// notarizer goroutine.
+// writes to, records each event in YugabyteDB audit.events, and runs the
+// embedded notarizer.
 package main
 
 import (
@@ -53,12 +52,9 @@ func newAuditConsumer(ctx context.Context, cfg config.AuditConsumerSettings) (*a
 		BatchSize:       cfg.BatchSize,
 		PollInterval:    cfg.PollInterval,
 		YugabyteDSN:     cfg.YugabyteDSN,
-		ClickHouseDSN:   cfg.ClickHouseDSN,
 		SigningKeyPath:  cfg.SigningKeyPath,
 		NotarizerPeriod: cfg.NotarizerPeriod,
 		SigningHost:     signingHost,
-		ReconcilePeriod: cfg.ReconcilePeriod,
-		ReconcileWindow: cfg.ReconcileWindow,
 		LagWarnMessages: cfg.LagWarnMessages,
 		SummaryEvery:    cfg.SummaryEvery,
 		PartitionPeriod: cfg.PartitionPeriod,

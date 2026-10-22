@@ -16,12 +16,9 @@ type AuditConsumerSettings struct {
 	BatchSize             int           `env:"AUDIT_CONSUMER_BATCH_SIZE"       envDefault:"256"`
 	PollInterval          time.Duration `env:"AUDIT_CONSUMER_POLL_INTERVAL"    envDefault:"250ms"`
 	YugabyteDSN           string        `env:"AUDIT_CONSUMER_YUGABYTE_DSN,required"`
-	ClickHouseDSN         string        `env:"AUDIT_CONSUMER_CLICKHOUSE_DSN"`
 	SigningKeyPath        string        `env:"AUDIT_CONSUMER_SIGNING_KEY_PATH"`
 	NotarizerPeriod       time.Duration `env:"AUDIT_CONSUMER_NOTARIZER_PERIOD" envDefault:"60s"`
 	SigningHost           string        `env:"AUDIT_CONSUMER_SIGNING_HOST"`
-	ReconcilePeriod       time.Duration `env:"AUDIT_CONSUMER_RECONCILE_PERIOD" envDefault:"30m"`
-	ReconcileWindow       time.Duration `env:"AUDIT_CONSUMER_RECONCILE_WINDOW" envDefault:"24h"`
 	LagWarnMessages       int64         `env:"TACK_AUDIT_CONSUMER_LAG_WARN_MESSAGES" envDefault:"1000"`
 	SummaryEvery          int           `env:"TACK_AUDIT_CONSUMER_SUMMARY_EVERY" envDefault:"100"`
 	PartitionPeriod       time.Duration `env:"AUDIT_CONSUMER_PARTITION_PERIOD" envDefault:"24h"`
