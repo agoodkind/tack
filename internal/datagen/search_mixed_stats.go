@@ -46,5 +46,43 @@ func (s *searchMixedStats) summary(searches SearchLoadSummary, plannedWrites int
 		Search: searches, PlannedWrites: plannedWrites, Creates: s.creates, Edits: s.edits, Deletes: s.deletes,
 		WriteErrors: s.writeErrors, WriteElapsed: writeElapsed, Freshness: freshness,
 		MarkersNotFound: s.markersNotFound, DeletedReturned: s.deletedReturned, DeletesUnverified: s.deletesUnverified,
+		Endpoints: 0, Tenants: 0, Burst: SearchMixedBurst{Planned: 0, Created: 0, Failed: 0, Started: 0, Elapsed: 0},
+		Sessions: SearchMixedSessions{
+			Checks: 0, Pages: 0, Replays: 0, Endpoints: 0, ContinuationErrors: 0, ReplayMismatches: 0,
+			CrossTenantResults: 0, DeletedNodesReturned: 0,
+		},
+		Pending: SearchMixedPending{Checks: 0, PendingObserved: 0, DeletedNodesReturned: 0},
+		Revocation: SearchMixedRevocation{
+			Checks: 0, PagesWithinCacheLifetime: 0, ResultsAfterCacheLifetime: 0, RefusedAfter: 0, Refused: false,
+		},
+		Rebuild: SearchMixedRebuildResult{Requested: false, TargetIndex: "", Started: 0, Switched: 0, FinalState: ""},
+		CatchUp: SearchMixedCatchUp{Completed: false, Elapsed: 0},
+		Samples: []SearchMixedSample{},
 	}
+}
+
+// searchMixedPhaseStats collects the results of the workload phases.
+type searchMixedPhaseStats struct {
+	mutex      sync.Mutex               `exhaustruct:"optional"`
+	burst      SearchMixedBurst         `exhaustruct:"optional"`
+	sessions   SearchMixedSessions      `exhaustruct:"optional"`
+	pending    SearchMixedPending       `exhaustruct:"optional"`
+	revocation SearchMixedRevocation    `exhaustruct:"optional"`
+	rebuild    SearchMixedRebuildResult `exhaustruct:"optional"`
+	catchUp    SearchMixedCatchUp       `exhaustruct:"optional"`
+	samples    []SearchMixedSample      `exhaustruct:"optional"`
+}
+
+func (p *searchMixedPhaseStats) update(change func(*searchMixedPhaseStats)) {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+	change(p)
+}
+
+func (p *searchMixedPhaseStats) apply(summary *SearchMixedSummary) {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+	summary.Burst, summary.Sessions, summary.Pending = p.burst, p.sessions, p.pending
+	summary.Revocation, summary.Rebuild, summary.CatchUp = p.revocation, p.rebuild, p.catchUp
+	summary.Samples = slices.Clone(p.samples)
 }

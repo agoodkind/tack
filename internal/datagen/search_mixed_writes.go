@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"time"
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/clock"
@@ -12,6 +13,7 @@ import (
 
 type searchMixedNode struct {
 	id       uuid.UUID
+	tenant   int
 	ordinal  int
 	revision int
 	marker   string
@@ -22,11 +24,11 @@ func (m *searchMixed) marker(ordinal, revision int) string {
 	return fmt.Sprintf("%sn%dr%d", m.runKey, ordinal, revision)
 }
 
-func (m *searchMixed) issueArguments(nodeID, project, marker string) ToolArguments {
+func (m *searchMixed) issueArguments(tenant *searchMixedTenant, nodeID, project, marker string) ToolArguments {
 	properties := newProperties()
-	properties.setString("description", "Revision marker "+marker)
+	properties.setString("description", "Revision marker "+marker+" run "+m.runKey)
 	return ToolArguments{
-		WorkspaceReference: m.load.entry, ProjectReference: project, IssueReference: "",
+		WorkspaceReference: tenant.entry(), ProjectReference: project, IssueReference: "",
 		Name: "Mixed load " + marker, Properties: properties, NodeID: nodeID, Query: "", NodeType: "",
 		Direction: "", SourceID: "", RelationType: "", TargetID: "",
 	}
@@ -60,12 +62,25 @@ func (m *searchMixed) writeFailed(ctx context.Context, event string, err error) 
 	m.stats.count(&m.stats.writeErrors)
 }
 
-func (m *searchMixed) createIssue(callContext, probeContext context.Context) {
+// committedAt reads the update time that FoundationDB stores for nodeID after a write.
+func (m *searchMixed) committedAt(ctx context.Context, nodeID uuid.UUID) (time.Time, error) {
+	view, err := m.stores.Views.Get(ctx, nodeID)
+	if err != nil {
+		return time.Time{}, loggedError(ctx, "qa datagen search-mixed: the command could not read issue "+nodeID.String(), err)
+	}
+	if view == nil {
+		return time.Time{}, loggedError(ctx, "qa datagen search-mixed: the command could not read issue "+nodeID.String(), errMissing(nil))
+	}
+	return view.UpdatedAt, nil
+}
+
+func (m *searchMixed) createScheduledIssue(callContext, probeContext context.Context, index int) {
 	ordinal := m.created
 	m.created++
+	tenantIndex := ordinal % len(m.tenants)
+	tenant := m.tenants[tenantIndex]
 	marker := m.marker(ordinal, 1)
-	result, err := m.load.driver.Call(callContext, m.load.token, "tack_create_issue", m.issueArguments("", m.project, marker))
-	committed := clock.Now()
+	result, err := m.driver(index).Call(callContext, tenant.token(), "tack_create_issue", m.issueArguments(tenant, "", tenant.project, marker))
 	if err != nil {
 		m.writeFailed(callContext, "qa.datagen.search_mixed_create_failed", err)
 		return
@@ -75,7 +90,12 @@ func (m *searchMixed) createIssue(callContext, probeContext context.Context) {
 		m.writeFailed(callContext, "qa.datagen.search_mixed_create_id_invalid", err)
 		return
 	}
-	node := &searchMixedNode{id: nodeID, ordinal: ordinal, revision: 1, marker: marker, settled: false}
+	committed, err := m.committedAt(callContext, nodeID)
+	if err != nil {
+		m.writeFailed(callContext, "qa.datagen.search_mixed_create_time_unread", err)
+		return
+	}
+	node := &searchMixedNode{id: nodeID, tenant: tenantIndex, ordinal: ordinal, revision: 1, marker: marker, settled: false}
 	m.nodeMutex.Lock()
 	m.nodes = append(m.nodes, node)
 	m.nodeMutex.Unlock()
@@ -83,13 +103,18 @@ func (m *searchMixed) createIssue(callContext, probeContext context.Context) {
 	m.probe(probeContext, func(ctx context.Context) { m.awaitMarker(ctx, node, marker, committed) })
 }
 
-func (m *searchMixed) editIssue(callContext, probeContext context.Context, node *searchMixedNode) {
+func (m *searchMixed) editIssue(callContext, probeContext context.Context, index int, node *searchMixedNode) {
 	revision := node.revision + 1
 	marker := m.marker(node.ordinal, revision)
-	_, err := m.load.driver.Call(callContext, m.load.token, "tack_update_issue", m.issueArguments(node.id.String(), "", marker))
-	committed := clock.Now()
+	tenant := m.tenants[node.tenant]
+	_, err := m.driver(index).Call(callContext, tenant.token(), "tack_update_issue", m.issueArguments(tenant, node.id.String(), "", marker))
 	if err != nil {
 		m.writeFailed(callContext, "qa.datagen.search_mixed_edit_failed", err)
+		return
+	}
+	committed, err := m.committedAt(callContext, node.id)
+	if err != nil {
+		m.writeFailed(callContext, "qa.datagen.search_mixed_edit_time_unread", err)
 		return
 	}
 	m.nodeMutex.Lock()
@@ -99,12 +124,8 @@ func (m *searchMixed) editIssue(callContext, probeContext context.Context, node 
 	m.probe(probeContext, func(ctx context.Context) { m.awaitMarker(ctx, node, marker, committed) })
 }
 
-func (m *searchMixed) deleteIssue(callContext, probeContext context.Context, node *searchMixedNode) {
-	_, err := m.load.driver.Call(callContext, m.load.token, "tack_delete_issue", ToolArguments{
-		WorkspaceReference: m.load.entry, ProjectReference: "", IssueReference: "", Name: "", Properties: nil,
-		NodeID: node.id.String(), Query: "", NodeType: "", Direction: "", SourceID: "", RelationType: "", TargetID: "",
-	})
-	if err != nil {
+func (m *searchMixed) deleteIssue(callContext, probeContext context.Context, index int, node *searchMixedNode) {
+	if err := m.deleteNode(callContext, index, node.tenant, node.id); err != nil {
 		m.writeFailed(callContext, "qa.datagen.search_mixed_delete_failed", err)
 		return
 	}
@@ -113,5 +134,32 @@ func (m *searchMixed) deleteIssue(callContext, probeContext context.Context, nod
 	marker := node.marker
 	m.nodeMutex.Unlock()
 	m.stats.count(&m.stats.deletes)
-	m.probe(probeContext, func(ctx context.Context) { m.awaitDeletion(ctx, node.id, marker) })
+	m.probe(probeContext, func(ctx context.Context) { m.awaitDeletion(ctx, node, marker) })
+}
+
+// deleteNode deletes one issue of one tenant through a public call and records its ID.
+func (m *searchMixed) deleteNode(ctx context.Context, index, tenant int, nodeID uuid.UUID) error {
+	owner := m.tenants[tenant]
+	_, err := m.driver(index).Call(ctx, owner.token(), "tack_delete_issue", ToolArguments{
+		WorkspaceReference: owner.entry(), ProjectReference: "", IssueReference: "", Name: "", Properties: nil,
+		NodeID: nodeID.String(), Query: "", NodeType: "", Direction: "", SourceID: "", RelationType: "", TargetID: "",
+	})
+	if err != nil {
+		return err
+	}
+	m.nodeMutex.Lock()
+	if m.deleted == nil {
+		m.deleted = make(map[uuid.UUID]time.Time)
+	}
+	m.deleted[nodeID] = clock.Now()
+	m.nodeMutex.Unlock()
+	return nil
+}
+
+// deletedBefore reports whether a public delete of nodeID returned before moment.
+func (m *searchMixed) deletedBefore(nodeID uuid.UUID, moment time.Time) bool {
+	m.nodeMutex.Lock()
+	defer m.nodeMutex.Unlock()
+	deletedAt, deleted := m.deleted[nodeID]
+	return deleted && deletedAt.Before(moment)
 }
