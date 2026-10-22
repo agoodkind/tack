@@ -15,14 +15,6 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// RelationshipStore combines node.RelationshipRepository and
-// node.RelationshipBatchLister. The MCP handler uses the repository for
-// relationship tools and the batch lister for assignee rendering.
-type RelationshipStore interface {
-	node.RelationshipRepository
-	node.RelationshipBatchLister
-}
-
 // collectMetadata reads the node types and property definitions of every
 // org the user belongs to, deduplicated by slug and name, for the per-user
 // server build. Any failed read returns an error. The handler then answers
@@ -89,7 +81,7 @@ func (h *Handler) buildServer(nodeTypes []*node.NodeType, propertyDefs []*node.P
 		PropertyDefs:  h.propertyDefs,
 		Resolver:      resolver,
 		Users:         h.users,
-		Relationships: h.relationships,
+		Relationships: h.relationshipLister,
 	}
 	for _, nt := range nodeTypes {
 		tools.RegisterNodeTools(s, nt, binding)

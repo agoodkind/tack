@@ -3,8 +3,7 @@ package foundationdb
 import (
 	"context"
 	"errors"
-	"fmt"
-	"log/slog"
+	"strconv"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/google/uuid"
@@ -25,13 +24,13 @@ func (s *RelationshipStore) ListBySources(
 	for _, sourceID := range sourceIDs {
 		keyRange, prefixErr := fdb.PrefixRange(relationshipPrefixBySource(orgID, sourceID, relationType))
 		if prefixErr != nil {
-			return nil, listBySourcesFailure(ctx, sourceIDs, prefixErr)
+			return nil, sourcesReadError{sourceCount: len(sourceIDs), err: prefixErr}
 		}
 		ranges = append(ranges, keyRange)
 	}
-	transaction, err := s.db.CreateTransaction()
-	if err != nil {
-		return nil, listBySourcesFailure(ctx, sourceIDs, err)
+	transaction, createErr := s.db.CreateTransaction()
+	if createErr != nil {
+		return nil, sourcesReadError{sourceCount: len(sourceIDs), err: createErr}
 	}
 	defer transaction.Cancel()
 	for {
@@ -41,10 +40,10 @@ func (s *RelationshipStore) ListBySources(
 		}
 		var databaseError fdb.Error
 		if !errors.As(readErr, &databaseError) {
-			return nil, listBySourcesFailure(ctx, sourceIDs, readErr)
+			return nil, sourcesReadError{sourceCount: len(sourceIDs), err: readErr}
 		}
 		if retryErr := transaction.OnError(databaseError).Get(); retryErr != nil {
-			return nil, listBySourcesFailure(ctx, sourceIDs, retryErr)
+			return nil, sourcesReadError{sourceCount: len(sourceIDs), err: retryErr}
 		}
 	}
 }
@@ -89,13 +88,17 @@ func (e sourceRangeError) Error() string {
 
 func (e sourceRangeError) Unwrap() error { return e.err }
 
-// listBySourcesFailure logs relationship.list_by_sources_failed with the
-// source count and err.
-// listBySourcesFailure returns err wrapped with the source count.
-// ListBySources returns the listBySourcesFailure result for each failure
-// that ends the call.
-func listBySourcesFailure(ctx context.Context, sourceIDs []uuid.UUID, err error) error {
-	slog.ErrorContext(ctx, "relationship.list_by_sources_failed",
-		slog.Int("source_count", len(sourceIDs)), slog.String("err", err.Error()))
-	return fmt.Errorf("fdb list rels by %d sources: %w", len(sourceIDs), err)
+// sourcesReadError adds the source count to the error message.
+// ListBySources returns a sourcesReadError for each failure that ends
+// the call. Unwrap returns the original error.
+// ListBySources does not log the failure. The caller logs the failure.
+type sourcesReadError struct {
+	sourceCount int
+	err         error
 }
+
+func (e sourcesReadError) Error() string {
+	return "fdb list rels by " + strconv.Itoa(e.sourceCount) + " sources: " + e.err.Error()
+}
+
+func (e sourcesReadError) Unwrap() error { return e.err }
