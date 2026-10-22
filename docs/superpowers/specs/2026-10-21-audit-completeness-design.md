@@ -89,17 +89,15 @@ A scheduled job identifies its service and run. A job initiated by a person or a
 
 ## Bootstrap
 
-Extend existing `ops provision` and audit-bootstrap commands. Preserve the identity resolver, operator gate and execution flag. Bootstrap recording is explicit; ordinary outbox failures do not enable it.
+Retain the narrow first-boot exception in the existing operator audit design. Resolve identity and require the execution flag before setup. Create the audit infrastructure on the first ledger node before any later wait or ordinary command requires it.
 
-A local journal alone cannot satisfy the repository's host-loss requirement. Reuse the existing S3 client and object store for immutable bootstrap event objects. Local files provide staging and retry state only. This agent recommendation adds a prerequisite that needs review.
+Use `ops ledger audit-bootstrap` to apply migrations and create audit roles. This command requires an empty ledger and does not configure FoundationDB, Docker, backups or product data. Save its prepared intent and observed outcome as soon as the outbox and operator login become usable. Only this infrastructure creation uses deferred recording. Every subsequent operation records through the normal gate.
 
-Before an effect, create the event under an installation/operation/event key and verify identical content from the configured independent endpoint. Use create-only writes. After an uncertain response or conflict, read the bounded object and compare its digest. Preserve original identities and timestamps. Refuse further effects if intent persistence fails.
+Keep the existing `ops provision` first-boot exception within the same infrastructure boundary. Once its outbox becomes usable, record completed infrastructure setup before continuing ordinary provisioning steps. A populated ledger, failed login or unavailable outbox must not grant an ordinary command permission to run without its required record.
 
-The destination, bucket, identity and network path must exist before Tack bootstrap starts. Platform provisioning prepares them. This correction audits Tack command execution; platform creation has its own audit boundary rather than recursively depending on Tack.
+The bootstrap command must refuse an existing migration table, outbox or operator login. If setup stops after partially creating infrastructure, inspect actual state through the existing provisioning recovery path. Record the recovery actor, observed state and actions. Do not reconstruct original outcomes or timestamps that the failed process did not preserve.
 
-After migrations create the outbox and roles, import journal events with `WriteOutboxIfAbsent`. Start the relay and consumer. Confirm canonical event IDs and immutable content through the audit reader before enabling normal operations. Retain journal objects until canonical confirmation. Permanent event-ID claims protect reimport after relay deletion.
-
-Current Configs places each environment's object store on the same hypervisor as its Tack guest. The design requires an independent failure domain for bootstrap intent. Configuring an existing store on another host is deployment work. A new storage service is outside this design.
+The exception does not guarantee a ledger record if the first setup process fails before audit storage exists. Its scope is construction of the audit infrastructure, before normal audited operations. This correction adds neither a temporary audit journal nor an independent object-store prerequisite.
 
 ## Retention and scaling
 
@@ -121,9 +119,8 @@ Use the existing Go test harness and real temporary dependencies. Execute each r
 6. Interrupt delivery after Kafka acknowledgement and before queue deletion. Verify permanent deduplication after restart. Verify digest-based recovery after an uncertain finalization commit.
 7. Exercise large old/new values and identity manifests across part boundaries. Interrupt multipart delivery. Verify complete reconstruction, bounded memory and rejection of altered or absent parts.
 8. Export new and historical formats. Alter a target, delta or manifest and require verification failure. Verify protected personal-data handling.
-9. Interrupt bootstrap before and after each effect and import. Recover from journal and engine state. Verify original attribution, safe replay and canonical confirmation before service admission.
-10. Verify create-only journal writes with the existing object-store engine. Recover after deleting local staging files. Prove configured independent-host durability before claiming host-loss protection.
-11. Run the scaling measurements and separately report installation capacity. Mapping-only tests do not satisfy these checks.
+9. Start with an empty ledger. Verify identity and execution checks, creation of the outbox and roles, deferred bootstrap records, and normal recording for the next command. Reject bootstrap against partially initialized or populated infrastructure. A failed ordinary login must not enable deferred execution. Recovery must record actual observed state without invented history.
+10. Run the scaling measurements and separately report installation capacity. Mapping-only tests do not satisfy these checks.
 
 ## References
 
@@ -135,8 +132,8 @@ Use the existing Go test harness and real temporary dependencies. Execute each r
 - [Event identity and chain append](../../../internal/audit/chain_append.go)
 - [Provisioning](../../../internal/ops/provision.go)
 - [Bootstrap exception](../../../internal/clispec/audit_infrastructure.go)
-- [Object-store helpers](../../../internal/ops/backup_s3_object.go)
+- [Settled operator bootstrap design](../2026-06-08-audit-ops-commands.md)
 
 ## Review status
 
-The recording contracts, complete values, shared definitions, one final event per bounded read and delivery order reflect approved decisions. Queue settings, fingerprint encoding, stream/manifest handling and the bootstrap mechanism are agent-selected recommendations. The builder check identified the independent bootstrap destination as the remaining prerequisite requiring agreement. Its multipart-offset question is resolved by the durable assembly transactions above. Implementation planning can specify file boundaries and signatures after that prerequisite is settled.
+The recording contracts, complete values, shared definitions, one final event per bounded read and delivery order reflect approved decisions. Queue settings, fingerprint encoding and stream/manifest handling are agent-selected recommendations. The builder check's multipart-offset question is resolved by the durable assembly transactions above. Bootstrap follows the existing first-boot exception. Implementation planning must preserve these choices and specify file boundaries, signatures and exact verification commands.
