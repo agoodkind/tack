@@ -34,15 +34,13 @@ type DeleteResult struct {
 	State node.SubtreeDeleteState
 }
 
-// Delete removes the node. Each direct child of the node moves to the node's
-// own parent when node.LivesUnder places the child's type under that
-// parent's type. Every other child is deleted with its descendants. The
-// delete stores a job record in FoundationDB and runs bounded steps of the
-// job for at most deleteRequestBudget. Each step writes one change event per changed node
-// or relationship in the transaction that changes it. The events record the job's actor
-// and operation ID. A job that is still running
-// when the budget ends, or when the caller stops, is finished by
-// ResumeSubtreeDeletes.
+// Delete removes the node. Each direct child of the node moves to the node's own parent
+// when node.LivesUnder places the child's type under that parent's type. Delete deletes
+// every other child with its descendants. The delete stores a job record in FoundationDB
+// and runs bounded steps of the job for at most deleteRequestBudget. Each step writes one
+// change event per changed node or relationship in the transaction that changes it. The
+// events record the job's actor and operation ID. ResumeSubtreeDeletes finishes a job
+// that is still running when the budget ends or the caller stops.
 func (s *NodeService) Delete(ctx context.Context, nodeID, actorID uuid.UUID) (DeleteResult, error) {
 	ctx, span := telemetry.StartSpan(ctx, "service.node.delete",
 		trace.WithSpanKind(trace.SpanKindInternal),

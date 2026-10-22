@@ -92,9 +92,9 @@ func RunOrphanNodeBackfill(ctx context.Context, scanner OrphanScanStore, remover
 	return result, nil
 }
 
-// applyOrphanBackfill removes the extra parent edges in result and deletes
-// orphans, and records the counts in result. Each change event records the actor and
-// operation ID from ctx and records orphanBackfillTool as its tool name.
+// applyOrphanBackfill removes the extra parent edges in result, deletes the orphans, and
+// stores the counts in result. Each change event uses the actor and operation ID from ctx
+// and orphanBackfillTool as its tool name.
 func applyOrphanBackfill(
 	ctx context.Context, remover ParentEdgeRemover, deleter SubtreeDeleter, orphans []fdbadapter.OrphanNode, result *OrphanBackfillResult,
 ) error {
