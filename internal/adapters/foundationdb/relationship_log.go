@@ -8,8 +8,8 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// logRelationshipFailure writes one error log record with the message name event and the
-// attributes err, source_id, and target_id.
+// logRelationshipFailure writes an error log record with event as the log message.
+// It records err, source_id, and target_id as structured attributes.
 func logRelationshipFailure(ctx context.Context, event string, err error, sourceID, targetID uuid.UUID) {
 	telemetry.L(ctx).ErrorContext(ctx, event, slog.String("err", err.Error()), slog.String("source_id", sourceID.String()), slog.String("target_id", targetID.String()))
 }
