@@ -50,12 +50,12 @@ END;
 $$;
 -- +goose StatementEnd
 
-REVOKE ALL ON FUNCTION public.ops_outbox_write_encoded(UUID, JSONB, BYTEA[]) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.ops_outbox_write_encoded(UUID, JSONB, BYTEA[]) TO app_auth, tack_migrator, audit_operator;
 GRANT ops_outbox_owner TO tack_migrator;
-GRANT EXECUTE ON FUNCTION public.ops_outbox_write_encoded(UUID, JSONB, BYTEA[]) TO ops_outbox_owner;
 GRANT CREATE ON SCHEMA public TO ops_outbox_owner;
 ALTER FUNCTION public.ops_outbox_write_encoded(UUID, JSONB, BYTEA[]) OWNER TO ops_outbox_owner;
+REVOKE ALL ON FUNCTION public.ops_outbox_write_encoded(UUID, JSONB, BYTEA[]) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.ops_outbox_write_encoded(UUID, JSONB, BYTEA[])
+    TO ops_outbox_owner, app_auth, tack_migrator, audit_operator;
 REVOKE CREATE ON SCHEMA public FROM ops_outbox_owner;
 REVOKE ops_outbox_owner FROM tack_migrator;
 

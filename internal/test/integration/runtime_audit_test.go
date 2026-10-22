@@ -18,12 +18,13 @@ import (
 	"goodkind.io/tack/internal/clock"
 )
 
-// TestRuntimeAuditTargetRoundTrip records format 2 relationship changes and
-// reads, unauthenticated refusals, and partially completed external
-// operations with committed steps through the Kafka recorder and consumer.
-// It compares each ledger reader row with the sent target, read evidence,
-// outcome, operation identifiers, error, committed steps, and changed values.
-// It verifies exports for both orgs.
+// TestRuntimeAuditTargetRoundTrip checks format 2 relationship changes,
+// read evidence, unauthenticated refusals, and partially completed external
+// operations against their ledger rows. It delivers a read event with
+// 300 targets through EncodeEvent, the YugabyteDB outbox, and the relay;
+// the other events use the Kafka recorder. It checks permanent manifest
+// parts, verifies exports for both organizations, and requires verification
+// to reject missing, reordered, or altered manifest parts.
 func TestRuntimeAuditTargetRoundTrip(t *testing.T) {
 	stack := startRuntimeAuditStack(t)
 	oldest := clock.Now().UTC().Add(-time.Minute)
@@ -47,10 +48,14 @@ func TestRuntimeAuditTargetRoundTrip(t *testing.T) {
 	}
 	read := completeEvent(orgID, userActor(), node, audit.OperationRead, audit.PhaseRead, audit.OutcomeCompleted)
 	payloadDigest := sha256.Sum256([]byte(`{"id":"` + node.ID.String() + `"}`))
-	manifestDigest := sha256.Sum256([]byte(node.ID.String()))
+	readTargets := syntheticReadTargets(node)
+	manifestDigest, manifestParts, err := audit.ReadManifestDigest(readTargets)
+	if err != nil {
+		t.Fatalf("compute the read manifest digest: %v", err)
+	}
 	read.Context.Read = &audit.ReadEvidence{
-		Count: 1, PayloadSHA256: hex.EncodeToString(payloadDigest[:]), PayloadFormat: "application/json",
-		ManifestSHA256: hex.EncodeToString(manifestDigest[:]), ManifestParts: 1,
+		Count: readTargetCount, PayloadSHA256: hex.EncodeToString(payloadDigest[:]), PayloadFormat: "application/json",
+		ManifestSHA256: manifestDigest, ManifestParts: manifestParts,
 	}
 
 	route := audit.Target{
@@ -69,15 +74,18 @@ func TestRuntimeAuditTargetRoundTrip(t *testing.T) {
 	partial.Error = &audit.EventError{Code: "upload_failed", Message: "synthetic upload failure"}
 	partial.Context.CommittedSteps = []string{"snapshot", "manifest"}
 
-	stack.record(t, change, read, refusal, partial)
+	stack.record(t, change, refusal, partial)
+	stack.deliverEncoded(t, read, readTargets)
 	for _, sent := range []audit.Event{change, read, refusal, partial} {
 		row := stack.waitForRow(t, sent.EventID)
 		requireRuntimeAuditRow(t, sent, row)
 	}
+	stack.requireStoredManifest(t, stack.waitForRow(t, read.EventID))
 	latest := clock.Now().UTC().Add(time.Minute)
 	if err := stack.exportAndVerify(t, orgID, oldest, latest); err != nil {
 		t.Fatalf("export of format 2 events failed verification: %v", err)
 	}
+	stack.requireManifestTamperRejected(t, orgID, oldest, latest, read.EventID)
 	if err := stack.exportAndVerify(t, audit.SystemOrgID(), oldest, latest); err != nil {
 		t.Fatalf("export of the unauthenticated refusal failed verification: %v", err)
 	}

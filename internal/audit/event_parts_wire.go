@@ -58,7 +58,7 @@ func encodeTransportMessage(message transportMessage) ([]byte, error) {
 	encoded, err := json.Marshal(message)
 	if err != nil {
 		slog.Error("audit.event_parts.message_encode_failed", slog.String("event_id", message.EventID.String()), slog.String("err", err.Error()))
-		return nil, fmt.Errorf("encode audit transport message for %s: %w", message.EventID, err)
+		return nil, fmt.Errorf("encode audit transport message for event %s: %w", message.EventID, err)
 	}
 	return encoded, nil
 }
@@ -125,13 +125,13 @@ func decodeTransportMessage(raw []byte) (transportMessage, bool, error) {
 		return transportMessage{}, true, fmt.Errorf("decode audit transport message: %s", err.Error())
 	}
 	if message.FormatVersion != eventPartsFormatVersion {
-		return transportMessage{}, true, fmt.Errorf("audit transport message %s: format version %d is unsupported", message.EventID, message.FormatVersion)
+		return transportMessage{}, true, fmt.Errorf("audit transport message %s uses unsupported format version %d", message.EventID, message.FormatVersion)
 	}
 	if message.Message != messageKindPart && message.Message != messageKindManifest {
-		return transportMessage{}, true, fmt.Errorf("audit transport message %s: kind %q is unsupported", message.EventID, message.Message)
+		return transportMessage{}, true, fmt.Errorf("audit transport message %s has unsupported kind %q", message.EventID, message.Message)
 	}
 	if message.EventID == uuid.Nil || message.PartCount == 0 || !isSHA256Hex(message.TransportDigest) {
-		return transportMessage{}, true, fmt.Errorf("audit transport message %s: event ID, part count, and transport digest are required", message.EventID)
+		return transportMessage{}, true, fmt.Errorf("audit transport message %s has an invalid event ID, part count, or transport digest", message.EventID)
 	}
 	return message, true, nil
 }

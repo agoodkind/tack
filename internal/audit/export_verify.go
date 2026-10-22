@@ -225,6 +225,9 @@ func scanBundleRows(dir, eventsName string, report *VerifyReport, mf ExportManif
 		if err != nil {
 			return nil, err
 		}
+		if manifestReason := manifestViolation(row); matched && manifestReason != "" {
+			matched, reason = false, manifestReason
+		}
 		if matched {
 			report.HashMatches++
 		} else {
