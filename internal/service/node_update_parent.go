@@ -88,6 +88,7 @@ func (s *NodeService) refuseParentCycle(ctx context.Context, nodeID, parentID uu
 		visited[currentID] = true
 		ancestor, err := s.reader.Get(ctx, currentID)
 		if err != nil {
+			slog.ErrorContext(ctx, "node.update.parent_ancestry_failed", slog.String("err", err.Error()))
 			return fmt.Errorf("update node %s: read ancestor %s of parent %s: %w", nodeID, currentID, parentID, err)
 		}
 		if ancestor == nil {

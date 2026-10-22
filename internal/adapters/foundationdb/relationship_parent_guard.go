@@ -51,9 +51,13 @@ func refuseOnlyParentRemoval(ctx context.Context, tr fdb.Transaction, orgID, sou
 		return nil
 	}
 	if canonicalID == uuid.Nil {
-		remaining, err := otherParentTarget(ctx, tr, orgID, sourceID, removedKey)
+		otherID, found, err := otherParentTarget(ctx, tr, orgID, sourceID, removedKey)
 		if err != nil {
 			return err
+		}
+		var remaining []uuid.UUID
+		if found {
+			remaining = []uuid.UUID{otherID}
 		}
 		if _, parentErr := node.HierarchyParent(sourceID, sources[0].Kind, remaining); parentErr == nil {
 			return nil
@@ -117,16 +121,18 @@ func invalidStoredParent(ctx context.Context, nodeID uuid.UUID, raw json.RawMess
 const parentGuardEdgeLimit = 2
 
 // otherParentTarget reads at most parentGuardEdgeLimit child_of edges from
-// sourceID and returns the target of the first edge with a key other than
-// removedKey, if one exists.
-func otherParentTarget(ctx context.Context, tr fdb.Transaction, orgID, sourceID uuid.UUID, removedKey fdb.Key) ([]uuid.UUID, error) {
+// sourceID. It returns the target and true for the first edge with a key other
+// than removedKey. It returns [uuid.Nil] and false when it does not find another
+// edge. It returns an error if the range read fails or an edge key does not
+// decode.
+func otherParentTarget(ctx context.Context, tr fdb.Transaction, orgID, sourceID uuid.UUID, removedKey fdb.Key) (uuid.UUID, bool, error) {
 	keyRange, err := fdb.PrefixRange(relationshipPrefixBySource(orgID, sourceID, node.RelChildOf))
 	if err != nil {
-		return nil, nodeOperationFailure(ctx, "create relationship range for node "+sourceID.String(), err)
+		return uuid.Nil, false, nodeOperationFailure(ctx, "create relationship range for node "+sourceID.String(), err)
 	}
 	items, err := tr.GetRange(keyRange, fdb.RangeOptions{Limit: parentGuardEdgeLimit}).GetSliceWithError()
 	if err != nil {
-		return nil, searchReadFailure(ctx, "read child_of edges of node "+sourceID.String(), err)
+		return uuid.Nil, false, searchReadFailure(ctx, "read child_of edges of node "+sourceID.String(), err)
 	}
 	for _, item := range items {
 		if bytes.Equal(item.Key, removedKey) {
@@ -134,11 +140,11 @@ func otherParentTarget(ctx context.Context, tr fdb.Transaction, orgID, sourceID 
 		}
 		targetID, err := edgeEnd(ctx, item.Key)
 		if err != nil {
-			return nil, err
+			return uuid.Nil, false, err
 		}
-		return []uuid.UUID{targetID}, nil
+		return targetID, true, nil
 	}
-	return nil, nil
+	return uuid.Nil, false, nil
 }
 
 // cachedNodeTypeByKey reads the node type of orgID that uses typeKey through
