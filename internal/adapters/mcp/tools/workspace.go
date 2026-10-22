@@ -147,6 +147,7 @@ func RegisterMembers(s *mcpserver.MCPServer, members org.MemberRepository, users
 				}
 				usersOut = append(usersOut, u)
 			}
+			addUserTargets(ctx, ws.OrgID, usersOut)
 			return successText(renderMembers(usersOut), ""), nil
 		},
 	)

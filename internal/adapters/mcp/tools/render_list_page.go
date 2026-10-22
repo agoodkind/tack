@@ -44,6 +44,7 @@ func renderListPage(rc *renderCtx, kind string, page node.Page) string {
 		}
 		usedBytes += size
 		items = append(items, item)
+		addNodeTargets(rc.ctx, view)
 	}
 	data := collectionTemplateData{Heading: titleText(kind), Count: len(items), Noun: kind, Items: items, NextCursor: nextCursor}
 	return executeMarkdownTemplate("collection.md.tmpl", data)

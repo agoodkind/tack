@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/telemetry"
 )
@@ -63,6 +64,7 @@ func permissionDenied() *mcp.CallToolResult {
 
 func unexpectedError(ctx context.Context, err error) *mcp.CallToolResult {
 	telemetry.L(ctx).Error("mcp.tool.unexpected_error", "err", err)
+	audit.NoteReadOutcome(ctx, audit.OutcomeFailed, "unexpected_error", "the server could not complete the tool call")
 	return &mcp.CallToolResult{
 		IsError: true,
 		Content: []mcp.Content{mcp.TextContent{Type: "text", Text: "#### Unexpected server error\n\nThe server could not complete the request safely.\n\nNext step: Yield to the user."}},

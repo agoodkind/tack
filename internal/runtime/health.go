@@ -1,4 +1,4 @@
-package main
+package runtime
 
 import (
 	"context"
@@ -17,11 +17,12 @@ type healthProbeResult struct {
 	err  error
 }
 
-// newHealthHandler serves GET /healthz for the ingress proxy's active
-// health check. It starts every probe concurrently under one two-second
-// deadline. 200 means every named probe succeeded. 503 names the first failed
-// probe in sorted name order. Probes must be cheap reads.
-func newHealthHandler(probes map[string]func(context.Context) error) http.Handler {
+// NewHealthHandler runs the health probes for the ingress proxy's /healthz check.
+// It starts every probe concurrently with one shared two-second deadline.
+// It returns 200 when every probe succeeds and 503 when a probe fails or does not finish in time.
+// It checks probe names in sorted order when selecting an error response.
+// Each probe must perform a cheap read.
+func NewHealthHandler(probes map[string]func(context.Context) error) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), healthCheckTimeout)
 		defer cancel()

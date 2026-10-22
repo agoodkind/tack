@@ -30,6 +30,6 @@ func (d *Driver) send(
 		request.Header.Set("Mcp-Session-Id", d.sessionID)
 	}
 	recorder := httptest.NewRecorder()
-	d.graph.AuthMiddleware(d.graph.MCPHandler).ServeHTTP(recorder, request)
+	d.graph.MCPRoute.ServeHTTP(recorder, request)
 	return recorder.Result(), nil
 }

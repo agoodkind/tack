@@ -306,7 +306,10 @@ func wrapToolHandler(name string, h mcpserver.ToolHandlerFunc) mcpserver.ToolHan
 			attribute.Int64("mcp.tool.duration_ms", dur.Milliseconds()),
 			attribute.Bool("mcp.tool.error", err != nil || (res != nil && res.IsError)),
 		)
-		recordToolAudit(ctx, name, req, res, err, refused)
+		noteToolOutcome(ctx, refused, err, res)
+		if !audit.HasReadCollector(ctx) {
+			recordToolAudit(ctx, name, req, res, err, refused)
+		}
 		return res, err
 	}
 }
