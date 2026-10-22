@@ -48,7 +48,7 @@ type Handler struct {
 	reader        node.NodeReader
 	nodeTypes     node.TypeRepository
 	propertyDefs  node.PropertyDefRepository
-	relationships node.RelationshipRepository
+	relationships RelationshipStore
 	members       org.MemberRepository
 	users         user.Repository
 	search        tools.SearchBinding
@@ -65,7 +65,7 @@ type Deps struct {
 	Reader        node.NodeReader
 	NodeTypes     node.TypeRepository
 	PropertyDefs  node.PropertyDefRepository
-	Relationships node.RelationshipRepository
+	Relationships RelationshipStore
 	Members       org.MemberRepository
 	Users         user.Repository
 	// Search runs ranked search for tack_search. A binding without a runner

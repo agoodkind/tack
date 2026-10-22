@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -14,33 +13,34 @@ import (
 // assigned_to relationship.
 const unassignedText = "unassigned"
 
-// errRelationshipsMissing reports that a tool binding lacks a relationship
-// repository when loadAssignees needs one for a type with has_assignees.
-var errRelationshipsMissing = errors.New("render assignees: relationship repository is not configured")
-
-// loadAssignees lists assigned_to relationships for each view with the
-// has_assignees feature and stores the target user IDs on rc.
-// It uses ListBySource because NodeReader relation scans return only nodes,
-// and assignees are users.
-func (rc *renderCtx) loadAssignees(relationships node.RelationshipRepository, views ...*node.NodeView) error {
+// loadAssignees stores target user IDs on rc for views with has_assignees.
+// It groups these views by organization and calls ListBySources once per
+// organization with assigned_to. Each get or list response uses one call.
+// It reads relationships because NodeReader relation scans cannot return
+// user targets.
+func (rc *renderCtx) loadAssignees(relationships node.RelationshipBatchLister, views ...*node.NodeView) error {
+	sourcesByOrg := map[uuid.UUID][]uuid.UUID{}
 	for _, view := range views {
-		if !rc.hasAssignees(view) {
-			continue
+		if rc.hasAssignees(view) {
+			sourcesByOrg[view.OrgID] = append(sourcesByOrg[view.OrgID], view.ID)
 		}
-		if relationships == nil {
-			return errRelationshipsMissing
-		}
-		edges, err := relationships.ListBySource(rc.ctx, view.OrgID, view.ID, node.RelAssignedTo)
+	}
+	for orgID, sourceIDs := range sourcesByOrg {
+		edgesBySource, err := relationships.ListBySources(rc.ctx, orgID, sourceIDs, node.RelAssignedTo)
 		if err != nil {
 			slog.ErrorContext(rc.ctx, "render.assignees_read_failed",
-				slog.String("node_id", view.ID.String()), slog.String("err", err.Error()))
-			return fmt.Errorf("list assigned_to relationships of node %s: %w", view.ID, err)
+				slog.String("org_id", orgID.String()), slog.Int("node_count", len(sourceIDs)),
+				slog.String("err", err.Error()))
+			return fmt.Errorf("list assigned_to relationships of %d nodes in org %s: %w", len(sourceIDs), orgID, err)
 		}
-		targets := make([]uuid.UUID, 0, len(edges))
-		for _, edge := range edges {
-			targets = append(targets, edge.TargetID)
+		for _, sourceID := range sourceIDs {
+			edges := edgesBySource[sourceID]
+			targets := make([]uuid.UUID, 0, len(edges))
+			for _, edge := range edges {
+				targets = append(targets, edge.TargetID)
+			}
+			rc.assignees[sourceID] = targets
 		}
-		rc.assignees[view.ID] = targets
 	}
 	return nil
 }

@@ -19,9 +19,9 @@ type NodeTypeBinding struct {
 	// assignee UUIDs to display names. When nil, the renderer falls back to
 	// raw IDs.
 	Users user.Repository
-	// Relationships provides assigned_to relationships for the get and list
-	// tools to render assignees. Node types with has_assignees require it.
-	Relationships node.RelationshipRepository
+	// Relationships reads assigned_to relationships for nodes that the get and
+	// list tools render. Every binding must set this field.
+	Relationships node.RelationshipBatchLister
 }
 
 // RegisterNodeTools registers list/create/get/update/delete tools for a NodeType.
