@@ -42,6 +42,7 @@ type Factory struct {
 	auditOutbox              audit.OutboxWriter           `exhaustruct:"optional"`
 	auditOutboxCloser        auditOutboxCloser            `exhaustruct:"optional"`
 	auditInfrastructureProbe audit.InfrastructureProbe    `exhaustruct:"optional"`
+	auditReads               audit.ReadLifecycle          `exhaustruct:"optional"`
 }
 
 type auditOutboxCloser interface {
@@ -124,6 +125,16 @@ func (f *Factory) SetAuditInfrastructureProbe(probe audit.InfrastructureProbe) {
 // creates its own audit infrastructure.
 func (f *Factory) AuditInfrastructureProbe() audit.InfrastructureProbe {
 	return f.auditInfrastructureProbe
+}
+
+// SetAuditReads stores the read lifecycle store that records operator reads.
+func (f *Factory) SetAuditReads(reads audit.ReadLifecycle) {
+	f.auditReads = reads
+}
+
+// AuditReads returns the read lifecycle store that records operator reads.
+func (f *Factory) AuditReads() audit.ReadLifecycle {
+	return f.auditReads
 }
 
 // CloseAuditOutbox releases the database pool used by audited commands.

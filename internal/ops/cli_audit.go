@@ -3,37 +3,34 @@ package ops
 import (
 	"context"
 
+	"github.com/spf13/cobra"
+
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clispec"
 )
 
-// auditSeedRolesOp declares `ops audit seed-roles`, which idempotently creates
-// or rotates the LOGIN audit roles the app and audit-consumer use to write and
-// read the compliance ledger.
-func auditSeedRolesOp(f *cli.Factory) clispec.Operation[noInput] {
-	return clispec.Operation[noInput]{
-		Name:     clispec.Name{Canonical: "seed-roles", CLIOverride: ""},
-		Lifetime: clispec.Permanent,
-		Audit:    audit.Spec{Verb: string(audit.VerbAuditRolesSeed), Mutates: true},
-		Group:    auditOpsGroup,
-		Aliases:  nil,
-		Hidden:   false,
-		Short:    "Create or rotate the LOGIN roles (tack_audit_writer/reader/redactor/operator, tack_app, tack_migrator)",
+// auditSeedRolesCommand builds `ops audit seed-roles` to create login roles
+// or update their passwords for audit access, application authentication,
+// and migrations. The command records one step per role with its state before
+// and after the operation.
+func auditSeedRolesCommand(f *cli.Factory) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "seed-roles",
+		Short: "Create or rotate the LOGIN roles (tack_audit_writer/reader/redactor/operator, tack_app, tack_migrator)",
 		Long: "Idempotently create or rotate the LOGIN audit roles used by the app " +
 			"and the audit-consumer to write and read the compliance ledger, and " +
 			"tack_app, the non-superuser login the application's DATABASE_URL uses " +
 			"for the auth tables (TACK-180). Sets LOGIN and the password on " +
 			"tack_migrator, the non-superuser login of migrations and operator " +
 			"commands (TACK-554).",
-		Examples: nil,
-		Args:     nil,
-		Params:   nil,
-		New:      func() noInput { return noInput{InputMarker: clispec.InputMarker{}} },
-		Run: func(ctx context.Context, _ noInput, _ clispec.ResultSink) error {
-			return RunAuditSeedRoles(ctx, f.Cfg)
-		},
+		Args: cobra.NoArgs,
 	}
+	clispec.AttachExternal(cmd, f, externalSpec(audit.VerbAuditRolesSeed, "yugabyte/roles"), emptyCommandInput,
+		func(ctx context.Context, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
+			return runAuditSeedRolesRecorded(ctx, f.Cfg, steps)
+		})
+	return cmd
 }
 
 // auditConsumerOffsetsOp declares `ops audit consumer-offsets`. It reports

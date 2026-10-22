@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	_ "embed"
 	"fmt"
 	"log/slog"
 	"time"
@@ -15,10 +15,8 @@ import (
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clispec"
 	"goodkind.io/tack/internal/ops"
-	"goodkind.io/tack/internal/schemastatus"
 	"goodkind.io/tack/internal/telemetry"
 	"goodkind.io/tack/internal/version"
-	"goodkind.io/tack/migrations"
 )
 
 // emptyInput is the input for top-level commands that take no flags or args.
@@ -53,7 +51,7 @@ func buildRoot(f *cli.Factory) *cobra.Command {
 
 	reg := clispec.NewRegistry()
 	clispec.Register(reg, serve)
-	clispec.Register(reg, migrateOp(f))
+	reg.AddHandwritten(clispec.HandwrittenCommand{Group: nil, Build: migrateCommand})
 	clispec.Register(reg, seedOp(f))
 	registerAudit(reg, f)
 	ops.RegisterCommands(reg, f)
@@ -64,6 +62,13 @@ func buildRoot(f *cli.Factory) *cobra.Command {
 }
 
 const auditInfrastructureProbeTimeout = 5 * time.Second
+
+// auditInfrastructureProbeQuery reports whether public.ops_outbox exists,
+// whether the tack_audit_operator login exists, and whether audit_operator
+// can execute public.ops_read_begin.
+//
+//go:embed audit_infrastructure_probe.sql
+var auditInfrastructureProbeQuery string
 
 func configureAuditInfrastructureProbe(f *cli.Factory) {
 	databaseURL := f.Cfg.DatabaseURL
@@ -80,10 +85,9 @@ func configureAuditInfrastructureProbe(f *cli.Factory) {
 		defer func() { connection.Close(probeContext) }()
 
 		var infrastructure audit.InfrastructureState
-		if err := connection.QueryRow(
-			probeContext,
-			"SELECT to_regclass('public.ops_outbox') IS NOT NULL, EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'tack_audit_operator')",
-		).Scan(&infrastructure.OutboxTableExists, &infrastructure.OperatorLoginExists); err != nil {
+		if err := connection.QueryRow(probeContext, auditInfrastructureProbeQuery).Scan(
+			&infrastructure.OutboxTableExists, &infrastructure.OperatorLoginExists, &infrastructure.OperatorReadsExist,
+		); err != nil {
 			slog.ErrorContext(probeContext, "audit.infrastructure_probe_query_failed",
 				slog.String("err", err.Error()))
 			return audit.InfrastructureState{}, fmt.Errorf("query audit infrastructure probe: %w", err)
@@ -113,6 +117,7 @@ func configureAuditOutbox(f *cli.Factory) {
 		slog.WarnContext(ctx, "audit.operator_outbox.ping_deferred", slog.String("err", err.Error()))
 	}
 	f.SetAuditOutbox(audit.NewPoolOutbox(pool))
+	f.SetAuditReads(audit.NewPoolReadLifecycle(pool))
 }
 
 func serveOp(f *cli.Factory) clispec.Operation[emptyInput] {
@@ -124,55 +129,6 @@ func serveOp(f *cli.Factory) clispec.Operation[emptyInput] {
 		New:      func() emptyInput { return emptyInput{} },
 		Run: func(ctx context.Context, _ emptyInput, _ clispec.ResultSink) error {
 			return runServer(ctx, f.Cfg)
-		},
-	}
-}
-
-// migrateInput contains the inputs for a migration run. A zero flag value does
-// not set a requirement.
-type migrateInput struct {
-	clispec.InputMarker `exhaustruct:"optional"`
-	To                  int
-	ExpectFrom          int
-}
-
-func migrateOp(f *cli.Factory) clispec.Operation[migrateInput] {
-	return clispec.Operation[migrateInput]{
-		Name:     clispec.Name{Canonical: "migrate"},
-		Lifetime: clispec.Permanent,
-		Audit:    audit.Spec{Verb: string(audit.VerbDatabaseMigrate), Mutates: true},
-		Short:    "Run database migrations against DATABASE_URL; without --execute, print the migration state",
-		Params: []clispec.Param[migrateInput]{
-			clispec.IntParam("to", "apply migrations through this version only", 0,
-				func(in *migrateInput, value int) { in.To = value }),
-			clispec.IntParam("expect-from", "refuse the run unless the database is at this migration version", 0,
-				func(in *migrateInput, value int) { in.ExpectFrom = value }),
-		},
-		New: func() migrateInput { return migrateInput{To: 0, ExpectFrom: 0} },
-		DryRun: func(ctx context.Context, _ migrateInput, sink clispec.ResultSink) error {
-			status, err := schemastatus.Read(ctx, f.Cfg.DatabaseURL, migrations.FS)
-			if err != nil {
-				slog.ErrorContext(ctx, "migrate.status_failed", slog.String("err", err.Error()))
-				return fmt.Errorf("migrate: read the migration state: %w", err)
-			}
-			if f.OutputFormat() != cli.FormatJSON {
-				return sink.WriteText(ctx, status.Summary())
-			}
-			body, err := json.Marshal(status)
-			if err != nil {
-				slog.ErrorContext(ctx, "migrate.status_encode_failed", slog.String("err", err.Error()))
-				return fmt.Errorf("migrate: encode the migration state at version %d: %w", status.AppliedVersion, err)
-			}
-			return sink.WriteJSON(ctx, body)
-		},
-		Run: func(ctx context.Context, in migrateInput, sink clispec.ResultSink) error {
-			guard := schemastatus.Guard{ExpectFrom: int64(in.ExpectFrom), To: int64(in.To)}
-			applied, err := schemastatus.Apply(ctx, f.Cfg.DatabaseURL, migrations.FS, guard)
-			if err != nil {
-				slog.ErrorContext(ctx, "migrate.failed", slog.String("err", err.Error()))
-				return fmt.Errorf("migrate: %w", err)
-			}
-			return sink.WriteText(ctx, fmt.Sprintf("migrations complete through version %d", applied))
 		},
 	}
 }
