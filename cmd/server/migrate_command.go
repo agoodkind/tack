@@ -46,17 +46,7 @@ func migrationTargets(context.Context, json.RawMessage) ([]audit.Target, error) 
 }
 
 func safeMigrateInput(input json.RawMessage) (json.RawMessage, error) {
-	var decoded migrateInput
-	if err := json.Unmarshal(input, &decoded); err != nil {
-		slog.Error("migrate.input_decode_failed", slog.String("err", err.Error()))
-		return nil, fmt.Errorf("decode migrate input: %w", err)
-	}
-	encoded, err := json.Marshal(decoded)
-	if err != nil {
-		slog.Error("migrate.input_encode_failed", slog.String("err", err.Error()))
-		return nil, fmt.Errorf("encode migrate input: %w", err)
-	}
-	return encoded, nil
+	return input, nil
 }
 
 // migrateCommand builds the migrate command. With --execute, the command
