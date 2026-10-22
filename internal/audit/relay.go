@@ -29,6 +29,8 @@ type RelayOutboxEntry struct {
 	Mark []byte
 	// Event is the raw JSON audit event payload.
 	Event json.RawMessage
+	// CommitVersion is the versionstamp in Mark as hexadecimal text.
+	CommitVersion string
 }
 
 // FoundationDBOutbox reads and clears FoundationDB operator-command events.
@@ -233,6 +235,9 @@ func (r *Relay) drainFoundationDB(ctx context.Context, mark []byte) []byte {
 		if err := json.Unmarshal(entry.Event, &event); err != nil {
 			slog.ErrorContext(ctx, "audit.relay.foundationdb_decode_failed", slog.String("err", err.Error()))
 			break
+		}
+		if event.Context.CommitVersion == "" {
+			event.Context.CommitVersion = entry.CommitVersion
 		}
 		if err := r.recorder.Record(ctx, event); err != nil {
 			slog.ErrorContext(ctx, "audit.relay.foundationdb_produce_failed", slog.String("err", err.Error()))

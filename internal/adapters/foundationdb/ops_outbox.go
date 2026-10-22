@@ -34,6 +34,9 @@ type OutboxEntry struct {
 	// because the audit package owns the event shape and importing it here
 	// would invert the dependency.
 	Event json.RawMessage
+	// CommitVersion is the versionstamp in Mark as 24 hexadecimal
+	// characters. Its lexical order is the commit order of the entries.
+	CommitVersion string
 }
 
 // ReadOutboxFrom reads up to limit events committed after mark, in commit
@@ -75,7 +78,7 @@ func (s *OpsOutboxStore) ReadOutboxFrom(
 			GetRange(readRange, fdb.RangeOptions{Limit: limit}).
 			GetSliceWithError()
 		if readErr == nil {
-			return outboxEntries(keyValues), nil
+			return outboxEntries(ctx, keyValues)
 		}
 		var fdbErr fdb.Error
 		if !errors.As(readErr, &fdbErr) {
@@ -90,17 +93,23 @@ func (s *OpsOutboxStore) ReadOutboxFrom(
 	}
 }
 
-// outboxEntries copies each key and value out of the transaction's buffers,
-// which the caller must not hold on to once the transaction ends.
-func outboxEntries(keyValues []fdb.KeyValue) []OutboxEntry {
+// outboxEntries decodes each key's commit version and copies each key and
+// value into an OutboxEntry. The caller must not retain the transaction's
+// buffers after the transaction ends.
+func outboxEntries(ctx context.Context, keyValues []fdb.KeyValue) ([]OutboxEntry, error) {
 	entries := make([]OutboxEntry, 0, len(keyValues))
 	for _, keyValue := range keyValues {
+		commitVersion, err := outboxCommitVersion(ctx, keyValue.Key)
+		if err != nil {
+			return nil, err
+		}
 		entries = append(entries, OutboxEntry{
-			Mark:  append([]byte(nil), keyValue.Key...),
-			Event: append(json.RawMessage(nil), keyValue.Value...),
+			Mark:          append([]byte(nil), keyValue.Key...),
+			Event:         append(json.RawMessage(nil), keyValue.Value...),
+			CommitVersion: commitVersion,
 		})
 	}
-	return entries
+	return entries, nil
 }
 
 // ClearThrough deletes every outbox entry up to and including mark. The relay

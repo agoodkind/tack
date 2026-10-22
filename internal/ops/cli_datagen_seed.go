@@ -8,6 +8,7 @@ import (
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clispec"
+	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/datagen"
 )
 
@@ -37,6 +38,10 @@ type datagenSeedResult struct {
 	// LedgerVerbs is the row count of each host-only ledger verb, read after
 	// a committed seed. It is nil after a dry run.
 	LedgerVerbs *datagenLedgerVerbsReport `json:"ledger_verbs,omitempty"`
+	// CommitOrder reports node row counts, commit version counts, and repeated
+	// commit versions for the generated organizations after a committed seed.
+	// It is nil after a dry run.
+	CommitOrder *datagenCommitOrderReport `json:"commit_order,omitempty"`
 }
 
 func datagenSeedOp(f *cli.Factory) clispec.Operation[datagenSeedInput] {
@@ -90,6 +95,7 @@ func runDatagenSeed(
 	}
 	var remainders *auditConsumerOffsetsReport
 	var ledgerVerbs *datagenLedgerVerbsReport
+	var commitOrder *datagenCommitOrderReport
 	if input.Commit {
 		report, readErr := readAuditConsumerOffsets(ctx, factory)
 		if readErr != nil {
@@ -101,6 +107,11 @@ func runDatagenSeed(
 			return fmt.Errorf("qa datagen seed: %w", verbsErr)
 		}
 		ledgerVerbs = &verbs
+		order, orderErr := readDatagenCommitOrder(ctx, factory, input.Scale, int64(input.Seed), clock.Now().UTC())
+		if orderErr != nil {
+			return fmt.Errorf("qa datagen seed: %w", orderErr)
+		}
+		commitOrder = &order
 	}
 	return clispec.WriteJSONValue(ctx, sink, datagenSeedResult{
 		ResultMarker: clispec.ResultMarker{},
@@ -117,5 +128,6 @@ func runDatagenSeed(
 
 		AuditConsumerOffsets: remainders,
 		LedgerVerbs:          ledgerVerbs,
+		CommitOrder:          commitOrder,
 	})
 }
