@@ -21,7 +21,6 @@ import (
 // exists to prevent (TACK-340).
 var unemittedVerbs = map[Verb]string{
 	VerbPropertyDefDelete:  "no property-def deletion tool exists; TACK-340 tracks the feature",
-	VerbOrgMemberRemove:    "no membership removal mutation exists; TACK-340 tracks the feature",
 	VerbOrgMemberRoleSet:   "no role mutation exists; TACK-340 tracks the feature",
 	VerbAuthLoginSucceeded: "there is no login endpoint; bearer auth emits auth.token_used instead; TACK-340",
 	VerbAuditNotarized:     "the notarizer writes its own table row and records no ledger event; TACK-340",
