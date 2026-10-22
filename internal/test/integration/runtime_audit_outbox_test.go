@@ -3,9 +3,11 @@ package integration_test
 import (
 	"context"
 	"crypto/rand"
+	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/url"
 	"reflect"
 	"strings"
@@ -24,6 +26,24 @@ const (
 	insufficientPrivilegeState = "42501"
 	// largeValueBytes sets the approximate size of each synthetic description to 80 KiB.
 	largeValueBytes = 80 * 1024
+)
+
+var (
+	// outboxFunctionQuery checks tack_migrator membership in ops_outbox_owner,
+	// reads the owner of public.ops_outbox_write_encoded, and checks
+	// whether ops_outbox_owner has EXECUTE on that function.
+	//go:embed testdata/runtime_audit_outbox_function.sql
+	outboxFunctionQuery string
+	// outboxDirectInsert inserts one row directly into public.ops_outbox.
+	//go:embed testdata/runtime_audit_outbox_direct_insert.sql
+	outboxDirectInsert string
+	// loginRoleStatement contains CREATE ROLE with placeholders for the login,
+	// password, and base role.
+	//go:embed testdata/runtime_audit_login_role.sql
+	loginRoleStatement string
+	// dropRoleStatement drops a login role.
+	//go:embed testdata/runtime_audit_drop_role.sql
+	dropRoleStatement string
 )
 
 // largeChangeEvent returns a synthetic format 2 change event with old and new
@@ -50,16 +70,14 @@ func TestRuntimeAuditOutboxWriteFunction(t *testing.T) {
 		t.Fatalf("admin pool: %v", err)
 	}
 	t.Cleanup(admin.Close)
-	var member bool
+	var member, ownerExecutes bool
 	var owner string
-	if err := admin.QueryRow(t.Context(), `
-		SELECT pg_has_role('tack_migrator', 'ops_outbox_owner', 'MEMBER'), pg_get_userbyid(proowner)
-		  FROM pg_proc WHERE proname = 'ops_outbox_write_encoded'
-	`).Scan(&member, &owner); err != nil {
+	if err := admin.QueryRow(t.Context(), outboxFunctionQuery).Scan(&member, &owner, &ownerExecutes); err != nil {
 		t.Fatalf("read the outbox function owner: %v", err)
 	}
-	if member || owner != "ops_outbox_owner" {
-		t.Fatalf("tack_migrator membership in ops_outbox_owner = %t and function owner = %s, want false and ops_outbox_owner", member, owner)
+	if member || owner != "ops_outbox_owner" || !ownerExecutes {
+		t.Fatalf("tack_migrator membership in ops_outbox_owner = %t, function owner = %s, owner execute = %t; want false, ops_outbox_owner, true",
+			member, owner, ownerExecutes)
 	}
 
 	application, err := pgxpool.New(t.Context(), roleLoginDSN(t, admin, ledgerDSN, "app_auth"))
@@ -83,7 +101,7 @@ func TestRuntimeAuditOutboxWriteFunction(t *testing.T) {
 	if err := transaction.Commit(t.Context()); err != nil {
 		t.Fatalf("commit the application transaction: %v", err)
 	}
-	_, err = application.Exec(t.Context(), `INSERT INTO public.ops_outbox (event_id, event) VALUES ($1, '{}')`, uuid.Must(uuid.NewV7()))
+	_, err = application.Exec(t.Context(), outboxDirectInsert, uuid.Must(uuid.NewV7()))
 	var postgresError *pgconn.PgError
 	if !errors.As(err, &postgresError) || postgresError.Code != insufficientPrivilegeState {
 		t.Fatalf("direct outbox insert as the application role = %v, want SQLSTATE %s", err, insufficientPrivilegeState)
@@ -118,11 +136,10 @@ func roleLoginDSN(t *testing.T, admin *pgxpool.Pool, adminDSN, baseRole string) 
 	}
 	login := "tack_test_parts_" + strings.ReplaceAll(uuid.NewString()[:8], "-", "")
 	password := hex.EncodeToString(secret)
-	statement := "CREATE ROLE " + login + " LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD '" + password + "' IN ROLE " + baseRole
-	if _, err := admin.Exec(t.Context(), statement); err != nil {
+	if _, err := admin.Exec(t.Context(), fmt.Sprintf(loginRoleStatement, login, password, baseRole)); err != nil {
 		t.Fatalf("create %s: %v", login, err)
 	}
-	t.Cleanup(func() { _, _ = admin.Exec(context.WithoutCancel(t.Context()), "DROP ROLE IF EXISTS "+login) })
+	t.Cleanup(func() { _, _ = admin.Exec(context.WithoutCancel(t.Context()), fmt.Sprintf(dropRoleStatement, login)) })
 	parsed, err := url.Parse(adminDSN)
 	if err != nil {
 		t.Fatalf("parse the admin DSN: %v", err)

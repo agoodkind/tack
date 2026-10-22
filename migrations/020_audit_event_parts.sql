@@ -10,6 +10,9 @@
 -- but cannot insert directly into public.ops_outbox.
 -- The migration grants tack_migrator membership in ops_outbox_owner and grants
 -- ops_outbox_owner CREATE on public, changes the function owner, then revokes both grants.
+-- Migration 020 grants EXECUTE on public.ops_outbox_write_encoded to
+-- ops_outbox_owner for calls from SECURITY DEFINER functions that
+-- ops_outbox_owner owns and that run with its privileges.
 --
 -- Every statement supports repeated execution after YugabyteDB retains completed
 -- schema changes when a migration transaction rolls back.
@@ -47,11 +50,12 @@ END;
 $$;
 -- +goose StatementEnd
 
-REVOKE ALL ON FUNCTION public.ops_outbox_write_encoded(UUID, JSONB, BYTEA[]) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.ops_outbox_write_encoded(UUID, JSONB, BYTEA[]) TO app_auth, tack_migrator, audit_operator;
 GRANT ops_outbox_owner TO tack_migrator;
 GRANT CREATE ON SCHEMA public TO ops_outbox_owner;
 ALTER FUNCTION public.ops_outbox_write_encoded(UUID, JSONB, BYTEA[]) OWNER TO ops_outbox_owner;
+REVOKE ALL ON FUNCTION public.ops_outbox_write_encoded(UUID, JSONB, BYTEA[]) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.ops_outbox_write_encoded(UUID, JSONB, BYTEA[])
+    TO ops_outbox_owner, app_auth, tack_migrator, audit_operator;
 REVOKE CREATE ON SCHEMA public FROM ops_outbox_owner;
 REVOKE ops_outbox_owner FROM tack_migrator;
 

@@ -51,7 +51,7 @@ func readManifestParts(targets []Target) ([][]byte, error) {
 		}
 		targetBytes := len(encoded) + len(",")
 		if len(encoded)+len("[]") > EventPartMaxBytes {
-			return nil, fmt.Errorf("read target of %d bytes exceeds the part limit", len(encoded))
+			return nil, fmt.Errorf("read target of %d bytes exceeds the part size limit", len(encoded))
 		}
 		if len(current) == ReadManifestMaxEntries || currentBytes+targetBytes > EventPartMaxBytes {
 			if err := flush(); err != nil {

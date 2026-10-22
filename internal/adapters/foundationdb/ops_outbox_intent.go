@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"math"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
@@ -50,8 +49,11 @@ func writeNodeIntent(ctx context.Context, tr fdb.Transaction, source []byte, res
 	return writeMutationIntent(ctx, tr, source, encoded)
 }
 
-// writeMutationIntent writes the audit event staged on ctx to the outbox in tr
-// in the same transaction as the change (TACK-173).
+// writeMutationIntent writes the event staged on ctx with a new OutboxWriter
+// in tr, in the same transaction as the change. Callers use it when their
+// transaction writes a single outbox event. A transaction that writes several
+// outbox events must create one OutboxWriter per attempt and pass it to every
+// write.
 //
 // Each attempt builds a new event from the unchanged staged template, the
 // source encoding it read, and the result encoding it wrote for the primary
@@ -60,6 +62,12 @@ func writeNodeIntent(ctx context.Context, tr fdb.Transaction, source []byte, res
 // The template remains staged until commitStagedIntent runs. A context without
 // a staged event does not write an outbox entry.
 func writeMutationIntent(ctx context.Context, tr fdb.Transaction, source, result []byte) error {
+	return appendMutationIntent(ctx, NewOutboxWriter(tr), source, result)
+}
+
+// appendMutationIntent builds the event staged on ctx for one transaction
+// attempt and writes it with outbox.
+func appendMutationIntent(ctx context.Context, outbox *OutboxWriter, source, result []byte) error {
 	payload, ok, err := auditintent.Build(ctx, source, result)
 	if err != nil {
 		slog.ErrorContext(ctx, "ops_outbox.intent_build_failed", slog.String("err", err.Error()))
@@ -72,26 +80,7 @@ func writeMutationIntent(ctx context.Context, tr fdb.Transaction, source, result
 	if err != nil {
 		return err
 	}
-	return writeOutboxEntries(ctx, tr, entries)
-}
-
-// writeOutboxEntries writes each value as a versionstamped entry in tr.
-// It assigns user versions from zero in slice order and rejects more than 65535 values.
-func writeOutboxEntries(ctx context.Context, tr fdb.Transaction, values [][]byte) error {
-	if len(values) > math.MaxUint16 {
-		return fmt.Errorf("ops outbox write has %d entries, more than one transaction can order", len(values))
-	}
-	var userVersion uint16
-	for _, value := range values {
-		key, err := marshalOpsOutboxEntryKey(userVersion)
-		if err != nil {
-			slog.ErrorContext(ctx, "ops_outbox.intent_key_failed", slog.String("err", err.Error()))
-			return fmt.Errorf("ops outbox intent key: %w", err)
-		}
-		tr.SetVersionstampedKey(key, value)
-		userVersion++
-	}
-	return nil
+	return outbox.write(ctx, entries)
 }
 
 // outboxEntryValues keeps payloads within EventPartMaxBytes as one plain entry.
@@ -114,16 +103,6 @@ func outboxEntryValues(ctx context.Context, payload json.RawMessage) ([][]byte, 
 		return [][]byte{payload}, nil
 	}
 	return encodedRecords(ctx, encoded)
-}
-
-// WriteEncodedEvent writes one EncodedEvent's records in publication order
-// inside the caller's FoundationDB transaction.
-func WriteEncodedEvent(ctx context.Context, tr fdb.Transaction, encoded audit.EncodedEvent) error {
-	records, err := encodedRecords(ctx, encoded)
-	if err != nil {
-		return err
-	}
-	return writeOutboxEntries(ctx, tr, records)
 }
 
 // encodedRecords returns the event's outbox records and wraps a Records error
