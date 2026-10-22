@@ -82,8 +82,6 @@ func rolloutEntryPoint(t *testing.T, fixture rolloutFixture, workspace datagen.W
 	return uuid.Nil
 }
 
-// rolloutNodeService builds the production node service over the fixture
-// stores.
 func rolloutNodeService(fixture rolloutFixture) *service.NodeService {
 	stores := fixture.stores
 	return service.NewNodeService(stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs, stores.Relationships, stores.NodeDeleter)
