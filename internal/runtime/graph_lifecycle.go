@@ -45,6 +45,7 @@ func (g *Graph) Close() {
 func (g *Graph) CloseContext(ctx context.Context) error {
 	g.stopDeleteResumer()
 	g.stopSearchModelRepair()
+	g.stopAuditReadRecovery()
 	if g.searchCancel != nil {
 		g.searchCancel()
 	}
