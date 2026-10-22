@@ -84,6 +84,29 @@ func (e EncodedEvent) Messages() ([][]byte, error) {
 	return append(messages, e.Header), nil
 }
 
+// Records returns outbox records in publication order.
+// When Multipart returns false, it returns plain event JSON as one record.
+// Otherwise, it returns ordered part messages followed by the manifest message.
+func (e EncodedEvent) Records() ([][]byte, error) {
+	if e.Multipart() {
+		return e.Messages()
+	}
+	if len(e.Parts) != 1 {
+		return nil, fmt.Errorf("audit event %s: a single record requires exactly one part", e.EventID)
+	}
+	var envelope eventEnvelope
+	decoder := json.NewDecoder(bytes.NewReader(e.Parts[0].Payload))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&envelope); err != nil {
+		return nil, fmt.Errorf("audit event %s: decode envelope: %s", e.EventID, err.Error())
+	}
+	eventJSON, err := MarshalEvent(envelope.Event)
+	if err != nil {
+		return nil, err
+	}
+	return [][]byte{eventJSON}, nil
+}
+
 // decodeTransportMessage detects transport messages and rejects unknown fields
 // during decoding. It returns false without an error if the probe fails
 // or audit_message is empty. It requires a supported version and kind,
