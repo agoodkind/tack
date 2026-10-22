@@ -34,7 +34,7 @@ func configureSearchRuntime(t *testing.T) {
 	t.Setenv("OPENSEARCH_CA", caPath)
 	t.Setenv("OPENSEARCH_USERNAME", engine.Username)
 	t.Setenv("OPENSEARCH_PASSWORD", secret)
-	configureSearchMaintenance(t, engine)
+	ConfigureSearchMaintenance(t, engine)
 	t.Setenv("OPENSEARCH_PAGE_BYTES", strconv.Itoa(runtimePageBytes))
 	t.Setenv("OPENSEARCH_WORKER_IDLE_INTERVAL", "50ms")
 	t.Setenv("OPENSEARCH_SHARDS", "1")

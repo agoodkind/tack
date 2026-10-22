@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -17,11 +18,12 @@ import (
 	"goodkind.io/tack/internal/clock"
 )
 
-// TestRuntimeAuditTargetRoundTrip records a format 2 relationship change, a
-// format 2 read, and an unauthenticated refusal through the Kafka recorder
-// and consumer. It compares ledger reader rows with the sent targets, read
-// evidence, outcomes, operation identifiers, errors, and changed values. It
-// verifies exports for both orgs.
+// TestRuntimeAuditTargetRoundTrip records format 2 relationship changes and
+// reads, unauthenticated refusals, and partially completed external
+// operations with committed steps through the Kafka recorder and consumer.
+// It compares each ledger reader row with the sent target, read evidence,
+// outcome, operation identifiers, error, committed steps, and changed values.
+// It verifies exports for both orgs.
 func TestRuntimeAuditTargetRoundTrip(t *testing.T) {
 	stack := startRuntimeAuditStack(t)
 	oldest := clock.Now().UTC().Add(-time.Minute)
@@ -62,8 +64,13 @@ func TestRuntimeAuditTargetRoundTrip(t *testing.T) {
 	refusal := completeEvent(audit.SystemOrgID(), anonymous, route, audit.OperationRead, audit.PhaseRead, audit.OutcomeRefused)
 	refusal.Error = &audit.EventError{Code: "authentication_required", Message: "request omitted a bearer token"}
 
-	stack.record(t, change, read, refusal)
-	for _, sent := range []audit.Event{change, read, refusal} {
+	backup := syntheticExternalTarget()
+	partial := completeEvent(orgID, userActor(), backup, audit.OperationExternal, audit.PhaseResult, audit.OutcomePartiallyCompleted)
+	partial.Error = &audit.EventError{Code: "upload_failed", Message: "synthetic upload failure"}
+	partial.Context.CommittedSteps = []string{"snapshot", "manifest"}
+
+	stack.record(t, change, read, refusal, partial)
+	for _, sent := range []audit.Event{change, read, refusal, partial} {
 		row := stack.waitForRow(t, sent.EventID)
 		requireRuntimeAuditRow(t, sent, row)
 	}
@@ -98,6 +105,9 @@ func requireRuntimeAuditRow(t *testing.T, sent audit.Event, row audit.Row) {
 	if !reflect.DeepEqual(row.Error, sent.Error) {
 		t.Fatalf("event %s error = %+v, want %+v", sent.EventID, row.Error, sent.Error)
 	}
+	if !reflect.DeepEqual(row.Context.CommittedSteps, sent.Context.CommittedSteps) {
+		t.Fatalf("event %s committed steps = %v, want %v", sent.EventID, row.Context.CommittedSteps, sent.Context.CommittedSteps)
+	}
 	requireSameDelta(t, sent, row)
 }
 
@@ -129,21 +139,41 @@ func requireSameDelta(t *testing.T, sent audit.Event, row audit.Row) {
 }
 
 // TestRuntimeAuditMissingOutcomeRejected sends a format 2 event without an
-// outcome and requires one dead-letter row without a ledger row.
+// outcome and a partially completed format 2 event without committed steps.
+// It requires one dead-letter row per event and verifies that the ledger
+// does not store either event.
 func TestRuntimeAuditMissingOutcomeRejected(t *testing.T) {
 	stack := startRuntimeAuditStack(t)
 	node := audit.Target{
 		Kind: audit.TargetKindNode, NodeType: "issue", Reference: "", Name: "", URI: "",
 		RelationType: "", ID: uuid.Must(uuid.NewV7()), SourceID: uuid.Nil, TargetID: uuid.Nil,
 	}
-	event := completeEvent(uuid.Must(uuid.NewV7()), userActor(), node, audit.OperationRead, audit.PhaseRead, "")
-	stack.record(t, event)
+	missingOutcome := completeEvent(uuid.Must(uuid.NewV7()), userActor(), node, audit.OperationRead, audit.PhaseRead, "")
+	missingSteps := completeEvent(uuid.Must(uuid.NewV7()), userActor(), syntheticExternalTarget(),
+		audit.OperationExternal, audit.PhaseResult, audit.OutcomePartiallyCompleted)
+	missingSteps.Error = &audit.EventError{Code: "upload_failed", Message: "synthetic upload failure"}
+	stack.record(t, missingOutcome, missingSteps)
 
-	errorText := stack.waitForDeadLetter(t)
-	if !strings.Contains(errorText, event.EventID.String()) || !strings.Contains(errorText, "outcome required") {
-		t.Fatalf("dead letter error = %q, want the missing outcome of event %s", errorText, event.EventID)
+	errorTexts := stack.waitForDeadLetters(t, 2)
+	rejections := map[uuid.UUID]string{missingOutcome.EventID: "outcome required", missingSteps.EventID: "committed step"}
+	for eventID, reason := range rejections {
+		rejected := slices.ContainsFunc(errorTexts, func(text string) bool {
+			return strings.Contains(text, "audit event "+eventID.String()+": ") && strings.Contains(text, reason)
+		})
+		if !rejected {
+			t.Fatalf("dead letter errors = %q, want event %s rejected for %q", errorTexts, eventID, reason)
+		}
+		if _, err := stack.reader.GetByID(t.Context(), eventID); !errors.Is(err, pgx.ErrNoRows) {
+			t.Fatalf("ledger read of rejected event %s = %v, want no row", eventID, err)
+		}
 	}
-	if _, err := stack.reader.GetByID(t.Context(), event.EventID); !errors.Is(err, pgx.ErrNoRows) {
-		t.Fatalf("ledger read of rejected event %s = %v, want no row", event.EventID, err)
+}
+
+// syntheticExternalTarget returns an external target with a unique
+// synthetic backup reference.
+func syntheticExternalTarget() audit.Target {
+	return audit.Target{
+		Kind: audit.TargetKindExternal, NodeType: "", Reference: "backup/synthetic-" + uuid.NewString()[:8],
+		Name: "", URI: "", RelationType: "", ID: uuid.Nil, SourceID: uuid.Nil, TargetID: uuid.Nil,
 	}
 }

@@ -30,8 +30,8 @@ type EventPart struct {
 	Payload         []byte
 }
 
-// EncodedEvent stores ordered event parts and their manifest message in Header.
-// The transport digest excludes Header, including commit_version.
+// EncodedEvent contains the event ID, the transport digest, the manifest message
+// in Header, and the ordered parts in Parts. The transport digest does not cover Header.
 type EncodedEvent struct {
 	EventID         uuid.UUID
 	TransportDigest string
