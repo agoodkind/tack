@@ -30,10 +30,9 @@ type documentAccessSource struct {
 }
 
 // DocumentAccess reads the retirement flag, access versions, and access
-// generation of exact page
-// documents in index with one OpenSearch multi-get request. The multi-get
-// read is realtime and does not require an index refresh. A missing document
-// returns with Found set to false.
+// generation of exact page documents in index with one OpenSearch multi-get
+// request. The multi-get read is realtime and does not require an index
+// refresh. A missing document returns with Found set to false.
 func (a *Adapter) DocumentAccess(ctx context.Context, index string, ids []string) (map[string]searchdomain.DocumentAccess, error) {
 	states := make(map[string]searchdomain.DocumentAccess, len(ids))
 	if len(ids) == 0 {

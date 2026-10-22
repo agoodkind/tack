@@ -48,7 +48,6 @@ func beginAccessRollout(t *testing.T, fixture rolloutFixture, authorityID uuid.U
 	return begun
 }
 
-// currentAccessRollout reads the rollout of authorityID.
 func currentAccessRollout(t *testing.T, fixture rolloutFixture, authorityID uuid.UUID) searchdomain.AccessRollout {
 	t.Helper()
 	rollout, err := fixture.stores.SearchRollouts(clock.Wall{}, fixture.stores.SearchPolicySet()).Current(rolloutContext(t), authorityID)

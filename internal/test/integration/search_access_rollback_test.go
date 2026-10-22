@@ -162,7 +162,6 @@ func TestSearchAccessRollbackRefusedAfterRetirement(t *testing.T) {
 	requirePageVersions(t, rolloutPages(t, fixture, nodes), []string{searchaccess.RotatedVersion})
 }
 
-// requireNodesFound requires found to contain every node.
 func requireNodesFound(t *testing.T, found, nodes []uuid.UUID) {
 	t.Helper()
 	for _, nodeID := range nodes {

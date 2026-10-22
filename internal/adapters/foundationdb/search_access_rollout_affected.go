@@ -24,13 +24,17 @@ const (
 	rolloutAffectedCountMarker = "affected_count"
 	// rolloutAffectedCollectMarker is the key element for the collection key.
 	rolloutAffectedCollectMarker = "affected_collect"
+	// rolloutAffectedKeyElements is the number of tuple elements in an affected
+	// set entry key: the key family, the authority, the marker, the rollout
+	// generation, and the node.
+	rolloutAffectedKeyElements = 5
 )
 
 // rolloutAffectedPresent is the stored value of an affected set entry.
 var rolloutAffectedPresent = []byte{1}
 
-// rolloutAffectedIncrement is the atomic add operand for one in little
-// endian byte order.
+// rolloutAffectedIncrement is the atomic add operand for the integer 1 in
+// little endian byte order.
 var rolloutAffectedIncrement = []byte{1, 0, 0, 0, 0, 0, 0, 0}
 
 func searchRolloutAffectedPrefix(authorityID uuid.UUID, generation int64) []byte {
@@ -120,7 +124,10 @@ func readRolloutAffected(ctx context.Context, tr fdb.ReadTransaction, authorityI
 		if unpackErr != nil {
 			return nil, searchReadFailure(ctx, fmt.Sprintf("unpack affected node key %x of authority %s", item.Key, authorityID), unpackErr)
 		}
-		nodeText, isText := values[len(values)-1].(string)
+		nodeText, isText := "", false
+		if len(values) == rolloutAffectedKeyElements {
+			nodeText, isText = values[rolloutAffectedKeyElements-1].(string)
+		}
 		nodeID, parseErr := uuid.Parse(nodeText)
 		if !isText || parseErr != nil {
 			return nil, searchReadFailure(ctx, "decode affected node key of authority "+authorityID.String(),
