@@ -15,7 +15,7 @@ import (
 
 func splitMapping(t *testing.T, fixture queryFixture, index string) string {
 	t.Helper()
-	response, err := fixture.Client.Indices.Mapping.Get(t.Context(), &opensearchapi.MappingGetReq{Indices: []string{index}})
+	response, err := fixture.Client.Indices.Mapping.Get(WithTestOperation(t, t.Context()), &opensearchapi.MappingGetReq{Indices: []string{index}})
 	if err != nil {
 		t.Fatalf("read split mapping: %v", err)
 	}
@@ -37,7 +37,7 @@ func splitMapping(t *testing.T, fixture queryFixture, index string) string {
 func savedSparseNodes(t *testing.T, fixture queryFixture, query searchdomain.Query, tokens json.RawMessage) []uuid.UUID {
 	t.Helper()
 	ranker := fixture.Adapter.Ranker(search.RankerSettings{KeepAlive: time.Minute, TokenBytes: 65536, BatchSize: 100})
-	created, err := fixture.Client.PointInTime.Create(t.Context(), opensearchapi.PointInTimeCreateReq{
+	created, err := fixture.Client.PointInTime.Create(WithTestOperation(t, t.Context()), opensearchapi.PointInTimeCreateReq{
 		Indices: []string{query.Index}, Params: opensearchapi.PointInTimeCreateParams{KeepAlive: time.Minute},
 	})
 	if err != nil || created.PitID == "" || created.Shards.Failed != 0 {
@@ -45,7 +45,7 @@ func savedSparseNodes(t *testing.T, fixture queryFixture, query searchdomain.Que
 	}
 	snapshot := searchdomain.Snapshot{PITID: created.PitID, Index: query.Index, QueryTokens: bytes.Clone(tokens)}
 	defer func() {
-		if err := ranker.Close(t.Context(), snapshot); err != nil {
+		if err := ranker.Close(WithTestOperation(t, t.Context()), snapshot); err != nil {
 			t.Errorf("close saved sparse snapshot: %v", err)
 		}
 	}()
@@ -54,7 +54,7 @@ func savedSparseNodes(t *testing.T, fixture queryFixture, query searchdomain.Que
 	var nodes []uuid.UUID
 	var after json.RawMessage
 	for range 10_000 {
-		batch, err := ranker.Read(t.Context(), query, snapshot, after)
+		batch, err := ranker.Read(WithTestOperation(t, t.Context()), query, snapshot, after)
 		if err != nil {
 			t.Fatalf("read saved sparse query: %v", err)
 		}

@@ -123,7 +123,7 @@ func nativeBulk(t *testing.T, client *opensearchapi.Client, body string) []opens
 func sendNativeBulk(t *testing.T, client *opensearchapi.Client, body string) []opensearchapi.BulkRespItem {
 	t.Helper()
 	started := clock.Now()
-	response, err := client.Bulk(t.Context(), opensearchapi.BulkReq{
+	response, err := client.Bulk(WithTestOperation(t, t.Context()), opensearchapi.BulkReq{
 		Body: strings.NewReader(body), Params: opensearchapi.BulkParams{Refresh: "true"},
 	})
 	t.Logf("native.bulk.response wall_ms=%d response_present=%t transport_error=%t", clock.Since(started).Milliseconds(), response != nil, err != nil)

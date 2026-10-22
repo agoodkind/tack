@@ -88,22 +88,22 @@ func newTaskPollStaller(t *testing.T, fixture testenv.OpenSearchFixture) (*taskP
 // DEPLOYED.
 func TestSearchModelTaskPollTimeout(t *testing.T) {
 	adapter, client := nativeSearchClients(t)
-	model, err := adapter.Provision(t.Context())
+	model, err := adapter.Provision(WithTestOperation(t, t.Context()))
 	if err != nil {
 		t.Fatal(err)
 	}
 	undeployNativeModel(t, adapter, client, model.ID)
 	staller, configuration := newTaskPollStaller(t, testenv.OpenSearchWithMemory(t, nativeSearchMemoryBytes))
-	proxied, err := search.New(t.Context(), configuration)
+	proxied, err := search.New(WithTestOperation(t, t.Context()), configuration)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		if err := proxied.Close(context.WithoutCancel(t.Context())); err != nil {
+		if err := proxied.Close(context.WithoutCancel(WithTestOperation(t, t.Context()))); err != nil {
 			t.Error(err)
 		}
 	})
-	if _, err := proxied.Provision(t.Context()); err != nil {
+	if _, err := proxied.Provision(WithTestOperation(t, t.Context())); err != nil {
 		t.Fatalf("provision after one task-status poll timed out: %v", err)
 	}
 	if polls := staller.polls.Load(); polls <= staller.stalledRequests {

@@ -53,7 +53,7 @@ func writeLargestSearchNode(t *testing.T, stores *fdbadapter.Stores, fixture sea
 	if size > foundationDBValueLimit || size+(one-base) <= foundationDBValueLimit {
 		t.Fatalf("largest node record is %d bytes, want the largest size within %d", size, foundationDBValueLimit)
 	}
-	if err := stores.Nodes.Set(t.Context(), value, view); err != nil {
+	if err := stores.Nodes.Set(WithTestOperation(t, t.Context()), value, view); err != nil {
 		t.Fatalf("store the largest search node: %v", err)
 	}
 }
@@ -68,7 +68,7 @@ func driveClasses(t *testing.T, worker *service.SearchWorker, work *fdbadapter.S
 		}
 		claimed := false
 		for _, class := range classes {
-			item, err := work.Claim(t.Context(), class, "setup", 30*time.Second)
+			item, err := work.Claim(WithTestOperation(t, t.Context()), class, "setup", 30*time.Second)
 			if errors.Is(err, searchdomain.ErrNoWork) {
 				continue
 			}
@@ -76,7 +76,7 @@ func driveClasses(t *testing.T, worker *service.SearchWorker, work *fdbadapter.S
 				t.Fatalf("claim %s work: %v", class, err)
 			}
 			claimed = true
-			if err := worker.Process(t.Context(), item); err != nil {
+			if err := worker.Process(WithTestOperation(t, t.Context()), item); err != nil {
 				t.Fatalf("process %s work: %v", class, err)
 			}
 		}
@@ -95,7 +95,7 @@ func measureLiveSlices(t *testing.T, work *fdbadapter.SearchWorkStore, rollouts 
 	measured := map[uuid.UUID][]bulkRecord{}
 	idle := 0
 	for deadline := time.Now().Add(setupDeadline); time.Now().Before(deadline) && idle < 8; {
-		item, err := work.Claim(t.Context(), searchdomain.WorkClassLive, "measured", lease)
+		item, err := work.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassLive, "measured", lease)
 		if errors.Is(err, searchdomain.ErrNoWork) {
 			idle++
 			time.Sleep(250 * time.Millisecond)
@@ -105,14 +105,14 @@ func measureLiveSlices(t *testing.T, work *fdbadapter.SearchWorkStore, rollouts 
 			t.Fatalf("claim live work = target %q mirror %q err %v, want %q and %q", item.Target, item.Mirror, err, serving, mirror)
 		}
 		idle = 0
-		rollout, err := rollouts.Current(t.Context(), orgID)
+		rollout, err := rollouts.Current(WithTestOperation(t, t.Context()), orgID)
 		if err != nil {
 			t.Fatalf("read access rollout at claim: %v", err)
 		}
 		t.Logf("claim of %s: generation %d cursor %q; rollout phase %s generation %d write versions %v",
 			item.NodeID, item.Generation, item.Cursor, rollout.Phase, rollout.Generation, rollout.WriteVersions)
 		meter.take()
-		if err := worker.Process(t.Context(), item); err != nil {
+		if err := worker.Process(WithTestOperation(t, t.Context()), item); err != nil {
 			t.Fatalf("process the live slice of %s: %v", item.NodeID, err)
 		}
 		records := meter.take()

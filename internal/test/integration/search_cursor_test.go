@@ -61,7 +61,7 @@ func cursorSession(t *testing.T, fixture queryFixture, cursor string) searchdoma
 	if err != nil {
 		t.Fatalf("decode cursor: %v", err)
 	}
-	session, err := fixture.Stores.SearchSessions(clock.Wall{}, 15*time.Minute).Load(t.Context(), sessionID)
+	session, err := fixture.Stores.SearchSessions(clock.Wall{}, 15*time.Minute).Load(WithTestOperation(t, t.Context()), sessionID)
 	if err != nil {
 		t.Fatalf("load session %s: %v", sessionID, err)
 	}
@@ -78,7 +78,7 @@ func TestSearchCursorExactSortValues(t *testing.T) {
 	putCursorCorpus(t, fixture, "amber lattice", 150)
 	session := cursorSession(t, fixture, callSearch(t, fixture.Harness, "amber lattice", "").Cursor)
 	ranker := fixture.Adapter.Ranker(search.RankerSettings{KeepAlive: time.Minute, TokenBytes: 64 << 10, BatchSize: 100})
-	batch, err := ranker.Read(t.Context(), session.Query, session.Snapshot, nil)
+	batch, err := ranker.Read(WithTestOperation(t, t.Context()), session.Query, session.Snapshot, nil)
 	if err != nil {
 		t.Fatalf("read batch: %v", err)
 	}
@@ -89,7 +89,7 @@ func TestSearchCursorExactSortValues(t *testing.T) {
 	for _, hit := range batch.Hits {
 		previousScore = requireSortValues(t, hit, previousScore)
 	}
-	next, err := ranker.Read(t.Context(), session.Query, searchdomain.Snapshot{PITID: batch.PITID, Index: session.Snapshot.Index, QueryTokens: session.Snapshot.QueryTokens}, batch.Hits[99].Sort)
+	next, err := ranker.Read(WithTestOperation(t, t.Context()), session.Query, searchdomain.Snapshot{PITID: batch.PITID, Index: session.Snapshot.Index, QueryTokens: session.Snapshot.QueryTokens}, batch.Hits[99].Sort)
 	if err != nil {
 		t.Fatalf("read next batch: %v", err)
 	}

@@ -98,12 +98,12 @@ func TestSearchCursorPointInTimeIgnoresLaterChanges(t *testing.T) {
 	requireStoredName(t, fixture, session.Snapshot.PITID, edited, pitMutationName, pitEditedName)
 	current := readSearchPages(t, fixture.Stores, edited, runtimePageBytes)
 	t.Logf("renamed issue %s current revision %s", edited, current[0].Revision)
-	opened, err := ranker.Open(t.Context(), session.Query)
+	opened, err := ranker.Open(WithTestOperation(t, t.Context()), session.Query)
 	if err != nil {
 		t.Fatalf("open a new session snapshot: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := ranker.Close(context.WithoutCancel(t.Context()), opened); err != nil {
+		if err := ranker.Close(context.WithoutCancel(WithTestOperation(t, t.Context())), opened); err != nil {
 			t.Errorf("close the new session snapshot: %v", err)
 		}
 	})

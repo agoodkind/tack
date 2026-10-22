@@ -85,7 +85,7 @@ func putSearchTextInOrg(t *testing.T, stores *fdbadapter.Stores, orgID uuid.UUID
 		},
 	}
 	for _, definition := range definitions {
-		if err := stores.PropertyDefs.Set(t.Context(), definition); err != nil {
+		if err := stores.PropertyDefs.Set(WithTestOperation(t, t.Context()), definition); err != nil {
 			t.Fatalf("store property definition: %v", err)
 		}
 	}
@@ -94,7 +94,7 @@ func putSearchTextInOrg(t *testing.T, stores *fdbadapter.Stores, orgID uuid.UUID
 		Slug: fixture.TypeKey, PluralSlug: fixture.TypeKey + "s",
 		PropertyDefIDs: []uuid.UUID{definitions[0].ID, definitions[1].ID}, Features: node.Features{node.FeatureIsEntryPoint},
 	}
-	if err := stores.NodeTypes.Set(t.Context(), kind); err != nil {
+	if err := stores.NodeTypes.Set(WithTestOperation(t, t.Context()), kind); err != nil {
 		t.Fatalf("store node type: %v", err)
 	}
 	writeSearchNode(t, stores, fixture, included, excluded)
@@ -111,7 +111,7 @@ func writeSearchNode(t *testing.T, stores *fdbadapter.Stores, fixture searchFixt
 	now := clock.Now().UTC()
 	value := &node.Node{ID: fixture.NodeID, OrgID: fixture.OrgID, NodeType: fixture.TypeKey, Name: searchFixtureName, Props: props, CreatedAt: now, UpdatedAt: now}
 	view := &node.NodeView{ID: fixture.NodeID, OrgID: fixture.OrgID, NodeType: fixture.TypeKey, Name: searchFixtureName, Props: props, CreatedAt: now, UpdatedAt: now}
-	if err := stores.Nodes.Set(t.Context(), value, view); err != nil {
+	if err := stores.Nodes.Set(WithTestOperation(t, t.Context()), value, view); err != nil {
 		t.Fatalf("store search node: %v", err)
 	}
 }

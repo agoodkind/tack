@@ -145,12 +145,21 @@ func actAsRowProvenance(t *testing.T, row audit.Event) audit.ActProvenance {
 	return extra.ActAs
 }
 
-// requireNoActAsWrite requires the command to have recorded no grant row,
-// committed no outbox row, and created no issue in the member org.
+// requireNoActAsWrite fails the test if the act-as command records a grant row
+// for the fixture user in the YugabyteDB operator outbox, commits a
+// FoundationDB outbox row with the fixture user as the actor, or creates an
+// issue in the member org. It ignores FoundationDB outbox rows that fixture
+// setup commits under a system actor when creating the org, workspace, and
+// project.
 func requireNoActAsWrite(t *testing.T, f actAsFixture) {
 	t.Helper()
 	grants := actAsGrantRows(t, f)
-	userRows := actAsOutboxRows(t, f.stores)
+	var userRows []audit.Event
+	for _, row := range actAsOutboxRows(t, f.stores) {
+		if row.Actor.ID == f.user.ID {
+			userRows = append(userRows, row)
+		}
+	}
 	issues := actAsIssues(t, f.stores, f.orgID)
 	if len(grants) != 0 || len(userRows) != 0 || len(issues) != 0 {
 		t.Fatalf("recorded %d grant rows and %d user rows and created %d issues, want none",

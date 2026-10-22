@@ -98,7 +98,7 @@ func putIdentifierCorpus(t *testing.T, fixture queryFixture, keys identifierType
 func putNestedKind(t *testing.T, fixture queryFixture, orgID uuid.UUID, typeKey, parentKey string) opaqueKind {
 	t.Helper()
 	kind := putOpaqueKindWithTypeKey(t, fixture, orgID, typeKey)
-	types, err := fixture.Stores.NodeTypes.List(t.Context(), orgID)
+	types, err := fixture.Stores.NodeTypes.List(WithTestOperation(t, t.Context()), orgID)
 	if err != nil {
 		t.Fatalf("list node types: %v", err)
 	}
@@ -107,7 +107,7 @@ func putNestedKind(t *testing.T, fixture queryFixture, orgID uuid.UUID, typeKey,
 			continue
 		}
 		stored.CanLiveUnder = []string{parentKey}
-		if err := fixture.Stores.NodeTypes.Set(t.Context(), stored); err != nil {
+		if err := fixture.Stores.NodeTypes.Set(WithTestOperation(t, t.Context()), stored); err != nil {
 			t.Fatalf("store nested node type: %v", err)
 		}
 		return kind

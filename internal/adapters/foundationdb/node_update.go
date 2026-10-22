@@ -15,10 +15,16 @@ import (
 // UpdateAtomic stores a node and reconciles its indexes and relationships in
 // one transaction. When search work is enabled, the same transaction also
 // schedules search work for the node and the endpoints of each changed
-// relationship.
+// relationship. The transaction writes one change event for the node when its
+// stored value changes and one for each changed relationship.
 func (s *NodeStore) UpdateAtomic(ctx context.Context, current *node.Node, view *node.NodeView, oldProps map[string]json.RawMessage, indexedProps []string, referenceKeys []node.ReferenceKey, relationshipChanges ...node.RelationshipChanges) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node.update_atomic")(&err)
+	changes, err := beginMutationAudit(ctx, current.OrgID)
+	if err != nil {
+		return err
+	}
 	err = runNodeMutation(ctx, s.db, "update node "+current.ID.String()+" atomically", func(tr fdb.Transaction) error {
+		changes.startAttempt()
 		source, err := tr.Get(fdb.Key(nodeInstanceKey(current.OrgID, current.NodeType, current.ID))).Get()
 		if err != nil {
 			return searchReadFailure(ctx, "read node "+current.ID.String(), err)
@@ -26,7 +32,8 @@ func (s *NodeStore) UpdateAtomic(ctx context.Context, current *node.Node, view *
 		if _, err := s.fenceAttempt(ctx, tr, current.OrgID, current.ID); err != nil {
 			return err
 		}
-		if err := writeNodeRecords(ctx, tr, current, view); err != nil {
+		encoded, err := writeNodeRecords(ctx, tr, current, view)
+		if err != nil {
 			return err
 		}
 		reconcilePropertyIndexes(tr, current, oldProps, indexedProps)
@@ -35,7 +42,7 @@ func (s *NodeStore) UpdateAtomic(ctx context.Context, current *node.Node, view *
 				return err
 			}
 		}
-		if err := applyRelationshipChanges(ctx, tr, relationshipChanges); err != nil {
+		if err := applyRelationshipChanges(ctx, tr, relationshipChanges, changes); err != nil {
 			return err
 		}
 		if s.searchWork {
@@ -47,12 +54,15 @@ func (s *NodeStore) UpdateAtomic(ctx context.Context, current *node.Node, view *
 				return err
 			}
 		}
-		return writeNodeIntent(ctx, tr, source, current)
+		if err := changes.record(nodeTarget(current), source, encoded); err != nil {
+			return nodeOperationFailure(ctx, "record the change of node "+current.ID.String(), err)
+		}
+		return changes.append(ctx, tr)
 	})
 	if err != nil {
 		return err
 	}
-	commitStagedIntent(ctx)
+	changes.finish(ctx)
 	return nil
 }
 
@@ -71,39 +81,21 @@ func reconcilePropertyIndexes(tr fdb.Transaction, current *node.Node, oldProps m
 	}
 }
 
-func applyRelationshipChanges(ctx context.Context, tr fdb.Transaction, changesList []node.RelationshipChanges) error {
-	for _, changes := range changesList {
-		for _, relationship := range changes.Remove {
-			tr.Clear(fdb.Key(relationshipKey(relationship.OrgID, relationship.SourceID, relationship.RelationType, relationship.TargetID)))
-			tr.Clear(fdb.Key(relationshipReverseKey(relationship.OrgID, relationship.TargetID, relationship.RelationType, relationship.SourceID)))
-		}
-		for _, relationship := range changes.Add {
-			metadata, err := json.Marshal(relationship)
-			if err != nil {
-				wrapped := fmt.Errorf("marshal relationship %s %s %s: %w", relationship.SourceID, relationship.RelationType, relationship.TargetID, err)
-				telemetry.L(ctx).ErrorContext(ctx, "node.relationship.marshal_failed", slog.String("err", wrapped.Error()), slog.String("source_id", relationship.SourceID.String()), slog.String("target_id", relationship.TargetID.String()))
-				return loggedSearchError{err: wrapped}
-			}
-			tr.Set(fdb.Key(relationshipKey(relationship.OrgID, relationship.SourceID, relationship.RelationType, relationship.TargetID)), metadata)
-			tr.Set(fdb.Key(relationshipReverseKey(relationship.OrgID, relationship.TargetID, relationship.RelationType, relationship.SourceID)), []byte{})
-		}
-	}
-	return nil
-}
-
-func writeNodeRecords(ctx context.Context, tr fdb.Transaction, current *node.Node, view *node.NodeView) error {
+// writeNodeRecords writes the node and resolution records of current inside tr.
+// It writes the view record when view is not nil and returns the encoded node record.
+func writeNodeRecords(ctx context.Context, tr fdb.Transaction, current *node.Node, view *node.NodeView) ([]byte, error) {
 	encodedNode, err := json.Marshal(current)
 	if err != nil {
 		wrapped := fmt.Errorf("marshal node %s: %w", current.ID, err)
 		telemetry.L(ctx).ErrorContext(ctx, "node.marshal_failed", slog.String("err", wrapped.Error()), slog.String("node_id", current.ID.String()))
-		return loggedSearchError{err: wrapped}
+		return nil, loggedSearchError{err: wrapped}
 	}
 	tr.Set(fdb.Key(nodeInstanceKey(current.OrgID, current.NodeType, current.ID)), encodedNode)
 	encodedResolve, err := json.Marshal(&node.NodeResolve{OrgID: current.OrgID, NodeType: current.NodeType})
 	if err != nil {
 		wrapped := fmt.Errorf("marshal node resolution %s: %w", current.ID, err)
 		telemetry.L(ctx).ErrorContext(ctx, "node.resolve.marshal_failed", slog.String("err", wrapped.Error()), slog.String("node_id", current.ID.String()))
-		return loggedSearchError{err: wrapped}
+		return nil, loggedSearchError{err: wrapped}
 	}
 	tr.Set(fdb.Key(nodeResolveKey(current.ID)), encodedResolve)
 	if view != nil {
@@ -111,9 +103,9 @@ func writeNodeRecords(ctx context.Context, tr fdb.Transaction, current *node.Nod
 		if err != nil {
 			wrapped := fmt.Errorf("marshal node view %s: %w", current.ID, err)
 			telemetry.L(ctx).ErrorContext(ctx, "node.view.marshal_failed", slog.String("err", wrapped.Error()), slog.String("node_id", current.ID.String()))
-			return loggedSearchError{err: wrapped}
+			return nil, loggedSearchError{err: wrapped}
 		}
 		tr.Set(fdb.Key(nodeViewKey(current.OrgID, current.NodeType, current.ID)), encodedView)
 	}
-	return nil
+	return encodedNode, nil
 }
