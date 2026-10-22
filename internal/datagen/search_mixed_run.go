@@ -22,8 +22,9 @@ const (
 var errSearchMixedPhasePanic = errors.New("qa datagen search-mixed: workload phase panicked")
 
 // run starts sampling, searches, workload phases, and scheduled writes.
-// After the searches, phases, and writes finish, it waits for freshness probes.
-// It then waits for search work to finish unless scheduleContext has ended, and stops sampling.
+// After the searches, phases, and writes finish, it waits for search work to finish
+// unless scheduleContext has ended. Freshness probes keep searching for markers during this wait.
+// It then waits up to two minutes for the freshness probes before stopping sampling.
 func (m *searchMixed) run(scheduleContext, callContext context.Context, plannedWrites int) (SearchMixedSummary, error) {
 	probeContext, stopProbes := context.WithCancel(callContext)
 	defer stopProbes()
@@ -61,10 +62,10 @@ func (m *searchMixed) run(scheduleContext, callContext context.Context, plannedW
 	searchSummary := <-searches
 	phaseErr := <-phaseErrors
 	writesEnded := clock.Now()
-	m.drain(scheduleContext, callContext, stopProbes)
 	if scheduleContext.Err() == nil {
 		m.catchUp(scheduleContext, writesEnded)
 	}
+	m.drain(scheduleContext, callContext, stopProbes)
 	close(stopSampler)
 	<-samplerDone
 	summary := m.stats.summary(searchSummary, plannedWrites, writeElapsed)
