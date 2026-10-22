@@ -12,7 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/google/uuid"
 
-	"goodkind.io/tack/internal/adapters/postgres"
+	"goodkind.io/tack/internal/adapters/postgres/migration"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/ops"
 	"goodkind.io/tack/internal/testenv"
@@ -22,7 +22,7 @@ import (
 func TestYBSnapshotExportDumpsAsMigrator(t *testing.T) {
 	ctx := t.Context()
 	node := testenv.StartEmptyLedger(t, "tack-test-dump-"+uuid.NewString()[:8])
-	if err := postgres.Migrate(ctx, node.DSN, migrations.FS); err != nil {
+	if err := migration.Migrate(ctx, node.DSN, migrations.FS); err != nil {
 		t.Fatalf("migrate the empty ledger: %v", err)
 	}
 	bucket := testenv.ObjectStore(t)

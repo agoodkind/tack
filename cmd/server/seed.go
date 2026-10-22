@@ -11,6 +11,7 @@ import (
 
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/adapters/postgres"
+	"goodkind.io/tack/internal/adapters/postgres/migration"
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clispec"
@@ -81,7 +82,7 @@ func execSeed(ctx context.Context, cfg *config.Config, recorder audit.Recorder) 
 	ctx = telemetry.WithTraceLogger(ctx, slog.String("command", "seed"))
 	log := telemetry.L(ctx)
 
-	if err := postgres.Migrate(ctx, cfg.DatabaseURL, migrations.FS); err != nil {
+	if err := migration.Migrate(ctx, cfg.DatabaseURL, migrations.FS); err != nil {
 		slog.ErrorContext(ctx, "seed.migrate_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("seed: migrate: %w", err)
 	}

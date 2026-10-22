@@ -13,7 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/spf13/cobra"
 
-	"goodkind.io/tack/internal/adapters/postgres"
+	"goodkind.io/tack/internal/adapters/postgres/migration"
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clispec"
@@ -58,11 +58,11 @@ func TestProveSchemaGuardReportsTheRefusalWithTheMigratorLogin(t *testing.T) {
 	}
 	started := time.Now().UTC()
 
-	output, err := runProveSchemaGuard(t, loginDSN(t, adminDSN, postgres.MigratorRole, cfg.MigratorPassword), pool)
+	output, err := runProveSchemaGuard(t, loginDSN(t, adminDSN, migration.MigratorRole, cfg.MigratorPassword), pool)
 	if err != nil {
 		t.Fatalf("ops audit prove-schema-guard as tack_migrator: %v\n%s", err, output)
 	}
-	requireProbeAbsent(t, pool, requireRefusalReport(t, output, postgres.MigratorRole))
+	requireProbeAbsent(t, pool, requireRefusalReport(t, output, migration.MigratorRole))
 	if outcomes := schemaGuardOutcomes(t, pool, started); !slices.Equal(outcomes, []string{"pending", "ok"}) {
 		t.Fatalf("outbox outcomes = %v, want pending then ok", outcomes)
 	}
