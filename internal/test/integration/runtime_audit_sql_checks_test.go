@@ -2,7 +2,6 @@ package integration_test
 
 import (
 	"encoding/json"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -23,9 +22,6 @@ const (
 	sqlAuditTokenURI      = "tack:api_token/"
 	sqlAuditFailureCode   = "not_found"
 	sqlAuditMemberChanged = "role"
-
-	sqlAuditEmailField       = "/email"
-	sqlAuditDisplayNameField = "/display_name"
 )
 
 type memberStep struct {
@@ -49,16 +45,26 @@ type memberRecord struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// requireUserChange waits for the ledger row of the user creation event.
-// It requires Changed to equal /email and /display_name in that order.
-// It also requires the row to omit holder.Email and holder.DisplayName.
-func requireUserChange(t *testing.T, stack runtimeAuditStack, sent audit.Event, holder *user.User) {
+// requireUserChange waits for the user creation ledger row and requires
+// empty Before and Changed values. It decodes After, checks the user ID and
+// two distinct non-nil protected references, and requires the row to omit
+// the raw email and display name. It returns the decoded record.
+func requireUserChange(t *testing.T, stack runtimeAuditStack, sent audit.Event, holder *user.User) userRecord {
 	t.Helper()
 	row := requireLedgerChange(t, stack, sent)
-	if !slices.Equal(row.Delta.Changed, []string{sqlAuditEmailField, sqlAuditDisplayNameField}) {
-		t.Fatalf("user creation event has Delta.Changed %v; the test requires [/email /display_name]", row.Delta.Changed)
+	if row.Delta == nil || len(row.Delta.Before) != 0 || len(row.Delta.Changed) != 0 {
+		t.Fatalf("row.Delta = %+v, want non-nil row.Delta with empty row.Delta.Before and row.Delta.Changed", row.Delta)
+	}
+	var record userRecord
+	if err := json.Unmarshal(row.Delta.After, &record); err != nil {
+		t.Fatalf("json.Unmarshal of row.Delta.After %s: error = %v, want nil", row.Delta.After, err)
+	}
+	if record.ID != holder.ID || record.Email.PIIRef == uuid.Nil || record.DisplayName.PIIRef == uuid.Nil ||
+		record.Email.PIIRef == record.DisplayName.PIIRef {
+		t.Fatalf("record = %+v, want record.ID = %s and distinct record.Email.PIIRef and record.DisplayName.PIIRef values other than uuid.Nil", record, holder.ID)
 	}
 	requireNoSecrets(t, row, []string{holder.Email, holder.DisplayName})
+	return record
 }
 
 func requireMembership(t *testing.T, members *postgres.OrgMemberRepo, orgID, userID uuid.UUID) *org.Member {

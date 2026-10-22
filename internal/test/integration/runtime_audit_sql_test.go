@@ -69,9 +69,9 @@ func TestRuntimeAuditSQLAtomicChange(t *testing.T) {
 // It requires one change event each for the addition, replacement, and removal.
 // It requires the repeated role to produce zero events. It compares the ledger
 // old and new values and the relationship target with the stored membership
-// row. It also requires the user creation event to list /email and
-// /display_name in Changed and the ledger row to omit the email and display
-// name.
+// row. It also requires the user creation event to have empty Before and
+// Changed values, the user ID and two distinct non-nil protected references
+// in After, and a ledger row that omits the email and display name.
 func TestRuntimeAuditMembershipRoleReplacement(t *testing.T) {
 	stack := startRuntimeAuditStack(t)
 	ctx := t.Context()
