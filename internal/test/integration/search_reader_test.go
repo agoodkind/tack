@@ -133,7 +133,7 @@ func TestSearchReaderRejectsDeletedNode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read first page: %v", err)
 	}
-	if err := stores.Nodes.Delete(t.Context(), fixture.OrgID, fixture.NodeID); err != nil {
+	if err := stores.Nodes.Delete(WithTestOperation(t, t.Context()), fixture.OrgID, fixture.NodeID); err != nil {
 		t.Fatalf("delete node: %v", err)
 	}
 	_, err = reader.Content(t.Context(), searchdomain.ContentRequest{

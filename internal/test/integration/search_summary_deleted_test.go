@@ -19,7 +19,7 @@ func TestSearchSummaryBatchReturnsDeletedInPlace(t *testing.T) {
 	firstFound := putSummaryNode(t, stores, kinds, kinds.leaf, container)
 	deleted := putSummaryNode(t, stores, kinds, kinds.leaf, container)
 	lastFound := putSummaryNode(t, stores, kinds, kinds.leaf, container)
-	if err := stores.Nodes.Delete(t.Context(), kinds.orgID, deleted); err != nil {
+	if err := stores.Nodes.Delete(WithTestOperation(t, t.Context()), kinds.orgID, deleted); err != nil {
 		t.Fatalf("delete node %s: %v", deleted, err)
 	}
 	requested := []uuid.UUID{firstFound, deleted, lastFound}

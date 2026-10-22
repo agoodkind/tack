@@ -13,7 +13,8 @@ import (
 	"goodkind.io/tack/internal/test/integration"
 )
 
-// operationIDOf returns the operation ID that ctx identifies.
+// operationIDOf returns the operation ID from audit.RequireMutationContext(ctx).
+// It fails the test when the context does not provide a valid operation.
 func operationIDOf(t *testing.T, ctx context.Context) uuid.UUID {
 	t.Helper()
 	operation, err := audit.RequireMutationContext(ctx)
@@ -67,8 +68,9 @@ func storedNodeRecord(t *testing.T, env *integration.TestEnv, nodeID uuid.UUID) 
 	return encoded
 }
 
-// requireOneEvent returns the one valid event in events with verb and the
-// target node ID or relationship source ID targetID.
+// requireOneEvent returns the single event that matches verb and targetID in events.
+// It fails the test if the match count differs from one or the event is invalid.
+// targetID matches a node ID or a relationship source ID.
 func requireOneEvent(t *testing.T, events []audit.Event, verb audit.Verb, targetID uuid.UUID) audit.Event {
 	t.Helper()
 	matched := changeEventsFor(events, verb, targetID)

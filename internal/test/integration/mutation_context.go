@@ -15,7 +15,7 @@ var TestActorID = uuid.MustParse("019e6b4a-0000-7000-8000-0000000000a1")
 
 // WithTestOperation returns ctx with a new audit operation of the system
 // actor TestActorID. Every FoundationDB writer requires an operation.
-func WithTestOperation(t testing.TB, ctx context.Context) context.Context {
+func WithTestOperation(t *testing.T, ctx context.Context) context.Context {
 	t.Helper()
 	operation, err := audit.NewMutationOperation(audit.Actor{
 		Type: audit.ActorSystem, ID: TestActorID, Email: "", Name: "integration test", SessionID: "",

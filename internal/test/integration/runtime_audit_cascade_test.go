@@ -13,12 +13,13 @@ import (
 	"goodkind.io/tack/internal/test/integration"
 )
 
-// TestRuntimeAuditCascadeEvidence starts a subtree delete of an issue under
-// one operation, runs one step, and finishes the job through the resume loop
-// under a different operation. Every change event must record the actor and
-// operation that started the job. The deleted issue and comment events must
-// contain the complete stored records. The moved child issue events must
-// contain its actual old and new parent and the replaced child_of edges.
+// TestRuntimeAuditCascadeEvidence starts an issue subtree delete under one
+// operation, runs one step, and resumes the job under a different operation.
+// Every change event must record the actor and operation ID of the request
+// that started the job. Each node.delete event for the issue or comment must
+// include the complete stored record. The child's node.update event must
+// record its old and new parent_id values. The relationship.add and
+// relationship.remove events must identify the new and old child_of edges.
 func TestRuntimeAuditCascadeEvidence(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	projectID := createSchemaProject(t, env)

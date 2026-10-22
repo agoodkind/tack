@@ -18,8 +18,9 @@ import (
 
 // TestRuntimeAuditMutationMissingContext writes through the node service
 // without an audit operation and with an operation that fails event
-// validation inside the commit transaction. Each write must return an error,
-// leave the node and its relationships unchanged, and write no outbox event.
+// validation inside the commit transaction. Each write must return an error
+// and leave the node and its relationships unchanged. The writes must not add
+// any outbox events.
 func TestRuntimeAuditMutationMissingContext(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	projectID := createSchemaProject(t, env)

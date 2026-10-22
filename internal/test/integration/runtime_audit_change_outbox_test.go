@@ -54,8 +54,8 @@ func outboxEventsAfter(t *testing.T, env *integration.TestEnv, mark []byte) []au
 	}
 }
 
-// changeEventsFor returns the events in events with the verb and the target
-// node ID or relationship source ID targetID.
+// changeEventsFor returns events that match verb and targetID.
+// It matches targetID against the target node ID or relationship source ID.
 func changeEventsFor(events []audit.Event, verb audit.Verb, targetID uuid.UUID) []audit.Event {
 	matched := []audit.Event{}
 	for _, event := range events {

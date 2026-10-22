@@ -1,7 +1,6 @@
 package integration
 
 import (
-	"context"
 	"encoding/json"
 	"testing"
 
@@ -115,7 +114,7 @@ func mustCreateLegacyReference(t *testing.T, env *TestEnv, typeKey, name string,
 		UpdatedAt: current.UpdatedAt,
 	}
 	if err := env.Stores.Nodes.CreateAtomic(
-		context.Background(), current, view, nil,
+		env.Ctx, current, view, nil,
 		[]string{"parent_id", "scope_id", "sequence"}, nil, nil,
 	); err != nil {
 		t.Fatalf("create legacy %s: %v", typeKey, err)
