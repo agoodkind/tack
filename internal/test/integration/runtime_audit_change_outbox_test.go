@@ -70,8 +70,8 @@ func changeEventsFor(events []audit.Event, verb audit.Verb, targetID uuid.UUID) 
 	return matched
 }
 
-// requireChangeEvent requires event to be a valid format 2 change event of
-// the operation operationID by the actor actorID.
+// requireChangeEvent requires event to be a valid format 2 change event for
+// operationID, with actorID as its actor ID.
 func requireChangeEvent(t *testing.T, event audit.Event, operationID, actorID uuid.UUID) {
 	t.Helper()
 	if err := audit.ValidateEvent(event); err != nil {
