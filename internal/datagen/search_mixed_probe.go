@@ -13,7 +13,8 @@ import (
 
 const (
 	searchMixedProbeInterval = time.Second
-	searchMixedProbeBatch    = 8
+	searchMixedProbeBatch    = 4
+	searchMixedMarkerLabel   = "k"
 )
 
 // searchMixedMarker records a written issue marker that the prober has not yet found.

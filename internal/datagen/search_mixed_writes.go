@@ -2,7 +2,6 @@ package datagen
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"slices"
 	"time"
@@ -20,8 +19,9 @@ type searchMixedNode struct {
 	settled  bool
 }
 
-func (m *searchMixed) marker(ordinal, revision int) string {
-	return fmt.Sprintf("%sn%dr%d", m.runKey, ordinal, revision)
+// newSearchMixedMarker returns a marker word: k followed by 12 random hexadecimal characters.
+func newSearchMixedMarker() string {
+	return opaqueKey(searchMixedMarkerLabel)
 }
 
 func (m *searchMixed) issueArguments(tenant *searchMixedTenant, nodeID, project, marker string) ToolArguments {
@@ -79,7 +79,7 @@ func (m *searchMixed) createScheduledIssue(callContext context.Context, index in
 	m.created++
 	tenantIndex := ordinal % len(m.tenants)
 	tenant := m.tenants[tenantIndex]
-	marker := m.marker(ordinal, 1)
+	marker := newSearchMixedMarker()
 	result, err := m.driver(index).Call(callContext, tenant.token(), "tack_create_issue", m.issueArguments(tenant, "", tenant.project, marker))
 	if err != nil {
 		m.writeFailed(callContext, "qa.datagen.search_mixed_create_failed", err)
@@ -105,7 +105,7 @@ func (m *searchMixed) createScheduledIssue(callContext context.Context, index in
 
 func (m *searchMixed) editIssue(callContext context.Context, index int, node *searchMixedNode) {
 	revision := node.revision + 1
-	marker := m.marker(node.ordinal, revision)
+	marker := newSearchMixedMarker()
 	tenant := m.tenants[node.tenant]
 	_, err := m.driver(index).Call(callContext, tenant.token(), "tack_update_issue", m.issueArguments(tenant, node.id.String(), "", marker))
 	if err != nil {
