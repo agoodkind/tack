@@ -8,14 +8,19 @@ import (
 
 	"github.com/google/uuid"
 
-	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/domain/org"
 )
+
+// memberAdder requires AddMember to write the membership change and its audit
+// event in one transaction.
+type memberAdder interface {
+	AddMember(ctx context.Context, m *org.Member) error
+}
 
 // seedMembership grants the seeded user the owner role.
 func seedMembership(
 	ctx context.Context,
-	members *postgres.OrgMemberRepo,
+	members memberAdder,
 	orgID, userID uuid.UUID,
 ) error {
 	member := &org.Member{

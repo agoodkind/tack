@@ -2,13 +2,16 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 
 	"github.com/google/uuid"
 
 	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/config"
+	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/user"
 	"goodkind.io/tack/internal/telemetry"
 )
@@ -29,9 +32,14 @@ func seedToken(
 		}
 		raw = generatedToken
 	}
-	if _, err := tokenRepo.Create(ctx, orgID, seededUser.ID, raw, "seed"); err != nil {
+	_, err := tokenRepo.Create(ctx, orgID, seededUser.ID, raw, "seed")
+	switch {
+	case errors.Is(err, domain.ErrAlreadyExists):
 		log.InfoContext(ctx, "seed.prod_token_exists")
-	} else {
+	case err != nil:
+		slog.ErrorContext(ctx, "seed.create_token_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("seed: create token: %w", err)
+	default:
 		_, _ = fmt.Fprintf(os.Stdout, "\nProduction-mode API token (copy now; not shown again):\n  %s\n", raw)
 	}
 	_, _ = fmt.Fprintf(os.Stdout, "\nDev-mode bearer (stable across wipes, derived from %s):\n  %s\n\n", cfg.SeedEmail, seededUser.ID)
