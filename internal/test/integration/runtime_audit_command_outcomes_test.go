@@ -147,7 +147,6 @@ func requireOnlyResult(t *testing.T, events []audit.Event, outcome audit.Outcome
 	}
 }
 
-// requireCompletedResult requires one completed result of operationID.
 func requireCompletedResult(t *testing.T, events []audit.Event, operationID uuid.UUID) {
 	t.Helper()
 	results := eventsInPhase(events, audit.PhaseResult, uuid.Nil)

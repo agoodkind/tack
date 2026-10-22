@@ -51,7 +51,6 @@ func requireRoleSteps(t *testing.T, stepResults []audit.Event) {
 	}
 }
 
-// eventsOfOperation returns the events of operationID and of its steps.
 func eventsOfOperation(events []audit.Event, operationID uuid.UUID) []audit.Event {
 	var selected []audit.Event
 	for _, event := range events {
