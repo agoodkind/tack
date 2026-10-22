@@ -12,8 +12,7 @@ import (
 	"goodkind.io/tack/internal/domain/org"
 )
 
-// seedMembership grants the seeded user the owner role through
-// OrgMemberRepo.AddMember, which records any membership change.
+// seedMembership grants the seeded user the owner role.
 func seedMembership(
 	ctx context.Context,
 	members *postgres.OrgMemberRepo,

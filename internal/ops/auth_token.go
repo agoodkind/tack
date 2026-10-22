@@ -62,8 +62,8 @@ func authTokenHolder(ctx context.Context, pool *pgxpool.Pool, email string, incl
 // IssueAuthToken finds an active user and organization, generates a bearer
 // value, and creates the token through TokenRepo.CreateWithID with a new
 // UUIDv7 ID. The repository reads the audit operation from ctx. IssueAuthToken
-// returns the bearer in Raw for the command to display once; Tack never
-// stores the bearer.
+// returns the bearer in Raw for the command to display once; the database
+// stores only its hash.
 func IssueAuthToken(
 	ctx context.Context,
 	pool *pgxpool.Pool,
