@@ -35,7 +35,7 @@
 
 ## Work order
 
-One lead owns shared contracts, integration and deployment evidence. Task 1 precedes all writers. Tasks 2 and 3 can run in parallel after Task 1. Tasks 4 and 5 can run in parallel after Task 2. Task 6 depends on Tasks 1 and 3. Task 7 uses Tasks 1 through 5. Task 8 integrates the complete result. Independent implementers use separate worktrees.
+One lead owns shared contracts, integration and deployment evidence. Task 1 precedes all writers. Task 2 defines the common encoded-event interface before Tasks 3 through 5 use it; its adapter implementations can proceed in parallel with Task 3 after that interface commit. Tasks 4 and 5 can run in parallel after Task 2. Task 6 depends on Tasks 1 through 3. Task 7 uses Tasks 1 through 5. Task 8 integrates the complete result. Independent implementers use separate worktrees.
 
 Each task ends with a logical commit and focused passing checks. Install compatible schemas, consumers and readers before enabling new writers. Testbed reservations affect live validation only; they do not stop independent code and review work.
 
@@ -91,11 +91,11 @@ type EncodedEvent struct {
     Header []byte
     Parts []EventPart
 }
-func EncodeEvent(event Event) (EncodedEvent, error)
-func VerifyEventParts(header []byte, parts []EventPart) (Event, error)
+func EncodeEvent(event Event, readTargets []Target) (EncodedEvent, error)
+func VerifyEventParts(header []byte, parts []EventPart) (Event, []Target, error)
 ```
 
-Use SHA-256 with lowercase hexadecimal output. Part digests cover exact part bytes; the transport digest covers the ordered event bytes. Header fields include format version, event ID, organization/shard key, part count and transport digest. Events that fit remain a single record. Multipart delivery preserves logical event identity.
+Use SHA-256 with lowercase hexadecimal output. Serialize a typed envelope containing `Event` and the ordered `ReadTargets` list. Part digests cover exact part bytes; the transport digest covers the ordered envelope bytes. Compute the target-manifest digest from the ordered target list and reject mismatched declared evidence. Header fields include format version, event ID, organization/shard key, part count and transport digest. Events that fit remain a single record. Multipart delivery preserves logical event identity. Mutation and external events pass an empty read-target list.
 
 - [ ] Save all parts atomically with the corresponding change. Publish parts before their manifest and retain outbox records until Kafka acknowledges them.
 - [ ] Commit received parts and consumer offsets together. Mark complete assemblies ready. Complete them through the permanent event-ID claim and canonical append transaction.
@@ -116,7 +116,12 @@ type ReadToken struct {
     AdmissionDeadline time.Time
 }
 type ReadAdmission struct { Token ReadToken; Template Event }
-type ReadCompletion struct { Token ReadToken; Event Event; Digest string }
+type ReadCompletion struct {
+    Token ReadToken
+    Event Event
+    Targets []Target
+    Digest string
+}
 type PublishedRead struct { EventID uuid.UUID; Digest string }
 type ReadLifecycle interface {
     BeginRead(context.Context, ReadAdmission) (ReadToken, error)
@@ -128,7 +133,7 @@ type ReadLifecycle interface {
 }
 ```
 
-SQL uses database time. FoundationDB uses the existing injected clock for eligibility and transaction conflicts plus generations for safety. Finalization merges actor, identity and start fields from stored admission state rather than accepting replacement values.
+SQL uses database time. FoundationDB uses the existing injected clock for eligibility and transaction conflicts plus generations for safety. Finalization checks actor, identity and start fields against stored admission state and rejects changes to them. It calls `EncodeEvent` with the completion event and ordered targets. The terminal receipt stores the resulting transport digest, including the target list. An uncertain-commit retry must supply identical final data and digest.
 
 Select the recovery bucket from the first SHA-256 byte of the event UUID modulo 64. Start each owner at generation one. Renewals preserve the generation; recovery increments it transactionally before finalizing. This avoids concentrating UUIDv7 admissions in time-based buckets.
 
@@ -186,7 +191,7 @@ Add `RunExternal(ctx context.Context, outbox OutboxWriter, intent Event, run fun
 - [ ] Replace generic success after skipped, deferred or partial work with observed typed outcomes. Preserve effects committed before rendering or transport failures.
 - [ ] Record migration ranges/digests, backup manifests, index generations, role/privilege changes and completed steps. Exclude credential values.
 - [ ] Give recurring jobs stable service identity, unique run IDs and initiating identity when applicable.
-- [ ] Record runtime host controls through existing Go provider/operator boundaries and the Docker SDK helpers in `internal/ops/dockerctl.go`. Replace direct runtime container controls in Configs `ansible/playbooks/deploy-tack.yml` with the corresponding audited Go operation. Preserve each existing action: stack update, app restart, ledger restart, data-service update and search-service recreation. Record target service/container IDs and before/after image/state observations. Configs declares invocation and identity; it does not gain scripts or a separate test framework. Do not include guest or initial-service creation.
+- [ ] Cover Tack runtime commands invoked by deployment and provider workflows. Preserve current Configs/OpenTofu ownership of container orchestration. Changes to the surrounding orchestration belong to the separately ordered deployment workstream; this audit repair must not create a replacement deployment command or imply that auditing a child command audits its parent controller.
 - [ ] Add `TestRuntimeAuditCommandOutcomes`, `TestRuntimeAuditProviderRefresh`, `TestRuntimeAuditExternalRecovery` and `TestRuntimeAuditBackgroundIdentity`. Use real temporary engines and the existing provider acceptance environment. Assert exact effects, partial progress and safe resume behavior.
 - [ ] Run affected groups and commit coherent operation families separately.
 
@@ -199,7 +204,8 @@ Extend the existing harness with `runtime_audit_coverage_test.go` and `runtime_a
 - [ ] Measure identical generated workloads at one, two and four app/worker instances. Record throughput, response latency, backlog, recovery time and database/broker/index/replica bytes.
 - [ ] Report current installation needs separately. Preserve retention and runtime guarantees regardless of its present disk size.
 - [ ] Require the coverage suite in merge checks. Automatic deployment implementation remains the next separately scoped project.
-- [ ] Install schemas and compatible consumers/readers before enabling writers. Rehearse mixed versions in the temporary stack. Rollback must retain queued new-format events and use compatible consumers.
+- [ ] Deploy Release A with Task 1 readers and Task 2 schema/consumer support while existing production writers keep their current event format. Verify every consumer instance runs Release A before activating any new writer. Use deployment inventory and the Docker Compose service labels with the existing read-only deployment verifier; remove its single-replica assumption for this check.
+- [ ] Deploy Release B with pending-read adapters and the complete writers only after Release A passes testbed and production checks. Both server and consumer can keep the existing shared image-tag convention because these are two complete release revisions. Add `TestRuntimeAuditMixedVersionRollout` with two consumers, including one deliberately stale consumer; the transition must refuse that fleet. Rollback from Release B must retain Release A or newer consumers and preserve queued new-format events.
 - [ ] Validate each complete group on the testbed before production activation. Record exact image revisions and observed audit evidence in tickets. Continue deployment automation and access work in the approved order afterward.
 
 ## Verification commands

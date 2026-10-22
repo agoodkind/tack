@@ -6,7 +6,7 @@ This draft resolves engineering choices for the audit correction tracked by TACK
 
 ## Scope
 
-Cover operations after the required services exist: registered HTTP and MCP operations, operator commands, database writers, background jobs, provider hooks and deployment operations that invoke Tack. Include refusals, failures, partial work and interrupted work. Creating services from an empty installation is outside this correction. Execute the reviewed runtime operation inventory during acceptance; declarations alone do not prove coverage.
+Cover operations after the required services exist: registered HTTP and MCP operations, operator commands, database writers, background jobs, provider hooks and Tack commands invoked during deployment. Include refusals, failures, partial work and interrupted work. Creating services from an empty installation and changing the surrounding container orchestration are outside this correction. Execute the reviewed Tack runtime operation inventory during acceptance; declarations alone do not prove coverage.
 
 Complete audit recording first. Implement repository-triggered QA and production deployment second, with validation before merge. Complete production access restrictions third. User-facing history remains separate. Preserve existing ledger rows and hash chains. Do not reconstruct missing historical values or create a second permanent history store. Current installation capacity affects deployment sizing rather than product architecture.
 
