@@ -94,7 +94,7 @@ func TestSearchAccessFailureBeforeActivation(t *testing.T) {
 	failures := 0
 	deadline := time.Now().Add(rolloutStepDeadline)
 	for failures < rolloutFailureSlices && time.Now().Before(deadline) {
-		claimed, err := refusing.worker.RunSlice(t.Context())
+		claimed, err := refusing.worker.RunSlice(rolloutContext(t))
 		switch {
 		case err != nil && strings.Contains(err.Error(), "read access rollout page documents"):
 			failures++
@@ -126,7 +126,7 @@ func TestSearchAccessFailureBeforeActivation(t *testing.T) {
 func requireVersionSessions(t *testing.T, fixture rolloutFixture, authorityID uuid.UUID, want bool) {
 	t.Helper()
 	rollouts := fixture.stores.SearchRollouts(clock.Wall{}, fixture.stores.SearchPolicySet())
-	active, err := rollouts.HasActiveAccessVersion(t.Context(), authorityID, searchaccess.StableVersion)
+	active, err := rollouts.HasActiveAccessVersion(rolloutContext(t), authorityID, searchaccess.StableVersion)
 	if err != nil || active != want {
 		t.Fatalf("authority %s reports stable version session presence %t with error %v instead of presence %t", authorityID, active, err, want)
 	}

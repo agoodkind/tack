@@ -1,6 +1,7 @@
 package integration_test
 
 import (
+	"context"
 	"encoding/json"
 	"slices"
 	"sync"
@@ -29,7 +30,7 @@ func TestSearchAccessRolloutDeletionDuringVerification(t *testing.T) {
 	runRolloutUntil(t, fixture, workspace.OrgID, func(rollout searchdomain.AccessRollout) bool {
 		return rollout.AffectedPass
 	})
-	if err := fixture.stores.Nodes.Delete(t.Context(), workspace.OrgID, deleted); err != nil {
+	if err := fixture.stores.Nodes.Delete(rolloutContext(t), workspace.OrgID, deleted); err != nil {
 		t.Fatalf("Deleting node %s failed: %v", deleted, err)
 	}
 	if affected := affectedNodes(t, fixture, workspace.OrgID); !slices.Contains(affected.Nodes, deleted) {
@@ -93,7 +94,8 @@ func TestSearchAccessRolloutConcurrentGrants(t *testing.T) {
 	errs := make([]error, len(nodes))
 	var group sync.WaitGroup
 	for position, nodeID := range nodes {
-		group.Go(func() { errs[position] = moveNodeConcurrently(t, fixture, nodeID, to) })
+		ctx := rolloutContext(t)
+		group.Go(func() { errs[position] = moveNodeConcurrently(ctx, fixture, nodeID, to) })
 	}
 	group.Wait()
 	for position, err := range errs {
@@ -115,12 +117,12 @@ func TestSearchAccessRolloutConcurrentGrants(t *testing.T) {
 // moveNodeConcurrently moves nodeID under the entry node specified by to
 // using [service.NodeService.Update] and returns the error. It does not call
 // a [testing.T] method that ends the test. A goroutine may run it.
-func moveNodeConcurrently(t *testing.T, fixture rolloutFixture, nodeID, to uuid.UUID) error {
+func moveNodeConcurrently(ctx context.Context, fixture rolloutFixture, nodeID, to uuid.UUID) error {
 	target, err := json.Marshal(to.String())
 	if err != nil {
 		return err
 	}
-	_, err = rolloutNodeService(fixture).Update(t.Context(), service.UpdateInput{
+	_, err = rolloutNodeService(fixture).Update(ctx, service.UpdateInput{
 		NodeID: nodeID, Props: map[string]json.RawMessage{"parent_id": target, "scope_id": target},
 	})
 	return err
@@ -130,7 +132,7 @@ func moveNodeConcurrently(t *testing.T, fixture rolloutFixture, nodeID, to uuid.
 // production rollout store.
 func affectedNodes(t *testing.T, fixture rolloutFixture, authorityID uuid.UUID) searchdomain.AffectedNodes {
 	t.Helper()
-	affected, err := fixture.stores.SearchRollouts(clock.Wall{}, fixture.stores.SearchPolicySet()).AffectedNodes(t.Context(), authorityID)
+	affected, err := fixture.stores.SearchRollouts(clock.Wall{}, fixture.stores.SearchPolicySet()).AffectedNodes(rolloutContext(t), authorityID)
 	if err != nil {
 		t.Fatalf("Reading affected nodes of authority %s failed: %v", authorityID, err)
 	}

@@ -30,13 +30,13 @@ type rolloutPage struct {
 // in order.
 func rolloutPages(t *testing.T, fixture rolloutFixture, nodes []uuid.UUID) []rolloutPage {
 	t.Helper()
-	if _, err := fixture.client.Indices.Refresh(t.Context(), &opensearchapi.IndicesRefreshReq{Index: []string{fixture.index}}); err != nil {
+	if _, err := fixture.client.Indices.Refresh(rolloutContext(t), &opensearchapi.IndicesRefreshReq{Index: []string{fixture.index}}); err != nil {
 		t.Fatalf("cannot refresh index %s: %v", fixture.index, err)
 	}
 	pages := make([]rolloutPage, 0, len(nodes)*2)
 	for _, nodeID := range nodes {
 		query := fmt.Sprintf(`{"size":1000,"query":{"bool":{"filter":[{"term":{"node_id":%q}},{"term":{"retired":false}}]}},"sort":[{"page_ordinal":"asc"}]}`, nodeID.String())
-		response, err := fixture.client.Search(t.Context(), &opensearchapi.SearchReq{Indices: []string{fixture.index}, Body: strings.NewReader(query)})
+		response, err := fixture.client.Search(rolloutContext(t), &opensearchapi.SearchReq{Indices: []string{fixture.index}, Body: strings.NewReader(query)})
 		if err != nil {
 			t.Fatalf("cannot search pages of node %s: %v", nodeID, err)
 		}

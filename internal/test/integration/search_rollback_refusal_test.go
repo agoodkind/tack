@@ -58,7 +58,7 @@ func newRefusingWorker(t *testing.T, fixture rolloutFixture) refusingWorker {
 	authority := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})
 	configuration := rolloutSearchConfig(fixture.engine)
 	configuration.Endpoint, configuration.CA = server.URL, string(authority)
-	adapter, err := search.New(t.Context(), configuration)
+	adapter, err := search.New(rolloutContext(t), configuration)
 	if err != nil {
 		t.Fatalf("cannot create adapter behind proxy: %v", err)
 	}

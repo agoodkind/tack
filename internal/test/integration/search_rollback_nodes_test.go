@@ -34,7 +34,7 @@ func putRolloutKind(t *testing.T, fixture rolloutFixture, orgID uuid.UUID) rollo
 		ID: uuid.Must(uuid.NewV7()), OrgID: orgID, Name: kind.includedKey, Type: node.PropertyTypeText,
 		Search: &node.SearchProjection{Include: true, Order: 0, Rule: node.TextRule{Mode: node.TextRuleScalar}},
 	}
-	if err := fixture.stores.PropertyDefs.Set(t.Context(), definition); err != nil {
+	if err := fixture.stores.PropertyDefs.Set(rolloutContext(t), definition); err != nil {
 		t.Fatalf("cannot store property definition: %v", err)
 	}
 	nodeType := &node.NodeType{
@@ -42,7 +42,7 @@ func putRolloutKind(t *testing.T, fixture rolloutFixture, orgID uuid.UUID) rollo
 		Slug: kind.typeKey, PluralSlug: kind.typeKey + "s", PropertyDefIDs: []uuid.UUID{definition.ID},
 		CanLiveUnder: rolloutEntryTypes(t, fixture, orgID),
 	}
-	if err := fixture.stores.NodeTypes.Set(t.Context(), nodeType); err != nil {
+	if err := fixture.stores.NodeTypes.Set(rolloutContext(t), nodeType); err != nil {
 		t.Fatalf("cannot store node type: %v", err)
 	}
 	return kind
@@ -51,7 +51,7 @@ func putRolloutKind(t *testing.T, fixture rolloutFixture, orgID uuid.UUID) rollo
 // rolloutEntryTypes returns the organization's entry point type keys.
 func rolloutEntryTypes(t *testing.T, fixture rolloutFixture, orgID uuid.UUID) []string {
 	t.Helper()
-	types, err := fixture.stores.NodeTypes.List(t.Context(), orgID)
+	types, err := fixture.stores.NodeTypes.List(rolloutContext(t), orgID)
 	if err != nil {
 		t.Fatalf("cannot list node types for organization %s: %v", orgID, err)
 	}
@@ -71,7 +71,7 @@ func rolloutEntryTypes(t *testing.T, fixture rolloutFixture, orgID uuid.UUID) []
 func rolloutEntryPoint(t *testing.T, fixture rolloutFixture, workspace datagen.WorkspaceIdentity) uuid.UUID {
 	t.Helper()
 	for _, typeKey := range rolloutEntryTypes(t, fixture, workspace.OrgID) {
-		views, err := fixture.stores.Views.List(t.Context(), node.NodeListQuery{OrgID: workspace.OrgID, NodeType: typeKey})
+		views, err := fixture.stores.Views.List(rolloutContext(t), node.NodeListQuery{OrgID: workspace.OrgID, NodeType: typeKey})
 		if err != nil {
 			t.Fatalf("cannot list entry nodes for type %s: %v", typeKey, err)
 		}
@@ -100,7 +100,7 @@ func putRolloutNode(t *testing.T, fixture rolloutFixture, kind rolloutKind, pare
 	if err != nil {
 		t.Fatalf("cannot encode property value: %v", err)
 	}
-	result, err := rolloutNodeService(fixture).Create(t.Context(), service.CreateInput{
+	result, err := rolloutNodeService(fixture).Create(rolloutContext(t), service.CreateInput{
 		ParentID: parentID, NodeTypeKey: kind.typeKey, Name: name,
 		Props: map[string]json.RawMessage{kind.includedKey: encoded},
 	})
@@ -129,7 +129,7 @@ func moveRolloutNode(t *testing.T, fixture rolloutFixture, nodeID, to uuid.UUID)
 	if err != nil {
 		t.Fatalf("cannot encode property value: %v", err)
 	}
-	if _, err := rolloutNodeService(fixture).Update(t.Context(), service.UpdateInput{
+	if _, err := rolloutNodeService(fixture).Update(rolloutContext(t), service.UpdateInput{
 		NodeID: nodeID, Props: map[string]json.RawMessage{"parent_id": target, "scope_id": target},
 	}); err != nil {
 		t.Fatalf("cannot move node %s under entry node %s: %v", nodeID, to, err)

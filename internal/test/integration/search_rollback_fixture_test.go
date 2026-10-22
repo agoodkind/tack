@@ -18,6 +18,7 @@ import (
 	"goodkind.io/tack/internal/datagen"
 	appruntime "goodkind.io/tack/internal/runtime"
 	"goodkind.io/tack/internal/service"
+	"goodkind.io/tack/internal/test/integration"
 	"goodkind.io/tack/internal/testenv"
 )
 
@@ -56,7 +57,7 @@ func newRolloutFixture(t *testing.T) rolloutFixture {
 	stores := newRolloutStores(t)
 	engine := testenv.OpenSearchWithMemory(t, rolloutEngineMemory)
 	adapter, client := rolloutSearchClients(t, engine)
-	model, err := adapter.Provision(t.Context())
+	model, err := adapter.Provision(rolloutContext(t))
 	if err != nil {
 		t.Fatalf("cannot provision search model: %v", err)
 	}
@@ -64,17 +65,17 @@ func newRolloutFixture(t *testing.T) rolloutFixture {
 	deleteRolloutIndex(t, client, index)
 	t.Cleanup(func() { deleteRolloutIndex(t, client, index) })
 	spec := search.IndexSpec{Model: model, MappingVersion: search.MappingVersion, Primaries: 1, RoutingShards: 24, Replicas: 0}
-	if err := adapter.EnsureIndex(t.Context(), index, spec); err != nil {
+	if err := adapter.EnsureIndex(rolloutContext(t), index, spec); err != nil {
 		t.Fatalf("cannot create search index: %v", err)
 	}
-	if err := adapter.SetAlias(t.Context(), search.PublicAlias, index); err != nil {
+	if err := adapter.SetAlias(rolloutContext(t), search.PublicAlias, index); err != nil {
 		t.Fatalf("cannot set public alias: %v", err)
 	}
-	if err := stores.InitializeSearchIndex(t.Context(), index); err != nil {
+	if err := stores.InitializeSearchIndex(rolloutContext(t), index); err != nil {
 		t.Fatalf("cannot record serving index: %v", err)
 	}
 	cfg := rolloutConfig(t, engine)
-	graph, err := appruntime.BuildGraph(t.Context(), cfg)
+	graph, err := appruntime.BuildGraph(rolloutContext(t), cfg)
 	if err != nil {
 		t.Fatalf("cannot build graph: %v", err)
 	}
@@ -83,7 +84,7 @@ func newRolloutFixture(t *testing.T) rolloutFixture {
 	if err != nil {
 		t.Fatalf("cannot parse scale: %v", err)
 	}
-	identities, err := datagen.BootstrapIdentities(t.Context(), cfg, clock.Now().UnixNano(), scale)
+	identities, err := datagen.BootstrapIdentities(rolloutContext(t), cfg, clock.Now().UnixNano(), scale)
 	if err != nil {
 		t.Fatalf("cannot bootstrap identities: %v", err)
 	}
@@ -92,6 +93,13 @@ func newRolloutFixture(t *testing.T) rolloutFixture {
 		handler: graph.AuthMiddleware(graph.MCPHandler), workspaces: identities.Workspaces,
 		worker: newRolloutWorker(t, stores, adapter),
 	}
+}
+
+// rolloutContext returns the test context with a new audit operation for the
+// integration test system actor using integration.WithTestOperation.
+func rolloutContext(t *testing.T) context.Context {
+	t.Helper()
+	return integration.WithTestOperation(t, t.Context())
 }
 
 // newRolloutStores opens search stores under a FoundationDB key prefix
@@ -138,7 +146,7 @@ func clearRolloutPrefix(t *testing.T, cluster string, prefix []byte) {
 func rolloutSearchClients(t *testing.T, engine testenv.OpenSearchFixture) (*search.Adapter, *opensearchapi.Client) {
 	t.Helper()
 	configuration := rolloutSearchConfig(engine)
-	adapter, err := search.New(t.Context(), configuration)
+	adapter, err := search.New(rolloutContext(t), configuration)
 	if err != nil {
 		t.Fatalf("cannot open search client: %v", err)
 	}

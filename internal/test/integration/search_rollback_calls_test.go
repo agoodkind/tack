@@ -128,7 +128,7 @@ func sessionAccessVersion(t *testing.T, fixture rolloutFixture, cursor string) s
 	if err != nil {
 		t.Fatalf("cannot decode cursor: %v", err)
 	}
-	session, err := fixture.stores.SearchSessions(clock.Wall{}, 15*time.Minute).Load(t.Context(), sessionID)
+	session, err := fixture.stores.SearchSessions(clock.Wall{}, 15*time.Minute).Load(rolloutContext(t), sessionID)
 	if err != nil {
 		t.Fatalf("cannot load session %s: %v", sessionID, err)
 	}
@@ -179,7 +179,7 @@ func requireRollbackAudit(t *testing.T, fixture rolloutFixture, operatorID uuid.
 		t.Fatalf("cannot open outbox pool: %v", err)
 	}
 	t.Cleanup(pool.Close)
-	rows, err := audit.NewPoolOutbox(pool).ReadBatch(t.Context(), 1000)
+	rows, err := audit.NewPoolOutbox(pool).ReadBatch(rolloutContext(t), 1000)
 	if err != nil {
 		t.Fatalf("cannot read operator outbox: %v", err)
 	}

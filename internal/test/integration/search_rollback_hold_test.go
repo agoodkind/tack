@@ -32,13 +32,13 @@ func holdAccessWork(t *testing.T, fixture rolloutFixture, nodeID uuid.UUID) sear
 	others := make([]searchdomain.Work, 0)
 	defer func() {
 		for _, work := range others {
-			if err := store.Yield(t.Context(), work); err != nil {
+			if err := store.Yield(rolloutContext(t), work); err != nil {
 				t.Errorf("Yielding access work for node %s failed: %v", work.NodeID, err)
 			}
 		}
 	}()
 	for range holdClaimAttempts {
-		work, err := store.Claim(t.Context(), searchdomain.WorkClassAccess, "rollout-access-holder", heldAccessLease)
+		work, err := store.Claim(rolloutContext(t), searchdomain.WorkClassAccess, "rollout-access-holder", heldAccessLease)
 		if err != nil {
 			t.Fatalf("Claiming access work while looking for node %s failed: %v", nodeID, err)
 		}
@@ -55,7 +55,7 @@ func holdAccessWork(t *testing.T, fixture rolloutFixture, nodeID uuid.UUID) sear
 // again.
 func releaseAccessWork(t *testing.T, fixture rolloutFixture, work searchdomain.Work) {
 	t.Helper()
-	if err := fixture.stores.SearchWork(clock.Wall{}).Yield(t.Context(), work); err != nil {
+	if err := fixture.stores.SearchWork(clock.Wall{}).Yield(rolloutContext(t), work); err != nil {
 		t.Fatalf("Yielding access work for node %s failed: %v", work.NodeID, err)
 	}
 }
