@@ -57,6 +57,9 @@ type InfrastructureState struct {
 	OutboxTableExists bool
 	// OperatorLoginExists reports whether tack_audit_operator exists.
 	OperatorLoginExists bool
+	// OperatorReadsExist reports whether public.ops_read_begin exists and
+	// audit_operator can execute it.
+	OperatorReadsExist bool `exhaustruct:"optional"`
 }
 
 // InfrastructureProbe reports the audit infrastructure state before a command
