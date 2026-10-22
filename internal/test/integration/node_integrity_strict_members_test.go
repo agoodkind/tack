@@ -16,7 +16,6 @@ import (
 	"goodkind.io/tack/internal/test/integration"
 )
 
-// strictMemberRole is the organization member role that the test assigns.
 const strictMemberRole = 20
 
 // TestNodeIntegrityStrictAcceptsMemberAssignmentAfterActivation creates a user
@@ -96,9 +95,6 @@ func TestNodeIntegrityStrictRejectsUnknownAssigneeCreateAfterActivation(t *testi
 	}
 }
 
-// createStrictMember creates a user with createStrictUser and adds the user
-// to the test organization through the YugabyteDB repository. It returns the
-// user ID.
 func createStrictMember(t *testing.T, env *integration.TestEnv) uuid.UUID {
 	t.Helper()
 	userID := createStrictUser(t, env)
