@@ -43,7 +43,7 @@ func (request clusterSettingsRequest) GetRequest(method string) (*http.Request, 
 // and does not increase after that window is full.
 func TestSearchQueryBreakerRetry(t *testing.T) {
 	fixture := newQueryFixture(t, defaultQueryOptions())
-	info, err := fixture.Adapter.IndexInfo(t.Context(), fixture.Index)
+	info, err := fixture.Adapter.IndexInfo(WithTestOperation(t, t.Context()), fixture.Index)
 	if err != nil {
 		t.Fatalf("read serving model: %v", err)
 	}
@@ -103,7 +103,7 @@ func breakerTriggers(t *testing.T, fixture queryFixture) int64 {
 		} `json:"nodes"`
 	}
 	var raw json.RawMessage
-	response, err := opensearch.Do(t.Context(), fixture.Client.Client, http.MethodGet, mlStatsRequest{}, &raw)
+	response, err := opensearch.Do(WithTestOperation(t, t.Context()), fixture.Client.Client, http.MethodGet, mlStatsRequest{}, &raw)
 	if err != nil || response == nil || response.IsError() {
 		t.Fatalf("read ML Commons stats: response %v err %v", response, err)
 	}
@@ -129,7 +129,7 @@ func (mlStatsRequest) GetRequest(method string) (*http.Request, error) {
 
 func requireBreakerThreshold(t *testing.T, fixture queryFixture, value string) {
 	t.Helper()
-	if err := setBreakerThreshold(t.Context(), fixture, value); err != nil {
+	if err := setBreakerThreshold(WithTestOperation(t, t.Context()), fixture, value); err != nil {
 		t.Fatalf("set the breaker threshold to %s: %v", value, err)
 	}
 }
@@ -163,7 +163,7 @@ func predictRequests(t *testing.T, fixture queryFixture, modelID string) int {
 			} `json:"models"`
 		} `json:"nodes"`
 	}
-	response, err := opensearch.Do(t.Context(), fixture.Client.Client, http.MethodGet, clusterModelProfileRequest{modelID: modelID}, &profile)
+	response, err := opensearch.Do(WithTestOperation(t, t.Context()), fixture.Client.Client, http.MethodGet, clusterModelProfileRequest{modelID: modelID}, &profile)
 	if err != nil || response == nil || response.IsError() {
 		t.Fatalf("read model profile %s: response %v err %v", modelID, response, err)
 	}

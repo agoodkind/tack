@@ -40,14 +40,14 @@ func TestSearchRestoreRejectsCursors(t *testing.T) {
 	if first.Cursor == "" {
 		t.Fatal("the first page returned no continuation cursor")
 	}
-	if err := fixture.Stores.Nodes.Delete(t.Context(), kind.OrgID, deleted); err != nil {
+	if err := fixture.Stores.Nodes.Delete(WithTestOperation(t, t.Context()), kind.OrgID, deleted); err != nil {
 		t.Fatalf("delete node: %v", err)
 	}
 	fixture.Graph.Close()
 	backup := testenv.BackupFoundationDB(t)
 	postBackup := putOpaqueNode(t, fixture, kind, entry, "created after snapshot", "jasper restore marker", readerExcludedValue)
 	editOpaqueNode(t, fixture, kind, nodes[0], "postbackup changed text")
-	if err := fixture.Stores.Nodes.Delete(t.Context(), kind.OrgID, nodes[1]); err != nil {
+	if err := fixture.Stores.Nodes.Delete(WithTestOperation(t, t.Context()), kind.OrgID, nodes[1]); err != nil {
 		t.Fatalf("delete after snapshot: %v", err)
 	}
 	restoreQueryFixture(t, &fixture, backup.Restore(t))

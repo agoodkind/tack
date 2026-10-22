@@ -42,7 +42,7 @@ func TestSearchMetadataAfterStartup(t *testing.T) {
 		ID: uuid.Must(uuid.NewV7()), OrgID: workspace.OrgID, Name: name, Type: node.PropertyType(opaqueSearchKey("t")),
 		Search: &node.SearchProjection{Include: true, Order: 2, Rule: node.TextRule{Mode: node.TextRuleScalar}},
 	}
-	if err := fixture.Stores.PropertyDefs.Set(t.Context(), definition); err != nil {
+	if err := fixture.Stores.PropertyDefs.Set(WithTestOperation(t, t.Context()), definition); err != nil {
 		t.Fatalf("store property definition after startup: %v", err)
 	}
 	listing := fixture.Harness.Call(t, "tack_list_property_defs", datagen.ToolArguments{WorkspaceReference: fixture.Harness.Workspace})

@@ -27,7 +27,7 @@ func TestSearchRebuildFailsAfterPauseLimit(t *testing.T) {
 	settings.ReplacementPauseLimit = rebuildTestPauseLimit
 	worker := newSearchWorker(t, stores, adapter, clock.Wall{}, settings)
 	rebuilds := stores.SearchRebuilds(clock.Wall{})
-	rebuild, err := rebuilds.BeginRebuild(t.Context(), searchdomain.BeginRebuild{
+	rebuild, err := rebuilds.BeginRebuild(WithTestOperation(t, t.Context()), searchdomain.BeginRebuild{
 		Mode: searchdomain.ReplacementSplit, PrimaryShards: 2, RoutingShards: 8, Replicas: 1, Restored: false, Reason: "test",
 	})
 	if err != nil {
@@ -37,7 +37,7 @@ func TestSearchRebuildFailsAfterPauseLimit(t *testing.T) {
 	failed := false
 	deadline := time.Now().Add(rebuildDeadline)
 	for {
-		current, found, err := rebuilds.CurrentRebuild(t.Context())
+		current, found, err := rebuilds.CurrentRebuild(WithTestOperation(t, t.Context()))
 		if err != nil {
 			t.Fatalf("read index replacement: %v", err)
 		}
@@ -48,7 +48,7 @@ func TestSearchRebuildFailsAfterPauseLimit(t *testing.T) {
 		if time.Now().After(deadline) {
 			t.Fatalf("index replacement stayed in %s for %s", current.State, rebuildDeadline)
 		}
-		claimed, err := worker.RunSlice(t.Context())
+		claimed, err := worker.RunSlice(WithTestOperation(t, t.Context()))
 		if err != nil {
 			t.Fatalf("replacement step in %s: %v", current.State, err)
 		}
@@ -59,11 +59,11 @@ func TestSearchRebuildFailsAfterPauseLimit(t *testing.T) {
 	if !failed {
 		t.Fatal("the replacement finished without entering the failed state")
 	}
-	if _, err := adapter.IndexSettings(t.Context(), rebuild.TargetIndex); err == nil {
+	if _, err := adapter.IndexSettings(WithTestOperation(t, t.Context()), rebuild.TargetIndex); err == nil {
 		t.Fatalf("failed target %s still exists", rebuild.TargetIndex)
 	}
 	requireWritable(t, client, source)
-	serving, err := stores.ServingSearchIndex(t.Context())
+	serving, err := stores.ServingSearchIndex(WithTestOperation(t, t.Context()))
 	if err != nil || serving != source {
 		t.Fatalf("serving index = %q, error = %v, want %q", serving, err, source)
 	}
@@ -72,7 +72,7 @@ func TestSearchRebuildFailsAfterPauseLimit(t *testing.T) {
 // requireWritable requires index to have no write block.
 func requireWritable(t *testing.T, client *opensearchapi.Client, index string) {
 	t.Helper()
-	response, err := client.Indices.Settings.Get(t.Context(), &opensearchapi.SettingsGetReq{Indices: []string{index}})
+	response, err := client.Indices.Settings.Get(WithTestOperation(t, t.Context()), &opensearchapi.SettingsGetReq{Indices: []string{index}})
 	if err != nil {
 		t.Fatalf("read settings of %s: %v", index, err)
 	}

@@ -23,7 +23,7 @@ func recordThroughputLimits(t *testing.T, corpus processThroughputCorpus) []thro
 		{role: "opensearch", name: engine.Container},
 		{role: "foundationdb", name: testenv.FoundationDBContainer(corpus.fixture.Config.FDBClusterFile)},
 	}
-	runner, err := testenv.RunnerContainer(t.Context())
+	runner, err := testenv.RunnerContainer(WithTestOperation(t, t.Context()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +33,7 @@ func recordThroughputLimits(t *testing.T, corpus processThroughputCorpus) []thro
 		containers = append(containers, throughputContainer{role: "runner", name: runner})
 	}
 	for _, container := range containers {
-		limits, err := testenv.ContainerResourceLimits(t.Context(), container.name)
+		limits, err := testenv.ContainerResourceLimits(WithTestOperation(t, t.Context()), container.name)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -63,7 +63,7 @@ func sampleThroughputCPU(t *testing.T, containers []throughputContainer) []teste
 	t.Helper()
 	samples := make([]testenv.ContainerCPUSample, 0, len(containers))
 	for _, container := range containers {
-		sample, err := testenv.ContainerCPU(t.Context(), container.name)
+		sample, err := testenv.ContainerCPU(WithTestOperation(t, t.Context()), container.name)
 		if err != nil {
 			t.Fatal(err)
 		}

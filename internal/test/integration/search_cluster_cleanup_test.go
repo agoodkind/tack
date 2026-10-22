@@ -14,7 +14,7 @@ func startSearchTestCluster(t *testing.T, members int) *testenv.OpenSearchCluste
 	t.Helper()
 	cluster := testenv.StartOpenSearchCluster(t, members)
 	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), time.Minute)
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(WithTestOperation(t, t.Context())), time.Minute)
 		defer cancel()
 		if err := cluster.Close(ctx); err != nil {
 			t.Errorf("release disposable search cluster: %v", err)

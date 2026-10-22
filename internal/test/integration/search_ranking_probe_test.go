@@ -22,6 +22,7 @@ import (
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/datagen"
 	appruntime "goodkind.io/tack/internal/runtime"
+	"goodkind.io/tack/internal/test/integration"
 )
 
 const (
@@ -58,7 +59,7 @@ func newRankingRun(t *testing.T, cfg *config.Config, graph *appruntime.Graph) *r
 	if err != nil {
 		t.Fatalf("parse scale: %v", err)
 	}
-	identities, err := datagen.BootstrapIdentities(t.Context(), cfg, seed, scale)
+	identities, err := datagen.BootstrapIdentities(integration.WithTestOperation(t, t.Context()), cfg, seed, scale)
 	if err != nil {
 		t.Fatalf("bootstrap identities: %v", err)
 	}
@@ -66,7 +67,7 @@ func newRankingRun(t *testing.T, cfg *config.Config, graph *appruntime.Graph) *r
 	if err != nil {
 		t.Fatalf("open ranking stores: %v", err)
 	}
-	certificate, err := config.LoadSearchCA(t.Context(), cfg.SearchCA)
+	certificate, err := config.LoadSearchCA(integration.WithTestOperation(t, t.Context()), cfg.SearchCA)
 	if err != nil {
 		t.Fatalf("load search CA: %v", err)
 	}
@@ -97,7 +98,7 @@ func newRankingRun(t *testing.T, cfg *config.Config, graph *appruntime.Graph) *r
 
 func (r *rankingRun) call(t *testing.T, tool string, arguments datagen.ToolArguments) datagen.Result {
 	t.Helper()
-	result, err := r.driver.Call(t.Context(), r.token, tool, arguments)
+	result, err := r.driver.Call(integration.WithTestOperation(t, t.Context()), r.token, tool, arguments)
 	if err != nil {
 		t.Fatalf("call %s: %v", tool, err)
 	}

@@ -24,7 +24,7 @@ func TestSearchRebuildStepFitsLease(t *testing.T) {
 	settings := searchWorkerSettings(runtimePageBytes)
 	worker := newSearchWorker(t, stores, adapter, clock.Wall{}, settings)
 	rebuilds := stores.SearchRebuilds(clock.Wall{})
-	rebuild, err := rebuilds.BeginRebuild(t.Context(), searchdomain.BeginRebuild{
+	rebuild, err := rebuilds.BeginRebuild(WithTestOperation(t, t.Context()), searchdomain.BeginRebuild{
 		Mode: searchdomain.ReplacementFull, PrimaryShards: 1, RoutingShards: 24, Replicas: 1, Restored: false, Reason: "test",
 	})
 	if err != nil {
@@ -37,7 +37,7 @@ func TestSearchRebuildStepFitsLease(t *testing.T) {
 			t.Fatalf("the replacement was claimed %d times in %s, want %d", attempt, rebuildDeadline, rebuildLeaseAttempts)
 		}
 		started := time.Now()
-		claimed, err := worker.RunSlice(t.Context())
+		claimed, err := worker.RunSlice(WithTestOperation(t, t.Context()))
 		elapsed := time.Since(started)
 		if err != nil {
 			t.Fatalf("replacement step %d: %v", attempt, err)
@@ -49,7 +49,7 @@ func TestSearchRebuildStepFitsLease(t *testing.T) {
 		if elapsed >= settings.Lease {
 			t.Fatalf("replacement step %d ran %s, want less than the %s lease", attempt, elapsed, settings.Lease)
 		}
-		current, found, err := rebuilds.CurrentRebuild(t.Context())
+		current, found, err := rebuilds.CurrentRebuild(WithTestOperation(t, t.Context()))
 		if err != nil || !found || current.State != searchdomain.RebuildCreating || current.Failure != "" {
 			t.Fatalf("replacement after step %d = %+v, found %t, error %v, want creating without failure", attempt, current, found, err)
 		}

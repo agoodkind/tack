@@ -20,11 +20,16 @@ const (
 	VerbNodeDelete         Verb = "node.delete"
 	VerbRelationshipAdd    Verb = "relationship.add"
 	VerbRelationshipRemove Verb = "relationship.remove"
+	// VerbRelationshipUpdate records a write that replaces the stored value
+	// of an existing relationship.
+	VerbRelationshipUpdate Verb = "relationship.update"
 	VerbPropertyDefCreate  Verb = "property_def.create"
 	VerbPropertyDefUpdate  Verb = "property_def.update"
 	VerbPropertyDefDelete  Verb = "property_def.delete"
 	VerbNodeTypeCreate     Verb = "node_type.create"
 	VerbNodeTypeUpdate     Verb = "node_type.update"
+	// VerbNodeTypeDelete records the deletion of a node type definition.
+	VerbNodeTypeDelete Verb = "node_type.delete"
 	// VerbNodeReferenceRename records a change to a node reference.
 	VerbNodeReferenceRename Verb = "node.reference_rename"
 	VerbOrgMemberAdd        Verb = "org.member_add"
@@ -237,6 +242,8 @@ var stateChangeVerbs = map[Verb]bool{
 	VerbNodeDelete:         true,
 	VerbRelationshipAdd:    true,
 	VerbRelationshipRemove: true,
+	VerbRelationshipUpdate: true,
+	VerbNodeTypeDelete:     true,
 	VerbPropertyDefCreate:  true,
 	VerbPropertyDefUpdate:  true,
 	VerbPropertyDefDelete:  true,

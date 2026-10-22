@@ -13,6 +13,7 @@ import (
 	"goodkind.io/tack/internal/adapters/search"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/service"
+	"goodkind.io/tack/internal/test/integration"
 )
 
 // parentMovePage represents one active page document for a node in the serving
@@ -62,7 +63,7 @@ func TestSearchParentMoveUpdatesAccessOnly(t *testing.T) {
 		NodeID: leaf, Props: map[string]json.RawMessage{fixture.kind.included: parentEdgeJSON(t, "quartz rewritten leaf")},
 		ActorID: fixture.first.Actors[0].UserID,
 	}
-	if _, err := fixture.nodes.Update(t.Context(), update); err != nil {
+	if _, err := fixture.nodes.Update(integration.WithTestOperation(t, t.Context()), update); err != nil {
 		t.Fatalf("update the included property of leaf %s: %v", leaf, err)
 	}
 	fixture.drain(t)
@@ -82,7 +83,7 @@ func TestSearchParentMoveUpdatesAccessOnly(t *testing.T) {
 // search settings.
 func parentMoveClient(t *testing.T, fixture parentEdgeFixture) *opensearchapi.Client {
 	t.Helper()
-	certificate, err := config.LoadSearchCA(t.Context(), fixture.cfg.SearchCA)
+	certificate, err := config.LoadSearchCA(integration.WithTestOperation(t, t.Context()), fixture.cfg.SearchCA)
 	if err != nil {
 		t.Fatalf("load search CA: %v", err)
 	}
@@ -103,11 +104,11 @@ func parentMoveClient(t *testing.T, fixture parentEdgeFixture) *opensearchapi.Cl
 // searchNodePages.
 func parentMovePages(t *testing.T, client *opensearchapi.Client, nodeID uuid.UUID) []parentMovePage {
 	t.Helper()
-	if _, err := client.Indices.Refresh(t.Context(), &opensearchapi.IndicesRefreshReq{Index: []string{search.PublicAlias}}); err != nil {
+	if _, err := client.Indices.Refresh(integration.WithTestOperation(t, t.Context()), &opensearchapi.IndicesRefreshReq{Index: []string{search.PublicAlias}}); err != nil {
 		t.Fatalf("refresh %s: %v", search.PublicAlias, err)
 	}
 	query := fmt.Sprintf(`{"size":1000,"query":{"bool":{"filter":[{"term":{"node_id":%q}},{"term":{"retired":false}}]}},"sort":[{"page_ordinal":"asc"}]}`, nodeID.String())
-	response, err := client.Search(t.Context(), &opensearchapi.SearchReq{Indices: []string{search.PublicAlias}, Body: strings.NewReader(query)})
+	response, err := client.Search(integration.WithTestOperation(t, t.Context()), &opensearchapi.SearchReq{Indices: []string{search.PublicAlias}, Body: strings.NewReader(query)})
 	if err != nil {
 		t.Fatalf("search pages of node %s: %v", nodeID, err)
 	}

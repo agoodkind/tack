@@ -48,7 +48,7 @@ func TestSearchProjectionRepairClearsWarning(t *testing.T) {
 		ID: uuid.Must(uuid.NewV7()), OrgID: workspace.OrgID, Name: name, Type: node.PropertyType(opaqueSearchKey("t")),
 		Search: &node.SearchProjection{Include: true, Order: 2, Rule: node.TextRule{Mode: node.TextRuleScalar}},
 	}
-	if err := fixture.Stores.PropertyDefs.Set(t.Context(), definition); err != nil {
+	if err := fixture.Stores.PropertyDefs.Set(WithTestOperation(t, t.Context()), definition); err != nil {
 		t.Fatalf("declare property %s: %v", name, err)
 	}
 	drainSearchWork(t, fixture.Worker, 2000)
@@ -103,7 +103,7 @@ func runSearchVerifyWarnings(t *testing.T, cfg *config.Config) verifyWarningRepo
 	factory := cli.System(cfg)
 	var output bytes.Buffer
 	factory.Out = &output
-	pool, err := pgxpool.New(t.Context(), testenv.Ledger(t))
+	pool, err := pgxpool.New(WithTestOperation(t, t.Context()), testenv.Ledger(t))
 	if err != nil {
 		t.Fatalf("open audit ledger pool: %v", err)
 	}

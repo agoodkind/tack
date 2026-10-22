@@ -11,7 +11,6 @@ import (
 
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/domain"
-	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/domain/org"
 	"goodkind.io/tack/internal/domain/token"
 	"goodkind.io/tack/internal/domain/user"
@@ -39,68 +38,6 @@ func recordSeedToken(ctx context.Context, recorder audit.Recorder, seededToken *
 	return recordSeedEvent(ctx, recorder, audit.VerbAuthTokenCreate, audit.Entity{
 		Type: "api_token", NodeType: "", ID: seededToken.ID, Identifier: "", Name: seededToken.Label,
 	}, orgID, uuid.Nil, uuid.Nil)
-}
-
-func recordSeedNode(
-	ctx context.Context,
-	recorder audit.Recorder,
-	nodeID uuid.UUID,
-	orgID uuid.UUID,
-	parentID uuid.UUID,
-	nodeType string,
-	slug string,
-	name string,
-) error {
-	return recordSeedEvent(ctx, recorder, audit.VerbNodeCreate, audit.Entity{
-		Type: "node", NodeType: nodeType, ID: nodeID, Identifier: slug, Name: name,
-	}, orgID, uuid.Nil, parentID)
-}
-
-func recordSeedNodeType(
-	ctx context.Context,
-	recorder audit.Recorder,
-	verb audit.Verb,
-	nodeType *node.NodeType,
-) error {
-	return recordSeedEvent(ctx, recorder, verb, audit.Entity{
-		Type: "node_type", NodeType: nodeType.TypeKey, ID: nodeType.ID, Identifier: nodeType.Slug, Name: nodeType.Name,
-	}, nodeType.OrgID, uuid.Nil, uuid.Nil)
-}
-
-func recordSeedPropertyDef(
-	ctx context.Context,
-	recorder audit.Recorder,
-	verb audit.Verb,
-	propertyDef *node.PropertyDef,
-) error {
-	return recordSeedEvent(ctx, recorder, verb, audit.Entity{
-		Type: "property_def", NodeType: "", ID: propertyDef.ID, Identifier: propertyDef.Name, Name: propertyDef.Name,
-	}, propertyDef.OrgID, uuid.Nil, uuid.Nil)
-}
-
-// recordSeedNodeTypeIntent records that a node type is about to be written.
-func recordSeedNodeTypeIntent(
-	ctx context.Context,
-	recorder audit.Recorder,
-	verb audit.Verb,
-	nodeType *node.NodeType,
-) error {
-	return recordSeedOutcome(ctx, recorder, verb, audit.Entity{
-		Type: "node_type", NodeType: nodeType.TypeKey, ID: nodeType.ID, Identifier: nodeType.Slug, Name: nodeType.Name,
-	}, nodeType.OrgID, uuid.Nil, uuid.Nil, audit.OutcomePending)
-}
-
-// recordSeedPropertyDefIntent records that a property definition is about to
-// be written.
-func recordSeedPropertyDefIntent(
-	ctx context.Context,
-	recorder audit.Recorder,
-	verb audit.Verb,
-	propertyDef *node.PropertyDef,
-) error {
-	return recordSeedOutcome(ctx, recorder, verb, audit.Entity{
-		Type: "property_def", NodeType: "", ID: propertyDef.ID, Identifier: propertyDef.Name, Name: propertyDef.Name,
-	}, propertyDef.OrgID, uuid.Nil, uuid.Nil, audit.OutcomePending)
 }
 
 func recordSeedEvent(

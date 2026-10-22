@@ -39,7 +39,7 @@ func TestOrphanBackfillRemovesExtraParentEdges(t *testing.T) {
 	requireParentEdges(t, env, issueID, 4)
 	drainOutbox(t, env)
 	principal := audit.OperatorPrincipal{ID: uuid.New(), Email: "operator@example.com", Name: "Operator", Source: "test"}
-	ctx := audit.WithOperatorPrincipal(env.Ctx, principal)
+	ctx := audit.WithOpID(audit.WithOperatorPrincipal(t.Context(), principal), uuid.Must(uuid.NewV7()))
 
 	planned, err := ops.RunOrphanNodeBackfill(ctx, env.Stores.NodeDeleter, env.Stores.Relationships, env.NodeSvc, true)
 	if err != nil {
@@ -61,7 +61,8 @@ func TestOrphanBackfillRemovesExtraParentEdges(t *testing.T) {
 	requireNodesPresent(t, env, []uuid.UUID{issueID, project.ID})
 	removals := 0
 	for _, event := range outboxEvents(t, env) {
-		if event.Verb == string(audit.VerbRelationshipRemove) && event.Actor.ID == principal.ID && event.Entity.ID == issueID {
+		target := event.Context.Target
+		if event.Verb == string(audit.VerbRelationshipRemove) && event.Actor.ID == principal.ID && target != nil && target.SourceID == issueID {
 			removals++
 		}
 	}

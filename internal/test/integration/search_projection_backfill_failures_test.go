@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"context"
 	"encoding/json"
 	"sort"
 	"strings"
@@ -52,7 +53,7 @@ func TestSearchProjectionBackfillRejectsInvalidManifests(t *testing.T) {
 				}
 			}
 			manifest := test.body(t, env.OrgID, definition, projection)
-			ctx := audit.WithOperatorPrincipal(env.Ctx, projectionTestPrincipal())
+			ctx := projectionOperatorContext(t)
 			_, err = ops.RunSearchProjectionBackfill(ctx, env.Stores.PropertyDefs, strings.NewReader(manifest), false)
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("backfill error = %v, want %q", err, test.want)
@@ -80,7 +81,8 @@ func TestSearchProjectionBackfillPartialFailureRerunsExactManifest(t *testing.T)
 		node.ProjectionManifestEntry{OrgID: env.OrgID, PropertyDefID: first.ID, Search: firstProjection},
 		node.ProjectionManifestEntry{OrgID: env.OrgID, PropertyDefID: second.ID, Search: secondProjection},
 	)
-	ctx := audit.WithOperatorPrincipal(env.Ctx, projectionTestPrincipal())
+	drainOutbox(t, env)
+	ctx := projectionOperatorContext(t)
 	partial, err := ops.RunSearchProjectionBackfill(ctx, env.Stores.PropertyDefs, strings.NewReader(manifest), false)
 	if err == nil || partial.Changed != 1 {
 		t.Fatalf("partial result = %+v, error = %v", partial, err)
@@ -93,12 +95,13 @@ func TestSearchProjectionBackfillPartialFailureRerunsExactManifest(t *testing.T)
 	if err := env.Stores.PropertyDefs.Set(env.Ctx, &second); err != nil {
 		t.Fatalf("clear conflicting projection: %v", err)
 	}
+	drainOutbox(t, env)
 	rerun, err := ops.RunSearchProjectionBackfill(ctx, env.Stores.PropertyDefs, strings.NewReader(manifest), false)
 	if err != nil || rerun.Changed != 1 || rerun.Unchanged != 1 {
 		t.Fatalf("rerun result = %+v, error = %v", rerun, err)
 	}
 	completedEvents, err := env.Stores.OpsOutbox.ReadOutboxFrom(ctx, nil, 10)
-	if err != nil || len(completedEvents) != 2 {
+	if err != nil || len(completedEvents) != 1 {
 		t.Fatalf("rerun outbox = %d events, error = %v", len(completedEvents), err)
 	}
 }
@@ -119,7 +122,7 @@ func TestSearchProjectionBackfillConcurrentDeclarations(t *testing.T) {
 	other.Include = !other.Include
 	manifests := []string{projectionManifest(t, env.OrgID, definition.ID, projection), projectionManifest(t, env.OrgID, definition.ID, other)}
 	results := make([]error, len(manifests))
-	ctx := audit.WithOperatorPrincipal(env.Ctx, projectionTestPrincipal())
+	ctx := projectionOperatorContext(t)
 	var wait sync.WaitGroup
 	for index, manifest := range manifests {
 		wait.Add(1)
@@ -136,6 +139,14 @@ func TestSearchProjectionBackfillConcurrentDeclarations(t *testing.T) {
 
 func projectionTestPrincipal() audit.OperatorPrincipal {
 	return audit.OperatorPrincipal{ID: uuid.MustParse("019dd226-440e-729a-a442-281aaf73ca30"), Email: "operator@example.invalid", Name: "Operator", Source: "test"}
+}
+
+// projectionOperatorContext returns the test context with the projection
+// test operator and a UUIDv7 operation ID, the values that the operator
+// command gate attaches.
+func projectionOperatorContext(t *testing.T) context.Context {
+	t.Helper()
+	return audit.WithOpID(audit.WithOperatorPrincipal(WithTestOperation(t, t.Context()), projectionTestPrincipal()), uuid.Must(uuid.NewV7()))
 }
 
 func projectionEntries(t *testing.T, entries ...node.ProjectionManifestEntry) string {

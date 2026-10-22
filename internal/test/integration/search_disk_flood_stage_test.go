@@ -111,7 +111,7 @@ func requireBlockedFailures(t *testing.T, fixture queryFixture, nodeID uuid.UUID
 	t.Helper()
 	failures := 0
 	clusterEventually(t, "fail the node's blocked search work repeatedly", func() error {
-		_, err := fixture.Worker.RunSlice(t.Context())
+		_, err := fixture.Worker.RunSlice(WithTestOperation(t, t.Context()))
 		if err != nil && strings.Contains(err.Error(), nodeID.String()) {
 			if !strings.Contains(err.Error(), floodStageBlockError) || !strings.Contains(err.Error(), floodStageBlockStatus) {
 				t.Fatalf("worker slice for node %s failed without %s and %s: %v", nodeID, floodStageBlockStatus, floodStageBlockError, err)
@@ -134,7 +134,7 @@ func requireLiveWorkPending(t *testing.T, fixture queryFixture, nodeID uuid.UUID
 	clusterEventually(t, "claim the node's pending live work", func() error {
 		claimed := claimAllFor(t, store, searchdomain.WorkClassLive, time.Minute)
 		for _, work := range claimed {
-			clusterRequire(t, "yield inspected work", store.Yield(t.Context(), work))
+			clusterRequire(t, "yield inspected work", store.Yield(WithTestOperation(t, t.Context()), work))
 		}
 		if _, found := claimed[nodeID]; !found {
 			return fmt.Errorf("claimed %d live items, none of node %s", len(claimed), nodeID)

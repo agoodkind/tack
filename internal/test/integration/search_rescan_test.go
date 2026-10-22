@@ -27,7 +27,7 @@ func putUnusedDefinition(t *testing.T, stores *fdbadapter.Stores, orgID uuid.UUI
 		ID: uuid.Must(uuid.NewV7()), OrgID: orgID, Name: opaqueSearchKey("p"), Type: node.PropertyType(opaqueSearchKey("t")),
 		Search: &node.SearchProjection{Include: true, Order: 2, Rule: node.TextRule{Mode: node.TextRuleScalar}},
 	}
-	if err := stores.PropertyDefs.Set(t.Context(), definition); err != nil {
+	if err := stores.PropertyDefs.Set(WithTestOperation(t, t.Context()), definition); err != nil {
 		t.Fatalf("store unused property definition: %v", err)
 	}
 }
@@ -37,7 +37,7 @@ func putUnusedDefinition(t *testing.T, stores *fdbadapter.Stores, orgID uuid.UUI
 // and the change alters the emitted text of every node.
 func includeStoredDefinition(t *testing.T, stores *fdbadapter.Stores, orgID uuid.UUID, name string) {
 	t.Helper()
-	definitions, err := stores.PropertyDefs.List(t.Context(), orgID)
+	definitions, err := stores.PropertyDefs.List(WithTestOperation(t, t.Context()), orgID)
 	if err != nil {
 		t.Fatalf("list property definitions: %v", err)
 	}
@@ -46,7 +46,7 @@ func includeStoredDefinition(t *testing.T, stores *fdbadapter.Stores, orgID uuid
 			continue
 		}
 		definition.Search.Include = true
-		if err := stores.PropertyDefs.Set(t.Context(), definition); err != nil {
+		if err := stores.PropertyDefs.Set(WithTestOperation(t, t.Context()), definition); err != nil {
 			t.Fatalf("include property definition %s: %v", name, err)
 		}
 		return
@@ -94,12 +94,12 @@ func TestSearchRescanKeepsCursorAndSeparatesTypeChanges(t *testing.T) {
 	runSearchWorkerWithin(t, worker, rescanSlices)
 	initial := indexedRevisions(t, client, index, nodes)
 
-	kind, err := stores.NodeTypes.TypeByKey(t.Context(), first.OrgID, first.TypeKey)
+	kind, err := stores.NodeTypes.TypeByKey(WithTestOperation(t, t.Context()), first.OrgID, first.TypeKey)
 	if err != nil || kind == nil {
 		t.Fatalf("read fixture node type: %v", err)
 	}
 	kind.Features = append(kind.Features, opaqueSearchKey("f"))
-	if err := stores.NodeTypes.Set(t.Context(), kind); err != nil {
+	if err := stores.NodeTypes.Set(WithTestOperation(t, t.Context()), kind); err != nil {
 		t.Fatalf("change fixture node type: %v", err)
 	}
 	runSearchWorkerWithin(t, worker, rescanSlices)
@@ -113,18 +113,18 @@ func TestSearchRescanKeepsCursorAndSeparatesTypeChanges(t *testing.T) {
 	store := stores.SearchWork(source)
 	position := ""
 	for range 20 {
-		work, err := store.Claim(t.Context(), searchdomain.WorkClassRescan, "rescan-driver", time.Minute)
+		work, err := store.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassRescan, "rescan-driver", time.Minute)
 		if err != nil {
 			t.Fatalf("claim rescan work: %v", err)
 		}
 		if work.Phase == searchdomain.PhasePages && work.Cursor != "" {
 			position = work.Cursor
-			if err := store.Yield(t.Context(), work); err != nil {
+			if err := store.Yield(WithTestOperation(t, t.Context()), work); err != nil {
 				t.Fatalf("yield rescan work: %v", err)
 			}
 			break
 		}
-		if err := worker.Process(t.Context(), work); err != nil {
+		if err := worker.Process(WithTestOperation(t, t.Context()), work); err != nil {
 			t.Fatalf("process rescan work: %v", err)
 		}
 	}
@@ -132,11 +132,11 @@ func TestSearchRescanKeepsCursorAndSeparatesTypeChanges(t *testing.T) {
 		t.Fatal("the rescan never checkpointed a node cursor")
 	}
 	includeStoredDefinition(t, stores, first.OrgID, first.ExcludedKey)
-	resumed, err := store.Claim(t.Context(), searchdomain.WorkClassRescan, "rescan-driver", time.Minute)
+	resumed, err := store.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassRescan, "rescan-driver", time.Minute)
 	if err != nil || resumed.Cursor != position {
 		t.Fatalf("rescan after a second request = %+v err %v, want the kept cursor %q", resumed, err, position)
 	}
-	if err := store.Yield(t.Context(), resumed); err != nil {
+	if err := store.Yield(WithTestOperation(t, t.Context()), resumed); err != nil {
 		t.Fatalf("yield resumed rescan work: %v", err)
 	}
 	runSearchWorkerWithin(t, worker, rescanSlices)

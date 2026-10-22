@@ -57,7 +57,7 @@ func TestSeededAndGeneratedDefinitionsDeclareSearch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse scale: %v", err)
 	}
-	identities, err := datagen.BootstrapIdentities(t.Context(), cfg, nextHarnessSeed(), scale)
+	identities, err := datagen.BootstrapIdentities(WithTestOperation(t, t.Context()), cfg, nextHarnessSeed(), scale)
 	if err != nil {
 		t.Fatalf("bootstrap identities: %v", err)
 	}

@@ -28,14 +28,14 @@ func TestSearchAccessDependentsSurviveEdit(t *testing.T) {
 
 	moveChild(t, stores, moved)
 	store := stores.SearchWork(source)
-	if err := worker.Process(t.Context(), claimAccessFor(t, store, moved.Fixture.NodeID)); err != nil {
+	if err := worker.Process(WithTestOperation(t, t.Context()), claimAccessFor(t, store, moved.Fixture.NodeID)); err != nil {
 		t.Fatalf("process child access pages: %v", err)
 	}
 	pending := claimAccessFor(t, store, moved.Fixture.NodeID)
 	if pending.Phase != searchdomain.PhaseDependents {
 		t.Fatalf("child access work phase = %q, want the dependents phase", pending.Phase)
 	}
-	if err := store.Yield(t.Context(), pending); err != nil {
+	if err := store.Yield(WithTestOperation(t, t.Context()), pending); err != nil {
 		t.Fatalf("yield child access work: %v", err)
 	}
 	writeSearchNode(t, stores, moved.Fixture, "edited child text", readerExcludedValue)

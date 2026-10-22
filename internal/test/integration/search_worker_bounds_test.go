@@ -33,7 +33,7 @@ func boundSettings(settings config.SearchWorkerSettings) config.SearchWorkerSett
 func runFirstClaimedSlice(t *testing.T, worker *service.SearchWorker) {
 	t.Helper()
 	for range 20 {
-		claimed, err := worker.RunSlice(t.Context())
+		claimed, err := worker.RunSlice(WithTestOperation(t, t.Context()))
 		if err != nil {
 			t.Fatalf("run slice: %v", err)
 		}
