@@ -71,6 +71,13 @@ const (
 	// (ops_outbox, versionstamp) -> audit event JSON
 	keyOpsOutbox = "ops_outbox"
 
+	// The strict validation keys store the global activation record and write
+	// fence bucket epochs. Neither key family uses an organization scope.
+	// (strict_activation) -> StrictActivation JSON
+	// (write_fence, bucket) -> little-endian int64 epoch that atomic adds increment
+	keyStrictActivation = "strict_activation"
+	keyWriteFence       = "write_fence"
+
 	// Subtree delete jobs. The family is not org-scoped. A runner in any
 	// process lists every unfinished job of every organization.
 	// (node_delete_job, jobID) -> SubtreeDeleteJob JSON

@@ -44,7 +44,7 @@ func newActAsFixture(t *testing.T, operatorFlags []string) actAsFixture {
 	stores := actAsStores(t)
 	nodes := service.NewNodeService(
 		stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs,
-		stores.Relationships, stores.NodeDeleter,
+		stores.Relationships, stores.NodeDeleter, postgres.NewOrgMemberRepo(pool), stores.Relationships,
 	)
 	orgID := writeActAsOrg(t, stores, "act-as-member-org")
 	outsideOrgID := writeActAsOrg(t, stores, "act-as-outside-org")

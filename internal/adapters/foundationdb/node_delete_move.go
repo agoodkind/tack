@@ -45,11 +45,17 @@ func readRootParent(ctx context.Context, tr fdb.Transaction, orgID, rootID uuid.
 }
 
 // moveChild moves child, a direct child of the deleted root, to the root's
-// parent when node.LivesUnder places the child's type under the parent's
-// type. The move replaces every child_of edge of the child with one child_of
-// edge to the parent, sets the child's parent_id to the parent, moves the
-// parent_id index entry, schedules the search work of a parent change, and
-// writes one node.update ledger event. It reports whether it moved the child.
+// parent when node.LivesUnder allows the child's type under the parent's
+// type. It calls the write fence for the child. The move replaces every
+// child_of edge of the child with one child_of edge to the parent, sets the
+// child's parent_id to the parent, and moves the parent_id index entry. It
+// schedules the search work for a parent change and writes one node.update
+// ledger event.
+//
+// After replacing the child_of edges, moveChild calls checkStrictRecord on
+// the moved child inside the same transaction. If strict validation is active
+// and the moved record is invalid, moveChild returns the refusal error, and
+// the step does not commit. It reports whether it moved the child.
 func (s *NodeDeleteStore) moveChild(
 	ctx context.Context, tr fdb.Transaction, job *node.SubtreeDeleteJob, child hierarchyNode,
 	kinds map[string]*node.NodeType, events node.DeletionEventBuilder,
@@ -69,7 +75,8 @@ func (s *NodeDeleteStore) moveChild(
 	if err != nil || current == nil {
 		return false, err
 	}
-	if _, err := s.nodes.fenceAttempt(ctx, tr, job.OrgID, child.ID); err != nil {
+	strict, err := s.nodes.fenceAttempt(ctx, tr, job.OrgID, child.ID)
+	if err != nil {
 		return false, err
 	}
 	now := s.nodes.clock.Now().UTC()
@@ -89,6 +96,9 @@ func (s *NodeDeleteStore) moveChild(
 	}
 	changes := parentEdgeChanges(job, child.ID, edges, now)
 	if err := applyRelationshipChanges(ctx, tr, changes); err != nil {
+		return false, err
+	}
+	if err := checkStrictRecord(ctx, tr, strict, current); err != nil {
 		return false, err
 	}
 	if s.nodes.searchWork {

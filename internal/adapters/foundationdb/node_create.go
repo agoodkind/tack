@@ -19,7 +19,8 @@ import (
 func (s *NodeStore) CreateAtomic(ctx context.Context, current *node.Node, view *node.NodeView, relationships []*node.Relationship, indexedProps []string, referenceKeys []node.ReferenceKey, idempotency *node.IdempotencyRecord) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node.create_atomic")(&err)
 	err = runNodeMutation(ctx, s.db, "create node "+current.ID.String()+" atomically", func(tr fdb.Transaction) error {
-		if _, err := s.fenceAttempt(ctx, tr, current.OrgID, current.ID); err != nil {
+		strict, err := s.fenceAttempt(ctx, tr, current.OrgID, current.ID)
+		if err != nil {
 			return err
 		}
 		if err := writeCreateIdempotency(ctx, tr, current.OrgID, idempotency); err != nil {
@@ -33,6 +34,12 @@ func (s *NodeStore) CreateAtomic(ctx context.Context, current *node.Node, view *
 			return err
 		}
 		if err := writeCreateRelationships(ctx, tr, current.OrgID, relationships); err != nil {
+			return err
+		}
+		if err := checkStrictRelationshipAdds(ctx, tr, strict, []node.RelationshipChanges{{Add: relationships, Remove: nil}}); err != nil {
+			return err
+		}
+		if err := checkStrictRecord(ctx, tr, strict, current); err != nil {
 			return err
 		}
 		if s.searchWork {

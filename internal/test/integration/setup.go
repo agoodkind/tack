@@ -169,6 +169,8 @@ func SetupTestEnv(t *testing.T) *TestEnv {
 		stores.PropertyDefs,
 		stores.Relationships,
 		stores.NodeDeleter,
+		postgres.NewOrgMemberRepo(pool),
+		stores.Relationships,
 	)
 
 	return &TestEnv{

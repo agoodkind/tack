@@ -79,7 +79,7 @@ func (s *NodeStore) applyMutationAttempt(ctx context.Context, tr fdb.Transaction
 	if err != nil {
 		return none, false, err
 	}
-	if err := refuseStrictResult(ctx, plan.NodeID, strict); err != nil {
+	if err := checkStrictMutation(ctx, tr, strict, &result, plan.Parent); err != nil {
 		return none, false, err
 	}
 	if err := checkMutationResult(ctx, tr, plan, source, &result, schema); err != nil {
@@ -91,6 +91,9 @@ func (s *NodeStore) applyMutationAttempt(ctx context.Context, tr fdb.Transaction
 	}
 	changes := []node.RelationshipChanges{planRelationshipChanges(plan), parentChanges}
 	if err := s.writeMutation(ctx, tr, plan, source, &result, schema, changes); err != nil {
+		return none, false, err
+	}
+	if err := checkStrictRelationshipAdds(ctx, tr, strict, changes); err != nil {
 		return none, false, err
 	}
 	if err := writeMutationIntent(ctx, tr, source.Encoding, encoded); err != nil {

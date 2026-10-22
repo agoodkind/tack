@@ -5,13 +5,16 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/service"
+	"goodkind.io/tack/internal/testenv"
 )
 
 func createThroughputWorkerNode(t *testing.T, fixture queryFixture, kind opaqueKind, parent, actor uuid.UUID, name, content string) uuid.UUID {
 	t.Helper()
 	stores := fixture.Stores
-	svc := service.NewNodeService(stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs, stores.Relationships, stores.NodeDeleter)
+	members := postgres.NewOrgMemberRepo(testenv.LedgerPool(t, fixture.Config.DatabaseURL))
+	svc := service.NewNodeService(stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs, stores.Relationships, stores.NodeDeleter, members, stores.Relationships)
 	result, err := svc.Create(t.Context(), service.CreateInput{
 		ParentID: parent, ScopeID: parent, NodeTypeKey: kind.TypeKey, Name: name, ActorID: actor,
 		Props: map[string]json.RawMessage{kind.IncludedKey: mustJSON(content), kind.ExcludedKey: mustJSON("excluded")},

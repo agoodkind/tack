@@ -115,6 +115,8 @@ func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
 		fdbStores.PropertyDefs,
 		fdbStores.Relationships,
 		fdbStores.NodeDeleter,
+		orgMembers,
+		fdbStores.Relationships,
 	)
 
 	mcpHandler := mcpadapter.NewHandler(mcpadapter.Deps{

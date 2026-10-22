@@ -143,7 +143,9 @@ func execSeed(ctx context.Context, cfg *config.Config, recorder audit.Recorder) 
 	if len(existingOrgIDs) > 0 {
 		knownOrgID = existingOrgIDs[0]
 	}
-	orgID, orgCreated, err := ensureNode(ctx, fdbStores, "org", cfg.SeedOrgSlug, cfg.SeedOrgName, uuid.Nil, knownOrgID)
+	// SeedOrg writes node types and property definitions before ensureNode writes
+	// the org node: strict validation rejects it without the org's org node type.
+	orgID, orgCreated, err := ensureNode(ctx, fdbStores, "org", cfg.SeedOrgSlug, cfg.SeedOrgName, uuid.Nil, knownOrgID, seedOrgDefinitions(seeder))
 	if err != nil {
 		return err
 	}
@@ -152,17 +154,13 @@ func execSeed(ctx context.Context, cfg *config.Config, recorder audit.Recorder) 
 			return err
 		}
 	}
-	if err := seeder.SeedOrg(ctx, orgID); err != nil {
-		log.ErrorContext(ctx, "seed.org_definitions_failed", slog.String("err", err.Error()))
-		return fmt.Errorf("seed: seed org definitions: %w", err)
-	}
 
 	if err := seedMembership(ctx, members, recorder, orgID, u.ID); err != nil {
 		return err
 	}
 
 	// orgID is the parent of the workspace, so it doubles as the lookup orgID.
-	wsID, workspaceCreated, err := ensureNode(ctx, fdbStores, "workspace", cfg.SeedWorkspaceSlug, cfg.SeedWorkspaceName, orgID, orgID)
+	wsID, workspaceCreated, err := ensureNode(ctx, fdbStores, "workspace", cfg.SeedWorkspaceSlug, cfg.SeedWorkspaceName, orgID, orgID, nil)
 	if err != nil {
 		return err
 	}

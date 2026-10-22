@@ -7,8 +7,10 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
+	"goodkind.io/tack/internal/domain/org"
 	"goodkind.io/tack/internal/service"
 )
 
@@ -62,6 +64,8 @@ func NewRepairConsole(
 	reader node.NodeReader,
 	nodeTypes node.TypeRepository,
 	propertyDefs node.PropertyDefRepository,
+	members org.MemberRepository,
+	memberTargets node.MemberTargetAdder,
 	relationships ...node.RelationshipRepository,
 ) *RepairConsole {
 	var relationshipRepo node.RelationshipRepository
@@ -72,7 +76,7 @@ func NewRepairConsole(
 		nodeTypes:     nodeTypes,
 		propertyDefs:  propertyDefs,
 		reader:        reader,
-		updater:       service.NewNodeService(nodes, reader, nodeTypes, propertyDefs, relationshipRepo, nil),
+		updater:       service.NewNodeService(nodes, reader, nodeTypes, propertyDefs, relationshipRepo, nil, members, memberTargets),
 		relationships: relationshipRepo,
 	}
 }
@@ -84,6 +88,8 @@ func NewRepairConsoleFromEnv(env *Env) *RepairConsole {
 		env.Stores.Views,
 		env.Stores.NodeTypes,
 		env.Stores.PropertyDefs,
+		postgres.NewOrgMemberRepo(env.Pool),
+		env.Stores.Relationships,
 		env.Stores.Relationships,
 	)
 }
