@@ -21,7 +21,7 @@ func TestSearchSummaryForbiddenNodeIsFoundAndWithheld(t *testing.T) {
 	forbidden := corpus.Forbidden[0]
 	requested := []uuid.UUID{corpus.Allowed[0], corpus.Allowed[1], forbidden, corpus.Allowed[2]}
 
-	results, err := fixture.Stores.NodeSummaries(fixture.Stores.SearchPolicySet()).Summaries(t.Context(), requested, summaryNameBytes)
+	results, err := fixture.Stores.NodeSummaries(fixture.Stores.SearchPolicySet()).Summaries(WithTestOperation(t, t.Context()), requested, summaryNameBytes)
 	if err != nil {
 		t.Fatalf("read %d summaries: %v", len(requested), err)
 	}
