@@ -17,9 +17,7 @@ func WithOpID(ctx context.Context, opID uuid.UUID) context.Context {
 }
 
 // OpIDFromContext returns the operation ID that WithOpID attached to ctx.
-// It returns false when ctx does not contain an operation ID. The clispec
-// command gate calls WithOpID with the command operation ID before running
-// the command.
+// It returns false when ctx does not contain an operation ID.
 func OpIDFromContext(ctx context.Context) (uuid.UUID, bool) {
 	opID, ok := ctx.Value(opIDKey{}).(uuid.UUID)
 	return opID, ok

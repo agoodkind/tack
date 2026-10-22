@@ -13,7 +13,7 @@ import (
 
 // CachedMembers caches each user's org set for a short lifetime. Cached
 // membership lookups do not read the ledger, and every instance observes
-// membership changes within one lifetime. Failed reads do not populate the
+// membership changes after the cached entry expires. Failed reads do not populate the
 // cache; checks behind the middleware still reject access on read errors.
 // CachedMembers does not provide write methods.
 type CachedMembers struct {
