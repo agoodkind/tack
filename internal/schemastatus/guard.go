@@ -4,10 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
 	"log/slog"
-
-	"goodkind.io/tack/internal/adapters/postgres"
 )
 
 // Guard sets version requirements for one migration run. A zero field does not
@@ -49,38 +46,6 @@ func Target(ctx context.Context, status Status, guard Guard) (int64, error) {
 			"--to version %d is above the highest embedded migration version %d", guard.To, highest))
 	}
 	return guard.To, nil
-}
-
-// Apply checks guard against the migration state of the database at dsn,
-// applies migrations through the target version, and reads the state again.
-// It returns an error if the applied version differs from the target.
-func Apply(ctx context.Context, dsn string, migrationsFS fs.FS, guard Guard) (int64, error) {
-	before, err := Read(ctx, dsn, migrationsFS)
-	if err != nil {
-		return 0, err
-	}
-	target, err := Target(ctx, before, guard)
-	if err != nil {
-		return 0, err
-	}
-	slog.InfoContext(ctx, "schemastatus.apply_started",
-		slog.Int64("applied_version", before.AppliedVersion), slog.Int64("target_version", target))
-	if err := postgres.MigrateTo(ctx, dsn, migrationsFS, target); err != nil {
-		slog.ErrorContext(ctx, "schemastatus.apply_failed",
-			slog.Int64("target_version", target), slog.String("err", err.Error()))
-		return 0, fmt.Errorf("apply migrations through version %d: %w", target, err)
-	}
-	after, err := Read(ctx, dsn, migrationsFS)
-	if err != nil {
-		return 0, err
-	}
-	if after.AppliedVersion != target {
-		return 0, refused(ctx, fmt.Errorf(
-			"the database is at migration version %d after the run, not the target version %d",
-			after.AppliedVersion, target))
-	}
-	slog.InfoContext(ctx, "schemastatus.apply_finished", slog.Int64("applied_version", after.AppliedVersion))
-	return after.AppliedVersion, nil
 }
 
 func refused(ctx context.Context, err error) error {
