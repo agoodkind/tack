@@ -24,11 +24,6 @@ const (
 	ledgerHealthTimeout     = 10 * time.Second
 	ledgerHealthStartPeriod = 180 * time.Second
 	ledgerHealthRetries     = 10
-	// ledgerHealthTest is the yugabyte service's health check. It reads the
-	// login from the container's own environment. The generated superuser key
-	// never appears in the container's health check configuration.
-	ledgerHealthTest = `ADDR="$(hostname)"; PGPASSWORD="$YSQL_PASSWORD" ysqlsh -h "$ADDR" -p 5433 ` +
-		`-U "$YSQL_USER" -d "$YSQL_DB" -c 'SELECT 1' -t`
 )
 
 // EmptyLedgerNode is a YugabyteDB node that one test started. The node has
@@ -44,6 +39,8 @@ type EmptyLedgerNode struct {
 	// Network is the Docker network that the node and every other test engine
 	// join.
 	Network string
+	// Image is the engine image of the node.
+	Image string
 }
 
 // StartEmptyLedger starts an unmigrated YugabyteDB node under containerName,
@@ -84,8 +81,13 @@ func StartEmptyLedger(t *testing.T, containerName string) EmptyLedgerNode {
 	if err := waitForLedger(ctx, dsn.String()); err != nil {
 		t.Fatalf("start empty ledger %s: %v", containerName, err)
 	}
+	image, err := serviceImage(ctx, ledgerService)
+	if err != nil {
+		t.Fatalf("start empty ledger %s: %v", containerName, err)
+	}
 	slog.InfoContext(ctx, "testenv.ledger.empty_ready", slog.String("container", started.name))
 	return EmptyLedgerNode{
+		Image:         image,
 		DSN:           dsn.String(),
 		Address:       started.address,
 		MasterAddress: net.JoinHostPort(started.address, ledgerMasterPort),
@@ -119,6 +121,10 @@ func startEmptyLedgerContainer(ctx context.Context, cli *client.Client, containe
 		return engine{}, err
 	}
 	command := append(slices.Clone(ledgerCommand), "--advertise_address="+containerName, "--listen="+containerName)
+	files, err := yugabyteRuntimeFiles(ctx, superuserKey)
+	if err != nil {
+		return engine{}, err
+	}
 	return startEngine(ctx, cli, engineSpec{
 		kind:     ledgerService,
 		image:    image,
@@ -126,12 +132,14 @@ func startEmptyLedgerContainer(ctx context.Context, cli *client.Client, containe
 		cmd:      command,
 		env: []string{
 			"YSQL_USER=" + ledgerAdminUser,
-			"YSQL_PASSWORD=" + superuserKey,
+			"YSQL_PASSWORD_FILE=/run/secrets/YUGABYTE_PASSWORD",
 			"YSQL_DB=" + ledgerDatabase,
 		},
-		name: containerName,
+		files:      files,
+		entrypoint: []string{"/sbin/tini", "--", "/usr/bin/env", "bash", "/opt/tack/yugabyte-entrypoint.sh"},
+		name:       containerName,
 		healthcheck: &container.HealthConfig{
-			Test:          []string{"CMD-SHELL", ledgerHealthTest},
+			Test:          []string{"CMD", "/usr/bin/env", "bash", "/opt/tack/yugabyte-healthcheck.sh"},
 			Interval:      ledgerHealthInterval,
 			Timeout:       ledgerHealthTimeout,
 			StartPeriod:   ledgerHealthStartPeriod,

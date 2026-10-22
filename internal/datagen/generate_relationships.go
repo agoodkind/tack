@@ -62,6 +62,9 @@ func (g *Generator) generateRelationships(
 		if err := g.probeParentRemovalRefused(ctx, actor.Token, issueReference, parentReference); err != nil {
 			return err
 		}
+		if err := g.exerciseAssignmentRemoval(ctx, actor, workspace, issueReference); err != nil {
+			return err
+		}
 	}
 	return nil
 }

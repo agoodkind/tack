@@ -173,3 +173,27 @@ func TestSearchWorkScheduledInDeleteTransaction(t *testing.T) {
 		t.Fatalf("deletion cleanup = %+v, want deleted work at generation 2", cleanup)
 	}
 }
+
+// TestSearchWorkReleaseWaitsRetryAfter requires released work to stay
+// unclaimable for its failure's RetryAfter when RetryAfter exceeds the
+// store's default retry delay.
+func TestSearchWorkReleaseWaitsRetryAfter(t *testing.T) {
+	stores := newSearchStore(t)
+	store := newWorkStore(t, stores)
+	fixture := putSearchText(t, stores, "retry text", "excluded")
+	work := claimAll(t, store, searchdomain.WorkClassLive)[fixture.NodeID]
+	const retryAfter = 8 * time.Second
+	released := clock.Now()
+	failure := searchdomain.Failure{Message: "engine timeout", Counted: false, RetryAfter: retryAfter}
+	if err := store.Release(t.Context(), work, failure); err != nil {
+		t.Fatalf("release work: %v", err)
+	}
+	waitUntil(t, released.Add(6*time.Second))
+	if _, exists := claimAll(t, store, searchdomain.WorkClassLive)[fixture.NodeID]; exists {
+		t.Fatalf("released work was claimable 6 s after release, want a wait of %s", retryAfter)
+	}
+	waitUntil(t, released.Add(retryAfter))
+	if _, exists := claimAll(t, store, searchdomain.WorkClassLive)[fixture.NodeID]; !exists {
+		t.Fatalf("released work was not claimable %s after release", retryAfter)
+	}
+}

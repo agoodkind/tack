@@ -43,9 +43,6 @@ func Release(ctx context.Context) error {
 	owned.containers, owned.directories = nil, nil
 	owned.Unlock()
 	var failures []error
-	if err := captureLedgerReleaseEvidence(ctx, containers); err != nil {
-		failures = append(failures, err)
-	}
 	for _, directory := range directories {
 		if err := os.RemoveAll(directory); err != nil {
 			failures = append(failures, fmt.Errorf("remove %s: %w", directory, err))

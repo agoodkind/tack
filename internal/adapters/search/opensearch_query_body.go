@@ -57,9 +57,16 @@ type multiMatchClause struct {
 }
 
 type multiMatch struct {
-	Query  string   `json:"query"`
-	Fields []string `json:"fields"`
+	Query    string   `json:"query"`
+	Fields   []string `json:"fields"`
+	Operator string   `json:"operator"`
 }
+
+// lexicalOperator requires one field to contain every query term before the
+// lexical clause adds its score to the sparse score.
+// Pages that match only part of the query receive only the sparse score.
+// Single-term queries score as before.
+const lexicalOperator = "and"
 
 type nestedClause struct {
 	Nested nestedSparse `json:"nested"`
@@ -86,7 +93,7 @@ func encodeRankRequest(query searchdomain.Query, snapshot searchdomain.Snapshot,
 	if err != nil {
 		return nil, err
 	}
-	lexical, err := json.Marshal(multiMatchClause{MultiMatch: multiMatch{Query: query.Text, Fields: []string{nameBoost, "page_text"}}})
+	lexical, err := json.Marshal(multiMatchClause{MultiMatch: multiMatch{Query: query.Text, Fields: []string{nameBoost, "page_text"}, Operator: lexicalOperator}})
 	if err != nil {
 		return nil, queryStepError{operation: "encode lexical clause", err: err}
 	}

@@ -20,18 +20,7 @@ func runSearchVerify(ctx context.Context, factory *cli.Factory) (runErr error) {
 		logger.ErrorContext(ctx, "search.verify.topology_failed", slog.String("err", wrapped.Error()))
 		return wrapped
 	}
-	certificate, err := config.LoadSearchCA(ctx, factory.Cfg.SearchCA)
-	if err != nil {
-		wrapped := fmt.Errorf("load search CA: %w", err)
-		logger.ErrorContext(ctx, "search.verify.ca_failed", slog.String("err", wrapped.Error()))
-		return wrapped
-	}
-	pass := factory.Cfg.SearchPassword
-	adapter, err := search.New(ctx, search.Config{
-		Endpoint: factory.Cfg.SearchEndpoint, CA: certificate,
-		Username: factory.Cfg.SearchUsername, Password: pass,
-		RequestTimeout: factory.Cfg.SearchRequestTimeout, MaxRetries: factory.Cfg.SearchMaxRetries,
-	})
+	adapter, err := newSearchMaintenanceAdapter(ctx, factory.Cfg)
 	if err != nil {
 		wrapped := fmt.Errorf("create search adapter: %w", err)
 		logger.ErrorContext(ctx, "search.verify.adapter_failed", slog.String("err", wrapped.Error()))
@@ -105,8 +94,8 @@ func verifySearchPhysical(ctx context.Context, adapter *search.Adapter, topology
 		logger.ErrorContext(ctx, "search.verify.mapping_failed", slog.String("err", wrapped.Error()), slog.String("index", index))
 		return wrapped
 	}
-	if info.MappingVersion != "1" {
-		wrapped := fmt.Errorf("search mapping version %q does not match %q", info.MappingVersion, "1")
+	if info.MappingVersion != search.MappingVersion {
+		wrapped := fmt.Errorf("search mapping version %q does not match %q", info.MappingVersion, search.MappingVersion)
 		logger.ErrorContext(ctx, "search.verify.mapping_mismatch", slog.String("err", wrapped.Error()), slog.String("index", index))
 		return wrapped
 	}
@@ -136,7 +125,7 @@ func verifySearchPhysical(ctx context.Context, adapter *search.Adapter, topology
 	}
 	model := search.PinnedModel
 	model.ID = info.ModelID
-	if err := adapter.VerifyIndex(ctx, index, search.IndexSpec{Model: model, MappingVersion: "1", Primaries: topology.Primaries, RoutingShards: topology.RoutingShards, Replicas: topology.Replicas}); err != nil {
+	if err := adapter.VerifyIndex(ctx, index, search.IndexSpec{Model: model, MappingVersion: search.MappingVersion, Primaries: topology.Primaries, RoutingShards: topology.RoutingShards, Replicas: topology.Replicas}); err != nil {
 		wrapped := fmt.Errorf("verify search index %s: %w", index, err)
 		logger.ErrorContext(ctx, "search.verify.index_failed", slog.String("err", wrapped.Error()), slog.String("index", index))
 		return wrapped

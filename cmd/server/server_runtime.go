@@ -29,6 +29,7 @@ func runServer(ctx context.Context, cfg *config.Config) error {
 	graph.StartSearchWorkers(ctx)
 	graph.StartSearchModelRepair(ctx)
 	graph.StartDeleteResumer(ctx)
+	graph.StartAuditReadRecovery(ctx)
 	defer graph.CloseContext(context.WithoutCancel(ctx))
 
 	mux := buildServeMux(

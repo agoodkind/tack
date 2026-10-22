@@ -92,7 +92,7 @@ type OrgLister interface {
 
 // attachMembership reads the actor's org memberships once per request,
 // attaches the set to the context for the handlers behind the middleware,
-// and returns the actor's sole org for the auth event: uuid.Nil when the
+// and returns the actor's sole org for the auth event: [uuid.Nil] when the
 // actor belongs to zero or several orgs, because an auth event fires before
 // any workspace names an org and the only honest stamp is a membership that
 // admits no other answer. A lookup failure attaches nothing and stamps nil,

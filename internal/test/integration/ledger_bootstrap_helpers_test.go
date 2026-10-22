@@ -58,7 +58,7 @@ func bootstrapConfig(t *testing.T, node testenv.EmptyLedgerNode) *config.Config 
 	// Provision seeds each login with a value generated for this test only.
 	logins := []*string{
 		&cfg.AuditWriterPassword, &cfg.AuditReaderPassword, &cfg.AuditRedactorPassword,
-		&cfg.AuditOperatorPassword, &cfg.AppPassword,
+		&cfg.AuditOperatorPassword, &cfg.AppPassword, &cfg.MigratorPassword,
 	}
 	for _, login := range logins {
 		*login = bootstrapSecret(t)

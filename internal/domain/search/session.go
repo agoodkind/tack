@@ -73,11 +73,24 @@ type SessionStore interface {
 	CleanupSlice(context.Context, uuid.UUID, int) (bool, error)
 }
 
-// SessionBinding hashes the principal, permission authority, entry point,
-// query text, node type, access version and keys, physical index, and restore
-// epoch with length-prefixed serialization.
+// RankingVersion identifies the scoring formula that encodeRankRequest uses
+// for ranked page requests. Its current value is "2". SessionBinding hashes
+// it with the other session identity parts. Sessions from a release with
+// another RankingVersion fail every continuation and every replay with
+// ErrSessionMismatch. A scoring change requires a new RankingVersion.
+const RankingVersion = "2"
+
+// SessionBinding returns RankedSessionBinding for RankingVersion.
 func SessionBinding(principalID, authorityID, entryPointID uuid.UUID, query Query) [sha256.Size]byte {
+	return RankedSessionBinding(RankingVersion, principalID, authorityID, entryPointID, query)
+}
+
+// RankedSessionBinding hashes the ranking version, restore epoch, principal,
+// permission authority, entry point, query text, node type, physical index,
+// access version, and access keys using length-prefixed serialization.
+func RankedSessionBinding(rankingVersion string, principalID, authorityID, entryPointID uuid.UUID, query Query) [sha256.Size]byte {
 	var identity bytes.Buffer
+	writeIdentityPart(&identity, []byte(rankingVersion))
 	writeIdentityPart(&identity, []byte(strconv.FormatInt(query.Generation, 10)))
 	writeIdentityPart(&identity, principalID[:])
 	writeIdentityPart(&identity, authorityID[:])

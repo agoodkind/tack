@@ -15,7 +15,6 @@ const maxDependentPage = 100
 
 // RelationshipReader reads bounded pages of the nodes at the other end of a
 // node's relationships of one type. The policy reads only child_of edges.
-// NodeType metadata then decides which child_of edges form the hierarchy.
 type RelationshipReader interface {
 	EdgesFrom(ctx context.Context, orgID, sourceID uuid.UUID, relationType, cursor string, limit int) (node.IDPage, error)
 	EdgesTo(ctx context.Context, orgID, targetID uuid.UUID, relationType, cursor string, limit int) (node.IDPage, error)
@@ -53,7 +52,7 @@ func (c *OrgScopeCompiler) GrantKey(orgID, entryPointID uuid.UUID) (string, erro
 
 // Dependents reads one bounded page of the hierarchy children of resourceID
 // and returns their node IDs. A child is the source node of a child_of edge
-// to resourceID, and node.LivesUnder accepts the pair of node types.
+// to resourceID.
 func (c *OrgScopeCompiler) Dependents(ctx context.Context, orgID, resourceID uuid.UUID, cursor string, limit int) (node.IDPage, error) {
 	if c.reader == nil || c.types == nil || c.relationships == nil || limit < 1 || limit > maxDependentPage {
 		wrapped := fmt.Errorf("list hierarchy children of resource %s: policy dependencies and a limit between 1 and %d are required", resourceID, maxDependentPage)

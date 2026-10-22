@@ -41,7 +41,7 @@ func TestRunBackupYBSnapshotExportRequiresImage(t *testing.T) {
 		BackupS3AccessKey: "test-access", // gitleaks:allow test placeholder
 		BackupS3SecretKey: "test-secret", // gitleaks:allow test placeholder
 		YugabyteDB:        "tack",
-		YugabytePassword:  "test-password", // gitleaks:allow test placeholder
+		MigratorPassword:  "test-password", // gitleaks:allow test placeholder
 	}
 
 	err := RunBackupYBSnapshotExport(context.Background(), cfg)

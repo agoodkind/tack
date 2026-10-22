@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	opensearch "github.com/opensearch-project/opensearch-go/v4"
 	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/telemetry"
@@ -62,8 +63,8 @@ func (r *QueryRanker) Open(ctx context.Context, query searchdomain.Query) (searc
 	if err != nil {
 		return none, snapshotFailure(ctx, target, "read the pinned model", err)
 	}
-	if mismatches := modelMismatches(model); len(mismatches) > 0 {
-		return none, snapshotFailure(ctx, target, "verify the pinned model", errors.Join(mismatches...))
+	if cause := pinnedModelCause(model); cause != nil {
+		return none, snapshotFailure(ctx, target, "verify the pinned model", cause)
 	}
 	tokens, err := r.adapter.predictQueryTokens(ctx, info.ModelID, query.Text, r.settings.TokenBytes)
 	if err != nil {
@@ -74,7 +75,7 @@ func (r *QueryRanker) Open(ctx context.Context, query searchdomain.Query) (searc
 		Params: opensearchapi.PointInTimeCreateParams{KeepAlive: r.settings.KeepAlive},
 	})
 	if err != nil {
-		return none, snapshotFailure(ctx, target, "create a point in time", err)
+		return none, snapshotFailure(ctx, target, "create a point in time", engineCause(created.Inspect().Response, err))
 	}
 	if created.PitID == "" || created.Shards.Failed > 0 {
 		partial := searchdomain.Snapshot{PITID: created.PitID, Index: target, QueryTokens: nil}
@@ -96,14 +97,33 @@ func (r *QueryRanker) Close(ctx context.Context, snapshot searchdomain.Snapshot)
 	if err == nil {
 		return nil
 	}
-	if response != nil && response.Inspect().Response != nil && response.Inspect().Response.StatusCode == http.StatusNotFound {
+	var deleted *opensearch.Response
+	if response != nil {
+		deleted = response.Inspect().Response
+	}
+	if deleted != nil && deleted.StatusCode == http.StatusNotFound {
 		return nil
 	}
-	return snapshotFailure(ctx, snapshot.Index, "delete a point in time", err)
+	return snapshotFailure(ctx, snapshot.Index, "delete a point in time", engineCause(deleted, err))
 }
 
 func snapshotFailure(ctx context.Context, index, operation string, err error) error {
 	wrapped := fmt.Errorf("search snapshot on %s: %s: %w", index, operation, err)
 	telemetry.L(ctx).ErrorContext(ctx, "search.snapshot.failed", slog.String("err", wrapped.Error()), slog.String("index", index))
 	return wrapped
+}
+
+// `pinnedModelCause` classifies a mismatch only in model state as `ErrEngineUnavailable` because public queries require a `DEPLOYED` model.
+func pinnedModelCause(model registeredModel) error {
+	mismatches := modelMismatches(model)
+	if len(mismatches) == 0 {
+		return nil
+	}
+	joined := errors.Join(mismatches...)
+	deployed := model
+	deployed.State = deployedModelState
+	if len(modelMismatches(deployed)) > 0 {
+		return joined
+	}
+	return unavailableError{err: joined}
 }

@@ -13,6 +13,7 @@ import (
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	mcpadapter "goodkind.io/tack/internal/adapters/mcp"
 	"goodkind.io/tack/internal/adapters/postgres"
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/auth"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
@@ -37,6 +38,7 @@ type Graph struct {
 	nodes          *service.NodeService
 	deletes        deleteResumer
 	modelRepair    modelRepairLoop
+	auditReads     *auditReadRecovery
 }
 
 // BuildGraph opens the configured datastores and assembles the node service,
@@ -118,16 +120,17 @@ func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
 	)
 
 	mcpHandler := mcpadapter.NewHandler(mcpadapter.Deps{
-		NodeSvc:       nodeSvc,
-		Nodes:         fdbStores.Nodes,
-		Reader:        fdbStores.Views,
-		NodeTypes:     fdbStores.NodeTypes,
-		PropertyDefs:  fdbStores.PropertyDefs,
-		Relationships: fdbStores.Relationships,
-		Members:       orgMembers,
-		Users:         userRepo,
-		Search:        searchBinding,
-		Epochs:        epochs,
+		NodeSvc:            nodeSvc,
+		Nodes:              fdbStores.Nodes,
+		Reader:             fdbStores.Views,
+		NodeTypes:          fdbStores.NodeTypes,
+		PropertyDefs:       fdbStores.PropertyDefs,
+		Relationships:      fdbStores.Relationships,
+		RelationshipLister: fdbStores.Relationships,
+		Members:            orgMembers,
+		Users:              userRepo,
+		Search:             searchBinding,
+		Epochs:             epochs,
 	})
 
 	authMiddleware := buildAuthMiddleware(cfg, tokenRepo, orgMembers)
@@ -145,6 +148,7 @@ func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
 		nodes:          nodeSvc,
 		deletes:        deleteResumer{cancel: nil, loop: sync.WaitGroup{}, started: false},
 		modelRepair:    modelRepairLoop{cancel: nil, loop: sync.WaitGroup{}, started: false},
+		auditReads:     newAuditReadRecovery(fdbStores.AuditReads(source), audit.NewPoolReadLifecycle(pool)),
 	}, nil
 }
 

@@ -54,7 +54,7 @@ func mappingProperties(ctx context.Context, model ModelInfo) (map[string]json.Ra
 		Type: "semantic", RawFieldType: "text", ModelID: model.ID, SemanticInfoFieldName: generatedSemanticField,
 		Chunking: []semanticChunking{{
 			Algorithm:  "fixed_char_length",
-			Parameters: chunkParameters{CharLimit: 160, OverlapRate: 0.5, MaxChunkLimit: -1},
+			Parameters: chunkParameters{CharLimit: 160, OverlapRate: 0, MaxChunkLimit: -1},
 		}},
 		SparseEncodingConfig:  sparseEncodingConfig{PruneType: "max_ratio", PruneRatio: 0.1},
 		SkipExistingEmbedding: true,

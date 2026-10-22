@@ -59,7 +59,7 @@ func newQueryFixture(t *testing.T, options queryOptions) queryFixture {
 	index := "node-pages-" + uuid.Must(uuid.NewV7()).String()
 	deleteNativeIndex(t, client, index)
 	t.Cleanup(func() { deleteNativeIndex(t, client, index) })
-	spec := search.IndexSpec{Model: model, MappingVersion: "1", Primaries: options.Primaries, RoutingShards: 24, Replicas: 0}
+	spec := search.IndexSpec{Model: model, MappingVersion: search.MappingVersion, Primaries: options.Primaries, RoutingShards: 24, Replicas: 0}
 	if err := adapter.EnsureIndex(t.Context(), index, spec); err != nil {
 		t.Fatalf("create search index: %v", err)
 	}

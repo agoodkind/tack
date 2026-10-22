@@ -19,6 +19,8 @@ func captureSearchFailure(t *testing.T, fixture queryFixture, modelID string, co
 	for _, container := range containers {
 		evidence, err := testenv.OpenSearchResourceEvidence(ctx, container)
 		t.Logf("search failure container evidence: %s error=%v", evidence, err)
+		gcLog, err := testenv.OpenSearchGCLogTail(ctx, container)
+		t.Logf("search failure garbage collection log: %s error=%v", gcLog, err)
 	}
 	// The typed statistics response omits cgroup fields required for this diagnosis.
 	requests := []opensearch.Request{

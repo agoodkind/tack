@@ -46,7 +46,7 @@ func TestSearchVerifyChecksTheRecordedServingIndex(t *testing.T) {
 	}
 	other := "node-pages-" + uuid.Must(uuid.NewV7()).String()
 	t.Cleanup(func() { deleteNativeIndex(t, fixture.Client, other) })
-	spec := search.IndexSpec{Model: model, MappingVersion: "1", Primaries: 1, RoutingShards: 24, Replicas: 0}
+	spec := search.IndexSpec{Model: model, MappingVersion: search.MappingVersion, Primaries: 1, RoutingShards: 24, Replicas: 0}
 	if err := fixture.Adapter.EnsureIndex(t.Context(), other, spec); err != nil {
 		t.Fatalf("create index %s: %v", other, err)
 	}

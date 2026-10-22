@@ -15,6 +15,8 @@ package auditintent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"log/slog"
 	"sync"
 
 	"github.com/google/uuid"
@@ -30,8 +32,15 @@ type slot struct {
 	tool      string
 	actor     uuid.UUID
 	payload   json.RawMessage
+	finalize  Finalizer
 	committed bool
 }
+
+// Finalizer builds the event for one transaction attempt from the staged
+// template. source and result contain the JSON encodings of the node primary
+// records that the attempt read and wrote. A nil or empty encoding indicates
+// an absent record.
+type Finalizer func(template, source, result json.RawMessage) (json.RawMessage, error)
 
 // WithSlot attaches an empty slot to ctx for the named tool and the actor
 // making the call. The tool name is what the staged event records as its
@@ -39,7 +48,7 @@ type slot struct {
 // the wrapper's identity for the caller, which the service never sees.
 func WithSlot(ctx context.Context, tool string, actor uuid.UUID) context.Context {
 	return context.WithValue(ctx, slotKey{}, &slot{
-		mu: sync.Mutex{}, tool: tool, actor: actor, payload: nil, committed: false,
+		mu: sync.Mutex{}, tool: tool, actor: actor, payload: nil, finalize: nil, committed: false,
 	})
 }
 
@@ -77,15 +86,47 @@ func Actor(ctx context.Context) uuid.UUID {
 // with. It reports false when ctx carries no slot, which is every caller
 // outside the MCP wrapper; those paths record the way they always have.
 func Stage(ctx context.Context, payload json.RawMessage) bool {
+	return StageMutation(ctx, payload, nil)
+}
+
+// StageMutation stages template and the finalizer that builds an event for
+// each transaction attempt. A nil finalizer uses template unchanged.
+func StageMutation(ctx context.Context, template json.RawMessage, finalize Finalizer) bool {
 	current, _ := ctx.Value(slotKey{}).(*slot)
-	if current == nil || len(payload) == 0 {
+	if current == nil || len(template) == 0 {
 		return false
 	}
 	current.mu.Lock()
 	defer current.mu.Unlock()
-	current.payload = payload
+	current.payload = template
+	current.finalize = finalize
 	current.committed = false
 	return true
+}
+
+// Build returns the event for one transaction attempt, or false when the slot
+// does not contain a staged event. Each attempt uses the unchanged staged
+// template and the records that the attempt read and wrote.
+func Build(ctx context.Context, source, result json.RawMessage) (json.RawMessage, bool, error) {
+	current, _ := ctx.Value(slotKey{}).(*slot)
+	if current == nil {
+		return nil, false, nil
+	}
+	current.mu.Lock()
+	template, finalize := current.payload, current.finalize
+	current.mu.Unlock()
+	if len(template) == 0 {
+		return nil, false, nil
+	}
+	if finalize == nil {
+		return template, true, nil
+	}
+	event, err := finalize(template, source, result)
+	if err != nil {
+		slog.ErrorContext(ctx, "audit.intent_build_failed", slog.String("tool", current.tool), slog.String("err", err.Error()))
+		return nil, true, fmt.Errorf("build the staged audit event: %w", err)
+	}
+	return event, true, nil
 }
 
 // Pending returns the staged event a transaction must write, if any. It stays

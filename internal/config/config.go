@@ -107,6 +107,9 @@ type Config struct {
 	// (TACK-180). The deploy generates it per host; the running server never
 	// reads it.
 	AppPassword string `env:"TACK_APP_PASSWORD"`
+	// MigratorPassword is the password seed-roles sets on tack_migrator
+	// (TACK-554).
+	MigratorPassword string `env:"TACK_MIGRATOR_PASSWORD"`
 
 	// AuditAllowUnrecorded lets a deployment run with no ledger at all. It
 	// exists because "no audit backend is configured" and "the audit backend
@@ -306,12 +309,8 @@ type Config struct {
 	BackupAlarmPrimaryWindowSeconds int    `env:"TACK_BACKUP_ALARM_PRIMARY_WINDOW_SECONDS" envDefault:"1500"`
 	BackupAlarmPrimaryGraceSeconds  int    `env:"TACK_BACKUP_ALARM_PRIMARY_GRACE_SECONDS"  envDefault:"90"`
 
-	// Yugabyte credentials. Read by the backup family for the ysql_dump call;
-	// the live tack server reads YUGABYTE_PASSWORD via the DATABASE_URL DSN
-	// instead, so these are only consulted by ops backup.
-	YugabyteUser     string `env:"YUGABYTE_USER"     envDefault:"yugabyte"`
-	YugabytePassword string `env:"YUGABYTE_PASSWORD"`
-	YugabyteDB       string `env:"YUGABYTE_DB"       envDefault:"tack"`
+	// YugabyteDB is the database the backup dumps read.
+	YugabyteDB string `env:"YUGABYTE_DB" envDefault:"tack"`
 
 	// Audit consumer (Wave 1, Phase 2). The audit-consumer binary reads
 	// these. The tack-app server does not consume them today. They live
@@ -363,9 +362,15 @@ type Config struct {
 }
 
 func Load() (*Config, error) {
-	var cfg Config
-	if err := env.Parse(&cfg); err != nil {
+	environment, err := secretEnvironment(serviceSecretNames)
+	if err != nil {
 		return nil, err
+	}
+	var cfg Config
+	if err := env.ParseWithOptions(&cfg, env.Options{Environment: environment}); err != nil {
+		wrapped := fmt.Errorf("parse server environment: %w", err)
+		slog.Error("config.load_failed", slog.String("err", wrapped.Error()))
+		return nil, wrapped
 	}
 	if !filepath.IsAbs(cfg.OpsFDBClusterDir) {
 		err := fmt.Errorf("TACK_OPS_FDB_CLUSTER_DIR %q is not an absolute path", cfg.OpsFDBClusterDir)

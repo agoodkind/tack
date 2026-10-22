@@ -68,6 +68,9 @@ func listHandler(nt *node.NodeType, route scopeRoute, b NodeTypeBinding) mcpserv
 			plural = nt.Slug + "s"
 		}
 		rc := newRenderCtxWithTypes(ctx, b.Reader, b.Users, b.Resolver.typeIndex)
+		if err := rc.loadAssignees(b.Relationships, page.Views...); err != nil {
+			return classifyError(ctx, err), nil
+		}
 		return successText(renderListPage(rc, plural, page), ""), nil
 	}
 }

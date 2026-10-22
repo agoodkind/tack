@@ -64,7 +64,7 @@ Every continuation reads the same source revision and projection. A changed, mis
 
 OpenSearch ML Commons runs `amazon/neural-sparse/opensearch-neural-sparse-encoding-doc-v3-gte` version 1.0.0. Deployment pins its 554,924,400-byte TorchScript bundle with SHA-256 `08879b93faf4a92506a44e150f47bbc4cadc9a2f083350c4dc79434738303047` and records the bundled tokenizer SHA-256 `ea725c60b9022a7a491ffc348b5622a199853c806d625f673d0e2ebf1c3b5312`. Tack does not run or reproduce the tokenizer. OpenSearch remains unmodified. Custom plugins, forks, external inference, and application-defined ingest pipelines are excluded.
 
-The native `semantic` field preserves `page_text` for lexical search. Its fixed-character chunking uses a 160-character limit, 0.5 overlap, and unlimited chunk count. Native sparse encoding applies `max_ratio` pruning at 0.1 and stores each embedding in the generated nested `page_text_semantic_info.chunks.embedding` `rank_features` field.
+The native `semantic` field preserves `page_text` for lexical search. Its fixed-character chunking uses a 160-character limit, 0 overlap, and unlimited chunk count. Native sparse encoding applies `max_ratio` pruning at 0.1 and stores each embedding in the generated nested `page_text_semantic_info.chunks.embedding` `rank_features` field.
 
 Reader pages contain at most 4,096 UTF-8 bytes. Validation inspects the source, every generated chunk, every sparse embedding, and the final character through OpenSearch. Tack enforces only the byte bound and does not reproduce the model tokenizer. Model or semantic field changes require the same coverage proof before release.
 
@@ -163,15 +163,17 @@ environments use zero replicas and become
 unavailable when their search guest stops. Production claims node failover only after
 at least three members and one replica pass the production failure test.
 
-Each hypervisor exposes one stable HTTPS search endpoint on its guest-segment
-address. Its proxy verifies backend certificates, checks readiness, and selects
-the configured backends. Tack never stores cluster membership. Production uses
-normal discovery from its first start. New members discover the existing cluster,
-then the proxy adds their addresses. Adding ML-only or data-only nodes changes only
-OpenSearch membership and proxy configuration. Dedicated coordinating nodes can
-later replace the proxy's backend pool without changing Tack. The endpoint adds no
-new host failure domain because every search guest in an environment already
-depends on that hypervisor.
+Each hypervisor exposes a stable HTTPS search endpoint on its guest network.
+The proxy selects configured backends after verifying their certificates and
+readiness. Tack request handlers use the stable endpoint without storing cluster
+membership because OpenSearch manages the cluster's live members.
+
+Production uses normal discovery from its first start. New members discover the
+existing cluster before the proxy adds their addresses. Nodes dedicated to machine
+learning or data change only cluster membership and proxy configuration, and
+dedicated coordinating nodes can later replace those backends without changing
+Tack. The endpoint and every search guest in an environment depend on the same
+hypervisor.
 
 OpenSearch dispatches ML work across eligible ML nodes and routes search across primary
 and replica shards. Model deployment specifies no node IDs and includes new ML

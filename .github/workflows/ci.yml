@@ -39,6 +39,20 @@ jobs:
       # timeout report before this limit ends the job.
       timeout_minutes: 30
 
+  # The provider job runs shared go-makefile _ci.yml with working_directory:
+  # provider. Go excludes this nested module from ./... in the root go job.
+  provider:
+    uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    secrets: inherit
+    with:
+      golangci_lint_version: v2.13.2
+      working_directory: provider
+      go_version_file: provider/go.mod
+
   integration:
     name: integration tests (FDB)
     runs-on: ubuntu-latest
@@ -81,7 +95,7 @@ jobs:
           - group: G3
             timeout_minutes: 45
           - group: G5
-            timeout_minutes: 60
+            timeout_minutes: 80
     steps:
       - uses: actions/checkout@v7
 

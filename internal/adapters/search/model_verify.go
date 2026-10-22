@@ -21,7 +21,7 @@ func (a *Adapter) getModel(ctx context.Context, modelID string) (registeredModel
 	var model registeredModel
 	response, err := opensearch.Do(ctx, a.client, http.MethodGet, modelGetRequest{modelID: modelID}, &model)
 	if err := checkMLResponse(ctx, response, err); err != nil {
-		wrapped := fmt.Errorf("read OpenSearch model %s: %w", modelID, err)
+		wrapped := fmt.Errorf("read OpenSearch model %s: %w", modelID, engineCause(response, err))
 		if !isLoggedModelError(err) {
 			telemetry.L(ctx).ErrorContext(ctx, "search.model.read_failed", slog.String("err", wrapped.Error()), slog.String("model_id", modelID))
 		}

@@ -19,15 +19,10 @@ import (
 	"goodkind.io/tack/migrations"
 )
 
-// offBoundaryHeadroomWeeks is the headroom one maintenance pass leaves when it
-// runs after the start of a week. Measured on 2026-10-02: migrations 001 to
-// 017 left the current week and the two after it, and the pass added a third
-// future week.
-const offBoundaryHeadroomWeeks = 3
-
-// weekBoundaryMargin covers clock skew between the test and the database
-// around Monday 00:00 UTC, where the headroom count changes.
-const weekBoundaryMargin = 5 * time.Minute
+// One maintenance pass leaves two or three future weeks. Measured on
+// 2026-10-05 00:17 UTC, a Monday: two. Measured on 2026-10-02, a Friday:
+// three.
+const maxHeadroomWeeks = partitionHeadroomAlertFloor + 1
 
 var partmanChildName = regexp.MustCompile(`^events_p[0-9]{4}_[0-9]{2}_[0-9]{2}$`)
 
@@ -82,8 +77,8 @@ func TestFreshProvisionMaintainsWeeklyPartitions(t *testing.T) {
 	if headroom < partitionHeadroomAlertFloor {
 		t.Fatalf("HeadroomWeeks = %d, below the alert floor %d", headroom, partitionHeadroomAlertFloor)
 	}
-	if !nearWeekStart(now) && headroom != offBoundaryHeadroomWeeks {
-		t.Fatalf("HeadroomWeeks = %d, want %d after the start of a week", headroom, offBoundaryHeadroomWeeks)
+	if headroom > maxHeadroomWeeks {
+		t.Fatalf("HeadroomWeeks = %d, want at most %d", headroom, maxHeadroomWeeks)
 	}
 	for week := 0; week <= headroom; week++ {
 		target := now.AddDate(0, 0, 7*week)
@@ -96,15 +91,6 @@ func TestFreshProvisionMaintainsWeeklyPartitions(t *testing.T) {
 			t.Fatalf("audit.events child %q does not match %s", name, partmanChildName)
 		}
 	}
-}
-
-// nearWeekStart reports whether now is within weekBoundaryMargin of a Monday
-// 00:00 UTC, where pg_partman weeks begin.
-func nearWeekStart(now time.Time) bool {
-	daysSinceMonday := (int(now.Weekday()) + 6) % 7
-	weekStart := now.Truncate(24*time.Hour).AddDate(0, 0, -daysSinceMonday)
-	sinceStart := now.Sub(weekStart)
-	return sinceStart < weekBoundaryMargin || 7*24*time.Hour-sinceStart < weekBoundaryMargin
 }
 
 func eventsChildNames(t *testing.T, pool *pgxpool.Pool) []string {

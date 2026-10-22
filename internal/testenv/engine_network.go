@@ -22,6 +22,7 @@ func engineNetwork(spec engineSpec) string {
 func engineNetworking(spec engineSpec) (*container.HostConfig, *network.NetworkingConfig) {
 	hostConfig := &container.HostConfig{}
 	hostConfig.ExtraHosts = spec.extraHosts
+	hostConfig.Privileged = spec.privileged
 	if spec.networkOf != "" {
 		hostConfig.NetworkMode = container.NetworkMode("container:" + spec.networkOf)
 		return hostConfig, &network.NetworkingConfig{EndpointsConfig: nil}

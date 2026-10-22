@@ -118,7 +118,7 @@ func (a *Adapter) SetReplicas(ctx context.Context, index string, replicas int) e
 func (a *Adapter) IndexInfo(ctx context.Context, index string) (IndexInfo, error) {
 	response, err := a.api.Indices.Mapping.Get(ctx, &opensearchapi.MappingGetReq{Indices: []string{index}})
 	if err != nil {
-		wrapped := fmt.Errorf("read OpenSearch mapping %q: %w", index, err)
+		wrapped := fmt.Errorf("read OpenSearch mapping %q: %w", index, engineCause(response.Inspect().Response, err))
 		telemetry.L(ctx).ErrorContext(ctx, "search.mapping.read_failed", slog.String("err", wrapped.Error()), slog.String("index", index))
 		return IndexInfo{}, wrapped
 	}

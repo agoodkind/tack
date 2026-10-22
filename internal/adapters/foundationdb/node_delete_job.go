@@ -74,7 +74,7 @@ func (s *NodeDeleteStore) ClearSubtreeDelete(ctx context.Context, jobID uuid.UUI
 }
 
 // SubtreeDeletes reads at most limit job records after the job ID after, in
-// job ID order. uuid.Nil reads from the first job.
+// job ID order. Passing [uuid.Nil] as after starts the page at the first job.
 func (s *NodeDeleteStore) SubtreeDeletes(ctx context.Context, after uuid.UUID, limit int) (jobs []*node.SubtreeDeleteJob, err error) {
 	defer telemetry.FDBOp(ctx, "store.node.subtree_delete_list")(&err)
 	if limit < 1 || limit > maxSubtreeDeleteJobPage {

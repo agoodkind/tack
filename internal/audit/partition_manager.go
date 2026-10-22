@@ -27,6 +27,9 @@ type partitionStore interface {
 	// HeadroomWeeks returns the count of weekly partitions whose range starts
 	// after now, i.e. the forward buffer remaining.
 	HeadroomWeeks(ctx context.Context, now time.Time) (int, error)
+	// StrayChildren returns the children of audit.events named outside
+	// events_pYYYY_MM_DD.
+	StrayChildren(ctx context.Context) ([]string, error)
 }
 
 // PartitionManager keeps audit.events supplied with future weekly partitions.
@@ -88,6 +91,7 @@ func (m *PartitionManager) loop(ctx context.Context) {
 }
 
 func (m *PartitionManager) runOnce(ctx context.Context) {
+	m.reportStrayChildren(ctx)
 	maintained := true
 	if err := m.store.RunMaintenance(ctx); err != nil {
 		maintained = false

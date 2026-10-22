@@ -33,6 +33,8 @@ func (f *fakeStore) HeadroomWeeks(context.Context, time.Time) (int, error) {
 	return f.headroom, f.headErr
 }
 
+func (f *fakeStore) StrayChildren(context.Context) ([]string, error) { return nil, nil }
+
 func (f *fakeStore) runCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()

@@ -50,7 +50,7 @@ func (r *Resolver) nodeBelongsToScope(ctx context.Context, candidate *node.Node,
 func (r *Resolver) parentChainContains(ctx context.Context, startID, wantID uuid.UUID) bool {
 	currentID := startID
 	visited := map[uuid.UUID]struct{}{}
-	for depth := 0; depth < maxParentDepth && currentID != uuid.Nil; depth++ {
+	for currentID != uuid.Nil {
 		if currentID == wantID {
 			return true
 		}

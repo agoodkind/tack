@@ -69,7 +69,7 @@ func createNativeSearchIndex(t *testing.T, adapter *search.Adapter, client *open
 	t.Helper()
 	deleteNativeIndex(t, client, index)
 	t.Cleanup(func() { deleteNativeIndex(t, client, index) })
-	spec := search.IndexSpec{Model: model, MappingVersion: "1", Primaries: 1, RoutingShards: 8, Replicas: 0}
+	spec := search.IndexSpec{Model: model, MappingVersion: search.MappingVersion, Primaries: 1, RoutingShards: 8, Replicas: 0}
 	if err := adapter.EnsureIndex(t.Context(), index, spec); err != nil {
 		t.Fatal(err)
 	}

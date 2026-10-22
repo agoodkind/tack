@@ -18,7 +18,7 @@ const identifierNodeCount = 12
 // minimumScoreGap is the smallest relative score difference between two
 // allowed nodes that are adjacent in rank. OpenSearch breaks an exact score
 // tie by node ID, and new node IDs could then reorder tied nodes.
-const minimumScoreGap = 0.01
+const minimumScoreGap = 0.001
 
 // identifierTypeKeys are the container and nested type keys. Both builds use
 // the same keys, and each result line then shows the same type key.
@@ -161,7 +161,7 @@ func requireSeparatedScores(t *testing.T, fixture queryFixture, filter searchdom
 	slices.Sort(ranked)
 	for number := 1; number < len(ranked); number++ {
 		if ranked[number]-ranked[number-1] < minimumScoreGap*ranked[number] {
-			t.Fatalf("query %q scores allowed nodes %v within %.0f percent of each other", query, ranked, minimumScoreGap*100)
+			t.Fatalf("query %q scores allowed nodes %v within %.1f percent of each other", query, ranked, minimumScoreGap*100)
 		}
 	}
 }

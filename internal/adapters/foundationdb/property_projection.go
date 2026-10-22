@@ -190,7 +190,7 @@ func setProjectionInTransaction(ctx context.Context, tr fdb.Transaction, definit
 	}
 	indexPropertyName(tr, definition.OrgID, definition.ID, nil, &current)
 	tr.Set(key, encoded)
-	if intentErr := writeStagedIntent(ctx, tr); intentErr != nil {
+	if intentErr := writeMutationIntent(ctx, tr, value, encoded); intentErr != nil {
 		return false, fmt.Errorf("record projection audit for property definition %s: %w", definition.ID, intentErr)
 	}
 	return true, nil

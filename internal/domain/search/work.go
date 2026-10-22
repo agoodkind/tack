@@ -112,6 +112,8 @@ func (w Work) Excludable() bool {
 type Failure struct {
 	Message string
 	Counted bool
+	// RetryAfter is the minimum wait before the next claim of the work.
+	RetryAfter time.Duration
 }
 
 // Exclusion is one node that search does not index. Class and Index are the

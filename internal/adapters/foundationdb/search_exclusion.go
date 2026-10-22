@@ -12,23 +12,21 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// searchFailureLimit is the number of counted failures after which Release
-// excludes the node of live, access, or copy work. Every other work item
-// keeps retrying, and ops search verify reports it once its count equals the
-// limit. The worker counts a failed FoundationDB read, access compilation,
-// or page encoding. Each of those repeats on every retry until the node, its
-// hierarchy, or its metadata changes. The worker never counts a failed
-// OpenSearch operation. Work that an engine outage, an HTTP 429 from the ML
-// Commons memory circuit breaker, or a model redeploy fails stays pending for
-// the whole failure.
+// searchFailureLimit is the number of counted failures at or above which ops
+// search verify lists a work item as stuck. Release logs the item once when
+// its count equals the limit. The item stays pending and keeps retrying in
+// every class. The worker counts a failed FoundationDB read, access
+// compilation, or page encoding. The worker never counts a failed OpenSearch
+// operation. Work stays pending throughout an engine outage, an HTTP 429 from
+// the ML Commons memory circuit breaker, or a model redeploy that causes it to
+// fail.
 const searchFailureLimit = 5
 
-// failureOutcome is the result of one recorded failure. Excluded reports an
-// excluded node. LimitCrossed reports the failure that set the attempt count
-// of a work item that stays pending to searchFailureLimit. ItemID identifies
-// that item.
+// failureOutcome reports the result of recording one failure. LimitCrossed
+// reports whether the counted failure set the work item's attempt count to
+// searchFailureLimit. Attempts is the count after the failure. ItemID
+// identifies the item.
 type failureOutcome struct {
-	Excluded     bool
 	LimitCrossed bool
 	Attempts     int64
 	ItemID       string
@@ -61,43 +59,34 @@ func (s *SearchWorkStore) Exclude(ctx context.Context, work searchdomain.Work, r
 	return nil
 }
 
-// recordFailure increments the attempt count of a counted failure. When the
-// count of excludable work equals searchFailureLimit, it excludes the node.
-// Otherwise it stores the failure message and delays the next claim by
-// searchRetryDelay. The outcome reports the failure that sets the count of
-// other work to the limit.
-func (s *SearchWorkStore) recordFailure(ctx context.Context, tr fdb.Transaction, work searchdomain.Work, record searchWorkRecord, failure searchdomain.Failure) (failureOutcome, error) {
-	outcome := failureOutcome{Excluded: false, LimitCrossed: false, Attempts: 0, ItemID: ""}
+// recordFailure increments the work item's attempt count for a counted
+// failure. It stores the failure message, keeps the work pending, and delays
+// the next claim by the longer of searchRetryDelay and failure.RetryAfter.
+// The outcome reports whether the failure sets the count to the limit.
+func (s *SearchWorkStore) recordFailure(ctx context.Context, tr fdb.Transaction, work searchdomain.Work, failure searchdomain.Failure) (failureOutcome, error) {
+	outcome := failureOutcome{LimitCrossed: false, Attempts: 0, ItemID: ""}
 	if failure.Counted {
 		var err error
 		outcome, err = countFailure(ctx, tr, work)
 		if err != nil {
 			return outcome, err
 		}
-		if outcome.Excluded {
-			return outcome, s.excludeNode(ctx, tr, work, record, failure.Message)
-		}
 	}
 	tr.Set(fdb.Key(searchErrorKey(string(work.Class), work.OrgID, work.NodeID)), []byte(failure.Message))
 	return outcome, writeSearchRecord(ctx, tr, searchClaimKey(string(work.Class), searchBucket(work.OrgID, work.NodeID), work.OrgID, work.NodeID), searchClaimRecord{
-		Owner: "", Generation: work.Generation, LeaseUntil: s.clock.Now().Add(searchRetryDelay), Target: work.Target, Mirror: work.Mirror,
+		Owner: "", Generation: work.Generation, LeaseUntil: s.clock.Now().Add(max(searchRetryDelay, failure.RetryAfter)), Target: work.Target, Mirror: work.Mirror,
 	})
 }
 
-// countFailure increments the attempt count of work. The outcome excludes
-// excludable work at searchFailureLimit. For other work, it marks the
-// failure that sets the count to the limit and identifies the item.
+// countFailure increments the work item's attempt count. It marks the
+// failure that sets the count to searchFailureLimit and identifies the item.
 func countFailure(ctx context.Context, tr fdb.Transaction, work searchdomain.Work) (failureOutcome, error) {
-	outcome := failureOutcome{Excluded: false, LimitCrossed: false, Attempts: 0, ItemID: ""}
+	outcome := failureOutcome{LimitCrossed: false, Attempts: 0, ItemID: ""}
 	attempts, err := incrementSearchCounter(ctx, tr, searchAttemptKey(string(work.Class), work.OrgID, work.NodeID))
 	if err != nil {
 		return outcome, err
 	}
 	outcome.Attempts = attempts
-	if work.Excludable() {
-		outcome.Excluded = attempts >= searchFailureLimit
-		return outcome, nil
-	}
 	if attempts != searchFailureLimit {
 		return outcome, nil
 	}
@@ -163,16 +152,16 @@ func exclusionAdjustedChange(ctx context.Context, tr fdb.Transaction, orgID, nod
 	return change, nil
 }
 
-// logFailureOutcome logs an exclusion, or the work item with an attempt
-// count that crossed the limit, with the failure message.
+// logFailureOutcome logs the work item once when its attempt count equals
+// the limit. The log includes the item's generation, index, and failure
+// message.
 func logFailureOutcome(ctx context.Context, work searchdomain.Work, outcome failureOutcome, message string) {
-	if outcome.Excluded {
-		logSearchExclusion(ctx, work, message)
+	if !outcome.LimitCrossed {
+		return
 	}
-	if outcome.LimitCrossed {
-		telemetry.L(ctx).ErrorContext(ctx, "search.work.attempt_limit_crossed", slog.String("err", message),
-			slog.String("class", string(work.Class)), slog.String("item_id", outcome.ItemID), slog.Int64("attempts", outcome.Attempts))
-	}
+	telemetry.L(ctx).ErrorContext(ctx, "search.work.attempt_limit_crossed", slog.String("err", message),
+		slog.String("class", string(work.Class)), slog.String("item_id", outcome.ItemID), slog.Int64("attempts", outcome.Attempts),
+		slog.Int64("generation", work.Generation), slog.String("index", work.Target))
 }
 
 func logSearchExclusion(ctx context.Context, work searchdomain.Work, reason string) {

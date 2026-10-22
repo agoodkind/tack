@@ -1,0 +1,650 @@
+[
+  {
+    "identifier": "d-0-0",
+    "text": "Database connection pooling. Review the documented configuration and correct the default value."
+  },
+  {
+    "identifier": "d-0-1",
+    "text": "Database connection pooling. Add operator guidance for the scheduled maintenance window."
+  },
+  {
+    "identifier": "d-0-2",
+    "text": "Database connection pooling. Display the current status and the time of the last completed operation."
+  },
+  {
+    "identifier": "d-0-3",
+    "text": "Database connection pooling. Record the outcome in the weekly operational report."
+  },
+  {
+    "identifier": "d-0-4",
+    "text": "Database connection pooling. Check this behavior after the next software upgrade."
+  },
+  {
+    "identifier": "d-1-0",
+    "text": "Storage compaction scheduling. Review the documented configuration and correct the default value."
+  },
+  {
+    "identifier": "d-1-1",
+    "text": "Storage compaction scheduling. Add operator guidance for the scheduled maintenance window."
+  },
+  {
+    "identifier": "d-1-2",
+    "text": "Storage compaction scheduling. Display the current status and the time of the last completed operation."
+  },
+  {
+    "identifier": "d-1-3",
+    "text": "Storage compaction scheduling. Record the outcome in the weekly operational report."
+  },
+  {
+    "identifier": "d-1-4",
+    "text": "Storage compaction scheduling. Check this behavior after the next software upgrade."
+  },
+  {
+    "identifier": "d-2-0",
+    "text": "Backup retention policy. Review the documented configuration and correct the default value."
+  },
+  {
+    "identifier": "d-2-1",
+    "text": "Backup retention policy. Add operator guidance for the scheduled maintenance window."
+  },
+  {
+    "identifier": "d-2-2",
+    "text": "Backup retention policy. Display the current status and the time of the last completed operation."
+  },
+  {
+    "identifier": "d-2-3",
+    "text": "Backup retention policy. Record the outcome in the weekly operational report."
+  },
+  {
+    "identifier": "d-2-4",
+    "text": "Backup retention policy. Check this behavior after the next software upgrade."
+  },
+  {
+    "identifier": "d-3-0",
+    "text": "Replica health monitoring. Review the documented configuration and correct the default value."
+  },
+  {
+    "identifier": "d-3-1",
+    "text": "Replica health monitoring. Add operator guidance for the scheduled maintenance window."
+  },
+  {
+    "identifier": "d-3-2",
+    "text": "Replica health monitoring. Display the current status and the time of the last completed operation."
+  },
+  {
+    "identifier": "d-3-3",
+    "text": "Replica health monitoring. Record the outcome in the weekly operational report."
+  },
+  {
+    "identifier": "d-3-4",
+    "text": "Replica health monitoring. Check this behavior after the next software upgrade."
+  },
+  {
+    "identifier": "d-4-0",
+    "text": "Query execution metrics. Review the documented configuration and correct the default value."
+  },
+  {
+    "identifier": "d-4-1",
+    "text": "Query execution metrics. Add operator guidance for the scheduled maintenance window."
+  },
+  {
+    "identifier": "d-4-2",
+    "text": "Query execution metrics. Display the current status and the time of the last completed operation."
+  },
+  {
+    "identifier": "d-4-3",
+    "text": "Query execution metrics. Record the outcome in the weekly operational report."
+  },
+  {
+    "identifier": "d-4-4",
+    "text": "Query execution metrics. Check this behavior after the next software upgrade."
+  },
+  {
+    "identifier": "d-5-0",
+    "text": "Login form accessibility. Review the documented configuration and correct the default value."
+  },
+  {
+    "identifier": "d-5-1",
+    "text": "Login form accessibility. Add operator guidance for the scheduled maintenance window."
+  },
+  {
+    "identifier": "d-5-2",
+    "text": "Login form accessibility. Display the current status and the time of the last completed operation."
+  },
+  {
+    "identifier": "d-5-3",
+    "text": "Login form accessibility. Record the outcome in the weekly operational report."
+  },
+  {
+    "identifier": "d-5-4",
+    "text": "Login form accessibility. Check this behavior after the next software upgrade."
+  },
+  {
+    "identifier": "d-6-0",
+    "text": "Password reset email. Review the documented configuration and correct the default value."
+  },
+  {
+    "identifier": "d-6-1",
+    "text": "Password reset email. Add operator guidance for the scheduled maintenance window."
+  },
+  {
+    "identifier": "d-6-2",
+    "text": "Password reset email. Display the current status and the time of the last completed operation."
+  },
+  {
+    "identifier": "d-6-3",
+    "text": "Password reset email. Record the outcome in the weekly operational report."
+  },
+  {
+    "identifier": "d-6-4",
+    "text": "Password reset email. Check this behavior after the next software upgrade."
+  },
+  {
+    "identifier": "d-7-0",
+    "text": "Account profile preferences. Review the documented configuration and correct the default value."
+  },
+  {
+    "identifier": "d-7-1",
+    "text": "Account profile preferences. Add operator guidance for the scheduled maintenance window."
+  },
+  {
+    "identifier": "d-7-2",
+    "text": "Account profile preferences. Display the current status and the time of the last completed operation."
+  },
+  {
+    "identifier": "d-7-3",
+    "text": "Account profile preferences. Record the outcome in the weekly operational report."
+  },
+  {
+    "identifier": "d-7-4",
+    "text": "Account profile preferences. Check this behavior after the next software upgrade."
+  },
+  {
+    "identifier": "d-8-0",
+    "text": "Session timeout warning. Review the documented configuration and correct the default value."
+  },
+  {
+    "identifier": "d-8-1",
+    "text": "Session timeout warning. Add operator guidance for the scheduled maintenance window."
+  },
+  {
+    "identifier": "d-8-2",
+    "text": "Session timeout warning. Display the current status and the time of the last completed operation."
+  },
+  {
+    "identifier": "d-8-3",
+    "text": "Session timeout warning. Record the outcome in the weekly operational report."
+  },
+  {
+    "identifier": "d-8-4",
+    "text": "Session timeout warning. Check this behavior after the next software upgrade."
+  },
+  {
+    "identifier": "d-9-0",
+    "text": "Permission review workflow. Review the documented configuration and correct the default value."
+  },
+  {
+    "identifier": "d-9-1",
+    "text": "Permission review workflow. Add operator guidance for the scheduled maintenance window."
+  },
+  {
+    "identifier": "d-9-2",
+    "text": "Permission review workflow. Display the current status and the time of the last completed operation."
+  },
+  {
+    "identifier": "d-9-3",
+    "text": "Permission review workflow. Record the outcome in the weekly operational report."
+  },
+  {
+    "identifier": "d-9-4",
+    "text": "Permission review workflow. Check this behavior after the next software upgrade."
+  },
+  {
+    "identifier": "d-10-0",
+    "text": "Payment receipt formatting. Review the documented configuration and correct the default value."
+  },
+  {
+    "identifier": "d-10-1",
+    "text": "Payment receipt formatting. Add operator guidance for the scheduled maintenance window."
+  },
+  {
+    "identifier": "d-10-2",
+    "text": "Payment receipt formatting. Display the current status and the time of the last completed operation."
+  },
+  {
+    "identifier": "d-10-3",
+    "text": "Payment receipt formatting. Record the outcome in the weekly operational report."
+  },
+  {
+    "identifier": "d-10-4",
+    "text": "Payment receipt formatting. Check this behavior after the next software upgrade."
+  },
+  {
+    "identifier": "d-11-0",
+    "text": "Subscription renewal reminder. Review the documented configuration and correct the default value."
+  },
+  {
+    "identifier": "d-11-1",
+    "text": "Subscription renewal reminder. Add operator guidance for the scheduled maintenance window."
+  },
+  {
+    "identifier": "d-11-2",
+    "text": "Subscription renewal reminder. Display the current status and the time of the last completed operation."
+  },
+  {
+    "identifier": "d-11-3",
+    "text": "Subscription renewal reminder. Record the outcome in the weekly operational report."
+  },
+  {
+    "identifier": "d-11-4",
+    "text": "Subscription renewal reminder. Check this behavior after the next software upgrade."
+  },
+  {
+    "identifier": "d-12-0",
+    "text": "Tax report export. Review the documented configuration and correct the default value."
+  },
+  {
+    "identifier": "d-12-1",
+    "text": "Tax report export. Add operator guidance for the scheduled maintenance window."
+  },
+  {
+    "identifier": "d-12-2",
+    "text": "Tax report export. Display the current status and the time of the last completed operation."
+  },
+  {
+    "identifier": "d-12-3",
+    "text": "Tax report export. Record the outcome in the weekly operational report."
+  },
+  {
+    "identifier": "d-12-4",
+    "text": "Tax report export. Check this behavior after the next software upgrade."
+  },
+  {
+    "identifier": "d-13-0",
+    "text": "Expense approval process. Review the documented configuration and correct the default value."
+  },
+  {
+    "identifier": "d-13-1",
+    "text": "Expense approval process. Add operator guidance for the scheduled maintenance window."
+  },
+  {
+    "identifier": "d-13-2",
+    "text": "Expense approval process. Display the current status and the time of the last completed operation."
+  },
+  {
+    "identifier": "d-13-3",
+    "text": "Expense approval process. Record the outcome in the weekly operational report."
+  },
+  {
+    "identifier": "d-13-4",
+    "text": "Expense approval process. Check this behavior after the next software upgrade."
+  },
+  {
+    "identifier": "d-14-0",
+    "text": "Refund request tracking. Review the documented configuration and correct the default value."
+  },
+  {
+    "identifier": "d-14-1",
+    "text": "Refund request tracking. Add operator guidance for the scheduled maintenance window."
+  },
+  {
+    "identifier": "d-14-2",
+    "text": "Refund request tracking. Display the current status and the time of the last completed operation."
+  },
+  {
+    "identifier": "d-14-3",
+    "text": "Refund request tracking. Record the outcome in the weekly operational report."
+  },
+  {
+    "identifier": "d-14-4",
+    "text": "Refund request tracking. Check this behavior after the next software upgrade."
+  },
+  {
+    "identifier": "d-15-0",
+    "text": "Application memory profiling. Review the documented configuration and correct the default value."
+  },
+  {
+    "identifier": "d-15-1",
+    "text": "Application memory profiling. Add operator guidance for the scheduled maintenance window."
+  },
+  {
+    "identifier": "d-15-2",
+    "text": "Application memory profiling. Display the current status and the time of the last completed operation."
+  },
+  {
+    "identifier": "d-15-3",
+    "text": "Application memory profiling. Record the outcome in the weekly operational report."
+  },
+  {
+    "identifier": "d-15-4",
+    "text": "Application memory profiling. Check this behavior after the next software upgrade."
+  },
+  {
+    "identifier": "d-16-0",
+    "text": "Request queue capacity. Review the documented configuration and correct the default value."
+  },
+  {
+    "identifier": "d-16-1",
+    "text": "Request queue capacity. Add operator guidance for the scheduled maintenance window."
+  },
+  {
+    "identifier": "d-16-2",
+    "text": "Request queue capacity. Display the current status and the time of the last completed operation."
+  },
+  {
+    "identifier": "d-16-3",
+    "text": "Request queue capacity. Record the outcome in the weekly operational report."
+  },
+  {
+    "identifier": "d-16-4",
+    "text": "Request queue capacity. Check this behavior after the next software upgrade."
+  },
+  {
+    "identifier": "d-17-0",
+    "text": "Network retry configuration. Review the documented configuration and correct the default value."
+  },
+  {
+    "identifier": "d-17-1",
+    "text": "Network retry configuration. Add operator guidance for the scheduled maintenance window."
+  },
+  {
+    "identifier": "d-17-2",
+    "text": "Network retry configuration. Display the current status and the time of the last completed operation."
+  },
+  {
+    "identifier": "d-17-3",
+    "text": "Network retry configuration. Record the outcome in the weekly operational report."
+  },
+  {
+    "identifier": "d-17-4",
+    "text": "Network retry configuration. Check this behavior after the next software upgrade."
+  },
+  {
+    "identifier": "d-18-0",
+    "text": "Service startup logging. Review the documented configuration and correct the default value."
+  },
+  {
+    "identifier": "d-18-1",
+    "text": "Service startup logging. Add operator guidance for the scheduled maintenance window."
+  },
+  {
+    "identifier": "d-18-2",
+    "text": "Service startup logging. Display the current status and the time of the last completed operation."
+  },
+  {
+    "identifier": "d-18-3",
+    "text": "Service startup logging. Record the outcome in the weekly operational report."
+  },
+  {
+    "identifier": "d-18-4",
+    "text": "Service startup logging. Check this behavior after the next software upgrade."
+  },
+  {
+    "identifier": "d-19-0",
+    "text": "Process shutdown handling. Review the documented configuration and correct the default value."
+  },
+  {
+    "identifier": "d-19-1",
+    "text": "Process shutdown handling. Add operator guidance for the scheduled maintenance window."
+  },
+  {
+    "identifier": "d-19-2",
+    "text": "Process shutdown handling. Display the current status and the time of the last completed operation."
+  },
+  {
+    "identifier": "d-19-3",
+    "text": "Process shutdown handling. Record the outcome in the weekly operational report."
+  },
+  {
+    "identifier": "d-19-4",
+    "text": "Process shutdown handling. Check this behavior after the next software upgrade."
+  },
+  {
+    "identifier": "d-20-0",
+    "text": "Search result highlighting. Review the documented configuration and correct the default value."
+  },
+  {
+    "identifier": "d-20-1",
+    "text": "Search result highlighting. Add operator guidance for the scheduled maintenance window."
+  },
+  {
+    "identifier": "d-20-2",
+    "text": "Search result highlighting. Display the current status and the time of the last completed operation."
+  },
+  {
+    "identifier": "d-20-3",
+    "text": "Search result highlighting. Record the outcome in the weekly operational report."
+  },
+  {
+    "identifier": "d-20-4",
+    "text": "Search result highlighting. Check this behavior after the next software upgrade."
+  },
+  {
+    "identifier": "d-21-0",
+    "text": "Document attachment preview. Review the documented configuration and correct the default value."
+  },
+  {
+    "identifier": "d-21-1",
+    "text": "Document attachment preview. Add operator guidance for the scheduled maintenance window."
+  },
+  {
+    "identifier": "d-21-2",
+    "text": "Document attachment preview. Display the current status and the time of the last completed operation."
+  },
+  {
+    "identifier": "d-21-3",
+    "text": "Document attachment preview. Record the outcome in the weekly operational report."
+  },
+  {
+    "identifier": "d-21-4",
+    "text": "Document attachment preview. Check this behavior after the next software upgrade."
+  },
+  {
+    "identifier": "d-22-0",
+    "text": "Notification delivery settings. Review the documented configuration and correct the default value."
+  },
+  {
+    "identifier": "d-22-1",
+    "text": "Notification delivery settings. Add operator guidance for the scheduled maintenance window."
+  },
+  {
+    "identifier": "d-22-2",
+    "text": "Notification delivery settings. Display the current status and the time of the last completed operation."
+  },
+  {
+    "identifier": "d-22-3",
+    "text": "Notification delivery settings. Record the outcome in the weekly operational report."
+  },
+  {
+    "identifier": "d-22-4",
+    "text": "Notification delivery settings. Check this behavior after the next software upgrade."
+  },
+  {
+    "identifier": "d-23-0",
+    "text": "Calendar event reminders. Review the documented configuration and correct the default value."
+  },
+  {
+    "identifier": "d-23-1",
+    "text": "Calendar event reminders. Add operator guidance for the scheduled maintenance window."
+  },
+  {
+    "identifier": "d-23-2",
+    "text": "Calendar event reminders. Display the current status and the time of the last completed operation."
+  },
+  {
+    "identifier": "d-23-3",
+    "text": "Calendar event reminders. Record the outcome in the weekly operational report."
+  },
+  {
+    "identifier": "d-23-4",
+    "text": "Calendar event reminders. Check this behavior after the next software upgrade."
+  },
+  {
+    "identifier": "d-24-0",
+    "text": "Comment editing controls. Review the documented configuration and correct the default value."
+  },
+  {
+    "identifier": "d-24-1",
+    "text": "Comment editing controls. Add operator guidance for the scheduled maintenance window."
+  },
+  {
+    "identifier": "d-24-2",
+    "text": "Comment editing controls. Display the current status and the time of the last completed operation."
+  },
+  {
+    "identifier": "d-24-3",
+    "text": "Comment editing controls. Record the outcome in the weekly operational report."
+  },
+  {
+    "identifier": "d-24-4",
+    "text": "Comment editing controls. Check this behavior after the next software upgrade."
+  },
+  {
+    "identifier": "d-25-0",
+    "text": "Workspace invitation links. Review the documented configuration and correct the default value."
+  },
+  {
+    "identifier": "d-25-1",
+    "text": "Workspace invitation links. Add operator guidance for the scheduled maintenance window."
+  },
+  {
+    "identifier": "d-25-2",
+    "text": "Workspace invitation links. Display the current status and the time of the last completed operation."
+  },
+  {
+    "identifier": "d-25-3",
+    "text": "Workspace invitation links. Record the outcome in the weekly operational report."
+  },
+  {
+    "identifier": "d-25-4",
+    "text": "Workspace invitation links. Check this behavior after the next software upgrade."
+  },
+  {
+    "identifier": "d-26-0",
+    "text": "Project progress reports. Review the documented configuration and correct the default value."
+  },
+  {
+    "identifier": "d-26-1",
+    "text": "Project progress reports. Add operator guidance for the scheduled maintenance window."
+  },
+  {
+    "identifier": "d-26-2",
+    "text": "Project progress reports. Display the current status and the time of the last completed operation."
+  },
+  {
+    "identifier": "d-26-3",
+    "text": "Project progress reports. Record the outcome in the weekly operational report."
+  },
+  {
+    "identifier": "d-26-4",
+    "text": "Project progress reports. Check this behavior after the next software upgrade."
+  },
+  {
+    "identifier": "d-27-0",
+    "text": "Label color selection. Review the documented configuration and correct the default value."
+  },
+  {
+    "identifier": "d-27-1",
+    "text": "Label color selection. Add operator guidance for the scheduled maintenance window."
+  },
+  {
+    "identifier": "d-27-2",
+    "text": "Label color selection. Display the current status and the time of the last completed operation."
+  },
+  {
+    "identifier": "d-27-3",
+    "text": "Label color selection. Record the outcome in the weekly operational report."
+  },
+  {
+    "identifier": "d-27-4",
+    "text": "Label color selection. Check this behavior after the next software upgrade."
+  },
+  {
+    "identifier": "d-28-0",
+    "text": "Keyboard navigation support. Review the documented configuration and correct the default value."
+  },
+  {
+    "identifier": "d-28-1",
+    "text": "Keyboard navigation support. Add operator guidance for the scheduled maintenance window."
+  },
+  {
+    "identifier": "d-28-2",
+    "text": "Keyboard navigation support. Display the current status and the time of the last completed operation."
+  },
+  {
+    "identifier": "d-28-3",
+    "text": "Keyboard navigation support. Record the outcome in the weekly operational report."
+  },
+  {
+    "identifier": "d-28-4",
+    "text": "Keyboard navigation support. Check this behavior after the next software upgrade."
+  },
+  {
+    "identifier": "d-29-0",
+    "text": "Image upload validation. Review the documented configuration and correct the default value."
+  },
+  {
+    "identifier": "d-29-1",
+    "text": "Image upload validation. Add operator guidance for the scheduled maintenance window."
+  },
+  {
+    "identifier": "d-29-2",
+    "text": "Image upload validation. Display the current status and the time of the last completed operation."
+  },
+  {
+    "identifier": "d-29-3",
+    "text": "Image upload validation. Record the outcome in the weekly operational report."
+  },
+  {
+    "identifier": "d-29-4",
+    "text": "Image upload validation. Check this behavior after the next software upgrade."
+  },
+  {
+    "identifier": "t-0-short",
+    "text": "Database failover"
+  },
+  {
+    "identifier": "t-0-boundary",
+    "text": "Background information. aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa Database failover. Additional notes follow."
+  },
+  {
+    "identifier": "t-1-short",
+    "text": "Authentication failure"
+  },
+  {
+    "identifier": "t-1-boundary",
+    "text": "Background information. aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa Authentication failure. Additional notes follow."
+  },
+  {
+    "identifier": "t-2-short",
+    "text": "Slow request processing"
+  },
+  {
+    "identifier": "t-2-boundary",
+    "text": "Background information. aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa Slow request processing. Additional notes follow."
+  },
+  {
+    "identifier": "t-3-short",
+    "text": "Billing reconciliation"
+  },
+  {
+    "identifier": "t-3-boundary",
+    "text": "Background information. aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa Billing reconciliation. Additional notes follow."
+  },
+  {
+    "identifier": "t-4-short",
+    "text": "Application terminated unexpectedly"
+  },
+  {
+    "identifier": "t-4-boundary",
+    "text": "Background information. aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa Application terminated unexpectedly. Additional notes follow."
+  },
+  {
+    "identifier": "t-5-short",
+    "text": "Delete account"
+  },
+  {
+    "identifier": "t-5-boundary",
+    "text": "Background information. aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa Delete account. Additional notes follow."
+  }
+]

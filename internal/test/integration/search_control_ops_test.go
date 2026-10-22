@@ -76,7 +76,7 @@ func TestSearchControlCommandsRejectIndependentTopologyAndAliasMismatches(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	spec := search.IndexSpec{Model: model, MappingVersion: "1", Primaries: 1, RoutingShards: 8, Replicas: 0}
+	spec := search.IndexSpec{Model: model, MappingVersion: search.MappingVersion, Primaries: 1, RoutingShards: 8, Replicas: 0}
 	if err := control.adapter.EnsureIndex(t.Context(), searchControlOtherIndex, spec); err != nil {
 		t.Fatal(err)
 	}

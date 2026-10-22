@@ -92,7 +92,7 @@ func (a *Adapter) routingShards(ctx context.Context, index string) (int, error) 
 func (a *Adapter) AliasTarget(ctx context.Context, alias string) (string, error) {
 	response, err := a.api.Indices.Alias.Get(ctx, opensearchapi.AliasGetReq{Alias: []string{alias}})
 	if err != nil {
-		wrapped := fmt.Errorf("resolve OpenSearch alias %s: %w", alias, err)
+		wrapped := fmt.Errorf("resolve OpenSearch alias %s: %w", alias, engineCause(response.Inspect().Response, err))
 		telemetry.L(ctx).ErrorContext(ctx, "search.alias.resolve_failed", slog.String("err", wrapped.Error()), slog.String("alias", alias))
 		return "", wrapped
 	}

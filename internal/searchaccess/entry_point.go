@@ -69,33 +69,6 @@ func (h compilerHierarchy) Ancestors(ctx context.Context, nodes []OrgNode) (map[
 	return states, nil
 }
 
-// Targets reads each node's resolve record and, inside the requested
-// organization, its node type.
-func (h compilerHierarchy) Targets(ctx context.Context, nodes []OrgNode) (map[OrgNode]TargetState, error) {
-	states := make(map[OrgNode]TargetState, len(nodes))
-	kinds := map[string]*node.NodeType{}
-	for _, key := range nodes {
-		resolved, err := h.compiler.reader.Resolve(ctx, key.NodeID)
-		if err != nil {
-			return nil, hierarchyFailure(ctx, key.NodeID, "resolve hierarchy node "+key.NodeID.String(), err)
-		}
-		if resolved == nil {
-			states[key] = TargetState{Exists: false, OrgID: uuid.Nil, Type: nil}
-			continue
-		}
-		if resolved.OrgID != key.OrgID {
-			states[key] = TargetState{Exists: true, OrgID: resolved.OrgID, Type: nil}
-			continue
-		}
-		kind, err := h.compiler.typeByKey(ctx, key.OrgID, resolved.NodeType, kinds)
-		if err != nil {
-			return nil, err
-		}
-		states[key] = TargetState{Exists: true, OrgID: resolved.OrgID, Type: kind}
-	}
-	return states, nil
-}
-
 // childOfs reads every child_of target of one node in bounded pages.
 func (c *OrgScopeCompiler) childOfs(ctx context.Context, key OrgNode) ([]uuid.UUID, error) {
 	targets := []uuid.UUID{}

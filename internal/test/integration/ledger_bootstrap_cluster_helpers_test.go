@@ -54,7 +54,7 @@ func clusterConfig(t *testing.T, cluster *testenv.LedgerCluster) *config.Config 
 	}
 	logins := []*string{
 		&cfg.AuditWriterPassword, &cfg.AuditReaderPassword, &cfg.AuditRedactorPassword,
-		&cfg.AuditOperatorPassword, &cfg.AppPassword,
+		&cfg.AuditOperatorPassword, &cfg.AppPassword, &cfg.MigratorPassword,
 	}
 	for _, login := range logins {
 		*login = bootstrapSecret(t)

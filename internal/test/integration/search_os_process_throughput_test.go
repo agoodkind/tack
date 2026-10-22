@@ -133,7 +133,7 @@ func newProcessThroughputCorpus(t *testing.T) processThroughputCorpus {
 	if err != nil {
 		t.Fatal(err)
 	}
-	spec := search.IndexSpec{Model: model, MappingVersion: "1", Primaries: 1, RoutingShards: 24, Replicas: 0}
+	spec := search.IndexSpec{Model: model, MappingVersion: search.MappingVersion, Primaries: 1, RoutingShards: 24, Replicas: 0}
 	if err := adapter.EnsureIndex(t.Context(), index, spec); err != nil {
 		t.Fatal(err)
 	}

@@ -17,140 +17,26 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/caarlos0/env/v11"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/audit"
+	"goodkind.io/tack/internal/auditrelay"
+	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/telemetry"
 )
 
-type consumerEnv struct {
-	Brokers         string        `env:"AUDIT_CONSUMER_KAFKA_BROKERS,required"`
-	Topic           string        `env:"AUDIT_CONSUMER_KAFKA_TOPIC"      envDefault:"audit.events.v1"`
-	GroupID         string        `env:"AUDIT_CONSUMER_GROUP_ID"         envDefault:"tack-audit-projector"`
-	BatchSize       int           `env:"AUDIT_CONSUMER_BATCH_SIZE"       envDefault:"256"`
-	PollInterval    time.Duration `env:"AUDIT_CONSUMER_POLL_INTERVAL"    envDefault:"250ms"`
-	YugabyteDSN     string        `env:"AUDIT_CONSUMER_YUGABYTE_DSN,required"`
-	ClickHouseDSN   string        `env:"AUDIT_CONSUMER_CLICKHOUSE_DSN"`
-	SigningKeyPath  string        `env:"AUDIT_CONSUMER_SIGNING_KEY_PATH"`
-	NotarizerPeriod time.Duration `env:"AUDIT_CONSUMER_NOTARIZER_PERIOD" envDefault:"60s"`
-	// SigningHost names the guest whose key signs, stamped on every
-	// notarization (TACK-437). The deploy renders the guest's inventory name;
-	// unset falls back to the container's hostname.
-	SigningHost     string        `env:"AUDIT_CONSUMER_SIGNING_HOST"`
-	ReconcilePeriod time.Duration `env:"AUDIT_CONSUMER_RECONCILE_PERIOD" envDefault:"30m"`
-	ReconcileWindow time.Duration `env:"AUDIT_CONSUMER_RECONCILE_WINDOW" envDefault:"24h"`
-	LagWarnMessages int64         `env:"TACK_AUDIT_CONSUMER_LAG_WARN_MESSAGES" envDefault:"1000"`
-	SummaryEvery    int           `env:"TACK_AUDIT_CONSUMER_SUMMARY_EVERY" envDefault:"100"`
-	PartitionPeriod time.Duration `env:"AUDIT_CONSUMER_PARTITION_PERIOD" envDefault:"24h"`
-	TopicRetention  time.Duration `env:"AUDIT_CONSUMER_TOPIC_RETENTION"  envDefault:"8760h"`
-	MetricsAddr     string        `env:"AUDIT_CONSUMER_METRICS_ADDR" envDefault:"127.0.0.1:9109"`
-	// FDBClusterFile enables the FoundationDB relay when set.
-	FDBClusterFile string `env:"FDB_CLUSTER_FILE"`
-	// FDBTransactionTimeout bounds each relay transaction against the product
-	// store, retries included. The relay reads and clears the operator outbox
-	// on a timer from one goroutine, so an unbounded transaction issued during
-	// a store leader election stops every later relay tick (TACK-408).
-	FDBTransactionTimeout time.Duration `env:"FDB_TRANSACTION_TIMEOUT" envDefault:"5s"`
-
-	// Env names the deployment environment for the "env" log attribute; the
-	// consumer has no auth mode, so it only labels the log lines.
-	Env string `env:"ENV,required"`
-
-	LogLevel         string `env:"LOG_LEVEL"`
-	LogJSONFile      string `env:"LOG_JSON_FILE"`
-	LogTextFile      string `env:"LOG_TEXT_FILE"`
-	LogDisableStdout bool   `env:"LOG_DISABLE_STDOUT"`
-	LogMaxSizeMB     int    `env:"LOG_MAX_SIZE_MB"  envDefault:"100"`
-	LogMaxBackups    int    `env:"LOG_MAX_BACKUPS"  envDefault:"0"`
-	LogMaxAgeDays    int    `env:"LOG_MAX_AGE_DAYS" envDefault:"0"`
-	OTELEndpoint     string `env:"OTEL_EXPORTER_OTLP_ENDPOINT"`
-}
-
-type foundationDBRelayOutbox struct {
-	store *foundationdb.OpsOutboxStore
-}
-
-func (s foundationDBRelayOutbox) ReadOutboxFrom(
-	ctx context.Context,
-	mark []byte,
-	limit int,
-) ([]audit.RelayOutboxEntry, error) {
-	entries, err := s.store.ReadOutboxFrom(ctx, mark, limit)
-	if err != nil {
-		slog.ErrorContext(ctx, "audit_consumer.relay_fdb_read_failed", slog.String("err", err.Error()))
-		return nil, fmt.Errorf("read FoundationDB relay outbox: %w", err)
-	}
-	out := make([]audit.RelayOutboxEntry, 0, len(entries))
-	for _, entry := range entries {
-		out = append(out, audit.RelayOutboxEntry{
-			Mark:  entry.Mark,
-			Event: entry.Event,
-		})
-	}
-	return out, nil
-}
-
-func (s foundationDBRelayOutbox) ClearThrough(ctx context.Context, mark []byte) error {
-	if err := s.store.ClearThrough(ctx, mark); err != nil {
-		slog.ErrorContext(ctx, "audit_consumer.relay_fdb_clear_failed", slog.String("err", err.Error()))
-		return fmt.Errorf("clear FoundationDB relay outbox: %w", err)
-	}
-	return nil
-}
-
-func newAuditRelay(
-	ctx context.Context,
-	cfg consumerEnv,
-) (*audit.Relay, *pgxpool.Pool, *audit.KafkaRecorder, error) {
-	relayPool, err := pgxpool.New(ctx, cfg.YugabyteDSN)
-	if err != nil {
-		slog.ErrorContext(ctx, "audit_consumer.relay_yugabyte_pool_failed", slog.String("err", err.Error()))
-		return nil, nil, nil, fmt.Errorf("new relay Yugabyte pool: %w", err)
-	}
-
-	var relayFoundationDB audit.FoundationDBOutbox
-	if cfg.FDBClusterFile != "" {
-		stores, storesErr := foundationdb.NewStores(cfg.FDBClusterFile, cfg.FDBTransactionTimeout, relayPool)
-		if storesErr != nil {
-			relayPool.Close()
-			slog.ErrorContext(ctx, "audit_consumer.relay_foundationdb_open_failed", slog.String("err", storesErr.Error()))
-			return nil, nil, nil, fmt.Errorf("open relay FoundationDB stores: %w", storesErr)
-		}
-		relayFoundationDB = foundationDBRelayOutbox{store: stores.OpsOutbox}
-	}
-
-	relayRecorder, err := audit.NewKafkaRecorder(audit.KafkaConfig{
-		Brokers:        splitBrokers(cfg.Brokers),
-		Topic:          cfg.Topic,
-		ClientID:       "tack-audit-relay",
-		ProduceTimeout: 0,
+func newAuditRelay(ctx context.Context, cfg config.AuditConsumerSettings) (auditrelay.Opened, error) {
+	opened, err := auditrelay.Open(ctx, auditrelay.Config{
+		Brokers: splitBrokers(cfg.Brokers), Topic: cfg.Topic, YugabyteDSN: cfg.YugabyteDSN,
+		FDBClusterFile: cfg.FDBClusterFile, FDBTransactionTimeout: cfg.FDBTransactionTimeout,
+		PollInterval: cfg.PollInterval, BatchSize: cfg.BatchSize,
 	})
 	if err != nil {
-		relayPool.Close()
-		slog.ErrorContext(ctx, "audit_consumer.relay_recorder_failed", slog.String("err", err.Error()))
-		return nil, nil, nil, fmt.Errorf("new relay recorder: %w", err)
+		slog.ErrorContext(ctx, "audit_consumer.relay_open_failed", slog.String("err", err.Error()))
+		return opened, fmt.Errorf("open the audit relay: %w", err)
 	}
-
-	relay, err := audit.NewRelay(audit.RelayConfig{
-		Recorder:     relayRecorder,
-		Yugabyte:     audit.NewPoolOutbox(relayPool),
-		FoundationDB: relayFoundationDB,
-		PollInterval: cfg.PollInterval,
-		BatchSize:    cfg.BatchSize,
-	})
-	if err != nil {
-		relayPool.Close()
-		if closeErr := relayRecorder.CloseContext(ctx); closeErr != nil {
-			slog.ErrorContext(ctx, "audit_consumer.relay_recorder_close_failed", slog.String("err", closeErr.Error()))
-		}
-		slog.ErrorContext(ctx, "audit_consumer.relay_failed", slog.String("err", err.Error()))
-		return nil, nil, nil, fmt.Errorf("new audit relay: %w", err)
-	}
-	return relay, relayPool, relayRecorder, nil
+	return opened, nil
 }
 
-func newAuditConsumer(ctx context.Context, cfg consumerEnv) (*audit.Consumer, error) {
+func newAuditConsumer(ctx context.Context, cfg config.AuditConsumerSettings) (*audit.Consumer, error) {
 	signingHost := cfg.SigningHost
 	if signingHost == "" {
 		hostname, err := os.Hostname()
@@ -193,11 +79,17 @@ func main() {
 }
 
 func run() error {
-	var cfg consumerEnv
-	if err := env.Parse(&cfg); err != nil {
-		return fmt.Errorf("parse env: %w", err)
+	cfg, err := config.LoadAuditConsumerSettings()
+	if err != nil {
+		wrapped := fmt.Errorf("load audit consumer configuration: %w", err)
+		slog.Error("audit_consumer.config_failed", slog.String("err", wrapped.Error()))
+		return wrapped
 	}
 
+	return runConsumer(cfg)
+}
+
+func runConsumer(cfg config.AuditConsumerSettings) error {
 	closer, err := telemetry.Setup(telemetry.LogConfig{
 		Level:         cfg.LogLevel,
 		JSONFile:      cfg.LogJSONFile,
@@ -223,11 +115,12 @@ func run() error {
 
 	metricsServer := startMetricsServer(ctx, cfg.MetricsAddr)
 
-	relay, relayPool, relayRecorder, err := newAuditRelay(ctx, cfg)
+	opened, err := newAuditRelay(ctx, cfg)
 	if err != nil {
 		return err
 	}
-	defer relayPool.Close()
+	defer opened.Pool.Close()
+	relay, relayRecorder := opened.Relay, opened.Recorder
 
 	slog.InfoContext(ctx, "audit_consumer.starting",
 		slog.String("topic", cfg.Topic),

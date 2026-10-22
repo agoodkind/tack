@@ -2,7 +2,6 @@ package testenv
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -11,11 +10,10 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	_ "github.com/jackc/pgx/v5/stdlib" // registers the pgx database/sql driver goose migrates through
 	"github.com/moby/moby/client"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"github.com/pressly/goose/v3"
 
+	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/migrations"
 )
 
@@ -159,21 +157,10 @@ func probeLedger(ctx context.Context, dsn string) error {
 	return nil
 }
 
-// migrateLedger applies every embedded migration, the same set
-// `./server migrate` applies.
+// migrateLedger applies every embedded migration through the migrator that
+// `./server migrate` runs.
 func migrateLedger(ctx context.Context, dsn string) error {
-	database, err := sql.Open("pgx", dsn)
-	if err != nil {
-		slog.ErrorContext(ctx, "testenv.ledger.open_failed", slog.String("err", err.Error()))
-		return fmt.Errorf("open the test ledger: %w", err)
-	}
-	defer func() { _ = database.Close() }()
-	provider, err := goose.NewProvider(goose.DialectPostgres, database, migrations.FS)
-	if err != nil {
-		slog.ErrorContext(ctx, "testenv.ledger.migrate_failed", slog.String("err", err.Error()))
-		return fmt.Errorf("load migrations: %w", err)
-	}
-	if _, err := provider.Up(ctx); err != nil {
+	if err := postgres.Migrate(ctx, dsn, migrations.FS); err != nil {
 		slog.ErrorContext(ctx, "testenv.ledger.migrate_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("migrate the test ledger: %w", err)
 	}

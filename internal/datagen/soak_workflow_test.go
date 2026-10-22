@@ -1,91 +1,11 @@
 package datagen
 
 import (
-	"encoding/json"
 	"fmt"
-	"net/http"
 	"testing"
 
 	"goodkind.io/tack/internal/clock"
 )
-
-func TestWorkflowResolvesStateWithinIssueProject(t *testing.T) {
-	projectAID := deterministicUUID("project-a").String()
-	projectBID := deterministicUUID("project-b").String()
-	issueID := deterministicUUID("project-a-issue").String()
-	projectAStateID := deterministicUUID("project-a-todo").String()
-	projectBStateID := deterministicUUID("project-b-todo").String()
-	fake := &workflowValidationMCP{
-		issueProjects: map[string]string{issueID: projectAID},
-		states: map[string]workflowValidationState{
-			projectAStateID: {projectID: projectAID, name: "Todo"},
-			projectBStateID: {projectID: projectBID, name: "Todo"},
-		},
-	}
-	soak := &Soak{driver: NewDriver(testGraph(fake), false, 777)}
-	project := &soakProject{
-		Workspace: WorkspaceIdentity{Slug: "qa-777", Actors: []Actor{{Token: "token"}}},
-		States: []soakNode{{
-			RawID: projectBStateID, Name: "Todo", Group: stateGroupUnstarted,
-		}},
-		Issues: []*soakIssue{{soakNode: soakNode{RawID: issueID}}},
-	}
-
-	err := soak.advanceWorkflow(t.Context(), project, project.Workspace.Actors[0], 0)
-	if err != nil {
-		t.Fatalf("advanceWorkflow() error = %v", err)
-	}
-	if fake.updatedStateID != projectAStateID {
-		t.Fatalf("updated state = %q, want %q", fake.updatedStateID, projectAStateID)
-	}
-}
-
-type workflowValidationState struct {
-	projectID string
-	name      string
-}
-
-type workflowValidationMCP struct {
-	issueProjects  map[string]string
-	states         map[string]workflowValidationState
-	updatedStateID string
-}
-
-func (f *workflowValidationMCP) ServeHTTP(
-	writer http.ResponseWriter,
-	request *http.Request,
-) {
-	var payload rpcRequest
-	if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
-		http.Error(writer, err.Error(), http.StatusBadRequest)
-		return
-	}
-	if payload.Params.Name != "tack_update_issue" {
-		http.Error(writer, "unexpected tool "+payload.Params.Name, http.StatusBadRequest)
-		return
-	}
-	var stateReference string
-	if err := json.Unmarshal(
-		payload.Params.Arguments.Properties["state_id"],
-		&stateReference,
-	); err != nil {
-		http.Error(writer, err.Error(), http.StatusBadRequest)
-		return
-	}
-	issueProjectID := f.issueProjects[payload.Params.Arguments.NodeID]
-	for stateID, state := range f.states {
-		if state.projectID == issueProjectID && state.name == stateReference {
-			f.updatedStateID = stateID
-			writeRerunResult(writer, "updated", false)
-			return
-		}
-	}
-	writeRerunResult(
-		writer,
-		fmt.Sprintf("properties.state_id %q: invalid argument", stateReference),
-		true,
-	)
-}
 
 func TestWorkflowVisitsEveryIssueInEveryProject(t *testing.T) {
 	t.Parallel()

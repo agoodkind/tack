@@ -105,8 +105,9 @@ const (
 	// breaker returns that status while the JVM heap is near its limit.
 	engineRejectionText = "returned status 429 "
 	// rejectedWorkWait is how long the loop keeps claiming after a rejection.
-	// It includes the retry delay of released work and the time of one claim.
-	rejectedWorkWait = 10 * time.Second
+	// It includes the retry delay of released work, which equals the 10 s
+	// operation timeout for an OpenSearch failure, and the time of one claim.
+	rejectedWorkWait = 15 * time.Second
 	// rejectionWindow bounds consecutive rejections without a successful slice.
 	rejectionWindow = 3 * time.Minute
 )

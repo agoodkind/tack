@@ -175,6 +175,7 @@ func (c *LedgerCluster) Start(t *testing.T, name, joinTarget string) EmptyLedger
 	return EmptyLedgerNode{
 		DSN: dsn.String(), Address: started.address,
 		MasterAddress: net.JoinHostPort(started.address, ledgerMasterPort), Network: c.Network,
+		Image: c.Image,
 	}
 }
 

@@ -49,7 +49,7 @@ type TestEnv struct {
 
 // writeOrgNode writes the org Node, NodeView, NodeResolve, and slug index
 // directly via the stores. It mirrors cmd/server/seed.go ensureNode for the
-// root case, where ParentID is uuid.Nil and OrgID == ID.
+// root case, where ParentID is [uuid.Nil] and OrgID == ID.
 func writeOrgNode(ctx context.Context, stores *fdbadapter.Stores, orgID uuid.UUID, slug string) error {
 	now := clock.Now().UTC()
 	props := map[string]json.RawMessage{

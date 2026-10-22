@@ -157,7 +157,7 @@ func additionalPropertyDefs(orgID uuid.UUID) []*node.PropertyDef {
 		{ID: node.SystemPropID(orgID, "identifier"), OrgID: orgID, Name: "identifier", Type: node.PropertyTypeText, AppliesToFeatures: []string{node.FeatureIsScope}, Indexed: true},
 		{ID: node.SystemPropID(orgID, "sequence"), OrgID: orgID, Name: "sequence", Type: node.PropertyTypeNumber, AppliesToFeatures: []string{node.FeatureHasSequenceID}, Indexed: true},
 		{ID: node.SystemPropID(orgID, "parent_id"), OrgID: orgID, Name: "parent_id", Type: node.PropertyTypeText, AppliesToFeatures: nil, Indexed: true},
-		{ID: node.SystemPropID(orgID, "scope_id"), OrgID: orgID, Name: "scope_id", Type: node.PropertyTypeText, AppliesToFeatures: []string{node.FeatureHasSequenceID}, Indexed: true},
+		{ID: node.SystemPropID(orgID, "scope_id"), OrgID: orgID, Name: "scope_id", Type: node.PropertyTypeText, AppliesToFeatures: nil, Indexed: true},
 		{ID: node.SystemPropID(orgID, "group"), OrgID: orgID, Name: "group", Type: node.PropertyTypeText, AppliesToFeatures: nil, Indexed: false},
 		{ID: node.SystemPropID(orgID, "color"), OrgID: orgID, Name: "color", Type: node.PropertyTypeText, AppliesToFeatures: nil, Indexed: false},
 		{ID: node.SystemPropID(orgID, "sort_order"), OrgID: orgID, Name: "sort_order", Type: node.PropertyTypeNumber, AppliesToFeatures: nil, Indexed: false},
@@ -189,7 +189,7 @@ func applyDefaultSearchProjections(definitions []*node.PropertyDef) error {
 	}
 	included := map[string]bool{
 		"description": true, "slug": true, "identifier": true, "sequence": true,
-		"parent_id": true, "group": true,
+		"group": true, "parent_id": false, "scope_id": false, "state_id": false,
 	}
 	for _, definition := range definitions {
 		order, ok := orders[definition.Name]
@@ -299,7 +299,7 @@ func defaultNodeTypes(orgID uuid.UUID) []*node.NodeType {
 		{"org", "orgs", "Org", nodeTypeOrg, orgFeatures, slugAddressReference, []string{nodeTypeWorkspace}, nil, nil},
 		{"workspace", "workspaces", "Workspace", nodeTypeWorkspace, workspaceFeatures, slugAddressReference, []string{nodeTypeProject, nodeTypeLabel, nodeTypeWorkspace}, []string{nodeTypeOrg}, nil},
 		{"project", "projects", "Project", nodeTypeProject, projectFeatures, directIdentifier, []string{nodeTypeIssue, nodeTypeEpic, nodeTypeCycle, nodeTypeModule, nodeTypeState}, []string{nodeTypeWorkspace}, projectDefaultStates},
-		{"issue", "issues", "Issue", nodeTypeIssue, issueFeatures, scopedSequence, []string{nodeTypeComment, nodeTypeActivity}, []string{nodeTypeProject}, nil},
+		{"issue", "issues", "Issue", nodeTypeIssue, issueFeatures, scopedSequence, []string{nodeTypeComment, nodeTypeActivity}, []string{nodeTypeProject, nodeTypeEpic, nodeTypeCycle, nodeTypeModule, nodeTypeIssue}, nil},
 		{"epic", "epics", "Epic", nodeTypeEpic, epicFeatures, scopedSequence, []string{nodeTypeIssue, nodeTypeComment, nodeTypeActivity}, []string{nodeTypeProject}, nil},
 		{"cycle", "cycles", "Cycle", nodeTypeCycle, cycleFeatures, scopedSequence, []string{nodeTypeIssue}, []string{nodeTypeProject}, nil},
 		{"module", "modules", "Module", nodeTypeModule, moduleFeatures, scopedSequence, []string{nodeTypeIssue}, []string{nodeTypeProject}, nil},
