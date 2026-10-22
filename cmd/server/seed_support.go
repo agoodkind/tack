@@ -39,19 +39,20 @@ func userIDForEmail(email string) uuid.UUID {
 // to query the property index for an existing node: for non-org nodes this is
 // the parentID; for org nodes (where orgID == the node's own ID) the caller
 // supplies the orgID from the user's existing org membership, or [uuid.Nil] when
-// no prior membership exists.
-func ensureNode(ctx context.Context, s *fdbadapter.Stores, typeKey, slug, name string, parentID, lookupOrgID uuid.UUID) (uuid.UUID, bool, error) {
+// a prior membership does not exist. CreateAtomic writes change events for the new node and,
+// when parentID is not [uuid.Nil], its parent relationship in the create transaction.
+func ensureNode(ctx context.Context, s *fdbadapter.Stores, typeKey, slug, name string, parentID, lookupOrgID uuid.UUID) (uuid.UUID, error) {
 	log := telemetry.L(ctx)
 	slugRaw, err := json.Marshal(slug)
 	if err != nil {
 		slog.ErrorContext(ctx, "seed.encode_slug_failed", slog.String("err", err.Error()))
-		return uuid.Nil, false, fmt.Errorf("seed: encode slug %q: %w", slug, err)
+		return uuid.Nil, fmt.Errorf("seed: encode slug %q: %w", slug, err)
 	}
 	if lookupOrgID != uuid.Nil {
 		existing, listErr := s.Nodes.ListByProperty(ctx, lookupOrgID, typeKey, "slug", slugRaw)
 		if listErr == nil && len(existing) > 0 {
 			log.InfoContext(ctx, "seed.node_exists", "type", typeKey, "slug", slug, "id", existing[0].ID)
-			return existing[0].ID, false, nil
+			return existing[0].ID, nil
 		}
 	}
 
@@ -78,7 +79,7 @@ func ensureNode(ctx context.Context, s *fdbadapter.Stores, typeKey, slug, name s
 		parentRaw, marshalErr := json.Marshal(parentID.String())
 		if marshalErr != nil {
 			slog.ErrorContext(ctx, "seed.encode_parent_failed", slog.String("err", marshalErr.Error()))
-			return uuid.Nil, false, fmt.Errorf("seed: encode parent_id: %w", marshalErr)
+			return uuid.Nil, fmt.Errorf("seed: encode parent_id: %w", marshalErr)
 		}
 		props["parent_id"] = parentRaw
 	}
@@ -110,10 +111,10 @@ func ensureNode(ctx context.Context, s *fdbadapter.Stores, typeKey, slug, name s
 	// index written here replaces the former address_index write.
 	if err := s.Nodes.CreateAtomic(ctx, n, view, rels, []string{"slug"}, nil, nil); err != nil {
 		slog.ErrorContext(ctx, "seed.create_node_failed", slog.String("type", typeKey), slog.String("err", err.Error()))
-		return uuid.Nil, false, fmt.Errorf("seed: create node %s: %w", typeKey, err)
+		return uuid.Nil, fmt.Errorf("seed: create node of type %s: %w", typeKey, err)
 	}
 	log.InfoContext(ctx, "seed.node_created", "type", typeKey, "slug", slug, "id", id)
-	return id, true, nil
+	return id, nil
 }
 
 // generateToken returns a fresh random bearer token in the one shape every
