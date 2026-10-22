@@ -16,7 +16,7 @@ import (
 func TestSearchSemanticPairs(t *testing.T) {
 	t.Setenv("OPENSEARCH_SESSION_IDLE_TIMEOUT", "30s")
 	fixture := newQueryFixture(t, defaultQueryOptions())
-	settings, err := config.LoadSearchQuerySettings(t.Context())
+	settings, err := config.LoadSearchQuerySettings(WithTestOperation(t, t.Context()))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -65,11 +65,11 @@ func TestSearchRebuildExcludesOrphanNodes(t *testing.T) {
 		t.Fatalf("ops search verify counted %d exclusions and listed %d, want 2", report.ExcludedNodes, len(report.Exclusions))
 	}
 
-	if err := fixture.Stores.Nodes.Delete(t.Context(), kind.OrgID, deleted); err != nil {
+	if err := fixture.Stores.Nodes.Delete(WithTestOperation(t, t.Context()), kind.OrgID, deleted); err != nil {
 		t.Fatalf("delete orphan node: %v", err)
 	}
 	parent := &node.Relationship{OrgID: kind.OrgID, SourceID: orphan, TargetID: entry, RelationType: node.RelChildOf}
-	if err := fixture.Stores.Relationships.Add(t.Context(), parent); err != nil {
+	if err := fixture.Stores.Relationships.Add(WithTestOperation(t, t.Context()), parent); err != nil {
 		t.Fatalf("add parent of orphan node %s: %v", orphan, err)
 	}
 	drainSearchWork(t, fixture.Worker, 2000)

@@ -30,24 +30,25 @@ import (
 	"goodkind.io/tack/internal/datagen"
 	"goodkind.io/tack/internal/ops"
 	appruntime "goodkind.io/tack/internal/runtime"
+	"goodkind.io/tack/internal/test/integration"
 	"goodkind.io/tack/internal/testenv"
 )
 
 const (
-	cohortEngineMemoryBytes int64 = 8 << 30
-	cohortTransactionTimeout      = 5 * time.Second
+	cohortEngineMemoryBytes  int64 = 8 << 30
+	cohortTransactionTimeout       = 5 * time.Second
 )
 
 // TestSearchDatagenVerifyCohort runs --verify-cohort through the audited
 // command while production search workers index the cohort.
 func TestSearchDatagenVerifyCohort(t *testing.T) {
 	cfg := newCohortEngines(t)
-	workers, err := appruntime.BuildGraph(t.Context(), cfg)
+	workers, err := appruntime.BuildGraph(integration.WithTestOperation(t, t.Context()), cfg)
 	if err != nil {
 		t.Fatalf("build worker graph: %v", err)
 	}
 	t.Cleanup(workers.Close)
-	workers.StartSearchWorkers(t.Context())
+	workers.StartSearchWorkers(integration.WithTestOperation(t, t.Context()))
 	if refused, err := runCohortCommand(t, cfg, 1); err == nil || len(refused) != 0 {
 		t.Fatalf("verify cohort without --commit: got %v; output=%s", err, refused)
 	}
@@ -114,32 +115,32 @@ func newCohortEngines(t *testing.T) *config.Config {
 	}
 	stores.EnableSearchWork()
 	settings := search.Config{Endpoint: engine.Endpoint, CA: engine.CA, Username: engine.Username, Password: engine.Password, RequestTimeout: 2 * time.Minute, MaxRetries: 1}
-	adapter, err := search.New(t.Context(), settings)
+	adapter, err := search.New(integration.WithTestOperation(t, t.Context()), settings)
 	if err != nil {
 		t.Fatalf("open search adapter: %v", err)
 	}
-	t.Cleanup(func() { _ = adapter.Close(context.WithoutCancel(t.Context())) })
+	t.Cleanup(func() { _ = adapter.Close(context.WithoutCancel(integration.WithTestOperation(t, t.Context()))) })
 	baseClient, err := opensearch.NewClient(settings.ClientConfig(nil))
 	if err != nil {
 		t.Fatalf("open OpenSearch client: %v", err)
 	}
-	model, err := adapter.Provision(t.Context())
+	model, err := adapter.Provision(integration.WithTestOperation(t, t.Context()))
 	if err != nil {
 		t.Fatalf("provision search model: %v", err)
 	}
 	index := "node-pages-" + uuid.Must(uuid.NewV7()).String()
 	t.Cleanup(func() {
 		request := opensearchapi.IndicesDeleteReq{Indices: []string{index}}
-		_, _ = opensearchapi.NewFromClient(baseClient).Indices.Delete(context.WithoutCancel(t.Context()), request)
+		_, _ = opensearchapi.NewFromClient(baseClient).Indices.Delete(context.WithoutCancel(integration.WithTestOperation(t, t.Context())), request)
 	})
 	spec := search.IndexSpec{Model: model, MappingVersion: search.MappingVersion, Primaries: 1, RoutingShards: 24, Replicas: 0}
-	if err := adapter.EnsureIndex(t.Context(), index, spec); err != nil {
+	if err := adapter.EnsureIndex(integration.WithTestOperation(t, t.Context()), index, spec); err != nil {
 		t.Fatalf("create search index: %v", err)
 	}
-	if err := adapter.SetAlias(t.Context(), search.PublicAlias, index); err != nil {
+	if err := adapter.SetAlias(integration.WithTestOperation(t, t.Context()), search.PublicAlias, index); err != nil {
 		t.Fatalf("set public alias: %v", err)
 	}
-	if err := stores.InitializeSearchIndex(t.Context(), index); err != nil {
+	if err := stores.InitializeSearchIndex(integration.WithTestOperation(t, t.Context()), index); err != nil {
 		t.Fatalf("record serving search index: %v", err)
 	}
 	cfg, err := config.Load()
@@ -160,7 +161,7 @@ func runDatagenSearchCommand(t *testing.T, cfg *config.Config, flags ...string) 
 	var output bytes.Buffer
 	factory := cli.System(cfg)
 	factory.Out = &output
-	pool, err := pgxpool.New(t.Context(), cfg.DatabaseURL)
+	pool, err := pgxpool.New(integration.WithTestOperation(t, t.Context()), cfg.DatabaseURL)
 	if err != nil {
 		t.Fatalf("open ledger pool: %v", err)
 	}

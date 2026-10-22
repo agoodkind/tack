@@ -10,6 +10,7 @@ import (
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain/node"
 	searchdomain "goodkind.io/tack/internal/domain/search"
+	"goodkind.io/tack/internal/test/integration"
 )
 
 const (
@@ -24,7 +25,7 @@ func claimLive(t *testing.T, store *fdbadapter.SearchWorkStore) map[uuid.UUID]se
 	t.Helper()
 	claimed := map[uuid.UUID]searchdomain.Work{}
 	for {
-		work, err := store.Claim(t.Context(), searchdomain.WorkClassLive, "delayed-writer", time.Minute)
+		work, err := store.Claim(integration.WithTestOperation(t, t.Context()), searchdomain.WorkClassLive, "delayed-writer", time.Minute)
 		if errors.Is(err, searchdomain.ErrNoWork) {
 			return claimed
 		}
@@ -101,31 +102,31 @@ func TestSearchProjectionMigrationRejectsDelayedWriters(t *testing.T) {
 	}
 	delayedPage := env.readerPages(t, registering)[0]
 	for _, page := range env.readerPages(t, refreshing) {
-		intent, err := store.Register(t.Context(), refreshWork, page)
+		intent, err := store.Register(integration.WithTestOperation(t, t.Context()), refreshWork, page)
 		if err != nil {
 			t.Fatalf("register page %d before the activation: %v", page.Ordinal, err)
 		}
-		if _, err := env.Adapter.Put(t.Context(), intent); err != nil {
+		if _, err := env.Adapter.Put(integration.WithTestOperation(t, t.Context()), intent); err != nil {
 			t.Fatalf("write page %d before the activation: %v", page.Ordinal, err)
 		}
-		if err := store.CompletePage(t.Context(), intent, page.NextCursor, page.Done); err != nil {
+		if err := store.CompletePage(integration.WithTestOperation(t, t.Context()), intent, page.NextCursor, page.Done); err != nil {
 			t.Fatalf("checkpoint page %d before the activation: %v", page.Ordinal, err)
 		}
 	}
 
 	env.forgetProjectionState(t)
 	env.finishMetadataPass(t)
-	if _, err := store.Register(t.Context(), registerWork, delayedPage); !errors.Is(err, node.ErrContentChanged) {
+	if _, err := store.Register(integration.WithTestOperation(t, t.Context()), registerWork, delayedPage); !errors.Is(err, node.ErrContentChanged) {
 		t.Fatalf("register a page read before the activation = %v, want ErrContentChanged", err)
 	}
-	if err := store.CompleteRefresh(t.Context(), refreshWork); err != nil {
+	if err := store.CompleteRefresh(integration.WithTestOperation(t, t.Context()), refreshWork); err != nil {
 		t.Fatalf("complete refresh after the activation: %v", err)
 	}
 	restarted, exists := claimLive(t, store)[refreshing]
 	if !exists || restarted.Generation <= refreshWork.Generation || restarted.Revision == refreshWork.Revision {
 		t.Fatalf("work after a delayed refresh = %+v, want a new generation and revision after %+v", restarted, refreshWork)
 	}
-	if err := store.Yield(t.Context(), restarted); err != nil {
+	if err := store.Yield(integration.WithTestOperation(t, t.Context()), restarted); err != nil {
 		t.Fatalf("yield restarted work: %v", err)
 	}
 	env.runIdle(t)

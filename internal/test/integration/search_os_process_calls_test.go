@@ -70,7 +70,7 @@ func actualProcessTool(t *testing.T, server *actualSearchServer, harness *MCPHar
 		t.Logf("actual process tool error request_id=%s tool=%s message=%s", call.ID, name, message)
 		return call, actualToolError{Text: call.Result.Text(), Message: message}
 	}
-	if err := requireActualProcessAudit(t.Context(), harness, call.ID, name); err != nil {
+	if err := requireActualProcessAudit(WithTestOperation(t, t.Context()), harness, call.ID, name); err != nil {
 		return call, err
 	}
 	return call, nil
@@ -97,7 +97,7 @@ func actualProcessRPC(t *testing.T, server *actualSearchServer, harness *MCPHarn
 	if err != nil {
 		return call, err
 	}
-	request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, server.endpoint+"/mcp", bytes.NewReader(body))
+	request, err := http.NewRequestWithContext(WithTestOperation(t, t.Context()), http.MethodPost, server.endpoint+"/mcp", bytes.NewReader(body))
 	if err != nil {
 		return call, err
 	}

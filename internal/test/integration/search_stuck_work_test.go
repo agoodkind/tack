@@ -48,7 +48,7 @@ func TestSearchVerifyReportsStuckRebuildWork(t *testing.T) {
 	if verifyErr == nil || !strings.Contains(verifyErr.Error(), "rebuild work "+rebuild.ID.String()) || !strings.Contains(verifyErr.Error(), malformedNodeKeyText) {
 		t.Fatalf("ops search verify error = %v, want the rebuild item %s and its last error", verifyErr, rebuild.ID)
 	}
-	current, found, err := fixture.Stores.SearchRebuilds(clock.Wall{}).CurrentRebuild(t.Context())
+	current, found, err := fixture.Stores.SearchRebuilds(clock.Wall{}).CurrentRebuild(WithTestOperation(t, t.Context()))
 	if err != nil || !found || current.State != searchdomain.RebuildCopying {
 		t.Fatalf("index replacement = %+v, found %t, error %v, want it still copying", current, found, err)
 	}
@@ -131,7 +131,7 @@ func runUntilStuck(t *testing.T, fixture queryFixture, class searchdomain.WorkCl
 	t.Helper()
 	deadline := clock.Now().Add(exclusionDeadline)
 	for clock.Now().Before(deadline) {
-		claimed, _ := fixture.Worker.RunSlice(t.Context())
+		claimed, _ := fixture.Worker.RunSlice(WithTestOperation(t, t.Context()))
 		if claimed {
 			continue
 		}

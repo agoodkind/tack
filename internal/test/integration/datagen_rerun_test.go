@@ -25,12 +25,12 @@ func TestDatagenRerunReusesPublicNodeIDs(t *testing.T) {
 	cfg := auditedDatagenConfig(t)
 	seed := nextHarnessSeed()
 	options := datagen.SeedRunOptions{Scale: "small", Seed: seed, Commit: true}
-	first, err := datagen.RunSeed(t.Context(), cfg, options)
+	first, err := datagen.RunSeed(WithTestOperation(t, t.Context()), cfg, options)
 	if err != nil {
 		t.Fatal(err)
 	}
 	before := generatedProjectID(t, cfg, seed)
-	second, err := datagen.RunSeed(t.Context(), cfg, options)
+	second, err := datagen.RunSeed(WithTestOperation(t, t.Context()), cfg, options)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +44,7 @@ func TestDatagenRerunReusesPublicNodeIDs(t *testing.T) {
 func TestDatagenSoakSeedsFreshPublicCorpus(t *testing.T) {
 	cfg := auditedDatagenConfig(t)
 	seed := nextHarnessSeed()
-	result, err := datagen.RunSoak(t.Context(), t.Context(), cfg, datagen.SoakOptions{
+	result, err := datagen.RunSoak(WithTestOperation(t, t.Context()), WithTestOperation(t, t.Context()), cfg, datagen.SoakOptions{
 		Duration: time.Minute, Rate: 60, MaxOps: 1, Scale: "small", Seed: seed, Commit: true,
 	}, nil)
 	if err != nil {
@@ -54,7 +54,7 @@ func TestDatagenSoakSeedsFreshPublicCorpus(t *testing.T) {
 		t.Fatalf("fresh soak did not execute its public operation: %+v", result)
 	}
 	project := generatedProjectID(t, cfg, seed)
-	reused, err := datagen.RunSeed(t.Context(), cfg, datagen.SeedRunOptions{Scale: "small", Seed: seed, Commit: true})
+	reused, err := datagen.RunSeed(WithTestOperation(t, t.Context()), cfg, datagen.SeedRunOptions{Scale: "small", Seed: seed, Commit: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,17 +70,17 @@ func generatedProjectID(t *testing.T, cfg *config.Config, seed int64) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	identities, err := datagen.BootstrapIdentities(t.Context(), cfg, seed, scale)
+	identities, err := datagen.BootstrapIdentities(WithTestOperation(t, t.Context()), cfg, seed, scale)
 	if err != nil {
 		t.Fatal(err)
 	}
-	graph, err := appruntime.BuildGraph(t.Context(), cfg)
+	graph, err := appruntime.BuildGraph(WithTestOperation(t, t.Context()), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer graph.Close()
 	workspace := identities.Workspaces[0]
-	result, err := datagen.NewDriver(graph, false, seed).Call(t.Context(), workspace.Actors[0].Token, "tack_get_project", datagen.ToolArguments{
+	result, err := datagen.NewDriver(graph, false, seed).Call(WithTestOperation(t, t.Context()), workspace.Actors[0].Token, "tack_get_project", datagen.ToolArguments{
 		WorkspaceReference: workspace.Slug, NodeID: "Q0101",
 	})
 	if err != nil {

@@ -59,8 +59,9 @@ func searchReindexOp(f *cli.Factory) clispec.Operation[searchReindexInput] {
 
 // runSearchReindex returns the replacement in progress unchanged. A rerun
 // after an interrupted command reports that replacement. Otherwise it requires
-// every projection declaration, validates the request against the serving
-// index before any engine write, and begins the replacement.
+// valid search declarations and a default projection for each property definition
+// without a declaration, validates the request against the serving index before
+// any engine write, and begins the replacement.
 func runSearchReindex(ctx context.Context, f *cli.Factory, in searchReindexInput, sink clispec.ResultSink, dryRun bool) (runErr error) {
 	env, err := NewEnv(ctx, f.Cfg)
 	if err != nil {

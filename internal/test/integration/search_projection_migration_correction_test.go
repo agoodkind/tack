@@ -10,6 +10,7 @@ import (
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/ops"
+	"goodkind.io/tack/internal/test/integration"
 )
 
 // putStoredBuiltIn stores a built-in property definition for name with
@@ -22,7 +23,7 @@ func (env *migrationEnv) putStoredBuiltIn(t *testing.T, name string, include boo
 		DefaultReference: nil, ReferenceTargetTypeKey: "",
 		Search: &node.SearchProjection{Include: include, Order: 50, Rule: node.TextRule{Mode: node.TextRuleScalar, Fields: nil, Items: nil, Labels: nil}},
 	}
-	if err := env.Stores.PropertyDefs.Set(t.Context(), definition); err != nil {
+	if err := env.Stores.PropertyDefs.Set(integration.WithTestOperation(t, t.Context()), definition); err != nil {
 		t.Fatalf("store built-in definition %s: %v", name, err)
 	}
 	return definition
@@ -65,7 +66,7 @@ func TestSearchProjectionMigrationCorrectsStoredReferenceDefinitions(t *testing.
 	childBefore := env.revisions(t, []uuid.UUID{child})
 
 	principal := audit.OperatorPrincipal{ID: uuid.MustParse("019dd226-440e-729a-a442-281aaf73ca31"), Email: "operator@example.invalid", Name: "Operator", Source: "test"}
-	ctx := audit.WithOperatorPrincipal(t.Context(), principal)
+	ctx := audit.WithOperatorPrincipal(integration.WithTestOperation(t, t.Context()), principal)
 	preview, err := ops.RunFixedDefinitionCorrection(ctx, env.Stores.PropertyDefs, true)
 	if err != nil || preview.Corrected != 2 {
 		t.Fatalf("preview = %+v, err %v; want two corrections", preview, err)
@@ -79,11 +80,11 @@ func TestSearchProjectionMigrationCorrectsStoredReferenceDefinitions(t *testing.
 		t.Fatalf("repeated correction = %+v, err %v; want no correction", repeated, err)
 	}
 	env.requireCorrectionEvents(t, []uuid.UUID{parentDefinition.ID, scopeDefinition.ID})
-	stored, err := env.Stores.PropertyDefs.Get(t.Context(), env.OrgID, parentDefinition.ID)
+	stored, err := env.Stores.PropertyDefs.Get(integration.WithTestOperation(t, t.Context()), env.OrgID, parentDefinition.ID)
 	if err != nil || stored.Search == nil || stored.Search.Include {
 		t.Fatalf("stored parent_id definition = %+v, err %v; want a search exclusion", stored, err)
 	}
-	scope, err := env.Stores.PropertyDefs.Get(t.Context(), env.OrgID, scopeDefinition.ID)
+	scope, err := env.Stores.PropertyDefs.Get(integration.WithTestOperation(t, t.Context()), env.OrgID, scopeDefinition.ID)
 	if err != nil || slices.Contains(scope.AppliesToFeatures, node.FeatureHasSequenceID) {
 		t.Fatalf("stored scope_id definition = %+v, err %v; want the seeded applicability", scope, err)
 	}
@@ -106,7 +107,7 @@ func TestSearchProjectionMigrationCorrectsStoredReferenceDefinitions(t *testing.
 // definition in definitionIDs.
 func (env *migrationEnv) requireCorrectionEvents(t *testing.T, definitionIDs []uuid.UUID) {
 	t.Helper()
-	entries, err := env.Stores.OpsOutbox.ReadOutboxFrom(t.Context(), nil, 100)
+	entries, err := env.Stores.OpsOutbox.ReadOutboxFrom(integration.WithTestOperation(t, t.Context()), nil, 100)
 	if err != nil {
 		t.Fatalf("read the audit outbox: %v", err)
 	}

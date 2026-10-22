@@ -77,7 +77,7 @@ func (c summaryReadCounter) WithGroup(name string) slog.Handler {
 // summary reads and returns the number of summary reads the call made.
 func countedSearch(t *testing.T, counter summaryReadCounter, searcher *service.SearchQueryService, request service.SearchRequest) (service.SearchPage, int64) {
 	t.Helper()
-	ctx := telemetry.WithLogger(t.Context(), slog.New(counter))
+	ctx := telemetry.WithLogger(WithTestOperation(t, t.Context()), slog.New(counter))
 	start := counter.reads.Load()
 	page, err := searcher.Search(ctx, request)
 	if err != nil {
@@ -143,7 +143,7 @@ func TestSearchSummaryReadsPerBatch(t *testing.T) {
 	filter := callerAccess(t, fixture, workspace, entryID)
 	putDuplicatePages(t, fixture, kind, deleted, filter, budgetDeletedPages)
 	corruptIndexedAccess(t, fixture, forbidden, filter)
-	if err := fixture.Stores.Nodes.Delete(t.Context(), kind.OrgID, deleted); err != nil {
+	if err := fixture.Stores.Nodes.Delete(WithTestOperation(t, t.Context()), kind.OrgID, deleted); err != nil {
 		t.Fatalf("delete node %s: %v", deleted, err)
 	}
 	requireRankedBeforeValid(t, fixture, filter, []uuid.UUID{deleted, forbidden}, valid)

@@ -63,12 +63,12 @@ func TestSearchRuntimeIndexesThroughGraph(t *testing.T) {
 	_, client, _, index := newSearchIndex(t, stores)
 	configureSearchRuntime(t)
 	cfg := queryConfig(t)
-	graph, err := appruntime.BuildGraph(t.Context(), cfg)
+	graph, err := appruntime.BuildGraph(WithTestOperation(t, t.Context()), cfg)
 	if err != nil {
 		t.Fatalf("build graph: %v", err)
 	}
 	t.Cleanup(graph.Close)
-	graph.StartSearchWorkers(t.Context())
+	graph.StartSearchWorkers(WithTestOperation(t, t.Context()))
 
 	fixture := putSearchText(t, stores, readerIncludedValue(), readerExcludedValue)
 	started := time.Now()

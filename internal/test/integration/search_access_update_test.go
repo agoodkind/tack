@@ -37,7 +37,7 @@ func newMovableChild(t *testing.T, stores *fdbadapter.Stores, text string) movab
 		ID: uuid.Must(uuid.NewV7()), OrgID: first.OrgID, Name: child.TypeKey, TypeKey: child.TypeKey,
 		Slug: child.TypeKey, PluralSlug: child.TypeKey + "s", CanLiveUnder: []string{first.TypeKey},
 	}
-	if err := stores.NodeTypes.Set(t.Context(), kind); err != nil {
+	if err := stores.NodeTypes.Set(WithTestOperation(t, t.Context()), kind); err != nil {
 		t.Fatalf("store child node type: %v", err)
 	}
 	props := map[string]json.RawMessage{child.IncludedKey: mustJSON(text), child.ExcludedKey: mustJSON(readerExcludedValue)}
@@ -45,7 +45,7 @@ func newMovableChild(t *testing.T, stores *fdbadapter.Stores, text string) movab
 	value := &node.Node{ID: child.NodeID, OrgID: child.OrgID, NodeType: child.TypeKey, Name: searchFixtureName, Props: props, CreatedAt: now, UpdatedAt: now}
 	view := &node.NodeView{ID: child.NodeID, OrgID: child.OrgID, NodeType: child.TypeKey, Name: searchFixtureName, Props: props, CreatedAt: now, UpdatedAt: now}
 	parent := &node.Relationship{OrgID: child.OrgID, SourceID: child.NodeID, RelationType: node.RelChildOf, TargetID: first.NodeID, CreatedBy: uuid.Nil, CreatedAt: now, Props: nil}
-	if err := stores.Nodes.CreateAtomic(t.Context(), value, view, []*node.Relationship{parent}, nil, nil, nil); err != nil {
+	if err := stores.Nodes.CreateAtomic(WithTestOperation(t, t.Context()), value, view, []*node.Relationship{parent}, nil, nil, nil); err != nil {
 		t.Fatalf("create child node: %v", err)
 	}
 	return movableChild{Fixture: child, First: first.NodeID, Second: second.NodeID}
@@ -58,10 +58,10 @@ func moveChild(t *testing.T, stores *fdbadapter.Stores, moved movableChild) {
 	t.Helper()
 	orgID := moved.Fixture.OrgID
 	parent := &node.Relationship{OrgID: orgID, SourceID: moved.Fixture.NodeID, RelationType: node.RelChildOf, TargetID: moved.Second, CreatedBy: uuid.Nil, CreatedAt: clock.Now().UTC(), Props: nil}
-	if err := stores.Relationships.Add(t.Context(), parent); err != nil {
+	if err := stores.Relationships.Add(WithTestOperation(t, t.Context()), parent); err != nil {
 		t.Fatalf("add parent edge: %v", err)
 	}
-	if err := stores.Relationships.Remove(t.Context(), orgID, moved.Fixture.NodeID, node.RelChildOf, moved.First); err != nil {
+	if err := stores.Relationships.Remove(WithTestOperation(t, t.Context()), orgID, moved.Fixture.NodeID, node.RelChildOf, moved.First); err != nil {
 		t.Fatalf("remove parent edge: %v", err)
 	}
 }

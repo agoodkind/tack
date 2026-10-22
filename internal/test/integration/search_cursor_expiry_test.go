@@ -50,7 +50,7 @@ func queryService(t *testing.T, fixture queryFixture, responseBytes int, idle, a
 // storedSession loads one durable session through the production store.
 func storedSession(t *testing.T, fixture queryFixture, sessionID uuid.UUID) searchdomain.Session {
 	t.Helper()
-	session, err := fixture.Stores.SearchSessions(clock.Wall{}, sessionIdleTimeout).Load(t.Context(), sessionID)
+	session, err := fixture.Stores.SearchSessions(clock.Wall{}, sessionIdleTimeout).Load(WithTestOperation(t, t.Context()), sessionID)
 	if err != nil {
 		t.Fatalf("load session %s: %v", sessionID, err)
 	}
@@ -80,15 +80,15 @@ func TestSearchSessionDeadlines(t *testing.T) {
 	putCursorCorpus(t, fixture, "linen compass", 300)
 	searcher := queryService(t, fixture, 16384, sessionIdleTimeout, sessionAbsoluteTimeout)
 	request := serviceRequest(t, fixture, "linen compass")
-	idle, err := searcher.Search(t.Context(), request)
+	idle, err := searcher.Search(WithTestOperation(t, t.Context()), request)
 	if err != nil {
 		t.Fatalf("open idle session: %v", err)
 	}
 	waitUntil(t, storedSession(t, fixture, idle.SessionID).IdleDeadline)
-	if _, err := searcher.Search(t.Context(), continued(request, idle)); !errors.Is(err, searchdomain.ErrSessionExpired) {
+	if _, err := searcher.Search(WithTestOperation(t, t.Context()), continued(request, idle)); !errors.Is(err, searchdomain.ErrSessionExpired) {
 		t.Fatalf("an idle session continued: %v", err)
 	}
-	page, err := searcher.Search(t.Context(), request)
+	page, err := searcher.Search(WithTestOperation(t, t.Context()), request)
 	if err != nil {
 		t.Fatalf("open active session: %v", err)
 	}
@@ -97,11 +97,11 @@ func TestSearchSessionDeadlines(t *testing.T) {
 	continuations := 0
 	for clock.Now().Add(2 * sessionActivityStep).Before(absolute) {
 		waitUntil(t, clock.Now().Add(sessionActivityStep))
-		next, err := searcher.Search(t.Context(), current)
+		next, err := searcher.Search(WithTestOperation(t, t.Context()), current)
 		if err != nil {
 			t.Fatalf("continuation %d before the absolute deadline failed: %v", continuations, err)
 		}
-		replayed, err := searcher.Search(t.Context(), current)
+		replayed, err := searcher.Search(WithTestOperation(t, t.Context()), current)
 		if err != nil || replayed.NextVersion != next.NextVersion {
 			t.Fatalf("replay of continuation %d failed or advanced the session: %v", continuations, err)
 		}
@@ -114,7 +114,7 @@ func TestSearchSessionDeadlines(t *testing.T) {
 		t.Fatalf("after %d continuations the idle deadline is %s and the absolute deadline is %s, want both at the absolute deadline %s",
 			continuations, active.IdleDeadline, active.AbsoluteDeadline, absolute)
 	}
-	if _, err := searcher.Search(t.Context(), current); !errors.Is(err, searchdomain.ErrSessionExpired) {
+	if _, err := searcher.Search(WithTestOperation(t, t.Context()), current); !errors.Is(err, searchdomain.ErrSessionExpired) {
 		t.Fatalf("activity extended the session past its absolute deadline: %v", err)
 	}
 }
@@ -127,16 +127,16 @@ func TestSearchExpiredSessionCleanup(t *testing.T) {
 	putCursorCorpus(t, fixture, "saddle beacon", 60)
 	searcher := queryService(t, fixture, 16384, sessionIdleTimeout, sessionAbsoluteTimeout)
 	request := serviceRequest(t, fixture, "saddle beacon")
-	page, err := searcher.Search(t.Context(), request)
+	page, err := searcher.Search(WithTestOperation(t, t.Context()), request)
 	if err != nil {
 		t.Fatalf("open session: %v", err)
 	}
 	deadline := storedSession(t, fixture, page.SessionID).IdleDeadline
 	waitUntil(t, deadline.Truncate(time.Minute).Add(time.Minute))
-	if _, err := searcher.Search(t.Context(), request); err != nil {
+	if _, err := searcher.Search(WithTestOperation(t, t.Context()), request); err != nil {
 		t.Fatalf("open second session: %v", err)
 	}
-	_, err = fixture.Stores.SearchSessions(clock.Wall{}, sessionIdleTimeout).Load(t.Context(), page.SessionID)
+	_, err = fixture.Stores.SearchSessions(clock.Wall{}, sessionIdleTimeout).Load(WithTestOperation(t, t.Context()), page.SessionID)
 	if !errors.Is(err, searchdomain.ErrSessionNotFound) {
 		t.Fatalf("expired session %s remains after cleanup: %v", page.SessionID, err)
 	}
@@ -159,7 +159,7 @@ func TestSearchByteLimitedResponse(t *testing.T) {
 	request := serviceRequest(t, fixture, "tundra relay")
 	returned := make([]uuid.UUID, 0, len(nodes))
 	for range 200 {
-		page, err := searcher.Search(t.Context(), request)
+		page, err := searcher.Search(WithTestOperation(t, t.Context()), request)
 		if err != nil {
 			t.Fatalf("search page: %v", err)
 		}

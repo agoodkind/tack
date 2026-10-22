@@ -33,7 +33,7 @@ import (
 // escaped text; its largest page request, times 32 pages, times two indexes,
 // is the upper bound for a production slice and must stay below 5 MiB.
 func TestSearchWorkerLargestSliceStaysWithinByteMaximum(t *testing.T) {
-	production, err := config.LoadSearchWorkerSettings(t.Context())
+	production, err := config.LoadSearchWorkerSettings(WithTestOperation(t, t.Context()))
 	if err != nil {
 		t.Fatalf("load production search worker settings: %v", err)
 	}
@@ -50,16 +50,16 @@ func TestSearchWorkerLargestSliceStaysWithinByteMaximum(t *testing.T) {
 	work := stores.SearchWork(source)
 
 	rollouts := stores.SearchRollouts(source, stores.SearchPolicySet())
-	current, err := rollouts.Current(t.Context(), plain.OrgID)
+	current, err := rollouts.Current(WithTestOperation(t, t.Context()), plain.OrgID)
 	if err != nil {
 		t.Fatalf("read access rollout: %v", err)
 	}
 	begin := searchdomain.BeginAccessRollout{AuthorityID: plain.OrgID, CandidateVersion: searchaccess.RotatedVersion, ExpectedGeneration: current.Generation}
-	if _, err := rollouts.Begin(t.Context(), begin); err != nil {
+	if _, err := rollouts.Begin(WithTestOperation(t, t.Context()), begin); err != nil {
 		t.Fatalf("begin access rollout: %v", err)
 	}
 	driveClasses(t, setup, work, []searchdomain.WorkClass{searchdomain.WorkClassRollout, searchdomain.WorkClassAccess}, func() bool {
-		rollout, err := rollouts.Current(t.Context(), plain.OrgID)
+		rollout, err := rollouts.Current(WithTestOperation(t, t.Context()), plain.OrgID)
 		if err != nil {
 			t.Fatalf("read access rollout: %v", err)
 		}
@@ -74,7 +74,7 @@ func TestSearchWorkerLargestSliceStaysWithinByteMaximum(t *testing.T) {
 	drainClass(t, work, setup, searchdomain.WorkClassAccess)
 
 	rebuilds := stores.SearchRebuilds(source)
-	rebuild, err := rebuilds.BeginRebuild(t.Context(), searchdomain.BeginRebuild{
+	rebuild, err := rebuilds.BeginRebuild(WithTestOperation(t, t.Context()), searchdomain.BeginRebuild{
 		Mode: searchdomain.ReplacementFull, PrimaryShards: 1, RoutingShards: 8, Replicas: 0, Restored: false, Reason: "largest slice measurement",
 	})
 	if err != nil {
@@ -82,7 +82,7 @@ func TestSearchWorkerLargestSliceStaysWithinByteMaximum(t *testing.T) {
 	}
 	t.Cleanup(func() { deleteNativeIndex(t, client, rebuild.TargetIndex) })
 	driveClasses(t, setup, work, []searchdomain.WorkClass{searchdomain.WorkClassRebuild}, func() bool {
-		replacement, found, err := rebuilds.CurrentRebuild(t.Context())
+		replacement, found, err := rebuilds.CurrentRebuild(WithTestOperation(t, t.Context()))
 		if err != nil || !found {
 			t.Fatalf("read index replacement: found %t err %v", found, err)
 		}
@@ -127,7 +127,7 @@ func TestSearchWorkerLargestSliceStaysWithinByteMaximum(t *testing.T) {
 	if bound >= production.MaxBytes {
 		t.Fatalf("32 pages of the largest escaped request on two indexes = %d bytes, want less than %d", bound, production.MaxBytes)
 	}
-	measuredRollout, err := rollouts.Current(t.Context(), plain.OrgID)
+	measuredRollout, err := rollouts.Current(WithTestOperation(t, t.Context()), plain.OrgID)
 	if err != nil {
 		t.Fatalf("read access rollout: %v", err)
 	}

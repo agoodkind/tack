@@ -27,11 +27,19 @@ type SubtreeDeleteJob struct {
 	// ActorID is the user or operator who asked for the delete. A moved node
 	// records it as its last updater.
 	ActorID uuid.UUID `json:"actor_id" exhaustruct:"optional"`
-	// AuditTemplate is the ledger event staged for the root delete. The step
-	// that deletes the root writes it unchanged. The step that deletes or
-	// moves another node writes a copy for that node. An empty template
-	// writes no ledger event, because the caller records the delete itself.
-	AuditTemplate json.RawMessage `json:"audit_template,omitempty"`
+	// Operation is the encoded audit operation from the request that started the job.
+	// Every step records node and relationship changes with the actor and operation ID
+	// from Operation, including steps that the resume loop runs.
+	Operation json.RawMessage `json:"operation,omitempty" exhaustruct:"optional"`
+	// AuditTemplate stores the root delete audit template instead of Operation in job
+	// records that the current main release wrote. When Operation is empty, each step
+	// builds the job's audit operation from AuditTemplate with
+	// [goodkind.io/tack/internal/audit.LegacyJobOperation]. New jobs leave AuditTemplate
+	// empty.
+	//
+	// Remove AuditTemplate and [goodkind.io/tack/internal/audit.LegacyJobOperation]
+	// after job records with audit_template no longer exist in any environment.
+	AuditTemplate json.RawMessage `json:"audit_template,omitempty" exhaustruct:"optional"`
 	// Stack lists the nodes on the path from the root to the node the next
 	// step examines. The first entry is the root.
 	Stack []uuid.UUID `json:"stack"`
@@ -53,26 +61,6 @@ type SubtreeDeleteJob struct {
 func (j *SubtreeDeleteJob) Finished() bool {
 	return !j.FinishedAt.IsZero()
 }
-
-// SubtreeChange identifies one node that a subtree delete step deleted or
-// moved. MovedTo is [uuid.Nil] for a deleted node. For a moved node, MovedFrom
-// is the deleted parent and MovedTo is the new parent.
-type SubtreeChange struct {
-	ID        uuid.UUID
-	NodeType  string
-	Name      string
-	MovedFrom uuid.UUID
-	MovedTo   uuid.UUID
-}
-
-// Moved reports whether the step moved the node instead of deleting it.
-func (c SubtreeChange) Moved() bool {
-	return c.MovedTo != uuid.Nil
-}
-
-// DeletionEventBuilder returns the ledger event for one node that a subtree
-// delete step deleted or moved, built from the root's staged event.
-type DeletionEventBuilder func(template json.RawMessage, change SubtreeChange) (json.RawMessage, error)
 
 // SubtreeDeleteProgress reports the job state after one step.
 type SubtreeDeleteProgress struct {

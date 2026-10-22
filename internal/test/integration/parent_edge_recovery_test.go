@@ -12,6 +12,7 @@ import (
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain/node"
 	searchdomain "goodkind.io/tack/internal/domain/search"
+	"goodkind.io/tack/internal/test/integration"
 )
 
 // parentEdgePause spaces the worker slices while the replacement waits.
@@ -31,7 +32,7 @@ func TestSearchParentEdgeReindexReadmits(t *testing.T) {
 	nested := fixture.createLeaf(t, parent, "topaz nested leaf")
 	fixture.drain(t)
 	second := &node.Relationship{OrgID: fixture.kind.orgID, SourceID: nested, RelationType: node.RelChildOf, TargetID: fixture.secondEntry}
-	if err := fixture.stores.Relationships.Add(t.Context(), second); err != nil {
+	if err := fixture.stores.Relationships.Add(integration.WithTestOperation(t, t.Context()), second); err != nil {
 		t.Fatalf("add second parent edge of nested leaf %s: %v", nested, err)
 	}
 	fixture.drain(t)
@@ -45,7 +46,7 @@ func TestSearchParentEdgeReindexReadmits(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open stores without search work: %v", err)
 	}
-	if err := unscheduled.Relationships.Remove(t.Context(), fixture.kind.orgID, nested, node.RelChildOf, fixture.secondEntry); err != nil {
+	if err := unscheduled.Relationships.Remove(integration.WithTestOperation(t, t.Context()), fixture.kind.orgID, nested, node.RelChildOf, fixture.secondEntry); err != nil {
 		t.Fatalf("remove second parent edge of nested leaf %s: %v", nested, err)
 	}
 
@@ -99,18 +100,20 @@ func (f parentEdgeFixture) reindex(t *testing.T) {
 	if err := json.Unmarshal(result, &replacement); err != nil || replacement.TargetIndex == "" {
 		t.Fatalf("decode ops search reindex result %s: %v", result, err)
 	}
-	t.Cleanup(func() { _ = f.adapter.DeleteIndex(context.WithoutCancel(t.Context()), replacement.TargetIndex) })
+	t.Cleanup(func() {
+		_ = f.adapter.DeleteIndex(context.WithoutCancel(integration.WithTestOperation(t, t.Context())), replacement.TargetIndex)
+	})
 	rebuilds := f.stores.SearchRebuilds(clock.Wall{})
 	deadline := clock.Now().Add(parentEdgeDeadline)
 	for clock.Now().Before(deadline) {
-		current, running, err := rebuilds.CurrentRebuild(t.Context())
+		current, running, err := rebuilds.CurrentRebuild(integration.WithTestOperation(t, t.Context()))
 		if err != nil {
 			t.Fatalf("read index replacement: %v", err)
 		}
 		if !running || current.State == searchdomain.RebuildRetiring {
 			return
 		}
-		claimed, err := f.worker.RunSlice(t.Context())
+		claimed, err := f.worker.RunSlice(integration.WithTestOperation(t, t.Context()))
 		if err != nil {
 			t.Fatalf("search slice failed during the replacement: %v", err)
 		}

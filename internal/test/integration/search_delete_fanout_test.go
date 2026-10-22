@@ -37,7 +37,7 @@ func TestSearchDeleteSchedulesBoundedFanout(t *testing.T) {
 	worker := newSearchWorker(t, stores, adapter, source, searchWorkerSettings(deleteFanoutPageBytes))
 	runSearchWorkerWithin(t, worker, deleteFanoutSlices)
 
-	if err := stores.Nodes.Delete(t.Context(), deleted.OrgID, deleted.NodeID); err != nil {
+	if err := stores.Nodes.Delete(WithTestOperation(t, t.Context()), deleted.OrgID, deleted.NodeID); err != nil {
 		t.Fatalf("delete a node with %d relationships: %v", deleteFanoutCounterparts, err)
 	}
 	store := stores.SearchWork(source)
@@ -46,7 +46,7 @@ func TestSearchDeleteSchedulesBoundedFanout(t *testing.T) {
 	if len(fanout) != 1 || !exists || !work.Deleted || work.Phase != searchdomain.PhaseDependents {
 		t.Fatalf("access work after the delete = %d items, deleted-node work %+v, want one deleted dependents item", len(fanout), work)
 	}
-	if err := worker.Process(t.Context(), work); err != nil {
+	if err := worker.Process(WithTestOperation(t, t.Context()), work); err != nil {
 		t.Fatalf("process the first fanout slice: %v", err)
 	}
 	scheduled := claimAllFor(t, store, searchdomain.WorkClassAccess, shortLease)

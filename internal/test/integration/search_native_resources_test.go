@@ -11,16 +11,16 @@ import (
 func TestSearchNativeClientUsesOnlyTheConfiguredEndpoint(t *testing.T) {
 	fixture := testenv.OpenSearch(t)
 	adapter, _ := openSearchClientsFor(t, fixture)
-	if err := adapter.Ping(t.Context()); err != nil {
+	if err := adapter.Ping(WithTestOperation(t, t.Context())); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := adapter.ServerVersion(t.Context()); err != nil {
+	if _, err := adapter.ServerVersion(WithTestOperation(t, t.Context())); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := adapter.Provision(t.Context()); err != nil {
+	if _, err := adapter.Provision(WithTestOperation(t, t.Context())); err != nil {
 		t.Fatal(err)
 	}
-	endpoints, err := adapter.Endpoints(t.Context())
+	endpoints, err := adapter.Endpoints(WithTestOperation(t, t.Context()))
 	if err != nil {
 		t.Fatal(err)
 	}

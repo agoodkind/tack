@@ -72,17 +72,17 @@ func TestSearchControlCommandsRejectIndependentTopologyAndAliasMismatches(t *tes
 			}
 		})
 	}
-	model, err := control.adapter.Provision(t.Context())
+	model, err := control.adapter.Provision(WithTestOperation(t, t.Context()))
 	if err != nil {
 		t.Fatal(err)
 	}
 	spec := search.IndexSpec{Model: model, MappingVersion: search.MappingVersion, Primaries: 1, RoutingShards: 8, Replicas: 0}
-	if err := control.adapter.EnsureIndex(t.Context(), searchControlOtherIndex, spec); err != nil {
+	if err := control.adapter.EnsureIndex(WithTestOperation(t, t.Context()), searchControlOtherIndex, spec); err != nil {
 		t.Fatal(err)
 	}
 	body := `{"actions":[{"remove":{"index":"` + searchControlIndex + `","alias":"` + searchControlAlias + `"}},` +
 		`{"add":{"index":"` + searchControlOtherIndex + `","alias":"` + searchControlAlias + `"}}]}`
-	response, err := control.client.Aliases(t.Context(), opensearchapi.AliasesReq{Body: strings.NewReader(body)})
+	response, err := control.client.Aliases(WithTestOperation(t, t.Context()), opensearchapi.AliasesReq{Body: strings.NewReader(body)})
 	if err != nil {
 		t.Fatal(err)
 	}

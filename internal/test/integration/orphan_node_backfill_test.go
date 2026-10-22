@@ -25,7 +25,7 @@ func TestOrphanNodeBackfill(t *testing.T) {
 	}
 	drainOutbox(t, env)
 	principal := audit.OperatorPrincipal{ID: uuid.New(), Email: "operator@example.com", Name: "Operator", Source: "test"}
-	ctx := audit.WithOperatorPrincipal(env.Ctx, principal)
+	ctx := audit.WithOpID(audit.WithOperatorPrincipal(t.Context(), principal), uuid.Must(uuid.NewV7()))
 	service := env.NodeSvc
 
 	planned, err := ops.RunOrphanNodeBackfill(ctx, env.Stores.NodeDeleter, env.Stores.Relationships, service, true)
@@ -59,14 +59,22 @@ func TestOrphanNodeBackfill(t *testing.T) {
 }
 
 // requireOperatorDeleteEvents requires exactly one node.delete outbox row by
-// operatorID from the orphan backfill for each node in removed.
+// operatorID from the orphan backfill for each node in removed. Every other
+// row must be a relationship.remove row by operatorID from the orphan
+// backfill.
 func requireOperatorDeleteEvents(t *testing.T, env *TestEnv, removed []uuid.UUID, operatorID uuid.UUID) {
 	t.Helper()
 	events := outboxEvents(t, env)
 	recorded := make([]uuid.UUID, 0, len(events))
 	for _, event := range events {
-		if event.Verb != string(audit.VerbNodeDelete) || event.Actor.ID != operatorID || event.Context.Tool != "ops.backfill.once-orphan-nodes" {
-			t.Fatalf("outbox row = %+v, want node.delete by operator %s from the orphan backfill", event, operatorID)
+		if event.Actor.ID != operatorID || event.Context.Tool != "ops.backfill.once-orphan-nodes" {
+			t.Fatalf("outbox row = %+v, want a row by operator %s from the orphan backfill", event, operatorID)
+		}
+		if event.Verb == string(audit.VerbRelationshipRemove) {
+			continue
+		}
+		if event.Verb != string(audit.VerbNodeDelete) {
+			t.Fatalf("outbox row = %+v, want node.delete or relationship.remove", event)
 		}
 		recorded = append(recorded, event.Entity.ID)
 	}
