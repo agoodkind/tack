@@ -53,8 +53,7 @@ func storedLabelEdge(t *testing.T, env *integration.TestEnv, sourceID, labelID u
 	return nil
 }
 
-// storedNodeRecord returns the JSON encoding of the stored node record of
-// nodeID.
+// storedNodeRecord returns the JSON encoding of the stored node with ID nodeID.
 func storedNodeRecord(t *testing.T, env *integration.TestEnv, nodeID uuid.UUID) json.RawMessage {
 	t.Helper()
 	current, err := env.Stores.Nodes.Get(env.Ctx, env.OrgID, nodeID)
