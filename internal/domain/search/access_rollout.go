@@ -11,6 +11,18 @@ import (
 // policy transition.
 var ErrRolloutInProgress = errors.New("search access rollout is already in progress")
 
+// ErrNoRolloutInProgress means the authority does not have an access
+// policy rollout to roll back.
+var ErrNoRolloutInProgress = errors.New("authority does not have a rollout in progress")
+
+// ErrRetirementStarted means retirement has started and the authority
+// writes one version. Rollback cannot restore the other version.
+var ErrRetirementStarted = errors.New("cannot roll back after retirement of one version has started")
+
+// ErrRolloutChanged means another operator changed the rollout after the
+// caller read it.
+var ErrRolloutChanged = errors.New("rollout changed after the caller read it")
+
 // AccessPhase is the durable step of one authority's access policy rollout.
 type AccessPhase string
 
@@ -54,6 +66,14 @@ type BeginAccessRollout struct {
 	ExpectedGeneration int64
 }
 
+// RollbackAccessRollout requests rollback of one authority's access
+// policy rollout. ExpectedGeneration must equal the stored rollout
+// generation.
+type RollbackAccessRollout struct {
+	AuthorityID        uuid.UUID
+	ExpectedGeneration int64
+}
+
 // RolloutDocument is one issued page document a verification step reads.
 type RolloutDocument struct {
 	NodeID   uuid.UUID
@@ -86,6 +106,7 @@ const (
 type AccessRolloutStore interface {
 	Current(context.Context, uuid.UUID) (AccessRollout, error)
 	Begin(context.Context, BeginAccessRollout) (AccessRollout, error)
+	Rollback(context.Context, RollbackAccessRollout) (AccessRollout, error)
 	CompleteScan(context.Context, Work, AccessRollout, ScanResult) error
 	VerifyDocuments(context.Context, Work, AccessRollout, int) ([]RolloutDocument, bool, error)
 	CompleteVerify(context.Context, Work, AccessRollout, []RolloutDocument, map[string]DocumentAccess, bool) (RolloutStep, error)
