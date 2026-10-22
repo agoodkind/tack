@@ -14,6 +14,8 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 	appruntime "goodkind.io/tack/internal/runtime"
 	"goodkind.io/tack/internal/service"
+	"goodkind.io/tack/internal/test/integration"
+	"goodkind.io/tack/internal/testenv"
 )
 
 // parentEdgeKind stores the organization ID, the type key of one opaque node
@@ -45,6 +47,7 @@ type parentEdgeFixture struct {
 func newParentEdgeFixture(t *testing.T) parentEdgeFixture {
 	t.Helper()
 	cfg := newCohortEngines(t)
+	integration.ConfigureSearchMaintenance(t, testenv.OpenSearchWithMemory(t, cohortEngineMemoryBytes))
 	graph, err := appruntime.BuildGraph(t.Context(), cfg)
 	if err != nil {
 		t.Fatalf("build graph: %v", err)
