@@ -17,10 +17,13 @@ type renderCtx struct {
 	users     user.Repository
 	typeIndex map[string]*node.NodeType
 	cache     map[uuid.UUID]string
+	// assignees maps node IDs to user IDs from assigned_to relationships.
+	// loadAssignees fills the map.
+	assignees map[uuid.UUID][]uuid.UUID
 }
 
 func newRenderCtxWithTypes(ctx context.Context, reader node.NodeReader, users user.Repository, typeIndex map[string]*node.NodeType) *renderCtx {
-	return &renderCtx{ctx: ctx, reader: reader, users: users, typeIndex: typeIndex, cache: map[uuid.UUID]string{}}
+	return &renderCtx{ctx: ctx, reader: reader, users: users, typeIndex: typeIndex, cache: map[uuid.UUID]string{}, assignees: map[uuid.UUID][]uuid.UUID{}}
 }
 
 func (rc *renderCtx) nodeIdentifier(id uuid.UUID) string {
