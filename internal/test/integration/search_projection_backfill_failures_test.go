@@ -146,7 +146,7 @@ func projectionTestPrincipal() audit.OperatorPrincipal {
 // command gate attaches.
 func projectionOperatorContext(t *testing.T) context.Context {
 	t.Helper()
-	return audit.WithOpID(audit.WithOperatorPrincipal(t.Context(), projectionTestPrincipal()), uuid.Must(uuid.NewV7()))
+	return audit.WithOpID(audit.WithOperatorPrincipal(WithTestOperation(t, t.Context()), projectionTestPrincipal()), uuid.Must(uuid.NewV7()))
 }
 
 func projectionEntries(t *testing.T, entries ...node.ProjectionManifestEntry) string {

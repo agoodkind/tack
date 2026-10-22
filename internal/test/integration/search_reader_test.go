@@ -24,7 +24,7 @@ func readerIncludedValue() string {
 func TestSearchReaderRejectsMissingNode(t *testing.T) {
 	stores := newSearchStore(t)
 	reader := stores.SearchContent(stores.SearchPolicySet())
-	_, err := reader.Content(t.Context(), searchdomain.ContentRequest{
+	_, err := reader.Content(WithTestOperation(t, t.Context()), searchdomain.ContentRequest{
 		NodeID: uuid.Must(uuid.NewV7()), Cursor: "", ProjectionConfig: "", AccessVersions: nil, MaxBytes: readerPageBytes, SearchGeneration: 0,
 	})
 	if !errors.Is(err, domain.ErrNotFound) {
@@ -84,7 +84,7 @@ func TestSearchReaderCompletesOnAFullFinalPage(t *testing.T) {
 	}
 	const finalOrdinal = 2
 	for ordinal := range finalOrdinal + 1 {
-		page, err := reader.Content(t.Context(), request)
+		page, err := reader.Content(WithTestOperation(t, t.Context()), request)
 		if err != nil {
 			t.Fatalf("read page %d: %v", ordinal, err)
 		}
@@ -106,16 +106,16 @@ func TestSearchReaderRejectsEditBetweenPages(t *testing.T) {
 	request := searchdomain.ContentRequest{
 		NodeID: fixture.NodeID, Cursor: "", ProjectionConfig: "", AccessVersions: nil, MaxBytes: readerPageBytes, SearchGeneration: 0,
 	}
-	first, err := reader.Content(t.Context(), request)
+	first, err := reader.Content(WithTestOperation(t, t.Context()), request)
 	if err != nil {
 		t.Fatalf("read first page: %v", err)
 	}
 	writeSearchNode(t, stores, fixture, readerIncludedValue()+" edited", readerExcludedValue)
 	request.Cursor = first.NextCursor
-	if _, err := reader.Content(t.Context(), request); !errors.Is(err, node.ErrContentChanged) {
+	if _, err := reader.Content(WithTestOperation(t, t.Context()), request); !errors.Is(err, node.ErrContentChanged) {
 		t.Fatalf("continuation after an edit returned %v, want content changed", err)
 	}
-	restarted, err := reader.Content(t.Context(), searchdomain.ContentRequest{
+	restarted, err := reader.Content(WithTestOperation(t, t.Context()), searchdomain.ContentRequest{
 		NodeID: fixture.NodeID, Cursor: "", ProjectionConfig: "", AccessVersions: nil, MaxBytes: readerPageBytes, SearchGeneration: 0,
 	})
 	if err != nil || restarted.Revision == first.Revision {
@@ -127,7 +127,7 @@ func TestSearchReaderRejectsDeletedNode(t *testing.T) {
 	stores := newSearchStore(t)
 	fixture := putSearchText(t, stores, readerIncludedValue(), readerExcludedValue)
 	reader := stores.SearchContent(stores.SearchPolicySet())
-	first, err := reader.Content(t.Context(), searchdomain.ContentRequest{
+	first, err := reader.Content(WithTestOperation(t, t.Context()), searchdomain.ContentRequest{
 		NodeID: fixture.NodeID, Cursor: "", ProjectionConfig: "", AccessVersions: nil, MaxBytes: readerPageBytes, SearchGeneration: 0,
 	})
 	if err != nil {
@@ -136,7 +136,7 @@ func TestSearchReaderRejectsDeletedNode(t *testing.T) {
 	if err := stores.Nodes.Delete(WithTestOperation(t, t.Context()), fixture.OrgID, fixture.NodeID); err != nil {
 		t.Fatalf("delete node: %v", err)
 	}
-	_, err = reader.Content(t.Context(), searchdomain.ContentRequest{
+	_, err = reader.Content(WithTestOperation(t, t.Context()), searchdomain.ContentRequest{
 		NodeID: fixture.NodeID, Cursor: first.NextCursor, ProjectionConfig: "", AccessVersions: nil, MaxBytes: readerPageBytes, SearchGeneration: 0,
 	})
 	if !errors.Is(err, domain.ErrNotFound) {

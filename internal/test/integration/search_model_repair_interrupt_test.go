@@ -22,7 +22,7 @@ func TestSearchModelRepairInterruptedAttempt(t *testing.T) {
 
 	interrupted := claimRepair(t, store, modelID, start)
 	requireClaim(t, "first claim", interrupted, true, 1)
-	requireUncount(t, store, "interrupted claim", t.Context(), interrupted, true)
+	requireUncount(t, store, "interrupted claim", WithTestOperation(t, t.Context()), interrupted, true)
 	requireClaim(t, "claim inside the kept spacing", claimRepair(t, store, modelID, start.Add(10*time.Second)), false, 0)
 
 	newer := claimRepair(t, store, modelID, start.Add(46*time.Second))
@@ -30,19 +30,19 @@ func TestSearchModelRepairInterruptedAttempt(t *testing.T) {
 	if !newer.Record.EpisodeStarted.Equal(start) {
 		t.Fatalf("claim after the uncount started episode %s, want the episode from %s", newer.Record.EpisodeStarted, start)
 	}
-	requireUncount(t, store, "older claim after a newer attempt", t.Context(), interrupted, false)
+	requireUncount(t, store, "older claim after a newer attempt", WithTestOperation(t, t.Context()), interrupted, false)
 
 	expired, cancel := context.WithDeadline(context.Background(), clock.Now().Add(-time.Second))
 	defer cancel()
 	if uncounted, err := store.UncountModelRepair(expired, newer); err == nil || uncounted {
 		t.Fatalf("uncount past its deadline returned %t err %v, want an error", uncounted, err)
 	}
-	requireUncount(t, store, "newer claim after the expired write", t.Context(), newer, true)
+	requireUncount(t, store, "newer claim after the expired write", WithTestOperation(t, t.Context()), newer, true)
 
-	if _, found, err := store.ResetModelRepair(t.Context()); err != nil || !found {
+	if _, found, err := store.ResetModelRepair(WithTestOperation(t, t.Context())); err != nil || !found {
 		t.Fatalf("reset found %t err %v, want the record", found, err)
 	}
-	requireUncount(t, store, "claim after a reset", t.Context(), newer, false)
+	requireUncount(t, store, "claim after a reset", WithTestOperation(t, t.Context()), newer, false)
 }
 
 func requireUncount(t *testing.T, store *fdbadapter.SearchModelRepairStore, step string, ctx context.Context, claim searchdomain.ModelRepairClaim, want bool) {

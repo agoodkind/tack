@@ -32,13 +32,13 @@ func TestSearchStaleContentAfterNewerAccess(t *testing.T) {
 				mirror = engine.newIndex(t, "stale-content-"+testCase.name+"-copy")
 			}
 			nodeID := uuid.Must(uuid.NewV7())
-			if _, err := engine.adapter.Put(t.Context(), staleContent(staleWork(nodeID, 10, serving, mirror), textGenerationTen, "key-ten")); err != nil {
+			if _, err := engine.adapter.Put(WithTestOperation(t, t.Context()), staleContent(staleWork(nodeID, 10, serving, mirror), textGenerationTen, "key-ten")); err != nil {
 				t.Fatalf("put generation 10: %v", err)
 			}
-			if _, err := engine.adapter.UpdateAccess(t.Context(), staleAccess(staleWork(nodeID, 12, serving, mirror), "key-twelve")); err != nil {
+			if _, err := engine.adapter.UpdateAccess(WithTestOperation(t, t.Context()), staleAccess(staleWork(nodeID, 12, serving, mirror), "key-twelve")); err != nil {
 				t.Fatalf("update access at generation 12: %v", err)
 			}
-			written, err := engine.adapter.Put(t.Context(), staleContent(staleWork(nodeID, 11, serving, mirror), textGenerationEleven, "key-eleven"))
+			written, err := engine.adapter.Put(WithTestOperation(t, t.Context()), staleContent(staleWork(nodeID, 11, serving, mirror), textGenerationEleven, "key-eleven"))
 			if !errors.Is(err, searchdomain.ErrObsoleteWrite) || written != 0 {
 				t.Fatalf("put generation 11 = %d bytes, error %v, want zero bytes and obsolete write", written, err)
 			}
@@ -57,11 +57,11 @@ func TestSearchStaleAccessAfterNewerContent(t *testing.T) {
 	engine := newStaleEngine(t)
 	index := engine.newIndex(t, "stale-access")
 	nodeID := uuid.Must(uuid.NewV7())
-	if _, err := engine.adapter.Put(t.Context(), staleContent(staleWork(nodeID, 12, index, ""), textGenerationTen, "key-twelve")); err != nil {
+	if _, err := engine.adapter.Put(WithTestOperation(t, t.Context()), staleContent(staleWork(nodeID, 12, index, ""), textGenerationTen, "key-twelve")); err != nil {
 		t.Fatalf("put generation 12: %v", err)
 	}
 	before := rawStaleSource(t, engine.client, index)
-	_, err := engine.adapter.UpdateAccess(t.Context(), staleAccess(staleWork(nodeID, 11, index, ""), "key-eleven"))
+	_, err := engine.adapter.UpdateAccess(WithTestOperation(t, t.Context()), staleAccess(staleWork(nodeID, 11, index, ""), "key-eleven"))
 	if !errors.Is(err, searchdomain.ErrObsoleteWrite) {
 		t.Fatalf("access update at generation 11 = %v, want obsolete write", err)
 	}
@@ -76,19 +76,19 @@ func TestSearchCurrentGenerationRetry(t *testing.T) {
 	nodeID := uuid.Must(uuid.NewV7())
 	work := staleWork(nodeID, 12, index, "")
 	content := staleContent(work, textGenerationTen, "key-twelve")
-	if _, err := engine.adapter.Put(t.Context(), content); err != nil {
+	if _, err := engine.adapter.Put(WithTestOperation(t, t.Context()), content); err != nil {
 		t.Fatalf("put generation 12: %v", err)
 	}
 	before := rawStaleSource(t, engine.client, index)
 	for attempt := range 2 {
-		written, err := engine.adapter.Put(t.Context(), content)
+		written, err := engine.adapter.Put(WithTestOperation(t, t.Context()), content)
 		if err != nil || written != 0 {
 			t.Fatalf("put retry %d = %d bytes, error %v, want zero bytes and nil", attempt, written, err)
 		}
 		requireUnchanged(t, engine.client, index, before, "content retry")
 	}
 	for attempt := range 2 {
-		if _, err := engine.adapter.UpdateAccess(t.Context(), staleAccess(work, "key-retry")); err != nil {
+		if _, err := engine.adapter.UpdateAccess(WithTestOperation(t, t.Context()), staleAccess(work, "key-retry")); err != nil {
 			t.Fatalf("access retry %d: %v", attempt, err)
 		}
 		requireUnchanged(t, engine.client, index, before, "access retry")
@@ -116,18 +116,18 @@ func TestSearchReadToIndexRace(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			index := engine.newIndex(t, "stale-race-"+string(rune('a'+position)))
 			nodeID := uuid.Must(uuid.NewV7())
-			if _, err := engine.adapter.Put(t.Context(), staleContent(staleWork(nodeID, 10, index, ""), textGenerationTen, "key-ten")); err != nil {
+			if _, err := engine.adapter.Put(WithTestOperation(t, t.Context()), staleContent(staleWork(nodeID, 10, index, ""), textGenerationTen, "key-ten")); err != nil {
 				t.Fatalf("put generation 10: %v", err)
 			}
 			inject := func(bulkNumber int) error {
 				if bulkNumber != 1 {
 					return nil
 				}
-				_, err := engine.adapter.UpdateAccess(t.Context(), staleAccess(staleWork(nodeID, 12, index, ""), "key-twelve"))
+				_, err := engine.adapter.UpdateAccess(WithTestOperation(t, t.Context()), staleAccess(staleWork(nodeID, 12, index, ""), "key-twelve"))
 				return err
 			}
 			proxied, proxy := newStaleProxyAdapter(t, engine.fixture, inject)
-			_, err := proxied.Put(t.Context(), staleContent(staleWork(nodeID, testCase.generation, index, ""), testCase.text, "key-put"))
+			_, err := proxied.Put(WithTestOperation(t, t.Context()), staleContent(staleWork(nodeID, testCase.generation, index, ""), testCase.text, "key-put"))
 			if testCase.wantObsolete != errors.Is(err, searchdomain.ErrObsoleteWrite) || (!testCase.wantObsolete && err != nil) {
 				t.Fatalf("put generation %d = %v, want obsolete %t", testCase.generation, err, testCase.wantObsolete)
 			}
@@ -155,16 +155,16 @@ func TestSearchRetirementOrdering(t *testing.T) {
 	engine := newStaleEngine(t)
 	index := engine.newIndex(t, "stale-retire")
 	nodeID := uuid.Must(uuid.NewV7())
-	if _, err := engine.adapter.Put(t.Context(), staleContent(staleWork(nodeID, 14, index, ""), textGenerationTen, "key-fourteen")); err != nil {
+	if _, err := engine.adapter.Put(WithTestOperation(t, t.Context()), staleContent(staleWork(nodeID, 14, index, ""), textGenerationTen, "key-fourteen")); err != nil {
 		t.Fatalf("put generation 14: %v", err)
 	}
 	before := rawStaleSource(t, engine.client, index)
-	accepted, err := engine.adapter.Retire(t.Context(), staleRetirement(staleWork(nodeID, 13, index, "")))
+	accepted, err := engine.adapter.Retire(WithTestOperation(t, t.Context()), staleRetirement(staleWork(nodeID, 13, index, "")))
 	if err != nil || accepted != 1 {
 		t.Fatalf("retire at generation 13 = %d accepted, error %v, want 1 and nil", accepted, err)
 	}
 	requireUnchanged(t, engine.client, index, before, "retirement below the stored generation")
-	accepted, err = engine.adapter.Retire(t.Context(), staleRetirement(staleWork(nodeID, 15, index, "")))
+	accepted, err = engine.adapter.Retire(WithTestOperation(t, t.Context()), staleRetirement(staleWork(nodeID, 15, index, "")))
 	if err != nil || accepted != 1 {
 		t.Fatalf("retire at generation 15 = %d accepted, error %v, want 1 and nil", accepted, err)
 	}
@@ -179,7 +179,7 @@ func TestSearchRetirementOrdering(t *testing.T) {
 	if !retired.Retired || retired.SearchGeneration != 15 || retired.PageText != "" {
 		t.Fatalf("retired page = %+v, want retired at generation 15 without text", retired)
 	}
-	_, err = engine.adapter.Put(t.Context(), staleContent(staleWork(nodeID, 14, index, ""), textGenerationTen, "key-fourteen"))
+	_, err = engine.adapter.Put(WithTestOperation(t, t.Context()), staleContent(staleWork(nodeID, 14, index, ""), textGenerationTen, "key-fourteen"))
 	if !errors.Is(err, searchdomain.ErrObsoleteWrite) {
 		t.Fatalf("put generation 14 after retirement = %v, want obsolete write", err)
 	}

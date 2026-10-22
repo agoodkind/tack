@@ -26,7 +26,7 @@ func TestSearchSummaryBatchReturnsDeletedInPlace(t *testing.T) {
 	wantStatus := []node.SummaryStatus{node.SummaryFound, node.SummaryDeleted, node.SummaryFound}
 
 	transactionsBefore := fdbTransactionCount(t)
-	results, err := stores.NodeSummaries(stores.SearchPolicySet()).Summaries(t.Context(), requested, summaryNameBytes)
+	results, err := stores.NodeSummaries(stores.SearchPolicySet()).Summaries(WithTestOperation(t, t.Context()), requested, summaryNameBytes)
 	if err != nil {
 		t.Fatalf("read %d summaries: %v", len(requested), err)
 	}

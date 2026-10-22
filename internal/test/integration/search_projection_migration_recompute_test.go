@@ -9,6 +9,7 @@ import (
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain/node"
 	searchdomain "goodkind.io/tack/internal/domain/search"
+	"goodkind.io/tack/internal/test/integration"
 	"goodkind.io/tack/internal/testenv"
 )
 
@@ -28,14 +29,14 @@ func (env *migrationEnv) putUnusedDefinitions(t *testing.T) {
 // values in search text.
 func (env *migrationEnv) includeExcludedDefinition(t *testing.T) {
 	t.Helper()
-	definitions, err := env.Stores.PropertyDefs.List(t.Context(), env.OrgID)
+	definitions, err := env.Stores.PropertyDefs.List(integration.WithTestOperation(t, t.Context()), env.OrgID)
 	if err != nil {
 		t.Fatalf("list property definitions: %v", err)
 	}
 	for _, definition := range definitions {
 		if definition.Name == env.ExcludedKey {
 			definition.Search = &node.SearchProjection{Include: true, Order: 1, Rule: node.TextRule{Mode: node.TextRuleScalar}}
-			if err := env.Stores.PropertyDefs.Set(t.Context(), definition); err != nil {
+			if err := env.Stores.PropertyDefs.Set(integration.WithTestOperation(t, t.Context()), definition); err != nil {
 				t.Fatalf("include property definition %s: %v", env.ExcludedKey, err)
 			}
 			return
@@ -59,14 +60,14 @@ func TestSearchProjectionMigrationResumesInterruptedRecomputation(t *testing.T) 
 
 	env.forgetProjectionState(t)
 	store := env.Stores.SearchWork(clock.Wall{})
-	opening, err := store.Claim(t.Context(), searchdomain.WorkClassRescan, "interrupted-process", time.Minute)
+	opening, err := store.Claim(integration.WithTestOperation(t, t.Context()), searchdomain.WorkClassRescan, "interrupted-process", time.Minute)
 	if err != nil || opening.Phase != searchdomain.PhaseMetadata {
 		t.Fatalf("claim the recomputation = %+v err %v, want metadata work", opening, err)
 	}
-	if err := env.Worker.Process(t.Context(), opening); err != nil {
+	if err := env.Worker.Process(integration.WithTestOperation(t, t.Context()), opening); err != nil {
 		t.Fatalf("process the first metadata page: %v", err)
 	}
-	abandoned, err := store.Claim(t.Context(), searchdomain.WorkClassRescan, "interrupted-process", 2*time.Second)
+	abandoned, err := store.Claim(integration.WithTestOperation(t, t.Context()), searchdomain.WorkClassRescan, "interrupted-process", 2*time.Second)
 	if err != nil || abandoned.Phase != searchdomain.PhaseMetadata || abandoned.Cursor == "" {
 		t.Fatalf("claim after one metadata page = %+v err %v, want a metadata checkpoint", abandoned, err)
 	}
@@ -78,11 +79,11 @@ func TestSearchProjectionMigrationResumesInterruptedRecomputation(t *testing.T) 
 	}
 	restartedStores.EnableSearchWork()
 	restarted := restartedStores.SearchWork(clock.Wall{})
-	resumed, err := restarted.Claim(t.Context(), searchdomain.WorkClassRescan, "restarted-process", time.Minute)
+	resumed, err := restarted.Claim(integration.WithTestOperation(t, t.Context()), searchdomain.WorkClassRescan, "restarted-process", time.Minute)
 	if err != nil || resumed.Phase != searchdomain.PhaseMetadata || resumed.Cursor != abandoned.Cursor {
 		t.Fatalf("restarted claim = %+v err %v, want the metadata checkpoint %q", resumed, err, abandoned.Cursor)
 	}
-	if err := restarted.Yield(t.Context(), resumed); err != nil {
+	if err := restarted.Yield(integration.WithTestOperation(t, t.Context()), resumed); err != nil {
 		t.Fatalf("yield resumed recomputation: %v", err)
 	}
 	env.Worker = env.newWorker(t, restartedStores)

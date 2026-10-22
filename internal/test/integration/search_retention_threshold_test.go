@@ -71,12 +71,12 @@ func TestSearchRetentionThresholdsStartFullReplacement(t *testing.T) {
 			if retired := searchNodePages(t, client, serving, fixture.NodeID, true); len(retired) < 2 {
 				t.Fatalf("shortening the node retired %d pages, want at least 2", len(retired))
 			}
-			stats, err := adapter.IndexRetention(t.Context(), serving)
+			stats, err := adapter.IndexRetention(WithTestOperation(t, t.Context()), serving)
 			if err != nil || stats.RetiredPages < 2 || stats.PrimaryBytes < 2 {
 				t.Fatalf("index retention = %+v err %v, want at least 2 retired pages and 2 primary bytes", stats, err)
 			}
 			rebuilds := stores.SearchRebuilds(source)
-			if _, retired, err := rebuilds.RetiredSince(t.Context(), serving); err != nil || !retired {
+			if _, retired, err := rebuilds.RetiredSince(WithTestOperation(t, t.Context()), serving); err != nil || !retired {
 				t.Fatalf("retired since: retired %t err %v, want a recorded retirement", retired, err)
 			}
 			t.Logf("%s: serving index %s has %d retired pages and %d primary bytes", retentionCase.name, serving, stats.RetiredPages, stats.PrimaryBytes)
@@ -86,12 +86,12 @@ func TestSearchRetentionThresholdsStartFullReplacement(t *testing.T) {
 			topology := config.SearchTopology{Primaries: 1, RoutingShards: 8, Replicas: 0}
 			retention := service.NewSearchRetention(rebuilds, adapter, stores, source, limits, topology)
 			var logged bytes.Buffer
-			checkContext := telemetry.WithLogger(t.Context(), slog.New(slog.NewJSONHandler(&logged, nil)))
+			checkContext := telemetry.WithLogger(WithTestOperation(t, t.Context()), slog.New(slog.NewJSONHandler(&logged, nil)))
 			if err := retention.Check(checkContext); err != nil {
 				t.Fatalf("retention check: %v", err)
 			}
 			reasons := retentionReasons(t, logged.Bytes())
-			current, found, err := rebuilds.CurrentRebuild(t.Context())
+			current, found, err := rebuilds.CurrentRebuild(WithTestOperation(t, t.Context()))
 			if err != nil {
 				t.Fatalf("read index replacement: %v", err)
 			}

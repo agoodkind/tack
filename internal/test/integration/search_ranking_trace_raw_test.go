@@ -13,6 +13,8 @@ import (
 
 	opensearch "github.com/opensearch-project/opensearch-go/v4"
 	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+
+	"goodkind.io/tack/internal/test/integration"
 )
 
 type traceMLRequest struct {
@@ -43,7 +45,7 @@ type tracePredictResponse struct {
 // It fails the test when that field is empty.
 func (r *rankingRun) indexModel(t *testing.T, index string) string {
 	t.Helper()
-	response, err := r.client.Indices.Mapping.Get(t.Context(), &opensearchapi.MappingGetReq{Indices: []string{index}})
+	response, err := r.client.Indices.Mapping.Get(integration.WithTestOperation(t, t.Context()), &opensearchapi.MappingGetReq{Indices: []string{index}})
 	if err != nil {
 		t.Fatalf("read mapping of %s: %v", index, err)
 	}
@@ -72,7 +74,7 @@ func (r *rankingRun) predictTraceWeights(t *testing.T, modelID, text string) map
 	}
 	request := traceMLRequest{path: "/_plugins/_ml/_predict/sparse_encoding/" + url.PathEscape(modelID), body: body}
 	var decoded tracePredictResponse
-	response, err := opensearch.Do(t.Context(), r.client.Client, http.MethodPost, request, &decoded)
+	response, err := opensearch.Do(integration.WithTestOperation(t, t.Context()), r.client.Client, http.MethodPost, request, &decoded)
 	if err != nil {
 		t.Fatalf("predict trace weights: %v", err)
 	}

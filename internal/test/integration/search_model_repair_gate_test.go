@@ -37,7 +37,7 @@ func TestSearchClusterModelRepairGates(t *testing.T) {
 	cluster.StopMember(t, member)
 	cluster.StartMember(t, member)
 	clusterEventually(t, "leave the model stuck with no deploy task", func() error {
-		deployment, err := fixture.Adapter.ModelDeployment(t.Context(), fixture.Index, clock.Now())
+		deployment, err := fixture.Adapter.ModelDeployment(WithTestOperation(t, t.Context()), fixture.Index, clock.Now())
 		if err != nil {
 			return clusterFailure("read model deployment", err)
 		}
@@ -74,7 +74,7 @@ func requireNoRepairDeploy(t *testing.T, fixture queryFixture, modelID, phase st
 	if count := deployTasksSince(t, fixture, modelID, since); count != 0 {
 		t.Fatalf("%s: the task index records %d deploy tasks of model %s since %s, want none", phase, count, modelID, since)
 	}
-	deployment, err := fixture.Adapter.ModelDeployment(t.Context(), fixture.Index, clock.Now())
+	deployment, err := fixture.Adapter.ModelDeployment(WithTestOperation(t, t.Context()), fixture.Index, clock.Now())
 	if err != nil || !deployment.Stuck() {
 		t.Fatalf("%s: model deployment %+v err %v after the quiet period, want it still stuck", phase, deployment, err)
 	}
@@ -87,7 +87,7 @@ func TestSearchModelRepairStaleDeployTask(t *testing.T) {
 	t.Setenv("OPENSEARCH_MODEL_REPAIR_STUCK_AFTER", "1s")
 	t.Setenv("OPENSEARCH_MODEL_REPAIR_ATTEMPT_SPACING", "2s")
 	fixture := newQueryFixture(t, defaultQueryOptions())
-	served, err := fixture.Adapter.ModelDeployment(t.Context(), fixture.Index, clock.Now())
+	served, err := fixture.Adapter.ModelDeployment(WithTestOperation(t, t.Context()), fixture.Index, clock.Now())
 	if err != nil {
 		t.Fatalf("read serving model failed: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestSearchModelRepairStaleDeployTask(t *testing.T) {
 	setEngineRunning(t, false)
 	setEngineRunning(t, true)
 	clusterEventually(t, "failed model with no active deploy tasks", func() error {
-		deployment, err := fixture.Adapter.ModelDeployment(t.Context(), fixture.Index, clock.Now())
+		deployment, err := fixture.Adapter.ModelDeployment(WithTestOperation(t, t.Context()), fixture.Index, clock.Now())
 		if err != nil {
 			return clusterFailure("read model deployment failed", err)
 		}
@@ -111,7 +111,7 @@ func TestSearchModelRepairStaleDeployTask(t *testing.T) {
 	t.Cleanup(func() { deleteDeployTask(t, fixture, taskID) })
 	created := clock.Now().Add(-2 * staleDeployTaskAge)
 	writeDeployTask(t, fixture, staleDeployTask{id: taskID, modelID: modelID, created: created, updated: clock.Now()})
-	young, err := fixture.Adapter.ModelDeployment(t.Context(), fixture.Index, clock.Now())
+	young, err := fixture.Adapter.ModelDeployment(WithTestOperation(t, t.Context()), fixture.Index, clock.Now())
 	if err != nil || young.ActiveTasks != 1 {
 		t.Fatalf("expected one active deploy task after a current update: deployment %+v err %v, want 1 active deploy task", young, err)
 	}

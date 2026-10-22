@@ -17,7 +17,7 @@ func captureClusterPartialDeployment(t *testing.T, cluster *testenv.OpenSearchCl
 	if *captured {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(WithTestOperation(t, t.Context())), 30*time.Second)
 	defer cancel()
 	var raw json.RawMessage
 	response, err := opensearch.Do(ctx, fixture.Client.Client, http.MethodGet, clusterModelRecordRequest{modelID: modelID}, &raw)
