@@ -55,9 +55,8 @@ func NewNodeService(
 // AddRelationship adds a directed relationship from a node to a node or an
 // organization member. It returns [node.ErrReservedParentRelation] for a
 // child_of relationship. The parent_id field sets the parent.
-// When isMemberTarget reports that the target is a member of rel.OrgID,
-// it calls MemberTargetAdder.AddMemberTarget. Otherwise, it calls
-// RelationshipRepository.Add.
+// It stores a member relationship when the target is a member of rel.OrgID.
+// Otherwise, it adds a node relationship.
 func (s *NodeService) AddRelationship(ctx context.Context, rel *node.Relationship) error {
 	ctx, span := telemetry.StartSpan(ctx, "service.node.relationship.add",
 		trace.WithSpanKind(trace.SpanKindInternal),
