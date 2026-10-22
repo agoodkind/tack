@@ -104,8 +104,6 @@ func writeOnce(ctx context.Context, outbox OutboxWriter, event Event) error {
 	return nil
 }
 
-// externalResult builds the result event of one attempt from the run
-// outcome and the steps the attempt recorded.
 func externalResult(intent Event, steps stepSummary, details OutcomeDetails, runErr error) Event {
 	now := clock.Now().UTC()
 	result := intent
@@ -126,13 +124,10 @@ func externalResult(intent Event, steps stepSummary, details OutcomeDetails, run
 	return result
 }
 
-// intentFailure joins err with ErrExternalIntentNotSaved and logs the failure.
 func intentFailure(ctx context.Context, intent Event, err error) error {
 	return externalFailure(ctx, "record external intent", intent.EventID, errors.Join(ErrExternalIntentNotSaved, err))
 }
 
-// externalFailure logs one external recording failure and wraps err with the
-// action and event ID.
 func externalFailure(ctx context.Context, action string, eventID uuid.UUID, err error) error {
 	wrapped := fmt.Errorf("%s %s: %w", action, eventID, err)
 	slog.ErrorContext(ctx, "audit.external.record_failed",

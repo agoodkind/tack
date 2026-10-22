@@ -26,8 +26,6 @@ const (
 	drillYugabyteLeg = "restore-drill/yugabyte"
 )
 
-// snapshotExportEvidence stores evidence for a YugabyteDB snapshot export,
-// including the bucket, new run IDs, and selected manifest details.
 type snapshotExportEvidence struct {
 	Bucket      string   `json:"bucket"`
 	Filter      string   `json:"filter"`
@@ -40,7 +38,6 @@ type snapshotExportEvidence struct {
 
 func (snapshotExportEvidence) isStepEvidence() {}
 
-// restoreDrillEvidence is the evidence of one restore drill.
 type restoreDrillEvidence struct {
 	YBRunKey      string `json:"yb_run_key,omitempty"`
 	FDBTargetTime string `json:"fdb_target_time,omitempty"`
@@ -96,8 +93,6 @@ func runBackupYBSnapshotExportRecorded(ctx context.Context, cfg *config.Config, 
 	return partial, runErr
 }
 
-// newSnapshotRuns returns the export run IDs in bucket that before does not
-// list.
 func newSnapshotRuns(ctx context.Context, client *s3.Client, bucket string, before []string) ([]string, error) {
 	after, err := listYBSnapshotRunIDs(ctx, client, bucket)
 	if err != nil {
@@ -112,8 +107,6 @@ func newSnapshotRuns(ctx context.Context, client *s3.Client, bucket string, befo
 	return created, nil
 }
 
-// observeSnapshotExport reads the new export run's manifest and returns
-// selected manifest fields with the run ID and manifest key as evidence.
 func observeSnapshotExport(ctx context.Context, client *s3.Client, planned snapshotExportEvidence, before []string) (json.RawMessage, error) {
 	created, err := newSnapshotRuns(ctx, client, planned.Bucket, before)
 	if err != nil {

@@ -67,8 +67,6 @@ func TestRuntimeAuditProviderRefresh(t *testing.T) {
 	}
 }
 
-// runProviderStatusRead builds the server and runs the provider status read
-// with the provider service identity. It returns stdout.
 func runProviderStatusRead(t *testing.T, ledgerDSN, operatorDSN, service string) []byte {
 	t.Helper()
 	logDir := t.TempDir()
@@ -88,8 +86,6 @@ func runProviderStatusRead(t *testing.T, ledgerDSN, operatorDSN, service string)
 	return stdout.Bytes()
 }
 
-// waitForActorRow returns the ledger row for verb and actorID in the system
-// organization after started. It fails the test after runtimeAuditDeadline.
 func waitForActorRow(t *testing.T, stack runtimeAuditStack, verb string, actorID uuid.UUID, started time.Time) audit.Row {
 	t.Helper()
 	deadline := clock.Now().Add(runtimeAuditDeadline)

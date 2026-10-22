@@ -18,7 +18,6 @@ func StepIntentEventID(parentOperationID uuid.UUID, target Target) uuid.UUID {
 	return uuid.NewSHA1(StepOperationID(parentOperationID, target), []byte("intent"))
 }
 
-// targetKey returns a string that identifies target within one operation.
 func targetKey(target Target) string {
 	return strings.Join([]string{
 		target.Kind, target.NodeType, target.Reference, target.URI, target.RelationType,
@@ -26,8 +25,6 @@ func targetKey(target Target) string {
 	}, "\x00")
 }
 
-// targetLabel returns the readable name of a step target: the reference,
-// URI, name, or ID.
 func targetLabel(target Target) string {
 	switch {
 	case target.Reference != "":

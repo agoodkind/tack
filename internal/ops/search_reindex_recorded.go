@@ -33,7 +33,6 @@ type indexReplacementEvidence struct {
 
 func (indexReplacementEvidence) isStepEvidence() {}
 
-// replacementEvidence returns the evidence of rebuild.
 func replacementEvidence(rebuild searchdomain.Rebuild) indexReplacementEvidence {
 	return indexReplacementEvidence{
 		Mode: string(rebuild.Mode), SourceIndex: rebuild.SourceIndex, PrimaryShards: rebuild.PrimaryShards,

@@ -14,14 +14,11 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// bucketStepEvidence is the part of the buckets-init step evidence that the
-// tests read.
 type bucketStepEvidence struct {
 	Bucket string `json:"bucket"`
 	State  string `json:"state"`
 }
 
-// commandExtra is the part of the operator event Extra that the tests read.
 type commandExtra struct {
 	OpID       uuid.UUID `json:"op_id"`
 	SessionID  string    `json:"session_id"`
@@ -86,8 +83,6 @@ func TestRuntimeAuditBackgroundIdentity(t *testing.T) {
 	}
 }
 
-// requireBucketStep checks that the outbox contains a completed result for
-// operationID and one completed step result with the specified bucket and state.
 func requireBucketStep(t *testing.T, events []audit.Event, operationID uuid.UUID, bucket, state string) {
 	t.Helper()
 	stepResults := eventsInPhase(events, audit.PhaseResult, operationID)
@@ -109,7 +104,6 @@ func requireBucketStep(t *testing.T, events []audit.Event, operationID uuid.UUID
 	t.Fatalf("operation %s does not have a completed result", operationID)
 }
 
-// decodeCommandExtra decodes event.Extra as operator command metadata.
 func decodeCommandExtra(t *testing.T, event audit.Event) commandExtra {
 	t.Helper()
 	var extra commandExtra
@@ -119,7 +113,6 @@ func decodeCommandExtra(t *testing.T, event audit.Event) commandExtra {
 	return extra
 }
 
-// operationIDs returns the operation ID of each event.
 func operationIDs(events []audit.Event) []uuid.UUID {
 	identifiers := make([]uuid.UUID, 0, len(events))
 	for _, event := range events {

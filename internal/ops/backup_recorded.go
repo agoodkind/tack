@@ -32,7 +32,6 @@ func endpointHost(endpoint string) string {
 	return parsed.Host
 }
 
-// bucketEvidence is the evidence of one buckets-init step.
 type bucketEvidence struct {
 	Bucket       string `json:"bucket"`
 	EndpointHost string `json:"endpoint_host"`

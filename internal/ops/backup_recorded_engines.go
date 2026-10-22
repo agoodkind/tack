@@ -23,8 +23,6 @@ type continuousBackupEvidence struct {
 
 func (continuousBackupEvidence) isStepEvidence() {}
 
-// snapshotScheduleEvidence is the evidence of the YugabyteDB point-in-time
-// recovery schedule step.
 type snapshotScheduleEvidence struct {
 	Filter           string `json:"filter"`
 	IntervalMinutes  int    `json:"interval_minutes"`
@@ -53,8 +51,6 @@ func runBackupFDBContinuousInitRecorded(ctx context.Context, cfg *config.Config,
 		func(context.Context) (json.RawMessage, error) { return evidence, nil })
 }
 
-// runBackupYBPITRInitRecorded runs yb-pitr-init as one step for the snapshot
-// schedule of the configured database.
 func runBackupYBPITRInitRecorded(ctx context.Context, cfg *config.Config, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
 	if cfg.BackupYBImage == "" {
 		err := RunBackupYBPITRInit(ctx, cfg)

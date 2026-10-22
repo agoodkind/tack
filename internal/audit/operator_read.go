@@ -14,7 +14,6 @@ import (
 // final read event after the read returns.
 const ReadFinalizeDeadline = 30 * time.Second
 
-// readFailedCode is the error code of a read that returned an error.
 const readFailedCode = "read_failed"
 
 // ErrReadNotAdmitted reports that RecordOperatorRead did not save the
@@ -70,8 +69,6 @@ func RecordOperatorRead(
 	return output.Payload, nil
 }
 
-// operatorReadCompletion builds the final event of one read and its
-// transport digest.
 func operatorReadCompletion(token ReadToken, template Event, output OperatorReadOutput, readErr error) (ReadCompletion, error) {
 	final := template
 	final.Context.CompletedAt = clock.Now().UTC()
@@ -101,8 +98,6 @@ func operatorReadCompletion(token ReadToken, template Event, output OperatorRead
 	return ReadCompletion{Token: token, Event: final, Targets: targets, Digest: encoded.TransportDigest}, nil
 }
 
-// operatorReadEvidence returns the payload digest, format, count, and
-// manifest digest of output.
 func operatorReadEvidence(output OperatorReadOutput) (ReadEvidence, error) {
 	evidence := ReadEvidence{
 		Count: uint64(len(output.Targets)), PayloadSHA256: sha256Hex(output.Payload), PayloadFormat: output.Format,
@@ -119,8 +114,6 @@ func operatorReadEvidence(output OperatorReadOutput) (ReadEvidence, error) {
 	return evidence, nil
 }
 
-// operatorReadFailure logs one failed operator read transition and wraps err
-// with the action and event ID.
 func operatorReadFailure(ctx context.Context, action string, template Event, err error) error {
 	wrapped := fmt.Errorf("%s %s: %w", action, template.EventID, err)
 	slog.ErrorContext(ctx, "audit.operator_read.failed",

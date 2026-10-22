@@ -23,7 +23,6 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// operatorActor returns an operator actor without personal data.
 func operatorActor() audit.Actor {
 	return audit.Actor{
 		Type: audit.ActorOperator, ID: uuid.Must(uuid.NewV7()), Email: "", Name: "",
@@ -31,7 +30,6 @@ func operatorActor() audit.Actor {
 	}
 }
 
-// externalReference returns an external target with reference.
 func externalReference(reference string) audit.Target {
 	return audit.Target{
 		Kind: audit.TargetKindExternal, NodeType: "", Reference: reference, Name: "", URI: "",
@@ -49,8 +47,6 @@ func externalIntent(target audit.Target) audit.Event {
 	return intent
 }
 
-// outboxEventsByQuery returns the YugabyteDB outbox events that the testdata
-// query selects with arguments.
 func outboxEventsByQuery(t *testing.T, pool *pgxpool.Pool, query string, arguments ...string) []audit.Event {
 	t.Helper()
 	values := make([]any, 0, len(arguments))
@@ -76,7 +72,6 @@ func outboxEventsByQuery(t *testing.T, pool *pgxpool.Pool, query string, argumen
 	return events
 }
 
-// eventsInPhase returns the events that match phase and parent.
 func eventsInPhase(events []audit.Event, phase audit.Phase, parent uuid.UUID) []audit.Event {
 	var selected []audit.Event
 	for _, event := range events {
@@ -99,8 +94,6 @@ func objectStoreClient(bucket testenv.ObjectStoreBucket) *s3.Client {
 	})
 }
 
-// runOpsCommand runs the rendered ops command with args and the command line
-// operator identity. It uses pool for the YugabyteDB outbox.
 func runOpsCommand(t *testing.T, cfg *config.Config, pool *pgxpool.Pool, args ...string) (string, error) {
 	t.Helper()
 	factory := cli.System(cfg)
@@ -121,8 +114,6 @@ func runOpsCommand(t *testing.T, cfg *config.Config, pool *pgxpool.Pool, args ..
 	return output.String(), err
 }
 
-// startOutboxRelay starts the relay that publishes YugabyteDB outbox events
-// to the Kafka topic in stack.
 func startOutboxRelay(t *testing.T, stack runtimeAuditStack) {
 	t.Helper()
 	opened, err := auditrelay.Open(t.Context(), auditrelay.Config{

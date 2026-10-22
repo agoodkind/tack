@@ -71,8 +71,6 @@ func observedOutcome(planned []Migration, applied, target int64, migrateErr erro
 	return details
 }
 
-// applyResult returns the applied version. It returns an error when the
-// migration run failed or the applied version differs from target.
 func applyResult(ctx context.Context, applied, target int64, details audit.OutcomeDetails, migrateErr error) (int64, audit.OutcomeDetails, error) {
 	if migrateErr != nil {
 		slog.ErrorContext(ctx, "schemastatus.apply_failed",
@@ -87,12 +85,10 @@ func applyResult(ctx context.Context, applied, target int64, details audit.Outco
 	return applied, details, nil
 }
 
-// completedOutcome returns the completed outcome.
 func completedOutcome() audit.OutcomeDetails {
 	return audit.OutcomeDetails{Outcome: audit.OutcomeCompleted, FailureCode: "", FailureMessage: "", CommittedSteps: nil}
 }
 
-// failedOutcome returns outcome with code and the text of cause.
 func failedOutcome(outcome audit.Outcome, code string, cause error) audit.OutcomeDetails {
 	return audit.OutcomeDetails{Outcome: outcome, FailureCode: code, FailureMessage: cause.Error(), CommittedSteps: nil}
 }

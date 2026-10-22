@@ -14,8 +14,6 @@ import (
 )
 
 const (
-	// roleStateReadAttempts limits the total queryRoleStates calls per
-	// readSeededRoleStates call.
 	roleStateReadAttempts = 3
 	// serializationFailureSQLState is the SQLSTATE YugabyteDB returned when
 	// it rejected the role-state query's catalog snapshot just after

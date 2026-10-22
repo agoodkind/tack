@@ -10,9 +10,6 @@ import (
 	"goodkind.io/tack/internal/audit"
 )
 
-// seededRoleBases maps each login role that seed-roles changes to the audit
-// base roles it is a member of after the seed. tack_migrator does not belong
-// to any of those base roles.
 var seededRoleBases = map[string][]string{
 	"tack_audit_writer":   {"audit_writer"},
 	"tack_audit_reader":   {"audit_reader"},
@@ -22,9 +19,6 @@ var seededRoleBases = map[string][]string{
 	"tack_migrator":       {},
 }
 
-// requireRoleSteps requires one completed step result per seeded login role.
-// After the seed, each role exists, can log in, has the expected base role
-// memberships, and has a password that the seed set.
 func requireRoleSteps(t *testing.T, stepResults []audit.Event) {
 	t.Helper()
 	if len(stepResults) != len(seededRoleBases) {

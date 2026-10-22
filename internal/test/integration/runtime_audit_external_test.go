@@ -75,8 +75,6 @@ func TestRuntimeAuditExternalRecovery(t *testing.T) {
 	}
 }
 
-// requireRecoveryEvents checks that an interrupted attempt and its retry
-// record each intent once and record the expected step and operation results.
 func requireRecoveryEvents(t *testing.T, intent audit.Event, objectTarget audit.Target, events []audit.Event) {
 	t.Helper()
 	operationID := intent.Context.OperationID
@@ -107,7 +105,6 @@ func requireRecoveryEvents(t *testing.T, intent audit.Event, objectTarget audit.
 	}
 }
 
-// putRecoveryObject uploads text containing a new UUID to bucket under key.
 func putRecoveryObject(ctx context.Context, t *testing.T, client *s3.Client, bucket, key string) {
 	t.Helper()
 	_, err := client.PutObject(ctx, &s3.PutObjectInput{
@@ -118,7 +115,6 @@ func putRecoveryObject(ctx context.Context, t *testing.T, client *s3.Client, buc
 	}
 }
 
-// recoveryObjectTag returns the entity tag of the object at key.
 func recoveryObjectTag(t *testing.T, client *s3.Client, bucket, key string) string {
 	t.Helper()
 	head, err := client.HeadObject(t.Context(), &s3.HeadObjectInput{Bucket: aws.String(bucket), Key: aws.String(key)})

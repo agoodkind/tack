@@ -18,23 +18,16 @@ import (
 )
 
 const (
-	// reindexServingIndex is the serving index that the reindex subtest
-	// records before the command runs.
-	reindexServingIndex = "node-pages-1"
-	// rolesLedgerContainer is the container name prefix for the empty ledger
-	// that the seed-roles subtest changes.
+	reindexServingIndex  = "node-pages-1"
 	rolesLedgerContainer = "tack-test-roles-"
 )
 
-// replacementStepEvidence is the part of the index replacement evidence that
-// the test reads.
 type replacementStepEvidence struct {
 	SourceIndex string `json:"source_index"`
 	RebuildID   string `json:"rebuild_id"`
 	Generation  int64  `json:"generation"`
 }
 
-// roleStepEvidence is the part of the role step evidence that the test reads.
 type roleStepEvidence struct {
 	Role   string `json:"role"`
 	Before struct {

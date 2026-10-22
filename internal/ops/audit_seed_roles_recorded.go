@@ -45,7 +45,6 @@ var seededRoles = []seededRole{
 	{login: postgres.MigratorRole, base: ""},
 }
 
-// roleState is the observed state of one login role.
 type roleState struct {
 	Exists   bool     `json:"exists"`
 	Login    bool     `json:"login"`
@@ -64,8 +63,6 @@ type roleChangeEvidence struct {
 
 func (roleChangeEvidence) isStepEvidence() {}
 
-// seedRolesPasswordsSet reports whether cfg supplies every password that
-// seed-roles sets.
 func seedRolesPasswordsSet(cfg *config.Config) bool {
 	return !slices.Contains([]string{
 		cfg.AuditWriterPassword, cfg.AuditReaderPassword, cfg.AuditRedactorPassword,
@@ -73,8 +70,6 @@ func seedRolesPasswordsSet(cfg *config.Config) bool {
 	}, "")
 }
 
-// queryRoleStates runs the embedded role-state query once and returns the
-// observed state of each seeded login role.
 func queryRoleStates(ctx context.Context, pool *pgxpool.Pool) (map[string]roleState, error) {
 	logins := make([]string, 0, len(seededRoles))
 	for _, role := range seededRoles {

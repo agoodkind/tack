@@ -93,7 +93,5 @@ type operatorEventExtra struct {
 	// OnBehalfOf identifies the accountable human operator when a service
 	// principal runs the command for that operator.
 	OnBehalfOf *audit.ActProvenance `json:"on_behalf_of,omitempty"`
-	// Input contains the command input fields that the audit spec selects as
-	// safe to store. Format 0 events leave it empty.
-	Input json.RawMessage `json:"input,omitempty" exhaustruct:"optional"`
+	Input      json.RawMessage      `json:"input,omitempty" exhaustruct:"optional"`
 }

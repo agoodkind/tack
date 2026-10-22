@@ -24,13 +24,10 @@ func externalSpec(verb audit.Verb, reference string) audit.Spec {
 	}
 }
 
-// backupSpec returns an external audit specification for the backup subcommand
-// identified by use.
 func backupSpec(verb audit.Verb, use string) audit.Spec {
 	return externalSpec(verb, "backup/"+use)
 }
 
-// commandInput is a typed command input that a recorded command stores.
 type commandInput interface {
 	isCommandInput()
 }
@@ -46,7 +43,6 @@ type restoreDrillInput struct {
 
 func (restoreDrillInput) isCommandInput() {}
 
-// emptyCommandInput returns the JSON input of a command without flags.
 func emptyCommandInput() (json.RawMessage, error) {
 	return encodeCommandInput(emptyInput{})
 }

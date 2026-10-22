@@ -15,14 +15,10 @@ import (
 )
 
 const (
-	// migrationsReference is the external reference of the migration state
-	// of the database.
 	migrationsReference = "database/migrations"
 	// guardRefusedCode is the error code for a run that fails a version
 	// requirement before applying any migration.
-	guardRefusedCode = "version_guard_refused"
-	// statusUnreadableCode is the error code of a run that could not read the
-	// migration state.
+	guardRefusedCode     = "version_guard_refused"
 	statusUnreadableCode = "migration_state_unreadable"
 	// migrationFailedCode is the error code of a run that stopped before the
 	// target version.

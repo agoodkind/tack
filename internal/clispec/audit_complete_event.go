@@ -14,8 +14,6 @@ import (
 	"goodkind.io/tack/internal/clock"
 )
 
-// operationTarget returns the one target and the safe input that spec
-// selects from input.
 func operationTarget(ctx context.Context, spec audit.Spec, input json.RawMessage) (audit.Target, json.RawMessage, error) {
 	if err := audit.ValidateSpec(spec); err != nil {
 		return audit.Target{}, nil, loggedAuditError(ctx, "validate audit spec", err)
@@ -35,8 +33,6 @@ func operationTarget(ctx context.Context, spec audit.Spec, input json.RawMessage
 	return targets[0], safeInput, nil
 }
 
-// newCompleteOperatorEvent builds a format 2 operator event for target with
-// the operation class from spec and the supplied phase.
 func newCompleteOperatorEvent(
 	ctx context.Context,
 	spec audit.Spec,

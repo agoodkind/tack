@@ -16,12 +16,9 @@ const (
 	// commandConfigCode is the error code of an external command that refused
 	// to run because its configuration is incomplete.
 	commandConfigCode = "configuration_incomplete"
-	// commandFailedCode is the error code of an external step that returned an
-	// error.
 	commandFailedCode = "step_failed"
 )
 
-// externalTarget returns the external target with reference.
 func externalTarget(reference string) audit.Target {
 	return audit.Target{
 		Kind: audit.TargetKindExternal, NodeType: "", Reference: reference, Name: "", URI: "", RelationType: "",
@@ -72,13 +69,10 @@ func recordedStep(
 	return details, effectErr
 }
 
-// stepEvidence is a typed value that an external command stores as the
-// evidence of one step.
 type stepEvidence interface {
 	isStepEvidence()
 }
 
-// encodeEvidence encodes evidence as JSON.
 func encodeEvidence[Evidence stepEvidence](ctx context.Context, evidence Evidence) (json.RawMessage, error) {
 	encoded, err := json.Marshal(evidence)
 	if err != nil {

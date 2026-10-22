@@ -130,8 +130,6 @@ func (r *stepRecorder) FinishStep(ctx context.Context, step Event) error {
 	return nil
 }
 
-// stepEvent copies the parent actor and context into a step event for the
-// target of step.
 func (r *stepRecorder) stepEvent(step Event, startedAt, completedAt time.Time) Event {
 	target := *step.Context.Target
 	event := r.parent

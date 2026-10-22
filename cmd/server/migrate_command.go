@@ -16,9 +16,7 @@ import (
 )
 
 const (
-	// jsonPayloadFormat is the media type of a JSON status read.
 	jsonPayloadFormat = "application/json"
-	// textPayloadFormat is the media type of a text status read.
 	textPayloadFormat = "text/plain; charset=utf-8"
 )
 
@@ -29,8 +27,6 @@ type migrateInput struct {
 	ExpectFrom int `json:"expect_from"`
 }
 
-// migrateSpec returns the audit specification for an external operation on
-// the database migration state.
 func migrateSpec() audit.Spec {
 	return audit.Spec{
 		Verb: string(audit.VerbDatabaseMigrate), Mutates: true, Class: audit.OperationExternal,
@@ -38,8 +34,6 @@ func migrateSpec() audit.Spec {
 	}
 }
 
-// migrationStatusSpec returns the audit specification for a migration state
-// read. It uses the database.migrate verb with the read class.
 func migrationStatusSpec() audit.Spec {
 	return audit.Spec{
 		Verb: string(audit.VerbDatabaseMigrate), Reads: true, Class: audit.OperationRead,
@@ -51,7 +45,6 @@ func migrationTargets(context.Context, json.RawMessage) ([]audit.Target, error) 
 	return []audit.Target{schemastatus.MigrationsTarget()}, nil
 }
 
-// safeMigrateInput returns only the migration version flags from input.
 func safeMigrateInput(input json.RawMessage) (json.RawMessage, error) {
 	var decoded migrateInput
 	if err := json.Unmarshal(input, &decoded); err != nil {
@@ -116,8 +109,6 @@ func runMigrations(ctx context.Context, f *cli.Factory, in migrateInput, steps a
 	return details, nil
 }
 
-// printMigrationStatus records the migration state read and writes the state
-// in the selected output format.
 func printMigrationStatus(ctx context.Context, f *cli.Factory, input json.RawMessage) error {
 	jsonOutput := f.OutputFormat() == cli.FormatJSON
 	payload, err := clispec.RunAuditedRead(ctx, f, migrationStatusSpec(), input, func(ctx context.Context) (audit.OperatorReadOutput, error) {

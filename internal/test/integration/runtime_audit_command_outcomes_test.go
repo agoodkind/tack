@@ -19,14 +19,10 @@ import (
 )
 
 const (
-	// outcomeOperatorEmail is the email of the synthetic operator.
 	outcomeOperatorEmail = "outcomes@example.invalid"
-	// migrateOutcomeTarget is the --to version of the recorded migration run.
 	migrateOutcomeTarget = 10
 )
 
-// migrationRangeEvidence is the part of the migration step evidence that the
-// test reads.
 type migrationRangeEvidence struct {
 	FromVersion int64                    `json:"from_version"`
 	ToVersion   int64                    `json:"to_version"`
@@ -57,8 +53,6 @@ func TestRuntimeAuditCommandOutcomes(t *testing.T) {
 	t.Run("seed_roles", testSeedRolesOutcomes)
 }
 
-// testMigrateOutcomes runs the built migrate command against a new database
-// at migration version 5.
 func testMigrateOutcomes(t *testing.T) {
 	dsn := emptyLedgerDatabase(t)
 	migrateLedgerTo(t, dsn, migrateOutboxVersion)
@@ -131,8 +125,6 @@ func requireMigrationRange(t *testing.T, stepIntent audit.Event) {
 	}
 }
 
-// requireOnlyResult checks for one intent and one result without steps.
-// It checks the result against the expected outcome and error code.
 func requireOnlyResult(t *testing.T, events []audit.Event, outcome audit.Outcome, code string) {
 	t.Helper()
 	intents := eventsInPhase(events, audit.PhaseIntent, uuid.Nil)
@@ -155,8 +147,6 @@ func requireCompletedResult(t *testing.T, events []audit.Event, operationID uuid
 	}
 }
 
-// runRecordedMigrate runs migrate --execute with flags as operator against
-// dsn, with the outbox in the same database.
 func runRecordedMigrate(t *testing.T, binary, dsn string, operator uuid.UUID, flags ...string) (string, error) {
 	t.Helper()
 	logDir := t.TempDir()
