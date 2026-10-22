@@ -101,12 +101,12 @@ func (l *PoolReadLifecycle) FinalizeRead(ctx context.Context, completion ReadCom
 	if err != nil {
 		return readLifecycleFailure(ctx, "finalize audit read", token.EventID, err)
 	}
-	event, err := json.Marshal(completion.Event)
+	header, parts, err := splitOutboxRecords(encoded)
 	if err != nil {
 		return readLifecycleFailure(ctx, "encode audit read event", token.EventID, err)
 	}
 	_, err = l.pool.Exec(ctx, readStatement("finalize"), token.EventID, token.Owner, generation,
-		encoded.TransportDigest, string(completion.Event.Outcome), event)
+		encoded.TransportDigest, string(completion.Event.Outcome), header, parts)
 	if err != nil {
 		return readLifecycleFailure(ctx, "finalize audit read", token.EventID, err)
 	}
@@ -128,6 +128,17 @@ func (l *PoolReadLifecycle) AcknowledgePublished(ctx context.Context, reads []Pu
 		return readLifecycleFailure(ctx, "acknowledge audit reads", uuid.Nil, err)
 	}
 	return nil
+}
+
+// splitOutboxRecords returns the plain event or manifest record of encoded
+// and its ordered part records, the arguments of ops_outbox_write_encoded.
+func splitOutboxRecords(encoded EncodedEvent) ([]byte, [][]byte, error) {
+	records, err := encoded.Records()
+	if err != nil {
+		return nil, nil, err
+	}
+	last := len(records) - 1
+	return records[last], records[:last], nil
 }
 
 // readLifecycleFailure logs and wraps one failed lifecycle call. It adds

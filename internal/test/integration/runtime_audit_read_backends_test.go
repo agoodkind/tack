@@ -3,7 +3,6 @@ package integration_test
 import (
 	"bytes"
 	"encoding/hex"
-	"encoding/json"
 	"testing"
 	"time"
 
@@ -31,6 +30,9 @@ type readBackend struct {
 	terminal func(t *testing.T, eventID uuid.UUID) []audit.Event
 	// childEnv returns the environment a child process uses to open the store.
 	childEnv func() []string
+	// clusterFile is the FoundationDB cluster file that the relay drains. It
+	// is empty for the YugabyteDB store.
+	clusterFile string
 }
 
 // readBackends returns the FoundationDB and YugabyteDB read stores.
@@ -71,7 +73,7 @@ func foundationDBReadBackend(t *testing.T) *readBackend {
 			for _, entry := range entries {
 				messages = append(messages, entry.Event)
 			}
-			return transportEvents(t, messages, eventID)
+			return outboxEvents(t, messages, eventID)
 		},
 		childEnv: func() []string {
 			return []string{
@@ -80,6 +82,7 @@ func foundationDBReadBackend(t *testing.T) *readBackend {
 				readChildPrefixVariable + "=" + hex.EncodeToString(prefix),
 			}
 		},
+		clusterFile: clusterFile,
 	}
 }
 
@@ -99,38 +102,6 @@ func clearReadPrefix(t *testing.T, clusterFile string, prefix []byte) {
 	}); err != nil {
 		t.Logf("cleanup: clear the test prefix: %v", err)
 	}
-}
-
-// transportEvents decodes the part and manifest messages of eventID and
-// returns one event for each manifest.
-func transportEvents(t *testing.T, messages [][]byte, eventID uuid.UUID) []audit.Event {
-	t.Helper()
-	type transportMessage struct {
-		Message string    `json:"audit_message"`
-		EventID uuid.UUID `json:"event_id"`
-		Payload []byte    `json:"payload"`
-	}
-	var envelope []byte
-	var events []audit.Event
-	for _, raw := range messages {
-		var message transportMessage
-		if err := json.Unmarshal(raw, &message); err != nil || message.EventID != eventID {
-			continue
-		}
-		if message.Message == "event_part" {
-			envelope = append(envelope, message.Payload...)
-			continue
-		}
-		var decoded struct {
-			Event audit.Event `json:"event"`
-		}
-		if err := json.Unmarshal(envelope, &decoded); err != nil {
-			t.Fatalf("decode the envelope of read %s: %v", eventID, err)
-		}
-		events = append(events, decoded.Event)
-		envelope = nil
-	}
-	return events
 }
 
 // yugabyteReadBackend opens the operator read store as the application role.
@@ -160,24 +131,12 @@ func yugabyteReadBackend(t *testing.T) *readBackend {
 		},
 		terminal: func(t *testing.T, eventID uuid.UUID) []audit.Event {
 			t.Helper()
-			rows, err := admin.Query(t.Context(), readOutboxEventsStatement, eventID)
-			if err != nil {
-				t.Fatalf("read the YugabyteDB outbox: %v", err)
-			}
-			defer rows.Close()
-			var events []audit.Event
-			for rows.Next() {
-				var event audit.Event
-				if err := rows.Scan(&event); err != nil {
-					t.Fatalf("scan the YugabyteDB outbox: %v", err)
-				}
-				events = append(events, event)
-			}
-			return events
+			return outboxEvents(t, yugabyteOutboxRecords(t, admin, eventID), eventID)
 		},
 		childEnv: func() []string {
 			return []string{readChildBackendVariable + "=yugabytedb", readChildDSNVariable + "=" + dsn}
 		},
+		clusterFile: "",
 	}
 }
 

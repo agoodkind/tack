@@ -73,6 +73,14 @@ func (s foundationDBOutbox) ClearThrough(ctx context.Context, mark []byte) error
 	return nil
 }
 
+func (s foundationDBOutbox) ClearThroughPublished(ctx context.Context, mark []byte, reads []audit.PublishedRead) error {
+	if err := s.store.ClearThroughPublished(ctx, mark, reads); err != nil {
+		slog.ErrorContext(ctx, "audit_consumer.relay_fdb_clear_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("clear FoundationDB relay outbox and mark reads published: %w", err)
+	}
+	return nil
+}
+
 // Open builds the relay from cfg. Tests and cmd/audit-consumer use this
 // function.
 func Open(ctx context.Context, cfg Config) (Opened, error) {

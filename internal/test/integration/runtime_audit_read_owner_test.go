@@ -82,9 +82,11 @@ func TestRuntimeAuditReadStaleOwner(t *testing.T) {
 	}
 }
 
-// TestRuntimeAuditReadReceiptCleanup runs receipt cleanup in a second
-// process. Both stores keep an unpublished receipt and a receipt published
-// inside the retention period. Only the YugabyteDB case proves deletion after
+// TestRuntimeAuditReadReceiptCleanup delivers a finalized read through the
+// real relay, which marks its receipt published in the transaction that
+// removes the outbox records, and runs receipt cleanup in a second process.
+// Both stores keep an unpublished receipt and a receipt published inside the
+// retention period. Only the YugabyteDB case proves deletion after
 // the retention period: the test moves its publication times back, and the
 // FoundationDB store reads the wall clock, which the test cannot advance by
 // one hour. The test also checks the YugabyteDB lifecycle grants.
@@ -105,17 +107,22 @@ func TestRuntimeAuditReadReceiptCleanup(t *testing.T) {
 			if err := backend.store.FinalizeRead(t.Context(), fixture.completion); err != nil {
 				t.Fatalf("cleanup deleted the unpublished receipt: %v", err)
 			}
+			requireTerminal(t, backend, eventID, audit.OutcomeCompleted)
+			deliverReadThroughRelay(t, backend, eventID)
+			// A published receipt ignores later acknowledgments. The different
+			// digest succeeds here only after the relay marked the receipt
+			// published.
+			if err := backend.store.AcknowledgePublished(t.Context(), []audit.PublishedRead{wrong}); err != nil {
+				t.Fatalf("the relay did not mark the receipt published: %v", err)
+			}
 			published := audit.PublishedRead{EventID: eventID, Digest: fixture.completion.Digest}
-			for range 2 {
-				if err := backend.store.AcknowledgePublished(t.Context(), []audit.PublishedRead{published}); err != nil {
-					t.Fatalf("acknowledge the published read: %v", err)
-				}
+			if err := backend.store.AcknowledgePublished(t.Context(), []audit.PublishedRead{published}); err != nil {
+				t.Fatalf("repeat the acknowledgment: %v", err)
 			}
 			cleanupInChild(t, backend)
 			if err := backend.store.FinalizeRead(t.Context(), fixture.completion); err != nil {
 				t.Fatalf("cleanup deleted the receipt before its retention: %v", err)
 			}
-			requireTerminal(t, backend, eventID, audit.OutcomeCompleted)
 			if backend.agePublished == nil {
 				t.Logf("%s: this case does not prove deletion after the retention period", backend.name)
 				return

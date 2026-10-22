@@ -66,17 +66,17 @@ func (l *PoolReadLifecycle) recoverOne(ctx context.Context, expired expiredRead)
 	if err := json.Unmarshal(expired.template, &template); err != nil {
 		return false, readLifecycleFailure(ctx, "decode audit read template", expired.eventID, err)
 	}
-	event, encoded, err := EncodeIncompleteRead(template, expired.observedAt)
+	_, encoded, err := EncodeIncompleteRead(template, expired.observedAt)
 	if err != nil {
 		return false, readLifecycleFailure(ctx, "recover audit read", expired.eventID, err)
 	}
-	payload, err := json.Marshal(event)
+	header, parts, err := splitOutboxRecords(encoded)
 	if err != nil {
 		return false, readLifecycleFailure(ctx, "encode audit read event", expired.eventID, err)
 	}
 	var saved bool
 	err = l.pool.QueryRow(ctx, readStatement("recover"), expired.eventID, expired.generation,
-		expired.leaseDeadline, encoded.TransportDigest, payload).Scan(&saved)
+		expired.leaseDeadline, encoded.TransportDigest, header, parts).Scan(&saved)
 	if err != nil {
 		return false, readLifecycleFailure(ctx, "recover audit read", expired.eventID, err)
 	}

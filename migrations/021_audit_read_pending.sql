@@ -125,7 +125,8 @@ $$;
 
 -- +goose StatementBegin
 CREATE OR REPLACE FUNCTION public.ops_read_finalize(
-    p_event_id UUID, p_owner UUID, p_generation BIGINT, p_digest TEXT, p_outcome TEXT, p_event JSONB)
+    p_event_id UUID, p_owner UUID, p_generation BIGINT, p_digest TEXT, p_outcome TEXT,
+    p_header JSONB, p_parts BYTEA[])
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -143,7 +144,7 @@ BEGIN
        OR existing.owner_id <> p_owner OR existing.generation <> p_generation THEN
         RAISE EXCEPTION 'audit read % is not owned by this token', p_event_id USING ERRCODE = 'TK001';
     END IF;
-    INSERT INTO public.ops_outbox (event_id, event) VALUES (p_event_id, p_event);
+    PERFORM public.ops_outbox_write_encoded(p_event_id, p_header, p_parts);
     UPDATE public.ops_read_state s
        SET template = NULL, lease_deadline = NULL, digest = p_digest, outcome = p_outcome
      WHERE s.event_id = p_event_id;
@@ -169,7 +170,8 @@ $$;
 
 -- +goose StatementBegin
 CREATE OR REPLACE FUNCTION public.ops_read_recover(
-    p_event_id UUID, p_generation BIGINT, p_lease_deadline TIMESTAMPTZ, p_digest TEXT, p_event JSONB)
+    p_event_id UUID, p_generation BIGINT, p_lease_deadline TIMESTAMPTZ, p_digest TEXT,
+    p_header JSONB, p_parts BYTEA[])
 RETURNS BOOLEAN
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -184,7 +186,7 @@ BEGIN
     IF NOT FOUND THEN
         RETURN FALSE;
     END IF;
-    INSERT INTO public.ops_outbox (event_id, event) VALUES (p_event_id, p_event);
+    PERFORM public.ops_outbox_write_encoded(p_event_id, p_header, p_parts);
     RETURN TRUE;
 END;
 $$;
@@ -204,7 +206,8 @@ BEGIN
        AND s.digest = p_digest;
     IF NOT FOUND AND EXISTS (
         SELECT 1 FROM public.ops_read_state s
-         WHERE s.event_id = p_event_id AND s.template IS NULL AND s.digest <> p_digest) THEN
+         WHERE s.event_id = p_event_id AND s.template IS NULL AND s.published_at IS NULL
+           AND s.digest <> p_digest) THEN
         RAISE EXCEPTION 'published digest of audit read % differs from its receipt', p_event_id
             USING ERRCODE = 'TK003';
     END IF;
@@ -240,6 +243,23 @@ DO $$
 DECLARE
     signature TEXT;
 BEGIN
+    REVOKE ALL ON public.ops_read_state FROM PUBLIC;
+    FOREACH signature IN ARRAY ARRAY[
+        'public.ops_read_begin(uuid, uuid, smallint, jsonb)',
+        'public.ops_read_renew(uuid, uuid, bigint)',
+        'public.ops_read_template(uuid, uuid, bigint, text)',
+        'public.ops_read_finalize(uuid, uuid, bigint, text, text, jsonb, bytea[])',
+        'public.ops_read_expired(smallint, integer)',
+        'public.ops_read_recover(uuid, bigint, timestamptz, text, jsonb, bytea[])',
+        'public.ops_read_acknowledge(uuid, text)',
+        'public.ops_read_cleanup(smallint, integer)'
+    ] LOOP
+        EXECUTE 'REVOKE ALL ON FUNCTION ' || signature || ' FROM PUBLIC';
+        EXECUTE 'GRANT EXECUTE ON FUNCTION ' || signature || ' TO app_auth, tack_migrator';
+    END LOOP;
+    -- The relay marks a receipt published in the transaction that deletes
+    -- the delivered outbox row.
+    GRANT EXECUTE ON FUNCTION public.ops_read_acknowledge(uuid, text) TO audit_writer;
     EXECUTE 'GRANT ops_outbox_owner TO ' || quote_ident(current_user);
     GRANT CREATE ON SCHEMA public TO ops_outbox_owner;
     ALTER TABLE public.ops_read_state OWNER TO ops_outbox_owner;
@@ -247,20 +267,17 @@ BEGIN
         'public.ops_read_begin(uuid, uuid, smallint, jsonb)',
         'public.ops_read_renew(uuid, uuid, bigint)',
         'public.ops_read_template(uuid, uuid, bigint, text)',
-        'public.ops_read_finalize(uuid, uuid, bigint, text, text, jsonb)',
+        'public.ops_read_finalize(uuid, uuid, bigint, text, text, jsonb, bytea[])',
         'public.ops_read_expired(smallint, integer)',
-        'public.ops_read_recover(uuid, bigint, timestamptz, text, jsonb)',
+        'public.ops_read_recover(uuid, bigint, timestamptz, text, jsonb, bytea[])',
         'public.ops_read_acknowledge(uuid, text)',
         'public.ops_read_cleanup(smallint, integer)'
     ] LOOP
         EXECUTE 'ALTER FUNCTION ' || signature || ' OWNER TO ops_outbox_owner';
-        EXECUTE 'REVOKE ALL ON FUNCTION ' || signature || ' FROM PUBLIC';
-        EXECUTE 'GRANT EXECUTE ON FUNCTION ' || signature || ' TO app_auth, tack_migrator';
     END LOOP;
-    -- The relay marks a receipt published in the transaction that deletes
-    -- the delivered outbox row.
-    GRANT EXECUTE ON FUNCTION public.ops_read_acknowledge(uuid, text) TO audit_writer;
-    REVOKE ALL ON public.ops_read_state FROM PUBLIC;
+    -- ops_read_finalize and ops_read_recover call ops_outbox_write_encoded
+    -- as ops_outbox_owner, and the ACL from migration 020 omits that role.
+    GRANT EXECUTE ON FUNCTION public.ops_outbox_write_encoded(uuid, jsonb, bytea[]) TO ops_outbox_owner;
     REVOKE CREATE ON SCHEMA public FROM ops_outbox_owner;
     EXECUTE 'REVOKE ops_outbox_owner FROM ' || quote_ident(current_user);
 END
@@ -271,9 +288,9 @@ $$;
 -- +goose StatementBegin
 DROP FUNCTION IF EXISTS public.ops_read_cleanup(smallint, integer);
 DROP FUNCTION IF EXISTS public.ops_read_acknowledge(uuid, text);
-DROP FUNCTION IF EXISTS public.ops_read_recover(uuid, bigint, timestamptz, text, jsonb);
+DROP FUNCTION IF EXISTS public.ops_read_recover(uuid, bigint, timestamptz, text, jsonb, bytea[]);
 DROP FUNCTION IF EXISTS public.ops_read_expired(smallint, integer);
-DROP FUNCTION IF EXISTS public.ops_read_finalize(uuid, uuid, bigint, text, text, jsonb);
+DROP FUNCTION IF EXISTS public.ops_read_finalize(uuid, uuid, bigint, text, text, jsonb, bytea[]);
 DROP FUNCTION IF EXISTS public.ops_read_template(uuid, uuid, bigint, text);
 DROP FUNCTION IF EXISTS public.ops_read_renew(uuid, uuid, bigint);
 DROP FUNCTION IF EXISTS public.ops_read_begin(uuid, uuid, smallint, jsonb);

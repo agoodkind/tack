@@ -33,12 +33,13 @@ type encodedOutboxWriter interface {
 	writeEncoded(tr fdb.Transaction, encoded audit.EncodedEvent) error
 }
 
-// versionstampOutboxWriter writes each transport message of an encoded event
-// as one versionstamped outbox entry, parts first and the manifest last.
+// versionstampOutboxWriter writes each outbox record of an encoded event as
+// one versionstamped outbox entry, parts first and the manifest last. A
+// single-record event writes its plain event JSON.
 type versionstampOutboxWriter struct{}
 
 func (versionstampOutboxWriter) writeEncoded(tr fdb.Transaction, encoded audit.EncodedEvent) error {
-	messages, err := encoded.Messages()
+	messages, err := encoded.Records()
 	if err != nil {
 		return auditReadStepFailure("encode outbox messages", err)
 	}
