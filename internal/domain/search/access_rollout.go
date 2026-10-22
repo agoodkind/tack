@@ -62,9 +62,11 @@ type RolloutDocument struct {
 
 // DocumentAccess is the stored state and access versions of one page
 // document. Found is false when OpenSearch has no document with the ID.
+// Generation is the access generation the page stores.
 type DocumentAccess struct {
 	Found, Retired bool
 	Versions       []string
+	Generation     int64
 }
 
 // RolloutStep is the outcome of one checkpointed rollout step.

@@ -24,11 +24,13 @@ type multiGetBody struct {
 type documentAccessSource struct {
 	Retired bool `json:"retired"`
 	Access  struct {
-		Versions []string `json:"versions"`
+		Versions   []string `json:"versions"`
+		Generation int64    `json:"generation"`
 	} `json:"access"`
 }
 
-// DocumentAccess reads the retirement flag and access versions of exact page
+// DocumentAccess reads the retirement flag, access versions, and access
+// generation of exact page
 // documents in index with one OpenSearch multi-get request. The multi-get
 // read is realtime and does not require an index refresh. A missing document
 // returns with Found set to false.
@@ -43,7 +45,7 @@ func (a *Adapter) DocumentAccess(ctx context.Context, index string, ids []string
 	}
 	response, err := a.api.MGet(ctx, opensearchapi.MGetReq{
 		Index: index, Body: bytes.NewReader(body),
-		Params: opensearchapi.MGetParams{SourceIncludes: []string{"retired", "access.versions"}},
+		Params: opensearchapi.MGetParams{SourceIncludes: []string{"retired", "access.versions", "access.generation"}},
 	})
 	if err != nil {
 		return nil, documentAccessFailure(ctx, index, "read page documents", err)
@@ -53,13 +55,13 @@ func (a *Adapter) DocumentAccess(ctx context.Context, index string, ids []string
 			return nil, documentAccessFailure(ctx, index, "read page document "+document.ID,
 				fmt.Errorf("%s: %s", document.Error.Type, document.Error.Reason))
 		}
-		state := searchdomain.DocumentAccess{Found: document.Found, Retired: false, Versions: nil}
+		state := searchdomain.DocumentAccess{Found: document.Found, Retired: false, Versions: nil, Generation: 0}
 		if document.Found {
 			var source documentAccessSource
 			if err := json.Unmarshal(document.Source, &source); err != nil {
 				return nil, documentAccessFailure(ctx, index, "decode page document "+document.ID, err)
 			}
-			state.Retired, state.Versions = source.Retired, source.Access.Versions
+			state.Retired, state.Versions, state.Generation = source.Retired, source.Access.Versions, source.Access.Generation
 		}
 		states[document.ID] = state
 	}

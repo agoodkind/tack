@@ -6,8 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"slices"
-	"time"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
@@ -80,19 +78,25 @@ func decodeRolloutDocument(ctx context.Context, item fdb.KeyValue) (searchdomain
 	return searchdomain.RolloutDocument{NodeID: nodeID, Document: document}, nil
 }
 
-// CompleteVerify checks one verified batch against the rollout's exact
-// write versions. A mismatched page keeps the cursor and schedules access
-// or content work for its node unless page work is already pending. The
-// last batch compares the permission event boundary, then activates the
-// candidate or completes the retirement.
+// CompleteVerify checks one batch against the exact write versions and
+// each node's recorded access generation. It preserves the verification
+// cursor for a stale page and schedules repair unless the node has
+// pending page work. The last batch compares the permission event
+// boundary. A changed boundary before activation restarts the backfill
+// scan. A changed boundary during retirement repeats verification.
+// Otherwise, the last batch activates the candidate or completes
+// retirement.
 func (s *SearchAccessRolloutStore) CompleteVerify(ctx context.Context, work searchdomain.Work, read searchdomain.AccessRollout, documents []searchdomain.RolloutDocument, states map[string]searchdomain.DocumentAccess, done bool) (step searchdomain.RolloutStep, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_rollout.complete_verify")(&err)
 	step = searchdomain.RolloutContinue
 	err = s.rolloutStep(ctx, work, read, func(tr fdb.Transaction, record *searchRolloutRecord, workRecord searchWorkRecord) error {
-		mismatched := mismatchedNodes(documents, states, record.WriteVersions)
-		if len(mismatched) > 0 {
+		stale, staleErr := staleRolloutNodes(ctx, tr, work.OrgID, documents, states, record.WriteVersions)
+		if staleErr != nil {
+			return staleErr
+		}
+		if len(stale) > 0 {
 			step = searchdomain.RolloutWait
-			return scheduleRolloutRepairs(ctx, tr, s.work.clock.Now(), work.OrgID, mismatched)
+			return scheduleRolloutRepairs(ctx, tr, s.work.clock.Now(), work.OrgID, stale)
 		}
 		if !done {
 			last := documents[len(documents)-1]
@@ -106,6 +110,11 @@ func (s *SearchAccessRolloutStore) CompleteVerify(ctx context.Context, work sear
 		}
 		if event != record.PermissionEventVersion {
 			record.PermissionEventVersion, record.VerifyCursor = event, ""
+			// A grant change before activation requires another authority
+			// scan and exact verification before activation.
+			if record.Phase == string(searchdomain.AccessVerifying) {
+				record.Phase, record.ScanCursor = string(searchdomain.AccessBackfill), ""
+			}
 			return nil
 		}
 		if record.Phase == string(searchdomain.AccessRetiring) {
@@ -123,52 +132,6 @@ func (s *SearchAccessRolloutStore) CompleteVerify(ctx context.Context, work sear
 	telemetry.L(ctx).DebugContext(ctx, "search.rollout.verified", slog.String("authority_id", work.OrgID.String()),
 		slog.Int("documents", len(documents)), slog.Int("step", int(step)))
 	return step, nil
-}
-
-// mismatchedNodes returns each node with a page that lacks the exact write
-// versions. The value reports whether OpenSearch has no active document.
-func mismatchedNodes(documents []searchdomain.RolloutDocument, states map[string]searchdomain.DocumentAccess, required []string) map[uuid.UUID]bool {
-	mismatched := make(map[uuid.UUID]bool)
-	for _, document := range documents {
-		state := states[document.Document.DocumentID]
-		versions := slices.Clone(state.Versions)
-		slices.Sort(versions)
-		if state.Found && !state.Retired && slices.Equal(versions, required) {
-			continue
-		}
-		mismatched[document.NodeID] = mismatched[document.NodeID] || !state.Found || state.Retired
-	}
-	return mismatched
-}
-
-// scheduleRolloutRepairs schedules content work for a node without an active
-// page document. For any other mismatched node, it schedules access work
-// that updates every page of the node. A node with pending live, access, or
-// cleanup work waits for that work instead.
-func scheduleRolloutRepairs(ctx context.Context, tr fdb.Transaction, now time.Time, orgID uuid.UUID, mismatched map[uuid.UUID]bool) error {
-	for nodeID, missing := range mismatched {
-		pending := false
-		for _, class := range searchNodeClasses {
-			_, found, err := readSearchWork(ctx, tr, class, orgID, nodeID)
-			if err != nil {
-				return err
-			}
-			pending = pending || found
-		}
-		if pending {
-			continue
-		}
-		if missing {
-			if err := scheduleExistingSearchChange(ctx, tr, now, orgID, nodeID, searchChangeContent); err != nil {
-				return err
-			}
-			continue
-		}
-		if err := scheduleAccessRepair(ctx, tr, now, orgID, nodeID); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // completedRollout returns the stable state after a finished retirement.
