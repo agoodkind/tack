@@ -38,7 +38,7 @@ func ChangeEvent(operation Event, change Change, completedAt time.Time) (Event, 
 		Context: eventContext,
 		Delta:   &Delta{Before: change.Before, After: change.After, Changed: change.Changed},
 		Outcome: OutcomeCompleted, Error: nil, IdempotencyKey: "",
-		OccurredAt: completedAt.UTC(), Extra: operation.Extra,
+		OccurredAt: completedAt.UTC(), Extra: operation.Extra, Protected: change.Protected,
 	}
 	if err := ValidateEvent(event); err != nil {
 		return Event{}, changeEventFailure(change, err)

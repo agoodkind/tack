@@ -14,7 +14,9 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
 	"goodkind.io/tack/internal/adapters/postgres"
+	"goodkind.io/tack/internal/adapters/postgres/migration"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/telemetry"
 )
@@ -51,9 +53,9 @@ func RunAuditSeedRoles(ctx context.Context, cfg *config.Config) error {
 		newAuditLoginRole("tack_app", "app_auth", cfg.AppPassword),
 	}
 	if cfg.MigratorPassword == "" {
-		err := fmt.Errorf("audit seed-roles: password for %s is empty; set TACK_MIGRATOR_PASSWORD", postgres.MigratorRole)
+		err := fmt.Errorf("audit seed-roles: password for %s is empty; set TACK_MIGRATOR_PASSWORD", migration.MigratorRole)
 		slog.ErrorContext(ctx, "audit.seed_roles.password_missing",
-			slog.String("login_role", postgres.MigratorRole), slog.String("err", err.Error()))
+			slog.String("login_role", migration.MigratorRole), slog.String("err", err.Error()))
 		return err
 	}
 	for _, role := range roles {

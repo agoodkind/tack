@@ -15,7 +15,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"goodkind.io/tack/internal/audit"
-	"goodkind.io/tack/internal/auditrelay"
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clispec"
 	"goodkind.io/tack/internal/config"
@@ -112,21 +111,4 @@ func runOpsCommand(t *testing.T, cfg *config.Config, pool *pgxpool.Pool, args ..
 	root.SetArgs(args)
 	err := root.ExecuteContext(t.Context())
 	return output.String(), err
-}
-
-func startOutboxRelay(t *testing.T, stack runtimeAuditStack) {
-	t.Helper()
-	opened, err := auditrelay.Open(t.Context(), auditrelay.Config{
-		Brokers: []string{testenv.Kafka(t)}, Topic: stack.topic,
-		YugabyteDSN: testenv.Ledger(t), FDBClusterFile: "", FDBTransactionTimeout: 5 * time.Second,
-		PollInterval: 100 * time.Millisecond, BatchSize: 64,
-	})
-	if err != nil {
-		t.Fatalf("the test could not open the relay: %v", err)
-	}
-	opened.Relay.Start(t.Context())
-	t.Cleanup(func() {
-		_ = opened.Relay.Close()
-		opened.Pool.Close()
-	})
 }

@@ -154,7 +154,7 @@ func (r *YBRecorder) recordOnce(ctx context.Context, ev Event, shard int16, cont
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	piiRef, err := writePIIRow(ctx, tx, ev.Actor)
+	piiRef, err := writeEventPII(ctx, tx, ev)
 	if err != nil {
 		return chainAppendResult{}, err
 	}

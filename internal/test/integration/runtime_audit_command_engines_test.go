@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
-	"goodkind.io/tack/internal/adapters/postgres"
+	"goodkind.io/tack/internal/adapters/postgres/migration"
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/testenv"
@@ -97,7 +97,7 @@ func testSearchReindexOutcomes(t *testing.T) {
 // The events do not contain role passwords.
 func testSeedRolesOutcomes(t *testing.T) {
 	node := testenv.StartEmptyLedger(t, rolesLedgerContainer+uuid.NewString()[:8])
-	if err := postgres.Migrate(t.Context(), node.DSN, migrations.FS); err != nil {
+	if err := migration.Migrate(t.Context(), node.DSN, migrations.FS); err != nil {
 		t.Fatalf("migrating the empty ledger failed: %v", err)
 	}
 	pool, err := pgxpool.New(t.Context(), node.DSN)

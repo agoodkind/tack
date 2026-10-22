@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"goodkind.io/tack/internal/adapters/postgres"
+	"goodkind.io/tack/internal/adapters/postgres/migration"
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/domain/org"
@@ -44,7 +45,7 @@ const (
 func TestRestoreDrillRestoresLedgerWithSchemaGuard(t *testing.T) {
 	ctx := t.Context()
 	node := testenv.StartEmptyLedger(t, drillLedgerContainer)
-	if err := postgres.Migrate(ctx, node.DSN, migrations.FS); err != nil {
+	if err := migration.Migrate(ctx, node.DSN, migrations.FS); err != nil {
 		t.Fatalf("migrate the empty ledger: %v", err)
 	}
 	cfg := restoreDrillConfig(t, node)
@@ -107,8 +108,9 @@ func restoreDrillConfig(t *testing.T, node testenv.EmptyLedgerNode) *config.Conf
 // seedDrillAuthRows writes one row into each auth table the drill counts.
 func seedDrillAuthRows(t *testing.T, admin *pgxpool.Pool) {
 	t.Helper()
-	ctx := t.Context()
 	now := time.Now().UTC()
+	ctx, _ := sqlAuditContext(t, sqlAuditPrincipal())
+	orgID := uuid.Must(uuid.NewV7())
 	holder, err := postgres.NewUserRepo(admin).Create(ctx, &user.User{
 		ID: uuid.Must(uuid.NewV7()), Email: "drill-" + uuid.NewString() + "@example.invalid",
 		DisplayName: "Drill Holder", AvatarURL: nil, CreatedAt: now, UpdatedAt: now,
@@ -116,11 +118,11 @@ func seedDrillAuthRows(t *testing.T, admin *pgxpool.Pool) {
 	if err != nil {
 		t.Fatalf("create the drill user: %v", err)
 	}
-	if _, err := postgres.NewTokenRepo(admin).Create(ctx, holder.ID, uuid.NewString(), "restore drill"); err != nil {
+	if _, err := postgres.NewTokenRepo(admin).Create(ctx, orgID, holder.ID, uuid.NewString(), "restore drill"); err != nil {
 		t.Fatalf("create the drill token: %v", err)
 	}
 	member := &org.Member{
-		ID: uuid.Nil, OrgID: uuid.Must(uuid.NewV7()), UserID: holder.ID, Role: drillMemberRole, CreatedAt: now,
+		ID: uuid.Nil, OrgID: orgID, UserID: holder.ID, Role: drillMemberRole, CreatedAt: now,
 	}
 	if err := postgres.NewOrgMemberRepo(admin).AddMember(ctx, member); err != nil {
 		t.Fatalf("add the drill org member: %v", err)

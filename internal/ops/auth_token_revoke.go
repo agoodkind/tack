@@ -5,14 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"goodkind.io/tack/internal/adapters/postgres"
-	"goodkind.io/tack/internal/audit"
-	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/token"
 	"goodkind.io/tack/internal/domain/user"
@@ -25,50 +22,22 @@ type AuthTokenRevocation struct {
 	OrgID  uuid.UUID
 }
 
-// RevokeAuthToken deletes one token and records the revocation, intent
-// first. A failed delete records an error outcome against the intent, so no
-// pending row is left claiming a revocation that did not happen. The row is
-// gone from the moment the delete commits, so an outcome record that fails
-// afterwards is reported with the token's identity rather than hidden: the
-// pending row already names what was revoked, and the error says the
-// confirming row is owed. A rerun records a new attempt.
+// RevokeAuthToken looks up the token, its user regardless of active status,
+// and its organization, then deletes it through TokenRepo.Delete. The
+// repository reads the audit operation from ctx.
 func RevokeAuthToken(
 	ctx context.Context,
 	pool *pgxpool.Pool,
-	outbox audit.OutboxWriter,
-	principal audit.OperatorPrincipal,
 	tokenID uuid.UUID,
-	occurredAt time.Time,
 ) (AuthTokenRevocation, error) {
 	revocation, err := lookupAuthToken(ctx, pool, tokenID)
 	if err != nil {
 		return AuthTokenRevocation{}, err
 	}
-	attempt := authTokenAttempt{
-		ID: uuid.Must(uuid.NewV7()), Principal: principal,
-		Token: revocation.Token, Holder: revocation.Holder, OrgID: revocation.OrgID,
-	}
-	intent := authTokenEvent(audit.VerbAuthTokenRevoke, authRevokeKeyPrefix, attempt, audit.OutcomePending, occurredAt)
-	if err := recordAuthTokenEvent(ctx, outbox, intent); err != nil {
-		return AuthTokenRevocation{}, fmt.Errorf("nothing revoked: %w", err)
-	}
-	if err := postgres.NewTokenRepo(pool).Delete(ctx, tokenID); err != nil {
+	if err := postgres.NewTokenRepo(pool).Delete(ctx, revocation.OrgID, tokenID); err != nil {
 		slog.ErrorContext(ctx, "auth.token.revoke_failed",
 			slog.String("token_id", tokenID.String()), slog.String("err", err.Error()))
-		wrapped := fmt.Errorf("revoke token %s: %w", tokenID, err)
-		failure := authTokenFailureEvent(audit.VerbAuthTokenRevoke, authRevokeKeyPrefix, attempt, wrapped, clock.Now())
-		if recordErr := recordAuthTokenEvent(ctx, outbox, failure); recordErr != nil {
-			return AuthTokenRevocation{}, errors.Join(wrapped, recordErr)
-		}
-		return AuthTokenRevocation{}, wrapped
-	}
-	outcome := authTokenEvent(audit.VerbAuthTokenRevoke, authRevokeKeyPrefix, attempt, audit.OutcomeOK, clock.Now())
-	if recordErr := recordAuthTokenEvent(ctx, outbox, outcome); recordErr != nil {
-		slog.ErrorContext(ctx, "auth.token.revocation_unconfirmed",
-			slog.String("token_id", tokenID.String()),
-			slog.String("user_id", revocation.Holder.ID.String()),
-			slog.String("err", recordErr.Error()))
-		return revocation, fmt.Errorf("token %s was revoked but the confirming row could not be recorded: %w", tokenID, recordErr)
+		return AuthTokenRevocation{}, fmt.Errorf("revoke token %s: %w", tokenID, err)
 	}
 	slog.InfoContext(ctx, "auth.token.revoked",
 		slog.String("token_id", tokenID.String()),

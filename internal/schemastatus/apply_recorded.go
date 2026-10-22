@@ -10,7 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"goodkind.io/tack/internal/adapters/postgres"
+	"goodkind.io/tack/internal/adapters/postgres/migration"
 	"goodkind.io/tack/internal/audit"
 )
 
@@ -97,7 +97,7 @@ func ApplyRecorded(
 	}
 	slog.InfoContext(ctx, "schemastatus.apply_started",
 		slog.Int64("applied_version", before.AppliedVersion), slog.Int64("target_version", target))
-	migrateErr := postgres.MigrateTo(ctx, dsn, migrationsFS, target)
+	migrateErr := migration.MigrateTo(ctx, dsn, migrationsFS, target)
 	after, readErr := Read(ctx, dsn, migrationsFS)
 	if readErr != nil {
 		return 0, failedOutcome(audit.OutcomeIncomplete, statusUnreadableCode, readErr), errors.Join(migrateErr, readErr)

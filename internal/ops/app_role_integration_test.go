@@ -49,6 +49,7 @@ func TestAppRoleReachesTheAuthTablesAndNothingElse(t *testing.T) {
 	members := postgres.NewOrgMemberRepo(app)
 	tokens := postgres.NewTokenRepo(app)
 	orgID := uuid.Must(uuid.NewV7())
+	ctx = actAsFixtureContext(t)
 	created, err := users.Create(ctx, &user.User{
 		ID: uuid.Must(uuid.NewV7()), Email: "tack180-" + uuid.NewString()[:8] + "@example.test",
 		DisplayName: "TACK-180", AvatarURL: nil,
@@ -60,14 +61,14 @@ func TestAppRoleReachesTheAuthTablesAndNothingElse(t *testing.T) {
 	if err := members.AddMember(ctx, &org.Member{ID: uuid.Nil, OrgID: orgID, UserID: created.ID, Role: 20}); err != nil {
 		t.Fatalf("add a membership as the app login: %v", err)
 	}
-	minted, err := tokens.Create(ctx, created.ID, "tack_"+uuid.NewString(), "tack-180")
+	minted, err := tokens.Create(ctx, orgID, created.ID, "tack_"+uuid.NewString(), "tack-180")
 	if err != nil {
 		t.Fatalf("create a token as the app login: %v", err)
 	}
 	if listed, err := tokens.List(ctx, created.ID); err != nil || len(listed) != 1 {
 		t.Fatalf("list tokens as the app login: %d, %v", len(listed), err)
 	}
-	if err := tokens.Delete(ctx, minted.ID); err != nil {
+	if err := tokens.Delete(ctx, orgID, minted.ID); err != nil {
 		t.Fatalf("delete a token as the app login: %v", err)
 	}
 	if err := members.RemoveMember(ctx, orgID, created.ID); err != nil {

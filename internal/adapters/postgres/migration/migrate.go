@@ -1,4 +1,6 @@
-package postgres
+// Package migration applies goose migrations from a file system to YugabyteDB.
+// It supports applying all pending migrations or stopping at a target version.
+package migration
 
 import (
 	"context"

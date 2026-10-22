@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"goodkind.io/tack/internal/adapters/postgres"
+	"goodkind.io/tack/internal/adapters/postgres/migration"
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/telemetry"
@@ -42,7 +43,7 @@ var seededRoles = []seededRole{
 	{login: "tack_audit_redactor", base: "audit_redactor"},
 	{login: "tack_audit_operator", base: "audit_operator"},
 	{login: "tack_app", base: "app_auth"},
-	{login: postgres.MigratorRole, base: ""},
+	{login: migration.MigratorRole, base: ""},
 }
 
 type roleState struct {

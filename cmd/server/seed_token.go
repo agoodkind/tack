@@ -2,14 +2,16 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 
 	"github.com/google/uuid"
 
 	"goodkind.io/tack/internal/adapters/postgres"
-	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/config"
+	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/user"
 	"goodkind.io/tack/internal/telemetry"
 )
@@ -20,7 +22,6 @@ func seedToken(
 	tokenRepo *postgres.TokenRepo,
 	seededUser *user.User,
 	orgID uuid.UUID,
-	recorder audit.Recorder,
 ) error {
 	log := telemetry.L(ctx)
 	raw := cfg.SeedAPIToken
@@ -31,13 +32,14 @@ func seedToken(
 		}
 		raw = generatedToken
 	}
-	seededToken, err := tokenRepo.Create(ctx, seededUser.ID, raw, "seed")
-	if err != nil {
+	_, err := tokenRepo.Create(ctx, orgID, seededUser.ID, raw, "seed")
+	switch {
+	case errors.Is(err, domain.ErrAlreadyExists):
 		log.InfoContext(ctx, "seed.prod_token_exists")
-	} else {
-		if err := recordSeedToken(ctx, recorder, seededToken, orgID); err != nil {
-			return err
-		}
+	case err != nil:
+		slog.ErrorContext(ctx, "seed.create_token_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("seed: create token: %w", err)
+	default:
 		_, _ = fmt.Fprintf(os.Stdout, "\nProduction-mode API token (copy now; not shown again):\n  %s\n", raw)
 	}
 	_, _ = fmt.Fprintf(os.Stdout, "\nDev-mode bearer (stable across wipes, derived from %s):\n  %s\n\n", cfg.SeedEmail, seededUser.ID)
