@@ -13,7 +13,7 @@ import (
 	"github.com/moby/moby/client"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
-	"goodkind.io/tack/internal/adapters/postgres"
+	"goodkind.io/tack/internal/adapters/postgres/migration"
 	"goodkind.io/tack/migrations"
 )
 
@@ -160,7 +160,7 @@ func probeLedger(ctx context.Context, dsn string) error {
 // migrateLedger applies every embedded migration through the migrator that
 // `./server migrate` runs.
 func migrateLedger(ctx context.Context, dsn string) error {
-	if err := postgres.Migrate(ctx, dsn, migrations.FS); err != nil {
+	if err := migration.Migrate(ctx, dsn, migrations.FS); err != nil {
 		slog.ErrorContext(ctx, "testenv.ledger.migrate_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("migrate the test ledger: %w", err)
 	}

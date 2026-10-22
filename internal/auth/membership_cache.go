@@ -11,12 +11,11 @@ import (
 	"goodkind.io/tack/internal/domain/org"
 )
 
-// CachedMembers remembers each user's org set for a short lifetime, so a
-// request from a user whose membership was read moments ago costs no ledger
-// read (TACK-505). A membership write through this instance forgets the
-// user at once; writes made elsewhere reach every instance within one
-// lifetime. A failed read caches nothing, so the fail-closed path behind the
-// middleware still sees the failure.
+// CachedMembers caches each user's org set for a short lifetime. Cached
+// membership lookups do not read the ledger, and every instance observes
+// membership changes after the cached entry expires. Failed reads do not populate the
+// cache; checks behind the middleware still reject access on read errors.
+// CachedMembers does not provide write methods.
 type CachedMembers struct {
 	inner    org.MemberRepository
 	cache    *entryCache[[]uuid.UUID]
@@ -61,28 +60,6 @@ func (c *CachedMembers) prime(userID uuid.UUID, orgIDs []uuid.UUID, now time.Tim
 		return
 	}
 	c.cache.put(userID.String(), copyOrgIDs(orgIDs), now.Add(c.lifetime))
-}
-
-// AddMember writes through inner and forgets the user's cached set.
-func (c *CachedMembers) AddMember(ctx context.Context, m *org.Member) error {
-	c.cache.remove(m.UserID.String())
-	if err := c.inner.AddMember(ctx, m); err != nil {
-		slog.ErrorContext(ctx, "auth.membership_add_failed",
-			slog.String("user_id", m.UserID.String()), slog.String("err", err.Error()))
-		return fmt.Errorf("add member %s: %w", m.UserID, err)
-	}
-	return nil
-}
-
-// RemoveMember writes through inner and forgets the user's cached set.
-func (c *CachedMembers) RemoveMember(ctx context.Context, orgID, userID uuid.UUID) error {
-	c.cache.remove(userID.String())
-	if err := c.inner.RemoveMember(ctx, orgID, userID); err != nil {
-		slog.ErrorContext(ctx, "auth.membership_remove_failed",
-			slog.String("user_id", userID.String()), slog.String("err", err.Error()))
-		return fmt.Errorf("remove member %s: %w", userID, err)
-	}
-	return nil
 }
 
 // ListMembers reads through inner; org rosters are not cached.

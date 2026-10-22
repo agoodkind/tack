@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"goodkind.io/tack/internal/adapters/postgres"
+	"goodkind.io/tack/internal/adapters/postgres/migration"
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/testenv"
 )
@@ -35,9 +35,9 @@ func TestSchemaGuardRefusesHandWrittenAuditDDL(t *testing.T) {
 	t.Cleanup(pool.Close)
 	store := audit.NewPGPartitionStore(pool)
 
-	testenv.ExecAsRole(t, pool, postgres.MigratorRole, "CREATE TABLE audit.tack556_drop_probe (id int)")
+	testenv.ExecAsRole(t, pool, migration.MigratorRole, "CREATE TABLE audit.tack556_drop_probe (id int)")
 	t.Cleanup(func() {
-		testenv.ExecAsRole(t, pool, postgres.MigratorRole, "DROP TABLE IF EXISTS audit.tack556_drop_probe")
+		testenv.ExecAsRole(t, pool, migration.MigratorRole, "DROP TABLE IF EXISTS audit.tack556_drop_probe")
 	})
 	for _, statement := range []string{
 		strayChildStatement,

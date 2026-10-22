@@ -43,6 +43,9 @@ type Event struct {
 	IdempotencyKey string          `json:"idempotency_key,omitempty"`
 	OccurredAt     time.Time       `json:"occurred_at"`
 	Extra          json.RawMessage `json:"extra,omitempty"`
+	// Protected supplies JSON values for delta references. Writers store these
+	// values in audit.pii and omit them from ledger rows and row hashes.
+	Protected []ProtectedValue `json:"protected,omitempty" exhaustruct:"optional"`
 }
 
 // Actor is who triggered the event. PII fields (Email, Name, IP, UA) are

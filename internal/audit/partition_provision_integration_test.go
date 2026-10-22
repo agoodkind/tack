@@ -14,7 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"goodkind.io/tack/internal/adapters/postgres"
+	"goodkind.io/tack/internal/adapters/postgres/migration"
 	"goodkind.io/tack/internal/telemetry"
 	"goodkind.io/tack/migrations"
 )
@@ -36,7 +36,7 @@ func TestFreshProvisionMaintainsWeeklyPartitions(t *testing.T) {
 	fixture := newPartmanTestDatabase(t)
 	ctx := context.Background()
 	fixture.pool.Close()
-	if err := postgres.Migrate(ctx, fixture.dsn, migrations.FS); err != nil {
+	if err := migration.Migrate(ctx, fixture.dsn, migrations.FS); err != nil {
 		t.Fatalf("provision migrations: %v", err)
 	}
 	if err := fixture.reopenPool(); err != nil {

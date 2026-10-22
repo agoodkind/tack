@@ -84,7 +84,8 @@ func addSecondOrganization(t *testing.T, server *publicServer) uuid.UUID {
 	if err != nil {
 		t.Fatalf("datagen.ParseScale failed: %v", err)
 	}
-	identities, err := datagen.BootstrapIdentities(integration.WithTestOperation(t, t.Context()), server.config, clock.Now().UnixNano(), scale)
+	ctx := integration.WithTestOperation(t, t.Context())
+	identities, err := datagen.BootstrapIdentities(ctx, server.config, clock.Now().UnixNano(), scale)
 	if err != nil {
 		t.Fatalf("datagen.BootstrapIdentities failed for the second organization: %v", err)
 	}
@@ -95,7 +96,7 @@ func addSecondOrganization(t *testing.T, server *publicServer) uuid.UUID {
 	t.Cleanup(pool.Close)
 	secondOrg := identities.Workspaces[0].OrgID
 	member := &org.Member{ID: uuid.Nil, OrgID: secondOrg, UserID: server.userID, Role: memberRole}
-	if err := postgres.NewOrgMemberRepo(pool).AddMember(t.Context(), member); err != nil {
+	if err := postgres.NewOrgMemberRepo(pool).AddMember(ctx, member); err != nil {
 		t.Fatalf("the test could not add user %s to organization %s: %v", server.userID, secondOrg, err)
 	}
 	return secondOrg

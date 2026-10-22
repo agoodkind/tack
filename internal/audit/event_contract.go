@@ -116,6 +116,9 @@ type Change struct {
 	Before  json.RawMessage `json:"before,omitempty"`
 	After   json.RawMessage `json:"after,omitempty"`
 	Changed []string        `json:"changed,omitempty"`
+	// Protected supplies the subject IDs and JSON values for protected
+	// references in Before and After.
+	Protected []ProtectedValue `json:"protected,omitempty" exhaustruct:"optional"`
 }
 
 func isTerminalOutcome(outcome Outcome) bool {

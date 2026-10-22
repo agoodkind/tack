@@ -137,7 +137,7 @@ func requireNoOrganizationRefusal(t *testing.T, cfg *config.Config, run searchRu
 		t.Fatalf("open ledger pool: %v", err)
 	}
 	t.Cleanup(pool.Close)
-	if err := postgres.NewOrgMemberRepo(pool).RemoveMember(ctx, workspace.OrgID, actor.UserID); err != nil {
+	if err := postgres.NewOrgMemberRepo(pool).RemoveMember(withTestMutation(t, ctx), workspace.OrgID, actor.UserID); err != nil {
 		t.Fatalf("remove member %s: %v", actor.UserID, err)
 	}
 	if argument, err := run.driver.searchEntryArgument(ctx, actor.Token); err != nil || argument != entryArgumentSuffix {

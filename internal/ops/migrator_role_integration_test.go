@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"goodkind.io/tack/internal/adapters/postgres"
+	"goodkind.io/tack/internal/adapters/postgres/migration"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/ops"
 	"goodkind.io/tack/internal/testenv"
@@ -58,14 +58,14 @@ func TestMigratorLoginDoesTheSuperuserWork(t *testing.T) {
 		t.Fatalf("seed-roles as the engine superuser: %v", err)
 	}
 
-	migratorDSN := loginDSN(t, adminDSN, postgres.MigratorRole, cfg.MigratorPassword)
+	migratorDSN := loginDSN(t, adminDSN, migration.MigratorRole, cfg.MigratorPassword)
 	migrator := testenv.LedgerPool(t, migratorDSN)
 	var superuser bool
 	if err := migrator.QueryRow(ctx, `SELECT rolsuper FROM pg_roles WHERE rolname = current_user`).Scan(&superuser); err != nil || superuser {
 		t.Fatalf("tack_migrator superuser = %v, err = %v; want a login that is not a superuser", superuser, err)
 	}
 
-	if err := postgres.Migrate(ctx, migratorDSN, migrations.FS); err != nil {
+	if err := migration.Migrate(ctx, migratorDSN, migrations.FS); err != nil {
 		t.Fatalf("migrate as tack_migrator: %v", err)
 	}
 	for _, statement := range []string{
