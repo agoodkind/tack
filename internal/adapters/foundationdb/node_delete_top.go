@@ -63,10 +63,8 @@ func writeChangeEvent(ctx context.Context, tr fdb.Transaction, job *node.Subtree
 		}
 		payload = built
 	}
-	key, err := marshalOpsOutboxVersionstampedKey()
-	if err != nil {
-		return nodeOperationFailure(ctx, "pack the ledger event key of node "+change.ID.String(), err)
+	if err := NewOutboxWriter(tr).WriteEventJSON(ctx, payload); err != nil {
+		return nodeOperationFailure(ctx, "write the ledger event of node "+change.ID.String(), err)
 	}
-	tr.SetVersionstampedKey(key, payload)
 	return nil
 }
