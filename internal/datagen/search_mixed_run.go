@@ -23,9 +23,15 @@ var errSearchMixedPhasePanic = errors.New("qa datagen search-mixed: workload pha
 
 // run starts sampling, searches, workload phases, and scheduled writes.
 // After the searches, phases, and writes finish, it waits for search work to finish
-// unless scheduleContext has ended. Freshness probes keep searching for markers during this wait.
-// It then waits up to two minutes for the freshness probes before stopping sampling.
-func (m *searchMixed) run(scheduleContext, callContext context.Context, plannedWrites int) (SearchMixedSummary, error) {
+// unless its schedule context has ended. Freshness probes search for markers during this wait.
+// It then waits up to two minutes for pending probes or until the schedule context ends.
+// If a workload phase returns an error or panics, run cancels its schedule context.
+// The cancellation stops search loads and scheduled writes.
+// run skips the catch-up wait, and drain ends its probe wait at the next poll.
+// run stops probes and sampling, then returns the summary and the phase error.
+func (m *searchMixed) run(parentSchedule, callContext context.Context, plannedWrites int) (SearchMixedSummary, error) {
+	scheduleContext, stopSchedule := context.WithCancel(parentSchedule)
+	defer stopSchedule()
 	probeContext, stopProbes := context.WithCancel(callContext)
 	defer stopProbes()
 	proberDone := make(chan struct{})
@@ -62,10 +68,15 @@ func (m *searchMixed) run(scheduleContext, callContext context.Context, plannedW
 		defer func() {
 			if recovered := recover(); recovered != nil {
 				slog.ErrorContext(callContext, "qa.datagen.search_mixed_phase_panicked", slog.String("err", fmt.Sprint(recovered)))
+				stopSchedule()
 				phaseErrors <- errSearchMixedPhasePanic
 			}
 		}()
-		phaseErrors <- m.runPhases(scheduleContext, callContext, windowStarted)
+		phaseErr := m.runPhases(scheduleContext, callContext, windowStarted)
+		if phaseErr != nil {
+			stopSchedule()
+		}
+		phaseErrors <- phaseErr
 	}()
 	writeElapsed := m.write(scheduleContext, callContext, plannedWrites)
 	searchSummary := <-searches
