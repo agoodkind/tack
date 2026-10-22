@@ -12,15 +12,13 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// Replace decodes and re-encodes the stored definition before comparing
-// it with before. It stores after and returns true only when the re-encoded
-// stored definition matches before.
-// The same transaction updates the name index, metadata epoch, and
-// projection digests. If the stored and replacement records differ, it writes one change event
-// with both records. When search
-// work is enabled, a rendering input change also requests a content rescan
-// in that transaction. If the stored definition does not match before,
-// Replace does not write and returns false.
+// Replace decodes and re-encodes the stored definition before comparing it with before.
+// It stores after and returns true only when the re-encoded stored definition matches
+// before. The same transaction updates the name index, metadata epoch, and projection
+// digests. When the stored and replacement records differ, the transaction writes one
+// change event with both records. When search work is enabled, a rendering input change
+// also requests a content rescan in that transaction. When the stored definition does
+// not match before, Replace does not write and returns false.
 func (s *PropertyDefStore) Replace(ctx context.Context, before, after *node.PropertyDef) (replaced bool, err error) {
 	defer telemetry.FDBOp(ctx, "store.property_def.replace")(&err)
 	expected, err := json.Marshal(before)

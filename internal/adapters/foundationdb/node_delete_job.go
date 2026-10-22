@@ -18,13 +18,14 @@ import (
 // maxSubtreeDeleteJobPage bounds the job records one SubtreeDeletes call reads.
 const maxSubtreeDeleteJobPage = 100
 
-// StartSubtreeDelete stores the record of a new subtree delete job with the
-// root as its only stack entry. It sets the deleted and moved counts to zero
-// and stores the root's hierarchy parent as the destination for moved children.
-// It stores the encoded audit operation from ctx for every step to use.
+// StartSubtreeDelete stores the record of a new subtree delete job with the root as its
+// only stack entry. It sets the deleted and moved counts to zero and stores the root's
+// hierarchy parent as the destination for moved children. It stores the encoded audit
+// operation from ctx for every step to use.
+//
 // After the job record commits, StartSubtreeDelete marks the request slot committed.
-// The MCP wrapper skips its event for the delete, including when the request
-// returns before the job deletes the root.
+// The MCP wrapper reads this mark and skips its event for the delete request, even when
+// the request returns before the job deletes the root.
 func (s *NodeDeleteStore) StartSubtreeDelete(ctx context.Context, job *node.SubtreeDeleteJob) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node.subtree_delete_start")(&err)
 	operation, err := audit.RequireMutationContext(ctx)
