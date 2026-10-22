@@ -219,7 +219,7 @@ func (r *Relay) drainYugabyte(ctx context.Context) {
 			break
 		}
 		producedCount++
-		if deleteErr := r.yugabyte.Delete(ctx, row.EventID); deleteErr != nil {
+		if deleteErr := r.deleteRow(ctx, row); deleteErr != nil {
 			slog.ErrorContext(ctx, "audit.relay.yugabyte_delete_failed",
 				slog.String("err", deleteErr.Error()))
 			break
@@ -242,6 +242,7 @@ func (r *Relay) drainFoundationDB(ctx context.Context, mark []byte) []byte {
 	producedCount := 0
 	stopped := false
 	var lastAccepted []byte
+	var reads []PublishedRead
 	for _, entry := range batch {
 		eventID, err := r.produceEntry(ctx, entry)
 		if err != nil {
@@ -254,10 +255,11 @@ func (r *Relay) drainFoundationDB(ctx context.Context, mark []byte) []byte {
 			break
 		}
 		lastAccepted = append(lastAccepted[:0], entry.Mark...)
+		reads = append(reads, recordPublishedReads(ctx, entry.Event)...)
 	}
 	clearedCount := 0
 	if len(lastAccepted) > 0 && !stopped {
-		if err := r.foundationDB.ClearThrough(ctx, lastAccepted); err != nil {
+		if err := r.clearThrough(ctx, lastAccepted, reads); err != nil {
 			slog.ErrorContext(ctx, "audit.relay.foundationdb_clear_failed", slog.String("err", err.Error()))
 		} else {
 			clearedCount = producedCount
