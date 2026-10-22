@@ -124,21 +124,21 @@ func newProcessThroughputCorpus(t *testing.T) processThroughputCorpus {
 	}
 	stores.EnableSearchWork()
 	index := "node-pages-" + uuid.NewString()
-	if err := stores.InitializeSearchIndex(t.Context(), index); err != nil {
+	if err := stores.InitializeSearchIndex(WithTestOperation(t, t.Context()), index); err != nil {
 		t.Fatalf("throughput disposable cluster is not empty: %v", err)
 	}
 	adapter, client := nativeSearchClients(t)
 	requireNativeJVMHeap(t, client)
-	model, err := adapter.Provision(t.Context())
+	model, err := adapter.Provision(WithTestOperation(t, t.Context()))
 	if err != nil {
 		t.Fatal(err)
 	}
 	spec := search.IndexSpec{Model: model, MappingVersion: search.MappingVersion, Primaries: 1, RoutingShards: 24, Replicas: 0}
-	if err := adapter.EnsureIndex(t.Context(), index, spec); err != nil {
+	if err := adapter.EnsureIndex(WithTestOperation(t, t.Context()), index, spec); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { deleteNativeIndex(t, client, index) })
-	if err := adapter.SetAlias(t.Context(), search.PublicAlias, index); err != nil {
+	if err := adapter.SetAlias(WithTestOperation(t, t.Context()), search.PublicAlias, index); err != nil {
 		t.Fatal(err)
 	}
 	configureSearchRuntime(t)
@@ -153,7 +153,7 @@ func newProcessThroughputCorpus(t *testing.T) processThroughputCorpus {
 	if err != nil {
 		t.Fatal(err)
 	}
-	identities, err := datagen.BootstrapIdentities(t.Context(), cfg, nextHarnessSeed(), scale)
+	identities, err := datagen.BootstrapIdentities(WithTestOperation(t, t.Context()), cfg, nextHarnessSeed(), scale)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,11 +172,11 @@ func newProcessThroughputCorpus(t *testing.T) processThroughputCorpus {
 		corpus.calibrationIDs = append(corpus.calibrationIDs, createThroughputWorkerNode(t, fixture, corpus.workerKind, parent, workspace.Actors[0].UserID, fmt.Sprintf("calibration-%03d", ordinal), "initial calibration content"))
 	}
 	drainSearchWork(t, fixture.Worker, 3000)
-	corpus.indexInfo, err = adapter.IndexInfo(t.Context(), index)
+	corpus.indexInfo, err = adapter.IndexInfo(WithTestOperation(t, t.Context()), index)
 	if err != nil {
 		t.Fatal(err)
 	}
-	corpus.settings, err = adapter.IndexSettings(t.Context(), index)
+	corpus.settings, err = adapter.IndexSettings(WithTestOperation(t, t.Context()), index)
 	if err != nil {
 		t.Fatal(err)
 	}

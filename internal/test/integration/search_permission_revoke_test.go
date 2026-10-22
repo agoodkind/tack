@@ -8,9 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
-
 	"goodkind.io/tack/internal/adapters/postgres"
-	"goodkind.io/tack/internal/audit"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 )
 
@@ -33,7 +31,7 @@ func corruptIndexedAccess(t *testing.T, fixture queryFixture, nodeID uuid.UUID, 
 		body.WriteString(string(header) + "\n" + string(update) + "\n")
 	}
 	requireBulkSucceeded(t, nativeBulk(t, fixture.Client, body.String()))
-	if _, err := fixture.Client.Indices.Refresh(t.Context(), &opensearchapi.IndicesRefreshReq{Index: []string{fixture.Index}}); err != nil {
+	if _, err := fixture.Client.Indices.Refresh(WithTestOperation(t, t.Context()), &opensearchapi.IndicesRefreshReq{Index: []string{fixture.Index}}); err != nil {
 		t.Fatalf("refresh %s: %v", fixture.Index, err)
 	}
 }
@@ -79,12 +77,12 @@ func TestSearchRevokedAccessRejectsLaterResultsAndReplay(t *testing.T) {
 	if slices.Contains(replayed.IDs, second.IDs[0]) || len(replayed.IDs) != len(second.IDs)-1 {
 		t.Fatalf("replay returned %v, want %v without %s", replayed.IDs, second.IDs, second.IDs[0])
 	}
-	pool, err := postgres.NewPool(t.Context(), fixture.Config.DatabaseURL, nil)
+	pool, err := postgres.NewPool(WithTestOperation(t, t.Context()), fixture.Config.DatabaseURL, nil)
 	if err != nil {
 		t.Fatalf("open ledger pool: %v", err)
 	}
 	t.Cleanup(pool.Close)
-	if err := postgres.NewOrgMemberRepo(pool).RemoveMember(t.Context(), testChangeOperation(audit.VerbOrgMemberRemove, caller.OrgID), caller.OrgID, caller.Actors[0].UserID); err != nil {
+	if err := postgres.NewOrgMemberRepo(pool).RemoveMember(WithTestOperation(t, t.Context()), caller.OrgID, caller.Actors[0].UserID); err != nil {
 		t.Fatalf("remove membership: %v", err)
 	}
 	for _, cursor := range []string{first.Cursor, second.Cursor} {

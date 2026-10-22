@@ -23,16 +23,21 @@ func NewUserRepo(db *pgxpool.Pool) *UserRepo {
 	return &UserRepo{db: db}
 }
 
-// Create inserts u and one audit change event into the outbox in one
-// transaction. It keeps a supplied ID or assigns a UUIDv7 when u.ID is
-// [uuid.Nil]. The event uses protected references for email and display name
-// in After and supplies their JSON values in Protected.
-func (r *UserRepo) Create(ctx context.Context, operation audit.Event, u *user.User) (*user.User, error) {
+// Create inserts u and writes its audit change event to the outbox in one
+// transaction. It reads the mutation operation from ctx and records the change
+// in the system organization. It keeps a supplied ID or assigns a UUIDv7 when
+// u.ID is [uuid.Nil]. The event uses protected references for email and display
+// name in After and supplies their JSON values in Protected.
+func (r *UserRepo) Create(ctx context.Context, u *user.User) (*user.User, error) {
 	if u.ID == uuid.Nil {
 		u.ID = uuid.Must(uuid.NewV7())
 	}
+	operation, err := changeOperation(ctx, audit.VerbUserCreate, audit.SystemOrgID())
+	if err != nil {
+		return nil, err
+	}
 	target := UserTarget(u.ID)
-	err := changeTx(ctx, r.db, operation, target, func(tx pgx.Tx) error {
+	err = changeTx(ctx, r.db, operation, target, func(tx pgx.Tx) error {
 		const q = `
 			INSERT INTO users (id, email, display_name)
 			VALUES ($1, $2, $3)
@@ -51,10 +56,12 @@ func (r *UserRepo) Create(ctx context.Context, operation audit.Event, u *user.Us
 		if err != nil {
 			return err
 		}
-		return WriteChanges(ctx, tx, operation, []audit.Change{{
-			EventID: uuid.Must(uuid.NewV7()), Target: target, Before: nil, After: after,
-			Changed: nil, Protected: protected,
-		}})
+		change, err := newChange(ctx, target, nil, after)
+		if err != nil {
+			return err
+		}
+		change.Protected = protected
+		return WriteChanges(ctx, tx, operation, []audit.Change{change})
 	})
 	if err != nil {
 		slog.ErrorContext(ctx, "user.create_failed", slog.String("user_id", u.ID.String()), slog.String("err", err.Error()))

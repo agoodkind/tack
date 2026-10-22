@@ -21,7 +21,7 @@ import (
 // After the connector is deleted, the check must pass again.
 func TestSearchModelLocalRejectsConnector(t *testing.T) {
 	fixture := newQueryFixture(t, defaultQueryOptions())
-	info, err := fixture.Adapter.IndexInfo(t.Context(), fixture.Index)
+	info, err := fixture.Adapter.IndexInfo(WithTestOperation(t, t.Context()), fixture.Index)
 	if err != nil {
 		t.Fatalf("read serving index %s: %v", fixture.Index, err)
 	}
@@ -34,7 +34,7 @@ func TestSearchModelLocalRejectsConnector(t *testing.T) {
 			deleteRemoteConnector(t, fixture.Client, connectorID)
 		}
 	})
-	model, err := fixture.Adapter.LocalModel(t.Context(), info.ModelID)
+	model, err := fixture.Adapter.LocalModel(WithTestOperation(t, t.Context()), info.ModelID)
 	if err == nil || !strings.Contains(err.Error(), connectorID) {
 		t.Fatalf("local model check with connector %s = %v, want an error that reports the connector ID", connectorID, err)
 	}
@@ -49,7 +49,7 @@ func TestSearchModelLocalRejectsConnector(t *testing.T) {
 
 func requireLocalModel(t *testing.T, adapter *search.Adapter, modelID string) {
 	t.Helper()
-	model, err := adapter.LocalModel(t.Context(), modelID)
+	model, err := adapter.LocalModel(WithTestOperation(t, t.Context()), modelID)
 	if err != nil {
 		t.Fatalf("local model check for %s: %v", modelID, err)
 	}
@@ -114,7 +114,7 @@ func createRemoteConnector(t *testing.T, client *opensearchapi.Client) string {
 	var created struct {
 		ConnectorID string `json:"connector_id"`
 	}
-	response, err := opensearch.Do(t.Context(), client.Client, http.MethodPost, connectorCreateRequest{body: body}, &created)
+	response, err := opensearch.Do(WithTestOperation(t, t.Context()), client.Client, http.MethodPost, connectorCreateRequest{body: body}, &created)
 	if err != nil || response.IsError() || created.ConnectorID == "" {
 		t.Fatalf("create remote connector: response %v, error %v", response, err)
 	}
@@ -124,7 +124,7 @@ func createRemoteConnector(t *testing.T, client *opensearchapi.Client) string {
 func deleteRemoteConnector(t *testing.T, client *opensearchapi.Client, connectorID string) {
 	t.Helper()
 	var deleted json.RawMessage
-	response, err := opensearch.Do(context.WithoutCancel(t.Context()), client.Client, http.MethodDelete, connectorDeleteRequest{connectorID: connectorID}, &deleted)
+	response, err := opensearch.Do(context.WithoutCancel(WithTestOperation(t, t.Context())), client.Client, http.MethodDelete, connectorDeleteRequest{connectorID: connectorID}, &deleted)
 	if err != nil || response.IsError() {
 		t.Errorf("delete remote connector %s: response %v, error %v", connectorID, response, err)
 	}

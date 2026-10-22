@@ -1,15 +1,16 @@
-// Package auditintent carries one staged audit event from the service layer
-// into the FoundationDB transaction that commits the change it describes.
+// Package auditintent attaches MCP tool slots and
+// encoded audit operations to request contexts.
 //
-// The MCP tool wrapper attaches a slot to the request context. The service
-// stages the event for the state change it is about to make. The store writes
-// the staged event into the operator outbox inside the same transaction as
-// the change, so the change and its ledger record commit together or not at
-// all, and marks the slot committed. The wrapper reads that mark and skips the
-// row it would otherwise record after the fact (TACK-173).
+// [WithSlot] attaches an MCP tool slot with the tool name and actor.
+// [WithOperation] attaches a slot that stores an encoded audit operation.
 //
-// This package holds no event shape: the payload is opaque JSON, so the
-// storage adapter can import it without importing the audit package.
+// Each FoundationDB writer reads the nearest slot through the audit package and
+// writes one change event per changed record in the same transaction as the record
+// change. Writers call [Commit] to mark the nearest slot on their context committed.
+// The MCP wrapper calls [Committed] on its own context to check the MCP tool slot it
+// attached. The wrapper skips its change event when its own MCP tool slot has that mark.
+//
+// Encoded operations use [json.RawMessage].
 package auditintent
 
 import (
@@ -24,42 +25,52 @@ import (
 
 type slotKey struct{}
 
-// slot is the mutable state one request shares between the wrapper, the
-// service, and the store. A pointer on the context lets each of them see what
-// the others did, the same way the audit scope builder works.
+// slot stores the state that the wrapper and the writers of one request share.
+// A slot from WithOperation stores an encoded audit operation instead of a
+// tool name and an actor.
 type slot struct {
-	mu        sync.Mutex
-	tool      string
-	actor     uuid.UUID
-	payload   json.RawMessage
-	finalize  Finalizer
-	committed bool
+	mu          sync.Mutex
+	tool        string
+	actor       uuid.UUID
+	operationID uuid.UUID
+	operation   json.RawMessage
+	committed   bool
 }
 
-// Finalizer builds the event for one transaction attempt from the staged
-// template. source and result contain the JSON encodings of the node primary
-// records that the attempt read and wrote. A nil or empty encoding indicates
-// an absent record.
-type Finalizer func(template, source, result json.RawMessage) (json.RawMessage, error)
-
 // WithSlot attaches an empty slot to ctx for the named tool and the actor
-// making the call. The tool name is what the staged event records as its
-// source, so the reconstruction that keys on it keeps working; the actor is
-// the wrapper's identity for the caller, which the service never sees.
+// making the call.
 func WithSlot(ctx context.Context, tool string, actor uuid.UUID) context.Context {
 	return context.WithValue(ctx, slotKey{}, &slot{
-		mu: sync.Mutex{}, tool: tool, actor: actor, payload: nil, finalize: nil, committed: false,
+		mu: sync.Mutex{}, tool: tool, actor: actor, operationID: uuid.Nil, operation: nil, committed: false,
 	})
 }
 
-// Attached reports whether ctx carries a slot, which is true only inside the
-// MCP tool wrapper.
+// WithOperation attaches a slot to ctx that stores the encoded audit
+// operation. Writers under the returned context read the operation from this
+// slot instead of from an earlier slot.
+func WithOperation(ctx context.Context, operation json.RawMessage) context.Context {
+	return context.WithValue(ctx, slotKey{}, &slot{
+		mu: sync.Mutex{}, tool: "", actor: uuid.Nil, operationID: uuid.Nil, operation: operation, committed: false,
+	})
+}
+
+// Operation returns the encoded audit operation of the slot on ctx. It
+// returns nil when ctx does not have a slot or the slot stores a tool call.
+func Operation(ctx context.Context) json.RawMessage {
+	current, _ := ctx.Value(slotKey{}).(*slot)
+	if current == nil {
+		return nil
+	}
+	return current.operation
+}
+
+// Attached reports whether ctx has a slot.
 func Attached(ctx context.Context) bool {
 	current, _ := ctx.Value(slotKey{}).(*slot)
 	return current != nil
 }
 
-// Tool returns the tool name the slot was attached for, or "" without a slot.
+// Tool returns the tool name of the slot, or "" without a slot.
 func Tool(ctx context.Context) string {
 	current, _ := ctx.Value(slotKey{}).(*slot)
 	if current == nil {
@@ -70,8 +81,8 @@ func Tool(ctx context.Context) string {
 	return current.tool
 }
 
-// Actor returns the caller the slot was attached for, or the zero id without
-// a slot.
+// Actor returns the actor UUID from the nearest slot on ctx.
+// It returns [uuid.Nil] when ctx does not have a slot or WithOperation created that slot.
 func Actor(ctx context.Context) uuid.UUID {
 	current, _ := ctx.Value(slotKey{}).(*slot)
 	if current == nil {
@@ -82,71 +93,29 @@ func Actor(ctx context.Context) uuid.UUID {
 	return current.actor
 }
 
-// Stage records the event the next state-changing transaction must commit
-// with. It reports false when ctx carries no slot, which is every caller
-// outside the MCP wrapper; those paths record the way they always have.
-func Stage(ctx context.Context, payload json.RawMessage) bool {
-	return StageMutation(ctx, payload, nil)
-}
-
-// StageMutation stages template and the finalizer that builds an event for
-// each transaction attempt. A nil finalizer uses template unchanged.
-func StageMutation(ctx context.Context, template json.RawMessage, finalize Finalizer) bool {
+// OperationID creates and stores a UUIDv7 ID when the nearest slot on ctx does not have one.
+// It returns the stored ID, or [uuid.Nil] and an error if creation fails.
+// It returns [uuid.Nil] without an error when ctx does not have a slot.
+func OperationID(ctx context.Context) (uuid.UUID, error) {
 	current, _ := ctx.Value(slotKey{}).(*slot)
-	if current == nil || len(template) == 0 {
-		return false
+	if current == nil {
+		return uuid.Nil, nil
 	}
 	current.mu.Lock()
 	defer current.mu.Unlock()
-	current.payload = template
-	current.finalize = finalize
-	current.committed = false
-	return true
-}
-
-// Build returns the event for one transaction attempt, or false when the slot
-// does not contain a staged event. Each attempt uses the unchanged staged
-// template and the records that the attempt read and wrote.
-func Build(ctx context.Context, source, result json.RawMessage) (json.RawMessage, bool, error) {
-	current, _ := ctx.Value(slotKey{}).(*slot)
-	if current == nil {
-		return nil, false, nil
+	if current.operationID != uuid.Nil {
+		return current.operationID, nil
 	}
-	current.mu.Lock()
-	template, finalize := current.payload, current.finalize
-	current.mu.Unlock()
-	if len(template) == 0 {
-		return nil, false, nil
-	}
-	if finalize == nil {
-		return template, true, nil
-	}
-	event, err := finalize(template, source, result)
+	operationID, err := uuid.NewV7()
 	if err != nil {
-		slog.ErrorContext(ctx, "audit.intent_build_failed", slog.String("tool", current.tool), slog.String("err", err.Error()))
-		return nil, true, fmt.Errorf("build the staged audit event: %w", err)
+		slog.ErrorContext(ctx, "audit.intent_operation_id_failed", slog.String("tool", current.tool), slog.String("err", err.Error()))
+		return uuid.Nil, fmt.Errorf("create the operation ID of tool %s: %w", current.tool, err)
 	}
-	return event, true, nil
+	current.operationID = operationID
+	return operationID, nil
 }
 
-// Pending returns the staged event a transaction must write, if any. It stays
-// pending across transaction retries until Commit is called.
-func Pending(ctx context.Context) (json.RawMessage, bool) {
-	current, _ := ctx.Value(slotKey{}).(*slot)
-	if current == nil {
-		return nil, false
-	}
-	current.mu.Lock()
-	defer current.mu.Unlock()
-	if len(current.payload) == 0 {
-		return nil, false
-	}
-	return current.payload, true
-}
-
-// Commit marks the staged event committed and clears it, so a second
-// transaction in the same request (a default child written after its parent,
-// for example) does not write it again.
+// Commit marks the slot committed after a transaction wrote change events.
 func Commit(ctx context.Context) {
 	current, _ := ctx.Value(slotKey{}).(*slot)
 	if current == nil {
@@ -154,14 +123,11 @@ func Commit(ctx context.Context) {
 	}
 	current.mu.Lock()
 	defer current.mu.Unlock()
-	if len(current.payload) == 0 {
-		return
-	}
-	current.payload = nil
 	current.committed = true
 }
 
-// Committed reports whether a staged event was written with its change.
+// Committed reports whether Commit marked the nearest slot on ctx as committed.
+// It returns false when ctx does not have a slot.
 func Committed(ctx context.Context) bool {
 	current, _ := ctx.Value(slotKey{}).(*slot)
 	if current == nil {

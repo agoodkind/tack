@@ -6,11 +6,9 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/adapters/search"
-	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/datagen"
 	"goodkind.io/tack/internal/testenv"
@@ -32,20 +30,20 @@ func TestSearchCursorActualOSProcesses(t *testing.T) {
 	}
 	stores.EnableSearchWork()
 	index := "node-pages-" + uuid.NewString()
-	if err := stores.InitializeSearchIndex(t.Context(), index); err != nil {
+	if err := stores.InitializeSearchIndex(WithTestOperation(t, t.Context()), index); err != nil {
 		t.Fatalf("disposable cluster is not empty: %v", err)
 	}
 	adapter, client := nativeSearchClients(t)
-	model, err := adapter.Provision(t.Context())
+	model, err := adapter.Provision(WithTestOperation(t, t.Context()))
 	if err != nil {
 		t.Fatal(err)
 	}
 	spec := search.IndexSpec{Model: model, MappingVersion: search.MappingVersion, Primaries: 1, RoutingShards: 24, Replicas: 0}
-	if err := adapter.EnsureIndex(t.Context(), index, spec); err != nil {
+	if err := adapter.EnsureIndex(WithTestOperation(t, t.Context()), index, spec); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { deleteNativeIndex(t, client, index) })
-	if err := adapter.SetAlias(t.Context(), search.PublicAlias, index); err != nil {
+	if err := adapter.SetAlias(WithTestOperation(t, t.Context()), search.PublicAlias, index); err != nil {
 		t.Fatal(err)
 	}
 	configureSearchRuntime(t)
@@ -60,7 +58,7 @@ func TestSearchCursorActualOSProcesses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	identities, err := datagen.BootstrapIdentities(t.Context(), cfg, nextHarnessSeed(), scale)
+	identities, err := datagen.BootstrapIdentities(WithTestOperation(t, t.Context()), cfg, nextHarnessSeed(), scale)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,12 +118,12 @@ func TestSearchCursorActualOSProcesses(t *testing.T) {
 	if err != nil || !slices.Equal(continued.IDs, replayed.IDs) || continued.Cursor != replayed.Cursor || continued.Complete != replayed.Complete {
 		t.Fatalf("fresh process replay differs: %v", err)
 	}
-	pool, err := postgres.NewPool(t.Context(), cfg.DatabaseURL, nil)
+	pool, err := postgres.NewPool(WithTestOperation(t, t.Context()), cfg.DatabaseURL, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	if err := postgres.NewOrgMemberRepo(pool).RemoveMember(t.Context(), testChangeOperation(audit.VerbOrgMemberRemove, workspace.OrgID), workspace.OrgID, workspace.Actors[0].UserID); err != nil {
+	if err := postgres.NewOrgMemberRepo(pool).RemoveMember(WithTestOperation(t, t.Context()), workspace.OrgID, workspace.Actors[0].UserID); err != nil {
 		t.Fatal(err)
 	}
 	for _, server := range []*actualSearchServer{second, restarted} {

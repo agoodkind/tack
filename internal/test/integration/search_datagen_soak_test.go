@@ -108,7 +108,7 @@ func TestSearchDatagenSoakReportsSearchLatency(t *testing.T) {
 // audited command tree with the real SQL outbox and decodes its result.
 func runDatagenSoakCommit(t *testing.T, cfg *config.Config) datagenSoakOutput {
 	t.Helper()
-	pool, err := pgxpool.New(t.Context(), cfg.DatabaseURL)
+	pool, err := pgxpool.New(WithTestOperation(t, t.Context()), cfg.DatabaseURL)
 	if err != nil {
 		t.Fatalf("open the outbox pool: %v", err)
 	}

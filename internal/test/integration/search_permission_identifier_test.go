@@ -122,15 +122,15 @@ func rankedScores(t *testing.T, fixture queryFixture, filter searchdomain.Access
 	t.Helper()
 	ranker := fixture.Adapter.Ranker(search.RankerSettings{KeepAlive: time.Minute, TokenBytes: 64 << 10, BatchSize: 100})
 	query := searchdomain.Query{Text: text, Index: fixture.Index, NodeType: "", Access: filter}
-	snapshot, err := ranker.Open(t.Context(), query)
+	snapshot, err := ranker.Open(WithTestOperation(t, t.Context()), query)
 	if err != nil {
 		t.Fatalf("open snapshot: %v", err)
 	}
-	t.Cleanup(func() { _ = ranker.Close(t.Context(), snapshot) })
+	t.Cleanup(func() { _ = ranker.Close(WithTestOperation(t, t.Context()), snapshot) })
 	scores := make(map[uuid.UUID]float64)
 	var after json.RawMessage
 	for range 1000 {
-		batch, err := ranker.Read(t.Context(), query, snapshot, after)
+		batch, err := ranker.Read(WithTestOperation(t, t.Context()), query, snapshot, after)
 		if err != nil {
 			t.Fatalf("read ranked batch: %v", err)
 		}

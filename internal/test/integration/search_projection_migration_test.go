@@ -7,6 +7,7 @@ import (
 
 	"goodkind.io/tack/internal/domain/node"
 	searchdomain "goodkind.io/tack/internal/domain/search"
+	"goodkind.io/tack/internal/test/integration"
 )
 
 const (
@@ -42,20 +43,20 @@ func TestSearchProjectionMigrationReindexesUnchangedDefinitions(t *testing.T) {
 
 	reader := env.Stores.SearchContent(env.Stores.SearchPolicySet())
 	request := searchdomain.ContentRequest{NodeID: nodes[0], Cursor: "", ProjectionConfig: "", AccessVersions: nil, MaxBytes: migrationPageBytes, SearchGeneration: 0}
-	opening, err := reader.Content(t.Context(), request)
+	opening, err := reader.Content(integration.WithTestOperation(t, t.Context()), request)
 	if err != nil || opening.Done {
 		t.Fatalf("read the first page = done %t, err %v; want a continuing page", opening.Done, err)
 	}
 
 	env.forgetProjectionState(t)
 	env.finishMetadataPass(t)
-	fresh, err := reader.Content(t.Context(), request)
+	fresh, err := reader.Content(integration.WithTestOperation(t, t.Context()), request)
 	if err != nil || fresh.Revision != opening.Revision || fresh.ProjectionVersion == opening.ProjectionVersion {
 		t.Fatalf("fresh read after activation = revision %s projection %s err %v, want revision %s under a new projection",
 			fresh.Revision, fresh.ProjectionVersion, err, opening.Revision)
 	}
 	request.Cursor = opening.NextCursor
-	if _, err := reader.Content(t.Context(), request); !errors.Is(err, node.ErrContentChanged) {
+	if _, err := reader.Content(integration.WithTestOperation(t, t.Context()), request); !errors.Is(err, node.ErrContentChanged) {
 		t.Fatalf("continue an older projection cursor = %v, want ErrContentChanged", err)
 	}
 	env.runIdle(t)

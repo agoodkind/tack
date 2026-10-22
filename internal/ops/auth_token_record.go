@@ -8,7 +8,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/domain/org"
 )
@@ -31,10 +30,4 @@ func authTokenOrg(ctx context.Context, members org.MemberRepository, userID uuid
 		return orgIDs[0], nil
 	}
 	return audit.SystemOrgID(), nil
-}
-
-// authTokenOperation builds a repository change operation with principal as the
-// audit actor and audit.SourceSystem as the source.
-func authTokenOperation(ctx context.Context, verb audit.Verb, principal audit.OperatorPrincipal, orgID uuid.UUID) audit.Event {
-	return postgres.NewChangeOperation(ctx, verb, postgres.OperatorActor(principal), orgID, audit.SourceSystem)
 }

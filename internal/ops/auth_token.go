@@ -11,7 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"goodkind.io/tack/internal/adapters/postgres"
-	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/auth"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/token"
@@ -60,14 +59,14 @@ func authTokenHolder(ctx context.Context, pool *pgxpool.Pool, email string, incl
 	return holder, nil
 }
 
-// IssueAuthToken finds an active holder and org, generates a bearer value, and
-// creates the token through TokenRepo.CreateWithID with a preselected UUIDv7
-// ID. It attributes the change to principal and returns the bearer in Raw for
-// the command to display once; Tack never stores the bearer.
+// IssueAuthToken finds an active user and organization, generates a bearer
+// value, and creates the token through TokenRepo.CreateWithID with a new
+// UUIDv7 ID. The repository reads the audit operation from ctx. IssueAuthToken
+// returns the bearer in Raw for the command to display once; Tack never
+// stores the bearer.
 func IssueAuthToken(
 	ctx context.Context,
 	pool *pgxpool.Pool,
-	principal audit.OperatorPrincipal,
 	email string,
 	label string,
 ) (AuthTokenIssue, error) {
@@ -89,13 +88,12 @@ func IssueAuthToken(
 		return AuthTokenIssue{}, fmt.Errorf("issue token for %s: %w", holder.Email, err)
 	}
 	tokenID := uuid.Must(uuid.NewV7())
-	operation := authTokenOperation(ctx, audit.VerbAuthTokenCreate, principal, orgID)
-	issued, err := postgres.NewTokenRepo(pool).CreateWithID(ctx, operation, tokenID, holder.ID, raw, trimmedLabel)
+	issued, err := postgres.NewTokenRepo(pool).CreateWithID(ctx, orgID, tokenID, holder.ID, raw, trimmedLabel)
 	if err != nil {
 		slog.ErrorContext(ctx, "auth.token.create_failed",
 			slog.String("token_id", tokenID.String()),
 			slog.String("user_id", holder.ID.String()), slog.String("err", err.Error()))
-		return AuthTokenIssue{}, failIssue(ctx, pool, principal, tokenID,
+		return AuthTokenIssue{}, failIssue(ctx, pool, tokenID,
 			fmt.Errorf("issue token %s for %s: %w", tokenID, holder.Email, err))
 	}
 	slog.InfoContext(ctx, "auth.token.issued",
@@ -113,13 +111,12 @@ func IssueAuthToken(
 func failIssue(
 	ctx context.Context,
 	pool *pgxpool.Pool,
-	principal audit.OperatorPrincipal,
 	tokenID uuid.UUID,
 	cause error,
 ) error {
 	reconcileCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), authTokenRecordTimeout)
 	defer cancel()
-	_, revokeErr := RevokeAuthToken(reconcileCtx, pool, principal, tokenID)
+	_, revokeErr := RevokeAuthToken(reconcileCtx, pool, tokenID)
 	switch {
 	case revokeErr == nil:
 		slog.WarnContext(ctx, "auth.token.create_committed_despite_error", slog.String("token_id", tokenID.String()))
@@ -140,13 +137,12 @@ func failIssue(
 func withdrawUnconfirmedToken(
 	ctx context.Context,
 	pool *pgxpool.Pool,
-	principal audit.OperatorPrincipal,
 	tokenID uuid.UUID,
 	cause error,
 ) error {
 	withdrawCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), authTokenRecordTimeout)
 	defer cancel()
-	if _, revokeErr := RevokeAuthToken(withdrawCtx, pool, principal, tokenID); revokeErr != nil {
+	if _, revokeErr := RevokeAuthToken(withdrawCtx, pool, tokenID); revokeErr != nil {
 		slog.ErrorContext(ctx, "auth.token.unconfirmed_token_remains",
 			slog.String("token_id", tokenID.String()), slog.String("err", revokeErr.Error()))
 		return fmt.Errorf("token %s was issued and could not be withdrawn; revoke it by id: %w",

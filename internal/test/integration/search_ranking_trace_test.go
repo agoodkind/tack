@@ -12,6 +12,7 @@ import (
 	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
 
 	searchdomain "goodkind.io/tack/internal/domain/search"
+	"goodkind.io/tack/internal/test/integration"
 )
 
 const (
@@ -136,7 +137,7 @@ func (r *rankingRun) traceChunks(t *testing.T, index, modelID, query string, nod
 
 func (r *rankingRun) traceSearch(t *testing.T, index string, body traceSearch) []opensearchapi.SearchHit {
 	t.Helper()
-	response, err := r.client.Search(t.Context(), &opensearchapi.SearchReq{
+	response, err := r.client.Search(integration.WithTestOperation(t, t.Context()), &opensearchapi.SearchReq{
 		Indices: []string{index}, Body: bytes.NewReader(encodeTrace(t, body)),
 	})
 	if err != nil {

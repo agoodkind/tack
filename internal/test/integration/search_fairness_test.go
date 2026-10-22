@@ -18,7 +18,7 @@ func linkSearchNodes(t *testing.T, stores *fdbadapter.Stores, orgID, sourceID, t
 		OrgID: orgID, SourceID: sourceID, RelationType: opaqueSearchKey("r"), TargetID: targetID,
 		CreatedBy: uuid.Nil, CreatedAt: clock.Now().UTC(), Props: nil,
 	}
-	if err := stores.Relationships.Add(t.Context(), relationship); err != nil {
+	if err := stores.Relationships.Add(WithTestOperation(t, t.Context()), relationship); err != nil {
 		t.Fatalf("add relationship: %v", err)
 	}
 }
@@ -40,7 +40,7 @@ func TestSearchAccessChangeKeepsPendingContent(t *testing.T) {
 		if !exists || work.Generation != 2 || work.Revision != "1" {
 			t.Fatalf("live work of %s after the access change = %+v, want revision 1 at generation 2", nodeID, work)
 		}
-		if err := store.Yield(t.Context(), work); err != nil {
+		if err := store.Yield(WithTestOperation(t, t.Context()), work); err != nil {
 			t.Fatalf("yield inspected work: %v", err)
 		}
 	}
@@ -71,7 +71,7 @@ func TestSearchClassRotationAdmitsLiveWork(t *testing.T) {
 	late.NodeID = uuid.Must(uuid.NewV7())
 	writeSearchNode(t, stores, late, "late live work", readerExcludedValue)
 	for range 2 {
-		if _, err := worker.RunSlice(t.Context()); err != nil {
+		if _, err := worker.RunSlice(WithTestOperation(t, t.Context())); err != nil {
 			t.Fatalf("run search worker slice: %v", err)
 		}
 	}

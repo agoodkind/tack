@@ -41,7 +41,7 @@ func TestSearchRebuildDuringChanges(t *testing.T) {
 
 	created := putOpaqueNode(t, fixture, kind, from, "created node", "amber rebuild created", readerExcludedValue)
 	editOpaqueNode(t, fixture, kind, edited, "amber rebuild revised")
-	if err := fixture.Stores.Nodes.Delete(t.Context(), kind.OrgID, deleted); err != nil {
+	if err := fixture.Stores.Nodes.Delete(WithTestOperation(t, t.Context()), kind.OrgID, deleted); err != nil {
 		t.Fatalf("delete node: %v", err)
 	}
 	moveOpaqueNode(t, fixture, kind, moved, from, to)
@@ -49,7 +49,7 @@ func TestSearchRebuildDuringChanges(t *testing.T) {
 		ID: uuid.Must(uuid.NewV7()), OrgID: kind.OrgID, Name: opaqueSearchKey("p"), Type: node.PropertyType(opaqueSearchKey("t")),
 		Search: &node.SearchProjection{Include: true, Order: 3, Rule: node.TextRule{Mode: node.TextRuleScalar}},
 	}
-	if err := fixture.Stores.PropertyDefs.Set(t.Context(), declared); err != nil {
+	if err := fixture.Stores.PropertyDefs.Set(WithTestOperation(t, t.Context()), declared); err != nil {
 		t.Fatalf("declare property during replacement: %v", err)
 	}
 	beginRollout(t, fixture, kind.OrgID, searchaccess.RotatedVersion)

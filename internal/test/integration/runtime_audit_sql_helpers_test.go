@@ -36,6 +36,7 @@ const (
 	sqlAuditRelayBatch    = 64
 	sqlAuditProduceWait   = 30 * time.Second
 	sqlAuditLoginPrefix   = "tack_test_change_"
+	sqlAuditTool          = "runtime-audit-sql-test"
 )
 
 type sqlAuditLogin struct {
@@ -49,14 +50,36 @@ func sqlAuditPrincipal() audit.OperatorPrincipal {
 	}
 }
 
-func sqlAuditOperation(verb audit.Verb, principal audit.OperatorPrincipal, orgID uuid.UUID) audit.Event {
-	return postgres.NewChangeOperation(context.Background(), verb, postgres.OperatorActor(principal), orgID, audit.SourceSystem)
+// sqlAuditContext creates a mutation operation for principal and attaches it
+// to t.Context(). It returns the resulting context and operation.
+func sqlAuditContext(t *testing.T, principal audit.OperatorPrincipal) (context.Context, audit.Event) {
+	t.Helper()
+	operation, err := audit.NewMutationOperation(audit.Actor{
+		Type: principal.ActorType(), ID: principal.ID, Email: principal.Email, Name: principal.Name,
+		SessionID: "", IP: "", UserAgent: "", RequestID: "", APITokenLabel: "",
+	}, audit.SourceSystem, sqlAuditTool)
+	if err != nil {
+		t.Fatalf("audit.NewMutationOperation error = %v, want nil", err)
+	}
+	attached, err := audit.WithMutationContext(t.Context(), operation)
+	if err != nil {
+		t.Fatalf("audit.WithMutationContext error = %v, want nil", err)
+	}
+	return attached, operation
+}
+
+// sqlOperatorContext attaches principal and a new UUIDv7 command operation ID
+// to ctx as the clispec command gate does. It returns the resulting context
+// and command operation ID.
+func sqlOperatorContext(ctx context.Context, principal audit.OperatorPrincipal) (context.Context, uuid.UUID) {
+	commandID := uuid.Must(uuid.NewV7())
+	return audit.WithOperatorPrincipal(audit.WithOpID(ctx, commandID), principal), commandID
 }
 
 func createSQLAuditUser(t *testing.T, pool *pgxpool.Pool, principal audit.OperatorPrincipal) *user.User {
 	t.Helper()
-	operation := sqlAuditOperation(audit.VerbUserCreate, principal, audit.SystemOrgID())
-	created, err := postgres.NewUserRepo(pool).Create(t.Context(), operation, &user.User{
+	ctx, _ := sqlAuditContext(t, principal)
+	created, err := postgres.NewUserRepo(pool).Create(ctx, &user.User{
 		ID: uuid.Nil, Email: "sql-audit-" + uuid.NewString() + "@example.invalid",
 		DisplayName: "SQL Audit Holder", AvatarURL: nil, CreatedAt: time.Time{}, UpdatedAt: time.Time{},
 	})

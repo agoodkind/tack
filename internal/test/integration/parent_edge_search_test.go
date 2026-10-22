@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain/node"
+	"goodkind.io/tack/internal/test/integration"
 )
 
 // parentChainLength is the number of leaves in the moved chain.
@@ -92,10 +93,10 @@ func TestSearchParentEdgeMembershipEdge(t *testing.T) {
 
 	relationships := fixture.stores.Relationships
 	membership := &node.Relationship{OrgID: rootKind.orgID, SourceID: member, RelationType: "member_of", TargetID: fixture.firstEntry}
-	if err := relationships.Add(t.Context(), membership); err != nil {
+	if err := relationships.Add(integration.WithTestOperation(t, t.Context()), membership); err != nil {
 		t.Fatalf("add member_of edge of node %s: %v", member, err)
 	}
-	if err := relationships.Remove(t.Context(), rootKind.orgID, member, node.RelChildOf, fixture.firstEntry); err != nil {
+	if err := relationships.Remove(integration.WithTestOperation(t, t.Context()), rootKind.orgID, member, node.RelChildOf, fixture.firstEntry); err != nil {
 		t.Fatalf("remove child_of edge of node %s: %v", member, err)
 	}
 

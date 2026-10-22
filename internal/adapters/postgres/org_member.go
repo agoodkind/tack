@@ -30,9 +30,13 @@ func NewOrgMemberRepo(pool *pgxpool.Pool) *OrgMemberRepo {
 // its role with an audit change in the same transaction. An unchanged role
 // only copies the stored ID and CreatedAt into m and does not write a change
 // event.
-func (r *OrgMemberRepo) AddMember(ctx context.Context, operation audit.Event, m *org.Member) error {
+func (r *OrgMemberRepo) AddMember(ctx context.Context, m *org.Member) error {
+	operation, err := changeOperation(ctx, audit.VerbOrgMemberAdd, m.OrgID)
+	if err != nil {
+		return err
+	}
 	target := MemberTarget(uuid.Nil, m.OrgID, m.UserID)
-	err := changeTx(ctx, r.pool, operation, target, func(tx pgx.Tx) error {
+	err = changeTx(ctx, r.pool, operation, target, func(tx pgx.Tx) error {
 		previous, found, err := lockMember(ctx, tx, m.OrgID, m.UserID)
 		if err != nil {
 			return err
@@ -58,12 +62,16 @@ func (r *OrgMemberRepo) AddMember(ctx context.Context, operation audit.Event, m 
 // RemoveMember deletes a membership and records its old value in the same
 // transaction. It returns an error wrapping domain.ErrNotFound when the
 // membership does not exist.
-func (r *OrgMemberRepo) RemoveMember(ctx context.Context, operation audit.Event, orgID, userID uuid.UUID) error {
+func (r *OrgMemberRepo) RemoveMember(ctx context.Context, orgID, userID uuid.UUID) error {
 	const q = `
 		DELETE FROM org_members WHERE org_id = $1 AND user_id = $2
 		RETURNING id, org_id, user_id, role, created_at`
+	operation, err := changeOperation(ctx, audit.VerbOrgMemberRemove, orgID)
+	if err != nil {
+		return err
+	}
 	target := MemberTarget(uuid.Nil, orgID, userID)
-	err := changeTx(ctx, r.pool, operation, target, func(tx pgx.Tx) error {
+	err = changeTx(ctx, r.pool, operation, target, func(tx pgx.Tx) error {
 		removed := &memberValue{ID: uuid.Nil, OrgID: uuid.Nil, UserID: uuid.Nil, Role: 0, CreatedAt: time.Time{}}
 		if err := tx.QueryRow(ctx, q, orgID, userID).Scan(
 			&removed.ID, &removed.OrgID, &removed.UserID, &removed.Role, &removed.CreatedAt,

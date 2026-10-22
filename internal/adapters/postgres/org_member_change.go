@@ -12,8 +12,6 @@ import (
 	"goodkind.io/tack/internal/domain/org"
 )
 
-const memberRoleField = "role"
-
 type memberValue struct {
 	ID        uuid.UUID `json:"id"`
 	OrgID     uuid.UUID `json:"org_id"`
@@ -66,8 +64,9 @@ func saveMember(ctx context.Context, tx pgx.Tx, previous *memberValue, m *org.Me
 }
 
 // writeMemberChange writes an audit change event with the membership's
-// relationship target and old and new values in tx. It marks role as the
-// changed field when both values exist.
+// relationship target and old and new values in tx. It uses
+// audit.VerbOrgMemberRoleSet when both values exist. audit.NewChange computes
+// Changed from the values as sorted JSON pointers.
 func writeMemberChange(ctx context.Context, tx pgx.Tx, operation audit.Event, before, after *memberValue) error {
 	current := after
 	if current == nil {
@@ -82,12 +81,12 @@ func writeMemberChange(ctx context.Context, tx pgx.Tx, operation audit.Event, be
 	if err != nil {
 		return err
 	}
-	var changed []string
 	if before != nil && after != nil {
-		changed = []string{memberRoleField}
+		operation.Verb = string(audit.VerbOrgMemberRoleSet)
 	}
-	return WriteChanges(ctx, tx, operation, []audit.Change{{
-		EventID: uuid.Must(uuid.NewV7()), Target: target,
-		Before: beforeValue, After: afterValue, Changed: changed,
-	}})
+	change, err := newChange(ctx, target, beforeValue, afterValue)
+	if err != nil {
+		return err
+	}
+	return WriteChanges(ctx, tx, operation, []audit.Change{change})
 }

@@ -16,17 +16,18 @@ import (
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/ops"
 	appruntime "goodkind.io/tack/internal/runtime"
+	"goodkind.io/tack/internal/test/integration"
 )
 
 // TestSearchMixedReportsFreshness verifies public search results, issue creates, edits, deletes, positive freshness lag, and deletion verification through the command.
 func TestSearchMixedReportsFreshness(t *testing.T) {
 	cfg := newCohortEngines(t)
-	workers, err := appruntime.BuildGraph(t.Context(), cfg)
+	workers, err := appruntime.BuildGraph(integration.WithTestOperation(t, t.Context()), cfg)
 	if err != nil {
 		t.Fatalf("qa datagen search-mixed: build search workers: %v", err)
 	}
 	t.Cleanup(workers.Close)
-	workers.StartSearchWorkers(t.Context())
+	workers.StartSearchWorkers(integration.WithTestOperation(t, t.Context()))
 	seed := strconv.FormatInt(clock.Now().UnixNano(), 10)
 	output, err := runSearchMixedCommand(t, cfg, "--seed", seed, "--rate", "60", "--write-rate", "60", "--duration", "30s", "--concurrency", "8", "--commit")
 	if err != nil {
@@ -72,7 +73,7 @@ func runSearchMixedCommand(t *testing.T, cfg *config.Config, flags ...string) ([
 	var output bytes.Buffer
 	factory := cli.System(cfg)
 	factory.Out = &output
-	pool, err := pgxpool.New(t.Context(), cfg.DatabaseURL)
+	pool, err := pgxpool.New(integration.WithTestOperation(t, t.Context()), cfg.DatabaseURL)
 	if err != nil {
 		t.Fatalf("qa datagen search-mixed: open audit database pool: %v", err)
 	}

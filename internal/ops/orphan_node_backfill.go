@@ -2,7 +2,6 @@ package ops
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -10,7 +9,6 @@ import (
 	"github.com/google/uuid"
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/audit"
-	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/service"
 	"goodkind.io/tack/internal/telemetry"
 )
@@ -27,9 +25,9 @@ type OrphanScanStore interface {
 
 // SubtreeDeleter deletes a node and its hierarchy descendants in bounded
 // steps until the delete job finishes, and reports the number of deleted
-// nodes. template is the ledger event of the root delete.
+// nodes.
 type SubtreeDeleter interface {
-	DeleteSubtree(ctx context.Context, orgID, nodeID, actorID uuid.UUID, template json.RawMessage) (service.DeleteResult, error)
+	DeleteSubtree(ctx context.Context, orgID, nodeID, actorID uuid.UUID) (service.DeleteResult, error)
 }
 
 // OrphanBackfillResult reports one orphan backfill run. Orphans counts the
@@ -94,8 +92,9 @@ func RunOrphanNodeBackfill(ctx context.Context, scanner OrphanScanStore, remover
 	return result, nil
 }
 
-// applyOrphanBackfill removes the extra parent edges in result and deletes
-// orphans, and records the counts in result.
+// applyOrphanBackfill removes the extra parent edges in result, deletes the orphans, and
+// stores the counts in result. Each change event uses the actor and operation ID from ctx
+// and orphanBackfillTool as its tool name.
 func applyOrphanBackfill(
 	ctx context.Context, remover ParentEdgeRemover, deleter SubtreeDeleter, orphans []fdbadapter.OrphanNode, result *OrphanBackfillResult,
 ) error {
@@ -105,26 +104,27 @@ func applyOrphanBackfill(
 		slog.ErrorContext(ctx, "orphan_nodes.apply_failed", slog.String("err", err.Error()))
 		return err
 	}
-	removed, err := removeExtraParentEdges(ctx, remover, principal, result.Edges)
+	writeContext, err := audit.WithMutationTool(ctx, orphanBackfillTool)
+	if err != nil {
+		slog.ErrorContext(ctx, "orphan_nodes.apply_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("apply the orphan backfill: %w", err)
+	}
+	removed, err := removeExtraParentEdges(writeContext, remover, result.Edges)
 	result.RemovedEdges = removed
 	if err != nil {
 		return err
 	}
-	deleted, err := deleteOrphans(ctx, deleter, principal, orphans)
+	deleted, err := deleteOrphans(writeContext, deleter, principal.ID, orphans)
 	result.Deleted = deleted
 	return err
 }
 
 // deleteOrphans deletes each orphan and its descendants and returns the
 // count of deleted nodes.
-func deleteOrphans(ctx context.Context, deleter SubtreeDeleter, principal audit.OperatorPrincipal, orphans []fdbadapter.OrphanNode) (int, error) {
+func deleteOrphans(ctx context.Context, deleter SubtreeDeleter, actorID uuid.UUID, orphans []fdbadapter.OrphanNode) (int, error) {
 	deleted := 0
 	for _, orphan := range orphans {
-		template, err := orphanDeleteEvent(ctx, principal, orphan)
-		if err != nil {
-			return deleted, err
-		}
-		result, err := deleter.DeleteSubtree(ctx, orphan.OrgID, orphan.ID, principal.ID, template)
+		result, err := deleter.DeleteSubtree(ctx, orphan.OrgID, orphan.ID, actorID)
 		if err != nil {
 			wrapped := fmt.Errorf("delete orphan node %s: %w", orphan.ID, err)
 			slog.ErrorContext(ctx, "orphan_nodes.delete_failed", slog.String("err", wrapped.Error()))
@@ -133,37 +133,4 @@ func deleteOrphans(ctx context.Context, deleter SubtreeDeleter, principal audit.
 		deleted += result.Deleted
 	}
 	return deleted, nil
-}
-
-// orphanDeleteEvent builds the node.delete ledger event of one orphan, with
-// the operator as its actor.
-func orphanDeleteEvent(ctx context.Context, principal audit.OperatorPrincipal, orphan fdbadapter.OrphanNode) (json.RawMessage, error) {
-	eventID, err := uuid.NewV7()
-	if err != nil {
-		wrapped := fmt.Errorf("create the delete event id of orphan node %s: %w", orphan.ID, err)
-		slog.ErrorContext(ctx, "orphan_nodes.event_failed", slog.String("err", wrapped.Error()))
-		return nil, wrapped
-	}
-	event := audit.Event{
-		Verb: string(audit.VerbNodeDelete), EventID: eventID,
-		Actor: audit.Actor{
-			Type: principal.ActorType(), ID: principal.ID, Email: principal.Email, Name: principal.Name,
-			SessionID: "", IP: "", UserAgent: "", RequestID: "", APITokenLabel: "",
-		},
-		Entity: audit.Entity{Type: "node", NodeType: orphan.NodeType, ID: orphan.ID, Identifier: "", Name: ""},
-		Context: audit.EventContext{
-			OrgID: orphan.OrgID, WorkspaceID: uuid.Nil, ScopeID: uuid.Nil, ParentID: uuid.Nil,
-			RequestID: telemetry.RequestID(ctx), TraceID: telemetry.TraceID(ctx),
-			Source: audit.SourceSystem, Tool: orphanBackfillTool, RPC: "", Reason: "",
-		},
-		Delta: nil, Outcome: audit.OutcomeOK, Error: nil, IdempotencyKey: "",
-		OccurredAt: clock.Now().UTC(), Extra: nil,
-	}
-	payload, err := audit.MarshalEvent(event)
-	if err != nil {
-		wrapped := fmt.Errorf("encode the delete event of orphan node %s: %w", orphan.ID, err)
-		slog.ErrorContext(ctx, "orphan_nodes.event_failed", slog.String("err", wrapped.Error()))
-		return nil, wrapped
-	}
-	return payload, nil
 }

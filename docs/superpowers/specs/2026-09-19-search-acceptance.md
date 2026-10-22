@@ -34,18 +34,25 @@ and measurements. QA must pass before production.
 
 ## Opaque metadata
 
-- Require every property definition to declare search inclusion or exclusion.
-  Reject new definitions without that declaration. Do not derive it from the
-  property name, property type, or FoundationDB `Indexed` flag.
+- Store property definitions without search declarations in FoundationDB when
+  their types have defaults. Require each type's default representation,
+  including readable scalar values and option labels or exclusion of content,
+  and keep node-reference values out of indexed text under those defaults.
+  Require explicit declarations, including exclusions, to take precedence over
+  defaults. Reject a new definition that has neither a declaration nor a default.
+  Do not derive search inclusion from the property name or FoundationDB `Indexed`
+  flag.
 - Update built-in seeds and QA data generation with explicit declarations. Search
   behavior must remain identical when tests replace all identifiers and omit seeds.
 - Run the expiring one-time backfill in dry-run mode against existing metadata.
   Require a complete manifest, no writes, bounded output, and an error for missing,
   duplicate, unknown, or conflicting entries. Then execute the same manifest twice
   and require the second run to make no changes.
-- Refuse the first OpenSearch rebuild and public search while any property
-  definition lacks a declaration. Verify zero missing definitions in QA and
-  production before each environment's first rebuild.
+- Run readiness checks before `ops search provision`, `ops search reindex`, and
+  `ops search verify`. Require each command to refuse to proceed while a stored
+  declaration is invalid or a definition lacks both a declaration and a default.
+  Verify zero such definitions in QA and production before each environment's
+  rebuild.
 - Load only the metadata and authentication required for the test. Load no product
   seeds. Create unfamiliar node types, property types, property identifiers, and
   hierarchy definitions through public operations.
@@ -58,9 +65,16 @@ and measurements. QA must pass before production.
   physical index and alias. Require new semantic fields only for affected pages,
   byte-identical semantic fields for unaffected pages, and retirement of obsolete
   affected-page document IDs.
-- Omit or corrupt a required declaration. Search must exclude the node, and
-  `ops search verify` must report the node and property. A metadata repair must
-  index the node again without an application change.
+- Test an invalid property value, a property that the schema does not declare,
+  and a definition that does not apply to the node type on nodes with valid
+  content. Require node names and valid content to remain searchable. Verify
+  that rendering preserves each invalid property value in the source and
+  excludes it from indexed text. Require `ops search verify` to report the node,
+  property, source revision, and reason as a warning without failing verification
+  or excluding the node. Repair the properties, verify the repair, and require
+  normal durable indexing to refresh the repaired content and clear its warnings
+  without an application change. Delete a node and require deletion to clear its
+  warnings.
 - Add many opaque properties. OpenSearch must retain the fixed mapping fields.
 
 ## Semantic relevance

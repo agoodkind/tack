@@ -20,16 +20,16 @@ var authTokenOutboxRowsQuery string
 //go:embed testdata/auth_token_outbox_delete.sql
 var authTokenOutboxDeleteStatement string
 
-func testChangeOperation(verb audit.Verb, orgID uuid.UUID) audit.Event {
-	principal := authTokenTestPrincipal()
-	return postgres.NewChangeOperation(context.Background(), verb, postgres.OperatorActor(principal), orgID, audit.SourceSystem)
+// operatorContext attaches principal and a new UUIDv7 command operation ID to
+// ctx as the clispec command gate does, and returns the resulting context.
+func operatorContext(ctx context.Context, principal audit.OperatorPrincipal) context.Context {
+	return audit.WithOperatorPrincipal(audit.WithOpID(ctx, uuid.Must(uuid.NewV7())), principal)
 }
 
 func authTokenTestUser(t *testing.T, env *TestEnv) *user.User {
 	t.Helper()
 	now := time.Now().UTC()
-	operation := testChangeOperation(audit.VerbUserCreate, audit.SystemOrgID())
-	created, err := postgres.NewUserRepo(env.Ops.Pool).Create(env.Ctx, operation, &user.User{
+	created, err := postgres.NewUserRepo(env.Ops.Pool).Create(WithTestOperation(t, env.Ctx), &user.User{
 		ID: uuid.Must(uuid.NewV7()), Email: "token-" + uuid.NewString() + "@example.invalid",
 		DisplayName: "Token Holder", AvatarURL: nil, CreatedAt: now, UpdatedAt: now,
 	})

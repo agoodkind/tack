@@ -68,7 +68,7 @@ func newActAsFixture(t *testing.T, operatorFlags []string) actAsFixture {
 // membership when the test ends.
 func seedActAsMember(t *testing.T, pool *pgxpool.Pool, users *postgres.UserRepo, members *postgres.OrgMemberRepo, orgID uuid.UUID) *user.User {
 	t.Helper()
-	created, err := users.Create(t.Context(), fixtureChangeOperation(audit.VerbUserCreate, audit.SystemOrgID()), &user.User{
+	created, err := users.Create(actAsFixtureContext(t), &user.User{
 		ID: uuid.Must(uuid.NewV7()), Email: "act-as-" + uuid.NewString()[:8] + "@example.test",
 		DisplayName: "Member", AvatarURL: nil,
 	})
@@ -79,17 +79,10 @@ func seedActAsMember(t *testing.T, pool *pgxpool.Pool, users *postgres.UserRepo,
 		_, _ = pool.Exec(context.WithoutCancel(t.Context()), `DELETE FROM users WHERE id = $1`, created.ID)
 	})
 	membership := &org.Member{ID: uuid.Nil, OrgID: orgID, UserID: created.ID, Role: actAsMemberRole}
-	if err := members.AddMember(t.Context(), fixtureChangeOperation(audit.VerbOrgMemberAdd, orgID), membership); err != nil {
+	if err := members.AddMember(actAsFixtureContext(t), membership); err != nil {
 		t.Fatalf("add the member to org %s: %v", orgID, err)
 	}
 	return created
-}
-
-func fixtureChangeOperation(verb audit.Verb, orgID uuid.UUID) audit.Event {
-	principal := audit.OperatorPrincipal{
-		ID: uuid.Must(uuid.NewV7()), Email: "operator@example.test", Name: "Operator", Source: "test",
-	}
-	return postgres.NewChangeOperation(context.Background(), verb, postgres.OperatorActor(principal), orgID, audit.SourceSystem)
 }
 
 func actAsInput(f actAsFixture, email, reason string) actAsCreateInput {
@@ -152,12 +145,21 @@ func actAsRowProvenance(t *testing.T, row audit.Event) audit.ActProvenance {
 	return extra.ActAs
 }
 
-// requireNoActAsWrite requires the command to have recorded no grant row,
-// committed no outbox row, and created no issue in the member org.
+// requireNoActAsWrite fails the test if the act-as command records a grant row
+// for the fixture user in the YugabyteDB operator outbox, commits a
+// FoundationDB outbox row with the fixture user as the actor, or creates an
+// issue in the member org. It ignores FoundationDB outbox rows that fixture
+// setup commits under a system actor when creating the org, workspace, and
+// project.
 func requireNoActAsWrite(t *testing.T, f actAsFixture) {
 	t.Helper()
 	grants := actAsGrantRows(t, f)
-	userRows := actAsOutboxRows(t, f.stores)
+	var userRows []audit.Event
+	for _, row := range actAsOutboxRows(t, f.stores) {
+		if row.Actor.ID == f.user.ID {
+			userRows = append(userRows, row)
+		}
+	}
 	issues := actAsIssues(t, f.stores, f.orgID)
 	if len(grants) != 0 || len(userRows) != 0 || len(issues) != 0 {
 		t.Fatalf("recorded %d grant rows and %d user rows and created %d issues, want none",

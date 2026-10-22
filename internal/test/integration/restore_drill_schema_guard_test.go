@@ -108,27 +108,23 @@ func restoreDrillConfig(t *testing.T, node testenv.EmptyLedgerNode) *config.Conf
 // seedDrillAuthRows writes one row into each auth table the drill counts.
 func seedDrillAuthRows(t *testing.T, admin *pgxpool.Pool) {
 	t.Helper()
-	ctx := t.Context()
 	now := time.Now().UTC()
-	principal := sqlAuditPrincipal()
+	ctx, _ := sqlAuditContext(t, sqlAuditPrincipal())
 	orgID := uuid.Must(uuid.NewV7())
-	userCreate := sqlAuditOperation(audit.VerbUserCreate, principal, audit.SystemOrgID())
-	holder, err := postgres.NewUserRepo(admin).Create(ctx, userCreate, &user.User{
+	holder, err := postgres.NewUserRepo(admin).Create(ctx, &user.User{
 		ID: uuid.Must(uuid.NewV7()), Email: "drill-" + uuid.NewString() + "@example.invalid",
 		DisplayName: "Drill Holder", AvatarURL: nil, CreatedAt: now, UpdatedAt: now,
 	})
 	if err != nil {
 		t.Fatalf("create the drill user: %v", err)
 	}
-	tokenCreate := sqlAuditOperation(audit.VerbAuthTokenCreate, principal, orgID)
-	if _, err := postgres.NewTokenRepo(admin).Create(ctx, tokenCreate, holder.ID, uuid.NewString(), "restore drill"); err != nil {
+	if _, err := postgres.NewTokenRepo(admin).Create(ctx, orgID, holder.ID, uuid.NewString(), "restore drill"); err != nil {
 		t.Fatalf("create the drill token: %v", err)
 	}
 	member := &org.Member{
 		ID: uuid.Nil, OrgID: orgID, UserID: holder.ID, Role: drillMemberRole, CreatedAt: now,
 	}
-	memberAdd := sqlAuditOperation(audit.VerbOrgMemberAdd, principal, orgID)
-	if err := postgres.NewOrgMemberRepo(admin).AddMember(ctx, memberAdd, member); err != nil {
+	if err := postgres.NewOrgMemberRepo(admin).AddMember(ctx, member); err != nil {
 		t.Fatalf("add the drill org member: %v", err)
 	}
 }

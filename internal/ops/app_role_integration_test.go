@@ -14,7 +14,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"goodkind.io/tack/internal/adapters/postgres"
-	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/domain/org"
 	"goodkind.io/tack/internal/domain/user"
 	"goodkind.io/tack/internal/testenv"
@@ -50,7 +49,8 @@ func TestAppRoleReachesTheAuthTablesAndNothingElse(t *testing.T) {
 	members := postgres.NewOrgMemberRepo(app)
 	tokens := postgres.NewTokenRepo(app)
 	orgID := uuid.Must(uuid.NewV7())
-	created, err := users.Create(ctx, fixtureChangeOperation(audit.VerbUserCreate, audit.SystemOrgID()), &user.User{
+	ctx = actAsFixtureContext(t)
+	created, err := users.Create(ctx, &user.User{
 		ID: uuid.Must(uuid.NewV7()), Email: "tack180-" + uuid.NewString()[:8] + "@example.test",
 		DisplayName: "TACK-180", AvatarURL: nil,
 	})
@@ -58,20 +58,20 @@ func TestAppRoleReachesTheAuthTablesAndNothingElse(t *testing.T) {
 		t.Fatalf("create a user as the app login: %v", err)
 	}
 	t.Cleanup(func() { _, _ = admin.Exec(ctx, `DELETE FROM users WHERE id = $1`, created.ID) })
-	if err := members.AddMember(ctx, fixtureChangeOperation(audit.VerbOrgMemberAdd, orgID), &org.Member{ID: uuid.Nil, OrgID: orgID, UserID: created.ID, Role: 20}); err != nil {
+	if err := members.AddMember(ctx, &org.Member{ID: uuid.Nil, OrgID: orgID, UserID: created.ID, Role: 20}); err != nil {
 		t.Fatalf("add a membership as the app login: %v", err)
 	}
-	minted, err := tokens.Create(ctx, fixtureChangeOperation(audit.VerbAuthTokenCreate, orgID), created.ID, "tack_"+uuid.NewString(), "tack-180")
+	minted, err := tokens.Create(ctx, orgID, created.ID, "tack_"+uuid.NewString(), "tack-180")
 	if err != nil {
 		t.Fatalf("create a token as the app login: %v", err)
 	}
 	if listed, err := tokens.List(ctx, created.ID); err != nil || len(listed) != 1 {
 		t.Fatalf("list tokens as the app login: %d, %v", len(listed), err)
 	}
-	if err := tokens.Delete(ctx, fixtureChangeOperation(audit.VerbAuthTokenRevoke, orgID), minted.ID); err != nil {
+	if err := tokens.Delete(ctx, orgID, minted.ID); err != nil {
 		t.Fatalf("delete a token as the app login: %v", err)
 	}
-	if err := members.RemoveMember(ctx, fixtureChangeOperation(audit.VerbOrgMemberRemove, orgID), orgID, created.ID); err != nil {
+	if err := members.RemoveMember(ctx, orgID, created.ID); err != nil {
 		t.Fatalf("remove a membership as the app login: %v", err)
 	}
 

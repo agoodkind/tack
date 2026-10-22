@@ -43,7 +43,7 @@ func TestSearchWithholdsOversizedResult(t *testing.T) {
 	request := serviceRequest(t, fixture, "glacier signal")
 	returned := make([]uuid.UUID, 0, len(nodes))
 	for range 50 {
-		page, err := searcher.Search(t.Context(), request)
+		page, err := searcher.Search(WithTestOperation(t, t.Context()), request)
 		if err != nil {
 			t.Fatalf("search page: %v", err)
 		}

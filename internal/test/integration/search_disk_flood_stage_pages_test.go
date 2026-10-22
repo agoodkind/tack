@@ -23,7 +23,7 @@ type storedPage struct {
 // document exists to refresh.
 func refreshServingIndex(t *testing.T, fixture queryFixture) error {
 	t.Helper()
-	_, err := fixture.Client.Indices.Refresh(t.Context(), &opensearchapi.IndicesRefreshReq{Index: []string{fixture.Index}})
+	_, err := fixture.Client.Indices.Refresh(WithTestOperation(t, t.Context()), &opensearchapi.IndicesRefreshReq{Index: []string{fixture.Index}})
 	return clusterFailure("refresh "+fixture.Index, err)
 }
 
@@ -33,7 +33,7 @@ func refreshServingIndex(t *testing.T, fixture queryFixture) error {
 func readStoredPages(t *testing.T, fixture queryFixture, nodeID uuid.UUID) ([]storedPage, error) {
 	t.Helper()
 	query := fmt.Sprintf(`{"size":1000,"_source":["search_generation","page_text"],"query":{"bool":{"filter":[{"term":{"node_id":%q}},{"term":{"retired":false}}]}},"sort":[{"page_ordinal":"asc"}]}`, nodeID.String())
-	response, err := fixture.Client.Search(t.Context(), &opensearchapi.SearchReq{Indices: []string{fixture.Index}, Body: strings.NewReader(query)})
+	response, err := fixture.Client.Search(WithTestOperation(t, t.Context()), &opensearchapi.SearchReq{Indices: []string{fixture.Index}, Body: strings.NewReader(query)})
 	if err != nil {
 		return nil, clusterFailure("read the stored pages of node "+nodeID.String(), err)
 	}

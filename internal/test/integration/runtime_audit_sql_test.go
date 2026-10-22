@@ -24,18 +24,18 @@ import (
 // one failed result with not_found and without a delta.
 func TestRuntimeAuditSQLAtomicChange(t *testing.T) {
 	stack := startRuntimeAuditStack(t)
-	ctx := t.Context()
 	principal := sqlAuditPrincipal()
+	ctx, _ := sqlOperatorContext(t.Context(), principal)
 	holder := createSQLAuditUser(t, stack.admin, principal)
 
-	issue, err := ops.IssueAuthToken(ctx, stack.admin, principal, holder.Email, sqlAuditTokenLabel)
+	issue, err := ops.IssueAuthToken(ctx, stack.admin, holder.Email, sqlAuditTokenLabel)
 	if err != nil {
 		t.Fatalf("IssueAuthToken error = %v, want nil", err)
 	}
 	issueEvent := onlyEvent(t, sqlOutboxEvents(t, stack.admin, issue.Token.ID), audit.PhaseChange)
 
 	restrictedPool := changeOnlyPool(t, stack.admin)
-	if _, err := ops.IssueAuthToken(ctx, restrictedPool, principal, holder.Email, sqlAuditTokenLabel); err == nil {
+	if _, err := ops.IssueAuthToken(ctx, restrictedPool, holder.Email, sqlAuditTokenLabel); err == nil {
 		t.Fatal("IssueAuthToken error = nil for a login without outbox write access, want an error")
 	}
 	tokenRows, err := postgres.NewTokenRepo(stack.admin).List(ctx, holder.ID)
@@ -44,8 +44,8 @@ func TestRuntimeAuditSQLAtomicChange(t *testing.T) {
 	}
 
 	orgID := uuid.Must(uuid.NewV7())
-	removal := sqlAuditOperation(audit.VerbOrgMemberRemove, principal, orgID)
-	err = postgres.NewOrgMemberRepo(stack.admin).RemoveMember(ctx, removal, orgID, holder.ID)
+	removalCtx, removal := sqlAuditContext(t, principal)
+	err = postgres.NewOrgMemberRepo(stack.admin).RemoveMember(removalCtx, orgID, holder.ID)
 	if !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("RemoveMember of a missing membership: err = %v, want domain.ErrNotFound", err)
 	}
@@ -65,13 +65,13 @@ func TestRuntimeAuditSQLAtomicChange(t *testing.T) {
 }
 
 // TestRuntimeAuditMembershipRoleReplacement adds a membership with role 15,
-// replaces it with role 20, sets role 20 again, then removes the membership.
-// It requires one change event each for the addition, replacement, and removal.
-// It requires the repeated role to produce zero events. It compares the ledger
-// old and new values and the relationship target with the stored membership
-// row. It also requires the user creation event to have empty Before and
-// Changed values, the user ID and two distinct non-nil protected references
-// in After, and a ledger row that omits the email and display name.
+// replaces it with role 20, repeats role 20, then removes the membership.
+// It requires one change event for each addition, replacement, and removal,
+// and requires the repeated role to produce zero events. It compares ledger
+// values and the relationship target with the stored membership. It requires
+// the replacement event to use org.member_role_set and list /role in Changed.
+// It also checks the user creation event's Changed fields, protected
+// references, and omission of the raw email and display name.
 func TestRuntimeAuditMembershipRoleReplacement(t *testing.T) {
 	stack := startRuntimeAuditStack(t)
 	ctx := t.Context()
@@ -80,19 +80,18 @@ func TestRuntimeAuditMembershipRoleReplacement(t *testing.T) {
 	members := postgres.NewOrgMemberRepo(stack.admin)
 	orgID := uuid.Must(uuid.NewV7())
 
-	add := sqlAuditOperation(audit.VerbOrgMemberAdd, principal, orgID)
-	replace := sqlAuditOperation(audit.VerbOrgMemberRoleSet, principal, orgID)
-	repeat := sqlAuditOperation(audit.VerbOrgMemberRoleSet, principal, orgID)
-	remove := sqlAuditOperation(audit.VerbOrgMemberRemove, principal, orgID)
-	steps := []memberStep{{add, sqlAuditMemberRole}, {replace, sqlAuditAdminRole}, {repeat, sqlAuditAdminRole}}
-	for _, step := range steps {
+	add := newMemberStep(t, principal, sqlAuditMemberRole)
+	replace := newMemberStep(t, principal, sqlAuditAdminRole)
+	repeat := newMemberStep(t, principal, sqlAuditAdminRole)
+	removeCtx, remove := sqlAuditContext(t, principal)
+	for _, step := range []memberStep{add, replace, repeat} {
 		member := &org.Member{ID: uuid.Nil, OrgID: orgID, UserID: holder.ID, Role: step.role, CreatedAt: time.Time{}}
-		if err := members.AddMember(ctx, step.operation, member); err != nil {
+		if err := members.AddMember(step.ctx, member); err != nil {
 			t.Fatalf("AddMember with role %d: got error %v, want nil", step.role, err)
 		}
 	}
 	membership := requireMembership(t, members, orgID, holder.ID)
-	if err := members.RemoveMember(ctx, remove, orgID, holder.ID); err != nil {
+	if err := members.RemoveMember(removeCtx, orgID, holder.ID); err != nil {
 		t.Fatalf("RemoveMember error = %v, want nil", err)
 	}
 	memberRows, err := members.ListMembers(ctx, orgID)
@@ -100,11 +99,11 @@ func TestRuntimeAuditMembershipRoleReplacement(t *testing.T) {
 		t.Fatalf("member count after RemoveMember = %d, error = %v; want 0 and nil error", len(memberRows), err)
 	}
 
-	addEvent := onlyEvent(t, sqlOutboxEvents(t, stack.admin, add.Context.OperationID), audit.PhaseChange)
-	replaceEvent := onlyEvent(t, sqlOutboxEvents(t, stack.admin, replace.Context.OperationID), audit.PhaseChange)
+	addEvent := onlyEvent(t, sqlOutboxEvents(t, stack.admin, add.operation.Context.OperationID), audit.PhaseChange)
+	replaceEvent := onlyEvent(t, sqlOutboxEvents(t, stack.admin, replace.operation.Context.OperationID), audit.PhaseChange)
 	removeEvent := onlyEvent(t, sqlOutboxEvents(t, stack.admin, remove.Context.OperationID), audit.PhaseChange)
 	userEvent := onlyEvent(t, sqlOutboxEvents(t, stack.admin, holder.ID), audit.PhaseChange)
-	repeatEvents := sqlOutboxEvents(t, stack.admin, repeat.Context.OperationID)
+	repeatEvents := sqlOutboxEvents(t, stack.admin, repeat.operation.Context.OperationID)
 	if len(repeatEvents) != 0 {
 		t.Fatalf("events for an unchanged role = %d, want 0", len(repeatEvents))
 	}
@@ -119,8 +118,8 @@ func TestRuntimeAuditMembershipRoleReplacement(t *testing.T) {
 	requireMemberRecord(t, replaceRow.Delta.Before, want)
 	want.Role = sqlAuditAdminRole
 	requireMemberRecord(t, replaceRow.Delta.After, want)
-	if !slices.Equal(replaceRow.Delta.Changed, []string{sqlAuditMemberChanged}) {
-		t.Fatalf("replacement changed fields = %v, want [role]", replaceRow.Delta.Changed)
+	if !slices.Equal(replaceRow.Delta.Changed, []string{sqlAuditMemberChanged}) || replaceRow.Action != string(audit.VerbOrgMemberRoleSet) {
+		t.Fatalf("replacement Delta.Changed = %v, Action = %s; want Delta.Changed = [/role] and Action = string(audit.VerbOrgMemberRoleSet)", replaceRow.Delta.Changed, replaceRow.Action)
 	}
 	removeRow := requireLedgerChange(t, stack, removeEvent)
 	requireMemberRecord(t, removeRow.Delta.Before, want)
@@ -129,22 +128,20 @@ func TestRuntimeAuditMembershipRoleReplacement(t *testing.T) {
 	}
 }
 
-// TestRuntimeAuditTokenMetadata attaches a command operation ID to ctx with
-// [audit.WithOpID], then issues a token with [ops.IssueAuthToken], validates it
-// with [postgres.TokenRepo.Validate], and revokes it with [ops.RevokeAuthToken].
-// It requires validation to leave last_used nil without adding an outbox event.
-// It checks ledger token metadata against the stored row. It requires both
-// ledger change events to omit the raw token and its SHA-256 hash and to use
-// the command operation ID as ParentOperationID.
+// TestRuntimeAuditTokenMetadata issues, validates, and revokes a token using
+// ctx with an operator principal and command operation ID. It requires
+// validation to leave last_used nil without adding an outbox event. It
+// compares ledger token metadata with the stored row and requires both change
+// events to omit the raw token and its SHA-256 hash, use the command ID as
+// OperationID, and identify the principal as the actor.
 func TestRuntimeAuditTokenMetadata(t *testing.T) {
 	stack := startRuntimeAuditStack(t)
-	commandID := uuid.Must(uuid.NewV7())
-	ctx := audit.WithOpID(t.Context(), commandID)
 	principal := sqlAuditPrincipal()
+	ctx, commandID := sqlOperatorContext(t.Context(), principal)
 	holder := createSQLAuditUser(t, stack.admin, principal)
 	tokens := postgres.NewTokenRepo(stack.admin)
 
-	issue, err := ops.IssueAuthToken(ctx, stack.admin, principal, holder.Email, sqlAuditTokenLabel)
+	issue, err := ops.IssueAuthToken(ctx, stack.admin, holder.Email, sqlAuditTokenLabel)
 	if err != nil {
 		t.Fatalf("IssueAuthToken error = %v, want nil", err)
 	}
@@ -157,7 +154,7 @@ func TestRuntimeAuditTokenMetadata(t *testing.T) {
 		t.Fatalf("token after Validate = %+v, %v; want nil LastUsed and nil error", tokenRow, err)
 	}
 	onlyEvent(t, sqlOutboxEvents(t, stack.admin, issue.Token.ID), audit.PhaseChange)
-	if _, err := ops.RevokeAuthToken(ctx, stack.admin, principal, issue.Token.ID); err != nil {
+	if _, err := ops.RevokeAuthToken(ctx, stack.admin, issue.Token.ID); err != nil {
 		t.Fatalf("RevokeAuthToken error = %v, want nil", err)
 	}
 	tokenEvents := sqlOutboxEvents(t, stack.admin, issue.Token.ID)
@@ -173,8 +170,8 @@ func TestRuntimeAuditTokenMetadata(t *testing.T) {
 	for _, row := range []audit.Row{issueRow, revokeRow} {
 		requireTokenTarget(t, row, issue.Token.ID)
 		requireNoSecrets(t, row, secrets)
-		if row.Context.ParentOperationID != commandID {
-			t.Fatalf("event %s has ParentOperationID %s; the test requires commandID %s", row.EventID, row.Context.ParentOperationID, commandID)
+		if row.Context.OperationID != commandID || row.ActorID != principal.ID {
+			t.Fatalf("event %s OperationID = %s, ActorID = %s; want commandID = %s and principal.ID = %s", row.EventID, row.Context.OperationID, row.ActorID, commandID, principal.ID)
 		}
 	}
 	requireTokenRecord(t, issueRow.Delta.After, tokenRow)

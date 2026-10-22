@@ -1,7 +1,9 @@
 package integration_test
 
 import (
+	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -21,12 +23,26 @@ const (
 	sqlAuditTokenLabel    = "runtime audit"
 	sqlAuditTokenURI      = "tack:api_token/"
 	sqlAuditFailureCode   = "not_found"
-	sqlAuditMemberChanged = "role"
+	sqlAuditMemberChanged = "/role"
 )
 
+// sqlAuditUserChanged lists the sorted JSON pointers that a user creation
+// event must include in Delta.Changed.
+var sqlAuditUserChanged = []string{"/display_name", "/email", "/is_active"}
+
+// memberStep pairs a membership role with its mutation context and operation.
 type memberStep struct {
+	ctx       context.Context
 	operation audit.Event
 	role      int
+}
+
+// newMemberStep creates a mutation context and operation for principal and
+// returns them with role as a membership test step.
+func newMemberStep(t *testing.T, principal audit.OperatorPrincipal, role int) memberStep {
+	t.Helper()
+	ctx, operation := sqlAuditContext(t, principal)
+	return memberStep{ctx: ctx, operation: operation, role: role}
 }
 
 type tokenRecord struct {
@@ -45,15 +61,16 @@ type memberRecord struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// requireUserChange waits for the user creation ledger row and requires
-// empty Before and Changed values. It decodes After, checks the user ID and
-// two distinct non-nil protected references, and requires the row to omit
-// the raw email and display name. It returns the decoded record.
+// requireUserChange waits for the user creation ledger row and requires an
+// empty Delta.Before and Delta.Changed equal to sqlAuditUserChanged. It
+// decodes Delta.After, checks the user ID and two distinct protected references
+// other than uuid.Nil, and requires the row to omit the raw email and display
+// name. It returns the decoded record.
 func requireUserChange(t *testing.T, stack runtimeAuditStack, sent audit.Event, holder *user.User) userRecord {
 	t.Helper()
 	row := requireLedgerChange(t, stack, sent)
-	if row.Delta == nil || len(row.Delta.Before) != 0 || len(row.Delta.Changed) != 0 {
-		t.Fatalf("row.Delta = %+v, want non-nil row.Delta with empty row.Delta.Before and row.Delta.Changed", row.Delta)
+	if row.Delta == nil || len(row.Delta.Before) != 0 || !slices.Equal(row.Delta.Changed, sqlAuditUserChanged) {
+		t.Fatalf("row.Delta = %+v, want non-nil row.Delta with empty row.Delta.Before and row.Delta.Changed = sqlAuditUserChanged", row.Delta)
 	}
 	var record userRecord
 	if err := json.Unmarshal(row.Delta.After, &record); err != nil {

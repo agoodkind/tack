@@ -9,9 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-
 	"goodkind.io/tack/internal/adapters/postgres"
-	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/clock"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/searchaccess"
@@ -33,7 +31,7 @@ func TestSearchAccessVersionWithoutRebuild(t *testing.T) {
 	}
 	drainSearchWork(t, fixture.Worker, 2000)
 	before := pagesOf(t, fixture, nodes)
-	model, err := fixture.Adapter.Provision(t.Context())
+	model, err := fixture.Adapter.Provision(WithTestOperation(t, t.Context()))
 	if err != nil {
 		t.Fatalf("read pinned model: %v", err)
 	}
@@ -49,7 +47,7 @@ func TestSearchAccessVersionWithoutRebuild(t *testing.T) {
 	requireSemanticPreserved(t, before, after)
 	requireAccessVersions(t, after, []string{searchaccess.RotatedVersion})
 
-	if err := redeployNativeModel(t.Context(), fixture.Adapter, fixture.Client); err != nil {
+	if err := redeployNativeModel(WithTestOperation(t, t.Context()), fixture.Adapter, fixture.Client); err != nil {
 		t.Fatalf("redeploy pinned model: %v", err)
 	}
 	results := callEverySearchPage(t, "rotated key orchard", fixture.Harness)
@@ -75,12 +73,12 @@ func TestSearchAccessMembershipQueryOnly(t *testing.T) {
 	}
 	before := pagesOf(t, fixture, []uuid.UUID{nodeID})
 
-	pool, err := pgxpool.New(t.Context(), fixture.Config.DatabaseURL)
+	pool, err := pgxpool.New(WithTestOperation(t, t.Context()), fixture.Config.DatabaseURL)
 	if err != nil {
 		t.Fatalf("open membership pool: %v", err)
 	}
 	t.Cleanup(pool.Close)
-	if err := postgres.NewOrgMemberRepo(pool).RemoveMember(t.Context(), testChangeOperation(audit.VerbOrgMemberRemove, workspace.OrgID), workspace.OrgID, workspace.Actors[0].UserID); err != nil {
+	if err := postgres.NewOrgMemberRepo(pool).RemoveMember(WithTestOperation(t, t.Context()), workspace.OrgID, workspace.Actors[0].UserID); err != nil {
 		t.Fatalf("remove membership: %v", err)
 	}
 	if _, err := trySearch(fixture.Harness, "membership lantern", ""); err == nil {
@@ -88,7 +86,7 @@ func TestSearchAccessMembershipQueryOnly(t *testing.T) {
 	}
 	store := fixture.Stores.SearchWork(clock.Wall{})
 	for _, class := range []searchdomain.WorkClass{searchdomain.WorkClassLive, searchdomain.WorkClassAccess} {
-		work, err := store.Claim(t.Context(), class, "membership-inspector", time.Minute)
+		work, err := store.Claim(WithTestOperation(t, t.Context()), class, "membership-inspector", time.Minute)
 		if !errors.Is(err, searchdomain.ErrNoWork) {
 			t.Fatalf("membership change left %s work %+v, error = %v", class, work, err)
 		}
@@ -142,7 +140,7 @@ func TestSearchAccessRolloutRecovery(t *testing.T) {
 	store := fixture.Stores.SearchWork(clock.Wall{})
 	abandoned := make([]searchdomain.AccessPhase, 0, 4)
 	final := runRolloutUntilStable(t, fixture, fixture.Worker, workspace.OrgID, func(phase searchdomain.AccessPhase) {
-		if _, err := store.Claim(t.Context(), searchdomain.WorkClassRollout, "stopped-process", rolloutAbandonLease); err == nil {
+		if _, err := store.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassRollout, "stopped-process", rolloutAbandonLease); err == nil {
 			abandoned = append(abandoned, phase)
 		}
 	})

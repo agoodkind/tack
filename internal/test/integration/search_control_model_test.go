@@ -93,7 +93,7 @@ func runMismatchRegistration(t *testing.T, client *opensearchapi.Client, deadlin
 
 func deleteMismatchModel(t *testing.T, client *opensearchapi.Client, modelID string) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), time.Minute)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(WithTestOperation(t, t.Context())), time.Minute)
 	defer cancel()
 	response, err := opensearch.Do[json.RawMessage](ctx, client.Client, http.MethodDelete,
 		nativeMLRequest{path: nativeModelPath(modelID, ""), body: nil}, nil)

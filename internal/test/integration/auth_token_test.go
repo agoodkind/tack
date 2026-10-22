@@ -22,7 +22,7 @@ func TestAuthTokenIssueAuthenticatesAndIsRecorded(t *testing.T) {
 	principal := authTokenTestPrincipal()
 	tokens := postgres.NewTokenRepo(env.Ops.Pool)
 
-	issue, err := ops.IssueAuthToken(env.Ctx, env.Ops.Pool, principal, holder.Email, "  integration ")
+	issue, err := ops.IssueAuthToken(operatorContext(t.Context(), principal), env.Ops.Pool, holder.Email, "  integration ")
 	if err != nil {
 		t.Fatalf("IssueAuthToken error = %v, want nil", err)
 	}
@@ -35,7 +35,7 @@ func TestAuthTokenIssueAuthenticatesAndIsRecorded(t *testing.T) {
 		t.Fatalf("create event Entity.Name = %q, Context.OrgID = %s; want \"integration\" and audit.SystemOrgID()", created.Entity.Name, created.Context.OrgID)
 	}
 
-	revocation, err := ops.RevokeAuthToken(env.Ctx, env.Ops.Pool, principal, issue.Token.ID)
+	revocation, err := ops.RevokeAuthToken(operatorContext(t.Context(), principal), env.Ops.Pool, issue.Token.ID)
 	if err != nil || revocation.Holder.ID != holder.ID {
 		t.Fatalf("RevokeAuthToken Holder = %+v, error = %v; want ID %s and nil error", revocation.Holder, err, holder.ID)
 	}
@@ -50,7 +50,7 @@ func TestAuthTokenIssueAuthenticatesAndIsRecorded(t *testing.T) {
 func TestAuthTokenIssueRefusesAnUnknownUser(t *testing.T) {
 	env := SetupTestEnv(t)
 
-	_, err := ops.IssueAuthToken(env.Ctx, env.Ops.Pool, authTokenTestPrincipal(), "nobody-"+uuid.NewString()+"@example.invalid", "integration")
+	_, err := ops.IssueAuthToken(operatorContext(t.Context(), authTokenTestPrincipal()), env.Ops.Pool, "nobody-"+uuid.NewString()+"@example.invalid", "integration")
 
 	if err == nil {
 		t.Fatal("IssueAuthToken error = nil for an email without a user, want an error")

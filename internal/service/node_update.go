@@ -11,7 +11,6 @@ import (
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
-	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
@@ -79,10 +78,6 @@ func (s *NodeService) Update(ctx context.Context, in UpdateInput) (*node.NodeVie
 	if err != nil {
 		return nil, err
 	}
-	name := source.Name
-	if in.Name != nil {
-		name = *in.Name
-	}
 	plan := node.MutationPlan{
 		OrgID: source.OrgID, NodeID: source.ID, NodeType: source.NodeType, ActorID: in.ActorID,
 		Source:        node.SourceExpectation{Absent: false, PrimaryDigest: snapshot.PrimaryDigest},
@@ -92,13 +87,6 @@ func (s *NodeService) Update(ctx context.Context, in UpdateInput) (*node.NodeVie
 		},
 		Name: in.Name, Props: propsWithoutParent(in.Props), Parent: parent.Change, ReferenceKeys: referenceKeys,
 		Relationships: stampRelationshipChanges(otherChanges, in.ActorID, clock.Now().UTC()), Idempotency: nil,
-	}
-	if err := audit.StageStateChange(ctx, audit.VerbNodeUpdate, audit.Entity{
-		Type: "node", NodeType: source.NodeType, ID: source.ID,
-		Identifier: firstReferenceKey(referenceKeys), Name: name,
-	}); err != nil {
-		log.ErrorContext(ctx, "node.Update: stage audit row", slog.String("err", err.Error()))
-		return nil, fmt.Errorf("stage the audit row for updating %s: %w", source.ID, err)
 	}
 	if _, err := s.nodes.ApplyMutation(ctx, plan); err != nil {
 		log.ErrorContext(ctx, "node.update_failed", slog.String("node_id", in.NodeID.String()), slog.String("err", err.Error()))

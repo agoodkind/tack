@@ -28,40 +28,23 @@ const (
 	failureMessageRollback = "the change transaction rolled back without committing"
 )
 
-// WriteChanges validates each change and builds its completed change event from
-// operation. It validates and encodes each event before writing it to the
-// operator outbox in tx, and returns the first error.
+// WriteChanges builds each change event with audit.ChangeEvent and sets its
+// verb to operation.Verb. It validates and encodes each event before writing
+// it to the operator outbox in tx, and returns the first error.
 func WriteChanges(ctx context.Context, tx pgx.Tx, operation audit.Event, changes []audit.Change) error {
 	completedAt := clock.Now().UTC()
 	for _, change := range changes {
-		if err := audit.ValidateChange(change); err != nil {
+		event, err := audit.ChangeEvent(operation, change, completedAt)
+		if err != nil {
 			slog.ErrorContext(ctx, "audit.change.invalid", slog.String("err", err.Error()))
 			return fmt.Errorf("validate audit change %s: %w", change.EventID, err)
 		}
-		event := changeEvent(operation, change, completedAt)
+		event.Verb = operation.Verb
 		if err := writeEvent(ctx, tx, event); err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-func changeEvent(operation audit.Event, change audit.Change, completedAt time.Time) audit.Event {
-	target := change.Target
-	event := operation
-	event.EventID = change.EventID
-	event.Entity = targetEntity(target)
-	event.Context.AuditFormatVersion = audit.AuditFormatComplete
-	event.Context.OperationClass = audit.OperationDatabaseChange
-	event.Context.Phase = audit.PhaseChange
-	event.Context.CompletedAt = completedAt
-	event.Context.Target = &target
-	event.Delta = &audit.Delta{Before: change.Before, After: change.After, Changed: change.Changed}
-	event.Protected = change.Protected
-	event.Outcome = audit.OutcomeCompleted
-	event.Error = nil
-	event.OccurredAt = completedAt
-	return event
 }
 
 func failureEvent(operation audit.Event, target audit.Target, cause error) audit.Event {
@@ -154,6 +137,17 @@ func recordFailure(ctx context.Context, pool *pgxpool.Pool, operation audit.Even
 		return fmt.Errorf("record failed change for target %s: %w", target.ID, err)
 	}
 	return nil
+}
+
+// newChange calls audit.NewChange with a new UUIDv7 event ID, target, and the
+// old and new JSON values. It logs and wraps any error with the target ID.
+func newChange(ctx context.Context, target audit.Target, before, after json.RawMessage) (audit.Change, error) {
+	change, err := audit.NewChange(uuid.Must(uuid.NewV7()), target, before, after)
+	if err != nil {
+		slog.ErrorContext(ctx, "audit.change.build_failed", slog.String("target_id", target.ID.String()), slog.String("err", err.Error()))
+		return audit.Change{}, fmt.Errorf("build audit change for target %s: %w", target.ID, err)
+	}
+	return change, nil
 }
 
 // changeValue encodes a record as JSON for an audit change and returns nil when

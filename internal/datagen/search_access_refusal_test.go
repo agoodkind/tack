@@ -16,6 +16,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/clock"
@@ -66,7 +68,18 @@ func TestRefusedRejectsNonAuthorizationToolError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse scale: %v", err)
 	}
-	identities, err := BootstrapIdentities(ctx, cfg, searchRefusalSeed, scale)
+	operation, err := audit.NewMutationOperation(audit.Actor{
+		Type: audit.ActorSystem, ID: uuid.New(), Email: "", Name: "datagen test", SessionID: "",
+		IP: "", UserAgent: "", RequestID: "", APITokenLabel: "",
+	}, audit.SourceSystem, "datagen-test")
+	if err != nil {
+		t.Fatalf("audit.NewMutationOperation failed to create the audit operation: %v", err)
+	}
+	bootstrapContext, err := audit.WithMutationContext(ctx, operation)
+	if err != nil {
+		t.Fatalf("audit.WithMutationContext failed to attach the audit operation to the context: %v", err)
+	}
+	identities, err := BootstrapIdentities(bootstrapContext, cfg, searchRefusalSeed, scale)
 	if err != nil {
 		t.Fatalf("bootstrap identities: %v", err)
 	}
@@ -124,8 +137,7 @@ func requireNoOrganizationRefusal(t *testing.T, cfg *config.Config, run searchRu
 		t.Fatalf("open ledger pool: %v", err)
 	}
 	t.Cleanup(pool.Close)
-	removal := datagenOperation(ctx, audit.VerbOrgMemberRemove, workspace.OrgID)
-	if err := postgres.NewOrgMemberRepo(pool).RemoveMember(ctx, removal, workspace.OrgID, actor.UserID); err != nil {
+	if err := postgres.NewOrgMemberRepo(pool).RemoveMember(withTestMutation(t, ctx), workspace.OrgID, actor.UserID); err != nil {
 		t.Fatalf("remove member %s: %v", actor.UserID, err)
 	}
 	if argument, err := run.driver.searchEntryArgument(ctx, actor.Token); err != nil || argument != entryArgumentSuffix {

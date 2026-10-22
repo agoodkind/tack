@@ -84,13 +84,13 @@ func TestResumeFinishesAnInterruptedDelete(t *testing.T) {
 	env := SetupTestEnv(t)
 	fixture := newCascadeFixture(t, env)
 	job := &node.SubtreeDeleteJob{
-		ID: uuid.Must(uuid.NewV7()), OrgID: env.OrgID, RootID: fixture.Project, AuditTemplate: nil,
+		ID: uuid.Must(uuid.NewV7()), OrgID: env.OrgID, RootID: fixture.Project,
 		Stack: nil, Deleted: 0, UpdatedAt: time.Time{},
 	}
 	if err := env.Stores.NodeDeleter.StartSubtreeDelete(env.Ctx, job); err != nil {
 		t.Fatalf("start the delete of project %s: %v", fixture.Project, err)
 	}
-	if _, err := env.Stores.NodeDeleter.DeleteSubtreeStep(env.Ctx, job.ID, nil); err != nil {
+	if _, err := env.Stores.NodeDeleter.DeleteSubtreeStep(env.Ctx, job.ID); err != nil {
 		t.Fatalf("run one step of job %s: %v", job.ID, err)
 	}
 

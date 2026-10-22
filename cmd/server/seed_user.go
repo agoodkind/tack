@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"goodkind.io/tack/internal/adapters/postgres"
-	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/user"
@@ -26,11 +25,7 @@ func ensureSeedUser(ctx context.Context, cfg *config.Config, userRepo *postgres.
 		log.InfoContext(ctx, "seed.user_exists", "id", existing.ID, "email", existing.Email)
 		return existing, nil
 	}
-	operation, err := seedOperation(ctx, audit.VerbUserCreate, audit.SystemOrgID())
-	if err != nil {
-		return nil, err
-	}
-	created, err := userRepo.Create(ctx, operation, &user.User{
+	created, err := userRepo.Create(ctx, &user.User{
 		ID:          userIDForEmail(cfg.SeedEmail),
 		Email:       cfg.SeedEmail,
 		DisplayName: cfg.SeedName,

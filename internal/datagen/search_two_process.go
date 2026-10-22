@@ -12,7 +12,6 @@ import (
 	"github.com/google/uuid"
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/adapters/postgres"
-	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/domain/org"
@@ -180,8 +179,7 @@ func (r searchRun) revokeAcross(ctx context.Context, cfg *config.Config, drivers
 	if err != nil {
 		return err
 	}
-	removal := datagenOperation(ctx, audit.VerbOrgMemberRemove, workspace.OrgID)
-	if err := members.RemoveMember(ctx, removal, workspace.OrgID, actor.UserID); err != nil {
+	if err := members.RemoveMember(ctx, workspace.OrgID, actor.UserID); err != nil {
 		return loggedError(ctx, "qa datagen: remove member "+actor.UserID.String(), err)
 	}
 	// Restoring membership before both checks finish would invalidate the remaining revocation check.
@@ -192,8 +190,7 @@ func (r searchRun) revokeAcross(ctx context.Context, cfg *config.Config, drivers
 		refusalErr = errors.Join(refusalErr, endpointRun.requireRevoked(ctx, actor.Token, first.Cursor))
 	}
 	restored := &org.Member{ID: uuid.Nil, OrgID: member.OrgID, UserID: member.UserID, Role: member.Role, CreatedAt: time.Time{}}
-	restore := datagenOperation(ctx, audit.VerbOrgMemberAdd, workspace.OrgID)
-	if err := members.AddMember(context.WithoutCancel(ctx), restore, restored); err != nil {
+	if err := members.AddMember(context.WithoutCancel(ctx), restored); err != nil {
 		joined := errors.Join(refusalErr, fmt.Errorf("qa datagen: restore member %s: %w", actor.UserID, err))
 		slog.ErrorContext(ctx, "qa.datagen.member_restore_failed", slog.String("user_id", actor.UserID.String()),
 			slog.String("err", joined.Error()))

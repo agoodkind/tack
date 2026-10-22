@@ -53,8 +53,7 @@ func seedOp(f *cli.Factory) clispec.Operation[seedInput] {
 			if f.Cfg.SeedEmail == "" || f.Cfg.SeedName == "" {
 				return errors.New("seed: SEED_EMAIL and SEED_NAME are both required")
 			}
-			recorder := audit.CanonicalRecorder{Inner: seedOutboxRecorder{outbox: f.AuditOutbox()}}
-			if err := execSeed(ctx, f.Cfg, recorder); err != nil {
+			if err := execSeed(ctx, f.Cfg); err != nil {
 				return err
 			}
 			return sink.WriteText(ctx, "seed complete")
@@ -74,7 +73,7 @@ func enableSeedSearchWork(cfg *config.Config, stores *fdbadapter.Stores) {
 // primitives. This is the one place in the system that references specific
 // NodeType names (via service.Seeder constants). It returns any fatal error to
 // the caller rather than exiting in place.
-func execSeed(ctx context.Context, cfg *config.Config, recorder audit.Recorder) error {
+func execSeed(ctx context.Context, cfg *config.Config) error {
 	ctx, span := telemetry.StartSpan(ctx, "seed.run", trace.WithSpanKind(trace.SpanKindInternal))
 	defer span.End()
 	ctx = telemetry.WithTraceLogger(ctx, slog.String("command", "seed"))
@@ -102,10 +101,7 @@ func execSeed(ctx context.Context, cfg *config.Config, recorder audit.Recorder) 
 	userRepo := postgres.NewUserRepo(pool)
 	tokenRepo := postgres.NewTokenRepo(pool)
 	members := postgres.NewOrgMemberRepo(pool)
-	seeder := service.NewSeeder(
-		seedPropertyDefs{inner: fdbStores.PropertyDefs, recorder: recorder},
-		seedNodeTypes{inner: fdbStores.NodeTypes, recorder: recorder},
-	)
+	seeder := service.NewSeeder(fdbStores.PropertyDefs, fdbStores.NodeTypes)
 
 	u, err := ensureSeedUser(ctx, cfg, userRepo)
 	if err != nil {
@@ -124,14 +120,9 @@ func execSeed(ctx context.Context, cfg *config.Config, recorder audit.Recorder) 
 	if len(existingOrgIDs) > 0 {
 		knownOrgID = existingOrgIDs[0]
 	}
-	orgID, orgCreated, err := ensureNode(ctx, fdbStores, "org", cfg.SeedOrgSlug, cfg.SeedOrgName, uuid.Nil, knownOrgID)
+	orgID, err := ensureNode(ctx, fdbStores, "org", cfg.SeedOrgSlug, cfg.SeedOrgName, uuid.Nil, knownOrgID)
 	if err != nil {
 		return err
-	}
-	if orgCreated {
-		if err := recordSeedNode(ctx, recorder, orgID, orgID, uuid.Nil, "org", cfg.SeedOrgSlug, cfg.SeedOrgName); err != nil {
-			return err
-		}
 	}
 	if err := seeder.SeedOrg(ctx, orgID); err != nil {
 		log.ErrorContext(ctx, "seed.org_definitions_failed", slog.String("err", err.Error()))
@@ -143,14 +134,9 @@ func execSeed(ctx context.Context, cfg *config.Config, recorder audit.Recorder) 
 	}
 
 	// orgID is the parent of the workspace, so it doubles as the lookup orgID.
-	wsID, workspaceCreated, err := ensureNode(ctx, fdbStores, "workspace", cfg.SeedWorkspaceSlug, cfg.SeedWorkspaceName, orgID, orgID)
+	wsID, err := ensureNode(ctx, fdbStores, "workspace", cfg.SeedWorkspaceSlug, cfg.SeedWorkspaceName, orgID, orgID)
 	if err != nil {
 		return err
-	}
-	if workspaceCreated {
-		if err := recordSeedNode(ctx, recorder, wsID, orgID, orgID, "workspace", cfg.SeedWorkspaceSlug, cfg.SeedWorkspaceName); err != nil {
-			return err
-		}
 	}
 
 	// Production mode: SHA-256 hash of the bearer is looked up in api_tokens.

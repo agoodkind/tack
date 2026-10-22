@@ -9,7 +9,6 @@ import (
 	"github.com/google/uuid"
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/adapters/postgres"
-	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/domain"
@@ -127,7 +126,7 @@ func bootstrapActors(
 			return loggedError(ctx, "qa datagen: get user "+actor.Email, err)
 		}
 		if stored == nil {
-			stored, err = users.Create(ctx, datagenOperation(ctx, audit.VerbUserCreate, audit.SystemOrgID()), &user.User{
+			stored, err = users.Create(ctx, &user.User{
 				ID: actor.UserID, Email: actor.Email, DisplayName: actor.DisplayName,
 				AvatarURL: nil,
 			})
@@ -136,7 +135,7 @@ func bootstrapActors(
 			}
 		}
 		actor.UserID = stored.ID
-		if err := members.AddMember(ctx, datagenOperation(ctx, audit.VerbOrgMemberAdd, workspace.OrgID), &org.Member{
+		if err := members.AddMember(ctx, &org.Member{
 			ID: uuid.Nil, OrgID: workspace.OrgID, UserID: stored.ID,
 			Role: 20,
 		}); err != nil {
@@ -160,8 +159,7 @@ func bootstrapToken(ctx context.Context, tokens *postgres.TokenRepo, orgID, user
 	if !errors.Is(err, domain.ErrUnauthenticated) {
 		return loggedError(ctx, "qa datagen: validate token for "+actor.Email, err)
 	}
-	operation := datagenOperation(ctx, audit.VerbAuthTokenCreate, orgID)
-	if _, err := tokens.Create(ctx, operation, userID, actor.RawToken, "qa-datagen"); err != nil {
+	if _, err := tokens.Create(ctx, orgID, userID, actor.RawToken, "qa-datagen"); err != nil {
 		return loggedError(ctx, "qa datagen: create token for "+actor.Email, err)
 	}
 	return nil
@@ -171,10 +169,9 @@ func bootstrapToken(ctx context.Context, tokens *postgres.TokenRepo, orgID, user
 // workspace's first actor. It sets the expiry during insertion because the
 // application login cannot update api_tokens.
 func expireToken(ctx context.Context, tokens *postgres.TokenRepo, raw string, workspace WorkspaceIdentity) error {
-	operation := datagenOperation(ctx, audit.VerbAuthTokenCreate, workspace.OrgID)
 	expiresAt := clock.Now().UTC().Add(-expiredTokenAge)
 	userID := workspace.Actors[0].UserID
-	if _, err := tokens.CreateExpiring(ctx, operation, userID, raw, expiredTokenLabel, expiresAt); err != nil {
+	if _, err := tokens.CreateExpiring(ctx, workspace.OrgID, userID, raw, expiredTokenLabel, expiresAt); err != nil {
 		return loggedError(ctx, "qa datagen: create expired token", err)
 	}
 	return nil
