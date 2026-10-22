@@ -59,6 +59,11 @@ type RelayConfig struct {
 	PollInterval time.Duration
 	// BatchSize limits each outbox read.
 	BatchSize int
+	// AfterProduce optionally runs with the event ID after each broker acknowledgment.
+	// An error stops the current batch before the relay deletes its current
+	// YugabyteDB row or clears any FoundationDB entry in that batch.
+	// Tests use it to interrupt delivery before outbox removal; production does not set it.
+	AfterProduce func(ctx context.Context, eventID uuid.UUID) error `exhaustruct:"optional"`
 }
 
 // Relay drains operator-command audit events from both outboxes to Kafka.
@@ -68,6 +73,7 @@ type Relay struct {
 	foundationDB FoundationDBOutbox
 	pollInterval time.Duration
 	batchSize    int
+	afterProduce func(ctx context.Context, eventID uuid.UUID) error
 	stop         chan struct{}
 	stopped      chan struct{}
 	once         sync.Once
@@ -95,6 +101,7 @@ func NewRelay(cfg RelayConfig) (*Relay, error) {
 		foundationDB: cfg.FoundationDB,
 		pollInterval: cfg.PollInterval,
 		batchSize:    cfg.BatchSize,
+		afterProduce: cfg.AfterProduce,
 		stop:         make(chan struct{}),
 		stopped:      make(chan struct{}),
 		once:         sync.Once{},
@@ -202,9 +209,13 @@ func (r *Relay) drainYugabyte(ctx context.Context) {
 	producedCount := 0
 	deletedCount := 0
 	for _, row := range batch {
-		if recordErr := r.recorder.Record(ctx, row.Event); recordErr != nil {
+		stopped, recordErr := r.produceRow(ctx, row)
+		if recordErr != nil {
 			slog.ErrorContext(ctx, "audit.relay.yugabyte_produce_failed",
 				slog.String("err", recordErr.Error()))
+			break
+		}
+		if stopped {
 			break
 		}
 		producedCount++
@@ -229,25 +240,23 @@ func (r *Relay) drainFoundationDB(ctx context.Context, mark []byte) []byte {
 		return mark
 	}
 	producedCount := 0
+	stopped := false
 	var lastAccepted []byte
 	for _, entry := range batch {
-		var event Event
-		if err := json.Unmarshal(entry.Event, &event); err != nil {
-			slog.ErrorContext(ctx, "audit.relay.foundationdb_decode_failed", slog.String("err", err.Error()))
-			break
-		}
-		if event.Context.CommitVersion == "" {
-			event.Context.CommitVersion = entry.CommitVersion
-		}
-		if err := r.recorder.Record(ctx, event); err != nil {
+		eventID, err := r.produceEntry(ctx, entry)
+		if err != nil {
 			slog.ErrorContext(ctx, "audit.relay.foundationdb_produce_failed", slog.String("err", err.Error()))
 			break
 		}
 		producedCount++
+		if r.stopAfterProduce(ctx, eventID) {
+			stopped = true
+			break
+		}
 		lastAccepted = append(lastAccepted[:0], entry.Mark...)
 	}
 	clearedCount := 0
-	if len(lastAccepted) > 0 {
+	if len(lastAccepted) > 0 && !stopped {
 		if err := r.foundationDB.ClearThrough(ctx, lastAccepted); err != nil {
 			slog.ErrorContext(ctx, "audit.relay.foundationdb_clear_failed", slog.String("err", err.Error()))
 		} else {
