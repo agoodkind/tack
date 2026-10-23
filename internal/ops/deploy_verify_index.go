@@ -32,7 +32,7 @@ const (
 // indexDigestPattern is the only accepted form of a given index digest.
 var indexDigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
-// deployIndexDigests maps each verified container to the index digest it must
+// deployIndexDigests maps each service to the index digest its replicas must
 // run. A nil map selects the local tag comparison.
 type deployIndexDigests map[string]string
 
@@ -57,7 +57,7 @@ func parseDeployIndexDigests(ctx context.Context, server, consumer string) (depl
 		slog.ErrorContext(ctx, "ops.deploy.verify.digest_flags_invalid", slog.String("err", err.Error()))
 		return nil, err
 	}
-	return deployIndexDigests{appContainer: server, auditConsumerContainer: consumer}, nil
+	return deployIndexDigests{appService: server, auditConsumerService: consumer}, nil
 }
 
 // imageStoreDriverType returns the DriverStatus driver-type entry, or an empty
@@ -121,7 +121,7 @@ func requireIndexDescriptor(ctx context.Context, given string, reading indexRead
 // verifyIndexDigests reads the image store once, then each container's image
 // by the image ID the container runs, and compares its index descriptor with
 // the given digest. It returns one result line per container.
-func verifyIndexDigests(ctx context.Context, cli *client.Client, targets []deployVerifyTarget, digests deployIndexDigests) ([]string, error) {
+func verifyIndexDigests(ctx context.Context, cli *client.Client, targets []serviceReplica, digests deployIndexDigests) ([]string, error) {
 	info, err := cli.Info(ctx, client.InfoOptions{})
 	if err != nil {
 		slog.ErrorContext(ctx, "ops.deploy.verify.info_failed", slog.String("err", err.Error()))
@@ -133,7 +133,7 @@ func verifyIndexDigests(ctx context.Context, cli *client.Client, targets []deplo
 	}
 	lines := make([]string, 0, len(targets))
 	for _, target := range targets {
-		given := digests[target.Container]
+		given := digests[target.Service]
 		inspectedContainer, err := cli.ContainerInspect(ctx, target.Container, client.ContainerInspectOptions{})
 		if err != nil {
 			slog.ErrorContext(ctx, "ops.deploy.verify.container_inspect_failed",

@@ -32,16 +32,9 @@ func newWorkStore(t *testing.T, stores *fdbadapter.Stores) *fdbadapter.SearchWor
 // the items by node.
 func claimAll(t *testing.T, store *fdbadapter.SearchWorkStore, class searchdomain.WorkClass) map[uuid.UUID]searchdomain.Work {
 	t.Helper()
-	return claimAllFor(t, store, class, time.Minute)
-}
-
-// claimAllFor claims every claimable item of class under lease and returns
-// the items by node.
-func claimAllFor(t *testing.T, store *fdbadapter.SearchWorkStore, class searchdomain.WorkClass, lease time.Duration) map[uuid.UUID]searchdomain.Work {
-	t.Helper()
 	claimed := map[uuid.UUID]searchdomain.Work{}
 	for {
-		work, err := store.Claim(WithTestOperation(t, t.Context()), class, "inspector-"+uuid.NewString(), lease)
+		work, err := store.Claim(WithTestOperation(t, t.Context()), class, "inspector-"+uuid.NewString(), time.Minute)
 		if errors.Is(err, searchdomain.ErrNoWork) {
 			return claimed
 		}

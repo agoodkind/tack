@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -15,6 +16,11 @@ import (
 	"goodkind.io/tack/internal/datagen"
 )
 
+const (
+	defaultDatagenSearchMixedBurstWrites = 200
+	defaultDatagenSearchMixedCatchUp     = "10m"
+)
+
 type datagenSearchMixedInput struct {
 	clispec.InputMarker
 	Rate        int
@@ -23,32 +29,10 @@ type datagenSearchMixedInput struct {
 	Concurrency int
 	Seed        int
 	Commit      bool
-}
-
-type datagenSearchMixedResult struct {
-	datagenSearchLoadResult
-	TargetWriteRatePerMinute int                         `json:"target_write_rate_per_minute"`
-	PlannedWrites            int                         `json:"planned_writes"`
-	Writes                   datagenSearchMixedWrites    `json:"writes"`
-	WritesPerMinute          float64                     `json:"writes_per_minute"`
-	FreshnessLagMs           datagenSearchMixedFreshness `json:"freshness_lag_ms"`
-	MarkersNotFound          int                         `json:"markers_not_found"`
-	DeletedNodesReturned     int                         `json:"deleted_nodes_returned"`
-	DeletesUnverified        int                         `json:"deletes_unverified"`
-}
-
-type datagenSearchMixedWrites struct {
-	Created int `json:"created"`
-	Edited  int `json:"edited"`
-	Deleted int `json:"deleted"`
-	Failed  int `json:"failed"`
-}
-
-type datagenSearchMixedFreshness struct {
-	P50 float64 `json:"p50"`
-	P95 float64 `json:"p95"`
-	P99 float64 `json:"p99"`
-	Max float64 `json:"max"`
+	Endpoints   string
+	BurstWrites int
+	CatchUp     string
+	Rebuild     bool
 }
 
 func datagenSearchMixedOp(f *cli.Factory) clispec.Operation[datagenSearchMixedInput] {
@@ -57,20 +41,25 @@ func datagenSearchMixedOp(f *cli.Factory) clispec.Operation[datagenSearchMixedIn
 		Lifetime: clispec.Permanent,
 		Audit:    audit.Spec{Verb: string(audit.VerbOpsDatagenSoak), Mutates: true},
 		Group:    datagenGroup,
-		Short:    "Measure search freshness during concurrent issue writes.",
-		Long:     "The command sends first-page public tack_search calls at the offered rate. Public tool calls create, edit, and delete issues at the write rate. Each created or edited issue contains a unique marker word. The command searches for each marker to measure freshness lag from the write commit to the first search that returns the issue. The command fails if search returns a deleted issue after indexing processes the deletion. The command performs a dry run without --commit.",
+		Short:    "Measure search during concurrent writes, an ingestion burst, permission changes, and an optional index rebuild.",
+		Long:     "The command sends first-page public tack_search calls at the offered rate across two tenants. It schedules public calls to create, edit, and delete issues at the write rate. Each created or edited issue contains a unique marker word. Freshness lag measures the time from the issue update time that FoundationDB stores to the first search that returns the issue for its marker. At one quarter of the duration, the command creates the burst issues back to back. It then deletes issues and checks session continuation, page replay, and a new search while deletion work can still be pending. Any result that includes a deleted issue fails the check. The command also removes a member and repeats these checks. It allows cached membership access for AUTH_MEMBERSHIP_CACHE_LIFETIME after removal. Any search that returns an issue after that lifetime fails the check. The command also fails if any call still permits access after that lifetime plus the convergence deadline. Read sessions search 140 unchanged issues in the first tenant and 10 in the second. Their pages alternate between endpoints. The command repeats each continued page request using the next endpoint. With --rebuild, the command starts a full index rebuild with the same audited operation as ops search reindex --mode full --execute and records the rebuild separately under ops.search.reindex. After the writes and phases end, the command waits up to --catch-up for live, access, and cleanup search work with enqueue times before that moment to finish. Every two seconds, the result records the age of the oldest pending search work and each OpenSearch node's CPU, memory, JVM heap, and disk. The command does not use rates, latency, or throughput as pass thresholds. Without --commit, the command performs a dry run. After the measured window ends, the command writes the result before returning an error for a workload phase failure, a recorded goroutine panic, or a failed correctness check; it returns setup errors and other errors before that point without writing a result.",
 		Params: []clispec.Param[datagenSearchMixedInput]{
 			clispec.IntParam("rate", "Set the offered number of first-page public tack_search calls per minute.", 0, func(input *datagenSearchMixedInput, value int) { input.Rate = value }),
-			clispec.IntParam("write-rate", "Set the number of issue writes per minute.", 0, func(input *datagenSearchMixedInput, value int) { input.WriteRate = value }),
+			clispec.IntParam("write-rate", "Set the number of scheduled issue writes per minute.", 0, func(input *datagenSearchMixedInput, value int) { input.WriteRate = value }),
 			clispec.StringParam("duration", "Set the duration of the search and write schedules.", defaultDatagenSearchLoadDuration, false, func(input *datagenSearchMixedInput, value string) { input.Duration = value }),
 			clispec.IntParam("concurrency", "Set the maximum number of concurrent load searches.", defaultDatagenSearchLoadConcurrency, func(input *datagenSearchMixedInput, value int) { input.Concurrency = value }),
 			clispec.IntParam("seed", "Set the seed for generated identities and search queries.", defaultDatagenSeed, func(input *datagenSearchMixedInput, value int) { input.Seed = value }),
 			clispec.BoolParam("commit", "Execute public searches and issue writes.", false, func(input *datagenSearchMixedInput, value bool) { input.Commit = value }),
+			clispec.StringParam("endpoints", "Send every public call over HTTP to the deployed Tack processes at these comma-separated base URLs. Without this flag, the command uses an in-process runtime.", "", false, func(input *datagenSearchMixedInput, value string) { input.Endpoints = value }),
+			clispec.IntParam("burst-writes", "Set the number of issues that the ingestion burst creates.", defaultDatagenSearchMixedBurstWrites, func(input *datagenSearchMixedInput, value int) { input.BurstWrites = value }),
+			clispec.StringParam("catch-up", "Set the longest wait for search work after the writes end.", defaultDatagenSearchMixedCatchUp, false, func(input *datagenSearchMixedInput, value string) { input.CatchUp = value }),
+			clispec.BoolParam("rebuild", "Begin one full index rebuild after the ingestion burst.", false, func(input *datagenSearchMixedInput, value bool) { input.Rebuild = value }),
 		},
 		New: func() datagenSearchMixedInput {
 			return datagenSearchMixedInput{
 				InputMarker: clispec.InputMarker{}, Rate: 0, WriteRate: 0, Duration: defaultDatagenSearchLoadDuration,
-				Concurrency: defaultDatagenSearchLoadConcurrency, Seed: defaultDatagenSeed, Commit: false,
+				Concurrency: defaultDatagenSearchLoadConcurrency, Seed: defaultDatagenSeed, Commit: false, Endpoints: "",
+				BurstWrites: defaultDatagenSearchMixedBurstWrites, CatchUp: defaultDatagenSearchMixedCatchUp, Rebuild: false,
 			}
 		},
 		Run: func(ctx context.Context, input datagenSearchMixedInput, sink clispec.ResultSink) error {
@@ -80,71 +69,57 @@ func datagenSearchMixedOp(f *cli.Factory) clispec.Operation[datagenSearchMixedIn
 }
 
 func runDatagenSearchMixed(ctx context.Context, factory *cli.Factory, input datagenSearchMixedInput, sink clispec.ResultSink) error {
-	duration, err := time.ParseDuration(input.Duration)
+	options, err := searchMixedOptions(ctx, factory, input)
 	if err != nil {
-		slog.ErrorContext(ctx, "qa.datagen.search_mixed_duration_refused", slog.String("err", err.Error()))
-		return fmt.Errorf("qa datagen search-mixed: parse duration %q: %w", input.Duration, err)
+		return err
 	}
 	signalContext, stopSignals := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()
 	callContext := context.WithoutCancel(signalContext)
-	summary, err := datagen.RunSearchMixed(signalContext, callContext, factory.Cfg, datagen.SearchMixedOptions{
-		Seed: int64(input.Seed), Rate: input.Rate, WriteRate: input.WriteRate, Duration: duration,
-		Concurrency: input.Concurrency, Commit: input.Commit,
-	})
-	if err != nil {
-		slog.ErrorContext(ctx, "qa.datagen.search_mixed_failed", slog.String("err", err.Error()))
-		return fmt.Errorf("qa datagen search-mixed: run workload: %w", err)
+	summary, runErr := datagen.RunSearchMixed(signalContext, callContext, factory.Cfg, options)
+	if runErr != nil && !summary.Measured {
+		slog.ErrorContext(ctx, "qa.datagen.search_mixed_failed", slog.String("err", runErr.Error()))
+		return fmt.Errorf("qa datagen search-mixed: the workload failed: %w", runErr)
 	}
-	if err := clispec.WriteJSONValue(ctx, sink, searchMixedResult(input, duration, summary)); err != nil {
+	if err := clispec.WriteJSONValue(ctx, sink, searchMixedResult(input, options.Duration, summary)); err != nil {
 		slog.ErrorContext(ctx, "qa.datagen.search_mixed_result_failed", slog.String("err", err.Error()))
-		return fmt.Errorf("qa datagen search-mixed: write result: %w", err)
+		return fmt.Errorf("qa datagen search-mixed: the command could not write the result: %w", err)
 	}
-	if summary.DeletedReturned > 0 {
-		deleted := fmt.Errorf("qa datagen search-mixed: search returned deleted issues after indexing processed the deletions: %d", summary.DeletedReturned)
-		slog.ErrorContext(ctx, "qa.datagen.search_mixed_deleted_nodes_returned", slog.String("err", deleted.Error()))
-		return deleted
+	if runErr != nil {
+		slog.ErrorContext(ctx, "qa.datagen.search_mixed_phase_failed", slog.String("err", runErr.Error()))
+		return fmt.Errorf("qa datagen search-mixed: a workload phase failed: %w", runErr)
+	}
+	if err := summary.Verify(ctx); err != nil {
+		slog.ErrorContext(ctx, "qa.datagen.search_mixed_checks_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("qa datagen search-mixed: a correctness check failed: %w", err)
 	}
 	return nil
 }
 
-func searchMixedResult(input datagenSearchMixedInput, duration time.Duration, summary datagen.SearchMixedSummary) datagenSearchMixedResult {
-	searches := summary.Search
-	completedPerMinute := 0.0
-	if searches.Elapsed > 0 {
-		completedPerMinute = float64(searches.Completed) / searches.Elapsed.Minutes()
+func searchMixedOptions(ctx context.Context, factory *cli.Factory, input datagenSearchMixedInput) (datagen.SearchMixedOptions, error) {
+	var options datagen.SearchMixedOptions
+	duration, err := time.ParseDuration(input.Duration)
+	if err != nil {
+		slog.ErrorContext(ctx, "qa.datagen.search_mixed_duration_refused", slog.String("err", err.Error()))
+		return options, fmt.Errorf("qa datagen search-mixed: the command could not parse duration %q: %w", input.Duration, err)
 	}
-	writesPerMinute := 0.0
-	if summary.WriteElapsed > 0 {
-		writesPerMinute = float64(summary.Creates+summary.Edits+summary.Deletes) / summary.WriteElapsed.Minutes()
+	catchUp, err := time.ParseDuration(input.CatchUp)
+	if err != nil {
+		slog.ErrorContext(ctx, "qa.datagen.search_mixed_catch_up_refused", slog.String("err", err.Error()))
+		return options, fmt.Errorf("qa datagen search-mixed: the command could not parse catch-up %q: %w", input.CatchUp, err)
 	}
-	return datagenSearchMixedResult{
-		datagenSearchLoadResult: datagenSearchLoadResult{
-			ResultMarker: clispec.ResultMarker{}, Command: "ops.qa.datagen.search_mixed",
-			DryRun: searches.DryRun, Seed: int64(input.Seed), TargetRatePerMinute: input.Rate,
-			Duration: duration.String(), Concurrency: input.Concurrency, Planned: searches.Planned,
-			Sent: searches.Sent, Completed: searches.Completed, Dropped: searches.Dropped,
-			DistinctQueryTexts: searches.DistinctQueries, CompletedPerMinute: completedPerMinute,
-			Elapsed: searches.Elapsed.String(),
-			Errors: datagenSearchLoadErrors{
-				Unavailable: searches.Unavailable, ToolError: searches.ToolErrors, TransportError: searches.TransportErrors,
-			},
-			LatencyMs: datagenSearchLoadLatency{
-				Min: searchLoadMilliseconds(searches.Latency.Min), P50: searchLoadMilliseconds(searches.Latency.P50),
-				P95: searchLoadMilliseconds(searches.Latency.P95), P99: searchLoadMilliseconds(searches.Latency.P99),
-				Max: searchLoadMilliseconds(searches.Latency.Max),
-			},
-		},
-		TargetWriteRatePerMinute: input.WriteRate, PlannedWrites: summary.PlannedWrites,
-		Writes: datagenSearchMixedWrites{
-			Created: summary.Creates, Edited: summary.Edits, Deleted: summary.Deletes, Failed: summary.WriteErrors,
-		},
-		WritesPerMinute: writesPerMinute,
-		FreshnessLagMs: datagenSearchMixedFreshness{
-			P50: searchLoadMilliseconds(summary.Freshness.P50), P95: searchLoadMilliseconds(summary.Freshness.P95),
-			P99: searchLoadMilliseconds(summary.Freshness.P99), Max: searchLoadMilliseconds(summary.Freshness.Max),
-		},
-		MarkersNotFound: summary.MarkersNotFound, DeletedNodesReturned: summary.DeletedReturned,
-		DeletesUnverified: summary.DeletesUnverified,
+	endpoints, err := parseSearchMixedEndpoints(input.Endpoints)
+	if err != nil {
+		slog.ErrorContext(ctx, "qa.datagen.search_mixed_endpoints_refused", slog.String("err", err.Error()))
+		return options, err
 	}
+	options = datagen.SearchMixedOptions{
+		Seed: int64(input.Seed), Rate: input.Rate, WriteRate: input.WriteRate, Duration: duration,
+		Concurrency: input.Concurrency, Commit: input.Commit, BurstWrites: input.BurstWrites, CatchUp: catchUp,
+		Endpoints: endpoints, Client: &http.Client{Timeout: datagenSearchTwoProcessTimeout}, Rebuild: nil,
+	}
+	if input.Rebuild {
+		options.Rebuild = searchMixedRebuild(factory)
+	}
+	return options, nil
 }

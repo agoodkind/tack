@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
+	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clispec"
@@ -38,8 +39,11 @@ type searchRolloutOutput struct {
 	Phase            string   `json:"phase"`
 	ActiveVersion    string   `json:"active_version"`
 	CandidateVersion string   `json:"candidate_version,omitempty"`
+	PreviousVersion  string   `json:"previous_version,omitempty"`
 	WriteVersions    []string `json:"write_versions"`
 	Generation       int64    `json:"generation"`
+	AffectedRecorded int64    `json:"affected_recorded"`
+	AffectedNodes    []string `json:"affected_nodes"`
 	DryRun           bool     `json:"dry_run"`
 }
 
@@ -126,7 +130,7 @@ func runSearchRolloutRecorded(
 	}
 	if current.Phase != searchdomain.AccessStable {
 		refused := commandOutcome(audit.OutcomeRefused, rolloutInProgressCode, searchdomain.ErrRolloutInProgress)
-		return refused, writeRolloutResult(ctx, sink, current, false)
+		return refused, writeSearchRolloutResult(ctx, sink, rollouts, current, false)
 	}
 	planned := accessRolloutEvidence{
 		AuthorityID: authorityID.String(), CandidateVersion: in.Candidate, ExpectedGeneration: current.Generation,
@@ -152,7 +156,7 @@ func runSearchRolloutRecorded(
 	if err != nil {
 		return details, err
 	}
-	return details, writeRolloutResult(ctx, sink, begun, false)
+	return details, writeSearchRolloutResult(ctx, sink, rollouts, begun, false)
 }
 
 func previewSearchRollout(ctx context.Context, f *cli.Factory, in searchRolloutInput, sink clispec.ResultSink) error {
@@ -165,18 +169,30 @@ func previewSearchRollout(ctx context.Context, f *cli.Factory, in searchRolloutI
 		return searchRolloutFailure(ctx, "open search rollout environment", err)
 	}
 	defer env.Close()
-	current, err := env.Stores.SearchRollouts(opsClockSource{}, env.Stores.SearchPolicySet()).Current(ctx, authorityID)
+	rollouts := env.Stores.SearchRollouts(opsClockSource{}, env.Stores.SearchPolicySet())
+	current, err := rollouts.Current(ctx, authorityID)
 	if err != nil {
 		return searchRolloutFailure(ctx, "read access rollout of authority "+authorityID.String(), err)
 	}
-	return writeRolloutResult(ctx, sink, current, true)
+	return writeSearchRolloutResult(ctx, sink, rollouts, current, true)
 }
 
-func writeRolloutResult(ctx context.Context, sink clispec.ResultSink, rollout searchdomain.AccessRollout, dryRun bool) error {
+// writeSearchRolloutResult writes the rollout state and affected nodes of
+// one authority as the command result.
+func writeSearchRolloutResult(ctx context.Context, sink clispec.ResultSink, rollouts *fdbadapter.SearchAccessRolloutStore, rollout searchdomain.AccessRollout, dryRun bool) error {
+	affected, err := rollouts.AffectedNodes(ctx, rollout.AuthorityID)
+	if err != nil {
+		return searchRolloutFailure(ctx, "read affected nodes of authority "+rollout.AuthorityID.String(), err)
+	}
+	nodes := make([]string, 0, len(affected.Nodes))
+	for _, nodeID := range affected.Nodes {
+		nodes = append(nodes, nodeID.String())
+	}
 	output := searchRolloutOutput{
 		ResultMarker: clispec.ResultMarker{}, AuthorityID: rollout.AuthorityID.String(), Phase: string(rollout.Phase),
-		ActiveVersion: rollout.ActiveVersion, CandidateVersion: rollout.CandidateVersion,
-		WriteVersions: rollout.WriteVersions, Generation: rollout.Generation, DryRun: dryRun,
+		ActiveVersion: rollout.ActiveVersion, CandidateVersion: rollout.CandidateVersion, PreviousVersion: rollout.PreviousVersion,
+		WriteVersions: rollout.WriteVersions, Generation: rollout.Generation, AffectedRecorded: affected.Recorded,
+		AffectedNodes: nodes, DryRun: dryRun,
 	}
 	if err := clispec.WriteJSONValue(ctx, sink, output); err != nil {
 		return searchRolloutFailure(ctx, "write access rollout result", err)

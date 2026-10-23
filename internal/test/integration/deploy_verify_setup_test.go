@@ -59,14 +59,14 @@ func (f deployFixture) pushIndexes(t *testing.T) (string, string) {
 // by tag and creates, without starting, the two containers deploy verify reads.
 func (f deployFixture) createContainers(t *testing.T) {
 	t.Helper()
-	createFromIndex(t, f.cli, "tack-app-1", f.registryHost+"/tack-server:"+f.tag)
-	createFromIndex(t, f.cli, "tack-audit-consumer-1", f.registryHost+"/tack-audit-consumer:"+f.tag)
+	createFromIndex(t, f.cli, "tack-app-1", "app", f.registryHost+"/tack-server:"+f.tag)
+	createFromIndex(t, f.cli, "tack-audit-consumer-1", "audit-consumer", f.registryHost+"/tack-audit-consumer:"+f.tag)
 }
 
 // verify runs the audited ops deploy verify command against the fixture with
 // the two digest flags.
 func (f deployFixture) verify(t *testing.T, serverDigest, consumerDigest string) (string, error) {
 	t.Helper()
-	cfg := &config.Config{DeployRegistry: f.registryHost, DeployImageTag: f.tag}
-	return runOpsDeployVerify(t, cfg, f.ledgerDSN, serverDigest, consumerDigest)
+	cfg := &config.Config{DeployRegistry: f.registryHost, DeployImageTag: f.tag, DeployComposeProject: deployComposeProject}
+	return runOpsDeployVerify(t, cfg, f.ledgerDSN, deployVerifyOperatorID, serverDigest, consumerDigest)
 }
