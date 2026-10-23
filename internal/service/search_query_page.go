@@ -32,6 +32,8 @@ type pageState struct {
 	bytes     int
 	position  json.RawMessage
 	full      bool
+	// pending is true when the page stops with raw hits after page.position.
+	pending bool
 }
 
 // ResultBytes is the rendered byte bound of one result.
@@ -39,23 +41,24 @@ func ResultBytes(summary node.Summary) int {
 	return len(summary.Name) + len(summary.NodeType) + resultOverheadBytes
 }
 
-// advance reads at most MaxBatches raw batches after the session position,
-// authorizes each new node from current FoundationDB data, and commits the
-// consumed position before it returns.
+// advance reads at most MaxBatches raw batches after the session position. It authorizes each new
+// node from current FoundationDB data and commits the consumed position before returning.
+// Within MaxBatches, it reads one more batch under the same PIT for a full page with pending false.
+// An empty batch completes the session without a cursor; Ranker.Close deletes the PIT after commit.
+// Otherwise, advance leaves page.position unchanged for the next page to return hits once in order.
+// It skips the extra read when pending is true because the current batch has unconsumed hits.
 func (s *SearchQueryService) advance(ctx context.Context, session searchdomain.Session, filter searchdomain.AccessFilter) (SearchPage, error) {
 	page := pageState{
 		results: nil, resultIDs: nil, visited: nil, seen: map[uuid.UUID]bool{},
-		bytes: responseReserveBytes, position: session.Sort, full: false,
+		bytes: responseReserveBytes, position: session.Sort, full: false, pending: false,
 	}
 	snapshot := session.Snapshot
 	complete := false
-	for batch := 0; batch < s.settings.MaxBatches && !page.full; batch++ {
-		raw, err := s.ports.Ranker.Read(ctx, session.Query, snapshot, page.position)
+	reads := 0
+	for ; reads < s.settings.MaxBatches && !page.full; reads++ {
+		raw, err := s.readBatch(ctx, session, snapshot, page.position)
 		if err != nil {
-			if errors.Is(err, searchdomain.ErrSnapshotLost) {
-				s.closeSession(ctx, session)
-			}
-			return SearchPage{}, queryFailure(ctx, "read ranked batch", session.ID, err)
+			return SearchPage{}, err
 		}
 		snapshot.PITID = raw.PITID
 		if len(raw.Hits) == 0 {
@@ -65,6 +68,14 @@ func (s *SearchQueryService) advance(ctx context.Context, session searchdomain.S
 		if err := s.consumeBatch(ctx, session, filter, raw.Hits, &page); err != nil {
 			return SearchPage{}, err
 		}
+	}
+	if page.full && !page.pending && reads < s.settings.MaxBatches {
+		raw, err := s.readBatch(ctx, session, snapshot, page.position)
+		if err != nil {
+			return SearchPage{}, err
+		}
+		snapshot.PITID = raw.PITID
+		complete = len(raw.Hits) == 0
 	}
 	commit := searchdomain.PageCommit{
 		Sort: page.position, PITID: snapshot.PITID, Visited: page.visited, ResultIDs: page.resultIDs, Complete: complete,
@@ -84,6 +95,19 @@ func (s *SearchQueryService) advance(ctx context.Context, session searchdomain.S
 	telemetry.L(ctx).InfoContext(ctx, "search.page.returned", slog.String("session_id", session.ID.String()),
 		slog.Uint64("version", committed.Version), slog.Int("results", len(page.results)), slog.Bool("complete", complete))
 	return SearchPage{SessionID: session.ID, NextVersion: committed.Version, Results: page.results, Complete: complete}, nil
+}
+
+// readBatch reads one raw batch at position. It calls closeSession before returning an error
+// when OpenSearch no longer recognizes the point in time (searchdomain.ErrSnapshotLost).
+func (s *SearchQueryService) readBatch(ctx context.Context, session searchdomain.Session, snapshot searchdomain.Snapshot, position json.RawMessage) (searchdomain.RankBatch, error) {
+	raw, err := s.ports.Ranker.Read(ctx, session.Query, snapshot, position)
+	if err != nil {
+		if errors.Is(err, searchdomain.ErrSnapshotLost) {
+			s.closeSession(ctx, session)
+		}
+		return searchdomain.RankBatch{}, queryFailure(ctx, "read ranked batch", session.ID, err)
+	}
+	return raw, nil
 }
 
 // consumeBatch adds the accepted nodes of one raw batch to the page. It
@@ -117,21 +141,21 @@ func (s *SearchQueryService) consumeBatch(ctx context.Context, session searchdom
 	for _, summary := range summaries {
 		byID[summary.NodeID] = summary
 	}
-	for _, hit := range hits {
+	for index, hit := range hits {
 		if page.seen[hit.NodeID] || visited[hit.NodeID] {
 			page.position = hit.Sort
 			continue
 		}
 		result := byID[hit.NodeID]
 		if accepted(result, filter, session.Query.NodeType) && !s.admit(ctx, session.ID, page, result.Summary) {
-			page.full = true
+			page.full, page.pending = true, true
 			return nil
 		}
 		page.seen[hit.NodeID] = true
 		page.visited = append(page.visited, hit.NodeID)
 		page.position = hit.Sort
 		if len(page.results) >= s.settings.MaxResults {
-			page.full = true
+			page.full, page.pending = true, index+1 < len(hits)
 			return nil
 		}
 	}
