@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"goodkind.io/tack/internal/adapters/search"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/datagen"
 	searchdomain "goodkind.io/tack/internal/domain/search"
@@ -134,6 +136,13 @@ func QueryConfig(t *testing.T) *config.Config {
 func ProcessHarness(t *testing.T, harness *MCPHarness, cfg *config.Config) *MCPHarness {
 	t.Helper()
 	return processHarness(harness, buildQueryGraph(t, cfg))
+}
+
+// UndeployNativeModel lets the external test package undeploy the model and
+// registers cleanup to redeploy the pinned model when the test ends.
+func UndeployNativeModel(t *testing.T, adapter *search.Adapter, client *opensearchapi.Client, modelID string) {
+	t.Helper()
+	undeployNativeModel(t, adapter, client, modelID)
 }
 
 // DeployFixture aliases the disposable daemon and registry for deploy verify tests.
