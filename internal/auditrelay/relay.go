@@ -42,6 +42,10 @@ type Config struct {
 	// the batch before the relay deletes the current YugabyteDB row or clears the
 	// current FoundationDB batch. Production does not set this test callback.
 	AfterProduce func(ctx context.Context, eventID uuid.UUID) error `exhaustruct:"optional"`
+	// AfterLeaseAcquired runs when the relay acquires the FoundationDB relay
+	// lease after a poll in which it did not hold the lease. Production does not
+	// set this test callback.
+	AfterLeaseAcquired func(ctx context.Context) `exhaustruct:"optional"`
 }
 
 // DefaultLeaseDuration sets the FoundationDB relay lease duration when
@@ -144,6 +148,7 @@ func Open(ctx context.Context, cfg Config) (Opened, error) {
 	relay, err := audit.NewRelay(audit.RelayConfig{
 		Recorder: recorder, Yugabyte: audit.NewPoolOutbox(pool), FoundationDB: relayFoundationDB,
 		PollInterval: cfg.PollInterval, BatchSize: cfg.BatchSize, AfterProduce: cfg.AfterProduce,
+		AfterLeaseAcquired: cfg.AfterLeaseAcquired,
 	})
 	if err != nil {
 		pool.Close()

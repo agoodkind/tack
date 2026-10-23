@@ -60,7 +60,8 @@ func rawIDOf(text string) (string, error) {
 // measure counts FoundationDB entries and YugabyteDB rows plus parts before
 // starting audit workers. It times recovery until the FoundationDB outbox
 // empties and the ledger count stabilizes. It then records ledger events,
-// broker records, and database, broker, and FoundationDB byte measurements.
+// broker records, lease takeovers, and database, broker, and FoundationDB byte
+// measurements. Each lease acquisition after the first is a takeover.
 func (run *scalingRun) measure(t *testing.T) {
 	t.Helper()
 	run.result.backlog = run.outboxEntries(t)
@@ -79,6 +80,7 @@ func (run *scalingRun) measure(t *testing.T) {
 	run.result.recovery = clock.Since(started)
 	run.result.brokerBytes = topicBytes(t, topic)
 	run.result.brokerRecords = topicRecords(t, topic)
+	run.result.takeovers = max(run.leaseAcquisitions.Load()-1, 0)
 	run.result.replicaBytes = run.prefixBytes(t)
 }
 
@@ -139,8 +141,8 @@ func (result scalingResult) row() string {
 		return latencies[int(fraction*float64(len(latencies)-1))]
 	}
 	throughput := float64(result.requests) / result.duration.Seconds()
-	return fmt.Sprintf("| %s | %d | %d | %.1f | %s | %s | %s | %d | %s | %d | %d | %d | not measured | %d |\n",
+	return fmt.Sprintf("| %s | %d | %d | %.1f | %s | %s | %s | %d | %s | %d | %d | %d | %d | not measured | %d |\n",
 		result.label, result.requests, result.ledgerEvents, throughput, percentile(0.5), percentile(0.95), percentile(0.99),
 		result.backlog, result.recovery.Round(time.Millisecond), result.databaseBytes, result.brokerRecords, result.brokerBytes,
-		result.replicaBytes)
+		result.takeovers, result.replicaBytes)
 }

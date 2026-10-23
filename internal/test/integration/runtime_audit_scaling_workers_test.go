@@ -100,7 +100,9 @@ func startScalingConsumer(t *testing.T, topic, group string) {
 }
 
 // openRelay opens a relay with the run's lease duration and optional
-// afterProduce callback. Test cleanup closes the relay and its YugabyteDB pool.
+// afterProduce callback. The relay adds one to the run's lease acquisitions
+// each time it acquires the lease. Test cleanup closes the relay and its
+// YugabyteDB pool.
 func (run *scalingRun) openRelay(t *testing.T, topic string, afterProduce func(context.Context, uuid.UUID) error) *audit.Relay {
 	t.Helper()
 	opened, err := auditrelay.Open(t.Context(), auditrelay.Config{
@@ -108,6 +110,7 @@ func (run *scalingRun) openRelay(t *testing.T, topic string, afterProduce func(c
 		FDBClusterFile: run.server.clusterFile, FDBTransactionTimeout: 5 * time.Second,
 		PollInterval: 100 * time.Millisecond, BatchSize: scalingRelayBatch,
 		LeaseDuration: scalingLeaseDuration, AfterProduce: afterProduce,
+		AfterLeaseAcquired: func(context.Context) { run.leaseAcquisitions.Add(1) },
 	})
 	if err != nil {
 		t.Fatalf("Opening an audit relay failed; the scaling run requires one relay per app instance: %v", err)
@@ -118,15 +121,16 @@ func (run *scalingRun) openRelay(t *testing.T, topic string, afterProduce func(c
 }
 
 // requireFlatBroker checks broker record counts against both outbox backlogs
-// and broker bytes against the one-instance run. It allows only the
-// takeoverRecords records that a relay takeover republishes.
-func requireFlatBroker(t *testing.T, baseline, result scalingResult, takeoverRecords int64) {
+// and broker bytes against the one-instance run. It allows one relay batch for
+// each lease takeover in the run and rollbackRecords YugabyteDB records that a
+// crashed relay's rolled-back claim republishes.
+func requireFlatBroker(t *testing.T, baseline, result scalingResult, rollbackRecords int64) {
 	t.Helper()
-	extraRecords := takeoverRecords
+	extraRecords := result.takeovers*scalingRelayBatch + rollbackRecords
 	published := int64(result.backlog) + result.yugabyteBacklog
 	if result.brokerRecords < published || result.brokerRecords > published+extraRecords {
-		t.Errorf("The broker record count is outside the expected range for run %s: %d records for %d FoundationDB and %d YugabyteDB outbox entries; allowed extra %d",
-			result.label, result.brokerRecords, result.backlog, result.yugabyteBacklog, extraRecords)
+		t.Errorf("The broker record count is outside the expected range for run %s: %d records for %d FoundationDB and %d YugabyteDB outbox entries; %d lease takeovers; allowed extra %d",
+			result.label, result.brokerRecords, result.backlog, result.yugabyteBacklog, result.takeovers, extraRecords)
 	}
 	perRecord := float64(baseline.brokerBytes) / float64(max(baseline.brokerRecords, 1))
 	limit := float64(baseline.brokerBytes)*scalingBrokerTolerance + perRecord*float64(extraRecords)

@@ -59,6 +59,9 @@ func (r *Relay) holdLease(ctx context.Context, holding bool) bool {
 	switch {
 	case held && !holding:
 		slog.InfoContext(ctx, "audit.relay.lease_acquired")
+		if r.afterLease != nil {
+			r.afterLease(ctx)
+		}
 	case !held && holding:
 		slog.InfoContext(ctx, "audit.relay.lease_lost")
 	}
