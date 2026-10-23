@@ -23,6 +23,7 @@ func (s SearchMixedSummary) Verify(ctx context.Context) error {
 	add(s.Sessions.DeletedNodesReturned > 0, "search sessions returned %d deleted issues", s.Sessions.DeletedNodesReturned)
 	add(s.Sessions.CrossTenantResults > 0, "search sessions returned %d issues of another organization", s.Sessions.CrossTenantResults)
 	add(s.Sessions.ContinuationErrors > 0, "search sessions had %d continuation errors", s.Sessions.ContinuationErrors)
+	add(s.Sessions.MissingCorpusIssues > 0, "search sessions did not return %d expected read issues", s.Sessions.MissingCorpusIssues)
 	add(s.Sessions.ReplayMismatches > 0, "search sessions had %d replay mismatches", s.Sessions.ReplayMismatches)
 	add(s.Revocation.ResultsAfterCacheLifetime > 0, "search returned %d issues to a removed member after the membership cache lifetime", s.Revocation.ResultsAfterCacheLifetime)
 	add(s.Revocation.Checks > 0 && !s.Revocation.Refused, "search did not refuse a removed member within %d checks", s.Revocation.Checks)

@@ -45,6 +45,7 @@ func (m *searchMixed) runCreates(ctx context.Context, count int, create func(con
 			defer func() {
 				if recovered := recover(); recovered != nil {
 					m.recordPanic(ctx, "qa.datagen.search_mixed_create_panicked", fmt.Sprint(recovered))
+					record(errSearchMixedCreatePanic)
 				}
 			}()
 			for number := range numbers {

@@ -25,7 +25,7 @@ type searchMixedSession struct {
 
 // searchMixedTally counts the pages and violations of one session check.
 type searchMixedTally struct {
-	pages, replays, continuationErrors, replayMismatches, crossTenant, deleted int
+	pages, replays, continuationErrors, missingCorpus, replayMismatches, crossTenant, deleted int
 }
 
 func (m *searchMixed) sessionFor(tenant, actor int, query string, offset int) searchMixedSession {
@@ -141,7 +141,7 @@ func (m *searchMixed) checkSessions(ctx context.Context) {
 		}
 		for _, nodeID := range nodes {
 			if !slices.Contains(returned, nodeID) {
-				tally.continuationErrors++
+				tally.missingCorpus++
 			}
 		}
 		m.recordSessions(tally)
@@ -156,6 +156,7 @@ func (m *searchMixed) recordSessions(tally searchMixedTally) {
 		sessions.Pages += tally.pages
 		sessions.Replays += tally.replays
 		sessions.ContinuationErrors += tally.continuationErrors
+		sessions.MissingCorpusIssues += tally.missingCorpus
 		sessions.ReplayMismatches += tally.replayMismatches
 		sessions.CrossTenantResults += tally.crossTenant
 		sessions.DeletedNodesReturned += tally.deleted

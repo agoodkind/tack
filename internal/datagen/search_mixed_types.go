@@ -19,6 +19,7 @@ type SearchMixedSessions struct {
 	Replays              int `json:"replays"`
 	Endpoints            int `json:"endpoints"`
 	ContinuationErrors   int `json:"continuation_errors"`
+	MissingCorpusIssues  int `json:"missing_corpus_issues"`
 	ReplayMismatches     int `json:"replay_mismatches"`
 	CrossTenantResults   int `json:"cross_tenant_results"`
 	DeletedNodesReturned int `json:"deleted_nodes_returned"`
