@@ -19,6 +19,12 @@ const (
 	deployRegistryImage = "registry:3@sha256:ddf754342cfc8acc51a56d5d0ab6af06826461864460636d8bd5c546dab2a7b8"
 	// deployTestenvLabel marks containers testenv removes on release.
 	deployTestenvLabel = "io.goodkind.tack.testenv"
+	// deployComposeProject is the Docker Compose project value for the fixture containers.
+	deployComposeProject = "tack"
+	// composeProjectLabel and composeServiceLabel are the Docker Compose
+	// labels that ops deploy verify reads.
+	composeProjectLabel = "com.docker.compose.project"
+	composeServiceLabel = "com.docker.compose.service"
 )
 
 // hasContainerdImageStore logs the daemon driver and DriverStatus and reports
