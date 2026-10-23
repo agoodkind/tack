@@ -64,6 +64,10 @@ type RelayConfig struct {
 	// YugabyteDB row or clears any FoundationDB entry in that batch.
 	// Tests use it to interrupt delivery before outbox removal; production does not set it.
 	AfterProduce func(ctx context.Context, eventID uuid.UUID) error `exhaustruct:"optional"`
+	// AfterLeaseAcquired optionally runs when the relay acquires the
+	// FoundationDB relay lease after a poll in which it did not hold the lease.
+	// Tests use it to count lease takeovers; production does not set it.
+	AfterLeaseAcquired func(ctx context.Context) `exhaustruct:"optional"`
 }
 
 // Relay drains operator-command audit events from both outboxes to Kafka.
@@ -74,6 +78,7 @@ type Relay struct {
 	pollInterval time.Duration
 	batchSize    int
 	afterProduce func(ctx context.Context, eventID uuid.UUID) error
+	afterLease   func(ctx context.Context)
 	stop         chan struct{}
 	stopped      chan struct{}
 	once         sync.Once
@@ -102,6 +107,7 @@ func NewRelay(cfg RelayConfig) (*Relay, error) {
 		pollInterval: cfg.PollInterval,
 		batchSize:    cfg.BatchSize,
 		afterProduce: cfg.AfterProduce,
+		afterLease:   cfg.AfterLeaseAcquired,
 		stop:         make(chan struct{}),
 		stopped:      make(chan struct{}),
 		once:         sync.Once{},
