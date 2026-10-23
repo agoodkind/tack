@@ -102,7 +102,7 @@ func daemonSeesSentinel(ctx context.Context, directory string) (bool, error) {
 		return false, err
 	}
 	name := "tack-testenv-probe-" + strconv.Itoa(os.Getpid()) + "-" + suffix
-	labels, err := ownerLabels(ctx, cli)
+	owner, err := prepareCreate(ctx, cli)
 	if err != nil {
 		return false, err
 	}
@@ -111,7 +111,7 @@ func daemonSeesSentinel(ctx context.Context, directory string) (bool, error) {
 			Image:      image,
 			Entrypoint: []string{"test"},
 			Cmd:        []string{"-f", sharedProbeMount + "/" + sharedSentinel},
-			Labels:     labels,
+			Labels:     ownerLabels(owner),
 		},
 		HostConfig: &container.HostConfig{
 			Binds:       []string{directory + ":" + sharedProbeMount + ":ro"},

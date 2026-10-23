@@ -83,15 +83,27 @@ func knownOwner() (processOwner, bool) {
 	return ownerState.owner, ownerState.owner.run != ""
 }
 
-// ownerLabels returns labels for a container or network this process creates.
-// In a test binary, the first call installs a handler that removes this
-// process's engines on SIGINT or SIGTERM and removes the engines of test
-// processes that have exited.
-func ownerLabels(ctx context.Context, cli *client.Client) (map[string]string, error) {
+// prepareCreate returns this process's identity before each testenv function
+// creates a container or network. In a test binary, the first call installs a
+// handler that removes this process's engines on SIGINT or SIGTERM. That call
+// also removes containers and networks of test processes that have exited.
+func prepareCreate(ctx context.Context, cli *client.Client) (processOwner, error) {
 	owner, err := currentOwner(ctx, cli)
 	if err != nil {
-		return nil, err
+		return processOwner{}, err
 	}
+	if testing.Testing() {
+		testProcessPrepared.Do(func() {
+			releaseOnSignal(ctx)
+			_, _ = removeEngines(ctx, cli, owner, ownerExited)
+		})
+	}
+	return owner, nil
+}
+
+// ownerLabels returns labels for a container or network that owner creates.
+// It adds the operator label outside a test binary.
+func ownerLabels(owner processOwner) map[string]string {
 	labels := map[string]string{
 		managedLabel: "true",
 		processLabel: strconv.Itoa(os.Getpid()),
@@ -101,13 +113,8 @@ func ownerLabels(ctx context.Context, cli *client.Client) (map[string]string, er
 	}
 	if !testing.Testing() {
 		labels[operatorLabel] = "true"
-		return labels, nil
 	}
-	testProcessPrepared.Do(func() {
-		releaseOnSignal(ctx)
-		_, _ = removeEngines(ctx, cli, owner, ownerExited)
-	})
-	return labels, nil
+	return labels
 }
 
 // ownerExited reports whether the test process that created a container or

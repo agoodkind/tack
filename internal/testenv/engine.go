@@ -79,7 +79,7 @@ func startEngine(ctx context.Context, cli *client.Client, spec engineSpec) (engi
 	if err != nil {
 		return engine{}, err
 	}
-	labels, err := ownerLabels(ctx, cli)
+	owner, err := prepareCreate(ctx, cli)
 	if err != nil {
 		return engine{}, err
 	}
@@ -92,7 +92,7 @@ func startEngine(ctx context.Context, cli *client.Client, spec engineSpec) (engi
 			Cmd:         spec.cmd,
 			Env:         spec.env,
 			Healthcheck: spec.healthcheck,
-			Labels:      labels,
+			Labels:      ownerLabels(owner),
 		},
 		HostConfig:       hostConfig,
 		NetworkingConfig: networking,

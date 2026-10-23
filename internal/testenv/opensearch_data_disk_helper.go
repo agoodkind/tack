@@ -20,14 +20,14 @@ func startDataDiskHelper(ctx context.Context, cli *client.Client, name string, m
 	if err := ensureImage(ctx, cli, engineSpec{kind: dataDiskKind, image: dataDiskImage, platform: nil, cmd: nil, env: nil}); err != nil {
 		return err
 	}
-	labels, err := ownerLabels(ctx, cli)
+	owner, err := prepareCreate(ctx, cli)
 	if err != nil {
 		return err
 	}
 	_, err = cli.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Config: &container.Config{
 			Image: dataDiskImage, Entrypoint: []string{"sleep"}, Cmd: []string{openSearchHolderSeconds},
-			Labels: labels,
+			Labels: ownerLabels(owner),
 		},
 		HostConfig: &container.HostConfig{
 			Privileged: true, NetworkMode: "none",

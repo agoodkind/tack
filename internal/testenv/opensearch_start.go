@@ -65,7 +65,7 @@ func provisionOpenSearch(ctx context.Context, settings openSearchEngineSettings)
 	if err != nil {
 		return OpenSearchFixture{}, created, err
 	}
-	labels, err := ownerLabels(ctx, cli)
+	owner, err := prepareCreate(ctx, cli)
 	if err != nil {
 		return OpenSearchFixture{}, created, err
 	}
@@ -77,7 +77,7 @@ func provisionOpenSearch(ctx context.Context, settings openSearchEngineSettings)
 				"OPENSEARCH_JAVA_OPTS=" + openSearchJavaOptions,
 				"DISABLE_INSTALL_DEMO_CONFIG=true",
 			}, settings.nodeSettings...),
-			Labels: labels,
+			Labels: ownerLabels(owner),
 		},
 		HostConfig:       openSearchHostConfig(holder.name, settings),
 		NetworkingConfig: &network.NetworkingConfig{EndpointsConfig: nil},

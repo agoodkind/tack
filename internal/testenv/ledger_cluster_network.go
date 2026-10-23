@@ -67,10 +67,11 @@ func createLedgerClusterNetwork(ctx context.Context, cli *client.Client) (string
 	if err != nil {
 		return "", netip.Prefix{}, err
 	}
-	labels, err := ownerLabels(ctx, cli)
+	owner, err := prepareCreate(ctx, cli)
 	if err != nil {
 		return "", netip.Prefix{}, err
 	}
+	labels := ownerLabels(owner)
 	created := netip.Prefix{}
 	for attempt := 1; attempt <= ledgerClusterNetworkAttempts && !created.IsValid(); attempt++ {
 		subnet := randomLedgerClusterSubnet()
