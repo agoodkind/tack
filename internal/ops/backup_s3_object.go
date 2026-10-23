@@ -114,8 +114,7 @@ func listImmediatePrefixes(ctx context.Context, client *s3.Client, bucket, prefi
 // backups/<name> and keeps the backup's data in its own internal layout, so the
 // restore drill discovers the backup name from these markers;
 // listImmediatePrefixes would instead return the engine's internal data folder.
-func listImmediateObjects(ctx context.Context, client *s3.Client, bucket string) ([]string, error) {
-	prefix := fdbBackupMarkerPrefix
+func listImmediateObjects(ctx context.Context, client *s3.Client, bucket, prefix string) ([]string, error) {
 	logger := telemetry.L(ctx)
 	var out []string
 	paginator := s3.NewListObjectsV2Paginator(client, &s3.ListObjectsV2Input{

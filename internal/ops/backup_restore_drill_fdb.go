@@ -39,7 +39,7 @@ func restoreDrillFDB(ctx context.Context, r *restoreDrillCtx) error {
 	// backups/ subfolder) to discover backups. fdbrestore re-adds the backups/
 	// folder from the backup name, so the selection strips the prefix to
 	// recover the bare name fdbrestore addresses.
-	markers, err := listImmediateObjects(ctx, s3Client, r.Cfg.BackupS3BucketMain)
+	markers, err := listImmediateObjects(ctx, s3Client, r.Cfg.BackupS3BucketMain, fdbBackupMarkerPrefix)
 	if err != nil {
 		return err
 	}

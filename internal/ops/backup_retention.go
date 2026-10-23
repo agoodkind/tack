@@ -107,6 +107,9 @@ func RunBackupRetention(ctx context.Context, cfg *config.Config, options BackupR
 	for _, action := range plan.FDB {
 		evidence := retentionEvidence{Bucket: cfg.BackupS3BucketMain, Target: "foundationdb/" + action.Name, Action: action.Action, Cutoff: plan.Cutoff, DeletedObjects: 0, RequestedObjects: 0, Uncertain: false, ExpireBeforeVersion: action.ExpireBeforeVersion}
 		err := retentionStep(ctx, steps, evidence, func() (int, error) {
+			if err := revalidateRetentionFDB(ctx, cfg, plan.Cutoff, action); err != nil {
+				return 0, err
+			}
 			return 0, applyRetentionFDB(ctx, cfg, plan.Cutoff, action)
 		})
 		if err != nil {

@@ -22,7 +22,7 @@ const (
 	retentionFDBDelete retentionFDBOperation = "delete"
 )
 
-func applyRetentionFDB(ctx context.Context, cfg *config.Config, cutoff time.Time, action retentionFDBAction) error {
+func revalidateRetentionFDB(ctx context.Context, cfg *config.Config, cutoff time.Time, action retentionFDBAction) error {
 	actions, err := planRetentionFDB(ctx, cfg, cutoff)
 	if err != nil {
 		return err
@@ -36,6 +36,10 @@ func applyRetentionFDB(ctx context.Context, cfg *config.Config, cutoff time.Time
 	if !selected {
 		return fmt.Errorf("FoundationDB retention action %s for %s no longer satisfies selection guards", action.Action, action.Name)
 	}
+	return nil
+}
+
+func applyRetentionFDB(ctx context.Context, cfg *config.Config, cutoff time.Time, action retentionFDBAction) error {
 	destination, err := fdbBlobstoreURL(cfg, action.Name)
 	if err != nil {
 		return err

@@ -23,7 +23,7 @@ func planRetentionFDB(ctx context.Context, cfg *config.Config, cutoff time.Time)
 	if _, err := fdbRestoreTimestampArg(cutoff.UTC()); err != nil {
 		return nil, err
 	}
-	markers, err := listImmediateObjects(ctx, newBackupS3Client(cfg), cfg.BackupS3BucketMain)
+	markers, err := listImmediateObjects(ctx, newBackupS3Client(cfg), cfg.BackupS3BucketMain, fdbBackupMarkerPrefix)
 	if err != nil {
 		return nil, err
 	}
