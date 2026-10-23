@@ -86,8 +86,11 @@ func (m *searchMixed) awaitRefusal(ctx context.Context, session searchMixedSessi
 			result.Refused, result.RefusedAfter = true, clock.Now().Sub(removed)
 			return result, nil
 		}
-		if clock.Now().After(deadline) || !waitForSearchMixedPoll(ctx) {
+		if clock.Now().After(deadline) {
 			return result, nil
+		}
+		if !waitForSearchMixedPoll(ctx) {
+			return result, loggedError(ctx, "qa datagen search-mixed: the command could not verify search refusal after membership removal", ctx.Err())
 		}
 	}
 }

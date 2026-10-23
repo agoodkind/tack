@@ -31,7 +31,7 @@ var (
 // If a workload phase returns an error or panics, run cancels its schedule context.
 // The cancellation stops search loads and scheduled writes.
 // run skips the catch-up wait, and drain ends its probe wait at the next poll.
-// run stops probes and sampling, then returns the summary and the phase error.
+// run calls drain to cancel the probe context and wait for the prober, then closes stopSampler and waits for the sampler, then returns the summary and the joined phase and panic errors.
 func (m *searchMixed) run(parentSchedule, callContext context.Context, plannedWrites int) (SearchMixedSummary, error) {
 	scheduleContext, stopSchedule := context.WithCancel(parentSchedule)
 	defer stopSchedule()

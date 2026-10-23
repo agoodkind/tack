@@ -167,7 +167,9 @@ func deleteSearchMixedIndex(t *testing.T, cfg *config.Config, index string) {
 	}
 	t.Cleanup(func() {
 		request := opensearchapi.IndicesDeleteReq{Indices: []string{index}}
-		_, _ = opensearchapi.NewFromClient(client).Indices.Delete(context.WithoutCancel(integration.WithTestOperation(t, t.Context())), request)
+		if _, err := opensearchapi.NewFromClient(client).Indices.Delete(context.WithoutCancel(integration.WithTestOperation(t, t.Context())), request); err != nil {
+			t.Logf("qa datagen search-mixed: the test could not delete OpenSearch index %s: %v", index, err)
+		}
 	})
 }
 
