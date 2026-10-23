@@ -79,6 +79,10 @@ func startEngine(ctx context.Context, cli *client.Client, spec engineSpec) (engi
 	if err != nil {
 		return engine{}, err
 	}
+	labels, err := ownerLabels(ctx, cli)
+	if err != nil {
+		return engine{}, err
+	}
 	hostConfig, networking := engineNetworking(spec)
 	_, err = cli.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Config: &container.Config{
@@ -88,7 +92,7 @@ func startEngine(ctx context.Context, cli *client.Client, spec engineSpec) (engi
 			Cmd:         spec.cmd,
 			Env:         spec.env,
 			Healthcheck: spec.healthcheck,
-			Labels:      map[string]string{managedLabel: "true", processLabel: strconv.Itoa(os.Getpid())},
+			Labels:      labels,
 		},
 		HostConfig:       hostConfig,
 		NetworkingConfig: networking,

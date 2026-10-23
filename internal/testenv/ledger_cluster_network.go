@@ -8,8 +8,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/netip"
-	"os"
-	"strconv"
 	"strings"
 
 	cerrdefs "github.com/containerd/errdefs"
@@ -69,10 +67,14 @@ func createLedgerClusterNetwork(ctx context.Context, cli *client.Client) (string
 	if err != nil {
 		return "", netip.Prefix{}, err
 	}
+	labels, err := ownerLabels(ctx, cli)
+	if err != nil {
+		return "", netip.Prefix{}, err
+	}
 	created := netip.Prefix{}
 	for attempt := 1; attempt <= ledgerClusterNetworkAttempts && !created.IsValid(); attempt++ {
 		subnet := randomLedgerClusterSubnet()
-		_, err := cli.NetworkCreate(ctx, name, ledgerClusterNetworkOptions(subnet))
+		_, err := cli.NetworkCreate(ctx, name, ledgerClusterNetworkOptions(subnet, labels))
 		switch {
 		case err == nil:
 			created = subnet
@@ -93,9 +95,9 @@ func createLedgerClusterNetwork(ctx context.Context, cli *client.Client) (string
 	return name, created, nil
 }
 
-// ledgerClusterNetworkOptions configures a managed IPv4 bridge on subnet with
-// the daemon's dynamic range in the upper half.
-func ledgerClusterNetworkOptions(subnet netip.Prefix) client.NetworkCreateOptions {
+// ledgerClusterNetworkOptions configures an IPv4 bridge on subnet with
+// the daemon's dynamic range in the upper half and applies labels to it.
+func ledgerClusterNetworkOptions(subnet netip.Prefix, labels map[string]string) client.NetworkCreateOptions {
 	enableIPv4, enableIPv6 := true, false
 	dynamic := netip.PrefixFrom(ledgerClusterHost(subnet, ledgerClusterDynamicHost), ledgerClusterDynamicBits)
 	options := client.NetworkCreateOptions{}
@@ -105,7 +107,7 @@ func ledgerClusterNetworkOptions(subnet netip.Prefix) client.NetworkCreateOption
 		Driver: "", Options: nil,
 		Config: []network.IPAMConfig{{Subnet: subnet, IPRange: dynamic, Gateway: netip.Addr{}, AuxAddress: nil}},
 	}
-	options.Labels = map[string]string{managedLabel: "true", processLabel: strconv.Itoa(os.Getpid())}
+	options.Labels = labels
 	return options
 }
 
