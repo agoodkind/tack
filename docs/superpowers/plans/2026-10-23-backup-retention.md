@@ -1,6 +1,6 @@
 # Backup retention implementation plan
 
-> Use `subagent-driven-development` or `executing-plans` to implement the plan task by task. Track steps with checkbox syntax (`- [ ]`).
+> Use `subagent-driven-development` or `executing-plans` to implement the plan task by task. Track steps with checkbox syntax (`- [x]`).
 
 **Goal:** Preview and automatically enforce a 14-day backup restore window with audited cleanup.
 
@@ -32,40 +32,40 @@ Open ready-for-review PRs. Do not merge or deploy retention changes.
 
 **Interfaces:** `BackupRetentionOptions` supplies a positive `KeepDays` value. `RunBackupRetention(context.Context, *config.Config, BackupRetentionOptions, io.Writer, audit.StepRecorder) (audit.OutcomeDetails, error)` executes cleanup. A separate preview entry point uses the same selection without effects. `backupRetentionCommand(*cli.Factory) *cobra.Command` registers `ops backup retention --keep-days`, default 14. Use the existing `opsNow` time source.
 
-- [ ] Read current command, manifest, backup-window, object-store, and audit helpers.
-- [ ] Implement validated, bounded selection for ledger exports and native FoundationDB sessions.
-- [ ] Derive FoundationDB's numeric deletion cutoff from the newest restorable snapshot ending before the retained UTC boundary, and preserve that boundary with the native restorability guard.
-- [ ] Add shared process-lifetime locking for cleanup and supported restore drills.
-- [ ] Register default preview and explicit execution through `AttachExternalPreview`.
-- [ ] Record effect targets, partial completion, and secret-safe errors.
-- [ ] Commit the coherent runtime change with the Codex trailer.
+- [x] Read current command, manifest, backup-window, object-store, and audit helpers.
+- [x] Implement validated, bounded selection for ledger exports and native FoundationDB sessions.
+- [x] Derive FoundationDB's numeric deletion cutoff from the newest restorable snapshot ending before the retained UTC boundary, and preserve that boundary with the native restorability guard.
+- [x] Add shared process-lifetime locking for cleanup and supported restore drills.
+- [x] Register default preview and explicit execution through `AttachExternalPreview`.
+- [x] Record effect targets, partial completion, and secret-safe errors.
+- [x] Commit the coherent runtime change with the Codex trailer.
 
 ## Task 2: Verify the complete runtime behavior
 
 **Files:** Create focused `internal/ops/backup_retention_*_test.go` files and extend runtime audit coverage in `internal/test/integration/runtime_audit_coverage_backup_test.go`. Reuse real SeaweedFS, FoundationDB, and ledger test helpers.
 
-- [ ] Test preview and actual expiration through the public command or exported runtime entry point against a real object store.
-- [ ] Cover cutoff boundaries, no complete retained export, malformed identifiers, unrelated objects, pagination, repeated execution, and partial failure.
-- [ ] Execute the pinned native FoundationDB tool against real temporary backup data. Prove successful expiration followed by restoration at the retained boundary, a separate native refusal without deletion, and closed-session deletion that preserves the surviving session. Control the test clock rather than waiting fourteen days.
-- [ ] Run real concurrent retention and restore commands against shared temporary backup storage and prove their operations serialize until cancellation or completion.
-- [ ] Verify real audit intent, step, and terminal records; update datagen reporting.
-- [ ] Run the smallest relevant container test commands and `make build`.
-- [ ] Commit the verification changes and record exact results.
+- [x] Test preview and actual expiration through the public command or exported runtime entry point against a real object store.
+- [x] Cover cutoff boundaries, no complete retained export, malformed identifiers, unrelated objects, pagination, repeated execution, and partial failure.
+- [x] Execute the pinned native FoundationDB tool against real temporary backup data. Prove successful expiration followed by restoration at the retained boundary, a separate native refusal without deletion, and closed-session deletion that preserves the surviving session. Control the test clock rather than waiting fourteen days.
+- [x] Run real concurrent retention and restore commands against shared temporary backup storage and prove their operations serialize until cancellation or completion.
+- [x] Verify real audit intent, step, and terminal records; update datagen reporting.
+- [x] Run the smallest relevant container test commands and `make build`.
+- [x] Commit the verification changes and record exact results.
 
 ## Task 3: Schedule cleanup in Configs
 
 **Files:** Create `common/services/tack-backup-retention.service.j2`, `common/timers/tack-backup-retention.timer.j2`, and `ansible/playbooks/tasks/tack-backup-retention.yml`. Add the include to `deploy-tack.yml` and schedule variables beside the existing ledger export values.
 
-- [ ] Follow the existing ledger export units and environment gates.
-- [ ] Schedule one daily invocation of the audited Tack command, defaulting to 14 days.
-- [ ] Require the selected deployed image to pass `ops backup retention --help` through the existing deployment command mechanism before enabling the timer.
-- [ ] Validate rendered units and Configs lint with the existing tools.
-- [ ] Open a companion PR with an explicit runtime deployment prerequisite.
+- [x] Follow the existing ledger export units and environment gates.
+- [x] Schedule one daily invocation of the audited Tack command, defaulting to 14 days.
+- [x] Require the selected deployed image to pass `ops backup retention --help` through the existing deployment command mechanism before enabling the timer.
+- [x] Validate rendered units and Configs lint with the existing tools.
+- [x] Open a companion PR with an explicit runtime deployment prerequisite.
 
 ## Task 4: Review and publish
 
-- [ ] Compare implementation and tests with every acceptance requirement.
-- [ ] Obtain an independent review of deletion boundaries, native backup semantics, audit coverage, and scheduling.
-- [ ] Correct verified findings and rerun affected checks.
-- [ ] Publish the Tack PR with direct references, material test evidence, and the Configs dependency.
-- [ ] Verify both PRs exist and report unverified or undeployed behavior accurately.
+- [x] Compare implementation and tests with every acceptance requirement.
+- [x] Obtain an independent review of deletion boundaries, native backup semantics, audit coverage, and scheduling.
+- [x] Correct verified findings and rerun affected checks.
+- [x] Publish the Tack PR with direct references, material test evidence, and the Configs dependency.
+- [x] Verify both PRs exist and report unverified or undeployed behavior accurately.
