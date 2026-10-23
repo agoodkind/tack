@@ -37,6 +37,10 @@ type processOwner struct {
 	run    string
 	host   string
 	runner string
+	// operator is true when this process is not a test binary, such as
+	// cmd/testenv. ownerLabels then adds the operator label to its engines.
+	// prepareCreate skips test binary preparation for this process.
+	operator bool
 }
 
 var (
@@ -70,7 +74,7 @@ func currentOwner(ctx context.Context, cli *client.Client) (processOwner, error)
 	if err != nil {
 		return processOwner{}, err
 	}
-	ownerState.owner = processOwner{run: run, host: host, runner: runner}
+	ownerState.owner = processOwner{run: run, host: host, runner: runner, operator: !testing.Testing()}
 	return ownerState.owner, nil
 }
 
@@ -92,7 +96,7 @@ func prepareCreate(ctx context.Context, cli *client.Client) (processOwner, error
 	if err != nil {
 		return processOwner{}, err
 	}
-	if testing.Testing() {
+	if !owner.operator {
 		testProcessPrepared.Do(func() {
 			releaseOnSignal(ctx)
 			_, _ = removeEngines(ctx, cli, owner, ownerExited)
@@ -101,8 +105,8 @@ func prepareCreate(ctx context.Context, cli *client.Client) (processOwner, error
 	return owner, nil
 }
 
-// ownerLabels returns labels for a container or network that owner creates.
-// It adds the operator label outside a test binary.
+// ownerLabels returns the labels for a container or network that owner creates.
+// It adds the operator label when owner.operator is true.
 func ownerLabels(owner processOwner) map[string]string {
 	labels := map[string]string{
 		managedLabel: "true",
@@ -111,7 +115,7 @@ func ownerLabels(owner processOwner) map[string]string {
 		hostLabel:    owner.host,
 		runnerLabel:  owner.runner,
 	}
-	if !testing.Testing() {
+	if owner.operator {
 		labels[operatorLabel] = "true"
 	}
 	return labels

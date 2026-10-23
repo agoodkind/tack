@@ -14,53 +14,86 @@ import (
 // removeEngines removes it.
 type removalTest func(ctx context.Context, cli *client.Client, self processOwner, labels map[string]string) (bool, error)
 
-// removeEngines removes the testenv containers that selected chooses, then
-// the testenv networks it chooses. It detaches each network owner's runner
-// container before removing that network and returns the number of removed
-// containers.
+// engineSelection stores the containers and networks that removeEngines removes
+// and the container names for its log entry.
+type engineSelection struct {
+	containers []string
+	names      []string
+	networks   []selectedNetwork
+}
+
+// selectedNetwork records a network that removeEngines removes and the runner
+// container ID of the process that created it.
+type selectedNetwork struct {
+	name   string
+	runner string
+}
+
+// removeEngines checks all testenv containers and networks before any removal
+// and returns an error if a list or owner check fails.
+// It removes selected containers, then removes each selected network after
+// detaching its owner's runner container.
+// It returns the number of containers it removes.
 func removeEngines(ctx context.Context, cli *client.Client, self processOwner, selected removalTest) (int, error) {
+	selection, err := selectEngines(ctx, cli, self, selected)
+	if err != nil {
+		return 0, err
+	}
+	if err := removeContainersWith(ctx, cli, selection.containers); err != nil {
+		return 0, err
+	}
+	var failures []error
+	networkNames := make([]string, 0, len(selection.networks))
+	for _, item := range selection.networks {
+		networkNames = append(networkNames, item.name)
+		failures = append(failures, removeLedgerClusterNetwork(ctx, cli, item.name, item.runner))
+	}
+	if len(selection.names)+len(networkNames) > 0 {
+		slog.InfoContext(ctx, "testenv.sweep.removed", slog.String("containers", strings.Join(selection.names, " ")),
+			slog.String("networks", strings.Join(networkNames, " ")))
+	}
+	if err := errors.Join(failures...); err != nil {
+		slog.ErrorContext(ctx, "testenv.sweep.network_remove_failed", slog.String("err", err.Error()))
+		return len(selection.containers), err
+	}
+	return len(selection.containers), nil
+}
+
+// selectEngines lists testenv containers and networks and returns those that
+// selected chooses.
+func selectEngines(ctx context.Context, cli *client.Client, self processOwner, selected removalTest) (engineSelection, error) {
+	selection := engineSelection{containers: nil, names: nil, networks: nil}
 	managed := client.Filters{}.Add("label", managedLabel)
 	listed, err := cli.ContainerList(ctx, client.ContainerListOptions{All: true, Filters: managed})
 	if err != nil {
 		slog.ErrorContext(ctx, "testenv.sweep.list_failed", slog.String("err", err.Error()))
-		return 0, fmt.Errorf("list test engines: %w", err)
+		return selection, fmt.Errorf("list test engines: %w", err)
 	}
-	var containers, names []string
 	for _, item := range listed.Items {
 		remove, err := selected(ctx, cli, self, item.Labels)
 		if err != nil {
-			return 0, err
+			return selection, err
 		}
 		if remove {
-			containers = append(containers, item.ID)
-			names = append(names, strings.Join(item.Names, ","))
+			selection.containers = append(selection.containers, item.ID)
+			selection.names = append(selection.names, strings.Join(item.Names, ","))
 		}
-	}
-	if err := removeContainersWith(ctx, cli, containers); err != nil {
-		return 0, err
 	}
 	networks, err := cli.NetworkList(ctx, client.NetworkListOptions{Filters: managed})
 	if err != nil {
 		slog.ErrorContext(ctx, "testenv.sweep.list_failed", slog.String("err", err.Error()))
-		return len(containers), fmt.Errorf("list test networks: %w", err)
+		return selection, fmt.Errorf("list test networks: %w", err)
 	}
-	var failures []error
-	var removedNetworks []string
 	for _, item := range networks.Items {
 		remove, err := selected(ctx, cli, self, item.Labels)
 		if err != nil {
-			return len(containers), err
+			return selection, err
 		}
 		if remove {
-			removedNetworks = append(removedNetworks, item.Name)
-			failures = append(failures, removeLedgerClusterNetwork(ctx, cli, item.Name, item.Labels[runnerLabel]))
+			selection.networks = append(selection.networks, selectedNetwork{name: item.Name, runner: item.Labels[runnerLabel]})
 		}
 	}
-	if len(names)+len(removedNetworks) > 0 {
-		slog.InfoContext(ctx, "testenv.sweep.removed", slog.String("containers", strings.Join(names, " ")),
-			slog.String("networks", strings.Join(removedNetworks, " ")))
-	}
-	return len(containers), errors.Join(failures...)
+	return selection, nil
 }
 
 // removeRun removes every container and network with this process's run label.
