@@ -3,6 +3,7 @@ package ops
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -21,6 +22,8 @@ const (
 	invalidInputCode      = "input_invalid"
 	rolloutInProgressCode = "rollout_in_progress"
 )
+
+var errUnknownCandidate = errors.New("the candidate is not a registered access policy version")
 
 type searchRolloutInput struct {
 	Authority string `json:"authority"`
@@ -110,7 +113,12 @@ func runSearchRolloutRecorded(
 		return commandOutcome(audit.OutcomeFailed, commandFailedCode, wrapped), wrapped
 	}
 	defer env.Close()
-	rollouts := env.Stores.SearchRollouts(opsClockSource{}, env.Stores.SearchPolicySet())
+	policies := env.Stores.SearchPolicySet()
+	if !policies.Supports(in.Candidate) {
+		wrapped := searchRolloutFailure(ctx, "check candidate version "+in.Candidate, errUnknownCandidate)
+		return commandOutcome(audit.OutcomeRefused, invalidInputCode, wrapped), wrapped
+	}
+	rollouts := env.Stores.SearchRollouts(opsClockSource{}, policies)
 	current, err := rollouts.Current(ctx, authorityID)
 	if err != nil {
 		wrapped := searchRolloutFailure(ctx, "read access rollout of authority "+authorityID.String(), err)

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/audit"
@@ -63,4 +64,26 @@ func testAccessRolloutOutcomes(t *testing.T) {
 		t.Fatalf("the second access-rollout recorded %d step intents instead of 0", len(steps))
 	}
 	requireOnlyResult(t, eventsOfOperation(events, second), audit.OutcomeRefused, "rollout_in_progress")
+	requireUnknownCandidateRefused(t, cfg, pool)
+}
+
+func requireUnknownCandidateRefused(t *testing.T, cfg *config.Config, pool *pgxpool.Pool) {
+	t.Helper()
+	operatorID := uuid.Must(uuid.NewV7())
+	output, err := runOpsCommand(t, cfg, pool,
+		"--execute", "--operator-id", operatorID.String(), "--operator-email", outcomeOperatorEmail,
+		"ops", "search", "access-rollout", "--authority", uuid.Must(uuid.NewV7()).String(), "--candidate", "unregistered-version")
+	if err == nil {
+		t.Fatalf("access-rollout succeeded with an unregistered candidate\n%s", output)
+	}
+	events := outboxEventsByQuery(t, pool, "runtime_audit_verb_outbox.sql", string(audit.VerbOpsSearchAccessRollout), operatorID.String())
+	intents := eventsInPhase(events, audit.PhaseIntent, uuid.Nil)
+	if len(intents) != 1 {
+		t.Fatalf("access-rollout recorded %d intents for an unregistered candidate instead of 1", len(intents))
+	}
+	operation := intents[0].Context.OperationID
+	if steps := eventsInPhase(events, audit.PhaseIntent, operation); len(steps) != 0 {
+		t.Fatalf("access-rollout recorded %d step intents for an unregistered candidate instead of 0", len(steps))
+	}
+	requireOnlyResult(t, eventsOfOperation(events, operation), audit.OutcomeRefused, "input_invalid")
 }
