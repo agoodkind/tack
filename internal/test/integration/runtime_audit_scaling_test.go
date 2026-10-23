@@ -60,7 +60,7 @@ func TestRuntimeAuditScaling(t *testing.T) {
 		requireScalingRun(t, baseline, result, 0)
 	}
 	takeover := runScalingWorkload(t, scalingTakeoverLabel, scalingTakeoverInstances, scalingCrashAfter)
-	requireScalingRun(t, baseline, takeover, scalingRelayBatch)
+	requireScalingRun(t, baseline, takeover, scalingRelayBatch+takeover.yugabyteBacklog)
 	results = append(results, takeover)
 	var table strings.Builder
 	table.WriteString("\nThe table compares MCP workload and audit recovery measurements across app instance counts.\n\nScaling results:\n| Instances | Requests | Ledger events | Throughput (requests/s) | Latency (50th percentile) | Latency (95th percentile) | Latency (99th percentile) | Outbox entries | Audit recovery time | Ledger row bytes | Broker records | Broker bytes | Index bytes | FoundationDB key and value bytes |\n")

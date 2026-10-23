@@ -57,16 +57,16 @@ func rawIDOf(text string) (string, error) {
 	return remainder[:end], nil
 }
 
-// measure counts both operator outbox backlogs before starting audit workers.
-// It times recovery until the FoundationDB outbox empties and the ledger count
-// stabilizes. It then records ledger event counts and database, broker, and
-// FoundationDB byte measurements.
+// measure counts FoundationDB entries and YugabyteDB rows plus parts before
+// starting audit workers. It times recovery until the FoundationDB outbox
+// empties and the ledger count stabilizes. It then records ledger events,
+// broker records, and database, broker, and FoundationDB byte measurements.
 func (run *scalingRun) measure(t *testing.T) {
 	t.Helper()
 	run.result.backlog = run.outboxEntries(t)
 	admin := ledgerAdminPool(t)
-	if err := admin.QueryRow(t.Context(), readTestSQL(t, "runtime_audit_scaling_outbox_rows.sql")).Scan(&run.result.yugabyteBacklog); err != nil {
-		t.Fatalf("Counting YugabyteDB operator outbox rows failed: %v", err)
+	if err := admin.QueryRow(t.Context(), readTestSQL(t, "runtime_audit_outbox_records.sql")).Scan(&run.result.yugabyteBacklog); err != nil {
+		t.Fatalf("Counting YugabyteDB operator outbox rows and parts failed: %v", err)
 	}
 	topic := "audit.scaling-test-" + uuid.NewString()[:8]
 	started := clock.Now()

@@ -61,8 +61,8 @@ func insertOutboxRow(ctx context.Context, tx pgx.Tx, eventID uuid.UUID, eventJSO
 
 // outboxPartMessages reads an event's part messages in part_index order
 // and appends the manifest header.
-func (o *PoolOutbox) outboxPartMessages(ctx context.Context, eventID uuid.UUID, header []byte) ([][]byte, error) {
-	rows, err := o.pool.Query(ctx, `
+func outboxPartMessages(ctx context.Context, tx pgx.Tx, eventID uuid.UUID, header []byte) ([][]byte, error) {
+	rows, err := tx.Query(ctx, `
 		SELECT message FROM public.ops_outbox_parts
 		 WHERE event_id = $1
 		 ORDER BY part_index ASC
@@ -89,18 +89,7 @@ func (o *PoolOutbox) Delete(ctx context.Context, eventID uuid.UUID) error {
 // receipts in reads as published in the same transaction.
 func (o *PoolOutbox) DeletePublished(ctx context.Context, eventID uuid.UUID, reads []PublishedRead) error {
 	err := pgx.BeginFunc(ctx, o.pool, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `DELETE FROM public.ops_outbox_parts WHERE event_id = $1`, eventID); err != nil {
-			return fmt.Errorf("delete parts: %w", err)
-		}
-		if _, err := tx.Exec(ctx, `DELETE FROM public.ops_outbox WHERE event_id = $1`, eventID); err != nil {
-			return fmt.Errorf("delete event: %w", err)
-		}
-		for _, read := range reads {
-			if _, err := tx.Exec(ctx, readStatement("acknowledge"), read.EventID, read.Digest); err != nil {
-				return fmt.Errorf("mark read %s published: %w", read.EventID, err)
-			}
-		}
-		return nil
+		return deletePublishedTx(ctx, tx, eventID, reads)
 	})
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.outbox.delete_failed",
@@ -110,6 +99,31 @@ func (o *PoolOutbox) DeletePublished(ctx context.Context, eventID uuid.UUID, rea
 		return fmt.Errorf("delete ops outbox event %s: %w", eventID, err)
 	}
 	return nil
+}
+
+// deletePublishedTx deletes an event's parts and outbox row, then acknowledges
+// matching read receipts in tx. The caller commits or rolls back the
+// transaction.
+func deletePublishedTx(ctx context.Context, tx pgx.Tx, eventID uuid.UUID, reads []PublishedRead) error {
+	var failure error
+	if _, err := tx.Exec(ctx, `DELETE FROM public.ops_outbox_parts WHERE event_id = $1`, eventID); err != nil {
+		failure = fmt.Errorf("delete parts: %w", err)
+	} else if _, err := tx.Exec(ctx, `DELETE FROM public.ops_outbox WHERE event_id = $1`, eventID); err != nil {
+		failure = fmt.Errorf("delete event: %w", err)
+	}
+	for _, read := range reads {
+		if failure != nil {
+			break
+		}
+		if _, err := tx.Exec(ctx, readStatement("acknowledge"), read.EventID, read.Digest); err != nil {
+			failure = fmt.Errorf("mark read %s published: %w", read.EventID, err)
+		}
+	}
+	if failure != nil {
+		slog.ErrorContext(ctx, "audit.outbox.delete_published_failed",
+			slog.String("event_id", eventID.String()), slog.String("err", failure.Error()))
+	}
+	return failure
 }
 
 // manifestHeader decodes stored jsonb and re-encodes a manifest message.

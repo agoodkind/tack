@@ -118,12 +118,11 @@ func (run *scalingRun) openRelay(t *testing.T, topic string, afterProduce func(c
 }
 
 // requireFlatBroker checks broker record counts against both outbox backlogs
-// and broker bytes against the one-instance run. It allows YugabyteDB
-// duplicates from extra relays and takeoverRecords records that a relay
-// takeover republishes.
+// and broker bytes against the one-instance run. It allows only the
+// takeoverRecords records that a relay takeover republishes.
 func requireFlatBroker(t *testing.T, baseline, result scalingResult, takeoverRecords int64) {
 	t.Helper()
-	extraRecords := result.yugabyteBacklog*int64(result.instances-1) + takeoverRecords
+	extraRecords := takeoverRecords
 	published := int64(result.backlog) + result.yugabyteBacklog
 	if result.brokerRecords < published || result.brokerRecords > published+extraRecords {
 		t.Errorf("The broker record count is outside the expected range for run %s: %d records for %d FoundationDB and %d YugabyteDB outbox entries; allowed extra %d",
