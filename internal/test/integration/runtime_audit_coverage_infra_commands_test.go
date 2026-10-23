@@ -104,11 +104,6 @@ func addInfrastructureCommandCases(cases map[string]coverageCase) {
 		failingCommandCase(audit.VerbOpsSearchVerify, audit.OutcomeOK, fixedCommand("ops", "search", "verify")),
 		commandCase(audit.VerbOpsSearchVerify, audit.OutcomeOK, fixedCommand("ops", "search", "verify")),
 	)
-	// The rollback refuses an organization without a rollout in progress.
-	cases["command ops search access-rollback"] = failingCommandCase(audit.VerbOpsSearchAccessRollback, audit.OutcomeError,
-		func(_ *testing.T, env *coverageEnv) commandInput {
-			return commandInput{args: []string{"ops", "search", "access-rollback", "--authority", env.server.orgID.String()}, configure: nil, outbox: nil}
-		})
 	cases["command ops deploy verify"] = coverageCase{
 		run: func(t *testing.T, env *coverageEnv) coverageEvidence {
 			fixture := integration.StartContainerdDeployFixture(t)
@@ -125,9 +120,15 @@ func addInfrastructureCommandCases(cases map[string]coverageCase) {
 	cases["command ops backup buckets-init"] = commandCase(audit.VerbOpsBackupBucketsInit, audit.OutcomeCompleted,
 		func(t *testing.T, _ *coverageEnv) commandInput {
 			bucket := backupBucketConfig(testenv.ObjectStore(t))
-			return commandInput{args: []string{"ops", "backup", "buckets-init"}, outbox: nil, configure: func(cfg *config.Config) {
-				cfg.BackupS3Endpoint, cfg.BackupS3Region, cfg.BackupS3BucketMain = bucket.BackupS3Endpoint, bucket.BackupS3Region, bucket.BackupS3BucketMain
-				cfg.BackupS3AccessKey, cfg.BackupS3SecretKey = bucket.BackupS3AccessKey, bucket.BackupS3SecretKey
-			}}
+			return commandInput{args: []string{"ops", "backup", "buckets-init"}, outbox: nil, configure: objectStoreSettings(bucket)}
 		})
+}
+
+// objectStoreSettings returns a configuration override that uses the object
+// store endpoint, region, bucket, and credentials of bucket.
+func objectStoreSettings(bucket *config.Config) func(*config.Config) {
+	return func(cfg *config.Config) {
+		cfg.BackupS3Endpoint, cfg.BackupS3Region, cfg.BackupS3BucketMain = bucket.BackupS3Endpoint, bucket.BackupS3Region, bucket.BackupS3BucketMain
+		cfg.BackupS3AccessKey, cfg.BackupS3SecretKey = bucket.BackupS3AccessKey, bucket.BackupS3SecretKey
+	}
 }

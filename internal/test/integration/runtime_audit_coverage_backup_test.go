@@ -89,6 +89,10 @@ func addBackupCommandCases(cases map[string]coverageCase) {
 			env.writeVersionLog(t)
 			return backupCommand("ops", "backup", "restore-version", "--at", time.Now().UTC().Format(time.RFC3339))(t, env)
 		})
+	cases["command ops backup yb-archive-node"] = commandCase(audit.VerbOpsBackupYBArchiveNode, audit.OutcomeCompleted,
+		backupCommand("ops", "backup", "yb-archive-node"))
+	cases["command ops backup staleness-check"] = failingCommandCase(audit.VerbOpsBackupStalenessCheck, audit.OutcomeCompleted,
+		emptyBucketStalenessInput)
 	cases["command ops backup fdb-continuous-init"] = failingCommandCase(audit.VerbOpsBackupFDBContinuousInit, audit.OutcomeFailed,
 		func(t *testing.T, env *coverageEnv) commandInput {
 			input := backupCommand("ops", "backup", "fdb-continuous-init")(t, env)
@@ -99,6 +103,23 @@ func addBackupCommandCases(cases map[string]coverageCase) {
 			}
 			return input
 		})
+}
+
+// emptyBucketStalenessInput initializes a new backup bucket that does not
+// contain any backup. The staleness check reports a stale verdict as a
+// command error and records a completed outcome.
+func emptyBucketStalenessInput(t *testing.T, env *coverageEnv) commandInput {
+	bucket := backupBucketConfig(testenv.ObjectStore(t))
+	root := t.TempDir()
+	settings := objectStoreSettings(bucket)
+	configure := func(cfg *config.Config) {
+		settings(cfg)
+		cfg.BackupRoot = root
+	}
+	if _, output, err := env.command(t, configure, "ops", "backup", "buckets-init"); err != nil {
+		t.Fatalf("Bucket initialization failed; the staleness case requires an initialized empty bucket: %v\n%s", err, output)
+	}
+	return commandInput{args: []string{"ops", "backup", "staleness-check"}, outbox: nil, configure: configure}
 }
 
 // writeVersionLog uploads a FoundationDB version point from one hour earlier to

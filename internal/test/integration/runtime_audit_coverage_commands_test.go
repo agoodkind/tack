@@ -96,6 +96,7 @@ func addCommandCases(cases map[string]coverageCase) {
 	addBackfillCommandCases(cases)
 	addDatagenCommandCases(cases)
 	addInfrastructureCommandCases(cases)
+	addSearchControlCases(cases)
 	addBackupCommandCases(cases)
 	addLedgerCommandCases(cases)
 	addStoreCommandCases(cases)

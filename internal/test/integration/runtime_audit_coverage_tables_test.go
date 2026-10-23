@@ -2,14 +2,7 @@
 
 package integration_test
 
-const taskSevenPartTwo = "TACK-583 Task 7 part 2 (claude/tack-583-external-ops-2)"
-
-var pendingCoverage = map[string]string{
-	"command ops backup yb-archive-node": taskSevenPartTwo,
-	"command ops backup staleness-check": taskSevenPartTwo,
-	"command ops search provision":       taskSevenPartTwo,
-	"command ops search access-rollout":  taskSevenPartTwo,
-}
+var pendingCoverage = map[string]string{}
 
 // failureOnlyCoverage maps operations to dependencies that their successful
 // paths require beyond the default test engines. TestSearchRuntimeAuditCoverage
@@ -21,6 +14,7 @@ var failureOnlyCoverage = map[string]string{
 	"command ops qa datagen search":          coverageNeedsOpenSearch,
 	"command ops qa datagen search-load":     coverageNeedsOpenSearch,
 	"command ops qa datagen search-mixed":    coverageNeedsOpenSearch,
+	"command ops search provision":           "The successful path requires OpenSearch and a FoundationDB key prefix without a serving index; TestSearchRuntimeAuditProvisionCoverage runs it.",
 	"command ops backup fdb-continuous-init": "The successful path requires a FoundationDB cluster file at /etc/foundationdb on the Docker daemon host.",
 	"command ops backup restore-drill":       "The successful path requires a FoundationDB continuous backup from ops backup fdb-continuous-init.",
 	"command ops store exclude":              "The successful path requires a FoundationDB cluster with more than one storage process.",
