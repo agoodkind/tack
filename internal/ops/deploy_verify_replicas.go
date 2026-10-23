@@ -19,18 +19,12 @@ const (
 	ComposeServiceLabel = "com.docker.compose.service"
 )
 
-// serviceReplica pairs a container and its Docker Compose service with the
-// expected image reference.
 type serviceReplica struct {
 	Service   string
 	Container string
 	Image     string
 }
 
-// serviceReplicas lists running and stopped containers with Docker Compose
-// labels matching project and each target service. It returns an error if
-// Docker cannot list the containers or a target service does not have any named
-// containers.
 func serviceReplicas(ctx context.Context, cli *client.Client, project string, targets []deployVerifyTarget) ([]serviceReplica, error) {
 	var replicas []serviceReplica
 	for _, target := range targets {

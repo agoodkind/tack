@@ -41,9 +41,6 @@ func createFromIndex(t *testing.T, cli *client.Client, name, service, ref string
 	createServiceContainer(t, cli, name, service, ref)
 }
 
-// createServiceContainer creates, without starting, a container named name
-// from the local image ref with the Compose labels of service in
-// deployComposeProject. Test cleanup removes the container.
 func createServiceContainer(t *testing.T, cli *client.Client, name, service, ref string) {
 	t.Helper()
 	labels := map[string]string{

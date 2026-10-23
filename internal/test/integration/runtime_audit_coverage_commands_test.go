@@ -89,8 +89,6 @@ func argsCommand(args func(t *testing.T, env *coverageEnv) []string) func(*testi
 	}
 }
 
-// addCommandCases adds executable audit cases for ops commands to the supplied
-// map.
 func addCommandCases(cases map[string]coverageCase) {
 	addNodeCommandCases(cases)
 	addAuditCommandCases(cases)
