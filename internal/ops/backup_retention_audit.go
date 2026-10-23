@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"goodkind.io/tack/internal/audit"
@@ -34,7 +35,8 @@ func retentionStep(ctx context.Context, steps audit.StepRecorder, evidence reten
 	}
 	step := audit.ExternalStep(externalTarget("s3/"+evidence.Bucket+"/"+evidence.Target), encoded)
 	if err := steps.BeginStep(ctx, step); err != nil {
-		return err
+		slog.ErrorContext(ctx, "backup.retention.step_intent_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("record retention step intent: %w", err)
 	}
 	count, effectErr := effect()
 	evidence.DeletedObjects = count

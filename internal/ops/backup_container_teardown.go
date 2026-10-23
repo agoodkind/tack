@@ -9,6 +9,16 @@ import (
 	"github.com/moby/moby/client"
 )
 
+func cleanupOneShot(ctx context.Context, cli *client.Client, identifier string) {
+	if ownsBackupOperationLock(ctx) {
+		awaitBackupContainerRemoval(ctx, cli, identifier)
+		return
+	}
+	teardown, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+	removeContainerForce(teardown, cli, identifier)
+}
+
 // awaitBackupContainerRemoval keeps the backup lock until Docker confirms that
 // the container cannot continue reading or deleting backups after cancellation.
 func awaitBackupContainerRemoval(ctx context.Context, cli *client.Client, name string) {

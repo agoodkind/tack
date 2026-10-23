@@ -140,9 +140,7 @@ func runOneShot(
 		)
 		return execResult{}, fmt.Errorf("create one-shot container: %w", err)
 	}
-	defer func() {
-		awaitBackupContainerRemoval(ctx, cli, created.ID)
-	}()
+	defer cleanupOneShot(ctx, cli, created.ID)
 
 	_, err = cli.ContainerStart(ctx, created.ID, client.ContainerStartOptions{})
 	if err != nil {

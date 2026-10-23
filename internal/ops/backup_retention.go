@@ -27,8 +27,8 @@ type backupRetentionPlan struct {
 }
 
 func retentionCutoff(options BackupRetentionOptions) (time.Time, error) {
-	if options.KeepDays <= 0 || options.KeepDays > 36500 {
-		return time.Time{}, errors.New("backup retention requires --keep-days between 1 and 36500")
+	if options.KeepDays <= 0 {
+		return time.Time{}, errors.New("backup retention requires a positive --keep-days value")
 	}
 	return opsNow().UTC().Truncate(time.Second).AddDate(0, 0, -options.KeepDays), nil
 }
@@ -60,11 +60,16 @@ func PreviewBackupRetention(ctx context.Context, cfg *config.Config, options Bac
 		return err
 	}
 	defer lock.Close()
+	ctx = withBackupOperationLock(ctx)
 	plan, err := planBackupRetention(ctx, cfg, options)
 	if err != nil {
 		return err
 	}
-	return json.NewEncoder(output).Encode(plan)
+	if err := json.NewEncoder(output).Encode(plan); err != nil {
+		slog.ErrorContext(ctx, "backup.retention.preview_write_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("write retention preview: %w", err)
+	}
+	return nil
 }
 
 // RunBackupRetention removes selected old backups and records each target's
@@ -79,6 +84,7 @@ func RunBackupRetention(ctx context.Context, cfg *config.Config, options BackupR
 		return commandOutcome(audit.OutcomeRefused, commandConfigCode, err), err
 	}
 	defer lock.Close()
+	ctx = withBackupOperationLock(ctx)
 	plan, err := planBackupRetention(ctx, cfg, options)
 	if err != nil {
 		slog.ErrorContext(ctx, "backup.retention.refused", slog.String("err", err.Error()))

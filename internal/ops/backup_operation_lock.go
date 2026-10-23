@@ -13,6 +13,17 @@ import (
 
 const backupOperationLockName = ".backup-operation.lock"
 
+type backupOperationContextKey struct{}
+
+func withBackupOperationLock(ctx context.Context) context.Context {
+	return context.WithValue(ctx, backupOperationContextKey{}, true)
+}
+
+func ownsBackupOperationLock(ctx context.Context) bool {
+	owned, present := ctx.Value(backupOperationContextKey{}).(bool)
+	return present && owned
+}
+
 // lockBackupOperation serializes restore readers and retention until the caller
 // closes the file. The kernel releases the lock if the process exits.
 func lockBackupOperation(ctx context.Context, root string) (*os.File, error) {

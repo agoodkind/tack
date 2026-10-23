@@ -71,18 +71,21 @@ func planRetentionFDB(ctx context.Context, cfg *config.Config, cutoff time.Time)
 		if name == activeName {
 			return nil, fmt.Errorf("active FoundationDB backup %s does not establish restorability at cutoff %s", name, formatFDBTime(cutoff))
 		}
-		survivor := false
-		for otherName, otherWindow := range windows {
-			if otherName > name && !otherWindow.Max.Before(cutoff) {
-				survivor = true
-			}
-		}
-		if !survivor {
+		if !retentionFDBHasSurvivor(name, cutoff, windows) {
 			return nil, fmt.Errorf("expired FoundationDB backup %s does not have a verified newer retained survivor", name)
 		}
 		actions = append(actions, retentionFDBAction{Name: name, Action: "delete", Window: window, ExpireBeforeVersion: 0})
 	}
 	return actions, nil
+}
+
+func retentionFDBHasSurvivor(name string, cutoff time.Time, windows map[string]fdbRestorableWindow) bool {
+	for otherName, otherWindow := range windows {
+		if otherName > name && !otherWindow.Max.Before(cutoff) {
+			return true
+		}
+	}
+	return false
 }
 
 func retentionFDBActiveName(cfg *config.Config, status string) (string, error) {

@@ -102,6 +102,7 @@ func RunBackupRestoreDrill(ctx context.Context, cfg *config.Config, opts Restore
 		return lockErr
 	}
 	defer lock.Close()
+	ctx = withBackupOperationLock(ctx)
 	logger := telemetry.L(ctx)
 	if cfg.BackupS3Endpoint == "" || cfg.BackupS3AccessKey == "" || cfg.BackupS3SecretKey == "" {
 		err := fmt.Errorf("restore-drill: TACK_BACKUP_S3_ENDPOINT, _ACCESS_KEY_ID, and _SECRET_ACCESS_KEY are required")
