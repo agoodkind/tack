@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"slices"
 
 	"goodkind.io/tack/internal/audit"
 )
@@ -41,6 +42,18 @@ var mcpMethods = map[string]mcpMethod{
 	"notifications/cancelled":   {verb: audit.VerbMCPProtocolRead, organizations: orgSystem, metadata: false},
 	"prompts/get":               {verb: audit.VerbMCPPromptInvoked, organizations: orgCaller, metadata: true},
 	"resources/read":            {verb: audit.VerbMCPResourceRead, organizations: orgCaller, metadata: true},
+}
+
+// RecordedMethods returns the MCP JSON-RPC methods that the request recorder
+// records, sorted by name.
+func RecordedMethods() []string {
+	methods := make([]string, 0, len(mcpMethods)+1)
+	for method := range mcpMethods {
+		methods = append(methods, method)
+	}
+	methods = append(methods, mcpMethodToolsCall)
+	slices.Sort(methods)
+	return methods
 }
 
 // requestOperation identifies the operation of one HTTP request.

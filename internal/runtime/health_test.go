@@ -130,7 +130,7 @@ func TestHealthzRouteUsesHealthHandler(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
-	mux := runtime.NewRoutes(productReadRecorder(t), http.NotFoundHandler(), healthHandler)
+	mux := runtime.NewRoutes(productReadRecorder(t), http.NotFoundHandler(), healthHandler, nil)
 	recorder := httptest.NewRecorder()
 	mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/healthz", nil))
 	if recorder.Code != http.StatusNoContent {
