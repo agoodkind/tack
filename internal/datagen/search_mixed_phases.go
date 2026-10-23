@@ -38,11 +38,11 @@ func (m *searchMixed) runPhases(scheduleContext, callContext context.Context, wi
 }
 
 func (m *searchMixed) startRebuild(ctx context.Context, windowStarted time.Time) error {
-	started := clock.Now()
 	target, err := m.options.Rebuild(ctx)
 	if err != nil {
 		return loggedError(ctx, "qa datagen search-mixed: the command could not start the index rebuild", err)
 	}
+	started := clock.Now()
 	m.phases.update(func(phases *searchMixedPhaseStats) {
 		phases.rebuild = SearchMixedRebuildResult{
 			Requested: true, TargetIndex: target, Started: started.Sub(windowStarted), Switched: 0,
