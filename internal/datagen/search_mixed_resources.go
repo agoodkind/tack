@@ -10,7 +10,6 @@ import (
 
 	opensearch "github.com/opensearch-project/opensearch-go/v4"
 	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
-	"goodkind.io/tack/internal/adapters/search"
 	"goodkind.io/tack/internal/config"
 )
 
@@ -72,20 +71,9 @@ type searchMixedResources struct {
 }
 
 func newSearchMixedResources(ctx context.Context, cfg *config.Config) (*searchMixedResources, error) {
-	certificate, err := config.LoadSearchCA(ctx, cfg.SearchCA)
+	client, err := newSearchStatisticsClient(ctx, cfg, "qa datagen search-mixed")
 	if err != nil {
-		return nil, loggedError(ctx, "qa datagen search-mixed: the command could not load the search CA certificate", err)
-	}
-	settings := search.Config{
-		Endpoint: cfg.SearchEndpoint, CA: certificate, Username: cfg.SearchUsername,
-		Password: cfg.SearchPassword, RequestTimeout: cfg.SearchRequestTimeout, MaxRetries: cfg.SearchMaxRetries,
-	}
-	if err := settings.Validate(ctx); err != nil {
-		return nil, loggedError(ctx, "qa datagen search-mixed: the command could not validate the search settings", err)
-	}
-	client, err := opensearch.NewClient(settings.ClientConfig(nil))
-	if err != nil {
-		return nil, loggedError(ctx, "qa datagen search-mixed: the command could not create an OpenSearch client", err)
+		return nil, err
 	}
 	return &searchMixedResources{client: client}, nil
 }

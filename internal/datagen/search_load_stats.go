@@ -64,5 +64,6 @@ func (s *searchLoadStats) summary(dryRun bool, planned, sent, dropped, distinct 
 		DryRun: dryRun, Planned: planned, Sent: sent, Completed: len(sorted), Dropped: dropped,
 		DistinctQueries: distinct, Unavailable: s.unavailable, ToolErrors: s.toolErrors,
 		TransportErrors: s.transportErrors, Elapsed: elapsed, Latency: latency,
+		PointInTime: SearchLoadPointInTime{Peak: 0, Answered: 0, Samples: []SearchLoadPointInTimeSample{}},
 	}
 }

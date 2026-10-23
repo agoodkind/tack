@@ -5,21 +5,27 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"sync"
 	"time"
 
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
-	"goodkind.io/tack/internal/runtime"
 )
 
 // SearchLoadOptions specifies the search workload parameters.
 type SearchLoadOptions struct {
-	Seed int64
+	Seed        int64
 	Rate        int
 	Duration    time.Duration
 	Concurrency int
 	Commit      bool
+	// Endpoints lists base URLs for HTTP tack_search calls to deployed Tack
+	// processes. The workload builds and calls an in-process runtime graph
+	// when Endpoints is empty.
+	Endpoints []string `exhaustruct:"optional"`
+	// Client sends HTTP tack_search requests to Endpoints.
+	Client *http.Client `exhaustruct:"optional"`
 }
 
 // SearchLoadSummary reports request counts, errors, elapsed time, and latency.
@@ -35,10 +41,11 @@ type SearchLoadSummary struct {
 	TransportErrors int
 	Elapsed         time.Duration
 	Latency         SearchLoadLatency
+	PointInTime     SearchLoadPointInTime
 }
 
 type searchLoad struct {
-	driver  *Driver
+	drivers []*Driver
 	token   string
 	entry   string
 	options SearchLoadOptions
@@ -67,33 +74,49 @@ func RunSearchLoad(
 	if err := ValidateTarget(cfg); err != nil {
 		return SearchLoadSummary{}, err
 	}
-	scale, err := ParseScale(searchVerificationScale)
+	drivers, closeDrivers, err := searchLoadDrivers(callContext, cfg, options)
 	if err != nil {
 		return SearchLoadSummary{}, err
 	}
-	graph, err := runtime.BuildGraph(callContext, cfg)
-	if err != nil {
-		return SearchLoadSummary{}, loggedError(callContext, "qa datagen search-load: build runtime", err)
-	}
-	defer graph.Close()
-	identities, err := BootstrapIdentities(callContext, cfg, options.Seed, scale)
+	defer closeDrivers()
+	load, err := newSearchLoad(callContext, cfg, options, drivers, planned)
 	if err != nil {
 		return SearchLoadSummary{}, err
 	}
-	workspace := identities.Workspaces[0]
-	queries, err := newSearchLoadQueries(callContext, options.Seed, workspace, planned)
+	pointsInTime, err := newSearchLoadPointsInTime(callContext, cfg)
 	if err != nil {
 		return SearchLoadSummary{}, err
 	}
-	load := &searchLoad{
-		driver: NewDriver(graph, false, options.Seed), token: workspace.Actors[0].Token, entry: workspace.Slug,
-		options: options, queries: queries, stats: &searchLoadStats{},
-	}
+	defer pointsInTime.close(callContext)
+	pointsInTime.start(callContext)
 	summary := load.run(scheduleContext, callContext, planned)
+	summary.PointInTime = pointsInTime.finish(callContext)
 	slog.InfoContext(callContext, "qa.datagen.search_load_finished", slog.Int("rate", options.Rate),
-		slog.Int("sent", summary.Sent), slog.Int("completed", summary.Completed), slog.Int("dropped", summary.Dropped),
+		slog.Int("endpoints", len(options.Endpoints)), slog.Int("sent", summary.Sent),
+		slog.Int("completed", summary.Completed), slog.Int("dropped", summary.Dropped),
+		slog.Int("unavailable", summary.Unavailable), slog.Int("point_in_time_peak", summary.PointInTime.Peak),
 		slog.Duration("elapsed", summary.Elapsed))
 	return summary, nil
+}
+
+func newSearchLoad(ctx context.Context, cfg *config.Config, options SearchLoadOptions, drivers []*Driver, planned int) (*searchLoad, error) {
+	scale, err := ParseScale(searchVerificationScale)
+	if err != nil {
+		return nil, err
+	}
+	identities, err := BootstrapIdentities(ctx, cfg, options.Seed, scale)
+	if err != nil {
+		return nil, err
+	}
+	workspace := identities.Workspaces[0]
+	queries, err := newSearchLoadQueries(ctx, options.Seed, workspace, planned)
+	if err != nil {
+		return nil, err
+	}
+	return &searchLoad{
+		drivers: drivers, token: workspace.Actors[0].Token, entry: workspace.Slug,
+		options: options, queries: queries, stats: &searchLoadStats{},
+	}, nil
 }
 
 func validateSearchLoadOptions(options SearchLoadOptions) error {
@@ -108,6 +131,9 @@ func validateSearchLoadOptions(options SearchLoadOptions) error {
 	}
 	if options.Commit && options.Rate == 0 {
 		return errors.New("qa datagen search-load: rate must be positive with --commit")
+	}
+	if len(options.Endpoints) > 0 && options.Client == nil {
+		return errors.New("qa datagen search-load: endpoints require an HTTP client")
 	}
 	return nil
 }
@@ -130,6 +156,7 @@ func (l *searchLoad) run(scheduleContext, callContext context.Context, planned i
 			continue
 		}
 		query := l.queries.text(sent)
+		driver := l.drivers[sent%len(l.drivers)]
 		distinct[query] = struct{}{}
 		sent++
 		inFlight.Add(1)
@@ -142,7 +169,7 @@ func (l *searchLoad) run(scheduleContext, callContext context.Context, planned i
 					l.stats.record(0, errSearchLoadPanic)
 				}
 			}()
-			l.send(callContext, query)
+			l.send(callContext, driver, query)
 		}()
 	}
 	inFlight.Wait()
@@ -165,8 +192,8 @@ func waitForSearchLoadStart(ctx context.Context, startAt time.Time) bool {
 	}
 }
 
-func (l *searchLoad) send(ctx context.Context, query string) {
+func (l *searchLoad) send(ctx context.Context, driver *Driver, query string) {
 	requestStarted := clock.Now()
-	_, err := callSearch(ctx, l.driver, l.token, l.entry, query, "")
+	_, err := callSearch(ctx, driver, l.token, l.entry, query, "")
 	l.stats.record(clock.Now().Sub(requestStarted), err)
 }
