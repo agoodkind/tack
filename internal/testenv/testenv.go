@@ -1,10 +1,9 @@
 // Package testenv gives tests a real YugabyteDB ledger, a real FoundationDB
 // cluster, a real OpenSearch engine, and a real SeaweedFS object store. Each
-// process starts its own engines as containers with the Docker SDK. Test
-// binaries running in parallel do not share engine state. [Release] removes
-// the engines at the end of the binary's TestMain, and the signal handler
-// also removes them on SIGINT or SIGTERM. A later test process removes the
-// engines of a process that ended without cleanup. The ledger and
+// process starts its own engines as containers with the Docker SDK. [Release]
+// removes the engines at the end of the binary's TestMain, and the signal
+// handler also removes them on SIGINT or SIGTERM. A later test process removes
+// the engines of a process that ended without cleanup. The ledger and
 // FoundationDB images match the live stores in docker-compose.yml. The object
 // store uses the release pinned by the configs repository.
 //
