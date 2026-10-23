@@ -19,11 +19,15 @@ import (
 // recorded ledger verb events.
 const ledgerVerbsDeadline = 90 * time.Second
 
-// recordedLedgerVerbs are the four host-only ledger verbs. The test records
-// one row of each.
+// recordedLedgerVerbs lists the seven verbs in the seed report. Host ledger
+// commands and service jobs record these verbs. ops qa datagen cannot run
+// those commands or jobs. The test records one system-organization event per
+// verb.
 var recordedLedgerVerbs = []audit.Verb{
 	audit.VerbOpsLedgerNodePrepare, audit.VerbOpsLedgerNodeWait,
 	audit.VerbOpsLedgerBootstrapWait, audit.VerbOpsLedgerAuditBootstrap,
+	audit.VerbSearchIndexStructure, audit.VerbSearchAccessRolloutPhase,
+	audit.VerbAuditPartitionMaintain,
 }
 
 type datagenSeedLedgerVerbsOutput struct {
@@ -40,7 +44,8 @@ type datagenSeedLedgerVerbsOutput struct {
 
 // TestDatagenSeedReportsHostOnlyLedgerVerbs runs `ops qa datagen seed
 // --commit` through the audited command tree before any ledger verb row
-// exists and requires all four host-only ledger verbs listed with zero rows.
+// exists and requires the report to list all seven verbs from host ledger
+// commands and service jobs with zero rows.
 // It then records one system-organization event per verb through the
 // production Kafka recorder and the real audit consumer, seeds again, and
 // requires each verb with at least one row and a latest event time.
@@ -86,9 +91,9 @@ func TestDatagenSeedReportsHostOnlyLedgerVerbs(t *testing.T) {
 	}
 }
 
-// ledgerVerbRows requires the seed result to list the four host-only ledger
-// verbs, each with a latest event time when it has rows, and returns the row
-// count of each.
+// ledgerVerbRows checks that the seed result lists exactly the verbs in
+// recordedLedgerVerbs. It requires a latest event time for each verb with rows
+// and returns each verb's row count.
 func ledgerVerbRows(t *testing.T, output datagenSeedLedgerVerbsOutput) map[string]int64 {
 	t.Helper()
 	rows := map[string]int64{}
@@ -100,7 +105,7 @@ func ledgerVerbRows(t *testing.T, output datagenSeedLedgerVerbsOutput) map[strin
 	}
 	for _, verb := range recordedLedgerVerbs {
 		if _, listed := rows[string(verb)]; !listed || len(rows) != len(recordedLedgerVerbs) {
-			t.Fatalf("ledger verbs = %+v, want the four host-only ledger verbs", output.Result.LedgerVerbs.Verbs)
+			t.Fatalf("ledger verbs = %+v, want the seven verbs from host ledger commands and service jobs", output.Result.LedgerVerbs.Verbs)
 		}
 	}
 	return rows
