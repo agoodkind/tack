@@ -143,12 +143,29 @@ func marshalOutboxEvent(ctx context.Context, event Event) ([]byte, error) {
 // creation time, and without the tie-break the drain order would vary between
 // runs over the same data.
 func (o *PoolOutbox) ReadBatch(ctx context.Context, limit int) ([]OutboxRow, error) {
-	rows, err := o.pool.Query(ctx, `
-		SELECT event_id, event
-		  FROM public.ops_outbox
-		 ORDER BY created_at ASC, event_id ASC
-		 LIMIT $1
-	`, limit)
+	var batch []OutboxRow
+	err := pgx.BeginTxFunc(ctx, o.pool, pgx.TxOptions{AccessMode: pgx.ReadOnly}, func(tx pgx.Tx) error {
+		var readErr error
+		batch, readErr = readOutboxRows(ctx, tx, `
+			SELECT event_id, event
+			  FROM public.ops_outbox
+			 ORDER BY created_at ASC, event_id ASC
+			 LIMIT $1
+		`, limit)
+		return readErr
+	})
+	if err != nil {
+		slog.ErrorContext(ctx, "audit.outbox.read_failed", slog.String("err", err.Error()))
+		return nil, fmt.Errorf("read ops outbox batch: %w", err)
+	}
+	return batch, nil
+}
+
+// readOutboxRows executes statement with limit in tx and decodes the selected
+// outbox rows. For multipart events, it reads parts in part_index order and
+// appends the manifest.
+func readOutboxRows(ctx context.Context, tx pgx.Tx, statement string, limit int) ([]OutboxRow, error) {
+	rows, err := tx.Query(ctx, statement, limit)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.outbox.read_query_failed", slog.String("err", err.Error()))
 		return nil, fmt.Errorf("read ops outbox: %w", err)
@@ -185,7 +202,7 @@ func (o *PoolOutbox) ReadBatch(ctx context.Context, limit int) ([]OutboxRow, err
 		if len(row.Messages) == 0 {
 			continue
 		}
-		messages, err := o.outboxPartMessages(ctx, row.EventID, row.Messages[0])
+		messages, err := outboxPartMessages(ctx, tx, row.EventID, row.Messages[0])
 		if err != nil {
 			return nil, err
 		}

@@ -189,6 +189,10 @@ func (r *Relay) yugabyteLoop(ctx context.Context) {
 // drops a duplicate event id, while a deletion before acceptance would lose an
 // audit event outright.
 func (r *Relay) drainYugabyte(ctx context.Context) {
+	if claimer, ok := r.yugabyte.(claimingOutbox); ok {
+		r.drainClaimed(ctx, claimer)
+		return
+	}
 	batch, err := r.yugabyte.ReadBatch(ctx, r.batchSize)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.relay.yugabyte_read_failed", slog.String("err", err.Error()))
