@@ -23,6 +23,24 @@ func FreshFoundationDB(t *testing.T) string {
 	return cluster
 }
 
+// ConfigureFoundationDB runs command through fdbcli inside the container that
+// serves cluster. It fails the test if Docker client creation or the command
+// fails.
+func ConfigureFoundationDB(t *testing.T, cluster, command string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), provisionTimeout)
+	defer cancel()
+	cli, err := dockerClient(ctx)
+	if err != nil {
+		t.Fatalf("Docker client creation failed; expected a client for FoundationDB configuration: %v", err)
+	}
+	defer func() { _ = cli.Close() }()
+	output, exitCode, err := fdbcli(ctx, cli, FoundationDBContainer(cluster), command)
+	if err != nil || exitCode != 0 {
+		t.Fatalf("fdbcli did not complete successfully; expected exit code 0; command %q exit %d: %v\n%s", command, exitCode, err, output)
+	}
+}
+
 // removeFoundationDBAfterTest removes one test-owned cluster container and its
 // cluster-file directory when the test ends.
 func removeFoundationDBAfterTest(t *testing.T, cluster string) {
