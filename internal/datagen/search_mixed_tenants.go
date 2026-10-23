@@ -71,7 +71,7 @@ func (m *searchMixed) newSearchMixedLoads(ctx context.Context, plannedSearches i
 			return err
 		}
 		m.loads = append(m.loads, &searchLoad{
-			driver: m.driver(index), token: tenant.token(), entry: tenant.entry(),
+			drivers: []*Driver{m.driver(index)}, token: tenant.token(), entry: tenant.entry(),
 			options: SearchLoadOptions{
 				Seed: m.options.Seed, Rate: rate, Duration: m.options.Duration,
 				Concurrency: share(m.options.Concurrency, count, index), Commit: true,
