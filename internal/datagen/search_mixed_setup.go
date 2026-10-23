@@ -86,6 +86,9 @@ func (m *searchMixed) prepare(ctx context.Context, plannedSearches int) error {
 		return fmt.Errorf("qa datagen search-mixed: scale %s created %d tenants; the run requires %d tenants and more than %d actors in the first tenant",
 			searchMixedScale, len(m.tenants), searchMixedMinimumTenants, revokedActorIndex)
 	}
+	if m.options.Concurrency < len(m.tenants) {
+		return fmt.Errorf("qa datagen search-mixed: concurrency %d is less than the tenant count %d; set --concurrency to at least the tenant count", m.options.Concurrency, len(m.tenants))
+	}
 	if err := m.createProjects(ctx); err != nil {
 		return err
 	}
