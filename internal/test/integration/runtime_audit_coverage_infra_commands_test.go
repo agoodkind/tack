@@ -104,6 +104,11 @@ func addInfrastructureCommandCases(cases map[string]coverageCase) {
 		failingCommandCase(audit.VerbOpsSearchVerify, audit.OutcomeOK, fixedCommand("ops", "search", "verify")),
 		commandCase(audit.VerbOpsSearchVerify, audit.OutcomeOK, fixedCommand("ops", "search", "verify")),
 	)
+	// The rollback refuses an organization without a rollout in progress.
+	cases["command ops search access-rollback"] = failingCommandCase(audit.VerbOpsSearchAccessRollback, audit.OutcomeError,
+		func(_ *testing.T, env *coverageEnv) commandInput {
+			return commandInput{args: []string{"ops", "search", "access-rollback", "--authority", env.server.orgID.String()}, configure: nil, outbox: nil}
+		})
 	cases["command ops deploy verify"] = coverageCase{
 		run: func(t *testing.T, env *coverageEnv) coverageEvidence {
 			fixture := integration.StartContainerdDeployFixture(t)
