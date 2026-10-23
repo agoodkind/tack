@@ -55,15 +55,13 @@ func TestRuntimeAuditScaling(t *testing.T) {
 	for _, instances := range scalingInstanceCounts {
 		results = append(results, runScalingWorkload(t, strconv.Itoa(instances), instances, 0))
 	}
-	results = append(results, runScalingWorkload(t, scalingTakeoverLabel, scalingTakeoverInstances, scalingCrashAfter))
 	baseline := results[0]
 	for _, result := range results[1:] {
-		if result.requests != baseline.requests || result.ledgerEvents != baseline.ledgerEvents {
-			t.Errorf("The workload recorded different request or ledger event counts from the expected one-instance baseline with %s instances: %d requests %d events; 1 instance: %d requests %d events",
-				result.label, result.requests, result.ledgerEvents, baseline.requests, baseline.ledgerEvents)
-		}
-		requireFlatBroker(t, baseline, result)
+		requireScalingRun(t, baseline, result, 0)
 	}
+	takeover := runScalingWorkload(t, scalingTakeoverLabel, scalingTakeoverInstances, scalingCrashAfter)
+	requireScalingRun(t, baseline, takeover, scalingRelayBatch)
+	results = append(results, takeover)
 	var table strings.Builder
 	table.WriteString("\nThe table compares MCP workload and audit recovery measurements across app instance counts.\n\nScaling results:\n| Instances | Requests | Ledger events | Throughput (requests/s) | Latency (50th percentile) | Latency (95th percentile) | Latency (99th percentile) | Outbox entries | Audit recovery time | Ledger row bytes | Broker records | Broker bytes | Index bytes | FoundationDB key and value bytes |\n")
 	table.WriteString("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n")
@@ -71,4 +69,16 @@ func TestRuntimeAuditScaling(t *testing.T) {
 		table.WriteString(result.row())
 	}
 	t.Log(table.String())
+}
+
+// requireScalingRun requires result to match the request and ledger event
+// counts of baseline and to keep broker records and bytes within the
+// requireFlatBroker limits.
+func requireScalingRun(t *testing.T, baseline, result scalingResult, takeoverRecords int64) {
+	t.Helper()
+	if result.requests != baseline.requests || result.ledgerEvents != baseline.ledgerEvents {
+		t.Errorf("The workload recorded different request or ledger event counts from the expected one-instance baseline with %s instances: %d requests %d events; 1 instance: %d requests %d events",
+			result.label, result.requests, result.ledgerEvents, baseline.requests, baseline.ledgerEvents)
+	}
+	requireFlatBroker(t, baseline, result, takeoverRecords)
 }

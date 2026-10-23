@@ -23,8 +23,7 @@ const (
 	// scalingLeaseDuration sets the FoundationDB lease duration for the scaling
 	// relays.
 	scalingLeaseDuration = 2 * time.Second
-	// scalingTakeoverLabel labels the crash run and enables its extra batch
-	// allowance.
+	// scalingTakeoverLabel labels the crash run.
 	scalingTakeoverLabel = "2 with a relay crash"
 	// scalingTakeoverInstances sets the app instance count for the relay crash
 	// run.
@@ -120,13 +119,11 @@ func (run *scalingRun) openRelay(t *testing.T, topic string, afterProduce func(c
 
 // requireFlatBroker checks broker record counts against both outbox backlogs
 // and broker bytes against the one-instance run. It allows YugabyteDB
-// duplicates from extra relays and one additional relay batch in the crash run.
-func requireFlatBroker(t *testing.T, baseline, result scalingResult) {
+// duplicates from extra relays and takeoverRecords records that a relay
+// takeover republishes.
+func requireFlatBroker(t *testing.T, baseline, result scalingResult, takeoverRecords int64) {
 	t.Helper()
-	extraRecords := result.yugabyteBacklog * int64(result.instances-1)
-	if result.label == scalingTakeoverLabel {
-		extraRecords += scalingRelayBatch
-	}
+	extraRecords := result.yugabyteBacklog*int64(result.instances-1) + takeoverRecords
 	published := int64(result.backlog) + result.yugabyteBacklog
 	if result.brokerRecords < published || result.brokerRecords > published+extraRecords {
 		t.Errorf("The broker record count is outside the expected range for run %s: %d records for %d FoundationDB and %d YugabyteDB outbox entries; allowed extra %d",
