@@ -15,20 +15,14 @@ import (
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 	opensearch "github.com/opensearch-project/opensearch-go/v4"
 	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
-	"github.com/spf13/cobra"
 
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/adapters/search"
-	"goodkind.io/tack/internal/audit"
-	"goodkind.io/tack/internal/cli"
-	"goodkind.io/tack/internal/clispec"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/datagen"
-	"goodkind.io/tack/internal/ops"
 	appruntime "goodkind.io/tack/internal/runtime"
 	"goodkind.io/tack/internal/test/integration"
 	"goodkind.io/tack/internal/testenv"
@@ -106,6 +100,7 @@ func newCohortEngines(t *testing.T) *config.Config {
 	} {
 		t.Setenv(name, value)
 	}
+	integration.ConfigureSearchMaintenance(t, engine)
 	prefix := []byte("search-cohort-test:" + uuid.Must(uuid.NewV7()).String() + ":")
 	fdbadapter.SetTestPrefix(prefix)
 	t.Cleanup(func() { clearCohortPrefix(t, cluster, prefix) })
@@ -158,29 +153,7 @@ func runCohortCommand(t *testing.T, cfg *config.Config, seed int64, flags ...str
 
 func runDatagenSearchCommand(t *testing.T, cfg *config.Config, flags ...string) ([]byte, error) {
 	t.Helper()
-	var output bytes.Buffer
-	factory := cli.System(cfg)
-	factory.Out = &output
-	pool, err := pgxpool.New(integration.WithTestOperation(t, t.Context()), cfg.DatabaseURL)
-	if err != nil {
-		t.Fatalf("open ledger pool: %v", err)
-	}
-	t.Cleanup(pool.Close)
-	factory.SetAuditOutbox(audit.NewPoolOutbox(pool))
-	t.Cleanup(factory.CloseAuditOutbox)
-	registry := clispec.NewRegistry()
-	ops.RegisterCommands(registry, factory)
-	root := &cobra.Command{Use: "tack", SilenceErrors: true, SilenceUsage: true}
-	factory.RegisterGlobalFlags(root)
-	for _, command := range clispec.RenderCobra(registry, factory) {
-		root.AddCommand(command)
-	}
-	factory.SetOperatorIdentitySource(cli.NewOperatorSource(factory))
-	root.SetArgs(append([]string{
-		"--execute", "--output", "json", "--operator-id", "019dd226-440e-729a-a442-281aaf73ca30", "--operator-email", "operator@example.com", "--operator-name", "Search Test", "ops", "qa", "datagen", "search",
-	}, flags...))
-	err = root.ExecuteContext(t.Context())
-	return output.Bytes(), err
+	return runAuditedCommand(t, cfg, append([]string{"ops", "qa", "datagen", "search"}, flags...)...)
 }
 
 func clearCohortPrefix(t *testing.T, cluster string, prefix []byte) {
