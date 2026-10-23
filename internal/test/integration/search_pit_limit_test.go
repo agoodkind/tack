@@ -14,8 +14,9 @@ import (
 )
 
 const (
-	// pitLimitSessions counts the search sessions the test opens before checking rejection at the limit.
-	// The test sets the limit to the initial open context count plus pitLimitSessions.
+	// pitLimitSessions is both the search.max_open_pit_context limit and the number of search
+	// sessions the test opens before the search that must fail. The test closes every open
+	// point in time on the engine before setting the limit.
 	pitLimitSessions = 2
 	// pitLimitCorpusNodes is the matching node count, which exceeds the first page's limit of 25 results.
 	// Each first page returns a cursor, and its session keeps its point in time open.
@@ -30,14 +31,14 @@ const (
 	pitLimitUnavailableText = "Search is temporarily unavailable."
 )
 
-// TestSearchPointInTimeLimitReturnsUnavailable checks tack_search at the point-in-time context limit.
-// The test uses the public MCP tool with real FoundationDB and OpenSearch.
-// It indexes the matching nodes, reads the initial open context count from OpenSearch node stats,
-// and sets search.max_open_pit_context to that count plus pitLimitSessions.
-// It opens searches that each return a cursor and keep their point in time open, then requires
-// the open context count to equal the limit.
+// TestSearchPointInTimeLimitReturnsUnavailable checks limit exhaustion through the public
+// tack_search MCP tool with real FoundationDB and OpenSearch. It indexes the matching nodes,
+// then closes every point in time that earlier tests left open on the shared engine.
+// It sets search.max_open_pit_context to pitLimitSessions and opens pitLimitSessions searches.
+// Each search returns a cursor and keeps its point in time open.
+// The test requires the serving index to report pitLimitSessions open point-in-time contexts.
 // It requires the next new search to return pitLimitUnavailableText instead of an unexpected
-// server error, then requires a direct point-in-time request to fail with HTTP 429.
+// server error. It then requires a direct point-in-time request to fail with HTTP 429.
 // Cleanup restores the default limit for later tests in the same process.
 func TestSearchPointInTimeLimitReturnsUnavailable(t *testing.T) {
 	fixture := integration.NewQueryFixture(t)
@@ -49,14 +50,14 @@ func TestSearchPointInTimeLimitReturnsUnavailable(t *testing.T) {
 	}
 	integration.DrainSearchWork(t, fixture.Worker, pitLimitDrainSlices)
 
-	limit := openPointInTimeContexts(t, fixture) + pitLimitSessions
+	closeOpenPointsInTime(t, fixture)
 	t.Cleanup(func() {
 		if err := setPointInTimeLimit(context.WithoutCancel(integration.WithTestOperation(t, t.Context())), fixture, "null"); err != nil {
 			t.Errorf("cleanup could not restore the default point-in-time limit: %v", err)
 		}
 	})
-	if err := setPointInTimeLimit(integration.WithTestOperation(t, t.Context()), fixture, strconv.Itoa(limit)); err != nil {
-		t.Fatalf("test could not set the point-in-time limit to %d: %v", limit, err)
+	if err := setPointInTimeLimit(integration.WithTestOperation(t, t.Context()), fixture, strconv.Itoa(pitLimitSessions)); err != nil {
+		t.Fatalf("test could not set the point-in-time limit to %d: %v", pitLimitSessions, err)
 	}
 
 	for number := range pitLimitSessions {
@@ -65,8 +66,8 @@ func TestSearchPointInTimeLimitReturnsUnavailable(t *testing.T) {
 			t.Fatalf("search session %d did not return a successful page with a cursor: result count %d, cursor %q, error %v", number+1, len(page.IDs), page.Cursor, err)
 		}
 	}
-	if open := openPointInTimeContexts(t, fixture); open != limit {
-		t.Fatalf("open point-in-time context count %d does not equal the limit %d", open, limit)
+	if open := servingIndexPointInTimeContexts(t, fixture); open != pitLimitSessions {
+		t.Fatalf("open point-in-time context count %d does not equal the limit %d", open, pitLimitSessions)
 	}
 
 	_, err := integration.TrySearch(fixture.Harness, pitLimitQuery, "")
@@ -93,23 +94,47 @@ func requireDirectPointInTimeRejected(t *testing.T, fixture integration.QueryFix
 	}
 }
 
-// openPointInTimeContexts sums point_in_time_current across all OpenSearch nodes.
-// OpenSearch counts one context per shard that a point in time opens, the unit that
-// search.max_open_pit_context limits.
-func openPointInTimeContexts(t *testing.T, fixture integration.QueryFixture) int {
+// closeOpenPointsInTime lists every open point in time on the engine and deletes them.
+// Earlier tests in the same process can leave sessions with open points in time.
+// OpenSearch counts those contexts against search.max_open_pit_context.
+// After this function returns, the engine does not have any open point-in-time contexts.
+func closeOpenPointsInTime(t *testing.T, fixture integration.QueryFixture) {
 	t.Helper()
-	stats, err := fixture.Client.Nodes.Stats(integration.WithTestOperation(t, t.Context()), &opensearchapi.NodesStatsReq{
-		IndexMetric: []string{"search"}, Metric: []string{"indices"}, NodeID: nil, Header: nil,
-		Params: opensearchapi.NodesStatsParams{},
+	listed, err := fixture.Client.PointInTime.Get(integration.WithTestOperation(t, t.Context()), &opensearchapi.PointInTimeGetReq{
+		Header: nil, Params: opensearchapi.PointInTimeGetParams{},
 	})
-	if err != nil || len(stats.Nodes) == 0 {
-		t.Fatalf("node stats request failed or did not return any OpenSearch nodes: %v", err)
+	if err != nil {
+		t.Fatalf("listing open points in time failed: %v", err)
 	}
-	total := 0
-	for _, node := range stats.Nodes {
-		total += node.Indices.Search.PointInTimeCurrent
+	identifiers := make([]string, 0, len(listed.Pits))
+	for _, pit := range listed.Pits {
+		identifiers = append(identifiers, pit.PitID)
 	}
-	return total
+	if len(identifiers) == 0 {
+		return
+	}
+	_, err = fixture.Client.PointInTime.Delete(integration.WithTestOperation(t, t.Context()), opensearchapi.PointInTimeDeleteReq{
+		PitID: identifiers, Header: nil, Params: opensearchapi.PointInTimeDeleteParams{},
+	})
+	if err != nil {
+		t.Fatalf("deleting %d open points in time failed: %v", len(identifiers), err)
+	}
+}
+
+// servingIndexPointInTimeContexts returns point_in_time_current from the index stats
+// of the fixture's serving index. These stats count the contexts of that index's live shards.
+// The test does not read node stats. Node stats also add point_in_time_current from each
+// shard that closed while a point in time was open, including shards of indexes that earlier
+// tests deleted.
+func servingIndexPointInTimeContexts(t *testing.T, fixture integration.QueryFixture) int {
+	t.Helper()
+	stats, err := fixture.Client.Indices.Stats(integration.WithTestOperation(t, t.Context()), &opensearchapi.IndicesStatsReq{
+		Indices: []string{fixture.Index}, Metrics: []string{"search"}, Header: nil, Params: opensearchapi.IndicesStatsParams{},
+	})
+	if err != nil {
+		t.Fatalf("reading index stats for %s failed: %v", fixture.Index, err)
+	}
+	return stats.All.Total.Search.PointInTimeCurrent
 }
 
 // setPointInTimeLimit writes search.max_open_pit_context as a persistent cluster setting.
