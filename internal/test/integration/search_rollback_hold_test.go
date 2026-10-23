@@ -13,8 +13,8 @@ const (
 	// overflowGrantNodes is the number of nodes the overflow test moves
 	// during the affected pass. This count exceeds affectedSetBound.
 	overflowGrantNodes = 260
-	// affectedSetBound is the production bound on the affected
-	// set. The overflow test exceeds this bound.
+	// affectedSetBound is the number of nodes one affected pass step verifies
+	// in production. The overflow test records more nodes than this number.
 	affectedSetBound = 256
 	// heldAccessLease is the lease duration for an access work claim that a test
 	// keeps.

@@ -101,14 +101,14 @@ func TestSearchAccessRolloutGrantDuringVerification(t *testing.T) {
 	requirePageVersions(t, rolloutPages(t, fixture, nodes), []string{searchaccess.RotatedVersion})
 }
 
-// TestSearchAccessRolloutAffectedOverflow creates 260 nodes
-// under one entry point before the rollout. During the affected pass, it
-// moves every node to a second entry point of the same organization. The
-// moves must record more than 256 nodes in the affected set. The next step
-// must end the affected pass and restart verification at the first page
-// without leaving verifying or changing the rollout generation. The restart
-// must clear the affected set. The rollout must then finish with only the
-// rotated version on every page.
+// TestSearchAccessRolloutAffectedOverflow creates 260 nodes under one entry
+// point before the rollout and moves them to a second entry point of the
+// same organization during the affected pass. It requires the affected set
+// to contain more than 256 nodes. Each step before activation must keep the
+// rollout in verifying and in the affected pass at the same generation. At
+// activation, every page of every moved node must store both versions and
+// the new entry point keys for both versions. The rollout must then finish
+// with only the rotated version on every page.
 func TestSearchAccessRolloutAffectedOverflow(t *testing.T) {
 	fixture := newRolloutFixture(t)
 	first, second := sameOrganizationWorkspaces(t, fixture)
@@ -126,17 +126,26 @@ func TestSearchAccessRolloutAffectedOverflow(t *testing.T) {
 	if affected := affectedNodes(t, fixture, first.OrgID); len(affected.Nodes) <= affectedSetBound {
 		t.Fatalf("Affected set size %d after the moves must exceed the bound of %d", len(affected.Nodes), affectedSetBound)
 	}
-	restarted := runRolloutUntil(t, fixture, first.OrgID, func(rollout searchdomain.AccessRollout) bool {
-		if rollout.Activated() || rollout.Phase != searchdomain.AccessVerifying {
-			t.Fatalf("Rollout %+v activated or left verifying before overflow restarted verification", rollout)
+	activated := runRolloutUntil(t, fixture, first.OrgID, func(rollout searchdomain.AccessRollout) bool {
+		if rollout.Activated() {
+			return true
 		}
-		return !rollout.AffectedPass
+		if !rollout.AffectedPass || rollout.Phase != searchdomain.AccessVerifying || rollout.Generation != begun.Generation {
+			t.Fatalf("Rollout %+v must keep its generation through activation and remain in verifying and in the affected pass until activation", rollout)
+		}
+		return false
 	})
-	if restarted.VerifyCursor != "" || restarted.Generation != begun.Generation {
-		t.Fatalf("Restarted rollout %+v must begin verification at the first page and keep its generation", restarted)
+	if activated.Generation != begun.Generation {
+		t.Fatalf("Rollout %+v must keep its generation through activation and remain in verifying and in the affected pass until activation", activated)
 	}
-	if affected := affectedNodes(t, fixture, first.OrgID); len(affected.Nodes) != 0 {
-		t.Fatalf("Verification must restart with an empty affected set instead of %+v", affected)
+	expected := make(map[uuid.UUID][]string, len(nodes))
+	for _, nodeID := range nodes {
+		expected[nodeID] = expectedAccessKeys(t, fixture, first.OrgID, nodeID)
+	}
+	for _, page := range rolloutPages(t, fixture, nodes) {
+		if !slices.Equal(page.Access.Versions, bothAccessVersions) || !slices.Equal(page.Access.Keys, expected[page.NodeID]) {
+			t.Fatalf("Page %s of node %s must store both versions and their new entry point keys at activation: access=%+v, wanted keys=%v", page.ID, page.NodeID, page.Access, expected[page.NodeID])
+		}
 	}
 
 	final := runRolloutUntil(t, fixture, first.OrgID, rolloutStable)

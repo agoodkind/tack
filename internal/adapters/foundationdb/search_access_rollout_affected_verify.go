@@ -4,30 +4,41 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"time"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/google/uuid"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 )
 
-// affectedDocuments reads at most limit issued documents of the first node
-// in the affected set after the verification cursor.
+// affectedDocuments reads issued pages of the first nodes in the affected
+// set in key order and returns at most limit documents. It starts after the
+// verification cursor for the first node and reads at most limit plus one
+// documents.
 func (s *SearchAccessRolloutStore) affectedDocuments(ctx context.Context, work searchdomain.Work, read searchdomain.AccessRollout, limit int) ([]searchdomain.RolloutDocument, bool, error) {
 	var items []fdb.KeyValue
 	err := transactSearch(ctx, s.db, func(tr fdb.Transaction) error {
 		items = nil
-		nodes, err := readRolloutAffected(ctx, tr, work.OrgID, read.Generation, 1)
-		if err != nil || len(nodes) == 0 {
-			return err
-		}
-		keyRange, begin, err := affectedPageRange(ctx, work.OrgID, nodes[0], read.VerifyCursor)
+		nodes, err := readRolloutAffected(ctx, tr, work.OrgID, read.Generation, searchRolloutAffectedLimit)
 		if err != nil {
 			return err
 		}
-		items, err = tr.GetRange(fdb.SelectorRange{Begin: begin, End: fdb.FirstGreaterOrEqual(keyRange.End)}, fdb.RangeOptions{Limit: limit + 1}).GetSliceWithError()
-		if err != nil {
-			return searchReadFailure(ctx, "read issued documents of affected node "+nodes[0].String(), err)
+		for position, nodeID := range nodes {
+			if len(items) > limit {
+				return nil
+			}
+			cursor := ""
+			if position == 0 {
+				cursor = read.VerifyCursor
+			}
+			keyRange, begin, rangeErr := affectedPageRange(ctx, work.OrgID, nodeID, cursor)
+			if rangeErr != nil {
+				return rangeErr
+			}
+			page, readErr := tr.GetRange(fdb.SelectorRange{Begin: begin, End: fdb.FirstGreaterOrEqual(keyRange.End)}, fdb.RangeOptions{Limit: limit + 1 - len(items)}).GetSliceWithError()
+			if readErr != nil {
+				return searchReadFailure(ctx, "read issued documents of affected node "+nodeID.String(), readErr)
+			}
+			items = append(items, page...)
 		}
 		return nil
 	})
@@ -65,101 +76,4 @@ func affectedPageRange(ctx context.Context, orgID, nodeID uuid.UUID, cursor stri
 		begin = fdb.FirstGreaterThan(fdb.Key(lastKey))
 	}
 	return keyRange, begin, nil
-}
-
-// completeAffected runs one affected pass step. If the set exceeds the
-// bound, it restarts the full verification pass and returns the set size. An
-// empty set activates the candidate and stops collection. Otherwise, it
-// verifies the first node.
-func completeAffected(
-	ctx context.Context,
-	tr fdb.Transaction,
-	work searchdomain.Work,
-	record *searchRolloutRecord,
-	documents []searchdomain.RolloutDocument,
-	states map[string]searchdomain.DocumentAccess,
-	now time.Time,
-) (searchdomain.RolloutStep, int, error) {
-	nodes, err := readRolloutAffected(ctx, tr, work.OrgID, record.Generation, searchRolloutAffectedLimit+1)
-	if err != nil {
-		return searchdomain.RolloutContinue, 0, err
-	}
-	if len(nodes) > searchRolloutAffectedLimit {
-		record.AffectedPass, record.VerifyCursor = false, ""
-		return searchdomain.RolloutContinue, len(nodes), clearRolloutAffected(ctx, tr, work.OrgID, record.Generation)
-	}
-	if len(nodes) == 0 {
-		record.PreviousVersion, record.ActiveVersion = record.ActiveVersion, record.CandidateVersion
-		record.AffectedPass, record.VerifyCursor = false, ""
-		return searchdomain.RolloutContinue, 0, stopRolloutCollecting(ctx, tr, work.OrgID, record.Generation)
-	}
-	step, err := verifyAffectedNode(ctx, tr, work, record, nodes[0], documents, states, now)
-	return step, 0, err
-}
-
-// verifyAffectedNode waits for pending page work to finish. It removes a
-// node that no longer resolves. For a node that still resolves, it verifies
-// one batch of pages and removes the node after its last page passes.
-func verifyAffectedNode(
-	ctx context.Context,
-	tr fdb.Transaction,
-	work searchdomain.Work,
-	record *searchRolloutRecord,
-	nodeID uuid.UUID,
-	documents []searchdomain.RolloutDocument,
-	states map[string]searchdomain.DocumentAccess,
-	now time.Time,
-) (searchdomain.RolloutStep, error) {
-	for _, document := range documents {
-		if document.NodeID != nodeID {
-			record.VerifyCursor = ""
-			return searchdomain.RolloutContinue, nil
-		}
-	}
-	nodeState, err := readRolloutNodeState(ctx, tr, work.OrgID, nodeID)
-	if err != nil {
-		return searchdomain.RolloutContinue, err
-	}
-	if nodeState.pending {
-		return searchdomain.RolloutWait, nil
-	}
-	resolved, err := tr.Get(fdb.Key(nodeResolveKey(nodeID))).Get()
-	if err != nil {
-		return searchdomain.RolloutContinue, searchReadFailure(ctx, "read node resolution of affected node "+nodeID.String(), err)
-	}
-	if len(resolved) == 0 {
-		removeRolloutAffected(tr, work.OrgID, record.Generation, nodeID)
-		record.VerifyCursor = ""
-		return searchdomain.RolloutContinue, nil
-	}
-	stale, err := staleRolloutNodes(ctx, tr, work.OrgID, documents, states, record.WriteVersions)
-	if err != nil {
-		return searchdomain.RolloutContinue, err
-	}
-	if len(stale) > 0 {
-		return searchdomain.RolloutWait, scheduleRolloutRepairs(ctx, tr, now, work.OrgID, stale)
-	}
-	cursor := record.VerifyCursor
-	if len(documents) > 0 {
-		last := documents[len(documents)-1]
-		cursor = base64.RawURLEncoding.EncodeToString(searchIssuedKey(work.OrgID, nodeID, last.Document.Revision, last.Document.Ordinal, last.Document.Projection))
-	}
-	keyRange, begin, err := affectedPageRange(ctx, work.OrgID, nodeID, cursor)
-	if err != nil {
-		return searchdomain.RolloutContinue, err
-	}
-	more, err := tr.GetRange(fdb.SelectorRange{Begin: begin, End: fdb.FirstGreaterOrEqual(keyRange.End)}, fdb.RangeOptions{Limit: 1}).GetSliceWithError()
-	if err != nil {
-		return searchdomain.RolloutContinue, searchReadFailure(ctx, "read issued documents of affected node "+nodeID.String(), err)
-	}
-	if len(more) > 0 {
-		record.VerifyCursor = cursor
-		if len(documents) == 0 {
-			record.VerifyCursor = ""
-		}
-		return searchdomain.RolloutContinue, nil
-	}
-	removeRolloutAffected(tr, work.OrgID, record.Generation, nodeID)
-	record.VerifyCursor = ""
-	return searchdomain.RolloutContinue, nil
 }

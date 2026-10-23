@@ -15,6 +15,7 @@ import (
 // rolloutPage represents one page document read from OpenSearch.
 type rolloutPage struct {
 	ID               string          `json:"-"`
+	NodeID           uuid.UUID       `json:"node_id"`
 	NodeRevision     string          `json:"node_revision"`
 	PageText         *string         `json:"page_text"`
 	SearchGeneration json.Number     `json:"search_generation"`

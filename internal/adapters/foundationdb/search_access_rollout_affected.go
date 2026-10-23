@@ -13,8 +13,8 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// searchRolloutAffectedLimit is the largest affected set the affected pass
-// verifies node by node. A larger set restarts the full verification pass.
+// searchRolloutAffectedLimit is the largest number of affected nodes one
+// affected pass step verifies.
 const searchRolloutAffectedLimit = 256
 
 const (
@@ -80,7 +80,7 @@ func recordRolloutAffected(ctx context.Context, tr fdb.Transaction, orgID, nodeI
 	}
 	generation, err := unpackCounter(ctx, encoded)
 	if err != nil {
-		return err
+		return searchReadFailure(ctx, "decode affected node collection of authority "+orgID.String(), err)
 	}
 	tr.Set(fdb.Key(searchRolloutAffectedKey(orgID, generation, nodeID)), rolloutAffectedPresent)
 	tr.Add(fdb.Key(searchRolloutAffectedCountKey(orgID, generation)), rolloutAffectedIncrement)
