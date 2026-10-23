@@ -29,5 +29,31 @@
   "edit_after": "teal compass",
   "deleted": "obsidian harbor clocktower",
   "continuation": "velvet harbor lantern",
-  "created_through_mcp": "ultramarine orchard ledger"
+  "created_through_mcp": "ultramarine orchard ledger",
+  "warning": {
+    "name": "cobalt sundial almanac",
+    "valid": "juniper canal beacon",
+    "invalid": "tangerine glacier whistle"
+  },
+  "relevance_probe": {
+    "target": {
+      "name": "Stagger container engine restarts across worker hosts",
+      "text": "The maintenance playbook restarted the container engine on every worker host in a single step. All services stopped at the same time. Change the restart handler to restart the engine on one host, wait for that host to report its services healthy, and then continue with the next host."
+    },
+    "distractors": [
+      {"name": "Bump the Docker base image of the build container", "text": "Dependabot proposes a newer pinned digest for the Docker base image of the build container. Review the changelog before merging the update."},
+      {"name": "Container restart policy ignores out of memory exits", "text": "The compose file sets restart unless-stopped. The worker container stays down after the kernel stops it for memory pressure."},
+      {"name": "Rotate container logs before the disk fills", "text": "The json-file logging driver keeps every container log without a size limit. Configure log rotation for each busy service."},
+      {"name": "Restart the metrics exporter after a configuration change", "text": "The metrics exporter reads its configuration only at startup. A changed scrape target takes effect after the next exporter restart."},
+      {"name": "Run database migrations one by one in release order", "text": "The release script applies every pending migration in a single transaction. Apply each migration separately in release order and record the result of each one."},
+      {"name": "Invoice numbers skip values after a crash", "text": "Sequential invoice numbering leaves gaps when the billing service crashes between reserving a number and saving the invoice."},
+      {"name": "Roll back the web frontend to the previous release", "text": "The new frontend release breaks the checkout page on older browsers. Roll back the deployment while the team prepares a fix."},
+      {"name": "Docker Desktop port forwarding drops long connections", "text": "On developer laptops, Docker Desktop closes forwarded TCP connections after several idle minutes. The local database session then fails."}
+    ],
+    "queries": [
+      "restart containers one by one",
+      "rolling Docker restart",
+      "restart containers sequentially"
+    ]
+  }
 }

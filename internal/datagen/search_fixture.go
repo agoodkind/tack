@@ -36,6 +36,8 @@ type searchPhrases struct {
 	Deleted           string         `json:"deleted"`
 	Continuation      string         `json:"continuation"`
 	CreatedThroughMCP string         `json:"created_through_mcp"`
+	Warning           warningPhrases `json:"warning"`
+	Relevance         probePhrases   `json:"relevance_probe"`
 }
 
 func loadSearchPhrases(ctx context.Context) (searchPhrases, error) {
