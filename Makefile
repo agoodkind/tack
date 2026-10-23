@@ -64,13 +64,14 @@ seed:
 	go run $(GO_BUILD_FLAGS) $(CMD) seed
 
 # Tests run inside the test runner image (docker-compose.test.yml), which
-# bind-mounts the Docker socket and the source tree at the tree's host path,
-# so a path a test names in a bind mount means the same file to the daemon.
-# A test that needs FoundationDB, the ledger, or the object store
-# starts it through internal/testenv, which gives each test binary its own
-# engine containers and removes them when the binary exits; `make
-# test-env-down` removes any a killed binary left. Only `go test -short` skips
-# the store-backed tests.
+# mounts the Docker socket and the source tree at the tree's host path.
+# The runner and daemon use the same path for each source file in a bind mount.
+# A test that needs FoundationDB, the ledger, or the object store starts it
+# through internal/testenv. Each test binary has its own engine containers.
+# TestMain and the SIGINT and SIGTERM handler remove that binary's engines.
+# A later test binary's first engine start or `make test-env-down` removes
+# engines left after SIGKILL or a test timeout panic. Only `go test -short`
+# skips tests that need these stores.
 TEST_RUNNER := TACK_TEST_ROOT=$(CURDIR) docker compose -f docker-compose.test.yml --profile runner
 
 # The ops, postgres adapter, and audit packages. The audit package carries the
@@ -87,7 +88,7 @@ test-unit:
 # which needs the FoundationDB client library and a reachable Docker daemon;
 # the CI integration job runs it. test-integration runs them in the runner.
 TEST_STORE_PACKAGES := ./internal/test/integration/... ./internal/adapters/foundationdb/... \
-	./internal/audit/... ./internal/ops/... ./internal/datagen/... ./cmd/server/...
+	./internal/audit/... ./internal/ops/... ./internal/datagen/... ./cmd/server/... ./internal/testenv/...
 # The integration tag selects the audit partition tests, which need the ledger.
 TEST_STORE_ARGS := -tags integration -count=1 -timeout 30m -v $(TEST_STORE_PACKAGES)
 
@@ -159,9 +160,10 @@ test-search-group:
 	TACK_TEST_SOURCE_REVISION="$(shell git rev-parse HEAD)" TACK_SEARCH_INTEGRATION=1 $(TEST_RUNNER) run --rm tests \
 	    test -v $(SEARCH_GROUP_ARGS) ./internal/test/integration/...
 
-# Remove every engine internal/testenv or cmd/testenv started, and their
-# network. A test binary removes its own engines when it exits normally; this
-# clears what a killed binary or `go run ./cmd/testenv ledger` left running.
+# Remove the engines cmd/testenv started and the containers and networks of
+# test processes that have exited, then the shared network if containers do
+# not use it. Keep engines of running test processes and engines without
+# owner labels.
 .PHONY: test-env-down
 test-env-down:
 	go run ./cmd/testenv down
