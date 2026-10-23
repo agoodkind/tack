@@ -32,7 +32,6 @@ func runServer(ctx context.Context, cfg *config.Config) error {
 	defer graph.CloseContext(context.WithoutCancel(ctx))
 
 	mux := graph.Routes
-	registerConnectHandlers(mux, graph.AuthMiddleware)
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	slog.InfoContext(ctx, "starting server",

@@ -7,6 +7,8 @@ import (
 
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
+
+	"goodkind.io/tack/internal/ops"
 )
 
 func pullImage(t *testing.T, cli *client.Client, ref string) {
@@ -22,8 +24,9 @@ func pullImage(t *testing.T, cli *client.Client, ref string) {
 }
 
 // createFromIndex pulls ref and creates, without starting, a container named
-// name from it. The image and the container are removed when the test ends.
-func createFromIndex(t *testing.T, cli *client.Client, name, ref string) {
+// name from it with the Compose labels of service in deployComposeProject.
+// Test cleanup removes the image and container.
+func createFromIndex(t *testing.T, cli *client.Client, name, service, ref string) {
 	t.Helper()
 	pullImage(t, cli, ref)
 	t.Cleanup(func() {
@@ -35,8 +38,16 @@ func createFromIndex(t *testing.T, cli *client.Client, name, ref string) {
 		}
 		t.Logf("removed image %s", ref)
 	})
+	createServiceContainer(t, cli, name, service, ref)
+}
+
+func createServiceContainer(t *testing.T, cli *client.Client, name, service, ref string) {
+	t.Helper()
+	labels := map[string]string{
+		deployTestenvLabel: "true", ops.ComposeProjectLabel: deployComposeProject, ops.ComposeServiceLabel: service,
+	}
 	_, err := cli.ContainerCreate(t.Context(), client.ContainerCreateOptions{
-		Config: &container.Config{Image: ref, Cmd: []string{"/marker"}, Labels: map[string]string{deployTestenvLabel: "true"}},
+		Config: &container.Config{Image: ref, Cmd: []string{"/marker"}, Labels: labels},
 		Name:   name,
 	})
 	if err != nil {
