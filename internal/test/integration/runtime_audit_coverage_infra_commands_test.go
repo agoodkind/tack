@@ -14,7 +14,6 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// localTarget permits data generator writes to the local test environment.
 func localTarget(cfg *config.Config) { cfg.DatagenAllowTarget = "local" }
 
 func addBackfillCommandCases(cases map[string]coverageCase) {

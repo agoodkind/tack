@@ -164,7 +164,7 @@ func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
 		modelRepair:    modelRepairLoop{cancel: nil, loop: sync.WaitGroup{}, started: false},
 		auditReads:     newAuditReadRecovery(productReads, audit.NewPoolReadLifecycle(pool)),
 	}
-	graph.Routes = NewRoutes(requests, graph.MCPRoute, graph.healthHandler(), authMiddleware)
+	graph.Routes = NewRoutes(requests, graph.MCPRoute, graph.healthHandler())
 	return graph, nil
 }
 

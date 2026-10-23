@@ -7,6 +7,8 @@ import (
 
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
+
+	"goodkind.io/tack/internal/ops"
 )
 
 func pullImage(t *testing.T, cli *client.Client, ref string) {
@@ -45,7 +47,7 @@ func createFromIndex(t *testing.T, cli *client.Client, name, service, ref string
 func createServiceContainer(t *testing.T, cli *client.Client, name, service, ref string) {
 	t.Helper()
 	labels := map[string]string{
-		deployTestenvLabel: "true", composeProjectLabel: deployComposeProject, composeServiceLabel: service,
+		deployTestenvLabel: "true", ops.ComposeProjectLabel: deployComposeProject, ops.ComposeServiceLabel: service,
 	}
 	_, err := cli.ContainerCreate(t.Context(), client.ContainerCreateOptions{
 		Config: &container.Config{Image: ref, Cmd: []string{"/marker"}, Labels: labels},

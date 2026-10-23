@@ -88,7 +88,7 @@ func newPublicServer(t *testing.T, cfg *config.Config, store func(*appruntime.Gr
 	routes := graph.Routes
 	if store != nil {
 		recorder := mcpadapter.NewRequestRecorder(store(graph))
-		routes = appruntime.NewRoutes(recorder, recorder.MCP(graph.AuthMiddleware, graph.MCPHandler), http.NotFoundHandler(), graph.AuthMiddleware)
+		routes = appruntime.NewRoutes(recorder, recorder.MCP(graph.AuthMiddleware, graph.MCPHandler), http.NotFoundHandler())
 	}
 	workspace := identities.Workspaces[0]
 	return &publicServer{

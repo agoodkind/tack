@@ -17,20 +17,14 @@ import (
 	"goodkind.io/tack/internal/audit"
 )
 
-// topLevelCase pairs a command runner with the audit verb and outcome that the
-// operator outbox must record.
 type topLevelCase struct {
 	run     func(t *testing.T, env *topLevelEnv) uuid.UUID
 	verb    audit.Verb
 	outcome audit.Outcome
 }
 
-// serveStartedLog is the log text that runServe counts to detect server
-// startup.
 const serveStartedLog = "starting server"
 
-// topLevelHiddenAliases lists hidden command aliases that the coverage test
-// checks separately from command completion.
 var topLevelHiddenAliases = []string{"audit-export", "audit-verify", "gen-audit-key"}
 
 // TestRuntimeAuditTopLevelCoverage discovers commands through the server
@@ -73,9 +67,6 @@ func TestRuntimeAuditTopLevelCoverage(t *testing.T) {
 	}
 }
 
-// operations recursively discovers commands through completion and checks
-// hidden aliases with --help. It excludes ops, help, and completion commands
-// from discovery.
 func (env *topLevelEnv) operations(t *testing.T) []string {
 	t.Helper()
 	keys := []string{"command tack"}
@@ -102,8 +93,6 @@ func (env *topLevelEnv) operations(t *testing.T) []string {
 	return keys
 }
 
-// completions runs the server binary's __complete command for the supplied path
-// and returns command names from its output.
 func (env *topLevelEnv) completions(t *testing.T, path []string) []string {
 	t.Helper()
 	process := exec.CommandContext(t.Context(), env.binary, append(append([]string{"__complete"}, path...), "")...)
@@ -125,8 +114,6 @@ func (env *topLevelEnv) completions(t *testing.T, path []string) []string {
 	return names
 }
 
-// requireStaticHelp runs a command with unreachable database addresses and
-// requires a successful exit with "Usage:" in the output.
 func (env *topLevelEnv) requireStaticHelp(t *testing.T, key string) {
 	t.Helper()
 	process := exec.CommandContext(t.Context(), env.binary, strings.Fields(strings.TrimPrefix(key, "command tack "))...)
@@ -138,9 +125,6 @@ func (env *topLevelEnv) requireStaticHelp(t *testing.T, key string) {
 	}
 }
 
-// runServe starts the server with a new operator ID and waits for another
-// startup log entry or a one-minute deadline. It sends SIGTERM, requires a
-// successful exit, and returns the operator ID.
 func (env *topLevelEnv) runServe(t *testing.T, args ...string) uuid.UUID {
 	t.Helper()
 	operatorID := uuid.Must(uuid.NewV7())

@@ -23,8 +23,6 @@ func newCoverageFixture(t *testing.T, env *coverageEnv) *coverageFixture {
 	return fixture
 }
 
-// fixture returns the environment's test nodes and fails if initialization has
-// not created them.
 func (env *coverageEnv) fixture(t *testing.T) *coverageFixture {
 	t.Helper()
 	if env.nodes == nil {
@@ -33,8 +31,6 @@ func (env *coverageEnv) fixture(t *testing.T) *coverageFixture {
 	return env.nodes
 }
 
-// create creates a node through its MCP tool and returns the UUID from the tool
-// result.
 func (fixture *coverageFixture) create(t *testing.T, slug string) uuid.UUID {
 	t.Helper()
 	_, text := fixture.env.toolCall(t, "tack_create_"+slug, fixture.createArguments(slug))
@@ -69,8 +65,6 @@ func (fixture *coverageFixture) scopeArguments(slug string) map[string]any {
 	return arguments
 }
 
-// nodeArguments returns the workspace reference and stored node ID for the
-// given node type.
 func (fixture *coverageFixture) nodeArguments(slug string) map[string]any {
 	return map[string]any{"workspace_reference": fixture.env.server.workspace, "node_id": fixture.nodes[slug].String()}
 }

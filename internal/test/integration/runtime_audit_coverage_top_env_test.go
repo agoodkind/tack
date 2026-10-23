@@ -20,8 +20,6 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// topLevelEnv groups the server binary, process environment, ledger access, log
-// path, and test event identifiers for command coverage.
 type topLevelEnv struct {
 	binary      string
 	environment []string
@@ -32,9 +30,6 @@ type topLevelEnv struct {
 	eventID     uuid.UUID
 }
 
-// startTopLevelEnv builds the server binary and prepares a separate
-// FoundationDB cluster, ledger access, and a signing key. It configures file
-// logging and records a test actor's event for audit command cases.
 func startTopLevelEnv(t *testing.T) *topLevelEnv {
 	t.Helper()
 	ledger := testenv.Ledger(t)
@@ -57,8 +52,6 @@ func startTopLevelEnv(t *testing.T) *topLevelEnv {
 	}
 }
 
-// logCount counts occurrences of the supplied text in the server's text log. It
-// returns zero if reading the log fails.
 func (env *topLevelEnv) logCount(t *testing.T, text string) int {
 	t.Helper()
 	contents, err := os.ReadFile(env.logText)
@@ -68,9 +61,6 @@ func (env *topLevelEnv) logCount(t *testing.T, text string) int {
 	return bytes.Count(contents, []byte(text))
 }
 
-// command prepares a server process with execution enabled and the supplied
-// operator identity. It collects standard output and standard error in one
-// buffer.
 func (env *topLevelEnv) command(t *testing.T, operatorID uuid.UUID, args ...string) (*exec.Cmd, *bytes.Buffer) {
 	t.Helper()
 	process := exec.CommandContext(t.Context(), env.binary, append([]string{
@@ -83,8 +73,6 @@ func (env *topLevelEnv) command(t *testing.T, operatorID uuid.UUID, args ...stri
 	return process, &output
 }
 
-// run executes a command with a new operator ID and returns that ID, the
-// combined output, and any execution error.
 func (env *topLevelEnv) run(t *testing.T, args ...string) (uuid.UUID, string, error) {
 	t.Helper()
 	operatorID := uuid.Must(uuid.NewV7())
@@ -93,8 +81,6 @@ func (env *topLevelEnv) run(t *testing.T, args ...string) (uuid.UUID, string, er
 	return operatorID, output.String(), err
 }
 
-// recordCoverageActorEvent records a successful node read for the supplied
-// organization and actor and returns its event ID.
 func recordCoverageActorEvent(t *testing.T, ledger string, orgID, actorID uuid.UUID) uuid.UUID {
 	t.Helper()
 	recorder, err := audit.NewYBRecorder(t.Context(), ledger)
@@ -116,9 +102,6 @@ func recordCoverageActorEvent(t *testing.T, ledger string, orgID, actorID uuid.U
 	return eventID
 }
 
-// writeCoverageSigningKey generates an Ed25519 signing key and writes the
-// private key to a temporary PEM file. It returns the file path and public key
-// identifier.
 func writeCoverageSigningKey(t *testing.T) (string, string) {
 	t.Helper()
 	public, private, err := ed25519.GenerateKey(rand.Reader)

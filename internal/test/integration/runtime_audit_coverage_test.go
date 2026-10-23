@@ -14,8 +14,6 @@ import (
 	"goodkind.io/tack/internal/audit"
 )
 
-// coverageCase defines an operation to run and the audit verb and outcome it
-// must record. An optional check validates the matching ledger rows.
 type coverageCase struct {
 	run     func(t *testing.T, env *coverageEnv) coverageEvidence
 	verb    audit.Verb
@@ -23,9 +21,6 @@ type coverageCase struct {
 	check   func(t *testing.T, env *coverageEnv, rows []audit.Row)
 }
 
-// coverageEvidence identifies an operation's audit events by organization and
-// request or actor. It can override the expected outcome or select an operator
-// outbox instead of the ledger.
 type coverageEvidence struct {
 	orgID     uuid.UUID
 	requestID string
@@ -54,9 +49,6 @@ func TestRuntimeAuditCoverage(t *testing.T) {
 	}
 }
 
-// runCase executes an operation and requires its expected audit event. It uses
-// the operation's outcome override when present and runs any additional row
-// check.
 func (env *coverageEnv) runCase(t *testing.T, current coverageCase) {
 	t.Helper()
 	evidence := current.run(t, env)
@@ -70,10 +62,6 @@ func (env *coverageEnv) runCase(t *testing.T, current coverageCase) {
 	}
 }
 
-// requireCaseTables checks that each registered operation appears in exactly
-// one case, pending entry, or exclusion. It rejects entries for unregistered
-// operations and requires a case for each failureOnlyCoverage entry. It also
-// fails when a pending command starts recording an audit class.
 func requireCaseTables(t *testing.T, env *coverageEnv, operations []string, cases map[string]coverageCase, excluded map[string]coverageExclusion) {
 	t.Helper()
 	registered := map[string]bool{}
@@ -119,8 +107,6 @@ func requireCaseTables(t *testing.T, env *coverageEnv, operations []string, case
 	}
 }
 
-// coverageCases returns executable audit cases for MCP operations, HTTP routes,
-// and ops commands.
 func coverageCases() map[string]coverageCase {
 	cases := map[string]coverageCase{}
 	addMCPCases(cases)

@@ -11,12 +11,12 @@ import (
 )
 
 const (
-	// composeProjectLabel is the Docker Compose label key for a container's
+	// ComposeProjectLabel is the Docker Compose label key for a container's
 	// project.
-	composeProjectLabel = "com.docker.compose.project"
-	// composeServiceLabel is the Docker Compose label key for a container's
+	ComposeProjectLabel = "com.docker.compose.project"
+	// ComposeServiceLabel is the Docker Compose label key for a container's
 	// service.
-	composeServiceLabel = "com.docker.compose.service"
+	ComposeServiceLabel = "com.docker.compose.service"
 )
 
 // serviceReplica pairs a container and its Docker Compose service with the
@@ -35,8 +35,8 @@ func serviceReplicas(ctx context.Context, cli *client.Client, project string, ta
 	var replicas []serviceReplica
 	for _, target := range targets {
 		filters := client.Filters{}.
-			Add("label", composeProjectLabel+"="+project).
-			Add("label", composeServiceLabel+"="+target.Service)
+			Add("label", ComposeProjectLabel+"="+project).
+			Add("label", ComposeServiceLabel+"="+target.Service)
 		listed, err := cli.ContainerList(ctx, client.ContainerListOptions{All: true, Filters: filters})
 		if err != nil {
 			slog.ErrorContext(ctx, "ops.deploy.verify.replica_list_failed",

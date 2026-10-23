@@ -13,9 +13,6 @@ import (
 	"goodkind.io/tack/internal/audit"
 )
 
-// topLevelCommand creates a case that runs the supplied arguments and requires
-// a successful exit. It pairs the runner with the expected audit verb and
-// outcome.
 func topLevelCommand(verb audit.Verb, outcome audit.Outcome, args func(t *testing.T, env *topLevelEnv) []string) topLevelCase {
 	return topLevelCase{
 		run: func(t *testing.T, env *topLevelEnv) uuid.UUID {
@@ -30,8 +27,6 @@ func topLevelCommand(verb audit.Verb, outcome audit.Outcome, args func(t *testin
 	}
 }
 
-// window returns audit query arguments for the test organization and a time
-// range from one hour before to one hour after the current time.
 func (env *topLevelEnv) window() []string {
 	now := time.Now().UTC()
 	return []string{
@@ -40,16 +35,12 @@ func (env *topLevelEnv) window() []string {
 	}
 }
 
-// exportArgs adds the test organization's time range and a temporary output
-// directory to an export command.
 func exportArgs(command ...string) func(*testing.T, *topLevelEnv) []string {
 	return func(t *testing.T, env *topLevelEnv) []string {
 		return slices.Concat(command, env.window(), []string{"--out", filepath.Join(t.TempDir(), "bundle")})
 	}
 }
 
-// verifyArgs exports an audit bundle to a temporary directory and returns
-// arguments for verifying that bundle.
 func verifyArgs(command ...string) func(*testing.T, *topLevelEnv) []string {
 	return func(t *testing.T, env *topLevelEnv) []string {
 		bundle := filepath.Join(t.TempDir(), "bundle")
@@ -60,22 +51,16 @@ func verifyArgs(command ...string) func(*testing.T, *topLevelEnv) []string {
 	}
 }
 
-// keyArgs adds a temporary PEM output path to a key generation command.
 func keyArgs(command ...string) func(*testing.T, *topLevelEnv) []string {
 	return func(t *testing.T, _ *topLevelEnv) []string {
 		return slices.Concat(command, []string{filepath.Join(t.TempDir(), "generated.pem")})
 	}
 }
 
-// fixedArgs returns an argument function that uses the supplied command
-// unchanged.
 func fixedArgs(command ...string) func(*testing.T, *topLevelEnv) []string {
 	return func(*testing.T, *topLevelEnv) []string { return command }
 }
 
-// topLevelCases returns executable cases for server startup, migration,
-// seeding, audit commands, and hidden aliases with their expected audit verbs
-// and outcomes.
 func topLevelCases() map[string]topLevelCase {
 	serve := func(args ...string) topLevelCase {
 		return topLevelCase{
