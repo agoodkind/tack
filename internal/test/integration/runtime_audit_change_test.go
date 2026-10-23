@@ -99,19 +99,20 @@ func TestRuntimeAuditRelationshipReplacement(t *testing.T) {
 	if err := env.NodeSvc.AddRelationship(env.Ctx, labelEdge(env, issue.ID, label.ID, uuid.New())); err != nil {
 		t.Fatalf("add the first edge: %v", err)
 	}
-	stored := storedLabelEdge(t, env, issue.ID, label.ID)
+	stored := storedEdge(t, env, issue.ID, node.RelLabeledWith, label.ID)
 	mark := outboxTail(t, env)
 	replaceContext := integration.WithTestOperation(t, env.Ctx)
 	if err := env.NodeSvc.AddRelationship(replaceContext, labelEdge(env, issue.ID, label.ID, uuid.New())); err != nil {
 		t.Fatalf("replace the edge: %v", err)
 	}
-	replacement := storedLabelEdge(t, env, issue.ID, label.ID)
+	replacement := storedEdge(t, env, issue.ID, node.RelLabeledWith, label.ID)
 	update := requireOneEvent(t, outboxEventsAfter(t, env, mark), audit.VerbRelationshipUpdate, issue.ID)
 	requireChangeEvent(t, update, operationIDOf(t, replaceContext), integration.TestActorID)
 	requireRelationshipEvent(t, update, issue.ID, node.RelLabeledWith, label.ID)
 	requireJSONEqual(t, "replaced old value", update.Delta.Before, stored)
 	requireJSONEqual(t, "replaced new value", update.Delta.After, replacement)
 
+	epicParent := storedEdge(t, env, issue.ID, node.RelChildOf, epic.ID)
 	mark = outboxTail(t, env)
 	if _, err := env.NodeSvc.Update(env.Ctx, service.UpdateInput{
 		NodeID: issue.ID, Name: nil, Props: map[string]json.RawMessage{"parent_id": quoted(projectID.String())},
@@ -125,9 +126,16 @@ func TestRuntimeAuditRelationshipReplacement(t *testing.T) {
 	addedParent := requireOneEvent(t, moved, audit.VerbRelationshipAdd, issue.ID)
 	requireRelationshipEvent(t, removedParent, issue.ID, node.RelChildOf, epic.ID)
 	requireRelationshipEvent(t, addedParent, issue.ID, node.RelChildOf, projectID)
-	if len(removedParent.Delta.Before) == 0 || len(addedParent.Delta.After) == 0 ||
-		removedParent.Context.OperationID != addedParent.Context.OperationID {
-		t.Fatalf("parent change events = %+v and %+v, want the old and new edge values under one operation", removedParent, addedParent)
+	projectParent := storedEdge(t, env, issue.ID, node.RelChildOf, projectID)
+	requireJSONEqual(t, "removed parent old value", removedParent.Delta.Before, epicParent)
+	requireJSONEqual(t, "added parent new value", addedParent.Delta.After, projectParent)
+	if len(removedParent.Delta.After) != 0 || len(addedParent.Delta.Before) != 0 {
+		t.Fatalf("removed parent new value = %s and added parent old value = %s, want none",
+			removedParent.Delta.After, addedParent.Delta.Before)
+	}
+	if removedParent.Context.OperationID != addedParent.Context.OperationID {
+		t.Fatalf("parent change operations = %s and %s, want one operation",
+			removedParent.Context.OperationID, addedParent.Context.OperationID)
 	}
 
 	mark = outboxTail(t, env)

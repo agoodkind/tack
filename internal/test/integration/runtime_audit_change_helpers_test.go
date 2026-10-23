@@ -31,25 +31,25 @@ func labelEdge(env *integration.TestEnv, sourceID, labelID, actorID uuid.UUID) *
 	}
 }
 
-// storedLabelEdge returns the JSON encoding of the stored labeled_with
-// relationship from sourceID to labelID.
-func storedLabelEdge(t *testing.T, env *integration.TestEnv, sourceID, labelID uuid.UUID) json.RawMessage {
+// storedEdge returns the JSON encoding of the stored relationship of
+// relationType from sourceID to targetID.
+func storedEdge(t *testing.T, env *integration.TestEnv, sourceID uuid.UUID, relationType string, targetID uuid.UUID) json.RawMessage {
 	t.Helper()
-	edges, err := env.Stores.Relationships.ListBySource(env.Ctx, env.OrgID, sourceID, node.RelLabeledWith)
+	edges, err := env.Stores.Relationships.ListBySource(env.Ctx, env.OrgID, sourceID, relationType)
 	if err != nil {
-		t.Fatalf("list labeled_with edges of %s: %v", sourceID, err)
+		t.Fatalf("list %s edges of %s: %v", relationType, sourceID, err)
 	}
 	for _, edge := range edges {
-		if edge.TargetID != labelID {
+		if edge.TargetID != targetID {
 			continue
 		}
 		encoded, err := json.Marshal(edge)
 		if err != nil {
-			t.Fatalf("encode the edge from %s to %s: %v", sourceID, labelID, err)
+			t.Fatalf("encode the %s edge from %s to %s: %v", relationType, sourceID, targetID, err)
 		}
 		return encoded
 	}
-	t.Fatalf("node %s has no labeled_with edge to %s", sourceID, labelID)
+	t.Fatalf("node %s has no %s edge to %s", sourceID, relationType, targetID)
 	return nil
 }
 
