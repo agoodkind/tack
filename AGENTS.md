@@ -231,10 +231,11 @@ not even healthy until the first of them runs. Until the provisioning layer land
    restart. The app holds no ledger read or redaction connection: every audit
    read and redaction is a host command (`audit query`, `audit get`,
    `audit export`, `audit redact-actor`) that opens its own reader and
-   redactor pools, never an MCP tool (TACK-456, TACK-458). The dead-letter
-   commands (`ops audit dlq inspect`, `ops audit dlq replay`) run through the
-   `app` service, which carries both the reader DSN and the Kafka brokers a
-   replay needs; tack-ops is host-networked and cannot reach the broker.
+   redactor pools, never an MCP tool (TACK-456, TACK-458). The audit queue
+   commands (`ops audit consumer-offsets`, `ops audit dlq inspect`,
+   `ops audit dlq replay`) run in the `audit-ops` service, which mounts the
+   reader DSN and sets the Kafka brokers on the bridge network. tack-ops is
+   host-networked and cannot resolve the broker (TACK-610).
    Run the recorded break-glass command (`ops db sql`) in `tack-ops`. The
    `tack-ops` environment has the alarm mail settings the command needs; the
    `app` service connects as `tack_app`, which cannot read the ledger

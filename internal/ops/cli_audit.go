@@ -49,8 +49,8 @@ func auditConsumerOffsetsOp(f *cli.Factory) clispec.Operation[noInput] {
 		Long: "Reads audit.consumer_offsets through the ledger reader and the latest offset of " +
 			"every audit topic partition from the brokers, and reports the committed lag per " +
 			"partition. Also reports the row count and oldest row of public.ops_outbox and the " +
-			"entry count of the FoundationDB operator outbox. Run it through the app service, " +
-			"which has the reader DSN, the brokers, and FoundationDB.",
+			"entry count of the FoundationDB operator outbox. Run it through the audit-ops " +
+			"service, which has the reader DSN, the brokers, and FoundationDB.",
 		Examples: nil,
 		Args:     nil,
 		Params:   nil,
