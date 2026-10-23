@@ -31,25 +31,38 @@ const (
 	// sessionMaxPages bounds the public pages that followSession reads before
 	// failing an incomplete session.
 	sessionMaxPages = 100
-	// analyzerQuery selects the approved query for the saved-token comparison
-	// against the high-level semantic query's analyzer.
+	// analyzerQuery supplies the query text for the saved-token and analyzer
+	// comparison.
 	analyzerQuery = "signin"
-	// analyzerFirstPage sets the first-page rank limit for distinct nodes in the
-	// high-level semantic query comparison.
+	// analyzerFirstPage sets the distinct node rank limit for the analyzer
+	// comparison.
 	analyzerFirstPage = 25
-	// analyzerHits limits the raw hits requested for the high-level semantic
-	// query comparison.
+	// analyzerHits sets the raw hit count requested by the analyzer search.
 	analyzerHits = 1000
+	// builtInAnalyzer selects the built-in analyzer that tokenizes query text
+	// without model inference.
+	builtInAnalyzer = "bert-uncased"
 )
 
-// highLevelClause encodes a neural query that accepts query_text for a
-// semantic field.
-type highLevelClause struct {
-	Neural map[string]highLevelText `json:"neural"`
+// analyzerSparseClause encodes a nested neural_sparse clause that uses
+// query_text and an analyzer instead of saved query_tokens.
+type analyzerSparseClause struct {
+	Nested analyzerSparseNested `json:"nested"`
 }
 
-type highLevelText struct {
+type analyzerSparseNested struct {
+	Path      string               `json:"path"`
+	ScoreMode string               `json:"score_mode"`
+	Query     analyzerNeuralSparse `json:"query"`
+}
+
+type analyzerNeuralSparse struct {
+	NeuralSparse map[string]analyzerQueryText `json:"neural_sparse"`
+}
+
+type analyzerQueryText struct {
 	QueryText string `json:"query_text"`
+	Analyzer  string `json:"analyzer"`
 }
 
 // TestSearchSessionInfersOnce follows a public search over 80 matching nodes
@@ -109,10 +122,11 @@ func followSession(t *testing.T, harness *integration.MCPHarness) int {
 	return 0
 }
 
-// TestSearchSavedTokensFindAnalyzerMiss requires both approved signin targets
-// on the first public page with saved query tokens. It then compares a direct
-// high-level semantic query using the captured filters and lexical clause.
-// At least one target must fall outside that query's first 25 distinct nodes.
+// TestSearchSavedTokensFindAnalyzerMiss requires both signin targets on the
+// first public page with saved tokens. It compares that page with a
+// neural_sparse search using query_text "signin" and analyzer "bert-uncased"
+// with the captured filters and lexical clause. The analyzer search must
+// omit at least one target from the first 25 distinct nodes.
 func TestSearchSavedTokensFindAnalyzerMiss(t *testing.T) {
 	fixture := integration.NewQueryFixture(t)
 	kind := integration.PutOpaqueKind(t, fixture, fixture.Workspaces[0].OrgID)
@@ -126,38 +140,46 @@ func TestSearchSavedTokensFindAnalyzerMiss(t *testing.T) {
 		t.Fatalf("search %q sent no ranked batch", analyzerQuery)
 	}
 	request := decodeRankedRequest(t, exchange.Searches[0])
-	ranked := highLevelRanks(t, fixture, request, analyzerQuery)
+	ranked := analyzerRanks(t, fixture, request, analyzerQuery)
 	missed := 0
 	for _, target := range targets[analyzerQuery] {
 		rank := slices.Index(ranked, target) + 1
-		t.Logf("analyzer query=%q target=%s high_level_rank=%d", analyzerQuery, target, rank)
+		t.Logf("analyzer query=%q analyzer=%s target=%s analyzer_rank=%d", analyzerQuery, builtInAnalyzer, target, rank)
 		if rank == 0 || rank > analyzerFirstPage {
 			missed++
 		}
 	}
 	if missed == 0 {
-		t.Fatalf("the high-level semantic query returned every %q target within the first %d nodes", analyzerQuery, analyzerFirstPage)
+		t.Fatalf("the %s analyzer query returned every %q target within the first %d nodes", builtInAnalyzer, analyzerQuery, analyzerFirstPage)
 	}
 }
 
-// highLevelRanks searches the serving index with the captured filters and
-// lexical clause, replacing the saved-token sparse clause with a neural query
-// on page_text using query_text. It returns distinct node IDs in rank order.
-func highLevelRanks(t *testing.T, fixture integration.QueryFixture, request rankedRequest, query string) []uuid.UUID {
+// analyzerRanks searches the serving index with query_text and builtInAnalyzer
+// instead of saved query_tokens. It preserves the captured filters, lexical
+// clause, nested path, and score mode. It returns distinct node IDs in rank
+// order.
+func analyzerRanks(t *testing.T, fixture integration.QueryFixture, request rankedRequest, query string) []uuid.UUID {
 	t.Helper()
-	field := "page_text"
-	semantic, err := json.Marshal(highLevelClause{Neural: map[string]highLevelText{field: {QueryText: query}}})
+	nested := request.Sparse.Nested
+	sparse := analyzerSparseClause{Nested: analyzerSparseNested{
+		Path: nested.Path, ScoreMode: nested.ScoreMode,
+		Query: analyzerNeuralSparse{NeuralSparse: map[string]analyzerQueryText{}},
+	}}
+	for field := range nested.Query.NeuralSparse {
+		sparse.Nested.Query.NeuralSparse[field] = analyzerQueryText{QueryText: query, Analyzer: builtInAnalyzer}
+	}
+	encoded, err := json.Marshal(sparse)
 	if err != nil {
-		t.Fatalf("encode high-level semantic clause: %v", err)
+		t.Fatalf("encode analyzer sparse clause: %v", err)
 	}
 	body := traceSearch{Size: analyzerHits, Explain: false, Source: []string{"node_id"}, Query: traceBool{Bool: traceBoolClauses{
-		Filter: request.Body.Query.Bool.Filter, Should: []json.RawMessage{request.Body.Query.Bool.Should[0], semantic}, MinimumShouldMatch: 1,
+		Filter: request.Body.Query.Bool.Filter, Should: []json.RawMessage{request.Body.Query.Bool.Should[0], encoded}, MinimumShouldMatch: 1,
 	}}}
 	response, err := fixture.Client.Search(integration.WithTestOperation(t, t.Context()), &opensearchapi.SearchReq{
 		Indices: []string{fixture.Index}, Body: bytes.NewReader(encodeTrace(t, body)),
 	})
 	if err != nil {
-		t.Fatalf("high-level semantic search %q on %s: %v", query, fixture.Index, err)
+		t.Fatalf("analyzer search %q on %s: %v", query, fixture.Index, err)
 	}
 	nodes := rankedTraceNodes(t, response.Hits.Hits)
 	ranked := make([]uuid.UUID, 0, len(nodes))
