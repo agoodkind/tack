@@ -114,9 +114,9 @@ func putRolloutCorpus(t *testing.T, fixture rolloutFixture, kind rolloutKind, pa
 	return nodes
 }
 
-// moveRolloutNode uses [service.NodeService.Update] to move nodeID
-// under entry node to. The update replaces the node's child_of edge and
-// changes a resource grant.
+// moveRolloutNode calls [service.NodeService.Update] to set nodeID's
+// parent_id and scope_id to the entry node that `to` identifies.
+// The update replaces the node's child_of edge and changes a resource grant.
 func moveRolloutNode(t *testing.T, fixture rolloutFixture, nodeID, to uuid.UUID) {
 	t.Helper()
 	target, err := json.Marshal(to.String())
