@@ -16,10 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
-	"goodkind.io/tack/internal/audit"
-	"goodkind.io/tack/internal/auditrelay"
 	"goodkind.io/tack/internal/clock"
-	"goodkind.io/tack/internal/testenv"
 )
 
 // errToolFailed marks a tool response that cannot supply the expected result.
@@ -60,14 +57,17 @@ func rawIDOf(text string) (string, error) {
 	return remainder[:end], nil
 }
 
-// measure counts the outbox backlog before starting audit workers and times
-// recovery while waiting for the outbox to empty and the ledger count to
-// stabilize. It then records ledger event counts and database, broker, and
+// measure counts both operator outbox backlogs before starting audit workers.
+// It times recovery until the FoundationDB outbox empties and the ledger count
+// stabilizes. It then records ledger event counts and database, broker, and
 // FoundationDB byte measurements.
 func (run *scalingRun) measure(t *testing.T) {
 	t.Helper()
 	run.result.backlog = run.outboxEntries(t)
 	admin := ledgerAdminPool(t)
+	if err := admin.QueryRow(t.Context(), readTestSQL(t, "runtime_audit_scaling_outbox_rows.sql")).Scan(&run.result.yugabyteBacklog); err != nil {
+		t.Fatalf("Counting YugabyteDB operator outbox rows failed: %v", err)
+	}
 	topic := "audit.scaling-test-" + uuid.NewString()[:8]
 	started := clock.Now()
 	run.startWorkers(t, topic)
@@ -78,37 +78,8 @@ func (run *scalingRun) measure(t *testing.T) {
 	run.result.ledgerEvents, run.result.databaseBytes = run.waitForLedger(t, admin)
 	run.result.recovery = clock.Since(started)
 	run.result.brokerBytes = topicBytes(t, topic)
+	run.result.brokerRecords = topicRecords(t, topic)
 	run.result.replicaBytes = run.prefixBytes(t)
-}
-
-// startWorkers starts one audit consumer and one relay per app instance on the
-// supplied topic. The consumers share one Kafka consumer group, and test
-// cleanup stops the workers.
-func (run *scalingRun) startWorkers(t *testing.T, topic string) {
-	t.Helper()
-	group := "tack-scaling-test-" + uuid.NewString()[:8]
-	for range run.result.instances {
-		consumer, err := audit.NewConsumer(t.Context(), audit.ConsumerConfig{
-			Brokers: []string{testenv.Kafka(t)}, Topic: topic, GroupID: group,
-			BatchSize: 32, PollInterval: 100 * time.Millisecond, YugabyteDSN: testenv.Ledger(t),
-		})
-		if err != nil {
-			t.Fatalf("Creating an audit consumer failed; the scaling run requires one consumer per app instance: %v", err)
-		}
-		consumer.Start(t.Context())
-		t.Cleanup(func() { _ = consumer.Close() })
-		opened, err := auditrelay.Open(t.Context(), auditrelay.Config{
-			Brokers: []string{testenv.Kafka(t)}, Topic: topic, YugabyteDSN: testenv.Ledger(t),
-			FDBClusterFile: run.server.clusterFile, FDBTransactionTimeout: 5 * time.Second,
-			PollInterval: 100 * time.Millisecond, BatchSize: 64,
-		})
-		if err != nil {
-			t.Fatalf("Opening an audit relay failed; the scaling run requires one relay per app instance: %v", err)
-		}
-		opened.Relay.Start(t.Context())
-		t.Cleanup(opened.Pool.Close)
-		t.Cleanup(func() { _ = opened.Relay.Close() })
-	}
 }
 
 // outboxEntries counts the FoundationDB outbox entries under the run's prefix,
@@ -168,7 +139,8 @@ func (result scalingResult) row() string {
 		return latencies[int(fraction*float64(len(latencies)-1))]
 	}
 	throughput := float64(result.requests) / result.duration.Seconds()
-	return fmt.Sprintf("| %d | %d | %d | %.1f | %s | %s | %s | %d | %s | %d | %d | not measured | %d |\n",
-		result.instances, result.requests, result.ledgerEvents, throughput, percentile(0.5), percentile(0.95), percentile(0.99),
-		result.backlog, result.recovery.Round(time.Millisecond), result.databaseBytes, result.brokerBytes, result.replicaBytes)
+	return fmt.Sprintf("| %s | %d | %d | %.1f | %s | %s | %s | %d | %s | %d | %d | %d | not measured | %d |\n",
+		result.label, result.requests, result.ledgerEvents, throughput, percentile(0.5), percentile(0.95), percentile(0.99),
+		result.backlog, result.recovery.Round(time.Millisecond), result.databaseBytes, result.brokerRecords, result.brokerBytes,
+		result.replicaBytes)
 }

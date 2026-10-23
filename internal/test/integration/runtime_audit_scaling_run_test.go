@@ -25,21 +25,23 @@ import (
 // one scaling run. Its mutex protects request counts and latency samples during
 // concurrent tool calls.
 type scalingRun struct {
-	server   *publicServer
-	handlers []http.Handler
-	prefix   []byte
-	mu       sync.Mutex
-	result   scalingResult
+	server     *publicServer
+	handlers   []http.Handler
+	prefix     []byte
+	crashAfter int
+	mu         sync.Mutex
+	result     scalingResult
 }
 
 // runScalingWorkload runs the generated MCP workload in a subtest for the
 // requested app instance count. It times the workload, measures audit recovery
 // and storage bytes, and returns the results.
-func runScalingWorkload(t *testing.T, instances int) scalingResult {
+func runScalingWorkload(t *testing.T, label string, instances, crashAfter int) scalingResult {
 	t.Helper()
 	var result scalingResult
-	t.Run(fmt.Sprintf("%d instances", instances), func(t *testing.T) {
+	t.Run(label+" instances", func(t *testing.T) {
 		run := startScalingRun(t, instances)
+		run.result.label, run.crashAfter = label, crashAfter
 		started := clock.Now()
 		run.execute(t)
 		run.result.duration = clock.Since(started)
@@ -95,7 +97,9 @@ func startScalingRun(t *testing.T, instances int) *scalingRun {
 		handler: handlers[0], config: cfg, graph: first, token: workspace.Actors[0].Token, userID: workspace.Actors[0].UserID,
 		orgID: workspace.OrgID, workspace: workspace.Slug, clusterFile: clusterFile,
 	}
-	return &scalingRun{server: server, handlers: handlers, prefix: prefix, mu: sync.Mutex{}, result: scalingResult{instances: instances}}
+	return &scalingRun{
+		server: server, handlers: handlers, prefix: prefix, crashAfter: 0, mu: sync.Mutex{}, result: scalingResult{instances: instances},
+	}
 }
 
 // call selects an app handler by taking the index modulo the handler count and

@@ -12,6 +12,7 @@ import (
 	"github.com/twmb/franz-go/pkg/kmsg"
 
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/testenv"
 )
 
@@ -39,6 +40,21 @@ func topicBytes(t *testing.T, topic string) int64 {
 				total += partition.Size
 			}
 		}
+	}
+	return total
+}
+
+// topicRecords counts records in the run's new topic by summing each
+// partition's next record offset.
+func topicRecords(t *testing.T, topic string) int64 {
+	t.Helper()
+	marks, err := audit.TopicHighWaterMarks(t.Context(), []string{testenv.Kafka(t)}, topic)
+	if err != nil {
+		t.Fatalf("Reading Kafka partition high-water marks failed for topic %s: %v", topic, err)
+	}
+	var total int64
+	for _, mark := range marks {
+		total += mark
 	}
 	return total
 }

@@ -71,6 +71,11 @@ const (
 	// (ops_outbox, versionstamp) -> audit event JSON
 	keyOpsOutbox = "ops_outbox"
 
+	// The relay lease key family stores the owner ID and the expiry in
+	// FoundationDB read versions.
+	// (ops_outbox_relay_lease) -> relay lease record JSON
+	keyOpsOutboxRelayLease = "ops_outbox_relay_lease"
+
 	// keyAuditReadPending stores pending reads by eventID. These key families
 	// do not include orgID. bucket uses the first SHA-256 byte of the event ID
 	// modulo 64. deadline and published use Unix nanoseconds.
