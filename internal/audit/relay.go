@@ -142,6 +142,9 @@ func (r *Relay) Start(ctx context.Context) {
 // stops waiting, says so, and lets shutdown continue. Nothing is lost by
 // abandoning a drain: an event stays in its outbox until a later run delivers
 // it.
+//
+// Close attempts to release the FoundationDB relay lease after the drain
+// loops stop or the wait expires, if the outbox supports leases.
 func (r *Relay) Close() error {
 	r.once.Do(func() { close(r.stop) })
 	timer := time.NewTimer(relayDrainGrace)
@@ -153,6 +156,7 @@ func (r *Relay) Close() error {
 			slog.Duration("waited", relayDrainGrace),
 		)
 	}
+	r.releaseLease()
 	closer, ok := r.recorder.(interface{ Close() error })
 	if !ok {
 		return nil
@@ -169,22 +173,6 @@ func (r *Relay) yugabyteLoop(ctx context.Context) {
 	defer ticker.Stop()
 	for {
 		r.drainYugabyte(ctx)
-		select {
-		case <-r.stop:
-			return
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-	}
-}
-
-func (r *Relay) foundationDBLoop(ctx context.Context) {
-	ticker := time.NewTicker(r.pollInterval)
-	defer ticker.Stop()
-	var mark []byte
-	for {
-		mark = r.drainFoundationDB(ctx, mark)
 		select {
 		case <-r.stop:
 			return
@@ -231,45 +219,4 @@ func (r *Relay) drainYugabyte(ctx context.Context) {
 		slog.Int("produced_count", producedCount),
 		slog.Int("deleted_count", deletedCount),
 	)
-}
-
-func (r *Relay) drainFoundationDB(ctx context.Context, mark []byte) []byte {
-	batch, err := r.foundationDB.ReadOutboxFrom(ctx, mark, r.batchSize)
-	if err != nil {
-		slog.ErrorContext(ctx, "audit.relay.foundationdb_read_failed", slog.String("err", err.Error()))
-		return mark
-	}
-	producedCount := 0
-	stopped := false
-	var lastAccepted []byte
-	var reads []PublishedRead
-	for _, entry := range batch {
-		eventID, err := r.produceEntry(ctx, entry)
-		if err != nil {
-			slog.ErrorContext(ctx, "audit.relay.foundationdb_produce_failed", slog.String("err", err.Error()))
-			break
-		}
-		producedCount++
-		if r.stopAfterProduce(ctx, eventID) {
-			stopped = true
-			break
-		}
-		lastAccepted = append(lastAccepted[:0], entry.Mark...)
-		reads = append(reads, recordPublishedReads(ctx, entry.Event)...)
-	}
-	clearedCount := 0
-	if len(lastAccepted) > 0 && !stopped {
-		if err := r.clearThrough(ctx, lastAccepted, reads); err != nil {
-			slog.ErrorContext(ctx, "audit.relay.foundationdb_clear_failed", slog.String("err", err.Error()))
-		} else {
-			clearedCount = producedCount
-			mark = lastAccepted
-		}
-	}
-	slog.DebugContext(ctx, "audit.relay.foundationdb_batch",
-		slog.Int("read_count", len(batch)),
-		slog.Int("produced_count", producedCount),
-		slog.Int("cleared_count", clearedCount),
-	)
-	return mark
 }
