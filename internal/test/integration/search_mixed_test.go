@@ -2,21 +2,15 @@ package integration_test
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"net/http/httptest"
-	"os"
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	opensearch "github.com/opensearch-project/opensearch-go/v4"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
 	"github.com/spf13/cobra"
 
-	"goodkind.io/tack/internal/adapters/search"
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clispec"
@@ -114,6 +108,7 @@ func TestSearchMixedWorkload(t *testing.T) {
 		t.Fatalf("qa datagen search-mixed: the command must request a rebuild with a target index and complete catch-up: %s", output)
 	}
 	requireSearchMixedSamples(t, output, envelope)
+	requireSearchMixedReindexAudit(t, result.Rebuild.TargetIndex)
 }
 
 func requireSearchMixedSamples(t *testing.T, output []byte, envelope searchMixedOutput) {
@@ -151,28 +146,6 @@ func startSearchMixedProcesses(t *testing.T, cfg *config.Config) []string {
 	return endpoints
 }
 
-func deleteSearchMixedIndex(t *testing.T, cfg *config.Config, index string) {
-	t.Helper()
-	if index == "" {
-		return
-	}
-	certificate, err := os.ReadFile(cfg.SearchCA)
-	if err != nil {
-		t.Fatalf("qa datagen search-mixed: the test could not read the OpenSearch CA certificate: %v", err)
-	}
-	settings := search.Config{Endpoint: cfg.SearchEndpoint, CA: string(certificate), Username: cfg.SearchUsername, Password: cfg.SearchPassword, RequestTimeout: 2 * time.Minute, MaxRetries: 1}
-	client, err := opensearch.NewClient(settings.ClientConfig(nil))
-	if err != nil {
-		t.Fatalf("qa datagen search-mixed: the test could not create the OpenSearch client: %v", err)
-	}
-	t.Cleanup(func() {
-		request := opensearchapi.IndicesDeleteReq{Indices: []string{index}}
-		if _, err := opensearchapi.NewFromClient(client).Indices.Delete(context.WithoutCancel(integration.WithTestOperation(t, t.Context())), request); err != nil {
-			t.Logf("qa datagen search-mixed: the test could not delete OpenSearch index %s: %v", index, err)
-		}
-	})
-}
-
 func runSearchMixedCommand(t *testing.T, cfg *config.Config, flags ...string) ([]byte, error) {
 	t.Helper()
 	var output bytes.Buffer
@@ -194,7 +167,7 @@ func runSearchMixedCommand(t *testing.T, cfg *config.Config, flags ...string) ([
 	}
 	factory.SetOperatorIdentitySource(cli.NewOperatorSource(factory))
 	root.SetArgs(append([]string{
-		"--execute", "--output", "json", "--operator-id", "019dd226-440e-729a-a442-281aaf73ca30", "--operator-email", "operator@example.com", "--operator-name", "Search Test", "ops", "qa", "datagen", "search-mixed",
+		"--execute", "--output", "json", "--operator-id", searchMixedOperatorID, "--operator-email", "operator@example.com", "--operator-name", "Search Test", "ops", "qa", "datagen", "search-mixed",
 	}, flags...))
 	err = root.ExecuteContext(t.Context())
 	return output.Bytes(), err

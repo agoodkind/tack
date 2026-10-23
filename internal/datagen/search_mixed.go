@@ -30,8 +30,8 @@ type SearchMixedOptions struct {
 	Rebuild     SearchMixedRebuild
 }
 
-// SearchMixedRebuild starts one full index rebuild with the code for
-// ./server ops search reindex --mode full. It returns the target index.
+// SearchMixedRebuild starts one full index rebuild with the audited operation
+// that ops search reindex --mode full --execute uses. It returns the target index.
 type SearchMixedRebuild func(context.Context) (string, error)
 
 // SearchMixedSummary reports the measurements and correctness checks of one workload run.
