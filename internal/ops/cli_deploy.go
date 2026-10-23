@@ -35,21 +35,15 @@ func deployVerifyOp(f *cli.Factory) clispec.Operation[deployVerifyInput] {
 		Aliases:  nil,
 		Hidden:   false,
 		Short:    "Assert the app and audit-consumer containers run the deployed images",
-		Long: "Reads the registry digest of each expected image from the daemon and " +
-			"compares it with the digest the matching container runs. The expected " +
-			"images are tack-server and tack-audit-consumer under TACK_DEPLOY_REGISTRY " +
-			"at TACK_IMAGE_TAG, unless --tag names another tag. With --tack-server-digest " +
-			"and --tack-audit-consumer-digest, both required together, it instead requires " +
-			"the containerd image store and compares each given multi-platform index digest " +
-			"with the index descriptor digest of the image the container runs.",
+		Long:     "Check every app and audit-consumer replica in TACK_DEPLOY_COMPOSE_PROJECT using Docker Compose project and service labels. Without digest flags, the command compares each replica's image digest with the digest the local Docker daemon records for the expected image tag. The expected images are tack-server and tack-audit-consumer under TACK_DEPLOY_REGISTRY at TACK_IMAGE_TAG; --tag overrides that tag. To compare image index digests, supply --tack-server-digest and --tack-audit-consumer-digest together. This mode requires the containerd image store and compares each replica's image index descriptor digest with the supplied digest for its service. Each digest must use sha256: followed by 64 lowercase hexadecimal digits.",
 		Examples: nil,
 		Args:     nil,
 		Params: []clispec.Param[deployVerifyInput]{
 			clispec.StringParam("tag", "image tag the containers must run", "", false,
 				func(in *deployVerifyInput, v string) { in.Tag = v }),
-			clispec.StringParam("tack-server-digest", "index digest tack-app-1 must run (sha256:<64 hex>)", "", false,
+			clispec.StringParam("tack-server-digest", "Require every app replica to match this image index digest (sha256: followed by 64 lowercase hexadecimal digits).", "", false,
 				func(in *deployVerifyInput, v string) { in.ServerDigest = v }),
-			clispec.StringParam("tack-audit-consumer-digest", "index digest tack-audit-consumer-1 must run (sha256:<64 hex>)", "", false,
+			clispec.StringParam("tack-audit-consumer-digest", "Require every audit-consumer replica to match this image index digest (sha256: followed by 64 lowercase hexadecimal digits).", "", false,
 				func(in *deployVerifyInput, v string) { in.ConsumerDigest = v }),
 		},
 		New: func() deployVerifyInput {
