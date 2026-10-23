@@ -61,7 +61,7 @@ func addDatagenCommandCases(cases map[string]coverageCase) {
 	for name, committed := range map[string][]string{
 		"search":       {"--commit"},
 		"search-load":  {"--commit", "--rate", "60", "--duration", "3s", "--concurrency", "2"},
-		"search-mixed": {"--commit", "--rate", "60", "--write-rate", "60", "--duration", "5s", "--concurrency", "2"},
+		"search-mixed": {"--commit", "--rate", "60", "--write-rate", "60", "--duration", "5s", "--concurrency", "2", "--burst-writes", "10", "--catch-up", "2m"},
 	} {
 		verb := audit.VerbOpsDatagenSoak
 		if name == "search" {
