@@ -1,8 +1,6 @@
 package integration
 
 import (
-	"maps"
-	"slices"
 	"testing"
 
 	"github.com/google/uuid"
@@ -49,7 +47,7 @@ func TestSearchDeleteSchedulesBoundedFanout(t *testing.T) {
 	if err := worker.Process(WithTestOperation(t, t.Context()), work); err != nil {
 		t.Fatalf("process the first fanout slice: %v", err)
 	}
-	scheduled := claimAllFor(t, store, searchdomain.WorkClassAccess, shortLease)
+	scheduled := claimAll(t, store, searchdomain.WorkClassAccess)
 	scheduledCounterparts := 0
 	for nodeID := range scheduled {
 		if _, isCounterpart := counterparts[nodeID]; isCounterpart {
@@ -60,7 +58,11 @@ func TestSearchDeleteSchedulesBoundedFanout(t *testing.T) {
 		t.Fatalf("first fanout slice scheduled %d counterparts with deleted work pending %t, want 100 and pending", scheduledCounterparts, pending)
 	}
 
-	waitPastLeases(t, slices.Collect(maps.Values(scheduled))...)
+	for _, claim := range scheduled {
+		if err := store.Yield(WithTestOperation(t, t.Context()), claim); err != nil {
+			t.Fatalf("yield inspected access work for node %s: %v", claim.NodeID, err)
+		}
+	}
 	runSearchWorkerWithin(t, worker, deleteFanoutSlices)
 	for _, class := range []searchdomain.WorkClass{searchdomain.WorkClassAccess, searchdomain.WorkClassCleanup} {
 		if remaining := claimAll(t, store, class); len(remaining) != 0 {
