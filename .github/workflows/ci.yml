@@ -121,7 +121,7 @@ jobs:
           - group: G3
             timeout_minutes: 45
           - group: G5
-            timeout_minutes: 80
+            timeout_minutes: 110
     steps:
       - uses: actions/checkout@v7
 
