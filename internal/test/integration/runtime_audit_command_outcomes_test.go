@@ -29,13 +29,26 @@ type migrationRangeEvidence struct {
 	Migrations  []schemastatus.Migration `json:"migrations"`
 }
 
-// TestRuntimeAuditCommandOutcomes runs recorded operator commands and checks
-// the typed outcome and the evidence of each run in the outbox. buckets-init
-// refuses to run without object-store settings. migrate refuses a run that
-// fails its version guard without recording a step. A migration run records the
-// version range and the digest of each planned migration file before the run
-// and the applied version after it. Search reindex and seed-roles have their
-// own subtests.
+// TestRuntimeAuditCommandOutcomes checks command outcomes and evidence in the
+// audit outbox:
+//   - buckets_init_refused checks that buckets-init refuses to run without
+//     object-store settings and records the refusal without a step.
+//   - migrate checks refusal without a step when the version guard fails. A
+//     successful run records the version range, planned migration file digests,
+//     and applied version.
+//   - search_reindex checks that reindex records the source index and replacement
+//     ID when it starts a replacement, then refuses a second run without a step.
+//   - seed_roles checks each role's state before and after seeding and verifies
+//     that events do not contain role passwords.
+//   - archive_node_refused checks that yb-archive-node refuses to run without
+//     TACK_BACKUP_YB_ROCKSDB_DIR and records the refusal without a step.
+//   - staleness_check checks that an empty backup bucket produces a stale
+//     verdict while the step and command record completed outcomes. It checks
+//     the bucket, the skipped FoundationDB check, and a STALE verdict for each
+//     reading in the step evidence. Each reading must appear in the stale list.
+//   - access_rollout checks that access-rollout records the authority, candidate,
+//     backfill phase, and nonzero generation when it starts a rollout, then
+//     refuses a second run without a step.
 func TestRuntimeAuditCommandOutcomes(t *testing.T) {
 	t.Run("buckets_init_refused", func(t *testing.T) {
 		pool := ledgerAdminPool(t)
@@ -51,6 +64,9 @@ func TestRuntimeAuditCommandOutcomes(t *testing.T) {
 	t.Run("migrate", testMigrateOutcomes)
 	t.Run("search_reindex", testSearchReindexOutcomes)
 	t.Run("seed_roles", testSeedRolesOutcomes)
+	t.Run("archive_node_refused", testArchiveNodeRefused)
+	t.Run("staleness_check", testStalenessCheckOutcome)
+	t.Run("access_rollout", testAccessRolloutOutcomes)
 }
 
 func testMigrateOutcomes(t *testing.T) {

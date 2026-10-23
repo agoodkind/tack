@@ -11,6 +11,14 @@ import (
 // policy transition.
 var ErrRolloutInProgress = errors.New("search access rollout is already in progress")
 
+const accessRolloutTargetPrefix = "foundationdb/search/access-rollout/"
+
+// AccessRolloutTargetReference returns the audit target reference for an
+// authority's access rollout.
+func AccessRolloutTargetReference(authority string) string {
+	return accessRolloutTargetPrefix + authority
+}
+
 // ErrNoRolloutInProgress means the authority does not have an access
 // policy rollout to roll back.
 var ErrNoRolloutInProgress = errors.New("authority does not have a rollout in progress")

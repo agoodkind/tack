@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 
-	"goodkind.io/tack/internal/adapters/search"
+	"github.com/spf13/cobra"
+
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clispec"
@@ -13,61 +14,48 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-type searchProvisionInput struct{ clispec.InputMarker }
+const (
+	provisionIndex              = "node-pages-1"
+	searchProjectionMissingCode = "search_projection_missing"
+)
 
-func searchProvisionOp(f *cli.Factory) clispec.Operation[searchProvisionInput] {
-	return clispec.Operation[searchProvisionInput]{
-		Name: clispec.Name{Canonical: "provision", CLIOverride: ""}, Lifetime: clispec.Permanent,
-		Audit: audit.Spec{Verb: string(audit.VerbOpsSearchProvision), Mutates: true}, Group: searchGroup,
-		Short: "Create the empty native OpenSearch index", New: func() searchProvisionInput { return searchProvisionInput{InputMarker: clispec.InputMarker{}} },
-		Run: func(ctx context.Context, _ searchProvisionInput, _ clispec.ResultSink) (runErr error) {
-			if err := requireSearchProjections(ctx, f); err != nil {
-				return err
-			}
-			logger := telemetry.L(ctx)
-			topology, err := config.LoadSearchTopology(ctx)
-			if err != nil {
-				wrapped := fmt.Errorf("load search topology: %w", err)
-				logger.ErrorContext(ctx, "search.provision.topology_failed", slog.String("err", wrapped.Error()))
-				return wrapped
-			}
-			adapter, err := newSearchMaintenanceAdapter(ctx, f.Cfg)
-			if err != nil {
-				wrapped := fmt.Errorf("create search adapter: %w", err)
-				logger.ErrorContext(ctx, "search.provision.adapter_failed", slog.String("err", wrapped.Error()))
-				return wrapped
-			}
-			defer func() {
-				if err := adapter.Close(ctx); err != nil && runErr == nil {
-					runErr = fmt.Errorf("close search adapter: %w", err)
-				}
-			}()
-			if err := verifySearchServer(ctx, adapter); err != nil {
-				return err
-			}
-			model, err := adapter.Provision(ctx)
-			if err != nil {
-				wrapped := fmt.Errorf("provision search model: %w", err)
-				logger.ErrorContext(ctx, "search.provision.model_failed", slog.String("err", wrapped.Error()))
-				return wrapped
-			}
-			const index = "node-pages-1"
-			if err := adapter.EnsureIndex(ctx, index, search.IndexSpec{Model: model, MappingVersion: search.MappingVersion, Primaries: topology.Primaries, RoutingShards: topology.RoutingShards, Replicas: topology.Replicas}); err != nil {
-				wrapped := fmt.Errorf("ensure search index %s: %w", index, err)
-				logger.ErrorContext(ctx, "search.provision.index_failed", slog.String("err", wrapped.Error()), slog.String("index", index))
-				return wrapped
-			}
-			if err := adapter.WaitGreen(ctx, index, search.DefaultGreenWait); err != nil {
-				wrapped := fmt.Errorf("wait for green search index %s: %w", index, err)
-				logger.ErrorContext(ctx, "search.provision.health_failed", slog.String("err", wrapped.Error()), slog.String("index", index))
-				return wrapped
-			}
-			if err := adapter.SetAlias(ctx, "node-pages", index); err != nil {
-				wrapped := fmt.Errorf("set search alias node-pages: %w", err)
-				logger.ErrorContext(ctx, "search.provision.alias_failed", slog.String("err", wrapped.Error()), slog.String("index", index))
-				return wrapped
-			}
-			return recordServingSearchIndex(ctx, f, index)
-		},
+func searchProvisionCommand(f *cli.Factory) *cobra.Command {
+	cmd := &cobra.Command{Use: "provision", Short: "Create an empty OpenSearch index.", Args: cobra.NoArgs}
+	spec := externalSpec(audit.VerbOpsSearchProvision, "opensearch/serving-index")
+	clispec.AttachExternal(cmd, f, spec, emptyCommandInput,
+		func(ctx context.Context, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
+			return runSearchProvisionRecorded(ctx, f, steps)
+		})
+	return cmd
+}
+
+func runSearchProvisionRecorded(ctx context.Context, f *cli.Factory, steps audit.StepRecorder) (_ audit.OutcomeDetails, runErr error) {
+	if err := requireSearchProjections(ctx, f); err != nil {
+		return commandOutcome(audit.OutcomeRefused, searchProjectionMissingCode, err), err
 	}
+	topology, err := config.LoadSearchTopology(ctx)
+	if err != nil {
+		wrapped := searchProvisionFailure(ctx, "load search topology", err)
+		return commandOutcome(audit.OutcomeRefused, commandConfigCode, wrapped), wrapped
+	}
+	adapter, err := newSearchMaintenanceAdapter(ctx, f.Cfg)
+	if err != nil {
+		wrapped := searchProvisionFailure(ctx, "create search adapter", err)
+		return commandOutcome(audit.OutcomeRefused, commandConfigCode, wrapped), wrapped
+	}
+	defer func() {
+		if err := adapter.Close(ctx); err != nil && runErr == nil {
+			runErr = searchProvisionFailure(ctx, "close search adapter", err)
+		}
+	}()
+	if err := verifySearchServer(ctx, adapter); err != nil {
+		return commandOutcome(audit.OutcomeFailed, commandFailedCode, err), err
+	}
+	return provisionSearchSteps(ctx, f, adapter, topology, steps)
+}
+
+func searchProvisionFailure(ctx context.Context, operation string, err error) error {
+	wrapped := fmt.Errorf("search provision: %s: %w", operation, err)
+	telemetry.L(ctx).ErrorContext(ctx, "search.provision.command_failed", slog.String("err", wrapped.Error()))
+	return wrapped
 }

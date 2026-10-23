@@ -196,7 +196,7 @@ func seedlessWorker(t *testing.T, stores *fdbadapter.Stores, adapter *search.Ada
 		Store: stores.SearchWork(source), Reader: stores.SearchContent(policies),
 		Access: stores.SearchAccess(policies), Writer: adapter,
 		Rollouts: rollouts, Sessions: rollouts, Documents: adapter,
-		Rebuilds: stores.SearchRebuilds(source), Replacer: adapter,
+		Rebuilds: stores.SearchRebuilds(source), Replacer: adapter, Audit: appruntime.SearchWorkerAudit(stores),
 	}, source, settings, 0)
 	if err != nil {
 		t.Fatalf("create search worker: %v", err)

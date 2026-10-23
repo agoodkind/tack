@@ -13,6 +13,7 @@ import (
 	"goodkind.io/tack/internal/adapters/search"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
+	appruntime "goodkind.io/tack/internal/runtime"
 	"goodkind.io/tack/internal/service"
 	"goodkind.io/tack/internal/test/integration"
 	"goodkind.io/tack/internal/testenv"
@@ -68,7 +69,7 @@ func newRolloutWorker(t *testing.T, stores *fdbadapter.Stores, adapter *search.A
 		Store: stores.SearchWork(clock.Wall{}), Reader: stores.SearchContent(policies),
 		Access: stores.SearchAccess(policies), Writer: adapter,
 		Rollouts: rollouts, Sessions: rollouts, Documents: adapter,
-		Rebuilds: stores.SearchRebuilds(clock.Wall{}), Replacer: adapter,
+		Rebuilds: stores.SearchRebuilds(clock.Wall{}), Replacer: adapter, Audit: appruntime.SearchWorkerAudit(stores),
 	}, clock.Wall{}, settings, 0)
 	if err != nil {
 		t.Fatalf("cannot create search worker: %v", err)

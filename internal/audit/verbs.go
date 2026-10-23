@@ -232,6 +232,15 @@ const (
 	// VerbOpsStoreExclude records an operator taking product-store processes
 	// out of service, which moves their data first (TACK-408).
 	VerbOpsStoreExclude Verb = "ops.store_exclude"
+	// VerbSearchIndexStructure records a search worker step that creates,
+	// splits, or deletes a physical index or switches the public alias.
+	VerbSearchIndexStructure Verb = "search.index_structure"
+	// VerbSearchAccessRolloutPhase records a search worker step that can
+	// change the phase of an access policy rollout.
+	VerbSearchAccessRolloutPhase Verb = "search.access_rollout_phase"
+	// VerbAuditPartitionMaintain records one audit partition maintenance run
+	// of the audit-consumer.
+	VerbAuditPartitionMaintain Verb = "audit.partition_maintain"
 )
 
 // stateChangeVerbs is the set of application events that must be persisted
