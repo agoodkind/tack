@@ -3,7 +3,6 @@ package datagen
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"slices"
 	"strings"
 	"time"
@@ -50,9 +49,10 @@ func (m *searchMixed) probesPending() bool {
 
 func (m *searchMixed) probe(ctx context.Context, done chan<- struct{}) {
 	defer close(done)
+	defer m.abandonProbes()
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			slog.ErrorContext(ctx, "qa.datagen.search_mixed_probe_panicked", slog.String("err", fmt.Sprint(recovered)))
+			m.recordPanic(ctx, "qa.datagen.search_mixed_probe_panicked", fmt.Sprint(recovered))
 		}
 	}()
 	ticker := time.NewTicker(searchMixedProbeInterval)
@@ -60,21 +60,25 @@ func (m *searchMixed) probe(ctx context.Context, done chan<- struct{}) {
 	for tick := 0; ; tick++ {
 		select {
 		case <-ctx.Done():
-			m.probeMutex.Lock()
-			for range m.markers {
-				m.stats.count(&m.stats.markersNotFound)
-			}
-			for range m.deletions {
-				m.stats.count(&m.stats.deletesUnverified)
-			}
-			m.markers, m.deletions = nil, nil
-			m.probeMutex.Unlock()
 			return
 		case <-ticker.C:
 		}
 		m.probeMarkers(ctx, tick)
 		m.probeDeletions(ctx, tick)
 	}
+}
+
+// abandonProbes counts pending markers as not found and pending deletions as unverified when probing stops.
+func (m *searchMixed) abandonProbes() {
+	m.probeMutex.Lock()
+	defer m.probeMutex.Unlock()
+	for range m.markers {
+		m.stats.count(&m.stats.markersNotFound)
+	}
+	for range m.deletions {
+		m.stats.count(&m.stats.deletesUnverified)
+	}
+	m.markers, m.deletions = nil, nil
 }
 
 func (m *searchMixed) probeMarkers(ctx context.Context, tick int) {
@@ -91,6 +95,7 @@ func (m *searchMixed) probeMarkers(ctx context.Context, tick int) {
 			}
 			page, err := callSearch(ctx, m.driver(tick+tenantIndex), tenant.token(), tenant.entry(), strings.Join(words, " "), "")
 			if err != nil {
+				m.stats.count(&m.stats.probeErrors)
 				continue
 			}
 			for _, entry := range batch {

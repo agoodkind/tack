@@ -47,6 +47,7 @@ type SearchMixedSummary struct {
 	MarkersNotFound   int
 	DeletedReturned   int
 	DeletesUnverified int
+	ProbeErrors       int
 	Endpoints         int
 	Tenants           int
 	Burst             SearchMixedBurst
@@ -88,6 +89,8 @@ type searchMixed struct {
 	stats      *searchMixedStats
 	phases     *searchMixedPhaseStats
 	corpus     searchMixedCorpus  `exhaustruct:"optional"`
+	failureMutex sync.Mutex          `exhaustruct:"optional"`
+	failures   []error               `exhaustruct:"optional"`
 	probeMutex sync.Mutex            `exhaustruct:"optional"`
 	markers    []searchMixedMarker   `exhaustruct:"optional"`
 	deletions  []searchMixedDeletion `exhaustruct:"optional"`

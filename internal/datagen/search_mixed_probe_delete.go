@@ -16,12 +16,17 @@ func (m *searchMixed) probeDeletions(ctx context.Context, tick int) {
 	verified := make(map[*searchMixedNode]bool)
 	for _, entry := range pending {
 		texts, err := m.pages.SearchPageText(ctx, entry.node.id)
-		if err != nil || len(texts) > 0 {
+		if err != nil {
+			m.stats.count(&m.stats.probeErrors)
+			continue
+		}
+		if len(texts) > 0 {
 			continue
 		}
 		tenant := m.tenants[entry.node.tenant]
 		page, err := callSearch(ctx, m.driver(tick+entry.node.ordinal), tenant.token(), tenant.entry(), entry.marker, "")
 		if err != nil {
+			m.stats.count(&m.stats.probeErrors)
 			continue
 		}
 		if slices.Contains(page.IDs, entry.node.id) {

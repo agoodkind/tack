@@ -28,19 +28,27 @@ func (m *searchMixed) runCreates(ctx context.Context, count int, create func(con
 		defer failureMutex.Unlock()
 		failures = append(failures, err)
 	}
+	createOne := func(number int) {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				m.recordPanic(ctx, "qa.datagen.search_mixed_create_panicked", fmt.Sprint(recovered))
+				record(errSearchMixedCreatePanic)
+			}
+		}()
+		if err := create(ctx, number); err != nil {
+			record(err)
+		}
+	}
 	var workers sync.WaitGroup
 	for range min(searchMixedCreateWorkers, max(count, 1)) {
 		workers.Go(func() {
 			defer func() {
 				if recovered := recover(); recovered != nil {
-					slog.ErrorContext(ctx, "qa.datagen.search_mixed_create_panicked", slog.String("err", fmt.Sprint(recovered)))
-					record(errSearchMixedCreatePanic)
+					m.recordPanic(ctx, "qa.datagen.search_mixed_create_panicked", fmt.Sprint(recovered))
 				}
 			}()
 			for number := range numbers {
-				if err := create(ctx, number); err != nil {
-					record(err)
-				}
+				createOne(number)
 			}
 		})
 	}

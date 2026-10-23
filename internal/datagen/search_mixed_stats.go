@@ -16,6 +16,7 @@ type searchMixedStats struct {
 	markersNotFound   int             `exhaustruct:"optional"`
 	deletedReturned   int             `exhaustruct:"optional"`
 	deletesUnverified int             `exhaustruct:"optional"`
+	probeErrors       int             `exhaustruct:"optional"`
 }
 
 func (s *searchMixedStats) count(counter *int) {
@@ -46,7 +47,7 @@ func (s *searchMixedStats) summary(searches SearchLoadSummary, plannedWrites int
 		Search: searches, PlannedWrites: plannedWrites, Creates: s.creates, Edits: s.edits, Deletes: s.deletes,
 		WriteErrors: s.writeErrors, WriteElapsed: writeElapsed, Freshness: freshness,
 		MarkersNotFound: s.markersNotFound, DeletedReturned: s.deletedReturned, DeletesUnverified: s.deletesUnverified,
-		Endpoints: 0, Tenants: 0, Burst: SearchMixedBurst{Planned: 0, Created: 0, Failed: 0, Started: 0, Elapsed: 0},
+		ProbeErrors: s.probeErrors, Endpoints: 0, Tenants: 0, Burst: SearchMixedBurst{Planned: 0, Created: 0, Failed: 0, Started: 0, Elapsed: 0},
 		Sessions: SearchMixedSessions{
 			Checks: 0, Pages: 0, Replays: 0, Endpoints: 0, ContinuationErrors: 0, ReplayMismatches: 0,
 			CrossTenantResults: 0, DeletedNodesReturned: 0,

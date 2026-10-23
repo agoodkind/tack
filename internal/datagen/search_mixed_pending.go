@@ -34,7 +34,14 @@ func (m *searchMixed) checkPendingDeletion(ctx context.Context) error {
 			return err
 		}
 	}
-	pending := m.indexed(ctx, returned) || m.indexed(ctx, unreturned)
+	pending := false
+	for _, victim := range []uuid.UUID{returned, unreturned} {
+		indexed, err := m.indexed(ctx, victim)
+		if err != nil {
+			return err
+		}
+		pending = pending || indexed
+	}
 	if err := m.replay(ctx, session, 2, first.Cursor, second, &tally); err != nil {
 		return err
 	}
@@ -74,7 +81,10 @@ func (m *searchMixed) pickVictims(first, second searchPage) (uuid.UUID, uuid.UUI
 	return returned, unreturned
 }
 
-func (m *searchMixed) indexed(ctx context.Context, nodeID uuid.UUID) bool {
+func (m *searchMixed) indexed(ctx context.Context, nodeID uuid.UUID) (bool, error) {
 	texts, err := m.pages.SearchPageText(ctx, nodeID)
-	return err == nil && len(texts) > 0
+	if err != nil {
+		return false, loggedError(ctx, "qa datagen search-mixed: the command could not read the serving index pages for issue "+nodeID.String(), err)
+	}
+	return len(texts) > 0, nil
 }

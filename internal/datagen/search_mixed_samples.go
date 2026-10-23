@@ -29,7 +29,7 @@ func (m *searchMixed) sampleUntil(ctx context.Context, windowStarted time.Time, 
 	defer close(done)
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			slog.ErrorContext(ctx, "qa.datagen.search_mixed_sampler_panicked", slog.String("err", fmt.Sprint(recovered)))
+			m.recordPanic(ctx, "qa.datagen.search_mixed_sampler_panicked", fmt.Sprint(recovered))
 		}
 	}()
 	ticker := time.NewTicker(searchMixedSampleInterval)
