@@ -17,7 +17,6 @@ Keep secrets and backup contents out of logs, chat, fixtures, and permanent audi
 Use real dependencies through the existing test runner. Do not add mocks or scripts.
 Keep each new source file below 200 lines and split by responsibility.
 Open ready-for-review PRs. Do not merge or deploy retention changes.
-Keep the Claude audit and search agents on their current assignments.
 
 ## Review focus
 
@@ -29,12 +28,13 @@ Keep the Claude audit and search agents on their current assignments.
 
 ## Task 1: Implement selection and audited execution
 
-**Files:** Create `internal/ops/backup_retention.go`, `backup_retention_ledger.go`, `backup_retention_fdb.go`, and focused companion files as needed. Create `cli_backup_retention.go`. Modify registration in `cli_backup.go`, add its verb in `internal/audit/verbs.go`, and update `datagen_ledger_verbs.go`.
+**Files:** Create `internal/ops/backup_retention.go`, `backup_retention_ledger.go`, `backup_retention_fdb.go`, and focused companion files as needed. Create `cli_backup_retention.go` and `internal/audit/verbs_backup_retention.go`. Modify registration in `cli_backup.go` and update `datagen_ledger_verbs.go`.
 
 **Interfaces:** `BackupRetentionOptions` supplies a positive `KeepDays` value. `RunBackupRetention(context.Context, *config.Config, BackupRetentionOptions, io.Writer, audit.StepRecorder) (audit.OutcomeDetails, error)` executes cleanup. A separate preview entry point uses the same selection without effects. `backupRetentionCommand(*cli.Factory) *cobra.Command` registers `ops backup retention --keep-days`, default 14. Use the existing `opsNow` time source.
 
 - [ ] Read current command, manifest, backup-window, object-store, and audit helpers.
 - [ ] Implement validated, bounded selection for ledger exports and native FoundationDB sessions.
+- [ ] Derive FoundationDB's numeric deletion cutoff from the newest restorable snapshot ending before the retained UTC boundary, and preserve that boundary with the native restorability guard.
 - [ ] Add shared process-lifetime locking for cleanup and supported restore drills.
 - [ ] Register default preview and explicit execution through `AttachExternalPreview`.
 - [ ] Record effect targets, partial completion, and secret-safe errors.

@@ -4,7 +4,7 @@ Tack must expire old backup data automatically while preserving usable restore p
 
 ## Scope
 
-Add a permanent Go operator command, `ops backup retention`, with a 14-day default and an explicit `--execute` flag. Its default invocation previews the selected backups without deleting data. Schedule the command daily through the existing Configs systemd deployment pattern. This change does not delete production backups, merge either pull request, or deploy either repository.
+Add a permanent Go operator command, `ops backup retention`, with a 14-day default and an explicit `--execute` flag. Its default invocation previews the selected backups without deleting data. Schedule the command daily through the existing Configs systemd deployment pattern. Validate cleanup on QA before production activation.
 
 Retention applies to backup copies, not live database rows or the canonical audit ledger. Preserve backup status and version-to-time records. Do not use an object-store lifecycle rule over the whole bucket.
 
@@ -20,7 +20,7 @@ Discover the existing backup marker objects through the production S3 helpers. K
 
 Read the active backup identity and each backup's restorable window before selecting actions. Preserve active sessions and any session needed for the retained window. For a session spanning the cutoff, invoke `fdbbackup expire` with both the cutoff and a minimum restorability guarantee. Never pass `--force`. For a session entirely within the retained window, leave its data intact. Delete a closed session entirely older than the cutoff only when another verified restorable backup survives in the retained window. Refuse an action when timestamps, identity, or restoration evidence cannot establish safety.
 
-The pinned 7.4.6 CLI supports both timestamp and relative-day expiration. This implementation uses the same exact UTC cutoff for `--expire-before-timestamp` and `--restorable-after-timestamp`, with the source cluster file. Refuse expiration when timestamp conversion fails. Do not substitute relative-day arguments after a failed conversion.
+Read the pinned 7.4.6 tool's snapshot metadata and select the newest restorable snapshot that ends before the UTC retention cutoff. Use that snapshot's numeric start version for `--expire-before-version`. Use the UTC cutoff for `--restorable-after-timestamp`, with the source cluster file. The native guard must verify the required restore boundary before deleting data. Refuse expiration when snapshot selection or timestamp conversion fails. Do not substitute relative-day arguments or force the operation after a failed guard. Include the selected deletion version in preview and audit evidence.
 
 Retain a complete snapshot and any preceding mutation data that the native expiration operation requires at the cutoff. Fourteen-day retention therefore specifies a restore window rather than an exact file-age limit.
 
