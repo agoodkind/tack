@@ -44,7 +44,11 @@ func (m *PartitionManager) maintain(ctx context.Context) error {
 		}
 		return nil
 	}
-	planned := partitionMaintenanceEvidence{HeadroomBefore: m.headroomEvidence(ctx), HeadroomAfter: nil}
+	before, err := m.headroomEvidence(ctx, "before")
+	if err != nil {
+		return err
+	}
+	planned := partitionMaintenanceEvidence{HeadroomBefore: before, HeadroomAfter: nil}
 	encoded, err := encodePartitionEvidence(ctx, planned)
 	if err != nil {
 		return err
@@ -56,18 +60,25 @@ func (m *PartitionManager) maintain(ctx context.Context) error {
 	return RunServiceStep(ctx, m.recording.outbox, m.recording.actor, VerbAuditPartitionMaintain, target, encoded,
 		m.store.RunMaintenance,
 		func(ctx context.Context) (json.RawMessage, error) {
+			after, err := m.headroomEvidence(ctx, "after")
+			if err != nil {
+				return nil, err
+			}
 			observed := planned
-			observed.HeadroomAfter = m.headroomEvidence(ctx)
+			observed.HeadroomAfter = after
 			return encodePartitionEvidence(ctx, observed)
 		})
 }
 
-func (m *PartitionManager) headroomEvidence(ctx context.Context) *int {
+// headroomEvidence reads audit partition headroom in weeks and returns any
+// read error.
+func (m *PartitionManager) headroomEvidence(ctx context.Context, moment string) (*int, error) {
 	headroom, err := m.store.HeadroomWeeks(ctx, clock.Now().UTC())
 	if err != nil {
-		return nil
+		slog.ErrorContext(ctx, "audit.partition.headroom_failed", slog.String("moment", moment), slog.String("err", err.Error()))
+		return nil, fmt.Errorf("read the audit partition headroom %s maintenance: %w", moment, err)
 	}
-	return &headroom
+	return &headroom, nil
 }
 
 func encodePartitionEvidence(ctx context.Context, evidence partitionMaintenanceEvidence) (json.RawMessage, error) {

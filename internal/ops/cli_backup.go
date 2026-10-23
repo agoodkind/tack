@@ -132,21 +132,11 @@ func backupStalenessCheckCommand(f *cli.Factory) *cobra.Command {
 		Short: "Report how long ago each backup mechanism last succeeded, exiting nonzero past threshold",
 		Args:  cobra.NoArgs,
 	}
-	var verdict error
 	spec := backupSpec(audit.VerbOpsBackupStalenessCheck, "staleness-check")
-	clispec.AttachExternal(cmd, f, spec, emptyCommandInput, func(ctx context.Context, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
+	clispec.AttachExternalCheck(cmd, f, spec, emptyCommandInput, func(ctx context.Context, steps audit.StepRecorder) (clispec.CheckOutcome, error) {
 		details, stale, err := runBackupStalenessCheckRecorded(ctx, f.Cfg, cmd.OutOrStdout(), steps)
-		verdict = stale
-		return details, err
+		return clispec.CheckOutcome{Details: details, Verdict: stale}, err
 	})
-	gated := cmd.RunE
-	cmd.RunE = func(command *cobra.Command, args []string) error {
-		verdict = nil
-		if err := gated(command, args); err != nil {
-			return err
-		}
-		return verdict
-	}
 	return cmd
 }
 

@@ -11,6 +11,14 @@ import (
 // policy transition.
 var ErrRolloutInProgress = errors.New("search access rollout is already in progress")
 
+const accessRolloutTargetPrefix = "foundationdb/search/access-rollout/"
+
+// AccessRolloutTargetReference returns the audit target reference for an
+// authority's access rollout.
+func AccessRolloutTargetReference(authority string) string {
+	return accessRolloutTargetPrefix + authority
+}
+
 // AccessPhase is the durable step of one authority's access policy rollout.
 type AccessPhase string
 

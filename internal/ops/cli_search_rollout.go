@@ -18,7 +18,6 @@ import (
 )
 
 const (
-	rolloutTargetPrefix   = "foundationdb/search/access-rollout/"
 	invalidInputCode      = "input_invalid"
 	rolloutInProgressCode = "rollout_in_progress"
 )
@@ -75,7 +74,7 @@ func searchRolloutSpec() audit.Spec {
 			if err := json.Unmarshal(input, &decoded); err != nil {
 				return nil, searchRolloutFailure(ctx, "decode access rollout input", err)
 			}
-			return []audit.Target{externalTarget(rolloutTargetPrefix + decoded.Authority)}, nil
+			return []audit.Target{externalTarget(searchdomain.AccessRolloutTargetReference(decoded.Authority))}, nil
 		},
 		SafeInput: func(input json.RawMessage) (json.RawMessage, error) { return input, nil },
 	}
@@ -126,7 +125,7 @@ func runSearchRolloutRecorded(
 		ActiveVersion: current.ActiveVersion, Phase: "", WriteVersions: nil, Generation: 0,
 	}
 	var begun searchdomain.AccessRollout
-	details, err := searchStep(ctx, steps, rolloutTargetPrefix+authorityID.String(), planned,
+	details, err := searchStep(ctx, steps, searchdomain.AccessRolloutTargetReference(authorityID.String()), planned,
 		func(ctx context.Context) error {
 			rollout, beginErr := rollouts.Begin(ctx, searchdomain.BeginAccessRollout{
 				AuthorityID: authorityID, CandidateVersion: in.Candidate, ExpectedGeneration: current.Generation,

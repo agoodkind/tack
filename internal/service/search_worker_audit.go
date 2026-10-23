@@ -13,9 +13,8 @@ import (
 )
 
 const (
-	indexTargetPrefix   = "opensearch/index/"
-	aliasTarget         = "opensearch/public-alias"
-	rolloutTargetPrefix = "foundationdb/search/access-rollout/"
+	indexTargetPrefix = "opensearch/index/"
+	aliasTarget       = "opensearch/public-alias"
 )
 
 // SearchAudit configures audit recording for index creation, splits, deletion,
@@ -97,7 +96,8 @@ func (w *SearchWorker) recordRolloutPhase(ctx context.Context, rollout searchdom
 	if err != nil {
 		return err
 	}
-	return w.recordStructure(ctx, audit.VerbSearchAccessRolloutPhase, rolloutTargetPrefix+planned.AuthorityID, encoded, effect,
+	return w.recordStructure(ctx, audit.VerbSearchAccessRolloutPhase,
+		searchdomain.AccessRolloutTargetReference(planned.AuthorityID), encoded, effect,
 		func(ctx context.Context) (json.RawMessage, error) {
 			after, err := w.ports.Rollouts.Current(ctx, rollout.AuthorityID)
 			if err != nil {
