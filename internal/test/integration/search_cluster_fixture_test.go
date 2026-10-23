@@ -63,9 +63,9 @@ func newClusterQueryFixture(t *testing.T, engine testenv.OpenSearchFixture) (que
 	clusterRequire(t, "bootstrap identities", err)
 	workspace := identities.Workspaces[0]
 	harness := &MCPHarness{
-		driver: datagen.NewDriver(graph, false, seed), handler: graph.AuthMiddleware(graph.MCPHandler),
+		driver: datagen.NewDriver(graph, false, seed), handler: graph.MCPRoute,
 		token: workspace.Actors[0].Token, ledgerDSN: cfg.DatabaseURL, orgID: workspace.OrgID,
-		Workspace: workspace.Slug, Project: "",
+		Workspace: workspace.Slug, Project: "", outbox: stores.OpsOutbox,
 	}
 	worker := newSearchWorker(t, stores, adapter, clock.Wall{}, searchWorkerSettings(runtimePageBytes))
 	return queryFixture{

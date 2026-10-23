@@ -61,7 +61,7 @@ func TestSearchDatagenTwoProcess(t *testing.T) {
 }
 
 func twoProcessHandler(graph *appruntime.Graph) http.Handler {
-	handler := graph.AuthMiddleware(graph.MCPHandler)
+	handler := graph.MCPRoute
 	mux := http.NewServeMux()
 	mux.Handle("POST /mcp", handler)
 	mux.Handle("POST /mcp/", handler)

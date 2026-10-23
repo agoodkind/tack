@@ -38,6 +38,9 @@ type datagenSeedResult struct {
 	// LedgerVerbs is the row count of each host-only ledger verb, read after
 	// a committed seed. It is nil after a dry run.
 	LedgerVerbs *datagenLedgerVerbsReport `json:"ledger_verbs,omitempty"`
+	// SearchAccessVerbs reports each access rollout and rollback verb's row
+	// count after a committed seed. It is nil after a dry run.
+	SearchAccessVerbs *datagenLedgerVerbsReport `json:"search_access_verbs,omitempty"`
 	// CommitOrder reports node row counts, commit version counts, and repeated
 	// commit versions for the generated organizations after a committed seed.
 	// It is nil after a dry run.
@@ -94,7 +97,7 @@ func runDatagenSeed(
 		return fmt.Errorf("qa datagen seed: %w", err)
 	}
 	var remainders *auditConsumerOffsetsReport
-	var ledgerVerbs *datagenLedgerVerbsReport
+	var ledgerVerbs, searchAccessVerbs *datagenLedgerVerbsReport
 	var commitOrder *datagenCommitOrderReport
 	if input.Commit {
 		report, readErr := readAuditConsumerOffsets(ctx, factory)
@@ -107,6 +110,11 @@ func runDatagenSeed(
 			return fmt.Errorf("qa datagen seed: %w", verbsErr)
 		}
 		ledgerVerbs = &verbs
+		accessVerbs, accessVerbsErr := readDatagenSearchAccessVerbs(ctx, factory)
+		if accessVerbsErr != nil {
+			return fmt.Errorf("qa datagen seed: %w", accessVerbsErr)
+		}
+		searchAccessVerbs = &accessVerbs
 		order, orderErr := readDatagenCommitOrder(ctx, factory, input.Scale, int64(input.Seed), clock.Now().UTC())
 		if orderErr != nil {
 			return fmt.Errorf("qa datagen seed: %w", orderErr)
@@ -128,6 +136,7 @@ func runDatagenSeed(
 
 		AuditConsumerOffsets: remainders,
 		LedgerVerbs:          ledgerVerbs,
+		SearchAccessVerbs:    searchAccessVerbs,
 		CommitOrder:          commitOrder,
 	})
 }

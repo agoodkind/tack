@@ -1,13 +1,27 @@
-package main
+package runtime_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/apple/foundationdb/bindings/go/src/fdb"
+	"github.com/google/uuid"
+
+	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
+	mcpadapter "goodkind.io/tack/internal/adapters/mcp"
+	"goodkind.io/tack/internal/clock"
+	"goodkind.io/tack/internal/runtime"
+	"goodkind.io/tack/internal/testenv"
 )
+
+func newHealthHandler(probes map[string]func(context.Context) error) http.Handler {
+	return runtime.NewHealthHandler(probes)
+}
 
 func TestHealthzAllProbesPass(t *testing.T) {
 	h := newHealthHandler(map[string]func(context.Context) error{
@@ -116,12 +130,52 @@ func TestHealthzRouteUsesHealthHandler(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
-	mux := buildServeMux(http.NotFoundHandler(), func(next http.Handler) http.Handler {
-		return next
-	}, healthHandler)
+	mux := runtime.NewRoutes(productReadRecorder(t), http.NotFoundHandler(), healthHandler)
 	recorder := httptest.NewRecorder()
 	mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/healthz", nil))
 	if recorder.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusNoContent)
+	}
+	recorder = httptest.NewRecorder()
+	mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/healthz", nil))
+	if recorder.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("POST status = %d, want %d", recorder.Code, http.StatusMethodNotAllowed)
+	}
+}
+
+// recorderTransactionTimeout limits the duration of each FoundationDB transaction for the test recorder.
+const recorderTransactionTimeout = 5 * time.Second
+
+// productReadRecorder returns a request recorder that saves read events in the test FoundationDB database.
+// Each recorder uses a new key prefix. Test cleanup deletes keys under that prefix.
+func productReadRecorder(t *testing.T) *mcpadapter.RequestRecorder {
+	t.Helper()
+	clusterFile := testenv.FoundationDB(t)
+	identity := uuid.New()
+	prefix := append([]byte("tack-test:"), identity[:]...)
+	fdbadapter.SetTestPrefix(prefix)
+	t.Cleanup(func() { clearRecorderPrefix(t, clusterFile, prefix) })
+	stores, err := fdbadapter.NewStores(clusterFile, recorderTransactionTimeout, nil)
+	if err != nil {
+		t.Fatalf("test could not open FoundationDB stores: %v", err)
+	}
+	return mcpadapter.NewRequestRecorder(stores.AuditReads(clock.Wall{}))
+}
+
+// clearRecorderPrefix deletes the keys under prefix and resets the test prefix.
+func clearRecorderPrefix(t *testing.T, clusterFile string, prefix []byte) {
+	t.Helper()
+	defer fdbadapter.SetTestPrefix(nil)
+	database, err := fdbadapter.Open(clusterFile, recorderTransactionTimeout)
+	if err != nil {
+		t.Logf("cleanup could not open FoundationDB: %v", err)
+		return
+	}
+	end := append(bytes.Clone(prefix), 0xFF)
+	if _, err := database.Transact(func(transaction fdb.Transaction) (any, error) {
+		transaction.ClearRange(fdb.KeyRange{Begin: fdb.Key(prefix), End: fdb.Key(end)})
+		return nil, nil
+	}); err != nil {
+		t.Logf("cleanup could not delete the test keys: %v", err)
 	}
 }

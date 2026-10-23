@@ -25,6 +25,7 @@ type searchRolloutRecord struct {
 	VerifyCursor           string    `json:"verify_cursor,omitempty"`
 	RetireCursor           string    `json:"retire_cursor,omitempty"`
 	ScanComplete           bool      `json:"scan_complete"`
+	AffectedPass           bool      `json:"affected_pass,omitempty"`
 	Generation             int64     `json:"generation"`
 	PermissionEventVersion int64     `json:"permission_event_version"`
 }
@@ -35,7 +36,7 @@ func stableRollout(authorityID uuid.UUID) searchRolloutRecord {
 		AuthorityID: authorityID, ActiveVersion: searchaccess.StableVersion, CandidateVersion: "",
 		PreviousVersion: "", WriteVersions: []string{searchaccess.StableVersion},
 		Phase: string(searchdomain.AccessStable), ScanCursor: "", VerifyCursor: "", RetireCursor: "",
-		ScanComplete: false, Generation: 0, PermissionEventVersion: 0,
+		ScanComplete: false, AffectedPass: false, Generation: 0, PermissionEventVersion: 0,
 	}
 }
 
@@ -58,7 +59,7 @@ func (r searchRolloutRecord) rollout() searchdomain.AccessRollout {
 		AuthorityID: r.AuthorityID, ActiveVersion: r.ActiveVersion, CandidateVersion: r.CandidateVersion,
 		PreviousVersion: r.PreviousVersion, WriteVersions: slices.Clone(r.WriteVersions),
 		Phase: searchdomain.AccessPhase(r.Phase), ScanCursor: r.ScanCursor, VerifyCursor: r.VerifyCursor,
-		RetireCursor: r.RetireCursor, ScanComplete: r.ScanComplete, Generation: r.Generation,
+		RetireCursor: r.RetireCursor, ScanComplete: r.ScanComplete, AffectedPass: r.AffectedPass, Generation: r.Generation,
 		PermissionEventVersion: r.PermissionEventVersion,
 	}
 }
@@ -68,7 +69,7 @@ func (r searchRolloutRecord) rollout() searchdomain.AccessRollout {
 func (r searchRolloutRecord) matches(read searchdomain.AccessRollout) bool {
 	return r.Generation == read.Generation && r.Phase == string(read.Phase) && r.ScanCursor == read.ScanCursor &&
 		r.VerifyCursor == read.VerifyCursor && r.RetireCursor == read.RetireCursor &&
-		r.ScanComplete == read.ScanComplete && r.ActiveVersion == read.ActiveVersion
+		r.ScanComplete == read.ScanComplete && r.AffectedPass == read.AffectedPass && r.ActiveVersion == read.ActiveVersion
 }
 
 // requireWrittenVersion refuses a new session under a version the

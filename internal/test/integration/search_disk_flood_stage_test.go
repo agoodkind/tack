@@ -5,7 +5,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/clock"
@@ -132,7 +131,7 @@ func requireLiveWorkPending(t *testing.T, fixture queryFixture, nodeID uuid.UUID
 	t.Helper()
 	store := fixture.Stores.SearchWork(clock.Wall{})
 	clusterEventually(t, "claim the node's pending live work", func() error {
-		claimed := claimAllFor(t, store, searchdomain.WorkClassLive, time.Minute)
+		claimed := claimAll(t, store, searchdomain.WorkClassLive)
 		for _, work := range claimed {
 			clusterRequire(t, "yield inspected work", store.Yield(WithTestOperation(t, t.Context()), work))
 		}
