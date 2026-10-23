@@ -33,7 +33,6 @@ func (m *searchMixed) sessionFor(tenant, actor int, query string, offset int) se
 	return searchMixedSession{tenant: tenant, token: workspace.Actors[actor].Token, entry: workspace.Slug, query: query, offset: offset}
 }
 
-// page requests one page of the session and inspects every returned issue.
 func (m *searchMixed) page(ctx context.Context, session searchMixedSession, number int, cursor string, tally *searchMixedTally) (searchPage, error) {
 	requested := clock.Now()
 	page, err := callSearch(ctx, m.driver(session.offset+number), session.token, session.entry, session.query, cursor)

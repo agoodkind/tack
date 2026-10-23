@@ -19,12 +19,10 @@ const (
 	searchMixedRebuildFinished = "finished"
 )
 
-// searchMixedCatchUpClasses returns the work classes for issue writes and permission changes.
 func searchMixedCatchUpClasses() []searchdomain.WorkClass {
 	return []searchdomain.WorkClass{searchdomain.WorkClassLive, searchdomain.WorkClassAccess, searchdomain.WorkClassCleanup}
 }
 
-// sampleUntil records one sample every searchMixedSampleInterval until stop closes.
 func (m *searchMixed) sampleUntil(ctx context.Context, windowStarted time.Time, stop <-chan struct{}, done chan<- struct{}) {
 	defer close(done)
 	defer func() {
