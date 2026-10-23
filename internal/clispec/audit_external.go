@@ -97,6 +97,7 @@ func AttachExternalPreview(
 		cmd.Annotations = make(map[string]string)
 	}
 	cmd.Annotations[AuditVerbAnnotation] = spec.Verb
+	cmd.Annotations[AuditClassAnnotation] = string(spec.Class)
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
 		encoded, err := input()
 		if err != nil {

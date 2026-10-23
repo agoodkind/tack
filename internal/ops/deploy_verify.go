@@ -20,20 +20,20 @@ import (
 )
 
 const (
-	appContainer           = "tack-app-1"
-	auditConsumerContainer = "tack-audit-consumer-1"
+	appService           = "app"
+	auditConsumerService = "audit-consumer"
 )
 
-// deployVerifyTarget pairs a rolled container with the image it must run.
+// deployVerifyTarget pairs a Docker Compose service with its expected image
+// reference.
 type deployVerifyTarget struct {
-	Container string
-	Image     string
+	Service string
+	Image   string
 }
 
-// deployVerifyTargets names the containers a deploy rolls, in the compose
-// project's naming, with the image each must run: the registry namespace and
-// image names the build workflow pushes, at the operator's explicit tag or the
-// tag the rendered environment pins.
+// deployVerifyTargets returns the app and audit-consumer services with image
+// references under cfg.DeployRegistry. It trims whitespace from the tags and
+// uses explicitTag when it is not empty, or cfg.DeployImageTag otherwise.
 func deployVerifyTargets(cfg *config.Config, explicitTag string) []deployVerifyTarget {
 	tag := strings.TrimSpace(explicitTag)
 	if tag == "" {
@@ -41,8 +41,8 @@ func deployVerifyTargets(cfg *config.Config, explicitTag string) []deployVerifyT
 	}
 	registry := strings.TrimSuffix(strings.TrimSpace(cfg.DeployRegistry), "/")
 	return []deployVerifyTarget{
-		{Container: appContainer, Image: registry + "/tack-server:" + tag},
-		{Container: auditConsumerContainer, Image: registry + "/tack-audit-consumer:" + tag},
+		{Service: appService, Image: registry + "/tack-server:" + tag},
+		{Service: auditConsumerService, Image: registry + "/tack-audit-consumer:" + tag},
 	}
 }
 
@@ -58,16 +58,20 @@ func runDeployVerify(ctx context.Context, cfg *config.Config, sink clispec.Resul
 	}
 	defer func() { _ = cli.Close() }()
 
+	replicas, err := serviceReplicas(ctx, cli, cfg.DeployComposeProject, targets)
+	if err != nil {
+		return fmt.Errorf("%s: %w", command, err)
+	}
 	var lines []string
 	if digests != nil {
-		lines, err = verifyIndexDigests(ctx, cli, targets, digests)
+		lines, err = verifyIndexDigests(ctx, cli, replicas, digests)
 	} else {
-		lines, err = verifyLocalTagDigests(ctx, cli, targets)
+		lines, err = verifyLocalTagDigests(ctx, cli, replicas)
 	}
 	if err != nil {
 		return fmt.Errorf("%s: %w", command, err)
 	}
-	slog.InfoContext(ctx, "ops.deploy.verify.completed", slog.Int("containers", len(targets)))
+	slog.InfoContext(ctx, "ops.deploy.verify.completed", slog.Int("containers", len(replicas)))
 	if err := sink.WriteText(ctx, strings.Join(lines, "\n")); err != nil {
 		slog.ErrorContext(ctx, "ops.deploy.verify.write_result_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("%s: write result: %w", command, err)
@@ -76,34 +80,34 @@ func runDeployVerify(ctx context.Context, cfg *config.Config, sink clispec.Resul
 }
 
 // verifyLocalTagDigests reads each expected image's registry digest from the
-// daemon and compares it with the digest the matching container runs.
-func verifyLocalTagDigests(ctx context.Context, cli *client.Client, targets []deployVerifyTarget) ([]string, error) {
-	lines := make([]string, 0, len(targets))
-	for _, target := range targets {
+// daemon and compares it with the digest that each replica runs.
+func verifyLocalTagDigests(ctx context.Context, cli *client.Client, replicas []serviceReplica) ([]string, error) {
+	lines := make([]string, 0, len(replicas))
+	for _, replica := range replicas {
 		slog.DebugContext(ctx, "ops.deploy.verify.target",
-			slog.String("container", target.Container), slog.String("image_ref", target.Image))
-		expected, err := inspectImageDigest(ctx, cli, target.Image)
+			slog.String("container", replica.Container), slog.String("image_ref", replica.Image))
+		expected, err := inspectImageDigest(ctx, cli, replica.Image)
 		if err != nil {
 			return nil, err
 		}
 		if expected == "" {
-			err := fmt.Errorf("image %s has no registry digest on this daemon", target.Image)
+			err := fmt.Errorf("this daemon does not record a registry digest for image %s", replica.Image)
 			slog.ErrorContext(ctx, "ops.deploy.verify.no_expected", slog.String("err", err.Error()))
 			return nil, err
 		}
-		actual, err := containerImageDigest(ctx, cli, target.Container)
+		actual, err := containerImageDigest(ctx, cli, replica.Container)
 		if err != nil {
 			return nil, err
 		}
-		if err := compareDigests(target.Container, expected, actual); err != nil {
+		if err := compareDigests(replica.Container, expected, actual); err != nil {
 			slog.ErrorContext(ctx, "ops.deploy.verify.mismatch",
-				slog.String("container", target.Container),
+				slog.String("container", replica.Container),
 				slog.String("expected", expected),
 				slog.String("actual", actual),
 				slog.String("err", err.Error()))
 			return nil, err
 		}
-		lines = append(lines, target.Container+" runs "+target.Image+" ("+expected+", local tag)")
+		lines = append(lines, replica.Container+" runs "+replica.Image+" ("+expected+", local tag)")
 	}
 	return lines, nil
 }

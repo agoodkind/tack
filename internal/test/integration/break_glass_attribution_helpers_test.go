@@ -29,6 +29,7 @@ const (
 var breakGlassMailTests = []string{
 	"TestOpsDBSQLRecordsAgentAttribution",
 	"TestOpsDBSQLRefusesSessionWithoutService",
+	"TestRuntimeAuditCoverage",
 }
 
 // attributionExtra is the part of an operator event's extra payload these

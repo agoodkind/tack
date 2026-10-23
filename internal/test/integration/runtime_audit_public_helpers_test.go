@@ -50,7 +50,6 @@ type publicResponse struct {
 // When store is nil, the request recorder uses graph.ProductReads.
 func startPublicServer(t *testing.T, store func(*appruntime.Graph) audit.ReadLifecycle) *publicServer {
 	t.Helper()
-	ctx := integration.WithTestOperation(t, t.Context())
 	clusterFile := testenv.FoundationDB(t)
 	identity := uuid.New()
 	prefix := append([]byte("tack-test:"), identity[:]...)
@@ -62,6 +61,16 @@ func startPublicServer(t *testing.T, store func(*appruntime.Graph) audit.ReadLif
 	if err != nil {
 		t.Fatalf("config.Load failed: %v", err)
 	}
+	return newPublicServer(t, cfg, store)
+}
+
+// newPublicServer builds a runtime graph from cfg and creates test identities
+// for authenticated requests. When store is nonnil, it uses store(graph) for
+// the request recorder; otherwise, it uses the graph's routes. It disables the
+// graph's Kafka brokers and audit writer DSN and permits unrecorded operations.
+func newPublicServer(t *testing.T, cfg *config.Config, store func(*appruntime.Graph) audit.ReadLifecycle) *publicServer {
+	t.Helper()
+	ctx := integration.WithTestOperation(t, t.Context())
 	cfg.AuditKafkaBrokers, cfg.AuditWriterDSN, cfg.AuditAllowUnrecorded = "", "", true
 	graph, err := appruntime.BuildGraph(ctx, cfg)
 	if err != nil {
@@ -85,7 +94,7 @@ func startPublicServer(t *testing.T, store func(*appruntime.Graph) audit.ReadLif
 	return &publicServer{
 		handler: telemetry.RequestLogger(routes), config: cfg, graph: graph,
 		token: workspace.Actors[0].Token, userID: workspace.Actors[0].UserID, orgID: workspace.OrgID,
-		workspace: workspace.Slug, clusterFile: clusterFile,
+		workspace: workspace.Slug, clusterFile: cfg.FDBClusterFile,
 	}
 }
 
