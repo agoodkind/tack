@@ -45,8 +45,8 @@ func ResultBytes(summary node.Summary) int {
 // node from current FoundationDB data and commits the consumed position before returning.
 // Within MaxBatches, it reads one more batch under the same PIT for a full page with pending false.
 // An empty batch completes the session without a cursor; Ranker.Close deletes the PIT after commit.
-// Otherwise, advance leaves page.position unchanged for the next page to return hits once in order.
-// It skips the extra read when pending is true because the current batch has unconsumed hits.
+// If the extra batch has hits, page.position stays at the last consumed hit's sort. The next page
+// returns those hits once in order. It skips the extra read when pending is true.
 func (s *SearchQueryService) advance(ctx context.Context, session searchdomain.Session, filter searchdomain.AccessFilter) (SearchPage, error) {
 	page := pageState{
 		results: nil, resultIDs: nil, visited: nil, seen: map[uuid.UUID]bool{},
