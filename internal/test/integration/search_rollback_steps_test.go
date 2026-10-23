@@ -113,7 +113,6 @@ func runWorkerUntil(t *testing.T, fixture rolloutFixture, worker *service.Search
 	return searchdomain.AccessRollout{}
 }
 
-// rolloutStable reports whether the rollout returned to the stable phase.
 func rolloutStable(rollout searchdomain.AccessRollout) bool {
 	return rollout.Phase == searchdomain.AccessStable
 }
