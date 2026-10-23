@@ -1,3 +1,5 @@
+//go:build runtimeaudit
+
 package integration_test
 
 import (

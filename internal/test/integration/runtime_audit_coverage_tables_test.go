@@ -1,3 +1,5 @@
+//go:build runtimeaudit
+
 package integration_test
 
 // taskSevenPartTwo identifies the task and branch responsible for adding audit

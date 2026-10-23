@@ -101,6 +101,23 @@ test-integration:
 	$(TEST_RUNNER) run --rm tests \
 	    test $(TEST_STORE_ARGS)
 
+# These targets run the long runtime audit suites with the runtimeaudit tag.
+# test-runtime-audit-host runs them on the current host, which needs the
+# FoundationDB client library and a reachable Docker daemon; CI runs this
+# target. test-runtime-audit runs them in the test runner container.
+TEST_RUNTIME_AUDIT_ARGS := -tags integration,runtimeaudit -count=1 -timeout 40m -v \
+	-run '^TestRuntimeAudit(Coverage|TopLevelCoverage|Scaling|MixedVersionRollout)$$' ./internal/test/integration/...
+
+.PHONY: test-runtime-audit-host
+test-runtime-audit-host:
+	go test $(TEST_RUNTIME_AUDIT_ARGS)
+
+.PHONY: test-runtime-audit
+test-runtime-audit:
+	$(TEST_RUNNER) build tests
+	$(TEST_RUNNER) run --rm tests \
+	    test $(TEST_RUNTIME_AUDIT_ARGS)
+
 # The security files must come from Configs with synthetic credentials.
 .PHONY: test-service-secrets
 test-service-secrets:
@@ -142,7 +159,7 @@ SEARCH_G1_ARGS := -count=1 -timeout 60m -run '^TestSearchContinuationTraversesDu
 SEARCH_G2_ARGS := -count=1 -timeout 30m -run '^TestSearchActualOSProcessThroughput$$'
 SEARCH_G3_ARGS := -count=1 -timeout 30m -run '^TestSearch(Split|Restore|Rebuild)'
 SEARCH_G4_ARGS := -count=1 -timeout 25m -run '^TestSearchCluster' -skip '^TestSearchClusterModelRepair'
-SEARCH_G5_ARGS := -count=1 -timeout 65m -run '^TestSearch' -skip '$(SEARCH_SKIP_G5)'
+SEARCH_G5_ARGS := -count=1 -timeout 65m -tags runtimeaudit -run '^TestSearch' -skip '$(SEARCH_SKIP_G5)'
 SEARCH_G6_ARGS := -count=1 -timeout 5m -run '^TestSearchClusterModelRepair'
 SEARCH_T1_ARGS := -count=3 -timeout 180m -run '^TestSearchContinuationTraversesDuplicateHeavyCorpus$$'
 SEARCH_T2_ARGS := -count=3 -timeout 85m -run '^($(SEARCH_T2_TESTS))$$'
