@@ -64,6 +64,10 @@ type RelayConfig struct {
 	// YugabyteDB row or clears any FoundationDB entry in that batch.
 	// Tests use it to interrupt delivery before outbox removal; production does not set it.
 	AfterProduce func(ctx context.Context, eventID uuid.UUID) error `exhaustruct:"optional"`
+	// AfterLeaseAcquired optionally runs when the relay acquires the
+	// FoundationDB relay lease after a poll in which it did not hold the lease.
+	// Tests use it to count lease takeovers; production does not set it.
+	AfterLeaseAcquired func(ctx context.Context) `exhaustruct:"optional"`
 }
 
 // Relay drains operator-command audit events from both outboxes to Kafka.
@@ -74,6 +78,7 @@ type Relay struct {
 	pollInterval time.Duration
 	batchSize    int
 	afterProduce func(ctx context.Context, eventID uuid.UUID) error
+	afterLease   func(ctx context.Context)
 	stop         chan struct{}
 	stopped      chan struct{}
 	once         sync.Once
@@ -102,6 +107,7 @@ func NewRelay(cfg RelayConfig) (*Relay, error) {
 		pollInterval: cfg.PollInterval,
 		batchSize:    cfg.BatchSize,
 		afterProduce: cfg.AfterProduce,
+		afterLease:   cfg.AfterLeaseAcquired,
 		stop:         make(chan struct{}),
 		stopped:      make(chan struct{}),
 		once:         sync.Once{},
@@ -166,61 +172,4 @@ func (r *Relay) Close() error {
 		return fmt.Errorf("close audit relay recorder: %w", err)
 	}
 	return nil
-}
-
-func (r *Relay) yugabyteLoop(ctx context.Context) {
-	ticker := time.NewTicker(r.pollInterval)
-	defer ticker.Stop()
-	for {
-		r.drainYugabyte(ctx)
-		select {
-		case <-r.stop:
-			return
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-	}
-}
-
-// drainYugabyte produces one batch and deletes each row only after the broker
-// accepts it. A produce failure stops the batch and leaves the rest in place,
-// so the next tick retries them; a redelivery is harmless because the consumer
-// drops a duplicate event id, while a deletion before acceptance would lose an
-// audit event outright.
-func (r *Relay) drainYugabyte(ctx context.Context) {
-	if claimer, ok := r.yugabyte.(claimingOutbox); ok {
-		r.drainClaimed(ctx, claimer)
-		return
-	}
-	batch, err := r.yugabyte.ReadBatch(ctx, r.batchSize)
-	if err != nil {
-		slog.ErrorContext(ctx, "audit.relay.yugabyte_read_failed", slog.String("err", err.Error()))
-		return
-	}
-	producedCount := 0
-	deletedCount := 0
-	for _, row := range batch {
-		stopped, recordErr := r.produceRow(ctx, row)
-		if recordErr != nil {
-			slog.ErrorContext(ctx, "audit.relay.yugabyte_produce_failed",
-				slog.String("err", recordErr.Error()))
-			break
-		}
-		if stopped {
-			break
-		}
-		producedCount++
-		if deleteErr := r.deleteRow(ctx, row); deleteErr != nil {
-			slog.ErrorContext(ctx, "audit.relay.yugabyte_delete_failed",
-				slog.String("err", deleteErr.Error()))
-			break
-		}
-		deletedCount++
-	}
-	slog.DebugContext(ctx, "audit.relay.yugabyte_batch",
-		slog.Int("read_count", len(batch)),
-		slog.Int("produced_count", producedCount),
-		slog.Int("deleted_count", deletedCount),
-	)
 }

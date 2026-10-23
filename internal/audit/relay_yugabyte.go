@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"time"
 )
 
 // errRelayStopped signals that AfterProduce stopped the current batch after a
@@ -14,6 +15,63 @@ var errRelayStopped = errors.New("relay stopped after broker acknowledgment")
 // transaction.
 type claimingOutbox interface {
 	ClaimBatch(ctx context.Context, limit int, publish func(context.Context, OutboxRow) error) (int, error)
+}
+
+func (r *Relay) yugabyteLoop(ctx context.Context) {
+	ticker := time.NewTicker(r.pollInterval)
+	defer ticker.Stop()
+	for {
+		r.drainYugabyte(ctx)
+		select {
+		case <-r.stop:
+			return
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+// drainYugabyte produces one batch and deletes each row only after the broker
+// accepts it. A produce failure stops the batch and leaves the rest in place,
+// so the next tick retries them; a redelivery is harmless because the consumer
+// drops a duplicate event id, while a deletion before acceptance would lose an
+// audit event outright.
+func (r *Relay) drainYugabyte(ctx context.Context) {
+	if claimer, ok := r.yugabyte.(claimingOutbox); ok {
+		r.drainClaimed(ctx, claimer)
+		return
+	}
+	batch, err := r.yugabyte.ReadBatch(ctx, r.batchSize)
+	if err != nil {
+		slog.ErrorContext(ctx, "audit.relay.yugabyte_read_failed", slog.String("err", err.Error()))
+		return
+	}
+	producedCount := 0
+	deletedCount := 0
+	for _, row := range batch {
+		stopped, recordErr := r.produceRow(ctx, row)
+		if recordErr != nil {
+			slog.ErrorContext(ctx, "audit.relay.yugabyte_produce_failed",
+				slog.String("err", recordErr.Error()))
+			break
+		}
+		if stopped {
+			break
+		}
+		producedCount++
+		if deleteErr := r.deleteRow(ctx, row); deleteErr != nil {
+			slog.ErrorContext(ctx, "audit.relay.yugabyte_delete_failed",
+				slog.String("err", deleteErr.Error()))
+			break
+		}
+		deletedCount++
+	}
+	slog.DebugContext(ctx, "audit.relay.yugabyte_batch",
+		slog.Int("read_count", len(batch)),
+		slog.Int("produced_count", producedCount),
+		slog.Int("deleted_count", deletedCount),
+	)
 }
 
 // drainClaimed publishes one claimed batch and logs its committed row count. It

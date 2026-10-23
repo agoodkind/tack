@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -23,14 +24,16 @@ import (
 
 // scalingRun stores the app handlers, shared test state, and measurements for
 // one scaling run. Its mutex protects request counts and latency samples during
-// concurrent tool calls.
+// concurrent tool calls. leaseAcquisitions counts each time a relay of the run
+// acquires the FoundationDB relay lease.
 type scalingRun struct {
-	server     *publicServer
-	handlers   []http.Handler
-	prefix     []byte
-	crashAfter int
-	mu         sync.Mutex
-	result     scalingResult
+	server            *publicServer
+	handlers          []http.Handler
+	prefix            []byte
+	crashAfter        int
+	mu                sync.Mutex
+	result            scalingResult
+	leaseAcquisitions atomic.Int64
 }
 
 // runScalingWorkload runs the generated MCP workload in a subtest for the
@@ -99,6 +102,7 @@ func startScalingRun(t *testing.T, instances int) *scalingRun {
 	}
 	return &scalingRun{
 		server: server, handlers: handlers, prefix: prefix, crashAfter: 0, mu: sync.Mutex{}, result: scalingResult{instances: instances},
+		leaseAcquisitions: atomic.Int64{},
 	}
 }
 

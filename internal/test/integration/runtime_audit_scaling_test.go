@@ -42,6 +42,7 @@ type scalingResult struct {
 	brokerRecords   int64
 	brokerBytes     int64
 	replicaBytes    int64
+	takeovers       int64
 }
 
 // TestRuntimeAuditScaling runs the same generated MCP workload at each
@@ -60,11 +61,11 @@ func TestRuntimeAuditScaling(t *testing.T) {
 		requireScalingRun(t, baseline, result, 0)
 	}
 	takeover := runScalingWorkload(t, scalingTakeoverLabel, scalingTakeoverInstances, scalingCrashAfter)
-	requireScalingRun(t, baseline, takeover, scalingRelayBatch+takeover.yugabyteBacklog)
+	requireScalingRun(t, baseline, takeover, takeover.yugabyteBacklog)
 	results = append(results, takeover)
 	var table strings.Builder
-	table.WriteString("\nThe table compares MCP workload and audit recovery measurements across app instance counts.\n\nScaling results:\n| Instances | Requests | Ledger events | Throughput (requests/s) | Latency (50th percentile) | Latency (95th percentile) | Latency (99th percentile) | Outbox entries | Audit recovery time | Ledger row bytes | Broker records | Broker bytes | Index bytes | FoundationDB key and value bytes |\n")
-	table.WriteString("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n")
+	table.WriteString("\nThe table compares MCP workload and audit recovery measurements across app instance counts.\n\nScaling results:\n| Instances | Requests | Ledger events | Throughput (requests/s) | Latency (50th percentile) | Latency (95th percentile) | Latency (99th percentile) | Outbox entries | Audit recovery time | Ledger row bytes | Broker records | Broker bytes | Lease takeovers | Index bytes | FoundationDB key and value bytes |\n")
+	table.WriteString("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n")
 	for _, result := range results {
 		table.WriteString(result.row())
 	}
@@ -74,11 +75,11 @@ func TestRuntimeAuditScaling(t *testing.T) {
 // requireScalingRun requires result to match the request and ledger event
 // counts of baseline and to keep broker records and bytes within the
 // requireFlatBroker limits.
-func requireScalingRun(t *testing.T, baseline, result scalingResult, takeoverRecords int64) {
+func requireScalingRun(t *testing.T, baseline, result scalingResult, rollbackRecords int64) {
 	t.Helper()
 	if result.requests != baseline.requests || result.ledgerEvents != baseline.ledgerEvents {
 		t.Errorf("The workload recorded different request or ledger event counts from the expected one-instance baseline with %s instances: %d requests %d events; 1 instance: %d requests %d events",
 			result.label, result.requests, result.ledgerEvents, baseline.requests, baseline.ledgerEvents)
 	}
-	requireFlatBroker(t, baseline, result, takeoverRecords)
+	requireFlatBroker(t, baseline, result, rollbackRecords)
 }
