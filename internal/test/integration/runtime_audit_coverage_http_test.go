@@ -31,8 +31,6 @@ func routeCase(method, path string, authenticated bool, status int, verb audit.V
 	}
 }
 
-// addHTTPCases adds audit cases for MCP routes, health and diagnostics
-// requests, and an unknown route.
 func addHTTPCases(cases map[string]coverageCase) {
 	cases["http route /mcp"] = routeCase(http.MethodPost, "/mcp", true, http.StatusOK, audit.VerbWorkspaceList, audit.OutcomeCompleted)
 	cases["http route /mcp/"] = routeCase(http.MethodPost, "/mcp/", true, http.StatusOK, audit.VerbWorkspaceList, audit.OutcomeCompleted)

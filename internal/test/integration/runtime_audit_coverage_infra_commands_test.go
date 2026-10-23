@@ -15,8 +15,6 @@ import (
 // localTarget permits data generator writes to the local test environment.
 func localTarget(cfg *config.Config) { cfg.DatagenAllowTarget = "local" }
 
-// addBackfillCommandCases adds backfill command cases with their expected audit
-// verbs and outcomes.
 func addBackfillCommandCases(cases map[string]coverageCase) {
 	for name, verb := range map[string]audit.Verb{
 		"once-audit-partition-names": audit.VerbOpsBackfillAuditPartitionNames,

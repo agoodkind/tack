@@ -40,8 +40,6 @@ func RouteTable(requests *mcpadapter.RequestRecorder, mcpRoute, health http.Hand
 	return append(routes, Route{Pattern: "/", Handler: requests.UnknownRoute()})
 }
 
-// connectRoutes returns nil because the server does not register any
-// Connect-RPC routes.
 func connectRoutes(_ func(http.Handler) http.Handler) []Route {
 	return nil
 }

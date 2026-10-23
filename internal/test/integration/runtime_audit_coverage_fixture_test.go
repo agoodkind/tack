@@ -7,15 +7,11 @@ import (
 	"github.com/google/uuid"
 )
 
-// coverageFixture stores test node IDs by node type and the environment that
-// creates them.
 type coverageFixture struct {
 	env   *coverageEnv
 	nodes map[string]uuid.UUID
 }
 
-// newCoverageFixture creates one node for each entry in coverageNodeTypes
-// through MCP and stores its ID by node type.
 func newCoverageFixture(t *testing.T, env *coverageEnv) *coverageFixture {
 	t.Helper()
 	fixture := &coverageFixture{env: env, nodes: map[string]uuid.UUID{}}
