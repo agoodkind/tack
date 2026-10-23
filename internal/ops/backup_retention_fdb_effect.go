@@ -64,6 +64,14 @@ func applyRetentionFDB(ctx context.Context, cfg *config.Config, cutoff time.Time
 }
 
 func retentionFDBCommand(ctx context.Context, cfg *config.Config, arguments []string) (string, error) {
+	command := append([]string{}, arguments...)
+	if retentionFDBOperation(arguments[0]) != retentionFDBDelete {
+		command = append(command, "-C", retentionFDBClusterFile)
+	}
+	return retentionFDBToolCommand(ctx, cfg, "fdbbackup", command)
+}
+
+func retentionFDBToolCommand(ctx context.Context, cfg *config.Config, tool string, arguments []string) (string, error) {
 	if !filepath.IsAbs(cfg.OpsFDBClusterDir) {
 		return "", fmt.Errorf("FoundationDB retention requires an absolute TACK_OPS_FDB_CLUSTER_DIR")
 	}
@@ -76,13 +84,9 @@ func retentionFDBCommand(ctx context.Context, cfg *config.Config, arguments []st
 		return "", err
 	}
 	defer cli.Close()
-	command := append([]string{}, arguments...)
-	if retentionFDBOperation(arguments[0]) != retentionFDBDelete {
-		command = append(command, "-C", retentionFDBClusterFile)
-	}
 	result, err := runOneShot(ctx, cli, telemetry.L(ctx), runOneShotOptions{
 		Image: cfg.BackupFDBImage, Network: cfg.BackupFDBNetwork,
-		Entrypoint: []string{"/usr/bin/fdbbackup"}, Cmd: command,
+		Entrypoint: []string{"/usr/bin/" + tool}, Cmd: arguments,
 		Env:        []string{"FDB_CLUSTER_FILE=" + retentionFDBClusterFile},
 		Binds:      []string{cfg.OpsFDBClusterDir + ":/etc/foundationdb:ro"},
 		ExtraHosts: extraHosts, Name: "",

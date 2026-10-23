@@ -17,6 +17,10 @@ func retentionFDBExpireVersion(ctx context.Context, cfg *config.Config, name str
 	if err != nil {
 		return 0, err
 	}
+	retainedVersion, err := retentionFDBRetainedVersion(ctx, cfg, destination, cutoff)
+	if err != nil {
+		return 0, err
+	}
 	output, err := retentionFDBCommand(ctx, cfg, []string{"describe", "-d", destination, "--version-timestamps"})
 	if err != nil {
 		return 0, err
@@ -34,23 +38,10 @@ func retentionFDBExpireVersion(ctx context.Context, cfg *config.Config, name str
 		if err != nil {
 			return 0, err
 		}
-		_, suffix, _ := strings.Cut(line, "endVersion=")
-		_, timestamp, found := strings.Cut(suffix, "(")
-		if !found {
-			return 0, fmt.Errorf("FoundationDB backup %s snapshot does not report its end timestamp", name)
-		}
-		timestamp, _, found = strings.Cut(timestamp, ")")
-		if !found {
-			return 0, fmt.Errorf("FoundationDB backup %s snapshot end timestamp is incomplete", name)
-		}
-		endTime, err := time.Parse(fdbStatusTimestampLayout, timestamp)
-		if err != nil {
-			return 0, fmt.Errorf("FoundationDB backup %s snapshot end timestamp is invalid", name)
-		}
 		if beginVersion <= 0 || endVersion < beginVersion {
 			return 0, fmt.Errorf("FoundationDB backup %s snapshot version interval is invalid", name)
 		}
-		if endTime.Before(cutoff) && endVersion > selectedEnd {
+		if endVersion <= retainedVersion && endVersion > selectedEnd {
 			selectedBegin, selectedEnd = beginVersion, endVersion
 		}
 	}

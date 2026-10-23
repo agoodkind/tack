@@ -36,6 +36,12 @@ func TestBackupRetentionFDBNativeExpirationRetainsBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("public preview did not select native expiration: %v\n%s", err, output)
 	}
+	afterPreview := retentionFDBTestKeys(t, fixture)
+	for key := range before {
+		if _, found := afterPreview[key]; !found {
+			t.Fatalf("public preview deleted existing backup object %s", key)
+		}
+	}
 	var preview retentionFDBPreview
 	jsonPlan := ""
 	for line := range strings.SplitSeq(output, "\n") {

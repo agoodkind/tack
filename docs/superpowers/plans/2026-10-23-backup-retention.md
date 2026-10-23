@@ -1,6 +1,6 @@
 # Backup retention implementation plan
 
-> Use `subagent-driven-development` or `executing-plans` to implement the plan task by task. Track steps with checkbox syntax (`- [x]`).
+> Use `subagent-driven-development` or `executing-plans` to implement the plan task by task. Track steps with checkbox syntax (`- [ ]`).
 
 **Goal:** Preview and automatically enforce a 14-day backup restore window with audited cleanup.
 
@@ -16,7 +16,7 @@ Use isolated worktrees and preserve concurrent changes.
 Keep secrets and backup contents out of logs, chat, fixtures, and permanent audit evidence.
 Use real dependencies through the existing test runner. Do not add mocks or scripts.
 Keep each new source file below 200 lines and split by responsibility.
-Open ready-for-review PRs. Do not merge or deploy retention changes.
+Open ready-for-review PRs. Validate cleanup on QA before production activation.
 
 ## Review focus
 
@@ -34,7 +34,7 @@ Open ready-for-review PRs. Do not merge or deploy retention changes.
 
 - [x] Read current command, manifest, backup-window, object-store, and audit helpers.
 - [x] Implement validated, bounded selection for ledger exports and native FoundationDB sessions.
-- [x] Derive FoundationDB's numeric deletion cutoff from the newest restorable snapshot ending before the retained UTC boundary, and preserve that boundary with the native restorability guard.
+- [x] Resolve the retained UTC boundary to an exact version through native restore dry-run, select the newest restorable snapshot ending at or before that version, and preserve the timestamp boundary with the native expiration guard.
 - [x] Add shared process-lifetime locking for cleanup and supported restore drills.
 - [x] Register default preview and explicit execution through `AttachExternalPreview`.
 - [x] Record effect targets, partial completion, and secret-safe errors.
