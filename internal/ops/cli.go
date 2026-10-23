@@ -68,6 +68,7 @@ func RegisterCommands(reg *clispec.Registry, f *cli.Factory) {
 	clispec.Register(reg, searchVerifyOp(f))
 	clispec.Register(reg, searchProvisionOp(f))
 	clispec.Register(reg, searchRolloutOp(f))
+	clispec.Register(reg, searchRollbackOp(f))
 	reg.AddHandwritten(clispec.HandwrittenCommand{Group: searchGroup, Build: searchReindexCommand})
 	clispec.Register(reg, searchProjectionBackfillOp(f))
 	clispec.Register(reg, fixedDefinitionsOp(f))

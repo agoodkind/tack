@@ -84,6 +84,11 @@ func scheduleSearchChange(ctx context.Context, tr fdb.Transaction, now time.Time
 			return searchWorkRecord{}, err
 		}
 	}
+	if change == searchChangeAccess || change == searchChangeRepair {
+		if err := recordRolloutAffected(ctx, tr, orgID, nodeID); err != nil {
+			return searchWorkRecord{}, err
+		}
+	}
 	if change == searchChangeDeletion {
 		return current, nil
 	}
