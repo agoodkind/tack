@@ -41,8 +41,6 @@ func searchMixedRebuild(factory *cli.Factory) datagen.SearchMixedRebuild {
 	}
 }
 
-// parseSearchMixedEndpoints splits a comma-separated endpoint list and validates each URL.
-// It returns nil for an empty or whitespace-only string.
 func parseSearchMixedEndpoints(value string) ([]string, error) {
 	if strings.TrimSpace(value) == "" {
 		return nil, nil

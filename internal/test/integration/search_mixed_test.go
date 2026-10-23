@@ -151,7 +151,6 @@ func startSearchMixedProcesses(t *testing.T, cfg *config.Config) []string {
 	return endpoints
 }
 
-// deleteSearchMixedIndex deletes the rebuild target index after the test.
 func deleteSearchMixedIndex(t *testing.T, cfg *config.Config, index string) {
 	t.Helper()
 	if index == "" {
